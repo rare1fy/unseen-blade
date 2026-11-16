@@ -114,6 +114,8 @@ export class IronBtn {
   root = new THREE.Group(); iconG = new THREE.Group(); x = 0; y = 0; size = 80; down = false; pid = -1; cd = 0; charge = 0; hot = false;
   /** a flash of white (the 见切 moment while holding the stance) */
   now = false;
+  /** charges left / the most (the dart button: three bronze lamps on an arc over the shield); max 0 = none */
+  pips = 0; pipMax = 0; private pipMeshes: THREE.Mesh[] = [];
   private ring: ReturnType<typeof plateRing>; private icon: THREE.Mesh; private shadow: THREE.Mesh; private tassel: THREE.Mesh | null = null;
   private pressK = 0; private flashT = 0; private wasReady = true; private tt = 0; private wasFull = false; private lift = 6; private popT = 1;
   private col = new THREE.Color(); private ember = new THREE.Color(EMBER); private dark = new THREE.Color(0x24262c); private base = new THREE.Color(IRON);
@@ -135,12 +137,22 @@ export class IronBtn {
   hit(x: number, y: number) { const r = this.size * 0.6; return Math.abs(x - this.x) < r && Math.abs(y - this.y) < r; }
   update(dt: number) {
     const L = this.L; this.tt += dt;
+    // the charge lamps: built once the button is told how many there are; lit bronze = a dart in hand, dark = spent
+    if (this.pipMax > 0 && this.pipMeshes.length !== this.pipMax) {
+      for (const m of this.pipMeshes) { this.root.remove(m); m.geometry.dispose(); (m.material as THREE.Material).dispose(); }
+      this.pipMeshes = [];
+      for (let i = 0; i < this.pipMax; i++) {
+        const a = Math.PI / 2 + (i - (this.pipMax - 1) / 2) * 0.32, m = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.08), lam(0x2a2c33));
+        m.position.set(-Math.cos(a) * 0.64, Math.sin(a) * 0.64, 0.06); m.rotation.z = a - Math.PI / 2; this.root.add(m); this.pipMeshes.push(m);
+      }
+    }
+    this.pipMeshes.forEach((m, i) => { const on = i < this.pips; const mt = m.material as THREE.MeshLambertMaterial; mt.color.setHex(on ? 0xf0c070 : 0x2a2c33); mt.emissive?.setHex(on ? 0x6a4010 : 0x000000); m.scale.setScalar(on ? 1 : 0.8); });
     this.pressK += ((this.down ? 1 : 0) - this.pressK) * Math.min(1, dt * 30);
     L.at(this.x, this.y, -this.pressK * 4, this.root.position); this.root.scale.setScalar(L.px(this.size) * (1 - 0.06 * this.pressK));
     const ready = this.cd <= 0, frac = Math.max(0, Math.min(1, this.cd)), ch = Math.max(0, Math.min(1, this.charge)), full = ch >= 1;
     if (full && !this.wasFull) this.sparks.burst(L.at(this.x, this.y, 3), 14, L.px(170), L.px(4), 0xffb060, { life: 0.35 });
     this.wasFull = full;
-    if (ready && !this.wasReady) { this.flashT = 0.45; this.popT = 0; this.sparks.burst(L.at(this.x, this.y, 3), 12, L.px(160), L.px(4), 0xffb060, { life: 0.35 }); cue('tick', 0.3); }
+    if (ready && !this.wasReady) { this.flashT = 0.45; this.popT = 0; this.sparks.burst(L.at(this.x, this.y, 3), 12, L.px(160), L.px(4), 0xffb060, { life: 0.35 }); }   // no 'ready' tick (buttons are silent)
     this.wasReady = ready; this.flashT = Math.max(0, this.flashT - dt); this.popT = Math.min(1, this.popT + dt / 0.5);
     const pulse = 0.5 + 0.5 * Math.sin(this.tt * 12), geo = this.ring.plates.geometry;
     for (let i = 0; i < 8; i++) {

@@ -163,7 +163,7 @@ export class SkinBtn {
     (this.fill.material as THREE.MeshBasicMaterial).opacity = full ? 0.5 + 0.2 * Math.sin(this.tt * 14) : 0.42;
     if (full && !this.wasFull) this.sparks.burst(L.at(this.x, this.y, 3), 14, L.px(170), L.px(4), 0xffd070, { life: 0.35 });
     this.wasFull = full;
-    if (ready && !this.wasReady) { this.flashT = 0.45; this.sparks.burst(L.at(this.x, this.y, 3), 12, L.px(160), L.px(4), 0xffd070, { life: 0.35 }); cue('tick', 0.3); }
+    if (ready && !this.wasReady) { this.flashT = 0.45; this.sparks.burst(L.at(this.x, this.y, 3), 12, L.px(160), L.px(4), 0xffd070, { life: 0.35 }); }
     this.wasReady = ready; this.flashT = Math.max(0, this.flashT - dt);
     const glow = this.flashT > 0 ? this.flashT * 1.6 : full || this.hot ? 0.35 + 0.2 * Math.sin(this.tt * 14) : this.down ? 0.25 : 0;
     this.faceMat.emissiveIntensity = 0.5 + glow; this.faceMat.color.setScalar(ready ? 1 : 0.62);

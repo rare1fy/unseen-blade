@@ -44,6 +44,7 @@ import { Yard, makeSign, SPAWN_AT } from './yard';
 import type { ModelDef } from '../bestiary/models';
 import { dustBlocks, spawnClone, smokeBurst, cut as cloneCut } from '../kyoto/ninja_fx';
 import { Dart, BladeWave } from './missiles';
+import { PX, setPixel } from '../look/pixel';
 /** the perks the hero's world reads while the run is on (kept in step each frame) */
 const SHOW_PERKS = { darts3: false };
 import { BattleActor } from '../bestiary/battle';
@@ -99,7 +100,9 @@ export class ActShow {
     if (typeof window !== 'undefined') window.addEventListener('keydown', e => this.key(e));
     onUpdate((dt, rdt) => this.frame(dt, rdt));
     this.layout2();
-    installActTune([{ label: () => `界面风格：${SKIN_NAME[SKIN.id]}（点这里换）`, run: () => this.cycleSkin() }]);
+    installActTune([{ label: () => `界面风格：${SKIN_NAME[SKIN.id]}（点这里换）`, run: () => this.cycleSkin() },
+      // act-14 用户：「我要2x，然后调试面板给我一个切换这个的功能」 — 2x → 3x → off → 1x, remembered on this device
+      { label: () => `像素：${PX.on ? PX.size + 'x' : '关'}（点这里换）`, run: () => { const order = ['2', '3', 'off', '1'], cur = PX.on ? String(PX.size) : 'off', nx = order[(order.indexOf(cur) + 1) % order.length]; if (nx === 'off') setPixel(false); else setPixel(true, +nx); try { localStorage.setItem('ub.px', nx); } catch { /* private mode */ } } }]);
     if (typeof window !== 'undefined') window.addEventListener('keydown', e => { if ((e.key === 'u' || e.key === 'U') && !this.cards.on) this.cycleSkin(); });
     dh.add({ act: () => this, bot: (on = true) => { this.botOn = on; }, run: () => this.startRun(), yard: () => this.enterYard(), wear: (id: string) => { const d = HEROES.find(h => h.id === id); if (d) this.wear(d); },
       skin: (id: SkinId) => this.cycleSkin(id),
@@ -689,7 +692,9 @@ export class ActShow {
     // HUD
     const B = this.hud.btns; void B;
     // the dart button shows no cool-down (a third of a second would only flicker)
-    this.hud.setCooldowns({ attack: 0, jump: 0, dash: Math.max(0, h.dashCd / TUNE.dashCd), special: 0 });
+    // the dart button: dark and sinking while the three reload; the lamps show the darts left
+    this.hud.setCooldowns({ attack: 0, jump: 0, dash: Math.max(0, h.dashCd / TUNE.dashCd), special: h.dartReload > 0 ? h.dartReload / TUNE.dartReload : 0 });
+    this.hud.setPips('special', h.dartAmmo, TUNE.dartCharges);
     SHOW_PERKS.darts3 = this.perks.darts3;
     this.hud.update(rdt, this.inp, this.foes); this.cards.update(rdt); this.banner.update(rdt);
     this.L.on = true;

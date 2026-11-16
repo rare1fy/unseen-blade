@@ -183,6 +183,22 @@ function charge(I: Pose, c: number, t: number, creep = 0, ph = 0): Pose {
     P.tL += -0.2 * s * creep; P.kL += 0.35 * Math.max(0, s) * creep; P.tR += -0.2 * s * creep; P.kR += 0.35 * Math.max(0, -s) * creep; }
   return P;
 }
+/** 收刀 after 见切 (k 0 → 1): 血振 — the blade flicked out and down to the right; then across to the scabbard mouth at the left hip,
+ *  the blade level and pointing back along the scabbard, pushed in (click at k ≈ 0.64); the hand rests on the hilt, the head
+ *  bowed a touch; the left hand holds the scabbard mouth from the start of the cross-over */
+function noto(I: Pose, k: number): Pose {
+  const A: Partial<Pose> = {
+    aRx: S(k, [[0, -0.5], [0.12, 0.05], [0.26, 0.15], [0.45, 0.25], [0.64, 0.3], [1, 0.3]]),
+    aRz: S(k, [[0, 0.2], [0.12, -1.15], [0.26, -1.0], [0.45, 0.55], [0.64, 0.7], [1, 0.7]]),
+    fR: S(k, [[0, -0.4], [0.12, -0.15], [0.26, -0.25], [0.45, -1.35], [0.64, -1.75], [1, -1.75]]),
+    eR: S(k, [[0, 0.1], [0.12, -0.85], [0.26, -0.7], [0.45, 0.02], [0.64, 0.08], [1, 0.08]]),
+    yR: S(k, [[0, 0.6], [0.12, -0.9], [0.26, -1.0], [0.45, 2.55], [0.64, 2.85], [1, 2.85]]),
+    aLx: S(k, [[0, -0.5], [0.3, -0.2], [0.45, 0.25], [1, 0.25]]), aLz: S(k, [[0, 0.4], [0.45, 0.12], [1, 0.12]]), fL: S(k, [[0, -1.3], [0.45, -1.45], [1, -1.45]]),
+    sy: S(k, [[0, 0], [0.12, -0.2], [0.45, 0.2], [1, 0.15]]), sx: S(k, [[0, 0.2], [0.45, 0.25], [0.7, 0.32], [1, 0.3]]), nx: S(k, [[0, 0], [0.64, 0.1], [1, 0.2]]),
+    tL: -0.3, kL: 0.35, tR: 0.2, kR: 0.3, lift: 0.6, flut: 0.5,
+  };
+  return mix(I, A, curve(k, [[0, 0.6], [0.06, 1], [0.9, 1], [1, 0.85]]));
+}
 /** a dart thrown with the left hand (k 0 → 1): the hand cocks back by the right shoulder, whips out forward (the elbow never locks
  *  straight — 单刀看手), then settles; only the left arm and a little twist of the chest, so it runs over the run / jump / anything */
 function dartThrow(I: Pose, k: number, back = false): Pose {
@@ -331,6 +347,7 @@ const heroHook = (b: Record<string, Bone>, t: number, a: Action | null, off: THR
       if (cool) P = mix(P, { aLx: 0.85 * P.aRx - 0.1, aLz: 0.25, fL: -1.5, eL: 0.6, yL: 0.3 }, curve(k, [[0, 0], [0.1, 1], [0.86, 1], [1, 0]]));
     }
     else if (a.name === 'rel') P = release(P, k);
+    else if (a.name === 'noto') P = noto(P, k);
     else if (a.name === 'dashA') P = dash(P, inAir ? k * 0.6 : k);
     else if (a.name === 'cast') P = cast(P, k);
     else if (a.name === 'plunge') P = plunge(P, k);

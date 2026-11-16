@@ -12,6 +12,9 @@ export function installActTune(actions: TuneAction[] = []) {
   const pane = document.createElement('div');
   Object.assign(pane.style, { position: 'fixed', right: '8px', top: '44px', width: '260px', maxHeight: '80vh', overflowY: 'auto', padding: '8px 10px', background: 'rgba(20,18,26,0.92)',
     border: '1px solid #8a7456', borderRadius: '6px', font: '12px/1.4 system-ui,"Microsoft YaHei",sans-serif', color: '#e8dcc0', zIndex: '20', display: 'none' });
+  // the frame rate (act-14 用户在手机上说帧率低): frames counted over half a second, shown while the panel is open
+  const fps = document.createElement('div'); fps.style.margin = '0 0 6px'; pane.append(fps);
+  { let n = 0, t0 = performance.now(); const tick = () => { n++; const t = performance.now(); if (t - t0 >= 500) { if (pane.style.display !== 'none') fps.textContent = `帧率：${Math.round(n * 1000 / (t - t0))}`; n = 0; t0 = t; } requestAnimationFrame(tick); }; requestAnimationFrame(tick); }
   for (const a of actions) {
     const b = document.createElement('button'); b.textContent = a.label(); Object.assign(b.style, { width: '100%', margin: '2px 0 6px' });
     b.onclick = () => { a.run(); b.textContent = a.label(); }; pane.append(b);

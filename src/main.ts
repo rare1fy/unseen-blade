@@ -23,7 +23,8 @@ let frames = 0;
 
 dh.add({
   info: () => ({ build: __BUILD__, dev: __DEV__, platform: platform.name, flags }),
-  stats: () => ({ calls: gfx.stats.calls, tris: gfx.stats.tris, ms: Math.round(gfx.stats.ms * 10) / 10, px: PX.on ? PX.size : 0 }),
+  stats: () => ({ calls: gfx.stats.calls, tris: gfx.stats.tris, ms: Math.round(gfx.stats.ms * 10) / 10, logic: Math.round(gfx.stats.logic * 100) / 100, render: Math.round(gfx.stats.render * 100) / 100, px: PX.on ? PX.size : 0 }),
+  gfx: () => gfx,
   /** the pixel render style: __dh.px(true, 2) / __dh.px(false) */
   px: (on = true, size?: number) => setPixel(on, size),
   /** live tuning of the pixel look: __dh.pxLook.ink = 0.6 … (see look/pixel.ts PX) */
@@ -34,13 +35,11 @@ dh.add({
 dh.install();
 
 Promise.resolve().then(() => {
-  // 2x pixels by default on a computer (act-05 用户：「我感觉现在这个2x的效果是最好的」); phones stay 1x (「2x还是太不清晰了在手机上」);
-  // the URL (px1 / px2 / px3, ?px=) and the [ ] / P keys still choose
-  { const href = typeof location !== 'undefined' ? location.href : '', n = globalThis.navigator as Navigator | undefined, sc = globalThis.screen as Screen | undefined;
-    // a phone = touch and no fine pointer at all (a touchscreen laptop still has its mouse / trackpad)
-    let fine = true; try { fine = globalThis.matchMedia?.('(any-pointer: fine)').matches ?? true; } catch { /* old browsers: treat as a computer */ }
-    const phone = !!n && (n.maxTouchPoints ?? 0) > 0 && !fine && !!sc && Math.min(sc.width, sc.height) < 900;
-    if (!/[#&?]px/.test(href) && !phone) setPixel(true, 2); }
+  // 2x pixels by default on every device (act-14 用户在手机上：「我要2x」, which overrides the old 「手机上 1x」); the choice made in
+  // the tuning panel is remembered on the device; the URL (px1 / px2 / px3, ?px=) and the [ ] / P keys still choose
+  { const href = typeof location !== 'undefined' ? location.href : '';
+    let saved: string | null = null; try { saved = localStorage.getItem('ub.px'); } catch { /* private mode */ }
+    if (!/[#&?]px/.test(href)) { if (saved === 'off') setPixel(false); else setPixel(true, saved && /^[123]$/.test(saved) ? +saved : 2); } }
   try {
     const A = new ActShow(platform); G.__act = A;
     gfx.start(() => {}, () => { A.L.renderText(gfx.renderer); A.ov.render(gfx.renderer); frames++; });

@@ -13,7 +13,7 @@ import { PX, onPixelChange } from '../look/pixel';
 /** The camera rig: directors write base / look / fov / roll / shift; the loop adds shake and renders. */
 export const CAM = { base: V3(0, 12, 12), look: V3(0, 0, 0), fov: 30, off: V3(), shift: 0, shakeAmt: 0.22 };
 
-export interface Gfx { renderer: THREE.WebGLRenderer; post: Post; start(onFrame: (dt: number, rdt: number) => void, afterRender: () => void): void; stats: { calls: number; tris: number; ms: number } }
+export interface Gfx { renderer: THREE.WebGLRenderer; post: Post; start(onFrame: (dt: number, rdt: number) => void, afterRender: () => void): void; stats: { calls: number; tris: number; ms: number; logic: number; render: number } }
 
 export function createGfx(platform: Platform, canvas: any, o: { preserve?: boolean; fixedDt?: number | null } = {}): Gfx {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance', preserveDrawingBuffer: !!o.preserve });
@@ -28,7 +28,8 @@ export function createGfx(platform: Platform, canvas: any, o: { preserve?: boole
   fit(); platform.onResize(fit);
   // the pixel look (look/pixel.ts): the post pipeline swaps to the low-res art buffer; the canvas and the HUD keep full resolution
   const px = () => post.setPixel(PX.on ? PX.size : 0); px(); onPixelChange(px);
-  const stats = { calls: 0, tris: 0, ms: 16 };
+  /** ms: the real frame interval; logic / render: CPU time spent in the game update and in issuing the render (smoothed) */
+  const stats = { calls: 0, tris: 0, ms: 16, logic: 0, render: 0 };
   const shk = V3();
   let last = platform.now();
   return {
@@ -38,7 +39,7 @@ export function createGfx(platform: Platform, canvas: any, o: { preserve?: boole
         platform.raf(frame);
         const now = platform.now(), real = Math.min(0.05, Math.max(0, (now - last) / 1000)); stats.ms += ((now - last) - stats.ms) * 0.05; last = now;
         const rdt = o.fixedDt != null ? o.fixedDt : real;
-        const dt = tick(rdt);
+        const t0 = platform.now(), dt = tick(rdt);
         runUpdaters(dt, rdt);
         onFrame(dt, rdt);
         updateDice(dt, rdt);
@@ -50,8 +51,10 @@ export function createGfx(platform: Platform, canvas: any, o: { preserve?: boole
         camera.position.copy(CAM.base).add(CAM.off).add(shk); camera.lookAt(CAM.look);
         if (CAM.shift) camera.setViewOffset(view.w, view.h, 0, CAM.shift, view.w, view.h); else camera.clearViewOffset();
         camera.updateProjectionMatrix(); camera.updateMatrixWorld(true);
+        const t1 = platform.now();
         renderer.info.reset();
         post.render(scene, camera, clock.rtime);
+        const t2 = platform.now(); stats.logic += ((t1 - t0) - stats.logic) * 0.05; stats.render += ((t2 - t1) - stats.render) * 0.05;
         stats.calls = renderer.info.render.calls; stats.tris = renderer.info.render.triangles;
         afterRender();
       };
