@@ -52,7 +52,7 @@ import { Coins } from './coins';
 import { runBoard } from './runBoard';
 import { HitArcs } from './hitArc';
 import { PX, setPixel } from '../look/pixel';
-import { VIBE, vibeSupport } from '../../platform/index';
+import { VIBE, vibeSupport, iosMajor } from '../../platform/index';
 /** the perks the hero's world reads while the run is on (kept in step each frame) */
 const SHOW_PERKS = { darts3: false };
 import { BattleActor } from '../bestiary/battle';
@@ -107,7 +107,7 @@ export class ActShow {
     this.layout2();
     installActTune([{ label: () => `界面风格：${SKIN_NAME[SKIN.id]}（点这里换）`, run: () => this.cycleSkin() },
       // act-15 用户：「我浏览器玩没有震动诶」 — a switch, a test, and what this device supports
-      { label: () => `震动：${VIBE.on ? '开' : '关'}（${({ api: '这台设备支持', ios: 'iPhone：用系统触感，iOS 18 起才有', none: '这个浏览器不支持' } as const)[vibeSupport()]}）`, run: () => { VIBE.on = !VIBE.on; try { localStorage.setItem('ub.vibe', VIBE.on ? '1' : '0'); } catch { /* private mode */ } } },
+      { label: () => `震动：${VIBE.on ? '开' : '关'}（${({ api: '这台设备支持', ios: `iPhone iOS ${iosMajor()}：系统触感，点屏幕时最灵`, 'ios-old': `iPhone iOS ${iosMajor() || '17 及以下'}：网页没法震，要 iOS 18`, none: '这个浏览器不支持' } as const)[vibeSupport()]}）`, run: () => { VIBE.on = !VIBE.on; try { localStorage.setItem('ub.vibe', VIBE.on ? '1' : '0'); } catch { /* private mode */ } } },
       { label: () => '试一下震动', run: () => { const was = VIBE.on; VIBE.on = true; this.platform.vibrate('heavy'); VIBE.on = was; } },
       // act-14 用户：「我要2x，然后调试面板给我一个切换这个的功能」 — 2x → 3x → off → 1x, remembered on this device
       { label: () => `像素：${PX.on ? PX.size + 'x' : '关'}（点这里换）`, run: () => { const order = ['2', '3', 'off', '1'], cur = PX.on ? String(PX.size) : 'off', nx = order[(order.indexOf(cur) + 1) % order.length]; if (nx === 'off') setPixel(false); else setPixel(true, +nx); try { localStorage.setItem('ub.px', nx); } catch { /* private mode */ } } }]);
@@ -783,6 +783,10 @@ export class ActShow {
     // the dart button: dark and sinking while the three reload; the lamps show the darts left
     this.hud.setCooldowns({ attack: 0, jump: 0, dash: Math.max(0, h.dashCd / TUNE.dashCd), special: h.dartReload > 0 ? h.dartReload / TUNE.dartReload : 0 });
     this.hud.setPips('special', h.dartAmmo, TUNE.dartCharges);
+    // the move links open right now, shown on the buttons (act-18): 追影 > 穿风斩 > 下劈 > 反击 on the cut button
+    { const fighting = this.phase === 'fight' || this.phase === 'yard', chase = fighting && !!this.chaseTarget();
+      const atk = !fighting ? null : chase ? 'chase' : h.st === 'dash' && !h.airborne ? 'dcut' : (h.st === 'air' && h.airborne) ? 'plunge' : h.counterT > 0 ? 'counter' : null;
+      this.hud.setHints({ attack: atk, special: fighting && h.canBackDart ? 'back' : null, jump: fighting && h.canDoubleJump ? 'dbl' : null }); }
     SHOW_PERKS.darts3 = this.perks.darts3;
     this.hud.update(rdt, this.inp, this.foes); this.cards.update(rdt); this.banner.update(rdt);
     this.L.on = true;

@@ -22,12 +22,12 @@ export function createGfx(platform: Platform, canvas: any, o: { preserve?: boole
   renderer.info.autoReset = false;
   const post = new Post(renderer);
   const fit = () => {
-    const s = platform.canvasSize(); view.w = s.w; view.h = s.h; view.dpr = Math.min(platform.dpr(), 2);
+    const s = platform.canvasSize(); view.w = s.w; view.h = s.h; view.dpr = Math.min(platform.dpr(), PX.on ? 3 : 2);   // the pixel look at native resolution (a 3× phone upscaled 2→3 by the browser blurred the pixels)
     renderer.setPixelRatio(view.dpr); renderer.setSize(s.w, s.h, false); post.setSize(s.w, s.h, view.dpr);
   };
   fit(); platform.onResize(fit);
   // the pixel look (look/pixel.ts): the post pipeline swaps to the low-res art buffer; the canvas and the HUD keep full resolution
-  const px = () => post.setPixel(PX.on ? PX.size : 0); px(); onPixelChange(px);
+  const px = () => { fit(); post.setPixel(PX.on ? PX.size : 0); }; px(); onPixelChange(px);
   /** ms: the real frame interval; logic / render: CPU time spent in the game update and in issuing the render (smoothed) */
   const stats = { calls: 0, tris: 0, ms: 16, logic: 0, render: 0 };
   const shk = V3();

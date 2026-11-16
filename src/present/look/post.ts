@@ -103,6 +103,8 @@ const uniforms = () => ({
   uFlashCol: { value: new THREE.Color() }, uLift: { value: new THREE.Color() }, uGain: { value: new THREE.Color(1, 1, 1) }, uInkCol: { value: new THREE.Color() },
 });
 
+/** the art rows at pixel size 1 on a high-density screen (2× ≈ 450 rows, 3× ≈ 300): a 1080p desktop window's look */
+export const PX_ROWS = 900;
 export class Post {
   rt: THREE.WebGLRenderTarget; bloom: UnrealBloomPass; mat: THREE.ShaderMaterial; quad: THREE.Mesh; cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1); qs = new THREE.Scene();
   /** pixel look: the final pass of the standard look and of the pixel look, the low-res LDR target and the upscale */
@@ -141,7 +143,11 @@ export class Post {
     if (this.rt.samples !== ms) { this.rt.samples = ms; this.rt.dispose(); }
     if (this.pixel > 0) {
       // art buffer: PX.size CSS px per art pixel (device px per art px = size × dpr), a little larger than the screen, centred
-      const k = this.pixel * dpr, Wa = Math.max(1, Math.ceil(W / k)), Ha = Math.max(1, Math.ceil(H / k));
+      // device px per art pixel. A plain screen (dpr < 1.5): whole multiples of the CSS pixel, as always. A high-density screen
+      // (phones, 2× laptops): sized from the screen's height so the picture has PX_ROWS / size rows whatever the screen — the
+      // same pixel feel as a desktop window (act-17 用户：「手机上看2x像素又太糊了，可以让我在电脑端和手机端看起来像素感一致吗」;
+      // a phone is only ~390 CSS px tall, so 2 CSS px a pixel left it with ~195 rows)
+      const k = dpr < 1.5 ? this.pixel * dpr : Math.max(1, H * this.pixel / PX_ROWS), Wa = Math.max(1, Math.ceil(W / k)), Ha = Math.max(1, Math.ceil(H / k));
       this.rt.setSize(Wa, Ha); this.lo.setSize(Wa, Ha); this.bloom.setSize(Wa, Ha);
       (this.matPx.uniforms.uRes.value as THREE.Vector2).set(Wa, Ha);
       const bu = this.blit.uniforms; (bu.uLoRes.value as THREE.Vector2).set(Wa, Ha); bu.uK.value = k; (bu.uOff.value as THREE.Vector2).set((W - Wa * k) / 2, (H - Ha * k) / 2);

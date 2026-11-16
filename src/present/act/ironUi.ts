@@ -40,6 +40,30 @@ function ol(rows: string[]): string[] {
   for (let y = 0; y < H; y++) { let r = ''; for (let x = 0; x < W; x++) { const c = at(x, y); r += c || ([[-1, 0], [1, 0], [0, -1], [0, 1]].some(([dx, dy]) => at(x + dx, y + dy)) ? '#' : '.'); } out.push(r); }
   return out;
 }
+/** the move-link hints (act-18 用户：「combo在按钮上要有点动特效提示，不然根本不知道怎么打」): a little pixel picture that pops up at the
+ *  button's upper left while the link is open, in the move's colour; the button's plates breathe in that colour too. No words. */
+export type HintKey = 'dcut' | 'back' | 'plunge' | 'dbl' | 'chase' | 'counter';
+const HINTS: Record<HintKey, { rows: string[]; col: number }> = {
+  // 穿风斩: a level cut with wind lines behind
+  dcut: { col: 0xbfeaff, rows: ['..........', '##........', '..........', '####..###.', '.....#####', '####..###.', '..........', '##........', '..........', '..........'] },
+  // 回身镖: an arrow back with a dart on it
+  back: { col: 0xf0e6d2, rows: ['...#......', '..##......', '.########.', '##########', '.########.', '..##......', '...#......', '..........', '..........', '..........'] },
+  // 下劈: an arrow down
+  plunge: { col: 0xffc860, rows: ['...####...', '...####...', '...####...', '##########', '.########.', '..######..', '...####...', '....##....', '..........', '..........'] },
+  // 二段跳: two chevrons up
+  dbl: { col: 0xa8d8ff, rows: ['....##....', '..######..', '.##....##.', '##......##', '....##....', '..######..', '.##....##.', '##......##', '..........', '..........'] },
+  // 追影: a dart with a shadow line running to it
+  chase: { col: 0x9aa4ff, rows: ['..........', '......##..', '#.#.#.###.', '.#.#.######', '#.#.#.###.', '......##..', '..........', '..........', '..........', '..........'] },
+  // 反击: two cuts crossing
+  counter: { col: 0xffd060, rows: ['##......##', '.##....##.', '..##..##..', '...####...', '...####...', '..##..##..', '.##....##.', '##......##', '..........', '..........'] },
+};
+function hintTex(k: HintKey) {
+  const h = HINTS[k], S = 8, N = 12, c = document.createElement('canvas'); c.width = c.height = N * S; const g = c.getContext('2d')!; g.imageSmoothingEnabled = false;
+  g.fillStyle = '#5a5a62'; g.fillRect(0, 0, N * S, N * S); g.fillStyle = '#1e1c22'; g.fillRect(S, S, (N - 2) * S, (N - 2) * S);
+  g.fillStyle = '#' + h.col.toString(16).padStart(6, '0');
+  h.rows.forEach((r, y) => { for (let x = 0; x < r.length; x++) if (r[x] === '#') g.fillRect((1 + x) * S, (1 + y) * S, S, S); });
+  const t = new THREE.CanvasTexture(c); t.magFilter = t.minFilter = THREE.NearestFilter; t.generateMipmaps = false; t.colorSpace = THREE.SRGBColorSpace; return t;
+}
 const ICONS: Record<BtnKey, string[]> = {
   // a ring-pommel sabre standing up: the ring, the wrapped grip, a small guard, the blade (bright edge, darker spine), the point
   attack: ol([
@@ -114,6 +138,8 @@ export class IronBtn {
   root = new THREE.Group(); iconG = new THREE.Group(); x = 0; y = 0; size = 80; down = false; pid = -1; cd = 0; charge = 0; hot = false;
   /** a flash of white (the 见切 moment while holding the stance) */
   now = false;
+  /** a move link open on this button right now (null = none) */
+  hint: HintKey | null = null; /** which side the badge pops up on (−1 upper left, +1 upper right: the big cut button has the jump button at its upper left) */ badgeSide: -1 | 1 = -1; private badge: THREE.Mesh | null = null; private badgeKey: HintKey | null = null; private badgeK = 0; private badgePop = 1;
   /** charges left / the most (the dart button: three bronze lamps on an arc over the shield); max 0 = none */
   pips = 0; pipMax = 0; private pipMeshes: THREE.Mesh[] = [];
   private ring: ReturnType<typeof plateRing>; private icon: THREE.Mesh; private shadow: THREE.Mesh; private tassel: THREE.Mesh | null = null;
@@ -159,8 +185,9 @@ export class IronBtn {
       // cool-down: the plates come back one by one like a clock face from the top; charge: they heat up from the bottom
       const lit = ready || i / 8 < 1 - frac;
       const fromBottom = (4 - Math.abs(i - 4)) / 4, heat = ch > 0 ? Math.max(0, Math.min(1, (ch - (1 - fromBottom) * 0.85) * 3)) : 0;
-      const glow = this.now ? 0.9 : this.flashT > 0 ? Math.min(1, this.flashT * 1.8) : this.hot || full ? 0.45 + 0.4 * pulse : heat;
-      this.col.copy(lit ? this.base : this.dark).lerp(this.now ? WHITE : this.ember, lit ? glow * 0.8 : 0);
+      const hc = this.hint && !this.now ? HINT_COLS[this.hint] : null;
+      const glow = this.now ? 0.9 : hc ? 0.5 + 0.45 * pulse : this.flashT > 0 ? Math.min(1, this.flashT * 1.8) : this.hot || full ? 0.45 + 0.4 * pulse : heat;
+      this.col.copy(lit ? this.base : this.dark).lerp(this.now ? WHITE : hc ?? this.ember, lit ? glow * 0.8 : 0);
       paintRange(geo, this.ring.ranges[i * 2], this.col);
     }
     if (this.tassel) this.tassel.rotation.z = Math.sin(this.tt * 2.1) * 0.14 + Math.sin(this.tt * 5.3) * 0.04;
@@ -180,10 +207,24 @@ export class IronBtn {
     // the shadow on the socket: smaller and fainter as the picture rises
     this.shadow.scale.setScalar(1.15 - Math.min(0.4, this.lift / 40)); (this.shadow.material as THREE.MeshBasicMaterial).opacity = 0.55 - Math.min(0.3, this.lift / 50);
     this.iconG.visible = this.root.visible;
+    // the hint badge: pops up (overshoot) at the upper left, breathes, shrinks away when the link closes
+    if (this.hint && this.hint !== this.badgeKey) {
+      if (!this.badge) { this.badge = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ transparent: true, depthTest: false })); this.badge.renderOrder = 9; L.scene.add(this.badge); }
+      const m = this.badge.material as THREE.MeshBasicMaterial; m.map?.dispose(); m.map = hintTex(this.hint); m.needsUpdate = true; this.badgeKey = this.hint; this.badgePop = 0;
+    }
+    this.badgeK += ((this.hint ? 1 : 0) - this.badgeK) * Math.min(1, dt * 14); this.badgePop = Math.min(1, this.badgePop + dt / 0.28);
+    if (this.badge) {
+      const pop = this.badgePop < 1 ? 1 + 0.35 * Math.sin(this.badgePop * Math.PI) : 1, breathe = 1 + 0.07 * Math.sin(this.tt * 9);
+      this.badge.visible = this.root.visible && this.badgeK > 0.03;
+      const bs = Math.min(this.size, 110) * 0.44;
+      L.at(this.x + this.badgeSide * (this.size * 0.5 + bs * 0.15), this.y - this.size * 0.58 - 4 * Math.sin(this.tt * 4), 6, this.badge.position);
+      this.badge.scale.setScalar(L.px(bs) * this.badgeK * pop * breathe);
+    }
   }
-  dispose() { disposeTree(this.root); disposeTree(this.iconG); }
+  dispose() { disposeTree(this.root); disposeTree(this.iconG); if (this.badge) disposeTree(this.badge); }
 }
 const WHITE = new THREE.Color(0xfff6e0);
+const HINT_COLS = Object.fromEntries(Object.entries(HINTS).map(([k, h]) => [k, new THREE.Color(h.col)])) as Record<HintKey, THREE.Color>;
 
 // ---------------------------------------------------------------- the stick: an iron ring of plates, a bronze ring-pommel for the knob
 export class IronStick {

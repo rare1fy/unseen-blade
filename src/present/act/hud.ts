@@ -15,7 +15,7 @@ import { isBoss, type Foe } from './enemy';   // wp/foes: isBoss (the boss bar f
 import { V3 } from '../engine/world';
 import { TUNE } from './tune';
 import { SKIN, PALETTE, SkinBtn, SkinStick, SkinHp, type SkinId } from './skin';
-import { IronBtn, IronStick, IronHp, QteRing } from './ironUi';
+import { IronBtn, IronStick, IronHp, QteRing , type HintKey } from './ironUi';
 
 type AnyBtn = SkinBtn | IronBtn; type AnyHp = SkinHp | IronHp;
 
@@ -59,7 +59,7 @@ export class ActHud {
     this.flask.place(Math.max(30, 40 * k), Math.max(34, 46 * k), Math.max(0.62, 0.8 * k));
     this.stickHome = { x: 160 * k, y: H - 140 * k }; this.stickSize = 170 * k;
     // an arc of three round the big cut button: dash low left, jump up left, the special above
-    const b = this.btns; b.attack.size = 150 * k; b.dash.size = 100 * k; b.special.size = 100 * k; b.jump.size = 100 * k;
+    const b = this.btns; if (b.attack instanceof IronBtn) b.attack.badgeSide = 1; b.attack.size = 150 * k; b.dash.size = 100 * k; b.special.size = 100 * k; b.jump.size = 100 * k;
     b.attack.x = W - 150 * k; b.attack.y = H - 140 * k;
     b.dash.x = W - 300 * k; b.dash.y = H - 92 * k;
     b.jump.x = W - 292 * k; b.jump.y = H - 238 * k;
@@ -89,6 +89,8 @@ export class ActHud {
   qte(k: number | null, hit = false) { const b = this.btns.attack; if (k == null) this.qteRing.hide(); else this.qteRing.show(b.x, b.y, b.size, k, hit); }
   setCooldowns(c: Record<BtnName, number>) { for (const n of Object.keys(c) as BtnName[]) this.btns[n].cd = c[n]; }
   /** charges left on a button (the darts); only the iron buttons show them */
+  /** the move links open now (act-18): a hint per button, or null */
+  setHints(h: Partial<Record<BtnName, HintKey | null>>) { for (const n of Object.keys(this.btns) as BtnName[]) { const b = this.btns[n]; if (b instanceof IronBtn) b.hint = h[n] ?? null; } }
   setPips(n: BtnName, left: number, max: number) { const b = this.btns[n] as { pips?: number; pipMax?: number }; if ('pipMax' in b) { b.pips = left; b.pipMax = max; } }
   private newBar(): Bar {
     const p = PALETTE[this.skin], g = new THREE.Group(), back = box(p.foeBack), lag = box(p.foeLag), fill = box(p.foeFill);

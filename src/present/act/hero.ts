@@ -437,6 +437,9 @@ export class Hero {
     this.a.yaw = Math.atan2(d.x, d.z); this.inv = Math.max(this.inv, 0.12);
     this.startCut('k1', w, true);
   }
+  /** act-18 hints: 回身镖 can go now (a dash, darts in hand, none thrown in it yet); a double jump is left */
+  get canBackDart() { return this.st === 'dash' && !this.dashDarted && this.dartAmmo > 0; }
+  get canDoubleJump() { return this.st === 'air' && this.jumps < 2; }
   /** a dart leaves the hand: one fewer; the last one starts the reload */
   private useDart() { this.dartAmmo = Math.max(0, this.dartAmmo - 1); if (this.dartAmmo === 0) this.dartReload = TUNE.dartReload; }
   /** 收刀 after 见切: a flick of the blade (血振), across to the scabbard at the left hip, pushed home with a click, the hand on the hilt */
