@@ -60,11 +60,11 @@ export function openingShots(h: CineHost): CineShot[] {
       at: [[0, () => { h.clearPuppets(); flee.length = 0; for (let i = 0; i < 6; i++) { const f = h.puppet('hj_mob', -6 + i * 2.2 + (i % 2) * 0.8, -8 - (i % 3) * 3, 0, 20); f.a.setRunning(true); flee.push(f); } h.hero.pos.set(at0[0], 0, at0[1]); }]],
       tick: (t, dt) => { burn(dt); fleeTick(dt); walker(h, at0, at1, 6.5)(t, dt); } },
     { dur: 5, ease: 'linear',
-      from: () => ({ pos: [h.hero.pos.x + 8, 3.4, h.hero.pos.z + 3] as V, look: [h.hero.pos.x, 1.0, h.hero.pos.z] as V, fov: 34 }),
-      to: () => ({ pos: [h.hero.pos.x + 8, 3.4, h.hero.pos.z + 3] as V, look: [h.hero.pos.x, 1.0, h.hero.pos.z] as V, fov: 34 }),
+      from: () => ({ pos: [h.hero.pos.x + 13, 5.2, h.hero.pos.z + 5] as V, look: [h.hero.pos.x, 0.9, h.hero.pos.z] as V, fov: 34 }),
+      to: () => ({ pos: [h.hero.pos.x + 13, 5.2, h.hero.pos.z + 5] as V, look: [h.hero.pos.x, 0.9, h.hero.pos.z] as V, fov: 34 }),
       tick: (t, dt) => { burn(dt); fleeTick(dt); walker(h, at1, stop, 5)(t, dt); } },
     // she stops: the ambush is heard before it is seen — a ring of sound to the left (a bow drawn), one to the right (dogs, a blade)
-    { dur: 4, from: { pos: [0, 6, 9], look: [0, 0.8, -2], fov: 36 }, to: { pos: [0, 5.4, 7.6], look: [0, 0.9, -2], fov: 36 },
+    { dur: 4, from: { pos: [0, 8.5, 12.5], look: [0, 0.8, -2], fov: 36 }, to: { pos: [0, 7.8, 11.2], look: [0, 0.9, -2], fov: 36 },
       at: [[0, () => { const m = motionOf(h.hero.a); m.run = 0; h.hero.a.yaw = Math.PI; ambush = [h.puppet('hj_archer', -6, -5, 0, -2), h.puppet('hj_hound', 4.5, -6, 0, -2), h.puppet('hj_hound', 5.5, -4, 0, -2), h.puppet('hj_blade', 6.5, -6.5, 0, -2)]; }],
         [0.6, () => { fxRing(V3(-6, 0.05, -5), 0xf2f2ff, 2.4, { life: 1.2, width: 0.12, bright: 1.6 } as never); cue('exitChime', 0.4); }],
         [1.4, () => { fxRing(V3(5.2, 0.05, -5.4), 0xf2f2ff, 2.8, { life: 1.2, width: 0.12, bright: 1.6 } as never); cue('hound', 0.5); }],
@@ -80,7 +80,7 @@ export function openingShots(h: CineHost): CineShot[] {
         [2.6, () => { const a = ambush[0]; void playDeath(a.a, { from: h.hero.pos.clone(), ratio: 2 }); trailSeg(V3(0, 1.2, -2), V3(-6, 1.2, -5), 0xc8d8ff, 0.08, { life: 0.3, bright: 2 }); cue('cut', 0.8); }]],
       tick: (t, dt) => { burn(dt); fleeTick(dt); h.hero.a.update(dt); for (const f of ambush.slice(1)) if (t > 0.7 && t < 1.7) { const d = V3(-f.pos.x, 0, -2 - f.pos.z); if (d.length() > 1.2) f.pos.addScaledVector(d.normalize(), dt * 7); f.a.yaw = Math.atan2(d.x, d.z); } for (const f of ambush) f.a.update(dt); } },
     // the blade wiped and sheathed; far up the hill the temple flickers with lightning
-    { dur: 4.6, from: { pos: [-2.5, 2.6, 7], look: [0, 2.6, -24], fov: 40 }, to: { pos: [-2.2, 3.2, 8.5], look: [0, 3.4, -26], fov: 40 },
+    { dur: 4.6, from: { pos: [-3, 4.4, 11.5], look: [0, 2.4, -24], fov: 40 }, to: { pos: [-2.6, 5.0, 13], look: [0, 3.0, -26], fov: 40 },
       at: [[0.2, () => { h.hero.a.yaw = Math.PI; h.hero.a.play(new Action('noto', 0.95, 0.64)); }], [0.8, () => cue('sheathe', 0.9)],
         [2.0, () => { flashSky(0.9); fxBolt(V3(2, 22, -34), V3(1, 3, -32), 0xc8b0ff, { width: 0.4, life: 0.35, bright: 0.6 }); }], [2.5, () => cue('thunder', 0.7)]],
       tick: (_t, dt) => { burn(dt); fleeTick(dt); h.hero.a.update(dt); for (const f of ambush) f.a.update(dt); } },
