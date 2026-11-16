@@ -9,6 +9,7 @@ import type { UiLayer } from '../ui3d/layer';
 import { text, textW, PIX_H } from '../v2/overlay';
 import { UiSparks } from '../ui3d/vox';
 import { cue } from '../../audio/cues';
+import { bodyText, bodyW, onBodyFontChange } from '../ui3d/bodyFont';
 
 export type SkinId = 'lacquer' | 'bamboo' | 'iron';
 export const SKINS: SkinId[] = ['lacquer', 'bamboo', 'iron'];
@@ -99,8 +100,15 @@ export function stickFace(skin: SkinId, knob: boolean) {
 }
 /** a banner plaque: the title big, the subtitle small; returns the texture and its size in art px */
 export function bannerFace(skin: SkinId, title: string, sub: string, titleCol?: string) {
-  const ts = 2, ss = 1, tw = Math.ceil(textW(title, ts)), sw = sub ? Math.ceil(textW(sub, ss)) : 0;
-  const W = Math.max(tw, sw) + 28, H = PIX_H * ts + (sub ? PIX_H * ss + 6 : 0) + 18, a = art(W, H, 3), pal = PALETTE[skin];
+  const ts = 2, tw = Math.ceil(textW(title, ts)), maxLine = 180;
+  let lines = sub ? [sub] : [];
+  if (sub && bodyW(sub, 10) > maxLine) {
+    const chars = [...sub], mid = Math.ceil(chars.length / 2);
+    lines = [chars.slice(0, mid).join(''), chars.slice(mid).join('')];
+  }
+  const bodyPx = lines.length ? Math.min(10, 10 * maxLine / Math.max(...lines.map(line => bodyW(line, 10)))) : 10;
+  const sw = lines.length ? Math.ceil(Math.max(...lines.map(line => bodyW(line, bodyPx)))) : 0;
+  const W = Math.max(tw, sw) + 20, H = PIX_H * ts + (lines.length ? Math.ceil(bodyPx * 1.3) * lines.length + 4 : 0) + 12, a = art(W, H, 8), pal = PALETTE[skin];
   if (skin === 'bamboo') {
     for (let i = 0; i < W; i++) a.P(i, 0, 1, H, i % 5 === 0 ? '#6e5630' : Math.floor(i / 5) % 2 ? '#c9ad6a' : '#b89a58');
     a.P(0, 2, W, 1, '#4a2e16'); a.P(0, H - 3, W, 1, '#4a2e16');
@@ -115,9 +123,10 @@ export function bannerFace(skin: SkinId, title: string, sub: string, titleCol?: 
     for (const [x, y] of [[0, 0], [W - 4, 0], [0, H - 4], [W - 4, H - 4]]) a.P(x, y, 4, 4, '#b8302a');
   }
   const S = a.S;
-  text(a.g, title, ((W - 4) * S - textW(title, ts * S)) / 2, 9 * S, ts * S, titleCol ?? pal.title, 'left', skin === 'bamboo' ? null : '#0a0708');
-  if (sub) text(a.g, sub, ((W - 4) * S - textW(sub, ss * S)) / 2, (9 + PIX_H * ts + 5) * S, ss * S, pal.sub, 'left', null);
-  return { t: tex(a.c), W, H };
+  text(a.g, title, (W * S - textW(title, ts * S)) / 2, 5 * S, ts * S, titleCol ?? pal.title, 'left', skin === 'bamboo' ? null : '#0a0708');
+  lines.forEach((line, i) => bodyText(a.g, line, W * S / 2, (PIX_H * ts + 7 + i * Math.ceil(bodyPx * 1.3)) * S, bodyPx * S, pal.sub, 'center'));
+  const t = tex(a.c); t.magFilter = t.minFilter = THREE.LinearFilter;
+  return { t, W, H };
 }
 
 // ---------------------------------------------------------------- shapes
@@ -227,6 +236,7 @@ export class SkinHp {
   heal(s?: Partial<HpState>) { if (s) this.set(s); this.healT = 0.5; this.sparks.burst(this.L.at(this.x + this.W * this.k * 0.5, this.y, 6), 14, this.L.px(120), this.L.px(5), 0x7aff9a, { life: 0.6, up: this.L.px(140) }); cue('heal', 0.6); }
   /** where the number goes (CSS px, left-aligned) */
   textAt() { return { x: this.x + (this.W + 26) * this.k, y: this.y - 8 * this.k }; }
+  barAt() { return { x: this.x + this.W * this.k / 2, y: this.y, h: (this.skin === 'bamboo' ? 44 : this.skin === 'iron' ? 30 : 14) * this.k }; }
   update(dt: number) {
     const L = this.L, f = Math.max(0, Math.min(1, this.st.hp / Math.max(1, this.st.maxHp)));
     this.shakeT = Math.max(0, this.shakeT - dt); this.flashT = Math.max(0, this.flashT - dt); this.healT = Math.max(0, this.healT - dt);
@@ -252,13 +262,21 @@ export class SkinHp {
 // ---------------------------------------------------------------- the banner
 export class SkinBanner {
   private m: THREE.Mesh | null = null; private t = 99; private hold = 0; private W = 1; private H = 1;
-  constructor(private L: UiLayer, private skin: SkinId) {}
+  private title = ''; private sub = ''; private color?: string; private unlisten: () => void;
+  constructor(private L: UiLayer, private skin: SkinId, private bossOn: () => boolean = () => false) {
+    this.unlisten = onBodyFontChange(() => { if (this.m) this.repaint(); });
+  }
+  private repaint() {
+    const f = bannerFace(this.skin, this.title, this.sub, this.color); this.W = f.W; this.H = f.H;
+    if (this.m) { const mat = (this.m.material as THREE.MeshLambertMaterial[])[4]; mat.map?.dispose(); mat.map = f.t; mat.emissiveMap = f.t; mat.needsUpdate = true; }
+  }
   show(title: string, sub = '', hold = 1.2, color?: string) {
     this.clear();
-    const f = bannerFace(this.skin, title, sub, color && this.skin !== 'bamboo' ? color : undefined); this.W = f.W; this.H = f.H;
+    this.title = title; this.sub = sub; this.color = color && this.skin !== 'bamboo' ? color : undefined;
+    const f = bannerFace(this.skin, title, sub, this.color); this.W = f.W; this.H = f.H;
     const mat = lam(f.t, 0xffffff, 0.6), body = lam(null, PALETTE[this.skin].side);
     this.m = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 0.08), [body, body, body, body, mat, body]); this.m.renderOrder = 20; this.L.scene.add(this.m);
-    this.t = 0; this.hold = hold;
+    this.t = 0; this.hold = hold * 0.7;
   }
   hide() { this.hold = 0; this.t = 99; this.clear(); }
   private clear() { if (this.m) { disposeTree(this.m); this.m = null; } }
@@ -266,10 +284,11 @@ export class SkinBanner {
     if (!this.m) return;
     this.t += dt; const L = this.L, inT = Math.min(1, this.t / 0.22), out = Math.max(0, (this.t - 0.22 - this.hold) / 0.25);
     if (out >= 1) { this.clear(); return; }
-    const scale = Math.min(3.2, Math.max(1.6, (L.w * 0.5) / this.W)), wpx = this.W * scale, hpx = this.H * scale;
-    L.at(L.w / 2, L.h * 0.24 - (1 - inT) * 30 - out * 30, 0, this.m.position);
+    const scale = Math.min(L.w * 0.3 / this.W, L.h * 0.09 / this.H), wpx = this.W * scale, hpx = this.H * scale;
+    const top = L.h * (this.bossOn() ? 0.13 : 0.05);
+    L.at(L.w / 2, top + hpx / 2 - (1 - inT) * 30 - out * 30, 0, this.m.position);
     this.m.scale.set(L.px(wpx), L.px(hpx), L.px(hpx * 0.6)); this.m.visible = true;
     (this.m.material as THREE.Material[])[4].opacity = 1;
   }
-  dispose() { this.clear(); }
+  dispose() { this.clear(); this.unlisten(); }
 }

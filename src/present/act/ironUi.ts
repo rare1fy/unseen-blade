@@ -293,6 +293,7 @@ export class IronHp {
   hit(dmg: number, s?: Partial<HpState>) { if (s) this.set(s); this.shakeT = 0.3; this.flashT = 0.25; void dmg; }
   heal(s?: Partial<HpState>) { if (s) this.set(s); this.healT = 0.5; this.sparks.burst(this.L.at(this.x + (this.X0 + this.W * 0.5) * this.k, this.y, 6), 14, this.L.px(120), this.L.px(5), 0x7aff9a, { life: 0.6, up: this.L.px(140) }); cue('heal', 0.6); }
   textAt() { return { x: this.x + (this.X0 + this.W + 24) * this.k, y: this.y - 8 * this.k }; }
+  barAt() { return { x: this.x + (this.X0 + this.W / 2) * this.k, y: this.y, h: 14 * this.k }; }
   update(dt: number) {
     const L = this.L, f = Math.max(0, Math.min(1, this.st.hp / Math.max(1, this.st.maxHp))); this.tt += dt;
     this.shakeT = Math.max(0, this.shakeT - dt); this.flashT = Math.max(0, this.flashT - dt); this.healT = Math.max(0, this.healT - dt);

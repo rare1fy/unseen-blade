@@ -2,6 +2,7 @@
 // resolution after the frame). A tiny 4×5 font (digits + - / x %), drawn into canvas planes in an orthographic overlay scene.
 import * as THREE from 'three';
 import { makeCanvas } from '../../platform/index';
+import { BODY_FONT, bodyText, bodyW } from './bodyFont';
 
 const F: Record<string, string[]> = {
   '0': ['.##.', '#..#', '#..#', '#..#', '.##.'], '1': ['.##.', '###.', '.##.', '.##.', '####'], '2': ['###.', '...#', '.##.', '#...', '####'],
@@ -13,7 +14,7 @@ const F: Record<string, string[]> = {
 const glyph = (ch: string) => F[ch] || F[' '];
 export function textCells(t: string) { let w = 0; for (const ch of t) w += glyph(ch)[0].length + 1; return { w: Math.max(0, w - 1), h: 5 }; }
 
-export interface TextSpec { text: string; x: number; y: number; cell?: number; color?: string; outline?: string; align?: 'left' | 'center' | 'right'; alpha?: number; scale?: number; visible?: boolean }
+export interface TextSpec { text: string; x: number; y: number; cell?: number; bodyPx?: number; color?: string; outline?: string; align?: 'left' | 'center' | 'right'; alpha?: number; scale?: number; visible?: boolean }
 
 class Label {
   mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; tex: THREE.CanvasTexture | null = null; key = ''; w = 1; h = 1;
@@ -22,12 +23,15 @@ class Label {
     this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), this.mat); this.mesh.renderOrder = 50; scene.add(this.mesh);
   }
   set(s: TextSpec, dpr: number) {
-    const cell = s.cell ?? 3, col = s.color ?? '#fff6e2', ol = s.outline ?? '#140c10', key = `${s.text}|${cell}|${col}|${ol}|${dpr}`;
+    const cell = s.cell ?? 3, col = s.color ?? '#fff6e2', ol = s.outline ?? '#140c10', key = `${s.text}|${cell}|${s.bodyPx}|${BODY_FONT.version}|${col}|${ol}|${dpr}`;
     if (key !== this.key) {
-      this.key = key; const m = textCells(s.text), k = Math.max(1, Math.round(cell * dpr)), pad = k;
-      const W = m.w * k + pad * 2, H = m.h * k + pad * 2, c = makeCanvas(Math.max(1, W), Math.max(1, H)), g = c.getContext('2d') as CanvasRenderingContext2D;
+      this.key = key; const m = textCells(s.text), k = Math.max(1, Math.round(cell * dpr)), pad = s.bodyPx ? Math.ceil(2 * dpr) : k;
+      const W = s.bodyPx ? Math.ceil(bodyW(s.text, s.bodyPx * dpr)) + pad * 2 : m.w * k + pad * 2;
+      const H = s.bodyPx ? Math.ceil(s.bodyPx * dpr * 1.35) + pad * 2 : m.h * k + pad * 2;
+      const c = makeCanvas(Math.max(1, W), Math.max(1, H)), g = c.getContext('2d') as CanvasRenderingContext2D;
       const draw = (fill: string, grow: number) => { g.fillStyle = fill; let cx = pad; for (const ch of s.text) { const gl = glyph(ch); gl.forEach((row, r) => [...row].forEach((b, i) => { if (b === '#') g.fillRect(cx + i * k - grow, pad + r * k - grow, k + grow * 2, k + grow * 2); })); cx += (gl[0].length + 1) * k; } };
-      draw(ol, Math.max(1, Math.round(k * 0.5))); draw(col, 0);
+      if (s.bodyPx) bodyText(g, s.text, pad, pad, s.bodyPx * dpr, col, 'left', ol);
+      else { draw(ol, Math.max(1, Math.round(k * 0.5))); draw(col, 0); }
       g.fillStyle = 'rgba(0,0,0,0.22)'; // a 1-device-px lower shade on each cell gives the digits weight
       this.tex?.dispose(); this.tex = new THREE.CanvasTexture(c as HTMLCanvasElement); this.tex.colorSpace = THREE.SRGBColorSpace;
       this.tex.magFilter = THREE.NearestFilter; this.tex.minFilter = THREE.NearestFilter; this.tex.generateMipmaps = false;

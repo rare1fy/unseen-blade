@@ -50,6 +50,7 @@ import { BOONS, applyBoon, drawBoons, upgradeBoon, returnCard, TIER_NAMES, newPe
 import { Schools } from './schools'; // wp/boons: effect owner
 import { TUNE } from './tune';
 import { installActTune } from './tunePanel';
+import { BODY_FONT, BODY_FONT_NAME, setBodyFont, type BodyFont } from '../ui3d/bodyFont';
 import { HEROES, RACK, motionOf } from './ninjaAct';
 import { Yard, makeSign, SPAWN_AT } from './yard';
 import type { ModelDef } from '../bestiary/models';
@@ -110,13 +111,14 @@ export class ActShow {
   yard: Yard | null = null; wearing: ModelDef = savedHero(); private lineupActors: BattleActor[] = [];
   private ring!: THREE.Mesh; private ringK = -1; private sparkT = 0; private shadows: THREE.Mesh[] = []; private exitSign: THREE.Group | null = null; private blob: THREE.Mesh;
   constructor(private platform: Platform) {
-    this.hud = new ActHud(this.L); this.cards = new CardPick(this.L); this.banner = new SkinBanner(this.L, SKIN.id);
+    this.hud = new ActHud(this.L); this.cards = new CardPick(this.L); this.banner = new SkinBanner(this.L, SKIN.id, () => this.hud.bossOn);
     platform.onPointer(ev => this.pointer(ev.type, (ev as { id?: number }).id ?? 0, ev.x, ev.y));
     platform.onResize(() => this.layout2());
     if (typeof window !== 'undefined') window.addEventListener('keydown', e => this.key(e));
     onUpdate((dt, rdt) => this.frame(dt, rdt));
     this.layout2();
     installActTune([{ label: () => `界面风格：${SKIN_NAME[SKIN.id]}（点这里换）`, run: () => this.cycleSkin() },
+      { label: () => `正文字体：${BODY_FONT_NAME[BODY_FONT.current]}`, run: () => { const order: BodyFont[] = ['wenkai', 'serif', 'sans', 'pixel']; setBodyFont(order[(order.indexOf(BODY_FONT.current) + 1) % order.length]); } },
       // act-15 用户：「我浏览器玩没有震动诶」 — a switch, a test, and what this device supports
       { label: () => `震动：${VIBE.on ? '开' : '关'}（${({ api: '这台设备支持', ios: `iPhone iOS ${iosMajor()}：系统触感，点屏幕时最灵`, 'ios-old': `iPhone iOS ${iosMajor() || '17 及以下'}：网页没法震，要 iOS 18`, none: '这个浏览器不支持' } as const)[vibeSupport()]}）`, run: () => { VIBE.on = !VIBE.on; try { localStorage.setItem('ub.vibe', VIBE.on ? '1' : '0'); } catch { /* private mode */ } } },
       { label: () => '试一下震动', run: () => { const was = VIBE.on; VIBE.on = true; this.platform.vibrate('heavy'); VIBE.on = was; } },
@@ -887,7 +889,7 @@ export class ActShow {
   /** the UI's skin: 漆器 → 竹简 → 铁器 (U key, the tuning panel, __dh.skin(id)) */
   cycleSkin(to?: SkinId) {
     const next = to ?? SKINS[(SKINS.indexOf(SKIN.id) + 1) % SKINS.length]; setSkin(next);
-    this.hud.reskin(); this.banner.dispose(); this.banner = new SkinBanner(this.L, next);
+    this.hud.reskin(); this.banner.dispose(); this.banner = new SkinBanner(this.L, next, () => this.hud.bossOn);
     this.banner.show(SKIN_NAME[next], '界面风格 · U 键或调参面板切换', 1.4);
   }
   private key(e: KeyboardEvent) {
