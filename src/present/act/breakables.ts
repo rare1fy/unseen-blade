@@ -11,7 +11,7 @@ import { shake } from '../engine/clock';
 import { cue } from '../../audio/cues';
 import { BreakLogic, BTUNE, type BEvent, type BProp, type BTarget, type BDamage, type BSrc } from './breakLogic';
 import type { Solids, Solid } from './solids';
-import type { PropKind } from '../asm/arena';
+import { coverVox, type PropKind, type Cover, type CoverKind } from '../asm/arena';
 
 // ------------------------------------------------------------------ models (cells of 7 cm; origin = the foot's centre)
 const COL = {
@@ -22,7 +22,16 @@ const COL = {
 type W = VoxWorld;
 /** a notched square ring (round-reading without stair-steps): half size h, y0..y1 */
 const nsq = (w: W, h: number, y0: number, y1: number, c: number) => { w.box(-h + 1, y0, -h, h - 1, y1, h, c); w.box(-h, y0, -h + 1, h, y1, h - 1, c); };
+// act-20 more breakables: a fence length (along x, 1.6 m), a weapon rack, a 黄巾 banner on its pole, a basket, a grain sack, a lantern post
+const MORE = { yellow: 0xd8b030, yellowD: 0xa8841c, red: 0xa8302a, iron: 0x6a6e78, ironL: 0x9aa0aa, glow: 0xffc070, sack: 0xc8b48a, sackD: 0x9a8662, wicker: 0xa07a44, wickerD: 0x7a5a30 };
 const BUILD: Record<PropKind | 'stump', (w: W) => void> = {
+  fence: w => { for (let x = -11; x <= 11; x += 5) w.box(x, 0, -1, x + 1, 13, 0, COL.postD); w.box(-12, 4, -1, 12, 5, 0, COL.wood); w.box(-12, 10, -1, 12, 11, 0, COL.wood); w.box(-12, 11, -1, 12, 11, 0, COL.woodL); },
+  rack: w => { w.box(-7, 0, -1, -6, 18, 0, COL.postD); w.box(6, 0, -1, 7, 18, 0, COL.postD); w.box(-7, 16, -1, 7, 17, 0, COL.wood); w.box(-7, 5, -1, 7, 6, 0, COL.wood);
+    for (const x of [-4, 0, 4]) { w.box(x, 1, 1, x, 20, 1, COL.post); w.box(x - 1, 21, 1, x + 1, 24, 1, MORE.iron); w.box(x, 25, 1, x, 26, 1, MORE.ironL); } },
+  banner: w => { w.box(-1, 0, -1, 0, 34, 0, COL.postD); w.box(1, 33, -1, 9, 33, 0, COL.postD); w.box(1, 14, 0, 8, 32, 0, MORE.yellow); w.box(1, 14, 0, 8, 15, 0, MORE.yellowD); w.box(3, 22, 0, 6, 26, 0, MORE.red); w.box(-2, 0, -2, 1, 1, 1, COL.stone); },
+  basket: w => { nsq(w, 4, 0, 6, MORE.wicker); for (let y = 1; y <= 6; y += 2) nsq(w, 4, y, y, MORE.wickerD); nsq(w, 3, 7, 7, MORE.sack); w.box(-1, 8, -1, 0, 8, 0, MORE.sackD); },
+  sack: w => { nsq(w, 4, 0, 5, MORE.sack); nsq(w, 3, 6, 8, MORE.sack); w.box(-1, 9, -1, 0, 10, 0, MORE.sackD); w.box(-4, 3, -4, 4, 3, 4, MORE.sackD); },
+  lamp: w => { w.box(-1, 0, -1, 0, 28, 0, COL.postD); w.box(-1, 27, -1, 6, 28, 0, COL.postD); w.box(4, 18, -2, 7, 25, 1, MORE.red); w.box(5, 19, -1, 6, 24, 0, MORE.glow); w.box(4, 25, -2, 7, 26, 1, COL.postD); w.box(4, 17, -2, 7, 17, 1, COL.postD); w.box(-2, 0, -2, 1, 1, 1, COL.stone); },
   pot: w => { nsq(w, 3, 0, 1, COL.clayD); nsq(w, 4, 2, 7, COL.clay); w.box(-4, 5, -4, 4, 5, 4, COL.clayD); nsq(w, 3, 8, 8, COL.clay); nsq(w, 2, 9, 10, COL.clayD); nsq(w, 3, 11, 11, COL.clayL); },
   crate: w => { w.box(-5, 0, -5, 5, 9, 5, COL.wood); for (const [x, z] of [[-5, -5], [5, -5], [-5, 5], [5, 5]]) w.box(x, 0, z, x, 9, z, COL.woodD); w.box(-5, 9, -5, 5, 9, 5, COL.woodL); w.box(-5, 0, -5, 5, 0, 5, COL.woodD); w.box(-5, 4, -5, 5, 4, 5, COL.woodD); },
   hay: w => { w.box(-7, 0, -5, 7, 9, 5, COL.straw); w.box(-7, 9, -5, 7, 9, 5, COL.strawL); w.box(-7, 0, -5, 7, 0, 5, COL.strawD); for (const x of [-4, 4]) w.box(x, 0, -5, x, 9, 5, COL.rope); w.box(-7, 3, -5, 7, 3, -5, COL.strawD); w.box(-7, 6, 5, 7, 6, 5, COL.strawD); },
@@ -32,27 +41,45 @@ const BUILD: Record<PropKind | 'stump', (w: W) => void> = {
   stump: w => { w.box(-4, 0, -4, 4, 2, 4, COL.stone); w.box(-4, 2, -4, 4, 2, 4, COL.stoneL); w.box(-2, 3, -2, 2, 7, 2, COL.post); w.box(-2, 8, -2, 0, 9, 2, COL.postL); w.box(1, 8, -2, 2, 8, 0, COL.postL); },
 };
 const GEO = new Map<string, THREE.Mesh[]>();
-function model(kind: PropKind | 'stump') {
+function model(kind: PropKind | 'stump', rot: 0 | 1 = 0) {
+  if (rot) { const g = model(kind, 0); g.rotation.y = Math.PI / 2; const o = new THREE.Group(); o.add(g); return o; }
   if (!GEO.has(kind)) { const w = new VoxWorld(CELL); BUILD[kind](w); const ms = w.build({ rim: 0.3, edge: 0.16 }); for (const m of ms) m.geometry.translate(-CELL / 2 * 0, 0, 0); GEO.set(kind, ms); }
   const g = new THREE.Group(); for (const m of GEO.get(kind)!) { const c = new THREE.Mesh(m.geometry, m.material); c.castShadow = m.castShadow; c.receiveShadow = true; g.add(c); } return g;
 }
+const COVER_GEO = new Map<string, THREE.Mesh[]>();
+function coverModel(kind: CoverKind, rot: 0 | 1, rubble: boolean) {
+  const key = kind + rot + (rubble ? 'r' : '');
+  if (!COVER_GEO.has(key)) { const w = new VoxWorld(CELL); coverVox(w, kind, rot, rubble); COVER_GEO.set(key, w.build({ rim: 0.3, edge: 0.16 })); }
+  const g = new THREE.Group(); for (const m of COVER_GEO.get(key)!) { const c = new THREE.Mesh(m.geometry, m.material); c.castShadow = m.castShadow; c.receiveShadow = true; g.add(c); } return g;
+}
 /** shard colours per kind */
-const SHARDS: Record<PropKind, number[]> = { pot: [COL.clay, COL.clayD, COL.clayL], crate: [COL.wood, COL.woodD, COL.woodL], hay: [COL.straw, COL.strawD, COL.strawL], oil: [COL.oil, COL.oilD, COL.seal], pillar: [COL.post, COL.postD, COL.postL] };
+const SHARDS: Record<string, number[]> = { pot: [COL.clay, COL.clayD, COL.clayL], crate: [COL.wood, COL.woodD, COL.woodL], hay: [COL.straw, COL.strawD, COL.strawL], oil: [COL.oil, COL.oilD, COL.seal], pillar: [COL.post, COL.postD, COL.postL],
+  fence: [COL.wood, COL.woodD, COL.postD], rack: [COL.wood, COL.postD, 0x6a6e78], banner: [0xd8b030, 0xa8841c, 0xa8302a], basket: [0xa07a44, 0x7a5a30, 0xc8b48a], sack: [0xc8b48a, 0x9a8662, 0xe0d0a0], lamp: [0xa8302a, 0xffc070, COL.postD],
+  cover: [COL.stone, COL.stoneL, COL.woodD] };
 
-interface Vis { p: BProp; g: THREE.Group; tilt: THREE.Group; solid: Solid; wob: { x: number; z: number; vx: number; vz: number }; fall: number; fuseT: number }
+interface Vis { p: BProp; g: THREE.Group; tilt: THREE.Group; solid: Solid; wob: { x: number; z: number; vx: number; vz: number }; fall: number; fuseT: number; cover?: Cover; drop?: number }
 interface FireVis { id: number; x: number; z: number; r: number; t: number; disc: THREE.Mesh; emit: number }
 
 export class Breakables {
   logic = new BreakLogic(); root = new THREE.Group(); private vis = new Map<number, Vis>(); private fires: FireVis[] = [];
   constructor(parent: THREE.Object3D, private solids: Solids) { parent.add(this.root); }
   /** the room's props (from asm/arena.ts arenaPlan) */
-  build(list: Array<{ kind: PropKind; x: number; z: number }>) {
+  build(list: Array<{ kind: PropKind; x: number; z: number; rot?: 0 | 1 }>, covers: Cover[] = []) {
     this.clear();
     for (const it of list) {
-      const p = this.logic.add(it.kind, it.x, it.z), tilt = new THREE.Group(), g = new THREE.Group();
-      tilt.add(model(it.kind)); g.add(tilt); g.position.set(p.x, 0, p.z); g.rotation.y = ((p.id * 2654435761) % 4) * (Math.PI / 2); this.root.add(g);
-      const solid = this.solids.add({ kind: 'prop', shape: 'circle', x: p.x, z: p.z, r: p.r * 0.85, slam: it.kind === 'pillar', tag: p });
+      const p = this.logic.add(it.kind, it.x, it.z), tilt = new THREE.Group(), g = new THREE.Group(), long = it.kind === 'fence' || it.kind === 'rack';
+      tilt.add(model(it.kind, long ? (it.rot ?? 0) : 0)); g.add(tilt); g.position.set(p.x, 0, p.z); if (!long) g.rotation.y = ((p.id * 2654435761) % 4) * (Math.PI / 2); this.root.add(g);
+      // a fence / rack is a thin box along its length; the rest are round
+      const solid = long ? this.solids.add({ kind: 'prop', shape: 'box', x: p.x, z: p.z, hx: it.rot ? 0.2 : (it.kind === 'fence' ? 0.85 : 0.5), hz: it.rot ? (it.kind === 'fence' ? 0.85 : 0.5) : 0.2, slam: true, tag: p })
+        : this.solids.add({ kind: 'prop', shape: 'circle', x: p.x, z: p.z, r: p.r * 0.85, slam: it.kind === 'pillar', tag: p });
       this.vis.set(p.id, { p, g, tilt, solid, wob: { x: 0, z: 0, vx: 0, vz: 0 }, fall: -1, fuseT: 0 });
+    }
+    // act-20: the cover pieces break too — a solid box that crumbles to a lower heap after enough blows
+    for (const cv of covers) {
+      const p = this.logic.add('cover', cv.x, cv.z, Math.max(cv.hx, cv.hz)), tilt = new THREE.Group(), g = new THREE.Group();
+      tilt.add(coverModel(cv.kind, cv.rot, false)); g.add(tilt); g.position.set(cv.x, 0, cv.z); this.root.add(g);
+      const solid = this.solids.add({ kind: 'cover', shape: 'box', x: cv.x, z: cv.z, hx: cv.hx, hz: cv.hz, slam: true, tag: p });
+      this.vis.set(p.id, { p, g, tilt, solid, wob: { x: 0, z: 0, vx: 0, vz: 0 }, fall: -1, fuseT: 0, cover: cv });
     }
   }
   clear() {
@@ -111,8 +138,9 @@ export class Breakables {
         const ax = new THREE.Vector3(v.p.fallDir[1], 0, -v.p.fallDir[0]); v.tilt.quaternion.setFromAxisAngle(ax, a);
         if (v.fall >= 0.55 && v.fall - dt < 0.55) {
           const [dx, dz] = v.p.fallDir; for (let s = 0.6; s <= BTUNE.toppleLen; s += 0.7) fxSmoke(V3(v.p.x + dx * s, 0.2, v.p.z + dz * s), 0x8a7a6a, 2, { r: 0.4, spd: 1.6, up: 0.4, s: 0.4, life: 0.7 });
-          shake(0.28); cue('wallSlam', 1.0);
+          shake(v.drop != null ? 0.08 : 0.28); cue(v.drop != null ? 'land' : 'wallSlam', v.drop != null ? 0.5 : 1.0);
         }
+        if (v.drop != null && v.fall > v.drop) { this.root.remove(v.g); v.fall = -2; v.drop = undefined; continue; }
         if (v.fall > 2.4) { this.root.remove(v.g); const st = model('stump'); st.position.set(v.p.x, 0, v.p.z); this.root.add(st); v.g = st; v.tilt = new THREE.Group(); v.fall = -2; }
       }
     }
@@ -127,7 +155,21 @@ export class Breakables {
   /** turn the logic's events into pictures and sounds (also called for the events a blow returned) */
   present(evs: BEvent[]) {
     for (const e of evs) {
-      if (e.k === 'hit') { const v = this.vis.get(e.p.id); if (v) { v.wob.vx += e.dir[1] * 5; v.wob.vz -= e.dir[0] * 5; } fxChips(V3(e.p.x, 0.6, e.p.z), SHARDS[e.p.kind], 4, { dir: V3(e.dir[0], 0.3, e.dir[1]), speed: 3 }); cue(e.p.kind === 'hay' ? 'hayBurst' : 'crateBreak', 0.4); }
+      if (e.k === 'hit') { const v = this.vis.get(e.p.id); if (v) { const k = e.p.kind === 'cover' ? 1.2 : 5; v.wob.vx += e.dir[1] * k; v.wob.vz -= e.dir[0] * k; } fxChips(V3(e.p.x, 0.6, e.p.z), SHARDS[e.p.kind], 4, { dir: V3(e.dir[0], 0.3, e.dir[1]), speed: 3 }); cue(e.p.kind === 'hay' ? 'hayBurst' : 'crateBreak', 0.4); }
+      else if (e.k === 'break' && e.p.kind === 'cover') {
+        // a cover piece crumbles: the heap replaces it, a burst of blocks and dust, it still stands in the way (smaller)
+        const v = this.vis.get(e.p.id); if (!v || !v.cover) continue;
+        this.root.remove(v.g); const g = new THREE.Group(), t = new THREE.Group(); t.add(coverModel(v.cover.kind, v.cover.rot, true)); g.add(t); g.position.copy(v.g.position); this.root.add(g); v.g = g; v.tilt = t;
+        v.solid.hx *= BTUNE.rubbleK; v.solid.hz *= BTUNE.rubbleK; v.solid.r *= BTUNE.rubbleK;
+        const at = V3(e.p.x, 0.6, e.p.z);
+        for (let i = 0; i < 16; i++) { const a = Math.random() * Math.PI * 2, sp = 2 + Math.random() * 3; addBlock(at.clone().add(V3(Math.cos(a) * 0.3, Math.random() * 0.6, Math.sin(a) * 0.3)), { size: 0.08 + Math.random() * 0.1, v: V3(Math.cos(a) * sp + e.dir[0] * 2, 2 + Math.random() * 3.5, Math.sin(a) * sp + e.dir[1] * 2), col: SHARDS.cover[i % 3], glow: false, grav: 14, floor: 0.03, spin: 6, life: 1.8, shrink: 0.5 }); }
+        fxSmoke(at, 0x8a7a6a, 10, { r: 0.8, spd: 1.8, up: 0.8, s: 0.5, life: 0.9, alpha: 0.5 }); shake(0.3); cue('pillarFall', 0.7); cue('wallSlam', 0.8);
+      }
+      else if (e.k === 'break' && (e.p.kind === 'banner' || e.p.kind === 'lamp' || e.p.kind === 'fence' || e.p.kind === 'rack')) {
+        // tall / long things fall over the way they were hit, then go
+        const v = this.vis.get(e.p.id); if (!v) continue; v.solid.on = false; e.p.fallDir = e.dir; v.fall = 0; v.drop = 1.6;
+        fxChips(V3(e.p.x, 0.8, e.p.z), SHARDS[e.p.kind], 8, { dir: V3(e.dir[0], 0.3, e.dir[1]), speed: 3 }); cue(e.p.kind === 'banner' ? 'swish' : 'crateBreak', 0.8);
+      }
       else if (e.k === 'break') {
         const v = this.vis.get(e.p.id); if (v) { this.root.remove(v.g); v.solid.on = false; }
         const at = V3(e.p.x, 0.4, e.p.z), cols = SHARDS[e.p.kind];

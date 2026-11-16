@@ -108,7 +108,7 @@ void main(){
   float d = length(vUv), w = 0.018 / vR;
   float f1 = 0.12 + 0.88 * vK, f2 = 0.72 * vK - 0.04, f3 = 0.46 * vK - 0.08;
   float a = step(abs(d - f1), w) + 0.55 * step(abs(d - f2), w) * step(0.16, f2) + 0.28 * step(abs(d - f3), w) * step(0.16, f3);
-  a *= pow(1.0 - vK, 1.5) * uA * (0.3 + 0.7 * vNear); if (a < 0.004) discard;
+  a *= pow(max(1.0 - vK, 0.0), 1.5) * uA * (0.3 + 0.7 * vNear); if (a < 0.004) discard;
   gl_FragColor = vec4(uCol * (1.0 + 1.5 * uFlash) * a, a); }`;
 class Ripples {
   readonly mesh: THREE.Mesh; private at: THREE.InstancedBufferAttribute; private t0 = new Float32Array(RIP_MAX).fill(-99); readonly mat: THREE.ShaderMaterial;

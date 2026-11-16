@@ -177,12 +177,14 @@ function thrust(I: Pose, k: number, off: THREE.Vector3): Pose {
 /** 藏锋 (act-19, user: 「见切的动作也不是做的收刀动作预备，需要改成收刀拔刀的动作」): holding the cut button first sheathes the
  *  blade (the 归鞘 cross-over to the left hip, quick), then the body sinks into the draw stance — left hand on the scabbard mouth,
  *  right hand on the hilt, chest turned a little toward the scabbard, weight forward; releasing draws from the sheath (release()) */
-const SHEATHED: Partial<Pose> = { aRx: 0.3, aRz: 0.7, fR: -1.75, eR: 0.08, yR: 2.85, aLx: 0.25, aLz: 0.12, fL: -1.45, eL: 0.2, sy: 0.22, nx: 0.12 };
+// act-20 (user: 「现在收刀的动作看起来像肚子痛」): not hunched over the belly — chest up and turned to the scabbard side, head lifted to
+// listen, the right elbow out to the side with the hand on the hilt at the left hip, the left hand holding the scabbard mouth
+const SHEATHED: Partial<Pose> = { aRx: -0.15, aRz: 0.45, fR: -2.05, eR: 0.55, yR: 2.85, aLx: 0.35, aLz: 0.3, fL: -1.3, eL: 0.2, sy: 0.38, nx: -0.12 };
 function charge(I: Pose, c: number, t: number, creep = 0, ph = 0): Pose {
   const sh = c > 0.98 ? Math.sin(t * 90) * 0.012 : 0;
   // the sheathing: the first ~0.3 s of the stance plays the 归鞘 cross-over (k 0.3 → 1, the click at 0.64)
   const sk = Math.min(1, c / 0.42), arms = sk < 1 ? noto(I, 0.3 + 0.7 * sk) : mix(I, SHEATHED, 1);
-  const P = mix(arms, { tL: -0.95, kL: 1.45, tR: 0.5, kR: 1.2, hy: -0.55, sx: 0.5, px: sh, lift: 0.55 + 0.6 * c, flut: 0.5 + 0.5 * c }, Math.min(1, 0.4 + c));
+  const P = mix(arms, { tL: -0.85, kL: 1.15, tR: 0.55, kR: 0.95, hy: -0.38, sx: 0.2, px: sh, lift: 0.55 + 0.6 * c, flut: 0.5 + 0.5 * c }, Math.min(1, 0.4 + c));
   // moving in the stance: low sliding steps (碎步) — the feet take turns lifting a little and reaching, the crouch and the blade stay put
   if (creep > 0.02) { const s = Math.sin(ph * 1.5);
     P.tL += -0.2 * s * creep; P.kL += 0.35 * Math.max(0, s) * creep; P.tR += -0.2 * s * creep; P.kR += 0.35 * Math.max(0, -s) * creep; }
@@ -193,13 +195,13 @@ function charge(I: Pose, c: number, t: number, creep = 0, ph = 0): Pose {
  *  bowed a touch; the left hand holds the scabbard mouth from the start of the cross-over */
 function noto(I: Pose, k: number): Pose {
   const A: Partial<Pose> = {
-    aRx: S(k, [[0, -0.5], [0.12, 0.05], [0.26, 0.15], [0.45, 0.25], [0.64, 0.3], [1, 0.3]]),
-    aRz: S(k, [[0, 0.2], [0.12, -1.15], [0.26, -1.0], [0.45, 0.55], [0.64, 0.7], [1, 0.7]]),
-    fR: S(k, [[0, -0.4], [0.12, -0.15], [0.26, -0.25], [0.45, -1.35], [0.64, -1.75], [1, -1.75]]),
-    eR: S(k, [[0, 0.1], [0.12, -0.85], [0.26, -0.7], [0.45, 0.02], [0.64, 0.08], [1, 0.08]]),
+    aRx: S(k, [[0, -0.5], [0.12, 0.05], [0.26, 0.15], [0.45, 0.1], [0.64, -0.1], [1, -0.15]]),
+    aRz: S(k, [[0, 0.2], [0.12, -1.15], [0.26, -1.0], [0.45, 0.5], [0.64, 0.45], [1, 0.45]]),
+    fR: S(k, [[0, -0.4], [0.12, -0.15], [0.26, -0.25], [0.45, -1.5], [0.64, -2.0], [1, -2.05]]),
+    eR: S(k, [[0, 0.1], [0.12, -0.85], [0.26, -0.7], [0.45, 0.3], [0.64, 0.5], [1, 0.55]]),
     yR: S(k, [[0, 0.6], [0.12, -0.9], [0.26, -1.0], [0.45, 2.55], [0.64, 2.85], [1, 2.85]]),
     aLx: S(k, [[0, -0.5], [0.3, -0.2], [0.45, 0.25], [1, 0.25]]), aLz: S(k, [[0, 0.4], [0.45, 0.12], [1, 0.12]]), fL: S(k, [[0, -1.3], [0.45, -1.45], [1, -1.45]]),
-    sy: S(k, [[0, 0], [0.12, -0.2], [0.45, 0.2], [1, 0.15]]), sx: S(k, [[0, 0.2], [0.45, 0.25], [0.7, 0.32], [1, 0.3]]), nx: S(k, [[0, 0], [0.64, 0.1], [1, 0.2]]),
+    sy: S(k, [[0, 0], [0.12, -0.2], [0.45, 0.3], [1, 0.38]]), sx: S(k, [[0, 0.2], [0.45, 0.22], [0.7, 0.2], [1, 0.18]]), nx: S(k, [[0, 0], [0.64, -0.05], [1, -0.1]]),   // act-20: head up, not bowed
     tL: -0.3, kL: 0.35, tR: 0.2, kR: 0.3, lift: 0.6, flut: 0.5,
   };
   return mix(I, A, curve(k, [[0, 0.6], [0.06, 1], [0.9, 1], [1, 0.85]]));

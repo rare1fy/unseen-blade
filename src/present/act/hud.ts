@@ -16,7 +16,7 @@ import { V3 } from '../engine/world';
 import { TUNE } from './tune';
 import { SKIN, PALETTE, SkinBtn, SkinStick, SkinHp, type SkinId } from './skin';
 import { IronBtn, IronStick, IronHp, QteRing , type HintKey } from './ironUi';
-import { bodyW } from '../ui3d/bodyFont';
+import { textCells } from '../ui3d/pixfont';
 
 type AnyBtn = SkinBtn | IronBtn; type AnyHp = SkinHp | IronHp;
 
@@ -127,7 +127,7 @@ export class ActHud {
     if (this.flask instanceof IronHp) this.flask.intent = this.intent;
     this.flask.update(dt); this.sparks.update(dt);
     const st = this.flask.st, bar = this.flask.barAt();
-    this.L.text.set('act.hp', { text: `${Math.max(0, Math.round(st.hp))} / ${st.maxHp}`, x: bar.x, y: bar.y, bodyPx: Math.max(9, bar.h * 0.68), color: '#fff0d2', outline: '#21100e', align: 'center', visible: this.on });
+    this.L.text.set('act.hp', { text: `${Math.max(0, Math.round(st.hp))} / ${st.maxHp}`, x: bar.x, y: bar.y, cell: Math.max(1, Math.round(bar.h * 0.62 / 5)), color: '#fff0d2', outline: '#21100e', align: 'center', visible: this.on });   // act-20: pixel digits again (user: 「金币数、血量、伤害漂字这些还是想像素」)
     // the purse: a copper coin (a square-holed coin, in the UI layer) and the count
     if (!this.coinIcon) {
       const g = new THREE.Group(), m = new THREE.MeshBasicMaterial({ color: 0xd09040 }), d = new THREE.MeshBasicMaterial({ color: 0x5a3a18 });
@@ -135,9 +135,9 @@ export class ActHud {
       bar(1, 0.36, 0, 0.32, m); bar(1, 0.36, 0, -0.32, m); bar(0.36, 0.3, -0.32, 0, m); bar(0.36, 0.3, 0.32, 0, m); bar(0.28, 0.28, 0, 0, d);
       this.L.scene.add(g); this.coinIcon = g;
     }
-    const coinPx = 15, coinRight = this.W - 52, coinY = 23;
-    this.coinIcon.visible = this.on; this.L.at(coinRight - bodyW(`${this.coins}`, coinPx) - 13, coinY, 2, this.coinIcon.position); this.coinIcon.scale.setScalar(this.L.px(12));
-    this.L.text.set('act.coins', { text: `${this.coins}`, x: coinRight, y: coinY, bodyPx: coinPx, color: '#ffd27a', outline: '#21100e', align: 'right', visible: this.on });
+    const coinCell = 3, coinRight = this.W - 52, coinY = 23;
+    this.coinIcon.visible = this.on; this.L.at(coinRight - textCells(`${this.coins}`).w * coinCell - 13, coinY, 2, this.coinIcon.position); this.coinIcon.scale.setScalar(this.L.px(12));
+    this.L.text.set('act.coins', { text: `${this.coins}`, x: coinRight, y: coinY, cell: coinCell, color: '#ffd27a', outline: '#21100e', align: 'right', visible: this.on });
     // bars over the foes (the chief: the long bar at the top instead)
     const live = new Set<number>();
     for (const f of foes) {

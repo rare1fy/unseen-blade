@@ -1,5 +1,5 @@
 /** A destructible object on the battle floor. */
-export type BKind = 'pot' | 'crate' | 'hay' | 'oil' | 'pillar';
+export type BKind = 'pot' | 'crate' | 'hay' | 'oil' | 'pillar' | 'cover' | 'fence' | 'rack' | 'banner' | 'basket' | 'sack' | 'lamp';
 /** The attack or environmental effect striking a prop. */
 export type BSrc = 'hero' | 'dart' | 'slam' | 'blast' | 'fire';
 
@@ -27,7 +27,10 @@ export interface BTarget { id: unknown; x: number; z: number; r: number; hero: b
 export interface BDamage { target: BTarget; dmg: number; fromX: number; fromZ: number; knock: number; down: number; cause: 'boom' | 'fire' | 'topple' }
 
 /** First-pass sizes, damage, durations, and drop odds for battle props. */
-export const BTUNE = { radius: { pot: 0.32, crate: 0.4, hay: 0.55, oil: 0.38, pillar: 0.3 }, hp: { pot: 1, crate: 1, hay: 2, oil: 1, pillar: 3 },
+// act-20 (user: 「场景中的东西尽量都能破坏才爽」): the cover pieces crumble too (to rubble that still stands in the way), and six more small
+// things break: a fence length, a weapon rack, a 黄巾 banner, a basket, a grain sack, a lantern post (it drops its fire)
+export const BTUNE = { radius: { pot: 0.32, crate: 0.4, hay: 0.55, oil: 0.38, pillar: 0.3, cover: 0.8, fence: 0.55, rack: 0.45, banner: 0.22, basket: 0.34, sack: 0.34, lamp: 0.22 },
+  hp: { pot: 1, crate: 1, hay: 2, oil: 1, pillar: 3, cover: 7, fence: 2, rack: 2, banner: 1, basket: 1, sack: 1, lamp: 1 }, lampFireR: 1.0, lampFireT: 2.5, rubbleK: 0.6,
   fuse: 1.0, chainFuse: 0.25, boomR: 2.5, boomFoe: 30, boomHero: 12, boomKnock: 2.0, fireR: 1.6, fireT: 3, fireTick: 0.5, fireDmg: 3,
   toppleLen: 4, toppleW: 1.2, toppleFoe: 40, toppleHero: 10, toppleDown: 1.2, stumpR: 0.3,
   potCoinChance: 0.25, coinsMin: 3, coinsMax: 5, hayHealChance: 0.2, hayHeal: 5 };
@@ -57,8 +60,8 @@ export class BreakLogic {
   constructor(rng: () => number = Math.random) { this.rng = rng; }
 
   /** Place a fresh prop with its tuned size and health. */
-  add(kind: BKind, x: number, z: number): BProp {
-    const p: BProp = { id: this.nextPropId++, kind, x, z, r: BTUNE.radius[kind], hp: BTUNE.hp[kind], state: 'idle', fuse: 0, fallDir: null };
+  add(kind: BKind, x: number, z: number, r?: number): BProp {
+    const p: BProp = { id: this.nextPropId++, kind, x, z, r: r ?? BTUNE.radius[kind], hp: BTUNE.hp[kind], state: 'idle', fuse: 0, fallDir: null };
     this.props.push(p);
     return p;
   }
@@ -68,7 +71,7 @@ export class BreakLogic {
 
   /** Find live props touching a circle, including fallen pillar stumps. */
   near(x: number, z: number, r: number): BProp[] {
-    return this.props.filter(p => p.state !== 'gone' && Math.hypot(p.x - x, p.z - z) <= r + (p.state === 'fallen' ? BTUNE.stumpR : p.r));
+    return this.props.filter(p => p.state !== 'gone' && Math.hypot(p.x - x, p.z - z) <= r + (p.state === 'fallen' ? (p.kind === 'cover' ? p.r * BTUNE.rubbleK : BTUNE.stumpR) : p.r));
   }
 
   /** Resolve one blow and any immediate topple effects. */
@@ -121,14 +124,16 @@ export class BreakLogic {
       result.events.push({ k: 'fuse', p });
       return;
     }
-    if (p.kind === 'pillar' && o.src === 'fire') return;
-    const damage = p.kind === 'pillar' && (o.heavy || o.src === 'blast') ? 2 : 1;
-    const forceBreak = p.kind !== 'pillar' && (o.src === 'fire' || o.src === 'blast');
+    if ((p.kind === 'pillar' || p.kind === 'cover') && o.src === 'fire') return;
+    const damage = p.kind === 'cover' ? (o.src === 'blast' ? 3 : o.heavy ? 2 : 1) : p.kind === 'pillar' && (o.heavy || o.src === 'blast') ? 2 : 1;
+    const forceBreak = p.kind !== 'pillar' && p.kind !== 'cover' && (o.src === 'fire' || o.src === 'blast');
     p.hp = Math.max(0, p.hp - (forceBreak ? p.hp : damage));
     if (p.hp > 0) {
       result.events.push({ k: 'hit', p, dir });
       return;
     }
+    // a cover piece crumbles to rubble: still there (smaller), no fall, no drop
+    if (p.kind === 'cover') { p.state = 'fallen'; p.fallDir = dir; result.events.push({ k: 'break', p, dir, drop: null }); return; }
     if (p.kind === 'pillar') {
       p.state = 'fallen'; p.fallDir = dir;
       const ax = p.x, az = p.z, bx = ax + dir[0] * BTUNE.toppleLen, bz = az + dir[1] * BTUNE.toppleLen;
@@ -154,6 +159,8 @@ export class BreakLogic {
       drop = { kind: 'heal', n: BTUNE.hayHeal };
     }
     result.events.push({ k: 'break', p, dir, drop });
+    // a lantern post drops its fire where it stood
+    if (p.kind === 'lamp') { const f: Fire = { id: this.nextFireId++, x: p.x + dir[0] * 0.6, z: p.z + dir[1] * 0.6, r: BTUNE.lampFireR, t: BTUNE.lampFireT, tick: BTUNE.fireTick }; this.fires.push(f); result.events.push({ k: 'fire', f }); }
   }
 
   private explode(p: BProp, targets: BTarget[], result: Result): void {

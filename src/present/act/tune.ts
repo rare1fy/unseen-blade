@@ -39,9 +39,10 @@ export const TUNE = {
   /** 绝 · 一刀（杀意满三格后，完美闪避 / 见切时弹出 QTE）：金环收拢用多久（真实秒）、一刀的伤害 */
   qteTime: 0.9, ultDmg: 60,
   // 敌人
-  enemyHp: 1, enemyDmg: 1, aggression: 1,
+  enemyHp: 1, enemyDmg: 1, aggression: 0.85,   // act-20: windups ~18% longer
+  /** act-20: the pause after any foe's blow before another may start one (s) */ atkCalm: 0.7,
   /** 同时出手的敌人上限（读得清，像哈迪斯） */
-  maxAttackers: 2,
+  maxAttackers: 1,   // act-20 (user: 「打起来有点乱」): one at a time (流民 count half)
   /** 摇杆：0 = 左下区域里按哪儿出在哪儿（之后底座不动），1 = 固定在左下角 */
   stickFixed: 0,
   // 镜头
@@ -62,7 +63,7 @@ export const TUNE_UI: Array<[TuneKey, string, number, number, number]> = [
   ['deflectWin', '砍箭窗口（秒）', 0.1, 0.8, 0.01], ['deflectStop', '弹箭顿帧', 0, 0.3, 0.01], ['deflectSlow', '弹箭慢放', 0, 0.6, 0.02], ['deflectDmg', '弹箭伤害', 4, 40, 1],
   ['dodgeSlow', '完美闪避慢放', 0, 1, 0.02], ['counterTime', '回锋斩持续（秒）', 0.5, 4, 0.1], ['counterMul', '回锋斩伤害倍数', 1, 4, 0.1],
   ['iaiWin', '破势窗口（秒）', 0.08, 0.6, 0.01], ['iaiReflect', '破势反弹伤害', 5, 60, 1], ['qteTime', '不见刀 QTE 收拢（秒）', 0.4, 2, 0.05], ['ultDmg', '不见刀伤害', 20, 150, 5],
-  ['enemyHp', '敌人血量', 0.3, 3, 0.05], ['enemyDmg', '敌人伤害', 0, 3, 0.05], ['aggression', '敌人凶度', 0.4, 2, 0.05], ['maxAttackers', '同时出手', 1, 5, 1],
+  ['enemyHp', '敌人血量', 0.3, 3, 0.05], ['enemyDmg', '敌人伤害', 0, 3, 0.05], ['aggression', '敌人凶度', 0.4, 2, 0.05], ['maxAttackers', '同时出手', 1, 5, 1], ['atkCalm', '出手间隙（秒）', 0, 2, 0.05],
   ['stickFixed', '摇杆（0 区域内浮动 / 1 固定）', 0, 1, 1],
   ['camH', '镜头高度', 4, 24, 0.2], ['camD', '镜头后退', 4, 24, 0.2], ['camFov', '视角', 20, 70, 1], ['camLead', '镜头前引', 0, 1.2, 0.02],
 ];

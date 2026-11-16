@@ -238,8 +238,8 @@ export class ActShow {
     this.stage = showStage({ ...def, build(c) { try { def.build(c); } catch (e) { console.error('[act] assembly failed', e); } } }, { combat: true });
     this.solids.clear(); this.props?.dispose(); this.props = null; this.botWp = 0;
     if (this.arena && this.stage) {
-      for (const cv of this.arena.covers) this.solids.add({ kind: 'cover', shape: 'box', x: cv.x, z: cv.z, hx: cv.hx, hz: cv.hz, slam: true, tag: cv });
-      this.props = new Breakables(this.stage.root, this.solids); this.props.build(this.arena.props);
+      // act-20: the cover pieces are breakable (Breakables builds them and their solids)
+      this.props = new Breakables(this.stage.root, this.solids); this.props.build(this.arena.props, this.arena.covers);
       this.gates = new Gates(this.stage.root, this.arena);
     }
     // fallen leaves on the floor, a few drifting down (act-19); none in winter or in the rain

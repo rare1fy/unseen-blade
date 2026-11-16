@@ -25,7 +25,7 @@ import { Tele, inside, type TeleShape } from './tele';
 import { TUNE } from './tune';
 import { toon } from '../look/toon';
 import { cue } from '../../audio/cues';
-import { shake } from '../engine/clock';
+import { shake, clock } from '../engine/clock';
 import { fxSparks, fxSmoke, fxRing, fxGlow, fxEmbers, trailSeg } from '../fx/fx';
 import { fxBolt, fxShock } from '../fx/skillFx';
 
@@ -126,6 +126,8 @@ function startAttack(f: Foe, w: FoeWorld, shape: TeleShape, windup: number, dmg:
 const isLow = (f: Foe, s: TeleShape) => (f.role === 'hound' && s.k === 'rect') || ((f.role === 'chief' || f.role === 'brute') && s.k === 'circle');
 /** the foe is winding up an attack a jump clears (the bot jumps these) */
 export const lowAttack = (f: Foe) => f.st === 'windup' && !!f.shape && isLow(f, f.shape);
+/** act-20 (user: 「敌人攻击频率有点太高了，打起来有点乱」): after a blow is over nobody starts the next for TUNE.atkCalm s */
+let calmUntil = 0;
 const attackers = (w: FoeWorld) => w.foes.reduce((n, o) => n + (o.attacking && o.st !== 'dead' ? (o.role === 'mob' ? 0.5 : 1) : 0), 0);
 
 export function updateFoe(f: Foe, w: FoeWorld, dt: number) {
@@ -188,7 +190,7 @@ export function updateFoe(f: Foe, w: FoeWorld, dt: number) {
         f.combo--;
         if (f.role === 'hound') startAttack(f, w, { k: 'rect', len: 5.2, w: 1.0 }, 0.36, 8, yawTo, { atk: 'lunge' });
         else startAttack(f, w, { k: 'cone', r: 2.3, half: 1.0 }, 0.34, 10, yawTo, { atk: 'cut' });
-      } else setSt(f, 'recover', f.role === 'hound' ? 0.7 : f.role === 'chief' ? 0.9 : f.role === 'brute' ? 1.0 : f.role === 'boss' ? (f.atk === 'thunder' ? 0.5 : f.phase > 1 ? 0.45 : 0.75) : f.role === 'mob' ? 0.45 : 0.6);
+      } else (calmUntil = Math.max(calmUntil, clock.time + TUNE.atkCalm), setSt(f, 'recover', f.role === 'hound' ? 0.7 : f.role === 'chief' ? 0.9 : f.role === 'brute' ? 1.0 : f.role === 'boss' ? (f.atk === 'thunder' ? 0.5 : f.phase > 1 ? 0.45 : 0.75) : f.role === 'mob' ? 0.45 : 0.6));
     }
   }
   if (free) think(f, w, dt, dist, dir, yawTo, face);
@@ -201,7 +203,7 @@ export function updateFoe(f: Foe, w: FoeWorld, dt: number) {
 
 /** free movement: close in / keep away / circle, and decide when to attack */
 function think(f: Foe, w: FoeWorld, dt: number, dist: number, dir: THREE.Vector3, yawTo: number, face: (y: number, k?: number) => void) {
-  const can = w.heroAlive && f.cd <= 0 && attackers(w) < TUNE.maxAttackers, side = V3(dir.z, 0, -dir.x).multiplyScalar(f.strafe);
+  const can = w.heroAlive && f.cd <= 0 && attackers(w) < TUNE.maxAttackers && (clock.time >= calmUntil || f.role === 'boss'), side = V3(dir.z, 0, -dir.x).multiplyScalar(f.strafe);
   let want = V3(), sp = f.d.speed, aim = false;
   const r = f.role;
   if (r === 'blade') {

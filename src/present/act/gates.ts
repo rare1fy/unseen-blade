@@ -20,15 +20,15 @@ function barricade(w: number) {
 }
 const CURTAIN_FS = `uniform vec3 uCol; uniform float uT, uK; varying vec2 vUv;
 void main() { float y = vUv.y, s = 0.75 + 0.25 * sin(uT * 1.7 + vUv.x * 9.0) * sin(uT * 0.9 - vUv.x * 4.0);
-  float a = pow(1.0 - y, 1.6) * 0.7 * s * uK; a *= smoothstep(0.0, 0.08, vUv.x) * smoothstep(1.0, 0.92, vUv.x);
-  gl_FragColor = vec4(uCol * (1.0 + 0.4 * (1.0 - y)), a); }`;
+  float a = pow(max(1.0 - y, 0.0), 1.6) * 0.7 * s * uK; a *= smoothstep(0.0, 0.08, vUv.x) * (1.0 - smoothstep(0.92, 1.0, vUv.x));
+  gl_FragColor = vec4(uCol * (1.0 + 0.4 * (1.0 - y)), clamp(a, 0.0, 1.0)); }`;
 const RIPPLE_FS = `uniform vec3 uCol; uniform float uT, uK, uR; varying vec3 vP;
 void main() { float d = length(vP.xz) / uR; float band = step(0.7, fract(d * 3.2 - uT * 0.85));
-  float a = band * (1.0 - d) * 0.62 * uK; gl_FragColor = vec4(uCol * 1.25, a); }`;
+  float a = band * max(1.0 - d, 0.0) * 0.62 * uK; gl_FragColor = vec4(uCol * 1.25, clamp(a, 0.0, 1.0)); }`;
 /** the light spilling through the gate onto the floor: bright at the gate, fading into the room, soft at the sides */
 const SPILL_FS = `uniform vec3 uCol; uniform float uT, uK; varying vec2 vUv;
-void main() { float v = vUv.y, side = smoothstep(0.0, 0.22, vUv.x) * smoothstep(1.0, 0.78, vUv.x);
-  float a = pow(1.0 - v, 1.7) * side * (0.5 + 0.08 * sin(uT * 2.3)) * uK; gl_FragColor = vec4(uCol * 1.2, a); }`;
+void main() { float v = vUv.y, side = smoothstep(0.0, 0.22, vUv.x) * (1.0 - smoothstep(0.78, 1.0, vUv.x));
+  float a = pow(max(1.0 - v, 0.0), 1.7) * side * (0.5 + 0.08 * sin(uT * 2.3)) * uK; gl_FragColor = vec4(uCol * 1.2, clamp(a, 0.0, 1.0)); }`;
 const VS_UV = 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }';
 const VS_P = 'varying vec3 vP; void main() { vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }';
 

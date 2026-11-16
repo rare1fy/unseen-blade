@@ -11,11 +11,11 @@ import { exitInfo, type ExitId } from './exits';
 
 export type WallStyle = 'earth' | 'wattle' | 'brick';
 export type CoverKind = 'well' | 'mill' | 'cart' | 'stones' | 'ding' | 'stele' | 'trough';
-export type PropKind = 'pot' | 'crate' | 'hay' | 'oil' | 'pillar';
+export type PropKind = 'pot' | 'crate' | 'hay' | 'oil' | 'pillar' | 'fence' | 'rack' | 'banner' | 'basket' | 'sack' | 'lamp';
 /** a gap in the wall: centre (x, z), along 'x' (the back wall) or 'z' (a side wall), opening width w; open = this room's way out */
 export interface Gate { id: ExitId | 'path'; x: number; z: number; along: 'x' | 'z'; w: number; open: boolean; out: [number, number] }
 export interface Cover { kind: CoverKind; x: number; z: number; hx: number; hz: number; rot: 0 | 1 }
-export interface ArenaPlan { style: WallStyle; gates: Gate[]; covers: Cover[]; props: Array<{ kind: PropKind; x: number; z: number }>;
+export interface ArenaPlan { style: WallStyle; gates: Gate[]; covers: Cover[]; props: Array<{ kind: PropKind; x: number; z: number; rot?: 0 | 1 }>;
   /** the wall's inner face sits this far outside PLAY (m) and it is this thick / tall */ wall: { gap: number; thick: number; h: number } }
 
 export const WALL = { gap: 0.1, thick: 0.49, h: 1.19 };
@@ -54,10 +54,11 @@ export function arenaPlan(layout: Layout, exits: ExitId[], seed: number, locale:
     covers.push({ kind: k, x: +x.toFixed(2), z: +z.toFixed(2), hx, hz, rot });
   }
   // props: clusters of 2–3 by the cover and along the walls, oil jars and pillars on the open floor
-  const props: ArenaPlan['props'] = [], R0: Record<PropKind, number> = { pot: 0.32, crate: 0.4, hay: 0.55, oil: 0.38, pillar: 0.3 };
+  const props: ArenaPlan['props'] = [], R0: Record<PropKind, number> = { pot: 0.32, crate: 0.4, hay: 0.55, oil: 0.38, pillar: 0.3, fence: 0.85, rack: 0.5, banner: 0.25, basket: 0.34, sack: 0.34, lamp: 0.25 };
   const free = (x: number, z: number, rr: number) => inFloor(x, z, rr + 0.3) && !inClear(x, z, rr + 0.2) && covers.every(c => Math.abs(c.x - x) > c.hx + rr + 0.35 || Math.abs(c.z - z) > c.hz + rr + 0.35) && props.every(p => Math.hypot(p.x - x, p.z - z) > R0[p.kind] + rr + 0.25);
-  const put = (k: PropKind, x: number, z: number) => { if (!free(x, z, R0[k])) return false; props.push({ kind: k, x: +x.toFixed(2), z: +z.toFixed(2) }); return true; };
-  const smalls: PropKind[] = style === 'wattle' ? ['hay', 'pot', 'crate', 'hay'] : style === 'brick' ? ['pot', 'pot', 'crate'] : ['pot', 'crate', 'pot', 'hay'];
+  const put = (k: PropKind, x: number, z: number, rot?: 0 | 1) => { if (!free(x, z, R0[k])) return false; props.push({ kind: k, x: +x.toFixed(2), z: +z.toFixed(2), ...(rot != null ? { rot } : {}) }); return true; };
+  // act-20 (user: 「场景中的东西尽量都能破坏才爽」): baskets and grain sacks in the clusters too
+  const smalls: PropKind[] = style === 'wattle' ? ['hay', 'pot', 'sack', 'hay', 'basket'] : style === 'brick' ? ['pot', 'pot', 'crate', 'basket'] : ['pot', 'crate', 'sack', 'hay', 'basket'];
   let salt = 100;
   const cluster = (ax: number, az: number, n: number) => { const k = smalls[Math.floor(r(salt++) * smalls.length)]; for (let i = 0, t = 0; i < n && t < 12; t++) { const a = r(salt++) * Math.PI * 2, d = 0.5 + r(salt++) * 0.8; if (put(i === 0 ? k : smalls[Math.floor(r(salt++) * smalls.length)], ax + Math.cos(a) * d, az + Math.sin(a) * d)) i++; } };
   for (const c of covers) { const s = r(salt++) < 0.5 ? -1 : 1; cluster(c.x + s * (c.hx + 0.9), c.z + (r(salt++) - 0.5) * c.hz * 2, 2 + (r(salt++) < 0.5 ? 1 : 0)); }
@@ -71,6 +72,13 @@ export function arenaPlan(layout: Layout, exits: ExitId[], seed: number, locale:
     for (let i = 0, t = 0; i < nOil && t < 40; t++) { const x = PLAY.x0 + 3 + r(salt++) * (PLAY.x1 - PLAY.x0 - 6), z = PLAY.z0 + 3 + r(salt++) * (PLAY.z1 - PLAY.z0 - 8); if (covers.every(c => Math.hypot(c.x - x, c.z - z) > 3) && props.filter(p => p.kind === 'oil').every(p => Math.hypot(p.x - x, p.z - z) > 4) && put('oil', x, z)) i++; }
     for (let i = 0, t = 0; i < nPil && t < 40; t++) { const x = PLAY.x0 + 3.5 + r(salt++) * (PLAY.x1 - PLAY.x0 - 7), z = PLAY.z0 + 3.5 + r(salt++) * (PLAY.z1 - PLAY.z0 - 9); if (props.filter(p => p.kind === 'pillar').every(p => Math.hypot(p.x - x, p.z - z) > 6) && put('pillar', x, z)) i++; }
   }
+  // act-20: more to break — fence lengths across the floor, weapon racks by the walls, 黄巾 banners, lantern posts
+  const spot = (pad: number) => [PLAY.x0 + pad + r(salt++) * (PLAY.x1 - PLAY.x0 - pad * 2), PLAY.z0 + pad + r(salt++) * (PLAY.z1 - PLAY.z0 - pad * 2 - 2)];
+  const many = (k: PropKind, n: number, pad: number, rot = false) => { for (let i = 0, t = 0; i < n && t < 40; t++) { const [x, z] = spot(pad); if (put(k, x, z, rot ? (r(salt++) < 0.5 ? 0 : 1) : undefined)) i++; } };
+  many('fence', kind === 'calm' ? 1 : 3, 3, true);
+  for (let i = 0, t = 0; i < 2 && t < 30; t++) { const side = r(salt++) < 0.5 ? -1 : 1, z = PLAY.z0 + 3 + r(salt++) * (PLAY.z1 - PLAY.z0 - 8); if (put('rack', side < 0 ? PLAY.x0 + 0.8 : PLAY.x1 - 0.8, z, 1)) i++; }
+  many('banner', kind === 'calm' ? 1 : 3, 2.5);
+  many('lamp', 2, 2.5);
   return { style, gates, covers, props, wall: { ...WALL } };
 }
 
@@ -104,7 +112,7 @@ export function buildArena(c: Ctx, plan: ArenaPlan, seed: number) {
   };
   run('z', zb0, zf, xl0, xl1, holes('z', -1), 10); run('z', zb0, zf, xr0, xr1, holes('z', 1), 40); run('x', xl0, xr1, zb0, zb1, holes('x', 0), 70);
   for (const g of plan.gates) gateFrame(box, plan.style, g, T, G);
-  for (const cv of plan.covers) cover(box, cv, r);
+  void r;   // act-20: the cover pieces are breakable now — built by act/breakables.ts from coverVox()
 }
 
 /** one straight stretch of wall between a0..a1 (cells along the run), b0..b1 across it */
@@ -171,6 +179,17 @@ function gateFrame(box: B, st: WallStyle, g: Gate, T: number, Gp: number) {
 }
 
 /** one piece of cover, centred on its cell, its long side along x (rot 0) or z (rot 1) */
+/** a cover piece's voxels at the origin (act-20: they break now, so they are their own meshes); rubble = the heap it falls to */
+export function coverVox(w: { box(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, c: number | null): unknown }, kind: CoverKind, rot: 0 | 1, rubble = false) {
+  const box: B = (x0, y0, z0, x1, y1, z1, col) => { w.box(Math.min(x0, x1), y0, Math.min(z0, z1), Math.max(x0, x1), y1, Math.max(z0, z1), col); };
+  if (!rubble) { cover(box, { kind, x: 0, z: 0, hx: 0, hz: 0, rot }, () => 0); return; }
+  // the heap: low broken blocks in the piece's own materials, flat-topped, axis-aligned
+  const stoneish = kind === 'well' || kind === 'mill' || kind === 'stones' || kind === 'stele' || kind === 'trough';
+  const a = stoneish ? PAL.stone : kind === 'ding' ? PAL.bronze : PAL.wood, d = stoneish ? PAL.stoneD : kind === 'ding' ? PAL.bronzeD : PAL.woodD, l = stoneish ? PAL.stoneL : kind === 'ding' ? PAL.bronzeL : PAL.woodL;
+  const bx = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, col: number) => rot ? box(z0, y0, x0, z1, y1, x1, col) : box(x0, y0, z0, x1, y1, z1, col);
+  bx(-9, 0, -6, 2, 3, 6, a); bx(-9, 4, -6, 2, 4, 6, l); bx(3, 0, -5, 10, 2, 3, d); bx(-4, 4, -3, 0, 6, 2, d); bx(4, 3, -2, 8, 3, 1, l);
+  if (kind === 'cart' || kind === 'well') { bx(-12, 0, 5, -2, 1, 7, PAL.woodD); bx(6, 0, -8, 8, 1, 2, PAL.wood); }
+}
 function cover(box: B, cv: Cover, r: (k: number) => number) {
   const X = M(cv.x), Z = M(cv.z), rot = cv.rot;
   const bx = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, col: number) => rot ? box(X + z0, y0, Z + x0, X + z1, y1, Z + x1, col) : box(X + x0, y0, Z + z0, X + x1, y1, Z + z1, col);
