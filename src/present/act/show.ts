@@ -18,10 +18,11 @@ import { showStage, type Stage } from '../scenes/stage';
 import { PLAY } from '../scenes/props';
 import { addLocales, REGISTRY, LOCALES } from '../asm/registry';
 import { NINJA_LOCALES } from '../asm/ninja';
+import { HANMO_LOCALES } from '../asm/hanmo';
 import { assemble, mirrorLayout } from '../asm/assemble';
 import { pickSpec } from '../asm/pick';
 import { exitInfo, withExits, type ExitId, type ExitInfo } from '../asm/exits';
-import type { Layout, Spec } from '../asm/types';
+import type { Layout, Spec, Report } from '../asm/types';
 import { wipeTransit, WIPE } from '../scenes/transWipe';
 import { makeBoard } from '../ronin/route';
 import type { RouteOpt } from '../../core/v2/ronin/chapter';
@@ -52,7 +53,7 @@ import { BattleActor } from '../bestiary/battle';
 import { CELL } from '../bestiary/kit';
 import { Action } from '../actors/rig';
 
-addLocales(NINJA_LOCALES);
+addLocales(NINJA_LOCALES); addLocales(HANMO_LOCALES);
 
 interface RoomDef { waves: EKind[][]; boss?: boolean }
 const ROOMS: RoomDef[] = [
@@ -88,6 +89,8 @@ export class ActShow {
   L = new UiLayer(); ov = new Overlay(); inp = new Input(); hud: ActHud; cards: CardPick; banner: SkinBanner;
   stage: Stage | null = null; hero!: Hero; foes: Foe[] = []; arrows: Arrow[] = []; waves: BladeWave[] = []; darts: Dart[] = []; /** darts thrown so far (tests) */ dartsThrown = 0;
   room = 0; wave = 0; phase: Phase = 'intro'; perks: Perks = newPerks(); private reward: 'build' | 'heal' = 'build';
+  /** __dh.scene: the spec overrides for a fight-less view of one place; the last assembler report */
+  private viewSpec: Partial<Spec> | null = null; private lastReport: Report | null = null;
   private spec: Spec | null = null; private layout: Layout | null = null; private doors: Array<{ ex: ExitInfo; g: THREE.Group; lift: number }> = []; private locale = 'ninja_wilds';
   private cam = V3(0, 0, 0); private dashHit = new Set<number>(); private lastSt = ''; private dashEdgeT = 0; private recent: Spec[] = [];
   botOn = false; kills = 0; log: string[] = []; private introT = 0; private audioOn = false; private hinted = false;
@@ -120,6 +123,10 @@ export class ActShow {
       motion: (i: number, m: Record<string, number>) => { const a = this.lineupActors[i]; if (a) Object.assign(motionOf(a), m); },
       lplay: (i: number, name: string, dur = 0.5, at = 0.5) => { this.lineupActors[i]?.play(new Action(name, dur, at)); },
       // tests: an arrow from d metres in front of the hero, flying at it
+      // agents / captures: a fight-less room in one place (the scene builders check their place with it) — returns the assembler's report
+      scene: (id: string, seed?: number, o: Partial<Spec> = {}) => { this.viewSpec = { ...o, locale: id, ...(seed != null ? { seed } : {}) }; this.room = 0; this.locale = id; this.buildRoom(true); this.viewSpec = null; const r = this.lastReport; return r ? { name: r.name, spec: r.spec, placed: r.placed.length, rejected: r.rejected.map(x => x.id + ':' + x.issues.map(i => i.kind).join('/')), empty: r.empty, warnings: r.warnings, lights: r.lights } : null; },
+      // agents / captures: a foe of any kind at (x, z), facing the hero (elite: the stronger variant, where the kind has one)
+      spawn: (kind: EKind, x = 0, z = -2, elite = false) => { const f = spawnFoe(kind, V3(x, 0, z), this.hero.pos.clone()); (f as Foe & { elite?: boolean }).elite = elite; f.st = 'move'; this.foes.push(f); return f.uid; },
       arrow: (d = 6) => { const h = this.hero, f = h.a.fwd(), p = h.pos.clone().addScaledVector(f, d).setY(1.25); this.arrows.push(new Arrow(p, Math.atan2(-f.x, -f.z), 8)); },
       // captures: every costume in a row facing the camera (the hero hidden), or gone again
       lineup: (on = true, z = 2.4, gap = 1.5, act = '', ids: string[] | null = null) => {
@@ -178,8 +185,9 @@ export class ActShow {
     const base = pickSpec(seed, Object.values(REGISTRY.locales), REGISTRY.layouts, this.recent, { season: 'autumn', locale: this.locale });
     const spec: Spec = isYard ? { ...base, time: 'dusk', weather: 'clear', exits: ['back'] }
       : { ...base, time: this.room === 0 ? 'dusk' : base.time, weather: this.room === 2 ? 'clear' : base.weather, exits: this.room < ROOMS.length - 1 ? (DOORS[this.room].length > 1 ? ['left', 'right'] : ['back']) : [] };
+    if (this.viewSpec) Object.assign(spec, this.viewSpec, { exits: [] });
     this.recent.push(spec); this.spec = spec;
-    const { def } = assemble(spec, REGISTRY);
+    const { def, report } = assemble(spec, REGISTRY); this.lastReport = report;
     const lb = REGISTRY.layouts[spec.layout] ?? Object.values(LOCALES).flatMap(l => l.extraLayouts ?? []).find(l => l.id === spec.layout)!;
     this.layout = withExits(spec.mirror ? mirrorLayout(lb) : lb, spec.exits ?? []);
     this.stage = showStage({ ...def, build(c) { try { def.build(c); } catch (e) { console.error('[act] assembly failed', e); } } }, { combat: true });
@@ -188,6 +196,7 @@ export class ActShow {
     this.hud.flask.set({ hp: this.hero.hp, maxHp });
     this.cam.set(0, 0, 3); shot('act', () => this.camPose(), { cut: true, speed: 8 });
     if (isYard) { this.openYard(); return; }
+    if (this.viewSpec) { this.phase = 'yard'; this.log.push(`view ${spec.locale} ${spec.layout} ${spec.time}`); return; }
     this.phase = 'intro'; this.wave = 0;
     const name = LOCALES[this.locale]?.name ?? '';
     // the very first room: the controls once, in the banner (no key hints on screen afterwards)
