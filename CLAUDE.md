@@ -33,7 +33,7 @@
   - 截图 / 录屏 / 脚本操作：`node tools/cap.mjs <url> <输出目录> <动作 JSON> 1280x720 1 [vt]`（视口要横的，竖的游戏会自己转 90°；`vt` = 虚拟时钟逐帧）。拼图：`python tools/sheet.py`。
   - 机器人打一整局：`node tools/cap.mjs <url> out/bot tools/bot.json 1280x720 1`（`__dh.bot(true)`，从练武场走出去打到头目，结果在 `out/bot/result.json`）。
 - 调试接口 `window.__dh`：`act()`（游戏对象）、`bot(true)`、`run()` 开一局、`yard()` 回练武场、`wear(id)` 换造型、`skin(id)` 换界面、`intent(n)` 设杀意、`cardsDemo()`、`lineup(...)` 造型站排、`cam([x,y,z],[lx,ly,lz],fov)` / `cam(null)` 固定镜头、`motion(i, {...})`、`lplay(i, name)`、`press(name, ms)` / `unpress(name)` / `stick(x, y, ms)` 脚本输入、`arrow(d)` 朝主角射一箭、`stats()`（draw call）、`px(on, size)`。游戏启动完成设 `window.__dhready = true`。
-- 代码：`src/main.ts` 启动；游戏全在 `src/present/act/`——`show.ts`（流程、房间、战斗判定、见切、杀意、一刀 QTE）、`hero.ts`（主角状态机：五段连斩、点按 / 长按、入鞘 / 抽刀、冲刺、跳 / 二段跳、下劈）、`enemy.ts`（山贼、山犬、弓手、头目、木人桩）、`tele.ts`（地面预警形状）、`missiles.ts`（飞镖、刃风的月牙刀光）、`input.ts`（键盘 / 手柄 / 触屏合成）、`tune.ts` + `tunePanel.ts`（调参面板，右上「调」或 ` 键）、`ironUi.ts` / `hud.ts` / `skin.ts`（铁器界面和另外两套皮）、`ninjaAct.ts`（程序化动作）、`blind.ts` / `blind2.ts`（主角造型）、`yard.ts`（练武场）、`cards.ts` / `boons.ts`（秘传三选一，三档品质）、`schools.ts` / `chill.ts`（太平道雷、江东水师寒的效果，寒气冻结规则）、`run.ts`（一局 6 间屋的规划、兵种和地点）、`stations.ts`（行商 / 歇脚 / 遗卷的摊位和席子）、`coins.ts`（铜钱）、`runBoard.ts`（路牌）、`hitArc.ts`（受击方向弧）、`foes/hj_models.ts`（黄巾兵体素模型）。黄巾残村的三个地点在 `src/present/asm/hanmo/`（残村 `hj_village`、麦田 `hj_field`、破庙 `hj_temple`）。其余 `src/present/*` 是从 dicehero3d 带过来的渲染、体素、场景拼装、特效、角色工具。
+- 代码：`src/main.ts` 启动；游戏全在 `src/present/act/`——`show.ts`（流程、房间、战斗判定、见切、杀意、一刀 QTE）、`hero.ts`（主角状态机：五段连斩、点按 / 长按、入鞘 / 抽刀、冲刺、跳 / 二段跳、下劈）、`enemy.ts`（山贼、山犬、弓手、头目、木人桩）、`tele.ts`（地面预警形状）、`missiles.ts`（飞镖、刃风的月牙刀光）、`input.ts`（键盘 / 手柄 / 触屏合成）、`tune.ts` + `tunePanel.ts`（调参面板，右上「调」或 ` 键）、`ironUi.ts` / `hud.ts` / `skin.ts`（铁器界面和另外两套皮）、`ninjaAct.ts`（程序化动作）、`blind.ts` / `blind2.ts`（主角造型）、`yard.ts`（练武场）、`cards.ts` / `boons.ts`（秘传三选一，三档品质）、`schools.ts` / `chill.ts`（太平道雷、江东水师寒的效果，寒气冻结规则）、`run.ts`（一局 6 间屋的规划、兵种和地点）、`stations.ts`（行商 / 歇脚 / 遗卷的摊位和席子）、`coins.ts`（铜钱）、`runBoard.ts`（路牌）、`hitArc.ts`（受击方向弧）、`foes/hj_models.ts`（黄巾兵体素模型）。黄巾残村的三个地点在 `src/present/asm/hanmo/`（残村 `hj_village`、麦田 `hj_field`、破庙 `hj_temple`）。act-20 起：`title.ts`（开始画面五版）、`profile.ts`（本机存档）/ `meta.ts`（局外货币和成长）、`hideout.ts` + `hideout_kit.ts` + `hideout_people.ts`（据点断碑古窑和五个人）、`hideoutLines.ts`（据点台词，agy）、`stele.ts`（刻名断碑）、`dialogue.ts`（立绘对话，立绘在 `src/assets/portraits/`，`tools/portraits.py` 生成）、`timeline.ts` + `cutscenes.ts`（演出）、`scripts.ts`（剧情台词）；剧情设定 `docs/STORY.md`。调试：`__dh.title(n)`、`newGame()`、`boss()` 直接进头目间、`talkTest(n)`、`hideout(time, weather, view)`。其余 `src/present/*` 是从 dicehero3d 带过来的渲染、体素、场景拼装、特效、角色工具。
 - 性能预算：手机 60fps、每帧 draw call ≤ 150（现在练武场 / 房间约 170，待合并角色网格）。
 - 键位：WASD / 方向键 移动，J 斩（点按 = 砍，按住 = 入鞘，松手 = 抽刀 / 见切），空格 跳（空中再按 = 二段跳，空中按斩 = 下劈），K / Shift 冲刺，L / E 飞镖（点一下一枚，按住连甩），U 换界面皮。手柄：左摇杆、X 斩、A 跳、B / RB 冲刺、Y 飞镖。
 
@@ -43,7 +43,7 @@
 
 - draw call 约 170（手机预算 150）：角色部件合成一个蒙皮网格。
 - 敌人用的是通用动作（劈、砸、施法、射、咬），横扫、捅、戟突、雷法举戟还没有专门的动作；头巾尾巴还不会飘。
-- 练武场还在日式的竹山场景（拼装器里的忍之章地点没删，地域一的房间已经全是黄巾的）；秋天的天气会飘红枫叶（共用的 `sky.ts`），在麦田里显得像日本。
+- 秋天的天气会飘红枫叶（共用的 `sky.ts`），在麦田里显得像日本。（练武场在 act-20 换成了据点断碑古窑。）
 - `GAME_PLAN.md` 的 M3（练武场局外成长：残页、心法图、第二本刀谱）、M4（地域二三、其余三派、合击）、M5（剧情、江湖人、誓约）还没做。
 - 历史上用户反感、不许再犯：斜线阶梯和随机碎点；跑步左摇右晃；耸肩（没脖子）；空着的手僵直；待机转刀像 bug；出刀太快太密；按钮上放字；血条抽象；摇杆满屏响应、跟手拖着跑；文字暴力描边发糊。
 
