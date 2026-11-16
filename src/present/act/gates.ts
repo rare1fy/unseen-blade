@@ -20,15 +20,19 @@ function barricade(w: number) {
 }
 const CURTAIN_FS = `uniform vec3 uCol; uniform float uT, uK; varying vec2 vUv;
 void main() { float y = vUv.y, s = 0.75 + 0.25 * sin(uT * 1.7 + vUv.x * 9.0) * sin(uT * 0.9 - vUv.x * 4.0);
-  float a = pow(1.0 - y, 1.6) * 0.42 * s * uK; a *= smoothstep(0.0, 0.08, vUv.x) * smoothstep(1.0, 0.92, vUv.x);
+  float a = pow(1.0 - y, 1.6) * 0.7 * s * uK; a *= smoothstep(0.0, 0.08, vUv.x) * smoothstep(1.0, 0.92, vUv.x);
   gl_FragColor = vec4(uCol * (1.0 + 0.4 * (1.0 - y)), a); }`;
 const RIPPLE_FS = `uniform vec3 uCol; uniform float uT, uK, uR; varying vec3 vP;
-void main() { float d = length(vP.xz) / uR; float band = step(0.72, fract(d * 3.2 - uT * 0.85));
-  float a = band * (1.0 - d) * (1.0 - d) * 0.3 * uK + (1.0 - smoothstep(0.0, 0.25, d)) * 0.08 * uK; gl_FragColor = vec4(uCol, a); }`;
+void main() { float d = length(vP.xz) / uR; float band = step(0.7, fract(d * 3.2 - uT * 0.85));
+  float a = band * (1.0 - d) * 0.62 * uK; gl_FragColor = vec4(uCol * 1.25, a); }`;
+/** the light spilling through the gate onto the floor: bright at the gate, fading into the room, soft at the sides */
+const SPILL_FS = `uniform vec3 uCol; uniform float uT, uK; varying vec2 vUv;
+void main() { float v = vUv.y, side = smoothstep(0.0, 0.22, vUv.x) * smoothstep(1.0, 0.78, vUv.x);
+  float a = pow(1.0 - v, 1.7) * side * (0.5 + 0.08 * sin(uT * 2.3)) * uK; gl_FragColor = vec4(uCol * 1.2, a); }`;
 const VS_UV = 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }';
 const VS_P = 'varying vec3 vP; void main() { vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }';
 
-interface Item { g: Gate; pivot: THREE.Group; fallT: number; curtain: THREE.Mesh; ripple: THREE.Mesh; inward: THREE.Vector3; centre: THREE.Vector3 }
+interface Item { g: Gate; pivot: THREE.Group; fallT: number; curtain: THREE.Mesh; ripple: THREE.Mesh; spill: THREE.Mesh; inward: THREE.Vector3; centre: THREE.Vector3 }
 export class Gates {
   root = new THREE.Group(); items: Item[] = []; private t = 0; private opened = false; private openT = 0;
   constructor(parent: THREE.Object3D, plan: ArenaPlan) {
@@ -52,7 +56,13 @@ export class Gates {
         uniforms: { uCol: { value: new THREE.Color(GOLD) }, uT: { value: 0 }, uK: { value: 0 }, uR: { value: R } } }));
       // the half disc opens toward the room: CircleGeometry's half (0..π) lies on −z after the rotation; turn it to face inward
       ripple.position.copy(centre).setY(0.045); ripple.rotation.y = Math.atan2(inward.x, inward.z) + Math.PI; ripple.renderOrder = 3; this.root.add(ripple);
-      this.items.push({ g, pivot, fallT: -1, curtain, ripple, inward, centre });
+      // the spill: a trapezoid on the floor, the gate's width at the wall, wider and fading 3.6 m into the room
+      const sg = new THREE.PlaneGeometry(1, 1, 1, 1); sg.rotateX(-Math.PI / 2); sg.translate(0, 0, -0.5);   // v: 0 at the gate (z = 0), 1 at z = −1
+      const pa = sg.attributes.position as THREE.BufferAttribute; for (let i = 0; i < pa.count; i++) { const far = pa.getZ(i) < -0.5; pa.setX(i, pa.getX(i) * (far ? g.w * 1.7 : g.w)); pa.setZ(i, pa.getZ(i) * 3.6); }
+      const spill = new THREE.Mesh(sg, new THREE.ShaderMaterial({ vertexShader: VS_UV, fragmentShader: SPILL_FS, transparent: true, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -3,
+        uniforms: { uCol: { value: new THREE.Color(GOLD) }, uT: { value: 0 }, uK: { value: 0 } } }));
+      spill.position.copy(centre).setY(0.05); spill.rotation.y = Math.atan2(-inward.x, -inward.z); spill.renderOrder = 4; this.root.add(spill);
+      this.items.push({ g, pivot, fallT: -1, curtain, ripple, spill, inward, centre });
     }
   }
   /** the room is clear: the barricades fall outward, the light and the ripples come up */
@@ -78,14 +88,15 @@ export class Gates {
       }
       const k = this.opened ? Math.min(1, Math.max(0, (this.openT - 0.45) / 0.8)) : 0;
       const cu = (it.curtain.material as THREE.ShaderMaterial).uniforms, ru = (it.ripple.material as THREE.ShaderMaterial).uniforms;
+      const su = (it.spill.material as THREE.ShaderMaterial).uniforms; su.uT.value = this.t; su.uK.value = k;
       cu.uT.value = this.t; cu.uK.value = k; ru.uT.value = this.t; ru.uK.value = k;
-      it.curtain.visible = it.ripple.visible = k > 0.001;
+      it.curtain.visible = it.ripple.visible = it.spill.visible = k > 0.001;
     }
   }
   /** where the gate's way out starts (for the guiding wind) */
   targets() { return this.items.map(it => it.centre.clone().addScaledVector(V3(it.g.out[0], 0, it.g.out[1]), 1.2)); }
   dispose() {
-    for (const it of this.items) for (const m of [it.curtain, it.ripple]) { m.geometry.dispose(); (m.material as THREE.Material).dispose(); }
+    for (const it of this.items) for (const m of [it.curtain, it.ripple, it.spill]) { m.geometry.dispose(); (m.material as THREE.Material).dispose(); }
     this.root.parent?.remove(this.root); this.items = [];
   }
 }

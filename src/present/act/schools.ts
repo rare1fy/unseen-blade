@@ -6,6 +6,7 @@ import { addChill } from './chill';
 import { trailSeg, fxRing, fxSparks } from '../fx/fx';
 import { addBlock, type Blk } from '../fx/blocks';
 import { fxAfterimage } from '../fx/skillFx';
+import { cue } from '../../audio/cues';
 
 export interface SchoolWorld {
   perks(): Perks;
@@ -55,12 +56,14 @@ export class Schools {
     for (let i = 1; i < points.length; i++) trailSeg(points[i - 1], points[i], GLOW, 0.07, { core: new Color(CORE), life: 0.16, bright: 1.1, spark: 0 });
   }
   private bolt(at: Vector3, radius = 0.7) {
+    cue('thunder', Math.min(1, 0.4 + radius * 0.3));
     const points = [new Vector3(0.15, 6, 0), new Vector3(-0.2, 4.4, 0.12), new Vector3(0.28, 2.7, -0.1), new Vector3(-0.13, 1.1, 0.06), new Vector3(0, 0.08, 0)].map(p => p.add(at.clone().setY(0)));
     for (let i = 1; i < points.length; i++) trailSeg(points[i - 1], points[i], GLOW, 0.1, { core: new Color(CORE), life: 0.2, bright: 1.2, spark: 0 });
     this.ring(at, CORE, radius);
     fxSparks(at.clone().setY(0.15), CORE, 7, 2.5, { bright: 1, life: 0.25 });
   }
   private iceBurst(at: Vector3, r = 0.8) {
+    cue('iceShatter', 0.8);
     this.ring(at, 0xe5faff, r);
     for (let i = 0; i < 6; i++) {
       const a = i * Math.PI / 3;
@@ -69,6 +72,7 @@ export class Schools {
     }
   }
   private freeze(f: Foe, seconds: number) {
+    if (f.frozen <= 0) cue('freeze', 0.6);
     if (f.st === 'dead') return;
     f.frozen = Math.max(f.frozen, seconds); f.vel.set(0, 0, 0); f.a.tint(ICE, 0.65);
     this.ring(f.pos, 0xe5faff, f.d.r + 0.4);

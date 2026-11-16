@@ -40,18 +40,28 @@ export function ringSword(v: V, A: Anchors, o: { len: number; wide?: boolean; ed
   v.part('weapon')
     .box(x, y - 1, z - 4, x, y + 1, z - 2, o.ring).set(x, y, z - 3, null)                  // the ring
     .box(x, y, z - 1, x, y, z + 1, o.grip)                                                  // grip through the fist
-    .box(x, y - 1, z + 2, x, y + 2, z + 2, o.guard)                                         // small guard
+    .box(x, y - 1, z + 2, x, y + 2, z + 2, o.guard);                                        // small guard
+  // act-19: the blade is its own part (bone 'blade'), so it can be hidden while the sword is sheathed (藏锋 / 归鞘)
+  v.bone('blade', 'weapon', x + 0.5, y + 0.5, z + 3).part('blade')
     .box(x, y, z + 3, x, y, z + 2 + o.len, o.edge)                                          // edge row
     .box(x, y + 1, z + 3, x, y + 1, z + 1 + o.len, o.spine);                                // spine row (stops one short: the tip)
   if (o.wide) v.box(x, y + 2, z + 3, x, y + 2, z + o.len - 1, o.spine);
   if (o.tassel) v.box(x, y - 3, z - 3, x, y - 2, z - 3, o.tassel);
-  heroGrip(v, A.wR, 'R', o.glove, o.knuckle);
+  slimGrip(v, A.wR, o.glove, o.knuckle);
   return o.len + 3;
 }
 
-/** the left fist: an open guard hand (no weapon) — the plain hand block, one knuckle row */
+/** the left fist: an open guard hand (no weapon). act-19 (user: 「角色的手有点太大了」): 2×2×2, no wider than the forearm (was 3×3×3) */
 export function leftHand(v: V, A: Anchors, skin: Col, dark: Col) {
-  const [x, y, z] = A.wL; v.part('handL').box(x - 1, y - 1, z - 1, x + 1, y + 1, z + 1, skin).box(x + 1, y - 1, z + 1, x + 1, y + 1, z + 1, dark);
+  const [x, y, z] = A.wL; v.part('handL').box(x - 1, y - 1, z - 1, x, y, z, skin).box(x, y - 1, z, x, y, z, dark);
+}
+/** the sword hand, slimmer than the bestiary's 3×3×3 fist (act-19): two wide, two deep, the grip running through it; the outer
+ *  column is the knuckles */
+function slimGrip(v: V, at: [number, number, number], glove: Col, knuckle: Col) {
+  const [x, y, z] = at; v.bone('weapon', 'handR', x + 0.5, y + 0.5, z + 0.5);
+  for (const [key, cell] of v.cells) if (cell.part === 'handR') v.cells.delete(key);
+  v.part('handR');
+  for (let yy = y - 1; yy <= y + 1; yy++) for (let zz = z - 1; zz <= z; zz++) { v.set(x - 1, yy, zz, knuckle); if (yy !== y) v.set(x, yy, zz, glove); }
 }
 
 /** the robe's crossed collar (交领右衽), as straight masses: a light inner collar across the throat (two rows, the lower one

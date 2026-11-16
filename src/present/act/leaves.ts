@@ -26,7 +26,7 @@ export class Leaves {
     const g = new THREE.BoxGeometry(0.15, 0.018, 0.09);
     this.mesh = new THREE.InstancedMesh(g, new THREE.MeshLambertMaterial({ color: 0xffffff }), MAX); this.mesh.count = 0; this.mesh.frustumCulled = false; this.mesh.castShadow = false; this.mesh.receiveShadow = true;
     this.mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX * 3), 3);
-    this.motes = new THREE.InstancedMesh(new THREE.BoxGeometry(0.06, 0.06, 0.06), new THREE.MeshBasicMaterial({ color: 0xffd27a, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }), MOTES);
+    this.motes = new THREE.InstancedMesh(new THREE.BoxGeometry(0.09, 0.09, 0.09), new THREE.MeshBasicMaterial({ color: 0xffe9a8, transparent: true, opacity: 0.95, depthWrite: false, toneMapped: false }), MOTES);
     this.motes.count = 0; this.motes.frustumCulled = false; this.motes.renderOrder = 5;
     scene.add(this.mesh, this.motes);
     this.fallRate = o.fall ?? 1.2; this.wind.multiplyScalar(o.wind ?? 1);

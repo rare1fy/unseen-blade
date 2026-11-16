@@ -321,7 +321,7 @@ export class ActShow {
   private feel(heavy: boolean, n: number) {
     if (!n) return;
     hitstop((heavy ? 0.09 : 0.045 + 0.01 * Math.min(3, n - 1)) * TUNE.hitstop); shake((heavy ? 0.34 : 0.13) * TUNE.shake);
-    cue(heavy ? 'crit' : 'impact', heavy ? 1.1 : 0.75); this.platform.vibrate(heavy ? 'medium' : 'light');
+    cue(heavy ? 'cutHeavy' : 'cut', heavy ? 1.0 : 0.7); this.platform.vibrate(heavy ? 'medium' : 'light');
   }
   // ------------------------------------------------------------ act-19: props, fire, the wall slam
   /** who the props can hurt: the live foes and the hero on the ground */
@@ -358,7 +358,7 @@ export class ActShow {
     const at = f.pos.clone().addScaledVector(V3(lp.nx, 0, lp.nz), -f.d.r);
     if (lp.s.kind === 'prop') { const r = this.props?.hitCircle(at.x, at.z, 0.35, { src: 'slam', heavy: true, dir: [-lp.nx, -lp.nz] }, this.targets()); if (r) this.applyProps(r); if (!lp.s.slam) return; }
     fxSmoke(at.clone().setY(0.6), 0x8a7a6a, 6, { r: 0.4, spd: 1.8, up: 0.6, s: 0.35, life: 0.6 }); dustBlocks(at.clone(), 6); shake(0.14 * TUNE.shake);
-    this.hitFoe(f, SLAM.dmg, at, { knock: 0, heavy: true, kind: 'school', stagger: isBoss(f) ? 0 : SLAM.stun }); cue('impact', 0.9);
+    this.hitFoe(f, SLAM.dmg, at, { knock: 0, heavy: true, kind: 'school', stagger: isBoss(f) ? 0 : SLAM.stun }); cue('wallSlam', 0.9);
   }
   private hitFoe(f: Foe, dmg: number, from: THREE.Vector3, o: { knock: number; heavy: boolean; kind: string; stagger?: number }) {
     if (f.st === 'dead') return; // wp/boons: chained damage may already have killed a target
@@ -417,7 +417,7 @@ export class ActShow {
     trailSeg(o.from.clone().setY(1.0), o.to.clone().setY(1.0), 0x7a86ff, 0.22, { life: 0.35, bright: 2.4, spark: 0.4 });
     smokeBurst(o.to, 0.5, 8, { size: 0.26, life: 0.5 });
     for (const d of this.darts) if (d.stuck === o.foe && !d.dead) d.stop();
-    cue('whoosh', 0.9); shake(0.1 * TUNE.shake);
+    cue('dash', 0.9); cue('swishHeavy', 0.6); shake(0.1 * TUNE.shake);
   }
   private sweep(o: { a: THREE.Vector3; b: THREE.Vector3; r: number; dmg: number; knock: number; col?: number; kind?: string }) {
     const ab = o.b.clone().sub(o.a).setY(0), L2 = Math.max(1e-4, ab.lengthSq()); let n = 0;
@@ -452,7 +452,7 @@ export class ActShow {
       a.deflect(dir);
     }
     hitstop(TUNE.deflectStop); slowmo(TUNE.deflectSlow, 0.3); shake(0.22 * TUNE.shake);
-    cue('crit', 0.55); this.platform.vibrate('medium'); this.addIntent();
+    cue('swishHeavy', 0.7); cue('exitChime', 0.35); this.platform.vibrate('medium'); this.addIntent();
   }
   /** the blade's guard window: arrows in the front half-circle within reach are batted away */
   private guard(o: { from: THREE.Vector3; yaw: number; range: number }) {
@@ -484,7 +484,7 @@ export class ActShow {
     for (let i = 0; i < 3; i++) fxAfterimage(at.clone().add(V3(Math.sin(i * 2.1) * 0.5, h.y, Math.cos(i * 2.1) * 0.5)), 1.9, 0x8ac8ff, { life: 0.45, glow: 0.6 });
     fxSparks(h.a.chest(), 0xdff4ff, 18, 5); h.a.tint(0xbfe8ff, 0.6);
     popPix('闪', h.a.head().add(V3(0, 0.5, 0)), { color: '#bfe8ff', h: 0.9, big: true, life: 0.9, rise: 1.0 });
-    cue('reveal', 0.9); cue('whoosh', 0.7); this.platform.vibrate('medium');
+    cue('parry', 1); cue('draw', 0.9); this.platform.vibrate('medium');
     h.counterT = TUNE.counterTime; h.dashCd = 0;
     if (this.intent >= 3) this.startQte(); else this.addIntent();
   }
@@ -524,7 +524,7 @@ export class ActShow {
     hitstop(0.16 * TUNE.hitstop); slowmo(0.35, 0.25); shake(0.35 * TUNE.shake);
     fxRing(h.pos.clone().setY(0.9), 0xfff2c8, 1.6, { life: 0.35 } as never); fxRing(h.pos.clone().setY(0.08), 0xffd890, 2.6, { life: 0.5 } as never); fxSparks(h.a.chest(), 0xfff2c8, 24, 7);
     popPix('破', h.a.head().add(V3(0, 0.5, 0)), { color: '#fff0c0', h: 0.95, big: true, life: 0.9, rise: 1.0 });
-    cue('block', 1); cue('crit', 0.9); this.platform.vibrate('heavy');
+    cue('parry', 1); cue('cutHeavy', 0.9); this.platform.vibrate('heavy');
     if (this.intent >= 3) this.startQte(); else this.addIntent();
   }
   /** 杀意 +1 (perfect dodge, a batted arrow, a counter landing, 见切), up to 3; the third flares */
@@ -539,7 +539,7 @@ export class ActShow {
   private qteT = -1; private ultOn = false; private qteW!: THREE.Mesh;
   private startQte() {
     if (this.qteT >= 0 || this.ultOn) return;
-    this.qteT = 0; slowmo(TUNE.qteTime * 1.3 + 0.2, 0.04); cue('reveal', 1);
+    this.qteT = 0; slowmo(TUNE.qteTime * 1.3 + 0.2, 0.04); cue('timeSlow', 1);
   }
   private qteFrame(rdt: number) {
     if (this.qteT < 0) { this.hud.qte(null); this.qteW.visible = false; return; }
@@ -560,7 +560,7 @@ export class ActShow {
     const left = this.foes.filter(f => f.st !== 'dead' && f.pos.distanceTo(h.pos) < 11), targets: Foe[] = [];
     let at = h.pos.clone();
     while (left.length && targets.length < 7) { left.sort((a, b) => a.pos.distanceTo(at) - b.pos.distanceTo(at)); const f = left.shift()!; targets.push(f); at = f.pos.clone(); }
-    cue('magic', 1); shake(0.2 * TUNE.shake);
+    cue('swishHeavy', 1); shake(0.2 * TUNE.shake);
     // 烟遁: the hero goes up in a burst of smoke (act-13 用户：「影分身的特效挺叼的，可以拿给别的技能」)
     const feet = h.pos.clone().setY(0);
     smokeBurst(feet, 1.0, 20, { yaw: h.a.yaw }); h.a.body.visible = false; fxRing(feet.clone().setY(0.06), 0xa0a8c0, 1.8, { life: 0.4 } as never); cue('whoosh', 0.9);
@@ -585,7 +585,7 @@ export class ActShow {
     h.a.play(new Action('cast', 0.5, 0.4));
     await waitReal(0.2);
     for (const f of targets) if (f.st !== 'dead') this.hitFoe(f, TUNE.ultDmg, h.pos.clone(), { knock: 1.6, heavy: true, kind: 'ult' });
-    hitstop(0.2); slowmo(0.5, 0.3); shake(0.6 * TUNE.shake); fxRing(h.pos.clone().setY(0.08), 0xfff0c0, 4, { life: 0.6 } as never); cue('crit', 1.2); this.platform.vibrate('heavy');
+    hitstop(0.2); slowmo(0.5, 0.3); shake(0.6 * TUNE.shake); fxRing(h.pos.clone().setY(0.08), 0xfff0c0, 4, { life: 0.6 } as never); cue('ultSlash', 1.2); this.platform.vibrate('heavy');
     this.ultOn = false; h.inv = 0.5;
   }
   /** a batted arrow strikes a foe */
@@ -605,6 +605,7 @@ export class ActShow {
     return n;
   }
   private killFoe(f: Foe, from: THREE.Vector3) {
+    cue('bodyFall', 0.7);
     this.leaves?.blast(f.pos.x, f.pos.z, 1.3, 2.5);
     this.kills++;
     const boss = isBoss(f), elite = !!f.elite;
@@ -641,7 +642,7 @@ export class ActShow {
   // ------------------------------------------------------------ clear → pick → doors → leave
   private async roomClear() {
     if (this.phase !== 'fight') return;
-    this.phase = 'pick'; cue('win', 0.6);
+    this.phase = 'pick'; cue('stingClear', 1);
     this.banner.show('清场', '', 1.0, '#ffe6a0');
     await new Promise(r => after(0.9, () => r(null)));
     if (this.room >= RUN_ROOMS - 1) { this.end(true); return; }
@@ -697,11 +698,11 @@ export class ActShow {
       const { g } = runBoard(d, LOCALES[d.locale]?.name ?? ''); g.position.set(ex.sign.x, -2.4, ex.sign.z); g.scale.setScalar(1.25);
       // act-19: on the 2x stage the board stands inside the room beside its gate
       const gt = this.arena?.gates.find(q => q.open && q.id === (ids[i] ?? 'back'));
-      if (gt) { if (gt.along === 'x') g.position.set(gt.x + gt.w / 2 + 1.3, -2.4, PLAY.z0 + 0.9); else g.position.set(gt.x - gt.out[0] * 1.3, -2.4, gt.z + gt.w / 2 + 1.0); }
+      if (gt) { if (gt.along === 'x') g.position.set(gt.x + gt.w / 2 + 1.3, -2.4, PLAY.z0 + 0.9); else g.position.set(gt.x - gt.out[0] * 1.2, -2.4, gt.z - gt.w / 2 - 0.8); }   // beside the gate, on its far side (never in front of the opening)
       g.rotation.y = Math.atan2(-g.position.x * 0.4, 12); this.stage?.root.add(g);
       return { ex, g, lift: 0 };
     });
-    this.phase = 'doors'; cue('reveal', 0.7); this.gates?.open(); this.gustT = 0.9;
+    this.phase = 'doors'; cue(this.gates ? 'gateOpen' : 'reveal', 0.8); if (this.gates) after(0.6, () => cue('exitChime', 0.7)); this.gates?.open(); this.gustT = 0.9;
     if (!quiet) this.banner.show('去路', ds.length > 1 ? '走进一条路口' : '往前走', 1.2);
   }
   private leave(i: number) {
@@ -713,7 +714,7 @@ export class ActShow {
     after(0.35, () => { void wipeTransit(() => { this.room++; this.buildRoom(false); }); });
   }
   private dead() {
-    this.phase = 'dead'; slowmo(1.2, 0.3); this.banner.show('败北', '', 1.6, '#ff6a5a');
+    this.phase = 'dead'; cue('stingLose', 1); slowmo(1.2, 0.3); this.banner.show('败北', '', 1.6, '#ff6a5a');
     after(1.6, async () => {
       this.hud.on = false;
       await this.cards.open([returnCard(this.kills)]); // wp/boons: adapt non-boon cards and centralize their copy
@@ -721,7 +722,7 @@ export class ActShow {
     });
   }
   private end(win: boolean) {
-    this.phase = 'end';
+    this.phase = 'end'; cue(win ? 'stingWin' : 'stingLose', 1);
     after(0.4, async () => {
       this.hud.on = false;
       await this.cards.open([{ boon: { id: win ? 'again' : 'retry', school: 'sr', name: win ? '黄巾残村' : '再来一次', desc: [win ? '渠帅伏诛' : '回练武场再出发', `斩了 ${this.kills} 个 · 点这里回练武场`], col: '#ffd070', glyph: BOONS[7].glyph }, tier: 0 }]);
@@ -803,7 +804,7 @@ export class ActShow {
       for (const f of this.foes) {
         if (f.st === 'dead' || d.p.y > 2.4) continue;
         const ab = d.p.clone().sub(p0).setY(0), L2 = Math.max(1e-6, ab.lengthSq()), t = Math.max(0, Math.min(1, f.pos.clone().sub(p0).setY(0).dot(ab) / L2)), q = p0.clone().addScaledVector(ab, t);
-        if (Math.hypot(f.pos.x - q.x, f.pos.z - q.z) < f.d.r + 0.2) { this.hitFoe(f, d.dmg, p0, { knock: 0.12, heavy: false, kind: 'dart', stagger: 0 }); cue('impact', 0.35); if ((f.st as string) !== 'dead') d.stickIn(f, TUNE.chaseWin); else d.stop(); break; }
+        if (Math.hypot(f.pos.x - q.x, f.pos.z - q.z) < f.d.r + 0.2) { this.hitFoe(f, d.dmg, p0, { knock: 0.12, heavy: false, kind: 'dart', stagger: 0 }); cue('dartHit', 0.7); if ((f.st as string) !== 'dead') d.stickIn(f, TUNE.chaseWin); else d.stop(); break; }
       }
       if (d.dead || d.stuck) continue;
       const q = d.p.clone(); this.clamp(q, 0); if (q.distanceTo(d.p) > 0.3 || d.life <= 0 || d.p.y < 0.05) d.stop(d.life > 0);
@@ -816,10 +817,10 @@ export class ActShow {
       this.leaves.update(dt, this.cam.x, this.cam.z);
       if (h.st === 'dash' && !h.airborne) { const v = Math.hypot(h.vel.x, h.vel.z) || 1; this.leaves.kick(h.pos.x, h.pos.z, 0.8, h.vel.x / v, h.vel.z / v, 3.4); }
       // the guiding wind: every few seconds a gust from the hero's feet toward each open gate
-      if (this.phase === 'doors' && this.gates) { this.gustT -= dt; if (this.gustT <= 0) { this.gustT = 3.2; for (const t of this.gates.targets()) this.leaves.gust(h.pos.x, h.pos.z, t.x, t.z); } }
+      if (this.phase === 'doors' && this.gates) { this.gustT -= dt; if (this.gustT <= 0) { this.gustT = 3.2; for (const t of this.gates.targets()) this.leaves.gust(h.pos.x, h.pos.z, t.x, t.z); cue('exitChime', 0.25); } }
     }
     // copper coins fly in; the stations of a shop / rest / scroll room fill their rings under a hero standing still on a mat
-    { const got = this.coinsFx.update(dt, h.pos); if (got) { this.coins += got; cue('tick', 0.25); } this.hud.coins = this.coins; }
+    { const got = this.coinsFx.update(dt, h.pos); if (got) { this.coins += got; cue('coin', 0.3); } this.hud.coins = this.coins; }
     if (this.stations && this.phase === 'doors') {
       const s = this.stations.update(dt, h.pos, Math.hypot(h.vel.x, h.vel.z) > 0.8, st => st.price <= this.coins && (!st.id.endsWith('sharpen') || this.sharpenable().length > 0));
       this.stations.setPurse(this.coins);

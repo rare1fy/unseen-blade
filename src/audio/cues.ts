@@ -2,7 +2,13 @@
 // to layered samples with pitch / volume variation. Until then cues are recorded (QA can assert that beats fire their sounds).
 export type Cue =
   | 'clack' | 'select' | 'deselect' | 'whoosh' | 'reveal' | 'count' | 'relic' | 'impact' | 'crit' | 'block' | 'armor' | 'hurt'
-  | 'heal' | 'burn' | 'poison' | 'magic' | 'deny' | 'click' | 'coin' | 'win' | 'lose' | 'shatter' | 'summon' | 'curse' | 'roar' | 'tick';
+  | 'heal' | 'burn' | 'poison' | 'magic' | 'deny' | 'click' | 'coin' | 'win' | 'lose' | 'shatter' | 'summon' | 'curse' | 'roar' | 'tick'
+  // act-19: 不见刀's own combat set (Stable Audio 3 medium, GameProtos/sfx/cues_unseen_v1.json; samples ub_<id>_<n>.mp3)
+  | 'swish' | 'swishHeavy' | 'cut' | 'cutHeavy' | 'draw' | 'sheathe' | 'parry' | 'dash' | 'jump' | 'land' | 'dartThrow' | 'dartHit' | 'arrow'
+  | 'bodyFall' | 'foeSwing' | 'thunder' | 'freeze' | 'iceShatter' | 'boom' | 'fuse' | 'fire' | 'potBreak' | 'crateBreak' | 'hayBurst' | 'pillarFall'
+  | 'wallSlam' | 'gateOpen' | 'exitChime' | 'timeSlow' | 'ultSlash' | 'scroll' | 'hound'
+  // short music (Stable Audio 3 medium, GameProtos/sfx/cues_unseen_music_v1.json): a run won, a run lost, a room cleared
+  | 'stingWin' | 'stingLose' | 'stingClear';
 
 type Handler = (name: Cue, intensity: number, extra?: number) => void;
 let handler: Handler | null = null;

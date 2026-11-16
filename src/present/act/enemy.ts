@@ -282,7 +282,7 @@ function callThunder(f: Foe, w: FoeWorld) {
     const d = h.clone().sub(f.pos).setY(0), L = Math.max(2, d.length()); d.normalize();
     for (let i = 0; i < 5; i++) { const p = f.pos.clone().setY(0).addScaledVector(d, 1.6 + i * Math.max(1.3, (L + 1.0 - 1.6) / 4)); w.clamp(p, 0.3); w.arrows.push(new Thunder(p, dmg, 0.12 * i, 0.8, f)); }
   }
-  cue('crit', 0.5); fxSparks(f.a.weapon(), 0xfff4c0, 18, 6);
+  cue('thunder', 0.8); fxSparks(f.a.weapon(), 0xfff4c0, 18, 6);
 }
 /** every frame for the boss: the roar at half HP, phase 2's aura and summons */
 function bossTick(f: Foe, w: FoeWorld, dt: number) {
@@ -315,12 +315,12 @@ function strike(f: Foe, w: FoeWorld) {
   const s = f.shape!;
   if (f.role === 'hound' || f.atk === 'lunge') {
     const d = V3(Math.sin(f.teleYaw), 0, Math.cos(f.teleYaw)), t = f.role === 'boss' ? 0.4 : 0.36;
-    f.lunge = d.multiplyScalar(s.k === 'rect' ? s.len / t : 10); setSt(f, 'strike', t); f.yaw = f.teleYaw; cue(f.role === 'boss' ? 'whoosh' : 'roar', 0.35); return;
+    f.lunge = d.multiplyScalar(s.k === 'rect' ? s.len / t : 10); setSt(f, 'strike', t); f.yaw = f.teleYaw; cue(f.role === 'boss' ? 'foeSwing' : f.role === 'hound' ? 'hound' : 'roar', f.role === 'hound' ? 0.8 : 0.35); return;
   }
   setSt(f, 'strike', 0.18);
   if (f.role === 'archer') {
     for (const dy of [0, ...f.extra.map(e => e.dy)]) w.arrows.push(new Arrow(f.pos.clone().add(V3(0, 1.25, 0)), f.teleYaw + dy, f.dmg));
-    cue('whoosh', 0.5); return;
+    cue('arrow', 0.6); return;
   }
   if (f.role === 'taoist') {
     const len = s.k === 'line' ? s.len : 7;
@@ -328,7 +328,7 @@ function strike(f: Foe, w: FoeWorld) {
     cue('magic', 0.6); fxSparks(f.a.weapon(), 0xffb050, 10, 3); return;
   }
   const heavy = f.role === 'chief' || f.role === 'brute' || f.role === 'boss';
-  cue(heavy ? 'crit' : 'whoosh', heavy ? 0.7 : f.role === 'mob' ? 0.4 : 0.6);
+  cue('foeSwing', heavy ? 1 : f.role === 'mob' ? 0.45 : 0.7); if (heavy) cue('cutHeavy', 0.5);
   if (s.k === 'circle') {
     const c = f.pos.clone().add(V3(Math.sin(f.teleYaw) * s.ahead, 0.05, Math.cos(f.teleYaw) * s.ahead)); fxSmoke(c, 0x8a7a6a, 10, { r: 1.4, spd: 2, up: 0.6, s: 0.5, life: 0.8 }); fxSparks(c.clone().add(V3(0, 0.2, 0)), 0xffc080, 16, 6);
     if (f.elite && f.role === 'brute') w.arrows.push(new Shockwave(c, Math.round(10 * TUNE.enemyDmg), 0.8, SHOCK_R, 0.45));
@@ -377,7 +377,7 @@ export function damageFoe(f: Foe, dmg: number, from: THREE.Vector3, o: { knock?:
   if (o.burn) return false;
   if (f.d.poise > 0) {
     f.poise -= o.poiseDmg ?? dmg;
-    if (f.poise <= 0) { f.poise = f.d.poise; dropTeles(f); f.attacking = false; f.lunge = null; f.combo = 0; setSt(f, 'stagger', 1.3); f.a.play(new Action('hurt', 1.0, 0.1, { power: 1.6 })); cue('shatter', 0.6); }
+    if (f.poise <= 0) { f.poise = f.d.poise; dropTeles(f); f.attacking = false; f.lunge = null; f.combo = 0; setSt(f, 'stagger', 1.3); f.a.play(new Action('hurt', 1.0, 0.1, { power: 1.6 })); cue('parry', 0.8); cue('cutHeavy', 0.6); }
   } else if ((o.stagger ?? 0.28) > 0 && f.st !== 'strike') {
     // light foes: a hit breaks the wind-up (reward for pressing in)
     dropTeles(f); f.attacking = false; f.lunge = null; f.combo = 0; setSt(f, 'stagger', o.stagger ?? 0.28); f.cd = Math.max(f.cd, 0.25);
@@ -417,7 +417,7 @@ export class Arrow {
   }
   /** cut out of the air: sent off flat along dir, fast, and now it hurts the foes */
   deflect(dir: THREE.Vector3) {
-    fxSparks(this.p, 0xfff0c0, 18, 6); cue('block', 0.9);
+    fxSparks(this.p, 0xfff0c0, 18, 6); cue('parry', 0.7);
     this.friendly = true; this.life = 1.1; this.v.copy(dir).setY(0).normalize().multiplyScalar(22);
     this.g.rotation.set(0, Math.atan2(dir.x, dir.z), 0); this.body.rotation.set(0, 0, 0);
   }
@@ -461,7 +461,7 @@ export class Talisman extends Arrow {
   private burst(w: FoeWorld) {
     const c = V3(this.p.x, 0.06, this.p.z), col = this.friendly ? 0xffd070 : 0xff8a30;
     fxRing(c, col, TALIS.r, { life: 0.35 } as never); fxSparks(this.p, 0xffb050, 22, 5); fxGlow(this.p, col, 1.6, 0.25);
-    fxSmoke(c.clone().setY(0.4), 0x5a4a3a, 6, { r: 0.5, s: 0.4, life: 0.7 }); cue('impact', 0.7);
+    fxSmoke(c.clone().setY(0.4), 0x5a4a3a, 6, { r: 0.5, s: 0.4, life: 0.7 }); cue('fire', 0.7);
     if (!this.friendly) {
       const d = Math.hypot(c.x - w.heroPos.x, c.z - w.heroPos.z);
       if (w.heroAlive && w.heroY < 1.6 && d <= TALIS.r + w.heroR) { if (w.heroDodge) w.dodged(c); else w.hurtHero(this.dmg, c); }
@@ -498,7 +498,7 @@ export class Thunder extends Arrow {
     // a crisp bolt, not a white fog (act-17 review): thin, dimmer glow, no flare blob
     fxBolt(top, g, 0xfff2a0, { jag: 0.5, seg: 10, width: 0.12, life: 0.28, bright: 0.5 }); fxBolt(top.clone().add(V3(R(-0.4, 0.4), 0, R(-0.4, 0.4))), g, 0xc8e0ff, { width: 0.06, life: 0.2, branch: false, bright: 0.45 });
     fxShock(g, 0xfff0a0, this.r + 0.3, { life: 0.4 }); fxSparks(g.clone().setY(0.3), 0xfff4c0, 18, 6); fxGlow(g.clone().setY(0.5), 0xfff2b0, 0.9, 0.2, 1.4);
-    cue('crit', 0.8); shake(0.22 * TUNE.shake);
+    cue('boom', 0.4); shake(0.22 * TUNE.shake);
     const d = Math.hypot(g.x - w.heroPos.x, g.z - w.heroPos.z);
     if (w.heroAlive && d <= this.r + w.heroR) { if (w.heroDodge) w.dodged(g); else w.hurtHero(this.dmg, g); }
     else if (w.heroAlive && w.heroDodge && d <= this.r + w.heroR + 0.9) w.dodged(g);

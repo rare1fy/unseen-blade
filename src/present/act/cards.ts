@@ -46,7 +46,7 @@ export class CardPick {
       const m = new THREE.Mesh(new THREE.BoxGeometry(L.px(w), L.px(h), L.px(16)), [side, side, side, side, fm, side]); m.renderOrder = 30; L.scene.add(m);
       return { b, tier, u: u * 2, m, x: L.w / 2 + (i - (boons.length - 1) / 2) * (w + gap), y: L.h * 0.5, w, h, lift: 0, t0: clock.rtime + i * 0.08 };
     });
-    this.on = true; this.focus = Math.min(1, this.cards.length - 1); this.leaving = -1; cue('reveal', 0.6);
+    this.on = true; this.focus = Math.min(1, this.cards.length - 1); this.leaving = -1; cue('scroll', 0.8);
     return new Promise(res => { this.done = res; });
   }
   close() {

@@ -111,7 +111,7 @@ export class Breakables {
         const ax = new THREE.Vector3(v.p.fallDir[1], 0, -v.p.fallDir[0]); v.tilt.quaternion.setFromAxisAngle(ax, a);
         if (v.fall >= 0.55 && v.fall - dt < 0.55) {
           const [dx, dz] = v.p.fallDir; for (let s = 0.6; s <= BTUNE.toppleLen; s += 0.7) fxSmoke(V3(v.p.x + dx * s, 0.2, v.p.z + dz * s), 0x8a7a6a, 2, { r: 0.4, spd: 1.6, up: 0.4, s: 0.4, life: 0.7 });
-          shake(0.28); cue('impact', 1.0);
+          shake(0.28); cue('wallSlam', 1.0);
         }
         if (v.fall > 2.4) { this.root.remove(v.g); const st = model('stump'); st.position.set(v.p.x, 0, v.p.z); this.root.add(st); v.g = st; v.tilt = new THREE.Group(); v.fall = -2; }
       }
@@ -127,23 +127,23 @@ export class Breakables {
   /** turn the logic's events into pictures and sounds (also called for the events a blow returned) */
   present(evs: BEvent[]) {
     for (const e of evs) {
-      if (e.k === 'hit') { const v = this.vis.get(e.p.id); if (v) { v.wob.vx += e.dir[1] * 5; v.wob.vz -= e.dir[0] * 5; } fxChips(V3(e.p.x, 0.6, e.p.z), SHARDS[e.p.kind], 4, { dir: V3(e.dir[0], 0.3, e.dir[1]), speed: 3 }); cue('block', 0.4); }
+      if (e.k === 'hit') { const v = this.vis.get(e.p.id); if (v) { v.wob.vx += e.dir[1] * 5; v.wob.vz -= e.dir[0] * 5; } fxChips(V3(e.p.x, 0.6, e.p.z), SHARDS[e.p.kind], 4, { dir: V3(e.dir[0], 0.3, e.dir[1]), speed: 3 }); cue(e.p.kind === 'hay' ? 'hayBurst' : 'crateBreak', 0.4); }
       else if (e.k === 'break') {
         const v = this.vis.get(e.p.id); if (v) { this.root.remove(v.g); v.solid.on = false; }
         const at = V3(e.p.x, 0.4, e.p.z), cols = SHARDS[e.p.kind];
         for (let i = 0; i < (e.p.kind === 'hay' ? 6 : 10); i++) { const a = Math.random() * Math.PI * 2, s = 1.5 + Math.random() * 2.5; addBlock(at.clone().add(V3(Math.cos(a) * 0.15, Math.random() * 0.4, Math.sin(a) * 0.15)), { size: 0.06 + Math.random() * 0.07, v: V3(Math.cos(a) * s + e.dir[0] * 2, 2 + Math.random() * 3, Math.sin(a) * s + e.dir[1] * 2), col: cols[i % cols.length], glow: false, grav: 14, floor: 0.03, spin: 8, life: 1.4 + Math.random() * 0.6, shrink: 0.4 }); }
         if (e.p.kind === 'hay') { fxSmoke(at, 0xd8c890, 6, { r: 0.5, spd: 1.4, up: 0.8, s: 0.35, life: 0.8, alpha: 0.4 }); fxChips(at, cols, 12, { speed: 3, up: 3, size: 0.05 }); }
         else fxSmoke(at, 0x7a6a5a, 3, { r: 0.3, spd: 1.2, up: 0.5, s: 0.3, life: 0.5 });
-        cue('shatter', e.p.kind === 'pot' ? 0.7 : 0.45);
+        cue(e.p.kind === 'pot' ? 'potBreak' : e.p.kind === 'crate' ? 'crateBreak' : 'hayBurst', 0.8);
       }
-      else if (e.k === 'fuse') { const v = this.vis.get(e.p.id); if (v) v.fuseT = 0; cue('burn', 0.5); }
+      else if (e.k === 'fuse') { const v = this.vis.get(e.p.id); if (v) v.fuseT = 0; cue('fuse', 0.8); }
       else if (e.k === 'boom') {
         const v = this.vis.get(e.p.id); if (v) { this.root.remove(v.g); v.solid.on = false; }
         const at = V3(e.x, 0.6, e.z);
         fxImpact(at, 0xff7a2a, 2.6, { chips: SHARDS.oil, stop: false });
         fxRing(V3(e.x, 0.05, e.z), 0xffb060, e.r, { life: 0.45, width: 0.4, bright: 2.2 } as never);
         fxSmoke(at, 0x2e2a28, 10, { r: 1.0, spd: 2.6, up: 1.6, s: 0.6, life: 1.2, alpha: 0.5 });
-        fxEmbers(at, 0xff9a3a, 18, { r: 1.2, up: 3, life: 1.2 }); shake(0.45); cue('crit', 1.2); cue('burn', 1.0);
+        fxEmbers(at, 0xff9a3a, 18, { r: 1.2, up: 3, life: 1.2 }); shake(0.45); cue('boom', 1); cue('fire', 0.8);
       }
       else if (e.k === 'fire') {
         const disc = new THREE.Mesh(new THREE.CircleGeometry(e.f.r, 8, Math.PI / 8).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xff6a1a, transparent: true, opacity: 0.35, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
@@ -151,7 +151,7 @@ export class Breakables {
         this.fires.push({ id: e.f.id, x: e.f.x, z: e.f.z, r: e.f.r, t: e.f.t, disc, emit: 0 });
       }
       else if (e.k === 'fireEnd') { const i = this.fires.findIndex(f => f.id === e.f.id); if (i >= 0) { const f = this.fires[i]; this.root.remove(f.disc); (f.disc.material as THREE.Material).dispose(); f.disc.geometry.dispose(); this.fires.splice(i, 1); } }
-      else if (e.k === 'topple') { const v = this.vis.get(e.p.id); if (v) { v.fall = 0; v.solid.r = BTUNE.stumpR; } cue('block', 0.9); }
+      else if (e.k === 'topple') { const v = this.vis.get(e.p.id); if (v) { v.fall = 0; v.solid.r = BTUNE.stumpR; } cue('pillarFall', 1); }
     }
   }
   /** a lit jar or a burning patch near a point (the bot keeps away from them) */
