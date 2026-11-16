@@ -77,11 +77,15 @@ export class Yard {
   /** 0..1: how close the hero is to the costume rack (the camera leans in) */
   near = 0;
   /** lane = the x range of the road out (the plinths keep clear of it, so walking out never steps onto one) */
-  constructor(parent: THREE.Object3D, rack: ModelDef[], wearing: ModelDef, lane: [number, number] = [-1.2, 1.2]) {
-    parent.add(this.root);
-    // summon slabs down the right side, a sign behind each
-    PADS.forEach(([kind, name], i) => {
-      const col = i < 4 ? 1 : -1, x = 4.3 * col, z = -2.5 + (i < 4 ? i : i - 4) * 1.4;
+  /** where a summoned partner appears (the old yard: the back middle; the hideout: its 试剑坪) */
+  spawnAt: () => THREE.Vector3 = SPAWN_AT;
+  /** o.pads (act-20, the hideout): the slabs' places and who each calls, in a row; no costume rack (rack = []) */
+  constructor(parent: THREE.Object3D, rack: ModelDef[], wearing: ModelDef, lane: [number, number] = [-1.2, 1.2], o: { pads?: Array<{ x: number; z: number; kind: EKind; name: string }>; spawn?: () => THREE.Vector3 } = {}) {
+    parent.add(this.root); if (o.spawn) this.spawnAt = o.spawn;
+    // summon slabs down the right side, a sign behind each (or at the hideout's places)
+    const pads = o.pads ?? PADS.map(([kind, name], i) => { const col = i < 4 ? 1 : -1; return { kind, name, x: 4.3 * col, z: -2.5 + (i < 4 ? i : i - 4) * 1.4 }; });
+    pads.forEach(({ kind, name, x, z }) => {
+      const col = o.pads ? 0 : x > 0 ? 1 : -1;
       const mat = new THREE.MeshLambertMaterial({ color: 0x7a7c86, emissive: 0xff7a3a, emissiveIntensity: 0 });
       const slab = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.12, 1.1), mat); slab.position.set(x, 0.06, z); slab.receiveShadow = true;
       const inset = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.02, 0.8), toon(0x5a5c66)); inset.position.y = 0.065; slab.add(inset);

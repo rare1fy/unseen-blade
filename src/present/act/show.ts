@@ -155,6 +155,8 @@ export class ActShow {
   /** 开始游戏: a fresh save, the opening cutscene on the burning field, then the hideout and her first waking */
   async startNewGame() {
     newGame();
+    // a new game: she is 姜烬 in her 斗笠 again (the costume the browser remembered goes)
+    { const d = HEROES.find(x => x.id === 'slim_hat'); if (d) { this.wearing = d; try { localStorage.setItem('act.hero4', d.id); } catch { /* storage blocked */ } } }
     this.noArena = true; this.viewSpec = { locale: 'hj_field', time: 'dusk', weather: 'clear', layout: 'pair', seed: 4242, exits: [] }; this.room = 0; this.locale = 'hj_field'; this.buildRoom(true); this.viewSpec = null; this.noArena = false;
     for (const f of this.foes) f.a.dispose(); this.foes.length = 0;
     this.phase = 'yard'; await this.cine(openingShots(this.cineHost));
@@ -234,6 +236,8 @@ export class ActShow {
       { label: () => `震动：${VIBE.on ? '开' : '关'}（${({ api: '这台设备支持', ios: `iPhone iOS ${iosMajor()}：系统触感，点屏幕时最灵`, 'ios-old': `iPhone iOS ${iosMajor() || '17 及以下'}：网页没法震，要 iOS 18`, none: '这个浏览器不支持' } as const)[vibeSupport()]}）`, run: () => { VIBE.on = !VIBE.on; try { localStorage.setItem('ub.vibe', VIBE.on ? '1' : '0'); } catch { /* private mode */ } } },
       { label: () => '试一下震动', run: () => { const was = VIBE.on; VIBE.on = true; this.platform.vibrate('heavy'); VIBE.on = was; } },
       // act-14 用户：「我要2x，然后调试面板给我一个切换这个的功能」 — 2x → 3x → off → 1x, remembered on this device
+      // act-20: her look (the story's heroine: the 斗笠 or the 白发 — the user's two picks); the hideout has no costume rack
+      { label: () => `造型：${this.wearing.name}（点这里换）`, run: () => { const ids = ['slim_hat', 'slim_white'], n = HEROES.find(d => d.id === ids[(ids.indexOf(this.wearing.id) + 1) % ids.length]); if (n) this.wear(n); } },
       { label: () => `像素：${PX.on ? PX.size + 'x' : '关'}（点这里换）`, run: () => { const order = ['2', '3', 'off', '1'], cur = PX.on ? String(PX.size) : 'off', nx = order[(order.indexOf(cur) + 1) % order.length]; if (nx === 'off') setPixel(false); else setPixel(true, +nx); try { localStorage.setItem('ub.px', nx); } catch { /* private mode */ } } }]);
     if (typeof window !== 'undefined') window.addEventListener('keydown', e => { if ((e.key === 'u' || e.key === 'U') && !this.cards.on) this.cycleSkin(); });
     dh.add({ steleTest: (n = 0, cut = -1) => { const st = new Stele(n); st.g.position.set(this.hero.pos.x, 0, this.hero.pos.z - 2.2); this.stage!.root.add(st.g); if (cut >= 0) after(0.8, () => st.strike(cut)); return st; }, boss: () => { this.startRun(); this.plan = roomOf('boss', RUN_ROOMS - 1, Math.random); this.locale = this.plan.locale; this.room = RUN_ROOMS - 1; this.buildRoom(false); }, newGame: () => this.startNewGame(), talkTest: (n = 0) => this.talk(n ? CHULEI_BEFORE : WAKE_DUWU), act: () => this, bot: (on = true) => { this.botOn = on; }, run: () => this.startRun(), yard: () => this.enterYard(), wear: (id: string) => { const d = HEROES.find(h => h.id === id); if (d) this.wear(d); },
