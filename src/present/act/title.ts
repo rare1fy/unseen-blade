@@ -397,7 +397,7 @@ type Beat = 'menu' | 'confirm' | 'draw' | 'cut' | 'split' | 'done';
 const TITLE = '不见刀', INK = '#e8ece8', LINE = '#0a0d12';
 const MENU: Item[] = [{ id: 'new', label: '开始游戏', enabled: true }, { id: 'cont', label: '继续游戏', enabled: false }, { id: 'set', label: '设置', enabled: true }];
 const ASK: Item[] = [{ id: 'yes', label: '重新开始', enabled: true }, { id: 'no', label: '返回', enabled: true }];
-const ASK_NOTE = '旧的进度会清空';
+const ASK_NOTE = '原有进度将尽数清空';
 
 class Title {
   readonly done: Promise<void>; private resolve!: () => void;
@@ -575,7 +575,7 @@ class Title {
     const pw = Math.max(150, Math.min(270, W * 0.17)), gap = Math.max(8, pw * PH * 0.34); this.gap = gap;
     const y0 = Math.max(this.lay.top + H * 0.1, H * 0.5) + pw * PH / 2;
     this.plaques.forEach((p, i) => { p.w = pw; p.x = cx; p.y = y0 + i * (pw * PH + gap); });
-    this.noteKey = ' ';   // re-place the note (if any) on the next frame
+    this.noteKey = '\0';   // re-place the note (if any) on the next frame
   }
   private noteKey = '';
   private drawOverlay(rdt: number) {
