@@ -168,7 +168,7 @@ export function assemble(spec: Spec, reg: Registry): { def: SceneDef; report: Re
       if (spec.season === 'winter') snowPass(c, walk);
       buildFlora(c);
       loc.dress?.(c, { layout, p: place(0, 0, 0, 4), clear: walk });
-      for (const a of weatherAmbient(spec.weather, spec.season, spec.time)) c.ambient(a);
+      for (const a of weatherAmbient(spec.weather, spec.season, spec.time, spec.locale.startsWith('hj_'))) c.ambient(a);
       report.lights = live.lights;
       if (live.lights >= MAX_LIGHTS) report.warnings.push(`light budget reached (${MAX_LIGHTS})`);
       // glow cap (11-15 mixed sheet: some lantern / sign faces bloomed into white glare at dusk): every glowing cell keeps its hue

@@ -33,12 +33,13 @@ export function moodFor(t: TimeId, s: SeasonId, w: WeatherId): Mood {
 }
 /** point-light strength for the time (lamps barely matter at noon) */
 export function lampFor(t: TimeId, w: WeatherId) { return ({ dusk: 1, night: 1.35, dawn: 0.45, day: 0.25 }[t]) * (w === 'rain' ? 1.1 : 1); }
-export function weatherAmbient(w: WeatherId, s: SeasonId, t: TimeId): Ambient[] {
+/** cn: a Chinese place (the 黄巾 region) — autumn drops yellow-brown elm / poplar leaves, not red maple (which reads Japanese) */
+export function weatherAmbient(w: WeatherId, s: SeasonId, t: TimeId, cn = false): Ambient[] {
   const A = { x0: -12, z0: -12, x1: 12, z1: 6 }, out: Ambient[] = [];
   if (w === 'rain') out.push({ kind: 'rain', color: 0xb8c4d4, rate: 90, area: A });
   if (w === 'snow') out.push({ kind: 'snow', color: 0xf0f4ff, rate: 22, area: A });
   if (w === 'petals') out.push({ kind: 'petals', color: 0xf4b8c8, rate: 6, area: A }, { kind: 'petals', color: 0xfcdce4, rate: 3, area: A });
-  if (s === 'autumn' && w !== 'rain' && w !== 'snow') out.push({ kind: 'leaves', color: 0xd8482a, rate: 2.2, area: A }, { kind: 'leaves', color: 0xe8902e, rate: 0.8, area: A });
+  if (s === 'autumn' && w !== 'rain' && w !== 'snow') out.push(cn ? { kind: 'leaves', color: 0xc89a3a, rate: 1.6, area: A } : { kind: 'leaves', color: 0xd8482a, rate: 2.2, area: A }, { kind: 'leaves', color: cn ? 0x9a7a3a : 0xe8902e, rate: 0.8, area: A });
   if (t === 'night' && s === 'summer' && w === 'clear') out.push({ kind: 'fireflies', color: 0xc8ff8a, rate: 1.4, area: { x0: -11, z0: -11, x1: 11, z1: -1 } });
   if (t === 'dusk' || t === 'night') out.push({ kind: 'fireflies', color: 0xffc070, rate: 0.4, area: { x0: -10, z0: -11, x1: 10, z1: -6 } });
   if (w !== 'rain' && w !== 'snow') out.push({ kind: 'dust', color: 0xe8d8c8, rate: 1.5 });
