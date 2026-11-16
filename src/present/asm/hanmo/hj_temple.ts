@@ -156,7 +156,9 @@ function dress(c: Ctx, f: { layout: Layout; p: Place; clear: Rect[] }) {
     while (k < count && q < 600) { q++; const x = -7 + hash(q, sd, salt) * 14, z = -9.2 + hash(q, sd, salt + 1) * 15.8; if (!inside && inPlay(x, z)) continue; const y = ground(c, x, z); if (y == null || y > 0.05) continue;
       c.cards.add(kind, x, z, { y: y + 0.004 + k * 0.0004, s: s[0] + hash(q, 3, salt) * (s[1] - s[0]), ry: Math.floor(hash(q, 4, salt) * 4) * Math.PI / 2, tint: kind === 'crack' ? 0xc8c4bc : 0xffffff }); k++; }
   };
-  deco('crack', 7, [0.6, 0.9], true, 50); deco('hjfu', 8, [0.5, 0.7], true, 60);
+  // (act-17 review: the dark crack decals read as diagonal scribbles on the court — the user's most hated 「梯」/ speckle — so none;
+  // a few dropped talismans only off the battle floor)
+  deco('hjfu', 4, [0.5, 0.7], false, 60);
   if (f.p.time === 'dusk' || f.p.time === 'night') c.ambient({ kind: 'embers', color: 0xff8a3a, rate: 1.0, area: { x0: -8, z0: -13, x1: 8, z1: -8 } });
   c.ambient({ kind: 'dust', color: 0xb8b0a4, rate: 1.0 });
 }
