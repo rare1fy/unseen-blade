@@ -24,7 +24,6 @@ import { pickSpec } from '../asm/pick';
 import { exitInfo, withExits, type ExitId, type ExitInfo } from '../asm/exits';
 import type { Layout, Spec, Report } from '../asm/types';
 import { wipeTransit, WIPE } from '../scenes/transWipe';
-import { makeBoard } from '../ronin/route';
 import type { RouteOpt } from '../../core/v2/ronin/chapter';
 import { cue } from '../../audio/cues';
 import { audio } from '../../audio/audio';
@@ -45,6 +44,11 @@ import { Yard, makeSign, SPAWN_AT } from './yard';
 import type { ModelDef } from '../bestiary/models';
 import { dustBlocks, spawnClone, smokeBurst, cut as cloneCut } from '../kyoto/ninja_fx';
 import { Dart, BladeWave } from './missiles';
+import { RUN_ROOMS, ROOM_INFO, SCHOOL_NAME, firstRoom, doorsFrom, kindOr, isBossKind, type RoomPlan, type RoomType } from './run';
+import { Stations, type Station } from './stations';
+import { Coins } from './coins';
+import { runBoard } from './runBoard';
+import { HitArcs } from './hitArc';
 import { PX, setPixel } from '../look/pixel';
 import { VIBE, vibeSupport } from '../../platform/index';
 /** the perks the hero's world reads while the run is on (kept in step each frame) */
@@ -55,17 +59,8 @@ import { Action } from '../actors/rig';
 
 addLocales(NINJA_LOCALES); addLocales(HANMO_LOCALES);
 
-interface RoomDef { waves: EKind[][]; boss?: boolean }
-const ROOMS: RoomDef[] = [
-  { waves: [['bandit', 'bandit', 'dog'], ['bandit', 'dog', 'dog', 'archer']] },
-  { waves: [['bandit', 'archer', 'archer', 'dog'], ['dog', 'dog', 'bandit', 'bandit', 'archer']] },
-  { waves: [['bandit', 'archer', 'dog'], ['chief', 'bandit', 'archer']], boss: true },
-];
-/** the doors out of room i: where they lead and what clearing the next room gives */
-const DOORS: Array<Array<{ locale: string; reward: 'build' | 'heal'; kind: RouteOpt['kind'] }>> = [
-  [{ locale: 'ninja_temple', reward: 'build', kind: 'normal' }, { locale: 'ninja_town', reward: 'heal', kind: 'normal' }],
-  [{ locale: 'ninja_village', reward: 'build', kind: 'midBoss' }],
-];
+/** prices at the 行商 (copper coins) */
+const PRICES = { boon: 60, heal: 30, sharpen: 50 };
 /** a soft dark spot for under the feet: a radial fade drawn once, shared by every spot */
 let SHADOW_TEX: THREE.Texture | null = null;
 function contactShadow() {
@@ -88,7 +83,10 @@ function savedHero(): ModelDef {
 export class ActShow {
   L = new UiLayer(); ov = new Overlay(); inp = new Input(); hud: ActHud; cards: CardPick; banner: SkinBanner;
   stage: Stage | null = null; hero!: Hero; foes: Foe[] = []; arrows: Arrow[] = []; waves: BladeWave[] = []; darts: Dart[] = []; /** darts thrown so far (tests) */ dartsThrown = 0;
-  room = 0; wave = 0; phase: Phase = 'intro'; perks: Perks = newPerks(); private reward: 'build' | 'heal' = 'build';
+  room = 0; wave = 0; phase: Phase = 'intro'; perks: Perks = newPerks();
+  /** act-17: this room's plan, the roads out of it, the kinds of room seen this run, the purse */
+  private plan: RoomPlan | null = null; private nextRooms: RoomPlan[] = []; private visited: RoomType[] = []; coins = 0;
+  private coinsFx = new Coins(); private stations: Stations | null = null; private hitArcs = new HitArcs();
   /** __dh.scene: the spec overrides for a fight-less view of one place; the last assembler report */
   private viewSpec: Partial<Spec> | null = null; private lastReport: Report | null = null;
   private spec: Spec | null = null; private layout: Layout | null = null; private doors: Array<{ ex: ExitInfo; g: THREE.Group; lift: number }> = []; private locale = 'ninja_wilds';
@@ -161,12 +159,13 @@ export class ActShow {
   /** the training yard: dummies, summon slabs, the costume rack, the way out to a run */
   enterYard() {
     this.intent = 0; this.hud.intent = 0;
-    this.perks = newPerks(); this.room = -1; this.kills = 0; this.locale = 'ninja_wilds'; this.recent = [];
+    this.perks = newPerks(); this.room = -1; this.kills = 0; this.locale = 'ninja_wilds'; this.recent = []; this.plan = null; this.taken.clear();
     TUNE.heroHp = 100; this.buildRoom(true);
   }
   startRun() {
     this.intent = 0; this.hud.intent = 0;
-    this.perks = newPerks(); this.room = 0; this.reward = 'build'; this.kills = 0; this.locale = 'ninja_wilds'; this.recent = [];
+    this.perks = newPerks(); this.room = 0; this.kills = 0; this.recent = []; this.taken.clear();
+    this.plan = firstRoom(Math.random); this.visited = []; this.coins = 0; this.locale = this.plan.locale;
     TUNE.heroHp = 100; this.buildRoom(true);
   }
   /** put on another costume (the rack, or __dh.wear) and remember it */
@@ -176,15 +175,17 @@ export class ActShow {
   }
   private buildRoom(first: boolean) {
     for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = [];
-    for (const d of this.doors) d.g.parent?.remove(d.g); this.doors = [];
+    for (const d of this.doors) d.g.parent?.remove(d.g); this.doors = []; this.stations?.dispose(); this.stations = null; this.coinsFx.clear();
     this.yard?.dispose(); this.yard = null; this.exitSign?.parent?.remove(this.exitSign); this.exitSign = null;
     const hp = first || !this.hero ? TUNE.heroHp + this.perks.hpUp : this.hero.hp, maxHp = TUNE.heroHp + this.perks.hpUp;
     this.hero?.a.dispose();
     const isYard = this.room < 0;
+    if (!isYard && this.plan && !this.viewSpec) this.visited.push(this.plan.type);
+    this.nextRooms = !isYard && this.plan && !this.viewSpec ? doorsFrom(this.room, this.visited, Math.random) : [];
     const seed = (Date.now() % 100000) + this.room * 977;
     const base = pickSpec(seed, Object.values(REGISTRY.locales), REGISTRY.layouts, this.recent, { season: 'autumn', locale: this.locale });
     const spec: Spec = isYard ? { ...base, time: 'dusk', weather: 'clear', exits: ['back'] }
-      : { ...base, time: this.room === 0 ? 'dusk' : base.time, weather: this.room === 2 ? 'clear' : base.weather, exits: this.room < ROOMS.length - 1 ? (DOORS[this.room].length > 1 ? ['left', 'right'] : ['back']) : [] };
+      : { ...base, time: this.room === 0 ? 'dusk' : base.time, weather: this.plan?.type === 'boss' ? 'clear' : base.weather, exits: this.nextRooms.length > 1 ? ['left', 'right'] : this.nextRooms.length ? ['back'] : [] };
     if (this.viewSpec) Object.assign(spec, this.viewSpec, { exits: [] });
     this.recent.push(spec); this.spec = spec;
     const { def, report } = assemble(spec, REGISTRY); this.lastReport = report;
@@ -202,7 +203,15 @@ export class ActShow {
     // the very first room: the controls once, in the banner (no key hints on screen afterwards)
     const hint = !this.hinted ? (this.inp.lastDevice === 'touch' && 'ontouchstart' in globalThis ? '左边拖动走 · 斩 / 按住蓄力 · 冲 · 跳 · 镖' : 'WASD 走 · J 斩（按住蓄力）· 空格 跳 · K 冲刺 · L 飞镖') : '';
     this.hinted = true;
-    this.banner.show(`第 ${'一二三'[this.room]} 间 · ${name}`, hint || (ROOMS[this.room].boss ? '山贼头目在这里' : '两波敌人'), hint ? 3.2 : 1.4);
+    const info = ROOM_INFO[this.plan?.type ?? 'fight'];
+    this.banner.show(`第 ${'一二三四五六'[this.room] ?? this.room + 1} 间 · ${info.name}`, hint || `${name} · ${info.line}`, hint ? 3.2 : 1.6);
+    // the rooms without a fight: the stations stand ready and the roads are open at once
+    if (this.plan && (this.plan.type === 'shop' || this.plan.type === 'rest' || this.plan.type === 'boon')) {
+      this.stations = new Stations(this.stage!.root);
+      if (this.plan.type === 'shop') this.stations.shop(PRICES); else if (this.plan.type === 'rest') this.stations.rest(); else this.stations.scroll();
+      this.log.push(`room ${this.room} ${this.plan.type} ${spec.locale}`);
+      this.openDoors(true); return;
+    }
     // walk in from the front of the room, then the first wave
     const h = this.hero; this.introT = 0;
     after(1.1, () => { if (this.hero === h && this.phase === 'intro') { this.phase = 'fight'; this.spawnWave(); } });
@@ -221,20 +230,21 @@ export class ActShow {
     this.log.push('yard');
   }
   private spawnWave() {
-    const kinds = ROOMS[this.room].waves[this.wave], hp = this.hero.pos;
+    const kinds = this.plan?.waves[this.wave] ?? [], hp = this.hero.pos;
     kinds.forEach((k, i) => {
       after(i * 0.28, () => {
         if (this.phase !== 'fight') return;
         let p = V3();
         for (let t = 0; t < 30; t++) {
           const side = Math.floor(R(0, 3)); p = side === 0 ? V3(R(-4.2, 4.2), 0, R(-5.8, -4.2)) : V3((side === 1 ? -1 : 1) * R(3.6, 4.7), 0, R(-5.2, 1.5));
-          if (k === 'chief') p = V3(0, 0, -4.6);
+          if (isBossKind(kindOr(k).kind)) p = V3(0, 0, -4.6);
           if (p.distanceTo(hp) > 4.2 && this.foes.every(f => f.pos.distanceTo(p) > 1.4)) break;
         }
-        const f = spawnFoe(k, p, hp.clone()); this.foes.push(f);
-        fxSmoke(p.clone().add(V3(0, 0.3, 0)), 0x6a6a74, k === 'chief' ? 14 : 8, { r: 0.7, spd: 1.2, up: 0.6, s: 0.4, life: 0.7 }); fxRing(p.clone().setY(0.05), 0xff7a4a, 1.2, { life: 0.4 } as never);
-        cue(k === 'chief' ? 'roar' : 'summon', k === 'chief' ? 0.9 : 0.4);
-        if (k === 'chief') { f.a.roar(); shake(0.3 * TUNE.shake); this.banner.show('山贼头目', '架势被打空才会晕', 1.6, '#ff8a6a'); }
+        const ko = kindOr(k), f = spawnFoe(ko.kind, p, hp.clone()); (f as Foe & { elite?: boolean }).elite = ko.elite; this.foes.push(f);
+        const boss = isBossKind(ko.kind);
+        fxSmoke(p.clone().add(V3(0, 0.3, 0)), 0x6a6a74, boss ? 14 : 8, { r: 0.7, spd: 1.2, up: 0.6, s: 0.4, life: 0.7 }); fxRing(p.clone().setY(0.05), 0xff7a4a, 1.2, { life: 0.4 } as never);
+        cue(boss ? 'roar' : 'summon', boss ? 0.9 : 0.4);
+        if (boss) { f.a.roar(); shake(0.3 * TUNE.shake); this.banner.show(f.d.name, '', 1.6, '#ff8a6a'); }
       });
     });
   }
@@ -500,14 +510,15 @@ export class ActShow {
   }
   private killFoe(f: Foe, from: THREE.Vector3) {
     this.kills++;
-    const boss = f.kind === 'chief';
+    const boss = isBossKind(f.kind), elite = !!(f as Foe & { elite?: boolean }).elite;
     void playDeath(f.a, { from, ratio: f.lastDmg / f.maxHp + (boss ? 0.5 : 0), boss }).then(() => { f.a.dispose(); });
-    popPix(`+${f.d.gold}`, f.a.head().add(V3(0.4, 0.2, 0)), { color: '#ffd24a', h: 0.36, life: 0.8 });
+    // copper coins: a few square-holed coins bounce out and fly to the hero (worth the foe's gold; elites ×3, the boss more)
+    if (this.room >= 0 && f.kind !== 'dummy') { const total = boss ? 60 : f.d.gold * (elite ? 3 : 1), n = Math.min(10, total); this.coinsFx.drop(f.pos.clone(), n, Math.max(1, Math.round(total / n))); }
     if (this.perks.killHeal && this.hero.alive) { this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + this.perks.killHeal); this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp }); }
     const left = this.foes.filter(x => x.st !== 'dead').length;
     if (boss) { slowmo(1.1, 0.25); shake(0.6 * TUNE.shake); cue('win', 0.9); }
     if (!left && this.phase === 'fight') {
-      const lastWave = this.wave >= ROOMS[this.room].waves.length - 1;
+      const lastWave = this.wave >= (this.plan?.waves.length ?? 1) - 1;
       if (!boss) slowmo(lastWave ? 0.7 : 0.35, 0.3);
       if (lastWave) after(1.0, () => this.roomClear()); else { this.wave++; after(0.9, () => { if (this.phase === 'fight') { this.banner.show(`第 ${this.wave + 1} 波`, '', 0.9); this.spawnWave(); } }); }
     }
@@ -519,6 +530,8 @@ export class ActShow {
     if (this.hero.parrying) { this.iaiParry(from); return; }
     if (this.hero.dodging) { this.perfectDodge(from); return; }
     if (!this.hero.hurt(dmg, from)) return;
+    // where it came from: a red arc at the feet facing the attacker
+    this.hitArcs.show(this.hero.pos, from);
     this.hud.flask.hit(dmg, { hp: this.hero.hp, maxHp: this.hero.maxHp });
     popPix(`-${dmg}`, this.hero.a.head().add(V3(0, 0.3, 0)), { color: '#ff5a4a', h: 0.5, life: 0.8 });
     fxSparks(this.hero.a.chest(), 0xff4a3a, 12, 4); this.hero.a.tint(0xff3020, 0.9);
@@ -531,15 +544,44 @@ export class ActShow {
     this.phase = 'pick'; cue('win', 0.6);
     this.banner.show('清场', '', 1.0, '#ffe6a0');
     await new Promise(r => after(0.9, () => r(null)));
-    if (this.room >= ROOMS.length - 1) { this.end(true); return; }
-    if (this.reward === 'heal') { this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + Math.round(this.hero.maxHp * 0.35)); this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp }); this.banner.show('回复', '三成五生命', 1.0, '#9aff9a'); await new Promise(r => after(0.8, () => r(null))); }
+    if (this.room >= RUN_ROOMS - 1) { this.end(true); return; }
+    const rw = this.plan?.reward ?? null;
+    if (rw?.k === 'coins') { this.coinsFx.drop(this.hero.pos.clone().add(V3(0, 0, -1.5)), 12, Math.round(rw.n / 12)); this.banner.show('铜钱', `${rw.n}`, 1.0, '#ffd24a'); }
+    else if (rw?.k === 'heal') { this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + Math.round(this.hero.maxHp * 0.35)); this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp }); this.banner.show('回复', '三成五生命', 1.0, '#9aff9a'); await new Promise(r => after(0.8, () => r(null))); }
     else {
-      const pool = BOONS.filter(b => !this.taken.has(b.id)), pick = pool.sort(() => Math.random() - 0.5).slice(0, 3);
-      this.hud.on = false; this.banner.hide();
-      const i = await this.cards.open(pick); const b = pick[i]; this.take(b);
-      this.hud.on = true;
+      await this.boonPick(rw?.k === 'boon' ? rw.school : 'sr');
     }
     this.openDoors();
+  }
+  /** three boons of a school (散人 = the old school-less ones), the cards up, the pick taken */
+  private async boonPick(school: 'tp' | 'jd' | 'sr' | 'any') {
+    const pool = BOONS.filter(b => !this.taken.has(b.id) && (school === 'any' || ((b as Boon & { school?: string }).school ?? 'sr') === school || !(b as Boon & { school?: string }).school));
+    const pick = (pool.length >= 3 ? pool : BOONS.filter(b => !this.taken.has(b.id))).sort(() => Math.random() - 0.5).slice(0, 3);
+    if (!pick.length) return;
+    const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide();
+    if (school !== 'any') this.log.push(`school ${SCHOOL_NAME[school]}`);
+    const i = await this.cards.open(pick); const b = pick[i]; this.take(b);
+    this.hud.on = true; this.phase = was === 'pick' ? 'pick' : was;
+  }
+  /** 磨刀: one of the boons in hand goes up a tier (the tiers arrive with the schools) */
+  private async sharpen() {
+    const own = BOONS.filter(b => this.taken.has(b.id)); if (!own.length) return;
+    const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide();
+    const i = await this.cards.open(own.slice(0, 3)); const b = own[i]; this.log.push(`sharpen ${b.id}`);
+    this.hud.on = true; this.phase = was; this.banner.show(b.name, '磨利一档', 1.2, b.col);
+  }
+  /** a station's ring filled: pay, then do its thing */
+  private async useStation(s: Station) {
+    if (!this.stations) return;
+    if (s.price > this.coins) return;
+    this.coins -= s.price; cue(s.price ? 'coin' : 'reveal', 0.6); this.log.push(`station ${s.id}`);
+    const heal = (k: number) => { this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + Math.round(this.hero.maxHp * k)); this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp }); };
+    if (s.id === 'buy_boon') { this.stations.spend(s); await this.boonPick('any'); }
+    else if (s.id === 'buy_heal') { this.stations.spend(s); heal(0.4); this.banner.show('金疮药', '四成生命', 1.0, '#9aff9a'); }
+    else if (s.id === 'buy_sharpen') { this.stations.spend(s); await this.sharpen(); }
+    else if (s.id === 'rest_heal') { this.stations.spend(s, true); heal(0.4); this.banner.show('裹伤调息', '四成生命', 1.0, '#9aff9a'); }
+    else if (s.id === 'rest_sharpen') { this.stations.spend(s, true); await this.sharpen(); }
+    else if (s.id === 'scroll') { this.stations.spend(s); await this.boonPick(Math.random() < 0.4 ? 'tp' : Math.random() < 0.67 ? 'jd' : 'sr'); }
   }
   private taken = new Set<string>();
   private take(b: Boon) {
@@ -547,21 +589,21 @@ export class ActShow {
     if (b.id === 'hpUp') { this.hero.maxHp = TUNE.heroHp + this.perks.hpUp; this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + 25); this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp }); }
     this.banner.show(b.name, b.desc.join(''), 1.4, b.col);
   }
-  private openDoors() {
-    const ds = DOORS[this.room], ids = (this.spec?.exits ?? []) as ExitId[];
+  private openDoors(quiet = false) {
+    const ds = this.nextRooms, ids = (this.spec?.exits ?? []) as ExitId[];
     this.doors = ds.map((d, i) => {
-      const ex = exitInfo(this.layout!, ids[i] ?? 'back'), opt: RouteOpt = { kind: d.kind, reward: d.reward === 'heal' ? 'heal' : 'build', locale: d.locale };
-      const { g } = makeBoard(opt, LOCALES[d.locale]?.name ?? ''); g.position.set(ex.sign.x, -2.4, ex.sign.z); g.scale.setScalar(1.25);
+      const ex = exitInfo(this.layout!, ids[i] ?? 'back');
+      const { g } = runBoard(d, LOCALES[d.locale]?.name ?? ''); g.position.set(ex.sign.x, -2.4, ex.sign.z); g.scale.setScalar(1.25);
       g.rotation.y = Math.atan2(-ex.sign.x * 0.4, 12); this.stage?.root.add(g);
       return { ex, g, lift: 0 };
     });
     this.phase = 'doors'; cue('reveal', 0.7);
-    this.banner.show('去路', ds.length > 1 ? '走进一条路口' : '往前走', 1.2);
+    if (!quiet) this.banner.show('去路', ds.length > 1 ? '走进一条路口' : '往前走', 1.2);
   }
   private leave(i: number) {
     if (this.phase !== 'doors') return;
-    this.phase = 'leaving'; const d = this.doors[i], next = DOORS[this.room][i];
-    this.reward = next.reward; const fromLocale = this.locale; this.locale = next.locale;
+    this.phase = 'leaving'; const d = this.doors[i], next = this.nextRooms[i];
+    this.plan = next; const fromLocale = this.locale; this.locale = next.locale;
     const h = this.hero; h.vel.set(d.ex.dir[0], 0, d.ex.dir[1]).multiplyScalar(TUNE.heroSpeed * 0.8);
     WIPE.look = fromLocale === 'ninja_wilds' ? 'bamboo' : 'pillar';
     after(0.35, () => { void wipeTransit(() => { this.room++; this.buildRoom(false); }); });
@@ -578,7 +620,7 @@ export class ActShow {
     this.phase = 'end';
     after(0.4, async () => {
       this.hud.on = false;
-      await this.cards.open([{ id: 'again', name: win ? '原型到此' : '再来一次', desc: [win ? '三间都清了' : '回练武场再出发', `斩了 ${this.kills} 个 · 点这里回练武场`], col: '#ffd070', glyph: BOONS[7].glyph }]);
+      await this.cards.open([{ id: 'again', name: win ? '黄巾残村' : '再来一次', desc: [win ? '渠帅伏诛' : '回练武场再出发', `斩了 ${this.kills} 个 · 点这里回练武场`], col: '#ffd070', glyph: BOONS[7].glyph }]);
       this.hud.on = true; void wipeTransit(() => this.enterYard());
     });
   }
@@ -661,6 +703,14 @@ export class ActShow {
       const q = d.p.clone(); this.clamp(q, 0); if (q.distanceTo(d.p) > 0.3 || d.life <= 0 || d.p.y < 0.05) d.stop(d.life > 0);
     }
     this.darts = this.darts.filter(d => !d.dead);
+    this.hitArcs.update(rdt, h.pos);
+    // copper coins fly in; the stations of a shop / rest / scroll room fill their rings under a hero standing still on a mat
+    { const got = this.coinsFx.update(dt, h.pos); if (got) { this.coins += got; cue('tick', 0.25); } this.hud.coins = this.coins; }
+    if (this.stations && this.phase === 'doors') {
+      const s = this.stations.update(dt, h.pos, Math.hypot(h.vel.x, h.vel.z) > 0.8, st => st.price <= this.coins && (!st.id.endsWith('sharpen') || this.taken.size > 0));
+      this.stations.setPurse(this.coins);
+      if (s) void this.useStation(s);
+    }
     // doors: the boards rise; walking into a road's far end leaves
     if (this.phase === 'doors') this.doors.forEach((d, i) => {
       d.lift = Math.min(1, d.lift + dt * 2.2); d.g.position.y = -2.4 * (1 - d.lift) ** 2;

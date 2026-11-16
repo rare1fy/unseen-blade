@@ -5,6 +5,7 @@
 //   左上：血量（漆匣朱条 / 一排竹简 / 一排札甲片）+ 数字；
 //   敌人头上：小血条；头目：屏幕上方一条长血条 + 名字。
 import * as THREE from 'three';
+import { isBossKind } from './run';
 import type { UiLayer } from '../ui3d/layer';
 import { worldToUi } from '../ui3d/layer';
 import { setGrid } from '../ui3d/pixelGrid';
@@ -27,6 +28,8 @@ export class ActHud {
   /** 杀意 (0..3): shown as the ingots under the iron health bar */
   intent = 0; private qteRing: QteRing;
   private bars = new Map<number, Bar>(); private boss: Bar | null = null; private bossName = '';
+  /** copper coins in the purse (act-17), shown under the health number */
+  coins = 0; private coinIcon: THREE.Group | null = null;
   stickHome = { x: 150, y: 600 }; stickSize = 150; k = 1; on = true; private W = 1280; private H = 720;
   constructor(private L: UiLayer) {
     this.sparks = new UiSparks(L.scene, 80); this.qteRing = new QteRing(L);
@@ -107,16 +110,25 @@ export class ActHud {
     this.flask.update(dt); this.sparks.update(dt);
     const st = this.flask.st, ta = this.flask.textAt();
     this.L.text.set('act.hp', { text: `${Math.max(0, Math.round(st.hp))} / ${st.maxHp}`, x: ta.x, y: ta.y, cell: 2, color: '#ffe8c8', align: 'left', visible: this.on });
+    // the purse: a copper coin (a square-holed coin, in the UI layer) and the count
+    if (!this.coinIcon) {
+      const g = new THREE.Group(), m = new THREE.MeshBasicMaterial({ color: 0xd09040 }), d = new THREE.MeshBasicMaterial({ color: 0x5a3a18 });
+      const bar = (w: number, h: number, x: number, y: number, mat: THREE.Material) => { const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.2), mat); b.position.set(x, y, 0); g.add(b); };
+      bar(1, 0.36, 0, 0.32, m); bar(1, 0.36, 0, -0.32, m); bar(0.36, 0.3, -0.32, 0, m); bar(0.36, 0.3, 0.32, 0, m); bar(0.28, 0.28, 0, 0, d);
+      this.L.scene.add(g); this.coinIcon = g;
+    }
+    this.coinIcon.visible = this.on; this.L.at(ta.x + 9 * this.k, ta.y + 34 * this.k, 2, this.coinIcon.position); this.coinIcon.scale.setScalar(this.L.px(16 * this.k));
+    this.L.text.set('act.coins', { text: `${this.coins}`, x: ta.x + 22 * this.k, y: ta.y + 26 * this.k, cell: 2, color: '#ffd27a', align: 'left', visible: this.on });
     // bars over the foes (the chief: the long bar at the top instead)
     const live = new Set<number>();
     for (const f of foes) {
-      if (f.st === 'dead' || f.kind === 'chief' || f.kind === 'dummy') continue; live.add(f.uid);
+      if (f.st === 'dead' || isBossKind(f.kind) || f.kind === 'dummy') continue; live.add(f.uid);
       let b = this.bars.get(f.uid); if (!b) { b = this.newBar(); this.bars.set(f.uid, b); }
       const p = worldToUi(f.a.head().add(V3(0, 0.45, 0))); b.g.visible = this.on && p.z < 1;
       this.drawBar(b, p.x, p.y, 64 * this.k, 9 * this.k, f.hp / f.maxHp, dt);
     }
     for (const [uid, b] of this.bars) if (!live.has(uid)) { b.g.parent?.remove(b.g); this.bars.delete(uid); }
-    const chief = foes.find(f => f.kind === 'chief' && f.st !== 'dead');
+    const chief = foes.find(f => isBossKind(f.kind) && f.st !== 'dead');
     if (chief) {
       if (!this.boss) this.boss = this.newBar();
       this.boss.g.visible = this.on; this.drawBar(this.boss, this.L.w / 2, 40 * this.k, Math.min(560, this.L.w * 0.44), 12 * this.k, chief.hp / chief.maxHp, dt);

@@ -1,5 +1,6 @@
 // 地面预警（敌人出招前在地上亮出攻击范围）：扇形（劈砍）、长条（扑咬 / 冲撞）、圆（砸地）、细线（弓箭瞄准）。
-// 一层淡色底面 = 范围，一层随蓄力长满的填充 = 还剩多久，一圈亮边。出手那一下整块亮一下再淡掉。颜色是暗红橙，透明度克制
+// 一层淡色底面 = 范围，一圈亮边；范围里是「声纹」（act-17，GAME_PLAN 第 1、6 节：主角是瞎子，预警就是他听见的出招）——一道道硬边的
+// 波纹从出招处往外推，越接近出手越亮，前沿（还剩多久）以内更亮。出手那一下整块亮一下再淡掉。颜色是暗红橙，透明度克制
 // （CLAUDE.md：高亮要克制），不压暗画面。
 import * as THREE from 'three';
 import { scene } from '../engine/world';
@@ -8,6 +9,23 @@ export type TeleShape = { k: 'cone'; r: number; half: number } | { k: 'rect'; le
 const COL = 0xff4a26, EDGE = 0xff9a60;
 const mat = (o: number, c = COL) => new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: o, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, side: THREE.DoubleSide });
 
+/** the sound-wave fill: hard-edged ripple bands running out from where the blow starts (cone apex / circle centre / the strip's
+ *  start); brighter as the wind-up fills (uP) and inside its front; uFlash = the strike */
+const RIPPLE_VS = 'varying vec3 vP; void main() { vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }';
+const RIPPLE_FS = `uniform vec3 uCol; uniform float uP, uT, uFade, uFlash, uKind, uR, uAhead, uLen; varying vec3 vP;
+void main() {
+  float d = uKind < 0.5 ? length(vP.xz) / uR : uKind < 1.5 ? length(vP.xz - vec2(0.0, uAhead)) / uR : vP.z / uLen;
+  float band = step(0.66, fract(d * 4.0 - uT * 1.7));
+  float front = step(d, uP);
+  float a = band * (0.08 + 0.34 * uP) * (0.45 + 0.55 * front) + front * 0.05 + uFlash * 0.55;
+  gl_FragColor = vec4(uCol, a * uFade);
+}`;
+function rippleMat(s: TeleShape) {
+  const kind = s.k === 'cone' ? 0 : s.k === 'circle' ? 1 : 2;
+  return new THREE.ShaderMaterial({ vertexShader: RIPPLE_VS, fragmentShader: RIPPLE_FS, transparent: true, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2,
+    uniforms: { uCol: { value: new THREE.Color(COL) }, uP: { value: 0 }, uT: { value: 0 }, uFade: { value: 1 }, uFlash: { value: 0 }, uKind: { value: kind },
+      uR: { value: s.k === 'cone' || s.k === 'circle' ? s.r : 1 }, uAhead: { value: s.k === 'circle' ? s.ahead : 0 }, uLen: { value: s.k === 'rect' || s.k === 'line' ? s.len : 1 } } });
+}
 function geo(s: TeleShape): THREE.BufferGeometry {
   if (s.k === 'cone') { const g = new THREE.CircleGeometry(s.r, 28, Math.PI / 2 - s.half, s.half * 2); g.rotateX(-Math.PI / 2); g.rotateY(Math.PI); return g; }
   if (s.k === 'circle') { const g = new THREE.CircleGeometry(s.r, 40); g.rotateX(-Math.PI / 2); g.translate(0, 0, s.ahead); return g; }
@@ -32,7 +50,7 @@ export class Tele {
   g = new THREE.Group(); private area: THREE.Mesh; private fill: THREE.Mesh; private edge: THREE.Line; private flashT = -1; private dead = false;
   private bars: THREE.Mesh | null = null;
   constructor(public s: TeleShape, o: { low?: boolean } = {}) {
-    this.area = new THREE.Mesh(geo(s), mat(s.k === 'line' ? 0.18 : 0.13)); this.fill = new THREE.Mesh(geo(s), mat(0.3)); this.fill.scale.setScalar(0.001);
+    this.area = new THREE.Mesh(geo(s), mat(s.k === 'line' ? 0.18 : 0.1)); this.fill = new THREE.Mesh(geo(s), rippleMat(s));
     this.edge = new THREE.Line(edgeGeo(s), new THREE.LineBasicMaterial({ color: EDGE, transparent: true, opacity: 0.55, depthWrite: false }));
     for (const o2 of [this.area, this.fill, this.edge]) { o2.renderOrder = 3; this.g.add(o2); }
     // a jumpable attack: pale bars across it, drifting along it (read as "over this")
@@ -45,19 +63,18 @@ export class Tele {
   /** at (x, z) facing yaw; progress 0..1 grows the fill (cone / circle: outward; rect / line: along) */
   set(x: number, z: number, yaw: number, p: number) {
     this.g.position.x = x; this.g.position.z = z; this.g.rotation.y = yaw;
-    const k = Math.max(0.001, Math.min(1, p)), s = this.s;
-    if (s.k === 'rect' || s.k === 'line') this.fill.scale.set(1, 1, k);
-    else if (s.k === 'circle') { this.fill.scale.set(k, 1, k); this.fill.position.z = s.ahead * (1 - k); }
-    else this.fill.scale.set(k, 1, k);
+    const k = Math.max(0.001, Math.min(1, p));
+    (this.fill.material as THREE.ShaderMaterial).uniforms.uP.value = k;
     (this.edge.material as THREE.LineBasicMaterial).opacity = 0.35 + 0.4 * k;
   }
   /** the blow lands: the whole shape flashes, then fades and is removed */
-  flash() { this.flashT = 0; this.fill.scale.setScalar(1); if (this.s.k === 'circle') this.fill.position.z = 0; }
+  flash() { this.flashT = 0; const u = (this.fill.material as THREE.ShaderMaterial).uniforms; u.uP.value = 1; u.uFlash.value = 1; }
   update(dt: number) {
     if (this.bars && !this.dead) { const mp = (this.bars.material as THREE.MeshBasicMaterial).map!; mp.offset.y -= dt * 1.6; }
+    if (!this.dead) (this.fill.material as THREE.ShaderMaterial).uniforms.uT.value += dt;
     if (this.flashT < 0 || this.dead) return;
     this.flashT += dt; const k = this.flashT / 0.28;
-    (this.fill.material as THREE.MeshBasicMaterial).opacity = 0.55 * (1 - k); (this.area.material as THREE.MeshBasicMaterial).opacity = 0.13 * (1 - k);
+    (this.fill.material as THREE.ShaderMaterial).uniforms.uFade.value = 1 - k; (this.area.material as THREE.MeshBasicMaterial).opacity = 0.1 * (1 - k);
     (this.edge.material as THREE.LineBasicMaterial).opacity = 0.8 * (1 - k);
     if (this.bars) (this.bars.material as THREE.MeshBasicMaterial).opacity = 0.32 * (1 - k);
     if (k >= 1) this.dispose();
