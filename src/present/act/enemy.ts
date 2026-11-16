@@ -493,8 +493,9 @@ export class Thunder extends Arrow {
   }
   private bolt(w: FoeWorld) {
     const g = V3(this.p.x, 0.1, this.p.z), top = V3(this.p.x + R(-0.7, 0.7), 9, this.p.z + R(-0.7, 0.7));
-    fxBolt(top, g, 0xfff2a0, { jag: 0.5, seg: 10, width: 0.24, life: 0.3 }); fxBolt(top.clone().add(V3(R(-0.4, 0.4), 0, R(-0.4, 0.4))), g, 0xc8e0ff, { width: 0.12, life: 0.22, branch: false });
-    fxShock(g, 0xfff0a0, this.r + 0.3, { life: 0.4 }); fxSparks(g.clone().setY(0.3), 0xfff4c0, 24, 7); fxGlow(g.clone().setY(0.8), 0xfff2b0, 2.2, 0.25);
+    // a crisp bolt, not a white fog (act-17 review): thin, dimmer glow, no flare blob
+    fxBolt(top, g, 0xfff2a0, { jag: 0.5, seg: 10, width: 0.12, life: 0.28, bright: 0.5 }); fxBolt(top.clone().add(V3(R(-0.4, 0.4), 0, R(-0.4, 0.4))), g, 0xc8e0ff, { width: 0.06, life: 0.2, branch: false, bright: 0.45 });
+    fxShock(g, 0xfff0a0, this.r + 0.3, { life: 0.4 }); fxSparks(g.clone().setY(0.3), 0xfff4c0, 18, 6); fxGlow(g.clone().setY(0.5), 0xfff2b0, 0.9, 0.2, 1.4);
     cue('crit', 0.8); shake(0.22 * TUNE.shake);
     const d = Math.hypot(g.x - w.heroPos.x, g.z - w.heroPos.z);
     if (w.heroAlive && d <= this.r + w.heroR) { if (w.heroDodge) w.dodged(g); else w.hurtHero(this.dmg, g); }

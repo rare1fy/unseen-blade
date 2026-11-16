@@ -45,16 +45,17 @@ export function fxSlashLine(a: THREE.Vector3, b: THREE.Vector3, col: Col, o: { n
 
 // ---------------------------------------------------------------- lightning
 /** a jagged bolt from a to b: glow ribbon + hot core + a side branch + a light pulse at the end */
-export function fxBolt(a: THREE.Vector3, b: THREE.Vector3, col: Col, o: { jag?: number; seg?: number; width?: number; life?: number; branch?: boolean } = {}) {
-  const seg = o.seg ?? 8, jag = o.jag ?? 0.32, w = o.width ?? 0.14, life = o.life ?? 0.24, d = b.clone().sub(a), L = d.length();
+/** o.bright scales the glow (1 = as before; the act game's bolts use less — at full strength a 9 m column bloomed into a white fog) */
+export function fxBolt(a: THREE.Vector3, b: THREE.Vector3, col: Col, o: { jag?: number; seg?: number; width?: number; life?: number; branch?: boolean; bright?: number } = {}) {
+  const k = o.bright ?? 1, seg = o.seg ?? 8, jag = o.jag ?? 0.32, w = o.width ?? 0.14, life = o.life ?? 0.24, d = b.clone().sub(a), L = d.length();
   const s1 = sideOf(d.lengthSq() > 1e-6 ? d : V3(1, 0, 0)), s2 = d.clone().cross(s1).normalize();
   const pts = [a.clone()];
   for (let i = 1; i < seg; i++) { const u = i / seg, env = Math.sin(u * Math.PI), j = jag * Math.min(1.6, L / 3); pts.push(a.clone().addScaledVector(d, u).addScaledVector(s1, R(-1, 1) * j * env).addScaledVector(s2, R(-1, 1) * j * env * 0.6)); }
   pts.push(b.clone());
-  for (let i = 1; i < pts.length; i++) { trailSeg(pts[i - 1], pts[i], col, w, { life, bright: 2.6, spark: 0.4 }); trailSeg(pts[i - 1], pts[i], 0xffffff, w * 0.4, { life: life * 0.7, core: WHITE, bright: 3.2, spark: 0 }); }
+  for (let i = 1; i < pts.length; i++) { trailSeg(pts[i - 1], pts[i], col, w, { life, bright: 2.6 * k, spark: 0.4 }); trailSeg(pts[i - 1], pts[i], 0xffffff, w * 0.4, { life: life * 0.7, core: WHITE, bright: 3.2 * k, spark: 0 }); }
   if (o.branch !== false && pts.length > 4) { const k = 2 + Math.floor(Math.random() * (pts.length - 4)), p0 = pts[k], p1 = p0.clone().addScaledVector(d.clone().normalize(), L * 0.15).addScaledVector(s1, R(-0.8, 0.8)).add(V3(0, R(-0.4, 0.3), 0)); trailSeg(p0, p1, col, w * 0.6, { life: life * 0.8, bright: 2.2 }); }
-  lightPulse(b.clone().add(V3(0, 0.3, 0.6)), col, 1.3, 0.16, 5);
-  fxFlare(b, col, 1.0, 0.18);
+  lightPulse(b.clone().add(V3(0, 0.3, 0.6)), col, 1.3 * k, 0.16, 5);
+  if (k >= 0.8) fxFlare(b, col, 1.0, 0.18);
 }
 
 // ---------------------------------------------------------------- energy
