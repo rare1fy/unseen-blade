@@ -9,6 +9,7 @@ import { FX } from './present/engine/clock';
 import { PX, PXU, readPixelFlag, installPixelKeys, setPixel } from './present/look/pixel';
 import { ActShow } from './present/act/show';
 import { VIBE } from './platform/index';
+import { fontsReady } from './present/ui3d/bodyFont';
 import './audio/audio';
 
 const TEST: { fixedTime?: number; preserve?: boolean } = G.__PXUI_TEST || {};
@@ -37,7 +38,7 @@ dh.add({
 });
 dh.install();
 
-Promise.resolve().then(() => {
+fontsReady.then(() => {
   // 2x pixels by default on every device (act-14 用户在手机上：「我要2x」, which overrides the old 「手机上 1x」); the choice made in
   // the tuning panel is remembered on the device; the URL (px1 / px2 / px3, ?px=) and the [ ] / P keys still choose
   { const href = typeof location !== 'undefined' ? location.href : '';

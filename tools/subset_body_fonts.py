@@ -11,6 +11,8 @@ from fontTools.varLib import instancer
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SRC = ROOT.parent / 'fonts' / 'body_src'
+if not SRC.is_dir():  # a linked worktree lives one directory deeper than the main repo
+    SRC = ROOT.parent.parent / 'fonts' / 'body_src'
 OUT = ROOT / 'fonts' / 'body'
 FONTS = [('wenkai', 'LXGWWenKaiGBScreen.ttf', None), ('serif', 'NotoSerifSC.ttf', 600), ('sans', 'NotoSansSC.ttf', 500)]
 BASE = ''.join(chr(c) for c in range(32, 127)) + '，。、；：？！“”‘’（）《》【】「」『』…—～·％＋－×÷＝＜＞０１２３４５６７８９　←↑→↓★☆●○■□▲△'

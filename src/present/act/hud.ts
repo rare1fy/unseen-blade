@@ -16,6 +16,7 @@ import { V3 } from '../engine/world';
 import { TUNE } from './tune';
 import { SKIN, PALETTE, SkinBtn, SkinStick, SkinHp, type SkinId } from './skin';
 import { IronBtn, IronStick, IronHp, QteRing , type HintKey } from './ironUi';
+import { bodyW } from '../ui3d/bodyFont';
 
 type AnyBtn = SkinBtn | IronBtn; type AnyHp = SkinHp | IronHp;
 
@@ -27,6 +28,7 @@ export class ActHud {
   /** 杀意 (0..3): shown as the ingots under the iron health bar */
   intent = 0; private qteRing: QteRing;
   private bars = new Map<number, Bar>(); private boss: Bar | null = null; private bossName = '';
+  get bossOn() { return !!this.boss && this.on; }
   /** copper coins in the purse (act-17), shown under the health number */
   coins = 0; private coinIcon: THREE.Group | null = null;
   stickHome = { x: 150, y: 600 }; stickSize = 150; k = 1; on = true; private W = 1280; private H = 720;
@@ -109,8 +111,8 @@ export class ActHud {
     if (this.on) { this.stick.update(inp.stick, this.stickHome, this.stickSize); for (const b of Object.values(this.btns)) b.update(dt); }
     if (this.flask instanceof IronHp) this.flask.intent = this.intent;
     this.flask.update(dt); this.sparks.update(dt);
-    const st = this.flask.st, ta = this.flask.textAt();
-    this.L.text.set('act.hp', { text: `${Math.max(0, Math.round(st.hp))} / ${st.maxHp}`, x: ta.x, y: ta.y, cell: 2, color: '#ffe8c8', align: 'left', visible: this.on });
+    const st = this.flask.st, bar = this.flask.barAt();
+    this.L.text.set('act.hp', { text: `${Math.max(0, Math.round(st.hp))} / ${st.maxHp}`, x: bar.x, y: bar.y, bodyPx: Math.max(9, bar.h * 0.68), color: '#fff0d2', outline: '#21100e', align: 'center', visible: this.on });
     // the purse: a copper coin (a square-holed coin, in the UI layer) and the count
     if (!this.coinIcon) {
       const g = new THREE.Group(), m = new THREE.MeshBasicMaterial({ color: 0xd09040 }), d = new THREE.MeshBasicMaterial({ color: 0x5a3a18 });
@@ -118,8 +120,9 @@ export class ActHud {
       bar(1, 0.36, 0, 0.32, m); bar(1, 0.36, 0, -0.32, m); bar(0.36, 0.3, -0.32, 0, m); bar(0.36, 0.3, 0.32, 0, m); bar(0.28, 0.28, 0, 0, d);
       this.L.scene.add(g); this.coinIcon = g;
     }
-    this.coinIcon.visible = this.on; this.L.at(ta.x + 9 * this.k, ta.y + 34 * this.k, 2, this.coinIcon.position); this.coinIcon.scale.setScalar(this.L.px(16 * this.k));
-    this.L.text.set('act.coins', { text: `${this.coins}`, x: ta.x + 22 * this.k, y: ta.y + 26 * this.k, cell: 2, color: '#ffd27a', align: 'left', visible: this.on });
+    const coinPx = 15, coinRight = this.W - 52, coinY = 23;
+    this.coinIcon.visible = this.on; this.L.at(coinRight - bodyW(`${this.coins}`, coinPx) - 13, coinY, 2, this.coinIcon.position); this.coinIcon.scale.setScalar(this.L.px(12));
+    this.L.text.set('act.coins', { text: `${this.coins}`, x: coinRight, y: coinY, bodyPx: coinPx, color: '#ffd27a', outline: '#21100e', align: 'right', visible: this.on });
     // bars over the foes (the chief: the long bar at the top instead)
     const live = new Set<number>();
     for (const f of foes) {

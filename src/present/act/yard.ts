@@ -13,6 +13,7 @@ import { POSE_HOOKS } from '../bestiary/poseHooks';
 import { rot } from '../actors/rig';
 import { BattleActor } from '../bestiary/battle';
 import { text, textW, PIX_H } from '../v2/overlay';
+import { bodyText, onBodyFontChange } from '../ui3d/bodyFont';
 import { toon } from '../look/toon';
 import { fxSmoke, fxRing } from '../fx/fx';
 import { cue } from '../../audio/cues';
@@ -43,18 +44,24 @@ POSE_HOOKS[DUMMY.id] = (b, _t, _a, _off, self) => { const w = WOBBLE.get(self as
 /** a wooden sign: a post and a thick board, the face painted with big pixel characters, leaning back a little toward the camera */
 export function makeSign(label: string, o: { w?: number; h?: number; board?: number; ink?: string; post?: number; sub?: string } = {}) {
   const g = new THREE.Group(), w = o.w ?? 1.1, h = o.h ?? 0.5, post = o.post ?? 0.75;
-  const U = 4, cw = Math.max(textW(label, 2 * U), o.sub ? textW(o.sub, U) : 0) + 16 * U, ch = Math.round(cw * h / w);
+  const U = 4, titleScale = o.sub ? U : 2 * U;
+  const cw = Math.max(textW(label, titleScale) + 16 * U, (o.sub?.length ?? 0) * 15 * U + 16 * U, o.sub ? Math.ceil(128 * w / h) : 0);
+  const ch = Math.round(cw * h / w);
   const c = document.createElement('canvas'); c.width = cw; c.height = ch; const x = c.getContext('2d')!; x.imageSmoothingEnabled = false;
-  x.fillStyle = '#c4986a'; x.fillRect(0, 0, cw, ch); x.fillStyle = '#9a6e44'; x.fillRect(0, 0, cw, 2 * U); x.fillRect(0, ch - 2 * U, cw, 2 * U);
-  const ty = o.sub ? ch * 0.18 : (ch - PIX_H * 2 * U) / 2;
-  text(x, label, (cw - textW(label, 2 * U)) / 2, ty, 2 * U, o.ink ?? '#2a160c', 'left', null);
-  if (o.sub) text(x, o.sub, (cw - textW(o.sub, U)) / 2, ch * 0.66, U, '#4a2a16', 'left', null);
+  const repaint = () => {
+    x.fillStyle = '#c4986a'; x.fillRect(0, 0, cw, ch); x.fillStyle = '#9a6e44'; x.fillRect(0, 0, cw, 2 * U); x.fillRect(0, ch - 2 * U, cw, 2 * U);
+    const ty = o.sub ? 2 * U : (ch - PIX_H * titleScale) / 2;
+    text(x, label, (cw - textW(label, titleScale)) / 2, ty, titleScale, o.ink ?? '#2a160c', 'left', null);
+    if (o.sub) bodyText(x, o.sub, cw / 2, ch - 17 * U, 14 * U, '#4a2a16', 'center');
+  };
+  repaint();
   const t = new THREE.CanvasTexture(c); t.magFilter = t.minFilter = THREE.NearestFilter; t.generateMipmaps = false; t.colorSpace = THREE.SRGBColorSpace;
   const wood = toon(o.board ?? 0x7a5232), face = new THREE.MeshLambertMaterial({ map: t, emissive: 0xffffff, emissiveMap: t, emissiveIntensity: 0.35 });
   const board = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.07), [wood, wood, wood, wood, face, wood]);
   board.position.y = post + h / 2; board.rotation.x = -0.32; board.castShadow = true;
   const pole = new THREE.Mesh(new THREE.BoxGeometry(0.1, post + h * 0.6, 0.1), wood); pole.position.set(0, (post + h * 0.6) / 2, -0.06); pole.castShadow = true;
   g.add(pole, board);
+  let mounted = false; const unlisten = onBodyFontChange(() => { if (g.parent) mounted = true; else if (mounted) { unlisten(); return; } repaint(); t.needsUpdate = true; });
   return g;
 }
 
