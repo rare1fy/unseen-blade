@@ -16,11 +16,18 @@ const box = (w: number, h: number, d: number, z: number) => new THREE.BoxGeometr
 const dartGeo = mergeGeometries([box(0.05, 0.03, 0.12, 0.22), box(0.09, 0.03, 0.16, 0.09), box(0.05, 0.03, 0.1, -0.03), box(0.08, 0.06, 0.04, -0.1)])!;
 const tasselGeo = new THREE.BoxGeometry(0.08, 0.08, 0.16).translate(0, 0, -0.08);
 const steelMat = toon(0xdde3ec), tasselMat = toon(0xc0302a);
+/** stuck in a foe: the steel glows indigo (追影 can follow it), a small indigo ring pulses at the foe's feet */
+const markMat = (() => { const m = new THREE.MeshBasicMaterial({ color: 0x8a96ff, toneMapped: false }); m.color.multiplyScalar(1.6); return m; })();
+const ringGeo = new THREE.RingGeometry(0.62, 0.74, 32).rotateX(-Math.PI / 2);
+const ringMat = new THREE.MeshBasicMaterial({ color: 0x7a86ff, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
 
 export class Dart {
   g = new THREE.Group(); dead = false; life: number; private tassel = new THREE.Mesh(tasselGeo, tasselMat); private t = Math.random() * 6;
+  private blade!: THREE.Mesh; private ring: THREE.Mesh | null = null; private off = new THREE.Vector3();
+  /** the foe it is stuck in (追影 follows it) and for how long */
+  stuck: { pos: THREE.Vector3; d: { r: number } } | null = null; stuckT = 0;
   constructor(public p: THREE.Vector3, public v: THREE.Vector3, public dmg: number, range: number) {
-    const blade = new THREE.Mesh(dartGeo, steelMat); this.tassel.position.z = -0.12; this.g.add(blade, this.tassel);
+    const blade = this.blade = new THREE.Mesh(dartGeo, steelMat); this.tassel.position.z = -0.12; this.g.add(blade, this.tassel);
     this.g.scale.setScalar(1.25); this.g.position.copy(p); this.g.lookAt(p.clone().add(v)); scene.add(this.g);
     this.life = range / Math.max(1, v.length());
   }
@@ -33,9 +40,25 @@ export class Dart {
     trailSeg(p0, this.p.clone(), 0xeef4ff, 0.05, { life: 0.12, bright: 1.8, spark: 0 });
     return p0;
   }
+  /** struck a foe: the dart stays in it (glowing indigo, a ring at its feet) for `life` seconds — the 追影 mark */
+  stickIn(foe: { pos: THREE.Vector3; d: { r: number } }, life: number) {
+    this.stuck = foe; this.stuckT = 0; this.life = life; this.v.set(0, 0, 0);
+    this.off.copy(this.p).sub(foe.pos); this.off.setY(Math.min(1.5, Math.max(0.8, this.off.y)));
+    this.off.x *= 0.6; this.off.z *= 0.6;   // pulled in onto the body
+    this.blade.material = markMat; fxSparks(this.p.clone(), 0xb8c0ff, 8, 3);
+    this.ring = new THREE.Mesh(ringGeo, ringMat.clone()); this.ring.scale.setScalar(foe.d.r / 0.5 + 0.2); scene.add(this.ring);
+  }
+  /** riding in the foe: follows it, the ring pulses; returns false once the mark has run out */
+  ride(dt: number) {
+    if (!this.stuck) return false;
+    this.stuckT += dt; this.life -= dt; this.t += dt;
+    this.p.copy(this.stuck.pos).add(this.off); this.g.position.copy(this.p);
+    if (this.ring) { this.ring.position.set(this.stuck.pos.x, 0.06, this.stuck.pos.z); const m = this.ring.material as THREE.MeshBasicMaterial; m.opacity = (0.55 + 0.35 * Math.sin(this.t * 14)) * Math.min(1, this.life * 4); }
+    return this.life > 0;
+  }
   /** struck something: a small spray of sparks and gone */
   stop(spark = true) { if (spark) fxSparks(this.p.clone(), 0xf0f4ff, 6, 3); this.kill(); }
-  kill() { this.dead = true; this.g.parent?.remove(this.g); }
+  kill() { this.dead = true; this.g.parent?.remove(this.g); if (this.ring) { scene.remove(this.ring); (this.ring.material as THREE.Material).dispose(); this.ring = null; } }
 }
 
 // ------------------------------------------------------------------ the blade wave

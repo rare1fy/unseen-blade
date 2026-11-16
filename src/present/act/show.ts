@@ -233,6 +233,7 @@ export class ActShow {
     swing: o => this.swing(o), sweep: o => this.sweep(o), slam: o => this.slam(o), clamp: this.clamp,
     dart: o => { this.dartsThrown++; this.darts.push(new Dart(o.from.clone(), o.dir.clone().multiplyScalar(TUNE.dartSpeed), TUNE.dartDmg, TUNE.dartRange)); },
     get darts3() { return SHOW_PERKS.darts3; },
+    chaseTarget: () => this.chaseTarget(), chase: o => this.chaseFx(o),
     stickWorld: () => V3(this.inp.move.x, 0, -this.inp.move.y),
     guard: o => this.guard(o), incoming: r => this.incoming(r), iaiCatch: win => this.iaiCatch(win),
   };
@@ -286,14 +287,29 @@ export class ActShow {
     if (o.kind === 'k5' && this.perks.bladeWind) { this.waves.push(new BladeWave(o.from.clone().add(V3(fx * 0.9, 0.95, fz * 0.9)), V3(fx, 0, fz))); cue('whoosh', 1); fxSparks(o.from.clone().add(V3(fx * 1.2, 1.0, fz * 1.2)), 0xe8fff2, 10, 4); }
     return n;
   }
-  private sweep(o: { a: THREE.Vector3; b: THREE.Vector3; r: number; dmg: number; knock: number }) {
+  /** 追影: the foe with the freshest dart still in it, near enough */
+  private chaseTarget(): Foe | null {
+    let best: Dart | null = null;
+    for (const d of this.darts) if (!d.dead && d.stuck && (d.stuck as Foe).st !== 'dead' && d.stuck.pos.distanceTo(this.hero.pos) < TUNE.dartRange + 3 && (!best || d.stuckT < best.stuckT)) best = d;
+    return best ? best.stuck as Foe : null;
+  }
+  /** 追影: a puff where the hero was, an indigo afterimage and a shadow line to the foe, a puff where it lands; the darts are spent */
+  private chaseFx(o: { from: THREE.Vector3; to: THREE.Vector3; foe: Foe }) {
+    smokeBurst(o.from, 0.5, 8, { size: 0.26, life: 0.5 }); fxAfterimage(o.from.clone(), 1.9, 0x7a86ff, { life: 0.4, glow: 0.6 });
+    trailSeg(o.from.clone().setY(1.0), o.to.clone().setY(1.0), 0x7a86ff, 0.22, { life: 0.35, bright: 2.4, spark: 0.4 });
+    smokeBurst(o.to, 0.5, 8, { size: 0.26, life: 0.5 });
+    for (const d of this.darts) if (d.stuck === o.foe && !d.dead) d.stop();
+    cue('whoosh', 0.9); shake(0.1 * TUNE.shake);
+  }
+  private sweep(o: { a: THREE.Vector3; b: THREE.Vector3; r: number; dmg: number; knock: number; col?: number; kind?: string }) {
     const ab = o.b.clone().sub(o.a).setY(0), L2 = Math.max(1e-4, ab.lengthSq()); let n = 0;
     for (const f of this.foes.slice()) {
       if (f.st === 'dead') continue;
       const t = Math.max(0, Math.min(1, f.pos.clone().sub(o.a).setY(0).dot(ab) / L2)), q = o.a.clone().addScaledVector(ab, t);
-      if (Math.hypot(f.pos.x - q.x, f.pos.z - q.z) <= o.r + f.d.r) { this.hitFoe(f, o.dmg, q, { knock: o.knock, heavy: true, kind: 'rel' }); n++; }
+      if (Math.hypot(f.pos.x - q.x, f.pos.z - q.z) <= o.r + f.d.r) { this.hitFoe(f, o.dmg, q, { knock: o.knock, heavy: true, kind: o.kind ?? 'rel' }); n++; }
     }
-    trailSeg(o.a.clone().setY(1.0), o.b.clone().setY(1.0), 0xff7a4a, 0.3, { life: 0.3, bright: 2.2, spark: 0.6 });
+    trailSeg(o.a.clone().setY(1.0), o.b.clone().setY(1.0), o.col ?? 0xff7a4a, 0.3, { life: 0.3, bright: 2.2, spark: 0.6 });
+    if (o.kind === 'dcut') trailSeg(o.a.clone().setY(0.55), o.b.clone().setY(0.55), 0xeaf8ff, 0.12, { life: 0.4, bright: 2.6, spark: 0.3 });
     // arrows along the lunge's path are cut too
     const cut = this.arrows.filter(a => { if (a.dead || a.friendly) return false; const t = Math.max(0, Math.min(1, a.p.clone().sub(o.a).setY(0).dot(ab) / L2)), q = o.a.clone().addScaledVector(ab, t); return Math.hypot(a.p.x - q.x, a.p.z - q.z) < o.r + 0.4; });
     this.deflect(cut, Math.atan2(ab.x, ab.z));
@@ -618,13 +634,14 @@ export class ActShow {
     this.waves = this.waves.filter(w => !w.dead);
     // darts: fly straight; the first foe in the way takes it (small damage, no stagger); walls stop them
     for (const d of this.darts) {
+      if (d.stuck) { if (!d.ride(dt) || (d.stuck as Foe).st === 'dead') d.stop(false); continue; }
       const p0 = d.step(dt);
       for (const f of this.foes) {
         if (f.st === 'dead' || d.p.y > 2.4) continue;
         const ab = d.p.clone().sub(p0).setY(0), L2 = Math.max(1e-6, ab.lengthSq()), t = Math.max(0, Math.min(1, f.pos.clone().sub(p0).setY(0).dot(ab) / L2)), q = p0.clone().addScaledVector(ab, t);
-        if (Math.hypot(f.pos.x - q.x, f.pos.z - q.z) < f.d.r + 0.2) { this.hitFoe(f, d.dmg, p0, { knock: 0.12, heavy: false, kind: 'dart', stagger: 0 }); cue('impact', 0.35); d.stop(); break; }
+        if (Math.hypot(f.pos.x - q.x, f.pos.z - q.z) < f.d.r + 0.2) { this.hitFoe(f, d.dmg, p0, { knock: 0.12, heavy: false, kind: 'dart', stagger: 0 }); cue('impact', 0.35); if ((f.st as string) !== 'dead') d.stickIn(f, TUNE.chaseWin); else d.stop(); break; }
       }
-      if (d.dead) continue;
+      if (d.dead || d.stuck) continue;
       const q = d.p.clone(); this.clamp(q, 0); if (q.distanceTo(d.p) > 0.3 || d.life <= 0 || d.p.y < 0.05) d.stop(d.life > 0);
     }
     this.darts = this.darts.filter(d => !d.dead);
@@ -717,6 +734,10 @@ export class ActShow {
     if (low && !h.airborne) { set('jump', true); set('attack', false); return; }
     set('jump', false);
     if (h.airborne) { set('attack', h.vy < 0 && l < 2.5); return; }
+    // in a dash: a cut through if someone is ahead, darts back otherwise
+    if (h.st === 'dash') { const ahead = d.clone().normalize().dot(h.a.fwd().setY(0).normalize()) > 0.7 && l < 4; set('attack', ahead); set('special', !ahead); return; }
+    // a dart is sticking in someone a way off: follow it
+    if (this.chaseTarget() && l > 2.2) { set('attack', true); set('special', false); return; }
     const threat = live.some(f => f.st === 'windup' && f.t / f.dur > 0.6 && f.pos.distanceTo(h.pos) < 4.5);
     if (threat && h.dashCd <= 0) { const away = d.clone().normalize().multiplyScalar(-1); I.move.x = away.z; I.move.y = away.x; set('dash', true); set('attack', false); return; }
     set('dash', false);

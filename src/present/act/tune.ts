@@ -17,6 +17,8 @@ export const TUNE = {
   stanceSpeed: 0.35,
   /** 飞镖（act-13 用户：影分身「比较鸡肋」→「改成丢飞镖的普攻」）：伤害、两枚之间的间隔（秒，按住连甩）、速度、射程（米） */
   dartDmg: 4, dartCd: 0.3, dartSpeed: 26, dartRange: 10,
+  /** 招式联动（act-14 用户：「几个基础操作要有招式联动」）：穿风斩冲多远（米）、伤害；追影——飞镖插在敌人身上可追的时间（秒） */
+  dashCutDist: 3.2, dashCutDmg: 12, chaseWin: 1.2,
   /** 跳：最高点离地（米）、整段滞空（秒）；下劈的伤害和冲击半径 */
   jumpH: 1.3, jumpT: 0.55, plungeDmg: 16, plungeR: 2.1,
   /** 二段跳（11-16 用户「要有二段跳！」）：空中再按跳，再往上蹿多高（米），带一个前空翻 */
@@ -53,6 +55,7 @@ export const TUNE_UI: Array<[TuneKey, string, number, number, number]> = [
   ['atkRange', '刀的距离', 1.2, 3, 0.05], ['atkDmg', '普攻伤害', 3, 20, 1], ['finDmg', '收尾一刀伤害', 6, 40, 1],
   ['holdToCharge', '按住多久算入鞘（短于它松手 = 一刀）', 0.12, 0.5, 0.01], ['stanceSpeed', '入鞘时移速（跑速的几成）', 0, 1, 0.05], ['chargeFull', '蓄满时间', 0.3, 1.5, 0.05], ['relDist', '突进距离', 2, 6, 0.1],
   ['dartDmg', '飞镖伤害', 1, 12, 1], ['dartCd', '飞镖间隔（秒）', 0.1, 1, 0.02], ['dartSpeed', '飞镖速度', 10, 40, 1], ['dartRange', '飞镖射程', 4, 16, 0.5],
+  ['dashCutDist', '穿风斩距离', 1.5, 6, 0.1], ['dashCutDmg', '穿风斩伤害', 4, 40, 1], ['chaseWin', '追影窗口（秒）', 0.4, 3, 0.1],
   ['hitstop', '顿帧', 0, 2.5, 0.05], ['shake', '震屏', 0, 3, 0.05], ['knock', '击退', 0, 2, 0.05],
   ['deflectWin', '砍箭窗口（秒）', 0.1, 0.8, 0.01], ['deflectStop', '弹箭顿帧', 0, 0.3, 0.01], ['deflectSlow', '弹箭慢放', 0, 0.6, 0.02], ['deflectDmg', '弹箭伤害', 4, 40, 1],
   ['dodgeSlow', '完美闪避慢放', 0, 1, 0.02], ['counterTime', '反击持续（秒）', 0.5, 4, 0.1], ['counterMul', '反击伤害倍数', 1, 4, 0.1],
