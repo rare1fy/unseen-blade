@@ -11,6 +11,7 @@
 import * as THREE from 'three';
 import { V3, scene, R } from '../engine/world';
 import { BattleActor } from '../bestiary/battle';
+import '../ronin/models';   // registers the foe models (jp_bandit / jp_dog / jp_archer / jp_bandit_chief) in the bestiary ROSTER
 import { Action } from '../actors/rig';
 import { Tele, inside, type TeleShape } from './tele';
 import { TUNE } from './tune';
