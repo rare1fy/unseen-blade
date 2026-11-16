@@ -3,5 +3,6 @@
 import type { Locale } from '../types';
 import { hj_temple } from './hj_temple';
 import { hjField } from './hj_field';
+import { hjVillage } from './hj_village';
 
-export const HANMO_LOCALES: Locale[] = [hj_temple, hjField];
+export const HANMO_LOCALES: Locale[] = [hj_temple, hjField, hjVillage];
