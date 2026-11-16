@@ -52,9 +52,10 @@ const ICONS: Record<BtnKey, string[]> = {
   // two up-chevrons in steps of two over a ground bar
   jump: ol([
     '.....oo.....', '...oooooo...', '.oooo..oooo.', 'ooo......ooo', '.....oo.....', '...oooooo...', '.oooo..oooo.', 'ooo......ooo', '............', '............', 'hhhhhhhhhhhh']),
-  // three figures one behind the other (the shadow clones)
+  // a 柳叶镖 standing point up: the leaf blade (bright edge, darker spine), the neck, the ring, a red tassel hanging below
   special: ol([
-    '.dd..oo..hh.', '.dd..oo..hh.', '............', 'dddd.oooohhhh', 'dddd.oooohhhh', 'dddd.oooohhhh', '.dd..oo..hh..', '.dd..oo..hh..', '.d...o...h...']),
+    '...h...', '..hod..', '..hod..', '.hhodd.', '.hhodd.', '.hhodd.', '..hod..', '..hod..', '...o...', '..ooo..', '..o.o..', '..ooo..',
+    '..rRr..', '.rRrRr.', '.rRrRr.', 'rRr.rRr', 'r.r.r.r']),
 };
 // make every row the same width (the mask helper needs a rectangle)
 for (const k of Object.keys(ICONS) as BtnKey[]) { const w = Math.max(...ICONS[k].map(r => r.length)); ICONS[k] = ICONS[k].map(r => r.padEnd(w, '.')); }

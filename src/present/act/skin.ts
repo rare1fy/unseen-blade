@@ -140,7 +140,7 @@ function disposeTree(o: THREE.Object3D) {
 
 // ---------------------------------------------------------------- the skill button
 export type BtnKey = 'attack' | 'dash' | 'special' | 'jump';
-const GLYPH: Record<BtnKey, string> = { attack: '斩', dash: '冲', special: '影', jump: '跳' };
+const GLYPH: Record<BtnKey, string> = { attack: '斩', dash: '冲', special: '镖', jump: '跳' };
 export class SkinBtn {
   root = new THREE.Group(); x = 0; y = 0; size = 80; down = false; pid = -1; cd = 0; charge = 0; hot = false;
   private faceMat: THREE.MeshLambertMaterial; private cover: THREE.Mesh; private fill: THREE.Mesh; private pressK = 0; private flashT = 0; private wasReady = true; private tt = 0; private wasFull = false;

@@ -35,7 +35,7 @@ export function dustBlocks(p: THREE.Vector3, n = 6, dir?: THREE.Vector3) {
 }
 /** a burst of big square smoke puffs (烟遁): pale grey-indigo cubes that pop out of the ground, billow out and up, and shrink away.
  *  Each puff is two blocks (a pale lit cube + a faint additive halo a size larger) so it reads as a soft puff, not a stone. */
-function smokeBurst(p: THREE.Vector3, r: number, n: number, o: { up?: number; life?: number; size?: number; yaw?: number } = {}) {
+export function smokeBurst(p: THREE.Vector3, r: number, n: number, o: { up?: number; life?: number; size?: number; yaw?: number } = {}) {
   const cols = [0xc4c8d8, 0xa8aec4, 0xdadde8, 0x9096b0];
   for (let i = 0; i < n; i++) {
     const a = (i / n) * TAU + R(-0.25, 0.25), s = (o.size ?? 0.34) * R(0.75, 1.3), h = R(0.1, 1.3), life = (o.life ?? 0.8) * R(0.8, 1.2), delay = R(0, 0.05);
@@ -51,7 +51,7 @@ function smokeBurst(p: THREE.Vector3, r: number, n: number, o: { up?: number; li
 const leftOf = (a: BActor) => a.local(1, 0, 0).sub(a.local(0, 0, 0)).normalize();
 
 /** one diagonal cut across p: a bright bar + streaks + a fainter echo bar */
-function cut(p: THREE.Vector3, left: THREE.Vector3, col: number, s = 1, flip = false) {
+export function cut(p: THREE.Vector3, left: THREE.Vector3, col: number, s = 1, flip = false) {
   const up = V3(0, 1, 0), sx = flip ? -1 : 1;
   const a = p.clone().addScaledVector(up, 0.52 * s).addScaledVector(left, 0.5 * s * sx), b = p.clone().addScaledVector(up, -0.42 * s).addScaledVector(left, -0.5 * s * sx);
   bar(a, b, col, 0.07 * s, 0.22, 2.2);
@@ -94,7 +94,7 @@ function tickClones(dt: number) {
   }
 }
 /** a clone of the ninja's voxel meshes (shared geometry), tinted indigo, driven by the ninja's own pose function */
-function spawnClone(self: BActor, at: THREE.Vector3, face: THREE.Vector3, dist: number, onHit: () => void) {
+export function spawnClone(self: BActor, at: THREE.Vector3, face: THREE.Vector3, dist: number, onHit: () => void) {
   if (!hooked) { hooked = true; onUpdate(tickClones); }
   const body = self.body.clone(true), bones: Record<string, Bone> = {};
   body.scale.set(1, 1, 1); body.position.set(0, 0, 0); body.visible = true;

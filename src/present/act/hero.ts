@@ -9,7 +9,7 @@ import { BattleActor } from '../bestiary/battle';
 import { Action } from '../actors/rig';
 import type { ModelDef } from '../bestiary/models';
 import { fxAfterimage } from '../fx/skillFx';
-import { ninjaSkill, dustBlocks } from '../kyoto/ninja_fx';
+import { dustBlocks } from '../kyoto/ninja_fx';
 import { addBlock } from '../fx/blocks';
 import { cue } from '../../audio/cues';
 import { ACT_NINJA, motionOf } from './ninjaAct';
@@ -17,7 +17,7 @@ import { TUNE } from './tune';
 import type { Input } from './input';
 import { trimShadows, type Foe } from './enemy';
 
-export type HSt = 'free' | 'k1' | 'k2' | 'k3' | 'k4' | 'k5' | 'charge' | 'rel' | 'dash' | 'cast' | 'hurt' | 'dead' | 'air' | 'plunge' | 'plungeL';
+export type HSt = 'free' | 'k1' | 'k2' | 'k3' | 'k4' | 'k5' | 'charge' | 'rel' | 'dash' | 'hurt' | 'dead' | 'air' | 'plunge' | 'plungeL';
 /** one cut's numbers: impact moments (share of the action), extra range, arc (rad, full width), damage per impact, knock,
  *  lunge (× TUNE.atkLunge), heavy (the finisher's stagger / FX) */
 interface Swing { imps: number[]; range: number; half: number; dmg: () => number; knock: number; lunge: number; heavy: boolean }
@@ -33,6 +33,8 @@ const SW: Record<Cut, Swing> = {
 };
 const NEXT: Record<Cut, Cut | null> = { k1: 'k2', k2: 'k3', k3: 'k4', k4: 'k5', k5: null };
 const PLUNGE_HANG = 0.1, PLUNGE_V = 22, FLIP_T = 0.42;
+/** the dart throw's length and the moment the dart leaves the hand (s) */
+const DART_T = 0.26, DART_REL = 0.12;
 
 export interface HeroWorld {
   foes: Foe[];
@@ -40,8 +42,10 @@ export interface HeroWorld {
   swing(o: { from: THREE.Vector3; yaw: number; range: number; half: number; dmg: number; knock: number; heavy: boolean; kind: string; n?: number; counter?: boolean }): number;
   /** a path cut (the charge release): everything within r of the segment */
   sweep(o: { a: THREE.Vector3; b: THREE.Vector3; r: number; dmg: number; knock: number }): number;
-  /** the special's two clone cuts */
-  burst(o: { at: THREE.Vector3; r: number; dmg: number; second: boolean }): void;
+  /** a dart leaves the left hand, flying along dir (show.ts flies it and lands its hits) */
+  dart(o: { from: THREE.Vector3; dir: THREE.Vector3 }): void;
+  /** 散手 · 三叶: darts go out three at a time */
+  darts3: boolean;
   /** the blade is up: arrows inside this arc are batted away (called every frame of a cut's guard window) */
   guard(o: { from: THREE.Vector3; yaw: number; range: number }): void;
   /** the direction to the nearest arrow flying at the hero within reach (cuts turn to meet it), or null */
@@ -58,7 +62,7 @@ export interface HeroWorld {
 
 export class Hero {
   a: BattleActor; st: HSt = 'free'; t = 0; dur = 0; hp = TUNE.heroHp; maxHp = TUNE.heroHp;
-  vel = V3(); inv = 0; dashCd = 0; spCd = 0; private buf = { atk: 0, press: 0, dash: 0, sp: 0, jump: 0 };
+  vel = V3(); inv = 0; dashCd = 0; dartCd = 0; private buf = { atk: 0, press: 0, dash: 0, sp: 0, jump: 0 };
   /** the cut button: a press only becomes a cut when it is let go within TUNE.holdToCharge (a tap); held longer it is the stance and no
    *  cut at all (11-16 用户「起手就长按的话不应该无论如何都会先砍一刀」). atkEaten: this press was used up (a plunge, the QTE) and its
    *  release does nothing; pendNext / pendT: a press that started during a cut and is still undecided carries on the combo */
@@ -83,7 +87,9 @@ export class Hero {
   /** during a dash or just after it: an attack that would have caught the hero, or passes close, counts as a perfect dodge */
   get dodgeWin() { return this.st === 'dash' || this.age - this.dashEndAt < 0.18; }
   private age = 0; private dashEndAt = -9;
-  private chargeK = 0; private relFrom = V3(); private relTo = V3(); private dashDir = V3(); private ghostT = 0; private castHits = [false, false];
+  private chargeK = 0; private relFrom = V3(); private relTo = V3(); private dashDir = V3(); private ghostT = 0;
+  /** time into a dart throw (-1 = none); the dart leaves the hand at DART_REL of it */
+  private dartT = -1; private dartDir = V3(); private dartGone = true;
   /** height off the ground and vertical speed */
   y = 0; vy = 0; private v0 = 1;
   readonly r = 0.38;
@@ -99,7 +105,7 @@ export class Hero {
   /** 0..1 while holding a charge (the HUD and the ring under the hero show it), else 0 */
   get charge() { return this.st === 'charge' ? this.chargeK : 0; }
   get airborne() { return this.y > 0.01; }
-  get iframe() { return this.inv > 0 || (this.st === 'dash' && this.t < TUNE.dashIframe) || (this.st === 'rel' && this.t < this.dur * 0.55) || (this.st === 'cast' && this.t > 0.3 && this.t < 1.0); }
+  get iframe() { return this.inv > 0 || (this.st === 'dash' && this.t < TUNE.dashIframe) || (this.st === 'rel' && this.t < this.dur * 0.55); }
   private set(st: HSt, dur: number) { this.st = st; this.t = 0; this.dur = dur; this.hitDone = false; this.hit2Done = false; this.hits = 0; }
   /** face the best target near the stick direction (or the stick direction itself) */
   private aim(w: HeroWorld, reach = 4.2) {
@@ -163,7 +169,7 @@ export class Hero {
   }
   update(dt: number, inp: Input, w: HeroWorld) {
     const m = motionOf(this.a), B = inp.b;
-    this.t += dt; this.age += dt; this.parryT = Math.max(0, this.parryT - dt); this.fullT = Math.max(0, this.fullT - dt); this.counterT = Math.max(0, this.counterT - dt); this.inv = Math.max(0, this.inv - dt); this.dashCd -= dt; this.spCd -= dt; m.land = Math.max(0, m.land - dt / 0.16);
+    this.t += dt; this.age += dt; this.parryT = Math.max(0, this.parryT - dt); this.fullT = Math.max(0, this.fullT - dt); this.counterT = Math.max(0, this.counterT - dt); this.inv = Math.max(0, this.inv - dt); this.dashCd -= dt; this.dartCd -= dt; m.land = Math.max(0, m.land - dt / 0.16);
     // buffers: a press counts for a short while (so a press slightly early still chains)
     const A = B.attack;
     if (A.pressed) this.atkEaten = false;
@@ -176,7 +182,7 @@ export class Hero {
     this.buf.sp = B.special.pressed ? 0.15 : Math.max(0, this.buf.sp - dt);
     this.buf.jump = B.jump.pressed ? 0.12 : Math.max(0, this.buf.jump - dt);
     // flicker while invulnerable after a hit
-    this.a.root.visible = this.st === 'dead' || this.inv <= 0 || Math.floor(this.inv * 18) % 2 === 0 || this.st === 'cast';
+    this.a.root.visible = this.st === 'dead' || this.inv <= 0 || Math.floor(this.inv * 18) % 2 === 0;
     if (this.st === 'dead') { this.vel.multiplyScalar(Math.exp(-dt * 6)); this.fall(dt); this.move(dt, w); m.run = 0; m.air = this.y; return; }
     const stick = w.stickWorld(), sl = Math.min(1, stick.length());
     const canDash = this.dashCd <= 0 && this.buf.dash > 0, canJump = this.buf.jump > 0 && !this.airborne;
@@ -185,12 +191,23 @@ export class Hero {
       this.vel.lerp(want, 1 - Math.exp(-accel * dt));
       if (sl > 0.1) { const y = Math.atan2(stick.x, stick.z); let dy = y - this.a.yaw; while (dy > Math.PI) dy -= Math.PI * 2; while (dy < -Math.PI) dy += Math.PI * 2; this.a.yaw += dy * Math.min(1, dt * 20); }
     };
+    // 飞镖: a tap of the special throws one (held, one every TUNE.dartCd); free on the ground or in the air, it never stops the hero
+    if ((this.st === 'free' || this.st === 'air') && this.dartCd <= 0 && (this.buf.sp > 0 || (B.special.down && B.special.held > 0.12))) { this.buf.sp = 0; this.startDart(w); }
+    if (this.dartT >= 0) {
+      this.dartT += dt;
+      if (!this.dartGone && this.dartT >= DART_REL) {
+        this.dartGone = true;
+        const hand = this.handL(), dirs = w.darts3 ? [-0.2, 0, 0.2] : [0];
+        for (const a of dirs) { const d = this.dartDir.clone().applyAxisAngle(V3(0, 1, 0), a); w.dart({ from: hand, dir: d }); }
+        cue('whoosh', 0.35);
+      }
+      if (this.dartT >= DART_T || (this.st !== 'free' && this.st !== 'air')) this.dartT = -1;
+    }
     switch (this.st) {
       case 'free': {
         steer(TUNE.heroAccel);
         if (canDash) { this.buf.dash = 0; this.startDash(w); break; }
         if (canJump) { this.buf.jump = 0; this.startJump(); break; }
-        if (this.buf.sp > 0 && this.spCd <= 0) { this.buf.sp = 0; this.startCast(w); break; }
         // a tap cuts (at the release; a press begun in the last cut carries the combo on); a hold goes straight into the stance, no cut
         if (this.buf.atk > 0) { this.buf.atk = 0; const n = this.pendT > 0 && this.pendNext ? this.pendNext as Cut : 'k1'; this.pendT = 0; this.startCut(n, w); break; }
         if (holding) this.startCharge();
@@ -296,13 +313,6 @@ export class Hero {
         }
         break;
       }
-      case 'cast': {
-        this.vel.multiplyScalar(Math.exp(-dt * 12));
-        if (!this.castHits[0] && this.t >= 0.46) { this.castHits[0] = true; w.burst({ at: this.pos.clone(), r: TUNE.specialR, dmg: TUNE.specialDmg, second: false }); }
-        if (!this.castHits[1] && this.t >= 0.6) { this.castHits[1] = true; w.burst({ at: this.pos.clone(), r: TUNE.specialR, dmg: Math.round(TUNE.specialDmg * 1.3), second: true }); }
-        if (this.t >= 1.05) this.set('free', 0);
-        break;
-      }
       case 'hurt': this.vel.multiplyScalar(Math.exp(-dt * 9)); if (this.t >= this.dur) this.set(this.airborne ? 'air' : 'free', this.airborne ? 99 : 0); break;
     }
     // states that don't fly themselves still fall (a hit in the air)
@@ -312,6 +322,7 @@ export class Hero {
     m.run = this.st === 'free' ? r : 0; m.phase += sp * (3.0 - 0.5 * r) * dt;
     m.air = this.y; m.rise = this.v0 > 0 ? this.vy / this.v0 : 0;
     m.flip = this.flipT >= 0 && this.airborne ? Math.min(1, this.flipT / FLIP_T) : 0;
+    m.dart = this.dartT >= 0 ? Math.min(1, this.dartT / DART_T) : 0;
     m.creep = this.st === 'charge' ? Math.min(1, sp / Math.max(0.3, TUNE.heroSpeed * TUNE.stanceSpeed)) : 0;
     if (this.st !== 'charge') m.charge = 0;
   }
@@ -328,10 +339,28 @@ export class Hero {
     else if (this.buf.jump > 0) { this.buf.jump = 0; this.startJump(); }
   }
   private startCharge() { this.set('charge', 99); this.chargeK = 0; this.next = null; this.pendT = 0; this.a.act?.cancel(); this.a.act = null; cue('magic', 0.3); }
-  private startCast(w: HeroWorld) {
-    const tgt = this.aim(w, 6); this.set('cast', 1.05); this.spCd = TUNE.specialCd; this.castHits = [false, false];
-    this.a.play(new Action('cast', 0.45, 0.4)); ninjaSkill(this.a, tgt?.a ?? null);
+  /** 飞镖: the nearest foe within the dart's range, inside a wide cone round the stick (or the facing when the stick is idle);
+   *  returns the direction to its chest from the left hand, or straight along that way when nobody is there */
+  private dartAim(w: HeroWorld, from: THREE.Vector3) {
+    const s = w.stickWorld(), want = s.lengthSq() > 0.04 ? s.clone().normalize() : this.a.fwd().setY(0).normalize();
+    let best: Foe | null = null, bd = 1e9;
+    for (const f of w.foes) {
+      if (f.st === 'dead') continue;
+      const d = f.pos.clone().sub(this.pos).setY(0), l = d.length(); if (l > TUNE.dartRange || l < 1e-3) continue;
+      const ang = Math.acos(Math.max(-1, Math.min(1, d.dot(want) / l))); if (ang > 0.9) continue;
+      const score = l * (1 + ang * 1.5); if (score < bd) { bd = score; best = f; }
+    }
+    return best ? best.a.chest().sub(from).normalize() : want.clone().setY(-0.03).normalize();
   }
+  /** the throw: the arm animation starts now, the dart leaves the hand a moment later (update) */
+  private startDart(w: HeroWorld) {
+    this.dartT = 0; this.dartGone = false; this.dartCd = TUNE.dartCd;
+    // standing still, the hero turns to the throw; running or in the air it keeps its way
+    const from = this.pos.clone().add(V3(0, 1.3, 0)); this.dartDir.copy(this.dartAim(w, from));
+    if (Math.hypot(this.vel.x, this.vel.z) < 1 && !this.airborne) this.a.yaw = Math.atan2(this.dartDir.x, this.dartDir.z);
+  }
+  /** where the left hand is now (the dart's start) */
+  private handL() { const b = this.a.bones?.offhand ?? this.a.bones?.foreL; return b ? b.localToWorld(V3(0, 0, 0)) : this.pos.clone().add(V3(0, 1.25, 0)).addScaledVector(V3(Math.cos(this.a.yaw), 0, -Math.sin(this.a.yaw)), 0.3); }
   private move(dt: number, w: HeroWorld) {
     this.pos.addScaledVector(this.vel, dt);
     // high in the air the hero passes over the foes; on the ground (and in a dash or the lunge) the usual push-out

@@ -42,7 +42,10 @@ import { installActTune } from './tunePanel';
 import { HEROES, RACK, motionOf } from './ninjaAct';
 import { Yard, makeSign, SPAWN_AT } from './yard';
 import type { ModelDef } from '../bestiary/models';
-import { dustBlocks } from '../kyoto/ninja_fx';
+import { dustBlocks, spawnClone, smokeBurst, cut as cloneCut } from '../kyoto/ninja_fx';
+import { Dart, BladeWave } from './missiles';
+/** the perks the hero's world reads while the run is on (kept in step each frame) */
+const SHOW_PERKS = { darts3: false };
 import { BattleActor } from '../bestiary/battle';
 import { CELL } from '../bestiary/kit';
 import { Action } from '../actors/rig';
@@ -81,7 +84,7 @@ function savedHero(): ModelDef {
 
 export class ActShow {
   L = new UiLayer(); ov = new Overlay(); inp = new Input(); hud: ActHud; cards: CardPick; banner: SkinBanner;
-  stage: Stage | null = null; hero!: Hero; foes: Foe[] = []; arrows: Arrow[] = []; winds: Array<{ p: THREE.Vector3; v: THREE.Vector3; life: number; hit: Set<number> }> = [];
+  stage: Stage | null = null; hero!: Hero; foes: Foe[] = []; arrows: Arrow[] = []; waves: BladeWave[] = []; darts: Dart[] = []; /** darts thrown so far (tests) */ dartsThrown = 0;
   room = 0; wave = 0; phase: Phase = 'intro'; perks: Perks = newPerks(); private reward: 'build' | 'heal' = 'build';
   private spec: Spec | null = null; private layout: Layout | null = null; private doors: Array<{ ex: ExitInfo; g: THREE.Group; lift: number }> = []; private locale = 'ninja_wilds';
   private cam = V3(0, 0, 0); private dashHit = new Set<number>(); private lastSt = ''; private dashEdgeT = 0; private recent: Spec[] = [];
@@ -158,7 +161,7 @@ export class ActShow {
     if (this.hero) this.hero.setModel(d);
   }
   private buildRoom(first: boolean) {
-    for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; this.winds = [];
+    for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = [];
     for (const d of this.doors) d.g.parent?.remove(d.g); this.doors = [];
     this.yard?.dispose(); this.yard = null; this.exitSign?.parent?.remove(this.exitSign); this.exitSign = null;
     const hp = first || !this.hero ? TUNE.heroHp + this.perks.hpUp : this.hero.hp, maxHp = TUNE.heroHp + this.perks.hpUp;
@@ -181,7 +184,7 @@ export class ActShow {
     this.phase = 'intro'; this.wave = 0;
     const name = LOCALES[this.locale]?.name ?? '';
     // the very first room: the controls once, in the banner (no key hints on screen afterwards)
-    const hint = !this.hinted ? (this.inp.lastDevice === 'touch' && 'ontouchstart' in globalThis ? '左边拖动走 · 斩 / 按住蓄力 · 冲 · 跳 · 影' : 'WASD 走 · J 斩（按住蓄力）· 空格 跳 · K 冲刺 · L 影分身') : '';
+    const hint = !this.hinted ? (this.inp.lastDevice === 'touch' && 'ontouchstart' in globalThis ? '左边拖动走 · 斩 / 按住蓄力 · 冲 · 跳 · 镖' : 'WASD 走 · J 斩（按住蓄力）· 空格 跳 · K 冲刺 · L 飞镖') : '';
     this.hinted = true;
     this.banner.show(`第 ${'一二三'[this.room]} 间 · ${name}`, hint || (ROOMS[this.room].boss ? '山贼头目在这里' : '两波敌人'), hint ? 3.2 : 1.4);
     // walk in from the front of the room, then the first wave
@@ -227,7 +230,9 @@ export class ActShow {
   };
   private heroWorld: HeroWorld = {
     foes: this.foes,
-    swing: o => this.swing(o), sweep: o => this.sweep(o), burst: o => this.burst(o), slam: o => this.slam(o), clamp: this.clamp,
+    swing: o => this.swing(o), sweep: o => this.sweep(o), slam: o => this.slam(o), clamp: this.clamp,
+    dart: o => { this.dartsThrown++; this.darts.push(new Dart(o.from.clone(), o.dir.clone().multiplyScalar(TUNE.dartSpeed), TUNE.dartDmg, TUNE.dartRange)); },
+    get darts3() { return SHOW_PERKS.darts3; },
     stickWorld: () => V3(this.inp.move.x, 0, -this.inp.move.y),
     guard: o => this.guard(o), incoming: r => this.incoming(r), iaiCatch: win => this.iaiCatch(win),
   };
@@ -243,10 +248,10 @@ export class ActShow {
     hitstop((heavy ? 0.09 : 0.045 + 0.01 * Math.min(3, n - 1)) * TUNE.hitstop); shake((heavy ? 0.34 : 0.13) * TUNE.shake);
     cue(heavy ? 'crit' : 'impact', heavy ? 1.1 : 0.75); this.platform.vibrate(heavy ? 'medium' : 'light');
   }
-  private hitFoe(f: Foe, dmg: number, from: THREE.Vector3, o: { knock: number; heavy: boolean; kind: string }) {
-    const d = Math.round(dmg * this.dmgMul()), p = f.a.chest(), dir = f.pos.clone().sub(from).setY(0).normalize();
-    const died = damageFoe(f, d, from, { knock: o.knock, stagger: o.heavy ? 0.55 : 0.3, poiseDmg: o.heavy ? d * 1.8 : d });
-    fxImpact(p, o.heavy ? 0xff6a3a : 0xfff0d0, o.heavy ? 1.3 : 0.75, { dir, chips: o.heavy ? [0xff5a3a, 0x2b3147] : undefined });
+  private hitFoe(f: Foe, dmg: number, from: THREE.Vector3, o: { knock: number; heavy: boolean; kind: string; stagger?: number }) {
+    const d = Math.round(dmg * (o.kind === 'dart' ? 1 : this.dmgMul())), p = f.a.chest(), dir = f.pos.clone().sub(from).setY(0).normalize();
+    const died = damageFoe(f, d, from, { knock: o.knock, stagger: o.stagger ?? (o.heavy ? 0.55 : 0.3), poiseDmg: o.kind === 'dart' ? d * 0.5 : o.heavy ? d * 1.8 : d });
+    fxImpact(p, o.heavy ? 0xff6a3a : 0xfff0d0, o.kind === 'dart' ? 0.4 : o.heavy ? 1.3 : 0.75, { dir, chips: o.heavy ? [0xff5a3a, 0x2b3147] : undefined });
     popPix(String(d), f.a.head().add(V3(R(-0.2, 0.2), 0.35, 0)), { color: o.heavy ? '#ff8a3a' : d >= 14 ? '#ffd060' : '#fff6e0', h: o.heavy ? 0.66 : 0.5, big: o.heavy, life: 0.9, rise: 0.9 });
     if (this.perks.burn && (o.kind === 'k5' || o.kind === 'rel') && !died) { f.burn = 6; f.burnT = 0.5; fxSparks(p, 0xff7a2a, 12, 3); }
     if (this.perks.relFreeze && o.kind === 'rel' && !died) { f.frozen = 1.6; f.a.tint(0x9ae8ff, 0.8); fxSparks(p, 0xbff4ff, 14, 3); }
@@ -277,7 +282,8 @@ export class ActShow {
     for (const a of this.arrows) if (!a.dead && !a.friendly) { const dx = a.p.x - o.from.x, dz = a.p.z - o.from.z; if (Math.hypot(dx, dz) < o.range + 0.4 && Math.abs(Math.atan2(dx * fz - dz * fx, dx * fx + dz * fz)) < o.half + 0.3) cut.push(a); }
     this.deflect(cut, o.yaw);
     this.feel(o.heavy, n); if (o.counter && n) { hitstop(0.14 * TUNE.hitstop); shake(0.3 * TUNE.shake); this.addIntent(); }
-    if (o.kind === 'k5' && this.perks.bladeWind) { const v = V3(fx, 0, fz).multiplyScalar(11); this.winds.push({ p: o.from.clone().add(V3(fx * 0.8, 0.9, fz * 0.8)), v, life: 0.55, hit: new Set() }); cue('whoosh', 0.8); }
+    // 刃风: the finishing cut sends a crescent of light off along the blade's way (act-13 用户：「应该是发射一个很干脆的刀光出去」)
+    if (o.kind === 'k5' && this.perks.bladeWind) { this.waves.push(new BladeWave(o.from.clone().add(V3(fx * 0.9, 0.95, fz * 0.9)), V3(fx, 0, fz))); cue('whoosh', 1); fxSparks(o.from.clone().add(V3(fx * 1.2, 1.0, fz * 1.2)), 0xe8fff2, 10, 4); }
     return n;
   }
   private sweep(o: { a: THREE.Vector3; b: THREE.Vector3; r: number; dmg: number; knock: number }) {
@@ -343,7 +349,7 @@ export class ActShow {
     fxSparks(h.a.chest(), 0xdff4ff, 18, 5); h.a.tint(0xbfe8ff, 0.6);
     popPix('闪', h.a.head().add(V3(0, 0.5, 0)), { color: '#bfe8ff', h: 0.9, big: true, life: 0.9, rise: 1.0 });
     cue('reveal', 0.9); cue('whoosh', 0.7); this.platform.vibrate('medium');
-    h.counterT = TUNE.counterTime; h.dashCd = 0; h.spCd = Math.max(0, h.spCd - 1.5);
+    h.counterT = TUNE.counterTime; h.dashCd = 0;
     if (this.intent >= 3) this.startQte(); else this.addIntent();
   }
   /** the attacks that will land on the hero within `win` seconds: foes winding up with the hero inside their warning (a little slack),
@@ -418,19 +424,29 @@ export class ActShow {
     let at = h.pos.clone();
     while (left.length && targets.length < 7) { left.sort((a, b) => a.pos.distanceTo(at) - b.pos.distanceTo(at)); const f = left.shift()!; targets.push(f); at = f.pos.clone(); }
     cue('magic', 1); shake(0.2 * TUNE.shake);
-    let prev = h.pos.clone();
-    for (const f of targets) {
-      await waitReal(0.08);
-      const dir = f.pos.clone().sub(prev).setY(0); if (dir.lengthSq() < 1e-4) dir.set(0, 0, 1); dir.normalize();
-      const to = f.pos.clone().addScaledVector(dir, f.d.r + 0.75); this.clamp(to, h.r);
-      trailSeg(prev.clone().setY(1.0), to.clone().setY(1.0), 0xfff0c0, 0.22, { life: 0.7, bright: 3.2, spark: 0.5 });
-      fxAfterimage(prev.clone(), 1.9, 0xe8d8a0, { life: 0.55, glow: 0.8 }); fxSparks(f.a.chest(), 0xffffff, 10, 4); f.a.tint(0xffffff, 0.8);
-      h.pos.x = to.x; h.pos.z = to.z; h.a.yaw = Math.atan2(dir.x, dir.z); h.a.play(new Action('rel', 0.16, 0.3)); cue('whoosh', 0.8);
-      prev = to;
-    }
-    await waitReal(0.4);
+    // 烟遁: the hero goes up in a burst of smoke (act-13 用户：「影分身的特效挺叼的，可以拿给别的技能」)
+    const feet = h.pos.clone().setY(0);
+    smokeBurst(feet, 1.0, 20, { yaw: h.a.yaw }); h.a.body.visible = false; fxRing(feet.clone().setY(0.06), 0xa0a8c0, 1.8, { life: 0.4 } as never); cue('whoosh', 0.9);
+    await waitReal(0.14);
+    // a shadow clone out of a puff beside each target, one after another, dashing in and cutting across it
+    targets.forEach((f, i) => {
+      after(i * 0.08, () => {
+        if (f.st === 'dead') return;
+        const dir = f.pos.clone().sub(feet).setY(0); if (dir.lengthSq() < 1e-4) dir.set(0, 0, 1); dir.normalize();
+        const side = V3(dir.z, 0, -dir.x).multiplyScalar(i % 2 ? 1 : -1);
+        const at = f.pos.clone().addScaledVector(dir, -(f.d.r + 1.7)).addScaledVector(side, 0.7).setY(0); this.clamp(at, 0.3);
+        smokeBurst(at, 0.6, 6, { size: 0.28, life: 0.7 });
+        spawnClone(h.a, at, f.pos.clone(), Math.max(0.3, at.distanceTo(f.pos) - (f.d.r + 0.55)), () => {
+          cloneCut(f.a.chest(), side.clone().multiplyScalar(-1), i % 2 ? 0xff7a5a : 0xff5a3a, 1.1, i % 2 === 0);
+          fxSparks(f.a.chest(), 0xffffff, 10, 4); f.a.tint(0xffffff, 0.8); cue('impact', 0.8);
+        });
+      }, { real: true });
+    });
+    await waitReal(0.08 * targets.length + 0.6);
+    // the hero steps back out of the smoke where it stood and sheathes; everyone the clones cut falls at once
+    smokeBurst(feet, 0.6, 10, { size: 0.28, life: 0.6, yaw: h.a.yaw }); h.a.body.visible = true; cue('whoosh', 0.4);
     h.a.play(new Action('cast', 0.5, 0.4));
-    await waitReal(0.18);
+    await waitReal(0.2);
     for (const f of targets) if (f.st !== 'dead') this.hitFoe(f, TUNE.ultDmg, h.pos.clone(), { knock: 1.6, heavy: true, kind: 'ult' });
     hitstop(0.2); slowmo(0.5, 0.3); shake(0.6 * TUNE.shake); fxRing(h.pos.clone().setY(0.08), 0xfff0c0, 4, { life: 0.6 } as never); cue('crit', 1.2); this.platform.vibrate('heavy');
     this.ultOn = false; h.inv = 0.5;
@@ -449,12 +465,6 @@ export class ActShow {
     fxSmoke(o.at.clone().setY(0.2), 0x8a7a6a, 8, { r: o.r * 0.6, spd: 2.4, up: 0.3, s: 0.45, life: 0.6 });
     if (n) this.feel(true, n); else { shake(0.2 * TUNE.shake); cue('impact', 0.7); }
     return n;
-  }
-  private burst(o: { at: THREE.Vector3; r: number; dmg: number; second: boolean }) {
-    let n = 0;
-    for (const f of this.foes.slice()) { if (f.st === 'dead' || f.pos.distanceTo(o.at) > o.r + f.d.r) continue; this.hitFoe(f, o.dmg, o.at, { knock: o.second ? 1.4 : 0.6, heavy: o.second, kind: 'sp' }); n++; }
-    if (o.second) fxRing(o.at.clone().setY(0.06), 0x8a9aff, o.r, { life: 0.4 } as never);
-    this.feel(o.second, n);
   }
   private killFoe(f: Foe, from: THREE.Vector3) {
     this.kills++;
@@ -592,11 +602,32 @@ export class ActShow {
     for (let i = this.foes.length - 1; i >= 0; i--) if (this.foes[i].st === 'dead' && !this.foes[i].a.root.parent) this.foes.splice(i, 1);
     for (const a of this.arrows) a.update(dt, fw);
     for (let i = this.arrows.length - 1; i >= 0; i--) if (this.arrows[i].dead) this.arrows.splice(i, 1);
-    for (const w of this.winds) {
-      const p0 = w.p.clone(); w.p.addScaledVector(w.v, dt); w.life -= dt; trailSeg(p0, w.p, 0xc8ffd8, 0.5, { life: 0.18, bright: 1.6, spark: 0.2 });
-      for (const f of this.foes) if (f.st !== 'dead' && !w.hit.has(f.uid) && Math.hypot(f.pos.x - w.p.x, f.pos.z - w.p.z) < f.d.r + 0.7) { w.hit.add(f.uid); this.hitFoe(f, 12, p0, { knock: 0.8, heavy: false, kind: 'wind' }); }
+    for (const w of this.waves) {
+      // the light flies on real time: the hit-stop of the blow that sent it freezes the world, not the light leaving it
+      const live = w.live, p0 = w.step(rdt); if (!live) continue;
+      for (const f of this.foes) if (f.st !== 'dead' && !w.hit.has(f.uid) && w.sweeps(p0, f.pos, f.d.r)) {
+        w.hit.add(f.uid); this.hitFoe(f, 12, p0, { knock: 0.8, heavy: false, kind: 'wind' });
+        // the light cuts through: a short white bar across the body and a spray of jade sparks
+        const c = f.a.chest(), side = V3(w.fwd.z, 0, -w.fwd.x);
+        trailSeg(c.clone().addScaledVector(side, -0.6).add(V3(0, 0.25, 0)), c.clone().addScaledVector(side, 0.6).add(V3(0, -0.15, 0)), 0xe8fff2, 0.12, { life: 0.16, bright: 3, spark: 0.6 });
+        fxSparks(c, 0xc8ffe0, 12, 5); this.feel(false, 1);
+      }
+      // arrows in its way are cut out of the air
+      for (const a of this.arrows) if (!a.dead && !a.friendly && w.sweeps(p0, a.p, 0.2)) { fxSparks(a.p.clone(), 0xe8fff2, 8, 4); a.kill(); }
     }
-    this.winds = this.winds.filter(w => w.life > 0);
+    this.waves = this.waves.filter(w => !w.dead);
+    // darts: fly straight; the first foe in the way takes it (small damage, no stagger); walls stop them
+    for (const d of this.darts) {
+      const p0 = d.step(dt);
+      for (const f of this.foes) {
+        if (f.st === 'dead' || d.p.y > 2.4) continue;
+        const ab = d.p.clone().sub(p0).setY(0), L2 = Math.max(1e-6, ab.lengthSq()), t = Math.max(0, Math.min(1, f.pos.clone().sub(p0).setY(0).dot(ab) / L2)), q = p0.clone().addScaledVector(ab, t);
+        if (Math.hypot(f.pos.x - q.x, f.pos.z - q.z) < f.d.r + 0.2) { this.hitFoe(f, d.dmg, p0, { knock: 0.12, heavy: false, kind: 'dart', stagger: 0 }); cue('impact', 0.35); d.stop(); break; }
+      }
+      if (d.dead) continue;
+      const q = d.p.clone(); this.clamp(q, 0); if (q.distanceTo(d.p) > 0.3 || d.life <= 0 || d.p.y < 0.05) d.stop(d.life > 0);
+    }
+    this.darts = this.darts.filter(d => !d.dead);
     // doors: the boards rise; walking into a road's far end leaves
     if (this.phase === 'doors') this.doors.forEach((d, i) => {
       d.lift = Math.min(1, d.lift + dt * 2.2); d.g.position.y = -2.4 * (1 - d.lift) ** 2;
@@ -640,8 +671,9 @@ export class ActShow {
     for (; si < this.shadows.length; si++) this.shadows[si].visible = false;
     // HUD
     const B = this.hud.btns; void B;
-    this.hud.setCooldowns({ attack: 0, jump: 0, dash: Math.max(0, h.dashCd / TUNE.dashCd), special: Math.max(0, h.spCd / (TUNE.specialCd * this.perks.spCdK)) });
-    if (h.spCd > TUNE.specialCd * this.perks.spCdK) h.spCd = TUNE.specialCd * this.perks.spCdK;
+    // the dart button shows no cool-down (a third of a second would only flicker)
+    this.hud.setCooldowns({ attack: 0, jump: 0, dash: Math.max(0, h.dashCd / TUNE.dashCd), special: 0 });
+    SHOW_PERKS.darts3 = this.perks.darts3;
     this.hud.update(rdt, this.inp, this.foes); this.cards.update(rdt); this.banner.update(rdt);
     this.L.on = true;
   }
@@ -688,7 +720,8 @@ export class ActShow {
     const threat = live.some(f => f.st === 'windup' && f.t / f.dur > 0.6 && f.pos.distanceTo(h.pos) < 4.5);
     if (threat && h.dashCd <= 0) { const away = d.clone().normalize().multiplyScalar(-1); I.move.x = away.z; I.move.y = away.x; set('dash', true); set('attack', false); return; }
     set('dash', false);
-    if (live.filter(f => f.pos.distanceTo(h.pos) < 3.5).length >= 3 && h.spCd <= 0) { set('special', true); return; } set('special', false);
+    // darts while closing in on someone a few metres off
+    set('special', l > 3.2 && l < 8.5);
     if (l > 1.6) { I.move.x = d.x / l; I.move.y = -d.z / l; set('attack', false); }
     else { I.move.x = d.x / l * 0.2; I.move.y = -d.z / l * 0.2; this.botT += clock.rdt; set('attack', this.botT % 0.3 < 0.12); }
     void FX;

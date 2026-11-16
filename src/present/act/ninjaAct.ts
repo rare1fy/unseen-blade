@@ -31,10 +31,10 @@ const smooth = (a: number, b: number, x: number) => { const t = clamp01((x - a) 
 /** per-actor locomotion the controller writes every frame: run = 0..1 of top speed, phase = stride phase (rad), charge = 0..1,
  *  air = height off the ground (m), rise = vertical speed / take-off speed (1 at take-off, 0 at the top, < 0 falling),
  *  land = the landing squat (1 → 0), flip = the double jump's somersault (0..1 while it turns, else 0),
- *  creep = 0..1 moving while in the stance (the feet shuffle) */
-export interface Motion { run: number; phase: number; charge: number; air: number; rise: number; land: number; flip: number; creep: number }
+ *  creep = 0..1 moving while in the stance (the feet shuffle), dart = 0..1 through a dart throw (the left arm only, over anything) */
+export interface Motion { run: number; phase: number; charge: number; air: number; rise: number; land: number; flip: number; creep: number; dart: number }
 export const MOTION = new WeakMap<object, Motion>();
-export const motionOf = (a: object) => { let m = MOTION.get(a); if (!m) { m = { run: 0, phase: 0, charge: 0, air: 0, rise: 0, land: 0, flip: 0, creep: 0 }; MOTION.set(a, m); } return m; };
+export const motionOf = (a: object) => { let m = MOTION.get(a); if (!m) { m = { run: 0, phase: 0, charge: 0, air: 0, rise: 0, land: 0, flip: 0, creep: 0, dart: 0 }; MOTION.set(a, m); } return m; };
 
 /** walk → run: the walk is the old light stride; past ~60% of top speed it blends into a forward-leaning sprint */
 function run(I: Pose, r: number, ph: number, off: THREE.Vector3): Pose {
@@ -183,6 +183,15 @@ function charge(I: Pose, c: number, t: number, creep = 0, ph = 0): Pose {
     P.tL += -0.2 * s * creep; P.kL += 0.35 * Math.max(0, s) * creep; P.tR += -0.2 * s * creep; P.kR += 0.35 * Math.max(0, -s) * creep; }
   return P;
 }
+/** a dart thrown with the left hand (k 0 → 1): the hand cocks back by the right shoulder, whips out forward (the elbow never locks
+ *  straight — 单刀看手), then settles; only the left arm and a little twist of the chest, so it runs over the run / jump / anything */
+function dartThrow(I: Pose, k: number): Pose {
+  const P = { ...I }, w = curve(k, [[0, 0], [0.12, 1], [0.7, 1], [1, 0]]);
+  const T = { aLx: S(k, [[0, -0.9], [0.35, -1.0], [0.5, -1.55], [1, -1.3]]), aLz: S(k, [[0, -0.35], [0.35, -0.45], [0.5, 0.25], [1, 0.3]]),
+    fL: S(k, [[0, -1.95], [0.35, -2.0], [0.5, -0.45], [1, -0.7]]), sy: S(k, [[0, 0.22], [0.35, 0.28], [0.5, -0.2], [1, -0.05]]) };
+  P.aLx += (T.aLx - P.aLx) * w; P.aLz += (T.aLz - P.aLz) * w; P.fL += (T.fL - P.fL) * w; P.sy += T.sy * w;
+  return P;
+}
 /** the double jump: a tight forward somersault (k 0 → 1) — knees to the chest, arms in, the blade held flat along the back; the whole
  *  body turns once round the hips */
 function flip(I: Pose, k: number): Pose {
@@ -327,6 +336,7 @@ const heroHook = (b: Record<string, Bone>, t: number, a: Action | null, off: THR
     else if (a.name === 'hurt') P = hurt(P, k, a.data.power as number, off);
   }
   if (m) off.y += m.air;
+  if (m && m.dart > 0) P = dartThrow(P, m.dart);
   apply(b, P); fixHips(b, P);
   const self2 = self0;
   if (cool && !a && !(m && (m.run > 0.05 || inAir))) listen(b, t);
