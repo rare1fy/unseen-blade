@@ -8,6 +8,7 @@ import { initPrims } from './present/engine/prims';
 import { FX } from './present/engine/clock';
 import { PX, PXU, readPixelFlag, installPixelKeys, setPixel } from './present/look/pixel';
 import { ActShow } from './present/act/show';
+import './present/act/hideout';   // the hideout (据点): its scene, its five people, __dh.hideout()
 import { VIBE } from './platform/index';
 import { fontsReady } from './present/ui3d/bodyFont';
 import './audio/audio';
