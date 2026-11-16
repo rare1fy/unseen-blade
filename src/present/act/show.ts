@@ -451,7 +451,7 @@ export class ActShow {
     const ex = { ...exitInfo(this.layout!, 'back'), id: 'left' as const, lane: { x0: HIDEOUT.exit.x0, x1: HIDEOUT.exit.x1, z0: HIDEOUT.exit.z - 1.0, z1: PLAY.z1 + 2.5 }, walk: [[gx, HIDEOUT.exit.z - 1.6], [gx, HIDEOUT.exit.z + 1.0]] as Array<[number, number]> };
     this.doors = [{ ex, g: new THREE.Group(), lift: 1 }];
     const touch = this.inp.lastDevice === 'touch' && 'ontouchstart' in globalThis;
-    this.banner.show('断碑古窑', touch ? '走近人按斩说话 · 踩石板叫陪练 · 出院门动身' : '走近人按 J 说话 · 踩石板叫陪练 · 出院门动身 · ` 键调手感', 4);
+    this.banner.show('断碑古窑', touch ? '走近人点右下说话 · 踩石板叫陪练 · 出院门开打' : '走近人按 J 说话 · 踩石板叫陪练 · 出院门开打 · ` 键调手感', 4);
     this.log.push('yard');
   }
   private spawnWave() {
@@ -1182,7 +1182,7 @@ export class ActShow {
     if (k && !e.repeat) { e.preventDefault(); this.cards.key(k); }
   }
   // ------------------------------------------------------------ a bot (captures / smoke tests)
-  private botT = 0; private cardT = 0;
+  private botT = 0; private cardT = 0; private botStuckT = 0; private botLast = V3(); private botUnstick = 0; private botSide = 1;
   /** the bot stays in the yard and spars (captures of the yard) instead of walking out */
   botStay = false;
   private botYard() { return this.botStay; }
@@ -1201,6 +1201,10 @@ export class ActShow {
       for (const so of this.solids.list) if (so.on) { const o = V3(so.x - h.pos.x, 0, so.z - h.pos.z), l = o.length(), rr = Math.max(so.hx, so.hz, so.r) + 0.9; if (l < rr + 0.6 && o.dot(v) > l * 0.3) { const side = V3(v.z, 0, -v.x); v.addScaledVector(side, side.dot(o) > 0 ? -1.4 : 1.4).normalize(); } }
       // step round a dummy in the way
       for (const f of this.foes) if (f.kind === 'dummy') { const o = f.pos.clone().sub(h.pos).setY(0), l = o.length(); if (l < 1.6 && o.dot(v) > l * 0.5) { const side = V3(v.z, 0, -v.x); v.addScaledVector(side, side.dot(o) > 0 ? -1.2 : 1.2).normalize(); } }
+      // pinned (against a wall by a crate, say): cut what's in front and step aside, the other side each time
+      this.botStuckT += clock.rdt;
+      if (this.botStuckT > 0.9) { const moved = h.pos.distanceTo(this.botLast); this.botLast.copy(h.pos); this.botStuckT = 0; if (moved < 0.35) { this.botUnstick = 0.7; this.botSide *= -1; } }
+      if (this.botUnstick > 0) { this.botUnstick -= clock.rdt; v.addScaledVector(V3(v.z, 0, -v.x), 1.4 * this.botSide).normalize(); set('attack', this.botUnstick > 0.35 && this.botUnstick < 0.6); }
       I.move.x = v.x; I.move.y = -v.z; set('jump', false); return;
     }
     if (!live.length) { I.move.x = I.move.y = 0; set('attack', false); return; }
