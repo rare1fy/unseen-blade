@@ -25,6 +25,11 @@ import { Solids, SLAM, slamSpeed, type Push } from './solids';
 import { Breakables } from './breakables';
 import { Gates } from './gates';
 import { ALL_MOVES, drawManuals, manualCard } from './manuals';
+import { Dialogue, type Line } from './dialogue';
+import { Timeline } from './timeline';
+import { openingShots, bossIntroShots, type CineHost } from './cutscenes';
+import { WAKE_DUWU, WAKE_SUNAO, CHULEI_BEFORE, CHULEI_AFTER, deathLine } from './scripts';
+import { newGame, profile, save as saveProfile, seeOnce } from './profile';
 import { Leaves } from './leaves';
 import type { BTarget, BEvent, BDamage } from './breakLogic';
 import type { Solid } from './solids';
@@ -87,7 +92,7 @@ function contactShadow() {
   const m = new THREE.Mesh(new THREE.PlaneGeometry(2, 2).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x0a0608, map: SHADOW_TEX, transparent: true, opacity: 0.72, depthWrite: false }));
   m.renderOrder = 2; return m;
 }
-type Phase = 'intro' | 'fight' | 'pick' | 'doors' | 'leaving' | 'dead' | 'end' | 'yard' | 'opening';
+type Phase = 'intro' | 'fight' | 'pick' | 'doors' | 'leaving' | 'dead' | 'end' | 'yard' | 'opening' | 'cine' | 'talk';
 /** the costume the player last wore (kept in the browser; the first time: the 斗笠 swordsman) */
 function savedHero(): ModelDef {
   let id = ''; try { id = localStorage.getItem('act.hero4') ?? ''; } catch { /* storage blocked */ }
@@ -95,6 +100,7 @@ function savedHero(): ModelDef {
   return HEROES.find(d => d.id === (q ?? id)) ?? HEROES[0];
 }
 
+let SELF: ActShow | null = null;
 export class ActShow {
   L = new UiLayer(); ov = new Overlay(); inp = new Input(); hud: ActHud; cards: CardPick; banner: SkinBanner;
   stage: Stage | null = null; hero!: Hero; foes: Foe[] = []; arrows: Arrow[] = []; waves: BladeWave[] = []; darts: Dart[] = []; /** darts thrown so far (tests) */ dartsThrown = 0;
@@ -103,6 +109,41 @@ export class ActShow {
   private plan: RoomPlan | null = null; private nextRooms: RoomPlan[] = []; private visited: RoomType[] = []; coins = 0;
   /** act-19: the floor's cover and props (collision), the breakable props, the room's walls / gates / cover plan */
   private lightningT = 6;
+  /** a cutscene's place: the open land, no walls / gates / props */ private noArena = false;
+  // ------------------------------------------------------------ act-20: story — portrait dialogue, timeline cutscenes, puppets
+  dialogue: Dialogue; timeline: Timeline; private puppets: Foe[] = []; private wasPhase: Phase = 'yard'; private justDied = false;
+  private cineHost: CineHost = {
+    hero: { get a() { return SELF!.hero.a; }, get pos() { return SELF!.hero.pos; } } as CineHost['hero'],
+    puppet: (kind, x, z, fx, fz) => { const f = spawnFoe(kind, V3(x, 0, z), V3(fx, 0, fz)); f.st = 'move'; this.puppets.push(f); return f; },
+    clearPuppets: () => { for (const f of this.puppets) f.a.dispose(); this.puppets = []; },
+  };
+  /** portrait lines; the fight / the hideout wait (phase 'talk') and resume */
+  async talk(lines: Line[]) {
+    if (!lines.length) return;
+    const was = this.phase === 'talk' ? this.wasPhase : this.phase; this.wasPhase = was; this.phase = 'talk'; this.hud.on = false; this.banner.hide();
+    await this.dialogue.play(lines);
+    this.phase = was; this.hud.on = true;
+  }
+  /** a timeline cutscene; the HUD hides, gameplay waits (phase 'cine') */
+  async cine(shots: Parameters<Timeline['play']>[0]) {
+    const was = this.phase; this.phase = 'cine'; this.hud.on = false; this.banner.hide();
+    const skipped = await this.timeline.play(shots);
+    this.cineHost.clearPuppets();
+    shot('act', () => this.camPose(), { cut: true, speed: 8 });
+    this.phase = was; this.hud.on = true; return skipped;
+  }
+  /** 开始游戏: a fresh save, the opening cutscene on the burning field, then the hideout and her first waking */
+  async startNewGame() {
+    newGame();
+    this.noArena = true; this.viewSpec = { locale: 'hj_field', time: 'dusk', weather: 'clear', layout: 'pair', seed: 4242, exits: [] }; this.room = 0; this.locale = 'hj_field'; this.buildRoom(true); this.viewSpec = null; this.noArena = false;
+    for (const f of this.foes) f.a.dispose(); this.foes.length = 0;
+    this.phase = 'yard'; await this.cine(openingShots(this.cineHost));
+    await new Promise<void>(res => { void wipeTransit(() => { this.enterYard(); res(); }); });
+    await new Promise(r => after(0.8, () => r(null)));
+    if (seeOnce('wake1')) { await this.talk([...WAKE_DUWU, ...WAKE_SUNAO]); saveProfile(); }
+  }
+  /** 继续游戏: the hideout with the saved progress */
+  continueGame() { profile(); this.enterYard(); }
   solids = new Solids(); props: Breakables | null = null; gates: Gates | null = null; leaves: Leaves | null = null; private gustT = 0; arena: ArenaPlan | null = null; private lastPush: Push | null = null; private slamAt = new WeakMap<Foe, number>();
   private coinsFx = new Coins(); private stations: Stations | null = null; private hitArcs = new HitArcs();
   private schools = new Schools({ perks: () => this.perks, foes: () => this.foes, heroPos: () => this.hero.pos.clone().setY(this.hero.y), intent: () => this.intent, heroTint: (c, k) => this.hero.a.tint(c, k), hitFoe: (f, d, p, o) => this.hitFoe(f, d, p, o) }); // wp/boons: late-bound run state, including airborne armour
@@ -115,6 +156,7 @@ export class ActShow {
   yard: Yard | null = null; wearing: ModelDef = savedHero(); private lineupActors: BattleActor[] = [];
   private ring!: THREE.Mesh; private ringK = -1; private sparkT = 0; private shadows: THREE.Mesh[] = []; private exitSign: THREE.Group | null = null; private blob: THREE.Mesh;
   constructor(private platform: Platform) {
+    SELF = this; this.dialogue = new Dialogue(this.L); this.timeline = new Timeline(this.L);
     this.hud = new ActHud(this.L); this.cards = new CardPick(this.L); this.banner = new SkinBanner(this.L, SKIN.id, () => this.hud.bossOn);
     platform.onPointer(ev => this.pointer(ev.type, (ev as { id?: number }).id ?? 0, ev.x, ev.y));
     platform.onResize(() => this.layout2());
@@ -129,7 +171,7 @@ export class ActShow {
       // act-14 用户：「我要2x，然后调试面板给我一个切换这个的功能」 — 2x → 3x → off → 1x, remembered on this device
       { label: () => `像素：${PX.on ? PX.size + 'x' : '关'}（点这里换）`, run: () => { const order = ['2', '3', 'off', '1'], cur = PX.on ? String(PX.size) : 'off', nx = order[(order.indexOf(cur) + 1) % order.length]; if (nx === 'off') setPixel(false); else setPixel(true, +nx); try { localStorage.setItem('ub.px', nx); } catch { /* private mode */ } } }]);
     if (typeof window !== 'undefined') window.addEventListener('keydown', e => { if ((e.key === 'u' || e.key === 'U') && !this.cards.on) this.cycleSkin(); });
-    dh.add({ act: () => this, bot: (on = true) => { this.botOn = on; }, run: () => this.startRun(), yard: () => this.enterYard(), wear: (id: string) => { const d = HEROES.find(h => h.id === id); if (d) this.wear(d); },
+    dh.add({ newGame: () => this.startNewGame(), talkTest: (n = 0) => this.talk(n ? CHULEI_BEFORE : WAKE_DUWU), act: () => this, bot: (on = true) => { this.botOn = on; }, run: () => this.startRun(), yard: () => this.enterYard(), wear: (id: string) => { const d = HEROES.find(h => h.id === id); if (d) this.wear(d); },
       skin: (id: SkinId) => this.cycleSkin(id),
       cardsDemo: () => { void this.cards.open([BOONS[8], BOONS[16], BOONS[0]].map((boon, tier) => ({ boon, tier }))); }, // wp/boons: school/tier preview
       boon: (id: string, tier = 0) => applyBoon(this.perks, id, tier), // wp/boons: browser effect checks
@@ -195,6 +237,7 @@ export class ActShow {
   }
   /** the training yard: dummies, summon slabs, the costume rack, the way out to a run */
   enterYard() {
+    if (this.justDied) { this.justDied = false; const who = (['duwu', 'sunao', 'fengtiebi'] as const)[Math.floor(Math.random() * 3)]; after(1.0, () => { if (this.phase === 'yard') void this.talk(deathLine(who)); }); }
     this.intent = 0; this.hud.intent = 0;
     this.perks = newPerks(); this.room = -1; this.kills = 0; this.locale = 'ninja_wilds'; this.recent = []; this.plan = null;
     TUNE.heroHp = 100; this.buildRoom(true);
@@ -232,7 +275,7 @@ export class ActShow {
     const lb = REGISTRY.layouts[spec.layout] ?? Object.values(LOCALES).flatMap(l => l.extraLayouts ?? []).find(l => l.id === spec.layout)!;
     this.layout = withExits(spec.mirror ? mirrorLayout(stageLayout(lb)) : stageLayout(lb), spec.exits ?? []);
     const ptype = this.plan?.type ?? 'fight', calm = ptype === 'shop' || ptype === 'rest' || ptype === 'boon';
-    this.arena = big ? arenaPlan(this.layout, (spec.exits ?? []) as ExitId[], spec.seed, spec.locale, calm ? 'calm' : ptype === 'boss' ? 'boss' : 'fight') : null;
+    this.arena = big && !this.noArena ? arenaPlan(this.layout, (spec.exits ?? []) as ExitId[], spec.seed, spec.locale, calm ? 'calm' : ptype === 'boss' ? 'boss' : 'fight') : null;
     spec.arena = this.arena ?? undefined;
     const { def, report } = assemble(spec, REGISTRY); this.lastReport = report;
     this.stage = showStage({ ...def, build(c) { try { def.build(c); } catch (e) { console.error('[act] assembly failed', e); } } }, { combat: true });
@@ -267,7 +310,16 @@ export class ActShow {
     }
     // walk in from the front of the room, then the first wave
     const h = this.hero; this.introT = 0;
-    after(1.1, () => { if (this.hero === h && this.phase === 'intro') { this.phase = 'fight'; this.spawnWave(); } });
+    after(1.1, () => {
+      if (this.hero !== h || this.phase !== 'intro') return;
+      this.phase = 'fight'; this.spawnWave();
+      // act-20: the chapter's boss — the intro cutscene and the lines before the fight, the first time on this save
+      if (this.plan?.type === 'boss' && seeOnce('ch1_boss')) after(0.3, async () => {
+        const b = this.foes.find(f => isBoss(f)); if (!b) return;
+        await this.cine(bossIntroShots(this.cineHost, b, '雷公渠帅 · 褚雷'));
+        await this.talk(CHULEI_BEFORE); saveProfile();
+      });
+    });
     this.log.push(`room ${this.room} ${spec.locale} ${spec.layout} ${spec.time}`);
   }
   private openYard() {
@@ -714,7 +766,7 @@ export class ActShow {
     this.phase = 'pick'; cue('stingClear', 1); audio.duckMusic(0.35, 3.2);
     this.banner.show('清场', '', 1.0, '#ffe6a0');
     await new Promise(r => after(0.9, () => r(null)));
-    if (this.room >= RUN_ROOMS - 1) { this.end(true); return; }
+    if (this.room >= RUN_ROOMS - 1) { if (seeOnce('ch1_boss_after')) { await this.talk(CHULEI_AFTER); saveProfile(); } this.end(true); return; }
     const rw = this.plan?.reward ?? null;
     if (rw?.k === 'coins') { this.coinsFx.drop(this.hero.pos.clone().add(V3(0, 0, -1.5)), 12, Math.round(rw.n / 12)); this.banner.show('铜钱', `${rw.n}`, 1.0, '#ffd24a'); }
     else if (rw?.k === 'heal') { this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + Math.round(this.hero.maxHp * 0.35)); this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp }); this.banner.show('回复', '三成五生命', 1.0, '#9aff9a'); await new Promise(r => after(0.8, () => r(null))); }
@@ -785,7 +837,7 @@ export class ActShow {
     after(0.35, () => { void wipeTransit(() => { this.room++; this.buildRoom(false); }); });
   }
   private dead() {
-    this.phase = 'dead'; audio.stopMusic(1.4); cue('stingLose', 1); slowmo(1.2, 0.3); this.banner.show('败北', '', 1.6, '#ff6a5a');
+    this.phase = 'dead'; this.justDied = true; { const p = profile(); p.deaths++; saveProfile(); } audio.stopMusic(1.4); cue('stingLose', 1); slowmo(1.2, 0.3); this.banner.show('败北', '', 1.6, '#ff6a5a');
     after(1.6, async () => {
       this.hud.on = false;
       await this.cards.open([returnCard(this.kills)]); // wp/boons: adapt non-boon cards and centralize their copy
@@ -813,6 +865,13 @@ export class ActShow {
   private frame(dt: number, rdt: number) {
     this.inp.frame(rdt);
     if (this.phase === 'opening') return;   // opening.ts runs the title screen
+    // act-20: a cutscene or a conversation — the timeline / the dialogue run, the people idle, nothing fights
+    if (this.phase === 'cine' || this.phase === 'talk') {
+      this.timeline.update(rdt); this.dialogue.update(rdt);
+      if (this.phase === 'talk') { this.hero.a.update(dt); for (const f of this.foes) f.a.update(dt); this.leaves?.update(dt, this.cam.x, this.cam.z); this.gates?.update(dt); }
+      for (const f of this.puppets) if (this.phase === 'talk') f.a.update(dt);
+      this.hud.update(rdt, this.inp, []); this.L.on = true; return;
+    }
     if (this.botOn) this.bot();
     const h = this.hero; if (!h) return;
     const busy = this.cards.on || this.phase === 'leaving' || this.ultOn;
@@ -960,6 +1019,8 @@ export class ActShow {
   }
   // ------------------------------------------------------------ input
   private pointer(type: string, id: number, x: number, y: number) {
+    if (this.timeline.on) { this.timeline.pointer(type); return; }
+    if (this.dialogue.on) { if (type === 'down') this.dialogue.advance(); return; }
     if (this.cards.on) { this.cards.pointer(type, x, y); return; }
     this.hud.pointer(type, id, x, y, this.inp);
   }
@@ -970,6 +1031,8 @@ export class ActShow {
     this.banner.show(SKIN_NAME[next], '界面风格 · U 键或调参面板切换', 1.4);
   }
   private key(e: KeyboardEvent) {
+    if (this.timeline.on && e.key === 'Escape') { this.timeline.key(true); return; }
+    if (this.dialogue.on) { if (!e.repeat && ['Enter', ' ', 'j', 'J'].includes(e.key)) { e.preventDefault(); this.dialogue.advance(); } return; }
     if (!this.cards.on) return;
     const k = ({ arrowleft: 'left', a: 'left', arrowright: 'right', d: 'right', enter: 'ok', ' ': 'ok', j: 'ok' } as const)[e.key.toLowerCase() as 'a'];
     if (k && !e.repeat) { e.preventDefault(); this.cards.key(k); }
