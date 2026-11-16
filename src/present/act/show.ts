@@ -987,8 +987,8 @@ export class ActShow {
     const set = (n: 'attack' | 'dash' | 'special' | 'jump', on: boolean) => { const b = I.b[n]; b.pressed = on && !b.down; b.down = on; b.held = on ? b.held + clock.rdt : 0; };
     if ((this.phase === 'doors' || this.phase === 'yard') && this.doors.length && !(this.phase === 'yard' && this.botYard())) {
       // act-19: follow the road's points in turn (the gate's mouth, through the gate, out) — a straight line ran into the wall
-      const wk = this.doors[0].ex.walk; let wi = 0; while (wi < wk.length - 1 && Math.hypot(wk[wi][0] - h.pos.x, wk[wi][1] - h.pos.z) < 1.0) wi++;
-      if (this.botWp > wi) wi = this.botWp; this.botWp = wi;
+      const wk = this.doors[0].ex.walk; let wi = this.botWp; while (wi < wk.length - 1 && Math.hypot(wk[wi][0] - h.pos.x, wk[wi][1] - h.pos.z) < 1.0) wi++;
+      this.botWp = wi;
       const d = wk[wi]; const v = V3(d[0] - h.pos.x, 0, d[1] - h.pos.z).normalize();
       // step round the floor's cover and props in the way
       for (const so of this.solids.list) if (so.on) { const o = V3(so.x - h.pos.x, 0, so.z - h.pos.z), l = o.length(), rr = Math.max(so.hx, so.hz, so.r) + 0.9; if (l < rr + 0.6 && o.dot(v) > l * 0.3) { const side = V3(v.z, 0, -v.x); v.addScaledVector(side, side.dot(o) > 0 ? -1.4 : 1.4).normalize(); } }
