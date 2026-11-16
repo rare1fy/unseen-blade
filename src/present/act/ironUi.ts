@@ -42,7 +42,7 @@ function ol(rows: string[]): string[] {
 }
 /** the move-link hints (act-18 用户：「combo在按钮上要有点动特效提示，不然根本不知道怎么打」): a little pixel picture that pops up at the
  *  button's upper left while the link is open, in the move's colour; the button's plates breathe in that colour too. No words. */
-export type HintKey = 'dcut' | 'back' | 'plunge' | 'dbl' | 'chase' | 'counter' | 'launch' | 'cdart' | 'keep' | 'pause' | 'kick';
+export type HintKey = 'dcut' | 'back' | 'plunge' | 'dbl' | 'chase' | 'counter' | 'launch' | 'cdart' | 'keep' | 'pause' | 'kick' | 'talk';
 const HINTS: Record<HintKey, { rows: string[]; col: number }> = {
   // act-19 刀谱 moves (axis-aligned glyphs): 挑空斩 an arrow going up off the ground; 近身三镖 three darts; 游身 a side step into a
   // cut; 变招 nested squares (a spin); 飞踢 a foot shooting out
@@ -50,6 +50,8 @@ const HINTS: Record<HintKey, { rows: string[]; col: number }> = {
   cdart: { col: 0xe8eef4, rows: ['..........', '.#...#...#', '###.###.##', '.#...#...#', '.#...#...#', '.#...#...#', '.#...#...#', '###.###.##', '..........', '..........'] },
   keep: { col: 0x9ad8ff, rows: ['..........', '#.........', '##........', '###..#####', '##........', '#.........', '.....#####', '..........', '..........', '..........'] },
   pause: { col: 0xffb070, rows: ['..######..', '.#......#.', '#..####..#', '#.#....#.#', '#.#.##.#.#', '#.#....#.#', '#..####..#', '.#......#.', '..######..', '..........'] },
+  // act-20: talk to someone at the hideout (a speech bubble)
+  talk: { col: 0xf2e8d6, rows: ['..........', '.########.', '#........#', '#.##.##..#', '#........#', '.###.####.', '...##.....', '..#.......', '..........', '..........'] },
   kick: { col: 0xffc890, rows: ['..##......', '..##......', '..##......', '..######..', '..########', '..##......', '..##......', '.###......', '.###......', '..........'] },
   // 穿风斩: a level cut with wind lines behind
   dcut: { col: 0xbfeaff, rows: ['..........', '##........', '..........', '####..###.', '.....#####', '####..###.', '..........', '##........', '..........', '..........'] },

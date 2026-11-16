@@ -21,6 +21,9 @@ const SCHOOL_PAL: Record<string, Pal> = {
   sr: { bg: '#1a1416', panel: '#261d1f', frame: '#c8a070', ink: '#ffd27a', name: '#f2dcb0', deco: '#b8302a' },
   // 刀谱: a bamboo-slip book — dark wood, pale slip colour, an ink-red tie
   ms: { bg: '#2c2216', panel: '#3a2c1c', frame: '#e0c890', ink: '#f0e0b0', name: '#fff0c8', deco: '#7a5a32' },
+  // act-20 the hideout's upgrades: the smith (iron, ember) and the healer (dark green, jade)
+  fg: { bg: '#1c1a1c', panel: '#2a2626', frame: '#d08a3a', ink: '#ffb060', name: '#ffd8a0', deco: '#6a3a1e' },
+  md: { bg: '#141c18', panel: '#1e2a24', frame: '#7ac8a0', ink: '#a8f0c8', name: '#d8f4e0', deco: '#2e5a46' },
 };
 const TIER_COL = ['#c8c0b0', '#6ad8b0', '#ffd060'];
 const tierColor = (tier: number) => TIER_COL[tier] ?? TIER_COL[0];
@@ -85,12 +88,12 @@ function face(b: Boon, tier: number, u: number) {
   const MX = 14, MY = 14, MS = CH - 28;
   R(MX, MY, MS, MS, P.frame); R(MX + 3, MY + 3, MS - 6, MS - 6, P.bg); R(MX + 6, MY + 6, MS - 12, MS - 12, '#0b0809');
   for (const [x, y] of [[MX - 2, MY - 2], [MX + MS - 6, MY - 2], [MX - 2, MY + MS - 6], [MX + MS - 6, MY + MS - 6]]) R(x, y, 8, 8, P.frame);
-  const ec = Math.floor((MS - 20) / 12); icon(g, b.school === ('ms' as string) ? b.glyph : EMBLEM[b.school] ?? EMBLEM.sr, (MX + (MS - 12 * ec) / 2) * u, (MY + (MS - 12 * ec) / 2) * u, ec * u, { main: P.ink, acc: '#fff4d8', dark: P.deco });
+  const own = ['ms', 'fg', 'md'].includes(b.school as string), ec = Math.floor((MS - 20) / 12); icon(g, own ? b.glyph : EMBLEM[b.school] ?? EMBLEM.sr, (MX + (MS - 12 * ec) / 2) * u, (MY + (MS - 12 * ec) / 2) * u, ec * u, { main: P.ink, acc: '#fff4d8', dark: P.deco });
   // the name (pixel title font) and the tier badge; the school's name in the top right
   const TX = MX + MS + 16, nameScale = 2 * u;
   text(g, b.name, TX * u, 14 * u, nameScale, tier === 2 ? TIER_COL[2] : P.name, 'left', '#0a0710');
-  const ms = b.school === ('ms' as string), nw = textW(b.name, nameScale) / u, tag = ms ? '刀谱' : TIER_NAMES[tier] ?? '', bw = Math.ceil(bodyW(tag, 13 * u) / u) + 12;
-  R(TX + nw + 12, 17, bw, 20, tierColor(tier)); R(TX + nw + 13, 18, bw - 2, 18, '#0d0a0b'); bodyText(g, tag, (TX + nw + 18) * u, 19 * u, 13 * u, tierColor(tier), 'left');
+  const ms = own, nw = textW(b.name, nameScale) / u, tag = (b as { tag?: string }).tag ?? (b.school === ('ms' as string) ? '刀谱' : TIER_NAMES[tier] ?? ''), bw = Math.ceil(bodyW(tag, 13 * u) / u) + 12;
+  if (tag) { R(TX + nw + 12, 17, bw, 20, tierColor(tier)); R(TX + nw + 13, 18, bw - 2, 18, '#0d0a0b'); bodyText(g, tag, (TX + nw + 18) * u, 19 * u, 13 * u, tierColor(tier), 'left'); }
   if (!ms) bodyText(g, SCHOOL_NAMES[b.school] ?? '', (CW - (b.school === 'sr' ? 38 : 16)) * u, 18 * u, 12 * u, P.frame, 'right');
   // the two lines
   b.desc.forEach((l, i) => richLine(g, l, TX * u, (54 + i * 28) * u, 19 * u, '#e8e0d4'));
@@ -108,7 +111,9 @@ export class CardPick {
     this.close(); const L = this.L, u = Math.max(1, Math.round(Math.max(0.78, Math.min(L.h / 720, 1.2)) * (L.dpr || 1)));
     // phones (412 px tall): the cards keep a readable size and take more of the screen
     // rows: one wide card per row, centred; on a phone they take most of the width
-    const w = Math.min(L.w * 0.7, 600 * Math.max(0.8, Math.min(1.25, L.h / 720))), h = w * CH / CW, gap = Math.max(8, h * 0.12);
+    // rows: one wide card per row, centred; more rows than fit → smaller cards (the hideout's upgrade lists)
+    let w = Math.min(L.w * 0.7, 600 * Math.max(0.8, Math.min(1.25, L.h / 720))), h = w * CH / CW, gap = Math.max(8, h * 0.12);
+    const n = boons.length, room = L.h * 0.9; if (n * h + (n - 1) * gap > room) { h = (room - (n - 1) * 6) / n; w = h * CW / CH; gap = 6; }
     this.cards = boons.map(({ boon: b, tier }, i) => {
       const f = face(b, tier, u * 2), side = new THREE.MeshLambertMaterial({ color: tier === 0 ? PALETTE[SKIN.id].card.side : tierColor(tier), emissive: tier === 2 ? 0xffd060 : 0x000000, emissiveIntensity: 0.15 }), fm = new THREE.MeshLambertMaterial({ map: f.t, emissive: 0xffffff, emissiveMap: f.t, emissiveIntensity: 0.6 });
       const m = new THREE.Mesh(new THREE.BoxGeometry(L.px(w), L.px(h), L.px(16)), [side, side, side, side, fm, side]); m.renderOrder = 30; L.scene.add(m);

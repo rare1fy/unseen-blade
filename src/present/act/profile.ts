@@ -3,23 +3,23 @@
 // 「开始游戏」= 新档（有旧档时要确认），「继续游戏」= 读档回据点。
 export interface Profile {
   v: 1;
-  /** runs started / won, deaths */ runs: number; wins: number; deaths: number;
-  /** the meta currency carried home from runs (name set by the story: see docs/STORY.md) and what it was spent on */
-  scraps: number; perks: Record<string, number>;
+  /** runs completed / won, deaths */ runs: number; wins: number; deaths: number;
+  /** the two currencies carried home from runs and purchased upgrade levels */
+  iron: number; herb: number; perks: Record<string, number>;
   /** story beats and dialogue lines already seen (ids) */ seen: Record<string, number>;
   /** relationships with the people at the hideout (id → points) */ bonds: Record<string, number>;
   /** the costume worn */ wear?: string;
   /** last saved (ms since epoch) */ at: number;
 }
 const KEY = 'ub.profile';
-export const fresh = (): Profile => ({ v: 1, runs: 0, wins: 0, deaths: 0, scraps: 0, perks: {}, seen: {}, bonds: {}, at: Date.now() });
+export const fresh = (): Profile => ({ v: 1, runs: 0, wins: 0, deaths: 0, iron: 0, herb: 0, perks: {}, seen: {}, bonds: {}, at: Date.now() });
 let cur: Profile | null = null;
 /** is there a saved profile on this device? */
 export function hasSave(): boolean { try { return !!localStorage.getItem(KEY); } catch { return false; } }
 /** the current profile (loaded from the device the first time; a fresh one if there is none or it can't be read) */
 export function profile(): Profile {
   if (cur) return cur;
-  try { const raw = localStorage.getItem(KEY); if (raw) { const p = JSON.parse(raw) as Profile; if (p && p.v === 1) { cur = { ...fresh(), ...p }; return cur; } } } catch { /* blocked / broken: start fresh */ }
+  try { const raw = localStorage.getItem(KEY); if (raw) { const p = JSON.parse(raw) as Partial<Profile> & { scraps?: number }; if (p && p.v === 1) { const { scraps, ...saved } = p; cur = { ...fresh(), ...saved, iron: p.iron ?? scraps ?? 0, herb: p.herb ?? 0 }; return cur; } } } catch { /* blocked / broken: start fresh */ }
   cur = fresh(); return cur;
 }
 /** write the current profile to the device */
