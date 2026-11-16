@@ -30,7 +30,7 @@ import { Stele } from './stele';
 import { Timeline } from './timeline';
 import { openingShots, bossIntroShots, type CineHost } from './cutscenes';
 import { WAKE_DUWU, WAKE_SUNAO, CHULEI_BEFORE, CHULEI_AFTER, deathLine } from './scripts';
-import { newGame, profile, save as saveProfile, seeOnce } from './profile';
+import { newGame, profile, save as saveProfile, seeOnce, hasSave } from './profile';
 import { runMods, bank, META, level, nextCost, buy, type RunMods } from './meta';
 import { NPC_LINES, UP_LINES, POOR_LINES, HAUL, MEALS, MEAL_LINES } from './hideoutLines';
 import { Leaves } from './leaves';
@@ -58,7 +58,7 @@ import { EDEFS, isBoss, lowAttack } from './enemy';   // wp/foes: the boss bar /
 import { BOONS, applyBoon, drawBoons, upgradeBoon, returnCard, TIER_NAMES, newPerks, type Perks, type Boon, type BoonPick } from './boons';
 import { Schools } from './schools'; // wp/boons: effect owner
 import { TUNE } from './tune';
-import { installActTune } from './tunePanel';
+import { installActTune, toggleActTune } from './tunePanel';
 import { BODY_FONT, BODY_FONT_NAME, setBodyFont, type BodyFont } from '../ui3d/bodyFont';
 import { HEROES, RACK, motionOf } from './ninjaAct';
 import { Yard, makeSign, SPAWN_AT } from './yard';
@@ -72,6 +72,8 @@ import { runBoard } from './runBoard';
 import { HitArcs } from './hitArc';
 import { playOpening, OPENING_SPEC } from './opening';
 import { wantOpening } from './openingFlag';
+import { playTitle, titlePointer } from './title';
+import { wantTitle } from './titleFlag';
 import { PX, setPixel } from '../look/pixel';
 import { VIBE, vibeSupport, iosMajor } from '../../platform/index';
 /** the perks the hero's world reads while the run is on (kept in step each frame) */
@@ -95,7 +97,7 @@ function contactShadow() {
   const m = new THREE.Mesh(new THREE.PlaneGeometry(2, 2).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x0a0608, map: SHADOW_TEX, transparent: true, opacity: 0.72, depthWrite: false }));
   m.renderOrder = 2; return m;
 }
-type Phase = 'intro' | 'fight' | 'pick' | 'doors' | 'leaving' | 'dead' | 'end' | 'yard' | 'opening' | 'cine' | 'talk';
+type Phase = 'intro' | 'fight' | 'pick' | 'doors' | 'leaving' | 'dead' | 'end' | 'yard' | 'opening' | 'cine' | 'talk' | 'title';
 /** the costume the player last wore (kept in the browser; the first time: the 斗笠 swordsman) */
 function savedHero(): ModelDef {
   let id = ''; try { id = localStorage.getItem('act.hero4') ?? ''; } catch { /* storage blocked */ }
@@ -279,7 +281,7 @@ export class ActShow {
   music() {
     if (!this.audioOn) return;
     const t = this.plan?.type ?? 'fight', ph = this.phase as string;
-    const name = ph === 'opening' ? 'bgm_opening' : this.room < 0 || ph === 'yard' ? 'bgm_yard' : t === 'boss' ? 'bgm_boss' : t === 'elite' ? 'bgm_elite' : t === 'shop' || t === 'rest' || t === 'boon' ? 'bgm_calm' : 'bgm_battle';
+    const name = ph === 'opening' || ph === 'title' ? 'bgm_opening' : this.room < 0 || ph === 'yard' ? 'bgm_yard' : t === 'boss' ? 'bgm_boss' : t === 'elite' ? 'bgm_elite' : t === 'shop' || t === 'rest' || t === 'boon' ? 'bgm_calm' : 'bgm_battle';
     void audio.playMusic(name, 1.8);
   }
   layout2() {
@@ -288,8 +290,20 @@ export class ActShow {
   }
   // ------------------------------------------------------------ rooms
   start() {
-    dh.add({ opening: () => this.opening() });   // captures: the title screen again
-    if (typeof location !== 'undefined' && /[?&#]run\b/.test(location.href)) this.startRun(); else if (wantOpening()) this.opening(); else this.enterYard();
+    dh.add({ opening: () => this.opening(), title: (n = 1) => this.title(n) });   // captures: the old opening / a title variant again
+    const tn = wantTitle();
+    if (typeof location !== 'undefined' && /[?&#]run\b/.test(location.href)) this.startRun(); else if (tn) this.title(tn); else if (wantOpening()) this.opening(); else this.enterYard();
+  }
+  /** 开始画面 (title.ts, act-20): a wide shot of one of the place / weather variants with the menu (开始游戏 / 继续游戏 / 设置);
+   *  the title builds its own place and poses its own heroine while frame() idles; the choice cuts into startNewGame / continueGame */
+  title(n = 1) {
+    // a room may be up (__dh.title from the yard): its actors go the way a room change sends them
+    for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = [];
+    this.yard?.dispose(); this.yard = null; this.props?.dispose(); this.props = null; this.gates?.dispose(); this.gates = null; this.leaves?.dispose(); this.leaves = null; this.stations?.dispose(); this.stations = null; this.hero?.a.dispose();
+    for (const n of this.npcs) n.f.a.dispose(); this.npcs = []; this.npcNear = null;
+    this.phase = 'title'; this.hud.on = false; this.hud.update(0, this.inp, []); this.banner.hide(); this.blob.visible = false; this.ring.visible = false; for (const m of this.shadows) m.visible = false;
+    void playTitle(n, { ov: this.ov, L: this.L, hasSave, settings: () => toggleActTune(), enter: k => { this.hud.on = true; if (k === 'continue') this.continueGame(); else void this.startNewGame(); } });
+    this.music();
   }
   /** 开场「雨夜听雨」(opening.ts): the room builder lays the rain road (clearing whatever room was up), then the opening poses this
    *  hero by hand while frame() idles; the tap cuts into the yard. Only the first entry plays it (a run ends in enterYard). */
@@ -945,7 +959,7 @@ export class ActShow {
   }
   private frame(dt: number, rdt: number) {
     this.inp.frame(rdt);
-    if (this.phase === 'opening') return;   // opening.ts runs the title screen
+    if (this.phase === 'opening' || this.phase === 'title') return;   // opening.ts / title.ts run the start screen
     // act-20: a cutscene or a conversation — the timeline / the dialogue run, the people idle, nothing fights
     if (this.phase === 'cine' || this.phase === 'talk') {
       this.timeline.update(rdt); this.dialogue.update(rdt);
@@ -1109,6 +1123,7 @@ export class ActShow {
   }
   // ------------------------------------------------------------ input
   private pointer(type: string, id: number, x: number, y: number) {
+    if (this.phase === 'title') { titlePointer(type, x, y); return; }
     if (this.timeline.on) { this.timeline.pointer(type); return; }
     if (this.dialogue.on) { if (type === 'down') this.dialogue.advance(); return; }
     if (this.cards.on) { this.cards.pointer(type, x, y); return; }

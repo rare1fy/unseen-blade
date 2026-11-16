@@ -4,6 +4,8 @@ import { TUNE, TUNE_UI, type TuneKey } from './tune';
 
 /** extra buttons at the top of the panel: a label (re-read after each click) and what it does */
 export interface TuneAction { label: () => string; run: () => void }
+/** open / close the panel from code (the title screen's 设置); a no-op until installActTune has run */
+export let toggleActTune = () => {};
 export function installActTune(actions: TuneAction[] = []) {
   if (typeof document === 'undefined') return;
   const btn = document.createElement('div');
@@ -30,6 +32,7 @@ export function installActTune(actions: TuneAction[] = []) {
   copy.onclick = () => { const s = JSON.stringify(TUNE); void navigator.clipboard?.writeText(s); copy.textContent = '已复制'; setTimeout(() => (copy.textContent = '复制当前数值'), 1200); };
   pane.append(copy);
   const toggle = () => { pane.style.display = pane.style.display === 'none' ? 'block' : 'none'; };
+  toggleActTune = toggle;
   btn.onclick = toggle; btn.onpointerdown = e => e.stopPropagation(); pane.onpointerdown = e => e.stopPropagation();
   window.addEventListener('keydown', e => { if (e.key === '`') toggle(); });
   document.body.append(btn, pane);

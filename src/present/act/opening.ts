@@ -34,28 +34,28 @@ export const OPENING_SPEC: Partial<Spec> & { locale: string } = { locale: 'hj_vi
 
 // ------------------------------------------------------------------ the night
 /** cold blue-grey rain night: dark in colour, not by a mask; the fog swallows the far village, the horizon a shade lighter (rain haze) */
-const RAIN_NIGHT: Mood = {
+export const RAIN_NIGHT: Mood = {
   sky: true, bg: 0x070a10, fog: 0x121926, fogD: 0.048, hemiSky: 0x44567a, hemiGround: 0x0c0e14, hemiI: 1.25, moon: 0x8094c4, moonI: 1.05, key: 0x52607e, keyI: 0.25,
   earth: [0x161c1c, 0x181e1e, 0x141a1a], mist: 0x2e3a50, mistA: 0.13, skyTop: 0x05070d, skyMid: 0x0d121e, skyHor: 0x283246, skyDisc: [-0.35, 0.5, -1], skyDiscCol: [0.16, 0.18, 0.22],
   moonPos: [-5, 13, -12], exposure: 1.4, bloomT: 1.7, glowK: 1.4,
 };
 /** a rain night has no stars: the shared sky shader adds them on top of its gradient, so the gradient (and the moon glow) is scaled
  *  up and the whole dome tinted down by the same factor — the stars sink to nothing (the next stage's mood puts the tint back) */
-function mood(m: Mood, to?: Mood, k = 0) {
+export function mood(m: Mood, to?: Mood, k = 0) {
   applyMood(m, to, k);
   const u = skyMaterial().uniforms, K = 0.004;
   for (const n of ['uTop', 'uMid', 'uHor', 'uMoonCol']) (u[n].value as THREE.Color).multiplyScalar(1 / K);
   (u.uTint.value as THREE.Color).setScalar(K);
 }
 /** the same night lit by the lightning: everything washed white-blue for a beat */
-const FLASH: Mood = {
+export const FLASH: Mood = {
   ...RAIN_NIGHT, bg: 0x48567a, fog: 0x283246, fogD: 0.036, hemiSky: 0xa8bcec, hemiGround: 0x2a3040, hemiI: 2.4, moon: 0xeef4ff, moonI: 8, key: 0x8ea4d0, keyI: 0.9,
   mist: 0x5a6a8c, mistA: 0.16, skyTop: 0x4a5a86, skyMid: 0x8a9cc8, skyHor: 0xc4d2f0,
 };
 
 // ------------------------------------------------------------------ the rain: one line-segment mesh, straight down (no slanted stair-steps)
 const COLD = new THREE.Color(0x8496b8), WARM = new THREE.Color(0xffb06a);
-class Rain {
+export class Rain {
   readonly lines: THREE.LineSegments; private n: number; private p: Float32Array; private v: Float32Array; private len: Float32Array;
   private pos: THREE.BufferAttribute; private col: THREE.BufferAttribute; private mat: THREE.LineBasicMaterial;
   constructor(n: number, private box: { x0: number; x1: number; z0: number; z1: number }, private warm: THREE.Vector3) {
@@ -110,14 +110,15 @@ void main(){
   float a = step(abs(d - f1), w) + 0.55 * step(abs(d - f2), w) * step(0.16, f2) + 0.28 * step(abs(d - f3), w) * step(0.16, f3);
   a *= pow(max(1.0 - vK, 0.0), 1.5) * uA * (0.3 + 0.7 * vNear); if (a < 0.004) discard;
   gl_FragColor = vec4(uCol * (1.0 + 1.5 * uFlash) * a, a); }`;
-class Ripples {
+export class Ripples {
   readonly mesh: THREE.Mesh; private at: THREE.InstancedBufferAttribute; private t0 = new Float32Array(RIP_MAX).fill(-99); readonly mat: THREE.ShaderMaterial;
-  constructor() {
+  /** o (title.ts): where the listener stands (rings fade away from there) and the rings' size range (m) */
+  constructor(private o: { at?: THREE.Vector3; r?: [number, number] } = {}) {
     const quad = new THREE.PlaneGeometry(2, 2).rotateX(-Math.PI / 2), g = new THREE.InstancedBufferGeometry();
     g.index = quad.index; g.setAttribute('position', quad.attributes.position);
     this.at = new THREE.InstancedBufferAttribute(new Float32Array(RIP_MAX * 4).fill(-99), 4); this.at.setUsage(THREE.DynamicDrawUsage); g.setAttribute('aRip', this.at); g.instanceCount = RIP_MAX;
     this.mat = new THREE.ShaderMaterial({ vertexShader: RIP_VS, fragmentShader: RIP_FS, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, 
-      uniforms: { uTime: { value: 0 }, uHero: { value: new THREE.Vector2(HERO_AT.x, HERO_AT.z) }, uCol: { value: new THREE.Color(0x78acff) }, uA: { value: 0.75 }, uFlash: { value: 0 } } });
+      uniforms: { uTime: { value: 0 }, uHero: { value: new THREE.Vector2((o.at ?? HERO_AT).x, (o.at ?? HERO_AT).z) }, uCol: { value: new THREE.Color(0x78acff) }, uA: { value: 0.75 }, uFlash: { value: 0 } } });
     this.mesh = new THREE.Mesh(g, this.mat); this.mesh.frustumCulled = false; this.mesh.renderOrder = 4;
   }
   /** a ring where a drop landed, if a slot is free (never more than RIP_MAX alive) and the steady rate allows (rings refilled the
@@ -127,7 +128,7 @@ class Ripples {
     const now = clock.time; let i = -1;
     for (let j = 0; j < RIP_MAX; j++) if (now - this.t0[j] > RIP_LIFE) { i = j; break; }
     if (i < 0) return false;
-    this.budget -= 1; this.t0[i] = now; const a = this.at.array as Float32Array; a[i * 4] = x; a[i * 4 + 1] = z; a[i * 4 + 2] = now; a[i * 4 + 3] = R(0.32, 0.56); this.at.needsUpdate = true;
+    this.budget -= 1; this.t0[i] = now; const a = this.at.array as Float32Array; a[i * 4] = x; a[i * 4 + 1] = z; a[i * 4 + 2] = now; a[i * 4 + 3] = R(...(this.o.r ?? [0.32, 0.56])); this.at.needsUpdate = true;
     return true;
   }
   private budget = 0;
@@ -170,7 +171,7 @@ class BladeArc {
 // ------------------------------------------------------------------ the lantern: a post with an arm over the road, the lantern hanging askew
 const LAMP_I = 5.2;
 let HALO_TEX: THREE.Texture | null = null;
-function lanternPost() {
+export function lanternPost() {
   const WOOD = 0x2a2522, WOOD_D = 0x1a1716, IRON = 0x24262c;
   const post = voxModel(CELL, set => {
     const box = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, c: number) => { for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) for (let z = z0; z <= z1; z++) set(x, y, z, c); };
@@ -210,7 +211,7 @@ const TITLE = '不见刀', INK = '#e6ecf2', LINE = '#0a0d15';
  *  up) and the second one draws the blade; if the sound is already on (a replay) one tap draws */
 const HINT0 = '点一下，开始', HINT1 = '点一下，拔刀';
 /** the title's own painting: the face over a thin dark outline (a quarter of a font pixel, four directions, no diagonals) */
-function paintTitle(g: CanvasRenderingContext2D, text: string, x: number, y: number, s: number, track: number, col: string, line: string, o: number) {
+export function paintTitle(g: CanvasRenderingContext2D, text: string, x: number, y: number, s: number, track: number, col: string, line: string, o: number) {
   let cx = x;
   for (const ch of text) {
     for (const [dx, dy] of [[-o, 0], [o, 0], [0, -o], [0, o]]) drawPix(g, ch, cx + dx, y + dy, { scale: s, color: line, outline: null });
@@ -219,13 +220,13 @@ function paintTitle(g: CanvasRenderingContext2D, text: string, x: number, y: num
   }
 }
 /** a quad in the overlay (CSS px, y down) showing [v0, v1] of a texture (v from the bottom) */
-function quad(tex: THREE.Texture, v0: number, v1: number, order: number) {
+export function quad(tex: THREE.Texture, v0: number, v1: number, order: number) {
   const geo = new THREE.PlaneGeometry(1, 1), uv = geo.attributes.uv as THREE.BufferAttribute;
   for (let i = 0; i < uv.count; i++) uv.setY(i, uv.getY(i) > 0.5 ? v1 : v0);
   const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false, toneMapped: false }));
   m.renderOrder = order; return m;
 }
-const place = (m: THREE.Object3D, x: number, y: number, w: number, h: number) => { m.position.set(x + w / 2, -(y + h / 2), 0); m.scale.set(w, h, 1); };
+export const place = (m: THREE.Object3D, x: number, y: number, w: number, h: number) => { m.position.set(x + w / 2, -(y + h / 2), 0); m.scale.set(w, h, 1); };
 
 // ------------------------------------------------------------------ the play
 export interface OpeningHost {
@@ -241,6 +242,8 @@ export interface OpeningHost {
 let running: Opening | null = null;
 /** start the opening over the rain road the act has just built; resolves when the yard is fully revealed */
 export function playOpening(host: OpeningHost) { running?.stop(); running = new Opening(host); return running.done; }
+/** the title screen (title.ts) takes over: an opening still on goes without its cut */
+export function stopOpening() { running?.stop(); }
 
 /** captures: a fixed camera over the opening (__dh.opCam([x,y,z],[lx,ly,lz],fov) / __dh.opCam(null)) */
 const OP_CAM: { base: THREE.Vector3 | null; look: THREE.Vector3; fov: number } = { base: null, look: V3(), fov: 30 };
@@ -524,7 +527,7 @@ class Opening {
 
 // ------------------------------------------------------------------ helpers
 let SHADOW_TEX: THREE.Texture | null = null;
-function contactShadow() {
+export function contactShadow() {
   SHADOW_TEX ??= canvasTex(64, 64, g => { const gr = g.createRadialGradient(32, 32, 4, 32, 32, 31); gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(0.55, 'rgba(0,0,0,0.7)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64); });
   const m = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 1.1).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x05060a, map: SHADOW_TEX, transparent: true, opacity: 0.7, depthWrite: false }));
   m.renderOrder = 2; return m;
