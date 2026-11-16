@@ -26,6 +26,7 @@ import { Breakables } from './breakables';
 import { Gates } from './gates';
 import { ALL_MOVES, drawManuals, manualCard } from './manuals';
 import { Dialogue, type Line } from './dialogue';
+import { Stele } from './stele';
 import { Timeline } from './timeline';
 import { openingShots, bossIntroShots, type CineHost } from './cutscenes';
 import { WAKE_DUWU, WAKE_SUNAO, CHULEI_BEFORE, CHULEI_AFTER, deathLine } from './scripts';
@@ -106,10 +107,10 @@ let SELF: ActShow | null = null;
 /** act-20 upgrade card glyphs (12 × 12, axis-aligned): an anvil under a hammer; a needle by a gourd; an open gate (leave) */
 const ANVIL = ['..######....', '..#oooo#....', '..######....', '....##......', '....##......', '............', '.##########.', '.#oooooooo#.', '..########..', '....####....', '...######...', '............'];
 const NEEDLE = ['.........##.', '........#oo#', '.##.....#oo#', '.##......##.', '.##.....####', '.##....#oooo', '.##....#oooo', '.##....#oooo', '.##.....####', '.##.........', '.##.........', '............'];
-/** 杜五's provisions: a flatbread on a plate, a coin purse, a wine jug (12 × 12, axis-aligned) */
+/** 杜五's provisions: a flatbread on a plate, a square-holed coin (the purse), a wine jug (12 × 12, axis-aligned) */
 const MEAL_GLYPH: Record<string, string[]> = {
   feast: ['............', '............', '...######...', '..#oooooo#..', '.#oo#oo#oo#.', '.#oooooooo#.', '.#oo#oo#oo#.', '..#oooooo#..', '...######...', '############', '.##########.', '............'],
-  purse: ['....####....', '.....##.....', '....####....', '...#oooo#...', '..#oooooo#..', '.#ooo##ooo#.', '.#oo#..#oo#.', '.#ooo##ooo#.', '.#oooooooo#.', '..#oooooo#..', '...######...', '............'],
+  purse: ['...######...', '..#oooooo#..', '.#oooooooo#.', '#oooooooooo#', '#ooo####ooo#', '#ooo#..#ooo#', '#ooo#..#ooo#', '#ooo####ooo#', '#oooooooooo#', '.#oooooooo#.', '..#oooooo#..', '...######...'],
   wine: ['....####....', '.....##.....', '....#oo#....', '....#oo#....', '...#oooo#...', '..#oooooo#..', '.#oooooooo#.', '.#oo####oo#.', '.#oooooooo#.', '.#oooooooo#.', '..########..', '............'],
 };
 const LEAVE = ['############', '#..........#', '#.########.#', '#.#......#.#', '#.#......#.#', '#.#......#.#', '#.#....#.#.#', '#.#......#.#', '#.#......#.#', '#.#......#.#', '#.#......#.#', '###......###'];
@@ -233,7 +234,7 @@ export class ActShow {
       // act-14 用户：「我要2x，然后调试面板给我一个切换这个的功能」 — 2x → 3x → off → 1x, remembered on this device
       { label: () => `像素：${PX.on ? PX.size + 'x' : '关'}（点这里换）`, run: () => { const order = ['2', '3', 'off', '1'], cur = PX.on ? String(PX.size) : 'off', nx = order[(order.indexOf(cur) + 1) % order.length]; if (nx === 'off') setPixel(false); else setPixel(true, +nx); try { localStorage.setItem('ub.px', nx); } catch { /* private mode */ } } }]);
     if (typeof window !== 'undefined') window.addEventListener('keydown', e => { if ((e.key === 'u' || e.key === 'U') && !this.cards.on) this.cycleSkin(); });
-    dh.add({ boss: () => { this.startRun(); this.plan = roomOf('boss', RUN_ROOMS - 1, Math.random); this.locale = this.plan.locale; this.room = RUN_ROOMS - 1; this.buildRoom(false); }, newGame: () => this.startNewGame(), talkTest: (n = 0) => this.talk(n ? CHULEI_BEFORE : WAKE_DUWU), act: () => this, bot: (on = true) => { this.botOn = on; }, run: () => this.startRun(), yard: () => this.enterYard(), wear: (id: string) => { const d = HEROES.find(h => h.id === id); if (d) this.wear(d); },
+    dh.add({ steleTest: (n = 0, cut = -1) => { const st = new Stele(n); st.g.position.set(this.hero.pos.x, 0, this.hero.pos.z - 2.2); this.stage!.root.add(st.g); if (cut >= 0) after(0.8, () => st.strike(cut)); return st; }, boss: () => { this.startRun(); this.plan = roomOf('boss', RUN_ROOMS - 1, Math.random); this.locale = this.plan.locale; this.room = RUN_ROOMS - 1; this.buildRoom(false); }, newGame: () => this.startNewGame(), talkTest: (n = 0) => this.talk(n ? CHULEI_BEFORE : WAKE_DUWU), act: () => this, bot: (on = true) => { this.botOn = on; }, run: () => this.startRun(), yard: () => this.enterYard(), wear: (id: string) => { const d = HEROES.find(h => h.id === id); if (d) this.wear(d); },
       skin: (id: SkinId) => this.cycleSkin(id),
       cardsDemo: () => { void this.cards.open([BOONS[8], BOONS[16], BOONS[0]].map((boon, tier) => ({ boon, tier }))); }, // wp/boons: school/tier preview
       boon: (id: string, tier = 0) => applyBoon(this.perks, id, tier), // wp/boons: browser effect checks

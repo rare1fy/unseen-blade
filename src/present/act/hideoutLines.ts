@@ -13,3 +13,6 @@ export const HAUL: [string, string] = ["活着带回：百辟残铁 {iron} · �
 /** 杜五's provisions for the next trip (agy, 11-17): pick one; it goes with her on the next run only */
 export const MEALS: Array<{ id: 'feast' | 'purse' | 'wine'; name: string; desc: string }> = [{"id": "feast", "name": "炙肉胡饼", "desc": "这一趟血量上限+15"}, {"id": "purse", "name": "五铢钱囊", "desc": "这一趟出门带40枚铜钱"}, {"id": "wine", "name": "瓦壶烈酒", "desc": "这一趟挨的第一下不掉血"}];
 export const MEAL_LINES: { offer: string[]; packed: string[]; after: Record<string, string> } = {"offer": ["阿烬哥，窑里刚拢上火，挑样趁手的带上再走呗。", "外头死人比活人多，俺老杜别的不会，管饱还在行。", "空着肚子咋拼刀子？紧着挑一样，骡车套好等你咧。"], "packed": ["阿烬哥，东西都揣怀里咧，快去快回！", "古窑家底就这点，莫看俺咧，赶紧动身吧。"], "after": {"feast": "俺拿三根指头揉的面，瓷实，吃饱了抗揍！", "purse": "收尸攒下的铜钱，阿烬哥路上也好打点。", "wine": "这酒呛嗓子，闷一口壮胆，挨刀都不觉疼！"}};
+
+/** 姜烬 at the stele of names (agy, 11-17): none struck yet / 褚雷 struck / the moment she cuts his name */
+export const STELE_LINES: { none: string[]; one: string[]; strike: string } = {"none": ["四行刻痕还在指下硌着，一个都没平。", "褚雷二字抠得最深，指腹按下去，眼窝还烫。", "碑石冻手，笔画尚浅，得拿血再喂一遍。"], "one": ["第一道刀痕极深，崩开的石茬有些扎手。", "褚雷那行断了，指下还剩三个名字。", "摸过这记新劈的深槽，眼底那捧沸灰才算凉透。"], "strike": "刀入青石三寸，字碎。褚雷，这一笔销了。"};
