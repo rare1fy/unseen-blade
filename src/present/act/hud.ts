@@ -5,14 +5,13 @@
 //   左上：血量（漆匣朱条 / 一排竹简 / 一排札甲片）+ 数字；
 //   敌人头上：小血条；头目：屏幕上方一条长血条 + 名字。
 import * as THREE from 'three';
-import { isBossKind } from './run';
 import type { UiLayer } from '../ui3d/layer';
 import { worldToUi } from '../ui3d/layer';
 import { setGrid } from '../ui3d/pixelGrid';
 import { UiSparks } from '../ui3d/vox';
 import { cue } from '../../audio/cues';
 import type { Input, BtnName } from './input';
-import type { Foe } from './enemy';
+import { isBoss, type Foe } from './enemy';   // wp/foes: isBoss (the boss bar for hj_boss too)
 import { V3 } from '../engine/world';
 import { TUNE } from './tune';
 import { SKIN, PALETTE, SkinBtn, SkinStick, SkinHp, type SkinId } from './skin';
@@ -122,13 +121,13 @@ export class ActHud {
     // bars over the foes (the chief: the long bar at the top instead)
     const live = new Set<number>();
     for (const f of foes) {
-      if (f.st === 'dead' || isBossKind(f.kind) || f.kind === 'dummy') continue; live.add(f.uid);
+      if (f.st === 'dead' || isBoss(f) || f.kind === 'dummy') continue; live.add(f.uid);   // wp/foes: isBoss
       let b = this.bars.get(f.uid); if (!b) { b = this.newBar(); this.bars.set(f.uid, b); }
       const p = worldToUi(f.a.head().add(V3(0, 0.45, 0))); b.g.visible = this.on && p.z < 1;
       this.drawBar(b, p.x, p.y, 64 * this.k, 9 * this.k, f.hp / f.maxHp, dt);
     }
     for (const [uid, b] of this.bars) if (!live.has(uid)) { b.g.parent?.remove(b.g); this.bars.delete(uid); }
-    const chief = foes.find(f => isBossKind(f.kind) && f.st !== 'dead');
+    const chief = foes.find(f => isBoss(f) && f.st !== 'dead');   // wp/foes: isBoss
     if (chief) {
       if (!this.boss) this.boss = this.newBar();
       this.boss.g.visible = this.on; this.drawBar(this.boss, this.L.w / 2, 40 * this.k, Math.min(560, this.L.w * 0.44), 12 * this.k, chief.hp / chief.maxHp, dt);

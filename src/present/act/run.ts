@@ -33,7 +33,7 @@ export function kindOr(k: string): { kind: EKind; elite: boolean } {
   return { kind: (id in EDEFS ? id : KIND_FALLBACK[id] ?? 'bandit') as EKind, elite };
 }
 /** a boss foe (the long bar at the top, the banner, the slow-motion death) */
-export const isBossKind = (k: string) => k === 'chief' || k.endsWith('_boss');
+export const isBossKind = (k: string) => !!(EDEFS as Record<string, { boss?: boolean }>)[k]?.boss;
 
 type Rnd = () => number;
 const pick = <T>(a: T[], r: Rnd) => a[Math.floor(r() * a.length) % a.length];
