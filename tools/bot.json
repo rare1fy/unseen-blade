@@ -1,0 +1,17 @@
+[
+  {"waitFor": "window.__dhready && window.__dh && window.__dh.act && window.__dh.act().phase === 'yard'", "ms": 60000},
+  {"wait": 1500},
+  {"shot": "b0_yard"},
+  {"eval": "(() => { __dh.bot(true); return 1; })()"},
+  {"waitFor": "__dh.act().room === 0 && __dh.act().phase === 'fight'", "ms": 40000},
+  {"shot": "b1_room0"},
+  {"waitFor": "__dh.act().room === 1", "ms": 150000},
+  {"wait": 2500},
+  {"shot": "b2_room1"},
+  {"waitFor": "__dh.act().room === 2", "ms": 150000},
+  {"wait": 3000},
+  {"shot": "b3_room2"},
+  {"waitFor": "__dh.act().phase === 'end' || __dh.act().phase === 'dead' || __dh.act().room === -1", "ms": 200000},
+  {"shot": "b4_end"},
+  {"json": "({ log: __dh.act().log, phase: __dh.act().phase, kills: __dh.act().kills, hp: __dh.act().hero.hp, stats: __dh.stats ? __dh.stats() : null })", "file": "result.json"}
+]

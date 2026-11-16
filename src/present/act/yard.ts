@@ -1,0 +1,132 @@
+// 练武场（木桩关，11-16 用户：「你随后做一个木桩关，让我来调整这些手感」）。打开游戏先到这里：
+//   中间三个木人桩：挨打会晃、出伤害数字、打不死（enemy.ts 的 dummy）。
+//   右边一列召唤石板：踩上去，场子后面冒烟叫出一个陪练（山贼 / 山犬 / 弓手 / 头目），是真的敌人。
+//   后面一排木台（「出发」路口左右各三座）：站着另外几个主角造型，面朝镜头；走上去就换成那个造型（原来的站回台上）；
+//   走近木台时镜头推近，方便看模型。
+//   后面正中的路口立着「出发」：走进去开始正式的一局。
+// 场子里的东西都是实物：木牌（有厚度的木板，正面画字）、石板（踩下去会沉一下、亮一圈）、木台。
+import * as THREE from 'three';
+import { V3 } from '../engine/world';
+import { newChar, rbox, type V } from '../bestiary/kit';
+import { ROSTER, type ModelDef } from '../bestiary/models';
+import { POSE_HOOKS } from '../bestiary/poseHooks';
+import { rot } from '../actors/rig';
+import { BattleActor } from '../bestiary/battle';
+import { text, textW, PIX_H } from '../v2/overlay';
+import { toon } from '../look/toon';
+import { fxSmoke, fxRing } from '../fx/fx';
+import { cue } from '../../audio/cues';
+import { WOBBLE, trimShadows, type EKind } from './enemy';
+
+// ------------------------------------------------------------------ the wooden dummy (木人桩)
+function buildDummy(): V {
+  const v = newChar(), WOOD = 0x8a5a32, WOOD_D = 0x5e3a20, WOOD_L = 0xa8744a, IRON = 0x4a4c56, STRAW = 0xc9a457, STRAW_D = 0x9a7a3e, STONE = 0x6e7078;
+  v.bone('post', 'root', 0, 2, 0);
+  // a square stone foot (static), the post on a joint just above it so the whole post rocks
+  v.part('root'); rbox(v, -4, 0, -4, 3, 1, 3, STONE, 1, true);
+  v.part('post').box(-3, 2, -3, 2, 23, 2, WOOD)
+    .box(-3, 6, -3, 2, 6, 2, IRON).box(-3, 20, -3, 2, 20, 2, IRON)
+    .box(-4, 24, -4, 3, 27, 3, WOOD_L).box(-4, 24, -4, 3, 24, 3, WOOD_D)
+    // the straw pad on the front (the target)
+    .box(-3, 9, 3, 2, 17, 3, STRAW).box(-3, 9, 3, 2, 9, 3, STRAW_D).box(-3, 13, 3, 2, 13, 3, STRAW_D).box(-3, 17, 3, 2, 17, 3, STRAW_D)
+    // three arms: two high (left and right, straight forward), one low in the middle
+    .box(-4, 18, 3, -3, 19, 8, WOOD_D).box(2, 18, 3, 3, 19, 8, WOOD_D).box(-1, 14, 4, 0, 15, 9, WOOD_D)
+    // a short leg forward near the ground
+    .box(-1, 3, 3, 0, 4, 7, WOOD_D);
+  return v;
+}
+export const DUMMY: ModelDef = { id: 'act_dummy', name: '木人桩', group: '普通', role: '', line: '', kind: 'biped', attack: 'slam', build: buildDummy };
+if (!ROSTER.some(d => d.id === DUMMY.id)) ROSTER.push(DUMMY);
+POSE_HOOKS[DUMMY.id] = (b, _t, _a, _off, self) => { const w = WOBBLE.get(self as object); if (w && b.post) rot(b.post, w.x, 0, w.z); };
+
+// ------------------------------------------------------------------ signs
+/** a wooden sign: a post and a thick board, the face painted with big pixel characters, leaning back a little toward the camera */
+export function makeSign(label: string, o: { w?: number; h?: number; board?: number; ink?: string; post?: number; sub?: string } = {}) {
+  const g = new THREE.Group(), w = o.w ?? 1.1, h = o.h ?? 0.5, post = o.post ?? 0.75;
+  const U = 4, cw = Math.max(textW(label, 2 * U), o.sub ? textW(o.sub, U) : 0) + 16 * U, ch = Math.round(cw * h / w);
+  const c = document.createElement('canvas'); c.width = cw; c.height = ch; const x = c.getContext('2d')!; x.imageSmoothingEnabled = false;
+  x.fillStyle = '#c4986a'; x.fillRect(0, 0, cw, ch); x.fillStyle = '#9a6e44'; x.fillRect(0, 0, cw, 2 * U); x.fillRect(0, ch - 2 * U, cw, 2 * U);
+  const ty = o.sub ? ch * 0.18 : (ch - PIX_H * 2 * U) / 2;
+  text(x, label, (cw - textW(label, 2 * U)) / 2, ty, 2 * U, o.ink ?? '#2a160c', 'left', null);
+  if (o.sub) text(x, o.sub, (cw - textW(o.sub, U)) / 2, ch * 0.66, U, '#4a2a16', 'left', null);
+  const t = new THREE.CanvasTexture(c); t.magFilter = t.minFilter = THREE.NearestFilter; t.generateMipmaps = false; t.colorSpace = THREE.SRGBColorSpace;
+  const wood = toon(o.board ?? 0x7a5232), face = new THREE.MeshLambertMaterial({ map: t, emissive: 0xffffff, emissiveMap: t, emissiveIntensity: 0.35 });
+  const board = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.07), [wood, wood, wood, wood, face, wood]);
+  board.position.y = post + h / 2; board.rotation.x = -0.32; board.castShadow = true;
+  const pole = new THREE.Mesh(new THREE.BoxGeometry(0.1, post + h * 0.6, 0.1), wood); pole.position.set(0, (post + h * 0.6) / 2, -0.06); pole.castShadow = true;
+  g.add(pole, board);
+  return g;
+}
+
+// ------------------------------------------------------------------ the yard
+interface Pad { kind: EKind; x: number; z: number; slab: THREE.Mesh; mat: THREE.MeshLambertMaterial; sink: number; cd: number; on: boolean }
+interface Plinth { x: number; z: number; def: ModelDef; actor: BattleActor; g: THREE.Group; sign: THREE.Group }
+const PADS: Array<[EKind, string]> = [['bandit', '山贼'], ['dog', '山犬'], ['archer', '弓手'], ['chief', '头目']];
+export const SPAWN_AT = () => V3((Math.random() - 0.5) * 1.6, 0, -3.8);
+
+export class Yard {
+  root = new THREE.Group(); pads: Pad[] = []; plinths: Plinth[] = []; private inside = -1;
+  /** 0..1: how close the hero is to the costume rack (the camera leans in) */
+  near = 0;
+  /** lane = the x range of the road out (the plinths keep clear of it, so walking out never steps onto one) */
+  constructor(parent: THREE.Object3D, rack: ModelDef[], wearing: ModelDef, lane: [number, number] = [-1.2, 1.2]) {
+    parent.add(this.root);
+    // summon slabs down the right side, a sign behind each
+    PADS.forEach(([kind, name], i) => {
+      const x = 4.3, z = -2.5 + i * 1.7;
+      const mat = new THREE.MeshLambertMaterial({ color: 0x7a7c86, emissive: 0xff7a3a, emissiveIntensity: 0 });
+      const slab = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.12, 1.1), mat); slab.position.set(x, 0.06, z); slab.receiveShadow = true;
+      const inset = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.02, 0.8), toon(0x5a5c66)); inset.position.y = 0.065; slab.add(inset);
+      const sign = makeSign(name, { w: 0.9, h: 0.42, post: 0.55 }); sign.position.set(x + 0.15, 0, z - 0.72); sign.rotation.y = -0.35;
+      this.root.add(slab, sign);
+      this.pads.push({ kind, x, z, slab, mat, sink: 0, cd: 0, on: false });
+    });
+    // the costume rack: low wooden plinths in a row along the back (two each side of the road out), a model on each facing the
+    // camera, a name sign in front
+    const others = rack.filter(d => d.id !== wearing.id);
+    // slots along the back, 1.3 m apart, none within 0.9 m of the road out; a second row in front if the back runs out
+    const slots: Array<[number, number]> = [];
+    for (const z of [-4.6, -3.2]) for (let x = -4.6; x <= 4.65; x += 1.3) if (x < lane[0] - 0.9 || x > lane[1] + 0.9) slots.push([x, z]);
+    others.forEach((def, i) => {
+      const [x, z] = slots[i] ?? [0, -3.2], g = new THREE.Group();
+      const top = new THREE.Mesh(new THREE.BoxGeometry(1.05, 0.16, 1.05), toon(0x5e3a20)); top.position.y = 0.08; top.castShadow = top.receiveShadow = true;
+      const rim = new THREE.Mesh(new THREE.BoxGeometry(1.15, 0.06, 1.15), toon(0x3e2614)); rim.position.y = 0.03;
+      g.add(top, rim); g.position.set(x, 0, z); this.root.add(g);
+      this.plinths.push({ x, z, def, actor: this.stand(def, x, z), g, sign: this.label(def, x, z) }); this.spot(x, z);
+    });
+  }
+  private stand(def: ModelDef, x: number, z: number) { const yaw = -x * 0.06; const a = new BattleActor(def); a.place(V3(x, 0.16, z), yaw); a.yaw = yaw; trimShadows(a.root, 4); return a; }
+  /** a dark spot on each plinth's top under the model's feet */
+  private spot(x: number, z: number) {
+    const m = new THREE.Mesh(new THREE.CircleGeometry(0.34, 16).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x0a0608, transparent: true, opacity: 0.45, depthWrite: false }));
+    m.position.set(x, 0.165, z); m.renderOrder = 2; this.root.add(m);
+  }
+  /** each frame: slabs under the hero fire a summon, plinths swap the costume. Returns what happened */
+  update(dt: number, hero: THREE.Vector3, heroY: number, alive: number): { summon?: EKind; wear?: ModelDef; plinth?: Plinth } {
+    const out: { summon?: EKind; wear?: ModelDef; plinth?: Plinth } = {};
+    for (const p of this.pads) {
+      p.cd -= dt; const on = heroY < 0.2 && Math.abs(hero.x - p.x) < 0.6 && Math.abs(hero.z - p.z) < 0.6;
+      if (on && !p.on && p.cd <= 0 && alive < 6) { p.cd = 1.2; out.summon = p.kind; p.sink = 1; cue('click', 0.6); fxRing(V3(p.x, 0.1, p.z), 0xff9a5a, 0.9, { life: 0.35 } as never); }
+      p.on = on; p.sink = Math.max(0, p.sink - dt * 2.5);
+      p.slab.position.y = 0.06 - 0.05 * Math.min(1, p.sink * 2); p.mat.emissiveIntensity = 0.5 * p.sink;
+    }
+    for (const pl of this.plinths) pl.actor.update(dt);
+    // the rack: stepping onto a plinth swaps (step off before the next swap)
+    const i = this.plinths.findIndex(pl => Math.hypot(hero.x - pl.x, hero.z - pl.z) < 0.55);
+    if (i >= 0 && this.inside !== i) { out.wear = this.plinths[i].def; out.plinth = this.plinths[i]; }
+    if (i < 0 && this.plinths.every(pl => Math.hypot(hero.x - pl.x, hero.z - pl.z) > 0.9)) this.inside = -1; else if (i >= 0) this.inside = i;
+    // near the rack (the back row, off the road): the camera leans in
+    const want = hero.z < -2.4 && Math.abs(hero.x) > 1.4 ? Math.min(1, (-2.4 - hero.z) / 1.0) : 0; this.near += (want - this.near) * Math.min(1, dt * 3);
+    return out;
+  }
+  private label(def: ModelDef, x: number, z: number) {
+    const sign = makeSign(def.name, { w: 0.8, h: 0.38, post: 0.2 }); sign.position.set(x, 0, z + 0.85); this.root.add(sign); return sign;
+  }
+  /** the hero took plinth pl's costume: the old one stands on the plinth now (and its sign changes) */
+  swap(pl: Plinth, old: ModelDef) {
+    fxSmoke(V3(pl.x, 0.6, pl.z), 0x8a8a94, 10, { r: 0.6, spd: 1.2, up: 0.8, s: 0.4, life: 0.6 }); cue('summon', 0.5);
+    pl.actor.dispose(); pl.def = old; pl.actor = this.stand(old, pl.x, pl.z);
+    pl.sign.parent?.remove(pl.sign); pl.sign = this.label(old, pl.x, pl.z);
+  }
+  dispose() { for (const pl of this.plinths) pl.actor.dispose(); this.root.parent?.remove(this.root); }
+}

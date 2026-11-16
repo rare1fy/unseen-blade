@@ -1,0 +1,26 @@
+{
+  "name": "unseen-blade",
+  "version": "0.1.0",
+  "private": true,
+  "description": "不见刀：三国乱世的蒙眼刀客，哈迪斯式俯视角动作肉鸽（three.js 体素像素风）",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "vite build",
+    "font": "node tools/bake-font.mjs",
+    "check": "npm run typecheck && npm test && npm run build"
+  },
+  "dependencies": {
+    "three": "0.162.0"
+  },
+  "devDependencies": {
+    "@types/three": "0.162.0",
+    "esbuild": "0.24.0",
+    "typescript": "5.6.3",
+    "vite": "5.4.21",
+    "vite-plugin-singlefile": "2.0.3",
+    "vitest": "2.1.9"
+  }
+}

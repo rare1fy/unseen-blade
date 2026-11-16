@@ -1,0 +1,879 @@
+{
+ "_source": "dicehero2d src/config + src/data via _ref/px3d/dh3d6_src/01_data.js (tools/extract-data.mjs)",
+ "classes": {
+  "warrior": {
+   "id": "warrior",
+   "name": "嗜血狂战",
+   "title": "铁血征服者",
+   "desc": "以血换伤，一击致命。嗜血越多，越凶。",
+   "drawCount": 3,
+   "maxPlays": 1,
+   "freeRerolls": 1,
+   "canBloodReroll": true,
+   "keepUnplayed": false,
+   "hp": 120,
+   "maxHp": 120,
+   "initialDice": [
+    "standard",
+    "standard",
+    "standard",
+    "standard",
+    "w_bloodthirst",
+    "w_ironwall"
+   ],
+   "passive": "【战场收割】斩首+完防双触发：直伤击杀任意敌人 → 下回合手牌+1；敌人攻击被护甲全额吸收 → 下回合手牌+1（默认每槽 1 次/回合，可被遗物/骰子破限）。手牌溢出 6 颗时每多 1 颗本回合 +10% 伤害。普攻可多选；嗜血卖血保留",
+   "skills": [
+    {
+     "name": "斩首+完防",
+     "desc": "直伤击杀 / 完全格挡，下回合各+1手牌"
+    },
+    {
+     "name": "过充溢出",
+     "desc": "手牌超过6颗后，每溢出1颗伤害+10%"
+    },
+    {
+     "name": "血怒铁拳",
+     "desc": "嗜血重投伤害+15%（满5层改得5护甲）；普攻可多选"
+    }
+   ],
+   "multi": true
+  }
+ },
+ "dice": {
+  "standard": {
+   "id": "standard",
+   "name": "普通骰子",
+   "element": "normal",
+   "faces": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ],
+   "description": "标准六面骰，点数1到6均匀分布",
+   "rarity": "common"
+  },
+  "blade": {
+   "id": "blade",
+   "name": "锋刃骰子",
+   "element": "normal",
+   "faces": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ],
+   "description": "出牌时追加5点固定伤害，随战斗阶段升级提升",
+   "rarity": "rare",
+   "onPlay": {
+    "bonusDamage": 5
+   }
+  },
+  "amplify": {
+   "id": "amplify",
+   "name": "倍增骰子",
+   "element": "normal",
+   "faces": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ],
+   "description": "出牌时最终伤害提升20%，随战斗阶段升级提升",
+   "rarity": "rare",
+   "onPlay": {
+    "bonusMult": 1.2
+   }
+  },
+  "chaos": {
+   "id": "chaos",
+   "name": "混沌骰子",
+   "element": "normal",
+   "faces": [
+    1,
+    1,
+    1,
+    6,
+    6,
+    6
+   ],
+   "description": "只会掷出1或6，适合凑满堂红和多条牌型",
+   "rarity": "legendary"
+  },
+  "cursed": {
+   "id": "cursed",
+   "name": "诅咒骰子",
+   "element": "normal",
+   "faces": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "description": "点数固定为0，重投代价翻倍",
+   "rarity": "curse",
+   "isCursed": true
+  },
+  "cracked": {
+   "id": "cracked",
+   "name": "碎裂骰子",
+   "element": "normal",
+   "faces": [
+    1,
+    1,
+    1,
+    2,
+    2,
+    2
+   ],
+   "description": "出牌后受到3点反噬伤害；回合结束时若未打出则自动销毁",
+   "rarity": "curse",
+   "onPlay": {
+    "selfDamage": 2
+   },
+   "isCracked": true
+  },
+  "w_bloodthirst": {
+   "id": "w_bloodthirst",
+   "name": "血之渴望",
+   "element": "normal",
+   "faces": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ],
+   "rarity": "common",
+   "description": "出牌时以最大HP的2%为代价，对目标追加8点固定伤害",
+   "onPlay": {
+    "bonusDamage": 8,
+    "selfDamagePercent": 0.02
+   }
+  },
+  "w_ironwall": {
+   "id": "w_ironwall",
+   "name": "铁壁",
+   "element": "normal",
+   "faces": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ],
+   "rarity": "common",
+   "description": "出牌时获得护甲，数值等于所有选中骰子的总点数",
+   "onPlay": {
+    "armorFromTotalPoints": true
+   }
+  },
+  "w_warcry": {
+   "id": "w_warcry",
+   "name": "战吼",
+   "element": "normal",
+   "faces": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ],
+   "rarity": "common",
+   "description": "对目标施加1层易伤，持续2回合",
+   "onPlay": {
+    "statusToEnemy": {
+     "type": "vulnerable",
+     "value": 1,
+     "duration": 2
+    }
+   }
+  },
+  "w_fury": {
+   "id": "w_fury",
+   "name": "怒火",
+   "element": "normal",
+   "faces": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ],
+   "rarity": "common",
+   "description": "每次被敌人攻击后，本骰子的面值永久+1，最多+10",
+   "onPlay": {
+    "scaleWithHits": true
+   }
+  },
+  "w_armorbreak": {
+   "id": "w_armorbreak",
+   "name": "碎甲",
+   "element": "normal",
+   "faces": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ],
+   "rarity": "uncommon",
+   "description": "出牌时摧毁目标的全部护甲",
+   "onPlay": {
+    "armorBreak": true
+   }
+  },
+  "w_revenge": {
+   "id": "w_revenge",
+   "name": "复仇",
+   "element": "normal",
+   "faces": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ],
+   "rarity": "uncommon",
+   "description": "对目标追加固定伤害，数值为本场已损失HP的10%",
+   "onPlay": {
+    "scaleWithLostHp": 0.1
+   }
+  },
+  "w_roar": {
+   "id": "w_roar",
+   "name": "怒吼净化",
+   "element": "normal",
+   "faces": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ],
+   "rarity": "uncommon",
+   "description": "清除自身全部负面状态和诅咒，并嘲讽全体敌人",
+   "onPlay": {
+    "purifyAll": true,
+    "tauntAll": true
+   }
+  },
+  "w_lifefurnace": {
+   "id": "w_lifefurnace",
+   "name": "生命熔炉",
+   "element": "normal",
+   "faces": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ],
+   "rarity": "uncommon",
+   "description": "未满血时回复HP，数值等于本骰子的点数；满血时永久增加3点最大HP",
+   "onPlay": {
+    "healOrMaxHp": true
+   }
+  },
+  "w_execute": {
+   "id": "w_execute",
+   "name": "斩杀",
+   "element": "normal",
+   "faces": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ],
+   "rarity": "uncommon",
+   "description": "目标血量低于25%时伤害+100%；若成功击杀，回复15HP",
+   "onPlay": {
+    "executeThreshold": 0.25,
+    "executeMult": 2,
+    "executeHeal": 15
+   }
+  },
+  "w_leech": {
+   "id": "w_leech",
+   "name": "吸血斩",
+   "element": "normal",
+   "faces": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ],
+   "rarity": "uncommon",
+   "description": "回复HP，数值等于本骰子的点数，同时清除1层负面状态",
+   "onPlay": {
+    "healFromValue": true,
+    "purifyOne": true
+   }
+  },
+  "w_titanfist": {
+   "id": "w_titanfist",
+   "name": "泰坦之拳",
+   "element": "normal",
+   "faces": [
+    6,
+    6,
+    6,
+    6,
+    6,
+    6
+   ],
+   "rarity": "rare",
+   "description": "固定6点。出牌时自伤最大HP的10%，摧毁目标护甲并追加15点固定伤害",
+   "onPlay": {
+    "selfDamagePercent": 0.1,
+    "armorBreak": true,
+    "bonusDamage": 15
+   }
+  },
+  "w_unyielding": {
+   "id": "w_unyielding",
+   "name": "不屈意志",
+   "element": "normal",
+   "faces": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ],
+   "rarity": "rare",
+   "description": "自身血量低于30%时，本骰子点数强制变为6",
+   "onPlay": {
+    "lowHpOverrideValue": 6,
+    "lowHpThreshold": 0.3
+   }
+  },
+  "w_warhammer": {
+   "id": "w_warhammer",
+   "name": "战神之锤",
+   "element": "normal",
+   "faces": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ],
+   "rarity": "rare",
+   "description": "以三条或更高牌型出牌时，追加所有选中骰子总点数50%的固定伤害",
+   "onPlay": {
+    "bonusDamageFromPoints": 0.5,
+    "requiresTriple": true
+   }
+  },
+  "w_bloodblade": {
+   "id": "w_bloodblade",
+   "name": "浴血之刃",
+   "element": "normal",
+   "faces": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ],
+   "rarity": "rare",
+   "description": "每次触发嗜血重投后，本骰子所有面值永久+1，最多+3",
+   "onPlay": {
+    "scaleWithBloodRerolls": true
+   }
+  },
+  "w_giantshield": {
+   "id": "w_giantshield",
+   "name": "巨人壁垒",
+   "element": "normal",
+   "faces": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ],
+   "rarity": "rare",
+   "description": "出牌时获得护甲，数值等于所有选中骰子总点数的2.5倍，并嘲讽全体敌人",
+   "onPlay": {
+    "armorMultFromTotalPoints": 2.5,
+    "tauntAll": true
+   }
+  },
+  "w_berserk": {
+   "id": "w_berserk",
+   "name": "狂暴之心",
+   "element": "normal",
+   "faces": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ],
+   "rarity": "rare",
+   "description": "进入狂暴状态2回合：造成伤害+30%，但受到伤害也+20%",
+   "onPlay": {
+    "selfBerserk": true
+   }
+  },
+  "w_whirlwind": {
+   "id": "w_whirlwind",
+   "name": "旋风斩",
+   "element": "normal",
+   "faces": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ],
+   "rarity": "rare",
+   "description": "对全体敌人造成伤害，每个敌人额外承受6点固定伤害",
+   "onPlay": {
+    "aoe": true,
+    "aoeDamage": 6
+   }
+  },
+  "w_cleave": {
+   "id": "w_cleave",
+   "name": "顺劈斩",
+   "element": "normal",
+   "faces": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ],
+   "rarity": "rare",
+   "description": "击杀目标后，溢出伤害全额转移给随机另一个敌人；本次出牌斩首槽上限+1（最多 +2 临时手牌）",
+   "onPlay": {
+    "splinterDamage": 1
+   }
+  },
+  "w_bloodgod": {
+   "id": "w_bloodgod",
+   "name": "血神之眼",
+   "element": "normal",
+   "faces": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ],
+   "rarity": "legendary",
+   "description": "本回合每损失最大HP的1%，最终伤害提升20%",
+   "onPlay": {
+    "scaleWithSelfDamage": true
+   }
+  },
+  "w_overlord": {
+   "id": "w_overlord",
+   "name": "霸体铠甲",
+   "element": "normal",
+   "faces": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ],
+   "rarity": "legendary",
+   "description": "出牌时获得20点护甲，最终伤害按当前护甲总量的20%提升；本次出牌完防槽上限+1（最多 +2 临时手牌）",
+   "onPlay": {
+    "armor": 20,
+    "damageFromArmor": 0.2
+   }
+  }
+ },
+ "relics": {
+  "grindstone": {
+   "id": "grindstone",
+   "name": "磨刀石",
+   "desc": "打出≤2颗骰子的牌型时，额外+12基础伤害",
+   "rarity": "common",
+   "trigger": "on_play"
+  },
+  "iron_skin_relic": {
+   "id": "iron_skin_relic",
+   "name": "稳健之心",
+   "desc": "本回合未使用过重投时，出牌后获得1次免费重投",
+   "rarity": "common",
+   "trigger": "on_play"
+  },
+  "healing_breeze": {
+   "id": "healing_breeze",
+   "name": "治愈之风",
+   "desc": "每次出牌回复3HP",
+   "rarity": "common",
+   "trigger": "on_play"
+  },
+  "twin_stars_relic": {
+   "id": "twin_stars_relic",
+   "name": "双子星",
+   "desc": "打出对子时，最终伤害+50%",
+   "rarity": "uncommon",
+   "trigger": "on_play"
+  },
+  "void_echo_relic": {
+   "id": "void_echo_relic",
+   "name": "虚空回响",
+   "desc": "打出连对时，最终伤害+80%",
+   "rarity": "uncommon",
+   "trigger": "on_play"
+  },
+  "glass_cannon_relic": {
+   "id": "glass_cannon_relic",
+   "name": "玻璃大炮",
+   "desc": "每次出牌：伤害+100%，但损失10HP",
+   "rarity": "rare",
+   "trigger": "on_play"
+  },
+  "greedy_hand": {
+   "id": "greedy_hand",
+   "name": "贪婪之手",
+   "desc": "打出≥4颗骰子的牌型时，基础伤害+20",
+   "rarity": "rare",
+   "trigger": "on_play"
+  },
+  "basic_instinct_relic": {
+   "id": "basic_instinct_relic",
+   "name": "基本直觉",
+   "desc": "普通攻击时额外造成点数和的150%伤害",
+   "rarity": "common",
+   "trigger": "on_play"
+  },
+  "thick_hide_relic": {
+   "id": "thick_hide_relic",
+   "name": "厚皮兽甲",
+   "desc": "打出对子时获得10护甲",
+   "rarity": "common",
+   "trigger": "on_play"
+  },
+  "minimalist_relic": {
+   "id": "minimalist_relic",
+   "name": "极简主义",
+   "desc": "只选1颗骰子出牌时，+15伤害且伤害+100%",
+   "rarity": "rare",
+   "trigger": "on_play"
+  },
+  "lucky_coin_relic": {
+   "id": "lucky_coin_relic",
+   "name": "幸运铜板",
+   "desc": "每次出牌额外获得2金币",
+   "rarity": "common",
+   "trigger": "on_play"
+  },
+  "merchants_eye_relic": {
+   "id": "merchants_eye_relic",
+   "name": "点石成金",
+   "desc": "打出普通攻击时，额外获得5金币",
+   "rarity": "common",
+   "trigger": "on_play"
+  },
+  "chaos_pendulum": {
+   "id": "chaos_pendulum",
+   "name": "混沌摆锤",
+   "desc": "点数和为奇数时+12伤害；偶数时回复3HP并净化1个负面状态",
+   "rarity": "common",
+   "trigger": "on_play"
+  },
+  "crimson_grail": {
+   "id": "crimson_grail",
+   "name": "猩红圣杯",
+   "desc": "损失HP比例转化为最终伤害倍率(最高+80%)",
+   "rarity": "rare",
+   "trigger": "on_play"
+  },
+  "point_accumulator": {
+   "id": "point_accumulator",
+   "name": "点数统计器",
+   "desc": "每次出牌获得3护甲，每通过6层额外+1护甲（成长型）",
+   "rarity": "uncommon",
+   "trigger": "on_play"
+  },
+  "dice_master_relic": {
+   "id": "dice_master_relic",
+   "name": "骰子大师",
+   "desc": "打出≥3颗骰子的牌型时，基础伤害+15，倍率+30%",
+   "rarity": "legendary",
+   "trigger": "on_play"
+  },
+  "purify_water_relic": {
+   "id": "purify_water_relic",
+   "name": "净化圣水",
+   "desc": "每次出牌时，随机移除1个负面状态（虚弱/易伤/中毒/灼烧）",
+   "rarity": "rare",
+   "trigger": "on_play"
+  },
+  "masochist_relic": {
+   "id": "masochist_relic",
+   "name": "受虐狂",
+   "desc": "每次出牌：本回合损失HP的50%转化为护甲，20%回复",
+   "rarity": "rare",
+   "trigger": "on_play"
+  },
+  "sharp_edge_relic": {
+   "id": "sharp_edge_relic",
+   "name": "磨砺石",
+   "desc": "击杀敌人时，下回合临时+1出牌次数",
+   "rarity": "common",
+   "trigger": "on_kill"
+  },
+  "battle_medic_relic": {
+   "id": "battle_medic_relic",
+   "name": "战场急救",
+   "desc": "击杀敌人时回复8HP",
+   "rarity": "uncommon",
+   "trigger": "on_kill"
+  },
+  "vampire_fangs": {
+   "id": "vampire_fangs",
+   "name": "吸血鬼假牙",
+   "desc": "击杀时溢出伤害的25%转化为生命恢复",
+   "rarity": "rare",
+   "trigger": "on_kill"
+  },
+  "rage_fire_relic": {
+   "id": "rage_fire_relic",
+   "name": "怒火燎原",
+   "desc": "受到伤害后，下次出牌额外+15伤害",
+   "rarity": "uncommon",
+   "trigger": "on_damage_taken"
+  },
+  "emergency_hourglass": {
+   "id": "emergency_hourglass",
+   "name": "急救沙漏",
+   "desc": "免疫一次致命伤害，当你即将死亡时，完全无视这次伤害(15节点CD)",
+   "rarity": "rare",
+   "trigger": "on_fatal"
+  },
+  "double_strike": {
+   "id": "double_strike",
+   "name": "双重打击",
+   "desc": "每回合额外获得1次出牌机会",
+   "rarity": "legendary",
+   "trigger": "passive"
+  },
+  "haggler_relic": {
+   "id": "haggler_relic",
+   "name": "讨价还价",
+   "desc": "商店所有物品价格降低20%",
+   "rarity": "uncommon",
+   "trigger": "passive"
+  },
+  "interest_relic": {
+   "id": "interest_relic",
+   "name": "利息存款",
+   "desc": "每场战斗结束时，每10金币产生1金币利息",
+   "rarity": "uncommon",
+   "trigger": "on_battle_end"
+  }
+ },
+ "enemies": {
+  "boss_lich_forest": {
+   "id": "boss_lich_forest",
+   "name": "枯骨巫妖",
+   "hp": 120,
+   "dmg": 10,
+   "ct": "caster",
+   "rank": "mid",
+   "cat": "boss",
+   "ch": 1,
+   "phases": [
+    {
+     "hpThreshold": 0.4,
+     "actions": [
+      {
+       "type": "攻击",
+       "baseValue": 16,
+       "description": "亡灵风暴"
+      },
+      {
+       "type": "技能",
+       "baseValue": 2,
+       "description": "灼烧",
+       "scalable": false
+      },
+      {
+       "type": "攻击",
+       "baseValue": 14,
+       "description": "骸骨之矛"
+      },
+      {
+       "type": "技能",
+       "baseValue": 1,
+       "description": "诅咒",
+       "scalable": false,
+       "curseDice": "cursed",
+       "curseDiceCount": 1
+      },
+      {
+       "type": "防御",
+       "baseValue": 15
+      }
+     ]
+    },
+    {
+     "actions": [
+      {
+       "type": "攻击",
+       "baseValue": 8
+      },
+      {
+       "type": "攻击",
+       "baseValue": 8
+      },
+      {
+       "type": "技能",
+       "baseValue": 2,
+       "description": "虚弱",
+       "scalable": false
+      },
+      {
+       "type": "技能",
+       "baseValue": 1,
+       "description": "易伤",
+       "scalable": false
+      },
+      {
+       "type": "防御",
+       "baseValue": 15
+      }
+     ]
+    }
+   ],
+   "summons": {
+    "minionId": "forest_ghoul",
+    "interval": 3,
+    "count": 1,
+    "maxTotal": 4,
+    "waveCap": 4
+   },
+   "drops": {
+    "gold": 60,
+    "relic": true
+   },
+   "q": {
+    "enter": [
+     "千年的死寂，被你这小小的活人惊扰了……不可饶恕。",
+     "又一个不知死活的来客？我的墓园从不嫌客人多。",
+     "能踏进这座坟茔的活人，最后都成了我的藏品。"
+    ],
+    "death": [
+     "我的……灵魂宝石……不——！",
+     "这不可能……巫妖……不灭的……",
+     "千年的亡灵契约……断了……",
+     "不……你以为这就结束了？（笑声渐远）",
+     "骨灰……终究……要落地……"
+    ],
+    "attack": [
+     "亡灵风暴！",
+     "骸骨之矛！",
+     "让亡灵大军吞噬你！"
+    ],
+    "hurt": [
+     "灵魂宝石……动摇了……",
+     "你……竟能伤到我？",
+     "不该……这骨头不该裂的……",
+     "寒意……侵骨？我自己就是寒意！",
+     "区区一击，惊不醒亡者。"
+    ],
+    "lowHp": [
+     "灵魂宝石……碎裂吧——释放一切死灵之力！",
+     "骸骨之墙，给我立起来！",
+     "我的亡灵大军……全部听令！"
+    ]
+   }
+  },
+  "forest_ghoul": {
+   "id": "forest_ghoul",
+   "name": "食尸鬼",
+   "hp": 28,
+   "dmg": 10,
+   "ct": "warrior",
+   "arch": "berserker",
+   "cat": "normal",
+   "ch": 1,
+   "phases": [
+    {
+     "actions": [
+      {
+       "type": "攻击",
+       "baseValue": 10
+      },
+      {
+       "type": "攻击",
+       "baseValue": 12,
+       "description": "撕咬"
+      },
+      {
+       "type": "技能",
+       "baseValue": 1,
+       "description": "虚弱",
+       "scalable": false
+      }
+     ]
+    }
+   ],
+   "drops": {
+    "gold": 20,
+    "relic": false
+   },
+   "q": {
+    "enter": [
+     "嘎嘎……新鲜的肉……",
+     "从坟墓里爬出来了……"
+    ],
+    "death": [
+     "骨头……散了……",
+     "回到……土里……"
+    ],
+    "attack": [
+     "撕！",
+     "咬碎你！",
+     "嘎嘎嘎！"
+    ],
+    "hurt": [
+     "嘎！",
+     "腐肉……掉了……"
+    ],
+    "lowHp": [
+     "不……还没吃饱……"
+    ]
+   }
+  }
+ }
+}
