@@ -35,6 +35,7 @@ export interface Foe {
   st: St; t: number; dur: number; tele: Tele | null; teleYaw: number; telePos: THREE.Vector3; shape: TeleShape | null; dmg: number;
   cd: number; poise: number; attacking: boolean; hitHero: boolean; lunge: THREE.Vector3 | null; strafe: number; move: string;
   /** the last blow's numbers (death form) */ lastDmg: number; burn: number; burnT: number; frozen: number; uid: number;
+  /** school frost: stacks, remaining slow time, fraction of movement speed removed */ chill: number; slowT: number; slowK: number;
   /** the dummy's wobble (lean angles and their speeds, rad) */ wob: { x: number; z: number; vx: number; vz: number };
 }
 /** the dummy's lean, read by its pose hook (yard.ts) */
@@ -42,7 +43,8 @@ export const WOBBLE = new WeakMap<object, { x: number; z: number }>();
 export interface FoeWorld {
   heroPos: THREE.Vector3; heroR: number; heroAlive: boolean; /** the hero's height off the ground (a jump clears low attacks) */ heroY: number;
   /** the hero is dashing (or just dashed): a near miss counts as a perfect dodge */ heroDodge: boolean;
-  hurtHero(dmg: number, from: THREE.Vector3): void;
+  hurtHero(dmg: number, from: THREE.Vector3, attacker?: Foe): void;
+  killFoe(f: Foe, from: THREE.Vector3): void;
   foes: Foe[];
   arrows: Arrow[];
   clamp(p: THREE.Vector3, r: number): void;
@@ -66,7 +68,7 @@ export function spawnFoe(kind: EKind, at: THREE.Vector3, face: THREE.Vector3): F
   const d = EDEFS[kind], a = new BattleActor(d.model); a.place(at.clone()); a.faceToward(face); trimShadows(a.root, kind === 'chief' ? 6 : 3);
   const hp = Math.round(d.hp * TUNE.enemyHp);
   return { kind, d, a, hp, maxHp: hp, pos: a.home, vel: V3(), yaw: a.yaw, st: 'enter', t: 0, dur: 0.55, tele: null, teleYaw: 0, telePos: V3(), shape: null, dmg: 0,
-    cd: R(0.4, 1.2), poise: d.poise, attacking: false, hitHero: false, lunge: null, strafe: Math.random() < 0.5 ? -1 : 1, move: '', lastDmg: 0, burn: 0, burnT: 0, frozen: 0, uid: UID++,
+    cd: R(0.4, 1.2), poise: d.poise, attacking: false, hitHero: false, lunge: null, strafe: Math.random() < 0.5 ? -1 : 1, move: '', lastDmg: 0, burn: 0, burnT: 0, frozen: 0, chill: 0, slowT: 0, slowK: 0, uid: UID++,
     wob: { x: 0, z: 0, vx: 0, vz: 0 } };
 }
 
@@ -86,6 +88,17 @@ const attackers = (w: FoeWorld) => w.foes.filter(o => o.attacking && o.st !== 'd
 
 export function updateFoe(f: Foe, w: FoeWorld, dt: number) {
   if (f.st === 'dead') return;
+  // Burning still ticks on ice; a lethal tick must reach the normal death/boon hooks.
+  if (f.burn > 0) {
+    f.burnT -= dt;
+    if (f.burnT <= 0) {
+      f.burnT = 0.5; f.burn--;
+      const from = f.pos.clone().add(V3(0, 0, -1));
+      if (damageFoe(f, 3, from, { quiet: true, burn: true })) { w.killFoe(f, from); return; }
+    }
+  }
+  // Pause attack clocks as well as movement, including training dummies.
+  if (f.frozen > 0) { f.frozen = Math.max(0, f.frozen - dt); f.vel.set(0, 0, 0); f.a.setRunning(false); f.a.tint(0x9ae8ff, 0.65); return; }
   if (f.kind === 'dummy') {
     // a stiff spring back to upright, well damped (a couple of swings after a hard hit)
     const o = f.wob, K = 140, D = 9;
@@ -96,9 +109,6 @@ export function updateFoe(f: Foe, w: FoeWorld, dt: number) {
   const toH = w.heroPos.clone().sub(f.pos).setY(0), dist = toH.length(), dir = dist > 1e-3 ? toH.clone().divideScalar(dist) : V3(0, 0, 1);
   const face = (y: number, k = 10) => { let dy = y - f.yaw; while (dy > Math.PI) dy -= Math.PI * 2; while (dy < -Math.PI) dy += Math.PI * 2; f.yaw += dy * Math.min(1, dt * k); };
   const yawTo = Math.atan2(dir.x, dir.z);
-  // burning: ticks; frozen: stands still
-  if (f.burn > 0) { f.burnT -= dt; if (f.burnT <= 0) { f.burnT = 0.5; f.burn--; damageFoe(f, 3, f.pos.clone().add(V3(0, 0, -1)), { quiet: true, burn: true }); } }
-  if (f.frozen > 0) { f.frozen -= dt; f.vel.multiplyScalar(0.8); f.a.setRunning(false); integrate(f, w, dt); return; }
   const free = f.st === 'move';
   if (f.st === 'enter') { if (f.t >= f.dur) setSt(f, 'move', 0); }
   else if (f.st === 'stagger') { f.vel.multiplyScalar(Math.exp(-dt * 6)); if (f.t >= f.dur) { setSt(f, 'move', 0); f.cd = Math.max(f.cd, 0.3); } }
@@ -120,7 +130,7 @@ export function updateFoe(f: Foe, w: FoeWorld, dt: number) {
     if (f.lunge) {
       f.vel.copy(f.lunge);
       const dd = f.pos.distanceTo(w.heroPos);
-      if (!f.hitHero && w.heroAlive && dd < f.d.r + w.heroR + 0.15) { f.hitHero = true; if (w.heroY < LOW_CLEAR) w.hurtHero(f.dmg, f.pos.clone()); else w.dodged(f.pos.clone()); }
+      if (!f.hitHero && w.heroAlive && dd < f.d.r + w.heroR + 0.15) { f.hitHero = true; if (w.heroY < LOW_CLEAR) w.hurtHero(f.dmg, f.pos.clone(), f); else w.dodged(f.pos.clone()); }
       else if (!f.hitHero && w.heroAlive && w.heroDodge && dd < f.d.r + w.heroR + 1.1) { f.hitHero = true; w.dodged(f.pos.clone()); }
     }
     if (f.t >= f.dur) { f.lunge = null; f.vel.multiplyScalar(0.2); setSt(f, 'recover', f.kind === 'dog' ? 0.7 : f.kind === 'chief' ? 0.9 : 0.6); }
@@ -172,13 +182,13 @@ function strike(f: Foe, w: FoeWorld) {
   cue(f.kind === 'chief' ? 'crit' : 'whoosh', f.kind === 'chief' ? 0.7 : 0.6);
   if (f.kind === 'chief' && s.k === 'circle') { const c = f.pos.clone().add(V3(Math.sin(f.teleYaw) * s.ahead, 0.05, Math.cos(f.teleYaw) * s.ahead)); fxSmoke(c, 0x8a7a6a, 10, { r: 1.4, spd: 2, up: 0.6, s: 0.5, life: 0.8 }); fxSparks(c.clone().add(V3(0, 0.2, 0)), 0xffc080, 16, 6); }
   const cleared = isLow(f, s) && w.heroY >= LOW_CLEAR;
-  if (w.heroAlive && inside(s, f.telePos.x, f.telePos.z, f.teleYaw, w.heroPos.x, w.heroPos.z, w.heroR)) { if (cleared) w.dodged(f.pos.clone()); else w.hurtHero(f.dmg, f.pos.clone()); }
+  if (w.heroAlive && inside(s, f.telePos.x, f.telePos.z, f.teleYaw, w.heroPos.x, w.heroPos.z, w.heroR)) { if (cleared) w.dodged(f.pos.clone()); else w.hurtHero(f.dmg, f.pos.clone(), f); }
   // dashed out of it just in time (the hero is near the area while dashing): a perfect dodge too
   else if (w.heroAlive && w.heroDodge && inside(s, f.telePos.x, f.telePos.z, f.teleYaw, w.heroPos.x, w.heroPos.z, w.heroR + 1.1)) w.dodged(f.pos.clone());
 }
 
 function integrate(f: Foe, w: FoeWorld, dt: number) {
-  f.pos.addScaledVector(f.vel, dt);
+  f.pos.addScaledVector(f.vel, dt * (f.slowT > 0 ? 1 - f.slowK : 1));
   // keep apart from each other and out of the hero
   for (const o of w.foes) if (o !== f && o.st !== 'dead') { const d = f.pos.clone().sub(o.pos).setY(0), l = d.length(), m = f.d.r + o.d.r; if (l < m && l > 1e-4) f.pos.addScaledVector(d, ((m - l) / l) * (o.d.mass / (o.d.mass + f.d.mass))); }
   if (w.heroAlive && f.st !== 'strike' && w.heroY < 0.6) { const d = f.pos.clone().sub(w.heroPos).setY(0), l = d.length(), m = f.d.r + w.heroR; if (l < m && l > 1e-4) f.pos.addScaledVector(d, (m - l) / l); }

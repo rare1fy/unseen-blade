@@ -43,6 +43,7 @@ const NOTO_T = 0.95, NOTO_CLICK = 0.64;
 
 export interface HeroWorld {
   foes: Foe[];
+  dashPath(a: THREE.Vector3, b: THREE.Vector3): void; dashEnd(at: THREE.Vector3): void; // wp/boons: grounded dash hooks
   /** a blade swing lands: the world applies damage, FX and the arrows it cuts. Returns how many it hit */
   swing(o: { from: THREE.Vector3; yaw: number; range: number; half: number; dmg: number; knock: number; heavy: boolean; kind: string; n?: number; counter?: boolean }): number;
   /** a path cut (the charge release): everything within r of the segment */
@@ -103,6 +104,7 @@ export class Hero {
   private dartT = -1; private dartDir = V3(); private dartGone = true; private dartBack = false;
   /** 回身镖 is once per dash; 穿风斩's start point and whether its sweep has landed; 追影's cut hits harder */
   private dashDarted = false; private dcutFrom = V3(); private dcutHit = false; private chaseOn = false;
+  private dashEndPending = false; // wp/boons: finish after movement/clamping
   /** height off the ground and vertical speed */
   y = 0; vy = 0; private v0 = 1;
   readonly r = 0.38;
@@ -209,7 +211,7 @@ export class Hero {
     // 追影: a dart still stuck in a foe + a press of 斩 = a blink to it and a heavy cut; the combo carries on from there
     const cutting = this.st === 'k1' || this.st === 'k2' || this.st === 'k3' || this.st === 'k4' || this.st === 'k5';
     if (A.pressed && (this.st === 'free' || this.st === 'air' || this.st === 'dash' || cutting)) {
-      const f = w.chaseTarget(); if (f) { this.atkEaten = true; this.buf.atk = 0; this.buf.press = 0; this.startChase(f, w); }
+      const f = w.chaseTarget(); if (f) { if (this.st === 'dash' && !this.airborne) w.dashEnd(this.pos.clone()); this.atkEaten = true; this.buf.atk = 0; this.buf.press = 0; this.startChase(f, w); } // wp/boons: chase ends a ground dash at its departure point
     }
     // 飞镖: a tap of the special throws one (held, one every TUNE.dartCd); free on the ground or in the air, it never stops the hero
     if ((this.st === 'free' || this.st === 'air') && this.dartCd <= 0 && this.dartAmmo > 0 && (this.buf.sp > 0 || (B.special.down && B.special.held > 0.12))) { this.buf.sp = 0; this.startDart(w); }
@@ -339,6 +341,7 @@ export class Hero {
         if (this.t >= this.dur) {
           this.vel.multiplyScalar(0.35); this.dashEndAt = this.age;
           if (this.airborne) { this.set('air', 99); this.vy = 0; break; }
+          this.dashEndPending = true; // wp/boons: ground dash, even with a buffered jump
           this.set('free', 0);
           // a dash straight into an attack / a jump: the press during the dash starts it at once
           if (this.buf.atk > 0) { this.buf.atk = 0; this.startCut('k1', w); }
@@ -352,7 +355,7 @@ export class Hero {
           this.ghostT -= dt; if (this.ghostT <= 0) { this.ghostT = 0.025; fxAfterimage(this.pos.clone(), 1.9, 0x9ad8ff, { life: 0.22, glow: 0.45 }); }
         } else {
           this.vel.multiplyScalar(Math.exp(-dt * 18));
-          if (!this.dcutHit) { this.dcutHit = true; w.sweep({ a: this.dcutFrom.clone(), b: this.pos.clone(), r: 1.0, dmg: TUNE.dashCutDmg, knock: 1.0, col: 0xbfeaff, kind: 'dcut' }); }
+          if (!this.dcutHit) { this.dashEndPending = true; this.dcutHit = true; w.sweep({ a: this.dcutFrom.clone(), b: this.pos.clone(), r: 1.0, dmg: TUNE.dashCutDmg, knock: 1.0, col: 0xbfeaff, kind: 'dcut' }); } // wp/boons: dash-cut completion
         }
         if (this.dcutHit && canDash) { this.buf.dash = 0; this.startDash(w); break; }
         if (this.dcutHit && canJump) { this.buf.jump = 0; this.startJump(); break; }
@@ -442,9 +445,12 @@ export class Hero {
   /** where the left hand is now (the dart's start) */
   private handL() { const b = this.a.bones?.offhand ?? this.a.bones?.foreL; return b ? b.localToWorld(V3(0, 0, 0)) : this.pos.clone().add(V3(0, 1.25, 0)).addScaledVector(V3(Math.cos(this.a.yaw), 0, -Math.sin(this.a.yaw)), 0.3); }
   private move(dt: number, w: HeroWorld) {
+    const dashFrom = this.pos.clone(), groundDash = !this.airborne && (this.st === 'dash' || (this.st === 'dcut' && !this.dcutHit)); // wp/boons: actual travelled path
     this.pos.addScaledVector(this.vel, dt);
     // high in the air the hero passes over the foes; on the ground (and in a dash or the lunge) the usual push-out
     if (this.y < 0.6) for (const f of w.foes) if (f.st !== 'dead') { const d = this.pos.clone().sub(f.pos).setY(0), l = d.length(), mm = this.r + f.d.r; if (l < mm && l > 1e-4 && this.st !== 'dash' && this.st !== 'rel' && this.st !== 'dcut') this.pos.addScaledVector(d, (mm - l) / l * 0.6); }
     w.clamp(this.pos, this.r);
+    if (groundDash || this.dashEndPending) w.dashPath(dashFrom, this.pos); // wp/boons: no airborne trails or chase teleport paths
+    if (this.dashEndPending) { this.dashEndPending = false; w.dashEnd(this.pos.clone()); } // wp/boons: once, at the final position
   }
 }

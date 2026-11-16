@@ -37,7 +37,8 @@ import { Hero, type HeroWorld } from './hero';
 import { interruptFoe } from './enemy';
 import { inside } from './tele';
 import { spawnFoe, updateFoe, damageFoe, type Foe, type FoeWorld, type EKind, Arrow } from './enemy';
-import { BOONS, applyBoon, newPerks, type Perks, type Boon } from './boons';
+import { BOONS, applyBoon, drawBoons, returnCard, newPerks, type Perks, type Boon } from './boons'; // wp/boons: tiered rewards
+import { Schools } from './schools'; // wp/boons: effect owner
 import { TUNE } from './tune';
 import { installActTune } from './tunePanel';
 import { HEROES, RACK, motionOf } from './ninjaAct';
@@ -89,6 +90,7 @@ export class ActShow {
   L = new UiLayer(); ov = new Overlay(); inp = new Input(); hud: ActHud; cards: CardPick; banner: SkinBanner;
   stage: Stage | null = null; hero!: Hero; foes: Foe[] = []; arrows: Arrow[] = []; waves: BladeWave[] = []; darts: Dart[] = []; /** darts thrown so far (tests) */ dartsThrown = 0;
   room = 0; wave = 0; phase: Phase = 'intro'; perks: Perks = newPerks(); private reward: 'build' | 'heal' = 'build';
+  private schools = new Schools({ perks: () => this.perks, foes: () => this.foes, heroPos: () => this.hero.pos.clone().setY(this.hero.y), intent: () => this.intent, heroTint: (c, k) => this.hero.a.tint(c, k), hitFoe: (f, d, p, o) => this.hitFoe(f, d, p, o) }); // wp/boons: late-bound run state, including airborne armour
   /** __dh.scene: the spec overrides for a fight-less view of one place; the last assembler report */
   private viewSpec: Partial<Spec> | null = null; private lastReport: Report | null = null;
   private spec: Spec | null = null; private layout: Layout | null = null; private doors: Array<{ ex: ExitInfo; g: THREE.Group; lift: number }> = []; private locale = 'ninja_wilds';
@@ -113,7 +115,8 @@ export class ActShow {
     if (typeof window !== 'undefined') window.addEventListener('keydown', e => { if ((e.key === 'u' || e.key === 'U') && !this.cards.on) this.cycleSkin(); });
     dh.add({ act: () => this, bot: (on = true) => { this.botOn = on; }, run: () => this.startRun(), yard: () => this.enterYard(), wear: (id: string) => { const d = HEROES.find(h => h.id === id); if (d) this.wear(d); },
       skin: (id: SkinId) => this.cycleSkin(id),
-      cardsDemo: () => { void this.cards.open(BOONS.slice(0, 3)); },
+      cardsDemo: () => { void this.cards.open([BOONS[8], BOONS[16], BOONS[0]].map((boon, tier) => ({ boon, tier }))); }, // wp/boons: school/tier preview
+      boon: (id: string, tier = 0) => applyBoon(this.perks, id, tier), // wp/boons: browser effect checks
       intent: (n = 3) => { this.intent = Math.max(0, Math.min(3, n)); this.hud.intent = this.intent; },
       cam: (b: number[] | null, l?: number[], fov = 30) => { this.camOverride = b ? { base: V3(b[0], b[1], b[2]), look: V3(l![0], l![1], l![2]), fov } : null; },
       press: (n: 'attack' | 'dash' | 'special' | 'jump', ms = 80) => { this.inp.hold(n, ms / 1000); },
@@ -175,6 +178,7 @@ export class ActShow {
     if (this.hero) this.hero.setModel(d);
   }
   private buildRoom(first: boolean) {
+    this.schools.reset(); // wp/boons: no delayed effects or status FX cross rooms/runs
     for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = [];
     for (const d of this.doors) d.g.parent?.remove(d.g); this.doors = [];
     this.yard?.dispose(); this.yard = null; this.exitSign?.parent?.remove(this.exitSign); this.exitSign = null;
@@ -246,6 +250,7 @@ export class ActShow {
   };
   private heroWorld: HeroWorld = {
     foes: this.foes,
+    dashPath: (a, b) => this.schools.onDashPath(a, b), dashEnd: at => this.schools.onDashEnd(at), // wp/boons: grounded dash events
     swing: o => this.swing(o), sweep: o => this.sweep(o), slam: o => this.slam(o), clamp: this.clamp,
     dart: o => { this.dartsThrown++; this.darts.push(new Dart(o.from.clone(), o.dir.clone().multiplyScalar(TUNE.dartSpeed), TUNE.dartDmg, TUNE.dartRange)); },
     get darts3() { return SHOW_PERKS.darts3; },
@@ -255,7 +260,8 @@ export class ActShow {
   };
   private foeWorld: FoeWorld = {
     heroPos: V3(), heroR: 0.38, heroAlive: true, heroY: 0, heroDodge: false, foes: this.foes, arrows: this.arrows, clamp: this.clamp,
-    hurtHero: (dmg, from) => this.hurtHero(dmg, from),
+    hurtHero: (dmg, from, attacker) => this.hurtHero(dmg, from, attacker), // wp/boons: exact melee attacker; arrows omit it
+    killFoe: (f, from) => this.killFoe(f, from), // wp/boons: lethal burn ticks use the death hook too
     arrowHit: (f, a) => this.arrowHit(f, a),
     dodged: from => this.perfectDodge(from),
   };
@@ -266,13 +272,17 @@ export class ActShow {
     cue(heavy ? 'crit' : 'impact', heavy ? 1.1 : 0.75); this.platform.vibrate(heavy ? 'medium' : 'light');
   }
   private hitFoe(f: Foe, dmg: number, from: THREE.Vector3, o: { knock: number; heavy: boolean; kind: string; stagger?: number }) {
-    const d = Math.round(dmg * (o.kind === 'dart' ? 1 : this.dmgMul())), p = f.a.chest(), dir = f.pos.clone().sub(from).setY(0).normalize();
+    if (f.st === 'dead') return; // wp/boons: chained damage may already have killed a target
+    const wasFrozen = f.frozen > 0; dmg = (dmg + this.schools.cutDamage(f, from, o.kind)) * this.schools.damageMul(f); // wp/boons: intent and shatter
+    const d = Math.round(dmg * (o.kind === 'dart' || o.kind === 'school' ? 1 : this.dmgMul())), p = f.a.chest(), dir = f.pos.clone().sub(from).setY(0).normalize(); // wp/boons: secondary effects keep their stated damage
     const died = damageFoe(f, d, from, { knock: o.knock, stagger: o.stagger ?? (o.heavy ? 0.55 : 0.3), poiseDmg: o.kind === 'dart' ? d * 0.5 : o.heavy ? d * 1.8 : d });
-    fxImpact(p, o.heavy ? 0xff6a3a : 0xfff0d0, o.kind === 'dart' ? 0.4 : o.heavy ? 1.3 : 0.75, { dir, chips: o.heavy ? [0xff5a3a, 0x2b3147] : undefined });
+    this.schools.onHit(f, wasFrozen); // wp/boons: shatter once; retain frozen-death information
+    if (o.kind !== 'school') fxImpact(p, o.heavy ? 0xff6a3a : 0xfff0d0, o.kind === 'dart' ? 0.4 : o.heavy ? 1.3 : 0.75, { dir, chips: o.heavy ? [0xff5a3a, 0x2b3147] : undefined }); // wp/boons: schools supply restrained elemental FX
     popPix(String(d), f.a.head().add(V3(R(-0.2, 0.2), 0.35, 0)), { color: o.heavy ? '#ff8a3a' : d >= 14 ? '#ffd060' : '#fff6e0', h: o.heavy ? 0.66 : 0.5, big: o.heavy, life: 0.9, rise: 0.9 });
     if (this.perks.burn && (o.kind === 'k5' || o.kind === 'rel') && !died) { f.burn = 6; f.burnT = 0.5; fxSparks(p, 0xff7a2a, 12, 3); }
     if (this.perks.relFreeze && o.kind === 'rel' && !died) { f.frozen = 1.6; f.a.tint(0x9ae8ff, 0.8); fxSparks(p, 0xbff4ff, 14, 3); }
     if (died) this.killFoe(f, from);
+    this.schools.onCutHit(f, from, o.kind); if (o.kind === 'dart') this.schools.onDartHit(f); // wp/boons: actual hits only, never recursive cut procs
   }
   private swing(o: { from: THREE.Vector3; yaw: number; range: number; half: number; dmg: number; knock: number; heavy: boolean; kind: string; n?: number; counter?: boolean }) {
     const fx = Math.sin(o.yaw), fz = Math.cos(o.yaw); let n = 0;
@@ -301,6 +311,7 @@ export class ActShow {
     this.feel(o.heavy, n); if (o.counter && n) { hitstop(0.14 * TUNE.hitstop); shake(0.3 * TUNE.shake); this.addIntent(); }
     // 刃风: the finishing cut sends a crescent of light off along the blade's way (act-13 用户：「应该是发射一个很干脆的刀光出去」)
     if (o.kind === 'k5' && this.perks.bladeWind) { this.waves.push(new BladeWave(o.from.clone().add(V3(fx * 0.9, 0.95, fz * 0.9)), V3(fx, 0, fz))); cue('whoosh', 1); fxSparks(o.from.clone().add(V3(fx * 1.2, 1.0, fz * 1.2)), 0xe8fff2, 10, 4); }
+    if (o.kind === 'k5') this.schools.onFinisher(o.from.clone().add(V3(fx * o.range, 0, fz * o.range))); // wp/boons: one bolt per fifth cut, including misses
     return n;
   }
   /** 追影: the foe with the freshest dart still in it, near enough */
@@ -375,6 +386,7 @@ export class ActShow {
     if (this.dodgeCd > 0 || !this.hero.alive) return;
     this.dodgeCd = 0.8; void from;
     const h = this.hero, at = h.pos.clone();
+    this.schools.onPerfectDodge(at); // wp/boons: lightning orb and nearby chill
     slowmo(TUNE.dodgeSlow, 0.28); shake(0.12 * TUNE.shake);
     fxRing(at.clone().setY(0.08), 0xbfe8ff, 2.4, { life: 0.5 } as never); fxRing(at.clone().setY(0.9), 0xe8f6ff, 1.2, { life: 0.3 } as never);
     for (let i = 0; i < 3; i++) fxAfterimage(at.clone().add(V3(Math.sin(i * 2.1) * 0.5, h.y, Math.cos(i * 2.1) * 0.5)), 1.9, 0x8ac8ff, { life: 0.45, glow: 0.6 });
@@ -389,7 +401,7 @@ export class ActShow {
   private threats(win: number) {
     const h = this.hero, foes: Foe[] = [];
     for (const f of this.foes) {
-      if (f.st === 'dead' || f.kind === 'dummy') continue;
+      if (f.st === 'dead' || f.kind === 'dummy' || f.frozen > 0) continue; // wp/boons: frozen attacks are not imminent threats
       if (f.st === 'windup' && f.shape && f.dur - f.t <= win && inside(f.shape, f.telePos.x, f.telePos.z, f.teleYaw, h.pos.x, h.pos.z, h.r + 0.45)) foes.push(f);
       else if (f.st === 'strike' && f.lunge && !f.hitHero && f.pos.distanceTo(h.pos) < 3) foes.push(f);
     }
@@ -416,6 +428,7 @@ export class ActShow {
     for (const f of this.foes) { if (f.st === 'dead' || f.kind === 'dummy') continue; const d = f.pos.distanceTo(from); if (d < bd) { bd = d; atk = f; } }
     if (atk) { trailSeg(h.a.chest(), atk.a.chest(), 0xfff2c8, 0.2, { life: 0.25, bright: 3, spark: 0.6 }); this.hitFoe(atk, TUNE.iaiReflect, h.pos.clone(), { knock: 2.0, heavy: true, kind: 'parry' }); }
     for (const a of this.arrows) if (!a.dead && !a.friendly && a.p.distanceTo(h.pos.clone().setY(1.25)) < 1.8) a.deflect(a.v.clone().multiplyScalar(-1));
+    this.schools.onIai(); // wp/boons: successful parry only
     hitstop(0.16 * TUNE.hitstop); slowmo(0.35, 0.25); shake(0.35 * TUNE.shake);
     fxRing(h.pos.clone().setY(0.9), 0xfff2c8, 1.6, { life: 0.35 } as never); fxRing(h.pos.clone().setY(0.08), 0xffd890, 2.6, { life: 0.5 } as never); fxSparks(h.a.chest(), 0xfff2c8, 24, 7);
     popPix('破', h.a.head().add(V3(0, 0.5, 0)), { color: '#fff0c0', h: 0.95, big: true, life: 0.9, rise: 1.0 });
@@ -511,14 +524,17 @@ export class ActShow {
       if (!boss) slowmo(lastWave ? 0.7 : 0.35, 0.3);
       if (lastWave) after(1.0, () => this.roomClear()); else { this.wave++; after(0.9, () => { if (this.phase === 'fight') { this.banner.show(`第 ${this.wave + 1} 波`, '', 0.9); this.spawnWave(); } }); }
     }
+    this.schools.onKill(f); // wp/boons: after room bookkeeping, so chained kills schedule the clear only once
   }
-  private hurtHero(dmg: number, from: THREE.Vector3) {
+  private hurtHero(dmg: number, from: THREE.Vector3, attacker?: Foe) { // wp/boons: melee source is explicit
+    dmg = Math.round(dmg * this.schools.takenMul()); // wp/boons: an existing shell reduces this hit
     // the yard: nobody dies there (the flask fills back up first)
     if (this.phase === 'yard' && !this.hero.iframe && this.hero.hp - dmg <= 0) { this.hero.hp = this.hero.maxHp; this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp }); }
     // a blow that lands in the dash's invulnerable moment: a perfect dodge
     if (this.hero.parrying) { this.iaiParry(from); return; }
     if (this.hero.dodging) { this.perfectDodge(from); return; }
     if (!this.hero.hurt(dmg, from)) return;
+    this.schools.onHeroHurt(attacker); // wp/boons: only actual damage activates armour
     this.hud.flask.hit(dmg, { hp: this.hero.hp, maxHp: this.hero.maxHp });
     popPix(`-${dmg}`, this.hero.a.head().add(V3(0, 0.3, 0)), { color: '#ff5a4a', h: 0.5, life: 0.8 });
     fxSparks(this.hero.a.chest(), 0xff4a3a, 12, 4); this.hero.a.tint(0xff3020, 0.9);
@@ -534,16 +550,15 @@ export class ActShow {
     if (this.room >= ROOMS.length - 1) { this.end(true); return; }
     if (this.reward === 'heal') { this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + Math.round(this.hero.maxHp * 0.35)); this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp }); this.banner.show('回复', '三成五生命', 1.0, '#9aff9a'); await new Promise(r => after(0.8, () => r(null))); }
     else {
-      const pool = BOONS.filter(b => !this.taken.has(b.id)), pick = pool.sort(() => Math.random() - 0.5).slice(0, 3);
+      const pick = drawBoons('any', 3, Math.random, this.perks); // wp/boons: distinct, tiered choices using this run's ownership
       this.hud.on = false; this.banner.hide();
-      const i = await this.cards.open(pick); const b = pick[i]; this.take(b);
+      const i = await this.cards.open(pick); const b = pick[i]; this.take(b.boon, b.tier); // wp/boons: keep the rolled tier
       this.hud.on = true;
     }
     this.openDoors();
   }
-  private taken = new Set<string>();
-  private take(b: Boon) {
-    this.taken.add(b.id); applyBoon(this.perks, b.id); this.log.push(`boon ${b.id}`);
+  private take(b: Boon, tier = 0) { // wp/boons: ownership lives on Perks
+    applyBoon(this.perks, b.id, tier); this.log.push(`boon ${b.id} tier ${tier}`); // wp/boons: apply the selected tier
     if (b.id === 'hpUp') { this.hero.maxHp = TUNE.heroHp + this.perks.hpUp; this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + 25); this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp }); }
     this.banner.show(b.name, b.desc.join(''), 1.4, b.col);
   }
@@ -570,7 +585,7 @@ export class ActShow {
     this.phase = 'dead'; slowmo(1.2, 0.3); this.banner.show('败北', '', 1.6, '#ff6a5a');
     after(1.6, async () => {
       this.hud.on = false;
-      await this.cards.open([{ id: 'retry', name: '再来一次', desc: ['回练武场再出发', `这一局斩了 ${this.kills} 个`], col: '#ffd070', glyph: BOONS[1].glyph }]);
+      await this.cards.open([returnCard(this.kills)]); // wp/boons: adapt non-boon cards and centralize their copy
       this.hud.on = true; void wipeTransit(() => this.enterYard());
     });
   }
@@ -578,7 +593,7 @@ export class ActShow {
     this.phase = 'end';
     after(0.4, async () => {
       this.hud.on = false;
-      await this.cards.open([{ id: 'again', name: win ? '原型到此' : '再来一次', desc: [win ? '三间都清了' : '回练武场再出发', `斩了 ${this.kills} 个 · 点这里回练武场`], col: '#ffd070', glyph: BOONS[7].glyph }]);
+      await this.cards.open([returnCard(this.kills, win)]); // wp/boons: adapt the end card
       this.hud.on = true; void wipeTransit(() => this.enterYard());
     });
   }
@@ -601,6 +616,7 @@ export class ActShow {
     if (busy) { for (const b of Object.values(this.inp.b)) { b.pressed = false; b.down = false; b.held = 0; } this.inp.move.x = this.inp.move.y = 0; }
     if (this.phase === 'intro') { this.introT += dt; this.inp.move.x = 0; this.inp.move.y = this.introT < 0.5 ? 0.7 : 0; for (const b of Object.values(this.inp.b)) { b.pressed = false; b.down = false; b.held = 0; } }
     const wasDash = this.lastSt === 'dash';
+    this.schools.update(dt); // wp/boons: timed effects use combat time (including slow motion)
     h.update(dt, this.inp, this.heroWorld);
     // dash perks: the cut along the dash, the buff after it
     if (h.st === 'dash') {
@@ -630,7 +646,7 @@ export class ActShow {
         after(0.35, () => { void wipeTransit(() => this.startRun()); });
       }
     }
-    for (const f of this.foes) { if (!this.ultOn) updateFoe(f, fw, dt); f.a.update(dt); }
+    for (const f of this.foes) { if (!this.ultOn) updateFoe(f, fw, dt); f.a.update(f.frozen > 0 ? 0 : dt); } // wp/boons: frozen poses do not keep attacking
     for (let i = this.foes.length - 1; i >= 0; i--) if (this.foes[i].st === 'dead' && !this.foes[i].a.root.parent) this.foes.splice(i, 1);
     for (const a of this.arrows) a.update(dt, fw);
     for (let i = this.arrows.length - 1; i >= 0; i--) if (this.arrows[i].dead) this.arrows.splice(i, 1);

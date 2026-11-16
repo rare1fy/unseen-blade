@@ -5,21 +5,27 @@ import type { UiLayer } from '../ui3d/layer';
 import { text, textW, icon, PIX_H } from '../v2/overlay';
 import { clock } from '../engine/clock';
 import { cue } from '../../audio/cues';
-import type { Boon } from './boons';
+import { boonTag, type Boon, type BoonPick } from './boons';
 import { SKIN, PALETTE } from './skin';
 
-function face(b: Boon, u: number) {
+const tierColor = (tier: number) => tier === 2 ? '#ffd060' : tier === 1 ? '#6ad8b0' : PALETTE[SKIN.id].card.frame;
+function face(b: Boon, tier: number, u: number) {
   // the card in the UI's skin (skin.ts): a lacquer tablet / a bamboo-slip plaque / an iron token
   const P = PALETTE[SKIN.id].card, W = 200 * u, H = 250 * u, c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d')!; g.imageSmoothingEnabled = false;
   g.fillStyle = P.bg; g.fillRect(0, 0, W, H);
   if (SKIN.id === 'bamboo') for (let x = 0; x < W; x += 12 * u) { g.fillStyle = (x / (12 * u)) % 2 ? '#b89a58' : '#c9ad6a'; g.fillRect(x, 0, 12 * u, H); g.fillStyle = '#6e5630'; g.fillRect(x, 0, u, H); }
-  g.fillStyle = P.frame; g.fillRect(0, 0, W, 4 * u); g.fillRect(0, H - 4 * u, W, 4 * u); g.fillRect(0, 0, 4 * u, H); g.fillRect(W - 4 * u, 0, 4 * u, H);
+  if (tier === 2) { g.shadowColor = '#ffd060'; g.shadowBlur = 5 * u; }
+  g.fillStyle = tierColor(tier); g.fillRect(0, 0, W, 4 * u); g.fillRect(0, H - 4 * u, W, 4 * u); g.fillRect(0, 0, 4 * u, H); g.fillRect(W - 4 * u, 0, 4 * u, H);
+  g.shadowBlur = 0;
   if (SKIN.id === 'iron') { g.fillStyle = '#b07a3a'; for (const [x, y] of [[8, 8], [W / u - 14, 8], [8, H / u - 14], [W / u - 14, H / u - 14]]) g.fillRect(x * u, y * u, 6 * u, 6 * u); }
   if (SKIN.id === 'lacquer') { g.fillStyle = '#b8302a'; for (const [x, y] of [[0, 0], [W / u - 12, 0], [0, H / u - 12], [W / u - 12, H / u - 12]]) g.fillRect(x * u, y * u, 12 * u, 12 * u); }
   g.fillStyle = P.panel; g.fillRect(10 * u, 10 * u, W - 20 * u, 96 * u);
   icon(g, b.glyph, (W - 10 * 7 * u) / 2, 22 * u, 7 * u, { main: b.col, acc: '#fff4d8', dark: '#120c10' });
-  text(g, b.name, (W - textW(b.name, 2 * u)) / 2, 120 * u, 2 * u, P.name, 'left', SKIN.id === 'bamboo' ? null : '#0a0710');
-  b.desc.forEach((l, i) => text(g, l, (W - textW(l, u)) / 2, (160 + i * (PIX_H + 6)) * u, u, P.desc, 'left', null));
+  const tag = boonTag(b, tier);
+  text(g, tag, (W - textW(tag, u)) / 2, 113 * u, u, tier === 0 ? P.desc : tierColor(tier), 'left', null);
+  const nameScale = textW(b.name, 2 * u) > W - 24 * u ? u : 2 * u;
+  text(g, b.name, (W - textW(b.name, nameScale)) / 2, 136 * u, nameScale, P.name, 'left', SKIN.id === 'bamboo' ? null : '#0a0710');
+  b.desc.forEach((l, i) => text(g, l, (W - textW(l, u)) / 2, (178 + i * (PIX_H + 6)) * u, u, P.desc, 'left', null));
   const t = new THREE.CanvasTexture(c); t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter; t.generateMipmaps = false; t.colorSpace = THREE.SRGBColorSpace;
   return { t, W, H };
 }
@@ -28,19 +34,25 @@ interface Card { b: Boon; m: THREE.Mesh; x: number; y: number; w: number; h: num
 export class CardPick {
   on = false; focus = 0; private cards: Card[] = []; private done: ((i: number) => void) | null = null; private leaving = -1; private leaveT = 0;
   constructor(private L: UiLayer) {}
-  open(boons: Boon[]): Promise<number> {
+  open(boons: BoonPick[]): Promise<number> {
     this.close(); const L = this.L, u = Math.max(1, Math.round(Math.max(0.78, Math.min(L.h / 720, 1.2)) * (L.dpr || 1)));
     // phones (412 px tall): the cards keep a readable size and take more of the screen
     const k = Math.min(1.2, Math.max(0.78, L.h / 720)), w = 200 * k * 1.15, h = 250 * k * 1.15, gap = 30 * k;
-    this.cards = boons.map((b, i) => {
-      const f = face(b, u * 2), side = new THREE.MeshLambertMaterial({ color: PALETTE[SKIN.id].card.side }), fm = new THREE.MeshLambertMaterial({ map: f.t, emissive: 0xffffff, emissiveMap: f.t, emissiveIntensity: 0.6 });
+    this.cards = boons.map(({ boon: b, tier }, i) => {
+      const f = face(b, tier, u * 2), side = new THREE.MeshLambertMaterial({ color: tier === 0 ? PALETTE[SKIN.id].card.side : tierColor(tier), emissive: tier === 2 ? 0xffd060 : 0x000000, emissiveIntensity: 0.15 }), fm = new THREE.MeshLambertMaterial({ map: f.t, emissive: 0xffffff, emissiveMap: f.t, emissiveIntensity: 0.6 });
       const m = new THREE.Mesh(new THREE.BoxGeometry(L.px(w), L.px(h), L.px(16)), [side, side, side, side, fm, side]); m.renderOrder = 30; L.scene.add(m);
       return { b, m, x: L.w / 2 + (i - (boons.length - 1) / 2) * (w + gap), y: L.h * 0.5, w, h, lift: 0, t0: clock.rtime + i * 0.08 };
     });
-    this.on = true; this.focus = 1; this.leaving = -1; cue('reveal', 0.6);
+    this.on = true; this.focus = Math.min(1, this.cards.length - 1); this.leaving = -1; cue('reveal', 0.6);
     return new Promise(res => { this.done = res; });
   }
-  close() { for (const c of this.cards) { c.m.parent?.remove(c.m); c.m.geometry.dispose(); } this.cards = []; this.on = false; }
+  close() {
+    for (const c of this.cards) {
+      c.m.parent?.remove(c.m); c.m.geometry.dispose();
+      for (const m of new Set(c.m.material as THREE.MeshLambertMaterial[])) { m.map?.dispose(); m.dispose(); }
+    }
+    this.cards = []; this.on = false;
+  }
   hit(x: number, y: number) { return this.cards.findIndex(c => Math.abs(x - c.x) < c.w / 2 && Math.abs(y - c.y) < c.h / 2); }
   pointer(type: string, x: number, y: number) {
     if (!this.on || this.leaving >= 0) return this.on;
