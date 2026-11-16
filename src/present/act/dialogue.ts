@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import type { UiLayer } from '../ui3d/layer';
 import { text, textW } from '../v2/overlay';
+import { bodyText, bodyW, BODY_FONT } from '../ui3d/bodyFont';
 import { PIX_H } from '../v2/pix';
 import { cue } from '../../audio/cues';
 
@@ -33,6 +34,8 @@ const BG = '#14121c', EDGE_G = '#c8963a', EDGE_R = '#a8302a', NAME = '#ffd27a', 
 const CPS = 36;   // characters per second
 interface Side { mesh: THREE.Mesh | null; id: string; k: number; on: number; aspect: number }
 
+/** the line's HD body font size (CSS px): 20 on tall screens, 15 on a phone held sideways */
+const fontPx = (scale: number) => (scale >= 2 ? 20 : 15);
 export class Dialogue {
   on = false; private box: THREE.Mesh; private boxTex: THREE.CanvasTexture | null = null; private canvas = document.createElement('canvas');
   private sides: Record<'L' | 'R', Side> = { L: { mesh: null, id: '', k: 0, on: 0, aspect: 0.8 }, R: { mesh: null, id: '', k: 0, on: 0, aspect: 0.8 } };
@@ -86,15 +89,15 @@ export class Dialogue {
     const nameS = S, name = sp?.name ?? line.who, right = sp?.side === 'R';
     const nx = right ? c.width - Math.round(16 * dpr) - textW(name, nameS) : Math.round(16 * dpr);
     text(g, name, nx, Math.round(10 * dpr), nameS, NAME, 'left', '#05040a');
-    // the line, wrapped to the box (CJK breaks anywhere), shown up to n characters
-    const chars = [...line.text].slice(0, n), maxW = c.width - Math.round(32 * dpr), lineH = PIX_H * S + Math.round(6 * dpr);
-    let row = '', y = Math.round(10 * dpr) + PIX_H * nameS + Math.round(10 * dpr);
+    // the line in the HD body font (the user: 说明文字那些高清), wrapped to the box (CJK breaks anywhere), shown up to n characters
+    const fpx = Math.round(fontPx(scale) * dpr), chars = [...line.text].slice(0, n), maxW = c.width - Math.round(32 * dpr), lineH = Math.round(fpx * 1.4);
+    let row = '', y = Math.round(10 * dpr) + PIX_H * nameS + Math.round(12 * dpr);
     const col = sp?.mute ? MUTE : BODY;
-    for (const ch of chars) { if (textW(row + ch, S) > maxW) { text(g, row, Math.round(16 * dpr), y, S, col, 'left', '#05040a'); row = ''; y += lineH; } row += ch; }
-    if (row) text(g, row, Math.round(16 * dpr), y, S, col, 'left', '#05040a');
+    for (const ch of chars) { if (bodyW(row + ch, fpx) > maxW) { bodyText(g, row, Math.round(16 * dpr), y, fpx, col); row = ''; y += lineH; } row += ch; }
+    if (row) bodyText(g, row, Math.round(16 * dpr), y, fpx, col);
     // the "more" mark when the line is complete
     if (n >= [...line.text].length) { const bx = c.width - Math.round(26 * dpr), by = c.height - Math.round(18 * dpr); g.fillStyle = NAME; for (let r = 0; r < 4; r++) g.fillRect(bx + r * dpr, by + r * dpr, (8 - r * 2) * dpr, dpr); }
-    this.boxTex?.dispose(); this.boxTex = new THREE.CanvasTexture(c); this.boxTex.magFilter = THREE.NearestFilter; this.boxTex.minFilter = THREE.NearestFilter; this.boxTex.generateMipmaps = false; this.boxTex.colorSpace = THREE.SRGBColorSpace;
+    this.boxTex?.dispose(); this.boxTex = new THREE.CanvasTexture(c); const hd = BODY_FONT.current !== 'pixel'; this.boxTex.magFilter = hd ? THREE.LinearFilter : THREE.NearestFilter; this.boxTex.minFilter = hd ? THREE.LinearFilter : THREE.NearestFilter; this.boxTex.generateMipmaps = false; this.boxTex.colorSpace = THREE.SRGBColorSpace;
     const fm = (this.box.material as THREE.MeshBasicMaterial[])[4]; fm.map = this.boxTex; fm.needsUpdate = true;
   }
   update(dt: number) {
@@ -104,13 +107,14 @@ export class Dialogue {
     const total = [...line.text].length; this.t += dt; const n = Math.min(total, Math.floor(this.t * CPS) + 1);
     if (n > this.shown) this.shown = n;
     // layout: the box across the bottom middle; pixel scale 2 on screens ≥ 600 px tall, else 1 (wrapped to two / three rows)
-    const scale = L.h >= 600 ? 2 : 1, rows = 2, hPx = Math.round(10 + PIX_H * scale + 10 + rows * (PIX_H * scale + 6) + 10), wPx = Math.round(Math.min(L.w * 0.62, 760));
-    const key = this.i * 10000 + this.shown * 2 + (this.shown >= total ? 1 : 0) + wPx * 1e7;
+    const scale = L.h >= 600 ? 2 : 1, rows = 2, hPx = Math.round(10 + PIX_H * scale + 12 + rows * Math.round(fontPx(scale) * 1.4) + 8), wPx = Math.round(Math.min(L.w * 0.62, 760));
+    const key = this.i * 10000 + this.shown * 2 + (this.shown >= total ? 1 : 0) + wPx * 1e7 + BODY_FONT.version * 1e11;
     if (key !== this.drawn) { this.drawn = key; this.paint(line, this.shown, wPx, hPx, scale); }
     const y = L.h - hPx / 2 - Math.max(10, L.h * 0.03) + (1 - this.openT) * 30;
     L.at(L.w / 2, y, 0, this.box.position); this.box.scale.set(L.px(wPx), L.px(hPx), L.px(8));
-    // portraits: integer scale, bottoms behind the box; the speaker lit and lifted, the other dimmed
-    const sp = CAST[line.who], pk = Math.max(1, Math.floor((L.h * 0.74) / 288));
+    // portraits: whole device pixels per art pixel (k / dpr), about half the screen tall at most (a phone gets 2/3 scale,
+    // not a portrait three quarters of the screen), bottoms behind the box; the speaker lit and lifted, the other dimmed
+    const dpr = Math.max(1, Math.round(L.dpr || 1)), sp = CAST[line.who], pk = Math.max(1, Math.floor((L.h * 0.56 * dpr) / 288)) / dpr;
     for (const s of ['L', 'R'] as const) {
       const S = this.sides[s]; if (!S.mesh) continue;
       const speaking = sp?.side === s; S.on += ((speaking ? 1 : 0) - S.on) * Math.min(1, dt * 10); S.k = Math.min(1, S.k + dt * 4);
