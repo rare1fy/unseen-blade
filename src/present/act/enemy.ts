@@ -55,6 +55,7 @@ export const isBoss = (f: { d: EDef }) => !!f.d.boss;
 type St = 'enter' | 'move' | 'windup' | 'strike' | 'recover' | 'stagger' | 'roar' | 'dead';
 export interface Foe {
   kind: EKind; d: EDef; a: BattleActor; hp: number; maxHp: number; pos: THREE.Vector3; vel: THREE.Vector3; yaw: number;
+  /** act-19: thrown into the air (挑空斩, 飞踢, a heavy blow): the upward speed; undefined = on the ground */ airV?: number;
   st: St; t: number; dur: number; tele: Tele | null; teleYaw: number; telePos: THREE.Vector3; shape: TeleShape | null; dmg: number;
   cd: number; poise: number; attacking: boolean; hitHero: boolean; lunge: THREE.Vector3 | null; strafe: number; move: string;
   /** the last blow's numbers (death form) */ lastDmg: number; burn: number; burnT: number; frozen: number; uid: number;
@@ -139,6 +140,8 @@ export function updateFoe(f: Foe, w: FoeWorld, dt: number) {
     }
   }
   // Pause attack clocks as well as movement, including training dummies.
+  // act-19: in the air (thrown up / sent flying): a ballistic arc, then a thump and a puff on landing
+  if (f.airV != null) { f.pos.y += f.airV * dt; f.airV -= 24 * dt; if (f.pos.y <= 0) { f.pos.y = 0; f.airV = undefined; fxSmoke(f.pos.clone().setY(0.2), 0x8a7a6a, 4, { r: 0.4, spd: 1.4, up: 0.4, s: 0.32, life: 0.5 }); cue('land', 0.6); } }
   if (f.frozen > 0) { f.frozen = Math.max(0, f.frozen - dt); f.vel.set(0, 0, 0); f.a.setRunning(false); f.a.tint(0x9ae8ff, 0.65); return; }
   if (f.kind === 'dummy') {
     // a stiff spring back to upright, well damped (a couple of swings after a hard hit)
@@ -155,7 +158,7 @@ export function updateFoe(f: Foe, w: FoeWorld, dt: number) {
   const free = f.st === 'move';
   if (f.st === 'enter') { if (f.t >= f.dur) setSt(f, 'move', 0); }
   else if (f.st === 'roar') { f.vel.multiplyScalar(Math.exp(-dt * 8)); if (f.inv > 0) f.a.tint(0xfff2b0, 0.7); if (f.t >= f.dur) { setSt(f, 'move', 0); f.cd = 0.2; } }
-  else if (f.st === 'stagger') { f.vel.multiplyScalar(Math.exp(-dt * 6)); if (f.t >= f.dur) { setSt(f, 'move', 0); f.cd = Math.max(f.cd, 0.3); } }
+  else if (f.st === 'stagger') { f.vel.multiplyScalar(Math.exp(-dt * (f.airV != null ? 0.7 : 6))); if (f.t >= f.dur) { setSt(f, 'move', 0); f.cd = Math.max(f.cd, 0.3); } }
   else if (f.st === 'recover') { f.vel.multiplyScalar(Math.exp(-dt * 8)); if (f.t >= f.dur) { setSt(f, 'move', 0); f.attacking = false; } }
   else if (f.st === 'windup') {
     f.vel.multiplyScalar(Math.exp(-dt * 10));

@@ -6,6 +6,7 @@ import { toon } from '../look/toon';
 import { icon, text, textW } from '../v2/overlay';
 import { bodyText, onBodyFontChange } from '../ui3d/bodyFont';
 import { ROOM_INFO, SCHOOL_NAME, type RoomPlan } from './run';
+import { SCROLL_GLYPH } from './manuals';
 
 const GLYPH: Record<string, string[]> = {
   fight: ['........##', '.......##.', '......##..', '.....##...', '#...##....', '##.##.....', '.###......', '.##.......', '#.##......', '...#......'],
@@ -31,8 +32,9 @@ function face(p: RoomPlan, place: string) {
     const k = ROOM_INFO[p.type].name; text(g, k, 66 + (84 - textW(k, 3)) / 2, 12, 3, INK, 'left', null);
     const r = p.reward;
     if (r?.k === 'boon') { const m = SCHOOL_MARK[r.school]; text(g, m.ch, 12, 70, 2, m.col, 'left', null); }
+    else if (r?.k === 'manual') icon(g, SCROLL_GLYPH, 10, 66, 3, { main: INK, acc: ACC, dark: INK });
     else if (r) icon(g, GLYPH[r.k === 'coins' ? 'coins' : 'heal'], 10, 66, 3, { main: INK, acc: ACC, dark: INK });
-    const sub = r?.k === 'boon' ? SCHOOL_NAME[r.school] : r?.k === 'coins' ? `铜钱 ${r.n}` : r?.k === 'heal' ? '回血' : place;
+    const sub = r?.k === 'boon' ? SCHOOL_NAME[r.school] : r?.k === 'coins' ? `铜钱 ${r.n}` : r?.k === 'heal' ? '回血' : r?.k === 'manual' ? '刀谱' : place;
     g.setTransform(1, 0, 0, 1, 0, 0);
     bodyText(g, sub.slice(0, 6), 46 * S, 73 * S, 15 * S, INK);
   };

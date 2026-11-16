@@ -215,6 +215,19 @@ function dartThrow(I: Pose, k: number, back = false): Pose {
   P.aLx += (T.aLx - P.aLx) * w; P.aLz += (T.aLz - P.aLz) * w; P.fL += (T.fL - P.fL) * w; P.sy += T.sy * w;
   return P;
 }
+/** 飞踢 (act-19, k 0 → 1): a low flying front kick — the body leans back, the right leg shoots out straight at hip height (the foot
+ *  lands at k ≈ 0.3), the left leg tucked under, the blade arm swung back for balance; then the leg drops and the body comes upright */
+function kickPose(I: Pose, k: number): Pose {
+  const A: Partial<Pose> = {
+    tR: S(k, [[0, -0.6], [0.2, -1.75], [0.45, -1.7], [0.75, -0.6], [1, 0]]), kR: S(k, [[0, 1.4], [0.2, 0.15], [0.45, 0.1], [0.75, 0.6], [1, 0.1]]),
+    tL: S(k, [[0, -0.3], [0.2, 0.35], [0.45, 0.4], [0.75, -0.1], [1, 0]]), kL: S(k, [[0, 0.8], [0.2, 1.2], [0.45, 1.1], [1, 0.2]]),
+    sx: S(k, [[0, 0.2], [0.2, -0.35], [0.45, -0.3], [1, 0.1]]), sy: S(k, [[0, 0], [0.2, -0.25], [1, 0]]),
+    aRx: S(k, [[0, 0.3], [0.2, 0.9], [0.6, 0.7], [1, 0.3]]), aRz: S(k, [[0, -0.4], [0.2, -0.7], [1, -0.4]]), yR: -1.9, fR: -0.4,
+    aLx: S(k, [[0, -0.5], [0.2, -1.1], [0.6, -0.9], [1, -0.4]]), aLz: 0.5, fL: -1.2, eL: 0.4,
+    lift: S(k, [[0, 1.0], [0.25, 1.35], [0.6, 1.2], [1, 1.0]]), flut: 1,
+  };
+  return mix(I, A, curve(k, [[0, 0.6], [0.12, 1], [0.8, 1], [1, 0]]));
+}
 /** the double jump: a tight forward somersault (k 0 → 1) — knees to the chest, arms in, the blade held flat along the back; the whole
  *  body turns once round the hips */
 function flip(I: Pose, k: number): Pose {
@@ -356,6 +369,7 @@ const heroHook = (b: Record<string, Bone>, t: number, a: Action | null, off: THR
       if (cool) P = mix(P, { aLx: 0.85 * P.aRx - 0.1, aLz: 0.25, fL: -1.5, eL: 0.6, yL: 0.3 }, curve(k, [[0, 0], [0.1, 1], [0.86, 1], [1, 0]]));
     }
     else if (a.name === 'rel') P = release(P, k);
+    else if (a.name === 'kick') P = kickPose(P, k);
     else if (a.name === 'noto') P = noto(P, k);
     else if (a.name === 'dashA') P = dash(P, inAir ? k * 0.6 : k);
     else if (a.name === 'cast') P = cast(P, k);

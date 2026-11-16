@@ -55,6 +55,15 @@ export interface SceneDef { id: string; name: string; group: '普通' | '首领'
 
 // ------------------------------------------------------------------ shared lights, sky and mist (created once)
 const MOON_BASE = new THREE.Vector3();
+/** act-19 (user: 「更多不同的天气效果和光影效果」): a lightning flash on a rainy night — the sky light and the moon jump up and fall
+ *  back over a few frames (call tickSkyFlash every frame) */
+let FLASH = 0, FLASH_BASE: [number, number] | null = null;
+export function flashSky(k = 1) { if (!G) return; if (!FLASH_BASE) FLASH_BASE = [G.hemi.intensity, G.moon.intensity]; FLASH = Math.max(FLASH, k); }
+export function tickSkyFlash(dt: number) {
+  if (!G || !FLASH_BASE) return; FLASH = Math.max(0, FLASH - dt * 4.5); const f = FLASH * FLASH;
+  G.hemi.intensity = FLASH_BASE[0] * (1 + 2.6 * f); G.moon.intensity = FLASH_BASE[1] * (1 + 1.6 * f);
+  if (FLASH <= 0) { G.hemi.intensity = FLASH_BASE[0]; G.moon.intensity = FLASH_BASE[1]; FLASH_BASE = null; }
+}
 /** act-19 (2x stage): the moon's shadow box (26 m) follows the view instead of sitting on the origin; snapped to whole shadow texels
  *  so the shadows don't crawl as it moves */
 export function followShadow(x: number, z: number) {

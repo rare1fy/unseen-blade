@@ -19,6 +19,8 @@ const SCHOOL_PAL: Record<string, Pal> = {
   tp: { bg: '#241a10', panel: '#33261a', frame: '#d8b048', ink: '#ffe68a', name: '#ffe08a', deco: '#a8302a' },
   jd: { bg: '#0e1c28', panel: '#152c3a', frame: '#7ad0e8', ink: '#9ae8ff', name: '#bff2ff', deco: '#2e5a70' },
   sr: { bg: '#1a1416', panel: '#261d1f', frame: '#c8a070', ink: '#ffd27a', name: '#f2dcb0', deco: '#b8302a' },
+  // 刀谱: a bamboo-slip book — dark wood, pale slip colour, an ink-red tie
+  ms: { bg: '#2c2216', panel: '#3a2c1c', frame: '#e0c890', ink: '#f0e0b0', name: '#fff0c8', deco: '#7a5a32' },
 };
 const TIER_COL = ['#c8c0b0', '#6ad8b0', '#ffd060'];
 const tierColor = (tier: number) => TIER_COL[tier] ?? TIER_COL[0];
@@ -43,7 +45,7 @@ const KEYS: Array<[string, string, string]> = ([
   ['破势', 'blade', '#ffd27a'], ['箭步斩', 'blade', '#ffd27a'], ['收尾那一刀', 'blade', '#ffd27a'], ['收尾一刀', 'blade', '#ffd27a'], ['连斩', 'blade', '#ffd27a'], ['斩击', 'blade', '#ffd27a'],
   ['天雷', 'bolt', '#ffe68a'], ['落雷', 'bolt', '#ffe68a'], ['电弧', 'bolt', '#ffe68a'], ['电击', 'bolt', '#ffe68a'], ['跳电', 'bolt', '#ffe68a'], ['雷球', 'bolt', '#ffe68a'],
   ['寒气', 'frost', '#9ae8ff'], ['冻住', 'frost', '#9ae8ff'], ['冰壳', 'frost', '#9ae8ff'], ['冰路', 'frost', '#9ae8ff'], ['冰片', 'frost', '#9ae8ff'], ['结冰', 'frost', '#9ae8ff'],
-  ['点燃', 'fire', '#ff9a4a'], ['飞镖', 'dart', '#e8eef4'], ['三枚', 'dart', '#e8eef4'], ['刀芒', 'blade', '#c8ffd8'],
+  ['点燃', 'fire', '#ff9a4a'], ['飞镖', 'dart', '#e8eef4'], ['三枚', 'dart', '#e8eef4'], ['三镖', 'dart', '#e8eef4'], ['飞踢', 'dash', '#ffc890'], ['按跳', 'dash', '#ffe08a'], ['刀芒', 'blade', '#c8ffd8'],
   ['完美闪避', 'dash', '#9ad8ff'], ['冲刺', 'dash', '#9ad8ff'], ['生命', 'heart', '#8aff9a'], ['回复', 'heart', '#8aff9a'], ['杀气', 'blade', '#ff9a6a'],
 ] as Array<[string, string, string]>).sort((a, b) => b[0].length - a[0].length);
 const NUM = /^([0-9]+%?|[一二三四五六七八九十百半两]+(?:秒|点|成|枚|倍)?)/;
@@ -73,6 +75,7 @@ function face(b: Boon, tier: number, u: number) {
   R(0, 0, CW, CH, P.bg); R(6, 6, CW - 12, CH - 12, P.panel);
   if (b.school === 'tp') for (let x = 14; x < CW - 14; x += 26) { R(x, 6, 2, 6, P.deco); R(x + 12, CH - 12, 2, 6, P.deco); }
   else if (b.school === 'jd') for (let y = CH - 30; y < CH - 8; y += 7) for (let x = 120 + ((y / 7) % 2) * 9; x < CW - 12; x += 18) R(x, y, 10, 1, P.deco);
+  else if (b.school === ('ms' as string)) for (let x = 120; x < CW - 12; x += 14) R(x, CH - 22, 8, 12, P.deco);   // the slips along the bottom
   else { R(CW - 30, 12, 16, 16, P.deco); R(CW - 26, 16, 8, 8, '#e05a48'); R(CW - 24, 18, 4, 4, P.deco); }
   const fw = tier === 2 ? 4 : tier === 1 ? 3 : 2, fc = tier === 2 ? TIER_COL[2] : P.frame;
   if (tier === 2) { g.shadowColor = '#ffd060'; g.shadowBlur = 6 * u; }
@@ -82,13 +85,13 @@ function face(b: Boon, tier: number, u: number) {
   const MX = 14, MY = 14, MS = CH - 28;
   R(MX, MY, MS, MS, P.frame); R(MX + 3, MY + 3, MS - 6, MS - 6, P.bg); R(MX + 6, MY + 6, MS - 12, MS - 12, '#0b0809');
   for (const [x, y] of [[MX - 2, MY - 2], [MX + MS - 6, MY - 2], [MX - 2, MY + MS - 6], [MX + MS - 6, MY + MS - 6]]) R(x, y, 8, 8, P.frame);
-  const ec = Math.floor((MS - 20) / 12); icon(g, EMBLEM[b.school] ?? EMBLEM.sr, (MX + (MS - 12 * ec) / 2) * u, (MY + (MS - 12 * ec) / 2) * u, ec * u, { main: P.ink, acc: '#fff4d8', dark: P.deco });
+  const ec = Math.floor((MS - 20) / 12); icon(g, b.school === ('ms' as string) ? b.glyph : EMBLEM[b.school] ?? EMBLEM.sr, (MX + (MS - 12 * ec) / 2) * u, (MY + (MS - 12 * ec) / 2) * u, ec * u, { main: P.ink, acc: '#fff4d8', dark: P.deco });
   // the name (pixel title font) and the tier badge; the school's name in the top right
   const TX = MX + MS + 16, nameScale = 2 * u;
   text(g, b.name, TX * u, 14 * u, nameScale, tier === 2 ? TIER_COL[2] : P.name, 'left', '#0a0710');
-  const nw = textW(b.name, nameScale) / u, tag = TIER_NAMES[tier] ?? '', bw = Math.ceil(bodyW(tag, 13 * u) / u) + 12;
+  const ms = b.school === ('ms' as string), nw = textW(b.name, nameScale) / u, tag = ms ? '刀谱' : TIER_NAMES[tier] ?? '', bw = Math.ceil(bodyW(tag, 13 * u) / u) + 12;
   R(TX + nw + 12, 17, bw, 20, tierColor(tier)); R(TX + nw + 13, 18, bw - 2, 18, '#0d0a0b'); bodyText(g, tag, (TX + nw + 18) * u, 19 * u, 13 * u, tierColor(tier), 'left');
-  bodyText(g, SCHOOL_NAMES[b.school] ?? '', (CW - (b.school === 'sr' ? 38 : 16)) * u, 18 * u, 12 * u, P.frame, 'right');
+  if (!ms) bodyText(g, SCHOOL_NAMES[b.school] ?? '', (CW - (b.school === 'sr' ? 38 : 16)) * u, 18 * u, 12 * u, P.frame, 'right');
   // the two lines
   b.desc.forEach((l, i) => richLine(g, l, TX * u, (54 + i * 28) * u, 19 * u, '#e8e0d4'));
   const t = new THREE.CanvasTexture(c); t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearFilter; t.generateMipmaps = false; t.colorSpace = THREE.SRGBColorSpace;

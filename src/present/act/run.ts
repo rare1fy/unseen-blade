@@ -6,7 +6,7 @@ import { LOCALES } from '../asm/registry';
 
 export type RoomType = 'fight' | 'elite' | 'shop' | 'rest' | 'boon' | 'boss';
 export type School = 'tp' | 'jd' | 'sr';
-export type Reward = { k: 'boon'; school: School } | { k: 'coins'; n: number } | { k: 'heal' } | null;
+export type Reward = { k: 'boon'; school: School } | { k: 'coins'; n: number } | { k: 'heal' } | { k: 'manual' } | null;
 /** one room of the run: what it is, where, what clearing it gives, the waves ('kind*' = the elite of that kind) */
 export interface RoomPlan { type: RoomType; locale: string; reward: Reward; waves: string[][] }
 
@@ -54,7 +54,7 @@ export function wavesFor(type: RoomType, depth: number, r: Rnd): string[][] {
 function rewardFor(type: RoomType, r: Rnd): Reward {
   if (type !== 'fight' && type !== 'elite') return null;
   const x = r(), school: School = ((): School => { const y = r(); return y < 0.4 ? 'tp' : y < 0.8 ? 'jd' : 'sr'; })();
-  if (type === 'elite') return x < 0.75 ? { k: 'boon', school } : { k: 'coins', n: 50 };
+  if (type === 'elite') return x < 0.6 ? { k: 'manual' } : x < 0.85 ? { k: 'boon', school } : { k: 'coins', n: 50 };   // act-19: 刀谱 mostly
   return x < 0.6 ? { k: 'boon', school } : x < 0.85 ? { k: 'coins', n: 30 } : { k: 'heal' };
 }
 function placeFor(type: RoomType, r: Rnd) {

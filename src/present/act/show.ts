@@ -14,7 +14,7 @@ import { playDeath } from '../v2/death';
 import { UiLayer } from '../ui3d/layer';
 import { Overlay } from '../v2/overlay';
 import { SkinBanner, SKIN, SKINS, SKIN_NAME, setSkin, type SkinId } from './skin';
-import { showStage, followShadow, type Stage } from '../scenes/stage';
+import { showStage, followShadow, flashSky, tickSkyFlash, type Stage } from '../scenes/stage';
 import { PLAY, SZ, setStage } from '../scenes/props';
 import { addLocales, REGISTRY, LOCALES } from '../asm/registry';
 import { NINJA_LOCALES } from '../asm/ninja';
@@ -24,6 +24,7 @@ import { arenaPlan, type ArenaPlan } from '../asm/arena';
 import { Solids, SLAM, slamSpeed, type Push } from './solids';
 import { Breakables } from './breakables';
 import { Gates } from './gates';
+import { ALL_MOVES, drawManuals, manualCard } from './manuals';
 import { Leaves } from './leaves';
 import type { BTarget, BEvent, BDamage } from './breakLogic';
 import type { Solid } from './solids';
@@ -101,6 +102,7 @@ export class ActShow {
   /** act-17: this room's plan, the roads out of it, the kinds of room seen this run, the purse */
   private plan: RoomPlan | null = null; private nextRooms: RoomPlan[] = []; private visited: RoomType[] = []; coins = 0;
   /** act-19: the floor's cover and props (collision), the breakable props, the room's walls / gates / cover plan */
+  private lightningT = 6;
   solids = new Solids(); props: Breakables | null = null; gates: Gates | null = null; leaves: Leaves | null = null; private gustT = 0; arena: ArenaPlan | null = null; private lastPush: Push | null = null; private slamAt = new WeakMap<Foe, number>();
   private coinsFx = new Coins(); private stations: Stations | null = null; private hitArcs = new HitArcs();
   private schools = new Schools({ perks: () => this.perks, foes: () => this.foes, heroPos: () => this.hero.pos.clone().setY(this.hero.y), intent: () => this.intent, heroTint: (c, k) => this.hero.a.tint(c, k), hitFoe: (f, d, p, o) => this.hitFoe(f, d, p, o) }); // wp/boons: late-bound run state, including airborne armour
@@ -108,7 +110,7 @@ export class ActShow {
   private viewSpec: Partial<Spec> | null = null; private lastReport: Report | null = null;
   private spec: Spec | null = null; private layout: Layout | null = null; private doors: Array<{ ex: ExitInfo; g: THREE.Group; lift: number }> = []; private locale = 'ninja_wilds';
   private cam = V3(0, 0, 0); private dashHit = new Set<number>(); private lastSt = ''; private dashEdgeT = 0; private recent: Spec[] = [];
-  botOn = false; kills = 0; log: string[] = []; private introT = 0; private audioOn = false; private hinted = false;
+  private botWp = 0; botOn = false; kills = 0; log: string[] = []; private introT = 0; private audioOn = false; private hinted = false;
   /** the training yard (room −1) and the costume on the hero */
   yard: Yard | null = null; wearing: ModelDef = savedHero(); private lineupActors: BattleActor[] = [];
   private ring!: THREE.Mesh; private ringK = -1; private sparkT = 0; private shadows: THREE.Mesh[] = []; private exitSign: THREE.Group | null = null; private blob: THREE.Mesh;
@@ -189,7 +191,7 @@ export class ActShow {
   opening() {
     this.viewSpec = { ...OPENING_SPEC }; this.room = 0; this.locale = OPENING_SPEC.locale; this.buildRoom(true); this.viewSpec = null;
     this.phase = 'opening'; this.hud.on = false; this.hud.update(0, this.inp, []); this.banner.hide(); this.blob.visible = false; for (const m of this.shadows) m.visible = false;
-    void playOpening({ actor: this.hero.a, stage: this.stage!, ov: this.ov, enter: () => { this.hud.on = true; this.enterYard(); } });
+    void playOpening({ actor: this.hero.a, stage: this.stage!, ov: this.ov, enter: () => { this.hud.on = true; this.enterYard(); }, soundOn: () => this.audioOn });
   }
   /** the training yard: dummies, summon slabs, the costume rack, the way out to a run */
   enterYard() {
@@ -234,7 +236,7 @@ export class ActShow {
     spec.arena = this.arena ?? undefined;
     const { def, report } = assemble(spec, REGISTRY); this.lastReport = report;
     this.stage = showStage({ ...def, build(c) { try { def.build(c); } catch (e) { console.error('[act] assembly failed', e); } } }, { combat: true });
-    this.solids.clear(); this.props?.dispose(); this.props = null;
+    this.solids.clear(); this.props?.dispose(); this.props = null; this.botWp = 0;
     if (this.arena && this.stage) {
       for (const cv of this.arena.covers) this.solids.add({ kind: 'cover', shape: 'box', x: cv.x, z: cv.z, hx: cv.hx, hz: cv.hz, slam: true, tag: cv });
       this.props = new Breakables(this.stage.root, this.solids); this.props.build(this.arena.props);
@@ -242,7 +244,7 @@ export class ActShow {
     }
     // fallen leaves on the floor, a few drifting down (act-19); none in winter or in the rain
     this.leaves = new Leaves(spec.weather === 'rain' || spec.weather === 'snow' ? 'winter' : spec.season, { rest: big ? 100 : 40, fall: big ? 1.4 : 0.8 });
-    this.hero = new Hero(V3(0, 0, isYard ? 3.2 : SZ(5.0)), this.wearing); this.hero.hp = Math.min(hp, maxHp); this.hero.maxHp = maxHp;
+    this.hero = new Hero(V3(0, 0, isYard ? 3.2 : SZ(5.0)), this.wearing); this.hero.moves = isYard ? ALL_MOVES : this.perks.moves; this.hero.hp = Math.min(hp, maxHp); this.hero.maxHp = maxHp;
     this.hero.a.yaw = Math.PI;
     this.hud.flask.set({ hp: this.hero.hp, maxHp });
     this.cam.set(0, 0, 3); shot('act', () => this.camPose(), { cut: true, speed: 8 });
@@ -322,6 +324,7 @@ export class ActShow {
     foes: this.foes,
     dashPath: (a, b) => this.schools.onDashPath(a, b), dashEnd: at => this.schools.onDashEnd(at), // wp/boons: grounded dash events
     swing: o => this.swing(o), sweep: o => this.sweep(o), slam: o => this.slam(o), clamp: this.clamp,
+    launch: o => this.launchCut(o), kick: o => this.kickHit(o),
     dart: o => { this.dartsThrown++; this.darts.push(new Dart(o.from.clone(), o.dir.clone().multiplyScalar(TUNE.dartSpeed), TUNE.dartDmg, TUNE.dartRange)); },
     get darts3() { return SHOW_PERKS.darts3; },
     chaseTarget: () => this.chaseTarget(), chase: o => this.chaseFx(o),
@@ -341,6 +344,52 @@ export class ActShow {
     if (!n) return;
     hitstop((heavy ? 0.09 : 0.045 + 0.01 * Math.min(3, n - 1)) * TUNE.hitstop); shake((heavy ? 0.34 : 0.13) * TUNE.shake);
     cue(heavy ? 'cutHeavy' : 'cut', heavy ? 1.0 : 0.7); this.platform.vibrate(heavy ? 'medium' : 'light');
+  }
+  // ------------------------------------------------------------ act-19: 刀谱, 挑空斩, 飞踢
+  /** three manuals not learnt yet, one taken (none left: a boon instead) */
+  private async manualPick() {
+    const list = drawManuals(this.perks.moves, 3, Math.random); if (!list.length) { await this.boonPick('any'); return; }
+    const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide();
+    const i = await this.cards.open(list.map(m => ({ boon: manualCard(m), tier: 0 })));
+    const m = list[i]; this.perks.moves[m.id] = true; this.log.push(`manual ${m.id}`);
+    this.hud.on = true; this.phase = was === 'pick' ? 'pick' : was; this.banner.show(m.name, '刀谱', 1.2, '#f0e0b0');
+  }
+  /** light foes can be thrown: not the 力士, not a 渠帅, not an elite, not a dummy */
+  private launchable(f: Foe) { return f.kind !== 'dummy' && !isBoss(f) && f.d.role !== 'brute' && !f.elite; }
+  /** 挑空斩: the rising cut — everyone in the arc is hit, the light ones go up into the air (and hang there a moment) */
+  private launchCut(o: { from: THREE.Vector3; yaw: number; range: number; half: number; dmg: number }) {
+    const fx = Math.sin(o.yaw), fz = Math.cos(o.yaw); let n = 0;
+    for (const f of this.foes.slice()) {
+      if (f.st === 'dead') continue;
+      const dx = f.pos.x - o.from.x, dz = f.pos.z - o.from.z, l = Math.hypot(dx, dz); if (l > o.range + f.d.r) continue;
+      if (l > f.d.r + 0.3 && Math.abs(Math.atan2(dx * fz - dz * fx, dx * fx + dz * fz)) > o.half) continue;
+      this.hitFoe(f, o.dmg, o.from, { knock: 0.15, heavy: true, kind: 'launch', stagger: 1.5 }); n++;
+      if ((f.st as string) !== 'dead' && this.launchable(f)) { f.airV = 10.5; f.pos.y = Math.max(f.pos.y, 0.05); f.vel.set(fx * 1.2, 0, fz * 1.2); }
+    }
+    if (this.props) this.applyProps(this.props.hitArc(o.from, o.yaw, o.range, o.half, { src: 'hero', heavy: true }, this.targets()));
+    this.leaves?.blast(o.from.x + fx, o.from.z + fz, 1.6, 4);
+    trailSeg(o.from.clone().add(V3(fx * 0.6, 0.2, fz * 0.6)), o.from.clone().add(V3(fx * 1.2, 2.4, fz * 1.2)), 0xffe8a0, 0.2, { life: 0.3, bright: 2.4, spark: 0.5 });
+    this.feel(true, n); return n;
+  }
+  /** 飞踢: the first foe in front takes the kick and is sent flying the way the hero was dashing (into walls, jars, others) */
+  private kickHit(o: { from: THREE.Vector3; dir: THREE.Vector3; dmg: number }) {
+    let best: Foe | null = null, bd = 1e9;
+    for (const f of this.foes) {
+      if (f.st === 'dead') continue;
+      const dx = f.pos.x - o.from.x, dz = f.pos.z - o.from.z, l = Math.hypot(dx, dz); if (l > 1.5 + f.d.r) continue;
+      if (dx * o.dir.x + dz * o.dir.z < -0.2) continue; if (l < bd) { bd = l; best = f; }
+    }
+    const at = o.from.clone().addScaledVector(o.dir, 0.9).setY(0.9);
+    if (this.props) this.applyProps(this.props.hitCircle(at.x, at.z, 0.7, { src: 'hero', heavy: true, dir: [o.dir.x, o.dir.z] }, this.targets()));
+    if (!best) return 0;
+    this.hitFoe(best, o.dmg, o.from, { knock: 0, heavy: true, kind: 'kick', stagger: 1.4 });
+    if (best.st !== 'dead') {
+      const fly = this.launchable(best), sp = fly ? 15 : 5 / Math.max(1, best.d.mass * 0.6);
+      best.vel.copy(o.dir).setY(0).normalize().multiplyScalar(sp); if (fly) { best.airV = 4.2; best.pos.y = Math.max(best.pos.y, 0.05); }
+    }
+    fxImpact(best.a.chest(), 0xfff0d0, 1.4, { dir: o.dir.clone() }); cue('land', 1); cue('cutHeavy', 0.6); shake(0.25 * TUNE.shake);
+    this.leaves?.blast(best.pos.x, best.pos.z, 1.5, 6);
+    return 1;
   }
   // ------------------------------------------------------------ act-19: props, fire, the wall slam
   /** who the props can hurt: the live foes and the hero on the ground */
@@ -389,6 +438,7 @@ export class ActShow {
     popPix(String(d), f.a.head().add(V3(R(-0.2, 0.2), 0.35, 0)), { color: o.heavy ? '#ff8a3a' : d >= 14 ? '#ffd060' : '#fff6e0', h: o.heavy ? 0.66 : 0.5, big: o.heavy, life: 0.9, rise: 0.9 });
     if (this.perks.burn && (o.kind === 'k5' || o.kind === 'rel') && !died) { f.burn = 6; f.burnT = 0.5; fxSparks(p, 0xff7a2a, 12, 3); }
     if (this.perks.relFreeze && o.kind === 'rel' && !died) { f.frozen = 1.6; f.a.tint(0x9ae8ff, 0.8); fxSparks(p, 0xbff4ff, 14, 3); }
+    if (!died && o.heavy && o.knock >= 1.2 && this.launchable(f) && f.pos.y < 0.05) f.airV = Math.max(f.airV ?? 0, 2.2 + o.knock * 1.3);   // act-19: heavy blows throw the light foes
     if (died) this.killFoe(f, from);
     this.schools.onCutHit(f, from, o.kind); if (o.kind === 'dart') this.schools.onDartHit(f); // wp/boons: actual hits only, never recursive cut procs
   }
@@ -668,6 +718,7 @@ export class ActShow {
     const rw = this.plan?.reward ?? null;
     if (rw?.k === 'coins') { this.coinsFx.drop(this.hero.pos.clone().add(V3(0, 0, -1.5)), 12, Math.round(rw.n / 12)); this.banner.show('铜钱', `${rw.n}`, 1.0, '#ffd24a'); }
     else if (rw?.k === 'heal') { this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + Math.round(this.hero.maxHp * 0.35)); this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp }); this.banner.show('回复', '三成五生命', 1.0, '#9aff9a'); await new Promise(r => after(0.8, () => r(null))); }
+    else if (rw?.k === 'manual') await this.manualPick();
     else {
       await this.boonPick(rw?.k === 'boon' ? rw.school : 'sr');
     }
@@ -703,6 +754,7 @@ export class ActShow {
     else if (s.id === 'buy_sharpen') { this.stations.spend(s); await this.sharpen(); }
     else if (s.id === 'rest_heal') { this.stations.spend(s, true); heal(0.4); this.banner.show('裹伤调息', '四成生命', 1.0, '#9aff9a'); }
     else if (s.id === 'rest_sharpen') { this.stations.spend(s, true); await this.sharpen(); }
+    else if (s.id === 'scroll' && drawManuals(this.perks.moves, 1, Math.random).length) { this.stations.spend(s); await this.manualPick(); }   // act-19: the 遗卷 altar gives a 刀谱 while any are left
     else if (s.id === 'scroll') { this.stations.spend(s); await this.boonPick(Math.random() < 0.4 ? 'tp' : Math.random() < 0.67 ? 'jd' : 'sr'); }
   }
   private take(b: Boon, tier = 0) { // wp/boons: ownership lives on Perks
@@ -833,6 +885,9 @@ export class ActShow {
     this.hitArcs.update(rdt, h.pos);
     if (this.props && this.phase !== 'pick') this.applyProps(this.props.update(dt, this.targets()), true);   // act-19: fuses, fires, the falling pillars
     this.gates?.update(dt);
+    // a rainy room: now and then lightning lights everything for a beat, the thunder a moment later
+    tickSkyFlash(rdt);
+    if (this.spec?.weather === 'rain' && (this.phase as string) !== 'opening') { this.lightningT -= rdt; if (this.lightningT <= 0) { this.lightningT = 7 + Math.random() * 9; flashSky(1); after(0.14, () => flashSky(0.7)); const d = 0.35 + Math.random() * 0.8; after(d, () => cue('thunder', 0.45)); } }
     if (this.leaves) {
       this.leaves.update(dt, this.cam.x, this.cam.z);
       if (h.st === 'dash' && !h.airborne) { const v = Math.hypot(h.vel.x, h.vel.z) || 1; this.leaves.kick(h.pos.x, h.pos.z, 0.8, h.vel.x / v, h.vel.z / v, 3.4); }
@@ -895,9 +950,9 @@ export class ActShow {
     this.hud.setCooldowns({ attack: 0, jump: 0, dash: Math.max(0, h.dashCd / TUNE.dashCd), special: h.dartReload > 0 ? h.dartReload / TUNE.dartReload : 0 });
     this.hud.setPips('special', h.dartAmmo, TUNE.dartCharges);
     // the move links open right now, shown on the buttons (act-18): 追影 > 穿风斩 > 下劈 > 反击 on the cut button
-    { const fighting = this.phase === 'fight' || this.phase === 'yard', chase = fighting && !!this.chaseTarget();
-      const atk = !fighting ? null : chase ? 'chase' : h.st === 'dash' && !h.airborne ? 'dcut' : (h.st === 'air' && h.airborne) ? 'plunge' : h.counterT > 0 ? 'counter' : null;
-      this.hud.setHints({ attack: atk, special: fighting && h.canBackDart ? 'back' : null, jump: fighting && h.canDoubleJump ? 'dbl' : null }); }
+    { const fighting = this.phase === 'fight' || this.phase === 'yard', chase = fighting && !!h.moves.chase && !!this.chaseTarget();
+      const atk = !fighting ? null : chase ? 'chase' : h.st === 'dash' && !h.airborne ? 'dcut' : h.canKeep ? 'keep' : h.canPause ? 'pause' : (h.st === 'air' && h.airborne) ? 'plunge' : h.counterT > 0 ? 'counter' : null;
+      this.hud.setHints({ attack: atk, special: !fighting ? null : h.canBackDart ? 'back' : h.canCutDart ? 'cdart' : null, jump: !fighting ? null : h.canLaunch ? 'launch' : h.canKick ? 'kick' : h.canDoubleJump ? 'dbl' : null }); }
     SHOW_PERKS.darts3 = this.perks.darts3;
     this.hud.heroAt.copy(h.pos);
     this.hud.update(rdt, this.inp, this.foes); this.cards.update(rdt); this.banner.update(rdt);
@@ -931,7 +986,12 @@ export class ActShow {
     const live = this.foes.filter(f => f.st !== 'dead' && f.kind !== 'dummy');
     const set = (n: 'attack' | 'dash' | 'special' | 'jump', on: boolean) => { const b = I.b[n]; b.pressed = on && !b.down; b.down = on; b.held = on ? b.held + clock.rdt : 0; };
     if ((this.phase === 'doors' || this.phase === 'yard') && this.doors.length && !(this.phase === 'yard' && this.botYard())) {
-      const d = this.doors[0].ex.walk[2]; const v = V3(d[0] - h.pos.x, 0, d[1] - h.pos.z).normalize();
+      // act-19: follow the road's points in turn (the gate's mouth, through the gate, out) — a straight line ran into the wall
+      const wk = this.doors[0].ex.walk; let wi = 0; while (wi < wk.length - 1 && Math.hypot(wk[wi][0] - h.pos.x, wk[wi][1] - h.pos.z) < 1.0) wi++;
+      if (this.botWp > wi) wi = this.botWp; this.botWp = wi;
+      const d = wk[wi]; const v = V3(d[0] - h.pos.x, 0, d[1] - h.pos.z).normalize();
+      // step round the floor's cover and props in the way
+      for (const so of this.solids.list) if (so.on) { const o = V3(so.x - h.pos.x, 0, so.z - h.pos.z), l = o.length(), rr = Math.max(so.hx, so.hz, so.r) + 0.9; if (l < rr + 0.6 && o.dot(v) > l * 0.3) { const side = V3(v.z, 0, -v.x); v.addScaledVector(side, side.dot(o) > 0 ? -1.4 : 1.4).normalize(); } }
       // step round a dummy in the way
       for (const f of this.foes) if (f.kind === 'dummy') { const o = f.pos.clone().sub(h.pos).setY(0), l = o.length(); if (l < 1.6 && o.dot(v) > l * 0.5) { const side = V3(v.z, 0, -v.x); v.addScaledVector(side, side.dot(o) > 0 ? -1.2 : 1.2).normalize(); } }
       I.move.x = v.x; I.move.y = -v.z; set('jump', false); return;

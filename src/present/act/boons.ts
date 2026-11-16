@@ -5,8 +5,8 @@ export const SCHOOL_NAMES: Record<School, string> = { tp: '太平道', jd: '江�
 export const TIER_NAMES = ['凡品', '珍品', '绝品'] as const;
 export interface Boon { id: string; school: School; name: string; desc: string[]; col: string; glyph: string[]; vals?: [number, number, number] }
 export interface BoonPick { boon: Boon; tier: number }
-export interface Perks { owned: Record<string, number>; burn: boolean; dashCut: number; darts3: boolean; killHeal: number; relFreeze: boolean; dashEdge: boolean; bladeWind: boolean; hpUp: number }
-export const newPerks = (): Perks => ({ owned: {}, burn: false, dashCut: 0, darts3: false, killHeal: 0, relFreeze: false, dashEdge: false, bladeWind: false, hpUp: 0 });
+export interface Perks { /** act-19 刀谱: the moves learnt this run (manuals.ts) */ moves: Record<string, boolean>; owned: Record<string, number>; burn: boolean; dashCut: number; darts3: boolean; killHeal: number; relFreeze: boolean; dashEdge: boolean; bladeWind: boolean; hpUp: number }
+export const newPerks = (): Perks => ({ moves: {}, owned: {}, burn: false, dashCut: 0, darts3: false, killHeal: 0, relFreeze: false, dashEdge: false, bladeWind: false, hpUp: 0 });
 export const boonTier = (tier: number) => Number.isFinite(tier) ? Math.max(0, Math.min(2, Math.floor(tier))) : 0;
 export const boonTag = (b: Boon, tier: number) => [b.school === 'sr' ? '' : SCHOOL_NAMES[b.school], TIER_NAMES[boonTier(tier)]].filter(Boolean).join(' · ');
 

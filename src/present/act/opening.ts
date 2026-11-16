@@ -205,7 +205,10 @@ function lanternPost() {
 }
 
 // ------------------------------------------------------------------ the title: pixel text painted once, shown as two halves
-const TITLE = '不见刀', HINT = '点一下，开始', INK = '#e6ecf2', LINE = '#0a0d15';
+const TITLE = '不见刀', INK = '#e6ecf2', LINE = '#0a0d15';
+/** act-19: browsers stay silent until the first tap, so the first tap only wakes the sound (the rain and the opening music come
+ *  up) and the second one draws the blade; if the sound is already on (a replay) one tap draws */
+const HINT0 = '点一下，开始', HINT1 = '点一下，拔刀';
 /** the title's own painting: the face over a thin dark outline (a quarter of a font pixel, four directions, no diagonals) */
 function paintTitle(g: CanvasRenderingContext2D, text: string, x: number, y: number, s: number, track: number, col: string, line: string, o: number) {
   let cx = x;
@@ -232,6 +235,8 @@ export interface OpeningHost {
   ov: Overlay;
   /** build the yard (called under the frozen, cut picture) */
   enter(): void;
+  /** the sound is already unlocked (then one tap draws) */
+  soundOn?: () => boolean;
 }
 let running: Opening | null = null;
 /** start the opening over the rain road the act has just built; resolves when the yard is fully revealed */
@@ -265,6 +270,7 @@ class Opening {
   private titleA = 0; private shift = 0; private lineK = 0;
   private alive = true; private onDown = (e: Event) => this.tap(e); private onKey = (e: KeyboardEvent) => { if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key !== '`' && !e.repeat) this.tap(e); };
   constructor(private host: OpeningHost) {
+    this.soundAtStart = host.soundOn?.() ?? false;   // read now: the page's own unlock listener runs before tap() on the first tap
     this.done = new Promise(r => (this.resolve = r));
     const st = host.stage;
     // the night: the mood replaces the built 'day' one (the lantern is the only warm light)
@@ -311,10 +317,13 @@ class Opening {
   /** 1 while he stands listening, easing to 0 once the lightning breaks */
   private idleK = 1;
   // ---------------------------------------------------------------- input
+  private hintText = HINT0; private armed = false; private soundAtStart = false;
   private tap(e: Event) {
     if (this.beat !== 'rain' || this.t < 0.4) return;
     if (e.type === 'keydown') e.preventDefault();
-    this.beat = 'flash'; this.bt = 0; this.flashT = 0; cue('crit', 1);
+    // the first tap wakes the sound (show.ts unlocks the audio on the same tap and starts the opening music)
+    if (!this.armed && !this.soundAtStart) { this.armed = true; this.hintText = HINT1; this.layoutTitle(); return; }
+    this.beat = 'flash'; this.bt = 0; this.flashT = 0; cue('thunder', 1);
     if (this.titleA < 1) this.titleA = Math.max(this.titleA, 0.6);
   }
   // ---------------------------------------------------------------- the frame
@@ -375,7 +384,7 @@ class Opening {
     const a = this.host.actor, cp = camera.position;
     this.yawTo = Math.atan2(cp.x - HERO_AT.x, cp.z - HERO_AT.z);
     this.drawTo.copy(HERO_AT).add(V3(Math.sin(this.yawTo), 0, Math.cos(this.yawTo)).multiplyScalar(0.55));
-    a.play(new Action('k1', DRAW_T, DRAW_IMP)); cue('whoosh', 1); shake(0.12);
+    a.play(new Action('k1', DRAW_T, DRAW_IMP)); cue('draw', 1); cue('swishHeavy', 0.8); shake(0.12);
   }
   private fly() {
     this.beat = 'fly'; this.bt = 0;
@@ -383,11 +392,11 @@ class Opening {
     this.waveFrom.copy(from); this.waveTo.copy(to);
     this.flyT = Math.max(0.16, from.distanceTo(to) / 22);
     this.wave = new BladeArc(this.host.stage.root); this.arcEnd = 2 * 2.6 * Math.tan(camera.fov * Math.PI / 360) * camera.aspect * 1.15;
-    fxSparks(from.clone(), 0xe8f2ff, 10, 4); cue('magic', 0.5);
+    fxSparks(from.clone(), 0xe8f2ff, 10, 4); cue('swish', 0.6);
   }
   private cut() {
     this.beat = 'cut'; this.bt = 0; this.wave?.kill(); this.wave = null;
-    hitstop(0.6); shake(0.25); cue('block', 0.9);
+    hitstop(0.6); shake(0.25); cue('ultSlash', 1);
   }
   /** the picture is in this.frame: put the two slabs over everything, build the yard under them, start the slide */
   private split() {
@@ -405,7 +414,7 @@ class Opening {
     for (const m of [this.top, this.bot, this.hint, ...this.line]) if (m) m.visible = false;
     this.restore();
     try { this.host.enter(); } catch (e) { console.error('[opening] enter failed', e); }
-    cue('whoosh', 0.8);
+    cue('swishHeavy', 0.7);
   }
   private slide() {
     const ov = this.host.ov, W = ov.w, H = ov.h, c = this.lay.cut, k = Math.min(1, Math.max(0, (this.bt - 0.1) / 0.75)), e = k * k * (3 - 2 * k) * 0.35 + k * k * k * 0.65;
@@ -448,9 +457,9 @@ class Opening {
     this.top = quad(this.tex, v, 1, 90); this.bot = quad(this.tex, 0, v, 90); this.host.ov.scene.add(this.top, this.bot);
     Object.assign(this.lay, { x, y, w: cw / k, h: ch / k, cut: y + cutRow });
     // the hint: small, under the title (about a thirtieth of the screen tall)
-    const HS = Math.max(1, Math.round(Math.max(16, Math.min(22, H * 0.034)) * k / PIX_H)), ho = Math.max(1, Math.round(HS * 0.5)), hw = pixW(HINT) * HS + ho * 4, hh = PIX_H * HS + ho * 4;
+    const HS = Math.max(1, Math.round(Math.max(16, Math.min(22, H * 0.034)) * k / PIX_H)), ho = Math.max(1, Math.round(HS * 0.5)), hw = pixW(this.hintText) * HS + ho * 4, hh = PIX_H * HS + ho * 4;
     this.hintTex?.dispose();
-    this.hintTex = canvasTex(hw, hh, g => { g.imageSmoothingEnabled = false; paintTitle(g, HINT, ho * 2, ho * 2, HS, 0, '#b8c4d4', LINE, ho); }, { nearest: true });
+    this.hintTex = canvasTex(hw, hh, g => { g.imageSmoothingEnabled = false; paintTitle(g, this.hintText, ho * 2, ho * 2, HS, 0, '#b8c4d4', LINE, ho); }, { nearest: true });
     if (this.hint) { this.host.ov.scene.remove(this.hint); this.hint.geometry.dispose(); (this.hint.material as THREE.Material).dispose(); }
     this.hint = quad(this.hintTex, 0, 1, 90); this.host.ov.scene.add(this.hint);
     Object.assign(this.lay, { hx: Math.round((W - hw / k) / 2), hy: Math.round(y + ch / k + Math.max(14, H * 0.05)), hw: hw / k, hh: hh / k });
