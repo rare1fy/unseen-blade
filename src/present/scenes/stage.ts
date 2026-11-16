@@ -54,6 +54,13 @@ export interface Ctx {
 export interface SceneDef { id: string; name: string; group: '普通' | '首领' | '节点'; kind: '户外' | '室内' | '地牢' | '洞穴'; blurb: string; mood: Mood; build(c: Ctx): void; foes?: string[] }
 
 // ------------------------------------------------------------------ shared lights, sky and mist (created once)
+const MOON_BASE = new THREE.Vector3();
+/** act-19 (2x stage): the moon's shadow box (26 m) follows the view instead of sitting on the origin; snapped to whole shadow texels
+ *  so the shadows don't crawl as it moves */
+export function followShadow(x: number, z: number) {
+  if (!G) return; const m = G.moon, step = 26 / m.shadow.mapSize.x * 4, sx = Math.round(x / step) * step, sz = Math.round(z / step) * step;
+  m.position.set(MOON_BASE.x + sx, MOON_BASE.y, MOON_BASE.z + sz); m.target.position.set(sx, 0, sz);
+}
 let G: { hemi: THREE.HemisphereLight; moon: THREE.DirectionalLight; key: THREE.DirectionalLight; sky: THREE.Mesh; skyMat: THREE.ShaderMaterial; mist: THREE.Mesh[] } | null = null;
 function globals() {
   if (G) return G;
@@ -62,7 +69,7 @@ function globals() {
   // phones (touch and no fine pointer at all): half the shadow map — the shadow pass is a big share of a phone's frame (act-17)
   let phone = false; try { const n = globalThis.navigator as Navigator | undefined; phone = !!n && (n.maxTouchPoints ?? 0) > 0 && !(globalThis.matchMedia?.('(any-pointer: fine)').matches ?? true); } catch { /* old browsers: a computer */ }
   moon.shadow.mapSize.set(phone ? 1024 : 2048, phone ? 1024 : 2048); Object.assign(moon.shadow.camera, { left: -13, right: 13, top: 14, bottom: -12, near: 1, far: 50 }); moon.shadow.bias = -0.0006; moon.shadow.normalBias = 0.02;
-  scene.add(moon); scene.add(moon.target);
+  scene.add(moon); scene.add(moon.target); MOON_BASE.copy(moon.position);
   const key = new THREE.DirectionalLight(0xffd2a8, 0.9); key.position.set(5, 8, 10); scene.add(key);
   const skyMat = buildSky(), sky = scene.children.find(o => (o as THREE.Mesh).material === skyMat) as THREE.Mesh;
   const nt = noiseTex(), mist: THREE.Mesh[] = [];

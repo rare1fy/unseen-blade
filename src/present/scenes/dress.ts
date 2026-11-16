@@ -9,7 +9,7 @@ import type { Ctx } from './stage';
 import type { VoxWorld } from '../look/voxkit';
 import { Cards, ambientTick, shaft, type Ambient } from './cards';
 import { onUpdate, camera } from '../engine/world';
-import { M, hash, AREA, PLAY, patches } from './props';
+import { M, hash, AREA, PLAY, patches, SX } from './props';
 import { CELL } from '../bestiary/kit';
 import { plot, plantRings, buildFlora, inFlora, tone, SKIN_K, LEAVES, DEAD, pine, deadTree, snag, oak, bush, woodsRing } from './flora';
 import { showStage, type SceneDef } from './stage';
@@ -99,7 +99,7 @@ export function dress(c: Ctx, preset: Preset, o: DressOpt = {}) {
     feet: ((p) => p.near) as Want,
     flower: ((p) => Math.max(ss(0.42, 0.55, p.patch) * (1 - ss(0.62, 0.8, p.patch)) * 0.7, p.near * 0.55, fringe(p) * 0.3)) as Want,
     weed: ((p, x, z) => Math.max(outer(x, z) * 0.5, p.near * 0.35, (1 - patchy(p)) * 0.12)) as Want,
-    back: ((p, x, z) => (z < PLAY.z0 - 1.2 || Math.abs(x) > 7.6 ? 0.45 + p.near * 0.55 : 0)) as Want,
+    back: ((p, x, z) => (z < PLAY.z0 - 1.2 || Math.abs(x) > SX(7.6) ? 0.45 + p.near * 0.55 : 0)) as Want,
     open: ((p) => patchy(p) * 0.8 + 0.1) as Want,
     any: (() => 1) as Want,
   };

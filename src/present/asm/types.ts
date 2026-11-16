@@ -90,7 +90,9 @@ export interface Locale {
 }
 export interface Spec { locale: string; layout: string; mirror: boolean; landmark: string | null; season: SeasonId; time: TimeId; weather: WeatherId; seed: number;
   /** 浪人篇: the roads out of the scene (asm/exits.ts); absent = none cut in */
-  exits?: Array<'left' | 'right' | 'back'> }
+  exits?: Array<'left' | 'right' | 'back'>;
+  /** act-19 (2x stage): the walls, gates, cover and props of the battle floor (asm/arena.ts); absent = an open floor */
+  arena?: import('./arena').ArenaPlan }
 
 export interface Issue { kind: 'play' | 'walk' | 'front' | 'collide' | 'float' | 'foot' | 'los' | 'bounds' | 'error'; detail: string }
 export interface Report {

@@ -14,6 +14,20 @@ export const pick = <T>(arr: T[], a: number, b = 0, c = 0) => arr[Math.floor(has
 /** the stage rectangle every scene floors (metres) and the clear battle area inside it */
 export const AREA = { x0: -11, x1: 11, z0: -13, z1: 8 };
 export const PLAY = { x0: -5.2, x1: 5.4, z0: -6.4, z1: 5.6 };
+/** the original (act-01…18) stage; layouts and locales are written in these coordinates */
+const PLAY0 = { ...PLAY }, AREA0 = { ...AREA };
+/** act-19 (user: 「战斗舞台太小了」 → 边长 2 倍): the 黄巾 rooms are built on a stage whose battle floor is twice as wide and deep.
+ *  Layout and locale coordinates stay written for the old stage and go through SX / SZ: inside the old floor they scale by 2 about
+ *  the origin, outside it they shift outward by the floor's growth (so a wing group keeps its distance from the floor's edge and its
+ *  size). setStage(true) before assembling a big room, setStage(false) for the yard; PLAY / AREA are updated in place. */
+export const STAGE_BIG = { on: false };
+export const SX = (x: number) => !STAGE_BIG.on ? x : x > PLAY0.x1 ? x + PLAY0.x1 : x < PLAY0.x0 ? x + PLAY0.x0 : x * 2;
+export const SZ = (z: number) => !STAGE_BIG.on ? z : z > PLAY0.z1 ? z + PLAY0.z1 : z < PLAY0.z0 ? z + PLAY0.z0 : z * 2;
+export function setStage(big: boolean) {
+  STAGE_BIG.on = big;
+  Object.assign(PLAY, { x0: SX(PLAY0.x0), x1: SX(PLAY0.x1), z0: SZ(PLAY0.z0), z1: SZ(PLAY0.z1) });
+  Object.assign(AREA, { x0: SX(AREA0.x0), x1: SX(AREA0.x1), z0: SZ(AREA0.z0), z1: SZ(AREA0.z1) });
+}
 export const inPlay = (x: number, z: number) => x > PLAY.x0 && x < PLAY.x1 && z > PLAY.z0 && z < PLAY.z1;
 
 // ------------------------------------------------------------------ colour and frame helpers

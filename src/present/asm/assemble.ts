@@ -3,7 +3,7 @@
 // 不通过就记进 report.rejected，换下一个候选。所以组写错了尺寸、和别的东西撞了、悬空了、挡了战斗区，都不会进最终画面。
 import { VoxWorld } from '../look/voxkit';
 import { CELL } from '../bestiary/kit';
-import { AREA, PLAY, hash } from '../scenes/props';
+import { AREA, PLAY, hash, SX, SZ, STAGE_BIG } from '../scenes/props';
 import { plot, buildFlora } from '../scenes/flora';
 import type { Ctx, SceneDef } from '../scenes/stage';
 import type { Cards } from '../scenes/cards';
@@ -11,13 +11,30 @@ import { checkCells, commit, newOcc, floatingCells, type Occ } from './check';
 import { moodFor, lampFor, weatherAmbient } from './sky';
 import { snowPass } from './season';
 import { withExits } from './exits';
+import { buildArena } from './arena';
 import type { Group, Issue, Layout, Locale, Place, Rect, Report, Slot, Spec } from './types';
 import { SEASON_CN, TIME_CN, WEATHER_CN } from './types';
 
 const key = (x: number, y: number, z: number) => ((x + 512) * 1024 + (y + 512)) * 1024 + (z + 512);
 export const rndOf = (seed: number, salt: number) => (k: number) => hash(seed * 7919 + 13, salt * 131 + k, 977);
-/** the stage the checks allow (a little beyond AREA: the wings run out to |x| ≈ 12) */
-export const STAGE: Rect = { x0: AREA.x0 - 2, x1: AREA.x1 + 2, z0: AREA.z0 - 4, z1: AREA.z1 + 1 };
+/** the stage the checks allow (a little beyond AREA: the wings run out to |x| ≈ 12); live, AREA grows on the 2x stage */
+export const stageRect = (): Rect => ({ x0: AREA.x0 - 2, x1: AREA.x1 + 2, z0: AREA.z0 - 4, z1: AREA.z1 + 1 });
+
+// ------------------------------------------------------------------ the 2x stage (act-19): a layout in the old coordinates, moved
+/** a rect through SX / SZ: a narrow one (a road, < 4 m across) keeps its width round its moved centre, a wide one stretches */
+function stretchRect(r: Rect): Rect {
+  const ax = (a: number, b: number, f: (v: number) => number): [number, number] => b - a < 4 ? [f((a + b) / 2) - (b - a) / 2, f((a + b) / 2) + (b - a) / 2] : [f(a), f(b)];
+  const [x0, x1] = ax(r.x0, r.x1, SX), [z0, z1] = ax(r.z0, r.z1, SZ); return { x0, x1, z0, z1 };
+}
+/** the layout for the current stage: on the 2x stage every slot / landmark / road moves out with the floor (sizes unchanged) */
+export function stageLayout(l: Layout): Layout {
+  if (!STAGE_BIG.on) return l;
+  const roads = l.path.map(r => ({ ...stretchRect(r) }));
+  // a road that ran in from the front edge still does
+  for (let i = 0; i < roads.length; i++) if (l.path[i].z1 > 8) roads[i].z1 = Math.max(roads[i].z1, AREA.z1 + 0.4);
+  return { ...l, landmark: l.landmark ? { ...l.landmark, x: SX(l.landmark.x), z: SZ(l.landmark.z) } : null, path: roads, court: l.court ? stretchRect(l.court) : undefined,
+    slots: l.slots.map(s => ({ ...s, x: SX(s.x), z: SZ(s.z) })) };
+}
 /** most point lights per scene (each one costs every lit pixel; the shader also recompiles when the count changes) */
 export const MAX_LIGHTS = 12;
 
@@ -100,7 +117,7 @@ export interface Registry { locales: Record<string, Locale>; layouts: Record<str
 export function assemble(spec: Spec, reg: Registry): { def: SceneDef; report: Report } {
   const loc = reg.locales[spec.locale], base = reg.layouts[spec.layout] ?? loc.extraLayouts?.find(l => l.id === spec.layout);
   if (!loc || !base) throw new Error(`unknown locale / layout ${spec.locale} / ${spec.layout}`);
-  const layout = withExits(spec.mirror ? mirrorLayout(base) : base, spec.exits ?? []);
+  const layout = withExits(spec.mirror ? mirrorLayout(stageLayout(base)) : stageLayout(base), spec.exits ?? []);
   const lmName = spec.landmark ? loc.landmarks.find(l => l.id === spec.landmark)?.name ?? '' : '';
   const name = `${loc.name}${lmName ? ' · ' + lmName : ''} · ${SEASON_CN[spec.season]}${TIME_CN[spec.time]}${spec.weather !== 'clear' ? '·' + WEATHER_CN[spec.weather] : ''}`;
   const report: Report = { spec, name, placed: [], rejected: [], empty: [], warnings: [], lights: 0 };
@@ -118,7 +135,7 @@ export function assemble(spec: Spec, reg: Registry): { def: SceneDef; report: Re
         const { ctx, held } = sandbox(c); const issues: Issue[] = [];
         try { g.build(ctx, place(x, z, s, salt)); } catch (e) { issues.push({ kind: 'error', detail: String((e as Error)?.message ?? e) }); }
         const cells = heldCells(held);
-        if (!issues.length) issues.push(...checkCells([...cells.hard, ...cells.soft], { anchor: [x, z], foot: g.foot, occ: live.occ, walk: o.strict ? walk : [], stage: STAGE }));
+        if (!issues.length) issues.push(...checkCells([...cells.hard, ...cells.soft], { anchor: [x, z], foot: g.foot, occ: live.occ, walk: o.strict ? walk : [], stage: stageRect() }));
         if (!issues.length) { const n = upperClash(cells, live); if (n > 6) issues.push({ kind: 'collide', detail: `${n} cells clash above the body band (roof / crown into a building)` }); }
         if (!issues.length && o.maxH != null) { let top = 0; for (const k of cells.hard) top = Math.max(top, (Math.floor(k / 1024) % 1024) - 512); if ((top + 1) * CELL > o.maxH + 0.05) issues.push({ kind: 'bounds', detail: `${((top + 1) * CELL).toFixed(1)} m tall > slot limit ${o.maxH} m` }); }
         if (issues.length && o.strict) { report.rejected.push({ id: g.id, slot: slotId, issues }); return false; }
@@ -147,7 +164,8 @@ export function assemble(spec: Spec, reg: Registry): { def: SceneDef; report: Re
           let x = sl.x + (r(500 + si) - 0.5) * spareW * 0.8, z = sl.z + (r(600 + si) - 0.5) * spareD * 0.8;
           // beside the battle floor (the slot's z range overlaps it): push the group out so its inner edge clears the floor
           const besidePlay = sl.z + sl.d / 2 > PLAY.z0 - 0.3 && sl.z - sl.d / 2 < PLAY.z1 + 0.3;
-          if (besidePlay && sl.s > 0) x = Math.max(x, PLAY.x1 + 0.35 + g.foot.w / 2); else if (besidePlay && sl.s < 0) x = Math.min(x, PLAY.x0 - 0.35 - g.foot.w / 2);
+          const gap = STAGE_BIG.on ? 1.1 : 0.35;   // the 2x stage has a low wall round its floor (asm/arena.ts)
+          if (besidePlay && sl.s > 0) x = Math.max(x, PLAY.x1 + gap + g.foot.w / 2); else if (besidePlay && sl.s < 0) x = Math.min(x, PLAY.x0 - gap - g.foot.w / 2);
           if (tryPlace(g, x, z, sl.s, 10 + si, sl.id, { strict: true, maxH: sl.maxH })) { ok = true; break; }
         }
         if (!ok) report.empty.push(sl.id);
@@ -155,19 +173,28 @@ export function assemble(spec: Spec, reg: Registry): { def: SceneDef; report: Re
       // 3) filler: small pieces into the room left on the wings (a few tries each, every one checked like a group)
       if (loc.filler?.length) {
         const fill = weightedOrder(loc.filler, r, 900); let n = 0;
-        for (let t = 0; t < 40 && n < 6; t++) {
+        const nMax = STAGE_BIG.on ? 14 : 6, tMax = STAGE_BIG.on ? 120 : 40;
+        for (let t = 0; t < tMax && n < nMax; t++) {
           const g = fill[t % fill.length], s: -1 | 1 = r(950 + t) < 0.5 ? -1 : 1;
-          const x = s * (PLAY.x1 + 0.6 + g.foot.w / 2 + r(960 + t) * 4.2), z = -9.5 + r(970 + t) * 14;
+          const x = s * (PLAY.x1 + (STAGE_BIG.on ? 1.2 : 0.6) + g.foot.w / 2 + r(960 + t) * 4.2), z = SZ(-9.5) + r(970 + t) * (SZ(4.5) - SZ(-9.5));
           if ((count.get(g.id) ?? 0) >= (g.max ?? 3)) continue;
           if (tryPlace(g, x, z, s, 300 + t, 'filler', { strict: true })) n++;
           else report.rejected.pop();   // filler misses are expected (it probes for room), keep them out of the report
         }
       }
+      // 3b) the 2x stage's walls, gates and cover (inside / on the edge of the battle floor, where no slot group reaches)
+      const arenaClear: Rect[] = [];
+      if (spec.arena) {
+        buildArena(c, spec.arena, spec.seed);
+        for (const cv of spec.arena.covers) arenaClear.push({ x0: cv.x - cv.hx - 0.3, x1: cv.x + cv.hx + 0.3, z0: cv.z - cv.hz - 0.3, z1: cv.z + cv.hz + 0.3 });
+        const w = spec.arena.wall, t = w.gap + w.thick + 0.2;
+        arenaClear.push({ x0: PLAY.x0 - t, x1: PLAY.x0, z0: PLAY.z0 - t, z1: PLAY.z1 }, { x0: PLAY.x1, x1: PLAY.x1 + t, z0: PLAY.z0 - t, z1: PLAY.z1 }, { x0: PLAY.x0 - t, x1: PLAY.x1 + t, z0: PLAY.z0 - t, z1: PLAY.z0 });
+      }
       // 4) the far ring, the season pass, flora, dressing, weather
       loc.far?.(c, { layout, p: place(0, 0, 0, 3) });
       if (spec.season === 'winter') snowPass(c, walk);
       buildFlora(c);
-      loc.dress?.(c, { layout, p: place(0, 0, 0, 4), clear: walk });
+      loc.dress?.(c, { layout, p: place(0, 0, 0, 4), clear: [...walk, ...arenaClear] });
       for (const a of weatherAmbient(spec.weather, spec.season, spec.time, spec.locale.startsWith('hj_'))) c.ambient(a);
       report.lights = live.lights;
       if (live.lights >= MAX_LIGHTS) report.warnings.push(`light budget reached (${MAX_LIGHTS})`);

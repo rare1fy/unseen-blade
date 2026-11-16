@@ -3,12 +3,12 @@
 //   left / right：侧路，在敌人站位后面一点的高度横穿两翼，通向舞台外；
 //   back：构图自己的参道 / 小径的后端（通向地标那一侧），不另开通道。
 // 路牌（道標）和走过去的路线点由 exitInfo 给出，选路时（present/ronin/route.ts）用。
-import { PLAY } from '../scenes/props';
+import { PLAY, SX, SZ } from '../scenes/props';
 import type { Layout, Rect } from './types';
 
 export type ExitId = 'left' | 'right' | 'back';
-/** the side road's band (z), behind the enemy line */
-const SIDE = { z0: -5.7, z1: -3.5, out: 13.5 };
+/** the side road's band (z), behind the enemy line — 2.2 m wide, its centre through SZ on the 2x stage (act-19) */
+const side = () => { const c = SZ(-4.6); return { z0: c - 1.1, z1: c + 1.1, out: SX(13.5) }; };
 
 export interface ExitInfo {
   id: ExitId;
@@ -30,7 +30,7 @@ function backOf(l: Layout): ExitInfo {
 }
 export function exitInfo(l: Layout, id: ExitId): ExitInfo {
   if (id === 'back') return backOf(l);
-  const s = id === 'left' ? -1 : 1, edge = s < 0 ? PLAY.x0 : PLAY.x1, zc = (SIDE.z0 + SIDE.z1) / 2;
+  const SIDE = side(), s = id === 'left' ? -1 : 1, edge = s < 0 ? PLAY.x0 : PLAY.x1, zc = (SIDE.z0 + SIDE.z1) / 2;
   const lane = s < 0 ? { x0: -SIDE.out, x1: edge, z0: SIDE.z0, z1: SIDE.z1 } : { x0: edge, x1: SIDE.out, z0: SIDE.z0, z1: SIDE.z1 };
   return { id, lane, walk: [[edge - s * 0.8, zc + 1.2], [edge + s * 1.2, zc], [s * (SIDE.out - 1.0), zc]], sign: { x: edge + s * 1.9, z: SIDE.z0 - 0.5, yaw: 0 }, dir: [s, 0] };
 }

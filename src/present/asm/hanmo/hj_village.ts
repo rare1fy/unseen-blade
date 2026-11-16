@@ -3,7 +3,7 @@
 // 地标三选一：村口大槐（寨墙、门楼、大槐树、石碑）/ 祠堂（台基、朱柱、三间、灰瓦，一头烧塌）/ 坞堡望楼（高夯土坞壁、烧掉顶层的望楼）。
 // 主色：黄土、夯土赭黄、灰褐茅草、灰瓦、焦黑木；黄巾黄只在旗和头巾上。写法照忍里：foot（米，未镜像），h、kinds、size；build 以 p.x / p.z 为锚点。
 import type { Ctx } from '../../scenes/stage';
-import { M, AREA, PLAY, hash } from '../../scenes/props';
+import { M, AREA, PLAY, hash, SX, SZ, STAGE_BIG } from '../../scenes/props';
 import { oak, deadTree } from '../../scenes/flora';
 import { ground } from '../../scenes/dress';
 import { LEAF_BY } from '../season';
@@ -208,9 +208,10 @@ function floor(c: Ctx, f: { layout: Layout; p: Place }) {
   fill(AREA.x0 - 6, AREA.z0 - 8, AREA.x1 + 6, AREA.z1 + 4, G3[0]);
   for (let i = 0; i < 26; i++) { const x = AREA.x0 - 5 + r(i) * (AREA.x1 - AREA.x0 + 10), z = AREA.z0 - 7 + r(50 + i) * (AREA.z1 - AREA.z0 + 10), hw = 0.6 + r(100 + i) * 1.4, hd = 0.5 + r(150 + i) * 1.0; fill(snap(x - hw), snap(z - hd), snap(x + hw), snap(z + hd), r(200 + i) < 0.6 ? G3[1] : G3[2]); }
   // the village ground
-  fill(-12.6, -15.4, 12.6, 8.6, HV.loess);
-  for (let i = 0; i < 30; i++) { const x = -12 + r(300 + i) * 24, z = -15 + r(350 + i) * 23, hw = 0.5 + r(400 + i) * 1.6, hd = 0.4 + r(450 + i) * 1.2; fill(snap(x - hw), snap(z - hd), snap(x + hw), snap(z + hd), r(500 + i) < 0.55 ? HV.loessD : HV.loessL); }
-  for (let i = 0; i < 10; i++) { const s = r(550 + i) < 0.5 ? -1 : 1, x = s * (9.4 + r(560 + i) * 3), z = -14 + r(570 + i) * 21, hw = 0.4 + r(580 + i) * 0.8, hd = 0.5 + r(590 + i) * 1.2; fill(snap(x - hw), snap(z - hd), snap(x + hw), snap(z + hd), G3[r(600 + i) < 0.5 ? 0 : 2]); }
+  // act-19: the old stage's numbers go through SX / SZ (the 2x stage moves everything outside the floor outward)
+  fill(SX(-12.6), SZ(-15.4), SX(12.6), SZ(8.6), HV.loess);
+  for (let i = 0; i < (STAGE_BIG.on ? 70 : 30); i++) { const x = SX(-12) + r(300 + i) * (SX(12) - SX(-12)), z = SZ(-15) + r(350 + i) * (SZ(8) - SZ(-15)), hw = 0.5 + r(400 + i) * 1.6, hd = 0.4 + r(450 + i) * 1.2; fill(snap(x - hw), snap(z - hd), snap(x + hw), snap(z + hd), r(500 + i) < 0.55 ? HV.loessD : HV.loessL); }
+  for (let i = 0; i < 10; i++) { const s = r(550 + i) < 0.5 ? -1 : 1, x = SX(s * (9.4 + r(560 + i) * 3)), z = SZ(-14 + r(570 + i) * 21), hw = 0.4 + r(580 + i) * 0.8, hd = 0.5 + r(590 + i) * 1.2; fill(snap(x - hw), snap(z - hd), snap(x + hw), snap(z + hd), G3[r(600 + i) < 0.5 ? 0 : 2]); }
   // the cart track along each path: trodden light earth, two dark ruts a third in from its edges
   for (const q of f.layout.path) {
     fill(q.x0, q.z0, q.x1, q.z1, HV.track);
@@ -220,27 +221,27 @@ function floor(c: Ctx, f: { layout: Layout; p: Place }) {
   }
   if (f.layout.court) { const q = f.layout.court; fill(q.x0, q.z0, q.x1, q.z1, HV.loessL); }
   // two or three ash scars outside the battle floor where something burnt
-  for (let i = 0; i < 3; i++) { const s = r(700 + i) < 0.5 ? -1 : 1, x = s * (6.4 + r(710 + i) * 4.5), z = -12 + r(720 + i) * 14, h = 0.6 + r(730 + i) * 0.6; fill(snap(x - h), snap(z - h * 0.8), snap(x + h), snap(z + h * 0.8), HV.ash); }
+  for (let i = 0; i < 3; i++) { const s = r(700 + i) < 0.5 ? -1 : 1, x = SX(s * (6.4 + r(710 + i) * 4.5)), z = SZ(-12 + r(720 + i) * 14), h = 0.6 + r(730 + i) * 0.6; fill(snap(x - h), snap(z - h * 0.8), snap(x + h), snap(z + h * 0.8), HV.ash); }
 }
 // ------------------------------------------------------------------ the far ring: loess terraces on the flanks, the village wall and roofs beyond, smoke
 function far(c: Ctx, f: { layout: Layout; p: Place }) {
   const w = c.w, r = f.p.rnd, se = f.p.season;
   const top = se === 'autumn' ? [0xa88a48, 0x98803e] : se === 'winter' ? [0x7a6a52, 0x6e604a] : se === 'summer' ? [0x5a7a38, 0x66843e] : [0x72884a, 0x7e9452];
   for (const s of [-1, 1]) for (let t = 0; t < 3; t++) {
-    const xa = s > 0 ? 13.6 + t * 2.2 : -15.8 - t * 2.2, H = 4 + t * 7, X0 = M(xa), X1 = M(xa + 2.2) - 1;
-    for (let Z = M(-17); Z <= M(8); Z += 26) { const Z1 = Math.min(M(8), Z + 24); w.box(X0, -1, Z, X1, H - 1, Z1, HV.earthD); for (let y = 5; y < H; y += 6) w.box(X0, y, Z, X1, y, Z1, HV.earthS); w.box(X0, H, Z, X1, H, Z1, top[(Math.floor(Z / 26) + t) & 1]); }
+    const xa = s > 0 ? SX(13.6 + t * 2.2) : SX(-15.8 - t * 2.2), H = 4 + t * 7, X0 = M(xa), X1 = M(xa + 2.2) - 1;
+    for (let Z = M(SZ(-17)); Z <= M(SZ(8)); Z += 26) { const Z1 = Math.min(M(SZ(8)), Z + 24); w.box(X0, -1, Z, X1, H - 1, Z1, HV.earthD); for (let y = 5; y < H; y += 6) w.box(X0, y, Z, X1, y, Z1, HV.earthS); w.box(X0, H, Z, X1, H, Z1, top[(Math.floor(Z / 26) + t) & 1]); }
   }
   // the village wall across the back, gaps knocked in it
-  const B = frame(w, 0, -16.6);
-  yardWall(B, -190, 190, 0, 30, { drops: [[-120, -96, 14], [40, 62, 18], [140, 166, 10]] });
+  const B = frame(w, 0, SZ(-16.6)), WW = STAGE_BIG.on ? 340 : 190;
+  yardWall(B, -WW, WW, 0, 30, { drops: [[-120, -96, 14], [40, 62, 18], [140, 166, 10], ...(STAGE_BIG.on ? [[-300, -270, 12], [250, 280, 16]] as Array<[number, number, number]> : [])] });
   // roofs beyond the wall: houses, one or two burnt to the walls and smoking
-  const n = 4;
+  const n = STAGE_BIG.on ? 6 : 4;
   for (let i = 0; i < n; i++) {
-    const x = (i - (n - 1) / 2) * 7.2 + (r(420 + i) - 0.5) * 2, z = -19.6 - r(430 + i) * 1.4, burnt = r(440 + i) < 0.4;
+    const x = (i - (n - 1) / 2) * 7.2 + (r(420 + i) - 0.5) * 2, z = SZ(-19.6) - r(430 + i) * 1.4, burnt = r(440 + i) < 0.4;
     house(c, x, z, 0, { hw: 26, hd: 14, H: 30, burnt: burnt ? 2 : 0, chimney: !burnt, wins: [] });
     if (burnt) smoke(c, [x, 2.6, z], { rate: 2.2, col: 0x5e5a56 });
   }
-  for (let i = 0; i < 6; i++) { const x = -15 + i * 6 + r(460 + i) * 2, z = -23 - r(470 + i) * 2; if (r(480 + i) < 0.4) deadTree(w, x, z, 6 + r(490 + i) * 2, HV.char, HV.charD, { seed: 70 + i, crow: 0.3, moss: false }); else oak(w, x, z, 7 + r(490 + i) * 2, { seed: 80 + i, leaf: LEAF_BY[se][0], leafTop: LEAF_BY[se][1], low: 0.45, width: 0.8, vines: 0 }); }
+  for (let i = 0; i < (STAGE_BIG.on ? 9 : 6); i++) { const x = (STAGE_BIG.on ? -24 : -15) + i * 6 + r(460 + i) * 2, z = SZ(-23) - r(470 + i) * 2; if (r(480 + i) < 0.4) deadTree(w, x, z, 6 + r(490 + i) * 2, HV.char, HV.charD, { seed: 70 + i, crow: 0.3, moss: false }); else oak(w, x, z, 7 + r(490 + i) * 2, { seed: 80 + i, leaf: LEAF_BY[se][0], leafTop: LEAF_BY[se][1], low: 0.45, width: 0.8, vines: 0 }); }
 }
 // ------------------------------------------------------------------ dressing: dry grass on the grass, weeds by the walls, straw, dust and ash
 function dress(c: Ctx, f: { layout: Layout; p: Place; clear: Rect[] }) {

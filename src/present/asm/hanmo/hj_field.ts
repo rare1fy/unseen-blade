@@ -3,7 +3,7 @@
 // 道具组之间剩下的空地），要么割完了是麦茬，要么已经翻耕。后方远处是村子的夯土墙、望楼、冒烟的屋顶和黄土塬。
 // 地标三选一：粮仓（仓 + 两座囷）/ 水碓（渠上的水轮 + 碓房）/ 社树（社坛上的老槐）。道具组在 hj_field_props.ts，地标在 hj_field_lm.ts。
 import type { Ctx } from '../../scenes/stage';
-import { M, AREA, PLAY, hash, field } from '../../scenes/props';
+import { M, AREA, PLAY, hash, field, SX, SZ, STAGE_BIG } from '../../scenes/props';
 import { CELL } from '../../bestiary/kit';
 import { plot, oak, tone, type Mass } from '../../scenes/flora';
 import { ground } from '../../scenes/dress';
@@ -16,20 +16,22 @@ import { GROUPS, FILLER } from './hj_field_props';
 type PlotKind = 'field' | 'wheat' | 'stubble' | 'soil';
 interface Plot { x0: number; x1: number; z0: number; z1: number; kind: PlotKind; rowsZ: boolean; H: number; pal: CropPal; far: boolean }
 /** ridge lines (metres): x lines run along z; the battle plot spans the middle column from the back ridge to the front ridge */
-const XS = [-27, -20, -12.8, PLAY.x0 - 0.8, PLAY.x1 + 0.8, 13.0, 20, 27];
-const ZS_SIDE = [-36, -25.5, -15.6, PLAY.z0 - 0.8, -1.6, PLAY.z1 + 0.8, 14];
-const ZS_MID = [-36, -25.5, -15.6, PLAY.z0 - 0.8, PLAY.z1 + 0.8, 14];
+// act-19: read per build, through SX / SZ (the 2x stage moves the ridges outside the floor outward)
+const xsOf = () => [SX(-27), SX(-20), SX(-12.8), PLAY.x0 - 0.8, PLAY.x1 + 0.8, SX(13.0), SX(20), SX(27)];
+const zsSideOf = () => [SZ(-36), SZ(-25.5), SZ(-15.6), PLAY.z0 - 0.8, SZ(-1.6), PLAY.z1 + 0.8, SZ(14)];
+const zsMidOf = () => [SZ(-36), SZ(-25.5), SZ(-15.6), PLAY.z0 - 0.8, PLAY.z1 + 0.8, SZ(14)];
 /** half the width of a ridge (m) */
 const RH = 0.15;
 const plotCache = new Map<string, Plot[]>();
 function plotsOf(seed: number, season: SeasonId): Plot[] {
-  const key = seed + season; const hit = plotCache.get(key); if (hit) return hit;
+  const key = seed + season + (STAGE_BIG.on ? 'B' : ''); const hit = plotCache.get(key); if (hit) return hit;
+  const XS = xsOf(), ZS_SIDE = zsSideOf(), ZS_MID = zsMidOf();
   const out: Plot[] = [], r = (a: number, b: number, k: number) => hash(seed * 31 + a * 7, b * 13 + k, 4111);
   for (let i = 0; i + 1 < XS.length; i++) {
     const zs = i === 3 ? ZS_MID : ZS_SIDE;
     for (let j = 0; j + 1 < zs.length; j++) {
       const x0 = XS[i] + RH, x1 = XS[i + 1] - RH, z0 = zs[j] + RH, z1 = zs[j + 1] - RH;
-      const far = x0 >= 12.8 || x1 <= -12.8 || z1 <= -15.6;
+      const far = x0 >= SX(12.8) || x1 <= SX(-12.8) || z1 <= SZ(-15.6);
       let kind: PlotKind;
       if (i === 3 && z0 < PLAY.z0 && z1 > PLAY.z1) kind = 'field';
       else if (z0 >= PLAY.z1) kind = 'stubble';
@@ -37,7 +39,7 @@ function plotsOf(seed: number, season: SeasonId): Plot[] {
         const h = r(i, j, 1), pw = far ? 0.6 : season === 'autumn' ? 0.62 : 0.7, ps = season === 'autumn' ? 0.2 : 0.2;
         kind = h < pw ? 'wheat' : h < pw + ps ? 'stubble' : 'soil';
       }
-      const near = !far && z0 > -2;
+      const near = !far && z0 > SZ(-2);
       const H = (season === 'autumn' ? 14 : 13) + (r(i, j, 2) < 0.5 ? 1 : 0) - (near ? 2 : 0);
       out.push({ x0, x1, z0, z1, kind, rowsZ: r(i, j, 3) < 0.62, H, pal: cropOf(season, r(i, j, 4) < (season === 'summer' ? 0.3 : 0.4) ? 1 : 0), far });
     }
@@ -124,8 +126,8 @@ function wheatFill(c: Ctx, f: { layout: Layout; p: Place }, ps: Plot[], water: S
       if (a < A0 || a > A1 || b < B0 || b > B1 || taken.has(tk(a, b))) return false;
       const x0 = a * T * CELL, x1 = (a + 1) * T * CELL, z0 = b * T * CELL, z1 = (b + 1) * T * CELL, r: Rect = { x0, x1, z0, z1 };
       const hit = (q: Rect, m: number) => r.x0 < q.x1 + m && r.x1 > q.x0 - m && r.z0 < q.z1 + m && r.z1 > q.z0 - m;
-      if (hit(PLAY, 0.9) || walk.some(q => hit(q, 0.45)) || (yard && hit(yard, 0.1)) || z1 > 5.8) return false;
-      if (pl.far && hit(VILLAGE, 0.3)) return false;
+      if (hit(PLAY, 0.9) || walk.some(q => hit(q, 0.45)) || (yard && hit(yard, 0.1)) || z1 > SZ(5.8)) return false;
+      if (pl.far && hit(villageRect(), 0.3)) return false;
       return true;
     };
     const lead = pl.rowsZ ? [A0, A1] : [B0, B1], run = pl.rowsZ ? [B0, B1] : [A0, A1];
@@ -149,7 +151,7 @@ function wheatFill(c: Ctx, f: { layout: Layout; p: Place }, ps: Plot[], water: S
 }
 
 /** the village behind the fields (m): left alone by the wheat */
-const VILLAGE: Rect = { x0: -15, x1: 15, z0: -32, z1: -24.6 };
+const villageRect = (): Rect => ({ x0: SX(-15), x1: SX(15), z0: SZ(-32), z1: SZ(-24.6) });
 /** a flora mass straight from cells (the far silhouettes are prisms: cheap and bevelled) */
 const mass = (c: Ctx, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, side: number, o: Partial<Mass> = {}) => {
   plot(c.w).masses.push({ x0: Math.min(x0, x1), x1: Math.max(x0, x1), y0, y1, z0: Math.min(z0, z1), z1: Math.max(z0, z1), cx: 0, cz: 0, top: tone(side, 1.12), side, low: tone(side, 0.72), band: 0, ...o });
@@ -171,7 +173,7 @@ function far(c: Ctx, f: { layout: Layout; p: Place }) {
   const p = f.p, se = p.season, ps = plotsOf(p.seed, se), r = (k: number) => hash(p.seed, k, 613);
   const water = carveWater(c);
   // the village: a rammed-earth enclosure wall, house roofs over it (one or two burning), a watchtower (望楼) and the gate tower
-  const WZ = M(-25.2), W0 = M(-14.6), W1 = M(14.6);
+  const WZ = M(SZ(-25.2)), W0 = M(SX(-14.6)), W1 = M(SX(14.6));
   mass(c, W0, -1, WZ - 8, W1, 34, WZ, HC.ram, { band: 4, low: HC.ramD, top: HC.ramL });
   for (let y = 4; y < 34; y += 6) mass(c, W0, y, WZ + 1, W1, y, WZ + 1, HC.ramD, { top: HC.ramD, low: HC.ramD });
   mass(c, W0 - 1, 35, WZ - 9, W1 + 1, 37, WZ + 1, HC.th, { top: HC.thL, low: HC.thD });
@@ -184,7 +186,7 @@ function far(c: Ctx, f: { layout: Layout; p: Place }) {
   mass(c, gx - 26, 59, WZ - 16, gx + 26, 63, WZ + 7, HC.greyD, { top: HC.grey, low: HC.black });
   mass(c, gx - 18, 64, WZ - 11, gx + 18, 68, WZ + 2, HC.greyD, { top: HC.grey, low: HC.black });
   // the watchtower: three storeys of timber, each with its own stepped eave
-  const tx = (r(2) < 0.5 ? -1 : 1) * M(9.5 + r(3) * 2), tz = WZ - 26;
+  const tx = M(SX((r(2) < 0.5 ? -1 : 1) * (9.5 + r(3) * 2))), tz = WZ - 26;
   let y = -1;
   for (const [hw, h] of [[14, 30], [11, 22], [9, 18]] as const) {
     mass(c, tx - hw, y, tz - hw, tx + hw, y + h, tz + hw, HC.wood, { band: 2, low: HC.woodD, top: HC.woodL });
@@ -195,18 +197,18 @@ function far(c: Ctx, f: { layout: Layout; p: Place }) {
   // houses behind the wall, roofs over its top
   const burn = Math.floor(r(4) * 4);
   for (let i = 0; i < 4; i++) {
-    const hx = -11 + i * 7.2 + (r(10 + i) - 0.5) * 2, hz = -28.4 - r(20 + i) * 2.2;
+    const hx = SX(-11 + i * 7.2 + (r(10 + i) - 0.5) * 2), hz = SZ(-28.4) - r(20 + i) * 2.2;
     if (Math.abs(hx * 1 - gx * CELL) < 3.4 || Math.abs(hx - tx * CELL) < 2.6) continue;
     farHouse(c, hx, hz, 30 + Math.floor(r(30 + i) * 10), 20, 36 + Math.floor(r(40 + i) * 8), i === burn || (i === (burn + 2) % 4 && r(50) < 0.5), p);
   }
   // loess terraces (黄土塬) far behind: three wide steps, tan faces, crop or dry grass on the tops
   const topC = se === 'autumn' ? 0x9a8a50 : 0x7a8a46;
   for (const [x0, x1, z0, z1, h] of [[-70, 70, -62, -46, 150], [-70, -24, -48, -40, 90], [22, 70, -48, -39, 110], [-44, -14, -42, -36, 50], [12, 46, -42, -36, 64]] as const)
-    mass(c, M(x0), -1, M(z0), M(x1), h, M(z1), 0xb09468, { top: topC, low: 0x8a7050, band: 6 });
+    mass(c, M(SX(x0)), -1, M(SZ(z0)), M(SX(x1)), h, M(SZ(z1)), 0xb09468, { top: topC, low: 0x8a7050, band: 6 });
   // elms and poplars on the far ridges (a little gap where they would stand in front of the gate)
   const lf = ELM[se];
   const trees: Array<[number, number, number]> = [[-17.6, -18.5, 7.5], [16.8, -19.5, 8.5], [-22, -6, 7], [22.5, -9, 8], [-7.5, -23.6, 6.5], [6.8, -23.2, 7], [-21.5, 6, 6.5], [23, 3, 7.5]];
-  trees.forEach(([x, z, h], i) => { if (r(60 + i) < 0.25) return; const col = lf[i % lf.length]; oak(c.w, x, z, h + r(70 + i) * 1.5, { seed: p.seed + i * 7, bark: 0x4a3a2c, dark: 0x30241c, leaf: col[0], leafTop: col[1], low: 0.42, width: 0.85, vines: 0 }); });
+  trees.forEach(([x0, z0, h], i) => { if (r(60 + i) < 0.25) return; const col = lf[i % lf.length], x = SX(x0), z = SZ(z0); oak(c.w, x, z, h + r(70 + i) * 1.5, { seed: p.seed + i * 7, bark: 0x4a3a2c, dark: 0x30241c, leaf: col[0], leafTop: col[1], low: 0.42, width: 0.85, vines: 0 }); });
   // the standing wheat: every wheat plot, in rows, round whatever already stands there
   wheatFill(c, f, ps, water);
 }

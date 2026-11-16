@@ -75,6 +75,8 @@ export interface FoeWorld {
   foes: Foe[];
   arrows: Arrow[];
   clamp(p: THREE.Vector3, r: number): void;
+  /** act-19: after the clamp moved a foe by (dx, dz) — a wall / cover / prop pushed it back (the wall slam reads this) */
+  pushed?(f: Foe, dx: number, dz: number): void;
   /** a deflected arrow strikes a foe */
   arrowHit(f: Foe, a: Arrow): void;
   /** an attack that would have hit was jumped over (a perfect dodge) */
@@ -342,7 +344,7 @@ function integrate(f: Foe, w: FoeWorld, dt: number) {
   // keep apart from each other and out of the hero
   for (const o of w.foes) if (o !== f && o.st !== 'dead') { const d = f.pos.clone().sub(o.pos).setY(0), l = d.length(), m = f.d.r + o.d.r; if (l < m && l > 1e-4) f.pos.addScaledVector(d, ((m - l) / l) * (o.d.mass / (o.d.mass + f.d.mass))); }
   if (w.heroAlive && f.st !== 'strike' && w.heroY < 0.6) { const d = f.pos.clone().sub(w.heroPos).setY(0), l = d.length(), m = f.d.r + w.heroR; if (l < m && l > 1e-4) f.pos.addScaledVector(d, (m - l) / l); }
-  w.clamp(f.pos, f.d.r);
+  const bx = f.pos.x, bz = f.pos.z; w.clamp(f.pos, f.d.r); if (w.pushed && (f.pos.x !== bx || f.pos.z !== bz)) w.pushed(f, f.pos.x - bx, f.pos.z - bz);
   f.a.yaw = f.yaw;
 }
 

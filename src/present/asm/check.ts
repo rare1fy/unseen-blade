@@ -9,7 +9,7 @@
 //   los      挡住战斗机位看任何一个站位的视线（站位胸口高度那条射线穿过 1.2 m 以上的实心格）
 //   bounds   超出舞台范围
 import { CELL } from '../bestiary/kit';
-import { PLAY } from '../scenes/props';
+import { PLAY, SX, SZ } from '../scenes/props';
 import type { Issue, Rect } from './types';
 
 const key = (x: number, y: number, z: number) => ((x + 512) * 1024 + (y + 512)) * 1024 + (z + 512);
@@ -18,7 +18,7 @@ const unkey = (k: number): [number, number, number] => [Math.floor(k / (1024 * 1
 /** cells → metres (centre of the cell) */
 const m = (X: number) => (X + 0.5) * CELL;
 /** the battle floor, grown by 0.3 m, in cells */
-const PLAYC = { x0: Math.floor((PLAY.x0 - 0.3) / CELL), x1: Math.ceil((PLAY.x1 + 0.3) / CELL), z0: Math.floor((PLAY.z0 - 0.3) / CELL), z1: Math.ceil((PLAY.z1 + 0.3) / CELL) };
+const playC = () => ({ x0: Math.floor((PLAY.x0 - 0.3) / CELL), x1: Math.ceil((PLAY.x1 + 0.3) / CELL), z0: Math.floor((PLAY.z0 - 0.3) / CELL), z1: Math.ceil((PLAY.z1 + 0.3) / CELL) });
 const inC = (r: { x0: number; x1: number; z0: number; z1: number }, X: number, Z: number) => X >= r.x0 && X < r.x1 && Z >= r.z0 && Z < r.z1;
 const toC = (r: Rect) => ({ x0: Math.floor(r.x0 / CELL), x1: Math.ceil(r.x1 / CELL), z0: Math.floor(r.z0 / CELL), z1: Math.ceil(r.z1 / CELL) });
 
@@ -40,7 +40,7 @@ const col = (X: number, Z: number) => (X + 512) * 1024 + (Z + 512);
 /** check the cells a group just built (keys of a temporary VoxWorld) against the scene so far. foot = declared footprint (m), mirrored
  *  and centred at the anchor. Returns the problems (empty = OK). */
 export function checkCells(cells: Iterable<number>, o: { anchor: [number, number]; foot: { w: number; d: number }; occ: Occ; walk: Rect[]; stage: Rect; skipLos?: boolean }): Issue[] {
-  const issues: Issue[] = [], walk = o.walk.map(toC), stage = toC(o.stage);
+  const issues: Issue[] = [], walk = o.walk.map(toC), stage = toC(o.stage), PC = playC();
   let groundN = 0, play = 0, walkN = 0, front = 0, hit = 0, outB = 0;
   let gx0 = 1e9, gx1 = -1e9, gz0 = 1e9, gz1 = -1e9;
   const solid: Array<[number, number, number]> = [];
@@ -49,7 +49,7 @@ export function checkCells(cells: Iterable<number>, o: { anchor: [number, number
     solid.push([X, Y, Z]);
     if (Y === 0) { groundN++; }
     if (Y <= BODY_Y) { gx0 = Math.min(gx0, X); gx1 = Math.max(gx1, X); gz0 = Math.min(gz0, Z); gz1 = Math.max(gz1, Z); }
-    if (inC(PLAYC, X, Z)) play++;
+    if (inC(PC, X, Z)) play++;
     if (Y >= 1 && walk.some(r => inC(r, X, Z))) walkN++;
     if (m(Z) > 6 && Y * CELL > 0.9) front++;
     if (Y <= BODY_Y && o.occ.body.has(col(X, Z))) hit++;
@@ -69,7 +69,7 @@ export function checkCells(cells: Iterable<number>, o: { anchor: [number, number
   if (!o.skipLos && !issues.length) {
     // line of sight: march each eye → stand ray (chest height 1.0 m) and look for a cell of this group above 1.2 m on it
     const set = new Set<number>(); for (const [X, Y, Z] of solid) if (Y * CELL > 1.2) set.add(key(X, Y, Z));
-    if (set.size) for (const [sx, sz] of STANDS) {
+    if (set.size) for (const [sx0, sz0] of STANDS) { const sx = SX(sx0), sz = SZ(sz0);
       const ax = EYE[0], ay = EYE[1], az = EYE[2], bx = sx, by = 1.0, bz = sz, L = Math.hypot(bx - ax, by - ay, bz - az), n = Math.ceil(L / (CELL * 0.5));
       for (let i = 1; i < n - 2; i++) { const t = i / n, X = Math.floor((ax + (bx - ax) * t) / CELL), Y = Math.floor((ay + (by - ay) * t) / CELL), Z = Math.floor((az + (bz - az) * t) / CELL); if (set.has(key(X, Y, Z))) { issues.push({ kind: 'los', detail: `blocks the view of (${sx}, ${sz})` }); break; } }
       if (issues.length) break;

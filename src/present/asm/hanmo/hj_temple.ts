@@ -2,7 +2,7 @@
 // 中庭是方石板铺的庭院（战斗区，碎了几块露出夯土），甬道直通后方。地标三选一：双阙、残殿（半边瓦顶塌了，殿里设坛）、大鼎祭坛。
 // 主色：风化灰石、暗朱漆、焦木、夯土黄褐、汉瓦灰；黄巾黄是唯一的强调色。写法照 ninja/temple.ts 与 village.ts。
 import type { Ctx } from '../../scenes/stage';
-import { M, AREA, field, hash, inPlay } from '../../scenes/props';
+import { M, AREA, field, hash, inPlay, SX, SZ } from '../../scenes/props';
 import { CELL } from '../../bestiary/kit';
 import { pine, deadTree } from '../../scenes/flora';
 import { addCardKind } from '../../scenes/cards';
@@ -91,11 +91,13 @@ const LANDMARKS: Landmark[] = [
 function floor(c: Ctx, f: { layout: Layout; p: Place }) {
   const w = c.w, dry = DRY_BY[f.p.season], paths = f.layout.path, court = f.layout.court, sd = f.p.seed % 7;
   const near = (r: Rect, x: number, z: number, m: number) => x > r.x0 - m && x < r.x1 + m && z > r.z0 - m && z < r.z1 + m;
+  // the paved court round the battle floor (act-19: through SX / SZ, so it grows with the 2x stage)
+  const CX0 = SX(-7.2), CX1 = SX(7.2), CZ0 = SZ(-9.6), CZ1 = SZ(7.0);
   for (let X = M(AREA.x0 - 6); X <= M(AREA.x1 + 6); X++) for (let Z = M(AREA.z0 - 8); Z <= M(AREA.z1 + 4); Z++) {
     const x = (X + 0.5) * CELL, z = (Z + 0.5) * CELL; let col: number;
     const onPath = paths.some(r => near(r, x, z, 0)), kerb = !onPath && paths.some(r => near(r, x, z, 0.14));
-    const inCourt = (court && near(court, x, z, 0)) || (Math.abs(x) < 7.2 && z > -9.6 && z < 7.0);
-    const edge = !inCourt && Math.abs(x) < 7.42 && z > -9.82 && z < 7.22;
+    const inCourt = (court && near(court, x, z, 0)) || (x > CX0 && x < CX1 && z > CZ0 && z < CZ1);
+    const edge = !inCourt && x > CX0 - 0.22 && x < CX1 + 0.22 && z > CZ0 - 0.22 && z < CZ1 + 0.22;
     if (onPath) {
       // the way in: long slabs in running bond, three close greys by whole slab
       const r = Math.floor(Z / 10), lz = ((Z % 10) + 10) % 10, sx = X + (r & 1 ? 7 : 0), l = ((sx % 14) + 14) % 14;
@@ -113,7 +115,7 @@ function floor(c: Ctx, f: { layout: Layout; p: Place }) {
 // ------------------------------------------------------------------ the far ring: the compound wall (breached), cypress and dead trees, smoke
 function far(c: Ctx, f: { layout: Layout; p: Place }) {
   const w = c.w, r = f.p.rnd, B = frame(w, 0, 0, 0);
-  const Z0 = M(-18.4), Z1 = M(-17.8), X0 = M(-17), X1 = M(17), gaps: Array<[number, number]> = [[M(-6.2), M(-4.0)], [M(4.6 + r(1) * 2), M(6.6 + r(1) * 2)]];
+  const Z0 = M(SZ(-18.4)), Z1 = M(SZ(-17.8)), X0 = M(SX(-17)), X1 = M(SX(17)), gaps: Array<[number, number]> = [[M(SX(-6.2)), M(SX(-4.0))], [M(SX(4.6 + r(1) * 2)), M(SX(6.6 + r(1) * 2))]];
   for (let X = X0; X <= X1; X += 1) {
     const g = gaps.find(([a, b]) => X >= a && X <= b);
     const h = g ? 10 : 40;
@@ -121,12 +123,12 @@ function far(c: Ctx, f: { layout: Layout; p: Place }) {
     if (!g) { for (let y = 6; y < h; y += 6) B(X, y, Z1, X, y, Z1, 0x7a6648); B(X, h + 1, Z0 - 3, X, h + 2, Z1 + 3, HC.tile); B(X, h + 3, Z0 - 1, X, h + 4, Z1 + 1, HC.tileD); }
   }
   const pts: Array<[number, number, number]> = [];
-  for (let i = 0; i < 8; i++) pts.push([-15 + i * 4.2 + (i % 2) * 0.8, -20.5 - (i % 2) * 1.4, 7 + r(320 + i) * 3]);
-  for (let i = 0; i < 5; i++) pts.push([16 + (i % 2) * 1.6, -15 + i * 3.4, 6 + r(300 + i) * 2.5]);
-  for (let i = 0; i < 5; i++) pts.push([-16 - (i % 2) * 1.6, -15 + i * 3.4, 6 + r(340 + i) * 2.5]);
+  for (let i = 0; i < 8; i++) pts.push([SX(-15 + i * 4.2 + (i % 2) * 0.8), SZ(-20.5 - (i % 2) * 1.4), 7 + r(320 + i) * 3]);
+  for (let i = 0; i < 5; i++) pts.push([SX(16 + (i % 2) * 1.6), SZ(-15 + i * 3.4), 6 + r(300 + i) * 2.5]);
+  for (let i = 0; i < 5; i++) pts.push([SX(-16 - (i % 2) * 1.6), SZ(-15 + i * 3.4), 6 + r(340 + i) * 2.5]);
   pts.forEach(([x, z, h], i) => { if ((i + f.p.seed) % 3 === 1) deadTree(w, x, z, h * 0.75, 0x4e4640, 0x2e2a26, { seed: 70 + i, crow: 0.2, moss: 0 }); else pine(w, x, z, h, 0x4a3a30, 0x2c3e36, 0x3e5448, { seed: 90 + i, slim: 0.72 }); });
-  smoke(c, [-9 + r(2) * 4, 2.5, -24], { rate: 1.4, col: 0x4e4a46 });
-  if (r(3) < 0.6) smoke(c, [8 + r(4) * 4, 2.5, -25], { rate: 1.1, col: 0x5a5650 });
+  smoke(c, [SX(-9 + r(2) * 4), 2.5, SZ(-24)], { rate: 1.4, col: 0x4e4a46 });
+  if (r(3) < 0.6) smoke(c, [SX(8 + r(4) * 4), 2.5, SZ(-25)], { rate: 1.1, col: 0x5a5650 });
 }
 // ------------------------------------------------------------------ dressing: dry grass, cracked slabs, dropped talismans
 addCardKind('hjfu', { kind: 'decal', w: 32, h: 32 }, g => {
@@ -153,7 +155,7 @@ function dress(c: Ctx, f: { layout: Layout; p: Place; clear: Rect[] }) {
   }
   const deco = (kind: string, count: number, s: [number, number], inside: boolean, salt: number) => {
     let k = 0, q = 0;
-    while (k < count && q < 600) { q++; const x = -7 + hash(q, sd, salt) * 14, z = -9.2 + hash(q, sd, salt + 1) * 15.8; if (!inside && inPlay(x, z)) continue; const y = ground(c, x, z); if (y == null || y > 0.05) continue;
+    while (k < count && q < 600) { q++; const x = SX(-7) + hash(q, sd, salt) * (SX(7) - SX(-7)), z = SZ(-9.2) + hash(q, sd, salt + 1) * (SZ(6.6) - SZ(-9.2)); if (!inside && inPlay(x, z)) continue; const y = ground(c, x, z); if (y == null || y > 0.05) continue;
       c.cards.add(kind, x, z, { y: y + 0.004 + k * 0.0004, s: s[0] + hash(q, 3, salt) * (s[1] - s[0]), ry: Math.floor(hash(q, 4, salt) * 4) * Math.PI / 2, tint: kind === 'crack' ? 0xc8c4bc : 0xffffff }); k++; }
   };
   // (act-17 review: the dark crack decals read as diagonal scribbles on the court — the user's most hated 「梯」/ speckle — so none;
