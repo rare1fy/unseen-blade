@@ -59,7 +59,9 @@ function globals() {
   if (G) return G;
   const hemi = new THREE.HemisphereLight(0x5a6098, 0x1a1418, 0.95); scene.add(hemi);
   const moon = new THREE.DirectionalLight(0xb8c4ff, 2.6); moon.position.set(-6, 14, -10); moon.castShadow = true;
-  moon.shadow.mapSize.set(2048, 2048); Object.assign(moon.shadow.camera, { left: -13, right: 13, top: 14, bottom: -12, near: 1, far: 50 }); moon.shadow.bias = -0.0006; moon.shadow.normalBias = 0.02;
+  // phones (touch and no fine pointer at all): half the shadow map — the shadow pass is a big share of a phone's frame (act-17)
+  let phone = false; try { const n = globalThis.navigator as Navigator | undefined; phone = !!n && (n.maxTouchPoints ?? 0) > 0 && !(globalThis.matchMedia?.('(any-pointer: fine)').matches ?? true); } catch { /* old browsers: a computer */ }
+  moon.shadow.mapSize.set(phone ? 1024 : 2048, phone ? 1024 : 2048); Object.assign(moon.shadow.camera, { left: -13, right: 13, top: 14, bottom: -12, near: 1, far: 50 }); moon.shadow.bias = -0.0006; moon.shadow.normalBias = 0.02;
   scene.add(moon); scene.add(moon.target);
   const key = new THREE.DirectionalLight(0xffd2a8, 0.9); key.position.set(5, 8, 10); scene.add(key);
   const skyMat = buildSky(), sky = scene.children.find(o => (o as THREE.Mesh).material === skyMat) as THREE.Mesh;

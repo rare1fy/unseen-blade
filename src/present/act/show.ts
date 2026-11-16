@@ -251,7 +251,12 @@ export class ActShow {
   // ------------------------------------------------------------ the world the hero / foes see
   private clamp = (p: THREE.Vector3, r: number) => {
     const x0 = PLAY.x0 + r + 0.2, x1 = PLAY.x1 - r - 0.2, z0 = PLAY.z0 + r + 0.3, z1 = PLAY.z1 - r - 0.2;
-    if (this.phase === 'doors' || this.phase === 'leaving' || this.phase === 'yard') for (const d of this.doors) { const l = d.ex.lane; if (p.x > l.x0 - 1.0 && p.x < l.x1 + 1.0 && p.z > l.z0 - (d.ex.id === 'back' ? 1.0 : 0.1) && p.z < l.z1 + (d.ex.id === 'back' ? 1.0 : 0.1)) { p.z = Math.max(l.z0 + r, Math.min(l.z1 - r, p.z)); if (d.ex.id === 'back') { p.x = Math.max(l.x0 + r, Math.min(l.x1 - r, p.x)); p.z = Math.max(l.z0 + r - 6, p.z); } return; } }
+    if (this.phase === 'doors' || this.phase === 'leaving' || this.phase === 'yard') for (const d of this.doors) { const l = d.ex.lane; if (p.x > l.x0 - 1.0 && p.x < l.x1 + 1.0 && p.z > l.z0 - (d.ex.id === 'back' ? 1.0 : 0.1) && p.z < l.z1 + (d.ex.id === 'back' ? 1.0 : 0.1)) {
+        // the back road: held to its width, free to walk on out (a short lane, shallower than the hero is wide, used to clamp him back
+        // inside the room so he could never reach the far end)
+        if (d.ex.id === 'back') { p.x = Math.max(l.x0 + r, Math.min(l.x1 - r, p.x)); p.z = Math.max(Math.min(l.z0, PLAY.z0) + r - 6, Math.min(PLAY.z1 - r, p.z)); }
+        else p.z = Math.max(l.z0 + r, Math.min(l.z1 - r, p.z));
+        return; } }
     p.x = Math.max(x0, Math.min(x1, p.x)); p.z = Math.max(z0, Math.min(z1, p.z));
   };
   private heroWorld: HeroWorld = {
