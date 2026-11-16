@@ -110,7 +110,7 @@ export class ActHud {
     // bars over the foes (the chief: the long bar at the top instead)
     const live = new Set<number>();
     for (const f of foes) {
-      if (f.st === 'dead' || isBoss(f) || f.kind === 'dummy') continue;   // wp/foes: isBoss live.add(f.uid);
+      if (f.st === 'dead' || isBoss(f) || f.kind === 'dummy') continue; live.add(f.uid);   // wp/foes: isBoss
       let b = this.bars.get(f.uid); if (!b) { b = this.newBar(); this.bars.set(f.uid, b); }
       const p = worldToUi(f.a.head().add(V3(0, 0.45, 0))); b.g.visible = this.on && p.z < 1;
       this.drawBar(b, p.x, p.y, 64 * this.k, 9 * this.k, f.hp / f.maxHp, dt);
