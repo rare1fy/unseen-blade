@@ -61,6 +61,8 @@ import { Stations, type Station } from './stations';
 import { Coins } from './coins';
 import { runBoard } from './runBoard';
 import { HitArcs } from './hitArc';
+import { playOpening, OPENING_SPEC } from './opening';
+import { wantOpening } from './openingFlag';
 import { PX, setPixel } from '../look/pixel';
 import { VIBE, vibeSupport, iosMajor } from '../../platform/index';
 /** the perks the hero's world reads while the run is on (kept in step each frame) */
@@ -84,7 +86,7 @@ function contactShadow() {
   const m = new THREE.Mesh(new THREE.PlaneGeometry(2, 2).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x0a0608, map: SHADOW_TEX, transparent: true, opacity: 0.72, depthWrite: false }));
   m.renderOrder = 2; return m;
 }
-type Phase = 'intro' | 'fight' | 'pick' | 'doors' | 'leaving' | 'dead' | 'end' | 'yard';
+type Phase = 'intro' | 'fight' | 'pick' | 'doors' | 'leaving' | 'dead' | 'end' | 'yard' | 'opening';
 /** the costume the player last wore (kept in the browser; the first time: the 斗笠 swordsman) */
 function savedHero(): ModelDef {
   let id = ''; try { id = localStorage.getItem('act.hero4') ?? ''; } catch { /* storage blocked */ }
@@ -179,7 +181,15 @@ export class ActShow {
   }
   // ------------------------------------------------------------ rooms
   start() {
-    if (typeof location !== 'undefined' && /[?&#]run\b/.test(location.href)) this.startRun(); else this.enterYard();
+    dh.add({ opening: () => this.opening() });   // captures: the title screen again
+    if (typeof location !== 'undefined' && /[?&#]run\b/.test(location.href)) this.startRun(); else if (wantOpening()) this.opening(); else this.enterYard();
+  }
+  /** 开场「雨夜听雨」(opening.ts): the room builder lays the rain road (clearing whatever room was up), then the opening poses this
+   *  hero by hand while frame() idles; the tap cuts into the yard. Only the first entry plays it (a run ends in enterYard). */
+  opening() {
+    this.viewSpec = { ...OPENING_SPEC }; this.room = 0; this.locale = OPENING_SPEC.locale; this.buildRoom(true); this.viewSpec = null;
+    this.phase = 'opening'; this.hud.on = false; this.hud.update(0, this.inp, []); this.banner.hide(); this.blob.visible = false; for (const m of this.shadows) m.visible = false;
+    void playOpening({ actor: this.hero.a, stage: this.stage!, ov: this.ov, enter: () => { this.hud.on = true; this.enterYard(); } });
   }
   /** the training yard: dummies, summon slabs, the costume rack, the way out to a run */
   enterYard() {
@@ -750,6 +760,7 @@ export class ActShow {
   }
   private frame(dt: number, rdt: number) {
     this.inp.frame(rdt);
+    if (this.phase === 'opening') return;   // opening.ts runs the title screen
     if (this.botOn) this.bot();
     const h = this.hero; if (!h) return;
     const busy = this.cards.on || this.phase === 'leaving' || this.ultOn;
