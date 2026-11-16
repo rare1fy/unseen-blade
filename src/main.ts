@@ -8,9 +8,12 @@ import { initPrims } from './present/engine/prims';
 import { FX } from './present/engine/clock';
 import { PX, PXU, readPixelFlag, installPixelKeys, setPixel } from './present/look/pixel';
 import { ActShow } from './present/act/show';
+import { VIBE } from './platform/index';
 import './audio/audio';
 
 const TEST: { fixedTime?: number; preserve?: boolean } = G.__PXUI_TEST || {};
+// the haptics switch in the tuning panel is remembered on the device
+try { if (localStorage.getItem('ub.vibe') === '0') VIBE.on = false; } catch { /* private mode */ }
 const platform = initPlatform();
 const flags = readFlags(k => platform.query(k));
 const canvas = platform.createCanvas();

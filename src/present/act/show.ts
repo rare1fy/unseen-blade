@@ -45,6 +45,7 @@ import type { ModelDef } from '../bestiary/models';
 import { dustBlocks, spawnClone, smokeBurst, cut as cloneCut } from '../kyoto/ninja_fx';
 import { Dart, BladeWave } from './missiles';
 import { PX, setPixel } from '../look/pixel';
+import { VIBE, vibeSupport } from '../../platform/index';
 /** the perks the hero's world reads while the run is on (kept in step each frame) */
 const SHOW_PERKS = { darts3: false };
 import { BattleActor } from '../bestiary/battle';
@@ -101,6 +102,9 @@ export class ActShow {
     onUpdate((dt, rdt) => this.frame(dt, rdt));
     this.layout2();
     installActTune([{ label: () => `界面风格：${SKIN_NAME[SKIN.id]}（点这里换）`, run: () => this.cycleSkin() },
+      // act-15 用户：「我浏览器玩没有震动诶」 — a switch, a test, and what this device supports
+      { label: () => `震动：${VIBE.on ? '开' : '关'}（${({ api: '这台设备支持', ios: 'iPhone：用系统触感，iOS 18 起才有', none: '这个浏览器不支持' } as const)[vibeSupport()]}）`, run: () => { VIBE.on = !VIBE.on; try { localStorage.setItem('ub.vibe', VIBE.on ? '1' : '0'); } catch { /* private mode */ } } },
+      { label: () => '试一下震动', run: () => { const was = VIBE.on; VIBE.on = true; this.platform.vibrate('heavy'); VIBE.on = was; } },
       // act-14 用户：「我要2x，然后调试面板给我一个切换这个的功能」 — 2x → 3x → off → 1x, remembered on this device
       { label: () => `像素：${PX.on ? PX.size + 'x' : '关'}（点这里换）`, run: () => { const order = ['2', '3', 'off', '1'], cur = PX.on ? String(PX.size) : 'off', nx = order[(order.indexOf(cur) + 1) % order.length]; if (nx === 'off') setPixel(false); else setPixel(true, +nx); try { localStorage.setItem('ub.px', nx); } catch { /* private mode */ } } }]);
     if (typeof window !== 'undefined') window.addEventListener('keydown', e => { if ((e.key === 'u' || e.key === 'U') && !this.cards.on) this.cycleSkin(); });
