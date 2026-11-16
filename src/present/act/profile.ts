@@ -9,6 +9,7 @@ export interface Profile {
   /** story beats and dialogue lines already seen (ids) */ seen: Record<string, number>;
   /** relationships with the people at the hideout (id → points) */ bonds: Record<string, number>;
   /** the costume worn */ wear?: string;
+  /** 杜五's provisions packed for the next run (feast / purse / wine), used up when the run starts */ meal?: string;
   /** last saved (ms since epoch) */ at: number;
 }
 const KEY = 'ub.profile';

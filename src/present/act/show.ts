@@ -31,7 +31,7 @@ import { openingShots, bossIntroShots, type CineHost } from './cutscenes';
 import { WAKE_DUWU, WAKE_SUNAO, CHULEI_BEFORE, CHULEI_AFTER, deathLine } from './scripts';
 import { newGame, profile, save as saveProfile, seeOnce } from './profile';
 import { runMods, bank, META, level, nextCost, buy, type RunMods } from './meta';
-import { NPC_LINES, UP_LINES, POOR_LINES, HAUL } from './hideoutLines';
+import { NPC_LINES, UP_LINES, POOR_LINES, HAUL, MEALS, MEAL_LINES } from './hideoutLines';
 import { Leaves } from './leaves';
 import type { BTarget, BEvent, BDamage } from './breakLogic';
 import type { Solid } from './solids';
@@ -64,7 +64,7 @@ import { Yard, makeSign, SPAWN_AT } from './yard';
 import type { ModelDef } from '../bestiary/models';
 import { dustBlocks, spawnClone, smokeBurst, cut as cloneCut } from '../kyoto/ninja_fx';
 import { Dart, BladeWave } from './missiles';
-import { RUN_ROOMS, ROOM_INFO, SCHOOL_NAME, firstRoom, doorsFrom, kindOr, isBossKind, type RoomPlan, type RoomType } from './run';
+import { RUN_ROOMS, ROOM_INFO, SCHOOL_NAME, firstRoom, roomOf, doorsFrom, kindOr, isBossKind, type RoomPlan, type RoomType } from './run';
 import { Stations, type Station } from './stations';
 import { Coins } from './coins';
 import { runBoard } from './runBoard';
@@ -106,6 +106,12 @@ let SELF: ActShow | null = null;
 /** act-20 upgrade card glyphs (12 × 12, axis-aligned): an anvil under a hammer; a needle by a gourd; an open gate (leave) */
 const ANVIL = ['..######....', '..#oooo#....', '..######....', '....##......', '....##......', '............', '.##########.', '.#oooooooo#.', '..########..', '....####....', '...######...', '............'];
 const NEEDLE = ['.........##.', '........#oo#', '.##.....#oo#', '.##......##.', '.##.....####', '.##....#oooo', '.##....#oooo', '.##....#oooo', '.##.....####', '.##.........', '.##.........', '............'];
+/** 杜五's provisions: a flatbread on a plate, a coin purse, a wine jug (12 × 12, axis-aligned) */
+const MEAL_GLYPH: Record<string, string[]> = {
+  feast: ['............', '............', '...######...', '..#oooooo#..', '.#oo#oo#oo#.', '.#oooooooo#.', '.#oo#oo#oo#.', '..#oooooo#..', '...######...', '############', '.##########.', '............'],
+  purse: ['....####....', '.....##.....', '....####....', '...#oooo#...', '..#oooooo#..', '.#ooo##ooo#.', '.#oo#..#oo#.', '.#ooo##ooo#.', '.#oooooooo#.', '..#oooooo#..', '...######...', '............'],
+  wine: ['....####....', '.....##.....', '....#oo#....', '....#oo#....', '...#oooo#...', '..#oooooo#..', '.#oooooooo#.', '.#oo####oo#.', '.#oooooooo#.', '.#oooooooo#.', '..########..', '............'],
+};
 const LEAVE = ['############', '#..........#', '#.########.#', '#.#......#.#', '#.#......#.#', '#.#......#.#', '#.#....#.#.#', '#.#......#.#', '#.#......#.#', '#.#......#.#', '#.#......#.#', '###......###'];
 export class ActShow {
   L = new UiLayer(); ov = new Overlay(); inp = new Input(); hud: ActHud; cards: CardPick; banner: SkinBanner;
@@ -119,7 +125,7 @@ export class ActShow {
   private mods: RunMods = { dmgMul: 1, dartBonus: 0, hpBonus: 0, deathDefy: 0, startIntent: 0, windupMul: 1, startManual: false };
   /** act-20 the hideout's people: where they stand, their bodies; the one in reach of a word */
   private npcs: Array<{ id: string; x: number; z: number; yaw: number; f: Foe }> = []; private npcNear: string | null = null;
-  private defy = 0; private eliteKills = 0; private bossKilled = false; private banked: { iron: number; herb: number } | null = null;
+  private defy = 0; private wine = false; private eliteKills = 0; private bossKilled = false; private banked: { iron: number; herb: number } | null = null;
   /** a cutscene's place: the open land, no walls / gates / props */ private noArena = false;
   // ------------------------------------------------------------ act-20: story — portrait dialogue, timeline cutscenes, puppets
   dialogue: Dialogue; timeline: Timeline; private puppets: Foe[] = []; private wasPhase: Phase = 'yard'; private justDied = false;
@@ -163,8 +169,22 @@ export class ActShow {
   }
   /** a word with someone at the hideout; the smith and the healer then show their upgrades */
   private async npcTalk(id: string) {
+    if (id === 'duwu') { await this.mealMenu(); return; }
     const pool = NPC_LINES[id] ?? []; if (pool.length) await this.talk([{ who: id, text: pool[Math.floor(Math.random() * pool.length)] }]);
     if (id === 'fengtiebi' || id === 'sunao') await this.upgradeMenu(id === 'fengtiebi' ? 'forge' : 'medic');
+  }
+  /** 杜五 packs provisions for the next trip: one of three, free, kept in the save until the run starts */
+  private async mealMenu() {
+    const p = profile(), pick = (a: string[]) => a[Math.floor(Math.random() * a.length)];
+    if (p.meal) { await this.talk([{ who: 'duwu', text: pick(MEAL_LINES.packed) }]); return; }
+    await this.talk([{ who: 'duwu', text: pick(MEAL_LINES.offer) }]);
+    const cards = MEALS.map(m => ({ boon: { id: 'meal_' + m.id, school: 'ms' as never, name: m.name, desc: [m.desc, ''], col: '#ffd27a', glyph: MEAL_GLYPH[m.id], tag: '' } as Boon, tier: 0 }));
+    cards.push({ boon: { id: 'leave', school: 'ms' as never, name: '离开', desc: ['什么也不带', ''], col: '#f0e0b0', glyph: LEAVE, tag: '' } as Boon, tier: 0 });
+    const was = this.phase; this.phase = 'pick'; this.hud.on = false;
+    const i = await this.cards.open(cards); this.phase = was; this.hud.on = true;
+    const m = MEALS[i]; if (!m) return;
+    p.meal = m.id; saveProfile(); cue('coin', 0.6);
+    await this.talk([{ who: 'duwu', text: MEAL_LINES.after[m.id] }]);
   }
   /** the upgrade list of the smith (百辟残铁) or the healer (沸血药引) as rows of cards; the last row leaves */
   private async upgradeMenu(who: 'forge' | 'medic') {
@@ -193,7 +213,7 @@ export class ActShow {
   private viewSpec: Partial<Spec> | null = null; private lastReport: Report | null = null;
   private spec: Spec | null = null; private layout: Layout | null = null; private doors: Array<{ ex: ExitInfo; g: THREE.Group; lift: number }> = []; private locale = 'ninja_wilds';
   private cam = V3(0, 0, 0); private dashHit = new Set<number>(); private lastSt = ''; private dashEdgeT = 0; private recent: Spec[] = [];
-  private botWp = 0; botOn = false; kills = 0; log: string[] = []; private introT = 0; private audioOn = false; private hinted = false;
+  private botWp = 0; private botTalkT = 0; botOn = false; kills = 0; log: string[] = []; private introT = 0; private audioOn = false; private hinted = false;
   /** the training yard (room −1) and the costume on the hero */
   yard: Yard | null = null; wearing: ModelDef = savedHero(); private lineupActors: BattleActor[] = [];
   private ring!: THREE.Mesh; private ringK = -1; private sparkT = 0; private shadows: THREE.Mesh[] = []; private exitSign: THREE.Group | null = null; private blob: THREE.Mesh;
@@ -213,7 +233,7 @@ export class ActShow {
       // act-14 用户：「我要2x，然后调试面板给我一个切换这个的功能」 — 2x → 3x → off → 1x, remembered on this device
       { label: () => `像素：${PX.on ? PX.size + 'x' : '关'}（点这里换）`, run: () => { const order = ['2', '3', 'off', '1'], cur = PX.on ? String(PX.size) : 'off', nx = order[(order.indexOf(cur) + 1) % order.length]; if (nx === 'off') setPixel(false); else setPixel(true, +nx); try { localStorage.setItem('ub.px', nx); } catch { /* private mode */ } } }]);
     if (typeof window !== 'undefined') window.addEventListener('keydown', e => { if ((e.key === 'u' || e.key === 'U') && !this.cards.on) this.cycleSkin(); });
-    dh.add({ newGame: () => this.startNewGame(), talkTest: (n = 0) => this.talk(n ? CHULEI_BEFORE : WAKE_DUWU), act: () => this, bot: (on = true) => { this.botOn = on; }, run: () => this.startRun(), yard: () => this.enterYard(), wear: (id: string) => { const d = HEROES.find(h => h.id === id); if (d) this.wear(d); },
+    dh.add({ boss: () => { this.startRun(); this.plan = roomOf('boss', RUN_ROOMS - 1, Math.random); this.locale = this.plan.locale; this.room = RUN_ROOMS - 1; this.buildRoom(false); }, newGame: () => this.startNewGame(), talkTest: (n = 0) => this.talk(n ? CHULEI_BEFORE : WAKE_DUWU), act: () => this, bot: (on = true) => { this.botOn = on; }, run: () => this.startRun(), yard: () => this.enterYard(), wear: (id: string) => { const d = HEROES.find(h => h.id === id); if (d) this.wear(d); },
       skin: (id: SkinId) => this.cycleSkin(id),
       cardsDemo: () => { void this.cards.open([BOONS[8], BOONS[16], BOONS[0]].map((boon, tier) => ({ boon, tier }))); }, // wp/boons: school/tier preview
       boon: (id: string, tier = 0) => applyBoon(this.perks, id, tier), // wp/boons: browser effect checks
@@ -292,6 +312,9 @@ export class ActShow {
     this.plan = firstRoom(Math.random); this.visited = []; this.coins = 0; this.locale = this.plan.locale;
     // act-20: the hideout's upgrades (meta.ts) for this run
     this.mods = runMods(profile()); this.defy = this.mods.deathDefy; this.eliteKills = 0; this.bossKilled = false;
+    // 杜五's provisions (one run): 炙肉胡饼 +15 血上限, 五铢钱囊 40 铜钱, 瓦壶烈酒 the first blow costs nothing
+    { const p = profile(), meal = p.meal; p.meal = undefined; saveProfile(); this.wine = meal === 'wine';
+      if (meal === 'feast') this.mods.hpBonus += 15; if (meal === 'purse') this.coins = 40; }
     TUNE.heroHp = 100 + this.mods.hpBonus; TUNE.dartCharges = 3 + this.mods.dartBonus; TUNE.aggression = 0.85 / this.mods.windupMul;
     this.buildRoom(true);
     if (this.mods.startManual) after(1.4, () => { if (this.room === 0) void this.manualPick(); });
@@ -362,12 +385,6 @@ export class ActShow {
     after(1.1, () => {
       if (this.hero !== h || this.phase !== 'intro') return;
       this.phase = 'fight'; this.spawnWave();
-      // act-20: the chapter's boss — the intro cutscene and the lines before the fight, the first time on this save
-      if (this.plan?.type === 'boss' && seeOnce('ch1_boss')) after(0.3, async () => {
-        const b = this.foes.find(f => isBoss(f)); if (!b) return;
-        await this.cine(bossIntroShots(this.cineHost, b, '雷公渠帅 · 褚雷'));
-        await this.talk(CHULEI_BEFORE); saveProfile();
-      });
     });
     this.log.push(`room ${this.room} ${spec.locale} ${spec.layout} ${spec.time}`);
   }
@@ -402,7 +419,10 @@ export class ActShow {
         const bs = !!EDEFS[ko.kind].boss;
         fxSmoke(p.clone().add(V3(0, 0.3, 0)), 0x6a6a74, bs ? 14 : 8, { r: 0.7, spd: 1.2, up: 0.6, s: 0.4, life: 0.7 }); fxRing(p.clone().setY(0.05), 0xff7a4a, 1.2, { life: 0.4 } as never);
         cue(bs ? 'roar' : 'summon', bs ? 0.9 : 0.4);
-        if (bs) { f.a.roar(); shake(0.3 * TUNE.shake); this.banner.show(EDEFS[ko.kind].name, EDEFS[ko.kind].tag ?? '', 1.6, '#ff8a6a'); }
+        // act-20: the chapter's boss the first time on this save — the intro cutscene and the lines before the fight (he
+        // comes in the room's second wave); after that only his banner
+        if (bs && seeOnce('ch1_boss')) { saveProfile(); after(0.35, async () => { if ((f.st as string) === 'dead') return; await this.cine(bossIntroShots(this.cineHost, f, '雷公渠帅 · 褚雷')); await this.talk(CHULEI_BEFORE); f.a.roar(); }); }
+        else if (bs) { f.a.roar(); shake(0.3 * TUNE.shake); this.banner.show(EDEFS[ko.kind].name, EDEFS[ko.kind].tag ?? '', 1.6, '#ff8a6a'); }
       });
     });
   }
@@ -801,6 +821,10 @@ export class ActShow {
     // a blow that lands in the dash's invulnerable moment: a perfect dodge
     if (this.hero.parrying) { this.iaiParry(from); return; }
     if (this.hero.dodging) { this.perfectDodge(from); return; }
+    if (this.wine && dmg > 0 && this.phase !== 'yard' && this.hero.alive && !this.hero.iframe && this.hero.inv <= 0) {
+      // 瓦壶烈酒 (杜五's wine): the first blow of the run lands without blood — she staggers, grins, goes on
+      this.wine = false; this.hero.inv = Math.max(this.hero.inv, 0.8); fxRing(this.hero.pos.clone().setY(0.08), 0xffb060, 2.4, { life: 0.5 } as never); cue('parry', 0.8); hitstop(0.06); return;
+    }
     if (this.defy > 0 && this.phase !== 'yard' && this.hero.alive && !this.hero.iframe && this.hero.hp - dmg <= 0) {
       // act-20 闭息 (the healer's upgrade): the blow lands, but she keeps three tenths and a moment's grace
       this.defy--; dmg = Math.max(0, this.hero.hp - Math.round(this.hero.maxHp * 0.3)); this.hero.inv = Math.max(this.hero.inv, 1.2);
@@ -924,6 +948,8 @@ export class ActShow {
     // act-20: a cutscene or a conversation — the timeline / the dialogue run, the people idle, nothing fights
     if (this.phase === 'cine' || this.phase === 'talk') {
       this.timeline.update(rdt); this.dialogue.update(rdt);
+      // the bot reads fast: a line every 0.6 s (cutscenes play out)
+      if (this.botOn && this.dialogue.on && (this.botTalkT += rdt) > 0.6) { this.botTalkT = 0; this.dialogue.advance(); }
       if (this.phase === 'talk') { this.hero.a.update(dt); for (const f of this.foes) f.a.update(dt); this.leaves?.update(dt, this.cam.x, this.cam.z); this.gates?.update(dt); }
       for (const f of this.puppets) if (this.phase === 'talk') f.a.update(dt);
       this.hud.update(rdt, this.inp, []); this.L.on = true; return;

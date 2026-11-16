@@ -9,3 +9,7 @@ export const POOR_LINES: Record<string, string> = {"sunao": "药引不够，老�
 export const UP_COPY: Record<string, [string, string, string]> = {"blade": ["百辟刀身", "残铁重打，刀口更狠", "斩击伤害每级+10%"], "darts": ["袖底镖匣", "匣槽改宽，暗器趁手", "随身飞镖每级多1枚"], "manual": ["寒山旧谱", "每局动身出窑之前", "可先挑一本旧刀谱"], "vigor": ["沸血筋骨", "烈药行针，身子骨硬", "生命上限每级+15"], "breath": ["绝处闭息", "每局一次受致命伤时", "强吊一口气留三成血"], "intent": ["出鞘杀气", "每进一间屋子动手前", "随身自带一格杀气"], "ear": ["贯耳听宫", "长针刺穴，耳力更尖", "敌人起手每级慢10%"]};
 /** the haul on the way home: alive / dragged back ({iron}, {herb}) */
 export const HAUL: [string, string] = ["活着带回：百辟残铁 {iron} · 沸血药引 {herb}", "血里捞回：百辟残铁 {iron} · 沸血药引 {herb}"];
+
+/** 杜五's provisions for the next trip (agy, 11-17): pick one; it goes with her on the next run only */
+export const MEALS: Array<{ id: 'feast' | 'purse' | 'wine'; name: string; desc: string }> = [{"id": "feast", "name": "炙肉胡饼", "desc": "这一趟血量上限+15"}, {"id": "purse", "name": "五铢钱囊", "desc": "这一趟出门带40枚铜钱"}, {"id": "wine", "name": "瓦壶烈酒", "desc": "这一趟挨的第一下不掉血"}];
+export const MEAL_LINES: { offer: string[]; packed: string[]; after: Record<string, string> } = {"offer": ["阿烬哥，窑里刚拢上火，挑样趁手的带上再走呗。", "外头死人比活人多，俺老杜别的不会，管饱还在行。", "空着肚子咋拼刀子？紧着挑一样，骡车套好等你咧。"], "packed": ["阿烬哥，东西都揣怀里咧，快去快回！", "古窑家底就这点，莫看俺咧，赶紧动身吧。"], "after": {"feast": "俺拿三根指头揉的面，瓷实，吃饱了抗揍！", "purse": "收尸攒下的铜钱，阿烬哥路上也好打点。", "wine": "这酒呛嗓子，闷一口壮胆，挨刀都不觉疼！"}};

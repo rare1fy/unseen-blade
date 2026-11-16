@@ -96,9 +96,12 @@ export function bossIntroShots(h: CineHost, boss: Foe, name: string): CineShot[]
   const b = boss.pos.clone(), p0: [number, number] = [h.hero.pos.x, h.hero.pos.z], p1: [number, number] = [b.x * 0.3, b.z + 7];
   let stepT = 0;
   return [
-    { dur: 4.4, ease: 'out', from: { pos: [p0[0], 9, p0[1] + 12], look: [p0[0], 0.6, p0[1] - 6], fov: 40 }, to: { pos: [p1[0], 7, p1[1] + 9], look: [p1[0], 0.8, p1[1] - 4], fov: 38 },
+    // she walks up the temple court: the camera rides high behind her at her pace (never so close her hat fills the frame)
+    { dur: 4.4, ease: 'linear', from: () => { const q = h.hero.pos; return { pos: [q.x, 10, q.z + 12.5], look: [q.x, 0.8, q.z - 5], fov: 40 }; }, to: () => { const q = h.hero.pos; return { pos: [q.x * 0.8 + b.x * 0.2, 9, q.z + 12], look: [q.x * 0.7 + b.x * 0.3, 1.0, q.z - 6], fov: 38 }; },
       tick: (t, dt) => { walker(h, p0, p1, 4.2)(t, dt); stepT -= dt; if (stepT <= 0 && t < 4.2) { stepT = 0.55; fxRing(h.hero.pos.clone().setY(0.05), 0xf2f2ff, 1.1, { life: 0.7, width: 0.08, bright: 1.2 } as never); } boss.a.update(dt); } },
-    { dur: 3.6, from: { pos: [b.x + 6, 4.5, b.z + 9], look: [b.x, 1.6, b.z], fov: 38 }, to: { pos: [b.x + 5, 5.5, b.z + 10], look: [b.x, 2.0, b.z], fov: 38 }, caption: { text: name, at: 1.4, hold: 1.8 },
+    // the two of them side-on, a long shot (no close-ups in voxels): she small at the left, he on his temple steps at the
+    // right; he roars, the sky cracks, his name
+    { dur: 3.8, from: { pos: [b.x + 16, 9, b.z + 6.5], look: [b.x - 0.4, 1.2, b.z + 3.2], fov: 36 }, to: { pos: [b.x + 16.5, 10, b.z + 7.5], look: [b.x - 0.4, 1.4, b.z + 3.2], fov: 36 }, caption: { text: name, at: 1.3, hold: 2.0 },
       at: [[0.4, () => { boss.a.roar(); cue('roar', 0.9); }], [1.0, () => { flashSky(1); fxBolt(b.clone().add(V3(1.6, 14, 0)), b.clone().add(V3(1.6, 0, 0.5)), 0xfff2a0, { width: 0.35, life: 0.3, bright: 0.6 }); cue('thunder', 1); shake(0.35); }]],
       tick: (_t, dt) => { boss.a.update(dt); h.hero.a.update(dt); } },
   ];
