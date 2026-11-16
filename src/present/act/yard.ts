@@ -61,7 +61,8 @@ export function makeSign(label: string, o: { w?: number; h?: number; board?: num
 // ------------------------------------------------------------------ the yard
 interface Pad { kind: EKind; x: number; z: number; slab: THREE.Mesh; mat: THREE.MeshLambertMaterial; sink: number; cd: number; on: boolean }
 interface Plinth { x: number; z: number; def: ModelDef; actor: BattleActor; g: THREE.Group; sign: THREE.Group }
-const PADS: Array<[EKind, string]> = [['bandit', '山贼'], ['dog', '山犬'], ['archer', '弓手'], ['chief', '头目']];
+// wp/foes: the 黄巾 foes (地域一); right column 刀手 / 力士 / 道士 / 流民, left column 弓手 / 猎犬 / 渠帅
+const PADS: Array<[EKind, string]> = [['hj_blade', '刀手'], ['hj_brute', '力士'], ['hj_taoist', '道士'], ['hj_mob', '流民'], ['hj_archer', '弓手'], ['hj_hound', '猎犬'], ['hj_boss', '渠帅']];
 export const SPAWN_AT = () => V3((Math.random() - 0.5) * 1.6, 0, -3.8);
 
 export class Yard {
@@ -73,11 +74,11 @@ export class Yard {
     parent.add(this.root);
     // summon slabs down the right side, a sign behind each
     PADS.forEach(([kind, name], i) => {
-      const x = 4.3, z = -2.5 + i * 1.7;
+      const col = i < 4 ? 1 : -1, x = 4.3 * col, z = -2.5 + (i < 4 ? i : i - 4) * 1.4;
       const mat = new THREE.MeshLambertMaterial({ color: 0x7a7c86, emissive: 0xff7a3a, emissiveIntensity: 0 });
       const slab = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.12, 1.1), mat); slab.position.set(x, 0.06, z); slab.receiveShadow = true;
       const inset = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.02, 0.8), toon(0x5a5c66)); inset.position.y = 0.065; slab.add(inset);
-      const sign = makeSign(name, { w: 0.9, h: 0.42, post: 0.55 }); sign.position.set(x + 0.15, 0, z - 0.72); sign.rotation.y = -0.35;
+      const sign = makeSign(name, { w: 0.9, h: 0.42, post: 0.55 }); sign.position.set(x + 0.15 * col, 0, z - 0.66); sign.rotation.y = -0.35 * col;
       this.root.add(slab, sign);
       this.pads.push({ kind, x, z, slab, mat, sink: 0, cd: 0, on: false });
     });

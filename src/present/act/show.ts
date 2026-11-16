@@ -37,6 +37,7 @@ import { Hero, type HeroWorld } from './hero';
 import { interruptFoe } from './enemy';
 import { inside } from './tele';
 import { spawnFoe, updateFoe, damageFoe, type Foe, type FoeWorld, type EKind, Arrow } from './enemy';
+import { EDEFS, isBoss, lowAttack } from './enemy';   // wp/foes: the boss bar / banner / death and the bot's jump read these
 import { BOONS, applyBoon, newPerks, type Perks, type Boon } from './boons';
 import { TUNE } from './tune';
 import { installActTune } from './tunePanel';
@@ -126,7 +127,7 @@ export class ActShow {
       // agents / captures: a fight-less room in one place (the scene builders check their place with it) — returns the assembler's report
       scene: (id: string, seed?: number, o: Partial<Spec> = {}) => { this.viewSpec = { ...o, locale: id, ...(seed != null ? { seed } : {}) }; this.room = 0; this.locale = id; this.buildRoom(true); this.viewSpec = null; const r = this.lastReport; return r ? { name: r.name, spec: r.spec, placed: r.placed.length, rejected: r.rejected.map(x => x.id + ':' + x.issues.map(i => i.kind).join('/')), empty: r.empty, warnings: r.warnings, lights: r.lights } : null; },
       // agents / captures: a foe of any kind at (x, z), facing the hero (elite: the stronger variant, where the kind has one)
-      spawn: (kind: EKind, x = 0, z = -2, elite = false) => { const f = spawnFoe(kind, V3(x, 0, z), this.hero.pos.clone()); (f as Foe & { elite?: boolean }).elite = elite; f.st = 'move'; this.foes.push(f); return f.uid; },
+      spawn: (kind: EKind, x = 0, z = -2, elite = false) => { const f = spawnFoe(kind, V3(x, 0, z), this.hero.pos.clone(), elite); /* wp/foes: elite into spawnFoe */ f.st = 'move'; this.foes.push(f); return f.uid; },
       arrow: (d = 6) => { const h = this.hero, f = h.a.fwd(), p = h.pos.clone().addScaledVector(f, d).setY(1.25); this.arrows.push(new Arrow(p, Math.atan2(-f.x, -f.z), 8)); },
       // captures: every costume in a row facing the camera (the hero hidden), or gone again
       lineup: (on = true, z = 2.4, gap = 1.5, act = '', ids: string[] | null = null) => {
@@ -228,13 +229,14 @@ export class ActShow {
         let p = V3();
         for (let t = 0; t < 30; t++) {
           const side = Math.floor(R(0, 3)); p = side === 0 ? V3(R(-4.2, 4.2), 0, R(-5.8, -4.2)) : V3((side === 1 ? -1 : 1) * R(3.6, 4.7), 0, R(-5.2, 1.5));
-          if (k === 'chief') p = V3(0, 0, -4.6);
+          if (EDEFS[k].boss) p = V3(0, 0, -4.6);   // wp/foes: any region boss
           if (p.distanceTo(hp) > 4.2 && this.foes.every(f => f.pos.distanceTo(p) > 1.4)) break;
         }
         const f = spawnFoe(k, p, hp.clone()); this.foes.push(f);
-        fxSmoke(p.clone().add(V3(0, 0.3, 0)), 0x6a6a74, k === 'chief' ? 14 : 8, { r: 0.7, spd: 1.2, up: 0.6, s: 0.4, life: 0.7 }); fxRing(p.clone().setY(0.05), 0xff7a4a, 1.2, { life: 0.4 } as never);
-        cue(k === 'chief' ? 'roar' : 'summon', k === 'chief' ? 0.9 : 0.4);
-        if (k === 'chief') { f.a.roar(); shake(0.3 * TUNE.shake); this.banner.show('山贼头目', '架势被打空才会晕', 1.6, '#ff8a6a'); }
+        const bs = !!EDEFS[k].boss;   // wp/foes: the banner / roar for any region boss (name and line from EDEFS)
+        fxSmoke(p.clone().add(V3(0, 0.3, 0)), 0x6a6a74, bs ? 14 : 8, { r: 0.7, spd: 1.2, up: 0.6, s: 0.4, life: 0.7 }); fxRing(p.clone().setY(0.05), 0xff7a4a, 1.2, { life: 0.4 } as never);
+        cue(bs ? 'roar' : 'summon', bs ? 0.9 : 0.4);
+        if (bs) { f.a.roar(); shake(0.3 * TUNE.shake); this.banner.show(EDEFS[k].name, EDEFS[k].tag ?? '', 1.6, '#ff8a6a'); }
       });
     });
   }
@@ -500,7 +502,7 @@ export class ActShow {
   }
   private killFoe(f: Foe, from: THREE.Vector3) {
     this.kills++;
-    const boss = f.kind === 'chief';
+    const boss = isBoss(f);   // wp/foes
     void playDeath(f.a, { from, ratio: f.lastDmg / f.maxHp + (boss ? 0.5 : 0), boss }).then(() => { f.a.dispose(); });
     popPix(`+${f.d.gold}`, f.a.head().add(V3(0.4, 0.2, 0)), { color: '#ffd24a', h: 0.36, life: 0.8 });
     if (this.perks.killHeal && this.hero.alive) { this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + this.perks.killHeal); this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp }); }
@@ -616,8 +618,8 @@ export class ActShow {
       const ev = this.yard.update(dt, h.pos, h.y, this.foes.filter(f => f.st !== 'dead' && f.kind !== 'dummy').length);
       if (ev.summon) {
         const at = SPAWN_AT(), f = spawnFoe(ev.summon, at, h.pos.clone()); this.foes.push(f);
-        fxSmoke(at.clone().add(V3(0, 0.3, 0)), 0x6a6a74, 10, { r: 0.7, spd: 1.2, up: 0.6, s: 0.4, life: 0.7 }); cue(ev.summon === 'chief' ? 'roar' : 'summon', 0.6);
-        if (ev.summon === 'chief') f.a.roar();
+        fxSmoke(at.clone().add(V3(0, 0.3, 0)), 0x6a6a74, 10, { r: 0.7, spd: 1.2, up: 0.6, s: 0.4, life: 0.7 }); cue(isBoss(f) ? 'roar' : 'summon', 0.6);   // wp/foes: isBoss
+        if (isBoss(f)) f.a.roar();
       }
       if (ev.wear && ev.plinth) {
         const old = this.wearing; this.wear(ev.wear); this.yard.swap(ev.plinth, old);
@@ -748,7 +750,7 @@ export class ActShow {
     if (!live.length) { I.move.x = I.move.y = 0; set('attack', false); return; }
     const near = live.slice().sort((a, b) => a.pos.distanceTo(h.pos) - b.pos.distanceTo(h.pos))[0], d = near.pos.clone().sub(h.pos).setY(0), l = d.length();
     // a dog's lunge or the chief's slam aimed here: jump it (and come down cutting); other blows: dash away
-    const low = live.some(f => f.st === 'windup' && f.t / f.dur > 0.7 && (f.kind === 'dog' || (f.kind === 'chief' && f.shape?.k === 'circle')) && f.pos.distanceTo(h.pos) < 6);
+    const low = live.some(f => f.st === 'windup' && f.t / f.dur > 0.7 && lowAttack(f) /* wp/foes */ && f.pos.distanceTo(h.pos) < 6);
     if (low && !h.airborne) { set('jump', true); set('attack', false); return; }
     set('jump', false);
     if (h.airborne) { set('attack', h.vy < 0 && l < 2.5); return; }
