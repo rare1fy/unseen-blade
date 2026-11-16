@@ -5,29 +5,93 @@ import type { UiLayer } from '../ui3d/layer';
 import { text, textW, icon } from '../v2/overlay';
 import { clock } from '../engine/clock';
 import { cue } from '../../audio/cues';
-import { boonTag, type Boon, type BoonPick } from './boons';
+import { SCHOOL_NAMES, TIER_NAMES, type Boon, type BoonPick } from './boons';
 import { SKIN, PALETTE } from './skin';
-import { bodyText, onBodyFontChange } from '../ui3d/bodyFont';
+import { bodyText, bodyW, onBodyFontChange } from '../ui3d/bodyFont';
 
-const tierColor = (tier: number) => tier === 2 ? '#ffd060' : tier === 1 ? '#6ad8b0' : PALETTE[SKIN.id].card.frame;
+// act-19 (user: 「强化的卡片要像哈迪斯那些经典动作rogue游戏学习，描述关键字要高亮，图标与文字相结合，卡片的样式要和普通面板区分开来」):
+// three wide cards stacked in rows; each: the school's emblem in a framed medallion on the left, the name (pixel title font) and its
+// tier badge, two lines of description with the key words in colour behind a small icon and the numbers lit; the card's ground and
+// border are the school's own (太平道: talisman-paper yellow on umber; 江东水师: wave lines on deep blue; 散人: ink with a red seal),
+// so it never reads as a banner or a signboard. Every icon is axis-aligned pixels (no stair-step diagonals).
+type Pal = { bg: string; panel: string; frame: string; ink: string; name: string; deco: string };
+const SCHOOL_PAL: Record<string, Pal> = {
+  tp: { bg: '#241a10', panel: '#33261a', frame: '#d8b048', ink: '#ffe68a', name: '#ffe08a', deco: '#a8302a' },
+  jd: { bg: '#0e1c28', panel: '#152c3a', frame: '#7ad0e8', ink: '#9ae8ff', name: '#bff2ff', deco: '#2e5a70' },
+  sr: { bg: '#1a1416', panel: '#261d1f', frame: '#c8a070', ink: '#ffd27a', name: '#f2dcb0', deco: '#b8302a' },
+};
+const TIER_COL = ['#c8c0b0', '#6ad8b0', '#ffd060'];
+const tierColor = (tier: number) => TIER_COL[tier] ?? TIER_COL[0];
+/** the school emblems (12 × 12): 太平道 a talisman with its red marks, 江东水师 a snow crystal, 散人 an upright blade */
+const EMBLEM: Record<string, string[]> = {
+  tp: ['...######...', '...#oooo#...', '...######...', '...#....#...', '...#dddd#...', '...#....#...', '...#.dd.#...', '...#.dd.#...', '...#dddd#...', '...#....#...', '...######...', '............'],
+  jd: ['.....##.....', '..#..##..#..', '...#.##.#...', '....####....', '.##..##..##.', '############', '############', '.##..##..##.', '....####....', '...#.##.#...', '..#..##..#..', '.....##.....'],
+  sr: ['.....##.....', '.....##.....', '.....##.....', '.....##.....', '.....##.....', '.....##.....', '.....##.....', '..########..', '.....##.....', '.....##.....', '....####....', '.....##.....'],
+};
+/** the little icons that sit in front of key words (7 × 7) */
+const MINI: Record<string, string[]> = {
+  bolt: ['...###.', '...#...', '.#####.', '...#...', '.###...', '.#.....', '.......'],
+  frost: ['...#...', '.#.#.#.', '..###..', '#######', '..###..', '.#.#.#.', '...#...'],
+  fire: ['...#...', '..##...', '..###..', '.####..', '.#####.', '.##.##.', '..###..'],
+  dart: ['...#...', '..###..', '...#...', '...#...', '..###..', '..#.#..', '..###..'],
+  dash: ['.......', '....#..', '######.', '#######', '######.', '....#..', '.......'],
+  heart: ['...#...', '..###..', '.#####.', '.#####.', '.#####.', '..###..', '.......'],
+  blade: ['...#...', '...#...', '...#...', '...#...', '.#####.', '...#...', '..###..'],
+};
+/** key words → their icon and colour (longest first when scanning) */
+const KEYS: Array<[string, string, string]> = ([
+  ['破势', 'blade', '#ffd27a'], ['箭步斩', 'blade', '#ffd27a'], ['收尾那一刀', 'blade', '#ffd27a'], ['收尾一刀', 'blade', '#ffd27a'], ['连斩', 'blade', '#ffd27a'], ['斩击', 'blade', '#ffd27a'],
+  ['天雷', 'bolt', '#ffe68a'], ['落雷', 'bolt', '#ffe68a'], ['电弧', 'bolt', '#ffe68a'], ['电击', 'bolt', '#ffe68a'], ['跳电', 'bolt', '#ffe68a'], ['雷球', 'bolt', '#ffe68a'],
+  ['寒气', 'frost', '#9ae8ff'], ['冻住', 'frost', '#9ae8ff'], ['冰壳', 'frost', '#9ae8ff'], ['冰路', 'frost', '#9ae8ff'], ['冰片', 'frost', '#9ae8ff'], ['结冰', 'frost', '#9ae8ff'],
+  ['点燃', 'fire', '#ff9a4a'], ['飞镖', 'dart', '#e8eef4'], ['三枚', 'dart', '#e8eef4'], ['刀芒', 'blade', '#c8ffd8'],
+  ['完美闪避', 'dash', '#9ad8ff'], ['冲刺', 'dash', '#9ad8ff'], ['生命', 'heart', '#8aff9a'], ['回复', 'heart', '#8aff9a'], ['杀气', 'blade', '#ff9a6a'],
+] as Array<[string, string, string]>).sort((a, b) => b[0].length - a[0].length);
+const NUM = /^([0-9]+%?|[一二三四五六七八九十百半两]+(?:秒|点|成|枚|倍)?)/;
+/** one description line, the key words lit behind their icons, the numbers in white; x is the left edge */
+function richLine(g: CanvasRenderingContext2D, line: string, x: number, y: number, px: number, base: string) {
+  let i = 0, cx = x, plain = '';
+  const flush = () => { if (!plain) return; bodyText(g, plain, cx, y, px, base, 'left'); cx += bodyW(plain, px); plain = ''; };
+  while (i < line.length) {
+    const rest = line.slice(i), k = KEYS.find(([w]) => rest.startsWith(w));
+    if (k) {
+      flush(); const c = Math.max(1, Math.round(px / 9)), iw = 7 * c;
+      icon(g, MINI[k[1]], cx + 1, y + Math.round((px - iw) / 2) + 1, c, { main: k[2] }); cx += iw + Math.round(px * 0.18);
+      bodyText(g, k[0], cx, y, px, k[2], 'left'); cx += bodyW(k[0], px); i += k[0].length; continue;
+    }
+    const n = rest.match(NUM);
+    if (n && (i === 0 || !/[一二三四五六七八九十]/.test(line[i - 1]))) { flush(); bodyText(g, n[1], cx, y, px, '#ffffff', 'left'); cx += bodyW(n[1], px); i += n[1].length; continue; }
+    plain += line[i]; i++;
+  }
+  flush();
+}
+const CW = 520, CH = 120;
 function face(b: Boon, tier: number, u: number) {
-  // the card in the UI's skin (skin.ts): a lacquer tablet / a bamboo-slip plaque / an iron token
-  const P = PALETTE[SKIN.id].card, W = 200 * u, H = 250 * u, c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d')!; g.imageSmoothingEnabled = false;
-  g.fillStyle = P.bg; g.fillRect(0, 0, W, H);
-  if (SKIN.id === 'bamboo') for (let x = 0; x < W; x += 12 * u) { g.fillStyle = (x / (12 * u)) % 2 ? '#b89a58' : '#c9ad6a'; g.fillRect(x, 0, 12 * u, H); g.fillStyle = '#6e5630'; g.fillRect(x, 0, u, H); }
-  if (tier === 2) { g.shadowColor = '#ffd060'; g.shadowBlur = 5 * u; }
-  g.fillStyle = tierColor(tier); g.fillRect(0, 0, W, 4 * u); g.fillRect(0, H - 4 * u, W, 4 * u); g.fillRect(0, 0, 4 * u, H); g.fillRect(W - 4 * u, 0, 4 * u, H);
-  g.shadowBlur = 0;
-  if (SKIN.id === 'iron') { g.fillStyle = '#b07a3a'; for (const [x, y] of [[8, 8], [W / u - 14, 8], [8, H / u - 14], [W / u - 14, H / u - 14]]) g.fillRect(x * u, y * u, 6 * u, 6 * u); }
-  if (SKIN.id === 'lacquer') { g.fillStyle = '#b8302a'; for (const [x, y] of [[0, 0], [W / u - 12, 0], [0, H / u - 12], [W / u - 12, H / u - 12]]) g.fillRect(x * u, y * u, 12 * u, 12 * u); }
-  g.fillStyle = P.panel; g.fillRect(10 * u, 10 * u, W - 20 * u, 96 * u);
-  icon(g, b.glyph, (W - 10 * 7 * u) / 2, 22 * u, 7 * u, { main: b.col, acc: '#fff4d8', dark: '#120c10' });
-  const tag = boonTag(b, tier);
-  bodyText(g, tag, W / 2, 113 * u, 14 * u, tier === 0 ? P.desc : tierColor(tier), 'center');
-  const nameScale = textW(b.name, 2 * u) > W - 24 * u ? u : 2 * u;
-  text(g, b.name, (W - textW(b.name, nameScale)) / 2, 136 * u, nameScale, P.name, 'left', SKIN.id === 'bamboo' ? null : '#0a0710');
-  b.desc.forEach((l, i) => bodyText(g, l, W / 2, (176 + i * 20) * u, 15 * u, P.desc, 'center'));
-  const t = new THREE.CanvasTexture(c); t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter; t.generateMipmaps = false; t.colorSpace = THREE.SRGBColorSpace;
+  const P = SCHOOL_PAL[b.school] ?? SCHOOL_PAL.sr, W = CW * u, H = CH * u, c = document.createElement('canvas'); c.width = W; c.height = H;
+  const g = c.getContext('2d')!; g.imageSmoothingEnabled = false;
+  const R = (x: number, y: number, w: number, h: number, col: string) => { g.fillStyle = col; g.fillRect(x * u, y * u, w * u, h * u); };
+  // ground, the school's pattern, the frame (thicker and with corner pieces as the tier rises)
+  R(0, 0, CW, CH, P.bg); R(6, 6, CW - 12, CH - 12, P.panel);
+  if (b.school === 'tp') for (let x = 14; x < CW - 14; x += 26) { R(x, 6, 2, 6, P.deco); R(x + 12, CH - 12, 2, 6, P.deco); }
+  else if (b.school === 'jd') for (let y = CH - 30; y < CH - 8; y += 7) for (let x = 120 + ((y / 7) % 2) * 9; x < CW - 12; x += 18) R(x, y, 10, 1, P.deco);
+  else { R(CW - 30, 12, 16, 16, P.deco); R(CW - 26, 16, 8, 8, '#e05a48'); R(CW - 24, 18, 4, 4, P.deco); }
+  const fw = tier === 2 ? 4 : tier === 1 ? 3 : 2, fc = tier === 2 ? TIER_COL[2] : P.frame;
+  if (tier === 2) { g.shadowColor = '#ffd060'; g.shadowBlur = 6 * u; }
+  R(0, 0, CW, fw, fc); R(0, CH - fw, CW, fw, fc); R(0, 0, fw, CH, fc); R(CW - fw, 0, fw, CH, fc); g.shadowBlur = 0;
+  if (tier > 0) for (const [x, y] of [[0, 0], [CW - 12, 0], [0, CH - 12], [CW - 12, CH - 12]]) { R(x, y, 12, 12, fc); R(x + 3, y + 3, 6, 6, P.bg); }
+  // the medallion: a framed square, the emblem inside it
+  const MX = 14, MY = 14, MS = CH - 28;
+  R(MX, MY, MS, MS, P.frame); R(MX + 3, MY + 3, MS - 6, MS - 6, P.bg); R(MX + 6, MY + 6, MS - 12, MS - 12, '#0b0809');
+  for (const [x, y] of [[MX - 2, MY - 2], [MX + MS - 6, MY - 2], [MX - 2, MY + MS - 6], [MX + MS - 6, MY + MS - 6]]) R(x, y, 8, 8, P.frame);
+  const ec = Math.floor((MS - 20) / 12); icon(g, EMBLEM[b.school] ?? EMBLEM.sr, (MX + (MS - 12 * ec) / 2) * u, (MY + (MS - 12 * ec) / 2) * u, ec * u, { main: P.ink, acc: '#fff4d8', dark: P.deco });
+  // the name (pixel title font) and the tier badge; the school's name in the top right
+  const TX = MX + MS + 16, nameScale = 2 * u;
+  text(g, b.name, TX * u, 14 * u, nameScale, tier === 2 ? TIER_COL[2] : P.name, 'left', '#0a0710');
+  const nw = textW(b.name, nameScale) / u, tag = TIER_NAMES[tier] ?? '', bw = Math.ceil(bodyW(tag, 13 * u) / u) + 12;
+  R(TX + nw + 12, 17, bw, 20, tierColor(tier)); R(TX + nw + 13, 18, bw - 2, 18, '#0d0a0b'); bodyText(g, tag, (TX + nw + 18) * u, 19 * u, 13 * u, tierColor(tier), 'left');
+  bodyText(g, SCHOOL_NAMES[b.school] ?? '', (CW - (b.school === 'sr' ? 38 : 16)) * u, 18 * u, 12 * u, P.frame, 'right');
+  // the two lines
+  b.desc.forEach((l, i) => richLine(g, l, TX * u, (54 + i * 28) * u, 19 * u, '#e8e0d4'));
+  const t = new THREE.CanvasTexture(c); t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearFilter; t.generateMipmaps = false; t.colorSpace = THREE.SRGBColorSpace;
   return { t, W, H };
 }
 
@@ -40,11 +104,12 @@ export class CardPick {
   open(boons: BoonPick[]): Promise<number> {
     this.close(); const L = this.L, u = Math.max(1, Math.round(Math.max(0.78, Math.min(L.h / 720, 1.2)) * (L.dpr || 1)));
     // phones (412 px tall): the cards keep a readable size and take more of the screen
-    const k = Math.min(1.2, Math.max(0.78, L.h / 720)), w = 200 * k * 1.15, h = 250 * k * 1.15, gap = 30 * k;
+    // rows: one wide card per row, centred; on a phone they take most of the width
+    const w = Math.min(L.w * 0.7, 600 * Math.max(0.8, Math.min(1.25, L.h / 720))), h = w * CH / CW, gap = Math.max(8, h * 0.12);
     this.cards = boons.map(({ boon: b, tier }, i) => {
       const f = face(b, tier, u * 2), side = new THREE.MeshLambertMaterial({ color: tier === 0 ? PALETTE[SKIN.id].card.side : tierColor(tier), emissive: tier === 2 ? 0xffd060 : 0x000000, emissiveIntensity: 0.15 }), fm = new THREE.MeshLambertMaterial({ map: f.t, emissive: 0xffffff, emissiveMap: f.t, emissiveIntensity: 0.6 });
       const m = new THREE.Mesh(new THREE.BoxGeometry(L.px(w), L.px(h), L.px(16)), [side, side, side, side, fm, side]); m.renderOrder = 30; L.scene.add(m);
-      return { b, tier, u: u * 2, m, x: L.w / 2 + (i - (boons.length - 1) / 2) * (w + gap), y: L.h * 0.5, w, h, lift: 0, t0: clock.rtime + i * 0.08 };
+      return { b, tier, u: u * 2, m, x: L.w / 2, y: L.h * 0.5 + (i - (boons.length - 1) / 2) * (h + gap), w, h, lift: 0, t0: clock.rtime + i * 0.08 };
     });
     this.on = true; this.focus = Math.min(1, this.cards.length - 1); this.leaving = -1; cue('scroll', 0.8);
     return new Promise(res => { this.done = res; });
@@ -79,10 +144,10 @@ export class CardPick {
     for (const [i, c] of this.cards.entries()) {
       const rise = Math.min(1, Math.max(0, (clock.rtime - c.t0) / 0.35)), e = 1 - (1 - rise) ** 3;
       const want = i === this.focus ? 1 : 0; c.lift += (want - c.lift) * Math.min(1, dt * 12);
-      let y = c.y + (1 - e) * L.h * 0.6 - c.lift * 14, sc = 1 + 0.06 * c.lift;
+      let y = c.y + (1 - e) * L.h * 0.6, sc = 1 + 0.05 * c.lift;
       if (this.leaving >= 0) { const k = this.leaveT / 0.55; if (i === this.leaving) { y -= k * k * L.h * 0.5; sc *= 1 + 0.1 * k; } else y += k * k * L.h * 0.6; }
       L.at(c.x, y, L.px(24) * c.lift, c.m.position); c.m.scale.setScalar(sc);
-      c.m.rotation.set(0.25 * (1 - c.lift) * 0.3, (c.x - L.w / 2) / L.w * -0.5 * (1 - c.lift), 0);
+      c.m.rotation.set(0.12 * (1 - c.lift), 0, 0); c.m.position.x += L.px(18) * c.lift;   // the focused card leans out toward the viewer and steps right
     }
   }
 }

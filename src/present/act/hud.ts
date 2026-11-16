@@ -22,12 +22,26 @@ type AnyBtn = SkinBtn | IronBtn; type AnyHp = SkinHp | IronHp;
 
 interface Bar { g: THREE.Group; back: THREE.Mesh; lag: THREE.Mesh; fill: THREE.Mesh; shown: number; lagV: number }
 const box = (c: number, o = 1) => new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: c, transparent: o < 1, opacity: o, depthWrite: false }));
+/** act-19 (user: 「敌人的血条怎么也是3d的，都穿帮了，能看到垫后面的白色」): flat cards in one plane, stacked by draw order only */
+const flat = (c: number) => new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: c, depthWrite: false, depthTest: false }));
+/** the off-screen marker: three nested arcs (a sound wave) opening toward +x, red, pixel-drawn */
+let ARC_TEX: THREE.Texture | null = null;
+function arcTex() {
+  if (ARC_TEX) return ARC_TEX;
+  const c = document.createElement('canvas'); c.width = c.height = 32; const g = c.getContext('2d')!;
+  for (const [r, a] of [[5, 1], [9, 0.75], [13, 0.5]] as const) for (let y = 0; y < 32; y++) for (let x = 0; x < 32; x++) {
+    const dx = x + 0.5 - 8, dy = y + 0.5 - 16, d = Math.hypot(dx, dy), ang = Math.abs(Math.atan2(dy, dx));
+    if (Math.abs(d - r) < 1.1 && ang < 0.75) { g.fillStyle = `rgba(255,86,58,${a})`; g.fillRect(x, y, 1, 1); } }
+  const t = new THREE.CanvasTexture(c); t.magFilter = t.minFilter = THREE.NearestFilter; t.generateMipmaps = false; ARC_TEX = t; return t;
+}
 
 export class ActHud {
   flask!: AnyHp; sparks: UiSparks; stick!: SkinStick | IronStick; btns!: Record<BtnName, AnyBtn>; skin: SkinId = SKIN.id;
   /** 杀意 (0..3): shown as the ingots under the iron health bar */
   intent = 0; private qteRing: QteRing;
-  private bars = new Map<number, Bar>(); private boss: Bar | null = null; private bossName = '';
+  private bars = new Map<number, Bar>(); private boss: Bar | null = null; private bossName = ''; private marks: THREE.Mesh[] = [];
+  /** the hero's floor position (show sets it every frame; the off-screen markers read their distance from it) */
+  heroAt = new THREE.Vector3();
   get bossOn() { return !!this.boss && this.on; }
   /** copper coins in the purse (act-17), shown under the health number */
   coins = 0; private coinIcon: THREE.Group | null = null;
@@ -95,14 +109,15 @@ export class ActHud {
   setHints(h: Partial<Record<BtnName, HintKey | null>>) { for (const n of Object.keys(this.btns) as BtnName[]) { const b = this.btns[n]; if (b instanceof IronBtn) b.hint = h[n] ?? null; } }
   setPips(n: BtnName, left: number, max: number) { const b = this.btns[n] as { pips?: number; pipMax?: number }; if ('pipMax' in b) { b.pips = left; b.pipMax = max; } }
   private newBar(): Bar {
-    const p = PALETTE[this.skin], g = new THREE.Group(), back = box(p.foeBack), lag = box(p.foeLag), fill = box(p.foeFill);
-    back.position.z = 0; lag.position.z = 0.5; fill.position.z = 1; back.renderOrder = 4; lag.renderOrder = 5; fill.renderOrder = 6;
+    // the lag a muted copper, not a pale strip (it read as "white behind the pad")
+    const p = PALETTE[this.skin], g = new THREE.Group(), back = flat(p.foeBack), lag = flat(0x9a5a34), fill = flat(p.foeFill);
+    back.renderOrder = 40; lag.renderOrder = 41; fill.renderOrder = 42;
     g.add(back, lag, fill); this.L.scene.add(g); return { g, back, lag, fill, shown: 1, lagV: 1 };
   }
   private drawBar(b: Bar, x: number, y: number, w: number, h: number, frac: number, dt: number) {
     const L = this.L; b.shown = frac; b.lagV = Math.max(frac, b.lagV - dt * 0.6);
     L.at(x, y, 0, b.g.position); const u = L.px(1);
-    b.back.scale.set((w + 4) * u, (h + 4) * u, u); b.lag.scale.set(w * b.lagV * u, h * u, u); b.fill.scale.set(w * frac * u, h * u, u);
+    b.back.scale.set((w + 4) * u, (h + 4) * u, 1); b.lag.scale.set(Math.max(1e-4, w * b.lagV) * u, h * u, 1); b.fill.scale.set(Math.max(1e-4, w * frac) * u, h * u, 1);
     b.lag.position.x = (-w / 2 + (w * b.lagV) / 2) * u; b.fill.position.x = (-w / 2 + (w * frac) / 2) * u;
   }
   update(dt: number, inp: Input, foes: Foe[]) {
@@ -132,6 +147,19 @@ export class ActHud {
       this.drawBar(b, p.x, p.y, 64 * this.k, 9 * this.k, f.hp / f.maxHp, dt);
     }
     for (const [uid, b] of this.bars) if (!live.has(uid)) { b.g.parent?.remove(b.g); this.bars.delete(uid); }
+    // act-19 (2x stage): a foe off the screen shows as a red sound-wave arc on the screen's edge, pointing at it, brighter when near
+    let nm = 0; const W = this.L.w, H = this.L.h, pad = 30 * this.k;
+    for (const f of foes) {
+      if (f.st === 'dead' || f.kind === 'dummy' || nm >= 10) continue;
+      const q = worldToUi(f.pos.clone().setY(1)); if (q.z < 1 && q.x > 0 && q.x < W && q.y > 0 && q.y < H) continue;
+      let dx = q.x - W / 2, dy = q.y - H / 2; if (q.z >= 1) { dx = -dx; dy = -dy; }
+      const s = Math.min((W / 2 - pad) / Math.max(1e-3, Math.abs(dx)), (H / 2 - pad) / Math.max(1e-3, Math.abs(dy))), x = W / 2 + dx * s, y = H / 2 + dy * s;
+      let m = this.marks[nm]; if (!m) { m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: arcTex(), transparent: true, depthWrite: false, depthTest: false })); m.renderOrder = 43; this.L.scene.add(m); this.marks.push(m); }
+      const dist = Math.hypot(f.pos.x - this.heroAt.x, f.pos.z - this.heroAt.z), near = Math.max(0, Math.min(1, 1 - (dist - 6) / 14));
+      this.L.at(x, y, 0, m.position); m.scale.setScalar(this.L.px((26 + 10 * near) * this.k)); m.rotation.z = -Math.atan2(dy, dx);
+      (m.material as THREE.MeshBasicMaterial).opacity = 0.45 + 0.5 * near * (0.8 + 0.2 * Math.sin(performance.now() / 160)); m.visible = this.on; nm++;
+    }
+    for (let i = nm; i < this.marks.length; i++) this.marks[i].visible = false;
     const chief = foes.find(f => isBoss(f) && f.st !== 'dead');   // wp/foes: isBoss
     if (chief) {
       if (!this.boss) this.boss = this.newBar();

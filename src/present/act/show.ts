@@ -161,9 +161,17 @@ export class ActShow {
     this.qteW = new THREE.Mesh(new THREE.RingGeometry(0.92, 1.0, 40).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffb040, transparent: true, opacity: 0.85, depthWrite: false, side: THREE.DoubleSide }));
     this.qteW.renderOrder = 3; this.qteW.visible = false; scene.add(this.qteW);
     // browsers only let sound start after a touch or a key: the first input starts the music
-    const unlock = () => { if (this.audioOn) return; this.audioOn = true; audio.unlock().then(() => audio.playMusic('bgm_battle', 0.55)).catch(() => { this.audioOn = false; }); };
+    const unlock = () => { if (this.audioOn) return; this.audioOn = true; audio.unlock().then(() => this.music()).catch(() => { this.audioOn = false; }); };
     if (typeof window !== 'undefined') { window.addEventListener('pointerdown', unlock); window.addEventListener('keydown', unlock); }
     this.start();
+  }
+  /** act-19: the music for where we are — the opening, the yard, or the room's kind (a fight, a 死士 room, the 渠帅, a calm room);
+   *  the same track carries on across rooms, a different one cross-fades in */
+  music() {
+    if (!this.audioOn) return;
+    const t = this.plan?.type ?? 'fight', ph = this.phase as string;
+    const name = ph === 'opening' ? 'bgm_opening' : this.room < 0 || ph === 'yard' ? 'bgm_yard' : t === 'boss' ? 'bgm_boss' : t === 'elite' ? 'bgm_elite' : t === 'shop' || t === 'rest' || t === 'boon' ? 'bgm_calm' : 'bgm_battle';
+    void audio.playMusic(name, 1.8);
   }
   layout2() {
     const s = this.platform.canvasSize(), dpr = Math.min(this.platform.dpr(), 2);
@@ -228,6 +236,7 @@ export class ActShow {
     this.hero.a.yaw = Math.PI;
     this.hud.flask.set({ hp: this.hero.hp, maxHp });
     this.cam.set(0, 0, 3); shot('act', () => this.camPose(), { cut: true, speed: 8 });
+    after(0.05, () => this.music());
     if (isYard) { this.openYard(); return; }
     if (this.viewSpec) { this.phase = 'yard'; this.log.push(`view ${spec.locale} ${spec.layout} ${spec.time}`); return; }
     this.phase = 'intro'; this.wave = 0;
@@ -642,7 +651,7 @@ export class ActShow {
   // ------------------------------------------------------------ clear → pick → doors → leave
   private async roomClear() {
     if (this.phase !== 'fight') return;
-    this.phase = 'pick'; cue('stingClear', 1);
+    this.phase = 'pick'; cue('stingClear', 1); audio.duckMusic(0.35, 3.2);
     this.banner.show('清场', '', 1.0, '#ffe6a0');
     await new Promise(r => after(0.9, () => r(null)));
     if (this.room >= RUN_ROOMS - 1) { this.end(true); return; }
@@ -714,7 +723,7 @@ export class ActShow {
     after(0.35, () => { void wipeTransit(() => { this.room++; this.buildRoom(false); }); });
   }
   private dead() {
-    this.phase = 'dead'; cue('stingLose', 1); slowmo(1.2, 0.3); this.banner.show('败北', '', 1.6, '#ff6a5a');
+    this.phase = 'dead'; audio.stopMusic(1.4); cue('stingLose', 1); slowmo(1.2, 0.3); this.banner.show('败北', '', 1.6, '#ff6a5a');
     after(1.6, async () => {
       this.hud.on = false;
       await this.cards.open([returnCard(this.kills)]); // wp/boons: adapt non-boon cards and centralize their copy
@@ -722,7 +731,7 @@ export class ActShow {
     });
   }
   private end(win: boolean) {
-    this.phase = 'end'; cue(win ? 'stingWin' : 'stingLose', 1);
+    this.phase = 'end'; audio.stopMusic(2.0); cue(win ? 'stingWin' : 'stingLose', 1);
     after(0.4, async () => {
       this.hud.on = false;
       await this.cards.open([{ boon: { id: win ? 'again' : 'retry', school: 'sr', name: win ? '黄巾残村' : '再来一次', desc: [win ? '渠帅伏诛' : '回练武场再出发', `斩了 ${this.kills} 个 · 点这里回练武场`], col: '#ffd070', glyph: BOONS[7].glyph }, tier: 0 }]);
@@ -879,6 +888,7 @@ export class ActShow {
       const atk = !fighting ? null : chase ? 'chase' : h.st === 'dash' && !h.airborne ? 'dcut' : (h.st === 'air' && h.airborne) ? 'plunge' : h.counterT > 0 ? 'counter' : null;
       this.hud.setHints({ attack: atk, special: fighting && h.canBackDart ? 'back' : null, jump: fighting && h.canDoubleJump ? 'dbl' : null }); }
     SHOW_PERKS.darts3 = this.perks.darts3;
+    this.hud.heroAt.copy(h.pos);
     this.hud.update(rdt, this.inp, this.foes); this.cards.update(rdt); this.banner.update(rdt);
     this.L.on = true;
   }

@@ -7,6 +7,10 @@ const byName: Record<string, string> = {};
 for (const [p, url] of Object.entries(files)) byName[p.split('/').pop()!.replace('.mp3', '')] = url;
 const variants = (prefix: string) => Object.keys(byName).filter(n => n.startsWith(prefix));
 
+/** act-19 music (the user's six tracks, GameProtos/music/unseen_v1): [loopStart, loopEnd] in seconds. Each file is the track up to
+ *  loopEnd with the last ~1.6 s already crossfaded into the music just before loopStart (bar-aligned, picked by beat-synchronous chroma /
+ *  timbre similarity), so looping loopEnd → loopStart is seamless; the intro before loopStart plays once. */
+export const MUSIC_LOOPS: Record<string, [number, number]> = { bgm_opening: [29.6751, 127.4195], bgm_yard: [29.9886, 108.6578], bgm_battle: [18.0535, 123.5766], bgm_elite: [7.6278, 53.2201], bgm_boss: [16.5326, 97.0942], bgm_calm: [20.1317, 106.0339] };
 export const VOICE_LINES: Record<string, string> = {
   enter: '能踏进这座坟茔的活人，最后都成了我的藏品。',
   attack: '让亡灵大军吞噬你！',
@@ -29,7 +33,8 @@ class AudioEngine {
     this.lp = ctx.createBiquadFilter(); this.lp.type = 'lowpass'; this.lp.frequency.value = 18000; this.lp.Q.value = 0.7;
     this.music = ctx.createGain(); this.music.gain.value = 0.42; this.music.connect(this.lp); this.lp.connect(this.duck);
     this.voice = ctx.createGain(); this.voice.gain.value = 1.0; this.voice.connect(this.master);
-    await Promise.all(Object.entries(byName).map(async ([n, url]) => {
+    // music is decoded on demand (playMusic): six decoded tracks would hold ~250 MB on a phone
+    await Promise.all(Object.entries(byName).filter(([n]) => !n.startsWith('bgm_')).map(async ([n, url]) => {
       try { const b64 = url.slice(url.indexOf(',') + 1), bin = atob(b64), arr = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i); this.buf.set(n, await ctx.decodeAudioData(arr.buffer)); } catch { /* skip broken sample */ }
     }));
     this.ready = true;
@@ -59,11 +64,39 @@ class AudioEngine {
     const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(o.gain ?? 0.3, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     osc.connect(g); g.connect(this.sfx); osc.start(t); osc.stop(t + dur + 0.05);
   }
-  playMusic(name: string, fade = 1.2) {
-    const ctx = this.ctx; if (!ctx || this.musicName === name) return; const b = this.buf.get(name); if (!b) return;
-    const t = this.now(); if (this.musicSrc) { const old = this.musicSrc; const og = (old as any)._g as GainNode; og.gain.setTargetAtTime(0, t, fade / 4); old.stop(t + fade); }
-    const src = ctx.createBufferSource(); src.buffer = b; src.loop = true; const g = ctx.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(1, t + fade); (src as any)._g = g;
+  private decodeName(n: string) {
+    const ctx = this.ctx, url = byName[n]; if (!ctx || !url) return Promise.resolve(null);
+    const b64 = url.slice(url.indexOf(',') + 1), bin = atob(b64), arr = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    return ctx.decodeAudioData(arr.buffer).catch(() => null);
+  }
+  private musicWant = '';
+  /** cross-fade to a music track (decoded now if needed; only the playing and the last one stay decoded). Same track: nothing. */
+  async playMusic(name: string, fade = 1.6) {
+    const ctx = this.ctx; if (!ctx || this.musicWant === name) return; this.musicWant = name;
+    let b = this.buf.get(name);
+    if (!b) { const d = await this.decodeName(name); if (!d) return; b = d; this.buf.set(name, d); }
+    if (this.musicWant !== name) return;   // asked for another while decoding
+    const t = this.now();
+    if (this.musicSrc) { const old = this.musicSrc, og = (old as any)._g as GainNode; og.gain.cancelScheduledValues(t); og.gain.setValueAtTime(og.gain.value, t); og.gain.linearRampToValueAtTime(0, t + fade); old.stop(t + fade + 0.05); }
+    const src = ctx.createBufferSource(); src.buffer = b; src.loop = true;
+    const lp = MUSIC_LOOPS[name]; if (lp) { src.loopStart = lp[0]; src.loopEnd = Math.min(lp[1], b.duration); }
+    const g = ctx.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(1, t + fade); (src as any)._g = g;
     src.connect(g); g.connect(this.music); src.start(t); this.musicSrc = src; this.musicName = name;
+    // keep at most this one and the one before decoded
+    for (const k of [...this.buf.keys()]) if (k.startsWith('bgm_') && k !== name && k !== this.musicPrev) this.buf.delete(k);
+    this.musicPrev = name;
+  }
+  private musicPrev = '';
+  /** fade the music out (a death, the end of a run); the next playMusic brings it back */
+  stopMusic(fade = 1.5) {
+    if (!this.ctx || !this.musicSrc) return; const t = this.now(), old = this.musicSrc, og = (old as any)._g as GainNode;
+    og.gain.cancelScheduledValues(t); og.gain.setValueAtTime(og.gain.value, t); og.gain.linearRampToValueAtTime(0, t + fade); old.stop(t + fade + 0.05);
+    this.musicSrc = null; this.musicName = ''; this.musicWant = '';
+  }
+  /** dip the music under a stinger for a while (k = level, 0..1) */
+  duckMusic(k: number, hold: number, back = 0.8) {
+    if (!this.ctx) return; const t = this.now(), g = this.music.gain, base = 0.42;
+    g.cancelScheduledValues(t); g.setValueAtTime(g.value, t); g.linearRampToValueAtTime(base * k, t + 0.25); g.setValueAtTime(base * k, t + hold); g.linearRampToValueAtTime(base, t + hold + back);
   }
   /** 0 = open, 1 = muffled (low HP) */
   muffle(k: number) { if (!this.ctx) return; this.lp.frequency.setTargetAtTime(18000 * Math.pow(1 - k * 0.92, 2) + 600 * k, this.now(), 0.4); }
