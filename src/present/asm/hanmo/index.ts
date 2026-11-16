@@ -2,5 +2,6 @@
 // 风格同忍之章：横平竖直的大块体，不许斜线阶梯和逐格随机碎点；材质是汉末北方乡野——夯土、茅草、灰瓦、黄巾旗。
 import type { Locale } from '../types';
 import { hj_temple } from './hj_temple';
+import { hjField } from './hj_field';
 
-export const HANMO_LOCALES: Locale[] = [hj_temple];
+export const HANMO_LOCALES: Locale[] = [hj_temple, hjField];
