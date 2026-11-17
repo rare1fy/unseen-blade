@@ -7,7 +7,7 @@ import { scene } from '../engine/world';
 import { anim, ease, lerp } from '../engine/clock';
 import { canvasOf } from '../hud/paint';
 
-interface FontData { size: number; chars: string; adv: string; bits: string }
+interface FontData { size: number; chars: string; adv: string; bits: string; advOff?: number }
 interface Glyph { adv: number; rows: Uint8Array }
 
 const F = FONT_DATA as FontData, SIZE = F.size || 12;
@@ -25,7 +25,7 @@ function b64(s: string) {
 }
 const BITS = b64(F.bits || '');
 const MAP = new Map<number, { off: number; adv: number }>();
-{ let off = 0, i = 0; for (const ch of F.chars) { const adv = parseInt(F.adv[i], 16) || 12; MAP.set(ch.codePointAt(0)!, { off, adv }); off += adv * SIZE; i++; } }
+{ let off = 0, i = 0; for (const ch of F.chars) { const adv = (parseInt(F.adv[i], 16) + (F.advOff ?? 0)) || SIZE; MAP.set(ch.codePointAt(0)!, { off, adv }); off += adv * SIZE; i++; } }
 const CACHE = new Map<number, Glyph>();
 export const MISSING = new Set<string>();
 /** hand-drawn replacements: Fusion Pixel's 12px 双 is two bold 2-px X's that read as 「XX」 (user 11-14); this one is 又又 in 1-px strokes, the left 又 a narrow 7 with its dot, the right one a full 又 */
@@ -34,7 +34,7 @@ const OVERRIDE: Record<number, string[]> = {
 };
 function glyph(cp: number): Glyph {
   let g = CACHE.get(cp); if (g) return g;
-  const ov = OVERRIDE[cp];
+  const ov = SIZE === 12 ? OVERRIDE[cp] : undefined;   // (the hand-drawn 双 is a 12 px glyph; the 16 px font draws its own)
   if (ov) { const adv = ov[0].length, rows = new Uint8Array(adv * SIZE); ov.forEach((r, y) => { for (let x = 0; x < adv; x++) if (r[x] === '#') rows[y * adv + x] = 1; }); g = { adv, rows }; CACHE.set(cp, g); return g; }
   const m = MAP.get(cp);
   if (!m) {

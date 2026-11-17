@@ -3,7 +3,7 @@
 // clearing it gives — a school's boon (太平道 雷 / 江东水师 寒 / 散人), copper coins, or healing — plus the place's name.
 import * as THREE from 'three';
 import { toon } from '../look/toon';
-import { icon, text, textW } from '../v2/overlay';
+import { icon, text, textW, PIX_H } from '../v2/overlay';
 import { bodyText, onBodyFontChange } from '../ui3d/bodyFont';
 import { ROOM_INFO, SCHOOL_NAME, type RoomPlan } from './run';
 import { SCROLL_GLYPH } from './manuals';
@@ -29,9 +29,10 @@ function face(p: RoomPlan, place: string) {
     g.fillStyle = WOOD; g.fillRect(0, 0, W, H);
     g.fillStyle = WOOD_D; g.fillRect(0, 34, W, 2); g.fillRect(0, 70, W, 2); g.fillRect(0, 0, W, 4); g.fillRect(0, H - 4, W, 4); g.fillRect(0, 0, 4, H); g.fillRect(W - 4, 0, 4, H);
     icon(g, GLYPH[p.type], 10, 8, 5, { main: INK, acc: ACC, dark: INK });
-    const k = ROOM_INFO[p.type].name; text(g, k, 66 + (84 - textW(k, 3)) / 2, 12, 3, INK, 'left', null);
+    // (act-35: the 16 px 长坂点宋 — the name two board units per font pixel, in the top band; the school mark in the bottom band)
+    const nk = PIX_H >= 16 ? 2 : 3, k = ROOM_INFO[p.type].name; text(g, k, 66 + (84 - textW(k, nk)) / 2, PIX_H >= 16 ? 3 : 12, nk, INK, 'left', null);
     const r = p.reward;
-    if (r?.k === 'boon') { const m = SCHOOL_MARK[r.school]; text(g, m.ch, 12, 70, 2, m.col, 'left', null); }
+    if (r?.k === 'boon') { const m = SCHOOL_MARK[r.school]; if (PIX_H >= 16) { g.setTransform(1, 0, 0, 1, 0, 0); text(g, m.ch, 10 * S, 73 * S, 5, m.col, 'left', null); g.setTransform(S, 0, 0, S, 0, 0); } else text(g, m.ch, 12, 70, 2, m.col, 'left', null); }
     else if (r?.k === 'manual') icon(g, SCROLL_GLYPH, 10, 66, 3, { main: INK, acc: ACC, dark: INK });
     else if (r) icon(g, GLYPH[r.k === 'coins' ? 'coins' : 'heal'], 10, 66, 3, { main: INK, acc: ACC, dark: INK });
     const sub = r?.k === 'boon' ? SCHOOL_NAME[r.school] : r?.k === 'coins' ? `铜钱 ${r.n}` : r?.k === 'heal' ? '回血' : r?.k === 'manual' ? '刀谱' : place;

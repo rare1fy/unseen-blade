@@ -175,9 +175,12 @@ export class IronBtn {
   aim: { x: number; y: number } | null = null; private tiltX = 0; private tiltY = 0;
   /** act-29 (用户：「派生技能的按钮反馈很弱」): the link opening bursts (sparks + a ring wave in its colour), the button rises and its
    *  picture glows that colour, a 3D token of the move floats beside it; pressing while it is open flashes 'linked' */
-  private wave: THREE.Mesh | null = null; private waveT = 1; private waveCol = new THREE.Color(); private linkT = 0; private lastHint: HintKey | null = null; /** (hud.ts hides it with the HUD: update() is not called while the HUD is off) */ token: Model3D | null = null; private tokenKey: HintKey | null = null;
+
   /** the hideout: the cut button is the 'talk' button while someone is near (its picture swaps to a speech bubble) */
-  talk = false; private talkIcon: Model3D | null = null; private talkK = 0;
+  talk = false;
+  /** act-35 (用户：「按钮的切换直接替换按钮里面的，不要在外面额外闪个图标出来」): the picture inside the button swaps — to the speech
+   *  bubble at the hideout, to the open link's move in a fight — and swaps back; one model per key, made once */
+  private alts = new Map<string, Model3D>(); private altKey: string | null = null; private altK = 0;
   kick(k: number, col = 0xfff2d0) { this.scV += 1.6 * k; this.kickT = 0.18 + 0.1 * k; this.kickCol.setHex(col); }
   private col = new THREE.Color(); private ember = new THREE.Color(EMBER); private dark = new THREE.Color(0x24262c); private base = new THREE.Color(IRON);
   constructor(private L: UiLayer, public name: BtnKey, private sparks: UiSparks) {
@@ -224,9 +227,10 @@ export class IronBtn {
     L.at(this.x + deny * 5, this.y, -this.pressK * 4, this.root.position); this.root.scale.setScalar(L.px(this.size) * this.sc);
     // aimed (the dart button dragged): the face leans toward the aim
     { const ax = this.aim?.x ?? 0, ay = this.aim?.y ?? 0, kk = Math.min(1, dt * 14); this.tiltX += (-ay * 0.32 - this.tiltX) * kk; this.tiltY += (ax * 0.32 - this.tiltY) * kk; this.root.rotation.set(this.tiltX, this.tiltY, deny * 0.08); }
-    if (full && !this.wasFull) this.sparks.burst(L.at(this.x, this.y, 3), 14, L.px(170), L.px(4), 0xffb060, { life: 0.35 });
+    // (act-35, 用户：「派生ui闪光太严重了，眼睛都要闪瞎了」: no spark bursts on the buttons any more — the dash comes ready every half
+    //  second when it is spammed, and every one of them flashed)
     this.wasFull = full;
-    if (ready && !this.wasReady) { this.flashT = 0.45; this.popT = 0; this.sweepT = 0; this.scV += 1.1; this.sparks.burst(L.at(this.x, this.y, 3), 12, L.px(160), L.px(4), 0xffb060, { life: 0.35 }); }   // no 'ready' tick (buttons are silent)
+    if (ready && !this.wasReady) { this.flashT = 0.3; this.popT = 0; this.sweepT = 0; this.scV += 0.6; }   // no 'ready' tick (buttons are silent)
     this.wasReady = ready; this.flashT = Math.max(0, this.flashT - dt); this.popT = Math.min(1, this.popT + dt / 0.5);
     const pulse = 0.5 + 0.5 * Math.sin(this.tt * 12), geo = this.ring.plates.geometry;
     for (let i = 0; i < 8; i++) {
@@ -234,12 +238,12 @@ export class IronBtn {
       const lit = ready || i / 8 < 1 - frac;
       const fromBottom = (4 - Math.abs(i - 4)) / 4, heat = ch > 0 ? Math.max(0, Math.min(1, (ch - (1 - fromBottom) * 0.85) * 3)) : 0;
       const hc = this.hint && !this.now ? HINT_COLS[this.hint] : null;
-      const glow = this.now ? 0.9 : hc ? 0.4 + 0.22 * pulse : this.flashT > 0 ? Math.min(1, this.flashT * 1.8) : this.hot || full ? 0.45 + 0.4 * pulse : heat;
+      const glow = this.now ? 0.9 : hc ? 0.42 : this.flashT > 0 ? Math.min(0.5, this.flashT * 1.6) : this.hot || full ? 0.45 + 0.4 * pulse : heat;
       this.col.copy(lit ? this.base : this.dark).lerp(this.now ? WHITE : hc ?? this.ember, lit ? glow * 0.8 : 0);
       // the next plate to come back while cooling: a dim ember edge (you can see where it is)
       if (!lit && i / 8 < 1 - frac + 1 / 8) this.col.lerp(this.ember, 0.22 + 0.12 * pulse);
       // came ready: a run of light round the plates from the top, clockwise
-      if (this.sweepT < 1) { const at = this.sweepT * 9 - 0.5, w = Math.max(0, 1 - Math.abs(i - at)); this.col.lerp(WHITE, w * 0.45); }   // (act-34: half as bright — 「太闪了」)
+      if (this.sweepT < 1) { const at = this.sweepT * 9 - 0.5, w = Math.max(0, 1 - Math.abs(i - at)); this.col.lerp(WHITE, w * 0.25); }   // (act-34 / 35: 「太闪了」— a faint run of light)
       if (this.kickT > 0) this.col.lerp(this.kickCol, Math.min(1, this.kickT * 4) * 0.5);
       if (this.denyT > 0) this.col.lerp(DENY, Math.min(1, this.denyT * 4) * 0.6);
       paintRange(geo, this.ring.ranges[i * 2], this.col);
@@ -259,46 +263,30 @@ export class IronBtn {
     // dark while cooling; its glowing cells brighter when it is ready to fire, a link is open, or it just came ready
     const linkOpen = !!this.hint && this.hint !== 'talk';
     this.icon.setDim(ready ? 0 : 0.6);
-    this.icon.setGlow(this.now ? 2.6 : linkOpen ? 1.35 + 0.3 * pulse : hotK ? 1.4 + 0.5 * pulse : this.flashT > 0 ? 1 + this.flashT * 2.4 : 1);
+    this.icon.setGlow(this.now ? 2.6 : linkOpen ? 1 : hotK ? 1.4 + 0.5 * pulse : this.flashT > 0 ? 1 + this.flashT * 1.2 : 1);
     // the shadow on the socket: smaller and fainter as the picture rises
     this.shadow.scale.setScalar(1.15 - Math.min(0.4, this.lift / 40)); (this.shadow.material as THREE.MeshBasicMaterial).opacity = 0.55 - Math.min(0.3, this.lift / 50);
     this.iconG.visible = this.root.visible;
-    // act-29: the link opening — a burst of its colour and a ring wave out from the rim; the button kicks up
+    // act-35 (用户：「现在的派生ui闪光太严重了，眼睛都要闪瞎了」): no sparks, no ring wave, no white sweep when a link opens or is
+    // taken — the rim simply takes the move's colour (above) and the picture inside becomes the move
     const hint = this.hint && this.hint !== 'talk' ? this.hint : null;
-    if (hint && hint !== this.lastHint) {
-      // (act-34, 用户：「按钮派生技能闪出来的光效要稍微降低点，现在太闪了」: half the sparks, smaller and slower, a fainter ring)
-      const hc = HINT_COLS[hint]; this.waveCol.copy(hc); this.waveT = 0; this.scV += 1.3;
-      this.sparks.burst(L.at(this.x, this.y, 4), 9, L.px(150), L.px(3.5), hc.getHex(), { life: 0.4 });
-      if (!this.wave) { this.wave = new THREE.Mesh(new THREE.RingGeometry(0.44, 0.5, 8, 1, Math.PI / 8), new THREE.MeshBasicMaterial({ transparent: true, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending })); this.wave.renderOrder = 8; this.wave.userData.noTilt = true; L.scene.add(this.wave); }
+    if (hint) this.root.position.z += L.px(6);   // (the open link lifts the button a little)
+    const altKey = this.talk ? 'talk' : hint;
+    if (altKey && altKey !== this.altKey) {
+      let m = this.alts.get(altKey);
+      if (!m) { m = altKey === 'talk' ? btnIcon3D('talk') : hintIcon3D(altKey, HINTS[altKey as HintKey].rows, HINTS[altKey as HintKey].col); this.alts.set(altKey, m); this.iconG.add(m); }
+      for (const [k, o] of this.alts) o.visible = k === altKey;
+      // a new move while another is still up: it takes the place at once (no in-between of the sabre)
+      if (this.altKey && this.altK > 0.5) this.altK = 0.5;
+      this.altKey = altKey;
     }
-    // pressed while a link is open: 'linked' — a white flash round the plates, a second ring, sparks
-    if (this.down && this.pressK < 0.5 && hint && this.linkT <= 0) { this.linkT = 0.3; this.sweepT = 0; this.waveT = 0; this.waveCol.setHex(0xffffff); this.sparks.burst(L.at(this.x, this.y, 4), 10, L.px(170), L.px(3.5), 0xffffff, { life: 0.35 }); }
-    if (!this.down) this.linkT = Math.max(0, this.linkT - dt);
-    this.lastHint = hint;
-    this.waveT = Math.min(1, this.waveT + dt / 0.42);
-    if (this.wave) { const w = this.waveT, mat = this.wave.material as THREE.MeshBasicMaterial; this.wave.visible = this.root.visible && w < 1; mat.color.copy(this.waveCol); mat.opacity = (1 - w) * 0.45;
-      L.at(this.x, this.y, 8, this.wave.position); this.wave.scale.setScalar(L.px(this.size) * (1 + w * 0.7)); }
-    // the token: a 3D relief of the move beside the button, popping in, turning slowly, bobbing; it shrinks away when the link closes
-    if (hint && hint !== this.tokenKey) {
-      if (this.token) { L.scene.remove(this.token); this.token.dispose(); }
-      this.token = hintIcon3D(hint, HINTS[hint].rows, HINTS[hint].col); this.token.renderOrder = 9; L.scene.add(this.token); this.tokenKey = hint; this.badgePop = 0;
-    }
-    this.badgeK += ((hint ? 1 : 0) - this.badgeK) * Math.min(1, dt * 14); this.badgePop = Math.min(1, this.badgePop + dt / 0.3);
-    if (this.token) {
-      const pop = this.badgePop < 1 ? 1 + 0.5 * Math.sin(this.badgePop * Math.PI) : 1, bs = Math.min(this.size, 110) * 0.5;
-      this.token.visible = this.root.visible && this.badgeK > 0.03;
-      L.at(this.x + this.badgeSide * (this.size * 0.52 + bs * 0.2), this.y - this.size * 0.62 - 5 * Math.sin(this.tt * 4), 14, this.token.position);
-      this.token.scale.setScalar(L.px(bs) * this.badgeK * pop); this.token.rotation.set(-0.25, Math.sin(this.tt * 2.2) * 0.5, 0);
-      this.token.setGlow(1.2 + 0.6 * pulse);
-    }
-    // the open link lifts the whole button a little and tints its picture
-    if (hint) this.root.position.z += L.px(6) * this.badgeK;
-    // the hideout: the cut button becomes 'talk' — the sabre sinks away and a bronze speech bubble rises in its place
-    this.talkK += ((this.talk ? 1 : 0) - this.talkK) * Math.min(1, dt * 10);
-    if (this.talk && !this.talkIcon) { this.talkIcon = btnIcon3D('talk'); this.iconG.add(this.talkIcon); }
-    if (this.talkIcon) { this.talkIcon.visible = this.talkK > 0.02; this.talkIcon.scale.setScalar(Math.max(0.001, this.talkK)); this.icon.scale.setScalar(Math.max(0.001, 1 - this.talkK)); this.icon.visible = this.talkK < 0.98; }
+    this.altK += ((altKey ? 1 : 0) - this.altK) * Math.min(1, dt * 16);
+    const cur = this.altKey ? this.alts.get(this.altKey) : null;
+    if (cur) { cur.visible = this.altK > 0.02; cur.scale.setScalar(Math.max(0.001, this.altK)); if (this.altKey !== 'talk') { cur.setDim(0); cur.setGlow(1); } }
+    if (!altKey && this.altK < 0.02) this.altKey = null;
+    this.icon.scale.setScalar(Math.max(0.001, 1 - this.altK)); this.icon.visible = this.altK < 0.98;
   }
-  dispose() { disposeTree(this.root); disposeTree(this.iconG); if (this.badge) disposeTree(this.badge); if (this.token) this.token.dispose(); if (this.wave) disposeTree(this.wave); }
+  dispose() { disposeTree(this.root); disposeTree(this.iconG); if (this.badge) disposeTree(this.badge); for (const m of this.alts.values()) m.dispose(); }
 }
 const WHITE = new THREE.Color(0xfff6e0), DENY = new THREE.Color(0x8a2a20);
 const HINT_COLS = Object.fromEntries(Object.entries(HINTS).map(([k, h]) => [k, new THREE.Color(h.col)])) as Record<HintKey, THREE.Color>;

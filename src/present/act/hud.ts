@@ -17,6 +17,7 @@ import { TUNE } from './tune';
 import { SKIN, PALETTE, SkinBtn, SkinStick, SkinHp, type SkinId } from './skin';
 import { IronBtn, IronStick, IronHp, QteRing , type HintKey } from './ironUi';
 import { textCells, pixTextW } from '../ui3d/pixfont';
+import { PIX_H } from '../v2/pix';
 import { bodyW } from '../ui3d/bodyFont';
 import { ACTION_WORD, BIND, actKey, glyphTex, glyphArt, GLYPH_H } from './pad';
 
@@ -138,16 +139,16 @@ export class ActHud {
     b.lag.position.x = (-w / 2 + (w * b.lagV) / 2) * u; b.fill.position.x = (-w / 2 + (w * frac) / 2) * u;
   }
   update(dt: number, inp: Input, foes: Foe[]) {
-    this.stick.root.visible = this.on; for (const b of Object.values(this.btns)) { b.root.visible = this.on; if (b instanceof IronBtn) { b.iconG.visible = this.on; if (!this.on && b.token) b.token.visible = false; } }
+    this.stick.root.visible = this.on; for (const b of Object.values(this.btns)) { b.root.visible = this.on; if (b instanceof IronBtn) b.iconG.visible = this.on; }
     this.flask.root.visible = this.on;
     if (this.on) { this.stick.update(inp.stick, this.stickHome, this.stickSize); for (const b of Object.values(this.btns)) b.update(dt); }
     // act-28 (user: 「技能下面我看还是没有写按键什么意思：闪避、跳跃、远程、攻击」): what each button does, in small pixel type just under
     // its rim (never on the button face); with a keyboard or a pad the key follows the word
     for (const n of Object.keys(this.btns) as BtnName[]) {
       // act-30 之后: the keys follow the binding table (rebindable in the pause menu); on a pad the button is drawn, in its maker's look
-      // act-34 (用户：「下面的技能说明文字太小了，应该用像素带描边的文字」): the game's pixel font, outlined, at least 2 device px per font
-      // pixel on a 1x screen (24 px tall on a 720p desktop, ~12 px on a phone held sideways)
-      const dpr = this.L.dpr || 1, pk = Math.max(1, Math.ceil(14 * this.k * dpr / 12)), lh = 14 * pk / dpr;
+      // act-34 (用户：「下面的技能说明文字太小了，应该用像素带描边的文字」): the game's pixel font, outlined; whole device px per font pixel,
+      // the glyphs about 16–18 px tall (the 16 px 长坂点宋 at 1:1 on a 720p desktop, 3 device px per font pixel on a 3x phone)
+      const dpr = this.L.dpr || 1, pk = Math.max(1, Math.round(Math.max(16, 18 * this.k) * dpr / PIX_H)), lh = (PIX_H + 2) * pk / dpr;
       const b = this.btns[n], word = n === 'attack' && b instanceof IronBtn && b.talk ? '交谈' : ACTION_WORD[n], dev = inp.lastDevice, px = lh * 0.8, y = b.y + b.size * 0.5 + lh * 0.5 + 2 * this.k;
       const t = dev === 'key' ? `${word} ${actKey(n)}` : word;
       let x = b.x;

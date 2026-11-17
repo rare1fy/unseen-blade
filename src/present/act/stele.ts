@@ -17,7 +17,8 @@ const STONE = 0x7a756d, STONE_L = 0x928c82, STONE_D = 0x5a554e, BASE = 0x524e48,
 // (a cell i spans [i, i + 1] × CELL: the band x -6..6 → -6..7, its front at z 4 cells)
 const FACE_W = 13 * CELL, FACE_X = 0.5 * CELL, FACE_Y0 = 5 * CELL, FACE_H = 13 * CELL, FACE_Z = 4 * CELL + 0.004;
 // the carving canvas: four columns of two characters (pixel font, scale 3), right to left
-const S = 3, CH = PIX_H * S, CW = 180, CHH = 150, COL_X = (i: number) => CW - 18 - CH - i * (CH + 8), ROW_Y = (r: number) => 14 + r * (CH + 10);
+const S = PIX_H >= 16 ? 2 : 3, CH = PIX_H * S,   // (act-35: the 16 px 长坂点宋 cut at 2 board px a font pixel, so four names still fit)
+  CW = 180, CHH = 150, COL_X = (i: number) => CW - 18 - CH - i * (CH + 8), ROW_Y = (r: number) => 14 + r * (CH + 10);
 
 let GEO: THREE.Mesh[] | null = null;
 function stoneModel() {
