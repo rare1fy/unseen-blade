@@ -8,7 +8,9 @@
 import * as THREE from 'three';
 import { scene } from '../engine/world';
 
-export type TeleShape = { k: 'cone'; r: number; half: number } | { k: 'rect'; len: number; w: number } | { k: 'circle'; r: number; ahead: number } | { k: 'line'; len: number };
+export type TeleShape = { k: 'cone'; r: number; half: number } | { k: 'rect'; len: number; w: number } | { k: 'circle'; r: number; ahead: number } | { k: 'line'; len: number }
+  // 11-18 (第三关 链锤狱卒 / 封鸩 寒毒爆): a ring round the attacker — r0..r1, the hole inside is safe; it fills from the inner edge outward
+  | { k: 'ring'; r0: number; r1: number };
 const COL = 0xff4a26, EDGE = 0xff9a60, EDGE_C = new THREE.Color(EDGE), WHITE = new THREE.Color(0xffffff);
 /** the last beat before the blow, seconds */
 export const HOT = 0.15;
@@ -19,7 +21,7 @@ const mat = (o: number, c = COL) => new THREE.MeshBasicMaterial({ color: c, tran
 const RIPPLE_VS = 'varying vec3 vP; void main() { vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }';
 const RIPPLE_FS = `uniform vec3 uCol; uniform float uP, uT, uFade, uFlash, uHot, uKind, uR, uAhead, uLen; varying vec3 vP;
 void main() {
-  float d = uKind < 0.5 ? length(vP.xz) / uR : uKind < 1.5 ? length(vP.xz - vec2(0.0, uAhead)) / uR : vP.z / uLen;
+  float d = uKind < 0.5 ? length(vP.xz) / uR : uKind < 1.5 ? length(vP.xz - vec2(0.0, uAhead)) / uR : uKind < 2.5 ? vP.z / uLen : (length(vP.xz) - uAhead) / (uR - uAhead);
   // act-23: only what the wind-up has reached is lit; the rest of the shape stays dark (the contrast is the timing)
   float filled = step(d, uP);
   float band = step(0.7, fract(d * 4.0 - uT * 1.7));
@@ -34,15 +36,22 @@ void main() {
   gl_FragColor = vec4(c, a * uFade);
 }`;
 function rippleMat(s: TeleShape) {
-  const kind = s.k === 'cone' ? 0 : s.k === 'circle' ? 1 : 2;
+  const kind = s.k === 'cone' ? 0 : s.k === 'circle' ? 1 : s.k === 'ring' ? 3 : 2;
   return new THREE.ShaderMaterial({ vertexShader: RIPPLE_VS, fragmentShader: RIPPLE_FS, transparent: true, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2,
     uniforms: { uCol: { value: new THREE.Color(COL) }, uP: { value: 0 }, uT: { value: 0 }, uFade: { value: 1 }, uFlash: { value: 0 }, uHot: { value: 0 }, uKind: { value: kind },
-      uR: { value: s.k === 'cone' || s.k === 'circle' ? s.r : 1 }, uAhead: { value: s.k === 'circle' ? s.ahead : 0 }, uLen: { value: s.k === 'rect' || s.k === 'line' ? s.len : 1 } } });
+      uR: { value: s.k === 'cone' || s.k === 'circle' ? s.r : s.k === 'ring' ? s.r1 : 1 }, uAhead: { value: s.k === 'circle' ? s.ahead : s.k === 'ring' ? s.r0 : 0 }, uLen: { value: s.k === 'rect' || s.k === 'line' ? s.len : 1 } } });
 }
 function geo(s: TeleShape): THREE.BufferGeometry {
   if (s.k === 'cone') { const g = new THREE.CircleGeometry(s.r, 28, Math.PI / 2 - s.half, s.half * 2); g.rotateX(-Math.PI / 2); g.rotateY(Math.PI); return g; }
   if (s.k === 'circle') { const g = new THREE.CircleGeometry(s.r, 40); g.rotateX(-Math.PI / 2); g.translate(0, 0, s.ahead); return g; }
+  if (s.k === 'ring') { const g = new THREE.RingGeometry(s.r0, s.r1, 48, 1); g.rotateX(-Math.PI / 2); return g; }
   const w = s.k === 'rect' ? s.w : 0.14, len = s.len, g = new THREE.PlaneGeometry(w, len); g.rotateX(-Math.PI / 2); g.translate(0, 0, len / 2); return g;
+}
+/** two ribbons in one geometry (the ring's two rims) */
+function mergeRibbons(gs: THREE.BufferGeometry[]): THREE.BufferGeometry {
+  const P: number[] = [], I: number[] = []; let base = 0;
+  for (const g of gs) { const p = g.getAttribute('position'), ix = g.getIndex()!; for (let i = 0; i < p.count; i++) P.push(p.getX(i), p.getY(i), p.getZ(i)); for (let i = 0; i < ix.count; i++) I.push(ix.getX(i) + base); base += p.count; g.dispose(); }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g.setIndex(I); return g;
 }
 /** act-20: the outline as a flat ribbon of real width (a 1-px line broke up under the pixel look) */
 function ribbon(pts: THREE.Vector3[], w: number): THREE.BufferGeometry {
@@ -58,6 +67,12 @@ function edgeGeo(s: TeleShape): THREE.BufferGeometry {
   const pts: THREE.Vector3[] = [];
   if (s.k === 'cone') { pts.push(new THREE.Vector3(0, 0, 0)); for (let i = 0; i <= 24; i++) { const a = -s.half + (i / 24) * s.half * 2; pts.push(new THREE.Vector3(Math.sin(a) * s.r, 0, Math.cos(a) * s.r)); } pts.push(new THREE.Vector3(0, 0, 0)); }
   else if (s.k === 'circle') for (let i = 0; i <= 40; i++) { const a = (i / 40) * Math.PI * 2; pts.push(new THREE.Vector3(Math.sin(a) * s.r, 0, s.ahead + Math.cos(a) * s.r)); }
+  else if (s.k === 'ring') {
+    // both rims: the outer one, then the inner one (the safe hole reads as its own bright line)
+    const o: THREE.Vector3[] = [], q: THREE.Vector3[] = [];
+    for (let i = 0; i <= 48; i++) { const a = (i / 48) * Math.PI * 2; o.push(new THREE.Vector3(Math.sin(a) * s.r1, 0, Math.cos(a) * s.r1)); q.push(new THREE.Vector3(Math.sin(a) * s.r0, 0, Math.cos(a) * s.r0)); }
+    return mergeRibbons([ribbon(o, 0.09), ribbon(q, 0.09)]);
+  }
   else { const w = (s.k === 'rect' ? s.w : 0.14) / 2, l = s.len; pts.push(new THREE.Vector3(-w, 0, 0), new THREE.Vector3(w, 0, 0), new THREE.Vector3(w, 0, l), new THREE.Vector3(-w, 0, l), new THREE.Vector3(-w, 0, 0)); }
   return ribbon(pts, s.k === 'line' ? 0.05 : 0.09);
 }
@@ -81,7 +96,7 @@ export class Tele {
     for (const o2 of [this.shade, this.area, this.fill, this.edge]) { o2.renderOrder = 3; this.g.add(o2); }
     // a jumpable attack: pale bars across it, drifting along it (read as "over this")
     if (o.low && typeof document !== 'undefined') {
-      const len = s.k === 'rect' ? s.len : s.k === 'circle' ? s.r * 2 : 2, m = new THREE.MeshBasicMaterial({ color: 0xfff0d0, map: stripeTex(len / 0.55), transparent: true, opacity: 0.32, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, side: THREE.DoubleSide });
+      const len = s.k === 'rect' ? s.len : s.k === 'circle' ? s.r * 2 : s.k === 'ring' ? s.r1 * 2 : 2, m = new THREE.MeshBasicMaterial({ color: 0xfff0d0, map: stripeTex(len / 0.55), transparent: true, opacity: 0.32, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, side: THREE.DoubleSide });
       this.bars = new THREE.Mesh(geo(s), m); this.bars.renderOrder = 4; this.g.add(this.bars);
     }
     this.g.position.y = 0.05; scene.add(this.g);
@@ -127,6 +142,7 @@ export function inside(s: TeleShape, x: number, z: number, yaw: number, px: numb
   const dx = px - x, dz = pz - z, fx = Math.sin(yaw), fz = Math.cos(yaw), along = dx * fx + dz * fz, side = dx * fz - dz * fx;
   if (s.k === 'cone') { const d = Math.hypot(dx, dz); if (d > s.r + rad) return false; if (d < rad + 0.2) return true; return Math.abs(Math.atan2(side, along)) <= s.half + Math.asin(Math.min(1, rad / Math.max(d, 1e-3))); }
   if (s.k === 'circle') return Math.hypot(along - s.ahead, side) <= s.r + rad;
+  if (s.k === 'ring') { const d = Math.hypot(dx, dz); return d <= s.r1 + rad && d >= s.r0 - rad * 0.5; }   // (the hole: only well inside it is safe)
   const w = (s.k === 'rect' ? s.w : 0.14) / 2;
   return along >= -rad && along <= s.len + rad && Math.abs(side) <= w + rad;
 }

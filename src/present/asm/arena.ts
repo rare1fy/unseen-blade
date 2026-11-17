@@ -9,9 +9,28 @@ import type { Ctx } from '../scenes/stage';
 import type { Layout, Rect } from './types';
 import { exitInfo, type ExitId } from './exits';
 
-export type WallStyle = 'earth' | 'wattle' | 'brick';
-export type CoverKind = 'well' | 'mill' | 'cart' | 'stones' | 'ding' | 'stele' | 'trough';
+export type WallStyle = 'earth' | 'wattle' | 'brick' | 'palace' | 'sandbag';
+export type CoverKind = 'well' | 'mill' | 'cart' | 'stones' | 'ding' | 'stele' | 'trough'
+  // 11-18 第二关洛阳（palace）/ 第三关下邳（sandbag）的掩体，体素在各自的 arena_*.ts
+  | 'camel' | 'bellrack' | 'charpile' | 'beast' | 'boat' | 'bollard' | 'bags' | 'raft';
 export type PropKind = 'pot' | 'crate' | 'hay' | 'oil' | 'pillar' | 'fence' | 'rack' | 'banner' | 'basket' | 'sack' | 'lamp';
+/** a box in a wall run's own frame: p along the run, q across it (cells) */
+export type RunBox = (p0: number, y0: number, q0: number, p1: number, y1: number, q1: number, col: number) => void;
+/** a box in a cover piece's own frame, centred on its cell (cells; x = its long side) */
+export type CoverBox = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, col: number) => void;
+/** 11-18 (一局五关): a wall style of a later region, from its own file (asm/<region>/arena_*.ts registers it here), so the places of
+ *  each region get their own walls, gate posts, cover and small breakables without this file growing a branch per region */
+export interface ArenaStyle {
+  /** one straight stretch: segs = [p0, p1, top] runs of equal height (a broken stretch is lower), b0..b1 = the wall's band across */
+  wall(bx: RunBox, segs: Array<[number, number, number]>, b0: number, b1: number, H: number): void;
+  /** the gate posts: body, dark, light */ post: [number, number, number];
+  covers: CoverKind[]; size: Partial<Record<CoverKind, [number, number]>>; cover: Partial<Record<CoverKind, (bx: CoverBox) => void>>;
+  /** the heap a cover piece crumbles to: body, dark, light */ rubble: [number, number, number];
+  /** the small breakables in the clusters; banners = 黄巾 banners on the floor (no for the other regions) */ smalls: PropKind[]; banners: boolean;
+}
+export const ARENA_STYLES: Partial<Record<WallStyle, ArenaStyle>> = {};
+/** locale id → its wall style (filled by the regions' style files) */
+export const LOCALE_STYLE: Record<string, WallStyle> = {};
 /** a gap in the wall: centre (x, z), along 'x' (the back wall) or 'z' (a side wall), opening width w; open = this room's way out */
 export interface Gate { id: ExitId | 'path'; x: number; z: number; along: 'x' | 'z'; w: number; open: boolean; out: [number, number] }
 export interface Cover { kind: CoverKind; x: number; z: number; hx: number; hz: number; rot: 0 | 1 }
@@ -19,9 +38,11 @@ export interface ArenaPlan { style: WallStyle; gates: Gate[]; covers: Cover[]; p
   /** the wall's inner face sits this far outside PLAY (m) and it is this thick / tall */ wall: { gap: number; thick: number; h: number } }
 
 export const WALL = { gap: 0.1, thick: 0.49, h: 1.19 };
-export const styleOf = (locale: string): WallStyle => locale === 'hj_field' ? 'wattle' : locale === 'hj_temple' ? 'brick' : 'earth';
-const COVERS: Record<WallStyle, CoverKind[]> = { earth: ['well', 'mill', 'cart', 'stones'], wattle: ['cart', 'trough', 'mill', 'stones'], brick: ['ding', 'stele', 'stones', 'well'] };
-const COVER_SIZE: Record<CoverKind, [number, number]> = { well: [0.75, 0.75], mill: [0.8, 0.8], cart: [1.15, 0.65], stones: [0.7, 0.6], ding: [0.6, 0.6], stele: [0.75, 0.4], trough: [1.0, 0.45] };
+export const styleOf = (locale: string): WallStyle => LOCALE_STYLE[locale] ?? (locale === 'hj_field' ? 'wattle' : locale === 'hj_temple' ? 'brick' : 'earth');
+const COVERS: Partial<Record<WallStyle, CoverKind[]>> = { earth: ['well', 'mill', 'cart', 'stones'], wattle: ['cart', 'trough', 'mill', 'stones'], brick: ['ding', 'stele', 'stones', 'well'] };
+const COVER_SIZE: Partial<Record<CoverKind, [number, number]>> = { well: [0.75, 0.75], mill: [0.8, 0.8], cart: [1.15, 0.65], stones: [0.7, 0.6], ding: [0.6, 0.6], stele: [0.75, 0.4], trough: [1.0, 0.45] };
+const coversOf = (st: WallStyle) => ARENA_STYLES[st]?.covers ?? COVERS[st] ?? COVERS.earth!;
+const sizeOf = (k: CoverKind): [number, number] => COVER_SIZE[k] ?? Object.values(ARENA_STYLES).find(s => s?.size[k])?.size[k] ?? [0.7, 0.6];
 
 /** the plan for one room: gates from the layout's roads and this room's exits, cover and props from the seed */
 export function arenaPlan(layout: Layout, exits: ExitId[], seed: number, locale: string, kind: 'fight' | 'boss' | 'calm'): ArenaPlan {
@@ -43,13 +64,13 @@ export function arenaPlan(layout: Layout, exits: ExitId[], seed: number, locale:
   const inClear = (x: number, z: number, pad: number) => clear.some(c => x > c.x0 - pad && x < c.x1 + pad && z > c.z0 - pad && z < c.z1 + pad);
   const inFloor = (x: number, z: number, pad: number) => x > PLAY.x0 + pad && x < PLAY.x1 - pad && z > PLAY.z0 + pad && z < PLAY.z1 - pad;
   // cover: on a jittered 3 m grid, ≥ 6 m apart, ≥ 2.5 m in from the walls
-  const covers: Cover[] = [], kinds = COVERS[style], want = kind === 'calm' ? 2 : kind === 'boss' ? 2 : 3 + (r(1) < 0.4 ? 1 : 0);
+  const covers: Cover[] = [], kinds = coversOf(style), want = kind === 'calm' ? 2 : kind === 'boss' ? 2 : 3 + (r(1) < 0.4 ? 1 : 0);
   const spots: Array<[number, number, number]> = [];
   for (let x = PLAY.x0 + 3; x < PLAY.x1 - 2.5; x += 3) for (let z = PLAY.z0 + 3; z < PLAY.z1 - 2.5; z += 3) spots.push([x + (r(x * 31 + z) - 0.5) * 1.2, z + (r(x * 37 + z * 3) - 0.5) * 1.2, r(x * 41 + z * 7)]);
   spots.sort((a, b) => a[2] - b[2]);
   for (const [x, z] of spots) {
     if (covers.length >= want) break;
-    const k = kinds[covers.length % kinds.length], rot = (r(x * 13 + z) < 0.5 ? 0 : 1) as 0 | 1, [a, b] = COVER_SIZE[k], hx = rot ? b : a, hz = rot ? a : b;
+    const k = kinds[covers.length % kinds.length], rot = (r(x * 13 + z) < 0.5 ? 0 : 1) as 0 | 1, [a, b] = sizeOf(k), hx = rot ? b : a, hz = rot ? a : b;
     if (!inFloor(x, z, 2.5) || inClear(x, z, Math.max(hx, hz) + 0.4) || covers.some(c => Math.hypot(c.x - x, c.z - z) < 6)) continue;
     covers.push({ kind: k, x: +x.toFixed(2), z: +z.toFixed(2), hx, hz, rot });
   }
@@ -58,7 +79,7 @@ export function arenaPlan(layout: Layout, exits: ExitId[], seed: number, locale:
   const free = (x: number, z: number, rr: number) => inFloor(x, z, rr + 0.3) && !inClear(x, z, rr + 0.2) && covers.every(c => Math.abs(c.x - x) > c.hx + rr + 0.35 || Math.abs(c.z - z) > c.hz + rr + 0.35) && props.every(p => Math.hypot(p.x - x, p.z - z) > R0[p.kind] + rr + 0.25);
   const put = (k: PropKind, x: number, z: number, rot?: 0 | 1) => { if (!free(x, z, R0[k])) return false; props.push({ kind: k, x: +x.toFixed(2), z: +z.toFixed(2), ...(rot != null ? { rot } : {}) }); return true; };
   // act-20 (user: 「场景中的东西尽量都能破坏才爽」): baskets and grain sacks in the clusters too
-  const smalls: PropKind[] = style === 'wattle' ? ['hay', 'pot', 'sack', 'hay', 'basket'] : style === 'brick' ? ['pot', 'pot', 'crate', 'basket'] : ['pot', 'crate', 'sack', 'hay', 'basket'];
+  const smalls: PropKind[] = ARENA_STYLES[style]?.smalls ?? (style === 'wattle' ? ['hay', 'pot', 'sack', 'hay', 'basket'] : style === 'brick' ? ['pot', 'pot', 'crate', 'basket'] : ['pot', 'crate', 'sack', 'hay', 'basket']);
   let salt = 100;
   const cluster = (ax: number, az: number, n: number) => { const k = smalls[Math.floor(r(salt++) * smalls.length)]; for (let i = 0, t = 0; i < n && t < 12; t++) { const a = r(salt++) * Math.PI * 2, d = 0.5 + r(salt++) * 0.8; if (put(i === 0 ? k : smalls[Math.floor(r(salt++) * smalls.length)], ax + Math.cos(a) * d, az + Math.sin(a) * d)) i++; } };
   for (const c of covers) { const s = r(salt++) < 0.5 ? -1 : 1; cluster(c.x + s * (c.hx + 0.9), c.z + (r(salt++) - 0.5) * c.hz * 2, 2 + (r(salt++) < 0.5 ? 1 : 0)); }
@@ -77,7 +98,8 @@ export function arenaPlan(layout: Layout, exits: ExitId[], seed: number, locale:
   const many = (k: PropKind, n: number, pad: number, rot = false) => { for (let i = 0, t = 0; i < n && t < 40; t++) { const [x, z] = spot(pad); if (put(k, x, z, rot ? (r(salt++) < 0.5 ? 0 : 1) : undefined)) i++; } };
   many('fence', kind === 'calm' ? 1 : 3, 3, true);
   for (let i = 0, t = 0; i < 2 && t < 30; t++) { const side = r(salt++) < 0.5 ? -1 : 1, z = PLAY.z0 + 3 + r(salt++) * (PLAY.z1 - PLAY.z0 - 8); if (put('rack', side < 0 ? PLAY.x0 + 0.8 : PLAY.x1 - 0.8, z, 1)) i++; }
-  many('banner', kind === 'calm' ? 1 : 3, 2.5);
+  // (11-18: the 黄巾 banners only in region one's places; the later regions put up lanterns instead)
+  if (ARENA_STYLES[style]?.banners ?? true) many('banner', kind === 'calm' ? 1 : 3, 2.5); else many('lamp', kind === 'calm' ? 1 : 2, 2.5);
   many('lamp', 2, 2.5);
   return { style, gates, covers, props, wall: { ...WALL } };
 }
@@ -123,6 +145,7 @@ function wallPiece(box: B, st: WallStyle, along: 'x' | 'z', a0: number, a1: numb
   const top = (a: number) => brk && a >= brk.s && a < brk.s + brk.n ? H - brk.d : H;
   const segs: Array<[number, number, number]> = []; let s = a0;
   for (let a = a0 + 1; a <= a1 + 1; a++) if (a > a1 || top(a) !== top(s)) { segs.push([s, a - 1, top(s)]); s = a; }
+  const ext = ARENA_STYLES[st]; if (ext) { ext.wall(bx, segs, b0, b1, H); return; }   // 11-18: a later region's own walls
   if (st === 'earth') {
     const P = PAL.earth;
     for (const [p0, p1, h] of segs) {
@@ -160,7 +183,7 @@ function gateFrame(box: B, st: WallStyle, g: Gate, T: number, Gp: number) {
   // across the wall: the wall's own band
   const b0 = along === 'x' ? M(PLAY.z0) - Gp - T : (g.out[0] < 0 ? M(PLAY.x0) - Gp - T : M(PLAY.x1) + Gp), b1 = b0 + T - 1;
   const bx = (p0: number, y0: number, q0: number, p1: number, y1: number, q1: number, col: number) => along === 'x' ? box(p0, y0, q0, p1, y1, q1, col) : box(q0, y0, p0, q1, y1, p1, col);
-  const post = st === 'brick' ? PAL.red : PAL.wood, postD = st === 'brick' ? PAL.redD : PAL.woodD, postL = st === 'brick' ? PAL.redL : PAL.woodL;
+  const ext = ARENA_STYLES[st]?.post, post = ext?.[0] ?? (st === 'brick' ? PAL.red : PAL.wood), postD = ext?.[1] ?? (st === 'brick' ? PAL.redD : PAL.woodD), postL = ext?.[2] ?? (st === 'brick' ? PAL.redL : PAL.woodL);
   const PH = 33, m0 = Math.floor((b0 + b1) / 2) - 2, m1 = m0 + 3;
   for (const s of [-1, 1]) {
     const a = cA + s * (half + 2), a0 = Math.min(a - 2, a + 1), a1 = Math.max(a - 2, a + 1);
@@ -182,11 +205,14 @@ function gateFrame(box: B, st: WallStyle, g: Gate, T: number, Gp: number) {
 /** a cover piece's voxels at the origin (act-20: they break now, so they are their own meshes); rubble = the heap it falls to */
 export function coverVox(w: { box(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, c: number | null): unknown }, kind: CoverKind, rot: 0 | 1, rubble = false) {
   const box: B = (x0, y0, z0, x1, y1, z1, col) => { w.box(Math.min(x0, x1), y0, Math.min(z0, z1), Math.max(x0, x1), y1, Math.max(z0, z1), col); };
+  const bx = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, col: number) => rot ? box(z0, y0, x0, z1, y1, x1, col) : box(x0, y0, z0, x1, y1, z1, col);
+  // 11-18: a later region's cover piece (its own file), and the heap in that region's rubble colours
+  const ext = Object.values(ARENA_STYLES).find(s => s?.cover[kind]);
+  if (ext) { if (!rubble) { ext.cover[kind]!(bx); return; } const [a, d, l] = ext.rubble; bx(-9, 0, -6, 2, 3, 6, a); bx(-9, 4, -6, 2, 4, 6, l); bx(3, 0, -5, 10, 2, 3, d); bx(-4, 4, -3, 0, 6, 2, d); bx(4, 3, -2, 8, 3, 1, l); return; }
   if (!rubble) { cover(box, { kind, x: 0, z: 0, hx: 0, hz: 0, rot }, () => 0); return; }
   // the heap: low broken blocks in the piece's own materials, flat-topped, axis-aligned
   const stoneish = kind === 'well' || kind === 'mill' || kind === 'stones' || kind === 'stele' || kind === 'trough';
   const a = stoneish ? PAL.stone : kind === 'ding' ? PAL.bronze : PAL.wood, d = stoneish ? PAL.stoneD : kind === 'ding' ? PAL.bronzeD : PAL.woodD, l = stoneish ? PAL.stoneL : kind === 'ding' ? PAL.bronzeL : PAL.woodL;
-  const bx = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, col: number) => rot ? box(z0, y0, x0, z1, y1, x1, col) : box(x0, y0, z0, x1, y1, z1, col);
   bx(-9, 0, -6, 2, 3, 6, a); bx(-9, 4, -6, 2, 4, 6, l); bx(3, 0, -5, 10, 2, 3, d); bx(-4, 4, -3, 0, 6, 2, d); bx(4, 3, -2, 8, 3, 1, l);
   if (kind === 'cart' || kind === 'well') { bx(-12, 0, 5, -2, 1, 7, PAL.woodD); bx(6, 0, -8, 8, 1, 2, PAL.wood); }
 }

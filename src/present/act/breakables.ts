@@ -196,6 +196,11 @@ export class Breakables {
       else if (e.k === 'topple') { const v = this.vis.get(e.p.id); if (v) { v.fall = 0; v.solid.r = BTUNE.stumpR; } cue('pillarFall', 1); }
     }
   }
+  /** 11-18: a patch of fire set on the floor by a foe (the 纵火兵's jar, 阎虎's molten iron): the same fire as a burst jar's — it burns
+   *  her, the foes and lights the oil jars it touches. Returns the logic's fire (its id ends it early) */
+  ignite(x: number, z: number, r: number, t: number) {
+    const f = this.logic.ignite(x, z, r, t); this.present([{ k: 'fire', f }]); return f;
+  }
   /** a lit jar or a burning patch near a point (the bot keeps away from them) */
   danger(x: number, z: number, r: number) { return this.logic.props.some(p => p.state === 'fuse' && Math.hypot(p.x - x, p.z - z) < BTUNE.boomR + r) || this.logic.fires.some(f => Math.hypot(f.x - x, f.z - z) < f.r + r); }
 }

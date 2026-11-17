@@ -6,7 +6,9 @@ import { assemble } from '../src/present/asm/assemble';
 import { REGISTRY, LOCALES, addLocales } from '../src/present/asm/registry';
 import { NINJA_LOCALES } from '../src/present/asm/ninja';
 import { HANMO_LOCALES } from '../src/present/asm/hanmo';
-addLocales(NINJA_LOCALES); addLocales(HANMO_LOCALES);
+import { LUOYANG_LOCALES } from '../src/present/asm/luoyang';
+import { XIAPI_LOCALES } from '../src/present/asm/xiapi';
+addLocales(NINJA_LOCALES); addLocales(HANMO_LOCALES); addLocales(LUOYANG_LOCALES); addLocales(XIAPI_LOCALES);   // (11-18: regions two and three)
 import { pickSpec, sameness } from '../src/present/asm/pick';
 import type { Ctx } from '../src/present/scenes/stage';
 import type { Report, Spec, SeasonId, TimeId } from '../src/present/asm/types';

@@ -20,6 +20,8 @@ import { addLocales, REGISTRY, LOCALES } from '../asm/registry';
 import { NINJA_LOCALES } from '../asm/ninja';
 import { HANMO_LOCALES } from '../asm/hanmo';
 import { HANSHAN_LOCALES } from '../asm/hanshan';
+import { LUOYANG_LOCALES } from '../asm/luoyang';
+import { XIAPI_LOCALES } from '../asm/xiapi';
 import './hanshan_people';   // act-37: 寒山坞 cold open — 文皎 at eleven, the two torch-bearer looks, 杜五's cart (ROSTER)
 import { assemble, mirrorLayout, stageLayout } from '../asm/assemble';
 import { arenaPlan, type ArenaPlan } from '../asm/arena';
@@ -70,6 +72,7 @@ import { Hero, QI_LINK, type HeroWorld } from './hero';
 /** 11-17: the 刀谱 links the first few openings of which are slowed down to teach them (二段跳 is no link; 穿风斩 / 劈山 / 回锋斩 are known from the start) */
 const TEACH = ['chase', 'back', 'cdart', 'launch', 'kick', 'keep', 'pause'];
 import { interruptFoe } from './enemy';
+import { ROLE_AI } from './foes/roles';
 import { inside } from './tele';
 import { spawnFoe, updateFoe, damageFoe, type Foe, type FoeWorld, type EKind, Arrow } from './enemy';
 import { EDEFS, isBoss, lowAttack, trimShadows, dropTeles } from './enemy';   // wp/foes: the boss bar / banner / death and the bot's jump read these
@@ -103,7 +106,7 @@ import { HIDEOUT_DONKEY } from './hideout_people';
 import { CELL } from '../bestiary/kit';
 import { Action } from '../actors/rig';
 
-addLocales(NINJA_LOCALES); addLocales(HANMO_LOCALES); addLocales(HANSHAN_LOCALES);
+addLocales(NINJA_LOCALES); addLocales(HANMO_LOCALES); addLocales(HANSHAN_LOCALES); addLocales(LUOYANG_LOCALES); addLocales(XIAPI_LOCALES);   // (11-18: regions two and three)
 
 /** prices at the 行商 (copper coins) */
 const PRICES = { boon: 60, heal: 30, sharpen: 50 };
@@ -159,6 +162,8 @@ const PRO_BOSS: RoomPlan = { type: 'boss', locale: 'hj_temple', reward: null, wa
 /** act-37 the cold open's place: 寒山坞 on that snowy night (its own layout and light) */
 const COLD_ROOM: RoomIn = { isYard: false, room: 0, recent: [], locale: 'hs_forge', plan: null, nextRooms: [], forceSpec: null, noArena: true,
   viewSpec: { locale: 'hs_forge', layout: 'hs_valley', mirror: false, landmark: null, season: 'winter', time: 'night', weather: 'snow', seed: 7, exits: [] } };
+/** 11-18: the places that stand on the 2x stage with walls, gates and props (the regions of a run) */
+const BIG_STAGE = /^(hj|ly|xp|wl|cx)_/;
 /** pick the spec, lay out the floor and the arena, assemble and build the place — touching nothing live except the stage size
  *  (setStage, which the caller sets again) */
 function prepRoom(o: RoomIn): Room {
@@ -169,8 +174,8 @@ function prepRoom(o: RoomIn): Room {
     : { ...base, time: o.room === 0 ? 'dusk' : base.time, weather: o.plan?.type === 'boss' ? 'clear' : base.weather, exits: o.nextRooms.length > 1 ? ['left', 'right'] : o.nextRooms.length ? ['back'] : [] };
   if (o.viewSpec) Object.assign(spec, { exits: [] }, o.viewSpec);
   if (o.forceSpec) Object.assign(spec, o.forceSpec);   // act-29: the prologue's snowy night
-  // act-19: the 黄巾 rooms stand on the 2x stage; the yard keeps the old one
-  const big = !isYard && spec.locale.startsWith('hj_'); setStage(big);
+  // act-19: the 黄巾 rooms stand on the 2x stage; the yard keeps the old one (11-18: and every region's places — 洛阳 ly_, 下邳 xp_ …)
+  const big = !isYard && BIG_STAGE.test(spec.locale); setStage(big);
   const lb = REGISTRY.layouts[spec.layout] ?? Object.values(LOCALES).flatMap(l => l.extraLayouts ?? []).find(l => l.id === spec.layout)!;
   const layout = withExits(spec.mirror ? mirrorLayout(stageLayout(lb)) : stageLayout(lb), spec.exits ?? []);
   const ptype = o.plan?.type ?? 'fight', calm = ptype === 'shop' || ptype === 'rest' || ptype === 'boon';
@@ -212,6 +217,7 @@ export class ActShow {
   /** act-20 the stele of names in the hideout; talk is off while a scripted moment plays there */ private stele: Stele | null = null; private noTalk = false;
   private defy = 0; private wine = false; private eliteKills = 0; private bossKilled = false; private banked: { iron: number; herb: number } | null = null;
   /** a cutscene's place: the open land, no walls / gates / props */ private noArena = false;
+  /** 11-18: the shallow water on this room's floor (下邳: the 水鬼 swim in it; LOCALES[…].pools) */ private pools: Array<{ x0: number; x1: number; z0: number; z1: number }> = [];
   /** act-34: a room built ahead of time (prepRoom), waiting to be put up; buildRoom uses it when it is the room asked for */
   private pre: (Room & { locale: string }) | null = null;
   // ------------------------------------------------------------ act-20: story — portrait dialogue, timeline cutscenes, puppets
@@ -490,6 +496,8 @@ export class ActShow {
         if (this.hero && list.length) this.hero.pos.set(0, 0, -6);
         return list.map(d => d.id);
       },
+      // 11-18: any bestiary models in a row in front of her (foe models under construction): ids, the action to loop ('' = idle)
+      foeLineup: (ids: string[], z = 1.6, gap = 1.6, act = '') => { for (const a of this.lineupActors) a.dispose(); this.lineupActors = []; ids.forEach((id, i) => { const a = new BattleActor(id); const x = (i - (ids.length - 1) / 2) * gap; a.place(V3(x, 0, z), 0); a.yaw = 0; this.lineupActors.push(a); if (act) a.play(new Action(act, 1.2, 0.5)); }); return this.lineupActors.length; },
       lineup: (on = true, z = 2.4, gap = 1.5, act = '', ids: string[] | null = null) => {
         for (const a of this.lineupActors) a.dispose(); this.lineupActors = [];
         if (this.hero && on) this.hero.pos.set(0, 0, -3.5);
@@ -672,7 +680,7 @@ export class ActShow {
     if (this.pre && this.pre !== ready) this.pre.prep.drop();
     this.pre = null;
     const P = ready ?? prepRoom(want);
-    const spec = P.spec; this.recent.push(spec); this.spec = spec;
+    const spec = P.spec; this.recent.push(spec); this.spec = spec; this.pools = LOCALES[spec.locale]?.pools?.(spec.seed) ?? [];
     setStage(P.big); this.layout = P.layout; this.arena = P.arena; if (P.report) this.lastReport = P.report;
     const big = P.big;
     this.stage = P.prep.attach();
@@ -691,7 +699,7 @@ export class ActShow {
       this.gates = new Gates(this.stage.root, this.arena);
     }
     // fallen leaves on the floor, a few drifting down (act-19); none in winter or in the rain
-    this.leaves = new Leaves(spec.weather === 'rain' || spec.weather === 'snow' ? 'winter' : spec.season, { rest: big ? 100 : 40, fall: big ? 1.4 : 0.8 });
+    this.leaves = new Leaves(spec.weather === 'rain' || spec.weather === 'snow' || LOCALES[spec.locale]?.noLeaves ? 'winter' : spec.season, { rest: big ? 100 : 40, fall: big ? 1.4 : 0.8 });
     this.hero = new Hero(isYard ? V3(HIDEOUT.spawn[0], 0, HIDEOUT.spawn[1]) : V3(0, 0, SZ(5.0)), this.wearing); this.hero.moves = isYard || this.prologue ? ALL_MOVES : this.perks.moves;   // (act-40 用户：「开局第一场战斗默认给主角解锁所有技能」) this.hero.perks = this.perks; this.hero.hp = Math.min(hp, maxHp); this.hero.maxHp = maxHp;
     this.hero.qi = isYard ? Hero.QI_MAX : Math.min(Hero.QI_MAX, Math.max(qi, TUNE.qiStart));   // (11-17 气: carried on; a room starts with at least TUNE.qiStart)
     this.hero.a.yaw = isYard ? -0.6 : Math.PI;
@@ -851,6 +859,12 @@ export class ActShow {
     bleedSpill: f => blood.spray(f.a.chest(), V3(0, 0, 1), 1, 0.35),
     arrowHit: (f, a) => this.arrowHit(f, a),
     dodged: from => this.perfectDodge(from),
+    // 11-18 (一局五关): the later regions' foes reach into the world through these
+    say: (f, line) => { if (this.phase === 'fight' || this.phase === 'intro') this.barks?.say(() => f.a.head(), line); },
+    ignite: (x, z, r, t) => { this.props?.ignite(x, z, r, t); },
+    chill: (t, k) => { this.chillK = this.chillT > 0 ? Math.min(this.chillK, k) : k; this.chillT = Math.max(this.chillT, t); },
+    freeze: t => { this.frozenT = Math.max(this.frozenT, t); this.hero?.vel.set(0, 0, 0); cue('parry', 0.5); },
+    wet: (x, z) => this.pools.some(r => x > r.x0 && x < r.x1 && z > r.z0 && z < r.z1),
   };
   /** act-23: did the swing being felt cut flesh (not only the wooden dummies)? picks the hit sound's flesh layers */
   private fleshHit = false;
@@ -964,6 +978,28 @@ export class ActShow {
     fxSmoke(at.clone().setY(0.6), 0x8a7a6a, 6, { r: 0.4, spd: 1.8, up: 0.6, s: 0.35, life: 0.6 }); dustBlocks(at.clone(), 6); shake(0.14 * TUNE.shake);
     this.hitFoe(f, SLAM.dmg, at, { knock: 0, heavy: true, kind: 'school', stagger: isBoss(f) ? 0 : SLAM.stun }); cue('wallSlam', 0.9);
   }
+  /** 11-18 (第三关 寒毒): her steps slowed (the stick read at chillK of its push, frost at her feet) / frozen still (no stick, no
+   *  buttons, an ice shell). hero.ts stays as it is: the slow-down is the stick's, so a dash, a cut's step-in and a jump keep their reach */
+  private chillT = 0; private chillK = 1; private frozenT = 0; private frostT = 0;
+  private statusStep(dt: number, h: Hero) {
+    if (this.phase !== 'fight') { this.chillT = 0; this.frozenT = 0; }
+    this.chillT = Math.max(0, this.chillT - dt); this.frozenT = Math.max(0, this.frozenT - dt);
+    if (this.frozenT > 0 && h.alive) {
+      this.inp.move.x = this.inp.move.y = 0; for (const b of Object.values(this.inp.b)) { b.pressed = false; b.down = false; b.held = 0; }
+      h.a.tint(0xc8e8ff, 0.7); if ((this.frostT -= dt) <= 0) { this.frostT = 0.08; fxSparks(h.a.chest(), 0xe8f6ff, 2, 1.2, { life: 0.35 }); }
+    } else if (this.chillT > 0 && h.alive) {
+      this.inp.move.x *= this.chillK; this.inp.move.y *= this.chillK;
+      if ((this.frostT -= dt) <= 0) { this.frostT = 0.14; fxSmoke(h.pos.clone().setY(0.08), 0xdff0ff, 1, { r: 0.35, spd: 0.4, up: 0.1, s: 0.18, life: 0.5 }); }
+    }
+  }
+  /** 11-18: a blow a foe's guard took (the shield): sparks off the guard toward her, a clang, a small push back — no blood, no number */
+  private glance(f: Foe, from: THREE.Vector3, kind: string) {
+    const dir = from.clone().sub(f.pos).setY(0); if (dir.lengthSq() < 1e-4) dir.set(0, 0, 1); dir.normalize();
+    const at = f.a.chest().addScaledVector(dir, 0.35);
+    fxSparks(at, 0xfff0c0, kind === 'dart' ? 6 : 14, 5, { dir, dirK: 0.7 }); fxRing(at, 0xffe0a0, 0.5, { life: 0.18 } as never);
+    cue('parry', kind === 'dart' ? 0.4 : 0.7); f.a.hit(0.35);
+    if (kind !== 'dart' && this.hero) { hitstop(0.05 * TUNE.hitstop); this.hero.vel.addScaledVector(dir, 3.2); }
+  }
   private hitFoe(f: Foe, dmg: number, from: THREE.Vector3, o: { knock: number; heavy: boolean; kind: string; stagger?: number }) {
     if (f.st === 'dead') return;
     const cut = isBladeHit(o.kind), heavyCut = ['k5', 'rel', 'plunge', 'launch'].includes(o.kind) && tierOf(this.perks, 'bone') >= 0;
@@ -978,6 +1014,8 @@ export class ActShow {
     //  to a fifth of his life lands, and the scripted fall starts at once)
     let fallNow = false;
     if (this.prologue === 2 && isBoss(f) && !this.proFalling) { const floor = Math.ceil(f.maxHp * 0.2); if (f.hp - d <= floor) { d = Math.max(0, f.hp - floor); fallNow = true; } }
+    // 11-18: a region role's guard (the 铁盾兵's shield in front, …): the blow glances off (sparks, no blood, no number) or lands lighter
+    { const g = f.inv <= 0 ? ROLE_AI[f.role]?.guard?.(f, d, from, o.kind) : undefined; if (g != null) { if (g <= 0) { this.glance(f, from, o.kind); return; } d = Math.round(g); } }
     const died = damageFoe(f, d, from, { knock, stagger, poiseDmg: o.kind === 'dart' ? d * 0.5 : o.heavy ? d * 1.8 : d });
     if (this.prologue === 2 && isBoss(f)) f.hp = Math.max(f.hp, Math.ceil(f.maxHp * 0.2));
     if (fallNow) after(0.25, () => void this.prologueFall());   // (the blow lands, a beat, then the scripted fall)
@@ -1469,6 +1507,7 @@ export class ActShow {
     this.qteFrame(rdt); this.parryCd -= rdt;
     if (busy) { for (const b of Object.values(this.inp.b)) { b.pressed = false; b.down = false; b.held = 0; } this.inp.move.x = this.inp.move.y = 0; }
     if (this.phase === 'intro') { this.introT += dt; this.inp.move.x = 0; this.inp.move.y = this.introT < 0.5 ? 0.7 : 0; for (const b of Object.values(this.inp.b)) { b.pressed = false; b.down = false; b.held = 0; } }
+    this.statusStep(dt, h);
     h.update(dt, this.inp, this.heroWorld);
     this.hud.setAim(h.aiming ? { x: h.aimDir.x, y: -h.aimDir.z } : null);   // act-29: the dart button leans to the aim
     if (h.aiming) { const pv = h.aimPreview(this.heroWorld), L = TUNE.dartRange, al = this.aimLine;

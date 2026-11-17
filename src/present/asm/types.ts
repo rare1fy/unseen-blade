@@ -83,6 +83,12 @@ export interface Locale {
   seasons?: SeasonId[]; times?: TimeId[]; weathers?: WeatherId[];
   /** act-37: a place with its own light (寒山坞's night) instead of the time / season / weather mood — applied when it is shown */
   mood?: import('../scenes/stage').Mood;
+  /** 11-18: no winter snow pass over this place (下邳's flooded streets: the water and the wet stones stay dark; the place paints its own frost) */
+  noSnow?: boolean;
+  /** 11-18: no fallen leaves on the floor or in the air (洛阳 burned: ash and embers instead, from its own dress) */
+  noLeaves?: boolean;
+  /** 11-18: the shallow water on the battle floor of this room (m, world; from the spec's seed) — 下邳's pools, where the 水鬼 swim */
+  pools?(seed: number): Rect[];
   /** pave the ground (cells at y = −1) over the whole stage, knowing the layout's path and court */
   floor(c: Ctx, f: { layout: Layout; p: Place }): void;
   /** the far ring beyond the stage (hills, woods, roofs): no checks except the battle floor and the camera */

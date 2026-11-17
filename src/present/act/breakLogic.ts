@@ -69,6 +69,11 @@ export class BreakLogic {
   /** Remove all props and fire patches and restart their ids. */
   clear(): void { this.props = []; this.fires = []; this.nextPropId = 1; this.nextFireId = 1; }
 
+  /** 11-18: a fire patch set by something other than a jar (a foe's thrown oil, molten iron); burns like any other */
+  ignite(x: number, z: number, r: number, t: number): Fire {
+    const f: Fire = { id: this.nextFireId++, x, z, r, t, tick: BTUNE.fireTick }; this.fires.push(f); return f;
+  }
+
   /** Find live props touching a circle, including fallen pillar stumps. */
   near(x: number, z: number, r: number): BProp[] {
     return this.props.filter(p => p.state !== 'gone' && Math.hypot(p.x - x, p.z - z) <= r + (p.state === 'fallen' ? (p.kind === 'cover' ? p.r * BTUNE.rubbleK : BTUNE.stumpR) : p.r));
