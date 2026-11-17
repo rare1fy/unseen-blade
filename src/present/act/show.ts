@@ -35,7 +35,7 @@ import { hideoutScene, HIDEOUT, HIDEOUT_PEOPLE } from './hideout';
 import { Timeline } from './timeline';
 import { openingShots, bossIntroShots, type CineHost } from './cutscenes';
 import { WAKE_DUWU, WAKE_SUNAO, CHULEI_BEFORE, CHULEI_AFTER, deathLine, PRO_CHULEI, PRO_FALL, PRO_DAWN, PRO_WAKE, PRO_CAPTIONS } from './scripts';
-import { fallShots, snowShots, dawnShots, loadShots, lieDown, type PrologueHost } from './prologue';
+import { fallShots, snowShots, dawnShots, loadShots, lieDown, brazier, type PrologueHost } from './prologue';
 import { newGame, profile, save as saveProfile, seeOnce, hasSave } from './profile';
 import { runMods, bank, META, level, nextCost, buy, type RunMods } from './meta';
 import { NPC_LINES, UP_LINES, POOR_LINES, HAUL, MEALS, MEAL_LINES, STELE_LINES } from './hideoutLines';
@@ -605,6 +605,12 @@ export class ActShow {
     if (this.arena && this.stage) {
       // act-20: the cover pieces are breakable (Breakables builds them and their solids)
       this.props = new Breakables(this.stage.root, this.solids); this.props.build(this.arena.props, this.arena.covers);
+      // act-37: the snowy night's braziers (the prologue's village and temple): four warm points round the floor, where it is free
+      if (spec.weather === 'snow' && spec.time === 'night') for (const [x, z] of [[PLAY.x0 + 1.6, PLAY.z0 + 1.8], [PLAY.x1 - 1.6, PLAY.z0 + 1.8], [PLAY.x0 + 1.6, PLAY.z1 - 3.2], [PLAY.x1 - 1.6, PLAY.z1 - 3.2]]) {
+        let px = x, pz = z; for (let t = 0; t < 8 && !this.solids.free(px, pz, 0.6, 0.3); t++) { px += (x < 0 ? 0.7 : -0.7); pz += 0.4; }
+        if (!this.solids.free(px, pz, 0.6, 0.3)) continue;
+        this.stage.root.add(brazier(px, pz)); this.solids.add({ kind: 'prop', shape: 'circle', x: px, z: pz, r: 0.42 });
+      }
       this.gates = new Gates(this.stage.root, this.arena);
     }
     // fallen leaves on the floor, a few drifting down (act-19); none in winter or in the rain
@@ -701,6 +707,25 @@ export class ActShow {
     });
   }
   // ------------------------------------------------------------ the world the hero / foes see
+  /** act-37 (用户：「碰撞必须要做，不然这游戏太多穿模了」): every body pushes the others out by their radii and weights — foe from foe,
+   *  the hero from a foe (a boss barely gives, a dummy and the hideout's people not at all); a dashing or airborne hero passes
+   *  (the dash-cut goes through by design); whatever moved is held by the walls and the solids again */
+  private separate() {
+    const h = this.hero, B: Array<{ p: THREE.Vector3; r: number; m: number; moved: boolean }> = [];
+    if (h && h.hp > 0 && h.st !== 'dash' && !h.airborne) B.push({ p: h.pos, r: h.r, m: 1, moved: false });
+    for (const f of this.foes) if (f.st !== 'dead') B.push({ p: f.pos, r: f.d.r * 0.9, m: f.kind === 'dummy' ? 1e6 : isBoss(f) ? 8 : f.d.mass, moved: false });
+    for (const n of this.npcs) B.push({ p: V3(n.x, 0, n.z), r: 0.42, m: 1e6, moved: false });
+    for (let i = 0; i < B.length; i++) for (let j = i + 1; j < B.length; j++) {
+      const a = B[i], b = B[j], dx = b.p.x - a.p.x, dz = b.p.z - a.p.z, min = a.r + b.r, d2 = dx * dx + dz * dz;
+      if (d2 >= min * min || a.m >= 1e6 && b.m >= 1e6) continue;
+      const d = Math.sqrt(d2) || 1e-3, nx = d2 > 1e-8 ? dx / d : 1, nz = d2 > 1e-8 ? dz / d : 0, over = min - d, wa = b.m / (a.m + b.m), wb = a.m / (a.m + b.m);
+      if (a.m < 1e6) { a.p.x -= nx * over * wa; a.p.z -= nz * over * wa; a.moved = true; }
+      if (b.m < 1e6) { b.p.x += nx * over * wb; b.p.z += nz * over * wb; b.moved = true; }
+    }
+    const keep = this.lastPush;
+    for (const o of B) if (o.moved) this.clamp(o.p, o.r);
+    this.lastPush = keep;
+  }
   private clamp = (p: THREE.Vector3, r: number) => {
     const x0 = PLAY.x0 + r + 0.2, x1 = PLAY.x1 - r - 0.2, z0 = PLAY.z0 + r + 0.3, z1 = PLAY.z1 - r - 0.2;
     if (this.phase === 'doors' || this.phase === 'leaving' || this.phase === 'yard') for (const d of this.doors) { const l = d.ex.lane; if (p.x > l.x0 - 1.0 && p.x < l.x1 + 1.0 && p.z > l.z0 - (d.ex.id === 'back' ? 1.0 : 0.1) && p.z < l.z1 + (d.ex.id === 'back' ? 1.0 : 0.1)) {
@@ -1292,6 +1317,7 @@ export class ActShow {
       }
     }
     for (const f of this.foes) { if (!this.ultOn) updateFoe(f, fw, dt); f.a.update(dt); }
+    this.separate();   // act-37: bodies don't pass through each other
     for (let i = this.foes.length - 1; i >= 0; i--) if (this.foes[i].st === 'dead' && !this.foes[i].a.root.parent) this.foes.splice(i, 1);
     for (const a of this.arrows) a.update(dt, fw);
     for (let i = this.arrows.length - 1; i >= 0; i--) if (this.arrows[i].dead) this.arrows.splice(i, 1);

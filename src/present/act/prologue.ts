@@ -10,6 +10,9 @@ import { fxBolt } from '../fx/skillFx';
 import { shake, slowmo } from '../engine/clock';
 import { cue } from '../../audio/cues';
 import { flashSky, currentStage } from '../scenes/stage';
+import { PLAY } from '../scenes/props';
+import { toon, glow } from '../look/toon';
+import { onUpdate } from '../engine/world';
 import { motionOf } from './ninjaAct';
 import type { Foe, EKind } from './enemy';
 import type { CineShot, V } from './timeline';
@@ -27,6 +30,39 @@ export interface PrologueHost {
 export function lieDown(a: BattleActor, k: number) {
   const e = 1 - (1 - Math.min(1, Math.max(0, k))) ** 3;
   a.body.rotation.set(0, 0, 0); a.body.rotation.z = (Math.PI / 2) * e; a.body.rotation.y = 0.25 * e; a.body.position.set(0.12 * e, 0.12 * e, 0);
+}
+
+/** act-37 (用户：「人物的动作也很僵硬，也有很多穿模的问题」): a cutscene camera stays over the yard — inside the walls left, right and
+ *  behind (the 2x stage's court), free to stand back in front (the open side), never lower than a man's head — so a shot set relative
+ *  to where she fell can't end up inside the buildings beyond the wall */
+export function inYard(v: V): V { return [Math.max(PLAY.x0 + 0.8, Math.min(PLAY.x1 - 0.8, v[0])), Math.max(2.5, v[1]), Math.max(PLAY.z0 + 0.8, Math.min(PLAY.z1 + 12, v[2]))]; }
+const camKey = (k: { pos: V; look: V; fov: number }) => ({ ...k, pos: inYard(k.pos) });
+/** act-37 (用户：「开场的战斗不是雪夜吗，光影上明明就是大白天」): the snowy night's warm points — iron braziers on three legs, a fire
+ *  of glowing blocks that dances and a warm light that flickers with it; they are things in the yard (a solid round each) */
+const BRAZIERS = new Set<{ g: THREE.Group; light: THREE.PointLight; flames: THREE.Mesh[]; s: number }>();
+let brazT = 0;
+onUpdate((dt) => {
+  brazT += dt;
+  for (const b of BRAZIERS) {
+    if (!b.g.parent) { BRAZIERS.delete(b); continue; }
+    const k = 1 + Math.sin(brazT * 9 + b.s) * 0.12 + Math.sin(brazT * 23 + b.s * 2) * 0.07;
+    b.light.intensity = 4.2 * k;
+    b.flames.forEach((f, i) => { const q = 1 + Math.sin(brazT * (7 + i) + b.s + i) * 0.18; f.scale.set(q, 1.1 * q + 0.15 * Math.sin(brazT * 11 + i), q); });
+  }
+});
+export function brazier(x: number, z: number) {
+  const g = new THREE.Group(), iron = toon(0x2a2a30), ironL = toon(0x4a4a54);
+  const box = (w: number, h: number, d: number, m: THREE.Material, px: number, py: number, pz: number) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.position.set(px, py, pz); o.castShadow = true; g.add(o); return o; };
+  for (const [lx, lz] of [[-0.22, -0.22], [0.22, -0.22], [0, 0.26]]) box(0.06, 0.8, 0.06, iron, lx, 0.4, lz);
+  box(0.66, 0.1, 0.66, iron, 0, 0.82, 0); box(0.72, 0.16, 0.08, ironL, 0, 0.92, 0.33); box(0.72, 0.16, 0.08, ironL, 0, 0.92, -0.33); box(0.08, 0.16, 0.72, ironL, 0.33, 0.92, 0); box(0.08, 0.16, 0.72, ironL, -0.33, 0.92, 0);
+  box(0.5, 0.08, 0.5, toon(0x3a1a10), 0, 0.92, 0);   // coals
+  const flames: THREE.Mesh[] = [];
+  for (const [fx, fz, h, c] of [[0, 0, 0.36, 0xffb040], [-0.12, 0.08, 0.24, 0xff7a2a], [0.12, -0.06, 0.26, 0xff8a30], [0.02, -0.12, 0.18, 0xffd070]] as Array<[number, number, number, number]>) {
+    const f = new THREE.Mesh(new THREE.BoxGeometry(0.14, h, 0.14).translate(0, h / 2, 0), glow(c, 2.2)); f.position.set(fx, 0.96, fz); g.add(f); flames.push(f);
+  }
+  const light = new THREE.PointLight(0xff9a4a, 4.2, 8, 1.6); light.position.set(0, 1.4, 0); g.add(light);
+  g.position.set(x, 0, z); BRAZIERS.add({ g, light, flames, s: x * 1.7 + z });
+  return g;
 }
 
 /** act-36 (用户：「timeline里面的死人堆，就那么几个，算啥死人堆」): a field of the dead that costs a few draw calls — each body is posed once
@@ -95,7 +131,7 @@ export function fallShots(h: PrologueHost, boss: Foe): CineShot[] {
   const side = (dist: number, up: number): { pos: V; look: V; fov: number } => {
     const mx = (hp().x + b().x) / 2, mz = (hp().z + b().z) / 2; let dx = b().x - hp().x, dz = b().z - hp().z; const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
     let nx = -dz, nz = dx; if (nz < 0) { nx = -nx; nz = -nz; }
-    return { pos: [mx + nx * dist, up, mz + nz * dist], look: [mx, 1.0, mz], fov: 36 };
+    return camKey({ pos: [mx + nx * dist, up, mz + nz * dist] as V, look: [mx, 1.0, mz] as V, fov: 36 });
   };
   let lie = 0;
   return [
@@ -111,7 +147,7 @@ export function fallShots(h: PrologueHost, boss: Foe): CineShot[] {
 export function snowShots(h: PrologueHost, boss: Foe): CineShot[] {
   const p = h.hero.pos.clone();
   return [
-    { dur: 6.5, ease: 'inOut', from: { pos: [p.x + 2.5, 3.2, p.z + 4.0], look: [p.x, 0.3, p.z], fov: 34 }, to: { pos: [p.x + 1.0, 13, p.z + 7], look: [p.x, 0, p.z - 1], fov: 38 },
+    { dur: 6.5, ease: 'inOut', from: camKey({ pos: [p.x + 2.5, 3.2, p.z + 4.0], look: [p.x, 0.3, p.z], fov: 34 }), to: camKey({ pos: [p.x + 1.0, 13, p.z + 7], look: [p.x, 0, p.z - 1], fov: 38 }),
       at: [[0.4, () => { boss.a.yaw = Math.atan2(0, -1); }], [1.0, () => cue('bodyFall', 0.5)]],
       tick: (t, dt) => { lieDown(h.hero.a, 1); if (t > 0.8) { boss.pos.z -= dt * 1.2; boss.a.setRunning(true); } boss.a.update(dt); } },
   ];
@@ -130,7 +166,7 @@ export function dawnShots(h: PrologueHost, at: { x: number; z: number }, dead: A
   let seg = 0, segT = 0, dwell = 0, crouch = 0, heading = 0;
   const fx = { x: ox - 4, z: oz + 3 };
   const cam = () => { const d = duwu as Walker | null; if (d) { fx.x += ((d.home.x + ox) / 2 - fx.x) * 0.06; fx.z += ((d.home.z + oz) / 2 - fx.z) * 0.06; }
-    return { pos: [fx.x + 5.2, 4.6, fx.z + 6.4] as V, look: [fx.x, 0.6, fx.z] as V, fov: 38 }; };
+    return camKey({ pos: [fx.x + 5.2, 4.6, fx.z + 6.4] as V, look: [fx.x, 0.6, fx.z] as V, fov: 38 }); };
   const step = (dt: number) => {
     if (!duwu || !donkey) return;
     if (dwell > 0) {
@@ -150,7 +186,7 @@ export function dawnShots(h: PrologueHost, at: { x: number; z: number }, dead: A
   };
   return [
     // the yard at dawn, wide: the dead in the snow, her among them; far off a man and a donkey come in
-    { dur: 5.5, ease: 'inOut', from: { pos: [ox + 10, 9.5, oz + 14], look: [ox - 2, 0.2, oz + 1], fov: 40 }, to: { pos: [ox + 7, 7.5, oz + 11], look: [ox - 2, 0.2, oz + 1.5], fov: 38 },
+    { dur: 5.5, ease: 'inOut', from: camKey({ pos: [ox + 10, 9.5, oz + 14], look: [ox - 2, 0.2, oz + 1], fov: 40 }), to: camKey({ pos: [ox + 7, 7.5, oz + 11], look: [ox - 2, 0.2, oz + 1.5], fov: 38 }),
       at: [[0, () => {
         // the dead: laid down once, never updated again (no breathing corpses)
         // act-36 (用户：「死人堆，就那么几个，算啥死人堆」): the two he stops at, then the rest of the night's dead — heaps of two and three
@@ -176,11 +212,11 @@ export function loadShots(h: PrologueHost, who: { duwu: BattleActor | null; donk
   const duwu = who.duwu as Walker | null, donkey = who.donkey as Walker | null, p = h.hero.pos.clone();
   let crouch = 0; const dir = Math.atan2(-1, 0.35);   // away to the left, toward the yard's way out
   return [
-    { dur: 2.6, ease: 'inOut', from: { pos: [p.x + 4.2, 2.8, p.z + 4.6], look: [p.x, 0.5, p.z], fov: 34 },
+    { dur: 2.6, ease: 'inOut', from: camKey({ pos: [p.x + 4.2, 2.8, p.z + 4.6], look: [p.x, 0.5, p.z], fov: 34 }),
       at: [[1.0, () => { if (duwu) duwu.yaw += 0.6; }], [1.6, () => { if (duwu) duwu.yaw -= 1.1; }], [2.1, () => cue('land', 0.3)]],
       tick: (_t, dt) => { if (!duwu) return; crouch = Math.min(1, crouch + dt * 2.5); duwu.kneel = crouch; duwu.walkPh = undefined; duwu.update(dt); donkey?.update(dt); } },
     // she is across the donkey's back now; he leads it off, she rides along limp
-    { dur: 5.5, ease: 'linear', from: { pos: [p.x + 7.5, 5.2, p.z + 8.5], look: [p.x - 2.5, 0.6, p.z + 1.5], fov: 38 },
+    { dur: 5.5, ease: 'linear', from: camKey({ pos: [p.x + 7.5, 5.2, p.z + 8.5], look: [p.x - 2.5, 0.6, p.z + 1.5], fov: 38 }),
       at: [[0, () => {
         if (!duwu || !donkey) return;
         place(donkey, p.x - 0.6, p.z + 0.9, dir); place(duwu, p.x - 0.6 + Math.sin(dir) * 1.5, p.z + 0.9 + Math.cos(dir) * 1.5, dir); duwu.kneel = 0;
