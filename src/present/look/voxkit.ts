@@ -15,6 +15,29 @@ const DIRS: Array<[number, number, number]> = [[1, 0, 0], [-1, 0, 0], [0, 1, 0],
 // tangent axes per face direction (t1 × t2 = +axis)
 const TAN: Array<[[number, number, number], [number, number, number]]> = [[[0, 1, 0], [0, 0, 1]], [[0, 1, 0], [0, 0, 1]], [[0, 0, 1], [1, 0, 0]], [[0, 0, 1], [1, 0, 0]], [[1, 0, 0], [0, 1, 0]], [[1, 0, 0], [0, 1, 0]]];
 const AO = [0.52, 0.7, 0.86, 1];
+/** act-34: the cells' occupancy as a bitset over their bounding box, padded by one cell on every side (null when the box would be
+ *  absurdly large — then the caller falls back to the Map) */
+function occupancy(cells: Map<number, unknown>) {
+  if (cells.size < 4096) return null;   // small statues: the Map is fast enough and the box costs more than it saves
+  let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9, z0 = 1e9, z1 = -1e9;
+  for (const k of cells.keys()) {
+    const z = (k % 1024) - 512, y = (Math.floor(k / 1024) % 1024) - 512, x = Math.floor(k / (1024 * 1024)) - 512;
+    if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; if (z < z0) z0 = z; if (z > z1) z1 = z;
+  }
+  const nx = x1 - x0 + 3, ny = y1 - y0 + 3, nz = z1 - z0 + 3, n = nx * ny * nz;
+  if (n > 400e6) return null;
+  const b = new Uint32Array(Math.ceil(n / 32));
+  const at = (x: number, y: number, z: number) => ((x - x0 + 1) * ny + (y - y0 + 1)) * nz + (z - z0 + 1);
+  for (const k of cells.keys()) {
+    const z = (k % 1024) - 512, y = (Math.floor(k / 1024) % 1024) - 512, x = Math.floor(k / (1024 * 1024)) - 512, i = at(x, y, z);
+    b[i >>> 5] |= 1 << (i & 31);
+  }
+  const occ = (x: number, y: number, z: number) => {
+    const X = x - x0 + 1, Y = y - y0 + 1, Z = z - z0 + 1; if (X < 0 || Y < 0 || Z < 0 || X >= nx || Y >= ny || Z >= nz) return false;
+    const i = (X * ny + Y) * nz + Z; return ((b[i >>> 5] >>> (i & 31)) & 1) === 1;
+  };
+  return { b, ny, nz, at, occ };
+}
 
 /**
  * the block material: toon + bevel highlight on block edges (attribute aVox).
@@ -180,7 +203,11 @@ export class VoxWorld {
   /** chunk (cells, > 0): no merged rectangle crosses a chunk border in x or z, and every vertex carries its chunk's centre (world xz)
    *  as aChunk — the voxel-wave transition (scenes/transVox.ts) moves each 1 m column as one rigid block */
   build(o: { glow?: number; rim?: number; self?: number; edge?: number; chunk?: number } = {}) {
-    const s = this.s, occ = (x: number, y: number, z: number) => this.cells.has(key(x, y, z)), CH = o.chunk ?? 0;
+    // act-34 (用户：「现在转场的时候有点卡」): a big place (the snowy village, 2.2 M cells) spent 2.7 s here asking the cell Map about
+    // every neighbour. The occupancy now sits in a bitset over the cells' bounding box (padded by one cell, so every neighbour test of
+    // a face, its AO corners and its edges stays inside it) and the face loop walks neighbours by index steps.
+    const s = this.s, CH = o.chunk ?? 0, bits = occupancy(this.cells);
+    const occ = bits ? bits.occ : (x: number, y: number, z: number) => this.cells.has(key(x, y, z));
     const chk = (x: number, z: number) => (CH ? Math.floor(x / CH) * 4096 + Math.floor(z / CH) : 0);
     const out = { solid: [[], [], [], [], [], [], [], []] as number[][], glow: [[], [], [], [], [], [], [], []] as number[][] };
     const col = new THREE.Color();
@@ -195,25 +222,41 @@ export class VoxWorld {
       const flip = ao[0] + ao[2] < ao[1] + ao[3], q = flip ? [1, 2, 3, 1, 3, 0] : [0, 1, 2, 0, 2, 3];
       if (pos) I.push(...q.map(i => base + i)); else I.push(base + q[0], base + q[2], base + q[1], base + q[3], base + q[5], base + q[4]);
     };
+    const B = bits?.b, SX = bits ? bits.ny * bits.nz : 0, SY = bits ? bits.nz : 0;
+    const DD = DIRS.map(([a, b, c]) => a * SX + b * SY + c), TD = TAN.map(([p, q]) => [p[0] * SX + p[1] * SY + p[2], q[0] * SX + q[1] * SY + q[2]]);
+    const SG: Array<[number, number]> = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
+    const aos = [0, 0, 0, 0];
     for (const [k, v] of this.cells) {
       const z = (k % 1024) - 512, y = (Math.floor(k / 1024) % 1024) - 512, x = Math.floor(k / (1024 * 1024)) - 512;
+      const ci = bits ? bits.at(x, y, z) : 0;
       for (let d = 0; d < 6; d++) {
-        const [dx, dy, dz] = DIRS[d]; if (occ(x + dx, y + dy, z + dz)) continue;
-        const [t1, t2] = TAN[d], ox = x + dx, oy = y + dy, oz = z + dz, aos: number[] = [];
-        for (const [s1, s2] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
-          const a1 = occ(ox + t1[0] * s1, oy + t1[1] * s1, oz + t1[2] * s1) ? 1 : 0, a2 = occ(ox + t2[0] * s2, oy + t2[1] * s2, oz + t2[2] * s2) ? 1 : 0;
-          const a3 = occ(ox + t1[0] * s1 + t2[0] * s2, oy + t1[1] * s1 + t2[1] * s2, oz + t1[2] * s1 + t2[2] * s2) ? 1 : 0;
-          aos.push(v.g > 0 ? 3 : a1 && a2 ? 0 : 3 - (a1 + a2 + a3));
+        const [dx, dy, dz] = DIRS[d], [t1, t2] = TAN[d], ox = x + dx, oy = y + dy, oz = z + dz;
+        if (B) {
+          const oi = ci + DD[d]; if ((B[oi >>> 5] >>> (oi & 31)) & 1) continue;
+          const T1 = TD[d][0], T2 = TD[d][1];
+          for (let q = 0; q < 4; q++) {
+            const s1 = SG[q][0], s2 = SG[q][1], i1 = oi + T1 * s1, i2 = oi + T2 * s2, i3 = i1 + T2 * s2;
+            const a1 = (B[i1 >>> 5] >>> (i1 & 31)) & 1, a2 = (B[i2 >>> 5] >>> (i2 & 31)) & 1, a3 = (B[i3 >>> 5] >>> (i3 & 31)) & 1;
+            aos[q] = v.g > 0 ? 3 : a1 && a2 ? 0 : 3 - (a1 + a2 + a3);
+          }
+        } else {
+          if (occ(ox, oy, oz)) continue;
+          for (let q = 0; q < 4; q++) {
+            const s1 = SG[q][0], s2 = SG[q][1];
+            const a1 = occ(ox + t1[0] * s1, oy + t1[1] * s1, oz + t1[2] * s1) ? 1 : 0, a2 = occ(ox + t2[0] * s2, oy + t2[1] * s2, oz + t2[2] * s2) ? 1 : 0;
+            const a3 = occ(ox + t1[0] * s1 + t2[0] * s2, oy + t1[1] * s1 + t2[1] * s2, oz + t1[2] * s1 + t2[2] * s2) ? 1 : 0;
+            aos[q] = v.g > 0 ? 3 : a1 && a2 ? 0 : 3 - (a1 + a2 + a3);
+          }
         }
         const a = dx ? x : dy ? y : z, u = dx ? y : dy ? z : x, w = dx ? z : dy ? x : y;
-        if (v.g === 0 && aos.every(q => q === 3)) {
+        if (v.g === 0 && aos[0] === 3 && aos[1] === 3 && aos[2] === 3 && aos[3] === 3) {
           const sk = d * 2048 + a + 1024; let sl = slices.get(sk); if (!sl) slices.set(sk, (sl = new Map()));
           sl.set(uvKey(u, w), v.c); continue;
         }
         const cx = x + 0.5 + dx * 0.5, cy = y + 0.5 + dy * 0.5, cz = z + 0.5 + dz * 0.5;
         const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([s1, s2]) => [cx + (t1[0] * s1 + t2[0] * s2) * 0.5, cy + (t1[1] * s1 + t2[1] * s2) * 0.5, cz + (t1[2] * s1 + t2[2] * s2) * 0.5]);
         const open = [occ(x - t1[0], y - t1[1], z - t1[2]) ? 0 : 1, occ(x + t1[0], y + t1[1], z + t1[2]) ? 0 : 1, occ(x - t2[0], y - t2[1], z - t2[2]) ? 0 : 1, occ(x + t2[0], y + t2[1], z + t2[2]) ? 0 : 1];
-        col.set(v.c); quad(v.g > 0 ? out.glow : out.solid, corners, [dx, dy, dz], col, aos, [1, 1], open, dx + dy + dz > 0, [x, z]);
+        col.set(v.c); quad(v.g > 0 ? out.glow : out.solid, corners, [dx, dy, dz], col, aos.slice(), [1, 1], open, dx + dy + dz > 0, [x, z]);
       }
     }
     // greedy rectangles per slice

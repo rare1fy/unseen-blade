@@ -8,7 +8,7 @@
 // 退回竹子擦屏）。show.ts 的 startNewGame() / continueGame() 接着往下走。
 // 性能：雨是一条线段网格、雪和余烬各是一组点、飞鸟三个实例化网格、雾是几张贴图面片；没有新的后期通道。
 import * as THREE from 'three';
-import { V3, R, onUpdate, canvasTex, camera, scene, view } from '../engine/world';
+import { V3, R, onUpdate, canvasTex, camera, scene, view, precompile } from '../engine/world';
 import { hitstop, shake } from '../engine/clock';
 import { shot } from '../director';
 import { applyMood, showStage, skyMaterial, currentStage, type Ctx, type Mood, type Stage } from '../scenes/stage';
@@ -555,7 +555,9 @@ class Title {
       if (this.bt > 0.42 && !this.grab && !this.frame) this.grab = true;
       if (this.frame) this.split();
     }
-    if (this.beat === 'split') this.slide();
+    if (this.beat === 'split') {
+      if (this.holdF > 0) { if (this.holdF === 3) precompile(); this.holdF--; this.bt = 0; } else this.slide();
+    }
     this.layout(); this.drawOverlay(rdt); this.drawMenu(rdt);
   }
   // ---------------------------------------------------------------- the overlay title (and the note over the confirm)
@@ -708,6 +710,7 @@ class Title {
       this.grabbed = lit > 6 && !T_QA.noGrab;
     } catch (e) { console.error('[title] frame grab failed', e); this.grabbed = false; this.frame = new THREE.CanvasTexture(document.createElement('canvas')); }
   };
+  private holdF = 0;
   private split() {
     this.beat = 'split'; this.bt = 0;
     const ov = this.host.ov, W = ov.w, H = ov.h, c = this.cutY, v = 1 - c / H;
@@ -721,6 +724,10 @@ class Title {
     place(up, 0, 0, W, c); place(dn, 0, c, W, H - c); ov.scene.add(up, dn); this.slabs = [up, dn];
     this.hideOverlay(); this.restore();
     try { this.host.enter(this.choice); } catch (e) { console.error('[title] enter failed', e); }
+    // act-34 (用户：「卡住半天才揭开」): the halves wait three frames before they part: in the first the new place's shaders are compiled
+    // (enter() puts the place up a moment later, after its await), the first renders upload its meshes behind them — then nothing
+    // in the way stalls the slide
+    this.holdF = 3;
     cue('swishHeavy', 0.7);
   }
   private slide() {

@@ -4,7 +4,7 @@
 // 打开游戏先到练武场（yard.ts：木人桩、召唤石板、换装木台），走进后面的「出发」路口开始一局；死了或打完回练武场。
 // 砍飞的箭：方向在出刀朝向左右 75° 里随机、附近有敌人就偏过去；砍中那一下顿帧 + 闪光 + 短慢放（用户：「这种属于高光操作，应该要有顿帧」）。
 import * as THREE from 'three';
-import { V3, onUpdate, R, scene } from '../engine/world';
+import { V3, onUpdate, R, scene, warm } from '../engine/world';
 import { hitstop, shake, slowmo, after, clock, FX, waitReal } from '../engine/clock';
 import { shot } from '../director';
 import { fxImpact, fxSparks, fxSmoke, fxRing, trailSeg } from '../fx/fx';
@@ -14,8 +14,8 @@ import { playDeath } from '../v2/death';
 import { UiLayer } from '../ui3d/layer';
 import { Overlay } from '../v2/overlay';
 import { SkinBanner, SKIN, SKINS, SKIN_NAME, setSkin, type SkinId } from './skin';
-import { showStage, followShadow, flashSky, tickSkyFlash, type Stage } from '../scenes/stage';
-import { PLAY, SZ, setStage } from '../scenes/props';
+import { showStage, prepareStage, followShadow, flashSky, tickSkyFlash, type Stage, type PreparedStage } from '../scenes/stage';
+import { PLAY, SZ, setStage, STAGE_BIG } from '../scenes/props';
 import { addLocales, REGISTRY, LOCALES } from '../asm/registry';
 import { NINJA_LOCALES } from '../asm/ninja';
 import { HANMO_LOCALES } from '../asm/hanmo';
@@ -138,6 +138,35 @@ function npcBubble() {
   const geo = mergeGeometries(gs); for (const g of gs) g.dispose();
   return new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0xffb060, emissiveIntensity: 0.15 }));
 }
+/** act-34: what a room is built from (buildRoom reads these from the show; the prefetch passes a new game's first room) */
+interface RoomIn { isYard: boolean; room: number; recent: Spec[]; locale: string; plan: RoomPlan | null; nextRooms: RoomPlan[]; viewSpec: Partial<Spec> | null; forceSpec: Partial<Spec> | null; noArena: boolean }
+/** a room's place, built (off the live scene) and ready to put up */
+interface Room { spec: Spec; big: boolean; layout: Layout; arena: ArenaPlan | null; report: Report | null; prep: PreparedStage }
+/** the prologue's first room (act-29) and its one way on */
+const PRO_ROOM = { locale: 'hj_village', waves: [['hj_mob', 'hj_mob'], ['hj_blade', 'hj_mob', 'hj_mob']] as EKind[][], spec: { season: 'winter', weather: 'snow', time: 'night' } as Partial<Spec> };
+const PRO_BOSS: RoomPlan = { type: 'boss', locale: 'hj_temple', reward: null, waves: [['hj_boss']] };
+/** pick the spec, lay out the floor and the arena, assemble and build the place — touching nothing live except the stage size
+ *  (setStage, which the caller sets again) */
+function prepRoom(o: RoomIn): Room {
+  const { isYard } = o;
+  const seed = (Date.now() % 100000) + o.room * 977;
+  const base = pickSpec(seed, Object.values(REGISTRY.locales), REGISTRY.layouts, o.recent, { season: 'autumn', locale: o.locale });
+  const spec: Spec = isYard ? { ...base, time: 'dusk', weather: 'clear', exits: ['back'] }
+    : { ...base, time: o.room === 0 ? 'dusk' : base.time, weather: o.plan?.type === 'boss' ? 'clear' : base.weather, exits: o.nextRooms.length > 1 ? ['left', 'right'] : o.nextRooms.length ? ['back'] : [] };
+  if (o.viewSpec) Object.assign(spec, { exits: [] }, o.viewSpec);
+  if (o.forceSpec) Object.assign(spec, o.forceSpec);   // act-29: the prologue's snowy night
+  // act-19: the 黄巾 rooms stand on the 2x stage; the yard keeps the old one
+  const big = !isYard && spec.locale.startsWith('hj_'); setStage(big);
+  const lb = REGISTRY.layouts[spec.layout] ?? Object.values(LOCALES).flatMap(l => l.extraLayouts ?? []).find(l => l.id === spec.layout)!;
+  const layout = withExits(spec.mirror ? mirrorLayout(stageLayout(lb)) : stageLayout(lb), spec.exits ?? []);
+  const ptype = o.plan?.type ?? 'fight', calm = ptype === 'shop' || ptype === 'rest' || ptype === 'boon';
+  const arena = big && !o.noArena ? arenaPlan(layout, (spec.exits ?? []) as ExitId[], spec.seed, spec.locale, calm ? 'calm' : ptype === 'boss' ? 'boss' : 'fight') : null;
+  spec.arena = arena ?? undefined;
+  if (isYard) return { spec, big, layout, arena, report: null, prep: prepareStage(hideoutScene({ time: 'dusk', weather: 'clear' }), { combat: true }) };
+  const { def, report } = assemble(spec, REGISTRY);
+  return { spec, big, layout, arena, report, prep: prepareStage({ ...def, build(c) { try { def.build(c); } catch (e) { console.error('[act] assembly failed', e); } } }, { combat: true }) };
+}
+
 export class ActShow {
   L = new UiLayer(); ov = new Overlay(); inp = new Input(); hud: ActHud; cards: CardPick; banner: SkinBanner;
   stage: Stage | null = null; hero!: Hero; foes: Foe[] = []; arrows: Arrow[] = []; waves: BladeWave[] = []; darts: Dart[] = []; /** darts thrown so far (tests) */ dartsThrown = 0;
@@ -153,6 +182,8 @@ export class ActShow {
   /** act-20 the stele of names in the hideout; talk is off while a scripted moment plays there */ private stele: Stele | null = null; private noTalk = false;
   private defy = 0; private wine = false; private eliteKills = 0; private bossKilled = false; private banked: { iron: number; herb: number } | null = null;
   /** a cutscene's place: the open land, no walls / gates / props */ private noArena = false;
+  /** act-34: a room built ahead of time (prepRoom), waiting to be put up; buildRoom uses it when it is the room asked for */
+  private pre: (Room & { locale: string }) | null = null;
   // ------------------------------------------------------------ act-20: story — portrait dialogue, timeline cutscenes, puppets
   dialogue: Dialogue; timeline: Timeline; private puppets: Foe[] = []; private wasPhase: Phase = 'yard'; private justDied = false;
   /** act-29 开篇 (方案 1): 1 = the snowy village (the first fight, alone), 2 = the snowy temple (褚雷, a fight she cannot win), 0 = off */
@@ -199,8 +230,8 @@ export class ActShow {
     this.intent = 0; this.hud.intent = 0; this.perks = newPerks(); this.room = 0; this.kills = 0; this.recent = []; this.visited = []; this.coins = 0;
     this.mods = runMods(profile()); this.defy = 0; this.eliteKills = 0; this.bossKilled = false; this.wine = false;
     TUNE.heroHp = 100 + this.mods.hpBonus; TUNE.dartCharges = 3 + this.mods.dartBonus; TUNE.aggression = 0.85 / this.mods.windupMul;
-    this.plan = { type: 'fight', locale: 'hj_village', reward: null, waves: [['hj_mob', 'hj_mob'], ['hj_blade', 'hj_mob', 'hj_mob']] };
-    this.locale = 'hj_village'; this.forceSpec = { season: 'winter', weather: 'snow', time: 'night' };
+    this.plan = { type: 'fight', locale: PRO_ROOM.locale, reward: null, waves: PRO_ROOM.waves };
+    this.locale = PRO_ROOM.locale; this.forceSpec = { ...PRO_ROOM.spec };
     this.buildRoom(true);
     // 「七年后」 over the snowy village while she walks in from the front; then the first sentries
     const h = this.hero, p0 = h.pos.clone();
@@ -443,6 +474,22 @@ export class ActShow {
     this.phase = 'title'; this.hud.on = false; this.hud.update(0, this.inp, []); this.banner.hide(); this.blob.visible = false; this.ring.visible = false; for (const m of this.shadows) m.visible = false;
     void playTitle(n, { ov: this.ov, L: this.L, hasSave, settings: () => toggleActTune(), enter: k => { this.hud.on = true; if (k === 'continue') this.continueGame(); else void this.startNewGame(); } });
     this.music();
+    // (before the title's first frame: the page is still dark and loading then — a frozen first picture with the snow hanging in the
+    //  air would read as a hang)
+    this.prefetchNewGame();
+  }
+  /** act-34 (用户：「开场那个一砍变成两半的效果本来很牛逼，结果卡住半天才揭开」): the first room of a new game took ~6 s to build in
+   *  the frame the title split, so the split stood still that long. It is built now, while the title loads (the page is still
+   *  coming up), off the live scene; the split only puts it up. (Continue goes to the hideout, which is quick to build.) */
+  private prefetchNewGame() {
+    this.pre?.prep.drop(); this.pre = null;
+    const keep = STAGE_BIG.on;
+    try {
+      const plan: RoomPlan = { type: 'fight', locale: PRO_ROOM.locale, reward: null, waves: PRO_ROOM.waves };
+      const r = prepRoom({ isYard: false, room: 0, recent: [], locale: PRO_ROOM.locale, plan, nextRooms: [PRO_BOSS], viewSpec: null, forceSpec: PRO_ROOM.spec, noArena: false });
+      this.pre = { ...r, locale: PRO_ROOM.locale }; warm(r.prep.root);
+    } catch (e) { console.warn('[act] prefetch failed', e); }
+    setStage(keep);
   }
   /** 模型查看页 (lab.ts, act-21, user: 「建模个白发女给我看看，在一个页面里看，带技能动作的」): the hideout's 试剑坪, the fine white-haired
    *  heroine before a dummy, a panel of moves (real button presses), views, the 2x pixels, the 7 cm model to switch to or stand beside.
@@ -531,28 +578,18 @@ export class ActShow {
     const isYard = this.room < 0;
     if (!isYard && this.plan && !this.viewSpec) this.visited.push(this.plan.type);
     this.nextRooms = !isYard && this.plan && !this.viewSpec ? doorsFrom(this.room, this.visited, Math.random) : [];
-    if (this.prologue === 1 && !this.viewSpec) this.nextRooms = [{ type: 'boss', locale: 'hj_temple', reward: null, waves: [['hj_boss']] }]; else if (this.prologue === 2) this.nextRooms = [];   // act-29
-    const seed = (Date.now() % 100000) + this.room * 977;
-    const base = pickSpec(seed, Object.values(REGISTRY.locales), REGISTRY.layouts, this.recent, { season: 'autumn', locale: this.locale });
-    const spec: Spec = isYard ? { ...base, time: 'dusk', weather: 'clear', exits: ['back'] }
-      : { ...base, time: this.room === 0 ? 'dusk' : base.time, weather: this.plan?.type === 'boss' ? 'clear' : base.weather, exits: this.nextRooms.length > 1 ? ['left', 'right'] : this.nextRooms.length ? ['back'] : [] };
-    if (this.viewSpec) Object.assign(spec, { exits: [] }, this.viewSpec);
-    if (this.forceSpec) Object.assign(spec, this.forceSpec);   // act-29: the prologue's snowy night
-    this.recent.push(spec); this.spec = spec;
-    // act-19: the 黄巾 rooms stand on the 2x stage; the yard keeps the old one
-    const big = !isYard && spec.locale.startsWith('hj_'); setStage(big);
-    const lb = REGISTRY.layouts[spec.layout] ?? Object.values(LOCALES).flatMap(l => l.extraLayouts ?? []).find(l => l.id === spec.layout)!;
-    this.layout = withExits(spec.mirror ? mirrorLayout(stageLayout(lb)) : stageLayout(lb), spec.exits ?? []);
-    const ptype = this.plan?.type ?? 'fight', calm = ptype === 'shop' || ptype === 'rest' || ptype === 'boon';
-    this.arena = big && !this.noArena ? arenaPlan(this.layout, (spec.exits ?? []) as ExitId[], spec.seed, spec.locale, calm ? 'calm' : ptype === 'boss' ? 'boss' : 'fight') : null;
-    spec.arena = this.arena ?? undefined;
-    if (isYard) {
-      // act-20: the hideout 断碑古窑 (hideout.ts) is the yard now — its own stage and floor
-      this.stage = showStage(hideoutScene({ time: 'dusk', weather: 'clear' }), { combat: true }); Object.assign(PLAY, HIDEOUT.floor);
-    } else {
-      const { def, report } = assemble(spec, REGISTRY); this.lastReport = report;
-      this.stage = showStage({ ...def, build(c) { try { def.build(c); } catch (e) { console.error('[act] assembly failed', e); } } }, { combat: true });
-    }
+    if (this.prologue === 1 && !this.viewSpec) this.nextRooms = [PRO_BOSS]; else if (this.prologue === 2) this.nextRooms = [];   // act-29
+    // act-34: the place itself — built ahead of time when it can be (the title builds a new game's first room while it loads), else now
+    const want: RoomIn = { isYard, room: this.room, recent: this.recent, locale: this.locale, plan: this.plan, nextRooms: this.nextRooms, viewSpec: this.viewSpec, forceSpec: this.forceSpec, noArena: this.noArena };
+    const ready = this.pre && !isYard && !this.viewSpec && this.prologue === 1 && this.room === 0 && this.pre.locale === this.locale ? this.pre : null;
+    if (this.pre && this.pre !== ready) this.pre.prep.drop();
+    this.pre = null;
+    const P = ready ?? prepRoom(want);
+    const spec = P.spec; this.recent.push(spec); this.spec = spec;
+    setStage(P.big); this.layout = P.layout; this.arena = P.arena; if (P.report) this.lastReport = P.report;
+    const big = P.big;
+    this.stage = P.prep.attach();
+    if (isYard) Object.assign(PLAY, HIDEOUT.floor);   // act-20: the hideout 断碑古窑 (hideout.ts) is the yard now — its own stage and floor
     this.solids.clear(); this.props?.dispose(); this.props = null; this.botWp = 0;
     if (isYard) for (const so of HIDEOUT.solids) this.solids.add({ kind: 'prop', ...so });
     if (this.arena && this.stage) {
@@ -1303,11 +1340,12 @@ export class ActShow {
       this.stations.setPurse(this.coins);
       if (s) void this.useStation(s);
     }
-    // doors: the boards rise; walking into a road's far end leaves
+    // doors: the boards rise; stepping onto a gate's gold (act-34), or walking into a road's far end, leaves
     if (this.phase === 'doors') this.doors.forEach((d, i) => {
       d.lift = Math.min(1, d.lift + dt * 2.2); d.g.position.y = -2.4 * (1 - d.lift) ** 2;
+      if (this.phase !== 'doors') return;
       const p = h.pos, l = d.ex.lane, out = d.ex.id === 'left' ? p.x < l.x0 + 2.6 : d.ex.id === 'right' ? p.x > l.x1 - 2.6 : p.z < PLAY.z0 - 1.2;
-      if (out && p.x > l.x0 - 0.4 && p.x < l.x1 + 0.4 && p.z > l.z0 - (d.ex.id === 'back' ? 6 : 0.4) && p.z < l.z1 + 0.4) this.leave(i);
+      if (this.gates?.onGlow(p, d.ex.id) || (out && p.x > l.x0 - 0.4 && p.x < l.x1 + 0.4 && p.z > l.z0 - (d.ex.id === 'back' ? 6 : 0.4) && p.z < l.z1 + 0.4)) this.leave(i);
     });
     // the camera: follows the hero with a little lead, held inside the room
     // the lead follows the run, capped at running speed (a dash or a knock-back no longer throws the view forward)

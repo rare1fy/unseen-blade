@@ -2,7 +2,7 @@
 // 新场景在它后面露出来。挡住画面的是有光照的实物（不是黑屏、不是遮罩）。物件跟着镜头走（放在镜头坐标系里，离镜头 1 米上下），
 // 所以换场景前后它是同一样东西连续扫过去。
 import * as THREE from 'three';
-import { camera, scene, V3 } from '../engine/world';
+import { camera, scene, V3, frames, precompile } from '../engine/world';
 import { animP } from '../engine/clock';
 import { toon } from '../look/toon';
 import { cue } from '../../audio/cues';
@@ -40,9 +40,14 @@ export async function wipeTransit(swap: () => void) {
   };
   cue('whoosh', 0.7);
   place(2.6);
-  await animP(0.42, k => place(2.6 - 2.6 * k * k), { real: true });   // in, accelerating
+  // act-34 (用户：「现在转场的时候有点卡」): the cover used to arrive at full speed and the new place was built in that frame, so the
+  // stalks stopped dead mid-sweep (a stall) and the first frames of the new place (shader compiles, mesh uploads) jerked the way out.
+  // Now the cover glides in and comes to rest over the view; the swap, the shader compile and three frames of uploads happen while
+  // nothing on screen is meant to move; then it leaves, gathering speed.
+  await animP(0.4, k => place(2.6 * (1 - k) * (1 - k) * (1 - k)), { real: true });   // in, easing to rest
   try { swap(); } catch (e) { console.error('[wipe] swap failed', e); }
-  await new Promise(r => requestAnimationFrame(() => r(null)));
-  await animP(0.5, k => place(-2.6 * (1 - (1 - k) * (1 - k))), { real: true });   // out, easing off
+  precompile();
+  await frames(3);
+  await animP(0.45, k => place(-2.6 * k * k * (1.4 - 0.4 * k)), { real: true });   // out, gathering speed
   scene.remove(g); g.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh) m.geometry.dispose(); });
 }

@@ -93,6 +93,14 @@ export class Gates {
       it.curtain.visible = it.ripple.visible = it.spill.visible = k > 0.001;
     }
   }
+  /** act-34 (用户：「应该踩到选路的特效上就开始转场了才对，现在非要走到底才行」): is p on this gate's gold — the light spilled on the
+   *  floor from the opening (2.6 m into the room, widening) or the opening itself — once it has come up? */
+  onGlow(p: THREE.Vector3, id: string) {
+    if (!this.opened || this.openT < 0.7) return false;
+    const it = this.items.find(q => q.g.id === id); if (!it) return false;
+    const rx = p.x - it.centre.x, rz = p.z - it.centre.z, din = rx * it.inward.x + rz * it.inward.z, lat = Math.abs(rx * it.inward.z - rz * it.inward.x);
+    return din > -2 && din < 2.6 && lat < it.g.w / 2 + 0.3 + Math.max(0, din) * 0.3;
+  }
   /** where the gate's way out starts (for the guiding wind) */
   targets() { return this.items.map(it => it.centre.clone().addScaledVector(V3(it.g.out[0], 0, it.g.out[1]), 1.2)); }
   dispose() {

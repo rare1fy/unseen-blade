@@ -141,15 +141,14 @@ export const skyMaterial = () => globals().skyMat;
 export const CUT = { mode: 'auto' as 'auto' | 'show' | 'hide', far: 30, focus: V3(0, 0, -3) };
 
 let current: Stage | null = null;
-export function showStage(def: SceneDef, options: { combat?: boolean } = {}): Stage {
-  if (STAGE_HOOK.hold && current) { STAGE_HOOK.held.push(current); current = null; } else current?.dispose();
-  const g = globals(), root = new THREE.Group(); scene.add(root);
-  // the night is dark in colour, not in exposure: lift the whole frame and ease the vignette so characters and props read
-  GRADE.exposure = def.mood.exposure ?? 1.6; GRADE.vig = 0.32;
-  if (def.mood.bloomT != null) GRADE.bloomThreshold = def.mood.bloomT;
+/** a place built off the live scene (act-34): attach() puts it up in one cheap step, drop() throws it away unseen */
+export interface PreparedStage { def: SceneDef; root: THREE.Group; attach(): Stage; drop(): void }
+/** act-34 (用户：「现在转场的时候有点卡」「开场那个一砍变成两半的效果……卡住半天才揭开」): the heavy part of showing a place — filling
+ *  the cells and meshing them — touches nothing live (no mood, no lights in the scene, no updater), so it can run ahead of time
+ *  (the title builds the first room of a new game while it loads) and the swap itself is only attach() */
+export function prepareStage(def: SceneDef, options: { combat?: boolean } = {}): PreparedStage {
+  const g = globals(), root = new THREE.Group();
   const md = def.mood, lights: THREE.Light[] = [], flames: Array<{ m: THREE.Mesh; l?: THREE.PointLight; base: number; s: number }> = [], phase: Array<(k: number) => void> = [];
-  // mood: sky or void, fog, light colours
-  applyMood(md);
   // the ground beyond the stage
   const earth = new THREE.Mesh(new THREE.PlaneGeometry(140, 140), toon(0xffffff, { map: earthTex(md.earth) })); earth.rotation.x = -Math.PI / 2; earth.position.y = -2 * CELL; earth.receiveShadow = true; earth.userData.earth = true; root.add(earth);
   const w = new VoxWorld(CELL), cut = new VoxWorld(CELL), cards = new Cards(), amb: Ambient[] = [], cutRoot = new THREE.Group(); let eaves = 3.5;
@@ -167,7 +166,7 @@ export function showStage(def: SceneDef, options: { combat?: boolean } = {}): St
     light(p, color, intensity = 5, dist = 7) {
       const cyan = ((color>>>8)&255) > ((color>>>16)&255)*1.2 && (color&255) > ((color>>>16)&255)*1.2;
       if(options.combat && cyan) { if(p[2]>-0.5 || (p[0]>4 && p[2]>-5)) return; intensity=Math.min(1.35,intensity); color=0x66a68d; }
-      const l = new THREE.PointLight(color, intensity, dist, 1.8); l.position.set(...p); scene.add(l); lights.push(l);
+      const l = new THREE.PointLight(color, intensity, dist, 1.8); l.position.set(...p); lights.push(l);   // (into the scene at attach)
     },
     flame(p, color, size = 0.12) { const m = new THREE.Mesh(new THREE.BoxGeometry(size, size * 1.4, size), glow(color, 3)); m.position.set(...p); root.add(m); flames.push({ m, base: size, s: Math.random() * 10 }); },
     water(x0, z0, x1, z1, color) {
@@ -186,32 +185,52 @@ export function showStage(def: SceneDef, options: { combat?: boolean } = {}): St
   def.build(ctx);
   if (options.combat) quietBattleGlow(w);
   for (const m of w.build({ glow: options.combat ? 1.35 : md.glowK ?? 2.6, chunk: STAGE_OPTS.chunk })) root.add(m);
+  w.cells.clear();   // (the cells are meshed; a prepared place can wait a while, it should not hold two million of them)
   cards.build(root);
   if (cut.cells.size) for (const m of cut.build({ glow: 2.6, chunk: STAGE_OPTS.chunk })) cutRoot.add(m);
-  const off = { on: true };
-  onUpdate((dt, rdt) => {
-    if (!off.on) return; const t = clock.rtime;
-    ambientTick(amb, rdt);
-    cutRoot.visible = CUT.mode === 'show' || (CUT.mode === 'auto' && (camera.position.y < eaves || camera.position.distanceTo(CUT.focus) > CUT.far));
-    for (const f of flames) {
-      if (f.base < 0) { f.m.rotation.z += rdt * 0.08; ((f.m.material as THREE.MeshBasicMaterial).opacity = 0.45 + Math.sin(t * 1.6) * 0.12); continue; }
-      const s = 1 + Math.sin(t * 9 + f.s) * 0.15 + Math.sin(t * 23 + f.s) * 0.08; f.m.scale.set(s, s * 1.3, s); f.m.rotation.y += dt * 2;
-    }
-    lights.forEach((l, i) => { if ((l as THREE.PointLight).isPointLight) (l as THREE.PointLight).intensity = (l.userData.base ??= (l as THREE.PointLight).intensity) * st.dim * (1 + Math.sin(t * 8 + i * 3) * 0.12 + Math.sin(t * 19 + i) * 0.06); });
-  });
-  const st: Stage = {
-    def, root, lights, dim: 1,
-    phase2(k: number) {
-      (g.skyMat.uniforms.uTint.value as THREE.Color).setRGB(1 - 0.25 * k, 1 + 0.15 * k, 1 - 0.2 * k);
-      const f = scene.fog as THREE.FogExp2; f.density = md.fogD * (1 + 0.4 * k); f.color.set(md.fog).lerp(new THREE.Color(0x1a3a2c), 0.5 * k);
-      g.hemi.color.set(md.hemiSky).lerp(new THREE.Color(0x3a8a5a), 0.4 * k);
-      for (const p of phase) p(k);
+  let used = false;
+  const freeAll = () => root.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh) m.geometry.dispose(); });
+  return {
+    def, root,
+    drop() { if (used) return; used = true; freeAll(); },
+    attach() {
+      if (used) throw new Error('[stage] a prepared place can be shown once');
+      used = true;
+      if (STAGE_HOOK.hold && current) { STAGE_HOOK.held.push(current); current = null; } else current?.dispose();
+      scene.add(root);
+      // the night is dark in colour, not in exposure: lift the whole frame and ease the vignette so characters and props read
+      GRADE.exposure = md.exposure ?? 1.6; GRADE.vig = 0.32;
+      if (md.bloomT != null) GRADE.bloomThreshold = md.bloomT;
+      // mood: sky or void, fog, light colours
+      applyMood(md);
+      for (const l of lights) scene.add(l);
+      const off = { on: true };
+      onUpdate((dt, rdt) => {
+        if (!off.on) return; const t = clock.rtime;
+        ambientTick(amb, rdt);
+        cutRoot.visible = CUT.mode === 'show' || (CUT.mode === 'auto' && (camera.position.y < eaves || camera.position.distanceTo(CUT.focus) > CUT.far));
+        for (const f of flames) {
+          if (f.base < 0) { f.m.rotation.z += rdt * 0.08; ((f.m.material as THREE.MeshBasicMaterial).opacity = 0.45 + Math.sin(t * 1.6) * 0.12); continue; }
+          const s = 1 + Math.sin(t * 9 + f.s) * 0.15 + Math.sin(t * 23 + f.s) * 0.08; f.m.scale.set(s, s * 1.3, s); f.m.rotation.y += dt * 2;
+        }
+        lights.forEach((l, i) => { if ((l as THREE.PointLight).isPointLight) (l as THREE.PointLight).intensity = (l.userData.base ??= (l as THREE.PointLight).intensity) * st.dim * (1 + Math.sin(t * 8 + i * 3) * 0.12 + Math.sin(t * 19 + i) * 0.06); });
+      });
+      const st: Stage = {
+        def, root, lights, dim: 1,
+        phase2(k: number) {
+          (g.skyMat.uniforms.uTint.value as THREE.Color).setRGB(1 - 0.25 * k, 1 + 0.15 * k, 1 - 0.2 * k);
+          const f = scene.fog as THREE.FogExp2; f.density = md.fogD * (1 + 0.4 * k); f.color.set(md.fog).lerp(new THREE.Color(0x1a3a2c), 0.5 * k);
+          g.hemi.color.set(md.hemiSky).lerp(new THREE.Color(0x3a8a5a), 0.4 * k);
+          for (const p of phase) p(k);
+        },
+        dispose() { off.on = false; scene.remove(root); freeAll(); for (const l of lights) scene.remove(l); if (current === st) current = null; },
+      };
+      current = st;
+      STAGE_HOOK.built?.(st);
+      return st;
     },
-    dispose() { off.on = false; scene.remove(root); root.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh) m.geometry.dispose(); }); for (const l of lights) scene.remove(l); if (current === st) current = null; },
   };
-  current = st;
-  STAGE_HOOK.built?.(st);
-  return st;
 }
+export function showStage(def: SceneDef, options: { combat?: boolean } = {}): Stage { return prepareStage(def, options).attach(); }
 export const AREA_RECT = AREA;
 void V3;

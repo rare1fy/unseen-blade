@@ -1,7 +1,7 @@
 // Renderer + frame loop: real dt (capped) → game clock (hitstop / slowmo / speed) → updaters → dice → particles / prims →
 // camera rig (base + offset + trauma shake) → 3D render → UI render (pxui shares the WebGL context).
 import * as THREE from 'three';
-import { scene, camera, view, runUpdaters, runLateUpdaters, V3 } from './world';
+import { scene, camera, view, runUpdaters, runLateUpdaters, V3, GL, padLights } from './world';
 import { tick, FX, clock } from './clock';
 import { updateParticles } from './particles';
 import { updatePrims } from './prims';
@@ -20,6 +20,7 @@ export function createGfx(platform: Platform, canvas: any, o: { preserve?: boole
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFShadowMap;
   renderer.info.autoReset = false;
+  GL.renderer = renderer;
   const post = new Post(renderer);
   const fit = () => {
     const s = platform.canvasSize(); view.w = s.w; view.h = s.h; view.dpr = Math.min(platform.dpr(), PX.on ? 3 : 2);   // the pixel look at native resolution (a 3× phone upscaled 2→3 by the browser blurred the pixels)
@@ -52,7 +53,7 @@ export function createGfx(platform: Platform, canvas: any, o: { preserve?: boole
         if (CAM.shift) camera.setViewOffset(view.w, view.h, 0, CAM.shift, view.w, view.h); else camera.clearViewOffset();
         camera.updateProjectionMatrix(); camera.updateMatrixWorld(true);
         const t1 = platform.now();
-        renderer.info.reset();
+        renderer.info.reset(); padLights();
         post.render(scene, camera, clock.rtime);
         const t2 = platform.now(); stats.logic += ((t1 - t0) - stats.logic) * 0.05; stats.render += ((t2 - t1) - stats.render) * 0.05;
         stats.calls = renderer.info.render.calls; stats.tris = renderer.info.render.triangles;

@@ -37,6 +37,8 @@ export function stageLayout(l: Layout): Layout {
 }
 /** most point lights per scene (each one costs every lit pixel; the shader also recompiles when the count changes) */
 export const MAX_LIGHTS = 12;
+/** QA-only work in the assembler: on in Node (the tests), off in the browser unless asked (__dh / the scene browser) */
+export const ASM_QA = { floating: typeof window === 'undefined' };
 
 // ------------------------------------------------------------------ mirroring a layout (x → −x)
 const mirR = (r: Rect): Rect => ({ x0: -r.x1, x1: -r.x0, z0: r.z0, z1: r.z1 });
@@ -190,7 +192,6 @@ export function assemble(spec: Spec, reg: Registry): { def: SceneDef; report: Re
         const w = spec.arena.wall, t = w.gap + w.thick + 0.2;
         arenaClear.push({ x0: PLAY.x0 - t, x1: PLAY.x0, z0: PLAY.z0 - t, z1: PLAY.z1 }, { x0: PLAY.x1, x1: PLAY.x1 + t, z0: PLAY.z0 - t, z1: PLAY.z1 }, { x0: PLAY.x0 - t, x1: PLAY.x1 + t, z0: PLAY.z0 - t, z1: PLAY.z0 });
       }
-      // 4) the far ring, the season pass, flora, dressing, weather
       loc.far?.(c, { layout, p: place(0, 0, 0, 3) });
       if (spec.season === 'winter') snowPass(c, walk);
       buildFlora(c);
@@ -201,8 +202,8 @@ export function assemble(spec: Spec, reg: Registry): { def: SceneDef; report: Re
       // glow cap (11-15 mixed sheet: some lantern / sign faces bloomed into white glare at dusk): every glowing cell keeps its hue
       // but its brightest channel is held at 0xd8, and a lantern body of more than 40 glowing cells gets only its middle cells lit
       for (const v of c.w.cells.values()) if (v.g > 0) { const r = (v.c >> 16) & 255, gg = (v.c >> 8) & 255, b = v.c & 255, mx = Math.max(r, gg, b); if (mx > 0xd8) { const k = 0xd8 / mx; v.c = (Math.round(r * k) << 16) | (Math.round(gg * k) << 8) | Math.round(b * k); } }
-      const fl = floatingCells(c.w.cells);
-      if (fl.count > 40) report.warnings.push(`${fl.count} floating cells, e.g. ${JSON.stringify(fl.sample.slice(0, 3))}`);
+      // (a QA check: 1.5 s on the 2x stage's two million cells, so the game skips it — act-34; the tests and the scene browser keep it)
+      if (ASM_QA.floating) { const fl = floatingCells(c.w.cells); if (fl.count > 40) report.warnings.push(`${fl.count} floating cells, e.g. ${JSON.stringify(fl.sample.slice(0, 3))}`); }
     },
   };
   return { def, report };

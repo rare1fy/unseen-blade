@@ -12,6 +12,36 @@ export const WHITE = new THREE.Color(1, 1, 1);
 export const TAU = Math.PI * 2;
 export const R = (a: number, b: number) => a + Math.random() * (b - a);   // presentation-only randomness (never in rules)
 export const RI = (a: number, b: number) => Math.floor(R(a, b + 1));
+/** the renderer, once gfx.ts has made it (act-34: transitions precompile the new scene's shaders behind the cover) */
+export const GL: { renderer: THREE.WebGLRenderer | null } = { renderer: null };
+/** act-34: three.js builds every lit shader for the exact number of point lights in view, so a new place with a different count
+ *  (a lantern more, a campfire less) recompiled every lit material in its first frame — 19 programs, 1.9 s on the title's cut. The
+ *  scene now always holds the same number: zero-intensity filler lights make up the difference every frame (counted before render).
+ *  More than PAD_N real lights still works, it only costs a recompile. */
+const PAD_N = 18, pads: THREE.PointLight[] = [];
+export function padLights() {
+  let n = 0; scene.traverseVisible(o => { if ((o as THREE.PointLight).isPointLight && !o.userData.pad) n++; });
+  const want = Math.max(0, PAD_N - n);
+  while (pads.length < want) { const l = new THREE.PointLight(0x000000, 0, 0.01, 2); l.userData.pad = true; l.position.set(0, -400, 0); scene.add(l); pads.push(l); }
+  for (let i = 0; i < pads.length; i++) pads[i].visible = i < want;
+}
+/** compile every material the scene now holds, so the first frames after a scene swap do not stall on shader compiles */
+export function precompile() { padLights(); try { GL.renderer?.compile(scene, camera); } catch (e) { console.warn('[precompile]', e); } }
+/** upload a group's meshes to the GPU ahead of its first real frame (act-34): it joins the scene for one render into a tiny
+ *  target with culling off, then leaves again (the scene's own picture is untouched; its shadow map is redrawn next frame anyway) */
+export function warm(root: THREE.Object3D) {
+  const r = GL.renderer; if (!r || root.parent) return;
+  const rt = new THREE.WebGLRenderTarget(4, 4), culled: Array<[THREE.Object3D, boolean]> = [];
+  root.traverse(o => { culled.push([o, o.frustumCulled]); o.frustumCulled = false; });
+  scene.add(root); padLights();
+  const prev = r.getRenderTarget();
+  try { r.setRenderTarget(rt); r.render(scene, camera); } catch (e) { console.warn('[warm]', e); }
+  r.setRenderTarget(prev); scene.remove(root);
+  for (const [o, f] of culled) o.frustumCulled = f;
+  rt.dispose();
+}
+/** resolve after n real frames */
+export const frames = (n: number) => new Promise<void>(res => { const f = () => (--n <= 0 ? res() : requestAnimationFrame(f)); requestAnimationFrame(f); });
 
 type Hook = (dt: number, rdt: number) => void;
 const updaters: Hook[] = [], lateUpdaters: Hook[] = [];
