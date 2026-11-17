@@ -2,7 +2,7 @@
 // 「影分身……可以改成丢飞镖的普攻」):
 //  · Dart — a 柳叶镖: a slim steel leaf with a ring and a red tassel, thrown from the left hand, flying straight with a thin white
 //    streak; small damage, no stagger.
-//  · BladeWave — the 刃风 秘传's sword light: a thin bright crescent (white core, pale jade glow), lying flat at waist height with its
+//  · BladeWave — the 刀芒 秘传's sword light: a thin bright crescent (white core, pale jade glow), lying flat at waist height with its
 //    bulge forward, fast and straight; ghost copies peel off behind it, it thins out and fades at the end of its run.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';

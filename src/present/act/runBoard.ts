@@ -1,11 +1,11 @@
 // The route board at each road out of a room (act-17): a wooden notice board (高札) on two posts with a little roof; burned into
 // the face: the room type's glyph and its two-character name (agy: 乱兵 / 死士 / 行商 / 歇脚 / 遗卷 / 渠帅), and below what
-// clearing it gives — a school's boon (太平道 雷 / 江东水师 寒 / 散人), copper coins, or healing — plus the place's name.
+// clearing it gives — a boon, copper coins, or healing — plus the place's name.
 import * as THREE from 'three';
 import { toon } from '../look/toon';
 import { icon, text, textW, PIX_H } from '../v2/overlay';
 import { bodyText, onBodyFontChange } from '../ui3d/bodyFont';
-import { ROOM_INFO, SCHOOL_NAME, type RoomPlan } from './run';
+import { ROOM_INFO, type RoomPlan } from './run';
 import { SCROLL_GLYPH } from './manuals';
 
 const GLYPH: Record<string, string[]> = {
@@ -19,7 +19,7 @@ const GLYPH: Record<string, string[]> = {
   heal: ['.##...##..', '####.####.', '#########.', '#########.', '.#######..', '..#####...', '...###....', '....#.....', '..........', '..........'],
 };
 const INK = '#2a170c', WOOD = '#c09464', WOOD_D = '#8a6440', ACC = '#7a2a1e';
-const SCHOOL_MARK: Record<string, { ch: string; col: string }> = { tp: { ch: '雷', col: '#8a6a10' }, jd: { ch: '寒', col: '#1e5a7a' }, sr: { ch: '散', col: ACC } };
+const BOON_MARK = ['....##....', '....##....', '....##....', '....##....', '....##....', '....##....', '..######..', '..#oooo#..', '..######..', '..........'];
 
 function face(p: RoomPlan, place: string) {
   const W = 160, H = 104, S = 3, c = document.createElement('canvas'); c.width = W * S; c.height = H * S; const g = c.getContext('2d')!;
@@ -29,13 +29,13 @@ function face(p: RoomPlan, place: string) {
     g.fillStyle = WOOD; g.fillRect(0, 0, W, H);
     g.fillStyle = WOOD_D; g.fillRect(0, 34, W, 2); g.fillRect(0, 70, W, 2); g.fillRect(0, 0, W, 4); g.fillRect(0, H - 4, W, 4); g.fillRect(0, 0, 4, H); g.fillRect(W - 4, 0, 4, H);
     icon(g, GLYPH[p.type], 10, 8, 5, { main: INK, acc: ACC, dark: INK });
-    // (act-35: the 16 px 长坂点宋 — the name two board units per font pixel, in the top band; the school mark in the bottom band)
+    // (act-35: the 16 px 长坂点宋 — the name two board units per font pixel, in the top band)
     const nk = PIX_H >= 16 ? 2 : 3, k = ROOM_INFO[p.type].name; text(g, k, 66 + (84 - textW(k, nk)) / 2, PIX_H >= 16 ? 3 : 12, nk, INK, 'left', null);
     const r = p.reward;
-    if (r?.k === 'boon') { const m = SCHOOL_MARK[r.school]; if (PIX_H >= 16) { g.setTransform(1, 0, 0, 1, 0, 0); text(g, m.ch, 10 * S, 73 * S, 5, m.col, 'left', null); g.setTransform(S, 0, 0, S, 0, 0); } else text(g, m.ch, 12, 70, 2, m.col, 'left', null); }
+    if (r?.k === 'boon') icon(g, BOON_MARK, 10, 66, 3, { main: INK, acc: ACC, dark: INK });
     else if (r?.k === 'manual') icon(g, SCROLL_GLYPH, 10, 66, 3, { main: INK, acc: ACC, dark: INK });
     else if (r) icon(g, GLYPH[r.k === 'coins' ? 'coins' : 'heal'], 10, 66, 3, { main: INK, acc: ACC, dark: INK });
-    const sub = r?.k === 'boon' ? SCHOOL_NAME[r.school] : r?.k === 'coins' ? `铜钱 ${r.n}` : r?.k === 'heal' ? '回血' : r?.k === 'manual' ? '刀谱' : place;
+    const sub = r?.k === 'boon' ? '秘传' : r?.k === 'coins' ? `铜钱 ${r.n}` : r?.k === 'heal' ? '回血' : r?.k === 'manual' ? '刀谱' : place;
     g.setTransform(1, 0, 0, 1, 0, 0);
     bodyText(g, sub.slice(0, 6), 46 * S, 73 * S, 15 * S, INK);
   };

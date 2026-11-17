@@ -5,8 +5,7 @@ import { EDEFS, type EKind } from './enemy';
 import { LOCALES } from '../asm/registry';
 
 export type RoomType = 'fight' | 'elite' | 'shop' | 'rest' | 'boon' | 'boss';
-export type School = 'tp' | 'jd' | 'sr';
-export type Reward = { k: 'boon'; school: School } | { k: 'coins'; n: number } | { k: 'heal' } | { k: 'manual' } | null;
+export type Reward = { k: 'boon' } | { k: 'coins'; n: number } | { k: 'heal' } | { k: 'manual' } | null;
 /** one room of the run: what it is, where, what clearing it gives, the waves ('kind*' = the elite of that kind) */
 export interface RoomPlan { type: RoomType; locale: string; reward: Reward; waves: string[][] }
 
@@ -21,7 +20,6 @@ export const ROOM_INFO: Record<RoomType, { name: string; line: string }> = {
   boon: { name: '遗卷', line: '不战白得一张秘传' },
   boss: { name: '渠帅', line: '死战坐镇黄巾渠帅' },
 };
-export const SCHOOL_NAME: Record<School, string> = { tp: '太平道', jd: '江东水师', sr: '散人' };
 
 /** the region's places; until the 黄巾 places are merged, the nearest ninja place stands in */
 const PLACE_FALLBACK: Record<string, string> = { hj_village: 'ninja_village', hj_field: 'ninja_wilds', hj_temple: 'ninja_temple' };
@@ -53,9 +51,9 @@ export function wavesFor(type: RoomType, depth: number, r: Rnd): string[][] {
 }
 function rewardFor(type: RoomType, r: Rnd): Reward {
   if (type !== 'fight' && type !== 'elite') return null;
-  const x = r(), school: School = ((): School => { const y = r(); return y < 0.4 ? 'tp' : y < 0.8 ? 'jd' : 'sr'; })();
-  if (type === 'elite') return x < 0.6 ? { k: 'manual' } : x < 0.85 ? { k: 'boon', school } : { k: 'coins', n: 50 };   // act-19: 刀谱 mostly
-  return x < 0.6 ? { k: 'boon', school } : x < 0.85 ? { k: 'coins', n: 30 } : { k: 'heal' };
+  const x = r();
+  if (type === 'elite') return x < 0.6 ? { k: 'manual' } : x < 0.85 ? { k: 'boon' } : { k: 'coins', n: 50 };
+  return x < 0.6 ? { k: 'boon' } : x < 0.85 ? { k: 'coins', n: 30 } : { k: 'heal' };
 }
 function placeFor(type: RoomType, r: Rnd) {
   return type === 'boss' ? 'hj_temple' : type === 'fight' || type === 'elite' ? pick(['hj_village', 'hj_field'], r) : 'hj_village';
@@ -63,8 +61,8 @@ function placeFor(type: RoomType, r: Rnd) {
 export function roomOf(type: RoomType, depth: number, r: Rnd): RoomPlan {
   return { type, locale: placeOr(placeFor(type, r)), reward: rewardFor(type, r), waves: wavesFor(type, depth, r) };
 }
-/** the first room of a run: a fight in the village, a boon of a random school for clearing it */
-export function firstRoom(r: Rnd): RoomPlan { const p = roomOf('fight', 0, r); p.locale = placeOr('hj_village'); p.reward = { k: 'boon', school: r() < 0.5 ? 'tp' : 'jd' }; return p; }
+/** the first room of a run: a fight in the village, then a boon */
+export function firstRoom(r: Rnd): RoomPlan { const p = roomOf('fight', 0, r); p.locale = placeOr('hj_village'); p.reward = { k: 'boon' }; return p; }
 
 /** the roads out of room `from` (0-based): two different kinds of room, or the one road to the boss before the last room.
  *  No two shops or two rests in a run; the room before the boss always offers a rest or a shop if neither was visited. */

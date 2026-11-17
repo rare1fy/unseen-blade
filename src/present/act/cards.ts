@@ -9,6 +9,12 @@ import { SCHOOL_NAMES, TIER_NAMES, type Boon, type BoonPick } from './boons';
 import { SKIN, PALETTE } from './skin';
 import { bodyText, bodyW, onBodyFontChange } from '../ui3d/bodyFont';
 
+/** 把卡面数值按凡、珍、绝档填入；第二组数值供双效果秘传使用。 */
+export function fillVals(desc: string, boon: Boon, tier: number) {
+  const t = Math.max(0, Math.min(2, Math.floor(tier) || 0));
+  return desc.replace(/\{v2?\}/g, key => key === '{v2}' ? `${boon.vals2?.[t] ?? 0}${boon.unit2 ?? ''}` : `${boon.vals?.[t] ?? 0}${boon.unit ?? ''}`);
+}
+
 // act-19 (user: 「强化的卡片要像哈迪斯那些经典动作rogue游戏学习，描述关键字要高亮，图标与文字相结合，卡片的样式要和普通面板区分开来」):
 // three wide cards stacked in rows; each: the school's emblem in a framed medallion on the left, the name (pixel title font) and its
 // tier badge, two lines of description with the key words in colour behind a small icon and the numbers lit; the card's ground and
@@ -76,8 +82,8 @@ function face(b: Boon, tier: number, u: number) {
   const R = (x: number, y: number, w: number, h: number, col: string) => { g.fillStyle = col; g.fillRect(x * u, y * u, w * u, h * u); };
   // ground, the school's pattern, the frame (thicker and with corner pieces as the tier rises)
   R(0, 0, CW, CH, P.bg); R(6, 6, CW - 12, CH - 12, P.panel);
-  if (b.school === 'tp') for (let x = 14; x < CW - 14; x += 26) { R(x, 6, 2, 6, P.deco); R(x + 12, CH - 12, 2, 6, P.deco); }
-  else if (b.school === 'jd') for (let y = CH - 30; y < CH - 8; y += 7) for (let x = 120 + ((y / 7) % 2) * 9; x < CW - 12; x += 18) R(x, y, 10, 1, P.deco);
+  if ((b.school as string) === 'tp') for (let x = 14; x < CW - 14; x += 26) { R(x, 6, 2, 6, P.deco); R(x + 12, CH - 12, 2, 6, P.deco); }
+  else if ((b.school as string) === 'jd') for (let y = CH - 30; y < CH - 8; y += 7) for (let x = 120 + ((y / 7) % 2) * 9; x < CW - 12; x += 18) R(x, y, 10, 1, P.deco);
   else if (b.school === ('ms' as string)) for (let x = 120; x < CW - 12; x += 14) R(x, CH - 22, 8, 12, P.deco);   // the slips along the bottom
   else { R(CW - 30, 12, 16, 16, P.deco); R(CW - 26, 16, 8, 8, '#e05a48'); R(CW - 24, 18, 4, 4, P.deco); }
   const fw = tier === 2 ? 4 : tier === 1 ? 3 : 2, fc = tier === 2 ? TIER_COL[2] : P.frame;
@@ -96,7 +102,7 @@ function face(b: Boon, tier: number, u: number) {
   if (tag) { R(TX + nw + 12, 17, bw, 20, tierColor(tier)); R(TX + nw + 13, 18, bw - 2, 18, '#0d0a0b'); bodyText(g, tag, (TX + nw + 18) * u, 19 * u, 13 * u, tierColor(tier), 'left'); }
   if (!ms) bodyText(g, SCHOOL_NAMES[b.school] ?? '', (CW - (b.school === 'sr' ? 38 : 16)) * u, 18 * u, 12 * u, P.frame, 'right');
   // the two lines
-  b.desc.forEach((l, i) => richLine(g, l, TX * u, (54 + i * 28) * u, 19 * u, '#e8e0d4'));
+  b.desc.forEach((l, i) => richLine(g, fillVals(l, b, tier), TX * u, (54 + i * 28) * u, 19 * u, '#e8e0d4'));
   const t = new THREE.CanvasTexture(c); t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearFilter; t.generateMipmaps = false; t.colorSpace = THREE.SRGBColorSpace;
   return { t, W, H };
 }
