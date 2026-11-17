@@ -28,7 +28,7 @@ const MANUAL_HOW: Record<string, { how: Step[]; air?: boolean }> = {
   cutDart: { how: ['attack', 'dart'] }, keep: { how: ['attack', 'dash', 'attack'] }, pause: { how: ['attack', 'attack', 'wait', 'attack'] }, kick: { how: ['dash', 'jump'] },
 };
 /** the picture the button turns over to when the link opens (ironUi HintKey) — the card, the pages and the demonstration show the same one */
-export const MANUAL_HINT: Record<string, string> = { chase: 'chase', backDart: 'back', dbl: 'dbl', launch: 'launch', cutDart: 'cdart', keep: 'keep', pause: 'pause', kick: 'kick' };
+export const MANUAL_HINT: Record<string, string> = { chase: 'chase', backDart: 'back', dbl: 'dbl', launch: 'launch', cutDart: 'cdart', keep: 'keep', pause: 'pause', kick: 'kick', acut: 'acut', swoop: 'swoop', reel: 'reel', stomp: 'stomp' };   // (11-18 merge: the four new ones turn the button over to these too)
 /** 效果 (agy; checked: 「轻敌」 means underestimating the foe → 敌人; 「回斩」 said twice → one) */
 const MANUAL_EFFECT: Record<string, string> = {
   chase: '化烟掠到敌前，补一记重斩', backDart: '往身后甩三枚柳叶镖，冲刺不停', dbl: '凌空翻个跟头，再蹿一大截', launch: '一刀把敌人挑上半空，随之跃起',
