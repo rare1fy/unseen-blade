@@ -9,8 +9,8 @@ import type { Ctx } from '../scenes/stage';
 import type { Layout, Rect } from './types';
 import { exitInfo, type ExitId } from './exits';
 
-export type WallStyle = 'earth' | 'wattle' | 'brick';
-export type CoverKind = 'well' | 'mill' | 'cart' | 'stones' | 'ding' | 'stele' | 'trough';
+export type WallStyle = 'earth' | 'wattle' | 'brick' | 'rail' | 'stockade' | 'plaster';
+export type CoverKind = 'well' | 'mill' | 'cart' | 'stones' | 'ding' | 'stele' | 'trough' | 'bollard' | 'chains' | 'barrels' | 'rockery' | 'screen' | 'basin';
 export type PropKind = 'pot' | 'crate' | 'hay' | 'oil' | 'pillar' | 'fence' | 'rack' | 'banner' | 'basket' | 'sack' | 'lamp';
 /** a gap in the wall: centre (x, z), along 'x' (the back wall) or 'z' (a side wall), opening width w; open = this room's way out */
 export interface Gate { id: ExitId | 'path'; x: number; z: number; along: 'x' | 'z'; w: number; open: boolean; out: [number, number] }
@@ -19,13 +19,22 @@ export interface ArenaPlan { style: WallStyle; gates: Gate[]; covers: Cover[]; p
   /** the wall's inner face sits this far outside PLAY (m) and it is this thick / tall */ wall: { gap: number; thick: number; h: number } }
 
 export const WALL = { gap: 0.1, thick: 0.49, h: 1.19 };
-export const styleOf = (locale: string): WallStyle => locale === 'hj_field' ? 'wattle' : locale === 'hj_temple' ? 'brick' : 'earth';
-const COVERS: Record<WallStyle, CoverKind[]> = { earth: ['well', 'mill', 'cart', 'stones'], wattle: ['cart', 'trough', 'mill', 'stones'], brick: ['ding', 'stele', 'stones', 'well'] };
-const COVER_SIZE: Record<CoverKind, [number, number]> = { well: [0.75, 0.75], mill: [0.8, 0.8], cart: [1.15, 0.65], stones: [0.7, 0.6], ding: [0.6, 0.6], stele: [0.75, 0.4], trough: [1.0, 0.45] };
+export const styleOf = (locale: string): WallStyle => ARENA_LOOK[locale]?.style ?? (locale === 'hj_field' ? 'wattle' : locale === 'hj_temple' ? 'brick' : 'earth');
+const COVERS: Record<WallStyle, CoverKind[]> = { earth: ['well', 'mill', 'cart', 'stones'], wattle: ['cart', 'trough', 'mill', 'stones'], brick: ['ding', 'stele', 'stones', 'well'],
+  rail: ['bollard', 'chains', 'barrels'], stockade: ['barrels', 'chains', 'cart', 'stones'], plaster: ['rockery', 'screen', 'basin'] };
+const COVER_SIZE: Record<CoverKind, [number, number]> = { well: [0.75, 0.75], mill: [0.8, 0.8], cart: [1.15, 0.65], stones: [0.7, 0.6], ding: [0.6, 0.6], stele: [0.75, 0.4], trough: [1.0, 0.45],
+  bollard: [0.55, 0.55], chains: [0.9, 0.7], barrels: [0.85, 0.6], rockery: [0.9, 0.75], screen: [1.1, 0.3], basin: [0.7, 0.7] };
+/** wp/regB (第四关 · 锁江、第五关 · 许都雪): a place outside 地域一 registers the look of its battle floor here — the wall style, the
+ *  cover, the small breakables and how many of the 黄巾 banners / lantern posts / oil jars / pillars it has (the banner is a yellow
+ *  黄巾 one: the 曹军 and the 崔府 have none). Every place registered here is built on the 2x stage (bigStage) */
+export interface ArenaLook { style: WallStyle; covers?: CoverKind[]; smalls?: PropKind[]; banners?: number; lamps?: number; oil?: number; pillars?: number; fences?: number; racks?: number }
+export const ARENA_LOOK: Record<string, ArenaLook> = {};
+/** the room is built on the 2x stage with walls, gates, cover and breakables (地域一's places and every one in ARENA_LOOK) */
+export const bigStage = (locale: string) => locale.startsWith('hj_') || locale in ARENA_LOOK;
 
 /** the plan for one room: gates from the layout's roads and this room's exits, cover and props from the seed */
 export function arenaPlan(layout: Layout, exits: ExitId[], seed: number, locale: string, kind: 'fight' | 'boss' | 'calm'): ArenaPlan {
-  const r = (k: number) => hash(seed * 7 + 11, k, 4513), style = styleOf(locale), gates: Gate[] = [];
+  const r = (k: number) => hash(seed * 7 + 11, k, 4513), style = styleOf(locale), gates: Gate[] = [], look = ARENA_LOOK[locale];
   // the side exits cut their own gate; every road that runs out through the back wall gets one (the back exit's road is open)
   for (const id of exits) if (id !== 'back') { const e = exitInfo(layout, id); gates.push({ id, x: id === 'left' ? PLAY.x0 : PLAY.x1, z: (e.lane.z0 + e.lane.z1) / 2, along: 'z', w: 2.8, open: true, out: [id === 'left' ? -1 : 1, 0] }); }
   const back = exits.includes('back') ? exitInfo(layout, 'back') : null;
@@ -43,7 +52,7 @@ export function arenaPlan(layout: Layout, exits: ExitId[], seed: number, locale:
   const inClear = (x: number, z: number, pad: number) => clear.some(c => x > c.x0 - pad && x < c.x1 + pad && z > c.z0 - pad && z < c.z1 + pad);
   const inFloor = (x: number, z: number, pad: number) => x > PLAY.x0 + pad && x < PLAY.x1 - pad && z > PLAY.z0 + pad && z < PLAY.z1 - pad;
   // cover: on a jittered 3 m grid, ≥ 6 m apart, ≥ 2.5 m in from the walls
-  const covers: Cover[] = [], kinds = COVERS[style], want = kind === 'calm' ? 2 : kind === 'boss' ? 2 : 3 + (r(1) < 0.4 ? 1 : 0);
+  const covers: Cover[] = [], kinds = look?.covers ?? COVERS[style], want = kind === 'calm' ? 2 : kind === 'boss' ? 2 : 3 + (r(1) < 0.4 ? 1 : 0);
   const spots: Array<[number, number, number]> = [];
   for (let x = PLAY.x0 + 3; x < PLAY.x1 - 2.5; x += 3) for (let z = PLAY.z0 + 3; z < PLAY.z1 - 2.5; z += 3) spots.push([x + (r(x * 31 + z) - 0.5) * 1.2, z + (r(x * 37 + z * 3) - 0.5) * 1.2, r(x * 41 + z * 7)]);
   spots.sort((a, b) => a[2] - b[2]);
@@ -58,7 +67,7 @@ export function arenaPlan(layout: Layout, exits: ExitId[], seed: number, locale:
   const free = (x: number, z: number, rr: number) => inFloor(x, z, rr + 0.3) && !inClear(x, z, rr + 0.2) && covers.every(c => Math.abs(c.x - x) > c.hx + rr + 0.35 || Math.abs(c.z - z) > c.hz + rr + 0.35) && props.every(p => Math.hypot(p.x - x, p.z - z) > R0[p.kind] + rr + 0.25);
   const put = (k: PropKind, x: number, z: number, rot?: 0 | 1) => { if (!free(x, z, R0[k])) return false; props.push({ kind: k, x: +x.toFixed(2), z: +z.toFixed(2), ...(rot != null ? { rot } : {}) }); return true; };
   // act-20 (user: 「场景中的东西尽量都能破坏才爽」): baskets and grain sacks in the clusters too
-  const smalls: PropKind[] = style === 'wattle' ? ['hay', 'pot', 'sack', 'hay', 'basket'] : style === 'brick' ? ['pot', 'pot', 'crate', 'basket'] : ['pot', 'crate', 'sack', 'hay', 'basket'];
+  const smalls: PropKind[] = look?.smalls ?? (style === 'wattle' ? ['hay', 'pot', 'sack', 'hay', 'basket'] : style === 'brick' ? ['pot', 'pot', 'crate', 'basket'] : ['pot', 'crate', 'sack', 'hay', 'basket']);
   let salt = 100;
   const cluster = (ax: number, az: number, n: number) => { const k = smalls[Math.floor(r(salt++) * smalls.length)]; for (let i = 0, t = 0; i < n && t < 12; t++) { const a = r(salt++) * Math.PI * 2, d = 0.5 + r(salt++) * 0.8; if (put(i === 0 ? k : smalls[Math.floor(r(salt++) * smalls.length)], ax + Math.cos(a) * d, az + Math.sin(a) * d)) i++; } };
   for (const c of covers) { const s = r(salt++) < 0.5 ? -1 : 1; cluster(c.x + s * (c.hx + 0.9), c.z + (r(salt++) - 0.5) * c.hz * 2, 2 + (r(salt++) < 0.5 ? 1 : 0)); }
@@ -68,17 +77,17 @@ export function arenaPlan(layout: Layout, exits: ExitId[], seed: number, locale:
     cluster(x, z, 2 + (r(salt++) < 0.6 ? 1 : 0));
   }
   if (kind !== 'calm') {
-    const nOil = kind === 'boss' ? 3 : 2 + (r(salt++) < 0.5 ? 1 : 0), nPil = kind === 'boss' ? 2 : 1 + (r(salt++) < 0.5 ? 1 : 0);
+    const nOil = look?.oil ?? (kind === 'boss' ? 3 : 2 + (r(salt++) < 0.5 ? 1 : 0)), nPil = look?.pillars ?? (kind === 'boss' ? 2 : 1 + (r(salt++) < 0.5 ? 1 : 0));
     for (let i = 0, t = 0; i < nOil && t < 40; t++) { const x = PLAY.x0 + 3 + r(salt++) * (PLAY.x1 - PLAY.x0 - 6), z = PLAY.z0 + 3 + r(salt++) * (PLAY.z1 - PLAY.z0 - 8); if (covers.every(c => Math.hypot(c.x - x, c.z - z) > 3) && props.filter(p => p.kind === 'oil').every(p => Math.hypot(p.x - x, p.z - z) > 4) && put('oil', x, z)) i++; }
     for (let i = 0, t = 0; i < nPil && t < 40; t++) { const x = PLAY.x0 + 3.5 + r(salt++) * (PLAY.x1 - PLAY.x0 - 7), z = PLAY.z0 + 3.5 + r(salt++) * (PLAY.z1 - PLAY.z0 - 9); if (props.filter(p => p.kind === 'pillar').every(p => Math.hypot(p.x - x, p.z - z) > 6) && put('pillar', x, z)) i++; }
   }
   // act-20: more to break — fence lengths across the floor, weapon racks by the walls, 黄巾 banners, lantern posts
   const spot = (pad: number) => [PLAY.x0 + pad + r(salt++) * (PLAY.x1 - PLAY.x0 - pad * 2), PLAY.z0 + pad + r(salt++) * (PLAY.z1 - PLAY.z0 - pad * 2 - 2)];
   const many = (k: PropKind, n: number, pad: number, rot = false) => { for (let i = 0, t = 0; i < n && t < 40; t++) { const [x, z] = spot(pad); if (put(k, x, z, rot ? (r(salt++) < 0.5 ? 0 : 1) : undefined)) i++; } };
-  many('fence', kind === 'calm' ? 1 : 3, 3, true);
-  for (let i = 0, t = 0; i < 2 && t < 30; t++) { const side = r(salt++) < 0.5 ? -1 : 1, z = PLAY.z0 + 3 + r(salt++) * (PLAY.z1 - PLAY.z0 - 8); if (put('rack', side < 0 ? PLAY.x0 + 0.8 : PLAY.x1 - 0.8, z, 1)) i++; }
-  many('banner', kind === 'calm' ? 1 : 3, 2.5);
-  many('lamp', 2, 2.5);
+  many('fence', look?.fences ?? (kind === 'calm' ? 1 : 3), 3, true);
+  for (let i = 0, t = 0; i < (look?.racks ?? 2) && t < 30; t++) { const side = r(salt++) < 0.5 ? -1 : 1, z = PLAY.z0 + 3 + r(salt++) * (PLAY.z1 - PLAY.z0 - 8); if (put('rack', side < 0 ? PLAY.x0 + 0.8 : PLAY.x1 - 0.8, z, 1)) i++; }
+  many('banner', look?.banners ?? (kind === 'calm' ? 1 : 3), 2.5);
+  many('lamp', look?.lamps ?? 2, 2.5);
   return { style, gates, covers, props, wall: { ...WALL } };
 }
 
@@ -91,6 +100,11 @@ const PAL = {
   wood: 0x6e5238, woodD: 0x4a3622, woodL: 0x8e6e4c, red: 0x8e3b2c, redD: 0x6a2b21, redL: 0xa44c36,
   stone: 0x8a8780, stoneD: 0x6c6a64, stoneL: 0xa4a19a, tile: 0x56585e, tileD: 0x3a3c42, tileL: 0x72747a,
   water: 0x2a3440, bronze: 0x5a6a50, bronzeD: 0x3e4a38, bronzeL: 0x7a8a68, straw: 0xccb06a, strawD: 0xa08850,
+  // wp/regB: the ship's rail (tarred wood, iron caps), the camp stockade, the 崔府 garden wall
+  rail: { post: 0x3a2a20, rail: 0x4a3626, railL: 0x6a4e36, board: 0x4e3a2a, boardD: 0x3a2a1e, cap: 0x4a4f5a },
+  stockade: { log: 0x6a5038, logD: 0x54402c, logL: 0x84684a, rope: 0x9a8058 },
+  plaster: { body: 0xdcd8cc, bodyD: 0xbcb8ac, foot: 0x4a4848, footD: 0x3a3838, cap: 0x34363c, capD: 0x26282c, capL: 0x4a4c54 },
+  iron: 0x4a4f5a, ironD: 0x30343c, ironL: 0x6e7480, tar: 0x2a2220, rock: 0x6e7078, rockD: 0x50525a, rockL: 0x8e9098, jade: 0x7a9a88,
 };
 
 /** walls (with their gaps), gate frames, closed doors and cover into the scene's voxels */
@@ -140,7 +154,7 @@ function wallPiece(box: B, st: WallStyle, along: 'x' | 'z', a0: number, a1: numb
       if (h === H) { bx(p0, h + 1, b0 - 1, p1, h + 2, b1 + 1, P.cap); bx(p0, h + 3, b0 + 1, p1, h + 3, b1 - 1, P.capL); }
       else bx(p0, h, b0, p1, h, b1, P.top);
     }
-  } else {
+  } else if (st === 'wattle') {
     // 编篱: posts every 9 cells, two rails, a woven panel between (horizontal bands, two tones)
     const P = PAL.wattle, mid0 = b0 + Math.floor((b1 - b0) / 2) - 1, mid1 = mid0 + 2;
     for (const [p0, p1, h] of segs) {
@@ -151,6 +165,34 @@ function wallPiece(box: B, st: WallStyle, along: 'x' | 'z', a0: number, a1: numb
       for (let a = p0; a <= p1; a += 9) { const a1 = Math.min(p1, a + 2); bx(a, 0, mid0 - 1, a1, hh, mid1, P.post); bx(a, hh, mid0 - 1, a1, hh, mid1, P.postL); }
       bx(p1 - 2, 0, mid0 - 1, p1, hh, mid1, P.post);
     }
+  } else if (st === 'rail') {
+    // wp/regB 横江浮栈 / 督造高阁: a ship's rail along the deck edge — square posts every 10 cells, a heavy top rail, a mid rail, a
+    // low plank kick-board; the rail's own dark wood (tarred), iron caps on the posts
+    const P = PAL.rail, m0 = b0 + Math.floor((b1 - b0) / 2) - 1, m1 = m0 + 2;
+    for (const [p0, p1, h] of segs) {
+      const hh = h - 2;
+      bx(p0, 0, m0 - 1, p1, 4, m1, P.board); bx(p0, 4, m0 - 1, p1, 4, m1, P.boardD);
+      bx(p0, hh - 3, m0 - 2, p1, hh - 1, m1 + 1, P.rail); bx(p0, hh - 1, m0 - 2, p1, hh - 1, m1 + 1, P.railL);
+      bx(p0, 9, m0, p1, 10, m1 - 1, P.rail);
+      for (let a = p0; a <= p1; a += 10) { const a1 = Math.min(p1, a + 2); bx(a, 0, m0 - 1, a1, hh + 1, m1, P.post); bx(a, hh + 2, m0 - 1, a1, hh + 2, m1, P.cap); }
+      bx(p1 - 2, 0, m0 - 1, p1, hh + 1, m1, P.post);
+    }
+  } else if (st === 'stockade') {
+    // wp/regB 乌林辕门: a camp stockade — close-set pointed logs (the points a stepped tier, never a slope), two lashing bands of rope
+    const P = PAL.stockade;
+    for (const [p0, p1, h] of segs) {
+      for (let a = p0; a <= p1; a += 3) { const a1 = Math.min(p1, a + 1), t = h + ((a / 3) % 2 ? 2 : 0); bx(a, 0, b0 + 1, a1, t, b1 - 1, ((a / 3) % 3) ? P.log : P.logD); bx(a, t + 1, b0 + 2, a1, t + 2, b1 - 2, P.logL); }
+      for (const y of [5, h - 4]) bx(p0, y, b0, p1, y, b1, P.rope);
+    }
+  } else {
+    // wp/regB 崔府: a whitewashed garden wall on a dark brick footing, a black tiled coping in two tiers (a stepped eave both sides)
+    const P = PAL.plaster;
+    for (const [p0, p1, h] of segs) {
+      bx(p0, 0, b0, p1, 3, b1, P.foot); for (let a = p0 + 3; a <= p1; a += 6) bx(a, 1, b0, a, 2, b1, P.footD);
+      bx(p0, 4, b0, p1, h, b1, P.body); bx(p0, 4, b0, p1, 4, b1, P.bodyD);
+      if (h === H) { bx(p0, h + 1, b0 - 2, p1, h + 1, b1 + 2, P.capD); bx(p0, h + 2, b0 - 1, p1, h + 3, b1 + 1, P.cap); bx(p0, h + 4, b0 + 1, p1, h + 4, b1 - 1, P.capL); for (let a = p0 + 1; a <= p1; a += 3) bx(a, h + 1, b0 - 2, a, h + 1, b0 - 2, P.capL); }
+      else bx(p0, h, b0, p1, h, b1, P.bodyD);
+    }
   }
 }
 
@@ -160,7 +202,7 @@ function gateFrame(box: B, st: WallStyle, g: Gate, T: number, Gp: number) {
   // across the wall: the wall's own band
   const b0 = along === 'x' ? M(PLAY.z0) - Gp - T : (g.out[0] < 0 ? M(PLAY.x0) - Gp - T : M(PLAY.x1) + Gp), b1 = b0 + T - 1;
   const bx = (p0: number, y0: number, q0: number, p1: number, y1: number, q1: number, col: number) => along === 'x' ? box(p0, y0, q0, p1, y1, q1, col) : box(q0, y0, p0, q1, y1, p1, col);
-  const post = st === 'brick' ? PAL.red : PAL.wood, postD = st === 'brick' ? PAL.redD : PAL.woodD, postL = st === 'brick' ? PAL.redL : PAL.woodL;
+  const post = st === 'brick' ? PAL.red : st === 'plaster' ? 0x2a2a30 : PAL.wood, postD = st === 'brick' ? PAL.redD : st === 'plaster' ? 0x1a1a20 : PAL.woodD, postL = st === 'brick' ? PAL.redL : st === 'plaster' ? 0x3e3e46 : PAL.woodL;
   const PH = 33, m0 = Math.floor((b0 + b1) / 2) - 2, m1 = m0 + 3;
   for (const s of [-1, 1]) {
     const a = cA + s * (half + 2), a0 = Math.min(a - 2, a + 1), a1 = Math.max(a - 2, a + 1);
@@ -184,8 +226,8 @@ export function coverVox(w: { box(x0: number, y0: number, z0: number, x1: number
   const box: B = (x0, y0, z0, x1, y1, z1, col) => { w.box(Math.min(x0, x1), y0, Math.min(z0, z1), Math.max(x0, x1), y1, Math.max(z0, z1), col); };
   if (!rubble) { cover(box, { kind, x: 0, z: 0, hx: 0, hz: 0, rot }, () => 0); return; }
   // the heap: low broken blocks in the piece's own materials, flat-topped, axis-aligned
-  const stoneish = kind === 'well' || kind === 'mill' || kind === 'stones' || kind === 'stele' || kind === 'trough';
-  const a = stoneish ? PAL.stone : kind === 'ding' ? PAL.bronze : PAL.wood, d = stoneish ? PAL.stoneD : kind === 'ding' ? PAL.bronzeD : PAL.woodD, l = stoneish ? PAL.stoneL : kind === 'ding' ? PAL.bronzeL : PAL.woodL;
+  const stoneish = kind === 'well' || kind === 'mill' || kind === 'stones' || kind === 'stele' || kind === 'trough' || kind === 'rockery' || kind === 'basin' || kind === 'screen', iron = kind === 'chains' || kind === 'bollard';
+  const a = stoneish ? PAL.stone : kind === 'ding' ? PAL.bronze : iron ? PAL.iron : PAL.wood, d = stoneish ? PAL.stoneD : kind === 'ding' ? PAL.bronzeD : iron ? PAL.ironD : PAL.woodD, l = stoneish ? PAL.stoneL : kind === 'ding' ? PAL.bronzeL : iron ? PAL.ironL : PAL.woodL;
   const bx = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, col: number) => rot ? box(z0, y0, x0, z1, y1, x1, col) : box(x0, y0, z0, x1, y1, z1, col);
   bx(-9, 0, -6, 2, 3, 6, a); bx(-9, 4, -6, 2, 4, 6, l); bx(3, 0, -5, 10, 2, 3, d); bx(-4, 4, -3, 0, 6, 2, d); bx(4, 3, -2, 8, 3, 1, l);
   if (kind === 'cart' || kind === 'well') { bx(-12, 0, 5, -2, 1, 7, PAL.woodD); bx(6, 0, -8, 8, 1, 2, PAL.wood); }
@@ -232,6 +274,43 @@ function cover(box: B, cv: Cover, r: (k: number) => number) {
     }
     case 'trough': { // 水槽: a long stone trough with water, on two blocks
       bx(-14, 0, -6, -10, 4, 6, PAL.stoneD); bx(10, 0, -6, 14, 4, 6, PAL.stoneD); bx(-15, 4, -6, 15, 10, 6, PAL.stone); bx(-13, 6, -4, 13, 10, 4, PAL.water); bx(-15, 10, -6, 15, 10, -6, PAL.stoneL); bx(-15, 10, 6, 15, 10, 6, PAL.stoneL);
+      break;
+    }
+    // ---- wp/regB: 乌林水寨 and 崔府
+    case 'bollard': {  // 缆桩: a thick tarred mooring post on an iron-bound base, a hawser coiled round its foot
+      bx(-7, 0, -7, 7, 3, 7, PAL.rail.post); bx(-7, 3, -7, 7, 3, 7, PAL.ironD);
+      bx(-4, 4, -4, 4, 20, 4, PAL.tar); bx(-5, 18, -5, 5, 20, 5, PAL.iron); bx(-4, 21, -4, 4, 22, 4, PAL.ironL); bx(-5, 9, -5, 5, 10, 5, PAL.iron);
+      for (const [y, k] of [[4, 0], [6, 1]] as const) { bx(-8, y, -8, 8, y + 1, -6, k ? PAL.strawD : PAL.straw); bx(-8, y, 6, 8, y + 1, 8, k ? PAL.strawD : PAL.straw); bx(-8, y, -6, -6, y + 1, 6, k ? PAL.straw : PAL.strawD); bx(6, y, -6, 8, y + 1, 6, k ? PAL.straw : PAL.strawD); }
+      break;
+    }
+    case 'chains': {   // 铁索盘: a heap of the great chain — links laid flat in coils, two tones, a big iron ring on top
+      for (let y = 0, i = 0; y < 9; y += 3, i++) { const h = 13 - i * 3, d = 10 - i * 2; bx(-h, y, -d, h, y + 2, d, i % 2 ? PAL.ironD : PAL.iron); bx(-h + 2, y + 2, -d + 2, h - 2, y + 2, d - 2, PAL.ironL); }
+      bx(-4, 9, -1, -3, 15, 1, PAL.iron); bx(3, 9, -1, 4, 15, 1, PAL.iron); bx(-4, 9, -1, 4, 10, 1, PAL.iron); bx(-4, 15, -1, 4, 15, 1, PAL.ironL);
+      bx(10, 0, -12, 16, 1, -9, PAL.iron); bx(14, 0, -9, 16, 1, -3, PAL.ironD);
+      break;
+    }
+    case 'barrels': {  // 油桶: three tarred barrels on a pallet, iron hoops, one lying on top
+      bx(-15, 0, -8, 15, 1, 8, PAL.wood);
+      for (const x of [-9, 1]) { bx(x - 5, 2, -6, x + 5, 14, 6, PAL.rail.board); bx(x - 4, 2, -7, x + 4, 14, 7, PAL.rail.board); for (const y of [4, 11]) { bx(x - 5, y, -7, x + 5, y, 7, PAL.ironD); } bx(x - 4, 15, -6, x + 4, 15, 6, PAL.tar); }
+      bx(9, 2, -5, 14, 9, 5, PAL.rail.board); bx(9, 4, -5, 14, 4, 5, PAL.ironD); bx(-6, 16, -4, 6, 21, 4, PAL.rail.boardD); bx(-6, 16, -4, -6, 21, 4, PAL.ironD); bx(6, 16, -4, 6, 21, 4, PAL.ironD);
+      break;
+    }
+    case 'rockery': {  // 假山石: a pile of pale lake stones in big blocks, stepped and set back, one standing tall
+      bx(-13, 0, -10, 6, 8, 9, PAL.rock); bx(-13, 8, -10, 6, 8, 9, PAL.rockL); bx(4, 0, -7, 13, 5, 6, PAL.rockD); bx(4, 5, -7, 13, 5, 6, PAL.rock);
+      bx(-9, 9, -6, -1, 22, 3, PAL.rock); bx(-9, 22, -6, -1, 22, 3, PAL.rockL); bx(-7, 23, -4, -3, 28, 1, PAL.rockD); bx(-6, 14, 3, -4, 18, 3, PAL.rockD);
+      bx(-15, 0, 9, -11, 1, 12, PAL.rockD);
+      break;
+    }
+    case 'screen': {   // 影壁: a short spirit wall on a stone base, a whitewashed panel in a dark frame, a little tiled roof
+      bx(-16, 0, -4, 16, 3, 4, PAL.stoneD); bx(-16, 3, -4, 16, 3, 4, PAL.stone);
+      bx(-14, 4, -2, 14, 28, 2, PAL.plaster.body); bx(-14, 4, -2, -13, 28, 2, PAL.plaster.cap); bx(13, 4, -2, 14, 28, 2, PAL.plaster.cap); bx(-14, 4, -2, 14, 5, 2, PAL.plaster.cap);
+      bx(-8, 12, 3, 8, 20, 3, PAL.plaster.bodyD); bx(-6, 14, 3, 6, 18, 3, PAL.jade);
+      bx(-17, 29, -5, 17, 30, 5, PAL.plaster.capD); bx(-15, 31, -3, 15, 32, 3, PAL.plaster.cap); bx(-13, 33, -1, 13, 33, 1, PAL.plaster.capL);
+      break;
+    }
+    case 'basin': {    // 石缸: a big square stone basin full of ice (the snowy night), on a plinth
+      bx(-9, 0, -9, 9, 2, 9, PAL.stoneD); bx(-10, 3, -10, 10, 13, 10, PAL.stone); bx(-10, 13, -10, 10, 13, 10, PAL.stoneL); bx(-8, 8, -8, 8, 13, 8, 0xb8c8d8); bx(-6, 13, -6, 6, 13, 6, 0xd8e4ee);
+      bx(-10, 7, -10, 10, 7, 10, PAL.stoneD);
       break;
     }
   }

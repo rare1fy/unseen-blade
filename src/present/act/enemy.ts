@@ -29,12 +29,15 @@ import { shake, clock } from '../engine/clock';
 import { fxSparks, fxSmoke, fxRing, fxGlow, fxEmbers, fxFlare, trailSeg } from '../fx/fx';
 import { fxBolt, fxShock } from '../fx/skillFx';
 
-export type EKind = 'bandit' | 'dog' | 'archer' | 'chief' | 'dummy' | 'hj_blade' | 'hj_brute' | 'hj_taoist' | 'hj_mob' | 'hj_archer' | 'hj_hound' | 'hj_boss';
-/** what the AI does (the old kinds and their 黄巾 counterparts share one) */
-type Role = 'blade' | 'hound' | 'archer' | 'chief' | 'brute' | 'taoist' | 'mob' | 'boss' | 'dummy';
-interface EDef { model: string; hp: number; r: number; speed: number; mass: number; poise: number; gold: number; name: string; role: Role;
+export type EKind = 'bandit' | 'dog' | 'archer' | 'chief' | 'dummy' | 'hj_blade' | 'hj_brute' | 'hj_taoist' | 'hj_mob' | 'hj_archer' | 'hj_hound' | 'hj_boss'
+  // wp/regB (第四关 · 锁江 / 第五关 · 许都雪): their foes live in foes/r45_ai.ts and register themselves into EDEFS (role 'ext')
+  | 'wl_spear' | 'wl_chain' | 'wl_oil' | 'wl_xbow' | 'wl_diver' | 'wl_shield' | 'wl_boss' | 'cx_club' | 'cx_sword' | 'cx_shade' | 'cx_guard' | 'cx_zhu' | 'cx_boss';
+/** what the AI does (the old kinds and their 黄巾 counterparts share one); 'ext' = driven by FOE_AI[kind] (regions four and five) */
+type Role = 'blade' | 'hound' | 'archer' | 'chief' | 'brute' | 'taoist' | 'mob' | 'boss' | 'dummy' | 'ext';
+export interface EDef { model: string; hp: number; r: number; speed: number; mass: number; poise: number; gold: number; name: string; role: Role;
   /** the elite look's model (kinds without one have no elite) */ elite?: string; /** other looks picked at random */ alt?: string[];
-  /** a region boss: the long bar at the top, the banner, the big death */ boss?: boolean; /** the banner's second line */ tag?: string }
+  /** a region boss: the long bar at the top, the banner, the big death */ boss?: boolean; /** the banner's second line */ tag?: string;
+  /** wp/regB: counts as half an attacker (a crowd foe, like the 流民) */ half?: boolean }
 export const EDEFS: Record<EKind, EDef> = {
   bandit: { model: 'jp_bandit', hp: 40, r: 0.42, speed: 2.7, mass: 1, poise: 0, gold: 3, name: '山贼', role: 'blade' },
   dog: { model: 'jp_dog', hp: 24, r: 0.45, speed: 4.2, mass: 0.7, poise: 0, gold: 2, name: '山犬', role: 'hound' },
@@ -48,7 +51,46 @@ export const EDEFS: Record<EKind, EDef> = {
   hj_archer: { model: 'hj_archer', hp: 28, r: 0.44, speed: 2.6, mass: 0.9, poise: 0, gold: 3, name: '黄巾弓手', role: 'archer', elite: 'hj_archer_e' },
   hj_hound: { model: 'hj_hound', hp: 24, r: 0.45, speed: 4.3, mass: 0.7, poise: 0, gold: 2, name: '猎犬', role: 'hound', elite: 'hj_hound_e' },
   hj_boss: { model: 'hj_boss', hp: 420, r: 0.85, speed: 2.0, mass: 3.6, poise: 64, gold: 40, name: '黄巾渠帅', role: 'boss', boss: true, tag: '苍天已死 · 黄天当立' },
+  // wp/regB — 第四关 · 锁江（乌林曹军水寨）: names by agy; the AI is foes/r45_ai.ts (FOE_AI), the models foes/r45_models.ts
+  wl_spear: { model: 'wl_spear', hp: 22, r: 0.4, speed: 3.4, mass: 0.8, poise: 0, gold: 2, name: '执矛水卒', role: 'ext', half: true, alt: ['wl_spear_b'] },
+  wl_chain: { model: 'wl_chain', hp: 58, r: 0.48, speed: 2.6, mass: 1.3, poise: 0, gold: 5, name: '拽索手', role: 'ext', elite: 'wl_chain_e' },
+  wl_oil: { model: 'wl_oil', hp: 34, r: 0.44, speed: 2.7, mass: 0.9, poise: 0, gold: 4, name: '掷火卒', role: 'ext', elite: 'wl_oil_e' },
+  wl_xbow: { model: 'wl_xbow', hp: 36, r: 0.44, speed: 2.4, mass: 0.9, poise: 0, gold: 4, name: '楼船弩士', role: 'ext', elite: 'wl_xbow_e' },
+  wl_diver: { model: 'wl_diver', hp: 40, r: 0.44, speed: 3.6, mass: 0.9, poise: 0, gold: 5, name: '没水鬼', role: 'ext', elite: 'wl_diver_e' },
+  wl_shield: { model: 'wl_shield', hp: 90, r: 0.58, speed: 2.2, mass: 2.0, poise: 0, gold: 7, name: '执楯刀士', role: 'ext', elite: 'wl_shield_e' },
+  wl_boss: { model: 'wl_boss', hp: 640, r: 0.6, speed: 2.4, mass: 3.0, poise: 40, gold: 60, name: '督造少监 · 周黯', role: 'ext', boss: true, tag: '机关算尽，只求活' },
+  // wp/regB — 第五关 · 许都雪（崔府深宅）
+  cx_club: { model: 'cx_club', hp: 26, r: 0.4, speed: 3.5, mass: 0.8, poise: 0, gold: 2, name: '持杖僮奴', role: 'ext', half: true, alt: ['cx_club_b'] },
+  cx_sword: { model: 'cx_sword', hp: 64, r: 0.44, speed: 3.0, mass: 1.1, poise: 0, gold: 6, name: '门下剑客', role: 'ext', elite: 'cx_sword_e' },
+  cx_shade: { model: 'cx_shade', hp: 38, r: 0.42, speed: 4.2, mass: 0.9, poise: 0, gold: 6, name: '匿影死士', role: 'ext', elite: 'cx_shade_e' },
+  cx_guard: { model: 'cx_guard', hp: 96, r: 0.5, speed: 2.6, mass: 1.6, poise: 30, gold: 8, name: '百辟刀卫', role: 'ext', elite: 'cx_guard_e' },
+  cx_zhu: { model: 'cx_zhu', hp: 30, r: 0.42, speed: 2.6, mass: 0.9, poise: 0, gold: 5, name: '击筑客', role: 'ext', elite: 'cx_zhu_e' },
+  cx_boss: { model: 'cx_boss', hp: 960, r: 0.6, speed: 2.6, mass: 3.0, poise: 50, gold: 80, name: '司空长史 · 崔玄', role: 'ext', boss: true, tag: '弹指落子，定生死' },
 };
+/** wp/regB: the behaviour of a role-'ext' foe (regions four and five). Filled by foes/r45_ai.ts when it is imported (the region files
+ *  import it); enemy.ts only calls in. Every hook is optional; what a hook does not take over runs the usual way (the wind-up's
+ *  tracking, the strike's area / lunge test, the recover). */
+export interface FoeAI {
+  /** free movement and choosing an attack (instead of think) */ think(f: Foe, w: FoeWorld, dt: number, dist: number, dir: THREE.Vector3, yawTo: number): void;
+  /** every frame before the state machine (hiding, auras, phases, timers); return true to skip the rest of the frame */ tick?(f: Foe, w: FoeWorld, dt: number): boolean | void;
+  /** during the wind-up (aim tracking); return true when it handled the aim itself */ windup?(f: Foe, w: FoeWorld, dt: number, p: number, yawTo: number): boolean | void;
+  /** the blow lands; return true when it handled the strike itself (missiles, pulls) */ strike?(f: Foe, w: FoeWorld): boolean | void;
+  /** a blow of the hero's is about to land on it (from = where it came from; heavy = a blow that breaks a guard; dart = a thrown dart):
+   *  return true to turn it aside (a shield, a parry). Called by regions/r45_hook.ts before the game's hit (so a turned blow shows no
+   *  blood and no number) */ guard?(f: Foe, from: THREE.Vector3, o: { heavy: boolean; dart: boolean }): boolean;
+  /** the recover length after a blow (s) */ recover?(f: Foe): number;
+  /** a follow-up after the strike (the combo): start the next attack and return true, or false to recover */ follow?(f: Foe, w: FoeWorld, yawTo: number): boolean;
+  /** every frame after the state machine (a foe that took over the frame in tick gets it too) */ post?(f: Foe, w: FoeWorld, dt: number): void;
+  /** its attack was broken off by the hero (破势 caught it, 一闪 pinned it); wasAttacking = it was mid-attack */ interrupted?(f: Foe, wasAttacking: boolean): void;
+  /** what a blow is multiplied by right now (a disarmed guard takes double) */ taken?(f: Foe): number;
+}
+export const FOE_AI: Partial<Record<EKind, FoeAI>> = {};
+/** wp/regB: per-foe state the 'ext' AIs keep (hidden, pulled, the boss's machinery …) */
+export const FOE_X = new WeakMap<Foe, Record<string, number>>();
+export const fx_ = (f: Foe) => { let o = FOE_X.get(f); if (!o) { o = {}; FOE_X.set(f, o); } return o; };
+/** wp/regB: a foe the hero cannot see or target right now (a diver under the planks, a shade in its smoke) — the hero's aim, the
+ *  darts, the HUD bars and the contact shadows skip it; blades still find it where it is (a cut on the ripples drives it out) */
+export const hiddenFoe = (f: Foe) => !!FOE_X.get(f)?.hidden;
 /** the boss bar / banner / big death (show.ts, hud.ts) */
 export const isBoss = (f: { d: EDef }) => !!f.d.boss;
 
@@ -64,6 +106,8 @@ export interface Foe {
   /** the attack under way ('cut' 'slam' 'sweep' 'poke' 'lunge' 'shoot' 'cast' 'thunder' …) and follow-ups left (elite double cut / lunge) */
   atk: string; glint?: boolean; combo: number; /** extra warning shapes of this attack (yaw offset from the main one) */ extra: Array<{ t: Tele; dy: number }>;
   /** invulnerable for this long (the boss's roar) */ inv: number; /** the boss: 1, then 2 after the roar */ phase: number; summonT: number; thunderCd: number; auraT: number;
+  /** wp/regB: the warning stays where the attack put it (a jar's landing, a stone's fall) instead of following the foe */ anchor?: boolean;
+  /** wp/regB: this attack is a low one (a jump clears it) */ lowAtk?: boolean;
 }
 /** the dummy's lean, read by its pose hook (yard.ts) */
 export const WOBBLE = new WeakMap<object, { x: number; z: number }>();
@@ -82,6 +126,13 @@ export interface FoeWorld {
   arrowHit(f: Foe, a: Arrow): void;
   /** an attack that would have hit was jumped over (a perfect dodge) */
   dodged(from: THREE.Vector3): void;
+  // ---- wp/regB: what the region-four / -five foes ask of the game (installed by regions/r45_hook.ts; absent = nothing happens)
+  /** drag / shove the hero to a point over a moment (the chain's pull, the fan's push) */ pull?(to: THREE.Vector3): void;
+  /** a line over a foe's head (a boss changing phase) */ say?(f: Foe, line: string): void;
+  /** 周黯's fire: 1 = the deck catches (the ring of fire, the warm light), 0 = it burns one step further in */ burnStage?(n: 0 | 1): void;
+  /** 崔玄's dark: the lamps go out (1) */ dark?(on: 0 | 1): void;
+  /** the way the hero faces (flat) */ heroFwd?: THREE.Vector3;
+  /** the hero is in the parry's window right now (a chain throw does not drag her) */ heroParry?: boolean;
 }
 /** how high the hero must be to clear a low attack (m) */
 export const LOW_CLEAR = 0.45;
@@ -107,11 +158,14 @@ export function spawnFoe(kind: EKind, at: THREE.Vector3, face: THREE.Vector3, el
 }
 
 const setSt = (f: Foe, st: St, dur: number) => { f.st = st; f.t = 0; f.dur = dur; };
+/** wp/regB: for the 'ext' AIs (foes/r45_ai.ts) */
+export { setSt as setFoeState };
+export type { St as FoeState };
 export const dropTeles = (f: Foe) => { f.tele?.dispose(); f.tele = null; for (const e of f.extra) e.t.dispose(); f.extra = []; };
 /** the body's own wind-up for each attack (the old kinds keep their own) */
 const ANIM: Record<string, 'attack' | 'cast'> = { cut: 'attack', slam: 'attack', sweep: 'attack', poke: 'attack', lunge: 'attack', shoot: 'attack', bite: 'attack', cast: 'cast', thunder: 'cast' };
-function startAttack(f: Foe, w: FoeWorld, shape: TeleShape, windup: number, dmg: number, yaw: number, o: { atk?: string; extra?: Array<{ s: TeleShape; dy: number; low?: boolean }>; at?: THREE.Vector3 } = {}) {
-  f.atk = o.atk ?? ''; dropTeles(f);
+export function startAttack(f: Foe, w: FoeWorld, shape: TeleShape, windup: number, dmg: number, yaw: number, o: { atk?: string; extra?: Array<{ s: TeleShape; dy: number; low?: boolean }>; at?: THREE.Vector3; low?: boolean; anchor?: boolean } = {}) {
+  f.atk = o.atk ?? ''; dropTeles(f); f.lowAtk = !!o.low; f.anchor = !!o.anchor;
   f.shape = shape; f.dmg = Math.round(dmg * TUNE.enemyDmg); f.teleYaw = yaw; f.telePos.copy(o.at ?? f.pos); f.hitHero = false; f.attacking = true;
   f.tele = new Tele(shape, { low: isLow(f, shape) }); f.tele.set(f.telePos.x, f.telePos.z, yaw, 0, windup); f.glint = false;
   // act-23: the first beat: a dull red pulse through the attacker as the wind-up starts
@@ -121,16 +175,30 @@ function startAttack(f: Foe, w: FoeWorld, shape: TeleShape, windup: number, dmg:
   // the body's own wind-up: the attack action timed so its impact frame lands at the end of the wind-up
   const imp = f.role === 'hound' ? 0.42 : 0.5, total = wu / imp;
   if (f.role === 'archer') f.a.play(new Action('attack', total, imp));
-  else f.a.play(new Action(ANIM[f.atk] ?? 'attack', total, imp, { dist: f.role === 'chief' || f.role === 'boss' || f.role === 'brute' ? 0.4 : f.atk === 'lunge' ? 0 : 0.6 }));
+  else f.a.play(new Action(ANIM[f.atk] ?? 'attack', total, imp, { dist: f.role === 'chief' || f.role === 'boss' || f.role === 'brute' ? 0.4 : f.atk === 'lunge' ? 0 : 0.6, atk: f.atk }));   // (wp/regB: atk = which attack, for the new foes' own poses)
   void w;
 }
-/** the attacks a jump clears: the hounds' lunge and the slams */
-const isLow = (f: Foe, s: TeleShape) => (f.role === 'hound' && s.k === 'rect') || ((f.role === 'chief' || f.role === 'brute') && s.k === 'circle');
+/** the attacks a jump clears: the hounds' lunge and the slams (wp/regB: and any attack started with low: true) */
+const isLow = (f: Foe, s: TeleShape) => !!f.lowAtk || (f.role === 'hound' && s.k === 'rect') || ((f.role === 'chief' || f.role === 'brute') && s.k === 'circle');
 /** the foe is winding up an attack a jump clears (the bot jumps these) */
 export const lowAttack = (f: Foe) => f.st === 'windup' && !!f.shape && isLow(f, f.shape);
 /** act-20 (user: 「敌人攻击频率有点太高了，打起来有点乱」): after a blow is over nobody starts the next for TUNE.atkCalm s */
 let calmUntil = 0;
-const attackers = (w: FoeWorld) => w.foes.reduce((n, o) => n + (o.attacking && o.st !== 'dead' ? (o.role === 'mob' ? 0.5 : 1) : 0), 0);
+const attackers = (w: FoeWorld) => w.foes.reduce((n, o) => n + (o.attacking && o.st !== 'dead' ? (o.role === 'mob' || o.d.half ? 0.5 : 1) : 0), 0);
+// ---- wp/regB: what the 'ext' AIs (foes/r45_ai.ts) share with the old ones
+/** may this foe start an attack now (its cool-down, the attacker cap, the calm after a blow; a boss ignores the calm) */
+export const canStrike = (f: Foe, w: FoeWorld, o: { calm?: boolean; slots?: number } = {}) => w.heroAlive && f.cd <= 0 && attackers(w) < (o.slots ?? TUNE.maxAttackers) && (clock.time >= calmUntil || !!o.calm);
+/** the calm after a blow starts now (an AI that recovers in its own way) */
+export const markCalm = () => { calmUntil = Math.max(calmUntil, clock.time + TUNE.atkCalm); };
+/** turn toward yaw y at rate k (as think does) */
+export function turnFoe(f: Foe, y: number, dt: number, k = 10) { let dy = y - f.yaw; while (dy > Math.PI) dy -= Math.PI * 2; while (dy < -Math.PI) dy += Math.PI * 2; f.yaw += dy * Math.min(1, dt * k); }
+/** the end of think: walk toward `want` at speed sp (a zero want stands and faces the hero), the run pose, the odd strafe flip */
+export function steerFoe(f: Foe, want: THREE.Vector3, sp: number, dt: number, yawTo: number, aim = false) {
+  const m = want.length();
+  if (m > 0.05) { want.multiplyScalar(sp / m); turnFoe(f, aim ? yawTo : Math.atan2(want.x, want.z), dt, 8); } else turnFoe(f, yawTo, dt, 6);
+  f.vel.lerp(want, Math.min(1, dt * 6)); f.a.setRunning(f.vel.length() > 0.6);
+  if (Math.random() < dt * 0.25) f.strafe *= -1;
+}
 
 export function updateFoe(f: Foe, w: FoeWorld, dt: number) {
   if (f.st === 'dead') return;
@@ -156,6 +224,10 @@ export function updateFoe(f: Foe, w: FoeWorld, dt: number) {
   const yawTo = Math.atan2(dir.x, dir.z);
   if (f.role === 'boss') bossTick(f, w, dt);
   if ((f.st as St) === 'dead') return;
+  // wp/regB: a region-four / -five foe runs its own frame first (hiding under the planks, the boss's machinery, its phases)
+  const ai = f.role === 'ext' ? FOE_AI[f.kind] : undefined;
+  if (ai?.tick?.(f, w, dt)) { teleStep(f, dt); ai.post?.(f, w, dt); integrate(f, w, dt); return; }
+  if ((f.st as St) === 'dead') return;
   const free = f.st === 'move';
   if (f.st === 'enter') { if (f.t >= f.dur) setSt(f, 'move', 0); }
   else if (f.st === 'roar') { f.vel.multiplyScalar(Math.exp(-dt * 8)); if (f.inv > 0) f.a.tint(0xfff2b0, 0.7); if (f.t >= f.dur) { setSt(f, 'move', 0); f.cd = 0.2; } }
@@ -165,42 +237,49 @@ export function updateFoe(f: Foe, w: FoeWorld, dt: number) {
     f.vel.multiplyScalar(Math.exp(-dt * 10));
     const p = f.t / f.dur, r = f.role, lane = r === 'hound' || f.atk === 'lunge';
     // aims track the hero early in the wind-up, then lock (so a dodge at the right time works)
-    if ((r === 'archer' || r === 'taoist') && p < 0.72) { f.teleYaw = yawTo; f.yaw = yawTo; }
+    if (ai?.windup?.(f, w, dt, p, yawTo)) { /* wp/regB: the AI aimed it */ }
+    else if ((r === 'archer' || r === 'taoist') && p < 0.72) { f.teleYaw = yawTo; f.yaw = yawTo; }
     else if ((r === 'blade' || r === 'mob') && p < 0.35) { f.teleYaw = yawTo; face(yawTo, 14); }
     else if (lane && p < 0.5) { f.teleYaw = yawTo; f.yaw = yawTo; }
     else if ((r === 'chief' || r === 'brute' || r === 'boss') && p < 0.3) { f.teleYaw = yawTo; face(yawTo, 6); }
     if (f.atk === 'thunder') { f.vel.set(0, 0, 0); if (Math.random() < dt * 30) fxSparks(f.a.weapon(), 0xfff2a0, 2, 2, { life: 0.3 }); }
+    else if (f.anchor) { /* wp/regB: the warning stays where it was put */ }
     else if (!lane || p < 0.5) f.telePos.copy(f.pos);
     const left = f.dur - f.t;
     f.tele?.set(f.telePos.x, f.telePos.z, f.teleYaw, p, left);
     for (const e of f.extra) e.t.set(f.telePos.x, f.telePos.z, f.teleYaw + e.dy, p, left);
     // act-23 (出招节奏): the attacker itself on the last beat: the body warms pale, one glint off the weapon as it starts
     if (left < HOT && f.atk !== 'thunder') { f.a.tint(0xfff0c8, 0.5 * (1 - left / HOT) + 0.15); if (!f.glint) { f.glint = true; fxFlare(f.a.weapon(), 0xfff4d0, 0.9, 0.22); } }
-    if (f.t >= f.dur) strike(f, w);
+    if (f.t >= f.dur) { if (!ai?.strike?.(f, w)) strike(f, w); }
   } else if (f.st === 'strike') {
     // a lunge (hounds, the boss): flies along the locked lane, hitting once on contact
     if (f.lunge) {
       f.vel.copy(f.lunge);
-      const dd = f.pos.distanceTo(w.heroPos), low = f.role === 'hound';
+      const dd = f.pos.distanceTo(w.heroPos), low = f.role === 'hound' || !!f.lowAtk;
       if (!f.hitHero && w.heroAlive && dd < f.d.r + w.heroR + 0.15) { f.hitHero = true; if (!low || w.heroY < LOW_CLEAR) w.hurtHero(f.dmg, f.pos.clone(), f); else w.dodged(f.pos.clone()); }
       else if (!f.hitHero && w.heroAlive && w.heroDodge && dd < f.d.r + w.heroR + 1.1) { f.hitHero = true; w.dodged(f.pos.clone()); }
     }
     if (f.t >= f.dur) {
       f.lunge = null; f.vel.multiplyScalar(0.2);
       // the elite follow-up: a second cut (backhand, re-aimed) / a second lunge
-      if (f.combo > 0 && w.heroAlive) {
+      if (ai) { if (!(w.heroAlive && ai.follow?.(f, w, yawTo))) { markCalm(); setSt(f, 'recover', ai.recover?.(f) ?? 0.6); } }
+      else if (f.combo > 0 && w.heroAlive) {
         f.combo--;
         if (f.role === 'hound') startAttack(f, w, { k: 'rect', len: 5.2, w: 1.0 }, 0.36, 8, yawTo, { atk: 'lunge' });
         else startAttack(f, w, { k: 'cone', r: 2.3, half: 1.0 }, 0.34, 10, yawTo, { atk: 'cut' });
       } else (calmUntil = Math.max(calmUntil, clock.time + TUNE.atkCalm), setSt(f, 'recover', f.role === 'hound' ? 0.7 : f.role === 'chief' ? 0.9 : f.role === 'brute' ? 1.0 : f.role === 'boss' ? (f.atk === 'thunder' ? 0.5 : f.phase > 1 ? 0.45 : 0.75) : f.role === 'mob' ? 0.45 : 0.6));
     }
   }
-  if (free) think(f, w, dt, dist, dir, yawTo, face);
+  if (free) { if (ai) ai.think(f, w, dt, dist, dir, yawTo); else think(f, w, dt, dist, dir, yawTo, face); }
   else if (f.st !== 'windup' && f.st !== 'strike') f.a.setRunning(false);
+  teleStep(f, dt); ai?.post?.(f, w, dt);
+  integrate(f, w, dt);
+}
+/** the warning shapes' own clocks (their ripples, the strike flash fading) */
+function teleStep(f: Foe, dt: number) {
   f.tele?.update(dt); for (const e of f.extra) e.t.update(dt);
   if (f.tele?.done) f.tele = null;
   f.extra = f.extra.filter(e => !e.t.done);
-  integrate(f, w, dt);
 }
 
 /** free movement: close in / keep away / circle, and decide when to attack */
@@ -334,17 +413,24 @@ function strike(f: Foe, w: FoeWorld) {
     for (const dy of [0, ...f.extra.map(e => e.dy)]) { const y = f.teleYaw + dy; w.arrows.push(new Talisman(f.pos.clone().add(V3(Math.sin(y) * 0.6, 1.15, Math.cos(y) * 0.6)), y, f.dmg, len + 0.6)); }
     cue('magic', 0.6); fxSparks(f.a.weapon(), 0xffb050, 10, 3); return;
   }
-  const heavy = f.role === 'chief' || f.role === 'brute' || f.role === 'boss';
-  cue(heavy ? 'foeHeavy' : 'foeSwing', heavy ? 1 : f.role === 'mob' ? 0.45 : 0.7);   // (11-18: the heavy swing has its own sound — it used the hero's heavy hit)
-  if (s.k === 'circle') {
+  const heavy = f.role === 'chief' || f.role === 'brute' || f.role === 'boss' || (f.role === 'ext' && f.dmg >= 14);
+  cue(heavy ? 'foeHeavy' : 'foeSwing', heavy ? 1 : f.role === 'mob' || f.d.half ? 0.45 : 0.7);   // (11-18: the heavy swing has its own sound — it used the hero's heavy hit)
+  if (s.k === 'circle' && f.role !== 'ext') {
     const c = f.pos.clone().add(V3(Math.sin(f.teleYaw) * s.ahead, 0.05, Math.cos(f.teleYaw) * s.ahead)); fxSmoke(c, 0x8a7a6a, 10, { r: 1.4, spd: 2, up: 0.6, s: 0.5, life: 0.8 }); fxSparks(c.clone().add(V3(0, 0.2, 0)), 0xffc080, 16, 6);
     if (f.elite && f.role === 'brute') w.arrows.push(new Shockwave(c, Math.round(10 * TUNE.enemyDmg), 0.8, SHOCK_R, 0.45));
   }
-  const cleared = isLow(f, s) && w.heroY >= LOW_CLEAR;
-  if (w.heroAlive && inside(s, f.telePos.x, f.telePos.z, f.teleYaw, w.heroPos.x, w.heroPos.z, w.heroR)) { if (cleared) w.dodged(f.pos.clone()); else w.hurtHero(f.dmg, f.pos.clone(), f); }
-  // dashed out of it just in time (the hero is near the area while dashing): a perfect dodge too
-  else if (w.heroAlive && w.heroDodge && inside(s, f.telePos.x, f.telePos.z, f.teleYaw, w.heroPos.x, w.heroPos.z, w.heroR + 1.1)) w.dodged(f.pos.clone());
+  meleeLands(f, w);
 }
+/** wp/regB: the area test of a melee blow at the warning (hurt / jumped / dodged); returns true if the hero was in it */
+export function meleeLands(f: Foe, w: FoeWorld, s: TeleShape = f.shape!, yaw = f.teleYaw, at: THREE.Vector3 = f.telePos) {
+  const cleared = isLow(f, s) && w.heroY >= LOW_CLEAR;
+  if (w.heroAlive && inside(s, at.x, at.z, yaw, w.heroPos.x, w.heroPos.z, w.heroR)) { if (cleared) w.dodged(f.pos.clone()); else w.hurtHero(f.dmg, f.pos.clone(), f); return !cleared; }
+  // dashed out of it just in time (the hero is near the area while dashing): a perfect dodge too
+  else if (w.heroAlive && w.heroDodge && inside(s, at.x, at.z, yaw, w.heroPos.x, w.heroPos.z, w.heroR + 1.1)) w.dodged(f.pos.clone());
+  return false;
+}
+/** wp/regB: the usual strike (a lunge along the lane, else a blow at the warning) — for an 'ext' AI that only adds to it */
+export { strike as defaultStrike };
 
 function integrate(f: Foe, w: FoeWorld, dt: number) {
   f.pos.addScaledVector(f.vel, dt);
@@ -358,7 +444,9 @@ function integrate(f: Foe, w: FoeWorld, dt: number) {
 /** an attack broken off (a parry caught it): the warning goes, the foe reels */
 export function interruptFoe(f: Foe, reel = 0.9) {
   if (f.st === 'dead' || f.kind === 'dummy') return;
+  const was = f.attacking;
   dropTeles(f); f.attacking = false; f.lunge = null; f.hitHero = true; f.combo = 0; setSt(f, 'stagger', reel); f.cd = Math.max(f.cd, reel + 0.3);
+  if (f.role === 'ext') FOE_AI[f.kind]?.interrupted?.(f, was);   // wp/regB
 }
 /** a hit on a foe: HP, flash, knock-back, the stagger (light foes) or the poise (the chief). Returns true if it died */
 export function damageFoe(f: Foe, dmg: number, from: THREE.Vector3, o: { knock?: number; stagger?: number; poiseDmg?: number; quiet?: boolean; dot?: boolean } = {}): boolean {

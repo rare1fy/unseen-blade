@@ -22,7 +22,7 @@ import { HANMO_LOCALES } from '../asm/hanmo';
 import { HANSHAN_LOCALES } from '../asm/hanshan';
 import './hanshan_people';   // act-37: 寒山坞 cold open — 文皎 at eleven, the two torch-bearer looks, 杜五's cart (ROSTER)
 import { assemble, mirrorLayout, stageLayout } from '../asm/assemble';
-import { arenaPlan, type ArenaPlan } from '../asm/arena';
+import { arenaPlan, bigStage, type ArenaPlan } from '../asm/arena';
 import { Solids, SLAM, slamSpeed, type Push } from './solids';
 import { Breakables } from './breakables';
 import { Gates } from './gates';
@@ -40,6 +40,7 @@ import { NPC_TALK, STELE_TALK, MEAL_TALK, UP_TALK, POOR_TALK, WAKE_DUWU, WAKE_SU
 import { fallShots, snowShots, dawnShots, loadShots, lieDown, brazier, type PrologueHost } from './prologue';
 import { coldOpenShots, coldCardShots, BlindPOV } from './coldopen';
 import { Barks } from './barks';
+import { installR45 } from './regions/r45_hook';   // wp/regB: 第四关 · 锁江、第五关 · 许都雪 (their places, foes, bosses, __dh.region)
 /** act-40 (用户：「现在开场太墨迹了，把那段timeline先搞成黑幕快速交代背景吧」): the cold open as black cards for now (false = the 寒山坞 cutscene) */
 const COLD_AS_CARDS = true;
 import { newGame, profile, save as saveProfile, seeOnce, hasSave } from './profile';
@@ -169,8 +170,8 @@ function prepRoom(o: RoomIn): Room {
     : { ...base, time: o.room === 0 ? 'dusk' : base.time, weather: o.plan?.type === 'boss' ? 'clear' : base.weather, exits: o.nextRooms.length > 1 ? ['left', 'right'] : o.nextRooms.length ? ['back'] : [] };
   if (o.viewSpec) Object.assign(spec, { exits: [] }, o.viewSpec);
   if (o.forceSpec) Object.assign(spec, o.forceSpec);   // act-29: the prologue's snowy night
-  // act-19: the 黄巾 rooms stand on the 2x stage; the yard keeps the old one
-  const big = !isYard && spec.locale.startsWith('hj_'); setStage(big);
+  // act-19: the 黄巾 rooms stand on the 2x stage; the yard keeps the old one (wp/regB: and every place in asm/arena.ts ARENA_LOOK)
+  const big = !isYard && bigStage(spec.locale); setStage(big);
   const lb = REGISTRY.layouts[spec.layout] ?? Object.values(LOCALES).flatMap(l => l.extraLayouts ?? []).find(l => l.id === spec.layout)!;
   const layout = withExits(spec.mirror ? mirrorLayout(stageLayout(lb)) : stageLayout(lb), spec.exits ?? []);
   const ptype = o.plan?.type ?? 'fight', calm = ptype === 'shop' || ptype === 'rest' || ptype === 'boon';
@@ -517,6 +518,7 @@ export class ActShow {
     const unlock = () => { if (this.audioOn) return; this.audioOn = true; audio.unlock().then(() => this.music()).catch(() => { this.audioOn = false; }); };
     if (typeof window !== 'undefined') { window.addEventListener('pointerdown', unlock); window.addEventListener('keydown', unlock); }
     this.start();
+    installR45(this);
   }
   /** act-19: the music for where we are — the opening, the yard, or the room's kind (a fight, a 死士 room, the 渠帅, a calm room);
    *  the same track carries on across rooms, a different one cross-fades in */
