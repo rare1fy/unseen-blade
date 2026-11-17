@@ -12,6 +12,7 @@ import { PIX_H } from '../v2/pix';
 import { cue } from '../../audio/cues';
 import { sayLine } from '../../audio/voice';
 import { audio } from '../../audio/audio';
+import { GL } from '../engine/world';
 
 export interface Line { who: string; text: string }
 interface Speaker { name: string; side: 'L' | 'R'; mute?: boolean }
@@ -136,7 +137,10 @@ export class Dialogue {
    *  the listener down to about a third, a cold cast, a step back out and down; a new face slides in from its edge, and at the end
    *  both slide out. Final positions snap to device pixels so the pixel art stays crisp (only the moves themselves land between). */
   private portraits(dt: number, speaker: 'L' | 'R' | null) {
-    const L = this.L, dpr = Math.max(1, Math.round(L.dpr || 1));
+    // (act-39 用户：「立绘还是糊的呢」: the scale was whole CSS px per art pixel — 7.5 device px on a 125% screen — and the plane sits
+    //  0.5 behind the UI's px plane, so it drew 1.2% small: art pixels fell between device pixels. Now whole DEVICE px per art pixel,
+    //  the size corrected for the plane's depth, the corner snapped to a device pixel)
+    const L = this.L, dpr = GL.renderer?.getPixelRatio() || L.dpr || 1, Z = -0.5;   // (the canvas's real device px per CSS px — up to 3 on a phone in the pixel look)
     const snap = (v: number) => Math.round(v * dpr) / dpr;
     for (const s of ['L', 'R'] as const) {
       const S = this.sides[s]; if (!S.mesh) continue;
@@ -147,13 +151,13 @@ export class Dialogue {
       const inK = 1 - Math.pow(1 - S.k, 3), outK = this.on ? 0 : 1 - this.outK * this.outK, dir = s === 'L' ? 1 : -1;
       // (act-37 用户：「怎么立绘还是糊的」: each picture is kept at its own pixel grid (150–180 rows), so the scale is a whole number of
       //  device pixels per art pixel from its own height)
-      const pk = Math.max(1, Math.round((L.h * dpr) / S.ih)) / dpr, hP = S.ih * pk, wP = hP * S.aspect;
+      const pk = Math.max(1, Math.round((L.h * dpr) / S.ih)) / dpr, hP = S.ih * pk, wP = Math.round(S.ih * S.aspect) * pk;
       const home = s === 'L' ? wP * 0.4 : L.w - wP * 0.4;
       const step = L.w * 0.018 * S.on - L.w * 0.035 * (1 - S.on);
       const cx = home + dir * step - dir * ((1 - inK) + outK) * wP * 0.95;
       const top = L.h * 0.05 + (1 - S.on) * L.h * 0.035 - Math.sin(S.pop * Math.PI) * Math.max(6, L.h * 0.014);
       const left = snap(cx - wP / 2), y0 = snap(top);
-      L.at(left + wP / 2, y0 + hP / 2, -0.5, S.mesh.position); S.mesh.scale.set(L.px(wP), L.px(hP), 1);
+      L.at(left + wP / 2, y0 + hP / 2, Z, S.mesh.position); S.mesh.scale.set(L.px(wP, Z), L.px(hP, Z), 1);
       const k = S.on, mat = S.mesh.material as THREE.MeshBasicMaterial;
       mat.color.setRGB(0.27 + 0.73 * k, 0.28 + 0.72 * k, 0.36 + 0.64 * k);
       S.mesh.renderOrder = speaking ? 59 : 58;
