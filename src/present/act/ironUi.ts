@@ -166,7 +166,7 @@ export class IronBtn {
   hint: HintKey | null = null; /** which side the badge pops up on (−1 upper left, +1 upper right: the big cut button has the jump button at its upper left) */ badgeSide: -1 | 1 = -1; private badge: THREE.Mesh | null = null; private badgeKey: HintKey | null = null; private badgeK = 0; private badgePop = 1;
   /** charges left / the most (the dart button: three bronze lamps on an arc over the shield); max 0 = none */
   pips = 0; pipMax = 0; private pipMeshes: THREE.Mesh[] = [];
-  private ring: ReturnType<typeof plateRing>; private icon: Model3D; private sock!: THREE.Mesh; private sockK = 0; private sockCol = new THREE.Color(); private shadow: THREE.Mesh; private tassel: THREE.Mesh | null = null;
+  private ring: ReturnType<typeof plateRing>; private icon: Model3D; private sock!: THREE.Mesh; private sockK = 0; private sockCol = new THREE.Color(); private linkT = 0; private shadow: THREE.Mesh; private tassel: THREE.Mesh | null = null;
   private pressK = 0; private flashT = 0; private wasReady = true; private tt = 0; private wasFull = false; private lift = 6; private popT = 1;
   /** act-29 (用户：「UI组件的各种状态、动效的切换、特效的提示」): a spring on the button's size (press sinks, release overshoots), a
    *  shake + dull red when pressed while it cannot act, a run of light round the plates when it comes ready, a kick from the game
@@ -245,6 +245,7 @@ export class IronBtn {
       // came ready: a run of light round the plates from the top, clockwise
       if (this.sweepT < 1) { const at = this.sweepT * 9 - 0.5, w = Math.max(0, 1 - Math.abs(i - at)); this.col.lerp(WHITE, w * 0.25); }   // (act-34 / 35: 「太闪了」— a faint run of light)
       if (this.kickT > 0) this.col.lerp(this.kickCol, Math.min(1, this.kickT * 4) * 0.5);
+      if (this.linkT > 0 && hc) this.col.lerp(WHITE, 0.5 * (this.linkT / 0.35) * (this.linkT / 0.35));   // (act-37: the link opening — one soft lift, eased out)
       if (this.denyT > 0) this.col.lerp(DENY, Math.min(1, this.denyT * 4) * 0.6);
       paintRange(geo, this.ring.ranges[i * 2], this.col);
     }
@@ -275,7 +276,7 @@ export class IronBtn {
     // (plates above, the socket a deep shade of it, steady), and the picture turns over like a token: the sabre on its back, the
     // move on its face (a light tint of its colour, standing out on the dark socket). Another move while one is up: the face turns to its edge, then round to the new one.
     const altKey = this.talk ? 'talk' : hint;
-    if (altKey && !this.altKey) { this.altKey = altKey; this.altK = 0; this.scV += 0.9; }   // (a small knock as it turns, no light)
+    if (altKey && !this.altKey) { this.altKey = altKey; this.altK = 0; this.scV += 0.9; if (hint) this.linkT = 0.35; }   // (a small knock as it turns; act-37 用户：「可派生的时候还是要亮一下，只不过不能太亮了」→ one soft lift)
     if (altKey && this.altKey && altKey !== this.altKey && this.altK < 0.5) this.altKey = altKey;   // not showing yet: just take it
     let m = this.altKey ? this.alts.get(this.altKey) : null;
     if (this.altKey && !m) {
@@ -284,19 +285,20 @@ export class IronBtn {
     }
     const toEdge = !!altKey && !!this.altKey && altKey !== this.altKey;   // a different move: turn to the edge first
     this.altK = toEdge ? Math.max(0.5, this.altK - dt / 0.07) : Math.max(0, Math.min(1, this.altK + (altKey ? 1 : -1) * dt / 0.14));
-    if (toEdge && this.altK <= 0.5) { this.altKey = altKey; this.scV += 0.5; }
+    if (toEdge && this.altK <= 0.5) { this.altKey = altKey; this.scV += 0.5; if (hint) this.linkT = 0.35; }
+    this.linkT = Math.max(0, this.linkT - dt); const lk = (this.linkT / 0.35) ** 2;
     if (!altKey && this.altK <= 0) this.altKey = null;
     const e = this.altK * this.altK * (3 - 2 * this.altK), face = e >= 0.5;
     this.iconG.rotation.y += Math.PI * e;
     for (const [k, o] of this.alts) {
       o.visible = face && k === this.altKey;
-      if (o.visible) { o.scale.setScalar(1.05); if (k !== 'talk') { o.setDim(0); o.setGlow(1); } }
+      if (o.visible) { o.scale.setScalar(1.05); if (k !== 'talk') { o.setDim(0); o.setGlow(1 + 1.2 * lk); } }
     }
     this.icon.visible = !face; this.icon.scale.setScalar(1);
     // the socket: a deep shade of the move's colour while a move is up (not for 'talk')
     { const on = hint ? 1 : 0; this.sockK += (on - this.sockK) * Math.min(1, dt * 14);
       if (hint) this.sockCol.copy(HINT_COLS[hint]).multiplyScalar(0.2);
-      ((this.sock.material as THREE.MeshLambertMaterial).color).setHex(0x24272e).lerp(this.sockCol, this.sockK); }
+      ((this.sock.material as THREE.MeshLambertMaterial).color).setHex(0x24272e).lerp(this.sockCol, this.sockK); if (hint && lk > 0) (this.sock.material as THREE.MeshLambertMaterial).color.lerp(HINT_COLS[hint], 0.6 * lk); }
   }
   dispose() { disposeTree(this.root); disposeTree(this.iconG); if (this.badge) disposeTree(this.badge); for (const m of this.alts.values()) m.dispose(); }
 }
