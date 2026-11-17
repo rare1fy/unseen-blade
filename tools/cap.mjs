@@ -26,7 +26,8 @@ const CH = 'C:/Program Files/Google/Chrome/Application/chrome.exe';
 const port = 9300 + Math.floor(Math.random() * 600);
 const prof = `${process.env.TEMP || '.'}/dhcap_prof_${port}`;
 const chrome = spawn(CH, ['--headless=new', `--remote-debugging-port=${port}`, `--user-data-dir=${prof}`, '--hide-scrollbars', `--window-size=${W + 20},${H + 40}`, '--no-first-run',
-  '--use-angle=d3d11', '--ignore-gpu-blocklist', '--enable-gpu', '--autoplay-policy=no-user-gesture-required', 'about:blank'], { stdio: 'ignore' });
+  // (CAP_SW=1: software rendering — leaves the GPU's memory to something else running on it, e.g. the voice renders; slow, use with vt)
+  ...(process.env.CAP_SW ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : ['--use-angle=d3d11', '--ignore-gpu-blocklist', '--enable-gpu']), '--autoplay-policy=no-user-gesture-required', 'about:blank'], { stdio: 'ignore' });
 const logs = [], t0 = Date.now(); const log = s => { logs.push(((Date.now() - t0) / 1000).toFixed(1) + 's ' + s); };
 
 // ---------------------------------------------------------------- the virtual clock (injected before any page script)
