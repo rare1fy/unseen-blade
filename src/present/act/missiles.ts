@@ -28,6 +28,19 @@ export class Dart {
   stuck: { pos: THREE.Vector3; d: { r: number } } | null = null; stuckT = 0;
   /** 11-17: the link volley it belongs to (迎面镖 / 回身镖; 0 = a plain throw) — the volley's first strike fills 气 */
   link = 0;
+  /** 11-18 秘传 折返: > 0 = it comes back (the way home strikes for this share); on the way home; the foes it has gone through (each once
+   *  each way: cleared when it turns) */
+  back = 0; returning = false; readonly passed = new Set<number>();
+  /** turn round at the end of its run: a glint, a little whirr, then it flies home (show.ts steers it with homeTo) */
+  turnBack() {
+    if (this.returning) return; this.returning = true; this.passed.clear(); this.life = 2;
+    fxSparks(this.p.clone(), 0xe8f0ff, 6, 2.5); this.v.multiplyScalar(-0.3);
+  }
+  /** fly at `to` (her hand, moving) at `speed`, turning hard — a homing curve, never a straight snap (call before step) */
+  homeTo(to: THREE.Vector3, speed: number, dt: number) {
+    const want = to.clone().sub(this.p).normalize().multiplyScalar(speed);
+    this.v.lerp(want, 1 - Math.exp(-14 * dt)); this.g.lookAt(this.p.clone().add(this.v));
+  }
   constructor(public p: THREE.Vector3, public v: THREE.Vector3, public dmg: number, range: number) {
     const blade = this.blade = new THREE.Mesh(dartGeo, steelMat); this.tassel.position.z = -0.12; this.g.add(blade, this.tassel);
     this.g.scale.setScalar(1.25); this.g.position.copy(p); this.g.lookAt(p.clone().add(v)); scene.add(this.g);

@@ -17,7 +17,10 @@ import { ACT_NINJA, motionOf, type WarpKey } from './ninjaAct';
 import { TUNE } from './tune';
 import type { Input } from './input';
 import { trimShadows, type Foe } from './enemy';
-import { newPerks, v, v2, type Perks } from './boons';
+import { newPerks, v, v2, hasBoon, type Perks } from './boons';
+
+/** 11-18 秘传 撒星 / 回身镖: n darts fanned out evenly, `step` rad apart */
+const fanOf = (n: number, step: number) => Array.from({ length: n }, (_, i) => (i - (n - 1) / 2) * step);
 
 export type HSt = 'squat' | 'free' | 'k1' | 'k2' | 'k3' | 'k4' | 'k5' | 'charge' | 'rel' | 'dash' | 'dcut' | 'noto' | 'hurt' | 'dead' | 'air' | 'plunge' | 'plungeL' | 'launch' | 'kick';
 /** one cut's numbers: impact moments (share of the action), extra range, arc (rad, full width), damage per impact, knock,
@@ -96,13 +99,19 @@ export interface HeroWorld {
    *  the attacker, sends arrows back); returns where the attacker stands (the draw goes at it), or null */
   iaiCatch(win: number): THREE.Vector3 | null;
   /** 11-18 一闪 (用户：「蓄能大招反馈不足」): the draw leaves the stance — the foes on her path are pinned where they stand, a flash */
-  iaiGo?(o: { from: THREE.Vector3; to: THREE.Vector3; r: number }): void;
+  iaiGo?(o: { from: THREE.Vector3; to: THREE.Vector3; r: number; /** 11-18 追步's second draw: no full flash */ soft?: boolean }): void;
   /** she has arrived: the world holds its breath a beat, then her path opens — the sweep (damage) is the world's to play after it */
   iaiCut?(o: { a: THREE.Vector3; b: THREE.Vector3; r: number; dmg: number; knock: number }): void;
   /** that beat is still being held (no cancelling out of it) */
   iaiBusy?(): boolean;
   /** the plunge lands: a ring of impact round the hero */
   slam(o: { at: THREE.Vector3; r: number; dmg: number; yaw: number }): number;
+  /** 11-18 秘传 错身: a dash on its way — the path so far (each foe on it is cut once per dash `n`) */
+  passing?(o: { a: THREE.Vector3; b: THREE.Vector3; n: number }): void;
+  /** 11-18 秘传 掠顶: in the air at height y over the ground — a foe right under her takes a downward cut (once per jump `n`); returns how many */
+  overhead?(o: { at: THREE.Vector3; y: number; n: number }): number;
+  /** 11-18 秘传 留影: a dash has started from `at` (show.ts leaves the afterimage, if the boon is ready) */
+  dashed?(o: { at: THREE.Vector3; yaw: number }): void;
   clamp(p: THREE.Vector3, r: number): void;
   /** screen stick → world direction */
   stickWorld(): THREE.Vector3;
@@ -134,9 +143,9 @@ export class Hero {
   /** stop whatever the hero is doing (the 一刀 sequence moves it by hand) */
   forceFree() { this.set('free', 0); this.vel.set(0, 0, 0); this.y = 0; this.vy = 0; motionOf(this.a).charge = 0; }
   /** the dash's invulnerable moment (a blow landing now is a perfect dodge) */
-  get dodging() { const bonus = v(this.perks, 'evade') / 100; return (this.st === 'dash' && this.t < TUNE.dashIframe + 0.04) || (bonus > 0 && this.age - this.dashEndAt < Math.min(TUNE.dashTime, TUNE.dashIframe + 0.04) * bonus); }
+  get dodging() { return this.st === 'dash' && this.t < TUNE.dashIframe + 0.04; }
   /** during a dash or just after it: an attack that would have caught the hero, or passes close, counts as a perfect dodge */
-  get dodgeWin() { return this.st === 'dash' || this.age - this.dashEndAt < 0.18 * (1 + v(this.perks, 'evade') / 100); }
+  get dodgeWin() { return this.st === 'dash' || this.age - this.dashEndAt < 0.18; }
   private age = 0; private dashEndAt = -9;
   private chargeK = 0; private relFrom = V3(); private relTo = V3(); private dashDir = V3(); private ghostT = 0;
   /** time into a dart throw (-1 = none); the dart leaves the hand at DART_REL of it */
@@ -145,6 +154,9 @@ export class Hero {
   aiming = false; readonly aimDir = V3(0, 0, 1); private spUsed = false;
   /** 回身镖 is once per dash; 穿风斩's start point and whether its sweep has landed; 追影's cut hits harder */
   private dashDarted = false; private dcutFrom = V3(); private dcutHit = false; private chaseOn = false;
+  /** 11-18 秘传: which dash / jump this is (错身 cuts each foe once a dash, 掠顶 once a jump; show.ts keys its sets on these), where the dash
+   *  began (错身's path, 留影's afterimage); 追步: the draw going on now is the second one */
+  dashN = 0; jumpN = 0; readonly dashFrom = V3(); private relSecond = false;
   /** act-19 刀谱 (the user: 「很多都应该做进强化」): the moves this run has unlocked — chase 寻声, backDart 回身镖, dbl 二段跳,
    *  launch 挑空斩, cutDart 近身三镖, keep 游身不断招, pause 停顿变招 (the yard unlocks them all; show sets this) */
   moves: Record<string, boolean> = {};
@@ -203,7 +215,7 @@ export class Hero {
   /** 0..1 while holding a charge (the HUD and the ring under the hero show it), else 0 */
   get charge() { return this.st === 'charge' ? this.chargeK : 0; }
   get airborne() { return this.y > 0.01; }
-  get iframe() { return this.inv > 0 || (this.st === 'dash' && this.t < TUNE.dashIframe * (1 + v(this.perks, 'evade') / 100)) || (this.st === 'rel' && this.t < this.dur * 0.55) || (this.st === 'dcut' && this.t < DCUT_MOVE + 0.05); }
+  get iframe() { return this.inv > 0 || (this.st === 'dash' && this.t < TUNE.dashIframe) || (this.st === 'rel' && this.t < this.dur * 0.55) || (this.st === 'dcut' && this.t < DCUT_MOVE + 0.05); }
   private set(st: HSt, dur: number) { this.st = st; this.t = 0; this.dur = dur; this.hitDone = false; this.hit2Done = false; this.hits = 0; }
   /** face the best target near the stick direction (or the stick direction itself) */
   private aim(w: HeroWorld, reach = 4.2) {
@@ -225,7 +237,7 @@ export class Hero {
   private startCut(n: Cut, w: HeroWorld, chase = false, big = false, keep = false) {
     this.readyT = 2.2;
     this.chaseOn = chase; this.bigSpin = big; this.keepCut = keep;
-    const dur = TUNE[n] / (TUNE.atkSpeed * (1 + v(this.perks, 'quick') / 100)); this.set(n, dur); this.next = null; const tgt = this.aim(w);
+    const dur = TUNE[n] / TUNE.atkSpeed; this.set(n, dur); this.next = null; const tgt = this.aim(w);
     this.counterCut = this.counterT > 0; if (this.counterCut) this.counterT = 0;
     // the step in: TUNE.atkLunge × this cut's share; with a foe ahead, stop TUNE.lungeStop short of it
     const full = TUNE.atkLunge * SW[n].lunge;
@@ -234,9 +246,10 @@ export class Hero {
   }
   private startDash(w: HeroWorld) {
     const s = w.stickWorld(); this.dashDir.copy(s.lengthSq() > 0.04 ? s.normalize() : this.a.fwd());
-    this.a.yaw = Math.atan2(this.dashDir.x, this.dashDir.z); this.set('dash', TUNE.dashTime); this.dashCd = TUNE.dashCd * (1 - v2(this.perks, 'evade') / 100); this.ghostT = 0; this.dashDarted = false; this.dashTailT = 0; this.linkT = 0;
+    this.a.yaw = Math.atan2(this.dashDir.x, this.dashDir.z); this.set('dash', TUNE.dashTime); this.dashCd = TUNE.dashCd; this.dashN++; this.dashFrom.copy(this.pos); this.ghostT = 0; this.dashDarted = false; this.dashTailT = 0; this.linkT = 0;
     this.vy = 0;   // an air dash holds its height
     this.a.play(new Action('dashA', TUNE.dashTime * 1.4, 0.2)); cue('dash', 0.8);
+    w.dashed?.({ at: this.pos.clone(), yaw: this.a.yaw });   // (11-18 留影)
   }
   /** 11-18 (act-42 反馈：「应该是先下蹲然后蹬出去腾空」): a jump from the ground crouches first (JUMP_SQUAT on the ground — a dash
    *  still cancels it), then leaves; the double jump and 挑云 go at once */
@@ -245,7 +258,7 @@ export class Hero {
     this.set('squat', JUMP_SQUAT); this.a.act?.cancel(); this.a.act = null; this.next = null; this.pendT = 0; this.linkT = 0; this.dashTailT = 0;
   }
   private launchJump() {
-    this.v0 = (4 * TUNE.jumpH) / TUNE.jumpT; this.vy = this.v0; this.y = Math.max(this.y, 0.001); this.jumps = 1; this.flipT = -1; this.pendT = 0; this.linkT = 0; this.dashTailT = 0; this.airT = 0;
+    this.v0 = (4 * TUNE.jumpH) / TUNE.jumpT; this.vy = this.v0; this.y = Math.max(this.y, 0.001); this.jumps = 1; this.flipT = -1; this.pendT = 0; this.linkT = 0; this.dashTailT = 0; this.airT = 0; this.jumpN++;
     this.set('air', 99); this.a.act?.cancel(); this.a.act = null; this.next = null;
     dustBlocks(this.pos.clone(), 5); cue('jump', 0.6);
   }
@@ -328,7 +341,7 @@ export class Hero {
       this.dartT += dt;
       if (!this.dartGone && this.dartT >= DART_REL) {
         this.dartGone = true;
-        const hand = this.handL(), count = v(this.perks, 'darts3'), dirs = count === 5 ? [-0.36, -0.18, 0, 0.18, 0.36] : count === 3 || this.fanNext ? [-0.24, 0, 0.24] : [0];
+        const hand = this.handL(), count = v(this.perks, 'darts3'), dirs = count > 1 ? fanOf(count, count >= 5 ? 0.18 : 0.24) : this.fanNext ? [-0.24, 0, 0.24] : [0];
         const link = this.fanNext ? ++this.volley : 0; this.fanNext = false;   // (11-17: 迎面镖's volley fills 气 once, on its first dart that strikes)
         for (const a of dirs) { const d = this.dartDir.clone().applyAxisAngle(V3(0, 1, 0), a); w.dart({ from: hand, dir: d, link }); }
         cue('dartThrow', 0.6);
@@ -381,6 +394,8 @@ export class Hero {
       case 'air': {
         steer(TUNE.heroAccel * 0.7);
         this.vy -= this.gravAt(this.vy) * dt; this.y += this.vy * dt;
+        // 11-18 秘传 掠顶: high enough over a foe, a quick cut down at it (show.ts; once a foe a jump, and only while she is high)
+        if (this.y > 0.7 && w.overhead) w.overhead({ at: this.pos.clone(), y: this.y, n: this.jumpN });
         // the double jump: jump again in the air (once until landing)
         if (this.buf.jump > 0 && this.jumps < 2 && this.has('dbl')) { this.buf.jump = 0; this.startJump2(); break; }
         // in the air a press is the plunge at once (no stance up here); its release then does nothing
@@ -420,7 +435,9 @@ export class Hero {
           this.hits++; this.hitDone = true; this.linkT = TUNE.linkCut;
           // 气: a cut that finds someone fills a share of a bar; the 刀谱 links (寻声's cut, 游身斩, 扫八方) twice what a plain cut gives
           const link = (this.chaseOn || this.keepCut) && this.hits === 1 || this.bigSpin;
-          const got = w.swing({ from: this.pos.clone(), yaw: this.a.yaw, range: TUNE.atkRange + sw.range + (this.bigSpin ? 0.9 : 0), half: sw.half / 2 + (cut === 'k4' ? 0.1 : 0.35), dmg: Math.round(sw.dmg() * (this.chaseOn && this.hits === 1 ? 1.5 : 1)), knock: this.bigSpin ? 1.9 : sw.knock, heavy: sw.heavy || (this.chaseOn && this.hits === 1), kind: cut, n: this.hits, counter: this.counterCut && this.hits === 1 });
+          // 11-18 秘传 荡刃: the 3rd cut's ring reaches further and cuts harder (show.ts draws the wider ring of wind)
+          const wide = cut === 'k3' && hasBoon(this.perks, 'spin'), range = TUNE.atkRange + sw.range + (this.bigSpin ? 0.9 : 0) + (wide ? v(this.perks, 'spin') : 0);
+          const got = w.swing({ from: this.pos.clone(), yaw: this.a.yaw, range, half: sw.half / 2 + (cut === 'k4' ? 0.1 : 0.35), dmg: Math.round(sw.dmg() * (this.chaseOn && this.hits === 1 ? 1.5 : 1) * (wide ? v2(this.perks, 'spin') / 100 : 1)), knock: this.bigSpin ? 1.9 : wide ? 1.3 : sw.knock, heavy: sw.heavy || (this.chaseOn && this.hits === 1), kind: cut, n: this.hits, counter: this.counterCut && this.hits === 1 });
           if (got > 0) this.gainQi(link ? QI_LINK : QI_CUT[cut]);
         }
         // the guard window: from the start of the cut until TUNE.deflectWin after (0.1 s before) the last blow, the blade bats arrows away
@@ -470,7 +487,7 @@ export class Hero {
         break;
       }
       case 'charge': {
-        const chargeFull = TUNE.chargeFull * (1 - v(this.perks, 'draw') / 100);
+        const chargeFull = TUNE.chargeFull;
         const wasK = this.chargeK; this.chargeK = Math.min(1, this.chargeK + dt / chargeFull); m.charge = this.chargeK;
         this.vel.lerp(stick.clone().multiplyScalar(TUNE.heroSpeed * TUNE.stanceSpeed), 1 - Math.exp(-12 * dt));
         if (sl > 0.1) this.a.yaw = Math.atan2(stick.x, stick.z);
@@ -494,7 +511,7 @@ export class Hero {
           else this.aim(w, 6);
           const dir = this.a.fwd();
           this.relFrom.copy(this.pos); this.relTo.copy(this.pos).addScaledVector(dir, len); w.clamp(this.relTo, this.r);
-          const dur = 0.42; this.set('rel', dur); this.a.play(new Action('rel', dur, 0.3)); cue('draw', 0.9); cue('swishHeavy', 0.7);
+          const dur = 0.42; this.set('rel', dur); this.relSecond = false; this.a.play(new Action('rel', dur, 0.3)); cue('draw', 0.9); cue('swishHeavy', 0.7);
           this.parryT = TUNE.iaiWin; this.iaiBonus = this.iaiBonus || !!caught;
           w.iaiGo?.({ from: this.relFrom.clone(), to: this.relTo.clone(), r: 1.05 }); cue('breath', 1);
         }
@@ -507,10 +524,13 @@ export class Hero {
         const p = this.relFrom.clone().lerp(this.relTo, 1 - (1 - u) ** 3); this.vel.set(0, 0, 0); this.pos.x = p.x; this.pos.z = p.z;
         this.ghostT -= dt; if (k < 0.36 && this.ghostT <= 0) { this.ghostT = 0.025; fxAfterimage(this.pos.clone(), 1.9, 0xfff0c8, { life: 0.3, glow: 0.7 }); }
         if (!this.hitDone && k >= 0.36) {
-          this.hitDone = true; const o = { a: this.relFrom.clone(), b: this.pos.clone(), r: 1.05, dmg: Math.round(TUNE.relDmg * (1 + this.chargeK) * (this.iaiBonus ? 2 : 1)), knock: this.iaiBonus ? 2 : 1.4 };
-          if (w.iaiCut) w.iaiCut(o); else w.sweep(o);
+          this.hitDone = true; const o = { a: this.relFrom.clone(), b: this.pos.clone(), r: 1.05, dmg: Math.round(TUNE.relDmg * (1 + this.chargeK) * (this.iaiBonus ? 2 : 1) * (this.relSecond ? v(this.perks, 'twinDraw') / 100 : 1)), knock: this.iaiBonus ? 2 : 1.4 };
+          if (w.iaiCut && !this.relSecond) w.iaiCut(o); else w.sweep({ ...o, kind: this.relSecond ? 'rel2' : 'rel' });
         }
         const held = !!w.iaiBusy?.();
+        // 11-18 秘传 追步: once the first draw's line has opened, she goes again at the next foe near the end of it (a second, shorter
+        // streak, cut at once — no second held beat); the stance's bar of 气 pays for both
+        if (this.hitDone && !held && !this.relSecond && hasBoon(this.perks, 'twinDraw') && k >= 0.5 && this.startDraw2(w)) break;
         if (this.hitDone && !held && canDash) { this.buf.dash = 0; this.startDash(w); break; }
         if (this.hitDone && !held && canJump) { this.buf.jump = 0; this.startJump(); break; }
         if (k >= 1) { if (this.iaiBonus) this.startNoto(); else this.set('free', 0); }
@@ -532,6 +552,8 @@ export class Hero {
         // 回身镖: 镖 pressed in a dash — darts thrown back at whoever is behind; the dash goes on
         if (B.special.pressed && this.has('backDart') && !this.dashDarted && this.dartAmmo > 0) { this.buf.sp = 0; this.spUsed = true; this.dashDarted = true; this.backDarts(w); }
         const sp = TUNE.dashDist / TUNE.dashTime; this.vel.copy(this.dashDir).multiplyScalar(sp * (this.t < this.dur * 0.75 ? 1 : 0.4));
+        // 11-18 秘传 错身: whoever the dash goes through is cut (show.ts, once a foe a dash) — on the ground only
+        if (!this.airborne) w.passing?.({ a: this.dashFrom.clone(), b: this.pos.clone(), n: this.dashN });
         this.ghostT -= dt; if (this.ghostT <= 0) { this.ghostT = 0.035; fxAfterimage(this.pos.clone().setY(this.y), 1.9, 0x5a6aa8, { life: 0.2, glow: 0.25 }); }
         if (this.t >= this.dur) {
           this.vel.multiplyScalar(0.35); this.dashEndAt = this.age;
@@ -630,7 +652,7 @@ export class Hero {
   }
   /** 穿风斩: on from where the dash is now, low and fast along the same way; the cut lands when the run stops (show.ts sweep) */
   private startDashCut() {
-    this.dcutFrom.copy(this.pos); this.set('dcut', DCUT_T); this.dcutHit = false; this.ghostT = 0; this.dashCd = TUNE.dashCd * (1 - v2(this.perks, 'evade') / 100);
+    this.dcutFrom.copy(this.pos); this.set('dcut', DCUT_T); this.dcutHit = false; this.ghostT = 0; this.dashCd = TUNE.dashCd;
     this.a.yaw = Math.atan2(this.dashDir.x, this.dashDir.z); this.a.play(new Action('rel', DCUT_T, 0.32)); cue('swishHeavy', 1); cue('dash', 0.6);
   }
   /** 回身镖: three darts (five with 散手 · 三叶) flung back at the nearest foe behind the dash, or straight back */
@@ -644,7 +666,7 @@ export class Hero {
       const s = l * (1 + ang); if (s < bd) { bd = s; best = f; }
     }
     const dir = best ? best.a.chest().sub(from).normalize() : back.clone().setY(-0.03).normalize();
-    const hand = this.handL(), spread = v(this.perks, 'darts3') === 5 ? [-0.36, -0.18, 0, 0.18, 0.36] : [-0.18, 0, 0.18];
+    const hand = this.handL(), n = v(this.perks, 'darts3'), spread = n >= 5 ? fanOf(5, 0.18) : [-0.18, 0, 0.18];
     const link = ++this.volley; for (const a of spread) w.dart({ from: hand.clone(), dir: dir.clone().applyAxisAngle(V3(0, 1, 0), a), link });
     this.dartT = 0; this.dartGone = true; this.dartBack = true; this.dartCd = TUNE.dartCd; this.useDart(); cue('dartThrow', 0.8);
   }
@@ -701,6 +723,26 @@ export class Hero {
     b.visible = true;
   }
   startNoto() { this.set('noto', NOTO_T); this.notoClicked = false; this.a.play(new Action('noto', NOTO_T, NOTO_CLICK)); }
+  /** 11-18 秘传 追步: the second draw — at the next foe: the nearest live one within 6 m of where the first draw ended that was not on the
+   *  first draw's line (one behind her counts nearly double); only if there is none, one that was. Up to 0.75 of the stance's lunge; a
+   *  gold-white streak again, the cut sweeps at once. False: nobody to go at */
+  private startDraw2(w: HeroWorld) {
+    let best: Foe | null = null, bd = 1e9; const fwd = this.a.fwd(), ab = this.pos.clone().sub(this.relFrom).setY(0), L2 = Math.max(1e-4, ab.lengthSq());
+    for (const f of w.foes) {
+      if (f.st === 'dead') continue;
+      const d = f.pos.clone().sub(this.pos).setY(0), l = d.length(); if (l > 6 || l < 0.4) continue;
+      const t = Math.max(0, Math.min(1, f.pos.clone().sub(this.relFrom).setY(0).dot(ab) / L2)), q = this.relFrom.clone().addScaledVector(ab, t);
+      const onLine = Math.hypot(f.pos.x - q.x, f.pos.z - q.z) <= 1.05 + f.d.r;
+      const s = l * (d.dot(fwd) / (l || 1) < -0.3 ? 1.8 : 1) + (onLine ? 100 : 0); if (s < bd) { bd = s; best = f; }
+    }
+    if (!best) return false;
+    const d = best.pos.clone().sub(this.pos).setY(0), len = Math.max(0.6, Math.min(TUNE.relDist * 0.75, d.length() + 0.9));
+    this.a.yaw = Math.atan2(d.x, d.z);
+    this.relFrom.copy(this.pos); this.relTo.copy(this.pos).addScaledVector(this.a.fwd(), len); w.clamp(this.relTo, this.r);
+    const dur = 0.36; this.set('rel', dur); this.relSecond = true; this.a.play(new Action('rel', dur, 0.3)); cue('draw', 0.8); cue('swishHeavy', 0.8);
+    w.iaiGo?.({ from: this.relFrom.clone(), to: this.relTo.clone(), r: 1.05, soft: true });
+    return true;
+  }
   /** where the left hand is now (the dart's start) */
   private handL() { const b = this.a.bones?.offhand ?? this.a.bones?.foreL; return b ? b.localToWorld(V3(0, 0, 0)) : this.pos.clone().add(V3(0, 1.25, 0)).addScaledVector(V3(Math.cos(this.a.yaw), 0, -Math.sin(this.a.yaw)), 0.3); }
   private move(dt: number, w: HeroWorld) {

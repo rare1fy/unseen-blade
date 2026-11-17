@@ -1,36 +1,59 @@
-// 局内秘传：十三张刀客强化（act-36；名字和说明 agy gemini-3.8-flash-high 写、我核对）；刀谱仍由 moves 单独记录。
+// 局内秘传（act-36 十三张刀客强化 → 11-18 改招为主，十六张）。用户 11-18：「我打了半天了还没个新招，一直在给我加数值。强化卡片也难以辨认
+// 都是干嘛的，icon造型和描述都很抽象。」→ 每张挂在一个键上（slot：斩 / 冲刺 / 镖 / 藏锋 / 跳；纯被动的 null），拿了以后那个键看得见地变；
+// 数值只做凡 / 珍 / 绝三档的强弱。原来 11 张看不见的数值（快刀、裂甲、断骨、搏命、出鞘、乘虚、游身…）拿掉，换成有表现的招。
+// 名字和说明 agy（gemini-3.8-flash-high）写、我核对；说明只写「会出什么」一句（技能描述的规范：按法由 slot 画成按钮，数值放档位）。
+// 卡面的数值一行：note（{v} / {v2} 按档填）。效果在 show.ts / hero.ts / missiles.ts（找 tierOf(…, '<id>')）。
 export type School = 'sr';
 export const SCHOOL_NAMES: Record<School, string> = { sr: '秘传' };
 export const TIER_NAMES = ['凡品', '珍品', '绝品'] as const;
 /** 11-18 (用户：「我打了半天了还没个新招，一直在给我加数值」「选了强化后根本看不到自己选的强化是啥，在哪儿」): the button a boon changes —
  *  斩 / 冲刺 / 镖 / 藏锋 / 跳 — or null for a passive; the card face draws that button, the HUD marks it */
 export type BoonSlot = 'attack' | 'dash' | 'dart' | 'stance' | 'jump' | null;
-export interface Boon { id: string; school: School; name: string; desc: string[]; col: string; glyph: string[]; slot?: BoonSlot; vals?: [number, number, number]; unit?: string; vals2?: [number, number, number]; unit2?: string }
+/** 11-18 技能描述的规范 (用户：「把所有的技能描述都重新写一下，现在的纯看不懂，也没有图标配合」): the fields kept apart so the card face and
+ *  the later copy pass can lay them out — slot: the button (drawn, never written); eff: one line of what you see happen (no numbers, no
+ *  keys, no 「易伤」「硬直」 words); note: the numbers' small line ({v} / {v2} filled for the tier). desc = [eff, note] for the card faces
+ *  that still read two lines. glyph: the 10 × 10 card picture (the card face is being redone with 3D icons elsewhere) */
+export interface Boon { id: string; school: School; name: string; desc: string[]; col: string; glyph: string[]; slot?: BoonSlot; eff?: string; note?: string; vals?: [number, number, number]; unit?: string; vals2?: [number, number, number]; unit2?: string }
+type BoonDef = Omit<Boon, 'desc'> & { eff: string; note: string; slot: BoonSlot };
 export interface BoonPick { boon: Boon; tier: number }
 export interface Perks { /** act-19 刀谱 */ moves: Record<string, boolean>; owned: Record<string, number> }
 export const newPerks = (): Perks => ({ moves: {}, owned: {} });
 export const boonTier = (tier: number) => Number.isFinite(tier) ? Math.max(0, Math.min(2, Math.floor(tier))) : 0;
 export const tierOf = (p: Perks, id: string) => p.owned[id] == null ? -1 : boonTier(p.owned[id]);
+/** owns this boon (any tier) */
+export const hasBoon = (p: Perks, id: string) => tierOf(p, id) >= 0;
 export const v = (p: Perks, id: string) => { const t = tierOf(p, id); return t < 0 ? 0 : BOONS.find(b => b.id === id)?.vals?.[t] ?? 0; };
 export const v2 = (p: Perks, id: string) => { const t = tierOf(p, id); return t < 0 ? 0 : BOONS.find(b => b.id === id)?.vals2?.[t] ?? 0; };
-export const isBladeHit = (kind: string) => /^k[1-5]$/.test(kind) || ['rel', 'plunge', 'launch', 'parry', 'echo'].includes(kind);
+export const isBladeHit = (kind: string) => /^k[1-5]$/.test(kind) || ['rel', 'plunge', 'launch', 'parry', 'echo', 'rel2', 'pass', 'overhead'].includes(kind);
 export const boonTag = (_b: Boon, tier: number) => TIER_NAMES[boonTier(tier)];
+/** the button names the card / the HUD say for a slot */
+export const SLOT_NAMES: Record<Exclude<BoonSlot, null>, string> = { attack: '斩', dash: '冲刺', dart: '镖', stance: '藏锋', jump: '跳' };
 
-export const BOONS: Boon[] = [
-  { id: 'quick', school: 'sr', name: '快刀', desc: ['连环刀出刀更疾', '出刀速度+{v}'], vals: [12, 20, 28], unit: '%', col: '#aeb8bd', glyph: ['.......##.', '.......##.', '.##....##.', '.......##.', '####...##.', '.......##.', '.##....##.', '......####', '.......##.', '.......oo.'] },
-  { id: 'extra', school: 'sr', name: '叠刃', desc: ['收尾一刀砍中后', '追加{v}收尾伤害'], vals: [40, 60, 80], unit: '%', col: '#bd9b82', glyph: ['..##......', '..##..##..', '..##..##..', '..##..##..', '..##..##..', '..##..##..', '.####.##..', '..##.####.', '..oo..##..', '......oo..'] },
-  { id: 'sunder', school: 'sr', name: '裂甲', desc: ['敌人被斩中后三秒', '受到的伤害+{v}'], vals: [12, 20, 30], unit: '%', col: '#b6a088', glyph: ['##########', '#o##.###o#', '####.#####', '####..####', '#####.####', '#####..###', '######.###', '#o####.#o#', '##########', '..........'] },
-  { id: 'bone', school: 'sr', name: '断骨', desc: ['重招砍中击退更远', '敌人硬直延长{v}'], vals: [0.3, 0.45, 0.6], unit: '秒', col: '#d2c6b2', glyph: ['..........', '..........', '##......##', '####..####', '.###..###.', '####..####', '##......##', '..........', '..........', '..........'] },
-  { id: 'behead', school: 'sr', name: '枭首', desc: ['敌人血量低于{v}时', '一刀斩杀（头目除外）'], vals: [12, 18, 25], unit: '%', col: '#a64843', glyph: ['.########.', '.#oooooo#.', '.########.', '....##....', '....##....', '....##....', '..........', '.o..o..o..', '##########', '##########'] },
-  { id: 'bleed', school: 'sr', name: '见红', desc: ['斩中叠出血至五层', '每层每秒失血{v}点'], vals: [1, 1.5, 2], col: '#922f35', glyph: ['....#.....', '...###....', '..#####...', '..##o##...', '...###..#.', '.#.....###', '###....#o#', '#o#.....#.', '.#........', '..........'] },
-  { id: 'drink', school: 'sr', name: '饮血', desc: ['每斩杀一个敌人', '回复{v}点生命'], vals: [3, 5, 7], col: '#9d3b40', glyph: ['..........', '#oooooooo#', '##########', '.########.', '.########.', '..######..', '....##....', '....##....', '..######..', '..........'] },
-  { id: 'frenzy', school: 'sr', name: '搏命', desc: ['自身血量低于一半', '斩击伤害+{v}'], vals: [20, 35, 50], unit: '%', col: '#a74b45', glyph: ['.##..o.##.', '####.o####', '#####o####', '#####o####', '.####o###.', '..###o##..', '...##o#...', '....#o....', '.....o....', '..........'] },
-  { id: 'draw', school: 'sr', name: '出鞘', desc: ['藏锋蓄满用时−{v}', '箭步斩伤害+{v2}'], vals: [30, 45, 60], unit: '%', vals2: [20, 30, 40], unit2: '%', col: '#c4b6a3', glyph: ['....oo....', '....oo....', '....oo....', '...####...', '....##....', '..######..', '...####...', '...####...', '...####...', '....##....'] },
-  { id: 'counter', school: 'sr', name: '乘虚', desc: ['破势反击伤害+{v}', '并回复{v2}点生命'], vals: [50, 75, 100], unit: '%', vals2: [4, 6, 8], col: '#b88b6c', glyph: ['....##....', '....##....', '....oo....', '##########', '#oooooooo#', '....##....', '....##....', '...####...', '....##....', '....##....'] },
-  { id: 'evade', school: 'sr', name: '游身', desc: ['完美闪避时机放宽{v}', '冲刺冷却缩短{v2}'], vals: [40, 70, 100], unit: '%', vals2: [15, 25, 35], unit2: '%', col: '#aab4b6', glyph: ['.....###..', '.....###..', '.....###..', '##...###..', '.....####.', '###..#####', '.....#####', '##...oooo.', '..........', '..........'] },
-  { id: 'darts3', school: 'sr', name: '撒星', desc: ['柳叶镖一次掷{v}枚', '扇形散开射向前方'], vals: [3, 3, 5], col: '#9dabb2', glyph: ['.#..##..#.', '###.##.###', '.#..##..#.', '.#..##..#.', '.#..##..#.', '.o..oo..o.', '.o..oo..o.', '..........', '..........', '..........'] },
-  { id: 'bladeWind', school: 'sr', name: '刀芒', desc: ['收尾一刀劈出刀芒', '直线贯穿，伤害{v}'], vals: [100, 150, 200], unit: '%', vals2: [0, 20, 40], unit2: '%', col: '#d0c8b8', glyph: ['..........', '..........', '...####...', '.########.', '##########', '.oooooooo.', '...oooo...', '..........', '..........', '..........'] },
+const DEFS: BoonDef[] = [
+  // ---------------------------------------------------------------- 斩
+  { id: 'bladeWind', school: 'sr', slot: 'attack', name: '刀芒', eff: '收尾一刀劈出刀光，穿透一排人', note: '刀光伤害{v}，飞得远{v2}', vals: [100, 150, 200], unit: '%', vals2: [0, 20, 40], unit2: '%', col: '#d0c8b8', glyph: ['..........', '..........', '...####...', '.########.', '##########', '.oooooooo.', '...oooo...', '..........', '..........', '..........'] },
+  { id: 'extra', school: 'sr', slot: 'attack', name: '叠刃', eff: '收尾一刀砍中，刀影再补一刀', note: '刀影伤害{v}', vals: [40, 60, 80], unit: '%', col: '#bd9b82', glyph: ['..##......', '..##..##..', '..##..##..', '..##..##..', '..##..##..', '..##..##..', '.####.##..', '..##.####.', '..oo..##..', '......oo..'] },
+  { id: 'bleed', school: 'sr', slot: 'attack', name: '见红', eff: '被砍的人一直淌血，越砍越凶', note: '每层每秒失血{v}点，最多五层', vals: [1, 1.5, 2], col: '#922f35', glyph: ['....#.....', '...###....', '..#####...', '..##o##...', '...###..#.', '.#.....###', '###....#o#', '#o#.....#.', '.#........', '..........'] },
+  { id: 'behead', school: 'sr', slot: 'attack', name: '枭首', eff: '残血敌人亮红圈，一刀直接斩了', note: '血量低于{v}亮红圈（头目除外）', vals: [12, 18, 25], unit: '%', col: '#a64843', glyph: ['.########.', '.#oooooo#.', '.########.', '....##....', '....##....', '....##....', '..........', '.o..o..o..', '##########', '##########'] },
+  { id: 'spin', school: 'sr', slot: 'attack', name: '荡刃', eff: '第三刀刀圈变大，扫得更远', note: '刀圈加大{v}米，伤害{v2}', vals: [1.0, 1.4, 1.8], unit: '', vals2: [120, 140, 160], unit2: '%', col: '#b8c4c8', glyph: ['...####...', '.##....##.', '.#......#.', '#...##...#', '#..####..#', '#..####..#', '#...##...#', '.#......#.', '.##....##.', '...####...'] },
+  { id: 'pierce', school: 'sr', slot: 'attack', name: '透骨', eff: '第四刀第二刺拉长，扎穿一排人', note: '刺光长{v}米，伤害{v2}', vals: [4, 5.5, 7], unit: '', vals2: [100, 130, 160], unit2: '%', col: '#e2e8ee', glyph: ['..........', '..........', '..........', '#.........', '##########', '##########', '#.........', '..........', '..........', '..........'] },
+  // ---------------------------------------------------------------- 冲刺
+  { id: 'passCut', school: 'sr', slot: 'dash', name: '错身', eff: '冲刺穿过敌人，顺手每人一刀', note: '每人一刀，伤害{v}', vals: [70, 100, 130], unit: '%', col: '#9ad8ff', glyph: ['..........', '....#.....', '....##....', '#########.', '##########', '#########.', '....##....', '....#.....', '..........', '..........'] },
+  { id: 'decoy', school: 'sr', slot: 'dash', name: '留影', eff: '冲刺处留个残影，替自己挨刀', note: '残影引敌{v}，每{v2}一个', vals: [1, 1.3, 1.6], unit: '秒', vals2: [4, 3, 2], unit2: '秒', col: '#8a96d8', glyph: ['..##....##', '..##....##', '.####..###', '.####..###', '..##....##', '..##....##', '.#..#..#.#', '.#..#..#.#', '..........', '..........'] },
+  // ---------------------------------------------------------------- 镖
+  { id: 'darts3', school: 'sr', slot: 'dart', name: '撒星', eff: '柳叶镖一次甩多枚，扇形散开', note: '一次{v}枚', vals: [3, 4, 5], col: '#9dabb2', glyph: ['.#..##..#.', '###.##.###', '.#..##..#.', '.#..##..#.', '.#..##..#.', '.o..oo..o.', '.o..oo..o.', '..........', '..........', '..........'] },
+  { id: 'boomerang', school: 'sr', slot: 'dart', name: '折返', eff: '柳叶镖飞到头折返，来回都伤人', note: '回来那一下伤害{v}', vals: [100, 130, 160], unit: '%', col: '#c8d0d6', glyph: ['..######..', '.#......#.', '#........#', '#.........', '#.........', '#....#....', '.#...##...', '..#######.', '.....##...', '.....#....'] },
+  { id: 'pin', school: 'sr', slot: 'dart', name: '截脉', eff: '钉中的人当场僵住，出招被打断', note: '僵住{v}（头目除外）', vals: [0.8, 1.1, 1.4], unit: '秒', col: '#a8d8f0', glyph: ['....##....', '....##....', '....##....', '...####...', '.#..##..#.', '..#.##.#..', '...####...', '..#....#..', '.#......#.', '..........'] },
+  // ---------------------------------------------------------------- 藏锋
+  { id: 'twinDraw', school: 'sr', slot: 'stance', name: '追步', eff: '箭步斩冲完，再朝下个人斩一刀', note: '第二段伤害{v}', vals: [60, 80, 100], unit: '%', col: '#ffd890', glyph: ['..........', '##........', '####......', '######....', '####.##...', '##...####.', '.....#####', '.....####.', '.....##...', '..........'] },
+  { id: 'burst', school: 'sr', slot: 'stance', name: '崩劲', eff: '破势成功时，震退身边所有人', note: '{v}米内全震开，伤害{v2}点', vals: [3, 3.6, 4.2], unit: '', vals2: [8, 12, 16], col: '#ffe0a0', glyph: ['#...##...#', '.#..##..#.', '..#....#..', '...####...', '##.####.##', '##.####.##', '...####...', '..#....#..', '.#..##..#.', '#...##...#'] },
+  // ---------------------------------------------------------------- 跳
+  { id: 'rift', school: 'sr', slot: 'jump', name: '裂地', eff: '劈山落地裂开地面，沿线掀翻人', note: '裂缝长{v}米，伤害{v2}点', vals: [5, 6.5, 8], unit: '', vals2: [10, 14, 18], col: '#d8b888', glyph: ['....##....', '....##....', '....##....', '..######..', '....##....', '....##....', '..........', '....##....', '...####...', '##########'] },
+  { id: 'vault', school: 'sr', slot: 'jump', name: '掠顶', eff: '跳过敌人头顶，顺手往下一刀', note: '每人一刀，伤害{v}点', vals: [8, 11, 14], col: '#c0d0e0', glyph: ['...####...', '..#....#..', '.#......#.', '#...##...#', '....##....', '....##....', '...####...', '..######..', '..######..', '..........'] },
+  // ---------------------------------------------------------------- 被动
+  { id: 'drink', school: 'sr', slot: null, name: '饮血', eff: '每斩杀一人，吸一缕血气回血', note: '每个回{v}点', vals: [3, 5, 7], col: '#9d3b40', glyph: ['..........', '#oooooooo#', '##########', '.########.', '.########.', '..######..', '....##....', '....##....', '..######..', '..........'] },
 ];
+export const BOONS: Boon[] = DEFS.map(d => ({ ...d, desc: [d.eff, d.note] }));
 export function applyBoon(p: Perks, id: string, tier = 0) { if (BOONS.some(b => b.id === id)) p.owned[id] = Math.max(p.owned[id] ?? 0, boonTier(tier)); }
 export function upgradeBoon(p: Perks, id: string): boolean { if (tierOf(p, id) < 0 || tierOf(p, id) >= 2) return false; p.owned[id]++; return true; }
 export function drawBoons(pool: 'any', n: number, rnd: () => number, p: Perks, odds = [0.7, 0.25, 0.05]): BoonPick[] {
