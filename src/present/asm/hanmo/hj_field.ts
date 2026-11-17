@@ -11,6 +11,7 @@ import type { Layout, Locale, Place, Rect, SeasonId } from '../types';
 import { HC, GRASS, STUBBLE, TUFT, ELM, WATER_MARK, cropOf, wheatBed, smoke, type CropPal } from './hj_field_kit';
 import { LANDMARKS } from './hj_field_lm';
 import { GROUPS, FILLER } from './hj_field_props';
+import { fieldInfill } from './hj_infill';
 
 // ------------------------------------------------------------------ the plots (田): a grid of ridges, each plot in one state
 type PlotKind = 'field' | 'wheat' | 'stubble' | 'soil';
@@ -24,7 +25,7 @@ const zsMidOf = () => [SZ(-36), SZ(-25.5), SZ(-15.6), PLAY.z0 - 0.8, PLAY.z1 + 0
 const RH = 0.15;
 const plotCache = new Map<string, Plot[]>();
 function plotsOf(seed: number, season: SeasonId): Plot[] {
-  const key = seed + season + (STAGE_BIG.on ? 'B' : ''); const hit = plotCache.get(key); if (hit) return hit;
+  const key = seed + season + (STAGE_BIG.on ? `B${STAGE_BIG.kx}x${STAGE_BIG.kz}` : ''); const hit = plotCache.get(key); if (hit) return hit;
   const XS = xsOf(), ZS_SIDE = zsSideOf(), ZS_MID = zsMidOf();
   const out: Plot[] = [], r = (a: number, b: number, k: number) => hash(seed * 31 + a * 7, b * 13 + k, 4111);
   for (let i = 0; i + 1 < XS.length; i++) {
@@ -250,4 +251,7 @@ export const hjField: Locale = {
   landmarks: LANDMARKS, groups: GROUPS, filler: FILLER,
   seasons: ['summer', 'autumn'],
   floor, far, dress,
+  // 11-18 屋子形态: a corner of standing wheat (曲尺), a field to fight round (回廊), a path through the wheat (窄巷), an irrigation
+  // channel or a dry gully with a bridge (过桥), a gully cut into the field (临水)
+  shapes: ['ell', 'cloister', 'neck', 'bridge', 'pond'], pits: ['water', 'ditch'], infill: fieldInfill,
 };

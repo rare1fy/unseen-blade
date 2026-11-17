@@ -308,6 +308,10 @@ const H: Partial<Record<Cue, (k: number, x?: number) => void>> = {
   ultSlash: k => { ub('ult_slash', { gain: 1, jitter: 0.02 }); audio.tone(60, 0.8, { to: 30, gain: 0.5 * (k || 1) }); },
   scroll: k => ub('scroll', { gain: 0.45 + 0.3 * k }),
   hound: k => ub('hound', { gain: 0.45 + 0.4 * k }),
+  // 11-18 打出界: a body into the water (a heavy slap, a wash of spray) / down a gully (a scrape, the thud far below a beat later) —
+  // no new samples: the body fall pitched down, filtered noise for the water and the dust
+  splash: k => { ub('body_fall', { gain: 0.5 + 0.3 * k, rate: 0.75, jitter: 0.04 }); audio.noise(0.9, { from: 2400, to: 300, gain: 0.32 * (0.6 + 0.4 * k), type: 'lowpass' }); audio.noise(0.45, { from: 5000, to: 1500, gain: 0.12, type: 'highpass', delay: 0.05 }); },
+  dropFar: k => { ub('skid', { gain: 0.35 * (0.6 + 0.4 * k), rate: 0.8 }); ub('body_fall', { gain: 0.45 * (0.6 + 0.4 * k), rate: 0.7, delay: 0.42 }); audio.noise(0.6, { from: 700, to: 90, gain: 0.18, type: 'lowpass', delay: 0.42 }); },
   stingWin: () => ub('sting_win', { gain: 0.9, jitter: 0 }),
   // act-37 (the user's): the stele's name struck through, waking after a death
   stingStele: () => ub('sting_stele', { gain: 0.9, jitter: 0 }), stingRevive: () => ub('sting_revive', { gain: 0.9, jitter: 0 }),

@@ -20,14 +20,24 @@ const PLAY0 = { ...PLAY }, AREA0 = { ...AREA };
  *  Layout and locale coordinates stay written for the old stage and go through SX / SZ: inside the old floor they scale by 2 about
  *  the origin, outside it they shift outward by the floor's growth (so a wing group keeps its distance from the floor's edge and its
  *  size). setStage(true) before assembling a big room, setStage(false) for the yard; PLAY / AREA are updated in place. */
-export const STAGE_BIG = { on: false };
-export const SX = (x: number) => !STAGE_BIG.on ? x : x > PLAY0.x1 ? x + PLAY0.x1 : x < PLAY0.x0 ? x + PLAY0.x0 : x * 2;
-export const SZ = (z: number) => !STAGE_BIG.on ? z : z > PLAY0.z1 ? z + PLAY0.z1 : z < PLAY0.z0 ? z + PLAY0.z0 : z * 2;
-export function setStage(big: boolean) {
-  STAGE_BIG.on = big;
+/** 11-18 屋子形态 (用户：「场景再大些，形态多样一些」): the stretch is per axis now (kx across, kz in depth; 2 = the act-19 2x stage),
+ *  so a room's shape (asm/roomShape.ts) can ask for a floor up to ≈ 30 × 40 m. Everything outside the old floor still just shifts out
+ *  by the floor's growth. */
+export const STAGE_BIG = { on: false, kx: 2, kz: 2 };
+export const SX = (x: number) => !STAGE_BIG.on ? x : x > PLAY0.x1 ? x + PLAY0.x1 * (STAGE_BIG.kx - 1) : x < PLAY0.x0 ? x + PLAY0.x0 * (STAGE_BIG.kx - 1) : x * STAGE_BIG.kx;
+export const SZ = (z: number) => !STAGE_BIG.on ? z : z > PLAY0.z1 ? z + PLAY0.z1 * (STAGE_BIG.kz - 1) : z < PLAY0.z0 ? z + PLAY0.z0 * (STAGE_BIG.kz - 1) : z * STAGE_BIG.kz;
+/** the floor grid's step (m): 7 cells, a wall's thickness — the big floor's edges sit on it (asm/roomShape.ts) */
+export const GRID = 0.49;
+const snapG = (v: number) => Math.round(v / GRID) * GRID;
+export function setStage(big: boolean, k: { x: number; z: number } = { x: 2, z: 2 }) {
+  STAGE_BIG.on = big; STAGE_BIG.kx = k.x; STAGE_BIG.kz = k.z;
   Object.assign(PLAY, { x0: SX(PLAY0.x0), x1: SX(PLAY0.x1), z0: SZ(PLAY0.z0), z1: SZ(PLAY0.z1) });
+  // (the big floor's edges on the floor grid (asm/roomShape.ts), so the walls built from it line up with the cells)
+  if (big) Object.assign(PLAY, { x0: snapG(PLAY.x0), x1: snapG(PLAY.x1), z0: snapG(PLAY.z0), z1: snapG(PLAY.z1) });
   Object.assign(AREA, { x0: SX(AREA0.x0), x1: SX(AREA0.x1), z0: SZ(AREA0.z0), z1: SZ(AREA0.z1) });
 }
+/** the stage as it is now (to put it back after building something else ahead of time) */
+export const stageNow = () => ({ big: STAGE_BIG.on, k: { x: STAGE_BIG.kx, z: STAGE_BIG.kz } });
 export const inPlay = (x: number, z: number) => x > PLAY.x0 && x < PLAY.x1 && z > PLAY.z0 && z < PLAY.z1;
 
 // ------------------------------------------------------------------ colour and frame helpers

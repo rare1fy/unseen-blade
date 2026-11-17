@@ -191,6 +191,16 @@ export function assemble(spec: Spec, reg: Registry): { def: SceneDef; report: Re
         for (const cv of spec.arena.covers) arenaClear.push({ x0: cv.x - cv.hx - 0.3, x1: cv.x + cv.hx + 0.3, z0: cv.z - cv.hz - 0.3, z1: cv.z + cv.hz + 0.3 });
         const w = spec.arena.wall, t = w.gap + w.thick + 0.2;
         arenaClear.push({ x0: PLAY.x0 - t, x1: PLAY.x0, z0: PLAY.z0 - t, z1: PLAY.z1 }, { x0: PLAY.x1, x1: PLAY.x1 + t, z0: PLAY.z0 - t, z1: PLAY.z1 }, { x0: PLAY.x0 - t, x1: PLAY.x1 + t, z0: PLAY.z0 - t, z1: PLAY.z0 });
+        // 11-18 屋子形态: what stands on the walled-off parts (the place's infill), and no grass in the water / on a bridge
+        const sh = spec.arena.shape;
+        if (sh) {
+          sh.solid.forEach((rc, i) => {
+            const back = rc.z0 > sh.box.z0 + 0.1, front = rc.z1 < sh.box.z1 - 0.1;
+            try { loc.infill?.(c, { rect: rc, p: place((rc.x0 + rc.x1) / 2, (rc.z0 + rc.z1) / 2, 0, 700 + i), shape: sh, layout, back, front }); } catch (e) { report.warnings.push(`infill ${i}: ${String((e as Error)?.message ?? e)}`); }
+            arenaClear.push({ x0: rc.x0 - t, x1: rc.x1 + t, z0: rc.z0 - t, z1: rc.z1 + t });
+          });
+          for (const q of [...sh.pits, ...sh.bridges]) arenaClear.push({ x0: q.x0 - 0.2, x1: q.x1 + 0.2, z0: q.z0 - 0.2, z1: q.z1 + 0.2 });
+        }
       }
       loc.far?.(c, { layout, p: place(0, 0, 0, 3) });
       if (spec.season === 'winter') snowPass(c, walk);

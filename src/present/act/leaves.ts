@@ -21,7 +21,7 @@ export class Leaves {
   private md = new Float32Array(MOTES * 8); private mLive = 0; private cols: number[]; private m4 = new THREE.Matrix4(); private q = new THREE.Quaternion(); private e = new THREE.Euler(0, 0, 0, 'YXZ');
   private fallT = 0; private wind = new THREE.Vector2(0.35, 0.1); private tmpC = new THREE.Color();
   on: boolean;
-  constructor(season: string, o: { rest?: number; fall?: number; wind?: number } = {}) {
+  constructor(season: string, o: { rest?: number; fall?: number; wind?: number; /** 11-18 屋子形态: where a leaf may lie (the shape's floor: not on the water, not on a walled-off block) */ where?: (x: number, z: number) => boolean } = {}) {
     this.cols = PAL[season] ?? PAL.autumn; this.on = this.cols.length > 0;
     const g = new THREE.BoxGeometry(0.15, 0.018, 0.09);
     this.mesh = new THREE.InstancedMesh(g, new THREE.MeshLambertMaterial({ color: 0xffffff }), MAX); this.mesh.count = 0; this.mesh.frustumCulled = false; this.mesh.castShadow = false; this.mesh.receiveShadow = true;
@@ -29,9 +29,11 @@ export class Leaves {
     this.motes = new THREE.InstancedMesh(new THREE.BoxGeometry(0.09, 0.09, 0.09), new THREE.MeshBasicMaterial({ color: 0xffe9a8, transparent: true, opacity: 0.95, depthWrite: false, toneMapped: false }), MOTES);
     this.motes.count = 0; this.motes.frustumCulled = false; this.motes.renderOrder = 5;
     scene.add(this.mesh, this.motes);
-    this.fallRate = o.fall ?? 1.2; this.wind.multiplyScalar(o.wind ?? 1);
-    if (this.on) for (let i = 0; i < (o.rest ?? 90); i++) this.add(PLAY.x0 + Math.random() * (PLAY.x1 - PLAY.x0), 0, PLAY.z0 + Math.random() * (PLAY.z1 - PLAY.z0), 0, 0, 0, false);
+    this.fallRate = o.fall ?? 1.2; this.wind.multiplyScalar(o.wind ?? 1); this.where = o.where ?? null;
+    if (this.on) for (let i = 0, t = 0; i < (o.rest ?? 90) && t < (o.rest ?? 90) * 4; t++) { const x = PLAY.x0 + Math.random() * (PLAY.x1 - PLAY.x0), z = PLAY.z0 + Math.random() * (PLAY.z1 - PLAY.z0); if (this.where && !this.where(x, z)) continue; this.add(x, 0, z, 0, 0, 0, false); i++; }
   }
+  /** where a leaf may come to rest (null = anywhere): one landing elsewhere (in the water, on a wall top) is gone */
+  private where: ((x: number, z: number) => boolean) | null;
   private fallRate: number;
   /** a leaf at (x, y, z) moving (vx, vy, vz); air = falling / flying, else lying on the ground. Returns its slot or −1 */
   private add(x: number, y: number, z: number, vx: number, vy: number, vz: number, air: boolean, s = 1) {
@@ -99,7 +101,7 @@ export class Leaves {
         d[o + L.vy] = Math.max(-1.1, d[o + L.vy] - 6 * dt); const sw = Math.sin(d[o + L.age] * 3.1 + d[o + L.ph]) * 0.6;
         d[o + L.px] += (d[o + L.vx] + sw) * dt; d[o + L.py] += d[o + L.vy] * dt; d[o + L.pz] += (d[o + L.vz] + sw * 0.4) * dt;
         d[o + L.yaw] += d[o + L.spin] * dt; d[o + L.spin] *= Math.exp(-dt * 0.8); d[o + L.flip] += d[o + L.spin] * dt * 0.6;
-        if (d[o + L.py] <= 0.012) { d[o + L.py] = 0.012; d[o + L.air] = 0; d[o + L.flip] = 0; d[o + L.age] = 0; }
+        if (d[o + L.py] <= 0.012) { d[o + L.py] = 0.012; d[o + L.air] = 0; d[o + L.flip] = 0; d[o + L.age] = 0; if (this.where && !this.where(d[o + L.px], d[o + L.pz])) d[o + L.age] = d[o + L.life] + 1; }
       } else if (d[o + L.age] > d[o + L.life]) { // an old leaf on the ground goes: swap the last one in
         const last = --this.live; if (i !== last) { d.copyWithin(o, last * N, last * N + N); const c = new THREE.Color(); this.mesh.getColorAt(last, c); this.mesh.setColorAt(i, c); this.mesh.instanceColor!.needsUpdate = true; i--; } continue;
       }

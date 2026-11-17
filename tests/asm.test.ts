@@ -2,12 +2,16 @@
 // 失败条件：地标违规（landmark 的检查只当警告记下，这里要求为零）、大量悬空格子、某个插槽在所有种子里都放不进东西、
 // 某个组从来没被放下过（写坏了或尺寸声明错了）、灯数超预算。最后打印每个组的放置 / 拒绝次数，给做素材的人看。
 // 运行：npx vitest run tests/asm.test.ts（ASM_N=种子数，默认 6；ASM_LOCALE=地点 id 只查一个）
-import { assemble } from '../src/present/asm/assemble';
+import { assemble, stageLayout, mirrorLayout } from '../src/present/asm/assemble';
 import { REGISTRY, LOCALES, addLocales } from '../src/present/asm/registry';
 import { NINJA_LOCALES } from '../src/present/asm/ninja';
 import { HANMO_LOCALES } from '../src/present/asm/hanmo';
 addLocales(NINJA_LOCALES); addLocales(HANMO_LOCALES);
 import { pickSpec, sameness } from '../src/present/asm/pick';
+import { setStage } from '../src/present/scenes/props';
+import { makeShape, SHAPE_K, type PitKind } from '../src/present/asm/roomShape';
+import { arenaPlan } from '../src/present/asm/arena';
+import { withExits, type ExitId } from '../src/present/asm/exits';
 import type { Ctx } from '../src/present/scenes/stage';
 import type { Report, Spec, SeasonId, TimeId } from '../src/present/asm/types';
 import { VoxWorld } from '../src/present/look/voxkit';
@@ -66,6 +70,28 @@ describe('assembled scenes', () => {
     const big = new Set(recent.map(s => `${s.locale}|${s.layout}|${s.landmark}`));
     expect(big.size, 'distinct (locale, layout, landmark) in 10').toBeGreaterThanOrEqual(Math.min(10, 7));
   });
+  // 11-18 屋子形态: every place with shapes, every one of its shapes × its pit kinds × a few seeds, built on its own stage with the walls,
+  // pits, bridges and infill — no errors, nothing floating, no locale warnings; the groups still find room round the bigger floors
+  for (const loc of locales.filter(l => l.shapes?.length)) {
+    it(`${loc.name}: every room shape builds clean`, () => {
+      const problems: string[] = [], N2 = Math.max(2, Math.round(N / 2));
+      for (const id of loc.shapes!) for (const pit of (id === 'bridge' || id === 'pond' ? loc.pits ?? ['water'] : ['water'] as PitKind[])) for (let i = 0; i < N2; i++) {
+        setStage(true, SHAPE_K[id]);
+        const lay = loc.layouts[i % loc.layouts.length], mirror = i % 2 === 1, exits: ExitId[] = i % 3 === 0 ? ['left', 'right'] : i % 3 === 1 ? ['back'] : [];
+        const L = REGISTRY.layouts[lay], layout = withExits(mirror ? mirrorLayout(stageLayout(L)) : stageLayout(L), exits);
+        const seed = 3000 + i * 29, sp = makeShape(id, seed, { layout, pit });
+        const lms = L.landmark ? loc.landmarks.filter(l => l.foot.w <= L.landmark!.w + 0.01 && l.foot.d <= L.landmark!.d + 0.01) : [];
+        const spec: Spec = { locale: loc.id, layout: lay, mirror, landmark: lms.length ? lms[i % lms.length].id : null, season: (loc.seasons ?? SEAS)[i % (loc.seasons ?? SEAS).length], time: TIMES[i % 4], weather: 'clear', seed, exits, arena: arenaPlan(layout, exits, seed, loc.id, 'fight', sp) };
+        const { def, report } = assemble(spec, REGISTRY), f = fakeCtx();
+        def.build(f.c);
+        const bad = report.warnings.filter(w => !/light budget/.test(w));
+        if (bad.length) problems.push(`${report.name} [${id}/${pit} ${lay}${mirror ? '~' : ''} #${seed}]: ${bad.join(' | ')}`);
+      }
+      setStage(true);
+      if (problems.length) console.log('  shape warnings:\n   ' + problems.slice(0, 12).join('\n   '));
+      expect(problems, 'shape build warnings').toEqual([]);
+    });
+  }
 });
 
 function tally(r: Report, placed: Map<string, number>, rej: Map<string, Map<string, number>>, empty: Map<string, number>) {

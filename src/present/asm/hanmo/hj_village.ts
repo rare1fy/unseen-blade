@@ -10,6 +10,7 @@ import { LEAF_BY } from '../season';
 import type { Group, Landmark, Layout, Locale, Place, Rect, SeasonId } from '../types';
 import { HV, frame, faceOf, orient, house, yardWall, yardWallZ, roof, earth, jar, strawStack, disc, smoke, stain } from './hj_village_kit';
 import { mill, well, oxCart, cartJar, granary, shrine, stove, emberHeap, banner, bannerDown, jiRack, headbands, woodpile, trough, roller, grainHeap, winnow, fork, rack, rows, sweep, gate, wattle } from './hj_village_props';
+import { villageInfill } from './hj_infill';
 
 const night = (p: Place) => p.lamp > 0.3;
 const fireLight = (c: Ctx, p: Place, at: [number, number, number], k = 1, d = 4.5) => { if (night(p)) c.light(at, 0xff8a3a, 2.4 * p.lamp * k, d); };
@@ -278,5 +279,8 @@ export const hjVillage: Locale = {
   weathers: ['clear', 'rain', 'mist', 'snow'],
   landmarks: LANDMARKS, groups: G, filler: FILLER,
   floor, far, dress,
+  // 11-18 屋子形态: a corner of burnt yards (曲尺), a ruined compound to fight round (回廊), a lane between the houses (窄巷), the
+  // village stream with its plank bridge (过桥), the village pond (临水)
+  shapes: ['ell', 'cloister', 'neck', 'bridge', 'pond'], pits: ['water'], infill: villageInfill,
 };
 void roof;

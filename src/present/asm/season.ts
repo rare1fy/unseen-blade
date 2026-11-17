@@ -25,7 +25,9 @@ export function snowPass(c: Ctx, keep: Rect[]) {
   const inKeep = (x: number, z: number) => keep.some(r => (x + 0.5) * CELL > r.x0 && (x + 0.5) * CELL < r.x1 && (z + 0.5) * CELL > r.z0 && (z + 0.5) * CELL < r.z1);
   for (const [ck, y] of top) {
     const x = Math.floor(ck / 1024) - 512, z = (ck % 1024) - 512, cell = w.get(x, y, z); if (!cell || cell.g > 0) continue;
-    if (y <= -1) { if (inKeep(x, z)) { w.set(x, -1, z, trodden(cell.c)); continue; } { const f = Math.sin(x * 0.045 + 1.3) * Math.cos(z * 0.05) + Math.sin((x - z) * 0.025) * 0.7; w.set(x, -1, z, f > 0.55 ? SNOW_D : SNOW); } continue; }
+    // (11-18 屋子形态: a pit's bed — water, a gully — has its top below the floor: left as it is, the snow would fill it in)
+    if (y < -1) continue;
+    if (y === -1) { if (inKeep(x, z)) { w.set(x, -1, z, trodden(cell.c)); continue; } { const f = Math.sin(x * 0.045 + 1.3) * Math.cos(z * 0.05) + Math.sin((x - z) * 0.025) * 0.7; w.set(x, -1, z, f > 0.55 ? SNOW_D : SNOW); } continue; }
     w.set(x, y + 1, z, SNOW);
   }
   // tree crowns are flora prisms, not cells: whiten their tops

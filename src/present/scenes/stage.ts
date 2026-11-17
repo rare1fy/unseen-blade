@@ -32,7 +32,10 @@ export interface Ctx {
   w: VoxWorld;
   light(p: [number, number, number], color: number, intensity?: number, dist?: number): void;
   flame(p: [number, number, number], color: number, size?: number): void;
-  water(x0: number, z0: number, x1: number, z1: number, color: number): void;
+  /** a water plane over [x0..x1] × [z0..z1]; y = its height (default −0.05, flush with the floor) */
+  water(x0: number, z0: number, x1: number, z1: number, color: number, y?: number): void;
+  /** 11-18 屋子形态: the flat ground beyond the stage (at −2 cells) has a hole here, so a pit dug deeper than that shows its depth */
+  earthHole?(x0: number, z0: number, x1: number, z1: number): void;
   rune(x: number, y: number, z: number, r: number): void;
   onPhase(f: (k: number) => void): void;
   /** add a ready-made object (e.g. a prebuilt voxel arena mesh) to the stage */
@@ -150,8 +153,9 @@ export function prepareStage(def: SceneDef, options: { combat?: boolean } = {}):
   const g = globals(), root = new THREE.Group();
   const md = def.mood, lights: THREE.Light[] = [], flames: Array<{ m: THREE.Mesh; l?: THREE.PointLight; base: number; s: number }> = [], phase: Array<(k: number) => void> = [];
   // the ground beyond the stage
-  const earth = new THREE.Mesh(new THREE.PlaneGeometry(140, 140), toon(0xffffff, { map: earthTex(md.earth) })); earth.rotation.x = -Math.PI / 2; earth.position.y = -2 * CELL; earth.receiveShadow = true; earth.userData.earth = true; root.add(earth);
+  const earth: THREE.Mesh = new THREE.Mesh(new THREE.PlaneGeometry(140, 140), toon(0xffffff, { map: earthTex(md.earth) })); earth.rotation.x = -Math.PI / 2; earth.position.y = -2 * CELL; earth.receiveShadow = true; earth.userData.earth = true; root.add(earth);
   const w = new VoxWorld(CELL), cut = new VoxWorld(CELL), cards = new Cards(), amb: Ambient[] = [], cutRoot = new THREE.Group(); let eaves = 3.5;
+  const holes: Array<[number, number, number, number]> = [];
   root.add(cutRoot);
   const ctx: Ctx = {
     cards, cut,
@@ -169,10 +173,11 @@ export function prepareStage(def: SceneDef, options: { combat?: boolean } = {}):
       const l = new THREE.PointLight(color, intensity, dist, 1.8); l.position.set(...p); lights.push(l);   // (into the scene at attach)
     },
     flame(p, color, size = 0.12) { const m = new THREE.Mesh(new THREE.BoxGeometry(size, size * 1.4, size), glow(color, 3)); m.position.set(...p); root.add(m); flames.push({ m, base: size, s: Math.random() * 10 }); },
-    water(x0, z0, x1, z1, color) {
+    water(x0, z0, x1, z1, color, y = -0.05) {
       const m = new THREE.Mesh(new THREE.PlaneGeometry(x1 - x0, z1 - z0), new THREE.MeshStandardMaterial({ color, roughness: 0.15, metalness: 0.1, transparent: true, opacity: 0.82, emissive: new THREE.Color(color).multiplyScalar(0.25) }));
-      m.rotation.x = -Math.PI / 2; m.position.set((x0 + x1) / 2, -0.05, (z0 + z1) / 2); m.renderOrder = 2; root.add(m);
+      m.rotation.x = -Math.PI / 2; m.position.set((x0 + x1) / 2, y, (z0 + z1) / 2); m.renderOrder = 2; root.add(m);
     },
+    earthHole(x0, z0, x1, z1) { holes.push([x0, z0, x1, z1]); },
     rune(x, y, z, r) {
       const mat = new THREE.MeshBasicMaterial({ map: runeTex(), color: new THREE.Color(0.35, 1.6, 0.9), transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
       const m = new THREE.Mesh(new THREE.PlaneGeometry(r * 2, r * 2), mat); m.rotation.x = -Math.PI / 2; m.position.set(x, y, z); root.add(m);
@@ -183,6 +188,15 @@ export function prepareStage(def: SceneDef, options: { combat?: boolean } = {}):
     add(o) { root.add(o); },
   };
   def.build(ctx);
+  // (11-18 屋子形态: the ground plane cut round the pits — a shape with holes, its UVs as the plane's: 0..1 over the 140 m)
+  if (holes.length) {
+    const sh = new THREE.Shape([new THREE.Vector2(-70, -70), new THREE.Vector2(70, -70), new THREE.Vector2(70, 70), new THREE.Vector2(-70, 70)]);
+    // (the plane is turned −90° about x: its local y is world −z)
+    for (const [x0, z0, x1, z1] of holes) sh.holes.push(new THREE.Path([new THREE.Vector2(x0, -z1), new THREE.Vector2(x0, -z0), new THREE.Vector2(x1, -z0), new THREE.Vector2(x1, -z1)]));
+    const sg = new THREE.ShapeGeometry(sh), pa = sg.attributes.position, uv = new Float32Array(pa.count * 2);
+    for (let i = 0; i < pa.count; i++) { uv[i * 2] = (pa.getX(i) + 70) / 140; uv[i * 2 + 1] = (pa.getY(i) + 70) / 140; }
+    sg.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); earth.geometry.dispose(); earth.geometry = sg;
+  }
   if (options.combat) quietBattleGlow(w);
   for (const m of w.build({ glow: options.combat ? 1.35 : md.glowK ?? 2.6, chunk: STAGE_OPTS.chunk })) root.add(m);
   w.cells.clear();   // (the cells are meshed; a prepared place can wait a while, it should not hold two million of them)

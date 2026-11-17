@@ -89,6 +89,15 @@ export interface Locale {
   far?(c: Ctx, f: { layout: Layout; p: Place }): void;
   /** cards, decals and ambient particles at the end (buildFlora is called by the assembler before this) */
   dress?(c: Ctx, f: { layout: Layout; p: Place; clear: Rect[] }): void;
+  /** 11-18 屋子形态 (asm/roomShape.ts): the shapes this place's fight rooms take (one picked per room, never the last two again); absent =
+   *  always the plain square floor */
+  shapes?: import('./roomShape').ShapeId[];
+  /** what the 过桥 / 临水 shapes dig here: a river / pond ('water') or a gully ('ditch'); one picked per room (default water) */
+  pits?: import('./roomShape').PitKind[];
+  /** what stands on a walled-off part of the floor's box (a burnt compound, standing wheat …): rect in metres, its walls are already
+   *  built round it (on the floor's side). Keep it low toward the back of the room (a tall thing there hides the floor behind it from the
+   *  battle camera); `back` = the rect's edge that faces the back of the room borders the floor */
+  infill?(c: Ctx, f: { rect: Rect; p: Place; shape: import('./roomShape').ShapePlan; layout: Layout; back: boolean; front: boolean }): void;
 }
 export interface Spec { locale: string; layout: string; mirror: boolean; landmark: string | null; season: SeasonId; time: TimeId; weather: WeatherId; seed: number;
   /** 浪人篇: the roads out of the scene (asm/exits.ts); absent = none cut in */
