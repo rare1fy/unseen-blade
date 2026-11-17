@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { makeCanvas } from '../../platform/index';
 import { BODY_FONT, bodyText, bodyW } from './bodyFont';
+import { drawPix, pixW, PIX_H } from '../v2/pix';
 
 const F: Record<string, string[]> = {
   '0': ['.##.', '#..#', '#..#', '#..#', '.##.'], '1': ['.##.', '###.', '.##.', '.##.', '####'], '2': ['###.', '...#', '.##.', '#...', '####'],
@@ -14,7 +15,9 @@ const F: Record<string, string[]> = {
 const glyph = (ch: string) => F[ch] || F[' '];
 export function textCells(t: string) { let w = 0; for (const ch of t) w += glyph(ch)[0].length + 1; return { w: Math.max(0, w - 1), h: 5 }; }
 
-export interface TextSpec { text: string; x: number; y: number; cell?: number; bodyPx?: number; color?: string; outline?: string; align?: 'left' | 'center' | 'right'; alpha?: number; scale?: number; visible?: boolean }
+/** pix: the game's 12 px pixel font (Chinese too), outlined one font pixel all round; the value is device px per font pixel (an
+ *  integer, so the pixels stay square) — act-34 (用户：「下面的技能说明文字太小了，应该用像素带描边的文字」) */
+export interface TextSpec { text: string; x: number; y: number; cell?: number; bodyPx?: number; pix?: number; color?: string; outline?: string; align?: 'left' | 'center' | 'right'; alpha?: number; scale?: number; visible?: boolean }
 
 class Label {
   mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; tex: THREE.CanvasTexture | null = null; key = ''; w = 1; h = 1;
@@ -23,14 +26,15 @@ class Label {
     this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), this.mat); this.mesh.renderOrder = 50; scene.add(this.mesh);
   }
   set(s: TextSpec, dpr: number) {
-    const cell = s.cell ?? 3, col = s.color ?? '#fff6e2', ol = s.outline ?? '#140c10', key = `${s.text}|${cell}|${s.bodyPx}|${BODY_FONT.version}|${col}|${ol}|${dpr}`;
+    const cell = s.cell ?? 3, col = s.color ?? '#fff6e2', ol = s.outline ?? '#140c10', key = `${s.text}|${cell}|${s.bodyPx}|${s.pix}|${BODY_FONT.version}|${col}|${ol}|${dpr}`;
     if (key !== this.key) {
-      this.key = key; const m = textCells(s.text), k = Math.max(1, Math.round(cell * dpr)), pad = s.bodyPx ? Math.ceil(2 * dpr) : k;
-      const W = s.bodyPx ? Math.ceil(bodyW(s.text, s.bodyPx * dpr)) + pad * 2 : m.w * k + pad * 2;
-      const H = s.bodyPx ? Math.ceil(s.bodyPx * dpr * 1.35) + pad * 2 : m.h * k + pad * 2;
+      this.key = key; const m = textCells(s.text), k = Math.max(1, Math.round(cell * dpr)), pk = Math.max(1, Math.round(s.pix ?? 1)), pad = s.pix ? pk : s.bodyPx ? Math.ceil(2 * dpr) : k;
+      const W = s.pix ? pixW(s.text) * pk + pad * 2 : s.bodyPx ? Math.ceil(bodyW(s.text, s.bodyPx * dpr)) + pad * 2 : m.w * k + pad * 2;
+      const H = s.pix ? PIX_H * pk + pad * 2 : s.bodyPx ? Math.ceil(s.bodyPx * dpr * 1.35) + pad * 2 : m.h * k + pad * 2;
       const c = makeCanvas(Math.max(1, W), Math.max(1, H)), g = c.getContext('2d') as CanvasRenderingContext2D;
       const draw = (fill: string, grow: number) => { g.fillStyle = fill; let cx = pad; for (const ch of s.text) { const gl = glyph(ch); gl.forEach((row, r) => [...row].forEach((b, i) => { if (b === '#') g.fillRect(cx + i * k - grow, pad + r * k - grow, k + grow * 2, k + grow * 2); })); cx += (gl[0].length + 1) * k; } };
-      if (s.bodyPx) bodyText(g, s.text, pad, pad, s.bodyPx * dpr, col, 'left', ol);
+      if (s.pix) drawPix(g, s.text, pad, pad, { scale: pk, color: col, outline: ol, align: 'left' });
+      else if (s.bodyPx) bodyText(g, s.text, pad, pad, s.bodyPx * dpr, col, 'left', ol);
       else { draw(ol, Math.max(1, Math.round(k * 0.5))); draw(col, 0); }
       g.fillStyle = 'rgba(0,0,0,0.22)'; // a 1-device-px lower shade on each cell gives the digits weight
       this.tex?.dispose(); this.tex = new THREE.CanvasTexture(c as HTMLCanvasElement); this.tex.colorSpace = THREE.SRGBColorSpace;
@@ -42,6 +46,18 @@ class Label {
     this.mat.opacity = s.alpha ?? 1; this.mesh.visible = s.visible !== false && (s.alpha ?? 1) > 0.01 && !!s.text;
   }
 }
+
+/** the pixel digits (4×5, outlined) on a canvas, k device px per cell — for a number that lives on a 3D piece (act-34: the HP
+ *  number tilts with its bar) */
+export function digitsCanvas(text: string, k: number, col = '#fff6e2', ol = '#140c10') {
+  const m = textCells(text), pad = k, W = m.w * k + pad * 2, H = m.h * k + pad * 2;
+  const c = makeCanvas(Math.max(1, W), Math.max(1, H)), g = c.getContext('2d') as CanvasRenderingContext2D;
+  const draw = (fill: string, grow: number) => { g.fillStyle = fill; let cx = pad; for (const ch of text) { const gl = glyph(ch); gl.forEach((row, r) => [...row].forEach((b, i) => { if (b === '#') g.fillRect(cx + i * k - grow, pad + r * k - grow, k + grow * 2, k + grow * 2); })); cx += (gl[0].length + 1) * k; } };
+  draw(ol, Math.max(1, Math.round(k * 0.5))); draw(col, 0);
+  return { c, w: W, h: H };
+}
+/** pixel-font line width in CSS px at pk device px per font pixel */
+export const pixTextW = (t: string, pk: number, dpr: number) => (pixW(t) * Math.max(1, Math.round(pk)) + Math.max(1, Math.round(pk)) * 2) / dpr;
 
 /** Keyed text labels in CSS px (y down). set(key, spec) every frame or on change; render() after the 3D frame. */
 export class UiText {

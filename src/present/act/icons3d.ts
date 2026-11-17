@@ -54,11 +54,11 @@ const ART: Record<string, (set: Set3) => void> = {
     extrude(set, ring, -1, 0, C.br1); for (const [x, y] of ring.cells()) if (y === -1) set(x, y, 1, C.br2);
     box(set, -2, -12, -1, 1, -6, 0, C.red1); box(set, -1, -11, 1, 0, -7, 1, C.red2); box(set, -3, -14, -1, 2, -13, 0, C.red0);
   },
-  // 交谈: a bronze speech bubble, three dark dots, the tail at its lower left
+  // 交谈: a white speech bubble (act-34, 用户：「对白气泡用白色，不要黄色，黄色看不懂」), three dark dots, the tail at its lower left
   talk: set => {
     const m = new Mask().rect(-8, -2, 7, 6).rect(-7, -3, 6, 7).cut(-8, 6, -8, 6).cut(7, 6, 7, 6).cut(-8, -2, -8, -2).cut(7, -2, 7, -2).rect(-6, -6, -4, -4).rect(-7, -7, -6, -6);
-    pillow(set, m, -1, 1, C.br0, C.br1, 0, C.br2, 0);
-    for (const x of [-5, -1, 3]) box(set, x, 1, 3, x + 1, 2, 3, C.lea0);
+    pillow(set, m, -1, 1, 0x8c9198, 0xdde1e6, 0, 0xffffff, 0);
+    for (const x of [-5, -1, 3]) box(set, x, 1, 3, x + 1, 2, 3, 0x22242a);
   },
 };
 

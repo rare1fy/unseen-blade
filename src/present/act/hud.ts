@@ -16,7 +16,7 @@ import { V3 } from '../engine/world';
 import { TUNE } from './tune';
 import { SKIN, PALETTE, SkinBtn, SkinStick, SkinHp, type SkinId } from './skin';
 import { IronBtn, IronStick, IronHp, QteRing , type HintKey } from './ironUi';
-import { textCells } from '../ui3d/pixfont';
+import { textCells, pixTextW } from '../ui3d/pixfont';
 import { bodyW } from '../ui3d/bodyFont';
 import { ACTION_WORD, BIND, actKey, glyphTex, glyphArt, GLYPH_H } from './pad';
 
@@ -145,17 +145,21 @@ export class ActHud {
     // its rim (never on the button face); with a keyboard or a pad the key follows the word
     for (const n of Object.keys(this.btns) as BtnName[]) {
       // act-30 之后: the keys follow the binding table (rebindable in the pause menu); on a pad the button is drawn, in its maker's look
-      const b = this.btns[n], word = n === 'attack' && b instanceof IronBtn && b.talk ? '交谈' : ACTION_WORD[n], dev = inp.lastDevice, px = Math.max(10, Math.round(13 * this.k)), y = b.y + b.size * 0.5 + 9 * this.k;
+      // act-34 (用户：「下面的技能说明文字太小了，应该用像素带描边的文字」): the game's pixel font, outlined, at least 2 device px per font
+      // pixel on a 1x screen (24 px tall on a 720p desktop, ~12 px on a phone held sideways)
+      const dpr = this.L.dpr || 1, pk = Math.max(1, Math.ceil(14 * this.k * dpr / 12)), lh = 14 * pk / dpr;
+      const b = this.btns[n], word = n === 'attack' && b instanceof IronBtn && b.talk ? '交谈' : ACTION_WORD[n], dev = inp.lastDevice, px = lh * 0.8, y = b.y + b.size * 0.5 + lh * 0.5 + 2 * this.k;
       const t = dev === 'key' ? `${word} ${actKey(n)}` : word;
       let x = b.x;
-      if (dev === 'pad' && this.on) { const gi = BIND.pad[n][0], gh = px * 1.3, gw = glyphArt(gi).w / GLYPH_H * gh, gap = px * 0.3, ww = bodyW(word, px); x = b.x - (gap + gw) / 2; this.glyph(n, gi, b.x - (ww + gap + gw) / 2 + ww + gap, y, gh); }
+      if (dev === 'pad' && this.on) { const gi = BIND.pad[n][0], gh = px * 1.3, gw = glyphArt(gi).w / GLYPH_H * gh, gap = px * 0.3, ww = pixTextW(word, pk, dpr); x = b.x - (gap + gw) / 2; this.glyph(n, gi, b.x - (ww + gap + gw) / 2 + ww + gap, y, gh); }
       else this.glyph(n, null, 0, 0, 0);
-      this.L.text.set('act.btn.' + n, { text: t, x, y, bodyPx: px, color: '#f0e6cf', outline: '#140c0a', align: 'center', visible: this.on });   // (the HD body font: the pixel numerals have no CJK)
+      this.L.text.set('act.btn.' + n, { text: t, x, y, pix: pk, color: '#f4ecd8', outline: '#140c0a', align: 'center', visible: this.on });
     }
     if (this.flask instanceof IronHp) this.flask.intent = this.intent;
     this.flask.update(dt); this.sparks.update(dt);
     const st = this.flask.st, bar = this.flask.barAt();
-    this.L.text.set('act.hp', { text: `${Math.max(0, Math.round(st.hp))} / ${st.maxHp}`, x: bar.x, y: bar.y, cell: Math.max(1, Math.round(bar.h * 0.62 / 5)), color: '#fff0d2', outline: '#21100e', align: 'center', visible: this.on });   // act-20: pixel digits again (user: 「金币数、血量、伤害漂字这些还是想像素」)
+    if (this.flask instanceof IronHp) this.L.text.hide('act.hp');   // act-34: the iron bar draws its own number, tilted with it
+    else this.L.text.set('act.hp', { text: `${Math.max(0, Math.round(st.hp))} / ${st.maxHp}`, x: bar.x, y: bar.y, cell: Math.max(1, Math.round(bar.h * 0.62 / 5)), color: '#fff0d2', outline: '#21100e', align: 'center', visible: this.on });   // act-20: pixel digits again (user: 「金币数、血量、伤害漂字这些还是想像素」)
     // the purse: a copper coin (a square-holed coin, in the UI layer) and the count
     if (!this.coinIcon) {
       const g = new THREE.Group(), m = new THREE.MeshBasicMaterial({ color: 0xd09040 }), d = new THREE.MeshBasicMaterial({ color: 0x5a3a18 });

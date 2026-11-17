@@ -132,14 +132,14 @@ const MEAL_GLYPH: Record<string, string[]> = {
   wine: ['....####....', '.....##.....', '....#oo#....', '....#oo#....', '...#oooo#...', '..#oooooo#..', '.#oooooooo#.', '.#oo####oo#.', '.#oooooooo#.', '.#oooooooo#.', '..########..', '............'],
 };
 const LEAVE = ['############', '#..........#', '#.########.#', '#.#......#.#', '#.#......#.#', '#.#......#.#', '#.#....#.#.#', '#.#......#.#', '#.#......#.#', '#.#......#.#', '#.#......#.#', '###......###'];
-/** act-29: a bronze speech bubble (three dots), a small relief model for over a person's head */
+/** act-29: a speech bubble (three dots), a small relief model for over a person's head — white since act-34 (用户：「对白气泡用白色，不要黄色，黄色看不懂」) */
 function npcBubble() {
   const rows = ['.ooooooo.', 'ohhhhhhho', 'oh.r.r.do', 'oh.....do', 'odddddddo', '.oo.ooooo', '..od.....', '..o......'];
   const H = rows.length, W = rows[0].length, s = 1 / W, gs: THREE.BufferGeometry[] = [], col = new THREE.Color();
-  const C: Record<string, number> = { o: 0xc08a44, h: 0xf0c070, d: 0x7a5428, r: 0x2a1a10 };
+  const C: Record<string, number> = { o: 0xd6dade, h: 0xffffff, d: 0x8c9198, r: 0x22242a };
   rows.forEach((row, y) => { for (let x = 0; x < W; x++) { const ch = row[x], c = C[ch]; if (c == null) continue; const g = new THREE.BoxGeometry(s, s, s * (ch === 'r' ? 1.4 : 2)); g.translate((x - W / 2 + 0.5) * s, (H / 2 - y - 0.5) * s, 0); col.setHex(c); const n = g.attributes.position.count, cs = new Float32Array(n * 3); for (let i = 0; i < n; i++) { cs[i * 3] = col.r; cs[i * 3 + 1] = col.g; cs[i * 3 + 2] = col.b; } g.setAttribute('color', new THREE.BufferAttribute(cs, 3)); gs.push(g); } });
   const geo = mergeGeometries(gs); for (const g of gs) g.dispose();
-  return new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0xffb060, emissiveIntensity: 0.15 }));
+  return new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0xffffff, emissiveIntensity: 0.12 }));
 }
 /** act-34: what a room is built from (buildRoom reads these from the show; the prefetch passes a new game's first room) */
 interface RoomIn { isYard: boolean; room: number; recent: Spec[]; locale: string; plan: RoomPlan | null; nextRooms: RoomPlan[]; viewSpec: Partial<Spec> | null; forceSpec: Partial<Spec> | null; noArena: boolean }
@@ -292,13 +292,13 @@ export class ActShow {
     for (const n of this.npcs) {
       let m = this.marks.get(n.id);
       if (!m) {
-        const g = new THREE.Group(), bub = npcBubble(), ring = new THREE.Mesh(new THREE.RingGeometry(0.5, 0.6, 8, 1, Math.PI / 8).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffd27a, transparent: true, opacity: 0, depthWrite: false }));
+        const g = new THREE.Group(), bub = npcBubble(), ring = new THREE.Mesh(new THREE.RingGeometry(0.5, 0.6, 8, 1, Math.PI / 8).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xf2f4f8, transparent: true, opacity: 0, depthWrite: false }));
         ring.renderOrder = 3; g.add(bub); this.stage?.root.add(g); this.stage?.root.add(ring); m = { g, bub, ring, k: 0 }; this.marks.set(n.id, m);
       }
       const on = near === n.id && !this.noTalk; m.k += ((on ? 1 : 0) - m.k) * Math.min(1, dt * 10);
       const top = n.a.height ?? 1.8;
       m.g.position.set(n.x, top + 0.45 + Math.sin(t * 2.4 + n.x) * 0.06 + 0.12 * m.k, n.z); m.g.rotation.y = Math.sin(t * 0.9 + n.z) * 0.4;
-      m.bub.scale.setScalar(0.32 * (1 + 0.45 * m.k)); (m.bub.material as THREE.MeshLambertMaterial).emissiveIntensity = 0.15 + 0.55 * m.k;
+      m.bub.scale.setScalar(0.32 * (1 + 0.45 * m.k)); (m.bub.material as THREE.MeshLambertMaterial).emissiveIntensity = 0.12 + 0.3 * m.k;
       m.ring.position.set(n.x, 0.04, n.z); const rs = 1 + 0.08 * Math.sin(t * 6); m.ring.scale.set(rs, 1, rs); (m.ring.material as THREE.MeshBasicMaterial).opacity = 0.75 * m.k;
     }
     const nn = near ? this.npcs.find(x => x.id === near) : null;
