@@ -76,6 +76,14 @@ export interface FoeWorld {
   foes: Foe[];
   arrows: Arrow[];
   clamp(p: THREE.Vector3, r: number): void;
+  /** 11-18 屋子形态 (asm/roomShape.ts): a projectile's clamp — the walls stop it, the pits don't (absent = clamp) */
+  clampAir?(p: THREE.Vector3, r: number): void;
+  /** a foe's own clamp: knocked back hard or thrown, it can go over a pit's edge (and falls); walking, the edge holds it (absent = clamp) */
+  clampFoe?(f: Foe): void;
+  /** the way round to the hero over the floor grid: a unit direction to walk, or null = straight at her (absent = always straight) */
+  way?(f: Foe): THREE.Vector3 | null;
+  /** nothing that blocks sight between this foe and the hero (a ranged foe only shoots when it does; absent = always) */
+  sees?(f: Foe): boolean;
   /** act-19: after the clamp moved a foe by (dx, dz) — a wall / cover / prop pushed it back (the wall slam reads this) */
   pushed?(f: Foe, dx: number, dz: number): void;
   /** a deflected arrow strikes a foe */
@@ -205,7 +213,8 @@ export function updateFoe(f: Foe, w: FoeWorld, dt: number) {
 
 /** free movement: close in / keep away / circle, and decide when to attack */
 function think(f: Foe, w: FoeWorld, dt: number, dist: number, dir: THREE.Vector3, yawTo: number, face: (y: number, k?: number) => void) {
-  const can = w.heroAlive && f.cd <= 0 && attackers(w) < TUNE.maxAttackers && (clock.time >= calmUntil || f.role === 'boss'), side = V3(dir.z, 0, -dir.x).multiplyScalar(f.strafe);
+  // (11-18 屋子形态: a ranged foe behind a wall / a walled-off block does not loose at her — its arrow would hit the wall)
+  const can = w.heroAlive && f.cd <= 0 && attackers(w) < TUNE.maxAttackers && (clock.time >= calmUntil || f.role === 'boss') && (!w.sees || (f.role !== 'archer' && f.role !== 'taoist') || w.sees(f)), side = V3(dir.z, 0, -dir.x).multiplyScalar(f.strafe);
   let want = V3(), sp = f.d.speed, aim = false;
   const r = f.role;
   if (r === 'blade') {
@@ -261,7 +270,12 @@ function think(f: Foe, w: FoeWorld, dt: number, dist: number, dir: THREE.Vector3
     }
   }
   const m = want.length();
-  if (m > 0.05) { want.multiplyScalar(sp / m); face(aim ? yawTo : Math.atan2(want.x, want.z), 8); }
+  // 11-18 敌人绕路 (屋子形态): a foe walking at the hero with a wall, a walled-off block or a pit between them follows the floor grid's
+  // way round instead (the attack choices above are untouched: they still read the straight distance). Backing off / circling stay
+  // as they were — the clamp holds them on the floor. A ranged foe that cannot see her walks round too, until it can.
+  if (m > 0.05 && w.way && want.dot(dir) > 0.3 * m) { const wd = w.way(f); if (wd) want.copy(wd).multiplyScalar(m); }
+  if (aim && w.way && w.sees && !w.sees(f)) { const wd = w.way(f); if (wd) want.copy(wd); }
+  if (want.lengthSq() > 0.0025) { const l = want.length(); want.multiplyScalar(sp / l); face(aim && (!w.sees || w.sees(f)) ? yawTo : Math.atan2(want.x, want.z), 8); }
   else face(yawTo, 6);
   f.vel.lerp(want, Math.min(1, dt * 6));
   f.a.setRunning(f.vel.length() > 0.6);
@@ -351,7 +365,7 @@ function integrate(f: Foe, w: FoeWorld, dt: number) {
   // keep apart from each other and out of the hero
   for (const o of w.foes) if (o !== f && o.st !== 'dead') { const d = f.pos.clone().sub(o.pos).setY(0), l = d.length(), m = f.d.r + o.d.r; if (l < m && l > 1e-4) f.pos.addScaledVector(d, ((m - l) / l) * (o.d.mass / (o.d.mass + f.d.mass))); }
   if (w.heroAlive && f.st !== 'strike' && w.heroY < 0.6) { const d = f.pos.clone().sub(w.heroPos).setY(0), l = d.length(), m = f.d.r + w.heroR; if (l < m && l > 1e-4) f.pos.addScaledVector(d, (m - l) / l); }
-  const bx = f.pos.x, bz = f.pos.z; w.clamp(f.pos, f.d.r); if (w.pushed && (f.pos.x !== bx || f.pos.z !== bz)) w.pushed(f, f.pos.x - bx, f.pos.z - bz);
+  const bx = f.pos.x, bz = f.pos.z; if (w.clampFoe) w.clampFoe(f); else w.clamp(f.pos, f.d.r); if (w.pushed && (f.pos.x !== bx || f.pos.z !== bz)) w.pushed(f, f.pos.x - bx, f.pos.z - bz);
   f.a.yaw = f.yaw;
 }
 
@@ -421,7 +435,7 @@ export class Arrow {
       // an arrow skimming past a dashing hero: a perfect dodge (it flies on)
       this.grazed = true; w.dodged(this.p.clone());
     } else if (w.heroAlive && !this.grazed && w.heroY < 1.6 && Math.hypot(this.p.x - w.heroPos.x, this.p.z - w.heroPos.z) < w.heroR + 0.2) { w.hurtHero(this.dmg, this.p.clone().addScaledVector(this.v, -0.1)); this.kill(); return; }
-    const q = this.p.clone(); w.clamp(q, 0); if (q.distanceTo(this.p) > 0.3 || this.life <= 0) { fxSparks(this.p, 0xc0a080, 5, 2); this.kill(); }
+    const q = this.p.clone(); (w.clampAir ?? w.clamp)(q, 0); if (q.distanceTo(this.p) > 0.3 || this.life <= 0) { fxSparks(this.p, 0xc0a080, 5, 2); this.kill(); }
   }
   /** cut out of the air: sent off flat along dir, fast, and now it hurts the foes */
   deflect(dir: THREE.Vector3) {
@@ -464,7 +478,7 @@ export class Talisman extends Arrow {
       }
       if (w.heroAlive && w.heroY < 1.7 && Math.hypot(this.p.x - w.heroPos.x, this.p.z - w.heroPos.z) < w.heroR + 0.3) { this.burst(w); return; }
     } else for (const f of w.foes) if (f.st !== 'dead' && Math.hypot(this.p.x - f.pos.x, this.p.z - f.pos.z) < f.d.r + 0.3) { this.burst(w); return; }
-    const q = this.p.clone(); w.clamp(q, 0); if (q.distanceTo(this.p) > 0.3 || this.life <= 0) this.burst(w);
+    const q = this.p.clone(); (w.clampAir ?? w.clamp)(q, 0); if (q.distanceTo(this.p) > 0.3 || this.life <= 0) this.burst(w);
   }
   private burst(w: FoeWorld) {
     const c = V3(this.p.x, 0.06, this.p.z), col = this.friendly ? 0xffd070 : 0xff8a30;

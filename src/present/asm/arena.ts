@@ -8,6 +8,8 @@ import { M, PLAY, hash, SZ } from '../scenes/props';
 import type { Ctx } from '../scenes/stage';
 import type { Layout, Rect } from './types';
 import { exitInfo, type ExitId } from './exits';
+import { FloorGrid, type ShapePlan } from './roomShape';
+import { buildShape } from './shapeBuild';
 
 export type WallStyle = 'earth' | 'wattle' | 'brick';
 export type CoverKind = 'well' | 'mill' | 'cart' | 'stones' | 'ding' | 'stele' | 'trough';
@@ -16,16 +18,21 @@ export type PropKind = 'pot' | 'crate' | 'hay' | 'oil' | 'pillar' | 'fence' | 'r
 export interface Gate { id: ExitId | 'path'; x: number; z: number; along: 'x' | 'z'; w: number; open: boolean; out: [number, number] }
 export interface Cover { kind: CoverKind; x: number; z: number; hx: number; hz: number; rot: 0 | 1 }
 export interface ArenaPlan { style: WallStyle; gates: Gate[]; covers: Cover[]; props: Array<{ kind: PropKind; x: number; z: number; rot?: 0 | 1 }>;
-  /** the wall's inner face sits this far outside PLAY (m) and it is this thick / tall */ wall: { gap: number; thick: number; h: number } }
+  /** the wall's inner face sits this far outside PLAY (m) and it is this thick / tall */ wall: { gap: number; thick: number; h: number };
+  /** 11-18 屋子形态: the room's shape (asm/roomShape.ts) — its walls follow the floor's outline, its pits and bridges; absent = the
+   *  act-19 rectangle (the title screens) */
+  shape?: ShapePlan }
 
 export const WALL = { gap: 0.1, thick: 0.49, h: 1.19 };
 export const styleOf = (locale: string): WallStyle => locale === 'hj_field' ? 'wattle' : locale === 'hj_temple' ? 'brick' : 'earth';
 const COVERS: Record<WallStyle, CoverKind[]> = { earth: ['well', 'mill', 'cart', 'stones'], wattle: ['cart', 'trough', 'mill', 'stones'], brick: ['ding', 'stele', 'stones', 'well'] };
 const COVER_SIZE: Record<CoverKind, [number, number]> = { well: [0.75, 0.75], mill: [0.8, 0.8], cart: [1.15, 0.65], stones: [0.7, 0.6], ding: [0.6, 0.6], stele: [0.75, 0.4], trough: [1.0, 0.45] };
 
-/** the plan for one room: gates from the layout's roads and this room's exits, cover and props from the seed */
-export function arenaPlan(layout: Layout, exits: ExitId[], seed: number, locale: string, kind: 'fight' | 'boss' | 'calm'): ArenaPlan {
+/** the plan for one room: gates from the layout's roads and this room's exits, cover and props from the seed; with a shape (11-18 屋子形态)
+ *  the walls follow the shape's floor, cover and props stand only on its floor (never in the water, on a bridge or in a walled-off part) */
+export function arenaPlan(layout: Layout, exits: ExitId[], seed: number, locale: string, kind: 'fight' | 'boss' | 'calm', shape?: ShapePlan): ArenaPlan {
   const r = (k: number) => hash(seed * 7 + 11, k, 4513), style = styleOf(locale), gates: Gate[] = [];
+  const grid = shape ? new FloorGrid(shape, 2) : null;
   // the side exits cut their own gate; every road that runs out through the back wall gets one (the back exit's road is open)
   for (const id of exits) if (id !== 'back') { const e = exitInfo(layout, id); gates.push({ id, x: id === 'left' ? PLAY.x0 : PLAY.x1, z: (e.lane.z0 + e.lane.z1) / 2, along: 'z', w: 2.8, open: true, out: [id === 'left' ? -1 : 1, 0] }); }
   const back = exits.includes('back') ? exitInfo(layout, 'back') : null;
@@ -36,12 +43,15 @@ export function arenaPlan(layout: Layout, exits: ExitId[], seed: number, locale:
     gates.push({ id: open ? 'back' : 'path', x: cx, z: PLAY.z0, along: 'x', w, open, out: [0, -1] });
   }
   // the floor kept clear: the hero's way in, the gates' approaches, the boss's mark, the stations of a calm room
-  const clear: Rect[] = [{ x0: -2.6, x1: 2.6, z0: PLAY.z1 - 5.5, z1: PLAY.z1 + 1 }];
+  const ent = shape?.enter ?? [0, PLAY.z1 - 2.5];
+  const clear: Rect[] = [{ x0: ent[0] - 2.6, x1: ent[0] + 2.6, z0: ent[1] - 3, z1: PLAY.z1 + 1 }];
   for (const g of gates) clear.push(g.along === 'x' ? { x0: g.x - g.w / 2 - 1, x1: g.x + g.w / 2 + 1, z0: g.z, z1: g.z + 4.5 } : { x0: g.out[0] < 0 ? g.x : g.x - 4.5, x1: g.out[0] < 0 ? g.x + 4.5 : g.x, z0: g.z - g.w / 2 - 1, z1: g.z + g.w / 2 + 1 });
   clear.push({ x0: -2.6, x1: 2.6, z0: SZ(-4.6) - 2.6, z1: SZ(-4.6) + 2.6 });
   if (kind === 'calm') clear.push({ x0: -5.5, x1: 5.5, z0: -3.4, z1: 1.6 });
+  // (the bridges and the way onto them stay open: a crate on a bridge would shut the way across)
+  for (const b of shape?.bridges ?? []) clear.push({ x0: b.x0 - 0.6, x1: b.x1 + 0.6, z0: b.z0 - 2.2, z1: b.z1 + 2.2 });
   const inClear = (x: number, z: number, pad: number) => clear.some(c => x > c.x0 - pad && x < c.x1 + pad && z > c.z0 - pad && z < c.z1 + pad);
-  const inFloor = (x: number, z: number, pad: number) => x > PLAY.x0 + pad && x < PLAY.x1 - pad && z > PLAY.z0 + pad && z < PLAY.z1 - pad;
+  const inFloor = (x: number, z: number, pad: number) => grid ? grid.clear(x, z, pad) : x > PLAY.x0 + pad && x < PLAY.x1 - pad && z > PLAY.z0 + pad && z < PLAY.z1 - pad;
   // cover: on a jittered 3 m grid, ≥ 6 m apart, ≥ 2.5 m in from the walls
   const covers: Cover[] = [], kinds = COVERS[style], want = kind === 'calm' ? 2 : kind === 'boss' ? 2 : 3 + (r(1) < 0.4 ? 1 : 0);
   const spots: Array<[number, number, number]> = [];
@@ -79,7 +89,8 @@ export function arenaPlan(layout: Layout, exits: ExitId[], seed: number, locale:
   for (let i = 0, t = 0; i < 2 && t < 30; t++) { const side = r(salt++) < 0.5 ? -1 : 1, z = PLAY.z0 + 3 + r(salt++) * (PLAY.z1 - PLAY.z0 - 8); if (put('rack', side < 0 ? PLAY.x0 + 0.8 : PLAY.x1 - 0.8, z, 1)) i++; }
   many('banner', kind === 'calm' ? 1 : 3, 2.5);
   many('lamp', 2, 2.5);
-  return { style, gates, covers, props, wall: { ...WALL } };
+  // (a shaped room's walls stand right on the floor's edge: no gap — act/gates.ts reads wall.gap for the gate's centre line)
+  return { style, gates, covers, props, wall: { ...WALL, ...(shape ? { gap: 0 } : {}) }, ...(shape ? { shape } : {}) };
 }
 
 // ================================================================== voxels: walls, gates, cover
@@ -95,6 +106,8 @@ const PAL = {
 
 /** walls (with their gaps), gate frames, closed doors and cover into the scene's voxels */
 export function buildArena(c: Ctx, plan: ArenaPlan, seed: number) {
+  // 11-18 屋子形态: a shaped room's walls follow its floor (shapeBuild.ts), with its pits and bridges
+  if (plan.shape) { buildShape(c, plan.shape, plan, seed); return; }
   const box: B = (x0, y0, z0, x1, y1, z1, col) => { c.w.box(Math.min(x0, x1), y0, Math.min(z0, z1), Math.max(x0, x1), y1, Math.max(z0, z1), col); };
   const r = (k: number) => hash(seed * 3 + 5, k, 919);
   const H = M(plan.wall.h) - 1, T = M(plan.wall.thick), G = M(plan.wall.gap);
@@ -115,8 +128,8 @@ export function buildArena(c: Ctx, plan: ArenaPlan, seed: number) {
   void r;   // act-20: the cover pieces are breakable now — built by act/breakables.ts from coverVox()
 }
 
-/** one straight stretch of wall between a0..a1 (cells along the run), b0..b1 across it */
-function wallPiece(box: B, st: WallStyle, along: 'x' | 'z', a0: number, a1: number, b0: number, b1: number, H: number, r: (k: number) => number, salt: number) {
+/** one straight stretch of wall between a0..a1 (cells along the run), b0..b1 across it (shapeBuild.ts builds a shape's walls with it) */
+export function wallPiece(box: B, st: WallStyle, along: 'x' | 'z', a0: number, a1: number, b0: number, b1: number, H: number, r: (k: number) => number, salt: number) {
   const bx = (p0: number, y0: number, q0: number, p1: number, y1: number, q1: number, col: number) => along === 'x' ? box(p0, y0, q0, p1, y1, q1, col) : box(q0, y0, p0, q1, y1, p1, col);
   // a broken stretch: one in three runs drops 4–6 cells over 1–2 m somewhere in its middle
   const len = a1 - a0, brk = len > 40 && r(salt) < 0.45 ? { s: a0 + 8 + Math.floor(r(salt + 1) * (len - 40)), n: 14 + Math.floor(r(salt + 2) * 14), d: 4 + Math.floor(r(salt + 3) * 3) } : null;
@@ -155,7 +168,7 @@ function wallPiece(box: B, st: WallStyle, along: 'x' | 'z', a0: number, a1: numb
 }
 
 /** the gate: stone plinths, square posts, a lintel and a small two-tier eave; a closed one gets two board doors */
-function gateFrame(box: B, st: WallStyle, g: Gate, T: number, Gp: number) {
+export function gateFrame(box: B, st: WallStyle, g: Gate, T: number, Gp: number) {
   const along = g.along, half = Math.round(M(g.w) / 2), cA = along === 'x' ? M(g.x) : M(g.z);
   // across the wall: the wall's own band
   const b0 = along === 'x' ? M(PLAY.z0) - Gp - T : (g.out[0] < 0 ? M(PLAY.x0) - Gp - T : M(PLAY.x1) + Gp), b1 = b0 + T - 1;

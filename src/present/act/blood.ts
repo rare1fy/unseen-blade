@@ -17,6 +17,8 @@ const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _p = new THREE.Vect
 class Blood {
   private drops: Drop[] = []; private stains: Stain[] = [];
   private dm: THREE.InstancedMesh | null = null; private sm: THREE.InstancedMesh | null = null;
+  /** 11-18 屋子形态: where a drop leaves no stain (over the water / a gully: it would float at floor height); set per room */
+  skip: ((x: number, z: number) => boolean) | null = null;
   private init() {
     if (this.dm) return;
     this.dm = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshLambertMaterial({ color: 0xffffff }), MAXD);
@@ -44,6 +46,7 @@ class Blood {
     for (let i = 0; i < 5; i++) this.stain(x + R(-0.35, 0.35) * size, z + R(-0.35, 0.35) * size, size * R(0.35, 0.6), 1.2 + R(0, 0.6), 10);
   }
   private stain(x: number, z: number, s: number, grow = 0.08, life = R(6, 9)) {
+    if (this.skip?.(x, z)) return;
     if (this.stains.length >= MAXS) this.stains.shift();
     this.stains.push({ x: Math.round(x / 0.035) * 0.035, y: floor.at(x, z), z: Math.round(z / 0.035) * 0.035, s, grow, age: 0, life, c: pick(STAIN) });
   }

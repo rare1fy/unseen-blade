@@ -16,7 +16,7 @@ import { UiLayer } from '../ui3d/layer';
 import { Overlay } from '../v2/overlay';
 import { SkinBanner, SKIN, SKINS, SKIN_NAME, setSkin, type SkinId } from './skin';
 import { showStage, prepareStage, followShadow, flashSky, tickSkyFlash, type Stage, type PreparedStage } from '../scenes/stage';
-import { PLAY, SZ, setStage, STAGE_BIG } from '../scenes/props';
+import { PLAY, SZ, setStage, STAGE_BIG, stageNow } from '../scenes/props';
 import { addLocales, REGISTRY, LOCALES } from '../asm/registry';
 import { NINJA_LOCALES } from '../asm/ninja';
 import { HANMO_LOCALES } from '../asm/hanmo';
@@ -24,6 +24,7 @@ import { HANSHAN_LOCALES } from '../asm/hanshan';
 import './hanshan_people';   // act-37: 寒山坞 cold open — 文皎 at eleven, the two torch-bearer looks, 杜五's cart (ROSTER)
 import { assemble, mirrorLayout, stageLayout } from '../asm/assemble';
 import { arenaPlan, type ArenaPlan } from '../asm/arena';
+import { FloorGrid, FLOOR, PIT, makeShape, pickShape, SHAPE_K, SHAPE_CN, type ShapeId, type PitKind } from '../asm/roomShape';
 import { Solids, SLAM, slamSpeed, type Push } from './solids';
 import { Breakables } from './breakables';
 import { Gates } from './gates';
@@ -51,6 +52,10 @@ import type { BTarget, BEvent, BDamage } from './breakLogic';
 import type { Solid } from './solids';
 /** the floor's edge as a solid (the clamp's push): a slam surface */
 const WALL_SOLID: Solid = { id: 0, kind: 'wall', shape: 'box', x: 0, z: 0, hx: 0, hz: 0, r: 0, on: true, slam: true };
+/** 11-18 打出界: a reeling foe still moving faster than this (m/s) goes over a pit's edge (a light cut sends a man off at ≈ 3.3 m/s, a
+ *  流民 at ≈ 5.5, the closing cut a man at ≈ 10; it slows by e⁻⁶ᵗ, so ≈ 0.4 m on from where the light cut finds it, ≈ 1.4 m for the
+ *  closing cut); slower, the edge holds it. In the pit its middle → it falls (pitFalls) */
+const PIT_SPEED = 1.2;
 import { pickSpec } from '../asm/pick';
 import { exitInfo, withExits, type ExitId, type ExitInfo } from '../asm/exits';
 import type { Layout, Spec, Report } from '../asm/types';
@@ -160,9 +165,11 @@ function npcBubble() {
   return new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0xffffff, emissiveIntensity: 0.12 }));
 }
 /** act-34: what a room is built from (buildRoom reads these from the show; the prefetch passes a new game's first room) */
-interface RoomIn { isYard: boolean; room: number; recent: Spec[]; locale: string; plan: RoomPlan | null; nextRooms: RoomPlan[]; viewSpec: Partial<Spec> | null; forceSpec: Partial<Spec> | null; noArena: boolean }
+interface RoomIn { isYard: boolean; room: number; recent: Spec[]; locale: string; plan: RoomPlan | null; nextRooms: RoomPlan[]; viewSpec: Partial<Spec> | null; forceSpec: Partial<Spec> | null; noArena: boolean;
+  /** 11-18 屋子形态: force this room's shape (__dh.shape / captures) and its seed; the last rooms' shapes (not again so soon) */
+  shape?: ShapeId | null; shapes?: ShapeId[]; seed?: number | null }
 /** a room's place, built (off the live scene) and ready to put up */
-interface Room { spec: Spec; big: boolean; layout: Layout; arena: ArenaPlan | null; report: Report | null; prep: PreparedStage }
+interface Room { spec: Spec; big: boolean; layout: Layout; arena: ArenaPlan | null; report: Report | null; prep: PreparedStage; k: { x: number; z: number } }
 /** the prologue's first room (act-29) and its one way on */
 /** act-44: where her hips lie on 孙媪's mat when she first wakes (the mat runs along z; her head toward the wall, a metre clear) */
 const WAKE_MAT: [number, number] = [6.42, -6.2];   // (her neck on the headrest at the wall end, her heels short of the folded quilt)
@@ -175,22 +182,28 @@ const COLD_ROOM: RoomIn = { isYard: false, room: 0, recent: [], locale: 'hs_forg
  *  (setStage, which the caller sets again) */
 function prepRoom(o: RoomIn): Room {
   const { isYard } = o;
-  const seed = (Date.now() % 100000) + o.room * 977;
+  const seed = o.seed ?? (Date.now() % 100000) + o.room * 977;
   const base = pickSpec(seed, Object.values(REGISTRY.locales), REGISTRY.layouts, o.recent, { season: 'autumn', locale: o.locale });
   const spec: Spec = isYard ? { ...base, time: 'dusk', weather: 'clear', exits: ['back'] }
     : { ...base, time: o.room === 0 ? 'dusk' : base.time, weather: o.plan?.type === 'boss' ? 'clear' : base.weather, exits: o.nextRooms.length > 1 ? ['left', 'right'] : o.nextRooms.length ? ['back'] : [] };
   if (o.viewSpec) Object.assign(spec, { exits: [] }, o.viewSpec);
   if (o.forceSpec) Object.assign(spec, o.forceSpec);   // act-29: the prologue's snowy night
-  // act-19: the 黄巾 rooms stand on the 2x stage; the yard keeps the old one
-  const big = !isYard && spec.locale.startsWith('hj_'); setStage(big);
+  // act-19: the 黄巾 rooms stand on the 2x stage; the yard keeps the old one. 11-18 屋子形态 (用户：「场景再大些，形态多样一些」): a fight
+  // room on a big stage takes one of its place's shapes (the boss's, the calm rooms, the prologue's and the cutscenes' stay square)
+  const ptype = o.plan?.type ?? 'fight', calm = ptype === 'shop' || ptype === 'rest' || ptype === 'boon';
+  const loc = LOCALES[spec.locale], bigP = !isYard && spec.locale.startsWith('hj_');
+  const shapeId: ShapeId = !bigP || o.noArena ? 'square' : o.shape ?? (o.viewSpec || o.forceSpec ? 'square' : pickShape(loc?.shapes, calm ? 'calm' : ptype === 'boss' ? 'boss' : 'fight', spec.seed, o.shapes ?? []));
+  const k = SHAPE_K[shapeId];
+  const big = bigP; setStage(big, k);
   const lb = REGISTRY.layouts[spec.layout] ?? Object.values(LOCALES).flatMap(l => l.extraLayouts ?? []).find(l => l.id === spec.layout)!;
   const layout = withExits(spec.mirror ? mirrorLayout(stageLayout(lb)) : stageLayout(lb), spec.exits ?? []);
-  const ptype = o.plan?.type ?? 'fight', calm = ptype === 'shop' || ptype === 'rest' || ptype === 'boon';
-  const arena = big && !o.noArena ? arenaPlan(layout, (spec.exits ?? []) as ExitId[], spec.seed, spec.locale, calm ? 'calm' : ptype === 'boss' ? 'boss' : 'fight') : null;
+  const pits = loc?.pits ?? ['water'], pitK = pits[Math.floor(((spec.seed * 2654435761) >>> 0) / 4294967296 * pits.length) % pits.length];
+  const shape = big && !o.noArena && shapeId !== 'square' ? makeShape(shapeId, spec.seed, { layout, pit: pitK }) : undefined;
+  const arena = big && !o.noArena ? arenaPlan(layout, (spec.exits ?? []) as ExitId[], spec.seed, spec.locale, calm ? 'calm' : ptype === 'boss' ? 'boss' : 'fight', shape) : null;
   spec.arena = arena ?? undefined;
-  if (isYard) return { spec, big, layout, arena, report: null, prep: prepareStage(hideoutScene({ time: 'dusk', weather: 'clear' }), { combat: true }) };
+  if (isYard) return { spec, big, layout, arena, report: null, k, prep: prepareStage(hideoutScene({ time: 'dusk', weather: 'clear' }), { combat: true }) };
   const { def, report } = assemble(spec, REGISTRY);
-  return { spec, big, layout, arena, report, prep: prepareStage({ ...def, build(c) { try { def.build(c); } catch (e) { console.error('[act] assembly failed', e); } } }, { combat: true }) };
+  return { spec, big, layout, arena, report, k, prep: prepareStage({ ...def, build(c) { try { def.build(c); } catch (e) { console.error('[act] assembly failed', e); } } }, { combat: true }) };
 }
 
 /** 11-18 per blow: [hit-stop s (× TUNE.hitstop), camera push m, rumble (trauma × TUNE.shake), push-in share, hit sound] */
@@ -282,7 +295,7 @@ export class ActShow {
     const ready = this.pre && this.pre.locale === 'hs_forge' ? this.pre : null; this.pre = null;
     let r: Room; try { r = ready ?? prepRoom(COLD_ROOM); } catch (e) { console.error('[act] cold open failed', e); return null; }
     for (const f of this.foes) f.a.dispose(); this.foes.length = 0;
-    setStage(r.big); this.layout = r.layout; this.arena = null; this.spec = r.spec;
+    setStage(r.big, r.k); this.layout = r.layout; this.arena = null; this.spec = r.spec; this.grid = null;
     this.stage = r.prep.attach(); this.hud.on = false;
     const pov = new BlindPOV(this.L), co = coldOpenShots({ root: this.stage.root, pov });
     void audio.playMusic('bgm_coldopen', 0.8, 18);   // (act-37: from 18 s in, so its louder middle lands on the flashbacks)
@@ -442,6 +455,12 @@ export class ActShow {
   /** 继续游戏: the hideout with the saved progress */
   continueGame() { profile(); this.enterYard(); }
   solids = new Solids(); props: Breakables | null = null; gates: Gates | null = null; leaves: Leaves | null = null; private gustT = 0; arena: ArenaPlan | null = null; private lastPush: Push | null = null; private slamAt = new WeakMap<Foe, number>();
+  /** 11-18 屋子形态: this room's floor grid (null = the act-19 rectangle), the shapes of the run's last rooms, a forced shape (__dh.shape) */
+  grid: FloorGrid | null = null; private shapes: ShapeId[] = []; private forceShape: ShapeId | null = null; private forceSeed: number | null = null;
+  /** how long the last room took to build (ms, the place and its meshes; captures read it) */
+  buildMs = 0;
+  /** the foes going down into a pit (打出界): falling, then gone */
+  private falling: Array<{ f: Foe; t: number; vy: number; kind: PitKind; v: THREE.Vector3 }> = [];
   private coinsFx = new Coins(); private stations: Stations | null = null; private hitArcs = new HitArcs();
   /** __dh.scene: the spec overrides for a fight-less view of one place; the last assembler report */
   private viewSpec: Partial<Spec> | null = null; private lastReport: Report | null = null;
@@ -551,6 +570,13 @@ export class ActShow {
       // tests: an arrow from d metres in front of the hero, flying at it
       // agents / captures: a fight-less room in one place (the scene builders check their place with it) — returns the assembler's report
       scene: (id: string, seed?: number, o: Partial<Spec> = {}) => { this.viewSpec = { ...o, locale: id, ...(seed != null ? { seed } : {}) }; this.room = 0; this.locale = id; this.buildRoom(true); this.viewSpec = null; const r = this.lastReport; return r ? { name: r.name, spec: r.spec, placed: r.placed.length, rejected: r.rejected.map(x => x.id + ':' + x.issues.map(i => i.kind).join('/')), empty: r.empty, warnings: r.warnings, lights: r.lights } : null; },
+      // 11-18 屋子形态 (captures / tests): a fight room of this place in this shape (the next rooms pick their own again); null = pick
+      shape: (id: ShapeId | null, locale = 'hj_village', seed?: number) => {
+        this.startRun(); this.forceShape = id; this.locale = locale; if (this.plan) this.plan.locale = locale; if (seed != null) this.forceSeed = seed;
+        this.room = 1; this.buildRoom(false); this.forceShape = null; this.forceSeed = null;
+        const sp = this.arena?.shape; return sp ? { id: sp.id, name: SHAPE_CN[sp.id], box: sp.box, solid: sp.solid, pits: sp.pits, bridges: sp.bridges, floor: this.grid?.floorCount() ?? 0 } : { id: 'square' };
+      },
+      grid: () => this.grid,
       // agents / captures: a foe of any kind at (x, z), facing the hero (elite: the stronger variant, where the kind has one)
       spawn: (kind: EKind, x = 0, z = -2, elite = false) => { const f = spawnFoe(kind, V3(x, 0, z), this.hero.pos.clone(), elite); /* wp/foes: elite into spawnFoe */ f.st = 'move'; this.foes.push(f); return f.uid; },
       arrow: (d = 6) => { const h = this.hero, f = h.a.fwd(), p = h.pos.clone().addScaledVector(f, d).setY(1.25); this.arrows.push(new Arrow(p, Math.atan2(-f.x, -f.z), 8)); },
@@ -641,14 +667,14 @@ export class ActShow {
    *  coming up), off the live scene; the split only puts it up. (Continue goes to the hideout, which is quick to build.) */
   private prefetchNewGame() {
     this.pre?.prep.drop(); this.pre = null;
-    const keep = STAGE_BIG.on;
+    const keep = stageNow();
     try {
       // act-37: a new game opened on 寒山坞 (the cold open); act-40: with the cold open as black cards, the snowy village of 「七年后」 is
       // the first place again — built now, exactly as startPrologue will ask for it
       if (COLD_AS_CARDS) { const r = prepRoom(this.prologueRoomIn()); this.pre = { ...r, locale: PRO_ROOM.locale }; warm(r.prep.root); }
       else { const r = prepRoom(COLD_ROOM); this.pre = { ...r, locale: 'hs_forge' }; warm(r.prep.root); }
     } catch (e) { console.warn('[act] prefetch failed', e); }
-    setStage(keep);
+    setStage(keep.big, keep.k);
   }
   /** 模型查看页 (lab.ts, act-21, user: 「建模个白发女给我看看，在一个页面里看，带技能动作的」): the hideout's 试剑坪, the fine white-haired
    *  heroine before a dummy, a panel of moves (real button presses), views, the 2x pixels, the 7 cm model to switch to or stand beside.
@@ -732,6 +758,7 @@ export class ActShow {
     // 11-18 混音: each place its own room tail (the village's walls a short one, the open field barely any, the temple court long)
     audio.setRoom(ROOM_VERB[this.locale] ?? (this.room < 0 ? ROOM_VERB.yard : [0.6, 0.12]));
     for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = [];
+    this.falling = [];
     this.gates?.dispose(); this.gates = null; this.leaves?.dispose(); this.leaves = null; this.clearNpcs();
     for (const d of this.doors) d.g.parent?.remove(d.g); this.doors = []; this.stations?.dispose(); this.stations = null; this.coinsFx.clear();
     this.yard?.dispose(); this.yard = null; this.exitSign?.parent?.remove(this.exitSign); this.exitSign = null; this.barks?.clear();
@@ -742,13 +769,18 @@ export class ActShow {
     this.nextRooms = !isYard && this.plan && !this.viewSpec ? doorsFrom(this.room, this.visited, Math.random) : [];
     if (this.prologue === 1 && !this.viewSpec) this.nextRooms = [PRO_BOSS]; else if (this.prologue === 2) this.nextRooms = [];   // act-29
     // act-34: the place itself — built ahead of time when it can be (the title builds a new game's first room while it loads), else now
-    const want: RoomIn = { isYard, room: this.room, recent: this.recent, locale: this.locale, plan: this.plan, nextRooms: this.nextRooms, viewSpec: this.viewSpec, forceSpec: this.forceSpec, noArena: this.noArena };
+    const want: RoomIn = { isYard, room: this.room, recent: this.recent, locale: this.locale, plan: this.plan, nextRooms: this.nextRooms, viewSpec: this.viewSpec, forceSpec: this.forceSpec, noArena: this.noArena, shape: this.forceShape, shapes: this.shapes, seed: this.forceSeed };
     const ready = this.pre && !isYard && !this.viewSpec && this.prologue === 1 && this.room === 0 && this.pre.locale === this.locale ? this.pre : null;
     if (this.pre && this.pre !== ready) this.pre.prep.drop();
     this.pre = null;
-    const P = ready ?? prepRoom(want);
+    const t0 = performance.now(), P = ready ?? prepRoom(want); this.buildMs = Math.round(performance.now() - t0);
     const spec = P.spec; this.recent.push(spec); this.spec = spec;
-    setStage(P.big); this.layout = P.layout; this.arena = P.arena; if (P.report) this.lastReport = P.report;
+    setStage(P.big, P.k); this.layout = P.layout; this.arena = P.arena; if (P.report) this.lastReport = P.report;
+    // 11-18 屋子形态: the floor as a grid (the clamp, the foes' way round, the pits); the rectangle rooms have none
+    this.grid = P.arena?.shape ? new FloorGrid(P.arena.shape) : null;
+    { const g = this.grid; blood.skip = g ? (x, z) => g.at(x, z) === PIT : null; }
+    if (P.arena?.shape && !this.viewSpec) this.shapes.push(P.arena.shape.id);
+    if (isYard) this.shapes = [];
     const big = P.big;
     this.stage = P.prep.attach();
     if (isYard) Object.assign(PLAY, HIDEOUT.floor);   // act-20: the hideout 断碑古窑 (hideout.ts) is the yard now — its own stage and floor
@@ -759,15 +791,23 @@ export class ActShow {
       this.props = new Breakables(this.stage.root, this.solids); this.props.build(this.arena.props, this.arena.covers);
       // act-37: the snowy night's braziers (the prologue's village and temple): four warm points round the floor, where it is free
       if (spec.weather === 'snow' && spec.time === 'night') for (const [x, z] of [[PLAY.x0 + 1.6, PLAY.z0 + 1.8], [PLAY.x1 - 1.6, PLAY.z0 + 1.8], [PLAY.x0 + 1.6, PLAY.z1 - 3.2], [PLAY.x1 - 1.6, PLAY.z1 - 3.2]]) {
-        let px = x, pz = z; for (let t = 0; t < 8 && !this.solids.free(px, pz, 0.6, 0.3); t++) { px += (x < 0 ? 0.7 : -0.7); pz += 0.4; }
-        if (!this.solids.free(px, pz, 0.6, 0.3)) continue;
+        const ok = (px: number, pz: number) => this.solids.free(px, pz, 0.6, 0.3) && (!this.grid || this.grid.clear(px, pz, 0.7));
+        let px = x, pz = z; for (let t = 0; t < 8 && !ok(px, pz); t++) { px += (x < 0 ? 0.7 : -0.7); pz += 0.4; }
+        if (!ok(px, pz)) continue;
         this.stage.root.add(brazier(px, pz)); this.solids.add({ kind: 'prop', shape: 'circle', x: px, z: pz, r: 0.42 });
       }
       this.gates = new Gates(this.stage.root, this.arena);
+      // 11-18 敌人绕路: the way round also goes round the cover and every prop standing (the clamp pushes bodies off them; without this a
+      // foe walking round a block stalls against a pot or a cart in the way — the push-out is straight back along its walk). Their
+      // solids, grown by a man's half-width
+      if (this.grid) this.grid.block(this.solids.list.filter(s => s.on).map(s => ({ x0: s.x - s.hx - 0.3, x1: s.x + s.hx + 0.3, z0: s.z - s.hz - 0.3, z1: s.z + s.hz + 0.3 })));
     }
-    // fallen leaves on the floor, a few drifting down (act-19); none in winter or in the rain
-    this.leaves = new Leaves(spec.weather === 'rain' || spec.weather === 'snow' ? 'winter' : spec.season, { rest: big ? 100 : 40, fall: big ? 1.4 : 0.8 });
-    this.hero = new Hero(isYard ? V3(HIDEOUT.spawn[0], 0, HIDEOUT.spawn[1]) : V3(0, 0, SZ(5.0)), this.wearing); this.hero.moves = isYard || this.prologue ? ALL_MOVES : this.perks.moves; this.hero.perks = this.perks; this.hero.hp = Math.min(hp, maxHp); this.hero.maxHp = maxHp;   // (act-40 用户：「开局第一场战斗默认给主角解锁所有技能」) (11-18: this comment used to sit before the perks / hp assignments and swallowed them — the hero's own boons never applied and her HP reset each room)
+    // fallen leaves on the floor, a few drifting down (act-19); none in winter or in the rain (11-18: on the shape's floor only)
+    const lg = this.grid;
+    this.leaves = new Leaves(spec.weather === 'rain' || spec.weather === 'snow' ? 'winter' : spec.season, { rest: big ? 100 : 40, fall: big ? 1.4 : 0.8, where: lg ? (x, z) => lg.at(x, z) === FLOOR || !(x > PLAY.x0 && x < PLAY.x1 && z > PLAY.z0 && z < PLAY.z1) && lg.at(x, z) !== PIT : undefined });
+    // (11-18 屋子形态: a shaped room has its own way in — the 曲尺's front corner is walled off, the 窄巷's lane is off the middle)
+    const ent = this.arena?.shape?.enter[0] ?? 0;
+    this.hero = new Hero(isYard ? V3(HIDEOUT.spawn[0], 0, HIDEOUT.spawn[1]) : V3(ent, 0, SZ(5.0)), this.wearing); this.hero.moves = isYard || this.prologue ? ALL_MOVES : this.perks.moves; this.hero.perks = this.perks; this.hero.hp = Math.min(hp, maxHp); this.hero.maxHp = maxHp;   // (act-40 用户：「开局第一场战斗默认给主角解锁所有技能」) (11-18: this comment used to sit before the perks / hp assignments and swallowed them — the hero's own boons never applied and her HP reset each room)
     this.hero.qi = isYard ? Hero.QI_MAX : Math.min(Hero.QI_MAX, Math.max(qi, TUNE.qiStart));   // (11-17 气: carried on; a room starts with at least TUNE.qiStart)
     this.hero.a.yaw = isYard ? -0.6 : Math.PI;
     this.hud.flask.set({ hp: this.hero.hp, maxHp });
@@ -798,7 +838,7 @@ export class ActShow {
       if (this.hero !== h || this.phase !== 'intro') return;
       this.phase = 'fight'; this.spawnWave();
     });
-    this.log.push(`room ${this.room} ${spec.locale} ${spec.layout} ${spec.time}`);
+    this.log.push(`room ${this.room} ${spec.locale} ${spec.layout} ${spec.time} ${this.arena?.shape?.id ?? 'square'}`);
   }
   private openYard() {
     this.phase = 'yard'; this.wave = 0;
@@ -850,13 +890,16 @@ export class ActShow {
       after(i * 0.28, () => {
         if (this.phase !== 'fight') return;
         let p = V3();
-        for (let t = 0; t < 30; t++) {
-          // act-19 (2x stage): anywhere on the floor 5–12 m from the hero, clear of the walls' edge, the cover and the props
+        const gd = this.grid;
+        for (let t = 0; t < 40; t++) {
+          // act-19 (2x stage): anywhere on the floor 5–12 m from the hero, clear of the walls' edge, the cover and the props;
+          // 11-18 屋子形态: on the shape's floor (not in the water, on a bridge or in a walled-off part), and a walk away from her
           p = V3(R(PLAY.x0 + 1.5, PLAY.x1 - 1.5), 0, R(PLAY.z0 + 1.5, PLAY.z1 - 2.5));
           if (EDEFS[kindOr(k).kind].boss) p = V3(0, 0, SZ(-4.6));   // any region boss stands at the back
-          const d = p.distanceTo(hp);
-          if (d > 5 && d < 12 && this.foes.every(f => f.pos.distanceTo(p) > 1.4) && this.solids.free(p.x, p.z, 0.6, 0.3)) break;
+          const d = p.distanceTo(hp), onFloor = !gd || (gd.clear(p.x, p.z, 0.7) && !gd.sp.bridges.some(b => p.x > b.x0 - 1 && p.x < b.x1 + 1 && p.z > b.z0 - 1 && p.z < b.z1 + 1));
+          if (d > 5 && d < 12 && onFloor && this.foes.every(f => f.pos.distanceTo(p) > 1.4) && this.solids.free(p.x, p.z, 0.6, 0.3) && (!gd || t > 30 || gd.steps(p.x, p.z, hp.x, hp.z) >= 0)) break;
         }
+        if (gd && gd.at(p.x, p.z) !== FLOOR) { const q = gd.nearestFloor(p.x, p.z); p.set(q[0], 0, q[1]); }
         // the plan's kind (黄巾 ids; 'kind*' = its elite) — the boss gets its banner: name and slogan from EDEFS
         const ko = kindOr(k), f = spawnFoe(ko.kind, p, hp.clone(), ko.elite); this.foes.push(f);
         const bs = !!EDEFS[ko.kind].boss;
@@ -875,9 +918,9 @@ export class ActShow {
    *  the hero from a foe (a boss barely gives, a dummy and the hideout's people not at all); a dashing or airborne hero passes
    *  (the dash-cut goes through by design); whatever moved is held by the walls and the solids again */
   private separate() {
-    const h = this.hero, B: Array<{ p: THREE.Vector3; r: number; m: number; moved: boolean }> = [];
+    const h = this.hero, B: Array<{ p: THREE.Vector3; r: number; m: number; moved: boolean; f?: Foe }> = [];
     if (h && h.hp > 0 && h.st !== 'dash' && !h.airborne) B.push({ p: h.pos, r: h.r, m: 1, moved: false });
-    for (const f of this.foes) if (f.st !== 'dead') B.push({ p: f.pos, r: f.d.r * 0.9, m: f.kind === 'dummy' ? 1e6 : isBoss(f) ? 8 : f.d.mass, moved: false });
+    for (const f of this.foes) if (f.st !== 'dead') B.push({ p: f.pos, r: f.d.r * 0.9, m: f.kind === 'dummy' ? 1e6 : isBoss(f) ? 8 : f.d.mass, moved: false, f });
     for (const n of this.npcs) B.push({ p: V3(n.x, 0, n.z), r: 0.42, m: 1e6, moved: false });
     for (let i = 0; i < B.length; i++) for (let j = i + 1; j < B.length; j++) {
       const a = B[i], b = B[j], dx = b.p.x - a.p.x, dz = b.p.z - a.p.z, min = a.r + b.r, d2 = dx * dx + dz * dz;
@@ -887,7 +930,8 @@ export class ActShow {
       if (b.m < 1e6) { b.p.x += nx * over * wb; b.p.z += nz * over * wb; b.moved = true; }
     }
     const keep = this.lastPush;
-    for (const o of B) if (o.moved) this.clamp(o.p, o.r);
+    // (a foe knocked over a pit's edge stays loose there: the crowd's push must not hold it back on the floor)
+    for (const o of B) if (o.moved) { if (o.f) this.foeClamp(o.f); else this.clamp(o.p, o.r); }
     this.lastPush = keep;
   }
   private clamp = (p: THREE.Vector3, r: number) => {
@@ -899,12 +943,43 @@ export class ActShow {
         else p.z = Math.max(l.z0 + r, Math.min(l.z1 - r, p.z));
         this.lastPush = this.solids.pushOut(p, r); return; } }
     const ox = p.x, oz = p.z;
+    // 11-18 屋子形态: a shaped room holds bodies on its floor grid (walls, the walled-off parts, the pits — the hero never falls in; a
+    // foe going over a pit is let through by the foes' own clamp, see foeClamp)
+    if (this.grid) {
+      const gp = this.grid.clamp(p, r, this.overPit);
+      const sp = this.solids.pushOut(p, r);
+      // (a pit's edge is no wall: nothing to slam into there)
+      this.lastPush = sp ?? (gp && !gp.pit ? { s: WALL_SOLID, nx: gp.nx, nz: gp.nz, depth: gp.depth } : null);
+      return;
+    }
     p.x = Math.max(x0, Math.min(x1, p.x)); p.z = Math.max(z0, Math.min(z1, p.z));
     // the floor's edge counts as the wall (a slam); the push normal points back into the room
     const wx = p.x - ox, wz = p.z - oz; this.lastPush = null;
     const sp = this.solids.pushOut(p, r);
     this.lastPush = sp ?? (wx || wz ? { s: WALL_SOLID, nx: Math.sign(wx), nz: Math.sign(wz), depth: Math.hypot(wx, wz) } : null);
   };
+  /** 11-18 屋子形态: the clamp lets this body over a pit (a foe knocked off its feet, a dart in flight); off again after each call */
+  private overPit = false;
+  /** a projectile's clamp: walls stop it, a pit does not (darts and arrows fly over the water) */
+  private clampAir = (p: THREE.Vector3, r: number) => { this.overPit = true; try { this.clamp(p, r); } finally { this.overPit = false; } };
+  /** a foe's own clamp (enemy.ts integrate): knocked back hard or thrown into the air it can go over a pit's edge (and falls — see
+   *  frame()); walking, attacking, or the boss: the pit's edge holds it like a wall */
+  private foeClamp = (f: Foe) => {
+    // (its middle already over a pit — it landed there from the air, a crowd's push — it is going down: nothing holds it back now)
+    const g = this.grid, sp = Math.hypot(f.vel.x, f.vel.z), can = !!g && !isBoss(f) && f.kind !== 'dummy';
+    const loose = can && ((f.st === 'stagger' && sp > PIT_SPEED) || (f.airV != null && f.pos.y > 0.05) || !!g!.pitAt(f.pos.x, f.pos.z));
+    this.overPit = loose; try { this.clamp(f.pos, f.d.r); } finally { this.overPit = false; }
+  };
+  /** 11-18 敌人绕路: the way round for a foe walking to the hero — null = straight at her; re-asked every 0.15 s */
+  private wayMemo = new WeakMap<Foe, { t: number; d: THREE.Vector3 | null }>();
+  private foeWay = (f: Foe): THREE.Vector3 | null => {
+    const g = this.grid, h = this.hero; if (!g || !h) return null;
+    const m = this.wayMemo.get(f); if (m && clock.time - m.t < 0.15) return m.d;
+    const w = g.way(f.pos.x, f.pos.z, h.pos.x, h.pos.z, f.d.r), d = w ? V3(w[0], 0, w[1]) : null;
+    this.wayMemo.set(f, { t: clock.time, d }); return d;
+  };
+  /** can this foe see her over the floor (no wall, no walled-off block between)? the water and the gullies are low: they see across */
+  private foeSees = (f: Foe) => { const g = this.grid, h = this.hero; if (!g || !h) return true; return g.sightOpen(f.pos.x, f.pos.z, h.pos.x, h.pos.z); };
   private heroWorld: HeroWorld = {
     foes: this.foes,
     swing: o => this.swing(o), sweep: o => this.sweep(o), slam: o => this.slam(o), clamp: this.clamp,
@@ -925,6 +1000,7 @@ export class ActShow {
   private foeWorld: FoeWorld = {
     pushed: (f, dx, dz) => this.pushed(f, dx, dz),
     heroPos: V3(), heroR: 0.38, heroAlive: true, heroY: 0, heroDodge: false, foes: this.foes, arrows: this.arrows, clamp: this.clamp,
+    clampAir: this.clampAir, clampFoe: this.foeClamp, way: this.foeWay, sees: this.foeSees,
     hurtHero: (dmg, from, attacker) => this.hurtHero(dmg, from, attacker), // wp/boons: exact melee attacker; arrows omit it
     killFoe: (f, from) => this.killFoe(f, from), // wp/boons: lethal burn ticks use the death hook too
     bleedDamage: f => f.bleed * v(this.perks, 'bleed'),
@@ -1741,21 +1817,61 @@ export class ActShow {
     if (hasBoon(this.perks, 'rift')) this.riftOut(o.at.clone(), o.yaw);   // 11-18 秘传 裂地
     return n;
   }
+  /** 11-18 打出界 (用户问后定「场景形态」带「打出界」: 打进水里 / 沟里直接死，哈迪斯那样): a foe whose middle is over a pit (it got there
+   *  knocked back or thrown — walking, the edge holds it) goes down: it tips over and drops, into the water with a splash and a ring of
+   *  spray, down a gully with a cry and a puff of dust far below; it counts as a kill, its coins come up from the edge. The boss never
+   *  goes (his clamp holds him at the edge); a dummy neither. */
+  private pitFalls(dt: number) {
+    const g = this.grid;
+    if (g && this.phase !== 'cine' && this.phase !== 'talk') for (const f of this.foes) {
+      if (f.st === 'dead' || isBoss(f) || f.kind === 'dummy' || f.pos.y > 0.25 || this.falling.some(x => x.f === f)) continue;
+      const kind = g.pitAt(f.pos.x, f.pos.z); if (!kind) continue;
+      // in: the warning goes, it stops being a fighter, its cry; the kill is counted now (the room clears on the last one)
+      dropTeles(f); f.attacking = false; f.lunge = null; f.airV = undefined; f.st = 'dead';
+      const v = f.vel.clone().setY(0); if (v.lengthSq() < 0.5) v.setLength(1.2);
+      this.falling.push({ f, t: 0, vy: kind === 'water' ? -1.2 : 0.6, kind, v });
+      cue('foeDeath', 1, voiceOf(f)); this.log.push(`pit ${kind} ${f.kind}`);
+      if (kind === 'water') cue('splash', 1); else cue('dropFar', 1);
+      this.killFoe(f, f.pos.clone().sub(v));
+    }
+    for (let i = this.falling.length - 1; i >= 0; i--) {
+      const q = this.falling[i], f = q.f; q.t += dt;
+      // the fall: it carries on over the pit a little, tips forward and drops — faster and faster
+      q.v.multiplyScalar(Math.exp(-dt * 3)); f.pos.addScaledVector(q.v, dt); q.vy -= 22 * dt; f.pos.y += q.vy * dt;
+      const tip = Math.min(1.5, q.t * 4.2); f.a.body.rotation.x = tip;
+      f.a.place(f.pos.clone(), f.yaw);
+      const floorY = q.kind === 'water' ? -0.56 : -1.4;
+      if (q.kind === 'water' && f.pos.y < floorY + 0.1 && !f.a.root.userData.splashed) {
+        f.a.root.userData.splashed = true; const at = V3(f.pos.x, floorY + 0.05, f.pos.z);
+        fxRing(at.clone().setY(floorY + 0.03), 0xd8e8f0, 1.4, { life: 0.5 } as never); fxSparks(at.clone().setY(floorY + 0.25), 0xe8f4ff, 26, 5, { grav: 14, life: 0.6 } as never); fxSmoke(at.clone().setY(floorY + 0.4), 0xd8e4ea, 5, { r: 0.6, spd: 1.4, up: 1.2, s: 0.35, life: 0.6, alpha: 0.5 });
+        shake(0.12 * TUNE.shake);
+      }
+      if (q.kind === 'ditch' && f.pos.y < floorY + 0.4 && !f.a.root.userData.splashed) {
+        f.a.root.userData.splashed = true; fxSmoke(V3(f.pos.x, -1.1, f.pos.z), 0x8a7a62, 7, { r: 0.6, spd: 1.2, up: 1.0, s: 0.4, life: 0.8, alpha: 0.6 }); shake(0.08 * TUNE.shake);
+      }
+      if (f.pos.y < floorY - (q.kind === 'water' ? 1.8 : 0.6) || q.t > 2.2) { f.a.dispose(); this.falling.splice(i, 1); }
+    }
+  }
   private killFoe(f: Foe, from: THREE.Vector3) {
     if (this.flats.has(f)) { f.a.body.rotation.x = 0; f.a.body.position.y = 0; this.flats.delete(f); }   // (11-18 踏顶: up off his face before he falls)
+    // (a foe gone down a pit is already out of sight: no body to topple, no pool of blood)
+    const fell = this.falling.some(x => x.f === f);
     if (f.elite) this.eliteKills++; if (isBoss(f)) this.bossKilled = true;
     // 11-18: the kill holds the blow a little longer (feel()); the cry and the gush now, the body on the ground a moment later
-    this.killBeat = true; after(0.32, () => cue('bodyFall', 0.7));
+    if (!fell) { this.killBeat = true; after(0.32, () => cue('bodyFall', 0.7)); }
     // act-23: a pool spreads under the body as it settles
-    if (f.kind !== 'dummy') { const bx = f.pos.x, bz = f.pos.z, sz = isBoss(f) ? 2.0 : f.elite ? 1.4 : 1.05; after(0.45, () => blood.pool(bx, bz, sz)); cue('hitKill', isBoss(f) ? 1.3 : 1); cue('foeDeath', 1, voiceOf(f)); }
-    this.leaves?.blast(f.pos.x, f.pos.z, 1.3, 2.5);
+    if (f.kind !== 'dummy' && !fell) { const bx = f.pos.x, bz = f.pos.z, sz = isBoss(f) ? 2.0 : f.elite ? 1.4 : 1.05; after(0.45, () => blood.pool(bx, bz, sz)); cue('hitKill', isBoss(f) ? 1.3 : 1); cue('foeDeath', 1, voiceOf(f)); }
+    if (!fell) this.leaves?.blast(f.pos.x, f.pos.z, 1.3, 2.5);
     this.kills++;
     const boss = isBoss(f), elite = !!f.elite;
     // (11-18: killed up in the air — 断云 — the body falls the rest of the way first; death.ts topples from where the root stands)
-    if (f.pos.y > 0.05) { this.drops.push({ f, from: from.clone(), boss, vy: Math.min(0, f.airV ?? 0) }); f.airV = undefined; }
+    if (fell) { /* gone down a pit: out of sight already */ }
+    else if (f.pos.y > 0.05) { this.drops.push({ f, from: from.clone(), boss, vy: Math.min(0, f.airV ?? 0) }); f.airV = undefined; }
     else void playDeath(f.a, { from, ratio: f.lastDmg / f.maxHp + (boss ? 0.5 : 0), boss }).then(() => { f.a.dispose(); });
-    // copper coins: a few square-holed coins bounce out and fly to the hero (worth the foe's gold; elites ×3, the boss more)
-    if (this.room >= 0 && f.kind !== 'dummy') { const total = boss ? 60 : f.d.gold * (elite ? 3 : 1), n = Math.min(10, total); this.coinsFx.drop(f.pos.clone(), n, Math.max(1, Math.round(total / n))); }
+    // copper coins: a few square-holed coins bounce out and fly to the hero (worth the foe's gold; elites ×3, the boss more); one gone
+    // down a pit throws its coins up from the edge it went over
+    const coinAt = fell && this.grid ? (([x, z]) => V3(x, 0, z))(this.grid.nearestFloor(f.pos.x, f.pos.z)) : f.pos.clone();
+    if (this.room >= 0 && f.kind !== 'dummy') { const total = boss ? 60 : f.d.gold * (elite ? 3 : 1), n = Math.min(10, total); this.coinsFx.drop(coinAt, n, Math.max(1, Math.round(total / n))); }
     if (hasBoon(this.perks, 'drink') && this.hero.alive) {
       // 11-18 秘传 饮血: a thread of blood flies from the body to her and she heals as it arrives (the number is the boon's)
       const h = this.hero, from0 = f.a.chest(), heal = v(this.perks, 'drink');
@@ -1982,6 +2098,7 @@ export class ActShow {
     }
     this.reelStep(dt); this.flatStep(dt); this.dropStep(dt);   // 11-18 牵红's cord, 踏顶's flattened, the dead coming down out of the air
     this.separate();   // act-37: bodies don't pass through each other
+    this.pitFalls(dt);   // 11-18 打出界
     for (let i = this.foes.length - 1; i >= 0; i--) if (this.foes[i].st === 'dead' && !this.foes[i].a.root.parent) this.foes.splice(i, 1);
     for (const a of this.arrows) a.update(dt, fw);
     for (let i = this.arrows.length - 1; i >= 0; i--) if (this.arrows[i].dead) this.arrows.splice(i, 1);
@@ -2023,7 +2140,7 @@ export class ActShow {
       }
       if (d.dead || d.stuck || d.returning) continue;
       // (a 折返 dart that has run out of range turned above; one that hit the floor still stops)
-      const q = d.p.clone(); this.clamp(q, 0); if (d.back <= 0 && (q.distanceTo(d.p) > 0.3 || d.life <= 0) || d.p.y < 0.05) d.stop(d.life > 0);
+      const q = d.p.clone(); this.clampAir(q, 0); if (d.back <= 0 && (q.distanceTo(d.p) > 0.3 || d.life <= 0) || d.p.y < 0.05) d.stop(d.life > 0);
     }
     this.darts = this.darts.filter(d => !d.dead);
     this.hitArcs.update(rdt, h.pos);
@@ -2037,8 +2154,9 @@ export class ActShow {
       this.leaves.update(dt, this.cam.x, this.cam.z);
       blood.update(dt);
       if (h.st === 'dash' && !h.airborne) { const speed = Math.hypot(h.vel.x, h.vel.z) || 1; this.leaves.kick(h.pos.x, h.pos.z, 0.8, h.vel.x / speed, h.vel.z / speed, 3.4); }
-      // the guiding wind: every few seconds a gust from the hero's feet toward each open gate
-      if (this.phase === 'doors' && this.gates) { this.gustT -= dt; if (this.gustT <= 0) { this.gustT = 3.2; for (const t of this.gates.targets()) this.leaves.gust(h.pos.x, h.pos.z, t.x, t.z); cue('exitChime', 0.25); } }
+      // the guiding wind: every few seconds a gust from the hero's feet toward each open gate (11-18 屋子形态: when a walled-off block
+      // or a pit stands between, toward the way round instead — the leaves show which way to go)
+      if (this.phase === 'doors' && this.gates) { this.gustT -= dt; if (this.gustT <= 0) { this.gustT = 3.2; for (const t of this.gates.targets()) { const wd = this.grid?.way(h.pos.x, h.pos.z, t.x, t.z, 0.4); if (wd) this.leaves.gust(h.pos.x, h.pos.z, h.pos.x + wd[0] * 5, h.pos.z + wd[1] * 5); else this.leaves.gust(h.pos.x, h.pos.z, t.x, t.z); } cue('exitChime', 0.25); } }
     }
     // copper coins fly in; the stations of a shop / rest / scroll room fill their rings under a hero standing still on a mat
     { const got = this.coinsFx.update(dt, h.pos); if (got) { this.coins += got; cue('coin', 0.3); } this.hud.coins = this.coins; }
@@ -2196,6 +2314,8 @@ export class ActShow {
       const wk = this.doors[0].ex.walk; let wi = this.botWp; while (wi < wk.length - 1 && Math.hypot(wk[wi][0] - h.pos.x, wk[wi][1] - h.pos.z) < 1.0) wi++;
       this.botWp = wi;
       const d = wk[wi]; const v = V3(d[0] - h.pos.x, 0, d[1] - h.pos.z).normalize();
+      // 11-18 屋子形态: the way round the walled-off blocks and the pits to the gate's mouth (the floor grid), straight once it is in sight
+      if (this.grid && wi === 0) { const wd = this.grid.way(h.pos.x, h.pos.z, d[0], d[1], h.r); if (wd) v.set(wd[0], 0, wd[1]); }
       // step round the floor's cover and props in the way
       for (const so of this.solids.list) if (so.on) { const o = V3(so.x - h.pos.x, 0, so.z - h.pos.z), l = o.length(), rr = Math.max(so.hx, so.hz, so.r) + 0.9; if (l < rr + 0.6 && o.dot(v) > l * 0.3) { const side = V3(v.z, 0, -v.x); v.addScaledVector(side, side.dot(o) > 0 ? -1.4 : 1.4).normalize(); } }
       // step round a dummy in the way
@@ -2229,7 +2349,10 @@ export class ActShow {
     set('dash', false);
     // darts while closing in on someone a few metres off
     set('special', l > 3.2 && l < 8.5);
-    if (l > 1.6) { I.move.x = d.x / l; I.move.y = -d.z / l; set('attack', false); }
+    // (11-18 屋子形态: the way round a wall / a pit to the nearest foe)
+    const wd = this.grid && l > 1.6 ? this.grid.way(h.pos.x, h.pos.z, near.pos.x, near.pos.z, h.r) : null;
+    if (wd) { I.move.x = wd[0]; I.move.y = -wd[1]; set('attack', false); }
+    else if (l > 1.6) { I.move.x = d.x / l; I.move.y = -d.z / l; set('attack', false); }
     else { I.move.x = d.x / l * 0.2; I.move.y = -d.z / l * 0.2; this.botT += clock.rdt; set('attack', this.botT % 0.3 < 0.12); }
     void FX;
   }
