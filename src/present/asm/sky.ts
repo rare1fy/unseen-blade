@@ -29,6 +29,14 @@ export function moodFor(t: TimeId, s: SeasonId, w: WeatherId): Mood {
   if (w === 'rain') { m.fogD *= 1.5; m.fog = mix(m.fog, 0x3a404c, 0.4); m.moonI *= 0.75; m.mistA = (m.mistA ?? 0.08) + 0.04; m.skyTop = mix(m.skyTop!, 0x2a2e38, 0.6); m.skyMid = mix(m.skyMid!, 0x3a3e48, 0.6); m.skyHor = mix(m.skyHor!, 0x50525a, 0.6); m.skyDiscCol = [0.4, 0.4, 0.42]; }
   if (w === 'snow') { m.fogD *= 1.3; m.fog = mix(m.fog, 0xa0a8b8, 0.4); m.hemiGround = mix(m.hemiGround, 0xa0a8b8, 0.5); m.skyDiscCol = [0.7, 0.72, 0.78]; }
   if (w === 'mist') { m.fogD *= 1.6; m.mistA = (m.mistA ?? 0.08) + 0.06; }
+  // act-36 (用户：「开场的战斗不是雪夜吗，光影上明明就是大白天」): a snowy night is a night — the title's 雪夜 · 破庙 light (the user's
+  // favourite) taken down for the top-down camera: deep indigo sky and fog, a low cold fill, a cold moon from the side for the
+  // shadows, the snow lit only where the moon reaches; lanterns and torches are the warm brightest things in the frame
+  if (t === 'night' && w === 'snow') Object.assign(m, {
+    bg: 0x0e1322, fog: 0x1a2234, fogD: 0.026, skyTop: 0x070a16, skyMid: 0x141a2c, skyHor: 0x2e3850, skyDisc: [0.34, 0.07, -1], skyDiscCol: [0.3, 0.32, 0.38],
+    hemiSky: 0x56648a, hemiGround: 0x22283a, hemiI: 1.0, moon: 0x9cb0dc, moonI: 1.5, key: 0x7080a8, keyI: 0.22, mist: 0x46507a, mistA: 0.07, moonPos: [-8, 14, -6],
+    earth: [0x5a6276, 0x5c6478, 0x586074], exposure: 1.1, bloomT: 1.0,
+  } as Partial<Mood>);
   return m;
 }
 /** point-light strength for the time (lamps barely matter at noon) */
@@ -41,7 +49,7 @@ export function weatherAmbient(w: WeatherId, s: SeasonId, t: TimeId, cn = false)
   if (w === 'petals') out.push({ kind: 'petals', color: 0xf4b8c8, rate: 6, area: A }, { kind: 'petals', color: 0xfcdce4, rate: 3, area: A });
   if (s === 'autumn' && w !== 'rain' && w !== 'snow') out.push(cn ? { kind: 'leaves', color: 0xc89a3a, rate: 1.6, area: A } : { kind: 'leaves', color: 0xd8482a, rate: 2.2, area: A }, { kind: 'leaves', color: cn ? 0x9a7a3a : 0xe8902e, rate: 0.8, area: A });
   if (t === 'night' && s === 'summer' && w === 'clear') out.push({ kind: 'fireflies', color: 0xc8ff8a, rate: 1.4, area: { x0: -11, z0: -11, x1: 11, z1: -1 } });
-  if (t === 'dusk' || t === 'night') out.push({ kind: 'fireflies', color: 0xffc070, rate: 0.4, area: { x0: -10, z0: -11, x1: 10, z1: -6 } });
+  if ((t === 'dusk' || t === 'night') && w !== 'snow') out.push({ kind: 'fireflies', color: 0xffc070, rate: 0.4, area: { x0: -10, z0: -11, x1: 10, z1: -6 } });   // (no warm motes in a snowstorm)
   if (w !== 'rain' && w !== 'snow') out.push({ kind: 'dust', color: 0xe8d8c8, rate: 1.5 });
   return out;
 }

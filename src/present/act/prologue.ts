@@ -9,11 +9,12 @@ import { fxRing, fxSparks, fxImpact, fxGlow, fxSmoke } from '../fx/fx';
 import { fxBolt } from '../fx/skillFx';
 import { shake, slowmo } from '../engine/clock';
 import { cue } from '../../audio/cues';
-import { flashSky } from '../scenes/stage';
+import { flashSky, currentStage } from '../scenes/stage';
 import { motionOf } from './ninjaAct';
 import type { Foe, EKind } from './enemy';
 import type { CineShot, V } from './timeline';
 import type { BattleActor } from '../bestiary/battle';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 export interface PrologueHost {
   hero: { a: BattleActor; pos: THREE.Vector3 };
@@ -26,6 +27,65 @@ export interface PrologueHost {
 export function lieDown(a: BattleActor, k: number) {
   const e = 1 - (1 - Math.min(1, Math.max(0, k))) ** 3;
   a.body.rotation.set(0, 0, 0); a.body.rotation.z = (Math.PI / 2) * e; a.body.rotation.y = 0.25 * e; a.body.position.set(0.12 * e, 0.12 * e, 0);
+}
+
+/** act-36 (用户：「timeline里面的死人堆，就那么几个，算啥死人堆」): a field of the dead that costs a few draw calls — each body is posed once
+ *  (on its side, its back or face down, limbs thrown out), then every visible mesh of every body is baked into world space and merged by
+ *  material; the actors themselves are thrown away. The pile never moves again (the dead do not breathe). */
+export function bakeStill(roots: THREE.Object3D[], parent: THREE.Object3D) {
+  const groups = new Map<THREE.Material, THREE.BufferGeometry[]>();
+  for (const r of roots) {
+    r.updateMatrixWorld(true);
+    r.traverse(o => {
+      const m = o as THREE.Mesh; if (!m.isMesh || !m.visible || Array.isArray(m.material)) return;
+      let vis = true; for (let q: THREE.Object3D | null = o; q; q = q.parent) if (!q.visible) { vis = false; break; }
+      if (!vis) return;
+      const g = m.geometry.clone().applyMatrix4(m.matrixWorld); const key = m.material as THREE.Material;
+      (groups.get(key) ?? groups.set(key, []).get(key)!).push(g);
+    });
+  }
+  const out: THREE.Mesh[] = [];
+  for (const [mat, gs] of groups) {
+    // (geometries with a different attribute set than the first are merged on their own — never dropped)
+    const sets = new Map<string, THREE.BufferGeometry[]>();
+    for (const g of gs) { const k = Object.keys(g.attributes).sort().join(',') + (g.index ? '|i' : ''); (sets.get(k) ?? sets.set(k, []).get(k)!).push(g); }
+    for (const list of sets.values()) {
+      const merged = mergeGeometries(list, false); for (const g of list) g.dispose(); if (!merged) continue;
+      const mesh = new THREE.Mesh(merged, mat); mesh.castShadow = true; mesh.receiveShadow = true; mesh.frustumCulled = false; parent.add(mesh); out.push(mesh);
+    }
+  }
+  return out;
+}
+/** the dead in the temple yard at dawn: the ones given first (he stops at them), then heaps and strays around (deterministic) */
+function deadField(ox: number, oz: number, named: Array<[EKind, number, number]>) {
+  let seed = 7; const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const kinds: EKind[] = ['hj_mob', 'hj_mob', 'hj_blade', 'hj_mob', 'hj_archer', 'hj_blade', 'hj_mob'];
+  const out: Array<{ k: EKind; x: number; z: number; y: number; yaw: number; how: 0 | 1 | 2; r: () => number }> = [];
+  const free = (x: number, z: number) => Math.hypot(x - ox, z - oz) > 1.6 && out.every(o => Math.hypot(o.x - x, o.z - z) > 0.9 || o.y > 0);
+  for (const [k, x, z] of named) out.push({ k, x, z, y: 0, yaw: rnd() * 6.28, how: 0, r: rnd });
+  // heaps: two or three bodies, the upper ones lying across the lower (raised, turned)
+  const heaps: Array<[number, number, number]> = [[-5.5, -2.5, 3], [4.8, -3.6, 3], [-3.2, -6.4, 2], [6.2, 2.8, 2], [-7.4, 3.2, 3], [2.6, -7.8, 2], [-1.6, 6.8, 2], [7.6, -7.0, 2], [-8.6, -6.0, 2]];
+  for (const [hx, hz, n] of heaps) {
+    const x0 = ox + hx, z0 = oz + hz; if (!free(x0, z0)) continue;
+    for (let i = 0; i < n; i++) out.push({ k: kinds[Math.floor(rnd() * kinds.length)], x: x0 + (rnd() - 0.5) * 0.5, z: z0 + (rnd() - 0.5) * 0.5, y: i * 0.24, yaw: rnd() * 6.28, how: (i === 0 ? 0 : Math.floor(rnd() * 3)) as 0 | 1 | 2, r: rnd });
+  }
+  // strays: alone, face down or on their backs, across the yard
+  for (let t = 0; t < 60 && out.length < 34; t++) {
+    const x = ox + (rnd() - 0.5) * 18, z = oz + (rnd() - 0.5) * 16; if (!free(x, z)) continue;
+    out.push({ k: kinds[Math.floor(rnd() * kinds.length)], x, z, y: 0, yaw: rnd() * 6.28, how: Math.floor(rnd() * 3) as 0 | 1 | 2, r: rnd });
+  }
+  return out;
+}
+/** pose a body as it fell: 0 on its side, 1 on its back, 2 face down; arms and legs thrown out (a little different each one) */
+export function layDead(a: BattleActor, how: 0 | 1 | 2, r: () => number) {
+  const b = a.bones, rz = (n: string, v: number) => { if (b[n]) b[n].rotation.z = v; }, rx = (n: string, v: number) => { if (b[n]) b[n].rotation.x = v; };
+  a.body.rotation.set(0, 0, 0); a.body.position.set(0, 0, 0);
+  if (how === 0) { a.body.rotation.z = Math.PI / 2; a.body.rotation.y = (r() - 0.5) * 0.6; a.body.position.set(0.12, 0.12, 0); }
+  else if (how === 1) { a.body.rotation.x = -Math.PI / 2; a.body.position.set(0, 0.1, -0.05); }
+  else { a.body.rotation.x = Math.PI / 2; a.body.position.set(0, 0.1, 0.05); }
+  rz('armL', 0.5 + r() * 1.1); rz('armR', -(0.4 + r() * 1.2)); rx('armL', (r() - 0.5) * 1.2); rx('armR', (r() - 0.5) * 1.2);
+  rx('legL', (r() - 0.3) * 0.9); rx('legR', (r() - 0.7) * 0.9); rz('legL', 0.05 + r() * 0.25); rz('legR', -(0.05 + r() * 0.25));
+  if (b.head) { b.head.rotation.y = (r() - 0.5) * 1.2; b.head.rotation.z = (r() - 0.5) * 0.5; }
 }
 
 /** the blow that ends the first fight: he winds up the ringed staff, lightning, she is struck down; then the camera rises */
@@ -93,7 +153,14 @@ export function dawnShots(h: PrologueHost, at: { x: number; z: number }, dead: A
     { dur: 5.5, ease: 'inOut', from: { pos: [ox + 10, 9.5, oz + 14], look: [ox - 2, 0.2, oz + 1], fov: 40 }, to: { pos: [ox + 7, 7.5, oz + 11], look: [ox - 2, 0.2, oz + 1.5], fov: 38 },
       at: [[0, () => {
         // the dead: laid down once, never updated again (no breathing corpses)
-        for (const [k, x, z] of dead) { const f = h.puppet(k, x, z, x + 1, z); f.a.update(0.016); lieDown(f.a, 1); f.a.root.userData.still = true; corpses.push(f); }
+        // act-36 (用户：「死人堆，就那么几个，算啥死人堆」): the two he stops at, then the rest of the night's dead — heaps of two and three
+        // (bodies thrown across each other), a few alone, all around the yard and up the steps; posed once and baked into a few meshes
+        const roots: THREE.Object3D[] = [];
+        for (const d of deadField(ox, oz, dead)) {
+          const f = h.puppet(d.k, d.x, d.z, d.x + Math.sin(d.yaw), d.z + Math.cos(d.yaw)); f.a.update(0.016); layDead(f.a, d.how, d.r);
+          f.a.root.position.set(d.x, d.y, d.z); f.a.root.rotation.y = d.yaw; f.a.root.userData.still = true; roots.push(f.a.root); corpses.push(f);
+        }
+        const st = currentStage(); if (st) { bakeStill(roots, st.root); for (const r of roots) r.visible = false; }
         duwu = h.person('duwu', way[0][0], way[0][1], 0) as Walker; donkey = h.person('donkey', way[0][0] - 1.9, way[0][1], 0) as Walker; out.duwu = duwu; out.donkey = donkey;
         lieDown(h.hero.a, 1);
       }]],

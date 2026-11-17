@@ -27,7 +27,10 @@ export class Timeline {
   on = false; private shots: CineShot[] = []; private i = 0; private t = 0; private fired = 0; private done: ((skipped: boolean) => void) | null = null;
   private cap: THREE.Mesh | null = null; private capT = 0; private capSpec: Caption | null = null;
   private hold = 0; private holding = false; private ring: THREE.Mesh;
+  /** act-36 (用户：「播timeline的时候给个上下电影那种黑边」): two black bars slide in (0.4 s) while a cutscene plays, out after */
+  private bars: THREE.Mesh[] = []; private barK = 0;
   constructor(private L: UiLayer) {
+    for (let i = 0; i < 2; i++) { const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: 0x000000, depthTest: false, depthWrite: false })); m.renderOrder = 60; m.visible = false; L.scene.add(m); this.bars.push(m); }
     this.ring = new THREE.Mesh(new THREE.RingGeometry(0.7, 1, 32, 1, Math.PI / 2, -0.001), new THREE.MeshBasicMaterial({ color: 0xf2e8d6, transparent: true, opacity: 0.8, depthTest: false, depthWrite: false }));
     this.ring.renderOrder = 70; this.ring.visible = false; L.scene.add(this.ring);
   }
@@ -64,7 +67,20 @@ export class Timeline {
     const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: t, transparent: true, depthTest: false, depthWrite: false, opacity: 0 }));
     m.renderOrder = 65; this.L.scene.add(m); this.cap = m; (m as unknown as { _wh: [number, number] })._wh = [w / dpr, h / dpr];
   }
+  /** the bars' height (CSS px, each) — the bottom one carries the small captions */
+  private get barH() { return Math.round(this.L.h * 0.11); }
+  private updateBars(dt: number) {
+    const want = this.on ? 1 : 0; this.barK += (want - this.barK) * Math.min(1, dt / 0.12);
+    if (Math.abs(want - this.barK) < 0.002) this.barK = want;
+    const L = this.L, bh = this.barH, e = this.barK * this.barK * (3 - 2 * this.barK), w = L.w + 40;
+    this.bars.forEach((m, i) => {
+      m.visible = this.barK > 0.002;
+      const y = i === 0 ? e * bh - bh / 2 : L.h - e * bh + bh / 2;
+      L.at(L.w / 2, y, 0, m.position); m.scale.set(L.px(w), L.px(bh + 2), 1);
+    });
+  }
   update(dt: number) {
+    this.updateBars(dt);
     if (!this.on) return;
     const s = this.shots[this.i]; if (!s) return;
     this.t += dt;
@@ -78,7 +94,7 @@ export class Timeline {
         const a = Math.min(1, this.capT / 0.5) * Math.max(0, Math.min(1, (hold + 0.5 - this.capT) / 0.6));
         (this.cap.material as THREE.MeshBasicMaterial).opacity = a;
         const [w, h] = (this.cap as unknown as { _wh: [number, number] })._wh, L = this.L;
-        const x = c.big ? L.w / 2 : L.w - w / 2 - L.w * 0.05, y = c.big ? L.h * 0.38 : L.h - h / 2 - L.h * 0.08;
+        const x = c.big ? L.w / 2 : L.w - w / 2 - L.w * 0.05, y = c.big ? L.h * 0.38 : L.h - this.barH / 2;   // (act-36: the small captions sit on the lower bar)
         L.at(x, y, 0, this.cap.position); this.cap.scale.set(L.px(w), L.px(h), 1);
         if (this.capT > hold + 1.2) this.clearCaption();
       }
