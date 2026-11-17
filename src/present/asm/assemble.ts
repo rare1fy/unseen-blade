@@ -124,7 +124,7 @@ export function assemble(spec: Spec, reg: Registry): { def: SceneDef; report: Re
   const name = `${loc.name}${lmName ? ' · ' + lmName : ''} · ${SEASON_CN[spec.season]}${TIME_CN[spec.time]}${spec.weather !== 'clear' ? '·' + WEATHER_CN[spec.weather] : ''}`;
   const report: Report = { spec, name, placed: [], rejected: [], empty: [], warnings: [], lights: 0 };
   const def: SceneDef = {
-    id: `asm_${spec.locale}_${spec.seed}`, name, group: '普通', kind: '户外', blurb: '', mood: moodFor(spec.time, spec.season, spec.weather),
+    id: `asm_${spec.locale}_${spec.seed}`, name, group: '普通', kind: '户外', blurb: '', mood: loc.mood ? { ...loc.mood } : moodFor(spec.time, spec.season, spec.weather),
     build(c) {
       const r = rndOf(spec.seed, 1), lamp = lampFor(spec.time, spec.weather);
       const place = (x: number, z: number, s: -1 | 0 | 1, salt: number): Place => ({ x, z, s, seed: spec.seed * 97 + salt, season: spec.season, time: spec.time, weather: spec.weather, lamp, rnd: rndOf(spec.seed, 1000 + salt) });

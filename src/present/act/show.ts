@@ -4,7 +4,7 @@
 // 打开游戏先到练武场（yard.ts：木人桩、召唤石板、换装木台），走进后面的「出发」路口开始一局；死了或打完回练武场。
 // 砍飞的箭：方向在出刀朝向左右 75° 里随机、附近有敌人就偏过去；砍中那一下顿帧 + 闪光 + 短慢放（用户：「这种属于高光操作，应该要有顿帧」）。
 import * as THREE from 'three';
-import { V3, onUpdate, R, scene, warm } from '../engine/world';
+import { V3, onUpdate, R, scene, warm, frames } from '../engine/world';
 import { hitstop, shake, slowmo, after, clock, FX, waitReal, PAUSE } from '../engine/clock';
 import { shot } from '../director';
 import { fxImpact, fxSparks, fxSmoke, fxRing, trailSeg } from '../fx/fx';
@@ -19,6 +19,8 @@ import { PLAY, SZ, setStage, STAGE_BIG } from '../scenes/props';
 import { addLocales, REGISTRY, LOCALES } from '../asm/registry';
 import { NINJA_LOCALES } from '../asm/ninja';
 import { HANMO_LOCALES } from '../asm/hanmo';
+import { HANSHAN_LOCALES } from '../asm/hanshan';
+import './hanshan_people';   // act-37: 寒山坞 cold open — 文皎 at eleven, the two torch-bearer looks, 杜五's cart (ROSTER)
 import { assemble, mirrorLayout, stageLayout } from '../asm/assemble';
 import { arenaPlan, type ArenaPlan } from '../asm/arena';
 import { Solids, SLAM, slamSpeed, type Push } from './solids';
@@ -36,6 +38,7 @@ import { Timeline } from './timeline';
 import { openingShots, bossIntroShots, type CineHost } from './cutscenes';
 import { WAKE_DUWU, WAKE_SUNAO, CHULEI_BEFORE, CHULEI_AFTER, deathLine, PRO_CHULEI, PRO_FALL, PRO_DAWN, PRO_WAKE, PRO_CAPTIONS } from './scripts';
 import { fallShots, snowShots, dawnShots, loadShots, lieDown, brazier, type PrologueHost } from './prologue';
+import { coldOpenShots, BlindPOV } from './coldopen';
 import { newGame, profile, save as saveProfile, seeOnce, hasSave } from './profile';
 import { runMods, bank, META, level, nextCost, buy, type RunMods } from './meta';
 import { NPC_LINES, UP_LINES, POOR_LINES, HAUL, MEALS, MEAL_LINES, STELE_LINES } from './hideoutLines';
@@ -93,7 +96,7 @@ import { HIDEOUT_DONKEY } from './hideout_people';
 import { CELL } from '../bestiary/kit';
 import { Action } from '../actors/rig';
 
-addLocales(NINJA_LOCALES); addLocales(HANMO_LOCALES);
+addLocales(NINJA_LOCALES); addLocales(HANMO_LOCALES); addLocales(HANSHAN_LOCALES);
 
 /** prices at the 行商 (copper coins) */
 const PRICES = { boon: 60, heal: 30, sharpen: 50 };
@@ -146,6 +149,9 @@ interface Room { spec: Spec; big: boolean; layout: Layout; arena: ArenaPlan | nu
 /** the prologue's first room (act-29) and its one way on */
 const PRO_ROOM = { locale: 'hj_village', waves: [['hj_mob', 'hj_mob'], ['hj_blade', 'hj_mob', 'hj_mob']] as EKind[][], spec: { season: 'winter', weather: 'snow', time: 'night' } as Partial<Spec> };
 const PRO_BOSS: RoomPlan = { type: 'boss', locale: 'hj_temple', reward: null, waves: [['hj_boss']] };
+/** act-37 the cold open's place: 寒山坞 on that snowy night (its own layout and light) */
+const COLD_ROOM: RoomIn = { isYard: false, room: 0, recent: [], locale: 'hs_forge', plan: null, nextRooms: [], forceSpec: null, noArena: true,
+  viewSpec: { locale: 'hs_forge', layout: 'hs_valley', mirror: false, landmark: null, season: 'winter', time: 'night', weather: 'snow', seed: 7, exits: [] } };
 /** pick the spec, lay out the floor and the arena, assemble and build the place — touching nothing live except the stage size
  *  (setStage, which the caller sets again) */
 function prepRoom(o: RoomIn): Room {
@@ -220,11 +226,25 @@ export class ActShow {
     // a new game: 刘白 in her default look again, the white-haired one (the costume the browser remembered goes)
     { const d = HEROES.find(x => x.id === DEFAULT_HERO); if (d) { this.wearing = d; if (this.hud.flask instanceof IronHp) this.hud.flask.setFace(d.id); else HP_FACE.id = d.id; try { localStorage.setItem('act.hero6', d.id); } catch { /* storage blocked */ } } }
     // act-29 (用户：「方案1开做吧」): the night seven years before (once its place is built), then the prologue — alone in the snow
-    await this.coldOpen();
+    const pov = await this.coldOpen();
     this.startPrologue();
+    // (the village was built behind the dark; now the dark lifts on 「七年后」)
+    if (pov) { await frames(3); pov.fill(0x000000, 0); after(1.6, () => pov.dispose(), { real: true }); }
   }
-  /** the cold open: 寒山坞 that night (waits for the locale; skipped until it exists) */
-  private async coldOpen() { /* filled in when the 寒山坞 scene lands */ }
+  /** act-37 the cold open: 寒山坞 that night (coldopen.ts) — on the place the title built while it loaded; it ends in the dark */
+  private async coldOpen(): Promise<BlindPOV | null> {
+    const ready = this.pre && this.pre.locale === 'hs_forge' ? this.pre : null; this.pre = null;
+    let r: Room; try { r = ready ?? prepRoom(COLD_ROOM); } catch (e) { console.error('[act] cold open failed', e); return null; }
+    for (const f of this.foes) f.a.dispose(); this.foes.length = 0;
+    setStage(r.big); this.layout = r.layout; this.arena = null; this.spec = r.spec;
+    this.stage = r.prep.attach(); this.hud.on = false;
+    const pov = new BlindPOV(this.L), co = coldOpenShots({ root: this.stage.root, pov });
+    audio.stopMusic(1.0);
+    await this.cine(co.shots);
+    co.dispose(); pov.fill(0x000000, 1, true);
+    await frames(2);   // the dark is on screen before the next place is built
+    return pov;
+  }
   /** the prologue's first room: the snowy village at night, a few sentries; then the temple (leave() moves prologue to 2) */
   startPrologue() {
     this.prologue = 1; this.proFalling = false; this.proFightT = 0;
@@ -496,9 +516,9 @@ export class ActShow {
     this.pre?.prep.drop(); this.pre = null;
     const keep = STAGE_BIG.on;
     try {
-      const plan: RoomPlan = { type: 'fight', locale: PRO_ROOM.locale, reward: null, waves: PRO_ROOM.waves };
-      const r = prepRoom({ isYard: false, room: 0, recent: [], locale: PRO_ROOM.locale, plan, nextRooms: [PRO_BOSS], viewSpec: null, forceSpec: PRO_ROOM.spec, noArena: false });
-      this.pre = { ...r, locale: PRO_ROOM.locale }; warm(r.prep.root);
+      // act-37: a new game opens on 寒山坞 (the cold open); the village of 「七年后」 is built later, behind the cold open's last dark
+      const r = prepRoom(COLD_ROOM);
+      this.pre = { ...r, locale: 'hs_forge' }; warm(r.prep.root);
     } catch (e) { console.warn('[act] prefetch failed', e); }
     setStage(keep);
   }

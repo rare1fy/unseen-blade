@@ -81,6 +81,8 @@ export interface Locale {
   /** groups of other places (by tag) this place may also use, e.g. ['jp-common'] */
   borrow?: string[];
   seasons?: SeasonId[]; times?: TimeId[]; weathers?: WeatherId[];
+  /** act-37: a place with its own light (寒山坞's night) instead of the time / season / weather mood — applied when it is shown */
+  mood?: import('../scenes/stage').Mood;
   /** pave the ground (cells at y = −1) over the whole stage, knowing the layout's path and court */
   floor(c: Ctx, f: { layout: Layout; p: Place }): void;
   /** the far ring beyond the stage (hills, woods, roofs): no checks except the battle floor and the camera */

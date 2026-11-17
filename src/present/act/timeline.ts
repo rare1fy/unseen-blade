@@ -60,7 +60,9 @@ export class Timeline {
   private showCaption(c: Caption) { this.clearCaption(); this.capSpec = c; this.capT = -(c.at ?? 0.4); }
   private clearCaption() { if (this.cap) { this.L.scene.remove(this.cap); (this.cap.material as THREE.MeshBasicMaterial).map?.dispose(); (this.cap.material as THREE.Material).dispose(); this.cap.geometry.dispose(); this.cap = null; } this.capSpec = null; }
   private paintCaption(c: Caption) {
-    const dpr = Math.max(1, Math.round(this.L.dpr || 1)), S = (c.big ? (this.L.h >= 600 ? 5 : 3) : (this.L.h >= 600 ? 3 : 2)) * dpr;
+    // (act-37: a long line steps the scale down until it fits 88% of the width)
+    const dpr = Math.max(1, Math.round(this.L.dpr || 1)); let S = (c.big ? (this.L.h >= 600 ? 5 : 3) : (this.L.h >= 600 ? 3 : 2)) * dpr;
+    while (S > dpr && textW(c.text, S) > this.L.w * dpr * 0.88) S -= dpr;
     const w = textW(c.text, S) + 8 * dpr, h = PIX_H * S + 8 * dpr, cv = document.createElement('canvas'); cv.width = w; cv.height = h;
     const g = cv.getContext('2d')!; g.imageSmoothingEnabled = false; text(g, c.text, 4 * dpr, 4 * dpr, S, '#f2ece2', 'left', '#0a0710');
     const t = new THREE.CanvasTexture(cv); t.magFilter = t.minFilter = THREE.NearestFilter; t.generateMipmaps = false; t.colorSpace = THREE.SRGBColorSpace;
