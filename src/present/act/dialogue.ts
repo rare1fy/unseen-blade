@@ -10,6 +10,8 @@ import { text, textW } from '../v2/overlay';
 import { bodyText, bodyW, BODY_FONT } from '../ui3d/bodyFont';
 import { PIX_H } from '../v2/pix';
 import { cue } from '../../audio/cues';
+import { sayLine } from '../../audio/voice';
+import { audio } from '../../audio/audio';
 
 export interface Line { who: string; text: string }
 interface Speaker { name: string; side: 'L' | 'R'; mute?: boolean }
@@ -56,7 +58,7 @@ export class Dialogue {
     for (const s of ['L', 'R'] as const) { const S = this.sides[s]; if (S.mesh) { this.L.scene.remove(S.mesh); (S.mesh.material as THREE.Material).dispose(); S.mesh.geometry.dispose(); S.mesh = null; } S.id = ''; S.on = 0; S.k = 0; S.pop = 0; S.was = false; }
     // both portraits of the scene come up together: whoever speaks first on each side
     for (const l of this.lines) { const sp = CAST[l.who]; if (sp && l.who !== 'act' && !this.sides[sp.side].id) this.setPortrait(sp.side, l.who); }
-    cue('scroll', 0.4);
+    cue('scroll', 0.4); this.say();
     return new Promise(res => { this.done = res; });
   }
   private setPortrait(side: 'L' | 'R', id: string) {
@@ -76,9 +78,12 @@ export class Dialogue {
     this.i++; this.shown = 0; this.t = 0;
     if (this.i >= this.lines.length) { this.close(); return true; }
     const sp = CAST[this.lines[this.i].who]; if (sp && this.lines[this.i].who !== 'act') this.setPortrait(sp.side, this.lines[this.i].who);
-    cue('click', 0.2); return true;
+    cue('click', 0.2); this.say(); return true;
   }
+  /** act-37: the line's voice, if it has one */
+  private say() { const l = this.lines[this.i]; if (l) sayLine(l.who, l.text); }
   private close() {
+    audio.stopVoice();
     // the box goes at once; the portraits slide back out to their sides (update keeps placing them while outK runs down)
     this.on = false; this.box.visible = false; this.outK = 1;
     const d = this.done; this.done = null; d?.();

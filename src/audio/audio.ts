@@ -43,6 +43,28 @@ class AudioEngine {
     this.ready = true;
   }
   private now() { return this.ctx ? this.ctx.currentTime : 0; }
+  /** act-37: a voiced dialogue line — decoded on first use, one at a time on the voice bus (the line before stops), the music and
+   *  the effects ducked under it */
+  private vo = new Map<string, Promise<AudioBuffer | null>>(); private voSrc: AudioBufferSourceNode | null = null;
+  async voiceLine(url: string) {
+    const ctx = this.ctx; if (!ctx || this.muted) return;
+    let p = this.vo.get(url);
+    if (!p) {
+      p = (async () => { try {
+        let ab: ArrayBuffer; if (!url.startsWith('data:')) ab = await (await fetch(url)).arrayBuffer();
+        else { const b64 = url.slice(url.indexOf(',') + 1), bin = atob(b64), arr = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i); ab = arr.buffer; }
+        return await ctx.decodeAudioData(ab);
+      } catch { return null; } })();
+      this.vo.set(url, p);
+    }
+    const b = await p; if (!b) return;
+    this.stopVoice();
+    const src = ctx.createBufferSource(); src.buffer = b; src.connect(this.voice); const t = this.now(); src.start(t); this.voSrc = src;
+    this.duck.gain.cancelScheduledValues(t); this.duck.gain.setTargetAtTime(0.55, t, 0.06); this.duck.gain.setTargetAtTime(1, t + b.duration, 0.25);
+    src.onended = () => { if (this.voSrc === src) this.voSrc = null; };
+  }
+  get voicing() { return !!this.voSrc; }
+  stopVoice() { if (this.voSrc) { try { this.voSrc.stop(); } catch { /* ended */ } this.voSrc = null; if (this.ctx) this.duck.gain.setTargetAtTime(1, this.now(), 0.2); } }
   /** play one sample: rate / gain jittered */
   play(name: string, o: { gain?: number; rate?: number; jitter?: number; delay?: number; bus?: 'sfx' | 'voice' } = {}) {
     const ctx = this.ctx, b = this.buf.get(name); if (!ctx || !b || this.muted) return null;
