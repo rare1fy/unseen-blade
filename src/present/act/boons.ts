@@ -2,7 +2,10 @@
 export type School = 'sr';
 export const SCHOOL_NAMES: Record<School, string> = { sr: '秘传' };
 export const TIER_NAMES = ['凡品', '珍品', '绝品'] as const;
-export interface Boon { id: string; school: School; name: string; desc: string[]; col: string; glyph: string[]; vals?: [number, number, number]; unit?: string; vals2?: [number, number, number]; unit2?: string }
+/** 11-18 (用户：「我打了半天了还没个新招，一直在给我加数值」「选了强化后根本看不到自己选的强化是啥，在哪儿」): the button a boon changes —
+ *  斩 / 冲刺 / 镖 / 藏锋 / 跳 — or null for a passive; the card face draws that button, the HUD marks it */
+export type BoonSlot = 'attack' | 'dash' | 'dart' | 'stance' | 'jump' | null;
+export interface Boon { id: string; school: School; name: string; desc: string[]; col: string; glyph: string[]; slot?: BoonSlot; vals?: [number, number, number]; unit?: string; vals2?: [number, number, number]; unit2?: string }
 export interface BoonPick { boon: Boon; tier: number }
 export interface Perks { /** act-19 刀谱 */ moves: Record<string, boolean>; owned: Record<string, number> }
 export const newPerks = (): Perks => ({ moves: {}, owned: {} });

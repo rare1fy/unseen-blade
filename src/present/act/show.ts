@@ -5,7 +5,7 @@
 // 砍飞的箭：方向在出刀朝向左右 75° 里随机、附近有敌人就偏过去；砍中那一下顿帧 + 闪光 + 短慢放（用户：「这种属于高光操作，应该要有顿帧」）。
 import * as THREE from 'three';
 import { V3, onUpdate, R, scene, warm, frames } from '../engine/world';
-import { hitstop, shake, slowmo, after, clock, FX, waitReal, PAUSE } from '../engine/clock';
+import { hitstop, shake, slowmo, after, anim, clock, FX, waitReal, PAUSE } from '../engine/clock';
 import { shot } from '../director';
 import { fxImpact, fxSparks, fxSmoke, fxRing, trailSeg } from '../fx/fx';
 import { fxAfterimage } from '../fx/skillFx';
@@ -184,11 +184,13 @@ function prepRoom(o: RoomIn): Room {
 }
 
 /** 11-18 per blow: [hit-stop s (× TUNE.hitstop), camera push m, rumble (trauma × TUNE.shake), push-in share, hit sound] */
+// (act-43 反馈：「我感觉屏震还要再大点，普通攻击几乎感觉不到任何效果」→ every push about 2.5×, the light cuts a little rumble of their own
+//  and a longer stop; the rumble's curve in gfx.ts is gentler so the small ones show)
 const BEAT: Record<string, [number, number, number, number, Cue]> = {
-  k1: [0.04, 0.06, 0, 0, 'hitLight'], k2: [0.04, 0.06, 0, 0, 'hitLight'], k3: [0.05, 0.08, 0.03, 0, 'hitLight'], k4: [0.03, 0.05, 0, 0, 'hitStab'],
-  k5: [0.11, 0.14, 0.17, 0.05, 'hitHeavy'], heavy: [0.08, 0.12, 0.1, 0.02, 'hitHeavy'], dcut: [0.06, 0.1, 0.05, 0, 'hitHeavy'], launch: [0.07, 0.1, 0.08, 0.02, 'hitHeavy'],
-  kick: [0.07, 0.12, 0.1, 0, 'hitKick'], plunge: [0.09, 0.08, 0.2, 0.04, 'hitHeavy'], rel: [0.08, 0.24, 0.3, 0.07, 'hitIai'], parry: [0.1, 0.16, 0.18, 0.04, 'hitHeavy'],
-  arrow: [0.05, 0.06, 0.05, 0, 'hitLight'], wind: [0.03, 0.04, 0, 0, 'hitLight'], kunai: [0.02, 0.03, 0, 0, 'hitStab'],
+  k1: [0.05, 0.15, 0.07, 0, 'hitLight'], k2: [0.05, 0.15, 0.07, 0, 'hitLight'], k3: [0.06, 0.18, 0.09, 0, 'hitLight'], k4: [0.035, 0.11, 0.05, 0, 'hitStab'],
+  k5: [0.11, 0.26, 0.24, 0.06, 'hitHeavy'], heavy: [0.08, 0.2, 0.14, 0.03, 'hitHeavy'], dcut: [0.06, 0.16, 0.08, 0, 'hitHeavy'], launch: [0.07, 0.16, 0.12, 0.02, 'hitHeavy'],
+  kick: [0.07, 0.2, 0.14, 0, 'hitKick'], plunge: [0.09, 0.14, 0.26, 0.05, 'hitHeavy'], rel: [0.08, 0.3, 0.34, 0.08, 'hitIai'], parry: [0.1, 0.22, 0.22, 0.05, 'hitHeavy'],
+  arrow: [0.05, 0.1, 0.07, 0, 'hitLight'], wind: [0.03, 0.06, 0, 0, 'hitLight'], kunai: [0.02, 0.05, 0, 0, 'hitStab'],
 };
 /** 11-18 whose voice a foe cries with (the audio picks the takes and the pitch): 0 a man, 1 a big man, 2 the chief, 3 a hound */
 const voiceOf = (f: Foe) => isBoss(f) ? 2 : f.d.role === 'hound' ? 3 : f.d.role === 'brute' || f.elite ? 1 : 0;
@@ -1024,7 +1026,7 @@ export class ActShow {
     if (fallNow) after(0.25, () => void this.prologueFall());   // (the blow lands, a beat, then the scripted fall)
     if (heavyCut && !died && f.d.poise > 0 && f.st === 'stagger') f.dur += v(this.perks, 'bone');
     if (cut && !died && f.inv <= 0) { if (tierOf(this.perks, 'sunder') >= 0) f.sunderT = 3; if (tierOf(this.perks, 'bleed') >= 0 && f.kind !== 'dummy') { f.bleed = Math.min(5, f.bleed + 1); f.bleedT = 0; } }
-    if (o.kind !== 'school') fxImpact(p, o.heavy ? 0xff6a3a : o.kind === 'ultTick' ? 0xffc890 : 0xfff0d0, o.kind === 'dart' ? 0.4 : o.kind === 'ultTick' ? 0.28 : o.heavy ? 1.3 : 0.75, { dir, chips: o.heavy ? [0xff5a3a, 0x2b3147] : undefined });
+    if (o.kind !== 'school') fxImpact(p, o.heavy ? 0xff6a3a : o.kind === 'ultTick' ? 0xffc890 : 0xfff0d0, o.kind === 'dart' ? 0.4 : o.kind === 'ultTick' ? 0.28 : o.heavy ? 1.3 : 1.0, { dir, chips: o.heavy ? [0xff5a3a, 0x2b3147] : undefined });
     // act-23 (用户：「砍上去要溅血才有感觉」): blood from the wound along the blade's way; more for the heavy blows and the killing one
     if (f.kind !== 'dummy' && o.kind !== 'school') { const n = o.kind === 'dart' ? 5 : o.kind === 'ultTick' ? 7 : o.kind === 'rel' ? 42 : o.heavy ? 28 : 16; blood.spray(p, dir, (died ? n + 20 : n) * (executed ? 2 : 1), o.heavy || died ? 1.35 : 1); this.fleshHit = true; }
     popPix(String(d), f.a.head().add(o.kind === 'ultTick' ? V3(R(-0.55, 0.55), R(0.05, 0.6), 0) : V3(R(-0.2, 0.2), 0.35, 0)), { color: o.kind === 'rel' || o.kind === 'ult' ? '#ffe8a0' : o.kind === 'ultTick' ? '#ffd890' : o.heavy ? '#ff8a3a' : d >= 14 ? '#ffd060' : '#fff6e0', h: o.kind === 'rel' || o.kind === 'ult' ? 0.95 : o.kind === 'ultTick' ? 0.42 : o.heavy ? 0.66 : 0.5, big: o.heavy, life: o.kind === 'rel' || o.kind === 'ult' ? 1.2 : o.kind === 'ultTick' ? 0.5 : 0.9, rise: 0.9 });
@@ -1263,38 +1265,53 @@ export class ActShow {
   /** 一刀: the hero flashes between every foe nearby (up to seven, nearest first along the way), then sheathes — everyone cut at once */
   private async ult() {
     const h = this.hero; this.ultOn = true; this.intent = 0; this.hud.intent = 0; FX.slowmo = 0; FX.hitstop = 0;
-    h.forceFree(); h.inv = 5;
+    h.forceFree(); h.inv = 6;
     const left = this.foes.filter(f => f.st !== 'dead' && f.pos.distanceTo(h.pos) < 11), targets: Foe[] = [];
     let at = h.pos.clone();
     while (left.length && targets.length < 7) { left.sort((a, b) => a.pos.distanceTo(at) - b.pos.distanceTo(at)); const f = left.shift()!; targets.push(f); at = f.pos.clone(); }
-    cue('swishHeavy', 1); shake(0.2 * TUNE.shake);
+    // 11-18 (act-43 反馈：「我说得终极技能是那个有影分身的招数，这个招数的表现力要再强一点才行」): one whole scene, not a few puffs —
+    // the world cut in two and pressed into ink, everyone near pinned where they stand; she vanishes; two shadows go through each of
+    // them from two sides and every pass leaves its streak hanging in the air (a web by the end); she stands up out of the smoke, a held
+    // breath, the click of the sheath; each of them bursts open cut by cut; one great cross through all of them; the ink lifts
+    const G0 = { vig: GRADE.vig, desat: GRADE.desat, exp: GRADE.exposure };
+    const ink = (k: number) => { GRADE.vig = G0.vig + 0.75 * k; GRADE.desat = Math.max(G0.desat, 0.7 * k); GRADE.exposure = G0.exp * (1 - 0.3 * k); };
+    for (const f of this.foes) if (f.st !== 'dead' && f.pos.distanceTo(h.pos) < 14) interruptFoe(f, 4);
+    const feet = h.pos.clone().setY(0), side0 = V3(1, 0, 0);
+    trailSeg(feet.clone().addScaledVector(side0, -9).setY(1.1), feet.clone().addScaledVector(side0, 9).setY(1.1), 0xffffff, 0.3, { life: 0.45, bright: 3.4, spark: 0.6 });
+    this.flashScreen(0.4, 0xffffff); this.camPunch(0.08); shake(0.25 * TUNE.shake); cue('draw', 1); cue('timeSlow', 1); audio.stillness(2.2);
+    anim(0.18, k => ink(k), undefined, { real: true });
+    await waitReal(0.12);
     // 烟遁: the hero goes up in a burst of smoke (act-13 用户：「影分身的特效挺叼的，可以拿给别的技能」)
-    const feet = h.pos.clone().setY(0);
-    smokeBurst(feet, 1.0, 20, { yaw: h.a.yaw }); h.a.body.visible = false; fxRing(feet.clone().setY(0.06), 0xa0a8c0, 1.8, { life: 0.4 } as never); cue('whoosh', 0.9);
-    await waitReal(0.14);
-    // a shadow clone out of a puff beside each target, one after another, dashing in and cutting across it
-    targets.forEach((f, i) => {
-      after(i * 0.08, () => {
+    smokeBurst(feet, 0.9, 14, { yaw: h.a.yaw, life: 0.5 }); h.a.body.visible = false; fxRing(feet.clone().setY(0.06), 0xa0a8c0, 1.8, { life: 0.4 } as never); cue('whoosh', 0.9);
+    await waitReal(0.12);
+    // two shadow passes through each target, from either side, one after another; each leaves its streak hanging in the air
+    const passes: Array<[Foe, number]> = []; for (let r = 0; r < 2; r++) targets.forEach((f, i) => passes.push([f, i * 2 + r]));
+    passes.forEach(([f, j], n) => {
+      after(n * 0.06, () => {
         if (f.st === 'dead') return;
-        const dir = f.pos.clone().sub(feet).setY(0); if (dir.lengthSq() < 1e-4) dir.set(0, 0, 1); dir.normalize();
-        const side = V3(dir.z, 0, -dir.x).multiplyScalar(i % 2 ? 1 : -1);
-        const at = f.pos.clone().addScaledVector(dir, -(f.d.r + 1.7)).addScaledVector(side, 0.7).setY(0); this.clamp(at, 0.3);
-        smokeBurst(at, 0.5, 5, { size: 0.24, life: 0.4 });   // (11-18: thinner and shorter — the burst after it has to read)
-        spawnClone(h.a, at, f.pos.clone(), Math.max(0.3, at.distanceTo(f.pos) - (f.d.r + 0.55)), () => {
-          cloneCut(f.a.chest(), side.clone().multiplyScalar(-1), i % 2 ? 0xff7a5a : 0xff5a3a, 1.1, i % 2 === 0);
-          fxSparks(f.a.chest(), 0xffffff, 10, 4); f.a.tint(0xffffff, 0.4); cue('flurry', 0.6, 1);
+        const base = Math.atan2(f.pos.x - feet.x, f.pos.z - feet.z) + (j % 2 ? 1.1 : -1.1) + (Math.random() - 0.5) * 0.5;
+        const dir = V3(Math.sin(base), 0, Math.cos(base)), reach = f.d.r + 1.6;
+        const from = f.pos.clone().addScaledVector(dir, -reach).setY(0); this.clamp(from, 0.3);
+        const to = f.pos.clone().addScaledVector(dir, reach).setY(0);
+        smokeBurst(from, 0.35, 3, { size: 0.2, life: 0.3 });
+        trailSeg(from.clone().setY(1.0), to.clone().setY(1.0), j % 2 ? 0xffe6b8 : 0xfff6e8, 0.12, { life: 1.9, bright: 3, spark: 0.3 });
+        spawnClone(h.a, from, f.pos.clone(), Math.max(0.3, from.distanceTo(f.pos) - (f.d.r + 0.55)), () => {
+          cloneCut(f.a.chest(), dir.clone(), j % 2 ? 0xff7a5a : 0xff5a3a, 1.1, j % 2 === 0);
+          fxSparks(f.a.chest(), 0xffffff, 10, 4); f.a.tint(0xffffff, 0.35); blood.spray(f.a.chest(), dir, 12, 1.2);
+          cue('flurry', 0.6 + 0.3 * n / passes.length, 1); hitstop(0.015); this.camKick(dir, 0.06 * TUNE.shake / 2);
         });
       }, { real: true });
     });
-    await waitReal(0.08 * targets.length + 0.6);
-    // the hero steps back out of the smoke where it stood and sheathes; everyone the clones cut falls at once
+    await waitReal(0.06 * passes.length + 0.5);
+    // she stands up out of the smoke where she vanished: the world holds its breath, then the sheath clicks home
     smokeBurst(feet, 0.4, 6, { size: 0.22, life: 0.35, yaw: h.a.yaw }); h.a.body.visible = true; cue('whoosh', 0.4);
     h.a.play(new Action('cast', 0.5, 0.4));
-    await waitReal(0.32);
+    await waitReal(0.3);
+    hitstop(0.3); await waitReal(0.32);
     // 11-18 (用户：「终极技能应该是有一个爆发绽裂的伤害，而不是一次性的，要响起多段快速斩击的声音才爽」): the blade clicks home and
     // every one the clones cut bursts open — ULT_TICKS quick cuts across each of them (a streak of light, a spray, a small number and
-    // a short slash sound each, a hair of hit-stop), then the last one crosses them wide open: the big number, the blood, the stop
-    cue('sheathe', 1); this.camPunch(0.03);
+    // a short slash sound each, a hair of hit-stop), then the last one crosses them all wide open
+    cue('sheathe', 1); this.camPunch(0.04); this.flashScreen(0.15, 0xfff0d0);
     const tickDmg = Math.max(1, Math.round(TUNE.ultDmg * ULT_TICK_SHARE));
     for (let i = 0; i < ULT_TICKS; i++) {
       await waitReal(ULT_GAP * (1 - 0.35 * i / ULT_TICKS));   // a little faster as it goes
@@ -1307,17 +1324,25 @@ export class ActShow {
         // (each cut only a glint on the body — a full white flash every 65 ms washed the burst into one white blob)
         const fa = f.a as unknown as { flash: number; flashCol: THREE.Color }; fa.flash = 0.3; fa.flashCol.setRGB(1, 0.86, 0.66);
       }
-      if (any) { cue('flurry', 0.7 + 0.3 * i / ULT_TICKS, this.fleshHit ? 1 : 0); this.fleshHit = false; hitstop(0.012); this.camKick(V3(Math.random() - 0.5, 0, Math.random() - 0.5), 0.03 * TUNE.shake / 2); }
+      if (any) { cue('flurry', 0.7 + 0.3 * i / ULT_TICKS, this.fleshHit ? 1 : 0); this.fleshHit = false; hitstop(0.012); this.camKick(V3(Math.random() - 0.5, 0, Math.random() - 0.5), 0.05 * TUNE.shake / 2); this.flashScreen(0.05, 0xffe8c8); }
     }
-    await waitReal(ULT_GAP * 1.4);
+    await waitReal(ULT_GAP * 1.6);
+    // the last cut: one great cross through all of them (across their middle, as wide as they stand), then the ink lifts
+    const alive = targets.filter(f => f.st !== 'dead'), C = V3();
+    for (const f of alive) C.add(f.pos);
+    if (alive.length) C.multiplyScalar(1 / alive.length); else C.copy(h.pos);
+    const R = Math.max(1.5, ...alive.map(f => f.pos.distanceTo(C))) + 1.6, d1 = V3(1, 0, 0.55).normalize(), d2 = V3(-1, 0, 0.55).normalize();
+    for (const d of [d1, d2]) {
+      trailSeg(C.clone().addScaledVector(d, -R).setY(1.0), C.clone().addScaledVector(d, R).setY(1.0), 0xffffff, 0.38, { life: 0.7, bright: 3.6, spark: 1 });
+      trailSeg(C.clone().addScaledVector(d, -R).setY(1.04), C.clone().addScaledVector(d, R).setY(1.04), 0xffd890, 0.14, { life: 0.85, bright: 3, spark: 0.4 });
+    }
     const fin = Math.max(1, TUNE.ultDmg - tickDmg * ULT_TICKS);
-    for (const f of targets) if (f.st !== 'dead') {
-      const c = f.a.chest(); trailSeg(c.clone().add(V3(-0.8, 0.6, 0)), c.clone().add(V3(0.8, -0.6, 0)), 0xffffff, 0.2, { life: 0.4, bright: 3.4, spark: 0.8 });
-      trailSeg(c.clone().add(V3(-0.8, -0.6, 0)), c.clone().add(V3(0.8, 0.6, 0)), 0xffe0a0, 0.16, { life: 0.4, bright: 3.2, spark: 0.6 });
-      this.hitFoe(f, fin, h.pos.clone(), { knock: 1.6, heavy: true, kind: 'ult' });
-    }
-    hitstop(0.2); slowmo(0.5, 0.3); shake(0.6 * TUNE.shake); this.camPunch(0.07); this.flashScreen(0.35, 0xfff4dc);
-    fxRing(h.pos.clone().setY(0.08), 0xfff0c0, 4, { life: 0.6 } as never); cue('ultSlash', 1.2); cue('hitIai', 1, 1); this.platform.vibrate('heavy');
+    for (const f of targets) if (f.st !== 'dead') { blood.spray(f.a.chest(), f.pos.clone().sub(C).setY(0).normalize(), 30, 1.5); this.hitFoe(f, fin, C.clone(), { knock: 1.8, heavy: true, kind: 'ult' }); }
+    hitstop(0.22); slowmo(0.6, 0.3); shake(0.8 * TUNE.shake); this.camPunch(0.1); this.flashScreen(0.42, 0xffffff);
+    fxRing(C.clone().setY(0.08), 0xfff0c0, R + 1.5, { life: 0.7 } as never); fxRing(C.clone().setY(0.9), 0xffffff, R, { life: 0.4 } as never);
+    cue('ultSlash', 1.2); cue('hitIai', 1, 1); cue('boom', 0.6); this.platform.vibrate('heavy');
+    await waitReal(0.25);
+    anim(0.6, k => ink(1 - k), () => { GRADE.vig = G0.vig; GRADE.desat = G0.desat; GRADE.exposure = G0.exp; }, { real: true });
     this.ultOn = false; h.inv = 0.5;
   }
   /** a batted arrow strikes a foe */

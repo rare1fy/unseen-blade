@@ -65,9 +65,12 @@ function run(I: Pose, r: number, ph: number, off: THREE.Vector3): Pose {
   // walk
   const W: Partial<Pose> = {
     tL: -0.8 * sL, kL: 0.3 + 1.05 * Math.max(0, -sL), pL: 0.04, tR: -0.8 * sR, kR: 0.3 + 1.05 * Math.max(0, -sR), pR: -0.04,
-    hx: 0, hy: 0.05 * sL, hz: 0, sx: 0.3, sy: -0.04 * sL, sz: 0, cx: 0.04, nx: -0.24, ny: 0,
-    aRx: 0.45, aRz: -0.28, fR: -0.35, eR: -0.4, yR: 0.1,
-    aLx: -0.2 + 0.3 * sL, aLz: 0.22, fL: -1.4, eL: -0.3, yL: 0.2,
+    // 11-18 (act-43 反馈：「现在主角走路是同手同脚的」— measured: the shoulders turned 8 mm, the left hand swung 5 cm, the blade hand
+    // stood still: a rigid top over moving legs): the shoulders counter-turn against the hips, both arms swing opposite their legs,
+    // the left elbow loose (it was folded across the belly)
+    hx: 0, hy: 0.05 * sL, hz: 0, sx: 0.3, sy: 0.17 * sL, sz: 0, cx: 0.04, nx: -0.24, ny: -0.08 * sL,
+    aRx: 0.35 - 0.32 * sL, aRz: -0.28, fR: -0.4 - 0.15 * Math.max(0, sL), eR: -0.4, yR: 0.1,
+    aLx: 0.05 + 0.6 * sL, aLz: 0.2, fL: -0.45 - 0.35 * Math.max(0, -sL), eL: -0.2, yL: 0.15,
     lift: 1.1, flut: 0.95,
   };
   // sprint: the thigh swings ±1.15, the trailing leg folds high as it comes through (phase-shifted fold), a flight bounce,
@@ -77,9 +80,9 @@ function run(I: Pose, r: number, ph: number, off: THREE.Vector3): Pose {
   const cL = Math.cos(ph), cR = -cL;
   const Sp: Partial<Pose> = {
     tL: -1.15 * sL, kL: fold(sL, cL), pL: 0.05, tR: -1.15 * sR, kR: fold(sR, cR), pR: -0.05,
-    hx: 0.1, hy: 0.06 * sL, hz: 0, sx: 0.46, sy: -0.06 * sL, sz: 0, cx: 0.06, nx: -0.48, ny: 0,
-    aRx: 0.95, aRz: -0.3, fR: -0.25, eR: -0.08, yR: -2.55,
-    aLx: -0.45 + 0.3 * sL, aLz: 0.2, fL: -1.55, eL: -0.2, yL: 0.2,
+    hx: 0.1, hy: 0.06 * sL, hz: 0, sx: 0.46, sy: 0.2 * sL, sz: 0, cx: 0.06, nx: -0.48, ny: -0.1 * sL,
+    aRx: 0.85 - 0.35 * sL, aRz: -0.3, fR: -0.25, eR: -0.08, yR: -2.55,
+    aLx: -0.15 + 0.8 * sL, aLz: 0.2, fL: -0.85 - 0.45 * Math.max(0, -sL), eL: -0.2, yL: 0.2,
     lift: 1.35, flut: 1,
   };
   off.y += (0.05 * Math.abs(Math.cos(ph)) * (1 - sp) + 0.11 * Math.abs(sL) * sp) * r;

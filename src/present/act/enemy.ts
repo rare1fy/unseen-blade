@@ -377,7 +377,8 @@ export function damageFoe(f: Foe, dmg: number, from: THREE.Vector3, o: { knock?:
   const away = f.pos.clone().sub(from).setY(0); if (away.lengthSq() < 1e-4) away.set(0, 0, -1); away.normalize();
   if (!o.dot) {
     // poise foes in the middle of an attack only flinch (the wind-up's pose stays readable); everyone else plays the hurt
-    if (f.d.poise > 0 && (f.st === 'windup' || f.st === 'strike')) f.a.hit(Math.min(1.4, 0.5 + dmg / 18)); else f.a.hurt(Math.min(1.6, 0.5 + dmg / 18));
+    // (act-43 反馈：「普通攻击几乎感觉不到任何效果」: a bigger flinch — a 7-point cut used to rock them at 0.9, now 1.35)
+    if (f.d.poise > 0 && (f.st === 'windup' || f.st === 'strike')) f.a.hit(Math.min(1.5, 0.75 + dmg / 16)); else f.a.hurt(Math.min(1.7, 0.85 + dmg / 14));
     f.vel.addScaledVector(away, ((o.knock ?? 1) * 6 * TUNE.knock) / f.d.mass);
   }
   if (f.hp <= 0) { f.hp = 0; f.st = 'dead'; f.attacking = false; dropTeles(f); return true; }

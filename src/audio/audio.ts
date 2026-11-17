@@ -8,6 +8,8 @@ for (const [p, url] of Object.entries(files)) byName[p.split('/').pop()!.replace
 const variants = (prefix: string) => Object.keys(byName).filter(n => n.startsWith(prefix));
 /** 11-18: at most this many effects at once (a crowded fight was a wash of overlapping takes) */
 const MAX_VOICES = 12;
+/** the music bus level (act-43 反馈：「BGM要降低一点音量」) */
+const MUSIC_BASE = 0.3;
 
 /** act-19 music (the user's six tracks, GameProtos/music/unseen_v1): [loopStart, loopEnd] in seconds. Each file is the track up to
  *  loopEnd with the last ~1.6 s already crossfaded into the music just before loopStart (bar-aligned, picked by beat-synchronous chroma /
@@ -48,7 +50,8 @@ class AudioEngine {
     this.sfx.connect(this.send); this.hero.connect(this.send); this.send.connect(this.conv); this.conv.connect(this.wet); this.wet.connect(this.duck);
     this.lp = ctx.createBiquadFilter(); this.lp.type = 'lowpass'; this.lp.frequency.value = 18000; this.lp.Q.value = 0.7;
     this.musicHush = ctx.createGain(); this.musicHush.connect(this.duck);
-    this.music = ctx.createGain(); this.music.gain.value = 0.42; this.music.connect(this.lp); this.lp.connect(this.musicHush);
+    // (act-43 反馈：「BGM要降低一点音量」: 0.42 → 0.3, about −3 dB)
+    this.music = ctx.createGain(); this.music.gain.value = MUSIC_BASE; this.music.connect(this.lp); this.lp.connect(this.musicHush);
     this.setRoom(this.room);
     this.voice = ctx.createGain(); this.voice.gain.value = 1.0; this.voice.connect(this.master);
     // music is decoded on demand (playMusic): six decoded tracks would hold ~250 MB on a phone
@@ -185,7 +188,7 @@ class AudioEngine {
   }
   /** dip the music under a stinger for a while (k = level, 0..1) */
   duckMusic(k: number, hold: number, back = 0.8) {
-    if (!this.ctx) return; const t = this.now(), g = this.music.gain, base = 0.42;
+    if (!this.ctx) return; const t = this.now(), g = this.music.gain, base = MUSIC_BASE;
     g.cancelScheduledValues(t); g.setValueAtTime(g.value, t); g.linearRampToValueAtTime(base * k, t + 0.25); g.setValueAtTime(base * k, t + hold); g.linearRampToValueAtTime(base, t + hold + back);
   }
   /** 0 = open, 1 = muffled (low HP) */
@@ -260,7 +263,7 @@ const H: Partial<Record<Cue, (k: number, x?: number) => void>> = {
   // is ONE composed sound (GameProtos/sfx/make_hits_v4.py — the edge, the cut into flesh, a touch of low, a 0.3–0.6 s tail, every layer
   // on one onset), five tiers × 3 takes, ±3 % pitch, on her own bus (the world steps back under it). x = 0: only wood was hit (the dummies)
   cut: (k, x) => H.hitLight!(k, x), cutHeavy: (k, x) => H.hitHeavy!(k, x),
-  hitLight: (k, x) => { if (x === 0) return wood(0.5 + 0.3 * k, 1); hb('hit_light', { gain: 0.72 + 0.2 * k }); audio.hitDuck(0.6); },
+  hitLight: (k, x) => { if (x === 0) return wood(0.55 + 0.3 * k, 1); hb('hit_light', { gain: 0.85 + 0.15 * k }); audio.hitDuck(0.7); },
   hitStab: (k, x) => { if (x === 0) return wood(0.45 + 0.3 * k, 1.15); hb('hit_stab', { gain: 0.72 + 0.2 * k }); audio.hitDuck(0.5); },
   hitHeavy: (k, x) => { if (x === 0) return wood(0.7 + 0.3 * k, 0.85); hb('hit_heavy', { gain: 0.85 + 0.15 * k }); audio.hitDuck(1); },
   hitKick: (k, x) => { hb('hit_kick', { gain: 0.8 + 0.2 * k }); if (x !== 0) audio.hitDuck(0.8); },

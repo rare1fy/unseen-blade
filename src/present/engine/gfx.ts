@@ -51,7 +51,8 @@ export function createGfx(platform: Platform, canvas: any, o: { preserve?: boole
         runLateUpdaters(dt, rdt);
         updateParticles(dt); updatePrims(dt);
         // (11-18: the rumble runs on real time — on game time it stood still through every hit-stop, a frozen offset instead of a shake)
-        const s = FX.trauma * FX.trauma * CAM.shakeAmt, T = clock.rtime;
+        // (act-43 反馈：「屏震还要再大点」: trauma^1.5 × 0.3 — the old trauma² × 0.22 left every small shake invisible)
+        const s = Math.pow(FX.trauma, 1.5) * 0.3, T = clock.rtime;
         shk.set(Math.sin(T * 61.3) * s, Math.sin(T * 67.9 + 0.4) * s, Math.sin(T * 53.1 + 1.1) * s * 0.5);
         camera.fov = CAM.fov; camera.aspect = view.w / Math.max(1, view.h);
         camera.position.copy(CAM.base).sub(CAM.look).multiplyScalar(1 - CAM.zoom).add(CAM.look).add(CAM.off).add(CAM.kick).add(shk);
