@@ -47,3 +47,43 @@ export const DEATH_POOL: Record<string, string[]> = {
 export function deathLine(who: keyof typeof DEATH_POOL, rnd = Math.random): Line[] {
   const pool = DEATH_POOL[who]; return [L(who, pool[Math.floor(rnd() * pool.length) % pool.length])];
 }
+
+// ---------------------------------------------------------------- act-29 开篇（方案 1，agy · gemini-3.8-flash-high 写，11-17）
+/** the cold open's last line (寒山坞, that night), then the two cards over the snowy village */
+export const PRO_COLD = '白灰比雪烫。从此，再看不见。';
+export const PRO_CAPTIONS = ['七年后', '中平元年 · 冬 · 颍川'];
+/** the snowy temple, before the fight she cannot win */
+export const PRO_CHULEI: Line[] = [
+  L('chulei', '哪来的小瞎子，也配拎着刀挡老子的路？'),
+  L('jiangjin', '褚雷。'),
+  L('chulei', '认得老子？……慢着，这刀脊上的锻纹……'),
+  L('chulei', '寒山坞文家？哈，风箱底下那丫头，阿皎？'),
+  L('jiangjin', '拔杖。'),
+];
+/** struck down in the snow */
+export const PRO_FALL: Line[] = [L('chulei', '当年一捧灰没烫醒你。小瞎子，烂在雪里吧。')];
+/** dawn: the man with the donkey, picking over the dead */
+export const PRO_DAWN: Line[] = [
+  L('duwu', '冻死鬼的鞋，拔都拔不下来。'),
+  L('duwu', '好刀！少说能换两袋米面。'),
+  L('duwu', '松手……操，怎么还有气儿？！'),
+];
+/** the kiln: her first waking (only 杜五 and 孙媪 — the others come later, each with their own story) */
+export const PRO_WAKE: Line[] = [
+  L('act', '（刘白猛地惊醒，指尖抓空）'),
+  L('sunao', '别扑腾，肋骨断了三根，死不了。'),
+  L('jiangjin', '刀……在哪。'),
+  L('duwu', '刀在老子这！破瓦窑里冻不死你。'),
+  L('jiangjin', '……为什么救我。'),
+  L('duwu', '老子拿板车拖你回来的，就图刀和衣裳！'),
+  L('sunao', '图衣裳？倒赔老妇两双死人鞋请我接骨。'),
+  L('duwu', '……谁知老子犯什么邪！小瞎子，叫什么？'),
+  L('jiangjin', '刘白。'),
+  L('duwu', '得，白哥。躺好，别糟践老子的本钱。'),
+  L('act', '（刘白咬牙起身，血渗透粗布）'),
+  L('jiangjin', '褚雷还在庙里。'),
+  L('duwu', '疯了吧白哥！那铁杖能把你砸成肉泥！'),
+  L('sunao', '好言劝不住该死的鬼，由她爬去。'),
+  L('act', '（刘白直直伸出手，指节泛白）'),
+  L('jiangjin', '刀给我。'),
+];

@@ -18,6 +18,8 @@ export const CAST: Record<string, Speaker> = {
   jiangjin: { name: '刘白', side: 'L' }, duwu: { name: '杜五', side: 'R' }, sunao: { name: '孙媪', side: 'R' }, fengtiebi: { name: '冯铁臂', side: 'R', mute: true },
   luzhao: { name: '卢昭', side: 'R' }, huanyue: { name: '桓越', side: 'R' }, chulei: { name: '褚雷', side: 'R' }, yanhu: { name: '阎虎', side: 'R' },
   fengzhen: { name: '封鸩', side: 'R' }, zhouan: { name: '周黯', side: 'R' }, cuixuan: { name: '崔玄', side: 'R' },
+  /** act-29: a line of action (in brackets, grey, no name): nobody speaks, both portraits stay and dim */
+  act: { name: '', side: 'L', mute: true },
 };
 const files = import.meta.glob('../../assets/portraits/*.png', { eager: true, query: '?inline', import: 'default' }) as Record<string, string>;
 const PORTRAIT: Record<string, string> = {};
@@ -53,7 +55,7 @@ export class Dialogue {
     this.outK = 0;
     for (const s of ['L', 'R'] as const) { const S = this.sides[s]; if (S.mesh) { this.L.scene.remove(S.mesh); (S.mesh.material as THREE.Material).dispose(); S.mesh.geometry.dispose(); S.mesh = null; } S.id = ''; S.on = 0; S.k = 0; S.pop = 0; S.was = false; }
     // both portraits of the scene come up together: whoever speaks first on each side
-    for (const l of this.lines) { const sp = CAST[l.who]; if (sp && !this.sides[sp.side].id) this.setPortrait(sp.side, l.who); }
+    for (const l of this.lines) { const sp = CAST[l.who]; if (sp && l.who !== 'act' && !this.sides[sp.side].id) this.setPortrait(sp.side, l.who); }
     cue('scroll', 0.4);
     return new Promise(res => { this.done = res; });
   }
@@ -73,7 +75,7 @@ export class Dialogue {
     if (line && this.shown < [...line.text].length) { this.shown = [...line.text].length; return true; }
     this.i++; this.shown = 0; this.t = 0;
     if (this.i >= this.lines.length) { this.close(); return true; }
-    const sp = CAST[this.lines[this.i].who]; if (sp) this.setPortrait(sp.side, this.lines[this.i].who);
+    const sp = CAST[this.lines[this.i].who]; if (sp && this.lines[this.i].who !== 'act') this.setPortrait(sp.side, this.lines[this.i].who);
     cue('click', 0.2); return true;
   }
   private close() {
@@ -120,7 +122,7 @@ export class Dialogue {
     if (key !== this.drawn) { this.drawn = key; this.paint(line, this.shown, wPx, hPx, scale); }
     const y = L.h - hPx / 2 - Math.max(10, L.h * 0.03) + (1 - this.openT) * 30;
     L.at(L.w / 2, y, 0, this.box.position); this.box.scale.set(L.px(wPx), L.px(hPx), L.px(8));
-    const sp = CAST[line.who]; this.lastSpeaker = sp?.side ?? null;
+    const sp = CAST[line.who]; this.lastSpeaker = line.who === 'act' ? null : sp?.side ?? null;
     this.portraits(dt, this.lastSpeaker);
   }
   /** act-25 (user: 「哈迪斯的立绘基本上是顶满的大图……压暗和动效明显不足，感受不到是两个人在对话」): Hades-style portraits —

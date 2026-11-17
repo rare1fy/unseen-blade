@@ -34,7 +34,8 @@ import { CODE_BUILD } from '../bestiary/voxEdit';
 import { hideoutScene, HIDEOUT, HIDEOUT_PEOPLE } from './hideout';
 import { Timeline } from './timeline';
 import { openingShots, bossIntroShots, type CineHost } from './cutscenes';
-import { WAKE_DUWU, WAKE_SUNAO, CHULEI_BEFORE, CHULEI_AFTER, deathLine } from './scripts';
+import { WAKE_DUWU, WAKE_SUNAO, CHULEI_BEFORE, CHULEI_AFTER, deathLine, PRO_CHULEI, PRO_FALL, PRO_DAWN, PRO_WAKE, PRO_CAPTIONS } from './scripts';
+import { fallShots, snowShots, dawnShots, dragShots, lieDown, type PrologueHost } from './prologue';
 import { newGame, profile, save as saveProfile, seeOnce, hasSave } from './profile';
 import { runMods, bank, META, level, nextCost, buy, type RunMods } from './meta';
 import { NPC_LINES, UP_LINES, POOR_LINES, HAUL, MEALS, MEAL_LINES, STELE_LINES } from './hideoutLines';
@@ -60,7 +61,7 @@ import { Hero, type HeroWorld } from './hero';
 import { interruptFoe } from './enemy';
 import { inside } from './tele';
 import { spawnFoe, updateFoe, damageFoe, type Foe, type FoeWorld, type EKind, Arrow } from './enemy';
-import { EDEFS, isBoss, lowAttack, trimShadows } from './enemy';   // wp/foes: the boss bar / banner / death and the bot's jump read these
+import { EDEFS, isBoss, lowAttack, trimShadows, dropTeles } from './enemy';   // wp/foes: the boss bar / banner / death and the bot's jump read these
 import { BOONS, applyBoon, drawBoons, upgradeBoon, returnCard, TIER_NAMES, newPerks, type Perks, type Boon, type BoonPick } from './boons';
 import { Schools } from './schools'; // wp/boons: effect owner
 import { TUNE } from './tune';
@@ -85,6 +86,7 @@ import { VIBE, vibeSupport, iosMajor } from '../../platform/index';
 /** the perks the hero's world reads while the run is on (kept in step each frame) */
 const SHOW_PERKS = { darts3: false };
 import { BattleActor } from '../bestiary/battle';
+import { HIDEOUT_DONKEY } from './hideout_people';
 import { CELL } from '../bestiary/kit';
 import { Action } from '../actors/rig';
 
@@ -142,6 +144,13 @@ export class ActShow {
   /** a cutscene's place: the open land, no walls / gates / props */ private noArena = false;
   // ------------------------------------------------------------ act-20: story — portrait dialogue, timeline cutscenes, puppets
   dialogue: Dialogue; timeline: Timeline; private puppets: Foe[] = []; private wasPhase: Phase = 'yard'; private justDied = false;
+  /** act-29 开篇 (方案 1): 1 = the snowy village (the first fight, alone), 2 = the snowy temple (褚雷, a fight she cannot win), 0 = off */
+  prologue = 0; private forceSpec: Partial<Spec> | null = null; private proFightT = 0; private proFalling = false; private proPeople: BattleActor[] = [];
+  private proHost: PrologueHost = {
+    hero: { get a() { return SELF!.hero.a; }, get pos() { return SELF!.hero.pos; } } as PrologueHost['hero'],
+    person: (id, x, z, yaw) => { const a = new BattleActor(id === 'duwu' ? HIDEOUT_PEOPLE.duwu : HIDEOUT_DONKEY); a.place(V3(x, 0, z), yaw); a.yaw = yaw; trimShadows(a.root, 4); this.proPeople.push(a); return a; },
+    puppet: (kind, x, z, fx, fz) => this.cineHost.puppet(kind, x, z, fx, fz),
+  };
   private cineHost: CineHost = {
     hero: { get a() { return SELF!.hero.a; }, get pos() { return SELF!.hero.pos; } } as CineHost['hero'],
     puppet: (kind, x, z, fx, fz) => { const f = spawnFoe(kind, V3(x, 0, z), V3(fx, 0, fz)); f.st = 'move'; this.puppets.push(f); return f; },
@@ -167,12 +176,55 @@ export class ActShow {
     newGame();
     // a new game: 刘白 in her default look again, the white-haired one (the costume the browser remembered goes)
     { const d = HEROES.find(x => x.id === DEFAULT_HERO); if (d) { this.wearing = d; if (this.hud.flask instanceof IronHp) this.hud.flask.setFace(d.id); else HP_FACE.id = d.id; try { localStorage.setItem('act.hero6', d.id); } catch { /* storage blocked */ } } }
-    this.noArena = true; this.viewSpec = { locale: 'hj_field', time: 'dusk', weather: 'clear', layout: 'pair', seed: 4242, exits: [] }; this.room = 0; this.locale = 'hj_field'; this.buildRoom(true); this.viewSpec = null; this.noArena = false;
-    for (const f of this.foes) f.a.dispose(); this.foes.length = 0;
-    this.phase = 'yard'; await this.cine(openingShots(this.cineHost));
+    // act-29 (用户：「方案1开做吧」): the night seven years before (once its place is built), then the prologue — alone in the snow
+    await this.coldOpen();
+    this.startPrologue();
+  }
+  /** the cold open: 寒山坞 that night (waits for the locale; skipped until it exists) */
+  private async coldOpen() { /* filled in when the 寒山坞 scene lands */ }
+  /** the prologue's first room: the snowy village at night, a few sentries; then the temple (leave() moves prologue to 2) */
+  startPrologue() {
+    this.prologue = 1; this.proFalling = false; this.proFightT = 0;
+    this.intent = 0; this.hud.intent = 0; this.perks = newPerks(); this.room = 0; this.kills = 0; this.recent = []; this.visited = []; this.coins = 0;
+    this.mods = runMods(profile()); this.defy = 0; this.eliteKills = 0; this.bossKilled = false; this.wine = false;
+    TUNE.heroHp = 100 + this.mods.hpBonus; TUNE.dartCharges = 3 + this.mods.dartBonus; TUNE.aggression = 0.85 / this.mods.windupMul;
+    this.plan = { type: 'fight', locale: 'hj_village', reward: null, waves: [['hj_mob', 'hj_mob'], ['hj_blade', 'hj_mob', 'hj_mob']] };
+    this.locale = 'hj_village'; this.forceSpec = { season: 'winter', weather: 'snow', time: 'night' };
+    this.buildRoom(true);
+    // 「七年后」 over the snowy village while she walks in from the front; then the first sentries
+    const h = this.hero, p0 = h.pos.clone();
+    void this.cine([
+      { dur: 3.4, ease: 'inOut', caption: { text: PRO_CAPTIONS[0], big: true, at: 0.5, hold: 2.2 }, from: { pos: [p0.x + 4, 16, p0.z + 14], look: [p0.x, 0, p0.z - 4], fov: 40 }, to: { pos: [p0.x + 3, 13, p0.z + 12], look: [p0.x, 0, p0.z - 4], fov: 40 } },
+      { dur: 3.6, ease: 'inOut', caption: { text: PRO_CAPTIONS[1], at: 0.4, hold: 2.6 }, from: { pos: [p0.x + 6, 4.5, p0.z + 7], look: [p0.x, 1, p0.z - 1], fov: 36 }, to: { pos: [p0.x + 5, 4.2, p0.z + 6], look: [p0.x, 1, p0.z - 2.5], fov: 36 },
+        tick: (t, dt) => { const m = motionOf(h.a); h.pos.z = p0.z - Math.min(2.5, t * 0.8); h.a.yaw = Math.PI; m.run = t < 3.1 ? 0.3 : Math.max(0, m.run - dt * 4); m.phase += dt * 3; h.a.update(dt); } },
+    ]).then(() => { if (this.phase === 'intro' && this.hero === h) { this.phase = 'fight'; this.spawnWave(); } });
+  }
+  /** the fight she cannot win: the blow, his word, the snow; dawn and the man with the donkey; the kiln */
+  private async prologueFall() {
+    if (this.proFalling || this.prologue !== 2) return; this.proFalling = true;
+    const boss = this.foes.find(f => isBoss(f) && f.st !== 'dead') ?? null;
+    this.hero.inv = 99;
+    for (const f of this.foes) { dropTeles(f); f.attacking = false; f.lunge = null; }   // nothing left half-swung on the snow
+    if (boss) { await this.cine(fallShots(this.proHost, boss)); await this.talk(PRO_FALL); this.phase = 'cine'; await this.cine(snowShots(this.proHost, boss)); }
+    audio.stopMusic(2.5);
+    // dawn in the same yard: the snow has stopped, the dead lie where they fell
+    const sp = this.spec, at = { x: this.hero.pos.x, z: this.hero.pos.z };
+    await new Promise<void>(res => { void wipeTransit(() => {
+      for (const f of this.foes) f.a.dispose(); this.foes.length = 0;
+      this.noArena = true; this.viewSpec = { locale: 'hj_temple', season: 'winter', time: 'dawn', weather: 'clear', layout: sp?.layout ?? 'axis', mirror: sp?.mirror ?? false, seed: sp?.seed ?? 5, exits: [] };
+      this.forceSpec = null; this.buildRoom(true); this.viewSpec = null; this.noArena = false;
+      this.hero.pos.set(at.x, 0, at.z); this.hero.a.yaw = 0.4; lieDown(this.hero.a, 1); res();
+    }); });
+    const dead: Array<[EKind, number, number]> = [['hj_mob', at.x - 3.2, at.z + 2.6], ['hj_blade', at.x - 1.4, at.z + 3.6], ['hj_mob', at.x + 2.4, at.z - 1.8]];
+    await this.cine(dawnShots(this.proHost, at, dead));
+    const duwu = this.proPeople[0] ?? null;
+    await this.talk(PRO_DAWN);
+    await this.cine(dragShots(this.proHost, () => duwu));
+    for (const a of this.proPeople) a.dispose(); this.proPeople = [];
+    this.prologue = 0; this.forceSpec = null;
     await new Promise<void>(res => { void wipeTransit(() => { this.enterYard(); res(); }); });
     await new Promise(r => after(0.8, () => r(null)));
-    if (seeOnce('wake1')) { await this.talk([...WAKE_DUWU, ...WAKE_SUNAO]); saveProfile(); }
+    seeOnce('wake1'); await this.talk(PRO_WAKE); saveProfile();
   }
   /** the run's haul goes home (meta.ts bank: currencies, runs / wins / deaths), saved */
   private lastWon = false;
@@ -274,6 +326,7 @@ export class ActShow {
       cardsDemo: () => { void this.cards.open([BOONS[8], BOONS[16], BOONS[0]].map((boon, tier) => ({ boon, tier }))); }, // wp/boons: school/tier preview
       boon: (id: string, tier = 0) => applyBoon(this.perks, id, tier), // wp/boons: browser effect checks
       intent: (n = 3) => { this.intent = Math.max(0, Math.min(3, n)); this.hud.intent = this.intent; },
+      prologue: (n = 1) => { this.startPrologue(); if (n >= 2) { after(0.3, () => { this.prologue = 2; this.proFightT = 0; this.plan = { type: 'boss', locale: 'hj_temple', reward: null, waves: [['hj_boss']] }; this.locale = 'hj_temple'; this.room = 1; this.buildRoom(false); }); } },
       sfx: () => ({ ready: audio.ready, all: audio.buf.size, loaded: [...audio.buf.keys()].filter(k => /^ub_(flesh|gore|blood)/.test(k)), muted: audio.muted, ctx: audio.ctx ? audio.ctx.state : 'none', recent: audio.recent.slice() }), unlockAudio: () => audio.unlock().then(() => audio.ready),
       cam: (b: number[] | null, l?: number[], fov = 30) => { this.camOverride = b ? { base: V3(b[0], b[1], b[2]), look: V3(l![0], l![1], l![2]), fov } : null; },
       press: (n: 'attack' | 'dash' | 'special' | 'jump', ms = 80) => { this.inp.hold(n, ms / 1000); },
@@ -446,11 +499,13 @@ export class ActShow {
     const isYard = this.room < 0;
     if (!isYard && this.plan && !this.viewSpec) this.visited.push(this.plan.type);
     this.nextRooms = !isYard && this.plan && !this.viewSpec ? doorsFrom(this.room, this.visited, Math.random) : [];
+    if (this.prologue === 1 && !this.viewSpec) this.nextRooms = [{ type: 'boss', locale: 'hj_temple', reward: null, waves: [['hj_boss']] }]; else if (this.prologue === 2) this.nextRooms = [];   // act-29
     const seed = (Date.now() % 100000) + this.room * 977;
     const base = pickSpec(seed, Object.values(REGISTRY.locales), REGISTRY.layouts, this.recent, { season: 'autumn', locale: this.locale });
     const spec: Spec = isYard ? { ...base, time: 'dusk', weather: 'clear', exits: ['back'] }
       : { ...base, time: this.room === 0 ? 'dusk' : base.time, weather: this.plan?.type === 'boss' ? 'clear' : base.weather, exits: this.nextRooms.length > 1 ? ['left', 'right'] : this.nextRooms.length ? ['back'] : [] };
     if (this.viewSpec) Object.assign(spec, { exits: [] }, this.viewSpec);
+    if (this.forceSpec) Object.assign(spec, this.forceSpec);   // act-29: the prologue's snowy night
     this.recent.push(spec); this.spec = spec;
     // act-19: the 黄巾 rooms stand on the 2x stage; the yard keeps the old one
     const big = !isYard && spec.locale.startsWith('hj_'); setStage(big);
@@ -489,7 +544,7 @@ export class ActShow {
     const hint = !this.hinted ? (this.inp.lastDevice === 'touch' && 'ontouchstart' in globalThis ? '左边拖动走 · 斩 / 按住蓄力 · 冲 · 跳 · 镖' : 'WASD 走 · J 斩（按住蓄力）· 空格 跳 · K 冲刺 · L 飞镖') : '';
     this.hinted = true;
     const info = ROOM_INFO[this.plan?.type ?? 'fight'];
-    this.banner.show(`第 ${'一二三四五六'[this.room] ?? this.room + 1} 间 · ${info.name}`, hint || `${name} · ${info.line}`, hint ? 3.2 : 1.6);
+    if (!this.prologue) this.banner.show(`第 ${'一二三四五六'[this.room] ?? this.room + 1} 间 · ${info.name}`, hint || `${name} · ${info.line}`, hint ? 3.2 : 1.6);
     // the rooms without a fight: the stations stand ready and the roads are open at once
     if (this.plan && (this.plan.type === 'shop' || this.plan.type === 'rest' || this.plan.type === 'boon')) {
       this.stations = new Stations(this.stage!.root);
@@ -558,7 +613,8 @@ export class ActShow {
         cue(bs ? 'roar' : 'summon', bs ? 0.9 : 0.4);
         // act-20: the chapter's boss the first time on this save — the intro cutscene and the lines before the fight (he
         // comes in the room's second wave); after that only his banner
-        if (bs && seeOnce('ch1_boss')) { saveProfile(); after(0.35, async () => { if ((f.st as string) === 'dead') return; await this.cine(bossIntroShots(this.cineHost, f, '雷公渠帅 · 褚雷')); await this.talk(CHULEI_BEFORE); f.a.roar(); }); }
+        if (bs && this.prologue === 2) { after(0.35, async () => { await this.cine(bossIntroShots(this.cineHost, f, '雷公渠帅 · 褚雷')); await this.talk(PRO_CHULEI); f.a.roar(); this.proFightT = 0; }); }
+        else if (bs && seeOnce('ch1_boss')) { saveProfile(); after(0.35, async () => { if ((f.st as string) === 'dead') return; await this.cine(bossIntroShots(this.cineHost, f, '雷公渠帅 · 褚雷')); await this.talk(CHULEI_BEFORE); f.a.roar(); }); }
         else if (bs) { f.a.roar(); shake(0.3 * TUNE.shake); this.banner.show(EDEFS[ko.kind].name, EDEFS[ko.kind].tag ?? '', 1.6, '#ff8a6a'); }
       });
     });
@@ -695,7 +751,10 @@ export class ActShow {
     if (f.st === 'dead') return; // wp/boons: chained damage may already have killed a target
     const wasFrozen = f.frozen > 0; dmg = (dmg + this.schools.cutDamage(f, from, o.kind)) * this.schools.damageMul(f); // wp/boons: intent and shatter
     const d = Math.round(dmg * this.mods.dmgMul * (o.kind === 'dart' || o.kind === 'school' ? 1 : this.dmgMul())), p = f.a.chest(), dir = f.pos.clone().sub(from).setY(0).normalize(); // wp/boons: secondary effects keep their stated damage
+    // act-29: the prologue's 褚雷 cannot be brought below a little over half (she is not ready yet)
+    if (this.prologue === 2 && isBoss(f)) { const floor = Math.ceil(f.maxHp * 0.55); if (f.hp - d < floor) { const left = Math.max(0, f.hp - floor); fxSparks(f.a.chest(), 0xfff6d0, 6, 3); if (left <= 0) { f.a.tint(0xffffff, 0.6); popPix('0', f.a.head().add(V3(0, 0.35, 0)), { color: '#bfbfbf', h: 0.45, life: 0.6, rise: 0.6 }); cue('parry', 0.5); return; } } }
     const died = damageFoe(f, d, from, { knock: o.knock, stagger: o.stagger ?? (o.heavy ? 0.55 : 0.3), poiseDmg: o.kind === 'dart' ? d * 0.5 : o.heavy ? d * 1.8 : d });
+    if (this.prologue === 2 && isBoss(f)) f.hp = Math.max(f.hp, Math.ceil(f.maxHp * 0.55));
     this.schools.onHit(f, wasFrozen); // wp/boons: shatter once; retain frozen-death information
     if (o.kind !== 'school') fxImpact(p, o.heavy ? 0xff6a3a : 0xfff0d0, o.kind === 'dart' ? 0.4 : o.heavy ? 1.3 : 0.75, { dir, chips: o.heavy ? [0xff5a3a, 0x2b3147] : undefined }); // wp/boons: schools supply restrained elemental FX
     // act-23 (用户：「砍上去要溅血才有感觉」): blood from the wound along the blade's way; more for the heavy blows and the killing one
@@ -975,6 +1034,7 @@ export class ActShow {
       this.defy--; dmg = Math.max(0, this.hero.hp - Math.round(this.hero.maxHp * 0.3)); this.hero.inv = Math.max(this.hero.inv, 1.2);
       slowmo(0.8, 0.25); fxRing(this.hero.pos.clone().setY(0.08), 0xbfe8ff, 3, { life: 0.6 } as never); cue('timeSlow', 0.7);
     }
+    if (this.prologue && this.hero.hp - dmg <= 0) { dmg = Math.max(0, this.hero.hp - 1); if (this.prologue === 2) { void this.prologueFall(); return; } }   // act-29
     if (!this.hero.hurt(dmg, from)) return;
     // where it came from: a red arc at the feet facing the attacker
     this.hitArcs.show(this.hero.pos, from);
@@ -992,6 +1052,7 @@ export class ActShow {
     this.phase = 'pick'; cue('stingClear', 1); audio.duckMusic(0.35, 3.2);
     this.banner.show('清场', '', 1.0, '#ffe6a0');
     await new Promise(r => after(0.9, () => r(null)));
+    if (this.prologue) { this.openDoors(); return; }   // act-29: the prologue's road just goes on
     if (this.room >= RUN_ROOMS - 1) { if (seeOnce('ch1_boss_after')) { await this.talk(CHULEI_AFTER); saveProfile(); } this.end(true); return; }
     const rw = this.plan?.reward ?? null;
     if (rw?.k === 'coins') { this.coinsFx.drop(this.hero.pos.clone().add(V3(0, 0, -1.5)), 12, Math.round(rw.n / 12)); this.banner.show('铜钱', `${rw.n}`, 1.0, '#ffd24a'); }
@@ -1057,7 +1118,7 @@ export class ActShow {
   private leave(i: number) {
     if (this.phase !== 'doors') return;
     this.phase = 'leaving'; const d = this.doors[i], next = this.nextRooms[i];
-    this.plan = next; const fromLocale = this.locale; this.locale = next.locale;
+    this.plan = next; const fromLocale = this.locale; this.locale = next.locale; if (this.prologue === 1) { this.prologue = 2; this.proFightT = 0; }
     const h = this.hero; h.vel.set(d.ex.dir[0], 0, d.ex.dir[1]).multiplyScalar(TUNE.heroSpeed * 0.8);
     WIPE.look = fromLocale === 'ninja_wilds' ? 'bamboo' : 'pillar';
     after(0.35, () => { void wipeTransit(() => { this.room++; this.buildRoom(false); }); });
@@ -1102,6 +1163,8 @@ export class ActShow {
       for (const f of this.puppets) if (this.phase === 'talk') f.a.update(dt);
       this.hud.update(rdt, this.inp, []); this.L.on = true; return;
     }
+    // act-29: the prologue's temple — about half a minute in, his blow ends it whatever her blood
+    if (this.prologue === 2 && this.phase === 'fight' && !this.proFalling && this.foes.some(f => isBoss(f))) { this.proFightT += dt; if (this.proFightT > 28) void this.prologueFall(); }
     if (this.botOn) this.bot();
     // the model page plays 不见刀's QTE by itself (press as the ring closes)
     else if (this.labOn && this.qteT >= 0) { const k = this.qteT / TUNE.qteTime, b = this.inp.b.attack, on = k > 0.85 && k < 1.0; b.pressed = on && !b.down; b.down = on; }
