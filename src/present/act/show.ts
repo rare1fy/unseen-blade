@@ -1081,6 +1081,8 @@ export class ActShow {
     this.inp.frame(rdt);
     if (this.phase === 'opening' || this.phase === 'title') return;   // opening.ts / title.ts run the start screen
     // act-20: a cutscene or a conversation — the timeline / the dialogue run, the people idle, nothing fights
+    // (act-26: once a conversation ends the phase moves on at once — the portraits still have to slide out, so keep driving them)
+    if (this.phase !== 'cine' && this.phase !== 'talk') this.dialogue.update(rdt);
     if (this.phase === 'cine' || this.phase === 'talk') {
       this.timeline.update(rdt); this.dialogue.update(rdt);
       // the bot reads fast: a line every 0.6 s (cutscenes play out)
