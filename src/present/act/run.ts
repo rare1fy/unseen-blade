@@ -49,11 +49,14 @@ export function wavesFor(type: RoomType, depth: number, r: Rnd): string[][] {
   const w2 = ['hj_blade', pick(['hj_brute', 'hj_hound'], r), pick(['hj_archer', 'hj_taoist'], r), 'hj_mob', 'hj_mob', ...(depth >= 3 ? [pick(['hj_brute', 'hj_taoist', 'hj_hound'], r)] : [])];
   return [w1, w2];
 }
+/** 11-18 (用户：「我打了半天了还没个新招，一直在给我加数值」): 刀谱 come much more often — every 死士 room gives one, a 乱兵 room about
+ *  three times in ten (the rest a boon / coins / a heal), the 遗卷 altar as before; with the first room's one a run sees about 3–4. When
+ *  every 刀谱 is learnt, show.ts falls back to a boon (manualPick) */
 function rewardFor(type: RoomType, r: Rnd): Reward {
   if (type !== 'fight' && type !== 'elite') return null;
   const x = r();
-  if (type === 'elite') return x < 0.6 ? { k: 'manual' } : x < 0.85 ? { k: 'boon' } : { k: 'coins', n: 50 };
-  return x < 0.6 ? { k: 'boon' } : x < 0.85 ? { k: 'coins', n: 30 } : { k: 'heal' };
+  if (type === 'elite') return { k: 'manual' };
+  return x < 0.3 ? { k: 'manual' } : x < 0.72 ? { k: 'boon' } : x < 0.88 ? { k: 'coins', n: 30 } : { k: 'heal' };
 }
 function placeFor(type: RoomType, r: Rnd) {
   return type === 'boss' ? 'hj_temple' : type === 'fight' || type === 'elite' ? pick(['hj_village', 'hj_field'], r) : 'hj_village';
@@ -61,8 +64,8 @@ function placeFor(type: RoomType, r: Rnd) {
 export function roomOf(type: RoomType, depth: number, r: Rnd): RoomPlan {
   return { type, locale: placeOr(placeFor(type, r)), reward: rewardFor(type, r), waves: wavesFor(type, depth, r) };
 }
-/** the first room of a run: a fight in the village, then a boon */
-export function firstRoom(r: Rnd): RoomPlan { const p = roomOf('fight', 0, r); p.locale = placeOr('hj_village'); p.reward = { k: 'boon' }; return p; }
+/** the first room of a run: a fight in the village, then a 刀谱 (11-18: a new move straight away, not a number) */
+export function firstRoom(r: Rnd): RoomPlan { const p = roomOf('fight', 0, r); p.locale = placeOr('hj_village'); p.reward = { k: 'manual' }; return p; }
 
 /** the roads out of room `from` (0-based): two different kinds of room, or the one road to the boss before the last room.
  *  No two shops or two rests in a run; the room before the boss always offers a rest or a shop if neither was visited. */

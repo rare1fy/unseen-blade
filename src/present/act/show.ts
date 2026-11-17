@@ -9,6 +9,7 @@ import { hitstop, shake, slowmo, after, clock, FX, waitReal, PAUSE } from '../en
 import { shot } from '../director';
 import { fxImpact, fxSparks, fxSmoke, fxRing, trailSeg } from '../fx/fx';
 import { fxAfterimage } from '../fx/skillFx';
+import { addBlock } from '../fx/blocks';
 import { popPix } from '../v2/pix';
 import { playDeath } from '../v2/death';
 import { UiLayer } from '../ui3d/layer';
@@ -73,7 +74,7 @@ import { interruptFoe } from './enemy';
 import { inside } from './tele';
 import { spawnFoe, updateFoe, damageFoe, type Foe, type FoeWorld, type EKind, Arrow } from './enemy';
 import { EDEFS, isBoss, lowAttack, trimShadows, dropTeles } from './enemy';   // wp/foes: the boss bar / banner / death and the bot's jump read these
-import { BOONS, applyBoon, drawBoons, upgradeBoon, returnCard, TIER_NAMES, newPerks, tierOf, v, v2, isBladeHit, type Perks, type Boon, type BoonPick } from './boons';
+import { BOONS, applyBoon, drawBoons, upgradeBoon, returnCard, TIER_NAMES, newPerks, tierOf, hasBoon, v, v2, isBladeHit, type Perks, type Boon, type BoonPick } from './boons';
 import { TUNE } from './tune';
 import { installActTune } from './tunePanel';
 import { BODY_FONT, BODY_FONT_NAME, setBodyFont, type BodyFont } from '../ui3d/bodyFont';
@@ -463,6 +464,7 @@ export class ActShow {
       cardsDemo: () => { void this.cards.open([BOONS[0], BOONS[6], BOONS[12]].map((boon, tier) => ({ boon, tier }))); },
       /** captures: these boons as a pick, tiers 0 / 1 / 2 in turn */ cardsOf: (ids: string[]) => { void this.cards.open(ids.map((id, i) => ({ boon: BOONS.find(b => b.id === id) ?? BOONS[0], tier: i % 3 }))); },
       boon: (id: string, tier = 0) => applyBoon(this.perks, id, tier), // wp/boons: browser effect checks
+      /** 11-18 captures: exactly these boons at this tier (the old ones dropped); the hero reads this.perks */ boons: (ids: string[], tier = 0) => { this.perks.owned = {}; for (const id of ids) applyBoon(this.perks, id, tier); this.hero.perks = this.perks; return Object.keys(this.perks.owned); },
       intent: (n = 3) => { this.intent = Math.max(0, Math.min(3, n)); this.hud.intent = this.intent; },
       qi: (n?: number) => { if (n != null) this.hero.qi = Math.max(0, Math.min(Hero.QI_MAX, n)); return this.hero.qi; },
       untaught: () => { try { localStorage.removeItem('ub.taught'); } catch { /* */ } this.taught = null; },
@@ -692,7 +694,7 @@ export class ActShow {
     }
     // fallen leaves on the floor, a few drifting down (act-19); none in winter or in the rain
     this.leaves = new Leaves(spec.weather === 'rain' || spec.weather === 'snow' ? 'winter' : spec.season, { rest: big ? 100 : 40, fall: big ? 1.4 : 0.8 });
-    this.hero = new Hero(isYard ? V3(HIDEOUT.spawn[0], 0, HIDEOUT.spawn[1]) : V3(0, 0, SZ(5.0)), this.wearing); this.hero.moves = isYard || this.prologue ? ALL_MOVES : this.perks.moves;   // (act-40 用户：「开局第一场战斗默认给主角解锁所有技能」) this.hero.perks = this.perks; this.hero.hp = Math.min(hp, maxHp); this.hero.maxHp = maxHp;
+    this.hero = new Hero(isYard ? V3(HIDEOUT.spawn[0], 0, HIDEOUT.spawn[1]) : V3(0, 0, SZ(5.0)), this.wearing); this.hero.moves = isYard || this.prologue ? ALL_MOVES : this.perks.moves; this.hero.perks = this.perks; this.hero.hp = Math.min(hp, maxHp); this.hero.maxHp = maxHp;   // (act-40 用户：「开局第一场战斗默认给主角解锁所有技能」) (11-18: this comment used to sit before the perks / hp assignments and swallowed them — the hero's own boons never applied and her HP reset each room)
     this.hero.qi = isYard ? Hero.QI_MAX : Math.min(Hero.QI_MAX, Math.max(qi, TUNE.qiStart));   // (11-17 气: carried on; a room starts with at least TUNE.qiStart)
     this.hero.a.yaw = isYard ? -0.6 : Math.PI;
     this.hud.flask.set({ hp: this.hero.hp, maxHp });
@@ -833,8 +835,9 @@ export class ActShow {
   private heroWorld: HeroWorld = {
     foes: this.foes,
     swing: o => this.swing(o), sweep: o => this.sweep(o), slam: o => this.slam(o), clamp: this.clamp,
+    passing: o => this.passing(o), overhead: o => this.overhead(o), dashed: o => this.dashed(o),
     launch: o => this.launchCut(o), kick: o => this.kickHit(o),
-    dart: o => { this.dartsThrown++; const bonus = tierOf(this.perks, 'darts3') === 1 ? 1.25 : 1; const d = new Dart(o.from.clone(), o.dir.clone().multiplyScalar(TUNE.dartSpeed), TUNE.dartDmg * bonus, TUNE.dartRange); d.link = o.link ?? 0; this.darts.push(d); },
+    dart: o => { this.dartsThrown++; const d = new Dart(o.from.clone(), o.dir.clone().multiplyScalar(TUNE.dartSpeed), TUNE.dartDmg, TUNE.dartRange); d.link = o.link ?? 0; d.back = hasBoon(this.perks, 'boomerang') ? v(this.perks, 'boomerang') / 100 : 0; this.darts.push(d); },
     chaseTarget: () => this.chaseTarget(), chase: o => this.chaseFx(o),
     stickWorld: () => V3(this.inp.move.x, 0, -this.inp.move.y),
     // act-27: the dart's aim — the finger dragged off the dart button, else the stick (keys / pad)
@@ -847,14 +850,14 @@ export class ActShow {
     heroPos: V3(), heroR: 0.38, heroAlive: true, heroY: 0, heroDodge: false, foes: this.foes, arrows: this.arrows, clamp: this.clamp,
     hurtHero: (dmg, from, attacker) => this.hurtHero(dmg, from, attacker), // wp/boons: exact melee attacker; arrows omit it
     killFoe: (f, from) => this.killFoe(f, from), // wp/boons: lethal burn ticks use the death hook too
-    bleedDamage: f => f.bleed * v(this.perks, 'bleed') * (f.sunderT > 0 ? 1 + v(this.perks, 'sunder') / 100 : 1),
-    bleedSpill: f => blood.spray(f.a.chest(), V3(0, 0, 1), 1, 0.35),
+    bleedDamage: f => f.bleed * v(this.perks, 'bleed'),
+    bleedSpill: f => this.bleedDrip(f),
     arrowHit: (f, a) => this.arrowHit(f, a),
     dodged: from => this.perfectDodge(from),
   };
   /** act-23: did the swing being felt cut flesh (not only the wooden dummies)? picks the hit sound's flesh layers */
   private fleshHit = false;
-  private dmgMul(kind: string) { return isBladeHit(kind) && this.hero.hp < this.hero.maxHp / 2 ? 1 + v(this.perks, 'frenzy') / 100 : 1; }
+  private dmgMul(kind: string) { void kind; return 1; }   // (11-18: 搏命 — a number you never saw — went with the other plain-number boons)
   /** 11-18 打击感分档 (用户：「一招一式节奏都差不多」「3C总之都要再加强」): a blow's hit-stop (× TUNE.hitstop), the camera pushed along it,
    *  the rumble, the push-in, its sound; a kill in it holds a little longer and slows a moment */
   private killBeat = false;
@@ -927,6 +930,162 @@ export class ActShow {
     this.leaves?.blast(best.pos.x, best.pos.z, 1.5, 6);
     return 1;
   }
+  // ------------------------------------------------------------ 11-18 秘传：改招为主
+  // (用户：「我打了半天了还没个新招，一直在给我加数值。强化卡片也难以辨认都是干嘛的」) every boon changes how one button plays — each of
+  // these is the boon's own picture and blow; the boons.ts table is the list, its `slot` the button
+  /** 透骨: past the 2nd thrust's point a long white line opens straight on, through a row of foes (each once), sparks at its end */
+  private pierceLine(from: THREE.Vector3, dir: THREE.Vector3, dmg: number) {
+    const L = v(this.perks, 'pierce'), a = from.clone().addScaledVector(dir, 0.6).setY(1.0), b = from.clone().addScaledVector(dir, L).setY(1.0);
+    trailSeg(a, b, 0xffffff, 0.16, { life: 0.32, bright: 3.2, spark: 0.5 }); trailSeg(a.clone().setY(1.03), b.clone().setY(1.03), 0x9ad8ff, 0.06, { life: 0.4, bright: 2.6 });
+    fxSparks(b, 0xffffff, 12, 5, { dir, dirK: 0.9 });
+    const ab = b.clone().sub(a).setY(0), L2 = Math.max(1e-4, ab.lengthSq()); let n = 0;
+    for (const f of this.foes.slice()) {
+      if (f.st === 'dead') continue;
+      const t = f.pos.clone().sub(a).setY(0).dot(ab) / L2; if (t < 0 || t > 1) continue;
+      const q = a.clone().addScaledVector(ab, t); if (Math.hypot(f.pos.x - q.x, f.pos.z - q.z) > f.d.r + 0.35) continue;
+      if (f.pos.distanceTo(from) < TUNE.atkRange + 1.2) continue;   // (the thrust itself already hit the near ones)
+      this.hitFoe(f, Math.round(dmg * v2(this.perks, 'pierce') / 100), from, { knock: 0.9, heavy: false, kind: 'echo' }); n++;
+    }
+    if (this.props) this.applyProps(this.props.hitSeg(a, b, 0.35, { src: 'hero', heavy: false }, this.targets()));
+    if (n) this.feel('k4', false, n, dir.clone());
+  }
+  /** 荡刃: the turning cut throws a ring of pale wind out to its reach (a flat ring + streaks round the circle) */
+  private spinRing(at: THREE.Vector3, r: number) {
+    fxRing(at.clone().setY(0.9), 0xe8f4ff, r, { life: 0.28, width: 0.16, fill: 0.04, bright: 1.6 } as never);
+    fxRing(at.clone().setY(0.08), 0xc8d8e8, r * 0.95, { life: 0.35, width: 0.1, fill: 0.03 } as never);
+    for (let i = 0; i < 12; i++) { const a = (i / 12) * Math.PI * 2; fxSparks(at.clone().add(V3(Math.sin(a) * r, 0.9, Math.cos(a) * r)), 0xeaf4ff, 2, 3, { dir: V3(Math.cos(a), 0, -Math.sin(a)), dirK: 0.9, life: 0.25 }); }
+    this.leaves?.blast(at.x, at.z, r + 0.5, 4);
+  }
+  /** 错身: each foe her dash goes through (on the ground) takes one cut as she passes — a short white slash across it */
+  private passHit = new Map<number, number>();
+  private passing(o: { a: THREE.Vector3; b: THREE.Vector3; n: number }) {
+    if (!hasBoon(this.perks, 'passCut')) return;
+    const ab = o.b.clone().sub(o.a).setY(0), L2 = Math.max(1e-4, ab.lengthSq()), dir = ab.lengthSq() > 1e-6 ? ab.clone().normalize() : this.hero.a.fwd();
+    for (const f of this.foes.slice()) {
+      if (f.st === 'dead' || this.passHit.get(f.uid) === o.n) continue;
+      const t = Math.max(0, Math.min(1, f.pos.clone().sub(o.a).setY(0).dot(ab) / L2)), q = o.a.clone().addScaledVector(ab, t);
+      if (Math.hypot(f.pos.x - q.x, f.pos.z - q.z) > f.d.r + 0.55) continue;
+      this.passHit.set(f.uid, o.n);
+      const c = f.a.chest(), side = V3(dir.z, 0, -dir.x);
+      trailSeg(c.clone().addScaledVector(side, -0.55).add(V3(0, 0.3, 0)), c.clone().addScaledVector(side, 0.55).add(V3(0, -0.25, 0)), 0xeaf8ff, 0.12, { life: 0.22, bright: 2.8, spark: 0.5 });
+      this.hitFoe(f, Math.round(TUNE.atkDmg * v(this.perks, 'passCut') / 100), o.a, { knock: 0.5, heavy: false, kind: 'pass', stagger: 0.35 });
+      this.feel('k2', false, 1, dir.clone());
+    }
+  }
+  /** 掠顶: high over a foe (she is above its head, within its width), a quick downward cut — a short vertical streak, once a foe a jump */
+  private overHit = new Map<number, number>();
+  private overhead(o: { at: THREE.Vector3; y: number; n: number }) {
+    if (!hasBoon(this.perks, 'vault')) return 0;
+    let n = 0;
+    for (const f of this.foes.slice()) {
+      if (f.st === 'dead' || this.overHit.get(f.uid) === o.n) continue;
+      if (Math.hypot(f.pos.x - o.at.x, f.pos.z - o.at.z) > f.d.r + 0.5) continue;
+      this.overHit.set(f.uid, o.n); n++;
+      const head = f.a.head(); trailSeg(o.at.clone().setY(o.y + 0.8), head.clone().add(V3(0, -0.2, 0)), 0xfff0d0, 0.12, { life: 0.22, bright: 2.8, spark: 0.5 });
+      fxSparks(head, 0xffffff, 8, 3); cue('swingLight', 0.7);
+      this.hitFoe(f, v(this.perks, 'vault'), o.at.clone().setY(0), { knock: 0.2, heavy: false, kind: 'overhead', stagger: 0.45 });
+    }
+    if (n) this.feel('k1', false, n, V3(0, 0, 0));
+    return n;
+  }
+  /** 留影: where a dash starts (once every few seconds) she leaves herself standing — a pale copy of her body, the foes near it turn on it
+   *  for its time; struck (or out of time) it goes up in smoke */
+  private decoy: { g: THREE.Group; mat: THREE.MeshBasicMaterial; pos: THREE.Vector3; t: number; life: number } | null = null; private decoyCd = 0;
+  private dashed(o: { at: THREE.Vector3; yaw: number }) {
+    if (!hasBoon(this.perks, 'decoy') || this.decoyCd > 0) return;
+    this.decoyCd = v2(this.perks, 'decoy'); this.dropDecoy(false);
+    const h = this.hero, body = h.a.body.clone(true), mat = new THREE.MeshBasicMaterial({ color: 0xa8b4f0, transparent: true, opacity: 0.66, depthWrite: false });
+    body.traverse(m => { const mm = m as THREE.Mesh; if (mm.isMesh) { mm.material = mat; mm.castShadow = false; } });
+    const g = new THREE.Group(); g.add(body); g.position.copy(o.at).setY(0); g.rotation.y = o.yaw; scene.add(g);
+    this.decoy = { g, mat, pos: o.at.clone().setY(0), t: 0, life: v(this.perks, 'decoy') };
+    smokeBurst(o.at.clone().setY(0), 0.35, 5, { size: 0.22, life: 0.4 }); cue('whoosh', 0.4);
+  }
+  private dropDecoy(puff = true) {
+    const d = this.decoy; if (!d) return; this.decoy = null;
+    if (puff) { smokeBurst(d.pos.clone(), 0.5, 9, { size: 0.26, life: 0.55 }); cue('whoosh', 0.5); }
+    scene.remove(d.g); d.mat.dispose();
+  }
+  /** the decoy's frame: it shimmers; the foes near it aim there (foeWorld.heroPos is moved for them — see the foe loop); a blow that lands
+   *  on it (its attacker's wind-up ends near it) bursts it */
+  private decoyStep(dt: number) {
+    this.decoyCd = Math.max(0, this.decoyCd - dt);
+    const d = this.decoy; if (!d) return;
+    d.t += dt; d.mat.opacity = (0.56 + 0.12 * Math.sin(d.t * 18)) * Math.min(1, (d.life - d.t) / 0.2 + 0.2);
+    if (d.t >= d.life || !this.hero.alive || this.phase !== 'fight' && this.phase !== 'yard') this.dropDecoy();
+  }
+  /** who the decoy is drawing right now: live foes within 6 m of it (not the boss), nearer to it than to her */
+  private decoyFor(f: Foe) { const d = this.decoy; return !!d && f.st !== 'dead' && !isBoss(f) && f.pos.distanceTo(d.pos) < 6 && f.pos.distanceTo(d.pos) < f.pos.distanceTo(this.hero.pos) + 1.5; }
+  /** 截脉: the dart pins a foe — its blow broken off, it stands rigid (a cold ring at its feet, a pale tint) */
+  private pinFoe(f: Foe) {
+    if (f.kind === 'dummy') { f.a.tint(0xbfe8ff, 0.8); fxRing(f.pos.clone().setY(0.06), 0xbfe8ff, f.d.r + 0.4, { life: 0.5 } as never); return; }
+    if (isBoss(f)) return;
+    interruptFoe(f, v(this.perks, 'pin')); f.vel.set(0, 0, 0); this.pinned.set(f.uid, v(this.perks, 'pin'));
+    fxRing(f.pos.clone().setY(0.06), 0xbfe8ff, f.d.r + 0.45, { life: 0.4 } as never); fxSparks(f.a.chest(), 0xdff4ff, 10, 2.5);
+  }
+  /** pinned foes this frame: stand still, tinted cold; a ring pulses at the feet */
+  private pinned = new Map<number, number>(); private pinFx = 0;
+  private pinStep(dt: number) {
+    if (!this.pinned.size) return;
+    this.pinFx -= dt; const ring = this.pinFx <= 0; if (ring) this.pinFx = 0.3;
+    for (const f of this.foes) {
+      const t = this.pinned.get(f.uid); if (t == null) continue;
+      if (f.st === 'dead' || t <= 0) { this.pinned.delete(f.uid); continue; }
+      this.pinned.set(f.uid, t - dt); f.vel.set(0, 0, 0); if (f.st !== 'stagger') { f.st = 'stagger'; f.t = 0; f.dur = t; }
+      f.a.tint(0xbfe8ff, 0.3); if (ring) fxRing(f.pos.clone().setY(0.06), 0xbfe8ff, f.d.r + 0.35, { life: 0.3 } as never);
+    }
+  }
+  /** 崩劲: the catch bursts outward — a ring of blade-light, everyone within reach thrown off and cut. (Kept low: the draw's own flash is
+   *  already on screen — act-34 「闪光太严重了」) */
+  private burstOut(at: THREE.Vector3) {
+    const R0 = v(this.perks, 'burst');
+    fxRing(at.clone().setY(0.9), 0xffe2a8, R0, { life: 0.3, width: 0.14, fill: 0.02, bright: 1.1 } as never); fxRing(at.clone().setY(0.07), 0xd8b070, R0, { life: 0.4, width: 0.1, fill: 0.02, bright: 0.9 } as never);
+    for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2 + 0.2; trailSeg(at.clone().add(V3(Math.sin(a) * 0.7, 0.9, Math.cos(a) * 0.7)), at.clone().add(V3(Math.sin(a) * R0, 0.9, Math.cos(a) * R0)), 0xf0d8b0, 0.05, { life: 0.18, bright: 1.6 }); }
+    for (const f of this.foes.slice()) {
+      if (f.st === 'dead' || f.pos.distanceTo(at) > R0 + f.d.r) continue;
+      this.hitFoe(f, v2(this.perks, 'burst'), at, { knock: 2.2, heavy: true, kind: 'burst', stagger: 0.8 });
+      const out = f.pos.clone().sub(at).setY(0); if (out.lengthSq() < 1e-4) out.set(0, 0, 1); f.vel.addScaledVector(out.normalize(), isBoss(f) ? 2 : 9 / Math.max(0.7, f.d.mass));
+    }
+    if (this.props) this.applyProps(this.props.hitCircle(at.x, at.z, R0, { src: 'hero', heavy: true, dir: [0, 1] }, this.targets()));
+    this.leaves?.blast(at.x, at.z, R0 + 1, 8); shake(0.25 * TUNE.shake); cue('wallSlam', 0.6);
+  }
+  /** 裂地: the plunge's blade goes into the ground and a crack runs straight ahead — a line of raised blocks and dust walking out, the
+   *  foes on it thrown up (the light ones into the air) as the crack reaches them */
+  private riftOut(at: THREE.Vector3, yaw: number) {
+    const L = v(this.perks, 'rift'), dir = V3(Math.sin(yaw), 0, Math.cos(yaw)), STEP = 0.5, n = Math.round(L / STEP), hit = new Set<number>();
+    for (let i = 1; i <= n; i++) after(i * 0.025, () => {
+      const p = at.clone().addScaledVector(dir, i * STEP).setY(0); const q = p.clone(); this.clamp(q, 0); if (q.distanceTo(p) > 0.3) return;
+      // the crack: dark split blocks along the line, chips thrown up beside it (axis-aligned blocks, the ground's colours)
+      addBlock(p.clone().setY(0.03), { size: [0.22, 0.06, STEP * 0.9], col: 0x2a2018, glow: false, life: 1.6, shrink: 0.5, rot: yaw });
+      for (const s of [-1, 1]) addBlock(p.clone().add(V3(dir.z * 0.22 * s, 0.1, -dir.x * 0.22 * s)), { size: 0.12, v: V3(dir.z * s * 1.2, 3.2, -dir.x * s * 1.2), col: 0x8a7a64, glow: false, life: 0.6, shrink: 0.3, grav: 14, floor: 0, rot: yaw });
+      if (i % 3 === 0) fxSmoke(p.clone().setY(0.2), 0x8a7a6a, 2, { r: 0.3, spd: 1, up: 0.8, s: 0.3, life: 0.5 });
+      for (const f of this.foes.slice()) {
+        if (f.st === 'dead' || hit.has(f.uid) || Math.hypot(f.pos.x - p.x, f.pos.z - p.z) > f.d.r + 0.45) continue;
+        hit.add(f.uid); this.hitFoe(f, v2(this.perks, 'rift'), at, { knock: 0.4, heavy: true, kind: 'rift', stagger: 0.9 });
+        if ((f.st as string) !== 'dead' && this.launchable(f)) { f.airV = 7; f.pos.y = Math.max(f.pos.y, 0.05); }
+        fxSparks(f.a.chest(), 0xffd8a0, 8, 3);
+      }
+      if (this.props && i % 2 === 0) this.applyProps(this.props.hitCircle(p.x, p.z, 0.4, { src: 'hero', heavy: true, dir: [dir.x, dir.z] }, this.targets()));
+    });
+    cue('pillarFall', 0.5); shake(0.2 * TUNE.shake);
+  }
+  /** 见红: the bleeding drip as it ticks — a drop off the wound, more for more cuts, and the body flushing dark red */
+  private bleedDrip(f: Foe) {
+    blood.spray(f.a.chest().add(V3(0, -0.15, 0)), V3(R(-0.3, 0.3), 0, R(-0.3, 0.3)), 1 + Math.floor(f.bleed / 2), 0.3);
+    f.a.tint(0x8a1010, 0.25 + 0.06 * f.bleed);
+  }
+  /** 枭首: the foe is low enough to take the head (not the boss, not a dummy, not shielded) */
+  private beheadable(f: Foe) { return hasBoon(this.perks, 'behead') && f.kind !== 'dummy' && !isBoss(f) && f.inv <= 0 && f.st !== 'dead' && f.hp < f.maxHp * v(this.perks, 'behead') / (f.elite ? 200 : 100); }
+  /** 枭首's mark: a dark red ring at the feet of each foe that can be taken now (a pooled mesh each) */
+  private markRings: THREE.Mesh[] = [];
+  private markStep() {
+    let i = 0;
+    if (hasBoon(this.perks, 'behead') && (this.phase === 'fight' || this.phase === 'yard')) for (const f of this.foes) {
+      if (!this.beheadable(f)) continue;
+      let m = this.markRings[i]; if (!m) { m = new THREE.Mesh(new THREE.RingGeometry(0.55, 0.68, 4, 1).rotateX(-Math.PI / 2).rotateY(Math.PI / 4), new THREE.MeshBasicMaterial({ color: 0xc02a20, transparent: true, opacity: 0.85, depthWrite: false })); scene.add(m); this.markRings.push(m); }
+      m.visible = true; m.position.set(f.pos.x, 0.06, f.pos.z); m.scale.setScalar(f.d.r / 0.45 * (1 + 0.05 * Math.sin(clock.rtime * 9))); i++;
+    }
+    for (; i < this.markRings.length; i++) this.markRings[i].visible = false;
+  }
   // ------------------------------------------------------------ act-19: props, fire, the wall slam
   /** who the props can hurt: the live foes and the hero on the ground */
   private targets(): BTarget[] {
@@ -966,12 +1125,11 @@ export class ActShow {
   }
   private hitFoe(f: Foe, dmg: number, from: THREE.Vector3, o: { knock: number; heavy: boolean; kind: string; stagger?: number }) {
     if (f.st === 'dead') return;
-    const cut = isBladeHit(o.kind), heavyCut = ['k5', 'rel', 'plunge', 'launch'].includes(o.kind) && tierOf(this.perks, 'bone') >= 0;
-    if (o.kind === 'rel') dmg *= 1 + v2(this.perks, 'draw') / 100;
-    if (o.kind === 'parry') dmg *= 1 + v(this.perks, 'counter') / 100;
-    const knock = heavyCut ? o.knock * 1.4 : o.knock, stagger = (o.stagger ?? (o.heavy ? 0.55 : 0.3)) + (heavyCut ? v(this.perks, 'bone') : 0);
-    let d = Math.round(dmg * this.mods.dmgMul * this.dmgMul(o.kind) * (f.sunderT > 0 ? 1 + v(this.perks, 'sunder') / 100 : 1));
-    const executed = cut && tierOf(this.perks, 'behead') >= 0 && f.kind !== 'dummy' && !isBoss(f) && f.inv <= 0 && f.hp < f.maxHp * v(this.perks, 'behead') / (f.elite ? 200 : 100);
+    const cut = isBladeHit(o.kind);
+    // (11-18 改招为主: 断骨 / 出鞘 / 乘虚 / 裂甲 / 搏命 — numbers you never saw change — are out of the pool)
+    const knock = o.knock, stagger = o.stagger ?? (o.heavy ? 0.55 : 0.3);
+    let d = Math.round(dmg * this.mods.dmgMul * this.dmgMul(o.kind));
+    const executed = cut && this.beheadable(f);
     if (executed) d = f.hp + 1;
     const p = f.a.chest(), dir = f.pos.clone().sub(from).setY(0).normalize();
     // (act-40 用户：「打到boss残血剧情杀就直接来，不要变成半途格挡打半天空气」: no floor of blocked hits — the blow that takes him
@@ -981,8 +1139,9 @@ export class ActShow {
     const died = damageFoe(f, d, from, { knock, stagger, poiseDmg: o.kind === 'dart' ? d * 0.5 : o.heavy ? d * 1.8 : d });
     if (this.prologue === 2 && isBoss(f)) f.hp = Math.max(f.hp, Math.ceil(f.maxHp * 0.2));
     if (fallNow) after(0.25, () => void this.prologueFall());   // (the blow lands, a beat, then the scripted fall)
-    if (heavyCut && !died && f.d.poise > 0 && f.st === 'stagger') f.dur += v(this.perks, 'bone');
-    if (cut && !died && f.inv <= 0) { if (tierOf(this.perks, 'sunder') >= 0) f.sunderT = 3; if (tierOf(this.perks, 'bleed') >= 0 && f.kind !== 'dummy') { f.bleed = Math.min(5, f.bleed + 1); f.bleedT = 0; } }
+    if (cut && !died && f.inv <= 0 && hasBoon(this.perks, 'bleed') && f.kind !== 'dummy') { f.bleed = Math.min(5, f.bleed + 1); f.bleedT = 0; }
+    // 11-18 秘传 枭首: the head comes off — a crossing red cut, 「斩」 over the body (the blood is doubled below)
+    if (executed) { const c = f.a.chest(); trailSeg(c.clone().add(V3(-0.7, 0.55, 0)), c.clone().add(V3(0.7, -0.5, 0)), 0xff3a2a, 0.16, { life: 0.35, bright: 2.8, spark: 0.6 }); trailSeg(c.clone().add(V3(-0.7, -0.5, 0)), c.clone().add(V3(0.7, 0.55, 0)), 0xffe0d0, 0.1, { life: 0.3, bright: 2.6 }); popPix('斩', f.a.head().add(V3(0, 0.75, 0)), { color: '#ff5a4a', h: 0.85, big: true, life: 0.9, rise: 0.8 }); cue('gore', 0.9); }
     if (o.kind !== 'school') fxImpact(p, o.heavy ? 0xff6a3a : o.kind === 'ultTick' ? 0xffc890 : 0xfff0d0, o.kind === 'dart' ? 0.4 : o.kind === 'ultTick' ? 0.28 : o.heavy ? 1.3 : 0.75, { dir, chips: o.heavy ? [0xff5a3a, 0x2b3147] : undefined });
     // act-23 (用户：「砍上去要溅血才有感觉」): blood from the wound along the blade's way; more for the heavy blows and the killing one
     if (f.kind !== 'dummy' && o.kind !== 'school') { const n = o.kind === 'dart' ? 5 : o.kind === 'ultTick' ? 7 : o.kind === 'rel' ? 42 : o.heavy ? 28 : 16; blood.spray(p, dir, (died ? n + 20 : n) * (executed ? 2 : 1), o.heavy || died ? 1.35 : 1); this.fleshHit = true; }
@@ -1006,7 +1165,11 @@ export class ActShow {
       trailSeg(a, b, 0xeaf4ff, second ? 0.13 : 0.1, { life: second ? 0.22 : 0.16, bright: second ? 3.0 : 2.4, spark: 0.4 });
       fxSparks(b, 0xffffff, second ? 10 : 6, second ? 4 : 3, { dir: V3(fx, 0, fz), dirK: 0.8 });
       cue('whoosh', second ? 0.8 : 0.6);
+      // 11-18 秘传 透骨: the second thrust runs on as a long white line through everyone in a row (the line is the hit)
+      if (second && hasBoon(this.perks, 'pierce')) this.pierceLine(o.from.clone(), V3(fx, 0, fz), o.dmg);
     }
+    // 11-18 秘传 荡刃: the 3rd cut throws a ring of wind as far as its reach (hero.ts widens the reach)
+    if (o.kind === 'k3' && hasBoon(this.perks, 'spin')) this.spinRing(o.from.clone(), o.range);
     for (const f of this.foes.slice()) {
       if (f.st === 'dead') continue;
       const dx = f.pos.x - o.from.x, dz = f.pos.z - o.from.z, l = Math.hypot(dx, dz); if (l > o.range + f.d.r) continue;
@@ -1045,7 +1208,7 @@ export class ActShow {
       if (Math.hypot(f.pos.x - q.x, f.pos.z - q.z) <= o.r + f.d.r) { this.hitFoe(f, o.dmg, q, { knock: o.knock, heavy: true, kind: o.kind ?? 'rel' }); n++; }
     }
     if (this.props) this.applyProps(this.props.hitSeg(o.a, o.b, o.r, { src: 'hero', heavy: true }, this.targets()));   // act-19
-    if ((o.kind ?? 'rel') === 'rel') {
+    if ((o.kind ?? 'rel') === 'rel' || o.kind === 'rel2') {
       // 11-18 一闪: the line opens along her whole path — a long white blade-light, a thin gold one inside, sparks along it
       const ext = ab.clone().setY(0).normalize().multiplyScalar(0.8), a0 = o.a.clone().sub(ext).setY(1.0), b0 = o.b.clone().add(ext).setY(1.0);
       trailSeg(a0, b0, 0xffffff, 0.42, { life: 0.55, bright: 3.4, spark: 1 }); trailSeg(a0.clone().setY(1.04), b0.clone().setY(1.04), 0xffd890, 0.12, { life: 0.7, bright: 3, spark: 0.4 });
@@ -1126,14 +1289,14 @@ export class ActShow {
   /** 11-18 一闪 (用户：「蓄能大招反馈不足」): the draw — everyone on her path is pinned where they stand (no one strikes into the held
    *  beat; not the chief), a white-gold flash */
   private iaiHeld = false;
-  private iaiGo(o: { from: THREE.Vector3; to: THREE.Vector3; r: number }) {
+  private iaiGo(o: { from: THREE.Vector3; to: THREE.Vector3; r: number; soft?: boolean }) {
     const ab = o.to.clone().sub(o.from).setY(0), L2 = Math.max(1e-4, ab.lengthSq());
     for (const f of this.foes) {
       if (f.st === 'dead' || f.kind === 'dummy' || isBoss(f)) continue;
       const t = Math.max(0, Math.min(1, f.pos.clone().sub(o.from).setY(0).dot(ab) / L2)), q = o.from.clone().addScaledVector(ab, t);
       if (Math.hypot(f.pos.x - q.x, f.pos.z - q.z) <= o.r + f.d.r + 0.2) interruptFoe(f, 0.85);
     }
-    this.flashScreen(0.32, 0xfff4dc);
+    this.flashScreen(o.soft ? 0.08 : 0.32, 0xfff4dc);   // (11-18 追步: the second draw only glints — one full flash a draw is enough)
   }
   /** she has arrived and stands: the world holds its breath 0.25 s (time all but stopped, the sound fallen away but her own), then
    *  the line opens along her path and everyone on it is cut at once — the sweep, its blood, its numbers, the stop and the push */
@@ -1173,7 +1336,7 @@ export class ActShow {
     for (const f of this.foes) { if (f.st === 'dead' || f.kind === 'dummy') continue; const d = f.pos.distanceTo(from); if (d < bd) { bd = d; atk = f; } }
     if (atk) { trailSeg(h.a.chest(), atk.a.chest(), 0xfff2c8, 0.2, { life: 0.25, bright: 3, spark: 0.6 }); this.hitFoe(atk, TUNE.iaiReflect, h.pos.clone(), { knock: 2.0, heavy: true, kind: 'parry' }); }
     for (const a of this.arrows) if (!a.dead && !a.friendly && a.p.distanceTo(h.pos.clone().setY(1.25)) < 1.8) a.deflect(a.v.clone().multiplyScalar(-1));
-    if (tierOf(this.perks, 'counter') >= 0 && h.alive) { h.hp = Math.min(h.maxHp, h.hp + v2(this.perks, 'counter')); this.hud.flask.heal({ hp: h.hp, maxHp: h.maxHp }); }
+    if (hasBoon(this.perks, 'burst')) this.burstOut(h.pos.clone());   // 11-18 秘传 崩劲
     hitstop(0.16 * TUNE.hitstop); slowmo(0.35, 0.25); shake(0.35 * TUNE.shake);
     fxRing(h.pos.clone().setY(0.9), 0xfff2c8, 1.6, { life: 0.35 } as never); fxRing(h.pos.clone().setY(0.08), 0xffd890, 2.6, { life: 0.5 } as never); fxSparks(h.a.chest(), 0xfff2c8, 24, 7);
     popPix('破', h.a.head().add(V3(0, 0.5, 0)), { color: '#fff0c0', h: 0.95, big: true, life: 0.9, rise: 1.0 });
@@ -1293,6 +1456,7 @@ export class ActShow {
     fxRing(o.at.clone().setY(0.06), 0xffd8a0, o.r, { life: 0.4 } as never); dustBlocks(o.at.clone(), 12); this.leaves?.blast(o.at.x, o.at.z, o.r + 0.8, 5);
     fxSmoke(o.at.clone().setY(0.2), 0x8a7a6a, 8, { r: o.r * 0.6, spd: 2.4, up: 0.3, s: 0.45, life: 0.6 });
     if (n) this.feel('plunge', true, n); else { shake(0.2 * TUNE.shake); this.camPunch(0.02); cue('land', 1); }
+    if (hasBoon(this.perks, 'rift')) this.riftOut(o.at.clone(), o.yaw);   // 11-18 秘传 裂地
     return n;
   }
   private killFoe(f: Foe, from: THREE.Vector3) {
@@ -1307,7 +1471,12 @@ export class ActShow {
     void playDeath(f.a, { from, ratio: f.lastDmg / f.maxHp + (boss ? 0.5 : 0), boss }).then(() => { f.a.dispose(); });
     // copper coins: a few square-holed coins bounce out and fly to the hero (worth the foe's gold; elites ×3, the boss more)
     if (this.room >= 0 && f.kind !== 'dummy') { const total = boss ? 60 : f.d.gold * (elite ? 3 : 1), n = Math.min(10, total); this.coinsFx.drop(f.pos.clone(), n, Math.max(1, Math.round(total / n))); }
-    if (tierOf(this.perks, 'drink') >= 0 && this.hero.alive) { this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + v(this.perks, 'drink')); this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp }); }
+    if (hasBoon(this.perks, 'drink') && this.hero.alive) {
+      // 11-18 秘传 饮血: a thread of blood flies from the body to her and she heals as it arrives (the number is the boon's)
+      const h = this.hero, from0 = f.a.chest(), heal = v(this.perks, 'drink');
+      for (let i = 0; i < 6; i++) addBlock(from0.clone().add(V3(R(-0.2, 0.2), R(-0.1, 0.3), R(-0.2, 0.2))), { size: 0.08, col: 0xb01818, glow: false, life: 0.32 + i * 0.03, shrink: 0.1, v: h.a.chest().sub(from0).multiplyScalar(1 / (0.3 + i * 0.03)) });
+      after(0.32, () => { if (!h.alive) return; h.hp = Math.min(h.maxHp, h.hp + heal); this.hud.flask.heal({ hp: h.hp, maxHp: h.maxHp }); h.a.tint(0xff4a3a, 0.35); popPix(`+${heal}`, h.a.head().add(V3(0, 0.3, 0)), { color: '#ff8a7a', h: 0.42, life: 0.7 }); });
+    }
     const left = this.foes.filter(x => x.st !== 'dead').length;
     if (boss) { slowmo(1.1, 0.25); shake(0.6 * TUNE.shake); cue('win', 0.9); }
     if (!left && this.phase === 'fight') {
@@ -1505,7 +1674,19 @@ export class ActShow {
         after(0.35, () => { void wipeTransit(() => this.startRun()); });
       }
     }
-    for (const f of this.foes) { if (!this.ultOn) updateFoe(f, fw, dt); f.a.update(dt); }
+    this.decoyStep(dt); this.pinStep(dt); this.markStep();   // 11-18 秘传: 留影, 截脉, 枭首's mark
+    for (const f of this.foes) {
+      if (!this.ultOn) {
+        // 11-18 留影: the foes the afterimage draws see it as her — they close on it and strike at it; a blow that lands bursts it
+        if (this.decoyFor(f)) {
+          const d = this.decoy!, hp = fw.heroPos.clone(), hy = fw.heroY, hd = fw.heroDodge, hurt = fw.hurtHero;
+          fw.heroPos.copy(d.pos); fw.heroY = 0; fw.heroDodge = false; fw.hurtHero = () => this.dropDecoy();
+          updateFoe(f, fw, dt);
+          fw.heroPos.copy(hp); fw.heroY = hy; fw.heroDodge = hd; fw.hurtHero = hurt;
+        } else updateFoe(f, fw, dt);
+      }
+      f.a.update(dt);
+    }
     this.separate();   // act-37: bodies don't pass through each other
     for (let i = this.foes.length - 1; i >= 0; i--) if (this.foes[i].st === 'dead' && !this.foes[i].a.root.parent) this.foes.splice(i, 1);
     for (const a of this.arrows) a.update(dt, fw);
@@ -1514,7 +1695,7 @@ export class ActShow {
       // the light flies on real time: the hit-stop of the blow that sent it freezes the world, not the light leaving it
       const live = w.live, p0 = w.step(rdt); if (!live) continue;
       for (const f of this.foes) if (f.st !== 'dead' && !w.hit.has(f.uid) && w.sweeps(p0, f.pos, f.d.r)) {
-        w.hit.add(f.uid); this.hitFoe(f, 12 * v(this.perks, 'bladeWind') / 100, p0, { knock: 0.8, heavy: false, kind: 'wind' });
+        w.hit.add(f.uid); this.hitFoe(f, Math.round(TUNE.finDmg * 0.7 * v(this.perks, 'bladeWind') / 100), p0, { knock: 0.8, heavy: false, kind: 'wind' });   // (11-18: 刀芒 100 / 150 / 200 % of 0.7 × the finisher — it was a flat 12 × share)
         // the light cuts through: a short white bar across the body and a spray of jade sparks
         const c = f.a.chest(), side = V3(w.fwd.z, 0, -w.fwd.x);
         trailSeg(c.clone().addScaledVector(side, -0.6).add(V3(0, 0.25, 0)), c.clone().addScaledVector(side, 0.6).add(V3(0, -0.15, 0)), 0xe8fff2, 0.12, { life: 0.16, bright: 3, spark: 0.6 });
@@ -1527,15 +1708,28 @@ export class ActShow {
     // darts: fly straight; the first foe in the way takes it (small damage, no stagger); walls stop them
     for (const d of this.darts) {
       if (d.stuck) { if (!d.ride(dt) || (d.stuck as Foe).st === 'dead') d.stop(false); continue; }
+      const hand = h.pos.clone().add(V3(0, 1.2, 0));
+      if (d.returning) d.homeTo(hand, TUNE.dartSpeed * 1.1, dt);
       const p0 = d.step(dt);
-      if (this.props) { const q = d.p, hit = this.props.logic.near(q.x, q.z, 0.12).find(pp => pp.state === 'idle' || pp.kind === 'pillar'); if (hit && q.y < (hit.kind === 'pillar' ? 2.8 : 1.1)) { if (hit.state === 'idle') this.applyProps(this.props.logic.hit(hit, { src: 'dart', dir: [d.p.x - p0.x, d.p.z - p0.z] }, this.targets())); d.stop(); continue; } }
+      // 11-18 秘传 折返: out to its end (or a wall), it turns and flies back to her left hand; a foe can be struck going and coming
+      if (d.back > 0 && !d.returning && (d.life <= 0 || (() => { const q = d.p.clone(); this.clamp(q, 0); return q.distanceTo(d.p) > 0.3; })())) d.turnBack();
+      if (d.returning && (d.p.distanceTo(hand) < 0.6 || d.life <= 0 || !h.alive)) { if (h.alive) { fxSparks(hand, 0xe8f0ff, 4, 1.5); cue('dartThrow', 0.25); } d.stop(false); continue; }
+      if (this.props && !d.returning) { const q = d.p, hit = this.props.logic.near(q.x, q.z, 0.12).find(pp => pp.state === 'idle' || pp.kind === 'pillar'); if (hit && q.y < (hit.kind === 'pillar' ? 2.8 : 1.1)) { if (hit.state === 'idle') this.applyProps(this.props.logic.hit(hit, { src: 'dart', dir: [d.p.x - p0.x, d.p.z - p0.z] }, this.targets())); if (d.back > 0) d.turnBack(); else d.stop(); continue; } }
       for (const f of this.foes) {
-        if (f.st === 'dead' || d.p.y > 2.4) continue;
+        if (f.st === 'dead' || d.p.y > 2.4 || d.passed.has(f.uid)) continue;
         const ab = d.p.clone().sub(p0).setY(0), L2 = Math.max(1e-6, ab.lengthSq()), t = Math.max(0, Math.min(1, f.pos.clone().sub(p0).setY(0).dot(ab) / L2)), q = p0.clone().addScaledVector(ab, t);
-        if (Math.hypot(f.pos.x - q.x, f.pos.z - q.z) < f.d.r + 0.2) { this.hitFoe(f, d.dmg, p0, { knock: 0.12, heavy: false, kind: 'dart', stagger: 0 }); cue('dartHit', 0.7); if (d.link && d.link !== this.qiVolley) { this.qiVolley = d.link; this.hero.gainQi(QI_LINK); } if ((f.st as string) !== 'dead') d.stickIn(f, TUNE.chaseWin); else d.stop(); break; }
+        if (Math.hypot(f.pos.x - q.x, f.pos.z - q.z) < f.d.r + 0.2) {
+          this.hitFoe(f, d.dmg * (d.returning ? d.back : 1), p0, { knock: 0.12, heavy: false, kind: 'dart', stagger: 0 }); cue('dartHit', 0.7);
+          if (d.link && d.link !== this.qiVolley) { this.qiVolley = d.link; this.hero.gainQi(QI_LINK); }
+          if ((f.st as string) !== 'dead' && hasBoon(this.perks, 'pin')) this.pinFoe(f);
+          // a 折返 dart goes through (each foe once each way) and does not stay in; a plain one sticks in (寻声's mark)
+          if (d.back > 0) { d.passed.add(f.uid); continue; }
+          if ((f.st as string) !== 'dead') d.stickIn(f, TUNE.chaseWin); else d.stop(); break;
+        }
       }
-      if (d.dead || d.stuck) continue;
-      const q = d.p.clone(); this.clamp(q, 0); if (q.distanceTo(d.p) > 0.3 || d.life <= 0 || d.p.y < 0.05) d.stop(d.life > 0);
+      if (d.dead || d.stuck || d.returning) continue;
+      // (a 折返 dart that has run out of range turned above; one that hit the floor still stops)
+      const q = d.p.clone(); this.clamp(q, 0); if (d.back <= 0 && (q.distanceTo(d.p) > 0.3 || d.life <= 0) || d.p.y < 0.05) d.stop(d.life > 0);
     }
     this.darts = this.darts.filter(d => !d.dead);
     this.hitArcs.update(rdt, h.pos);
@@ -1619,7 +1813,7 @@ export class ActShow {
     const B = this.hud.btns; void B;
     // the dart button shows no cool-down (a third of a second would only flicker)
     // the dart button: dark and sinking while the three reload; the lamps show the darts left
-    this.hud.setCooldowns({ attack: 0, jump: 0, dash: Math.max(0, h.dashCd / (TUNE.dashCd * (1 - v2(this.perks, 'evade') / 100))), special: h.dartReload > 0 ? h.dartReload / TUNE.dartReload : 0 });
+    this.hud.setCooldowns({ attack: 0, jump: 0, dash: Math.max(0, h.dashCd / TUNE.dashCd), special: h.dartReload > 0 ? h.dartReload / TUNE.dartReload : 0 });
     this.hud.setPips('special', h.dartAmmo, TUNE.dartCharges);
     // 11-17 气: the yard (试剑坪) fills it back by itself (practise 破势 without building it first)
     if (this.phase === 'yard' && h.st !== 'charge') h.qi = Math.min(Hero.QI_MAX, h.qi + rdt * 1.5);
