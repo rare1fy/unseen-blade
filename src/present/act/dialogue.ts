@@ -37,13 +37,13 @@ function portraitTex(id: string, ready: (t: THREE.Texture) => void) {
 
 const BG = '#14121c', EDGE_G = '#c8963a', EDGE_R = '#a8302a', NAME = '#ffd27a', BODY = '#f2e8d6', MUTE = '#a8a2a8';
 const CPS = 36;   // characters per second
-interface Side { mesh: THREE.Mesh | null; id: string; k: number; on: number; aspect: number; pop: number; was: boolean }
+interface Side { mesh: THREE.Mesh | null; id: string; k: number; on: number; aspect: number; ih: number; pop: number; was: boolean }
 
 /** the line's HD body font size (CSS px): 20 on tall screens, 15 on a phone held sideways */
 const fontPx = (scale: number) => (scale >= 2 ? 20 : 15);
 export class Dialogue {
   on = false; private box: THREE.Mesh; private boxTex: THREE.CanvasTexture | null = null; private canvas = document.createElement('canvas');
-  private sides: Record<'L' | 'R', Side> = { L: { mesh: null, id: '', k: 0, on: 0, aspect: 0.8, pop: 0, was: false }, R: { mesh: null, id: '', k: 0, on: 0, aspect: 0.8, pop: 0, was: false } };
+  private sides: Record<'L' | 'R', Side> = { L: { mesh: null, id: '', k: 0, on: 0, aspect: 0.8, ih: 144, pop: 0, was: false }, R: { mesh: null, id: '', k: 0, on: 0, aspect: 0.8, ih: 144, pop: 0, was: false } };
   /** the portraits sliding out after the last line (1 → 0) */
   private outK = 0; private lastSpeaker: 'L' | 'R' | null = null;
   private lines: Line[] = []; private i = 0; private shown = 0; private t = 0; private done: (() => void) | null = null; private drawn = -1; private openT = 0;
@@ -66,9 +66,9 @@ export class Dialogue {
     if (S.mesh) { this.L.scene.remove(S.mesh); (S.mesh.material as THREE.Material).dispose(); S.mesh.geometry.dispose(); S.mesh = null; }
     const mat = new THREE.MeshBasicMaterial({ transparent: true, depthTest: false, depthWrite: false, alphaTest: 0.5, color: 0xffffff });
     const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat); m.renderOrder = 59; m.visible = false; this.L.scene.add(m); S.mesh = m;
-    const t = portraitTex(id, tt => { mat.map = tt; mat.needsUpdate = true; const img = tt.image as { width: number; height: number }; S.aspect = img.width / img.height; m.visible = this.on; });
+    const t = portraitTex(id, tt => { mat.map = tt; mat.needsUpdate = true; const img = tt.image as { width: number; height: number }; S.aspect = img.width / img.height; S.ih = img.height; m.visible = this.on; });
     if (!t) { m.visible = false; return; }
-    mat.map = t; if (t.image) { const img = t.image as { width: number; height: number }; S.aspect = img.width / img.height; m.visible = true; }
+    mat.map = t; if (t.image) { const img = t.image as { width: number; height: number }; S.aspect = img.width / img.height; S.ih = img.height; m.visible = true; }
   }
   /** a tap / Enter / the cut button */
   advance() {
@@ -136,7 +136,7 @@ export class Dialogue {
    *  the listener down to about a third, a cold cast, a step back out and down; a new face slides in from its edge, and at the end
    *  both slide out. Final positions snap to device pixels so the pixel art stays crisp (only the moves themselves land between). */
   private portraits(dt: number, speaker: 'L' | 'R' | null) {
-    const L = this.L, dpr = Math.max(1, Math.round(L.dpr || 1)), pk = Math.max(1, Math.round((L.h * 1.0 * dpr) / 144)) / dpr;
+    const L = this.L, dpr = Math.max(1, Math.round(L.dpr || 1));
     const snap = (v: number) => Math.round(v * dpr) / dpr;
     for (const s of ['L', 'R'] as const) {
       const S = this.sides[s]; if (!S.mesh) continue;
@@ -145,7 +145,9 @@ export class Dialogue {
       S.on += ((speaking ? 1 : 0) - S.on) * Math.min(1, dt * (speaking ? 14 : 7));
       S.k = Math.min(1, S.k + dt * 3.2); S.pop = Math.max(0, S.pop - dt / 0.22);
       const inK = 1 - Math.pow(1 - S.k, 3), outK = this.on ? 0 : 1 - this.outK * this.outK, dir = s === 'L' ? 1 : -1;
-      const hP = 144 * pk, wP = hP * S.aspect;
+      // (act-37 用户：「怎么立绘还是糊的」: each picture is kept at its own pixel grid (150–180 rows), so the scale is a whole number of
+      //  device pixels per art pixel from its own height)
+      const pk = Math.max(1, Math.round((L.h * dpr) / S.ih)) / dpr, hP = S.ih * pk, wP = hP * S.aspect;
       const home = s === 'L' ? wP * 0.4 : L.w - wP * 0.4;
       const step = L.w * 0.018 * S.on - L.w * 0.035 * (1 - S.on);
       const cx = home + dir * step - dir * ((1 - inK) + outK) * wP * 0.95;

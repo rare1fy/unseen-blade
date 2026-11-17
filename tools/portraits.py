@@ -131,3 +131,58 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+# ---------------------------------------------------------------- act-37: back to the picture's own pixel grid
+# 用户：「怎么立绘还是糊的」— the generated pictures are pixel art on a coarse grid (one art pixel ≈ 8–12 px of the 1254 px raw), so
+# their own art is only ~100–150 rows tall; resizing that to 144 rows split each art pixel into ~1.4 and blended the edges. Instead:
+# find the grid (period and phase, from where the colour edges fall), take one colour per cell (the median of its middle), and keep
+# that native size; the game scales it by a whole number.
+import numpy as np
+
+
+def _period(profile: np.ndarray, lo: int = 5, hi: int = 18) -> tuple[int, int]:
+    """the grid period and phase that put the most edge energy on the grid lines"""
+    best = (0.0, lo, 0)
+    for s in range(lo, hi + 1):
+        for o in range(s):
+            e = profile[o::s].sum() / max(1, len(profile[o::s]))
+            if e > best[0] * 1.0001: best = (e, s, o)
+    return best[1], best[2]
+
+
+def process_native(path: Path, colours: int = 20) -> Image.Image:
+    image = remove_background(Image.open(path))
+    alpha = image.getchannel("A").point(lambda a: 255 if a >= 128 else 0)
+    rgb = np.asarray(image.convert("RGB")).astype(np.int32); a = np.asarray(alpha) > 0
+    gx = (np.abs(np.diff(rgb, axis=1)).sum(2) * (a[:, 1:] & a[:, :-1])).sum(0).astype(np.float64)
+    gy = (np.abs(np.diff(rgb, axis=0)).sum(2) * (a[1:] & a[:-1])).sum(1).astype(np.float64)
+    # the grid: for each period, the phase that puts most edge energy on its lines; then the coarsest period whose cells, filled with
+    # one colour each and blown back up, still match the picture (a period too coarse smears; a half period also matches, so take
+    # the largest that is nearly as good as the best)
+    H0, W0 = rgb.shape[:2]; tries = []
+    for s_ in range(6, 19):
+        o_x = (max(range(s_), key=lambda o: gx[o::s_].mean()) + 1) % s_; o_y = (max(range(s_), key=lambda o: gy[o::s_].mean()) + 1) % s_
+        ny_, nx_ = (H0 - o_y) // s_, (W0 - o_x) // s_
+        blk = rgb[o_y:o_y + ny_ * s_, o_x:o_x + nx_ * s_].reshape(ny_, s_, nx_, s_, 3).astype(np.float32)
+        am = a[o_y:o_y + ny_ * s_, o_x:o_x + nx_ * s_].reshape(ny_, s_, nx_, s_)
+        mean = blk.mean(axis=(1, 3), keepdims=True)
+        err = float((((blk - mean) ** 2).sum(-1) * am).sum() / max(1, am.sum()))
+        tries.append((err, s_, o_x, o_y))
+    best = min(t[0] for t in tries)
+    err, s, ox, oy = max((t for t in tries if t[0] <= best * 1.35 + 20), key=lambda t: t[1])
+    sx = sy = s
+    H, W = rgb.shape[:2]; ny, nx = (H - oy) // s, (W - ox) // s
+    out = np.zeros((ny, nx, 4), np.uint8); m = max(1, s // 4)
+    for j in range(ny):
+        for i in range(nx):
+            y0, x0 = oy + j * s, ox + i * s
+            blk = rgb[y0 + m:y0 + s - m, x0 + m:x0 + s - m].reshape(-1, 3); al = a[y0 + m:y0 + s - m, x0 + m:x0 + s - m].reshape(-1)
+            if al.mean() < 0.5: continue
+            out[j, i, :3] = np.median(blk[al], axis=0); out[j, i, 3] = 255
+    img = Image.fromarray(out, "RGBA"); bbox = img.getchannel("A").getbbox(); img = img.crop(bbox)
+    hard = img.getchannel("A")
+    q = Image.new("RGB", img.size, (0, 0, 0)); q.paste(img.convert("RGB"), mask=hard)
+    q = q.quantize(colors=colours, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE).convert("RGB"); q.putalpha(hard)
+    print(f"{path.stem}: grid {s} px (x {sx}/{ox}, y {sy}/{oy}) → {q.width}×{q.height}")
+    return q
