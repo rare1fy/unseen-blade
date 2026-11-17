@@ -7,6 +7,8 @@ export type Cue =
   | 'swish' | 'swishHeavy' | 'cut' | 'cutHeavy' | 'draw' | 'sheathe' | 'parry' | 'dash' | 'jump' | 'land' | 'dartThrow' | 'dartHit' | 'arrow'
   | 'bodyFall' | 'foeSwing' | 'thunder' | 'freeze' | 'iceShatter' | 'boom' | 'fuse' | 'fire' | 'potBreak' | 'crateBreak' | 'hayBurst' | 'pillarFall'
   | 'wallSlam' | 'gateOpen' | 'exitChime' | 'timeSlow' | 'ultSlash' | 'scroll' | 'hound'
+  // act-23: the killing blow's gore (bone chop + splatter)
+  | 'gore'
   // short music (Stable Audio 3 medium, GameProtos/sfx/cues_unseen_music_v1.json): a run won, a run lost, a room cleared
   | 'stingWin' | 'stingLose' | 'stingClear';
 

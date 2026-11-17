@@ -183,12 +183,19 @@ function thrust(I: Pose, k: number, off: THREE.Vector3): Pose {
 // across the body, the left hand holding the scabbard mouth at the left hip just below it, the hilt pointing forward and a little down
 // (angles solved for the targets — tools: the right fist in front of the left hip, the left hand on the scabbard mouth beside it — with
 // the rig's own rotation order: raising the upper arm forward and bending the elbow folded the forearm up to the chest instead)
-const SHEATHED: Partial<Pose> = { aRx: 0.12, aRz: 0.63, fR: -1.02, eR: -0.18, yR: 2.95, aLx: -0.01, aLz: -0.25, fL: -0.93, eL: 0, sy: 0.42, nx: -0.12 };
+// act-23 (user: 「现在收刀的动作是把刀插到两腿之间的。。太搞笑了……应该是身体微弓，右手持刀把刀刃别在左腿胯部外侧，左臂协同后曲，左手手掌
+// 轻轻扶刃」): the fist was right but the blade only followed the wrist — straight back from the belly, between the legs. Re-solved
+// (tmp sheath_ik.py, the fine skeleton) for: the body bowed a little and turned to the left; the right fist in front of the left hip at
+// the sash; the blade from it back, down and a little out, every cell outside the left hip and thigh; the fist continuing the forearm
+// (rR rolls the hand round the blade); the left elbow bent back and the left palm on the blade's flat behind the hip.
+// (eR / yR are the blade's world direction for the hips turned hy = −0.3 — the charge and the 归鞘 both settle the hips there)
+const SHEATHED: Partial<Pose> = { aRx: 0.18, aRz: 0.23, fR: -1.58, eR: -0.276, yR: 2.516, rR: -1.407, aLx: -0.04, aLz: 0.04, fL: -0.57, eL: 0,
+  sy: 1.0, sx: 0.3, hy: -0.3, nx: -0.2, ny: -0.62 };
 function charge(I: Pose, c: number, t: number, creep = 0, ph = 0): Pose {
   const sh = c > 0.98 ? Math.sin(t * 90) * 0.012 : 0;
   // the sheathing: the first ~0.3 s of the stance plays the 归鞘 cross-over (k 0.3 → 1, the click at 0.64)
   const sk = Math.min(1, c / 0.42), arms = sk < 1 ? noto(I, 0.3 + 0.7 * sk) : mix(I, SHEATHED, 1);
-  const P = mix(arms, { tL: -0.85, kL: 1.15, tR: 0.55, kR: 0.95, hy: -0.38, sx: 0.2, px: sh, lift: 0.55 + 0.6 * c, flut: 0.5 + 0.5 * c }, Math.min(1, 0.4 + c));
+  const P = mix(arms, { tL: -0.85, kL: 1.15, tR: 0.55, kR: 0.95, hy: -0.3, sx: 0.3, px: sh, lift: 0.55 + 0.6 * c, flut: 0.5 + 0.5 * c }, Math.min(1, 0.4 + c));
   // moving in the stance: low sliding steps (碎步) — the feet take turns lifting a little and reaching, the crouch and the blade stay put
   if (creep > 0.02) { const s = Math.sin(ph * 1.5);
     P.tL += -0.2 * s * creep; P.kL += 0.35 * Math.max(0, s) * creep; P.tR += -0.2 * s * creep; P.kR += 0.35 * Math.max(0, -s) * creep; }
@@ -201,13 +208,17 @@ function noto(I: Pose, k: number): Pose {
   const A: Partial<Pose> = {
     // 血振 out to the right (k .12), the blade brought across in front of the belly with the elbow folding, its back laid on the left
     // hand at the scabbard mouth (k .3–.45), slid back along it and pushed home (click k .64), the hand resting on the hilt
-    aRx: S(k, [[0, -0.5], [0.12, -0.27], [0.3, -0.07], [0.45, 0.05], [0.64, 0.12], [1, 0.12]]),
-    aRz: S(k, [[0, 0.2], [0.12, -0.62], [0.3, 0.5], [0.45, 0.58], [0.64, 0.63], [1, 0.63]]),
-    fR: S(k, [[0, -0.6], [0.12, -0.62], [0.3, -1.42], [0.45, -1.2], [0.64, -1.02], [1, -1.02]]),
-    eR: S(k, [[0, 0.1], [0.12, -0.8], [0.3, 0.05], [0.45, -0.05], [0.64, -0.18], [1, -0.18]]),
-    yR: S(k, [[0, 0.6], [0.12, -0.7], [0.3, 2.2], [0.45, 2.6], [0.64, 2.95], [1, 2.95]]),
-    aLx: S(k, [[0, -0.5], [0.2, -0.01], [1, -0.01]]), aLz: S(k, [[0, 0.4], [0.2, -0.25], [1, -0.25]]), fL: S(k, [[0, -1.3], [0.2, -0.93], [1, -0.93]]), eL: 0,
-    sy: S(k, [[0, 0], [0.12, -0.2], [0.3, 0.25], [0.45, 0.38], [1, 0.42]]), sx: S(k, [[0, 0.2], [0.45, 0.22], [0.7, 0.2], [1, 0.18]]), nx: S(k, [[0, 0], [0.64, -0.05], [1, -0.1]]),   // act-20: head up, not bowed
+    // act-23: the end is the new SHEATHED (the blade outside the left hip); the cross-over turns the body left as the fist comes to the
+    // hip, the hand rolls round the blade as it slides back along the thigh (k .3 → .64), the left hand comes back to meet it
+    aRx: S(k, [[0, -0.5], [0.12, -0.27], [0.3, -0.05], [0.45, 0.1], [0.64, 0.18], [1, 0.18]]),
+    aRz: S(k, [[0, 0.2], [0.12, -0.62], [0.3, 0.45], [0.45, 0.32], [0.64, 0.23], [1, 0.23]]),
+    fR: S(k, [[0, -0.6], [0.12, -0.62], [0.3, -1.42], [0.45, -1.55], [0.64, -1.58], [1, -1.58]]),
+    eR: S(k, [[0, 0.1], [0.12, -0.8], [0.3, 0.05], [0.45, -0.15], [0.64, -0.276], [1, -0.276]]),
+    yR: S(k, [[0, 0.6], [0.12, -0.7], [0.3, 2.0], [0.45, 2.35], [0.64, 2.516], [1, 2.516]]),
+    rR: S(k, [[0, 0], [0.3, 0], [0.45, -0.8], [0.64, -1.407], [1, -1.407]]),
+    aLx: S(k, [[0, -0.5], [0.3, -0.25], [0.64, -0.04], [1, -0.04]]), aLz: S(k, [[0, 0.4], [0.3, 0.1], [0.64, 0.04], [1, 0.04]]), fL: S(k, [[0, -1.3], [0.3, -1.0], [0.64, -0.57], [1, -0.57]]), eL: 0,
+    sy: S(k, [[0, 0], [0.12, -0.2], [0.3, 0.5], [0.45, 0.8], [0.64, 1.0], [1, 1.0]]), sx: S(k, [[0, 0.2], [0.45, 0.26], [0.64, 0.3], [1, 0.3]]),
+    nx: S(k, [[0, 0], [0.64, -0.15], [1, -0.2]]), ny: S(k, [[0, 0], [0.3, -0.3], [0.64, -0.62], [1, -0.62]]), hy: S(k, [[0, -0.22], [0.64, -0.3], [1, -0.3]]),   // act-20: head up, not bowed
     tL: -0.3, kL: 0.35, tR: 0.2, kR: 0.3, lift: 0.6, flut: 0.5,
   };
   return mix(I, A, curve(k, [[0, 0.6], [0.06, 1], [0.9, 1], [1, 0.85]]));
@@ -250,12 +261,14 @@ function flip(I: Pose, k: number): Pose {
  *  comes back to guard */
 function release(I: Pose, k: number): Pose {
   const A: Partial<Pose> = {
-    aRx: S(k, [[0, 0.12], [0.12, -0.6], [0.3, -1.45], [0.6, -1.3], [1, -0.5]]), aRz: S(k, [[0, 0.63], [0.12, 0.7], [0.3, -0.05], [0.6, -0.85], [1, -0.45]]),
-    fR: S(k, [[0, -1.02], [0.12, -1.35], [0.3, -0.4], [0.6, -0.6], [1, -1.25]]), eR: S(k, [[0, -0.18], [0.12, 0.05], [0.3, 0.05], [0.6, 0.2], [1, 0.6]]),
-    yR: S(k, [[0, 2.95], [0.12, 2.3], [0.3, 1.4], [0.6, 0.85], [1, -0.15]]),
-    sy: S(k, [[0, 0.22], [0.12, 0.3], [0.3, -0.35], [0.6, -0.5], [1, 0.12]]), hy: S(k, [[0, -0.55], [0.3, 0.25], [1, -0.32]]), sx: S(k, [[0, 0.5], [0.3, 0.55], [1, 0.22]]),
+    // act-23: k 0 = the new SHEATHED (blade outside the left hip, chest turned left): the draw unwinds the twist to the right
+    aRx: S(k, [[0, 0.18], [0.12, -0.5], [0.3, -1.45], [0.6, -1.3], [1, -0.5]]), aRz: S(k, [[0, 0.23], [0.12, 0.6], [0.3, -0.05], [0.6, -0.85], [1, -0.45]]),
+    fR: S(k, [[0, -1.58], [0.12, -1.4], [0.3, -0.4], [0.6, -0.6], [1, -1.25]]), eR: S(k, [[0, -0.276], [0.12, 0.0], [0.3, 0.05], [0.6, 0.2], [1, 0.6]]),
+    yR: S(k, [[0, 2.516], [0.12, 2.1], [0.3, 1.4], [0.6, 0.85], [1, -0.15]]), rR: S(k, [[0, -1.407], [0.12, -0.7], [0.3, 0], [1, 0]]),
+    sy: S(k, [[0, 1.0], [0.12, 0.75], [0.3, -0.35], [0.6, -0.5], [1, 0.12]]), hy: S(k, [[0, -0.3], [0.3, 0.25], [1, -0.32]]), sx: S(k, [[0, 0.3], [0.3, 0.55], [1, 0.22]]),
+    ny: S(k, [[0, -0.62], [0.3, 0], [1, 0]]),
     tL: S(k, [[0, -0.95], [0.3, -1.25], [0.75, -1.1], [1, -0.55]]), kL: S(k, [[0, 1.45], [0.3, 0.55], [1, 0.75]]), tR: S(k, [[0, 0.5], [0.3, 0.95], [1, 0.3]]), kR: S(k, [[0, 1.2], [0.3, 0.2], [1, 0.4]]),
-    aLx: S(k, [[0, -0.01], [0.12, 0.45], [0.3, 0.6], [0.7, 0.2], [1, -0.15]]), aLz: S(k, [[0, -0.25], [0.12, 0.05], [0.3, 0.2], [0.7, 0.3], [1, 0.35]]), fL: S(k, [[0, -0.93], [0.12, -1.15], [0.3, -1.2], [0.7, -1.2], [1, -1.45]]),
+    aLx: S(k, [[0, -0.04], [0.12, 0.45], [0.3, 0.6], [0.7, 0.2], [1, -0.15]]), aLz: S(k, [[0, 0.04], [0.12, 0.05], [0.3, 0.2], [0.7, 0.3], [1, 0.35]]), fL: S(k, [[0, -0.57], [0.12, -1.15], [0.3, -1.2], [0.7, -1.2], [1, -1.45]]),
     eL: S(k, [[0, 0.2], [0.3, 0.3], [1, -0.25]]),
     lift: 1.3, flut: 1,
   };

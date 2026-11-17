@@ -20,7 +20,7 @@ const B = (v: VoxChar, part: string, x0: number, y0: number, z0: number, x1: num
 /** the palette a look dresses the shared body in */
 type Pal = { [K in keyof typeof C]: number };
 /** the joints: slim_white's × 2 (both looks share them; a look without a ponytail leaves the hrA bones empty) */
-function skeleton(v: VoxChar) {
+function skeleton(v: VoxChar, ribbons: 'tie' | 'knot') {
   v.bone('hips', 'root', 0, 22, 0).bone('spine', 'hips', 0, 26, 0).bone('chest', 'spine', 0, 32, 0)
     .bone('neck', 'chest', 0, 38, 0).bone('head', 'neck', 0, 42, 0).bone('jaw', 'head', 0, 46, 2).bone('hat', 'head', 0, 56, 0)
     .bone('cape', 'chest', 0, 36, -4)
@@ -30,9 +30,13 @@ function skeleton(v: VoxChar) {
     .bone('legL', 'hips', 4, 22, 0).bone('shinL', 'legL', 4, 12, 0).bone('footL', 'shinL', 4, 4, 0)
     .bone('legR', 'hips', -4, 22, 0).bone('shinR', 'legR', -4, 12, 0).bone('footR', 'shinR', -4, 4, 0)
     .bone('hrA1', 'head', 0, 57, -7).bone('hrA2', 'hrA1', 0, 45, -7).bone('hrA3', 'hrA2', 0, 35, -7)
-    .bone('bfA1', 'head', 2, 47, -11).bone('bfA2', 'bfA1', 2, 35, -11).bone('bfA3', 'bfA2', 2, 23, -11)
-    .bone('bfB1', 'head', -4, 47, -11).bone('bfB2', 'bfB1', -4, 35, -11)
     .bone('blade', 'weapon', -7, 19, 6);
+  // the two long ribbons: from the hair tie's bow either side of the ponytail (白发), or from the blindfold's knot (斗笠) — act-23 (user:
+  // 「主角的长红飘带，怎么飞到头发后面去了，也没贴着头绳」: they hung from the blindfold a cell behind the ponytail, floating)
+  if (ribbons === 'tie') v.bone('bfA1', 'head', 4, 55, -10.5).bone('bfA2', 'bfA1', 4, 44, -10.5).bone('bfA3', 'bfA2', 4, 33, -10.5)
+    .bone('bfB1', 'head', -4, 55, -10.5).bone('bfB2', 'bfB1', -4, 45, -10.5);
+  else v.bone('bfA1', 'head', 1, 47, -8.5).bone('bfA2', 'bfA1', 1, 35, -8.5).bone('bfA3', 'bfA2', 1, 23, -8.5)
+    .bone('bfB1', 'head', -2, 47, -8.5).bone('bfB2', 'bfB1', -2, 35, -8.5);
 }
 /** legs (left x 2..5, right mirrored x −6..−3): boot with a sole one cell longer at the toe, shin, thigh, the robe's skirt panel */
 function legs(v: VoxChar, P: Pal, o: { sole?: number; shinTop?: number } = {}) {
@@ -45,7 +49,9 @@ function legs(v: VoxChar, P: Pal, o: { sole?: number; shinTop?: number } = {}) {
     B(v, 'shin' + L, x0, 4, -2, x1, 5, 1, P.BOOT); B(v, 'shin' + L, s0, 6, -2, s1, 6, 0, P.TROU);
     B(v, 'shin' + L, s0, 7, -2, s1, 11, 0, P.WRAP); B(v, 'shin' + L, s0, o.shinTop ?? 9, -2, s1, o.shinTop ?? 9, 0, P.WRAP_D);
     B(v, 'leg' + L, x0, 12, -2, x1, 21, 1, P.TROU);
-    const [f0, f1] = X(0, 6); B(v, 'leg' + L, f0, 15, -3, f1, 21, 2, P.ROBE); B(v, 'leg' + L, f0, 15, -3, f1, 15, 2, P.ROBE_D);
+    // (one column narrower than the hips, act-23: at rest the hand hung inside it, and the hand kept the shared cells — the robe showed
+    // a notch whenever the arm moved)
+    const [f0, f1] = X(0, 5); B(v, 'leg' + L, f0, 15, -3, f1, 21, 2, P.ROBE); B(v, 'leg' + L, f0, 15, -3, f1, 15, 2, P.ROBE_D);
   }
 }
 /** hips, the narrow waist with the wide sash, the 14-wide chest with its soft shoulder line, the crossed collar, the neck */
@@ -86,17 +92,24 @@ function skull(v: VoxChar, P: Pal, band: number, bandD: number, wide: boolean) {
   B(v, 'head', -2, 47, -8, 1, 52, -8, band);
 }
 /** the blindfold's two tails (three and two joints), behind the head */
-function tails(v: VoxChar, band: number, bandD: number) {
-  B(v, 'bfA1', 1, 36, -12, 2, 46, -12, band); B(v, 'bfA2', 1, 24, -12, 2, 35, -12, band); B(v, 'bfA3', 1, 13, -12, 2, 23, -12, band); B(v, 'bfA3', 1, 13, -12, 2, 13, -12, bandD);
-  B(v, 'bfB1', -5, 36, -12, -4, 46, -12, band); B(v, 'bfB2', -5, 26, -12, -4, 35, -12, band); B(v, 'bfB2', -5, 26, -12, -4, 26, -12, bandD);
+function tails(v: VoxChar, band: number, bandD: number, at: 'tie' | 'knot') {
+  if (at === 'tie') {
+    // either side of the ponytail, level with its back half, straight down from the bow
+    B(v, 'bfA1', 3, 44, -11, 4, 54, -11, band); B(v, 'bfA2', 3, 33, -11, 4, 43, -11, band); B(v, 'bfA3', 3, 22, -11, 4, 32, -11, band); B(v, 'bfA3', 3, 22, -11, 4, 22, -11, bandD);
+    B(v, 'bfB1', -5, 45, -11, -4, 54, -11, band); B(v, 'bfB2', -5, 35, -11, -4, 44, -11, band); B(v, 'bfB2', -5, 35, -11, -4, 35, -11, bandD);
+  } else {
+    // flat against the back of the knot
+    B(v, 'bfA1', 0, 36, -9, 1, 46, -9, band); B(v, 'bfA2', 0, 24, -9, 1, 35, -9, band); B(v, 'bfA3', 0, 13, -9, 1, 23, -9, band); B(v, 'bfA3', 0, 13, -9, 1, 13, -9, bandD);
+    B(v, 'bfB1', -3, 36, -9, -2, 46, -9, band); B(v, 'bfB2', -3, 26, -9, -2, 35, -9, band); B(v, 'bfB2', -3, 26, -9, -2, 26, -9, bandD);
+  }
 }
 
 // ================================================================== 白发 (the default look)
 export function buildWhiteFine(): VoxChar {
   const v = new VoxChar(CELL / 2), P = C as unknown as Pal;
-  skeleton(v); legs(v, P); torso(v, P);
+  skeleton(v, 'tie'); legs(v, P); torso(v, P);
   // the empty right sleeve tied at the waist, hanging behind the right hip (clear of the swinging arm); the sash's knot and short tails
-  B(v, 'hips', -7, 13, -6, -5, 25, -5, P.ROBE); B(v, 'hips', -7, 13, -6, -5, 14, -5, P.ROBE_D);
+  B(v, 'hips', -6, 13, -6, -4, 25, -5, P.ROBE); B(v, 'hips', -6, 13, -6, -4, 14, -5, P.ROBE_D);   // (a column in from the sword's tassel)
   B(v, 'hips', 1, 20, 4, 3, 25, 4, P.SASH); B(v, 'hips', 2, 18, 4, 3, 19, 4, P.SASH_L);
   // the robe slipped off the right shoulder: the cream inner garment on the shoulder, a darker fold where the robe ends
   B(v, 'chest', -7, 34, -4, -5, 36, 3, P.INNER); B(v, 'chest', -6, 37, -3, -5, 37, 2, P.INNER); B(v, 'chest', -4, 32, 3, -4, 37, 3, P.ROBE_D);
@@ -116,12 +129,13 @@ export function buildWhiteFine(): VoxChar {
   // long locks framing the face below the band, down past the jaw (outer strand longer than the inner, straight vertical ends)
   for (const s of [1, -1]) { const xo = s > 0 ? 7 : -8, xi = s > 0 ? 6 : -7;
     B(v, 'head', xo, 37, 0, xo, 47, 4, P.HAIR); B(v, 'head', xi, 40, 1, xi, 47, 4, P.HAIR); B(v, 'head', xo, 37, 0, xo, 38, 4, P.HAIR_D); }
-  // the high ponytail (three joints) tied with red
-  B(v, 'hat', -2, 55, -9, 1, 58, -6, P.RED); B(v, 'hat', -2, 55, -9, 1, 55, -6, P.RED_D);
+  // the high ponytail (three joints), the red cord wound round its root, a bow behind with the two long ribbons
   B(v, 'hrA1', -3, 46, -11, 2, 58, -10, P.HAIR); B(v, 'hrA1', -3, 46, -11, -3, 58, -10, P.HAIR_D);
   B(v, 'hrA2', -2, 35, -11, 1, 45, -10, P.HAIR); B(v, 'hrA2', -2, 35, -11, -2, 45, -10, P.HAIR_D);
   B(v, 'hrA3', -1, 25, -11, 0, 34, -10, P.HAIR); B(v, 'hrA3', -1, 25, -11, 0, 26, -10, P.HAIR_D);
-  tails(v, P.RED, P.RED_D);
+  B(v, 'hat', -3, 55, -12, 2, 57, -6, P.RED); B(v, 'hat', -3, 55, -12, 2, 55, -6, P.RED_D);
+  B(v, 'hat', -5, 55, -11, -4, 57, -11, P.RED); B(v, 'hat', 3, 55, -11, 4, 57, -11, P.RED);
+  tails(v, P.RED, P.RED_D, 'tie');
   return v;
 }
 
@@ -134,7 +148,7 @@ const HAT = { ...C, ROBE: 0x3c4654, ROBE_L: 0x5a6678, ROBE_D: 0x272e38, INNER: 0
 const STRAW = 0xc9a457, STRAW_D = 0x8e6e34, STRAW_L = 0xe2c078, BAND = 0xeee8da, BAND_D = 0xb8b0a0, LEATH = 0x5a3c28, LACQ = 0x1e1a1c, BRONZE = 0xb8893a;
 export function buildHatFine(): VoxChar {
   const v = new VoxChar(CELL / 2), P = HAT as unknown as Pal;
-  skeleton(v); legs(v, P, { sole: STRAW_D, shinTop: 11 }); torso(v, P);
+  skeleton(v, 'knot'); legs(v, P, { sole: STRAW_D, shinTop: 11 }); torso(v, P);
   // the red cord hanging from the sash, and the black-lacquer scabbard at the left hip, lying back along it with bronze fittings
   B(v, 'hips', 2, 18, 4, 2, 25, 4, P.RED); B(v, 'hips', 3, 22, 4, 3, 25, 4, P.RED);
   B(v, 'hips', 6, 23, -18, 7, 24, 1, LACQ); B(v, 'hips', 6, 23, 1, 7, 24, 1, BRONZE); B(v, 'hips', 6, 23, -18, 7, 24, -18, BRONZE);
@@ -148,7 +162,7 @@ export function buildHatFine(): VoxChar {
   v.paint(c => (c.part === 'head' && c.c === P.SKIN && (c.y >= 52 || (c.z <= -4 && c.y >= 44)) ? P.HAIR : null));
   B(v, 'head', -5, 44, -7, 4, 51, -7, P.HAIR); B(v, 'head', -6, 47, -7, 5, 51, -7, BAND); B(v, 'head', -2, 47, -8, 1, 52, -8, BAND);
   B(v, 'head', -2, 41, -9, 1, 46, -7, P.HAIR);
-  tails(v, BAND, BAND_D);
+  tails(v, BAND, BAND_D, 'knot');
   // the hat: the brim (two cells thick, a rounded square of three steps), the crown narrowing in three flat tiers, a small top
   const brim = (y0: number, y1: number, c: number) => { B(v, 'hat', -18, y0, -12, 17, y1, 11, c); B(v, 'hat', -15, y0, -15, 14, y1, 14, c); B(v, 'hat', -12, y0, -18, 11, y1, 17, c); };
   brim(52, 53, STRAW);

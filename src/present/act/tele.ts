@@ -2,29 +2,41 @@
 // 一层淡色底面 = 范围，一圈亮边；范围里是「声纹」（act-17，GAME_PLAN 第 1、6 节：主角是瞎子，预警就是他听见的出招）——一道道硬边的
 // 波纹从出招处往外推，越接近出手越亮，前沿（还剩多久）以内更亮。出手那一下整块亮一下再淡掉。颜色是暗红橙，透明度克制
 // （CLAUDE.md：高亮要克制），不压暗画面。
+// act-23（用户：「敌人的攻击提示还是看不太出来敌人的攻击节奏，对比不强烈」）：改成三拍——起手只有暗底和暗边；蓄力时从出招处往外
+// 「灌」，灌到的地方亮、没灌到的很暗，灌的最前沿一道亮带扫过去（扫到头 = 打下来）；最后 0.15 秒整块变成发白的暖光、边线变白、
+// 微微一胀；打下来那一下白闪、0.18 秒消失。
 import * as THREE from 'three';
 import { scene } from '../engine/world';
 
 export type TeleShape = { k: 'cone'; r: number; half: number } | { k: 'rect'; len: number; w: number } | { k: 'circle'; r: number; ahead: number } | { k: 'line'; len: number };
-const COL = 0xff4a26, EDGE = 0xff9a60;
+const COL = 0xff4a26, EDGE = 0xff9a60, EDGE_C = new THREE.Color(EDGE), WHITE = new THREE.Color(0xffffff);
+/** the last beat before the blow, seconds */
+export const HOT = 0.15;
 const mat = (o: number, c = COL) => new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: o, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, side: THREE.DoubleSide });
 
 /** the sound-wave fill: hard-edged ripple bands running out from where the blow starts (cone apex / circle centre / the strip's
  *  start); brighter as the wind-up fills (uP) and inside its front; uFlash = the strike */
 const RIPPLE_VS = 'varying vec3 vP; void main() { vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }';
-const RIPPLE_FS = `uniform vec3 uCol; uniform float uP, uT, uFade, uFlash, uKind, uR, uAhead, uLen; varying vec3 vP;
+const RIPPLE_FS = `uniform vec3 uCol; uniform float uP, uT, uFade, uFlash, uHot, uKind, uR, uAhead, uLen; varying vec3 vP;
 void main() {
   float d = uKind < 0.5 ? length(vP.xz) / uR : uKind < 1.5 ? length(vP.xz - vec2(0.0, uAhead)) / uR : vP.z / uLen;
-  float band = step(0.66, fract(d * 4.0 - uT * 1.7));
-  float front = step(d, uP);
-  // act-20 (user: 「预警识别度很低」): firmer bands, the front brighter, a last-moment lift
-  float a = band * (0.22 + 0.48 * uP) * (0.55 + 0.45 * front) + front * 0.1 + step(0.75, uP) * 0.08 + uFlash * 0.6;
-  gl_FragColor = vec4(uCol, a * uFade);
+  // act-23: only what the wind-up has reached is lit; the rest of the shape stays dark (the contrast is the timing)
+  float filled = step(d, uP);
+  float band = step(0.7, fract(d * 4.0 - uT * 1.7));
+  // the sweeping front: a bright band just inside the fill's edge; when it reaches the rim, the blow lands
+  float rim = filled * step(uP - 0.08, d) * step(0.02, uP);
+  float a = filled * (0.14 + 0.26 * uP + 0.07 * band) + rim * 0.6;
+  vec3 c = mix(uCol, vec3(1.0, 0.72, 0.42), rim);
+  // the last beat: the whole shape goes a hot pale gold, strong
+  c = mix(c, vec3(1.0, 0.93, 0.74), uHot); a = mix(a, 0.6, uHot);
+  // the blow: white
+  c = mix(c, vec3(1.0), uFlash); a = max(a, uFlash * 0.72);
+  gl_FragColor = vec4(c, a * uFade);
 }`;
 function rippleMat(s: TeleShape) {
   const kind = s.k === 'cone' ? 0 : s.k === 'circle' ? 1 : 2;
   return new THREE.ShaderMaterial({ vertexShader: RIPPLE_VS, fragmentShader: RIPPLE_FS, transparent: true, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2,
-    uniforms: { uCol: { value: new THREE.Color(COL) }, uP: { value: 0 }, uT: { value: 0 }, uFade: { value: 1 }, uFlash: { value: 0 }, uKind: { value: kind },
+    uniforms: { uCol: { value: new THREE.Color(COL) }, uP: { value: 0 }, uT: { value: 0 }, uFade: { value: 1 }, uFlash: { value: 0 }, uHot: { value: 0 }, uKind: { value: kind },
       uR: { value: s.k === 'cone' || s.k === 'circle' ? s.r : 1 }, uAhead: { value: s.k === 'circle' ? s.ahead : 0 }, uLen: { value: s.k === 'rect' || s.k === 'line' ? s.len : 1 } } });
 }
 function geo(s: TeleShape): THREE.BufferGeometry {
@@ -62,9 +74,10 @@ export class Tele {
   private bars: THREE.Mesh | null = null;
   constructor(public s: TeleShape, o: { low?: boolean } = {}) {
     // a dark red under-layer first (contrast on the pale loess floors), then the tint, the sound-wave fill and a solid rim
-    this.shade = new THREE.Mesh(geo(s), mat(s.k === 'line' ? 0.3 : 0.24, 0x3a0a06));
-    this.area = new THREE.Mesh(geo(s), mat(s.k === 'line' ? 0.3 : 0.2)); this.fill = new THREE.Mesh(geo(s), rippleMat(s));
-    this.edge = new THREE.Mesh(edgeGeo(s), new THREE.MeshBasicMaterial({ color: EDGE, transparent: true, opacity: 0.7, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -3 }));
+    // (act-23: the tint under the fill much fainter, so the part not reached yet reads dark)
+    this.shade = new THREE.Mesh(geo(s), mat(s.k === 'line' ? 0.3 : 0.28, 0x3a0a06));
+    this.area = new THREE.Mesh(geo(s), mat(s.k === 'line' ? 0.22 : 0.07)); this.fill = new THREE.Mesh(geo(s), rippleMat(s));
+    this.edge = new THREE.Mesh(edgeGeo(s), new THREE.MeshBasicMaterial({ color: EDGE, transparent: true, opacity: 0.4, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -3 }));
     for (const o2 of [this.shade, this.area, this.fill, this.edge]) { o2.renderOrder = 3; this.g.add(o2); }
     // a jumpable attack: pale bars across it, drifting along it (read as "over this")
     if (o.low && typeof document !== 'undefined') {
@@ -73,22 +86,30 @@ export class Tele {
     }
     this.g.position.y = 0.05; scene.add(this.g);
   }
-  /** at (x, z) facing yaw; progress 0..1 grows the fill (cone / circle: outward; rect / line: along) */
-  set(x: number, z: number, yaw: number, p: number) {
+  /** how hot the last beat is (0..1) */
+  hot = 0;
+  /** at (x, z) facing yaw; progress 0..1 grows the fill (cone / circle: outward; rect / line: along); left = seconds to the blow
+   *  (the last HOT seconds go hot; without it, the last 14 % of the progress) */
+  set(x: number, z: number, yaw: number, p: number, left?: number) {
     this.g.position.x = x; this.g.position.z = z; this.g.rotation.y = yaw;
     const k = Math.max(0.001, Math.min(1, p));
-    (this.fill.material as THREE.ShaderMaterial).uniforms.uP.value = k;
-    (this.edge.material as THREE.MeshBasicMaterial).opacity = 0.55 + 0.45 * k;
+    const hot = left != null ? Math.max(0, Math.min(1, 1 - left / HOT)) : Math.max(0, Math.min(1, (k - 0.86) / 0.14));
+    this.hot = hot;
+    const u = (this.fill.material as THREE.ShaderMaterial).uniforms; u.uP.value = k; u.uHot.value = hot;
+    const em = this.edge.material as THREE.MeshBasicMaterial;
+    em.opacity = 0.4 + 0.4 * k + 0.2 * hot; em.color.copy(EDGE_C).lerp(WHITE, hot);
+    // a small swell on the last beat (the shape breathes in)
+    const sw = 1 + 0.045 * hot; this.g.scale.set(sw, 1, sw);
   }
-  /** the blow lands: the whole shape flashes, then fades and is removed */
-  flash() { this.flashT = 0; const u = (this.fill.material as THREE.ShaderMaterial).uniforms; u.uP.value = 1; u.uFlash.value = 1; }
+  /** the blow lands: the whole shape flashes white, then fades fast and is removed */
+  flash() { this.flashT = 0; const u = (this.fill.material as THREE.ShaderMaterial).uniforms; u.uP.value = 1; u.uFlash.value = 1; u.uHot.value = 1; this.g.scale.set(1.06, 1, 1.06); }
   update(dt: number) {
     if (this.bars && !this.dead) { const mp = (this.bars.material as THREE.MeshBasicMaterial).map!; mp.offset.y -= dt * 1.6; }
     if (!this.dead) (this.fill.material as THREE.ShaderMaterial).uniforms.uT.value += dt;
     if (this.flashT < 0 || this.dead) return;
-    this.flashT += dt; const k = this.flashT / 0.28;
-    (this.fill.material as THREE.ShaderMaterial).uniforms.uFade.value = 1 - k; (this.area.material as THREE.MeshBasicMaterial).opacity = 0.2 * (1 - k);
-    (this.shade.material as THREE.MeshBasicMaterial).opacity = 0.24 * (1 - k); (this.edge.material as THREE.MeshBasicMaterial).opacity = 0.9 * (1 - k);
+    this.flashT += dt; const k = this.flashT / 0.18;
+    (this.fill.material as THREE.ShaderMaterial).uniforms.uFade.value = 1 - k; (this.area.material as THREE.MeshBasicMaterial).opacity = 0.07 * (1 - k);
+    (this.shade.material as THREE.MeshBasicMaterial).opacity = 0.28 * (1 - k); (this.edge.material as THREE.MeshBasicMaterial).opacity = 1 - k;
     if (this.bars) (this.bars.material as THREE.MeshBasicMaterial).opacity = 0.32 * (1 - k);
     if (k >= 1) this.dispose();
   }

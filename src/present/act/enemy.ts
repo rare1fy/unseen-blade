@@ -21,12 +21,12 @@ import { BattleActor } from '../bestiary/battle';
 import '../ronin/models';   // registers the old foe models (jp_bandit / jp_dog / jp_archer / jp_bandit_chief) in the bestiary ROSTER
 import './foes/hj_models';  // registers the 黄巾 foe models (hj_*) in the bestiary ROSTER
 import { Action } from '../actors/rig';
-import { Tele, inside, type TeleShape } from './tele';
+import { Tele, inside, HOT, type TeleShape } from './tele';
 import { TUNE } from './tune';
 import { toon } from '../look/toon';
 import { cue } from '../../audio/cues';
 import { shake, clock } from '../engine/clock';
-import { fxSparks, fxSmoke, fxRing, fxGlow, fxEmbers, trailSeg } from '../fx/fx';
+import { fxSparks, fxSmoke, fxRing, fxGlow, fxEmbers, fxFlare, trailSeg } from '../fx/fx';
 import { fxBolt, fxShock } from '../fx/skillFx';
 
 export type EKind = 'bandit' | 'dog' | 'archer' | 'chief' | 'dummy' | 'hj_blade' | 'hj_brute' | 'hj_taoist' | 'hj_mob' | 'hj_archer' | 'hj_hound' | 'hj_boss';
@@ -63,7 +63,7 @@ export interface Foe {
   /** the dummy's wobble (lean angles and their speeds, rad) */ wob: { x: number; z: number; vx: number; vz: number };
   /** the stronger variant (+80 % HP, bigger, one extra trick) */ elite: boolean; role: Role;
   /** the attack under way ('cut' 'slam' 'sweep' 'poke' 'lunge' 'shoot' 'cast' 'thunder' …) and follow-ups left (elite double cut / lunge) */
-  atk: string; combo: number; /** extra warning shapes of this attack (yaw offset from the main one) */ extra: Array<{ t: Tele; dy: number }>;
+  atk: string; glint?: boolean; combo: number; /** extra warning shapes of this attack (yaw offset from the main one) */ extra: Array<{ t: Tele; dy: number }>;
   /** invulnerable for this long (the boss's roar) */ inv: number; /** the boss: 1, then 2 after the roar */ phase: number; summonT: number; thunderCd: number; auraT: number;
 }
 /** the dummy's lean, read by its pose hook (yard.ts) */
@@ -113,7 +113,9 @@ const ANIM: Record<string, 'attack' | 'cast'> = { cut: 'attack', slam: 'attack',
 function startAttack(f: Foe, w: FoeWorld, shape: TeleShape, windup: number, dmg: number, yaw: number, o: { atk?: string; extra?: Array<{ s: TeleShape; dy: number; low?: boolean }>; at?: THREE.Vector3 } = {}) {
   f.atk = o.atk ?? ''; dropTeles(f);
   f.shape = shape; f.dmg = Math.round(dmg * TUNE.enemyDmg); f.teleYaw = yaw; f.telePos.copy(o.at ?? f.pos); f.hitHero = false; f.attacking = true;
-  f.tele = new Tele(shape, { low: isLow(f, shape) }); f.tele.set(f.telePos.x, f.telePos.z, yaw, 0);
+  f.tele = new Tele(shape, { low: isLow(f, shape) }); f.tele.set(f.telePos.x, f.telePos.z, yaw, 0, windup); f.glint = false;
+  // act-23: the first beat: a dull red pulse through the attacker as the wind-up starts
+  f.a.tint(0x8a1a10, 0.7);
   for (const e of o.extra ?? []) { const t = new Tele(e.s, { low: e.low }); t.set(f.telePos.x, f.telePos.z, yaw + e.dy, 0); f.extra.push({ t, dy: e.dy }); }
   const wu = windup / TUNE.aggression * (f.elite ? 0.85 : 1) * (f.phase > 1 ? 0.75 : 1); setSt(f, 'windup', wu);
   // the body's own wind-up: the attack action timed so its impact frame lands at the end of the wind-up
@@ -172,8 +174,11 @@ export function updateFoe(f: Foe, w: FoeWorld, dt: number) {
     else if ((r === 'chief' || r === 'brute' || r === 'boss') && p < 0.3) { f.teleYaw = yawTo; face(yawTo, 6); }
     if (f.atk === 'thunder') { f.vel.set(0, 0, 0); if (Math.random() < dt * 30) fxSparks(f.a.weapon(), 0xfff2a0, 2, 2, { life: 0.3 }); }
     else if (!lane || p < 0.5) f.telePos.copy(f.pos);
-    f.tele?.set(f.telePos.x, f.telePos.z, f.teleYaw, p);
-    for (const e of f.extra) e.t.set(f.telePos.x, f.telePos.z, f.teleYaw + e.dy, p);
+    const left = f.dur - f.t;
+    f.tele?.set(f.telePos.x, f.telePos.z, f.teleYaw, p, left);
+    for (const e of f.extra) e.t.set(f.telePos.x, f.telePos.z, f.teleYaw + e.dy, p, left);
+    // act-23 (出招节奏): the attacker itself on the last beat: the body warms pale, one glint off the weapon as it starts
+    if (left < HOT && f.atk !== 'thunder') { f.a.tint(0xfff0c8, 0.5 * (1 - left / HOT) + 0.15); if (!f.glint) { f.glint = true; fxFlare(f.a.weapon(), 0xfff4d0, 0.9, 0.22); } }
     if (f.t >= f.dur) strike(f, w);
   } else if (f.st === 'strike') {
     // a lunge (hounds, the boss): flies along the locked lane, hitting once on contact

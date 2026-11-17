@@ -4,7 +4,7 @@ const L = (who: string, text: string): Line => ({ who, text });
 
 /** the first time she wakes in the hideout (after the opening) */
 export const WAKE_DUWU: Line[] = [
-  L('duwu', '阿烬哥！别乱动，你肋下还插着孙婆婆的银针！'),
+  L('duwu', '白哥！别乱动，你肋下还插着孙婆婆的银针！'),
   L('jiangjin', '……刀呢。'),
   L('duwu', '在炉边烤着呢！我把你从长社死人堆里刨出来的。'),
   L('jiangjin', '褚雷还在破庙？'),
@@ -38,10 +38,10 @@ export const CHULEI_AFTER: Line[] = [
 ];
 /** what they say when she is dragged back after a death (one line each, picked at random) */
 export const DEATH_POOL: Record<string, string[]> = {
-  duwu: ['阿烬哥！我顺着刀环声才在泥沟里摸到你，险些晚了！', '黄巾贼换了巡山哨卡，下次走东边麦田，我挂了铜铃。', '别硬撑了，你吐出来的全是黑血，先喝口热米汤！',
-    '那帮杂碎怕了！听说他们把破庙前院全埋上了火油罐。', '我的灰驴都累吐沫子了，阿烬哥，咱歇半个时辰再去成吗？', '你的暗红腰布掉死人堆里了，我拼死给你捡回来了，洗净了。'],
+  duwu: ['白哥！我顺着刀环声才在泥沟里摸到你，险些晚了！', '黄巾贼换了巡山哨卡，下次走东边麦田，我挂了铜铃。', '别硬撑了，你吐出来的全是黑血，先喝口热米汤！',
+    '那帮杂碎怕了！听说他们把破庙前院全埋上了火油罐。', '我的灰驴都累吐沫子了，白哥，咱歇半个时辰再去成吗？', '你的暗红腰布掉死人堆里了，我拼死给你捡回来了，洗净了。'],
   sunao: ['又被抬回来了？再偏半寸，老身就直接给你钉棺材板了。', '咬碎闭息散的狠劲倒是利索，张嘴，把这碗乌头汤咽下去！', '耳后听宫穴给你扎透了，下次那群杂碎放冷箭，听准点！', '肩骨裂了三道缝，别拿你那双死人眼瞪我，忍着疼！'],
-  fengtiebi: ['（默默指了指刀刃上崩出的三个缺口，一锤砸扁烧红的铁块）', '（抓起姜烬发抖的右手按在温热的刀鞘上，重重敲了两下铁砧）', '（从怀里掏出打磨一新的十枚柳叶镖塞进她袖袋，转身拉动风箱）', '（用火钳夹起一块寒山坞残铁熔入刀脊，对她比了个「斩」的手势）'],
+  fengtiebi: ['（默默指了指刀刃上崩出的三个缺口，一锤砸扁烧红的铁块）', '（抓起刘白发抖的右手按在温热的刀鞘上，重重敲了两下铁砧）', '（从怀里掏出打磨一新的十枚柳叶镖塞进她袖袋，转身拉动风箱）', '（用火钳夹起一块寒山坞残铁熔入刀脊，对她比了个「斩」的手势）'],
 };
 /** a random line from someone's death pool, as a one-line scene */
 export function deathLine(who: keyof typeof DEATH_POOL, rnd = Math.random): Line[] {

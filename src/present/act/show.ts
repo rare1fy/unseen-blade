@@ -49,6 +49,7 @@ import type { Layout, Spec, Report } from '../asm/types';
 import { wipeTransit, WIPE } from '../scenes/transWipe';
 import type { RouteOpt } from '../../core/v2/ronin/chapter';
 import { cue } from '../../audio/cues';
+import { blood } from './blood';
 import { audio } from '../../audio/audio';
 import type { Platform } from '../../platform/index';
 import { dh } from '../../debug/dh';
@@ -164,7 +165,7 @@ export class ActShow {
   /** 开始游戏: a fresh save, the opening cutscene on the burning field, then the hideout and her first waking */
   async startNewGame() {
     newGame();
-    // a new game: 姜烬 in her default look again, the white-haired one (the costume the browser remembered goes)
+    // a new game: 刘白 in her default look again, the white-haired one (the costume the browser remembered goes)
     { const d = HEROES.find(x => x.id === DEFAULT_HERO); if (d) { this.wearing = d; if (this.hud.flask instanceof IronHp) this.hud.flask.setFace(d.id); else HP_FACE.id = d.id; try { localStorage.setItem('act.hero6', d.id); } catch { /* storage blocked */ } } }
     this.noArena = true; this.viewSpec = { locale: 'hj_field', time: 'dusk', weather: 'clear', layout: 'pair', seed: 4242, exits: [] }; this.room = 0; this.locale = 'hj_field'; this.buildRoom(true); this.viewSpec = null; this.noArena = false;
     for (const f of this.foes) f.a.dispose(); this.foes.length = 0;
@@ -425,6 +426,7 @@ export class ActShow {
     if (this.hero) this.hero.setModel(d);
   }
   private buildRoom(first: boolean) {
+    blood.clear();
     this.schools.reset(); // wp/boons: no delayed effects or status FX cross rooms/runs
     for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = [];
     this.gates?.dispose(); this.gates = null; this.leaves?.dispose(); this.leaves = null; this.clearNpcs();
@@ -587,11 +589,13 @@ export class ActShow {
     arrowHit: (f, a) => this.arrowHit(f, a),
     dodged: from => this.perfectDodge(from),
   };
+  /** act-23: did the swing being felt cut flesh (not only the wooden dummies)? picks the hit sound's flesh layers */
+  private fleshHit = false;
   private dmgMul() { return this.perks.dashEdge && this.dashEdgeT > 0 ? 1.5 : 1; }
   private feel(heavy: boolean, n: number) {
     if (!n) return;
     hitstop((heavy ? 0.09 : 0.045 + 0.01 * Math.min(3, n - 1)) * TUNE.hitstop); shake((heavy ? 0.34 : 0.13) * TUNE.shake);
-    cue(heavy ? 'cutHeavy' : 'cut', heavy ? 1.0 : 0.7); this.platform.vibrate(heavy ? 'medium' : 'light');
+    cue(heavy ? 'cutHeavy' : 'cut', (heavy ? 1.0 : 0.7) + 0.1 * Math.min(3, n - 1), this.fleshHit ? 1 : 0); this.fleshHit = false; this.platform.vibrate(heavy ? 'medium' : 'light');
   }
   // ------------------------------------------------------------ act-19: 刀谱, 挑空斩, 飞踢
   /** three manuals not learnt yet, one taken (none left: a boon instead) */
@@ -683,6 +687,8 @@ export class ActShow {
     const died = damageFoe(f, d, from, { knock: o.knock, stagger: o.stagger ?? (o.heavy ? 0.55 : 0.3), poiseDmg: o.kind === 'dart' ? d * 0.5 : o.heavy ? d * 1.8 : d });
     this.schools.onHit(f, wasFrozen); // wp/boons: shatter once; retain frozen-death information
     if (o.kind !== 'school') fxImpact(p, o.heavy ? 0xff6a3a : 0xfff0d0, o.kind === 'dart' ? 0.4 : o.heavy ? 1.3 : 0.75, { dir, chips: o.heavy ? [0xff5a3a, 0x2b3147] : undefined }); // wp/boons: schools supply restrained elemental FX
+    // act-23 (用户：「砍上去要溅血才有感觉」): blood from the wound along the blade's way; more for the heavy blows and the killing one
+    if (f.kind !== 'dummy' && o.kind !== 'school') { const n = o.kind === 'dart' ? 5 : o.heavy ? 28 : 16; blood.spray(p, dir, died ? n + 20 : n, o.heavy || died ? 1.35 : 1); this.fleshHit = true; }
     popPix(String(d), f.a.head().add(V3(R(-0.2, 0.2), 0.35, 0)), { color: o.heavy ? '#ff8a3a' : d >= 14 ? '#ffd060' : '#fff6e0', h: o.heavy ? 0.66 : 0.5, big: o.heavy, life: 0.9, rise: 0.9 });
     if (this.perks.burn && (o.kind === 'k5' || o.kind === 'rel') && !died) { f.burn = 6; f.burnT = 0.5; fxSparks(p, 0xff7a2a, 12, 3); }
     if (this.perks.relFreeze && o.kind === 'rel' && !died) { f.frozen = 1.6; f.a.tint(0x9ae8ff, 0.8); fxSparks(p, 0xbff4ff, 14, 3); }
@@ -924,6 +930,8 @@ export class ActShow {
   private killFoe(f: Foe, from: THREE.Vector3) {
     if (f.elite) this.eliteKills++; if (isBoss(f)) this.bossKilled = true;
     cue('bodyFall', 0.7);
+    // act-23: a pool spreads under the body as it settles
+    if (f.kind !== 'dummy') { const bx = f.pos.x, bz = f.pos.z, sz = isBoss(f) ? 2.0 : f.elite ? 1.4 : 1.05; after(0.45, () => blood.pool(bx, bz, sz)); cue('gore', isBoss(f) ? 1.3 : 1); }
     this.leaves?.blast(f.pos.x, f.pos.z, 1.3, 2.5);
     this.kills++;
     const boss = isBoss(f), elite = !!f.elite;
@@ -963,6 +971,7 @@ export class ActShow {
     this.hud.flask.hit(dmg, { hp: this.hero.hp, maxHp: this.hero.maxHp });
     popPix(`-${dmg}`, this.hero.a.head().add(V3(0, 0.3, 0)), { color: '#ff5a4a', h: 0.5, life: 0.8 });
     fxSparks(this.hero.a.chest(), 0xff4a3a, 12, 4); this.hero.a.tint(0xff3020, 0.9);
+    { const away = this.hero.pos.clone().sub(from).setY(0); if (away.lengthSq() < 1e-4) away.set(0, 0, 1); blood.spray(this.hero.a.chest(), away.normalize(), 7, 0.8); }
     hitstop(0.07 * TUNE.hitstop); shake(0.42 * TUNE.shake); cue('hurt', 0.9); this.platform.vibrate('heavy');
     if (!this.hero.alive) this.dead();
   }
@@ -1167,6 +1176,7 @@ export class ActShow {
     if (this.spec?.weather === 'rain' && (this.phase as string) !== 'opening') { this.lightningT -= rdt; if (this.lightningT <= 0) { this.lightningT = 7 + Math.random() * 9; flashSky(1); after(0.14, () => flashSky(0.7)); const d = 0.35 + Math.random() * 0.8; after(d, () => cue('thunder', 0.45)); } }
     if (this.leaves) {
       this.leaves.update(dt, this.cam.x, this.cam.z);
+      blood.update(dt);
       if (h.st === 'dash' && !h.airborne) { const v = Math.hypot(h.vel.x, h.vel.z) || 1; this.leaves.kick(h.pos.x, h.pos.z, 0.8, h.vel.x / v, h.vel.z / v, 3.4); }
       // the guiding wind: every few seconds a gust from the hero's feet toward each open gate
       if (this.phase === 'doors' && this.gates) { this.gustT -= dt; if (this.gustT <= 0) { this.gustT = 3.2; for (const t of this.gates.targets()) this.leaves.gust(h.pos.x, h.pos.z, t.x, t.z); cue('exitChime', 0.25); } }

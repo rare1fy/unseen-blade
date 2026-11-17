@@ -7,7 +7,8 @@
 // 场子里的东西都是实物：木牌（有厚度的木板，正面画字）、石板（踩下去会沉一下、亮一圈）、木台。
 import * as THREE from 'three';
 import { V3 } from '../engine/world';
-import { newChar, rbox, type V } from '../bestiary/kit';
+import { CELL, rbox, type V } from '../bestiary/kit';
+import { VoxChar } from '../look/voxkit';
 import { ROSTER, type ModelDef } from '../bestiary/models';
 import { POSE_HOOKS } from '../bestiary/poseHooks';
 import { rot } from '../actors/rig';
@@ -20,20 +21,22 @@ import { cue } from '../../audio/cues';
 import { WOBBLE, trimShadows, type EKind } from './enemy';
 
 // ------------------------------------------------------------------ the wooden dummy (木人桩)
+// act-22: 3.5 cm cells like every character (the post's joint where the 7 cm one was, × 2): a square stone foot, the post with two iron
+// bands one cell proud, a wider cap with a dark underside, the straw target bound with three cords, three arms and a short leg
 function buildDummy(): V {
-  const v = newChar(), WOOD = 0x8a5a32, WOOD_D = 0x5e3a20, WOOD_L = 0xa8744a, IRON = 0x4a4c56, STRAW = 0xc9a457, STRAW_D = 0x9a7a3e, STONE = 0x6e7078;
-  v.bone('post', 'root', 0, 2, 0);
-  // a square stone foot (static), the post on a joint just above it so the whole post rocks
-  v.part('root'); rbox(v, -4, 0, -4, 3, 1, 3, STONE, 1, true);
-  v.part('post').box(-3, 2, -3, 2, 23, 2, WOOD)
-    .box(-3, 6, -3, 2, 6, 2, IRON).box(-3, 20, -3, 2, 20, 2, IRON)
-    .box(-4, 24, -4, 3, 27, 3, WOOD_L).box(-4, 24, -4, 3, 24, 3, WOOD_D)
-    // the straw pad on the front (the target)
-    .box(-3, 9, 3, 2, 17, 3, STRAW).box(-3, 9, 3, 2, 9, 3, STRAW_D).box(-3, 13, 3, 2, 13, 3, STRAW_D).box(-3, 17, 3, 2, 17, 3, STRAW_D)
-    // three arms: two high (left and right, straight forward), one low in the middle
-    .box(-4, 18, 3, -3, 19, 8, WOOD_D).box(2, 18, 3, 3, 19, 8, WOOD_D).box(-1, 14, 4, 0, 15, 9, WOOD_D)
-    // a short leg forward near the ground
-    .box(-1, 3, 3, 0, 4, 7, WOOD_D);
+  const v = new VoxChar(CELL / 2), WOOD = 0x8a5a32, WOOD_D = 0x5e3a20, WOOD_L = 0xa8744a, IRON = 0x4a4c56, STRAW = 0xc9a457, STRAW_D = 0x9a7a3e;
+  const STONE = 0x6e7078, STONE_D = 0x5a5c64;
+  v.bone('post', 'root', 0, 4, 0);
+  // the stone foot (static), its top edges chamfered by one cell; the post on a joint just above it so the whole post rocks
+  v.part('root'); rbox(v, -8, 0, -8, 7, 3, 7, STONE, 1, true); v.box(-8, 0, -7, 7, 0, 6, STONE_D).box(-7, 0, -8, 6, 0, 7, STONE_D);
+  v.part('post').box(-6, 4, -6, 5, 47, 5, WOOD)
+    .box(-7, 12, -7, 6, 13, 6, IRON).box(-7, 40, -7, 6, 41, 6, IRON)
+    .box(-8, 48, -8, 7, 55, 7, WOOD_L).box(-8, 48, -8, 7, 48, 7, WOOD_D).box(-8, 55, -8, -8, 55, 7, null).box(7, 55, -8, 7, 55, 7, null).box(-8, 55, -8, 7, 55, -8, null).box(-8, 55, 7, 7, 55, 7, null)
+    // the straw pad on the front (the target), bound with three dark cords
+    .box(-6, 18, 6, 5, 35, 7, STRAW).box(-6, 18, 6, 5, 18, 7, STRAW_D).box(-6, 26, 6, 5, 27, 7, STRAW_D).box(-6, 35, 6, 5, 35, 7, STRAW_D)
+    // three arms: two high (left and right, straight forward), one low in the middle; a short leg forward near the ground
+    .box(-8, 36, 6, -5, 39, 17, WOOD_D).box(4, 36, 6, 7, 39, 17, WOOD_D).box(-2, 28, 8, 1, 31, 19, WOOD_D)
+    .box(-2, 6, 6, 1, 9, 15, WOOD_D);
   return v;
 }
 export const DUMMY: ModelDef = { id: 'act_dummy', name: '木人桩', group: '普通', role: '', line: '', kind: 'biped', attack: 'slam', build: buildDummy };

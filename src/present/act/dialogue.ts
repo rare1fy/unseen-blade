@@ -14,7 +14,7 @@ export interface Line { who: string; text: string }
 interface Speaker { name: string; side: 'L' | 'R'; mute?: boolean }
 /** the cast: ids match the portrait files (src/assets/portraits/<id>.png) and docs/STORY.md */
 export const CAST: Record<string, Speaker> = {
-  jiangjin: { name: '姜烬', side: 'L' }, duwu: { name: '杜五', side: 'R' }, sunao: { name: '孙媪', side: 'R' }, fengtiebi: { name: '冯铁臂', side: 'R', mute: true },
+  jiangjin: { name: '刘白', side: 'L' }, duwu: { name: '杜五', side: 'R' }, sunao: { name: '孙媪', side: 'R' }, fengtiebi: { name: '冯铁臂', side: 'R', mute: true },
   luzhao: { name: '卢昭', side: 'R' }, huanyue: { name: '桓越', side: 'R' }, chulei: { name: '褚雷', side: 'R' }, yanhu: { name: '阎虎', side: 'R' },
   fengzhen: { name: '封鸩', side: 'R' }, zhouan: { name: '周黯', side: 'R' }, cuixuan: { name: '崔玄', side: 'R' },
 };
@@ -114,11 +114,11 @@ export class Dialogue {
     L.at(L.w / 2, y, 0, this.box.position); this.box.scale.set(L.px(wPx), L.px(hPx), L.px(8));
     // portraits: whole device pixels per art pixel (k / dpr), about half the screen tall at most (a phone gets 2/3 scale,
     // not a portrait three quarters of the screen), bottoms behind the box; the speaker lit and lifted, the other dimmed
-    const dpr = Math.max(1, Math.round(L.dpr || 1)), sp = CAST[line.who], pk = Math.max(1, Math.floor((L.h * 0.56 * dpr) / 288)) / dpr;
+    const dpr = Math.max(1, Math.round(L.dpr || 1)), sp = CAST[line.who], pk = Math.max(1, Math.floor((L.h * 0.64 * dpr) / 144)) / dpr;   // act-23: style-A portraits are 144 true pixels tall, shown at a whole multiple (≈ 60 % of the screen height; user: 「游戏中的立绘要再大一些」)
     for (const s of ['L', 'R'] as const) {
       const S = this.sides[s]; if (!S.mesh) continue;
       const speaking = sp?.side === s; S.on += ((speaking ? 1 : 0) - S.on) * Math.min(1, dt * 10); S.k = Math.min(1, S.k + dt * 4);
-      const hP = 288 * pk, wP = hP * S.aspect, x = s === 'L' ? wP * 0.42 + L.w * 0.02 - (1 - S.k) * 80 : L.w - wP * 0.42 - L.w * 0.02 + (1 - S.k) * 80;
+      const hP = 144 * pk, wP = hP * S.aspect, x = s === 'L' ? wP * 0.42 + L.w * 0.02 - (1 - S.k) * 80 : L.w - wP * 0.42 - L.w * 0.02 + (1 - S.k) * 80;
       L.at(x, L.h - hP / 2 - 4 - S.on * 6, -0.5, S.mesh.position); S.mesh.scale.set(L.px(wP), L.px(hP), 1);
       const c = 0.42 + 0.58 * S.on; (S.mesh.material as THREE.MeshBasicMaterial).color.setRGB(c, c, c);
       S.mesh.visible = !!(S.mesh.material as THREE.MeshBasicMaterial).map?.image;

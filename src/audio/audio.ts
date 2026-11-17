@@ -144,8 +144,23 @@ const H: Partial<Record<Cue, (k: number, x?: number) => void>> = {
   // the act-19 cues
   swish: k => ub('swish_light', { gain: 0.45 + 0.4 * k }),
   swishHeavy: k => ub('swish_heavy', { gain: 0.6 + 0.4 * k }),
-  cut: k => ub('cut_light', { gain: 0.55 + 0.4 * k }),
-  cutHeavy: k => { ub('cut_heavy', { gain: 0.75 + 0.3 * k }); audio.tone(80, 0.22, { to: 38, gain: 0.3 }); },
+  // act-23 (用户：「现在的音效没有任何打击感，砍上去也没有砍中的感觉」): a hit is layered — the steel (the act-19 cut), the blade going
+  // into flesh (a wet slice, Stable Audio small, sfx/out_unseen_hit_v2), the meat's dull thud, and a 90 ms low punch under it all, every
+  // layer on the same frame as the hitstop; heavy blows chop to the bone and spatter. x = 0: only wood was hit (the dummies) — steel alone
+  cut: (k, x) => {
+    ub('cut_light', { gain: 0.45 + 0.3 * k });
+    if (x === 0) { audio.tone(140, 0.07, { to: 70, gain: 0.18 }); return; }
+    ub('flesh_slice', { gain: 0.55 + 0.35 * k }); ub('flesh_thud', { gain: 0.45 + 0.35 * k, rate: 1.05 });
+    audio.tone(115, 0.09, { to: 48, gain: 0.32 + 0.15 * k }); audio.noise(0.035, { from: 5200, to: 2600, gain: 0.12, type: 'highpass' });
+  },
+  cutHeavy: (k, x) => {
+    ub('cut_heavy', { gain: 0.6 + 0.3 * k });
+    if (x === 0) { audio.tone(80, 0.18, { to: 38, gain: 0.3 }); return; }
+    ub('gore_chop', { gain: 0.75 + 0.3 * k, rate: 0.95 }); ub('flesh_thud', { gain: 0.7 + 0.2 * k, rate: 0.82 });
+    audio.tone(92, 0.16, { to: 36, gain: 0.5 + 0.15 * k }); audio.noise(0.12, { from: 420, to: 70, gain: 0.28, type: 'lowpass' });
+    ub('blood_splat', { gain: 0.3 + 0.15 * k, delay: 0.07 });
+  },
+  gore: k => { ub('gore_chop', { gain: 0.6 * k, rate: 0.85, delay: 0.02 }); ub('blood_splat', { gain: 0.45 * k, delay: 0.12 }); audio.tone(70, 0.22, { to: 32, gain: 0.35 * k }); },
   draw: k => ub('draw', { gain: 0.6 + 0.4 * k, jitter: 0.04 }),
   sheathe: k => ub('sheathe', { gain: 0.55 + 0.4 * k, jitter: 0.03 }),
   parry: k => ub('parry', { gain: 0.8 + 0.3 * k, jitter: 0.03 }),

@@ -24,12 +24,14 @@ export interface Pose {
   tL: number; kL: number; pL: number; tR: number; kR: number; pR: number;
   /** weapon directions (elevation, yaw, roll) in the actor's frame: right = ninjato, left = kunai */
   eR: number; yR: number; eL: number; yL: number;
+  /** the sword hand's roll round the blade (act-23, the sheathing grip: lets the fist continue the forearm); absent = 0 */
+  rR?: number;
   /** scarf tails: how far they stream back (rad) and how hard they flutter (0..1) */
   lift: number; flut: number;
 }
 export const mix = (a: Pose, b: Partial<Pose>, w: number): Pose => {
   const o = { ...a };
-  for (const k of Object.keys(b) as Array<keyof Pose>) o[k] = a[k] + ((b[k] as number) - a[k]) * w;
+  for (const k of Object.keys(b) as Array<keyof Pose>) { const av = (a[k] as number | undefined) ?? 0; o[k] = av + ((b[k] as number) - av) * w; }
   return o;
 };
 
@@ -133,7 +135,7 @@ export function apply(b: Record<string, Bone>, P: Pose) {
   mov(b.hips, P.px, -(dL + dR) / 2, P.pz);
   rot(b.hips, P.hx, P.hy, P.hz); rot(b.spine, P.sx, P.sy, P.sz); rot(b.chest, P.cx, 0, 0); rot(b.neck, P.nx, P.ny, 0);
   rot(b.armR, P.aRx, 0, P.aRz); rot(b.foreR, P.fR, 0, 0); rot(b.armL, P.aLx, 0, P.aLz); rot(b.foreL, P.fL, 0, 0);
-  wrist(b, 'R', P.eR, P.yR); wrist(b, 'L', P.eL, P.yL);
+  wrist(b, 'R', P.eR, P.yR, P.rR ?? 0); wrist(b, 'L', P.eL, P.yL);
 }
 
 /** the scarf tails: hang under the upper body's lean, stream back by `lift`, a wave running from the root to the tip */
