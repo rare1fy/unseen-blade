@@ -105,10 +105,10 @@ function contactShadow() {
 type Phase = 'intro' | 'fight' | 'pick' | 'doors' | 'leaving' | 'dead' | 'end' | 'yard' | 'opening' | 'cine' | 'talk' | 'title';
 /** the costume the player last wore (kept in the browser; the first time: the 斗笠 swordsman) */
 /** the heroine's look by default (user 11-17: 「默认角色用这个白发女」, her MagicaVoxel-edited model) */
-const DEFAULT_HERO = 'slim_white';
+const DEFAULT_HERO = 'fine_white';   // act-22 (user: 「都换成细格子吧」): the 3.5 cm white-haired heroine
 function savedHero(): ModelDef {
-  // (act.hero5 since 11-17: the default became the white-haired heroine; the old key's 斗笠 no longer overrides it)
-  let id = ''; try { id = localStorage.getItem('act.hero5') ?? ''; } catch { /* storage blocked */ }
+  // (act.hero6 since act-22: the default became the 3.5 cm white-haired heroine; a look remembered under the old keys no longer overrides it)
+  let id = ''; try { id = localStorage.getItem('act.hero6') ?? ''; } catch { /* storage blocked */ }
   const q = typeof location !== 'undefined' ? /[?&#]hero=([a-z_]+)/.exec(location.href)?.[1] : undefined;
   return HEROES.find(d => d.id === (q ?? id)) ?? HEROES.find(d => d.id === DEFAULT_HERO) ?? HEROES[0];
 }
@@ -165,7 +165,7 @@ export class ActShow {
   async startNewGame() {
     newGame();
     // a new game: 姜烬 in her default look again, the white-haired one (the costume the browser remembered goes)
-    { const d = HEROES.find(x => x.id === DEFAULT_HERO); if (d) { this.wearing = d; if (this.hud.flask instanceof IronHp) this.hud.flask.setFace(d.id); else HP_FACE.id = d.id; try { localStorage.setItem('act.hero5', d.id); } catch { /* storage blocked */ } } }
+    { const d = HEROES.find(x => x.id === DEFAULT_HERO); if (d) { this.wearing = d; if (this.hud.flask instanceof IronHp) this.hud.flask.setFace(d.id); else HP_FACE.id = d.id; try { localStorage.setItem('act.hero6', d.id); } catch { /* storage blocked */ } } }
     this.noArena = true; this.viewSpec = { locale: 'hj_field', time: 'dusk', weather: 'clear', layout: 'pair', seed: 4242, exits: [] }; this.room = 0; this.locale = 'hj_field'; this.buildRoom(true); this.viewSpec = null; this.noArena = false;
     for (const f of this.foes) f.a.dispose(); this.foes.length = 0;
     this.phase = 'yard'; await this.cine(openingShots(this.cineHost));
@@ -255,7 +255,7 @@ export class ActShow {
       // act-21: which title screen (five moods; the user picks on a phone too, where there are no number keys)
       { label: () => `开始画面：第 ${savedTitle()} 版（点这里换）`, run: () => { const n = savedTitle() % TITLE_COUNT + 1; try { localStorage.setItem('ub.title', String(n)); } catch { /* storage blocked */ } if (this.phase === 'title') this.title(n); } },
       // act-20: her look (the story's heroine: the 斗笠 or the 白发 — the user's two picks); the hideout has no costume rack
-      { label: () => `造型：${this.wearing.name}（点这里换）`, run: () => { const ids = ['slim_white', 'slim_hat'], n = HEROES.find(d => d.id === ids[(ids.indexOf(this.wearing.id) + 1) % ids.length]); if (n) this.wear(n); } },
+      { label: () => `造型：${this.wearing.name}（点这里换）`, run: () => { const ids = ['fine_white', 'fine_hat'], n = HEROES.find(d => d.id === ids[(ids.indexOf(this.wearing.id) + 1) % ids.length]); if (n) this.wear(n); } },
       { label: () => `像素：${PX.on ? PX.size + 'x' : '关'}（点这里换）`, run: () => { const order = ['2', '3', 'off', '1'], cur = PX.on ? String(PX.size) : 'off', nx = order[(order.indexOf(cur) + 1) % order.length]; if (nx === 'off') setPixel(false); else setPixel(true, +nx); try { localStorage.setItem('ub.px', nx); } catch { /* private mode */ } } }]);
     if (typeof window !== 'undefined') window.addEventListener('keydown', e => { if ((e.key === 'u' || e.key === 'U') && !this.cards.on) this.cycleSkin(); });
     dh.add({ voxCompare: (id: string, only = -1, x?: number, z?: number) => {
@@ -378,7 +378,7 @@ export class ActShow {
       arrow: d => { const h = this.hero, f = h.a.fwd(), p = h.pos.clone().addScaledVector(f, d).setY(1.25); this.arrows.push(new Arrow(p, Math.atan2(-f.x, -f.z), 8)); },
       intent: n => { this.intent = n; this.hud.intent = n; },
       stats: () => (dh.api.stats as () => { calls: number; tris: number })(),
-    }, [{ id: 'fine_white', name: '细格子（新做的）' }, { id: 'slim_white', name: '7 厘米（现在用的）' }]);
+    }, [{ id: 'fine_white', name: '白发（细格子）' }, { id: 'fine_hat', name: '斗笠（细格子）' }, { id: 'slim_white', name: '白发（7 厘米旧版）' }]);
   }
   /** the other model standing beside her (not moving), for a side-by-side look */
   private labCompare(on: boolean) {
@@ -386,7 +386,7 @@ export class ActShow {
     const d = this.labDummy; if (d) { d.pos.set(on ? -1.6 : 0.9, 0, on ? -1.2 : -0.5); d.a.place(d.pos.clone(), d.a.yaw); }
     if (!on) return;
     this.labHome();
-    const other = HEROES.find(d => d.id === (this.wearing.id === 'fine_white' ? 'slim_white' : 'fine_white')); if (!other) return;
+    const other = HEROES.find(d => d.id === (this.wearing.id === 'slim_white' ? 'fine_white' : 'slim_white')); if (!other) return;
     const a = new BattleActor(other); a.place(V3(2.35, 0, 0.9), Math.PI); a.yaw = Math.PI; this.labCmp = a; this.lineupActors.push(a);
   }
   /** 开场「雨夜听雨」(opening.ts): the room builder lays the rain road (clearing whatever room was up), then the opening poses this
@@ -420,7 +420,7 @@ export class ActShow {
   }
   /** put on another costume (the rack, or __dh.wear) and remember it */
   private wear(d: ModelDef) {
-    this.wearing = d; try { localStorage.setItem('act.hero5', d.id); } catch { /* storage blocked */ }
+    this.wearing = d; try { localStorage.setItem('act.hero6', d.id); } catch { /* storage blocked */ }
     if (this.hud.flask instanceof IronHp) this.hud.flask.setFace(d.id); else HP_FACE.id = d.id;
     if (this.hero) this.hero.setModel(d);
   }

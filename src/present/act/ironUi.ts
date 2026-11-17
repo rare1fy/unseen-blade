@@ -275,9 +275,9 @@ const PORTRAIT_WHITE = [
   '.......rr.......', '.....wwwwww.....', '...wwwwwwwwww...', '..wwwwwwwwwwww..', '..wwwwwwwwwwww..', '..wRrrrrrrrrRw..', '..wrrrrrrrrrrw..',
   '..wwssssssssww..', '..wwsss..sssww..', '..ww.ssssss.ww..', '..ww..ssss..ww..', '..wwbbrrrrbbww..', '..bbbbbrrbbbbb..', '.bbbbbbbbbbbbbb.',
 ];
-const PORTRAITS: Record<string, string[]> = { slim_hat: PORTRAIT_HAT, slim_white: PORTRAIT_WHITE };
+const PORTRAITS: Record<string, string[]> = { slim_hat: PORTRAIT_HAT, slim_white: PORTRAIT_WHITE, fine_hat: PORTRAIT_HAT, fine_white: PORTRAIT_WHITE };
 /** which look the HP medallion shows (show.ts sets it from the costume worn) */
-export const HP_FACE = { id: 'slim_white' };
+export const HP_FACE = { id: 'fine_white' };
 export interface HpState { hp: number; maxHp: number }
 export class IronHp {
   root = new THREE.Group(); st: HpState = { hp: 100, maxHp: 100 }; intent = 0; private x = 30; private y = 40; private k = 1;

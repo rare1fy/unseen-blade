@@ -9,7 +9,7 @@ const snap = (v: { cells: Map<number, { x: number; y: number; z: number; c: numb
   [...v.cells.values()].map(c => `${c.x},${c.y},${c.z},${c.c},${c.g},${c.part}`).sort();
 
 describe('vox round trip', () => {
-  for (const id of ['slim_hat', 'slim_white']) it(`${id}: export → bytes → read → apply is exact`, () => {
+  for (const id of ['slim_hat', 'slim_white', 'fine_white', 'fine_hat']) it(`${id}: export → bytes → read → apply is exact`, () => {
     const def = ROSTER.find(d => d.id === id)!; expect(def).toBeTruthy();
     const f = readVox(writeVox(modelToVox(def.build())));
     expect(f.models.length).toBeGreaterThan(10);

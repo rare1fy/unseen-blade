@@ -10,7 +10,7 @@ import { newChar, biped, rbox, type V, type Anchors, type Biped } from '../besti
 import { ROSTER, type ModelDef } from '../bestiary/models';
 import type { Col } from '../look/voxkit';
 import { blindfold, ringSword, leftHand, sash, face } from './blind';
-import { FINE_WHITE } from './heroineFine';
+import { FINE_WHITE, FINE_HAT } from './heroineFine';
 
 // 11-16 用户看完 act-03：「现在的肩膀都好怂起来」——没有脖子，头直接坐在胸口上，肩线和下巴平齐。加两格脖子，躯干短一格。
 const MALE = { legH: 11, legW: 2, legD: 2, legGap: 1, hipH: 2, torsoH: 6, torsoW: 6, chestW: 8, torsoD: 4, headW: 6, headH: 7, headD: 6, neckH: 2, armW: 2, upper: 4, fore: 4, hand: 2 } as const;
@@ -252,5 +252,5 @@ export const SLIM: ModelDef[] = [
   def('slim_crop', '短发', '蒙眼女刀客', buildCrop, 18),
 ];
 // act-21: the fine white-haired heroine (3.5 cm cells, same joints) rides with the slim ones (same poses, the cool idle)
-SLIM.push(FINE_WHITE);
+SLIM.push(FINE_WHITE, FINE_HAT);
 for (const d of SLIM) if (!ROSTER.some(r => r.id === d.id)) ROSTER.push(d);

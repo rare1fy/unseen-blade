@@ -1,7 +1,7 @@
 // 开始画面（docs/DESIGN.md 第二十轮 6；用户 11-17：「最后就是开始画面，再做一版吧，带、继续游戏那些的。氛围上多尝试几版，明早我来选，
 // 尽量避免特写镜头，我们体素风，太近了属于自找没趣。」）：
 // 几版不同的地点 / 天气 / 时段 / 构图（TITLES，网址 ?title=1…N、__dh.title(n)，开始画面上按数字键 1…N 也能切），都是远景：
-// 女主角（游戏默认的白发 slim_white，11-17 起）是画面里的一个小人，属于这片景；镜头慢慢漂，不推近。
+// 女主角（游戏默认的白发，act-22 起是 3.5 厘米细格子的 fine_white）是画面里的一个小人，属于这片景；镜头慢慢漂，不推近。
 // 左（或右）一栏：「不见刀」大标题（像素标题字，同 opening.ts），下面三块 3D 牌匾（UI 层里的实物：黑铁框、漆面、铜钉）：
 // 开始游戏 / 继续游戏（没有存档时暗着）/ 设置（打开调参面板）。点、鼠标悬停、方向键 + 回车、手柄十字键 + A 都能选。
 // 选定开始 / 继续：女主角拔刀，一道刀光横贯画面、穿过选中的那块牌匾，画面顺着刀口上下错开滑走，露出据点（不黑屏；拿不到画面时
@@ -440,7 +440,7 @@ class Title {
     const sun = scene.children.find(o => (o as THREE.DirectionalLight).isDirectionalLight && (o as THREE.DirectionalLight).castShadow) as THREE.DirectionalLight | undefined;
     if (sun) { const c = sun.shadow.camera; this.shadowSave = { l: c.left, r: c.right, t: c.top, b: c.bottom }; Object.assign(c, { left: -24, right: 24, top: 24, bottom: -20 }); c.updateProjectionMatrix(); }
     // ---- her: the slim 斗笠 the game wears by default, standing (or walking in) on the road
-    this.hero = new BattleActor(HEROES.find(d => d.id === 'slim_white') ?? HEROES[0]); trimShadows(this.hero.root, 7);
+    this.hero = new BattleActor(HEROES.find(d => d.id === 'fine_white') ?? HEROES[0]); trimShadows(this.hero.root, 7);
     this.heroAt.set(d.hero.at[0], 0, d.hero.at[1]);
     if (d.hero.from) { this.walkFrom = V3(d.hero.from[0], 0, d.hero.from[1]); this.hero.place(this.walkFrom.clone(), d.hero.yaw); }
     else { this.hero.place(this.heroAt.clone(), d.hero.yaw); const hold = new Action('noto', 1e6, 2); hold.t = 0.97e6; this.hero.play(hold); }

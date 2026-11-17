@@ -22,7 +22,9 @@ export function modelToVox(v: VoxChar): VoxFile {
   const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
   for (const c of cells) { const w = toVox(c.x, c.y, c.z); for (let i = 0; i < 3; i++) { lo[i] = Math.min(lo[i], w[i]); hi[i] = Math.max(hi[i], w[i]); } }
   // (the frame's floor is the ground: nothing to draw below the feet)
-  const min = [lo[0] - PAD, lo[1] - PAD, Math.min(lo[2], 0)], size = hi.map((h, i) => { const n = h + PAD - min[i] + 1; return n + (n & 1); }) as [number, number, number];
+  // (a 3.5 cm model gets more cells of margin: about the same room in centimetres)
+  const pad = v.s < 0.06 ? 14 : PAD;
+  const min = [lo[0] - pad, lo[1] - pad, Math.min(lo[2], 0)], size = hi.map((h, i) => { const n = h + pad - min[i] + 1; return n + (n & 1); }) as [number, number, number];
   const t = [0, 1, 2].map(i => min[i] + Math.floor(size[i] / 2)) as [number, number, number];
   const byPart = new Map<string, Array<[number, number, number, number]>>();
   for (const c of cells) { const w = toVox(c.x, c.y, c.z), l: [number, number, number, number] = [w[0] - min[0], w[1] - min[1], w[2] - min[2], idx.get(c.c)!]; (byPart.get(c.part) ?? byPart.set(c.part, []).get(c.part)!).push(l); }
