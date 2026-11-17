@@ -10,7 +10,7 @@ export type Cue =
   // act-23: the killing blow's gore (bone chop + splatter)
   | 'gore'
   // short music (Stable Audio 3 medium, GameProtos/sfx/cues_unseen_music_v1.json): a run won, a run lost, a room cleared
-  | 'stingWin' | 'stingLose' | 'stingClear';
+  | 'stingWin' | 'stingLose' | 'stingClear' | 'stingStele' | 'stingRevive';
 
 type Handler = (name: Cue, intensity: number, extra?: number) => void;
 let handler: Handler | null = null;
