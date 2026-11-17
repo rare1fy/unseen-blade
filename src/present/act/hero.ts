@@ -327,13 +327,14 @@ export class Hero {
     }
     switch (this.st) {
       case 'free': {
-        steer(TUNE.heroAccel);
         // 11-18 3C (用户：「3C总之都要再加强」): a reversal at speed skids, a stop from a run takes a braking step, a run from standing
-        // starts with a push — each with a little dirt (and a scrape for the skid / the stop)
+        // starts with a push — each with a little dirt (and a scrape for the skid / the stop). Read before steering: the steer
+        // takes half the speed off in the first frame
         { const hs = Math.hypot(this.vel.x, this.vel.z), top = TUNE.heroSpeed;
           if (sl > 0.5 && hs > 0.65 * top && this.skidT <= 0 && (this.vel.x * stick.x + this.vel.z * stick.z) / (hs * sl) < -0.35) { this.skidT = 0.18; dustBlocks(this.pos.clone(), 6, this.vel.clone().normalize()); cue('skid', 0.7); }
           else if (this.prevSl > 0.5 && sl < 0.15 && hs > 0.7 * top && this.brakeT <= 0) { this.brakeT = 0.22; dustBlocks(this.pos.clone(), 4, this.vel.clone().normalize()); cue('skid', 0.35); }
           else if (this.prevSl < 0.15 && sl > 0.5 && hs < 0.3 * top) { this.startT = 0.16; dustBlocks(this.pos.clone(), 3, stick.clone().multiplyScalar(-1)); } }
+        steer(TUNE.heroAccel);
         // 11-17: the dash links stay on for TUNE.linkDash after the dash has stopped (on the ground). Out of a combo, with 游身斩
         // learnt, a cut pressed after the dash is 游身斩 instead (in the dash it is still 穿风斩)
         if (this.dashTailT > 0 && !this.airborne) {
@@ -454,10 +455,11 @@ export class Hero {
       }
       case 'charge': {
         const chargeFull = TUNE.chargeFull * (1 - v(this.perks, 'draw') / 100);
-        this.chargeK = Math.min(1, this.chargeK + dt / chargeFull); m.charge = this.chargeK;
+        const wasK = this.chargeK; this.chargeK = Math.min(1, this.chargeK + dt / chargeFull); m.charge = this.chargeK;
         this.vel.lerp(stick.clone().multiplyScalar(TUNE.heroSpeed * TUNE.stanceSpeed), 1 - Math.exp(-12 * dt));
         if (sl > 0.1) this.a.yaw = Math.atan2(stick.x, stick.z);
-        if (this.chargeK >= 1 && this.chargeK - dt / chargeFull < 1) { cue('bladeRing', 1); this.a.tint(0xfff4d0, 0.4); this.fullT = 0.35; }
+        // (11-18: only the frame it fills — the old test held true every frame once full, so the cue, the tint and the ring repeated)
+        if (this.chargeK >= 1 && wasK < 1) { cue('bladeRing', 1); this.a.tint(0xfff4d0, 0.4); this.fullT = 0.35; }
         if (canDash) { m.charge = 0; this.buf.dash = 0; this.startDash(w); break; }   // (dashing out of the stance costs no 气)
         // 屏息 (11-17): full, the stance holds only TUNE.stanceHold more — then she lets the breath go and straightens up, the bar spent
         // for nothing, and the button's release does nothing (no camping in the stance waiting for the cue)
