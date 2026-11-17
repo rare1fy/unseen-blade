@@ -1,4 +1,7 @@
-"""Build 288 px arcade dialogue portraits and a 2x nearest-neighbour sheet.
+"""Build 144 px dialogue portraits (the game scales them by whole numbers) and a 2x nearest-neighbour sheet.
+
+act-37 (用户：「这版立绘对比之前糊了好多」): 144 px tall, cut to the pixel grid with a box filter (no Lanczos ringing or smoothing),
+16 flat colours with no dithering — the old, crisp set had 14–16; the blurry one kept 40.
 
 Run from anywhere with: python tools/portraits.py
 Requires Pillow (PIL). Raw PNGs stay untouched in out/portraits/raw.
@@ -16,8 +19,8 @@ ROOT = Path(__file__).resolve().parents[1]
 RAW = ROOT / "out" / "portraits" / "raw"
 PROCESSED = ROOT / "src" / "assets" / "portraits"
 SHEET = ROOT / "out" / "portraits" / "sheet.png"
-HEIGHT = 288
-MAX_COLOURS = 40
+HEIGHT = 144
+MAX_COLOURS = 17   # 16 colours + transparent
 MARGIN = 0.04
 ORDER = [
     "jiangjin", "chulei", "yanhu", "fengzhen", "zhouan", "cuixuan",
@@ -71,11 +74,10 @@ def process(path: Path) -> Image.Image:
     canvas.paste(image.crop(bbox), (margin_x, margin_y))
 
     width = max(1, round(canvas.width * HEIGHT / canvas.height))
-    canvas = canvas.resize((width, HEIGHT), Image.Resampling.LANCZOS)
+    canvas = canvas.resize((width, HEIGHT), Image.Resampling.BOX)
     hard_alpha = canvas.getchannel("A").point(lambda a: 255 if a >= 128 else 0)
 
-    # Pillow's median-cut quantizer takes RGB input. Transparent black uses
-    # one extra RGBA entry, so use 39 RGB entries to stay within 40 total.
+    # Pillow's median-cut quantizer takes RGB input; transparency is one more entry.
     rgb = Image.new("RGB", canvas.size, (0, 0, 0))
     rgb.paste(canvas.convert("RGB"), mask=hard_alpha)
     rgb = rgb.quantize(colors=MAX_COLOURS - 1,

@@ -1389,11 +1389,8 @@ export class ActShow {
       this.stations.setPurse(this.coins);
       if (s) void this.useStation(s);
     }
-    // act-36 (用户：「牌子太小了……缺乏特效和UI支撑让人知道那个是可以交互的」): in reach of a stall, its name and price float over it
-    { const ns = this.stations && this.phase === 'doors' ? this.stations.near(h.pos) : null;
-      if (ns) { const p = worldToUi(ns.at.clone().setY(2.75)), dpr = this.L.dpr || 1, pk = Math.max(1, Math.round(Math.max(16, 18 * this.hud.k) * dpr / 16));
-        this.L.text.set('act.station', { text: ns.price ? `${ns.label} · ${ns.price} 钱` : `${ns.label} · ${ns.sub}`, x: p.x, y: p.y, pix: pk, color: ns.poor ? '#ff8a72' : '#ffe6b0', outline: '#140c0a', align: 'center' }); }
-      else this.L.text.hide('act.station'); }
+    // (act-36 floated the stall's name and price over it in reach; act-37 (用户：「商店里的选项……好丑」) took it out — it said what
+    //  the big board beside it says, and covered the next stall's board)
     // doors: the boards rise; stepping onto a gate's gold (act-34), or walking into a road's far end, leaves
     if (this.phase === 'doors') this.doors.forEach((d, i) => {
       d.lift = Math.min(1, d.lift + dt * 2.2); d.g.position.y = -2.4 * (1 - d.lift) ** 2;
