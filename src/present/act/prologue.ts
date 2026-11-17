@@ -104,7 +104,8 @@ export function getUpPose(a: BattleActor, k: number) {
   }
   // the ponytail and the blindfold's tails: fanned out sideways on the mat by her head while she lies (not out past the mat's end),
   // falling back down her back as she sits up
-  const up = 1 - u2; if (up > 0) hangChains(a, (n) => V3(n.startsWith('bfA') ? -1 : 1, -0.08 - 0.9 * u1, n.startsWith('hr') ? -0.15 : -0.5), up);
+  // (all to her right, away from 孙媪's medicine stove — by its fire the white hair glared)
+  const up = 1 - u2; if (up > 0) hangChains(a, (n) => V3(-1, -0.08 - 0.9 * u1, n.startsWith('hr') ? 0.1 : n.startsWith('bfA') ? -0.6 : -0.25), up);
 }
 
 /** act-44: the ponytail (hrA…) and the blindfold's tails (bfA…, bfB…) turned so each chain's line points along dir(name) in the

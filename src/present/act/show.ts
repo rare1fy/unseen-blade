@@ -324,6 +324,7 @@ export class ActShow {
     for (const a of this.proPeople) a.dispose(); this.proPeople = [];
     this.prologue = 0; this.forceSpec = null;
     let wakeK: (k: number) => void = () => {};
+    let bloomWas = GRADE.bloomThreshold;
     // (act-40 用户：「被救回去应该是先趟垫子上的啊，怎么是站着的」: she wakes lying on 孙媪's mat, and gets up at the line where she
     //  pushes herself up the wall; the kiln's own music for the scene — the hideout's comes after)
     await new Promise<void>(res => { void wipeTransit(() => {
@@ -333,7 +334,10 @@ export class ActShow {
       const h = this.hero; h.pos.set(WAKE_MAT[0], 0, WAKE_MAT[1]); h.a.yaw = 0; let gk = 0; h.scriptPose = () => getUpPose(h.a, gk);
       // (the battle camera looks down the mat from her feet — lying and standing look the same from there; this scene is seen from
       //  the side, low, the mat across the middle of the screen between the two portraits)
-      this.camOverride = { base: V3(3.7, 2.5, -3.9), look: V3(6.55, 0.45, -6.1), fov: 40 }; shot('act', () => this.camPose(), { cut: true, speed: 8 }); res();
+      this.camOverride = { base: V3(3.7, 2.5, -3.9), look: V3(6.55, 0.45, -6.1), fov: 40 }; shot('act', () => this.camPose(), { cut: true, speed: 8 });
+      // (on her back the white hair at the back of her head faces the sun square on and went over the bloom threshold — a halo round
+      //  her head; the threshold up for this scene)
+      bloomWas = GRADE.bloomThreshold; GRADE.bloomThreshold = Math.max(bloomWas, 1.6); res();
       wakeK = (k: number) => { gk = k; };
     }); });
     await new Promise(r => after(0.8, () => r(null)));
@@ -346,7 +350,7 @@ export class ActShow {
     await this.talk(PRO_WAKE, (_i, l) => { if (l.who === 'act' && /撑起|站起|起身/.test(l.text)) getUp(); });
     getUp(); this.musicHold = null; this.music(); saveProfile();
     { const w = this.hero.a.bones.weapon; if (w) w.visible = true; }   // 孙媪：「把刀给她吧」
-    this.camOverride = null;   // (the battle camera eases back in)
+    this.camOverride = null; GRADE.bloomThreshold = bloomWas;   // (the battle camera eases back in)
   }
   /** the run's haul goes home (meta.ts bank: currencies, runs / wins / deaths), saved */
   private lastWon = false;
@@ -497,6 +501,7 @@ export class ActShow {
       },
       lab: () => this.labActs,
       /** the cutscene poses, for the lab: drape(i, x, y, z, yaw, ph), getUp(i, k) */
+      /** the colour grade / bloom settings, for lab checks */ grade: GRADE,
       labPose: { drape: (i: number, x: number, y: number, z: number, yaw: number, ph: number) => drapeOver(this.labActs[i], x, y, z, yaw, ph), getUp: (i: number, k: number) => getUpPose(this.labActs[i], k) },
       /** world positions of an actor's bones (rounded to cm), to check a pose by numbers */
       labBones: (i: number) => { const a = this.labActs[i]; if (!a) return null; a.root.updateMatrixWorld(true); const o: Record<string, number[]> = {}, v = new THREE.Vector3();
@@ -1531,7 +1536,7 @@ export class ActShow {
     // the model page plays 不见刀's QTE by itself (press as the ring closes)
     else if (this.labOn && this.qteT >= 0) { const k = this.qteT / TUNE.qteTime, b = this.inp.b.attack, on = k > 0.85 && k < 1.0; b.pressed = on && !b.down; b.down = on; }
     const h = this.hero; if (!h) return;
-    const busy = this.cards.on || this.phase === 'leaving' || this.ultOn;
+    const busy = this.cards.on || this.phase === 'leaving' || this.ultOn || !!h.scriptPose;   // (act-46: lying on the mat / getting up — no sliding off it)
     this.qteFrame(rdt); this.parryCd -= rdt;
     if (busy) { for (const b of Object.values(this.inp.b)) { b.pressed = false; b.down = false; b.held = 0; } this.inp.move.x = this.inp.move.y = 0; }
     if (this.phase === 'intro') { this.introT += dt; this.inp.move.x = 0; this.inp.move.y = this.introT < 0.5 ? 0.7 : 0; for (const b of Object.values(this.inp.b)) { b.pressed = false; b.down = false; b.held = 0; } }
