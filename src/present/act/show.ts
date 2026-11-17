@@ -27,6 +27,7 @@ import { Gates } from './gates';
 import { ALL_MOVES, drawManuals, manualCard } from './manuals';
 import { Dialogue, type Line } from './dialogue';
 import { Stele } from './stele';
+import { IronHp, HP_FACE } from './ironUi';
 import { ROSTER } from '../bestiary/models';
 import { CODE_BUILD } from '../bestiary/voxEdit';
 import { hideoutScene, HIDEOUT, HIDEOUT_PEOPLE } from './hideout';
@@ -102,10 +103,13 @@ function contactShadow() {
 }
 type Phase = 'intro' | 'fight' | 'pick' | 'doors' | 'leaving' | 'dead' | 'end' | 'yard' | 'opening' | 'cine' | 'talk' | 'title';
 /** the costume the player last wore (kept in the browser; the first time: the 斗笠 swordsman) */
+/** the heroine's look by default (user 11-17: 「默认角色用这个白发女」, her MagicaVoxel-edited model) */
+const DEFAULT_HERO = 'slim_white';
 function savedHero(): ModelDef {
-  let id = ''; try { id = localStorage.getItem('act.hero4') ?? ''; } catch { /* storage blocked */ }
+  // (act.hero5 since 11-17: the default became the white-haired heroine; the old key's 斗笠 no longer overrides it)
+  let id = ''; try { id = localStorage.getItem('act.hero5') ?? ''; } catch { /* storage blocked */ }
   const q = typeof location !== 'undefined' ? /[?&#]hero=([a-z_]+)/.exec(location.href)?.[1] : undefined;
-  return HEROES.find(d => d.id === (q ?? id)) ?? HEROES[0];
+  return HEROES.find(d => d.id === (q ?? id)) ?? HEROES.find(d => d.id === DEFAULT_HERO) ?? HEROES[0];
 }
 
 let SELF: ActShow | null = null;
@@ -159,8 +163,8 @@ export class ActShow {
   /** 开始游戏: a fresh save, the opening cutscene on the burning field, then the hideout and her first waking */
   async startNewGame() {
     newGame();
-    // a new game: she is 姜烬 in her 斗笠 again (the costume the browser remembered goes)
-    { const d = HEROES.find(x => x.id === 'slim_hat'); if (d) { this.wearing = d; try { localStorage.setItem('act.hero4', d.id); } catch { /* storage blocked */ } } }
+    // a new game: 姜烬 in her default look again, the white-haired one (the costume the browser remembered goes)
+    { const d = HEROES.find(x => x.id === DEFAULT_HERO); if (d) { this.wearing = d; if (this.hud.flask instanceof IronHp) this.hud.flask.setFace(d.id); else HP_FACE.id = d.id; try { localStorage.setItem('act.hero5', d.id); } catch { /* storage blocked */ } } }
     this.noArena = true; this.viewSpec = { locale: 'hj_field', time: 'dusk', weather: 'clear', layout: 'pair', seed: 4242, exits: [] }; this.room = 0; this.locale = 'hj_field'; this.buildRoom(true); this.viewSpec = null; this.noArena = false;
     for (const f of this.foes) f.a.dispose(); this.foes.length = 0;
     this.phase = 'yard'; await this.cine(openingShots(this.cineHost));
@@ -234,6 +238,7 @@ export class ActShow {
   private ring!: THREE.Mesh; private ringK = -1; private sparkT = 0; private shadows: THREE.Mesh[] = []; private exitSign: THREE.Group | null = null; private blob: THREE.Mesh;
   constructor(private platform: Platform) {
     SELF = this; this.dialogue = new Dialogue(this.L); this.timeline = new Timeline(this.L);
+    HP_FACE.id = this.wearing.id;   // the HP medallion shows the look she wears
     this.hud = new ActHud(this.L); this.cards = new CardPick(this.L); this.banner = new SkinBanner(this.L, SKIN.id, () => this.hud.bossOn);
     platform.onPointer(ev => this.pointer(ev.type, (ev as { id?: number }).id ?? 0, ev.x, ev.y));
     platform.onResize(() => this.layout2());
@@ -247,7 +252,7 @@ export class ActShow {
       { label: () => '试一下震动', run: () => { const was = VIBE.on; VIBE.on = true; this.platform.vibrate('heavy'); VIBE.on = was; } },
       // act-14 用户：「我要2x，然后调试面板给我一个切换这个的功能」 — 2x → 3x → off → 1x, remembered on this device
       // act-20: her look (the story's heroine: the 斗笠 or the 白发 — the user's two picks); the hideout has no costume rack
-      { label: () => `造型：${this.wearing.name}（点这里换）`, run: () => { const ids = ['slim_hat', 'slim_white'], n = HEROES.find(d => d.id === ids[(ids.indexOf(this.wearing.id) + 1) % ids.length]); if (n) this.wear(n); } },
+      { label: () => `造型：${this.wearing.name}（点这里换）`, run: () => { const ids = ['slim_white', 'slim_hat'], n = HEROES.find(d => d.id === ids[(ids.indexOf(this.wearing.id) + 1) % ids.length]); if (n) this.wear(n); } },
       { label: () => `像素：${PX.on ? PX.size + 'x' : '关'}（点这里换）`, run: () => { const order = ['2', '3', 'off', '1'], cur = PX.on ? String(PX.size) : 'off', nx = order[(order.indexOf(cur) + 1) % order.length]; if (nx === 'off') setPixel(false); else setPixel(true, +nx); try { localStorage.setItem('ub.px', nx); } catch { /* private mode */ } } }]);
     if (typeof window !== 'undefined') window.addEventListener('keydown', e => { if ((e.key === 'u' || e.key === 'U') && !this.cards.on) this.cycleSkin(); });
     dh.add({ voxCompare: (id: string, only = -1, x?: number, z?: number) => {
@@ -361,7 +366,8 @@ export class ActShow {
   }
   /** put on another costume (the rack, or __dh.wear) and remember it */
   private wear(d: ModelDef) {
-    this.wearing = d; try { localStorage.setItem('act.hero4', d.id); } catch { /* storage blocked */ }
+    this.wearing = d; try { localStorage.setItem('act.hero5', d.id); } catch { /* storage blocked */ }
+    if (this.hud.flask instanceof IronHp) this.hud.flask.setFace(d.id); else HP_FACE.id = d.id;
     if (this.hero) this.hero.setModel(d);
   }
   private buildRoom(first: boolean) {

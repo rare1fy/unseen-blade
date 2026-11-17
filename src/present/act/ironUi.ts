@@ -265,11 +265,19 @@ export class IronStick {
 }
 
 // ---------------------------------------------------------------- the health bar with the hero's face, and the 杀意 ingots
-const PORTRAIT = [
+const PORTRAIT_HAT = [
   // 斗笠 brim and crown, white blindfold, the face below it, the slate collar
   '.......YY.......', '.....yYYYYy.....', '...yyyyyyyyyy...', '.yyyyyyyyyyyyyy.', 'yyyyyyyyyyyyyyyy', '....kwwwwwwk....', '....wwwwwwww....', '....ssssssss....',
   '....sss..sss....', '.....ssssss.....', '......ssss......', '....bbwwwwbb....', '..bbbbbwwbbbbb..', '.bbbbbbbbbbbbbb.',
 ];
+/** the white-haired heroine (the default look, 11-17): a red tie on the crown, white hair falling either side, the red blindfold, the red collar */
+const PORTRAIT_WHITE = [
+  '.......rr.......', '.....wwwwww.....', '...wwwwwwwwww...', '..wwwwwwwwwwww..', '..wwwwwwwwwwww..', '..wRrrrrrrrrRw..', '..wrrrrrrrrrrw..',
+  '..wwssssssssww..', '..wwsss..sssww..', '..ww.ssssss.ww..', '..ww..ssss..ww..', '..wwbbrrrrbbww..', '..bbbbbrrbbbbb..', '.bbbbbbbbbbbbbb.',
+];
+const PORTRAITS: Record<string, string[]> = { slim_hat: PORTRAIT_HAT, slim_white: PORTRAIT_WHITE };
+/** which look the HP medallion shows (show.ts sets it from the costume worn) */
+export const HP_FACE = { id: 'slim_white' };
 export interface HpState { hp: number; maxHp: number }
 export class IronHp {
   root = new THREE.Group(); st: HpState = { hp: 100, maxHp: 100 }; intent = 0; private x = 30; private y = 40; private k = 1;
@@ -290,13 +298,16 @@ export class IronHp {
     // the portrait medallion
     const med = new THREE.Mesh(octCyl(32, 12), lam(IRON_D)); med.position.set(14, 0, 2); this.root.add(med);
     const medRim = new THREE.Mesh(octCyl(29, 13), lam(IRON)); medRim.position.set(14, 0, 3); this.root.add(medRim);
-    const face = new THREE.Mesh(new THREE.CircleGeometry(24, 8, Math.PI / 8), lam(0xffffff, pixTex(PORTRAIT, '#5a1a16'))); face.position.set(14, 0, 9.6); this.root.add(face);
+    const face = new THREE.Mesh(new THREE.CircleGeometry(24, 8, Math.PI / 8), lam(0xffffff, pixTex(PORTRAITS[HP_FACE.id] ?? PORTRAIT_WHITE, '#5a1a16'))); face.position.set(14, 0, 9.6); this.root.add(face); this.face = face;
     this.root.add(new THREE.Mesh(mergeBoxes(Array.from({ length: 8 }, (_, i) => { const a = (i / 8) * Math.PI * 2 + Math.PI / 8; return { w: 4, h: 4, d: 4, x: 14 + Math.cos(a) * 27, y: Math.sin(a) * 27, z: 10, c: BRONZE }; })).geo, vcMat()));
     // three 杀意 ingots under the trough
     for (let i = 0; i < 3; i++) { const m = new THREE.Mesh(new THREE.BoxGeometry(20, 10, 8), lam(0x2a2c32)); m.position.set(this.X0 + 16 + i * 28, -22, 2); this.root.add(m); this.ingots.push(m.material as THREE.MeshLambertMaterial); }
     this.root.userData.noTilt = true; this.root.rotation.set(-0.22, 0.18, 0);
     L.scene.add(this.root);
   }
+  private face!: THREE.Mesh;
+  /** the medallion's picture for a costume (the white-haired one when there is none for it) */
+  setFace(id: string) { HP_FACE.id = id; const m = this.face.material as THREE.MeshLambertMaterial; m.map?.dispose(); m.map = pixTex(PORTRAITS[id] ?? PORTRAIT_WHITE, '#5a1a16'); m.needsUpdate = true; }
   place(x: number, y: number, k: number) { this.x = x; this.y = y; this.k = k; }
   set(s: Partial<HpState>) { Object.assign(this.st, s); }
   hit(dmg: number, s?: Partial<HpState>) { if (s) this.set(s); this.shakeT = 0.3; this.flashT = 0.25; void dmg; }
