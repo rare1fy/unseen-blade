@@ -46,7 +46,7 @@ export class ActHud {
   heroAt = new THREE.Vector3();
   get bossOn() { return !!this.boss && this.on; }
   /** copper coins in the purse (act-17), shown under the health number */
-  coins = 0; private coinIcon: THREE.Group | null = null;
+  coins = 0; private coinIcon: THREE.Group | null = null; /** act-29: the shown count runs up to the real one; the coin hops on each step */ private coinShown = 0; private coinHop = 0;
   stickHome = { x: 150, y: 600 }; stickSize = 150; k = 1; on = true; private W = 1280; private H = 720;
   constructor(private L: UiLayer) {
     this.sparks = new UiSparks(L.scene, 80); this.qteRing = new QteRing(L);
@@ -105,10 +105,14 @@ export class ActHud {
   }
   /** the 绝·一刀 QTE: k 0 → 1 as the ring closes on the cut button; hit = inside the press window; null hides it */
   qte(k: number | null, hit = false) { const b = this.btns.attack; if (k == null) this.qteRing.hide(); else this.qteRing.show(b.x, b.y, b.size, k, hit); }
+  /** act-29: a game moment on a button (a cut lands, a perfect dodge) */
+  btnKick(n: BtnName, k: number, col?: number) { const b = this.btns[n]; if (b instanceof IronBtn) b.kick(k, col); }
+  /** act-29: the dart's aim on screen (x right, y up), or null */
+  setAim(a: { x: number; y: number } | null) { const b = this.btns.special; if (b instanceof IronBtn) b.aim = a; }
   setCooldowns(c: Record<BtnName, number>) { for (const n of Object.keys(c) as BtnName[]) this.btns[n].cd = c[n]; }
   /** charges left on a button (the darts); only the iron buttons show them */
   /** the move links open now (act-18): a hint per button, or null */
-  setHints(h: Partial<Record<BtnName, HintKey | null>>) { for (const n of Object.keys(this.btns) as BtnName[]) { const b = this.btns[n]; if (b instanceof IronBtn) b.hint = h[n] ?? null; } }
+  setHints(h: Partial<Record<BtnName, HintKey | null>>) { for (const n of Object.keys(this.btns) as BtnName[]) { const b = this.btns[n]; if (b instanceof IronBtn) { b.hint = h[n] ?? null; b.talk = h[n] === 'talk'; } } }
   setPips(n: BtnName, left: number, max: number) { const b = this.btns[n] as { pips?: number; pipMax?: number }; if ('pipMax' in b) { b.pips = left; b.pipMax = max; } }
   private newBar(): Bar {
     // the lag a muted copper, not a pale strip (it read as "white behind the pad")
@@ -129,7 +133,7 @@ export class ActHud {
     // act-28 (user: 「技能下面我看还是没有写按键什么意思：闪避、跳跃、远程、攻击」): what each button does, in small pixel type just under
     // its rim (never on the button face); with a keyboard or a pad the key follows the word
     for (const n of Object.keys(this.btns) as BtnName[]) {
-      const b = this.btns[n], [word, key, pad] = BTN_WORD[n], dev = inp.lastDevice;
+      const b = this.btns[n], [w0, key, pad] = BTN_WORD[n], dev = inp.lastDevice, word = n === 'attack' && b instanceof IronBtn && b.talk ? '交谈' : w0;
       const t = dev === 'key' ? `${word} ${key}` : dev === 'pad' ? `${word} ${pad}` : word;
       this.L.text.set('act.btn.' + n, { text: t, x: b.x, y: b.y + b.size * 0.5 + 9 * this.k, bodyPx: Math.max(10, Math.round(13 * this.k)), color: '#f0e6cf', outline: '#140c0a', align: 'center', visible: this.on });   // (the HD body font: the pixel numerals have no CJK)
     }
@@ -145,8 +149,12 @@ export class ActHud {
       this.L.scene.add(g); this.coinIcon = g;
     }
     const coinCell = 3, coinRight = this.W - 52, coinY = 23;
-    this.coinIcon.visible = this.on; this.L.at(coinRight - textCells(`${this.coins}`).w * coinCell - 13, coinY, 2, this.coinIcon.position); this.coinIcon.scale.setScalar(this.L.px(12));
-    this.L.text.set('act.coins', { text: `${this.coins}`, x: coinRight, y: coinY, cell: coinCell, color: '#ffd27a', outline: '#21100e', align: 'right', visible: this.on });
+    { const want = this.coins, was = Math.floor(this.coinShown);
+      if (want < this.coinShown) this.coinShown = want; else if (want > this.coinShown) this.coinShown = Math.min(want, this.coinShown + Math.max(12, (want - this.coinShown) * 6) * dt);
+      if (Math.floor(this.coinShown) !== was) this.coinHop = 1; this.coinHop = Math.max(0, this.coinHop - dt * 6); }
+    const shown = Math.floor(this.coinShown), hop = Math.sin(this.coinHop * Math.PI);
+    this.coinIcon.visible = this.on; this.L.at(coinRight - textCells(`${shown}`).w * coinCell - 13, coinY - hop * 4, 2, this.coinIcon.position); this.coinIcon.scale.setScalar(this.L.px(12) * (1 + 0.25 * hop)); this.coinIcon.rotation.y = hop * 0.8;
+    this.L.text.set('act.coins', { text: `${shown}`, x: coinRight, y: coinY, cell: coinCell, color: this.coinHop > 0 ? '#fff0b0' : '#ffd27a', outline: '#21100e', align: 'right', visible: this.on });
     // bars over the foes (the chief: the long bar at the top instead)
     const live = new Set<number>();
     for (const f of foes) {

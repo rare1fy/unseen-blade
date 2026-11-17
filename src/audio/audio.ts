@@ -70,6 +70,7 @@ class AudioEngine {
   }
   private decodeName(n: string) {
     const ctx = this.ctx, url = byName[n]; if (!ctx || !url) return Promise.resolve(null);
+    if (!url.startsWith('data:')) return fetch(url).then(r => r.arrayBuffer()).then(ab => ctx.decodeAudioData(ab)).catch(() => null);   // the dev server: a file URL
     const b64 = url.slice(url.indexOf(',') + 1), bin = atob(b64), arr = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
     return ctx.decodeAudioData(arr.buffer).catch(() => null);
   }

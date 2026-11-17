@@ -8,6 +8,8 @@
 //         槽下三颗铜锭 = 杀意，满一格烧亮一颗。
 // 全是 UI 层里的 3D 实物，贴图逐像素画（横平竖直，不撒随机点）。
 import * as THREE from 'three';
+import type { Model3D } from '../ui3d/models3d';
+import { btnIcon3D, hintIcon3D } from './icons3d';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { UiLayer } from '../ui3d/layer';
 import { UiSparks } from '../ui3d/vox';
@@ -74,22 +76,27 @@ function hintTex(k: HintKey) {
   const t = new THREE.CanvasTexture(c); t.magFilter = t.minFilter = THREE.NearestFilter; t.generateMipmaps = false; t.colorSpace = THREE.SRGBColorSpace; return t;
 }
 const ICONS: Record<BtnKey, string[]> = {
-  // a ring-pommel sabre standing up: the ring, the wrapped grip, a small guard, the blade (bright edge, darker spine), the point
+  // act-29 (用户：「ICON的品质」): about twice the old resolution, each material in two or three tones with a lit edge
+  // a ring-pommel sabre standing up: the bronze ring, red-wrapped grip, a bronze guard, the blade (white edge, steel, dark spine)
   attack: ol([
-    '..ooo..', '.o...o.', '.o...o.', '..ooo..', '...r...', '...R...', '...r...', '...R...', '.ooooo.', '..hod..', '..hod..', '..hod..', '..hod..',
-    '..hod..', '..hod..', '..hod..', '..hod..', '..hod..', '..hod..', '...hd..', '...h...']),
-  // a foot (sole and toes) with three wind lines behind it
+    '..ooooo..', '.ohhhhdo.', '.oh...do.', '.oh...do.', '.od...do.', '.oddddddo', '..ooooo..', '....d....', '...rRr...', '...RrR...', '...rRr...', '...RrR...',
+    '...rRr...', '...RrR...', '.dooooodd', '..hoood..', '...wsk...', '...wsk...', '...wsk...', '...wsk...', '...wsk...', '...wsk...', '...wsk...', '...wsk...',
+    '...wsk...', '...wsk...', '...wsk...', '...ws....', '...w.....']),
+  // a boot stepping right with three wind lines behind it
   dash: ol([
-    '..........ooo.', '.........ooooo', '.........ooooo', 'hhhh.....ooooo', '..........ooo.', '.hhhhhh...ooo.', '..........ooo.', 'hhhh.....oooo.',
-    '.........oooo.', '.........ooo..', '..........oo..']),
-  // two up-chevrons in steps of two over a ground bar
+    '............oooo...', '...........ohhhoo..', '...........ohoood..', 'hhhhhh.....ohoood..', '...........ooooo...', '.hhhhhhhh..oooood...', '...........ooooooo..',
+    'hhhhh.....oooooooooo', '..........dddddddddd', '...................']),
+  // two up-chevrons over a ground bar, lit on their upper edges
   jump: ol([
-    '.....oo.....', '...oooooo...', '.oooo..oooo.', 'ooo......ooo', '.....oo.....', '...oooooo...', '.oooo..oooo.', 'ooo......ooo', '............', '............', 'hhhhhhhhhhhh']),
-  // a 柳叶镖 standing point up: the leaf blade (bright edge, darker spine), the neck, the ring, a red tassel hanging below
+    '......oo......', '....oohhoo....', '..oohh..ddoo..', 'oohh......ddoo', '..............', '......oo......', '....oohhoo....', '..oohh..ddoo..', 'oohh......ddoo',
+    '..............', '..............', 'dddddddddddddd']),
+  // a 柳叶镖 point up: the leaf blade (white edge, steel, dark spine), the neck, the bronze ring, a red tassel hanging below
   special: ol([
-    '...h...', '..hod..', '..hod..', '.hhodd.', '.hhodd.', '.hhodd.', '..hod..', '..hod..', '...o...', '..ooo..', '..o.o..', '..ooo..',
-    '..rRr..', '.rRrRr.', '.rRrRr.', 'rRr.rRr', 'r.r.r.r']),
+    '....w....', '...wsk...', '...wsk...', '..wwskk..', '..wwskk..', '..wwskk..', '..wwskk..', '...wsk...', '...wsk...', '....k....', '...ooo...', '..oh.do..',
+    '..oh.do..', '...ooo...', '...rRr...', '..rRrRr..', '..rRrRr..', '.rRr.rRr.', '.r.r.r.r.']),
 };
+/** act-29: the 'talk' picture for the cut button at the hideout: a bronze speech bubble with three dots */
+const TALK_ICON = ol(['.ooooooooooo.', 'ohhhhhhhhhhho', 'oh.........do', 'oh.r..r..r.do', 'oh.........do', 'odddddddddddo', '.oooo.oooooo.', '...ood.......', '...od........', '...o.........'].map(r => r.padEnd(13, '.')));
 // make every row the same width (the mask helper needs a rectangle)
 for (const k of Object.keys(ICONS) as BtnKey[]) { const w = Math.max(...ICONS[k].map(r => r.length)); ICONS[k] = ICONS[k].map(r => r.padEnd(w, '.')); }
 
@@ -131,7 +138,14 @@ function plateRing(r: number, z: number, plateW: number) {
 }
 /** a pixel picture extruded into a small relief model (outline cells one step lower than the body), one mesh, centred, its
  *  longest side = 1; glow through the material's emissive */
-const ICON_COL: Record<string, number> = { '#': 0x121318, o: 0xc08a44, h: 0xf0c070, d: 0x7a5428, r: 0xb8302a, R: 0x7a1814 };
+const ICON_COL: Record<string, number> = { '#': 0x121318, o: 0xc08a44, h: 0xf0c070, d: 0x7a5428, r: 0xb8302a, R: 0x7a1814, w: 0xeef2f6, s: 0xa8b2be, k: 0x56606c };
+/** act-29: a hint picture as a small relief token in the move's colour, outlined dark (the old badge was a flat square sticker) */
+function hintVox(rows: string[], col: number) {
+  const r2 = ol(rows.map(r => r.replace(/#/g, 'h'))), H = r2.length, W = Math.max(...r2.map(r => r.length)), s = 1 / Math.max(W, H), boxes: BoxSpec[] = [];
+  const lite = new THREE.Color(col).lerp(new THREE.Color(0xffffff), 0.35).getHex();
+  r2.forEach((row, y) => { for (let x = 0; x < W; x++) { const ch = row[x]; if (!ch || ch === '.') continue; const d = ch === '#' ? 2 : 3; boxes.push({ w: s, h: s, d: d * s, x: (x - W / 2 + 0.5) * s, y: (H / 2 - y - 0.5) * s, z: (d * s) / 2, c: ch === '#' ? 0x15161c : (y < H / 2 ? lite : col) }); } });
+  return new THREE.Mesh(mergeBoxes(boxes).geo, new THREE.MeshLambertMaterial({ vertexColors: true, emissive: col, emissiveIntensity: 0.35 }));
+}
 function voxIcon(rows: string[]) {
   const H = rows.length, W = rows[0].length, s = 1 / Math.max(W, H), boxes: BoxSpec[] = [];
   rows.forEach((row, y) => { for (let x = 0; x < W; x++) { const ch = row[x], c = ICON_COL[ch]; if (c == null) continue; const d = ch === '#' ? 2 : 3; boxes.push({ w: s, h: s, d: d * s, x: (x - W / 2 + 0.5) * s, y: (H / 2 - y - 0.5) * s, z: (d * s) / 2, c }); } });
@@ -151,8 +165,19 @@ export class IronBtn {
   hint: HintKey | null = null; /** which side the badge pops up on (−1 upper left, +1 upper right: the big cut button has the jump button at its upper left) */ badgeSide: -1 | 1 = -1; private badge: THREE.Mesh | null = null; private badgeKey: HintKey | null = null; private badgeK = 0; private badgePop = 1;
   /** charges left / the most (the dart button: three bronze lamps on an arc over the shield); max 0 = none */
   pips = 0; pipMax = 0; private pipMeshes: THREE.Mesh[] = [];
-  private ring: ReturnType<typeof plateRing>; private icon: THREE.Mesh; private shadow: THREE.Mesh; private tassel: THREE.Mesh | null = null;
+  private ring: ReturnType<typeof plateRing>; private icon: Model3D; private shadow: THREE.Mesh; private tassel: THREE.Mesh | null = null;
   private pressK = 0; private flashT = 0; private wasReady = true; private tt = 0; private wasFull = false; private lift = 6; private popT = 1;
+  /** act-29 (用户：「UI组件的各种状态、动效的切换、特效的提示」): a spring on the button's size (press sinks, release overshoots), a
+   *  shake + dull red when pressed while it cannot act, a run of light round the plates when it comes ready, a kick from the game
+   *  (a cut lands, a perfect dodge) in a colour, and the dart button leaning toward where it is being aimed */
+  private sc = 1; private scV = 0; private wasDown = false; private denyT = 0; private sweepT = 1; private kickT = 0; private kickCol = new THREE.Color(0xffffff);
+  aim: { x: number; y: number } | null = null; private tiltX = 0; private tiltY = 0;
+  /** act-29 (用户：「派生技能的按钮反馈很弱」): the link opening bursts (sparks + a ring wave in its colour), the button rises and its
+   *  picture glows that colour, a 3D token of the move floats beside it; pressing while it is open flashes 'linked' */
+  private wave: THREE.Mesh | null = null; private waveT = 1; private waveCol = new THREE.Color(); private linkT = 0; private lastHint: HintKey | null = null; private token: Model3D | null = null; private tokenKey: HintKey | null = null;
+  /** the hideout: the cut button is the 'talk' button while someone is near (its picture swaps to a speech bubble) */
+  talk = false; private talkIcon: Model3D | null = null; private talkK = 0;
+  kick(k: number, col = 0xfff2d0) { this.scV += 3.2 * k; this.kickT = 0.18 + 0.1 * k; this.kickCol.setHex(col); }
   private col = new THREE.Color(); private ember = new THREE.Color(EMBER); private dark = new THREE.Color(0x24262c); private base = new THREE.Color(IRON);
   constructor(private L: UiLayer, public name: BtnKey, private sparks: UiSparks) {
     const back = new THREE.Mesh(octCyl(0.5, 0.12), lam(IRON_D)); this.root.add(back);
@@ -166,7 +191,8 @@ export class IronBtn {
       const t = mergeBoxes([{ w: 0.08, h: 0.08, d: 0.08, x: 0, y: 0, z: 0, c: BRONZE }, { w: 0.045, h: 0.3, d: 0.03, x: -0.03, y: -0.18, z: 0, c: 0xb8302a }, { w: 0.045, h: 0.3, d: 0.03, x: 0.03, y: -0.18, z: 0, c: 0xa02820 }]);
       this.tassel = new THREE.Mesh(t.geo, vcMat()); this.tassel.position.set(0, -0.5, 0.04); this.root.add(this.tassel);
     }
-    this.icon = voxIcon(ICONS[name]); this.iconG.add(this.icon);
+    // act-29 (用户：「对齐一下我dicehero3D那版的UI品质，特别是3D icon的品质」): the thick voxel badges of dicehero3d's models3d
+    this.icon = btnIcon3D(name); this.iconG.add(this.icon);
     L.scene.add(this.root); L.scene.add(this.iconG);
   }
   hit(x: number, y: number) { const r = this.size * 0.6; return Math.abs(x - this.x) < r && Math.abs(y - this.y) < r; }
@@ -183,11 +209,20 @@ export class IronBtn {
     }
     this.pipMeshes.forEach((m, i) => { const on = i < this.pips; const mt = m.material as THREE.MeshLambertMaterial; mt.color.setHex(on ? 0xf0c070 : 0x2a2c33); mt.emissive?.setHex(on ? 0x6a4010 : 0x000000); m.scale.setScalar(on ? 1 : 0.8); });
     this.pressK += ((this.down ? 1 : 0) - this.pressK) * Math.min(1, dt * 30);
-    L.at(this.x, this.y, -this.pressK * 4, this.root.position); this.root.scale.setScalar(L.px(this.size) * (1 - 0.06 * this.pressK));
     const ready = this.cd <= 0, frac = Math.max(0, Math.min(1, this.cd)), ch = Math.max(0, Math.min(1, this.charge)), full = ch >= 1;
+    if (this.down && !this.wasDown && !ready) this.denyT = 0.32;   // pressed while it cannot act
+    if (!this.down && this.wasDown) this.scV += 1.6;               // let go: the rebound
+    this.wasDown = this.down;
+    // the spring: pressed sinks to 0.9, otherwise back to 1 with an overshoot
+    { const t = this.down ? 0.9 : 1, d = Math.min(dt, 1 / 30); this.scV += (420 * (t - this.sc) - 18 * this.scV) * d; this.sc += this.scV * d; }
+    this.denyT = Math.max(0, this.denyT - dt); this.kickT = Math.max(0, this.kickT - dt); this.sweepT = Math.min(1, this.sweepT + dt / 0.32);
+    const deny = this.denyT > 0 ? Math.sin(this.denyT * 70) * (this.denyT / 0.32) : 0;
+    L.at(this.x + deny * 5, this.y, -this.pressK * 4, this.root.position); this.root.scale.setScalar(L.px(this.size) * this.sc);
+    // aimed (the dart button dragged): the face leans toward the aim
+    { const ax = this.aim?.x ?? 0, ay = this.aim?.y ?? 0, kk = Math.min(1, dt * 14); this.tiltX += (-ay * 0.32 - this.tiltX) * kk; this.tiltY += (ax * 0.32 - this.tiltY) * kk; this.root.rotation.set(this.tiltX, this.tiltY, deny * 0.08); }
     if (full && !this.wasFull) this.sparks.burst(L.at(this.x, this.y, 3), 14, L.px(170), L.px(4), 0xffb060, { life: 0.35 });
     this.wasFull = full;
-    if (ready && !this.wasReady) { this.flashT = 0.45; this.popT = 0; this.sparks.burst(L.at(this.x, this.y, 3), 12, L.px(160), L.px(4), 0xffb060, { life: 0.35 }); }   // no 'ready' tick (buttons are silent)
+    if (ready && !this.wasReady) { this.flashT = 0.45; this.popT = 0; this.sweepT = 0; this.scV += 2.2; this.sparks.burst(L.at(this.x, this.y, 3), 12, L.px(160), L.px(4), 0xffb060, { life: 0.35 }); }   // no 'ready' tick (buttons are silent)
     this.wasReady = ready; this.flashT = Math.max(0, this.flashT - dt); this.popT = Math.min(1, this.popT + dt / 0.5);
     const pulse = 0.5 + 0.5 * Math.sin(this.tt * 12), geo = this.ring.plates.geometry;
     for (let i = 0; i < 8; i++) {
@@ -197,6 +232,12 @@ export class IronBtn {
       const hc = this.hint && !this.now ? HINT_COLS[this.hint] : null;
       const glow = this.now ? 0.9 : hc ? 0.5 + 0.45 * pulse : this.flashT > 0 ? Math.min(1, this.flashT * 1.8) : this.hot || full ? 0.45 + 0.4 * pulse : heat;
       this.col.copy(lit ? this.base : this.dark).lerp(this.now ? WHITE : hc ?? this.ember, lit ? glow * 0.8 : 0);
+      // the next plate to come back while cooling: a dim ember edge (you can see where it is)
+      if (!lit && i / 8 < 1 - frac + 1 / 8) this.col.lerp(this.ember, 0.22 + 0.12 * pulse);
+      // came ready: a run of light round the plates from the top, clockwise
+      if (this.sweepT < 1) { const at = this.sweepT * 9 - 0.5, w = Math.max(0, 1 - Math.abs(i - at)); this.col.lerp(WHITE, w * 0.85); }
+      if (this.kickT > 0) this.col.lerp(this.kickCol, Math.min(1, this.kickT * 4) * 0.7);
+      if (this.denyT > 0) this.col.lerp(DENY, Math.min(1, this.denyT * 4) * 0.6);
       paintRange(geo, this.ring.ranges[i * 2], this.col);
     }
     if (this.tassel) this.tassel.rotation.z = Math.sin(this.tt * 2.1) * 0.14 + Math.sin(this.tt * 5.3) * 0.04;
@@ -210,29 +251,51 @@ export class IronBtn {
     this.iconG.position.z = sc * (this.size * 0.1 + (this.lift + pop) * 1.2);
     this.iconG.scale.setScalar(L.px(isz) * (1 - 0.08 * this.pressK) * (ready ? 1 : 0.92));
     const spin = this.popT < 1 ? (1 - Math.cos(this.popT * Math.PI)) * Math.PI : 0;
-    this.iconG.rotation.set(-0.2, Math.sin(this.tt * 0.8 + this.x * 0.02) * 0.28 + spin, 0);
-    const im = this.icon.material as THREE.MeshLambertMaterial;
-    im.color.setScalar(ready ? 1 : 0.5); im.emissive.setHex(this.now ? 0xffffff : 0xff9a40); im.emissiveIntensity = this.now ? 0.6 + 0.3 * pulse : hotK ? 0.25 + 0.25 * pulse : this.flashT > 0 ? this.flashT : 0;
+    this.iconG.rotation.set(-0.2 + this.tiltX * 0.6, Math.sin(this.tt * 0.8 + this.x * 0.02) * 0.28 * (this.aim ? 0.2 : 1) + spin + this.tiltY * 0.6, this.aim ? -Math.atan2(this.aim.x, this.aim.y) : 0);
+    // dark while cooling; its glowing cells brighter when it is ready to fire, a link is open, or it just came ready
+    const linkOpen = !!this.hint && this.hint !== 'talk';
+    this.icon.setDim(ready ? 0 : 0.6);
+    this.icon.setGlow(this.now ? 2.6 : linkOpen ? 1.7 + 0.6 * pulse : hotK ? 1.4 + 0.5 * pulse : this.flashT > 0 ? 1 + this.flashT * 2.4 : 1);
     // the shadow on the socket: smaller and fainter as the picture rises
     this.shadow.scale.setScalar(1.15 - Math.min(0.4, this.lift / 40)); (this.shadow.material as THREE.MeshBasicMaterial).opacity = 0.55 - Math.min(0.3, this.lift / 50);
     this.iconG.visible = this.root.visible;
-    // the hint badge: pops up (overshoot) at the upper left, breathes, shrinks away when the link closes
-    if (this.hint && this.hint !== this.badgeKey) {
-      if (!this.badge) { this.badge = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ transparent: true, depthTest: false })); this.badge.renderOrder = 9; L.scene.add(this.badge); }
-      const m = this.badge.material as THREE.MeshBasicMaterial; m.map?.dispose(); m.map = hintTex(this.hint); m.needsUpdate = true; this.badgeKey = this.hint; this.badgePop = 0;
+    // act-29: the link opening — a burst of its colour and a ring wave out from the rim; the button kicks up
+    const hint = this.hint && this.hint !== 'talk' ? this.hint : null;
+    if (hint && hint !== this.lastHint) {
+      const hc = HINT_COLS[hint]; this.waveCol.copy(hc); this.waveT = 0; this.scV += 2.6;
+      this.sparks.burst(L.at(this.x, this.y, 4), 18, L.px(210), L.px(5), hc.getHex(), { life: 0.45 });
+      if (!this.wave) { this.wave = new THREE.Mesh(new THREE.RingGeometry(0.44, 0.5, 8, 1, Math.PI / 8), new THREE.MeshBasicMaterial({ transparent: true, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending })); this.wave.renderOrder = 8; this.wave.userData.noTilt = true; L.scene.add(this.wave); }
     }
-    this.badgeK += ((this.hint ? 1 : 0) - this.badgeK) * Math.min(1, dt * 14); this.badgePop = Math.min(1, this.badgePop + dt / 0.28);
-    if (this.badge) {
-      const pop = this.badgePop < 1 ? 1 + 0.35 * Math.sin(this.badgePop * Math.PI) : 1, breathe = 1 + 0.07 * Math.sin(this.tt * 9);
-      this.badge.visible = this.root.visible && this.badgeK > 0.03;
-      const bs = Math.min(this.size, 110) * 0.44;
-      L.at(this.x + this.badgeSide * (this.size * 0.5 + bs * 0.15), this.y - this.size * 0.58 - 4 * Math.sin(this.tt * 4), 6, this.badge.position);
-      this.badge.scale.setScalar(L.px(bs) * this.badgeK * pop * breathe);
+    // pressed while a link is open: 'linked' — a white flash round the plates, a second ring, sparks
+    if (this.down && this.pressK < 0.5 && hint && this.linkT <= 0) { this.linkT = 0.3; this.sweepT = 0; this.waveT = 0; this.waveCol.setHex(0xffffff); this.sparks.burst(L.at(this.x, this.y, 4), 22, L.px(240), L.px(5), 0xffffff, { life: 0.4 }); }
+    if (!this.down) this.linkT = Math.max(0, this.linkT - dt);
+    this.lastHint = hint;
+    this.waveT = Math.min(1, this.waveT + dt / 0.42);
+    if (this.wave) { const w = this.waveT, mat = this.wave.material as THREE.MeshBasicMaterial; this.wave.visible = this.root.visible && w < 1; mat.color.copy(this.waveCol); mat.opacity = (1 - w) * 0.9;
+      L.at(this.x, this.y, 8, this.wave.position); this.wave.scale.setScalar(L.px(this.size) * (1 + w * 0.9)); }
+    // the token: a 3D relief of the move beside the button, popping in, turning slowly, bobbing; it shrinks away when the link closes
+    if (hint && hint !== this.tokenKey) {
+      if (this.token) { L.scene.remove(this.token); this.token.dispose(); }
+      this.token = hintIcon3D(hint, HINTS[hint].rows, HINTS[hint].col); this.token.renderOrder = 9; L.scene.add(this.token); this.tokenKey = hint; this.badgePop = 0;
     }
+    this.badgeK += ((hint ? 1 : 0) - this.badgeK) * Math.min(1, dt * 14); this.badgePop = Math.min(1, this.badgePop + dt / 0.3);
+    if (this.token) {
+      const pop = this.badgePop < 1 ? 1 + 0.5 * Math.sin(this.badgePop * Math.PI) : 1, bs = Math.min(this.size, 110) * 0.5;
+      this.token.visible = this.root.visible && this.badgeK > 0.03;
+      L.at(this.x + this.badgeSide * (this.size * 0.52 + bs * 0.2), this.y - this.size * 0.62 - 5 * Math.sin(this.tt * 4), 14, this.token.position);
+      this.token.scale.setScalar(L.px(bs) * this.badgeK * pop); this.token.rotation.set(-0.25, Math.sin(this.tt * 2.2) * 0.5, 0);
+      this.token.setGlow(1.2 + 0.6 * pulse);
+    }
+    // the open link lifts the whole button a little and tints its picture
+    if (hint) this.root.position.z += L.px(6) * this.badgeK;
+    // the hideout: the cut button becomes 'talk' — the sabre sinks away and a bronze speech bubble rises in its place
+    this.talkK += ((this.talk ? 1 : 0) - this.talkK) * Math.min(1, dt * 10);
+    if (this.talk && !this.talkIcon) { this.talkIcon = btnIcon3D('talk'); this.iconG.add(this.talkIcon); }
+    if (this.talkIcon) { this.talkIcon.visible = this.talkK > 0.02; this.talkIcon.scale.setScalar(Math.max(0.001, this.talkK)); this.icon.scale.setScalar(Math.max(0.001, 1 - this.talkK)); this.icon.visible = this.talkK < 0.98; }
   }
-  dispose() { disposeTree(this.root); disposeTree(this.iconG); if (this.badge) disposeTree(this.badge); }
+  dispose() { disposeTree(this.root); disposeTree(this.iconG); if (this.badge) disposeTree(this.badge); if (this.token) this.token.dispose(); if (this.wave) disposeTree(this.wave); }
 }
-const WHITE = new THREE.Color(0xfff6e0);
+const WHITE = new THREE.Color(0xfff6e0), DENY = new THREE.Color(0x8a2a20);
 const HINT_COLS = Object.fromEntries(Object.entries(HINTS).map(([k, h]) => [k, new THREE.Color(h.col)])) as Record<HintKey, THREE.Color>;
 
 // ---------------------------------------------------------------- the stick: an iron ring of plates, a bronze ring-pommel for the knob
@@ -283,6 +346,7 @@ export class IronHp {
   root = new THREE.Group(); st: HpState = { hp: 100, maxHp: 100 }; intent = 0; private x = 30; private y = 40; private k = 1;
   private fill: THREE.Mesh; private fillTop: THREE.Mesh; private lag: THREE.Mesh; private lagV = 1; private ingots: THREE.MeshLambertMaterial[] = [];
   private shakeT = 0; private flashT = 0; private healT = 0; private tt = 0; private lastIntent = 0; readonly W = 250; private X0 = 44;
+  private ingotMesh: THREE.Mesh[] = []; private ingotPop = 0; private popIdx = -1; private fullT = 0;
   constructor(private L: UiLayer, private sparks: UiSparks) {
     const box = (w: number, h: number, d: number, c: number) => new THREE.Mesh(new THREE.BoxGeometry(w, h, d), lam(c));
     // the trough
@@ -301,7 +365,7 @@ export class IronHp {
     const face = new THREE.Mesh(new THREE.CircleGeometry(24, 8, Math.PI / 8), lam(0xffffff, pixTex(PORTRAITS[HP_FACE.id] ?? PORTRAIT_WHITE, '#5a1a16'))); face.position.set(14, 0, 9.6); this.root.add(face); this.face = face;
     this.root.add(new THREE.Mesh(mergeBoxes(Array.from({ length: 8 }, (_, i) => { const a = (i / 8) * Math.PI * 2 + Math.PI / 8; return { w: 4, h: 4, d: 4, x: 14 + Math.cos(a) * 27, y: Math.sin(a) * 27, z: 10, c: BRONZE }; })).geo, vcMat()));
     // three 杀意 ingots under the trough
-    for (let i = 0; i < 3; i++) { const m = new THREE.Mesh(new THREE.BoxGeometry(20, 10, 8), lam(0x2a2c32)); m.position.set(this.X0 + 16 + i * 28, -22, 2); this.root.add(m); this.ingots.push(m.material as THREE.MeshLambertMaterial); }
+    for (let i = 0; i < 3; i++) { const m = new THREE.Mesh(new THREE.BoxGeometry(20, 10, 8), lam(0x2a2c32)); m.position.set(this.X0 + 16 + i * 28, -22, 2); this.root.add(m); this.ingots.push(m.material as THREE.MeshLambertMaterial); this.ingotMesh.push(m); }
     this.root.userData.noTilt = true; this.root.rotation.set(-0.22, 0.18, 0);
     L.scene.add(this.root);
   }
@@ -327,9 +391,13 @@ export class IronHp {
     const fm = this.fill.material as THREE.MeshLambertMaterial, low = f < 0.3 ? 0.35 + 0.35 * Math.sin(this.tt * 8) : 0;
     fm.emissive.setHex(this.flashT > 0 ? 0xffffff : this.healT > 0 ? 0x2a8a3a : 0xff2a1a); fm.emissiveIntensity = this.flashT > 0 ? this.flashT * 2.5 : this.healT > 0 ? 1 : low;
     // the 杀意 ingots: lit ones glow like coals; a new one flares
-    if (this.intent > this.lastIntent) this.sparks.burst(L.at(this.x + (X + 16 + (this.intent - 1) * 28) * this.k, this.y + 22 * this.k, 6), 12, L.px(110), L.px(4), 0xffa040, { life: 0.4 });
+    if (this.intent > this.lastIntent) { this.sparks.burst(L.at(this.x + (X + 16 + (this.intent - 1) * 28) * this.k, this.y + 22 * this.k, 6), 12, L.px(110), L.px(4), 0xffa040, { life: 0.4 }); this.ingotPop = 1; this.popIdx = this.intent - 1; }
+    // act-29: the third one in — all three flare white-gold together, a wider burst (不见刀 is ready)
+    if (this.intent >= 3 && this.lastIntent < 3) { this.fullT = 0.6; this.sparks.burst(L.at(this.x + (X + 44) * this.k, this.y + 22 * this.k, 6), 26, L.px(190), L.px(5), 0xffe08a, { life: 0.55 }); }
+    this.ingotPop = Math.max(0, this.ingotPop - dt * 4); this.fullT = Math.max(0, this.fullT - dt);
     this.lastIntent = this.intent;
-    this.ingots.forEach((m, i) => { const on = i < this.intent; m.color.setHex(on ? 0xd09a50 : 0x2a2c32); m.emissive.setHex(EMBER); m.emissiveIntensity = on ? (this.intent >= 3 ? 0.6 + 0.35 * Math.sin(this.tt * 9) : 0.45) : 0; });
+    this.ingots.forEach((m, i) => { const on = i < this.intent; m.color.setHex(on ? 0xd09a50 : 0x2a2c32); m.emissive.setHex(this.fullT > 0 ? 0xfff0c0 : EMBER); m.emissiveIntensity = on ? (this.fullT > 0 ? 0.9 : this.intent >= 3 ? 0.6 + 0.35 * Math.sin(this.tt * 9) : 0.45) : 0;
+      this.ingotMesh[i].scale.setScalar(i === this.popIdx ? 1 + 0.35 * Math.sin(this.ingotPop * Math.PI) : this.fullT > 0 ? 1 + 0.15 * Math.sin(this.fullT * 10) : 1); });
   }
   dispose() { disposeTree(this.root); }
 }

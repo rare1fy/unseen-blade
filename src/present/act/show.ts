@@ -86,6 +86,8 @@ import { VIBE, vibeSupport, iosMajor } from '../../platform/index';
 /** the perks the hero's world reads while the run is on (kept in step each frame) */
 const SHOW_PERKS = { darts3: false };
 import { BattleActor } from '../bestiary/battle';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { worldToUi } from '../ui3d/layer';
 import { HIDEOUT_DONKEY } from './hideout_people';
 import { CELL } from '../bestiary/kit';
 import { Action } from '../actors/rig';
@@ -127,6 +129,15 @@ const MEAL_GLYPH: Record<string, string[]> = {
   wine: ['....####....', '.....##.....', '....#oo#....', '....#oo#....', '...#oooo#...', '..#oooooo#..', '.#oooooooo#.', '.#oo####oo#.', '.#oooooooo#.', '.#oooooooo#.', '..########..', '............'],
 };
 const LEAVE = ['############', '#..........#', '#.########.#', '#.#......#.#', '#.#......#.#', '#.#......#.#', '#.#....#.#.#', '#.#......#.#', '#.#......#.#', '#.#......#.#', '#.#......#.#', '###......###'];
+/** act-29: a bronze speech bubble (three dots), a small relief model for over a person's head */
+function npcBubble() {
+  const rows = ['.ooooooo.', 'ohhhhhhho', 'oh.r.r.do', 'oh.....do', 'odddddddo', '.oo.ooooo', '..od.....', '..o......'];
+  const H = rows.length, W = rows[0].length, s = 1 / W, gs: THREE.BufferGeometry[] = [], col = new THREE.Color();
+  const C: Record<string, number> = { o: 0xc08a44, h: 0xf0c070, d: 0x7a5428, r: 0x2a1a10 };
+  rows.forEach((row, y) => { for (let x = 0; x < W; x++) { const ch = row[x], c = C[ch]; if (c == null) continue; const g = new THREE.BoxGeometry(s, s, s * (ch === 'r' ? 1.4 : 2)); g.translate((x - W / 2 + 0.5) * s, (H / 2 - y - 0.5) * s, 0); col.setHex(c); const n = g.attributes.position.count, cs = new Float32Array(n * 3); for (let i = 0; i < n; i++) { cs[i * 3] = col.r; cs[i * 3 + 1] = col.g; cs[i * 3 + 2] = col.b; } g.setAttribute('color', new THREE.BufferAttribute(cs, 3)); gs.push(g); } });
+  const geo = mergeGeometries(gs); for (const g of gs) g.dispose();
+  return new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0xffb060, emissiveIntensity: 0.15 }));
+}
 export class ActShow {
   L = new UiLayer(); ov = new Overlay(); inp = new Input(); hud: ActHud; cards: CardPick; banner: SkinBanner;
   stage: Stage | null = null; hero!: Hero; foes: Foe[] = []; arrows: Arrow[] = []; waves: BladeWave[] = []; darts: Dart[] = []; /** darts thrown so far (tests) */ dartsThrown = 0;
@@ -238,7 +249,28 @@ export class ActShow {
       this.npcs.push({ id: sp.id, x: sp.x, z: sp.z, yaw: sp.yaw, a, sh });
     }
   }
-  private clearNpcs() { for (const n of this.npcs) { n.a.dispose(); n.sh.parent?.remove(n.sh); } this.npcs = []; this.npcNear = null; this.stele?.dispose(); this.stele = null; }
+  private clearNpcs() { for (const n of this.npcs) { n.a.dispose(); n.sh.parent?.remove(n.sh); } this.npcs = []; this.npcNear = null; this.stele?.dispose(); this.stele = null; for (const m of this.marks.values()) m.g.parent?.remove(m.g); this.marks.clear(); this.L.text.hide('act.npc'); }
+  /** act-29 (用户：「与NPC的交互那些……都太廉价了」): over each person a small bronze speech bubble (a relief, bobbing, turning a little);
+   *  the one in reach: a ring of light underfoot, the bubble bigger and lit, the name floating over it */
+  private marks = new Map<string, { g: THREE.Group; bub: THREE.Mesh; ring: THREE.Mesh; k: number }>();
+  private npcMarks(dt: number, near: string | null) {
+    const t = clock.rtime;
+    for (const n of this.npcs) {
+      let m = this.marks.get(n.id);
+      if (!m) {
+        const g = new THREE.Group(), bub = npcBubble(), ring = new THREE.Mesh(new THREE.RingGeometry(0.5, 0.6, 8, 1, Math.PI / 8).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffd27a, transparent: true, opacity: 0, depthWrite: false }));
+        ring.renderOrder = 3; g.add(bub); this.stage?.root.add(g); this.stage?.root.add(ring); m = { g, bub, ring, k: 0 }; this.marks.set(n.id, m);
+      }
+      const on = near === n.id && !this.noTalk; m.k += ((on ? 1 : 0) - m.k) * Math.min(1, dt * 10);
+      const top = n.a.height ?? 1.8;
+      m.g.position.set(n.x, top + 0.45 + Math.sin(t * 2.4 + n.x) * 0.06 + 0.12 * m.k, n.z); m.g.rotation.y = Math.sin(t * 0.9 + n.z) * 0.4;
+      m.bub.scale.setScalar(0.32 * (1 + 0.45 * m.k)); (m.bub.material as THREE.MeshLambertMaterial).emissiveIntensity = 0.15 + 0.55 * m.k;
+      m.ring.position.set(n.x, 0.04, n.z); const rs = 1 + 0.08 * Math.sin(t * 6); m.ring.scale.set(rs, 1, rs); (m.ring.material as THREE.MeshBasicMaterial).opacity = 0.75 * m.k;
+    }
+    const nn = near ? this.npcs.find(x => x.id === near) : null;
+    if (nn && !this.noTalk) { const p = worldToUi(V3(nn.x, (nn.a.height ?? 1.8) + 1.0, nn.z)); this.L.text.set('act.npc', { text: HIDEOUT_PEOPLE[nn.id as keyof typeof HIDEOUT_PEOPLE]?.name ?? '', x: p.x, y: p.y, bodyPx: Math.max(12, Math.round(15 * Math.min(1.2, this.L.h / 720))), color: '#ffe6b0', outline: '#140c0a', align: 'center' }); }
+    else this.L.text.hide('act.npc');
+  }
   /** a word with someone at the hideout; the smith and the healer then show their upgrades */
   private async npcTalk(id: string) {
     if (id === 'stele') { const pool = (this.stele?.count ?? 0) > 0 ? STELE_LINES.one : STELE_LINES.none; await this.talk([{ who: 'jiangjin', text: pool[Math.floor(Math.random() * pool.length)] }]); return; }
@@ -663,6 +695,7 @@ export class ActShow {
     if (!n) return;
     hitstop((heavy ? 0.09 : 0.045 + 0.01 * Math.min(3, n - 1)) * TUNE.hitstop); shake((heavy ? 0.34 : 0.13) * TUNE.shake);
     cue(heavy ? 'cutHeavy' : 'cut', (heavy ? 1.0 : 0.7) + 0.1 * Math.min(3, n - 1), this.fleshHit ? 1 : 0); this.fleshHit = false; this.platform.vibrate(heavy ? 'medium' : 'light');
+    this.hud.btnKick('attack', heavy ? 1 : 0.55, heavy ? 0xffb060 : 0xfff2d0);   // act-29: the cut button answers the hit
   }
   // ------------------------------------------------------------ act-19: 刀谱, 挑空斩, 飞踢
   /** three manuals not learnt yet, one taken (none left: a boon instead) */
@@ -869,7 +902,7 @@ export class ActShow {
   private dodgeCd = 0;
   private perfectDodge(from: THREE.Vector3) {
     if (this.dodgeCd > 0 || !this.hero.alive) return;
-    this.dodgeCd = 0.8; void from;
+    this.dodgeCd = 0.8; void from; this.hud.btnKick('dash', 1.2, 0xffd060);   // act-29: the dodge button flares gold
     const h = this.hero, at = h.pos.clone();
     this.schools.onPerfectDodge(at); // wp/boons: lightning orb and nearby chill
     slowmo(TUNE.dodgeSlow, 0.28); shake(0.12 * TUNE.shake);
@@ -1176,6 +1209,7 @@ export class ActShow {
     const wasDash = this.lastSt === 'dash';
     this.schools.update(dt); // wp/boons: timed effects use combat time (including slow motion)
     h.update(dt, this.inp, this.heroWorld);
+    this.hud.setAim(h.aiming ? { x: h.aimDir.x, y: -h.aimDir.z } : null);   // act-29: the dart button leans to the aim
     if (h.aiming) { const pv = h.aimPreview(this.heroWorld), L = TUNE.dartRange, al = this.aimLine;
       al.visible = true; al.position.set(h.pos.x, 0.07, h.pos.z); al.rotation.y = Math.atan2(pv.dir.x, pv.dir.z); al.scale.set(1, 1, L);
       const cap = al.getObjectByName('cap')!; cap.scale.set(1, 1, 1 / L); (al.material as THREE.MeshBasicMaterial).color.set(pv.onFoe ? 0xffd27a : 0xe8eeff); }
@@ -1195,6 +1229,7 @@ export class ActShow {
       let near: string | null = null, nd = 1.7; for (const n of this.npcs) { const d = Math.hypot(n.x - h.pos.x, n.z - h.pos.z); if (d < nd) { nd = d; near = n.id; } }
       if (this.stele && HIDEOUT.stele) { const d = Math.hypot(HIDEOUT.stele.x - h.pos.x, HIDEOUT.stele.z + 0.6 - h.pos.z); if (d < Math.min(nd, 1.5)) near = 'stele'; }
       this.npcNear = near;
+      this.npcMarks(dt, near);
       if (near && !this.noTalk && this.inp.b.attack.pressed && !this.dialogue.on) { this.inp.b.attack.pressed = false; void this.npcTalk(near); return; }
     } else this.npcNear = null;
     // the yard: slabs summon sparring partners, the rack swaps the costume, the back road starts a run

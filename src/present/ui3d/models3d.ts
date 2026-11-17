@@ -96,6 +96,9 @@ export function skillIcon3D(name: string, o: { tier3?: boolean } = {}): Model3D 
   return instance(key, template('s:' + key, SKILL_ART[key]));
 }
 
+/** act-29 (不见刀): a model from any voxel recipe, cached by key — the game's own button pictures and move tokens */
+export function customIcon3D(key: string, art: (set: Set3) => void): Model3D { return instance(key, template('c:' + key, art)); }
+
 /** A relic as a thick voxel model (贪婪之手 / 铁壁护符 / 战场急救, or relic id / art key); unknown → a gold-rimmed shard. */
 export function relicModel3D(name: string): Model3D {
   const key = keyOf(RELIC_KEY, RELIC_ART, name);

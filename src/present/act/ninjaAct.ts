@@ -356,6 +356,18 @@ export function tails(b: Record<string, Bone>, t: number, lift: number, flut: nu
 }
 
 // ---- blade trails along each cut's swing, dust on the dash, the run and the landings
+/** the blade's point on a model: the far end (+z) of its 'blade' part's mesh, measured once; models without one: def.tip in their own cells */
+const TIP = new WeakMap<object, { mesh: THREE.Object3D; p: THREE.Vector3 } | null>();
+function bladeTip(self: BActor) {
+  let t = TIP.get(self);
+  if (t === undefined) {
+    t = null; const b = (self.bones as Record<string, THREE.Object3D | undefined>).blade;
+    if (b) b.traverse(o => { const m = o as THREE.Mesh; if (!t && m.isMesh && m.geometry) { m.geometry.computeBoundingBox(); const bb = m.geometry.boundingBox!; t = { mesh: m, p: new THREE.Vector3((bb.min.x + bb.max.x) / 2, (bb.min.y + bb.max.y) / 2, bb.max.z) }; } });
+    TIP.set(self, t);
+  }
+  if (t) return t.mesh.localToWorld(t.p.clone());
+  return self.bones.weapon.localToWorld(new THREE.Vector3(0, 0, (self.def.tip ?? 13) * ((self as unknown as { cx?: number }).cx ?? CELL)));
+}
 const mem = new WeakMap<object, { tip: THREE.Vector3 | null; tipL: THREE.Vector3 | null; k: number; name: string; ph: number; air: number }>();
 const SWING: Record<string, Array<[number, number, number, number]>> = {
   k1: [[0.28, 0.54, 0xbcd0ff, 0.11]], k2: [[0.26, 0.52, 0xd8e4ff, 0.12]], k3: [[0.24, 0.74, 0xc8e0ff, 0.12]],
@@ -365,8 +377,9 @@ const SWING: Record<string, Array<[number, number, number, number]>> = {
 function trails(self: BActor, a: Action | null, m: Motion | undefined) {
   let M = mem.get(self); if (!M) { M = { tip: null, tipL: null, k: 0, name: '', ph: 0, air: 0 }; mem.set(self, M); }
   const k = a ? a.k : 0, name = a?.name ?? '', fresh = name !== M.name || k < M.k, sw = SWING[name];
-  const tipCells = self.def.tip ?? 13;
-  const tip = self.bones.weapon.localToWorld(new THREE.Vector3(0, 0, tipCells * CELL)), tipL = self.bones.offhand.localToWorld(new THREE.Vector3(0, 0, 6 * CELL));
+  // act-30 (user: 「挥刀特效的位置有点问题，我之前修过一次刀的长度」): the trail's point is the blade's real tip, measured from the model's
+  // blade part (the user shortens / reshapes it in MagicaVoxel), not def.tip × the scene cell (twice too long on the 3.5 cm heroines)
+  const tip = bladeTip(self), tipL = self.bones.offhand.localToWorld(new THREE.Vector3(0, 0, 6 * CELL));
   const heavy = name === 'k5' || name === 'rel' || name === 'plunge';
   if (sw && !fresh && M.tip) for (const w of sw) if (k > w[0] && k < w[1]) trailSeg(M.tip, tip, w[2], w[3], { life: heavy ? 0.24 : name === 'k3' ? 0.2 : 0.16, bright: 1.9, spark: name === 'k5' ? 0.5 : 0.2 });
   if (name === 'k2' && !fresh && M.tipL && k > 0.56 && k < 0.66 && self.bones.offhand.children.length) trailSeg(M.tipL, tipL, 0xffd0b8, 0.07, { life: 0.12, bright: 1.6, spark: 0 });

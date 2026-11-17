@@ -101,7 +101,7 @@ function face(b: Boon, tier: number, u: number) {
   return { t, W, H };
 }
 
-interface Card { b: Boon; tier: number; u: number; m: THREE.Mesh; x: number; y: number; w: number; h: number; lift: number; t0: number }
+interface Card { b: Boon; tier: number; u: number; m: THREE.Mesh; x: number; y: number; w: number; h: number; lift: number; t0: number; rim: THREE.Mesh; landed: boolean }
 export class CardPick {
   on = false; focus = 0; private cards: Card[] = []; private done: ((i: number) => void) | null = null; private leaving = -1; private leaveT = 0;
   constructor(private L: UiLayer) { onBodyFontChange(() => {
@@ -117,14 +117,17 @@ export class CardPick {
     this.cards = boons.map(({ boon: b, tier }, i) => {
       const f = face(b, tier, u * 2), side = new THREE.MeshLambertMaterial({ color: tier === 0 ? PALETTE[SKIN.id].card.side : tierColor(tier), emissive: tier === 2 ? 0xffd060 : 0x000000, emissiveIntensity: 0.15 }), fm = new THREE.MeshLambertMaterial({ map: f.t, emissive: 0xffffff, emissiveMap: f.t, emissiveIntensity: 0.6 });
       const m = new THREE.Mesh(new THREE.BoxGeometry(L.px(w), L.px(h), L.px(16)), [side, side, side, side, fm, side]); m.renderOrder = 30; L.scene.add(m);
-      return { b, tier, u: u * 2, m, x: L.w / 2, y: L.h * 0.5 + (i - (boons.length - 1) / 2) * (h + gap), w, h, lift: 0, t0: clock.rtime + i * 0.08 };
+      // act-29 (用户：「三选一的卡片……太廉价了」): a rim of light behind the card in its tier's colour, lit when the card is in focus
+      const rim = new THREE.Mesh(new THREE.PlaneGeometry(L.px(w + 14), L.px(h + 14)), new THREE.MeshBasicMaterial({ color: new THREE.Color(tierColor(tier)), transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
+      rim.position.z = -L.px(9); rim.renderOrder = 29; m.add(rim);
+      return { b, tier, u: u * 2, m, x: L.w / 2, y: L.h * 0.5 + (i - (boons.length - 1) / 2) * (h + gap), w, h, lift: 0, t0: clock.rtime + 0.05 + i * 0.11, rim, landed: false };
     });
     this.on = true; this.focus = Math.min(1, this.cards.length - 1); this.leaving = -1; cue('scroll', 0.8);
     return new Promise(res => { this.done = res; });
   }
   close() {
     for (const c of this.cards) {
-      c.m.parent?.remove(c.m); c.m.geometry.dispose();
+      c.m.parent?.remove(c.m); c.m.geometry.dispose(); c.rim.geometry.dispose(); (c.rim.material as THREE.Material).dispose();
       for (const m of new Set(c.m.material as THREE.MeshLambertMaterial[])) { m.map?.dispose(); m.dispose(); }
     }
     this.cards = []; this.on = false;
@@ -144,18 +147,33 @@ export class CardPick {
     else this.pick();
     cue('click', 0.25);
   }
-  private pick() { this.leaving = this.focus; this.leaveT = 0; cue('relic', 0.8); }
+  private pick() { this.leaving = this.focus; this.leaveT = 0; cue('relic', 0.8); cue('reveal', 1); }
   update(dt: number) {
     if (!this.on) return;
-    const L = this.L;
-    if (this.leaving >= 0) { this.leaveT += dt; if (this.leaveT > 0.55) { const i = this.leaving, d = this.done; this.done = null; this.close(); d?.(i); return; } }
+    const L = this.L, T = 0.75;
+    if (this.leaving >= 0) { this.leaveT += dt; if (this.leaveT > T) { const i = this.leaving, d = this.done; this.done = null; this.close(); d?.(i); return; } }
+    const back = (k: number) => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * (k - 1) ** 3 + c1 * (k - 1) ** 2; };   // ease-out with an overshoot
     for (const [i, c] of this.cards.entries()) {
-      const rise = Math.min(1, Math.max(0, (clock.rtime - c.t0) / 0.35)), e = 1 - (1 - rise) ** 3;
+      // in: from the right, turned away, spinning to face the viewer, landing past its place and settling (one after another)
+      const r = Math.min(1, Math.max(0, (clock.rtime - c.t0) / 0.42)), e = back(r);
+      if (r >= 1 && !c.landed) { c.landed = true; cue('clack', 0.55); }
       const want = i === this.focus ? 1 : 0; c.lift += (want - c.lift) * Math.min(1, dt * 12);
-      let y = c.y + (1 - e) * L.h * 0.6, sc = 1 + 0.05 * c.lift;
-      if (this.leaving >= 0) { const k = this.leaveT / 0.55; if (i === this.leaving) { y -= k * k * L.h * 0.5; sc *= 1 + 0.1 * k; } else y += k * k * L.h * 0.6; }
-      L.at(c.x, y, L.px(24) * c.lift, c.m.position); c.m.scale.setScalar(sc);
-      c.m.rotation.set(0.12 * (1 - c.lift), 0, 0); c.m.position.x += L.px(18) * c.lift;   // the focused card leans out toward the viewer and steps right
+      let x = c.x + (1 - e) * L.w * 0.75, y = c.y, sc = 1 + 0.06 * c.lift + (i === this.focus ? 0.012 * Math.sin(clock.rtime * 3) : 0), rz = 0, ry = (1 - Math.min(1, r * 1.15)) * -1.1;
+      const fm = (c.m.material as THREE.MeshLambertMaterial[])[4];
+      let glow = 0.42 + 0.33 * c.lift, rimA = c.lift * (0.55 + 0.25 * Math.sin(clock.rtime * 5));
+      if (this.leaving >= 0) {
+        const k = Math.min(1, this.leaveT / T);
+        if (i === this.leaving) {
+          // chosen: a punch and a white flash, held a beat, then off to the top left (into her) small and fading
+          const pk = Math.min(1, this.leaveT / 0.16), punch = pk < 1 ? Math.sin(pk * Math.PI) * 0.16 : 0;
+          sc *= 1 + punch; glow = this.leaveT < 0.22 ? 1.6 - this.leaveT * 3 : 0.9; rimA = Math.max(0, 1 - k * 1.4);
+          const go = Math.max(0, (this.leaveT - 0.28) / (T - 0.28)), g2 = go * go;
+          x += (L.w * 0.12 - x) * g2; y += (L.h * 0.08 - y) * g2; sc *= 1 - 0.8 * g2;
+        } else { const g = k * k; y += g * L.h * 0.7; rz = (i < this.leaving ? -1 : 1) * 0.5 * g; rimA = 0; glow *= 1 - k; }
+      }
+      fm.emissiveIntensity = glow; (c.rim.material as THREE.MeshBasicMaterial).opacity = rimA;
+      L.at(x, y, L.px(24) * c.lift, c.m.position); c.m.scale.setScalar(sc);
+      c.m.rotation.set(0.12 * (1 - c.lift), ry, rz); c.m.position.x += L.px(18) * c.lift;   // the focused card leans out toward the viewer and steps right
     }
   }
 }
