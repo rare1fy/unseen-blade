@@ -193,6 +193,8 @@ export class Hero {
     this.a.play(new Action('plunge', PLUNGE_HANG + this.y / PLUNGE_V + 0.02, 0.98)); cue('swishHeavy', 0.6);
   }
   get gravity() { return (8 * TUNE.jumpH) / (TUNE.jumpT * TUNE.jumpT); }
+  /** 回据点 from the pause menu: she falls where she stands (the run ends as a death) */
+  giveUp() { this.hp = 0; this.set('dead', 99); this.a.fall(); }
   hurt(dmg: number, from: THREE.Vector3): boolean {
     if (!this.alive || this.iframe) return false;
     this.hp = Math.max(0, this.hp - dmg); this.inv = TUNE.hurtIframe;

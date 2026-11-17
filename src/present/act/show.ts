@@ -5,7 +5,7 @@
 // 砍飞的箭：方向在出刀朝向左右 75° 里随机、附近有敌人就偏过去；砍中那一下顿帧 + 闪光 + 短慢放（用户：「这种属于高光操作，应该要有顿帧」）。
 import * as THREE from 'three';
 import { V3, onUpdate, R, scene, warm } from '../engine/world';
-import { hitstop, shake, slowmo, after, clock, FX, waitReal } from '../engine/clock';
+import { hitstop, shake, slowmo, after, clock, FX, waitReal, PAUSE } from '../engine/clock';
 import { shot } from '../director';
 import { fxImpact, fxSparks, fxSmoke, fxRing, trailSeg } from '../fx/fx';
 import { fxAfterimage } from '../fx/skillFx';
@@ -65,7 +65,7 @@ import { EDEFS, isBoss, lowAttack, trimShadows, dropTeles } from './enemy';   //
 import { BOONS, applyBoon, drawBoons, upgradeBoon, returnCard, TIER_NAMES, newPerks, type Perks, type Boon, type BoonPick } from './boons';
 import { Schools } from './schools'; // wp/boons: effect owner
 import { TUNE } from './tune';
-import { installActTune, toggleActTune } from './tunePanel';
+import { installActTune } from './tunePanel';
 import { BODY_FONT, BODY_FONT_NAME, setBodyFont, type BodyFont } from '../ui3d/bodyFont';
 import { HEROES, RACK, motionOf } from './ninjaAct';
 import { Yard, makeSign, SPAWN_AT } from './yard';
@@ -82,7 +82,10 @@ import { wantOpening } from './openingFlag';
 import { playTitle, titlePointer } from './title';
 import { wantTitle, savedTitle, TITLE_COUNT } from './titleFlag';
 import { PX, setPixel } from '../look/pixel';
-import { VIBE, vibeSupport, iosMajor } from '../../platform/index';
+import { VIBE, vibeSupport, iosMajor, RUMBLE } from '../../platform/index';
+import { PauseMenu } from './pauseMenu';
+import { padNav, padRumble, PAD, actKey, actPad } from './pad';
+import { openingPadTap } from './opening';
 /** the perks the hero's world reads while the run is on (kept in step each frame) */
 const SHOW_PERKS = { darts3: false };
 import { BattleActor } from '../bestiary/battle';
@@ -185,7 +188,7 @@ export class ActShow {
   /** act-34: a room built ahead of time (prepRoom), waiting to be put up; buildRoom uses it when it is the room asked for */
   private pre: (Room & { locale: string }) | null = null;
   // ------------------------------------------------------------ act-20: story — portrait dialogue, timeline cutscenes, puppets
-  dialogue: Dialogue; timeline: Timeline; private puppets: Foe[] = []; private wasPhase: Phase = 'yard'; private justDied = false;
+  dialogue: Dialogue; timeline: Timeline; pause!: PauseMenu; private pauseHud: boolean | null = null; private padSkip = false; private puppets: Foe[] = []; private wasPhase: Phase = 'yard'; private justDied = false;
   /** act-29 开篇 (方案 1): 1 = the snowy village (the first fight, alone), 2 = the snowy temple (褚雷, a fight she cannot win), 0 = off */
   prologue = 0; private forceSpec: Partial<Spec> | null = null; private proFightT = 0; private proFalling = false; private proPeople: BattleActor[] = [];
   private proHost: PrologueHost = {
@@ -363,17 +366,27 @@ export class ActShow {
     if (typeof window !== 'undefined') window.addEventListener('keydown', e => this.key(e));
     onUpdate((dt, rdt) => this.frame(dt, rdt));
     this.layout2();
-    installActTune([{ label: () => `界面风格：${SKIN_NAME[SKIN.id]}（点这里换）`, run: () => this.cycleSkin() },
-      { label: () => `正文字体：${BODY_FONT_NAME[BODY_FONT.current]}`, run: () => { const order: BodyFont[] = ['wenkai', 'serif', 'sans', 'pixel']; setBodyFont(order[(order.indexOf(BODY_FONT.current) + 1) % order.length]); } },
+    // the player's settings: the tuning panel shows the long labels, the pause menu's 设置 page the short ones (act-30 之后)
+    const SET: Array<{ label: () => string; short: () => string; run: () => void }> = [
+      { label: () => `界面风格：${SKIN_NAME[SKIN.id]}（点这里换）`, short: () => `界面：${SKIN_NAME[SKIN.id]}`, run: () => this.cycleSkin() },
+      { label: () => `正文字体：${BODY_FONT_NAME[BODY_FONT.current]}`, short: () => `正文字体：${BODY_FONT_NAME[BODY_FONT.current]}`, run: () => { const order: BodyFont[] = ['wenkai', 'serif', 'sans', 'pixel']; setBodyFont(order[(order.indexOf(BODY_FONT.current) + 1) % order.length]); } },
       // act-15 用户：「我浏览器玩没有震动诶」 — a switch, a test, and what this device supports
-      { label: () => `震动：${VIBE.on ? '开' : '关'}（${({ api: '这台设备支持', ios: `iPhone iOS ${iosMajor()}：系统触感，点屏幕时最灵`, 'ios-old': `iPhone iOS ${iosMajor() || '17 及以下'}：网页没法震，要 iOS 18`, none: '这个浏览器不支持' } as const)[vibeSupport()]}）`, run: () => { VIBE.on = !VIBE.on; try { localStorage.setItem('ub.vibe', VIBE.on ? '1' : '0'); } catch { /* private mode */ } } },
-      { label: () => '试一下震动', run: () => { const was = VIBE.on; VIBE.on = true; this.platform.vibrate('heavy'); VIBE.on = was; } },
+      { label: () => `震动：${VIBE.on ? '开' : '关'}（${({ api: '这台设备支持', ios: `iPhone iOS ${iosMajor()}：系统触感，点屏幕时最灵`, 'ios-old': `iPhone iOS ${iosMajor() || '17 及以下'}：网页没法震，要 iOS 18`, none: '这个浏览器不支持' } as const)[vibeSupport()]}）`, short: () => `震动：${VIBE.on ? '开' : '关'}`, run: () => { VIBE.on = !VIBE.on; try { localStorage.setItem('ub.vibe', VIBE.on ? '1' : '0'); } catch { /* private mode */ } } },
+      { label: () => '试一下震动', short: () => '试一下震动', run: () => { const was = VIBE.on; VIBE.on = true; this.platform.vibrate('heavy'); VIBE.on = was; } },
       // act-14 用户：「我要2x，然后调试面板给我一个切换这个的功能」 — 2x → 3x → off → 1x, remembered on this device
       // act-21: which title screen (five moods; the user picks on a phone too, where there are no number keys)
-      { label: () => `开始画面：第 ${savedTitle()} 版（点这里换）`, run: () => { const n = savedTitle() % TITLE_COUNT + 1; try { localStorage.setItem('ub.title', String(n)); } catch { /* storage blocked */ } if (this.phase === 'title') this.title(n); } },
+      { label: () => `开始画面：第 ${savedTitle()} 版（点这里换）`, short: () => `开始画面：第 ${savedTitle()} 版`, run: () => { const n = savedTitle() % TITLE_COUNT + 1; try { localStorage.setItem('ub.title', String(n)); } catch { /* storage blocked */ } if (this.phase === 'title') this.title(n); } },
       // act-20: her look (the story's heroine: the 斗笠 or the 白发 — the user's two picks); the hideout has no costume rack
-      { label: () => `造型：${this.wearing.name}（点这里换）`, run: () => { const ids = ['fine_white', 'fine_hat'], n = HEROES.find(d => d.id === ids[(ids.indexOf(this.wearing.id) + 1) % ids.length]); if (n) this.wear(n); } },
-      { label: () => `像素：${PX.on ? PX.size + 'x' : '关'}（点这里换）`, run: () => { const order = ['2', '3', 'off', '1'], cur = PX.on ? String(PX.size) : 'off', nx = order[(order.indexOf(cur) + 1) % order.length]; if (nx === 'off') setPixel(false); else setPixel(true, +nx); try { localStorage.setItem('ub.px', nx); } catch { /* private mode */ } } }]);
+      { label: () => `造型：${this.wearing.name}（点这里换）`, short: () => `造型：${this.wearing.name}`, run: () => { const ids = ['fine_white', 'fine_hat'], n = HEROES.find(d => d.id === ids[(ids.indexOf(this.wearing.id) + 1) % ids.length]); if (n) this.wear(n); } },
+      { label: () => `像素：${PX.on ? PX.size + 'x' : '关'}（点这里换）`, short: () => `像素：${PX.on ? PX.size + 'x' : '关'}`, run: () => { const order = ['2', '3', 'off', '1'], cur = PX.on ? String(PX.size) : 'off', nx = order[(order.indexOf(cur) + 1) % order.length]; if (nx === 'off') setPixel(false); else setPixel(true, +nx); try { localStorage.setItem('ub.px', nx); } catch { /* private mode */ } } }];
+    installActTune(SET.map(x => ({ label: x.label, run: x.run })));
+    // the pause menu (act-30 之后, user: 「帮我把手柄的按键映射和手柄支持做了吧」): Start / Esc, a pad pulled out, the page hidden
+    this.pause = new PauseMenu({ L: this.L, settings: SET.map(x => ({ label: x.short, run: x.run })), canGiveUp: () => this.canGiveUp(), giveUp: () => this.giveUp(), closed: () => this.unpaused() });
+    RUMBLE.fn = padRumble;
+    if (typeof window !== 'undefined') {
+      window.addEventListener('gamepaddisconnected', () => { if (PAD.device === 'pad') this.pauseGame(); });
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') this.pauseGame(); });
+    }
     if (typeof window !== 'undefined') window.addEventListener('keydown', e => { if ((e.key === 'u' || e.key === 'U') && !this.cards.on) this.cycleSkin(); });
     dh.add({ voxCompare: (id: string, only = -1, x?: number, z?: number) => {
         // before (the code model) on the left, the edited file on the right, beside the hero (captures of a model edit);
@@ -472,7 +485,7 @@ export class ActShow {
     this.yard?.dispose(); this.yard = null; this.props?.dispose(); this.props = null; this.gates?.dispose(); this.gates = null; this.leaves?.dispose(); this.leaves = null; this.stations?.dispose(); this.stations = null; this.hero?.a.dispose();
     this.clearNpcs();
     this.phase = 'title'; this.hud.on = false; this.hud.update(0, this.inp, []); this.banner.hide(); this.blob.visible = false; this.ring.visible = false; for (const m of this.shadows) m.visible = false;
-    void playTitle(n, { ov: this.ov, L: this.L, hasSave, settings: () => toggleActTune(), enter: k => { this.hud.on = true; if (k === 'continue') this.continueGame(); else void this.startNewGame(); } });
+    void playTitle(n, { ov: this.ov, L: this.L, hasSave, settings: () => this.pause.open('set', { fromTitle: true }), enter: k => { this.hud.on = true; if (k === 'continue') this.continueGame(); else void this.startNewGame(); } });
     this.music();
     // (before the title's first frame: the page is still dark and loading then — a frozen first picture with the snow hanging in the
     //  air would read as a hang)
@@ -610,7 +623,9 @@ export class ActShow {
     if (this.mods.startIntent > 0 && this.intent < this.mods.startIntent) { this.intent = this.mods.startIntent; this.hud.intent = this.intent; }
     const name = LOCALES[this.locale]?.name ?? '';
     // the very first room: the controls once, in the banner (no key hints on screen afterwards)
-    const hint = !this.hinted ? (this.inp.lastDevice === 'touch' && 'ontouchstart' in globalThis ? '左边拖动走 · 斩 / 按住蓄力 · 冲 · 跳 · 镖' : 'WASD 走 · J 斩（按住蓄力）· 空格 跳 · K 冲刺 · L 飞镖') : '';
+    const dev = this.inp.lastDevice, hint = !this.hinted ? (dev === 'touch' && 'ontouchstart' in globalThis ? '左边拖动走 · 斩 / 按住蓄力 · 冲 · 跳 · 镖'
+      : dev === 'pad' ? `左摇杆 走 · ${actPad('attack')} 斩（按住蓄力）· ${actPad('jump')} 跳 · ${actPad('dash')} 冲刺 · ${actPad('special')} 飞镖`
+      : `WASD 走 · ${actKey('attack')} 斩（按住蓄力）· ${actKey('jump')} 跳 · ${actKey('dash')} 冲刺 · ${actKey('special')} 飞镖`) : '';
     this.hinted = true;
     const info = ROOM_INFO[this.plan?.type ?? 'fight'];
     if (!this.prologue) this.banner.show(`第 ${'一二三四五六'[this.room] ?? this.room + 1} 间 · ${info.name}`, hint || `${name} · ${info.line}`, hint ? 3.2 : 1.6);
@@ -659,7 +674,7 @@ export class ActShow {
     const ex = { ...exitInfo(this.layout!, 'back'), id: 'left' as const, lane: { x0: HIDEOUT.exit.x0, x1: HIDEOUT.exit.x1, z0: HIDEOUT.exit.z - 1.0, z1: PLAY.z1 + 2.5 }, walk: [[gx, HIDEOUT.exit.z - 1.6], [gx, HIDEOUT.exit.z + 1.0]] as Array<[number, number]> };
     this.doors = [{ ex, g: new THREE.Group(), lift: 1 }];
     const touch = this.inp.lastDevice === 'touch' && 'ontouchstart' in globalThis;
-    this.banner.show('断碑古窑', touch ? '走近人点右下说话 · 踩石板叫陪练 · 出院门开打' : '走近人按 J 说话 · 踩石板叫陪练 · 出院门开打 · ` 键调手感', 4);
+    this.banner.show('断碑古窑', touch ? '走近人点右下说话 · 踩石板叫陪练 · 出院门开打' : this.inp.lastDevice === 'pad' ? `走近人按 ${actPad('attack')} 说话 · 踩石板叫陪练 · 出院门开打` : `走近人按 ${actKey('attack')} 说话 · 踩石板叫陪练 · 出院门开打 · \` 键调手感`, 4);
     this.log.push('yard');
   }
   private spawnWave() {
@@ -714,7 +729,7 @@ export class ActShow {
     chaseTarget: () => this.chaseTarget(), chase: o => this.chaseFx(o),
     stickWorld: () => V3(this.inp.move.x, 0, -this.inp.move.y),
     // act-27: the dart's aim — the finger dragged off the dart button, else the stick (keys / pad)
-    aimWorld: () => { const a = this.inp.aimScreen(); if (a) return V3(a.x, 0, -a.y); const m = this.inp.move; return Math.hypot(m.x, m.y) > 0.2 ? V3(m.x, 0, -m.y) : null; },
+    aimWorld: () => { const a = this.inp.aimScreen(); if (a) return V3(a.x, 0, -a.y); const r = this.inp.rstick; if (Math.hypot(r.x, r.y) > 0.3) return V3(r.x, 0, -r.y); const m = this.inp.move; return Math.hypot(m.x, m.y) > 0.2 ? V3(m.x, 0, -m.y) : null; },
     guard: o => this.guard(o), incoming: r => this.incoming(r), iaiCatch: win => this.iaiCatch(win),
   };
   private foeWorld: FoeWorld = {
@@ -1220,7 +1235,9 @@ export class ActShow {
     return { base, look, fov: TUNE.camFov };
   }
   private frame(dt: number, rdt: number) {
+    if (PAUSE.on) return;   // the pause menu runs on its own (real time); the world gets nothing
     this.inp.frame(rdt);
+    this.padScreens(rdt);
     if (this.phase === 'opening' || this.phase === 'title') return;   // opening.ts / title.ts run the start screen
     // act-20: a cutscene or a conversation — the timeline / the dialogue run, the people idle, nothing fights
     // (act-26: once a conversation ends the phase moves on at once — the portraits still have to slide out, so keep driving them)
@@ -1400,6 +1417,7 @@ export class ActShow {
   }
   // ------------------------------------------------------------ input
   private pointer(type: string, id: number, x: number, y: number) {
+    if (this.pause.on) { this.pause.pointer(type, x, y); return; }
     if (this.phase === 'title') { titlePointer(type, x, y); return; }
     if (this.timeline.on) { this.timeline.pointer(type); return; }
     if (this.dialogue.on) { if (type === 'down') this.dialogue.advance(); return; }
@@ -1414,11 +1432,41 @@ export class ActShow {
   }
   private key(e: KeyboardEvent) {
     if (this.timeline.on && e.key === 'Escape') { this.timeline.key(true); return; }
+    if (e.key === 'Escape' && !e.repeat && this.canPause()) { e.preventDefault(); this.pauseGame(); e.stopImmediatePropagation(); return; }   // (the menu must not take the same Esc as its 返回)
     if (this.dialogue.on) { if (!e.repeat && ['Enter', ' ', 'j', 'J'].includes(e.key)) { e.preventDefault(); this.dialogue.advance(); } return; }
     if (!this.cards.on) return;
-    const k = ({ arrowleft: 'left', a: 'left', arrowright: 'right', d: 'right', enter: 'ok', ' ': 'ok', j: 'ok' } as const)[e.key.toLowerCase() as 'a'];
+    const k = ({ arrowleft: 'left', a: 'left', arrowup: 'left', w: 'left', arrowright: 'right', d: 'right', arrowdown: 'right', s: 'right', enter: 'ok', ' ': 'ok', j: 'ok' } as const)[e.key.toLowerCase() as 'a'];
     if (k && !e.repeat) { e.preventDefault(); this.cards.key(k); }
   }
+  // ------------------------------------------------------------ the pad on the screens that are menus; the pause
+  /** the pad on the cards, the conversations, the cutscenes, the opening; Start pauses (act-30 之后) */
+  private padScreens(rdt: number) {
+    const n = padNav.poll(rdt);
+    if (this.phase === 'opening') { if (n.any) openingPadTap(); return; }
+    if (this.phase === 'title') return;   // title.ts reads the pad itself
+    // a cutscene: B held = the long press that skips (the ring at the bottom right fills)
+    if (this.timeline.on) { if (n.back) { this.padSkip = true; this.timeline.key(true); } else if (this.padSkip && !n.backHeld) { this.padSkip = false; this.timeline.key(false); } }
+    else this.padSkip = false;
+    if (this.dialogue.on) { if (n.ok || n.x) this.dialogue.advance(); return; }
+    if (this.cards.on) { if (n.up || n.left) this.cards.key('left'); else if (n.down || n.right) this.cards.key('right'); else if (n.ok) this.cards.key('ok'); return; }
+    if (n.start && this.canPause()) this.pauseGame();
+  }
+  /** the world can stand still here: walking about or fighting (not the start screen, a cutscene, a conversation, the cards, a wipe) */
+  canPause() {
+    return !this.pause.on && !this.labOn && !this.cards.on && !this.ultOn && !this.dialogue.on && !this.timeline.on && (['yard', 'intro', 'fight', 'doors'] as Phase[]).includes(this.phase);
+  }
+  pauseGame() {
+    if (!this.canPause() || this.botOn) return;
+    this.pauseHud = this.hud.on; this.hud.on = false; this.hud.update(0, this.inp, []); this.aimLine.visible = false;
+    this.pause.open('main');
+  }
+  private unpaused() {
+    if (this.pauseHud == null) return;   // the menu was over the start screen
+    this.hud.on = this.pauseHud; this.pauseHud = null; this.inp.latch();
+  }
+  /** 回据点 from the pause menu: out on a run (not the yard, not the prologue's scripted fights) */
+  private canGiveUp() { return !this.prologue && (['intro', 'fight', 'doors'] as Phase[]).includes(this.phase); }
+  private giveUp() { if (!this.hero.alive) return; this.hero.giveUp(); this.dead(); }
   // ------------------------------------------------------------ a bot (captures / smoke tests)
   private botT = 0; private cardT = 0; private botStuckT = 0; private botLast = V3(); private botUnstick = 0; private botSide = 1;
   /** the bot stays in the yard and spars (captures of the yard) instead of walking out */

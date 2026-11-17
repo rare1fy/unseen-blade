@@ -17,10 +17,10 @@ import { TUNE } from './tune';
 import { SKIN, PALETTE, SkinBtn, SkinStick, SkinHp, type SkinId } from './skin';
 import { IronBtn, IronStick, IronHp, QteRing , type HintKey } from './ironUi';
 import { textCells } from '../ui3d/pixfont';
+import { bodyW } from '../ui3d/bodyFont';
+import { ACTION_WORD, BIND, actKey, glyphTex, glyphArt, GLYPH_H } from './pad';
 
 type AnyBtn = SkinBtn | IronBtn; type AnyHp = SkinHp | IronHp;
-/** the words under the buttons (act-28) and their keys: [word, keyboard, pad] */
-const BTN_WORD: Record<BtnName, [string, string, string]> = { attack: ['攻击', 'J', 'X'], dash: ['闪避', 'K', 'B'], jump: ['跳跃', '空格', 'A'], special: ['远程', 'L', 'Y'] };
 
 interface Bar { g: THREE.Group; back: THREE.Mesh; lag: THREE.Mesh; fill: THREE.Mesh; shown: number; lagV: number }
 const box = (c: number, o = 1) => new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: c, transparent: o < 1, opacity: o, depthWrite: false }));
@@ -48,6 +48,17 @@ export class ActHud {
   /** copper coins in the purse (act-17), shown under the health number */
   coins = 0; private coinIcon: THREE.Group | null = null; /** act-29: the shown count runs up to the real one; the coin hops on each step */ private coinShown = 0; private coinHop = 0;
   stickHome = { x: 150, y: 600 }; stickSize = 150; k = 1; on = true; private W = 1280; private H = 720;
+  /** the pad buttons drawn after the words under the buttons (in the text layer: crisp, on top) */
+  private glyphs: Partial<Record<BtnName, THREE.Mesh>> = {};
+  private glyph(n: BtnName, i: number | null, left: number, y: number, h: number) {
+    let m = this.glyphs[n];
+    if (i == null) { if (m) m.visible = false; return; }
+    const tex = glyphTex(i); if (!tex) return;
+    if (!m) { m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ transparent: true, depthTest: false, depthWrite: false, toneMapped: false })); this.L.text.scene.add(m); this.glyphs[n] = m; }
+    const mat = m.material as THREE.MeshBasicMaterial; if (mat.map !== tex) { mat.map = tex; mat.needsUpdate = true; }
+    const dpr = this.L.dpr || 1, s = Math.max(1, Math.round(h / GLYPH_H * dpr)) / dpr, w = glyphArt(i).w * s, hh = GLYPH_H * s;
+    m.scale.set(w, hh, 1); m.position.set(Math.round(left * dpr) / dpr + w / 2, -Math.round(y * dpr) / dpr, 0); m.visible = true;
+  }
   constructor(private L: UiLayer) {
     this.sparks = new UiSparks(L.scene, 80); this.qteRing = new QteRing(L);
     this.build();
@@ -127,15 +138,19 @@ export class ActHud {
     b.lag.position.x = (-w / 2 + (w * b.lagV) / 2) * u; b.fill.position.x = (-w / 2 + (w * frac) / 2) * u;
   }
   update(dt: number, inp: Input, foes: Foe[]) {
-    this.stick.root.visible = this.on; for (const b of Object.values(this.btns)) { b.root.visible = this.on; if (b instanceof IronBtn) b.iconG.visible = this.on; }
+    this.stick.root.visible = this.on; for (const b of Object.values(this.btns)) { b.root.visible = this.on; if (b instanceof IronBtn) { b.iconG.visible = this.on; if (!this.on && b.token) b.token.visible = false; } }
     this.flask.root.visible = this.on;
     if (this.on) { this.stick.update(inp.stick, this.stickHome, this.stickSize); for (const b of Object.values(this.btns)) b.update(dt); }
     // act-28 (user: 「技能下面我看还是没有写按键什么意思：闪避、跳跃、远程、攻击」): what each button does, in small pixel type just under
     // its rim (never on the button face); with a keyboard or a pad the key follows the word
     for (const n of Object.keys(this.btns) as BtnName[]) {
-      const b = this.btns[n], [w0, key, pad] = BTN_WORD[n], dev = inp.lastDevice, word = n === 'attack' && b instanceof IronBtn && b.talk ? '交谈' : w0;
-      const t = dev === 'key' ? `${word} ${key}` : dev === 'pad' ? `${word} ${pad}` : word;
-      this.L.text.set('act.btn.' + n, { text: t, x: b.x, y: b.y + b.size * 0.5 + 9 * this.k, bodyPx: Math.max(10, Math.round(13 * this.k)), color: '#f0e6cf', outline: '#140c0a', align: 'center', visible: this.on });   // (the HD body font: the pixel numerals have no CJK)
+      // act-30 之后: the keys follow the binding table (rebindable in the pause menu); on a pad the button is drawn, in its maker's look
+      const b = this.btns[n], word = n === 'attack' && b instanceof IronBtn && b.talk ? '交谈' : ACTION_WORD[n], dev = inp.lastDevice, px = Math.max(10, Math.round(13 * this.k)), y = b.y + b.size * 0.5 + 9 * this.k;
+      const t = dev === 'key' ? `${word} ${actKey(n)}` : word;
+      let x = b.x;
+      if (dev === 'pad' && this.on) { const gi = BIND.pad[n][0], gh = px * 1.3, gw = glyphArt(gi).w / GLYPH_H * gh, gap = px * 0.3, ww = bodyW(word, px); x = b.x - (gap + gw) / 2; this.glyph(n, gi, b.x - (ww + gap + gw) / 2 + ww + gap, y, gh); }
+      else this.glyph(n, null, 0, 0, 0);
+      this.L.text.set('act.btn.' + n, { text: t, x, y, bodyPx: px, color: '#f0e6cf', outline: '#140c0a', align: 'center', visible: this.on });   // (the HD body font: the pixel numerals have no CJK)
     }
     if (this.flask instanceof IronHp) this.flask.intent = this.intent;
     this.flask.update(dt); this.sparks.update(dt);

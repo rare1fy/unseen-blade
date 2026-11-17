@@ -9,7 +9,8 @@
 // 性能：雨是一条线段网格、雪和余烬各是一组点、飞鸟三个实例化网格、雾是几张贴图面片；没有新的后期通道。
 import * as THREE from 'three';
 import { V3, R, onUpdate, canvasTex, camera, scene, view, precompile } from '../engine/world';
-import { hitstop, shake } from '../engine/clock';
+import { hitstop, shake, PAUSE } from '../engine/clock';
+import { activePad } from './pad';
 import { shot } from '../director';
 import { applyMood, showStage, skyMaterial, currentStage, type Ctx, type Mood, type Stage } from '../scenes/stage';
 import { GRADE } from '../look/post';
@@ -285,8 +286,8 @@ class Smoke {
 // face. Selected: it slides a little toward the centre and comes forward, the face turns warm gold, the frame breathes an ember glow,
 // a small bronze ring-pommel (环首) points at it. Disabled (继续游戏 with no save): darker, the name grey.
 interface Item { id: string; label: string; enabled: boolean }
-const IRON_D = 0x1a1b20, IRON = 0x34363e, LACQ = 0x2a1310, LACQ_L = 0x3e1c16, BRONZE = 0xb07a3a, BRONZE_D = 0x6a4622;
-function mergeBoxes(list: Array<{ w: number; h: number; d: number; x: number; y: number; z: number; c: number }>) {
+export const IRON_D = 0x1a1b20, IRON = 0x34363e, LACQ = 0x2a1310, LACQ_L = 0x3e1c16, BRONZE = 0xb07a3a, BRONZE_D = 0x6a4622;
+export function mergeBoxes(list: Array<{ w: number; h: number; d: number; x: number; y: number; z: number; c: number }>) {
   const gs: THREE.BufferGeometry[] = [], col = new THREE.Color(); let n = 0;
   for (const b of list) { const g = new THREE.BoxGeometry(b.w, b.h, b.d).translate(b.x, b.y, b.z).toNonIndexed(); const k = g.attributes.position.count, cs = new Float32Array(k * 3); col.setHex(b.c); for (let i = 0; i < k; i++) cs.set([col.r, col.g, col.b], i * 3); g.setAttribute('color', new THREE.BufferAttribute(cs, 3)); g.deleteAttribute('uv'); gs.push(g); n += k; }
   const out = new THREE.BufferGeometry(), P = new Float32Array(n * 3), N = new Float32Array(n * 3), C = new Float32Array(n * 3); let at = 0;
@@ -310,7 +311,7 @@ function plaqueBody() {
   return new THREE.Mesh(mergeBoxes(b), new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0xff7a2a, emissiveIntensity: 0 }));
 }
 /** the ring-pommel marker: a square bronze ring, a short grip, the stub of a blade (axis-aligned blocks) pointing right */
-function pommel() {
+export function pommel() {
   const b: Parameters<typeof mergeBoxes>[0] = [];
   const s = 0.07;   // the ring (a square of bronze), the wrapped grip, a small iron guard, a long straight blade with a lit edge
   b.push({ w: s * 4, h: s, d: s, x: -s * 6.5, y: s * 1.5, z: 0, c: BRONZE }, { w: s * 4, h: s, d: s, x: -s * 6.5, y: -s * 1.5, z: 0, c: BRONZE_D }, { w: s, h: s * 4, d: s, x: -s * 8, y: 0, z: 0, c: BRONZE });
@@ -414,7 +415,7 @@ class Title {
   private lay = { x: 0, y: 0, w: 1, h: 1, key: '', cx: 0, top: 0 };
   private titleA = 0; private line: THREE.Mesh[] = []; private slabs: THREE.Mesh[] = []; private frame: THREE.CanvasTexture | null = null; private grab = false; private grabbed = false; private cutY = 0;
   // the menu
-  private items: Item[]; private plaques: Plaque[] = []; private sel = 0; private marker: THREE.Mesh; private markerK = 0; private gap = 10;
+  private items: Item[]; private plaques: Plaque[] = []; private sel = 0; private menuK = 0; private marker: THREE.Mesh; private markerK = 0; private gap = 10;
   private choice: 'new' | 'continue' = 'new'; private padPrev = { up: false, down: false, ok: false, back: false }; private padRep = 0;
   private onKey = (e: KeyboardEvent) => this.key(e);
   constructor(private n: number, private host: TitleHost) {
@@ -586,7 +587,7 @@ class Title {
     // the title fades in slowly once the place has settled (from 0.6 s, over 2.4 s), rising a few pixels
     this.titleA = Math.min(1, this.titleA + (this.t > 0.6 ? rdt / 2.4 : 0));
     const ta = this.titleA * this.titleA * (3 - 2 * this.titleA), rise = (1 - ta) * 8;
-    if (this.titleM) { place(this.titleM, L.x, L.y + rise, L.w, L.h); const mt = this.titleM.material as THREE.MeshBasicMaterial; mt.opacity = ta; mt.color.setScalar(1 + this.flashK * 0.3); }
+    if (this.titleM) { place(this.titleM, L.x, L.y + rise, L.w, L.h); const mt = this.titleM.material as THREE.MeshBasicMaterial; mt.opacity = ta * (1 - this.menuK); mt.color.setScalar(1 + this.flashK * 0.3); }
     // the note over the confirm (small, under the title)
     const want = this.beat === 'confirm' ? ASK_NOTE : '';
     if (want !== this.noteKey) {
@@ -616,11 +617,13 @@ class Title {
   // ---------------------------------------------------------------- the menu
   private drawMenu(rdt: number) {
     if (this.beat === 'split' || this.beat === 'done') return;
-    const side: 1 | -1 = this.def.ui === 'left' ? 1 : -1, live = this.beat === 'menu' || this.beat === 'confirm';
+    const side: 1 | -1 = this.def.ui === 'left' ? 1 : -1, live = (this.beat === 'menu' || this.beat === 'confirm') && !PAUSE.menu;
+    this.menuK += ((PAUSE.menu ? 1 : 0) - this.menuK) * Math.min(1, rdt * 10);
     this.plaques.forEach((p, i) => {
       const at = 1.6 + i * 0.14;
-      if (live) p.inK = Math.min(1, Math.max(p.inK, (this.t - at) / 0.5));
-      else if (i !== this.sel) p.inK = Math.max(0, p.inK - rdt * 4);   // the way in: the others slide away, the chosen one stays for the cut
+      // (back from the settings page: they slide in again rather than pop)
+      if (live) p.inK = Math.min(Math.min(1, Math.max(0, (this.t - at) / 0.5)), Math.max(p.inK, p.inK + rdt * 4));
+      else if (i !== this.sel || PAUSE.menu) p.inK = Math.max(0, p.inK - rdt * 4);   // the way in: the others slide away, the chosen one stays for the cut
       p.update(rdt, this.t, i === this.sel, side);
     });
     // the ring-pommel points at the selected plaque from the outer side, bobbing
@@ -669,7 +672,7 @@ class Title {
     return false;
   }
   private key(e: KeyboardEvent) {
-    if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+    if (e.ctrlKey || e.metaKey || e.altKey || e.repeat || PAUSE.menu) return;
     const k = e.key.toLowerCase();
     if (k === 'arrowup' || k === 'w') { e.preventDefault(); this.move(-1); }
     else if (k === 'arrowdown' || k === 's') { e.preventDefault(); this.move(1); }
@@ -678,9 +681,10 @@ class Title {
     else if (/^[1-9]$/.test(k) && +k <= TITLES.length && +k !== this.n && this.beat === 'menu') { e.preventDefault(); dh.api.title && (dh.api.title as (n: number) => void)(+k); }
   }
   private pad(rdt: number) {
-    const gp = Array.from((globalThis.navigator as Navigator | undefined)?.getGamepads?.() ?? []).find(p => p && p.connected);
+    const gp = activePad();
     if (!gp) return;
     const ay = gp.axes[1] ?? 0, up = !!gp.buttons[12]?.pressed || ay < -0.5, down = !!gp.buttons[13]?.pressed || ay > 0.5, ok = !!gp.buttons[0]?.pressed || !!gp.buttons[9]?.pressed, back = !!gp.buttons[1]?.pressed;
+    if (PAUSE.menu) { this.padPrev = { up, down, ok, back }; return; }   // the settings page is over the menu: it has the pad
     this.padRep -= rdt;
     if ((up && (!this.padPrev.up || this.padRep <= 0))) { this.move(-1); this.padRep = this.padPrev.up ? 0.16 : 0.4; }
     if ((down && (!this.padPrev.down || this.padRep <= 0))) { this.move(1); this.padRep = this.padPrev.down ? 0.16 : 0.4; }

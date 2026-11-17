@@ -49,6 +49,10 @@ export const onUpdate = (fn: Hook) => { updaters.push(fn); };
 export const onLateUpdate = (fn: Hook) => { lateUpdaters.push(fn); };
 export function runUpdaters(dt: number, rdt: number) { for (const f of updaters) f(dt, rdt); }
 export function runLateUpdaters(dt: number, rdt: number) { for (const f of lateUpdaters) f(dt, rdt); }
+/** real-time UI (the pause menu): called every frame with the real step, paused or not */
+const realUpdaters: Array<(rdt: number) => void> = [];
+export const onRealUpdate = (fn: (rdt: number) => void) => { realUpdaters.push(fn); };
+export function runRealUpdaters(rdt: number) { for (const f of realUpdaters) f(rdt); }
 
 /** A texture painted with a 2D canvas (procedural: dice faces, particle tiles, decals). */
 export function canvasTex(w: number, h: number, draw: (g: CanvasRenderingContext2D, cv: any) => void, o: { nearest?: boolean } = {}) {

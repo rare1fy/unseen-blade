@@ -27,6 +27,8 @@ export function makeCanvas(w: number, h: number): any {
 
 /** haptics switch (settings) */
 export const VIBE = { on: true };
+/** the game's say before the phone's: a pad in use rumbles instead (act/pad.ts padRumble; true = handled) */
+export const RUMBLE: { fn: ((level: VibeLevel) => boolean) | null } = { fn: null };
 /** what this device can do: 'api' = navigator.vibrate (Android browsers), 'ios' = no vibrate API but Safari 18's switch haptic,
  *  'none' = neither (the mini-game platforms have their own) */
 export function vibeSupport(): 'api' | 'ios' | 'ios-old' | 'none' {
@@ -64,6 +66,7 @@ export function initPlatform(): Platform {
   p.vibrate = (level: VibeLevel) => {
     if (!VIBE.on) return;
     try {
+      if (RUMBLE.fn?.(level)) return;
       if (mini && mini.vibrateShort) { mini.vibrateShort({ type: level }); return; }
       // a burst of hits would blur into one buzz: at least 40 ms apart
       const now = p.now(); if (now - lastVibe < 40) return; lastVibe = now;
