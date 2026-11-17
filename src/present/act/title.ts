@@ -377,6 +377,8 @@ export function playTitle(n: number, host: TitleHost) { stopOpening(); running?.
 /** show.ts pointer(): the title takes the pointer while it is up */
 export function titlePointer(type: string, x: number, y: number) { return running ? running.pointer(type, x, y) : false; }
 export const titleRunning = () => !!running;
+/** act-40: put the title away now (a new game that opens on black cards changes no stage, which used to take the title down) */
+export function stopTitle() { running?.stop(); }
 onUpdate((dt, rdt) => running?.update(dt, rdt));
 
 /** captures: a fixed framing (__dh.tCam([x,y,z], [fx,fy,fz], nx, ny, fov) / __dh.tCam(null)); the walk jumped to its end */
