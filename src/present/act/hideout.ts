@@ -10,6 +10,7 @@
 // 和房间一样用 showStage(hideoutScene(...), { combat: true }) 显示；HIDEOUT 是给游戏代码用的摆位约定（地面、出生点、各人站位、复仇碑、
 // 木人桩和召唤石板的位置、出口线、碰撞体）。调试：__dh.hideout(time?, weather?, view?)、__dh.hideoutSolids(on?)。
 import * as THREE from 'three';
+import { VoxWorld } from '../look/voxkit';
 import { scene, V3, onUpdate } from '../engine/world';
 import { showStage, currentStage, followShadow, type Ctx, type SceneDef, type Stage } from '../scenes/stage';
 import { M, PLAY, hash, mix as mixC } from '../scenes/props';
@@ -26,7 +27,7 @@ import { trimShadows } from './enemy';
 import { dh } from '../../debug/dh';
 import type { ActShow } from './show';
 import { HIDEOUT_PEOPLE, HIDEOUT_DONKEY, FENG_STRIKE } from './hideout_people';
-import { K, kiln, forge, anvil, bladeRack, trough, coalBasket, northWall, offering, logStack, herbCorner, mat, medStove, lowTable, bellPost, steps, terrace, culvert, channel, railing, cart, feed, cookFire, practiceRack, stoneLock, lantern, frontGate, pigeon, recolor, brickAt } from './hideout_kit';
+import { K, kiln, forge, anvil, bladeRack, bladeWall, RACK_RAILS, trough, coalBasket, northWall, offering, logStack, herbCorner, mat, medStove, lowTable, bellPost, steps, terrace, culvert, channel, railing, cart, feed, cookFire, practiceRack, stoneLock, lantern, frontGate, pigeon, recolor, brickAt } from './hideout_kit';
 export { HIDEOUT_PEOPLE } from './hideout_people';
 
 export type HideoutTime = 'dusk' | 'night' | 'dawn' | 'day';
@@ -61,8 +62,9 @@ export const HIDEOUT: {
   },
   // the carved revenge stele (the game builds it, 1.33 × 0.75 m, its face toward +z): its middle, backed against the north wall where
   // the wall's apron of pavers is, ~1 m of clear floor in front of it; the offering stand beside it on the right
-  stele: { x: 4.4, z: -7.95, yaw: 0 },
-  list: { x: 4.4, z: -7.95 },
+  // (act-37: moved right from 4.4 to make room for the rack of thirty blades on the wall beside the kiln)
+  stele: { x: 5.15, z: -7.95, yaw: 0 },
+  list: { x: 5.15, z: -7.95 },
   // 试剑坪: three wooden dummies inside the ring of bell posts, four summon slabs along its front edge (kept clear of everything)
   dummies: [[-5.6, -1.9], [-3.4, -1.9], [-4.5, 0.3]],
   slabs: [[-6.9, 4.0], [-5.5, 4.0], [-4.1, 4.0], [-2.7, 4.0]],
@@ -78,7 +80,9 @@ const C = (m: number) => M(m);
 const KILN = { X: C(-0.8), Z: C(-9.0) };                            // the vault's centre column, its front face row
 const FORGE = { X: KILN.X - 13, Z: KILN.Z + 13 };
 const WALL = { X0: KILN.X + 54, X1: C(8.6), Z0: C(-8.9), Z1: C(-8.4), H: 33 };   // the north wall
-const OFFER = { X: C(5.45), Z: C(-8.12) };                          // the offering stand beside the stele
+const OFFER = { X: C(6.2), Z: C(-8.12) };
+// the rack of thirty blades on the north wall's left end (beside the kiln): its first cell, its plane one cell off the wall
+const RACK = { X0: WALL.X0, Z: WALL.Z1 + 1 };                          // the offering stand beside the stele
 const CORNER = { X0: C(6.55), X1: C(8.1), Zp: C(-7.9), Zr: C(-7.55) };   // 孙媪's lean-to (the north wall to its posts), the drying pole
 const SIDE = { X0: C(8.2), X1: C(8.6) - 1, Z1: C(-5.0) };          // the corner's side wall (along z)
 const STOVE = { X: C(7.42), Z: C(-7.0) }, TABLE = { X: C(7.55), Z: C(-4.75) }, MAT = { X: C(6.0), Z: C(-7.1) };
@@ -200,7 +204,8 @@ function build(c: Ctx, o: { time: HideoutTime; weather: HideoutWeather }) {
   trough(c, KILN.X + 29, KILN.Z + 5);
   coalBasket(c, KILN.X - 27, KILN.Z + 29);
   // the north wall (the stele stands before it; an offering beside it), 孙媪's corner and its side wall, pigeons on the wall top
-  northWall(c, WALL.X0, WALL.X1, WALL.Z0, WALL.Z1, WALL.H, [[WALL.X0, WALL.X0 + 8, 7], [C(6.0), C(6.5), 3], [WALL.X1 - 5, WALL.X1, 8]]);
+  northWall(c, WALL.X0, WALL.X1, WALL.Z0, WALL.Z1, WALL.H, [[C(6.0), C(6.5), 3], [WALL.X1 - 5, WALL.X1, 8]]);
+  bladeWall(c, RACK.X0, RACK.Z);
   const flame = offering(c, OFFER.X, OFFER.Z, lit);
   for (let Z = WALL.Z0; Z <= SIDE.Z1; Z++) { const h = Z <= C(-7.0) ? 22 : Z <= C(-6.0) ? 14 : 7; for (let x = SIDE.X0; x <= SIDE.X1; x++) for (let y = 0; y <= h; y++) w.set(x, y, Z, y <= 2 ? (y === 2 ? K.stoneL : K.stone) : brickAt(x + Z, y)); }
   recolor(w, SIDE.X0, 3, WALL.Z0, SIDE.X1, 23, SIDE.Z1, (x, y, z) => (w.has(x, y + 1, z) ? null : K.brickL));
@@ -364,3 +369,18 @@ function showSolids(on = true) {
   return HIDEOUT.solids.length;
 }
 dh.add({ hideout: showHideout, hideoutSolids: showSolids });
+
+/** act-37: the blades she has taken back (0..30), hanging from the rack's pegs in order (top row first, left to right): a bronze
+ *  ring on the peg, the red-bound grip, a dark guard, the steel blade with a lighter point. Built in the scene's own cells, so the
+ *  group goes in at the stage's origin. */
+export function rackBlades(n: number): THREE.Group {
+  const g = new THREE.Group(); n = Math.max(0, Math.min(30, Math.floor(n))); if (!n) return g;
+  const w = new VoxWorld(CELL), Z = RACK.Z;
+  for (let i = 0; i < n; i++) {
+    const x = RACK.X0 + 1 + (i % 10) * 2, y = RACK_RAILS[Math.floor(i / 10)];
+    w.box(x, y - 1, Z, x, y - 1, Z, 0xb08040); w.box(x, y - 2, Z, x, y - 2, Z, 0x7a2a20); w.box(x, y - 3, Z, x, y - 3, Z, 0x2a2a30);
+    w.box(x, y - 7, Z, x, y - 4, Z, 0xb4bcc6); w.box(x, y - 8, Z, x, y - 8, Z, 0xe2e8ee);
+  }
+  for (const m of w.build({ rim: 0.25, edge: 0.14 })) { m.castShadow = true; g.add(m); }
+  return g;
+}

@@ -33,7 +33,7 @@ import { openLab } from './lab';
 import { IronHp, HP_FACE } from './ironUi';
 import { ROSTER } from '../bestiary/models';
 import { CODE_BUILD } from '../bestiary/voxEdit';
-import { hideoutScene, HIDEOUT, HIDEOUT_PEOPLE } from './hideout';
+import { rackBlades, hideoutScene, HIDEOUT, HIDEOUT_PEOPLE } from './hideout';
 import { Timeline } from './timeline';
 import { openingShots, bossIntroShots, type CineHost } from './cutscenes';
 import { WAKE_DUWU, WAKE_SUNAO, CHULEI_BEFORE, CHULEI_AFTER, deathLine, PRO_CHULEI, PRO_FALL, PRO_DAWN, PRO_WAKE, PRO_CAPTIONS } from './scripts';
@@ -486,7 +486,8 @@ export class ActShow {
   }
   // ------------------------------------------------------------ rooms
   start() {
-    dh.add({ opening: () => this.opening(), title: (n = 1) => this.title(n) });   // captures: the old opening / a title variant again
+    dh.add({ opening: () => this.opening(), title: (n = 1) => this.title(n) });
+    dh.add({ rack: (n = 30) => { if (this.stage) this.stage.root.add(rackBlades(n)); return n; } });   // captures: the hideout's rack with n blades   // captures: the old opening / a title variant again
     // ?lab, or the desktop model page (window.__LAB): the model viewer (lab.ts, act-21)
     if (typeof window !== 'undefined' && ((window as unknown as { __LAB?: number }).__LAB || /[?&#]lab\b/.test(location.href))) { this.lab(); return; }
     // ?model (vox/打开游戏看效果.bat): straight into the hideout, the camera close behind her — for checking a model edited in MagicaVoxel
@@ -689,6 +690,8 @@ export class ActShow {
         after(0.5, () => this.inp.hold('attack', 0.55));
         after(1.2, () => { st.strike(0); hitstop(0.12); after(0.7, () => { this.noTalk = false; void this.talk([{ who: 'jiangjin', text: STELE_LINES.strike }]); }); });
       }); }
+    // act-37: the rack of thirty blades — one hangs for each taken back (褚雷 had the first)
+    { const p = profile(); this.stage!.root.add(rackBlades(p.seen['ch1_boss_after'] ? 1 : 0)); }
     // the way out: the gate in the front wall, a sign beside it; the bot walks there by the gate's mouth
     const gx = (HIDEOUT.exit.x0 + HIDEOUT.exit.x1) / 2;
     this.exitSign = makeSign('出发', { w: 1.3, h: 0.6, post: 0.9 }); this.exitSign.position.set(HIDEOUT.exit.x1 + 0.9, 0, HIDEOUT.exit.z - 0.9); this.stage!.root.add(this.exitSign);

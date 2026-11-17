@@ -159,6 +159,15 @@ export function northWall(c: Ctx, X0: number, X1: number, Z0: number, Z1: number
   const w = c.w, B = boxOf(w);
   for (let x = X0; x <= X1; x++) { const d = drops.find(q => x >= q[0] && x <= q[1])?.[2] ?? 0, top = h - d; for (let y = 0; y <= top; y++) for (let z = Z0; z <= Z1; z++) w.set(x, y, z, y <= 2 ? (y === 2 ? K.stoneL : K.stone) : brickAt(x + z, y)); if (!d) { B(x, h + 1, Z0 - 1, x, h + 1, Z1 + 1, HV.tileD); B(x, h + 2, Z0, x, h + 2, Z1, (x & 3) === 0 ? HV.tileL : HV.tile); } else B(x, top, Z0, x, top, Z1, K.brickL); }
 }
+/** act-37 (用户：「据点墙上的刀架」可以): the rack for the thirty 百辟刀 of the 文家 forge, on the north wall beside the kiln — two
+ *  dark stiles, three rails (y 31 / 22 / 13), ten pegs on each rail sticking out toward the yard. The blades she has taken back hang
+ *  from their pegs (the game adds them: rackBlades in hideout.ts); an empty slot is only its peg. Cells X0..X0 + 20, its plane at Z. */
+export const RACK_RAILS = [31, 22, 13];
+export function bladeWall(c: Ctx, X0: number, Z: number) {
+  const B = boxOf(c.w);
+  for (const x of [X0, X0 + 20]) { B(x, 4, Z, x, 32, Z, HV.post); B(x, 32, Z, x, 32, Z + 1, HV.woodD); }
+  for (const y of RACK_RAILS) { B(X0, y, Z, X0 + 20, y, Z, HV.woodD); B(X0 + 1, y + 1, Z, X0 + 19, y + 1, Z, HV.wood); for (let i = 0; i < 10; i++) B(X0 + 1 + i * 2, y, Z + 1, X0 + 1 + i * 2, y, Z + 1, HV.post); }
+}
 /** the offering by the revenge stele (cells, the stand's middle at X, Z): a dressed-stone stand with a light top, on it a clay bowl of
  *  ash and a candle (lit = its flame glows). Returns the flame point */
 export function offering(c: Ctx, X: number, Z: number, lit: boolean): [number, number, number] {
