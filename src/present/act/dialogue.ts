@@ -2,6 +2,7 @@
 // 《吞食天地》《三国战纪》式的原创街机手绘像素立绘，见 docs/art/ART_DIRECTION.md 第 10 节）：
 // 底部一块深色底、细金红像素边的对话框（3D 薄板，UI 层），金色名字、米白正文、点阵字逐字显示；主角立绘在左，对方在右，
 // 说话的一方亮、抬一点，另一方暗下去；立绘按整数倍放大保持像素清楚；场景照常看得见（不加全屏暗罩）。
+// act-25：照哈迪斯改成一屏高的大立绘，说话 / 听的人明暗和进退拉开，换人说话有一跳，进出场滑入滑出（见 portraits()）。
 // 点 / 回车 / 斩：先把这句显示完，再点下一句。冯铁臂是哑巴，他的「台词」是动作，用灰色写。
 import * as THREE from 'three';
 import type { UiLayer } from '../ui3d/layer';
@@ -32,13 +33,15 @@ function portraitTex(id: string, ready: (t: THREE.Texture) => void) {
 
 const BG = '#14121c', EDGE_G = '#c8963a', EDGE_R = '#a8302a', NAME = '#ffd27a', BODY = '#f2e8d6', MUTE = '#a8a2a8';
 const CPS = 36;   // characters per second
-interface Side { mesh: THREE.Mesh | null; id: string; k: number; on: number; aspect: number }
+interface Side { mesh: THREE.Mesh | null; id: string; k: number; on: number; aspect: number; pop: number; was: boolean }
 
 /** the line's HD body font size (CSS px): 20 on tall screens, 15 on a phone held sideways */
 const fontPx = (scale: number) => (scale >= 2 ? 20 : 15);
 export class Dialogue {
   on = false; private box: THREE.Mesh; private boxTex: THREE.CanvasTexture | null = null; private canvas = document.createElement('canvas');
-  private sides: Record<'L' | 'R', Side> = { L: { mesh: null, id: '', k: 0, on: 0, aspect: 0.8 }, R: { mesh: null, id: '', k: 0, on: 0, aspect: 0.8 } };
+  private sides: Record<'L' | 'R', Side> = { L: { mesh: null, id: '', k: 0, on: 0, aspect: 0.8, pop: 0, was: false }, R: { mesh: null, id: '', k: 0, on: 0, aspect: 0.8, pop: 0, was: false } };
+  /** the portraits sliding out after the last line (1 → 0) */
+  private outK = 0; private lastSpeaker: 'L' | 'R' | null = null;
   private lines: Line[] = []; private i = 0; private shown = 0; private t = 0; private done: (() => void) | null = null; private drawn = -1; private openT = 0;
   constructor(private L: UiLayer) {
     this.box = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), [0, 0, 0, 0, 0, 0].map((_, i) => new THREE.MeshBasicMaterial({ color: i === 4 ? 0xffffff : 0x0d0b12, transparent: true, depthTest: false, depthWrite: false })));
@@ -47,14 +50,15 @@ export class Dialogue {
   /** play lines; resolves when the last is dismissed */
   play(lines: Line[]): Promise<void> {
     this.lines = lines.filter(l => l.text); this.i = 0; this.shown = 0; this.t = 0; this.drawn = -1; this.on = true; this.openT = 0; this.box.visible = true;
-    for (const s of ['L', 'R'] as const) { this.sides[s].on = 0; }
+    this.outK = 0;
+    for (const s of ['L', 'R'] as const) { const S = this.sides[s]; if (S.mesh) { this.L.scene.remove(S.mesh); (S.mesh.material as THREE.Material).dispose(); S.mesh.geometry.dispose(); S.mesh = null; } S.id = ''; S.on = 0; S.k = 0; S.pop = 0; S.was = false; }
     // both portraits of the scene come up together: whoever speaks first on each side
     for (const l of this.lines) { const sp = CAST[l.who]; if (sp && !this.sides[sp.side].id) this.setPortrait(sp.side, l.who); }
     cue('scroll', 0.4);
     return new Promise(res => { this.done = res; });
   }
   private setPortrait(side: 'L' | 'R', id: string) {
-    const S = this.sides[side]; if (S.id === id && S.mesh) return; S.id = id;
+    const S = this.sides[side]; if (S.id === id && S.mesh) return; S.id = id; S.k = 0;
     if (S.mesh) { this.L.scene.remove(S.mesh); (S.mesh.material as THREE.Material).dispose(); S.mesh.geometry.dispose(); S.mesh = null; }
     const mat = new THREE.MeshBasicMaterial({ transparent: true, depthTest: false, depthWrite: false, alphaTest: 0.5, color: 0xffffff });
     const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat); m.renderOrder = 59; m.visible = false; this.L.scene.add(m); S.mesh = m;
@@ -73,8 +77,8 @@ export class Dialogue {
     cue('click', 0.2); return true;
   }
   private close() {
-    this.on = false; this.box.visible = false;
-    for (const s of ['L', 'R'] as const) { const S = this.sides[s]; if (S.mesh) S.mesh.visible = false; S.id = ''; }
+    // the box goes at once; the portraits slide back out to their sides (update keeps placing them while outK runs down)
+    this.on = false; this.box.visible = false; this.outK = 1;
     const d = this.done; this.done = null; d?.();
   }
   /** the box face: name plate + the visible part of the line, pixel font at an integer scale */
@@ -101,7 +105,11 @@ export class Dialogue {
     const fm = (this.box.material as THREE.MeshBasicMaterial[])[4]; fm.map = this.boxTex; fm.needsUpdate = true;
   }
   update(dt: number) {
-    if (!this.on) return;
+    if (!this.on) {
+      if (this.outK > 0) { this.outK = Math.max(0, this.outK - dt * 5); this.portraits(dt, this.lastSpeaker);
+        if (this.outK <= 0) for (const s of ['L', 'R'] as const) { const S = this.sides[s]; if (S.mesh) S.mesh.visible = false; S.id = ''; } }
+      return;
+    }
     const L = this.L, line = this.lines[this.i]; if (!line) return;
     this.openT = Math.min(1, this.openT + dt * 5);
     const total = [...line.text].length; this.t += dt; const n = Math.min(total, Math.floor(this.t * CPS) + 1);
@@ -112,16 +120,35 @@ export class Dialogue {
     if (key !== this.drawn) { this.drawn = key; this.paint(line, this.shown, wPx, hPx, scale); }
     const y = L.h - hPx / 2 - Math.max(10, L.h * 0.03) + (1 - this.openT) * 30;
     L.at(L.w / 2, y, 0, this.box.position); this.box.scale.set(L.px(wPx), L.px(hPx), L.px(8));
-    // portraits: whole device pixels per art pixel (k / dpr), about half the screen tall at most (a phone gets 2/3 scale,
-    // not a portrait three quarters of the screen), bottoms behind the box; the speaker lit and lifted, the other dimmed
-    const dpr = Math.max(1, Math.round(L.dpr || 1)), sp = CAST[line.who], pk = Math.max(1, Math.floor((L.h * 0.64 * dpr) / 144)) / dpr;   // act-23: style-A portraits are 144 true pixels tall, shown at a whole multiple (≈ 60 % of the screen height; user: 「游戏中的立绘要再大一些」)
+    const sp = CAST[line.who]; this.lastSpeaker = sp?.side ?? null;
+    this.portraits(dt, this.lastSpeaker);
+  }
+  /** act-25 (user: 「哈迪斯的立绘基本上是顶满的大图……压暗和动效明显不足，感受不到是两个人在对话」): Hades-style portraits —
+   *  about a screen tall at a whole number of device pixels per art pixel, the head near the top and the bust running off the bottom
+   *  edge; the speaker full bright, a step in toward the middle and a small hop each time the turn comes to them, drawn over the other;
+   *  the listener down to about a third, a cold cast, a step back out and down; a new face slides in from its edge, and at the end
+   *  both slide out. Final positions snap to device pixels so the pixel art stays crisp (only the moves themselves land between). */
+  private portraits(dt: number, speaker: 'L' | 'R' | null) {
+    const L = this.L, dpr = Math.max(1, Math.round(L.dpr || 1)), pk = Math.max(1, Math.round((L.h * 1.0 * dpr) / 144)) / dpr;
+    const snap = (v: number) => Math.round(v * dpr) / dpr;
     for (const s of ['L', 'R'] as const) {
       const S = this.sides[s]; if (!S.mesh) continue;
-      const speaking = sp?.side === s; S.on += ((speaking ? 1 : 0) - S.on) * Math.min(1, dt * 10); S.k = Math.min(1, S.k + dt * 4);
-      const hP = 144 * pk, wP = hP * S.aspect, x = s === 'L' ? wP * 0.42 + L.w * 0.02 - (1 - S.k) * 80 : L.w - wP * 0.42 - L.w * 0.02 + (1 - S.k) * 80;
-      L.at(x, L.h - hP / 2 - 4 - S.on * 6, -0.5, S.mesh.position); S.mesh.scale.set(L.px(wP), L.px(hP), 1);
-      const c = 0.42 + 0.58 * S.on; (S.mesh.material as THREE.MeshBasicMaterial).color.setRGB(c, c, c);
-      S.mesh.visible = !!(S.mesh.material as THREE.MeshBasicMaterial).map?.image;
+      const speaking = speaker === s;
+      if (speaking && !S.was) S.pop = 1; S.was = speaking;
+      S.on += ((speaking ? 1 : 0) - S.on) * Math.min(1, dt * (speaking ? 14 : 7));
+      S.k = Math.min(1, S.k + dt * 3.2); S.pop = Math.max(0, S.pop - dt / 0.22);
+      const inK = 1 - Math.pow(1 - S.k, 3), outK = this.on ? 0 : 1 - this.outK * this.outK, dir = s === 'L' ? 1 : -1;
+      const hP = 144 * pk, wP = hP * S.aspect;
+      const home = s === 'L' ? wP * 0.4 : L.w - wP * 0.4;
+      const step = L.w * 0.018 * S.on - L.w * 0.035 * (1 - S.on);
+      const cx = home + dir * step - dir * ((1 - inK) + outK) * wP * 0.95;
+      const top = L.h * 0.05 + (1 - S.on) * L.h * 0.035 - Math.sin(S.pop * Math.PI) * Math.max(6, L.h * 0.014);
+      const left = snap(cx - wP / 2), y0 = snap(top);
+      L.at(left + wP / 2, y0 + hP / 2, -0.5, S.mesh.position); S.mesh.scale.set(L.px(wP), L.px(hP), 1);
+      const k = S.on, mat = S.mesh.material as THREE.MeshBasicMaterial;
+      mat.color.setRGB(0.27 + 0.73 * k, 0.28 + 0.72 * k, 0.36 + 0.64 * k);
+      S.mesh.renderOrder = speaking ? 59 : 58;
+      S.mesh.visible = !!mat.map?.image;
     }
   }
 }
