@@ -5,7 +5,10 @@
 import type { Boon } from './boons';
 
 export type MoveId = 'chase' | 'backDart' | 'dbl' | 'launch' | 'cutDart' | 'keep' | 'pause' | 'kick';
-export interface Manual { id: MoveId; name: string; desc: [string, string] }
+/** 11-18 (用户：「选了强化后根本看不到自己选的强化是啥，在哪儿、如何释放，如何释放的教学不能是纯文字」): how a move is done, for the
+ *  card face and the demonstration — the presses in order (hold = a held 斩), and whether it starts in the air */
+export type MoveKey = 'attack' | 'dash' | 'jump' | 'dart' | 'hold';
+export interface Manual { id: MoveId; name: string; desc: [string, string]; how?: MoveKey[]; air?: boolean }
 export const MANUALS: Manual[] = [
   { id: 'chase', name: '寻声', desc: ['飞镖钉住敌人时按斩', '循声掠至敌前挥斩'] },
   { id: 'backDart', name: '回身镖', desc: ['冲刺途中按镖', '反手往身后甩出三镖'] },
