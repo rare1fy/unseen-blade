@@ -303,6 +303,8 @@ export class ActShow {
   // ------------------------------------------------------------ rooms
   start() {
     dh.add({ opening: () => this.opening(), title: (n = 1) => this.title(n) });   // captures: the old opening / a title variant again
+    // ?model (vox/打开游戏看效果.bat): straight into the hideout, the camera close behind her — for checking a model edited in MagicaVoxel
+    if (typeof location !== 'undefined' && /[?&#]model\b/.test(location.href)) { Object.assign(TUNE, { camH: 7.5, camD: 10.5, camFov: 34 }); this.enterYard(); return; }
     const tn = wantTitle();
     if (typeof location !== 'undefined' && /[?&#]run\b/.test(location.href)) this.startRun(); else if (tn) this.title(tn); else if (wantOpening()) this.opening(); else this.enterYard();
   }

@@ -12,6 +12,10 @@ import './present/act/hideout';   // the hideout (据点): its scene, its five p
 import { VIBE } from './platform/index';
 import { fontsReady } from './present/ui3d/bodyFont';
 import './audio/audio';
+import { installVoxEdits } from './present/bestiary/voxEdit';
+// the models the user edited in MagicaVoxel (vox/<model id>.vox) replace the code-built ones, part by part
+const VOX_EDITED = installVoxEdits();
+dh.add({ voxEdited: () => VOX_EDITED });
 
 const TEST: { fixedTime?: number; preserve?: boolean } = G.__PXUI_TEST || {};
 // the haptics switch in the tuning panel is remembered on the device
