@@ -288,10 +288,15 @@ export class IronBtn {
     const pop = this.popT < 1 ? Math.sin(this.popT * Math.PI) * 12 : 0, bob = Math.sin(this.tt * 2.6 + this.x * 0.01) * 1.6;
     const isz = this.size * 0.6, sc = L.px(this.size) / this.size;
     L.at(this.x, this.y - (this.lift * 0.35 + pop + bob) * (this.size / 100), 0, this.iconG.position);
-    this.iconG.position.z = sc * (this.size * 0.1 + (this.lift + pop) * 1.2);
+    this.iconG.position.z = sc * (this.size * 0.16 + (this.lift + pop) * 1.2);   // (act-40: a little higher off the face — the long sabre clipped the rim)
     this.iconG.scale.setScalar(L.px(isz) * (1 - 0.08 * this.pressK) * (ready ? 1 : 0.92));
     const spin = this.popT < 1 ? (1 - Math.cos(this.popT * Math.PI)) * Math.PI : 0;
-    this.iconG.rotation.set(-0.2 + this.tiltX * 0.6, Math.sin(this.tt * 0.8 + this.x * 0.02) * 0.28 * (this.aim ? 0.2 : 1) + spin + this.tiltY * 0.6, this.aim ? -Math.atan2(this.aim.x, this.aim.y) : 0);
+    // (act-40 用户：「普通攻击的ICON模型还是穿模的，面向玩家屏幕这边的倾斜角度还是不够」: the picture turned square to the camera
+    //  first — the buttons sit low and right, so a picture upright on the face leant back in the perspective — then the small sway,
+    //  half what it was, so the long sabre's ends no longer swing into the plates)
+    this.iconG.lookAt(L.camera.position);
+    this.iconG.rotateX(this.tiltX * 0.6); this.iconG.rotateY(Math.sin(this.tt * 0.8 + this.x * 0.02) * 0.14 * (this.aim ? 0.2 : 1) + spin + this.tiltY * 0.6);
+    if (this.aim) this.iconG.rotateZ(-Math.atan2(this.aim.x, this.aim.y));
     // dark while cooling; its glowing cells brighter when it is ready to fire, a link is open, or it just came ready
     const linkOpen = !!this.hint && this.hint !== 'talk';
     this.icon.setDim(ready ? 0 : 0.6);
@@ -320,7 +325,7 @@ export class IronBtn {
     this.linkT = Math.max(0, this.linkT - dt); const lk = (this.linkT / 0.35) ** 2;
     if (!altKey && this.altK <= 0) this.altKey = null;
     const e = this.altK * this.altK * (3 - 2 * this.altK), face = e >= 0.5;
-    this.iconG.rotation.y += Math.PI * e;
+    this.iconG.rotateY(Math.PI * e);
     for (const [k, o] of this.alts) {
       o.visible = face && k === this.altKey;
       if (o.visible) { o.scale.setScalar(1.05); if (k !== 'talk') { o.setDim(0); o.setGlow(1 + 1.2 * lk); } }

@@ -238,7 +238,9 @@ export class Hero {
     this.buf.sp = B.special.pressed ? 0.2 : Math.max(0, this.buf.sp - dt);
     this.buf.jump = B.jump.pressed ? 0.2 : Math.max(0, this.buf.jump - dt);
     // flicker while invulnerable after a hit
-    this.a.root.visible = this.st === 'dead' || this.inv <= 0 || Math.floor(this.inv * 18) % 2 === 0;
+    // (the hit blink is for the short i-frames after a hit; a scripted invulnerability — the prologue's fall sets 99 — must not blink:
+    //  act-40 用户：「剧情杀的时候主角的模型不见了」— a cutscene froze her on an off frame of the blink)
+    this.a.root.visible = this.st === 'dead' || this.inv <= 0 || this.inv > 20 || Math.floor(this.inv * 18) % 2 === 0;
     if (this.st === 'dead') { this.vel.multiplyScalar(Math.exp(-dt * 6)); this.fall(dt); this.move(dt, w); m.run = 0; m.air = this.y; return; }
     const stick = w.stickWorld(), sl = Math.min(1, stick.length());
     const canDash = this.dashCd <= 0 && this.buf.dash > 0, canJump = this.buf.jump > 0 && !this.airborne;

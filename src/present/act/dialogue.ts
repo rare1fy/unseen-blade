@@ -38,25 +38,27 @@ function portraitTex(id: string, ready: (t: THREE.Texture) => void) {
 
 const BG = '#14121c', EDGE_G = '#c8963a', EDGE_R = '#a8302a', NAME = '#ffd27a', BODY = '#f2e8d6', MUTE = '#a8a2a8';
 const CPS = 36;   // characters per second
-interface Side { mesh: THREE.Mesh | null; id: string; k: number; on: number; aspect: number; ih: number; pop: number; was: boolean }
+interface Side { mesh: THREE.Mesh | null; id: string; k: number; on: number; aspect: number; ih: number; pop: number; was: boolean; away: number }
 
 /** the line's HD body font size (CSS px): 20 on tall screens, 15 on a phone held sideways */
 const fontPx = (scale: number) => (scale >= 2 ? 20 : 15);
 export class Dialogue {
   on = false; private box: THREE.Mesh; private boxTex: THREE.CanvasTexture | null = null; private canvas = document.createElement('canvas');
-  private sides: Record<'L' | 'R', Side> = { L: { mesh: null, id: '', k: 0, on: 0, aspect: 0.8, ih: 144, pop: 0, was: false }, R: { mesh: null, id: '', k: 0, on: 0, aspect: 0.8, ih: 144, pop: 0, was: false } };
+  private sides: Record<'L' | 'R', Side> = { L: { mesh: null, id: '', k: 0, on: 0, aspect: 0.8, ih: 144, pop: 0, was: false, away: 0 }, R: { mesh: null, id: '', k: 0, on: 0, aspect: 0.8, ih: 144, pop: 0, was: false, away: 0 } };
   /** the portraits sliding out after the last line (1 → 0) */
   private outK = 0; private lastSpeaker: 'L' | 'R' | null = null;
+  private onLine: ((i: number, line: Line) => void) | null = null;
   private lines: Line[] = []; private i = 0; private shown = 0; private t = 0; private done: (() => void) | null = null; private drawn = -1; private openT = 0;
   constructor(private L: UiLayer) {
     this.box = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), [0, 0, 0, 0, 0, 0].map((_, i) => new THREE.MeshBasicMaterial({ color: i === 4 ? 0xffffff : 0x0d0b12, transparent: true, depthTest: false, depthWrite: false })));
     this.box.renderOrder = 60; this.box.visible = false; L.scene.add(this.box);
   }
   /** play lines; resolves when the last is dismissed */
-  play(lines: Line[]): Promise<void> {
+  play(lines: Line[], onLine?: (i: number, line: Line) => void): Promise<void> {
+    this.onLine = onLine ?? null;
     this.lines = lines.filter(l => l.text); this.i = 0; this.shown = 0; this.t = 0; this.drawn = -1; this.on = true; this.openT = 0; this.box.visible = true;
     this.outK = 0;
-    for (const s of ['L', 'R'] as const) { const S = this.sides[s]; if (S.mesh) { this.L.scene.remove(S.mesh); (S.mesh.material as THREE.Material).dispose(); S.mesh.geometry.dispose(); S.mesh = null; } S.id = ''; S.on = 0; S.k = 0; S.pop = 0; S.was = false; }
+    for (const s of ['L', 'R'] as const) { const S = this.sides[s]; if (S.mesh) { this.L.scene.remove(S.mesh); (S.mesh.material as THREE.Material).dispose(); S.mesh.geometry.dispose(); S.mesh = null; } S.id = ''; S.on = 0; S.k = 0; S.pop = 0; S.was = false; S.away = 0; }
     // both portraits of the scene come up together: whoever speaks first on each side
     for (const l of this.lines) { const sp = CAST[l.who]; if (sp && l.who !== 'act' && !this.sides[sp.side].id) this.setPortrait(sp.side, l.who); }
     cue('scroll', 0.4); this.say();
@@ -82,7 +84,7 @@ export class Dialogue {
     cue('click', 0.2); this.say(); return true;
   }
   /** act-37: the line's voice, if it has one */
-  private say() { const l = this.lines[this.i]; if (l) sayLine(l.who, l.text); }
+  private say() { const l = this.lines[this.i]; if (l) { sayLine(l.who, l.text); this.onLine?.(this.i, l); } }
   private close() {
     audio.stopVoice();
     // the box goes at once; the portraits slide back out to their sides (update keeps placing them while outK runs down)
@@ -148,18 +150,21 @@ export class Dialogue {
       if (speaking && !S.was) S.pop = 1; S.was = speaking;
       S.on += ((speaking ? 1 : 0) - S.on) * Math.min(1, dt * (speaking ? 14 : 7));
       S.k = Math.min(1, S.k + dt * 3.2); S.pop = Math.max(0, S.pop - dt / 0.22);
+      // (act-40 用户：「旁白的立绘对话不要放个人的立绘在那儿摆着」: on a line of narration both portraits slide out of the picture)
+      const narr = this.on && this.lines[this.i]?.who === 'act'; S.away += ((narr ? 1 : 0) - S.away) * Math.min(1, dt * 9);
       const inK = 1 - Math.pow(1 - S.k, 3), outK = this.on ? 0 : 1 - this.outK * this.outK, dir = s === 'L' ? 1 : -1;
       // (act-37 用户：「怎么立绘还是糊的」: each picture is kept at its own pixel grid (150–180 rows), so the scale is a whole number of
       //  device pixels per art pixel from its own height)
-      const pk = Math.max(1, Math.round((L.h * dpr) / S.ih)) / dpr, hP = S.ih * pk, wP = Math.round(S.ih * S.aspect) * pk;
+      // (act-40 用户：「没说话那个人还要再缩小压暗一些」: the listener one device px per art px smaller — still whole pixels at rest)
+      const pkDev = Math.max(2, Math.round((L.h * dpr) / S.ih)), pk = (pkDev - 1 + S.on) / dpr, hP = S.ih * pk, wP = Math.round(S.ih * S.aspect) * pk;
       const home = s === 'L' ? wP * 0.4 : L.w - wP * 0.4;
       const step = L.w * 0.018 * S.on - L.w * 0.035 * (1 - S.on);
-      const cx = home + dir * step - dir * ((1 - inK) + outK) * wP * 0.95;
-      const top = L.h * 0.05 + (1 - S.on) * L.h * 0.035 - Math.sin(S.pop * Math.PI) * Math.max(6, L.h * 0.014);
+      const cx = home + dir * step - dir * ((1 - inK) + outK + S.away) * wP * 0.95;
+      const top = L.h * 0.05 + (1 - S.on) * L.h * 0.12 - Math.sin(S.pop * Math.PI) * Math.max(6, L.h * 0.014);
       const left = snap(cx - wP / 2), y0 = snap(top);
       L.at(left + wP / 2, y0 + hP / 2, Z, S.mesh.position); S.mesh.scale.set(L.px(wP, Z), L.px(hP, Z), 1);
       const k = S.on, mat = S.mesh.material as THREE.MeshBasicMaterial;
-      mat.color.setRGB(0.27 + 0.73 * k, 0.28 + 0.72 * k, 0.36 + 0.64 * k);
+      mat.color.setRGB(0.17 + 0.83 * k, 0.18 + 0.82 * k, 0.25 + 0.75 * k);
       S.mesh.renderOrder = speaking ? 59 : 58;
       S.mesh.visible = !!mat.map?.image;
     }

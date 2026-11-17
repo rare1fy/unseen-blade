@@ -11,8 +11,8 @@ const variants = (prefix: string) => Object.keys(byName).filter(n => n.startsWit
  *  loopEnd with the last ~1.6 s already crossfaded into the music just before loopStart (bar-aligned, picked by beat-synchronous chroma /
  *  timbre similarity), so looping loopEnd → loopStart is seamless; the intro before loopStart plays once. */
 export const MUSIC_LOOPS: Record<string, [number, number]> = { bgm_opening: [29.6751, 127.4195], bgm_yard: [29.9886, 108.6578], bgm_battle: [18.0535, 123.5766], bgm_elite: [7.6278, 53.2201], bgm_boss: [16.5326, 97.0942], bgm_calm: [20.1317, 106.0339],
-  // act-37 the second set (GameProtos/music/make_unseen_v2.py): the temple fight she cannot win, the kiln (wake / the hideout)
-  bgm_lostfight: [18.59, 78.08], bgm_kiln: [12.28, 114.5] };
+  // act-37 the second set (GameProtos/music/make_unseen_v2.py): the kiln (her first waking there)
+  bgm_kiln: [12.28, 114.5] };   // (act-40: 「破庙初战」 came out calm — measured — and is not used; the prologue's fight is on bgm_boss)
 /** act-37 pieces that play once (scored to a scene, no loop): the cold open, the fall to the dawn, after 褚雷 */
 export const MUSIC_ONCE = new Set(['bgm_coldopen', 'bgm_fall', 'bgm_afterkill']);
 export const VOICE_LINES: Record<string, string> = {

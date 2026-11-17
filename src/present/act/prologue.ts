@@ -32,6 +32,26 @@ export function lieDown(a: BattleActor, k: number) {
   a.body.rotation.set(0, 0, 0); a.body.rotation.z = (Math.PI / 2) * e; a.body.rotation.y = 0.25 * e; a.body.position.set(0.12 * e, 0.12 * e, 0);
 }
 
+/** act-40 (用户：「刘白被驼走的动画，人就这么粘在骡子旁边……僵硬过头了」): her body slung across the donkey's back — face down, the waist
+ *  on its spine, the trunk and arms hanging down one side, the legs down the other, everything limp and swinging a little with the
+ *  stride (ph = the donkey's walk phase). (x, y, z) is the top of its back, yaw its heading */
+let HIP_H = -1;
+export function drapeOver(a: BattleActor, x: number, y: number, z: number, yaw: number, ph: number) {
+  const b = a.bones;
+  if (HIP_H < 0 && b.hips) { a.body.rotation.set(0, 0, 0); a.body.position.set(0, 0, 0); a.root.updateMatrixWorld(true); const hp = new THREE.Vector3(); b.hips.getWorldPosition(hp); HIP_H = Math.max(0.4, hp.y - a.root.position.y); }
+  const sw = Math.sin(ph), sw2 = Math.sin(ph * 2 + 0.6);
+  a.root.position.set(x, y + Math.abs(sw) * 0.025, z); a.root.rotation.set(0, yaw + Math.PI / 2, 0);
+  // face down (her head toward the root's +z = across the donkey), the hips on the root, a hand's breadth above the back
+  a.body.rotation.set(Math.PI / 2, 0, 0.05 * sw); a.body.position.set(0, 0.13, -(HIP_H > 0 ? HIP_H : 0.9));
+  const R = (n: string, rx: number, ry = 0, rz = 0) => { const o = b[n]; if (o) o.rotation.set(rx, ry, rz); };
+  // the trunk folds down over its side; the head hangs; the arms hang past the head toward the ground and swing
+  R('spine', 1.05 + 0.04 * sw2); R('chest', 0.4); R('neck', 0.25); R('head', 0.35, 0.15 * sw);
+  R('armL', -2.55 + 0.12 * sw, 0, 0.18); R('foreL', -0.25); R('armR', -2.55 - 0.12 * sw, 0, -0.18); R('foreR', -0.3);
+  // the legs hang down the other side, knees a little bent, swinging out of step with the arms
+  // (the hero's rig flexes the thigh forward with a positive angle — the other way from the 寒山坞 cast's)
+  R('legL', 1.3 + 0.08 * sw2, 0, 0.06); R('shinL', -0.3); R('footL', -0.2); R('legR', 1.3 - 0.08 * sw2, 0, -0.06); R('shinR', -0.35); R('footR', -0.2);
+}
+
 /** act-37 (用户：「人物的动作也很僵硬，也有很多穿模的问题」): a cutscene camera stays over the yard — inside the walls left, right and
  *  behind (the 2x stage's court), free to stand back in front (the open side), never lower than a man's head — so a shot set relative
  *  to where she fell can't end up inside the buildings beyond the wall */
@@ -208,6 +228,8 @@ export function dawnShots(h: PrologueHost, at: { x: number; z: number }, dead: A
   ];
 }
 /** after his words: he kneels to her, looks round; then (a cut) she lies across the donkey's back and he leads it away */
+/** the top of the grey donkey's back (m) */
+const DONKEY_BACK = 1.02;
 export function loadShots(h: PrologueHost, who: { duwu: BattleActor | null; donkey: BattleActor | null }): CineShot[] {
   const duwu = who.duwu as Walker | null, donkey = who.donkey as Walker | null, p = h.hero.pos.clone();
   let crouch = 0; const dir = Math.atan2(-1, 0.35);   // away to the left, toward the yard's way out
@@ -227,8 +249,8 @@ export function loadShots(h: PrologueHost, who: { duwu: BattleActor | null; donk
         duwu.walkPh = (duwu.walkPh ?? 0) + dt * 6.5 * Math.min(1, t * 1.5); donkey.walkPh = (donkey.walkPh ?? 0) + dt * 6 * Math.min(1, t * 1.5);
         place(duwu, duwu.home.x + Math.sin(dir) * v * dt, duwu.home.z + Math.cos(dir) * v * dt, dir);
         place(donkey, donkey.home.x + Math.sin(dir) * v * dt, donkey.home.z + Math.cos(dir) * v * dt, dir);
-        // her: lying across its back (side-on to its spine), riding with it; her pose stays as it fell
-        const a = h.hero.a; lieDown(a, 1); a.root.position.set(donkey.home.x, 0.98 + Math.abs(Math.sin(donkey.walkPh ?? 0)) * 0.02, donkey.home.z); a.root.rotation.y = dir + Math.PI / 2;
+        // her: slung across its back, limp, swinging with its stride (act-40)
+        drapeOver(h.hero.a, donkey.home.x, DONKEY_BACK, donkey.home.z, dir, donkey.walkPh ?? 0);
         duwu.update(dt); donkey.update(dt);
       } },
   ];
