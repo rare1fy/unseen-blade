@@ -1,20 +1,22 @@
 // 动作原型的手感参数（调参面板 act/tunePanel.ts 直接改这里，改完即时生效）。
 // 11-16 用户调过一轮：跟手 42、顿帧 1.4、震屏 2、镜头高 11.6 / 后退 16.4 / 视角 45、前引 0.6，其余是第一版。
+// 11-18 act-43 反馈：用户调的一版写回默认（冲刺冷却 0.6、出刀速度 0.8、普攻 7、出刀前冲 0.6、按住 0.35 才算藏锋、蓄满 0.65、
+// 一闪停顿 0.3、劈山 12、顿帧 1.5、震屏 2.5、敌人出手间隔 1.3、镜头前引 0.8）
 export const TUNE = {
   // 主角
   heroSpeed: 5.4,        // 跑速 m/s
   heroAccel: 42,         // 起步 / 转向的跟手程度（越大越跟手）
-  dashDist: 3.6, dashTime: 0.2, dashCd: 0.38, dashIframe: 0.24,
+  dashDist: 3.6, dashTime: 0.2, dashCd: 0.6, dashIframe: 0.24,
   /** 五段连斩每一刀的时长（秒：横斩、反撩、回身旋斩、连刺、跃起重劈）；整体再乘 atkSpeed 的倒数 */
   // 11-16 用户：「攻击动作有点太快了」「攻击的动作频率还是有点太高了」→ 每刀加长，且要做完 chainAt 才接下一刀
   // 11-18 用户：「现在一招一式节奏都差不多」→ 快、快、蓄、连、重：每刀的时间按 hero.ts CUT_T 重新分配（起手先慢后快、两三帧砍到、
   // 停住、慢收），下一刀从「这一刀停完」开始接（不再一律做完 75%）；这里只是每刀的总长
-  k1: 0.46, k2: 0.46, k3: 0.62, k4: 0.58, k5: 0.88, atkSpeed: 1,
-  atkRange: 1.95, atkDmg: 9, finDmg: 17,
+  k1: 0.46, k2: 0.46, k3: 0.62, k4: 0.58, k5: 0.88, atkSpeed: 0.8,
+  atkRange: 1.95, atkDmg: 7, finDmg: 17,
   /** 出刀往前冲（米，各段再乘自己的倍数：横斩 1、反撩 0.8、旋斩 0.4、连刺 1.2、重劈 1.5）；前面有敌人时冲到离它多远停下（米） */
-  atkLunge: 1.0, lungeStop: 0.7,
+  atkLunge: 0.6, lungeStop: 0.7,
   /** 按住多久算蓄力（秒），蓄满要多久 */
-  holdToCharge: 0.24, chargeFull: 0.7, relDist: 3.8, relDmg: 14,
+  holdToCharge: 0.35, chargeFull: 0.65, relDist: 3.8, relDmg: 14,
   /** 入鞘（按住斩）时的移速，跑速的几成 —— 11-16 用户问「见切的时候不能移动是吗」：能挪，原来写死 0.3，现在可调 */
   stanceSpeed: 0.35,
   /** 飞镖（act-13 用户：影分身「比较鸡肋」→「改成丢飞镖的普攻」）：伤害、两枚之间的间隔（秒，按住连甩）、速度、射程（米） */
@@ -30,14 +32,14 @@ export const TUNE = {
    *  几格；屏息——藏锋蓄满后最多再撑几秒，到头吐气收势、这一格白花 */
   qiGain: 1, qiStart: 1, stanceHold: 1.2,
   // 11-18 一闪：箭步斩 / 破势冲到头后，世界停住多久再裂开（秒）
-  iaiBeat: 0.25,
+  iaiBeat: 0.3,
   /** 跳：最高点离地（米）、整段滞空（秒）；下劈的伤害和冲击半径 */
-  jumpH: 1.3, jumpT: 0.55, plungeDmg: 16, plungeR: 2.1,
+  jumpH: 1.3, jumpT: 0.55, plungeDmg: 12, plungeR: 2.1,
   /** 二段跳（11-16 用户「要有二段跳！」）：空中再按跳，再往上蹿多高（米），带一个前空翻 */
   jump2H: 1.8,   // act-14 用户「二段跳高度不够」：1.0 → 1.8
   heroHp: 100, hurtIframe: 0.75,
   // 打击感
-  hitstop: 1.4, shake: 2, knock: 1,
+  hitstop: 1.5, shake: 2.5, knock: 1,
   /** 砍飞箭那一下：顿帧（秒）、之后慢放多久（秒）、弹回去的伤害 */
   deflectStop: 0.11, deflectSlow: 0.18, deflectDmg: 16,
   /** 砍箭窗口（秒）：每一刀从命中前 0.1 秒起，刀挡箭这么久（act-07 用户：「砍箭的反馈窗口太短了」） */
@@ -50,13 +52,13 @@ export const TUNE = {
   qteTime: 0.9, ultDmg: 60,
   // 敌人
   enemyHp: 1, enemyDmg: 1, aggression: 0.85,   // act-20: windups ~18% longer
-  /** act-20: the pause after any foe's blow before another may start one (s) */ atkCalm: 0.7,
+  /** act-20: the pause after any foe's blow before another may start one (s) */ atkCalm: 1.3,
   /** 同时出手的敌人上限（读得清，像哈迪斯） */
   maxAttackers: 1,   // act-20 (user: 「打起来有点乱」): one at a time (流民 count half)
   /** 摇杆：0 = 左下区域里按哪儿出在哪儿（之后底座不动），1 = 固定在左下角 */
   stickFixed: 0,
   // 镜头
-  camH: 11.6, camD: 16.4, camFov: 45, camLead: 0.6,
+  camH: 11.6, camD: 16.4, camFov: 45, camLead: 0.8,
 };
 export type TuneKey = keyof typeof TUNE;
 /** 面板里显示的范围和中文名 */
