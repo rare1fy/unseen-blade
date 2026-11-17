@@ -241,7 +241,7 @@ export class ActShow {
     setStage(r.big); this.layout = r.layout; this.arena = null; this.spec = r.spec;
     this.stage = r.prep.attach(); this.hud.on = false;
     const pov = new BlindPOV(this.L), co = coldOpenShots({ root: this.stage.root, pov });
-    audio.stopMusic(1.0);
+    void audio.playMusic('bgm_coldopen', 0.8, 18);   // (act-37: from 18 s in, so its louder middle lands on the flashbacks)
     await this.cine(co.shots);
     co.dispose(); pov.fill(0x000000, 1, true);
     await frames(2);   // the dark is on screen before the next place is built
@@ -268,11 +268,11 @@ export class ActShow {
   /** the fight she cannot win: the blow, his word, the snow; dawn and the man with the donkey; the kiln */
   private async prologueFall() {
     if (this.proFalling || this.prologue !== 2) return; this.proFalling = true;
+    this.musicHold = 'bgm_fall'; void audio.playMusic('bgm_fall', 0.8);   // (act-37: struck down → the camera rises → the dawn)
     const boss = this.foes.find(f => isBoss(f) && f.st !== 'dead') ?? null;
     this.hero.inv = 99;
     for (const f of this.foes) { dropTeles(f); f.attacking = false; f.lunge = null; }   // nothing left half-swung on the snow
     if (boss) { await this.cine(fallShots(this.proHost, boss)); await this.talk(PRO_FALL); this.phase = 'cine'; await this.cine(snowShots(this.proHost, boss)); }
-    audio.stopMusic(2.5);
     // dawn in the same yard: the snow has stopped, the dead lie where they fell
     const sp = this.spec, at = { x: this.hero.pos.x, z: this.hero.pos.z };
     await new Promise<void>(res => { void wipeTransit(() => {
@@ -479,10 +479,13 @@ export class ActShow {
   }
   /** act-19: the music for where we are — the opening, the yard, or the room's kind (a fight, a 死士 room, the 渠帅, a calm room);
    *  the same track carries on across rooms, a different one cross-fades in */
+  private musicHold: string | null = null;
   music() {
     if (!this.audioOn) return;
     const t = this.plan?.type ?? 'fight', ph = this.phase as string;
-    const name = ph === 'opening' || ph === 'title' ? 'bgm_opening' : this.room < 0 || ph === 'yard' ? 'bgm_yard' : t === 'boss' ? 'bgm_boss' : t === 'elite' ? 'bgm_elite' : t === 'shop' || t === 'rest' || t === 'boon' ? 'bgm_calm' : 'bgm_battle';
+    // (act-37: a scored piece holds until its scene is over; the prologue's temple fight has its own; the hideout is the kiln's)
+    if (this.musicHold) { void audio.playMusic(this.musicHold, 1.2); return; }
+    const name = ph === 'opening' || ph === 'title' ? 'bgm_opening' : this.room < 0 || ph === 'yard' ? 'bgm_kiln' : this.prologue === 2 ? 'bgm_lostfight' : t === 'boss' ? 'bgm_boss' : t === 'elite' ? 'bgm_elite' : t === 'shop' || t === 'rest' || t === 'boon' ? 'bgm_calm' : 'bgm_battle';
     void audio.playMusic(name, 1.8);
   }
   layout2() {
@@ -579,6 +582,8 @@ export class ActShow {
   enterYard() {
     TUNE.dartCharges = 3; TUNE.aggression = 0.85; this.mods = { dmgMul: 1, dartBonus: 0, hpBonus: 0, deathDefy: 0, startIntent: 0, windupMul: 1, startManual: false };
     if (this.banked) { const b = this.banked, alive = this.lastWon; this.banked = null; const t = HAUL[alive ? 0 : 1] ?? '', [title, sub] = t.split('：'); after(0.6, () => this.banner.show(title ?? '带回', (sub ?? '').replace('{iron}', String(b.iron)).replace('{herb}', String(b.herb)), 2.4, '#ffd27a')); }
+    this.musicHold = null;
+    if (this.justDied) { after(0.3, () => cue('stingRevive', 1)); }
     if (this.justDied) { this.justDied = false; const who = (['duwu', 'sunao', 'fengtiebi'] as const)[Math.floor(Math.random() * 3)]; after(1.0, () => { if (this.phase === 'yard') void this.talk(deathLine(who)); }); }
     this.intent = 0; this.hud.intent = 0;
     this.perks = newPerks(); this.room = -1; this.kills = 0; this.locale = 'ninja_wilds'; this.recent = []; this.plan = null;
@@ -694,7 +699,7 @@ export class ActShow {
         this.noTalk = true; h.pos.set(HIDEOUT.stele.x + 1.05, 0, HIDEOUT.stele.z + 1.25); h.vel.set(0, 0, 0); h.a.yaw = Math.atan2(-1.05, -1.0);
         fxSmoke(h.pos.clone().setY(0.6), 0x8a8a94, 10, { r: 0.6, spd: 1.2, up: 0.8, s: 0.4, life: 0.6 });
         after(0.5, () => this.inp.hold('attack', 0.55));
-        after(1.2, () => { st.strike(0); hitstop(0.12); after(0.7, () => { this.noTalk = false; void this.talk([{ who: 'jiangjin', text: STELE_LINES.strike }]); }); });
+        after(1.2, () => { st.strike(0); hitstop(0.12); cue('stingStele', 1); after(0.7, () => { this.noTalk = false; void this.talk([{ who: 'jiangjin', text: STELE_LINES.strike }]); }); });
       }); }
     // act-37: the rack of thirty blades — one hangs for each taken back (褚雷 had the first)
     { const p = profile(); this.stage!.root.add(rackBlades(p.seen['ch1_boss_after'] ? 1 : 0)); }
@@ -1203,7 +1208,7 @@ export class ActShow {
     this.banner.show('清场', '', 1.0, '#ffe6a0');
     await new Promise(r => after(0.9, () => r(null)));
     if (this.prologue) { this.openDoors(); return; }   // act-29: the prologue's road just goes on
-    if (this.room >= RUN_ROOMS - 1) { if (seeOnce('ch1_boss_after')) { await this.talk(CHULEI_AFTER); saveProfile(); } this.end(true); return; }
+    if (this.room >= RUN_ROOMS - 1) { if (seeOnce('ch1_boss_after')) { this.musicHold = 'bgm_afterkill'; void audio.playMusic('bgm_afterkill', 1.0); await this.talk(CHULEI_AFTER); saveProfile(); } this.end(true); return; }
     const rw = this.plan?.reward ?? null;
     if (rw?.k === 'coins') { this.coinsFx.drop(this.hero.pos.clone().add(V3(0, 0, -1.5)), 12, Math.round(rw.n / 12)); this.banner.show('铜钱', `${rw.n}`, 1.0, '#ffd24a'); }
     else if (rw?.k === 'heal') { this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + Math.round(this.hero.maxHp * 0.35)); this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp }); this.banner.show('回复', '三成五生命', 1.0, '#9aff9a'); await new Promise(r => after(0.8, () => r(null))); }

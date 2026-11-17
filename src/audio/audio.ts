@@ -10,7 +10,11 @@ const variants = (prefix: string) => Object.keys(byName).filter(n => n.startsWit
 /** act-19 music (the user's six tracks, GameProtos/music/unseen_v1): [loopStart, loopEnd] in seconds. Each file is the track up to
  *  loopEnd with the last ~1.6 s already crossfaded into the music just before loopStart (bar-aligned, picked by beat-synchronous chroma /
  *  timbre similarity), so looping loopEnd → loopStart is seamless; the intro before loopStart plays once. */
-export const MUSIC_LOOPS: Record<string, [number, number]> = { bgm_opening: [29.6751, 127.4195], bgm_yard: [29.9886, 108.6578], bgm_battle: [18.0535, 123.5766], bgm_elite: [7.6278, 53.2201], bgm_boss: [16.5326, 97.0942], bgm_calm: [20.1317, 106.0339] };
+export const MUSIC_LOOPS: Record<string, [number, number]> = { bgm_opening: [29.6751, 127.4195], bgm_yard: [29.9886, 108.6578], bgm_battle: [18.0535, 123.5766], bgm_elite: [7.6278, 53.2201], bgm_boss: [16.5326, 97.0942], bgm_calm: [20.1317, 106.0339],
+  // act-37 the second set (GameProtos/music/make_unseen_v2.py): the temple fight she cannot win, the kiln (wake / the hideout)
+  bgm_lostfight: [18.59, 78.08], bgm_kiln: [12.28, 114.5] };
+/** act-37 pieces that play once (scored to a scene, no loop): the cold open, the fall to the dawn, after 褚雷 */
+export const MUSIC_ONCE = new Set(['bgm_coldopen', 'bgm_fall', 'bgm_afterkill']);
 export const VOICE_LINES: Record<string, string> = {
   enter: '能踏进这座坟茔的活人，最后都成了我的藏品。',
   attack: '让亡灵大军吞噬你！',
@@ -98,17 +102,17 @@ class AudioEngine {
   }
   private musicWant = '';
   /** cross-fade to a music track (decoded now if needed; only the playing and the last one stay decoded). Same track: nothing. */
-  async playMusic(name: string, fade = 1.6) {
+  async playMusic(name: string, fade = 1.6, offset = 0) {
     const ctx = this.ctx; if (!ctx || this.musicWant === name) return; this.musicWant = name;
     let b = this.buf.get(name);
     if (!b) { const d = await this.decodeName(name); if (!d) return; b = d; this.buf.set(name, d); }
     if (this.musicWant !== name) return;   // asked for another while decoding
     const t = this.now();
     if (this.musicSrc) { const old = this.musicSrc, og = (old as any)._g as GainNode; og.gain.cancelScheduledValues(t); og.gain.setValueAtTime(og.gain.value, t); og.gain.linearRampToValueAtTime(0, t + fade); old.stop(t + fade + 0.05); }
-    const src = ctx.createBufferSource(); src.buffer = b; src.loop = true;
+    const src = ctx.createBufferSource(); src.buffer = b; src.loop = !MUSIC_ONCE.has(name);
     const lp = MUSIC_LOOPS[name]; if (lp) { src.loopStart = lp[0]; src.loopEnd = Math.min(lp[1], b.duration); }
     const g = ctx.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(1, t + fade); (src as any)._g = g;
-    src.connect(g); g.connect(this.music); src.start(t); this.musicSrc = src; this.musicName = name;
+    src.connect(g); g.connect(this.music); src.start(t, Math.min(offset, Math.max(0, b.duration - 1))); this.musicSrc = src; this.musicName = name;
     // keep at most this one and the one before decoded
     for (const k of [...this.buf.keys()]) if (k.startsWith('bgm_') && k !== name && k !== this.musicPrev) this.buf.delete(k);
     this.musicPrev = name;
@@ -215,6 +219,8 @@ const H: Partial<Record<Cue, (k: number, x?: number) => void>> = {
   scroll: k => ub('scroll', { gain: 0.45 + 0.3 * k }),
   hound: k => ub('hound', { gain: 0.45 + 0.4 * k }),
   stingWin: () => ub('sting_win', { gain: 0.9, jitter: 0 }),
+  // act-37 (the user's): the stele's name struck through, waking after a death
+  stingStele: () => ub('sting_stele', { gain: 0.9, jitter: 0 }), stingRevive: () => ub('sting_revive', { gain: 0.9, jitter: 0 }),
   stingLose: () => ub('sting_lose', { gain: 0.9, jitter: 0 }),
   stingClear: () => ub('sting_clear', { gain: 0.7, jitter: 0 }),
 };
