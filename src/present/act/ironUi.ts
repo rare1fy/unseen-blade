@@ -174,7 +174,7 @@ export class IronBtn {
   aim: { x: number; y: number } | null = null; private tiltX = 0; private tiltY = 0;
   /** act-29 (用户：「派生技能的按钮反馈很弱」): the link opening bursts (sparks + a ring wave in its colour), the button rises and its
    *  picture glows that colour, a 3D token of the move floats beside it; pressing while it is open flashes 'linked' */
-  private wave: THREE.Mesh | null = null; private waveT = 1; private waveCol = new THREE.Color(); private linkT = 0; private lastHint: HintKey | null = null; private token: Model3D | null = null; private tokenKey: HintKey | null = null;
+  private wave: THREE.Mesh | null = null; private waveT = 1; private waveCol = new THREE.Color(); private linkT = 0; private lastHint: HintKey | null = null; /** (hud.ts hides it with the HUD: update() is not called while the HUD is off) */ token: Model3D | null = null; private tokenKey: HintKey | null = null;
   /** the hideout: the cut button is the 'talk' button while someone is near (its picture swaps to a speech bubble) */
   talk = false; private talkIcon: Model3D | null = null; private talkK = 0;
   kick(k: number, col = 0xfff2d0) { this.scV += 3.2 * k; this.kickT = 0.18 + 0.1 * k; this.kickCol.setHex(col); }

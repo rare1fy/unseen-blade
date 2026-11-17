@@ -1,8 +1,8 @@
 // Renderer + frame loop: real dt (capped) → game clock (hitstop / slowmo / speed) → updaters → dice → particles / prims →
 // camera rig (base + offset + trauma shake) → 3D render → UI render (pxui shares the WebGL context).
 import * as THREE from 'three';
-import { scene, camera, view, runUpdaters, runLateUpdaters, V3 } from './world';
-import { tick, FX, clock } from './clock';
+import { scene, camera, view, runUpdaters, runLateUpdaters, runRealUpdaters, V3 } from './world';
+import { tick, FX, clock, PAUSE } from './clock';
 import { updateParticles } from './particles';
 import { updatePrims } from './prims';
 import { updateDice } from '../dice/die3d';
@@ -38,8 +38,9 @@ export function createGfx(platform: Platform, canvas: any, o: { preserve?: boole
       const frame = () => {
         platform.raf(frame);
         const now = platform.now(), real = Math.min(0.05, Math.max(0, (now - last) / 1000)); stats.ms += ((now - last) - stats.ms) * 0.05; last = now;
-        const rdt = o.fixedDt != null ? o.fixedDt : real;
+        const rdt0 = o.fixedDt != null ? o.fixedDt : real, rdt = PAUSE.on ? 0 : rdt0;   // paused: the world gets a zero step
         const t0 = platform.now(), dt = tick(rdt);
+        runRealUpdaters(rdt0);
         runUpdaters(dt, rdt);
         onFrame(dt, rdt);
         updateDice(dt, rdt);

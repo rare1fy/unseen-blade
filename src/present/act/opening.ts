@@ -242,6 +242,8 @@ export interface OpeningHost {
 let running: Opening | null = null;
 /** start the opening over the rain road the act has just built; resolves when the yard is fully revealed */
 export function playOpening(host: OpeningHost) { running?.stop(); running = new Opening(host); return running.done; }
+/** a pad button on the opening = a tap (show.ts padScreens) */
+export function openingPadTap() { running?.padTap(); }
 /** the title screen (title.ts) takes over: an opening still on goes without its cut */
 export function stopOpening() { running?.stop(); }
 
@@ -321,9 +323,10 @@ class Opening {
   private idleK = 1;
   // ---------------------------------------------------------------- input
   private hintText = HINT0; private armed = false; private soundAtStart = false;
-  private tap(e: Event) {
+  padTap() { this.tap(null); }
+  private tap(e: Event | null) {
     if (this.beat !== 'rain' || this.t < 0.4) return;
-    if (e.type === 'keydown') e.preventDefault();
+    if (e?.type === 'keydown') e.preventDefault();
     // the first tap wakes the sound (show.ts unlocks the audio on the same tap and starts the opening music)
     if (!this.armed && !this.soundAtStart) { this.armed = true; this.hintText = HINT1; this.layoutTitle(); return; }
     this.beat = 'flash'; this.bt = 0; this.flashT = 0; cue('thunder', 1);

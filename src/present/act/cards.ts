@@ -1,5 +1,5 @@
 // 三选一的石牌（UI 层的实物：有厚度的石板，正面画图标、名字和两行说明）。从下往上升起，指着哪块哪块抬起、微微转正；
-// 点一下（或 ←→ 选、回车 / J 确认）选定，选中的那块往上飞走，另外两块沉下去。
+// 点一下（或 ←→ / 手柄上下选、回车 / J / 手柄 A 确认；弹出后 0.4 秒内不收键）选定，选中的那块往上飞走，另外两块沉下去。
 import * as THREE from 'three';
 import type { UiLayer } from '../ui3d/layer';
 import { text, textW, icon } from '../v2/overlay';
@@ -103,7 +103,10 @@ function face(b: Boon, tier: number, u: number) {
 
 interface Card { b: Boon; tier: number; u: number; m: THREE.Mesh; x: number; y: number; w: number; h: number; lift: number; t0: number; rim: THREE.Mesh; landed: boolean }
 export class CardPick {
-  on = false; focus = 0; private cards: Card[] = []; private done: ((i: number) => void) | null = null; private leaving = -1; private leaveT = 0;
+  on = false; focus = 0; private openedAt = 0;
+  /** act-30 之后: the first 0.4 s after the cards come up take no input (a cut mashed as the room clears must not pick one) */
+  private get settling() { return clock.rtime - this.openedAt < 0.4; }
+  private cards: Card[] = []; private done: ((i: number) => void) | null = null; private leaving = -1; private leaveT = 0;
   constructor(private L: UiLayer) { onBodyFontChange(() => {
     for (const c of this.cards) { const f = face(c.b, c.tier, c.u), mat = (c.m.material as THREE.MeshLambertMaterial[])[4]; mat.map?.dispose(); mat.map = f.t; mat.emissiveMap = f.t; mat.needsUpdate = true; }
   }); }
@@ -122,7 +125,7 @@ export class CardPick {
       rim.position.z = -L.px(9); rim.renderOrder = 29; m.add(rim);
       return { b, tier, u: u * 2, m, x: L.w / 2, y: L.h * 0.5 + (i - (boons.length - 1) / 2) * (h + gap), w, h, lift: 0, t0: clock.rtime + 0.05 + i * 0.11, rim, landed: false };
     });
-    this.on = true; this.focus = Math.min(1, this.cards.length - 1); this.leaving = -1; cue('scroll', 0.8);
+    this.on = true; this.focus = Math.min(1, this.cards.length - 1); this.leaving = -1; cue('scroll', 0.8); this.openedAt = clock.rtime;
     return new Promise(res => { this.done = res; });
   }
   close() {
@@ -135,13 +138,14 @@ export class CardPick {
   hit(x: number, y: number) { return this.cards.findIndex(c => Math.abs(x - c.x) < c.w / 2 && Math.abs(y - c.y) < c.h / 2); }
   pointer(type: string, x: number, y: number) {
     if (!this.on || this.leaving >= 0) return this.on;
+    if (this.settling) return true;
     const i = this.hit(x, y);
     if (type === 'move' && i >= 0 && i !== this.focus) { this.focus = i; cue('click', 0.25); }
     if (type === 'down' && i >= 0) { this.focus = i; this.pick(); }
     return true;
   }
   key(k: 'left' | 'right' | 'ok') {
-    if (!this.on || this.leaving >= 0) return;
+    if (!this.on || this.leaving >= 0 || this.settling) return;
     if (k === 'left') this.focus = (this.focus + this.cards.length - 1) % this.cards.length;
     else if (k === 'right') this.focus = (this.focus + 1) % this.cards.length;
     else this.pick();
