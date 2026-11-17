@@ -11,6 +11,7 @@ import { TIER_NAMES, type Boon, type BoonPick } from './boons';
 import { cardBoard, glyphIcon3D, paintFace, CARD_H, FACE, SOCKET, type CardStyle } from './cardBoard';
 import { onBodyFontChange } from '../ui3d/bodyFont';
 import { fillVals } from './cards';
+import { itemModel, itemForCard } from './itemModels';
 import type { Model3D } from '../ui3d/models3d';
 
 const styleOf = (b: Boon): CardStyle => {
@@ -43,7 +44,8 @@ export class CardPick3D {
       const { mesh: board, metal } = cardBoard(st, tier); board.renderOrder = 30; root.add(board);
       const face = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, toneMapped: false }));
       face.position.set((FACE.x0 + FACE.x1) / 2, 0, 0.035); face.scale.set(FACE.x1 - FACE.x0, FACE.h, 1); face.renderOrder = 31; root.add(face);
-      const badge = glyphIcon3D(b.id, b.glyph, hexOf(b.col)); badge.position.set(SOCKET.x, 0, 0.07); badge.scale.setScalar(SOCKET.size * 0.8); badge.renderOrder = 32; root.add(badge);
+      // act-41 (用户：「所有道具我要求都是真实的模型」): the real thing on the card when there is one (itemModels.ts), else the old picture
+      const real = itemForCard(b.id), badge = (real ? itemModel(real) : null) ?? glyphIcon3D(b.id, b.glyph, hexOf(b.col)); badge.position.set(SOCKET.x, 0, 0.07); badge.scale.setScalar(SOCKET.size * 0.8); badge.renderOrder = 32; root.add(badge);
       // a rim of the metal's light behind the board, only for the card in focus (kept low: no glare)
       const rim = new THREE.Mesh(new THREE.PlaneGeometry(1.04, CARD_H + 0.04), new THREE.MeshBasicMaterial({ color: new THREE.Color(metal.glow), transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
       rim.position.z = -0.03; rim.renderOrder = 29; root.add(rim);

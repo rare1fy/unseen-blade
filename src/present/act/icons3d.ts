@@ -4,6 +4,7 @@
 // 四颗钮：环首刀（攻击）、靴子带风痕（闪避）、上箭头（跳跃）、柳叶镖（远程）；据点里的「交谈」气泡；招式联动的小模型由
 // 提示用的像素图放大两倍后「鼓起来」生成（每招自己的颜色，发光核心）。
 import { customIcon3D, type Model3D } from '../ui3d/models3d';
+import { itemModel } from './itemModels';
 import { Mask, extrude, pillow, box, type Set3 } from '../ui3d/models3dArt';
 
 const C = {
@@ -64,6 +65,10 @@ const ART: Record<string, (set: Set3) => void> = {
 
 /** the four buttons' pictures and the hideout's talk bubble, as thick voxel badges (dim / glow through Model3D) */
 export function btnIcon3D(key: 'attack' | 'dash' | 'jump' | 'special' | 'talk'): Model3D {
+  // act-41 (用户：「所有道具我要求都是真实的模型，不要用立体简笔画糊弄我」): the buttons carry the real things — the ring-pommel sabre,
+  // the willow-leaf dart, the cloth boot, the straw sandal (itemModels.ts); the talk bubble stays a sign
+  const real = key === 'attack' ? itemModel('sabre') : key === 'special' ? itemModel('dart') : key === 'dash' ? itemModel('boot') : key === 'jump' ? itemModel('sandal') : null;
+  if (real) return real;
   const art = key === 'attack' ? 'sabre' : key === 'special' ? 'dart' : key;
   return customIcon3D('ub:' + art, ART[art]);
 }
