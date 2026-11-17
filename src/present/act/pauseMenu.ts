@@ -15,6 +15,8 @@ import { paintTitle } from './opening';
 import { pixW, PIX_H } from '../v2/pix';
 import { ACTIONS, ACTION_WORD, BIND, PAD, padNav, paintGlyph, glyphArt, keyName, rebind, resetBinds, activePad, pauseName, GLYPH_H, type Nav } from './pad';
 import type { BtnName } from './input';
+import { SkillList, type Section } from './skillList';
+import { UI_WORDS } from './skillInfo';
 
 export interface MenuSetting { label: () => string; run: () => void }
 export interface PauseHost {
@@ -26,8 +28,12 @@ export interface PauseHost {
   giveUp(): void;
   /** the menu closed (from the game: the world runs again) */
   closed(): void;
+  /** 11-18 (用户：「选了强化后根本看不到自己选的强化是啥，在哪儿、如何释放」): this run's 刀谱 and 秘传 (已得), and the moves she has from the
+   *  start with the 刀谱 she knows now (招式) */
+  owned?(): Section[];
+  skills?(): Section[];
 }
-type Page = 'main' | 'keys' | 'set' | 'ask';
+type Page = 'main' | 'keys' | 'set' | 'ask' | 'owned' | 'skills';
 interface Row { id: string; label: () => string; act?: BtnName; run?: () => void }
 
 const TXT = { on: '#d9ccb2', sel: '#ffd88a', dim: '#8a7e70', line: '#0a0708', wait: '#ffe6b0' };
@@ -117,10 +123,15 @@ export class PauseMenu {
   private head: Sign; private foot: Sign; private marker: THREE.Mesh; private markerK = 0; private fade = 0;
   /** the key row waiting for a new key: which row, real seconds left, the pad's buttons when it started */
   private wait: { i: number; t: number; prev: boolean[] } | null = null;
+  /** 已得 / 招式: the list of skills beside the column (a column of slabs with only 返回 on the left) */
+  private list: SkillList; private listRel = 0;
   constructor(private host: PauseHost) {
-    const L = host.L; this.head = new Sign(L); this.foot = new Sign(L);
+    const L = host.L; this.head = new Sign(L); this.foot = new Sign(L); this.list = new SkillList(L);
     this.marker = pommel(); this.marker.userData.noTilt = true; this.marker.renderOrder = 62; this.marker.visible = false; L.scene.add(this.marker);
-    if (typeof window !== 'undefined') window.addEventListener('keydown', e => this.key(e), true);
+    if (typeof window !== 'undefined') {
+      window.addEventListener('keydown', e => this.key(e), true);
+      window.addEventListener('wheel', e => { if (this.on && this.list.on) this.list.scrollBy(e.deltaY * 0.6); }, { passive: true });
+    }
     onRealUpdate(rdt => this.update(rdt));
   }
   open(page: Page = 'main', o: { fromTitle?: boolean } = {}) {
@@ -130,15 +141,19 @@ export class PauseMenu {
   }
   close() {
     if (!this.on) return;
-    this.on = false; this.wait = null; PAUSE.menu = false; PAUSE.on = false; cue('deselect', 0.4);
+    this.on = false; this.wait = null; PAUSE.menu = false; PAUSE.on = false; cue('deselect', 0.4); this.list.close();
     this.host.closed();
   }
   private build(): Row[] {
     const h = this.host;
     if (this.page === 'main') return [
-      { id: 'resume', label: () => '继续' }, { id: 'keys', label: () => '键位' }, { id: 'set', label: () => '设置' },
+      { id: 'resume', label: () => '继续' },
+      ...(h.owned ? [{ id: 'owned', label: () => UI_WORDS.owned }] : []), ...(h.skills ? [{ id: 'skills', label: () => UI_WORDS.skills }] : []),
+      { id: 'keys', label: () => '键位' }, { id: 'set', label: () => '设置' },
       ...(h.canGiveUp() ? [{ id: 'quit', label: () => '回据点' }] : []),
     ];
+    // 已得 / 招式: the list is its own thing (skillList.ts); the column of slabs keeps only 返回
+    if (this.page === 'owned' || this.page === 'skills') return [{ id: 'back', label: () => '返回' }];
     if (this.page === 'keys') return [...ACTIONS.map(a => ({ id: 'act', act: a, label: () => ACTION_WORD[a] })), { id: 'reset', label: () => '恢复默认' }, { id: 'back', label: () => '返回' }];
     if (this.page === 'set') return [...h.settings.map((s, i) => ({ id: `s${i}`, label: s.label, run: s.run })), { id: 'back', label: () => '返回' }];
     return [{ id: 'yes', label: () => '回据点' }, { id: 'no', label: () => '再想想' }];
@@ -150,7 +165,12 @@ export class PauseMenu {
     this.sel = page === 'ask' ? 1 : 0;
     this.slabs.forEach((s, i) => { s.inK = 0; s.delay = i * 0.05; });
     this.pageT = 0; if (!first) cue('tick', 0.35);
+    if (page === 'owned') this.list.open(this.host.owned?.() ?? []);
+    else if (page === 'skills') this.list.open(this.host.skills?.() ?? []);
+    else this.list.close();
   }
+  /** on the 已得 / 招式 pages the arrows move in the list, not in the column (its only slab is 返回) */
+  private get inList() { return (this.page === 'owned' || this.page === 'skills') && this.list.on; }
   private pageT = 0;
   private back() {
     if (this.wait) { this.wait = null; cue('deselect', 0.4); return; }
@@ -165,24 +185,26 @@ export class PauseMenu {
       case 'resume': this.close(); return;
       case 'keys': cue('select', 0.5); this.go('keys'); return;
       case 'set': cue('select', 0.5); this.go('set'); return;
+      case 'owned': cue('select', 0.5); this.go('owned'); return;
+      case 'skills': cue('select', 0.5); this.go('skills'); return;
       case 'quit': cue('select', 0.5); this.go('ask'); return;
       case 'back': this.back(); return;
       case 'no': this.back(); return;
-      case 'yes': this.on = false; this.wait = null; PAUSE.menu = false; PAUSE.on = false; this.host.closed(); this.host.giveUp(); return;
+      case 'yes': this.on = false; this.wait = null; PAUSE.menu = false; PAUSE.on = false; this.list.close(); this.host.closed(); this.host.giveUp(); return;
       case 'reset': resetBinds(); cue('select', 0.6); for (const x of this.slabs) x.flash = 0.6; return;
       case 'act': { const p = activePad(); this.wait = { i: this.sel, t: 5, prev: p ? p.buttons.map(b => !!b.pressed) : [] }; cue('select', 0.4); return; }
       default: if (r.run) { r.run(); cue('click', 0.5); }
     }
   }
-  private moveSel(d: number) { const n = this.rows.length; if (!n) return; this.sel = (this.sel + d + n) % n; cue('tick', 0.3); }
+  private moveSel(d: number) { if (this.inList) { this.list.move(d); cue('tick', 0.3); return; } const n = this.rows.length; if (!n) return; this.sel = (this.sel + d + n) % n; cue('tick', 0.3); }
   /** a key while the menu is up: the menu takes the keys it uses (nothing under it sees them); F-keys (reload, dev tools) pass */
   private key(e: KeyboardEvent) {
     const k = e.key.toLowerCase();
     if (!this.on || e.ctrlKey || e.metaKey || e.altKey || /^f\d+$/.test(k)) return;
-    const nav = ['arrowup', 'w', 'arrowdown', 's', 'enter', ' ', 'j', 'escape', 'backspace'].includes(k);
+    const nav = ['arrowup', 'w', 'arrowdown', 's', 'enter', ' ', 'j', 'escape', 'backspace'].includes(k) || (this.inList && (k === 'pageup' || k === 'pagedown'));
     if (!this.wait && !nav) return;
     e.preventDefault(); e.stopImmediatePropagation(); e.stopPropagation();
-    if (e.repeat) return;
+    if (e.repeat && !this.inList) return;
     PAD.device = 'key';
     if (this.wait) {
       if (k === 'escape') { this.wait = null; cue('deselect', 0.4); return; }
@@ -190,7 +212,9 @@ export class PauseMenu {
     }
     if (k === 'arrowup' || k === 'w') this.moveSel(-1);
     else if (k === 'arrowdown' || k === 's') this.moveSel(1);
-    else if (k === 'enter' || k === ' ' || k === 'j') this.ok();
+    else if (k === 'pageup') this.list.scrollBy(-this.host.L.h * 0.5); else if (k === 'pagedown') this.list.scrollBy(this.host.L.h * 0.5);
+    else if (e.repeat) return;
+    else if (k === 'enter' || k === ' ' || k === 'j') { if (this.inList) this.back(); else this.ok(); }
     else this.back();
   }
   private bind(kind: 'key' | 'pad', code: string | number) {
@@ -203,12 +227,20 @@ export class PauseMenu {
   pointer(type: string, x: number, y: number): boolean {
     if (!this.on) return false;
     if (this.wait) return true;
+    // the list (已得 / 招式): a finger dragged up / down scrolls it; a tap on a row selects it
+    if (this.inList) {
+      if (type === 'down') { this.drag = { y, moved: 0 }; }
+      else if (type === 'move' && this.drag) { const d = this.drag.y - y; this.drag.moved += Math.abs(d); this.drag.y = y; this.list.scrollBy(d); }
+      else if (type === 'up' && this.drag) { const tap = this.drag.moved < 8; this.drag = null; const li = this.list.hit(x, y); if (tap && li >= 0) { this.list.sel = li; cue('tick', 0.25); } }
+      else if (type === 'move') { const li = this.list.hit(x, y); if (li >= 0 && li !== this.list.sel) { this.list.sel = li; cue('tick', 0.25); } }
+    }
     const i = this.slabs.findIndex(s => s.hit(x, y));
     if (type === 'move' && i >= 0 && i !== this.sel) { this.sel = i; cue('tick', 0.25); }
     if (type === 'down') this.downAt = i;
     if (type === 'up') { const was = this.downAt; this.downAt = -1; if (i >= 0 && i === was) { this.sel = i; PAD.device = 'touch'; this.ok(); } }
     return true;
   }
+  private drag: { y: number; moved: number } | null = null;
   private downAt = -1;
   // ---------------------------------------------------------------- the frame (real time, paused or not)
   private update(rdt: number) {
@@ -234,11 +266,18 @@ export class PauseMenu {
       if (this.openT > 0.12) {
         if (n.up) this.moveSel(-1); else if (n.down) this.moveSel(1);
         else if (n.right && this.page === 'set') this.ok();
-        if (n.ok) this.ok(); else if (n.back) this.back(); else if (n.start) this.close();
+        if (n.ok) { if (this.inList) this.back(); else this.ok(); } else if (n.back) this.back(); else if (n.start) this.close();
       }
     }
     if (!this.on) return;
     this.layout();
+    // 已得 / 招式: the list right of the 返回 column, from under the page's name to above the prompts
+    { const want = this.inList ? 1 : 0; this.listRel += (want - this.listRel) * Math.min(1, rdt * 10);
+      if (this.list.on) {
+        const W = L.w, H = L.h, lx0 = this.lay.cx + this.lay.w / 2 + Math.max(40, W * 0.05), lx1 = W - Math.max(40, W * 0.05);
+        this.list.layout((lx0 + lx1) / 2, this.lay.top, H - Math.max(40, H * 0.08), Math.min(lx1 - lx0, 760));
+        this.list.update(rdt, this.listRel);
+      } }
     this.slabs.forEach((s, i) => {
       s.inK = Math.min(1, Math.max(s.inK, (this.pageT - s.delay) / 0.28));
       this.paintRow(i);
@@ -261,13 +300,13 @@ export class PauseMenu {
     const headH = Math.max(28, Math.min(56, H * 0.075)), footH = Math.max(18, Math.min(30, H * 0.04));
     const avail = H * 0.86 - headH * 1.4 - footH * 1.6;
     const h = Math.max(24, Math.min(wide ? 50 : 56, avail / (n * 1.32 - 0.32))), gap = h * 0.32;
-    const total = n * h + (n - 1) * gap, top = Math.max(headH * 1.5 + H * 0.05, (H - total) / 2 + headH * 0.4);
+    const total = n * h + (n - 1) * gap, top = this.page === 'owned' || this.page === 'skills' ? headH * 1.5 + H * 0.05 : Math.max(headH * 1.5 + H * 0.05, (H - total) / 2 + headH * 0.4);
     const cx = Math.max(w / 2 + h * 1.6 + 24, W * 0.27);
     const S = Math.max(1, Math.round(h * 0.4 * k / PIX_H)), hS = Math.max(1, Math.round(headH * 0.8 * k / PIX_H));
     Object.assign(this.lay, { cx, w, h, top, S, hS, gap });
     this.slabs.forEach((s, i) => { s.size(w, h); s.x = cx; s.y = top + h / 2 + i * (h + gap); });
     // the page's name over the column
-    const name = { main: '暂歇', keys: '键位', set: '设置', ask: '回据点？' }[this.page], note = this.page === 'ask' ? '视同战死：途中所获尽失，残铁与药引照带回' : this.page === 'keys' ? this.keysNote() : '';
+    const name = { main: '暂歇', keys: '键位', set: '设置', ask: '回据点？', owned: UI_WORDS.owned, skills: UI_WORDS.skills }[this.page], note = this.page === 'ask' ? '视同战死：途中所获尽失，残铁与药引照带回' : this.page === 'keys' ? this.keysNote() : '';
     const nS = Math.max(1, Math.round(hS * 0.45)), hw = Math.max(textW(name, hS), textW(note, nS) + 8) / k + 8, hh = (PIX_H * hS + (note ? PIX_H * nS + 6 * k : 0)) / k + 6;
     this.head.set(name + note, hw, hh, g => { text(g, name, 4 * k, 3 * k, hS, TXT.sel); if (note) text(g, note, 4 * k, 3 * k + PIX_H * hS + 6 * k, nS, TXT.dim); });
     const ent = Math.min(1, this.pageT / 0.25);
@@ -292,8 +331,9 @@ export class PauseMenu {
   }
   private keysNote() { return PAD.device === 'pad' ? `选中后按下新键 · ${pauseName()} 取消` : PAD.device === 'key' ? '选中后按下新键 · Esc 取消' : ''; }
   private prompts(): Array<{ pad?: number; key?: string; word: string }> {
-    const okWord = this.wait ? '' : this.page === 'keys' && this.rows[this.sel]?.id === 'act' ? '改键' : this.page === 'set' && this.rows[this.sel]?.run ? '切换' : '确认';
+    const okWord = this.wait ? '' : this.inList ? '返回' : this.page === 'keys' && this.rows[this.sel]?.id === 'act' ? '改键' : this.page === 'set' && this.rows[this.sel]?.run ? '切换' : '确认';
     if (this.wait) return [];
+    if (this.inList) { if (PAD.device === 'pad') return [{ pad: 1, word: '返回' }]; if (PAD.device === 'key') return [{ key: 'Esc', word: '返回' }]; return []; }
     if (PAD.device === 'pad') return [{ pad: 0, word: okWord }, { pad: 1, word: '返回' }];
     if (PAD.device === 'key') return [{ key: '回车', word: okWord }, { key: 'Esc', word: '返回' }];
     return [];

@@ -35,13 +35,22 @@ export const TIER_TXT = ['#d8d2c6', '#f0b870', '#ffe08a'];
 const NAME_TXT = ['#efe6d2', '#ffd8a0', '#fff0c0'];
 
 // the layout in board units (width 1, height CARD_H, front toward +z)
-const H = CARD_H, FR = 0.024, SOCK = H - 0.072, SX = -0.5 + FR + 0.018 + SOCK / 2, DIV = SX + SOCK / 2 + 0.02;
+/** 11-18 (用户：「强化卡片也难以辨认都是干嘛的」): the skill cards are taller — the button on the left, the name, the presses and the effect on
+ *  the right (three rows); the hideout's lists keep the short board */
+export const SKILL_H = 0.3;
+export function boardLayout(H: number) {
+  const SOCK = H - 0.072, SX = -0.5 + FR + 0.018 + SOCK / 2, DIV = SX + SOCK / 2 + 0.02;
+  return { H, SOCK, SX, DIV, FACE: { x0: DIV + 0.016, x1: 0.5 - FR - 0.012, h: H - 2 * FR - 0.014 }, SOCKET: { x: SX, y: 0, size: SOCK } };
+}
+const FR = 0.024;
+const H = CARD_H, SOCK = H - 0.072, SX = -0.5 + FR + 0.018 + SOCK / 2, DIV = SX + SOCK / 2 + 0.02;
 /** the face (text) area on the lacquer: left edge, right edge, height */
 export const FACE = { x0: DIV + 0.016, x1: 0.5 - FR - 0.012, h: H - 2 * FR - 0.014 };
 
-/** the board itself: one merged mesh (vertex colours), its emissive used for the focus glow */
-export function cardBoard(style: CardStyle, tier: number) {
+/** the board itself: one merged mesh (vertex colours), its emissive used for the focus glow; Hh = the board's height (CARD_H / SKILL_H) */
+export function cardBoard(style: CardStyle, tier: number, Hh = CARD_H) {
   const M = style === 'boon' ? METAL[Math.max(0, Math.min(2, tier))] : STYLE_METAL[style], [pc, pl] = PANEL[style];
+  const { H, SOCK, SX, DIV } = boardLayout(Hh);
   // (two meshes: the panel never glows — only the metal warms in focus; act-36 first try tinted the whole lacquer orange)
   const p: Parameters<typeof mergeBoxes>[0] = [], b: Parameters<typeof mergeBoxes>[0] = [];
   p.push({ w: 1, h: H, d: 0.05, x: 0, y: 0, z: 0, c: IRON_D });                                                // the iron back
@@ -102,30 +111,41 @@ const MINI: Record<string, string[]> = {
   dash: ['.......', '....#..', '######.', '#######', '######.', '....#..', '.......'],
   heart: ['.##.##.', '#######', '#######', '.#####.', '..###..', '...#...', '.......'],
   draw: ['#######', '...#...', '...#...', '...#...', '...#...', '..###..', '...#...'],
+  // 11-18 (技能说明配图标): 气 = the cut button's lamp, 杀气 = the copper ingot, up = thrown up, stun = knocked senseless, moon = the light
+  qi: ['.......', '.#####.', '.#ooo#.', '.#ooo#.', '.#ooo#.', '.#####.', '.......'],
+  ingot: ['.......', '.......', '.#####.', '#######', '#######', '.......', '.......'],
+  up: ['...#...', '..###..', '.#####.', '...#...', '...#...', '...#...', '.......'],
+  stun: ['.#...#.', '###.###', '.#...#.', '.......', '...#...', '..###..', '...#...'],
+  moon: ['.......', '#.....#', '##...##', '.#####.', '..###..', '.......', '.......'],
 };
 const KEYS: Array<[string, string, string]> = ([
   ['收尾一刀', 'blade', '#ffd27a'], ['连环刀', 'blade', '#ffd27a'], ['箭步斩', 'blade', '#ffd27a'], ['破势', 'blade', '#ffd27a'], ['劈山', 'blade', '#ffd27a'], ['挑云', 'blade', '#ffd27a'],
-  ['斩击', 'blade', '#ffd27a'], ['斩杀', 'blade', '#ff9a6a'], ['刀光', 'blade', '#e8f4ff'], ['刀芒', 'blade', '#e8f4ff'], ['刀痕', 'blade', '#ffd27a'],
-  ['出血', 'blood', '#ff6a5a'], ['放血', 'blood', '#ff6a5a'], ['流血', 'blood', '#ff6a5a'], ['破甲', 'bone', '#e0d0b8'], ['硬直', 'bone', '#e0d0b8'], ['断骨', 'bone', '#e0d0b8'],
+  ['斩击', 'blade', '#ffd27a'], ['斩杀', 'blade', '#ff9a6a'], ['刀光', 'moon', '#e8fff2'], ['刀芒', 'moon', '#e8fff2'], ['月牙刀光', 'moon', '#e8fff2'], ['刀痕', 'blade', '#ffd27a'],
+  ['重斩', 'blade', '#ffd27a'], ['连爆八刀', 'blade', '#ffd27a'], ['回锋斩', 'blade', '#ffd27a'], ['穿风斩', 'blade', '#9ad8ff'],
+  ['出血', 'blood', '#ff6a5a'], ['放血', 'blood', '#ff6a5a'], ['流血', 'blood', '#ff6a5a'], ['破甲', 'bone', '#e0d0b8'], ['硬直', 'bone', '#e0d0b8'], ['断骨', 'bone', '#e0d0b8'], ['破绽', 'bone', '#e0d0b8'],
   ['藏锋', 'draw', '#ffd27a'], ['柳叶镖', 'dart', '#e8eef4'], ['飞镖', 'dart', '#e8eef4'], ['完美闪避', 'dash', '#9ad8ff'], ['冲刺', 'dash', '#9ad8ff'],
-  ['回血', 'heart', '#8aff9a'], ['生命', 'heart', '#8aff9a'], ['杀气', 'blade', '#ff9a6a'],
+  ['回血', 'heart', '#8aff9a'], ['回一口血', 'heart', '#8aff9a'], ['生命', 'heart', '#8aff9a'], ['杀气', 'ingot', '#ffaa5a'], ['一格气', 'qi', '#d6f4ec'],
+  ['挑上半空', 'up', '#ffe08a'], ['踹飞', 'dash', '#ffc890'], ['震开', 'dash', '#ffc890'], ['打得更远', 'dash', '#ffc890'], ['发蒙', 'stun', '#f0e0a0'], ['身形一顿', 'stun', '#f0e0a0'],
 ] as Array<[string, string, string]>).sort((a, b) => b[0].length - a[0].length);
 const NUM = /^([+\-−]?[0-9]+(?:\.[0-9]+)?(?:%|秒|点|枚|倍|层)?|[一二三四五六七八九十百半两]+(?:秒|点|成|枚|倍|层))/;
-function richLine(g: CanvasRenderingContext2D, line: string, x: number, y: number, px: number, base: string) {
+/** one line in the body font: the key words lit behind their icons, the numbers white; returns its width (draw = false only measures);
+ *  keys = false: no key words (the small numbers line stays plain) */
+export function richLine(g: CanvasRenderingContext2D | null, line: string, x: number, y: number, px: number, base: string, numCol = '#ffffff', keys = true) {
   let i = 0, cx = x, plain = '';
-  const flush = () => { if (!plain) return; bodyText(g, plain, cx, y, px, base, 'left'); cx += bodyW(plain, px); plain = ''; };
+  const flush = () => { if (!plain) return; if (g) bodyText(g, plain, cx, y, px, base, 'left'); cx += bodyW(plain, px); plain = ''; };
   while (i < line.length) {
-    const rest = line.slice(i), k = KEYS.find(([w]) => rest.startsWith(w));
+    const rest = line.slice(i), k = keys ? KEYS.find(([w]) => rest.startsWith(w)) : undefined;
     if (k) {
       flush(); const c = Math.max(1, Math.round(px / 9)), iw = 7 * c;
-      icon(g, MINI[k[1]], cx + 1, y + Math.round((px - iw) / 2) + 1, c, { main: k[2] }); cx += iw + Math.round(px * 0.18);
-      bodyText(g, k[0], cx, y, px, k[2], 'left'); cx += bodyW(k[0], px); i += k[0].length; continue;
+      if (g) icon(g, MINI[k[1]], cx + 1, y + Math.round((px - iw) / 2) + 1, c, { main: k[2], acc: '#ffffff' }); cx += iw + Math.round(px * 0.18);
+      if (g) bodyText(g, k[0], cx, y, px, k[2], 'left'); cx += bodyW(k[0], px); i += k[0].length; continue;
     }
     const n = rest.match(NUM);
-    if (n && (i === 0 || !/[一二三四五六七八九十]/.test(line[i - 1]))) { flush(); bodyText(g, n[1], cx, y, px, '#ffffff', 'left'); cx += bodyW(n[1], px); i += n[1].length; continue; }
+    if (n && (i === 0 || !/[一二三四五六七八九十]/.test(line[i - 1]))) { flush(); if (g) bodyText(g, n[1], cx, y, px, numCol, 'left'); cx += bodyW(n[1], px); i += n[1].length; continue; }
     plain += line[i]; i++;
   }
   flush();
+  return cx - x;
 }
 export interface FaceSpec { name: string; tag: string; desc: string[]; tier: number; style: CardStyle }
 /** paint the face for an on-screen size of w × h CSS px (the text area), at the screen's device pixels */
