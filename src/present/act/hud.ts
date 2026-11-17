@@ -126,6 +126,10 @@ export class ActHud {
   /** the move links open now (act-18): a hint per button, or null */
   setHints(h: Partial<Record<BtnName, HintKey | null>>) { for (const n of Object.keys(this.btns) as BtnName[]) { const b = this.btns[n]; if (b instanceof IronBtn) { b.hint = h[n] ?? null; b.talk = h[n] === 'talk'; } } }
   setPips(n: BtnName, left: number, max: number) { const b = this.btns[n] as { pips?: number; pipMax?: number }; if ('pipMax' in b) { b.pips = left; b.pipMax = max; } }
+  /** 11-17 气: the lamps over the cut button (a share fills the next lamp part-way); hold = a bar staked in the stance (its lamp blinks) */
+  setQi(qi: number, max: number, hold: boolean) { const b = this.btns.attack as { pips?: number; pipMax?: number; pipHold?: boolean }; if ('pipMax' in b) { b.pips = qi; b.pipMax = max; b.pipHold = hold; } }
+  /** 11-17: the stance refused for want of 气 — the cut button shakes, dull red */
+  denyAttack() { (this.btns.attack as { deny?: () => void }).deny?.(); }
   private newBar(): Bar {
     // the lag a muted copper, not a pale strip (it read as "white behind the pad")
     const p = PALETTE[this.skin], g = new THREE.Group(), back = flat(p.foeBack), lag = flat(0x9a5a34), fill = flat(p.foeFill);

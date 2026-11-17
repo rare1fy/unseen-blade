@@ -61,7 +61,9 @@ import { Input } from './input';
 import { ActHud } from './hud';
 import { CardPick3D as CardPick } from './cards3d';   // act-36: the pick cards as iron boards
 import { fillVals } from './cards';
-import { Hero, type HeroWorld } from './hero';
+import { Hero, QI_LINK, type HeroWorld } from './hero';
+/** 11-17: the 刀谱 links the first few openings of which are slowed down to teach them (二段跳 is no link; 穿风斩 / 劈山 / 回锋斩 are known from the start) */
+const TEACH = ['chase', 'back', 'cdart', 'launch', 'kick', 'keep', 'pause'];
 import { interruptFoe } from './enemy';
 import { inside } from './tele';
 import { spawnFoe, updateFoe, damageFoe, type Foe, type FoeWorld, type EKind, Arrow } from './enemy';
@@ -420,6 +422,8 @@ export class ActShow {
       /** captures: these boons as a pick, tiers 0 / 1 / 2 in turn */ cardsOf: (ids: string[]) => { void this.cards.open(ids.map((id, i) => ({ boon: BOONS.find(b => b.id === id) ?? BOONS[0], tier: i % 3 }))); },
       boon: (id: string, tier = 0) => applyBoon(this.perks, id, tier), // wp/boons: browser effect checks
       intent: (n = 3) => { this.intent = Math.max(0, Math.min(3, n)); this.hud.intent = this.intent; },
+      qi: (n?: number) => { if (n != null) this.hero.qi = Math.max(0, Math.min(Hero.QI_MAX, n)); return this.hero.qi; },
+      untaught: () => { try { localStorage.removeItem('ub.taught'); } catch { /* */ } this.taught = null; },
       prologue: (n = 1) => { this.startPrologue(); if (n >= 2) { after(0.3, () => { this.prologue = 2; this.proFightT = 0; this.plan = { type: 'boss', locale: 'hj_temple', reward: null, waves: [['hj_boss']] }; this.locale = 'hj_temple'; this.room = 1; this.buildRoom(false); }); } },
       sfx: () => ({ ready: audio.ready, all: audio.buf.size, loaded: [...audio.buf.keys()].filter(k => /^ub_(flesh|gore|blood)/.test(k)), muted: audio.muted, ctx: audio.ctx ? audio.ctx.state : 'none', recent: audio.recent.slice() }), unlockAudio: () => audio.unlock().then(() => audio.ready),
       cam: (b: number[] | null, l?: number[], fov = 30) => { this.camOverride = b ? { base: V3(b[0], b[1], b[2]), look: V3(l![0], l![1], l![2]), fov } : null; },
@@ -604,7 +608,7 @@ export class ActShow {
     this.gates?.dispose(); this.gates = null; this.leaves?.dispose(); this.leaves = null; this.clearNpcs();
     for (const d of this.doors) d.g.parent?.remove(d.g); this.doors = []; this.stations?.dispose(); this.stations = null; this.coinsFx.clear();
     this.yard?.dispose(); this.yard = null; this.exitSign?.parent?.remove(this.exitSign); this.exitSign = null;
-    const hp = first || !this.hero ? TUNE.heroHp : this.hero.hp, maxHp = TUNE.heroHp;
+    const hp = first || !this.hero ? TUNE.heroHp : this.hero.hp, maxHp = TUNE.heroHp, qi = first || !this.hero ? 0 : this.hero.qi;
     this.hero?.a.dispose();
     const isYard = this.room < 0;
     if (!isYard && this.plan && !this.viewSpec) this.visited.push(this.plan.type);
@@ -637,6 +641,7 @@ export class ActShow {
     // fallen leaves on the floor, a few drifting down (act-19); none in winter or in the rain
     this.leaves = new Leaves(spec.weather === 'rain' || spec.weather === 'snow' ? 'winter' : spec.season, { rest: big ? 100 : 40, fall: big ? 1.4 : 0.8 });
     this.hero = new Hero(isYard ? V3(HIDEOUT.spawn[0], 0, HIDEOUT.spawn[1]) : V3(0, 0, SZ(5.0)), this.wearing); this.hero.moves = isYard ? ALL_MOVES : this.perks.moves; this.hero.perks = this.perks; this.hero.hp = Math.min(hp, maxHp); this.hero.maxHp = maxHp;
+    this.hero.qi = isYard ? Hero.QI_MAX : Math.min(Hero.QI_MAX, Math.max(qi, TUNE.qiStart));   // (11-17 气: carried on; a room starts with at least TUNE.qiStart)
     this.hero.a.yaw = isYard ? -0.6 : Math.PI;
     this.hud.flask.set({ hp: this.hero.hp, maxHp });
     this.cam.set(this.hero.pos.x, 0, this.hero.pos.z); shot('act', () => this.camPose(), { cut: true, speed: 8 });
@@ -768,7 +773,7 @@ export class ActShow {
     foes: this.foes,
     swing: o => this.swing(o), sweep: o => this.sweep(o), slam: o => this.slam(o), clamp: this.clamp,
     launch: o => this.launchCut(o), kick: o => this.kickHit(o),
-    dart: o => { this.dartsThrown++; const bonus = tierOf(this.perks, 'darts3') === 1 ? 1.25 : 1; this.darts.push(new Dart(o.from.clone(), o.dir.clone().multiplyScalar(TUNE.dartSpeed), TUNE.dartDmg * bonus, TUNE.dartRange)); },
+    dart: o => { this.dartsThrown++; const bonus = tierOf(this.perks, 'darts3') === 1 ? 1.25 : 1; const d = new Dart(o.from.clone(), o.dir.clone().multiplyScalar(TUNE.dartSpeed), TUNE.dartDmg * bonus, TUNE.dartRange); d.link = o.link ?? 0; this.darts.push(d); },
     chaseTarget: () => this.chaseTarget(), chase: o => this.chaseFx(o),
     stickWorld: () => V3(this.inp.move.x, 0, -this.inp.move.y),
     // act-27: the dart's aim — the finger dragged off the dart button, else the stick (keys / pad)
@@ -980,6 +985,7 @@ export class ActShow {
     }
     hitstop(TUNE.deflectStop); slowmo(TUNE.deflectSlow, 0.3); shake(0.22 * TUNE.shake);
     cue('swishHeavy', 0.7); cue('exitChime', 0.35); this.platform.vibrate('medium'); this.addIntent();
+    this.hero.gainQi(Math.min(0.5, 0.25 * cut.length));   // (11-17 气: a batted arrow is a quarter of a bar)
   }
   /** the blade's guard window: arrows in the front half-circle within reach are batted away */
   private guard(o: { from: THREE.Vector3; yaw: number; range: number }) {
@@ -1011,7 +1017,7 @@ export class ActShow {
     fxSparks(h.a.chest(), 0xdff4ff, 18, 5); h.a.tint(0xbfe8ff, 0.6);
     popPix('闪', h.a.head().add(V3(0, 0.5, 0)), { color: '#bfe8ff', h: 0.9, big: true, life: 0.9, rise: 1.0 });
     cue('parry', 1); cue('draw', 0.9); this.platform.vibrate('medium');
-    h.counterT = TUNE.counterTime; h.dashCd = 0;
+    h.counterT = TUNE.counterTime; h.dashCd = 0; h.gainQi(0.5);   // (11-17 气: a perfect dodge is half a bar)
     if (this.intent >= 3) this.startQte(); else this.addIntent();
   }
   /** the attacks that will land on the hero within `win` seconds: foes winding up with the hero inside their warning (a little slack),
@@ -1053,8 +1059,21 @@ export class ActShow {
     cue('parry', 1); cue('cutHeavy', 0.9); this.platform.vibrate('heavy');
     if (this.intent >= 3) this.startQte(); else this.addIntent();
   }
+  /** 11-17 (用户选「新学的刀谱派生，前三次能接招时慢放」): the first three times (on this device) each 刀谱 link opens in a fight, time
+   *  runs at half speed for a moment while the button turns over to it — so the player sees 「now this can follow」. Not in the yard */
+  private hintWas: Record<string, string | null> = {}; private taught: Record<string, number> | null = null;
+  private teach(hints: Record<string, string | null>) {
+    for (const [btn, k] of Object.entries(hints)) {
+      const was = this.hintWas[btn] ?? null; this.hintWas[btn] = k;
+      if (!k || k === was || this.phase !== 'fight' || !TEACH.includes(k)) continue;
+      if (!this.taught) { try { this.taught = JSON.parse(localStorage.getItem('ub.taught') || '{}') ?? {}; } catch { this.taught = {}; } }
+      const t = this.taught!; if ((t[k] ?? 0) >= 3) continue;
+      t[k] = (t[k] ?? 0) + 1; try { localStorage.setItem('ub.taught', JSON.stringify(t)); } catch { /* private mode: it teaches again next time */ }
+      slowmo(0.6, 0.5); this.log.push(`teach ${k} ${t[k]}`);
+    }
+  }
   /** 杀意 +1 (perfect dodge, a batted arrow, a counter landing, 见切), up to 3; the third flares */
-  intent = 0;
+  intent = 0; private qiVolley = 0;
   private addIntent() {
     if (this.intent >= 3) return;
     this.intent++; this.hud.intent = this.intent;
@@ -1366,7 +1385,7 @@ export class ActShow {
       for (const f of this.foes) {
         if (f.st === 'dead' || d.p.y > 2.4) continue;
         const ab = d.p.clone().sub(p0).setY(0), L2 = Math.max(1e-6, ab.lengthSq()), t = Math.max(0, Math.min(1, f.pos.clone().sub(p0).setY(0).dot(ab) / L2)), q = p0.clone().addScaledVector(ab, t);
-        if (Math.hypot(f.pos.x - q.x, f.pos.z - q.z) < f.d.r + 0.2) { this.hitFoe(f, d.dmg, p0, { knock: 0.12, heavy: false, kind: 'dart', stagger: 0 }); cue('dartHit', 0.7); if ((f.st as string) !== 'dead') d.stickIn(f, TUNE.chaseWin); else d.stop(); break; }
+        if (Math.hypot(f.pos.x - q.x, f.pos.z - q.z) < f.d.r + 0.2) { this.hitFoe(f, d.dmg, p0, { knock: 0.12, heavy: false, kind: 'dart', stagger: 0 }); cue('dartHit', 0.7); if (d.link && d.link !== this.qiVolley) { this.qiVolley = d.link; this.hero.gainQi(QI_LINK); } if ((f.st as string) !== 'dead') d.stickIn(f, TUNE.chaseWin); else d.stop(); break; }
       }
       if (d.dead || d.stuck) continue;
       const q = d.p.clone(); this.clamp(q, 0); if (q.distanceTo(d.p) > 0.3 || d.life <= 0 || d.p.y < 0.05) d.stop(d.life > 0);
@@ -1413,10 +1432,12 @@ export class ActShow {
     // the charge: the gold ring round the feet fills, sparks off the blade's point (faster as it fills), a flash when full
     const ch = h.charge; this.ring.visible = ch > 0.01;
     if (this.ring.visible) {
-      const k = Math.round(ch * 48) / 48;
+      // 11-17 屏息: full, the ring runs back down as the breath is held; the last 0.4 s it trembles and dims, then she lets it go
+      const br = h.breath, left = br * TUNE.stanceHold, warn = ch >= 1 && left < 0.4 ? 1 - left / 0.4 : 0;
+      const k = Math.round((ch < 1 ? ch : Math.max(0.02, br)) * 48) / 48;
       if (k !== this.ringK) { this.ringK = k; this.ring.geometry.dispose(); this.ring.geometry = new THREE.RingGeometry(0.62, 0.74, 48, 1, Math.PI / 2, -Math.PI * 2 * Math.max(0.01, k)).rotateX(-Math.PI / 2); }
-      this.ring.position.set(h.pos.x, 0.05 + h.y, h.pos.z);
-      const m = this.ring.material as THREE.MeshBasicMaterial; m.opacity = ch >= 1 ? 0.55 + 0.15 * Math.sin(clock.rtime * 14) : 0.5; m.color.setHex(ch >= 1 ? 0xffe7a0 : 0xffc848);
+      this.ring.position.set(h.pos.x + (Math.random() - 0.5) * 0.07 * warn, 0.05 + h.y, h.pos.z + (Math.random() - 0.5) * 0.07 * warn);
+      const m = this.ring.material as THREE.MeshBasicMaterial; m.opacity = ch >= 1 ? (0.55 + 0.15 * Math.sin(clock.rtime * 14)) * (1 - 0.45 * warn * (0.5 + 0.5 * Math.sin(clock.rtime * 45))) : 0.5; m.color.setHex(ch >= 1 ? 0xffe7a0 : 0xffc848); if (warn > 0) m.color.lerp(new THREE.Color(0x8a6a48), 0.7 * warn);
       this.sparkT -= rdt; if (this.sparkT <= 0) { this.sparkT = 0.13 - 0.08 * ch; fxSparks(h.a.bones.weapon ? h.a.bones.weapon.localToWorld(V3(0, 0, (h.def.tip ?? 13) * CELL)) : h.a.chest(), 0xffd070, ch >= 1 ? 4 : 2, 1.5 + 2 * ch, { life: 0.3 }); }
     } else this.ringK = -1;
     if (h.fullT > 0.34) { fxRing(h.pos.clone().setY(0.08), 0xffe7a0, 1.3, { life: 0.3 } as never); shake(0.06 * TUNE.shake); }
@@ -1443,10 +1464,16 @@ export class ActShow {
     // the dart button: dark and sinking while the three reload; the lamps show the darts left
     this.hud.setCooldowns({ attack: 0, jump: 0, dash: Math.max(0, h.dashCd / (TUNE.dashCd * (1 - v2(this.perks, 'evade') / 100))), special: h.dartReload > 0 ? h.dartReload / TUNE.dartReload : 0 });
     this.hud.setPips('special', h.dartAmmo, TUNE.dartCharges);
+    // 11-17 气: the yard (试剑坪) fills it back by itself (practise 破势 without building it first)
+    if (this.phase === 'yard' && h.st !== 'charge') h.qi = Math.min(Hero.QI_MAX, h.qi + rdt * 1.5);
+    this.hud.setQi(h.qi, Hero.QI_MAX, h.st === 'charge');
+    if (h.qiDenied) { h.qiDenied = false; this.hud.denyAttack(); }
+    if (h.exhaled) { h.exhaled = false; const at = h.a.head().add(h.a.fwd().multiplyScalar(0.25)); fxSmoke(at, 0xe6eef2, 12, { r: 0.12, spd: 1.7, up: 0.6, s: 0.24, life: 0.8 }); fxRing(h.pos.clone().setY(0.06), 0xb8a888, 0.9, { life: 0.3 } as never); }
     // the move links open right now, shown on the buttons (act-18): 追影 > 穿风斩 > 下劈 > 反击 on the cut button
     { const fighting = this.phase === 'fight' || this.phase === 'yard', chase = fighting && !!h.moves.chase && !!this.chaseTarget();
-      const atk = this.npcNear && !this.noTalk ? 'talk' : !fighting ? null : chase ? 'chase' : h.st === 'dash' && !h.airborne ? 'dcut' : h.canKeep ? 'keep' : h.canPause ? 'pause' : (h.st === 'air' && h.airborne) ? 'plunge' : h.counterT > 0 ? 'counter' : null;
-      this.hud.setHints({ attack: atk, special: !fighting ? null : h.canBackDart ? 'back' : h.canCutDart ? 'cdart' : null, jump: !fighting ? null : h.canLaunch ? 'launch' : h.canKick ? 'kick' : h.canDoubleJump ? 'dbl' : null }); }
+      const atk = this.npcNear && !this.noTalk ? 'talk' : !fighting ? null : chase ? 'chase' : h.canDashCut ? 'dcut' : h.canKeep ? 'keep' : h.canPause ? 'pause' : (h.st === 'air' && h.airborne) ? 'plunge' : h.counterT > 0 ? 'counter' : null;
+      const hints = { attack: atk, special: !fighting ? null : h.canBackDart ? 'back' : h.canCutDart ? 'cdart' : null, jump: !fighting ? null : h.canLaunch ? 'launch' : h.canKick ? 'kick' : h.canDoubleJump ? 'dbl' : null } as const;
+      this.hud.setHints(hints); this.teach(hints); }
     this.hud.heroAt.copy(h.pos);
     this.hud.update(rdt, this.inp, this.foes); this.cards.update(rdt); this.banner.update(rdt);
     this.L.on = true;

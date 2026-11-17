@@ -26,6 +26,8 @@ export class Dart {
   private blade!: THREE.Mesh; private ring: THREE.Mesh | null = null; private off = new THREE.Vector3();
   /** the foe it is stuck in (追影 follows it) and for how long */
   stuck: { pos: THREE.Vector3; d: { r: number } } | null = null; stuckT = 0;
+  /** 11-17: the link volley it belongs to (迎面镖 / 回身镖; 0 = a plain throw) — the volley's first strike fills 气 */
+  link = 0;
   constructor(public p: THREE.Vector3, public v: THREE.Vector3, public dmg: number, range: number) {
     const blade = this.blade = new THREE.Mesh(dartGeo, steelMat); this.tassel.position.z = -0.12; this.g.add(blade, this.tassel);
     this.g.scale.setScalar(1.25); this.g.position.copy(p); this.g.lookAt(p.clone().add(v)); scene.add(this.g);

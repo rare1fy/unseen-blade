@@ -34,6 +34,10 @@ const SW: Record<Cut, Swing> = {
   k5: { imps: [0.5], range: 0.35, half: 1.5, dmg: () => TUNE.finDmg, knock: 1.7, lunge: 1.5, heavy: true },
 };
 const NEXT: Record<Cut, Cut | null> = { k1: 'k2', k2: 'k3', k3: 'k4', k4: 'k5', k5: null };
+/** 11-17 气 (bars) for a blow that finds someone: the plain cuts (a whole 连环刀 ≈ 0.9 of a bar; 穿风斩 counts as a plain cut), a 刀谱
+ *  link (挑云 / 迎面镖 / 游身斩 / 扫八方 / 穿心腿 / 寻声 / 回身镖) twice that, 劈山 between; the draw costs QI_COST */
+const QI_CUT: Record<Cut, number> = { k1: 0.15, k2: 0.15, k3: 0.15, k4: 0.1, k5: 0.25 };
+export const QI_LINK = 0.3, QI_DCUT = 0.15, QI_PLUNGE = 0.2, QI_COST = 1;
 const PLUNGE_HANG = 0.1, PLUNGE_V = 22, FLIP_T = 0.42;
 /** the dart throw's length and the moment the dart leaves the hand (s) */
 const DART_T = 0.26, DART_REL = 0.12;
@@ -61,7 +65,7 @@ export interface HeroWorld {
   /** 追影: the blink's smoke, afterimage and shadow line; the darts in the foe are spent */
   chase(o: { from: THREE.Vector3; to: THREE.Vector3; foe: Foe }): void;
   /** a dart leaves the left hand, flying along dir (show.ts flies it and lands its hits) */
-  dart(o: { from: THREE.Vector3; dir: THREE.Vector3 }): void;
+  dart(o: { from: THREE.Vector3; dir: THREE.Vector3; /** 11-17: a link volley (迎面镖 / 回身镖) — its first strike fills 气 */ link?: number }): void;
   /** the blade is up: arrows inside this arc are batted away (called every frame of a cut's guard window) */
   guard(o: { from: THREE.Vector3; yaw: number; range: number }): void;
   /** the direction to the nearest arrow flying at the hero within reach (cuts turn to meet it), or null */
@@ -121,6 +125,19 @@ export class Hero {
   private keepNext: Cut | null = null; private keepT = 0;
   /** 停顿变招: the window after the 2nd cut finished in which a press turns the 3rd into the double spin */
   private pauseT = 0; private spinsLeft = 0; private bigSpin = false;
+  /** 11-17 (用户：「连招的窗口很多都太短了，很难放的出来，更很难被玩家感知到」): every link stays open at least about half a second.
+   *  dashTailT: after a dash stops on the ground, the dash links (穿风斩 / 回身镖 / 穿心腿) are still on for TUNE.linkDash;
+   *  linkT: after a cut's blow, the cut links (挑云 / 迎面镖) are on for TUNE.linkCut, even once the next cut has begun */
+  private dashTailT = 0; private linkT = 0;
+  /** 11-17 气 (用户：「缺少了一个限制放强力技能的战斗资源，比如能量」): three bars. Cuts that land fill it (the 刀谱 links twice as fast),
+   *  a perfect dodge and a batted arrow add to it; the draw from 藏锋 (箭步斩 / 破势) spends one bar, a 破势 gives nothing back.
+   *  qiDenied: a hold that found less than a bar (show.ts shakes the button once and clears it); exhaled: the breath ran out in the
+   *  stance — the bar is gone and she straightens up (show.ts puffs the breath and clears it); heldFull: time held since the stance filled */
+  qi = TUNE.qiStart; qiDenied = false; exhaled = false; private heldFull = 0; private keepCut = false;
+  static readonly QI_MAX = 3;
+  gainQi(n: number) { if (n > 0 && this.alive) this.qi = Math.min(Hero.QI_MAX, this.qi + n * TUNE.qiGain); }
+  /** 屏息: 1 → 0 over the hold allowed once the stance is full (1 while it fills or outside the stance) */
+  get breath() { return this.st === 'charge' && this.chargeK >= 1 ? Math.max(0, 1 - this.heldFull / Math.max(0.05, TUNE.stanceHold)) : 1; }
   /** 挑空斩: its blow has gone out; 近身三镖: the next throw is a fan of three */
   private launchHit = false; private fanNext = false;
   /** height off the ground and vertical speed */
@@ -155,8 +172,8 @@ export class Hero {
     else if (has) this.a.yaw = Math.atan2(s.x, s.z);
     return best;
   }
-  private startCut(n: Cut, w: HeroWorld, chase = false, big = false) {
-    this.chaseOn = chase; this.bigSpin = big;
+  private startCut(n: Cut, w: HeroWorld, chase = false, big = false, keep = false) {
+    this.chaseOn = chase; this.bigSpin = big; this.keepCut = keep;
     const dur = TUNE[n] / (TUNE.atkSpeed * (1 + v(this.perks, 'quick') / 100)); this.set(n, dur); this.next = null; const tgt = this.aim(w);
     this.counterCut = this.counterT > 0; if (this.counterCut) this.counterT = 0;
     // the step in: TUNE.atkLunge × this cut's share; with a foe ahead, stop TUNE.lungeStop short of it
@@ -166,12 +183,12 @@ export class Hero {
   }
   private startDash(w: HeroWorld) {
     const s = w.stickWorld(); this.dashDir.copy(s.lengthSq() > 0.04 ? s.normalize() : this.a.fwd());
-    this.a.yaw = Math.atan2(this.dashDir.x, this.dashDir.z); this.set('dash', TUNE.dashTime); this.dashCd = TUNE.dashCd * (1 - v2(this.perks, 'evade') / 100); this.ghostT = 0; this.dashDarted = false;
+    this.a.yaw = Math.atan2(this.dashDir.x, this.dashDir.z); this.set('dash', TUNE.dashTime); this.dashCd = TUNE.dashCd * (1 - v2(this.perks, 'evade') / 100); this.ghostT = 0; this.dashDarted = false; this.dashTailT = 0; this.linkT = 0;
     this.vy = 0;   // an air dash holds its height
     this.a.play(new Action('dashA', TUNE.dashTime * 1.4, 0.2)); cue('dash', 0.8);
   }
   private startJump() {
-    this.v0 = (4 * TUNE.jumpH) / TUNE.jumpT; this.vy = this.v0; this.y = Math.max(this.y, 0.001); this.jumps = 1; this.flipT = -1; this.pendT = 0;
+    this.v0 = (4 * TUNE.jumpH) / TUNE.jumpT; this.vy = this.v0; this.y = Math.max(this.y, 0.001); this.jumps = 1; this.flipT = -1; this.pendT = 0; this.linkT = 0; this.dashTailT = 0;
     this.set('air', 99); this.a.act?.cancel(); this.a.act = null; this.next = null;
     dustBlocks(this.pos.clone(), 5); cue('jump', 0.6);
   }
@@ -195,7 +212,7 @@ export class Hero {
   giveUp() { this.hp = 0; this.set('dead', 99); this.a.fall(); }
   hurt(dmg: number, from: THREE.Vector3): boolean {
     if (!this.alive || this.iframe) return false;
-    this.hp = Math.max(0, this.hp - dmg); this.inv = TUNE.hurtIframe;
+    this.hp = Math.max(0, this.hp - dmg); this.inv = TUNE.hurtIframe; this.linkT = 0; this.dashTailT = 0;
     const away = this.pos.clone().sub(from).setY(0); if (away.lengthSq() < 1e-4) away.set(0, 0, 1); away.normalize();
     this.vel.copy(away).multiplyScalar(7); motionOf(this.a).charge = 0;
     if (this.vy > 0) this.vy = 0;
@@ -206,7 +223,7 @@ export class Hero {
   update(dt: number, inp: Input, w: HeroWorld) {
     const m = motionOf(this.a), B = inp.b;
     this.showBlade();
-    this.t += dt; this.age += dt; this.keepT = Math.max(0, this.keepT - dt); this.pauseT = Math.max(0, this.pauseT - dt); this.parryT = Math.max(0, this.parryT - dt); this.fullT = Math.max(0, this.fullT - dt); this.counterT = Math.max(0, this.counterT - dt); this.inv = Math.max(0, this.inv - dt); this.dashCd -= dt; this.dartCd -= dt;
+    this.t += dt; this.age += dt; this.keepT = Math.max(0, this.keepT - dt); this.dashTailT = Math.max(0, this.dashTailT - dt); this.linkT = Math.max(0, this.linkT - dt); this.pauseT = Math.max(0, this.pauseT - dt); this.parryT = Math.max(0, this.parryT - dt); this.fullT = Math.max(0, this.fullT - dt); this.counterT = Math.max(0, this.counterT - dt); this.inv = Math.max(0, this.inv - dt); this.dashCd -= dt; this.dartCd -= dt;
     if (this.dartReload > 0) { this.dartReload -= dt; if (this.dartReload <= 0) { this.dartReload = 0; this.dartAmmo = TUNE.dartCharges; } } m.land = Math.max(0, m.land - dt / 0.16);
     // buffers: a press counts for a short while (so a press slightly early still chains)
     const A = B.attack;
@@ -217,8 +234,9 @@ export class Hero {
     this.pendT = Math.max(0, this.pendT - dt);
     if (this.flipT >= 0) { this.flipT += dt; if (this.flipT >= FLIP_T) this.flipT = -1; }
     this.buf.dash = B.dash.pressed ? 0.15 : Math.max(0, this.buf.dash - dt);
-    this.buf.sp = B.special.pressed ? 0.15 : Math.max(0, this.buf.sp - dt);
-    this.buf.jump = B.jump.pressed ? 0.12 : Math.max(0, this.buf.jump - dt);
+    // (11-17: 0.15 / 0.12 → 0.2 — a link pressed a moment before its window opens still counts)
+    this.buf.sp = B.special.pressed ? 0.2 : Math.max(0, this.buf.sp - dt);
+    this.buf.jump = B.jump.pressed ? 0.2 : Math.max(0, this.buf.jump - dt);
     // flicker while invulnerable after a hit
     this.a.root.visible = this.st === 'dead' || this.inv <= 0 || Math.floor(this.inv * 18) % 2 === 0;
     if (this.st === 'dead') { this.vel.multiplyScalar(Math.exp(-dt * 6)); this.fall(dt); this.move(dt, w); m.run = 0; m.air = this.y; return; }
@@ -246,8 +264,9 @@ export class Hero {
       this.dartT += dt;
       if (!this.dartGone && this.dartT >= DART_REL) {
         this.dartGone = true;
-        const hand = this.handL(), count = v(this.perks, 'darts3'), dirs = count === 5 ? [-0.36, -0.18, 0, 0.18, 0.36] : count === 3 || this.fanNext ? [-0.24, 0, 0.24] : [0]; this.fanNext = false;
-        for (const a of dirs) { const d = this.dartDir.clone().applyAxisAngle(V3(0, 1, 0), a); w.dart({ from: hand, dir: d }); }
+        const hand = this.handL(), count = v(this.perks, 'darts3'), dirs = count === 5 ? [-0.36, -0.18, 0, 0.18, 0.36] : count === 3 || this.fanNext ? [-0.24, 0, 0.24] : [0];
+        const link = this.fanNext ? ++this.volley : 0; this.fanNext = false;   // (11-17: 迎面镖's volley fills 气 once, on its first dart that strikes)
+        for (const a of dirs) { const d = this.dartDir.clone().applyAxisAngle(V3(0, 1, 0), a); w.dart({ from: hand, dir: d, link }); }
         cue('dartThrow', 0.6);
       }
       if (this.dartT >= DART_T || (this.st !== 'free' && this.st !== 'air' && this.st !== 'dash')) this.dartT = -1;
@@ -255,18 +274,30 @@ export class Hero {
     switch (this.st) {
       case 'free': {
         steer(TUNE.heroAccel);
+        // 11-17: the dash links stay on for TUNE.linkDash after the dash has stopped (on the ground). Out of a combo, with 游身斩
+        // learnt, a cut pressed after the dash is 游身斩 instead (in the dash it is still 穿风斩)
+        if (this.dashTailT > 0 && !this.airborne) {
+          if (A.pressed && !this.keepOpen) { this.buf.press = 0; this.buf.atk = 0; this.atkEaten = true; this.startDashCut(); break; }
+          if (B.special.pressed && this.has('backDart') && !this.dashDarted && this.dartAmmo > 0) { this.buf.sp = 0; this.spUsed = true; this.dashDarted = true; this.backDarts(w); }
+          if (B.jump.pressed && this.has('kick')) { this.buf.jump = 0; this.startKick(); break; }
+        }
+        // 11-17: the cut links stay on for TUNE.linkCut after the blow, also once the cut has played out
+        if (this.linkT > 0 && !this.airborne) {
+          if (this.buf.sp > 0 && this.has('cutDart') && this.dartAmmo > 0 && this.dartCd <= 0) { this.buf.sp = 0; this.spUsed = true; this.fanNext = true; this.linkT = 0; this.startDart(w); }
+          if (canJump && this.has('launch')) { this.buf.jump = 0; this.startLaunch(w); break; }
+        }
         if (canDash) { this.buf.dash = 0; this.startDash(w); break; }
         if (canJump) { this.buf.jump = 0; this.startJump(); break; }
         // a tap cuts (at the release; a press begun in the last cut carries the combo on); a hold goes straight into the stance, no cut
         if (this.buf.atk > 0) {
           this.buf.atk = 0;
           // 游身不断招: out of a dash that broke off the combo, the combo goes on from the side
-          if (this.keepT > 0 && this.keepNext && this.has('keep')) { const n = this.keepNext; this.keepNext = null; this.keepT = 0; this.pendT = 0; this.startCut(n, w); this.sideCut(w); break; }
+          if (this.keepOpen) { const n = this.keepNext!; this.keepNext = null; this.keepT = 0; this.pendT = 0; this.startCut(n, w, false, false, true); this.sideCut(w); break; }
           // 停顿变招: a beat's pause after the 2nd cut, then a press = the 3rd as a double spin that sweeps everyone outward
           if (this.pauseT > 0 && this.pauseT < 0.8 && this.has('pause')) { this.pauseT = 0; this.pendT = 0; this.spinsLeft = 2; this.startCut('k3', w, false, true); break; }
           const n = this.pendT > 0 && this.pendNext ? this.pendNext as Cut : 'k1'; this.pendT = 0; this.startCut(n, w); break;
         }
-        if (holding) this.startCharge();
+        if (holding) this.tryCharge();
         break;
       }
       case 'air': {
@@ -285,7 +316,7 @@ export class Hero {
         if (this.t >= PLUNGE_HANG) { this.vy = -PLUNGE_V; this.y += this.vy * dt; }
         if (this.y <= 0) {
           this.y = 0; this.vy = 0; this.vel.set(0, 0, 0);
-          w.slam({ at: this.pos.clone(), r: TUNE.plungeR, dmg: TUNE.plungeDmg, yaw: this.a.yaw });
+          if (w.slam({ at: this.pos.clone(), r: TUNE.plungeR, dmg: TUNE.plungeDmg, yaw: this.a.yaw }) > 0) this.gainQi(QI_PLUNGE);
           this.set('plungeL', 0.34); this.a.play(new Action('plungeL', 0.34, 0.05));
         }
         break;
@@ -305,8 +336,11 @@ export class Hero {
         const lungeV = inWin ? this.lungeLen / n / (this.dur * win) : 0;
         this.vel.copy(ahead).multiplyScalar(lungeV);
         while (this.hits < sw.imps.length && k >= sw.imps[this.hits]) {
-          this.hits++; this.hitDone = true;
-          w.swing({ from: this.pos.clone(), yaw: this.a.yaw, range: TUNE.atkRange + sw.range + (this.bigSpin ? 0.9 : 0), half: sw.half / 2 + (cut === 'k4' ? 0.1 : 0.35), dmg: Math.round(sw.dmg() * (this.chaseOn && this.hits === 1 ? 1.5 : 1)), knock: this.bigSpin ? 1.9 : sw.knock, heavy: sw.heavy || (this.chaseOn && this.hits === 1), kind: cut, n: this.hits, counter: this.counterCut && this.hits === 1 });
+          this.hits++; this.hitDone = true; this.linkT = TUNE.linkCut;
+          // 气: a cut that finds someone fills a share of a bar; the 刀谱 links (寻声's cut, 游身斩, 扫八方) twice what a plain cut gives
+          const link = (this.chaseOn || this.keepCut) && this.hits === 1 || this.bigSpin;
+          const got = w.swing({ from: this.pos.clone(), yaw: this.a.yaw, range: TUNE.atkRange + sw.range + (this.bigSpin ? 0.9 : 0), half: sw.half / 2 + (cut === 'k4' ? 0.1 : 0.35), dmg: Math.round(sw.dmg() * (this.chaseOn && this.hits === 1 ? 1.5 : 1)), knock: this.bigSpin ? 1.9 : sw.knock, heavy: sw.heavy || (this.chaseOn && this.hits === 1), kind: cut, n: this.hits, counter: this.counterCut && this.hits === 1 });
+          if (got > 0) this.gainQi(link ? QI_LINK : QI_CUT[cut]);
         }
         // the guard window: from the start of the cut until TUNE.deflectWin after (0.1 s before) the last blow, the blade bats arrows away
         const ts = this.t, lastI = sw.imps[sw.imps.length - 1];
@@ -316,14 +350,16 @@ export class Hero {
         if (A.pressed) { this.pendNext = NEXT[cut]; this.pendT = 0.45; }
         if (this.buf.atk > 0) this.next = NEXT[cut];
         // a press held in the cut: after the blow lands it turns into the stance (the next cut is not queued by a hold)
-        if (this.hitDone && holding) { this.startCharge(); break; }
+        if (this.hitDone && holding) { if (this.tryCharge()) break; }
         // cancels: after the blow lands a dash or a jump cuts the recovery; the next cut starts a little after the impact
         // 近身三镖: after the blow, the dart button = three darts from the left hand straight into the face of the foe
-        if (this.hitDone && this.buf.sp > 0 && this.has('cutDart') && this.dartAmmo > 0 && this.dartCd <= 0) { this.buf.sp = 0; this.spUsed = true; this.fanNext = true; this.set('free', 0); this.startDart(w); break; }
+        // (11-17: the cut links stay open TUNE.linkCut after the blow — also through the wind-up of the next cut, so mashing 斩 still lets them in)
+        const linkOn = this.hitDone || this.linkT > 0;
+        if (linkOn && this.buf.sp > 0 && this.has('cutDart') && this.dartAmmo > 0 && this.dartCd <= 0) { this.buf.sp = 0; this.spUsed = true; this.fanNext = true; this.linkT = 0; this.set('free', 0); this.startDart(w); break; }
         // 游身不断招: a dash out of the combo keeps its place in it for a moment
-        if (this.hitDone && canDash) { if (this.has('keep') && NEXT[cut]) { this.keepNext = NEXT[cut]; this.keepT = TUNE.dashTime + 0.45; } this.buf.dash = 0; this.startDash(w); break; }
+        if (this.hitDone && canDash) { const nx = NEXT[cut]; if (this.has('keep') && nx) { this.keepNext = nx; this.keepT = TUNE.dashTime + TUNE.linkKeep; } this.buf.dash = 0; this.startDash(w); break; }
         // 挑空斩: after the blow, jump = a rising cut that throws the light foes up, the hero going up after them
-        if (this.hitDone && canJump) { this.buf.jump = 0; if (this.has('launch') && !this.airborne) this.startLaunch(w); else this.startJump(); break; }
+        if (canJump && (this.hitDone || (this.linkT > 0 && this.has('launch')))) { this.buf.jump = 0; if (this.has('launch') && !this.airborne) this.startLaunch(w); else this.startJump(); break; }
         // 停顿变招: the second spin follows the first at once
         if (cut === 'k3' && this.spinsLeft > 1 && k >= 0.9) { this.spinsLeft--; this.startCut('k3', w, false, true); break; }
         // the next cut waits until this one has played out to TUNE.chainAt (the recovery is part of the rhythm)
@@ -336,7 +372,7 @@ export class Hero {
         // a low flying kick: the body shoots on along the dash, the foot lands at KICK_IMP, then it drops and recovers
         const k = this.t / this.dur;
         this.vel.copy(this.dashDir).multiplyScalar(k < 0.38 ? 8.5 : 8.5 * Math.exp(-(k - 0.38) * 9));
-        if (!this.kickHit && k >= 0.3) { this.kickHit = true; this.hitDone = true; w.kick?.({ from: this.pos.clone(), dir: this.dashDir.clone(), dmg: Math.round(TUNE.atkDmg * 1.3) }); }
+        if (!this.kickHit && k >= 0.3) { this.kickHit = true; this.hitDone = true; if ((w.kick?.({ from: this.pos.clone(), dir: this.dashDir.clone(), dmg: Math.round(TUNE.atkDmg * 1.3) }) ?? 0) > 0) this.gainQi(QI_LINK); }
         if (this.kickHit && k > 0.55 && canDash) { this.buf.dash = 0; this.startDash(w); break; }
         if (this.t >= this.dur) this.set('free', 0);
         break;
@@ -346,7 +382,7 @@ export class Hero {
         const k = this.t / this.dur; this.vel.copy(this.a.fwd()).multiplyScalar(k < 0.3 ? 2.2 : 0.4);
         if (!this.launchHit && k >= 0.3) {
           this.launchHit = true; this.hitDone = true;
-          w.launch?.({ from: this.pos.clone(), yaw: this.a.yaw, range: TUNE.atkRange + 0.5, half: 0.95, dmg: Math.round(TUNE.atkDmg * 1.1) });
+          if ((w.launch?.({ from: this.pos.clone(), yaw: this.a.yaw, range: TUNE.atkRange + 0.5, half: 0.95, dmg: Math.round(TUNE.atkDmg * 1.1) }) ?? 0) > 0) this.gainQi(QI_LINK);
           this.vy = Math.sqrt(2 * this.gravity * 2.3); this.y = Math.max(this.y, 0.01); this.jumps = 1; this.set('air', 99); cue('swishHeavy', 0.8); cue('jump', 0.5);
         }
         break;
@@ -357,10 +393,17 @@ export class Hero {
         this.vel.lerp(stick.clone().multiplyScalar(TUNE.heroSpeed * TUNE.stanceSpeed), 1 - Math.exp(-12 * dt));
         if (sl > 0.1) this.a.yaw = Math.atan2(stick.x, stick.z);
         if (this.chargeK >= 1 && this.chargeK - dt / chargeFull < 1) { cue('parry', 0.15); this.a.tint(0xfff4d0, 0.4); this.fullT = 0.35; }
-        if (canDash) { m.charge = 0; this.buf.dash = 0; this.startDash(w); break; }
+        if (canDash) { m.charge = 0; this.buf.dash = 0; this.startDash(w); break; }   // (dashing out of the stance costs no 气)
+        // 屏息 (11-17): full, the stance holds only TUNE.stanceHold more — then she lets the breath go and straightens up, the bar spent
+        // for nothing, and the button's release does nothing (no camping in the stance waiting for the cue)
+        if (this.chargeK >= 1 && B.attack.down) {
+          this.heldFull += dt;
+          if (this.heldFull >= TUNE.stanceHold) { m.charge = 0; this.qi = Math.max(0, this.qi - QI_COST); this.exhaled = true; this.atkEaten = true; this.set('free', 0); cue('whoosh', 0.3); break; }
+        }
         if (!B.attack.down) {
-          // the draw: an attack about to land is caught (见切) and the draw goes straight at the attacker; otherwise the long lunge
-          m.charge = 0; this.iaiBonus = false;
+          // the draw: an attack about to land is caught (见切) and the draw goes straight at the attacker; otherwise the long lunge.
+          // 11-17: the draw is what costs a bar of 气 — 箭步斩 and 破势 alike (a catch gives nothing back)
+          m.charge = 0; this.iaiBonus = false; this.qi = Math.max(0, this.qi - QI_COST);
           // (the world's parry sets iaiBonus for any catch — arrows too, which return no attacker position)
           const caught = w.iaiCatch(TUNE.iaiWin);
           let len = TUNE.relDist * (0.6 + 0.4 * this.chargeK);
@@ -403,9 +446,9 @@ export class Hero {
         if (this.t >= this.dur) {
           this.vel.multiplyScalar(0.35); this.dashEndAt = this.age;
           if (this.airborne) { this.set('air', 99); this.vy = 0; break; }
-          this.set('free', 0);
+          this.set('free', 0); this.dashTailT = TUNE.linkDash;   // (11-17: the dash links stay on a moment after it stops)
           // a dash straight into an attack / a jump: the press during the dash starts it at once
-          if (this.buf.atk > 0) { this.buf.atk = 0; if (this.keepT > 0 && this.keepNext && this.has('keep')) { const n = this.keepNext; this.keepNext = null; this.keepT = 0; this.startCut(n, w); this.sideCut(w); } else this.startCut('k1', w); }
+          if (this.buf.atk > 0) { this.buf.atk = 0; if (this.keepOpen) { const n = this.keepNext!; this.keepNext = null; this.keepT = 0; this.startCut(n, w, false, false, true); this.sideCut(w); } else this.startCut('k1', w); }
           else if (this.buf.jump > 0) { this.buf.jump = 0; this.startJump(); }
         }
         break;
@@ -416,7 +459,7 @@ export class Hero {
           this.ghostT -= dt; if (this.ghostT <= 0) { this.ghostT = 0.025; fxAfterimage(this.pos.clone(), 1.9, 0x9ad8ff, { life: 0.22, glow: 0.45 }); }
         } else {
           this.vel.multiplyScalar(Math.exp(-dt * 18));
-          if (!this.dcutHit) { this.dcutHit = true; w.sweep({ a: this.dcutFrom.clone(), b: this.pos.clone(), r: 1.0, dmg: TUNE.dashCutDmg, knock: 1.0, col: 0xbfeaff, kind: 'dcut' }); }
+          if (!this.dcutHit) { this.dcutHit = true; if (w.sweep({ a: this.dcutFrom.clone(), b: this.pos.clone(), r: 1.0, dmg: TUNE.dashCutDmg, knock: 1.0, col: 0xbfeaff, kind: 'dcut' }) > 0) this.gainQi(QI_DCUT); }
         }
         if (this.dcutHit && canDash) { this.buf.dash = 0; this.startDash(w); break; }
         if (this.dcutHit && canJump) { this.buf.jump = 0; this.startJump(); break; }
@@ -448,7 +491,15 @@ export class Hero {
     if (this.buf.atk > 0) { this.buf.atk = 0; this.startCut('k1', w); }
     else if (this.buf.jump > 0) { this.buf.jump = 0; this.startJump(); }
   }
-  private startCharge() { this.set('charge', 99); this.chargeK = 0; this.next = null; this.pendT = 0; this.a.act?.cancel(); this.a.act = null; cue('sheathe', 0.5); }
+  private startCharge() { this.set('charge', 99); this.chargeK = 0; this.heldFull = 0; this.next = null; this.pendT = 0; this.linkT = 0; this.dashTailT = 0; this.a.act?.cancel(); this.a.act = null; cue('sheathe', 0.5); }
+  /** 11-17: the stance needs a bar of 气 in hand; without it the hold is refused once (the button shakes, dull red) and its release
+   *  does nothing. Returns whether the stance began */
+  private tryCharge() {
+    if (this.qi >= QI_COST - 1e-6) { this.startCharge(); return true; }
+    this.atkEaten = true; this.qiDenied = true; return false;
+  }
+  /** a held dart volley's id (迎面镖 / 回身镖): its first strike fills 气 */
+  private volley = 0;
   /** 飞镖 (act-27): auto (aim = null) = the nearest foe in range anywhere round the hero, a little in favour of the stick / facing;
    *  aimed = straight along aim, bent onto a foe only if one is within a narrow cone of it. Returns the direction from the left hand */
   private dartAim(w: HeroWorld, from: THREE.Vector3, aim: THREE.Vector3 | null = null) {
@@ -488,7 +539,7 @@ export class Hero {
     }
     const dir = best ? best.a.chest().sub(from).normalize() : back.clone().setY(-0.03).normalize();
     const hand = this.handL(), spread = v(this.perks, 'darts3') === 5 ? [-0.36, -0.18, 0, 0.18, 0.36] : [-0.18, 0, 0.18];
-    for (const a of spread) w.dart({ from: hand.clone(), dir: dir.clone().applyAxisAngle(V3(0, 1, 0), a) });
+    const link = ++this.volley; for (const a of spread) w.dart({ from: hand.clone(), dir: dir.clone().applyAxisAngle(V3(0, 1, 0), a), link });
     this.dartT = 0; this.dartGone = true; this.dartBack = true; this.dartCd = TUNE.dartCd; this.useDart(); cue('dartThrow', 0.8);
   }
   /** 追影: smoke here, the hero at the marked foe's near side facing it, a heavy first cut */
@@ -506,7 +557,13 @@ export class Hero {
     this.set('kick', 0.52); this.kickHit = false; this.a.yaw = Math.atan2(this.dashDir.x, this.dashDir.z);
     this.a.play(new Action('kick', 0.52, 0.3)); cue('swishHeavy', 0.6); cue('jump', 0.4);
   }
-  get canKick() { return this.st === 'dash' && !this.airborne && this.has('kick'); }
+  get canKick() { return (this.st === 'dash' || this.inDashTail) && !this.airborne && this.has('kick'); }
+  /** 11-17: just after a dash stopped on the ground, the dash links still on */
+  private get inDashTail() { return this.st === 'free' && this.dashTailT > 0 && !this.airborne; }
+  /** 游身斩 on offer (a dash out of the combo, the next cut held for it) */
+  private get keepOpen() { return this.keepT > 0 && !!this.keepNext && this.has('keep'); }
+  /** 穿风斩 open: a ground dash, or just after one (unless 游身斩 is on offer then) */
+  get canDashCut() { return (this.st === 'dash' && !this.airborne) || (this.inDashTail && !this.keepOpen); }
   /** act-19 挑空斩 */
   private startLaunch(w: HeroWorld) {
     this.aim(w); this.set('launch', 0.42); this.launchHit = false; this.next = null; this.pendT = 0;
@@ -519,11 +576,13 @@ export class Hero {
   }
   private get cutting() { return this.st === 'k1' || this.st === 'k2' || this.st === 'k3' || this.st === 'k4' || this.st === 'k5'; }
   /** act-18 / 19 hints: what the buttons can do right now (each only when its 刀谱 is learnt) */
-  get canBackDart() { return this.st === 'dash' && this.has('backDart') && !this.dashDarted && this.dartAmmo > 0; }
+  get canBackDart() { return (this.st === 'dash' || this.inDashTail) && this.has('backDart') && !this.dashDarted && this.dartAmmo > 0; }
   get canDoubleJump() { return this.st === 'air' && this.has('dbl') && this.jumps < 2; }
-  get canLaunch() { return this.cutting && this.hitDone && this.has('launch') && !this.airborne; }
-  get canCutDart() { return this.cutting && this.hitDone && this.has('cutDart') && this.dartAmmo > 0 && this.dartCd <= 0; }
-  get canKeep() { return this.keepT > 0 && !!this.keepNext && this.has('keep') && (this.st === 'free' || this.st === 'dash'); }
+  /** the cut links: after a blow, for TUNE.linkCut (11-17), in a cut or just after one */
+  private get cutLinkOn() { return ((this.cutting && this.hitDone) || this.linkT > 0) && (this.cutting || this.st === 'free'); }
+  get canLaunch() { return this.cutLinkOn && this.has('launch') && !this.airborne; }
+  get canCutDart() { return this.cutLinkOn && this.has('cutDart') && this.dartAmmo > 0 && this.dartCd <= 0; }
+  get canKeep() { return this.keepOpen && (this.st === 'free' || this.st === 'dash'); }
   get canPause() { return this.st === 'free' && this.pauseT > 0 && this.pauseT < 0.8 && this.has('pause'); }
   /** a dart leaves the hand: one fewer; the last one starts the reload */
   private useDart() { this.dartAmmo = Math.max(0, this.dartAmmo - 1); if (this.dartAmmo === 0) this.dartReload = TUNE.dartReload; }

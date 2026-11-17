@@ -166,6 +166,14 @@ export class IronBtn {
   hint: HintKey | null = null; /** which side the badge pops up on (−1 upper left, +1 upper right: the big cut button has the jump button at its upper left) */ badgeSide: -1 | 1 = -1; private badge: THREE.Mesh | null = null; private badgeKey: HintKey | null = null; private badgeK = 0; private badgePop = 1;
   /** charges left / the most (the dart button: three bronze lamps on an arc over the shield); max 0 = none */
   pips = 0; pipMax = 0; private pipMeshes: THREE.Mesh[] = [];
+  /** 11-17 气 (the cut button: three lamps on its upper-right shoulder, toward the screen's edge — above it sits the dart button and its
+   *  label). Each lamp is a dark socket with a lit core that grows with its share (a lamp half-filled reads half-lit). pipArc: the
+   *  middle lamp's angle from straight up (clockwise) and the step between lamps; pipCol / pipGlow: the lit core; pipHold: one bar is
+   *  staked (the stance) — the lamp it will take blinks */
+  pipArc: [number, number] = [0, 0.32]; pipCol = 0xf0c070; pipGlow = 0x6a4010; pipSize = 0.1; pipR = 0.64; pipHold = false;
+  private pipCores: THREE.Mesh[] = []; private pipPrev = -1; private pipPopI = -1; private pipPopT = 0; private pipOutI = -1; private pipOutT = 0; private pipGainT = 0; private pipDenyT = 0;
+  /** refused (11-17: a hold for the stance with less than a bar of 气): the shake and dull red of a press that cannot act, and the lamps go dull red */
+  deny() { this.denyT = 0.32; this.pipDenyT = 0.45; }
   private ring: ReturnType<typeof plateRing>; private icon: Model3D; private sock!: THREE.Mesh; private sockK = 0; private sockCol = new THREE.Color(); private linkT = 0; private shadow: THREE.Mesh; private tassel: THREE.Mesh | null = null;
   private pressK = 0; private flashT = 0; private wasReady = true; private tt = 0; private wasFull = false; private lift = 6; private popT = 1;
   /** act-29 (用户：「UI组件的各种状态、动效的切换、特效的提示」): a spring on the button's size (press sinks, release overshoots), a
@@ -191,6 +199,7 @@ export class IronBtn {
     this.shadow = new THREE.Mesh(new THREE.CircleGeometry(0.2, 8, Math.PI / 8), new THREE.MeshBasicMaterial({ color: 0x07080a, transparent: true, opacity: 0.5, depthWrite: false }));
     this.shadow.position.z = 0.088; this.root.add(this.shadow);
     this.ring = plateRing(0.39, 0.09, 0.27); this.root.add(this.ring.plates, this.ring.rivets);
+    if (name === 'attack') { this.pipArc = [1.25, 0.38]; this.pipCol = 0xd6f4ec; this.pipGlow = 0x48a892; this.pipSize = 0.115; this.pipR = 0.6; }
     if (name === 'attack') {
       const t = mergeBoxes([{ w: 0.08, h: 0.08, d: 0.08, x: 0, y: 0, z: 0, c: BRONZE }, { w: 0.045, h: 0.3, d: 0.03, x: -0.03, y: -0.18, z: 0, c: 0xb8302a }, { w: 0.045, h: 0.3, d: 0.03, x: 0.03, y: -0.18, z: 0, c: 0xa02820 }]);
       this.tassel = new THREE.Mesh(t.geo, vcMat()); this.tassel.position.set(0, -0.5, 0.04); this.root.add(this.tassel);
@@ -204,14 +213,36 @@ export class IronBtn {
     const L = this.L; this.tt += dt;
     // the charge lamps: built once the button is told how many there are; lit bronze = a dart in hand, dark = spent
     if (this.pipMax > 0 && this.pipMeshes.length !== this.pipMax) {
-      for (const m of this.pipMeshes) { this.root.remove(m); m.geometry.dispose(); (m.material as THREE.Material).dispose(); }
-      this.pipMeshes = [];
+      for (const m of [...this.pipMeshes, ...this.pipCores]) { m.parent?.remove(m); m.geometry.dispose(); (m.material as THREE.Material).dispose(); }
+      this.pipMeshes = []; this.pipCores = [];
+      const z = this.pipSize;
       for (let i = 0; i < this.pipMax; i++) {
-        const a = Math.PI / 2 + (i - (this.pipMax - 1) / 2) * 0.32, m = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.08), lam(0x2a2c33));
-        m.position.set(-Math.cos(a) * 0.64, Math.sin(a) * 0.64, 0.06); m.rotation.z = a - Math.PI / 2; this.root.add(m); this.pipMeshes.push(m);
+        const d = this.pipArc[0] + (i - (this.pipMax - 1) / 2) * this.pipArc[1], m = new THREE.Mesh(new THREE.BoxGeometry(z, z, 0.06), new THREE.MeshLambertMaterial({ color: 0x1c1d22 }));
+        m.position.set(Math.sin(d) * this.pipR, Math.cos(d) * this.pipR, 0.05); m.rotation.z = -d; this.root.add(m); this.pipMeshes.push(m);
+        // the core: grows up from the socket's floor with the lamp's share
+        const c = new THREE.Mesh(new THREE.BoxGeometry(z * 0.78, z * 0.78, 0.07).translate(0, z * 0.39, 0), new THREE.MeshLambertMaterial({ color: this.pipCol })); c.position.set(0, -z * 0.39, 0.012); m.add(c); this.pipCores.push(c);
       }
     }
-    this.pipMeshes.forEach((m, i) => { const on = i < this.pips; const mt = m.material as THREE.MeshLambertMaterial; mt.color.setHex(on ? 0xf0c070 : 0x2a2c33); mt.emissive?.setHex(on ? 0x6a4010 : 0x000000); m.scale.setScalar(on ? 1 : 0.8); });
+    if (this.pipMax > 0) {
+      const v = Math.max(0, Math.min(this.pipMax, this.pips)), prev = this.pipPrev < 0 ? v : this.pipPrev, full = Math.floor(v + 1e-6), pfull = Math.floor(prev + 1e-6);
+      if (full > pfull) { this.pipPopI = full - 1; this.pipPopT = 0.32; }            // a lamp comes full: it swells, a touch of white
+      else if (v < prev - 0.5) { this.pipOutI = pfull - 1; this.pipOutT = 0.35; }    // a bar spent: that lamp flares and goes out
+      if (v > prev + 1e-4) this.pipGainT = 0.22;                                       // any gain: the filling lamp brightens a moment
+      this.pipPrev = v; this.pipPopT = Math.max(0, this.pipPopT - dt); this.pipOutT = Math.max(0, this.pipOutT - dt); this.pipGainT = Math.max(0, this.pipGainT - dt); this.pipDenyT = Math.max(0, this.pipDenyT - dt);
+      const holdI = this.pipHold ? full - 1 : -1, lit = new THREE.Color(this.pipCol), glow = new THREE.Color(this.pipGlow);
+      this.pipMeshes.forEach((m, i) => {
+        const f = Math.max(0, Math.min(1, v - i)), c = this.pipCores[i], mt = c.material as THREE.MeshLambertMaterial, sm = m.material as THREE.MeshLambertMaterial;
+        c.visible = f > 0.02 || i === this.pipOutI && this.pipOutT > 0; c.scale.set(1, Math.max(0.05, i === this.pipOutI && this.pipOutT > 0 ? 1 : f), 1);
+        const filling = f > 0 && f < 1;
+        mt.color.copy(lit).multiplyScalar(f >= 1 ? 1 : 0.62); mt.emissive.copy(glow).multiplyScalar(f >= 1 ? 1 : 0.35 + (filling && this.pipGainT > 0 ? this.pipGainT * 2.5 : 0));
+        if (i === holdI) { const b = 0.5 + 0.5 * Math.sin(this.tt * 22); mt.emissive.copy(glow).multiplyScalar(0.4 + 1.6 * b); mt.color.copy(lit).lerp(WHITE, 0.35 * b); }
+        if (i === this.pipOutI && this.pipOutT > 0) { const k = this.pipOutT / 0.35; mt.color.copy(lit).lerp(WHITE, 0.6 * k); mt.emissive.copy(glow).multiplyScalar(2 * k); c.scale.y = Math.max(0.05, k); }
+        sm.color.setHex(0x1c1d22); if (this.pipDenyT > 0) sm.color.lerp(DENY, Math.min(1, this.pipDenyT * 4) * 0.8);
+        const pop = i === this.pipPopI && this.pipPopT > 0 ? Math.sin((1 - this.pipPopT / 0.32) * Math.PI) * 0.35 : 0;
+        if (pop > 0) mt.color.lerp(WHITE, pop);
+        m.scale.setScalar((f >= 1 ? 1 : 0.86) + pop);
+      });
+    }
     this.pressK += ((this.down ? 1 : 0) - this.pressK) * Math.min(1, dt * 30);
     const ready = this.cd <= 0, frac = Math.max(0, Math.min(1, this.cd)), ch = Math.max(0, Math.min(1, this.charge)), full = ch >= 1;
     if (this.down && !this.wasDown && !ready) this.denyT = 0.32;   // pressed while it cannot act
