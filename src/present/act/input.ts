@@ -31,9 +31,18 @@ export class Input {
   /** the HUD hands its button presses here */
   press(n: BtnName, id: number) { this.touchBtn[n] = id; this.lastDevice = 'touch'; }
   release(n: BtnName, id: number) { if (this.touchBtn[n] === id) this.touchBtn[n] = -1; }
-  releaseAll(id: number) { for (const n of Object.keys(this.touchBtn) as BtnName[]) this.release(n, id); if (this.stick.id === id) this.stick.id = -1; }
+  releaseAll(id: number) { for (const n of Object.keys(this.touchBtn) as BtnName[]) this.release(n, id); if (this.stick.id === id) this.stick.id = -1; if (this.aimDrag.id === id) this.aimDrag.id = -1; }
   stickDown(id: number, x: number, y: number) { this.stick.id = id; this.stick.ox = x; this.stick.oy = y; this.stick.x = x; this.stick.y = y; this.lastDevice = 'touch'; }
   stickMove(id: number, x: number, y: number) { if (this.stick.id === id) { this.stick.x = x; this.stick.y = y; } }
+  /** act-27 (user: 「按住可以通过技能按钮指定方向」): the finger that pressed the dart button, dragged off it, aims the throw */
+  aimDrag = { id: -1, ox: 0, oy: 0, x: 0, y: 0 };
+  aimBegin(id: number, ox: number, oy: number, x: number, y: number) { this.aimDrag = { id, ox, oy, x, y }; }
+  aimMove(id: number, x: number, y: number) { if (this.aimDrag.id === id) { this.aimDrag.x = x; this.aimDrag.y = y; return true; } return false; }
+  /** the drag as a screen direction (x right, y up), or null while the finger is still on the button */
+  aimScreen(): { x: number; y: number } | null {
+    const a = this.aimDrag; if (a.id < 0 || this.touchBtn.special !== a.id) return null;
+    const dx = a.x - a.ox, dy = a.y - a.oy, d = Math.hypot(dx, dy); return d < 16 ? null : { x: dx / d, y: -dy / d };
+  }
   frame(dt: number) {
     const k = this.keys, has = (...ks: string[]) => ks.some(x => k.has(x));
     let mx = (has('d', 'arrowright') ? 1 : 0) - (has('a', 'arrowleft') ? 1 : 0), my = (has('w', 'arrowup') ? 1 : 0) - (has('s', 'arrowdown') ? 1 : 0);

@@ -36,6 +36,8 @@ const NEXT: Record<Cut, Cut | null> = { k1: 'k2', k2: 'k3', k3: 'k4', k4: 'k5', 
 const PLUNGE_HANG = 0.1, PLUNGE_V = 22, FLIP_T = 0.42;
 /** the dart throw's length and the moment the dart leaves the hand (s) */
 const DART_T = 0.26, DART_REL = 0.12;
+/** act-27: holding the dart button this long turns the throw into an aimed one */
+const AIM_T = 0.2;
 /** 穿风斩: the whole move and its dash part (s) */
 const DCUT_T = 0.42, DCUT_MOVE = 0.17;
 /** the sheathing after 见切 (s), and the moment the blade clicks home (fraction of it) */
@@ -43,6 +45,8 @@ const NOTO_T = 0.95, NOTO_CLICK = 0.64;
 
 export interface HeroWorld {
   foes: Foe[];
+  /** act-27: the aim of a held dart in the world (the dart button dragged, or the stick), or null */
+  aimWorld?(): THREE.Vector3 | null;
   /** act-19 挑空斩: a rising cut — the light foes in the arc go up into the air */
   launch?(o: { from: THREE.Vector3; yaw: number; range: number; half: number; dmg: number }): number;
   /** act-19 飞踢: the kick lands — the first foe in front is sent flying along dir */
@@ -106,6 +110,8 @@ export class Hero {
   private chargeK = 0; private relFrom = V3(); private relTo = V3(); private dashDir = V3(); private ghostT = 0;
   /** time into a dart throw (-1 = none); the dart leaves the hand at DART_REL of it */
   private dartT = -1; private dartDir = V3(); private dartGone = true; private dartBack = false;
+  /** act-27: aiming a dart (the button held) and where; spUsed = this press already went into a derivative / 回身镖 */
+  aiming = false; readonly aimDir = V3(0, 0, 1); private spUsed = false;
   /** 回身镖 is once per dash; 穿风斩's start point and whether its sweep has landed; 追影's cut hits harder */
   private dashDarted = false; private dcutFrom = V3(); private dcutHit = false; private chaseOn = false;
   private dashEndPending = false; // wp/boons: finish after movement/clamping
@@ -228,8 +234,14 @@ export class Hero {
     if (A.pressed && (this.st === 'free' || this.st === 'air' || this.st === 'dash' || cutting)) {
       const f = this.has('chase') ? w.chaseTarget() : null; if (f) { if (this.st === 'dash' && !this.airborne) w.dashEnd(this.pos.clone()); this.atkEaten = true; this.buf.atk = 0; this.buf.press = 0; this.startChase(f, w); } // wp/boons: chase ends a ground dash at its departure point
     }
-    // 飞镖: a tap of the special throws one (held, one every TUNE.dartCd); free on the ground or in the air, it never stops the hero
-    if ((this.st === 'free' || this.st === 'air') && this.dartCd <= 0 && this.dartAmmo > 0 && (this.buf.sp > 0 || (B.special.down && B.special.held > 0.12))) { this.buf.sp = 0; this.startDart(w); }
+    // 飞镖 (act-27, user: 「飞刀要自动索敌一下，按住可以通过技能按钮指定方向」): a tap throws on release at the nearest foe (auto-aim);
+    // held past AIM_T it is aimed — the finger dragged off the button (touch) or the stick (keys / pad) — with a line on the ground, and
+    // goes on release. Free on the ground or in the air, it never stops the hero. (Holding no longer rapid-fires.)
+    const SP = B.special, dartOk = (this.st === 'free' || this.st === 'air') && this.dartAmmo > 0;
+    if (SP.pressed) { this.spUsed = false; this.aimDir.copy(this.a.fwd().setY(0).normalize()); }
+    this.aiming = dartOk && SP.down && SP.held >= AIM_T && !this.spUsed;
+    if (this.aiming) { const a = w.aimWorld?.(); if (a && a.lengthSq() > 1e-4) this.aimDir.copy(a).setY(0).normalize(); }
+    if (SP.released && dartOk && !this.spUsed && this.dartCd <= 0) { this.buf.sp = 0; this.startDart(w, SP.last >= AIM_T ? this.aimDir.clone() : null); }
     if (this.dartT >= 0) {
       this.dartT += dt;
       if (!this.dartGone && this.dartT >= DART_REL) {
@@ -307,7 +319,7 @@ export class Hero {
         if (this.hitDone && holding) { this.startCharge(); break; }
         // cancels: after the blow lands a dash or a jump cuts the recovery; the next cut starts a little after the impact
         // 近身三镖: after the blow, the dart button = three darts from the left hand straight into the face of the foe
-        if (this.hitDone && this.buf.sp > 0 && this.has('cutDart') && this.dartAmmo > 0 && this.dartCd <= 0) { this.buf.sp = 0; this.fanNext = true; this.set('free', 0); this.startDart(w); break; }
+        if (this.hitDone && this.buf.sp > 0 && this.has('cutDart') && this.dartAmmo > 0 && this.dartCd <= 0) { this.buf.sp = 0; this.spUsed = true; this.fanNext = true; this.set('free', 0); this.startDart(w); break; }
         // 游身不断招: a dash out of the combo keeps its place in it for a moment
         if (this.hitDone && canDash) { if (this.has('keep') && NEXT[cut]) { this.keepNext = NEXT[cut]; this.keepT = TUNE.dashTime + 0.45; } this.buf.dash = 0; this.startDash(w); break; }
         // 挑空斩: after the blow, jump = a rising cut that throws the light foes up, the hero going up after them
@@ -384,7 +396,7 @@ export class Hero {
         // 飞踢 (刀谱): 跳 pressed in a ground dash — a flying kick along the dash that sends the first foe flying
         if (B.jump.pressed && this.has('kick') && !this.airborne) { this.buf.jump = 0; this.startKick(); break; }
         // 回身镖: 镖 pressed in a dash — darts thrown back at whoever is behind; the dash goes on
-        if (B.special.pressed && this.has('backDart') && !this.dashDarted && this.dartAmmo > 0) { this.buf.sp = 0; this.dashDarted = true; this.backDarts(w); }
+        if (B.special.pressed && this.has('backDart') && !this.dashDarted && this.dartAmmo > 0) { this.buf.sp = 0; this.spUsed = true; this.dashDarted = true; this.backDarts(w); }
         const sp = TUNE.dashDist / TUNE.dashTime; this.vel.copy(this.dashDir).multiplyScalar(sp * (this.t < this.dur * 0.75 ? 1 : 0.4));
         this.ghostT -= dt; if (this.ghostT <= 0) { this.ghostT = 0.035; fxAfterimage(this.pos.clone().setY(this.y), 1.9, 0x5a6aa8, { life: 0.2, glow: 0.25 }); }
         if (this.t >= this.dur) {
@@ -437,24 +449,26 @@ export class Hero {
     else if (this.buf.jump > 0) { this.buf.jump = 0; this.startJump(); }
   }
   private startCharge() { this.set('charge', 99); this.chargeK = 0; this.next = null; this.pendT = 0; this.a.act?.cancel(); this.a.act = null; cue('sheathe', 0.5); }
-  /** 飞镖: the nearest foe within the dart's range, inside a wide cone round the stick (or the facing when the stick is idle);
-   *  returns the direction to its chest from the left hand, or straight along that way when nobody is there */
-  private dartAim(w: HeroWorld, from: THREE.Vector3) {
-    const s = w.stickWorld(), want = s.lengthSq() > 0.04 ? s.clone().normalize() : this.a.fwd().setY(0).normalize();
+  /** 飞镖 (act-27): auto (aim = null) = the nearest foe in range anywhere round the hero, a little in favour of the stick / facing;
+   *  aimed = straight along aim, bent onto a foe only if one is within a narrow cone of it. Returns the direction from the left hand */
+  private dartAim(w: HeroWorld, from: THREE.Vector3, aim: THREE.Vector3 | null = null) {
+    const s = w.stickWorld(), want = aim ? aim.clone().setY(0).normalize() : s.lengthSq() > 0.04 ? s.clone().normalize() : this.a.fwd().setY(0).normalize();
     let best: Foe | null = null, bd = 1e9;
     for (const f of w.foes) {
       if (f.st === 'dead') continue;
       const d = f.pos.clone().sub(this.pos).setY(0), l = d.length(); if (l > TUNE.dartRange || l < 1e-3) continue;
-      const ang = Math.acos(Math.max(-1, Math.min(1, d.dot(want) / l))); if (ang > 0.9) continue;
-      const score = l * (1 + ang * 1.5); if (score < bd) { bd = score; best = f; }
+      const ang = Math.acos(Math.max(-1, Math.min(1, d.dot(want) / l))); if (aim && ang > 0.22) continue;
+      const score = aim ? ang * 10 + l * 0.05 : l * (1 + ang * 0.25); if (score < bd) { bd = score; best = f; }
     }
     return best ? best.a.chest().sub(from).normalize() : want.clone().setY(-0.03).normalize();
   }
+  /** act-27: where an aimed throw would go right now (the aim line in show.ts), and whether it bends onto a foe */
+  aimPreview(w: HeroWorld) { const from = this.pos.clone().add(V3(0, 1.3, 0)), d = this.dartAim(w, from, this.aimDir); const onFoe = d.angleTo(this.aimDir.clone().setY(-0.03).normalize()) > 0.01; return { dir: d.setY(0).normalize(), onFoe }; }
   /** the throw: the arm animation starts now, the dart leaves the hand a moment later (update) */
-  private startDart(w: HeroWorld) {
-    this.dartT = 0; this.dartGone = false; this.dartBack = false; this.dartCd = TUNE.dartCd; this.useDart();
+  private startDart(w: HeroWorld, aim: THREE.Vector3 | null = null) {
+    this.dartT = 0; this.dartGone = false; this.dartBack = false; this.dartCd = TUNE.dartCd; this.useDart(); this.aiming = false;
     // standing still, the hero turns to the throw; running or in the air it keeps its way
-    const from = this.pos.clone().add(V3(0, 1.3, 0)); this.dartDir.copy(this.dartAim(w, from));
+    const from = this.pos.clone().add(V3(0, 1.3, 0)); this.dartDir.copy(this.dartAim(w, from, aim));
     if (Math.hypot(this.vel.x, this.vel.z) < 1 && !this.airborne) this.a.yaw = Math.atan2(this.dartDir.x, this.dartDir.z);
   }
   /** 穿风斩: on from where the dash is now, low and fast along the same way; the cut lands when the run stops (show.ts sweep) */

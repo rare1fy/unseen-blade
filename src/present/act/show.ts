@@ -237,6 +237,7 @@ export class ActShow {
   private botWp = 0; private botTalkT = 0; botOn = false; kills = 0; log: string[] = []; private introT = 0; private audioOn = false; private hinted = false;
   /** the training yard (room −1) and the costume on the hero */
   yard: Yard | null = null; wearing: ModelDef = savedHero(); private lineupActors: BattleActor[] = [];
+  private aimLine!: THREE.Mesh;
   private ring!: THREE.Mesh; private ringK = -1; private sparkT = 0; private shadows: THREE.Mesh[] = []; private exitSign: THREE.Group | null = null; private blob: THREE.Mesh;
   constructor(private platform: Platform) {
     SELF = this; this.dialogue = new Dialogue(this.L); this.timeline = new Timeline(this.L);
@@ -306,6 +307,13 @@ export class ActShow {
     // contact shadows: a soft dark spot under every fighter's feet (act-08 用户：「角色都有点没有踩在地上」 — the sun's shadows fall
     // well off to one side, so nothing dark touched the feet); the hero's also marks where a jump lands
     this.blob = contactShadow(); this.blob.visible = false; scene.add(this.blob);
+    // act-27: an aimed dart's line on the ground — pale, gold when it will bend onto a foe; a square cap at the end
+    { const m = new THREE.MeshBasicMaterial({ color: 0xe8eeff, transparent: true, opacity: 0.9, depthWrite: false });
+      const g = new THREE.PlaneGeometry(0.11, 1).rotateX(-Math.PI / 2).translate(0, 0, 0.5); this.aimLine = new THREE.Mesh(g, m);
+      // a dark band under it so it reads on the pale loess floors
+      const under = new THREE.Mesh(new THREE.PlaneGeometry(0.24, 1).rotateX(-Math.PI / 2).translate(0, -0.005, 0.5), new THREE.MeshBasicMaterial({ color: 0x1a1620, transparent: true, opacity: 0.45, depthWrite: false })); this.aimLine.add(under);
+      const cap = new THREE.Mesh(new THREE.PlaneGeometry(0.28, 0.28).rotateX(-Math.PI / 2), m); cap.position.z = 1; cap.name = 'cap'; this.aimLine.add(cap);
+      this.aimLine.visible = false; this.aimLine.renderOrder = 4; scene.add(this.aimLine); }
     // the charge ring under the hero: a gold arc that grows round with the charge
     this.ring = new THREE.Mesh(new THREE.RingGeometry(0.62, 0.74, 48, 1, 0, 0.01).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffc848, transparent: true, opacity: 0.7, depthWrite: false, side: THREE.DoubleSide }));
     this.ring.renderOrder = 3; this.ring.visible = false; scene.add(this.ring);
@@ -579,6 +587,8 @@ export class ActShow {
     get darts3() { return SHOW_PERKS.darts3; },
     chaseTarget: () => this.chaseTarget(), chase: o => this.chaseFx(o),
     stickWorld: () => V3(this.inp.move.x, 0, -this.inp.move.y),
+    // act-27: the dart's aim — the finger dragged off the dart button, else the stick (keys / pad)
+    aimWorld: () => { const a = this.inp.aimScreen(); if (a) return V3(a.x, 0, -a.y); const m = this.inp.move; return Math.hypot(m.x, m.y) > 0.2 ? V3(m.x, 0, -m.y) : null; },
     guard: o => this.guard(o), incoming: r => this.incoming(r), iaiCatch: win => this.iaiCatch(win),
   };
   private foeWorld: FoeWorld = {
@@ -1102,6 +1112,10 @@ export class ActShow {
     const wasDash = this.lastSt === 'dash';
     this.schools.update(dt); // wp/boons: timed effects use combat time (including slow motion)
     h.update(dt, this.inp, this.heroWorld);
+    if (h.aiming) { const pv = h.aimPreview(this.heroWorld), L = TUNE.dartRange, al = this.aimLine;
+      al.visible = true; al.position.set(h.pos.x, 0.07, h.pos.z); al.rotation.y = Math.atan2(pv.dir.x, pv.dir.z); al.scale.set(1, 1, L);
+      const cap = al.getObjectByName('cap')!; cap.scale.set(1, 1, 1 / L); (al.material as THREE.MeshBasicMaterial).color.set(pv.onFoe ? 0xffd27a : 0xe8eeff); }
+    else this.aimLine.visible = false;
     // dash perks: the cut along the dash, the buff after it
     if (h.st === 'dash') {
       if (!wasDash) this.dashHit.clear();

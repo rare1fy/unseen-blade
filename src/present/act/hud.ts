@@ -85,7 +85,7 @@ export class ActHud {
   pointer(type: string, id: number, x: number, y: number, inp: Input): boolean {
     if (!this.on) return false;
     if (type === 'down') {
-      for (const b of Object.values(this.btns)) if (b.hit(x, y)) { b.down = true; b.pid = id; inp.press(b.name, id); return true; }   // act-14 用户：「按操作的按钮不要有音效」
+      for (const b of Object.values(this.btns)) if (b.hit(x, y)) { b.down = true; b.pid = id; inp.press(b.name, id); if (b.name === 'special') inp.aimBegin(id, b.x, b.y, x, y); return true; }   // act-14 用户：「按操作的按钮不要有音效」
       // the stick: only the bottom-left area answers; floating = the base appears under the thumb (kept clear of the screen's edges)
       // and then stays put; fixed = the base sits at its home and only a press near it counts
       inp.stick.r = this.stickSize * 0.42;
@@ -97,7 +97,7 @@ export class ActHud {
       }
       return false;
     }
-    if (type === 'move') { inp.stickMove(id, x, y); return inp.stick.id === id; }
+    if (type === 'move') { if (inp.aimMove(id, x, y)) return true; inp.stickMove(id, x, y); return inp.stick.id === id; }
     if (type === 'up' || type === 'cancel') { for (const b of Object.values(this.btns)) if (b.pid === id) { b.down = false; b.pid = -1; } inp.releaseAll(id); return true; }
     return false;
   }
