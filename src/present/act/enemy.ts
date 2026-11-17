@@ -96,6 +96,7 @@ export interface FoeWorld {
   /** 寒毒: her steps slowed to k of her speed for t s (stacks refresh; the region-three poison) */ chill?(t: number, k: number): void;
   /** frozen in place for t s (no moving, no buttons) */ freeze?(t: number): void;
   /** the stage's floor is water here (下邳's pools) */ wet?(x: number, z: number): boolean;
+  /** which way she faces (rad; the 死士 go round to her back) */ heroYaw?: number;
 }
 /** how high the hero must be to clear a low attack (m) */
 export const LOW_CLEAR = 0.45;
@@ -124,7 +125,9 @@ const setSt = (f: Foe, st: St, dur: number) => { f.st = st; f.t = 0; f.dur = dur
 export const dropTeles = (f: Foe) => { f.tele?.dispose(); f.tele = null; for (const e of f.extra) e.t.dispose(); f.extra = []; };
 /** the body's own wind-up for each attack (the old kinds keep their own) */
 const ANIM: Record<string, 'attack' | 'cast'> = { cut: 'attack', slam: 'attack', sweep: 'attack', poke: 'attack', lunge: 'attack', shoot: 'attack', bite: 'attack', cast: 'cast', thunder: 'cast' };
-function startAttack(f: Foe, w: FoeWorld, shape: TeleShape, windup: number, dmg: number, yaw: number, o: { atk?: string; extra?: Array<{ s: TeleShape; dy: number; low?: boolean }>; at?: THREE.Vector3 } = {}) {
+function startAttack(f: Foe, w: FoeWorld, shape: TeleShape, windup: number, dmg: number, yaw: number, o: { atk?: string; extra?: Array<{ s: TeleShape; dy: number; low?: boolean }>; at?: THREE.Vector3;
+  /** 11-18: the model's own action for this attack (its name, where its impact frame sits 0..1, its data) instead of the generic one */
+  act?: { name: string; imp?: number; data?: Record<string, unknown> } } = {}) {
   f.atk = o.atk ?? ''; dropTeles(f);
   f.shape = shape; f.dmg = Math.round(dmg * TUNE.enemyDmg); f.teleYaw = yaw; f.telePos.copy(o.at ?? f.pos); f.hitHero = false; f.attacking = true;
   f.tele = new Tele(shape, { low: isLow(f, shape) }); f.tele.set(f.telePos.x, f.telePos.z, yaw, 0, windup); f.glint = false;
@@ -133,8 +136,9 @@ function startAttack(f: Foe, w: FoeWorld, shape: TeleShape, windup: number, dmg:
   for (const e of o.extra ?? []) { const t = new Tele(e.s, { low: e.low }); t.set(f.telePos.x, f.telePos.z, yaw + e.dy, 0); f.extra.push({ t, dy: e.dy }); }
   const wu = windup / TUNE.aggression * (f.elite ? 0.85 : 1) * (f.phase > 1 ? 0.75 : 1); setSt(f, 'windup', wu);
   // the body's own wind-up: the attack action timed so its impact frame lands at the end of the wind-up
-  const imp = f.role === 'hound' ? 0.42 : 0.5, total = wu / imp;
-  if (f.role === 'archer') f.a.play(new Action('attack', total, imp));
+  const imp = o.act?.imp ?? (f.role === 'hound' ? 0.42 : 0.5), total = wu / imp;
+  if (o.act) f.a.play(new Action(o.act.name, total, imp, o.act.data ?? {}));
+  else if (f.role === 'archer') f.a.play(new Action('attack', total, imp));
   else f.a.play(new Action(ANIM[f.atk] ?? 'attack', total, imp, { dist: f.role === 'chief' || f.role === 'boss' || f.role === 'brute' ? 0.4 : f.atk === 'lunge' ? 0 : 0.6 }));
   void w;
 }
@@ -390,6 +394,7 @@ function integrate(f: Foe, w: FoeWorld, dt: number) {
 /** an attack broken off (a parry caught it): the warning goes, the foe reels */
 export function interruptFoe(f: Foe, reel = 0.9) {
   if (f.st === 'dead' || f.kind === 'dummy') return;
+  f.mem.intFrom = f.st;   // (11-18: a region role reads what was broken off — a wind-up caught by 破势, or a foe just pinned)
   dropTeles(f); f.attacking = false; f.lunge = null; f.hitHero = true; f.combo = 0; setSt(f, 'stagger', reel); f.cd = Math.max(f.cd, reel + 0.3);
   ROLE_AI[f.role]?.interrupted?.(f, null);
 }

@@ -73,6 +73,11 @@ import { Hero, QI_LINK, type HeroWorld } from './hero';
 const TEACH = ['chase', 'back', 'cdart', 'launch', 'kick', 'keep', 'pause'];
 import { interruptFoe } from './enemy';
 import { ROLE_AI } from './foes/roles';
+import { unfade } from './foes/fade';
+// 11-18: the later regions' foe models (bestiary ROSTER) — a glob, so a region's model file is picked up the moment it exists
+import.meta.glob(['./foes/ly_models.ts', './foes/xp_models.ts'], { eager: true });
+import './foes/ly_ai';
+import './foes/xp_ai';
 import { inside } from './tele';
 import { spawnFoe, updateFoe, damageFoe, type Foe, type FoeWorld, type EKind, Arrow } from './enemy';
 import { EDEFS, isBoss, lowAttack, trimShadows, dropTeles } from './enemy';   // wp/foes: the boss bar / banner / death and the bot's jump read these
@@ -85,7 +90,9 @@ import { Yard, makeSign, SPAWN_AT } from './yard';
 import type { ModelDef } from '../bestiary/models';
 import { dustBlocks, spawnClone, smokeBurst, cut as cloneCut } from '../kyoto/ninja_fx';
 import { Dart, BladeWave } from './missiles';
-import { RUN_ROOMS, ROOM_INFO, firstRoom, roomOf, doorsFrom, kindOr, isBossKind, type RoomPlan, type RoomType } from './run';
+import { RUN_ROOMS, firstRoom, regionFirstRoom, roomOf, roomInfo, doorsFrom, kindOr, isBossKind, type RoomPlan, type RoomType } from './run';
+import { REGIONS } from './regions';
+import { isBossRoom, afterBoss, roomsWorth, regionScale, regionBanner } from './flow';
 import { Stations, type Station } from './stations';
 import { Coins } from './coins';
 import { runBoard } from './runBoard';
@@ -153,7 +160,8 @@ function npcBubble() {
   return new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0xffffff, emissiveIntensity: 0.12 }));
 }
 /** act-34: what a room is built from (buildRoom reads these from the show; the prefetch passes a new game's first room) */
-interface RoomIn { isYard: boolean; room: number; recent: Spec[]; locale: string; plan: RoomPlan | null; nextRooms: RoomPlan[]; viewSpec: Partial<Spec> | null; forceSpec: Partial<Spec> | null; noArena: boolean }
+interface RoomIn { isYard: boolean; room: number; recent: Spec[]; locale: string; plan: RoomPlan | null; nextRooms: RoomPlan[]; viewSpec: Partial<Spec> | null; forceSpec: Partial<Spec> | null; noArena: boolean;
+  /** 11-18: the region's defaults for the pick (season …: 下邳 is winter); the place's own lists still apply */ regionSpec?: Partial<Spec> | null }
 /** a room's place, built (off the live scene) and ready to put up */
 interface Room { spec: Spec; big: boolean; layout: Layout; arena: ArenaPlan | null; report: Report | null; prep: PreparedStage }
 /** the prologue's first room (act-29) and its one way on */
@@ -169,7 +177,7 @@ const BIG_STAGE = /^(hj|ly|xp|wl|cx)_/;
 function prepRoom(o: RoomIn): Room {
   const { isYard } = o;
   const seed = (Date.now() % 100000) + o.room * 977;
-  const base = pickSpec(seed, Object.values(REGISTRY.locales), REGISTRY.layouts, o.recent, { season: 'autumn', locale: o.locale });
+  const base = pickSpec(seed, Object.values(REGISTRY.locales), REGISTRY.layouts, o.recent, { season: o.regionSpec?.season ?? 'autumn', locale: o.locale });
   const spec: Spec = isYard ? { ...base, time: 'dusk', weather: 'clear', exits: ['back'] }
     : { ...base, time: o.room === 0 ? 'dusk' : base.time, weather: o.plan?.type === 'boss' ? 'clear' : base.weather, exits: o.nextRooms.length > 1 ? ['left', 'right'] : o.nextRooms.length ? ['back'] : [] };
   if (o.viewSpec) Object.assign(spec, { exits: [] }, o.viewSpec);
@@ -208,6 +216,9 @@ export class ActShow {
   room = 0; wave = 0; phase: Phase = 'intro'; perks: Perks = newPerks();
   /** act-17: this room's plan, the roads out of it, the kinds of room seen this run, the purse */
   private plan: RoomPlan | null = null; private nextRooms: RoomPlan[] = []; private visited: RoomType[] = []; coins = 0;
+  /** 11-18 一局五关: which 关 the run is in (0 起; REGIONS) — room is the room within it; bosses = the region bosses killed this run;
+   *  the TUNE values the run started with (each region scales the foes from these, flow.ts regionScale) */
+  region = 0; private bosses = 0; private baseFoe = { hp: 1, dmg: 1, aggression: 0.85, calm: 1.3, attackers: 1 }; private regionIn = false;
   /** act-19: the floor's cover and props (collision), the breakable props, the room's walls / gates / cover plan */
   private lightningT = 6;
   /** act-20 meta: what the hideout's upgrades give this run; the run's tally for the trip home */
@@ -290,6 +301,7 @@ export class ActShow {
     this.intent = 0; this.hud.intent = 0; this.perks = newPerks(); this.room = 0; this.kills = 0; this.recent = []; this.visited = []; this.coins = 0;
     this.mods = runMods(profile()); this.defy = 0; this.eliteKills = 0; this.bossKilled = false; this.wine = false;
     TUNE.heroHp = 100 + this.mods.hpBonus; TUNE.dartCharges = 3 + this.mods.dartBonus; TUNE.aggression = 0.85 / this.mods.windupMul;
+    this.baseFoe.aggression = TUNE.aggression; this.scaleFoes(0);
     this.plan = { type: 'fight', locale: PRO_ROOM.locale, reward: null, waves: PRO_ROOM.waves };
     this.locale = PRO_ROOM.locale; this.forceSpec = { ...PRO_ROOM.spec };
     this.buildRoom(true);
@@ -339,7 +351,20 @@ export class ActShow {
   }
   /** the run's haul goes home (meta.ts bank: currencies, runs / wins / deaths), saved */
   private lastWon = false;
-  private bankRun(won: boolean) { this.lastWon = won; this.banked = bank(profile(), { rooms: Math.max(0, this.room), elites: this.eliteKills, boss: this.bossKilled, won, kills: this.kills }); saveProfile(); }
+  private bankRun(won: boolean) {
+    this.lastWon = won;
+    // 11-18: a room in region n counts n rooms; every boss killed counts (runReward's boss share is a boolean: the bosses past the first
+    // go in as rooms worth the same 15 iron)
+    const rooms = roomsWorth(this.region, this.room, won) + Math.max(0, this.bosses - 1) * 15;
+    this.banked = bank(profile(), { rooms, elites: this.eliteKills, boss: this.bossKilled, won, kills: this.kills }); saveProfile();
+  }
+  /** 11-18: the foes' strength for region ri from the run's starting TUNE (region one: as it was) */
+  private scaleFoes(ri: number) {
+    const k = regionScale(ri), b = this.baseFoe;
+    TUNE.enemyHp = b.hp * k.hp; TUNE.enemyDmg = b.dmg * k.dmg; TUNE.aggression = b.aggression * k.quick; TUNE.atkCalm = Math.max(0.5, b.calm + k.calm); TUNE.maxAttackers = Math.max(b.attackers, k.attackers);
+  }
+  /** back home: the TUNE values the run started with (the tune panel's own numbers again) */
+  private unscaleFoes() { const b = this.baseFoe; if (!this.region) return; TUNE.enemyHp = b.hp; TUNE.enemyDmg = b.dmg; TUNE.atkCalm = b.calm; TUNE.maxAttackers = b.attackers; this.region = 0; }
   /** the hideout's people stand at their places (HIDEOUT anchors when the hideout scene is up; the yard's spots meanwhile) */
   private placeNpcs(spots: Array<{ id: keyof typeof HIDEOUT_PEOPLE; x: number; z: number; yaw: number }>) {
     this.clearNpcs();
@@ -464,7 +489,14 @@ export class ActShow {
         const pair: Array<[ModelDef, number]> = [[code ? { ...def, build: code } : def, -1.5], [def, 1.5]];
         (only >= 0 ? [[pair[only][0], 0] as [ModelDef, number]] : pair).forEach(([d, dx]) => { const a = new BattleActor(d); a.place(V3(cx + dx, 0, cz), 0); a.yaw = 0; this.lineupActors.push(a); });
         return { at: [cx, cz], edited: !!code };
-      }, prof: () => profile(), steleTest: (n = 0, cut = -1) => { const st = new Stele(n); st.g.position.set(this.hero.pos.x, 0, this.hero.pos.z - 2.2); this.stage!.root.add(st.g); if (cut >= 0) after(0.8, () => st.strike(cut)); return st; }, boss: () => { this.startRun(); this.plan = roomOf('boss', RUN_ROOMS - 1, Math.random); this.locale = this.plan.locale; this.room = RUN_ROOMS - 1; this.buildRoom(false); }, newGame: () => this.startNewGame(), talkTest: (n = 0) => this.talk(n ? CHULEI_BEFORE : WAKE_DUWU), act: () => this, bot: (on = true) => { this.botOn = on; }, run: () => this.startRun(), yard: () => this.enterYard(), wear: (id: string) => { const d = HEROES.find(h => h.id === id); if (d) this.wear(d); },
+      }, prof: () => profile(), steleTest: (n = 0, cut = -1) => { const st = new Stele(n); st.g.position.set(this.hero.pos.x, 0, this.hero.pos.z - 2.2); this.stage!.root.add(st.g); if (cut >= 0) after(0.8, () => st.strike(cut)); return st; },
+      // 11-18 一局五关: jump to a room of a region (n 0 起; room within it; the boss room = REGIONS[n].rooms), or straight to region n's boss
+      region: (n = 1, room = 0, type: RoomType = 'fight') => {
+        this.startRun(); const ri = Math.max(0, Math.min(REGIONS.length - 1, n)); this.region = ri; this.scaleFoes(ri);
+        const boss = room >= REGIONS[ri].rooms; this.plan = boss ? roomOf('boss', room, Math.random, ri) : room === 0 && type === 'fight' ? regionFirstRoom(ri, Math.random) : roomOf(type, room, Math.random, ri);
+        this.locale = this.plan.locale; this.room = boss ? REGIONS[ri].rooms : room; this.regionIn = ri > 0 && room === 0; this.buildRoom(false); return { region: REGIONS[ri].id, room: this.room, locale: this.locale, waves: this.plan.waves };
+      },
+      boss: (n = 0) => { this.startRun(); const ri = Math.max(0, Math.min(REGIONS.length - 1, n)); this.region = ri; this.scaleFoes(ri); this.plan = roomOf('boss', REGIONS[ri].rooms, Math.random, ri); this.locale = this.plan.locale; this.room = REGIONS[ri].rooms; this.buildRoom(false); }, newGame: () => this.startNewGame(), talkTest: (n = 0) => this.talk(n ? CHULEI_BEFORE : WAKE_DUWU), act: () => this, bot: (on = true) => { this.botOn = on; }, run: () => this.startRun(), yard: () => this.enterYard(), wear: (id: string) => { const d = HEROES.find(h => h.id === id); if (d) this.wear(d); },
       skin: (id: SkinId) => this.cycleSkin(id),
       cardsDemo: () => { void this.cards.open([BOONS[0], BOONS[6], BOONS[12]].map((boon, tier) => ({ boon, tier }))); },
       /** captures: these boons as a pick, tiers 0 / 1 / 2 in turn */ cardsOf: (ids: string[]) => { void this.cards.open(ids.map((id, i) => ({ boon: BOONS.find(b => b.id === id) ?? BOONS[0], tier: i % 3 }))); },
@@ -536,7 +568,9 @@ export class ActShow {
     const t = this.plan?.type ?? 'fight', ph = this.phase as string;
     // (act-37: a scored piece holds until its scene is over; the prologue's temple fight has its own; the hideout is the kiln's)
     if (this.musicHold) { void audio.playMusic(this.musicHold, 1.2); return; }
-    const name = ph === 'opening' || ph === 'title' ? 'bgm_opening' : this.room < 0 || ph === 'yard' ? 'bgm_yard' : this.prologue === 2 ? 'bgm_boss' : t === 'boss' ? 'bgm_boss' : t === 'elite' ? 'bgm_elite' : t === 'shop' || t === 'rest' || t === 'boon' ? 'bgm_calm' : 'bgm_battle';
+    // (11-18: a region's own fight / boss track, from the songs there are — REGIONS[…].music)
+    const rm = REGIONS[this.region]?.music;
+    const name = ph === 'opening' || ph === 'title' ? 'bgm_opening' : this.room < 0 || ph === 'yard' ? 'bgm_yard' : this.prologue === 2 ? 'bgm_boss' : t === 'boss' ? rm?.boss ?? 'bgm_boss' : t === 'elite' ? 'bgm_elite' : t === 'shop' || t === 'rest' || t === 'boon' ? 'bgm_calm' : rm?.fight ?? 'bgm_battle';
     void audio.playMusic(name, 1.8);
   }
   layout2() {
@@ -632,6 +666,7 @@ export class ActShow {
   }
   /** the training yard: dummies, summon slabs, the costume rack, the way out to a run */
   enterYard() {
+    this.unscaleFoes();
     TUNE.dartCharges = 3; TUNE.aggression = 0.85; this.mods = { dmgMul: 1, dartBonus: 0, hpBonus: 0, deathDefy: 0, startIntent: 0, windupMul: 1, startManual: false };
     if (this.banked) { const b = this.banked, alive = this.lastWon; this.banked = null; const t = HAUL[alive ? 0 : 1] ?? '', [title, sub] = t.split('：'); after(0.6, () => this.banner.show(title ?? '带回', (sub ?? '').replace('{iron}', String(b.iron)).replace('{herb}', String(b.herb)), 2.4, '#ffd27a')); }
     this.musicHold = null;
@@ -645,12 +680,15 @@ export class ActShow {
     this.intent = 0; this.hud.intent = 0;
     this.perks = newPerks(); this.room = 0; this.kills = 0; this.recent = [];
     this.plan = firstRoom(Math.random); this.visited = []; this.coins = 0; this.locale = this.plan.locale;
+    // 11-18 一局五关: the first region; the TUNE values the regions scale from (the tune panel's, as the run starts)
+    this.region = 0; this.bosses = 0; this.regionIn = false; this.baseFoe = { hp: TUNE.enemyHp, dmg: TUNE.enemyDmg, aggression: 0.85, calm: TUNE.atkCalm, attackers: TUNE.maxAttackers };
     // act-20: the hideout's upgrades (meta.ts) for this run
     this.mods = runMods(profile()); this.defy = this.mods.deathDefy; this.eliteKills = 0; this.bossKilled = false;
     // 杜五's provisions (one run): 炙肉胡饼 +15 血上限, 五铢钱囊 40 铜钱, 瓦壶烈酒 the first blow costs nothing
     { const p = profile(), meal = p.meal; p.meal = undefined; saveProfile(); this.wine = meal === 'wine';
       if (meal === 'feast') this.mods.hpBonus += 15; if (meal === 'purse') this.coins = 40; }
     TUNE.heroHp = 100 + this.mods.hpBonus; TUNE.dartCharges = 3 + this.mods.dartBonus; TUNE.aggression = 0.85 / this.mods.windupMul;
+    this.baseFoe.aggression = TUNE.aggression; this.scaleFoes(0);
     this.buildRoom(true);
     if (this.mods.startManual) after(1.4, () => { if (this.room === 0) void this.manualPick(); });
   }
@@ -672,10 +710,14 @@ export class ActShow {
     this.hero?.a.dispose();
     const isYard = this.room < 0;
     if (!isYard && this.plan && !this.viewSpec) this.visited.push(this.plan.type);
-    this.nextRooms = !isYard && this.plan && !this.viewSpec ? doorsFrom(this.room, this.visited, Math.random) : [];
+    this.nextRooms = !isYard && this.plan && !this.viewSpec ? doorsFrom(this.room, this.visited, Math.random, this.region) : [];
+    // 11-18 一局五关: past a region's boss the road goes on into the next region's first room (the last region's boss ends the run)
+    if (!isYard && this.plan && !this.viewSpec && !this.prologue && isBossRoom(this.region, this.room)) { const nx = afterBoss(this.region); this.nextRooms = nx === 'won' ? [] : [regionFirstRoom(nx, Math.random)]; }
     if (this.prologue === 1 && !this.viewSpec) this.nextRooms = [PRO_BOSS]; else if (this.prologue === 2) this.nextRooms = [];   // act-29
     // act-34: the place itself — built ahead of time when it can be (the title builds a new game's first room while it loads), else now
-    const want: RoomIn = { isYard, room: this.room, recent: this.recent, locale: this.locale, plan: this.plan, nextRooms: this.nextRooms, viewSpec: this.viewSpec, forceSpec: this.forceSpec, noArena: this.noArena };
+    // (11-18: a region's own look — 下邳 is always winter — unless the prologue or a view asks otherwise)
+    const rspec = !isYard && !this.prologue ? REGIONS[this.region]?.spec ?? null : null;
+    const want: RoomIn = { isYard, room: this.room, recent: this.recent, locale: this.locale, plan: this.plan, nextRooms: this.nextRooms, viewSpec: this.viewSpec, forceSpec: this.forceSpec, noArena: this.noArena, regionSpec: rspec };
     const ready = this.pre && !isYard && !this.viewSpec && this.prologue === 1 && this.room === 0 && this.pre.locale === this.locale ? this.pre : null;
     if (this.pre && this.pre !== ready) this.pre.prep.drop();
     this.pre = null;
@@ -716,8 +758,13 @@ export class ActShow {
       : dev === 'pad' ? `左摇杆 走 · ${actPad('attack')} 斩（按住蓄力）· ${actPad('jump')} 跳 · ${actPad('dash')} 冲刺 · ${actPad('special')} 飞镖`
       : `WASD 走 · ${actKey('attack')} 斩（按住蓄力）· ${actKey('jump')} 跳 · ${actKey('dash')} 冲刺 · ${actKey('special')} 飞镖`) : '';
     this.hinted = true;
-    const info = ROOM_INFO[this.plan?.type ?? 'fight'];
-    if (!this.prologue) this.banner.show(`第 ${'一二三四五六'[this.room] ?? this.room + 1} 间 · ${info.name}`, hint || `${name} · ${info.line}`, hint ? 3.2 : 1.6);
+    const info = roomInfo(this.plan?.type ?? 'fight', this.region);
+    // 11-18 一局五关: walking into a later region's first room, its name and line first (2.6 s), then the room's own banner
+    if (!this.prologue && this.regionIn) {
+      this.regionIn = false; const rb = regionBanner(this.region);
+      this.banner.show(rb.title, rb.sub, 2.6, '#ffe2b0'); cue('stingClear', 0.6);
+      after(2.7, () => { if (this.phase === 'intro' || this.phase === 'fight') this.banner.show(`第一间 · ${info.name}`, `${name} · ${info.line}`, 1.4); });
+    } else if (!this.prologue) this.banner.show(`第 ${'一二三四五六七八'[this.room] ?? this.room + 1} 间 · ${info.name}`, hint || `${name} · ${info.line}`, hint ? 3.2 : 1.6);
     // the rooms without a fight: the stations stand ready and the roads are open at once
     if (this.plan && (this.plan.type === 'shop' || this.plan.type === 'rest' || this.plan.type === 'boon')) {
       this.stations = new Stations(this.stage!.root);
@@ -776,7 +823,7 @@ export class ActShow {
       const can = this.foes.filter(f => f.st !== 'dead' && !isBoss(f) && f.kind !== 'dummy' && !String(f.kind).includes('hound'));
       for (let n = Math.min(can.length, Math.random() < 0.5 ? 1 : 2), k = 0; k < n; k++) {
         const f = can.splice(Math.floor(Math.random() * can.length), 1)[0];
-        after(k * 0.7, () => { if (f.st !== 'dead' && this.phase === 'fight') this.barks?.say(() => f.a.head()); });
+        after(k * 0.7, () => { if (f.st !== 'dead' && this.phase === 'fight') { const ls = f.d.barks; this.barks?.say(() => f.a.head(), ls?.length ? ls[Math.floor(Math.random() * ls.length)] : undefined); } });
       }
     });
     kinds.forEach((k, i) => {
@@ -799,6 +846,8 @@ export class ActShow {
         // comes in the room's second wave); after that only his banner
         if (bs && this.prologue === 2) { after(0.35, async () => { await this.cine(bossIntroShots(this.cineHost, f, '雷公渠帅 · 褚雷')); await this.talk(PRO_CHULEI); f.a.roar(); this.proFightT = 0; }); }
         else if (bs && seeOnce('ch1_boss')) { saveProfile(); after(0.35, async () => { if ((f.st as string) === 'dead') return; await this.cine(bossIntroShots(this.cineHost, f, '雷公渠帅 · 褚雷')); await this.talk(CHULEI_BEFORE); f.a.roar(); }); }
+        // 11-18 (一局五关): a later region's boss — its banner and its line over its head (no portrait talk or cutscene yet)
+        else if (bs && EDEFS[ko.kind].intro) { f.a.roar(); shake(0.3 * TUNE.shake); this.banner.show(EDEFS[ko.kind].name, EDEFS[ko.kind].tag ?? '', 2.2, '#ff8a6a'); after(0.9, () => { if (f.st !== 'dead') this.barks?.say(() => f.a.head(), EDEFS[ko.kind].intro!); }); }
         else if (bs) { f.a.roar(); shake(0.3 * TUNE.shake); this.banner.show(EDEFS[ko.kind].name, EDEFS[ko.kind].tag ?? '', 1.6, '#ff8a6a'); }
       });
     });
@@ -1015,7 +1064,7 @@ export class ActShow {
     let fallNow = false;
     if (this.prologue === 2 && isBoss(f) && !this.proFalling) { const floor = Math.ceil(f.maxHp * 0.2); if (f.hp - d <= floor) { d = Math.max(0, f.hp - floor); fallNow = true; } }
     // 11-18: a region role's guard (the 铁盾兵's shield in front, …): the blow glances off (sparks, no blood, no number) or lands lighter
-    { const g = f.inv <= 0 ? ROLE_AI[f.role]?.guard?.(f, d, from, o.kind) : undefined; if (g != null) { if (g <= 0) { this.glance(f, from, o.kind); return; } d = Math.round(g); } }
+    { const g = f.inv <= 0 ? ROLE_AI[f.role]?.guard?.(f, d, from, o.kind) : undefined; if (g != null) { if (g < 0) return; if (g === 0) { this.glance(f, from, o.kind); return; } d = Math.round(g); } }   // (< 0: not touched at all — under the water)
     const died = damageFoe(f, d, from, { knock, stagger, poiseDmg: o.kind === 'dart' ? d * 0.5 : o.heavy ? d * 1.8 : d });
     if (this.prologue === 2 && isBoss(f)) f.hp = Math.max(f.hp, Math.ceil(f.maxHp * 0.2));
     if (fallNow) after(0.25, () => void this.prologueFall());   // (the blow lands, a beat, then the scripted fall)
@@ -1342,6 +1391,7 @@ export class ActShow {
     this.leaves?.blast(f.pos.x, f.pos.z, 1.3, 2.5);
     this.kills++;
     const boss = isBoss(f), elite = !!f.elite;
+    unfade(f);   // (11-18: a hidden 死士 / a 水鬼 under the water is seen as it dies)
     void playDeath(f.a, { from, ratio: f.lastDmg / f.maxHp + (boss ? 0.5 : 0), boss }).then(() => { f.a.dispose(); });
     // copper coins: a few square-holed coins bounce out and fly to the hero (worth the foe's gold; elites ×3, the boss more)
     if (this.room >= 0 && f.kind !== 'dummy') { const total = boss ? 60 : f.d.gold * (elite ? 3 : 1), n = Math.min(10, total); this.coinsFx.drop(f.pos.clone(), n, Math.max(1, Math.round(total / n))); }
@@ -1387,7 +1437,14 @@ export class ActShow {
     this.banner.show('清场', '', 1.0, '#ffe6a0');
     await new Promise(r => after(0.9, () => r(null)));
     if (this.prologue) { this.openDoors(); return; }   // act-29: the prologue's road just goes on
-    if (this.room >= RUN_ROOMS - 1) { if (seeOnce('ch1_boss_after')) { this.musicHold = 'bgm_afterkill'; void audio.playMusic('bgm_afterkill', 1.0); await this.talk(CHULEI_AFTER); saveProfile(); } this.end(true); return; }
+    // 11-18 一局五关: a region's boss fell — region one's after-talk (褚雷) the first time; then the run is won (the last region) or the
+    // road opens into the next region (a boon first, as any cleared fight)
+    if (this.plan?.type === 'boss' && isBossRoom(this.region, this.room)) {
+      this.bosses++;
+      if (this.region === 0 && seeOnce('ch1_boss_after')) { this.musicHold = 'bgm_afterkill'; void audio.playMusic('bgm_afterkill', 1.0); await this.talk(CHULEI_AFTER); saveProfile(); this.musicHold = null; }
+      if (afterBoss(this.region) === 'won') { this.end(true); return; }
+      await this.boonPick(); this.openDoors(); return;
+    }
     const rw = this.plan?.reward ?? null;
     if (rw?.k === 'coins') { this.coinsFx.drop(this.hero.pos.clone().add(V3(0, 0, -1.5)), 12, Math.round(rw.n / 12)); this.banner.show('铜钱', `${rw.n}`, 1.0, '#ffd24a'); }
     else if (rw?.k === 'heal') { this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + Math.round(this.hero.maxHp * 0.35)); this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp }); this.banner.show('回复', '三成五生命', 1.0, '#9aff9a'); await new Promise(r => after(0.8, () => r(null))); }
@@ -1451,9 +1508,16 @@ export class ActShow {
     if (this.phase !== 'doors') return;
     this.phase = 'leaving'; const d = this.doors[i], next = this.nextRooms[i];
     this.plan = next; const fromLocale = this.locale; this.locale = next.locale; if (this.prologue === 1) { this.prologue = 2; this.proFightT = 0; }
+    // 11-18 一局五关: the road out of a boss room goes into the next region — its rooms count from one again, its own kinds of room,
+    // its foes stronger (the run's TUNE scaled by flow.ts regionScale)
+    const nextRegion = !this.prologue && next.region != null && next.region !== this.region;
     const h = this.hero; h.vel.set(d.ex.dir[0], 0, d.ex.dir[1]).multiplyScalar(TUNE.heroSpeed * 0.8);
     WIPE.look = fromLocale === 'ninja_wilds' ? 'bamboo' : 'pillar';
-    after(0.35, () => { void wipeTransit(() => { this.room++; this.buildRoom(false); }); });
+    after(0.35, () => { void wipeTransit(() => {
+      if (nextRegion) { this.region = next.region!; this.room = 0; this.visited = []; this.regionIn = true; this.scaleFoes(this.region); this.log.push(`region ${this.region} ${REGIONS[this.region]?.id}`); }
+      else this.room++;
+      this.buildRoom(false);
+    }); });
   }
   private dead() {
     this.phase = 'dead'; this.justDied = true; this.bankRun(false); audio.stopMusic(1.4); cue('stingLose', 1); slowmo(1.2, 0.3); this.banner.show('败北', '', 1.6, '#ff6a5a');
@@ -1467,7 +1531,7 @@ export class ActShow {
     this.phase = 'end'; this.bankRun(win); audio.stopMusic(2.0); cue(win ? 'stingWin' : 'stingLose', 1);
     after(0.4, async () => {
       this.hud.on = false;
-      await this.cards.open([{ boon: { id: win ? 'again' : 'retry', school: 'sr', name: win ? '黄巾残村' : '再来一次', desc: [win ? '渠帅伏诛' : '回练武场再出发', `斩了 ${this.kills} 个 · 点这里回练武场`], col: '#ffd070', glyph: BOONS.find(b => b.id === 'behead')!.glyph }, tier: 0 }]);
+      await this.cards.open([{ boon: { id: win ? 'again' : 'retry', school: 'sr', name: win ? REGIONS[REGIONS.length - 1].name : '再来一次', desc: [win ? `${EDEFS[REGIONS[REGIONS.length - 1].boss as EKind]?.name ?? ''}伏诛` : '回练武场再出发', `斩了 ${this.kills} 个 · 点这里回练武场`], col: '#ffd070', glyph: BOONS.find(b => b.id === 'behead')!.glyph }, tier: 0 }]);
       this.hud.on = true; void wipeTransit(() => this.enterYard());
     });
   }
@@ -1508,6 +1572,8 @@ export class ActShow {
     if (busy) { for (const b of Object.values(this.inp.b)) { b.pressed = false; b.down = false; b.held = 0; } this.inp.move.x = this.inp.move.y = 0; }
     if (this.phase === 'intro') { this.introT += dt; this.inp.move.x = 0; this.inp.move.y = this.introT < 0.5 ? 0.7 : 0; for (const b of Object.values(this.inp.b)) { b.pressed = false; b.down = false; b.held = 0; } }
     this.statusStep(dt, h);
+    // (11-18: her blade's aim and the auto-aimed darts don't find a foe out of sight — a 死士 in the shadow, a 水鬼 under the water)
+    this.heroWorld.foes = this.foes.some(f => f.mem.hidden) ? this.foes.filter(f => !f.mem.hidden) : this.foes;
     h.update(dt, this.inp, this.heroWorld);
     this.hud.setAim(h.aiming ? { x: h.aimDir.x, y: -h.aimDir.z } : null);   // act-29: the dart button leans to the aim
     if (h.aiming) { const pv = h.aimPreview(this.heroWorld), L = TUNE.dartRange, al = this.aimLine;
@@ -1515,7 +1581,7 @@ export class ActShow {
       const cap = al.getObjectByName('cap')!; cap.scale.set(1, 1, 1 / L); (al.material as THREE.MeshBasicMaterial).color.set(pv.onFoe ? 0xffd27a : 0xe8eeff); }
     else this.aimLine.visible = false;
     h.a.update(dt); h.deathPose(); for (const a of this.lineupActors) a.update(dt);
-    const fw = this.foeWorld; fw.heroPos.copy(h.pos); fw.heroAlive = h.alive && (this.phase === 'fight' || this.phase === 'yard'); fw.heroY = h.y; fw.heroDodge = h.dodgeWin;
+    const fw = this.foeWorld; fw.heroPos.copy(h.pos); fw.heroAlive = h.alive && (this.phase === 'fight' || this.phase === 'yard'); fw.heroY = h.y; fw.heroDodge = h.dodgeWin; fw.heroYaw = h.a.yaw;
     // act-20: the hideout's people — idle, and a word when the hero stands close and presses 斩
     for (const n of this.npcs) n.a.update(dt);
     if (this.phase === 'yard') {
@@ -1649,7 +1715,7 @@ export class ActShow {
     // the foes' contact shadows (a pool, one per live foe; the dummies stand on their own stone feet)
     let si = 0;
     for (const f of this.foes) {
-      if (f.st === 'dead' || f.kind === 'dummy') continue;
+      if (f.st === 'dead' || f.kind === 'dummy' || f.mem.hidden) continue;
       let m = this.shadows[si]; if (!m) { m = contactShadow(); scene.add(m); this.shadows.push(m); }
       m.visible = true; m.position.set(f.pos.x, 0.03, f.pos.z); m.scale.setScalar(f.d.r * 1.55); si++;
     }
@@ -1671,7 +1737,8 @@ export class ActShow {
       const hints = { attack: atk, special: !fighting ? null : h.canBackDart ? 'back' : h.canCutDart ? 'cdart' : null, jump: !fighting ? null : h.canLaunch ? 'launch' : h.canKick ? 'kick' : h.canDoubleJump ? 'dbl' : null } as const;
       this.hud.setHints(hints); this.teach(hints); }
     this.hud.heroAt.copy(h.pos);
-    this.hud.update(rdt, this.inp, this.foes); this.cards.update(rdt); this.banner.update(rdt);
+    // (11-18: a foe out of sight — a 死士 in the shadow, a 水鬼 under the water — shows no bar over its head)
+    this.hud.update(rdt, this.inp, this.foes.some(f => f.mem.hidden && !isBoss(f)) ? this.foes.filter(f => !f.mem.hidden || isBoss(f)) : this.foes); this.cards.update(rdt); this.banner.update(rdt);
     this.L.on = true;
   }
   // ------------------------------------------------------------ input
@@ -1735,7 +1802,7 @@ export class ActShow {
     const h = this.hero, I = this.inp; if (!h) return;
     if (this.qteT >= 0) { const k = this.qteT / TUNE.qteTime; const b = I.b.attack; const on = k > 0.85 && k < 1.0; b.pressed = on && !b.down; b.down = on; return; }
     if (this.cards.on) { this.cardT += clock.rdt; if (this.cardT > 1.2) { this.cardT = 0; this.cards.key('ok'); } return; } else this.cardT = 0;
-    const live = this.foes.filter(f => f.st !== 'dead' && f.kind !== 'dummy');
+    const live = this.foes.filter(f => f.st !== 'dead' && f.kind !== 'dummy' && !f.mem.hidden);   // (11-18: the bot can't see the hidden ones either)
     const set = (n: 'attack' | 'dash' | 'special' | 'jump', on: boolean) => { const b = I.b[n]; b.pressed = on && !b.down; b.down = on; b.held = on ? b.held + clock.rdt : 0; };
     if ((this.phase === 'doors' || this.phase === 'yard') && this.doors.length && !(this.phase === 'yard' && this.botYard())) {
       // act-19: follow the road's points in turn (the gate's mouth, through the gate, out) — a straight line ran into the wall
