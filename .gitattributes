@@ -7,3 +7,5 @@
 *.ttf binary
 *.woff2 binary
 *.glb binary
+*.bat text eol=crlf
+*.vox binary
