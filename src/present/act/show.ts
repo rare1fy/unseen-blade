@@ -462,6 +462,7 @@ export class ActShow {
       skin: (id: SkinId) => this.cycleSkin(id),
       cardsDemo: () => { void this.cards.open([BOONS[0], BOONS[6], BOONS[12]].map((boon, tier) => ({ boon, tier }))); },
       /** captures: these boons as a pick, tiers 0 / 1 / 2 in turn */ cardsOf: (ids: string[]) => { void this.cards.open(ids.map((id, i) => ({ boon: BOONS.find(b => b.id === id) ?? BOONS[0], tier: i % 3 }))); },
+      /** captures (act-41): any item / card ids as cards (a boon's own card if it is one, else a plain card carrying that item) */ itemCards: (ids: string[]) => { void this.cards.close?.(); void this.cards.open(ids.map((id, i) => ({ boon: BOONS.find(b => b.id === id) ?? ({ id, school: 'ms' as never, name: id, desc: [id, ''], col: '#ffd27a', glyph: BOONS[0].glyph, tag: '' } as Boon), tier: i % 3 }))); },
       boon: (id: string, tier = 0) => applyBoon(this.perks, id, tier), // wp/boons: browser effect checks
       intent: (n = 3) => { this.intent = Math.max(0, Math.min(3, n)); this.hud.intent = this.intent; },
       qi: (n?: number) => { if (n != null) this.hero.qi = Math.max(0, Math.min(Hero.QI_MAX, n)); return this.hero.qi; },
