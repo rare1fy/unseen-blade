@@ -259,8 +259,9 @@ export class ActShow {
     // 「七年后」 over the snowy village while she walks in from the front; then the first sentries
     const h = this.hero, p0 = h.pos.clone();
     void this.cine([
-      { dur: 3.4, ease: 'inOut', caption: { text: PRO_CAPTIONS[0], big: true, at: 0.5, hold: 2.2 }, from: { pos: [p0.x + 4, 16, p0.z + 14], look: [p0.x, 0, p0.z - 4], fov: 40 }, to: { pos: [p0.x + 3, 13, p0.z + 12], look: [p0.x, 0, p0.z - 4], fov: 40 } },
-      { dur: 3.6, ease: 'inOut', caption: { text: PRO_CAPTIONS[1], at: 0.4, hold: 2.6 }, from: { pos: [p0.x + 6, 4.5, p0.z + 7], look: [p0.x, 1, p0.z - 1], fov: 36 }, to: { pos: [p0.x + 5, 4.2, p0.z + 6], look: [p0.x, 1, p0.z - 2.5], fov: 36 },
+      // (act-37: the cold open's last card says 七年了 — the walk opens on the year and the place only)
+      { dur: 3.4, ease: 'inOut', caption: { text: PRO_CAPTIONS[1], big: true, at: 0.5, hold: 2.2 }, from: { pos: [p0.x + 4, 16, p0.z + 14], look: [p0.x, 0, p0.z - 4], fov: 40 }, to: { pos: [p0.x + 3, 13, p0.z + 12], look: [p0.x, 0, p0.z - 4], fov: 40 } },
+      { dur: 3.6, ease: 'inOut', from: { pos: [p0.x + 6, 4.5, p0.z + 7], look: [p0.x, 1, p0.z - 1], fov: 36 }, to: { pos: [p0.x + 5, 4.2, p0.z + 6], look: [p0.x, 1, p0.z - 2.5], fov: 36 },
         tick: (t, dt) => { const m = motionOf(h.a); h.pos.z = p0.z - Math.min(2.5, t * 0.8); h.a.yaw = Math.PI; m.run = t < 3.1 ? 0.3 : Math.max(0, m.run - dt * 4); m.phase += dt * 3; h.a.update(dt); } },
     ]).then(() => { if (this.phase === 'intro' && this.hero === h) { this.phase = 'fight'; this.spawnWave(); } });
   }
