@@ -20,8 +20,15 @@ import { textCells, pixTextW } from '../ui3d/pixfont';
 import { PIX_H } from '../v2/pix';
 import { bodyW } from '../ui3d/bodyFont';
 import { ACTION_WORD, BIND, actKey, glyphTex, glyphArt, GLYPH_H } from './pad';
+import { PauseBtn } from './btnBadge';
+import type { MarkTarget } from './skillInfo';
 
 type AnyBtn = SkinBtn | IronBtn; type AnyHp = SkinHp | IronHp;
+/** 11-18 (用户：「选了强化后根本看不到自己选的强化是啥，在哪儿」): one mark per 刀谱 / 秘传 taken, on the button it changes — a 刀谱 a jade
+ *  tablet, a 秘传 a stud of its tier's metal (iron / bronze / gold); a passive one sits by the health bar. A new mark lands with a ring
+ *  of light round its button (once, soft — act-35 「闪光太严重了」) */
+export interface Mark { id: string; target: MarkTarget; kind: 'manual' | 'boon'; tier: number; col: number }
+const MARK_COL = { manual: 0x6ad8b0, boon: [0x8a929e, 0xd29a4a, 0xffd86a] };
 
 interface Bar { g: THREE.Group; back: THREE.Mesh; lag: THREE.Mesh; fill: THREE.Mesh; shown: number; lagV: number }
 const box = (c: number, o = 1) => new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: c, transparent: o < 1, opacity: o, depthWrite: false }));
@@ -62,7 +69,57 @@ export class ActHud {
   }
   constructor(private L: UiLayer) {
     this.sparks = new UiSparks(L.scene, 80); this.qteRing = new QteRing(L);
+    this.pauseBtn = new PauseBtn(L);
     this.build();
+  }
+  /** 11-18 (用户：「游戏里也没有一个可以呼出暂停窗口的按钮」): the small iron button at the top right, beside the purse */
+  pauseBtn: PauseBtn;
+  // ---------------------------------------------------------------- the marks of what this run has taken
+  private marks2: Mark[] = []; private markMesh = new Map<string, THREE.Mesh>(); private ringFx: Array<{ m: THREE.Mesh; t: number; target: MarkTarget }> = [];
+  /** the marks of this run (show.ts sets the whole list: a new run clears it) */
+  setMarks(list: Mark[]) {
+    const keep = new Set(list.map(m => m.id));
+    for (const [id, m] of this.markMesh) if (!keep.has(id)) { m.parent?.remove(m); m.geometry.dispose(); (m.material as THREE.Material).dispose(); this.markMesh.delete(id); }
+    this.marks2 = list.map(m => ({ ...m }));
+    for (const m of this.marks2) {
+      const col = m.kind === 'manual' ? MARK_COL.manual : MARK_COL.boon[m.tier] ?? MARK_COL.boon[0], old = this.markMesh.get(m.id);
+      if (old) { (old.material as THREE.MeshLambertMaterial).color.setHex(col); continue; }
+      // a jade tablet stands tall, a stud is square: you can count which is which
+      const geo = m.kind === 'manual' ? new THREE.BoxGeometry(0.7, 1.15, 0.45) : new THREE.BoxGeometry(0.85, 0.85, 0.5);
+      const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: col, emissive: col, emissiveIntensity: 0.18 })); mesh.userData.noTilt = true; mesh.renderOrder = 6;
+      this.L.scene.add(mesh); this.markMesh.set(m.id, mesh);
+    }
+  }
+  /** a card has landed on its button: a ring of light round it, once */
+  markLanded(target: MarkTarget, col: number) {
+    const m = new THREE.Mesh(new THREE.RingGeometry(0.44, 0.5, 8, 1, Math.PI / 8), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.8, depthWrite: false, side: THREE.DoubleSide }));
+    m.userData.noTilt = true; m.renderOrder = 41; this.L.scene.add(m); this.ringFx.push({ m, t: 0, target });
+    const b = target === 'hp' ? null : this.btns[target]; if (b instanceof IronBtn) b.kick(0.7, col);
+  }
+  /** where a target sits on the screen and how big (the card flies there) */
+  targetAt(t: MarkTarget) { if (t === 'hp') { const p = this.flask.barAt(); return { x: p.x - 120 * this.k, y: p.y, size: 60 * this.k }; } const b = this.btns[t]; return { x: b.x, y: b.y, size: b.size }; }
+  private markFrame(dt: number) {
+    // the marks: in a short row on the button's outer side, under its rim (beside the lamps of 气 / the darts, not over them)
+    const by = new Map<MarkTarget, Mark[]>(); for (const m of this.marks2) { const a = by.get(m.target) ?? []; a.push(m); by.set(m.target, a); }
+    for (const [t, list] of by) {
+      const at = this.targetAt(t), cell = Math.max(7, 9 * this.k);
+      list.forEach((m, i) => {
+        const mesh = this.markMesh.get(m.id); if (!mesh) return;
+        let x: number, y: number;
+        if (t === 'hp') { x = at.x + 40 * this.k + i * cell * 1.25; y = at.y + 26 * this.k; }
+        else {
+          // round the lower-left of the button, along its rim (clockwise from 7 o'clock), so they read as studs set into it
+          const a = Math.PI * (0.68 + 0.11 * i), r = at.size * 0.56; x = at.x + Math.cos(a) * r; y = at.y + Math.sin(a) * r;
+        }
+        this.L.at(x, y, 4, mesh.position); mesh.scale.setScalar(this.L.px(cell)); mesh.visible = this.on;
+        mesh.rotation.set(0.25, -0.3, 0);
+      });
+    }
+    for (let i = this.ringFx.length - 1; i >= 0; i--) {
+      const r = this.ringFx[i]; r.t += dt; const k = r.t / 0.55, at = this.targetAt(r.target);
+      if (k >= 1) { r.m.parent?.remove(r.m); r.m.geometry.dispose(); (r.m.material as THREE.Material).dispose(); this.ringFx.splice(i, 1); continue; }
+      this.L.at(at.x, at.y, 8, r.m.position); r.m.scale.setScalar(this.L.px(at.size * (1.05 + 0.45 * k))); (r.m.material as THREE.MeshBasicMaterial).opacity = 0.75 * (1 - k) * (1 - k); r.m.visible = this.on;
+    }
   }
   /** (re)build the skinned pieces for SKIN.id, keeping the health state */
   private build() {
@@ -94,10 +151,21 @@ export class ActHud {
     b.dash.x = W - 300 * k; b.dash.y = H - 92 * k;
     b.jump.x = W - 292 * k; b.jump.y = H - 238 * k;
     b.special.x = W - 150 * k; b.special.y = H - 300 * k;
+    // the pause button at the top right: just left of the tuning panel's 「调」 (a 30 px square 8 px in from the corner), level with it;
+    // the purse moves along to its left
+    const ps = Math.max(34, 40 * k); this.pauseBtn.size = ps; this.pauseBtn.x = W - 46 - ps / 2; this.pauseBtn.y = 23;
   }
+  private pausePid = -1;
+  /** the pause button was let go over (show.ts opens the menu) */
+  onPause: (() => void) | null = null;
   /** touch / mouse: buttons first, else the bottom-left area is the stick. Returns true if used */
   pointer(type: string, id: number, x: number, y: number, inp: Input): boolean {
     if (!this.on) return false;
+    // the pause button: pressed, it sinks; let go over it, the menu opens (a slip off it cancels)
+    const pb = this.pauseBtn;
+    if (type === 'down' && pb.hit(x, y)) { pb.down = true; this.pausePid = id; return true; }
+    if (this.pausePid === id && (type === 'up' || type === 'cancel')) { const fire = type === 'up' && pb.hit(x, y); pb.down = false; this.pausePid = -1; if (fire) this.onPause?.(); return true; }
+    if (this.pausePid === id && type === 'move') { pb.down = pb.hit(x, y); return true; }
     if (type === 'down') {
       for (const b of Object.values(this.btns)) if (b.hit(x, y)) { b.down = true; b.pid = id; inp.press(b.name, id); if (b.name === 'special') inp.aimBegin(id, b.x, b.y, x, y); return true; }   // act-14 用户：「按操作的按钮不要有音效」
       // the stick: only the bottom-left area answers; floating = the base appears under the thumb (kept clear of the screen's edges)
@@ -146,6 +214,7 @@ export class ActHud {
     this.stick.root.visible = this.on; for (const b of Object.values(this.btns)) { b.root.visible = this.on; if (b instanceof IronBtn) b.iconG.visible = this.on; }
     this.flask.root.visible = this.on;
     if (this.on) { this.stick.update(inp.stick, this.stickHome, this.stickSize); for (const b of Object.values(this.btns)) b.update(dt); }
+    this.pauseBtn.on = this.on; this.pauseBtn.update(dt); this.markFrame(dt);
     // act-28 (user: 「技能下面我看还是没有写按键什么意思：闪避、跳跃、远程、攻击」): what each button does, in small pixel type just under
     // its rim (never on the button face); with a keyboard or a pad the key follows the word
     for (const n of Object.keys(this.btns) as BtnName[]) {
@@ -172,7 +241,7 @@ export class ActHud {
       bar(1, 0.36, 0, 0.32, m); bar(1, 0.36, 0, -0.32, m); bar(0.36, 0.3, -0.32, 0, m); bar(0.36, 0.3, 0.32, 0, m); bar(0.28, 0.28, 0, 0, d);
       this.L.scene.add(g); this.coinIcon = g;
     }
-    const coinCell = 3, coinRight = this.W - 52, coinY = 23;
+    const coinCell = 3, coinRight = this.pauseBtn.x - this.pauseBtn.size / 2 - 12, coinY = 23;
     { const want = this.coins, was = Math.floor(this.coinShown);
       if (want < this.coinShown) this.coinShown = want; else if (want > this.coinShown) this.coinShown = Math.min(want, this.coinShown + Math.max(12, (want - this.coinShown) * 6) * dt);
       if (Math.floor(this.coinShown) !== was) this.coinHop = 1; this.coinHop = Math.max(0, this.coinHop - dt * 6); }

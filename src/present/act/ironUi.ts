@@ -79,6 +79,15 @@ const HINTS: Record<HintKey, { rows: string[]; col: number }> = {
   // 反击: two cuts crossing
   counter: { col: 0xffcc40, rows: ['##......##', '.##....##.', '..##..##..', '...####...', '...####...', '..##..##..', '.##....##.', '##......##', '..........', '..........'] },
 };
+/** 11-18 (用户：「强化卡片也难以辨认都是干嘛的」): a move's picture as the thick token the button turns over to — the card face, the
+ *  已得 / 招式 pages and the demonstration use this same call, so a 刀谱's picture is the one the button shows in a fight (one template
+ *  per key: the colour is the button's own light tint of the move's colour) */
+export function hintIconFor(k: HintKey): Model3D {
+  return k === 'talk' ? btnIcon3D('talk') : hintIcon3D(k, HINTS[k].rows, new THREE.Color(HINTS[k].col).lerp(WHITE, 0.55).getHex());
+}
+/** the move's own colour (its button rim while the link is open) */
+export const hintCol = (k: HintKey) => HINTS[k].col;
+export const isHintKey = (k: string): k is HintKey => k in HINTS;
 function hintTex(k: HintKey) {
   const h = HINTS[k], S = 8, N = 12, c = document.createElement('canvas'); c.width = c.height = N * S; const g = c.getContext('2d')!; g.imageSmoothingEnabled = false;
   g.fillStyle = '#5a5a62'; g.fillRect(0, 0, N * S, N * S); g.fillStyle = '#1e1c22'; g.fillRect(S, S, (N - 2) * S, (N - 2) * S);

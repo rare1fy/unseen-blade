@@ -66,6 +66,12 @@ import { dh } from '../../debug/dh';
 import { Input } from './input';
 import { ActHud } from './hud';
 import { CardPick3D as CardPick } from './cards3d';   // act-36: the pick cards as iron boards
+import { MoveDemo } from './moveDemo';
+import { entryOfManual, entryOfBoon, entryOfBase } from './skillFace';
+import type { Section } from './skillList';
+import { BASE_SKILLS, UI_WORDS, boonEffect } from './skillInfo';
+import type { Mark } from './hud';
+import { MANUALS } from './manuals';
 import { fillVals } from './cards';
 import { Hero, QI_LINK, type HeroWorld } from './hero';
 /** 11-17: the 刀谱 links the first few openings of which are slowed down to teach them (二段跳 is no link; 穿风斩 / 劈山 / 回锋斩 are known from the start) */
@@ -470,7 +476,16 @@ export class ActShow {
       { label: () => `像素：${PX.on ? PX.size + 'x' : '关'}（点这里换）`, short: () => `像素：${PX.on ? PX.size + 'x' : '关'}`, run: () => { const order = ['2', '3', 'off', '1'], cur = PX.on ? String(PX.size) : 'off', nx = order[(order.indexOf(cur) + 1) % order.length]; if (nx === 'off') setPixel(false); else setPixel(true, +nx); try { localStorage.setItem('ub.px', nx); } catch { /* private mode */ } } }];
     installActTune(SET.map(x => ({ label: x.label, run: x.run })));
     // the pause menu (act-30 之后, user: 「帮我把手柄的按键映射和手柄支持做了吧」): Start / Esc, a pad pulled out, the page hidden
-    this.pause = new PauseMenu({ L: this.L, settings: SET.map(x => ({ label: x.short, run: x.run })), canGiveUp: () => this.canGiveUp(), giveUp: () => this.giveUp(), closed: () => this.unpaused() });
+    this.pause = new PauseMenu({ L: this.L, settings: SET.map(x => ({ label: x.short, run: x.run })), canGiveUp: () => this.canGiveUp(), giveUp: () => this.giveUp(), closed: () => this.unpaused(),
+      owned: () => this.ownedSections(), skills: () => this.skillSections() });
+    // 11-18 (用户：「游戏里也没有一个可以呼出暂停窗口的按钮」): the iron button at the top right opens it too
+    this.hud.onPause = () => this.pauseGame();
+    // 11-18 (用户：「选了强化后根本看不到自己选的强化是啥，在哪儿」): a taken 秘传 / 刀谱 flies onto the button it changes and leaves a mark
+    this.cards.flight = {
+      at: t => this.hud.targetAt(t),
+      start: () => { this.hud.on = true; },
+      land: e => { this.hud.markLanded(e.target, e.col); cue('clack', 0.7); this.syncMarks(); },
+    };
     RUMBLE.fn = padRumble;
     if (typeof window !== 'undefined') {
       window.addEventListener('gamepaddisconnected', () => { if (PAD.device === 'pad') this.pauseGame(); });
@@ -515,6 +530,10 @@ export class ActShow {
         for (const [k, b] of Object.entries(a.bones)) { if (!b) continue; (b as THREE.Object3D).getWorldPosition(v); o[k] = [v.x, v.y, v.z].map(n => Math.round(n * 100) / 100); } return o; },
       labTick: (fn: ((dt: number, t: number) => void) | null) => { this.labFn = fn; this.labT = 0; },
       /** captures (act-41): any item / card ids as cards (a boon's own card if it is one, else a plain card carrying that item) */ itemCards: (ids: string[]) => { void this.cards.close?.(); void this.cards.open(ids.map((id, i) => ({ boon: BOONS.find(b => b.id === id) ?? ({ id, school: 'ms' as never, name: id, desc: [id, ''], col: '#ffd27a', glyph: BOONS[0].glyph, tag: '' } as Boon), tier: i % 3 }))); },
+      /** 11-18 captures: a 刀谱 pick (these, or three not learnt yet) as in a run — take one, it flies to its button, the ghost plays it */
+      manualsOf: (ids?: string[]) => { const list = ids ? ids.map(id => MANUALS.find(m => m.id === id)).filter((m): m is (typeof MANUALS)[number] => !!m) : null; void (list ? this.pickManuals(list) : this.manualPick()); },
+      /** 11-18: play a 刀谱's demonstration now */ demo: (id: string) => this.demoMove(id),
+      /** 11-18: the HUD's marks as if these were taken (ids: 'm:keep', 'b:quick:2') */ take: (ids: string[]) => { for (const s of ids) { const [k, id, t] = s.split(':'); if (k === 'm') this.perks.moves[id] = true; else applyBoon(this.perks, id, +(t ?? 0)); } this.syncMarks(); },
       boon: (id: string, tier = 0) => applyBoon(this.perks, id, tier), // wp/boons: browser effect checks
       /** 11-18 captures: exactly these boons at this tier (the old ones dropped); the hero reads this.perks */ boons: (ids: string[], tier = 0) => { this.perks.owned = {}; for (const id of ids) applyBoon(this.perks, id, tier); this.hero.perks = this.perks; return Object.keys(this.perks.owned); },
       intent: (n = 3) => { this.intent = Math.max(0, Math.min(3, n)); this.hud.intent = this.intent; },
@@ -686,12 +705,12 @@ export class ActShow {
     if (this.justDied) { after(0.3, () => cue('stingRevive', 1)); }
     if (this.justDied) { this.justDied = false; const who = (['duwu', 'sunao', 'fengtiebi'] as const)[Math.floor(Math.random() * 3)]; after(1.0, () => { if (this.phase === 'yard') void this.talk(deathLine(who)); }); }
     this.intent = 0; this.hud.intent = 0;
-    this.perks = newPerks(); this.room = -1; this.kills = 0; this.locale = 'ninja_wilds'; this.recent = []; this.plan = null;
+    this.perks = newPerks(); this.room = -1; this.kills = 0; this.locale = 'ninja_wilds'; this.recent = []; this.plan = null; this.demo.stop(); this.syncMarks();
     TUNE.heroHp = 100; this.buildRoom(true);
   }
   startRun() {
     this.intent = 0; this.hud.intent = 0;
-    this.perks = newPerks(); this.room = 0; this.kills = 0; this.recent = [];
+    this.perks = newPerks(); this.room = 0; this.kills = 0; this.recent = []; this.demo.stop(); this.syncMarks();
     this.plan = firstRoom(Math.random); this.visited = []; this.coins = 0; this.locale = this.plan.locale;
     // act-20: the hideout's upgrades (meta.ts) for this run
     this.mods = runMods(profile()); this.defy = this.mods.deathDefy; this.eliteKills = 0; this.bossKilled = false;
@@ -946,10 +965,50 @@ export class ActShow {
   /** three manuals not learnt yet, one taken (none left: a boon instead) */
   private async manualPick() {
     const list = drawManuals(this.perks.moves, 3, Math.random); if (!list.length) { await this.boonPick(); return; }
+    await this.pickManuals(list);
+  }
+  private async pickManuals(list: typeof MANUALS) {
     const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide();
     const i = await this.cards.open(list.map(m => ({ boon: manualCard(m), tier: 0 })));
-    const m = list[i]; this.perks.moves[m.id] = true; this.log.push(`manual ${m.id}`);
-    this.hud.on = true; this.phase = was === 'pick' ? 'pick' : was; this.banner.show(m.name, '刀谱', 1.2, '#f0e0b0');
+    const m = list[i]; this.perks.moves[m.id] = true; this.log.push(`manual ${m.id}`); this.syncMarks();
+    this.hud.on = true; this.banner.show(m.name, '刀谱', 1.2, '#f0e0b0');
+    // 11-18 (用户：「如何释放的教学不能是纯文字哈」): a ghost of her does the move once beside her, the HUD's buttons pressed in step
+    await this.demoMove(m.id);
+    this.phase = was === 'pick' ? 'pick' : was;
+  }
+  // ------------------------------------------------------------ 11-18: what this run has taken, shown on the HUD; the 刀谱 demonstration
+  private demo = new MoveDemo();
+  /** a ghost of her plays the move (the world holds still: she takes no input) — a tap or any key skips it */
+  private async demoMove(id: string) {
+    if (this.botOn || !this.hero) return;
+    const was = this.phase; this.phase = 'pick'; this.hero.vel.set(0, 0, 0);
+    // the hint to skip, small, under the pause button (whole device px per font pixel, about 16 px tall)
+    const dpr = this.L.dpr || 1;
+    this.L.text.set('act.demoSkip', { text: UI_WORDS.demoSkip, x: this.L.w - 18, y: 64, pix: Math.max(1, Math.round(this.hud.k * dpr)), color: '#d9ccb2', outline: '#140c0a', align: 'right', alpha: 0.8 });
+    await this.demo.play(id, { at: this.hero.pos.clone(), def: this.wearing, hud: this.hud });
+    this.L.text.hide('act.demoSkip'); this.inp.latch();
+    if (this.phase === 'pick') this.phase = was;
+  }
+  /** the marks on the HUD's buttons: every 刀谱 and 秘传 this run has taken (none in the yard, where they are all open) */
+  private syncMarks() {
+    const list: Mark[] = [];
+    if (this.room >= 0) {
+      for (const m of MANUALS) if (this.perks.moves[m.id]) { const e = entryOfManual(m); list.push({ id: 'm:' + m.id, target: e.target, kind: 'manual', tier: 0, col: e.col }); }
+      for (const b of BOONS) { const t = tierOf(this.perks, b.id); if (t >= 0) { const e = entryOfBoon(b, t); list.push({ id: 'b:' + b.id, target: e.target, kind: 'boon', tier: t, col: e.col }); } }
+    }
+    this.hud.setMarks(list);
+  }
+  /** 已得: this run's 刀谱 and 秘传 */
+  private ownedSections(): Section[] {
+    const ms = this.room >= 0 ? MANUALS.filter(m => this.perks.moves[m.id]).map(entryOfManual) : [];
+    const bs = BOONS.filter(b => tierOf(this.perks, b.id) >= 0).map(b => entryOfBoon(b, tierOf(this.perks, b.id)));
+    if (!ms.length && !bs.length) return [{ title: UI_WORDS.owned, list: [], empty: UI_WORDS.ownedEmpty }];
+    return [...(ms.length ? [{ title: UI_WORDS.manual, list: ms }] : []), ...(bs.length ? [{ title: UI_WORDS.boon, list: bs }] : [])];
+  }
+  /** 招式: the moves she has from the start, then the 刀谱 she knows now (all of them in the yard and the prologue) */
+  private skillSections(): Section[] {
+    const known = this.hero?.moves ?? {}, ms = MANUALS.filter(m => known[m.id]).map(entryOfManual);
+    return [{ title: UI_WORDS.base, list: BASE_SKILLS.map(entryOfBase) }, ...(ms.length ? [{ title: UI_WORDS.manual, list: ms }] : [])];
   }
   /** light foes can be thrown: not the 力士, not a 渠帅, not an elite, not a dummy */
   private launchable(f: Foe) { return f.kind !== 'dummy' && !isBoss(f) && f.d.role !== 'brute' && !f.elite; }
@@ -1769,7 +1828,7 @@ export class ActShow {
     const own = this.sharpenable().sort(() => Math.random() - 0.5).slice(0, 3); if (!own.length) return;
     const cards: BoonPick[] = own.map(b => ({ boon: b, tier: this.perks.owned[b.id] + 1 }));
     const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide();
-    const i = await this.cards.open(cards); const b = own[i]; upgradeBoon(this.perks, b.id); this.log.push(`sharpen ${b.id} ${this.perks.owned[b.id]}`);
+    const i = await this.cards.open(cards); const b = own[i]; upgradeBoon(this.perks, b.id); this.log.push(`sharpen ${b.id} ${this.perks.owned[b.id]}`); this.syncMarks();
     this.hud.on = true; this.phase = was; this.banner.show(b.name, TIER_NAMES[this.perks.owned[b.id]], 1.2, b.col);
   }
   /** a station's ring filled: pay, then do its thing */
@@ -1788,7 +1847,9 @@ export class ActShow {
   }
   private take(b: Boon, tier = 0) { // wp/boons: ownership lives on Perks
     applyBoon(this.perks, b.id, tier); this.log.push(`boon ${b.id} tier ${tier}`); // wp/boons: apply the selected tier
-    this.banner.show(b.name, b.desc.map(line => fillVals(line, b, tier)).join(''), 1.4, b.col);
+    this.syncMarks();
+    // (11-18: the banner says the one line of what it does — the card's — not the old percentages)
+    this.banner.show(b.name, boonEffect(b), 1.4, b.col);
   }
   private openDoors(quiet = false) {
     const ds = this.nextRooms, ids = (this.spec?.exits ?? []) as ExitId[];
@@ -1860,7 +1921,12 @@ export class ActShow {
     // the model page plays 不见刀's QTE by itself (press as the ring closes)
     else if (this.labOn && this.qteT >= 0) { const k = this.qteT / TUNE.qteTime, b = this.inp.b.attack, on = k > 0.85 && k < 1.0; b.pressed = on && !b.down; b.down = on; }
     const h = this.hero; if (!h) return;
-    const busy = this.cards.on || this.phase === 'leaving' || this.ultOn || !!h.scriptPose;   // (act-46: lying on the mat / getting up — no sliding off it)
+    // 11-18: a 刀谱's demonstration — the ghost plays on real time, the HUD shows its presses; she stands still, the world is quiet
+    if (this.demo.on) {
+      this.demo.update(rdt);
+      if (this.inp.b.attack.pressed || this.inp.b.dash.pressed || this.inp.b.jump.pressed || this.inp.b.special.pressed || padNav.poll(0).any) this.demo.skip();
+    }
+    const busy = this.cards.on || this.phase === 'leaving' || this.ultOn || !!h.scriptPose || this.demo.on;   // (act-46: lying on the mat / getting up — no sliding off it)
     this.qteFrame(rdt); this.parryCd -= rdt;
     if (busy) { for (const b of Object.values(this.inp.b)) { b.pressed = false; b.down = false; b.held = 0; } this.inp.move.x = this.inp.move.y = 0; }
     if (this.phase === 'intro') { this.introT += dt; this.inp.move.x = 0; this.inp.move.y = this.introT < 0.5 ? 0.7 : 0; for (const b of Object.values(this.inp.b)) { b.pressed = false; b.down = false; b.held = 0; } }
@@ -2054,7 +2120,7 @@ export class ActShow {
       // (11-18 四本新刀谱: 断云 on the cut button, 牵红 on the dart button, 踏顶 on the jump button, 掠地 on the dash button)
       const hints = { attack: atk, special: !fighting ? null : h.canBackDart ? 'back' : h.canReel ? 'reel' : h.canCutDart ? 'cdart' : null, jump: !fighting ? null : h.canLaunch ? 'launch' : h.canKick ? 'kick' : h.canStomp ? 'stomp' : h.canDoubleJump ? 'dbl' : null,
         dash: fighting && h.canSwoop ? 'swoop' : null } as const;
-      this.hud.setHints(hints); this.teach(hints); }
+      if (!this.demo.on) { this.hud.setHints(hints); this.teach(hints); } }   // (the demonstration drives the buttons' links itself)
     this.hud.heroAt.copy(h.pos);
     this.hud.update(rdt, this.inp, this.foes); this.cards.update(rdt); this.banner.update(rdt);
     this.L.on = true;
@@ -2066,6 +2132,8 @@ export class ActShow {
     if (this.timeline.on) { this.timeline.pointer(type); return; }
     if (this.dialogue.on) { if (type === 'down') this.dialogue.advance(); return; }
     if (this.cards.on) { this.cards.pointer(type, x, y); return; }
+    // the demonstration: a tap anywhere skips it
+    if (this.demo.on && type === 'down') { this.demo.skip(); return; }
     this.hud.pointer(type, id, x, y, this.inp);
   }
   /** the UI's skin: 漆器 → 竹简 → 铁器 (U key, the tuning panel, __dh.skin(id)) */
@@ -2075,6 +2143,7 @@ export class ActShow {
     this.banner.show(SKIN_NAME[next], '界面风格 · U 键或调参面板切换', 1.4);
   }
   private key(e: KeyboardEvent) {
+    if (this.demo.on && !e.repeat && !this.pause.on) { this.demo.skip(); return; }   // 11-18: any key skips a 刀谱's demonstration
     if (this.timeline.on && e.key === 'Escape') { this.timeline.key(true); return; }
     if (e.key === 'Escape' && !e.repeat && this.canPause()) { e.preventDefault(); this.pauseGame(); e.stopImmediatePropagation(); return; }   // (the menu must not take the same Esc as its 返回)
     if (this.dialogue.on) { if (!e.repeat && ['Enter', ' ', 'j', 'J'].includes(e.key)) { e.preventDefault(); this.dialogue.advance(); } return; }
