@@ -19,6 +19,8 @@ import { IronBtn, IronStick, IronHp, QteRing , type HintKey } from './ironUi';
 import { textCells } from '../ui3d/pixfont';
 
 type AnyBtn = SkinBtn | IronBtn; type AnyHp = SkinHp | IronHp;
+/** the words under the buttons (act-28) and their keys: [word, keyboard, pad] */
+const BTN_WORD: Record<BtnName, [string, string, string]> = { attack: ['攻击', 'J', 'X'], dash: ['闪避', 'K', 'B'], jump: ['跳跃', '空格', 'A'], special: ['远程', 'L', 'Y'] };
 
 interface Bar { g: THREE.Group; back: THREE.Mesh; lag: THREE.Mesh; fill: THREE.Mesh; shown: number; lagV: number }
 const box = (c: number, o = 1) => new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: c, transparent: o < 1, opacity: o, depthWrite: false }));
@@ -124,6 +126,13 @@ export class ActHud {
     this.stick.root.visible = this.on; for (const b of Object.values(this.btns)) { b.root.visible = this.on; if (b instanceof IronBtn) b.iconG.visible = this.on; }
     this.flask.root.visible = this.on;
     if (this.on) { this.stick.update(inp.stick, this.stickHome, this.stickSize); for (const b of Object.values(this.btns)) b.update(dt); }
+    // act-28 (user: 「技能下面我看还是没有写按键什么意思：闪避、跳跃、远程、攻击」): what each button does, in small pixel type just under
+    // its rim (never on the button face); with a keyboard or a pad the key follows the word
+    for (const n of Object.keys(this.btns) as BtnName[]) {
+      const b = this.btns[n], [word, key, pad] = BTN_WORD[n], dev = inp.lastDevice;
+      const t = dev === 'key' ? `${word} ${key}` : dev === 'pad' ? `${word} ${pad}` : word;
+      this.L.text.set('act.btn.' + n, { text: t, x: b.x, y: b.y + b.size * 0.5 + 9 * this.k, bodyPx: Math.max(10, Math.round(13 * this.k)), color: '#f0e6cf', outline: '#140c0a', align: 'center', visible: this.on });   // (the HD body font: the pixel numerals have no CJK)
+    }
     if (this.flask instanceof IronHp) this.flask.intent = this.intent;
     this.flask.update(dt); this.sparks.update(dt);
     const st = this.flask.st, bar = this.flask.barAt();

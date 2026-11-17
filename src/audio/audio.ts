@@ -21,6 +21,8 @@ export const VOICE_LINES: Record<string, string> = {
 
 class AudioEngine {
   ctx: AudioContext | null = null; master!: GainNode; sfx!: GainNode; music!: GainNode; voice!: GainNode; lp!: BiquadFilterNode; duck!: GainNode;
+  /** the last samples played (debug: __dh.sfx()) */
+  recent: string[] = [];
   buf = new Map<string, AudioBuffer>(); musicSrc: AudioBufferSourceNode | null = null; musicName = ''; ready = false; muted = false;
   async unlock() {
     if (this.ctx) { if (this.ctx.state === 'suspended') await this.ctx.resume(); return; }
@@ -35,7 +37,8 @@ class AudioEngine {
     this.voice = ctx.createGain(); this.voice.gain.value = 1.0; this.voice.connect(this.master);
     // music is decoded on demand (playMusic): six decoded tracks would hold ~250 MB on a phone
     await Promise.all(Object.entries(byName).filter(([n]) => !n.startsWith('bgm_')).map(async ([n, url]) => {
-      try { const b64 = url.slice(url.indexOf(',') + 1), bin = atob(b64), arr = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i); this.buf.set(n, await ctx.decodeAudioData(arr.buffer)); } catch { /* skip broken sample */ }
+      // (the build inlines each sample as a data: URL; the dev server hands back a plain file URL — fetch that one)
+      try { let ab: ArrayBuffer; if (!url.startsWith('data:')) ab = await (await fetch(url)).arrayBuffer(); else { const b64 = url.slice(url.indexOf(',') + 1), bin = atob(b64), arr = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i); ab = arr.buffer; } this.buf.set(n, await ctx.decodeAudioData(ab)); } catch { /* skip broken sample */ }
     }));
     this.ready = true;
   }
@@ -46,7 +49,8 @@ class AudioEngine {
     const src = ctx.createBufferSource(); src.buffer = b; const j = o.jitter ?? 0.08;
     src.playbackRate.value = (o.rate ?? 1) * (1 + (Math.random() * 2 - 1) * j);
     const g = ctx.createGain(); g.gain.value = (o.gain ?? 1) * (1 + (Math.random() * 2 - 1) * j * 0.6);
-    src.connect(g); g.connect(o.bus === 'voice' ? this.voice : this.sfx); src.start(this.now() + (o.delay ?? 0)); return src;
+    src.connect(g); g.connect(o.bus === 'voice' ? this.voice : this.sfx); src.start(this.now() + (o.delay ?? 0));
+    this.recent.push(name); if (this.recent.length > 40) this.recent.shift(); return src;
   }
   any(prefix: string, o: Parameters<AudioEngine['play']>[1] = {}) { const v = variants(prefix); if (v.length) this.play(v[Math.floor(Math.random() * v.length)], o); }
   /** procedural layers the sample library lacks: whoosh, boom, rumble */
@@ -193,4 +197,4 @@ const H: Partial<Record<Cue, (k: number, x?: number) => void>> = {
   stingLose: () => ub('sting_lose', { gain: 0.9, jitter: 0 }),
   stingClear: () => ub('sting_clear', { gain: 0.7, jitter: 0 }),
 };
-setCueHandler((name, k) => H[name]?.(k));
+setCueHandler((name, k, x) => H[name]?.(k, x));   // (act-28: pass the extra on — the hit sounds read it: 0 = only wood was hit)
