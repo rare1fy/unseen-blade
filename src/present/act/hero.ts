@@ -19,7 +19,10 @@ import type { Input } from './input';
 import { trimShadows, type Foe } from './enemy';
 import { newPerks, v, v2, type Perks } from './boons';
 
-export type HSt = 'squat' | 'free' | 'k1' | 'k2' | 'k3' | 'k4' | 'k5' | 'charge' | 'rel' | 'dash' | 'dcut' | 'noto' | 'hurt' | 'dead' | 'air' | 'plunge' | 'plungeL' | 'launch' | 'kick';
+export type HSt = 'squat' | 'free' | 'k1' | 'k2' | 'k3' | 'k4' | 'k5' | 'charge' | 'rel' | 'dash' | 'dcut' | 'noto' | 'hurt' | 'dead' | 'air' | 'plunge' | 'plungeL' | 'launch' | 'kick'
+  // 11-18 四本新刀谱 (用户：「我打了半天了还没个新招，一直在给我加数值」): 断云 the flurry in the air and its drive down, 掠地 the dive,
+  // 牵红 the reel, 踏顶 the stomp on a head
+  | 'acut' | 'acutF' | 'swoop' | 'reel' | 'stomp';
 /** one cut's numbers: impact moments (share of the action), extra range, arc (rad, full width), damage per impact, knock,
  *  lunge (× TUNE.atkLunge), heavy (the finisher's stagger / FX) */
 interface Swing { imps: number[]; range: number; half: number; dmg: () => number; knock: number; lunge: number; heavy: boolean }
@@ -69,6 +72,16 @@ const DCUT_T = 0.42, DCUT_MOVE = 0.17;
 const JUMP_SQUAT = 0.1;
 /** the sheathing after 见切 (s), and the moment the blade clicks home (fraction of it) */
 const NOTO_T = 0.95, NOTO_CLICK = 0.64;
+/** 11-18 断云: up beside him — two quick cuts and the blade raised overhead (s; the blows at ACUT_HITS, ninjaAct airCombo), then the
+ *  third (acutF): held up there ACUTF_HANG, it comes down and drives both of them into the ground. The two air cuts each fill a third
+ *  of a 刀谱 link's 气, the slam a whole one */
+const ACUT_T = 0.36, ACUT_HITS = [0.07, 0.17], ACUTF_HANG = 0.08, QI_ACUT = 0.1;
+/** 11-18 掠地: the whole move, the dive part (s); how far it looks for someone to land behind, the longest dive (m) */
+const SWOOP_T = 0.44, SWOOP_MOVE = 0.15, SWOOP_REACH = 4.2, SWOOP_MAX = 5.6;
+/** 11-18 牵红: the yank (s); a dart in someone nearer than this is not worth the rope (m — it is the cut's to follow) */
+const REEL_T = 0.34, REEL_MIN = 2.0;
+/** 11-18 踏顶: the step up onto the head, the moment on it before she kicks off (s); how high the kick-off goes (× the jump) */
+const STOMP_UP = 0.1, STOMP_T = 0.18, STOMP_H = 0.95;
 
 export interface HeroWorld {
   foes: Foe[];
@@ -103,6 +116,25 @@ export interface HeroWorld {
   iaiBusy?(): boolean;
   /** the plunge lands: a ring of impact round the hero */
   slam(o: { at: THREE.Vector3; r: number; dmg: number; yaw: number }): number;
+  // ---- 11-18 四本新刀谱 (用户：「我打了半天了还没个新招，一直在给我加数值」)
+  /** 断云: the nearest foe up in the air (thrown by 挑云, a kick, a heavy blow) within reach of her, or null */
+  airFoe?(from: THREE.Vector3, y: number, reach: number): Foe | null;
+  /** 断云: hold him up in the air at her height while she cuts (every frame of it) */
+  airHold?(foe: Foe, y: number): void;
+  /** 断云: a cut in the air on him (n 1..3), or the drive down (n 4 — he is sent into the ground). Returns how many it hit */
+  airCut?(o: { foe: Foe | null; from: THREE.Vector3; yaw: number; dmg: number; n: number }): number;
+  /** 断云: she lands from the drive beside him — the ground takes him, a ring of dust; whoever stands close is thrown off */
+  airSlam?(o: { at: THREE.Vector3; foe: Foe | null; dmg: number; yaw: number }): number;
+  /** 掠地: the dive has reached the ground — everyone along her way takes the cut */
+  swoop?(o: { a: THREE.Vector3; b: THREE.Vector3; r: number; dmg: number }): number;
+  /** 牵红: the foe with a dart in him that the cord reaches (not nearer than min), and whether he is too heavy to pull, or null */
+  reelTarget?(from: THREE.Vector3, min: number): { foe: Foe; heavy: boolean } | null;
+  /** 牵红: the yank — the red cord from her hand; a light one is drawn to `to` over dur, a heavy one stays (she goes); the dart is spent */
+  reel?(o: { foe: Foe; to: THREE.Vector3; dur: number; dmg: number; self: boolean }): void;
+  /** 踏顶: a foe on the ground beside her whose head is about her height (she can kick off it), or null */
+  stompable?(from: THREE.Vector3, y: number): Foe | null;
+  /** 踏顶: her foot lands on his head — he goes flat on the ground */
+  stomp?(o: { foe: Foe; from: THREE.Vector3; dmg: number }): number;
   clamp(p: THREE.Vector3, r: number): void;
   /** screen stick → world direction */
   stickWorld(): THREE.Vector3;
@@ -168,6 +200,14 @@ export class Hero {
   get breath() { return this.st === 'charge' && this.chargeK >= 1 ? Math.max(0, 1 - this.heldFull / Math.max(0.05, TUNE.stanceHold)) : 1; }
   /** 挑空斩: its blow has gone out; 近身三镖: the next throw is a fan of three */
   private launchHit = false; private fanNext = false;
+  /** 11-18 the new 刀谱's targets this frame (what the buttons show and what a press does): 断云's foe in the air, 踏顶's head, 牵红's
+   *  stuck dart */
+  private airTgt: Foe | null = null; private stompTgt: Foe | null = null; private reelTgt: { foe: Foe; heavy: boolean } | null = null;
+  /** 断云: who she is cutting in the air, the height she holds him at; 掠地: the dive's start, its end on the ground, the height it
+   *  left from; 牵红: she goes (a heavy one) from → to; 踏顶: whose head, where she came from, the top of his head, her height then */
+  private acutFoe: Foe | null = null; private acutY = 1.6; private swoopFrom = V3(); private swoopTo = V3(); private swoopY0 = 0;
+  private reelSelf = false; private reelFrom = V3(); private reelTo = V3();
+  private stompFoe: Foe | null = null; private stompFrom = V3(); private stompTop = 0; private stompY0 = 0;
   /** height off the ground and vertical speed */
   y = 0; vy = 0; private v0 = 1;
   readonly r = 0.38;
@@ -201,7 +241,9 @@ export class Hero {
   /** 0..1 while holding a charge (the HUD and the ring under the hero show it), else 0 */
   get charge() { return this.st === 'charge' ? this.chargeK : 0; }
   get airborne() { return this.y > 0.01; }
-  get iframe() { return this.inv > 0 || (this.st === 'dash' && this.t < TUNE.dashIframe * (1 + v(this.perks, 'evade') / 100)) || (this.st === 'rel' && this.t < this.dur * 0.55) || (this.st === 'dcut' && this.t < DCUT_MOVE + 0.05); }
+  get iframe() { return this.inv > 0 || (this.st === 'dash' && this.t < TUNE.dashIframe * (1 + v(this.perks, 'evade') / 100)) || (this.st === 'rel' && this.t < this.dur * 0.55) || (this.st === 'dcut' && this.t < DCUT_MOVE + 0.05)
+    // 11-18: 掠地's dive and 牵红 pulling her to a big one pass through blows like a dash (no blinking inv for them)
+    || (this.st === 'swoop' && this.t < SWOOP_MOVE + 0.05) || (this.st === 'reel' && this.reelSelf); }
   private set(st: HSt, dur: number) { this.st = st; this.t = 0; this.dur = dur; this.hitDone = false; this.hit2Done = false; this.hits = 0; }
   /** face the best target near the stick direction (or the stick direction itself) */
   private aim(w: HeroWorld, reach = 4.2) {
@@ -314,11 +356,20 @@ export class Hero {
     if (A.pressed && (this.st === 'free' || this.st === 'air' || this.st === 'dash' || cutting)) {
       const f = this.has('chase') ? w.chaseTarget() : null; if (f) { this.atkEaten = true; this.buf.atk = 0; this.buf.press = 0; this.startChase(f, w); }
     }
+    // 11-18 新刀谱: what each of them could take right now (the buttons turn over to it; a press takes it)
+    if (!this.airborne) this.lastStomp = null;
+    this.airTgt = this.has('acut') && this.st === 'air' && this.airborne ? w.airFoe?.(this.pos, this.y, 2.6) ?? null : null;
+    this.stompTgt = this.has('stomp') && this.st === 'air' && this.y > 0.4 ? w.stompable?.(this.pos, this.y) ?? null : null;
+    if (this.stompTgt && this.stompTgt === this.lastStomp) this.stompTgt = null;   // (not the same head twice in one jump)
+    this.reelTgt = this.has('reel') && !this.airborne && (this.st === 'free' || (cutting && this.hitDone)) ? w.reelTarget?.(this.pos, REEL_MIN) ?? null : null;
     // 飞镖 (act-27, user: 「飞刀要自动索敌一下，按住可以通过技能按钮指定方向」): a tap throws on release at the nearest foe (auto-aim);
     // held past AIM_T it is aimed — the finger dragged off the button (touch) or the stick (keys / pad) — with a line on the ground, and
     // goes on release. Free on the ground or in the air, it never stops the hero. (Holding no longer rapid-fires.)
     const SP = B.special, dartOk = (this.st === 'free' || this.st === 'air') && this.dartAmmo > 0;
     if (SP.pressed) { this.spUsed = false; this.aimDir.copy(this.a.fwd().setY(0).normalize()); }
+    // 牵红 (刀谱): a dart already in someone a way off + the dart button = the red cord yanks him in (a heavy one: she goes to him);
+    // this press throws nothing
+    if (SP.pressed && this.reelTgt) { this.spUsed = true; this.buf.sp = 0; this.startReel(this.reelTgt, w); }
     this.aiming = dartOk && SP.down && SP.held >= AIM_T && !this.spUsed;
     if (this.aiming) { const a = w.aimWorld?.(); if (a && a.lengthSq() > 1e-4) this.aimDir.copy(a).setY(0).normalize(); }
     if (SP.released && dartOk && !this.spUsed && this.dartCd <= 0) { this.buf.sp = 0; this.startDart(w, SP.last >= AIM_T ? this.aimDir.clone() : null); }
@@ -379,12 +430,103 @@ export class Hero {
       case 'air': {
         steer(TUNE.heroAccel * 0.7);
         this.vy -= this.gravAt(this.vy) * dt; this.y += this.vy * dt;
+        // 踏顶 (刀谱): beside someone whose head is about her height, jump = a foot on his head and up again (before the double jump,
+        // which it gives back)
+        if (this.buf.jump > 0 && this.stompTgt) { this.buf.jump = 0; this.startStomp(this.stompTgt); break; }
         // the double jump: jump again in the air (once until landing)
         if (this.buf.jump > 0 && this.jumps < 2 && this.has('dbl')) { this.buf.jump = 0; this.startJump2(); break; }
-        // in the air a press is the plunge at once (no stance up here); its release then does nothing
-        if (this.buf.press > 0) { this.buf.press = 0; this.buf.atk = 0; this.atkEaten = true; this.startPlunge(w); break; }
-        if (canDash) { this.buf.dash = 0; this.startDash(w); break; }
+        // in the air a press is the plunge at once (no stance up here); its release then does nothing.
+        // 断云 (刀谱): with someone up in the air beside her (挑云 threw him), the press is three cuts on him up here instead
+        if (this.buf.press > 0) { this.buf.press = 0; this.buf.atk = 0; this.atkEaten = true; if (this.airTgt) this.startAirCut(this.airTgt, w); else this.startPlunge(w); break; }
+        // 掠地 (刀谱): learnt, the dash in the air is a dive into a cut that lands behind them
+        if (canDash) { this.buf.dash = 0; if (this.has('swoop')) this.startSwoop(w); else this.startDash(w); break; }
         if (this.y <= 0) this.landed(w);
+        break;
+      }
+      case 'acut': {
+        // 断云: up beside him, holding him up there — three quick cuts (the third after a beat), then the drive down
+        const f = this.acutFoe, live = !!f && f.st !== 'dead';
+        this.vel.set(0, 0, 0); this.vy = 0; this.y += (this.acutY - this.y) * Math.min(1, dt * 12);
+        if (live) {
+          const d = f!.pos.clone().sub(this.pos).setY(0), l = d.length();
+          if (l > 1e-3) { d.divideScalar(l); this.a.yaw = Math.atan2(d.x, d.z); const want = f!.pos.clone().addScaledVector(d, -(f!.d.r + 0.7)); const e = 1 - Math.exp(-dt * 22); this.pos.x += (want.x - this.pos.x) * e; this.pos.z += (want.z - this.pos.z) * e; }
+          w.airHold?.(f!, this.y);
+        }
+        while (this.hits < ACUT_HITS.length && this.t >= ACUT_HITS[this.hits]) {
+          this.hits++; this.hitDone = true; cue('swingLight', 0.6);
+          if ((w.airCut?.({ foe: live ? f : null, from: this.pos.clone().setY(this.y), yaw: this.a.yaw, dmg: Math.round(TUNE.atkDmg * 0.7), n: this.hits }) ?? 0) > 0) this.gainQi(QI_ACUT);
+        }
+        if (this.t >= this.dur) this.startAirCutDown();
+        break;
+      }
+      case 'acutF': {
+        // 断云's third cut: the blade over the head a moment (he is still held), then it comes down and both of them with it
+        const f = this.acutFoe, live = !!f && f.st !== 'dead'; this.vel.multiplyScalar(Math.exp(-dt * 10));
+        if (this.t < ACUTF_HANG) { this.vy = 0; if (live) w.airHold?.(f!, this.y); break; }
+        if (!this.hitDone) { this.hitDone = true; cue('swingHeavy', 1); w.airCut?.({ foe: live ? f : null, from: this.pos.clone().setY(this.y), yaw: this.a.yaw, dmg: Math.round(TUNE.atkDmg * 1.0), n: 3 }); }
+        this.vy = -PLUNGE_V; this.y = Math.max(0, this.y + this.vy * dt);
+        if (this.y <= 0) {
+          this.y = 0; this.vy = 0; this.vel.set(0, 0, 0); this.jumps = 0; this.flipT = -1;
+          if ((w.airSlam?.({ at: this.pos.clone(), foe: live ? f : null, dmg: TUNE.atkDmg, yaw: this.a.yaw }) ?? 0) > 0) this.gainQi(QI_LINK);
+          this.acutFoe = null; this.set('plungeL', 0.34); this.a.play(new Action('plungeL', 0.34, 0.05));
+        }
+        break;
+      }
+      case 'swoop': {
+        // 掠地: the dive — faster as it goes, down to the ground behind them; the cut opens along the way when she lands
+        if (this.t < SWOOP_MOVE) {
+          const u = this.t / SWOOP_MOVE, e = u * u * (2 - u);
+          this.pos.x = this.swoopFrom.x + (this.swoopTo.x - this.swoopFrom.x) * e; this.pos.z = this.swoopFrom.z + (this.swoopTo.z - this.swoopFrom.z) * e;
+          this.y = this.swoopY0 * (1 - e); this.vel.set(0, 0, 0);
+          this.ghostT -= dt; if (this.ghostT <= 0) { this.ghostT = 0.035; fxAfterimage(this.pos.clone().setY(this.y), 1.9, 0x6ab88a, { life: 0.2, glow: 0.25 }); }
+          break;
+        }
+        if (!this.hitDone) {
+          this.hitDone = true; this.y = 0; this.vy = 0; this.pos.x = this.swoopTo.x; this.pos.z = this.swoopTo.z; this.jumps = 0; this.flipT = -1;
+          this.vel.copy(this.dashDir).multiplyScalar(2.5);
+          if ((w.swoop?.({ a: this.swoopFrom.clone(), b: this.pos.clone(), r: 1.0, dmg: Math.round(TUNE.atkDmg * 1.6) }) ?? 0) > 0) this.gainQi(QI_LINK);
+          dustBlocks(this.pos.clone(), 8, this.dashDir.clone()); cue('land', 0.7); cue('skid', 0.5);
+        }
+        this.vel.multiplyScalar(Math.exp(-dt * 9));
+        if (canDash) { this.buf.dash = 0; this.startDash(w); break; }
+        if (canJump) { this.buf.jump = 0; this.startJump(); break; }
+        if (this.buf.atk > 0 && this.t > SWOOP_MOVE + 0.12) { this.buf.atk = 0; this.startCut('k1', w); break; }
+        if (this.t >= this.dur) this.set('free', 0);
+        break;
+      }
+      case 'reel': {
+        // 牵红: the yank (a light one comes to her — show.ts drags him); a heavy one stays and she goes along the cord to him
+        if (this.reelSelf) {
+          const u = Math.max(0, Math.min(1, (this.t - 0.08) / (this.dur - 0.08))), e = u * u * (3 - 2 * u);
+          this.pos.x = this.reelFrom.x + (this.reelTo.x - this.reelFrom.x) * e; this.pos.z = this.reelFrom.z + (this.reelTo.z - this.reelFrom.z) * e; this.vel.set(0, 0, 0);
+          this.ghostT -= dt; if (u > 0 && u < 1 && this.ghostT <= 0) { this.ghostT = 0.045; fxAfterimage(this.pos.clone(), 1.9, 0x8a4a5a, { life: 0.18, glow: 0.2 }); }
+        } else this.vel.multiplyScalar(Math.exp(-dt * 12));
+        if (canDash && this.t > 0.1) { this.buf.dash = 0; this.startDash(w); break; }
+        if (this.buf.atk > 0 && this.t > (this.reelSelf ? this.dur * 0.75 : 0.16)) { this.buf.atk = 0; this.pendT = 0; this.startCut('k1', w); break; }
+        if (this.t >= this.dur) this.set('free', 0);
+        break;
+      }
+      case 'stomp': {
+        // 踏顶: up onto his head (STOMP_UP), a crouch on it as he goes down under her foot, then off it like a fresh jump
+        const f = this.stompFoe, half = STOMP_UP; this.vel.set(0, 0, 0); this.vy = 0;
+        if (this.t < half && f) {
+          const u = this.t / half, e = 1 - (1 - u) ** 2, back = this.stompFrom.clone().sub(f.pos).setY(0); if (back.lengthSq() < 1e-4) back.copy(this.a.fwd()).multiplyScalar(-1);
+          const to = f.pos.clone().addScaledVector(back.normalize(), 0.12);
+          this.pos.x = this.stompFrom.x + (to.x - this.stompFrom.x) * e; this.pos.z = this.stompFrom.z + (to.z - this.stompFrom.z) * e;
+          this.y = this.stompY0 + (this.stompTop - this.stompY0) * e;
+        }
+        if (this.t >= half && !this.hitDone) {
+          this.hitDone = true; this.y = this.stompTop;
+          if (f && (w.stomp?.({ foe: f, from: this.pos.clone().setY(this.y), dmg: Math.round(TUNE.atkDmg * 0.6) }) ?? 0) > 0) this.gainQi(QI_LINK);
+        }
+        if (this.t >= this.dur) {
+          // kick off it: a jump of its own from up here (the double jump is back for after)
+          const v0 = Math.sqrt(2 * this.gravity * TUNE.jumpH * STOMP_H); this.v0 = v0; this.vy = v0; this.jumps = 1; this.flipT = -1; this.airT = 0; this.stompFoe = null;
+          this.set('air', 99); this.a.act?.cancel(); this.a.act = null;
+          const at = this.pos.clone().setY(this.y + 0.03);
+          for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2; addBlock(at.clone().add(V3(Math.cos(a) * 0.18, 0, Math.sin(a) * 0.18)), { size: 0.09, v: V3(Math.cos(a) * 2.6, -0.3, Math.sin(a) * 2.6), col: 0xb8a888, glow: false, life: 0.3, shrink: 0.3, drag: 6, grav: 0 }); }
+          cue('jump', 0.8);
+        }
         break;
       }
       case 'plunge': {
@@ -556,8 +698,8 @@ export class Hero {
       }
       case 'hurt': this.vel.multiplyScalar(Math.exp(-dt * 9)); if (this.t >= this.dur) this.set(this.airborne ? 'air' : 'free', this.airborne ? 99 : 0); break;
     }
-    // states that don't fly themselves still fall (a hit in the air)
-    if (this.st !== 'air' && this.st !== 'plunge' && this.st !== 'dash') this.fall(dt);
+    // states that don't fly themselves still fall (a hit in the air) — 11-18: 断云, 掠地 and 踏顶 set her height themselves
+    if (this.st !== 'air' && this.st !== 'plunge' && this.st !== 'dash' && this.st !== 'acut' && this.st !== 'acutF' && this.st !== 'swoop' && this.st !== 'stomp') this.fall(dt);
     this.move(dt, w);
     const sp = Math.hypot(this.vel.x, this.vel.z), r = Math.min(1, sp / TUNE.heroSpeed);
     { // 11-18 3C: what the body shows of the controls
@@ -588,7 +730,7 @@ export class Hero {
     // 11-18: the landing as hard as the fall was — a full jump sinks deep and rises slowly; running on, a shallow dip she runs out of
     const m = motionOf(this.a), hard = Math.min(1, Math.max(0.3, -this.vy / 12)), run = Math.min(1, Math.hypot(this.vel.x, this.vel.z) / TUNE.heroSpeed);
     m.landW = hard * (1 - 0.5 * run); m.landDur = 0.1 + 0.18 * m.landW; m.land = 1;
-    this.y = 0; this.vy = 0; this.jumps = 0; this.flipT = -1;
+    this.y = 0; this.vy = 0; this.jumps = 0; this.flipT = -1; this.lastStomp = null;
     dustBlocks(this.pos.clone(), Math.round(4 + 6 * m.landW)); cue('land', 0.35 + 0.6 * m.landW);
     this.set('free', 0);
     // a press just before touching down: the cut / the next jump starts on landing
@@ -673,6 +815,60 @@ export class Hero {
     this.aim(w); this.set('launch', 0.42); this.launchHit = false; this.next = null; this.pendT = 0;
     this.a.play(new Action('k2', 0.42, 0.3)); cue('swish', 0.6);
   }
+  // ------------------------------------------------------------ 11-18 四本新刀谱
+  /** 断云: up at him — she faces him and holds a little above his middle, three quick cuts in the air (ninjaAct airCombo) */
+  private startAirCut(f: Foe, w: HeroWorld) {
+    this.acutFoe = f; this.acutY = Math.max(1.5, Math.min(2.6, Math.max(this.y, f.pos.y))); this.vy = 0; this.vel.set(0, 0, 0); this.jumps = 2; this.flipT = -1;
+    const d = f.pos.clone().sub(this.pos).setY(0); if (d.lengthSq() > 1e-4) this.a.yaw = Math.atan2(d.x, d.z);
+    this.set('acut', ACUT_T); this.a.play(new Action('acut', ACUT_T, ACUT_HITS[0] / ACUT_T)); this.next = null; this.pendT = 0;
+    w.airHold?.(f, this.y); cue('breath', 0.5);
+  }
+  /** 断云's third cut: from the blade raised overhead (where the air cuts left it), down to the ground with him */
+  private startAirCutDown() {
+    const fall = ACUTF_HANG + this.y / PLUNGE_V + 0.03, hang = ACUTF_HANG / fall;
+    this.set('acutF', 99); this.a.play(new Action('acutF', fall, hang, { hang })); cue('breath', 0.8);
+  }
+  /** 掠地: a dive along the stick (or ahead) down to the ground — on past the first one in the way so it lands behind them */
+  private startSwoop(w: HeroWorld) {
+    const s = w.stickWorld(), dir = s.lengthSq() > 0.04 ? s.normalize() : this.a.fwd().setY(0).normalize();
+    // the first foe ahead within reach (a cone of ±0.5 rad): land a step past him; nobody: the dive goes a dash's length
+    let best: Foe | null = null, bl = 1e9;
+    for (const f of w.foes) {
+      if (f.st === 'dead') continue;
+      const d = f.pos.clone().sub(this.pos).setY(0), l = d.length(); if (l < 0.3 || l > SWOOP_REACH) continue;
+      if (d.dot(dir) / l < Math.cos(0.5)) continue; if (l < bl) { bl = l; best = f; }
+    }
+    if (best) { const d = best.pos.clone().sub(this.pos).setY(0).normalize(); dir.copy(d); }
+    const len = Math.min(SWOOP_MAX, best ? bl + best.d.r + 1.1 : TUNE.dashDist * 1.1);
+    this.dashDir.copy(dir); this.a.yaw = Math.atan2(dir.x, dir.z);
+    this.swoopFrom.copy(this.pos); this.swoopTo.copy(this.pos).addScaledVector(dir, len); w.clamp(this.swoopTo, this.r); this.swoopY0 = this.y;
+    this.set('swoop', SWOOP_T); this.a.play(new Action('swoop', SWOOP_T, SWOOP_MOVE / SWOOP_T)); this.ghostT = 0; this.vy = 0; this.next = null; this.pendT = 0;
+    this.dashCd = TUNE.dashCd * (1 - v2(this.perks, 'evade') / 100);
+    cue('dash', 0.8); cue('swishHeavy', 0.8);
+  }
+  /** 牵红: the red cord to the dart in him — a light one is pulled to just in front of her; a heavy one (力士, 渠帅, an elite) stays and
+   *  she is pulled to him instead. The dart is spent, its throw costs nothing more */
+  private startReel(t: { foe: Foe; heavy: boolean }, w: HeroWorld) {
+    const f = t.foe, d = f.pos.clone().sub(this.pos).setY(0), l = d.length() || 1; d.divideScalar(l); this.a.yaw = Math.atan2(d.x, d.z);
+    this.reelSelf = t.heavy; this.reelFrom.copy(this.pos);
+    if (t.heavy) { this.reelTo.copy(f.pos).addScaledVector(d, -(f.d.r + 0.75)).setY(0); w.clamp(this.reelTo, this.r); }
+    const to = this.pos.clone().addScaledVector(d, this.r + f.d.r + 0.45).setY(0); w.clamp(to, f.d.r);
+    const dur = t.heavy ? Math.min(0.42, 0.18 + l * 0.03) : REEL_T;
+    w.reel?.({ foe: f, to, dur: t.heavy ? dur : REEL_T * 0.7, dmg: Math.max(2, Math.round(TUNE.atkDmg * 0.4)), self: t.heavy });
+    this.set('reel', dur); this.a.play(new Action('reel', dur, 0.25, { self: t.heavy })); this.next = null; this.pendT = 0; this.dartT = -1;
+    this.gainQi(QI_LINK); cue('dartThrow', 0.5);
+  }
+  /** 踏顶: onto his head and down hard (not the same head twice before she lands) */
+  private startStomp(f: Foe) {
+    this.stompFoe = f; this.lastStomp = f; this.stompFrom.copy(this.pos); this.stompY0 = this.y; this.stompTop = Math.max(0.5, Math.min(2.2, f.a.height * 0.94 + f.pos.y));
+    this.set('stomp', STOMP_T); this.a.play(new Action('stomp', STOMP_T, STOMP_UP / STOMP_T)); this.flipT = -1; this.next = null;
+  }
+  private lastStomp: Foe | null = null;
+  /** 断云 on offer: someone up in the air within reach of her up there */
+  get canAirCut() { return this.st === 'air' && !!this.airTgt; }
+  get canSwoop() { return this.st === 'air' && this.airborne && this.has('swoop') && this.dashCd <= 0; }
+  get canReel() { return !!this.reelTgt; }
+  get canStomp() { return this.st === 'air' && !!this.stompTgt; }
   /** act-19 游身不断招: the cut out of the dodge comes from the side — a pale streak along the step, the cut aimed at the nearest foe */
   private sideCut(w: HeroWorld) {
     const f = this.aim(w); fxAfterimage(this.pos.clone(), 1.9, 0x9ad8ff, { life: 0.3, glow: 0.45 }); cue('swish', 0.5);
@@ -704,7 +900,7 @@ export class Hero {
   private move(dt: number, w: HeroWorld) {
     this.pos.addScaledVector(this.vel, dt);
     // high in the air the hero passes over the foes; on the ground (and in a dash or the lunge) the usual push-out
-    if (this.y < 0.6) for (const f of w.foes) if (f.st !== 'dead') { const d = this.pos.clone().sub(f.pos).setY(0), l = d.length(), mm = this.r + f.d.r; if (l < mm && l > 1e-4 && this.st !== 'dash' && this.st !== 'rel' && this.st !== 'dcut') this.pos.addScaledVector(d, (mm - l) / l * 0.6); }
+    if (this.y < 0.6) for (const f of w.foes) if (f.st !== 'dead') { const d = this.pos.clone().sub(f.pos).setY(0), l = d.length(), mm = this.r + f.d.r; if (l < mm && l > 1e-4 && this.st !== 'dash' && this.st !== 'rel' && this.st !== 'dcut' && this.st !== 'swoop' && !(this.st === 'reel' && this.reelSelf)) this.pos.addScaledVector(d, (mm - l) / l * 0.6); }
     w.clamp(this.pos, this.r);
   }
 }

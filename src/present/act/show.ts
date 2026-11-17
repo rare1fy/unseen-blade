@@ -68,7 +68,10 @@ import { CardPick3D as CardPick } from './cards3d';   // act-36: the pick cards 
 import { fillVals } from './cards';
 import { Hero, QI_LINK, type HeroWorld } from './hero';
 /** 11-17: the 刀谱 links the first few openings of which are slowed down to teach them (二段跳 is no link; 穿风斩 / 劈山 / 回锋斩 are known from the start) */
-const TEACH = ['chase', 'back', 'cdart', 'launch', 'kick', 'keep', 'pause'];
+// (11-18: 断云, 牵红, 踏顶 too; 掠地 not — like 二段跳 it is on whenever she is in the air, so it would slow every jump)
+const TEACH = ['chase', 'back', 'cdart', 'launch', 'kick', 'keep', 'pause', 'acut', 'reel', 'stomp'];
+/** 11-18: the new 刀谱's blade blows count as cuts for the boons (出血, 裂甲, 搏命, 枭首) — boons.ts isBladeHit stays as it is */
+const bladeHit = (kind: string) => isBladeHit(kind) || kind === 'acut' || kind === 'acutF' || kind === 'acutS' || kind === 'swoop';
 import { interruptFoe } from './enemy';
 import { inside } from './tele';
 import { spawnFoe, updateFoe, damageFoe, type Foe, type FoeWorld, type EKind, Arrow } from './enemy';
@@ -187,6 +190,9 @@ const BEAT: Record<string, [number, number, number, number, Cue]> = {
   k5: [0.11, 0.14, 0.17, 0.05, 'hitHeavy'], heavy: [0.08, 0.12, 0.1, 0.02, 'hitHeavy'], dcut: [0.06, 0.1, 0.05, 0, 'hitHeavy'], launch: [0.07, 0.1, 0.08, 0.02, 'hitHeavy'],
   kick: [0.07, 0.12, 0.1, 0, 'hitKick'], plunge: [0.09, 0.08, 0.2, 0.04, 'hitHeavy'], rel: [0.08, 0.24, 0.3, 0.07, 'hitIai'], parry: [0.1, 0.16, 0.18, 0.04, 'hitHeavy'],
   arrow: [0.05, 0.06, 0.05, 0, 'hitLight'], wind: [0.03, 0.04, 0, 0, 'hitLight'], kunai: [0.02, 0.03, 0, 0, 'hitStab'],
+  // 11-18 四本新刀谱: 断云's two quick cuts in the air, its third, its slam into the ground; 掠地; 踏顶; 牵红's yank
+  acut: [0.035, 0.05, 0, 0, 'hitLight'], acutF: [0.06, 0.1, 0.06, 0.02, 'hitHeavy'], acutS: [0.1, 0.12, 0.22, 0.05, 'hitHeavy'],
+  swoop: [0.07, 0.12, 0.08, 0.02, 'hitHeavy'], stomp: [0.06, 0.06, 0.12, 0.02, 'hitKick'], reel: [0.03, 0.05, 0, 0, 'hitStab'],
 };
 /** 11-18 whose voice a foe cries with (the audio picks the takes and the pitch): 0 a man, 1 a big man, 2 the chief, 3 a hound */
 const voiceOf = (f: Foe) => isBoss(f) ? 2 : f.d.role === 'hound' ? 3 : f.d.role === 'brute' || f.elite ? 1 : 0;
@@ -834,6 +840,10 @@ export class ActShow {
     foes: this.foes,
     swing: o => this.swing(o), sweep: o => this.sweep(o), slam: o => this.slam(o), clamp: this.clamp,
     launch: o => this.launchCut(o), kick: o => this.kickHit(o),
+    // 11-18 四本新刀谱
+    airFoe: (p, y, r) => this.airFoe(p, y, r), airHold: (f, y) => this.airHold(f, y), airCut: o => this.airCut(o), airSlam: o => this.airSlam(o),
+    swoop: o => this.swoopCut(o), reelTarget: (p, min) => this.reelTarget(p, min), reel: o => this.reelIn(o),
+    stompable: (p, y) => this.stompable(p, y), stomp: o => this.stompOn(o),
     dart: o => { this.dartsThrown++; const bonus = tierOf(this.perks, 'darts3') === 1 ? 1.25 : 1; const d = new Dart(o.from.clone(), o.dir.clone().multiplyScalar(TUNE.dartSpeed), TUNE.dartDmg * bonus, TUNE.dartRange); d.link = o.link ?? 0; this.darts.push(d); },
     chaseTarget: () => this.chaseTarget(), chase: o => this.chaseFx(o),
     stickWorld: () => V3(this.inp.move.x, 0, -this.inp.move.y),
@@ -854,7 +864,7 @@ export class ActShow {
   };
   /** act-23: did the swing being felt cut flesh (not only the wooden dummies)? picks the hit sound's flesh layers */
   private fleshHit = false;
-  private dmgMul(kind: string) { return isBladeHit(kind) && this.hero.hp < this.hero.maxHp / 2 ? 1 + v(this.perks, 'frenzy') / 100 : 1; }
+  private dmgMul(kind: string) { return bladeHit(kind) && this.hero.hp < this.hero.maxHp / 2 ? 1 + v(this.perks, 'frenzy') / 100 : 1; }
   /** 11-18 打击感分档 (用户：「一招一式节奏都差不多」「3C总之都要再加强」): a blow's hit-stop (× TUNE.hitstop), the camera pushed along it,
    *  the rumble, the push-in, its sound; a kill in it holds a little longer and slows a moment */
   private killBeat = false;
@@ -900,7 +910,7 @@ export class ActShow {
       const dx = f.pos.x - o.from.x, dz = f.pos.z - o.from.z, l = Math.hypot(dx, dz); if (l > o.range + f.d.r) continue;
       if (l > f.d.r + 0.3 && Math.abs(Math.atan2(dx * fz - dz * fx, dx * fx + dz * fz)) > o.half) continue;
       this.hitFoe(f, o.dmg, o.from, { knock: 0.15, heavy: true, kind: 'launch', stagger: 1.5 }); n++;
-      if ((f.st as string) !== 'dead' && this.launchable(f)) { f.airV = 10.5; f.pos.y = Math.max(f.pos.y, 0.05); f.vel.set(fx * 1.2, 0, fz * 1.2); }
+      if ((f.st as string) !== 'dead' && this.launchable(f)) { f.airV = 10.5; f.pos.y = Math.max(f.pos.y, 0.05); f.vel.set(fx * 1.2, 0, fz * 1.2); this.lofted.set(f, clock.time); }
     }
     if (this.props) this.applyProps(this.props.hitArc(o.from, o.yaw, o.range, o.half, { src: 'hero', heavy: true }, this.targets()));
     this.leaves?.blast(o.from.x + fx, o.from.z + fz, 1.6, 4);
@@ -926,6 +936,147 @@ export class ActShow {
     fxImpact(best.a.chest(), 0xfff0d0, 1.4, { dir: o.dir.clone() }); this.feel('kick', true, 1, o.dir.clone());
     this.leaves?.blast(best.pos.x, best.pos.z, 1.5, 6);
     return 1;
+  }
+  // ------------------------------------------------------------ 11-18 四本新刀谱 (用户：「我打了半天了还没个新招，一直在给我加数值」)
+  /** 断云: the nearest live foe 挑云 threw (in the last 1.6 s, still off the ground or held up there) within reach of her. Only those —
+   *  a heavy blow that bounces someone a hand's breadth off the ground leaves the press in the air 劈山 */
+  private lofted = new Map<Foe, number>();
+  private airFoe(p: THREE.Vector3, y: number, reach: number): Foe | null {
+    let best: Foe | null = null, bd = 1e9;
+    for (const [f, at] of this.lofted) {
+      if (f.st === 'dead' || !this.foes.includes(f) || clock.time - at > 1.6 || (f.airV == null && f.pos.y < 0.05)) { this.lofted.delete(f); continue; }
+      const l = Math.hypot(f.pos.x - p.x, f.pos.z - p.z); if (l > reach + f.d.r || Math.abs(f.pos.y - y) > 2) continue;
+      if (l < bd) { bd = l; best = f; }
+    }
+    return best;
+  }
+  /** 断云: he hangs where she is cutting him (no fall, no drift) and cannot act */
+  private airHold(f: Foe, y: number) {
+    if (f.st === 'dead') return;
+    f.pos.y += (Math.max(0.5, y - 0.1) - f.pos.y) * 0.5; f.airV = 0; f.vel.multiplyScalar(0.5); this.lofted.set(f, clock.time);
+    if (f.st !== 'stagger' || f.dur - f.t < 0.3) interruptFoe(f, 0.5);
+  }
+  /** 断云: a cut in the air (n 1, 2) — small and quick; n 3, the third: heavy, and he is sent straight down ahead of her */
+  private airCut(o: { foe: Foe | null; from: THREE.Vector3; yaw: number; dmg: number; n: number }) {
+    const fx = Math.sin(o.yaw), fz = Math.cos(o.yaw), f = o.foe, last = o.n >= 3;
+    const at = f ? f.a.chest() : o.from.clone().add(V3(fx * 1.0, 0.9, fz * 1.0)), side = V3(fz, 0, -fx);
+    // the cut's line across him: flat for the first, rising back for the second, the third down across
+    const a = at.clone().addScaledVector(side, o.n === 2 ? -0.55 : 0.55).add(V3(0, o.n === 2 ? -0.25 : last ? 0.55 : 0.15, 0)), b = at.clone().addScaledVector(side, o.n === 2 ? 0.55 : -0.55).add(V3(0, o.n === 2 ? 0.25 : last ? -0.55 : -0.1, 0));
+    trailSeg(a, b, last ? 0xffb0c8 : 0xffd8e6, last ? 0.16 : 0.11, { life: 0.2, bright: last ? 2.8 : 2.2, spark: 0.4 });
+    if (!f || f.st === 'dead') { cue('whoosh', 0.5); return 0; }
+    this.hitFoe(f, o.dmg, o.from.clone().setY(0), { knock: 0, heavy: last, kind: last ? 'acutF' : 'acut', stagger: 0.6 });
+    if ((f.st as string) !== 'dead') { if (last) { f.airV = -16; this.lofted.delete(f); } else f.airV = 0; }
+    this.feel(last ? 'acutF' : 'acut', last, 1, last ? V3(fx, 0, fz) : side.clone().multiplyScalar(o.n === 2 ? 1 : -1));
+    return 1;
+  }
+  /** 断云 lands: he is slammed into the ground beside her (more damage, flat for a moment), dust and a ring; anyone close is thrown off */
+  private airSlam(o: { at: THREE.Vector3; foe: Foe | null; dmg: number; yaw: number }) {
+    let n = 0; const f = o.foe;
+    if (f && f.st !== 'dead') {
+      f.pos.y = 0; f.airV = undefined; this.hitFoe(f, o.dmg * 2, o.at, { knock: 0.2, heavy: true, kind: 'acutS', stagger: 1.1 }); n++;
+      if ((f.st as string) !== 'dead') { f.a.play(new Action('hurt', 1.0, 0.1, { power: 1.6 })); }
+    }
+    const at = f ? f.pos.clone().setY(0) : o.at.clone();
+    for (const g of this.foes.slice()) { if (g === f || g.st === 'dead' || g.pos.distanceTo(at) > 1.6 + g.d.r) continue; this.hitFoe(g, Math.round(o.dmg * 0.5), at, { knock: 1.2, heavy: false, kind: 'acutS', stagger: 0.5 }); n++; }
+    if (this.props) this.applyProps(this.props.hitCircle(at.x, at.z, 1.4, { src: 'hero', heavy: true, dir: [Math.sin(o.yaw), Math.cos(o.yaw)] }, this.targets()));
+    fxRing(at.clone().setY(0.06), 0xffd8a0, 1.7, { life: 0.4 } as never); dustBlocks(at.clone(), 14); this.leaves?.blast(at.x, at.z, 2.4, 6);
+    fxSmoke(at.clone().setY(0.2), 0x8a7a6a, 10, { r: 0.9, spd: 2.6, up: 0.35, s: 0.5, life: 0.7 }); cue('wallSlam', 0.8);
+    if (n) this.feel('acutS', true, n); else { shake(0.2 * TUNE.shake); cue('land', 1); }
+    return n;
+  }
+  /** 掠地: the cut along her dive (everyone within r of it) — the sweep's own line, in a pale jade, and a small ring where she lands
+   *  (11-18: a second bright line and brighter afterimages made one white blaze at the hit-stop — 高亮克制) */
+  private swoopCut(o: { a: THREE.Vector3; b: THREE.Vector3; r: number; dmg: number }) {
+    const n = this.sweep({ a: o.a.clone().setY(0), b: o.b.clone().setY(0), r: o.r, dmg: o.dmg, knock: 1.1, col: 0x9ad8a8, kind: 'swoop' });
+    fxRing(o.b.clone().setY(0.06), 0xc8e8c0, 1.0, { life: 0.3 } as never);
+    return n;
+  }
+  /** 牵红: the foe with the freshest dart in him that the cord reaches (2..dart range), and whether he is too heavy to pull */
+  private reelTarget(p: THREE.Vector3, min: number): { foe: Foe; heavy: boolean } | null {
+    let best: Dart | null = null;
+    for (const d of this.darts) {
+      if (d.dead || !d.stuck) continue; const f = d.stuck as Foe; if (f.st === 'dead' || f.kind === 'dummy') continue;
+      const l = Math.hypot(f.pos.x - p.x, f.pos.z - p.z); if (l < min || l > TUNE.dartRange + 1) continue;
+      if (!best || d.stuckT < best.stuckT) best = d;
+    }
+    if (!best) return null; const f = best.stuck as Foe;
+    return { foe: f, heavy: isBoss(f) || f.d.role === 'brute' || f.elite };
+  }
+  /** 牵红: the red cord from her left hand to the dart; a light one is dragged to `to` (stumbling, a small cut of damage), a heavy one
+   *  only jerks (she goes to him); the darts in him are spent */
+  private reels: Array<{ foe: Foe; from: THREE.Vector3; to: THREE.Vector3; t: number; dur: number; self: boolean; line: THREE.Mesh; landed: boolean }> = [];
+  private reelIn(o: { foe: Foe; to: THREE.Vector3; dur: number; dmg: number; self: boolean }) {
+    const f = o.foe, boss = isBoss(f);
+    for (const d of this.darts) if (d.stuck === f && !d.dead) d.stop(false);
+    const line = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.035, 1).translate(0, 0, 0.5), new THREE.MeshBasicMaterial({ color: 0xd8283a }));
+    line.renderOrder = 2; scene.add(line);
+    this.reels.push({ foe: f, from: f.pos.clone(), to: o.to.clone(), t: 0, dur: o.dur, self: o.self, line, landed: false });
+    // (the chief only takes the dart's tug: no breaking his attack off with it)
+    if (!boss) interruptFoe(f, o.self ? 0.35 : 0.6 + o.dur);
+    this.hitFoe(f, o.dmg, this.hero.pos.clone(), { knock: 0, heavy: false, kind: 'reel', stagger: boss ? 0 : o.self ? 0.35 : 0.6 + o.dur });
+    fxSparks(f.a.chest(), 0xff6a6a, 8, 3); cue('dartHit', 0.9); cue('whoosh', 0.7);
+    if (o.self) { cue('dash', 0.7); this.camKick(f.pos.clone().sub(this.hero.pos), 0.08 * TUNE.shake / 2); }
+  }
+  private reelStep(dt: number) {
+    const keep = this.lastPush;
+    for (const r of this.reels) {
+      r.t += dt; const f = r.foe, u = Math.min(1, r.t / r.dur), e = u * u * (3 - 2 * u);
+      if (!r.self && f.st !== 'dead') {
+        f.pos.x = r.from.x + (r.to.x - r.from.x) * e; f.pos.z = r.from.z + (r.to.z - r.from.z) * e; f.vel.set(0, 0, 0); this.clamp(f.pos, f.d.r);
+        if (u >= 1 && !r.landed) { r.landed = true; dustBlocks(f.pos.clone(), 5); f.a.hit(1.2); }
+      }
+      // the cord: her left hand to his chest, taut while it pulls, dark and slack-looking the moment it is done
+      const hand = this.hero.a.bones?.offhand ?? this.hero.a.bones?.foreL, a = hand ? hand.localToWorld(V3(0, 0, 0)) : this.hero.a.chest(), b = f.a.chest();
+      r.line.position.copy(a); r.line.lookAt(b); r.line.scale.set(1, 1, Math.max(0.01, b.distanceTo(a)));
+      (r.line.material as THREE.MeshBasicMaterial).color.setHex(u < 1 ? 0xd8283a : 0x8a1a28);
+    }
+    this.lastPush = keep;
+    for (let i = this.reels.length - 1; i >= 0; i--) { const r = this.reels[i]; if (r.t >= r.dur + 0.12) { scene.remove(r.line); r.line.geometry.dispose(); (r.line.material as THREE.Material).dispose(); this.reels.splice(i, 1); } }
+  }
+  /** 踏顶: a live foe on the ground close beside her (horizontally within ≈ 1.2 m). A plain jump tops out at 1.3 m, under a man's head
+   *  (≈ 1.8 m), so anywhere from about a third of his height up counts — she steps up onto him (hero.ts stomp, 0.1 s) */
+  private stompable(p: THREE.Vector3, y: number): Foe | null {
+    let best: Foe | null = null, bd = 1e9;
+    for (const f of this.foes) {
+      if (f.st === 'dead' || f.kind === 'dummy' || f.pos.y > 0.3 || isBoss(f)) continue;
+      const l = Math.hypot(f.pos.x - p.x, f.pos.z - p.z), top = f.a.height; if (l > 1.2 + f.d.r * 0.5) continue;
+      if (y < Math.max(0.5, top * 0.35) || y > top + 1.8) continue;
+      if (l < bd) { bd = l; best = f; }
+    }
+    return best;
+  }
+  /** 踏顶: her foot on his head — he goes flat on his face (1.2 s; a 力士 or an elite 0.8 s — the chief is never stompable) */
+  private stompOn(o: { foe: Foe; from: THREE.Vector3; dmg: number }) {
+    const f = o.foe; if (f.st === 'dead') return 0;
+    const flat = f.d.role === 'brute' || f.elite ? 0.8 : 1.2;
+    this.hitFoe(f, o.dmg, f.pos.clone().add(V3(0, 0, 0.01)), { knock: 0, heavy: true, kind: 'stomp', stagger: flat });
+    if ((f.st as string) !== 'dead') { f.vel.set(0, 0, 0); interruptFoe(f, flat); this.flats.set(f, flat); this.flatLen.set(f, flat); }
+    const at = f.pos.clone().setY(0); dustBlocks(at, 10); fxRing(at.clone().setY(0.06), 0xd8c8a8, 1.0, { life: 0.35 } as never);
+    fxSmoke(at.clone().setY(0.15), 0x8a7a6a, 6, { r: 0.6, spd: 1.8, up: 0.2, s: 0.4, life: 0.5 }); this.leaves?.blast(at.x, at.z, 1.4, 3);
+    this.feel('stomp', true, 1, V3(0, 0, 0)); return 1;
+  }
+  /** 踏顶: who lies flat and for how long — the body pressed down onto the ground (a squash of its own, laid over the pose each frame) */
+  private flats = new Map<Foe, number>(); private flatLen = new Map<Foe, number>();
+  /** the dead still up in the air: they fall, then their death plays from the ground */
+  private drops: Array<{ f: Foe; from: THREE.Vector3; boss: boolean; vy: number }> = [];
+  private dropStep(dt: number) {
+    for (let i = this.drops.length - 1; i >= 0; i--) {
+      const d = this.drops[i], f = d.f; d.vy -= 30 * dt; f.pos.y = Math.max(0, f.pos.y + d.vy * dt);
+      if (f.pos.y > 0 && f.a.root.parent) continue;
+      this.drops.splice(i, 1); if (!f.a.root.parent) continue;
+      dustBlocks(f.pos.clone().setY(0), 6); cue('land', 0.6);
+      void playDeath(f.a, { from: d.from, ratio: f.lastDmg / f.maxHp + (d.boss ? 0.5 : 0), boss: d.boss }).then(() => { f.a.dispose(); });
+    }
+  }
+  private flatStep(dt: number) {
+    for (const [f, t] of this.flats) {
+      const left = t - dt; if (left <= 0 || f.st === 'dead' || !f.a.root.parent) { f.a.body.rotation.x = 0; f.a.body.position.y = 0; this.flats.delete(f); this.flatLen.delete(f); continue; }
+      this.flats.set(f, left);
+      // down onto his face fast, lies there, then pushes back up in the last 0.3 s
+      const age = (this.flatLen.get(f) ?? 1.2) - left, down = Math.min(1, age / 0.1) * (left < 0.3 ? left / 0.3 : 1);
+      f.a.body.rotation.x = 1.35 * down; f.a.body.position.y = 0.1 * down;
+      if (f.st === 'stagger') f.dur = Math.max(f.dur, f.t + left);
+    }
   }
   // ------------------------------------------------------------ act-19: props, fire, the wall slam
   /** who the props can hurt: the live foes and the hero on the ground */
@@ -966,7 +1117,7 @@ export class ActShow {
   }
   private hitFoe(f: Foe, dmg: number, from: THREE.Vector3, o: { knock: number; heavy: boolean; kind: string; stagger?: number }) {
     if (f.st === 'dead') return;
-    const cut = isBladeHit(o.kind), heavyCut = ['k5', 'rel', 'plunge', 'launch'].includes(o.kind) && tierOf(this.perks, 'bone') >= 0;
+    const cut = bladeHit(o.kind), heavyCut = ['k5', 'rel', 'plunge', 'launch', 'acutS', 'swoop'].includes(o.kind) && tierOf(this.perks, 'bone') >= 0;
     if (o.kind === 'rel') dmg *= 1 + v2(this.perks, 'draw') / 100;
     if (o.kind === 'parry') dmg *= 1 + v(this.perks, 'counter') / 100;
     const knock = heavyCut ? o.knock * 1.4 : o.knock, stagger = (o.stagger ?? (o.heavy ? 0.55 : 0.3)) + (heavyCut ? v(this.perks, 'bone') : 0);
@@ -1296,6 +1447,7 @@ export class ActShow {
     return n;
   }
   private killFoe(f: Foe, from: THREE.Vector3) {
+    if (this.flats.has(f)) { f.a.body.rotation.x = 0; f.a.body.position.y = 0; this.flats.delete(f); }   // (11-18 踏顶: up off his face before he falls)
     if (f.elite) this.eliteKills++; if (isBoss(f)) this.bossKilled = true;
     // 11-18: the kill holds the blow a little longer (feel()); the cry and the gush now, the body on the ground a moment later
     this.killBeat = true; after(0.32, () => cue('bodyFall', 0.7));
@@ -1304,7 +1456,9 @@ export class ActShow {
     this.leaves?.blast(f.pos.x, f.pos.z, 1.3, 2.5);
     this.kills++;
     const boss = isBoss(f), elite = !!f.elite;
-    void playDeath(f.a, { from, ratio: f.lastDmg / f.maxHp + (boss ? 0.5 : 0), boss }).then(() => { f.a.dispose(); });
+    // (11-18: killed up in the air — 断云 — the body falls the rest of the way first; death.ts topples from where the root stands)
+    if (f.pos.y > 0.05) { this.drops.push({ f, from: from.clone(), boss, vy: Math.min(0, f.airV ?? 0) }); f.airV = undefined; }
+    else void playDeath(f.a, { from, ratio: f.lastDmg / f.maxHp + (boss ? 0.5 : 0), boss }).then(() => { f.a.dispose(); });
     // copper coins: a few square-holed coins bounce out and fly to the hero (worth the foe's gold; elites ×3, the boss more)
     if (this.room >= 0 && f.kind !== 'dummy') { const total = boss ? 60 : f.d.gold * (elite ? 3 : 1), n = Math.min(10, total); this.coinsFx.drop(f.pos.clone(), n, Math.max(1, Math.round(total / n))); }
     if (tierOf(this.perks, 'drink') >= 0 && this.hero.alive) { this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + v(this.perks, 'drink')); this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp }); }
@@ -1506,6 +1660,7 @@ export class ActShow {
       }
     }
     for (const f of this.foes) { if (!this.ultOn) updateFoe(f, fw, dt); f.a.update(dt); }
+    this.reelStep(dt); this.flatStep(dt); this.dropStep(dt);   // 11-18 牵红's cord, 踏顶's flattened, the dead coming down out of the air
     this.separate();   // act-37: bodies don't pass through each other
     for (let i = this.foes.length - 1; i >= 0; i--) if (this.foes[i].st === 'dead' && !this.foes[i].a.root.parent) this.foes.splice(i, 1);
     for (const a of this.arrows) a.update(dt, fw);
@@ -1628,8 +1783,10 @@ export class ActShow {
     if (h.exhaled) { h.exhaled = false; const at = h.a.head().add(h.a.fwd().multiplyScalar(0.25)); fxSmoke(at, 0xe6eef2, 12, { r: 0.12, spd: 1.7, up: 0.6, s: 0.24, life: 0.8 }); fxRing(h.pos.clone().setY(0.06), 0xb8a888, 0.9, { life: 0.3 } as never); }
     // the move links open right now, shown on the buttons (act-18): 追影 > 穿风斩 > 下劈 > 反击 on the cut button
     { const fighting = this.phase === 'fight' || this.phase === 'yard', chase = fighting && !!h.moves.chase && !!this.chaseTarget();
-      const atk = this.npcNear && !this.noTalk ? 'talk' : !fighting ? null : chase ? 'chase' : h.canDashCut ? 'dcut' : h.canKeep ? 'keep' : h.canPause ? 'pause' : (h.st === 'air' && h.airborne) ? 'plunge' : h.counterT > 0 ? 'counter' : null;
-      const hints = { attack: atk, special: !fighting ? null : h.canBackDart ? 'back' : h.canCutDart ? 'cdart' : null, jump: !fighting ? null : h.canLaunch ? 'launch' : h.canKick ? 'kick' : h.canDoubleJump ? 'dbl' : null } as const;
+      const atk = this.npcNear && !this.noTalk ? 'talk' : !fighting ? null : chase ? 'chase' : h.canDashCut ? 'dcut' : h.canKeep ? 'keep' : h.canPause ? 'pause' : h.canAirCut ? 'acut' : (h.st === 'air' && h.airborne) ? 'plunge' : h.counterT > 0 ? 'counter' : null;
+      // (11-18 四本新刀谱: 断云 on the cut button, 牵红 on the dart button, 踏顶 on the jump button, 掠地 on the dash button)
+      const hints = { attack: atk, special: !fighting ? null : h.canBackDart ? 'back' : h.canReel ? 'reel' : h.canCutDart ? 'cdart' : null, jump: !fighting ? null : h.canLaunch ? 'launch' : h.canKick ? 'kick' : h.canStomp ? 'stomp' : h.canDoubleJump ? 'dbl' : null,
+        dash: fighting && h.canSwoop ? 'swoop' : null } as const;
       this.hud.setHints(hints); this.teach(hints); }
     this.hud.heroAt.copy(h.pos);
     this.hud.update(rdt, this.inp, this.foes); this.cards.update(rdt); this.banner.update(rdt);
@@ -1719,7 +1876,14 @@ export class ActShow {
     const low = live.some(f => f.st === 'windup' && f.t / f.dur > 0.7 && lowAttack(f) /* wp/foes */ && f.pos.distanceTo(h.pos) < 6);
     if (low && !h.airborne) { set('jump', true); set('attack', false); return; }
     set('jump', false);
-    if (h.airborne) { set('attack', h.vy < 0 && l < 2.5); return; }
+    // 11-18 新刀谱 (smoke tests reach them): up in the air, 踏顶 a head beside her, 断云 the one 挑云 threw, 掠地 at someone a few metres
+    // off on the way down; 挑云 after a cut lands. (牵红 comes by itself: a dart press while one is stuck in someone a way off)
+    if (h.airborne) {
+      if (h.canStomp) { set('jump', true); return; }
+      if (h.canSwoop && !h.canAirCut && h.vy < 0 && l > 2 && l < 4.2) { I.move.x = d.x / l; I.move.y = -d.z / l; set('dash', true); set('attack', false); return; }
+      set('dash', false); set('attack', h.canAirCut || (h.vy < 0 && l < 2.5)); return;
+    }
+    if (h.canLaunch && l < 2.4) { set('jump', true); set('attack', false); return; }
     // in a dash: a cut through if someone is ahead, darts back otherwise
     if (h.st === 'dash') { const ahead = d.clone().normalize().dot(h.a.fwd().setY(0).normalize()) > 0.7 && l < 4; set('attack', ahead); set('special', !ahead); return; }
     // a dart is sticking in someone a way off: follow it

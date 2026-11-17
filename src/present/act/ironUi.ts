@@ -45,8 +45,18 @@ function ol(rows: string[]): string[] {
 }
 /** the move-link hints (act-18 用户：「combo在按钮上要有点动特效提示，不然根本不知道怎么打」): a little pixel picture that pops up at the
  *  button's upper left while the link is open, in the move's colour; the button's plates breathe in that colour too. No words. */
-export type HintKey = 'dcut' | 'back' | 'plunge' | 'dbl' | 'chase' | 'counter' | 'launch' | 'cdart' | 'keep' | 'pause' | 'kick' | 'talk';
+export type HintKey = 'dcut' | 'back' | 'plunge' | 'dbl' | 'chase' | 'counter' | 'launch' | 'cdart' | 'keep' | 'pause' | 'kick' | 'talk' | 'acut' | 'swoop' | 'reel' | 'stomp';
 const HINTS: Record<HintKey, { rows: string[]; col: number }> = {
+  // 11-18 四本新刀谱 (each its own colour, apart from what shares its button and what is on screen with it): 断云 two cuts through a
+  // body up in the air and an arrow down onto the ground (magenta, on the cut button); 掠地 down and along the ground into an arrow
+  // (green, the dash button — its only link; in the air beside 断云 magenta / 劈山 orange-red / 二段跳 blue); 牵红 a loop of cord
+  // running out to a dart (rose, the dart button: 回身镖 amber, 迎面镖 red-orange; 寻声's violet is on the cut button at the same
+  // time); 踏顶 a foot pressing a flattened body into the dust (lime — the only hue left free in the air: violet was too near 寻声's
+  // lavender, which can be up on the cut button at the same moment; the jump button's others are 挑云 yellow, 穿心腿 orange, 二段跳 blue)
+  acut: { col: 0xff5ac8, rows: ['...####...', '#########.', '...####...', '.#########', '...####...', '....##....', '....##....', '..######..', '...####...', '##########'] },
+  swoop: { col: 0x40e090, rows: ['##........', '##........', '##........', '##.....#..', '##.....##.', '##########', '##########', '##.....##.', '.......#..', '..........'] },
+  reel: { col: 0xe8306a, rows: ['..........', '..........', '####....#.', '#..#...###', '#..#######', '#..#...###', '####....#.', '..........', '..........', '..........'] },
+  stomp: { col: 0xb0e040, rows: ['...##.....', '...##.....', '...#####..', '..........', '..######..', '.########.', '..........', '#.#....#.#', '##########', '..........'] },
   // act-19 刀谱 moves (axis-aligned glyphs): 挑空斩 an arrow going up off the ground; 近身三镖 three darts; 游身 a side step into a
   // cut; 变招 nested squares (a spin); 飞踢 a foot shooting out
   launch: { col: 0xffd84a, rows: ['....##....', '...####...', '..######..', '....##....', '....##....', '....##....', '....##....', '##########', '..........', '..........'] },

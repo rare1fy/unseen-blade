@@ -369,6 +369,104 @@ function plungeLand(I: Pose, k: number): Pose {
     aRx: -0.75, aRz: 0.05, fR: -0.1, eR: -1.3, yR: 0, aLx: 0.25, aLz: 0.7, fL: -1.1, eL: 0.4, lift: 0.9, flut: 0.6 };
   return mix(I, A, curve(k, [[0, 1], [0.55, 1], [1, 0]]));
 }
+// ---- 11-18 四本新刀谱 (用户：「我打了半天了还没个新招，一直在给我加数值」). The cuts keep the rhythm of the ground combo (CUT_T): the
+// wind-up eases in, the blow lands in two or three frames, a stop at full reach; the empty hand hangs loose and swings back against
+// the blade (act-42 反馈：「整个挥砍动作太多左手放在前方的形态了」), never held out in front
+/** 断云 (k 0 → 1 over 0.36 s, blows at k ≈ .2 / .47): up beside him in the air, knees drawn up — a flat cut right to left, the
+ *  backhand straight back left to right, then the blade swung high over the right shoulder (吸气) — where 断云's third cut (airDrive)
+ *  takes it from */
+function airCombo(I: Pose, k: number): Pose {
+  const K = (keys: Keys) => S(k, keys);
+  const A: Partial<Pose> = {
+    aRx: K([[0, -0.6], [0.11, -1.25], [0.2, -1.35], [0.3, -1.3], [0.47, -1.4], [0.58, -1.35], [0.85, -2.5], [1, -2.55]]),
+    aRz: K([[0, -0.5], [0.11, -1.15], [0.2, 0.55], [0.3, 0.55], [0.47, -1.0], [0.58, -0.95], [0.85, -0.55], [1, -0.5]]),
+    fR: K([[0, -1.2], [0.11, -1.65], [0.2, -0.45], [0.3, -1.6], [0.47, -0.4], [0.58, -0.45], [0.85, -0.5], [1, -0.55]]),
+    eR: K([[0, 0.5], [0.11, 0.75], [0.2, 0.0], [0.3, 0.7], [0.47, -0.05], [0.58, 0.0], [0.85, 1.9], [1, 2.0]]),
+    yR: K([[0, -0.2], [0.11, -1.5], [0.2, 1.2], [0.3, 1.3], [0.47, -1.35], [0.58, -1.3], [0.85, -0.3], [1, -0.25]]),
+    // the hips lead each cut and the chest follows (cut1 / cut2), the head a beat behind; leaning in over him
+    hy: K([[0, -0.2], [0.09, -0.6], [0.19, 0.25], [0.3, 0.3], [0.45, -0.65], [0.6, -0.55], [1, -0.35]]),
+    sy: K([[0, 0], [0.11, -0.7], [0.21, 0.6], [0.3, 0.65], [0.48, -0.6], [0.6, -0.55], [1, -0.4]]),
+    sx: K([[0, 0.25], [0.2, 0.45], [0.47, 0.45], [0.75, 0.2], [1, 0.15]]), nx: K([[0, -0.2], [0.2, -0.4], [0.47, -0.4], [1, -0.1]]),
+    ny: K([[0, 0], [0.12, 0.4], [0.26, -0.3], [0.52, 0.3], [1, 0.1]]),
+    // the empty hand flung back against each cut, a beat late; out to the side as the blade goes up
+    aLx: K([[0, 0.1], [0.14, -0.2], [0.26, 0.6], [0.35, 0.4], [0.52, 0.65], [0.7, 0.35], [1, 0.25]]),
+    aLz: K([[0, 0.3], [0.26, 0.6], [0.52, 0.75], [1, 0.6]]),
+    fL: K([[0, -0.6], [0.14, -0.85], [0.26, -0.5], [0.52, -0.45], [1, -0.6]]), eL: 0.1,
+    // knees drawn up under her (a tuck held through the flurry), the right leg a little lower
+    tL: K([[0, -1.1], [0.3, -1.35], [1, -1.5]]), kL: K([[0, 1.6], [0.3, 1.9], [1, 2.1]]),
+    tR: K([[0, -0.4], [0.3, -0.75], [1, -1.0]]), kR: K([[0, 1.4], [0.3, 1.6], [1, 1.9]]),
+    pL: 0.1, pR: -0.1, lift: 1.4, flut: 1,
+  };
+  return mix(I, A, curve(k, [[0, 0.5], [0.06, 1], [1, 1]]));
+}
+/** 断云's third cut (k 0 → 1: held up there to `hang`, then the fall): from the blade raised overhead, the big cut down across his
+ *  body — both hands' weight in it — and the legs reach down for the ground; the empty hand thrown out behind */
+function airDrive(I: Pose, k: number, hang: number): Pose {
+  const h = Math.max(0.05, Math.min(0.6, hang)), K = (keys: Keys) => S(k, keys);
+  const A: Partial<Pose> = {
+    aRx: K([[0, -2.55], [h, -2.65], [h + 0.18, -1.1], [1, -0.85]]), aRz: K([[0, -0.5], [h, -0.45], [h + 0.18, 0.5], [1, 0.45]]),
+    fR: K([[0, -0.55], [h, -0.6], [h + 0.18, -0.35], [1, -0.25]]), eR: K([[0, 2.0], [h, 2.1], [h + 0.18, -0.7], [1, -1.1]]),
+    yR: K([[0, -0.25], [h, -0.2], [h + 0.18, 1.0], [1, 0.6]]),
+    hy: K([[0, -0.35], [h, -0.4], [h + 0.2, 0.3], [1, 0.2]]), sy: K([[0, -0.4], [h, -0.45], [h + 0.2, 0.55], [1, 0.4]]),
+    sx: K([[0, 0.15], [h, 0.05], [h + 0.2, 0.6], [1, 0.62]]), nx: K([[0, -0.1], [h, -0.05], [h + 0.2, -0.5], [1, -0.55]]),
+    aLx: K([[0, 0.25], [h, 0.1], [h + 0.25, 0.75], [1, 0.6]]), aLz: K([[0, 0.6], [h + 0.25, 0.85], [1, 0.8]]), fL: -0.5, eL: 0.1,
+    tL: K([[0, -1.5], [h, -1.5], [h + 0.3, -0.6], [1, -0.45]]), kL: K([[0, 2.1], [h, 2.1], [h + 0.3, 0.7], [1, 0.5]]),
+    tR: K([[0, -1.0], [h, -1.0], [h + 0.3, 0.1], [1, 0.2]]), kR: K([[0, 1.9], [h, 1.9], [h + 0.3, 0.7], [1, 0.6]]),
+    pL: 0.1, pR: -0.1, lift: 1.4, flut: 1,
+  };
+  return mix(I, A, 1);
+}
+/** 掠地 (k 0 → 1 over 0.44 s; the dive to k ≈ .34, the cut as she lands): pitched head-first down at the ground, the blade drawn back low
+ *  on the right; touching down the whole body drives through a low cut right to left and on into a deep lunge facing the way she went,
+ *  the blade swept out behind on the left; then up */
+function swoopPose(I: Pose, k: number): Pose {
+  const K = (keys: Keys) => S(k, keys);
+  const A: Partial<Pose> = {
+    sx: K([[0, 0.5], [0.12, 0.8], [0.34, 0.75], [0.46, 0.6], [0.7, 0.55], [1, 0.3]]), nx: K([[0, -0.4], [0.34, -0.55], [0.5, -0.5], [1, -0.2]]),
+    hy: K([[0, -0.4], [0.3, -0.55], [0.4, 0.35], [0.7, 0.3], [1, -0.2]]), sy: K([[0, -0.5], [0.3, -0.7], [0.42, 0.65], [0.7, 0.6], [1, 0.1]]),
+    aRx: K([[0, 0.3], [0.3, 0.55], [0.38, -1.0], [0.46, -1.3], [0.7, -1.2], [1, -0.6]]), aRz: K([[0, -0.6], [0.3, -0.75], [0.38, -0.2], [0.46, 0.6], [0.7, 0.55], [1, -0.3]]),
+    fR: K([[0, -0.3], [0.3, -0.25], [0.46, -0.3], [0.7, -0.35], [1, -1.0]]), eR: K([[0, -0.3], [0.3, -0.4], [0.46, -0.25], [0.7, -0.2], [1, 0.4]]),
+    yR: K([[0, -2.0], [0.3, -2.3], [0.38, -0.6], [0.46, 1.45], [0.7, 1.4], [1, 0.0]]),
+    // the empty hand trails back in the dive, then is flung out behind as the blade comes through
+    aLx: K([[0, 0.5], [0.3, 0.6], [0.46, 0.75], [0.7, 0.6], [1, 0.1]]), aLz: K([[0, 0.35], [0.3, 0.4], [0.46, 0.8], [0.7, 0.6], [1, 0.2]]), fL: K([[0, -0.7], [0.46, -0.45], [1, -0.4]]), eL: 0.1,
+    tL: K([[0, -0.9], [0.3, -0.6], [0.4, -1.25], [0.7, -1.2], [1, -0.6]]), kL: K([[0, 1.3], [0.3, 0.6], [0.4, 1.45], [0.7, 1.35], [1, 0.8]]),
+    tR: K([[0, 0.5], [0.3, 0.8], [0.4, 0.95], [0.7, 0.9], [1, 0.4]]), kR: K([[0, 1.2], [0.3, 0.4], [0.4, 0.3], [0.7, 0.35], [1, 0.6]]),
+    lift: 1.5, flut: 1,
+  };
+  return mix(I, A, curve(k, [[0, 0.6], [0.08, 1], [0.8, 1], [1, 0]]));
+}
+/** 牵红 (k 0 → 1): the left hand jerks the cord — out in front where the dart flew, then hauled back hard past the hip with the chest
+ *  turning after it and the weight thrown onto the back foot; the blade held low and ready at the right side for the one coming in.
+ *  self (a big one she cannot move): the cord pulls her — leaning far in, the left arm out ahead along it, the feet trailing */
+function reelPose(I: Pose, k: number, self: boolean): Pose {
+  const K = (keys: Keys) => S(k, keys);
+  const A: Partial<Pose> = self ? {
+    sx: K([[0, 0.3], [0.2, 0.7], [0.85, 0.65], [1, 0.4]]), nx: -0.45, hy: 0.15, sy: 0.25,
+    aLx: K([[0, -1.3], [0.2, -1.55], [0.85, -1.45], [1, -0.6]]), aLz: 0.15, fL: K([[0, -0.4], [0.2, -0.2], [1, -0.5]]), eL: 0,
+    aRx: 0.55, aRz: -0.6, fR: -0.35, eR: -0.35, yR: -2.0,
+    tL: -0.9, kL: 0.6, tR: 0.85, kR: 0.95, lift: 1.4, flut: 1,
+  } : {
+    sx: K([[0, 0.15], [0.3, -0.12], [0.6, 0.0], [1, 0.2]]), nx: K([[0, -0.15], [0.3, 0.0], [1, -0.1]]),
+    hy: K([[0, 0.1], [0.3, -0.35], [1, -0.25]]), sy: K([[0, 0.25], [0.3, -0.45], [0.6, -0.35], [1, -0.1]]),
+    aLx: K([[0, -1.35], [0.12, -1.45], [0.32, 0.75], [0.6, 0.55], [1, 0.1]]), aLz: K([[0, 0.05], [0.32, 0.4], [1, 0.2]]),
+    fL: K([[0, -0.35], [0.12, -0.25], [0.32, -1.45], [0.6, -1.1], [1, -0.4]]), eL: 0.15,
+    aRx: K([[0, -0.4], [0.32, -0.75], [1, -0.65]]), aRz: K([[0, -0.4], [0.32, -0.75], [1, -0.6]]), fR: K([[0, -1.1], [0.32, -1.35], [1, -1.2]]), eR: K([[0, 0.5], [0.32, 0.8], [1, 0.7]]), yR: K([[0, -0.3], [0.32, -0.9], [1, -0.7]]),
+    tL: K([[0, -0.5], [0.32, -0.75], [1, -0.6]]), kL: K([[0, 0.55], [0.32, 0.5], [1, 0.6]]), tR: K([[0, 0.35], [0.32, 0.6], [1, 0.45]]), kR: K([[0, 0.5], [0.32, 0.85], [1, 0.65]]),
+    lift: 0.9, flut: 0.7,
+  };
+  return mix(I, A, curve(k, [[0, 0.7], [0.08, 1], [0.85, 1], [1, 0.6]]));
+}
+/** 踏顶 (k 0 → 1 over 0.18 s, the foot on his head at k ≈ .55): the right foot reaches down onto his head, the left knee drawn up;
+ *  then she sinks on it — knees deep, arms swung down and back to throw herself up again (the kick-off itself is the jump's push) */
+function stompPose(I: Pose, k: number): Pose {
+  const K = (keys: Keys) => S(k, keys);
+  return mix(I, {
+    tL: K([[0, -1.2], [0.55, -1.0], [1, -1.3]]), kL: K([[0, 1.7], [0.55, 1.4], [1, 2.0]]), tR: K([[0, -0.6], [0.55, -0.2], [1, -1.1]]), kR: K([[0, 0.5], [0.55, 0.35], [1, 1.9]]),
+    pL: 0.12, pR: -0.12, sx: K([[0, 0.25], [0.55, 0.15], [1, 0.62]]), nx: K([[0, -0.4], [0.55, -0.45], [1, -0.15]]),
+    aLx: K([[0, -0.5], [0.55, -0.6], [1, 0.7]]), aLz: K([[0, 0.8], [0.55, 0.9], [1, 0.4]]), fL: -0.6, eL: 0.1, aRx: K([[0, 0.25], [0.55, 0.2], [1, 0.75]]), aRz: K([[0, -0.9], [0.55, -1.0], [1, -0.5]]), fR: -0.45, eR: -0.2, yR: -1.9,
+    lift: 1.4, flut: 1,
+  }, 1);
+}
 /** 11-18 3C poses: the guard after a fight, a braking step (weight back, the front foot out), a skid (lower, leaning hard back) */
 const READY: Partial<Pose> = { sx: 0.2, tL: -0.4, kL: 0.55, tR: 0.3, kR: 0.5, nx: -0.08 };
 const BRAKE: Partial<Pose> = { sx: -0.14, tL: -0.6, kL: 0.35, tR: 0.35, kR: 0.7, aLx: -0.45, aLz: 0.6, aRz: -0.65 };
@@ -425,6 +523,8 @@ const SWING: Record<string, Array<[number, number, number, number]>> = {
   k1: [[0.28, 0.54, 0xbcd0ff, 0.11]], k2: [[0.26, 0.52, 0xd8e4ff, 0.12]], k3: [[0.24, 0.74, 0xc8e0ff, 0.12]],
   k4: [[0.25, 0.31, 0xe8f0ff, 0.07], [0.51, 0.57, 0xe8f0ff, 0.08]], k5: [[0.42, 0.57, 0xff5a3a, 0.16]],
   rel: [[0.14, 0.46, 0xfff0c8, 0.2]], plunge: [[0.6, 1.01, 0xffe0a0, 0.16]],
+  // 11-18 断云's three cuts in the air, 掠地's cut through on touching down
+  acut: [[0.11, 0.22, 0xffc8dc, 0.11], [0.3, 0.49, 0xffd8e6, 0.12]], acutF: [[0.33, 0.72, 0xffb0c8, 0.16]], swoop: [[0.34, 0.5, 0xe0ffd0, 0.15]],
 };
 function trails(self: BActor, a: Action | null, m: Motion | undefined) {
   let M = mem.get(self); if (!M) { M = { tip: null, tipL: null, k: 0, name: '', ph: 0, air: 0 }; mem.set(self, M); }
@@ -489,6 +589,11 @@ const heroHook = (b: Record<string, Bone>, t: number, a: Action | null, off: THR
     else if (a.name === 'cast') P = cast(P, k);
     else if (a.name === 'plunge') P = plunge(P, k);
     else if (a.name === 'plungeL') P = plungeLand(P, k);
+    else if (a.name === 'acut') P = airCombo(P, k);
+    else if (a.name === 'acutF') P = airDrive(P, k, a.data.hang as number);
+    else if (a.name === 'swoop') P = swoopPose(P, k);
+    else if (a.name === 'reel') P = reelPose(P, k, !!a.data.self);
+    else if (a.name === 'stomp') P = stompPose(P, k);
     else if (a.name === 'hurt') P = hurt(P, k, a.data.power as number, off);
   }
   if (m) off.y += m.air;
