@@ -286,6 +286,14 @@ export class ActShow {
       spawn: (kind: EKind, x = 0, z = -2, elite = false) => { const f = spawnFoe(kind, V3(x, 0, z), this.hero.pos.clone(), elite); /* wp/foes: elite into spawnFoe */ f.st = 'move'; this.foes.push(f); return f.uid; },
       arrow: (d = 6) => { const h = this.hero, f = h.a.fwd(), p = h.pos.clone().addScaledVector(f, d).setY(1.25); this.arrows.push(new Arrow(p, Math.atan2(-f.x, -f.z), 8)); },
       // captures: every costume in a row facing the camera (the hero hidden), or gone again
+      // any models by id (foes, the hideout's people…) standing in a row facing the camera (captures of model work); [] clears
+      models: (ids: string[], z = 1.0, gap = 1.6, yaw = 0, x0?: number) => {
+        for (const a of this.lineupActors) a.dispose(); this.lineupActors = [];
+        const list = ids.map(id => ROSTER.find(d => d.id === id)).filter((d): d is ModelDef => !!d);
+        list.forEach((d, i) => { const a = new BattleActor(d); const x = (x0 ?? -(list.length - 1) / 2 * gap) + i * gap; a.place(V3(x, 0, z), yaw); a.yaw = yaw; this.lineupActors.push(a); });
+        if (this.hero && list.length) this.hero.pos.set(0, 0, -6);
+        return list.map(d => d.id);
+      },
       lineup: (on = true, z = 2.4, gap = 1.5, act = '', ids: string[] | null = null) => {
         for (const a of this.lineupActors) a.dispose(); this.lineupActors = [];
         if (this.hero && on) this.hero.pos.set(0, 0, -3.5);
