@@ -4,7 +4,7 @@
 // 这里只放演出的镜头（timeline 只交代事和氛围，台词走立绘对话，show.ts 在镜头之间插 talk()）。全是中远景，没有特写。
 import * as THREE from 'three';
 import { V3 } from '../engine/world';
-import { Action } from '../actors/rig';
+import { Action, resetPose, rot } from '../actors/rig';
 import { fxRing, fxSparks, fxImpact, fxGlow, fxSmoke } from '../fx/fx';
 import { fxBolt } from '../fx/skillFx';
 import { shake, slowmo } from '../engine/clock';
@@ -37,19 +37,89 @@ export function lieDown(a: BattleActor, k: number) {
  *  stride (ph = the donkey's walk phase). (x, y, z) is the top of its back, yaw its heading */
 let HIP_H = -1;
 export function drapeOver(a: BattleActor, x: number, y: number, z: number, yaw: number, ph: number) {
-  const b = a.bones;
-  if (HIP_H < 0 && b.hips) { a.body.rotation.set(0, 0, 0); a.body.position.set(0, 0, 0); a.root.updateMatrixWorld(true); const hp = new THREE.Vector3(); b.hips.getWorldPosition(hp); HIP_H = Math.max(0.4, hp.y - a.root.position.y); }
+  // (act-44 用户：「人还是没有被驮着，纯是头顶地面，腰部没有弯曲挂在骡子背上」: measured on the heroine's rig — the hips 0.75 m up;
+  //  a positive spine angle bends forward, a positive thigh angle swings the leg BACK (so the legs hang with a negative one; the last
+  //  version had them backward and stood her on her head); every bone starts from its rest pose so nothing of the fall is left in)
+  const b = a.bones; resetPose(b);
+  if (b.weapon) b.weapon.visible = false;   // (杜五 has her sabre: 「在火堆边烤着呢」 — she gets it back at the end of the wake)
+  if (HIP_H < 0 && b.hips) { a.body.rotation.set(0, 0, 0); a.body.position.set(0, 0, 0); a.root.position.set(0, 0, 0); a.root.rotation.set(0, 0, 0); a.root.updateMatrixWorld(true); const hp = new THREE.Vector3(); b.hips.getWorldPosition(hp); HIP_H = Math.max(0.4, hp.y); }
   const sw = Math.sin(ph), sw2 = Math.sin(ph * 2 + 0.6);
-  a.root.position.set(x, y + Math.abs(sw) * 0.025, z); a.root.rotation.set(0, yaw + Math.PI / 2, 0);
-  // face down (her head toward the root's +z = across the donkey), the hips on the root, a hand's breadth above the back
-  a.body.rotation.set(Math.PI / 2, 0, 0.05 * sw); a.body.position.set(0, 0.13, -(HIP_H > 0 ? HIP_H : 0.9));
-  const R = (n: string, rx: number, ry = 0, rz = 0) => { const o = b[n]; if (o) o.rotation.set(rx, ry, rz); };
-  // the trunk folds down over its side; the head hangs; the arms hang past the head toward the ground and swing
-  R('spine', 1.05 + 0.04 * sw2); R('chest', 0.4); R('neck', 0.25); R('head', 0.35, 0.15 * sw);
-  R('armL', -2.55 + 0.12 * sw, 0, 0.18); R('foreL', -0.25); R('armR', -2.55 - 0.12 * sw, 0, -0.18); R('foreR', -0.3);
-  // the legs hang down the other side, knees a little bent, swinging out of step with the arms
-  // (the hero's rig flexes the thigh forward with a positive angle — the other way from the 寒山坞 cast's)
-  R('legL', 1.3 + 0.08 * sw2, 0, 0.06); R('shinL', -0.3); R('footL', -0.2); R('legR', 1.3 - 0.08 * sw2, 0, -0.06); R('shinR', -0.35); R('footR', -0.2);
+  a.root.position.set(x, y + Math.abs(sw) * 0.02, z); a.root.rotation.set(0, yaw + Math.PI / 2, 0);
+  // face down across the back (head toward the root's +z), the hips on the root a hand above the back
+  a.body.rotation.set(Math.PI / 2, 0, 0.04 * sw); a.body.position.set(0, 0.13, -HIP_H);
+  // the trunk folds down over the far side, the head hangs; the arms hang on past the head toward the ground, swinging
+  rot(b.spine, 1.0 + 0.04 * sw2); rot(b.chest, 0.45); rot(b.neck, 0.2); rot(b.head, 0.3, 0.12 * sw);
+  rot(b.armL, -2.7 + 0.1 * sw, 0, 0.12); rot(b.foreL, -0.25); rot(b.armR, -2.7 - 0.1 * sw, 0, -0.12); rot(b.foreR, -0.3);
+  // the legs hang down the near side, the knees a little bent, out of step with the arms
+  rot(b.legL, -1.35 + 0.06 * sw2, 0, 0.05); rot(b.shinL, 0.35); rot(b.footL, 0.25); rot(b.legR, -1.35 - 0.06 * sw2, 0, -0.05); rot(b.shinR, 0.4); rot(b.footR, 0.25);
+  // the ponytail's knot and the blindfold's knot hang a hand off the ground: the tails lie out along the ground, away from the donkey's
+  // flank, the two blindfold tails a little apart, trailing a touch behind with the step
+  a.root.updateMatrixWorld(true); const hd = new THREE.Vector3(); (b.head ?? b.hips)!.getWorldPosition(hd);
+  const out = V3(hd.x - x, 0, hd.z - z); if (out.lengthSq() < 1e-4) out.set(Math.cos(yaw), 0, -Math.sin(yaw)); out.normalize();
+  const fw = V3(Math.sin(yaw), 0, Math.cos(yaw));
+  hangChains(a, (n) => out.clone().add(fw.clone().multiplyScalar((n.startsWith('bfA') ? 0.45 : n.startsWith('bfB') ? -0.45 : 0) - 0.25 + 0.1 * sw)).setY(-0.12));
+}
+
+/** act-44 (用户：「躺着那个更扯，头都插进墙了，起来的时候直接以足底为圆心旋转」): lying on her back (k = 0) and getting up (k → 1)
+ *  with the hips as the pivot — up on her elbows, sitting with the legs out along the ground, rocking forward onto her feet into a
+ *  squat, standing. The root is where her hips are (her head toward the root's −z, her feet +z); the feet stay put from the squat
+ *  on, so she ends standing `GETUP_STEP` m ahead of the root (the caller moves her there and clears the body offset). */
+export const GETUP_STEP = 0.45;
+/** her hips' height lying and sitting on 孙媪's mat (the mat is one 7 cm cell of straw; the pelvis rests on it) */
+const MAT_HIP = 0.18, MAT_TOP = 0.07;
+export function getUpPose(a: BattleActor, k: number) {
+  const b = a.bones; resetPose(b);
+  if (b.weapon) b.weapon.visible = false;
+  if (HIP_H < 0 && b.hips) { const r = a.root.position.clone(), ry = a.root.rotation.y; a.body.rotation.set(0, 0, 0); a.body.position.set(0, 0, 0); a.root.position.set(0, 0, 0); a.root.rotation.set(0, 0, 0); a.root.updateMatrixWorld(true); const hp = new THREE.Vector3(); b.hips.getWorldPosition(hp); HIP_H = Math.max(0.4, hp.y); a.root.position.copy(r); a.root.rotation.y = ry; }
+  const H = HIP_H > 0 ? HIP_H : 0.75, sm = (x: number) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x)), seg = (a0: number, a1: number) => sm((k - a0) / (a1 - a0));
+  // 1 on her back → up on her elbows → 2 sitting, legs out → 3a the knees drawn up (the feet slide back) → 3b rocking forward over the
+  // feet into a squat → 4 standing up on them
+  const u1 = seg(0, 0.2), u2 = seg(0.2, 0.45), u3a = seg(0.45, 0.58), u3 = seg(0.58, 0.74), u4 = seg(0.74, 1);
+  const T = b.shinL ? b.shinL.position.length() : 0.35, S = b.footL ? b.footL.position.length() : 0.28, ANK = H - T - S;
+  // the trunk's tilt about the hips (−π/2 = flat; lying, the shoulders a little up — her neck on the mat's wooden headrest)
+  const th = -Math.PI / 2 + 0.12 + 0.45 * u1 + (Math.PI / 2 - 0.57) * u2;
+  const SQ = 0.225, hy = MAT_HIP + (0.31 - MAT_HIP) * u3 + (H - 0.31) * u4, hz = SQ * u3 + (GETUP_STEP - SQ) * u4;
+  a.body.rotation.set(th, 0, 0); a.body.position.set(0, hy - H * Math.cos(th), hz - H * Math.sin(th));
+  // the legs: flat along the mat while she lies and sits up (against the trunk's tilt, the knees easing up a little); from sitting
+  // on, two-bone IK on an ankle spot — slid back as the knees come up, then nailed GETUP_STEP ahead while she rocks over her feet
+  // and stands (the soles flat, never sliding; on the straw, sinking into it as her weight comes on)
+  let thigh: number, shin: number, foot: number;
+  if (k < 0.45) { thigh = -(th + Math.PI / 2) - 0.25 * u2; shin = 0.62 * u2; foot = 0; }
+  else {
+    const az = 0.6 - (0.6 - GETUP_STEP) * u3a, ay = ANK + MAT_TOP * (1 - u4);
+    const dz = az - hz, dy = ay - hy, L = Math.min(T + S - 1e-4, Math.hypot(dz, dy));
+    const al = Math.acos(Math.max(-1, Math.min(1, (T * T + L * L - S * S) / (2 * T * L)))), be = Math.atan2(dz, -dy);
+    thigh = -(be + al); shin = Math.PI - Math.acos(Math.max(-1, Math.min(1, (T * T + S * S - L * L) / (2 * T * S)))); foot = -(thigh + shin) * Math.max(u3a, u3);
+  }
+  const spread = 0.05 * (1 - u4);
+  rot(b.legL, thigh, 0, spread); rot(b.legR, thigh, 0, -spread); rot(b.shinL, shin); rot(b.shinR, shin); rot(b.footL, foot); rot(b.footR, foot);
+  // the trunk and head: the head rolled aside on the headrest while she lies, chin up on the elbows, a lean forward to rise
+  rot(b.spine, 0.2 * u2 * (1 - u3) + 0.55 * u3 * (1 - u4)); rot(b.chest, 0.1 * u3 * (1 - u4));
+  rot(b.head, -0.15 * u1 * (1 - u2), 0.4 * (1 - u1), 0.1 * (1 - u1));
+  // the arms: limp at her sides; back as props on the elbows; hands down beside the hips sitting; reaching forward to rise
+  const prop = u1 * (1 - u2), sit = u2 * (1 - u3), rise = u3 * (1 - u4);
+  for (const [arm, fore, sx] of [[b.armL, b.foreL, 1], [b.armR, b.foreR, -1]] as const) {
+    rot(arm, 0.75 * prop + 0.35 * sit - 0.7 * rise, 0, sx * (0.18 * (1 - u1) + 0.12 * sit));
+    rot(fore, -1.3 * prop - 0.15 * sit - 0.5 * rise);
+  }
+  // the ponytail and the blindfold's tails: fanned out sideways on the mat by her head while she lies (not out past the mat's end),
+  // falling back down her back as she sits up
+  const up = 1 - u2; if (up > 0) hangChains(a, (n) => V3(n.startsWith('bfA') ? -1 : 1, -0.08 - 0.9 * u1, n.startsWith('hr') ? -0.15 : -0.5), up);
+}
+
+/** act-44: the ponytail (hrA…) and the blindfold's tails (bfA…, bfB…) turned so each chain's line points along dir(name) in the
+ *  world (gravity, or spread on a mat) — they are stiff chains hung off the head, so with the head upside down they'd stand up;
+ *  w < 1 = only part of the way */
+const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _p0 = new THREE.Vector3(), _p1 = new THREE.Vector3(), _id = new THREE.Quaternion();
+export function hangChains(a: BattleActor, dir: (name: string) => THREE.Vector3, w = 1) {
+  a.root.updateMatrixWorld(true);
+  for (const [name, b] of Object.entries(a.bones)) {
+    if (!b || !b.parent || !/^(hr|bf)[A-Z]1$/.test(name)) continue;
+    const base = name.slice(0, -1), end = a.bones[base + '3'] ?? a.bones[base + '2']; if (!end) continue;
+    b.getWorldPosition(_p0); end.getWorldPosition(_p1); const cur = _p1.sub(_p0); if (cur.lengthSq() < 1e-6) continue;
+    _q.setFromUnitVectors(cur.normalize(), dir(name).normalize()); if (w < 1) _q.slerp(_id, 1 - w);
+    b.getWorldQuaternion(_q2); _q.multiply(_q2); b.parent.getWorldQuaternion(_q2); b.quaternion.copy(_q2.invert().multiply(_q)); b.updateMatrixWorld(true);
+  }
 }
 
 /** act-37 (用户：「人物的动作也很僵硬，也有很多穿模的问题」): a cutscene camera stays over the yard — inside the walls left, right and

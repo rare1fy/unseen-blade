@@ -37,7 +37,7 @@ import { rackBlades, hideoutScene, HIDEOUT, HIDEOUT_PEOPLE } from './hideout';
 import { Timeline } from './timeline';
 import { openingShots, bossIntroShots, type CineHost } from './cutscenes';
 import { NPC_TALK, STELE_TALK, MEAL_TALK, UP_TALK, POOR_TALK, WAKE_DUWU, WAKE_SUNAO, CHULEI_BEFORE, CHULEI_AFTER, deathLine, PRO_CHULEI, PRO_FALL, PRO_DAWN, PRO_WAKE, PRO_CAPTIONS } from './scripts';
-import { fallShots, snowShots, dawnShots, loadShots, lieDown, brazier, type PrologueHost } from './prologue';
+import { fallShots, snowShots, dawnShots, loadShots, lieDown, brazier, getUpPose, drapeOver, GETUP_STEP, type PrologueHost } from './prologue';
 import { coldOpenShots, coldCardShots, BlindPOV } from './coldopen';
 import { Barks } from './barks';
 /** act-40 (用户：「现在开场太墨迹了，把那段timeline先搞成黑幕快速交代背景吧」): the cold open as black cards for now (false = the 寒山坞 cutscene) */
@@ -154,6 +154,8 @@ interface RoomIn { isYard: boolean; room: number; recent: Spec[]; locale: string
 /** a room's place, built (off the live scene) and ready to put up */
 interface Room { spec: Spec; big: boolean; layout: Layout; arena: ArenaPlan | null; report: Report | null; prep: PreparedStage }
 /** the prologue's first room (act-29) and its one way on */
+/** act-44: where her hips lie on 孙媪's mat when she first wakes (the mat runs along z; her head toward the wall, a metre clear) */
+const WAKE_MAT: [number, number] = [6.42, -6.2];   // (her neck on the headrest at the wall end, her heels short of the folded quilt)
 const PRO_ROOM = { locale: 'hj_village', waves: [['hj_mob', 'hj_mob'], ['hj_blade', 'hj_mob', 'hj_mob']] as EKind[][], spec: { season: 'winter', weather: 'snow', time: 'night' } as Partial<Spec> };
 const PRO_BOSS: RoomPlan = { type: 'boss', locale: 'hj_temple', reward: null, waves: [['hj_boss']] };
 /** act-37 the cold open's place: 寒山坞 on that snowy night (its own layout and light) */
@@ -319,17 +321,30 @@ export class ActShow {
     await this.cine(loadShots(this.proHost, who));
     for (const a of this.proPeople) a.dispose(); this.proPeople = [];
     this.prologue = 0; this.forceSpec = null;
+    let wakeK: (k: number) => void = () => {};
     // (act-40 用户：「被救回去应该是先趟垫子上的啊，怎么是站着的」: she wakes lying on 孙媪's mat, and gets up at the line where she
     //  pushes herself up the wall; the kiln's own music for the scene — the hideout's comes after)
     await new Promise<void>(res => { void wipeTransit(() => {
       this.enterYard(); this.musicHold = 'bgm_kiln'; void audio.playMusic('bgm_kiln', 1.2);
-      const h = this.hero; h.pos.set(HIDEOUT.spawn[0], 0, HIDEOUT.spawn[1]); h.a.yaw = -Math.PI / 2; lieDown(h.a, 1); res();
+      // (act-44 用户：「躺着那个更扯，头都插进墙了，起来的时候直接以足底为圆心旋转」: on her back along the mat, her hips at its middle and
+      //  her head toward the wall with a metre to spare; getting up pivots on the hips — getUpPose)
+      const h = this.hero; h.pos.set(WAKE_MAT[0], 0, WAKE_MAT[1]); h.a.yaw = 0; let gk = 0; h.scriptPose = () => getUpPose(h.a, gk);
+      // (the battle camera looks down the mat from her feet — lying and standing look the same from there; this scene is seen from
+      //  the side, low, the mat across the middle of the screen between the two portraits)
+      this.camOverride = { base: V3(3.7, 2.5, -3.9), look: V3(6.55, 0.45, -6.1), fov: 40 }; shot('act', () => this.camPose(), { cut: true, speed: 8 }); res();
+      wakeK = (k: number) => { gk = k; };
     }); });
     await new Promise(r => after(0.8, () => r(null)));
     seeOnce('wake1'); let up = false;
-    const getUp = () => { if (up) return; up = true; let k = 1; const step = () => { k = Math.max(0, k - 1 / 36); lieDown(this.hero.a, k); if (k > 0) after(1 / 36, step); }; step(); };
+    const getUp = () => { if (up) return; up = true; const h = this.hero; let k = 0; const step = () => { k = Math.min(1, k + 1 / (30 * 3.2)); wakeK(k);
+      if (k < 1) { after(1 / 30, step); return; }
+      // standing: the body offset goes into her position (she has stepped forward onto her feet), the cutscene pose lets go
+      h.pos.x += Math.sin(h.a.yaw) * GETUP_STEP; h.pos.z += Math.cos(h.a.yaw) * GETUP_STEP; h.a.root.position.copy(h.pos); h.a.body.position.set(0, 0, 0); h.a.body.rotation.set(0, 0, 0); h.scriptPose = null; };
+      step(); };
     await this.talk(PRO_WAKE, (_i, l) => { if (l.who === 'act' && /撑起|站起|起身/.test(l.text)) getUp(); });
     getUp(); this.musicHold = null; this.music(); saveProfile();
+    { const w = this.hero.a.bones.weapon; if (w) w.visible = true; }   // 孙媪：「把刀给她吧」
+    this.camOverride = null;   // (the battle camera eases back in)
   }
   /** the run's haul goes home (meta.ts bank: currencies, runs / wins / deaths), saved */
   private lastWon = false;
@@ -462,6 +477,29 @@ export class ActShow {
       skin: (id: SkinId) => this.cycleSkin(id),
       cardsDemo: () => { void this.cards.open([BOONS[0], BOONS[6], BOONS[12]].map((boon, tier) => ({ boon, tier }))); },
       /** captures: these boons as a pick, tiers 0 / 1 / 2 in turn */ cardsOf: (ids: string[]) => { void this.cards.open(ids.map((id, i) => ({ boon: BOONS.find(b => b.id === id) ?? BOONS[0], tier: i % 3 }))); },
+      /** act-44 animation lab (用户：「你动画做精细点可以吗」): a stand-alone heroine / donkey / 杜五 on the current stage for close checks —
+       *  labSpawn() puts them at (x, z), lab() returns them for posing from the console / captures, labTick(fn) runs fn(dt, t) every frame */
+      labSpawn: (x = 0, z = 1.5, bare = false) => {
+        for (const a of this.labActs) a.dispose(); this.labActs = [];
+        const mk = (def: ConstructorParameters<typeof BattleActor>[0], dx: number, yaw: number) => { const a = new BattleActor(def); a.place(V3(x + dx, 0, z), yaw); a.yaw = yaw; this.stage?.root.add(a.root); a.update(0.016); this.labActs.push(a); return a; };
+        mk(this.wearing as never, 0, 0); mk(HIDEOUT_DONKEY as never, 2.2, Math.PI / 2); mk(HIDEOUT_PEOPLE.duwu as never, -2.2, 0);
+        this.hero.a.root.visible = false;
+        // bare = a clean test floor: everything else on the stage hidden (not the lights), a plain floor with a half-metre grid
+        if (bare && this.stage) {
+          const keep = new Set<THREE.Object3D>(this.labActs.map(a => a.root));
+          for (const c of this.stage.root.children) { if (keep.has(c)) continue; let lit = false; c.traverse(o => { if ((o as THREE.Light).isLight) lit = true; }); if (!lit) c.visible = false; }
+          const fl = new THREE.Mesh(new THREE.PlaneGeometry(30, 30), new THREE.MeshLambertMaterial({ color: 0x9a968c })); fl.rotation.x = -Math.PI / 2; fl.position.set(x, -0.002, z); fl.receiveShadow = true;
+          const gr = new THREE.GridHelper(30, 60, 0x55524c, 0x77736a); gr.position.set(x, 0.001, z); this.stage.root.add(fl, gr);
+        }
+        return this.labActs.length;
+      },
+      lab: () => this.labActs,
+      /** the cutscene poses, for the lab: drape(i, x, y, z, yaw, ph), getUp(i, k) */
+      labPose: { drape: (i: number, x: number, y: number, z: number, yaw: number, ph: number) => drapeOver(this.labActs[i], x, y, z, yaw, ph), getUp: (i: number, k: number) => getUpPose(this.labActs[i], k) },
+      /** world positions of an actor's bones (rounded to cm), to check a pose by numbers */
+      labBones: (i: number) => { const a = this.labActs[i]; if (!a) return null; a.root.updateMatrixWorld(true); const o: Record<string, number[]> = {}, v = new THREE.Vector3();
+        for (const [k, b] of Object.entries(a.bones)) { if (!b) continue; (b as THREE.Object3D).getWorldPosition(v); o[k] = [v.x, v.y, v.z].map(n => Math.round(n * 100) / 100); } return o; },
+      labTick: (fn: ((dt: number, t: number) => void) | null) => { this.labFn = fn; this.labT = 0; },
       /** captures (act-41): any item / card ids as cards (a boon's own card if it is one, else a plain card carrying that item) */ itemCards: (ids: string[]) => { void this.cards.close?.(); void this.cards.open(ids.map((id, i) => ({ boon: BOONS.find(b => b.id === id) ?? ({ id, school: 'ms' as never, name: id, desc: [id, ''], col: '#ffd27a', glyph: BOONS[0].glyph, tag: '' } as Boon), tier: i % 3 }))); },
       boon: (id: string, tier = 0) => applyBoon(this.perks, id, tier), // wp/boons: browser effect checks
       intent: (n = 3) => { this.intent = Math.max(0, Math.min(3, n)); this.hud.intent = this.intent; },
@@ -522,6 +560,8 @@ export class ActShow {
   /** act-19: the music for where we are — the opening, the yard, or the room's kind (a fight, a 死士 room, the 渠帅, a calm room);
    *  the same track carries on across rooms, a different one cross-fades in */
   private musicHold: string | null = null;
+  /** act-44: the animation lab's actors and per-frame hook (debug only) */
+  private labActs: BattleActor[] = []; private labFn: ((dt: number, t: number) => void) | null = null; private labT = 0;
   /** act-40: the foes' shouts over their heads */
   private barks: Barks | null = null;
   music() {
@@ -1456,7 +1496,7 @@ export class ActShow {
       this.timeline.update(rdt); this.dialogue.update(rdt);
       // the bot reads fast: a line every 0.6 s (cutscenes play out)
       if (this.botOn && this.dialogue.on && (this.botTalkT += rdt) > 0.6) { this.botTalkT = 0; this.dialogue.advance(); }
-      if (this.phase === 'talk') { this.hero.a.update(dt); for (const f of this.foes) f.a.update(dt); for (const n of this.npcs) n.a.update(dt); this.leaves?.update(dt, this.cam.x, this.cam.z); this.gates?.update(dt); }
+      if (this.phase === 'talk') { this.hero.a.update(dt); this.hero.scriptPose?.(); for (const f of this.foes) f.a.update(dt); for (const n of this.npcs) n.a.update(dt); this.leaves?.update(dt, this.cam.x, this.cam.z); this.gates?.update(dt); }
       for (const f of this.puppets) if (this.phase === 'talk' && !f.a.root.userData.still) f.a.update(dt);   // (act-30: the dead stay still)
       this.hud.update(rdt, this.inp, []); this.L.on = true; return;
     }
@@ -1476,7 +1516,8 @@ export class ActShow {
       al.visible = true; al.position.set(h.pos.x, 0.07, h.pos.z); al.rotation.y = Math.atan2(pv.dir.x, pv.dir.z); al.scale.set(1, 1, L);
       const cap = al.getObjectByName('cap')!; cap.scale.set(1, 1, 1 / L); (al.material as THREE.MeshBasicMaterial).color.set(pv.onFoe ? 0xffd27a : 0xe8eeff); }
     else this.aimLine.visible = false;
-    h.a.update(dt); h.deathPose(); for (const a of this.lineupActors) a.update(dt);
+    h.a.update(dt); h.deathPose(); h.scriptPose?.(); for (const a of this.lineupActors) a.update(dt);
+    if (this.labFn) { this.labT += dt; this.labFn(dt, this.labT); }
     const fw = this.foeWorld; fw.heroPos.copy(h.pos); fw.heroAlive = h.alive && (this.phase === 'fight' || this.phase === 'yard'); fw.heroY = h.y; fw.heroDodge = h.dodgeWin;
     // act-20: the hideout's people — idle, and a word when the hero stands close and presses 斩
     for (const n of this.npcs) n.a.update(dt);

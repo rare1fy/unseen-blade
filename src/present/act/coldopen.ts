@@ -61,7 +61,7 @@ const spawn = (id: string, root: THREE.Object3D, x: number, z: number, yaw: numb
 const place = (a: BattleActor, x: number, z: number, yaw: number, y = 0) => { a.home.set(x, y, z); a.yaw = yaw; a.root.position.set(x, y, z); a.root.rotation.y = yaw; };
 
 /** the second black card (agy, gemini-3.8-flash-high; the user: 「七年了，这次血债血偿之类的」) */
-export const COLD_CARD2 = '七年了。欠下的命，拿命来填。';
+export const COLD_CARD2 = '七年了。刀磨好了。';
 
 export interface ColdHost { root: THREE.Object3D; pov: BlindPOV }
 /**
@@ -221,12 +221,14 @@ export function coldOpenShots(h: ColdHost): { shots: CineShot[]; dispose: () => 
 // ---------------------------------------------------------------- act-40: the cold open as black cards
 // 用户：「现在开场太墨迹了，把那段timeline先搞成黑幕快速交代背景吧」— for now the night is told in five cards on black (the falling snow
 // as faint rings, a slow ring like a heartbeat under the father's words); the 寒山坞 cutscene above stays for later
-export const COLD_CARD_LINES = ['熹平六年，腊月。寒山坞，大雪。', '黄巾夜里进了坞。铸刀的文家，一夜死绝。', '阿爹倒在锻炉前。炉火烫瞎了她的眼。'];
+// (act-45 用户：「开局的黑幕文字太啰嗦了，本来是氛围文字，结果慌里慌气说一大堆」: three short cards with room between them — the night,
+//  her father's words, the years — nothing explained; who, where and why are the snowy village's and the temple's to tell)
+export const COLD_CARD_LINES = ['那年腊月，火比雪大。'];
 export function coldCardShots(pov: BlindPOV): CineShot[] {
   const cards = [...COLD_CARD_LINES, PRO_COLD, COLD_CARD2], last = cards.length - 1;
   return cards.map((text, i): CineShot => ({
-    dur: i === last ? 3.0 : i === last - 1 ? 3.0 : 2.5, ease: 'linear', from: { pos: [0, 30, 30] as V, look: [0, 0, 0] as V, fov: 30 },
-    caption: { text, big: true, at: 0.25, hold: i >= last - 1 ? 2.4 : 1.9 },
+    dur: i === last ? 3.2 : i === last - 1 ? 4.6 : 3.6, ease: 'linear', from: { pos: [0, 30, 30] as V, look: [0, 0, 0] as V, fov: 30 },
+    caption: { text, big: true, at: 0.6, hold: i === last ? 2.0 : i === last - 1 ? 3.2 : 2.4 },
     at: [[0, () => { if (i === 0) pov.fill(0x000000, 1, true); }]],
     tick: (t, dt) => {
       if (Math.random() < dt * 10) pov.ring(Math.random(), 0.12 + Math.random() * 0.76, { r0: 2, r1: 10 + Math.random() * 10, life: 1.1, a: 0.28 });

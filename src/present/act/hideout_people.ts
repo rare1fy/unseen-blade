@@ -138,7 +138,8 @@ function buildDuwu(): V {
   B(v, 'head', -1, 43, 6, 0, 44, 6, C.SKIN); B(v, 'head', -1, 43, 6, 0, 43, 6, C.SKIN_D);
   B(v, 'head', -1, 41, 5, 0, 41, 5, C.MOUTH);
   fuseStill(v);
-  fuse(v, 'legL', 'shinL', 'footL'); fuse(v, 'legR', 'shinR');
+  // (act-44 用户：「下蹲一条腿直着，走路脚板都脱离脚踝了」: the shins and feet were merged into the thighs when he only stood — he walks
+  //  and squats now, so each keeps its own part and bends at the knee and the ankle)
   return v;
 }
 
@@ -399,21 +400,41 @@ type Bones = Record<string, Bone>;
 function walkOver(b: Bones, self: unknown, stoop = 0) {
   const ph = (self as { walkPh?: number } | undefined)?.walkPh; if (ph == null) return false;
   const s = Math.sin(ph), c = Math.cos(ph), k = 0.48;
-  rot(b.legL, -s * k, 0, 0); rot(b.legR, s * k, 0, 0);
-  if (b.shinL) rot(b.shinL, Math.max(0, s) * 0.7, 0, 0); if (b.shinR) rot(b.shinR, Math.max(0, -s) * 0.7, 0, 0);
-  if (b.footL) rot(b.footL, 0, 0, 0); if (b.footR) rot(b.footR, 0, 0, 0);
-  mov(b.hips, 0, -Math.abs(c) * 0.02, 0); rot(b.hips, 0, s * 0.08, 0);
+  restOf(b, WALK_BONES, 1);   // (the idle's hand-rubbing, toe taps and weight shifts would ride on the stride)
+  // (act-44 用户：「走路脚板都脱离脚踝了」) the thighs swing opposite; a knee bends while its leg swings forward (cos > 0 for the left),
+  // straight when it plants; the foot turns at the ankle only, most of the way back to level; the hips ride on the longer leg so the
+  // planted foot stays on the ground (lowest when the legs are spread, highest as they pass)
+  const tL = -s * k, tR = s * k, kL = Math.max(0, c) * 0.75, kR = Math.max(0, -c) * 0.75;
+  rot(b.legL, tL, 0, 0); rot(b.legR, tR, 0, 0);
+  if (b.shinL) rot(b.shinL, kL, 0, 0); if (b.shinR) rot(b.shinR, kR, 0, 0);
+  if (b.footL) rot(b.footL, -0.75 * (tL + kL), 0, 0); if (b.footR) rot(b.footR, -0.75 * (tR + kR), 0, 0);
+  const [T, S] = legLen(b), reach = Math.max(T * Math.cos(tL) + S * Math.cos(tL + kL), T * Math.cos(tR) + S * Math.cos(tR + kR));
+  mov(b.hips, 0, -(T + S - reach), 0); rot(b.hips, 0, s * 0.08, 0);
   if (b.spine) rot(b.spine, 0.08 + stoop, -s * 0.06, 0);
   if (b.armL) rot(b.armL, s * 0.45, 0, 0.1); if (b.armR) rot(b.armR, -s * 0.45, 0, -0.1);
   if (b.foreL) rot(b.foreL, -0.35, 0, 0); if (b.foreR) rot(b.foreR, -0.35, 0, 0);
   if (b.head) rot(b.head, 0, 0, 0);
   return true;
 }
+const WALK_BONES = ['hips', 'legL', 'legR', 'shinL', 'shinR', 'footL', 'footR', 'armL', 'armR', 'foreL', 'foreR', 'handL', 'handR'];
+/** these bones eased back toward their rest pose (w = 1 all the way), before a cutscene pose goes on top of the idle */
+function restOf(b: Bones, names: string[], w: number) {
+  for (const n of names) { const x = b[n] as (Bone & { rest?: { p: THREE.Vector3; r: THREE.Euler } }) | undefined; if (!x?.rest) continue;
+    x.position.lerp(x.rest.p, w); x.rotation.set(x.rotation.x + (x.rest.r.x - x.rotation.x) * w, x.rotation.y + (x.rest.r.y - x.rotation.y) * w, x.rotation.z + (x.rest.r.z - x.rotation.z) * w); }
+}
+/** the thigh and shin lengths (hip → knee → ankle, from the rest offsets of the shin and foot bones) */
+function legLen(b: Bones): [number, number] { return [Math.abs(b.shinL?.position.y ?? 0.35) || 0.35, Math.abs(b.footL?.position.y ?? 0.21) || 0.21]; }
 /** act-30: a crouch over something on the ground (a cutscene sets crouch 0..1 on the actor) */
 function crouchOver(b: Bones, self: unknown) {
   const k = (self as { kneel?: number } | undefined)?.kneel; if (typeof k !== 'number' || !k) return;
-  rot(b.legL, -1.1 * k, 0, 0.1 * k); rot(b.legR, -0.5 * k, 0, -0.1 * k); if (b.shinL) rot(b.shinL, 1.7 * k, 0, 0); if (b.shinR) rot(b.shinR, 1.9 * k, 0, 0);
-  mov(b.hips, 0, -0.32 * k, 0); if (b.spine) rot(b.spine, 0.55 * k, 0, 0); if (b.head) rot(b.head, 0.35 * k, 0, 0);
+  restOf(b, WALK_BONES, Math.min(1, k * 2.5));   // (his hands leave off rubbing / scratching early on the way down)
+  // (act-44 用户：「下蹲一条腿直着」) a real squat on his heels: both knees bent, the right heel a little behind the left; the hips go
+  // down by exactly what the bent legs give up (the soles stay on the ground the whole way down), the soles turned back flat
+  const tL = -1.7 * k, sL = 2.2 * k, tR = -1.55 * k, sR = 2.44 * k;
+  rot(b.legL, tL, 0, 0.12 * k); rot(b.legR, tR, 0, -0.12 * k); if (b.shinL) rot(b.shinL, sL, 0, 0); if (b.shinR) rot(b.shinR, sR, 0, 0);
+  if (b.footL) rot(b.footL, -(tL + sL), 0, 0); if (b.footR) rot(b.footR, -(tR + sR), 0, 0);
+  const [T, S] = legLen(b), reach = Math.max(T * Math.cos(tL) + S * Math.cos(tL + sL), T * Math.cos(tR) + S * Math.cos(tR + sR));
+  mov(b.hips, 0, -(T + S - reach), -0.05 * k); if (b.spine) rot(b.spine, 0.5 * k, 0, 0); if (b.head) rot(b.head, 0.2 * k, 0, 0);
   if (b.armL) rot(b.armL, -0.9 * k, 0, 0.15); if (b.armR) rot(b.armR, -0.9 * k, 0, -0.15); if (b.foreL) rot(b.foreL, -0.5 * k, 0, 0); if (b.foreR) rot(b.foreR, -0.5 * k, 0, 0);
 }
 /** 杜五: never still — rubs his hands, scratches under the head cloth, looks this way and that, shifts from foot to foot, taps a toe */

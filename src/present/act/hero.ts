@@ -184,6 +184,8 @@ export class Hero {
    *  laid over the pose each frame after the actor's update — the blow throws her back, the knees go and she sinks onto them, the
    *  blade's point drops to the ground, she sags forward, then topples onto her side and goes limp */
   deathSide: 1 | -1 = 1;
+  /** act-44: a cutscene's own pose, laid on after the actor's update each frame (getting up off the mat); null = none */
+  scriptPose: (() => void) | null = null;
   deathPose() {
     if (this.st !== 'dead') return;
     const t = this.t, b = this.a.bones, sm = (x: number) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
