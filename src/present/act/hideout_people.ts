@@ -43,11 +43,11 @@ function flaps(v: V, A: Anchors, y0: number, c: Col, hem: Col) {
   v.part('legR').box(-4, y0, -2, -1, top, 1, c).box(-4, y0, -2, -1, y0, 1, hem);
 }
 /** a face: two eyes (one row), a nose one cell proud, a mouth on the bottom row; L / R given separately so an eye can differ */
-function face(v: V, A: Anchors, o: { eyeR: Col; eyeL?: Col; nose: Col; mouth: Col; skin: Col }) {
+function face(v: V, A: Anchors, o: { eyeR: Col; eyeL?: Col; nose: Col; mouth: Col; skin: Col; flat?: boolean }) {
   const H0 = A.headY0, F = A.faceZ;
-  v.part('head').set(-2, H0 + 3, F, o.eyeR).set(1, H0 + 3, F, o.eyeL ?? o.eyeR)
-    .box(-1, H0 + 1, F + 1, 0, H0 + 2, F + 1, o.skin).box(-1, H0 + 1, F + 1, 0, H0 + 1, F + 1, o.nose)
-    .box(-1, H0, F, 0, H0, F, o.mouth);
+  v.part('head').set(-2, H0 + 3, F, o.eyeR).set(1, H0 + 3, F, o.eyeL ?? o.eyeR).box(-1, H0, F, 0, H0, F, o.mouth);
+  // a woman's face stays flat (act-21, user: 「女性的鼻子都不要突出」); a man's nose stands one cell proud
+  if (!o.flat) v.box(-1, H0 + 1, F + 1, 0, H0 + 2, F + 1, o.skin).box(-1, H0 + 1, F + 1, 0, H0 + 1, F + 1, o.nose);
 }
 /** move every cell of the parts `from` into part `into` (a part that never moves on its own needn't be its own mesh) */
 function fuse(v: V, into: string, ...from: string[]) { for (const c of v.cells.values()) if (from.includes(c.part)) c.part = into; }
@@ -141,7 +141,7 @@ function buildSunao(): V {
     .box(-3, H0 + 8, -2, 2, H0 + 8, -2, C.BONE).box(-3, H0 + 8, -2, -3, H0 + 8, -2, 0x9a7e48);
   // the face: a diamond (the jaw's corners cut), the forehead line and the cheek lines, the frown, the sharp right eye, the dead left eye
   v.part('head').set(-3, H0, F, null).set(2, H0, F, null).set(-3, H0, F - 1, null).set(2, H0, F - 1, null);
-  face(v, A, { eyeR: C.EYE, eyeL: C.BLIND, nose: C.SKIN_D, mouth: C.MOUTH, skin: C.SKIN });
+  face(v, A, { eyeR: C.EYE, eyeL: C.BLIND, nose: C.SKIN_D, mouth: C.MOUTH, skin: C.SKIN, flat: true });
   v.part('head').box(-2, H0 + 4, F, 1, H0 + 4, F, C.SKIN_D).set(-2, H0 + 1, F, C.SKIN_D).set(1, H0 + 1, F, C.SKIN_D).set(-2, H0, F, C.SKIN_D).set(1, H0, F, C.SKIN_D);
   // silver needles in the right fist (two, along the fist's forward axis), the small scraping knife in the left
   const [rx, ry, rz] = A.wR, [lx, ly, lz] = A.wL;
@@ -235,7 +235,7 @@ function buildLuzhao(): V {
   v.part('head').box(-1, H0 + 6, -3, 0, H0 + 6, 2, C.HAIR_L)
     .box(0, H0 + 1, -6, 3, H0 + 4, -3, C.HAIR).box(0, H0 + 4, -6, 3, H0 + 4, -3, C.HAIR_L)
     .box(3, H0 + 4, -5, 5, H0 + 4, -5, C.SILVER).set(5, H0 + 3, -5, C.SILVER_D).set(5, H0 + 2, -5, C.PEARL).set(4, H0 + 3, -5, C.SILVER_D);
-  face(v, A, { eyeR: C.EYE, nose: C.SKIN_D, mouth: C.LIP, skin: C.SKIN });
+  face(v, A, { eyeR: C.EYE, nose: C.SKIN_D, mouth: C.LIP, skin: C.SKIN, flat: true });
   v.part('head').set(-2, H0 + 2, F, C.MOLE);
   v.part('neck').box(-1, T1 + 2, 0, 0, T1 + 2, 0, C.SCAR);
   // the bamboo map, unrolled flat in both hands at the waist: slats along z (two tones), two binding cords across, a roll at each end

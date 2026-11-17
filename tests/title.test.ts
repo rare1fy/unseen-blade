@@ -2,16 +2,16 @@
 // headless, for captures); ?skip / ?run skip it; ?opening asks for the old rainy-night opening instead; headless capture scripts
 // (tools/cap.mjs, the bot — they wait for the yard) skip it unless ?title asks.
 import { describe, it, expect } from 'vitest';
-import { wantTitle, TITLE_COUNT } from '../src/present/act/titleFlag';
+import { wantTitle, TITLE_COUNT, DEFAULT_TITLE } from '../src/present/act/titleFlag';
 import { wantOpening } from '../src/present/act/openingFlag';
 
 const CHROME = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36';
 const HEADLESS = CHROME.replace('Chrome/', 'HeadlessChrome/');
 
 describe('which start screen a page load opens with', () => {
-  it('a plain load in a browser opens title variant 1', () => {
-    expect(wantTitle('http://127.0.0.1:5237/', CHROME, false)).toBe(1);
-    expect(wantTitle('https://rare1fy.github.io/unseen-blade/#px2', CHROME, false)).toBe(1);
+  it('a plain load in a browser opens the default title variant (3, the user pick)', () => {
+    expect(wantTitle('http://127.0.0.1:5237/', CHROME, false)).toBe(DEFAULT_TITLE);
+    expect(wantTitle('https://rare1fy.github.io/unseen-blade/#px2', CHROME, false)).toBe(DEFAULT_TITLE);
   });
   it('?title=N picks a variant (clamped), also headless', () => {
     expect(wantTitle('http://x/?title=3', CHROME, false)).toBe(3);

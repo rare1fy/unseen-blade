@@ -27,6 +27,7 @@ import { Gates } from './gates';
 import { ALL_MOVES, drawManuals, manualCard } from './manuals';
 import { Dialogue, type Line } from './dialogue';
 import { Stele } from './stele';
+import { openLab } from './lab';
 import { IronHp, HP_FACE } from './ironUi';
 import { ROSTER } from '../bestiary/models';
 import { CODE_BUILD } from '../bestiary/voxEdit';
@@ -77,7 +78,7 @@ import { HitArcs } from './hitArc';
 import { playOpening, OPENING_SPEC } from './opening';
 import { wantOpening } from './openingFlag';
 import { playTitle, titlePointer } from './title';
-import { wantTitle } from './titleFlag';
+import { wantTitle, savedTitle, TITLE_COUNT } from './titleFlag';
 import { PX, setPixel } from '../look/pixel';
 import { VIBE, vibeSupport, iosMajor } from '../../platform/index';
 /** the perks the hero's world reads while the run is on (kept in step each frame) */
@@ -251,6 +252,8 @@ export class ActShow {
       { label: () => `震动：${VIBE.on ? '开' : '关'}（${({ api: '这台设备支持', ios: `iPhone iOS ${iosMajor()}：系统触感，点屏幕时最灵`, 'ios-old': `iPhone iOS ${iosMajor() || '17 及以下'}：网页没法震，要 iOS 18`, none: '这个浏览器不支持' } as const)[vibeSupport()]}）`, run: () => { VIBE.on = !VIBE.on; try { localStorage.setItem('ub.vibe', VIBE.on ? '1' : '0'); } catch { /* private mode */ } } },
       { label: () => '试一下震动', run: () => { const was = VIBE.on; VIBE.on = true; this.platform.vibrate('heavy'); VIBE.on = was; } },
       // act-14 用户：「我要2x，然后调试面板给我一个切换这个的功能」 — 2x → 3x → off → 1x, remembered on this device
+      // act-21: which title screen (five moods; the user picks on a phone too, where there are no number keys)
+      { label: () => `开始画面：第 ${savedTitle()} 版（点这里换）`, run: () => { const n = savedTitle() % TITLE_COUNT + 1; try { localStorage.setItem('ub.title', String(n)); } catch { /* storage blocked */ } if (this.phase === 'title') this.title(n); } },
       // act-20: her look (the story's heroine: the 斗笠 or the 白发 — the user's two picks); the hideout has no costume rack
       { label: () => `造型：${this.wearing.name}（点这里换）`, run: () => { const ids = ['slim_white', 'slim_hat'], n = HEROES.find(d => d.id === ids[(ids.indexOf(this.wearing.id) + 1) % ids.length]); if (n) this.wear(n); } },
       { label: () => `像素：${PX.on ? PX.size + 'x' : '关'}（点这里换）`, run: () => { const order = ['2', '3', 'off', '1'], cur = PX.on ? String(PX.size) : 'off', nx = order[(order.indexOf(cur) + 1) % order.length]; if (nx === 'off') setPixel(false); else setPixel(true, +nx); try { localStorage.setItem('ub.px', nx); } catch { /* private mode */ } } }]);
@@ -319,6 +322,8 @@ export class ActShow {
   // ------------------------------------------------------------ rooms
   start() {
     dh.add({ opening: () => this.opening(), title: (n = 1) => this.title(n) });   // captures: the old opening / a title variant again
+    // ?lab, or the desktop model page (window.__LAB): the model viewer (lab.ts, act-21)
+    if (typeof window !== 'undefined' && ((window as unknown as { __LAB?: number }).__LAB || /[?&#]lab\b/.test(location.href))) { this.lab(); return; }
     // ?model (vox/打开游戏看效果.bat): straight into the hideout, the camera close behind her — for checking a model edited in MagicaVoxel
     if (typeof location !== 'undefined' && /[?&#]model\b/.test(location.href)) { Object.assign(TUNE, { camH: 7.5, camD: 10.5, camFov: 34 }); this.enterYard(); return; }
     const tn = wantTitle();
@@ -327,6 +332,7 @@ export class ActShow {
   /** 开始画面 (title.ts, act-20): a wide shot of one of the place / weather variants with the menu (开始游戏 / 继续游戏 / 设置);
    *  the title builds its own place and poses its own heroine while frame() idles; the choice cuts into startNewGame / continueGame */
   title(n = 1) {
+    try { localStorage.setItem('ub.title', String(n)); } catch { /* storage blocked */ }   // the last one shown opens next time
     // a room may be up (__dh.title from the yard): its actors go the way a room change sends them
     for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = [];
     this.yard?.dispose(); this.yard = null; this.props?.dispose(); this.props = null; this.gates?.dispose(); this.gates = null; this.leaves?.dispose(); this.leaves = null; this.stations?.dispose(); this.stations = null; this.hero?.a.dispose();
@@ -334,6 +340,46 @@ export class ActShow {
     this.phase = 'title'; this.hud.on = false; this.hud.update(0, this.inp, []); this.banner.hide(); this.blob.visible = false; this.ring.visible = false; for (const m of this.shadows) m.visible = false;
     void playTitle(n, { ov: this.ov, L: this.L, hasSave, settings: () => toggleActTune(), enter: k => { this.hud.on = true; if (k === 'continue') this.continueGame(); else void this.startNewGame(); } });
     this.music();
+  }
+  /** 模型查看页 (lab.ts, act-21, user: 「建模个白发女给我看看，在一个页面里看，带技能动作的」): the hideout's 试剑坪, the fine white-haired
+   *  heroine before a dummy, a panel of moves (real button presses), views, the 2x pixels, the 7 cm model to switch to or stand beside.
+   *  The look chosen here is not remembered (the game's own costume stays as it was). */
+  private labOn = false; private labCmp: BattleActor | null = null; private labDummy: Foe | null = null; private labHome: () => void = () => {};
+  lab() {
+    this.labOn = true;
+    const fine = HEROES.find(d => d.id === 'fine_white'); if (fine) this.wearing = fine;
+    this.enterYard(); this.banner.hide();
+    // the open middle of the yard (the 试剑坪's posts got in front of every camera), her own dummy 1.4 m ahead
+    const HOME = { x: 0.9, z: 0.9, yaw: Math.PI };
+    { const f = spawnFoe('dummy', V3(HOME.x, 0, HOME.z - 1.4), V3(HOME.x, 0, HOME.z)); f.st = 'move'; this.foes.push(f); this.labDummy = f; }
+    const home = () => { const h = this.hero; if (!h) return; h.pos.set(HOME.x, 0, HOME.z); h.vel.set(0, 0, 0); h.a.yaw = HOME.yaw; for (const a of this.arrows) a.kill(); this.arrows.length = 0; };
+    this.labHome = home;
+    after(0.1, () => { home(); this.banner.hide(); });
+    openLab({
+      home,
+      hold: (b, sec) => this.inp.hold(b, sec),
+      stick: (x, y, sec) => this.inp.push(x, y, sec),
+      cam: (b, l, fov = 30) => { this.camOverride = b ? { base: V3(b[0], b[1], b[2]), look: V3(l![0], l![1], l![2]), fov } : null; },
+      hero: () => ({ x: this.hero.pos.x, y: this.hero.y, z: this.hero.pos.z, yaw: this.hero.a.yaw }),
+      other: () => (this.labCmp ? { x: 2.35, z: 0.9 } : null),
+      // (side by side: she goes back to her mark; the dummy steps aside so it isn't in front of either)
+      model: () => this.wearing.id,
+      setModel: id => { const d = HEROES.find(x => x.id === id); if (!d) return; this.wearing = d; this.hero?.setModel(d); if (this.labCmp) { this.labCompare(false); this.labCompare(true); } },
+      compare: on => this.labCompare(on),
+      pixel: on => { if (on != null) setPixel(on); return PX.on; },
+      arrow: d => { const h = this.hero, f = h.a.fwd(), p = h.pos.clone().addScaledVector(f, d).setY(1.25); this.arrows.push(new Arrow(p, Math.atan2(-f.x, -f.z), 8)); },
+      intent: n => { this.intent = n; this.hud.intent = n; },
+      stats: () => (dh.api.stats as () => { calls: number; tris: number })(),
+    }, [{ id: 'fine_white', name: '细格子（新做的）' }, { id: 'slim_white', name: '7 厘米（现在用的）' }]);
+  }
+  /** the other model standing beside her (not moving), for a side-by-side look */
+  private labCompare(on: boolean) {
+    if (this.labCmp) { this.labCmp.dispose(); this.lineupActors = this.lineupActors.filter(a => a !== this.labCmp); this.labCmp = null; }
+    const d = this.labDummy; if (d) { d.pos.set(on ? -1.6 : 0.9, 0, on ? -1.2 : -0.5); d.a.place(d.pos.clone(), d.a.yaw); }
+    if (!on) return;
+    this.labHome();
+    const other = HEROES.find(d => d.id === (this.wearing.id === 'fine_white' ? 'slim_white' : 'fine_white')); if (!other) return;
+    const a = new BattleActor(other); a.place(V3(2.35, 0, 0.9), Math.PI); a.yaw = Math.PI; this.labCmp = a; this.lineupActors.push(a);
   }
   /** 开场「雨夜听雨」(opening.ts): the room builder lays the rain road (clearing whatever room was up), then the opening poses this
    *  hero by hand while frame() idles; the tap cuts into the yard. Only the first entry plays it (a run ends in enterYard). */
@@ -1027,6 +1073,8 @@ export class ActShow {
       this.hud.update(rdt, this.inp, []); this.L.on = true; return;
     }
     if (this.botOn) this.bot();
+    // the model page plays 不见刀's QTE by itself (press as the ring closes)
+    else if (this.labOn && this.qteT >= 0) { const k = this.qteT / TUNE.qteTime, b = this.inp.b.attack, on = k > 0.85 && k < 1.0; b.pressed = on && !b.down; b.down = on; }
     const h = this.hero; if (!h) return;
     const busy = this.cards.on || this.phase === 'leaving' || this.ultOn;
     this.qteFrame(rdt); this.parryCd -= rdt;

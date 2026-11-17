@@ -83,10 +83,11 @@ function hipScabbard(v: V, A: Anchors, c: Col, fit: Col) {
   const y = A.hipY + 1; v.part('hips').box(5, y, -9, 5, y + 1, 1, c).box(5, y, 1, 5, y + 1, 1, fit).box(5, y, -9, 5, y + 1, -9, fit).box(4, y, -1, 4, y, 0, fit);
 }
 /** a face under the blindfold: a nose one cell proud, a mouth line */
-export function face(v: V, A: Anchors, skin: Col, dark: Col) {
+/** flat (act-21, user: 「女性的鼻子都不要突出」): no nose standing out of the face, for every woman */
+export function face(v: V, A: Anchors, skin: Col, dark: Col, flat = false) {
   const H0 = A.headY0, F = A.faceZ;
-  v.part('head').box(-1, H0 + 1, F + 1, 0, H0 + 2, F + 1, skin).box(-1, H0 + 1, F + 1, 0, H0 + 1, F + 1, dark);
-  v.paint(c => (c.z === F && c.y === H0 && c.x >= -1 && c.x <= 0 ? dark : null), 'head');
+  if (!flat) v.part('head').box(-1, H0 + 1, F + 1, 0, H0 + 2, F + 1, skin).box(-1, H0 + 1, F + 1, 0, H0 + 1, F + 1, dark);
+  if (!flat) v.paint(c => (c.z === F && c.y === H0 && c.x >= -1 && c.x <= 0 ? dark : null), 'head');
 }
 
 // ------------------------------------------------------------------ 斗笠

@@ -10,6 +10,7 @@ import { newChar, biped, rbox, type V, type Anchors, type Biped } from '../besti
 import { ROSTER, type ModelDef } from '../bestiary/models';
 import type { Col } from '../look/voxkit';
 import { blindfold, ringSword, leftHand, sash, face } from './blind';
+import { FINE_WHITE } from './heroineFine';
 
 // 11-16 用户看完 act-03：「现在的肩膀都好怂起来」——没有脖子，头直接坐在胸口上，肩线和下巴平齐。加两格脖子，躯干短一格。
 const MALE = { legH: 11, legW: 2, legD: 2, legGap: 1, hipH: 2, torsoH: 6, torsoW: 6, chestW: 8, torsoD: 4, headW: 6, headH: 7, headD: 6, neckH: 2, armW: 2, upper: 4, fore: 4, hand: 2 } as const;
@@ -84,7 +85,7 @@ function buildHat(): V {
   for (const s of ['shinL', 'shinR']) v.paint(c => (c.y === 5 ? C.LINEN_D : C.LINEN), s);
   for (const s of ['footL', 'footR']) v.paint(c => (c.y === 0 ? C.STRAW_D : null), s);
   v.paint(c => (c.y >= H0 + 5 || (c.z <= -2 && c.y >= H0 + 1) ? C.HAIR : null), 'head');
-  face(v, A, C.SKIN, C.SKIN_D);
+  face(v, A, C.SKIN, C.SKIN_D, true);   // a woman: a flat face (act-21)
   blindfold(v, A, C.BAND, C.BAND_D, { a: [6, 6, 5], b: [6, 5] });
   v.part('hat');
   const BR = H0 + 5;
@@ -205,7 +206,7 @@ function buildPony(): V {
   v.part('head').box(-4, H0, 1, -4, H0 + 5, 2, C.HAIR).box(3, H0, 1, 3, H0 + 5, 2, C.HAIR);
   v.part('hat').box(-1, H0 + 6, -4, 0, H0 + 7, -4, C.RED);
   chain(v, 'hrA', 'head', -1, 0, H0 + 7, -5, [6, 6, 6], C.HAIR, C.HAIR_L, 1);
-  face(v, A, C.SKIN, C.SKIN_D);
+  face(v, A, C.SKIN, C.SKIN_D, true);   // a woman: a flat face (act-21)
   blindfold(v, A, C.BAND, C.BAND_D, { a: [], b: [], knot: false });
   // two long red ribbons from the hair tie (the head's long streamers), hanging behind the ponytail
   chain(v, 'bfA', 'head', 0, 0, H0 + 6, -6, [6, 6, 5], C.RED, C.RED_D, 1);
@@ -234,7 +235,7 @@ function buildCrop(): V {
   v.part('chest').box(-3, T1 + 1, -3, 2, T1 + 2, -2, C.CAPE).box(-3, T1 + 2, -3, 2, T1 + 2, -3, C.CAPE_L);
   chain(v, 'clA', 'chest', -4, 3, T1, -3, [7], C.CAPE, C.CAPE_D, 1);
   v.part('clA1').box(-4, T1 - 6, -3, -3, T1 - 6, -3, null).box(2, T1 - 6, -3, 3, T1 - 6, -3, null);
-  face(v, A, C.SKIN, C.SKIN_D);
+  face(v, A, C.SKIN, C.SKIN_D, true);   // a woman: a flat face (act-21)
   blindfold(v, A, C.BAND, C.BAND_D, { a: [6, 6, 5], b: [6, 5] });
   ringSword(v, A, { len: 15, edge: C.EDGE, spine: C.STEEL, grip: C.LEATH, ring: C.IRON, guard: C.IRON, glove: C.SKIN, knuckle: C.SKIN_D });
   leftHand(v, A, C.SKIN, C.SKIN_D);
@@ -250,4 +251,6 @@ export const SLIM: ModelDef[] = [
   def('slim_pony', '马尾', '蒙眼女刀客', buildPony, 19),
   def('slim_crop', '短发', '蒙眼女刀客', buildCrop, 18),
 ];
+// act-21: the fine white-haired heroine (3.5 cm cells, same joints) rides with the slim ones (same poses, the cool idle)
+SLIM.push(FINE_WHITE);
 for (const d of SLIM) if (!ROSTER.some(r => r.id === d.id)) ROSTER.push(d);
