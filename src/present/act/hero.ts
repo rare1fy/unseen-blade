@@ -17,6 +17,7 @@ import { ACT_NINJA, motionOf } from './ninjaAct';
 import { TUNE } from './tune';
 import type { Input } from './input';
 import { trimShadows, type Foe } from './enemy';
+import { newPerks, v, v2, type Perks } from './boons';
 
 export type HSt = 'free' | 'k1' | 'k2' | 'k3' | 'k4' | 'k5' | 'charge' | 'rel' | 'dash' | 'dcut' | 'noto' | 'hurt' | 'dead' | 'air' | 'plunge' | 'plungeL' | 'launch' | 'kick';
 /** one cut's numbers: impact moments (share of the action), extra range, arc (rad, full width), damage per impact, knock,
@@ -51,7 +52,6 @@ export interface HeroWorld {
   launch?(o: { from: THREE.Vector3; yaw: number; range: number; half: number; dmg: number }): number;
   /** act-19 飞踢: the kick lands — the first foe in front is sent flying along dir */
   kick?(o: { from: THREE.Vector3; dir: THREE.Vector3; dmg: number }): number;
-  dashPath(a: THREE.Vector3, b: THREE.Vector3): void; dashEnd(at: THREE.Vector3): void; // wp/boons: grounded dash hooks
   /** a blade swing lands: the world applies damage, FX and the arrows it cuts. Returns how many it hit */
   swing(o: { from: THREE.Vector3; yaw: number; range: number; half: number; dmg: number; knock: number; heavy: boolean; kind: string; n?: number; counter?: boolean }): number;
   /** a path cut (the charge release): everything within r of the segment */
@@ -62,8 +62,6 @@ export interface HeroWorld {
   chase(o: { from: THREE.Vector3; to: THREE.Vector3; foe: Foe }): void;
   /** a dart leaves the left hand, flying along dir (show.ts flies it and lands its hits) */
   dart(o: { from: THREE.Vector3; dir: THREE.Vector3 }): void;
-  /** 散手 · 三叶: darts go out three at a time */
-  darts3: boolean;
   /** the blade is up: arrows inside this arc are batted away (called every frame of a cut's guard window) */
   guard(o: { from: THREE.Vector3; yaw: number; range: number }): void;
   /** the direction to the nearest arrow flying at the hero within reach (cuts turn to meet it), or null */
@@ -79,6 +77,7 @@ export interface HeroWorld {
 }
 
 export class Hero {
+  perks: Perks = newPerks();
   a: BattleActor; st: HSt = 'free'; t = 0; dur = 0; hp = TUNE.heroHp; maxHp = TUNE.heroHp;
   vel = V3(); inv = 0; dashCd = 0; dartCd = 0;
   /** darts in hand, and the reload left once they are all thrown (s; 0 = not reloading) */
@@ -103,9 +102,9 @@ export class Hero {
   /** stop whatever the hero is doing (the 一刀 sequence moves it by hand) */
   forceFree() { this.set('free', 0); this.vel.set(0, 0, 0); this.y = 0; this.vy = 0; motionOf(this.a).charge = 0; }
   /** the dash's invulnerable moment (a blow landing now is a perfect dodge) */
-  get dodging() { return this.st === 'dash' && this.t < TUNE.dashIframe + 0.04; }
+  get dodging() { const bonus = v(this.perks, 'evade') / 100; return (this.st === 'dash' && this.t < TUNE.dashIframe + 0.04) || (bonus > 0 && this.age - this.dashEndAt < Math.min(TUNE.dashTime, TUNE.dashIframe + 0.04) * bonus); }
   /** during a dash or just after it: an attack that would have caught the hero, or passes close, counts as a perfect dodge */
-  get dodgeWin() { return this.st === 'dash' || this.age - this.dashEndAt < 0.18; }
+  get dodgeWin() { return this.st === 'dash' || this.age - this.dashEndAt < 0.18 * (1 + v(this.perks, 'evade') / 100); }
   private age = 0; private dashEndAt = -9;
   private chargeK = 0; private relFrom = V3(); private relTo = V3(); private dashDir = V3(); private ghostT = 0;
   /** time into a dart throw (-1 = none); the dart leaves the hand at DART_REL of it */
@@ -114,7 +113,6 @@ export class Hero {
   aiming = false; readonly aimDir = V3(0, 0, 1); private spUsed = false;
   /** 回身镖 is once per dash; 穿风斩's start point and whether its sweep has landed; 追影's cut hits harder */
   private dashDarted = false; private dcutFrom = V3(); private dcutHit = false; private chaseOn = false;
-  private dashEndPending = false; // wp/boons: finish after movement/clamping
   /** act-19 刀谱 (the user: 「很多都应该做进强化」): the moves this run has unlocked — chase 寻声, backDart 回身镖, dbl 二段跳,
    *  launch 挑空斩, cutDart 近身三镖, keep 游身不断招, pause 停顿变招 (the yard unlocks them all; show sets this) */
   moves: Record<string, boolean> = {};
@@ -140,7 +138,7 @@ export class Hero {
   /** 0..1 while holding a charge (the HUD and the ring under the hero show it), else 0 */
   get charge() { return this.st === 'charge' ? this.chargeK : 0; }
   get airborne() { return this.y > 0.01; }
-  get iframe() { return this.inv > 0 || (this.st === 'dash' && this.t < TUNE.dashIframe) || (this.st === 'rel' && this.t < this.dur * 0.55) || (this.st === 'dcut' && this.t < DCUT_MOVE + 0.05); }
+  get iframe() { return this.inv > 0 || (this.st === 'dash' && this.t < TUNE.dashIframe * (1 + v(this.perks, 'evade') / 100)) || (this.st === 'rel' && this.t < this.dur * 0.55) || (this.st === 'dcut' && this.t < DCUT_MOVE + 0.05); }
   private set(st: HSt, dur: number) { this.st = st; this.t = 0; this.dur = dur; this.hitDone = false; this.hit2Done = false; this.hits = 0; }
   /** face the best target near the stick direction (or the stick direction itself) */
   private aim(w: HeroWorld, reach = 4.2) {
@@ -159,7 +157,7 @@ export class Hero {
   }
   private startCut(n: Cut, w: HeroWorld, chase = false, big = false) {
     this.chaseOn = chase; this.bigSpin = big;
-    const dur = TUNE[n] / TUNE.atkSpeed; this.set(n, dur); this.next = null; const tgt = this.aim(w);
+    const dur = TUNE[n] / (TUNE.atkSpeed * (1 + v(this.perks, 'quick') / 100)); this.set(n, dur); this.next = null; const tgt = this.aim(w);
     this.counterCut = this.counterT > 0; if (this.counterCut) this.counterT = 0;
     // the step in: TUNE.atkLunge × this cut's share; with a foe ahead, stop TUNE.lungeStop short of it
     const full = TUNE.atkLunge * SW[n].lunge;
@@ -168,7 +166,7 @@ export class Hero {
   }
   private startDash(w: HeroWorld) {
     const s = w.stickWorld(); this.dashDir.copy(s.lengthSq() > 0.04 ? s.normalize() : this.a.fwd());
-    this.a.yaw = Math.atan2(this.dashDir.x, this.dashDir.z); this.set('dash', TUNE.dashTime); this.dashCd = TUNE.dashCd; this.ghostT = 0; this.dashDarted = false;
+    this.a.yaw = Math.atan2(this.dashDir.x, this.dashDir.z); this.set('dash', TUNE.dashTime); this.dashCd = TUNE.dashCd * (1 - v2(this.perks, 'evade') / 100); this.ghostT = 0; this.dashDarted = false;
     this.vy = 0;   // an air dash holds its height
     this.a.play(new Action('dashA', TUNE.dashTime * 1.4, 0.2)); cue('dash', 0.8);
   }
@@ -234,7 +232,7 @@ export class Hero {
     // 追影: a dart still stuck in a foe + a press of 斩 = a blink to it and a heavy cut; the combo carries on from there
     const cutting = this.st === 'k1' || this.st === 'k2' || this.st === 'k3' || this.st === 'k4' || this.st === 'k5';
     if (A.pressed && (this.st === 'free' || this.st === 'air' || this.st === 'dash' || cutting)) {
-      const f = this.has('chase') ? w.chaseTarget() : null; if (f) { if (this.st === 'dash' && !this.airborne) w.dashEnd(this.pos.clone()); this.atkEaten = true; this.buf.atk = 0; this.buf.press = 0; this.startChase(f, w); } // wp/boons: chase ends a ground dash at its departure point
+      const f = this.has('chase') ? w.chaseTarget() : null; if (f) { this.atkEaten = true; this.buf.atk = 0; this.buf.press = 0; this.startChase(f, w); }
     }
     // 飞镖 (act-27, user: 「飞刀要自动索敌一下，按住可以通过技能按钮指定方向」): a tap throws on release at the nearest foe (auto-aim);
     // held past AIM_T it is aimed — the finger dragged off the button (touch) or the stick (keys / pad) — with a line on the ground, and
@@ -248,7 +246,7 @@ export class Hero {
       this.dartT += dt;
       if (!this.dartGone && this.dartT >= DART_REL) {
         this.dartGone = true;
-        const hand = this.handL(), dirs = w.darts3 || this.fanNext ? [-0.24, 0, 0.24] : [0]; this.fanNext = false;
+        const hand = this.handL(), count = v(this.perks, 'darts3'), dirs = count === 5 ? [-0.36, -0.18, 0, 0.18, 0.36] : count === 3 || this.fanNext ? [-0.24, 0, 0.24] : [0]; this.fanNext = false;
         for (const a of dirs) { const d = this.dartDir.clone().applyAxisAngle(V3(0, 1, 0), a); w.dart({ from: hand, dir: d }); }
         cue('dartThrow', 0.6);
       }
@@ -354,10 +352,11 @@ export class Hero {
         break;
       }
       case 'charge': {
-        this.chargeK = Math.min(1, this.chargeK + dt / TUNE.chargeFull); m.charge = this.chargeK;
+        const chargeFull = TUNE.chargeFull * (1 - v(this.perks, 'draw') / 100);
+        this.chargeK = Math.min(1, this.chargeK + dt / chargeFull); m.charge = this.chargeK;
         this.vel.lerp(stick.clone().multiplyScalar(TUNE.heroSpeed * TUNE.stanceSpeed), 1 - Math.exp(-12 * dt));
         if (sl > 0.1) this.a.yaw = Math.atan2(stick.x, stick.z);
-        if (this.chargeK >= 1 && this.chargeK - dt / TUNE.chargeFull < 1) { cue('parry', 0.15); this.a.tint(0xfff4d0, 0.4); this.fullT = 0.35; }
+        if (this.chargeK >= 1 && this.chargeK - dt / chargeFull < 1) { cue('parry', 0.15); this.a.tint(0xfff4d0, 0.4); this.fullT = 0.35; }
         if (canDash) { m.charge = 0; this.buf.dash = 0; this.startDash(w); break; }
         if (!B.attack.down) {
           // the draw: an attack about to land is caught (见切) and the draw goes straight at the attacker; otherwise the long lunge
@@ -404,7 +403,6 @@ export class Hero {
         if (this.t >= this.dur) {
           this.vel.multiplyScalar(0.35); this.dashEndAt = this.age;
           if (this.airborne) { this.set('air', 99); this.vy = 0; break; }
-          this.dashEndPending = true; // wp/boons: ground dash, even with a buffered jump
           this.set('free', 0);
           // a dash straight into an attack / a jump: the press during the dash starts it at once
           if (this.buf.atk > 0) { this.buf.atk = 0; if (this.keepT > 0 && this.keepNext && this.has('keep')) { const n = this.keepNext; this.keepNext = null; this.keepT = 0; this.startCut(n, w); this.sideCut(w); } else this.startCut('k1', w); }
@@ -418,7 +416,7 @@ export class Hero {
           this.ghostT -= dt; if (this.ghostT <= 0) { this.ghostT = 0.025; fxAfterimage(this.pos.clone(), 1.9, 0x9ad8ff, { life: 0.22, glow: 0.45 }); }
         } else {
           this.vel.multiplyScalar(Math.exp(-dt * 18));
-          if (!this.dcutHit) { this.dashEndPending = true; this.dcutHit = true; w.sweep({ a: this.dcutFrom.clone(), b: this.pos.clone(), r: 1.0, dmg: TUNE.dashCutDmg, knock: 1.0, col: 0xbfeaff, kind: 'dcut' }); } // wp/boons: dash-cut completion
+          if (!this.dcutHit) { this.dcutHit = true; w.sweep({ a: this.dcutFrom.clone(), b: this.pos.clone(), r: 1.0, dmg: TUNE.dashCutDmg, knock: 1.0, col: 0xbfeaff, kind: 'dcut' }); }
         }
         if (this.dcutHit && canDash) { this.buf.dash = 0; this.startDash(w); break; }
         if (this.dcutHit && canJump) { this.buf.jump = 0; this.startJump(); break; }
@@ -475,7 +473,7 @@ export class Hero {
   }
   /** 穿风斩: on from where the dash is now, low and fast along the same way; the cut lands when the run stops (show.ts sweep) */
   private startDashCut() {
-    this.dcutFrom.copy(this.pos); this.set('dcut', DCUT_T); this.dcutHit = false; this.ghostT = 0; this.dashCd = TUNE.dashCd;
+    this.dcutFrom.copy(this.pos); this.set('dcut', DCUT_T); this.dcutHit = false; this.ghostT = 0; this.dashCd = TUNE.dashCd * (1 - v2(this.perks, 'evade') / 100);
     this.a.yaw = Math.atan2(this.dashDir.x, this.dashDir.z); this.a.play(new Action('rel', DCUT_T, 0.32)); cue('swishHeavy', 1); cue('dash', 0.6);
   }
   /** 回身镖: three darts (five with 散手 · 三叶) flung back at the nearest foe behind the dash, or straight back */
@@ -489,7 +487,7 @@ export class Hero {
       const s = l * (1 + ang); if (s < bd) { bd = s; best = f; }
     }
     const dir = best ? best.a.chest().sub(from).normalize() : back.clone().setY(-0.03).normalize();
-    const hand = this.handL(), spread = w.darts3 ? [-0.36, -0.18, 0, 0.18, 0.36] : [-0.18, 0, 0.18];
+    const hand = this.handL(), spread = v(this.perks, 'darts3') === 5 ? [-0.36, -0.18, 0, 0.18, 0.36] : [-0.18, 0, 0.18];
     for (const a of spread) w.dart({ from: hand.clone(), dir: dir.clone().applyAxisAngle(V3(0, 1, 0), a) });
     this.dartT = 0; this.dartGone = true; this.dartBack = true; this.dartCd = TUNE.dartCd; this.useDart(); cue('dartThrow', 0.8);
   }
@@ -541,12 +539,9 @@ export class Hero {
   /** where the left hand is now (the dart's start) */
   private handL() { const b = this.a.bones?.offhand ?? this.a.bones?.foreL; return b ? b.localToWorld(V3(0, 0, 0)) : this.pos.clone().add(V3(0, 1.25, 0)).addScaledVector(V3(Math.cos(this.a.yaw), 0, -Math.sin(this.a.yaw)), 0.3); }
   private move(dt: number, w: HeroWorld) {
-    const dashFrom = this.pos.clone(), groundDash = !this.airborne && (this.st === 'dash' || (this.st === 'dcut' && !this.dcutHit)); // wp/boons: actual travelled path
     this.pos.addScaledVector(this.vel, dt);
     // high in the air the hero passes over the foes; on the ground (and in a dash or the lunge) the usual push-out
     if (this.y < 0.6) for (const f of w.foes) if (f.st !== 'dead') { const d = this.pos.clone().sub(f.pos).setY(0), l = d.length(), mm = this.r + f.d.r; if (l < mm && l > 1e-4 && this.st !== 'dash' && this.st !== 'rel' && this.st !== 'dcut') this.pos.addScaledVector(d, (mm - l) / l * 0.6); }
     w.clamp(this.pos, this.r);
-    if (groundDash || this.dashEndPending) w.dashPath(dashFrom, this.pos); // wp/boons: no airborne trails or chase teleport paths
-    if (this.dashEndPending) { this.dashEndPending = false; w.dashEnd(this.pos.clone()); } // wp/boons: once, at the final position
   }
 }

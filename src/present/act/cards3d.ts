@@ -10,6 +10,7 @@ import { cue } from '../../audio/cues';
 import { TIER_NAMES, type Boon, type BoonPick } from './boons';
 import { cardBoard, glyphIcon3D, paintFace, CARD_H, FACE, SOCKET, type CardStyle } from './cardBoard';
 import { onBodyFontChange } from '../ui3d/bodyFont';
+import { fillVals } from './cards';
 import type { Model3D } from '../ui3d/models3d';
 
 const styleOf = (b: Boon): CardStyle => {
@@ -19,11 +20,8 @@ const styleOf = (b: Boon): CardStyle => {
   return 'boon';
 };
 const tagOf = (b: Boon, tier: number, st: CardStyle) => (b as { tag?: string }).tag ?? (st === 'boon' ? TIER_NAMES[tier] ?? '' : st === 'manual' ? '刀谱' : '');
-/** the description with its {v} for this tier (vals[tier]) */
-export function descOf(b: Boon, tier: number): string[] {
-  const v = (b as { vals?: Array<number | string> }).vals?.[tier];
-  return b.desc.map(l => (v == null ? l.replace(/\{v\}/g, '') : l.replace(/\{v\}/g, String(v))));
-}
+/** the description with its {v} / {v2} for this tier (boons.ts vals / unit, cards.ts fillVals) */
+export const descOf = (b: Boon, tier: number): string[] => b.desc.map(l => fillVals(l, b, tier));
 const hexOf = (c: string) => parseInt(c.replace('#', ''), 16) || 0xd8d2c6;
 
 interface Card {

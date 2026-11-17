@@ -58,8 +58,7 @@ export interface Foe {
   /** act-19: thrown into the air (挑空斩, 飞踢, a heavy blow): the upward speed; undefined = on the ground */ airV?: number;
   st: St; t: number; dur: number; tele: Tele | null; teleYaw: number; telePos: THREE.Vector3; shape: TeleShape | null; dmg: number;
   cd: number; poise: number; attacking: boolean; hitHero: boolean; lunge: THREE.Vector3 | null; strafe: number; move: string;
-  /** the last blow's numbers (death form) */ lastDmg: number; burn: number; burnT: number; frozen: number; uid: number;
-  /** school frost: stacks, remaining slow time, fraction of movement speed removed */ chill: number; slowT: number; slowK: number;
+  /** the last blow's numbers (death form), and timed blade wounds */ lastDmg: number; uid: number; bleed: number; bleedT: number; bleedTick: number; bleedDrop: number; sunderT: number;
   /** the dummy's wobble (lean angles and their speeds, rad) */ wob: { x: number; z: number; vx: number; vz: number };
   /** the stronger variant (+80 % HP, bigger, one extra trick) */ elite: boolean; role: Role;
   /** the attack under way ('cut' 'slam' 'sweep' 'poke' 'lunge' 'shoot' 'cast' 'thunder' …) and follow-ups left (elite double cut / lunge) */
@@ -73,6 +72,7 @@ export interface FoeWorld {
   /** the hero is dashing (or just dashed): a near miss counts as a perfect dodge */ heroDodge: boolean;
   hurtHero(dmg: number, from: THREE.Vector3, attacker?: Foe): void;
   killFoe(f: Foe, from: THREE.Vector3): void;
+  bleedDamage(f: Foe): number; bleedSpill(f: Foe): void;
   foes: Foe[];
   arrows: Arrow[];
   clamp(p: THREE.Vector3, r: number): void;
@@ -102,7 +102,7 @@ export function spawnFoe(kind: EKind, at: THREE.Vector3, face: THREE.Vector3, el
   if (el) a.root.scale.setScalar(1.15);
   const hp = Math.round(d.hp * TUNE.enemyHp * (el ? 1.8 : 1));
   return { kind, d, a, hp, maxHp: hp, pos: a.home, vel: V3(), yaw: a.yaw, st: 'enter', t: 0, dur: 0.55, tele: null, teleYaw: 0, telePos: V3(), shape: null, dmg: 0,
-    cd: R(0.4, 1.2), poise: d.poise, attacking: false, hitHero: false, lunge: null, strafe: Math.random() < 0.5 ? -1 : 1, move: '', lastDmg: 0, burn: 0, burnT: 0, frozen: 0, chill: 0, slowT: 0, slowK: 0, uid: UID++,
+    cd: R(0.4, 1.2), poise: d.poise, attacking: false, hitHero: false, lunge: null, strafe: Math.random() < 0.5 ? -1 : 1, move: '', lastDmg: 0, bleed: 0, bleedT: 0, bleedTick: 0, bleedDrop: 0, sunderT: 0, uid: UID++,
     wob: { x: 0, z: 0, vx: 0, vz: 0 }, elite: el, role: base.role, atk: '', combo: 0, extra: [], inv: 0, phase: 1, summonT: 3, thunderCd: R(2, 4), auraT: 0 };
 }
 
@@ -134,19 +134,16 @@ const attackers = (w: FoeWorld) => w.foes.reduce((n, o) => n + (o.attacking && o
 
 export function updateFoe(f: Foe, w: FoeWorld, dt: number) {
   if (f.st === 'dead') return;
-  // Burning still ticks on ice; a lethal tick must reach the normal death/boon hooks.
-  if (f.burn > 0) {
-    f.burnT -= dt;
-    if (f.burnT <= 0) {
-      f.burnT = 0.5; f.burn--;
-      const from = f.pos.clone().add(V3(0, 0, -1));
-      if (damageFoe(f, 3, from, { quiet: true, burn: true })) { w.killFoe(f, from); return; }
-    }
+  f.sunderT = Math.max(0, f.sunderT - dt);
+  if (f.bleed > 0) {
+    const active = Math.min(dt, Math.max(0, 3 - f.bleedT)); f.bleedT += dt; f.bleedTick += active; f.bleedDrop += active;
+    while (f.bleedDrop >= 0.4) { f.bleedDrop -= 0.4; w.bleedSpill(f); }
+    while (f.bleedTick >= 1) { f.bleedTick -= 1; const from = f.pos.clone().add(V3(0, 0, -1)); if (damageFoe(f, w.bleedDamage(f), from, { quiet: true, dot: true })) { w.killFoe(f, from); return; } }
+    if (f.bleedT >= 3) { f.bleed = 0; f.bleedTick = 0; f.bleedDrop = 0; }
   }
   // Pause attack clocks as well as movement, including training dummies.
   // act-19: in the air (thrown up / sent flying): a ballistic arc, then a thump and a puff on landing
   if (f.airV != null) { f.pos.y += f.airV * dt; f.airV -= 24 * dt; if (f.pos.y <= 0) { f.pos.y = 0; f.airV = undefined; fxSmoke(f.pos.clone().setY(0.2), 0x8a7a6a, 4, { r: 0.4, spd: 1.4, up: 0.4, s: 0.32, life: 0.5 }); cue('land', 0.6); } }
-  if (f.frozen > 0) { f.frozen = Math.max(0, f.frozen - dt); f.vel.set(0, 0, 0); f.a.setRunning(false); f.a.tint(0x9ae8ff, 0.65); return; }
   if (f.kind === 'dummy') {
     // a stiff spring back to upright, well damped (a couple of swings after a hard hit)
     const o = f.wob, K = 140, D = 9;
@@ -350,7 +347,7 @@ function strike(f: Foe, w: FoeWorld) {
 }
 
 function integrate(f: Foe, w: FoeWorld, dt: number) {
-  f.pos.addScaledVector(f.vel, dt * (f.slowT > 0 ? 1 - f.slowK : 1));
+  f.pos.addScaledVector(f.vel, dt);
   // keep apart from each other and out of the hero
   for (const o of w.foes) if (o !== f && o.st !== 'dead') { const d = f.pos.clone().sub(o.pos).setY(0), l = d.length(), m = f.d.r + o.d.r; if (l < m && l > 1e-4) f.pos.addScaledVector(d, ((m - l) / l) * (o.d.mass / (o.d.mass + f.d.mass))); }
   if (w.heroAlive && f.st !== 'strike' && w.heroY < 0.6) { const d = f.pos.clone().sub(w.heroPos).setY(0), l = d.length(), m = f.d.r + w.heroR; if (l < m && l > 1e-4) f.pos.addScaledVector(d, (m - l) / l); }
@@ -364,27 +361,27 @@ export function interruptFoe(f: Foe, reel = 0.9) {
   dropTeles(f); f.attacking = false; f.lunge = null; f.hitHero = true; f.combo = 0; setSt(f, 'stagger', reel); f.cd = Math.max(f.cd, reel + 0.3);
 }
 /** a hit on a foe: HP, flash, knock-back, the stagger (light foes) or the poise (the chief). Returns true if it died */
-export function damageFoe(f: Foe, dmg: number, from: THREE.Vector3, o: { knock?: number; stagger?: number; poiseDmg?: number; quiet?: boolean; burn?: boolean } = {}): boolean {
+export function damageFoe(f: Foe, dmg: number, from: THREE.Vector3, o: { knock?: number; stagger?: number; poiseDmg?: number; quiet?: boolean; dot?: boolean } = {}): boolean {
   if (f.st === 'dead') return false;
   if (f.kind === 'dummy') {
     // never dies: rocks back from the blow and flashes
     const away = f.pos.clone().sub(from).setY(0); if (away.lengthSq() < 1e-4) away.set(0, 0, -1); away.normalize();
     const k = Math.min(1.6, 0.35 + dmg / 14) * (0.6 + 0.4 * (o.knock ?? 1)) * 3.2;
     f.wob.vx += away.z * k; f.wob.vz -= away.x * k; f.lastDmg = dmg;
-    if (!o.burn) f.a.hit(Math.min(1.4, 0.5 + dmg / 18));
+    if (!o.dot) f.a.hit(Math.min(1.4, 0.5 + dmg / 18));
     return false;
   }
   // the boss's roar: the blow glances off
   if (f.inv > 0) { f.a.tint(0xffffff, 1); fxSparks(f.a.chest(), 0xfff6d0, 10, 4); return false; }
   f.hp -= dmg; f.lastDmg = dmg;
   const away = f.pos.clone().sub(from).setY(0); if (away.lengthSq() < 1e-4) away.set(0, 0, -1); away.normalize();
-  if (!o.burn) {
+  if (!o.dot) {
     // poise foes in the middle of an attack only flinch (the wind-up's pose stays readable); everyone else plays the hurt
     if (f.d.poise > 0 && (f.st === 'windup' || f.st === 'strike')) f.a.hit(Math.min(1.4, 0.5 + dmg / 18)); else f.a.hurt(Math.min(1.6, 0.5 + dmg / 18));
     f.vel.addScaledVector(away, ((o.knock ?? 1) * 6 * TUNE.knock) / f.d.mass);
   }
   if (f.hp <= 0) { f.hp = 0; f.st = 'dead'; f.attacking = false; dropTeles(f); return true; }
-  if (o.burn) return false;
+  if (o.dot) return false;
   if (f.d.poise > 0) {
     f.poise -= o.poiseDmg ?? dmg;
     if (f.poise <= 0) { f.poise = f.d.poise; dropTeles(f); f.attacking = false; f.lunge = null; f.combo = 0; setSt(f, 'stagger', 1.3); f.a.play(new Action('hurt', 1.0, 0.1, { power: 1.6 })); cue('parry', 0.8); cue('cutHeavy', 0.6); }
