@@ -515,10 +515,11 @@ export class Hero {
   private useDart() { this.dartAmmo = Math.max(0, this.dartAmmo - 1); if (this.dartAmmo === 0) this.dartReload = TUNE.dartReload; }
   /** 收刀 after 见切: a flick of the blade (血振), across to the scabbard at the left hip, pushed home with a click, the hand on the hilt */
   private notoClicked = false;
-  /** act-19: the blade is out of sight while the sword is in its sheath — 藏锋 after the sheathing click, 归鞘 after its click */
+  /** act-19 hid the blade once the sword was "in its sheath" (藏锋 / 归鞘). act-24 (user: 「收刀的时候刀怎么看不见了？」): the fine heroine
+   *  has no scabbard and holds the blade along the outside of her left hip, so it stays in sight the whole time */
   private showBlade() {
     const b = (this.a.bones as Record<string, THREE.Object3D | undefined>).blade; if (!b) return;
-    b.visible = !((this.st === 'charge' && this.chargeK >= 0.2) || (this.st === 'noto' && this.t >= this.dur * NOTO_CLICK));
+    b.visible = true;
   }
   startNoto() { this.set('noto', NOTO_T); this.notoClicked = false; this.a.play(new Action('noto', NOTO_T, NOTO_CLICK)); }
   /** where the left hand is now (the dart's start) */

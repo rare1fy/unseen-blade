@@ -190,7 +190,7 @@ function thrust(I: Pose, k: number, off: THREE.Vector3): Pose {
 // (rR rolls the hand round the blade); the left elbow bent back and the left palm on the blade's flat behind the hip.
 // (eR / yR are the blade's world direction for the hips turned hy = −0.3 — the charge and the 归鞘 both settle the hips there)
 const SHEATHED: Partial<Pose> = { aRx: 0.18, aRz: 0.23, fR: -1.58, eR: -0.276, yR: 2.516, rR: -1.407, aLx: -0.04, aLz: 0.04, fL: -0.57, eL: 0,
-  sy: 1.0, sx: 0.3, hy: -0.3, nx: -0.2, ny: -0.62 };
+  sy: 1.0, sx: 0.3, hy: -0.3, nx: 0.25, ny: 0.05 };   // act-24 (user: 「面部应该是往左侧微微往下低的，现在是往右上仰起来的」): the head goes with the turned chest, bowed a little toward the blade
 function charge(I: Pose, c: number, t: number, creep = 0, ph = 0): Pose {
   const sh = c > 0.98 ? Math.sin(t * 90) * 0.012 : 0;
   // the sheathing: the first ~0.3 s of the stance plays the 归鞘 cross-over (k 0.3 → 1, the click at 0.64)
@@ -218,7 +218,7 @@ function noto(I: Pose, k: number): Pose {
     rR: S(k, [[0, 0], [0.3, 0], [0.45, -0.8], [0.64, -1.407], [1, -1.407]]),
     aLx: S(k, [[0, -0.5], [0.3, -0.25], [0.64, -0.04], [1, -0.04]]), aLz: S(k, [[0, 0.4], [0.3, 0.1], [0.64, 0.04], [1, 0.04]]), fL: S(k, [[0, -1.3], [0.3, -1.0], [0.64, -0.57], [1, -0.57]]), eL: 0,
     sy: S(k, [[0, 0], [0.12, -0.2], [0.3, 0.5], [0.45, 0.8], [0.64, 1.0], [1, 1.0]]), sx: S(k, [[0, 0.2], [0.45, 0.26], [0.64, 0.3], [1, 0.3]]),
-    nx: S(k, [[0, 0], [0.64, -0.15], [1, -0.2]]), ny: S(k, [[0, 0], [0.3, -0.3], [0.64, -0.62], [1, -0.62]]), hy: S(k, [[0, -0.22], [0.64, -0.3], [1, -0.3]]),   // act-20: head up, not bowed
+    nx: S(k, [[0, 0], [0.45, 0.15], [0.64, 0.25], [1, 0.25]]), ny: S(k, [[0, 0], [0.3, 0.02], [0.64, 0.05], [1, 0.05]]), hy: S(k, [[0, -0.22], [0.64, -0.3], [1, -0.3]]),   // act-24: the face to the left and a little down, toward the blade
     tL: -0.3, kL: 0.35, tR: 0.2, kR: 0.3, lift: 0.6, flut: 0.5,
   };
   return mix(I, A, curve(k, [[0, 0.6], [0.06, 1], [0.9, 1], [1, 0.85]]));
@@ -266,7 +266,7 @@ function release(I: Pose, k: number): Pose {
     fR: S(k, [[0, -1.58], [0.12, -1.4], [0.3, -0.4], [0.6, -0.6], [1, -1.25]]), eR: S(k, [[0, -0.276], [0.12, 0.0], [0.3, 0.05], [0.6, 0.2], [1, 0.6]]),
     yR: S(k, [[0, 2.516], [0.12, 2.1], [0.3, 1.4], [0.6, 0.85], [1, -0.15]]), rR: S(k, [[0, -1.407], [0.12, -0.7], [0.3, 0], [1, 0]]),
     sy: S(k, [[0, 1.0], [0.12, 0.75], [0.3, -0.35], [0.6, -0.5], [1, 0.12]]), hy: S(k, [[0, -0.3], [0.3, 0.25], [1, -0.32]]), sx: S(k, [[0, 0.3], [0.3, 0.55], [1, 0.22]]),
-    ny: S(k, [[0, -0.62], [0.3, 0], [1, 0]]),
+    ny: S(k, [[0, 0.05], [0.3, 0], [1, 0]]), nx: S(k, [[0, 0.25], [0.3, 0], [1, -0.05]]),
     tL: S(k, [[0, -0.95], [0.3, -1.25], [0.75, -1.1], [1, -0.55]]), kL: S(k, [[0, 1.45], [0.3, 0.55], [1, 0.75]]), tR: S(k, [[0, 0.5], [0.3, 0.95], [1, 0.3]]), kR: S(k, [[0, 1.2], [0.3, 0.2], [1, 0.4]]),
     aLx: S(k, [[0, -0.04], [0.12, 0.45], [0.3, 0.6], [0.7, 0.2], [1, -0.15]]), aLz: S(k, [[0, 0.04], [0.12, 0.05], [0.3, 0.2], [0.7, 0.3], [1, 0.35]]), fL: S(k, [[0, -0.57], [0.12, -1.15], [0.3, -1.2], [0.7, -1.2], [1, -1.45]]),
     eL: S(k, [[0, 0.2], [0.3, 0.3], [1, -0.25]]),
@@ -407,7 +407,7 @@ const heroHook = (b: Record<string, Bone>, t: number, a: Action | null, off: THR
   // curled a little (eL now only tips it a touch further for palm strikes)
   if (cool && b.handL) b.handL.quaternion.setFromEuler(HAND_L.set(-0.18 - 0.25 * Math.max(0, P.eL), 0, 0));
   const self2 = self0;
-  if (cool && !a && !(m && (m.run > 0.05 || inAir))) listen(b, t);
+  if (cool && !a && !(m && (m.run > 0.05 || inAir || m.charge > 0))) listen(b, t);   // (act-24: not in the 藏锋 stance — the head stays bowed to the blade)
   tails(b, t, P.lift, P.flut);
   if (self2) trails(self2, a, m);
 };
