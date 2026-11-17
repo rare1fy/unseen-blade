@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import { V3 } from '../engine/world';
 import { BattleActor } from '../bestiary/battle';
-import { Action } from '../actors/rig';
+import { Action, rot, mov } from '../actors/rig';
 import type { ModelDef } from '../bestiary/models';
 import { fxAfterimage } from '../fx/skillFx';
 import { fxSparks } from '../fx/fx';
@@ -152,6 +152,24 @@ export class Hero {
     this.set('free', 0); this.y = 0; this.vy = 0;
   }
   get alive() { return this.st !== 'dead'; }
+  /** act-40 (用户：「现在主角死了的动画太僵硬了」 — it was the generic stiff fall: the hips swung back 1.35 rad, a plank): her own death,
+   *  laid over the pose each frame after the actor's update — the blow throws her back, the knees go and she sinks onto them, the
+   *  blade's point drops to the ground, she sags forward, then topples onto her side and goes limp */
+  deathSide: 1 | -1 = 1;
+  deathPose() {
+    if (this.st !== 'dead') return;
+    const t = this.t, b = this.a.bones, sm = (x: number) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
+    const k1 = sm(t / 0.16) * (1 - sm((t - 0.2) / 0.3)), k2 = sm((t - 0.14) / 0.42), k3 = sm((t - 0.72) / 0.55), s = this.deathSide;
+    rot(b.spine, -0.4 * k1 + 0.5 * k2 * (1 - 0.7 * k3), 0, 0); rot(b.chest, -0.15 * k1 + 0.22 * k2 * (1 - 0.5 * k3), 0, 0);
+    rot(b.neck, -0.3 * k1 + 0.3 * k2, 0, 0); rot(b.head, -0.25 * k1 + 0.35 * k2, 0.25 * k3 * s, 0);
+    mov(b.hips, 0, -0.44 * k2 * (1 - 0.7 * k3), -0.06 * k2);
+    rot(b.legL, 0.3 * k2 * (1 - 0.4 * k3) + 0.4 * k3, 0, 0.06 * k2); rot(b.shinL, -1.75 * k2 * (1 - 0.55 * k3), 0, 0); rot(b.footL, 0.5 * k2 * (1 - k3), 0, 0);
+    rot(b.legR, 0.2 * k2 * (1 - 0.4 * k3) + 0.15 * k3, 0, -0.06 * k2); rot(b.shinR, -1.65 * k2 * (1 - 0.7 * k3), 0, 0); rot(b.footR, 0.5 * k2 * (1 - k3), 0, 0);
+    rot(b.armR, -0.6 * k1 + 0.45 * k2, 0, 0.25 * k2); rot(b.foreR, 0.2 * k2, 0, 0);
+    rot(b.armL, -0.35 * k1 + 0.25 * k2 + 0.6 * k3, 0, -0.15 * k2 - 0.5 * k3 * s); rot(b.foreL, -0.3 * k3, 0, 0);
+    // over onto her side, pivoting low (the hips are already down on the heels)
+    this.a.body.rotation.set(0, 0, (Math.PI / 2 - 0.12) * k3 * s); this.a.body.position.set(-0.18 * k3 * s, 0.1 * k3, 0);
+  }
   /** 0..1 while holding a charge (the HUD and the ring under the hero show it), else 0 */
   get charge() { return this.st === 'charge' ? this.chargeK : 0; }
   get airborne() { return this.y > 0.01; }
@@ -209,14 +227,14 @@ export class Hero {
   }
   get gravity() { return (8 * TUNE.jumpH) / (TUNE.jumpT * TUNE.jumpT); }
   /** 回据点 from the pause menu: she falls where she stands (the run ends as a death) */
-  giveUp() { this.hp = 0; this.set('dead', 99); this.a.fall(); }
+  giveUp() { this.hp = 0; this.set('dead', 99); this.a.dead = true; }
   hurt(dmg: number, from: THREE.Vector3): boolean {
     if (!this.alive || this.iframe) return false;
     this.hp = Math.max(0, this.hp - dmg); this.inv = TUNE.hurtIframe; this.linkT = 0; this.dashTailT = 0;
     const away = this.pos.clone().sub(from).setY(0); if (away.lengthSq() < 1e-4) away.set(0, 0, 1); away.normalize();
     this.vel.copy(away).multiplyScalar(7); motionOf(this.a).charge = 0;
     if (this.vy > 0) this.vy = 0;
-    if (this.hp <= 0) { this.set('dead', 99); this.a.fall(); return true; }
+    if (this.hp <= 0) { this.set('dead', 99); this.a.dead = true; this.deathSide = Math.random() < 0.5 ? 1 : -1; return true; }
     this.set('hurt', 0.26); this.a.play(new Action('hurt', 0.4, 0.1, { power: 1.2 })); this.a.hit(1);
     return true;
   }

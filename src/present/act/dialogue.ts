@@ -56,7 +56,9 @@ export class Dialogue {
   /** play lines; resolves when the last is dismissed */
   play(lines: Line[], onLine?: (i: number, line: Line) => void): Promise<void> {
     this.onLine = onLine ?? null;
-    this.lines = lines.filter(l => l.text); this.i = 0; this.shown = 0; this.t = 0; this.drawn = -1; this.on = true; this.openT = 0; this.box.visible = true;
+    // (act-40 用户：「旁白的立绘对话不要放个人的立绘在那儿摆着」: a line that is all in brackets is narration — 冯铁臂's silent business
+    //  included — whoever it is filed under)
+    this.lines = lines.filter(l => l.text).map(l => (/^（[^（）]*）$/.test(l.text.trim()) ? { ...l, who: 'act' } : l)); this.i = 0; this.shown = 0; this.t = 0; this.drawn = -1; this.on = true; this.openT = 0; this.box.visible = true;
     this.outK = 0;
     for (const s of ['L', 'R'] as const) { const S = this.sides[s]; if (S.mesh) { this.L.scene.remove(S.mesh); (S.mesh.material as THREE.Material).dispose(); S.mesh.geometry.dispose(); S.mesh = null; } S.id = ''; S.on = 0; S.k = 0; S.pop = 0; S.was = false; S.away = 0; }
     // both portraits of the scene come up together: whoever speaks first on each side

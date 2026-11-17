@@ -217,3 +217,21 @@ export function coldOpenShots(h: ColdHost): { shots: CineShot[]; dispose: () => 
     },
   };
 }
+
+// ---------------------------------------------------------------- act-40: the cold open as black cards
+// 用户：「现在开场太墨迹了，把那段timeline先搞成黑幕快速交代背景吧」— for now the night is told in five cards on black (the falling snow
+// as faint rings, a slow ring like a heartbeat under the father's words); the 寒山坞 cutscene above stays for later
+export const COLD_CARD_LINES = ['熹平六年，腊月。寒山坞，大雪。', '黄巾夜里进了坞。铸刀的文家，一夜死绝。', '阿爹倒在锻炉前。炉火烫瞎了她的眼。'];
+export function coldCardShots(pov: BlindPOV): CineShot[] {
+  const cards = [...COLD_CARD_LINES, PRO_COLD, COLD_CARD2], last = cards.length - 1;
+  return cards.map((text, i): CineShot => ({
+    dur: i === last ? 3.0 : i === last - 1 ? 3.0 : 2.5, ease: 'linear', from: { pos: [0, 30, 30] as V, look: [0, 0, 0] as V, fov: 30 },
+    caption: { text, big: true, at: 0.25, hold: i >= last - 1 ? 2.4 : 1.9 },
+    at: [[0, () => { if (i === 0) pov.fill(0x000000, 1, true); }]],
+    tick: (t, dt) => {
+      if (Math.random() < dt * 10) pov.ring(Math.random(), 0.12 + Math.random() * 0.76, { r0: 2, r1: 10 + Math.random() * 10, life: 1.1, a: 0.28 });
+      if (i === last - 1 && Math.floor((t - dt) / 0.9) !== Math.floor(t / 0.9)) pov.ring(0.5, 0.62, { r0: 10, r1: 70, life: 1.4, col: 0xdfe8ff, a: 0.35 });
+    },
+  }));
+}
+
