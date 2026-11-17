@@ -103,9 +103,9 @@ function buildChild(): V {
 }
 
 /** 文皎's pose targets (0..1 each; walk is m/s): the hook eases to them, so a cutscene can just set them */
-export interface ChildPose { walk: number; crouch: number; peek: number; tremble: number; dragged: number; look: number }
+export interface ChildPose { walk: number; crouch: number; peek: number; tremble: number; dragged: number; look: number; kneel: number; sob: number; bow: number }
 const CHILD = new WeakMap<object, { tgt: ChildPose; cur: ChildPose; ph: number; t: number }>();
-const childState = (a: object) => { let s = CHILD.get(a); if (!s) { const z = { walk: 0, crouch: 0, peek: 0, tremble: 0, dragged: 0, look: 0 }; s = { tgt: { ...z }, cur: { ...z }, ph: 0, t: -1 }; CHILD.set(a, s); } return s; };
+const childState = (a: object) => { let s = CHILD.get(a); if (!s) { const z = { walk: 0, crouch: 0, peek: 0, tremble: 0, dragged: 0, look: 0, kneel: 0, sob: 0, bow: 0 }; s = { tgt: { ...z }, cur: { ...z }, ph: 0, t: -1 }; CHILD.set(a, s); } return s; };
 /** set any of 文皎's pose targets on her actor: childPose(a).crouch = 1 (huddled under the bellows), .peek = 1 (head up, looking out), … */
 export const childPose = (a: object): ChildPose => childState(a).tgt;
 /** snap her straight to the targets (no easing: a cut) */
@@ -152,6 +152,28 @@ POSE_HOOKS.child_wenjiao = (b: Bones, t: number, _a, _off, self) => {
   }
   // ---- trembling (fear; on whenever she is huddled): small and fast, the shoulders and head
   if (tr > 0.001) { rot(b.chest, Math.sin(t * 31) * 0.014 * tr, 0, Math.sin(t * 27) * 0.012 * tr); rot(b.head, Math.sin(t * 23) * 0.01 * tr, 0, 0); }
+  // ---- act-37 the cold open (用户的分镜：伏在爹的尸体前哭 → 正面掩面哭): kneeling in the snow (on both knees, thighs a little forward,
+  // the shins back flat, sitting back toward the heels); bowed over him (the back bent, hands down on his chest); sobbing with both
+  // hands over the face (elbows in front of the chest, the head down into the hands, the shoulders heaving)
+  const kn = c.kneel, bw = c.bow, sb = c.sob, heave = (0.5 + 0.5 * Math.sin(t * 6.2)) * Math.max(bw, sb);
+  if (kn > 0.001) {
+    mov(b.hips, 0, -0.3 * kn, -0.05 * kn);
+    rot(b.legL, -0.35 * kn, 0, 0.05 * kn); rot(b.shinL, 1.78 * kn, 0, 0); rot(b.footL, 1.6 * kn, 0, 0);
+    rot(b.legR, -0.35 * kn, 0, -0.05 * kn); rot(b.shinR, 1.78 * kn, 0, 0); rot(b.footR, 1.6 * kn, 0, 0);
+  }
+  if (bw > 0.001) {
+    rot(b.spine, (0.62 + 0.05 * heave) * bw, 0, 0); rot(b.chest, (0.22 - 0.06 * heave) * bw, 0, 0); rot(b.neck, 0.15 * bw, 0, 0); rot(b.head, 0.35 * bw, 0, 0);
+    rot(b.armL, -0.95 * bw, 0, -0.12 * bw); rot(b.foreL, -0.35 * bw, 0, 0);
+    rot(b.armR, -0.95 * bw, 0, 0.12 * bw); rot(b.foreR, -0.35 * bw, 0, 0);
+  }
+  if (sb > 0.001) {
+    // (the upper arms raised forward and swung in toward the middle, the forearms up and a little forward: the palms over the eyes)
+    rot(b.spine, (0.12 + 0.05 * heave) * sb + 0.62 * bw * (1 - sb), 0, 0); rot(b.chest, (0.04 - 0.05 * heave) * sb, Math.sin(t * 3.1) * 0.03 * sb, 0);
+    rot(b.neck, 0.1 * sb, 0, 0); rot(b.head, (0.2 + 0.04 * Math.sin(t * 6.2)) * sb, 0, 0);
+    rot(b.armL, -1.4 * sb, -0.72 * sb, 0); rot(b.foreL, -1.3 * sb, 0, 0);
+    rot(b.armR, -1.4 * sb, 0.72 * sb, 0); rot(b.foreR, -1.3 * sb, 0, 0);
+    mov(b.chest, 0, 0.008 * heave * sb, 0);
+  }
   // the cord ends swing a little
   rot(b.bfA1, 0.06 + Math.sin(t * 1.9) * 0.08, 0, 0.05 + Math.sin(t * 1.3) * 0.05); rot(b.bfB1, 0.06 + Math.sin(t * 2.1 + 1) * 0.08, 0, -0.05 - Math.sin(t * 1.4) * 0.05);
 };
@@ -276,26 +298,27 @@ function buildKiller(big: boolean): V {
 
 /** a torch-bearer's pose targets: walk = m/s (0 stands), look = head yaw (rad, + = his left), down = 0..1 looking at the floor,
  *  reach = 0..1 the right arm out forward and down (to take hold of something), torch = 1 held up (0 = lowered to the side) */
-export interface KillerPose { walk: number; look: number; down: number; reach: number; torch: number }
+export interface KillerPose { walk: number; look: number; down: number; reach: number; torch: number; swing: number; laugh: number; kick: number }
 const KILL = new WeakMap<object, { tgt: KillerPose; cur: KillerPose; ph: number; t: number }>();
-const killState = (a: object) => { let s = KILL.get(a); if (!s) { const z = { walk: 0, look: 0, down: 0, reach: 0, torch: 1 }; s = { tgt: { ...z }, cur: { ...z }, ph: Math.random() * 6, t: -1 }; KILL.set(a, s); } return s; };
+const killState = (a: object) => { let s = KILL.get(a); if (!s) { const z = { walk: 0, look: 0, down: 0, reach: 0, torch: 1, swing: 0, laugh: 0, kick: 0 }; s = { tgt: { ...z }, cur: { ...z }, ph: Math.random() * 6, t: -1 }; KILL.set(a, s); } return s; };
 export const killerPose = (a: object): KillerPose => killState(a).tgt;
 export const killerSnap = (a: object) => { const s = killState(a); Object.assign(s.cur, s.tgt); };
 const killerHook = (big: boolean): PoseFn => (b: Bones, t, _a, _off, self) => {
   const st = killState(self as object), dt = st.t < 0 ? 0 : Math.max(0, Math.min(0.1, t - st.t)); st.t = t;
   const c = st.cur, g = st.tgt;
-  for (const k of Object.keys(c) as Array<keyof KillerPose>) c[k] = ease(c[k], g[k], dt * (k === 'walk' ? 5 : 3.5));
+  for (const k of Object.keys(c) as Array<keyof KillerPose>) c[k] = ease(c[k], g[k], dt * (k === 'walk' ? 5 : k === 'swing' ? 16 : k === 'kick' ? 14 : 3.5));
   const stride = big ? 0.86 : 0.76, w = clamp01(c.walk / 0.8), rc = c.reach, tu = c.torch;
   st.ph += dt * Math.PI * c.walk / stride;
   const s = Math.sin(st.ph), co = Math.cos(st.ph), br = Math.sin(t * 1.5);
   // ---- legs: a soldier's heavy walk (the swinging knee lifts, the foot stays near level); standing, feet a little apart
-  const A = 0.5 * w;
-  const kL = (0.08 + 0.85 * Math.max(0, co)) * w, kR = (0.08 + 0.85 * Math.max(0, -co)) * w;
+  // (act-37: past a walk it is a run — a longer stride, the knee lifted high, the body leaning into it)
+  const rk = clamp01((c.walk - 2.2) / 2), A = 0.5 * w + 0.32 * rk;
+  const kL = (0.08 + (0.85 + 0.6 * rk) * Math.max(0, co)) * w, kR = (0.08 + (0.85 + 0.6 * rk) * Math.max(0, -co)) * w;
   rot(b.legL, -A * s, 0, 0.05 * (1 - w)); rot(b.shinL, kL, 0, 0); rot(b.footL, -0.45 * (-A * s + kL) + 0.1 * w, 0, 0);
   rot(b.legR, A * s, 0, -0.05 * (1 - w)); rot(b.shinR, kR, 0, 0); rot(b.footR, -0.45 * (A * s + kR) + 0.1 * w, 0, 0);
   mov(b.hips, 0, -0.03 * w * Math.abs(s) + br * 0.006 * (1 - w), 0); rot(b.hips, 0, -0.06 * s * w, 0);
   // ---- body: a little forward into the walk, the shoulders countering the hips; the breath when still; leaning in to reach / look down
-  const sx = 0.05 + 0.06 * w + br * 0.01 * (1 - w) + 0.1 * c.down + 0.35 * rc, cx = 0.02 + 0.08 * rc;
+  const sx = 0.05 + 0.06 * w + 0.26 * rk + br * 0.01 * (1 - w) + 0.1 * c.down + 0.35 * rc - 0.18 * c.laugh - 0.2 * c.kick, cx = 0.02 + 0.08 * rc;
   rot(b.spine, sx, 0.05 * s * w, 0); rot(b.chest, cx, 0.03 * s * w, 0);
   rot(b.neck, 0.25 * c.down - 0.1 * rc, c.look * 0.4, 0); rot(b.head, 0.35 * c.down - 0.05 * w, c.look * 0.6 + Math.sin(t * 0.4) * 0.06 * (1 - w), 0);
   // ---- the torch arm: upper arm forward, forearm up, the torch stood upright whatever the body does; a slight sway with the stride
@@ -306,6 +329,28 @@ const killerHook = (big: boolean): PoseFn => (b: Bones, t, _a, _off, self) => {
   const aR = 0.05 - 0.24 * s * w - 1.15 * rc, fR = -0.38 + 0.2 * rc;
   rot(b.armR, aR, 0, -0.1 + 0.05 * rc); rot(b.foreR, fR, 0, 0);
   rot(b.weapon, 1.05 - (sx + cx + aR + fR) * (1 - rc) + 0.4 * rc, 0, 0);
+  // ---- act-37 the cold open's flashbacks: the chop (swing 1 = the sabre raised over the head, 2 = brought down and through), the laugh
+  // (head thrown back, the jaw dropped, the chest shaking, the sabre arm flung out), the kick (the right leg driven out straight)
+  const sw = c.swing;
+  if (sw > 0.001) {
+    const k = clamp01(sw), ph = clamp01(sw - 1), mix = (a: number, b2: number) => a + (b2 - a) * ph;
+    const ax = mix(-2.6, -0.45), fx = mix(-0.5, -0.1);
+    rot(b.armR, aR * (1 - k) + ax * k, 0, -0.1); rot(b.foreR, fR * (1 - k) + fx * k, 0, 0); rot(b.weapon, mix(0.62, 1.0) * k + (1.05 - (sx + cx + aR + fR)) * (1 - k), 0, 0);
+    rot(b.spine, sx + 0.25 * ph * k - 0.1 * (1 - ph) * k, 0, 0);
+  }
+  const la = c.laugh;
+  if (la > 0.001) {
+    const shake = Math.sin(t * 15) * 0.035 * la;
+    // (his face is in the hood's shadow: the laugh has to read in the body — the head and chest thrown back, the arms flung wide,
+    //  the torch high, the shoulders shaking)
+    rot(b.neck, -0.35 * la, 0, 0); rot(b.head, -0.45 * la + shake, 0, 0); rot(b.chest, cx - 0.12 * la + shake, 0, 0);
+    if (b.jaw) rot(b.jaw, 0.3 * la, 0, 0);
+    rot(b.armR, -0.35 * la, 0, -1.15 * la); rot(b.foreR, -0.25, 0, 0); rot(b.weapon, 0.6, 0, 0);
+    rot(b.armL, -0.6 * la - 1.2 * la * tu, 0, 0.9 * la); rot(b.foreL, -0.6 * la, 0, 0);
+    mov(b.hips, 0, Math.abs(Math.sin(t * 15)) * 0.012 * la, 0);
+  }
+  const kk = c.kick;
+  if (kk > 0.001) { rot(b.legR, -1.35 * kk, 0, -0.05); rot(b.shinR, 0.2 * kk, 0, 0); rot(b.footR, -0.3 * kk, 0, 0); rot(b.legL, 0.15 * kk, 0, 0.05); rot(b.shinL, 0.15 * kk, 0, 0); }
   // ---- the cloak's back panel lifts back off the legs as he walks
   rot(b.cape, 0.05 + 0.16 * w + 0.05 * Math.abs(co) * w + Math.sin(t * 1.1) * 0.02, 0, Math.sin(t * 0.8) * 0.02);
   // ---- the flame: flickers in length and width
@@ -324,6 +369,74 @@ export function torchLight(a: BattleActor, intensity = 2.2, dist = 6) {
   const l = new THREE.PointLight(0xff9a48, intensity, dist, 1.8); scene.add(l); const e = { l, a, i: intensity, ph: Math.random() * 9 }; TORCHES.push(e);
   return () => { scene.remove(l); const k = TORCHES.indexOf(e); if (k >= 0) TORCHES.splice(k, 1); };
 }
+
+// ================================================================== 阿爹（文家铸刀匠，那一夜）
+// act-37 (用户的分镜：伏在爹的尸体前哭、闪回「一刀砍死阿爹」): a smith in his forties — black hair in a topknot under a dark cloth band,
+// a short black beard; an undyed hemp jacket (crossed collar, sleeves to the elbow), a dark leather apron from the chest to the knee,
+// hemp trousers wrapped at the shin, cloth shoes. Same biped joints as the killers (the corpse is laid out with prologue.ts layDead).
+const FA = { SKIN: 0xb88a68, SKIN_D: 0x96684c, HAIR: 0x18161c, BAND: 0x3a3632, BEARD: 0x1e1a1a, EYE: 0x120c0a,
+  JK: 0xa8987a, JK_D: 0x86785e, JK_L: 0xc0b294, APRON: 0x3a2a20, APRON_D: 0x281c14, APRON_L: 0x54402e, TROU: 0x6e6452, TROU_D: 0x544c3e, WRAP: 0x8e8470, SHOE: 0x2a2624, SOLE: 0x7a7266 };
+function buildFather(): V {
+  const v = fine(), k = KD_CLOAK, C = FA;
+  v.bone('hips', 'root', 0, k.hip, 0).bone('spine', 'hips', 0, k.spine, 0).bone('chest', 'spine', 0, k.chest, 0)
+    .bone('neck', 'chest', 0, k.neck, 0).bone('head', 'neck', 0, k.head, 0).bone('jaw', 'head', 0, k.head + 4, 4).bone('hat', 'head', 0, k.head + 14, 0)
+    .bone('cape', 'chest', 0, k.neck - 1, -k.d - 1);
+  for (const [sg, L] of [[1, 'L'], [-1, 'R']] as const) {
+    v.bone('sh' + L, 'chest', sg * k.ax, k.neck, 0).bone('arm' + L, 'sh' + L, sg * k.ax, k.neck, 0).bone('fore' + L, 'arm' + L, sg * k.ax, k.elbow, 0).bone('hand' + L, 'fore' + L, sg * k.ax, k.wrist, 0);
+    v.bone('leg' + L, 'hips', sg * k.lx, k.hip, 0).bone('shin' + L, 'leg' + L, sg * k.lx, k.knee, 0).bone('foot' + L, 'shin' + L, sg * k.lx, k.foot, 0);
+  }
+  const gy = k.hand0 + 1.5;
+  v.bone('weapon', 'handR', -k.ax, gy, 0).bone('offhand', 'handL', k.ax, gy, 0).bone('blade', 'weapon', -k.ax, gy, 5);
+  const LX = (cx: number, w: number): [number, number] => [Math.round(cx - w), Math.round(cx + w) - 1];
+  // legs: cloth shoes, wrapped shins, trousers; the jacket's skirt and the apron over the thighs
+  { const [a, b] = LX(k.lx, k.lw + 0.5), [sa, sb2] = LX(k.lx, k.lw - 0.5);
+    LR(v, 'foot', a, 0, -2, b, 0, 4, C.SOLE); LR(v, 'foot', a, 1, -2, b, k.foot - 1, 3, C.SHOE);
+    LR(v, 'shin', sa, k.foot, -2, sb2, k.knee - 1, 2, C.WRAP); LR(v, 'shin', sa, k.foot + 3, -2, sb2, k.foot + 3, 2, C.TROU_D);
+    LR(v, 'leg', a, k.knee, -3, b, k.hip - 1, 3, C.TROU);
+    LR(v, 'leg', a - 1, k.knee + 4, -4, b + 1, k.hip - 1, 3, C.JK); LR(v, 'leg', a - 1, k.knee + 4, -4, b + 1, k.knee + 4, 3, C.JK_D);
+    LR(v, 'leg', a - 1, k.knee + 1, 4, b, k.hip - 1, 4, C.APRON); LR(v, 'leg', a - 1, k.knee + 1, 4, b, k.knee + 1, 4, C.APRON_L);
+  }
+  const hw = k.hw, cw = k.cw, d = k.d;
+  R(v, 'hips', -hw, k.hip, -d, hw - 1, k.spine - 1, d - 1, C.JK);
+  R(v, 'spine', -hw, k.spine, -d, hw - 1, k.chest - 1, d - 1, C.JK); B(v, 'spine', -hw - 1, k.spine, -d - 1, hw, k.spine + 1, d, C.JK_D);
+  R(v, 'chest', -cw, k.chest, -d, cw - 1, k.neck - 1, d - 1, C.JK, true);
+  // the crossed collar (the outer edge from the right shoulder down to the left side), the light inner collar at the throat
+  B(v, 'chest', -3, k.neck - 2, d, 2, k.neck - 1, d, C.JK_L); for (let y = k.chest; y < k.neck - 2; y++) B(v, 'chest', 2 - Math.floor((k.neck - 2 - y) / 2), y, d, 2 - Math.floor((k.neck - 2 - y) / 2), y, d, C.JK_D);
+  // the leather apron: the bib on the chest, the body over the belly and the hips (one cell proud), straps over the shoulders
+  B(v, 'chest', -5, k.chest, d, 4, k.neck - 4, d, C.APRON); B(v, 'chest', -5, k.neck - 4, d, 4, k.neck - 4, d, C.APRON_L);
+  B(v, 'spine', -6, k.spine, d, 5, k.chest - 1, d, C.APRON); B(v, 'hips', -6, k.hip, d, 5, k.spine - 1, d, C.APRON);
+  for (const x of [-5, 3]) B(v, 'chest', x, k.neck - 3, -d, x + 1, k.neck - 1, d, C.APRON_D);
+  B(v, 'neck', -2, k.neck, -2, 1, k.head - 1, 1, C.SKIN);
+  // arms: the sleeve to the elbow, bare forearms, the hands
+  { const [a, b] = LX(k.ax, k.aw + 0.5), [fa, fb] = LX(k.ax, k.aw - 0.5);
+    LR(v, 'arm', a, k.elbow, -2, b, k.neck - 1, 2, C.JK); LR(v, 'arm', a, k.elbow, -2, b, k.elbow, 2, C.JK_D);
+    LR(v, 'fore', fa, k.wrist, -1, fb, k.elbow - 1, 1, C.SKIN); LR(v, 'hand', fa, k.hand0, -2, fb, k.wrist - 1, 1, C.SKIN); LR(v, 'hand', fa, k.hand0, -2, fb, k.hand0, 1, C.SKIN_D);
+  }
+  // the head: a plain square face, eyes, a short beard on the jaw and chin; black hair, a topknot on the crown under a dark band
+  { const h0 = k.head;
+    R(v, 'head', -5, h0, -5, 4, h0 + 10, 4, C.SKIN);
+    v.paint(q => (q.part === 'head' && q.c === C.SKIN && (q.y >= h0 + 8 || q.z <= -3 || ((q.x <= -5 || q.x >= 4) && q.y >= h0 + 5)) ? C.HAIR : null));
+    B(v, 'head', -5, h0 + 11, -5, 4, h0 + 11, 4, C.HAIR);
+    B(v, 'head', -3, h0 + 6, 5, -2, h0 + 6, 5, C.EYE); B(v, 'head', 1, h0 + 6, 5, 2, h0 + 6, 5, C.EYE);
+    B(v, 'head', -4, h0, 5, 3, h0 + 2, 5, C.BEARD); B(v, 'head', -3, h0 + 3, 5, -2, h0 + 3, 5, C.BEARD); B(v, 'head', 1, h0 + 3, 5, 2, h0 + 3, 5, C.BEARD);
+    B(v, 'head', -5, h0, -1, -5, h0 + 3, 4, C.BEARD); B(v, 'head', 4, h0, -1, 4, h0 + 3, 4, C.BEARD);
+    R(v, 'head', -2, h0 + 12, -3, 1, h0 + 15, 0, C.HAIR, true); B(v, 'head', -3, h0 + 12, -4, 2, h0 + 12, 1, C.BAND);
+  }
+  fuse(v, 'chest', 'neck'); fuse(v, 'foreL', 'handL'); fuse(v, 'foreR', 'handR');
+  return v;
+}
+/** 阿爹 standing (the flashback): the breath, arms hanging; flinch = 0..1 recoiling from the blow */
+const FATHER = new WeakMap<object, { flinch: number; cur: number; t: number }>();
+export const fatherPose = (a: object) => { let s = FATHER.get(a); if (!s) { s = { flinch: 0, cur: 0, t: -1 }; FATHER.set(a, s); } return s; };
+POSE_HOOKS.wen_father = (b: Bones, t: number, _a, _off, self) => {
+  const st = fatherPose(self as object), dt = st.t < 0 ? 0 : Math.max(0, Math.min(0.1, t - st.t)); st.t = t; st.cur = ease(st.cur, st.flinch, dt * 14);
+  const f = st.cur, br = Math.sin(t * 1.6);
+  rot(b.spine, 0.04 + br * 0.01 - 0.3 * f, 0, 0); rot(b.chest, -0.15 * f, 0.2 * f, 0); rot(b.head, -0.3 * f, 0.2 * f, 0);
+  rot(b.armL, 0.05 - 1.2 * f, 0, 0.1 + 0.3 * f); rot(b.foreL, -0.3 - 0.9 * f, 0, 0);
+  rot(b.armR, 0.05 - 1.4 * f, 0, -0.1 - 0.2 * f); rot(b.foreR, -0.3 - 1.0 * f, 0, 0);
+  rot(b.legL, -0.15 * f, 0, 0.04); rot(b.legR, 0.25 * f, 0, -0.04); rot(b.shinR, 0.2 * f, 0, 0);
+};
+export const FATHER_DEF: ModelDef = { id: 'wen_father', name: '阿爹', group: '普通', role: '铸刀匠', line: '', kind: 'biped', attack: 'swing', tip: 8, build: buildFather };
 
 // ================================================================== 杜五的驴板车（cart）：7 厘米场景格
 // 一辆平板两轮车：木板车床（顺着车身的板缝）、两边矮挡板、前挡板；车床下两根纵梁一直伸到前面成一对车辕（驴站在两根辕中间）；
@@ -372,12 +485,18 @@ export const CART_DEF: ModelDef = { id: 'cart', name: '驴板车', group: '普�
 
 /** act-37 (the cold open's last shot): the same girl after the night in the snow — her hair gone white (the swap happens under the
  *  drifting snow, so it reads as turning) */
-export const CHILD_WHITE: ModelDef = { ...CHILD_WENJIAO, id: 'child_wenjiao_white', name: '文皎（白头）', build: () => {
-  const h = CH.HAIR, hd = CH.HAIR_D; CH.HAIR = 0xe6eaf0; CH.HAIR_D = 0xc4c8d2;
-  try { return buildChild(); } finally { CH.HAIR = h; CH.HAIR_D = hd; }
-} };
-POSE_HOOKS.child_wenjiao_white = (...args: Parameters<PoseFn>) => POSE_HOOKS.child_wenjiao(...args);
-for (const d of [CHILD_WENJIAO, CHILD_WHITE, KILLER_CLOAK, KILLER_BIG, CART_DEF]) if (!ROSTER.some(r => r.id === d.id)) ROSTER.push(d);
+const childHair = (id: string, name: string, hair: number, hairD: number): ModelDef => {
+  const d: ModelDef = { ...CHILD_WENJIAO, id, name, build: () => {
+    const h = CH.HAIR, hd = CH.HAIR_D; CH.HAIR = hair; CH.HAIR_D = hairD;
+    try { return buildChild(); } finally { CH.HAIR = h; CH.HAIR_D = hd; }
+  } };
+  POSE_HOOKS[id] = (...args: Parameters<PoseFn>) => POSE_HOOKS.child_wenjiao(...args);
+  return d;
+};
+export const CHILD_WHITE = childHair('child_wenjiao_white', '文皎（白头）', 0xe6eaf0, 0xc4c8d2);
+/** act-37 (用户：「几次闪回后头发完全变白」): the steps between black and white, one per flashback */
+export const CHILD_GREYS = [childHair('child_wenjiao_g1', '文皎（灰一）', 0x4a4852, 0x5c5a64), childHair('child_wenjiao_g2', '文皎（灰二）', 0x8a8892, 0x9c9aa4), childHair('child_wenjiao_g3', '文皎（灰三）', 0xbcbcc6, 0xa4a4ae)];
+for (const d of [CHILD_WENJIAO, CHILD_WHITE, ...CHILD_GREYS, KILLER_CLOAK, KILLER_BIG, FATHER_DEF, CART_DEF]) if (!ROSTER.some(r => r.id === d.id)) ROSTER.push(d);
 export const HANSHAN_PEOPLE = { child: CHILD_WENJIAO, cloak: KILLER_CLOAK, big: KILLER_BIG, cart: CART_DEF };
 
 // ================================================================== captures / tuning: a few of them stood in the scene
