@@ -36,9 +36,12 @@ import { CODE_BUILD } from '../bestiary/voxEdit';
 import { rackBlades, hideoutScene, HIDEOUT, HIDEOUT_PEOPLE } from './hideout';
 import { Timeline } from './timeline';
 import { openingShots, bossIntroShots, type CineHost } from './cutscenes';
-import { WAKE_DUWU, WAKE_SUNAO, CHULEI_BEFORE, CHULEI_AFTER, deathLine, PRO_CHULEI, PRO_FALL, PRO_DAWN, PRO_WAKE, PRO_CAPTIONS } from './scripts';
+import { NPC_TALK, STELE_TALK, MEAL_TALK, UP_TALK, POOR_TALK, WAKE_DUWU, WAKE_SUNAO, CHULEI_BEFORE, CHULEI_AFTER, deathLine, PRO_CHULEI, PRO_FALL, PRO_DAWN, PRO_WAKE, PRO_CAPTIONS } from './scripts';
 import { fallShots, snowShots, dawnShots, loadShots, lieDown, brazier, type PrologueHost } from './prologue';
-import { coldOpenShots, BlindPOV } from './coldopen';
+import { coldOpenShots, coldCardShots, BlindPOV } from './coldopen';
+import { Barks } from './barks';
+/** act-40 (用户：「现在开场太墨迹了，把那段timeline先搞成黑幕快速交代背景吧」): the cold open as black cards for now (false = the 寒山坞 cutscene) */
+const COLD_AS_CARDS = true;
 import { newGame, profile, save as saveProfile, seeOnce, hasSave } from './profile';
 import { runMods, bank, META, level, nextCost, buy, type RunMods } from './meta';
 import { NPC_LINES, UP_LINES, POOR_LINES, HAUL, MEALS, MEAL_LINES, STELE_LINES } from './hideoutLines';
@@ -223,10 +226,10 @@ export class ActShow {
     clearPuppets: () => { for (const f of this.puppets) f.a.dispose(); this.puppets = []; },
   };
   /** portrait lines; the fight / the hideout wait (phase 'talk') and resume */
-  async talk(lines: Line[]) {
+  async talk(lines: Line[], onLine?: (i: number, line: Line) => void) {
     if (!lines.length) return;
     const was = this.phase === 'talk' ? this.wasPhase : this.phase; this.wasPhase = was; this.phase = 'talk'; this.hud.on = false; this.banner.hide();
-    await this.dialogue.play(lines);
+    await this.dialogue.play(lines, onLine);
     this.phase = was; this.hud.on = true;
   }
   /** a timeline cutscene; the HUD hides, gameplay waits (phase 'cine') */
@@ -250,6 +253,12 @@ export class ActShow {
   }
   /** act-37 the cold open: 寒山坞 that night (coldopen.ts) — on the place the title built while it loaded; it ends in the dark */
   private async coldOpen(): Promise<BlindPOV | null> {
+    if (COLD_AS_CARDS) {
+      const pov = new BlindPOV(this.L); pov.fill(0x000000, 1, true); this.hud.on = false;
+      void audio.playMusic('bgm_coldopen', 0.6);
+      await this.cine(coldCardShots(pov)); pov.fill(0x000000, 1, true);
+      await frames(2); return pov;
+    }
     const ready = this.pre && this.pre.locale === 'hs_forge' ? this.pre : null; this.pre = null;
     let r: Room; try { r = ready ?? prepRoom(COLD_ROOM); } catch (e) { console.error('[act] cold open failed', e); return null; }
     for (const f of this.foes) f.a.dispose(); this.foes.length = 0;
@@ -261,6 +270,10 @@ export class ActShow {
     co.dispose(); pov.fill(0x000000, 1, true);
     await frames(2);   // the dark is on screen before the next place is built
     return pov;
+  }
+  /** the prologue's first room as buildRoom will ask for it (so the title can build it ahead) */
+  private prologueRoomIn(): RoomIn {
+    return { isYard: false, room: 0, recent: [], locale: PRO_ROOM.locale, plan: { type: 'fight', locale: PRO_ROOM.locale, reward: null, waves: PRO_ROOM.waves }, nextRooms: [PRO_BOSS], viewSpec: null, forceSpec: { ...PRO_ROOM.spec }, noArena: false };
   }
   /** the prologue's first room: the snowy village at night, a few sentries; then the temple (leave() moves prologue to 2) */
   startPrologue() {
@@ -303,9 +316,17 @@ export class ActShow {
     await this.cine(loadShots(this.proHost, who));
     for (const a of this.proPeople) a.dispose(); this.proPeople = [];
     this.prologue = 0; this.forceSpec = null;
-    await new Promise<void>(res => { void wipeTransit(() => { this.enterYard(); res(); }); });
+    // (act-40 用户：「被救回去应该是先趟垫子上的啊，怎么是站着的」: she wakes lying on 孙媪's mat, and gets up at the line where she
+    //  pushes herself up the wall; the kiln's own music for the scene — the hideout's comes after)
+    await new Promise<void>(res => { void wipeTransit(() => {
+      this.enterYard(); this.musicHold = 'bgm_kiln'; void audio.playMusic('bgm_kiln', 1.2);
+      const h = this.hero; h.pos.set(HIDEOUT.spawn[0], 0, HIDEOUT.spawn[1]); h.a.yaw = -Math.PI / 2; lieDown(h.a, 1); res();
+    }); });
     await new Promise(r => after(0.8, () => r(null)));
-    seeOnce('wake1'); await this.talk(PRO_WAKE); saveProfile();
+    seeOnce('wake1'); let up = false;
+    const getUp = () => { if (up) return; up = true; let k = 1; const step = () => { k = Math.max(0, k - 1 / 36); lieDown(this.hero.a, k); if (k > 0) after(1 / 36, step); }; step(); };
+    await this.talk(PRO_WAKE, (_i, l) => { if (l.who === 'act' && /撑起|站起|起身/.test(l.text)) getUp(); });
+    getUp(); this.musicHold = null; this.music(); saveProfile();
   }
   /** the run's haul goes home (meta.ts bank: currencies, runs / wins / deaths), saved */
   private lastWon = false;
@@ -338,33 +359,35 @@ export class ActShow {
       m.ring.position.set(n.x, 0.04, n.z); const rs = 1 + 0.08 * Math.sin(t * 6); m.ring.scale.set(rs, 1, rs); (m.ring.material as THREE.MeshBasicMaterial).opacity = 0.75 * m.k;
     }
     const nn = near ? this.npcs.find(x => x.id === near) : null;
-    if (nn && !this.noTalk) { const p = worldToUi(V3(nn.x, (nn.a.height ?? 1.8) + 1.0, nn.z)); this.L.text.set('act.npc', { text: HIDEOUT_PEOPLE[nn.id as keyof typeof HIDEOUT_PEOPLE]?.name ?? '', x: p.x, y: p.y, bodyPx: Math.max(12, Math.round(15 * Math.min(1.2, this.L.h / 720))), color: '#ffe6b0', outline: '#140c0a', align: 'center' }); }
+    // (act-40 用户：「人模型上的名字渲染层级不对，会渲染到UI上层，对话的时候会穿帮」: the floating name is screen text drawn over
+    //  everything — gone while a conversation or a cutscene is up)
+    if (nn && !this.noTalk && this.phase !== 'talk' && this.phase !== 'cine' && !this.dialogue.on) { const p = worldToUi(V3(nn.x, (nn.a.height ?? 1.8) + 1.0, nn.z)); this.L.text.set('act.npc', { text: HIDEOUT_PEOPLE[nn.id as keyof typeof HIDEOUT_PEOPLE]?.name ?? '', x: p.x, y: p.y, bodyPx: Math.max(12, Math.round(15 * Math.min(1.2, this.L.h / 720))), color: '#ffe6b0', outline: '#140c0a', align: 'center' }); }
     else this.L.text.hide('act.npc');
   }
   /** a word with someone at the hideout; the smith and the healer then show their upgrades */
   private async npcTalk(id: string) {
-    if (id === 'stele') { const pool = (this.stele?.count ?? 0) > 0 ? STELE_LINES.one : STELE_LINES.none; await this.talk([{ who: 'jiangjin', text: pool[Math.floor(Math.random() * pool.length)] }]); return; }
+    if (id === 'stele') { const pool = (this.stele?.count ?? 0) > 0 ? STELE_TALK.one : STELE_TALK.none; await this.talk([{ who: 'jiangjin', text: pool[Math.floor(Math.random() * pool.length)] }]); return; }
     if (id === 'duwu') { await this.mealMenu(); return; }
-    const pool = NPC_LINES[id] ?? []; if (pool.length) await this.talk([{ who: id, text: pool[Math.floor(Math.random() * pool.length)] }]);
+    const pool = NPC_TALK[id] ?? []; if (pool.length) await this.talk([{ who: id, text: pool[Math.floor(Math.random() * pool.length)] }]);
     if (id === 'fengtiebi' || id === 'sunao') await this.upgradeMenu(id === 'fengtiebi' ? 'forge' : 'medic');
   }
   /** 杜五 packs provisions for the next trip: one of three, free, kept in the save until the run starts */
   private async mealMenu() {
     const p = profile(), pick = (a: string[]) => a[Math.floor(Math.random() * a.length)];
-    if (p.meal) { await this.talk([{ who: 'duwu', text: pick(MEAL_LINES.packed) }]); return; }
-    await this.talk([{ who: 'duwu', text: pick(MEAL_LINES.offer) }]);
+    if (p.meal) { await this.talk([{ who: 'duwu', text: pick(MEAL_TALK.packed) }]); return; }
+    await this.talk([{ who: 'duwu', text: pick(MEAL_TALK.offer) }]);
     const cards = MEALS.map(m => ({ boon: { id: 'meal_' + m.id, school: 'ms' as never, name: m.name, desc: [m.desc, ''], col: '#ffd27a', glyph: MEAL_GLYPH[m.id], tag: '' } as Boon, tier: 0 }));
     cards.push({ boon: { id: 'leave', school: 'ms' as never, name: '离开', desc: ['什么也不带', ''], col: '#f0e0b0', glyph: LEAVE, tag: '' } as Boon, tier: 0 });
     const was = this.phase; this.phase = 'pick'; this.hud.on = false;
     const i = await this.cards.open(cards); this.phase = was; this.hud.on = true;
     const m = MEALS[i]; if (!m) return;
     p.meal = m.id; saveProfile(); cue('coin', 0.6);
-    await this.talk([{ who: 'duwu', text: MEAL_LINES.after[m.id] }]);
+    await this.talk([{ who: 'duwu', text: MEAL_TALK.after[m.id] }]);
   }
   /** the upgrade list of the smith (百辟残铁) or the healer (沸血药引) as rows of cards; the last row leaves */
   private async upgradeMenu(who: 'forge' | 'medic') {
     const id = who === 'forge' ? 'fengtiebi' : 'sunao';
-    const up = UP_LINES[id]; if (up?.length) await this.talk([{ who: id, text: up[Math.floor(Math.random() * up.length)] }]);
+    const up = UP_TALK[id]; if (up?.length) await this.talk([{ who: id, text: up[Math.floor(Math.random() * up.length)] }]);
     for (;;) {
       const p = profile(), ups = META.filter(u => u.who === who), cur = who === 'forge' ? '残铁' : '药引', have = who === 'forge' ? p.iron : p.herb;
       const glyph = who === 'forge' ? ANVIL : NEEDLE;
@@ -375,7 +398,7 @@ export class ActShow {
       const i = await this.cards.open(cards); this.phase = was; this.hud.on = true;
       if (i >= ups.length) return;
       const u = ups[i];
-      if (!buy(p, u.id)) { const poor = POOR_LINES[id]; if (poor) await this.talk([{ who: id, text: poor }]); return; }
+      if (!buy(p, u.id)) { const poor = POOR_TALK[id]; if (poor) await this.talk([{ who: id, text: poor }]); return; }
       saveProfile(); cue('coin', 0.8); this.banner.show(u.name, `${level(p, u.id)} 级`, 1.0, '#ffd27a');
     }
   }
@@ -495,12 +518,14 @@ export class ActShow {
   /** act-19: the music for where we are — the opening, the yard, or the room's kind (a fight, a 死士 room, the 渠帅, a calm room);
    *  the same track carries on across rooms, a different one cross-fades in */
   private musicHold: string | null = null;
+  /** act-40: the foes' shouts over their heads */
+  private barks: Barks | null = null;
   music() {
     if (!this.audioOn) return;
     const t = this.plan?.type ?? 'fight', ph = this.phase as string;
     // (act-37: a scored piece holds until its scene is over; the prologue's temple fight has its own; the hideout is the kiln's)
     if (this.musicHold) { void audio.playMusic(this.musicHold, 1.2); return; }
-    const name = ph === 'opening' || ph === 'title' ? 'bgm_opening' : this.room < 0 || ph === 'yard' ? 'bgm_kiln' : this.prologue === 2 ? 'bgm_lostfight' : t === 'boss' ? 'bgm_boss' : t === 'elite' ? 'bgm_elite' : t === 'shop' || t === 'rest' || t === 'boon' ? 'bgm_calm' : 'bgm_battle';
+    const name = ph === 'opening' || ph === 'title' ? 'bgm_opening' : this.room < 0 || ph === 'yard' ? 'bgm_yard' : this.prologue === 2 ? 'bgm_boss' : t === 'boss' ? 'bgm_boss' : t === 'elite' ? 'bgm_elite' : t === 'shop' || t === 'rest' || t === 'boon' ? 'bgm_calm' : 'bgm_battle';
     void audio.playMusic(name, 1.8);
   }
   layout2() {
@@ -540,9 +565,10 @@ export class ActShow {
     this.pre?.prep.drop(); this.pre = null;
     const keep = STAGE_BIG.on;
     try {
-      // act-37: a new game opens on 寒山坞 (the cold open); the village of 「七年后」 is built later, behind the cold open's last dark
-      const r = prepRoom(COLD_ROOM);
-      this.pre = { ...r, locale: 'hs_forge' }; warm(r.prep.root);
+      // act-37: a new game opened on 寒山坞 (the cold open); act-40: with the cold open as black cards, the snowy village of 「七年后」 is
+      // the first place again — built now, exactly as startPrologue will ask for it
+      if (COLD_AS_CARDS) { const r = prepRoom(this.prologueRoomIn()); this.pre = { ...r, locale: PRO_ROOM.locale }; warm(r.prep.root); }
+      else { const r = prepRoom(COLD_ROOM); this.pre = { ...r, locale: 'hs_forge' }; warm(r.prep.root); }
     } catch (e) { console.warn('[act] prefetch failed', e); }
     setStage(keep);
   }
@@ -630,7 +656,7 @@ export class ActShow {
     for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = [];
     this.gates?.dispose(); this.gates = null; this.leaves?.dispose(); this.leaves = null; this.clearNpcs();
     for (const d of this.doors) d.g.parent?.remove(d.g); this.doors = []; this.stations?.dispose(); this.stations = null; this.coinsFx.clear();
-    this.yard?.dispose(); this.yard = null; this.exitSign?.parent?.remove(this.exitSign); this.exitSign = null;
+    this.yard?.dispose(); this.yard = null; this.exitSign?.parent?.remove(this.exitSign); this.exitSign = null; this.barks?.clear();
     const hp = first || !this.hero ? TUNE.heroHp : this.hero.hp, maxHp = TUNE.heroHp, qi = first || !this.hero ? 0 : this.hero.qi;
     this.hero?.a.dispose();
     const isYard = this.room < 0;
@@ -663,7 +689,7 @@ export class ActShow {
     }
     // fallen leaves on the floor, a few drifting down (act-19); none in winter or in the rain
     this.leaves = new Leaves(spec.weather === 'rain' || spec.weather === 'snow' ? 'winter' : spec.season, { rest: big ? 100 : 40, fall: big ? 1.4 : 0.8 });
-    this.hero = new Hero(isYard ? V3(HIDEOUT.spawn[0], 0, HIDEOUT.spawn[1]) : V3(0, 0, SZ(5.0)), this.wearing); this.hero.moves = isYard ? ALL_MOVES : this.perks.moves; this.hero.perks = this.perks; this.hero.hp = Math.min(hp, maxHp); this.hero.maxHp = maxHp;
+    this.hero = new Hero(isYard ? V3(HIDEOUT.spawn[0], 0, HIDEOUT.spawn[1]) : V3(0, 0, SZ(5.0)), this.wearing); this.hero.moves = isYard || this.prologue ? ALL_MOVES : this.perks.moves;   // (act-40 用户：「开局第一场战斗默认给主角解锁所有技能」) this.hero.perks = this.perks; this.hero.hp = Math.min(hp, maxHp); this.hero.maxHp = maxHp;
     this.hero.qi = isYard ? Hero.QI_MAX : Math.min(Hero.QI_MAX, Math.max(qi, TUNE.qiStart));   // (11-17 气: carried on; a room starts with at least TUNE.qiStart)
     this.hero.a.yaw = isYard ? -0.6 : Math.PI;
     this.hud.flask.set({ hp: this.hero.hp, maxHp });
@@ -716,7 +742,7 @@ export class ActShow {
         this.noTalk = true; h.pos.set(HIDEOUT.stele.x + 1.05, 0, HIDEOUT.stele.z + 1.25); h.vel.set(0, 0, 0); h.a.yaw = Math.atan2(-1.05, -1.0);
         fxSmoke(h.pos.clone().setY(0.6), 0x8a8a94, 10, { r: 0.6, spd: 1.2, up: 0.8, s: 0.4, life: 0.6 });
         after(0.5, () => this.inp.hold('attack', 0.55));
-        after(1.2, () => { st.strike(0); hitstop(0.12); cue('stingStele', 1); after(0.7, () => { this.noTalk = false; void this.talk([{ who: 'jiangjin', text: STELE_LINES.strike }]); }); });
+        after(1.2, () => { st.strike(0); hitstop(0.12); cue('stingStele', 1); after(0.7, () => { this.noTalk = false; void this.talk([{ who: 'jiangjin', text: STELE_TALK.strike }]); }); });
       }); }
     // act-37: the rack of thirty blades — one hangs for each taken back (褚雷 had the first)
     { const p = profile(); this.stage!.root.add(rackBlades(p.seen['ch1_boss_after'] ? 1 : 0)); }
@@ -733,6 +759,15 @@ export class ActShow {
   }
   private spawnWave() {
     const kinds = this.plan?.waves[this.wave] ?? [], hp = this.hero.pos;
+    // act-40 (用户：「做点小杂兵的战斗中说话气泡……战斗开始的时候会说两句」): once the wave is in, one or two of them call out
+    after(kinds.length * 0.28 + 0.45, () => {
+      if (this.phase !== 'fight') return;
+      const can = this.foes.filter(f => f.st !== 'dead' && !isBoss(f) && f.kind !== 'dummy' && !String(f.kind).includes('hound'));
+      for (let n = Math.min(can.length, Math.random() < 0.5 ? 1 : 2), k = 0; k < n; k++) {
+        const f = can.splice(Math.floor(Math.random() * can.length), 1)[0];
+        after(k * 0.7, () => { if (f.st !== 'dead' && this.phase === 'fight') this.barks?.say(() => f.a.head()); });
+      }
+    });
     kinds.forEach((k, i) => {
       after(i * 0.28, () => {
         if (this.phase !== 'fight') return;
@@ -936,10 +971,13 @@ export class ActShow {
     const executed = cut && tierOf(this.perks, 'behead') >= 0 && f.kind !== 'dummy' && !isBoss(f) && f.inv <= 0 && f.hp < f.maxHp * v(this.perks, 'behead') / (f.elite ? 200 : 100);
     if (executed) d = f.hp + 1;
     const p = f.a.chest(), dir = f.pos.clone().sub(from).setY(0).normalize();
-    // act-29: the prologue's 褚雷 cannot be brought below a little over half (she is not ready yet)
-    if (this.prologue === 2 && isBoss(f)) { const floor = Math.ceil(f.maxHp * 0.55); if (f.hp - d < floor) { const left = Math.max(0, f.hp - floor); fxSparks(f.a.chest(), 0xfff6d0, 6, 3); if (left <= 0) { f.a.tint(0xffffff, 0.6); popPix('0', f.a.head().add(V3(0, 0.35, 0)), { color: '#bfbfbf', h: 0.45, life: 0.6, rise: 0.6 }); cue('parry', 0.5); return; } } }
+    // (act-40 用户：「打到boss残血剧情杀就直接来，不要变成半途格挡打半天空气」: no floor of blocked hits — the blow that takes him
+    //  to a fifth of his life lands, and the scripted fall starts at once)
+    let fallNow = false;
+    if (this.prologue === 2 && isBoss(f) && !this.proFalling) { const floor = Math.ceil(f.maxHp * 0.2); if (f.hp - d <= floor) { d = Math.max(0, f.hp - floor); fallNow = true; } }
     const died = damageFoe(f, d, from, { knock, stagger, poiseDmg: o.kind === 'dart' ? d * 0.5 : o.heavy ? d * 1.8 : d });
-    if (this.prologue === 2 && isBoss(f)) f.hp = Math.max(f.hp, Math.ceil(f.maxHp * 0.55));
+    if (this.prologue === 2 && isBoss(f)) f.hp = Math.max(f.hp, Math.ceil(f.maxHp * 0.2));
+    if (fallNow) after(0.25, () => void this.prologueFall());   // (the blow lands, a beat, then the scripted fall)
     if (heavyCut && !died && f.d.poise > 0 && f.st === 'stagger') f.dur += v(this.perks, 'bone');
     if (cut && !died && f.inv <= 0) { if (tierOf(this.perks, 'sunder') >= 0) f.sunderT = 3; if (tierOf(this.perks, 'bleed') >= 0 && f.kind !== 'dummy') { f.bleed = Math.min(5, f.bleed + 1); f.bleedT = 0; } }
     if (o.kind !== 'school') fxImpact(p, o.heavy ? 0xff6a3a : 0xfff0d0, o.kind === 'dart' ? 0.4 : o.heavy ? 1.3 : 0.75, { dir, chips: o.heavy ? [0xff5a3a, 0x2b3147] : undefined });
@@ -1394,7 +1432,7 @@ export class ActShow {
       this.hud.update(rdt, this.inp, []); this.L.on = true; return;
     }
     // act-29: the prologue's temple — about half a minute in, his blow ends it whatever her blood
-    if (this.prologue === 2 && this.phase === 'fight' && !this.proFalling && this.foes.some(f => isBoss(f))) { this.proFightT += dt; if (this.proFightT > 28) void this.prologueFall(); }
+    if (this.prologue === 2 && this.phase === 'fight' && !this.proFalling && this.foes.some(f => isBoss(f))) { this.proFightT += dt; if (this.proFightT > 60) void this.prologueFall(); }   // (a fallback only: the fifth of his life is the cue)
     if (this.botOn) this.bot();
     // the model page plays 不见刀's QTE by itself (press as the ring closes)
     else if (this.labOn && this.qteT >= 0) { const k = this.qteT / TUNE.qteTime, b = this.inp.b.attack, on = k > 0.85 && k < 1.0; b.pressed = on && !b.down; b.down = on; }
@@ -1409,7 +1447,7 @@ export class ActShow {
       al.visible = true; al.position.set(h.pos.x, 0.07, h.pos.z); al.rotation.y = Math.atan2(pv.dir.x, pv.dir.z); al.scale.set(1, 1, L);
       const cap = al.getObjectByName('cap')!; cap.scale.set(1, 1, 1 / L); (al.material as THREE.MeshBasicMaterial).color.set(pv.onFoe ? 0xffd27a : 0xe8eeff); }
     else this.aimLine.visible = false;
-    h.a.update(dt); for (const a of this.lineupActors) a.update(dt);
+    h.a.update(dt); h.deathPose(); for (const a of this.lineupActors) a.update(dt);
     const fw = this.foeWorld; fw.heroPos.copy(h.pos); fw.heroAlive = h.alive && (this.phase === 'fight' || this.phase === 'yard'); fw.heroY = h.y; fw.heroDodge = h.dodgeWin;
     // act-20: the hideout's people — idle, and a word when the hero stands close and presses 斩
     for (const n of this.npcs) n.a.update(dt);
@@ -1473,6 +1511,7 @@ export class ActShow {
     }
     this.darts = this.darts.filter(d => !d.dead);
     this.hitArcs.update(rdt, h.pos);
+    (this.barks ??= new Barks(this.L)).update(rdt, (this.phase as string) === 'talk' || (this.phase as string) === 'cine' || this.dialogue.on);
     if (this.props && this.phase !== 'pick') this.applyProps(this.props.update(dt, this.targets()), true);   // act-19: fuses, fires, the falling pillars
     this.gates?.update(dt);
     // a rainy room: now and then lightning lights everything for a beat, the thunder a moment later

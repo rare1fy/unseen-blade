@@ -93,3 +93,16 @@ export const PRO_WAKE: Line[] = pick('pro_wake', [
   L('act', '（刘白直直伸出手，指节泛白）'),
   L('jiangjin', '刀给我。'),
 ]);
+
+// ---------------------------------------------------------------- act-40 (用户：「我感觉还有很多对话没配音」): the hideout's lines from the final
+// script too (docs/对白/剧本5.md) — the talk pools, the stele, the provisions, the needles — so they are the user's words and voiced;
+// hideoutLines.ts stays as the fallback for anything the script has no section for (冯铁臂's silent business, 卢昭, 桓越)
+import { NPC_LINES, STELE_LINES, MEAL_LINES, UP_LINES, POOR_LINES } from './hideoutLines';
+const one = (id: string, fallback: string) => (S[id]?.[0]?.text ?? fallback);
+export const NPC_TALK: Record<string, string[]> = { ...NPC_LINES, duwu: pool('npc_duwu', NPC_LINES.duwu), sunao: pool('npc_sunao', NPC_LINES.sunao) };
+export const STELE_TALK = { none: pool('stele_none', STELE_LINES.none), one: pool('stele_one', STELE_LINES.one), strike: one('stele_strike', STELE_LINES.strike) };
+export const MEAL_TALK = { offer: pool('meal_offer', MEAL_LINES.offer), packed: pool('meal_packed', MEAL_LINES.packed),
+  after: { feast: one('meal_feast', MEAL_LINES.after.feast), purse: one('meal_purse', MEAL_LINES.after.purse), wine: one('meal_wine', MEAL_LINES.after.wine) } as Record<string, string> };
+export const UP_TALK: Record<string, string[]> = { ...UP_LINES, sunao: pool('up_sunao', UP_LINES.sunao ?? []) };
+export const POOR_TALK: Record<string, string> = { ...POOR_LINES, sunao: one('poor_sunao', POOR_LINES.sunao) };
+

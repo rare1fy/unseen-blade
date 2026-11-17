@@ -186,3 +186,21 @@ def process_native(path: Path, colours: int = 20) -> Image.Image:
     q = q.quantize(colors=colours, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE).convert("RGB"); q.putalpha(hard)
     print(f"{path.stem}: grid {s} px (x {sx}/{ox}, y {sy}/{oy}) → {q.width}×{q.height}")
     return q
+
+
+def despeckle(img: Image.Image, passes: int = 2) -> Image.Image:
+    """act-40 (用户：「第一个boss的立绘比其他人糊」— his beard and face were a mess of single-pixel specks): a pixel whose colour no
+    4-neighbour shares takes the colour most of its 8 neighbours have; transparent pixels are left alone"""
+    a = np.asarray(img.convert("RGBA")).copy(); H, W = a.shape[:2]
+    for _ in range(passes):
+        b = a.copy()
+        for y in range(1, H - 1):
+            for x in range(1, W - 1):
+                if a[y, x, 3] == 0: continue
+                c = tuple(a[y, x]); n4 = [tuple(a[y + dy, x + dx]) for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))]
+                if c in n4: continue
+                n8 = [tuple(a[y + dy, x + dx]) for dy in (-1, 0, 1) for dx in (-1, 0, 1) if (dx or dy) and a[y + dy, x + dx, 3] > 0]
+                if n8: b[y, x] = max(set(n8), key=n8.count)
+        a = b
+    return Image.fromarray(a, "RGBA")
+
