@@ -89,7 +89,7 @@ import { runBoard } from './runBoard';
 import { HitArcs } from './hitArc';
 import { playOpening, OPENING_SPEC } from './opening';
 import { wantOpening } from './openingFlag';
-import { playTitle, titlePointer } from './title';
+import { stopTitle, playTitle, titlePointer } from './title';
 import { wantTitle, savedTitle, TITLE_COUNT } from './titleFlag';
 import { PX, setPixel } from '../look/pixel';
 import { VIBE, vibeSupport, iosMajor, RUMBLE } from '../../platform/index';
@@ -254,7 +254,7 @@ export class ActShow {
   /** act-37 the cold open: 寒山坞 that night (coldopen.ts) — on the place the title built while it loaded; it ends in the dark */
   private async coldOpen(): Promise<BlindPOV | null> {
     if (COLD_AS_CARDS) {
-      const pov = new BlindPOV(this.L); pov.fill(0x000000, 1, true); this.hud.on = false;
+      const pov = new BlindPOV(this.L); pov.fill(0x000000, 1, true); this.hud.on = false; stopTitle();
       void audio.playMusic('bgm_coldopen', 0.6);
       await this.cine(coldCardShots(pov)); pov.fill(0x000000, 1, true);
       await frames(2); return pov;
