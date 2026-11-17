@@ -9,6 +9,10 @@ export type Cue =
   | 'wallSlam' | 'gateOpen' | 'exitChime' | 'timeSlow' | 'ultSlash' | 'scroll' | 'hound'
   // act-23: the killing blow's gore (bone chop + splatter)
   | 'gore'
+  // 11-18 第二轮: one composed sound per blow (five tiers), the whoosh of each cut, her breath, the blade's ring, a skid; the foes' voices
+  // (x = 0 a man, 1 a big man, 2 the chief, 3 a hound), their heavy swing, a guard broken
+  | 'hitLight' | 'hitStab' | 'hitHeavy' | 'hitKick' | 'hitKill' | 'hitIai' | 'swingLight' | 'swingSpin' | 'swingStab' | 'swingHeavy'
+  | 'breath' | 'bladeRing' | 'skid' | 'foePain' | 'foeDeath' | 'foeCry' | 'foeHeavy' | 'guardBreak'
   // short music (Stable Audio 3 medium, GameProtos/sfx/cues_unseen_music_v1.json): a run won, a run lost, a room cleared
   | 'stingWin' | 'stingLose' | 'stingClear' | 'stingStele' | 'stingRevive';
 

@@ -11,7 +11,10 @@ import { Post } from '../look/post';
 import { PX, onPixelChange } from '../look/pixel';
 
 /** The camera rig: directors write base / look / fov / roll / shift; the loop adds shake and renders. */
-export const CAM = { base: V3(0, 12, 12), look: V3(0, 0, 0), fov: 30, off: V3(), shift: 0, shakeAmt: 0.22 };
+export const CAM = { base: V3(0, 12, 12), look: V3(0, 0, 0), fov: 30, off: V3(), shift: 0, shakeAmt: 0.22,
+  /** 11-18 打击感: a push of the whole view (position and aim together, m) and a push-in (share of the distance to the aim) — set every
+   *  frame by the game's springs, applied after the director's blend so they are not smoothed away */
+  kick: V3(), zoom: 0 };
 
 export interface Gfx { renderer: THREE.WebGLRenderer; post: Post; start(onFrame: (dt: number, rdt: number) => void, afterRender: () => void): void; stats: { calls: number; tris: number; ms: number; logic: number; render: number } }
 
@@ -31,7 +34,7 @@ export function createGfx(platform: Platform, canvas: any, o: { preserve?: boole
   const px = () => { fit(); post.setPixel(PX.on ? PX.size : 0); }; px(); onPixelChange(px);
   /** ms: the real frame interval; logic / render: CPU time spent in the game update and in issuing the render (smoothed) */
   const stats = { calls: 0, tris: 0, ms: 16, logic: 0, render: 0 };
-  const shk = V3();
+  const shk = V3(), lk = V3();
   let last = platform.now();
   return {
     renderer, stats, post,
@@ -47,10 +50,12 @@ export function createGfx(platform: Platform, canvas: any, o: { preserve?: boole
         updateDice(dt, rdt);
         runLateUpdaters(dt, rdt);
         updateParticles(dt); updatePrims(dt);
-        const s = FX.trauma * FX.trauma * CAM.shakeAmt, T = clock.time;
+        // (11-18: the rumble runs on real time — on game time it stood still through every hit-stop, a frozen offset instead of a shake)
+        const s = FX.trauma * FX.trauma * CAM.shakeAmt, T = clock.rtime;
         shk.set(Math.sin(T * 61.3) * s, Math.sin(T * 67.9 + 0.4) * s, Math.sin(T * 53.1 + 1.1) * s * 0.5);
         camera.fov = CAM.fov; camera.aspect = view.w / Math.max(1, view.h);
-        camera.position.copy(CAM.base).add(CAM.off).add(shk); camera.lookAt(CAM.look);
+        camera.position.copy(CAM.base).sub(CAM.look).multiplyScalar(1 - CAM.zoom).add(CAM.look).add(CAM.off).add(CAM.kick).add(shk);
+        camera.lookAt(lk.copy(CAM.look).add(CAM.kick));
         if (CAM.shift) camera.setViewOffset(view.w, view.h, 0, CAM.shift, view.w, view.h); else camera.clearViewOffset();
         camera.updateProjectionMatrix(); camera.updateMatrixWorld(true);
         const t1 = platform.now();

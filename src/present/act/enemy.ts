@@ -322,7 +322,7 @@ function strike(f: Foe, w: FoeWorld) {
   const s = f.shape!;
   if (f.role === 'hound' || f.atk === 'lunge') {
     const d = V3(Math.sin(f.teleYaw), 0, Math.cos(f.teleYaw)), t = f.role === 'boss' ? 0.4 : 0.36;
-    f.lunge = d.multiplyScalar(s.k === 'rect' ? s.len / t : 10); setSt(f, 'strike', t); f.yaw = f.teleYaw; cue(f.role === 'boss' ? 'foeSwing' : f.role === 'hound' ? 'hound' : 'roar', f.role === 'hound' ? 0.8 : 0.35); return;
+    f.lunge = d.multiplyScalar(s.k === 'rect' ? s.len / t : 10); setSt(f, 'strike', t); f.yaw = f.teleYaw; cue(f.role === 'boss' ? 'foeHeavy' : f.role === 'hound' ? 'hound' : 'foeCry', f.role === 'hound' ? 0.8 : 0.7, f.role === 'boss' ? 2 : f.role === 'brute' ? 1 : 0); if (f.role !== 'hound') cue('foeSwing', 0.6); return;   // (11-18: a shout and a rush, not the 1.4 s thunder it was)
   }
   setSt(f, 'strike', 0.18);
   if (f.role === 'archer') {
@@ -335,7 +335,7 @@ function strike(f: Foe, w: FoeWorld) {
     cue('magic', 0.6); fxSparks(f.a.weapon(), 0xffb050, 10, 3); return;
   }
   const heavy = f.role === 'chief' || f.role === 'brute' || f.role === 'boss';
-  cue('foeSwing', heavy ? 1 : f.role === 'mob' ? 0.45 : 0.7); if (heavy) cue('cutHeavy', 0.5);
+  cue(heavy ? 'foeHeavy' : 'foeSwing', heavy ? 1 : f.role === 'mob' ? 0.45 : 0.7);   // (11-18: the heavy swing has its own sound — it used the hero's heavy hit)
   if (s.k === 'circle') {
     const c = f.pos.clone().add(V3(Math.sin(f.teleYaw) * s.ahead, 0.05, Math.cos(f.teleYaw) * s.ahead)); fxSmoke(c, 0x8a7a6a, 10, { r: 1.4, spd: 2, up: 0.6, s: 0.5, life: 0.8 }); fxSparks(c.clone().add(V3(0, 0.2, 0)), 0xffc080, 16, 6);
     if (f.elite && f.role === 'brute') w.arrows.push(new Shockwave(c, Math.round(10 * TUNE.enemyDmg), 0.8, SHOCK_R, 0.45));
@@ -384,7 +384,7 @@ export function damageFoe(f: Foe, dmg: number, from: THREE.Vector3, o: { knock?:
   if (o.dot) return false;
   if (f.d.poise > 0) {
     f.poise -= o.poiseDmg ?? dmg;
-    if (f.poise <= 0) { f.poise = f.d.poise; dropTeles(f); f.attacking = false; f.lunge = null; f.combo = 0; setSt(f, 'stagger', 1.3); f.a.play(new Action('hurt', 1.0, 0.1, { power: 1.6 })); cue('parry', 0.8); cue('cutHeavy', 0.6); }
+    if (f.poise <= 0) { f.poise = f.d.poise; dropTeles(f); f.attacking = false; f.lunge = null; f.combo = 0; setSt(f, 'stagger', 1.3); f.a.play(new Action('hurt', 1.0, 0.1, { power: 1.6 })); cue('guardBreak', 1); }
   } else if ((o.stagger ?? 0.28) > 0 && f.st !== 'strike') {
     // light foes: a hit breaks the wind-up (reward for pressing in)
     dropTeles(f); f.attacking = false; f.lunge = null; f.combo = 0; setSt(f, 'stagger', o.stagger ?? 0.28); f.cd = Math.max(f.cd, 0.25);

@@ -12,8 +12,8 @@ import { fxAfterimage } from '../fx/skillFx';
 import { fxSparks } from '../fx/fx';
 import { dustBlocks } from '../kyoto/ninja_fx';
 import { addBlock } from '../fx/blocks';
-import { cue } from '../../audio/cues';
-import { ACT_NINJA, motionOf } from './ninjaAct';
+import { cue, type Cue } from '../../audio/cues';
+import { ACT_NINJA, motionOf, type WarpKey } from './ninjaAct';
 import { TUNE } from './tune';
 import type { Input } from './input';
 import { trimShadows, type Foe } from './enemy';
@@ -24,16 +24,36 @@ export type HSt = 'free' | 'k1' | 'k2' | 'k3' | 'k4' | 'k5' | 'charge' | 'rel' |
  *  lunge (× TUNE.atkLunge), heavy (the finisher's stagger / FX) */
 interface Swing { imps: number[]; range: number; half: number; dmg: () => number; knock: number; lunge: number; heavy: boolean }
 type Cut = 'k1' | 'k2' | 'k3' | 'k4' | 'k5';
+/** 11-18 节奏 (用户：「现在一招一式节奏都差不多，感觉缺乏节奏感」): 快、快、蓄、连、重. Each cut in real seconds at its base length
+ *  (TUNE.k1..k5 scale it): hits = the blows; chain = when the next cut may start (after the stop at full reach — not a flat 75%);
+ *  step = the step in (from, to); warp = [time, pose k, ease] — the wind-up slow then fast, the blow in two or three frames, a stop at
+ *  full reach, a slow recovery (ninjaAct warpK). Pose keys: cut1 top .30 / blow .42 / reach .62; cut2 .28 / .40 / .58; the spin
+ *  wound .18, arm out .28, the circle to .72 (blow .5); the thrusts back .24, out .30, half back .50, out .56, held to .74; the
+ *  leaping cut raised .42, blow .50, reach .62. The 5th holds at the top a beat (吸气) before it falls */
+const CUT_T: Record<Cut, { dur: number; hits: number[]; chain: number; step: [number, number]; warp: WarpKey[] }> = {
+  k1: { dur: 0.46, hits: [0.13], chain: 0.25, step: [0.03, 0.15], warp: [[0.09, 0.3, 'io'], [0.13, 0.42, 'in'], [0.19, 0.62, 'out'], [0.25, 0.65, 'lin'], [0.46, 1, 'io']] },
+  k2: { dur: 0.46, hits: [0.13], chain: 0.25, step: [0.03, 0.15], warp: [[0.09, 0.28, 'io'], [0.13, 0.4, 'in'], [0.19, 0.58, 'out'], [0.25, 0.62, 'lin'], [0.46, 1, 'io']] },
+  k3: { dur: 0.62, hits: [0.31], chain: 0.46, step: [0.18, 0.33], warp: [[0.22, 0.18, 'io'], [0.25, 0.28, 'in'], [0.31, 0.5, 'lin'], [0.4, 0.72, 'out'], [0.46, 0.75, 'lin'], [0.62, 1, 'io']] },
+  k4: { dur: 0.58, hits: [0.13, 0.24], chain: 0.36, step: [0.09, 0.25], warp: [[0.1, 0.24, 'io'], [0.13, 0.3, 'in'], [0.17, 0.4, 'out'], [0.21, 0.5, 'io'], [0.24, 0.56, 'in'], [0.34, 0.74, 'lin'], [0.58, 1, 'io']] },
+  k5: { dur: 0.88, hits: [0.38], chain: 0.56, step: [0.3, 0.4], warp: [[0.22, 0.42, 'io'], [0.34, 0.43, 'lin'], [0.38, 0.5, 'in'], [0.46, 0.62, 'out'], [0.56, 0.65, 'lin'], [0.88, 1, 'io']] },
+};
+/** the same as shares of each cut (what the state machine and the pose read) */
+const CUT_F = Object.fromEntries((Object.keys(CUT_T) as Cut[]).map(c => { const t = CUT_T[c]; return [c, {
+  hits: t.hits.map(h => h / t.dur), chain: t.chain / t.dur, step: t.step.map(s => s / t.dur) as [number, number], warp: t.warp.map(([r, p, e]) => [r / t.dur, p, e] as WarpKey) }]; })) as Record<Cut, { hits: number[]; chain: number; step: [number, number]; warp: WarpKey[] }>;
+export const CUT_BASE = Object.fromEntries((Object.keys(CUT_T) as Cut[]).map(c => [c, CUT_T[c].dur])) as Record<Cut, number>;
 const SW: Record<Cut, Swing> = {
-  k1: { imps: [0.42], range: 0, half: 1.3, dmg: () => TUNE.atkDmg, knock: 0.55, lunge: 1.0, heavy: false },
-  k2: { imps: [0.4], range: 0, half: 1.4, dmg: () => TUNE.atkDmg, knock: 0.6, lunge: 0.8, heavy: false },
+  k1: { imps: CUT_F.k1.hits, range: 0, half: 1.3, dmg: () => TUNE.atkDmg, knock: 0.55, lunge: 1.0, heavy: false },
+  k2: { imps: CUT_F.k2.hits, range: 0, half: 1.4, dmg: () => TUNE.atkDmg, knock: 0.6, lunge: 0.8, heavy: false },
   // the turning cut: all the way round
-  k3: { imps: [0.5], range: 0.15, half: 9, dmg: () => TUNE.atkDmg, knock: 0.9, lunge: 0.4, heavy: false },
+  k3: { imps: CUT_F.k3.hits, range: 0.15, half: 9, dmg: () => TUNE.atkDmg, knock: 0.9, lunge: 0.4, heavy: false },
   // two lunging thrusts: a long narrow line, each thrust carries half the step in
-  k4: { imps: [0.3, 0.56], range: 0.8, half: 0.3, dmg: () => Math.max(2, Math.round(TUNE.atkDmg * 0.8)), knock: 0.5, lunge: 1.4, heavy: false },
-  k5: { imps: [0.5], range: 0.35, half: 1.5, dmg: () => TUNE.finDmg, knock: 1.7, lunge: 1.5, heavy: true },
+  k4: { imps: CUT_F.k4.hits, range: 0.8, half: 0.3, dmg: () => Math.max(2, Math.round(TUNE.atkDmg * 0.8)), knock: 0.5, lunge: 1.4, heavy: false },
+  k5: { imps: CUT_F.k5.hits, range: 0.35, half: 1.5, dmg: () => TUNE.finDmg, knock: 1.7, lunge: 1.5, heavy: true },
 };
 const NEXT: Record<Cut, Cut | null> = { k1: 'k2', k2: 'k3', k3: 'k4', k4: 'k5', k5: null };
+/** the whoosh of each cut and how long before its blow it starts (s) */
+const SWISH_CUE: Record<Cut, Cue> = { k1: 'swingLight', k2: 'swingLight', k3: 'swingSpin', k4: 'swingStab', k5: 'swingHeavy' };
+const SWISH_LEAD: Record<Cut, number> = { k1: 0.05, k2: 0.05, k3: 0.08, k4: 0.04, k5: 0.07 };
 /** 11-17 气 (bars) for a blow that finds someone: the plain cuts (a whole 连环刀 ≈ 0.9 of a bar; 穿风斩 counts as a plain cut), a 刀谱
  *  link (挑云 / 迎面镖 / 游身斩 / 扫八方 / 穿心腿 / 寻声 / 回身镖) twice that, 劈山 between; the draw costs QI_COST */
 const QI_CUT: Record<Cut, number> = { k1: 0.15, k2: 0.15, k3: 0.15, k4: 0.1, k5: 0.25 };
@@ -73,6 +93,12 @@ export interface HeroWorld {
   /** 居合 · 见切 at the draw: an attack about to land on the hero within `win` seconds is caught now (show.ts breaks it off, throws
    *  the attacker, sends arrows back); returns where the attacker stands (the draw goes at it), or null */
   iaiCatch(win: number): THREE.Vector3 | null;
+  /** 11-18 一闪 (用户：「蓄能大招反馈不足」): the draw leaves the stance — the foes on her path are pinned where they stand, a flash */
+  iaiGo?(o: { from: THREE.Vector3; to: THREE.Vector3; r: number }): void;
+  /** she has arrived: the world holds its breath a beat, then her path opens — the sweep (damage) is the world's to play after it */
+  iaiCut?(o: { a: THREE.Vector3; b: THREE.Vector3; r: number; dmg: number; knock: number }): void;
+  /** that beat is still being held (no cancelling out of it) */
+  iaiBusy?(): boolean;
   /** the plunge lands: a ring of impact round the hero */
   slam(o: { at: THREE.Vector3; r: number; dmg: number; yaw: number }): number;
   clamp(p: THREE.Vector3, r: number): void;
@@ -92,7 +118,7 @@ export class Hero {
   private atkEaten = false; private pendNext: HSt | null = null; private pendT = 0;
   /** jumps made since leaving the ground (2 = the double jump is spent); time into the double jump's flip (-1 = none) */
   private jumps = 0; private flipT = -1; private next: HSt | null = null; private hitDone = false; private hit2Done = false;
-  private hits = 0; private lungeLen = 0;
+  private hits = 0; private lungeLen = 0; private swished = 0;
   /** > 0 just after the charge filled (the ring flashes) */
   fullT = 0;
   /** > 0: a perfect dodge earned a counter — the next cut started in this time hits harder (show.ts) */
@@ -172,14 +198,17 @@ export class Hero {
     else if (has) this.a.yaw = Math.atan2(s.x, s.z);
     return best;
   }
+  /** 11-18 3C: the skid, the braking step, the push (s left); the guard after fighting (s left); the stick a frame ago; facing a frame ago */
+  private skidT = 0; private brakeT = 0; private startT = 0; private readyT = 0; private prevSl = 0; private prevYaw = 0;
   private startCut(n: Cut, w: HeroWorld, chase = false, big = false, keep = false) {
+    this.readyT = 2.2;
     this.chaseOn = chase; this.bigSpin = big; this.keepCut = keep;
     const dur = TUNE[n] / (TUNE.atkSpeed * (1 + v(this.perks, 'quick') / 100)); this.set(n, dur); this.next = null; const tgt = this.aim(w);
     this.counterCut = this.counterT > 0; if (this.counterCut) this.counterT = 0;
     // the step in: TUNE.atkLunge × this cut's share; with a foe ahead, stop TUNE.lungeStop short of it
     const full = TUNE.atkLunge * SW[n].lunge;
     this.lungeLen = tgt ? Math.max(0, Math.min(full, tgt.pos.distanceTo(this.pos) - (tgt.d.r + TUNE.lungeStop))) : full;
-    this.a.play(new Action(n, dur, SW[n].imps[0])); cue(n === 'k5' ? 'swishHeavy' : 'swish', n === 'k5' ? 0.8 : n === 'k3' ? 0.7 : 0.5);
+    this.a.play(new Action(n, dur, SW[n].imps[0], { warp: CUT_F[n].warp })); this.swished = 0;
   }
   private startDash(w: HeroWorld) {
     const s = w.stickWorld(); this.dashDir.copy(s.lengthSq() > 0.04 ? s.normalize() : this.a.fwd());
@@ -188,7 +217,7 @@ export class Hero {
     this.a.play(new Action('dashA', TUNE.dashTime * 1.4, 0.2)); cue('dash', 0.8);
   }
   private startJump() {
-    this.v0 = (4 * TUNE.jumpH) / TUNE.jumpT; this.vy = this.v0; this.y = Math.max(this.y, 0.001); this.jumps = 1; this.flipT = -1; this.pendT = 0; this.linkT = 0; this.dashTailT = 0;
+    this.v0 = (4 * TUNE.jumpH) / TUNE.jumpT; this.vy = this.v0; this.y = Math.max(this.y, 0.001); this.jumps = 1; this.flipT = -1; this.pendT = 0; this.linkT = 0; this.dashTailT = 0; this.airT = 0;
     this.set('air', 99); this.a.act?.cancel(); this.a.act = null; this.next = null;
     dustBlocks(this.pos.clone(), 5); cue('jump', 0.6);
   }
@@ -208,6 +237,11 @@ export class Hero {
     this.a.play(new Action('plunge', PLUNGE_HANG + this.y / PLUNGE_V + 0.02, 0.98)); cue('swishHeavy', 0.6);
   }
   get gravity() { return (8 * TUNE.jumpH) / (TUNE.jumpT * TUNE.jumpT); }
+  /** 11-18 跳跃: gravity as she flies — the rise as before, half near the top (a moment's hang), 1.6× on the way down (a jump that
+   *  falls as fast as it rose reads floaty and stiff) */
+  private gravAt(vy: number) { return this.gravity * (vy > 1.4 ? 1 : vy > -1.4 ? 0.5 : 1.6); }
+  /** seconds since the last take-off (the push pose) */
+  private airT = 9;
   /** 回据点 from the pause menu: she falls where she stands (the run ends as a death) */
   giveUp() { this.hp = 0; this.set('dead', 99); this.a.fall(); }
   hurt(dmg: number, from: THREE.Vector3): boolean {
@@ -224,7 +258,7 @@ export class Hero {
     const m = motionOf(this.a), B = inp.b;
     this.showBlade();
     this.t += dt; this.age += dt; this.keepT = Math.max(0, this.keepT - dt); this.dashTailT = Math.max(0, this.dashTailT - dt); this.linkT = Math.max(0, this.linkT - dt); this.pauseT = Math.max(0, this.pauseT - dt); this.parryT = Math.max(0, this.parryT - dt); this.fullT = Math.max(0, this.fullT - dt); this.counterT = Math.max(0, this.counterT - dt); this.inv = Math.max(0, this.inv - dt); this.dashCd -= dt; this.dartCd -= dt;
-    if (this.dartReload > 0) { this.dartReload -= dt; if (this.dartReload <= 0) { this.dartReload = 0; this.dartAmmo = TUNE.dartCharges; } } m.land = Math.max(0, m.land - dt / 0.16);
+    if (this.dartReload > 0) { this.dartReload -= dt; if (this.dartReload <= 0) { this.dartReload = 0; this.dartAmmo = TUNE.dartCharges; } } m.land = Math.max(0, m.land - dt / Math.max(0.05, m.landDur)); this.airT += dt;
     // buffers: a press counts for a short while (so a press slightly early still chains)
     const A = B.attack;
     if (A.pressed) this.atkEaten = false;
@@ -274,6 +308,12 @@ export class Hero {
     switch (this.st) {
       case 'free': {
         steer(TUNE.heroAccel);
+        // 11-18 3C (用户：「3C总之都要再加强」): a reversal at speed skids, a stop from a run takes a braking step, a run from standing
+        // starts with a push — each with a little dirt (and a scrape for the skid / the stop)
+        { const hs = Math.hypot(this.vel.x, this.vel.z), top = TUNE.heroSpeed;
+          if (sl > 0.5 && hs > 0.65 * top && this.skidT <= 0 && (this.vel.x * stick.x + this.vel.z * stick.z) / (hs * sl) < -0.35) { this.skidT = 0.18; dustBlocks(this.pos.clone(), 6, this.vel.clone().normalize()); cue('skid', 0.7); }
+          else if (this.prevSl > 0.5 && sl < 0.15 && hs > 0.7 * top && this.brakeT <= 0) { this.brakeT = 0.22; dustBlocks(this.pos.clone(), 4, this.vel.clone().normalize()); cue('skid', 0.35); }
+          else if (this.prevSl < 0.15 && sl > 0.5 && hs < 0.3 * top) { this.startT = 0.16; dustBlocks(this.pos.clone(), 3, stick.clone().multiplyScalar(-1)); } }
         // 11-17: the dash links stay on for TUNE.linkDash after the dash has stopped (on the ground). Out of a combo, with 游身斩
         // learnt, a cut pressed after the dash is 游身斩 instead (in the dash it is still 穿风斩)
         if (this.dashTailT > 0 && !this.airborne) {
@@ -302,7 +342,7 @@ export class Hero {
       }
       case 'air': {
         steer(TUNE.heroAccel * 0.7);
-        this.vy -= this.gravity * dt; this.y += this.vy * dt;
+        this.vy -= this.gravAt(this.vy) * dt; this.y += this.vy * dt;
         // the double jump: jump again in the air (once until landing)
         if (this.buf.jump > 0 && this.jumps < 2 && this.has('dbl')) { this.buf.jump = 0; this.startJump2(); break; }
         // in the air a press is the plunge at once (no stance up here); its release then does nothing
@@ -329,12 +369,15 @@ export class Hero {
         break;
       }
       case 'k1': case 'k2': case 'k3': case 'k4': case 'k5': {
-        const cut = this.st as Cut, sw = SW[cut], k = this.t / this.dur, i0 = sw.imps[0];
-        // the lunge: one cut steps in over the wind-up into its blow; a multi-blow cut steps a share in with each blow
-        const n = sw.imps.length, win = n > 1 ? 0.1 : 0.26, ahead = this.a.fwd();
-        const inWin = n > 1 ? sw.imps.some(i => k > i - 0.08 && k < i + 0.02) : k > i0 - 0.22 && k < i0 + 0.04;
-        const lungeV = inWin ? this.lungeLen / n / (this.dur * win) : 0;
-        this.vel.copy(ahead).multiplyScalar(lungeV);
+        const cut = this.st as Cut, sw = SW[cut], k = this.t / this.dur, cf = CUT_F[cut];
+        // the lunge: the cut steps in over its step window (11-18: the last part of the wind-up into the blow — the 5th not during its held breath)
+        const ahead = this.a.fwd(), inWin = k > cf.step[0] && k < cf.step[1];
+        this.vel.copy(ahead).multiplyScalar(inWin ? this.lungeLen / (this.dur * (cf.step[1] - cf.step[0])) : 0);
+        // 11-18: the blade's whoosh rides the blow itself (a beat before each impact), not the start of the wind-up
+        while (this.swished < sw.imps.length && k >= sw.imps[this.swished] - SWISH_LEAD[cut] / this.dur) {
+          this.swished++; cue(SWISH_CUE[cut], cut === 'k5' ? 1 : cut === 'k3' ? 0.8 : 0.6);
+          if (cut === 'k5' && this.swished === 1) cue('breath', 0.8);
+        }
         while (this.hits < sw.imps.length && k >= sw.imps[this.hits]) {
           this.hits++; this.hitDone = true; this.linkT = TUNE.linkCut;
           // 气: a cut that finds someone fills a share of a bar; the 刀谱 links (寻声's cut, 游身斩, 扫八方) twice what a plain cut gives
@@ -364,7 +407,9 @@ export class Hero {
         if (cut === 'k3' && this.spinsLeft > 1 && k >= 0.9) { this.spinsLeft--; this.startCut('k3', w, false, true); break; }
         // the next cut waits until this one has played out to TUNE.chainAt (the recovery is part of the rhythm)
         const last = sw.imps[sw.imps.length - 1];
-        if (this.next && k >= Math.max(last + 0.12, TUNE.chainAt)) { const n = this.next as Cut; this.buf.atk = 0; this.startCut(n, w); break; }
+        if (this.next && k >= Math.max(last + 0.04, cf.chain)) { const n = this.next as Cut; this.buf.atk = 0; this.startCut(n, w); break; }
+        // 11-18 操控: once the blow has stopped at full reach, pushing the stick cancels the recovery and runs
+        if (!this.next && this.buf.atk <= 0 && k >= cf.chain + 0.04 && sl > 0.5 && !holding) { this.spinsLeft = 0; this.set('free', 0); break; }
         if (k >= 1) { if (cut === 'k2' && this.has('pause')) this.pauseT = 0.95; this.spinsLeft = 0; this.set('free', 0); }
         break;
       }
@@ -392,7 +437,7 @@ export class Hero {
         this.chargeK = Math.min(1, this.chargeK + dt / chargeFull); m.charge = this.chargeK;
         this.vel.lerp(stick.clone().multiplyScalar(TUNE.heroSpeed * TUNE.stanceSpeed), 1 - Math.exp(-12 * dt));
         if (sl > 0.1) this.a.yaw = Math.atan2(stick.x, stick.z);
-        if (this.chargeK >= 1 && this.chargeK - dt / chargeFull < 1) { cue('parry', 0.15); this.a.tint(0xfff4d0, 0.4); this.fullT = 0.35; }
+        if (this.chargeK >= 1 && this.chargeK - dt / chargeFull < 1) { cue('bladeRing', 1); this.a.tint(0xfff4d0, 0.4); this.fullT = 0.35; }
         if (canDash) { m.charge = 0; this.buf.dash = 0; this.startDash(w); break; }   // (dashing out of the stance costs no 气)
         // 屏息 (11-17): full, the stance holds only TUNE.stanceHold more — then she lets the breath go and straightens up, the bar spent
         // for nothing, and the button's release does nothing (no camping in the stance waiting for the cue)
@@ -413,16 +458,23 @@ export class Hero {
           this.relFrom.copy(this.pos); this.relTo.copy(this.pos).addScaledVector(dir, len); w.clamp(this.relTo, this.r);
           const dur = 0.42; this.set('rel', dur); this.a.play(new Action('rel', dur, 0.3)); cue('draw', 0.9); cue('swishHeavy', 0.7);
           this.parryT = TUNE.iaiWin; this.iaiBonus = this.iaiBonus || !!caught;
+          w.iaiGo?.({ from: this.relFrom.clone(), to: this.relTo.clone(), r: 1.05 }); cue('breath', 1);
         }
         break;
       }
       case 'rel': {
-        const k = this.t / this.dur, u = Math.min(1, Math.max(0, (k - 0.12) / 0.3));
+        // 11-18 一闪: she crosses as a streak of light (faster than before: ≈ 0.09 s), white-gold, then stands; the cut opens after the
+        // world's held beat (iaiCut), not as she passes
+        const k = this.t / this.dur, u = Math.min(1, Math.max(0, (k - 0.08) / 0.22));
         const p = this.relFrom.clone().lerp(this.relTo, 1 - (1 - u) ** 3); this.vel.set(0, 0, 0); this.pos.x = p.x; this.pos.z = p.z;
-        this.ghostT -= dt; if (k < 0.45 && this.ghostT <= 0) { this.ghostT = 0.04; fxAfterimage(this.pos.clone(), 1.9, 0xff5a3a, { life: 0.22, glow: 0.4 }); }
-        if (!this.hitDone && k >= 0.36) { this.hitDone = true; w.sweep({ a: this.relFrom.clone(), b: this.pos.clone(), r: 1.05, dmg: Math.round(TUNE.relDmg * (1 + this.chargeK) * (this.iaiBonus ? 2 : 1)), knock: this.iaiBonus ? 2 : 1.4 }); }
-        if (this.hitDone && canDash) { this.buf.dash = 0; this.startDash(w); break; }
-        if (this.hitDone && canJump) { this.buf.jump = 0; this.startJump(); break; }
+        this.ghostT -= dt; if (k < 0.36 && this.ghostT <= 0) { this.ghostT = 0.025; fxAfterimage(this.pos.clone(), 1.9, 0xfff0c8, { life: 0.3, glow: 0.7 }); }
+        if (!this.hitDone && k >= 0.36) {
+          this.hitDone = true; const o = { a: this.relFrom.clone(), b: this.pos.clone(), r: 1.05, dmg: Math.round(TUNE.relDmg * (1 + this.chargeK) * (this.iaiBonus ? 2 : 1)), knock: this.iaiBonus ? 2 : 1.4 };
+          if (w.iaiCut) w.iaiCut(o); else w.sweep(o);
+        }
+        const held = !!w.iaiBusy?.();
+        if (this.hitDone && !held && canDash) { this.buf.dash = 0; this.startDash(w); break; }
+        if (this.hitDone && !held && canJump) { this.buf.jump = 0; this.startJump(); break; }
         if (k >= 1) { if (this.iaiBonus) this.startNoto(); else this.set('free', 0); }
         break;
       }
@@ -472,8 +524,20 @@ export class Hero {
     if (this.st !== 'air' && this.st !== 'plunge' && this.st !== 'dash') this.fall(dt);
     this.move(dt, w);
     const sp = Math.hypot(this.vel.x, this.vel.z), r = Math.min(1, sp / TUNE.heroSpeed);
+    { // 11-18 3C: what the body shows of the controls
+      this.skidT = Math.max(0, this.skidT - dt); this.brakeT = Math.max(0, this.brakeT - dt); this.startT = Math.max(0, this.startT - dt); this.readyT = Math.max(0, this.readyT - dt);
+      if (this.st === 'charge' || this.st === 'rel' || this.st === 'dcut' || this.st === 'hurt') this.readyT = 2.2;
+      let dy = this.a.yaw - this.prevYaw; while (dy > Math.PI) dy -= Math.PI * 2; while (dy < -Math.PI) dy += Math.PI * 2; this.prevYaw = this.a.yaw;
+      const bank = this.st === 'free' && dt > 0 ? Math.max(-0.3, Math.min(0.3, dy / dt * 0.05)) : 0;
+      m.bank += (bank - m.bank) * Math.min(1, dt * 10);
+      m.skid = this.skidT / 0.18; m.brake = this.brakeT / 0.22; m.start = this.startT / 0.16;
+      m.ready = this.st === 'free' ? Math.min(1, this.readyT / 0.6) : 0;
+      this.prevSl = Math.min(1, w.stickWorld().length());
+    }
     m.run = this.st === 'free' ? r : 0; m.phase += sp * (3.0 - 0.5 * r) * dt;
     m.air = this.y; m.rise = this.v0 > 0 ? this.vy / this.v0 : 0;
+    m.takeoff = this.airborne && this.jumps === 1 && this.airT < 0.16 ? 1 - this.airT / 0.16 : 0;
+    m.lean = this.airborne ? Math.max(0, Math.min(1, (this.vel.x * Math.sin(this.a.yaw) + this.vel.z * Math.cos(this.a.yaw)) / TUNE.heroSpeed)) : 0;
     m.flip = this.flipT >= 0 && this.airborne ? Math.min(1, this.flipT / FLIP_T) : 0;
     m.dart = this.dartT >= 0 ? Math.min(1, this.dartT / DART_T) : 0; m.dartBack = this.dartBack ? 1 : 0;
     m.creep = this.st === 'charge' ? Math.min(1, sp / Math.max(0.3, TUNE.heroSpeed * TUNE.stanceSpeed)) : 0;
@@ -481,11 +545,14 @@ export class Hero {
   }
   private fall(dt: number) {
     if (this.y <= 0) { this.y = 0; return; }
-    this.vy -= this.gravity * dt; this.y += this.vy * dt; if (this.y <= 0) { this.y = 0; this.vy = 0; }
+    this.vy -= this.gravAt(this.vy) * dt; this.y += this.vy * dt; if (this.y <= 0) { this.y = 0; this.vy = 0; }
   }
   private landed(w: HeroWorld) {
-    this.y = 0; this.vy = 0; this.jumps = 0; this.flipT = -1; const m = motionOf(this.a); m.land = 1;
-    dustBlocks(this.pos.clone(), 6); cue('land', 0.7);
+    // 11-18: the landing as hard as the fall was — a full jump sinks deep and rises slowly; running on, a shallow dip she runs out of
+    const m = motionOf(this.a), hard = Math.min(1, Math.max(0.3, -this.vy / 12)), run = Math.min(1, Math.hypot(this.vel.x, this.vel.z) / TUNE.heroSpeed);
+    m.landW = hard * (1 - 0.5 * run); m.landDur = 0.1 + 0.18 * m.landW; m.land = 1;
+    this.y = 0; this.vy = 0; this.jumps = 0; this.flipT = -1;
+    dustBlocks(this.pos.clone(), Math.round(4 + 6 * m.landW)); cue('land', 0.35 + 0.6 * m.landW);
     this.set('free', 0);
     // a press just before touching down: the cut / the next jump starts on landing
     if (this.buf.atk > 0) { this.buf.atk = 0; this.startCut('k1', w); }
