@@ -49,25 +49,25 @@ export type HintKey = 'dcut' | 'back' | 'plunge' | 'dbl' | 'chase' | 'counter' |
 const HINTS: Record<HintKey, { rows: string[]; col: number }> = {
   // act-19 刀谱 moves (axis-aligned glyphs): 挑空斩 an arrow going up off the ground; 近身三镖 three darts; 游身 a side step into a
   // cut; 变招 nested squares (a spin); 飞踢 a foot shooting out
-  launch: { col: 0xffe08a, rows: ['....##....', '...####...', '..######..', '....##....', '....##....', '....##....', '....##....', '##########', '..........', '..........'] },
-  cdart: { col: 0xe8eef4, rows: ['..........', '.#...#...#', '###.###.##', '.#...#...#', '.#...#...#', '.#...#...#', '.#...#...#', '###.###.##', '..........', '..........'] },
-  keep: { col: 0x9ad8ff, rows: ['..........', '#.........', '##........', '###..#####', '##........', '#.........', '.....#####', '..........', '..........', '..........'] },
-  pause: { col: 0xffb070, rows: ['..######..', '.#......#.', '#..####..#', '#.#....#.#', '#.#.##.#.#', '#.#....#.#', '#..####..#', '.#......#.', '..######..', '..........'] },
+  launch: { col: 0xffd84a, rows: ['....##....', '...####...', '..######..', '....##....', '....##....', '....##....', '....##....', '##########', '..........', '..........'] },
+  cdart: { col: 0xff5a48, rows: ['..........', '.#...#...#', '###.###.##', '.#...#...#', '.#...#...#', '.#...#...#', '.#...#...#', '###.###.##', '..........', '..........'] },
+  keep: { col: 0x3ad6a8, rows: ['..........', '#.........', '##........', '###..#####', '##........', '#.........', '.....#####', '..........', '..........', '..........'] },
+  pause: { col: 0xff9a40, rows: ['..######..', '.#......#.', '#..####..#', '#.#....#.#', '#.#.##.#.#', '#.#....#.#', '#..####..#', '.#......#.', '..######..', '..........'] },
   // act-20: talk to someone at the hideout (a speech bubble)
   talk: { col: 0xf2e8d6, rows: ['..........', '.########.', '#........#', '#.##.##..#', '#........#', '.###.####.', '...##.....', '..#.......', '..........', '..........'] },
-  kick: { col: 0xffc890, rows: ['..##......', '..##......', '..##......', '..######..', '..########', '..##......', '..##......', '.###......', '.###......', '..........'] },
+  kick: { col: 0xff8a50, rows: ['..##......', '..##......', '..##......', '..######..', '..########', '..##......', '..##......', '.###......', '.###......', '..........'] },
   // 穿风斩: a level cut with wind lines behind
-  dcut: { col: 0xbfeaff, rows: ['..........', '##........', '..........', '####..###.', '.....#####', '####..###.', '..........', '##........', '..........', '..........'] },
+  dcut: { col: 0x4cc4ff, rows: ['..........', '##........', '..........', '####..###.', '.....#####', '####..###.', '..........', '##........', '..........', '..........'] },
   // 回身镖: an arrow back with a dart on it
-  back: { col: 0xf0e6d2, rows: ['...#......', '..##......', '.########.', '##########', '.########.', '..##......', '...#......', '..........', '..........', '..........'] },
+  back: { col: 0xffb040, rows: ['...#......', '..##......', '.########.', '##########', '.########.', '..##......', '...#......', '..........', '..........', '..........'] },
   // 下劈: an arrow down
-  plunge: { col: 0xffc860, rows: ['...####...', '...####...', '...####...', '##########', '.########.', '..######..', '...####...', '....##....', '..........', '..........'] },
+  plunge: { col: 0xff6a3a, rows: ['...####...', '...####...', '...####...', '##########', '.########.', '..######..', '...####...', '....##....', '..........', '..........'] },
   // 二段跳: two chevrons up
-  dbl: { col: 0xa8d8ff, rows: ['....##....', '..######..', '.##....##.', '##......##', '....##....', '..######..', '.##....##.', '##......##', '..........', '..........'] },
+  dbl: { col: 0x5aa8ff, rows: ['....##....', '..######..', '.##....##.', '##......##', '....##....', '..######..', '.##....##.', '##......##', '..........', '..........'] },
   // 追影: a dart with a shadow line running to it
-  chase: { col: 0x9aa4ff, rows: ['..........', '......##..', '#.#.#.###.', '.#.#.######', '#.#.#.###.', '......##..', '..........', '..........', '..........', '..........'] },
+  chase: { col: 0x9a7aff, rows: ['..........', '......##..', '#.#.#.###.', '.#.#.######', '#.#.#.###.', '......##..', '..........', '..........', '..........', '..........'] },
   // 反击: two cuts crossing
-  counter: { col: 0xffd060, rows: ['##......##', '.##....##.', '..##..##..', '...####...', '...####...', '..##..##..', '.##....##.', '##......##', '..........', '..........'] },
+  counter: { col: 0xffcc40, rows: ['##......##', '.##....##.', '..##..##..', '...####...', '...####...', '..##..##..', '.##....##.', '##......##', '..........', '..........'] },
 };
 function hintTex(k: HintKey) {
   const h = HINTS[k], S = 8, N = 12, c = document.createElement('canvas'); c.width = c.height = N * S; const g = c.getContext('2d')!; g.imageSmoothingEnabled = false;
@@ -166,7 +166,7 @@ export class IronBtn {
   hint: HintKey | null = null; /** which side the badge pops up on (−1 upper left, +1 upper right: the big cut button has the jump button at its upper left) */ badgeSide: -1 | 1 = -1; private badge: THREE.Mesh | null = null; private badgeKey: HintKey | null = null; private badgeK = 0; private badgePop = 1;
   /** charges left / the most (the dart button: three bronze lamps on an arc over the shield); max 0 = none */
   pips = 0; pipMax = 0; private pipMeshes: THREE.Mesh[] = [];
-  private ring: ReturnType<typeof plateRing>; private icon: Model3D; private shadow: THREE.Mesh; private tassel: THREE.Mesh | null = null;
+  private ring: ReturnType<typeof plateRing>; private icon: Model3D; private sock!: THREE.Mesh; private sockK = 0; private sockCol = new THREE.Color(); private shadow: THREE.Mesh; private tassel: THREE.Mesh | null = null;
   private pressK = 0; private flashT = 0; private wasReady = true; private tt = 0; private wasFull = false; private lift = 6; private popT = 1;
   /** act-29 (用户：「UI组件的各种状态、动效的切换、特效的提示」): a spring on the button's size (press sinks, release overshoots), a
    *  shake + dull red when pressed while it cannot act, a run of light round the plates when it comes ready, a kick from the game
@@ -187,7 +187,7 @@ export class IronBtn {
     const back = new THREE.Mesh(octCyl(0.5, 0.12), lam(IRON_D)); this.root.add(back);
     const rim = new THREE.Mesh(octCyl(0.47, 0.14), lam(0x30333b)); rim.position.z = 0.01; this.root.add(rim);
     // the socket the picture floats over: a darker recessed octagon
-    const sock = new THREE.Mesh(new THREE.CircleGeometry(0.3, 8, Math.PI / 8), lam(0x24272e)); sock.position.z = 0.085; this.root.add(sock);
+    const sock = new THREE.Mesh(new THREE.CircleGeometry(0.3, 8, Math.PI / 8), lam(0x24272e)); sock.position.z = 0.085; this.root.add(sock); this.sock = sock;
     this.shadow = new THREE.Mesh(new THREE.CircleGeometry(0.2, 8, Math.PI / 8), new THREE.MeshBasicMaterial({ color: 0x07080a, transparent: true, opacity: 0.5, depthWrite: false }));
     this.shadow.position.z = 0.088; this.root.add(this.shadow);
     this.ring = plateRing(0.39, 0.09, 0.27); this.root.add(this.ring.plates, this.ring.rivets);
@@ -238,7 +238,7 @@ export class IronBtn {
       const lit = ready || i / 8 < 1 - frac;
       const fromBottom = (4 - Math.abs(i - 4)) / 4, heat = ch > 0 ? Math.max(0, Math.min(1, (ch - (1 - fromBottom) * 0.85) * 3)) : 0;
       const hc = this.hint && !this.now ? HINT_COLS[this.hint] : null;
-      const glow = this.now ? 0.9 : hc ? 0.42 : this.flashT > 0 ? Math.min(0.5, this.flashT * 1.6) : this.hot || full ? 0.45 + 0.4 * pulse : heat;
+      const glow = this.now ? 0.9 : hc ? (this.hint === 'talk' ? 0.42 : 1.12) : this.flashT > 0 ? Math.min(0.5, this.flashT * 1.6) : this.hot || full ? 0.45 + 0.4 * pulse : heat;
       this.col.copy(lit ? this.base : this.dark).lerp(this.now ? WHITE : hc ?? this.ember, lit ? glow * 0.8 : 0);
       // the next plate to come back while cooling: a dim ember edge (you can see where it is)
       if (!lit && i / 8 < 1 - frac + 1 / 8) this.col.lerp(this.ember, 0.22 + 0.12 * pulse);
@@ -271,20 +271,32 @@ export class IronBtn {
     // taken — the rim simply takes the move's colour (above) and the picture inside becomes the move
     const hint = this.hint && this.hint !== 'talk' ? this.hint : null;
     if (hint) this.root.position.z += L.px(6);   // (the open link lifts the button a little)
+    // act-37 (用户：「现在切换到派生图标的表现又太不明显了」): a change of state, not a flash — the whole button takes the move's colour
+    // (plates above, the socket a deep shade of it, steady), and the picture turns over like a token: the sabre on its back, the
+    // move on its face (a light tint of its colour, standing out on the dark socket). Another move while one is up: the face turns to its edge, then round to the new one.
     const altKey = this.talk ? 'talk' : hint;
-    if (altKey && altKey !== this.altKey) {
-      let m = this.alts.get(altKey);
-      if (!m) { m = altKey === 'talk' ? btnIcon3D('talk') : hintIcon3D(altKey, HINTS[altKey as HintKey].rows, HINTS[altKey as HintKey].col); this.alts.set(altKey, m); this.iconG.add(m); }
-      for (const [k, o] of this.alts) o.visible = k === altKey;
-      // a new move while another is still up: it takes the place at once (no in-between of the sabre)
-      if (this.altKey && this.altK > 0.5) this.altK = 0.5;
-      this.altKey = altKey;
+    if (altKey && !this.altKey) { this.altKey = altKey; this.altK = 0; this.scV += 0.9; }   // (a small knock as it turns, no light)
+    if (altKey && this.altKey && altKey !== this.altKey && this.altK < 0.5) this.altKey = altKey;   // not showing yet: just take it
+    let m = this.altKey ? this.alts.get(this.altKey) : null;
+    if (this.altKey && !m) {
+      const k = this.altKey; m = k === 'talk' ? btnIcon3D('talk') : hintIcon3D(k, HINTS[k as HintKey].rows, new THREE.Color(HINTS[k as HintKey].col).lerp(WHITE, 0.55).getHex());
+      m.rotation.y = Math.PI; this.alts.set(k, m); this.iconG.add(m);
     }
-    this.altK += ((altKey ? 1 : 0) - this.altK) * Math.min(1, dt * 16);
-    const cur = this.altKey ? this.alts.get(this.altKey) : null;
-    if (cur) { cur.visible = this.altK > 0.02; cur.scale.setScalar(Math.max(0.001, this.altK)); if (this.altKey !== 'talk') { cur.setDim(0); cur.setGlow(1); } }
-    if (!altKey && this.altK < 0.02) this.altKey = null;
-    this.icon.scale.setScalar(Math.max(0.001, 1 - this.altK)); this.icon.visible = this.altK < 0.98;
+    const toEdge = !!altKey && !!this.altKey && altKey !== this.altKey;   // a different move: turn to the edge first
+    this.altK = toEdge ? Math.max(0.5, this.altK - dt / 0.07) : Math.max(0, Math.min(1, this.altK + (altKey ? 1 : -1) * dt / 0.14));
+    if (toEdge && this.altK <= 0.5) { this.altKey = altKey; this.scV += 0.5; }
+    if (!altKey && this.altK <= 0) this.altKey = null;
+    const e = this.altK * this.altK * (3 - 2 * this.altK), face = e >= 0.5;
+    this.iconG.rotation.y += Math.PI * e;
+    for (const [k, o] of this.alts) {
+      o.visible = face && k === this.altKey;
+      if (o.visible) { o.scale.setScalar(1.05); if (k !== 'talk') { o.setDim(0); o.setGlow(1); } }
+    }
+    this.icon.visible = !face; this.icon.scale.setScalar(1);
+    // the socket: a deep shade of the move's colour while a move is up (not for 'talk')
+    { const on = hint ? 1 : 0; this.sockK += (on - this.sockK) * Math.min(1, dt * 14);
+      if (hint) this.sockCol.copy(HINT_COLS[hint]).multiplyScalar(0.2);
+      ((this.sock.material as THREE.MeshLambertMaterial).color).setHex(0x24272e).lerp(this.sockCol, this.sockK); }
   }
   dispose() { disposeTree(this.root); disposeTree(this.iconG); if (this.badge) disposeTree(this.badge); for (const m of this.alts.values()) m.dispose(); }
 }
