@@ -16,7 +16,7 @@ const LOW = 8;
 type B = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, c: number | null) => void;
 const PAL = {
   water: 0x1c3240, waterE: 0x060c10, waterL: 0x4a6a7a, bed: 0x14181a, bank: 0x6e5c42, bankD: 0x54462f, bankL: 0x86704e, stone: 0x86827a, stoneD: 0x67635c, stoneL: 0xa09a90, stoneW: 0x4e4b46,
-  pitD: 0x0e0c0a, pit1: 0x6a5840, pit2: 0x433829, wood: 0x6e5238, woodD: 0x4a3622, woodL: 0x8e6e4c, post: 0x3e2c1e,
+  pitD: 0x0e0c0a, pit1: 0x4a3c2a, pit2: 0x2a2219, pitE: 0x5a4a34, wood: 0x6e5238, woodD: 0x4a3622, woodL: 0x8e6e4c, post: 0x3e2c1e,
 };
 
 /** a wall run along the floor's outline: along axis, the border line (cells of the floor grid), the floor cells it runs along (a0..a1),
@@ -103,12 +103,12 @@ function pit(c: Ctx, box: B, p: Rect, kind: 'water' | 'ditch') {
     box(X0 + 2, -8, Z0 + 2, X1 - 2, -8, Z0 + 2, PAL.waterL);
   } else {
     // 深沟 (1.4 m down): the lip, a first ledge four cells wide 0.2 m down, a second four more in 0.6 m down, a black floor; every ring
-    // goes down to the floor of the gully, so no gap opens under a ledge. Earth tones that darken going down: it reads as a drop, not
-    // as water
+    // goes down to the floor of the gully, so no gap opens under a ledge. Dark earth that goes near-black going down (the far wall,
+    // which the camera sees face-on, read as a wall standing up when it was the floor's own colour): a dark trench, not a ledge
     const BOT = -20;
     rim(-1, -1, 0, PAL.bankL);
-    for (let k = 0; k < 4; k++) rim(BOT, -3, k, k === 3 ? PAL.bank : PAL.pit1);
-    for (let k = 4; k < 8; k++) rim(BOT, -9, k, k === 7 ? PAL.bankD : PAL.pit2);
+    for (let k = 0; k < 4; k++) rim(BOT, -3, k, k === 3 ? PAL.pitE : PAL.pit1);
+    for (let k = 4; k < 8; k++) rim(BOT, -9, k, PAL.pit2);
     for (let k = 8; k < 10; k++) rim(BOT, -15, k, PAL.pitD);
     box(X0 + 10, BOT, Z0 + 10, X1 - 10, BOT + 1, Z1 - 10, PAL.pitD);
   }
@@ -122,16 +122,20 @@ function bridge(box: B, q: Rect, kind: 'water' | 'ditch', st: WallStyle) {
   if (kind === 'water' && st !== 'brick') {
     box(X0, -2, Z0, X1, -1, Z1, PAL.woodD);
     box(X0, 0, Z0, X1, 0, Z1, PAL.wood);
-    if (alongZ) for (let z = Z0 + 1; z <= Z1; z += 3) box(X0, 0, z, X1, 0, z, PAL.woodD);
-    else for (let x = X0 + 1; x <= X1; x += 3) box(x, 0, Z0, x, 0, Z1, PAL.woodD);
+    // (the board seams run along the way: seams across it, seen from the battle camera, read as a stair)
+    if (alongZ) for (let x = X0 + 4; x < X1 - 1; x += 5) box(x, 0, Z0, x, 0, Z1, PAL.woodD);
+    else for (let z = Z0 + 4; z < Z1 - 1; z += 5) box(X0, 0, z, X1, 0, z, PAL.woodD);
     for (const x of alongZ ? [X0, X1] : []) { box(x, 1, Z0, x, 1, Z1, PAL.woodL); for (const z of [Z0, Z1]) box(x, 0, z, x, 8, z, PAL.post); box(x, 7, Z0, x, 7, Z1, PAL.woodL); }
     // the piles under it, at a third and two thirds
     if (alongZ) for (const z of [Math.round(Z0 + (Z1 - Z0) / 3), Math.round(Z0 + (Z1 - Z0) * 2 / 3)]) for (const x of [X0 + 1, X1 - 1]) box(x, -6, z, x, -3, z, PAL.post);
   } else {
-    box(X0, -3, Z0, X1, -1, Z1, PAL.stoneD);
+    // a slab bridge: two long slabs side by side (the joint runs along the way — joints across it read as steps from the camera), a
+    // raised kerb each side with a post at each end, the span's face going down into the gully
+    box(X0, -6, Z0, X1, -1, Z1, PAL.stoneD);
     box(X0, 0, Z0, X1, 0, Z1, PAL.stone);
-    if (alongZ) for (let z = Z0 + 3; z <= Z1; z += 7) box(X0, 0, z, X1, 0, z, PAL.stoneD);
-    for (const x of alongZ ? [X0, X1] : []) box(x, 1, Z0, x, 2, Z1, PAL.stoneL);
+    const mid = Math.round((X0 + X1) / 2);
+    if (alongZ) box(mid, 0, Z0, mid, 0, Z1, PAL.stoneD);
+    for (const x of alongZ ? [X0, X1] : []) { box(x, 1, Z0, x, 2, Z1, PAL.stoneL); for (const z of [Z0, Z1]) box(x, 1, z, x, 5, z, PAL.stoneL); }
   }
 }
 

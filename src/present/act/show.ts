@@ -703,6 +703,7 @@ export class ActShow {
     setStage(P.big, P.k); this.layout = P.layout; this.arena = P.arena; if (P.report) this.lastReport = P.report;
     // 11-18 屋子形态: the floor as a grid (the clamp, the foes' way round, the pits); the rectangle rooms have none
     this.grid = P.arena?.shape ? new FloorGrid(P.arena.shape) : null;
+    { const g = this.grid; blood.skip = g ? (x, z) => g.at(x, z) === PIT : null; }
     if (P.arena?.shape && !this.viewSpec) this.shapes.push(P.arena.shape.id);
     if (isYard) this.shapes = [];
     const big = P.big;
@@ -762,7 +763,7 @@ export class ActShow {
       if (this.hero !== h || this.phase !== 'intro') return;
       this.phase = 'fight'; this.spawnWave();
     });
-    this.log.push(`room ${this.room} ${spec.locale} ${spec.layout} ${spec.time}`);
+    this.log.push(`room ${this.room} ${spec.locale} ${spec.layout} ${spec.time} ${this.arena?.shape?.id ?? 'square'}`);
   }
   private openYard() {
     this.phase = 'yard'; this.wave = 0;
@@ -1664,8 +1665,9 @@ export class ActShow {
       this.leaves.update(dt, this.cam.x, this.cam.z);
       blood.update(dt);
       if (h.st === 'dash' && !h.airborne) { const speed = Math.hypot(h.vel.x, h.vel.z) || 1; this.leaves.kick(h.pos.x, h.pos.z, 0.8, h.vel.x / speed, h.vel.z / speed, 3.4); }
-      // the guiding wind: every few seconds a gust from the hero's feet toward each open gate
-      if (this.phase === 'doors' && this.gates) { this.gustT -= dt; if (this.gustT <= 0) { this.gustT = 3.2; for (const t of this.gates.targets()) this.leaves.gust(h.pos.x, h.pos.z, t.x, t.z); cue('exitChime', 0.25); } }
+      // the guiding wind: every few seconds a gust from the hero's feet toward each open gate (11-18 屋子形态: when a walled-off block
+      // or a pit stands between, toward the way round instead — the leaves show which way to go)
+      if (this.phase === 'doors' && this.gates) { this.gustT -= dt; if (this.gustT <= 0) { this.gustT = 3.2; for (const t of this.gates.targets()) { const wd = this.grid?.way(h.pos.x, h.pos.z, t.x, t.z, 0.4); if (wd) this.leaves.gust(h.pos.x, h.pos.z, h.pos.x + wd[0] * 5, h.pos.z + wd[1] * 5); else this.leaves.gust(h.pos.x, h.pos.z, t.x, t.z); } cue('exitChime', 0.25); } }
     }
     // copper coins fly in; the stations of a shop / rest / scroll room fill their rings under a hero standing still on a mat
     { const got = this.coinsFx.update(dt, h.pos); if (got) { this.coins += got; cue('coin', 0.3); } this.hud.coins = this.coins; }
