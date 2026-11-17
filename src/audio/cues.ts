@@ -13,6 +13,8 @@ export type Cue =
   // (x = 0 a man, 1 a big man, 2 the chief, 3 a hound), their heavy swing, a guard broken
   | 'hitLight' | 'hitStab' | 'hitHeavy' | 'hitKick' | 'hitKill' | 'hitIai' | 'swingLight' | 'swingSpin' | 'swingStab' | 'swingHeavy'
   | 'breath' | 'bladeRing' | 'skid' | 'foePain' | 'foeDeath' | 'foeCry' | 'foeHeavy' | 'guardBreak'
+  // 11-18: one cut of 不见刀's burst (rapid, pitched up as it goes)
+  | 'flurry'
   // short music (Stable Audio 3 medium, GameProtos/sfx/cues_unseen_music_v1.json): a run won, a run lost, a room cleared
   | 'stingWin' | 'stingLose' | 'stingClear' | 'stingStele' | 'stingRevive';
 

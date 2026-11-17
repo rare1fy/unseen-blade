@@ -217,7 +217,7 @@ function foeVoice(kind: 'pain' | 'death' | 'cry', who: number, k: number) {
   ub(id, { gain: (kind === 'death' ? 0.62 : kind === 'cry' ? 0.5 : 0.5) * (0.7 + 0.3 * k), rate, jitter: 0.06 });
 }
 /** 11-18: the same sound twice within this (s) is played once (default 0.05) */
-const COOLDOWN: Partial<Record<Cue, number>> = { count: 0, coin: 0.03, tick: 0, swingLight: 0.04, hitLight: 0.04, hitStab: 0.03, bodyFall: 0.08, dartHit: 0.04, foeSwing: 0.08, foeHeavy: 0.1, arrow: 0.06 };
+const COOLDOWN: Partial<Record<Cue, number>> = { flurry: 0.03, count: 0, coin: 0.03, tick: 0, swingLight: 0.04, hitLight: 0.04, hitStab: 0.03, bodyFall: 0.08, dartHit: 0.04, foeSwing: 0.08, foeHeavy: 0.1, arrow: 0.06 };
 const lastCue: Partial<Record<Cue, number>> = {};
 const H: Partial<Record<Cue, (k: number, x?: number) => void>> = {
   // UI
@@ -267,6 +267,8 @@ const H: Partial<Record<Cue, (k: number, x?: number) => void>> = {
   hitKill: k => hb('hit_kill', { gain: 0.7 * k, delay: 0.015 }),
   hitIai: (k, x) => { if (x === 0) { wood(1, 0.8); hb('blade_ring', { gain: 0.6 }); return; } hb('hit_iai', { gain: 1 }); audio.hitDuck(1); },
   gore: k => hb('hit_kill', { gain: 0.6 * k }),
+  // 11-18 不见刀's burst: each quick cut a short sharp slice and a thin whoosh, higher as the burst runs (k 0.7 → 1)
+  flurry: (k, x) => { hb(x === 0 ? 'hit_stab' : Math.random() < 0.5 ? 'hit_stab' : 'hit_light', { gain: 0.5 + 0.15 * k, rate: 0.95 + 0.35 * k, jitter: 0.05 }); audio.any('ub_sw_stab_', { gain: 0.3, rate: 1 + 0.3 * k, jitter: 0.06, bus: 'hero', pri: 2 }); audio.hitDuck(0.5); },
   swingLight: k => audio.any('ub_sw_light_', { gain: 0.4 + 0.35 * k, jitter: 0.04, bus: 'hero', pri: 2 }),
   swingSpin: k => audio.any('ub_sw_spin_', { gain: 0.45 + 0.35 * k, jitter: 0.04, bus: 'hero', pri: 2 }),
   swingStab: k => audio.any('ub_sw_stab_', { gain: 0.45 + 0.3 * k, jitter: 0.04, bus: 'hero', pri: 2 }),

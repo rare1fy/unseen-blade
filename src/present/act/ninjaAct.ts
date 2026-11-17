@@ -51,11 +51,13 @@ export interface Motion { run: number; phase: number; charge: number; air: numbe
   /** 11-18 跳跃: takeoff = 1 → 0 over the push off the ground; lean = 0..1 of running speed the way she faces in the air; landW = how
    *  hard the landing was (0..1, less when running on), landDur = its length (s) */
   takeoff: number; lean: number; landW: number; landDur: number;
+  /** 11-18 (act-42 反馈): squat = 0 → 1 through the crouch on the ground before a jump; airT = seconds since a plain jump left the ground */
+  squat: number; airT: number;
   /** 11-18 3C: bank = the body leaning into a turn (rad, + = to her left); skid / brake / start = 1 → 0 through a reversal at speed,
    *  a stop from a run, the first push of a run; ready = 0..1 the guard held for a while after fighting */
   bank: number; skid: number; brake: number; start: number; ready: number }
 export const MOTION = new WeakMap<object, Motion>();
-export const motionOf = (a: object) => { let m = MOTION.get(a); if (!m) { m = { run: 0, phase: 0, charge: 0, air: 0, rise: 0, land: 0, flip: 0, creep: 0, dart: 0, dartBack: 0, takeoff: 0, lean: 0, landW: 0.6, landDur: 0.16, bank: 0, skid: 0, brake: 0, start: 0, ready: 0 }; MOTION.set(a, m); } return m; };
+export const motionOf = (a: object) => { let m = MOTION.get(a); if (!m) { m = { run: 0, phase: 0, charge: 0, air: 0, rise: 0, land: 0, flip: 0, creep: 0, dart: 0, dartBack: 0, takeoff: 0, lean: 0, landW: 0.6, landDur: 0.16, squat: 0, airT: 9, bank: 0, skid: 0, brake: 0, start: 0, ready: 0 }; MOTION.set(a, m); } return m; };
 
 /** walk → run: the walk is the old light stride; past ~60% of top speed it blends into a forward-leaning sprint */
 function run(I: Pose, r: number, ph: number, off: THREE.Vector3): Pose {
@@ -143,13 +145,16 @@ function cut1(I: Pose, k: number): Pose {
     ny: S(k, [[0, 0], [0.28, 0.45], [0.52, -0.3], [0.72, -0.35], [1, 0]]),
     tL: S(k, [[0, -0.75], [0.26, -0.6], [0.46, -1.25], [0.72, -1.15], [1, -0.75]]), kL: S(k, [[0, 1.05], [0.26, 0.9], [0.46, 1.35], [0.72, 1.25], [1, 1.05]]),
     tR: S(k, [[0, 0.45], [0.26, 0.3], [0.46, 0.9], [0.72, 0.8], [1, 0.45]]), kR: S(k, [[0, 0.75], [0.26, 0.9], [0.46, 0.2], [0.72, 0.3], [1, 0.75]]),
-    aLx: S(k, [[0, 0], [0.33, -1.15], [0.55, 0.35], [0.78, 0.3], [1, 0]]), aLz: S(k, [[0, 0.14], [0.33, 0.05], [0.55, 0.6], [0.78, 0.5], [1, 0.14]]),
-    fL: S(k, [[0, -0.24], [0.33, -1.95], [0.55, -1.3], [0.78, -1.3], [1, -0.24]]), eL: S(k, [[0, -0.05], [0.33, 1.2], [0.55, -0.1], [1, -0.05]]),
+    // 11-18 (act-42 反馈：「整个挥砍动作太多左手放在前方的形态了，感觉左手很僵硬」): the empty hand counter-swings the blade, loose —
+    // only to the waist in front for the wind-up, flung back and out as the blade comes across (a beat late), then it hangs again
+    aLx: S(k, [[0, 0], [0.3, -0.45], [0.6, 0.6], [0.8, 0.35], [1, 0]]), aLz: S(k, [[0, 0.14], [0.3, 0.25], [0.6, 0.6], [0.8, 0.4], [1, 0.14]]),
+    fL: S(k, [[0, -0.24], [0.3, -0.85], [0.6, -0.5], [0.8, -0.55], [1, -0.24]]), eL: S(k, [[0, -0.05], [0.3, 0.2], [0.6, -0.15], [1, -0.05]]),
     lift: 0.3 + 0.7 * hump(k, 0.25, 0.9), flut: 0.3 + 0.7 * hump(k, 0.25, 0.9),
   };
   return mix(I, A, curve(k, [[0, 0], [0.06, 1], [0.86, 1], [1, 0]]));
 }
-/** 2nd cut: backhand left to right, rising, then the left hand strikes in (impact k ≈ 0.4, the left hand at 0.62) */
+/** 2nd cut: backhand left to right, rising (impact k ≈ 0.4); the left hand goes back out of the way and swings back-left as the body
+ *  unwinds (11-18: it no longer pushes out in front — the user found it stiff) */
 function cut2(I: Pose, k: number): Pose {
   const A: Partial<Pose> = {
     aRx: S(k, [[0, -0.5], [0.28, -1.3], [0.48, -1.4], [0.75, -1.25], [1, -0.5]]),
@@ -166,10 +171,10 @@ function cut2(I: Pose, k: number): Pose {
     sx: S(k, [[0, 0.32], [0.24, 0.32], [0.44, 0.6], [0.66, 0.5], [1, 0.32]]), nx: S(k, [[0, -0.15], [0.44, -0.42], [0.7, -0.36], [1, -0.15]]),
     px: S(k, [[0, 0], [0.22, 0.05], [0.44, -0.07], [0.7, -0.04], [1, 0]]), pz: S(k, [[0, 0], [0.24, -0.03], [0.44, 0.08], [0.7, 0.06], [1, 0]]),
     ny: S(k, [[0, 0], [0.26, -0.4], [0.5, 0.35], [0.72, 0.3], [1, 0]]),
-    aLx: S(k, [[0, 0], [0.28, -0.7], [0.5, -1.15], [0.62, -1.45], [0.8, -1.35], [1, 0]]),
-    aLz: S(k, [[0, 0.14], [0.28, 0.95], [0.5, 0.35], [0.62, 0.12], [1, 0.14]]),
-    fL: S(k, [[0, -0.24], [0.28, -1.5], [0.5, -1.6], [0.62, -0.5], [0.8, -0.55], [1, -0.24]]),
-    eL: S(k, [[0, -0.05], [0.28, 0.9], [0.62, 1.35], [0.8, 1.25], [1, -0.05]]),
+    aLx: S(k, [[0, 0], [0.28, 0.35], [0.56, 0.65], [0.8, 0.4], [1, 0]]),
+    aLz: S(k, [[0, 0.14], [0.28, 0.45], [0.56, 0.75], [0.8, 0.45], [1, 0.14]]),
+    fL: S(k, [[0, -0.24], [0.28, -0.7], [0.56, -0.45], [0.8, -0.5], [1, -0.24]]),
+    eL: S(k, [[0, -0.05], [0.28, 0.1], [0.56, -0.2], [1, -0.05]]),
     tL: S(k, [[0, -0.75], [0.24, -0.9], [0.46, -0.35], [0.7, -0.4], [1, -0.75]]), kL: S(k, [[0, 1.05], [0.24, 1.15], [0.46, 0.7], [0.7, 0.75], [1, 1.05]]),
     tR: S(k, [[0, 0.45], [0.24, 0.55], [0.46, -0.7], [0.7, -0.6], [1, 0.45]]), kR: S(k, [[0, 0.75], [0.24, 0.6], [0.46, 1.3], [0.7, 1.2], [1, 0.75]]),
     lift: 0.3 + 0.8 * hump(k, 0.2, 0.9), flut: 0.3 + 0.7 * hump(k, 0.2, 0.9),
@@ -188,8 +193,9 @@ function spinCut(I: Pose, k: number): Pose {
     aRx: S(k, [[0, -0.5], [0.18, -0.9], [0.28, -0.35], [0.72, -0.35], [1, -0.5]]), aRz: S(k, [[0, -0.45], [0.18, 0.4], [0.28, -1.35], [0.72, -1.3], [1, -0.45]]),
     fR: S(k, [[0, -1.25], [0.18, -1.7], [0.28, -0.35], [0.72, -0.4], [1, -1.25]]), eR: S(k, [[0, 0.6], [0.18, 0.2], [0.28, 0.05], [0.72, 0.05], [1, 0.6]]),
     yR: S(k, [[0, -0.15], [0.18, 1.2], [0.28, -1.35], [0.72, -1.3], [1, -0.15]]),
-    aLx: S(k, [[0, 0], [0.18, -0.95], [0.28, -0.55], [0.72, -0.55], [1, 0]]), aLz: S(k, [[0, 0.14], [0.18, 0.15], [0.28, 0.9], [0.72, 0.85], [1, 0.14]]),
-    fL: S(k, [[0, -0.24], [0.18, -1.9], [0.28, -1.3], [0.72, -1.3], [1, -0.24]]), eL: S(k, [[0, -0.05], [0.28, 1.0], [0.72, 1.0], [1, -0.05]]),
+    // (11-18: the left arm out wide for the turn, a little behind — not held across the chest)
+    aLx: S(k, [[0, 0], [0.18, 0.25], [0.3, 0.2], [0.72, 0.25], [1, 0]]), aLz: S(k, [[0, 0.14], [0.18, 0.5], [0.3, 1.15], [0.72, 1.05], [1, 0.14]]),
+    fL: S(k, [[0, -0.24], [0.18, -0.8], [0.3, -0.45], [0.72, -0.5], [1, -0.24]]), eL: S(k, [[0, -0.05], [0.3, 0.2], [0.72, 0.2], [1, -0.05]]),
     tL: -0.72, kL: 1.2, pL: 0.25, tR: 0.55, kR: 1.05, pR: -0.25,
     lift: 0.4 + 0.9 * hump(k, 0.2, 0.9), flut: 0.4 + 0.6 * hump(k, 0.2, 0.9),
   };
@@ -207,7 +213,7 @@ function thrust(I: Pose, k: number, off: THREE.Vector3): Pose {
   const A: Partial<Pose> = {
     hy: -0.4 + 0.7 * u, sy: -0.5 + 0.85 * u, sx: 0.3 + 0.38 * lunge, nx: -0.22 - 0.36 * lunge, ny: 0.35 - 0.6 * u,   // (act-27: lower and further in)
     aRx: 0.35 - 1.85 * u, aRz: -0.2 + 0.2 * u, fR: -1.7 + 1.65 * u, eR: -0.04, yR: 0,
-    aLx: -0.95 - 1.5 * lunge, aLz: 0.2 + 0.4 * lunge, fL: -1.75 + 0.65 * lunge, eL: 1.2, yL: 0.4,
+    aLx: 0.25 + 0.6 * lunge, aLz: 0.25 + 0.35 * lunge, fL: -0.9 + 0.35 * lunge, eL: 0.2, yL: 0.2,   // (11-18: flung back behind the lunge, not over the head)
     tL: -0.65 - 0.7 * lunge, kL: 1.15 + 0.2 * lunge, pL: 0.1, tR: 0.5 + 0.45 * lunge, kR: 1.0 - 0.9 * lunge, pR: -0.1,
     lift: 0.4 + 0.9 * lunge, flut: 0.4 + 0.6 * lunge,
   };
@@ -322,24 +328,23 @@ function dash(I: Pose, k: number): Pose {
  *  first frames low and bent, the body sinking with them, then the legs driving straight with the left arm swung up), the rise
  *  (stretched, leaning the way she goes, the back leg trailing), the top (knees tucked high — the physics halves gravity there, so it
  *  hangs a moment), the fall (faster than the rise: legs reaching down, arms out wide for the landing, the head down to the ground) */
-const J_CROUCH: Partial<Pose> = { tL: -1.0, kL: 1.6, tR: -0.4, kR: 1.4, sx: 0.55, nx: -0.25, aLx: 0.35, aLz: 0.45, fL: -1.3, aRx: 0.55, aRz: -0.5, fR: -0.6, yR: -1.9, lift: 1, flut: 0.6 };
-const J_PUSH: Partial<Pose> = { tL: -0.2, kL: 0.2, tR: 0.55, kR: 0.4, pL: 0.05, pR: -0.05, sx: 0.42, nx: -0.05, aLx: -1.4, aLz: 0.45, fL: -0.9, eL: 0.3, yL: 0.3,
-  aRx: 0.7, aRz: -0.55, fR: -0.35, eR: 0.15, yR: -2.0, lift: 1.4, flut: 1 };
+// 11-18 (act-42 反馈：「应该是先下蹲然后蹬出去腾空，蜷腿」): the crouch is on the ground now (hero.ts 'squat', before she leaves it)
+const J_SQUAT: Partial<Pose> = { tL: -1.3, kL: 2.05, tR: -0.6, kR: 1.8, sx: 0.68, nx: -0.12, aLx: 0.8, aLz: 0.35, fL: -0.55, aRx: 0.75, aRz: -0.45, fR: -0.45, yR: -1.9, lift: 0.8, flut: 0.5 };
+const J_PUSH: Partial<Pose> = { tL: -0.05, kL: 0.06, tR: 0.3, kR: 0.1, pL: 0.04, pR: -0.04, sx: 0.1, nx: 0.12, aLx: -1.9, aLz: 0.4, fL: -0.5, eL: 0.2, yL: 0.3,
+  aRx: -0.55, aRz: -0.55, fR: -0.4, eR: 0.1, yR: -1.7, lift: 1.5, flut: 1 };
 const J_RISE: Partial<Pose> = { tL: -0.5, kL: 0.75, tR: 0.3, kR: 0.7, pL: 0.08, pR: -0.08, sx: 0.24, sy: 0, hy: -0.1, nx: -0.15, aLx: -1.05, aLz: 0.75, fL: -1.0, eL: 0.4, yL: 0.4,
   aRx: 0.4, aRz: -0.8, fR: -0.4, eR: 0.15, yR: -2.1, lift: 1.4, flut: 1 };
-const J_TUCK: Partial<Pose> = { tL: -1.4, kL: 1.9, tR: -1.0, kR: 1.75, pL: 0.1, pR: -0.1, sx: 0.34, nx: -0.3, aLx: -0.7, aLz: 0.75, fL: -1.5, eL: 0.4,
-  aRx: 0.45, aRz: -0.75, fR: -0.5, eR: 0.25, yR: -2.2, lift: 1.3, flut: 1 };
+const J_TUCK: Partial<Pose> = { tL: -1.8, kL: 2.3, tR: -1.55, kR: 2.2, pL: 0.12, pR: -0.12, sx: 0.5, nx: -0.25, aLx: -0.55, aLz: 0.6, fL: -1.4, eL: 0.3,
+  aRx: 0.3, aRz: -0.7, fR: -0.6, eR: 0.25, yR: -2.2, lift: 1.3, flut: 1 };
 const J_REACH: Partial<Pose> = { tL: -0.42, kL: 0.35, tR: 0.12, kR: 0.55, pL: 0.15, pR: -0.15, sx: 0.06, sy: 0, hy: -0.1, nx: -0.32, aLx: -0.55, aLz: 1.15, fL: -0.85, eL: 0.5, yL: 0.4,
   aRx: 0.15, aRz: -1.05, fR: -0.3, eR: 0.1, yR: -1.8, lift: 1.5, flut: 1 };
-function air(I: Pose, rise: number, takeoff = 0, lean = 0): Pose {
-  const top = 1 - smooth(0.12, 0.6, Math.abs(rise));
-  let P = mix(mix(I, rise > 0 ? J_RISE : J_REACH, 1), J_TUCK, top);
-  if (takeoff > 0) {
-    const u = 1 - takeoff;   // 0 → 1 through the push
-    P = mix(P, J_PUSH, smooth(0, 0.25, u) * (1 - smooth(0.5, 1, u)));
-    P = mix(P, J_CROUCH, 1 - smooth(0, 0.3, u));
-  }
-  P.sx += 0.18 * lean * (rise > -0.2 ? 1 : 0.35);
+function air(I: Pose, rise: number, airT = 9, lean = 0): Pose {
+  // the push: legs straight off the ground (≈ 0.05 s) easing out by 0.15 s; the curl: knees pulled up from ≈ 0.08 s, tightest at the
+  // top; the reach: falling, the legs go down for the ground
+  const reach = smooth(0.1, 0.55, -rise), curl = smooth(0.08, 0.26, airT) * (1 - reach), push = 1 - smooth(0.05, 0.15, airT);
+  let P = mix(I, J_RISE, 1);
+  P = mix(P, J_REACH, reach); P = mix(P, J_TUCK, curl); P = mix(P, J_PUSH, push);
+  P.sx += 0.15 * lean * (rise > -0.2 ? 1 : 0.35);
   return P;
 }
 /** the plunge in the air (k: 0 → hang at 0.55 → impact at 1): the blade goes up over the head, then the body drives down with it */
@@ -426,7 +431,6 @@ function trails(self: BActor, a: Action | null, m: Motion | undefined) {
   const tip = bladeTip(self), tipL = self.bones.offhand.localToWorld(new THREE.Vector3(0, 0, 6 * CELL));
   const heavy = name === 'k5' || name === 'rel' || name === 'plunge';
   if (sw && !fresh && M.tip) for (const w of sw) if (k > w[0] && k < w[1]) trailSeg(M.tip, tip, w[2], w[3], { life: heavy ? 0.24 : name === 'k3' ? 0.2 : 0.16, bright: 1.9, spark: name === 'k5' ? 0.5 : 0.2 });
-  if (name === 'k2' && !fresh && M.tipL && k > 0.56 && k < 0.66 && self.bones.offhand.children.length) trailSeg(M.tipL, tipL, 0xffd0b8, 0.07, { life: 0.12, bright: 1.6, spark: 0 });
   if (name === 'dashA' && (fresh ? -1 : M.k) < 0.05 && k >= 0.05 && (!m || m.air < 0.05)) dustBlocks(self.local(0, 0, -0.2), 7, self.fwd().multiplyScalar(-1));
   if (name === 'rel' && (fresh ? -1 : M.k) < 0.02 && k >= 0.02) dustBlocks(self.local(0, 0, -0.25), 9, self.fwd().multiplyScalar(-1));
   if (m) {
@@ -459,7 +463,8 @@ const heroHook = (b: Record<string, Bone>, t: number, a: Action | null, off: THR
     if (m.brake > 0) P = mix(P, BRAKE, curve(1 - m.brake, [[0, 0.4], [0.2, 1], [1, 0]]));
     if (m.skid > 0) P = mix(P, SKID, curve(1 - m.skid, [[0, 0.5], [0.15, 1], [1, 0]]));
   }
-  if (m && inAir && (!a || a.name === 'hurt' || a.name === 'dashA')) P = air(P, m.rise, m.takeoff, m.lean);
+  if (m && m.squat > 0 && !inAir && !a) P = mix(P, J_SQUAT, curve(m.squat, [[0, 0.25], [0.55, 1], [1, 1]]));
+  if (m && inAir && (!a || a.name === 'hurt' || a.name === 'dashA')) P = air(P, m.rise, m.airT, m.lean);
   if (m && m.land > 0 && !a) P = land(P, m.land, m.landW);
   if (m && m.flip > 0 && !a) P = flip(P, m.flip);
   if (m && m.charge > 0 && !a) P = charge(P, m.charge, t, m.creep, m.phase);

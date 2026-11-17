@@ -19,7 +19,7 @@ import type { Input } from './input';
 import { trimShadows, type Foe } from './enemy';
 import { newPerks, v, v2, type Perks } from './boons';
 
-export type HSt = 'free' | 'k1' | 'k2' | 'k3' | 'k4' | 'k5' | 'charge' | 'rel' | 'dash' | 'dcut' | 'noto' | 'hurt' | 'dead' | 'air' | 'plunge' | 'plungeL' | 'launch' | 'kick';
+export type HSt = 'squat' | 'free' | 'k1' | 'k2' | 'k3' | 'k4' | 'k5' | 'charge' | 'rel' | 'dash' | 'dcut' | 'noto' | 'hurt' | 'dead' | 'air' | 'plunge' | 'plungeL' | 'launch' | 'kick';
 /** one cut's numbers: impact moments (share of the action), extra range, arc (rad, full width), damage per impact, knock,
  *  lunge (× TUNE.atkLunge), heavy (the finisher's stagger / FX) */
 interface Swing { imps: number[]; range: number; half: number; dmg: () => number; knock: number; lunge: number; heavy: boolean }
@@ -65,6 +65,8 @@ const DART_T = 0.26, DART_REL = 0.12;
 const AIM_T = 0.2;
 /** 穿风斩: the whole move and its dash part (s) */
 const DCUT_T = 0.42, DCUT_MOVE = 0.17;
+/** 11-18: the crouch before a jump leaves the ground (s) */
+const JUMP_SQUAT = 0.1;
 /** the sheathing after 见切 (s), and the moment the blade clicks home (fraction of it) */
 const NOTO_T = 0.95, NOTO_CLICK = 0.64;
 
@@ -234,7 +236,13 @@ export class Hero {
     this.vy = 0;   // an air dash holds its height
     this.a.play(new Action('dashA', TUNE.dashTime * 1.4, 0.2)); cue('dash', 0.8);
   }
+  /** 11-18 (act-42 反馈：「应该是先下蹲然后蹬出去腾空」): a jump from the ground crouches first (JUMP_SQUAT on the ground — a dash
+   *  still cancels it), then leaves; the double jump and 挑云 go at once */
   private startJump() {
+    if (this.y > 0.001) { this.launchJump(); return; }
+    this.set('squat', JUMP_SQUAT); this.a.act?.cancel(); this.a.act = null; this.next = null; this.pendT = 0; this.linkT = 0; this.dashTailT = 0;
+  }
+  private launchJump() {
     this.v0 = (4 * TUNE.jumpH) / TUNE.jumpT; this.vy = this.v0; this.y = Math.max(this.y, 0.001); this.jumps = 1; this.flipT = -1; this.pendT = 0; this.linkT = 0; this.dashTailT = 0; this.airT = 0;
     this.set('air', 99); this.a.act?.cancel(); this.a.act = null; this.next = null;
     dustBlocks(this.pos.clone(), 5); cue('jump', 0.6);
@@ -326,6 +334,13 @@ export class Hero {
       if (this.dartT >= DART_T || (this.st !== 'free' && this.st !== 'air' && this.st !== 'dash')) this.dartT = -1;
     }
     switch (this.st) {
+      case 'squat': {
+        // the crouch before a jump: the run eases off, a dash cancels it, then she leaves the ground
+        this.vel.multiplyScalar(Math.exp(-dt * 5));
+        if (canDash) { this.buf.dash = 0; this.startDash(w); break; }
+        if (this.t >= this.dur) { this.launchJump(); dustBlocks(this.pos.clone(), 4); }
+        break;
+      }
       case 'free': {
         // 11-18 3C (用户：「3C总之都要再加强」): a reversal at speed skids, a stop from a run takes a braking step, a run from standing
         // starts with a push — each with a little dirt (and a scrape for the skid / the stop). Read before steering: the steer
@@ -409,8 +424,7 @@ export class Hero {
         // the guard window: from the start of the cut until TUNE.deflectWin after (0.1 s before) the last blow, the blade bats arrows away
         const ts = this.t, lastI = sw.imps[sw.imps.length - 1];
         if (ts >= 0.03 && ts <= Math.max(sw.imps[0] * this.dur - 0.1 + TUNE.deflectWin, lastI * this.dur - 0.1 + TUNE.deflectWin * 0.6)) w.guard({ from: this.pos.clone(), yaw: this.a.yaw, range: TUNE.atkRange + sw.range + 0.5 });
-        // the left-hand follow-up on the 2nd cut: a small extra hit
-        if (this.st === 'k2' && !this.hit2Done && k >= 0.62) { this.hit2Done = true; w.swing({ from: this.pos.clone(), yaw: this.a.yaw, range: TUNE.atkRange * 0.8, half: 0.5, dmg: Math.max(2, Math.round(TUNE.atkDmg * 0.35)), knock: 0.3, heavy: false, kind: 'kunai' }); }
+        // (11-18: the 2nd cut's left-hand strike is gone — act-42 反馈 found the left hand pushed out in front stiff)
         if (A.pressed) { this.pendNext = NEXT[cut]; this.pendT = 0.45; }
         if (this.buf.atk > 0) this.next = NEXT[cut];
         // a press held in the cut: after the blow lands it turns into the stance (the next cut is not queued by a hold)
@@ -559,6 +573,7 @@ export class Hero {
     m.run = this.st === 'free' ? r : 0; m.phase += sp * (3.0 - 0.5 * r) * dt;
     m.air = this.y; m.rise = this.v0 > 0 ? this.vy / this.v0 : 0;
     m.takeoff = this.airborne && this.jumps === 1 && this.airT < 0.16 ? 1 - this.airT / 0.16 : 0;
+    m.squat = this.st === 'squat' ? Math.min(1, this.t / Math.max(1e-3, this.dur)) : 0; m.airT = this.airborne && this.jumps === 1 ? this.airT : 9;
     m.lean = this.airborne ? Math.max(0, Math.min(1, (this.vel.x * Math.sin(this.a.yaw) + this.vel.z * Math.cos(this.a.yaw)) / TUNE.heroSpeed)) : 0;
     m.flip = this.flipT >= 0 && this.airborne ? Math.min(1, this.flipT / FLIP_T) : 0;
     m.dart = this.dartT >= 0 ? Math.min(1, this.dartT / DART_T) : 0; m.dartBack = this.dartBack ? 1 : 0;
