@@ -78,6 +78,10 @@ import { unfade } from './foes/fade';
 import.meta.glob(['./foes/ly_models.ts', './foes/xp_models.ts'], { eager: true });
 import './foes/ly_ai';
 import './foes/xp_ai';
+// (until a region's models are in: each of its foes stands in as the 黄巾 one of the nearest build — a missing model would throw)
+{ const STAND: Record<string, string> = { ly_halberd: 'hj_blade', ly_rider: 'hj_brute', ly_shield: 'hj_brute', ly_xbow: 'hj_archer', ly_torch: 'hj_taoist', ly_looter: 'hj_mob', ly_boss: 'hj_boss',
+    xp_assassin: 'hj_blade', xp_needle: 'hj_archer', xp_frost: 'hj_taoist', xp_diver: 'hj_mob', xp_chain: 'hj_brute', xp_conscript: 'hj_mob', xp_boss: 'hj_taoist' };
+  for (const d of Object.values(EDEFS)) for (const m of [d.model, d.elite, ...(d.alt ?? [])]) if (m && !ROSTER.some(x => x.id === m)) { const base = ROSTER.find(x => x.id === (STAND[m.replace(/_(e|b)$/, '')] ?? 'hj_blade')); if (base) ROSTER.push({ ...base, id: m }); } }
 import { inside } from './tele';
 import { spawnFoe, updateFoe, damageFoe, type Foe, type FoeWorld, type EKind, Arrow } from './enemy';
 import { EDEFS, isBoss, lowAttack, trimShadows, dropTeles } from './enemy';   // wp/foes: the boss bar / banner / death and the bot's jump read these
@@ -845,7 +849,8 @@ export class ActShow {
         // act-20: the chapter's boss the first time on this save — the intro cutscene and the lines before the fight (he
         // comes in the room's second wave); after that only his banner
         if (bs && this.prologue === 2) { after(0.35, async () => { await this.cine(bossIntroShots(this.cineHost, f, '雷公渠帅 · 褚雷')); await this.talk(PRO_CHULEI); f.a.roar(); this.proFightT = 0; }); }
-        else if (bs && seeOnce('ch1_boss')) { saveProfile(); after(0.35, async () => { if ((f.st as string) === 'dead') return; await this.cine(bossIntroShots(this.cineHost, f, '雷公渠帅 · 褚雷')); await this.talk(CHULEI_BEFORE); f.a.roar(); }); }
+        // (11-18: 褚雷's own meeting — not any boss met first on a fresh save)
+        else if (bs && ko.kind === 'hj_boss' && seeOnce('ch1_boss')) { saveProfile(); after(0.35, async () => { if ((f.st as string) === 'dead') return; await this.cine(bossIntroShots(this.cineHost, f, '雷公渠帅 · 褚雷')); await this.talk(CHULEI_BEFORE); f.a.roar(); }); }
         // 11-18 (一局五关): a later region's boss — its banner and its line over its head (no portrait talk or cutscene yet)
         else if (bs && EDEFS[ko.kind].intro) { f.a.roar(); shake(0.3 * TUNE.shake); this.banner.show(EDEFS[ko.kind].name, EDEFS[ko.kind].tag ?? '', 2.2, '#ff8a6a'); after(0.9, () => { if (f.st !== 'dead') this.barks?.say(() => f.a.head(), EDEFS[ko.kind].intro!); }); }
         else if (bs) { f.a.roar(); shake(0.3 * TUNE.shake); this.banner.show(EDEFS[ko.kind].name, EDEFS[ko.kind].tag ?? '', 1.6, '#ff8a6a'); }
@@ -1405,8 +1410,8 @@ export class ActShow {
     }
   }
   private hurtHero(dmg: number, from: THREE.Vector3, attacker?: Foe) { // wp/boons: melee source is explicit
-    // the yard: nobody dies there (the flask fills back up first)
-    if (this.phase === 'yard' && !this.hero.iframe && this.hero.hp - dmg <= 0) { this.hero.hp = this.hero.maxHp; this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp }); }
+    // the yard: nobody dies there (the flask fills back up first); 11-18: nor under __dh.god (captures of a boss fight from start to end)
+    if ((this.phase === 'yard' || this.god) && !this.hero.iframe && this.hero.hp - dmg <= 0) { this.hero.hp = this.hero.maxHp; this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp }); }
     // a blow that lands in the dash's invulnerable moment: a perfect dodge
     if (this.hero.parrying) { this.iaiParry(from); return; }
     if (this.hero.dodging) { this.perfectDodge(from); return; }
@@ -1797,6 +1802,8 @@ export class ActShow {
   private botT = 0; private cardT = 0; private botStuckT = 0; private botLast = V3(); private botUnstick = 0; private botSide = 1;
   /** the bot stays in the yard and spars (captures of the yard) instead of walking out */
   botStay = false;
+  /** 11-18 captures: she can't die (the flask fills back up), so a whole boss fight can be watched (__dh.act().god = true) */
+  god = false;
   private botYard() { return this.botStay; }
   private bot() {
     const h = this.hero, I = this.inp; if (!h) return;
@@ -1833,6 +1840,14 @@ export class ActShow {
     const threat = live.some(f => f.st === 'windup' && f.t / f.dur > 0.6 && f.pos.distanceTo(h.pos) < 4.5);
     if (threat && h.dashCd <= 0) { const away = d.clone().normalize().multiplyScalar(-1); I.move.x = away.z; I.move.y = away.x; set('dash', true); set('attack', false); return; }
     set('dash', false);
+    // 11-18 覆铁重盾: the shield takes a blade from the front — the bot goes round him (a quick dash round when it can), cuts from behind
+    if (near.role === 'ly_shield' && !(near.mem.stunT > 0) && l < 4) {
+      const fy = near.yaw, toHero = Math.atan2(h.pos.x - near.pos.x, h.pos.z - near.pos.z); let da = toHero - fy; while (da > Math.PI) da -= Math.PI * 2; while (da < -Math.PI) da += Math.PI * 2;
+      if (Math.abs(da) < 1.35) {
+        const s = da >= 0 ? 1 : -1, t = V3(-d.z, 0, d.x).multiplyScalar(s / Math.max(l, 1e-3)), want = t.addScaledVector(d, (l - 1.7) / Math.max(l, 1e-3));
+        I.move.x = want.x; I.move.y = -want.z; set('attack', false); if (h.dashCd <= 0 && l < 2.6) set('dash', true); return;
+      }
+    }
     // darts while closing in on someone a few metres off
     set('special', l > 3.2 && l < 8.5);
     if (l > 1.6) { I.move.x = d.x / l; I.move.y = -d.z / l; set('attack', false); }

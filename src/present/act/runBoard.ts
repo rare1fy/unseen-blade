@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { toon } from '../look/toon';
 import { icon, text, textW, PIX_H } from '../v2/overlay';
 import { bodyText, onBodyFontChange } from '../ui3d/bodyFont';
-import { ROOM_INFO, type RoomPlan } from './run';
+import { roomInfo, type RoomPlan } from './run';
 import { SCROLL_GLYPH } from './manuals';
 
 const GLYPH: Record<string, string[]> = {
@@ -30,7 +30,7 @@ function face(p: RoomPlan, place: string) {
     g.fillStyle = WOOD_D; g.fillRect(0, 34, W, 2); g.fillRect(0, 70, W, 2); g.fillRect(0, 0, W, 4); g.fillRect(0, H - 4, W, 4); g.fillRect(0, 0, 4, H); g.fillRect(W - 4, 0, 4, H);
     icon(g, GLYPH[p.type], 10, 8, 5, { main: INK, acc: ACC, dark: INK });
     // (act-35: the 16 px 长坂点宋 — the name two board units per font pixel, in the top band)
-    const nk = PIX_H >= 16 ? 2 : 3, k = ROOM_INFO[p.type].name; text(g, k, 66 + (84 - textW(k, nk)) / 2, PIX_H >= 16 ? 3 : 12, nk, INK, 'left', null);
+    const nk = PIX_H >= 16 ? 2 : 3, k = roomInfo(p.type, p.region ?? 0).name;   // (11-18: each region's own word for its boss room) text(g, k, 66 + (84 - textW(k, nk)) / 2, PIX_H >= 16 ? 3 : 12, nk, INK, 'left', null);
     const r = p.reward;
     if (r?.k === 'boon') icon(g, BOON_MARK, 10, 66, 3, { main: INK, acc: ACC, dark: INK });
     else if (r?.k === 'manual') icon(g, SCROLL_GLYPH, 10, 66, 3, { main: INK, acc: ACC, dark: INK });
