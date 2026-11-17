@@ -394,8 +394,30 @@ function buildHuanyue(): V {
 
 // ================================================================== poses (bone angles and metres only: the same on the 7 cm and the fine figures)
 type Bones = Record<string, Bone>;
+/** act-30 (用户：「人物的动画、穿模那些问题必须好好解决一下」): a walk for any of the people while a cutscene walks them (it sets
+ *  walkPh on the actor; the idle hook runs first, this replaces the legs, arms and the bob). Returns true while walking */
+function walkOver(b: Bones, self: unknown, stoop = 0) {
+  const ph = (self as { walkPh?: number } | undefined)?.walkPh; if (ph == null) return false;
+  const s = Math.sin(ph), c = Math.cos(ph), k = 0.48;
+  rot(b.legL, -s * k, 0, 0); rot(b.legR, s * k, 0, 0);
+  if (b.shinL) rot(b.shinL, Math.max(0, s) * 0.7, 0, 0); if (b.shinR) rot(b.shinR, Math.max(0, -s) * 0.7, 0, 0);
+  if (b.footL) rot(b.footL, 0, 0, 0); if (b.footR) rot(b.footR, 0, 0, 0);
+  mov(b.hips, 0, -Math.abs(c) * 0.02, 0); rot(b.hips, 0, s * 0.08, 0);
+  if (b.spine) rot(b.spine, 0.08 + stoop, -s * 0.06, 0);
+  if (b.armL) rot(b.armL, s * 0.45, 0, 0.1); if (b.armR) rot(b.armR, -s * 0.45, 0, -0.1);
+  if (b.foreL) rot(b.foreL, -0.35, 0, 0); if (b.foreR) rot(b.foreR, -0.35, 0, 0);
+  if (b.head) rot(b.head, 0, 0, 0);
+  return true;
+}
+/** act-30: a crouch over something on the ground (a cutscene sets crouch 0..1 on the actor) */
+function crouchOver(b: Bones, self: unknown) {
+  const k = (self as { kneel?: number } | undefined)?.kneel; if (typeof k !== 'number' || !k) return;
+  rot(b.legL, -1.1 * k, 0, 0.1 * k); rot(b.legR, -0.5 * k, 0, -0.1 * k); if (b.shinL) rot(b.shinL, 1.7 * k, 0, 0); if (b.shinR) rot(b.shinR, 1.9 * k, 0, 0);
+  mov(b.hips, 0, -0.32 * k, 0); if (b.spine) rot(b.spine, 0.55 * k, 0, 0); if (b.head) rot(b.head, 0.35 * k, 0, 0);
+  if (b.armL) rot(b.armL, -0.9 * k, 0, 0.15); if (b.armR) rot(b.armR, -0.9 * k, 0, -0.15); if (b.foreL) rot(b.foreL, -0.5 * k, 0, 0); if (b.foreR) rot(b.foreR, -0.5 * k, 0, 0);
+}
 /** 杜五: never still — rubs his hands, scratches under the head cloth, looks this way and that, shifts from foot to foot, taps a toe */
-POSE_HOOKS.npc_duwu = (b: Bones, t: number) => {
+POSE_HOOKS.npc_duwu = (b: Bones, t: number, _a: unknown, _o: unknown, self: unknown) => {
   const c = t % 9, br = Math.sin(t * 2.6), rub = win(c, 0.2, 3.8, 0.5), scr = win(c, 4.1, 6.1, 0.35), idle = 1 - Math.max(rub, scr);
   // weight: a quick shift to one foot, held, then the other (eased so it reads as a shuffle, not a sway)
   const w = Math.tanh(Math.sin(t * 1.3) * 3), tap = idle * Math.max(0, Math.sin(t * 9)) * win(c, 6.6, 8.8, 0.3);
@@ -410,6 +432,7 @@ POSE_HOOKS.npc_duwu = (b: Bones, t: number) => {
   rot(b.armL, -0.35 * rub + 0.05 * idle, 0, 0.12 - 0.2 * rub); rot(b.foreL, -1.25 * rub - 0.25 * idle + rr, 0.5 * rub, 0);
   rot(b.armR, -0.35 * rub - 2.4 * scr + 0.05 * idle, 0, -0.12 + 0.2 * rub - 0.35 * scr); rot(b.foreR, -1.25 * rub - 1.6 * scr - 0.25 * idle - rr + Math.sin(t * 14) * 0.18 * scr, -0.5 * rub, 0);
   rot(b.neck, 0.1 * scr, 0, -0.1 * scr);
+  if (!walkOver(b, self)) crouchOver(b, self);   // act-30: cutscenes
 };
 /** 孙媪: still — a slight sway and the breath, a stoop; now and then the needles come up close to the good eye */
 POSE_HOOKS.npc_sunao = (b: Bones, t: number) => {
@@ -465,6 +488,8 @@ POSE_HOOKS.npc_huanyue = (b: Bones, t: number) => {
 function buildDonkey(): V {
   const v = fine(), G = 0x6e6a66, GL = 0xb4b0a8, GD = 0x4a4744, M_ = 0x34302e, HOOF = 0x2a2624, EYE = 0x161210;
   v.bone('hips', 'root', 0, 20, -4).bone('chest', 'hips', 0, 20, 4).bone('neck', 'chest', 0, 26, 12).bone('head', 'neck', 0, 34, 18).bone('tail', 'hips', 0, 26, -20);
+  // act-30: each leg its own joint at the top (the cutscenes walk it; standing it never moves them)
+  v.bone('legBL', 'hips', 3.5, 16, -16.5).bone('legBR', 'hips', -3.5, 16, -16.5).bone('legFL', 'chest', 3.5, 16, 7.5).bone('legFR', 'chest', -3.5, 16, 7.5);
   // the barrel in two halves (rump on the hips, the front on the chest), its long edges cut one cell, the belly pale, the stripe on top
   const barrel = (part: string, z0: number, z1: number) => {
     B(v, part, -6, 16, z0, 5, 27, z1, G);
@@ -478,7 +503,8 @@ function buildDonkey(): V {
   B(v, 'hips', -1, 28, -18, 0, 28, -1, M_); B(v, 'chest', -1, 28, 0, 0, 28, 9, M_);
   v.paint(c => (c.z >= 6 && c.z <= 7 && c.y >= 22 && (c.y >= 27 || c.x <= -6 || c.x >= 5) ? M_ : null), 'chest');
   // four slim legs: a pale fetlock band over a dark hoof
-  for (const [part, z0] of [['hips', -18], ['chest', 6]] as const) for (const x0 of [2, -5]) {
+  for (const [end, z0] of [['B', -18], ['F', 6]] as const) for (const x0 of [2, -5]) {
+    const part = 'leg' + end + (x0 > 0 ? 'L' : 'R');
     B(v, part, x0, 4, z0, x0 + 2, 15, z0 + 2, G); B(v, part, x0, 2, z0, x0 + 2, 3, z0 + 2, GL); B(v, part, x0, 0, z0, x0 + 2, 1, z0 + 2, HOOF);
   }
   // the neck: a short upright mane along its back and top, the throat pale
@@ -493,7 +519,15 @@ function buildDonkey(): V {
   B(v, 'tail', -1, 16, -21, 0, 27, -21, G); B(v, 'tail', -2, 10, -22, 1, 15, -21, M_);
   return v;
 }
-POSE_HOOKS.npc_donkey = (b: Bones, t: number) => {
+POSE_HOOKS.npc_donkey = (b: Bones, t: number, _a: unknown, _o: unknown, self: unknown) => {
+  // act-30: walking (a cutscene sets walkPh): diagonal pairs swing together, the head nods with the step, no grazing
+  const ph = (self as { walkPh?: number } | undefined)?.walkPh;
+  if (ph != null) {
+    const s = Math.sin(ph), k = 0.42; rot(b.legFL, s * k, 0, 0); rot(b.legBR, s * k, 0, 0); rot(b.legFR, -s * k, 0, 0); rot(b.legBL, -s * k, 0, 0);
+    rot(b.neck, 0.15 + Math.sin(ph * 2) * 0.05, 0, 0); rot(b.head, 0.1, 0, 0); rot(b.tail, 0.15, Math.sin(ph) * 0.2, 0); mov(b.hips, 0, Math.abs(Math.cos(ph)) * 0.012, 0);
+    return;
+  }
+  for (const n of ['legFL', 'legFR', 'legBL', 'legBR']) if (b[n]) rot(b[n], 0, 0, 0);
   const c = t % 13, graze = win(c, 7, 11, 0.9), br = Math.sin(t * 1.3);
   rot(b.chest, br * 0.01, 0, 0); rot(b.neck, 0.08 + 0.75 * graze + Math.sin(t * 0.9) * 0.04 * (1 - graze), 0.1 * Math.sin(t * 0.4), 0);
   rot(b.head, 0.1 + 0.35 * graze + Math.max(0, Math.sin(t * 6)) * 0.08 * graze, 0, 0);

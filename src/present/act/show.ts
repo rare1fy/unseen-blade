@@ -35,7 +35,7 @@ import { hideoutScene, HIDEOUT, HIDEOUT_PEOPLE } from './hideout';
 import { Timeline } from './timeline';
 import { openingShots, bossIntroShots, type CineHost } from './cutscenes';
 import { WAKE_DUWU, WAKE_SUNAO, CHULEI_BEFORE, CHULEI_AFTER, deathLine, PRO_CHULEI, PRO_FALL, PRO_DAWN, PRO_WAKE, PRO_CAPTIONS } from './scripts';
-import { fallShots, snowShots, dawnShots, dragShots, lieDown, type PrologueHost } from './prologue';
+import { fallShots, snowShots, dawnShots, loadShots, lieDown, type PrologueHost } from './prologue';
 import { newGame, profile, save as saveProfile, seeOnce, hasSave } from './profile';
 import { runMods, bank, META, level, nextCost, buy, type RunMods } from './meta';
 import { NPC_LINES, UP_LINES, POOR_LINES, HAUL, MEALS, MEAL_LINES, STELE_LINES } from './hideoutLines';
@@ -227,10 +227,10 @@ export class ActShow {
       this.hero.pos.set(at.x, 0, at.z); this.hero.a.yaw = 0.4; lieDown(this.hero.a, 1); res();
     }); });
     const dead: Array<[EKind, number, number]> = [['hj_mob', at.x - 3.2, at.z + 2.6], ['hj_blade', at.x - 1.4, at.z + 3.6], ['hj_mob', at.x + 2.4, at.z - 1.8]];
-    await this.cine(dawnShots(this.proHost, at, dead));
-    const duwu = this.proPeople[0] ?? null;
+    const who: { duwu: BattleActor | null; donkey: BattleActor | null } = { duwu: null, donkey: null };
+    await this.cine(dawnShots(this.proHost, at, dead, who));
     await this.talk(PRO_DAWN);
-    await this.cine(dragShots(this.proHost, () => duwu));
+    await this.cine(loadShots(this.proHost, who));
     for (const a of this.proPeople) a.dispose(); this.proPeople = [];
     this.prologue = 0; this.forceSpec = null;
     await new Promise<void>(res => { void wipeTransit(() => { this.enterYard(); res(); }); });
@@ -1193,7 +1193,7 @@ export class ActShow {
       // the bot reads fast: a line every 0.6 s (cutscenes play out)
       if (this.botOn && this.dialogue.on && (this.botTalkT += rdt) > 0.6) { this.botTalkT = 0; this.dialogue.advance(); }
       if (this.phase === 'talk') { this.hero.a.update(dt); for (const f of this.foes) f.a.update(dt); for (const n of this.npcs) n.a.update(dt); this.leaves?.update(dt, this.cam.x, this.cam.z); this.gates?.update(dt); }
-      for (const f of this.puppets) if (this.phase === 'talk') f.a.update(dt);
+      for (const f of this.puppets) if (this.phase === 'talk' && !f.a.root.userData.still) f.a.update(dt);   // (act-30: the dead stay still)
       this.hud.update(rdt, this.inp, []); this.L.on = true; return;
     }
     // act-29: the prologue's temple — about half a minute in, his blow ends it whatever her blood
