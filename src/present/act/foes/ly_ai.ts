@@ -343,9 +343,11 @@ class FlyingAxe extends Arrow {
       if (!back && !this.hitOut) { this.hitOut = true; if (w.heroDodge) w.dodged(this.p.clone()); else w.hurtHero(this.dmg, this.p.clone(), this.owner); }
       if (back && !this.hitBack) { this.hitBack = true; if (w.heroDodge) w.dodged(this.p.clone()); else w.hurtHero(this.dmg, this.p.clone(), this.owner); }
     }
-    if (back && k <= 0) { this.owner.mem.axeOut = false; this.owner.a.play(new Action('catchAxe', 0.4, 0.5)); cue('parry', 0.5); this.kill(); }
+    if (back && k <= 0) { this.owner.mem.axeOut = false; showAxe(this.owner, true); this.owner.a.play(new Action('catchAxe', 0.4, 0.5)); cue('parry', 0.5); this.kill(); }
   }
 }
+/** the axe in his hands while it flies (the whole axe hangs on the weapon joint): his hands empty, then back */
+const showAxe = (f: Foe, on: boolean) => { const b = f.a.bones.weapon; if (b) b.visible = on; };
 /** the armour plates thrown off at the turn: glowing blocks bouncing out across the floor */
 function throwArmour(f: Foe) {
   const c = f.a.chest();
@@ -405,7 +407,7 @@ const yanhu: RoleAI = {
       f.lunge = fwd(f.teleYaw).multiplyScalar((s as { len: number }).len / 0.55); f.yaw = f.teleYaw; f.mem.rammed = false;
       AI.setSt(f, 'strike', 0.55); cue('foeCry', 1, 2); cue('dash', 0.8); return true;
     }
-    if (f.atk === 'axeThrow') { f.mem.axeOut = true; w.arrows.push(new FlyingAxe(f, f.teleYaw, 9, f.dmg)); cue('whoosh', 1); AI.setSt(f, 'strike', 0.3); return true; }
+    if (f.atk === 'axeThrow') { f.mem.axeOut = true; showAxe(f, false); w.arrows.push(new FlyingAxe(f, f.teleYaw, 9, f.dmg)); cue('whoosh', 1); AI.setSt(f, 'strike', 0.3); return true; }
     if (f.atk === 'iron') {
       areaHit(f, w); cue('foeHeavy', 1); cue('fire', 0.9);
       w.arrows.push(new MoltenPool(f.pos.clone(), f.teleYaw, 4.0, 0.75, Math.round(6 * TUNE.enemyDmg), 4, f));
