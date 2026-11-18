@@ -1,3 +1,4 @@
+import { batchActor } from '../engine/rigidBatch';
 import { OPT } from '../engine/perfOpts';
 // 可破坏物件的表现（act-19，用户：「希望场景中有各种可破坏的场景物件，也可以对敌人造成伤害那种」）：
 // 陶罐 / 木箱 / 草垛 / 火油坛 / 立柱的体素模型、挨打晃一下、碎裂飞碎块、火油坛引线冒火星 → 爆炸、地上烧一片火、立柱顺刀势倒下。
@@ -100,6 +101,7 @@ export class Breakables {
       const solid = this.solids.add({ kind: 'cover', shape: 'box', x: cv.x, z: cv.z, hx: cv.hx, hz: cv.hz, slam: true, tag: p });
       this.vis.set(p.id, { p, g, tilt, solid, wob: { x: 0, z: 0, vx: 0, vz: 0 }, fall: -1, fuseT: 0, cover: cv });
     }
+    this.root.userData.propBatch = true; batchActor(this.root);
   }
   clear() {
     for (const v of this.vis.values()) this.root.remove(v.g); this.vis.clear();
