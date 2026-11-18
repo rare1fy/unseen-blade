@@ -511,7 +511,7 @@ export function tails(b: Record<string, Bone>, t: number, lift: number, flut: nu
 // ---- blade trails along each cut's swing, dust on the dash, the run and the landings
 /** the blade's point on a model: the far end (+z) of its 'blade' part's mesh, measured once; models without one: def.tip in their own cells */
 const TIP = new WeakMap<object, { mesh: THREE.Object3D; p: THREE.Vector3 } | null>();
-function bladeTip(self: BActor) {
+export function bladeTip(self: BActor) {
   let t = TIP.get(self);
   if (t === undefined) {
     t = null; const b = (self.bones as Record<string, THREE.Object3D | undefined>).blade;

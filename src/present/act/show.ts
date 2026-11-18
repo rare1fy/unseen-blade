@@ -46,7 +46,7 @@ import { rackBlades, hideoutScene, HIDEOUT, HIDEOUT_PEOPLE } from './hideout';
 import { Timeline } from './timeline';
 import { openingShots, bossIntroShots, type CineHost } from './cutscenes';
 import { NPC_TALK, STELE_TALK, MEAL_TALK, UP_TALK, POOR_TALK, WAKE_DUWU, WAKE_SUNAO, CHULEI_BEFORE, CHULEI_AFTER, deathLine, PRO_CHULEI, PRO_FALL, PRO_DAWN, PRO_WAKE, PRO_CAPTIONS } from './scripts';
-import { fallShots, snowShots, dawnShots, loadShots, lieDown, brazier, getUpPose, drapeOver, GETUP_STEP, type PrologueHost } from './prologue';
+import { fallShots, snowShots, dawnShots, loadShots, brazier, getUpPose, drapeOver, GETUP_STEP, Kneel, KNEEL_ARMS, type PrologueHost } from './prologue';
 import { coldOpenShots, coldCardShots, BlindPOV } from './coldopen';
 import { Barks } from './barks';
 import { installR45 } from './regions/r45_hook';
@@ -294,8 +294,11 @@ export class ActShow {
   dialogue: Dialogue; timeline: Timeline; pause!: PauseMenu; private pauseHud: boolean | null = null; private padSkip = false; private puppets: Foe[] = []; private wasPhase: Phase = 'yard'; private justDied = false;
   /** act-29 开篇 (方案 1): 1 = the snowy village (the first fight, alone), 2 = the snowy temple (褚雷, a fight she cannot win), 0 = off */
   prologue = 0; private forceSpec: Partial<Spec> | null = null; private proFightT = 0; private proFalling = false; private proPeople: BattleActor[] = [];
+  /** 11-18: her pose from 石雷's blow until 杜五 lifts her onto the donkey — on one knee, bleeding (prologue.ts Kneel) */
+  private proKneel = new Kneel();
   private proHost: PrologueHost = {
     hero: { get a() { return SELF!.hero.a; }, get pos() { return SELF!.hero.pos; } } as PrologueHost['hero'],
+    kneel: this.proKneel,
     person: (id, x, z, yaw) => { const a = new BattleActor(id === 'duwu' ? HIDEOUT_PEOPLE.duwu : HIDEOUT_DONKEY); a.place(V3(x, 0, z), yaw); a.yaw = yaw; trimShadows(a.root, 4); this.proPeople.push(a); return a; },
     puppet: (kind, x, z, fx, fz) => this.cineHost.puppet(kind, x, z, fx, fz),
   };
@@ -400,20 +403,28 @@ export class ActShow {
     //  mark white for a moment — but the cutscene stops the world before it fades, so it hung there through the talk. Every bolt, talisman
     //  and mark in flight goes now, and the red arcs of the blow)
     for (const a of this.arrows) a.kill(); this.arrows.length = 0; this.hitArcs.clear();
-    if (boss) { await this.cine(fallShots(this.proHost, boss)); await this.talk(PRO_FALL); this.phase = 'cine'; await this.cine(snowShots(this.proHost, boss)); }
+    const kneelPose = () => this.proKneel.frame(this.hero.a);
+    if (boss) {
+      await this.cine(fallShots(this.proHost, boss));
+      if (!this.proKneel.active) this.proKneel.start();   // (the shot skipped before the blow landed: she still goes down on her knee)
+      // (her line 「颤抖的指尖在雪泥里死死够向刀柄」: the right hand goes out toward the sabre on the snow; back down after it)
+      this.hero.scriptPose = kneelPose; await this.talk(PRO_FALL, (_i, l) => { this.proKneel.reachWant = l.who === 'act' && /刀柄/.test(l.text) ? 1 : 0; }); this.proKneel.reachWant = 0; this.hero.scriptPose = null;
+      this.phase = 'cine'; await this.cine(snowShots(this.proHost, boss));
+    } else this.proKneel.start();
     // dawn in the same yard: the snow has stopped, the dead lie where they fell
-    const sp = this.spec, at = { x: this.hero.pos.x, z: this.hero.pos.z };
+    const sp = this.spec, at = { x: this.hero.pos.x, z: this.hero.pos.z }, yaw = this.hero.a.yaw;
     await wipeTransit(async () => {
       for (const f of this.foes) f.a.dispose(); this.foes.length = 0;
       this.noArena = true; this.viewSpec = { locale: 'hj_temple', season: 'winter', time: 'dawn', weather: 'clear', layout: sp?.layout ?? 'axis', mirror: sp?.mirror ?? false, seed: sp?.seed ?? 5, exits: [] };
       this.forceSpec = null; await this.buildRoom(true); this.viewSpec = null; this.noArena = false;
-      this.hero.pos.set(at.x, 0, at.z); this.hero.a.yaw = 0.4; lieDown(this.hero.a, 1);
+      this.hero.pos.set(at.x, 0, at.z); this.hero.a.yaw = yaw; this.proKneel.dawn(); this.hero.scriptPose = kneelPose; this.hero.a.update(0.016); kneelPose();
     });
     const dead: Array<[EKind, number, number]> = [['hj_mob', at.x - 3.2, at.z + 2.6], ['hj_blade', at.x - 1.4, at.z + 3.6], ['hj_mob', at.x + 2.4, at.z - 1.8]];
     const who: { duwu: BattleActor | null; donkey: BattleActor | null } = { duwu: null, donkey: null };
     await this.cine(dawnShots(this.proHost, at, dead, who));
-    await this.talk(PRO_DAWN);
+    await this.talk(PRO_DAWN); this.hero.scriptPose = null;
     await this.cine(loadShots(this.proHost, who));
+    this.proKneel.stop();
     for (const a of this.proPeople) a.dispose(); this.proPeople = [];
     this.prologue = 0; this.forceSpec = null;
     let wakeK: (k: number) => void = () => {};
@@ -727,7 +738,10 @@ export class ActShow {
       lab: () => this.labActs,
       /** the cutscene poses, for the lab: drape(i, x, y, z, yaw, ph), getUp(i, k) */
       /** the colour grade / bloom settings, for lab checks */ grade: GRADE,
-      labPose: { drape: (i: number, x: number, y: number, z: number, yaw: number, ph: number) => drapeOver(this.labActs[i], x, y, z, yaw, ph), getUp: (i: number, k: number) => getUpPose(this.labActs[i], k) },
+      labPose: { drape: (i: number, x: number, y: number, z: number, yaw: number, ph: number) => drapeOver(this.labActs[i], x, y, z, yaw, ph), getUp: (i: number, k: number) => getUpPose(this.labActs[i], k),
+        /** 11-18: the prologue's kneel on lab actor i, running every frame (reach 0..1, dawn = the planted sabre, no bleeding) */
+        /** the kneel's arm angles, live (fitting the hands) */ kneelArms: KNEEL_ARMS,
+        kneel: (i: number, o: { reach?: number; dawn?: boolean } = {}) => { const a = this.labActs[i], k = new Kneel(); if (!a) return null; if (o.dawn) k.dawn(); else k.start(); k.reachWant = o.reach ?? 0; this.labFn = dt => { a.update(dt); k.frame(a); }; this.labT = 0; return k; } },
       /** world positions of an actor's bones (rounded to cm), to check a pose by numbers */
       labBones: (i: number) => { const a = this.labActs[i]; if (!a) return null; a.root.updateMatrixWorld(true); const o: Record<string, number[]> = {}, v = new THREE.Vector3();
         for (const [k, b] of Object.entries(a.bones)) { if (!b) continue; (b as THREE.Object3D).getWorldPosition(v); o[k] = [v.x, v.y, v.z].map(n => Math.round(n * 100) / 100); } return o; },
@@ -2411,6 +2425,7 @@ export class ActShow {
       if (this.botOn && this.dialogue.on && (this.botTalkT += rdt) > 0.6) { this.botTalkT = 0; this.dialogue.advance(); }
       if (this.phase === 'talk') { this.hero.a.update(dt); this.hero.scriptPose?.(); for (const f of this.foes) f.a.update(dt); for (const n of this.npcs) n.a.update(dt); this.leaves?.update(dt, this.cam.x, this.cam.z); this.gates?.update(dt); }
       for (const f of this.puppets) if (this.phase === 'talk' && !f.a.root.userData.still) f.a.update(dt);   // (act-30: the dead stay still)
+      blood.update(dt);   // (11-18: the prologue's wound bleeds through the cutscene and the talk — the drops fall instead of hanging in the air)
       this.hud.update(rdt, this.inp, []); this.L.on = true; return;
     }
     // act-29: the prologue's temple — about half a minute in, his blow ends it whatever her blood
