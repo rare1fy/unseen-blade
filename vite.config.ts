@@ -38,7 +38,9 @@ export default defineConfig(({ command, mode }) => { const WX = command === 'bui
   plugins: WX ? [voxBytes(), wxAssets(ROOT)] : command === 'build' ? [voxBytes(), viteSingleFile()] : [voxBytes()],
   build: WX ? {
     // the mini-game: one script (no HTML), the sounds / portraits / fonts as files
-    outDir: 'dist-wx', emptyOutDir: true, target: 'es2020', assetsInlineLimit: 0, chunkSizeWarningLimit: 8000, reportCompressedSize: false, modulePreload: false,
+    // (11-18: ES2015 — WeChat's upload compiler doesn't take ?. / ?? and the like: 「invalid file: game.js … SyntaxError: Unexpected token .」;
+    // esbuild lowers them, tools/build-wechat.mjs then parses the whole game.js as ES2015 before it writes the project)
+    outDir: 'dist-wx', emptyOutDir: true, target: 'es2015', assetsInlineLimit: 0, chunkSizeWarningLimit: 8000, reportCompressedSize: false, modulePreload: false,
     rollupOptions: { input: path.resolve(ROOT, 'src/main.ts'), output: { format: 'iife', entryFileNames: 'game.js', inlineDynamicImports: true } },
   } : {
     outDir: 'dist',

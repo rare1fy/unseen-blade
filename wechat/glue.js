@@ -93,8 +93,9 @@ globalThis.__ubWxAudio = function () {
     'resume', 'suspend', 'createBuffer', 'createBufferSource', 'createDynamicsCompressor',
     'createGain', 'createBiquadFilter', 'createOscillator'
   ]) context[method] = native[method].bind(native);
-  wx.onHide?.(function () { context.suspend().catch(console.warn); });
-  wx.onShow?.(function () { context.resume().catch(console.warn); });
+  // (11-18: ES2015 only in this file — the upload's compiler refused `wx.onHide?.(` 「SyntaxError: Unexpected token .」)
+  if (wx.onHide) wx.onHide(function () { context.suspend().catch(console.warn); });
+  if (wx.onShow) wx.onShow(function () { context.resume().catch(console.warn); });
   return context;
 };
 
