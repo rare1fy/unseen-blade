@@ -9,6 +9,7 @@ import { isGripHero, poseHero } from './heroPose';
 import { poseIai } from '../ronin/iaiPose';   // 浪人篇 居合: the sheathed stance over the mage rig
 import { POSE_HOOKS } from './poseHooks';
 import { angleDelta, attackBeats, attackBody } from '../act/foes/foe_motion';
+import { shootBow, swingHammer } from '../act/foes/hj_weapon_poses';
 
 const HUNCH: Record<string, number> = { forest_ghoul: 0.4, fig_ghoul: 0.35, forest_old_willow: 0.3, elite_alpha_wolf: 0.25, forest_moss_golem: 0.1, boss_coven_matriarch: 0.12 };
 const BIG: Record<string, number> = { boss_ancient_treant: 1.7, boss_root_colossus: 1.5, forest_moss_golem: 1.25, forest_treant: 1.2, boss_lich_forest: 1.2 };
@@ -207,6 +208,8 @@ export class BActor extends Actor {
 
   private poseFoeAttack(a: Action, style: ModelDef['attack'], distance?: number) {
     const b = this.bones, d = this.def;
+    if (style === 'shoot' && (d.id === 'hj_archer' || d.id === 'hj_archer_e')) return shootBow(b, a);
+    if (style === 'slam' && (d.id === 'hj_brute' || d.id === 'hj_brute_e')) return swingHammer(b, a);
     const heavy = style === 'slam' || d.group === '首领';
     const beats = attackBeats(a, heavy);
     const { load, dip, hit, hip, chest, late, kick } = beats;

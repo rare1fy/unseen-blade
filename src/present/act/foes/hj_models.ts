@@ -148,8 +148,9 @@ function soldier(elite: boolean, bow: boolean): V {
     const WD = elite ? 0x8a5a2a : 0x6a4a2a, WD_L = elite ? 0xa8743c : 0x84603a, GR = 0x3a2a1a, STR = 0xd8d0b8;
     B(v, 'handL', 12, 17, -1, 14, 21, 2, SKIN).box(14, 17, -1, 14, 20, 2, SKIN_D).box(13, 17, -1, 13, 20, 2, null);
     B(v, 'offhand', 13, 17, -3, 13, 20, 4, GR).box(13, 18, -22, 13, 18, -4, WD).box(13, 18, 5, 13, 18, 23, WD)
-      .box(13, 18, -10, 13, 19, -4, WD).box(13, 18, 5, 13, 19, 11, WD).box(13, 19, -22, 13, 22, -21, WD_L).box(13, 19, 22, 13, 22, 23, WD_L)
-      .box(13, 23, -22, 13, 23, 23, STR);
+      .box(13, 18, -10, 13, 19, -4, WD).box(13, 18, 5, 13, 19, 11, WD).box(13, 19, -22, 13, 22, -21, WD_L).box(13, 19, 22, 13, 22, 23, WD_L);
+    v.bone('stringA', 'offhand', 13.5, 23.5, -22).bone('stringB', 'offhand', 13.5, 23.5, 24);
+    B(v, 'stringA', 13, 23, -22, 13, 23, 0, STR); B(v, 'stringB', 13, 23, 1, 13, 23, 23, STR);
     // the right hand: a small loose fist
     B(v, 'handR', -15, 17, -1, -13, 21, 2, SKIN).box(-15, 17, -1, -15, 20, 2, SKIN_D);
     // the quiver on the back: a leather tube with darker rims, two bundles of fletching; its strap straight over the left shoulder
