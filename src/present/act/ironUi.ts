@@ -385,6 +385,14 @@ export class IronHp {
   /** act-34 (用户：「血量的字号也再大点。」「血量的文字也要跟着血条有斜度。」): the number is a plane on the bar itself (it tilts with
    *  the piece), its digits drawn at twice the screen's pixels and filtered down (no dropped rows where the tilt resamples them) */
   private num: THREE.Mesh; private numKey = '';
+  /** 11-18 (用户：「把游戏中的货币放在头像下面，同样的透视关系。暂停按钮不要了，点头像暂停。」): the medallion and the purse hung under it
+   *  are one piece (badge), turned with the bar; a press sinks it, letting go springs it back (the skill buttons' feel), no sound */
+  private badge = new THREE.Group(); private purse = new THREE.Group(); private tab: THREE.Mesh[] = []; private coin = new THREE.Group();
+  private coinNum: THREE.Mesh; private coinKey = ''; private tabR = 60;
+  /** the purse's count and its hop (hud.ts runs the count up and sets these every frame) */
+  coins = 0; coinHop = 0;
+  /** the finger / mouse is down on the badge */
+  down = false; private sc = 1; private scV = 0; private wasDown = false; private pressK = 0; private medRimMat!: THREE.MeshLambertMaterial;
   constructor(private L: UiLayer, private sparks: UiSparks) {
     const box = (w: number, h: number, d: number, c: number) => new THREE.Mesh(new THREE.BoxGeometry(w, h, d), lam(c));
     // the trough
@@ -398,11 +406,24 @@ export class IronHp {
     this.root.add(new THREE.Mesh(mergeBoxes(Array.from({ length: 9 }, (_, i) => ({ w: 2, h: 14, d: 2, x: this.X0 + ((i + 1) * this.W) / 10, y: 0, z: 6.6, c: 0x14151a }))).geo, vcMat()));
     const end = box(12, 34, 14, IRON); end.position.set(this.X0 + this.W + 8, 0, 1); this.root.add(end);
     const endR = box(6, 6, 6, BRONZE); endR.position.set(this.X0 + this.W + 8, 0, 8); this.root.add(endR);
-    // the portrait medallion
-    const med = new THREE.Mesh(octCyl(32, 12), lam(IRON_D)); med.position.set(14, 0, 2); this.root.add(med);
-    const medRim = new THREE.Mesh(octCyl(29, 13), lam(IRON)); medRim.position.set(14, 0, 3); this.root.add(medRim);
-    const face = new THREE.Mesh(new THREE.CircleGeometry(24, 8, Math.PI / 8), lam(0xffffff, pixTex(PORTRAITS[HP_FACE.id] ?? PORTRAIT_WHITE, '#5a1a16'))); face.position.set(14, 0, 9.6); this.root.add(face); this.face = face;
-    this.root.add(new THREE.Mesh(mergeBoxes(Array.from({ length: 8 }, (_, i) => { const a = (i / 8) * Math.PI * 2 + Math.PI / 8; return { w: 4, h: 4, d: 4, x: 14 + Math.cos(a) * 27, y: Math.sin(a) * 27, z: 10, c: BRONZE }; })).geo, vcMat()));
+    // the portrait medallion (in the badge, centred on it: a press scales it about its middle)
+    this.badge.position.set(14, 0, 0); this.root.add(this.badge);
+    const med = new THREE.Mesh(octCyl(32, 12), lam(IRON_D)); med.position.set(0, 0, 2); this.badge.add(med);
+    const medRim = new THREE.Mesh(octCyl(29, 13), lam(IRON)); medRim.position.set(0, 0, 3); this.badge.add(medRim); this.medRimMat = medRim.material as THREE.MeshLambertMaterial;
+    const face = new THREE.Mesh(new THREE.CircleGeometry(24, 8, Math.PI / 8), lam(0xffffff, pixTex(PORTRAITS[HP_FACE.id] ?? PORTRAIT_WHITE, '#5a1a16'))); face.position.set(0, 0, 9.6); this.badge.add(face); this.face = face;
+    this.badge.add(new THREE.Mesh(mergeBoxes(Array.from({ length: 8 }, (_, i) => { const a = (i / 8) * Math.PI * 2 + Math.PI / 8; return { w: 4, h: 4, d: 4, x: Math.cos(a) * 27, y: Math.sin(a) * 27, z: 10, c: BRONZE }; })).geo, vcMat()));
+    // the purse: an iron tab hung from the medallion's foot by a short link, a square-holed copper coin set in its left end and the
+    // count in the pixel digits beside it (act-19: numbers stay pixel); its length follows the count (the digits never overflow)
+    this.badge.add(this.purse);
+    const link = box(10, 8, 6, IRON); link.position.set(0, -34, 1); this.purse.add(link);
+    for (const [h, d, y, z, c] of [[28, 8, -50, 0, IRON_D], [3, 9, -37.5, 0.5, IRON_L], [20, 2, -50.5, 4.2, 0x1a1412]] as const) { const m = box(1, h, d, c); m.position.set(0, y, z); this.purse.add(m); this.tab.push(m); }
+    const cap = box(6, 32, 10, IRON); cap.position.set(0, -50, 1); this.purse.add(cap); this.tab.push(cap);
+    const cm = lam(0xd09040), cd = lam(0x5a3a18);
+    for (const [w, h, x, y] of [[16, 5, 0, 5.5], [16, 5, 0, -5.5], [5, 6, -5.5, 0], [5, 6, 5.5, 0]] as const) { const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, 4), cm); b.position.set(x, y, 0); this.coin.add(b); }
+    const hole = new THREE.Mesh(new THREE.BoxGeometry(6, 6, 2), cd); hole.position.z = -0.5; this.coin.add(hole);
+    this.coin.position.set(-14, -50.5, 7); this.purse.add(this.coin);
+    this.coinNum = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ transparent: true, depthTest: false, depthWrite: false, toneMapped: false }));
+    this.coinNum.position.set(0, -50, 7); this.coinNum.renderOrder = 31; this.purse.add(this.coinNum);
     // three 杀意 ingots under the trough
     for (let i = 0; i < 3; i++) { const m = new THREE.Mesh(new THREE.BoxGeometry(20, 10, 8), lam(0x2a2c32)); m.position.set(this.X0 + 16 + i * 28, -22, 2); this.root.add(m); this.ingots.push(m.material as THREE.MeshLambertMaterial); this.ingotMesh.push(m); }
     this.num = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ transparent: true, depthTest: false, depthWrite: false, toneMapped: false }));
@@ -419,6 +440,36 @@ export class IronHp {
   heal(s?: Partial<HpState>) { if (s) this.set(s); this.healT = 0.5; this.sparks.burst(this.L.at(this.x + (this.X0 + this.W * 0.5) * this.k, this.y, 6), 14, this.L.px(120), this.L.px(5), 0x7aff9a, { life: 0.6, up: this.L.px(140) }); cue('heal', 0.6); }
   textAt() { return { x: this.x + (this.X0 + this.W + 24) * this.k, y: this.y - 8 * this.k }; }
   barAt() { return { x: this.x + (this.X0 + this.W / 2) * this.k, y: this.y, h: 14 * this.k }; }
+  /** the badge (medallion + purse) on the screen: a finger-sized box round both (CSS px), clear of the stick's area far below */
+  hitBadge(x: number, y: number) {
+    const cx = this.x + 14 * this.k, r = Math.max(26, 38 * this.k);
+    return x > cx - r && x < cx + Math.max(r, (this.tabR - 10) * this.k) && y > this.y - r && y < this.y + Math.max(r + 14, 68 * this.k);
+  }
+  /** the press (sink, spring back past rest, settle — the skill buttons' curve, capped so it never grows into the bar) and the purse:
+   *  its count painted on a plane on the tab (it turns with the piece, like the health number), the tab as long as the count */
+  private purseFrame(dt: number) {
+    const L = this.L, dpr = L.dpr || 1;
+    if (!this.down && this.wasDown) this.scV += 0.8; this.wasDown = this.down;
+    { const t = this.down ? 0.9 : 1, d = Math.min(dt, 1 / 30); this.scV += (420 * (t - this.sc) - 18 * this.scV) * d; this.sc += this.scV * d;
+      if (this.sc > 1.06) { this.sc = 1.06; this.scV = Math.min(0, this.scV); } else if (this.sc < 0.88) { this.sc = 0.88; this.scV = Math.max(0, this.scV); } }
+    this.pressK += ((this.down ? 1 : 0) - this.pressK) * Math.min(1, dt * 30);
+    this.badge.scale.setScalar(this.sc); this.badge.position.z = -this.pressK * 4;
+    this.medRimMat.emissive.setHex(0xffb060); this.medRimMat.emissiveIntensity = 0.18 * this.pressK;
+    const shown = Math.max(0, Math.floor(this.coins)), hot = this.coinHop > 0, cell = Math.max(1, Math.round(3 * this.k * dpr)), ss = 2, key = `${shown}|${cell}|${hot}`;
+    if (key !== this.coinKey) {
+      this.coinKey = key; const d = digitsCanvas(`${shown}`, cell * ss, hot ? '#fff0b0' : '#ffd27a', '#21100e'), mat = this.coinNum.material as THREE.MeshBasicMaterial;
+      mat.map?.dispose(); const t = new THREE.CanvasTexture(d.c as HTMLCanvasElement); t.colorSpace = THREE.SRGBColorSpace; t.minFilter = t.magFilter = THREE.LinearFilter; t.generateMipmaps = false;
+      mat.map = t; mat.needsUpdate = true;
+      const w = d.w / ss / dpr / this.k, h = d.h / ss / dpr / this.k; this.coinNum.scale.set(w, h, 1);
+      // the tab runs from the coin's left (−26) to just past the digits; the iron end cap on its right end
+      const x0 = -26, x1 = Math.max(26, -2 + w + 5); this.coinNum.position.x = -3 + w / 2; this.tabR = x1 + 14;
+      for (const m of this.tab.slice(0, 3)) { m.scale.x = x1 - x0; m.position.x = (x0 + x1) / 2; }
+      this.tab[3].position.x = x1 + 2;
+    }
+    const hop = Math.sin(this.coinHop * Math.PI);
+    this.coin.position.y = -50.5 + hop * 3; this.coin.scale.setScalar(1 + 0.25 * hop); this.coin.rotation.y = hop * 0.8;
+    this.coinNum.visible = this.root.visible;
+  }
   update(dt: number) {
     const L = this.L, f = Math.max(0, Math.min(1, this.st.hp / Math.max(1, this.st.maxHp))); this.tt += dt;
     this.shakeT = Math.max(0, this.shakeT - dt); this.flashT = Math.max(0, this.flashT - dt); this.healT = Math.max(0, this.healT - dt);
@@ -433,6 +484,7 @@ export class IronHp {
       }
       this.num.visible = this.root.visible;
     }
+    this.purseFrame(dt);
     // the lost piece: stays put while lagHold runs, then closes in (the foes' bars in hud.ts do the same)
     this.lagHold = Math.max(0, this.lagHold - dt); this.lagV = closeLag(this.lagV, f, this.lagHold, dt);
     const W = this.W, X = this.X0;
