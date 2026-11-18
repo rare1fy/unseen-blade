@@ -37,7 +37,8 @@ const strikeAt = (s: Strike): [number, number] => s.k === 'seg' ? [s.bx, s.bz] :
 const COL = { wood: 0x6e5238, woodD: 0x4a3622, woodL: 0x8e6e4c, red: 0x8e3b2c, redD: 0x6a2b21, redL: 0xa44c36, iron: 0x4a4f5a, ironL: 0x6e7480, tile: 0x56585e, tileD: 0x3a3c42,
   bronze: 0x8a6a34, bronzeD: 0x5e4a26, bronzeL: 0xb08a48, rope: 0x9a8058, ropeD: 0x7a6440, stone: 0x86827a, stoneD: 0x67635c, gold: 0xe8c060, goldD: 0xa88430, cloth: 0x7a2a22 };
 const HINT = 0xbfe0ff, GOOD = 0xffd27a;
-const mesh = (vw: VoxWorld) => { const g = new THREE.Group(); for (const m of vw.build({ rim: 0.3, edge: 0.16 })) { m.castShadow = true; m.receiveShadow = true; g.add(m); } return g; };
+// (shadows as VoxWorld.build sets them: a big build hands its shadow to invisible tiles — act-55 微信帧率)
+const mesh = (vw: VoxWorld) => { const g = new THREE.Group(); for (const m of vw.build({ rim: 0.3, edge: 0.16, ground: false })) g.add(m); return g; };
 
 type PieceKind = 'door' | 'gate' | 'hollow' | 'barricade';
 interface Piece {
