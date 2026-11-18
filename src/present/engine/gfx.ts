@@ -12,6 +12,7 @@ import { PX, onPixelChange } from '../look/pixel';
 import { gpuTimeInit, gpuMark, gpuFrameEnd, gpuCount } from './gpuTime';
 import { installShadowTiles } from './shadowTiles';
 import { syncBatches } from './rigidBatch';
+import { CAPS } from './perfOpts';
 import { tierNow, onQualityChange, qualityFrame, QUALITY } from '../look/quality';
 
 /** The camera rig: directors write base / look / fov / roll / shift; the loop adds shake and renders. */
@@ -29,6 +30,13 @@ export function createGfx(platform: Platform, canvas: any, o: { preserve?: boole
   renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFShadowMap;
   renderer.info.autoReset = false;
   GL.renderer = renderer; installShadowTiles(renderer); gpuTimeInit(renderer);
+  { const cap = renderer.capabilities, ext = renderer.extensions;
+    CAPS.gl2 = cap.isWebGL2; CAPS.instancing = cap.isWebGL2 || ext.has('ANGLE_instanced_arrays'); CAPS.boneTex = cap.floatVertexTextures;
+    // no instancing (the devtools simulator): every draw goes through renderBufferDirect (the view, the shadow pass, warm-ups) — an
+    // instanced mesh / geometry is skipped there, whenever it was made, instead of failing (and logging) every frame
+    if (!CAPS.instancing) { const rbd = renderer.renderBufferDirect.bind(renderer);
+      renderer.renderBufferDirect = (cam, sc, geo, mat, obj, grp) => { if ((obj as THREE.InstancedMesh).isInstancedMesh || (geo as THREE.InstancedBufferGeometry).isInstancedBufferGeometry) return; rbd(cam, sc, geo, mat, obj, grp); }; }
+    if (!CAPS.instancing || !CAPS.boneTex) console.warn('[gfx] WebGL1 without ' + [!CAPS.instancing && 'instancing (particles, blood, leaves, debris are not drawn)', !CAPS.boneTex && 'float vertex textures (no part batching)'].filter(Boolean).join(', ') + ' — the WeChat devtools simulator; phones have them'); }
   const post = new Post(renderer);
   const fit = () => {
     const s = platform.canvasSize(); view.w = s.w; view.h = s.h; view.dpr = Math.min(platform.dpr(), PX.on ? 3 : 2);   // the pixel look at native resolution (a 3× phone upscaled 2→3 by the browser blurred the pixels)
