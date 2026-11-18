@@ -31,6 +31,8 @@ class AudioEngine {
   ctx: AudioContext | null = null; master!: GainNode; sfx!: GainNode; music!: GainNode; voice!: GainNode; lp!: BiquadFilterNode; duck!: GainNode;
   /** 11-18 混音 (用户：「音效……听起来很乱」): the hero's own sounds (her blade, her steps) on their own bus; the world's (foes, props,
    *  ambience) under `hush`, which dips when her blow lands; both send a little into a room reverb (setRoom) that glues them */
+  /** act-50: the win / lose stings, whole (the user's own files run ~13 s) — on their own bus so the next scene's music can fade them */
+  sting!: GainNode;
   hero!: GainNode; hush!: GainNode; musicHush!: GainNode; send!: GainNode; wet!: GainNode; conv!: ConvolverNode;
   /** the last samples played (debug: __dh.sfx()) */
   recent: string[] = [];
@@ -46,6 +48,7 @@ class AudioEngine {
     this.hush = ctx.createGain(); this.hush.connect(this.duck);
     this.sfx = ctx.createGain(); this.sfx.gain.value = 0.72; this.sfx.connect(this.hush);
     this.hero = ctx.createGain(); this.hero.gain.value = 0.85; this.hero.connect(this.duck);
+    this.sting = ctx.createGain(); this.sting.connect(this.duck);
     this.conv = ctx.createConvolver(); this.send = ctx.createGain(); this.wet = ctx.createGain(); this.wet.gain.value = 0;
     this.sfx.connect(this.send); this.hero.connect(this.send); this.send.connect(this.conv); this.conv.connect(this.wet); this.wet.connect(this.duck);
     this.lp = ctx.createBiquadFilter(); this.lp.type = 'lowpass'; this.lp.frequency.value = 18000; this.lp.Q.value = 0.7;
@@ -88,7 +91,7 @@ class AudioEngine {
    *  when everything playing matters more) */
   private live: Array<{ src: AudioBufferSourceNode; pri: number; t: number }> = [];
   /** play one sample: rate / gain jittered; pri = how much it matters (3 her blows, 2 her moves, 1 the foes, 0 the rest) */
-  play(name: string, o: { gain?: number; rate?: number; jitter?: number; delay?: number; bus?: 'sfx' | 'voice' | 'hero'; pri?: number } = {}) {
+  play(name: string, o: { gain?: number; rate?: number; jitter?: number; delay?: number; bus?: 'sfx' | 'voice' | 'hero' | 'sting'; pri?: number } = {}) {
     const ctx = this.ctx, b = this.buf.get(name); if (!ctx || !b || this.muted) return null;
     const pri = o.pri ?? (o.bus === 'hero' ? 2 : 1), now = this.now();
     if (o.bus !== 'voice' && this.live.length >= MAX_VOICES) {
@@ -100,9 +103,22 @@ class AudioEngine {
     const src = ctx.createBufferSource(); src.buffer = b; const j = o.jitter ?? 0.08;
     src.playbackRate.value = (o.rate ?? 1) * (1 + (Math.random() * 2 - 1) * j);
     const g = ctx.createGain(); g.gain.value = (o.gain ?? 1) * (1 + (Math.random() * 2 - 1) * j * 0.6);
-    src.connect(g); g.connect(o.bus === 'voice' ? this.voice : o.bus === 'hero' ? this.hero : this.sfx); src.start(now + (o.delay ?? 0));
+    src.connect(g); g.connect(o.bus === 'voice' ? this.voice : o.bus === 'hero' ? this.hero : o.bus === 'sting' ? this.sting : this.sfx); src.start(now + (o.delay ?? 0));
     if (o.bus !== 'voice') { const e = { src, pri, t: now }; this.live.push(e); src.onended = () => { const i = this.live.indexOf(e); if (i >= 0) this.live.splice(i, 1); }; }
     this.recent.push(name); if (this.recent.length > 40) this.recent.shift(); return src;
+  }
+  /** act-50 (用户：「sting_lose.mp3、sting_win.mp3 这两个文件没用上啊，我之前让替换胜利和失败的音效来着」): a sting played whole on its
+   *  own bus (never stolen by the voice cap); the next music fades it out (stopSting) */
+  private stingSrc: AudioBufferSourceNode[] = [];
+  stingPlay(prefix: string, gain: number) {
+    const ctx = this.ctx; if (!ctx) return; const v = variants(prefix); if (!v.length) return;
+    const t = this.now(); this.sting.gain.cancelScheduledValues(t); this.sting.gain.setValueAtTime(1, t);
+    const src = this.play(v[Math.floor(Math.random() * v.length)], { gain, jitter: 0, bus: 'sting', pri: 9 }); if (src) this.stingSrc.push(src);
+  }
+  stopSting(fade = 1.0) {
+    const ctx = this.ctx; if (!ctx || !this.stingSrc.length) return; const t = this.now(), list = this.stingSrc; this.stingSrc = [];
+    this.sting.gain.cancelScheduledValues(t); this.sting.gain.setValueAtTime(this.sting.gain.value, t); this.sting.gain.linearRampToValueAtTime(0, t + fade);
+    for (const s of list) { try { s.stop(t + fade + 0.05); } catch { /* ended */ } }
   }
   /** 11-18: her blow lands — the world's sounds and the music step back for a moment so the cut is heard whole */
   hitDuck(k = 1) {
@@ -165,7 +181,7 @@ class AudioEngine {
   private musicWant = '';
   /** cross-fade to a music track (decoded now if needed; only the playing and the last one stay decoded). Same track: nothing. */
   async playMusic(name: string, fade = 1.6, offset = 0) {
-    const ctx = this.ctx; if (!ctx || this.musicWant === name) return; this.musicWant = name;
+    const ctx = this.ctx; if (!ctx || this.musicWant === name) return; this.musicWant = name; this.stopSting(1.0);
     let b = this.buf.get(name);
     if (!b) { const d = await this.decodeName(name); if (!d) return; b = d; this.buf.set(name, d); }
     if (this.musicWant !== name) return;   // asked for another while decoding
@@ -315,10 +331,10 @@ const H: Partial<Record<Cue, (k: number, x?: number) => void>> = {
   // no new samples: the body fall pitched down, filtered noise for the water and the dust
   splash: k => { ub('body_fall', { gain: 0.5 + 0.3 * k, rate: 0.75, jitter: 0.04 }); audio.noise(0.9, { from: 2400, to: 300, gain: 0.32 * (0.6 + 0.4 * k), type: 'lowpass' }); audio.noise(0.45, { from: 5000, to: 1500, gain: 0.12, type: 'highpass', delay: 0.05 }); },
   dropFar: k => { ub('skid', { gain: 0.35 * (0.6 + 0.4 * k), rate: 0.8 }); ub('body_fall', { gain: 0.45 * (0.6 + 0.4 * k), rate: 0.7, delay: 0.42 }); audio.noise(0.6, { from: 700, to: 90, gain: 0.18, type: 'lowpass', delay: 0.42 }); },
-  stingWin: () => ub('sting_win', { gain: 0.9, jitter: 0 }),
+  stingWin: () => audio.stingPlay('ub_sting_win_', 0.9),
   // act-37 (the user's): the stele's name struck through, waking after a death
   stingStele: () => ub('sting_stele', { gain: 0.9, jitter: 0 }), stingRevive: () => ub('sting_revive', { gain: 0.9, jitter: 0 }),
-  stingLose: () => ub('sting_lose', { gain: 0.9, jitter: 0 }),
+  stingLose: () => audio.stingPlay('ub_sting_lose_', 0.9),
   stingClear: () => ub('sting_clear', { gain: 0.7, jitter: 0 }),
 };
 setCueHandler((name, k, x) => {
