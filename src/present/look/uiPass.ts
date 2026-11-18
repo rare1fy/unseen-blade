@@ -132,7 +132,7 @@ export class UiPass {
       if (!top.visible) continue;
       let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9, whole = false;
       top.traverseVisible(o => {
-        const g = (o as THREE.Mesh).geometry; if (whole || !g || !((o as THREE.Mesh).isMesh || (o as THREE.Sprite).isSprite)) return;
+        const g = (o as THREE.Mesh).geometry; if (whole || o.name === 'rigidBatch' || !g || !((o as THREE.Mesh).isMesh || (o as THREE.Sprite).isSprite)) return;
         if (!g.boundingBox) g.computeBoundingBox();
         const b = this.box.copy(g.boundingBox!).applyMatrix4(o.matrixWorld);
         for (let i = 0; i < 8; i++) {

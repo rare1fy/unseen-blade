@@ -3,6 +3,7 @@
 // glyphs stay square and crisp; an optional 1-pixel outline is drawn in the four axis directions only (no diagonals).
 import * as THREE from 'three';
 import FONT_DATA from '../../../ui/font.js';
+import { OPT } from '../engine/perfOpts';
 import { scene } from '../engine/world';
 import { anim, ease, lerp } from '../engine/clock';
 import { canvasOf } from '../hud/paint';
@@ -86,16 +87,44 @@ export function drawPix(g: CanvasRenderingContext2D, text: string, x: number, y:
 }
 
 // ---------------------------------------------------------------- world sprites (damage numbers, titles)
-export function pixSprite(text: string, o: { color?: string; outline?: string; h?: number; bg?: string } = {}) {
+type SpriteStyle = { color?: string; outline?: string; h?: number; bg?: string };
+const glyphTextures = new Map<string, THREE.CanvasTexture>();
+// Evict even if a live number still holds its texture: the sprite releases its own reference when it fades.
+const users = new WeakMap<THREE.Texture, number>();
+const retained = new WeakSet<THREE.Texture>();
+function paintSprite(text: string, o: SpriteStyle) {
   const pad = o.bg ? 4 : 1, w = pixW(text) + pad * 2, h = SIZE + pad * 2, { c, g } = canvasOf(w, h);
   if (o.bg) { g.fillStyle = o.bg; g.fillRect(1, 0, w - 2, h); g.fillRect(0, 1, w, h - 2); }
   drawPix(g, text, pad, pad, { scale: 1, color: o.color ?? '#fff6d8', outline: o.bg ? null : o.outline ?? '#1a0e16' });
   const tex = new THREE.CanvasTexture(c as HTMLCanvasElement); tex.colorSpace = THREE.SRGBColorSpace; tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter; tex.generateMipmaps = false;
+  return tex;
+}
+export function pixSprite(text: string, o: SpriteStyle = {}) {
+  // Repeated damage values have identical canvas pixels. Height only changes the mesh.
+  const key = JSON.stringify([text, o.color, o.outline, o.bg]);
+  let tex = OPT.dirtyUploads ? glyphTextures.get(key) : undefined;
+  if (!tex) {
+    tex = paintSprite(text, o);
+    if (OPT.dirtyUploads) {
+      glyphTextures.set(key, tex); retained.add(tex);
+      if (glyphTextures.size > 64) {
+        const oldest = glyphTextures.keys().next().value!, prev = glyphTextures.get(oldest)!;
+        glyphTextures.delete(oldest); retained.delete(prev);
+        if (!users.get(prev)) prev.dispose();
+      }
+    }
+  }
+  users.set(tex, (users.get(tex) ?? 0) + 1);
+  const { width: w, height: h } = tex.image as HTMLCanvasElement;
   const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false, toneMapped: false });
   const sp = new THREE.Sprite(mat), H = o.h ?? 0.55; sp.scale.set(H * w / h, H, 1); sp.renderOrder = 20; sp.userData.base = sp.scale.clone();
   scene.add(sp); return sp;
 }
-export function dropSprite(s: THREE.Sprite) { scene.remove(s); (s.material as THREE.SpriteMaterial).map?.dispose(); s.material.dispose(); }
+export function dropSprite(s: THREE.Sprite) {
+  scene.remove(s); const tex = s.material.map;
+  if (tex) { const n = Math.max(0, (users.get(tex) ?? 1) - 1); users.set(tex, n); if (!n && !retained.has(tex)) tex.dispose(); }
+  s.material.dispose();
+}
 /** a number / word that punches in, rises and fades */
 export function popPix(text: string, at: THREE.Vector3, o: { color?: string; outline?: string; h?: number; life?: number; rise?: number; big?: boolean } = {}) {
   const s = pixSprite(text, { ...o, h: (o.h ?? 0.55) * (o.big ? 1.5 : 1) }); s.position.copy(at);
