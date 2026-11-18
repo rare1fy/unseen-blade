@@ -53,6 +53,10 @@ describe('一局五关', () => {
       let room = 0;
       for (;;) {
         const ds = doorsFrom(room, visited, r, ri);
+        // (11-18: never two non-combat rooms in a row)
+        if (['rest', 'shop', 'boon'].includes(visited[room]) && !isBossRoom(ri, room + 1)) {
+          expect(ds.map(d => d.type).sort()).toEqual(['elite', 'fight']);
+        }
         if (room === roomsIn(ri) - 1) { expect(ds).toEqual([]); break; }
         if (room === roomsIn(ri) - 2) { expect(ds.map(d => d.type)).toEqual(['boss']); expect(ds[0].locale).toBe(REGIONS[ri].bossLocale); }
         else { expect(ds).toHaveLength(2); expect(ds[0].type).not.toBe(ds[1].type); expect(ds.every(d => d.type !== 'boss')).toBe(true); }

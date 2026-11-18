@@ -1,3 +1,5 @@
+import { WorldGrid } from './worldGrid';
+import { finishBuild } from '../engine/buildSteps';
 // Chunky voxel characters, authored as one statue in absolute cell coordinates (y up from the ground, front = +z, x centred so
 // symmetric pieces mirror across x = 0). Every cell belongs to a part; every part hangs on a bone of a simple joint rig, so the actor
 // animates by rotating bones (procedural poses in the actor classes). Meshing: exposed faces only (faces between two parts are kept,
@@ -90,7 +92,7 @@ export function voxToon(o: { rim?: number; self?: number; edge?: number } = {}) 
   matCache.set(k, m); return m;
 }
 const glowMats = new Map<number, THREE.MeshBasicMaterial>();
-const glowMat = (k: number) => { if (!glowMats.has(k)) glowMats.set(k, new THREE.MeshBasicMaterial({ color: new THREE.Color(k, k, k), vertexColors: true, toneMapped: false })); return glowMats.get(k)!; };
+export const glowMat = (k: number) => { if (!glowMats.has(k)) glowMats.set(k, new THREE.MeshBasicMaterial({ color: new THREE.Color(k, k, k), vertexColors: true, toneMapped: false })); return glowMats.get(k)!; };
 
 export class VoxChar {
   cells = new Map<number, Cell & { x: number; y: number; z: number }>();
@@ -199,23 +201,30 @@ export class VoxChar {
  * floors and walls cost a handful of quads; faces next to other blocks keep per-cell AO. Every face gets the same bevel as the
  * characters (edges that stick out), measured in cells so a merged slab is bevelled only along its border.
  */
+type WorldMeshOptions = { glow?: number; rim?: number; self?: number; edge?: number; chunk?: number; tile?: number; ground?: boolean };
 export class VoxWorld {
-  cells = new Map<number, { c: number; g: number }>();
-  constructor(readonly s: number) {}
+  readonly cells: Map<number, { c: number; g: number }> | WorldGrid;
+  constructor(readonly s: number, terrain = false) { this.cells = terrain ? new WorldGrid() : new Map(); }
   set(x: number, y: number, z: number, c: number | null, g = 0) { const k = key(x, y, z); if (c == null) this.cells.delete(k); else this.cells.set(k, { c, g }); return this; }
   has(x: number, y: number, z: number) { return this.cells.has(key(x, y, z)); }
   get(x: number, y: number, z: number) { return this.cells.get(key(x, y, z)); }
   box(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, c: number | null, g = 0) {
+    if (this.cells instanceof WorldGrid && [x0,y0,z0,x1,y1,z1].every(Number.isInteger)
+      && Math.min(y0,y1,z0,z1) >= -512 && Math.max(y0,y1,z0,z1) < 512) {
+      this.cells.box(Math.min(x0,x1), Math.min(y0,y1), Math.min(z0,z1), Math.max(x0,x1), Math.max(y0,y1), Math.max(z0,z1), c, g);
+      return this;
+    }
     for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x++) for (let y = Math.min(y0, y1); y <= Math.max(y0, y1); y++) for (let z = Math.min(z0, z1); z <= Math.max(z0, z1); z++) this.set(x, y, z, c, g);
     return this;
   }
   /** chunk (cells, > 0): no merged rectangle crosses a chunk border in x or z, and every vertex carries its chunk's centre (world xz)
    *  as aChunk — the voxel-wave transition (scenes/transVox.ts) moves each 1 m column as one rigid block */
-  build(o: { glow?: number; rim?: number; self?: number; edge?: number; chunk?: number; tile?: number; ground?: boolean } = {}) {
+  build(o: WorldMeshOptions = {}) { return finishBuild(this.buildSteps(o)); }
+  *buildSteps(o: WorldMeshOptions = {}): Generator<void, THREE.Mesh[]> {
     // act-34 (用户：「现在转场的时候有点卡」): a big place (the snowy village, 2.2 M cells) spent 2.7 s here asking the cell Map about
     // every neighbour. The occupancy now sits in a bitset over the cells' bounding box (padded by one cell, so every neighbour test of
     // a face, its AO corners and its edges stays inside it) and the face loop walks neighbours by index steps.
-    const s = this.s, CH = o.chunk ?? 0, bits = occupancy(this.cells);
+    const s = this.s, CH = o.chunk ?? 0, bits = this.cells instanceof WorldGrid ? this.cells.occupancy() : occupancy(this.cells);
     // (a whole place, not a prop that may topple or fly: those keep every face)
     const GROUND = o.ground ?? this.cells.size > 200000;
     const occ = bits ? bits.occ : (x: number, y: number, z: number) => this.cells.has(key(x, y, z));
@@ -237,7 +246,10 @@ export class VoxWorld {
     const DD = DIRS.map(([a, b, c]) => a * SX + b * SY + c), TD = TAN.map(([p, q]) => [p[0] * SX + p[1] * SY + p[2], q[0] * SX + q[1] * SY + q[2]]);
     const SG: Array<[number, number]> = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
     const aos = [0, 0, 0, 0];
-    for (const [k, v] of this.cells) {
+    const visible = this.cells instanceof WorldGrid && bits ? this.cells.entries(bits) : this.cells;
+    let visited = 0;
+    for (const [k, v] of visible) {
+      if ((++visited & 2047) === 0) yield;
       const z = (k % 1024) - 512, y = (Math.floor(k / 1024) % 1024) - 512, x = Math.floor(k / (1024 * 1024)) - 512;
       const ci = bits ? bits.at(x, y, z) : 0;
       for (let d = 0; d < 6; d++) {
@@ -277,6 +289,7 @@ export class VoxWorld {
       const keys = [...sl.keys()].sort((p, q) => p - q), done = new Set<number>();
       const cellAt = (u: number, w: number) => (dx ? [a, u, w] : dy ? [w, a, u] : [u, w, a]) as [number, number, number];
       for (const k0 of keys) {
+        if ((++visited & 1023) === 0) yield;
         if (done.has(k0)) continue;
         const ck = sl.get(k0)!, u0 = Math.floor(k0 / 1024) - 512, w0 = (k0 % 1024) - 512;
         const c0 = cellAt(u0, w0), ch0 = chk(c0[0], c0[2]), same = (u: number, w: number) => { if (!CH) return true; const c = cellAt(u, w); return chk(c[0], c[2]) === ch0; };
@@ -295,6 +308,7 @@ export class VoxWorld {
       }
     }
     const meshes: THREE.Mesh[] = [];
+    yield;
     for (const [arr, isGlow] of [[out.solid, false], [out.glow, true]] as const) {
       const [P, N, C, U, I, E, S, K] = arr; if (!I.length) continue;
       const g = new THREE.BufferGeometry();

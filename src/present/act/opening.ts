@@ -330,6 +330,14 @@ class Opening {
     if (e?.type === 'keydown') e.preventDefault();
     // the first tap wakes the sound (show.ts unlocks the audio on the same tap and starts the opening music)
     if (!this.armed && !this.soundAtStart) { this.armed = true; this.hintText = HINT1; this.layoutTitle(); return; }
+    if (__WX__) {
+      this.beat = 'done';
+      void wipeTransit(() => {
+        for (const m of [this.top, this.bot, this.hint, ...this.line]) if (m) m.visible = false;
+        this.restore(); return this.host.enter();
+      }).finally(() => this.finish());
+      return;
+    }
     this.beat = 'flash'; this.bt = 0; this.flashT = 0; cue('thunder', 1);
     if (this.titleA < 1) this.titleA = Math.max(this.titleA, 0.6);
   }
@@ -412,7 +420,7 @@ class Opening {
     if (!this.grabbed) {
       // no picture to split (see after()): the stage's own wipe carries it into the yard instead — never a black frame
       this.beat = 'done';
-      void wipeTransit(() => { for (const m of [this.top, this.bot, this.hint, ...this.line]) if (m) m.visible = false; this.restore(); this.host.enter(); }).then(() => this.finish());
+      void wipeTransit(() => { for (const m of [this.top, this.bot, this.hint, ...this.line]) if (m) m.visible = false; this.restore(); return this.host.enter(); }).then(() => this.finish());
       return;
     }
     const up = quad(this.frame!, v, 1, 95), dn = quad(this.frame!, 0, v, 95);

@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import { rot, mov, curve, snap, type Action, type Bone } from '../../actors/rig';
 import { POSE_AFTER, type PoseFn } from '../../bestiary/poseHooks';
 import { attackBeats, attackBody } from './foe_motion';
+import { engagement, grip } from './weapon_pose';
 
 type Bones = Record<string, Bone>;
 const PI = Math.PI;
@@ -95,19 +96,29 @@ reg('xp_needle', (b, _t, a) => {
 });
 
 // ================================================================== 凝霜毒吏 (and 封鸩's sow)
-/** The staff stays up while the left hand sows forward and down at impact. */
-function sow(b: Bones, a: Action, staff: boolean) {
-  const motion = attackBeats(a, !staff);
+/** 封鸩 scatters frost with the empty hand. */
+function sow(b: Bones, a: Action) {
+  const motion = attackBeats(a, true);
   attackBody(b, motion, 'cast');
   const lift = curve(a.k, [[0, 0], [a.at * 0.48, 1], [a.at, 1], [1, 0]]);
   const { load: back, hit: cast } = motion;
   put(b.armR, lerp(-0.4, -2.55, lift), 0, -0.12 * lift); put(b.foreR, lerp(-1.4, -0.25, lift));
-  if (staff) aimToward(b, 'weapon', -PI / 2 + 0.12, 0, lift);
   put(b.armL, 0.7 * back - 1.15 * cast, 0, 0.25 * back - 0.1 * cast); put(b.foreL, -1.2 * back - 0.25 * cast);
   rot(b.spine, -0.1 * back + 0.38 * cast, 0.15 * back - 0.1 * cast, 0); rot(b.neck, -0.18 * cast, 0, 0);
   toward(b.handL, -0.5 * cast, 0, 0, 1);
 }
-reg('xp_frost', (b, _t, a) => { if (a?.name === 'sow') sow(b, a, true); });
+reg('xp_frost', (b, _t, a) => {
+  if (a?.name !== 'sow') return;
+  const motion = attackBeats(a), w = engagement(a);
+  attackBody(b, motion, 'cast', 0.65);
+  rot(b.spine, -0.12 * motion.load + 0.28 * motion.chest, 0.24 * motion.chest, 0);
+  rot(b.neck, -0.16 * motion.chest, 0, 0);
+  // Keep the luminous stopper just off the floor during the beat after the plant.
+  const plant = a.k < a.at ? motion.hit : 1;
+  grip(b, 'R', -0.46, 1.46 - 0.37 * plant, 0.12 + 0.29 * plant, -0.85 + 1.63 * plant, 0.05, w);
+  rot(b.armL, -0.47 * motion.load + 0.32 * motion.late, 0, 0.37 * w);
+  rot(b.foreL, -0.53 * w, 0, 0);
+});
 
 // ================================================================== 沉江恶鬼（水鬼）
 reg('xp_diver', (b, _t, a, off) => {
@@ -214,7 +225,7 @@ reg('xp_boss', (b, t, a, off) => {
     rot(b.legL, -0.25 * fl, 0, 0); rot(b.legR, 0.2 * fl, 0, 0);
     return;
   }
-  if (n === 'sow') { sow(b, a!, false); return; }
+  if (n === 'sow') { sow(b, a!); return; }
   if (n === 'snip') {
     // the knife hand back and up (the body turned right), one fast cut across in front at the blow, leaning in after it
     const motion = attackBeats(a!, true);

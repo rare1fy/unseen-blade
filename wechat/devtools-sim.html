@@ -41,7 +41,12 @@
     onWindowResize() {}, getLaunchOptionsSync: () => ({ query: {} }),
     createImage() { const im = new Image(); const set = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src').set; Object.defineProperty(im, 'src', { set(v) { set.call(im, new URL(v, location.origin + base).href); }, get() { return im.getAttribute('src'); } }); return im; },
     getFileSystemManager: () => ({ readFileSync: (p, enc) => { const b = sync(p); return enc ? new TextDecoder().decode(b) : b; }, readFile: o => { try { o.success({ data: sync(o.filePath) }); } catch (e) { o.fail && o.fail(e); } } }),
-    loadSubpackage: o => { setTimeout(() => o.success && o.success({}), 10); return { onProgressUpdate() {} }; },
+    // (a phone downloads a subpackage the first time it is loaded: ?subms=N makes each take N ms, ?mbps=X as long as X MB/s takes for
+    // its size — one download at a time; window.__simSubs has when each finished)
+    loadSubpackage: o => { const S = window.__simSubs = window.__simSubs || { done: {}, chain: Promise.resolve() };
+      const ms = () => q.get('mbps') ? fetch('/__size/' + o.name).then(r => r.text()).then(n => +n / 1048576 / +q.get('mbps') * 1000) : Promise.resolve(+(q.get('subms') || 10));
+      if (!S.done[o.name]) S.done[o.name] = S.chain = S.chain.then(ms).then(t => new Promise(r => setTimeout(r, t))).then(() => { S[o.name] = Math.round(performance.now()); });
+      S.done[o.name].then(() => o.success && o.success({})); return { onProgressUpdate() {} }; },
     getStorageSync: k => store[k] ?? '', setStorageSync: (k, v) => { store[k] = v; }, removeStorageSync: k => { delete store[k]; },
     createInnerAudioContext: () => ({ play() {}, stop() {}, pause() {}, destroy() {} }),
     loadFont: () => null, vibrateShort() {}, onHide() {}, onShow() {},
@@ -54,13 +59,13 @@
   // page's own AudioContext; window.__simAudio counts contexts, decodes and sounds started, and keeps the gain nodes (for fades).
   { const AC = window.AudioContext || window.webkitAudioContext; delete window.AudioContext; delete window.webkitAudioContext;
     for (const m of ['setValueAtTime', 'linearRampToValueAtTime', 'exponentialRampToValueAtTime', 'setTargetAtTime', 'cancelScheduledValues', 'setValueCurveAtTime', 'cancelAndHoldAtTime']) delete AudioParam.prototype[m];
-    const S = window.__simAudio = { contexts: 0, decoded: 0, decodeFailed: 0, started: 0, gains: [] };
+    const S = window.__simAudio = { contexts: 0, decoded: 0, decodeFailed: 0, started: 0, starts: [], gains: [] };
     window.wx.createWebAudioContext = () => {
       const c = new AC(); S.contexts++;
       const o = { get state() { return c.state; }, get currentTime() { return c.currentTime; }, get sampleRate() { return c.sampleRate; }, get destination() { return c.destination; },
         resume() { c.resume(); }, suspend() { c.suspend(); }, close() { c.close(); },
         decodeAudioData(ab, ok, fail) { c.decodeAudioData(ab).then(b => { S.decoded++; ok(b); }, e => { S.decodeFailed++; if (fail) fail(e); }); },
-        createBufferSource() { const s = c.createBufferSource(), st = s.start.bind(s); s.start = (...a) => { S.started++; return st(...a); }; return s; },
+        createBufferSource() { const s = c.createBufferSource(), st = s.start.bind(s); s.start = (...a) => { S.started++; if (S.starts.length < 400) S.starts.push({ t: Math.round(performance.now()), dur: s.buffer ? +s.buffer.duration.toFixed(1) : 0 }); return st(...a); }; return s; },
         createGain() { const g = c.createGain(); if (S.gains.length < 600) S.gains.push(g); return g; } };
       for (const m of ['createBuffer', 'createBiquadFilter', 'createDynamicsCompressor', 'createOscillator', 'createDelay', 'createAnalyser', 'createPanner', 'createWaveShaper', 'createConstantSource']) o[m] = c[m].bind(c);
       return o;

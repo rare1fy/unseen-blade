@@ -4,7 +4,7 @@ export type Cue =
   | 'clack' | 'select' | 'deselect' | 'whoosh' | 'reveal' | 'count' | 'relic' | 'impact' | 'crit' | 'block' | 'armor' | 'hurt'
   | 'heal' | 'burn' | 'poison' | 'magic' | 'deny' | 'click' | 'coin' | 'win' | 'lose' | 'shatter' | 'summon' | 'curse' | 'roar' | 'tick'
   // act-19: 不见刀's own combat set (Stable Audio 3 medium, GameProtos/sfx/cues_unseen_v1.json; samples ub_<id>_<n>.mp3)
-  | 'swish' | 'swishHeavy' | 'cut' | 'cutHeavy' | 'draw' | 'sheathe' | 'parry' | 'dash' | 'jump' | 'land' | 'dartThrow' | 'dartHit' | 'arrow'
+  | 'bladeFlyIn' | 'bladeFlyOut' | 'swish' | 'swishHeavy' | 'cut' | 'cutHeavy' | 'draw' | 'sheathe' | 'parry' | 'dash' | 'jump' | 'land' | 'dartThrow' | 'dartHit' | 'arrow'
   | 'bodyFall' | 'foeSwing' | 'thunder' | 'freeze' | 'iceShatter' | 'boom' | 'fuse' | 'fire' | 'potBreak' | 'crateBreak' | 'hayBurst' | 'pillarFall'
   | 'wallSlam' | 'gateOpen' | 'exitChime' | 'timeSlow' | 'ultSlash' | 'scroll' | 'hound'
   // act-23: the killing blow's gore (bone chop + splatter)

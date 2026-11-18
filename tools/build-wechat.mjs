@@ -29,9 +29,29 @@ const size = d => { let n = 0; for (const e of fs.readdirSync(d, { withFileTypes
 // 1. the bundle
 await build({ root: ROOT, configFile: path.join(ROOT, 'vite.config.ts'), mode: 'wechat', logLevel: 'warn' });
 const DW = path.join(ROOT, 'dist-wx'), bundle = fs.readFileSync(path.join(DW, 'game.js'), 'utf8'), assets = JSON.parse(fs.readFileSync(path.join(DW, 'wx-assets.json'), 'utf8'));
+// Bake static terrain with the same definitions used by procedural rooms.
+// Keep the default title in the main package so the first screen needs no second download.
+const bakeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ub-wechat-scenes-'));
+const scenes = new Map();
+try {
+  execFileSync(process.execPath, [path.join(ROOT, 'node_modules/vite-node/vite-node.mjs'), 'tools/bake-wechat-stages.ts'], {
+    cwd: ROOT, env: { ...process.env, UB_STAGE_OUT: bakeDir }, stdio: 'inherit',
+  });
+  const groupSizes = new Map();
+  for (const name of fs.readdirSync(bakeDir).sort()) {
+    const data = fs.readFileSync(path.join(bakeDir, name));
+    const group = name === 'title-snow.bin' ? 'assets/scenes' : 'scenery' + (name.startsWith('map-') ? name.split('-')[1] : 'yard');
+    if (data.length + (groupSizes.get(group) || 0) > 3.9 * 1024 * 1024) throw Error('Scenery package too large: ' + group);
+    groupSizes.set(group, (groupSizes.get(group) || 0) + data.length);
+    scenes.set(name.slice(0, -4), { to: group + '/' + name, data });
+  }
+} finally {
+  fs.rmSync(bakeDir, { recursive: true, force: true });
+}
+const stageFiles = Object.fromEntries([...scenes].map(([key, file]) => [key, file.to]));
 const rd = f => fs.readFileSync(path.join(ROOT, 'wechat', f), 'utf8');
 // (--no-diag: no native error dialog — wechat/glue.js shows the first error in one while the mini-game is still being brought up)
-const gameJs = `'use strict';\n${A.includes('--no-diag') ? 'var __UB_NO_DIAG = true;\n' : ''}${rd('adapter.js')}\n${rd('glue.js')}\n${bundle}`;
+const gameJs = `'use strict';\n${A.includes('--no-diag') ? 'var __UB_NO_DIAG = true;\n' : ''}${rd('adapter.js')}\n${rd('glue.js')}\nGameGlobal.__ubStageFiles = ${JSON.stringify(stageFiles)};\n${bundle}`;
 // 11-18: the upload refused game.js for a `?.` (「invalid file: game.js, 122:12 SyntaxError: Unexpected token .」): the whole file must be
 // ES2015 (vite's wechat target is es2015; wechat/*.js are written by hand) — parse it as such and stop before touching the project
 // folder if it isn't (--no-syntax-check to skip)
@@ -54,6 +74,12 @@ fs.mkdirSync(OUT, { recursive: true });
 for (const e of fs.readdirSync(OUT)) { if (e === 'project.config.json' || e === 'project.private.config.json') continue; try { fs.rmSync(path.join(OUT, e), { recursive: true, force: true }); } catch (err) { console.log(`  （没删掉 ${e}：${err.code}，直接覆盖）`); } }
 fs.writeFileSync(path.join(OUT, 'game.js'), gameJs);
 const subs = new Set();
+for (const { to, data } of scenes.values()) {
+  const dst = path.join(OUT, to);
+  fs.mkdirSync(path.dirname(dst), { recursive: true });
+  fs.writeFileSync(dst, data);
+  if (!to.startsWith('assets/')) subs.add(to.split('/')[0]);
+}
 for (const [to, from] of Object.entries(assets)) {
   const dst = path.join(OUT, to); fs.mkdirSync(path.dirname(dst), { recursive: true });
   // (11-18: wx.loadFont takes TrueType, not woff2 — the body fonts are unpacked with fontTools; without it they're copied as they are

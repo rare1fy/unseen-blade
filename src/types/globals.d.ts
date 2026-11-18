@@ -78,3 +78,9 @@ declare module 'pxui/core/pxui.js' {
   }
   export function createUI(opts: { platform: PxPlatform; gl?: WebGLRenderingContext | WebGL2RenderingContext; three?: unknown; font?: unknown; base?: string; assets?: Record<string, string> }): PxUI;
 }
+
+// The decoder bundled with three.js r162.
+declare module 'three/examples/jsm/libs/fflate.module.js' {
+  export function inflateSync(data: Uint8Array): Uint8Array;
+  export function strFromU8(data: Uint8Array): string;
+}

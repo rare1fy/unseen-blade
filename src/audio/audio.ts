@@ -1,6 +1,7 @@
 // Audio: Web Audio graph — sfx bus (random pitch / volume per play, layered cues), music bus with a low-pass that closes at low HP,
 // voice bus that ducks music and sfx, a master limiter. Samples are bundled inline (mp3 → base64) and decoded on first unlock.
 import { setCueHandler, type Cue } from './cues';
+import { firstSoundsIn } from './firstSounds';
 
 const files = import.meta.glob('../assets/audio/*.mp3', { eager: true, query: '?inline', import: 'default' }) as Record<string, string>;
 const byName: Record<string, string> = {};
@@ -37,11 +38,23 @@ class AudioEngine {
   /** the last samples played (debug: __dh.sfx()) */
   recent: string[] = [];
   buf = new Map<string, AudioBuffer>(); musicSrc: AudioBufferSourceNode | null = null; musicName = ''; ready = false; muted = false;
+  /** 11-18 微信小游戏 (用户：「现在有声音了，但是声音出来的很慢」): on a phone the first touch used to wait for the effects'
+   *  subpackage to download (3.7 MB) and all 157 effects to decode before the title music was even asked for — then that track's own
+   *  subpackage (3.2 MB) and its decode. Now the context and buses are made at once and the effects load behind (each plays as soon
+   *  as it is decoded; `ready` when all are; `loading` settles then). A mini-game calls prepare() at boot, before any touch, warming
+   *  the first track and then fetching the other audio subpackages one by one (the first fight's music doesn't wait for a download);
+   *  the touch only resumes the context. */
+  loading: Promise<void> = Promise.resolve();
   async unlock() {
-    if (this.ctx) { if (this.ctx.state === 'suspended') await this.ctx.resume(); return; }
+    if (!this.ctx) this.prepare();
+    const ctx = this.ctx; if (ctx && ctx.state === 'suspended') await ctx.resume();
+  }
+  prepare(o: { warm?: string[]; prefetch?: boolean } = {}) {
+    if (this.ctx) return;
+    setTimeout(() => firstSoundsIn(), 3000);
     // (11-18 微信小游戏: no AudioContext there — wechat/glue.js wraps wx.createWebAudioContext as __ubWxAudio)
     const AC = (globalThis as any).AudioContext || (globalThis as any).webkitAudioContext;
-    const ctx: AudioContext | null = AC ? new AC() : (globalThis as any).__ubWxAudio?.() ?? null; if (!ctx) return;
+    const ctx: AudioContext | null = AC ? new AC() : (globalThis as any).__ubWxAudio?.() ?? null; if (!ctx) { firstSoundsIn(); return; }
     this.ctx = ctx;
     // 11-18: only a limiter at the end (the old −10 dB 8:1 compressor flattened every blow the moment two sounds overlapped)
     const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -2.5; comp.knee.value = 0; comp.ratio.value = 20; comp.attack.value = 0.001; comp.release.value = 0.12;
@@ -59,7 +72,12 @@ class AudioEngine {
     this.music = ctx.createGain(); this.music.gain.value = MUSIC_BASE; this.music.connect(this.lp); this.lp.connect(this.musicHush);
     this.setRoom(this.room);
     this.voice = ctx.createGain(); this.voice.gain.value = 1.0; this.voice.connect(this.master);
-    // music is decoded on demand (playMusic): six decoded tracks would hold ~250 MB on a phone
+    void Promise.all((o.warm ?? []).map(n => this.warm(n))).then(() => firstSoundsIn());
+    this.loading = this.loadSamples().then(() => (o.prefetch ? this.prefetch() : undefined));
+  }
+  /** the effects (music is decoded on demand — playMusic / warm: six decoded tracks would hold ~250 MB on a phone) */
+  private async loadSamples() {
+    const ctx = this.ctx; if (!ctx) return;
     // (11-18 微信小游戏: a sample that won't load is skipped as before, but none loading at all is reported — the phone stayed silent
     // without a word, act-65)
     let failed: unknown = null, tried = 0;
@@ -182,6 +200,28 @@ class AudioEngine {
     const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(o.gain ?? 0.3, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     osc.connect(g); g.connect(this.sfx); osc.start(t); osc.stop(t + dur + 0.05);
   }
+  /** 11-18: a track decoded ahead (or being decoded) — playMusic takes it from here instead of decoding it a second time */
+  private decoding = new Map<string, Promise<AudioBuffer | null>>();
+  warm(n: string): Promise<AudioBuffer | null> {
+    const have = this.buf.get(n); if (have) return Promise.resolve(have);
+    let p = this.decoding.get(n);
+    if (!p) { p = this.decodeName(n).then(b => { this.decoding.delete(n); if (b) this.buf.set(n, b); return b; }); this.decoding.set(n, p); }
+    return p;
+  }
+  /** 11-18 微信小游戏: the audio subpackages the effects didn't need, one after another (each fetch is only the subpackage's download
+   *  there — wechat/glue.js — nothing is read or decoded) */
+  private async prefetch() {
+    // (one file per subpackage, in the packages' order — tools/wxAssets.ts numbers them in the order they are heard)
+    const one = new Map<string, string>();
+    for (const url of Object.values(byName)) {
+      if (/^(data|https?):/.test(url)) continue;
+      const top = url.replace(/^\.?\//, '').split('/')[0]; if (!one.has(top)) one.set(top, url);
+    }
+    const num = (k: string) => +(/\d+$/.exec(k)?.[0] ?? 1e9);
+    for (const [, url] of [...one].sort((a, b) => num(a[0]) - num(b[0]))) {
+      try { await fetch(url); } catch { /* fetched again when the track is wanted */ }
+    }
+  }
   private decodeName(n: string) {
     const ctx = this.ctx, url = byName[n]; if (!ctx || !url) return Promise.resolve(null);
     if (!url.startsWith('data:')) return fetch(url).then(r => r.arrayBuffer()).then(ab => ctx.decodeAudioData(ab)).catch(() => null);   // the dev server: a file URL
@@ -193,7 +233,7 @@ class AudioEngine {
   async playMusic(name: string, fade = 1.6, offset = 0) {
     const ctx = this.ctx; if (!ctx || this.musicWant === name) return; this.musicWant = name; this.stopSting(1.8);
     let b = this.buf.get(name);
-    if (!b) { const d = await this.decodeName(name); if (!d) return; b = d; this.buf.set(name, d); }
+    if (!b) { const d = await this.warm(name); if (!d) return; b = d; }
     if (this.musicWant !== name) return;   // asked for another while decoding
     const t = this.now();
     if (this.musicSrc) { const old = this.musicSrc, og = (old as any)._g as GainNode; og.gain.cancelScheduledValues(t); og.gain.setValueAtTime(og.gain.value, t); og.gain.linearRampToValueAtTime(0, t + fade); old.stop(t + fade + 0.05); }
@@ -248,7 +288,26 @@ function foeVoice(kind: 'pain' | 'death' | 'cry', who: number, k: number) {
 /** 11-18: the same sound twice within this (s) is played once (default 0.05) */
 const COOLDOWN: Partial<Record<Cue, number>> = { flurry: 0.03, count: 0, coin: 0.03, tick: 0, swingLight: 0.04, hitLight: 0.04, hitStab: 0.03, bodyFall: 0.08, dartHit: 0.04, foeSwing: 0.08, foeHeavy: 0.1, arrow: 0.06 };
 const lastCue: Partial<Record<Cue, number>> = {};
+// The first blade arrives before the mixer is ready. Its two samples live in
+// the main WeChat package, so a cold launch can play them at the animation beat.
+function loadingSound(sample: string, volume: number) {
+  if (audio.muted) return;
+  if (audio.ctx?.state === 'running' && audio.buf.has(sample)) {
+    audio.play(sample, { gain: volume, bus: 'hero', pri: 3 }); return;
+  }
+  if (typeof wx === 'undefined' || !wx.createInnerAudioContext) return;
+  try {
+    const player = wx.createInnerAudioContext();
+    const release = () => player.destroy();
+    player.onEnded?.(release); player.onError?.(release);
+    player.volume = volume;
+    player.src = byName[sample];
+    player.play();
+  } catch (error) { console.warn('[audio] loading blade', error); }
+}
 const H: Partial<Record<Cue, (k: number, x?: number) => void>> = {
+  bladeFlyIn: () => loadingSound('ub_draw_1', 0.78),
+  bladeFlyOut: () => loadingSound('ub_sw_stab_1', 0.74),
   // UI
   clack: k => audio.any('ui_tap', { gain: 0.3 + k * 0.5, rate: 0.9 + k * 0.2 }),
   select: () => audio.any('ui_tap', { gain: 0.6, rate: 1.25 }),

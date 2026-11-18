@@ -1,3 +1,4 @@
+import { finishBuild } from '../engine/buildSteps';
 // 拼装器：按 Spec（地点 × 构图 × 地标 × 季节 × 时段 × 天气 × 种子）拼出一张战斗场景，并给出摆放报告。
 // 每个道具组都先在「沙盒」里建（临时体素层 + 记下的灯光、面片、植被），量出实际格子，过 check.ts 的检查，通过才并入场景；
 // 不通过就记进 report.rejected，换下一个候选。所以组写错了尺寸、和别的东西撞了、悬空了、挡了战斗区，都不会进最终画面。
@@ -38,7 +39,7 @@ export function stageLayout(l: Layout): Layout {
 /** most point lights per scene (each one costs every lit pixel; the shader also recompiles when the count changes) */
 export const MAX_LIGHTS = 12;
 /** QA-only work in the assembler: on in Node (the tests), off in the browser unless asked (__dh / the scene browser) */
-export const ASM_QA = { floating: typeof window === 'undefined' };
+export const ASM_QA = { floating: !__WX__ && typeof window === 'undefined' };
 
 // ------------------------------------------------------------------ mirroring a layout (x → −x)
 const mirR = (r: Rect): Rect => ({ x0: -r.x1, x1: -r.x0, z0: r.z0, z1: r.z1 });
@@ -125,12 +126,14 @@ export function assemble(spec: Spec, reg: Registry): { def: SceneDef; report: Re
   const report: Report = { spec, name, placed: [], rejected: [], empty: [], warnings: [], lights: 0 };
   const def: SceneDef = {
     id: `asm_${spec.locale}_${spec.seed}`, name, group: '普通', kind: '户外', blurb: '', mood: loc.mood ? { ...loc.mood } : moodFor(spec.time, spec.season, spec.weather),
-    build(c) {
+    build(c) { finishBuild(def.buildSteps!(c)); },
+    *buildSteps(c) {
       const r = rndOf(spec.seed, 1), lamp = lampFor(spec.time, spec.weather);
       const place = (x: number, z: number, s: -1 | 0 | 1, salt: number): Place => ({ x, z, s, seed: spec.seed * 97 + salt, season: spec.season, time: spec.time, weather: spec.weather, lamp, rnd: rndOf(spec.seed, 1000 + salt) });
       const live: Live = { lights: 0, occ: newOcc(), soft: new Set(), hard: new Set() };
       const walk = [...layout.path, ...(layout.court ? [layout.court] : [])];
       loc.floor(c, { layout, p: place(0, 0, 0, 1), arena: spec.arena });
+      yield;
       const usedTags = new Set<string>(), count = new Map<string, number>();
       /** build a group (or landmark) in the sandbox at (x, z), check it, commit it if it passes */
       const tryPlace = (g: { id: string; foot: { w: number; d: number }; tags?: string[]; build(c: Ctx, p: Place): void }, x: number, z: number, s: -1 | 0 | 1, salt: number, slotId: string, o: { strict: boolean; maxH?: number }) => {
@@ -154,7 +157,8 @@ export function assemble(spec: Spec, reg: Registry): { def: SceneDef; report: Re
       // 2) the slots, big ones first so they get the pick of the groups; each slot tries candidates in a seeded weighted order
       const pool = [...loc.groups, ...(loc.borrow ?? []).flatMap(t => reg.groupsByTag(t))];
       const slots = [...layout.slots].sort((a, b) => SIZE_RANK[b.size] - SIZE_RANK[a.size] || a.id.localeCompare(b.id));
-      slots.forEach((sl, si) => {
+      for (const [si, sl] of slots.entries()) {
+        yield;
         const fitK = (g: Group) => { const d = SIZE_RANK[sl.size] - SIZE_RANK[g.size]; return d === 0 ? 3 : d === 1 ? 1 : 0.25; };
         const cand = weightedOrder(pool.map(g => ({ ...g, weight: (g.weight ?? 1) * fitK(g) })), r, 100 + si * 37).filter(g => fits(g, sl, !g.seasons || g.seasons.includes(spec.season)));
         let ok = false;
@@ -171,12 +175,13 @@ export function assemble(spec: Spec, reg: Registry): { def: SceneDef; report: Re
           if (tryPlace(g, x, z, sl.s, 10 + si, sl.id, { strict: true, maxH: sl.maxH })) { ok = true; break; }
         }
         if (!ok) report.empty.push(sl.id);
-      });
+      }
       // 3) filler: small pieces into the room left on the wings (a few tries each, every one checked like a group)
       if (loc.filler?.length) {
         const fill = weightedOrder(loc.filler, r, 900); let n = 0;
         const nMax = STAGE_BIG.on ? 14 : 6, tMax = STAGE_BIG.on ? 120 : 40;
         for (let t = 0; t < tMax && n < nMax; t++) {
+          yield;
           const g = fill[t % fill.length], s: -1 | 1 = r(950 + t) < 0.5 ? -1 : 1;
           const x = s * (PLAY.x1 + (STAGE_BIG.on ? 1.2 : 0.6) + g.foot.w / 2 + r(960 + t) * 4.2), z = SZ(-9.5) + r(970 + t) * (SZ(4.5) - SZ(-9.5));
           if ((count.get(g.id) ?? 0) >= (g.max ?? 3)) continue;
@@ -187,6 +192,7 @@ export function assemble(spec: Spec, reg: Registry): { def: SceneDef; report: Re
       // 3b) the 2x stage's walls, gates and cover (inside / on the edge of the battle floor, where no slot group reaches)
       const arenaClear: Rect[] = [];
       if (spec.arena) {
+        yield;
         buildArena(c, spec.arena, spec.seed);
         for (const cv of spec.arena.covers) arenaClear.push({ x0: cv.x - cv.hx - 0.3, x1: cv.x + cv.hx + 0.3, z0: cv.z - cv.hz - 0.3, z1: cv.z + cv.hz + 0.3 });
         const w = spec.arena.wall, t = w.gap + w.thick + 0.2;
@@ -194,17 +200,21 @@ export function assemble(spec: Spec, reg: Registry): { def: SceneDef; report: Re
         // 11-18 屋子形态: what stands on the walled-off parts (the place's infill), and no grass in the water / on a bridge
         const sh = spec.arena.shape;
         if (sh) {
-          sh.solid.forEach((rc, i) => {
+          for (const [i, rc] of sh.solid.entries()) {
+            yield;
             const back = rc.z0 > sh.box.z0 + 0.1, front = rc.z1 < sh.box.z1 - 0.1;
             try { loc.infill?.(c, { rect: rc, p: place((rc.x0 + rc.x1) / 2, (rc.z0 + rc.z1) / 2, 0, 700 + i), shape: sh, layout, back, front }); } catch (e) { report.warnings.push(`infill ${i}: ${String((e as Error)?.message ?? e)}`); }
             arenaClear.push({ x0: rc.x0 - t, x1: rc.x1 + t, z0: rc.z0 - t, z1: rc.z1 + t });
-          });
+          }
           for (const q of [...sh.pits, ...sh.bridges]) arenaClear.push({ x0: q.x0 - 0.2, x1: q.x1 + 0.2, z0: q.z0 - 0.2, z1: q.z1 + 0.2 });
         }
       }
+      yield;
       loc.far?.(c, { layout, p: place(0, 0, 0, 3), arena: spec.arena });
       if (spec.season === 'winter' && !loc.noSnow) snowPass(c, walk);
+      yield;
       buildFlora(c);
+      yield;
       loc.dress?.(c, { layout, p: place(0, 0, 0, 4), clear: [...walk, ...arenaClear] });
       // (11-18: every region's places are Chinese — yellow-brown leaves, not red maple; a burned place has none)
       if (def.mood.sky) for (const a of weatherAmbient(spec.weather, spec.season, spec.time, /^(hj|ly|xp|wl|cx)_/.test(spec.locale))) if (!(loc.noLeaves && a.kind === 'leaves')) c.ambient(a);
@@ -212,7 +222,10 @@ export function assemble(spec: Spec, reg: Registry): { def: SceneDef; report: Re
       if (live.lights >= MAX_LIGHTS) report.warnings.push(`light budget reached (${MAX_LIGHTS})`);
       // glow cap (11-15 mixed sheet: some lantern / sign faces bloomed into white glare at dusk): every glowing cell keeps its hue
       // but its brightest channel is held at 0xd8, and a lantern body of more than 40 glowing cells gets only its middle cells lit
-      for (const v of c.w.cells.values()) if (v.g > 0) { const r = (v.c >> 16) & 255, gg = (v.c >> 8) & 255, b = v.c & 255, mx = Math.max(r, gg, b); if (mx > 0xd8) { const k = 0xd8 / mx; v.c = (Math.round(r * k) << 16) | (Math.round(gg * k) << 8) | Math.round(b * k); } }
+      let scanned = 0;
+      for (const v of c.w.cells.values()) {
+        if ((++scanned & 32767) === 0) yield;
+        if (v.g <= 0) continue; const r = (v.c >> 16) & 255, gg = (v.c >> 8) & 255, b = v.c & 255, mx = Math.max(r, gg, b); if (mx > 0xd8) { const k = 0xd8 / mx; v.c = (Math.round(r * k) << 16) | (Math.round(gg * k) << 8) | Math.round(b * k); } }
       // (a QA check: 1.5 s on the 2x stage's two million cells, so the game skips it — act-34; the tests and the scene browser keep it)
       if (ASM_QA.floating) { const fl = floatingCells(c.w.cells); if (fl.count > 40) report.warnings.push(`${fl.count} floating cells, e.g. ${JSON.stringify(fl.sample.slice(0, 3))}`); }
     },

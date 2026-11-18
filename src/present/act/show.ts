@@ -1,3 +1,5 @@
+import { finishBuild, loadInFrames } from '../engine/buildSteps';
+import { bladeBusy, runRoomBuild, withLoadingBlade } from '../scenes/loadingBlade';
 import { format, language, msg, setLanguage } from './i18n';
 // 动作原型（docs: CLAUDE.md「动作原型」、docs/act/DESIGN.md）：哈迪斯式的一间间屋子。每间屋 = 一张拼装的日本场景（asm），战斗区就是屋子；
 // 敌人分两波从边上出来；清场 → 三选一秘传 → 屋子边上的路口立起高札（写着下一间的地名和清完给什么）→ 自己走进路口 → 一丛竹子
@@ -16,7 +18,7 @@ import { playDeath } from '../v2/death';
 import { UiLayer } from '../ui3d/layer';
 import { Overlay } from '../v2/overlay';
 import { SkinBanner, SKIN, SKINS, SKIN_NAME, setSkin, type SkinId } from './skin';
-import { showStage, prepareStage, followShadow, flashSky, tickSkyFlash, type Stage, type PreparedStage } from '../scenes/stage';
+import { showStage, prepareStageSteps, followShadow, flashSky, tickSkyFlash, type Stage, type PreparedStage } from '../scenes/stage';
 import { PLAY, SZ, setStage, STAGE_BIG, stageNow } from '../scenes/props';
 import { addLocales, REGISTRY, LOCALES } from '../asm/registry';
 import { NINJA_LOCALES } from '../asm/ninja';
@@ -205,7 +207,12 @@ const COLD_ROOM: RoomIn = { isYard: false, room: 0, recent: [], locale: 'hs_forg
   viewSpec: { locale: 'hs_forge', layout: 'hs_valley', mirror: false, landmark: null, season: 'winter', time: 'night', weather: 'snow', seed: 7, exits: [] } };
 /** pick the spec, lay out the floor and the arena, assemble and build the place — touching nothing live except the stage size
  *  (setStage, which the caller sets again) */
-function prepRoom(o: RoomIn): Room {
+function prepRoom(o: RoomIn): Room { return finishBuild(prepRoomSteps(o)); }
+function* prepRoomSteps(o: RoomIn): Generator<void | Promise<void>, Room> {
+  const { def, ...room } = roomDefinition(o);
+  return { ...room, prep: yield* prepareStageSteps(def, { combat: true }) };
+}
+export function roomDefinition(o: RoomIn) {
   const { isYard } = o;
   const seed = o.seed ?? (Date.now() % 100000) + o.room * 977;
   const base = pickSpec(seed, Object.values(REGISTRY.locales), REGISTRY.layouts, o.recent, { season: o.regionSpec?.season ?? 'autumn', locale: o.locale });
@@ -234,9 +241,11 @@ function prepRoom(o: RoomIn): Room {
   const shape = drawn ?? (big && !o.noArena && shapeId !== 'square' ? makeShape(shapeId, spec.seed, { layout, pit: pitK }) : undefined);
   const arena = big && !o.noArena ? arenaPlan(layout, (spec.exits ?? []) as ExitId[], spec.seed, spec.locale, calm ? 'calm' : ptype === 'boss' ? 'boss' : 'fight', shape) : null;
   spec.arena = arena ?? undefined;
-  if (isYard) return { spec, big, layout, arena, report: null, k, prep: prepareStage(hideoutScene({ time: 'dusk', weather: 'clear' }), { combat: true }) };
+  if (isYard) return { spec, big, layout, arena, report: null, k, def: hideoutScene({ time: 'dusk', weather: 'clear' }) };
   const { def, report } = assemble(spec, REGISTRY);
-  return { spec, big, layout, arena, report, k, prep: prepareStage({ ...def, build(c) { try { def.build(c); } catch (e) { console.error('[act] assembly failed', e); } } }, { combat: true }) };
+  def.report = report;
+  if (dm && dm.kind === (ptype === 'boss' ? 'boss' : 'fight') && !o.forceSpec && !o.viewSpec) def.pack = `map-${dm.id}-${spec.season}-${spec.exits?.length ?? 0}`;
+  return { spec, big, layout, arena, report, k, def };
 }
 
 /** 11-18 per blow: [hit-stop s (× TUNE.hitstop), camera push m, rumble (trauma × TUNE.shake), push-in share, hit sound] */
@@ -318,8 +327,22 @@ export class ActShow {
     // a new game: 刘白 in her default look again, the white-haired one (the costume the browser remembered goes)
     { const d = HEROES.find(x => x.id === DEFAULT_HERO); if (d) { this.wearing = d; if (this.hud.flask instanceof IronHp) this.hud.flask.setFace(d.id); else HP_FACE.id = d.id; try { localStorage.setItem('act.hero6', d.id); } catch { /* storage blocked */ } } }
     // act-29 (用户：「方案1开做吧」): the night seven years before (once its place is built), then the prologue — alone in the snow
-    const pov = await this.coldOpen();
-    this.startPrologue();
+    const narrative = this.coldOpen();
+    // Once the player chooses New Game the first village is known. Build it
+    // during the story cards, preserving the randomly drawn layout and seed.
+    const village = __WX__ && COLD_AS_CARDS
+      ? loadInFrames(prepRoomSteps(this.prologueRoomIn())).catch(error => {
+        console.warn('[act] village preparation failed', error); return null;
+      }) : null;
+    const pov = await narrative;
+    if (__WX__) {
+      while (bladeBusy()) await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+      await withLoadingBlade(async () => {
+        const ready = await village;
+        if (ready) this.pre = { ...ready, locale: PRO_ROOM.locale };
+        await this.startPrologue();
+      });
+    } else await this.startPrologue();
     // (the village was built behind the dark; now the dark lifts on 「七年后」)
     if (pov) { await frames(3); pov.fill(0x000000, 0); after(1.6, () => pov.dispose(), { real: true }); }
   }
@@ -348,7 +371,7 @@ export class ActShow {
     return { isYard: false, room: 0, recent: [], locale: PRO_ROOM.locale, plan: { type: 'fight', locale: PRO_ROOM.locale, reward: null, waves: PRO_ROOM.waves }, nextRooms: [PRO_BOSS], viewSpec: null, forceSpec: { ...PRO_ROOM.spec }, noArena: false };
   }
   /** the prologue's first room: the snowy village at night, a few sentries; then the temple (leave() moves prologue to 2) */
-  startPrologue() {
+  async startPrologue() {
     this.prologue = 1; this.proFalling = false; this.proFightT = 0;
     this.intent = 0; this.hud.intent = 0; this.perks = newPerks(); this.room = 0; this.kills = 0; this.recent = []; this.visited = []; this.coins = 0;
     this.mods = runMods(profile()); this.defy = 0; this.eliteKills = 0; this.bossKilled = false; this.wine = false;
@@ -356,7 +379,7 @@ export class ActShow {
     this.baseFoe.aggression = TUNE.aggression; this.scaleFoes(0);
     this.plan = { type: 'fight', locale: PRO_ROOM.locale, reward: null, waves: PRO_ROOM.waves };
     this.locale = PRO_ROOM.locale; this.forceSpec = { ...PRO_ROOM.spec };
-    this.buildRoom(true);
+    const loading = this.buildRoom(true); if (loading) await loading;
     // 「七年后」 over the snowy village while she walks in from the front; then the first sentries
     const h = this.hero, p0 = h.pos.clone();
     void this.cine([
@@ -380,12 +403,12 @@ export class ActShow {
     if (boss) { await this.cine(fallShots(this.proHost, boss)); await this.talk(PRO_FALL); this.phase = 'cine'; await this.cine(snowShots(this.proHost, boss)); }
     // dawn in the same yard: the snow has stopped, the dead lie where they fell
     const sp = this.spec, at = { x: this.hero.pos.x, z: this.hero.pos.z };
-    await new Promise<void>(res => { void wipeTransit(() => {
+    await wipeTransit(async () => {
       for (const f of this.foes) f.a.dispose(); this.foes.length = 0;
       this.noArena = true; this.viewSpec = { locale: 'hj_temple', season: 'winter', time: 'dawn', weather: 'clear', layout: sp?.layout ?? 'axis', mirror: sp?.mirror ?? false, seed: sp?.seed ?? 5, exits: [] };
-      this.forceSpec = null; this.buildRoom(true); this.viewSpec = null; this.noArena = false;
-      this.hero.pos.set(at.x, 0, at.z); this.hero.a.yaw = 0.4; lieDown(this.hero.a, 1); res();
-    }); });
+      this.forceSpec = null; await this.buildRoom(true); this.viewSpec = null; this.noArena = false;
+      this.hero.pos.set(at.x, 0, at.z); this.hero.a.yaw = 0.4; lieDown(this.hero.a, 1);
+    });
     const dead: Array<[EKind, number, number]> = [['hj_mob', at.x - 3.2, at.z + 2.6], ['hj_blade', at.x - 1.4, at.z + 3.6], ['hj_mob', at.x + 2.4, at.z - 1.8]];
     const who: { duwu: BattleActor | null; donkey: BattleActor | null } = { duwu: null, donkey: null };
     await this.cine(dawnShots(this.proHost, at, dead, who));
@@ -397,8 +420,8 @@ export class ActShow {
     let bloomWas = GRADE.bloomThreshold;
     // (act-40 用户：「被救回去应该是先趟垫子上的啊，怎么是站着的」: she wakes lying on 孙媪's mat, and gets up at the line where she
     //  pushes herself up the wall; the kiln's own music for the scene — the hideout's comes after)
-    await new Promise<void>(res => { void wipeTransit(() => {
-      this.enterYard(); this.musicHold = 'bgm_kiln'; void audio.playMusic('bgm_kiln', 1.2);
+    await wipeTransit(async () => {
+      await this.enterYard(); this.musicHold = 'bgm_kiln'; void audio.playMusic('bgm_kiln', 1.2);
       // (act-44 用户：「躺着那个更扯，头都插进墙了，起来的时候直接以足底为圆心旋转」: on her back along the mat, her hips at its middle and
       //  her head toward the wall with a metre to spare; getting up pivots on the hips — getUpPose)
       const h = this.hero; h.pos.set(WAKE_MAT[0], 0, WAKE_MAT[1]); h.a.yaw = 0; let gk = 0; h.scriptPose = () => getUpPose(h.a, gk);
@@ -407,9 +430,9 @@ export class ActShow {
       this.camOverride = { base: V3(3.7, 2.5, -3.9), look: V3(6.55, 0.45, -6.1), fov: 40 }; shot('act', () => this.camPose(), { cut: true, speed: 8 });
       // (on her back the white hair at the back of her head faces the sun square on and went over the bloom threshold — a halo round
       //  her head; the threshold up for this scene)
-      bloomWas = GRADE.bloomThreshold; GRADE.bloomThreshold = Math.max(bloomWas, 1.6); res();
+      bloomWas = GRADE.bloomThreshold; GRADE.bloomThreshold = Math.max(bloomWas, 1.6);
       wakeK = (k: number) => { gk = k; };
-    }); });
+    });
     await new Promise(r => after(0.8, () => r(null)));
     seeOnce('wake1'); let up = false, talked = false;
     // her sabre comes back once the talk is over (孙婆婆：「把刀给她吧」) and she is on her feet — whichever is later
@@ -441,9 +464,10 @@ export class ActShow {
   /** back home: the TUNE values the run started with (the tune panel's own numbers again) */
   private unscaleFoes() { const b = this.baseFoe; if (!this.region) return; TUNE.enemyHp = b.hp; TUNE.enemyDmg = b.dmg; TUNE.atkCalm = b.calm; TUNE.maxAttackers = b.attackers; this.region = 0; }
   /** the hideout's people stand at their places (HIDEOUT anchors when the hideout scene is up; the yard's spots meanwhile) */
-  private placeNpcs(spots: Array<{ id: keyof typeof HIDEOUT_PEOPLE; x: number; z: number; yaw: number }>) {
+  private *placeNpcs(spots: Array<{ id: keyof typeof HIDEOUT_PEOPLE; x: number; z: number; yaw: number }>) {
     this.clearNpcs();
     for (const sp of spots) {
+      yield;
       const a = new BattleActor(HIDEOUT_PEOPLE[sp.id]); a.place(V3(sp.x, 0, sp.z), sp.yaw); a.yaw = sp.yaw; trimShadows(a.root, 4);
       const sh = contactShadow(); sh.scale.setScalar(sp.id === 'fengtiebi' ? 0.55 : 0.42); sh.position.set(sp.x, 0.025, sp.z); this.stage!.root.add(sh);
       this.npcs.push({ id: sp.id, x: sp.x, z: sp.z, yaw: sp.yaw, a, sh });
@@ -512,7 +536,7 @@ export class ActShow {
     }
   }
   /** 继续游戏: the hideout with the saved progress */
-  continueGame() { profile(); this.enterYard(); }
+  continueGame() { profile(); return this.enterYard(); }
   solids = new Solids(); props: Breakables | null = null; gates: Gates | null = null; leaves: Leaves | null = null; private gustT = 0; arena: ArenaPlan | null = null; private lastPush: Push | null = null; private slamAt = new WeakMap<Foe, number>();
   /** 11-18 屋子形态: this room's floor grid (null = the act-19 rectangle), the shapes of the run's last rooms, a forced shape (__dh.shape) */
   grid: FloorGrid | null = null; private shapes: ShapeId[] = []; private forceShape: ShapeId | null = null; private forceSeed: number | null = null;
@@ -534,7 +558,7 @@ export class ActShow {
   yard: Yard | null = null; wearing: ModelDef = savedHero(); private lineupActors: BattleActor[] = [];
   private aimLine!: THREE.Mesh;
   private ring!: THREE.Mesh; private ringK = -1; private sparkT = 0; private shadows: THREE.Mesh[] = []; private exitSign: THREE.Group | null = null; private blob: THREE.Mesh;
-  constructor(private platform: Platform) {
+  constructor(private platform: Platform, deferStart = false) {
     SELF = this; this.dialogue = new Dialogue(this.L); this.timeline = new Timeline(this.L);
     HP_FACE.id = this.wearing.id;   // the HP medallion shows the look she wears
     this.hud = new ActHud(this.L); this.cards = new CardPick(this.L); this.banner = new SkinBanner(this.L, SKIN.id, () => this.hud.bossOn);
@@ -717,7 +741,7 @@ export class ActShow {
       qi: (n?: number) => { if (n != null) this.hero.qi = Math.max(0, Math.min(Hero.QI_MAX, n)); return this.hero.qi; },
       untaught: () => { try { localStorage.removeItem('ub.taught'); } catch { /* */ } this.taught = null; },
       prologue: (n = 1) => { this.startPrologue(); if (n >= 2) { after(0.3, () => { this.prologue = 2; this.proFightT = 0; this.plan = { type: 'boss', locale: 'hj_temple', reward: null, waves: [['hj_boss']] }; this.locale = 'hj_temple'; this.room = 1; this.buildRoom(false); }); } },
-      sfx: () => ({ ready: audio.ready, all: audio.buf.size, loaded: [...audio.buf.keys()].filter(k => /^ub_(hit|vo|sw)_/.test(k)), muted: audio.muted, ctx: audio.ctx ? audio.ctx.state : 'none', recent: audio.recent.slice() }), unlockAudio: () => audio.unlock().then(() => audio.ready),
+      sfx: () => ({ ready: audio.ready, all: audio.buf.size, loaded: [...audio.buf.keys()].filter(k => /^ub_(hit|vo|sw)_/.test(k)), muted: audio.muted, ctx: audio.ctx ? audio.ctx.state : 'none', recent: audio.recent.slice() }), unlockAudio: () => audio.unlock().then(() => audio.loading).then(() => audio.ready),
       cam: (b: number[] | null, l?: number[], fov = 30) => { this.camOverride = b ? { base: V3(b[0], b[1], b[2]), look: V3(l![0], l![1], l![2]), fov } : null; },
       press: (n: 'attack' | 'dash' | 'special' | 'jump', ms = 80) => { this.inp.hold(n, ms / 1000); },
       unpress: (n: 'attack' | 'dash' | 'special' | 'jump') => { this.inp.unhold(n); },
@@ -790,7 +814,7 @@ export class ActShow {
     // browsers only let sound start after a touch or a key: the first input starts the music (a touch also comes through the platform:
     // unlockAudio)
     if (typeof window !== 'undefined') { const unlock = () => this.unlockAudio(); window.addEventListener('pointerdown', unlock); window.addEventListener('keydown', unlock); }
-    this.start();
+    if (!deferStart) this.startWithAudio();
     installR45(this);
   }
   /** act-19: the music for where we are — the opening, the yard, or the room's kind (a fight, a 死士 room, the 渠帅, a calm room);
@@ -810,19 +834,30 @@ export class ActShow {
   }
   music() {
     if (!this.audioOn) return;
-    const t = this.plan?.type ?? 'fight', ph = this.phase as string;
     // (act-37: a scored piece holds until its scene is over; the prologue's temple fight has its own; the hideout is the kiln's)
     if (this.musicHold) { void audio.playMusic(this.musicHold, 1.2); return; }
+    void audio.playMusic(this.musicName(), 1.8);
+  }
+  /** the track for where we are now (music() plays it; a mini-game decodes it at boot, before the first touch asks for it) */
+  private musicName() {
+    if (this.musicHold) return this.musicHold;
+    const t = this.plan?.type ?? 'fight', ph = this.phase as string;
     // (11-18: a region's own fight / boss track, from the songs there are — REGIONS[…].music)
     const rm = REGIONS[this.region]?.music;
-    const name = ph === 'opening' || ph === 'title' ? 'bgm_opening' : this.room < 0 || ph === 'yard' ? 'bgm_yard' : this.prologue === 2 ? 'bgm_boss' : t === 'boss' ? rm?.boss ?? 'bgm_boss' : t === 'elite' ? 'bgm_elite' : t === 'shop' || t === 'rest' || t === 'boon' ? 'bgm_calm' : rm?.fight ?? 'bgm_battle';
-    void audio.playMusic(name, 1.8);
+    return ph === 'opening' || ph === 'title' ? 'bgm_opening' : this.room < 0 || ph === 'yard' ? 'bgm_yard' : this.prologue === 2 ? 'bgm_boss' : t === 'boss' ? rm?.boss ?? 'bgm_boss' : t === 'elite' ? 'bgm_elite' : t === 'shop' || t === 'rest' || t === 'boon' ? 'bgm_calm' : rm?.fight ?? 'bgm_battle';
   }
   layout2() {
     const s = this.platform.canvasSize(), dpr = Math.min(this.platform.dpr(), 2);
     this.L.resize(s.w, s.h, dpr); this.ov.resize(s.w, s.h, dpr); this.hud.layout(s.w, s.h);
   }
   // ------------------------------------------------------------ rooms
+  startWithAudio() {
+    const ready = this.start();
+    // start() selects the title, yard or fight synchronously, so preload its
+    // music alongside the scenery even when preparing the scene takes frames.
+    if (!HAS_DOM) audio.prepare({ warm: [this.musicName()], prefetch: true });
+    return ready;
+  }
   start() {
     dh.add({ opening: () => this.opening(), title: (n = 1) => this.title(n) });
     dh.add({ rack: (n = 30) => { if (this.stage) this.stage.root.add(rackBlades(n)); return n; } });   // captures: the hideout's rack with n blades   // captures: the old opening / a title variant again
@@ -832,9 +867,9 @@ export class ActShow {
     // 11-18 ?anim, or the desktop page (window.__ANIM): every character's moves side by side (animPreview.ts)
     if (HAS_DOM && ((window as unknown as { __ANIM?: number }).__ANIM || /[?&#]anim\b/.test(location.href))) { this.animPreview(); return; }
     // ?model (vox/打开游戏看效果.bat): straight into the hideout, the camera close behind her — for checking a model edited in MagicaVoxel
-    if (typeof location !== 'undefined' && /[?&#]model\b/.test(location.href)) { Object.assign(TUNE, { camH: 7.5, camD: 10.5, camFov: 34 }); this.enterYard(); return; }
+    if (typeof location !== 'undefined' && /[?&#]model\b/.test(location.href)) { Object.assign(TUNE, { camH: 7.5, camD: 10.5, camFov: 34 }); return this.enterYard(); }
     const tn = wantTitle();
-    if (typeof location !== 'undefined' && /[?&#]run\b/.test(location.href)) this.startRun(); else if (tn) this.title(tn); else if (wantOpening()) this.opening(); else this.enterYard();
+    if (typeof location !== 'undefined' && /[?&#]run\b/.test(location.href)) return this.startRun(); else if (tn) return this.title(tn); else if (wantOpening()) return this.opening(); else return this.enterYard();
   }
   /** 开始画面 (title.ts, act-20): a wide shot of one of the place / weather variants with the menu (开始游戏 / 继续游戏 / 设置);
    *  the title builds its own place and poses its own heroine while frame() idles; the choice cuts into startNewGame / continueGame */
@@ -845,11 +880,12 @@ export class ActShow {
     this.yard?.dispose(); this.yard = null; this.props?.dispose(); this.props = null; this.gates?.dispose(); this.gates = null; this.pieces?.dispose(); this.pieces = null; this.leaves?.dispose(); this.leaves = null; this.stations?.dispose(); this.stations = null; this.hero?.a.dispose();
     this.clearNpcs();
     this.phase = 'title'; this.hud.on = false; this.hud.update(0, this.inp, []); this.banner.hide(); this.blob.visible = false; this.ring.visible = false; for (const m of this.shadows) m.visible = false;
-    void playTitle(n, { ov: this.ov, L: this.L, hasSave, settings: () => this.pause.open('set', { fromTitle: true }), enter: k => { this.hud.on = true; if (k === 'continue') this.continueGame(); else void this.startNewGame(); } });
+    const titleReady = playTitle(n, { ov: this.ov, L: this.L, hasSave, settings: () => this.pause.open('set', { fromTitle: true }), enter: k => { this.hud.on = true; if (k === 'continue') return this.continueGame(); void this.startNewGame(); } });
     this.music();
     // (before the title's first frame: the page is still dark and loading then — a frozen first picture with the snow hanging in the
     //  air would read as a hang)
-    this.prefetchNewGame();
+    if (!__WX__) this.prefetchNewGame();
+    return titleReady;
   }
   /** act-34 (用户：「开场那个一砍变成两半的效果本来很牛逼，结果卡住半天才揭开」): the first room of a new game took ~6 s to build in
    *  the frame the title split, so the split stood still that long. It is built now, while the title loads (the page is still
@@ -919,10 +955,10 @@ export class ActShow {
   }
   /** 开场「雨夜听雨」(opening.ts): the room builder lays the rain road (clearing whatever room was up), then the opening poses this
    *  hero by hand while frame() idles; the tap cuts into the yard. Only the first entry plays it (a run ends in enterYard). */
-  opening() {
-    this.viewSpec = { ...OPENING_SPEC }; this.room = 0; this.locale = OPENING_SPEC.locale; this.buildRoom(true); this.viewSpec = null;
+  async opening() {
+    this.viewSpec = { ...OPENING_SPEC }; this.room = 0; this.locale = OPENING_SPEC.locale; const loading = this.buildRoom(true); if (loading) await loading; this.viewSpec = null;
     this.phase = 'opening'; this.hud.on = false; this.hud.update(0, this.inp, []); this.banner.hide(); this.blob.visible = false; for (const m of this.shadows) m.visible = false;
-    void playOpening({ actor: this.hero.a, stage: this.stage!, ov: this.ov, enter: () => { this.hud.on = true; this.enterYard(); }, soundOn: () => this.audioOn });
+    void playOpening({ actor: this.hero.a, stage: this.stage!, ov: this.ov, enter: () => { this.hud.on = true; return this.enterYard(); }, soundOn: () => this.audioOn });
   }
   /** the training yard: dummies, summon slabs, the costume rack, the way out to a run */
   enterYard() {
@@ -934,7 +970,7 @@ export class ActShow {
     if (this.justDied) { this.justDied = false; const who = (['duwu', 'sunao', 'fengtiebi'] as const)[Math.floor(Math.random() * 3)]; after(1.0, () => { if (this.phase === 'yard') void this.talk(deathLine(who)); }); }
     this.intent = 0; this.hud.intent = 0;
     this.perks = newPerks(); this.room = -1; this.kills = 0; this.locale = 'ninja_wilds'; this.recent = []; this.plan = null; this.demo.stop(); this.syncMarks();
-    TUNE.heroHp = 100; this.buildRoom(true);
+    TUNE.heroHp = 100; return this.buildRoom(true);
   }
   /** 11-18 一局五关 (用户：「你帮我在调试面板加一个快速切关，我好测试关卡」): a new run that starts in region n's room `room` (0 = its
    *  first room; REGIONS[n].rooms = its boss room) of the given kind — from the title, the hideout or mid-run (the tune panel's 快速切关,
@@ -964,8 +1000,10 @@ export class ActShow {
       if (meal === 'feast') this.mods.hpBonus += 15; if (meal === 'purse') this.coins = 40; }
     TUNE.heroHp = 100 + this.mods.hpBonus; TUNE.dartCharges = 3 + this.mods.dartBonus; TUNE.aggression = 0.85 / this.mods.windupMul;
     this.baseFoe.aggression = TUNE.aggression; this.scaleFoes(0);
-    if (build) this.buildRoom(true);   // (11-18: a jump to another region's room builds that one instead)
-    if (this.mods.startManual) after(1.4, () => { if (this.room === 0) void this.manualPick(); });
+    const loading = build ? this.buildRoom(true) : undefined;   // (11-18: a jump to another region's room builds that one instead)
+    const pick = () => { if (this.mods.startManual) after(1.4, () => { if (this.room === 0) void this.manualPick(); }); };
+    if (loading) return loading.then(pick);
+    pick();
   }
   /** put on another costume (the rack, or __dh.wear) and remember it */
   private wear(d: ModelDef) {
@@ -973,7 +1011,8 @@ export class ActShow {
     if (this.hud.flask instanceof IronHp) this.hud.flask.setFace(d.id); else HP_FACE.id = d.id;
     if (this.hero) this.hero.setModel(d);
   }
-  private buildRoom(first: boolean) {
+  private buildRoom(first: boolean) { return runRoomBuild(this.roomSteps(first)); }
+  private *roomSteps(first: boolean): Generator<void | Promise<void>, void> {
     blood.clear();
     for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = [];
     this.falling = [];
@@ -995,7 +1034,7 @@ export class ActShow {
     const ready = this.pre && !isYard && !this.viewSpec && this.prologue === 1 && this.room === 0 && this.pre.locale === this.locale ? this.pre : null;
     if (this.pre && this.pre !== ready) this.pre.prep.drop();
     this.pre = null;
-    const t0 = performance.now(), P = ready ?? prepRoom(want); this.buildMs = Math.round(performance.now() - t0);
+    const t0 = performance.now(), P = ready ?? (yield* prepRoomSteps(want)); this.buildMs = Math.round(performance.now() - t0);
     const spec = P.spec; this.recent.push(spec); this.spec = spec; this.pools = LOCALES[spec.locale]?.pools?.(spec.seed) ?? [];
     if (P.arena?.shape?.fixed) {
       this.locale = spec.locale;
@@ -1011,12 +1050,13 @@ export class ActShow {
     if (isYard) { this.shapes = []; this.maps = []; }
     const big = P.big;
     this.stage = P.prep.attach();
+    yield;
     if (isYard) Object.assign(PLAY, HIDEOUT.floor);   // act-20: the hideout 断碑古窑 (hideout.ts) is the yard now — its own stage and floor
     this.solids.clear(); this.props?.dispose(); this.props = null; this.botWp = 0;
     if (isYard) for (const so of HIDEOUT.solids) this.solids.add({ kind: 'prop', ...so });
     if (this.arena && this.stage) {
       // act-20: the cover pieces are breakable (Breakables builds them and their solids)
-      this.props = new Breakables(this.stage.root, this.solids); this.props.build(this.arena.props, this.arena.covers);
+      this.props = new Breakables(this.stage.root, this.solids); yield* this.props.buildSteps(this.arena.props, this.arena.covers);
       // act-37: the snowy night's braziers (the prologue's village and temple): four warm points round the floor, where it is free
       // 11-18 (用户：「场景要有差异」): 崔府各间的灯由场景摆，雪夜的通用火盆会盖住冰色和石灯。
       if (spec.weather === 'snow' && spec.time === 'night' && !spec.locale.startsWith('cx_')) for (const [x, z] of [[PLAY.x0 + 1.6, PLAY.z0 + 1.8], [PLAY.x1 - 1.6, PLAY.z0 + 1.8], [PLAY.x0 + 1.6, PLAY.z1 - 3.2], [PLAY.x1 - 1.6, PLAY.z1 - 3.2]]) {
@@ -1025,9 +1065,11 @@ export class ActShow {
         if (!ok(px, pz)) continue;
         this.stage.root.add(brazier(px, pz)); this.solids.add({ kind: 'prop', shape: 'circle', x: px, z: pz, r: 0.42 });
       }
+      yield;
       this.gates = new Gates(this.stage.root, this.arena);
       // 11-18 定死的屋子: the moving pieces, and the floor's pieces fought in turn (S's first, then on through its doors)
       this.pieces = null; this.stageZ = []; this.stageOf = []; this.waitZone = -1; this.rewardsGot = 0;
+      yield;
       const fsh = this.arena.shape;
       if (fsh?.fixed && this.grid) {
         const P = this.pieces = new RoomPieces(this.stage.root, fsh, this.grid, this.arena.style, spec.seed); this.props.onStrike = s => this.pieces?.strike(s);
@@ -1057,13 +1099,14 @@ export class ActShow {
     this.leaves = new Leaves(spec.weather === 'rain' || spec.weather === 'snow' || LOCALES[spec.locale]?.noLeaves ? 'winter' : spec.season, { rest: big ? 100 : 40, fall: big ? 1.4 : 0.8, where: lg ? (x, z) => lg.at(x, z) === FLOOR || !(x > PLAY.x0 && x < PLAY.x1 && z > PLAY.z0 && z < PLAY.z1) && lg.at(x, z) !== PIT : undefined });
     // (11-18 屋子形态: a shaped room has its own way in — the 曲尺's front corner is walled off, the 窄巷's lane is off the middle)
     const ent = this.arena?.shape?.enter[0] ?? 0, entZ = this.arena?.shape?.fixed ? this.arena.shape.enter[1] : SZ(5.0);   // (a drawn room: its S)
+    yield;
     this.hero = new Hero(isYard ? V3(HIDEOUT.spawn[0], 0, HIDEOUT.spawn[1]) : V3(ent, 0, entZ), this.wearing); this.hero.moves = isYard || this.prologue || this.dbgAllMoves ? ALL_MOVES : this.perks.moves; this.hero.perks = this.perks; this.hero.hp = Math.min(hp, maxHp); this.hero.maxHp = maxHp;   // (act-40 用户：「开局第一场战斗默认给主角解锁所有技能」) (11-18: this comment used to sit before the perks / hp assignments and swallowed them — the hero's own boons never applied and her HP reset each room)
     this.hero.qi = isYard ? Hero.QI_MAX : Math.min(Hero.QI_MAX, Math.max(qi, TUNE.qiStart));   // (11-17 气: carried on; a room starts with at least TUNE.qiStart)
     this.hero.a.yaw = isYard ? -0.6 : Math.PI;
     this.hud.flask.set({ hp: this.hero.hp, maxHp });
     this.cam.set(this.hero.pos.x, 0, this.hero.pos.z); shot('act', () => this.camPose(), { cut: true, speed: 8 });
     after(0.05, () => this.music());
-    if (isYard) { this.openYard(); return; }
+    if (isYard) { yield* this.openYard(); return; }
     if (this.viewSpec) { this.phase = 'yard'; this.log.push(`view ${spec.locale} ${spec.layout} ${spec.time}`); return; }
     this.phase = 'intro'; this.wave = 0;
     if (this.mods.startIntent > 0 && this.intent < this.mods.startIntent) { this.intent = this.mods.startIntent; this.hud.intent = this.intent; }
@@ -1095,15 +1138,15 @@ export class ActShow {
     });
     this.log.push(`room ${this.room} ${spec.locale} ${spec.layout} ${spec.time} ${this.arena?.shape?.id ?? 'square'}`);
   }
-  private openYard() {
+  private *openYard() {
     this.phase = 'yard'; this.wave = 0;
     // act-20: the hideout's 试剑坪 — four slabs call sparring partners, three dummies; no costume rack (her look is in 设置)
     const pk: Array<[EKind, string]> = [['hj_blade', '刀手'], ['hj_brute', '力士'], ['hj_archer', '弓手'], ['hj_boss', '渠帅']];
     const ring = HIDEOUT.dummies.reduce((a, d) => [a[0] + d[0] / HIDEOUT.dummies.length, a[1] + d[1] / HIDEOUT.dummies.length], [0, 0]);
     this.yard = new Yard(this.stage!.root, [], this.wearing, [0, 0], { pads: HIDEOUT.slabs.map(([x, z], i) => ({ x, z, kind: pk[i % pk.length][0], name: pk[i % pk.length][1] })), spawn: () => V3(ring[0] + (Math.random() - 0.5) * 2, 0, ring[1] - 1.2) });
-    for (const [x, z] of HIDEOUT.dummies) { const p = V3(x, 0, z), f = spawnFoe('dummy', p, V3(x, 0, z + 4)); f.st = 'move'; this.foes.push(f); }
+    for (const [x, z] of HIDEOUT.dummies) { yield; const p = V3(x, 0, z), f = spawnFoe('dummy', p, V3(x, 0, z + 4)); f.st = 'move'; this.foes.push(f); }
     // the people of chapter 1 at their places (卢昭 and 桓越 come later in the story)
-    this.placeNpcs((['duwu', 'sunao', 'fengtiebi'] as const).map(id => ({ id, ...HIDEOUT.people[id] })));
+    yield* this.placeNpcs((['duwu', 'sunao', 'fengtiebi'] as const).map(id => ({ id, ...HIDEOUT.people[id] })));
     // the stele of names: a cut down each name she has killed; the first time home after 褚雷, she makes the cut
     { const p = profile(), fresh = !!p.seen['ch1_boss_after'] && !p.seen['strike_chulei'];
       this.stele = new Stele(p.seen['strike_chulei'] ? 1 : 0); this.stele.g.position.set(HIDEOUT.stele.x, 0, HIDEOUT.stele.z); this.stele.g.rotation.y = HIDEOUT.stele.yaw; this.stage!.root.add(this.stele.g);
@@ -2325,7 +2368,7 @@ export class ActShow {
     after(0.35, () => { void wipeTransit(() => {
       if (nextRegion) { this.region = next.region!; this.room = 0; this.visited = []; this.regionIn = true; this.scaleFoes(this.region); this.log.push(`region ${this.region} ${REGIONS[this.region]?.id}`); }
       else this.room++;
-      this.buildRoom(false);
+      return this.buildRoom(false);
     }); });
   }
   private dead() {
@@ -2368,6 +2411,7 @@ export class ActShow {
     if (this.storyIdle > 0.5) { this.storySkip = false; FX.speed = this.storyWas; }
   }
   private frame(dt: number, rdt: number) {
+    if (bladeBusy()) return;
     this.storySkipFrame();
     if (PAUSE.on) { this.L.text.hide('act.npc'); return; }   // the pause menu runs on its own (real time); the world gets nothing (11-18: a hideout name over the menu's pages hidden)
     this.inp.frame(rdt);
@@ -2611,6 +2655,7 @@ export class ActShow {
   }
   // ------------------------------------------------------------ input
   private pointer(type: string, id: number, x: number, y: number) {
+    if (bladeBusy()) return;
     if (this.pause.on) { this.pause.pointer(type, x, y); return; }
     if (this.phase === 'title') { titlePointer(type, x, y); return; }
     if (this.timeline.on) { this.timeline.pointer(type); return; }
@@ -2627,6 +2672,7 @@ export class ActShow {
     this.banner.show(SKIN_NAME[next], '界面风格 · U 键或调参面板切换', 1.4);
   }
   private key(e: KeyboardEvent) {
+    if (bladeBusy()) return;
     if (this.demo.on && !e.repeat && !this.pause.on) { this.demo.skip(); return; }   // 11-18: any key skips a 刀谱's demonstration
     if (this.timeline.on && e.key === 'Escape') { this.timeline.key(true); return; }
     if (e.key === 'Escape' && !e.repeat && this.canPause()) { e.preventDefault(); this.pauseGame(); e.stopImmediatePropagation(); return; }   // (the menu must not take the same Esc as its 返回)
