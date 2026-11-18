@@ -33,7 +33,7 @@ export class Barks {
     mesh.renderOrder = 40; this.L.scene.add(mesh);
     this.list.push({ mesh, tex, w: c.width / dpr, h: c.height / dpr, head, t: 0, life: 2.3 });
   }
-  update(dt: number, hidden: boolean) {
+  update(dt: number, hidden: boolean, bannerBottom = 0) {
     for (let i = this.list.length - 1; i >= 0; i--) {
       const b = this.list[i]; b.t += dt;
       if (b.t >= b.life) { this.drop(b); this.list.splice(i, 1); continue; }
@@ -42,8 +42,9 @@ export class Barks {
       const x = p.x + b.w * 0.2;
       const center = language === 'en' ? Math.min(L.w - b.w / 2, Math.max(b.w / 2, x)) : x;
       const y = p.y - b.h / 2;
-      // Bosses at the far end of a room can project above the screen on a short display.
-      const centerY = language === 'en' ? Math.min(L.h - b.h / 2, Math.max(L.h * 0.06 + b.h / 2, y)) : y;
+      // A boss at the far wall can project above the viewport. Keep the line below the room plaque.
+      const minY = Math.max(L.h * 0.06, bannerBottom + 4) + b.h / 2;
+      const centerY = language === 'en' ? Math.min(L.h - b.h / 2, Math.max(minY, y)) : y;
       L.at(Math.round(center), Math.round(centerY), 0, b.mesh.position); b.mesh.scale.set(L.px(b.w) * k, L.px(b.h) * k, 1);
       b.mesh.visible = !hidden && k > 0.02;
     }

@@ -266,6 +266,7 @@ export class SkinHp {
 // ---------------------------------------------------------------- the banner
 export class SkinBanner {
   private m: THREE.Mesh | null = null; private t = 99; private hold = 0; private W = 1; private H = 1;
+  bottomY = 0;
   private title = ''; private sub = ''; private color?: string; private unlisten: () => void;
   constructor(private L: UiLayer, private skin: SkinId, private bossOn: () => boolean = () => false) {
     this.unlisten = onBodyFontChange(() => { if (this.m) this.repaint(); });
@@ -283,13 +284,14 @@ export class SkinBanner {
     this.t = 0; this.hold = hold * 0.7;
   }
   hide() { this.hold = 0; this.t = 99; this.clear(); }
-  private clear() { if (this.m) { disposeTree(this.m); this.m = null; } }
+  private clear() { this.bottomY = 0; if (this.m) { disposeTree(this.m); this.m = null; } }
   update(dt: number) {
     if (!this.m) return;
     this.t += dt; const L = this.L, inT = Math.min(1, this.t / 0.22), out = Math.max(0, (this.t - 0.22 - this.hold) / 0.25);
     if (out >= 1) { this.clear(); return; }
     const scale = Math.min(L.w * (language === 'en' ? 0.57 : 0.3) / this.W, L.h * (language === 'en' ? 0.17 : 0.09) / this.H), wpx = this.W * scale, hpx = this.H * scale;
     const top = L.h * (this.bossOn() ? 0.13 : 0.05);
+    this.bottomY = top + hpx;
     L.at(L.w / 2, top + hpx / 2 - (1 - inT) * 30 - out * 30, 0, this.m.position);
     this.m.scale.set(L.px(wpx), L.px(hpx), L.px(hpx * 0.6)); this.m.visible = true;
     (this.m.material as THREE.Material[])[4].opacity = 1;

@@ -2388,7 +2388,7 @@ export class ActShow {
     }
     this.darts = this.darts.filter(d => !d.dead);
     this.hitArcs.update(rdt, h.pos);
-    (this.barks ??= new Barks(this.L)).update(rdt, (this.phase as string) === 'talk' || (this.phase as string) === 'cine' || this.dialogue.on);
+    (this.barks ??= new Barks(this.L)).update(rdt, (this.phase as string) === 'talk' || (this.phase as string) === 'cine' || this.dialogue.on, this.banner.bottomY);
     if (this.props && this.phase !== 'pick') this.applyProps(this.props.update(dt, this.targets()), true);   // act-19: fuses, fires, the falling pillars
     this.gates?.update(dt);
     // a rainy room: now and then lightning lights everything for a beat, the thunder a moment later
