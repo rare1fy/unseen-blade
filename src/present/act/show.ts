@@ -536,7 +536,7 @@ export class ActShow {
     SELF = this; this.dialogue = new Dialogue(this.L); this.timeline = new Timeline(this.L);
     HP_FACE.id = this.wearing.id;   // the HP medallion shows the look she wears
     this.hud = new ActHud(this.L); this.cards = new CardPick(this.L); this.banner = new SkinBanner(this.L, SKIN.id, () => this.hud.bossOn);
-    platform.onPointer(ev => this.pointer(ev.type, (ev as { id?: number }).id ?? 0, ev.x, ev.y));
+    platform.onPointer(ev => { if (ev.type === 'down') this.unlockAudio(); this.pointer(ev.type, (ev as { id?: number }).id ?? 0, ev.x, ev.y); });
     platform.onResize(() => this.layout2());
     if (typeof window !== 'undefined') window.addEventListener('keydown', e => this.key(e));
     onUpdate((dt, rdt) => this.frame(dt, rdt));
@@ -546,7 +546,7 @@ export class ActShow {
       { label: () => `界面风格：${SKIN_NAME[SKIN.id]}（点这里换）`, short: () => `界面：${SKIN_NAME[SKIN.id]}`, run: () => this.cycleSkin() },
       { label: () => `正文字体：${BODY_FONT_NAME[BODY_FONT.current]}`, short: () => `正文字体：${BODY_FONT_NAME[BODY_FONT.current]}`, run: () => { const order: BodyFont[] = ['wenkai', 'serif', 'sans', 'pixel']; setBodyFont(order[(order.indexOf(BODY_FONT.current) + 1) % order.length]); } },
       // act-15 用户：「我浏览器玩没有震动诶」 — a switch, a test, and what this device supports
-      { label: () => `震动：${VIBE.on ? '开' : '关'}（${({ api: '这台设备支持', ios: `iPhone iOS ${iosMajor()}：系统触感，点屏幕时最灵`, 'ios-old': `iPhone iOS ${iosMajor() || '17 及以下'}：网页没法震，要 iOS 18`, none: '这个浏览器不支持' } as const)[vibeSupport()]}）`, short: () => `震动：${VIBE.on ? '开' : '关'}`, run: () => { VIBE.on = !VIBE.on; try { localStorage.setItem('ub.vibe', VIBE.on ? '1' : '0'); } catch { /* private mode */ } } },
+      { label: () => `震动：${VIBE.on ? '开' : '关'}（${({ api: '这台设备支持', ios: `iPhone iOS ${iosMajor()}：系统触感，点屏幕时最灵`, 'ios-old': `iPhone iOS ${iosMajor() || '17 及以下'}：网页没法震，要 iOS 18`, none: '这个浏览器不支持', mini: '微信：手机震动' } as const)[vibeSupport()]}）`, short: () => `震动：${VIBE.on ? '开' : '关'}`, run: () => { VIBE.on = !VIBE.on; try { localStorage.setItem('ub.vibe', VIBE.on ? '1' : '0'); } catch { /* private mode */ } } },
       { label: () => '试一下震动', short: () => '试一下震动', run: () => { const was = VIBE.on; VIBE.on = true; this.platform.vibrate('heavy'); VIBE.on = was; } },
       // act-14 用户：「我要2x，然后调试面板给我一个切换这个的功能」 — 2x → 3x → off → 1x, remembered on this device
       // act-21: which title screen (five moods; the user picks on a phone too, where there are no number keys)
@@ -779,9 +779,9 @@ export class ActShow {
     this.ring.renderOrder = 3; this.ring.visible = false; scene.add(this.ring);
     this.qteW = new THREE.Mesh(new THREE.RingGeometry(0.92, 1.0, 40).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffb040, transparent: true, opacity: 0.85, depthWrite: false, side: THREE.DoubleSide }));
     this.qteW.renderOrder = 3; this.qteW.visible = false; scene.add(this.qteW);
-    // browsers only let sound start after a touch or a key: the first input starts the music
-    const unlock = () => { if (this.audioOn) return; this.audioOn = true; audio.unlock().then(() => this.music()).catch(() => { this.audioOn = false; }); };
-    if (typeof window !== 'undefined') { window.addEventListener('pointerdown', unlock); window.addEventListener('keydown', unlock); }
+    // browsers only let sound start after a touch or a key: the first input starts the music (a touch also comes through the platform:
+    // unlockAudio)
+    if (typeof window !== 'undefined') { const unlock = () => this.unlockAudio(); window.addEventListener('pointerdown', unlock); window.addEventListener('keydown', unlock); }
     this.start();
     installR45(this);
   }
@@ -792,6 +792,14 @@ export class ActShow {
   private labActs: BattleActor[] = []; private labFn: ((dt: number, t: number) => void) | null = null; private labT = 0;
   /** act-40: the foes' shouts over their heads */
   private barks: Barks | null = null;
+  /** the first touch / key starts the sound. 11-18 微信小游戏 (act-65 on a phone: a picture, no sound): this hung only on `window`'s
+   *  pointerdown / keydown, and a mini-game has no `window` — the platform's own touches start it now (WeChat's wx.onTouchStart);
+   *  later touches resume a context the system paused (a call, the app sent to the background) */
+  private unlockAudio() {
+    if (this.audioOn) { const c = audio.ctx; if (c && c.state === 'suspended') void Promise.resolve(c.resume()).catch(() => { /* still paused */ }); return; }
+    this.audioOn = true;
+    audio.unlock().then(() => this.music()).catch(e => { this.audioOn = false; console.error('[audio] the sound would not start:', e); });
+  }
   music() {
     if (!this.audioOn) return;
     const t = this.plan?.type ?? 'fight', ph = this.phase as string;

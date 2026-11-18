@@ -48,6 +48,23 @@
     // the native error dialog (wechat/glue.js shows the first error in one): recorded for the test
     showModal: o => { (window.__simModals = window.__simModals || []).push(String(o && o.content || '')); }, onError() {}, onUnhandledRejection() {},
   };
+  // 11-18 (act-65 on a phone: a picture, no sound): sound as WeChat has it, per its documentation — no global AudioContext; a
+  // WebAudioContext whose AudioParam has only `value` (no setValueAtTime / …RampToValueAtTime / setTargetAtTime /
+  // cancelScheduledValues), no createConvolver, decodeAudioData with callbacks, resume / suspend that give nothing back. Made on the
+  // page's own AudioContext; window.__simAudio counts contexts, decodes and sounds started, and keeps the gain nodes (for fades).
+  { const AC = window.AudioContext || window.webkitAudioContext; delete window.AudioContext; delete window.webkitAudioContext;
+    for (const m of ['setValueAtTime', 'linearRampToValueAtTime', 'exponentialRampToValueAtTime', 'setTargetAtTime', 'cancelScheduledValues', 'setValueCurveAtTime', 'cancelAndHoldAtTime']) delete AudioParam.prototype[m];
+    const S = window.__simAudio = { contexts: 0, decoded: 0, decodeFailed: 0, started: 0, gains: [] };
+    window.wx.createWebAudioContext = () => {
+      const c = new AC(); S.contexts++;
+      const o = { get state() { return c.state; }, get currentTime() { return c.currentTime; }, get sampleRate() { return c.sampleRate; }, get destination() { return c.destination; },
+        resume() { c.resume(); }, suspend() { c.suspend(); }, close() { c.close(); },
+        decodeAudioData(ab, ok, fail) { c.decodeAudioData(ab).then(b => { S.decoded++; ok(b); }, e => { S.decodeFailed++; if (fail) fail(e); }); },
+        createBufferSource() { const s = c.createBufferSource(), st = s.start.bind(s); s.start = (...a) => { S.started++; return st(...a); }; return s; },
+        createGain() { const g = c.createGain(); if (S.gains.length < 600) S.gains.push(g); return g; } };
+      for (const m of ['createBuffer', 'createBiquadFilter', 'createDynamicsCompressor', 'createOscillator', 'createDelay', 'createAnalyser', 'createPanner', 'createWaveShaper', 'createConstantSource']) o[m] = c[m].bind(c);
+      return o;
+    }; }
   window.GameGlobal = window;
   window.__simTouch = (type, x, y) => { const ev = { touches: type === 'end' ? [] : [{ identifier: 1, clientX: x, clientY: y }], changedTouches: [{ identifier: 1, clientX: x, clientY: y }], timeStamp: Date.now() }; for (const f of touch[type] || []) f(ev); };
   window.__simErrors = []; addEventListener('error', e => window.__simErrors.push(String(e.message))); addEventListener('unhandledrejection', e => window.__simErrors.push('rejection ' + String(e.reason && e.reason.stack || e.reason)));

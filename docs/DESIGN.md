@@ -1381,3 +1381,15 @@
 - 手机上没有 `atob`，glue 的后备用的 `wx.base64ToArrayBuffer` 也不存在：内联成 base64 的 .vox（用户在 MagicaVoxel 里改的主角）全读不进来。换成纯 JS 的 base64 解码（和 Node 的结果逐字节对过，含 20 万字节的随机数据）。
 - 诊断：测试阶段的微信包里，第一条错误（抛出的、未处理的 Promise、three 关于着色器 / 渲染器的 console.error）用 `wx.showModal` 弹出来——原生对话框不依赖 WebGL，画面坏了也看得见。
 - 替身页（`wechat/devtools-sim.html`）默认改成微信那样：WebGL2 给、全局类拿走、`atob` 拿走；`?gl1=1` 是只有 WebGL1 的机器。旧包在里面复现了用户开发者工具里那两条扩展警告，新包认对 WebGL2、四个 .vox 都读到、0 报错。
+
+### 真机有画面、没声音（11-18，act-67）
+
+用户：「能看到画面了，但是没有声音。」（iPhone，基础库 3.18）追加：「顺便把震动也做了吧」→ 随后：「我刚才手机上打是有震动的，这个可以先不管了。」
+
+- 根子：开声音的那一下（浏览器要求先有一次触摸或按键）只挂在 `window` 的 `pointerdown` / `keydown` 上；小游戏里没有 `window`，`audio.unlock()` 从来没被调用，声音系统根本没建起来。替身页复现：旧包（act-65）点屏幕后 `__dh.sfx().ctx` 仍是 `none`。
+- 改：`show.ts` 的 `unlockAudio()` 由平台层的触摸触发（微信里是 `wx.onTouchStart`，网页照旧也挂 `window`）；之后的触摸会把被系统暂停的音频（来电、切后台）恢复。声音起不来、或者一条音效都没读进来时，`console.error('[audio] …')`——测试包里会弹微信原生对话框，不再无声无息。
+- 微信的 WebAudio 和浏览器不一样（查了官方文档）：`AudioParam` 只有 `value`，没有 `setValueAtTime` / `linearRampToValueAtTime` / `setTargetAtTime` / `cancelScheduledValues` 这些（游戏的淡入淡出、砍中时压低、配音时压低、藏锋嗡鸣全靠它们）；没有 `createConvolver`；`decodeAudioData` 是回调；`resume` / `suspend` 写的是同步。`wechat/glue.js` 的 `__ubWxAudio`：参数缺这些方法时用 JS 补上（每个参数记自己的事件，约每秒 60 次按事件算出值写进 `value`，真有这些方法的手机就用真的）；没有卷积就把混响的送出接到一个静音的增益上（`noReverb`，游戏不再为它生成房间回响）；`resume` / `suspend` 不管回什么都变成 Promise。
+- iPhone 的 `error.stack` 里没有错误信息本身，诊断对话框改成先写信息再写调用栈。
+- 替身页加了微信那样的 `wx.createWebAudioContext`（拿走全局 `AudioContext`、`AudioParam` 的自动化方法、卷积；`window.__simAudio` 记创建了几个、解码了几条、放了几声）。新包：点一下屏幕后 157 条音效全解码、开场音乐响；补上的淡变实测 0→1 一秒的线性渐变在 0.3 / 0.6 / 1.1 秒读到 0.31 / 0.61 / 1.00，接着往 0.2 的指数衰减和浏览器算的一样；机器人打 15 秒放了 112 声（刀、敌人喊声、铜钱）；配音从分包读出来、解码、在播；0 报错、没有弹框。
+- 震动：用户说手机上有，不动；只把「设置」里那行在微信里写的「这个浏览器不支持」改成「微信：手机震动」。
+- 已知：iPhone 静音键打开时，微信的 WebAudio 会不会跟着静音没查到定论（`wx.setInnerAudioOption` 的「不跟静音键」写明了不管 WebAudio）；真机还没声音的话先看静音键。
