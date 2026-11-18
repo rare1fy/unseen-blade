@@ -1,5 +1,6 @@
 // Cel-shaded materials: MeshToon with a 4-step ramp, a cool moonlight rim, optional emissive. Ink lines come from the post pass.
 import * as THREE from 'three';
+import { CAPS } from '../engine/perfOpts';
 
 let ramp: THREE.DataTexture | null = null;
 export function toonRamp() {
@@ -22,7 +23,8 @@ export function toon(color: THREE.ColorRepresentation, o: ToonOpts = {}): THREE.
   const key = !o.map && !o.transparent ? `${new THREE.Color(color).getHexString()}|${o.emissive ?? ''}|${o.emissiveIntensity ?? ''}|${o.vertexColors ? 1 : 0}|${o.rim ?? ''}|${o.side ?? ''}|${o.flat ? 1 : 0}|${o.self ?? 0}` : '';
   if (key && cache.has(key)) return cache.get(key)!;
   const m = new THREE.MeshToonMaterial({ color, gradientMap: toonRamp(), emissive: o.emissive ?? 0x000000, emissiveIntensity: o.emissiveIntensity ?? 1, map: o.map ?? null, vertexColors: !!o.vertexColors, transparent: !!o.transparent, opacity: o.opacity ?? 1, side: o.side ?? THREE.FrontSide });
-  if (o.flat) (m as unknown as { flatShading: boolean }).flatShading = true;
+  // (11-18 微信小游戏: flat shading needs dFdx / dFdy — where there are none (the devtools' WebGL1) the mesh normals are used; read at compile time)
+  if (o.flat) { let want = true; Object.defineProperty(m, 'flatShading', { get: () => want && CAPS.derivatives, set: v => { want = !!v; }, configurable: true }); }
   const rimK = o.rim ?? 1, selfK = o.self ?? 0;
   m.onBeforeCompile = sh => {
     sh.uniforms.uRimColor = rimUniforms.uRimColor; sh.uniforms.uRimStrength = rimUniforms.uRimStrength; sh.uniforms.uRimPow = rimUniforms.uRimPow; sh.uniforms.uRimK = { value: rimK }; sh.uniforms.uSelf = { value: selfK };

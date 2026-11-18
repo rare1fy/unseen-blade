@@ -1,7 +1,8 @@
 // 11-18 微信小游戏打包（vite build --mode wechat）: the web build inlines every sound, voice line, portrait and body font as a data: URL
 // (one 18 MB html); the mini-game keeps them as files. Here each `?inline` import of those becomes the file's path inside the
 // mini-game package, and the list of files goes to <outDir>/wx-assets.json for tools/build-wechat.mjs to copy:
-//   fonts/body/*.woff2           → assets/body/<name>        (main package)
+//   fonts/body/*.woff2           → assets/body/<name>.ttf    (main package; wx.loadFont refuses woff2 — 「loadFont:fail NOT_WHITELIST_FILE」 —
+//                                  so tools/build-wechat.mjs writes them as TrueType)
 //   src/assets/portraits/*.png   → assets/portraits/<name>   (main package)
 //   src/assets/audio/*.mp3       → audioN/audio/<name>       (subpackages audio1…, about 3.8 MB each, loaded on first use)
 //   src/assets/voice/<who>/*.mp3 → audioN/voice/<who>/<name>
@@ -34,7 +35,7 @@ export function wxAssets(root: string): Plugin {
       const [file, q = ''] = id.split('?'); if (!/(^|&)inline(&|$)/.test(q)) return null;
       const f = norm(file); let out: string | null = null;
       if (where.has(f)) out = where.get(f)!;
-      else if (/\/fonts\/body\/[^/]+\.woff2$/.test(f)) out = `assets/body/${path.basename(f)}`;
+      else if (/\/fonts\/body\/[^/]+\.woff2$/.test(f)) out = `assets/body/${path.basename(f).replace(/\.woff2$/, '.ttf')}`;
       else if (/\/src\/assets\/portraits\/[^/]+\.png$/.test(f)) out = `assets/portraits/${path.basename(f)}`;
       if (!out) return null;
       used.set(out, f);

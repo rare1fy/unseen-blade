@@ -15,7 +15,7 @@
   const q = new URLSearchParams(location.search), base = q.get('base') || '/proj/', W = innerWidth, H = innerHeight, dpr = devicePixelRatio || 1;
   // the devtools' canvas (act-58, the user's screenshot): no WebGL2, and its WebGL1 has no ANGLE_instanced_arrays and no float
   // textures — three warned that instanced meshes and SkinnedMesh can't draw, every frame
-  { const gc = HTMLCanvasElement.prototype.getContext, NO = ['ANGLE_instanced_arrays', 'OES_texture_float', 'OES_texture_float_linear'];
+  { const gc = HTMLCanvasElement.prototype.getContext, NO = ['ANGLE_instanced_arrays', 'OES_texture_float', 'OES_texture_float_linear', ...(q.get('strip') || '').split(',').filter(Boolean)];   // ?strip=A,B: more missing extensions
     HTMLCanvasElement.prototype.getContext = function (type, attrs) {
       if (type === 'webgl2') return null;
       const c = gc.call(this, type, attrs);

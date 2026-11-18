@@ -8,6 +8,7 @@ import { toon } from './toon';
 import { PXU } from './pixel';
 import type { Bone } from '../actors/rig';
 import { shadowTiles, TILE_M } from '../engine/shadowTiles';
+import { CAPS } from '../engine/perfOpts';
 
 export type Col = number;
 interface Cell { c: Col; g: number; part: string }
@@ -56,14 +57,17 @@ export function voxToon(o: { rim?: number; self?: number; edge?: number } = {}) 
     src.onBeforeCompile(sh, r);
     sh.uniforms.uPx = PXU.uPx; sh.uniforms.uPxEdge = PXU.uPxEdge;
     sh.vertexShader = 'attribute vec2 aVox; attribute vec2 aSize; attribute vec4 aOpen; varying vec2 vVox; varying vec2 vSize; varying vec4 vOpen; varying vec3 vWN;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n vVox = aVox; vSize = aSize; vOpen = aOpen; vWN = normalize(mat3(modelMatrix) * objectNormal);');
-    sh.fragmentShader = 'varying vec2 vVox; varying vec2 vSize; varying vec4 vOpen; varying vec3 vWN; uniform float uPx, uPxEdge;\n' + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
+    // (11-18 微信小游戏: the 1-art-pixel bevel lines need dFdx / dFdy — without them (the devtools' WebGL1) the faces keep their tones)
+    sh.fragmentShader = (CAPS.derivatives ? '#define VOX_DERIV\n' : '') + 'varying vec2 vVox; varying vec2 vSize; varying vec4 vOpen; varying vec3 vWN; uniform float uPx, uPxEdge;\n' + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
       { float d = 1.0; if (vOpen.x > 0.5) d = min(d, vVox.x); if (vOpen.y > 0.5) d = min(d, vSize.x - vVox.x); if (vOpen.z > 0.5) d = min(d, vVox.y); if (vOpen.w > 0.5) d = min(d, vSize.y - vVox.y);
         float bev = 1.0 + ${edge.toFixed(3)} * (1.0 - smoothstep(0.03, 0.1, d));
         if (uPx > 0.5) {
           vec3 wn = normalize(vWN);
           float tone = wn.y > 0.6 ? 1.06 : wn.y < -0.6 ? 0.66 : wn.x > 0.6 ? 0.9 : wn.x < -0.6 ? 0.92 : wn.z > 0.6 ? 1.0 : 0.84;
+          float hl = 0.0, dk = 0.0;
+#ifdef VOX_DERIV
           vec2 gx = dFdx(vVox), gy = dFdy(vVox), fw = max(abs(gx) + abs(gy), vec2(1e-4));
-          float span = min(vSize.x / fw.x, vSize.y / fw.y), hl = 0.0, dk = 0.0;
+          float span = min(vSize.x / fw.x, vSize.y / fw.y);
           if (span > 6.0) {
             vec2 ux = normalize(vec2(gx.x, gy.x) + 1e-6), uy = normalize(vec2(gx.y, gy.y) + 1e-6), L = vec2(-0.5, 0.866);
             float e0 = vOpen.x > 0.5 ? vVox.x / fw.x : 1e4, e1 = vOpen.y > 0.5 ? (vSize.x - vVox.x) / fw.x : 1e4;
@@ -74,11 +78,12 @@ export function voxToon(o: { rim?: number; self?: number; edge?: number } = {}) 
             if (e2 < 1.0) { hl = max(hl, step(0.2, s2)); dk = max(dk, step(s2, -0.2)); }
             if (e3 < 1.0) { hl = max(hl, step(0.2, s3)); dk = max(dk, step(s3, -0.2)); }
           }
+#endif
           bev = tone * (1.0 + uPxEdge * hl) * (1.0 - 0.2 * dk * (1.0 - hl));
         }
         diffuseColor.rgb *= bev; }`);
   };
-  m.customProgramCacheKey = () => src.customProgramCacheKey() + '|vox' + edge + '|px';
+  m.customProgramCacheKey = () => src.customProgramCacheKey() + '|vox' + edge + '|px' + (CAPS.derivatives ? '' : '|noderiv');
   // (11-18 微信小游戏: the bevel uses dFdx / dFdy — built into WebGL2, an extension WebGL1 has to switch on: the WeChat devtools'
   // simulator is WebGL1, and without this every block material failed to compile there)
   (m as unknown as { extensions: Record<string, boolean> }).extensions = { derivatives: true };
