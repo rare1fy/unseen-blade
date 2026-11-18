@@ -7,7 +7,7 @@ import { format, language, msg, setLanguage } from './i18n';
 // 打开游戏先到练武场（yard.ts：木人桩、召唤石板、换装木台），走进后面的「出发」路口开始一局；死了或打完回练武场。
 // 砍飞的箭：方向在出刀朝向左右 75° 里随机、附近有敌人就偏过去；砍中那一下顿帧 + 闪光 + 短慢放（用户：「这种属于高光操作，应该要有顿帧」）。
 import * as THREE from 'three';
-import { V3, onUpdate, R, scene, warm, frames } from '../engine/world';
+import { V3, onUpdate, R, scene, warm, frames, precompile } from '../engine/world';
 import { hitstop, shake, slowmo, after, anim, clock, FX, waitReal, PAUSE } from '../engine/clock';
 import { shot } from '../director';
 import { fxImpact, fxSparks, fxSmoke, fxRing, trailSeg } from '../fx/fx';
@@ -338,16 +338,16 @@ export class ActShow {
         console.warn('[act] village preparation failed', error); return null;
       }) : null;
     const pov = await narrative;
+    // 11-18 (用户：「开场黑幕到第一个走在雪地的场景之间用渐黑转场，不要用竹子飞刀」): from the black cards straight into the snow
+    // walk through the dark — no blade, no bamboo, on every platform. The village is built (in frames on WeChat, where the
+    // title already started it) behind the black veil, the shaders warmed, then the black fades off
     if (__WX__) {
       while (bladeBusy()) await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
-      await withLoadingBlade(async () => {
-        const ready = await village;
-        if (ready) this.pre = { ...ready, locale: PRO_ROOM.locale };
-        await this.startPrologue();
-      });
-    } else await this.startPrologue();
-    // (the village was built behind the dark; now the dark lifts on 「七年后」)
-    if (pov) { await frames(3); pov.fill(0x000000, 0); after(1.6, () => pov.dispose(), { real: true }); }
+      const ready = await village;
+      if (ready) this.pre = { ...ready, locale: PRO_ROOM.locale };
+    }
+    await this.startPrologue();
+    if (pov) { precompile(); await frames(3); pov.fill(0x000000, 0); after(1.6, () => pov.dispose(), { real: true }); }
   }
   /** act-37 the cold open: 寒山坞 that night (coldopen.ts) — on the place the title built while it loaded; it ends in the dark */
   private async coldOpen(): Promise<BlindPOV | null> {
@@ -771,6 +771,8 @@ export class ActShow {
       // 11-18 屋子形态 (captures / tests): a fight room of this place in this shape (the next rooms pick their own again); null = pick
       /** 11-18 定死的屋子: the room's puzzle pieces and their state; solve one */
       puzzle: () => this.pieces?.list() ?? [], solve: (i: number) => this.pieces?.solve(i),
+      /** 11-18 小刀转场: play the loading blade over the current view while a pretend load takes ms (it is drawn every frame in the web build too) */
+      bladeDemo: (ms = 800, cover: 'bamboo' | 'pillar' = 'bamboo') => withLoadingBlade(() => new Promise<void>(r => setTimeout(r, ms)), cover),
       /** 11-18 定死的屋子: build this drawn room (asm/roomMaps.ts id: crossroads / courtyards / islands …) as a fight room */
       room: (id: string, type: 'fight' | 'elite' = 'fight') => {
         const m = MAP_BY_ID[id]; if (!m) return null;
@@ -1375,9 +1377,10 @@ export class ActShow {
   private async demoMove(id: string) {
     if (this.botOn || !this.hero) return;
     const was = this.phase; this.phase = 'pick'; this.hero.vel.set(0, 0, 0);
-    // the hint to skip, small, under the pause button (whole device px per font pixel, about 16 px tall)
+    // the hint to skip, small, at the top right where the pause button used to stand (11-18: the portrait pauses now), left of the
+    // tuning panel's 「调」 (whole device px per font pixel, about 16 px tall)
     const dpr = this.L.dpr || 1;
-    this.L.text.set('act.demoSkip', { text: UI_WORDS.demoSkip, x: this.L.w - 18, y: 64, pix: Math.max(1, Math.round(this.hud.k * dpr)), color: '#d9ccb2', outline: '#140c0a', align: 'right', alpha: 0.8 });
+    this.L.text.set('act.demoSkip', { text: UI_WORDS.demoSkip, x: this.L.w - 46, y: 23, pix: Math.max(1, Math.round(this.hud.k * dpr)), color: '#d9ccb2', outline: '#140c0a', align: 'right', alpha: 0.8 });
     await this.demo.play(id, { at: this.hero.pos.clone(), def: this.wearing, hud: this.hud });
     this.L.text.hide('act.demoSkip'); this.inp.latch();
     if (this.phase === 'pick') this.phase = was;

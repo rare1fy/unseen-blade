@@ -24,6 +24,9 @@ import { REGISTRY, LOCALES } from '../asm/registry';
 import { withExits, type ExitId } from '../asm/exits';
 import { arenaPlan } from '../asm/arena';
 import type { Spec } from '../asm/types';
+import { HC, frame } from '../asm/hanmo/hj_temple_kit';
+import { locM } from '../scenes/k_village';
+import { M } from '../scenes/props';
 import { BattleActor } from '../bestiary/battle';
 import { CELL } from '../bestiary/kit';
 import { Action, rot, type Bone } from '../actors/rig';
@@ -70,9 +73,44 @@ export interface TitleDef {
     fire?: Array<{ at: P3; col: number; i: number; d: number }>;
     /** smoke columns rising from (x, z) */
     smoke?: Array<[number, number]>;
+    /** 11-18: a building burning (run-time: the flames on its vents, its smoke, the sparks; the one fire light above breathes with it) */
+    blaze?: { vents: Vent[]; smoke: P3[]; sparks: Box4; n?: number };
   };
 }
 const mix = (a: number, b: number, k: number) => { const f = (s: number) => Math.round(((a >> s) & 255) * (1 - k) + ((b >> s) & 255) * k); return (f(16) << 16) | (f(8) << 8) | f(0); };
+
+// ------------------------------------------------------------------ 11-18 the burning hall of title 3 (hj_temple.ts 残殿, built at the
+// axis layout's landmark: centre (0, −17.6) on the 2x stage, its local frame in 7 cm cells, front toward the camera)
+const HALL: [number, number] = [0, -17.6];
+const hallM = (lx: number, y: number, lz: number): P3 => locM(M(HALL[0]), M(HALL[1]), 0, lx, y, lz);
+/** where the fire comes out (world metres): the doorway, the window in the back wall, the broken corner of the roof, the snapped
+ *  columns' rubble on the right; n tongues each, h their tallest */
+const HALL_VENTS: Vent[] = [
+  { ...xyz(hallM(0, 9, -32)), w: 1.7, d: 0.3, h: 2.0, n: 34 },        // the doorway (local x −14..14, up to y 40)
+  { ...xyz(hallM(-55, 31, -32)), w: 0.9, d: 0.2, h: 1.3, n: 14 },     // the window (x −62..−48, y 30..44)
+  { ...xyz(hallM(-36, 72, 18)), w: 1.7, d: 1.6, h: 2.6, n: 40 },      // the roof's broken front corner (x −50..−22, z 4..34)
+  { ...xyz(hallM(58, 9, -6)), w: 1.2, d: 0.6, h: 1.0, n: 14 },        // the heap of tiles and the fallen beam on the right
+];
+function xyz(p: P3) { return { x: p[0], y: p[1], z: p[2] }; }
+/** the hall burnt (static: baked with the stage in the WeChat build): the roof's front corner fallen in with charred rafters left across
+ *  the gap, a window burnt through the back wall, soot over the openings, the door banner burnt to half, a bed of embers in the doorway */
+function burnHall(c: Ctx) {
+  const B = frame(c.w, HALL[0], HALL[1], 0);
+  // the roof: its front corner at the snapped end gone, down to the beam; three charred rafters left across the gap, one dropped
+  B(-50, 70, 4, -22, 96, 34, null);
+  for (const z of [10, 20, 30]) B(-50, 72, z, -22, 73, z + 1, HC.char);
+  B(-44, 70, 4, -42, 73, 32, HC.charL); B(-34, 8, 22, -24, 10, 24, HC.char);
+  B(-50, 70, 15, -48, 85, 21, HC.char);   // a burnt king post standing in the gap
+  // the window, burnt through (a dark back so it is not see-through), a lintel of charred wood, soot above
+  B(-62, 30, -37, -48, 44, -34, null); B(-62, 30, -38, -48, 44, -38, HC.char); B(-64, 45, -34, -46, 46, -33, HC.char);
+  B(-64, 47, -34, -46, 54, -34, HC.charL); B(-60, 55, -34, -50, 58, -34, HC.charL);
+  // the doorway: soot climbing the wall over it, the banner above burnt to its upper half, embers on the sill
+  B(-16, 44, -34, -11, 52, -34, HC.charL); B(11, 44, -34, 16, 52, -34, HC.charL);
+  B(-10, 44, -33, 10, 51, -33, null); B(-10, 52, -33, 10, 52, -33, HC.char);
+  B(-12, 8, -33, 12, 8, -29, HC.ember, 1); B(-6, 8, -28, 6, 8, -26, HC.ember, 1);
+  // the right side's rubble smouldering
+  B(52, 8, -8, 66, 8, -2, HC.ember, 1);
+}
 
 export const TITLES: TitleDef[] = [
   // 1 雨夜 · 残村：开场「雨夜听雨」那条夜雨里的土路，拉远——村口大槐的门楼和老树在后面的雨雾里，路边一盏斜挂的灯笼是唯一的暖光，
@@ -100,16 +138,21 @@ export const TITLES: TitleDef[] = [
     cam: { a: [4, 3.5, 16], b: [1.5, 3.2, 17.5], period: 80, fov: 30, ny: -0.3 },
     ui: 'right',
     fx: { birds: { n: 7, from: [-18, 13, -30], dir: [1, 0.02, 0.05], speed: 3.0 }, smoke: [[-8, -30], [9, -31]], chaff: { n: 160, box: [0, 30, -20, 4] } } },
-  // 3 雪 · 破庙：冬夜落雪的破庙，残殿里还有一点火光透出来；院子里一层雪，她一个黑影站在甬道上。雪片慢慢斜着飘。
+  // 3 雪 · 破庙：冬夜落雪的破庙，院子里一层雪，她一个黑影站在甬道上。雪片慢慢斜着飘。
+  //   11-18 (用户：「雪景里让背后的房子着火燃烧起来」): 她身后那座残殿烧着——火从殿门、后墙的窗、塌了一角的屋顶往外蹿，顺着风往右斜，
+  //   黑烟卷上去被风带走，火星往上飘、和往下落的雪交错（冷开场那句「那年腊月，火比雪大。」）；火光是这幅冷夜里唯一的暖色。
+  //   殿的焦黑、塌顶、梁架、窗洞是静态的（dress，微信出包时一起烘）；火苗、烟、火星、火光都在运行时（fx.blaze）
   { id: 'snow', name: '雪夜 · 破庙',
     spec: { locale: 'hj_temple', layout: 'axis', mirror: false, landmark: 'hj_canhall', season: 'winter', time: 'dusk', weather: 'snow', seed: 5 },
     walls: true, cover: false, exits: ['back'],
+    dress: burnHall,
     mood: m => ({ ...m, bg: 0x1a2030, fog: 0x2a3446, fogD: 0.03, skyTop: 0x0c1020, skyMid: 0x1e2638, skyHor: 0x4a5468, skyDisc: [0.34, 0.07, -1], skyDiscCol: [0.3, 0.32, 0.38], hemiSky: 0x8a9ab8, hemiGround: 0x4a5060, hemiI: 1.4, moon: 0xa8b8e0, moonI: 1.6, key: 0x8090b0, keyI: 0.3, moonPos: [-8, 14, -6] }),
     exposure: 1.35, bloomT: 1.3,
     hero: { at: [0.2, -7.2], yaw: 0.15, wind: 0.35 },
     cam: { a: [-4, 2.2, 17], b: [-1.5, 2.5, 15.5], period: 76, fov: 30, ny: -0.36 },
     ui: 'right',
-    fx: { snow: { n: 1300, box: [-14, 14, -22, 18] }, fire: [{ at: [0, 1.4, -17.5], col: 0xff8a3a, i: 6, d: 9 }] } },
+    fx: { snow: { n: 1300, box: [-14, 14, -22, 18] }, fire: [{ at: [0.2, 2.6, -14.6], col: 0xff7230, i: 15, d: 26 }],
+      blaze: { vents: HALL_VENTS, smoke: [[-2.3, 6.4, -16.6], [0.2, 3.6, -19.6], [4.0, 2.2, -18.2]], sparks: [-8, 8, -21, -14] } } },
   // 4 晨雾 · 长路：天刚亮，雾很重，一条土路从脚下一直伸进雾里，坞堡望楼和杨树一层层淡下去；她背对着我们沿路慢慢走远。
   { id: 'dawn', name: '晨雾 · 长路',
     spec: { locale: 'hj_village', layout: 'axis', mirror: false, landmark: 'wanglou', season: 'autumn', time: 'dawn', weather: 'mist', seed: 21 },
@@ -183,20 +226,27 @@ class Embers {
   chaff = false;
   readonly pts: THREE.Points; private n: number; private p: Float32Array; private c: Float32Array; private life: Float32Array; private age: Float32Array; private ph: Float32Array;
   private pos: THREE.BufferAttribute; private col: THREE.BufferAttribute;
-  constructor(n: number, private box: Box4) {
+  /** 11-18 a burning house: sparks are born on its vents ([x, y, z, w, d]) and carried up and off downwind (+x) */
+  constructor(n: number, private box: Box4, private rise?: { at: Array<[number, number, number, number, number]>; wind: number }) {
     this.n = n; this.p = new Float32Array(n * 3); this.c = new Float32Array(n * 3); this.life = new Float32Array(n); this.age = new Float32Array(n); this.ph = new Float32Array(n);
     const g = new THREE.BufferGeometry(); this.pos = new THREE.BufferAttribute(this.p, 3); this.pos.setUsage(THREE.DynamicDrawUsage); g.setAttribute('position', this.pos);
     this.col = new THREE.BufferAttribute(this.c, 3); this.col.setUsage(THREE.DynamicDrawUsage); g.setAttribute('color', this.col);
     for (let i = 0; i < n; i++) { this.spawn(i); this.age[i] = R(0, this.life[i]); }
     this.pts = new THREE.Points(g, pointMat(0.06, true)); this.pts.frustumCulled = false; this.pts.renderOrder = 7;
   }
-  private spawn(i: number) { const b = this.box; this.p[i * 3] = R(b[0], b[1]); this.p[i * 3 + 1] = R(0.1, 2.5); this.p[i * 3 + 2] = R(b[2], b[3]); this.life[i] = R(3, 7); this.age[i] = 0; this.ph[i] = R(0, 6.28); }
+  private spawn(i: number) {
+    const b = this.box; this.age[i] = 0; this.ph[i] = R(0, 6.28);
+    if (this.rise) { const v = this.rise.at[Math.floor(Math.random() * this.rise.at.length)]; this.p[i * 3] = v[0] + R(-0.5, 0.5) * v[3]; this.p[i * 3 + 1] = v[1] + R(0, 0.6); this.p[i * 3 + 2] = v[2] + R(-0.5, 0.5) * v[4]; this.life[i] = R(2.5, 5.5); return; }
+    this.p[i * 3] = R(b[0], b[1]); this.p[i * 3 + 1] = R(0.1, 2.5); this.p[i * 3 + 2] = R(b[2], b[3]); this.life[i] = R(3, 7);
+  }
   update(dt: number, t: number) {
-    const P = this.p, C = this.c;
+    const P = this.p, C = this.c, w = this.rise?.wind ?? 0;
     for (let i = 0; i < this.n; i++) {
       this.age[i] += dt; if (this.age[i] > this.life[i]) this.spawn(i);
       const i3 = i * 3, k = this.age[i] / this.life[i], ph = this.ph[i];
       if (this.chaff) { P[i3] += (0.9 + 0.5 * Math.sin(t * 0.5 + ph)) * dt; P[i3 + 1] += 0.12 * Math.sin(t * 1.1 + ph * 2) * dt; P[i3 + 2] += 0.1 * Math.sin(t * 0.7 + ph) * dt; }
+      // (a fire's sparks: a hot updraught first, then the wind takes them — they drift across the falling snow)
+      else if (this.rise) { P[i3] += (0.3 + 1.6 * w * k + 0.35 * Math.sin(t * 1.3 + ph)) * dt; P[i3 + 1] += (1.6 * (1 - k) + 0.3 + 0.25 * Math.sin(t * 2.1 + ph * 2)) * dt; P[i3 + 2] += 0.2 * Math.sin(t * 0.9 + ph) * dt; }
       else { P[i3] += (0.25 + 0.3 * Math.sin(t * 0.9 + ph)) * dt; P[i3 + 1] += (0.45 + 0.25 * Math.sin(t * 1.3 + ph * 2)) * dt; P[i3 + 2] += 0.15 * Math.sin(t * 0.7 + ph) * dt; }
       const fl = (0.65 + 0.35 * Math.sin(t * (this.chaff ? 4 : 9) + ph * 7)) * Math.min(1, k * 6) * (1 - k) * (1 - k);
       if (this.chaff) { C[i3] = 1.0 * fl; C[i3 + 1] = 0.78 * fl; C[i3 + 2] = 0.42 * fl; } else { C[i3] = 1.6 * fl; C[i3 + 1] = 0.62 * fl; C[i3 + 2] = 0.2 * fl; }
@@ -281,6 +331,87 @@ class Smoke {
     }
   }
   dispose() { this.g.parent?.remove(this.g); for (const p of this.puffs) p.m.material.dispose(); }
+}
+/**
+ * 11-18 (用户：「雪景里让背后的房子着火燃烧起来」): a building on fire, all of it moving at run time (the WeChat build bakes the title's still
+ * scenery, never this). Three pools, one draw each:
+ *  - tongues: upright blocks of flame standing on each vent (a door, a window, a roof breach), each climbing, swelling and thinning to
+ *    nothing on its own loop, leaning downwind; their colour runs white-gold at the root → orange → deep red at the tip, squared off
+ *    (whole boxes, never a round glow);
+ *  - smoke: dark grey blocks rolling up off the roof, growing, carried off downwind, fading;
+ *  - sparks: points rising off the fire, swaying, carried downwind and higher than the smoke, flickering out — they cross the falling snow.
+ * The light is the title's one fire light (count unchanged: no shader recompiles), pulsing with the fire — slow swells, no strobe.
+ */
+type Vent = { x: number; y: number; z: number; w: number; d: number; h: number; n: number };
+/** instanced blocks with a colour (and for smoke an opacity) each: aCol = rgb, a. solid = the flame blocks (opaque, unlit, drawn like
+ *  the braziers' flames — they go out by shrinking, never by turning into a dark brick); fade = the smoke (fades to nothing) */
+function blockMat(solid: boolean) {
+  return new THREE.ShaderMaterial({
+    uniforms: { ...THREE.UniformsLib.fog }, fog: true, transparent: !solid, depthWrite: solid, toneMapped: false,
+    vertexShader: `attribute vec4 aCol; varying vec4 vC;
+      #include <fog_pars_vertex>
+      void main(){ vC = aCol; vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * mvPosition;
+        #include <fog_vertex>
+      }`,
+    fragmentShader: `varying vec4 vC;
+      #include <fog_pars_fragment>
+      void main(){ gl_FragColor = vec4(vC.rgb, ${solid ? '1.0' : 'vC.a'});
+        #include <fog_fragment>
+      }`,
+  });
+}
+class Blaze {
+  readonly g = new THREE.Group(); private tongues: THREE.InstancedMesh; private smoke: THREE.InstancedMesh; private sparks: Embers;
+  private T: Array<{ v: Vent; ox: number; oz: number; ph: number; sp: number; s: number; h: number }> = [];
+  private S: Array<{ x: number; y: number; z: number; age: number; life: number; s: number; vx: number }> = [];
+  private tc: THREE.InstancedBufferAttribute; private scol: THREE.InstancedBufferAttribute;
+  private m = new THREE.Matrix4(); private q = new THREE.Quaternion(); private p = V3(); private sc = V3(); private c = new THREE.Color();
+  private hot = new THREE.Color(1.15, 0.72, 0.28); private mid = new THREE.Color(1.0, 0.34, 0.07); private tip = new THREE.Color(0.42, 0.06, 0.02);
+  constructor(vents: Vent[], private wind: number, private smokeAt: P3[], sparkBox: Box4, sparks = 170) {
+    for (const v of vents) for (let i = 0; i < v.n; i++) this.T.push({ v, ox: R(-0.5, 0.5) * v.w, oz: R(-0.5, 0.5) * v.d, ph: R(0, 1), sp: R(0.9, 1.5), s: R(0.7, 1.1), h: R(0.6, 1) });
+    // the flame blocks: a unit box standing on its base
+    this.tongues = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0), blockMat(true), this.T.length);
+    this.tc = new THREE.InstancedBufferAttribute(new Float32Array(this.T.length * 4), 4); this.tc.setUsage(THREE.DynamicDrawUsage); this.tongues.geometry.setAttribute('aCol', this.tc);
+    this.tongues.frustumCulled = false; this.tongues.renderOrder = 3; this.g.add(this.tongues);
+    // smoke: dark blocks, a fixed number recycled
+    const n = smokeAt.length * 14;
+    for (let i = 0; i < n; i++) { const [x, y, z] = smokeAt[i % smokeAt.length]; this.S.push({ x, y, z, age: R(0, 9), life: R(8, 10), s: R(0.7, 1.2), vx: R(0.8, 1.2) }); }
+    this.smoke = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), blockMat(false), n);
+    this.scol = new THREE.InstancedBufferAttribute(new Float32Array(n * 4), 4); this.scol.setUsage(THREE.DynamicDrawUsage); this.smoke.geometry.setAttribute('aCol', this.scol);
+    this.smoke.frustumCulled = false; this.smoke.renderOrder = 4; this.g.add(this.smoke);
+    this.sparks = new Embers(sparks, sparkBox, { at: vents.map(v => [v.x, v.y + v.h * 0.4, v.z, v.w, v.d] as [number, number, number, number, number]), wind });
+    this.g.add(this.sparks.pts);
+  }
+  /** how bright the fire is now (about 0.8..1.2): two slow waves and a small faster one — the light breathes with the flames, no strobe */
+  level(t: number) { return 1 + 0.1 * Math.sin(t * 1.7) * Math.sin(t * 0.63 + 1) + 0.06 * Math.sin(t * 4.1 + 2) + 0.03 * Math.sin(t * 9.3); }
+  update(dt: number, t: number) {
+    const w = this.wind, drift = 0.25 + 0.5 * w;
+    // tongues: a flame is a stream of upright blocks (never turned: 横平竖直), each born at the vent's root and on its own loop (k 0 → 1)
+    // climbing, drifting downwind (+x), shrinking to nothing and cooling — white-gold at the root, orange, then deep red at the tip
+    this.T.forEach((f, i) => {
+      const v = f.v, k = (t * f.sp * 0.8 + f.ph) % 1, gust = 0.8 + 0.2 * Math.sin(t * 2.3 + f.ph * 6);
+      const life = 1 - k, wid = (0.1 + 0.16 * f.s) * Math.min(1, 0.4 + v.w * 0.5) * (0.25 + 0.75 * life), hgt = wid * (1.6 + 1.2 * f.h) * (0.6 + 0.4 * gust);
+      this.p.set(v.x + f.ox * (1 - 0.5 * k) + k * k * v.h * drift + 0.04 * Math.sin(t * 6 + f.ph * 9), v.y + k * v.h * f.h * gust, v.z + f.oz * (1 - 0.5 * k));
+      this.q.identity(); this.sc.set(wid, hgt, wid * 0.85); this.m.compose(this.p, this.q, this.sc); this.tongues.setMatrixAt(i, this.m);
+      if (k < 0.25) this.c.copy(this.hot).lerp(this.mid, k / 0.25); else this.c.copy(this.mid).lerp(this.tip, Math.min(1, (k - 0.25) / 0.6));
+      this.tc.setXYZW(i, this.c.r, this.c.g, this.c.b, 1);
+    });
+    this.tongues.instanceMatrix.needsUpdate = true; this.tc.needsUpdate = true;
+    // smoke: up and off downwind, swelling; the lowest puffs a little lit by the fire under them; square to the world like everything else
+    this.S.forEach((s, i) => {
+      s.age += dt; if (s.age > s.life) { const [x, y, z] = this.smokeAt[i % this.smokeAt.length]; Object.assign(s, { x: x + R(-0.6, 0.6), y, z: z + R(-0.4, 0.4), age: 0, life: R(8, 10), s: R(0.7, 1.2), vx: R(0.8, 1.2) }); }
+      const k = s.age / s.life, rise = s.age * (0.9 - 0.3 * k);
+      this.p.set(s.x + s.age * s.age * 0.05 * (0.6 + w) * s.vx + s.age * 0.25, s.y + rise, s.z - s.age * 0.12);
+      const size = s.s * (0.4 + 1.9 * k); this.q.identity(); this.sc.set(size, size * 0.75, size);
+      this.m.compose(this.p, this.q, this.sc); this.smoke.setMatrixAt(i, this.m);
+      const a = Math.min(1, k * 6) * (1 - k) * 0.42, lit = Math.max(0, 1 - k * 3);
+      // (moonlit grey a little under the sky's horizon, so the column reads as smoke, not cloud; warm where the fire is under it)
+      this.scol.setXYZW(i, 0.15 + 0.3 * lit, 0.15 + 0.1 * lit, 0.18 - 0.06 * lit, a);
+    });
+    this.smoke.instanceMatrix.needsUpdate = true; this.scol.needsUpdate = true;
+    this.sparks.update(dt, t);
+  }
+  dispose() { this.g.parent?.remove(this.g); for (const im of [this.tongues, this.smoke]) { im.geometry.dispose(); (im.material as THREE.Material).dispose(); im.dispose(); } this.sparks.dispose(); }
 }
 
 // ================================================================== the menu: plaques in the UI layer
@@ -438,7 +569,7 @@ class Title {
   private stage: Stage; private hero: BattleActor; private blob: THREE.Mesh; private heroAt = V3(); private walkFrom: THREE.Vector3 | null = null; private walkK = 0;
   private hookId: string; private baseHook: PoseFn | undefined;
   private rain: Rain | null = null; private rip: Ripples | null = null; private lamp: ReturnType<typeof lanternPost> | null = null; private snow: Snow | null = null; private embers: Embers | null = null;
-  private birds: Birds | null = null; private mist: Mist | null = null; private smoke: Smoke | null = null; private fires: THREE.PointLight[] = [];
+  private birds: Birds | null = null; private mist: Mist | null = null; private smoke: Smoke | null = null; private fires: THREE.PointLight[] = []; private blaze: Blaze | null = null; private crackle = 2;
   private glint: THREE.Mesh | null = null;
   private flashT = -1; private flashK = 0; private nextFlash = 6; private mood: Mood;
   private shadowSave: { l: number; r: number; t: number; b: number } | null = null; private satSave = 1.12;
@@ -487,6 +618,7 @@ class Title {
     if (fx.mist) { this.mist = new Mist(fx.mist, fx.mistCol ?? 0xffffff); root.add(this.mist.g); }
     if (fx.smoke) { this.smoke = new Smoke(fx.smoke, d.id === 'embers' ? 0x241a1c : 0x5a4a50); root.add(this.smoke.g); }
     for (const f of fx.fire ?? []) { const l = new THREE.PointLight(f.col, f.i, f.d, 1.6); l.position.set(...f.at); root.add(l); this.fires.push(l); }
+    if (fx.blaze) { this.blaze = new Blaze(fx.blaze.vents, d.hero.wind ?? 0.5, fx.blaze.smoke, fx.blaze.sparks, fx.blaze.n); root.add(this.blaze.g); }
     // the stage's own drifting motes would read as speckle in the rain / snow: the alpha pool sits the title out (back at the end)
     if (fx.rain || fx.snow) PALPHA.mesh.visible = false;
     // ---- the camera
@@ -557,9 +689,13 @@ class Title {
       this.rip?.update(dt, this.flashK);
       if (this.glint) { const g = this.glint, cp = camera.position; g.rotation.y = Math.atan2(cp.x - g.position.x, cp.z - g.position.z); (g.material as THREE.MeshBasicMaterial).opacity = 0.3 * (1 + Math.sin(this.t * 7.3) * 0.06) + this.flashK * 0.2; }
       if (this.lamp) { const s = this.lamp.swing; s.rotation.z = 0.2 + Math.sin(this.t * 0.9) * 0.05 + Math.sin(this.t * 2.3) * 0.015; s.rotation.x = Math.sin(this.t * 0.7 + 1) * 0.04; this.lamp.light.intensity = 5.2 * (1 + Math.sin(this.t * 7.3) * 0.05 + Math.sin(this.t * 17) * 0.03); }
-      if (!frozen) { this.snow?.update(dt, this.t); this.embers?.update(dt, this.t); }
+      if (!frozen) { this.snow?.update(dt, this.t); this.embers?.update(dt, this.t); this.blaze?.update(dt, this.t); }
       this.birds?.update(rdt, this.t); this.mist?.update(rdt); this.smoke?.update(rdt);
-      this.fires.forEach((l, i) => { l.intensity = (d.fx.fire![i].i) * (1 + Math.sin(this.t * 8 + i * 3) * 0.12 + Math.sin(this.t * 19 + i) * 0.06); });
+      // the fire light: a burning house breathes (blaze.level: slow swells), a brazier flickers
+      const lv = this.blaze?.level(this.t);
+      this.fires.forEach((l, i) => { l.intensity = (d.fx.fire![i].i) * (lv ?? (1 + Math.sin(this.t * 8 + i * 3) * 0.12 + Math.sin(this.t * 19 + i) * 0.06)); });
+      // now and then the fire's crackle (the oil-fire samples), quiet under the music, only while the menu is up
+      if (this.blaze && this.beat === 'menu') { this.crackle -= rdt; if (this.crackle <= 0) { this.crackle = 3.5 + Math.random() * 4; cue('fire', 0); } }
       // the lightning: now and then, a hard flash, a dip, a second flicker, then it ebbs; the thunder a moment later
       if (d.fx.lightning && this.beat === 'menu') {
         this.nextFlash -= rdt; if (this.nextFlash <= 0) { this.nextFlash = 9 + Math.random() * 8; this.flashT = 0; setTimeout(() => { if (this.alive) cue('thunder', 0.5); }, 400 + Math.random() * 700); }
@@ -801,8 +937,8 @@ class Title {
     if (sun && this.shadowSave) { const c = sun.shadow.camera, s = this.shadowSave; Object.assign(c, { left: s.l, right: s.r, top: s.t, bottom: s.b }); c.updateProjectionMatrix(); this.shadowSave = null; }
     if (typeof window !== 'undefined') window.removeEventListener('keydown', this.onKey);
     this.glint?.parent?.remove(this.glint); this.glint = null;
-    this.rain?.dispose(); this.rip?.dispose(); this.snow?.dispose(); this.embers?.dispose(); this.birds?.dispose(); this.mist?.dispose(); this.smoke?.dispose();
-    this.rain = null; this.rip = null; this.snow = null; this.embers = null; this.birds = null; this.mist = null; this.smoke = null;
+    this.rain?.dispose(); this.rip?.dispose(); this.snow?.dispose(); this.embers?.dispose(); this.birds?.dispose(); this.mist?.dispose(); this.smoke?.dispose(); this.blaze?.dispose();
+    this.rain = null; this.rip = null; this.snow = null; this.embers = null; this.birds = null; this.mist = null; this.smoke = null; this.blaze = null;
     this.hero.dispose();
     for (const p of this.plaques) p.dispose(); this.plaques = [];
     this.marker.parent?.remove(this.marker); this.marker.geometry.dispose(); (this.marker.material as THREE.Material).dispose();
