@@ -153,13 +153,16 @@ addLocales(NINJA_LOCALES); addLocales(HANMO_LOCALES); addLocales(HANSHAN_LOCALES
 const PRICES = { boon: 60, heal: 30, sharpen: 50 };
 /** a soft dark spot for under the feet: a radial fade drawn once, shared by every spot */
 let SHADOW_TEX: THREE.Texture | null = null;
-function contactShadow() {
+function contactMaterial() {
   if (!SHADOW_TEX && typeof document !== 'undefined') {
     const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d')!;
     const gr = g.createRadialGradient(32, 32, 4, 32, 32, 31); gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(0.55, 'rgba(0,0,0,0.75)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
     g.fillStyle = gr; g.fillRect(0, 0, 64, 64); SHADOW_TEX = new THREE.CanvasTexture(c);
   }
-  const m = new THREE.Mesh(new THREE.PlaneGeometry(2, 2).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x0a0608, map: SHADOW_TEX, transparent: true, opacity: 0.72, depthWrite: false }));
+  return new THREE.MeshBasicMaterial({ color: 0x0a0608, map: SHADOW_TEX, transparent: true, opacity: 0.72, depthWrite: false });
+}
+function contactShadow() {
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(2, 2).rotateX(-Math.PI / 2), contactMaterial());
   m.renderOrder = 2; return m;
 }
 type Phase = 'intro' | 'fight' | 'pick' | 'doors' | 'leaving' | 'dead' | 'end' | 'yard' | 'opening' | 'cine' | 'talk' | 'title';
@@ -630,6 +633,7 @@ export class ActShow {
   yard: Yard | null = null; wearing: ModelDef = savedHero(); private lineupActors: BattleActor[] = [];
   private aimLine!: THREE.Mesh;
   private propContacts?: ContactBatch;
+  private foeContacts?: ContactBatch;
   private ring!: THREE.Mesh; private ringK = -1; private sparkT = 0; private shadows: THREE.Mesh[] = []; private exitSign: THREE.Group | null = null; private blob: THREE.Mesh;
   constructor(private platform: Platform, deferStart = false) {
     SELF = this; this.dialogue = new Dialogue(this.L, this.ov); this.timeline = new Timeline(this.L);
@@ -989,6 +993,7 @@ export class ActShow {
     try { localStorage.setItem('ub.title', String(n)); } catch { /* storage blocked */ }   // the last one shown opens next time
     // a room may be up (__dh.title from the yard): its actors go the way a room change sends them
     this.propContacts?.dispose(); this.propContacts = undefined;
+    this.foeContacts?.dispose(); this.foeContacts = undefined;
     this.duel?.newRoom(); for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = []; this.entering.length = 0;
     this.yard?.dispose(); this.yard = null; this.props?.dispose(); this.props = null; this.gates?.dispose(); this.gates = null; this.pieces?.dispose(); this.pieces = null; this.leaves?.dispose(); this.leaves = null; this.stations?.dispose(); this.stations = null; this.hero?.a.dispose();
     this.clearNpcs();
@@ -2875,16 +2880,19 @@ export class ActShow {
     // the foes' contact shadows (a pool, one per live foe; the dummies stand on their own stone feet)
     const softOnly = OPT.bakedShadows && QUALITY.tier === 'low';
     if (softOnly && this.stage && !this.propContacts) this.propContacts = new ContactBatch(this.stage.root);
-    this.propContacts?.begin();
+    const groupFoes = OPT.foeContacts && QUALITY.tier === 'mid';
+    if (groupFoes && this.stage && !this.foeContacts) this.foeContacts = new ContactBatch(this.stage.root, contactMaterial());
+    this.foeContacts?.begin(); this.propContacts?.begin();
     if (softOnly && this.propContacts) { debrisContacts(this.propContacts); this.props?.contacts(this.propContacts); this.pieces?.contacts(this.propContacts); }
     let si = 0;
     for (const f of this.foes) {
       if (f.st === 'dead' || f.kind === 'dummy' || f.mem.hidden) continue;
       if (softOnly && this.propContacts) { this.propContacts.add(f.pos.x, f.pos.z, f.d.r * 1.55); continue; }
+      if (groupFoes && this.foeContacts) { this.foeContacts.add(f.pos.x, f.pos.z, f.d.r * 1.55, f.d.r * 1.55, 0.03); continue; }
       let m = this.shadows[si]; if (!m) { m = contactShadow(); scene.add(m); this.shadows.push(m); }
       m.visible = true; m.position.set(f.pos.x, 0.03, f.pos.z); m.scale.setScalar(f.d.r * 1.55); si++;
     }
-    this.propContacts?.end();
+    this.foeContacts?.end(); this.propContacts?.end();
     for (; si < this.shadows.length; si++) this.shadows[si].visible = false;
     // HUD
     const B = this.hud.btns; void B;
