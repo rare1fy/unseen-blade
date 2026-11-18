@@ -118,6 +118,9 @@ const rider: RoleAI = {
     if (f.combo > 0 && w.heroAlive) { f.combo--; const y = Math.atan2(w.heroPos.x - f.pos.x, w.heroPos.z - f.pos.z); AI.startAttack(f, w, { k: 'rect', len: rideLane(f.pos.distanceTo(w.heroPos)), w: 1.6 }, 0.8, 16, y, { atk: 'ride', act: { name: 'paw', imp: 0.92 } }); return; }
     // at the end of the run: 1.2 s to rein in and turn — the time to cut him
     recover(f, 1.2);
+    // Only the rig turns during this recovery; the next attack still locks its own direction.
+    const turn = Math.atan2(w.heroPos.x - f.pos.x, w.heroPos.z - f.pos.z) - f.yaw;
+    f.a.play(new Action('rein', 1.2, 0.5, { turn: Math.atan2(Math.sin(turn), Math.cos(turn)) }));
   },
   // into a wall / cover at speed: thrown from the saddle, down 2 s
   bumped(f, _w, dx, dz) {
