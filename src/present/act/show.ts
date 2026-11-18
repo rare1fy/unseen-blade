@@ -445,7 +445,7 @@ export class ActShow {
     const nn = near ? this.npcs.find(x => x.id === near) : null;
     // (act-40 用户：「人模型上的名字渲染层级不对，会渲染到UI上层，对话的时候会穿帮」: the floating name is screen text drawn over
     //  everything — gone while a conversation or a cutscene is up)
-    if (nn && !this.noTalk && this.phase !== 'talk' && this.phase !== 'cine' && !this.dialogue.on) { const p = worldToUi(V3(nn.x, (nn.a.height ?? 1.8) + 1.0, nn.z)); this.L.text.set('act.npc', { text: HIDEOUT_PEOPLE[nn.id as keyof typeof HIDEOUT_PEOPLE]?.name ?? '', x: p.x, y: p.y, bodyPx: Math.max(12, Math.round(15 * Math.min(1.2, this.L.h / 720))), color: '#ffe6b0', outline: '#140c0a', align: 'center' }); }
+    if (nn && !this.noTalk && this.phase !== 'talk' && this.phase !== 'cine' && !this.dialogue.on && !this.cards.on && !this.demo.on && !this.pause.on) { const p = worldToUi(V3(nn.x, (nn.a.height ?? 1.8) + 1.0, nn.z)); this.L.text.set('act.npc', { text: HIDEOUT_PEOPLE[nn.id as keyof typeof HIDEOUT_PEOPLE]?.name ?? '', x: p.x, y: p.y, bodyPx: Math.max(12, Math.round(15 * Math.min(1.2, this.L.h / 720))), color: '#ffe6b0', outline: '#140c0a', align: 'center' }); }
     else this.L.text.hide('act.npc');
   }
   /** a word with someone at the hideout; the smith and the healer then show their upgrades */
@@ -2128,7 +2128,7 @@ export class ActShow {
     return { base, look, fov: TUNE.camFov };
   }
   private frame(dt: number, rdt: number) {
-    if (PAUSE.on) return;   // the pause menu runs on its own (real time); the world gets nothing
+    if (PAUSE.on) { this.L.text.hide('act.npc'); return; }   // the pause menu runs on its own (real time); the world gets nothing (11-18: a hideout name over the menu's pages hidden)
     this.inp.frame(rdt);
     this.padScreens(rdt);
     if (this.phase === 'opening' || this.phase === 'title') return;   // opening.ts / title.ts run the start screen

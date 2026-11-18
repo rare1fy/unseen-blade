@@ -59,7 +59,8 @@ export class MiniShield extends THREE.Group {
     for (const l of this.icon.lit) { l.m.transparent = o < 0.999; l.m.opacity = o; }
     for (const g of this.icon.glows) { g.m.transparent = o < 0.999; g.m.opacity = o; }
   }
-  setRenderOrder(n: number) { this.mesh.renderOrder = n; this.icon.traverse(x => { x.renderOrder = n + 1; }); }
+  // The group also sets sort order when the slab and shield both fade at the edge of a list.
+  setRenderOrder(n: number) { this.renderOrder = n; this.mesh.renderOrder = n; this.icon.traverse(x => { x.renderOrder = n + 1; }); }
   dispose() { this.mesh.geometry.dispose(); (this.mesh.material as THREE.Material).dispose(); this.icon.dispose(); this.parent?.remove(this); }
 }
 /** a button of the HUD in small: its shield (the cut button with its tassel) and its own picture */

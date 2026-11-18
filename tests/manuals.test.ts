@@ -1,8 +1,10 @@
 // 刀谱 (manuals.ts): the twelve moves' shared fields — the presses (how / air) the card face and the demonstration draw, the one-line
-// effect (agy, ≤ 20 characters, no presses written into it), a 断云 that only comes after 挑云 — and their hint glyphs on the buttons.
+// effect (≤ 20 characters, no presses written into it), a 断云 that only comes after 挑云 — and their voxel models on the buttons.
 import { describe, it, expect } from 'vitest';
 import { MANUALS, ALL_MOVES, drawManuals } from '../src/present/act/manuals';
 import FONT from '../ui/font.js';
+import { LINK_COLORS, MANUAL_HINT, type LinkIcon } from '../src/present/act/skillInfo';
+import { skillIcon3D } from '../src/present/act/skillIcons';
 
 /** every source file's text, keyed 'src/…' */
 const SRC = Object.fromEntries(Object.entries(import.meta.glob('../src/**/*.ts', { query: '?raw', import: 'default', eager: true }) as Record<string, string>).map(([k, v]) => [k.slice(3), v]));
@@ -29,9 +31,12 @@ describe('刀谱', () => {
     expect(drawManuals({ launch: true }, 12, always).map(m => m.id)).toContain('acut');
   });
   it('四招各有按钮提示图标和颜色，前三次能接时慢放', () => {
-    const ui = SRC['src/present/act/ironUi.ts'], show = SRC['src/present/act/show.ts'];
-    for (const k of ['acut', 'swoop', 'reel', 'stomp']) {
-      expect(ui, k).toMatch(new RegExp(`\\b${k}: \\{ col: 0x[0-9a-f]{6}, rows: \\[`));
+    const show = SRC['src/present/act/show.ts'];
+    for (const id of ['acut', 'swoop', 'reel', 'stomp'] as const) {
+      const key = MANUAL_HINT[id], model = skillIcon3D(key);
+      expect(LINK_COLORS[key], id).toBeGreaterThan(0);
+      expect(model.size[2], id).toBeGreaterThan(0.1);
+      model.dispose();
     }
     const teach = /const TEACH = \[([^\]]*)\]/.exec(show)![1];
     for (const k of ['acut', 'reel', 'stomp']) expect(teach).toContain(`'${k}'`);
@@ -39,12 +44,11 @@ describe('刀谱', () => {
     expect(teach).not.toContain(`'swoop'`);
   });
   it('提示图标的颜色彼此分得开（同一颗钮上、同时在空中会亮的）', () => {
-    const ui = SRC['src/present/act/ironUi.ts'];
-    const col = (k: string) => { const m = new RegExp(`\\b${k}: \\{ col: 0x([0-9a-f]{6})`).exec(ui)!; const n = parseInt(m[1], 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+    const col = (k: LinkIcon) => { const n = LINK_COLORS[k]; return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
     const hue = ([r, g, b]: number[]) => { const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn || 1; const h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; return (h * 60 + 360) % 360; };
-    const apart = (a: string, b: string) => { const d = Math.abs(hue(col(a)) - hue(col(b))); return Math.min(d, 360 - d); };
+    const apart = (a: LinkIcon, b: LinkIcon) => { const d = Math.abs(hue(col(a)) - hue(col(b))); return Math.min(d, 360 - d); };
     // the cut button: 断云 / 劈山 / 寻声 / 反击; the jump button: 踏顶 / 挑云 / 穿心腿 / 二段跳; the dart button: 牵红 / 回身镖 / 迎面镖
     for (const [a, b] of [['acut', 'plunge'], ['acut', 'chase'], ['acut', 'counter'], ['stomp', 'launch'], ['stomp', 'kick'], ['stomp', 'dbl'], ['stomp', 'chase'],
-      ['reel', 'back'], ['reel', 'cdart'], ['swoop', 'dbl'], ['swoop', 'acut']] as Array<[string, string]>) expect(apart(a, b), `${a} / ${b}`).toBeGreaterThan(24);
+      ['reel', 'back'], ['reel', 'cdart'], ['swoop', 'dbl'], ['swoop', 'acut']] as Array<[LinkIcon, LinkIcon]>) expect(apart(a, b), `${a} / ${b}`).toBeGreaterThan(24);
   });
 });

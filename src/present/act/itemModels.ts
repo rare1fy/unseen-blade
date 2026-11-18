@@ -11,7 +11,7 @@ const C = {
   STEEL: 0xa8b2bc, STEEL_L: 0xe2e8ee, STEEL_D: 0x6e7884, IRON: 0x3a3d45, IRON_L: 0x5a5e68, IRON_D: 0x24262c,
   BRONZE: 0xb08040, BRONZE_L: 0xd8a858, BRONZE_D: 0x7a5428, RED: 0xa83228, RED_D: 0x7a2018, RED_L: 0xc8483a,
   WOOD: 0x7a5232, WOOD_L: 0x9a6c44, WOOD_D: 0x553820, CLAY: 0x9a5a32, CLAY_L: 0xb87244, CLAY_D: 0x6e3c1e,
-  CLOTH: 0x2c2e3a, CLOTH_L: 0x44485c, SOLE: 0xd8ccb0, STRAW: 0xc8a860, STRAW_D: 0x9e8040, STRAW_L: 0xe0c47c,
+  CLOTH: 0x515c70, CLOTH_L: 0x8793aa, SOLE: 0xd8ccb0, STRAW: 0xc8a860, STRAW_D: 0x9e8040, STRAW_L: 0xe0c47c,
   BREAD: 0xc88a40, BREAD_L: 0xe2aa5a, BREAD_D: 0x9a6428, MEAT: 0x7a3020, MEAT_L: 0x9a4430, SESAME: 0xf4e6bc,
   BAM: 0xc4a058, BAM_D: 0xa8873e, BAM_E: 0xdcc282, CORD: 0x34261a, CHAR: 0x3a2a1e,
   BONE: 0xeae2ce, BONE_D: 0xb8ae98, YELLOW: 0xe0b030, YELLOW_D: 0xb08020, YELLOW_L: 0xf4d060,
@@ -103,6 +103,9 @@ function book(set: Set3, ox = 0, oy = 0) {
   box(set, ox + 4, oy + 4, 0, ox + 6, oy + 6, 0, C.CHAR); set(ox + 3, oy + 6, 0, C.CHAR);
   for (const [x, y] of [[-5, 1], [-5, -1], [-3, 2], [-3, 0], [-3, -2], [-1, 1], [-1, -1], [1, 2], [1, 0]]) set(ox + x, oy + y, 1, C.CORD);
 }
+
+// Skills pose the same objects the HUD and the stalls use, so their silhouettes stay recognisable.
+export const ITEM_PROPS = { sabre, dart, boot, sandal };
 
 // ---------------------------------------------------------------- the models
 const ART: Record<string, Art> = {

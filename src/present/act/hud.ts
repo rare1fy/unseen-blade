@@ -184,7 +184,7 @@ export class ActHud {
     return false;
   }
   /** the 绝·一刀 QTE: k 0 → 1 as the ring closes on the cut button; hit = inside the press window; null hides it */
-  qte(k: number | null, hit = false) { const b = this.btns.attack; if (k == null) this.qteRing.hide(); else this.qteRing.show(b.x, b.y, b.size, k, hit); }
+  qte(k: number | null, hit = false) { const b = this.btns.attack; if (b instanceof IronBtn) b.qteOn = k != null; if (k == null) this.qteRing.hide(); else this.qteRing.show(b.x, b.y, b.size, k, hit); }
   /** act-29: a game moment on a button (a cut lands, a perfect dodge) */
   btnKick(n: BtnName, k: number, col?: number) { const b = this.btns[n]; if (b instanceof IronBtn) b.kick(k, col); }
   /** act-29: the dart's aim on screen (x right, y up), or null */
