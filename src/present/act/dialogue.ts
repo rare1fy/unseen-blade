@@ -162,7 +162,10 @@ export class Dialogue {
       const home = s === 'L' ? wP * 0.4 : L.w - wP * 0.4;
       const step = L.w * 0.018 * S.on - L.w * 0.035 * (1 - S.on);
       const cx = home + dir * step - dir * ((1 - inK) + outK + S.away) * wP * 0.95;
-      const top = L.h * 0.05 + (1 - S.on) * L.h * 0.12 - Math.sin(S.pop * Math.PI) * Math.max(6, L.h * 0.014);
+      // (act-50 用户：「立绘在对话的时候下半截会截断」: the top was pinned at 5% of the screen, so a picture shorter than the screen — the
+      //  whole-pixel scale rounding down, and always the listener's, one step smaller and pushed down — ended above the bottom edge, its
+      //  cut-off chest showing. Now the bottom always runs 4% past the screen's bottom (more than the pop lifts it), the head never above 5%)
+      const top = Math.max(L.h * 0.05, L.h * 1.04 - hP) + (1 - S.on) * L.h * 0.03 - Math.sin(S.pop * Math.PI) * Math.max(6, L.h * 0.014);
       const left = snap(cx - wP / 2), y0 = snap(top);
       L.at(left + wP / 2, y0 + hP / 2, Z, S.mesh.position); S.mesh.scale.set(L.px(wP, Z), L.px(hP, Z), 1);
       const k = S.on, mat = S.mesh.material as THREE.MeshBasicMaterial;
