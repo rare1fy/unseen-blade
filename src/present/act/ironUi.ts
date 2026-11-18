@@ -69,6 +69,7 @@ const ICONS: Record<BtnKey, string[]> = {
   special: ol([
     '....w....', '...wsk...', '...wsk...', '..wwskk..', '..wwskk..', '..wwskk..', '..wwskk..', '...wsk...', '...wsk...', '....k....', '...ooo...', '..oh.do..',
     '..oh.do..', '...ooo...', '...rRr...', '..rRrRr..', '..rRrRr..', '.rRr.rRr.', '.r.r.r.r.']),
+  ult: [],   // (11-18: 不见刀's button carries its voxel picture — skillIcons 'ult' — not a pixel badge)
 };
 /** act-29: the 'talk' picture for the cut button at the hideout: a bronze speech bubble with three dots */
 const TALK_ICON = ol(['.ooooooooooo.', 'ohhhhhhhhhhho', 'oh.........do', 'oh.r..r..r.do', 'oh.........do', 'odddddddddddo', '.oooo.oooooo.', '...ood.......', '...od........', '...o.........'].map(r => r.padEnd(13, '.')));
@@ -176,7 +177,7 @@ export class IronBtn {
       this.tassel = new THREE.Mesh(t.geo, vcMat()); this.tassel.position.set(0, -0.5, 0.04); this.root.add(this.tassel);
     }
     // act-29 (用户：「对齐一下我dicehero3D那版的UI品质，特别是3D icon的品质」): the thick voxel badges of dicehero3d's models3d
-    this.icon = btnIcon3D(name); this.iconG.add(this.icon);
+    this.icon = name === 'ult' ? skillIcon3D('ult') : btnIcon3D(name); this.iconG.add(this.icon);   // (11-18: 不见刀's own button)
     L.scene.add(this.root); L.scene.add(this.iconG);
   }
   hit(x: number, y: number) { const r = this.size * 0.6; return Math.abs(x - this.x) < r && Math.abs(y - this.y) < r; }

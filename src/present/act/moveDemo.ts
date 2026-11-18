@@ -48,8 +48,8 @@ const newBtn = (): Btn => ({ down: false, pressed: false, released: false, held:
 export class MoveDemo {
   on = false; stuck = false;
   private g: Hero | null = null; private foe: BattleActor | null = null; private F: Foe | null = null; private gm = ghostMat(0xd6e6ff); private fm = ghostMat(0xff9a88);
-  private inp = { b: { attack: newBtn(), dash: newBtn(), special: newBtn(), jump: newBtn() } as Record<BtnName, Btn> };
-  private hold: Record<BtnName, number> = { attack: 0, dash: 0, special: 0, jump: 0 };
+  private inp = { b: { attack: newBtn(), dash: newBtn(), special: newBtn(), jump: newBtn(), ult: newBtn() } as Record<BtnName, Btn> };
+  private hold: Record<BtnName, number> = { attack: 0, dash: 0, special: 0, jump: 0, ult: 0 };
   private script: Script | null = null; private keys: ReturnType<typeof manualSteps> = []; private readyAt = 0; private si = 0; private t = 0; private lastT = 0; private stick: { v: THREE.Vector3; t: number } = { v: V3(), t: 0 };
   private darts: Dart[] = []; private fvy = 0; private fvel = V3(); private prone = 0; private hint: HintKey | null = null; private skipped = false; private fade = 0; private ending = -1;
   private done: (() => void) | null = null; private hud: ActHud | null = null; private dir = V3(1, 0, 0);

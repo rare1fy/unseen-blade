@@ -18,7 +18,11 @@ describe('rebind', () => {
   it('a spare key is given up, the owner keeps its main key and other spares', () => {
     expect(rebind('pad', 'special', 5)).toBe('ok');  // RB was a spare of the dash
     expect(BIND.pad.special[0]).toBe(5);
-    expect(BIND.pad.dash).toEqual([1, 7]);
+    expect(BIND.pad.dash).toEqual([1]);   // (11-18: RT is 不见刀's now, no longer a dash spare)
+  });
+  it('不见刀 has its own keys: I and R2 (RT), which the dash gave up', () => {
+    expect(DEFAULT_BINDS.key.ult).toEqual(['i']); expect(DEFAULT_BINDS.pad.ult).toEqual([7]);
+    expect(DEFAULT_BINDS.pad.dash).not.toContain(7);
   });
   it('keeps the action\'s own spares', () => {
     rebind('key', 'dash', 'o');
@@ -43,6 +47,15 @@ describe('rebind', () => {
     store.set('ub.bind', JSON.stringify({ key: { attack: ['w'], dash: ['o'] }, pad: { jump: [9], special: [6] } }));
     loadBinds();
     expect(BIND.key.attack).toEqual(['j']); expect(BIND.key.dash).toEqual(['o']); expect(BIND.pad.jump).toEqual([0]); expect(BIND.pad.special).toEqual([6]);
+    delete (globalThis as { localStorage?: unknown }).localStorage;
+  });
+  it('a table saved before 不见刀 had its own button: it gets I / RT, the old dash spare RT is given up', () => {
+    const store = new Map<string, string>(); const ls = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) };
+    (globalThis as { localStorage?: unknown }).localStorage = ls;
+    resetBinds();   // (it saves the defaults: the old table goes in after it)
+    store.set('ub.bind', JSON.stringify({ key: { attack: ['j'], dash: ['k', 'shift'], jump: [' '], special: ['l', 'e'] }, pad: { attack: [2], dash: [1, 5, 7], jump: [0], special: [3] } }));
+    loadBinds();
+    expect(BIND.pad.ult).toEqual([7]); expect(BIND.pad.dash).toEqual([1, 5]); expect(BIND.key.ult).toEqual(['i']);
     delete (globalThis as { localStorage?: unknown }).localStorage;
   });
 });

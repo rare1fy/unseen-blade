@@ -1966,8 +1966,10 @@ export class ActShow {
     this.hud.qte(Math.min(1, k), win);
     this.qteW.visible = true; this.qteW.position.set(h.pos.x, 0.07, h.pos.z); this.qteW.scale.setScalar(0.9 + 2.6 * Math.max(0, 1 - k));
     (this.qteW.material as THREE.MeshBasicMaterial).color.setHex(win ? 0xfff0b0 : 0xffb040);
-    const pressed = this.inp.b.attack.pressed;
-    if (pressed) { this.inp.b.attack.pressed = false; h.clearInput(); }
+    // 11-18 (用户：「不应该还是按普攻，高速战斗的时候经常都按不到」): 不见刀's own button (I / R2 / the button that pops up); the cut button
+    // is left to cut
+    const pressed = this.inp.b.ult.pressed;
+    if (pressed) this.inp.b.ult.pressed = false;
     if (pressed && win) { this.qteT = -1; this.hud.qte(null); this.qteW.visible = false; void this.ult(); }
     else if (pressed || k > 1.2) { this.qteT = -1; this.hud.qte(null); this.qteW.visible = false; FX.slowmo = 0; cue('click', 0.5); }
   }
@@ -2333,7 +2335,7 @@ export class ActShow {
     if (this.prologue === 2 && this.phase === 'fight' && !this.proFalling && this.foes.some(f => isBoss(f))) { this.proFightT += dt; if (this.proFightT > 60) void this.prologueFall(); }   // (a fallback only: the fifth of his life is the cue)
     if (this.botOn) this.bot();
     // the model page plays 不见刀's QTE by itself (press as the ring closes)
-    else if (this.labOn && this.qteT >= 0) { const k = this.qteT / TUNE.qteTime, b = this.inp.b.attack, on = k > 0.85 && k < 1.0; b.pressed = on && !b.down; b.down = on; }
+    else if (this.labOn && this.qteT >= 0) { const k = this.qteT / TUNE.qteTime, b = this.inp.b.ult, on = k > 0.85 && k < 1.0; b.pressed = on && !b.down; b.down = on; }
     const h = this.hero; if (!h) return;
     // 11-18: a 刀谱's demonstration — the ghost plays on real time, the HUD shows its presses; she stands still, the world is quiet
     if (this.demo.on) {
@@ -2532,7 +2534,7 @@ export class ActShow {
     const B = this.hud.btns; void B;
     // the dart button shows no cool-down (a third of a second would only flicker)
     // the dart button: dark and sinking while the three reload; the lamps show the darts left
-    this.hud.setCooldowns({ attack: 0, jump: 0, dash: Math.max(0, h.dashCd / TUNE.dashCd), special: h.dartReload > 0 ? h.dartReload / TUNE.dartReload : 0 });
+    this.hud.setCooldowns({ attack: 0, jump: 0, ult: 0, dash: Math.max(0, h.dashCd / TUNE.dashCd), special: h.dartReload > 0 ? h.dartReload / TUNE.dartReload : 0 });
     this.hud.setPips('special', h.dartAmmo, TUNE.dartCharges);
     // 11-17 气: the yard (试剑坪) fills it back by itself (practise 破势 without building it first)
     if (this.phase === 'yard' && h.st !== 'charge') h.qi = Math.min(Hero.QI_MAX, h.qi + rdt * 1.5);
@@ -2617,7 +2619,7 @@ export class ActShow {
   private botYard() { return this.botStay; }
   private bot() {
     const h = this.hero, I = this.inp; if (!h) return;
-    if (this.qteT >= 0) { const k = this.qteT / TUNE.qteTime; const b = I.b.attack; const on = k > 0.85 && k < 1.0; b.pressed = on && !b.down; b.down = on; return; }
+    if (this.qteT >= 0) { const k = this.qteT / TUNE.qteTime; const b = I.b.ult; const on = k > 0.85 && k < 1.0; b.pressed = on && !b.down; b.down = on; return; }
     if (this.cards.on) { this.cardT += clock.rdt; if (this.cardT > 1.2) { this.cardT = 0; this.cards.key('ok'); } return; } else this.cardT = 0;
     const live = this.foes.filter(f => f.st !== 'dead' && f.kind !== 'dummy' && !f.mem.hidden);   // (11-18: the bot can't see the hidden ones either)
     const set = (n: 'attack' | 'dash' | 'special' | 'jump', on: boolean) => { const b = I.b[n]; b.pressed = on && !b.down; b.down = on; b.held = on ? b.held + clock.rdt : 0; };

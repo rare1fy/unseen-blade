@@ -129,10 +129,10 @@ export class ActHud {
     this.skin = SKIN.id;
     if (this.skin === 'iron') {
       this.flask = new IronHp(L, this.sparks); this.stick = new IronStick(L);
-      this.btns = { attack: new IronBtn(L, 'attack', this.sparks), dash: new IronBtn(L, 'dash', this.sparks), special: new IronBtn(L, 'special', this.sparks), jump: new IronBtn(L, 'jump', this.sparks) };
+      this.btns = { attack: new IronBtn(L, 'attack', this.sparks), dash: new IronBtn(L, 'dash', this.sparks), special: new IronBtn(L, 'special', this.sparks), jump: new IronBtn(L, 'jump', this.sparks), ult: new IronBtn(L, 'ult', this.sparks) };
     } else {
       this.flask = new SkinHp(L, this.skin, this.sparks); this.stick = new SkinStick(L, this.skin);
-      this.btns = { attack: new SkinBtn(L, 'attack', this.sparks, this.skin), dash: new SkinBtn(L, 'dash', this.sparks, this.skin), special: new SkinBtn(L, 'special', this.sparks, this.skin), jump: new SkinBtn(L, 'jump', this.sparks, this.skin) };
+      this.btns = { attack: new SkinBtn(L, 'attack', this.sparks, this.skin), dash: new SkinBtn(L, 'dash', this.sparks, this.skin), special: new SkinBtn(L, 'special', this.sparks, this.skin), jump: new SkinBtn(L, 'jump', this.sparks, this.skin), ult: new SkinBtn(L, 'ult', this.sparks, this.skin) };
     }
     if (st) this.flask.set(st);
     this.layout(this.W, this.H);
@@ -151,6 +151,9 @@ export class ActHud {
     b.dash.x = W - 300 * k; b.dash.y = H - 92 * k;
     b.jump.x = W - 292 * k; b.jump.y = H - 238 * k;
     b.special.x = W - 150 * k; b.special.y = H - 300 * k;
+    // 11-18 (用户：「大招可以触发的时候应该在右手拇指区域一个额外的地方出现一个按钮」): 不见刀's own button, over the jump button on the
+    // thumb's arc (clear of the dart button and its label); it shows only while the ring closes (the QTE)
+    b.ult.size = 124 * k; b.ult.x = W - 300 * k; b.ult.y = H - 392 * k;
     // the pause button at the top right: just left of the tuning panel's 「调」 (a 30 px square 8 px in from the corner), level with it;
     // the purse moves along to its left
     const ps = Math.max(34, 40 * k); this.pauseBtn.size = ps; this.pauseBtn.x = W - 46 - ps / 2; this.pauseBtn.y = 23;
@@ -167,7 +170,7 @@ export class ActHud {
     if (this.pausePid === id && (type === 'up' || type === 'cancel')) { const fire = type === 'up' && pb.hit(x, y); pb.down = false; this.pausePid = -1; if (fire) this.onPause?.(); return true; }
     if (this.pausePid === id && type === 'move') { pb.down = pb.hit(x, y); return true; }
     if (type === 'down') {
-      for (const b of Object.values(this.btns)) if (b.hit(x, y)) { b.down = true; b.pid = id; inp.press(b.name, id); if (b.name === 'special') inp.aimBegin(id, b.x, b.y, x, y); return true; }   // act-14 用户：「按操作的按钮不要有音效」
+      for (const b of Object.values(this.btns)) if ((b !== this.btns.ult || this.ultUp) && b.hit(x, y)) { b.down = true; b.pid = id; inp.press(b.name, id); if (b.name === 'special') inp.aimBegin(id, b.x, b.y, x, y); return true; }   // act-14 用户：「按操作的按钮不要有音效」
       // the stick: only the bottom-left area answers; floating = the base appears under the thumb (kept clear of the screen's edges)
       // and then stays put; fixed = the base sits at its home and only a press near it counts
       inp.stick.r = this.stickSize * 0.42;
@@ -184,7 +187,15 @@ export class ActHud {
     return false;
   }
   /** the 绝·一刀 QTE: k 0 → 1 as the ring closes on the cut button; hit = inside the press window; null hides it */
-  qte(k: number | null, hit = false) { const b = this.btns.attack; if (b instanceof IronBtn) b.qteOn = k != null; if (k == null) this.qteRing.hide(); else this.qteRing.show(b.x, b.y, b.size, k, hit); }
+  // 11-18: the ring closes on 不见刀's own button, which pops up for it (the cut button no longer lets it loose)
+  qte(k: number | null, hit = false) {
+    const b = this.btns.ult, up = k != null;
+    if (up && !this.ultUp && b instanceof IronBtn) b.kick(1.4, 0xffd060);
+    this.ultUp = up; if (b instanceof IronBtn) { b.qteOn = up; b.hot = up; }
+    if (k == null) this.qteRing.hide(); else this.qteRing.show(b.x, b.y, b.size, k, hit);
+  }
+  /** 不见刀's button is up (the QTE): drawn, labelled, and the only time it takes a touch */
+  private ultUp = false;
   /** act-29: a game moment on a button (a cut lands, a perfect dodge) */
   btnKick(n: BtnName, k: number, col?: number) { const b = this.btns[n]; if (b instanceof IronBtn) b.kick(k, col); }
   /** act-29: the dart's aim on screen (x right, y up), or null */
@@ -211,7 +222,7 @@ export class ActHud {
     b.lag.position.x = (-w / 2 + (w * b.lagV) / 2) * u; b.fill.position.x = (-w / 2 + (w * frac) / 2) * u;
   }
   update(dt: number, inp: Input, foes: Foe[]) {
-    this.stick.root.visible = this.on; for (const b of Object.values(this.btns)) { b.root.visible = this.on; if (b instanceof IronBtn) b.iconG.visible = this.on; }
+    this.stick.root.visible = this.on; for (const b of Object.values(this.btns)) { const on = this.on && (b !== this.btns.ult || this.ultUp); b.root.visible = on; if (b instanceof IronBtn) b.iconG.visible = on; }
     this.flask.root.visible = this.on;
     if (this.on) { this.stick.update(inp.stick, this.stickHome, this.stickSize); for (const b of Object.values(this.btns)) b.update(dt); }
     this.pauseBtn.on = this.on; this.pauseBtn.update(dt); this.markFrame(dt);
@@ -227,7 +238,8 @@ export class ActHud {
       let x = b.x;
       if (dev === 'pad' && this.on) { const gi = BIND.pad[n][0], gh = px * 1.3, gw = glyphArt(gi).w / GLYPH_H * gh, gap = px * 0.3, ww = pixTextW(word, pk, dpr); x = b.x - (gap + gw) / 2; this.glyph(n, gi, b.x - (ww + gap + gw) / 2 + ww + gap, y, gh); }
       else this.glyph(n, null, 0, 0, 0);
-      this.L.text.set('act.btn.' + n, { text: t, x, y, pix: pk, color: '#f4ecd8', outline: '#140c0a', align: 'center', visible: this.on });
+      const shown = this.on && (n !== 'ult' || this.ultUp);
+      this.L.text.set('act.btn.' + n, { text: t, x, y, pix: pk, color: n === 'ult' ? '#ffe6a0' : '#f4ecd8', outline: '#140c0a', align: 'center', visible: shown });
     }
     if (this.flask instanceof IronHp) this.flask.intent = this.intent;
     this.flask.update(dt); this.sparks.update(dt);

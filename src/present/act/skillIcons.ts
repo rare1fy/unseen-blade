@@ -181,6 +181,7 @@ export function skillIcon3D(id: BaseIcon | BoonId): Model3D {
     case 'btn:dash': return btnIcon3D('dash');
     case 'btn:jump': return btnIcon3D('jump');
     case 'btn:special': return btnIcon3D('special');
+    case 'btn:ult': return customIcon3D('skill:ult', ART.ult);
     default: return customIcon3D('skill:' + id, ART[id]);
   }
 }
