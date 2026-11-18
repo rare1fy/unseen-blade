@@ -70,7 +70,7 @@ console.log(`  合计 ${kb(size(OUT))}；appid ${appid}；iOS 高性能模式 ${
 
 // 4. the zip (Python's zipfile writes UTF-8 names with the flag set, so the Chinese folder name survives on any unzip)
 if (ZIP) {
-  const py = `import zipfile,os,sys\nsrc,dst=sys.argv[1],sys.argv[2]\nbase=os.path.dirname(src)\nwith zipfile.ZipFile(dst,'w',zipfile.ZIP_DEFLATED) as z:\n  for d,_,fs in os.walk(src):\n    for f in fs:\n      p=os.path.join(d,f); z.write(p,os.path.relpath(p,base))\n`;
+  const py = `import zipfile,os,sys\nsrc,dst=sys.argv[1],sys.argv[2]\nbase=os.path.dirname(src)\nwith zipfile.ZipFile(dst,'w',zipfile.ZIP_DEFLATED) as z:\n  for d,_,fs in os.walk(src):\n    for f in fs:\n      if f=='project.private.config.json': continue\n      p=os.path.join(d,f); z.write(p,os.path.relpath(p,base))\n`;   // (the devtools' own per-machine settings stay out)
   try { fs.rmSync(ZIP, { force: true }); execFileSync('python', ['-c', py, OUT, ZIP], { stdio: 'inherit' }); console.log(`  压缩包 ${ZIP}（${kb(fs.statSync(ZIP).size)}）`); }
   catch (e) { console.log('  （没打压缩包：' + (e && e.message) + '）'); }
 }
