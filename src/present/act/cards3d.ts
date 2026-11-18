@@ -6,13 +6,12 @@
 //
 // 11-18 (用户：「强化卡片也难以辨认都是干嘛的，icon造型和描述都很抽象」→ 卡面 = 键位 + 招式图标 + 按法；「选了强化后根本看不到自己选的强化是
 // 啥，在哪儿、如何释放」): a 秘传 / 刀谱 card is taller and reads left to right —
-//   the button it belongs to, in small (the HUD's iron shield, the same model), with this move's / this boon's thick picture in it
-//   (a 刀谱's picture is the one its button turns over to in a fight);
+//   its thick picture on the left, in the board's dark recess (a 刀谱's picture is the one its button turns over to in a fight);
 //   row 1: the name and its tier (or 刀谱), the numbers in small type at the right;
 //   row 2: how it is done — the HUD's buttons in small, in order, arrows between (skillFace.ts); the card in focus presses them one
 //          after another (each sinks and lights), over and over, so the order reads without words;
 //   row 3: one line of what comes out (key words behind their little icons).
-// Taken: the cards fall away and the chosen one's button flies down onto that button of the HUD (its frame and text fade on the way),
+// Taken: the cards fall away and the chosen one's picture flies down onto its button of the HUD (its frame and text fade on the way),
 // lands with a ring of light, and leaves a mark beside it (hud.ts). The other cards (meals, the hideout's lists) keep the short board.
 import * as THREE from 'three';
 import type { UiLayer } from '../ui3d/layer';
@@ -27,7 +26,8 @@ import type { Model3D } from '../ui3d/models3d';
 import { makeCanvas } from '../../platform/index';
 import { PIX_H } from '../v2/pix';
 import type { MiniShield } from './btnBadge';
-import { entryOfCard, layoutPresses, paintSeps, pressShields, paintName, paintEffect, paintNum, bigShield, type SkillEntry, type PressItem } from './skillFace';
+import { entryOfCard, layoutPresses, paintSeps, pressShields, paintName, paintEffect, paintNum, type SkillEntry, type PressItem } from './skillFace';
+import { skillIcon3D } from './skillIcons';
 import type { MarkTarget } from './skillInfo';
 
 const styleOf = (b: Boon): CardStyle => {
@@ -48,7 +48,7 @@ export interface CardFlight { at(t: MarkTarget): { x: number; y: number; size: n
 
 interface Card {
   b: Boon; tier: number; st: CardStyle; e: SkillEntry | null; root: THREE.Group; board: THREE.Mesh; face: THREE.Mesh; rim: THREE.Mesh;
-  badge: Model3D | null; big: MiniShield | null; presses: MiniShield[]; items: PressItem[]; L: ReturnType<typeof boardLayout>;
+  badge: Model3D | null; picture: Model3D | null; presses: MiniShield[]; items: PressItem[]; L: ReturnType<typeof boardLayout>;
   x: number; y: number; w: number; h: number; lift: number; t0: number; landed: boolean; faceKey: string; focusT: number;
 }
 export class CardPick3D {
@@ -75,13 +75,13 @@ export class CardPick3D {
     const lay = boardLayout(Hh);
     this.cards = boons.map(({ boon: b, tier }, i) => {
       const st = styleOf(b), e = entries[i], root = new THREE.Group(); root.userData.noTilt = true;
-      const { mesh: board, metal } = cardBoard(st, tier, Hh); board.renderOrder = 30; root.add(board);
+      const { mesh: board, metal } = cardBoard(st, tier, Hh, !!e); board.renderOrder = 30; root.add(board);
       const F = lay.FACE, face = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, toneMapped: false }));
       face.position.set((F.x0 + F.x1) / 2, 0, 0.035); face.scale.set(F.x1 - F.x0, F.h, 1); face.renderOrder = 31; root.add(face);
-      let badge: Model3D | null = null, big: MiniShield | null = null, presses: MiniShield[] = [], items: PressItem[] = [];
+      let badge: Model3D | null = null, picture: Model3D | null = null, presses: MiniShield[] = [], items: PressItem[] = [];
       if (e) {
-        // the button on the left (its plates in the move's / the tier's colour), the move's picture in it
-        big = bigShield(e); big.position.set(lay.SOCKET.x, 0, 0.075); big.scale.setScalar(lay.SOCKET.size * 0.94); big.setRenderOrder(32); root.add(big);
+        picture = skillIcon3D(e.icon); picture.position.x = lay.SOCKET.x; picture.scale.setScalar(lay.SOCKET.size * 0.94);
+        picture.traverse(o => { o.renderOrder = 32; }); root.add(picture);
         if (e.steps) {
           // the presses: in board units (the face spans F.x0..F.x1 × ±F.h / 2); the separators are painted on the face (paint)
           const fw = F.x1 - F.x0, s = F.h * ROW.press, lp = layoutPresses(e.steps, s, e.lit); items = lp.items;
@@ -96,7 +96,7 @@ export class CardPick3D {
       const rim = new THREE.Mesh(new THREE.PlaneGeometry(1.04, Hh + 0.04), new THREE.MeshBasicMaterial({ color: new THREE.Color(metal.glow), transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
       rim.position.z = -0.03; rim.renderOrder = 29; root.add(rim);
       L.scene.add(root);
-      return { b, tier, st, e, root, board, face, rim, badge, big, presses, items, L: lay, x: L.w / 2, y: L.h * 0.5 + (i - (n - 1) / 2) * (h + gap), w, h, lift: 0, t0: clock.rtime + 0.05 + i * 0.11, landed: false, faceKey: '', focusT: 0 };
+      return { b, tier, st, e, root, board, face, rim, badge, picture, presses, items, L: lay, x: L.w / 2, y: L.h * 0.5 + (i - (n - 1) / 2) * (h + gap), w, h, lift: 0, t0: clock.rtime + 0.05 + i * 0.11, landed: false, faceKey: '', focusT: 0 };
     });
     this.on = true; this.focus = Math.min(1, this.cards.length - 1); this.leaving = -1; this.flyStarted = false; cue('scroll', 0.8); this.openedAt = clock.rtime;
     return new Promise(res => { this.done = res; });
@@ -105,7 +105,7 @@ export class CardPick3D {
     for (const c of this.cards) {
       c.root.parent?.remove(c.root); c.board.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh) { m.geometry.dispose(); (m.material as THREE.Material).dispose(); } });
       c.face.geometry.dispose(); const fm = c.face.material as THREE.MeshBasicMaterial; fm.map?.dispose(); fm.dispose();
-      c.rim.geometry.dispose(); (c.rim.material as THREE.Material).dispose(); c.badge?.dispose(); c.big?.dispose(); for (const p of c.presses) p.dispose();
+      c.rim.geometry.dispose(); (c.rim.material as THREE.Material).dispose(); c.badge?.dispose(); c.picture?.dispose(); for (const p of c.presses) p.dispose();
     }
     this.cards = []; this.on = false;
   }
@@ -157,21 +157,20 @@ export class CardPick3D {
           const pk = Math.min(1, this.leaveT / 0.16), punch = pk < 1 ? Math.sin(pk * Math.PI) * 0.1 : 0;
           sc = (1 + 0.05) * (1 + punch); warm = this.leaveT < 0.25 ? 0.35 : 0.2; rimA = Math.max(0, 0.3 - k * 0.5);
           const go = Math.max(0, (this.leaveT - 0.3) / (T - 0.3));
-          if (flies && c.big) {
-            // the button flies onto its HUD button: the board and its words fade in the first part, the button lands at the button's
-            // size, square to the viewer
+          if (flies && c.picture) {
+            // Carry the picture out of the recess and land it at the size of the picture already on the HUD.
             const at = this.flight!.at(c.e!.target), g = go < 0.5 ? 2 * go * go : 1 - (-2 * go + 2) ** 2 / 2;
-            const endScale = at.size / (c.L.SOCKET.size * 0.94);
+            const endScale = at.size * 0.66 / c.picture.scale.x;
             scale = L.px(c.w) * sc + (L.px(endScale) - L.px(c.w) * sc) * g; sc = 1;
-            const sx = c.L.SOCKET.x * scale / L.px(1);   // the shield's offset from the card's centre, in px at this scale
+            const sx = c.L.SOCKET.x * scale / L.px(1);
             x = x + (at.x - sx - x) * g; y = y + (at.y - y) * g; z *= 1 - g; dx *= 1 - g; rx *= 1 - g; ry *= 1 - g;
             alpha = Math.max(0, 1 - go / 0.4); rimA *= alpha;
-            c.big.icon.setGlow(1 + 0.6 * Math.sin(Math.min(1, go) * Math.PI));
+            c.picture.setGlow(1 + 0.6 * Math.sin(Math.min(1, go) * Math.PI));
           } else { const g2 = go * go; x += (L.w * 0.12 - x) * g2; y += (L.h * 0.08 - y) * g2; sc *= 1 - 0.8 * g2; alpha = 1 - g2 * 0.6; }
         } else {
           // (11-18: the ones not taken drop out of the way at once — when the chosen one flies to the HUD it must not pass through them)
           const kf = flies ? Math.min(1, this.leaveT / 0.4) : k, g = kf * kf; y += g * L.h * 0.8; rz = (i < this.leaving ? -1 : 1) * 0.5 * g; rimA = 0; warm = 0;
-          if (flies) { alpha = 1 - kf; fade(c.board, alpha); for (const p of c.presses) p.setOpacity(alpha); c.big?.setOpacity(alpha); }
+          if (flies) { alpha = 1 - kf; fade(c.board, alpha); for (const p of c.presses) p.setOpacity(alpha); c.picture?.setOpacity(alpha); }
         }
       }
       const bm = c.board.material as THREE.MeshLambertMaterial; bm.emissiveIntensity = warm;
@@ -181,9 +180,12 @@ export class CardPick3D {
       // the picture: a slow idle, up and turning toward the viewer in focus, a little brighter
       const dim = this.leaving >= 0 && i !== this.leaving ? 0.4 : 0.15 * (1 - c.lift);
       if (c.badge) { c.badge.idle(t, 0.025, 0.3 + 0.2 * c.lift); c.badge.position.z = 0.07 + 0.05 * c.lift; c.badge.setGlow(1 + 0.25 * c.lift); c.badge.setDim(dim); }
-      if (c.big) {
-        c.big.icon.idle(t, 0.02, 0.25 + 0.2 * c.lift); c.big.icon.position.z = 0.22 + 0.08 * c.lift; c.big.icon.setDim(dim);
-        if (!(flies && i === this.leaving)) c.big.icon.setGlow(1 + 0.25 * c.lift);
+      if (c.picture) {
+        const p = c.picture;
+        p.idle(t, 0.02, 0.18 + 0.12 * c.lift);
+        p.position.z = 0.048 + p.size[2] * p.scale.x / 2 + 0.02 * c.lift;
+        p.setDim(dim);
+        if (!(flies && i === this.leaving)) p.setGlow(1 + 0.25 * c.lift);
       }
       // the presses: the card in focus plays them through — each button sinks and lights in turn (a beat each), then a rest, again
       if (c.presses.length) {
@@ -201,7 +203,7 @@ export class CardPick3D {
     }
   }
 }
-/** the board fades (the chosen card on its way to the HUD; the button it carries does not) */
+/** the board fades as the chosen card carries its picture to the HUD */
 function fade(board: THREE.Object3D, a: number) {
   board.traverse(o => { const m = o as THREE.Mesh; if (!m.isMesh) return; const mt = m.material as THREE.MeshLambertMaterial; mt.transparent = a < 0.999; mt.opacity = a; mt.depthWrite = a >= 0.999; });
   board.visible = a > 0.01;

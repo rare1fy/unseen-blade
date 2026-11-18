@@ -5,7 +5,7 @@
 // frame's metal, not a coloured sticker: 凡品 iron, 珍品 bronze (corner brackets), 绝品 gold (corner brackets and a crest). Every block
 // is axis-aligned (no stair-step diagonals).
 import * as THREE from 'three';
-import { mergeBoxes, IRON_D, LACQ, LACQ_L } from './title';
+import { mergeBoxes, IRON_D, IRON, LACQ, LACQ_L } from './title';
 import { customIcon3D, type Model3D } from '../ui3d/models3d';
 import { Mask, pillow, box } from '../ui3d/models3dArt';
 import { drawPix, pixW, PIX_H } from '../v2/pix';
@@ -35,7 +35,7 @@ export const TIER_TXT = ['#d8d2c6', '#f0b870', '#ffe08a'];
 const NAME_TXT = ['#efe6d2', '#ffd8a0', '#fff0c0'];
 
 // the layout in board units (width 1, height CARD_H, front toward +z)
-/** 11-18 (用户：「强化卡片也难以辨认都是干嘛的」): the skill cards are taller — the button on the left, the name, the presses and the effect on
+/** 11-18 (用户：「强化卡片也难以辨认都是干嘛的」): the skill cards are taller — the icon on the left, the name, the presses and the effect on
  *  the right (three rows); the hideout's lists keep the short board */
 export const SKILL_H = 0.3;
 export function boardLayout(H: number) {
@@ -48,7 +48,7 @@ const H = CARD_H, SOCK = H - 0.072, SX = -0.5 + FR + 0.018 + SOCK / 2, DIV = SX 
 export const FACE = { x0: DIV + 0.016, x1: 0.5 - FR - 0.012, h: H - 2 * FR - 0.014 };
 
 /** the board itself: one merged mesh (vertex colours), its emissive used for the focus glow; Hh = the board's height (CARD_H / SKILL_H) */
-export function cardBoard(style: CardStyle, tier: number, Hh = CARD_H) {
+export function cardBoard(style: CardStyle, tier: number, Hh = CARD_H, skill = false) {
   const M = style === 'boon' ? METAL[Math.max(0, Math.min(2, tier))] : STYLE_METAL[style], [pc, pl] = PANEL[style];
   const { H, SOCK, SX, DIV } = boardLayout(Hh);
   // (two meshes: the panel never glows — only the metal warms in focus; act-36 first try tinted the whole lacquer orange)
@@ -60,11 +60,11 @@ export function cardBoard(style: CardStyle, tier: number, Hh = CARD_H) {
   b.push({ w: 1, h: FR, d: 0.064, x: 0, y: H / 2 - FR / 2, z: 0.004, c: M.m }, { w: 1 - 0.01, h: 0.007, d: 0.066, x: 0, y: H / 2 - 0.0035, z: 0.004, c: M.l });
   b.push({ w: 1, h: FR, d: 0.064, x: 0, y: -H / 2 + FR / 2, z: 0.004, c: M.d });
   for (const s of [-1, 1]) b.push({ w: FR, h: H, d: 0.066, x: s * (0.5 - FR / 2), y: 0, z: 0.004, c: s < 0 ? M.m : M.d });
-  // the socket: a metal square ring round a dark recess (its face sits behind the lacquer's), the divider after it
-  const r = 0.016, sd = 0.07;
-  b.push({ w: SOCK + 2 * r, h: r, d: sd, x: SX, y: SOCK / 2 + r / 2, z: 0.006, c: M.l }, { w: SOCK + 2 * r, h: r, d: sd, x: SX, y: -SOCK / 2 - r / 2, z: 0.006, c: M.d });
-  b.push({ w: r, h: SOCK, d: sd, x: SX - SOCK / 2 - r / 2, y: 0, z: 0.006, c: M.m }, { w: r, h: SOCK, d: sd, x: SX + SOCK / 2 + r / 2, y: 0, z: 0.006, c: M.d });
-  p.push({ w: SOCK, h: SOCK, d: 0.03, x: SX, y: 0, z: -0.006, c: 0x0b090a });
+  // The skill picture sits over a dark insert. Its front clears the lacquer but stays below the narrow iron walls.
+  const r = skill ? 0.01 : 0.016, sd = 0.07, dark = skill ? IRON_D : M.d;
+  b.push({ w: SOCK + 2 * r, h: r, d: sd, x: SX, y: SOCK / 2 + r / 2, z: 0.006, c: skill ? IRON : M.l }, { w: SOCK + 2 * r, h: r, d: sd, x: SX, y: -SOCK / 2 - r / 2, z: 0.006, c: dark });
+  b.push({ w: r, h: SOCK, d: sd, x: SX - SOCK / 2 - r / 2, y: 0, z: 0.006, c: skill ? 0x26282e : M.m }, { w: r, h: SOCK, d: sd, x: SX + SOCK / 2 + r / 2, y: 0, z: 0.006, c: dark });
+  p.push({ w: SOCK, h: SOCK, d: 0.03, x: SX, y: 0, z: skill ? 0.019 : -0.006, c: skill ? 0x111217 : 0x0b090a });
   b.push({ w: 0.01, h: H - 2 * FR, d: 0.06, x: DIV, y: 0, z: 0.003, c: M.d });
   // rivets: the four corners of the frame, then along the top and bottom bars
   const rv = 0.016, rz = 0.04;

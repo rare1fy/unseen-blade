@@ -42,6 +42,10 @@ export class Model3D extends THREE.Group {
   setDim(k: number) { this.dim = Math.max(0, Math.min(1, k)); this.apply(); return this; }
   /** emissive multiplier (1 = authored; ~1.6 active, ~2.2 tier 3; 0 = glow off) */
   setGlow(k: number) { this.glowK = Math.max(0, k); this.apply(); return this; }
+  setOpacity(o: number) {
+    for (const { m } of this.lit) { m.transparent = o < 0.999; m.opacity = o; }
+    for (const { m } of this.glows) { m.transparent = o < 0.999; m.opacity = o; }
+  }
   private apply() {
     const lk = 1 - 0.62 * this.dim, gk = this.glowK * (1 - 0.85 * this.dim);
     for (const l of this.lit) l.m.color.copy(l.base).multiply(TMP.setRGB(lk, lk, lk * (1 + 0.08 * this.dim)));

@@ -1,6 +1,6 @@
 // 小铁盾（11-18）：右下角技能钮那面铁盾的缩小版，一整块合并网格（黑铁底盘、外圈八片甲片和铜钉、钮心凹槽），钮心上浮一个立体图标。
-// 用在：三选一卡面左边那颗钮和「按法」那一排小钮、暂停菜单「已得」「招式」两页、右上角的暂停钮。
-// 用户：「强化卡片也难以辨认都是干嘛的」→ 卡面 = 键位 + 招式图标 + 按法；按钮模型和右下角的同一套，玩家一眼认得是哪颗钮。
+// 用在：三选一卡面和暂停菜单「已得」「招式」两页的「按法」小钮、右上角的暂停钮。
+// 和右下角的按钮用同一套图形，玩家一眼认得出该按哪颗钮。
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { customIcon3D, type Model3D } from '../ui3d/models3d';
@@ -56,8 +56,7 @@ export class MiniShield extends THREE.Group {
   /** the whole thing fades (the card's flight, a page sliding in): materials go transparent below 1 */
   setOpacity(o: number) {
     const mm = this.mesh.material as THREE.MeshLambertMaterial; mm.transparent = o < 0.999; mm.opacity = o; mm.depthWrite = o >= 0.999;
-    for (const l of this.icon.lit) { l.m.transparent = o < 0.999; l.m.opacity = o; }
-    for (const g of this.icon.glows) { g.m.transparent = o < 0.999; g.m.opacity = o; }
+    this.icon.setOpacity(o);
   }
   // The group also sets sort order when the slab and shield both fade at the edge of a list.
   setRenderOrder(n: number) { this.renderOrder = n; this.mesh.renderOrder = n; this.icon.traverse(x => { x.renderOrder = n + 1; }); }
