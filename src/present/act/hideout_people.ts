@@ -2,7 +2,7 @@
 // act-22 起用细格子：一格 3.5 厘米（场景格的一半，场景一格 = 人 2×2×2 格），人约 54～59 格高。骨骼名字、父子关系和关节位置都是
 // 7 厘米版的 × 2（米数一样），所以待机动作（POSE_HOOKS）照旧；部件也和原来一一对应（一个部件一个网格、一次 draw call）。
 // 细格子的用法照细白发女（heroineFine.ts）：小臂、手、小腿比 × 2 再细一格，手小；刀、针、飘带、布尾一格薄；脸干净，女性平脸不出鼻子、
-// 鼻下不压阴影，男性鼻子凸一格。多出来的精度只给认人的细节：杜五的锅、汗巾和缺两指的左手；孙媪的白翳左眼、银针、药葫芦和皮囊；
+// 鼻下不压阴影，男性鼻子凸一格。多出来的精度只给认人的细节：杜五的发束、汗巾和缺两指的左手；孙媪的低髻、白翳左眼、银针和药葫芦；
 // 冯铁臂右腕断口上绑着套筒焊死的方锤、围裙、伤疤；卢昭的黑氅、绯红深衣、步摇（克制）；桓越的四尺汉剑、暗红抹额、血斑、削平的散发。
 // 待机（POSE_HOOKS）：杜五坐不住（搓手、挠头、东张西望、换脚、点脚尖）；孙媪不动，只微微晃，隔一阵举针看；冯铁臂一锤一锤慢慢
 // 打（锤落迸火星）；卢昭端着看竹简，隔一阵抬眼；桓越坐在石阶最下一级（座高 0.35 米），拄着插在地上的剑，隔一阵举葫芦喝一口。
@@ -76,13 +76,14 @@ const ss = (a: number, b: number, x: number) => { const t = clamp01((x - a) / (b
 const win = (x: number, a: number, b: number, e = 0.4) => ss(a, a + e, x) * (1 - ss(b - e, b, x));
 
 // ================================================================== 杜五（赶车伙夫）
-// 二十二岁，圆短脸带雀斑，枯黄乱发用灰布巾包头，下巴青黑胡茬；补丁土黄麻布短褐，肩搭油腻灰白汗巾，挽裤腿、草鞋；背一口黑铁炒锅，
+// 二十二岁，圆短脸带雀斑，灰褐布巾上露一束深棕头发，下巴有浅胡茬；土橙补丁短褐，肩搭灰白汗巾，挽裤腿、草鞋；背一口黑铁炒锅，
 // 腰插剁骨菜刀，右胯挂一盘捆尸麻绳；左手缺两指（无名指、小指：手背后那一列的指头没了）。
 function buildDuwu(): V {
   const v = fine();
-  const C = { SKIN: 0xd4a27a, SKIN_D: 0xa87650, FRECK: 0xb47a52, JK: 0xa8884e, JK_D: 0x7c6236, JK_L: 0xc0a068, PATCH: 0x6a6252, PATCH2: 0x8a5e3e,
-    TROU: 0x5a5042, TROU_L: 0x7a6e58, STRAW: 0xc4a05a, STRAW_D: 0x8e7038, WRAP: 0x8a867e, WRAP_D: 0x66625c, HAIR: 0xc09a52, STUB: 0x6a5c4e, MOUTH: 0x5a3426,
-    TOWEL: 0xd6d0c2, TOWEL_D: 0xaaa496, WOK: 0x2a2a2e, WOK_L: 0x4e4e56, ROPE: 0x9a8458, ROPE_D: 0x6e5c3a, BLADE: 0xaab0b8, EDGE: 0xd8dce2, HAFT: 0x5a3c26, EYE: 0x1c1410 };
+  const C = { SKIN: 0xd99060, SKIN_D: 0xb5714d, FRECK: 0xb57350, JK: 0x98582b, JK_D: 0x643a29, JK_L: 0xaa733e, PATCH: 0x704635, PATCH2: 0x794c36,
+    TROU: 0x5a5042, TROU_L: 0x7a6e58, STRAW: 0xc4a05a, STRAW_D: 0x8e7038, WRAP: 0x7b685e, WRAP_D: 0x574840, WRAP_L: 0x9c8678,
+    HAIR: 0x382821, HAIR_L: 0x614334, STUB: 0xa56f53, MOUTH: 0x75412f, LINEN: 0xded0bb,
+    TOWEL: 0xd7cab7, TOWEL_D: 0x9e8e7d, WOK: 0x2a2a2e, WOK_L: 0x4e4e56, ROPE: 0x9a774b, ROPE_D: 0x6e4a32, BLADE: 0xaab0b8, EDGE: 0xd8dce2, HAFT: 0x5a3c26, EYE: 0x291a19 };
   rig(v, { hip: 20, spine: 24, chest: 30, neck: 36, head: 40, hat: 54, ax: 8, sh: 36, elbow: 28, wrist: 20, grip: 18, lx: 4, knee: 10, back: 4 });
   // ---------------------------------------------------------------- legs: trousers rolled to the knee (a lighter cuff), bare shins, straw sandals
   LR(v, 'leg', 2, 10, -2, 5, 19, 1, C.TROU);
@@ -97,46 +98,67 @@ function buildDuwu(): V {
   B(v, 'spine', -4, 24, 4, -3, 25, 4, C.ROPE_D); B(v, 'hips', -4, 20, 4, -4, 23, 4, C.ROPE); B(v, 'hips', -3, 21, 4, -3, 23, 4, C.ROPE);   // the knot, two ends
   R(v, 'chest', -7, 30, -4, 6, 35, 3, C.JK, true);
   B(v, 'neck', -2, 36, -2, 1, 39, 1, C.SKIN);
-  // the crossed collar: the light inner collar at the throat, the outer edge straight down the front
-  B(v, 'chest', -2, 33, 3, 1, 35, 3, C.JK_L); B(v, 'chest', -2, 35, 2, 1, 35, 2, C.JK_L);
-  B(v, 'chest', 2, 30, 3, 2, 34, 3, C.JK_D); B(v, 'spine', 2, 26, 3, 2, 29, 3, C.JK_D);
-  // the rope that holds the wok, round the chest under the arms
-  B(v, 'chest', -6, 31, 4, 5, 31, 4, C.ROPE);
+  // Light linen follows the V at the throat. The wok strap crosses from his left shoulder to the opposite hip.
+  B(v, 'chest', -2, 35, 2, 1, 35, 2, C.LINEN);
+  v.paint(({ part, x, y, z }) => {
+    if ((part !== 'chest' && part !== 'spine') || z !== 3 || y < 26) return;
+    const strap = x - (y - 31);
+    if (strap >= 1 && strap <= 3) return strap === 3 ? C.ROPE_D : C.ROPE;
+    const lapel = Math.abs(x + 0.5) - (y - 30.5);
+    if (y >= 31 && y <= 34 && lapel >= 0 && lapel <= 1) return C.LINEN;
+    if (y >= 30 && Math.abs(x + 0.5) <= y - 29.5) return C.JK_D;
+  });
   // ---------------------------------------------------------------- arms: sleeves rolled to the elbow (a light cuff), bare forearms, small hands
   LR(v, 'arm', 6, 28, -2, 9, 35, 1, C.JK); B(v, 'armR', -10, 30, -1, -10, 32, 0, C.PATCH);
+  B(v, 'armR', -9, 32, 1, -7, 34, 1, C.PATCH); B(v, 'armL', 7, 29, 1, 9, 31, 1, C.PATCH2);
   LR(v, 'fore', 6, 26, -2, 9, 27, 1, C.JK_L); LR(v, 'fore', 6, 20, -2, 8, 25, 0, C.SKIN);
   hands(v, 16, C.SKIN, C.SKIN_D);
   B(v, 'handL', 6, 16, -2, 8, 17, -2, null);                                                         // the ring and little fingers gone
-  // ---------------------------------------------------------------- the greasy towel over the left shoulder, hanging down the front
-  B(v, 'chest', 2, 36, -3, 6, 36, 2, C.TOWEL); B(v, 'chest', 3, 27, 4, 5, 36, 4, C.TOWEL); B(v, 'chest', 3, 36, 3, 5, 36, 3, C.TOWEL);
-  B(v, 'chest', 3, 27, 4, 5, 27, 4, C.TOWEL_D);
+  // The folded towel drapes over both sides of his left shoulder.
+  R(v, 'chest', 2, 35, -4, 6, 36, 4, C.TOWEL);
+  B(v, 'chest', 3, 27, 4, 6, 35, 4, C.TOWEL); B(v, 'chest', 6, 28, 4, 6, 34, 4, C.TOWEL_D);
+  B(v, 'chest', 3, 27, 4, 6, 27, 4, C.TOWEL_D); B(v, 'chest', 3, 32, -4, 6, 34, -4, C.TOWEL_D);
   // ---------------------------------------------------------------- the black wok on his back: the rim, the deeper middle, the flat base (its
   // round bottom outward), two ear handles; it sits from the hips to the shoulders
   slab(v, 'chest', -8, 20, -6, 7, 37, -5, C.WOK, 2);
   slab(v, 'chest', -6, 23, -8, 5, 34, -7, C.WOK, 2);
   slab(v, 'chest', -3, 26, -9, 2, 31, -9, C.WOK_L, 1);
   B(v, 'chest', -10, 27, -6, -9, 29, -5, C.WOK_L); B(v, 'chest', 8, 27, -6, 9, 29, -5, C.WOK_L);
+  B(v, 'chest', 3, 37, -6, 5, 38, -4, C.ROPE); B(v, 'chest', 6, 35, -6, 6, 37, -5, C.ROPE_D);
   // ---------------------------------------------------------------- the rope coil at the back of the right hip (a ring seen from the side, clear
   // of the hanging arm), the cleaver tucked into the belt in front, its blade flat on the skirt
   B(v, 'hips', -8, 13, -10, -7, 20, -3, C.ROPE); B(v, 'hips', -8, 15, -8, -7, 18, -5, null);
   for (const y of [13, 20]) for (const z of [-10, -3]) B(v, 'hips', -8, y, z, -7, y, z, null);
   B(v, 'hips', -8, 13, -9, -7, 13, -4, C.ROPE_D); B(v, 'hips', -7, 21, -4, -7, 22, -4, C.ROPE_D);
   B(v, 'hips', 0, 15, 4, 3, 20, 4, C.BLADE); B(v, 'hips', 0, 15, 4, 3, 15, 4, C.EDGE); B(v, 'hips', 1, 21, 4, 2, 23, 4, C.HAFT); B(v, 'spine', 1, 24, 4, 2, 26, 4, C.HAFT);
-  // ---------------------------------------------------------------- the head: a round short face, the grey cloth wrap (one cell proud, a knot and
-  // two ends at the back), dry yellow hair poking out at the temples and under the wrap, stubble round the jaw, freckles
-  R(v, 'head', -6, 40, -6, 5, 53, 5, C.SKIN);
-  B(v, 'head', -6, 40, -6, 5, 40, 5, null); B(v, 'head', -5, 40, -5, 4, 40, 4, C.SKIN);
-  v.paint(c => (c.z <= -3 && c.y >= 42 ? C.HAIR : null), 'head');
-  R(v, 'head', -7, 50, -7, 6, 55, 6, C.WRAP, true); B(v, 'head', -6, 50, -7, 5, 50, 6, C.WRAP_D); B(v, 'head', -7, 50, -6, 6, 50, 5, C.WRAP_D);
-  B(v, 'head', -1, 53, 6, 5, 53, 6, C.WRAP_D);                                                       // a fold across the front, tied in a hurry
-  B(v, 'head', -2, 47, -7, 1, 49, -7, C.WRAP_D); B(v, 'head', -4, 41, -7, -3, 49, -7, C.WRAP); B(v, 'head', 2, 43, -7, 3, 49, -7, C.WRAP);
-  B(v, 'head', -7, 46, 0, -7, 49, 2, C.HAIR); B(v, 'head', 6, 46, 0, 6, 49, 2, C.HAIR);
-  B(v, 'head', -5, 49, 5, -2, 49, 5, C.HAIR); B(v, 'head', 1, 49, 5, 4, 49, 5, C.HAIR); B(v, 'head', -5, 48, 5, -4, 48, 5, C.HAIR); B(v, 'head', 3, 48, 5, 4, 48, 5, C.HAIR);
-  v.paint(c => (c.z >= -2 && (c.y === 40 || (c.y <= 43 && (c.x === -6 || c.x === 5))) ? C.STUB : null), 'head');
-  B(v, 'head', -4, 45, 5, -4, 46, 5, C.EYE); B(v, 'head', 3, 45, 5, 3, 46, 5, C.EYE);
-  B(v, 'head', -5, 43, 5, -4, 43, 5, C.FRECK); B(v, 'head', 3, 43, 5, 4, 43, 5, C.FRECK);
-  B(v, 'head', -1, 43, 6, 0, 44, 6, C.SKIN); B(v, 'head', -1, 43, 6, 0, 43, 6, C.SKIN_D);
-  B(v, 'head', -1, 41, 5, 0, 41, 5, C.MOUTH);
+  // Round cheeks, a short chin, and visible ears beneath the cloth.
+  R(v, 'head', -4, 40, -4, 3, 41, 4, C.SKIN);
+  R(v, 'head', -6, 42, -5, 5, 53, 5, C.SKIN);
+  B(v, 'head', -3, 41, 5, 2, 41, 5, C.SKIN);
+  v.paint(({ y, z }) => z <= -3 && y >= 43 ? C.HAIR : undefined, 'head');
+  S(v, 'head', 5, 43, 0, 6, 47, 2, C.SKIN);
+  S(v, 'head', 6, 44, 0, 6, 46, 1, C.SKIN_D);
+  S(v, 'head', 4, 46, 3, 5, 50, 4, C.HAIR);
+  B(v, 'head', 2, 49, 5, 4, 50, 5, C.HAIR); B(v, 'head', -4, 50, 5, -3, 50, 5, C.HAIR);
+
+  // The wrap folds around the head, exposes a topknot and ties behind his left ear.
+  R(v, 'head', -7, 51, -6, 6, 53, 6, C.WRAP);
+  R(v, 'head', -6, 53, -6, 5, 55, 5, C.WRAP, true);
+  B(v, 'head', -6, 51, 6, 5, 51, 6, C.WRAP_D);
+  B(v, 'head', -6, 52, 6, 1, 52, 6, C.WRAP_L); B(v, 'head', -4, 54, 5, 4, 54, 5, C.WRAP_L);
+  B(v, 'head', -4, 55, 1, 4, 55, 2, C.WRAP_L);
+  R(v, 'head', -2, 55, -5, 3, 58, -1, C.HAIR, true);
+  B(v, 'head', 0, 57, -1, 1, 58, -1, C.HAIR_L); B(v, 'head', -1, 55, -1, 2, 55, -1, C.WRAP_D);
+  R(v, 'head', 5, 48, -6, 7, 51, -3, C.WRAP);
+  B(v, 'head', 6, 43, -6, 7, 49, -5, C.WRAP_D); B(v, 'head', 7, 45, -4, 8, 48, -3, C.WRAP);
+
+  // Raised inner brows, open eyes and a slight, uneven smile.
+  S(v, 'head', 1, 48, 5, 2, 48, 5, C.HAIR_L); S(v, 'head', 3, 47, 5, 4, 47, 5, C.HAIR_L);
+  S(v, 'head', 1, 45, 5, 4, 46, 5, C.LINEN); S(v, 'head', 2, 45, 5, 3, 46, 5, C.EYE);
+  S(v, 'head', 3, 43, 5, 4, 43, 5, C.FRECK);
+  B(v, 'head', -1, 44, 6, 0, 44, 6, C.SKIN); B(v, 'head', -1, 43, 5, 0, 43, 5, C.SKIN_D);
+  B(v, 'head', -1, 41, 5, 1, 41, 5, C.MOUTH); B(v, 'head', 2, 42, 5, 2, 42, 5, C.MOUTH);
+  B(v, 'head', -2, 40, 4, 1, 40, 4, C.STUB);
   fuseStill(v);
   // (act-44 用户：「下蹲一条腿直着，走路脚板都脱离脚踝了」: the shins and feet were merged into the thighs when he only stood — he walks
   //  and squats now, so each keeps its own part and bends at the knee and the ankle)
@@ -144,26 +166,34 @@ function buildDuwu(): V {
 }
 
 // ================================================================== 鬼针孙媪（暴室医婆）
-// 六十二岁，消瘦的菱形脸刻满皱纹，银白长发挽成插骨簪的道髻；深紫褐斜襟窄袖粗布衣（长衣过膝，下面露裙），腰系挂满小药葫芦的皮囊；
+// 六十二岁，消瘦的菱形脸刻满皱纹，银发后梳成低髻，耳后横插骨簪；暗枣红交领窄袖粗布衣（长衣过膝，下面露裙），腰系挂满小药葫芦的皮囊；
 // 右手夹着两根银针、左手一把刮骨小刀；左眼浑浊惨白、右眼精光；嘴角下撇。女性平脸，不出鼻子。
 function buildSunao(): V {
   const v = fine();
-  const C = { SKIN: 0xd8b498, SKIN_D: 0xa88468, ROBE: 0x553a4a, ROBE_D: 0x3c2834, ROBE_L: 0x6e5262, JACKET: 0x604656, INNER: 0xc8bca8,
-    HAIR: 0xdcdce2, HAIR_D: 0xa8a8b2, BONE: 0xc8a868, BONE_D: 0x9a7e48, BELT: 0x4a3020, BELT_L: 0x6a4a30, GOURD: 0xc8963e, GOURD_D: 0x946426, CORD: 0x8a2a20,
-    EYE: 0x16100e, BLIND: 0xe6e2da, MOUTH: 0x6a3a30, NEEDLE: 0xeef2f8, KNIFE: 0x9aa0aa, SHOE: 0x2a2224 };
+  const C = { SKIN: 0xc79068, SKIN_D: 0x9c644c, WRINKLE: 0xb17659, ROBE: 0x492d34, ROBE_D: 0x30212a, ROBE_L: 0x72404a, JACKET: 0x62323a, BINDING: 0x87604b,
+    HAIR: 0xb7a6ab, HAIR_D: 0x84747c, HAIR_L: 0xd5c3bd, BONE: 0xcfa77e, BONE_D: 0x9a7253, BELT: 0x4a3020, BELT_L: 0x6a4a30, GOURD: 0xb77a34, GOURD_D: 0x855322, CORD: 0x702522,
+    EYE: 0x2f2121, EYE_W: 0xd6b6a1, BLIND: 0xddcebf, MOUTH: 0x684139, NEEDLE: 0xeef2f8, KNIFE: 0x9aa0aa, SHOE: 0x2a2224 };
   rig(v, { hip: 18, spine: 22, chest: 28, neck: 34, head: 36, hat: 50, ax: 8, sh: 34, elbow: 26, wrist: 18, grip: 16, lx: 4, knee: 10, back: 4 });
   // ---------------------------------------------------------------- the skirt to the ground (a wide hem tier, a dark hem), the long jacket over it
-  // to the knee (a dark hem, the lapel's edge down the front), dark shoe tips under the hem
+  // to the knee (a dark hem, the overlap down the front), dark shoe tips under the hem
   R(v, 'hips', -7, 0, -5, 6, 1, 4, C.ROBE_D); R(v, 'hips', -7, 2, -5, 6, 5, 4, C.ROBE); R(v, 'hips', -6, 6, -4, 5, 9, 3, C.ROBE);
   R(v, 'hips', -6, 10, -5, 5, 21, 4, C.JACKET); R(v, 'hips', -6, 10, -5, 5, 10, 4, C.ROBE_D);
-  B(v, 'hips', 2, 11, 4, 2, 21, 4, C.ROBE_L);
+  B(v, 'hips', -3, 11, 4, -2, 21, 4, C.ROBE_L);
   S(v, 'hips', 2, 0, 5, 4, 1, 5, C.SHOE);
   R(v, 'spine', -6, 22, -4, 5, 27, 3, C.JACKET); B(v, 'spine', -6, 22, -4, 5, 23, 4, C.BELT);
   for (const k of [...v.cells.keys()]) { const c = v.cells.get(k)!; if (c.part === 'spine' && c.y <= 23 && (c.x === -6 || c.x === 5) && (c.z === -4 || c.z === 4)) v.cells.delete(k); }
   R(v, 'chest', -7, 28, -4, 6, 33, 3, C.JACKET, true);
-  B(v, 'neck', -2, 34, -2, 1, 35, 1, C.SKIN);
-  B(v, 'chest', -2, 31, 3, 1, 33, 3, C.INNER); B(v, 'chest', -2, 33, 2, 1, 33, 2, C.INNER);
-  B(v, 'chest', 2, 28, 3, 2, 32, 3, C.ROBE_L); B(v, 'spine', 2, 24, 3, 2, 27, 3, C.ROBE_L);
+  B(v, 'neck', -2, 34, -2, 1, 35, 2, C.SKIN);
+  B(v, 'chest', -2, 33, 2, 1, 33, 2, C.SKIN);
+  // Dark crossed lapels with a narrow warm edge like the portrait.
+  v.paint(({ part, x, y, z }) => {
+    if ((part !== 'chest' && part !== 'spine') || z !== 3) return;
+    const overlap = x - Math.max(y - 28, -3);
+    if (overlap === -1 || overlap === 0) return C.BINDING;
+    if (overlap === 1 || overlap === 2) return C.ROBE_D;
+    const underlap = x + (y - 28);
+    if (y >= 29 && underlap >= -1 && underlap <= 1) return C.ROBE_D;
+  });
   // ---------------------------------------------------------------- the belt's leather pouch at the back of her right hip, the gourds on red cords in front
   B(v, 'hips', -8, 12, -6, -7, 19, -3, C.BELT_L); B(v, 'hips', -8, 18, -6, -7, 19, -3, C.BELT); B(v, 'hips', -7, 20, -4, -7, 21, -4, C.BELT);
   const gourd = (x: number, w: number, y: number, small: boolean) => {
@@ -181,18 +211,42 @@ function buildSunao(): V {
   // two silver needles forward from the right fist, one cell thin with a gap between; the small scraping knife in the left
   B(v, 'weapon', -8, 14, 1, -8, 14, 4, C.NEEDLE); B(v, 'weapon', -8, 16, 1, -8, 16, 6, C.NEEDLE);
   B(v, 'offhand', 7, 15, 1, 7, 16, 1, C.BELT); B(v, 'offhand', 7, 15, 2, 7, 16, 5, C.KNIFE); B(v, 'offhand', 7, 16, 5, 7, 16, 5, null);
-  // ---------------------------------------------------------------- the head: a gaunt diamond face (narrow chin, wide cheekbones, the forehead
-  // framed by the hair), silver hair drawn back into a bun on the crown with a dark tie and a bone pin through it
-  R(v, 'head', -6, 36, -6, 5, 49, 5, C.SKIN, true);
-  B(v, 'head', -6, 36, -6, -5, 37, 5, null); B(v, 'head', 4, 36, -6, 5, 37, 5, null);
-  v.paint(c => (c.y >= 46 || (c.z <= -3 && c.y >= 38) || ((c.x <= -5 || c.x >= 4) && c.y >= 42) ? C.HAIR : null), 'head');
-  B(v, 'head', -3, 50, -5, 2, 51, 0, C.HAIR); B(v, 'head', -2, 52, -4, 1, 52, -1, C.HAIR_D); B(v, 'head', -2, 53, -4, 1, 55, -1, C.HAIR);
-  B(v, 'head', -5, 54, -3, 4, 54, -3, C.BONE); B(v, 'head', -5, 54, -3, -5, 54, -3, C.BONE_D);
-  // the sharp right eye (her right, −x) under a stern brow, the dead white left eye, the frown, the lines from the cheekbones to the mouth
-  B(v, 'head', -4, 42, 5, -3, 42, 5, C.EYE); B(v, 'head', -4, 44, 5, -3, 44, 5, C.SKIN_D);
-  B(v, 'head', 2, 42, 5, 3, 43, 5, C.BLIND); B(v, 'head', 2, 44, 5, 3, 44, 5, C.SKIN_D); B(v, 'head', 2, 41, 5, 3, 41, 5, C.SKIN_D);
-  B(v, 'head', -2, 38, 5, 1, 38, 5, C.MOUTH); B(v, 'head', -3, 37, 5, -3, 37, 5, C.MOUTH); B(v, 'head', 2, 37, 5, 2, 37, 5, C.MOUTH);
-  B(v, 'head', -4, 39, 5, -4, 40, 5, C.SKIN_D); B(v, 'head', 3, 39, 5, 3, 40, 5, C.SKIN_D);
+  // A narrow chin under broad cheekbones, with the hair swept off the forehead.
+  R(v, 'head', -4, 36, -4, 3, 39, 4, C.SKIN);
+  R(v, 'head', -5, 38, -5, 4, 49, 5, C.SKIN, true);
+  R(v, 'head', -6, 40, -4, 5, 44, 4, C.SKIN);
+  S(v, 'head', 5, 41, -1, 6, 44, 1, C.SKIN); S(v, 'head', 6, 42, 0, 6, 43, 1, C.SKIN_D);
+  R(v, 'head', -6, 46, -6, 5, 50, 4, C.HAIR);
+  v.part('head');
+  rbox(v, -5, 50, -6, 4, 52, 3, C.HAIR, 2);
+  B(v, 'head', -6, 46, -5, -4, 48, 5, C.HAIR); B(v, 'head', 3, 45, -5, 5, 48, 5, C.HAIR);
+  B(v, 'head', -4, 48, 5, 4, 49, 5, C.HAIR);
+  B(v, 'head', -2, 49, 5, -1, 49, 5, C.HAIR_D); B(v, 'head', -2, 50, 4, -1, 51, 4, C.HAIR_D);
+  B(v, 'head', -5, 47, 5, -4, 47, 5, C.HAIR_L); B(v, 'head', 0, 48, 5, 4, 48, 5, C.HAIR_L);
+  B(v, 'head', 4, 46, 5, 5, 46, 5, C.HAIR_D);
+  S(v, 'head', 5, 48, -4, 5, 48, 2, C.HAIR_L); S(v, 'head', 5, 46, -5, 5, 46, -1, C.HAIR_D);
+  // The broad highlights on the crown fan out from the part toward the nape.
+  v.paint(({ c, x, y, z }) => {
+    if (c !== C.HAIR || y < 50) return;
+    const lock = x + Math.trunc((z - 2) / 2);
+    if (lock === -2 || lock === 1 || lock === 2) return C.HAIR_L;
+  }, 'head');
+  // The bun sits low at the nape. The ends of the horizontal bone pin clear the hair.
+  R(v, 'head', -5, 40, -6, 4, 45, -3, C.HAIR_D);
+  R(v, 'head', -4, 40, -9, 4, 45, -5, C.HAIR, true);
+  B(v, 'head', -3, 41, -9, 3, 41, -9, C.HAIR_D);
+  B(v, 'head', -6, 43, -7, 7, 43, -7, C.BONE); B(v, 'head', -6, 43, -7, -5, 43, -7, C.BONE_D);
+
+  // Stern brows, a thin line of wrinkles, and a milk-white left eye.
+  S(v, 'head', 1, 44, 5, 2, 44, 5, C.HAIR_D); S(v, 'head', 3, 45, 5, 4, 45, 5, C.HAIR_D);
+  B(v, 'head', -4, 43, 5, -2, 43, 5, C.EYE_W); B(v, 'head', -3, 43, 5, -2, 43, 5, C.EYE);
+  B(v, 'head', 1, 43, 5, 4, 43, 5, C.BLIND);
+  S(v, 'head', 2, 42, 5, 4, 42, 5, C.WRINKLE);
+  B(v, 'head', -2, 46, 5, 2, 46, 5, C.WRINKLE);
+  S(v, 'head', 3, 40, 5, 4, 40, 5, C.WRINKLE); S(v, 'head', 2, 39, 5, 2, 39, 5, C.SKIN_D);
+  B(v, 'head', -1, 41, 5, 0, 41, 5, C.WRINKLE);
+  B(v, 'head', -2, 38, 5, 1, 38, 5, C.MOUTH);
+  S(v, 'head', 2, 37, 4, 2, 37, 4, C.SKIN_D);
   fuseStill(v); fuse(v, 'foreR', 'weapon');
   return v;
 }

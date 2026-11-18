@@ -29,6 +29,20 @@ const size = d => { let n = 0; for (const e of fs.readdirSync(d, { withFileTypes
 // 1. the bundle
 await build({ root: ROOT, configFile: path.join(ROOT, 'vite.config.ts'), mode: 'wechat', logLevel: 'warn' });
 const DW = path.join(ROOT, 'dist-wx'), bundle = fs.readFileSync(path.join(DW, 'game.js'), 'utf8'), assets = JSON.parse(fs.readFileSync(path.join(DW, 'wx-assets.json'), 'utf8'));
+const rd = f => fs.readFileSync(path.join(ROOT, 'wechat', f), 'utf8');
+const gameJs = `'use strict';\n${rd('adapter.js')}\n${rd('glue.js')}\n${bundle}`;
+// 11-18: the upload refused game.js for a `?.` (「invalid file: game.js, 122:12 SyntaxError: Unexpected token .」): the whole file must be
+// ES2015 (vite's wechat target is es2015; wechat/*.js are written by hand) — parse it as such and stop before touching the project
+// folder if it isn't (--no-syntax-check to skip)
+if (!A.includes('--no-syntax-check')) {
+  const { parse } = await import('acorn');
+  try { parse(gameJs, { ecmaVersion: 2015, sourceType: 'script', allowReturnOutsideFunction: true }); }
+  catch (e) {
+    const ln = gameJs.split('\n')[(e.loc ? e.loc.line : 1) - 1] || '', c = e.loc ? e.loc.column : 0;
+    console.error(`game.js 不是 ES2015（微信上传会拒）：${e.message}\n  …${ln.slice(Math.max(0, c - 80), c + 80)}…`); process.exit(1);
+  }
+  console.log('  game.js 按 ES2015 解析通过');
+}
 
 // 2. the project folder (the old appid survives)
 let appid = 'touristappid';
@@ -37,8 +51,7 @@ try { appid = JSON.parse(fs.readFileSync(path.join(OUT, 'project.config.json'), 
 // best effort, and write over it; the devtools pick the new files up)
 fs.mkdirSync(OUT, { recursive: true });
 for (const e of fs.readdirSync(OUT)) { if (e === 'project.config.json' || e === 'project.private.config.json') continue; try { fs.rmSync(path.join(OUT, e), { recursive: true, force: true }); } catch (err) { console.log(`  （没删掉 ${e}：${err.code}，直接覆盖）`); } }
-const rd = f => fs.readFileSync(path.join(ROOT, 'wechat', f), 'utf8');
-fs.writeFileSync(path.join(OUT, 'game.js'), `'use strict';\n${rd('adapter.js')}\n${rd('glue.js')}\n${bundle}`);
+fs.writeFileSync(path.join(OUT, 'game.js'), gameJs);
 const subs = new Set();
 for (const [to, from] of Object.entries(assets)) {
   const dst = path.join(OUT, to); fs.mkdirSync(path.dirname(dst), { recursive: true });
@@ -48,9 +61,9 @@ for (const [to, from] of Object.entries(assets)) {
     try { execFileSync('python', ['-c', 'import sys; from fontTools.ttLib import TTFont; f = TTFont(sys.argv[1]); f.flavor = None; f.save(sys.argv[2])', from, dst], { stdio: 'pipe' }); }
     catch (e) { console.log(`  （${path.basename(from)} 没转成 ttf：${String(e.stderr || e.message).trim().split(/\r?\n/).pop()}，原样放进去）`); fs.copyFileSync(from, dst); }
   } else fs.copyFileSync(from, dst);
-  const top = to.split('/')[0]; if (/^audio\d+$/.test(top)) subs.add(top);
+  const top = to.split('/')[0]; if (/^audio\d+$/.test(top) || top === 'fonts') subs.add(top);   // (everything but assets/ is a subpackage)
 }
-const subpackages = [...subs].sort((a, b) => +a.slice(5) - +b.slice(5)).map(n => ({ name: n, root: n + '/' }));
+const subpackages = [...subs].sort().map(n => ({ name: n, root: n + '/' }));
 for (const s of subpackages) fs.writeFileSync(path.join(OUT, s.name, 'game.js'), `'use strict';\n`);
 fs.writeFileSync(path.join(OUT, 'game.json'), JSON.stringify({ deviceOrientation: 'landscape', showStatusBar: false, ...(HP ? { iOSHighPerformance: true } : {}), subpackages }, null, 2) + '\n');
 fs.writeFileSync(path.join(OUT, 'project.config.json'), JSON.stringify({
@@ -73,6 +86,11 @@ console.log(`微信小游戏工程：${OUT}`);
 console.log(`  主包 ${kb(main)}（game.js ${kb(fs.statSync(path.join(OUT, 'game.js')).size)}）`);
 for (const s of subpackages) console.log(`  分包 ${s.name} ${kb(size(path.join(OUT, s.name)))}`);
 console.log(`  合计 ${kb(size(OUT))}；appid ${appid}；iOS 高性能模式 ${HP ? '开' : '关'}`);
+// (11-18: the upload's limits as Cocos 3.8 / the community put them: main package ≤ 4 MB, all packages ≤ 30 MB — over them, stop here
+// rather than at the upload; the project folder is already written so it can still be opened and looked at)
+{ const MB = 1024 * 1024, total = size(OUT) - (fs.existsSync(path.join(OUT, 'project.private.config.json')) ? fs.statSync(path.join(OUT, 'project.private.config.json')).size : 0);
+  const over = [main > 4 * MB && `主包 ${kb(main)} 超过 4 MB`, total > 30 * MB && `合计 ${kb(total)} 超过 30 MB`].filter(Boolean);
+  if (over.length) { console.error(`  ⚠ 上传会被拒：${over.join('；')}——把资源挪进分包（tools/wxAssets.ts）`); process.exitCode = 1; } }
 
 // 4. the zip (Python's zipfile writes UTF-8 names with the flag set, so the Chinese folder name survives on any unzip)
 if (ZIP) {

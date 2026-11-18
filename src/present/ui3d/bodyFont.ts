@@ -26,8 +26,15 @@ const loaded: Record<Exclude<BodyFont, 'pixel'>, string> = { ...families };
 const wxFont = typeof wx !== 'undefined' ? (wx as { loadFont?: (path: string) => string | null }).loadFont : undefined;
 // 11-18 微信小游戏: the fonts are package files there and wx.loadFont registers them (no FontFace); a font it can't load is drawn
 // in the device's own font
+// (the TrueType files sit in the `fonts` subpackage — the main package has to stay under 4 MB — loaded in the background: the game
+// starts at once in the device's font and switches when they're in)
+const wxLoadFonts = () => { for (const k of Object.keys(urls) as Array<Exclude<BodyFont, 'pixel'>>) { try { loaded[k] = wxFont!(urls[k]) || ''; } catch { loaded[k] = ''; } } changed(); };
 export const fontsReady: Promise<void> = wxFont
-  ? Promise.resolve().then(() => { for (const k of Object.keys(urls) as Array<Exclude<BodyFont, 'pixel'>>) { try { loaded[k] = wxFont(urls[k]) || ''; } catch { loaded[k] = ''; } } changed(); })
+  ? Promise.resolve().then(() => {
+      const sub = (wx as { loadSubpackage?: (o: { name: string; success: () => void; fail: () => void }) => void }).loadSubpackage;
+      if (sub && /^fonts\//.test(urls.wenkai)) { for (const k of Object.keys(loaded) as Array<Exclude<BodyFont, 'pixel'>>) loaded[k] = ''; sub({ name: 'fonts', success: wxLoadFonts, fail: () => changed() }); }
+      else wxLoadFonts();
+    })
   : typeof document === 'undefined' || typeof FontFace === 'undefined'
   ? Promise.resolve()
   : Promise.all((Object.keys(urls) as Array<Exclude<BodyFont, 'pixel'>>).map(async key => {
