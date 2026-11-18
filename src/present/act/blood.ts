@@ -40,10 +40,18 @@ class Blood {
     for (let i = 0; i < Math.min(4, 1 + (n >> 3)); i++) PALPHA?.emit({ p: p.clone().addScaledVector(dir, 0.15), v: dir.clone().multiplyScalar(R(0.6, 1.6)).add(V3(R(-0.3, 0.3), R(0, 0.5), R(-0.3, 0.3))),
       s0: R(0.1, 0.16), s1: R(0.28, 0.42), life: R(0.25, 0.4), c0: DROP[1].clone(), c1: STAIN[0].clone(), alpha: 0.5, tile: TILE.smoke, drag: 3, fadeIn: 0 });
   }
-  /** a pool spreading under a body (x, z), up to size metres across, over ~1.2 s */
-  pool(x: number, z: number, size: number) {
+  /** a pool spreading under a body (x, z), up to size metres across, over ~1.2 s; it lasts `life` s */
+  pool(x: number, z: number, size: number, life = 10) {
     this.init();
-    for (let i = 0; i < 5; i++) this.stain(x + R(-0.35, 0.35) * size, z + R(-0.35, 0.35) * size, size * R(0.35, 0.6), 1.2 + R(0, 0.6), 10);
+    for (let i = 0; i < 5; i++) this.stain(x + R(-0.35, 0.35) * size, z + R(-0.35, 0.35) * size, size * R(0.35, 0.6), 1.2 + R(0, 0.6), life);
+  }
+  /** 11-18 (序章倒地): blood running off a wound — n drops let go at p with next to no speed, falling straight down */
+  drip(p: THREE.Vector3, n = 1) {
+    this.init();
+    for (let i = 0; i < n; i++) {
+      if (this.drops.length >= MAXD) this.drops.shift();
+      this.drops.push({ p: p.clone().add(V3(R(-0.04, 0.04), R(-0.03, 0.03), R(-0.04, 0.04))), v: V3(R(-0.12, 0.12), R(-0.5, 0), R(-0.12, 0.12)), s: R(0.03, 0.055), c: pick(DROP) });
+    }
   }
   private stain(x: number, z: number, s: number, grow = 0.08, life = R(6, 9)) {
     if (this.skip?.(x, z)) return;

@@ -11,6 +11,7 @@ const families: Record<Exclude<BodyFont, 'pixel'>, string> = { wenkai: 'UBWenKai
 const urls = { wenkai: wenkaiUrl, serif: serifUrl, sans: sansUrl };
 const listeners = new Set<() => void>();
 function savedFont(): BodyFont {
+  if (!__DEBUG_UI__) return 'wenkai';   // (11-18: the packages have no font switch)
   try { const value = localStorage.getItem('ub.font') as BodyFont; if (value in BODY_FONT_NAME) return value; } catch { /* storage unavailable */ }
   return 'wenkai';
 }
