@@ -564,6 +564,8 @@ FOE_AI.cx_boss = {
   },
   think(f, w, dt, dist, dir, yawTo) {
     const want = V3(), can = canStrike(f, w, { calm: true });
+    // the dark: out of the smoke for a moment after a cut (or caught by 破势) — he only falls back toward the dark; the cuts come hidden
+    if (f.phase === 3) { if (dist < 4) want.copy(dir).multiplyScalar(-1).addScaledVector(side(dir, f.strafe), 0.4); steerFoe(f, want, f.d.speed * 0.8, dt, yawTo, true); return; }
     if (f.phase === 1) {
       // a slow walk, never hurried: keeps 4–7 m, edging round her
       if (dist < 3.5) want.copy(dir).multiplyScalar(-0.6).addScaledVector(side(dir, f.strafe), 0.5); else if (dist > 7) want.copy(dir).multiplyScalar(0.6); else want.copy(side(dir, f.strafe)).multiplyScalar(0.35);

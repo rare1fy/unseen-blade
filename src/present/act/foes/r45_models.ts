@@ -164,13 +164,12 @@ const wuguan: Hat = (v, el) => {
   cbox(v, 'head', -6, 54, -6, 5, 58, 5, INK); B(v, 'head', -6, 58, -6, 5, 58, 5, INK_L);
   B(v, 'head', -4, 44, -10, -3, 52, -10, INK).box(2, 44, -10, 3, 52, -10, INK);
 };
-/** the shades: a black cloth wrapped round the whole head and across the face below the eyes, a knot behind */
+/** the shades: no mask (a masked man in black reads as a Japanese ninja — not this game): a black 帻 low over the brow, the face bare
+ *  and gaunt, and a short black cape over the shoulders (on the cape joint, so it swings) */
 const hood: Hat = (v, el) => {
-  // the whole head wrapped black, only the band of the eyes left bare at the front
-  v.paint(q => (q.z >= 7 && q.y >= 44 && q.y <= 46 ? null : INK), 'head');
-  cbox(v, 'head', -9, 49, -9, 8, 54, 8, INK); B(v, 'head', -9, 40, 7, 8, 43, 8, INK).box(-9, 47, 7, 8, 48, 8, INK);
-  B(v, 'jaw', -7, 38, 6, 6, 42, 8, INK);
-  B(v, 'head', -2, 44, -10, 1, 50, -10, INK_L).box(-2, 36, -10, -1, 43, -10, el ? GOLD : INK_L);
+  ze(INK, INK_L)(v, el);
+  B(v, 'head', -8, 47, 7, 7, 47, 7, INK);   // the 帻's band down to the brows
+  B(v, 'cape', -11, 22, -9, 10, 36, -7, INK).box(-11, 22, -9, 10, 22, -7, el ? GOLD : INK_L).box(-11, 36, -7, 10, 37, 4, INK).box(-3, 36, 5, 2, 37, 6, el ? GOLD : CRIM);
 };
 
 // ------------------------------------------------------------------ weapons (on 'weapon' = the right fist, 'offhand' = the left)
@@ -275,9 +274,9 @@ function chainman(el: boolean): V {
 }
 function oilman(el: boolean): V {
   const v = fine(); skel(v);
-  body(v, { coat: 0x3e3a36, coatD: 0x2a2624, trim: 0x1a1816, trou: 0x3a3436, sash: 0x6a3420, sashD: 0x4a2414, skirt: 'knee', legs: 'wrap', arms: 'sleeve', elite: el });
-  head(v, {}); jin(0x2a2624, 0x1a1816)(v, el);
-  B(v, 'head', -8, 40, 7, 7, 43, 8, 0x5a5048).box(-8, 42, 8, 7, 42, 8, 0x4a4038);   // a cloth tied across the mouth against the fumes
+  body(v, { coat: 0x5a4a3a, coatD: 0x463a2c, trim: RED_D, trou: 0x3a3436, sash: RED, sashD: RED_D, skirt: 'knee', legs: 'wrap', arms: 'sleeve', elite: el });
+  head(v, { beard: 'stubble' }); ze(RED, RED_D)(v, el);
+  B(v, 'head', -8, 40, 7, 7, 42, 8, 0x8a8478).box(-8, 41, 8, 7, 41, 8, 0x6a665e);   // a grey cloth over the mouth against the fumes (the eyes and brow bare)
   jar(v, el); return v;
 }
 function xbowman(el: boolean): V {
@@ -328,7 +327,7 @@ function shade_(el: boolean): V {
   const v = fine(); skel(v);
   body(v, { coat: INK, coatD: 0x0e0c10, trim: el ? GOLD : INK_L, trou: INK, sash: INK_L, sashD: INK, skirt: 'short', legs: 'wrap', arms: 'sleeve', elite: el });
   v.paint(q => (q.c === LINEN || q.c === LINEN_D ? INK_L : null));   // the leg wraps and wrist cloths in black too
-  head(v, {}); hood(v, el); dagger(v, el); return v;
+  head(v, { beard: 'goatee' }); hood(v, el); dagger(v, el); return v;
 }
 function guard(el: boolean): V {
   const v = fine(); skel(v);
@@ -358,20 +357,32 @@ function cuiXuan(): V {
 }
 
 const def = (d: ModelDef) => { if (!ROSTER.some(x => x.id === d.id)) ROSTER.push(d); return d; };
-const M = (id: string, name: string, group: ModelDef['group'], role: string, attack: ModelDef['attack'], tip: number, build: () => V) => def({ id, name, group, role, line: '', kind: 'biped', attack, tip, build });
-/** tip = the weapon's reach along its joint, in the model's own (fine) cells */
+/** tip = the weapon's reach along its joint, in the model's own (fine) cells. (Written out as literal `id: '…'` entries: tests/act.test.ts
+ *  finds each foe's model by that text in the module that touches ROSTER) */
+const B2 = { line: '', kind: 'biped', attack: 'swing' } as const;
 export const R45_DEFS = [
-  M('wl_spear', '执矛水卒', '普通', '水卒', 'swing', 48, () => spearman(0, false)), M('wl_spear_b', '执矛水卒', '普通', '水卒', 'swing', 48, () => spearman(1, false)),
-  M('wl_chain', '拽索手', '普通', '拽索', 'swing', 4, () => chainman(false)), M('wl_chain_e', '拽索手', '精英', '拽索', 'swing', 4, () => chainman(true)),
-  M('wl_oil', '掷火卒', '普通', '掷火', 'swing', 4, () => oilman(false)), M('wl_oil_e', '掷火卒', '精英', '掷火', 'swing', 4, () => oilman(true)),
-  M('wl_xbow', '楼船弩士', '普通', '弩士', 'swing', 20, () => xbowman(false)), M('wl_xbow_e', '楼船弩士', '精英', '弩士', 'swing', 20, () => xbowman(true)),
-  M('wl_diver', '没水鬼', '普通', '水鬼', 'swing', 14, () => diver(false)), M('wl_diver_e', '没水鬼', '精英', '水鬼', 'swing', 14, () => diver(true)),
-  M('wl_shield', '执楯刀士', '普通', '亲卫', 'swing', 29, () => shieldman(false)), M('wl_shield_e', '执楯刀士', '精英', '亲卫', 'swing', 29, () => shieldman(true)),
-  M('wl_boss', '周黯', '首领', '督造少监', 'swing', 9, zhouAn),
-  M('cx_club', '持杖僮奴', '普通', '僮奴', 'swing', 26, () => servant(0, false)), M('cx_club_b', '持杖僮奴', '普通', '僮奴', 'swing', 26, () => servant(1, false)),
-  M('cx_sword', '门下剑客', '普通', '门客', 'swing', 32, () => swordsman(false)), M('cx_sword_e', '门下剑客', '精英', '门客', 'swing', 32, () => swordsman(true)),
-  M('cx_shade', '匿影死士', '普通', '死士', 'swing', 6, () => shade_(false)), M('cx_shade_e', '匿影死士', '精英', '死士', 'swing', 6, () => shade_(true)),
-  M('cx_guard', '百辟刀卫', '普通', '刀卫', 'swing', 31, () => guard(false)), M('cx_guard_e', '百辟刀卫', '精英', '刀卫', 'swing', 31, () => guard(true)),
-  M('cx_zhu', '击筑客', '普通', '乐师', 'swing', 14, () => zhuPlayer(false)), M('cx_zhu_e', '击筑客', '精英', '乐师', 'swing', 14, () => zhuPlayer(true)),
-  M('cx_boss', '崔玄', '首领', '司空长史', 'swing', 34, cuiXuan),
+  def({ ...B2, id: 'wl_spear', name: '执矛水卒', group: '普通', role: '水卒', tip: 48, build: () => spearman(0, false) }),
+  def({ ...B2, id: 'wl_spear_b', name: '执矛水卒', group: '普通', role: '水卒', tip: 48, build: () => spearman(1, false) }),
+  def({ ...B2, id: 'wl_chain', name: '拽索手', group: '普通', role: '拽索', tip: 4, build: () => chainman(false) }),
+  def({ ...B2, id: 'wl_chain_e', name: '拽索手', group: '精英', role: '拽索', tip: 4, build: () => chainman(true) }),
+  def({ ...B2, id: 'wl_oil', name: '掷火卒', group: '普通', role: '掷火', tip: 4, build: () => oilman(false) }),
+  def({ ...B2, id: 'wl_oil_e', name: '掷火卒', group: '精英', role: '掷火', tip: 4, build: () => oilman(true) }),
+  def({ ...B2, id: 'wl_xbow', name: '楼船弩士', group: '普通', role: '弩士', tip: 20, build: () => xbowman(false) }),
+  def({ ...B2, id: 'wl_xbow_e', name: '楼船弩士', group: '精英', role: '弩士', tip: 20, build: () => xbowman(true) }),
+  def({ ...B2, id: 'wl_diver', name: '没水鬼', group: '普通', role: '水鬼', tip: 14, build: () => diver(false) }),
+  def({ ...B2, id: 'wl_diver_e', name: '没水鬼', group: '精英', role: '水鬼', tip: 14, build: () => diver(true) }),
+  def({ ...B2, id: 'wl_shield', name: '执楯刀士', group: '普通', role: '亲卫', tip: 29, build: () => shieldman(false) }),
+  def({ ...B2, id: 'wl_shield_e', name: '执楯刀士', group: '精英', role: '亲卫', tip: 29, build: () => shieldman(true) }),
+  def({ ...B2, id: 'wl_boss', name: '周黯', group: '首领', role: '督造少监', tip: 9, build: zhouAn }),
+  def({ ...B2, id: 'cx_club', name: '持杖僮奴', group: '普通', role: '僮奴', tip: 26, build: () => servant(0, false) }),
+  def({ ...B2, id: 'cx_club_b', name: '持杖僮奴', group: '普通', role: '僮奴', tip: 26, build: () => servant(1, false) }),
+  def({ ...B2, id: 'cx_sword', name: '门下剑客', group: '普通', role: '门客', tip: 32, build: () => swordsman(false) }),
+  def({ ...B2, id: 'cx_sword_e', name: '门下剑客', group: '精英', role: '门客', tip: 32, build: () => swordsman(true) }),
+  def({ ...B2, id: 'cx_shade', name: '匿影死士', group: '普通', role: '死士', tip: 6, build: () => shade_(false) }),
+  def({ ...B2, id: 'cx_shade_e', name: '匿影死士', group: '精英', role: '死士', tip: 6, build: () => shade_(true) }),
+  def({ ...B2, id: 'cx_guard', name: '百辟刀卫', group: '普通', role: '刀卫', tip: 31, build: () => guard(false) }),
+  def({ ...B2, id: 'cx_guard_e', name: '百辟刀卫', group: '精英', role: '刀卫', tip: 31, build: () => guard(true) }),
+  def({ ...B2, id: 'cx_zhu', name: '击筑客', group: '普通', role: '乐师', tip: 14, build: () => zhuPlayer(false) }),
+  def({ ...B2, id: 'cx_zhu_e', name: '击筑客', group: '精英', role: '乐师', tip: 14, build: () => zhuPlayer(true) }),
+  def({ ...B2, id: 'cx_boss', name: '崔玄', group: '首领', role: '司空长史', tip: 34, build: cuiXuan }),
 ];

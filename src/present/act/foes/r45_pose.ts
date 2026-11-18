@@ -93,12 +93,19 @@ const diverPose: PoseFn = (b, t, a, off, self) => {
   rot(b.armR, -1.4 * load - 0.6 * hit, 0, -0.8 * load + 1.1 * hit); rot(b.foreR, 0.6 * load, 0, 0);
   rot(b.spine, 0.1 * hit, -0.5 * load + 0.6 * hit, 0); lungeLegs(b, hit * 0.6); off.z = 0.4 * hit;
 };
-/** 执楯刀士: the shield up on the left (the arm across in front), the blade low; the rush: head down behind the shield; the cut: over it */
+/** keep what the left hand holds (a shield, the 筑) square to the body whatever the arm does: the offhand joint turned back by the arm's
+ *  and the forearm's pitch (they are the only rotations about x above it) */
+const levelOffhand = (b: Bones) => { if (b.offhand && b.armL && b.foreL) b.offhand.rotation.x -= (b.armL.rotation.x - (b.armL.rest?.r.x ?? 0)) + (b.foreL.rotation.x - (b.foreL.rest?.r.x ?? 0)); };
+/** 执楯刀士: the shield up on the left (the forearm level in front, the plank upright before it), the blade low; the rush: head down
+ *  behind the shield; the cut: over it */
 const shieldPose: PoseFn = (b, t, a, off, self) => {
-  base(b, t, self, { armed: 'r' }); rot(b.armL, -0.9, 0.3, -0.3); rot(b.foreL, -0.9, 0, 0); if (shared(b, a, off)) return;
-  const { load, hit } = beats(a!), rush = a!.data.atk === 'lunge';
-  if (rush) { rot(b.spine, 0.4 * load + 0.3 * hit, 0, 0); rot(b.neck, -0.3 * load, 0, 0); rot(b.armL, -0.3 * hit, 0, 0); bend(b, 0.3 * load); lungeLegs(b, hit); }
-  else { rot(b.armR, -2.3 * load + 1.2 * hit, 0, 0.2 * load); rot(b.foreR, 0.6 * load + 0.6 * hit, 0, 0); rot(b.spine, -0.15 * load + 0.3 * hit, 0.2 * load, 0); lungeLegs(b, hit * 0.7); off.z = 0.35 * hit; }
+  base(b, t, self, { armed: 'r' }); rot(b.armL, -0.45, 0, -0.12); rot(b.foreL, -1.0, 0, 0);
+  if (!shared(b, a, off)) {
+    const { load, hit } = beats(a!), rush = a!.data.atk === 'lunge';
+    if (rush) { rot(b.spine, 0.4 * load + 0.3 * hit, 0, 0); rot(b.neck, -0.3 * load, 0, 0); rot(b.armL, -0.2 * hit, 0, 0); bend(b, 0.3 * load); lungeLegs(b, hit); }
+    else { rot(b.armR, -2.3 * load + 1.2 * hit, 0, 0.2 * load); rot(b.foreR, 0.6 * load + 0.6 * hit, 0, 0); rot(b.spine, -0.15 * load + 0.3 * hit, 0.2 * load, 0); lungeLegs(b, hit * 0.7); off.z = 0.35 * hit; }
+  }
+  levelOffhand(b);
 };
 /** 周黯: an old man's stoop, the hands in the wide sleeves; the signal flag raised (cast), the sleeve-bow pointed (attack) */
 const zhouPose: PoseFn = (b, t, a, off, self) => {
@@ -142,11 +149,12 @@ const drawCut = (b: Bones, a: Action, off: THREE.Vector3) => {
   rot(b.spine, 0.15 * load + 0.2 * hit, 0.45 * load - 0.55 * hit, 0); bend(b, 0.3 * load + 0.2 * hit); lungeLegs(b, hit); off.z = 0.5 * hit;
 };
 const guardPose: PoseFn = (b, t, a, off, self) => { base(b, t, self, { armed: 'r' }); if (shared(b, a, off)) return; drawCut(b, a!, off); };
-/** 击筑客: the 筑 held across the left arm, the striker in the right; a stroke (cast): the arm raised, the striker brought down */
+/** 击筑客: the 筑 held level across the body on the left forearm, the striker in the right; a stroke (cast): the arm raised, the striker
+ *  brought down onto the strings */
 const zhuPose: PoseFn = (b, t, a, off, self) => {
-  base(b, t, self, { armed: 'none', hunch: 0.06 }); rot(b.armL, -0.9, 0, -0.2); rot(b.foreL, -1.2, 0, 0); rot(b.armR, -0.7, 0, 0.3); rot(b.foreR, -0.8, 0, 0);
-  if (shared(b, a, off)) return;
-  const s = snap(a!.k, [[0, 0], [0.3, -1], [0.45, 1], [0.7, 0.4], [1, 0]]); rot(b.armR, -0.6 * Math.max(0, -s) + 0.5 * Math.max(0, s), 0, 0); rot(b.spine, 0.1 * Math.max(0, s), 0, 0);
+  base(b, t, self, { armed: 'none', hunch: 0.06 }); rot(b.armL, -0.5, 0, -0.15); rot(b.foreL, -1.0, 0, 0); rot(b.armR, -0.7, 0, 0.3); rot(b.foreR, -0.8, 0, 0);
+  if (!shared(b, a, off)) { const s = snap(a!.k, [[0, 0], [0.3, -1], [0.45, 1], [0.7, 0.4], [1, 0]]); rot(b.armR, -0.6 * Math.max(0, -s) + 0.5 * Math.max(0, s), 0, 0); rot(b.spine, 0.1 * Math.max(0, s), 0, 0); }
+  levelOffhand(b);
 };
 /** 崔玄: upright, unhurried, the fan held loose at the chest, the left hand behind his back; the fan stroke a flick across; with the
  *  blade the drawing cut; the lunge a long straight 一字 thrust */
