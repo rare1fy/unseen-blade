@@ -332,9 +332,14 @@ export class FoeAccessories {
     for (const bone of this.ribbons) rot(bone, -0.42 * cloth, -0.30 * roll, 0.14 * roll);
     const swing = clamp((b.armR?.rotation.x ?? 0) + 0.6 * (b.foreR?.rotation.x ?? 0), -3, 3);
     const tip = this.tip.step(swing, dt, 21) - swing;
-    for (const bone of this.tips) rot(bone, clamp(0.07 * tip, -0.13, 0.13), -0.12 * roll, 0);
-    // A second hand locks the brute's haft during a swing and the head rests on the floor after a slam.
-    if (!(a.act?.name === 'attack' && (a.def.id === 'hj_brute' || a.def.id === 'hj_brute_e')))
+    // These poses already drive the blade or every chain link through the strike.
+    const name = a.act?.name;
+    const aimed = name === 'hjCut' || name === 'hjBackhand' || name === 'whirl' || name === 'slamChain'
+      || (name === 'attack' && a.def.id === 'cx_boss');
+    if (!aimed) for (const bone of this.tips) rot(bone, clamp(0.07 * tip, -0.13, 0.13), -0.12 * roll, 0);
+    // A rigid weapon driven by both hands or aimed down a lane cannot lag behind its grip.
+    const locked = name === 'attack' && /^(hj_(brute|mob)|xp_(diver|conscript))/.test(a.def.id);
+    if (!locked)
       rot(this.rigidTip, clamp(0.022 * tip, -0.047, 0.047), 0, 0);
   }
 }
