@@ -1350,3 +1350,11 @@
 - 杜五、孙婆婆的新模型（按立绘重做）来自主目录里没提交的那批，存档分支 `wip/main-models-1118`；同一批里的「黄巾攻击动作回炉」还没合。
 
 **第三个（act-59 → act-61）**：用户：「我打开还是没有画面，这还是模拟器的问题吗？」，贴了控制台：`EXT_blend_minmax`、`OES_vertex_array_object` 不支持（three 自己会绕开），`loadFont:fail NOT_WHITELIST_FILE … assets/body/wenkai.woff2`，最后是 `MeshToonMaterial` 的「Fragment shader is not compiled」。那台开发者工具的 WebGL1 连 `OES_standard_derivatives` 都没有——act-59 只是让材质「声明要用」它，没有就是没有。用到 `dFdx` / `dFdy` 的三处：`voxToon` 的 1 像素倒角线（场景和人物全用这个材质）、`toon({ flat: true })` 的扁平着色（`ui3d/vox.ts` 的界面小模型）、three 自带物理材质 `lights_physical_fragment` 里按法线求导估的 geometryRoughness（水面、玻璃、碎块）。改：`CAPS.derivatives = WebGL2 || OES_standard_derivatives`；没有时 `voxToon` 的倒角那段在 `#ifdef VOX_DERIV` 外面（面按朝向的明暗照旧，只少了边上那一像素的亮 / 暗线），`toon` 的 `flatShading` 改成编译时才读的属性（没有求导就当 false，用网格自带的法线），启动时把 three 的 `lights_physical_fragment` 里那两行换成 `float geometryRoughness = 0.0;`（只影响弧面上高光的柔和）。字体：微信包里三套正文字体用 fontTools 从 woff2 转成 ttf（`wx.loadFont` 认 ttf），主包 3.7 → 5.0 MB。替身页加 `?strip=…`，照用户那台的情况去掉求导、blend_minmax、VAO，新包 0 报错、0 个编译失败的着色器。
+
+### 微信包上传：ES2015 和包体（11-18，act-63）
+
+用户上传时：「message：Error: invalid file: game.js, 122:12 SyntaxError: Unexpected token . wx.onHide?.(function () { context.suspend().catch(console.warn); });」「上传包也上传不了，你不要抓瞎了，看看别人three js怎么上微信的」。
+
+- 别人的做法：three.js 进微信小游戏，一条路是 three-platformize（构建时把 three 里的浏览器接口换成平台对象），一条路是 weapp-adapter 这类全局垫片（我们用的是 pxui 的垫片 + `wechat/glue.js`，游戏已经能起来，这条路不换）。上传时微信的编译不转译新语法，社区的做法是**构建时用 Babel / esbuild 降到 ES2015**，「增强编译」时好时坏不靠它。主包上传上限 4 MB、总 30 MB（Cocos 3.8 文档与社区一致；用户记得的 20 MB 拿不准，按 4 MB 做）。
+- 做法：微信构建 target es2015（esbuild 把 `?.`、`??`、`**`、async 等降下去）；`wechat/glue.js` 是手写的，改成 ES2015；整个包里唯一剩下的动态 `import()` 是 pxui 浏览器平台的界面字体热更新，小游戏里从不执行，在微信构建里换成 `Promise.reject`。`npm run wx` 用 acorn 按 ES2015 把整个 game.js 解析一遍，过不了就停下（第一次就抓到了那个 `import()`）。
+- 包体：act-60 起正文字体在微信里是 ttf（约 2.6 MB），主包涨到 5.0 MB——挪进 `fonts` 分包，`bodyFont.ts` 在小游戏里先 `wx.loadSubpackage('fonts')` 再 `wx.loadFont`，游戏不等它、先用设备字体，加载好了重画文字。主包 2.5 MB，四个分包各 2.6～3.7 MB，合计 15.3 MB；`npm run wx` 超过主包 4 MB / 合计 30 MB 会报错。
