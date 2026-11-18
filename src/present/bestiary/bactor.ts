@@ -30,7 +30,10 @@ export class BActor extends Actor {
   constructor(readonly def: ModelDef) {
     super();
     this.hid = poseId(def);
-    this.foe = def.group !== '职业' && !isGripHero(this.hid) && ROSTER.some(model => model.id === def.id);
+    // (11-18 用户：「哪个杜五走路的动作及其不自然，手和腿不在一个节奏上」: the hideout's people, the donkey and the cold open's people
+    //  are in ROSTER too — the foes' gait layer took 杜五's legs by his movement while his own walk (walkPh) swung his arms. The five
+    //  regions' enemies only)
+    this.foe = def.group !== '职业' && !isGripHero(this.hid) && /^(hj|ly|xp|wl|cx)_/.test(def.id) && ROSTER.some(model => model.id === def.id);
     const v = def.build(), lv = v as unknown as { u?: number; p?: number; k?: number; extent?: { top: number; width: number } };
     this.cx = lv.u ?? lv.k ?? v.s; this.cy = lv.p ?? lv.k ?? v.s;
     const r = v.build({ glow: def.glow ?? 1.35, jitter: 0, self: (def.self ?? 0.06) + 0.1, rim: 1.1, edge: 0.13 });   // 2026-11-13: 1.9 / +0.2 / 1.7 blew out white faces (user)

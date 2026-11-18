@@ -34,6 +34,8 @@ import { ALL_MOVES, drawManuals, manualCard } from './manuals';
 import { Dialogue, type Line } from './dialogue';
 import { Stele } from './stele';
 import { openLab } from './lab';
+import { HAS_DOM } from '../../platform';
+import { openAnimPreview } from './animPreview';
 import { IronHp, HP_FACE } from './ironUi';
 import { ROSTER } from '../bestiary/models';
 import { CODE_BUILD } from '../bestiary/voxEdit';
@@ -810,6 +812,8 @@ export class ActShow {
     dh.add({ rack: (n = 30) => { if (this.stage) this.stage.root.add(rackBlades(n)); return n; } });   // captures: the hideout's rack with n blades   // captures: the old opening / a title variant again
     // ?lab, or the desktop model page (window.__LAB): the model viewer (lab.ts, act-21)
     if (typeof window !== 'undefined' && ((window as unknown as { __LAB?: number }).__LAB || /[?&#]lab\b/.test(location.href))) { this.lab(); return; }
+    // 11-18 ?anim, or the desktop page (window.__ANIM): every character's moves side by side (animPreview.ts)
+    if (HAS_DOM && ((window as unknown as { __ANIM?: number }).__ANIM || /[?&#]anim\b/.test(location.href))) { this.animPreview(); return; }
     // ?model (vox/打开游戏看效果.bat): straight into the hideout, the camera close behind her — for checking a model edited in MagicaVoxel
     if (typeof location !== 'undefined' && /[?&#]model\b/.test(location.href)) { Object.assign(TUNE, { camH: 7.5, camD: 10.5, camFov: 34 }); this.enterYard(); return; }
     const tn = wantTitle();
@@ -874,6 +878,18 @@ export class ActShow {
       intent: n => { this.intent = n; this.hud.intent = n; },
       stats: () => (dh.api.stats as () => { calls: number; tris: number })(),
     }, [{ id: 'fine_white', name: '白发（细格子）' }, { id: 'fine_hat', name: '斗笠（细格子）' }, { id: 'slim_white', name: '白发（7 厘米旧版）' }]);
+  }
+  /** 11-18 动作预览 (用户：「其他角色我看不到，能不能给我做一个网页我整体预览一下」): the hideout's people and each region's enemies on
+   *  a bare floor, side by side — walk, run, attack, hurt, fall, from any side, slowed down (animPreview.ts) */
+  animPreview() {
+    this.labOn = true; this.enterYard(); this.banner.hide(); this.hud.on = false; this.noTalk = true;
+    const home = { x: this.hero.pos.x, z: this.hero.pos.z };
+    const reg = (pre: string) => ROSTER.filter(d => d.id.startsWith(pre)).map(def => ({ def, npc: false, name: def.name + (def.group === '精英' && !def.name.includes('精英') ? '·精英' : def.group === '首领' ? '·头目' : '') }));
+    const people = [...Object.values(HIDEOUT_PEOPLE), HIDEOUT_DONKEY].map(def => ({ def, npc: true, name: def.name }));
+    after(0.2, () => { this.hero.a.root.visible = false; this.banner.hide(); });
+    openAnimPreview({ home, make: def => new BattleActor(def), cam: (b, l, fov = 30) => { this.camOverride = b ? { base: V3(b[0], b[1], b[2]), look: V3(l![0], l![1], l![2]), fov } : null; } },
+      [{ name: '据点的人', items: people }, { name: '第一关 · 黄巾', items: reg('hj_') }, { name: '第二关 · 洛阳', items: reg('ly_') }, { name: '第三关 · 下邳', items: reg('xp_') },
+       { name: '第四关 · 乌林', items: reg('wl_') }, { name: '第五关 · 崔府', items: reg('cx_') }]);
   }
   /** the other model standing beside her (not moving), for a side-by-side look */
   private labCompare(on: boolean) {
