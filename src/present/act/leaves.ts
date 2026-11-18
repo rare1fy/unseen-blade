@@ -1,3 +1,4 @@
+import { effectLimit } from '../look/quality';
 import { instanceMatrix, instanceColor, finishInstances } from "../engine/uploads";
 import { OPT } from '../engine/perfOpts';
 // 落叶（act-19，用户：「场景里我希望有更多不同的天气效果和光影效果，飘飘落叶啊什么的，最好这些落叶也会跟战斗有所交互，当然是
@@ -41,7 +42,7 @@ export class Leaves {
   private add(x: number, y: number, z: number, vx: number, vy: number, vz: number, air: boolean, s = 1) {
     if (!this.on) return -1;
     let i = this.live;
-    if (i >= MAX) { // full: reuse the oldest leaf lying on the ground
+    if (i >= effectLimit(MAX)) { // full: reuse the oldest leaf lying on the ground
       let best = -1, age = -1; for (let k = 0; k < this.live; k++) if (!this.d[k * N + L.air] && this.d[k * N + L.age] > age) { age = this.d[k * N + L.age]; best = k; }
       if (best < 0) return -1; i = best;
     } else this.live++;
@@ -88,12 +89,12 @@ export class Leaves {
     for (let n = 0; n < 9; n++) { const a = (Math.random() - 0.5) * 1.6, ox = -uz * a, oz = ux * a; this.add(x + ox + ux * 0.5, 0.05 + Math.random() * 0.3, z + oz + uz * 0.5, ux * sp * (0.8 + Math.random() * 0.4), 0.8 + Math.random() * 1.2, uz * sp * (0.8 + Math.random() * 0.4), true); }
     this.kick(x + ux * 1.2, z + uz * 1.2, 2.2, ux, uz, sp * 0.8, 1.2);
     // gold motes: born round the hero, drifting along the way with a slow sway, fading on the far end
-    for (let n = 0; n < 10 && this.mLive < MOTES; n++) { const o = this.mLive++ * 8, md = this.md, a = (Math.random() - 0.5) * 1.2;
+    for (let n = 0; n < 10 && this.mLive < effectLimit(MOTES); n++) { const o = this.mLive++ * 8, md = this.md, a = (Math.random() - 0.5) * 1.2;
       md[o] = x - uz * a + (Math.random() - 0.5) * 0.4; md[o + 1] = 0.4 + Math.random() * 0.9; md[o + 2] = z + ux * a + (Math.random() - 0.5) * 0.4;
       md[o + 3] = ux * (2.6 + Math.random() * 1.6); md[o + 4] = uz * (2.6 + Math.random() * 1.6); md[o + 5] = 0; md[o + 6] = l / 3.2 + Math.random() * 0.6; md[o + 7] = Math.random() * 6.3; }
   }
   update(dt: number, camX: number, camZ: number) {
-    this.live = Math.min(this.live, MAX); this.mLive = Math.min(this.mLive, MOTES);
+    this.live = Math.min(this.live, effectLimit(MAX)); this.mLive = Math.min(this.mLive, effectLimit(MOTES));
     if (!this.on) { this.mesh.count = 0; this.motes.count = 0; return; }
     // a few leaves drift down round the view
     this.fallT -= dt * this.fallRate; while (this.fallT < 0) { this.fallT += 1; this.add(camX + (Math.random() - 0.5) * 22, 5 + Math.random() * 2.5, camZ - 4 + (Math.random() - 0.5) * 16, this.wind.x, -0.6, this.wind.y, true); }

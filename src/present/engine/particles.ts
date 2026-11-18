@@ -1,3 +1,4 @@
+import { effectLimit } from '../look/quality';
 import { dirtyRange } from './uploads';
 import { OPT } from './perfOpts';
 // GPU-light particles: one instanced quad mesh per pool, simulated on the CPU (port of the prototype kit's ParticlePool).
@@ -83,7 +84,7 @@ export class ParticlePool {
   }
   private changed = false;
   emit(o: Emit): number {
-    if (this.n >= this.max) return -1;
+    if (this.n >= effectLimit(this.max)) return -1;
     this.changed = true;
     const i = this.n++, i3 = i * 3, i2 = i * 2, i8 = i * 8, p = o.p, v = o.v || ZERO, c0 = o.c0 || WHITE, c1 = o.c1 || c0;
     this.p[i3] = p.x; this.p[i3 + 1] = p.y; this.p[i3 + 2] = p.z; this.v[i3] = v.x; this.v[i3 + 1] = v.y; this.v[i3 + 2] = v.z;
@@ -95,7 +96,7 @@ export class ParticlePool {
     return i;
   }
   update(dt: number) {
-    this.n = Math.min(this.n, this.max);
+    this.n = Math.min(this.n, effectLimit(this.max));
     if (!dt && !this.changed && OPT.dirtyUploads) return;
     this.changed = false;
     const P = this.p, Vv = this.v, ap = this.aPos.array as Float32Array, av = this.aVel.array as Float32Array, ac = this.aCol.array as Float32Array, am = this.aMisc.array as Float32Array;

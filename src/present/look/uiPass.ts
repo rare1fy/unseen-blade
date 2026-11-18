@@ -2,6 +2,7 @@
 // The UI scene renders into its own full-resolution target (MSAA when the GPU can, HDR, transparent background), gets a light bloom of
 // its own (lamp / glow materials with values > 1 shine: gold rims, cyan rings, crystal icons), a scaled warm-black contour and a soft
 // offset shadow over the world (premultiplied alpha). Floating text (UiText) is still drawn after this.
+import { mobileTargets } from './quality';
 import * as THREE from 'three';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import type { Ui3DLayer } from './pixel';
@@ -79,14 +80,14 @@ export class UiPass {
   }
   setSize(W: number, H: number, samples = this.rt.samples) {
     if (this.rt.samples !== samples) { this.rt.samples = samples; this.rt.dispose(); }
-    this.W = W; this.H = H; this.rt.setSize(W, H); this.bloom.setSize(Math.max(1, Math.round(W / 2)), Math.max(1, Math.round(H / 2)));
+    this.W = W; this.H = H; this.rt.setSize(W, H); this.bloom.setSize(mobileTargets() ? 1 : Math.max(1, Math.round(W / 2)), mobileTargets() ? 1 : Math.max(1, Math.round(H / 2)));
     (this.mat.uniforms.uRes.value as THREE.Vector2).set(W, H);
   }
   /** draw the UI layer over whatever is on screen now */
   render(L: Ui3DLayer) {
     const r = this.renderer, u = this.mat.uniforms, ca = r.getClearAlpha(), before = r.info.render.calls; r.getClearColor(this.cc);
     r.setRenderTarget(this.rt); r.setClearColor(0x000000, 0); r.clear(); r.render(L.scene, L.camera); r.setClearColor(this.cc, ca);
-    const bOn = UI_LOOK.bloom > 0;
+    const bOn = !mobileTargets() && UI_LOOK.bloom > 0;
     if (bOn) {
       this.bloom.strength = 1; this.bloom.radius = UI_LOOK.bloomRadius; this.bloom.threshold = UI_LOOK.bloomThreshold;
       // the bloom is not blended back into the UI target: the composite reads the blurred mips and adds them over the world

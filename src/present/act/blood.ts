@@ -1,3 +1,4 @@
+import { effectLimit } from '../look/quality';
 import { instanceMatrix, instanceColor, finishInstances } from "../engine/uploads";
 // 血（act-23，用户：「给战斗加点血浆，砍上去要溅血才有感觉」）：砍中时从伤口顺着刀路喷一串体素血块，落地变成贴地的方块血点，
 // 几秒后缩掉；斩杀时身下洇开一摊。血块是小立方体、血点是贴地的正方形（不转角度：横平竖直，和体素场景一致），颜色是压暗的红，
@@ -38,7 +39,7 @@ class Blood {
     this.init();
     const side = V3(-dir.z, 0, dir.x);
     for (let i = 0; i < n; i++) {
-      if (this.drops.length >= MAXD) this.drops.shift();
+      if (this.drops.length >= effectLimit(MAXD)) this.drops.shift();
       const v = dir.clone().multiplyScalar(R(1.4, 4.2) * power).addScaledVector(side, R(-1.3, 1.3) * power).add(V3(0, R(0.6, 3.0) * Math.sqrt(power), 0));
       this.drops.push({ p: p.clone().add(V3(R(-0.08, 0.08), R(-0.1, 0.1), R(-0.08, 0.08))), v, s: R(0.045, 0.095) * (i < 4 ? 1.5 : 1), c: pick(DROP) });
     }
@@ -55,19 +56,19 @@ class Blood {
   drip(p: THREE.Vector3, n = 1) {
     this.init();
     for (let i = 0; i < n; i++) {
-      if (this.drops.length >= MAXD) this.drops.shift();
+      if (this.drops.length >= effectLimit(MAXD)) this.drops.shift();
       this.drops.push({ p: p.clone().add(V3(R(-0.04, 0.04), R(-0.03, 0.03), R(-0.04, 0.04))), v: V3(R(-0.12, 0.12), R(-0.5, 0), R(-0.12, 0.12)), s: R(0.03, 0.055), c: pick(DROP) });
     }
   }
   private stain(x: number, z: number, s: number, grow = 0.08, life = R(6, 9)) {
     if (this.skip?.(x, z)) return;
-    if (this.stains.length >= MAXS) this.stains.shift();
+    if (this.stains.length >= effectLimit(MAXS)) this.stains.shift();
     this.stains.push({ x: Math.round(x / 0.035) * 0.035, y: floor.at(x, z), z: Math.round(z / 0.035) * 0.035, s, grow, age: 0, life, c: pick(STAIN) });
   }
   clear() { this.drops.length = 0; this.stains.length = 0; if (this.dm) { this.dm.count = 0; this.sm!.count = 0; } }
   update(dt: number) {
     if (!this.dm || !this.sm) return;
-    const drops = this.drops.length - MAXD, stains = this.stains.length - MAXS;
+    const drops = this.drops.length - effectLimit(MAXD), stains = this.stains.length - effectLimit(MAXS);
     if (drops > 0) this.drops.splice(0, drops);
     if (stains > 0) this.stains.splice(0, stains);
     let n = 0;
