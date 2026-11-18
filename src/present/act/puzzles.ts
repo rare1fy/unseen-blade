@@ -20,6 +20,7 @@ import { M } from '../scenes/props';
 import { FloorGrid, FLOOR, OUT, type ShapePlan } from '../asm/roomShape';
 import { wallPiece, WALL, type WallStyle } from '../asm/arena';
 import { barricade } from './gates';
+import { LiquidCopper } from '../asm/luoyang/molten';
 import type { Rect } from '../asm/types';
 
 /** a blow of the hero's, in the shapes act/breakables.ts takes */
@@ -69,6 +70,7 @@ export class RoomPieces {
   pieces: Piece[] = []; drops: Drop[] = []; bells: Bell[] = []; rewards: Reward[] = [];
   plates: Plate[] = []; wheels: Wheel[] = [];
   private plateGates: Piece[] = [];
+  private copper: LiquidCopper[] = [];
   /** the floor's zones with everything shut, as at the start (a door's cells are −1) */
   readonly zone0: Int16Array;
   private order: number[] = []; private got = 0; private seqT = -1; private seqDone = false; private bellsCalm = 0; private replayT = 0;
@@ -76,6 +78,11 @@ export class RoomPieces {
   private waiting = 0; private stageHint = 20;
   constructor(parent: THREE.Object3D, readonly sp: ShapePlan, readonly grid: FloorGrid, style: WallStyle, seed: number) {
     parent.add(this.root);
+    for (const p of sp.pits) if (p.kind === 'molten') {
+      const liquid = new LiquidCopper(p, sp.bridges, seed);
+      this.root.add(liquid.mesh);
+      this.copper.push(liquid);
+    }
     const fx = sp.fixed!; this.zone0 = grid.zones().slice();
     const zoneAt = (x: number, z: number) => { const i = grid.ix(x), j = grid.iz(z); return i < 0 || j < 0 || i >= grid.nx || j >= grid.nz ? -1 : this.zone0[j * grid.nx + i]; };
     const size = new Map<number, number>(); for (const v of this.zone0) if (v >= 0) size.set(v, (size.get(v) ?? 0) + 1);
@@ -192,20 +199,34 @@ export class RoomPieces {
   private bell(x: number, z: number, note: number): Bell {
     // a bell frame: two posts, a beam, the bronze bell hanging under it (it swings when rung)
     const fr = new VoxWorld(CELL);
-    if (this.sp.fixed?.bellTrees) {
-      fr.box(-8, 0, -5, -4, 41, 0, COL.woodD);
-      fr.box(-6, 30, -3, 7, 33, 1, COL.wood);
-      fr.box(-15, 37, -9, 1, 45, 5, 0x68632e);
-      fr.box(-10, 44, -8, 5, 49, 1, 0x898044);
-      fr.box(1, 34, -5, 12, 40, 3, 0x79763a);
+    const tree = this.sp.fixed?.bellTrees;
+    if (tree) {
+      // Keep the bell (and its hit and sound origins) on the mark. Grow the tree behind it.
+      fr.box(-12, 0, -21, -7, 41, -16, COL.woodD);
+      fr.box(-10, 26, -18, -6, 30, -7, COL.wood);
+      fr.box(-8, 27, -10, 1, 30, -6, COL.wood);
+      fr.box(-2, 28, -8, 1, 30, 1, COL.wood);
+      fr.box(-15, 37, -27, 1, 45, -12, 0x68632e);
+      fr.box(-10, 44, -26, 5, 49, -16, 0x898044);
+      fr.box(1, 34, -24, 12, 40, -10, 0x79763a);
     } else {
       for (const s of [-1, 1]) { fr.box(s * 7 - 1, 0, -1, s * 7, 30, 0, COL.woodD); fr.box(s * 7 - 2, 0, -2, s * 7 + 1, 2, 1, COL.stoneD); }
       fr.box(-9, 31, -1, 8, 32, 0, COL.wood); fr.box(-10, 33, -2, 9, 33, 1, COL.tileD);
     }
     const g = mesh(fr); g.position.set(x, 0, z);
-    const bv = new VoxWorld(CELL); bv.box(-3, -12, -3, 2, -4, 2, COL.bronze); bv.box(-4, -13, -4, 3, -12, 3, COL.bronzeD); bv.box(-2, -4, -2, 1, -2, 1, COL.bronzeL); bv.box(-1, -1, -1, 0, 0, 0, COL.rope);
-    for (let i = 0; i <= note; i++) bv.box(-3 + i * 2, -9, 3, -3 + i * 2, -8, 3, COL.bronzeL);   // one to three studs: which note it is
-    const bell = mesh(bv); bell.position.y = 30 * CELL; g.add(bell); this.root.add(g);
+    const bv = new VoxWorld(CELL);
+    if (tree) {
+      bv.box(-1, -3, -1, 0, 0, 0, 0xbf3024);
+      bv.box(-2, -5, -2, 1, -4, 1, 0xf0c060);
+      bv.box(-3, -9, -3, 2, -6, 2, 0xc8902a);
+      bv.box(-4, -11, -4, 3, -10, 3, 0x8a5a1a);
+      bv.box(-4, -10, -4, 3, -10, 3, 0xf0c060);
+      bv.box(-1, -12, -1, 0, -11, 0, 0xc8902a);
+    } else {
+      bv.box(-3, -12, -3, 2, -4, 2, COL.bronze); bv.box(-4, -13, -4, 3, -12, 3, COL.bronzeD); bv.box(-2, -4, -2, 1, -2, 1, COL.bronzeL); bv.box(-1, -1, -1, 0, 0, 0, COL.rope);
+    }
+    for (let i = 0; i <= note; i++) bv.box(-3 + i * 2, -9, 3, -3 + i * 2, -8, 3, tree ? 0xf0c060 : COL.bronzeL);
+    const bell = mesh(bv); bell.position.y = (tree ? 29 : 30) * CELL; g.add(bell); this.root.add(g);
     return { x, z, g, bell, note, swing: 0 };
   }
   private wheel(x: number, z: number): Wheel {
@@ -409,6 +430,7 @@ export class RoomPieces {
    *  picked up. calm = no foe alive in the room */
   update(dt: number, hero: THREE.Vector3, calm: boolean, { foes = [], heroRadius = 0.4, heroHeight = hero.y, waitZone = -1 }: PuzzleFrame = {}): PieceEvent[] {
     this.t += dt; const ev = this.events; this.events = [];
+    for (const liquid of this.copper) liquid.update(this.t, dt);
     if (this.plates.length) this.updatePlates(dt, { pos: hero, r: heroRadius }, heroHeight, foes);
     for (const w of this.wheels) this.updateWheel(w, hero, dt);
     if (calm && waitZone >= 0) {
@@ -471,6 +493,7 @@ export class RoomPieces {
     const geometry = new Set<THREE.BufferGeometry>();
     this.root.traverse(obj => { if (obj instanceof THREE.Mesh) geometry.add(obj.geometry); });
     for (const g of geometry) g.dispose();
+    for (const liquid of this.copper) liquid.mesh.material.dispose();
     for (const w of this.wheels) {
       (w.rim.material as THREE.Material).dispose();
       for (const { water } of w.paths) water.material.dispose();

@@ -1,7 +1,7 @@
 // 第二关 · 洛阳的场地矮墙风格 'palace'（11-18）：烧裂的宫墙——夯土墙芯外包一层青砖、砖面上一道道烧黑的横带，墙头一条残破的
 // 灰瓦檐；门柱是烧焦的朱柱。掩体：倒伏的铜驼、铜钟架、焦木堆、石兽座。体素 7 厘米一格，横平竖直、不撒碎点。
 // 由 asm/luoyang/index.ts import，把自己登记进 asm/arena.ts 的 ARENA_STYLES；三个洛阳地点用它。
-import { ARENA_STYLES, LOCALE_STYLE, type ArenaStyle } from '../arena';
+import { ARENA_STYLES, LOCALE_STYLE, type ArenaStyle, type CoverBox } from '../arena';
 
 /** 洛阳的调色：焦砖、灰、铜绿、焦木、暗朱 */
 export const LYC = {
@@ -12,6 +12,17 @@ export const LYC = {
   stone: 0x7a7670, stoneD: 0x5e5a56, stoneL: 0x949088, ember: 0xd8602a,
 };
 const C = LYC;
+
+function snappedColumn(bx: CoverBox, h: number) {
+  bx(-9, 0, -9, 8, 2, 8, C.stoneD);
+  bx(-8, 3, -8, 7, 4, 7, C.stoneL);
+  bx(-5, 5, -6, 3, h, 2, 0x963c2a);
+  bx(-5, h - 2, -6, 3, h, 2, C.char);
+  bx(-5, h + 1, -6, -2, h + 3, 2, C.charL);
+  // A length of the missing shaft across the front of the plinth.
+  bx(-9, 5, 3, 8, 10, 8, C.redD);
+  bx(-9, 6, 4, -8, 9, 7, 0xa37d53);
+}
 
 const palace: ArenaStyle = {
   wall(bx, segs, b0, b1, H) {
@@ -27,24 +38,49 @@ const palace: ArenaStyle = {
   },
   post: [C.red, C.char, C.redL],
   covers: ['camel', 'bellrack', 'charpile', 'beast'],
-  size: { camel: [1.1, 0.5], bellrack: [1.0, 0.45], charpile: [0.85, 0.7], beast: [0.6, 0.6], mintPress: [1.16, 0.68], columnBase: [0.66, 0.66] },
+  size: { camel: [1.1, 0.5], streetCamel: [1.96, 0.98], bellrack: [1.0, 0.45], charpile: [0.85, 0.7], beast: [0.6, 0.6], mintPress: [1.16, 0.68], columnBase: [0.66, 0.66], columnStub: [0.66, 0.66] },
   cover: {
     mintPress: bx => {
-      bx(-16, 0, -9, 15, 4, 9, C.stoneD);
-      bx(-15, 5, -8, 14, 8, 8, C.stone);
-      for (const x of [-13, 10]) bx(x, 9, -3, x + 3, 29, 3, C.char);
-      bx(-15, 30, -4, 15, 33, 4, C.charL);
-      bx(-2, 20, -2, 2, 29, 2, C.bronzeD);
-      bx(-6, 16, -5, 6, 19, 5, C.bronze);
-      bx(-7, 9, -5, 7, 10, 5, C.copper);
-      for (const x of [-4, 2]) bx(x, 11, -2, x + 2, 11, 2, C.copperL);
+      bx(-15, 0, -12, 14, 3, 12, C.stoneD);
+      bx(-14, 4, -11, 13, 5, 11, C.stone);
+      for (const x of [-13, 8]) {
+        bx(x, 6, -4, x + 4, 26, 1, 0x805639);
+        bx(x, 22, -5, x + 4, 24, 2, C.char);
+      }
+      bx(-15, 26, -5, 14, 30, 3, 0x6d4933);
+      bx(-2, 15, -2, 1, 32, 1, C.char);
+      for (const y of [18, 21, 24, 31]) bx(-3, y, -3, 2, y, 2, C.bronzeL);
+      bx(-7, 14, -5, 6, 16, 4, C.bronzeD);
+      bx(-6, 6, -5, 5, 7, 5, C.copperL);
+      for (const y of [6, 8, 10]) bx(4, y, 6, 13, y + 1, 10, y === 8 ? C.copper : C.copperL);
     },
-    columnBase: bx => {
-      bx(-9, 0, -9, 8, 3, 8, C.stoneD);
-      bx(-8, 4, -8, 7, 6, 7, C.stoneL);
-      bx(-5, 7, -5, 4, 17, 4, C.redD);
-      bx(-5, 18, -5, 4, 20, 4, C.char);
-      bx(-5, 21, -5, -2, 25, 4, C.charL);
+    columnBase: bx => snappedColumn(bx, 23),
+    columnStub: bx => snappedColumn(bx, 11),
+    streetCamel: bx => {
+      const skin = 0x4a7a62, light = 0x6a9a7a, dark = 0x2f4f40, wear = 0xb08a3a;
+      bx(-26, 0, -13, -11, 3, -7, C.stoneD);
+      bx(-26, 4, -13, -16, 5, -7, C.stoneL);
+      bx(-8, 0, -13, 2, 2, -8, C.stone);
+      // Legs folded out towards the viewer; twin humps on the exposed upper flank.
+      bx(-25, 4, -3, -22, 9, 0, dark);
+      bx(-22, 0, -6, 7, 11, 5, skin);
+      bx(-21, 10, -6, 6, 13, 3, skin);
+      for (const x of [-20, -5]) {
+        bx(x, 13, -8, x + 8, 18, 0, skin);
+        bx(x + 2, 19, -7, x + 6, 21, -1, light);
+      }
+      for (const x of [-20, 1]) {
+        bx(x, 1, 4, x + 3, 5, 11, dark);
+        bx(x + 1, 1, 10, x + 8, 3, 13, skin);
+        bx(x + 7, 1, 10, x + 9, 3, 13, wear);
+      }
+      bx(6, 4, -4, 15, 10, 2, skin);
+      bx(13, 6, -5, 18, 16, 0, skin);
+      bx(16, 14, -5, 23, 19, 0, light);
+      bx(21, 13, -4, 27, 16, 1, skin);
+      bx(26, 14, -3, 27, 15, 1, wear);
+      bx(16, 19, -3, 18, 22, -1, dark);
+      bx(20, 17, 0, 21, 18, 0, dark);
     },
     camel: bx => {   // 铜驼 fallen on its side: the long body, the hump, the neck and head along the ground, legs out (bronze, verdigris on top)
       bx(-12, 0, -5, 6, 8, 5, C.bronze); bx(-12, 9, -4, 6, 9, 4, C.bronzeL); bx(-6, 9, -3, 2, 13, 3, C.bronze); bx(-6, 14, -2, 2, 14, 2, C.bronzeL);

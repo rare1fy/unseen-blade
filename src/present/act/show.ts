@@ -19,6 +19,7 @@ import { UiLayer } from '../ui3d/layer';
 import { Overlay } from '../v2/overlay';
 import { SkinBanner, SKIN, SKINS, SKIN_NAME, setSkin, type SkinId } from './skin';
 import { showStage, prepareStageSteps, followShadow, flashSky, tickSkyFlash, type Stage, type PreparedStage } from '../scenes/stage';
+import { COPPER_Y } from '../asm/luoyang/molten';
 import { PLAY, SZ, setStage, STAGE_BIG, stageNow } from '../scenes/props';
 import { addLocales, REGISTRY, LOCALES } from '../asm/registry';
 import { NINJA_LOCALES } from '../asm/ninja';
@@ -2185,7 +2186,7 @@ export class ActShow {
       q.v.multiplyScalar(Math.exp(-dt * 3)); f.pos.addScaledVector(q.v, dt); q.vy -= 22 * dt; f.pos.y += q.vy * dt;
       const tip = Math.min(1.5, q.t * 4.2); f.a.body.rotation.x = tip;
       f.a.place(f.pos.clone(), f.yaw);
-      const floorY = q.kind === 'molten' ? -0.42 : q.kind === 'water' ? -0.56 : -1.4;
+      const floorY = q.kind === 'molten' ? COPPER_Y : q.kind === 'water' ? -0.56 : -1.4;
       if (q.kind === 'molten' && f.pos.y < floorY + 0.1 && !f.a.root.userData.splashed) {
         f.a.root.userData.splashed = true;
         const at = V3(f.pos.x, floorY, f.pos.z);

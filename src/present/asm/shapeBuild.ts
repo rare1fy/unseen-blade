@@ -8,6 +8,8 @@ import type { Ctx } from '../scenes/stage';
 import type { Rect } from './types';
 import { FloorGrid, FLOOR, OUT, PIT, type PitKind, type ShapePlan } from './roomShape';
 import { wallPiece, gateFrame, WALL, type ArenaPlan, type WallStyle } from './arena';
+import { castPit } from './luoyang/molten';
+import { LY, palaceWall, frame } from './luoyang/ly_kit';
 
 /** cells per floor-grid step */
 const S = Math.round(GRID / CELL);
@@ -73,36 +75,79 @@ export function buildShape(c: Ctx, sp: ShapePlan, plan: ArenaPlan, seed: number)
     const cuts = [a0, ...gaps(run).flat().sort((p, q) => p - q), a1];
     for (let i = 0; i < cuts.length; i += 2) {
       const s0 = cuts[i] + (i ? 1 : 0), s1 = cuts[i + 1] - (i + 1 < cuts.length - 1 ? 1 : 0); if (s1 - s0 < 2) continue;
-      wallPiece(box, plan.style, run.along, s0, s1, b0, b1, h, r, salt++);
+      if (sp.fixed?.id === 'fallen_hall' && run.along === 'x' && run.out < 0 && Math.abs(L - M(sp.box.z0)) <= 1) {
+        const brokenEnd = Math.floor((s0 + s1) / 2);
+        palaceWall(frame(c.w, 0, 0), s0, s1, b0, b1, 46,
+          { drops: [[s0, brokenEnd, 24]], seed, plaster: 0.95 });
+      } else wallPiece(box, plan.style, run.along, s0, s1, b0, b1, h, r, salt++);
     }
   }
   // (the gates sit on the walls' line: a shaped room's walls stand right on the floor's edge, no gap)
   for (const q of plan.gates) gateFrame(box, plan.style, q, T, 0);
-  for (const p of sp.pits) pit(c, box, p, p.kind);
-  for (const q of sp.bridges) { const k = sp.pits.find(p => p.x0 <= q.x0 && p.x1 >= q.x1 && p.z0 <= q.z0 && p.z1 >= q.z1)?.kind; bridge(box, q, k === 'ditch' || k === 'molten' ? 'ditch' : 'water', plan.style); }
+  // The two sides of the near collapse and its sluice form one opening in the underlying earth plane.
+  const flood = sp.fixed?.id === 'fallen_hall' ? sp.pits.find(p => p.kind === 'flood') : undefined;
+  const opening = flood && sp.pits.filter(p => p.x0 === flood.x0 && p.x1 === flood.x1 && p.z1 >= flood.z0 && p.z0 <= flood.z1);
+  if (opening && flood) c.earthHole?.(flood.x0, Math.min(...opening.map(p => p.z0)), flood.x1, Math.max(...opening.map(p => p.z1)));
+  for (const p of sp.pits) {
+    if (!opening?.includes(p)) c.earthHole?.(p.x0, p.z0, p.x1, p.z1);
+    if (sp.fixed?.id === 'fallen_hall' && p.kind === 'ditch') collapsedFloor(c, box, p, flood);
+    else pit(c, box, p, p.kind, sp.box);
+  }
+  for (const q of sp.bridges) {
+    const k = sp.pits.find(p => p.x0 <= q.x0 && p.x1 >= q.x1 && p.z0 <= q.z0 && p.z1 >= q.z1)?.kind;
+    bridge(box, q, k === 'molten' || k === 'ditch' ? k : 'water', plan.style);
+  }
+}
+
+function collapsedFloor(c: Ctx, box: B, p: Rect, channel?: Rect) {
+  const x0 = M(p.x0), z0 = M(p.z0), x1 = M(p.x1) - 1, z1 = M(p.z1) - 1;
+  const w = x1 - x0 + 1, d = z1 - z0 + 1, mid = Math.floor(w / 2);
+  const slab = frame(c.w, p.x0, p.z0);
+  const againstFar = channel && p.z0 === channel.z1, againstNear = channel && p.z1 === channel.z0;
+  box(x0, -1, z0, x1, -1, z1, null);
+  slab(0, -34, 0, w - 1, -34, d - 1, 0x100b08);
+  for (const x of [0, w - 3]) slab(x, -33, 0, x + 2, -2, d - 1, 0x34271f);
+  if (!againstFar) {
+    slab(0, -33, 0, w - 1, -3, 1, 0x32251e);
+    slab(2, -8, 0, mid - 7, 2, 11, 0x847969);
+    slab(mid + 7, -13, 0, w - 9, -4, 7, 0x554b41);
+    slab(w - 19, -19, 4, w - 7, -10, 15, 0x493c33);
+  }
+  if (!againstNear) {
+    slab(0, -33, d - 2, w - 1, -3, d - 1, 0x292019);
+    slab(mid + 6, -11, d - 10, w - 8, 1, d - 1, 0x6e6355);
+    slab(0, -17, d - 15, 14, -3, d - 1, 0x594d40);
+  }
+  // Broken masonry at the bottom, well below the wheel's moving deck.
+  slab(3, -33, 3, mid - 4, -29, Math.min(d - 4, 13), 0x281e17);
+  if (againstFar) {
+    // A snapped roof timber projects into the near collapse from its stone abutment.
+    // Its broken end stops at the channel's bank, below the moving deck.
+    const x = Math.floor(w * 0.35);
+    slab(x, -6, 0, x + 6, -2, d - 1, LY.char);
+    slab(x + 1, -1, 1, x + 6, -1, d - 1, 0x684b32);
+    slab(x, -5, d - 8, x + 6, 0, d - 6, LY.iron);
+  } else if (!againstNear) {
+    const z = Math.floor(d * 0.60);
+    slab(0, -10, z - 4, w - 1, -4, z + 3, LY.char);
+    slab(1, -3, z - 3, w - 2, -3, z + 2, 0x684b32);
+    slab(w - 16, -10, z - 4, w - 13, -3, z + 3, LY.iron);
+  }
+  c.ambient({ kind: 'dust', color: 0xa68b70, rate: 1.1, area: p, y: [-0.8, 0.45] });
 }
 
 /** a pit: the ground cells taken out, a bed below; water: a stone kerb round the edge going down to a dark plane 0.2 m below the floor;
  *  a gully (深沟): two earth ledges stepping in and down, black at the bottom 0.8 m down */
-function pit(c: Ctx, box: B, p: Rect, kind: PitKind) {
+function pit(c: Ctx, box: B, p: Rect, kind: PitKind, room: Rect) {
   const X0 = M(p.x0), X1 = M(p.x1) - 1, Z0 = M(p.z0), Z1 = M(p.z1) - 1;
   const rim = (y0: number, y1: number, k: number, col: number) => { for (const [a0, b0, a1, b1] of [[X0 + k, Z0 + k, X1 - k, Z0 + k], [X0 + k, Z1 - k, X1 - k, Z1 - k], [X0 + k, Z0 + k, X0 + k, Z1 - k], [X1 - k, Z0 + k, X1 - k, Z1 - k]]) box(a0, y0, b0, a1, y1, b1, col); };
   box(X0, -1, Z0, X1, -1, Z1, null);
-  // (the flat ground beyond the stage lies at −2 cells over everything: cut it open over the pit)
-  c.earthHole?.(p.x0, p.z0, p.x1, p.z1);
   if (kind === 'flood') {
     // Recess the bed so the water at −0.2 m is visible. The sluice's stone deck comes level with the banks as it drains.
     box(X0, -9, Z0, X1, -9, Z1, PAL.stoneD);
     rim(-8, -2, 0, PAL.stoneW);
   } else if (kind === 'molten') {
-    // A near-black skin at the crucible's rim, two broad rafts of cooling copper and a bright seam between them.
-    rim(-7, -1, 0, 0x392b28); rim(-7, -3, 1, 0x602d20);
-    c.w.box(X0 + 2, -7, Z0 + 2, X1 - 2, -7, Z1 - 2, 0xe05019, 1);
-    const mx = Math.floor((X0 + X1) / 2), mz = Math.floor((Z0 + Z1) / 2);
-    box(X0 + 2, -6, Z0 + 2, mx - 3, -6, Z0 + 5, 0x6c3227);
-    box(mx + 5, -6, Z1 - 7, X1 - 2, -6, Z1 - 2, 0x713728);
-    c.w.box(mx - 5, -7, mz, mx + 9, -7, mz + 2, 0xff9b37, 1);
-    c.ambient({ kind: 'embers', color: 0xff882b, area: p, y: [-0.4, -0.1], rate: 3.5 });
+    castPit(c, p, room);
   } else if (kind === 'water') {
     // a dressed-stone kerb two cells wide at floor level (light outer course, a darker inner one), the stone wall going down inside it to
     // the water 0.56 m below the floor (the camera sees the far side's wall above the water: the drop), a near-black bed under the water
@@ -130,10 +175,22 @@ function pit(c: Ctx, box: B, p: Rect, kind: PitKind) {
 
 /** a bridge across a pit: a plank deck on two beams (a rail each side, posts at the ends) for the water; a stone slab bridge with a kerb
  *  for a gully; the planks run across the way */
-function bridge(box: B, q: Rect, kind: 'water' | 'ditch', st: WallStyle) {
+function bridge(box: B, q: Rect, kind: 'water' | 'ditch' | 'molten', st: WallStyle) {
   const X0 = M(q.x0), X1 = M(q.x1) - 1, Z0 = M(q.z0) - 1, Z1 = M(q.z1);
   const alongZ = q.z1 - q.z0 >= q.x1 - q.x0;
-  if (kind === 'water' && st !== 'brick') {
+  if (kind === 'molten') {
+    box(X0, -6, Z0, X1, -2, Z1, 0x944a2c);
+    box(X0, -2, Z0, X1, 0, Z1, LY.stoneDD);
+    for (let z = Z0; z <= Z1; z += 30)
+      box(X0 + 2, 0, z, X1 - 2, 0, Math.min(z + 28, Z1), LY.stone);
+    for (const x of [X0, X1 - 1]) {
+      box(x, 1, Z0, x + 1, 3, Z1, LY.slag);
+      for (let z = Z0 + 5; z < Z1 - 2; z += 44) {
+        box(x, 4, z, x + 1, 8, z + 2, LY.iron);
+        box(x, 9, z, x + 1, 9, z + 2, LY.copper);
+      }
+    }
+  } else if (kind === 'water' && st !== 'brick') {
     box(X0, -2, Z0, X1, -1, Z1, PAL.woodD);
     box(X0, 0, Z0, X1, 0, Z1, PAL.wood);
     // (the board seams run along the way: seams across it, seen from the battle camera, read as a stair)

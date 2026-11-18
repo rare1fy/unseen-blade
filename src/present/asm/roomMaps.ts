@@ -144,7 +144,7 @@ export const ROOM_MAPS: RoomMap[] = [
     ],
   },
   {
-    id: 'palace_road', name: '宫道长廊', locale: 'ly_ward', kind: 'fight', stages: 2, seed: 5203, time: 'dusk', weather: 'mist',
+    id: 'palace_road', name: '宫道长廊', locale: 'ly_ward', kind: 'fight', stages: 2, seed: 5203, time: 'dusk', weather: 'clear',
     coverKinds: ['beast'],
     rows: [
       '##..E..###',
@@ -175,7 +175,7 @@ export const ROOM_MAPS: RoomMap[] = [
   },
   {
     id: 'fallen_hall', name: '塌殿', locale: 'ly_ward', kind: 'fight', stages: 1, seed: 5302, time: 'dawn', weather: 'rain', pit: 'ditch',
-    coverKinds: ['columnBase'],
+    coverKinds: ['columnBase', 'columnStub'],
     rows: [
       '#######...E.....####',
       '#.....#.........####',
@@ -196,7 +196,7 @@ export const ROOM_MAPS: RoomMap[] = [
   },
   {
     id: 'bronze_street', name: '铜驼大街', locale: 'ly_road', kind: 'fight', stages: 1, seed: 5400, time: 'dusk', weather: 'clear',
-    coverKinds: ['camel'],
+    coverKinds: ['streetCamel'],
     rows: [
       '####...E...####',
       '####.......####',

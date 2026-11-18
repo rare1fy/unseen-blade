@@ -60,7 +60,14 @@ const LANDMARKS: Landmark[] = [
 ];
 
 // ------------------------------------------------------------------ ground: trodden earth with broken brick, the lane of brick halves, ash beyond
-function floor(c: Ctx, f: { layout: Layout }) {
+function floor(c: Ctx, f: Parameters<Locale['floor']>[1]) {
+  const hall = f.arena?.shape;
+  if (hall?.fixed?.id === 'fallen_hall') {
+    const slabs = { n: 32, m: 22, joint: 0x47413a, body: 0x827b6e };
+    lyFloor(c, f, { court: slabs, path: slabs, kerb: slabs.joint,
+      patches: [{ rect: hall.box, surface: slabs }], outer: [LY.ashD, LY.earthD, LY.charL] });
+    return;
+  }
   // 坊街中央是踩实的土。残砖留在房基旁和坊巷里，焦痕从两翼倒梁下接进路边。
   const brick = { n: 18, m: 8, joint: 0x49413a, body: 0x60554b };
   lyFloor(c, f, {

@@ -5,15 +5,21 @@
 //   人要走的地方至少 3 格宽（1.5 米）；建两次一模一样（掩体、可破坏物、出口）。
 import { describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
-import { PLAY } from '../src/present/scenes/props';
+import { PLAY, GRID, M } from '../src/present/scenes/props';
+import { CELL } from '../src/present/bestiary/kit';
+import { TUNE } from '../src/present/act/tune';
+import { VoxWorld } from '../src/present/look/voxkit';
+import type { Ctx } from '../src/present/scenes/stage';
+import { LUOYANG_LOCALES } from '../src/present/asm/luoyang';
 import { FloorGrid, FLOOR, PIT, OUT, type ShapePlan } from '../src/present/asm/roomShape';
 import { ROOM_MAPS, MAP_BY_ID, mapShape, mapStage, MAP_CELL, drawnExits, pickMap } from '../src/present/asm/roomMaps';
 import { REGIONS } from '../src/present/act/regions';
 import { RoomPieces } from '../src/present/act/puzzles';
+import { fxRing, fxEmbers } from '../src/present/fx/fx';
 import '../src/present/asm/luoyang/arena_palace';
-import { arenaPlan } from '../src/present/asm/arena';
+import { arenaPlan, coverVox } from '../src/present/asm/arena';
 import { LAYOUTS } from '../src/present/asm/layouts';
-import { stageLayout } from '../src/present/asm/assemble';
+import { rndOf, stageLayout } from '../src/present/asm/assemble';
 import { withExits, exitInfo, type ExitId } from '../src/present/asm/exits';
 
 // Only the audio and globally pooled visual effects require booting the game.
@@ -38,6 +44,55 @@ function reach(g: FloorGrid, x: number, z: number) {
 const cellOf = (g: FloorGrid, x: number, z: number) => g.iz(z) * g.nx + g.ix(x);
 
 describe('drawn rooms', () => {
+  it('places every threshing bell below and in front of the crown, clear along the battle-camera ray', () => {
+    const room = piecesFor('threshing');
+    for (const { g, bell, x, z } of room.bells) {
+      g.updateMatrixWorld(true);
+      const crown = new THREE.Box3(), v = new THREE.Vector3();
+      // Read the upper tree vertices from the built frame, independently of the bell and its cord.
+      for (const child of g.children) if (child !== bell && child instanceof THREE.Mesh) {
+        const pos = child.geometry.getAttribute('position');
+        for (let i = 0; i < pos.count; i++) {
+          v.fromBufferAttribute(pos, i).applyMatrix4(child.matrixWorld);
+          if (v.y >= 34 * CELL - 1e-5) crown.expandByPoint(v);
+        }
+      }
+      expect(crown.isEmpty()).toBe(false);
+      const bounds = new THREE.Box3().setFromObject(bell);
+      const center = bounds.getCenter(new THREE.Vector3());
+      const eye = new THREE.Vector3(x, TUNE.camH, z + TUNE.camD);
+      expect(bounds.min.z).toBeGreaterThan(crown.max.z);
+      expect(bounds.max.y).toBeLessThan(crown.min.y);
+      expect(new THREE.Ray(eye, center.clone().sub(eye).normalize()).intersectsBox(crown)).toBe(false);
+    }
+    room.dispose();
+  });
+
+  it('fills at least 60% of each individual Luoyang # cell with above-foundation dressing', () => {
+    for (const m of ROOM_MAPS.filter(m => m.locale.startsWith('ly_'))) {
+      mapStage(m);
+      const sp = mapShape(m), w = new VoxWorld(CELL, true);
+      const locale = LUOYANG_LOCALES.find(l => l.id === m.locale)!;
+      sp.solid.forEach((rect, i) => {
+        const salt = 700 + i;
+        locale.infill!({ w } as Ctx, { rect, shape: sp, layout: LAYOUTS.axis,
+          back: rect.z0 > sp.box.z0 + 0.1, front: rect.z1 < sp.box.z1 - 0.1,
+          p: { x: (rect.x0 + rect.x1) / 2, z: (rect.z0 + rect.z1) / 2, s: 0,
+            seed: m.seed * 97 + salt, rnd: rndOf(m.seed, 1000 + salt),
+            season: 'autumn', time: m.time!, weather: m.weather!, lamp: 1 } });
+      });
+      const n = M(MAP_CELL);
+      m.rows.forEach((row, j) => [...row].forEach((ch, i) => {
+        if (ch !== '#') return;
+        const x = M(sp.box.x0) + i * n, z = M(sp.box.z0) + j * n;
+        let covered = 0;
+        for (let dx = 0; dx < n; dx++) for (let dz = 0; dz < n; dz++) {
+          if (w.has(x + dx, 5, z + dz)) covered++;
+        }
+        expect(covered / (n * n), `${m.id} # (${i + 1},${j + 1})`).toBeGreaterThanOrEqual(0.6);
+      }));
+    }
+  });
   for (const m of ROOM_MAPS) {
     it(`${m.name} (${m.id}): the map is sound`, () => {
       const W = m.rows[0].length;
@@ -190,6 +245,53 @@ describe('drawn rooms', () => {
     expect(sp.bridges).toHaveLength(2);
     expect(grid.pitAt(pit.x0 + 0.8, pit.z0 + 0.8)).toBe('molten');
     for (const b of sp.bridges) expect(grid.clear((b.x0 + b.x1) / 2, (b.z0 + b.z1) / 2, 0.7)).toBe(true);
+  });
+  it('animates the copper seams out of phase and bursts bubbles between the bridges', () => {
+    const room = piecesFor('mint'), hero = new THREE.Vector3(room.sp.enter[0], 0, room.sp.enter[1]);
+    const surface = room.root.getObjectByName('moltenSurface') as THREE.Mesh;
+    const colors = surface.geometry.getAttribute('color'), sample = () => Array.from(colors.array);
+    vi.mocked(fxRing).mockClear(); vi.mocked(fxEmbers).mockClear();
+    room.update(0.1, hero, false);
+    const before = sample();
+    room.update(0.625, hero, false);
+    const changes = sample().map((n, i) => n - before[i]);
+    expect(Math.min(...changes)).toBeLessThan(-0.05);
+    expect(Math.max(...changes)).toBeGreaterThan(0.05);
+    let since = 0.725, bursts = 0;
+    for (let i = 0; i < 360; i++) {
+      room.update(0.05, hero, false);
+      since += 0.05;
+      if (vi.mocked(fxRing).mock.calls.length === bursts) continue;
+      const [at] = vi.mocked(fxRing).mock.calls[bursts++];
+      expect(room.grid.pitAt(at.x, at.z)).toBe('molten');
+      expect(at.y).toBeCloseTo(-0.58);
+      expect(since).toBeGreaterThanOrEqual(1);
+      expect(since).toBeLessThan(2.06);
+      since = 0;
+    }
+    expect(bursts).toBeGreaterThanOrEqual(8);
+    expect(fxEmbers).toHaveBeenCalledTimes(bursts);
+    room.dispose();
+  });
+  it('fits the sideways camel inside its solid and leaves a three-cell lane around it', () => {
+    const m = MAP_BY_ID.bronze_street; mapStage(m);
+    const sp = mapShape(m), grid = new FloorGrid(sp);
+    const layout = withExits(stageLayout(LAYOUTS.axis), ['back'], sp.fixed);
+    const [cover] = arenaPlan(layout, ['back'], m.seed, m.locale, 'fight', sp).covers;
+    expect(cover.kind).toBe('streetCamel');
+    const bounds = new THREE.Box3();
+    coverVox({ box(x0, y0, z0, x1, y1, z1) {
+      bounds.expandByPoint(new THREE.Vector3(x0, y0, z0).multiplyScalar(CELL));
+      bounds.expandByPoint(new THREE.Vector3(x1 + 1, y1 + 1, z1 + 1).multiplyScalar(CELL));
+    } }, cover.kind, cover.rot);
+    expect(bounds.max.x - bounds.min.x).toBeGreaterThanOrEqual(3.5);
+    expect(bounds.max.y).toBeCloseTo(1.6, 1);
+    expect(Math.max(-bounds.min.x, bounds.max.x)).toBeLessThanOrEqual(cover.hx + 1e-6);
+    expect(Math.max(-bounds.min.z, bounds.max.z)).toBeLessThanOrEqual(cover.hz + 1e-6);
+    for (let j = 0; j < grid.nz; j++) for (let i = 0; i < grid.nx; i++) {
+      if (Math.abs(grid.cx(i) - cover.x) < cover.hx + 3 * GRID && Math.abs(grid.cz(j) - cover.z) < cover.hz + 3 * GRID)
+        expect(grid.kind(i, j)).toBe(FLOOR);
+    }
   });
   for (const id of ['threshing', 'fallen_hall', 'bronze_street']) {
     it(`${id}: the optional prize is sealed, its real input opens the way, and it pays once`, () => {
