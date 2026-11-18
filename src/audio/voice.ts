@@ -13,4 +13,4 @@ for (const [sec, rows] of Object.entries(SCRIPT as Record<string, Array<{ who: s
 /** say this line if there is a clip for it (stops the line before) */
 export function sayLine(who: string, text: string) { const url = BY_TEXT.get(who + '|' + text); if (url) void audio.voiceLine(url); else audio.stopVoice(); }
 export const voicedLines = () => BY_TEXT.size;
-dh.add({ voiced: () => BY_TEXT.size, voicing: () => audio.voicing });
+dh.add({ voiced: () => BY_TEXT.size, voicing: () => audio.voicing, /** act-50 checks: the audio engine */ audioDbg: () => audio });

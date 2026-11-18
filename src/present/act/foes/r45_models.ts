@@ -373,7 +373,7 @@ export const R45_DEFS = [
   def({ ...B2, id: 'wl_diver_e', name: '没水鬼', group: '精英', role: '水鬼', tip: 14, build: () => diver(true) }),
   def({ ...B2, id: 'wl_shield', name: '执楯刀士', group: '普通', role: '亲卫', tip: 29, build: () => shieldman(false) }),
   def({ ...B2, id: 'wl_shield_e', name: '执楯刀士', group: '精英', role: '亲卫', tip: 29, build: () => shieldman(true) }),
-  def({ ...B2, id: 'wl_boss', name: '周黯', group: '首领', role: '督造少监', tip: 9, build: zhouAn }),
+  def({ ...B2, id: 'wl_boss', name: '周默', group: '首领', role: '督造少监', tip: 9, build: zhouAn }),
   def({ ...B2, id: 'cx_club', name: '持杖僮奴', group: '普通', role: '僮奴', tip: 26, build: () => servant(0, false) }),
   def({ ...B2, id: 'cx_club_b', name: '持杖僮奴', group: '普通', role: '僮奴', tip: 26, build: () => servant(1, false) }),
   def({ ...B2, id: 'cx_sword', name: '门下剑客', group: '普通', role: '门客', tip: 32, build: () => swordsman(false) }),

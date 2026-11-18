@@ -11,7 +11,7 @@ import { fxChips, fxSparks, fxSmoke } from '../fx/fx';
 import { shake } from '../engine/clock';
 import { cue } from '../../audio/cues';
 
-export const STELE_NAMES = ['褚雷', '阎虎', '封鸩', '周黯'] as const;
+export const STELE_NAMES = ['石雷', '阎虎', '封寒', '周默'] as const;
 const STONE = 0x7a756d, STONE_L = 0x928c82, STONE_D = 0x5a554e, BASE = 0x524e48, BASE_L = 0x66615a;
 // the slab's front face (cells): x -7..7, y 4..; the names sit on y 6..17
 // (a cell i spans [i, i + 1] × CELL: the band x -6..6 → -6..7, its front at z 4 cells)

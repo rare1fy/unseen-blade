@@ -359,7 +359,7 @@ const killerHook = (big: boolean): PoseFn => (b: Bones, t, _a, _off, self) => {
 POSE_HOOKS.killer_cloak = killerHook(false);
 POSE_HOOKS.killer_big = killerHook(true);
 export const KILLER_CLOAK: ModelDef = { id: 'killer_cloak', name: '斗篷凶徒', group: '普通', role: '凶徒', line: '', kind: 'biped', attack: 'swing', tip: 30, build: () => buildKiller(false) };
-export const KILLER_BIG: ModelDef = { id: 'killer_big', name: '褚雷（七年前）', group: '普通', role: '凶徒', line: '', kind: 'biped', attack: 'swing', tip: 34, build: () => buildKiller(true) };
+export const KILLER_BIG: ModelDef = { id: 'killer_big', name: '石雷（七年前）', group: '普通', role: '凶徒', line: '', kind: 'biped', attack: 'swing', tip: 34, build: () => buildKiller(true) };
 
 /** the torch flame's world position (the middle of the flame) */
 export function torchTip(a: BattleActor) { const f = a.bones.flame; return f ? f.localToWorld(V3(0, 0, 3 * a.cx)) : a.local(0.4, 1.8, 0.3); }

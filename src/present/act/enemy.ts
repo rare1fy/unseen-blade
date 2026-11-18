@@ -64,7 +64,7 @@ export const EDEFS: Record<EKind, EDef> = {
   wl_xbow: { model: 'wl_xbow', hp: 36, r: 0.44, speed: 2.4, mass: 0.9, poise: 0, gold: 4, name: '楼船弩士', role: 'ext', elite: 'wl_xbow_e' },
   wl_diver: { model: 'wl_diver', hp: 40, r: 0.44, speed: 3.6, mass: 0.9, poise: 0, gold: 5, name: '没水鬼', role: 'ext', elite: 'wl_diver_e' },
   wl_shield: { model: 'wl_shield', hp: 90, r: 0.58, speed: 2.2, mass: 2.0, poise: 0, gold: 7, name: '执楯刀士', role: 'ext', elite: 'wl_shield_e' },
-  wl_boss: { model: 'wl_boss', hp: 640, r: 0.6, speed: 2.4, mass: 3.0, poise: 40, gold: 60, name: '督造少监 · 周黯', role: 'ext', boss: true, tag: '机关算尽，只求活' },
+  wl_boss: { model: 'wl_boss', hp: 640, r: 0.6, speed: 2.4, mass: 3.0, poise: 40, gold: 60, name: '督造少监 · 周默', role: 'ext', boss: true, tag: '机关算尽，只求活' },
   // wp/regB — 第五关 · 许都雪（崔府深宅）
   cx_club: { model: 'cx_club', hp: 26, r: 0.4, speed: 3.5, mass: 0.8, poise: 0, gold: 2, name: '持杖僮奴', role: 'ext', half: true, alt: ['cx_club_b'] },
   cx_sword: { model: 'cx_sword', hp: 64, r: 0.44, speed: 3.0, mass: 1.1, poise: 0, gold: 6, name: '门下剑客', role: 'ext', elite: 'cx_sword_e' },

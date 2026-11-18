@@ -18,7 +18,7 @@ export const MEALS: Array<{ id: 'feast' | 'purse' | 'wine'; name: string; desc: 
 export const MEAL_LINES: { offer: string[]; packed: string[]; after: Record<string, string> } = {"offer": ["白哥，窑里刚拢上火，挑样趁手的带上再走呗。", "外头死人比活人多，俺老杜别的不会，管饱还在行。", "空着肚子咋拼刀子？紧着挑一样，骡车套好等你咧。"], "packed": ["白哥，东西都揣怀里咧，快去快回！", "古窑家底就这点，莫看俺咧，赶紧动身吧。"], "after": {"feast": "俺拿三根指头揉的面，瓷实，吃饱了抗揍！", "purse": "收尸攒下的铜钱，白哥路上也好打点。", "wine": "这酒呛嗓子，闷一口壮胆，挨刀都不觉疼！"}};
 
 /** 刘白 at the stele of names (agy, 11-17): none struck yet / 褚雷 struck / the moment she cuts his name */
-export const STELE_LINES: { none: string[]; one: string[]; strike: string } = {"none": ["四行刻痕还在指下硌着，一个都没平。", "褚雷二字抠得最深，指腹按下去，眼窝还烫。", "碑石冻手，笔画尚浅，得拿血再喂一遍。"], "one": ["第一道刀痕极深，崩开的石茬有些扎手。", "褚雷那行断了，指下还剩三个名字。", "摸过这记新劈的深槽，眼底那捧沸灰才算凉透。"], "strike": "刀入青石三寸，字碎。褚雷，这一笔销了。"};
+export const STELE_LINES: { none: string[]; one: string[]; strike: string } = {"none": ["四行刻痕还在指下硌着，一个都没平。", "石雷二字抠得最深，指腹按下去，眼窝还烫。", "碑石冻手，笔画尚浅，得拿血再喂一遍。"], "one": ["第一道刀痕极深，崩开的石茬有些扎手。", "石雷那行断了，指下还剩三个名字。", "摸过这记新劈的深槽，眼底那捧沸灰才算凉透。"], "strike": "刀入青石三寸，字碎。石雷，这一笔销了。"};
 // act-30: the script the user writes with agy (docs/对白/剧本.md → `npm run script`) replaces these pools where it has them
 NPC_LINES.duwu = pool('npc_duwu', NPC_LINES.duwu); NPC_LINES.sunao = pool('npc_sunao', NPC_LINES.sunao);
 STELE_LINES.none = pool('stele_none', STELE_LINES.none); STELE_LINES.one = pool('stele_one', STELE_LINES.one); STELE_LINES.strike = pool('stele_strike', [STELE_LINES.strike])[0];

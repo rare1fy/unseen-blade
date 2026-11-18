@@ -563,9 +563,9 @@ const def = (id: string, name: string, role: string, build: () => V): ModelDef =
 /** the five, keyed like HIDEOUT.people (hideout.ts) */
 export const HIDEOUT_PEOPLE: Record<'duwu' | 'sunao' | 'fengtiebi' | 'luzhao' | 'huanyue', ModelDef> = {
   duwu: def('npc_duwu', '杜五', '帮手', buildDuwu),
-  sunao: def('npc_sunao', '鬼针孙媪', '医者', buildSunao),
+  sunao: def('npc_sunao', '孙婆婆', '医者', buildSunao),
   fengtiebi: def('npc_fengtiebi', '冯铁臂', '铁匠', buildFeng),
   luzhao: def('npc_luzhao', '卢昭', '情报', buildLuzhao),
-  huanyue: def('npc_huanyue', '桓越', '宿敌', buildHuanyue),
+  huanyue: def('npc_huanyue', '韩越', '宿敌', buildHuanyue),
 };
 for (const d of Object.values(HIDEOUT_PEOPLE)) if (!ROSTER.some(r => r.id === d.id)) ROSTER.push(d);
