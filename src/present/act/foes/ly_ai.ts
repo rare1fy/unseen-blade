@@ -118,12 +118,17 @@ const rider: RoleAI = {
     if (f.combo > 0 && w.heroAlive) { f.combo--; const y = Math.atan2(w.heroPos.x - f.pos.x, w.heroPos.z - f.pos.z); AI.startAttack(f, w, { k: 'rect', len: rideLane(f.pos.distanceTo(w.heroPos)), w: 1.6 }, 0.8, 16, y, { atk: 'ride', act: { name: 'paw', imp: 0.92 } }); return; }
     // at the end of the run: 1.2 s to rein in and turn — the time to cut him
     recover(f, 1.2);
+    // Only the rig turns during this recovery; the next attack still locks its own direction.
+    const turn = Math.atan2(w.heroPos.x - f.pos.x, w.heroPos.z - f.pos.z) - f.yaw;
+    f.a.play(new Action('rein', 1.2, 0.5, { turn: Math.atan2(Math.sin(turn), Math.cos(turn)) }));
   },
   // into a wall / cover at speed: thrown from the saddle, down 2 s
   bumped(f, _w, dx, dz) {
     if (f.st !== 'strike' || !f.lunge || f.mem.thrown || Math.hypot(dx, dz) < 0.02) return;
     f.mem.thrown = true; f.lunge = null; f.vel.set(0, 0, 0); f.attacking = false; dropTeles(f);
-    AI.setSt(f, 'stagger', 2.0); f.a.play(new Action('unhorse', 2.0, 0.3)); shake(0.25 * TUNE.shake); cue('wallSlam', 1); cue('foePain', 1, 1);
+    // The fall rolls off the free side of the saddle, away from the surface that stopped the horse.
+    const fallSide = Math.sign(dx * Math.cos(f.yaw) - dz * Math.sin(f.yaw)) || -1;
+    AI.setSt(f, 'stagger', 2.0); f.a.play(new Action('unhorse', 2.0, 0.3, { fallSide })); shake(0.25 * TUNE.shake); cue('wallSlam', 1); cue('foePain', 1, 1);
     fxSmoke(f.pos.clone().setY(0.4), 0x8a7a6a, 10, { r: 0.8, spd: 1.8, up: 0.8, s: 0.5, life: 0.8 });
   },
   recover: () => 1.2,
@@ -327,6 +332,13 @@ class FlyingAxe extends Arrow {
   constructor(private owner: Foe, yaw: number, private len: number, dmg: number) {
     super(owner.pos.clone().add(V3(0, 1.1, 0)), yaw, dmg, 0, true); this.friendly = true; this.life = 9;
     this.start = this.p.clone(); this.out = this.p.clone().add(fwd(yaw).multiplyScalar(len));
+    // Spin the same blade about its middle so the broad edge reads on the way out and back.
+    const held = owner.a.bones.weapon?.children.find((part): part is THREE.Mesh => part instanceof THREE.Mesh);
+    if (held) {
+      const flying = new THREE.Mesh(held.geometry, held.material);
+      flying.scale.setScalar(0.72); flying.position.z = -0.55; this.body.add(flying);
+      return;
+    }
     const head = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.08, 0.4), new THREE.MeshLambertMaterial({ color: 0x9aa0a8 })), haft = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 1.2), new THREE.MeshLambertMaterial({ color: 0x3a2418 }));
     head.position.z = 0.5; this.body.add(head, haft);
   }
@@ -405,7 +417,10 @@ const yanhu: RoleAI = {
     const s = f.shape!;
     if (f.atk === 'ram') {
       f.lunge = fwd(f.teleYaw).multiplyScalar((s as { len: number }).len / 0.55); f.yaw = f.teleYaw; f.mem.rammed = false;
-      AI.setSt(f, 'strike', 0.55); cue('foeCry', 1, 2); cue('dash', 0.8); return true;
+      AI.setSt(f, 'strike', 0.55);
+      // The wind-up clip only lasts through the first stride; keep the axe braced for the whole run.
+      f.a.play(new Action('ramRun', f.dur + 0.28));
+      cue('foeCry', 1, 2); cue('dash', 0.8); return true;
     }
     if (f.atk === 'axeThrow') { f.mem.axeOut = true; showAxe(f, false); w.arrows.push(new FlyingAxe(f, f.teleYaw, 9, f.dmg)); cue('whoosh', 1); AI.setSt(f, 'strike', 0.3); return true; }
     if (f.atk === 'iron') {
