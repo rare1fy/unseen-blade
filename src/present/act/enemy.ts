@@ -323,7 +323,9 @@ export function updateFoe(f: Foe, w: FoeWorld, dt: number) {
   if (free && ai) ai.think(f, w, dt, dist, dir, yawTo);
   else if (free && rai) roleThink(rai, f, w, dt, dist, dir, yawTo, face);
   else if (free) think(f, w, dt, dist, dir, yawTo, face);
-  else if (f.st !== 'windup' && f.st !== 'strike') f.a.setRunning(false, Math.hypot(f.vel.x, f.vel.z), yawTo, f.vel);
+  // (11-19: a reeling / thrown foe reports the speed it really makes after the push-out — a knock-back into a crate stops it there,
+  //  and the legs must not run on at the speed of the blow)
+  else if (f.st !== 'windup' && f.st !== 'strike') f.a.setRunning(false, f.st === 'stagger' ? undefined : Math.hypot(f.vel.x, f.vel.z), yawTo, f.vel);
   // The actor advances once after the AI. Sample the same wind-up clock so the blade crosses center on the hit frame.
   if (f.st === 'windup' && f.a.act?.name.startsWith('hj')) f.a.act.t = f.t - dt;
   teleStep(f, dt); ai?.post?.(f, w, dt);
@@ -503,13 +505,41 @@ export function meleeLands(f: Foe, w: FoeWorld, s: TeleShape = f.shape!, yaw = f
 /** wp/regB: the usual strike (a lunge along the lane, else a blow at the warning) — for an 'ext' AI that only adds to it */
 export { strike as defaultStrike };
 
+/** 11-19 (用户：「敌人经常会被卡在场景可破坏建筑里原地跑」): a foe walking into a pot, a crate, a post or a piece of cover was pushed
+ *  straight back out every frame and ran on the spot (the way round only knows the floor grid's walls and the props as they stood when
+ *  the room was built; a body wedged against one corner still pushes into it). When the push has been holding it back for a while
+ *  (less than a third of the speed it asks for gets through, for 0.35 s) it slides along the thing's edge — the side nearer where it
+ *  was heading — for 0.7 s, and tries the other side if that is blocked too */
+/** captures: __dh.unstick(false) turns it off to compare */
+export const UNSTICK = { on: true };
+function unstick(f: Foe, dt: number, asked: number, got: number, nx: number, nz: number) {
+  if (!UNSTICK.on) return;
+  const m = f.mem as { stuckT?: number; slideT?: number; slideX?: number; slideZ?: number; slideSide?: number; slideFail?: number };
+  if ((m.slideT ?? 0) > 0) {
+    // (the slide steers the next frame's walk: the velocity the foe's own think set is turned along the edge)
+    m.slideT = (m.slideT ?? 0) - dt;
+    const sx = m.slideX ?? 0, sz = m.slideZ ?? 0, sp = Math.max(asked, f.d.speed * 0.8);
+    f.vel.set(sx * sp, 0, sz * sp);
+    if (got < 0.25 * asked && asked > 0.4) { m.slideFail = (m.slideFail ?? 0) + dt; if ((m.slideFail ?? 0) > 0.25) { m.slideSide = -(m.slideSide ?? 1); m.slideX = -sx; m.slideZ = -sz; m.slideFail = 0; } }
+    return;
+  }
+  if (asked > 0.5 && got < 0.33 * asked && (nx || nz)) m.stuckT = (m.stuckT ?? 0) + dt; else m.stuckT = Math.max(0, (m.stuckT ?? 0) - dt * 2);
+  if ((m.stuckT ?? 0) < 0.35) return;
+  // along the obstacle's face: the push normal turned a quarter, on the side the walk was leaning to
+  const l = Math.hypot(nx, nz) || 1, tx = -nz / l, tz = nx / l, side = f.vel.x * tx + f.vel.z * tz >= 0 ? 1 : -1;
+  m.slideX = tx * side + nx / l * 0.15; m.slideZ = tz * side + nz / l * 0.15; const q = Math.hypot(m.slideX, m.slideZ) || 1; m.slideX /= q; m.slideZ /= q;
+  m.slideSide = side; m.slideT = 0.7; m.slideFail = 0; m.stuckT = 0;
+}
 function integrate(f: Foe, w: FoeWorld, dt: number) {
+  const ax = f.pos.x, az = f.pos.z, asked = Math.hypot(f.vel.x, f.vel.z);
   f.pos.addScaledVector(f.vel, dt);
   // keep apart from each other and out of the hero
   for (const o of w.foes) if (o !== f && o.st !== 'dead') { const d = f.pos.clone().sub(o.pos).setY(0), l = d.length(), m = f.d.r + o.d.r; if (l < m && l > 1e-4) f.pos.addScaledVector(d, ((m - l) / l) * (o.d.mass / (o.d.mass + f.d.mass))); }
   if (w.heroAlive && f.st !== 'strike' && w.heroY < 0.6) { const d = f.pos.clone().sub(w.heroPos).setY(0), l = d.length(), m = f.d.r + w.heroR; if (l < m && l > 1e-4) f.pos.addScaledVector(d, (m - l) / l); }
   const bx = f.pos.x, bz = f.pos.z; if (w.clampFoe) w.clampFoe(f); else w.clamp(f.pos, f.d.r);
   if (f.pos.x !== bx || f.pos.z !== bz) { w.pushed?.(f, f.pos.x - bx, f.pos.z - bz); ROLE_AI[f.role]?.bumped?.(f, w, f.pos.x - bx, f.pos.z - bz); }
+  // (walking only: an attack's lunge, a stagger or a throw keeps its own motion)
+  if (f.st === 'move' && dt > 0) unstick(f, dt, asked, Math.hypot(f.pos.x - ax, f.pos.z - az) / dt, f.pos.x - bx, f.pos.z - bz);
   f.a.yaw = f.yaw;
 }
 

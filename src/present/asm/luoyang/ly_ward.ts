@@ -2,6 +2,7 @@
 // 坊巷直通后方；两翼塌屋只剩半截墙和焦梁、屋架、坊墙段、焦树、井、灶台，余火冒烟。地标二选一：只剩骨架的楼（三层焦柱、
 // 一层楼板还在）/ 坊门（夯土门墩、烧剩的门楼梁架、门板倒在地上）。远景：坊墙、墙外一排塌屋的焦梁和半截墙、焦树、烟。
 // 和铜驼道（宫墙、石板御道、铜驼）不同：这里是民居的夯土和焦木，地面是夯土和碎砖，矮、密、乱。
+import { burntInfill } from './ly_infill';
 import type { Ctx } from '../../scenes/stage';
 import { M, SX, SZ } from '../../scenes/props';
 import type { Landmark, Layout, Locale, Place } from '../types';
@@ -59,7 +60,14 @@ const LANDMARKS: Landmark[] = [
 ];
 
 // ------------------------------------------------------------------ ground: trodden earth with broken brick, the lane of brick halves, ash beyond
-function floor(c: Ctx, f: { layout: Layout }) {
+function floor(c: Ctx, f: Parameters<Locale['floor']>[1]) {
+  const hall = f.arena?.shape;
+  if (hall?.fixed?.id === 'fallen_hall') {
+    const slabs = { n: 32, m: 22, joint: 0x47413a, body: 0x827b6e };
+    lyFloor(c, f, { court: slabs, path: slabs, kerb: slabs.joint,
+      patches: [{ rect: hall.box, surface: slabs }], outer: [LY.ashD, LY.earthD, LY.charL] });
+    return;
+  }
   // 坊街中央是踩实的土。残砖留在房基旁和坊巷里，焦痕从两翼倒梁下接进路边。
   const brick = { n: 18, m: 8, joint: 0x49413a, body: 0x60554b };
   lyFloor(c, f, {
@@ -90,6 +98,7 @@ function far(c: Ctx, f: { layout: Layout; p: Place }) {
 }
 
 export const lyWard: Locale = {
+  infill: burntInfill('ward'),
   id: 'ly_ward', name: '焦梁坊', theme: 'luoyang',
   layouts: ['axis', 'offset', 'garden', 'pair'],
   seasons: ['autumn', 'summer'], times: ['night', 'dusk', 'dawn'], weathers: ['clear', 'mist', 'rain'], noLeaves: true,

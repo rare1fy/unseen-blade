@@ -7,8 +7,8 @@ import { language, t, wrapWords } from './i18n';
 // 点 / 回车 / 斩：先把这句显示完，再点下一句。冯铁臂是哑巴，他的「台词」是动作，用灰色写。
 import * as THREE from 'three';
 import type { UiLayer } from '../ui3d/layer';
-import { text, textW } from '../v2/overlay';
-import { bodyText, bodyW, BODY_FONT } from '../ui3d/bodyFont';
+import { text, textW, type Overlay } from '../v2/overlay';
+import { bodyText, bodyW, BODY_FONT, NOTR } from '../ui3d/bodyFont';
 import { PIX_H } from '../v2/pix';
 import { cue } from '../../audio/cues';
 import { sayLine } from '../../audio/voice';
@@ -23,6 +23,8 @@ export const CAST: Record<string, Speaker> = {
   jiangjin: { name: '刘白', side: 'L' }, duwu: { name: '杜五', side: 'R' }, sunao: { name: '孙婆婆', side: 'R' }, fengtiebi: { name: '冯铁臂', side: 'R', mute: true },
   luzhao: { name: '卢昭', side: 'R' }, huanyue: { name: '韩越', side: 'R' }, chulei: { name: '石雷', side: 'R' }, yanhu: { name: '阎虎', side: 'R' },
   fengzhen: { name: '封寒', side: 'R' }, zhouan: { name: '周默', side: 'R' }, cuixuan: { name: '崔玄', side: 'R' },
+  /** 11-19: the snowy village's sentries (no portrait: the name over the box, the speaker in the scene) */
+  sentry: { name: '黄巾哨兵', side: 'R' },
   /** act-29: a line of action (in brackets, grey, no name): nobody speaks, both portraits stay and dim */
   act: { name: '', side: 'L', mute: true },
 };
@@ -44,18 +46,105 @@ const BG = '#14121c', EDGE_G = '#c8963a', EDGE_R = '#a8302a', NAME = '#ffd27a', 
 const CPS = 36;   // characters per second
 interface Side { mesh: THREE.Mesh | null; id: string; k: number; on: number; aspect: number; ih: number; pop: number; was: boolean; away: number }
 
-/** the line's HD body font size (CSS px): 20 on tall screens, 15 on a phone held sideways */
-const fontPx = (scale: number) => (scale >= 2 ? 20 : 15);
+/** the line's HD body font size (CSS px): 26 on tall screens, 19 on a phone held sideways (11-19 用户：「立绘文字和底图太小了」 — was 20 / 15) */
+const fontPx = (scale: number) => (scale >= 2 ? 26 : 19);
+/** 11-19 居中墨字 (the user picked it over a cinema caption and a scroll): narration as one line of ink in the lower third, centred,
+ *  a thin ink stroke either side, the characters inking in one by one (pale → full), the screen's edges darkened a little while it
+ *  shows. One canvas plane and one vignette plane, both in the UI layer */
+const tx = (s: string) => t(s);
+/** the body font without the translator (the ink line draws its already-translated text a character at a time) */
+const rawText = (g: CanvasRenderingContext2D, s: string, x: number, y: number, px: number, col: string) => bodyText(g, NOTR + s, x, y, px, col);
+const rawW = (s: string, px: number) => (s ? bodyW(NOTR + s, px) : 0);
+class InkLine {
+  private m: THREE.Mesh; private vig: THREE.Mesh; private c = document.createElement('canvas'); private tex: THREE.CanvasTexture | null = null;
+  private k = 0; private key = ''; private wPx = 0; private hPx = 0;
+  /** (the words go on the flat overlay drawn after the 3D UI pass — there every UI piece gets a soft dark drop shadow, which doubled the
+   *  thin ink characters into a blurred copy under them) */
+  constructor(private L: UiLayer, private ov: Overlay | null = null) {
+    this.m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ transparent: true, depthTest: false, depthWrite: false, toneMapped: false }));
+    this.m.renderOrder = 61; this.m.visible = false; (ov ? ov.scene : L.scene).add(this.m);
+    // the vignette: dark at the edges and corners, clear in the middle (a radial alpha painted once)
+    const v = document.createElement('canvas'); v.width = 256; v.height = 144; const g = v.getContext('2d')!;
+    const gr = g.createRadialGradient(128, 80, 30, 128, 72, 150); gr.addColorStop(0, 'rgba(6,5,10,0)'); gr.addColorStop(0.6, 'rgba(6,5,10,0.22)'); gr.addColorStop(1, 'rgba(6,5,10,0.62)');
+    g.fillStyle = gr; g.fillRect(0, 0, 256, 144);
+    const vt = new THREE.CanvasTexture(v); vt.colorSpace = THREE.SRGBColorSpace;
+    this.vig = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: vt, transparent: true, depthTest: false, depthWrite: false, opacity: 0, toneMapped: false }));
+    this.vig.renderOrder = 57; this.vig.visible = false; L.scene.add(this.vig);
+  }
+  /** each frame of a talk: on = this line is narration */
+  set(on: boolean, line: Line, t: number, total: number, dt: number) {
+    this.k += ((on ? 1 : 0) - this.k) * Math.min(1, dt * 7);
+    if (on) this.paint(line, t, total);
+    this.place();
+  }
+  fadeOut(dt: number) { if (this.k <= 0) return; this.k = Math.max(0, this.k - dt * 6); this.place(); }
+  off() { /* the next frames fade it */ }
+  private paint(line: Line, t: number, total: number) {
+    const tr = (x: string) => tx(x);
+    const L = this.L, dpr = Math.max(1, Math.round(L.dpr || 1));
+    const fpx = Math.round((L.h >= 600 ? 28 : 20) * dpr), raw = tr(line.text).replace(/^（|）$/g, '');
+    // two rows at most, broken near the middle (CJK breaks anywhere); English by words
+    const maxW = Math.round(Math.min(L.w * 0.7, 900) * dpr);
+    const rows: string[] = [];
+    if (language === 'en') rows.push(...wrapWords(raw, maxW, s => rawW(s, fpx)));
+    else { let r = ''; for (const ch of [...raw]) { if (rawW(r + ch, fpx) > maxW) { rows.push(r); r = ''; } r += ch; } if (r) rows.push(r); }
+    // characters ink in at 22 a second, each from pale to full over 0.35 s
+    const CPS2 = language === 'en' ? 60 : 22, n = [...raw].length, done = t * CPS2 >= n + 8, key = `${raw}|${done ? 'all' : Math.floor(t * 30)}|${L.w}x${L.h}|${dpr}|${BODY_FONT.version}`;
+    if (key === this.key) return; this.key = key;
+    const lineH = Math.round(fpx * 1.55), stroke = Math.round(Math.min(L.w * 0.08, 90) * dpr), gapX = Math.round(18 * dpr);
+    const widest = Math.max(...rows.map(r => rawW(r, fpx)), 1);
+    const W = widest + 2 * (stroke + gapX) + Math.round(24 * dpr), H = rows.length * lineH + Math.round(16 * dpr);
+    const c = this.c; c.width = W; c.height = H; const g = c.getContext('2d')!; g.clearRect(0, 0, W, H);
+    // the two ink strokes, level with the first row's middle, darker toward the words
+    const sy = Math.round(8 * dpr + lineH * 0.5);
+    for (const sx of [Math.round(12 * dpr), W - Math.round(12 * dpr) - stroke]) {
+      for (let i = 0; i < stroke; i++) { const a = sx < W / 2 ? i / stroke : 1 - i / stroke; g.fillStyle = `rgba(214,204,186,${(0.15 + 0.6 * a) * Math.min(1, t * 2)})`; g.fillRect(sx + i, sy - Math.round(dpr), 1, Math.max(1, Math.round(2 * dpr))); }
+    }
+    let idx = 0;
+    rows.forEach((r, ri) => {
+      const rw = rawW(r, fpx), x = Math.round((W - rw) / 2); const y = Math.round(8 * dpr + ri * lineH + (lineH - fpx) / 2);
+      // (each character at its place in the whole row — measured as the row's prefix, so kerning and the font's own advance hold —
+      //  drawn alone with its own alpha; the row is already in the reader's language, nothing is translated again per character)
+      const chars = [...r];
+      chars.forEach((ch, ci) => {
+        const ct = t - idx / CPS2, a = Math.max(0, Math.min(1, ct / 0.35)); idx++;
+        if (a <= 0) return;
+        const cx = x + rawW(chars.slice(0, ci).join(''), fpx);
+        g.globalAlpha = a; rawText(g, ch, cx + Math.max(1, dpr), y + Math.max(1, dpr), fpx, 'rgba(5,4,10,0.85)'); rawText(g, ch, cx, y, fpx, a < 1 ? '#c8bca8' : '#efe6d6');
+      });
+      if (language === 'en') idx++;
+    });
+    g.globalAlpha = 1;
+    this.tex?.dispose(); this.tex = new THREE.CanvasTexture(c); this.tex.colorSpace = THREE.SRGBColorSpace; this.tex.generateMipmaps = false;
+    const hd = BODY_FONT.current !== 'pixel'; this.tex.magFilter = this.tex.minFilter = hd ? THREE.LinearFilter : THREE.NearestFilter;
+    const mm = this.m.material as THREE.MeshBasicMaterial; mm.map = this.tex; mm.needsUpdate = true;
+    this.wPx = W / dpr; this.hPx = H / dpr;
+    void total;
+  }
+  private place() {
+    const L = this.L, a = this.k * this.k * (3 - 2 * this.k);
+    this.m.visible = a > 0.01 && !!this.tex; this.vig.visible = a > 0.01;
+    if (this.m.visible) {
+      const cx = Math.round(L.w / 2), cy = Math.round(L.h * 0.72 + (1 - a) * 10);
+      if (this.ov) { this.m.position.set(cx, -cy, 0); this.m.scale.set(this.wPx, this.hPx, 1); }   // (the overlay's camera: CSS px, y down)
+      else { L.at(cx, cy, 0, this.m.position); this.m.scale.set(L.px(this.wPx), L.px(this.hPx), 1); }
+      (this.m.material as THREE.MeshBasicMaterial).opacity = a;
+    }
+    if (this.vig.visible) { L.at(L.w / 2, L.h / 2, 0, this.vig.position); this.vig.scale.set(L.px(L.w + 40), L.px(L.h + 40), 1); (this.vig.material as THREE.MeshBasicMaterial).opacity = a; }
+  }
+}
 export class Dialogue {
   on = false; private box: THREE.Mesh; private boxTex: THREE.CanvasTexture | null = null; private canvas = document.createElement('canvas');
   private sides: Record<'L' | 'R', Side> = { L: { mesh: null, id: '', k: 0, on: 0, aspect: 0.8, ih: 144, pop: 0, was: false, away: 0 }, R: { mesh: null, id: '', k: 0, on: 0, aspect: 0.8, ih: 144, pop: 0, was: false, away: 0 } };
   /** the portraits sliding out after the last line (1 → 0) */
   private outK = 0; private lastSpeaker: 'L' | 'R' | null = null;
   private onLine: ((i: number, line: Line) => void) | null = null;
+  private ink: InkLine;
   private lines: Line[] = []; private i = 0; private shown = 0; private t = 0; private done: (() => void) | null = null; private drawn = -1; private openT = 0;
-  constructor(private L: UiLayer) {
+  constructor(private L: UiLayer, ov: Overlay | null = null) {
     this.box = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), [0, 0, 0, 0, 0, 0].map((_, i) => new THREE.MeshBasicMaterial({ color: i === 4 ? 0xffffff : 0x0d0b12, transparent: true, depthTest: false, depthWrite: false })));
     this.box.renderOrder = 60; this.box.visible = false; L.scene.add(this.box);
+    this.ink = new InkLine(L, ov);
   }
   /** play lines; resolves when the last is dismissed */
   play(lines: Line[], onLine?: (i: number, line: Line) => void): Promise<void> {
@@ -94,7 +183,7 @@ export class Dialogue {
   private close() {
     audio.stopVoice();
     // the box goes at once; the portraits slide back out to their sides (update keeps placing them while outK runs down)
-    this.on = false; this.box.visible = false; this.outK = 1;
+    this.on = false; this.box.visible = false; this.outK = 1; this.ink.off();
     const d = this.done; this.done = null; d?.();
   }
   /** the box face: name plate + the visible part of the line, pixel font at an integer scale */
@@ -132,6 +221,7 @@ export class Dialogue {
   }
   update(dt: number) {
     if (!this.on) {
+      this.ink.fadeOut(dt);
       if (this.outK > 0) { this.outK = Math.max(0, this.outK - dt * 5); this.portraits(dt, this.lastSpeaker);
         if (this.outK <= 0) for (const s of ['L', 'R'] as const) { const S = this.sides[s]; if (S.mesh) S.mesh.visible = false; S.id = ''; } }
       return;
@@ -141,11 +231,17 @@ export class Dialogue {
     const total = [...t(line.text)].length; this.t += dt; const n = Math.min(total, Math.floor(this.t * CPS * (language === 'en' ? 2.1 : 1)) + 1);
     if (n > this.shown) this.shown = n;
     // layout: the box across the bottom middle; pixel scale 2 on screens ≥ 600 px tall, else 1 (wrapped to two / three rows)
-    const scale = L.h >= 600 ? 2 : 1, rows = language === 'en' ? 3 : 2, hPx = Math.round(10 + PIX_H * scale + 12 + rows * Math.round(fontPx(scale) * 1.4) + 8), wPx = Math.round(Math.min(L.w * 0.62, 760));
-    const key = this.i * 10000 + this.shown * 2 + (this.shown >= total ? 1 : 0) + wPx * 1e7 + BODY_FONT.version * 1e11;
-    if (key !== this.drawn) { this.drawn = key; this.paint(line, this.shown, wPx, hPx, scale); }
-    const y = L.h - hPx / 2 - Math.max(10, L.h * 0.03) + (1 - this.openT) * 30;
-    L.at(L.w / 2, y, 0, this.box.position); this.box.scale.set(L.px(wPx), L.px(hPx), L.px(8));
+    const scale = L.h >= 600 ? 2 : 1, rows = language === 'en' ? 3 : 2, hPx = Math.round(10 + PIX_H * scale + 12 + rows * Math.round(fontPx(scale) * 1.4) + 12), wPx = Math.round(Math.min(L.w * 0.72, 980));
+    const narr = line.who === 'act';
+    // (11-19 用户：「旁白的表现形式很low，重新设计一种形式」→ 居中墨字: a line of narration is no box — the box goes, the picture's edges
+    //  darken a little, the words sit centred in the lower third between two thin ink strokes, each character inking in from pale)
+    this.box.visible = !narr; this.ink.set(narr, line, this.t, total, dt);
+    if (!narr) {
+      const key = this.i * 10000 + this.shown * 2 + (this.shown >= total ? 1 : 0) + wPx * 1e7 + BODY_FONT.version * 1e11;
+      if (key !== this.drawn) { this.drawn = key; this.paint(line, this.shown, wPx, hPx, scale); }
+      const y = L.h - hPx / 2 - Math.max(10, L.h * 0.03) + (1 - this.openT) * 30;
+      L.at(L.w / 2, y, 0, this.box.position); this.box.scale.set(L.px(wPx), L.px(hPx), L.px(8));
+    }
     const sp = CAST[line.who]; this.lastSpeaker = line.who === 'act' ? null : sp?.side ?? null;
     this.portraits(dt, this.lastSpeaker);
   }

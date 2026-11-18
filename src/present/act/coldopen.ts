@@ -18,8 +18,20 @@ import { hitstop } from '../engine/clock';
 import { addBlock } from '../fx/blocks';
 import { blood } from './blood';
 import { layDead } from './prologue';
+import { PX } from '../look/pixel';
 
 // ---------------------------------------------------------------- her blind eyes: black, and every sound a ring
+/** a square ring of outer half-size 1 whose band is set per mesh (setBand): the corner cells stay square */
+const SQ_RING = (() => { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(16 * 3), 3)); g.setIndex([0, 1, 5, 0, 5, 4, 1, 2, 6, 1, 6, 5, 2, 3, 7, 2, 7, 6, 3, 0, 4, 3, 4, 7]); return g; })();
+const BANDS = new Map<number, THREE.BufferGeometry>();
+/** the ring's band: inner half-size 1 − w (w in units of the outer half-size), geometry shared per width */
+function setBand(m: THREE.Mesh, w: number) {
+  const q = Math.round(w * 200) / 200; let g = BANDS.get(q);
+  if (!g) { const i = 1 - q; g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array([-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0, -i, -i, 0, i, -i, 0, i, i, 0, -i, i, 0]), 3));
+    g.setIndex([0, 1, 5, 0, 5, 4, 1, 2, 6, 1, 6, 5, 2, 3, 7, 2, 7, 6, 3, 0, 4, 3, 4, 7]); BANDS.set(q, g); }
+  m.geometry = g;
+}
 interface Ring { m: THREE.Mesh; x: number; y: number; vx: number; vy: number; r0: number; r1: number; t: number; life: number; a: number }
 export class BlindPOV {
   private veil: THREE.Mesh; private rings: Ring[] = []; private pool: THREE.Mesh[] = []; private k = 0; private want = 0; private col = new THREE.Color(0x000000); private alive = true;
@@ -32,7 +44,9 @@ export class BlindPOV {
   fill(color: number, alpha: number, now = false) { this.col.setHex(color); this.want = alpha; if (now) this.k = alpha; }
   /** a sound: a ring at (x, y) in 0..1 screen units, growing from r0 to r1 px, drifting, fading; colour; strength */
   ring(x: number, y: number, o: { r0?: number; r1?: number; life?: number; vx?: number; vy?: number; col?: number; a?: number } = {}) {
-    const m = this.pool.pop() ?? new THREE.Mesh(new THREE.RingGeometry(0.9, 1, 48), new THREE.MeshBasicMaterial({ transparent: true, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending }));
+    // (11-19 用户：「开场黑幕文字的波纹不是像素风的」: a square ring, its band a whole number of screen pixels, its size stepping out a
+    //  pixel block at a time and its brightness in three steps — not a smooth round anti-aliased circle)
+    const m = this.pool.pop() ?? new THREE.Mesh(SQ_RING, new THREE.MeshBasicMaterial({ transparent: true, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending }));
     (m.material as THREE.MeshBasicMaterial).color.setHex(o.col ?? 0xdfe8ff); m.renderOrder = 56; this.L.scene.add(m);
     this.rings.push({ m, x, y, vx: o.vx ?? 0, vy: o.vy ?? 0, r0: o.r0 ?? 4, r1: o.r1 ?? 40, t: 0, life: o.life ?? 1.4, a: o.a ?? 0.7 });
   }
@@ -44,8 +58,14 @@ export class BlindPOV {
       const r = this.rings[i]; r.t += dt; const k = r.t / r.life;
       if (k >= 1) { this.L.scene.remove(r.m); this.pool.push(r.m); this.rings.splice(i, 1); continue; }
       r.x += r.vx * dt; r.y += r.vy * dt;
-      L.at(r.x * L.w, r.y * L.h, 0, r.m.position); r.m.scale.setScalar(L.px(r.r0 + (r.r1 - r.r0) * (1 - (1 - k) ** 2)));
-      (r.m.material as THREE.MeshBasicMaterial).opacity = r.a * (1 - k) * Math.min(1, r.t * 8);
+      // the radius in whole art pixels (the pixel look's block: 2 CSS px at 2x), the centre on the pixel grid, the brightness in steps
+      const blk = PX.on ? PX.size : 1, rad = Math.max(2, Math.round((r.r0 + (r.r1 - r.r0) * (1 - (1 - k) ** 2)) / (2 * blk)) * 2 * blk);
+      const cx = Math.round(r.x * L.w / blk) * blk, cy = Math.round(r.y * L.h / blk) * blk;
+      L.at(cx, cy, 0, r.m.position); r.m.scale.setScalar(L.px(rad));
+      const op = r.a * (1 - k) * Math.min(1, r.t * 8);
+      (r.m.material as THREE.MeshBasicMaterial).opacity = op > 0.6 * r.a ? r.a : op > 0.3 * r.a ? 0.6 * r.a : op > 0.06 * r.a ? 0.3 * r.a : 0;
+      // (the band: one art pixel thick whatever the radius — the geometry is a unit square ring, its inner edge set per ring)
+      setBand(r.m, Math.min(0.5, blk / rad));
     }
   }
   dispose() { this.alive = false; for (const r of this.rings) this.L.scene.remove(r.m); this.rings = []; this.L.scene.remove(this.veil); }

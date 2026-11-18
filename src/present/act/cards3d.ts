@@ -26,7 +26,7 @@ import { itemModel, itemForCard } from './itemModels';
 import type { Model3D } from '../ui3d/models3d';
 import { makeCanvas } from '../../platform/index';
 import { PIX_H } from '../v2/pix';
-import type { MiniShield } from './btnBadge';
+import { backShield, type MiniShield } from './btnBadge';
 import { entryOfCard, layoutPresses, paintSeps, pressShields, paintName, paintEffect, paintNum, type SkillEntry, type PressItem } from './skillFace';
 import { skillIcon3D } from './skillIcons';
 import type { MarkTarget } from './skillInfo';
@@ -62,9 +62,12 @@ export class CardPick3D {
   flight: CardFlight | null = null;
   private get settling() { return clock.rtime - this.openedAt < 0.4; }
   private cards: Card[] = []; private done: ((i: number) => void) | null = null; private leaving = -1; private leaveT = 0; private flyStarted = false;
+  /** 11-19 (用户：「npc商店页面没有退出按钮」): a page you may leave without taking anything (the hideout's shops) has the back shield
+   *  at its top left — a tap on it, Esc or pad B resolves with −1; the reward picks (a card must be taken) have none */
+  private back: MiniShield | null = null; private backK = 0; private backHot = 0; private backDown = false; private backAt = { x: 0, y: 0, r: 0 }; private canLeave = false;
   constructor(private L: UiLayer) { onBodyFontChange(() => { for (const c of this.cards) c.faceKey = ''; }); }
-  open(boons: BoonPick[]): Promise<number> {
-    this.close(); const L = this.L;
+  open(boons: BoonPick[], o: { leave?: boolean } = {}): Promise<number> {
+    this.close(); this.canLeave = !!o.leave; this.backK = 0; const L = this.L;
     const entries = boons.map(({ boon, tier }) => entryOfCard(boon, tier)), skill = entries.some(e => !!e);
     // one wide card a row, centred; more rows than fit → a shorter board (skill cards) or smaller cards (the hideout's upgrade lists)
     const kk = Math.max(0.8, Math.min(1.25, L.h / 720)), n = boons.length, room = L.h * 0.92;
@@ -114,11 +117,23 @@ export class CardPick3D {
       c.rim.geometry.dispose(); (c.rim.material as THREE.Material).dispose(); c.badge?.dispose(); c.picture?.dispose(); for (const p of c.presses) p.dispose();
     }
     this.cards = []; this.on = false;
+    if (this.back) this.back.visible = false; this.backDown = false; this.backHot = 0;
+  }
+  /** leave without a card (the back shield, Esc, pad B) — only where the page allows it */
+  leave() {
+    if (!this.on || !this.canLeave || this.leaving >= 0 || this.settling) return false;
+    cue('deselect', 0.5); const d = this.done; this.done = null; this.close(); d?.(-1); return true;
   }
   hit(x: number, y: number) { return this.cards.findIndex(c => Math.abs(x - c.x) < c.w / 2 && Math.abs(y - c.y) < c.h / 2); }
   pointer(type: string, x: number, y: number) {
     if (!this.on || this.leaving >= 0) return this.on;
     if (this.settling) return true;
+    if (this.canLeave) {
+      const onBack = Math.hypot(x - this.backAt.x, y - this.backAt.y) < this.backAt.r * 1.15;
+      if (type === 'move') this.backHot = onBack ? 1 : 0;
+      if (type === 'down' && onBack) { this.backDown = true; return true; }
+      if (type === 'up' && this.backDown) { this.backDown = false; if (onBack) this.leave(); return true; }
+    }
     const i = this.hit(x, y);
     if (type === 'move' && i >= 0 && i !== this.focus) { this.focus = i; cue('click', 0.25); }
     if (type === 'down' && i >= 0) { this.focus = i; this.pick(); }
@@ -149,6 +164,17 @@ export class CardPick3D {
       if (flies && !this.flyStarted && this.leaveT > 0.3) { this.flyStarted = true; this.flight!.start(chosen!.e!); }
       if (this.leaveT > T) { const i = this.leaving, d = this.done, e = chosen?.e; this.done = null; this.close(); if (flies && e) this.flight!.land(e); d?.(i); return; }
     }
+    // the back shield (the shops): top left of the column of cards, the same small iron shield as the pause menu's
+    if (this.canLeave) {
+      if (!this.back) { this.back = backShield(); this.back.userData.noTilt = true; this.back.traverse(o => { o.renderOrder = 34; }); L.scene.add(this.back); }
+      this.backK = this.leaving >= 0 ? Math.max(0, this.backK - dt * 6) : Math.min(1, this.backK + dt * 5);
+      const r = Math.max(22, Math.min(38, L.h * 0.05)), c0 = this.cards[0], top = c0 ? c0.y - c0.h / 2 : L.h * 0.1, left = c0 ? c0.x - c0.w / 2 : L.w * 0.2;
+      this.backAt = { x: Math.max(r + 12, left - r * 1.5), y: Math.max(r + 12, top + r), r };
+      const bb = this.back; bb.visible = this.backK > 0.02;
+      const bz = 0.6 + this.backHot * 0.2;   // (UI-layer units: a little in front of the cards' plane)
+      L.at(this.backAt.x, this.backAt.y, bz, bb.position); bb.scale.setScalar(L.px(r * 2, bz) * (this.backDown ? 0.88 : 1) * (1 + 0.06 * this.backHot) * (0.6 + 0.4 * this.backK));
+      bb.rotation.set(0, 0.12 + Math.sin(t * 0.7) * 0.03, Math.sin(t * 1.3) * 0.02); bb.setOpacity(this.backK); bb.setRim(this.backHot ? 0xffd88a : null, 0.45);
+    } else if (this.back) this.back.visible = false;
     const back = (k: number) => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * (k - 1) ** 3 + c1 * (k - 1) ** 2; };   // ease-out, a little past and back
     for (const [i, c] of this.cards.entries()) {
       this.paint(c);

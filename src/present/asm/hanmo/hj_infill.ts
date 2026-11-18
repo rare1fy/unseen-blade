@@ -5,10 +5,11 @@
 import type { Ctx } from '../../scenes/stage';
 import { M } from '../../scenes/props';
 import { CELL } from '../../bestiary/kit';
-import type { Place, Rect, SeasonId } from '../types';
+import type { Locale, Place, Rect, SeasonId } from '../types';
 import { HV, house, jar, strawStack, frame } from './hj_village_kit';
 import { emberHeap, woodpile, banner } from './hj_village_props';
 import { HC, cropOf, wheatBed, frame as fframe, thatch } from './hj_field_kit';
+import { LANDMARKS as FIELD_LANDMARKS } from './hj_field_lm';
 
 const LOESS = [HV.loess, HV.loessD, HV.loessL];
 const night = (p: Place) => p.lamp > 0.3;
@@ -40,10 +41,15 @@ export function villageInfill(c: Ctx, f: { rect: Rect; p: Place; back: boolean; 
 
 /** standing wheat (or millet) on a walled-off part of the field: rows with a furrow between, a ridge round the plot; a watch-shed on a
  *  big one */
-export function fieldInfill(c: Ctx, f: { rect: Rect; p: Place; back: boolean; front: boolean }) {
+export function fieldInfill(c: Ctx, f: Parameters<NonNullable<Locale['infill']>>[1]) {
   const { rect: q, p } = f, w = c.w, se = p.season as SeasonId, X0 = M(q.x0), X1 = M(q.x1) - 1, Z0 = M(q.z0), Z1 = M(q.z1) - 1;
   // soil under it all, a grass ridge one cell wide round the plot
   for (let X = X0; X <= X1; X++) for (let Z = Z0; Z <= Z1; Z++) w.set(X, -1, Z, X === X0 || X === X1 || Z === Z0 || Z === Z1 ? 0x6a7a38 : HC.soilD);
+  if (f.shape.fixed?.id === 'threshing' && q.z0 === f.shape.box.z0 && Math.abs(q.x1 - f.shape.box.x1) < 0.01) {
+    // The field kit's granary and paired bins stand on the rear block behind the bell-locked loading yard.
+    FIELD_LANDMARKS.find(l => l.id === 'liangcang')!.build(c, p);
+    return;
+  }
   const pal = cropOf(se, p.rnd(1) < 0.4 ? 1 : 0), rowsZ = p.rnd(2) < 0.6, T = 6, H = (se === 'autumn' ? 14 : 13);
   // a big plot gets a watch-shed in the middle of its camera-side half, rows left round it
   const W = q.x1 - q.x0, D = q.z1 - q.z0, shed = W > 6 && D > 6 ? { x: M((q.x0 + q.x1) / 2), z: M(f.back ? q.z1 - D * 0.3 : (q.z0 + q.z1) / 2) } : null;

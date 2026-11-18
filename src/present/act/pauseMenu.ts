@@ -18,6 +18,7 @@ import { ACTIONS, ACTION_WORD, BIND, PAD, padNav, paintGlyph, glyphArt, keyName,
 import type { BtnName } from './input';
 import { SkillList, type Section } from './skillList';
 import { UI_WORDS } from './skillInfo';
+import { backShield, type MiniShield } from './btnBadge';
 
 export interface MenuSetting { id?: string; label: () => string; run: () => void }
 export interface PauseHost {
@@ -27,6 +28,10 @@ export interface PauseHost {
   /** 回据点 is offered (out on a run, not in the prologue) */
   canGiveUp(): boolean;
   giveUp(): void;
+  /** 11-19 (用户：「暂停没有回到主画面的选项」): back to the start screen; out on a run it counts as a death (asks first) */
+  toTitle?(): void;
+  /** out on a run (回主画面 asks first: it ends the trip) */
+  onRun?(): boolean;
   /** the menu closed (from the game: the world runs again) */
   closed(): void;
   /** 11-18 (用户：「选了强化后根本看不到自己选的强化是啥，在哪儿、如何释放」): this run's 刀谱 and 秘传 (已得), and the moves she has from the
@@ -34,7 +39,7 @@ export interface PauseHost {
   owned?(): Section[];
   skills?(): Section[];
 }
-type Page = 'main' | 'keys' | 'set' | 'ask' | 'owned' | 'skills';
+type Page = 'main' | 'keys' | 'set' | 'ask' | 'askTitle' | 'owned' | 'skills';
 interface Row { id: string; label: () => string; act?: BtnName; run?: () => void }
 
 const TXT = { on: '#d9ccb2', sel: '#ffd88a', dim: '#8a7e70', line: '#0a0708', wait: '#ffe6b0' };
@@ -126,8 +131,12 @@ export class PauseMenu {
   private wait: { i: number; t: number; prev: boolean[] } | null = null;
   /** 已得 / 招式: the list of skills beside the column (a column of slabs with only 返回 on the left) */
   private list: SkillList; private listRel = 0;
+  /** 11-19 (用户：「设置的返回按钮设计有问题」): the back button — a small iron shield with a turning-back arrow at the page's top left,
+   *  beside its name; every page but the first has it (Esc / pad B / a tap on it). The column no longer ends in a 返回 slab */
+  private backBtn: MiniShield; private backK = 0; private backHot = 0; private backAt = { x: 0, y: 0, r: 0 };
   constructor(private host: PauseHost) {
     const L = host.L; this.head = new Sign(L); this.foot = new Sign(L); this.list = new SkillList(L);
+    this.backBtn = backShield(); this.backBtn.userData.noTilt = true; this.backBtn.traverse(o => { o.renderOrder = 62; }); this.backBtn.visible = false; L.scene.add(this.backBtn);
     this.marker = pommel(); this.marker.userData.noTilt = true; this.marker.renderOrder = 62; this.marker.visible = false; L.scene.add(this.marker);
     if (typeof window !== 'undefined') {
       window.addEventListener('keydown', e => this.key(e), true);
@@ -152,18 +161,20 @@ export class PauseMenu {
       ...(h.owned ? [{ id: 'owned', label: () => UI_WORDS.owned }] : []), ...(h.skills ? [{ id: 'skills', label: () => UI_WORDS.skills }] : []),
       { id: 'keys', label: () => '键位' }, { id: 'set', label: () => '设置' },
       ...(h.canGiveUp() ? [{ id: 'quit', label: () => '回据点' }] : []),
+      ...(h.toTitle ? [{ id: 'title', label: () => '回主画面' }] : []),
     ];
-    // 已得 / 招式: the list is its own thing (skillList.ts); the column of slabs keeps only 返回
-    if (this.page === 'owned' || this.page === 'skills') return [{ id: 'back', label: () => '返回' }];
-    if (this.page === 'keys') return [...ACTIONS.map(a => ({ id: 'act', act: a, label: () => ACTION_WORD[a] })), { id: 'reset', label: () => '恢复默认' }, { id: 'back', label: () => '返回' }];
-    if (this.page === 'set') return [...h.settings.map((s, i) => ({ id: s.id ?? `s${i}`, label: s.label, run: s.run })), { id: 'back', label: () => '返回' }];
+    // 已得 / 招式: the list is its own thing (skillList.ts); no slabs — the back shield at the top left leaves
+    if (this.page === 'owned' || this.page === 'skills') return [];
+    if (this.page === 'keys') return [...ACTIONS.map(a => ({ id: 'act', act: a, label: () => ACTION_WORD[a] })), { id: 'reset', label: () => '恢复默认' }];
+    if (this.page === 'set') return h.settings.map((s, i) => ({ id: s.id ?? `s${i}`, label: s.label, run: s.run }));
+    if (this.page === 'askTitle') return [{ id: 'yesTitle', label: () => '回主画面' }, { id: 'no', label: () => '再想想' }];
     return [{ id: 'yes', label: () => '回据点' }, { id: 'no', label: () => '再想想' }];
   }
   private go(page: Page, first = false) {
     this.page = page; this.rows = this.build(); this.wait = null;
     for (const s of this.slabs) s.dispose();
     this.slabs = this.rows.map(r => new Slab(this.host.L, r));
-    this.sel = page === 'ask' ? 1 : 0;
+    this.sel = page === 'ask' || page === 'askTitle' ? 1 : 0;
     this.slabs.forEach((s, i) => { s.inK = 0; s.delay = i * 0.05; });
     this.pageT = 0; if (!first) cue('tick', 0.35);
     if (page === 'owned') this.list.open(this.host.owned?.() ?? []);
@@ -177,7 +188,7 @@ export class PauseMenu {
     if (this.wait) { this.wait = null; cue('deselect', 0.4); return; }
     if (this.page === 'main' || (this.page === 'set' && this.fromTitle)) { this.close(); return; }
     const was = this.page; cue('deselect', 0.4); this.go('main');
-    this.sel = Math.max(0, this.rows.findIndex(r => r.id === (was === 'ask' ? 'quit' : was)));   // back on the row it came from
+    this.sel = Math.max(0, this.rows.findIndex(r => r.id === (was === 'ask' ? 'quit' : was === 'askTitle' ? 'title' : was)));   // back on the row it came from
   }
   private ok() {
     const r = this.rows[this.sel], s = this.slabs[this.sel]; if (!r || !s) return;
@@ -189,6 +200,8 @@ export class PauseMenu {
       case 'owned': cue('select', 0.5); this.go('owned'); return;
       case 'skills': cue('select', 0.5); this.go('skills'); return;
       case 'quit': cue('select', 0.5); this.go('ask'); return;
+      case 'title': cue('select', 0.5); if (this.host.onRun?.()) this.go('askTitle'); else this.leaveToTitle(); return;
+      case 'yesTitle': this.leaveToTitle(); return;
       case 'back': this.back(); return;
       case 'no': this.back(); return;
       case 'yes': this.on = false; this.wait = null; PAUSE.menu = false; PAUSE.on = false; this.list.close(); this.host.closed(); this.host.giveUp(); return;
@@ -197,6 +210,7 @@ export class PauseMenu {
       default: if (r.run) { r.run(); if (r.id !== 'language') cue('click', 0.5); }
     }
   }
+  private leaveToTitle() { this.on = false; this.wait = null; PAUSE.menu = false; PAUSE.on = false; this.list.close(); this.host.closed(); this.host.toTitle?.(); }
   private moveSel(d: number) { if (this.inList) { this.list.move(d); cue('tick', 0.3); return; } const n = this.rows.length; if (!n) return; this.sel = (this.sel + d + n) % n; cue('tick', 0.3); }
   /** a key while the menu is up: the menu takes the keys it uses (nothing under it sees them); F-keys (reload, dev tools) pass */
   private key(e: KeyboardEvent) {
@@ -235,6 +249,11 @@ export class PauseMenu {
       else if (type === 'up' && this.drag) { const tap = this.drag.moved < 8; this.drag = null; const li = this.list.hit(x, y); if (tap && li >= 0) { this.list.sel = li; cue('tick', 0.25); } }
       else if (type === 'move') { const li = this.list.hit(x, y); if (li >= 0 && li !== this.list.sel) { this.list.sel = li; cue('tick', 0.25); } }
     }
+    // the back shield at the top left
+    const onBack = this.backK > 0.5 && Math.hypot(x - this.backAt.x, y - this.backAt.y) < this.backAt.r * 1.15;
+    if (type === 'move') this.backHot = onBack ? 1 : 0;
+    if (type === 'down' && onBack) { this.downBack = true; return true; }
+    if (type === 'up' && this.downBack) { this.downBack = false; if (onBack) { PAD.device = 'touch'; this.back(); } return true; }
     const i = this.slabs.findIndex(s => s.hit(x, y));
     if (type === 'move' && i >= 0 && i !== this.sel) { this.sel = i; cue('tick', 0.25); }
     if (type === 'down') this.downAt = i;
@@ -242,6 +261,7 @@ export class PauseMenu {
     return true;
   }
   private drag: { y: number; moved: number } | null = null;
+  private downBack = false;
   private downAt = -1;
   // ---------------------------------------------------------------- the frame (real time, paused or not)
   private update(rdt: number) {
@@ -250,7 +270,8 @@ export class PauseMenu {
     if (!this.on) {
       for (const s of this.slabs) { s.inK = Math.max(0, s.inK - rdt * 5); s.update(rdt, this.t, false, s.inK > 0.01); }
       if (this.fade < 0.02 && this.slabs.length) { for (const s of this.slabs) s.dispose(); this.slabs = []; }
-      this.head.place(0, 0, 0); this.foot.place(0, 0, 0); this.marker.visible = false; return;
+      this.head.place(0, 0, 0); this.foot.place(0, 0, 0); this.marker.visible = false;
+      this.backK = Math.max(0, this.backK - rdt * 6); this.backBtn.visible = this.backK > 0.02; if (this.backBtn.visible) this.backBtn.setOpacity(this.backK); return;
     }
     this.t += rdt; this.openT += rdt; this.pageT += rdt;
     // the pad: rebinding listens for any new button; otherwise up / down / confirm / back / Start
@@ -284,6 +305,16 @@ export class PauseMenu {
       this.paintRow(i);
       s.update(rdt, this.t, i === this.sel, true);
     });
+    // the back shield: every page but the first
+    { const want = this.page !== 'main' ? 1 : 0; this.backK += (want - this.backK) * Math.min(1, rdt * 10);
+      this.backBtn.visible = this.backK > 0.02;
+      if (this.backBtn.visible) {
+        const p = this.backAt, press = this.downBack ? 0.88 : 1, hot = this.backHot;
+        const bz = 0.6 + hot * 0.2;   // (UI-layer units, like the slabs' few-unit lift)
+        L.at(p.x, p.y, bz, this.backBtn.position); this.backBtn.scale.setScalar(L.px(p.r * 2, bz) * press * (1 + 0.06 * hot) * (0.6 + 0.4 * this.backK));
+        this.backBtn.rotation.set(0, 0.12 + Math.sin(this.t * 0.7) * 0.03, Math.sin(this.t * 1.3) * 0.02);
+        this.backBtn.setOpacity(this.backK); this.backBtn.setRim(hot ? 0xffd88a : null, 0.45);
+      } }
     // the pommel points at the selected slab from the left, bobbing
     const s = this.slabs[this.sel];
     this.markerK += ((s && s.inK > 0.9 ? 1 : 0) - this.markerK) * Math.min(1, rdt * 10);
@@ -307,11 +338,12 @@ export class PauseMenu {
     Object.assign(this.lay, { cx, w, h, top, S, hS, gap });
     this.slabs.forEach((s, i) => { s.size(w, h); s.x = cx; s.y = top + h / 2 + i * (h + gap); });
     // the page's name over the column
-    const name = { main: '暂歇', keys: '键位', set: '设置', ask: '回据点？', owned: UI_WORDS.owned, skills: UI_WORDS.skills }[this.page], note = this.page === 'ask' ? '视同战死：途中所获尽失，残铁与药引照带回' : this.page === 'keys' ? this.keysNote() : '';
+    const name = { main: '暂歇', keys: '键位', set: '设置', ask: '回据点？', askTitle: '回主画面？', owned: UI_WORDS.owned, skills: UI_WORDS.skills }[this.page], note = this.page === 'ask' || this.page === 'askTitle' ? '视同战死：途中所获尽失，残铁与药引照带回' : this.page === 'keys' ? this.keysNote() : '';
     const nS = Math.max(1, Math.round(hS * 0.45)), hw = Math.max(textW(name, hS), textW(note, nS) + 8) / k + 8, hh = (PIX_H * hS + (note ? PIX_H * nS + 6 * k : 0)) / k + 6;
     this.head.set(language + name + note, hw, hh, g => { text(g, name, 4 * k, 3 * k, hS, TXT.sel); if (note) text(g, note, 4 * k, 3 * k + PIX_H * hS + 6 * k, nS, TXT.dim); });
-    const ent = Math.min(1, this.pageT / 0.25);
-    this.head.place(cx - w / 2 + hw / 2, top - hh / 2 - h * 0.45, ent * ent);
+    const ent = Math.min(1, this.pageT / 0.25), br = Math.max(14, Math.min(24, headH * 0.42)), withBack = this.page !== 'main', nx = cx - w / 2 + (withBack ? br * 2 + 10 : 0);
+    this.head.place(nx + hw / 2, top - hh / 2 - h * 0.45, ent * ent);
+    this.backAt = { x: cx - w / 2 + br, y: top - h * 0.45 - hh / 2, r: br };
     // the prompts at the foot: the device's own confirm / back
     const fS = Math.max(1, Math.round(footH * 0.45 * k / PIX_H)), parts = this.prompts();
     if (parts.length) {

@@ -21,6 +21,7 @@ import { ROSTER, type ModelDef } from '../bestiary/models';
 import { idle, mix, apply, hurt, attack as leapCut, cast, type Pose } from '../kyoto/ninja_pose';
 import { BLIND } from './blind';
 import { SLIM } from './blind2';
+import { stepWalk } from './heroWalk';
 
 type Keys = Array<[number, number]>;
 const TAU = Math.PI * 2;
@@ -567,7 +568,9 @@ const heroHook = (b: Record<string, Bone>, t: number, a: Action | null, off: THR
   const L = legLens(b); LEN.T = L.T; LEN.S = L.S;
   const cool = !!self0 && BLIND_IDS.has(self0.def.id);
   let P = cool ? coolIdle(t) : idle(t, a || (m && (m.run > 0.05 || inAir)) ? 0 : 1);
+  const y0 = off.y;
   if (m && m.run > 0.01 && !inAir && (!a || a.name === 'hurt')) P = run(P, m.run, m.phase, off);
+  const bounce = off.y - y0;   // (the old walk's bob: the distance walk below carries her on the planted leg instead)
   // 11-18 3C: leaning into turns, the first push of a run, a skid when she reverses at speed, a braking step when she stops, and the
   // guard held low for a while after a fight (knees bent, leaning in) before she straightens into the idle
   if (m && !inAir && !a) {
@@ -625,6 +628,12 @@ const heroHook = (b: Record<string, Bone>, t: number, a: Action | null, off: THR
       const lift = Math.max(0, off.y + d - mid - 0.015);                                   // the ankle above where it would stand, less a 1.5 cm clearance (m)
       f.rotation.x += Math.max(-tiltRoom(HEEL, lift), Math.min(tiltRoom(TOE, lift), tilt)) * w;
     }
+  }
+  // 11-19 (用户：「开场雪地剧情走路像在走滑步」): below a run the legs step by the ground she covers, the planted foot fixed (heroWalk.ts)
+  if (m && self0) {
+    const allow = !a && !inAir ? 1 - Math.min(1, Math.max(m.squat, m.land, m.brake, m.skid, m.flip, m.creep, m.charge > 0 ? 1 : 0)) : 0;
+    const g = stepWalk(self0, b, self0.home, self0.yaw, t, m.run, allow);
+    if (g.w > 0) { off.y -= bounce * g.w; m.phase = g.ph * TAU + Math.PI / 2; }   // (the hip sway and the arms of the old pose keep in step)
   }
   // act-21 (user: 「人物为啥手掌是这样的，往下吊着的」): apply() aims the left hand in world space (the ninja's kunai) — for an empty
   // hand that left it pointing down off a folded forearm like a limp wrist. The blind swordsmen's left hand follows its forearm,

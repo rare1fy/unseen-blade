@@ -62,6 +62,8 @@ export class MiniShield extends THREE.Group {
   dispose() { this.mesh.geometry.dispose(); (this.mesh.material as THREE.Material).dispose(); this.icon.dispose(); this.parent?.remove(this); }
 }
 /** a button of the HUD in small: its shield (the cut button with its tassel) and its own picture */
+/** 11-19: the back button of the menu pages and the shops — the same small iron shield, a turning-back arrow on it */
+export function backShield() { return new MiniShield(btnIcon3D('back')); }
 export function btnShield(n: BtnName) { return new MiniShield(n === 'ult' ? skillIcon3D('ult') : btnIcon3D(n), { tassel: n === 'attack' }); }
 // (11-18 用户：「暂停按钮不要了，点头像暂停。」: the small pause button that stood at the top right is gone — the portrait medallion of the
 //  health bar opens the pause menu now, ironUi.ts IronHp / hud.ts)
