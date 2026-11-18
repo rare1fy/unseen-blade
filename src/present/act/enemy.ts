@@ -224,7 +224,7 @@ export function turnFoe(f: Foe, y: number, dt: number, k = 10) { let dy = y - f.
 export function steerFoe(f: Foe, want: THREE.Vector3, sp: number, dt: number, yawTo: number, aim = false) {
   const m = want.length();
   if (m > 0.05) { want.multiplyScalar(sp / m); turnFoe(f, aim ? yawTo : Math.atan2(want.x, want.z), dt, 8); } else turnFoe(f, yawTo, dt, 6);
-  f.vel.lerp(want, Math.min(1, dt * 6)); f.a.setRunning(f.vel.length() > 0.6);
+  f.vel.lerp(want, Math.min(1, dt * 6)); f.a.setRunning(f.vel.length() > 0.6, Math.hypot(f.vel.x, f.vel.z), yawTo, f.vel);
   if (Math.random() < dt * 0.25) f.strafe *= -1;
 }
 /** 11-18: the shared pieces a region's RoleAI uses (startAttack, the attacker count, the calm, the state setter) */
@@ -306,7 +306,7 @@ export function updateFoe(f: Foe, w: FoeWorld, dt: number) {
   if (free && ai) ai.think(f, w, dt, dist, dir, yawTo);
   else if (free && rai) roleThink(rai, f, w, dt, dist, dir, yawTo, face);
   else if (free) think(f, w, dt, dist, dir, yawTo, face);
-  else if (f.st !== 'windup' && f.st !== 'strike') f.a.setRunning(false);
+  else if (f.st !== 'windup' && f.st !== 'strike') f.a.setRunning(false, Math.hypot(f.vel.x, f.vel.z), yawTo, f.vel);
   teleStep(f, dt); ai?.post?.(f, w, dt);
   integrate(f, w, dt);
 }
@@ -324,7 +324,7 @@ function roleThink(ai: NonNullable<(typeof ROLE_AI)[string]>, f: Foe, w: FoeWorl
   const r = ai.think(f, w, k); if (r === 'busy') return;
   const want = r.want.clone(), sp = f.d.speed * (r.sp ?? 1), m = want.length();
   if (m > 0.05) { want.multiplyScalar(sp / m); face(r.aim ? yawTo : Math.atan2(want.x, want.z), 8); } else face(yawTo, 6);
-  f.vel.lerp(want, Math.min(1, dt * 6)); f.a.setRunning(f.vel.length() > 0.6);
+  f.vel.lerp(want, Math.min(1, dt * 6)); f.a.setRunning(f.vel.length() > 0.6, Math.hypot(f.vel.x, f.vel.z), yawTo, f.vel);
   if (Math.random() < dt * 0.25) f.strafe *= -1;
 }
 /** free movement: close in / keep away / circle, and decide when to attack */
@@ -394,7 +394,7 @@ function think(f: Foe, w: FoeWorld, dt: number, dist: number, dir: THREE.Vector3
   if (want.lengthSq() > 0.0025) { const l = want.length(); want.multiplyScalar(sp / l); face(aim && (!w.sees || w.sees(f)) ? yawTo : Math.atan2(want.x, want.z), 8); }
   else face(yawTo, 6);
   f.vel.lerp(want, Math.min(1, dt * 6));
-  f.a.setRunning(f.vel.length() > 0.6);
+  f.a.setRunning(f.vel.length() > 0.6, Math.hypot(f.vel.x, f.vel.z), yawTo, f.vel);
   if (Math.random() < dt * 0.25) f.strafe *= -1;
 }
 
