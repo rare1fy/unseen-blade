@@ -30,7 +30,8 @@ const LANDMARKS: Landmark[] = [
     // posts at every step, frost / snow on every landing and rail; icicles under the arch; a quay of wet stone in front of it
     const B = frame(c.w, p.x, p.z, 0), cap = capCol(p);
     markWater(B, -112, -48, 112, 18, 0);
-    for (let x = -112; x <= 112; x++) for (let z = 19; z <= 46; z++) B(x, -1, z, x, -1, z, ((Math.floor((x + 112) / 14) + Math.floor(z / 7)) & 1) ? XP.stoneD : XP.slabW);
+    B(-112, -1, 19, 112, -1, 46, XP.stoneD);
+    B(-112, -1, 20, 112, -1, 27, XP.slabW);
     B(-112, -1, 19, 112, -1, 19, XP.stoneDD);
     const steps: Array<[number, number]> = [[92, 10], [78, 17], [64, 24], [50, 31], [36, 36]];   // [half length, top]
     const hw = (y: number) => { for (const [a, t] of steps) if (y <= t) return a; return 0; };
@@ -171,25 +172,26 @@ const FILLER: Group[] = commonFiller('xl');
 
 // ------------------------------------------------------------------ ground: the street of soaked slabs, the pools, the boardwalks, the bank, the flood
 function floor(c: Ctx, f: { layout: Layout; p: Place }) {
-  const ps = pools(specSeedOf(f.p)), dk = decksOf(ps), sd = f.p.seed % 31, band = 0.75, bank = 1.4;
+  const ps = pools(specSeedOf(f.p)), dk = decksOf(ps), band = 0.75, bank = 1.4;
   const BK = { x0: PLAY.x0 - band - bank, x1: PLAY.x1 + band + bank, z0: PLAY.z0 - band - bank, z1: PLAY.z1 + 2 };
   xpFloor(c, f, ps, (X, Z, x, z, zone, path) => {
     if (zone === 'play') {
       const d = dk.find(r => inR(r, x, z));
       if (d) return deck(X, Z, d.alongX);
-      // the street's crown: long slabs in running bond along the way; the rest square slabs, some gone dark with the wet (whole slabs)
-      if (path && path.x1 - path.x0 < 4 && path.z1 - path.z0 > path.x1 - path.x0) return slabs(X, Z, 7, 14, [XP.slabB, XP.slab, XP.slabB], XP.joint, 11 + sd);
-      return slabs(X, Z, 10, 10, [XP.slab, XP.slabB, XP.slabC, XP.slab, XP.slabW], XP.joint, 7 + sd);
+      // 水边是一整条深色湿石。高一点的路脊露出同色条石。
+      if (path && path.x1 - path.x0 < 4 && path.z1 - path.z0 > path.x1 - path.x0) return slabs(X, Z, 14, 24, XP.slabB, 0x4b545a);
+      const wet = ps.some(r => inR(r, x, z, 1.3));
+      return slabs(X, Z, 24, 18, wet ? XP.slabW : XP.slab, wet ? XP.joint : 0x434a4f);
     }
     if (zone === 'path' && path) {
       // outside the floor a narrow way is a boardwalk over the flood (a dark beam along each side); a wide one stays a stone street
       const alongZ = path.z1 - path.z0 >= path.x1 - path.x0, wide = (alongZ ? path.x1 - path.x0 : path.z1 - path.z0) >= 4;
-      if (wide) return slabs(X, Z, 10, 10, [XP.slab, XP.slabC, XP.slabW], XP.joint, 13 + sd);
+      if (wide) return slabs(X, Z, 24, 18, XP.slabC, 0x40474b);
       const e = alongZ ? Math.min(X - M(path.x0), M(path.x1) - 1 - X) : Math.min(Z - M(path.z0), M(path.z1) - 1 - Z);
       return e <= 0 ? XP.woodD : deck(X, Z, !alongZ);
     }
     // the wet stone bank outside the walls (long kerb blocks), then the flood
-    if (inR(BK, x, z)) return slabs(X, Z, 14, 6, [XP.stoneD, XP.slabW], XP.stoneDD, 17 + sd);
+    if (inR(BK, x, z)) return slabs(X, Z, 26, 12, XP.slabW, XP.stoneDD);
     return null;
   }, { keep: (x, z) => dk.some(r => inR(r, x, z)) });
 }
@@ -214,7 +216,7 @@ function far(c: Ctx, f: { layout: Layout; p: Place }) {
 }
 
 function dress(c: Ctx, f: { layout: Layout; p: Place; clear: Rect[] }) {
-  xpDress(c, f, { wet: 12, playWet: 5, frost: 10 });
+  xpDress(c, f);
 }
 
 export const xpLane: Locale = {

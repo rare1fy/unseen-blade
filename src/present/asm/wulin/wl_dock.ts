@@ -7,7 +7,7 @@ import { M, AREA, PLAY, hash, SX, SZ } from '../../scenes/props';
 import { CELL } from '../../bestiary/kit';
 import { ground } from '../../scenes/dress';
 import type { Group, Landmark, Layout, Locale, Place, Rect } from '../types';
-import { WL, WL_MOOD, river, WATER_MARK, frame, faceOf, orient, deck, pile, flagpole, tent, fireBasket, lantern, chainCoil, chainRun, hull, smoke, wp } from './wl_kit';
+import { WL, WL_MOOD, river, WATER_MARK, frame, faceOf, orient, deck, deckBoard, pile, flagpole, tent, fireBasket, lantern, chainCoil, chainRun, hull, smoke, wp } from './wl_kit';
 
 const lit = (p: Place) => p.lamp > 0.3;
 const lampLight = (c: Ctx, p: Place, at: [number, number, number], k = 1, d = 5) => { if (lit(p)) c.light(at, 0xff9a48, 2.2 * p.lamp * k, d); };
@@ -107,20 +107,19 @@ function deckRects(f: { layout: Layout }): Rect[] {
   return out;
 }
 function floor(c: Ctx, f: { layout: Layout; p: Place }) {
-  const w = c.w, rects = deckRects(f), sd = f.p.seed;
+  const w = c.w, rects = deckRects(f), main = rects[0];
   const inR = (r: Rect, x: number, z: number) => x > r.x0 && x < r.x1 && z > r.z0 && z < r.z1;
   for (let X = M(AREA.x0 - 6); X <= M(AREA.x1 + 6); X++) for (let Z = M(AREA.z0 - 8); Z <= M(AREA.z1 + 4); Z++) {
     const x = (X + 0.5) * CELL, z = (Z + 0.5) * CELL;
     const r = rects.find(q => inR(q, x, z));
     if (!r) { w.set(X, -1, Z, WATER_MARK); continue; }
-    // planks along z, 5 cells wide, a dark seam between; the planks' ends staggered (a joint every 24 cells, offset per plank); the
-    // floating stage's old planks are river-grey (the camp is brown earth, the tower honey-red — the three read apart at a glance)
-    const pk = Math.floor(X / 5), lx = ((X % 5) + 5) % 5, endZ = ((Z + pk * 11) % 24 + 24) % 24;
-    let col = lx === 4 ? WL.oldJ : endZ === 0 ? WL.oldD : [WL.old, WL.oldD, WL.oldL][Math.floor(hash(pk, Math.floor((Z + pk * 11) / 24), 5 + sd % 3) * 3)];
-    // the deck's edge: a darker beam all round, iron nails every 6 cells
+    // 11-18 (用户：「不许逐格随机碎点」): 进出浮栈的坡道磨白，靠水的两肩泡深，板缝只交代木板拼法。
+    const apron = z < main.z0 + 3.1;
+    const wet = x < main.x0 + 2.8 || x > main.x1 - 2.8;
+    const body = apron ? WL.oldL : wet ? WL.oldD : WL.old;
+    const col = deckBoard(X, Z, 44, body, wet ? 0x49433e : 0x57514a);
     const edge = !rects.some(q => inR(q, x + CELL, z) && inR(q, x - CELL, z) && inR(q, x, z + CELL) && inR(q, x, z - CELL));
-    if (edge) col = (X + Z) % 6 === 0 ? WL.iron : WL.tar;
-    w.set(X, -1, Z, col);
+    w.set(X, -1, Z, edge ? WL.tar : col);
   }
   // the piles under the deck's edge (seen where it meets the water): every 1.4 m round the battle floor's margin
   const B = frame(w, 0, 0, 0), m = rects[0];

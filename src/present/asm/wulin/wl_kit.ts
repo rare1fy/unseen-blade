@@ -35,6 +35,11 @@ export const WL = {
   lamp: 0xffb050, paper: 0xe8dcc0, white: 0xe8e0d0,
 };
 export const frame = (w: W, x: number, z: number, r = 0) => loc(w, M(x), M(z), r);
+/** 同一片甲板的木色连成片。只留整条板缝和交错的搭接。 */
+export function deckBoard(across: number, along: number, length: number, body: number, joint: number) {
+  const board = Math.floor(across / 7);
+  return across - board * 7 === 6 || (along + board * Math.floor(length / 2)) % length === 0 ? joint : body;
+}
 /** the river: a matte dark sheet (the stage's own water is glossy — under the night camera the moon's highlight on it read as a white
  *  blob); the fires and lanterns still light it warm, which is the reflection we want */
 export function river(c: Ctx, x0: number, z0: number, x1: number, z1: number, y = -0.06) {
