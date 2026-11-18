@@ -86,7 +86,9 @@ function template(key: string, art: (set: Set3) => void): Tpl {
 /** a private copy of a shared shader material (clone() drops onBeforeCompile; the program stays shared through the cache key) */
 function own<M extends THREE.Material>(src: M): M {
   const m = src.clone() as M; m.onBeforeCompile = src.onBeforeCompile; m.customProgramCacheKey = src.customProgramCacheKey.bind(src);
-  (m as unknown as { flatShading: boolean }).flatShading = (src as unknown as { flatShading: boolean }).flatShading; return m;
+  (m as unknown as { flatShading: boolean }).flatShading = (src as unknown as { flatShading: boolean }).flatShading;
+  (m as unknown as { extensions?: unknown }).extensions = (src as unknown as { extensions?: unknown }).extensions;   // (11-18: WebGL1's derivatives switch, see voxkit.ts voxToon)
+  return m;
 }
 function instance(kind: string, t: Tpl, into = new Model3D(kind)) {
   if (t.solid) { const mat = own(SOLID); const m = new THREE.Mesh(t.solid, mat); into.pivot.add(m); into.addLit(mat); }

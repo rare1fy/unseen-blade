@@ -9,7 +9,7 @@
 // replaced (MagicaVoxel live edits), or it left the actor (a thrown axe). A clone of a hidden part (留影's afterimage) gets its
 // original layer back (Object3D.copy is wrapped).
 import * as THREE from 'three';
-import { OPT } from './perfOpts';
+import { OPT, CAPS } from './perfOpts';
 
 const HIDE = 31;
 /** parts now hidden from the cameras → their own layer mask */
@@ -104,6 +104,7 @@ export function batchActor(root: THREE.Object3D) { ROOTS.add(root); ENTRIES.add(
 /** every frame before the render (and before a precompile): build pending batches, follow the parts; a root out of every scene for
  *  5 s is let go (its parts back to drawing themselves) */
 export function syncBatches() {
+  if (!CAPS.boneTex) return;   // (no float vertex textures — the WeChat devtools simulator: a SkinnedMesh can't draw, parts draw themselves)
   for (const e of ENTRIES) {
     if (!e.root.parent) { if (++e.away > 300) { e.batch?.release(); ENTRIES.delete(e); } continue; }
     e.away = 0;

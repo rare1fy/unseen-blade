@@ -79,6 +79,9 @@ export function voxToon(o: { rim?: number; self?: number; edge?: number } = {}) 
         diffuseColor.rgb *= bev; }`);
   };
   m.customProgramCacheKey = () => src.customProgramCacheKey() + '|vox' + edge + '|px';
+  // (11-18 微信小游戏: the bevel uses dFdx / dFdy — built into WebGL2, an extension WebGL1 has to switch on: the WeChat devtools'
+  // simulator is WebGL1, and without this every block material failed to compile there)
+  (m as unknown as { extensions: Record<string, boolean> }).extensions = { derivatives: true };
   matCache.set(k, m); return m;
 }
 const glowMats = new Map<number, THREE.MeshBasicMaterial>();
