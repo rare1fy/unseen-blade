@@ -824,7 +824,8 @@ export class ActShow {
     // act-40 (用户：「做点小杂兵的战斗中说话气泡……战斗开始的时候会说两句」): once the wave is in, one or two of them call out
     after(kinds.length * 0.28 + 0.45, () => {
       if (this.phase !== 'fight') return;
-      const can = this.foes.filter(f => f.st !== 'dead' && !isBoss(f) && f.kind !== 'dummy' && !String(f.kind).includes('hound'));
+      // (11-18: a later region's foe without lines of its own — the 死士, the 水鬼 — keeps quiet: the 黄巾 shouts are region one's)
+      const can = this.foes.filter(f => f.st !== 'dead' && !isBoss(f) && f.kind !== 'dummy' && !String(f.kind).includes('hound') && (!!f.d.barks || !/^(ly|xp|wl|cx)_/.test(String(f.kind))));
       for (let n = Math.min(can.length, Math.random() < 0.5 ? 1 : 2), k = 0; k < n; k++) {
         const f = can.splice(Math.floor(Math.random() * can.length), 1)[0];
         after(k * 0.7, () => { if (f.st !== 'dead' && this.phase === 'fight') { const ls = f.d.barks; this.barks?.say(() => f.a.head(), ls?.length ? ls[Math.floor(Math.random() * ls.length)] : undefined); } });
@@ -852,7 +853,7 @@ export class ActShow {
         // (11-18: 褚雷's own meeting — not any boss met first on a fresh save)
         else if (bs && ko.kind === 'hj_boss' && seeOnce('ch1_boss')) { saveProfile(); after(0.35, async () => { if ((f.st as string) === 'dead') return; await this.cine(bossIntroShots(this.cineHost, f, '雷公渠帅 · 褚雷')); await this.talk(CHULEI_BEFORE); f.a.roar(); }); }
         // 11-18 (一局五关): a later region's boss — its banner and its line over its head (no portrait talk or cutscene yet)
-        else if (bs && EDEFS[ko.kind].intro) { f.a.roar(); shake(0.3 * TUNE.shake); this.banner.show(EDEFS[ko.kind].name, EDEFS[ko.kind].tag ?? '', 2.2, '#ff8a6a'); after(0.9, () => { if (f.st !== 'dead') this.barks?.say(() => f.a.head(), EDEFS[ko.kind].intro!); }); }
+        else if (bs && EDEFS[ko.kind].intro) { this.bossLookT = 3.2; f.a.roar(); shake(0.3 * TUNE.shake); this.banner.show(EDEFS[ko.kind].name, EDEFS[ko.kind].tag ?? '', 2.2, '#ff8a6a'); after(0.9, () => { if (f.st !== 'dead') this.barks?.say(() => f.a.head(), EDEFS[ko.kind].intro!); }); }
         else if (bs) { f.a.roar(); shake(0.3 * TUNE.shake); this.banner.show(EDEFS[ko.kind].name, EDEFS[ko.kind].tag ?? '', 1.6, '#ff8a6a'); }
       });
     });
@@ -938,6 +939,7 @@ export class ActShow {
   }
   /** 11-18 镜头: a push of the view along a blow, springing back (peak ≈ m metres); a push-in (peak ≈ share of the distance) */
   private kick = V3(); private kickV = V3(); private punch = 0; private punchV = 0; private frameLean = V3(); private crowd = 0;
+  /** 11-18: the boss's entrance look (0..1, eased) and how long it is held */ private bossLook = 0; private bossLookT = 0;
   camKick(dir: THREE.Vector3, m: number) { const d = dir.clone().setY(0); if (d.lengthSq() < 1e-6) return; this.kickV.addScaledVector(d.normalize(), m * CAM_W * Math.E * FX.shakeScale); }
   camPunch(m: number) { this.punchV += m * CAM_W * Math.E * FX.shakeScale; }
   private camSprings(rdt: number) {
@@ -1546,7 +1548,8 @@ export class ActShow {
   private camPose() {
     if (this.camOverride) return { base: this.camOverride.base.clone(), look: this.camOverride.look.clone(), fov: this.camOverride.fov };
     // the yard's costume rack: the camera leans in (half the distance) so the models can be looked at
-    const n = this.yard?.near ?? 0, k = (1 - 0.55 * n) * (1 + 0.08 * this.crowd);
+    // (11-18: a later region's boss coming in — the camera draws back a while so he and the back of his room are in the frame together)
+    const n = this.yard?.near ?? 0, k = (1 - 0.55 * n) * (1 + 0.08 * this.crowd) * (1 + 0.32 * this.bossLook);
     const base = this.cam.clone().add(V3(0, TUNE.camH * k, TUNE.camD * k)), look = this.cam.clone().add(V3(0, 0.6 + 0.5 * n, 0));
     return { base, look, fov: TUNE.camFov };
   }
@@ -1687,6 +1690,7 @@ export class ActShow {
     if (this.phase === 'fight') for (const f of this.foes) if (f.st !== 'dead' && f.kind !== 'dummy') { const dx = f.pos.x - h.pos.x, dz = f.pos.z - h.pos.z; if (dx * dx + dz * dz < 81) { fx += dx; fz += dz; fn++; } }
     const lean = fn ? V3(fx / fn, 0, fz / fn).multiplyScalar(0.22) : V3(); if (lean.length() > 2.2) lean.setLength(2.2);
     this.frameLean.lerp(lean, 1 - Math.exp(-2.2 * rdt)); this.crowd += (Math.max(0, Math.min(1, (fn - 2) / 4)) - this.crowd) * Math.min(1, rdt * 1.2);
+    this.bossLookT = Math.max(0, this.bossLookT - rdt); this.bossLook += ((this.bossLookT > 0 ? 1 : 0) - this.bossLook) * Math.min(1, rdt * (this.bossLookT > 0 ? 2.2 : 1.2));
     const lead = vel.multiplyScalar(TUNE.camLead), want = h.pos.clone().add(lead).add(this.frameLean);
     // enemies come from the back of the room: the view sits a little ahead of the hero
     // held inside the room: 2.7 m in from the side edges, 2 m from the back, 3.2 m from the front (on the 2x stage it roams much more)
