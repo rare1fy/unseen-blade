@@ -288,7 +288,26 @@ function foeVoice(kind: 'pain' | 'death' | 'cry', who: number, k: number) {
 /** 11-18: the same sound twice within this (s) is played once (default 0.05) */
 const COOLDOWN: Partial<Record<Cue, number>> = { flurry: 0.03, count: 0, coin: 0.03, tick: 0, swingLight: 0.04, hitLight: 0.04, hitStab: 0.03, bodyFall: 0.08, dartHit: 0.04, foeSwing: 0.08, foeHeavy: 0.1, arrow: 0.06 };
 const lastCue: Partial<Record<Cue, number>> = {};
+// The first blade arrives before the mixer is ready. Its two samples live in
+// the main WeChat package, so a cold launch can play them at the animation beat.
+function loadingSound(sample: string, volume: number) {
+  if (audio.muted) return;
+  if (audio.ctx?.state === 'running' && audio.buf.has(sample)) {
+    audio.play(sample, { gain: volume, bus: 'hero', pri: 3 }); return;
+  }
+  if (typeof wx === 'undefined' || !wx.createInnerAudioContext) return;
+  try {
+    const player = wx.createInnerAudioContext();
+    const release = () => player.destroy();
+    player.onEnded?.(release); player.onError?.(release);
+    player.volume = volume;
+    player.src = byName[sample];
+    player.play();
+  } catch (error) { console.warn('[audio] loading blade', error); }
+}
 const H: Partial<Record<Cue, (k: number, x?: number) => void>> = {
+  bladeFlyIn: () => loadingSound('ub_draw_1', 0.78),
+  bladeFlyOut: () => loadingSound('ub_sw_stab_1', 0.74),
   // UI
   clack: k => audio.any('ui_tap', { gain: 0.3 + k * 0.5, rate: 0.9 + k * 0.2 }),
   select: () => audio.any('ui_tap', { gain: 0.6, rate: 1.25 }),

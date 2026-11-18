@@ -65,9 +65,10 @@ export class Breakables {
   logic = new BreakLogic(); root = new THREE.Group(); private vis = new Map<number, Vis>(); private fires: FireVis[] = [];
   constructor(parent: THREE.Object3D, private solids: Solids) { parent.add(this.root); }
   /** the room's props (from asm/arena.ts arenaPlan) */
-  build(list: Array<{ kind: PropKind; x: number; z: number; rot?: 0 | 1 }>, covers: Cover[] = []) {
+  *buildSteps(list: Array<{ kind: PropKind; x: number; z: number; rot?: 0 | 1 }>, covers: Cover[] = []) {
     this.clear();
     for (const it of list) {
+      yield;
       const p = this.logic.add(it.kind, it.x, it.z), tilt = new THREE.Group(), g = new THREE.Group(), long = it.kind === 'fence' || it.kind === 'rack';
       tilt.add(model(it.kind, long ? (it.rot ?? 0) : 0)); g.add(tilt); g.position.set(p.x, 0, p.z); if (!long) g.rotation.y = ((p.id * 2654435761) % 4) * (Math.PI / 2); this.root.add(g);
       // a fence / rack is a thin box along its length; the rest are round
@@ -77,6 +78,7 @@ export class Breakables {
     }
     // act-20: the cover pieces break too — a solid box that crumbles to a lower heap after enough blows
     for (const cv of covers) {
+      yield;
       const p = this.logic.add('cover', cv.x, cv.z, Math.max(cv.hx, cv.hz)), tilt = new THREE.Group(), g = new THREE.Group();
       tilt.add(coverModel(cv.kind, cv.rot, false)); g.add(tilt); g.position.set(cv.x, 0, cv.z); this.root.add(g);
       const solid = this.solids.add({ kind: 'cover', shape: 'box', x: cv.x, z: cv.z, hx: cv.hx, hz: cv.hz, slam: true, tag: p });

@@ -82,7 +82,7 @@ export function commit(occ: Occ, cells: Iterable<number>) {
   for (const k of cells) { const [X, Y, Z] = unkey(k); if (Y < 0) continue; occ.cells.add(k); if (Y <= BODY_Y) occ.body.add(col(X, Z)); }
 }
 /** a whole-scene audit after everything is built: floating clusters (no path down to the ground through solid cells) */
-export function floatingCells(cells: Map<number, unknown>, maxReport = 8) {
+export function floatingCells(cells: Pick<Map<number, unknown>, 'has'> & { keys(): Iterable<number> }, maxReport = 8) {
   // flood from every ground-touching cell (y ≤ 0) through 6-neighbours; whatever is left unvisited floats
   const seen = new Set<number>(), stack: number[] = [];
   for (const k of cells.keys()) { const y = (Math.floor(k / 1024) % 1024) - 512; if (y <= 0) { seen.add(k); stack.push(k); } }

@@ -1,3 +1,4 @@
+import { bladeBusy, runRoomBuild, withLoadingBlade } from '../scenes/loadingBlade';
 import { language, t } from './i18n';
 import { CRAZYGAMES } from '../../platform/crazygames';
 // 开始画面（docs/DESIGN.md 第二十轮 6；用户 11-17：「最后就是开始画面，再做一版吧，带、继续游戏那些的。氛围上多尝试几版，明早我来选，
@@ -14,7 +15,7 @@ import { V3, R, onUpdate, canvasTex, camera, scene, view, precompile } from '../
 import { hitstop, shake, PAUSE } from '../engine/clock';
 import { activePad } from './pad';
 import { shot } from '../director';
-import { applyMood, showStage, skyMaterial, currentStage, type Ctx, type Mood, type Stage } from '../scenes/stage';
+import { applyMood, prepareStageSteps, skyMaterial, currentStage, type Ctx, type SceneDef, type Mood, type Stage } from '../scenes/stage';
 import { GRADE } from '../look/post';
 import { PXU } from '../look/pixel';
 import { PALPHA } from '../engine/particles';
@@ -371,13 +372,39 @@ export interface TitleHost {
   /** is there a save to continue (profile.ts hasSave) */
   hasSave(): boolean;
   /** build the next place under the frozen picture: a new game or the saved one (show.ts startNewGame / continueGame) */
-  enter(kind: 'new' | 'continue'): void;
+  enter(kind: 'new' | 'continue'): void | Promise<void>;
   /** 设置: the tuning panel */
   settings(): void;
 }
 let running: Title | null = null;
-/** start a title variant (1-based); resolves when the next place is fully revealed */
-export function playTitle(n: number, host: TitleHost) { stopOpening(); running?.stop(); running = new Title(Math.max(1, Math.min(TITLES.length, Math.round(n) || 1)), host); return running.done; }
+export function titleDefinition(index: number): SceneDef {
+  const d = TITLES[index - 1];
+  setStage(true);
+  const spec: Spec = { layout: 'axis', mirror: false, landmark: null, season: 'autumn', time: 'dusk', weather: 'clear', seed: 7, ...d.spec, exits: d.exits ?? [] };
+  if (d.walls) {
+    const lb = REGISTRY.layouts[spec.layout] ?? Object.values(LOCALES).flatMap(l => l.extraLayouts ?? []).find(l => l.id === spec.layout)!;
+    const layout = withExits(spec.mirror ? mirrorLayout(stageLayout(lb)) : stageLayout(lb), spec.exits ?? []);
+    const plan = arenaPlan(layout, (spec.exits ?? []) as ExitId[], spec.seed, spec.locale, 'calm');
+    plan.props = []; if (!d.cover) plan.covers = [];
+    spec.arena = plan;
+  }
+  const { def } = assemble(spec, REGISTRY);
+  return { ...def, pack: `title-${d.id}`,
+    *buildSteps(c) {
+      if (def.buildSteps) yield* def.buildSteps(c); else def.build(c);
+      d.dress?.(c);
+    },
+  };
+}
+/** Resolves once the selected menu and its backdrop can be rendered. */
+export function playTitle(n: number, host: TitleHost) {
+  stopOpening(); running?.stop();
+  const index = Math.max(1, Math.min(TITLES.length, Math.round(n) || 1));
+  const prepared = runRoomBuild(prepareStageSteps(titleDefinition(index)));
+  const show = (p: import('../scenes/stage').PreparedStage) => { running = new Title(index, host, p.attach()); };
+  if (prepared instanceof Promise) return prepared.then(show);
+  show(prepared);
+}
 /** show.ts pointer(): the title takes the pointer while it is up */
 export function titlePointer(type: string, x: number, y: number) { return running ? running.pointer(type, x, y) : false; }
 export const titleRunning = () => !!running;
@@ -424,22 +451,13 @@ class Title {
   private items: Item[]; private plaques: Plaque[] = []; private sel = 0; private menuK = 0; private marker: THREE.Mesh; private markerK = 0; private gap = 10;
   private choice: 'new' | 'continue' = 'new'; private padPrev = { up: false, down: false, ok: false, back: false }; private padRep = 0;
   private onKey = (e: KeyboardEvent) => this.key(e);
-  constructor(private n: number, private host: TitleHost) {
+  constructor(private n: number, private host: TitleHost, stage: Stage) {
     this.def = TITLES[n - 1];
     this.done = new Promise(r => (this.resolve = r));
     const d = this.def;
     // ---- the place
-    setStage(true);
-    const spec: Spec = { layout: 'axis', mirror: false, landmark: null, season: 'autumn', time: 'dusk', weather: 'clear', seed: 7, ...d.spec, exits: d.exits ?? [] };
-    if (d.walls) {
-      const lb = REGISTRY.layouts[spec.layout] ?? Object.values(LOCALES).flatMap(l => l.extraLayouts ?? []).find(l => l.id === spec.layout)!;
-      const layout = withExits(spec.mirror ? mirrorLayout(stageLayout(lb)) : stageLayout(lb), spec.exits ?? []);
-      const plan = arenaPlan(layout, (spec.exits ?? []) as ExitId[], spec.seed, spec.locale, 'calm');
-      plan.props = []; if (!d.cover) plan.covers = [];
-      spec.arena = plan;
-    }
-    const { def } = assemble(spec, REGISTRY);
-    this.stage = showStage({ ...def, build(c) { try { def.build(c); d.dress?.(c); } catch (e) { console.error('[title] assembly failed', e); } } });
+    this.stage = stage;
+    const def = stage.def;
     this.mood = d.mood({ ...def.mood, earth: [...def.mood.earth] });
     this.setMood(this.mood);
     GRADE.exposure = d.exposure ?? this.mood.exposure ?? GRADE.exposure; if (d.bloomT != null) GRADE.bloomThreshold = d.bloomT; this.satSave = GRADE.sat; GRADE.sat = d.sat ?? GRADE.sat;
@@ -673,6 +691,7 @@ class Title {
   // ---------------------------------------------------------------- input: pointer (show.ts hands it over), keys, a gamepad
   private downAt = -1;
   pointer(type: string, x: number, y: number) {
+    if (bladeBusy()) return;
     if (this.beat !== 'menu' && this.beat !== 'confirm') return true;
     const i = this.plaques.findIndex(p => p.inK > 0.5 && p.hit(x, y, this.gap));
     if (type === 'move') { if (i >= 0 && this.items[i].enabled && i !== this.sel) { this.sel = i; cue('tick', 0.3); } return false; }
@@ -681,6 +700,7 @@ class Title {
     return false;
   }
   private key(e: KeyboardEvent) {
+    if (bladeBusy()) return;
     if (e.ctrlKey || e.metaKey || e.altKey || e.repeat || PAUSE.menu) return;
     const k = e.key.toLowerCase();
     if (k === 'arrowup' || k === 'w') { e.preventDefault(); this.move(-1); }
@@ -703,7 +723,15 @@ class Title {
   }
   // ---------------------------------------------------------------- the way in: she draws, the cut runs through the choice, the picture splits
   private go(kind: 'new' | 'continue') {
-    this.choice = kind; this.beat = 'draw'; this.bt = 0;
+    this.choice = kind;
+    if (__WX__) {
+      this.beat = 'done';
+      void withLoadingBlade(() => {
+        this.hideOverlay(); this.restore(); return this.host.enter(kind);
+      }).finally(() => this.finish());
+      return;
+    }
+    this.beat = 'draw'; this.bt = 0;
     // (her draw-cut is a few pixels at this distance and its trail froze into a glowing blob under the cut's hit-stop: the cut is
     //  the screen's, she only flashes with it)
     const a = this.hero; this.walkK = 1; motionOf(a).run = 0; a.tint(0xe8f0ff, 0.6);
@@ -794,7 +822,7 @@ class Title {
   /** stop without the way in (another variant, __dh.title again): everything goes; the next stage replaces this one */
   stop() {
     if (!this.alive) return;
-    if (this.beat !== 'split') { this.hideOverlay(); this.restore(); }
+    if (this.beat !== 'split' && this.beat !== 'done') { this.hideOverlay(); this.restore(); }
     this.finish();
   }
 }

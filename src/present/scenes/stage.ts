@@ -1,3 +1,6 @@
+import { readStagePack, unpackStage } from './packedStage';
+import { bladeWorking } from './loadingBlade';
+import { finishBuild } from '../engine/buildSteps';
 // Stage manager: builds one chapter scene at a time (voxel geometry + its lights, fog, sky, mist, flames, water, runes) and tears
 // it down when another is shown. Global lights are shared and re-tinted per scene. Returns an Env-compatible handle (phase2).
 import * as THREE from 'three';
@@ -54,7 +57,7 @@ export interface Ctx {
   /** a soft light shaft from above */
   shaft(x: number, z: number, o?: { w?: number; h?: number; color?: number; tilt?: number; yaw?: number; a?: number }): void;
 }
-export interface SceneDef { id: string; name: string; group: '普通' | '首领' | '节点'; kind: '户外' | '室内' | '地牢' | '洞穴'; blurb: string; mood: Mood; build(c: Ctx): void; foes?: string[] }
+export interface SceneDef { id: string; name: string; group: '普通' | '首领' | '节点'; kind: '户外' | '室内' | '地牢' | '洞穴'; blurb: string; mood: Mood; build(c: Ctx): void; buildSteps?(c: Ctx): Generator<void>; pack?: string; report?: object; decorate?(c: Ctx): void; foes?: string[] }
 
 // ------------------------------------------------------------------ shared lights, sky and mist (created once)
 const MOON_BASE = new THREE.Vector3();
@@ -150,11 +153,14 @@ export interface PreparedStage { def: SceneDef; root: THREE.Group; attach(): Sta
  *  the cells and meshing them — touches nothing live (no mood, no lights in the scene, no updater), so it can run ahead of time
  *  (the title builds the first room of a new game while it loads) and the swap itself is only attach() */
 export function prepareStage(def: SceneDef, options: { combat?: boolean } = {}): PreparedStage {
+  return finishBuild(prepareStageSteps(def, options));
+}
+export function* prepareStageSteps(def: SceneDef, options: { combat?: boolean; procedural?: boolean } = {}): Generator<void | Promise<void>, PreparedStage> {
   const g = globals(), root = new THREE.Group();
   const md = def.mood, lights: THREE.Light[] = [], flames: Array<{ m: THREE.Mesh; l?: THREE.PointLight; base: number; s: number }> = [], phase: Array<(k: number) => void> = [];
   // the ground beyond the stage
   const earth: THREE.Mesh = new THREE.Mesh(new THREE.PlaneGeometry(140, 140), toon(0xffffff, { map: earthTex(md.earth) })); earth.rotation.x = -Math.PI / 2; earth.position.y = -2 * CELL; earth.receiveShadow = true; earth.userData.earth = true; root.add(earth);
-  const w = new VoxWorld(CELL), cut = new VoxWorld(CELL), cards = new Cards(), amb: Ambient[] = [], cutRoot = new THREE.Group(); let eaves = 3.5;
+  const w = new VoxWorld(CELL, true), cut = new VoxWorld(CELL, true), cards = new Cards(), amb: Ambient[] = [], cutRoot = new THREE.Group(); let eaves = 3.5;
   const holes: Array<[number, number, number, number]> = [];
   root.add(cutRoot);
   const ctx: Ctx = {
@@ -187,7 +193,21 @@ export function prepareStage(def: SceneDef, options: { combat?: boolean } = {}):
     onPhase(f) { phase.push(f); },
     add(o) { root.add(o); },
   };
-  def.build(ctx);
+  let packed: Uint8Array | null = null;
+  if (__WX__ && def.pack && !options.procedural && STAGE_OPTS.chunk === 0 && bladeWorking()) {
+    yield readStagePack(def.pack).then(data => { packed = data; });
+  }
+  if (packed) {
+    try {
+      yield* unpackStage(packed, ctx, root, cutRoot, def.report);
+    } catch (error) {
+      console.warn('[stage] invalid scenery pack', def.pack, error);
+      root.traverse(object => (object as THREE.Mesh).geometry?.dispose());
+      return yield* prepareStageSteps(def, { ...options, procedural: true });
+    }
+  } else if (def.buildSteps) yield* def.buildSteps(ctx); else def.build(ctx);
+  def.decorate?.(ctx);
+  yield;
   // (11-18 屋子形态: the ground plane cut round the pits — a shape with holes, its UVs as the plane's: 0..1 over the 140 m)
   if (holes.length) {
     const sh = new THREE.Shape([new THREE.Vector2(-70, -70), new THREE.Vector2(70, -70), new THREE.Vector2(70, 70), new THREE.Vector2(-70, 70)]);
@@ -197,11 +217,12 @@ export function prepareStage(def: SceneDef, options: { combat?: boolean } = {}):
     for (let i = 0; i < pa.count; i++) { uv[i * 2] = (pa.getX(i) + 70) / 140; uv[i * 2 + 1] = (pa.getY(i) + 70) / 140; }
     sg.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); earth.geometry.dispose(); earth.geometry = sg;
   }
-  if (options.combat) quietBattleGlow(w);
-  for (const m of w.build({ glow: options.combat ? 1.35 : md.glowK ?? 2.6, chunk: STAGE_OPTS.chunk })) root.add(m);
+  if (!packed && options.combat) quietBattleGlow(w);
+  if (!packed) for (const m of yield* w.buildSteps({ glow: options.combat ? 1.35 : md.glowK ?? 2.6, chunk: STAGE_OPTS.chunk })) root.add(m);
   w.cells.clear();   // (the cells are meshed; a prepared place can wait a while, it should not hold two million of them)
   cards.build(root);
-  if (cut.cells.size) for (const m of cut.build({ glow: 2.6, chunk: STAGE_OPTS.chunk })) cutRoot.add(m);
+  if (cut.cells.size) for (const m of yield* cut.buildSteps({ glow: 2.6, chunk: STAGE_OPTS.chunk })) cutRoot.add(m);
+  cut.cells.clear();
   let used = false;
   const freeAll = () => root.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh) m.geometry.dispose(); });
   return {
