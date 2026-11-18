@@ -1,4 +1,4 @@
-import { bladeWorking, drawLoadingBlade } from '../scenes/loadingBlade';
+import { bladeWorking, drawLoadingBlade, setLoadingWarmup } from '../scenes/loadingBlade';
 // Renderer + frame loop: real dt (capped) → game clock (hitstop / slowmo / speed) → updaters → dice → particles / prims →
 // camera rig (base + offset + trauma shake) → 3D render → UI render (pxui shares the WebGL context).
 import * as THREE from 'three';
@@ -42,6 +42,20 @@ export function createGfx(platform: Platform, canvas: any, o: { preserve?: boole
     if (!CAPS.derivatives) THREE.ShaderChunk.lights_physical_fragment = THREE.ShaderChunk.lights_physical_fragment.replace(/vec3 dxy = max\( abs\( dFdx\( nonPerturbedNormal \) \), abs\( dFdy\( nonPerturbedNormal \) \) \);\s*float geometryRoughness = [^;]*;/, 'float geometryRoughness = 0.0;');
     if (!CAPS.instancing || !CAPS.boneTex || !CAPS.derivatives) console.warn('[gfx] WebGL1 without ' + [!CAPS.instancing && 'instancing (particles, blood, leaves, debris are not drawn)', !CAPS.boneTex && 'float vertex textures (no part batching)', !CAPS.derivatives && 'derivatives (no block bevel lines, no flat shading)'].filter(Boolean).join(', ') + ' — the WeChat devtools simulator; phones have them'); }
   const post = new Post(renderer);
+  if (__WX__ && renderer.extensions.has('KHR_parallel_shader_compile')) {
+    setLoadingWarmup(async () => {
+      // Match the target and light counts of the actual world pass. Restore
+      // the screen before awaiting the GPU so the blade can keep rendering.
+      padLights(); syncBatches();
+      const previous = renderer.getRenderTarget();
+      let ready;
+      try {
+        renderer.setRenderTarget(post.rt);
+        ready = renderer.compileAsync(scene, camera);
+      } finally { renderer.setRenderTarget(previous); }
+      await ready;
+    });
+  }
   const fit = () => {
     const s = platform.canvasSize(); view.w = s.w; view.h = s.h; view.dpr = Math.min(platform.dpr(), PX.on ? 3 : 2);   // the pixel look at native resolution (a 3× phone upscaled 2→3 by the browser blurred the pixels)
     renderer.setPixelRatio(view.dpr); renderer.setSize(s.w, s.h, false); post.setSize(s.w, s.h, view.dpr);

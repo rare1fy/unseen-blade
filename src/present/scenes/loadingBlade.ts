@@ -90,6 +90,8 @@ function makeLayer() {
 type Phase = 'enter' | 'work' | 'ready' | 'exit';
 type BladeState = { phase: Phase; since: number; start: number; frames: number; cut: number };
 let active: BladeState | null = null;
+let warmDestination: (() => Promise<void>) | undefined;
+export function setLoadingWarmup(warm: () => Promise<void>) { warmDestination = warm; }
 export const bladeBusy = () => active !== null;
 export const bladeWorking = () => active?.phase === 'work';
 export function runRoomBuild<T>(steps: BuildSteps<T>) {
@@ -114,6 +116,8 @@ export async function withLoadingBlade(work: () => void | Promise<void>, cover: 
     state.phase = 'work';
     await nextFrame();
     await work();
+    try { await warmDestination?.(); }
+    catch (error) { console.warn('[stage] shader warmup failed', error); }
     // The normal world pass now draws the destination under the cover. Wait
     // for a submitted frame before revealing it, including GPU buffer uploads.
     state.phase = 'ready';
