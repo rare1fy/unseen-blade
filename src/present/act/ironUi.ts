@@ -364,10 +364,15 @@ const PORTRAIT_WHITE = [
 const PORTRAITS: Record<string, string[]> = { slim_hat: PORTRAIT_HAT, slim_white: PORTRAIT_WHITE, fine_hat: PORTRAIT_HAT, fine_white: PORTRAIT_WHITE };
 /** which look the HP medallion shows (show.ts sets it from the costume worn) */
 export const HP_FACE = { id: 'fine_white' };
+/** the HP bar's lost piece: bright yellow, far from the red in both hue and lightness */
+const HP_LAG = 0xffd23c;
 export interface HpState { hp: number; maxHp: number }
 export class IronHp {
   root = new THREE.Group(); st: HpState = { hp: 100, maxHp: 100 }; intent = 0; private x = 30; private y = 40; private k = 1;
   private fill: THREE.Mesh; private fillTop: THREE.Mesh; private lag: THREE.Mesh; private lagV = 1; private ingots: THREE.MeshLambertMaterial[] = [];
+  /** 11-18 (用户：「把血条减少垫背后的那个橙色调整一下，现在和前面的红色对比不是很强烈，看不太出来扣血的效果。」): the lost piece
+   *  holds still a moment (each new blow restarts it, so a flurry piles into one piece), flashes white, then sits bright yellow */
+  private lagHold = 0; private lagFlash = 0;
   private shakeT = 0; private flashT = 0; private healT = 0; private tt = 0; private lastIntent = 0; readonly W = 250; private X0 = 44;
   private ingotMesh: THREE.Mesh[] = []; private ingotPop = 0; private popIdx = -1; private fullT = 0;
   /** act-34 (用户：「血量的字号也再大点。」「血量的文字也要跟着血条有斜度。」): the number is a plane on the bar itself (it tilts with
@@ -379,7 +384,8 @@ export class IronHp {
     const frame = box(this.W + 14, 26, 10, IRON_D); frame.position.set(this.X0 + this.W / 2, 0, 0); this.root.add(frame);
     const lipT = box(this.W + 14, 3, 11, IRON_L); lipT.position.set(this.X0 + this.W / 2, 11.5, 0.5); this.root.add(lipT);
     const track = box(this.W, 14, 2, 0x2a0e0c); track.position.set(this.X0 + this.W / 2, 0, 5.2); this.root.add(track);
-    this.lag = box(1, 14, 2, 0xf0e2c8); this.lag.position.z = 5.6; this.root.add(this.lag);
+    // the lost piece: a flat colour the UI lights do not warm (the lit cream read as orange against the red)
+    this.lag = new THREE.Mesh(new THREE.BoxGeometry(1, 14, 2), new THREE.MeshBasicMaterial({ color: HP_LAG, toneMapped: false })); this.lag.position.z = 5.6; this.root.add(this.lag);
     this.fill = box(1, 14, 2, 0xc8302a); this.fill.position.z = 6; this.root.add(this.fill);
     this.fillTop = box(1, 3, 2, 0xe8644a); this.fillTop.position.set(0, 5, 6.3); this.root.add(this.fillTop);
     this.root.add(new THREE.Mesh(mergeBoxes(Array.from({ length: 9 }, (_, i) => ({ w: 2, h: 14, d: 2, x: this.X0 + ((i + 1) * this.W) / 10, y: 0, z: 6.6, c: 0x14151a }))).geo, vcMat()));
@@ -402,7 +408,7 @@ export class IronHp {
   setFace(id: string) { HP_FACE.id = id; const m = this.face.material as THREE.MeshLambertMaterial; m.map?.dispose(); m.map = pixTex(PORTRAITS[id] ?? PORTRAIT_WHITE, '#5a1a16'); m.needsUpdate = true; }
   place(x: number, y: number, k: number) { this.x = x; this.y = y; this.k = k; }
   set(s: Partial<HpState>) { Object.assign(this.st, s); }
-  hit(dmg: number, s?: Partial<HpState>) { if (s) this.set(s); this.shakeT = 0.3; this.flashT = 0.25; void dmg; }
+  hit(dmg: number, s?: Partial<HpState>) { if (s) this.set(s); this.shakeT = 0.3; this.flashT = 0.15; this.lagHold = 0.5; this.lagFlash = 0.1; void dmg; }
   heal(s?: Partial<HpState>) { if (s) this.set(s); this.healT = 0.5; this.sparks.burst(this.L.at(this.x + (this.X0 + this.W * 0.5) * this.k, this.y, 6), 14, this.L.px(120), this.L.px(5), 0x7aff9a, { life: 0.6, up: this.L.px(140) }); cue('heal', 0.6); }
   textAt() { return { x: this.x + (this.X0 + this.W + 24) * this.k, y: this.y - 8 * this.k }; }
   barAt() { return { x: this.x + (this.X0 + this.W / 2) * this.k, y: this.y, h: 14 * this.k }; }
@@ -420,13 +426,18 @@ export class IronHp {
       }
       this.num.visible = this.root.visible;
     }
-    this.lagV = Math.max(f, this.lagV - dt * 0.5);
+    // the lost piece: stays put while lagHold runs, then closes in fast and slows as it reaches the red (about 0.7 s)
+    this.lagHold = Math.max(0, this.lagHold - dt); this.lagFlash = Math.max(0, this.lagFlash - dt);
+    if (f >= this.lagV) this.lagV = f;
+    else if (this.lagHold <= 0) this.lagV = Math.max(f, f + (this.lagV - f) * Math.exp(-dt * 4.5) - dt * 0.1);
+    (this.lag.material as THREE.MeshBasicMaterial).color.setHex(this.lagFlash > 0 ? 0xffffff : HP_LAG);
     const W = this.W, X = this.X0;
     this.fill.scale.x = Math.max(0.001, W * f); this.fill.position.x = X + (W * f) / 2;
     this.fillTop.scale.x = Math.max(0.001, W * f); this.fillTop.position.x = X + (W * f) / 2;
     this.lag.scale.x = Math.max(0.001, W * this.lagV); this.lag.position.x = X + (W * this.lagV) / 2;
     const fm = this.fill.material as THREE.MeshLambertMaterial, low = f < 0.3 ? 0.35 + 0.35 * Math.sin(this.tt * 8) : 0;
-    fm.emissive.setHex(this.flashT > 0 ? 0xffffff : this.healT > 0 ? 0x2a8a3a : 0xff2a1a); fm.emissiveIntensity = this.flashT > 0 ? this.flashT * 2.5 : this.healT > 0 ? 1 : low;
+    // a blow brightens the red, never to white (a white bar matched the lost piece behind it)
+    fm.emissive.setHex(this.flashT > 0 ? 0xff3a22 : this.healT > 0 ? 0x2a8a3a : 0xff2a1a); fm.emissiveIntensity = this.flashT > 0 ? 0.3 + this.flashT * 4 : this.healT > 0 ? 1 : low;
     // the 杀意 ingots: lit ones glow like coals; a new one flares
     if (this.intent > this.lastIntent) { this.sparks.burst(L.at(this.x + (X + 16 + (this.intent - 1) * 28) * this.k, this.y + 22 * this.k, 6), 12, L.px(110), L.px(4), 0xffa040, { life: 0.4 }); this.ingotPop = 1; this.popIdx = this.intent - 1; }
     // act-29: the third one in — all three flare white-gold together, a wider burst (不见刀 is ready)
