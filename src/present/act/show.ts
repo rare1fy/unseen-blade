@@ -977,7 +977,7 @@ export class ActShow {
   title(n = 1) {
     try { localStorage.setItem('ub.title', String(n)); } catch { /* storage blocked */ }   // the last one shown opens next time
     // a room may be up (__dh.title from the yard): its actors go the way a room change sends them
-    for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = [];
+    for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = []; this.entering.length = 0;
     this.yard?.dispose(); this.yard = null; this.props?.dispose(); this.props = null; this.gates?.dispose(); this.gates = null; this.pieces?.dispose(); this.pieces = null; this.leaves?.dispose(); this.leaves = null; this.stations?.dispose(); this.stations = null; this.hero?.a.dispose();
     this.clearNpcs();
     this.phase = 'title'; this.hud.on = false; this.hud.update(0, this.inp, []); this.banner.hide(); this.blob.visible = false; this.ring.visible = false; for (const m of this.shadows) m.visible = false;
@@ -1115,7 +1115,7 @@ export class ActShow {
   private buildRoom(first: boolean) { return runRoomBuild(this.roomSteps(first)); }
   private *roomSteps(first: boolean): Generator<void | Promise<void>, void> {
     blood.clear();
-    for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = [];
+    for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = []; this.entering.length = 0;
     this.falling = [];
     this.gates?.dispose(); this.gates = null; this.pieces?.dispose(); this.pieces = null; this.leaves?.dispose(); this.leaves = null; this.clearNpcs();
     for (const d of this.doors) d.g.parent?.remove(d.g); this.doors = []; this.stations?.dispose(); this.stations = null; this.coinsFx.clear();
@@ -1305,10 +1305,15 @@ export class ActShow {
           const [x, z] = this.pieces.spawnInZone(sz, p.x, p.z); p.set(x, 0, z);
         } else if (gd && gd.at(p.x, p.z) !== FLOOR) { const q = gd.nearestFloor(p.x, p.z); p.set(q[0], 0, q[1]); }
         // the plan's kind (黄巾 ids; 'kind*' = its elite) — the boss gets its banner: name and slogan from EDEFS
-        const ko = kindOr(k), f = spawnFoe(ko.kind, p, hp.clone(), ko.elite); this.foes.push(f);
-        const bs = !!EDEFS[ko.kind].boss;
-        fxSmoke(p.clone().add(V3(0, 0.3, 0)), 0x6a6a74, bs ? 14 : 8, { r: 0.7, spd: 1.2, up: 0.6, s: 0.4, life: 0.7 }); fxRing(p.clone().setY(0.05), 0xff7a4a, 1.2, { life: 0.4 } as never);
-        cue(bs ? 'roar' : 'summon', bs ? 0.9 : 0.4);
+        const ko = kindOr(k), bs = !!EDEFS[ko.kind].boss;
+        // 11-19 (用户：「敌人每次都是凭空出现的，我希望敌人能从四面八方正常冲进战斗场景或者翻墙过来」): the foe runs in from the room's
+        // edge — off the floor where she isn't, through a doorway or over the wall — to the spot it used to appear on (p). The
+        // boss and a 水鬼 out of its pool still rise where they stand
+        const way = bs || kindOr(k).kind === 'xp_diver' ? null : this.entryFrom(p, hp, i, zb ?? null, sz);
+        const f = spawnFoe(ko.kind, way ? way.from : p, hp.clone(), ko.elite); this.foes.push(f);
+        if (way) this.entering.push({ f, from: way.from, to: way.to, wall: way.wall, t: 0, dur: way.dur });
+        else { fxSmoke(p.clone().add(V3(0, 0.3, 0)), 0x6a6a74, bs ? 14 : 8, { r: 0.7, spd: 1.2, up: 0.6, s: 0.4, life: 0.7 }); fxRing(p.clone().setY(0.05), 0xff7a4a, 1.2, { life: 0.4 } as never); }
+        cue(bs ? 'roar' : way ? 'foeCry' : 'summon', bs ? 0.9 : way ? 0.25 : 0.4);
         // act-20: the chapter's boss the first time on this save — the intro cutscene and the lines before the fight (he
         // comes in the room's second wave); after that only his banner
         if (bs && this.prologue === 2) { after(0.35, async () => { await this.cine(bossIntroShots(this.cineHost, f, '雷公渠帅 · 石雷')); await this.talk(PRO_CHULEI); f.a.roar(); this.proFightT = 0; }); }
@@ -1319,6 +1324,53 @@ export class ActShow {
         else if (bs) { f.a.roar(); shake(0.3 * TUNE.shake); this.banner.show(EDEFS[ko.kind].name, EDEFS[ko.kind].tag ?? '', 1.6, '#ff8a6a'); }
       });
     });
+  }
+  /** 11-19 敌人入场: those still on their way in (out of reach until they are on the floor: no blow, no AI, no damage) */
+  private entering: Array<{ f: Foe; from: THREE.Vector3; to: THREE.Vector3; wall: number; t: number; dur: number }> = [];
+  /** where a foe comes in from: the room's edge level with its spot p (the back and the two sides first, the side away from her
+   *  first; the camera's side last), and where it lands — 1.4–3.6 m inside that edge, on clear floor, in the piece of the room being
+   *  fought over. It always comes over the edge: the back and side walls stand a man's height (it climbs up behind them and hops
+   *  down inside), the camera's side is low (a hop). Nothing walks through a wall or a barricaded door. null = no edge works */
+  private entryFrom(p: THREE.Vector3, hp: THREE.Vector3, i: number, zb: { x0: number; x1: number; z0: number; z1: number } | null, sz: number): { from: THREE.Vector3; to: THREE.Vector3; wall: number; dur: number } | null {
+    const g = this.grid, b = zb ?? (g ? g.sp.box : { x0: PLAY.x0, x1: PLAY.x1, z0: PLAY.z0, z1: PLAY.z1 });
+    const sides: Array<[number, number]> = [[0, -1], [-1, 0], [1, 0], [0, 1]];
+    const order = sides.map((d, k) => ({ d, k, score: (k === 3 ? -50 : 0) + (d[0] ? (d[0] < 0 ? hp.x - b.x0 : b.x1 - hp.x) : (d[1] < 0 ? hp.z - b.z0 : b.z1 - hp.z)) + ((i * 7 + k * 3) % 5) }))
+      .sort((x, y) => y.score - x.score);
+    const okAt = (x: number, z: number) => (!g || g.clear(x, z, 0.5)) && this.solids.free(x, z, 0.5, 0.3) && (sz < 0 || this.pieces?.zoneAt(x, z) === sz)
+      && this.foes.every(f => f.pos.distanceTo(V3(x, 0, z)) > 1.2) && this.entering.every(e => e.to.distanceTo(V3(x, 0, z)) > 1.2) && hp.distanceTo(V3(x, 0, z)) > 3.5;
+    for (const { d, k } of order) {
+      const ex = d[0] ? (d[0] < 0 ? b.x0 : b.x1) : p.x, ez = d[1] ? (d[1] < 0 ? b.z0 : b.z1) : p.z;
+      const len = Math.hypot(p.x - ex, p.z - ez); if (len < 1.6) continue;
+      const ux = (p.x - ex) / len, uz = (p.z - ez) / len;
+      let land = -1; for (let t = 1.4 + (i % 3) * 0.55; t < Math.min(len, 6); t += 0.3) if (okAt(ex + ux * t, ez + uz * t)) { land = t; break; }
+      if (land < 0) continue;
+      const front = k === 3, wall = front ? 1.0 : 2.5;
+      const from = V3(ex - ux * 0.75, 0, ez - uz * 0.75), to = V3(ex + ux * land, 0, ez + uz * land);
+      return { from, to, wall, dur: 0.3 + 0.32 + 0.12 * Math.min(3, land) };
+    }
+    return null;
+  }
+  /** per frame: the foes on their way in — up the outside of the wall (0.3 s, behind it, out of sight from the back), a crouch on its
+   *  top, one hop down inside landing in a crouch with a puff (the hop longer the further in it lands). Then the fight takes them */
+  private enterStep(dt: number) {
+    for (let n = this.entering.length - 1; n >= 0; n--) {
+      const e = this.entering[n], f = e.f;
+      if (f.st === 'dead') { this.entering.splice(n, 1); continue; }
+      e.t += dt; const T = e.t, W = e.wall, CLIMB = 0.3, PERCH = 0.32;
+      f.vel.set(0, 0, 0); f.yaw = Math.atan2(e.to.x - e.from.x, e.to.z - e.from.z); f.a.yaw = f.yaw; f.a.setRunning(false);
+      if (T < CLIMB) { const c = T / CLIMB; f.pos.copy(e.from); f.pos.y = W * (1 - (1 - c) * (1 - c)); }
+      else if (T < PERCH) { f.pos.copy(e.from); f.pos.y = W; }
+      else {
+        const h = Math.min(1, (T - PERCH) / Math.max(0.05, e.dur - PERCH));
+        f.pos.lerpVectors(e.from, e.to, h); f.pos.y = W * (1 - h * h) + 0.6 * 4 * h * (1 - h);
+      }
+      f.st = 'enter'; f.t = 0; f.dur = 0.35; f.cd = Math.max(f.cd, 0.7); f.inv = Math.max(f.inv, 0.2);
+      if (T >= e.dur) {
+        f.pos.copy(e.to); f.pos.y = 0; f.inv = 0.15;
+        cue('land', 0.5); fxSmoke(e.to.clone().setY(0.1), 0x8a7a6a, 6, { r: 0.6, spd: 1.2, up: 0.4, s: 0.38, life: 0.55 }); shake(0.04 * TUNE.shake);
+        this.entering.splice(n, 1);
+      }
+    }
   }
   // ------------------------------------------------------------ the world the hero / foes see
   /** act-37 (用户：「碰撞必须要做，不然这游戏太多穿模了」): every body pushes the others out by their radii and weights — foe from foe,
@@ -2551,7 +2603,8 @@ export class ActShow {
     if (this.phase === 'intro') { this.introT += dt; this.inp.move.x = 0; this.inp.move.y = this.introT < 0.5 ? 0.7 : 0; for (const b of Object.values(this.inp.b)) { b.pressed = false; b.down = false; b.held = 0; } }
     this.statusStep(dt, h);
     // (11-18: her blade's aim and the auto-aimed darts don't find a foe out of sight — a 死士 in the shadow, a 水鬼 under the water)
-    this.heroWorld.foes = this.foes.some(f => f.mem.hidden) ? this.foes.filter(f => !f.mem.hidden) : this.foes;
+    // (11-19: a foe still running in / over the wall is not on the floor yet — no blade reaches it, and it strikes at nothing)
+    this.heroWorld.foes = this.foes.some(f => f.mem.hidden) || this.entering.length ? this.foes.filter(f => !f.mem.hidden && !this.entering.some(e => e.f === f)) : this.foes;
     h.update(dt, this.inp, this.heroWorld);
     this.hud.setAim(h.aiming ? { x: h.aimDir.x, y: -h.aimDir.z } : null);   // act-29: the dart button leans to the aim
     if (h.aiming) { const pv = h.aimPreview(this.heroWorld), L = TUNE.dartRange, al = this.aimLine;
@@ -2590,7 +2643,9 @@ export class ActShow {
       }
     }
     this.decoyStep(dt); this.pinStep(dt); this.markStep();   // 11-18 秘传: 留影, 截脉, 枭首's mark
+    this.enterStep(dt);
     for (const f of this.foes) {
+      if (!this.ultOn && this.entering.some(e => e.f === f)) { f.a.update(dt); continue; }
       if (!this.ultOn) {
         // 11-18 留影: the foes the afterimage draws see it as her — they close on it and strike at it; a blow that lands bursts it
         if (this.decoyFor(f)) {
