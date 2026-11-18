@@ -220,7 +220,12 @@ const diver: RoleAI = {
     if (!under) {
       if (wet(f.pos.x, f.pos.z) && f.st === 'move' && (f.mem.upT ?? 0) <= 0) { dive(f); return 'busy'; }
       if (k.can && k.dist < 1.8) { AI.startAttack(f, w, { k: 'rect', len: 1.8, w: 0.6 }, 0.5, 8, k.yawTo, { atk: 'poke' }); f.cd = R(0.6, 1.0); return 'busy'; }
-      // back toward the nearest water if there is some close, else at her
+      // back toward the nearest water if there is some within 6 m (and he has not just climbed out to walk), else at her
+      if ((f.mem.upT ?? 0) <= 0 && w.pools?.length) {
+        let best: THREE.Vector3 | null = null, bd = 6;
+        for (const r of w.pools) { const q = V3(Math.max(r.x0 + 0.4, Math.min(r.x1 - 0.4, f.pos.x)), 0, Math.max(r.z0 + 0.4, Math.min(r.z1 - 0.4, f.pos.z))), d = q.distanceTo(f.pos); if (d < bd) { bd = d; best = q; } }
+        if (best) return { want: best.sub(f.pos).setY(0).normalize(), sp: 0.9 };
+      }
       return { want: k.dir.clone().addScaledVector(k.side, 0.3), sp: 0.65 };
     }
     // under: swims toward her, but only through the water; up when she is over it and near

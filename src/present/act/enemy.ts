@@ -97,6 +97,7 @@ export interface FoeWorld {
   /** frozen in place for t s (no moving, no buttons) */ freeze?(t: number): void;
   /** the stage's floor is water here (下邳's pools) */ wet?(x: number, z: number): boolean;
   /** which way she faces (rad; the 死士 go round to her back) */ heroYaw?: number;
+  /** the room's shallow water (下邳: the 水鬼 make for it) */ pools?: Array<{ x0: number; x1: number; z0: number; z1: number }>;
 }
 /** how high the hero must be to clear a low attack (m) */
 export const LOW_CLEAR = 0.45;

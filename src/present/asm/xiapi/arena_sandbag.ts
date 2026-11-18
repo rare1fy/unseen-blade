@@ -4,10 +4,11 @@
 import { ARENA_STYLES, LOCALE_STYLE, type ArenaStyle } from '../arena';
 
 /** 下邳的调色：湿麻袋、泡黑的木、青石、暗青灰的水 */
+// (11-18 场景帮手：和三个地点的调色 xp_kit.ts XP 对齐——麻袋压成冷灰褐，原来的暖黄褐在灰蓝场景里像一圈土砖墙)
 export const XPC = {
-  sack: 0x8a8070, sackD: 0x6a6256, sackW: 0x56504a, sackL: 0x9e9484,
-  wood: 0x4e4638, woodD: 0x34302a, woodL: 0x6a6050,
-  stone: 0x6e7478, stoneD: 0x52585c, stoneL: 0x8a9094, water: 0x2a3a40, frost: 0xc8d4dc,
+  sack: 0x7a756a, sackD: 0x5e5a53, sackW: 0x4a4844, sackL: 0x8e897e,
+  wood: 0x4e4739, woodD: 0x332f29, woodL: 0x665e4f,
+  stone: 0x6e7478, stoneD: 0x53595d, stoneL: 0x899094, water: 0x24343c, frost: 0x9aa6ae,
 };
 const C = XPC;
 
@@ -20,7 +21,8 @@ const sandbag: ArenaStyle = {
         bx(p0, y, b0, p1, y, b1, k < 2 ? C.sackW : C.sackD);
         for (let a = p0 + (k % 2 ? 4 : 0); a <= p1; a += 8) { bx(a, y + 1, b0, a, Math.min(h - 3, y + 2), b0, C.sackD); bx(a, y + 1, b1, a, Math.min(h - 3, y + 2), b1, C.sackD); }
       }
-      bx(p0, h - 1, b0 + 1, p1, h - 1, b1 - 1, C.woodD); bx(p0, h, b0 + 2, p1, h, b1 - 2, C.wood);
+      // the pole on top, a layer of frost along it (the wall knows no weather: frost reads in snow too)
+      bx(p0, h - 1, b0 + 1, p1, h - 1, b1 - 1, C.woodD); bx(p0, h, b0 + 2, p1, h, b1 - 2, C.frost);
     }
   },
   post: [C.wood, C.woodD, C.woodL],

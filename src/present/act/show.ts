@@ -838,6 +838,8 @@ export class ActShow {
         for (let t = 0; t < 30; t++) {
           // act-19 (2x stage): anywhere on the floor 5–12 m from the hero, clear of the walls' edge, the cover and the props
           p = V3(R(PLAY.x0 + 1.5, PLAY.x1 - 1.5), 0, R(PLAY.z0 + 1.5, PLAY.z1 - 2.5));
+          // (11-18 第三关: a 水鬼 comes up out of one of the room's pools — it hunts in the water; dry land is where it is weak)
+          if (kindOr(k).kind === 'xp_diver' && this.pools.length) { const pl = this.pools[Math.floor(Math.random() * this.pools.length)]; p = V3(R(pl.x0 + 0.6, pl.x1 - 0.6), 0, R(pl.z0 + 0.6, pl.z1 - 0.6)); }
           if (EDEFS[kindOr(k).kind].boss) p = V3(0, 0, SZ(-4.6));   // any region boss stands at the back
           const d = p.distanceTo(hp);
           if (d > 5 && d < 12 && this.foes.every(f => f.pos.distanceTo(p) > 1.4) && this.solids.free(p.x, p.z, 0.6, 0.3)) break;
@@ -1589,7 +1591,7 @@ export class ActShow {
       const cap = al.getObjectByName('cap')!; cap.scale.set(1, 1, 1 / L); (al.material as THREE.MeshBasicMaterial).color.set(pv.onFoe ? 0xffd27a : 0xe8eeff); }
     else this.aimLine.visible = false;
     h.a.update(dt); h.deathPose(); for (const a of this.lineupActors) a.update(dt);
-    const fw = this.foeWorld; fw.heroPos.copy(h.pos); fw.heroAlive = h.alive && (this.phase === 'fight' || this.phase === 'yard'); fw.heroY = h.y; fw.heroDodge = h.dodgeWin; fw.heroYaw = h.a.yaw;
+    const fw = this.foeWorld; fw.heroPos.copy(h.pos); fw.heroAlive = h.alive && (this.phase === 'fight' || this.phase === 'yard'); fw.heroY = h.y; fw.heroDodge = h.dodgeWin; fw.heroYaw = h.a.yaw; fw.pools = this.pools;
     // act-20: the hideout's people — idle, and a word when the hero stands close and presses 斩
     for (const n of this.npcs) n.a.update(dt);
     if (this.phase === 'yard') {
