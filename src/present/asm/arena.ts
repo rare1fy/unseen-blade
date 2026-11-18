@@ -14,7 +14,7 @@ import { buildShape } from './shapeBuild';
 export type WallStyle = 'earth' | 'wattle' | 'brick' | 'rail' | 'stockade' | 'plaster' | 'palace' | 'sandbag';
 export type CoverKind = 'well' | 'mill' | 'cart' | 'stones' | 'ding' | 'stele' | 'trough' | 'bollard' | 'chains' | 'barrels' | 'rockery' | 'screen' | 'basin' | 'vaultChest'
   // 11-18 第二关「洛阳」(palace) / 第三关「下邳」(sandbag): drawn by their own arena_*.ts ('mooring' = 下邳's mooring stone; 'bollard' is 乌林's iron post)
-  | 'camel' | 'bellrack' | 'charpile' | 'beast' | 'boat' | 'mooring' | 'bags' | 'raft';
+  | 'camel' | 'bellrack' | 'charpile' | 'beast' | 'mintPress' | 'columnBase' | 'boat' | 'mooring' | 'bags' | 'raft';
 export type PropKind = 'pot' | 'crate' | 'hay' | 'oil' | 'pillar' | 'fence' | 'rack' | 'banner' | 'basket' | 'sack' | 'lamp';
 /** a box in a wall run's own frame: p along the run, q across it (cells) */
 export type RunBox = (p0: number, y0: number, q0: number, p1: number, y1: number, q1: number, col: number) => void;
@@ -139,12 +139,20 @@ function drawnPlan(layout: Layout, exits: ExitId[], seed: number, locale: string
   for (const e of fx.exits) if (!used.has(`${e.x},${e.z}`)) gates.push(e.side === 'back' ? { id: 'path', x: e.x, z: PLAY.z0, along: 'x', w: 2.8, open: false, out: [0, -1] } : { id: 'path', x: e.x, z: e.z, along: 'z', w: 2.8, open: false, out: [e.side === 'left' ? -1 : 1, 0] });
   // cover: the map's 'o' (the place's kinds in turn) and '0' (its biggest)
   const kinds = look?.covers ?? coversOf(style), big = kinds.slice().sort((a, b) => sizeOf(b)[0] * sizeOf(b)[1] - sizeOf(a)[0] * sizeOf(a)[1])[0];
-  const covers: Cover[] = fx.covers.map((c, i) => { const k = c.big ? big : kinds[i % kinds.length], rot = (r(i + 1) < 0.5 ? 0 : 1) as 0 | 1, [a, b] = sizeOf(k); return { kind: k, x: c.x, z: c.z, hx: rot ? b : a, hz: rot ? a : b, rot }; });
+  const covers: Cover[] = fx.covers.map((c, i) => {
+    const k = c.kind ?? (c.big ? big : kinds[i % kinds.length]);
+    const rot = r(i + 1) < 0.5 ? 0 : 1, [a, b] = sizeOf(k);
+    return { kind: k, x: c.x, z: c.z, hx: rot ? b : a, hz: rot ? a : b, rot };
+  });
   const props: ArenaPlan['props'] = [], R0: Record<PropKind, number> = { pot: 0.32, crate: 0.4, hay: 0.55, oil: 0.38, pillar: 0.3, fence: 0.85, rack: 0.5, banner: 0.25, basket: 0.34, sack: 0.34, lamp: 0.25 };
   // (the doors, the hollow walls, the barricades, the puzzle pieces, the exits' mouths and the way in stay clear)
   const clear: Rect[] = [...fx.closed.map(q => ({ x0: q.x0 - 1.2, x1: q.x1 + 1.2, z0: q.z0 - 1.2, z1: q.z1 + 1.2 })), ...fx.sunk, ...shape.bridges.map(b => ({ x0: b.x0 - 0.6, x1: b.x1 + 0.6, z0: b.z0 - 1.6, z1: b.z1 + 1.6 })),
     ...fx.marks.map(m => ({ x0: m.x - 1.2, x1: m.x + 1.2, z0: m.z - 1.2, z1: m.z + 1.2 })), ...gates.map(g => g.along === 'x' ? { x0: g.x - 2.4, x1: g.x + 2.4, z0: g.z, z1: g.z + 3.5 } : { x0: g.x - 3.5, x1: g.x + 3.5, z0: g.z - 2.4, z1: g.z + 2.4 }),
     { x0: shape.enter[0] - 2, x1: shape.enter[0] + 2, z0: shape.enter[1] - 2, z1: shape.enter[1] + 3 }];
+  if (fx.stations) {
+    const [x, z] = fx.stations;
+    clear.push({ x0: x - 4.5, x1: x + 5.7, z0: z - 3.5, z1: z + 1.1 });
+  }
   const free = (x: number, z: number, rr: number) => grid.clear(x, z, rr + 0.3) && !clear.some(c => x > c.x0 - rr && x < c.x1 + rr && z > c.z0 - rr && z < c.z1 + rr)
     && covers.every(c => Math.abs(c.x - x) > c.hx + rr + 0.35 || Math.abs(c.z - z) > c.hz + rr + 0.35) && props.every(p => Math.hypot(p.x - x, p.z - z) > R0[p.kind] + rr + 0.25);
   const put = (k: PropKind, x: number, z: number, rot?: 0 | 1, force = false) => { if (!force && !free(x, z, R0[k])) return false; props.push({ kind: k, x: +x.toFixed(2), z: +z.toFixed(2), ...(rot != null ? { rot } : {}) }); return true; };

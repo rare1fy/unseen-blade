@@ -6,10 +6,12 @@
 // 图例：`#` 实地（地点的 infill 建房子 / 麦地）  `.` 地面  `~` 坑（水 / 沟，打下去会死）  `=` 桥  `-` 吊桥（砍断绳桩前是坑）
 //   `w` 泡在水下的路（开闸前是坑）  `D` 门（这一块打完开）  `G` 机关门（铜铃 / 压板开）  `?` 空心墙（砍三下塌）  `X` 木栅（火油坛炸开）
 //   `S` 起点  `E` 出口（在图的外沿上）  `B` 头目站位  `o` 掩体  `0` 大掩体  `j` 可破坏小件  `t` 会倒的立柱  `!` 火油坛
-//   `b` 铜铃  `r` 绳桩  `W` 闸轮  `P` 压板  `$` 奖励
+//   `b` 铜铃  `r` 绳桩  `W` 闸轮  `P` 压板  `$` 奖励  `C` 小院摊位中心
 import { PLAY, GRID, setStage } from '../scenes/props';
 import type { Rect, TimeId, WeatherId } from './types';
 import type { FixedPlan, PitKind, ShapePlan } from './roomShape';
+import type { CoverKind } from './arena';
+import type { RegionDef } from '../act/regionDef';
 
 /** one map character = 4 floor cells */
 export const MAP_CELL = GRID * 4;
@@ -26,6 +28,9 @@ export interface RoomMap {
   stages: number;
   /** what '~' is here (default: water) */
   pit?: PitKind;
+  /** Authored cover models in reading order; repeat the list for further marks. */
+  coverKinds?: CoverKind[];
+  bellTrees?: boolean;
   /** the room's own decoration seed, time of day and weather */
   seed: number; time?: TimeId; weather?: WeatherId;
 }
@@ -102,16 +107,170 @@ export const ROOM_MAPS: RoomMap[] = [
       '~...S...~~~~~~~~~~',
     ],
   },
+  {
+    id: 'threshing', name: '打谷场', locale: 'hj_field', kind: 'fight', stages: 1, seed: 4401, time: 'day', weather: 'clear',
+    coverKinds: ['mill', 'cart'], bellTrees: true,
+    rows: [
+      '####....E....#####',
+      '####.........#####',
+      '##..b....j...#####',
+      '##...........G....',
+      '...........b.G..$.',
+      '.............G....',
+      '......o......#....',
+      '.............#####',
+      '..................',
+      '..b..j...........E',
+      '............o.....',
+      '#####.............',
+      '....D..........###',
+      '.j..D...S......###',
+      '....#..........###',
+    ],
+  },
+  {
+    id: 'yard_1', name: '农家小院', locale: 'hj_village', kind: 'calm', stages: 1, seed: 4501, time: 'dawn', weather: 'clear',
+    coverKinds: ['well'],
+    rows: [
+      '###..E.....',
+      '###........',
+      '###........',
+      '..........E',
+      '.....C.....',
+      '..o........',
+      '........###',
+      '##..S...###',
+      '##......###',
+    ],
+  },
+  {
+    id: 'palace_road', name: '宫道长廊', locale: 'ly_ward', kind: 'fight', stages: 2, seed: 5203, time: 'dusk', weather: 'mist',
+    coverKinds: ['beast'],
+    rows: [
+      '##..E..###',
+      '##.....###',
+      '##.....###',
+      '##.o..####',
+      '......#.$.',
+      '......G...',
+      'E.....G.P.',
+      '......G...',
+      '....P.#...',
+      '......#...',
+      '..j...####',
+      '..........',
+      '###DDD####',
+      '..........',
+      '##......j.',
+      '##........',
+      '##.....###',
+      '##.o...###',
+      '##.....###',
+      '.......###',
+      '.......###',
+      '##.....###',
+      '##..S.....',
+      '##........',
+    ],
+  },
+  {
+    id: 'fallen_hall', name: '塌殿', locale: 'ly_ward', kind: 'fight', stages: 1, seed: 5302, time: 'dawn', weather: 'rain', pit: 'ditch',
+    coverKinds: ['columnBase'],
+    rows: [
+      '#######...E.....####',
+      '#.....#.........####',
+      '#..$..#.............',
+      '#.....#t..o~~~~.t...',
+      '##???##....~~~~.....',
+      '...........~~~~.....',
+      '....................',
+      '...t......t.....o...',
+      '.....~~~~..........E',
+      '....Wwwww...........',
+      '.....~~~~...........',
+      '...o......o.....t...',
+      '###.................',
+      '###.......S......###',
+      '###..............###',
+    ],
+  },
+  {
+    id: 'bronze_street', name: '铜驼大街', locale: 'ly_road', kind: 'fight', stages: 1, seed: 5400, time: 'dusk', weather: 'clear',
+    coverKinds: ['camel'],
+    rows: [
+      '####...E...####',
+      '####.......####',
+      '####.......####',
+      '####...........',
+      '.........###...',
+      '#####....###...',
+      '....#..........',
+      '....#..0.......',
+      '....X.........E',
+      '.$..X####......',
+      '....X####......',
+      '....X####......',
+      '....X!.........',
+      '....#.......j..',
+      '....#..........',
+      '#####....###...',
+      '.........###...',
+      '......j..###...',
+      '..###..........',
+      '..###..........',
+      '.......S.......',
+      '...............',
+    ],
+  },
+  {
+    id: 'mint', name: '铸钱场', locale: 'ly_mint', kind: 'boss', stages: 1, seed: 5502, time: 'night', weather: 'clear', pit: 'molten',
+    coverKinds: ['mintPress'],
+    rows: [
+      '###.....E......###',
+      '###............###',
+      '.........B........',
+      '...o..............',
+      '..................',
+      '....~~=~~~~=~~....',
+      '....~~=~~~~=~~....',
+      '....~~=~~~~=~~...E',
+      '....~~=~~~~=~~....',
+      '....~~=~~~~=~~....',
+      '....~~=~~~~=~~....',
+      '....~~=~~~~=~~....',
+      '..................',
+      '..............o...',
+      '..................',
+      '###.....S......###',
+      '###............###',
+    ],
+  },
+  {
+    id: 'yard_2', name: '焦砖小院', locale: 'ly_road', kind: 'calm', stages: 1, seed: 5603, time: 'dusk', weather: 'mist',
+    rows: [
+      '###..E..####',
+      '###.....####',
+      '........####',
+      '............',
+      '............',
+      '###...C....E',
+      '###.........',
+      '###..S....##',
+      '###.......##',
+    ],
+  },
 ];
 export const MAP_BY_ID: Record<string, RoomMap> = Object.fromEntries(ROOM_MAPS.map(m => [m.id, m]));
-/** a place's drawn rooms of this kind */
-export const mapsFor = (locale: string, kind: RoomMap['kind']) => ROOM_MAPS.filter(m => m.locale === locale && m.kind === kind);
-/** a fight room's map: one of the place's not yet used this run (all used: any but the last) — none = the place has no drawn rooms */
-export function pickMap(locale: string, kind: RoomMap['kind'], used: string[], seed: number): RoomMap | null {
-  const all = mapsFor(locale, kind); if (!all.length) return null;
-  const fresh = all.filter(m => !used.includes(m.id)), from = fresh.length ? fresh : all.filter(m => m.id !== used[used.length - 1]);
-  const list = from.length ? from : all;
-  return list[Math.abs(Math.floor(seed)) % list.length];
+/** Exhaust each regional deck, including on subsequent cycles. Visits to yards or other regions do not advance it. */
+export function pickMap(region: Pick<RegionDef, 'locales' | 'bossLocale'>, kind: RoomMap['kind'], used: string[], seed: number): RoomMap | null {
+  const locales = kind === 'boss' ? [region.bossLocale] : region.locales;
+  const all = ROOM_MAPS.filter(m => m.kind === kind && locales.includes(m.locale));
+  if (!all.length) return null;
+  const history = used.filter(id => all.some(m => m.id === id));
+  const count = history.length % all.length;
+  const skip = count ? history.slice(-count) : all.length > 1 ? history.slice(-1) : [];
+  const fresh = all.filter(m => !skip.includes(m.id));
+  return fresh[Math.abs(Math.floor(seed)) % fresh.length];
 }
 
 // ---------------------------------------------------------------- the stage it stands on
@@ -137,7 +296,7 @@ export function mapStage(m: RoomMap): { x: number; z: number } {
 }
 
 // ---------------------------------------------------------------- map → plan
-const FLOORISH = '.SEBo0jt!brWP$';
+const FLOORISH = '.SEBCo0jt!brWP$';
 /** the rects (m) covering the map cells that pass test: runs along each row, runs of the same span in the rows below merged into one */
 function rects(rows: string[], test: (ch: string) => boolean, X0: number, Z0: number): Rect[] {
   const out: Rect[] = [];
@@ -167,7 +326,7 @@ export function mapShape(m: RoomMap): ShapePlan {
   const R = (a: string) => rects(rows, ch => a.includes(ch), X0, Z0);
   const pitK: PitKind = m.pit ?? 'water';
   const fixed: FixedPlan = {
-    id: m.id,
+    id: m.id, bellTrees: m.bellTrees,
     closed: [...R('D').map(q => ({ ...q, kind: 'door' as const })), ...R('G').map(q => ({ ...q, kind: 'gate' as const })),
       ...R('?').map(q => ({ ...q, kind: 'hollow' as const })), ...R('X').map(q => ({ ...q, kind: 'barricade' as const }))],
     sunk: [...R('-').map(q => ({ ...q, kind: 'drop' as const })), ...R('w').map(q => ({ ...q, kind: 'flood' as const }))],
@@ -187,7 +346,8 @@ export function mapShape(m: RoomMap): ShapePlan {
         break;
       }
       case 'B': fixed.boss = [x, z]; break;
-      case 'o': case '0': fixed.covers.push({ x, z, big: ch === '0' }); break;
+      case 'C': fixed.stations = [x, z]; break;
+      case 'o': case '0': fixed.covers.push({ x, z, big: ch === '0', kind: m.coverKinds?.[fixed.covers.length % m.coverKinds.length] }); break;
       case 'j': fixed.props.push({ kind: 'small', x, z }); break;
       case 't': fixed.props.push({ kind: 'pillar', x, z }); break;
       case '!': fixed.props.push({ kind: 'oil', x, z }); break;

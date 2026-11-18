@@ -27,8 +27,25 @@ const palace: ArenaStyle = {
   },
   post: [C.red, C.char, C.redL],
   covers: ['camel', 'bellrack', 'charpile', 'beast'],
-  size: { camel: [1.1, 0.5], bellrack: [1.0, 0.45], charpile: [0.85, 0.7], beast: [0.6, 0.6] },
+  size: { camel: [1.1, 0.5], bellrack: [1.0, 0.45], charpile: [0.85, 0.7], beast: [0.6, 0.6], mintPress: [1.16, 0.68], columnBase: [0.66, 0.66] },
   cover: {
+    mintPress: bx => {
+      bx(-16, 0, -9, 15, 4, 9, C.stoneD);
+      bx(-15, 5, -8, 14, 8, 8, C.stone);
+      for (const x of [-13, 10]) bx(x, 9, -3, x + 3, 29, 3, C.char);
+      bx(-15, 30, -4, 15, 33, 4, C.charL);
+      bx(-2, 20, -2, 2, 29, 2, C.bronzeD);
+      bx(-6, 16, -5, 6, 19, 5, C.bronze);
+      bx(-7, 9, -5, 7, 10, 5, C.copper);
+      for (const x of [-4, 2]) bx(x, 11, -2, x + 2, 11, 2, C.copperL);
+    },
+    columnBase: bx => {
+      bx(-9, 0, -9, 8, 3, 8, C.stoneD);
+      bx(-8, 4, -8, 7, 6, 7, C.stoneL);
+      bx(-5, 7, -5, 4, 17, 4, C.redD);
+      bx(-5, 18, -5, 4, 20, 4, C.char);
+      bx(-5, 21, -5, -2, 25, 4, C.charL);
+    },
     camel: bx => {   // 铜驼 fallen on its side: the long body, the hump, the neck and head along the ground, legs out (bronze, verdigris on top)
       bx(-12, 0, -5, 6, 8, 5, C.bronze); bx(-12, 9, -4, 6, 9, 4, C.bronzeL); bx(-6, 9, -3, 2, 13, 3, C.bronze); bx(-6, 14, -2, 2, 14, 2, C.bronzeL);
       bx(7, 0, -3, 12, 6, 3, C.bronzeD); bx(13, 0, -3, 16, 9, 3, C.bronze); bx(13, 10, -2, 16, 10, 2, C.bronzeL);

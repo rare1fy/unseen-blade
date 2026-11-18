@@ -7,10 +7,11 @@
 // infill（实地上建什么）。不填就一直是方院（square），和原来一样。
 import { PLAY, GRID, SZ, hash } from '../scenes/props';
 import type { Layout, Rect } from './types';
+import type { CoverKind } from './arena';
 
 export type ShapeId = 'square' | 'ell' | 'cloister' | 'neck' | 'bridge' | 'pond' | 'map';
 /** water / a gully; 'flood' = water over a sunken causeway (a sluice drains it — LEVEL_DESIGN 开闸) */
-export type PitKind = 'water' | 'ditch' | 'flood';
+export type PitKind = 'water' | 'ditch' | 'flood' | 'molten';
 /** 形状的叫法（日志 / 调试用，玩家看不到） */
 export const SHAPE_CN: Record<ShapeId, string> = { square: '方院', ell: '曲尺', cloister: '回廊', neck: '窄巷', bridge: '过桥', pond: '临水', map: '定制' };
 /** how much each shape stretches the old 10.6 × 12 m floor (setStage(true, k)): the floor's box is then PLAY */
@@ -51,12 +52,14 @@ export interface FixedPlan {
   sunk: Array<Rect & { kind: 'drop' | 'flood' }>;
   /** the ways out on the box's edge (E): which side, the centre of the gap on the edge line */
   exits: Array<{ side: 'left' | 'right' | 'back'; x: number; z: number }>;
-  covers: Array<{ x: number; z: number; big: boolean }>;
+  covers: Array<{ x: number; z: number; big: boolean; kind?: CoverKind }>;
   props: Array<{ kind: 'small' | 'pillar' | 'oil'; x: number; z: number }>;
   /** the puzzle pieces standing on the floor (bell, rope post, sluice wheel, plate, reward) */
   marks: Array<{ kind: 'bell' | 'rope' | 'wheel' | 'plate' | 'reward'; x: number; z: number }>;
   /** where the boss stands when it comes in */
   boss?: [number, number];
+  stations?: [number, number];
+  bellTrees?: boolean;
   /** how many pieces of the floor are fought in turn (1 = all at once): S's piece first, then on through its doors */
   stages: number;
 }
@@ -150,12 +153,12 @@ export interface GridPush { nx: number; nz: number; depth: number; pit: boolean 
 /** the floor as 0.49 m cells: OUT (walls, the walled-off parts, beyond the box), FLOOR (ground and bridges), PIT (water, gullies) */
 export class FloorGrid {
   readonly x0: number; readonly z0: number; readonly nx: number; readonly nz: number;
-  readonly c: Uint8Array; private wet: Uint8Array;
+  readonly c: Uint8Array; private pitTypes: Uint8Array;
   constructor(readonly sp: ShapePlan, pad = 4) {
     const b = sp.box, G = GRID;
     this.x0 = b.x0 - pad * G; this.z0 = b.z0 - pad * G;
     this.nx = Math.round((b.x1 - b.x0) / G) + pad * 2; this.nz = Math.round((b.z1 - b.z0) / G) + pad * 2;
-    this.c = new Uint8Array(this.nx * this.nz); this.wet = new Uint8Array(this.nx * this.nz);
+    this.c = new Uint8Array(this.nx * this.nz); this.pitTypes = new Uint8Array(this.nx * this.nz);
     const inR = (q: Rect, x: number, z: number) => x > q.x0 && x < q.x1 && z > q.z0 && z < q.z1;
     for (let j = 0; j < this.nz; j++) for (let i = 0; i < this.nx; i++) {
       const x = this.x0 + (i + 0.5) * G, z = this.z0 + (j + 0.5) * G, k = j * this.nx + i;
@@ -163,7 +166,7 @@ export class FloorGrid {
       if (sp.fixed?.closed.some(q => inR(q, x, z))) { this.c[k] = OUT; continue; }
       if (sp.bridges.some(q => inR(q, x, z))) { this.c[k] = FLOOR; continue; }
       const p = sp.pits.find(q => inR(q, x, z));
-      if (p) { this.c[k] = PIT; this.wet[k] = p.kind === 'ditch' ? 0 : 1; continue; }
+      if (p) { this.c[k] = PIT; this.pitTypes[k] = p.kind === 'ditch' ? 0 : p.kind === 'molten' ? 2 : 1; continue; }
       this.c[k] = sp.solid.some(q => inR(q, x, z)) ? OUT : FLOOR;
     }
   }
@@ -200,7 +203,7 @@ export class FloorGrid {
   /** what is under (x, z) if it is a pit */
   pitAt(x: number, z: number): PitKind | null {
     const i = this.ix(x), j = this.iz(z); if (this.kind(i, j) !== PIT) return null;
-    return this.wet[j * this.nx + i] ? 'water' : 'ditch';
+    return (['ditch', 'water', 'molten'] as const)[this.pitTypes[j * this.nx + i]];
   }
   /** (x, z) and everything within pad of it is floor */
   clear(x: number, z: number, pad: number) {

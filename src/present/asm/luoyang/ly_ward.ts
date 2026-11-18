@@ -2,6 +2,7 @@
 // 坊巷直通后方；两翼塌屋只剩半截墙和焦梁、屋架、坊墙段、焦树、井、灶台，余火冒烟。地标二选一：只剩骨架的楼（三层焦柱、
 // 一层楼板还在）/ 坊门（夯土门墩、烧剩的门楼梁架、门板倒在地上）。远景：坊墙、墙外一排塌屋的焦梁和半截墙、焦树、烟。
 // 和铜驼道（宫墙、石板御道、铜驼）不同：这里是民居的夯土和焦木，地面是夯土和碎砖，矮、密、乱。
+import { burntInfill } from './ly_infill';
 import type { Ctx } from '../../scenes/stage';
 import { M, SX, SZ } from '../../scenes/props';
 import type { Landmark, Layout, Locale, Place } from '../types';
@@ -90,6 +91,7 @@ function far(c: Ctx, f: { layout: Layout; p: Place }) {
 }
 
 export const lyWard: Locale = {
+  infill: burntInfill('ward'),
   id: 'ly_ward', name: '焦梁坊', theme: 'luoyang',
   layouts: ['axis', 'offset', 'garden', 'pair'],
   seasons: ['autumn', 'summer'], times: ['night', 'dusk', 'dawn'], weathers: ['clear', 'mist', 'rain'], noLeaves: true,

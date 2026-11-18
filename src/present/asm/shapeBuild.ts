@@ -6,7 +6,7 @@ import { CELL } from '../bestiary/kit';
 import { M, GRID } from '../scenes/props';
 import type { Ctx } from '../scenes/stage';
 import type { Rect } from './types';
-import { FloorGrid, FLOOR, OUT, PIT, type ShapePlan } from './roomShape';
+import { FloorGrid, FLOOR, OUT, PIT, type PitKind, type ShapePlan } from './roomShape';
 import { wallPiece, gateFrame, WALL, type ArenaPlan, type WallStyle } from './arena';
 
 /** cells per floor-grid step */
@@ -79,25 +79,31 @@ export function buildShape(c: Ctx, sp: ShapePlan, plan: ArenaPlan, seed: number)
   // (the gates sit on the walls' line: a shaped room's walls stand right on the floor's edge, no gap)
   for (const q of plan.gates) gateFrame(box, plan.style, q, T, 0);
   for (const p of sp.pits) pit(c, box, p, p.kind);
-  for (const q of sp.bridges) { const k = sp.pits.find(p => p.x0 <= q.x0 && p.x1 >= q.x1 && p.z0 <= q.z0 && p.z1 >= q.z1)?.kind; bridge(box, q, k === 'ditch' ? 'ditch' : 'water', plan.style); }
+  for (const q of sp.bridges) { const k = sp.pits.find(p => p.x0 <= q.x0 && p.x1 >= q.x1 && p.z0 <= q.z0 && p.z1 >= q.z1)?.kind; bridge(box, q, k === 'ditch' || k === 'molten' ? 'ditch' : 'water', plan.style); }
 }
 
 /** a pit: the ground cells taken out, a bed below; water: a stone kerb round the edge going down to a dark plane 0.2 m below the floor;
  *  a gully (深沟): two earth ledges stepping in and down, black at the bottom 0.8 m down */
-function pit(c: Ctx, box: B, p: Rect, kind: 'water' | 'ditch' | 'flood') {
+function pit(c: Ctx, box: B, p: Rect, kind: PitKind) {
   const X0 = M(p.x0), X1 = M(p.x1) - 1, Z0 = M(p.z0), Z1 = M(p.z1) - 1;
   const rim = (y0: number, y1: number, k: number, col: number) => { for (const [a0, b0, a1, b1] of [[X0 + k, Z0 + k, X1 - k, Z0 + k], [X0 + k, Z1 - k, X1 - k, Z1 - k], [X0 + k, Z0 + k, X0 + k, Z1 - k], [X1 - k, Z0 + k, X1 - k, Z1 - k]]) box(a0, y0, b0, a1, y1, b1, col); };
-  if (kind === 'flood') {
-    // 开闸 (LEVEL_DESIGN): a causeway of dressed stone one cell under the floor, a kerb round it; the water over it is a moving piece
-    // (act/puzzles.ts) that drains when the sluice turns
-    box(X0, -1, Z0, X1, -1, Z1, PAL.stoneD); box(X0 + 1, -1, Z0 + 1, X1 - 1, -1, Z1 - 1, PAL.stone);
-    for (let x = X0 + 4; x < X1 - 1; x += 5) box(x, -1, Z0 + 1, x, -1, Z1 - 1, PAL.stoneD);
-    return;
-  }
   box(X0, -1, Z0, X1, -1, Z1, null);
   // (the flat ground beyond the stage lies at −2 cells over everything: cut it open over the pit)
   c.earthHole?.(p.x0, p.z0, p.x1, p.z1);
-  if (kind === 'water') {
+  if (kind === 'flood') {
+    // Recess the bed so the water at −0.2 m is visible. The sluice's stone deck comes level with the banks as it drains.
+    box(X0, -9, Z0, X1, -9, Z1, PAL.stoneD);
+    rim(-8, -2, 0, PAL.stoneW);
+  } else if (kind === 'molten') {
+    // A near-black skin at the crucible's rim, two broad rafts of cooling copper and a bright seam between them.
+    rim(-7, -1, 0, 0x392b28); rim(-7, -3, 1, 0x602d20);
+    c.w.box(X0 + 2, -7, Z0 + 2, X1 - 2, -7, Z1 - 2, 0xe05019, 1);
+    const mx = Math.floor((X0 + X1) / 2), mz = Math.floor((Z0 + Z1) / 2);
+    box(X0 + 2, -6, Z0 + 2, mx - 3, -6, Z0 + 5, 0x6c3227);
+    box(mx + 5, -6, Z1 - 7, X1 - 2, -6, Z1 - 2, 0x713728);
+    c.w.box(mx - 5, -7, mz, mx + 9, -7, mz + 2, 0xff9b37, 1);
+    c.ambient({ kind: 'embers', color: 0xff882b, area: p, y: [-0.4, -0.1], rate: 3.5 });
+  } else if (kind === 'water') {
     // a dressed-stone kerb two cells wide at floor level (light outer course, a darker inner one), the stone wall going down inside it to
     // the water 0.56 m below the floor (the camera sees the far side's wall above the water: the drop), a near-black bed under the water
     box(X0, -13, Z0, X1, -13, Z1, PAL.bed);
