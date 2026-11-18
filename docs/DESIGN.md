@@ -1308,3 +1308,13 @@
 - 台式机显卡看不出手机的填充瓶颈（整帧 GPU 约 1.5～2 毫秒），软件渲染（SwiftShader）在 3 倍屏上一帧上千毫秒，量不准；真机上的帧率要用户在微信里看（暂停菜单「设置」→「画质」可切）。
 
 **微信打包进仓库**（`npm run wx`，见 CLAUDE.md 第二节）：act-50 那个包是仓库外打的，主包 `game.js` 里是 act-50 的代码加几处手改（音频走 `wx.createWebAudioContext`、正文字体走 `wx.loadFont`、资源按文件路径读），而且启动就会崩——小游戏垫片造的假 `document` 让调参面板的「没有 document 就不建」判断失效，`pane.append` 不存在。这几处改成仓库里的正式代码：`audio.ts` 没有 `AudioContext` 时用 `__ubWxAudio`；`bodyFont.ts` 有 `wx.loadFont` 就用它；`HAS_DOM` 挡住调参面板；`vite build --mode wechat` + `tools/wxAssets.ts` 把资源变成包内文件。打出来：主包约 3.7 MB（game.js 2.3 MB + 字体 / 立绘），三个音频分包各 3.2～3.7 MB，合计约 14 MB；在 pxui 的无 DOM 沙盒里启动、进开始画面、跳进战斗屋、界面齐全，自动档选「中」。
+
+### CrazyGames 英文版（11-18）
+
+用户：「crazygames的版本让codex做了，拉个分支，和主干的中文版本要时刻同步更新，翻译也让它做了。」
+
+- 中文网页、微信和 CrazyGames 都从同一份代码打包。普通构建和微信默认简中，CrazyGames 默认英文。要在普通网页上测试英文可以设 `VITE_LANG=en` 后启动开发服务器或构建。游戏内在「设置 → 语言」切换，保存在设备上，当场刷新文字。
+- 新文案先写中文。照 [英文译名表](ENGLISH_GLOSSARY.md) 在 [en.json](../src/present/act/en.json) 加一条「原文 → 英文」。变量用 `msg` 模板或 `format`，先翻译占位串，再填数值。对白继续从 `scriptData.json` 或 `hideoutLines.ts` 取中文原句给配音查找，字幕显示译文。技能依旧分别写按法、效果和数值。
+- `npx vitest run tests/i18n.test.ts` 会列出缺译的中文 key 和位置，同时检查占位符与像素字库。两套字体工具都读英文表。现有长坂点宋像素字和三套正文子集已覆盖本版使用的拉丁字母及标点。
+- 从主干运行 `npm run cg -- --tag act-NN`，得到桌面上的 `不见刀_CrazyGames_act-NN.zip`。用 `--out <目录>` 改输出位置。上传时选 HTML5，ZIP 根目录是 `index.html`，配音、字体、模型和游戏代码随包提供。
+- CrazyGames HTML 加 SDK v3 脚本。浏览器初始化后报加载开始，首帧报加载结束。开打与恢复战斗报 gameplayStart，暂停、对话、演出、选卡、清场或回据点报 gameplayStop。局外进度用 SDK Data Module，SDK 或存档模块不可用时用本机存档。提交平台时选 SDK Data Module 存档。本版无广告，调参面板和网址里的调试入口对玩家隐藏。

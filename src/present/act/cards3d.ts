@@ -20,6 +20,7 @@ import { cue } from '../../audio/cues';
 import { TIER_NAMES, type Boon, type BoonPick } from './boons';
 import { cardBoard, glyphIcon3D, paintFace, boardLayout, CARD_H, SKILL_H, type CardStyle } from './cardBoard';
 import { onBodyFontChange } from '../ui3d/bodyFont';
+import { language } from './i18n';
 import { fillVals } from './cards';
 import { itemModel, itemForCard } from './itemModels';
 import type { Model3D } from '../ui3d/models3d';
@@ -220,9 +221,12 @@ function paintSkillFace(e: SkillEntry, w: number, h: number, dpr: number, press:
   const S = Math.max(1, Math.round(H * ROW.nameH / PIX_H)), x0 = Math.round(W * 0.004);
   const nameW = paintName(g, e, x0, Math.round(H * ROW.nameY), S, dpr);
   // the numbers: small, right-aligned on the name's row (they never push the name)
-  if (e.num) paintNum(g, e.num, W - Math.round(2 * dpr), Math.round(H * ROW.nameY + (PIX_H * S - H * ROW.num) / 2), Math.round(H * ROW.num), W - nameW - x0 - 16 * dpr, 'right');
+  const english = language === 'en';
+  // Give the longer English names and numbers separate lines so neither has to shrink around the other.
+  if (e.num && english) paintNum(g, e.num, x0, Math.round(H * 0.84), Math.round(H * 0.135), W - x0 - 4 * dpr);
+  else if (e.num) paintNum(g, e.num, W - Math.round(2 * dpr), Math.round(H * ROW.nameY + (PIX_H * S - H * ROW.num) / 2), Math.round(H * ROW.num), W - nameW - x0 - 16 * dpr, 'right');
   const s = press * W; paintSeps(g, layoutPresses(e.steps ?? [], s, e.lit).items, x0, Math.round(H * ROW.pressY), s);
-  paintEffect(g, e.effect, x0, Math.round(H * ROW.effY), Math.round(H * ROW.eff), W - x0 - 4 * dpr);
+  paintEffect(g, e.effect, x0, Math.round(H * (english ? 0.68 : ROW.effY)), Math.round(H * (english ? 0.15 : ROW.eff)), W - x0 - 4 * dpr);
   const t = new THREE.CanvasTexture(c as HTMLCanvasElement); t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearFilter; t.generateMipmaps = false; t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }

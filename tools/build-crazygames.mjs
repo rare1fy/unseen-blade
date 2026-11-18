@@ -14,7 +14,7 @@ if (!/^act-\d+$/.test(tag ?? '') || (args.includes('--out') && !option('--out'))
 }
 const out = path.resolve(option('--out') ?? path.join(homedir(), 'Desktop'));
 const zip = path.join(out, `不见刀_CrazyGames_${tag}.zip`);
-await build({ root, configFile: path.join(root, 'vite.config.ts'), mode: 'crazygames' });
+await build({ configFile: path.join(root, 'vite.config.ts'), mode: 'crazygames' });
 mkdirSync(out, { recursive: true });
 // archive files from inside dist-cg so the portal sees index.html at the archive's root
 const dist = path.join(root, 'dist-cg');
