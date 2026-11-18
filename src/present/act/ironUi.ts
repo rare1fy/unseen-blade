@@ -364,15 +364,22 @@ const PORTRAIT_WHITE = [
 const PORTRAITS: Record<string, string[]> = { slim_hat: PORTRAIT_HAT, slim_white: PORTRAIT_WHITE, fine_hat: PORTRAIT_HAT, fine_white: PORTRAIT_WHITE };
 /** which look the HP medallion shows (show.ts sets it from the costume worn) */
 export const HP_FACE = { id: 'fine_white' };
-/** the HP bar's lost piece: bright yellow, far from the red in both hue and lightness */
-const HP_LAG = 0xffd23c;
+/** every HP bar's lost piece (hers, the foes' over their heads, the chief's long bar): flat white, far from the red in lightness.
+ *  11-18 (用户：「把血条减少垫背后的那个橙色调整一下……看不太出来扣血的效果」; act-73 反馈：「我要的是所有血条都符合这个逻辑……
+ *  垫在后面的我感觉白色效果会更好点」) */
+export const HP_LAG = 0xffffff;
+/** how long the lost piece holds still after each drop (a flurry piles into one piece) */
+export const HP_LAG_HOLD = 0.5;
+/** the lost piece's next value: up with the red at once; down only once the hold is out, fast then slowing near the red (about 0.7 s) */
+export function closeLag(lag: number, f: number, hold: number, dt: number) {
+  return f >= lag ? f : hold > 0 ? lag : Math.max(f, f + (lag - f) * Math.exp(-dt * 4.5) - dt * 0.1);
+}
 export interface HpState { hp: number; maxHp: number }
 export class IronHp {
   root = new THREE.Group(); st: HpState = { hp: 100, maxHp: 100 }; intent = 0; private x = 30; private y = 40; private k = 1;
   private fill: THREE.Mesh; private fillTop: THREE.Mesh; private lag: THREE.Mesh; private lagV = 1; private ingots: THREE.MeshLambertMaterial[] = [];
-  /** 11-18 (用户：「把血条减少垫背后的那个橙色调整一下，现在和前面的红色对比不是很强烈，看不太出来扣血的效果。」): the lost piece
-   *  holds still a moment (each new blow restarts it, so a flurry piles into one piece), flashes white, then sits bright yellow */
-  private lagHold = 0; private lagFlash = 0;
+  /** the lost piece holds still a moment after a blow (HP_LAG_HOLD), then closes in (closeLag) */
+  private lagHold = 0;
   private shakeT = 0; private flashT = 0; private healT = 0; private tt = 0; private lastIntent = 0; readonly W = 250; private X0 = 44;
   private ingotMesh: THREE.Mesh[] = []; private ingotPop = 0; private popIdx = -1; private fullT = 0;
   /** act-34 (用户：「血量的字号也再大点。」「血量的文字也要跟着血条有斜度。」): the number is a plane on the bar itself (it tilts with
@@ -408,7 +415,7 @@ export class IronHp {
   setFace(id: string) { HP_FACE.id = id; const m = this.face.material as THREE.MeshLambertMaterial; m.map?.dispose(); m.map = pixTex(PORTRAITS[id] ?? PORTRAIT_WHITE, '#5a1a16'); m.needsUpdate = true; }
   place(x: number, y: number, k: number) { this.x = x; this.y = y; this.k = k; }
   set(s: Partial<HpState>) { Object.assign(this.st, s); }
-  hit(dmg: number, s?: Partial<HpState>) { if (s) this.set(s); this.shakeT = 0.3; this.flashT = 0.15; this.lagHold = 0.5; this.lagFlash = 0.1; void dmg; }
+  hit(dmg: number, s?: Partial<HpState>) { if (s) this.set(s); this.shakeT = 0.3; this.flashT = 0.15; this.lagHold = HP_LAG_HOLD; void dmg; }
   heal(s?: Partial<HpState>) { if (s) this.set(s); this.healT = 0.5; this.sparks.burst(this.L.at(this.x + (this.X0 + this.W * 0.5) * this.k, this.y, 6), 14, this.L.px(120), this.L.px(5), 0x7aff9a, { life: 0.6, up: this.L.px(140) }); cue('heal', 0.6); }
   textAt() { return { x: this.x + (this.X0 + this.W + 24) * this.k, y: this.y - 8 * this.k }; }
   barAt() { return { x: this.x + (this.X0 + this.W / 2) * this.k, y: this.y, h: 14 * this.k }; }
@@ -426,11 +433,8 @@ export class IronHp {
       }
       this.num.visible = this.root.visible;
     }
-    // the lost piece: stays put while lagHold runs, then closes in fast and slows as it reaches the red (about 0.7 s)
-    this.lagHold = Math.max(0, this.lagHold - dt); this.lagFlash = Math.max(0, this.lagFlash - dt);
-    if (f >= this.lagV) this.lagV = f;
-    else if (this.lagHold <= 0) this.lagV = Math.max(f, f + (this.lagV - f) * Math.exp(-dt * 4.5) - dt * 0.1);
-    (this.lag.material as THREE.MeshBasicMaterial).color.setHex(this.lagFlash > 0 ? 0xffffff : HP_LAG);
+    // the lost piece: stays put while lagHold runs, then closes in (the foes' bars in hud.ts do the same)
+    this.lagHold = Math.max(0, this.lagHold - dt); this.lagV = closeLag(this.lagV, f, this.lagHold, dt);
     const W = this.W, X = this.X0;
     this.fill.scale.x = Math.max(0.001, W * f); this.fill.position.x = X + (W * f) / 2;
     this.fillTop.scale.x = Math.max(0.001, W * f); this.fillTop.position.x = X + (W * f) / 2;

@@ -3,7 +3,11 @@ import { expect, it } from 'vitest';
 import { Action } from '../src/present/actors/rig';
 import { BattleActor } from '../src/present/bestiary/battle';
 import { movesOf } from '../src/present/act/animCatalog';
+import { inside } from '../src/present/act/tele';
 import '../src/present/act/foes/hj_models';
+import '../src/present/act/foes/hj_poses';
+import '../src/present/act/foes/ly_models';
+import '../src/present/act/foes/ly_poses';
 import '../src/present/act/foes/r45_models';
 import '../src/present/act/foes/r45_pose';
 import '../src/present/act/foes/xp_models';
@@ -34,6 +38,46 @@ function tipOf(points: Vector3[]) {
   const z = Math.max(...points.map(p => p.z));
   return new Box3().setFromPoints(points.filter(p => p.z === z)).getCenter(v());
 }
+
+it.each([
+  ['hj_mob', 1.6], ['hj_mob_b', 1.6], ['ly_looter', 1.6], ['ly_looter_b', 1.6],
+  ['xp_conscript', 1.6], ['xp_conscript_b', 1.6], ['xp_diver', 1.8], ['xp_diver_e', 1.8],
+] as const)('%s sends the point down its short warning lane', (id, len) => {
+  const actor = new BattleActor(id);
+  actor.t = 1.25;
+  if (id.endsWith('_e')) actor.root.scale.setScalar(1.15);
+  actor.place(origin, yaw);
+  const spec = movesOf(id).find(m => m.atk === 'poke')!;
+  const act = actor.play(new Action(spec.name, spec.dur, spec.at, { atk: 'poke', dist: 0.6 }));
+  const held = actor.bones.weapon, tip = tipOf(vertices(actor, 'weapon'));
+  const at = act.at * act.dur;
+  act.t = at * 0.8;
+  actor.update(0);
+  const load = held.localToWorld(tip.clone()).sub(origin).applyAxisAngle(up, -yaw);
+  act.t = at;
+  actor.update(0);
+  const hit = held.localToWorld(tip.clone());
+  expect(inside({ k: 'rect', len, w: 0.6 }, origin.x, origin.z, yaw, hit.x, hit.z, 0.08)).toBe(true);
+  expect(hit.sub(origin).applyAxisAngle(up, -yaw).z - load.z).toBeGreaterThan(0.25);
+  actor.dispose();
+});
+
+it('Yanhu lands his chop on the bright edge inside the lane', () => {
+  const actor = new BattleActor('ly_boss');
+  actor.t = 1.25;
+  actor.place(origin, yaw);
+  const spec = movesOf('ly_boss').find(m => m.name === 'axeChop')!;
+  const act = actor.play(new Action(spec.name, spec.dur, spec.at));
+  const axe = actor.bones.weapon;
+  const edge = vertices(actor, 'weapon').filter(p => p.y < -0.70);
+  act.t = spec.at * spec.dur;
+  actor.update(0);
+  const points = edge.map(p => axe.localToWorld(p));
+  expect(points.length).toBeGreaterThan(0);
+  expect(Math.min(...points.map(p => p.y))).toBeCloseTo(0, 0);
+  expect(points.every(p => inside({ k: 'rect', len: 5.0, w: 1.4 }, origin.x, origin.z, yaw, p.x, p.z, 0.08))).toBe(true);
+  actor.dispose();
+});
 
 for (const [base, move, variant] of cases) {
   it.each([base, base + variant])('%s ' + (move || 'bow') + ' uses its equipped weapon', id => {

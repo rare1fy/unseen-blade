@@ -135,7 +135,16 @@ export function openAnimPreview(h: AnimHost, groups: Array<{ name: string; items
   const mBtns = ([['idle', '站着'], ['slow', '慢走'], ['walk', '走'], ['run', '跑']] as const).map(([m, title]) => [m, btn(mR, title, () => { mode = m; act(s => { s.kneel = 0; }); })] as const);
   const aR = sec('动作');
   // the moves each one really makes in a fight (animCatalog.ts), the next one each press
-  const play = (s: (typeof acts)[number], m: FoeMove) => s.a.play(new Action(m.name, m.dur, m.at, m.atk ? { atk: m.atk, dist: 0.6 } : { dist: 0.6 }));
+  const play = (s: (typeof acts)[number], m: FoeMove) => {
+    // The fight switches 崔玄's weapon on phase change. Here every move can
+    // be played on a fresh actor, so switch to the relevant prop explicitly.
+    if (s.it.def.id === 'cx_boss') {
+      const drawn = m.atk === 'cut' || m.atk === 'lunge';
+      s.a.bones.fan.visible = !drawn;
+      s.a.bones.blade.visible = drawn;
+    }
+    s.a.play(new Action(m.name, m.dur, m.at, { atk: m.atk, dist: m.atk === 'lunge' ? 0 : 0.6 }));
+  };
   btn(aR, '出招（下一招）', () => { const names: string[] = []; act(s => { if (s.it.npc) return; const ms = movesOf(s.it.def.id), m = ms[s.mi % ms.length]; s.mi++; play(s, m); names.push(`${moveName(m)}（${(s.mi - 1) % ms.length + 1}/${ms.length}）`); }); lastMove = pick >= 0 ? names[0] ?? '' : '各出一招'; });
   btn(aR, '全部招式连放', () => { act(s => { if (s.it.npc) return; const ms = movesOf(s.it.def.id); let tt = 0; ms.forEach(m => { window.setTimeout(() => { if (s.downT < 0) play(s, m); }, tt * 1000 / Math.max(slow, 0.25)); tt += m.dur + 0.5; }); }); lastMove = '全部招式'; });
   btn(aR, '施法', () => foeOnly(a => a.cast()));

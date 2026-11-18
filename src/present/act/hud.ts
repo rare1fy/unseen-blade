@@ -16,7 +16,7 @@ import { isBoss, type Foe } from './enemy';   // wp/foes: isBoss (the boss bar f
 import { V3 } from '../engine/world';
 import { TUNE } from './tune';
 import { SKIN, PALETTE, SkinBtn, SkinStick, SkinHp, type SkinId } from './skin';
-import { IronBtn, IronStick, IronHp, QteRing , type HintKey } from './ironUi';
+import { IronBtn, IronStick, IronHp, QteRing , type HintKey, HP_LAG, HP_LAG_HOLD, closeLag } from './ironUi';
 import { textCells, pixTextW } from '../ui3d/pixfont';
 import { PIX_H } from '../v2/pix';
 import { bodyW } from '../ui3d/bodyFont';
@@ -31,7 +31,7 @@ type AnyBtn = SkinBtn | IronBtn; type AnyHp = SkinHp | IronHp;
 export interface Mark { id: string; target: MarkTarget; kind: 'manual' | 'boon'; tier: number; col: number }
 const MARK_COL = { manual: 0x6ad8b0, boon: [0x8a929e, 0xd29a4a, 0xffd86a] };
 
-interface Bar { g: THREE.Group; back: THREE.Mesh; lag: THREE.Mesh; fill: THREE.Mesh; shown: number; lagV: number }
+interface Bar { g: THREE.Group; back: THREE.Mesh; lag: THREE.Mesh; fill: THREE.Mesh; shown: number; lagV: number; hold: number }
 const box = (c: number, o = 1) => new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: c, transparent: o < 1, opacity: o, depthWrite: false }));
 /** act-19 (user: 「敌人的血条怎么也是3d的，都穿帮了，能看到垫后面的白色」): flat cards in one plane, stacked by draw order only */
 const flat = (c: number) => new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: c, depthWrite: false, depthTest: false }));
@@ -232,13 +232,16 @@ export class ActHud {
   /** 11-17: the stance refused for want of 气 — the cut button shakes, dull red */
   denyAttack() { (this.btns.attack as { deny?: () => void }).deny?.(); }
   private newBar(): Bar {
-    // the lag a muted copper, not a pale strip (it read as "white behind the pad")
-    const p = PALETTE[this.skin], g = new THREE.Group(), back = flat(p.foeBack), lag = flat(0x9a5a34), fill = flat(p.foeFill);
+    // act-73 反馈 (用户：「我要的是所有血条都符合这个逻辑……垫在后面的我感觉白色效果会更好点」): the lost piece is white on every bar
+    // (it was a muted copper, too close to the red to read)
+    const p = PALETTE[this.skin], g = new THREE.Group(), back = flat(p.foeBack), lag = flat(HP_LAG), fill = flat(p.foeFill);
     back.renderOrder = 40; lag.renderOrder = 41; fill.renderOrder = 42;
-    g.add(back, lag, fill); this.L.scene.add(g); return { g, back, lag, fill, shown: 1, lagV: 1 };
+    g.add(back, lag, fill); this.L.scene.add(g); return { g, back, lag, fill, shown: 1, lagV: 1, hold: 0 };
   }
   private drawBar(b: Bar, x: number, y: number, w: number, h: number, frac: number, dt: number) {
-    const L = this.L; b.shown = frac; b.lagV = Math.max(frac, b.lagV - dt * 0.6);
+    // the lost piece holds still a moment after each drop (a flurry piles into one piece), then closes in — the same as her own bar
+    if (frac < b.shown - 1e-6) b.hold = HP_LAG_HOLD; b.hold = Math.max(0, b.hold - dt);
+    const L = this.L; b.shown = frac; b.lagV = closeLag(b.lagV, frac, b.hold, dt);
     L.at(x, y, 0, b.g.position); const u = L.px(1);
     b.back.scale.set((w + 4) * u, (h + 4) * u, 1); b.lag.scale.set(Math.max(1e-4, w * b.lagV) * u, h * u, 1); b.fill.scale.set(Math.max(1e-4, w * frac) * u, h * u, 1);
     b.lag.position.x = (-w / 2 + (w * b.lagV) / 2) * u; b.fill.position.x = (-w / 2 + (w * frac) / 2) * u;
@@ -286,10 +289,13 @@ export class ActHud {
     // bars over the foes (the chief: the long bar at the top instead)
     const live = new Set<number>();
     for (const f of foes) {
-      if (f.st === 'dead' || isBoss(f) || f.kind === 'dummy') continue; live.add(f.uid);   // wp/foes: isBoss
-      let b = this.bars.get(f.uid); if (!b) { b = this.newBar(); this.bars.set(f.uid, b); }
+      if (isBoss(f) || f.kind === 'dummy') continue;   // wp/foes: isBoss
+      let b = this.bars.get(f.uid);
+      // a fresh kill keeps its bar over the falling body until the white piece of the last blow has closed
+      if (f.st === 'dead') { if (!b || b.lagV <= 0.002) continue; } else if (!b) { b = this.newBar(); this.bars.set(f.uid, b); }
+      live.add(f.uid);
       const p = worldToUi(f.a.head().add(V3(0, 0.45, 0))); b.g.visible = this.on && p.z < 1;
-      this.drawBar(b, p.x, p.y, 64 * this.k, 9 * this.k, f.hp / f.maxHp, dt);
+      this.drawBar(b, p.x, p.y, 64 * this.k, 9 * this.k, f.st === 'dead' ? 0 : f.hp / f.maxHp, dt);
     }
     for (const [uid, b] of this.bars) if (!live.has(uid)) { b.g.parent?.remove(b.g); this.bars.delete(uid); }
     // act-19 (2x stage): a foe off the screen shows as a red sound-wave arc on the screen's edge, pointing at it, brighter when near

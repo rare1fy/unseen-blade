@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import { curve, type Action, type Bone } from '../../actors/rig';
 import { POSE_AFTER, type PoseFn } from '../../bestiary/poseHooks';
+import type { BattleActor } from '../../bestiary/battle';
+import { attackBeats, attackBody } from './foe_motion';
+import { engagement, grip, shortThrust, weaponArc } from './weapon_pose';
 
 type Point = [number, number, number];
 interface Key {
@@ -11,6 +14,7 @@ interface Key {
   left: Point; // free arm: shoulder pitch, outward roll and forward elbow flex, in degrees
   yaw: number;
   pitch: number;
+  roll?: number;
   grip?: number;
 }
 interface AttackPose {
@@ -24,17 +28,18 @@ interface AttackPose {
 
 const cut: AttackPose = {
   feet: [0.25, 0.10, -0.21], step: 0.24,
-  load: { hip: [-0.10, -0.135, -0.13], turn: -42, lean: 5, right: [-0.64, 1.05, -0.29], left: [-24, 15, 33], yaw: -123, pitch: -14 },
-  impact: { hip: [0.045, -0.16, 0.19], turn: 22, lean: 15, right: [-0.26, 1.09, 0.56], left: [24, 27, 27], yaw: -7, pitch: 5 },
-  follow: { hip: [0.13, -0.145, 0.22], turn: 57, lean: 13, right: [0.12, 1.01, 0.52], left: [34, 18, 40], yaw: 89, pitch: 20 },
+  // 11-18 (用户：「都看起来像是用手在打」): 两刀照旧横过身前，只转握刀的手，让亮刃沿挥动方向走。
+  load: { hip: [-0.10, -0.135, -0.13], turn: -42, lean: 5, right: [-0.64, 1.05, -0.29], left: [-24, 15, 33], yaw: -123, pitch: -14, roll: 81 },
+  impact: { hip: [0.045, -0.16, 0.19], turn: 22, lean: 15, right: [-0.26, 1.09, 0.56], left: [24, 27, 27], yaw: -7, pitch: 5, roll: 77 },
+  follow: { hip: [0.13, -0.145, 0.22], turn: 57, lean: 13, right: [0.12, 1.01, 0.52], left: [34, 18, 40], yaw: 89, pitch: 20, roll: 68 },
 };
 const motions: Record<string, AttackPose> = {
   hjCut: cut,
   hjBackhand: {
     entry: cut.follow, feet: [cut.feet[0], cut.feet[1] + cut.step!, cut.feet[2]],
-    load: { hip: [0.12, -0.17, 0.14], turn: 56, lean: 9, right: [0.09, 1.11, 0.46], left: [23, 19, 45], yaw: 111, pitch: 20 },
-    impact: { hip: [-0.07, -0.19, 0.15], turn: 4, lean: 17, right: [-0.32, 1.10, 0.52], left: [8, 25, 25], yaw: 7, pitch: -8 },
-    follow: { hip: [-0.12, -0.13, 0.13], turn: -37, lean: 8, right: [-0.64, 1.19, 0.19], left: [-7, 22, 26], yaw: -89, pitch: -25 },
+    load: { hip: [0.12, -0.17, 0.14], turn: 56, lean: 9, right: [0.09, 1.11, 0.46], left: [23, 19, 45], yaw: 111, pitch: 20, roll: -71 },
+    impact: { hip: [-0.07, -0.19, 0.15], turn: 4, lean: 17, right: [-0.32, 1.10, 0.52], left: [8, 25, 25], yaw: 7, pitch: -8, roll: -88 },
+    follow: { hip: [-0.12, -0.13, 0.13], turn: -37, lean: 8, right: [-0.64, 1.19, 0.19], left: [-7, 22, 26], yaw: -89, pitch: -25, roll: -96 },
   },
   hjReap: {
     feet: [0.31, 0.13, -0.24], step: 0.25,
@@ -166,7 +171,7 @@ const pose: PoseFn = (b, t, action) => {
     orient(frame, foot, q.slerp(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), 0.15 * s), stance));
   }
 
-  const rotation = (key?: Key) => key ? new THREE.Quaternion().setFromEuler(new THREE.Euler(key.pitch * RAD, key.yaw * RAD, 0, 'YXZ')) : idleGrip.clone();
+  const rotation = (key?: Key) => key ? new THREE.Quaternion().setFromEuler(new THREE.Euler(key.pitch * RAD, key.yaw * RAD, (key.roll ?? 0) * RAD, 'YXZ')) : idleGrip.clone();
   const grip = rotation(from).slerp(rotation(to), mix);
   const right = (from ? xyz(from.right) : idleR.clone()).lerp(to ? xyz(to.right) : idleR, mix);
   reach(frame, b.armR, b.foreR, b.handR, right, new THREE.Vector3(-1, -0.65, -0.3));
@@ -192,3 +197,19 @@ const pose: PoseFn = (b, t, action) => {
 };
 
 for (const id of ['hj_blade', 'hj_blade_e', 'hj_boss', 'hj_sickle', 'hj_jar']) POSE_AFTER[id] = pose;
+
+const mobPoke: PoseFn = (_b, _t, a, _off, self) => {
+  if (a?.name === 'attack' && a.data.atk === 'poke') shortThrust(self as BattleActor, a, 0.97);
+};
+for (const id of ['hj_mob', 'hj_mob_b']) POSE_AFTER[id] = mobPoke;
+
+const taoSword: PoseFn = (b, _t, a) => {
+  if (a?.name !== 'cast') return;
+  const motion = attackBeats(a), w = engagement(a);
+  attackBody(b, motion, 'cast', 0.48);
+  weaponArc(b, a, motion, 'R',
+    [-0.47, 1.48, 0.10, -1.57, -0.30], [-0.13, 1.15, 0.61, 0, 0],
+    [-0.21, 1.08, 0.50, 0.30, 0.48], w);
+  grip(b, 'L', 0.37, 1.08, 0.12, 0.38, 0.24, w);
+};
+for (const id of ['hj_taoist', 'hj_taoist_e']) POSE_AFTER[id] = taoSword;

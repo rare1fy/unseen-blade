@@ -549,6 +549,13 @@ function trails(self: BActor, a: Action | null, m: Motion | undefined) {
 
 /** the blind swordsmen tilt the head now and then, listening */
 const HAND_L = new THREE.Euler();
+/** how far the foot may bend off a right angle with its shin while she walks / runs (rad) */
+const ANKLE = 0.3;
+/** the boot's reach in front of / behind the ankle pivot (m; fine heroines: toe 5 cells forward, heel 2 back, at 3.5 cm). Tilting the
+ *  foot by θ drops the toe (heel) by at most reach·sin θ, so once the ankle is `reach` up any tilt clears the ground */
+const TOE = 0.175, HEEL = 0.07;
+/** the largest tilt (rad) whose toe / heel drop stays within `lift` (m) */
+const tiltRoom = (reach: number, lift: number) => lift >= reach ? Infinity : Math.asin(Math.max(0, lift / reach));
 const BLIND_IDS = new Set([...BLIND, ...SLIM].map(d => d.id));
 function listen(b: Record<string, Bone>, t: number) {
   const u = ((t % 7.3) + 7.3) % 7.3, k = u < 2.2 ? Math.sin((u / 2.2) * Math.PI) ** 2 : 0;
@@ -602,6 +609,23 @@ const heroHook = (b: Record<string, Bone>, t: number, a: Action | null, off: THR
   if (m) off.y += m.air;
   if (m && m.dart > 0) P = dartThrow(P, m.dart, m.dartBack > 0);
   apply(b, P); fixHips(b, P);
+  // 11-18 (用户：「主角跑步的时候脚尖是往前顶的，很不自然，正常情况下脚尖应该和小腿呈直角吧」): apply() keeps every foot level with the
+  // ground (-(thigh + knee)), so the leg swinging back with the shin folded up carried a level foot, toes jutting forward along the shin.
+  // In a walk / run the foot keeps near a right angle to its shin (within ANKLE of it): level while it is under her, toes down as the
+  // shin folds back, toes up a little as the leg reaches forward. Not in the crouches that keep both feet planted with the knees
+  // over the toes (the squat before a jump, a landing, a braking step, a skid, the 藏锋 shuffle) — there the feet stay flat
+  // The tilt off level is also held to what the foot's height allows, so the toes (or the heel) never dip into the ground: a foot
+  // still near the ground stays nearly level, a foot swung up behind her points its toes down fully
+  if (m && m.run > 0.01 && !inAir && (!a || a.name === 'hurt')) {
+    const w = Math.min(1, m.run / 0.25) * (1 - Math.min(1, Math.max(m.squat, m.land, m.brake, m.skid, m.charge > 0 ? 1 : 0)));
+    const dL = legDrop(P.tL, P.kL, P.pL), dR = legDrop(P.tR, P.kR, P.pR), mid = (dL + dR) / 2;
+    for (const [s, t, k, d] of [['L', P.tL, P.kL, dL], ['R', P.tR, P.kR, dR]] as const) {
+      const f = b[`foot${s}`]; if (!f) continue;
+      const level = -(t + k), tilt = Math.max(-ANKLE, Math.min(ANKLE, level)) - level;   // + = toes down (world pitch)
+      const lift = Math.max(0, off.y + d - mid - 0.015);                                   // the ankle above where it would stand, less a 1.5 cm clearance (m)
+      f.rotation.x += Math.max(-tiltRoom(HEEL, lift), Math.min(tiltRoom(TOE, lift), tilt)) * w;
+    }
+  }
   // act-21 (user: 「人物为啥手掌是这样的，往下吊着的」): apply() aims the left hand in world space (the ninja's kunai) — for an empty
   // hand that left it pointing down off a folded forearm like a limp wrist. The blind swordsmen's left hand follows its forearm,
   // curled a little (eL now only tips it a touch further for palm strikes)
