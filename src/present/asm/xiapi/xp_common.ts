@@ -1,14 +1,12 @@
-// 第三关 · 下邳寒沼：三个地点共用的积水（pools）、地面铺法、水面、近排矮件、填空件、贴花和飘雪飘雾。
+// 第三关 · 下邳寒沼：三个地点共用的积水（pools）、地面铺法、水面、近排矮件、填空件、飘雪和飘雾。
 // 积水的做法：地面层（y = −1）在积水处不放格子，整个舞台下面垫一块暗色的「水底」平面，再盖一块半透明的水面（c.water），
 // 有地砖的地方地砖把它们挡住，挖空的地方就露出暗青灰的水；舞台外的远处同样是这一片水（泡在水里的城外）。
 // 道具组建在沙盒里拿不走地面格子，所以要「泡在水里」的组在地面层涂 XP_MARK，far() 里统一挖掉（carveMarks）。
 // 战斗区里的积水矩形由 poolsOf(spec.seed) 给出：show.ts 用 LOCALES[id].pools(spec.seed) 取同一份给水鬼用，所以必须只看种子。
 import * as THREE from 'three';
 import type { Ctx } from '../../scenes/stage';
-import { M, AREA, PLAY, hash, inPlay, STAGE_BIG } from '../../scenes/props';
+import { M, AREA, PLAY, hash, STAGE_BIG } from '../../scenes/props';
 import { CELL } from '../../bestiary/kit';
-import { addCardKind } from '../../scenes/cards';
-import { ground } from '../../scenes/dress';
 import { plot, tone } from '../../scenes/flora';
 import type { Group, Layout, Place, Rect } from '../types';
 import { XP, XP_MARK, frame, orient, faceOf, wp, capCol, fireLight, brazier, sackRow, crate, bollard, sunkBoat, markWater } from './xp_kit';
@@ -101,19 +99,16 @@ export function carveMarks(c: Ctx) {
   for (const k of gone) w.cells.delete(k);
   return gone.length;
 }
-/** whole-slab paving: slabs sw × sd cells in courses (every other course offset by half a slab), a dark joint line, three close tones
- *  picked per slab (never per cell) */
-export function slabs(X: number, Z: number, sw: number, sd: number, tones: number[], joint: number, salt: number) {
-  const row = Math.floor(Z / sd), lz = ((Z % sd) + sd) % sd, sx = X + (row & 1 ? sw >> 1 : 0), lx = ((sx % sw) + sw) % sw;
-  if (lx === sw - 1 || lz === sd - 1) return joint;
-  return tones[Math.floor(hash(Math.floor(sx / sw), row, salt) * tones.length) % tones.length];
+/** 11-18 (用户：「不许逐格随机碎点」): 槽线按铺法错开，石色由整片路面和水边决定。 */
+export function slabs(X: number, Z: number, sw: number, sd: number, body: number, joint: number) {
+  const sx = X + (Math.floor(Z / sd) & 1) * Math.floor(sw / 2);
+  return Z % sd === 0 || sx % sw === 0 ? joint : body;
 }
-/** a plank deck along z (boards 3 cells + a seam), butt joints staggered; along x when alongX */
+
+/** 栈道沿着通道铺同色长板，只留板缝和错开的接头。 */
 export function deck(X: number, Z: number, alongX: boolean) {
-  const a = alongX ? Z : X, b = alongX ? X : Z, la = ((a % 4) + 4) % 4, board = Math.floor(a / 4);
-  if (la === 3) return XP.plankD;
-  const lb = ((b + board * 7) % 22 + 22) % 22;
-  return lb === 21 ? XP.plankD : (board % 3 === 1 ? XP.plankL : XP.plank);
+  const across = alongX ? Z : X, along = alongX ? X : Z, board = Math.floor(across / 6);
+  return across - board * 6 === 5 || (along + board * 16) % 32 === 0 ? XP.plankD : XP.plank;
 }
 
 // ------------------------------------------------------------------ the near-row pieces every 下邳 place has (≤ 0.9 m, so they may stand
@@ -209,36 +204,9 @@ export function farTower(c: Ctx, x: number, z: number, hw: number, H: number, ca
   farMass(c, X - hw + 5, H + 27, Z - hw + 5, X + hw - 5, H + 30, Z + hw - 5, XP.tile, { top: cap, low: XP.tileD, band: 1 });
 }
 
-// a wet sheen on the paving (pale blue-grey, square-cut) and a frost patch (whole squares) — flat, so they may lie on the battle floor
-addCardKind('xpwet', { kind: 'decal', w: 32, h: 32 }, g => {
-  const r = (x: number, y: number, w: number, h: number, col: string) => { g.fillStyle = col; g.fillRect(x, y, w, h); };
-  r(4, 12, 24, 9, '#7c8c96'); r(9, 8, 14, 17, '#7c8c96'); r(18, 15, 10, 9, '#7c8c96');
-  r(10, 13, 11, 6, '#90a0aa'); r(13, 10, 5, 3, '#90a0aa');
-});
-addCardKind('xpfrost', { kind: 'decal', w: 32, h: 32 }, g => {
-  const r = (x: number, y: number, w: number, h: number, col: string) => { g.fillStyle = col; g.fillRect(x, y, w, h); };
-  r(3, 10, 26, 12, '#aab6be'); r(8, 5, 16, 22, '#aab6be'); r(20, 4, 8, 7, '#aab6be'); r(4, 20, 8, 8, '#aab6be');
-  r(9, 11, 12, 9, '#c0cad0'); r(12, 8, 6, 3, '#c0cad0');
-});
-/**
- * The common dressing: wet sheens on the paving (also on the battle floor, they are flat), frost patches off it, mist motes low over
- * the water, a few flakes even when it is not snowing (it is winter; the snow weather brings the real fall), cold dust.
- */
-export function xpDress(c: Ctx, f: { layout: Layout; p: Place; clear: Rect[] }, o: { wet?: number; playWet?: number; frost?: number; mist?: number } = {}) {
-  const sd = f.p.seed, mist = f.p.weather === 'mist';
-  const clear = (x: number, z: number) => f.clear.some(r => x > r.x0 - 0.3 && x < r.x1 + 0.3 && z > r.z0 - 0.3 && z < r.z1 + 0.3);
-  const deco = (kind: string, n: number, s: [number, number], inside: boolean, salt: number, tints: number[]) => {
-    let k = 0, q = 0;
-    while (k < n && q < n * 40) {
-      q++; const x = AREA.x0 - 2 + hash(q, sd, salt) * (AREA.x1 - AREA.x0 + 4), z = AREA.z0 - 3 + hash(q, sd, salt + 1) * (AREA.z1 - AREA.z0 + 2);
-      if (inPlay(x, z) !== inside || (!inside && clear(x, z))) continue;
-      const y = ground(c, x, z); if (y == null || y > 0.05) continue;
-      c.cards.add(kind, x, z, { y: y + 0.004 + k * 0.0003, s: s[0] + hash(q, 3, salt) * (s[1] - s[0]), ry: Math.floor(hash(q, 4, salt) * 4) * Math.PI / 2, tint: tints[Math.floor(hash(q, 5, salt) * tints.length)] }); k++;
-    }
-  };
-  deco('xpwet', o.wet ?? 12, [0.6, 1.0], false, 40, [0xb8c4ca, 0xa8b4ba]);
-  deco('xpwet', o.playWet ?? 6, [0.7, 1.1], true, 50, [0xb0bcc2, 0xa0acb2]);
-  deco('xpfrost', o.frost ?? (f.p.weather === 'snow' ? 20 : 10), [0.5, 1.0], false, 60, [0xd8e0e4, 0xc8d0d6]);
-  c.ambient({ kind: 'dust', color: 0xc8d4dc, rate: (o.mist ?? 1) * (mist ? 3.2 : 1.4), y: [0.1, 1.2] });
+/** 潮湿石面围着积水成片，空气里的浅雾和飞雪交给粒子。 */
+export function xpDress(c: Ctx, f: { p: Place }, scale = 1) {
+  const mist = f.p.weather === 'mist';
+  c.ambient({ kind: 'dust', color: 0xc8d4dc, rate: scale * (mist ? 3.2 : 1.4), y: [0.1, 1.2] });
   if (f.p.weather !== 'snow') c.ambient({ kind: 'snow', color: 0xe8eef4, rate: mist ? 2 : 4 });
 }

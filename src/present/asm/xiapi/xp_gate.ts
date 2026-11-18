@@ -145,25 +145,25 @@ const FILLER: Group[] = commonFiller('xg');
 
 // ------------------------------------------------------------------ ground: the drowned square, the moat ring outside the walls, the stone ground beyond
 function floor(c: Ctx, f: { layout: Layout; p: Place }) {
-  const ps = pools(specSeedOf(f.p)), sd = f.p.seed % 37, moat = 1.6, band = 0.75, dryX = AREA.x1 + 1.0;
+  const ps = pools(specSeedOf(f.p)), moat = 1.6, band = 0.75, dryX = AREA.x1 + 1.0;
   const MO = { x0: PLAY.x0 - band - moat, x1: PLAY.x1 + band + moat, z0: PLAY.z0 - band - moat, z1: PLAY.z1 + 2 };
-  const SQ = [0x5a6064, 0x545a5e, 0x5e6468, 0x50565a];
   xpFloor(c, f, ps, (X, Z, x, z, zone, path) => {
     if (zone === 'play') {
-      // the 御道 up the middle: long pale slabs; the square: big 1 m slabs in four close tones (whole slabs)
-      if (path && path.x1 - path.x0 < 4) return slabs(X, Z, 8, 16, [0x6a7074, 0x646a6e], XP.joint, 13 + sd);
-      return slabs(X, Z, 14, 14, SQ, XP.joint, 19 + sd);
+      // 御道用浅色长石，两翼的青砖在积水旁整片压暗。
+      if (path && path.x1 - path.x0 < 4) return slabs(X, Z, 17, 25, 0x6a7074, 0x5a6266);
+      const wet = ps.some(r => inR(r, x, z, 1.32));
+      return slabs(X, Z, 25, 22, wet ? 0x485258 : 0x5a6064, wet ? XP.joint : 0x484f53);
     }
     if (zone === 'path' && path) {
       // over the moat a plank bridge with dark kerb beams, then the stone road
       const e = Math.min(X - M(path.x0), M(path.x1) - 1 - X);
       if (inR(MO, x, z) && path.x1 - path.x0 < 4) return e <= 0 ? XP.woodD : deck(X, Z, true);
-      return slabs(X, Z, 8, 16, [0x60666a, 0x5a6064], XP.joint, 23 + sd);
+      return slabs(X, Z, 17, 25, 0x60666a, 0x4c5559);
     }
     // the moat ring round the walls; beyond it the stone ground under the city wall (big dark slabs); the flood further out
     if (inR(MO, x, z)) return null;
     if (Math.abs(x) > dryX || z > PLAY.z1 + 3.0) return null;
-    return slabs(X, Z, 14, 14, [XP.stoneD, 0x4c5256, 0x50565a], XP.stoneDD, 29 + sd);
+    return slabs(X, Z, 25, 22, 0x4c5256, XP.stoneDD);
   });
 }
 
@@ -184,7 +184,7 @@ function far(c: Ctx, f: { layout: Layout; p: Place }) {
 }
 
 function dress(c: Ctx, f: { layout: Layout; p: Place; clear: Rect[] }) {
-  xpDress(c, f, { wet: 10, playWet: 4, frost: 12, mist: 1.3 });
+  xpDress(c, f, 1.3);
 }
 
 export const xpGate: Locale = {

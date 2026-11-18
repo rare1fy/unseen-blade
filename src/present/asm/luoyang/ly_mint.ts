@@ -82,12 +82,17 @@ const LANDMARKS: Landmark[] = [
 ];
 
 // ------------------------------------------------------------------ ground: the square's big flagstones, blackened; slag and coal-ash beyond
-function floor(c: Ctx, f: { layout: Layout; p: Place }) {
+function floor(c: Ctx, f: { layout: Layout }) {
+  // 炉火近处留下连续的灰渣地，炉前的条石在同一排炉口下发暗。
   lyFloor(c, f, {
-    // the palace square: 10-cell flagstones (0.7 m), smoke-dark, some spattered with copper (whole stones), some burnt to ash
-    court: { n: 10, joint: 0x2e2a28, tones: [0x5a5550, 0x524d48, 0x605a54, 0x4a4542], gone: 0.03, goneCol: 0x5a4434 },
-    path: { n: 16, m: 8, joint: 0x2e2a28, tones: [0x6e6a64, 0x66625c, 0x76726c], bond: true },
-    outer: [0x3c3634, 0x463e3a, 0x2e2a28, 0x5a4a3e], kerb: LY.stoneDD,
+    court: { n: 28, m: 20, joint: 0x4a413b, body: 0x5b5148 },
+    path: { n: 27, m: 15, joint: 0x595048, body: 0x696059 },
+    patches: [
+      { rect: { x0: SX(-7), x1: SX(-2.8), z0: SZ(-8.2), z1: SZ(-3.6) }, surface: 0x4c3f36 },
+      { rect: { x0: SX(3.8), x1: SX(7.4), z0: SZ(-8.3), z1: SZ(-4.5) }, surface: 0x4c3f36 },
+      { rect: { x0: SX(3.4), x1: SX(7.2), z0: SZ(0), z1: SZ(3.2) }, surface: 0x655141 },
+    ],
+    outer: [0x3c3634, 0x463e3a, 0x2e2a28], kerb: LY.stoneDD,
   });
 }
 // ------------------------------------------------------------------ the far ring: the palace's outer wall, its gate tower gutted, dead trees, smoke
@@ -116,5 +121,5 @@ export const lyMint: Locale = {
   landmarks: LANDMARKS, groups: [...MINT_GROUPS, ...commonGroups('ly_m')], filler: commonFiller('ly_m'),
   floor, far,
   // the embers rise thickest round the furnace; a warmer ash
-  dress: (c, f) => lyDress(c, f, { embers: 3.0, ash: 22, scorch: 16, playScorch: 10, ashCol: 0x8a8278, emberArea: { x0: SX(-5), z0: SZ(-14), x1: SX(5), z1: SZ(-8) } }),
+  dress: (c, f) => lyDress(c, f, { embers: 3.0, ashCol: 0x8a8278, emberArea: { x0: SX(-5), z0: SZ(-14), x1: SX(5), z1: SZ(-8) } }),
 };

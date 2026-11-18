@@ -948,7 +948,8 @@ export class ActShow {
       // act-20: the cover pieces are breakable (Breakables builds them and their solids)
       this.props = new Breakables(this.stage.root, this.solids); this.props.build(this.arena.props, this.arena.covers);
       // act-37: the snowy night's braziers (the prologue's village and temple): four warm points round the floor, where it is free
-      if (spec.weather === 'snow' && spec.time === 'night') for (const [x, z] of [[PLAY.x0 + 1.6, PLAY.z0 + 1.8], [PLAY.x1 - 1.6, PLAY.z0 + 1.8], [PLAY.x0 + 1.6, PLAY.z1 - 3.2], [PLAY.x1 - 1.6, PLAY.z1 - 3.2]]) {
+      // 11-18 (用户：「场景要有差异」): 崔府各间的灯由场景摆，雪夜的通用火盆会盖住冰色和石灯。
+      if (spec.weather === 'snow' && spec.time === 'night' && !spec.locale.startsWith('cx_')) for (const [x, z] of [[PLAY.x0 + 1.6, PLAY.z0 + 1.8], [PLAY.x1 - 1.6, PLAY.z0 + 1.8], [PLAY.x0 + 1.6, PLAY.z1 - 3.2], [PLAY.x1 - 1.6, PLAY.z1 - 3.2]]) {
         const ok = (px: number, pz: number) => this.solids.free(px, pz, 0.6, 0.3) && (!this.grid || this.grid.clear(px, pz, 0.7));
         let px = x, pz = z; for (let t = 0; t < 8 && !ok(px, pz); t++) { px += (x < 0 ? 0.7 : -0.7); pz += 0.4; }
         if (!ok(px, pz)) continue;

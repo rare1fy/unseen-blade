@@ -1,10 +1,8 @@
-// 第二关 · 洛阳余烬：三个地点共用的小件道具组、填空件、地面贴花和撒灰撒火星。每个地点用自己的 id 前缀各拿一份
+// 第二关 · 洛阳余烬：三个地点共用的小件道具组、填空件、铺地、空中灰尘和火星。每个地点用自己的 id 前缀各拿一份
 // （stats 里分开统计，三个地点的近排矮件都从这里出，保证同一关的近景是一套东西）。大件和地标各在自己的文件里，三处要彼此不同。
 import type { Ctx } from '../../scenes/stage';
-import { M, AREA, hash, inPlay, field, SX, SZ } from '../../scenes/props';
+import { M, AREA, SX, SZ } from '../../scenes/props';
 import { CELL } from '../../bestiary/kit';
-import { addCardKind } from '../../scenes/cards';
-import { ground } from '../../scenes/dress';
 import type { Group, Layout, Place, Rect } from '../types';
 import { LY, frame, faceOf, orient, wp, fireLight, smoke, rubble, emberHeap, fireBasin, charPost } from './ly_kit';
 
@@ -53,79 +51,40 @@ export function commonFiller(pre: string): Group[] {
   ];
 }
 
-// ------------------------------------------------------------------ the ground's cards: ash drifts and scorch marks (flat, square-cut)
-addCardKind('lyash', { kind: 'decal', w: 32, h: 32 }, g => {
-  const r = (x: number, y: number, w: number, h: number, col: string) => { g.fillStyle = col; g.fillRect(x, y, w, h); };
-  r(4, 11, 22, 10, '#8e8880'); r(9, 6, 13, 20, '#8e8880'); r(20, 14, 9, 10, '#8e8880');
-  r(10, 12, 10, 8, '#a09a92'); r(14, 9, 5, 4, '#a09a92');
-});
-addCardKind('lyscorch', { kind: 'decal', w: 32, h: 32 }, g => {
-  const r = (x: number, y: number, w: number, h: number, col: string) => { g.fillStyle = col; g.fillRect(x, y, w, h); };
-  r(3, 12, 26, 9, '#2e2926'); r(7, 7, 16, 18, '#2e2926'); r(18, 5, 8, 8, '#2e2926'); r(5, 20, 9, 7, '#2e2926');
-  r(9, 12, 12, 8, '#221e1c'); r(12, 9, 6, 4, '#221e1c');
-});
-
-/** pave helper: x, z (m) of a cell */
-export const cm = (X: number) => (X + 0.5) * 0.07;
-/** loose bricks lying in the ash: whole 4-cell bricks on a 4-cell grid, one in ~50 (never single cells) */
-export const looseBrick = (X: number, Z: number, sd: number) => { const gx = Math.floor(X / 4), gz = Math.floor(Z / 4); return hash(gx, gz, 77 + sd) < 0.018 ? (hash(gx, gz, 91) < 0.5 ? LY.brick : LY.brickD) : null; };
-
-/** a paving: units n × m cells (x × z) with a one-cell joint on their far edges (joint null = no joints: packed earth in whole
- *  blocks), colours picked per whole unit; bond = every other row shifted half a unit (running bond); gone = share of units fallen
- *  to ash (whole units) */
-export interface Paving { n: number; m?: number; joint: number | null; tones: number[]; bond?: boolean; gone?: number; goneCol?: number }
-const paveAt = (X: number, Z: number, P: Paving, salt: number) => {
-  const m = P.m ?? P.n, row = Math.floor(Z / m), lz = Z - row * m, sx = X + (P.bond && (row & 1) ? Math.floor(P.n / 2) : 0), col = Math.floor(sx / P.n), lx = sx - col * P.n;
-  if (P.joint != null && (lx === P.n - 1 || lz === m - 1)) return P.joint;
-  const h = hash(col, row, salt);
-  if (P.gone && h < P.gone) return P.goneCol ?? LY.ash;
-  return P.tones[Math.floor(hash(col, row, salt + 5) * P.tones.length) % P.tones.length];
+/** 11-18 (用户：「不许逐格随机碎点」): 砖缝只交代石板铺法，烧焦和积灰按街面位置落成片。 */
+interface Paving { n: number; m: number; joint: number; body: number }
+type Surface = Paving | number;
+const paveAt = (X: number, Z: number, surface: Surface) => {
+  if (typeof surface === 'number') return surface;
+  const { n, m, joint, body } = surface;
+  const sx = X + (Math.floor(Z / m) & 1) * Math.floor(n / 2);
+  return Z % m === 0 || sx % n === 0 ? joint : body;
 };
-/**
- * The ground of a 洛阳 place over the whole 2x stage: the battle floor and a strip round it in `court` paving (burnt square brick,
- * flagstones…), the layout's walkways in `path` paving with a stone kerb, a stone edge round the court, and outside ash and scorched
- * earth in big blocks (3-cell blocks, field-thresholded: no speckle) with a few whole loose bricks.
- */
-export function lyFloor(c: Ctx, f: { layout: Layout; p: Place }, o: { court: Paving; path: Paving; outer: [number, number, number, number]; kerb?: number; over?: (x: number, z: number) => Paving | number | null }) {
-  const w = c.w, paths = f.layout.path, court = f.layout.court, sd = f.p.seed % 7, kerbC = o.kerb ?? LY.stoneD;
-  const near = (r: Rect, x: number, z: number, mg: number) => x > r.x0 - mg && x < r.x1 + mg && z > r.z0 - mg && z < r.z1 + mg;
-  const CX0 = SX(-7.0), CX1 = SX(7.2), CZ0 = SZ(-9.4), CZ1 = SZ(7.0);
+
+export function lyFloor(c: Ctx, f: { layout: Layout }, o: {
+  court: Surface; path: Paving; outer: [number, number, number]; kerb?: number;
+  patches?: Array<{ rect: Rect; surface: Surface }>;
+}) {
+  const { path, court } = f.layout, kerbC = o.kerb ?? LY.stoneD;
+  const near = (r: Rect, x: number, z: number, pad = 0) => x > r.x0 - pad && x < r.x1 + pad && z > r.z0 - pad && z < r.z1 + pad;
+  const apron = { x0: SX(-7.0), x1: SX(7.2), z0: SZ(-9.4), z1: SZ(7.0) };
   for (let X = M(AREA.x0 - 6); X <= M(AREA.x1 + 6); X++) for (let Z = M(AREA.z0 - 8); Z <= M(AREA.z1 + 4); Z++) {
-    const x = (X + 0.5) * CELL, z = (Z + 0.5) * CELL; let col: number;
-    const onPath = paths.some(r => near(r, x, z, 0)), ov = onPath ? null : o.over?.(x, z) ?? null, kerb = !onPath && ov == null && paths.some(r => near(r, x, z, 0.14));
-    const inCourt = (court && near(court, x, z, 0)) || (x > CX0 && x < CX1 && z > CZ0 && z < CZ1);
-    const edge = !inCourt && x > CX0 - 0.21 && x < CX1 + 0.21 && z > CZ0 - 0.21 && z < CZ1 + 0.21;
-    if (onPath) col = paveAt(X, Z, o.path, 13 + sd);
-    else if (ov != null) col = typeof ov === 'number' ? ov : paveAt(X, Z, ov, ov === o.path ? 13 + sd : 47 + sd);
-    else if (kerb || edge) col = kerbC;
-    else if (inCourt) col = paveAt(X, Z, o.court, 31 + sd);
-    else {
-      const n = field(Math.floor(X / 3) / 4, Math.floor(Z / 3) / 4, sd + 2);
-      col = looseBrick(X, Z, sd) ?? (n > 0.9 ? o.outer[3] : n > 0.15 ? o.outer[0] : n > -0.55 ? o.outer[1] : o.outer[2]);
-    }
-    w.set(X, -1, Z, col);
+    const x = (X + 0.5) * CELL, z = (Z + 0.5) * CELL;
+    const inCourt = (court && near(court, x, z)) || near(apron, x, z);
+    const patch = o.patches?.find(p => near(p.rect, x, z));
+    let col: number;
+    if (path.some(r => near(r, x, z))) col = paveAt(X, Z, o.path);
+    else if (path.some(r => near(r, x, z, 0.14)) || (!inCourt && near(apron, x, z, 0.21))) col = kerbC;
+    else if (patch) col = paveAt(X, Z, patch.surface);
+    else if (inCourt) col = paveAt(X, Z, o.court);
+    else col = z < apron.z0 ? o.outer[2] : x < apron.x0 - 2.1 || x > apron.x1 + 2.1 ? o.outer[1] : o.outer[0];
+    c.w.set(X, -1, Z, col);
   }
 }
 
-/**
- * The common dressing: ash drifts and scorch marks (off the walkways; the scorch also on the battle floor, it is flat), embers rising
- * over the back where the fires are, ash drifting everywhere. o.embers = rate at dusk / night (a third of it by day).
- */
-export function lyDress(c: Ctx, f: { layout: Layout; p: Place; clear: Rect[] }, o: { ash?: number; scorch?: number; playScorch?: number; embers?: number; ashCol?: number; emberArea?: Rect } = {}) {
-  const sd = f.p.seed, night = f.p.time === 'dusk' || f.p.time === 'night';
-  const clear = (x: number, z: number) => f.clear.some(r => x > r.x0 - 0.3 && x < r.x1 + 0.3 && z > r.z0 - 0.3 && z < r.z1 + 0.3);
-  const deco = (kind: string, n: number, s: [number, number], inside: boolean, salt: number, tints: number[]) => {
-    let k = 0, q = 0;
-    while (k < n && q < n * 40) {
-      q++; const x = AREA.x0 - 2 + hash(q, sd, salt) * (AREA.x1 - AREA.x0 + 4), z = AREA.z0 - 3 + hash(q, sd, salt + 1) * (AREA.z1 - AREA.z0 + 2);
-      if (inPlay(x, z) !== inside || clear(x, z)) continue;
-      const y = ground(c, x, z); if (y == null || y > 0.05) continue;
-      c.cards.add(kind, x, z, { y: y + 0.004 + k * 0.0003, s: s[0] + hash(q, 3, salt) * (s[1] - s[0]), ry: Math.floor(hash(q, 4, salt) * 4) * Math.PI / 2, tint: tints[Math.floor(hash(q, 5, salt) * tints.length)] }); k++;
-    }
-  };
-  deco('lyash', o.ash ?? 26, [0.5, 1.0], false, 40, [0xffffff, 0xe8e4de, 0xd8d2ca]);
-  deco('lyscorch', o.scorch ?? 14, [0.5, 0.9], false, 50, [0xffffff, 0xe0dcd8]);
-  deco('lyscorch', o.playScorch ?? 6, [0.6, 1.1], true, 60, [0xffffff]);
+/** 后排余火上方保留火星和灰尘，地上的焦痕由各处的铺地标出。 */
+export function lyDress(c: Ctx, f: { p: Place }, o: { embers?: number; ashCol?: number; emberArea?: Rect } = {}) {
+  const night = f.p.time === 'dusk' || f.p.time === 'night';
   const ea = o.emberArea ?? { x0: AREA.x0, z0: AREA.z0 - 6, x1: AREA.x1, z1: AREA.z0 + 6 };
   c.ambient({ kind: 'embers', color: 0xff8a3a, rate: (o.embers ?? 1.6) * (night ? 1 : 0.35), area: ea });
   c.ambient({ kind: 'embers', color: 0xffa050, rate: night ? 0.5 : 0.15 });
