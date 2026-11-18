@@ -43,8 +43,12 @@ export class Model3D extends THREE.Group {
   /** emissive multiplier (1 = authored; ~1.6 active, ~2.2 tier 3; 0 = glow off) */
   setGlow(k: number) { this.glowK = Math.max(0, k); this.apply(); return this; }
   setOpacity(o: number) {
-    for (const { m } of this.lit) { m.transparent = o < 0.999; m.opacity = o; }
-    for (const { m } of this.glows) { m.transparent = o < 0.999; m.opacity = o; }
+    const transparent = o < 0.999;
+    for (const parts of [this.lit, this.glows]) for (const { m } of parts) {
+      m.opacity = o;
+      // Three's opaque shader forces alpha to 1, so switch programs when the picture begins to fade.
+      if (m.transparent !== transparent) { m.transparent = transparent; m.needsUpdate = true; }
+    }
   }
   private apply() {
     const lk = 1 - 0.62 * this.dim, gk = this.glowK * (1 - 0.85 * this.dim);

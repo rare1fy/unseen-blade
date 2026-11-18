@@ -170,7 +170,10 @@ export class CardPick3D {
         } else {
           // (11-18: the ones not taken drop out of the way at once — when the chosen one flies to the HUD it must not pass through them)
           const kf = flies ? Math.min(1, this.leaveT / 0.4) : k, g = kf * kf; y += g * L.h * 0.8; rz = (i < this.leaving ? -1 : 1) * 0.5 * g; rimA = 0; warm = 0;
-          if (flies) { alpha = 1 - kf; fade(c.board, alpha); for (const p of c.presses) p.setOpacity(alpha); c.picture?.setOpacity(alpha); }
+          if (flies) {
+            alpha = 1 - kf; fade(c.board, alpha); for (const p of c.presses) p.setOpacity(alpha);
+            if (c.picture) { c.picture.visible = alpha > 0.01; c.picture.setOpacity(alpha); }
+          }
         }
       }
       const bm = c.board.material as THREE.MeshLambertMaterial; bm.emissiveIntensity = warm;
