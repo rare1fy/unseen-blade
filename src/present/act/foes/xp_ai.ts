@@ -272,7 +272,13 @@ const chain: RoleAI = {
   },
   windup(f) { f.telePos.copy(f.pos); return true; },
   strike(f, w) {
-    if (f.atk === 'slamC') { areaHit(f, w); cue('foeHeavy', 1); shake(0.2 * TUNE.shake); AI.setSt(f, 'strike', 0.2); return true; }
+    if (f.atk === 'slamC') {
+      // the hammer comes down: dust and sparks where it lands (the hammer hangs on the chain's last link, not at the fist)
+      areaHit(f, w); cue('foeHeavy', 1); shake(0.2 * TUNE.shake);
+      const hit = f.a.bones.chain5 ? f.a.bonePos('chain5', 0, 0, 0.2).setY(0.1) : f.pos.clone().add(V3(Math.sin(f.teleYaw) * 3.6, 0.1, Math.cos(f.teleYaw) * 3.6));
+      fxSparks(hit.clone().setY(0.3), 0xffd8a0, 14, 5); fxSmoke(hit, 0x7a7a80, 8, { r: 0.6, spd: 1.8, up: 0.5, s: 0.4, life: 0.7 });
+      AI.setSt(f, 'strike', 0.2); return true;
+    }
     areaHit(f, w); cue('foeHeavy', 0.9); cue('whoosh', 0.9);
     fxRing(f.pos.clone().setY(0.6), 0xc8ccd4, CHAIN.r1, { life: 0.25 } as never);
     AI.setSt(f, 'strike', 0.3); return true;
