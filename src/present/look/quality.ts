@@ -8,14 +8,15 @@ export type Tier = 'high' | 'mid' | 'low';
 export type Choice = 'auto' | Tier;
 export const TIER_CN: Record<Choice, string> = { auto: '自动', high: '高', mid: '中', low: '低' };
 
-/** what each tier draws */
-export const TIERS: Record<Tier, { uiDpr: number; worldMsaa: boolean; shadowMap: number; shadowEvery: number }> = {
+/** what each tier draws; fps = the most frames a second it draws (11-19 用户：「手机发烫比较严重」: a 90 / 120 Hz phone ran the game
+ *  at its screen's rate, twice the work of 60 for nothing the eye needs here) */
+export const TIERS: Record<Tier, { uiDpr: number; worldMsaa: boolean; shadowMap: number; shadowEvery: number; fps: number }> = {
   /** the UI layer at up to 3 device px per CSS px (native on every phone), MSAA on the 1× world, the shadow map 2048 (1024 on phones) */
-  high: { uiDpr: 3, worldMsaa: true, shadowMap: 2048, shadowEvery: 1 },
+  high: { uiDpr: 3, worldMsaa: true, shadowMap: 2048, shadowEvery: 1, fps: 60 },
   /** the UI layer at 2× (on a 3× phone 2/3 of the pixels each way), no MSAA on the world, shadow 1024 */
-  mid: { uiDpr: 2, worldMsaa: false, shadowMap: 1024, shadowEvery: 1 },
+  mid: { uiDpr: 2, worldMsaa: false, shadowMap: 1024, shadowEvery: 1, fps: 60 },
   /** the UI layer at 1.5×, shadow 512 redrawn every other frame */
-  low: { uiDpr: 1.5, worldMsaa: false, shadowMap: 512, shadowEvery: 2 },
+  low: { uiDpr: 1.5, worldMsaa: false, shadowMap: 512, shadowEvery: 2, fps: 30 },
 };
 
 export const QUALITY = {

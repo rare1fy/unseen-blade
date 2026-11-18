@@ -67,12 +67,15 @@ export function createGfx(platform: Platform, canvas: any, o: { preserve?: boole
   /** ms: the real frame interval; logic / render: CPU time spent in the game update and in issuing the render (smoothed) */
   const stats = { calls: 0, tris: 0, ms: 16, logic: 0, render: 0 };
   const shk = V3(), lk = V3();
-  let last = platform.now();
+  let last = platform.now(), drawnAt = -1e9;
   return {
     renderer, stats, post,
     start(onFrame, afterRender) {
       const frame = () => {
         platform.raf(frame);
+        // 11-19 (用户：「手机发烫比较严重」): at most the tier's frame rate — on a 90 / 120 Hz screen the extra vsyncs are skipped (a
+        // small slack so a 60 Hz screen's own beat, a hair early, still draws every one)
+        { const now = platform.now(), gap = 1000 / tierNow().fps; if (now - drawnAt < gap - 2.5) return; drawnAt = now - Math.min(gap, Math.max(0, now - drawnAt - gap)); }
         if (bladeWorking()) {
           last = platform.now();
           drawLoadingBlade(renderer, view.w / Math.max(1, view.h));

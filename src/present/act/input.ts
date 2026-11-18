@@ -29,6 +29,10 @@ export class Input {
   stick = { id: -1, ox: 0, oy: 0, x: 0, y: 0, r: 70 };
   private keys = new Set<string>(); private raw = flags();
   private touchBtn: Record<BtnName, number> = { attack: -1, dash: -1, special: -1, jump: -1, ult: -1 }; private pad = flags();
+  /** 11-19 (用户：「点按钮没反应」「点了有反应一会儿然后突然又不行了」): a touch is read once per frame — when a frame runs long (a hot
+   *  phone, a room being built) a quick tap goes down and up between two reads and was never seen. A press now counts as held for
+   *  at least one read, however soon it is let go */
+  private tapped = flags();
   /** after the pause menu: a button still held from the menu counts only once it has been let go */
   private latched = flags(); private latchMove = false;
   get lastDevice(): Device { return PAD.device; }
@@ -45,7 +49,7 @@ export class Input {
     window.addEventListener('blur', () => this.keys.clear());
   }
   /** the HUD hands its button presses here */
-  press(n: BtnName, id: number) { this.touchBtn[n] = id; this.lastDevice = 'touch'; }
+  press(n: BtnName, id: number) { this.touchBtn[n] = id; this.tapped[n] = true; this.lastDevice = 'touch'; }
   release(n: BtnName, id: number) { if (this.touchBtn[n] === id) this.touchBtn[n] = -1; }
   releaseAll(id: number) { for (const n of Object.keys(this.touchBtn) as BtnName[]) this.release(n, id); if (this.stick.id === id) this.stick.id = -1; if (this.aimDrag.id === id) this.aimDrag.id = -1; }
   stickDown(id: number, x: number, y: number) { this.stick.id = id; this.stick.ox = x; this.stick.oy = y; this.stick.x = x; this.stick.y = y; this.lastDevice = 'touch'; }
@@ -89,7 +93,7 @@ export class Input {
     const len = Math.hypot(mx, my); if (len > 1) { mx /= len; my /= len; }
     if (this.latchMove) { if (Math.hypot(mx, my) < 0.1) this.latchMove = false; else mx = my = 0; }
     this.move.x = mx; this.move.y = my;
-    for (const n of NAMES) this.raw[n] = has(BIND.key[n]) || this.touchBtn[n] >= 0 || this.pad[n];
+    for (const n of NAMES) { this.raw[n] = has(BIND.key[n]) || this.touchBtn[n] >= 0 || this.tapped[n] || this.pad[n]; this.tapped[n] = false; }
     for (const n of NAMES) {
       if (this.latched[n]) { if (!this.raw[n]) this.latched[n] = false; else this.raw[n] = false; }
       if (this.virt[n] > 0) { this.virt[n] -= dt; this.raw[n] = true; }
