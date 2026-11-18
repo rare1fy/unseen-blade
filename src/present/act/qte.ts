@@ -38,6 +38,8 @@ export interface DuelHost {
   hero(): Hero | undefined; foes(): Foe[]; grid(): FloorGrid | null;
   /** a fight is on and nothing else owns the moment (not the prologue, not 不见刀's ring, not the cards…); forced = __dh.qte (the yard too) */
   canRun(forced?: boolean): boolean;
+  /** a line in the game's log (the bot's result.json) */
+  log(s: string): void;
   /** the floor's obstacles (cover, props, posts): the camera picks the side with nothing tall between it and the two */
   solids(): Solid[];
   /** the lowest the banner at the top reaches right now (px; 0 = none up): the bar keeps under it */
@@ -315,7 +317,7 @@ export class Duel {
     this.mode = kind; this.f = f; this.stage = 'run'; this.t = 0; this.camT = 0; this.camIn = true; this.first = this.firstTime(kind);
     if (kind === 'clash') f.mem.qClash = (f.mem.qClash ?? 0) + 1; else f.mem.qChain = (f.mem.qChain ?? 0) + 1;
     if (!isBoss(f)) this.roomN++;
-    this.seen(kind); this.lastDown = this.host.inp.b.attack.down;
+    this.seen(kind); this.lastDown = this.host.inp.b.attack.down; this.host.log('qte ' + kind + ' ' + f.kind + (f.elite ? ' elite ' : ' ') + f.atk);
     // she stops whatever she was doing (the draw's lunge, a cut) and stands to him; nothing of the press that started it carries on
     h.forceFree(); h.parryT = 0; h.iaiBonus = false; h.clearInput(); h.inv = 30;   // (> 20: held, not the hit blink)
     dropTeles(f); f.vel.set(0, 0, 0); f.lunge = null; f.attacking = true; setFoeState(f, 'stagger', 99);
@@ -408,7 +410,7 @@ export class Duel {
     this.ui.showPlates(b.x, b.y, b.size, this.presses === 0 ? (this.first ? 1 : 0.6) : 0, rdt);
   }
   private clashWin(h: Hero, f: Foe) {
-    this.stage = 'win'; this.stats.clash.win++; this.stats.clash.rate = this.presses / Math.max(0.3, this.t); this.stats.last = 'clash win';
+    this.stage = 'win'; this.stats.clash.win++; this.host.log('qte clash win ' + this.presses); this.stats.clash.rate = this.presses / Math.max(0.3, this.t); this.stats.last = 'clash win';
     this.endT = this.t + 0.4; FX.slowmo = 0; this.hum = -1; this.ui.hideAll();
     // his weapon knocked aside, him thrown back reeling; her blade carries on through him
     const dir = this.u.clone();
@@ -428,7 +430,7 @@ export class Duel {
     this.gain = true; h.qi = Math.min(3, h.qi + 1);   // (杀气 +1 as the duel lets go, 气 +1 now)
   }
   private clashLose(h: Hero, f: Foe) {
-    this.stage = 'lose'; this.stats.clash.lose++; this.stats.clash.rate = this.presses / Math.max(0.3, this.t); this.stats.last = 'clash lose';
+    this.stage = 'lose'; this.stats.clash.lose++; this.host.log('qte clash lose ' + this.presses); this.stats.clash.rate = this.presses / Math.max(0.3, this.t); this.stats.last = 'clash lose';
     FX.slowmo = 0; this.hum = -1; this.ui.hideAll();
     // she is thrown off: a lighter blow than his strike, a stagger, the camera springs back with her
     this.releaseFoe(f, 0); setFoeState(f, 'recover', 0.55); f.attacking = false; markCalm();
@@ -511,7 +513,7 @@ export class Duel {
     if (this.bi >= this.beats.length) this.chainWin(h, f);
   }
   private missBeat(h: Hero, f: Foe, b: Beat) {
-    b.res = -1; this.stats.chain.missed++; this.stats.last = 'chain miss';
+    b.res = -1; this.stats.chain.missed++; this.stats.last = 'chain miss'; this.host.log('qte chain miss ' + (this.bi + 1) + '/' + this.beats.length);
     this.ui.hideAll(); if (this.ringW) this.ringW.visible = false;
     // the blow lands on her; the rest of the string still comes — she is free to get out of it
     h.inv = 0; h.scriptPose = null; this.stage = 'tail'; this.camIn = false; this.camT = 0; this.cool = 5; this.host.inp.latch(false);
@@ -520,7 +522,7 @@ export class Duel {
     if (this.bi >= this.beats.length) { this.releaseFoe(f, 0); setFoeState(f, 'recover', 0.6); f.attacking = false; markCalm(); this.stage = 'out'; }
   }
   private chainWin(h: Hero, f: Foe) {
-    this.stage = 'win'; this.stats.chain.full++; this.stats.last = 'chain full'; this.endT = this.t + 0.55;
+    this.stage = 'win'; this.stats.chain.full++; this.host.log('qte chain full ' + this.beats.length); this.stats.last = 'chain full'; this.endT = this.t + 0.55;
     this.ui.hideAll(); if (this.ringW) this.ringW.visible = false;
     // every blow caught: he is open — she turns the last one aside and cuts back through him (slowed, the camera in close)
     const dir = this.u.clone();

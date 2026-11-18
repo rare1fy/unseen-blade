@@ -1303,7 +1303,7 @@ export class ActShow {
     // (not in the prologue — 打石雷 there is the scripted fall at a fifth of his life, a QTE must not take that blow; not with 不见刀's
     //  ring up or its scene playing, the cards, a 刀谱's demonstration, a scripted pose)
     canRun: forced => (this.phase === 'fight' || (!!forced && this.phase === 'yard')) && (!this.prologue || !!forced) && !this.proFalling && this.qteT < 0 && !this.ultOn && !this.cards.on && !this.demo.on && !this.dialogue.on && !this.timeline.on && !PAUSE.on,
-    clamp: (p, r) => this.clamp(p, r), solids: () => this.solids.list, bannerY: () => this.banner.bottomY,
+    clamp: (p, r) => this.clamp(p, r), solids: () => this.solids.list, bannerY: () => this.banner.bottomY, log: s => this.log.push(s),
     hitFoe: (f, dmg, from, o) => this.hitFoe(f, dmg, from, o),
     feel: dir => this.feel('rel', true, 1, dir),
     hurtHero: (dmg, from, f) => this.hurtHero(dmg, from, f),
