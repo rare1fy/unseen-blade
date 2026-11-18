@@ -203,10 +203,11 @@ export function assemble(spec: Spec, reg: Registry): { def: SceneDef; report: Re
         }
       }
       loc.far?.(c, { layout, p: place(0, 0, 0, 3) });
-      if (spec.season === 'winter') snowPass(c, walk);
+      if (spec.season === 'winter' && !loc.noSnow) snowPass(c, walk);
       buildFlora(c);
       loc.dress?.(c, { layout, p: place(0, 0, 0, 4), clear: [...walk, ...arenaClear] });
-      for (const a of weatherAmbient(spec.weather, spec.season, spec.time, spec.locale.startsWith('hj_'))) c.ambient(a);
+      // (11-18: every region's places are Chinese — yellow-brown leaves, not red maple; a burned place has none)
+      for (const a of weatherAmbient(spec.weather, spec.season, spec.time, /^(hj|ly|xp|wl|cx)_/.test(spec.locale))) if (!(loc.noLeaves && a.kind === 'leaves')) c.ambient(a);
       report.lights = live.lights;
       if (live.lights >= MAX_LIGHTS) report.warnings.push(`light budget reached (${MAX_LIGHTS})`);
       // glow cap (11-15 mixed sheet: some lantern / sign faces bloomed into white glare at dusk): every glowing cell keeps its hue

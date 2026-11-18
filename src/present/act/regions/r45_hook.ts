@@ -6,7 +6,7 @@
 //   · 看不见的敌人（水下的水鬼、烟里的死士、黑暗里的崔玄）：她的出刀吸附、飞镖不找它，头顶不出血条、脚下不出影子；
 //   · 击筑客的筑声盖住她的耳朵：附近敌人的预警只在最后 0.45 秒亮；
 //   · 头目登场：横幅（名号 · 名字、副标题）+ 头顶一句话（agy 写），不放褚雷的过场；
-//   · 调试：__dh.region(4, room) 拼第四关第 room 间、刷这关的兵；__dh.regionBoss(4)；__dh.regionFoe(kind, elite)；__dh.r45()。
+//   · 调试：__dh.regionFoe(kind, elite)；__dh.r45()（拼某关某间用 show.ts 的 __dh.region(n, room, type) / __dh.boss(n)，n 从 0 起）。
 import * as THREE from 'three';
 import { V3, R } from '../../engine/world';
 import { after, shake } from '../../engine/clock';
@@ -23,15 +23,10 @@ import { inside } from '../tele';
 import { TUNE } from '../tune';
 import { WULIN_LOCALES } from '../../asm/wulin';
 import { CUI_LOCALES } from '../../asm/cui';
-import { REGION_4 } from './r4';
-import { REGION_5 } from './r5';
-import type { RegionDef } from '../regionDef';
-import type { RoomType } from '../run';
 import { Barks } from '../barks';
 
 addLocales(WULIN_LOCALES); addLocales(CUI_LOCALES);
 
-const REGIONS: Record<number, RegionDef> = { 4: REGION_4, 5: REGION_5 };
 /** the bosses' arrival lines (agy): over his head as he comes in */
 export const ARRIVAL: Partial<Record<EKind, string>> = { wl_boss: '那碗姜汤……是你？瞎子也配寻仇？', cx_boss: '天下如棋，你这弃子，走得太远了。' };
 /** the hero's blows a guard (a shield, a parrying sword) never turns: the room's props, the ultimate, the parry's own reflect */
@@ -77,7 +72,10 @@ export function installR45(show: unknown) {
     hit0(f, dmg, from, o);
   };
   // ---- the hidden ones are not among the foes the hero's aim and darts look at, nor under the HUD's bars (a boss keeps its top bar)
-  Object.defineProperty(S.heroWorld, 'foes', { get: () => all.filter(f => !hiddenFoe(f)), configurable: true });
+  // (merge 11-18: show.ts sets heroWorld.foes every frame too — regions two / three hide their 死士 / 水鬼 that way — so the property keeps
+  // what it is given and filters this region's hidden ones on top; a getter alone threw on that assignment every frame)
+  let given: Foe[] = all;
+  Object.defineProperty(S.heroWorld, 'foes', { get: () => given.filter(f => !hiddenFoe(f)), set: (v: Foe[]) => { given = v; }, configurable: true });
   const hudUp = S.hud.update.bind(S.hud);
   S.hud.update = (dt: number, inp: unknown, foes: Foe[]) => hudUp(dt, inp, foes.filter(f => !hiddenFoe(f) || isBoss(f)));
   // ---- the boss of region four / five comes in its own way: the banner, a roar, its line over its head (no 褚雷 cutscene)
@@ -176,18 +174,7 @@ export function installR45(show: unknown) {
   };
   // ---- the debug entries
   dh.add({
-    /** a room of region n (4 / 5): room = 0.. (a fight of that depth), 'elite', or 'boss' — built on the region's places with its waves */
-    region: (n = 4, room: number | 'elite' | 'boss' = 1) => {
-      const R0 = REGIONS[n]; if (!R0) return 'no region ' + n;
-      const type: RoomType = room === 'boss' ? 'boss' : room === 'elite' ? 'elite' : 'fight', depth = typeof room === 'number' ? room : 2;
-      const locale = type === 'boss' ? R0.bossLocale : R0.locales[(typeof room === 'number' ? room : 1) % R0.locales.length];
-      // (room 1..4 of the old run: never the last room, whose clearing plays 褚雷's ending)
-      S.plan = { type, locale, reward: type === 'boss' ? null : { k: 'boon' }, waves: type === 'boss' ? R0.bossWaves.map(w => w.slice()) : R0.waves(type, depth, Math.random) };
-      S.locale = locale; S.room = type === 'boss' ? 4 : Math.max(1, Math.min(3, depth)); S.forceSpec = R0.spec ? { ...R0.spec } : null;
-      S.buildRoom(false); S.forceSpec = null;
-      return { locale, waves: S.plan.waves };
-    },
-    regionBoss: (n = 4) => (dh.api.region as (n: number, r: string) => unknown)(n, 'boss'),
+    // (the region rooms themselves: show.ts __dh.region(n, room, type) / __dh.boss(n), n from 0 — 第四关 = 3, 第五关 = 4)
     /** a foe of regions four / five in front of the hero */
     regionFoe: (kind: EKind, elite = false, d = 4) => { const h = S.hero, p = h.pos.clone().add(h.a.fwd().multiplyScalar(d)); const f = spawnFoe(kind, p, h.pos.clone(), elite); f.st = 'move'; all.push(f); return f.uid; },
     /** captures / tests: the foes' state */

@@ -101,20 +101,44 @@ const FILLER: Group[] = [
 ];
 
 // ------------------------------------------------------------------ ground: mud and packed earth, plank walkways, a trodden square
+// (主会话 11-18: the floor was two browns random per 7-cell square — the 逐格随机碎点 the user banned. Now every change of colour or
+// material is a big planned shape: the trodden square in one earth tone with a darker band of wheel ruts round it, two or three large
+// puddles of wet mud (rectangles, the seed picks where), straw mats laid in front of each wing (where the tents stand), a scorched
+// patch round each camp fire's place, the plank walkways in one board tone with straight seams; the ground beyond in one dark tone.)
+/** the floor's planned patches (m), from the seed: puddles, mats, burns */
+function campPatches(seed: number) {
+  const r = (k: number) => hash(seed, k, 731), out: Array<{ r: Rect; col: number; seam?: number }> = [];
+  const P = PLAY, W = P.x1 - P.x0, D = P.z1 - P.z0;
+  // two or three wet-mud puddles, each a big rectangle with a smaller one overlapping it (an L / T outline, never a speckle)
+  const n = 2 + (r(1) < 0.5 ? 1 : 0);
+  for (let i = 0; i < n; i++) {
+    const cx = P.x0 + W * (0.2 + 0.6 * r(10 + i)), cz = P.z0 + D * (0.18 + 0.5 * r(20 + i)), hw = 1.2 + r(30 + i) * 1.4, hd = 0.8 + r(40 + i) * 0.9;
+    out.push({ r: { x0: cx - hw, x1: cx + hw, z0: cz - hd, z1: cz + hd }, col: WL.mud });
+    const s = r(50 + i) < 0.5 ? -1 : 1; out.push({ r: { x0: cx + s * hw * 0.3 - 0.7, x1: cx + s * hw * 0.3 + 0.7, z0: cz + hd - 0.2, z1: cz + hd + 1.0 }, col: WL.mud });
+  }
+  // straw mats in front of both wings (one long mat each side, plain straw, its edge a darker binding) — 主会话 11-18: the old mats
+  // had a seam every 20 cells and read as stripes
+  for (const s of [-1, 1]) { const x0 = s < 0 ? P.x0 + 0.3 : P.x1 - 2.1, x1 = x0 + 1.8; out.push({ r: { x0, x1, z0: P.z0 + D * 0.2, z1: P.z0 + D * 0.62 }, col: 0x8a7a4e, seam: 0x6a5c3a }); }
+  // two scorched patches (old fires), a square of char with a ring of ash
+  for (let i = 0; i < 2; i++) { const cx = P.x0 + W * (0.25 + 0.5 * r(60 + i)), cz = P.z0 + D * (0.55 + 0.25 * r(70 + i)); out.push({ r: { x0: cx - 1.0, x1: cx + 1.0, z0: cz - 1.0, z1: cz + 1.0 }, col: WL.ash }, { r: { x0: cx - 0.6, x1: cx + 0.6, z0: cz - 0.6, z1: cz + 0.6 }, col: WL.char }); }
+  return out;
+}
 function floor(c: Ctx, f: { layout: Layout; p: Place }) {
-  const w = c.w, sd = f.p.seed % 13, paths = f.layout.path;
+  const w = c.w, paths = f.layout.path, patches = campPatches(f.p.seed);
   const near = (r: Rect, x: number, z: number, m: number) => x > r.x0 - m && x < r.x1 + m && z > r.z0 - m && z < r.z1 + m;
   for (let X = M(AREA.x0 - 6); X <= M(AREA.x1 + 6); X++) for (let Z = M(AREA.z0 - 8); Z <= M(AREA.z1 + 4); Z++) {
     const x = (X + 0.5) * CELL, z = (Z + 0.5) * CELL; let col: number;
-    if (paths.some(r => near(r, x, z, 0))) {
-      // the plank walkways: boards across the way, a dark seam every 4
-      const along = paths.find(r => near(r, x, z, 0))!, ax = along.z1 - along.z0 > along.x1 - along.x0, k = ax ? Z : X;
-      col = ((k % 4) + 4) % 4 === 3 ? WL.deckJ : hash(Math.floor(k / 4), 0, 9) < 0.5 ? WL.deck : WL.plank;
+    const path = paths.find(r => near(r, x, z, 0));
+    if (path) {
+      // the plank walkways: one board tone, boards across the way, a dark seam every 5 cells, the two edge boards darker (the stringers)
+      const ax = path.z1 - path.z0 > path.x1 - path.x0, k = ax ? Z : X, edge = ax ? (x < path.x0 + 0.2 || x > path.x1 - 0.2) : (z < path.z0 + 0.2 || z > path.z1 - 0.2);
+      col = edge ? WL.deckD : ((k % 5) + 5) % 5 === 4 ? WL.deckJ : WL.plank;
     } else if (near(PLAY, x, z, 1.2)) {
-      // the trodden square: packed earth in big flat patches (whole 7-cell squares, never single cells), a few dark wet patches
-      const gx = Math.floor(X / 7), gz = Math.floor(Z / 7), h = hash(gx, gz, 21 + sd);
-      col = h < 0.12 ? WL.mud : h < 0.55 ? WL.earth : h < 0.85 ? WL.earthD : WL.earthL;
-    } else { const n = field(Math.floor(X / 4) / 4, Math.floor(Z / 4) / 4, sd + 3); col = n > 0.6 ? WL.mud : n > -0.3 ? WL.earthD : 0x4a4a3a; }
+      const p = patches.find(q => near(q.r, x, z, 0));
+      if (p) col = p.seam != null && !near(p.r, x, z, -0.12) ? p.seam : p.col;   // (a mat's binding: its one-cell edge)
+      else if (!near(PLAY, x, z, 0.4)) col = WL.earthD;   // the band of ruts round the square
+      else col = WL.earth;
+    } else col = 0x4e4a3e;   // beyond the square: one dark, packed tone (the tents and the stockade stand on it)
     w.set(X, -1, Z, col);
   }
 }

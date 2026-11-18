@@ -12,6 +12,7 @@ import type { Cast } from '../actors/cast';
 import { isGripHero } from './heroPose';
 import { poseShow } from './showPose';
 import { poseIai } from '../ronin/iaiPose';
+import { POSE_AFTER } from './poseHooks';
 
 const TIP: Record<string, [number, number]> = { warrior: [17, -3], boss_lich_forest: [29, 0], lego_warrior: [9, -3], lego_lich: [19, 0], fig_warrior: [19, -3], fig_lich: [29, 0] };
 
@@ -82,6 +83,12 @@ export class BattleActor extends BActor {
   protected pose(dt: number) {
     if (this.show && isGripHero(this.hid)) { poseShow(this); this.applyWarp(); return; }
     super.pose(dt);
+    // 11-18 (一局五关): a later region's foe adds its own layer over everything below (POSE_AFTER, by model id)
+    const after = POSE_AFTER[this.def.id]; if (after) { this.poseRest(dt); after(this.bones, this.t, this.act, this.off, this); return; }
+    this.poseRest(dt);
+  }
+  /** the run cycle, the low-HP sag and the named actions over the base pose (pose() runs this, then any POSE_AFTER layer) */
+  private poseRest(dt: number) {
     const b = this.bones, t = this.t, a = this.act, k = a ? a.k : 0, n = a?.name;
     // running (intro) and the summons' lurching walk
     this.runK += ((this.running ? 1 : 0) - this.runK) * Math.min(1, dt * 8);
