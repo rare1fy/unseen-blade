@@ -1,10 +1,10 @@
 """Subset the body-text font candidates (act-19) to the characters the game uses, as woff2 for inlining.
 Sources (all SIL OFL 1.1) live outside the repo in GameProtos/fonts/body_src/: LXGW WenKai GB Screen (霞鹜文楷 屏幕阅读版),
 Noto Serif SC (思源宋体, variable, instanced at wght 600), Noto Sans SC (思源黑体, variable, instanced at wght 500).
-Character set: printable ASCII + common CJK punctuation + every non-ASCII character in src/**/*.{ts,js,json}.
+Character set: printable ASCII + common CJK punctuation + every non-ASCII character in src/**/*.{ts,js,json}, including decoded translations.
 Re-run after adding player-facing copy:  python tools/subset_body_fonts.py
 """
-import os, pathlib, sys
+import json, pathlib
 from fontTools import subset
 from fontTools.ttLib import TTFont
 from fontTools.varLib import instancer
@@ -23,6 +23,9 @@ def game_chars():
         if p.suffix in ('.ts', '.js', '.json') and p.is_file():
             for ch in p.read_text(encoding='utf-8', errors='ignore'):
                 if ord(ch) > 0x7e: out.add(ch)
+    english = json.loads((ROOT / 'src/present/act/en.json').read_text(encoding='utf-8'))
+    for value in english.values():
+        out.update(value)
     return ''.join(sorted(out))
 
 def main():

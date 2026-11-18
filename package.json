@@ -13,7 +13,8 @@
     "vox": "vite-node tools/vox-export.ts --",
     "check": "npm run typecheck && npm test && npm run build",
     "script": "node tools/import-script.mjs",
-    "wx": "node tools/build-wechat.mjs"
+    "wx": "node tools/build-wechat.mjs",
+    "cg": "node tools/build-crazygames.mjs"
   },
   "dependencies": {
     "three": "0.162.0"

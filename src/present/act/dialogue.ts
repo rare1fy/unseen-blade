@@ -1,3 +1,4 @@
+import { language, t, wrapWords } from './i18n';
 // 立绘对话（act-20，用户：「对话就弄立绘对话的形式，不要用timeline演对话」；立绘风格是另一会话用户定的：老《三国志》街机、
 // 《吞食天地》《三国战纪》式的原创街机手绘像素立绘，见 docs/art/ART_DIRECTION.md 第 10 节）：
 // 底部一块深色底、细金红像素边的对话框（3D 薄板，UI 层），金色名字、米白正文、点阵字逐字显示；主角立绘在左，对方在右，
@@ -82,7 +83,7 @@ export class Dialogue {
   advance() {
     if (!this.on) return false;
     const line = this.lines[this.i];
-    if (line && this.shown < [...line.text].length) { this.shown = [...line.text].length; return true; }
+    if (line && this.shown < [...t(line.text)].length) { this.shown = [...t(line.text)].length; return true; }
     this.i++; this.shown = 0; this.t = 0;
     if (this.i >= this.lines.length) { this.close(); return true; }
     const sp = CAST[this.lines[this.i].who]; if (sp && this.lines[this.i].who !== 'act') this.setPortrait(sp.side, this.lines[this.i].who);
@@ -109,13 +110,23 @@ export class Dialogue {
     const nx = right ? c.width - Math.round(16 * dpr) - textW(name, nameS) : Math.round(16 * dpr);
     text(g, name, nx, Math.round(10 * dpr), nameS, NAME, 'left', '#05040a');
     // the line in the HD body font (the user: 说明文字那些高清), wrapped to the box (CJK breaks anywhere), shown up to n characters
-    const fpx = Math.round(fontPx(scale) * dpr), chars = [...line.text].slice(0, n), maxW = c.width - Math.round(32 * dpr), lineH = Math.round(fpx * 1.4);
+    const fpx = Math.round(fontPx(scale) * dpr), chars = [...t(line.text)].slice(0, n), maxW = c.width - Math.round(32 * dpr), lineH = Math.round(fpx * 1.4);
     let row = '', y = Math.round(10 * dpr) + PIX_H * nameS + Math.round(12 * dpr);
     const col = sp?.mute ? MUTE : BODY;
-    for (const ch of chars) { if (bodyW(row + ch, fpx) > maxW) { bodyText(g, row, Math.round(16 * dpr), y, fpx, col); row = ''; y += lineH; } row += ch; }
-    if (row) bodyText(g, row, Math.round(16 * dpr), y, fpx, col);
+    if (language === 'en') {
+      const x = Math.round(16 * dpr);
+      let left = n;
+      for (const full of wrapWords(t(line.text), maxW, text => bodyW(text, fpx))) {
+        if (left <= 0) break;
+        bodyText(g, full.slice(0, left), x, y, fpx, col);
+        left -= full.length + 1; y += lineH;
+      }
+    } else {
+      for (const ch of chars) { if (bodyW(row + ch, fpx) > maxW) { bodyText(g, row, Math.round(16 * dpr), y, fpx, col); row = ''; y += lineH; } row += ch; }
+      if (row) bodyText(g, row, Math.round(16 * dpr), y, fpx, col);
+    }
     // the "more" mark when the line is complete
-    if (n >= [...line.text].length) { const bx = c.width - Math.round(26 * dpr), by = c.height - Math.round(18 * dpr); g.fillStyle = NAME; for (let r = 0; r < 4; r++) g.fillRect(bx + r * dpr, by + r * dpr, (8 - r * 2) * dpr, dpr); }
+    if (n >= [...t(line.text)].length) { const bx = c.width - Math.round(26 * dpr), by = c.height - Math.round(18 * dpr); g.fillStyle = NAME; for (let r = 0; r < 4; r++) g.fillRect(bx + r * dpr, by + r * dpr, (8 - r * 2) * dpr, dpr); }
     this.boxTex?.dispose(); this.boxTex = new THREE.CanvasTexture(c); const hd = BODY_FONT.current !== 'pixel'; this.boxTex.magFilter = hd ? THREE.LinearFilter : THREE.NearestFilter; this.boxTex.minFilter = hd ? THREE.LinearFilter : THREE.NearestFilter; this.boxTex.generateMipmaps = false; this.boxTex.colorSpace = THREE.SRGBColorSpace;
     const fm = (this.box.material as THREE.MeshBasicMaterial[])[4]; fm.map = this.boxTex; fm.needsUpdate = true;
   }
@@ -127,10 +138,10 @@ export class Dialogue {
     }
     const L = this.L, line = this.lines[this.i]; if (!line) return;
     this.openT = Math.min(1, this.openT + dt * 5);
-    const total = [...line.text].length; this.t += dt; const n = Math.min(total, Math.floor(this.t * CPS) + 1);
+    const total = [...t(line.text)].length; this.t += dt; const n = Math.min(total, Math.floor(this.t * CPS * (language === 'en' ? 2.1 : 1)) + 1);
     if (n > this.shown) this.shown = n;
     // layout: the box across the bottom middle; pixel scale 2 on screens ≥ 600 px tall, else 1 (wrapped to two / three rows)
-    const scale = L.h >= 600 ? 2 : 1, rows = 2, hPx = Math.round(10 + PIX_H * scale + 12 + rows * Math.round(fontPx(scale) * 1.4) + 8), wPx = Math.round(Math.min(L.w * 0.62, 760));
+    const scale = L.h >= 600 ? 2 : 1, rows = language === 'en' ? 3 : 2, hPx = Math.round(10 + PIX_H * scale + 12 + rows * Math.round(fontPx(scale) * 1.4) + 8), wPx = Math.round(Math.min(L.w * 0.62, 760));
     const key = this.i * 10000 + this.shown * 2 + (this.shown >= total ? 1 : 0) + wPx * 1e7 + BODY_FONT.version * 1e11;
     if (key !== this.drawn) { this.drawn = key; this.paint(line, this.shown, wPx, hPx, scale); }
     const y = L.h - hPx / 2 - Math.max(10, L.h * 0.03) + (1 - this.openT) * 30;

@@ -2,6 +2,7 @@ import wenkaiUrl from '../../../fonts/body/wenkai.woff2?inline';
 import serifUrl from '../../../fonts/body/serif.woff2?inline';
 import sansUrl from '../../../fonts/body/sans.woff2?inline';
 import { text, textW, PIX_H } from '../v2/overlay';
+import { onLanguageChange, t } from '../act/i18n';
 
 export type BodyFont = 'wenkai' | 'serif' | 'sans' | 'pixel';
 export const BODY_FONT_NAME: Record<BodyFont, string> = { wenkai: '文楷', serif: '宋体', sans: '黑体', pixel: '像素' };
@@ -15,6 +16,7 @@ function savedFont(): BodyFont {
 export const BODY_FONT = { current: savedFont(), version: 0 };
 export function onBodyFontChange(fn: () => void) { listeners.add(fn); return () => listeners.delete(fn); }
 function changed() { BODY_FONT.version++; for (const fn of listeners) fn(); }
+onLanguageChange(changed);
 export function setBodyFont(font: BodyFont) {
   if (BODY_FONT.current === font) return;
   BODY_FONT.current = font;
@@ -54,12 +56,14 @@ function useFont(g: CanvasRenderingContext2D, px: number) {
 }
 export function bodyText(g: CanvasRenderingContext2D, value: string, x: number, y: number, px: number, color: string,
   align: 'left' | 'center' | 'right' = 'left', outline: string | null = null) {
+  value = t(value);
   if (BODY_FONT.current === 'pixel') return text(g, value, x, y, Math.max(1, Math.round(px / PIX_H)), color, align, outline);
   g.save(); useFont(g, px); g.textAlign = align; g.fillStyle = color;
   if (outline) { g.strokeStyle = outline; g.lineWidth = Math.max(1, Math.min(2, px * 0.1)); g.lineJoin = 'round'; g.strokeText(value, x, y); }
   g.fillText(value, x, y); g.restore();
 }
 export function bodyW(value: string, px: number) {
+  value = t(value);
   if (BODY_FONT.current === 'pixel') return textW(value, Math.max(1, Math.round(px / PIX_H)));
   if (typeof document === 'undefined') return value.length * px;
   const g = measureCtx ?? (measureCtx = document.createElement('canvas').getContext('2d')!);

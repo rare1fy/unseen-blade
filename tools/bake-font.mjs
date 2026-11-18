@@ -3,7 +3,7 @@
 // Font: 「长坂点宋 16」 ChangBanDianSong 16 SC (16px bitmap bold Song, SIL OFL 1.1, github.com/yzdnn/ChangBanDianSong-16, v1.3.2) —
 // act-34 用户：「我们的长坂点宋字体要用16号的版本。」(the 12 px one was the user's pick on 2026-11-16); any character it lacks falls back to Fusion Pixel 12px (fonts/fusion-pixel, also OFL). Rasterised in headless Chrome
 // (tools/cdp.mjs drives the installed Chrome). Character set: GB2312 level-1 + ASCII + common CJK punctuation + every non-ASCII char in
-// src/**/*.{ts,js,json}.
+// src/**/*.{ts,js,json}, including decoded translations from en.json.
 // Usage: node tools/bake-font.mjs [--extra "字符"]
 import http from 'node:http';
 import fs from 'node:fs';
@@ -25,6 +25,8 @@ export function scanGameChars() {
   const add = f => { if (!fs.existsSync(f)) return; for (const ch of fs.readFileSync(f, 'utf8')) if (ch.codePointAt(0) > 0x7e) out.add(ch); };
   const walk = d => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) walk(p); else if (/\.(ts|js|json)$/.test(e.name)) add(p); } };
   walk(path.join(ROOT, 'src'));
+  const english = JSON.parse(fs.readFileSync(path.join(ROOT, 'src/present/act/en.json'), 'utf8'));
+  for (const value of Object.values(english)) for (const ch of value) if (ch.codePointAt(0) > 0x7e) out.add(ch);
   return [...out].join('');
 }
 

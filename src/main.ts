@@ -1,5 +1,6 @@
 // 不见刀 boot: platform → renderer + post (the 3D-pixel look) → the action game (present/act/show.ts).
 import { initPlatform, G } from './platform/index';
+import { CRAZYGAMES, initCrazyGames, finishLoading, reportGameplay } from './platform/crazygames';
 import { readFlags } from './debug/flags';
 import { dh } from './debug/dh';
 import { createGfx } from './present/engine/gfx';
@@ -26,13 +27,13 @@ const TEST: { fixedTime?: number; preserve?: boolean } = G.__PXUI_TEST || {};
 // the haptics switch in the tuning panel is remembered on the device
 try { if (localStorage.getItem('ub.vibe') === '0') VIBE.on = false; } catch { /* private mode */ }
 const platform = initPlatform();
-const flags = readFlags(k => platform.query(k));
+const flags = readFlags(k => CRAZYGAMES ? null : platform.query(k));
 const canvas = platform.createCanvas();
 // the 3D-pixel render style (look/pixel.ts): #px1 / #px2 / #px3 or ?px=1|2|3; P toggles, [ ] pixel size
-readPixelFlag(typeof location !== 'undefined' ? location.hash.slice(1) : '', k => platform.query(k));
+if (!CRAZYGAMES) readPixelFlag(typeof location !== 'undefined' ? location.hash.slice(1) : '', k => platform.query(k));
 initQuality(platform);   // (11-18 微信帧率: the quality tier, before the renderer sizes its targets)
 const gfx = createGfx(platform, canvas, { preserve: !!TEST.preserve });
-installPixelKeys();
+if (!CRAZYGAMES) installPixelKeys();
 initParticles('soft'); initPrims();
 let frames = 0;
 
@@ -57,15 +58,21 @@ dh.add({
 });
 dh.install();
 
-fontsReady.then(() => {
+(CRAZYGAMES ? Promise.all([initCrazyGames(), fontsReady]) : fontsReady).then(() => {
   // 2x pixels by default on every device (act-14 用户在手机上：「我要2x」, which overrides the old 「手机上 1x」); the choice made in
   // the tuning panel is remembered on the device; the URL (px1 / px2 / px3, ?px=) and the [ ] / P keys still choose
   { const href = typeof location !== 'undefined' ? location.href : '';
     let saved: string | null = null; try { saved = localStorage.getItem('ub.px'); } catch { /* private mode */ }
-    if (!/[#&?]px/.test(href)) { if (saved === 'off') setPixel(false); else setPixel(true, saved && /^[123]$/.test(saved) ? +saved : 2); } }
+    if (CRAZYGAMES || !/[#&?]px/.test(href)) { if (saved === 'off') setPixel(false); else setPixel(true, saved && /^[123]$/.test(saved) ? +saved : 2); } }
   try {
     const A = new ActShow(platform); G.__act = A;
-    gfx.start(() => {}, () => { A.L.renderText(gfx.renderer); A.ov.render(gfx.renderer); frames++; });
+    gfx.start(() => {}, () => {
+      A.L.renderText(gfx.renderer); A.ov.render(gfx.renderer); frames++;
+      if (CRAZYGAMES) {
+        if (frames === 1) finishLoading();
+        reportGameplay(A.phase === 'fight' && !A.pause.on && !A.cards.on && !A.dialogue.on && !A.timeline.on);
+      }
+    });
     dh.ready();
   } catch (e) { platform.log('[act] ' + (((e as Error) && (e as Error).stack) || e)); dh.fail(e); }
 });

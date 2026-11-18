@@ -4,6 +4,8 @@ declare const __DEV__: boolean;
 declare const __BUILD__: string;
 /** the WeChat mini-game bundle (vite build --mode wechat) */
 declare const __WX__: boolean;
+declare const __CG__: boolean;
+declare const __LANG__: 'zh' | 'en';
 
 /** WeChat / Douyin mini-game global object (absent in browsers). */
 declare const GameGlobal: any;
