@@ -1367,3 +1367,13 @@
 - 别人的做法：three.js 进微信小游戏，一条路是 three-platformize（构建时把 three 里的浏览器接口换成平台对象），一条路是 weapp-adapter 这类全局垫片（我们用的是 pxui 的垫片 + `wechat/glue.js`，游戏已经能起来，这条路不换）。上传时微信的编译不转译新语法，社区的做法是**构建时用 Babel / esbuild 降到 ES2015**，「增强编译」时好时坏不靠它。主包上传上限 4 MB、总 30 MB（Cocos 3.8 文档与社区一致；用户记得的 20 MB 拿不准，按 4 MB 做）。
 - 做法：微信构建 target es2015（esbuild 把 `?.`、`??`、`**`、async 等降下去）；`wechat/glue.js` 是手写的，改成 ES2015；整个包里唯一剩下的动态 `import()` 是 pxui 浏览器平台的界面字体热更新，小游戏里从不执行，在微信构建里换成 `Promise.reject`。`npm run wx` 用 acorn 按 ES2015 把整个 game.js 解析一遍，过不了就停下（第一次就抓到了那个 `import()`）。
 - 包体：act-60 起正文字体在微信里是 ttf（约 2.6 MB），主包涨到 5.0 MB——挪进 `fonts` 分包，`bodyFont.ts` 在小游戏里先 `wx.loadSubpackage('fonts')` 再 `wx.loadFont`，游戏不等它、先用设备字体，加载好了重画文字。主包 2.5 MB，四个分包各 2.6～3.7 MB，合计 15.3 MB；`npm run wx` 超过主包 4 MB / 合计 30 MB 会报错。
+
+### 第一次上真机：只有标题（11-18，act-65）
+
+用户：「我把包上传上去，手机上打开画面上还是只有一个标题……出了标题的其他游戏内容都没渲染出来。」手机 vConsole 日志：四条「vox: can't read ../../../vox/*.vox <TypeError: wx.base64ToArrayBuffer is not a function>」，然后是 three 的「EXT_blend_minmax / OES_vertex_array_object extension not supported」、我们自己的「WebGL1 without instancing…」、一串「gl.UNPACK_COLORSPACE_CONVERSION_WEBGL is not supported in wechat」「sRGBToLinear(): Unsupported image type」。
+
+- 根子：three.js r162 认 WebGL2 的那一句是 `typeof WebGL2RenderingContext !== 'undefined' && gl.constructor.name === 'WebGL2RenderingContext'`；微信给的是真 WebGL2 上下文，却没有这个全局类（社区里 Fukaki-Ato 的「修正 WebGL2 误判」PR 是同一个坑）。于是 three 在 WebGL2 上下文上走 WebGL1：去要 WebGL1 的扩展（实例化、浮点贴图、求导、深度贴图、VAO…）全是空，sRGB 贴图按 WebGL1 在 CPU 上转（就是那串 sRGBToLinear 警告）。开发者工具里的「没有实例化 / 浮点贴图 / 求导」（act-58～61）也是它——我当时当成「模拟器的 WebGL 弱」打了几轮补丁，没找到根。
+- 改：`wechat/glue.js` 里 `var WebGL2RenderingContext = GameGlobal.WebGL2RenderingContext || function WebGL2RenderingContext() {}`（游戏代码和它在同一个 game.js 作用域里，就近解析到它）；包一层主画布的 `getContext`：拿到 WebGL2 时，`constructor.name` 不对就补成这个函数；缺 `texStorage2D` / `createVertexArray` / `texImage3D` / `drawArraysInstanced` 的「半个 WebGL2」直接不给，three 退回 WebGL1——那时 act-59～61 的退让（不画实例化特效、不合批、不画倒角线、物理材质不求导）接得住。
+- 手机上没有 `atob`，glue 的后备用的 `wx.base64ToArrayBuffer` 也不存在：内联成 base64 的 .vox（用户在 MagicaVoxel 里改的主角）全读不进来。换成纯 JS 的 base64 解码（和 Node 的结果逐字节对过，含 20 万字节的随机数据）。
+- 诊断：测试阶段的微信包里，第一条错误（抛出的、未处理的 Promise、three 关于着色器 / 渲染器的 console.error）用 `wx.showModal` 弹出来——原生对话框不依赖 WebGL，画面坏了也看得见。
+- 替身页（`wechat/devtools-sim.html`）默认改成微信那样：WebGL2 给、全局类拿走、`atob` 拿走；`?gl1=1` 是只有 WebGL1 的机器。旧包在里面复现了用户开发者工具里那两条扩展警告，新包认对 WebGL2、四个 .vox 都读到、0 报错。
