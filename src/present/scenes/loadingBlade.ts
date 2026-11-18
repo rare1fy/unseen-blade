@@ -68,10 +68,12 @@ function makeLayer() {
   block(tassel, 0xac3427, -0.02, -0.055, 0, 0.024, 0.13, 0.026);
   block(tassel, 0x923229, -0.05, -0.065, -0.008, 0.021, 0.1, 0.022);
 }
-const ARRIVAL = 225, APPROACH = 140, WINDUP = 96, DEPARTURE = 150;
+const ARRIVAL = 225, APPROACH = 150, WINDUP = 96, DEPARTURE = 150;
 const SETTLED = 0.30, AIM = 0.16;
+const SPIN_RAMP = 145, REVOLUTION = 720;
+const OVERSHOOT = 0.10, DRAW_BACK = 0.12;
 type Phase = 'enter' | 'work' | 'ready' | 'windup' | 'exit';
-type BladeState = { phase: Phase; since: number; start: number; frames: number; releaseAngle: number };
+type BladeState = { phase: Phase; since: number; start: number; frames: number; brakeAge: number };
 let active: BladeState | null = null;
 let warmDestination: (() => Promise<void>) | undefined;
 export function setLoadingWarmup(warm: () => Promise<void>) { warmDestination = warm; }
@@ -81,14 +83,20 @@ export function runRoomBuild<T>(steps: BuildSteps<T>) {
   return bladeWorking() ? loadInFrames(steps) : finishBuild(steps);
 }
 const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-const idleAngle = (age: number) => SETTLED + Math.max(0, age - ARRIVAL) * 0.0038;
+const smooth = (t: number) => t * t * (3 - 2 * t);
+function spinPhase(age: number) {
+  // Integrate the acceleration so both the angle and speed join the steady spin continuously.
+  const t = Math.max(0, age - APPROACH);
+  const effectiveTime = t < SPIN_RAMP ? t * t / (2 * SPIN_RAMP) : t - SPIN_RAMP / 2;
+  return effectiveTime * (2 * Math.PI / REVOLUTION);
+}
 
 export async function withLoadingBlade(work: () => void | Promise<void>, cover: WipeLook = 'bamboo') {
   if (active) throw new Error('A scene transition is already running');
   makeLayer();
   bamboo.visible = cover === 'bamboo';
   pillar.visible = cover === 'pillar';
-  const state: BladeState = { phase: 'enter', since: 0, start: 0, frames: 0, releaseAngle: 0 };
+  const state: BladeState = { phase: 'enter', since: 0, start: 0, frames: 0, brakeAge: 0 };
   active = state;
   try {
     while (!state.frames || performance.now() - state.start < ARRIVAL) await nextFrame();
@@ -103,7 +111,7 @@ export async function withLoadingBlade(work: () => void | Promise<void>, cover: 
     while (!state.frames) await nextFrame();
     state.phase = 'windup';
     state.since = performance.now();
-    state.releaseAngle = idleAngle(state.since - state.start);
+    state.brakeAge = state.since - state.start;
     while (performance.now() - state.since < WINDUP) await nextFrame();
     state.phase = 'exit';
     state.since = performance.now();
@@ -120,43 +128,51 @@ export function drawLoadingBlade(renderer: THREE.WebGLRenderer, aspect: number) 
   const age = firstFrame ? 0 : now - state.start;
   const elapsed = now - state.since;
   const reach = aspect + 0.46;
-  let x = 0, y = 0, angle = idleAngle(age), coverX = 0;
-  let roll = 0.26 + 0.30 * Math.sin(Math.max(0, age - ARRIVAL) * 0.004);
+  const releasing = state.phase === 'windup' || state.phase === 'exit';
+  const brake = state.phase === 'exit' ? 1 : Math.min(1, elapsed / WINDUP);
+  // Slow the same spin to rest along its current heading, regardless of when loading finishes.
+  const spinAge = releasing ? state.brakeAge + WINDUP * (brake - 0.5 * brake * brake) : age;
+  const phase = spinPhase(spinAge);
+  let x = 0, y = 0, coverX = 0;
+  let angle = SETTLED + phase - 0.12 * Math.sin(2 * phase);
+  let roll = 0.26 + 0.26 * Math.sin(phase);
   let tasselAngle = -0.14;
 
   if (state.phase === 'enter') {
     coverX = -2.3 * aspect * (1 - Math.min(1, age / APPROACH)) ** 2;
     if (age < APPROACH) {
       const t = age / APPROACH;
-      x = 0.085 - (reach + 0.085) * (1 - t);
-      angle = AIM + 0.06 * t;
-      tasselAngle = -1.05;
+      // Fast through the middle of a shallow arc, then bleed speed into the overshoot.
+      const travel = 1 - (1 - t) ** 3 * (1 + 3 * t);
+      x = -reach + (reach + OVERSHOOT) * travel;
+      y = x * Math.tan(AIM) - 0.14 * Math.sin(Math.PI * travel);
+      angle = AIM - 0.12 + (SETTLED - AIM + 0.12) * travel;
+      tasselAngle = -0.14 - 0.62 * travel - 0.65 * Math.sin(Math.PI * travel);
     } else {
       const t = Math.min(1, (age - APPROACH) / (ARRIVAL - APPROACH));
-      const recoil = (1 - t) ** 2;
-      x = 0.085 * recoil;
-      angle = SETTLED + (AIM + 0.06 - SETTLED) * recoil + 0.22 * Math.sin(Math.PI * t) * (1 - t);
-      tasselAngle = -0.14 - 0.91 * recoil + 0.58 * Math.sin(Math.PI * t);
+      const recoil = 1 - smooth(t);
+      x = OVERSHOOT * recoil;
+      y = x * Math.tan(AIM);
+      tasselAngle += -0.62 * recoil + 0.40 * Math.sin(Math.PI * t) ** 2;
     }
-    y = x * Math.tan(AIM);
-  } else if (state.phase === 'windup') {
-    const t = Math.min(1, elapsed / WINDUP);
-    const ease = t * t * (3 - 2 * t);
-    const turn = Math.atan2(Math.sin(AIM - state.releaseAngle), Math.cos(AIM - state.releaseAngle));
-    angle = state.releaseAngle + turn * ease;
-    x = -0.09 * ease;
-    y = x * Math.tan(AIM);
-    roll *= 1 - ease;
-    tasselAngle += 0.39 * ease;
-  } else if (state.phase === 'exit') {
-    const t = Math.min(1, elapsed / DEPARTURE);
-    const thrust = t * (0.48 + 0.52 * t);
-    x = -0.09 + (reach + 0.09) * thrust;
-    y = x * Math.tan(AIM);
-    angle = AIM;
-    roll = -0.28 * t;
-    tasselAngle = 0.25 - 1.40 * Math.min(1, t * 3);
-    coverX = 2.3 * aspect * thrust;
+  } else if (releasing) {
+    const dx = Math.cos(angle), dy = Math.sin(angle);
+    const anticipation = smooth(brake);
+    let distance = -DRAW_BACK * anticipation;
+    roll *= 1 - anticipation;
+    tasselAngle += 0.39 * anticipation;
+    if (state.phase === 'exit') {
+      const t = Math.min(1, elapsed / DEPARTURE);
+      // Accelerate tip-first past whichever edge lies along the release heading.
+      const edge = Math.min(reach / Math.max(0.001, Math.abs(dx)), 1.46 / Math.max(0.001, Math.abs(dy)));
+      const thrust = t * t * (0.65 + 0.35 * t);
+      distance += (edge + DRAW_BACK) * thrust;
+      roll = -0.28 * smooth(t);
+      tasselAngle -= 1.40 * smooth(Math.min(1, t * 2.4));
+      coverX = 2.3 * aspect * thrust;
+    }
+    x = distance * dx;
+    y = distance * dy;
   }
 
   camera.left = -aspect;
