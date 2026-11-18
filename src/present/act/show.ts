@@ -62,6 +62,7 @@ const PIT_SPEED = 1.2;
 import { pickSpec } from '../asm/pick';
 import { exitInfo, withExits, type ExitId, type ExitInfo } from '../asm/exits';
 import { MAP_BY_ID, mapShape, mapStage, pickMap } from '../asm/roomMaps';
+import { RoomPieces } from './puzzles';
 import type { Layout, Spec, Report } from '../asm/types';
 import { wipeTransit, WIPE } from '../scenes/transWipe';
 import type { RouteOpt } from '../../core/v2/ronin/chapter';
@@ -507,6 +508,9 @@ export class ActShow {
   /** 11-18 屋子形态: this room's floor grid (null = the act-19 rectangle), the shapes of the run's last rooms, a forced shape (__dh.shape) */
   grid: FloorGrid | null = null; private shapes: ShapeId[] = []; private forceShape: ShapeId | null = null; private forceSeed: number | null = null;
   /** 11-18 定死的屋子: the drawn rooms used this run; one forced by __dh.room */ private maps: string[] = []; private forceMap: string | null = null;
+  /** 11-18 定死的屋子: its moving pieces (doors, hollow walls, barricades, drop-bridges, bells, rewards — act/puzzles.ts); the floor's
+   *  pieces fought in turn (zone labels), which of them each wave is in, the next one she has to walk into before its wave comes */
+  pieces: RoomPieces | null = null; private stageZ: number[] = []; private stageOf: number[] = []; private waitZone = -1; private rewardsGot = 0;
   /** how long the last room took to build (ms, the place and its meshes; captures read it) */
   buildMs = 0;
   /** the foes going down into a pit (打出界): falling, then gone */
@@ -714,6 +718,8 @@ export class ActShow {
       // agents / captures: a fight-less room in one place (the scene builders check their place with it) — returns the assembler's report
       scene: (id: string, seed?: number, o: Partial<Spec> = {}) => { this.viewSpec = { ...o, locale: id, ...(seed != null ? { seed } : {}) }; this.room = 0; this.locale = id; this.buildRoom(true); this.viewSpec = null; const r = this.lastReport; return r ? { name: r.name, spec: r.spec, placed: r.placed.length, rejected: r.rejected.map(x => x.id + ':' + x.issues.map(i => i.kind).join('/')), empty: r.empty, warnings: r.warnings, lights: r.lights } : null; },
       // 11-18 屋子形态 (captures / tests): a fight room of this place in this shape (the next rooms pick their own again); null = pick
+      /** 11-18 定死的屋子: the room's puzzle pieces and their state; solve one */
+      puzzle: () => this.pieces?.list() ?? [], solve: (i: number) => this.pieces?.solve(i),
       /** 11-18 定死的屋子: build this drawn room (asm/roomMaps.ts id: crossroads / courtyards / islands …) as a fight room */
       room: (id: string, type: 'fight' | 'elite' = 'fight') => {
         const m = MAP_BY_ID[id]; if (!m) return null;
@@ -808,7 +814,7 @@ export class ActShow {
     try { localStorage.setItem('ub.title', String(n)); } catch { /* storage blocked */ }   // the last one shown opens next time
     // a room may be up (__dh.title from the yard): its actors go the way a room change sends them
     for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = [];
-    this.yard?.dispose(); this.yard = null; this.props?.dispose(); this.props = null; this.gates?.dispose(); this.gates = null; this.leaves?.dispose(); this.leaves = null; this.stations?.dispose(); this.stations = null; this.hero?.a.dispose();
+    this.yard?.dispose(); this.yard = null; this.props?.dispose(); this.props = null; this.gates?.dispose(); this.gates = null; this.pieces?.dispose(); this.pieces = null; this.leaves?.dispose(); this.leaves = null; this.stations?.dispose(); this.stations = null; this.hero?.a.dispose();
     this.clearNpcs();
     this.phase = 'title'; this.hud.on = false; this.hud.update(0, this.inp, []); this.banner.hide(); this.blob.visible = false; this.ring.visible = false; for (const m of this.shadows) m.visible = false;
     void playTitle(n, { ov: this.ov, L: this.L, hasSave, settings: () => this.pause.open('set', { fromTitle: true }), enter: k => { this.hud.on = true; if (k === 'continue') this.continueGame(); else void this.startNewGame(); } });
@@ -932,7 +938,7 @@ export class ActShow {
     audio.setRoom(ROOM_VERB[this.locale] ?? (this.room < 0 ? ROOM_VERB.yard : [0.6, 0.12]));
     for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = [];
     this.falling = [];
-    this.gates?.dispose(); this.gates = null; this.leaves?.dispose(); this.leaves = null; this.clearNpcs();
+    this.gates?.dispose(); this.gates = null; this.pieces?.dispose(); this.pieces = null; this.leaves?.dispose(); this.leaves = null; this.clearNpcs();
     for (const d of this.doors) d.g.parent?.remove(d.g); this.doors = []; this.stations?.dispose(); this.stations = null; this.coinsFx.clear();
     this.yard?.dispose(); this.yard = null; this.exitSign?.parent?.remove(this.exitSign); this.exitSign = null; this.barks?.clear();
     const hp = first || !this.hero ? TUNE.heroHp : this.hero.hp, maxHp = TUNE.heroHp, qi = first || !this.hero ? 0 : this.hero.qi;
@@ -975,6 +981,27 @@ export class ActShow {
         this.stage.root.add(brazier(px, pz)); this.solids.add({ kind: 'prop', shape: 'circle', x: px, z: pz, r: 0.42 });
       }
       this.gates = new Gates(this.stage.root, this.arena);
+      // 11-18 定死的屋子: the moving pieces, and the floor's pieces fought in turn (S's first, then on through its doors)
+      this.pieces = null; this.stageZ = []; this.stageOf = []; this.waitZone = -1; this.rewardsGot = 0;
+      const fsh = this.arena.shape;
+      if (fsh?.fixed && this.grid) {
+        const P = this.pieces = new RoomPieces(this.stage.root, fsh, this.grid, this.arena.style, spec.seed); this.props.onStrike = s => this.pieces?.strike(s);
+        // (the bell frames and the rope posts stand in the way like any post)
+        for (const m of fsh.fixed.marks) if (m.kind === 'bell' || m.kind === 'rope') this.solids.add({ kind: 'prop', shape: 'circle', x: m.x, z: m.z, r: m.kind === 'bell' ? 0.42 : 0.3 });
+        const seen = [P.zoneAt(fsh.enter[0], fsh.enter[1])];
+        while (seen.length < fsh.fixed.stages) {
+          const cur = seen[seen.length - 1], nx = P.pieces.filter(q => q.kind === 'door' && q.sides.includes(cur)).map(q => q.sides[0] === cur ? q.sides[1] : q.sides[0]).filter(z => z >= 0 && !seen.includes(z));
+          if (!nx.length) break; seen.push(nx[0]);
+        }
+        this.stageZ = seen;
+        // the plan's waves over the stages in order (a wave split in two when there are more stages than waves)
+        if (this.plan && seen.length > 1) {
+          const ws = this.plan.waves.map(w => w.slice());
+          while (ws.length < seen.length) { let bi = -1; ws.forEach((w, i) => { if (w.length > 1 && (bi < 0 || w.length > ws[bi].length)) bi = i; }); if (bi < 0) break; const w = ws[bi]; ws.splice(bi, 1, w.slice(0, Math.ceil(w.length / 2)), w.slice(Math.ceil(w.length / 2))); }
+          this.plan = { ...this.plan, waves: ws };
+          this.stageOf = ws.map((_, i) => Math.min(seen.length - 1, Math.floor(i * seen.length / ws.length)));
+        }
+      }
       // 11-18 敌人绕路: the way round also goes round the cover and every prop standing (the clamp pushes bodies off them; without this a
       // foe walking round a block stalls against a pot or a cart in the way — the push-out is straight back along its walk). Their
       // solids, grown by a man's half-width
@@ -1074,16 +1101,16 @@ export class ActShow {
       after(i * 0.28, () => {
         if (this.phase !== 'fight') return;
         let p = V3();
-        const gd = this.grid;
+        const gd = this.grid, sz = this.stageZ.length ? this.stageZ[this.stageOf[this.wave] ?? 0] : -1, zb = sz >= 0 ? this.pieces?.zoneBox(sz) : null;
         for (let t = 0; t < 40; t++) {
           // act-19 (2x stage): anywhere on the floor 5–12 m from the hero, clear of the walls' edge, the cover and the props;
           // 11-18 屋子形态: on the shape's floor (not in the water, on a bridge or in a walled-off part), and a walk away from her
-          p = V3(R(PLAY.x0 + 1.5, PLAY.x1 - 1.5), 0, R(PLAY.z0 + 1.5, PLAY.z1 - 2.5));
+          p = zb ? V3(R(zb.x0 + 0.8, zb.x1 - 0.8), 0, R(zb.z0 + 0.8, zb.z1 - 0.8)) : V3(R(PLAY.x0 + 1.5, PLAY.x1 - 1.5), 0, R(PLAY.z0 + 1.5, PLAY.z1 - 2.5));
           // (11-18 第三关: a 水鬼 comes up out of one of the room's pools — it hunts in the water; dry land is where it is weak)
           if (kindOr(k).kind === 'xp_diver' && this.pools.length) { const pl = this.pools[Math.floor(Math.random() * this.pools.length)]; p = V3(R(pl.x0 + 0.6, pl.x1 - 0.6), 0, R(pl.z0 + 0.6, pl.z1 - 0.6)); }
           if (EDEFS[kindOr(k).kind].boss) { const bm = gd?.sp.fixed?.boss; p = bm ? V3(bm[0], 0, bm[1]) : V3(0, 0, SZ(-4.6)); }   // any region boss stands at the back (a drawn room: at its B)
           const d = p.distanceTo(hp), onFloor = !gd || (gd.clear(p.x, p.z, 0.7) && !gd.sp.bridges.some(b => p.x > b.x0 - 1 && p.x < b.x1 + 1 && p.z > b.z0 - 1 && p.z < b.z1 + 1));
-          if (d > 5 && d < 12 && onFloor && this.foes.every(f => f.pos.distanceTo(p) > 1.4) && this.solids.free(p.x, p.z, 0.6, 0.3) && (!gd || t > 30 || gd.steps(p.x, p.z, hp.x, hp.z) >= 0)) break;
+          if ((sz < 0 ? d > 5 && d < 12 : t > 25 ? d > 3 : d > 5 && d < 12) && onFloor && (sz < 0 || this.pieces!.zoneAt(p.x, p.z) === sz) && this.foes.every(f => f.pos.distanceTo(p) > 1.4) && this.solids.free(p.x, p.z, 0.6, 0.3) && (!gd || t > 30 || gd.steps(p.x, p.z, hp.x, hp.z) >= 0)) break;
         }
         if (gd && gd.at(p.x, p.z) !== FLOOR) { const q = gd.nearestFloor(p.x, p.z); p.set(q[0], 0, q[1]); }
         // the plan's kind (黄巾 ids; 'kind*' = its elite) — the boss gets its banner: name and slogan from EDEFS
@@ -1629,7 +1656,7 @@ export class ActShow {
   private applyProps(r: { events: BEvent[]; damage: BDamage[] }, shown = false) {
     if (!this.props) return;
     if (!shown) this.props.present(r.events);
-    for (const e of r.events) if (e.k === 'boom') this.leaves?.blast(e.x, e.z, 4.5, 8);
+    for (const e of r.events) if (e.k === 'boom') { this.leaves?.blast(e.x, e.z, 4.5, 8); this.pieces?.boom(e.x, e.z, e.r); }
     for (const e of r.events) if (e.k === 'break' && e.drop) {
       if (e.drop.kind === 'coins') this.coinsFx.drop(V3(e.p.x, 0.3, e.p.z), e.drop.n, 1);
       else { this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + e.drop.n); this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp }); fxSparks(this.hero.a.chest(), 0x9aff9a, 10, 2); }
@@ -2107,7 +2134,12 @@ export class ActShow {
     if (!left && this.phase === 'fight') {
       const lastWave = this.wave >= (this.plan?.waves.length ?? 1) - 1;
       if (!boss) slowmo(lastWave ? 0.7 : 0.35, 0.3);
-      if (lastWave) after(1.0, () => this.roomClear()); else { this.wave++; after(0.9, () => { if (this.phase === 'fight') { this.banner.show(`第 ${this.wave + 1} 波`, '', 0.9); this.spawnWave(); } }); }
+      if (lastWave) after(1.0, () => this.roomClear());
+      else if (this.stageOf.length && this.stageOf[this.wave + 1] !== this.stageOf[this.wave]) {
+        // 11-18 定死的屋子: this piece of the floor is clear — its doors on to the next open; the next wave comes when she walks in there
+        const from = this.stageZ[this.stageOf[this.wave]], to = this.stageZ[this.stageOf[this.wave + 1]]; this.wave++;
+        after(0.6, () => { if (this.phase !== 'fight' || !this.pieces) return; for (const q of this.pieces.pieces) if (q.kind === 'door' && q.sides.includes(from) && q.sides.includes(to)) this.pieces.openPiece(q); this.waitZone = to; });
+      } else { this.wave++; after(0.9, () => { if (this.phase === 'fight') { this.banner.show(`第 ${this.wave + 1} 波`, '', 0.9); this.spawnWave(); } }); }
     }
   }
   private hurtHero(dmg: number, from: THREE.Vector3, attacker?: Foe) { // wp/boons: melee source is explicit
@@ -2142,6 +2174,7 @@ export class ActShow {
     // (act-50 用户：「我听线上版获胜和失败的声音还是老版的」: the clear was still the act-19 jingle — the user's win sound now, whole;
     //  it fades as she walks out of the room (or when a new piece of music starts))
     this.phase = 'pick'; cue('stingWin', 1); audio.duckMusic(0.35, 3.2);
+    if (this.pieces) for (const q of this.pieces.pieces) if (q.kind === 'door') this.pieces.openPiece(q);   // (11-18: a drawn room's side yards)
     this.banner.show('清场', '', 1.0, '#ffe6a0');
     await new Promise(r => after(0.9, () => r(null)));
     if (this.prologue) { this.openDoors(); return; }   // act-29: the prologue's road just goes on
@@ -2161,6 +2194,13 @@ export class ActShow {
       await this.boonPick();
     }
     this.openDoors();
+  }
+  /** 11-18 定死的屋子: a reward picked up (a hidden room's, an islet's): coins, a heal or (when the room is calm) a boon, by the room */
+  private async reward() {
+    const k = ((this.spec?.seed ?? 0) + this.rewardsGot++) % 3, calm = !this.foes.some(f => f.st !== 'dead' && f.kind !== 'dummy');
+    if (k === 1) { this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + Math.round(this.hero.maxHp * 0.25)); this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp }); this.banner.show('回复', '两成五生命', 1.0, '#9aff9a'); }
+    else if (k === 2 && calm && (this.phase === 'fight' || this.phase === 'doors')) await this.boonPick();
+    else { this.coinsFx.drop(this.hero.pos.clone().add(V3(0, 0, -0.6)), 10, 3); this.banner.show('铜钱', '30', 1.0, '#ffd24a'); }
   }
   /** three boons with rolled tiers — a 死士 room rolls better */
   private async boonPick() {
@@ -2404,6 +2444,11 @@ export class ActShow {
     (this.barks ??= new Barks(this.L)).update(rdt, (this.phase as string) === 'talk' || (this.phase as string) === 'cine' || this.dialogue.on);
     if (this.props && this.phase !== 'pick') this.applyProps(this.props.update(dt, this.targets()), true);   // act-19: fuses, fires, the falling pillars
     this.gates?.update(dt);
+    if (this.pieces && this.hero) {
+      for (const e of this.pieces.update(dt, this.hero.pos, !this.foes.some(f => f.st !== 'dead' && f.kind !== 'dummy'))) if (e.k === 'reward') void this.reward();
+      // 11-18 定死的屋子: she walked into the next piece of the floor — its wave
+      if (this.waitZone >= 0 && this.phase === 'fight' && this.pieces.zoneAt(this.hero.pos.x, this.hero.pos.z) === this.waitZone) { this.waitZone = -1; after(0.35, () => { if (this.phase === 'fight') this.spawnWave(); }); }
+    }
     // a rainy room: now and then lightning lights everything for a beat, the thunder a moment later
     tickSkyFlash(rdt);
     if (this.spec?.weather === 'rain' && (this.phase as string) !== 'opening') { this.lightningT -= rdt; if (this.lightningT <= 0) { this.lightningT = 7 + Math.random() * 9; flashSky(1); after(0.14, () => flashSky(0.7)); const d = 0.35 + Math.random() * 0.8; after(d, () => cue('thunder', 0.45)); } }
@@ -2588,6 +2633,11 @@ export class ActShow {
       if (this.botStuckT > 0.9) { const moved = h.pos.distanceTo(this.botLast); this.botLast.copy(h.pos); this.botStuckT = 0; if (moved < 0.35) { this.botUnstick = 0.7; this.botSide *= -1; } }
       if (this.botUnstick > 0) { this.botUnstick -= clock.rdt; v.addScaledVector(V3(v.z, 0, -v.x), 1.4 * this.botSide).normalize(); set('attack', this.botUnstick > 0.35 && this.botUnstick < 0.6); }
       I.move.x = v.x; I.move.y = -v.z; set('jump', false); return;
+    }
+    if (!live.length && this.waitZone >= 0 && this.pieces && this.grid) {
+      // 11-18 定死的屋子: on through the opened door to the next piece of the floor
+      const zb = this.pieces.zoneBox(this.waitZone), tx = (zb.x0 + zb.x1) / 2, tz = (zb.z0 + zb.z1) / 2, wd = this.grid.way(h.pos.x, h.pos.z, tx, tz, h.r);
+      const v = wd ? V3(wd[0], 0, wd[1]) : V3(tx - h.pos.x, 0, tz - h.pos.z).normalize(); I.move.x = v.x; I.move.y = -v.z; set('attack', false); return;
     }
     if (!live.length) { I.move.x = I.move.y = 0; set('attack', false); return; }
     const near = live.slice().sort((a, b) => a.pos.distanceTo(h.pos) - b.pos.distanceTo(h.pos))[0], d = near.pos.clone().sub(h.pos).setY(0), l = d.length();
