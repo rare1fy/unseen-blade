@@ -1334,6 +1334,15 @@
 - 改：垫片只在 `document` 不是真 `HTMLDocument` 时才改，改不动就跳过；全局 `localStorage` 也一样（模拟器里 `window.localStorage` 只有 getter）。立绘不再走 `THREE.TextureLoader`（它用 `document.createElementNS('img')`），改用平台层 `loadImage`：小游戏里 `wx.createImage`，网页里 `new Image()`。正文字体：`wx.loadFont` 没加载上时字体名是空的，拼出来的「24px , sans-serif」不是合法字体，画布就停在默认的 10 像素——改成空名字时用「24px sans-serif」。
 - 测法补上：`tools/wx-devtools-sim.mjs <工程目录>` + `wechat/devtools-sim.html`：普通网页里把 `document.createElement(NS)` 设成只读、装一个假 `wx`（画布、触摸、`createImage`、读包内文件、分包、存储）、`GameGlobal = window`，把 `game.js` 包在函数里执行（运行时是 `require` 它，顶层 `var` 是模块自己的）。旧包在这里同样起不来（报「只读属性」那一类），新包据点、战斗、立绘对话都正常。真机那种情况仍用无 DOM 沙盒测，两种都要过。
 
+### 一闪停顿缩短；不见刀单独一颗钮（11-18）
+
+用户：「一闪的顿帧时间有点太长了，稍微减短一点点。然后我感觉大招可以触发的时候应该在右手拇指区域一个额外的地方出现一个按钮，不应该还是按普攻，高速战斗的时候经常都按不到。按键映射成I和R2」。
+
+- 一闪：冲到头后世界停住的那一拍 `TUNE.iaiBeat` 0.3 → 0.22 秒。
+- 不见刀：触发条件照旧（杀气满三格，下一次完美闪避 / 破势时进入慢放的收拢），但收拢的金环和按的地方从攻击钮换成一颗**专门的钮**：平时不出现，触发那一刻在右手拇指区技能钮那一圈的上方弹出（金边铁盾、钮里是不见刀的图标、下面写「不见刀」和键位），金环往它身上收，环收到它身上那一段按下 = 放大招；早按 / 没按 = 错过，杀气留着。攻击钮在收拢期间照常是砍（不再把大招按掉，也不再被大招占住）。
+- 键位：新动作 `ult`（`input.ts` 的 `BtnName`），默认键盘 I、手柄 7（R2 / RT）；R2 原来是冲刺的第三个备用键，挪走（冲刺还有 B、RB）。旧存档里的键位表没有这一行：读档时补上默认，并把别的动作里撞上的备用键让出来。暂歇菜单「键位」多一行，可改。
+- 收拢的光圈（用户：「要变色才行吧，而且要有点光效，不然根本注意不到，也不知道到底什么时机是正确的」，`ironUi.ts QteRing`）：三层——钮外沿一道固定细金圈（目标：收到这里）、收拢的圈（开始是暗橙 0xc0501c，越收越暖到 0xffa040）、时机里（k 0.72～1.12）整圈换成亮白金、加粗 1.25 倍，外面一圈叠加发光的光晕先闪（亮度 1 → 0.33 秒退）再按 28 弧度/秒脉动，目标圈同时变亮；不见刀钮在进窗口那一下再跳一次（偏白金）；进窗口那一刻一声刀鸣（`bladeRing`）+ 轻震动。主角脚下那圈世界里的环也跟着：暗橙 → 时机里亮白、放大一点。
+
 - （11-18）发版时桌面不再出模型查看页 `不见刀_白发女模型.html`（用户：「不要模型页了」）；`?lab` 的模型查看页（`act/lab.ts`）保留。
 
 **又一个（act-57 → act-58）**：用户在开发者工具里打开 act-57：「TypeError: MiniProgramError Illegal invocation at HTMLDocument.makeElement [as createElement] (game.js:84)」。开发者工具的真 `document` 只有 `createElementNS` 是只读的，`createElement` 能改；游戏代码的作用域里没有 `HTMLDocument`（那个 `document` 来自别的页面环境），act-56 的 `document instanceof HTMLDocument` 永远是假，于是垫片照样把 `createElement` 换成了自己的，自己的再去调原来的 `createElement(name)`（没带 `this`）就是 Illegal invocation。改成按 `document.nodeType === 9` 认真的 `document`（跨环境也成立），真的一律不碰；`makeElement` 调原方法时带上 `this`。替身页照着改（只让 `createElementNS` 只读，`game.js` 在一个把 `HTMLDocument`、`Document` 遮成 `undefined` 的函数里跑），旧包在里面报的就是用户那一句。

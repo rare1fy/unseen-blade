@@ -8,16 +8,17 @@ import { clock } from '../engine/clock';
 
 export type PadFamily = 'xbox' | 'ps' | 'ns';
 export type Device = 'key' | 'touch' | 'pad';
-export const ACTIONS: BtnName[] = ['attack', 'dash', 'jump', 'special'];
+export const ACTIONS: BtnName[] = ['attack', 'dash', 'jump', 'special', 'ult'];
 /** what each action is called on screen (the words under the buttons, act-28) */
-export const ACTION_WORD: Record<BtnName, string> = { attack: '攻击', dash: '闪避', jump: '跳跃', special: '远程' };
+export const ACTION_WORD: Record<BtnName, string> = { attack: '攻击', dash: '闪避', jump: '跳跃', special: '远程', ult: '不见刀' };
 
 // ---------------------------------------------------------------- the bindings
 export interface Binds { key: Record<BtnName, string[]>; pad: Record<BtnName, number[]> }
 /** the first of each list is the one shown and the one a rebind replaces; the rest are spares (Shift / RB / RT for the dash, E for darts) */
 export const DEFAULT_BINDS: Binds = {
-  key: { attack: ['j'], dash: ['k', 'shift'], jump: [' '], special: ['l', 'e'] },
-  pad: { attack: [2], dash: [1, 5, 7], jump: [0], special: [3] },
+  key: { attack: ['j'], dash: ['k', 'shift'], jump: [' '], special: ['l', 'e'], ult: ['i'] },
+  // (11-18 用户：「按键映射成I和R2」: R2 / RT, once the dash's third spare, is 不见刀's)
+  pad: { attack: [2], dash: [1, 5], jump: [0], special: [3], ult: [7] },
 };
 const copy = (b: Binds): Binds => ({ key: { ...mapVals(b.key, v => v.slice()) }, pad: { ...mapVals(b.pad, v => v.slice()) } });
 function mapVals<T, U>(o: Record<BtnName, T>, f: (v: T) => U): Record<BtnName, U> { const r = {} as Record<BtnName, U>; for (const k of ACTIONS) r[k] = f(o[k]); return r; }
@@ -36,6 +37,14 @@ export function loadBinds() {
       const k = o.key?.[a], p = o.pad?.[a];
       if (Array.isArray(k) && k.length && k.every(x => typeof x === 'string' && !KEY_RESERVED.has(x))) BIND.key[a] = k.slice();
       if (Array.isArray(p) && p.length && p.every(x => Number.isInteger(x) && x >= 0 && x < 18 && !PAD_RESERVED.has(x))) BIND.pad[a] = p.slice();
+    }
+    // 11-18: a record from before 不见刀 had its own button keeps the default I / R2 for it — and a spare elsewhere on the same key (the
+    // old dash's RT) gives it up; a main key there keeps it and 不见刀 does without that one
+    for (const kind of ['key', 'pad'] as const) {
+      const T = BIND[kind] as Record<BtnName, Array<string | number>>;
+      if (Array.isArray((o[kind] as Record<string, unknown> | undefined)?.ult)) continue;
+      for (const a of ACTIONS) if (a !== 'ult') { T[a] = T[a].filter((c, i) => i === 0 || !T.ult.includes(c)); if (T.ult.includes(T[a][0])) T.ult = T.ult.filter(c => c !== T[a][0]); }
+      if (!T.ult.length) T.ult = [kind === 'key' ? 'i' : 7].filter(c => !ACTIONS.some(a => a !== 'ult' && T[a].includes(c)));
     }
   } catch { /* storage blocked or a bad record: the defaults stand */ }
 }

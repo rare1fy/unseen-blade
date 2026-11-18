@@ -10,9 +10,10 @@ import { BIND, PAD, activePad, type Device } from './pad';
 /** held = seconds the button has been down; last = how long the press that just ended (released this frame) was held */
 export interface Btn { down: boolean; pressed: boolean; released: boolean; held: number; last: number }
 const btn = (): Btn => ({ down: false, pressed: false, released: false, held: 0, last: 0 });
-export type BtnName = 'attack' | 'dash' | 'special' | 'jump';
-const NAMES: BtnName[] = ['attack', 'dash', 'special', 'jump'];
-const flags = () => ({ attack: false, dash: false, special: false, jump: false });
+/** 11-18 'ult' = 不见刀 (its own button, keys I / R2; the button shows only while it can be let loose) */
+export type BtnName = 'attack' | 'dash' | 'special' | 'jump' | 'ult';
+const NAMES: BtnName[] = ['attack', 'dash', 'special', 'jump', 'ult'];
+const flags = () => ({ attack: false, dash: false, special: false, jump: false, ult: false });
 /** a stick past its dead zone, re-scaled so the push grows from 0 at the edge of the dead zone to 1 at full tilt */
 export function deadzone(x: number, y: number, dz = 0.2): { x: number; y: number } {
   const d = Math.hypot(x, y); if (d <= dz) return { x: 0, y: 0 };
@@ -23,17 +24,17 @@ export class Input {
   move = { x: 0, y: 0 };
   /** the right stick (screen direction, x right, y up), zero inside its dead zone — darts aim with it while held */
   rstick = { x: 0, y: 0 };
-  b: Record<BtnName, Btn> = { attack: btn(), dash: btn(), special: btn(), jump: btn() };
+  b: Record<BtnName, Btn> = { attack: btn(), dash: btn(), special: btn(), jump: btn(), ult: btn() };
   /** the touch stick: origin and current point (CSS px), the pointer that owns it */
   stick = { id: -1, ox: 0, oy: 0, x: 0, y: 0, r: 70 };
   private keys = new Set<string>(); private raw = flags();
-  private touchBtn: Record<BtnName, number> = { attack: -1, dash: -1, special: -1, jump: -1 }; private pad = flags();
+  private touchBtn: Record<BtnName, number> = { attack: -1, dash: -1, special: -1, jump: -1, ult: -1 }; private pad = flags();
   /** after the pause menu: a button still held from the menu counts only once it has been let go */
   private latched = flags(); private latchMove = false;
   get lastDevice(): Device { return PAD.device; }
   set lastDevice(d: Device) { PAD.device = d; }
   /** scripted input (captures / tests): buttons held for a while, a stick push for a while */
-  private virt: Record<BtnName, number> = { attack: 0, dash: 0, special: 0, jump: 0 }; private vm = { x: 0, y: 0, t: 0 };
+  private virt: Record<BtnName, number> = { attack: 0, dash: 0, special: 0, jump: 0, ult: 0 }; private vm = { x: 0, y: 0, t: 0 };
   hold(n: BtnName, s: number) { this.virt[n] = Math.max(this.virt[n], s); }
   unhold(n: BtnName) { this.virt[n] = 0; }
   push(x: number, y: number, s: number) { this.vm = { x, y, t: s }; }

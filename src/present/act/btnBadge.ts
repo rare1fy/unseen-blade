@@ -6,6 +6,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { customIcon3D, type Model3D } from '../ui3d/models3d';
 import { Mask, pillow } from '../ui3d/models3dArt';
 import { btnIcon3D } from './icons3d';
+import { skillIcon3D } from './skillIcons';
 import type { UiLayer } from '../ui3d/layer';
 import type { BtnName } from './input';
 
@@ -63,7 +64,7 @@ export class MiniShield extends THREE.Group {
   dispose() { this.mesh.geometry.dispose(); (this.mesh.material as THREE.Material).dispose(); this.icon.dispose(); this.parent?.remove(this); }
 }
 /** a button of the HUD in small: its shield (the cut button with its tassel) and its own picture */
-export function btnShield(n: BtnName) { return new MiniShield(btnIcon3D(n), { tassel: n === 'attack' }); }
+export function btnShield(n: BtnName) { return new MiniShield(n === 'ult' ? skillIcon3D('ult') : btnIcon3D(n), { tassel: n === 'attack' }); }
 
 // ---------------------------------------------------------------- the pause button (11-18 用户：「游戏里也没有一个可以呼出暂停窗口的按钮」)
 /** two upright bronze bars, pillowed (no letters on a button) */
