@@ -390,11 +390,65 @@ function boss(): V {
   // the 戟: a long dark haft with an iron butt, a red tassel, an iron socket, a straight spearhead one cell thin with bright edges, and
   // the 戈 blade out to the side, one cell thin, with an upturned tip
   const ST = 0xc8d0dc, ED = 0xeef2f8;
-  B(v, 'weapon', -22, 20, -12, -21, 21, 43, 0x3a2418).box(-23, 19, -13, -20, 22, -13, IRON_D);
+  B(v, 'weapon', -22, 20, -18, -21, 21, 43, 0x3a2418).box(-23, 19, -19, -20, 22, -19, IRON_D);
   B(v, 'weapon', -23, 18, 34, -20, 23, 37, 0xb82a22).box(-23, 18, 34, -20, 18, 37, 0x8a1e18);
   B(v, 'weapon', -23, 19, 40, -20, 22, 45, IRON);
   B(v, 'weapon', -22, 19, 46, -22, 22, 54, ST).box(-22, 19, 46, -22, 19, 54, ED).box(-22, 22, 46, -22, 22, 54, ED).box(-22, 20, 55, -22, 21, 57, ED);
   B(v, 'weapon', -32, 21, 41, -24, 21, 44, ST).box(-32, 21, 41, -24, 21, 41, ED).box(-32, 21, 45, -31, 21, 47, ED);
+  return v;
+}
+
+/** The same jar sits in the thrower's hand, in his basket, and on the flight path. */
+export function clayJar(v: V, part: string, x: number, y: number, z: number) {
+  cbox(v, part, x - 4, y - 3, z - 4, x + 3, y + 2, z + 3, 0x9e5335);
+  cbox(v, part, x - 3, y - 4, z - 3, x + 2, y - 4, z + 2, 0x603a2d);
+  cbox(v, part, x - 3, y + 3, z - 3, x + 2, y + 3, z + 2, 0xb87950);
+  B(v, part, x - 2, y + 4, z - 2, x + 1, y + 4, z + 1, 0x63392c);
+  B(v, part, x - 2, y + 5, z - 2, x + 1, y + 5, z + 1, 0xa89972);
+}
+
+function farmhand(sickle: boolean): V {
+  const v = fine();
+  const coat = sickle ? 0x415b54 : 0x774638;
+  const cuff = sickle ? 0x2a3d38 : 0x4d302b;
+  skel(v, { hip: 20, spine: 24, chest: 30, neck: 38, head: 40, jaw: [44, 4], hat: 54, cape: [36, -6], sh: [12, 38, 0], fore: 30, hand: 22,
+    weapon: [-12, 20, 0], offhand: [12, 20, 0], leg: 5, knee: 10 });
+  sandalLegs(v, { x0: 2, x1: 7, z0: -3, z1: 3, knee: 10, hip: 20, trou: 0x3c3632, wrap: true, toe: 5 });
+  for (const [side, sign] of SIDES) {
+    const [x0, x1] = MX(sign, 0, 8), [a, b] = MX(sign, 10, 15), [u, w] = MX(sign, 11, 14);
+    B(v, 'leg' + side, x0, 16, -5, x1, 19, 5, coat).box(x0, 16, -5, x1, 16, 5, cuff);
+    B(v, 'arm' + side, a, 31, -3, b, 37, 2, coat).box(a, 30, -3, b, 31, 2, cuff);
+    B(v, 'fore' + side, u, 24, -2, w, 29, 1, SKIN).box(u, 22, -2, w, 24, 1, LINEN_D);
+    B(v, 'hand' + side, u, 18, -2, w, 21, 1, SKIN_D);
+  }
+  cbox(v, 'hips', -9, 20, -6, 8, 23, 5, 0x48382a);
+  cbox(v, 'spine', -8, 24, -5, 7, 29, 4, coat);
+  cbox(v, 'chest', -10, 30, -5, 9, 37, 4, coat);
+  B(v, 'chest', -5, 36, 4, 1, 37, 4, INNER).box(1, 30, 4, 3, 36, 4, cuff);
+  B(v, 'neck', -2, 38, -2, 1, 39, 1, SKIN_D);
+  cbox(v, 'head', -7, 40, -7, 6, 53, 6, SKIN);
+  hair(v, { y: 43, back: -4, side: 5, front: 2 });
+  face(v, { F: 6, eyes: [2, 3], eyeY: 44, brows: [2, 5], browY: 46, nose: [-1, 0], noseY: [42, 44], mouth: [-2, 1, 41] });
+  turban(v, { x0: -7, x1: 6, z0: -7, z1: 6, yb: 50, yt: 53, tails: sickle ? [[8, 6], [5, 5]] : [[5, 4], [5, 4]], glow: false });
+
+  if (sickle) {
+    // A long-handled grain sickle. The broad hook reads from above, with one bevel on its inside edge.
+    B(v, 'chest', -10, 33, -5, -5, 37, 5, 0x635445).box(-10, 33, -5, -5, 33, 5, 0x3f382d);
+    B(v, 'weapon', -13, 19, -8, -12, 20, 32, 0x593b2a).box(-14, 18, -1, -11, 21, 5, 0x534937);
+    B(v, 'weapon', -14, 18, 29, -11, 21, 32, 0x494c4e);
+    B(v, 'weapon', -12, 20, 32, 0, 20, 38, 0xbfc5c6)
+      .box(1, 20, 29, 4, 20, 37, 0xbfc5c6).box(4, 20, 25, 5, 20, 32, 0xd7dedb)
+      .box(-10, 20, 32, 0, 20, 32, 0xe2e6df).box(1, 20, 29, 3, 20, 30, 0xe2e6df);
+  } else {
+    // A wicker pannier, two spare jars visible above the rim and broad shoulder straps.
+    cbox(v, 'chest', -8, 23, -16, 7, 37, -6, 0x6b5032);
+    B(v, 'chest', -8, 26, -16, 7, 27, -16, 0xa58955).box(-8, 31, -16, 7, 32, -16, 0xa58955)
+      .box(-8, 36, -16, 7, 37, -16, 0xad8e58);
+    for (const x of [-7, 4]) B(v, 'chest', x, 30, 5, x + 2, 37, 5, 0xa1865f).box(x, 37, -6, x + 2, 37, 5, 0xa1865f);
+    clayJar(v, 'chest', -4, 38, -11); clayJar(v, 'chest', 4, 37, -11);
+    v.bone('jar', 'weapon', -12, 20, 6);
+    clayJar(v, 'jar', -12, 20, 6);
+  }
   return v;
 }
 
@@ -414,4 +468,6 @@ export const HJ_DEFS = {
   hound: def({ id: 'hj_hound', name: '猎犬', group: '普通', role: '野兽', line: '', kind: 'quad', attack: 'bite', build: () => hound(false) }),
   hound_e: def({ id: 'hj_hound_e', name: '猎犬', group: '精英', role: '野兽', line: '', kind: 'quad', attack: 'bite', build: () => hound(true) }),
   boss: def({ id: 'hj_boss', name: '黄巾渠帅', group: '首领', role: '渠帅', line: '', kind: 'biped', attack: 'swing', tip: 56, build: boss }),
+  sickle: def({ id: 'hj_sickle', name: '黄巾镰手', group: '普通', role: '镰手', line: '', kind: 'biped', attack: 'swing', tip: 37, build: () => farmhand(true) }),
+  jar: def({ id: 'hj_jar', name: '黄巾掷罐手', group: '普通', role: '掷罐手', line: '', kind: 'biped', attack: 'swing', tip: 6, build: () => farmhand(false) }),
 };

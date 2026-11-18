@@ -1369,4 +1369,5 @@
 - 包体：act-60 起正文字体在微信里是 ttf（约 2.6 MB），主包涨到 5.0 MB——挪进 `fonts` 分包，`bodyFont.ts` 在小游戏里先 `wx.loadSubpackage('fonts')` 再 `wx.loadFont`，游戏不等它、先用设备字体，加载好了重画文字。主包 2.5 MB，四个分包各 2.6～3.7 MB，合计 15.3 MB；`npm run wx` 超过主包 4 MB / 合计 30 MB 会报错。
 
 - （11-18，用户看了动作预览页）走跑挨打倒地「总体没啥问题」；问题在**出招**：「有好几个敌人的攻击都没用自己的武器，看起来很不自然」——规矩：每个敌人的出招都要用它手里的兵器（刀劈砍、枪戟刺、棍锤砸、弓弩射、盾撞、空手的才用拳爪），拿兵器的那只手带着兵器走完整个出招；「道士走路脚会穿帮漏出来」——长袍的人走路步子收小、袍摆跟着腿走，脚不能穿出袍子。预览页加自由拖拽视角。
+- 动作预览页的「出招」按 `src/present/act/animCatalog.ts` 放（实战录下的每个敌人的招：动作名、data.atk、命中时刻、时长；AI 改了招要重录）。长袍的人（`foe_motion.ts ROBED`）走路：节奏照常，脚的摆幅两成、抬脚两成五，鞋贴在袍摆下（会在袍下滑一点，看不见）。黄巾攻击动作回炉（用户自己的 Codex 活，原在主目录未提交，存档 `wip/main-models-1118`）已合：`foes/hj_poses.ts`（关键帧出招：刀手 hjCut / hjBackhand、渠帅 hjSweep / hjThrust / hjThunder、镰手 hjReap、掷罐手 hjLob，经 POSE_AFTER 叠在 act-53 的层上）、`foes/hj_ai.ts`（镰手、掷罐手的 AI）、`enemy.ts`（`startAttack` 可不带预警形状、出招后摇 tail、黄巾招的出手时钟对齐）、`regions/r1.ts`（波次加镰手、掷罐手）。
 

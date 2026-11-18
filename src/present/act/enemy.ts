@@ -18,8 +18,10 @@
 import * as THREE from 'three';
 import { V3, scene, R } from '../engine/world';
 import { BattleActor } from '../bestiary/battle';
+import { CELL } from '../bestiary/kit';
 import '../ronin/models';   // registers the old foe models (jp_bandit / jp_dog / jp_archer / jp_bandit_chief) in the bestiary ROSTER
 import './foes/hj_models';  // registers the 黄巾 foe models (hj_*) in the bestiary ROSTER
+import './foes/hj_poses';
 import { Action } from '../actors/rig';
 import { Tele, inside, HOT, type TeleShape } from './tele';
 import { TUNE } from './tune';
@@ -189,19 +191,20 @@ export type { St as FoeState };
 export const dropTeles = (f: Foe) => { f.tele?.dispose(); f.tele = null; for (const e of f.extra) e.t.dispose(); f.extra = []; };
 /** the body's own wind-up for each attack (the old kinds keep their own) */
 const ANIM: Record<string, 'attack' | 'cast'> = { cut: 'attack', slam: 'attack', sweep: 'attack', poke: 'attack', lunge: 'attack', shoot: 'attack', bite: 'attack', cast: 'cast', thunder: 'cast' };
-export function startAttack(f: Foe, w: FoeWorld, shape: TeleShape, windup: number, dmg: number, yaw: number, o: { atk?: string; extra?: Array<{ s: TeleShape; dy: number; low?: boolean }>; at?: THREE.Vector3; low?: boolean; anchor?: boolean;
+export function startAttack(f: Foe, w: FoeWorld, shape: TeleShape | null, windup: number, dmg: number, yaw: number, o: { atk?: string; extra?: Array<{ s: TeleShape; dy: number; low?: boolean }>; at?: THREE.Vector3; low?: boolean; anchor?: boolean;
   /** 11-18: the model's own action for this attack (its name, where its impact frame sits 0..1, its data) instead of the generic one */
-  act?: { name: string; imp?: number; data?: Record<string, unknown> } } = {}) {
+  act?: { name: string; imp?: number; tail?: number; data?: Record<string, unknown> } } = {}) {
   f.atk = o.atk ?? ''; dropTeles(f); f.lowAtk = !!o.low; f.anchor = !!o.anchor;
   f.shape = shape; f.dmg = Math.round(dmg * TUNE.enemyDmg); f.teleYaw = yaw; f.telePos.copy(o.at ?? f.pos); f.hitHero = false; f.attacking = true;
-  f.tele = new Tele(shape, { low: isLow(f, shape) }); f.tele.set(f.telePos.x, f.telePos.z, yaw, 0, windup); f.glint = false;
+  if (shape) { f.tele = new Tele(shape, { low: isLow(f, shape) }); f.tele.set(f.telePos.x, f.telePos.z, yaw, 0, windup); }
+  f.glint = false;
   // act-23: the first beat: a dull red pulse through the attacker as the wind-up starts
   f.a.tint(0x8a1a10, 0.7);
   for (const e of o.extra ?? []) { const t = new Tele(e.s, { low: e.low }); t.set(f.telePos.x, f.telePos.z, yaw + e.dy, 0); f.extra.push({ t, dy: e.dy }); }
   const wu = windup / TUNE.aggression * (f.elite ? 0.85 : 1) * (f.phase > 1 ? 0.75 : 1); setSt(f, 'windup', wu);
   // the body's own wind-up: the attack action timed so its impact frame lands at the end of the wind-up
-  const imp = o.act?.imp ?? (f.role === 'hound' ? 0.42 : 0.5), total = wu / imp;
-  if (o.act) f.a.play(new Action(o.act.name, total, imp, o.act.data ?? {}));
+  const imp = o.act?.imp ?? (f.role === 'hound' ? 0.42 : 0.5), total = Math.max(wu / imp, wu + (o.act?.tail ?? 0));
+  if (o.act) f.a.play(new Action(o.act.name, total, wu / total, o.act.data ?? {}));
   else if (f.role === 'archer') f.a.play(new Action('attack', total, imp));
   else f.a.play(new Action(ANIM[f.atk] ?? 'attack', total, imp, { dist: f.role === 'chief' || f.role === 'boss' || f.role === 'brute' ? 0.4 : f.atk === 'lunge' ? 0 : 0.6, atk: f.atk }));   // (wp/regB: atk = which attack, for the new foes' own poses)
   void w;
@@ -230,6 +233,12 @@ export function steerFoe(f: Foe, want: THREE.Vector3, sp: number, dt: number, ya
 /** 11-18: the shared pieces a region's RoleAI uses (startAttack, the attacker count, the calm, the state setter) */
 export const AI = { startAttack: (f: Foe, w: FoeWorld, shape: TeleShape, windup: number, dmg: number, yaw: number, o?: Parameters<typeof startAttack>[6]) => startAttack(f, w, shape, windup, dmg, yaw, o),
   attackers, setSt: (f: Foe, st: St, dur: number) => setSt(f, st, dur), calm: (s: number) => { calmUntil = Math.max(calmUntil, clock.time + s); }, calmOver: () => clock.time >= calmUntil, isLow: (f: Foe, s: TeleShape) => isLow(f, s) };
+
+function attackPoint(f: Foe) {
+  if (f.atk === 'lob' && f.kind === 'hj_jar') return f.a.bonePos('jar');
+  if (f.a.act?.name.startsWith('hj') && f.a.def.tip) return f.a.bonePos('weapon', 0, 0, f.a.def.tip * CELL / 2);
+  return f.a.weapon();
+}
 
 export function updateFoe(f: Foe, w: FoeWorld, dt: number) {
   if (f.st === 'dead') return;
@@ -274,15 +283,23 @@ export function updateFoe(f: Foe, w: FoeWorld, dt: number) {
     else if ((r === 'blade' || r === 'mob') && p < 0.35) { f.teleYaw = yawTo; face(yawTo, 14); }
     else if (lane && p < 0.5) { f.teleYaw = yawTo; f.yaw = yawTo; }
     else if ((r === 'chief' || r === 'brute' || r === 'boss') && p < 0.3) { f.teleYaw = yawTo; face(yawTo, 6); }
-    if (f.atk === 'thunder') { f.vel.set(0, 0, 0); if (Math.random() < dt * 30) fxSparks(f.a.weapon(), 0xfff2a0, 2, 2, { life: 0.3 }); }
+    if ((r === 'blade' || r === 'boss') && f.atk !== 'thunder' && f.a.act?.name.startsWith('hj')) {
+      if (p >= 1) f.yaw = f.teleYaw;
+      else face(f.teleYaw, 14);
+    }
+    if (f.atk === 'thunder') { f.vel.set(0, 0, 0); if (Math.random() < dt * 25) fxSparks(attackPoint(f), 0xfff2a0, 2, 2, { life: 0.3 }); }
     else if (f.anchor) { /* wp/regB: the warning stays where it was put */ }
     else if (!lane || p < 0.5) f.telePos.copy(f.pos);
     const left = f.dur - f.t;
     f.tele?.set(f.telePos.x, f.telePos.z, f.teleYaw, p, left);
     for (const e of f.extra) e.t.set(f.telePos.x, f.telePos.z, f.teleYaw + e.dy, p, left);
     // act-23 (出招节奏): the attacker itself on the last beat: the body warms pale, one glint off the weapon as it starts
-    if (left < HOT && f.atk !== 'thunder') { f.a.tint(0xfff0c8, 0.5 * (1 - left / HOT) + 0.15); if (!f.glint) { f.glint = true; fxFlare(f.a.weapon(), 0xfff4d0, 0.9, 0.22); } }
-    if (f.t >= f.dur) { if (!ai?.strike?.(f, w)) strike(f, w); }
+    if (left < HOT && f.atk !== 'thunder') { f.a.tint(0xfff0c8, 0.5 * (1 - left / HOT) + 0.15); if (!f.glint) { f.glint = true; fxFlare(attackPoint(f), 0xfff4d0, 0.9, 0.22); } }
+    if (f.t >= f.dur) {
+      const action = f.a.act;
+      if (action?.name.startsWith('hj')) action.t = action.at * action.dur - dt;
+      if (!ai?.strike?.(f, w)) strike(f, w);
+    }
   } else if (f.st === 'strike') {
     // a lunge (hounds, the boss): flies along the locked lane, hitting once on contact
     if (f.lunge) {
@@ -299,7 +316,7 @@ export function updateFoe(f: Foe, w: FoeWorld, dt: number) {
       else if (f.combo > 0 && w.heroAlive) {
         f.combo--;
         if (f.role === 'hound') startAttack(f, w, { k: 'rect', len: 5.2, w: 1.0 }, 0.36, 8, yawTo, { atk: 'lunge' });
-        else startAttack(f, w, { k: 'cone', r: 2.3, half: 1.0 }, 0.34, 10, yawTo, { atk: 'cut' });
+        else startAttack(f, w, { k: 'cone', r: 2.3, half: 1.0 }, 0.34, 10, yawTo, { atk: 'cut', act: { name: 'hjBackhand', imp: 0.58 } });
       } else (calmUntil = Math.max(calmUntil, clock.time + TUNE.atkCalm), setSt(f, 'recover', rai?.recover?.(f) ?? (f.role === 'hound' ? 0.7 : f.role === 'chief' ? 0.9 : f.role === 'brute' ? 1.0 : f.role === 'boss' ? (f.atk === 'thunder' ? 0.5 : f.phase > 1 ? 0.45 : 0.75) : f.role === 'mob' ? 0.45 : 0.6)));
     }
   }
@@ -307,6 +324,8 @@ export function updateFoe(f: Foe, w: FoeWorld, dt: number) {
   else if (free && rai) roleThink(rai, f, w, dt, dist, dir, yawTo, face);
   else if (free) think(f, w, dt, dist, dir, yawTo, face);
   else if (f.st !== 'windup' && f.st !== 'strike') f.a.setRunning(false, Math.hypot(f.vel.x, f.vel.z), yawTo, f.vel);
+  // The actor advances once after the AI. Sample the same wind-up clock so the blade crosses center on the hit frame.
+  if (f.st === 'windup' && f.a.act?.name.startsWith('hj')) f.a.act.t = f.t - dt;
   teleStep(f, dt); ai?.post?.(f, w, dt);
   integrate(f, w, dt);
 }
@@ -336,7 +355,7 @@ function think(f: Foe, w: FoeWorld, dt: number, dist: number, dir: THREE.Vector3
   if (r === 'blade') {
     if (dist > 1.7) want.copy(dir).addScaledVector(side, attackers(w) >= TUNE.maxAttackers ? 0.8 : 0.15);
     else if (!can) want.copy(side).addScaledVector(dir, -0.4);
-    if (can && dist < 2.1) { f.combo = f.elite ? 1 : 0; startAttack(f, w, { k: 'cone', r: 2.2, half: 0.95 }, 0.62, 10, yawTo, { atk: 'cut' }); return; }
+    if (can && dist < 2.1) { f.combo = f.elite ? 1 : 0; startAttack(f, w, { k: 'cone', r: 2.2, half: 0.95 }, 0.62, 10, yawTo, { atk: 'cut', act: f.kind === 'hj_blade' ? { name: 'hjCut', imp: 0.57 } : undefined }); return; }
   } else if (r === 'mob') {
     // the crowd: straight in, a little weave, quick short pokes
     if (dist > 1.3) want.copy(dir).addScaledVector(side, 0.35); else if (!can) want.copy(side).addScaledVector(dir, -0.3);
@@ -375,8 +394,8 @@ function think(f: Foe, w: FoeWorld, dt: number, dist: number, dir: THREE.Vector3
     sp *= f.phase > 1 ? 1.2 : 1;
     if (dist > 2.4) want.copy(dir).addScaledVector(side, 0.2);
     if (can && f.thunderCd <= 0 && (dist > 3.4 || Math.random() < 0.3)) { startThunder(f, w); return; }
-    if (can && dist < 3.3) { startAttack(f, w, { k: 'cone', r: 3.3, half: 1.05 }, 0.85, 15, yawTo, { atk: 'sweep' }); f.cd = f.phase > 1 ? 0.15 : 0.4; return; }
-    if (can && dist >= 3.3 && dist < 6.5 && Math.random() < dt * 1.6) { startAttack(f, w, { k: 'rect', len: Math.min(6.5, dist + 1.6), w: 1.4 }, 0.75, 16, yawTo, { atk: 'lunge' }); f.cd = f.phase > 1 ? 0.15 : 0.4; return; }
+    if (can && dist < 3.3) { startAttack(f, w, { k: 'cone', r: 3.3, half: 1.05 }, 0.85, 15, yawTo, { atk: 'sweep', act: { name: 'hjSweep', imp: 0.56 } }); f.cd = f.phase > 1 ? 0.15 : 0.4; return; }
+    if (can && dist >= 3.3 && dist < 6.5 && Math.random() < dt * 1.6) { startAttack(f, w, { k: 'rect', len: Math.min(6.5, dist + 1.6), w: 1.4 }, 0.75, 16, yawTo, { atk: 'lunge', act: { name: 'hjThrust', imp: 0.55, tail: 0.58 } }); f.cd = f.phase > 1 ? 0.15 : 0.4; return; }
   } else {
     if (dist > 2.0) want.copy(dir);
     if (can && dist < 2.8) {
@@ -403,7 +422,7 @@ const SHOCK_R = 4.4;
 function startThunder(f: Foe, w: FoeWorld) {
   f.atk = 'thunder'; dropTeles(f); f.shape = null; f.attacking = true; f.hitHero = false;
   const wu = (f.phase > 1 ? 0.45 : 0.6) / TUNE.aggression; setSt(f, 'windup', wu);
-  f.a.play(new Action('cast', wu + 1.3, wu / (wu + 1.3)));
+  f.a.play(new Action('hjThunder', wu + 1.3, wu / (wu + 1.3)));
   f.thunderCd = f.phase > 1 ? R(4.5, 6) : R(6, 8); cue('magic', 0.8);
   fxRing(f.pos.clone().setY(0.08), 0xfff0a0, 1.6, { life: 0.5 } as never);
   void w;
@@ -419,7 +438,7 @@ function callThunder(f: Foe, w: FoeWorld) {
     const d = h.clone().sub(f.pos).setY(0), L = Math.max(2, d.length()); d.normalize();
     for (let i = 0; i < 5; i++) { const p = f.pos.clone().setY(0).addScaledVector(d, 1.6 + i * Math.max(1.3, (L + 1.0 - 1.6) / 4)); w.clamp(p, 0.3); w.arrows.push(new Thunder(p, dmg, 0.12 * i, 0.8, f)); }
   }
-  cue('thunder', 0.8); fxSparks(f.a.weapon(), 0xfff4c0, 18, 6);
+  cue('thunder', 0.8); fxSparks(attackPoint(f), 0xfff4c0, 14, 5);
 }
 /** every frame for the boss: the roar at half HP, phase 2's aura and summons */
 function bossTick(f: Foe, w: FoeWorld, dt: number) {
@@ -500,6 +519,7 @@ export function interruptFoe(f: Foe, reel = 0.9) {
   const was = f.attacking;
   f.mem.intFrom = f.st;   // (11-18: a region role reads what was broken off — a wind-up caught by 破势, or a foe just pinned)
   dropTeles(f); f.attacking = false; f.lunge = null; f.hitHero = true; f.combo = 0; setSt(f, 'stagger', reel); f.cd = Math.max(f.cd, reel + 0.3);
+  if (f.a.act?.name.startsWith('hj')) f.a.play(new Action('hurt', Math.min(reel, 0.45), 0.1, { power: 0.8 }));
   if (f.role === 'ext') FOE_AI[f.kind]?.interrupted?.(f, was);   // wp/regB
   ROLE_AI[f.role]?.interrupted?.(f, null);
 }
