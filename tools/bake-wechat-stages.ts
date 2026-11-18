@@ -1,3 +1,4 @@
+import { bakeTerrainLight } from '../src/present/scenes/terrainLight';
 // Run by build-wechat.mjs through vite-node, with the same room definitions as the game.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -32,6 +33,7 @@ function bake(def: SceneDef, combat: boolean, report?: any) {
     ops: unknown[][] = [],
     meshes: object[] = [];
   let size = 0;
+  const terrain: THREE.Mesh[] = [];
   function attribute(name: string, a: THREE.BufferAttribute) {
     const array = a.array,
       bytes = array.BYTES_PER_ELEMENT;
@@ -71,6 +73,7 @@ function bake(def: SceneDef, combat: boolean, report?: any) {
       return;
     }
     const material = mesh.name === 'flora' ? 'flora' : source;
+    if (!cut && material === 'terrain') terrain.push(mesh);
     if (material === 'plain' && !['MeshLambertMaterial', 'MeshStandardMaterial', 'MeshBasicMaterial'].includes(mat.type))
       throw Error('Unregistered scenery material ' + mat.type);
     mesh.updateMatrix();
@@ -135,7 +138,15 @@ function bake(def: SceneDef, combat: boolean, report?: any) {
   const details = report
     ? { placed: report.placed, rejected: report.rejected, empty: report.empty, warnings: report.warnings, lights: report.lights }
     : undefined;
-  const meta = deflateRawSync(Buffer.from(JSON.stringify({ version: 1, ops, meshes, report: details })));
+  const field = bakeTerrainLight(terrain, def.mood.moonPos);
+  let light;
+  if (field) {
+    const { depth, ...projection } = field;
+    const packed = deflateRawSync(depth);
+    light = { ...projection, start: size, length: packed.length };
+    chunks.push(packed); size += packed.length;
+  }
+  const meta = deflateRawSync(Buffer.from(JSON.stringify({ version: 1, ops, meshes, light, report: details })));
   const header = Buffer.alloc(8);
   header.writeUInt32LE(0x314b4255);
   header.writeUInt32LE(meta.length, 4);

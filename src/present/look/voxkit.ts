@@ -10,7 +10,9 @@ import { toon } from './toon';
 import { PXU } from './pixel';
 import type { Bone } from '../actors/rig';
 import { shadowTiles, TILE_M } from '../engine/shadowTiles';
-import { CAPS } from '../engine/perfOpts';
+import { cheapVoxelUniform } from './quality';
+import { mergeActorFaces } from './greedyActor';
+import { OPT, CAPS } from '../engine/perfOpts';
 
 export type Col = number;
 interface Cell { c: Col; g: number; part: string }
@@ -50,17 +52,17 @@ function occupancy(cells: Map<number, unknown>) {
  * down-right. Smaller faces (character cells) keep their flat colour so nothing turns into speckle.
  */
 const matCache = new Map<string, THREE.MeshToonMaterial>();
-export function voxToon(o: { rim?: number; self?: number; edge?: number } = {}) {
-  const k = `${o.rim ?? 0.6}|${o.self ?? 0.05}|${o.edge ?? 0.2}`;
+export function voxToon(o: { rim?: number; self?: number; edge?: number; actor?: boolean } = {}) {
+  const k = `${o.rim ?? 0.6}|${o.self ?? 0.05}|${o.edge ?? 0.2}|${!!o.actor}`;
   if (matCache.has(k)) return matCache.get(k)!;
   // a private copy: the cached toon material is shared, and this one gets an extra shader stage
   const src = toon(0xffffff, { vertexColors: true, rim: o.rim ?? 0.6, self: o.self ?? 0.05 }), m = src.clone(), edge = o.edge ?? 0.2;
   m.onBeforeCompile = (sh, r) => {
     src.onBeforeCompile(sh, r);
-    sh.uniforms.uPx = PXU.uPx; sh.uniforms.uPxEdge = PXU.uPxEdge;
+    sh.uniforms.uCheapVoxel = cheapVoxelUniform; sh.uniforms.uPx = PXU.uPx; sh.uniforms.uPxEdge = PXU.uPxEdge;
     sh.vertexShader = 'attribute vec2 aVox; attribute vec2 aSize; attribute vec4 aOpen; varying vec2 vVox; varying vec2 vSize; varying vec4 vOpen; varying vec3 vWN;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n vVox = aVox; vSize = aSize; vOpen = aOpen; vWN = normalize(mat3(modelMatrix) * objectNormal);');
     // (11-18 微信小游戏: the 1-art-pixel bevel lines need dFdx / dFdy — without them (the devtools' WebGL1) the faces keep their tones)
-    sh.fragmentShader = (CAPS.derivatives ? '#define VOX_DERIV\n' : '') + 'varying vec2 vVox; varying vec2 vSize; varying vec4 vOpen; varying vec3 vWN; uniform float uPx, uPxEdge;\n' + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
+    sh.fragmentShader = (CAPS.derivatives ? '#define VOX_DERIV\n' : '') + 'varying vec2 vVox; varying vec2 vSize; varying vec4 vOpen; varying vec3 vWN; uniform float uPx, uPxEdge, uCheapVoxel;\n' + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
       { float d = 1.0; if (vOpen.x > 0.5) d = min(d, vVox.x); if (vOpen.y > 0.5) d = min(d, vSize.x - vVox.x); if (vOpen.z > 0.5) d = min(d, vVox.y); if (vOpen.w > 0.5) d = min(d, vSize.y - vVox.y);
         float bev = 1.0 + ${edge.toFixed(3)} * (1.0 - smoothstep(0.03, 0.1, d));
         if (uPx > 0.5) {
@@ -68,8 +70,9 @@ export function voxToon(o: { rim?: number; self?: number; edge?: number } = {}) 
           float tone = wn.y > 0.6 ? 1.06 : wn.y < -0.6 ? 0.66 : wn.x > 0.6 ? 0.9 : wn.x < -0.6 ? 0.92 : wn.z > 0.6 ? 1.0 : 0.84;
           float hl = 0.0, dk = 0.0;
 #ifdef VOX_DERIV
+          if (uCheapVoxel < 0.5) {
           vec2 gx = dFdx(vVox), gy = dFdy(vVox), fw = max(abs(gx) + abs(gy), vec2(1e-4));
-          float span = min(vSize.x / fw.x, vSize.y / fw.y);
+          vec2 cellSize = ${o.actor ? 'vec2(1.)' : 'vSize'}; float span = min(cellSize.x / fw.x, cellSize.y / fw.y);
           if (span > 6.0) {
             vec2 ux = normalize(vec2(gx.x, gy.x) + 1e-6), uy = normalize(vec2(gx.y, gy.y) + 1e-6), L = vec2(-0.5, 0.866);
             float e0 = vOpen.x > 0.5 ? vVox.x / fw.x : 1e4, e1 = vOpen.y > 0.5 ? (vSize.x - vVox.x) / fw.x : 1e4;
@@ -79,13 +82,13 @@ export function voxToon(o: { rim?: number; self?: number; edge?: number } = {}) 
             if (e1 < 1.0) { hl = max(hl, step(0.2, s1)); dk = max(dk, step(s1, -0.2)); }
             if (e2 < 1.0) { hl = max(hl, step(0.2, s2)); dk = max(dk, step(s2, -0.2)); }
             if (e3 < 1.0) { hl = max(hl, step(0.2, s3)); dk = max(dk, step(s3, -0.2)); }
-          }
+          } }
 #endif
           bev = tone * (1.0 + uPxEdge * hl) * (1.0 - 0.2 * dk * (1.0 - hl));
         }
         diffuseColor.rgb *= bev; }`);
   };
-  m.customProgramCacheKey = () => src.customProgramCacheKey() + '|vox' + edge + '|px' + (CAPS.derivatives ? '' : '|noderiv');
+  m.customProgramCacheKey = () => src.customProgramCacheKey() + '|vox' + edge + (o.actor ? '|unit' : '') + '|px' + (CAPS.derivatives ? '' : '|noderiv');
   // (11-18 微信小游戏: the bevel uses dFdx / dFdy — built into WebGL2, an extension WebGL1 has to switch on: the WeChat devtools'
   // simulator is WebGL1, and without this every block material failed to compile there)
   (m as unknown as { extensions: Record<string, boolean> }).extensions = { derivatives: true };
@@ -178,10 +181,10 @@ export class VoxChar {
         if (pos) I.push(...q.map(i => base + i)); else I.push(base + q[0], base + q[2], base + q[1], base + q[3], base + q[5], base + q[4]);
       }
     }
-    const solidMat = voxToon({ rim: o.rim, self: o.self, edge: o.edge });
+    const solidMat = voxToon({ actor: true, rim: o.rim, self: o.self, edge: o.edge });
     for (const [part, { solid, glow }] of byPart) {
       for (const [arr, isGlow] of [[solid, false], [glow, true]] as const) {
-        const [P, N, C, U, I, E, S] = arr; if (!I.length) continue;
+        const [P, N, C, U, I, E, S] = OPT.greedyActors && !jit ? mergeActorFaces(arr, s) : arr; if (!I.length) continue;
         const g = new THREE.BufferGeometry();
         g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(N, 3));
         g.setAttribute('color', new THREE.Float32BufferAttribute(C, 3)); g.setAttribute('aVox', new THREE.Float32BufferAttribute(U, 2)); g.setAttribute('aOpen', new THREE.Float32BufferAttribute(E, 4)); g.setAttribute('aSize', new THREE.Float32BufferAttribute(S, 2)); g.setIndex(I);

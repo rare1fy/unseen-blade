@@ -7,12 +7,83 @@
 // them (−y, +z and the x side facing away; both x sides when the light is straight behind).
 import * as THREE from 'three';
 import { OPT } from './perfOpts';
+import { QUALITY } from '../look/quality';
 
 export const TILE_M = 12;
 // blocks in this order: −y, +z, +x, −x, +y, −z (DIRS indices 3, 4, 0, 1, 2, 5)
 const ORDER = [3, 4, 0, 1, 2, 5];
 const dirIndex = (nx: number, ny: number, nz: number) => (nx > 0.5 ? 0 : nx < -0.5 ? 1 : ny > 0.5 ? 2 : ny < -0.5 ? 3 : nz > 0.5 ? 4 : 5);
-interface Tile { mesh: THREE.Mesh; src: THREE.Mesh; ends: number[] }
+interface Tile { box: THREE.Box3; mesh: THREE.Mesh; src: THREE.Mesh; ends: number[] }
+interface ViewTiles {
+  src: THREE.Mesh;
+  original: Uint16Array | Uint32Array;
+  membership: Uint32Array;
+  tiles: Tile[];
+  visible: boolean[];
+  clipped: boolean;
+  lastCamera: string;
+  coarse: boolean[];
+  groups: THREE.Box3[];
+  groupOf: Uint32Array;
+  groupsOn: boolean[];
+  partner: Int32Array;
+}
+const views = new Set<ViewTiles>();
+const frustum = new THREE.Frustum(), projection = new THREE.Matrix4(), box = new THREE.Box3();
+const shadows = new THREE.Box3(), offset = new THREE.Vector3();
+const localCamera = new THREE.Vector3(), corner = new THREE.Vector3();
+
+export function updateStageTiles(camera: THREE.Camera) {
+  frustum.setFromProjectionMatrix(projection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+  for (const view of views) {
+    const { src, original, membership, tiles, visible } = view;
+    if (!src.userData.stageTerrain || !src.parent || src.geometry.attributes.aChunk) continue;
+    const geometry = src.geometry, index = geometry.index!;
+    if (!OPT.cameraTiles || !OPT.shadowTiles) {
+      if (view.clipped) {
+        index.array.set(original); index.clearUpdateRanges(); index.needsUpdate = true; geometry.setDrawRange(0, original.length);
+        view.clipped = false;
+      }
+      continue;
+    }
+    src.worldToLocal(localCamera.copy(camera.position));
+    const cx = Math.floor(localCamera.x), cy = Math.floor(localCamera.y), cz = Math.floor(localCamera.z);
+    const key = cx + '/' + cy + '/' + cz + '/' + QUALITY.tier;
+    let changed = !view.clipped || key !== view.lastCamera;
+    view.lastCamera = key;
+    for (let i = 0; i < tiles.length; i++) {
+      box.copy(tiles[i].box).applyMatrix4(src.matrixWorld).expandByScalar(1.5);
+      const on = frustum.intersectsBox(box);
+      // Choose the exterior mesh before it enters the padded view. A visible tile keeps its mesh as the camera tracks.
+      if (!visible[i] || !view.clipped || QUALITY.tier === 'high') view.coarse[i] = QUALITY.tier !== 'high' && box.distanceToPoint(camera.position) > 26;
+      if (visible[i] !== on) { visible[i] = on; changed = true; }
+    }
+    for (let i=0; i<view.groups.length; i++) {
+      box.copy(view.groups[i]).applyMatrix4(src.matrixWorld).expandByScalar(0.7);
+      const on = frustum.intersectsBox(box);
+      if (view.groupsOn[i] !== on) { view.groupsOn[i] = on; changed = true; }
+    }
+    if (!changed) continue;
+    // Keep original triangle order (coplanar details); only the index prefix changes at tile boundaries.
+    let n = 0;
+    const p = geometry.attributes.position.array, normal = geometry.attributes.normal.array;
+    for (let q = 0; q < membership.length; q++) if (visible[membership[q]] && view.groupsOn[view.groupOf[q]]) {
+      const v = q*12;
+      // Back faces cannot contribute to the opaque colour pass. Keep a whole metre of slack for the cached camera cell.
+      if ((cx-p[v])*normal[v] + (cy-p[v+1])*normal[v+1] + (cz-p[v+2])*normal[v+2] < -1.1) continue;
+      const start = q * 6;
+      const pair = view.coarse[membership[q]] ? view.partner[q] : 0;
+      if (pair < 0) continue;
+      for (let k = 0; k < 6; k++) {
+        const i = original[start+k], c = i-q*4;
+        index.array[n++] = pair && (c === 1 || c === 2) ? (pair-1)*4+c : i;
+      }
+    }
+    geometry.setDrawRange(0, n);
+    index.clearUpdateRanges(); if (n) index.addUpdateRange(0, n);
+    index.needsUpdate = true; view.clipped = true;
+  }
+}
 const TILES = new Set<Tile>();
 
 /** position-only shadow tiles of a quad-soup mesh (4 vertices + 6 indices per quad, in order); [] when the mesh is small */
@@ -31,12 +102,14 @@ export function shadowTiles(src: THREE.Mesh, T = TILE_M): THREE.Mesh[] {
     t[dirIndex(N[v0], N[v0 + 1], N[v0 + 2])].push(q);
   }
   const out: THREE.Mesh[] = [];
+  const members = new Uint32Array(nq), parts: Tile[] = [];
   for (const t of tiles.values()) {
     let nv = 0; for (const l of t) nv += l.length * 4;
     const pos = new Float32Array(nv * 3), idx = nv > 65535 ? new Uint32Array(nv / 4 * 6) : new Uint16Array(nv / 4 * 6), ends: number[] = [];
     let vo = 0, io = 0;
     for (const d of ORDER) {
       for (const q of t[d]) {
+        members[q] = parts.length;
         for (let k = 0; k < 12; k++) pos[vo * 3 + k] = P[q * 12 + k];
         for (let k = 0; k < 6; k++) idx[io++] = I[q * 6 + k] - q * 4 + vo;
         vo += 4;
@@ -45,10 +118,38 @@ export function shadowTiles(src: THREE.Mesh, T = TILE_M): THREE.Mesh[] {
     }
     const sg = new THREE.BufferGeometry(); sg.setAttribute('position', new THREE.BufferAttribute(pos, 3)); sg.setIndex(new THREE.BufferAttribute(idx, 1)); sg.computeBoundingSphere();
     const m = new THREE.Mesh(sg, src.material); m.castShadow = true; m.receiveShadow = false; m.visible = false; m.name = 'shadowTile';
-    const tile: Tile = { mesh: m, src, ends }; TILES.add(tile);
+    sg.computeBoundingBox();
+    const tile: Tile = { box: sg.boundingBox!, mesh: m, src, ends }; TILES.add(tile); parts.push(tile);
     sg.addEventListener('dispose', () => TILES.delete(tile));
     out.push(m);
   }
+  const groupOf = new Uint32Array(nq), groups: THREE.Box3[] = [], groupIds = new Map<number, number>();
+  const leftEdges = new Map<string, number>(), partner = new Int32Array(nq);
+  const colors = g.attributes.color?.array;
+  function edgeKey(q: number, a: number, b: number) {
+    const v=q*12, A=v+a*3, B=v+b*3;
+    // Opposite corners of a shared edge may have different AO. Colour buckets keep distant wall patterns legible.
+    const col = colors ? (Math.round(colors[v]*15)*256 + Math.round(colors[v+1]*15)*16 + Math.round(colors[v+2]*15)) : 0;
+    return [groupOf[q], members[q], dirIndex(N[v],N[v+1],N[v+2]), col, P[A],P[A+1],P[A+2],P[B],P[B+1],P[B+2]].join('/');
+  }
+  for (let q=0; q<nq; q++) {
+    const v=q*12, x=(P[v]+P[v+6])/2, z=(P[v+2]+P[v+8])/2, id=Math.floor(x/3)*65536+Math.floor(z/3);
+    let i=groupIds.get(id);
+    if (i===undefined) { i=groups.length; groups.push(new THREE.Box3()); groupIds.set(id,i); }
+    groupOf[q]=i;
+    for(let k=v;k<v+12;k+=3) groups[i].expandByPoint(corner.set(P[k],P[k+1],P[k+2]));
+    leftEdges.set(edgeKey(q,0,3),q);
+  }
+  for (let q=0; q<nq; q++) {
+    if (partner[q]) continue;
+    const other=leftEdges.get(edgeKey(q,1,2));
+    if (other===undefined || partner[other] || other===q) continue;
+    partner[q]=other+1; partner[other]=-1;
+  }
+  const view: ViewTiles = { src, tiles: parts, original: g.index!.array.slice() as Uint16Array | Uint32Array, membership: members,
+    visible: [], clipped: false, lastCamera: '', coarse: [], groups, groupOf, groupsOn: [], partner };
+  views.add(view);
+  g.addEventListener('dispose', () => views.delete(view));
   return out;
 }
 
@@ -58,7 +159,7 @@ export function installShadowTiles(r: THREE.WebGLRenderer) {
   const sm = r.shadowMap as unknown as { render: (lights: THREE.Light[], scene: THREE.Scene, camera: THREE.Camera) => void }, orig = sm.render.bind(sm);
   sm.render = (lights, scene, camera) => {
     if (!TILES.size || !r.shadowMap.enabled) return orig(lights, scene, camera);
-    if (!OPT.shadowTiles) { for (const t of TILES) t.src.castShadow = true; return orig(lights, scene, camera); }
+    if (!OPT.shadowTiles) { for (const t of TILES) t.src.castShadow = !t.src.userData.usingBaked; return orig(lights, scene, camera); }
     // the one shadow-casting light (the moon); with more than one, or an odd angle, the tiles draw whole
     let n = 0, dl: THREE.DirectionalLight | null = null;
     for (const l of lights) if (l.castShadow) { n++; if ((l as THREE.DirectionalLight).isDirectionalLight) dl = l as THREE.DirectionalLight; }
@@ -67,7 +168,15 @@ export function installShadowTiles(r: THREE.WebGLRenderer) {
       L.copy(dl.position).sub(dl.target.position);
       if (L.y > 0.01 && L.z < -0.01) blocks = L.x < -0.01 ? 3 : 4;
     }
-    for (const t of TILES) { t.src.castShadow = false; t.mesh.visible = true; t.mesh.geometry.setDrawRange(0, t.ends[blocks - 1]); }
+    for (const t of TILES) { t.src.castShadow = false; t.mesh.visible = !t.src.userData.usingBaked;
+      if (t.mesh.visible && dl && dl.position.y > dl.target.position.y && OPT.cameraTiles && t.src.userData.stageTerrain && !t.src.geometry.attributes.aChunk) {
+        // A roof outside the view can still cast into it. Test the full projected footprint too.
+        box.copy(t.box).applyMatrix4(t.src.matrixWorld);
+        offset.copy(dl.target.position).sub(dl.position).multiplyScalar(Math.max(0, box.max.y + 2) / (dl.position.y - dl.target.position.y));
+        shadows.copy(box).translate(offset); box.union(shadows).expandByScalar(2);
+        t.mesh.visible = frustum.intersectsBox(box);
+      }
+      t.mesh.geometry.setDrawRange(0, t.ends[blocks - 1]); }
     try { orig(lights, scene, camera); } finally { for (const t of TILES) t.mesh.visible = false; }
   };
 }

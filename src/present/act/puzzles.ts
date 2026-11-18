@@ -1,3 +1,4 @@
+import type { ContactBatch } from '../engine/contactBatch';
 // 定死的屋子里会动的东西（11-18，docs/LEVEL_DESIGN.md「小解谜」；用户：「甚至可以加点小解密元素」，六种都做、少数开路多数可选）。
 // 都围着「她看不见，靠听」：每个机关自己往外渗淡淡的声纹（地上一圈圈），砍上去有它自己的声音。
 //   门 D：分区的门，这一块打完开（两扇门板往里转开、扬尘）；机关门 G：铜铃 / 压板开
@@ -428,6 +429,25 @@ export class RoomPieces {
   }
 
   /** the doors between zone a and zone b (or out of zone a) — the stage flow opens them */
+  contacts(batch: ContactBatch) {
+    for (const p of this.pieces) {
+      if (p.open && !p.rubble?.visible && !p.leaves) continue;
+      const r = p.rect, rx = (r.x1 - r.x0) / 2, rz = (r.z1 - r.z0) / 2;
+      if (p.leaves && p.open) {
+        // The swung leaves lie beside the posts. Keep the doorway clear.
+        for (const leaf of p.leaves) {
+          const v = leaf.getWorldPosition(this.contactPos);
+          batch.add(v.x, v.z, p.run === 'z' ? 0.35 : rx, p.run === 'z' ? rz : 0.35);
+        }
+      } else batch.add(p.g.position.x, p.g.position.z, rx, rz);
+    }
+    for (const d of this.drops) {
+      const r = d.rect, rx = (r.x1-r.x0)/2, rz = (r.z1-r.z0)/2, k = Math.cos(d.pivot.rotation.x);
+      batch.add(d.pivot.position.x + ((r.x0+rx)-d.pivot.position.x)*k, d.pivot.position.z + ((r.z0+rz)-d.pivot.position.z)*k,
+        d.axis === 'x' ? rx*k : rx, d.axis === 'z' ? rz*k : rz, -0.08);
+    }
+  }
+  private contactPos = V3();
   doorsOf(zone: number) { return this.pieces.filter(p => p.kind === 'door' && !p.open && p.t < 0 && p.sides.includes(zone)); }
   /** the zone (as at the start) of (x, z); −1 off the floor or in a doorway */
   zoneAt(x: number, z: number) { const g = this.grid, i = g.ix(x), j = g.iz(z); return i < 0 || j < 0 || i >= g.nx || j >= g.nz ? -1 : this.zone0[j * g.nx + i]; }

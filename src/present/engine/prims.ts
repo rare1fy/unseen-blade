@@ -1,3 +1,4 @@
+import { instanceMatrix, instanceColor, finishInstances } from "./uploads";
 // Pooled effect primitives (port of the prototype kit's VFX 2/3): shockwave rings, ground decals, light pulses, physical debris.
 import * as THREE from 'three';
 import { scene, camera, canvasTex, V3, C, R, TAU, WHITE } from './world';
@@ -85,11 +86,11 @@ function updateDebris(dt: number) {
   }
   for (let i = 0; i < debris.length; i++) {
     const d = debris[i], k = d.age > d.life - 0.35 ? Math.max(0.001, (d.life - d.age) / 0.35) : 1;
-    _s.setScalar(d.s * k); _m4.compose(d.p, d.q, _s); debrisMesh.setMatrixAt(i, _m4);
+    _s.setScalar(d.s * k); _m4.compose(d.p, d.q, _s); instanceMatrix(debrisMesh, i, _m4);
     _c.copy(d.col); if (d.glow > 0) { const g = d.glow * Math.max(0, 1 - d.age * 2.5); _c.r += g; _c.g += g * 0.8; _c.b += g * 0.5; }
-    debrisMesh.setColorAt(i, _c);
+    instanceColor(debrisMesh, i, _c);
   }
-  debrisMesh.count = debris.length; debrisMesh.instanceMatrix.needsUpdate = true; debrisMesh.instanceColor!.needsUpdate = true;
+  debrisMesh.count = debris.length; finishInstances(debrisMesh);
 }
 
 export function initPrims() { initRings(); initDecals(); initPulses(); initDebris(); }

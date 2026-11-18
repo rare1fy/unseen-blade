@@ -1,3 +1,4 @@
+import { batchUi } from '../engine/rigidBatch';
 import { language, t as localize } from './i18n';
 // 动作原型的 3D 界面（UI 层里的实物，CLAUDE.md：UI 一律 3D 实物，不加暗色遮罩）。外观按题材风格（skin.ts：漆器 / 竹简 / 铁器）换：
 //   左下：摇杆——只在左下一块区域按下才出（默认按哪儿出在哪儿，之后底座不动；面板里可改成固定在左下）；
@@ -235,7 +236,7 @@ export class ActHud {
     // (it was a muted copper, too close to the red to read)
     const p = PALETTE[this.skin], g = new THREE.Group(), back = flat(p.foeBack), lag = flat(HP_LAG), fill = flat(p.foeFill);
     back.renderOrder = 40; lag.renderOrder = 41; fill.renderOrder = 42;
-    g.add(back, lag, fill); this.L.scene.add(g); return { g, back, lag, fill, shown: 1, lagV: 1, hold: 0 };
+    g.add(back, lag, fill); this.L.scene.add(g); batchUi(g, true); return { g, back, lag, fill, shown: 1, lagV: 1, hold: 0 };
   }
   private drawBar(b: Bar, x: number, y: number, w: number, h: number, frac: number, dt: number) {
     // the lost piece holds still a moment after each drop (a flurry piles into one piece), then closes in — the same as her own bar
@@ -286,7 +287,7 @@ export class ActHud {
         const g = new THREE.Group(), m = new THREE.MeshBasicMaterial({ color: 0xd09040 }), d = new THREE.MeshBasicMaterial({ color: 0x5a3a18 });
         const bar = (w: number, h: number, x: number, y: number, mat: THREE.Material) => { const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.2), mat); b.position.set(x, y, 0); g.add(b); };
         bar(1, 0.36, 0, 0.32, m); bar(1, 0.36, 0, -0.32, m); bar(0.36, 0.3, -0.32, 0, m); bar(0.36, 0.3, 0.32, 0, m); bar(0.28, 0.28, 0, 0, d);
-        this.L.scene.add(g); this.coinIcon = g;
+        this.L.scene.add(g); batchUi(g); this.coinIcon = g;
       }
       const coinCell = 3, b = this.flask.barAt(), cx = b.x - this.flask.W * this.k / 2 + 10, cy = b.y + b.h / 2 + 18 * this.k;
       this.coinIcon.visible = this.on; this.L.at(cx, cy - hop * 4, 2, this.coinIcon.position); this.coinIcon.scale.setScalar(this.L.px(12) * (1 + 0.25 * hop)); this.coinIcon.rotation.y = hop * 0.8;

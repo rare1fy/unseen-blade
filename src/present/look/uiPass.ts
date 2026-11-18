@@ -2,6 +2,7 @@
 // The UI scene renders into its own full-resolution target (MSAA when the GPU can, HDR, transparent background), gets a light bloom of
 // its own (lamp / glow materials with values > 1 shine: gold rims, cyan rings, crystal icons), a scaled warm-black contour and a soft
 // offset shadow over the world (premultiplied alpha). Floating text (UiText) is still drawn after this.
+import { mobileTargets } from './quality';
 import * as THREE from 'three';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import type { Ui3DLayer } from './pixel';
@@ -62,6 +63,7 @@ void main(){
 /** most screen rectangles the UI composite is cut into (more top-level UI groups than this: the whole screen) */
 const RMAX = 48;
 export class UiPass {
+  calls = 0;
   rt: THREE.WebGLRenderTarget; bloom: UnrealBloomPass; mat: THREE.ShaderMaterial; qs = new THREE.Scene(); cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
   private cc = new THREE.Color(); private W = 4; private H = 4;
   constructor(private renderer: THREE.WebGLRenderer, msaa: number, hdr = true) {
@@ -78,14 +80,14 @@ export class UiPass {
   }
   setSize(W: number, H: number, samples = this.rt.samples) {
     if (this.rt.samples !== samples) { this.rt.samples = samples; this.rt.dispose(); }
-    this.W = W; this.H = H; this.rt.setSize(W, H); this.bloom.setSize(Math.max(1, Math.round(W / 2)), Math.max(1, Math.round(H / 2)));
+    this.W = W; this.H = H; this.rt.setSize(W, H); this.bloom.setSize(mobileTargets() ? 1 : Math.max(1, Math.round(W / 2)), mobileTargets() ? 1 : Math.max(1, Math.round(H / 2)));
     (this.mat.uniforms.uRes.value as THREE.Vector2).set(W, H);
   }
   /** draw the UI layer over whatever is on screen now */
   render(L: Ui3DLayer) {
-    const r = this.renderer, u = this.mat.uniforms, ca = r.getClearAlpha(); r.getClearColor(this.cc);
+    const r = this.renderer, u = this.mat.uniforms, ca = r.getClearAlpha(), before = r.info.render.calls; r.getClearColor(this.cc);
     r.setRenderTarget(this.rt); r.setClearColor(0x000000, 0); r.clear(); r.render(L.scene, L.camera); r.setClearColor(this.cc, ca);
-    const bOn = UI_LOOK.bloom > 0;
+    const bOn = !mobileTargets() && UI_LOOK.bloom > 0;
     if (bOn) {
       this.bloom.strength = 1; this.bloom.radius = UI_LOOK.bloomRadius; this.bloom.threshold = UI_LOOK.bloomThreshold;
       // the bloom is not blended back into the UI target: the composite reads the blurred mips and adds them over the world
@@ -110,7 +112,7 @@ export class UiPass {
     const n = OPT.uiScissor ? this.rects(L) : -1;
     if (n < 0) r.render(this.qs, this.cam);
     else if (n > 0) { r.clearDepth(); r.render(this.rs, this.cam); }
-    r.autoClear = ac;
+    this.calls = r.info.render.calls - before; r.autoClear = ac;
   }
   private sz = new THREE.Vector2(); private box = new THREE.Box3(); private v = new THREE.Vector3();
   /** the rectangles' mesh (up to RMAX quads in clip space; the composite's uniforms, depth-tested so overlaps draw once) */
@@ -131,7 +133,7 @@ export class UiPass {
       if (!top.visible) continue;
       let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9, whole = false;
       top.traverseVisible(o => {
-        const g = (o as THREE.Mesh).geometry; if (whole || !g || !((o as THREE.Mesh).isMesh || (o as THREE.Sprite).isSprite)) return;
+        const g = (o as THREE.Mesh).geometry; if (whole || o.name === 'rigidBatch' || !g || !((o as THREE.Mesh).isMesh || (o as THREE.Sprite).isSprite)) return;
         if (!g.boundingBox) g.computeBoundingBox();
         const b = this.box.copy(g.boundingBox!).applyMatrix4(o.matrixWorld);
         for (let i = 0; i < 8; i++) {

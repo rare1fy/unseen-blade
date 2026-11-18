@@ -1,6 +1,8 @@
 // Full-resolution pixel numerals for the UI layer: numbers stay crisp on top of the 3× art buffer (COMMON: text is drawn at full
 // resolution after the frame). A tiny 4×5 font (digits + - / x %), drawn into canvas planes in an orthographic overlay scene.
 import * as THREE from 'three';
+import { CAPS, OPT } from '../engine/perfOpts';
+import { TextBatch } from './textBatch';
 import { makeCanvas } from '../../platform/index';
 import { BODY_FONT, bodyText, bodyW } from './bodyFont';
 import { drawPix, pixW, PIX_H } from '../v2/pix';
@@ -61,9 +63,12 @@ export const pixTextW = (t: string, pk: number, dpr: number) => (pixW(t) * Math.
 
 /** Keyed text labels in CSS px (y down). set(key, spec) every frame or on change; render() after the 3D frame. */
 export class UiText {
+  private batch = new TextBatch();
   scene = new THREE.Scene(); cam = new THREE.OrthographicCamera(0, 1, 0, -1, -10, 10); private labels = new Map<string, Label>(); dpr = 1;
   resize(w: number, h: number, dpr: number) { this.cam.right = w; this.cam.bottom = -h; this.cam.updateProjectionMatrix(); this.dpr = dpr; for (const l of this.labels.values()) l.key = ''; }
   set(key: string, s: TextSpec) { let l = this.labels.get(key); if (!l) { l = new Label(this.scene); this.labels.set(key, l); } l.set(s, this.dpr); }
   hide(key: string) { const l = this.labels.get(key); if (l) l.mesh.visible = false; }
-  render(r: THREE.WebGLRenderer) { const ac = r.autoClear; r.autoClear = false; r.setRenderTarget(null); r.render(this.scene, this.cam); r.autoClear = ac; }
+  render(r: THREE.WebGLRenderer) { const ac = r.autoClear; r.autoClear = false; r.setRenderTarget(null);
+    if (OPT.uiBatch && CAPS.boneTex) this.batch.render(r, this.scene, this.cam); else r.render(this.scene, this.cam);
+    r.autoClear = ac; }
 }

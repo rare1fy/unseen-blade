@@ -8,11 +8,12 @@ import { createGfx } from './present/engine/gfx';
 import { initParticles } from './present/engine/particles';
 import { initPrims } from './present/engine/prims';
 import { FX } from './present/engine/clock';
+import { paintMeter } from './present/engine/frameMeter';
 import { gpuMeasure } from './present/engine/gpuTime';
 import { scene as worldScene } from './present/engine/world';
 import { OPT } from './present/engine/perfOpts';
 import { batchStats } from './present/engine/rigidBatch';
-import { initQuality, setQuality, QUALITY, type Choice } from './present/look/quality';
+import { initQuality, setQuality, refreshQuality, QUALITY, type Choice } from './present/look/quality';
 import { PX, PXU, readPixelFlag, installPixelKeys, setPixel } from './present/look/pixel';
 import { ActShow } from './present/act/show';
 import './present/act/hideout';   // the hideout (据点): its scene, its five people, __dh.hideout()
@@ -46,7 +47,7 @@ dh.add({
   perf: (n = 120) => gpuMeasure(n),
   worldScene: () => worldScene,
   /** 11-18 微信帧率: turn single optimisations off / on to measure them: __dh.opt({ shadowTiles: false }) */
-  opt: (o: Partial<typeof OPT> = {}) => Object.assign(OPT, o),
+  opt: (o: Partial<typeof OPT> = {}) => { Object.assign(OPT, o); if (Object.keys(o).length) refreshQuality(); return OPT; },
   batchStats,
   /** 11-18 微信帧率: the quality tier — __dh.quality('mid') / 'auto'; no argument: the state */
   quality: (c?: Choice) => { if (c) setQuality(c); return { ...QUALITY }; },
@@ -74,6 +75,7 @@ dh.install();
     };
     gfx.start(() => {}, () => {
       if (!A) return;
+      paintMeter(A.L, gfx.stats, platform.now());
       A.L.renderText(gfx.renderer); A.ov.render(gfx.renderer); frames++;
       if (CRAZYGAMES) {
         if (frames === 1) finishLoading();

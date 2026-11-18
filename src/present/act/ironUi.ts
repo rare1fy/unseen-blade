@@ -7,6 +7,7 @@
 //   血条：左边一个八角铁框，里面是主角头像（斗笠、白蒙眼）；右边一条铁槽，红色的血、白色拖尾、每一成一道刻痕；
 //         槽下三颗铜锭 = 杀意，满一格烧亮一颗。
 // 全是 UI 层里的 3D 实物，贴图逐像素画（横平竖直，不撒随机点）。
+import { batchUi } from '../engine/rigidBatch';
 import * as THREE from 'three';
 import { digitsCanvas } from '../ui3d/pixfont';
 import type { Model3D } from '../ui3d/models3d';
@@ -178,7 +179,7 @@ export class IronBtn {
     }
     // act-29 (用户：「对齐一下我dicehero3D那版的UI品质，特别是3D icon的品质」): the thick voxel badges of dicehero3d's models3d
     this.icon = name === 'ult' ? skillIcon3D('ult') : btnIcon3D(name); this.iconG.add(this.icon);   // (11-18: 不见刀's own button)
-    L.scene.add(this.root); L.scene.add(this.iconG);
+    L.scene.add(this.root); L.scene.add(this.iconG); batchUi(this.root); batchUi(this.iconG);
   }
   hit(x: number, y: number) { const r = this.size * 0.6; return Math.abs(x - this.x) < r && Math.abs(y - this.y) < r; }
   update(dt: number) {
@@ -332,7 +333,7 @@ export class IronStick {
     const ring = new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.045, 6, 8), lam(BRONZE)); ring.rotation.z = Math.PI / 8; this.knobG.add(ring);
     const cap = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.12), lam(0xd09a50)); cap.position.z = 0.02; this.knobG.add(cap);
     this.knobG.position.z = 0.14; this.root.add(this.knobG);
-    L.scene.add(this.root);
+    L.scene.add(this.root); batchUi(this.root);
   }
   update(s: { id: number; ox: number; oy: number; x: number; y: number }, home: { x: number; y: number }, size: number) {
     const L = this.L, on = s.id >= 0, ox = on ? s.ox : home.x, oy = on ? s.oy : home.y;
@@ -429,7 +430,7 @@ export class IronHp {
     this.num = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ transparent: true, depthTest: false, depthWrite: false, toneMapped: false }));
     this.num.position.set(this.X0 + this.W / 2, 0.5, 9); this.num.renderOrder = 31; this.root.add(this.num);
     this.root.userData.noTilt = true; this.root.rotation.set(-0.22, 0.18, 0);
-    L.scene.add(this.root);
+    L.scene.add(this.root); batchUi(this.root);
   }
   private face!: THREE.Mesh;
   /** the medallion's picture for a costume (the white-haired one when there is none for it) */

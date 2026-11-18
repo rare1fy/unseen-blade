@@ -6,10 +6,17 @@
 export const CAPS = { gl2: true, instancing: true, boneTex: true, /** dFdx / dFdy (the block bevel, flat shading): WebGL2, or WebGL1's OES_standard_derivatives — the devtools have neither */ derivatives: true };
 
 export const OPT = {
+  foeContacts: true, bannerFaces: true, propBatch: true, mobileTargets: true, effectBudget: true, bakedShadows: true, cameraTiles: true,
+  poseLod: true, cheapVoxels: true, singleMusic: true, greedyActors: true,
   /** big places cast their shadow from 12 m position-only tiles (engine/shadowTiles.ts) */
   shadowTiles: true,
   /** a character's body parts drawn as one skinned mesh per material (engine/rigidBatch.ts) */
   batch: true,
   /** the UI layer's composite only over the screen rectangles the UI covers (look/uiPass.ts) */
   uiScissor: true,
+  uiBatch: true,
+  pointLights: true,
+  fightWarmup: true,
+  dirtyUploads: true,
+  staticMatrices: true,
 };

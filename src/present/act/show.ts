@@ -1,3 +1,5 @@
+import { OPT } from '../engine/perfOpts';
+import { ContactBatch } from '../engine/contactBatch';
 import { finishBuild, loadInFrames } from '../engine/buildSteps';
 import { bladeBusy, runRoomBuild, withLoadingBlade } from '../scenes/loadingBlade';
 import { format, language, msg, setLanguage } from './i18n';
@@ -12,9 +14,10 @@ import { hitstop, shake, slowmo, after, anim, clock, FX, waitReal, PAUSE } from 
 import { shot } from '../director';
 import { fxImpact, fxSparks, fxSmoke, fxRing, fxEmbers, fxFlare, trailSeg } from '../fx/fx';
 import { fxAfterimage } from '../fx/skillFx';
-import { addBlock } from '../fx/blocks';
+import { addBlock, debrisContacts } from '../fx/blocks';
 import { popPix } from '../v2/pix';
 import { playDeath } from '../v2/death';
+import { prepareFight } from './fightWarm';
 import { UiLayer } from '../ui3d/layer';
 import { Overlay } from '../v2/overlay';
 import { SkinBanner, SKIN, SKINS, SKIN_NAME, setSkin, type SkinId } from './skin';
@@ -51,7 +54,8 @@ import { fallShots, snowShots, dawnShots, loadShots, brazier, getUpPose, drapeOv
 import { coldOpenShots, coldCardShots, BlindPOV } from './coldopen';
 import { Barks } from './barks';
 import { installR45 } from './regions/r45_hook';
-import { qualityLabel, cycleQuality } from '../look/quality';   // wp/regB: 第四关 · 锁江、第五关 · 许都雪 (their places, foes, bosses, __dh.region)
+import { measureFight, meterLabel, toggleMeter } from '../engine/frameMeter';
+import { QUALITY, setQuality, type Tier, qualityLabel, cycleQuality } from '../look/quality';   // wp/regB: 第四关 · 锁江、第五关 · 许都雪 (their places, foes, bosses, __dh.region)
 /** act-40 (用户：「现在开场太墨迹了，把那段timeline先搞成黑幕快速交代背景吧」): the cold open as black cards for now (false = the 寒山坞 cutscene) */
 const COLD_AS_CARDS = true;
 import { newGame, profile, save as saveProfile, seeOnce, hasSave } from './profile';
@@ -149,13 +153,16 @@ addLocales(NINJA_LOCALES); addLocales(HANMO_LOCALES); addLocales(HANSHAN_LOCALES
 const PRICES = { boon: 60, heal: 30, sharpen: 50 };
 /** a soft dark spot for under the feet: a radial fade drawn once, shared by every spot */
 let SHADOW_TEX: THREE.Texture | null = null;
-function contactShadow() {
+function contactMaterial() {
   if (!SHADOW_TEX && typeof document !== 'undefined') {
     const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d')!;
     const gr = g.createRadialGradient(32, 32, 4, 32, 32, 31); gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(0.55, 'rgba(0,0,0,0.75)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
     g.fillStyle = gr; g.fillRect(0, 0, 64, 64); SHADOW_TEX = new THREE.CanvasTexture(c);
   }
-  const m = new THREE.Mesh(new THREE.PlaneGeometry(2, 2).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x0a0608, map: SHADOW_TEX, transparent: true, opacity: 0.72, depthWrite: false }));
+  return new THREE.MeshBasicMaterial({ color: 0x0a0608, map: SHADOW_TEX, transparent: true, opacity: 0.72, depthWrite: false });
+}
+function contactShadow() {
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(2, 2).rotateX(-Math.PI / 2), contactMaterial());
   m.renderOrder = 2; return m;
 }
 type Phase = 'intro' | 'fight' | 'pick' | 'doors' | 'leaving' | 'dead' | 'end' | 'yard' | 'opening' | 'cine' | 'talk' | 'title';
@@ -625,6 +632,8 @@ export class ActShow {
   /** the training yard (room −1) and the costume on the hero */
   yard: Yard | null = null; wearing: ModelDef = savedHero(); private lineupActors: BattleActor[] = [];
   private aimLine!: THREE.Mesh;
+  private propContacts?: ContactBatch;
+  private foeContacts?: ContactBatch;
   private ring!: THREE.Mesh; private ringK = -1; private sparkT = 0; private shadows: THREE.Mesh[] = []; private exitSign: THREE.Group | null = null; private blob: THREE.Mesh;
   constructor(private platform: Platform, deferStart = false) {
     SELF = this; this.dialogue = new Dialogue(this.L, this.ov); this.timeline = new Timeline(this.L);
@@ -652,7 +661,8 @@ export class ActShow {
       { dbg: true, label: () => `造型：${this.wearing.name}（点这里换）`, short: () => msg`造型：${this.wearing.name}`, run: () => { const ids = ['fine_white', 'fine_hat'], n = HEROES.find(d => d.id === ids[(ids.indexOf(this.wearing.id) + 1) % ids.length]); if (n) this.wear(n); } },
       { dbg: true, label: () => `像素：${PX.on ? PX.size + 'x' : '关'}（点这里换）`, short: () => msg`像素：${PX.on ? PX.size + 'x' : '关'}`, run: () => { const order = ['2', '3', 'off', '1'], cur = PX.on ? String(PX.size) : 'off', nx = order[(order.indexOf(cur) + 1) % order.length]; if (nx === 'off') setPixel(false); else setPixel(true, +nx); try { localStorage.setItem('ub.px', nx); } catch { /* private mode */ } } },
       // 11-18 微信帧率: the quality tier (自动 → 高 → 中 → 低), kept on the device
-      { label: () => qualityLabel(), short: () => qualityLabel(), run: () => cycleQuality() }];
+      { label: () => qualityLabel(), short: () => qualityLabel(), run: () => cycleQuality() },
+      { label: meterLabel, short: meterLabel, run: toggleMeter }];
     installActTune([...SET.map(x => ({ label: x.label, run: x.run })),
       // act-50 (用户：「加入一个跳过当前剧情的调试按钮」): the cutscene / the talk running now and the ones chained after it, fast-forwarded
       //  until she can be played again (fast-forward, not a cut: every shot's own events — 杜五 and the donkey coming in, her getting up — still happen)
@@ -689,6 +699,7 @@ export class ActShow {
         return { at: [cx, cz], edited: !!code };
       }, prof: () => profile(), steleTest: (n = 0, cut = -1) => { const st = new Stele(n); st.g.position.set(this.hero.pos.x, 0, this.hero.pos.z - 2.2); this.stage!.root.add(st.g); if (cut >= 0) after(0.8, () => st.strike(cut)); return st; },
       // 11-18 一局五关: jump to a room of a region (n 0 起; room within it; the boss room = REGIONS[n].rooms), or straight to region n's boss
+      bench: (tiers?: Tier[]) => this.bench(tiers),
       region: (n = 1, room = 0, type: RoomType = 'fight') => this.jumpRegion(n, room, type),
       boss: (n = 0) => { this.jumpRegion(n, REGIONS[Math.max(0, Math.min(REGIONS.length - 1, n))].rooms, 'boss'); }, newGame: () => this.startNewGame(), talkTest: (n = 0) => this.talk(n ? CHULEI_BEFORE : WAKE_DUWU), act: () => this, bot: (on = true) => { this.botOn = on; }, run: () => this.startRun(), yard: () => this.enterYard(), wear: (id: string) => { const d = HEROES.find(h => h.id === id); if (d) this.wear(d); },
       skin: (id: SkinId) => this.cycleSkin(id),
@@ -981,6 +992,8 @@ export class ActShow {
   title(n = 1) {
     try { localStorage.setItem('ub.title', String(n)); } catch { /* storage blocked */ }   // the last one shown opens next time
     // a room may be up (__dh.title from the yard): its actors go the way a room change sends them
+    this.propContacts?.dispose(); this.propContacts = undefined;
+    this.foeContacts?.dispose(); this.foeContacts = undefined;
     this.duel?.newRoom(); for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = []; this.entering.length = 0;
     this.yard?.dispose(); this.yard = null; this.props?.dispose(); this.props = null; this.gates?.dispose(); this.gates = null; this.pieces?.dispose(); this.pieces = null; this.leaves?.dispose(); this.leaves = null; this.stations?.dispose(); this.stations = null; this.hero?.a.dispose();
     this.clearNpcs();
@@ -1080,6 +1093,51 @@ export class ActShow {
   /** 11-18 一局五关 (用户：「你帮我在调试面板加一个快速切关，我好测试关卡」): a new run that starts in region n's room `room` (0 = its
    *  first room; REGIONS[n].rooms = its boss room) of the given kind — from the title, the hideout or mid-run (the tune panel's 快速切关,
    *  __dh.region / __dh.boss). Not while a cutscene or a talk is playing (they go on awaiting their own next steps) */
+  private benchmarking = false;
+  private async bench(tiers: Tier[] = ['high', 'mid', 'low']) {
+    if (this.benchmarking || this.pause.on || this.timeline.on || this.dialogue.on || this.cards.on) throw Error('Finish the current scene before benchmarking');
+    this.benchmarking = true;
+    const random = Math.random, oldQuality = { ...QUALITY }, choice = QUALITY.choice, god = this.god, bot = this.botOn, result: Partial<Record<Tier, unknown>> = {};
+    try {
+      if (this.phase === 'title') stopTitle();
+      this.hud.on = true; this.prologue = 0; this.god = true; this.botOn = false;
+      for (const tier of tiers) {
+        let seed = 4101;
+        Math.random = () => { seed = (Math.imul(1664525, seed) + 1013904223) >>> 0; return seed / 4294967296; };
+        setQuality(tier, false);
+        this.region = 0; this.room = 1; this.locale = 'hj_village'; this.forceMap = 'crossroads'; this.forceSeed = 4101;
+        this.forceSpec = this.viewSpec = null; this.noArena = false;
+        this.plan = { type: 'fight', locale: this.locale, reward: null, waves: [['hj_blade','hj_blade','hj_blade','hj_blade','hj_archer','hj_archer','hj_brute','hj_brute']] };
+        await this.buildRoom(true);
+        const deadline = performance.now() + 90000;
+        while (this.foes.length !== 8 || this.entering.length || this.phase !== 'fight') {
+          if (performance.now() > deadline) throw Error('Eight benchmark enemies did not enter');
+          await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+        }
+        const entry = this.arena!.shape!.enter, x = entry[0], z = entry[1];
+        this.hero.pos.set(x, 0, z); this.hero.vel.set(0,0,0);
+        this.foes.forEach((foe, i) => {
+          const a = Math.PI * (i + 0.5) / 8, pos = this.grid!.nearestFloor(x + 4 * Math.cos(a), z - 4 * Math.sin(a));
+          foe.pos.set(pos[0], 0, pos[1]); foe.vel.set(0,0,0);
+        });
+        this.camOverride = { base: V3(x, 12, z + 12), look: V3(x, 0, z), fov: 36 };
+        for (const foe of this.foes) foe.hp = foe.maxHp = 100000;
+        let nextSwing = 0;
+        result[tier] = await measureFight(seconds => {
+          const offset = 2.5 * Math.sin(seconds * Math.PI / 10);
+          this.camOverride!.base.x = x + offset;
+          this.camOverride!.look.x = x + offset;
+          if (seconds >= nextSwing) { this.inp.hold('attack', 0.10); nextSwing += 0.8; }
+        });
+      }
+      return result;
+    } finally {
+      Math.random = random; this.forceMap = this.forceSeed = null; this.camOverride = null;
+      this.god = god; this.botOn = bot; this.benchmarking = false;
+      QUALITY.auto = oldQuality.auto; QUALITY.reducedWorld = oldQuality.reducedWorld; setQuality(choice, false); QUALITY.drops = oldQuality.drops;
+      await this.enterYard();
+    }
+  }
   jumpRegion(n: number, room = 0, type: RoomType = 'fight') {
     if (this.phase === 'cine' || this.phase === 'talk' || this.phase === 'opening' || this.timeline.on || this.dialogue.on) return { why: '演出 / 对话还在放，放完再切' };
     if (this.phase === 'title') { stopTitle(); this.hud.on = true; }
@@ -1235,6 +1293,7 @@ export class ActShow {
       this.log.push(`room ${this.room} ${this.plan.type} ${spec.locale}`);
       this.openDoors(true); return;
     }
+    prepareFight(this.plan?.waves ?? []);
     // walk in from the front of the room, then the first wave
     const h = this.hero; this.introT = 0;
     after(1.1, () => {
@@ -2819,12 +2878,21 @@ export class ActShow {
     // the landing spot under a jump
     this.blob.visible = h.alive || h.y > 0.03; this.blob.position.set(h.pos.x, 0.03, h.pos.z); this.blob.scale.setScalar(0.62 * Math.max(0.6, 1 - h.y * 0.22)); (this.blob.material as THREE.MeshBasicMaterial).opacity = 0.78 - Math.min(0.3, h.y * 0.12);
     // the foes' contact shadows (a pool, one per live foe; the dummies stand on their own stone feet)
+    const softOnly = OPT.bakedShadows && QUALITY.tier === 'low';
+    if (softOnly && this.stage && !this.propContacts) this.propContacts = new ContactBatch(this.stage.root);
+    const groupFoes = OPT.foeContacts && QUALITY.tier === 'mid';
+    if (groupFoes && this.stage && !this.foeContacts) this.foeContacts = new ContactBatch(this.stage.root, contactMaterial());
+    this.foeContacts?.begin(); this.propContacts?.begin();
+    if (softOnly && this.propContacts) { debrisContacts(this.propContacts); this.props?.contacts(this.propContacts); this.pieces?.contacts(this.propContacts); }
     let si = 0;
     for (const f of this.foes) {
       if (f.st === 'dead' || f.kind === 'dummy' || f.mem.hidden) continue;
+      if (softOnly && this.propContacts) { this.propContacts.add(f.pos.x, f.pos.z, f.d.r * 1.55); continue; }
+      if (groupFoes && this.foeContacts) { this.foeContacts.add(f.pos.x, f.pos.z, f.d.r * 1.55, f.d.r * 1.55, 0.03); continue; }
       let m = this.shadows[si]; if (!m) { m = contactShadow(); scene.add(m); this.shadows.push(m); }
       m.visible = true; m.position.set(f.pos.x, 0.03, f.pos.z); m.scale.setScalar(f.d.r * 1.55); si++;
     }
+    this.foeContacts?.end(); this.propContacts?.end();
     for (; si < this.shadows.length; si++) this.shadows[si].visible = false;
     // HUD
     const B = this.hud.btns; void B;

@@ -10,6 +10,7 @@
 //   攻击钮左上一排铁钉是这一串有几下，接住一下亮一颗；全接住 → 她反手一记重斩（慢放、推近）；漏一下 → 那一下打中她，QTE 结束，后面几下照常
 //   打完（她已经能动了，冲刺躲开）。
 // 都不在序章里出（打石雷那场是剧情杀，见 canRun）；同一时间只有一个 QTE；每个精英一场最多一次，头目拼刀、连环各最多两次，两次之间至少隔几秒。
+import { batchUi } from '../engine/rigidBatch';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { V3, scene } from '../engine/world';
@@ -132,7 +133,7 @@ class DuelUi {
     this.fill.position.set(0, -0.008, 0.048); g.add(this.fill);
     const M = boxes([{ w: 0.06, h: 0.21, d: 0.11, x: 0, y: 0, z: 0.03, c: BRONZE }, { w: 0.06, h: 0.03, d: 0.115, x: 0, y: 0.09, z: 0.032, c: 0xf0c070 }, { w: 0.02, h: 0.12, d: 0.02, x: 0, y: -0.01, z: 0.09, c: 0x5a3a1a }]);
     this.marker = new THREE.Mesh(M.geo, vc(0xffb050)); g.add(this.marker);
-    g.visible = false; this.L.scene.add(g); this.bar = g;
+    g.visible = false; this.L.scene.add(g); batchUi(g); this.bar = g;
   }
   private buildPlates() {
     const n = DuelUi.PLATES, list: BoxSpec[] = [];
@@ -141,7 +142,7 @@ class DuelUi {
     for (let i = 0; i < n; i++) { const a = -2.5 + i * (3.1 / (n - 1)), r = 0.62; list.push({ w: 0.11, h: 0.055, d: 0.05, x: Math.sin(a) * r, y: Math.cos(a) * r, z: 0, rz: -a, c: IRON_D }); }
     const P = boxes(list); this.plateR = P.ranges; this.plateM = new THREE.Mesh(P.geo, vc());
     // (in a group: the UI layer turns groups toward the screen's middle as it does the buttons, so the arc sits on the button's plane)
-    this.plates = new THREE.Group(); this.plates.add(this.plateM); this.plates.visible = false; this.L.scene.add(this.plates);
+    this.plates = new THREE.Group(); this.plates.add(this.plateM); this.plates.visible = false; this.L.scene.add(this.plates); batchUi(this.plates);
     this.lit = new Array(n).fill(0);
   }
   private buildChain() {
