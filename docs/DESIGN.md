@@ -1343,4 +1343,10 @@
 
 改：`engine/perfOpts.ts` 的 `CAPS`（gl2 / instancing / boneTex，gfx.ts 建渲染器时按 `capabilities` 和扩展填）。没有实例化：包一层 `renderer.renderBufferDirect`（画面、阴影、预热都从这里画），实例化的网格 / 几何体直接跳过——不管什么时候新建的；只在控制台提示一次。没有浮点顶点贴图：`syncBatches()` 不做合批，部件照旧各画各的。`voxToon` 带 `extensions = { derivatives: true }`（WebGL2 里忽略），`Actor.finish`、`ui3d/models3d.ts` 的 `own()` 克隆材质时把它一起带上（`Material.clone` 不带这个属性，和 onBeforeCompile 一样要手抄）。替身页改成 `getContext('webgl2')` 返回空、WebGL1 的 `getExtension` 对这两个扩展返回空：旧包 20 秒刷出约 9000 条实例化、8700 条合批报错，和截图一样；新包 0 报错、0 个编译失败的着色器。
 
+### 动作预览页与「谁算敌人」（11-18）
+
+- 敌人动作层（act-53 的 `foe_motion.ts`：步伐、出招节拍、受击方向、倒地）只套在五关的敌人上：`BActor.foe` 要求 id 以 `hj_` / `ly_` / `xp_` / `wl_` / `cx_` 开头。据点的人、灰驴、寒山坞的人虽然也登记在 `ROSTER` 里（为了 `__dh.models` 能摆），但走路由演出的 `walkPh` 驱动（`hideout_people.ts walkOver`），不能再叠一层步伐（用户：杜五「手和腿不在一个节奏上」）。
+- 动作预览页 `src/present/act/animPreview.ts`（`?anim` / 桌面 `不见刀_动作预览.html`，只在网页版）：分组 = 据点的人 + 五关各自的敌人（`ROSTER` 按 id 前缀），整组排成每行 6 个；走跑时人在原地、地上的格子以同样的速度往后走（敌人的步伐层支持跑步机：按报告的速度迈步），据点的人按 `walkPh` 走（他们不跑，「跑」时快走）。`window.__anim` 是当前摆着的人（截图核对用）。
+- 杜五、孙婆婆的新模型（按立绘重做）来自主目录里没提交的那批，存档分支 `wip/main-models-1118`；同一批里的「黄巾攻击动作回炉」还没合。
+
 **第三个（act-59 → act-61）**：用户：「我打开还是没有画面，这还是模拟器的问题吗？」，贴了控制台：`EXT_blend_minmax`、`OES_vertex_array_object` 不支持（three 自己会绕开），`loadFont:fail NOT_WHITELIST_FILE … assets/body/wenkai.woff2`，最后是 `MeshToonMaterial` 的「Fragment shader is not compiled」。那台开发者工具的 WebGL1 连 `OES_standard_derivatives` 都没有——act-59 只是让材质「声明要用」它，没有就是没有。用到 `dFdx` / `dFdy` 的三处：`voxToon` 的 1 像素倒角线（场景和人物全用这个材质）、`toon({ flat: true })` 的扁平着色（`ui3d/vox.ts` 的界面小模型）、three 自带物理材质 `lights_physical_fragment` 里按法线求导估的 geometryRoughness（水面、玻璃、碎块）。改：`CAPS.derivatives = WebGL2 || OES_standard_derivatives`；没有时 `voxToon` 的倒角那段在 `#ifdef VOX_DERIV` 外面（面按朝向的明暗照旧，只少了边上那一像素的亮 / 暗线），`toon` 的 `flatShading` 改成编译时才读的属性（没有求导就当 false，用网格自带的法线），启动时把 three 的 `lights_physical_fragment` 里那两行换成 `float geometryRoughness = 0.0;`（只影响弧面上高光的柔和）。字体：微信包里三套正文字体用 fontTools 从 woff2 转成 ttf（`wx.loadFont` 认 ttf），主包 3.7 → 5.0 MB。替身页加 `?strip=…`，照用户那台的情况去掉求导、blend_minmax、VAO，新包 0 报错、0 个编译失败的着色器。
