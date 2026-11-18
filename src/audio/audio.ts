@@ -1,3 +1,4 @@
+import { OPT } from '../present/engine/perfOpts';
 // Audio: Web Audio graph — sfx bus (random pitch / volume per play, layered cues), music bus with a low-pass that closes at low HP,
 // voice bus that ducks music and sfx, a master limiter. Samples are bundled inline (mp3 → base64) and decoded on first unlock.
 import { setCueHandler, type Cue } from './cues';
@@ -234,22 +235,24 @@ class AudioEngine {
     const ctx = this.ctx; if (!ctx || this.musicWant === name) return; this.musicWant = name; this.stopSting(1.8);
     let b = this.buf.get(name);
     if (!b) { const d = await this.warm(name); if (!d) return; b = d; }
-    if (this.musicWant !== name) return;   // asked for another while decoding
+    if (this.musicWant !== name) { if (OPT.singleMusic && this.musicName !== name) this.buf.delete(name); return; }   // asked for another while decoding
     const t = this.now();
-    if (this.musicSrc) { const old = this.musicSrc, og = (old as any)._g as GainNode; og.gain.cancelScheduledValues(t); og.gain.setValueAtTime(og.gain.value, t); og.gain.linearRampToValueAtTime(0, t + fade); old.stop(t + fade + 0.05); }
+    if (this.musicSrc) { const old = this.musicSrc, og = (old as any)._g as GainNode; og.gain.cancelScheduledValues(t); og.gain.setValueAtTime(og.gain.value, t); og.gain.linearRampToValueAtTime(0, t + fade); old.onended = () => { old.disconnect(); og.disconnect(); old.buffer = null; }; old.stop(t + fade + 0.05); }
     const src = ctx.createBufferSource(); src.buffer = b; src.loop = !MUSIC_ONCE.has(name);
     const lp = MUSIC_LOOPS[name]; if (lp) { src.loopStart = lp[0]; src.loopEnd = Math.min(lp[1], b.duration); }
     const g = ctx.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(1, t + fade); (src as any)._g = g;
     src.connect(g); g.connect(this.music); src.start(t, Math.min(offset, Math.max(0, b.duration - 1))); this.musicSrc = src; this.musicName = name;
-    // keep at most this one and the one before decoded
-    for (const k of [...this.buf.keys()]) if (k.startsWith('bgm_') && k !== name && k !== this.musicPrev) this.buf.delete(k);
+    // The fading source owns the old buffer until onended. The cache only needs the playing score.
+    for (const k of [...this.buf.keys()]) if (k.startsWith('bgm_') && k !== name && (OPT.singleMusic || k !== this.musicPrev)) this.buf.delete(k);
     this.musicPrev = name;
   }
   private musicPrev = '';
   /** fade the music out (a death, the end of a run); the next playMusic brings it back */
   stopMusic(fade = 1.5) {
+    this.musicWant = '';
     if (!this.ctx || !this.musicSrc) return; const t = this.now(), old = this.musicSrc, og = (old as any)._g as GainNode;
     og.gain.cancelScheduledValues(t); og.gain.setValueAtTime(og.gain.value, t); og.gain.linearRampToValueAtTime(0, t + fade); old.stop(t + fade + 0.05);
+    if (OPT.singleMusic) this.buf.delete(this.musicName);
     this.musicSrc = null; this.musicName = ''; this.musicWant = '';
   }
   /** dip the music under a stinger for a while (k = level, 0..1) */
