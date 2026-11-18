@@ -33,7 +33,7 @@ addFoes({
   xp_diver: { model: 'xp_diver', hp: 40, r: 0.44, speed: 3.0, mass: 1.0, poise: 0, gold: 5, name: '沉江恶鬼', role: 'xp_diver', elite: 'xp_diver_e' },
   xp_chain: { model: 'xp_chain', hp: 120, r: 0.7, speed: 1.9, mass: 2.6, poise: 36, gold: 8, name: '枷铁狱吏', role: 'xp_chain', elite: 'xp_chain_e', barks: BARK_XP },
   xp_conscript: { model: 'xp_conscript', hp: 16, r: 0.36, speed: 3.4, mass: 0.6, poise: 0, gold: 1, name: '冻骨溃兵', role: 'xp_conscript', alt: ['xp_conscript_b'], weight: 0.5, barks: BARK_XP },
-  xp_boss: { model: 'xp_boss', hp: 480, r: 0.55, speed: 2.7, mass: 1.8, poise: 44, gold: 50, name: '截指鬼医 · 封鸩', role: 'xp_boss', boss: true, tag: '银针刺骨，截指饲寒鸩', intro: '脉相浮而乱，该截下拇指了。' },
+  xp_boss: { model: 'xp_boss', hp: 480, r: 0.55, speed: 2.7, mass: 1.8, poise: 44, gold: 50, name: '截指鬼医 · 封寒', role: 'xp_boss', boss: true, tag: '银针刺骨，截指入药', intro: '脉相浮而乱，该截下拇指了。' },
 });
 
 // ------------------------------------------------------------------ shared bits

@@ -454,7 +454,7 @@ export const XP_DEFS = {
   chain_e: def({ id: 'xp_chain_e', name: '枷铁狱吏', group: '精英', role: '狱卒', line: '', kind: 'biped', attack: 'slam', tip: 8, build: () => jailer(true) }),
   conscript: def({ id: 'xp_conscript', name: '冻骨溃兵', group: '普通', role: '降卒', line: '', kind: 'biped', attack: 'swing', tip: 30, build: () => conscript(0) }),
   conscript_b: def({ id: 'xp_conscript_b', name: '冻骨溃兵', group: '普通', role: '降卒', line: '', kind: 'biped', attack: 'swing', tip: 21, build: () => conscript(1) }),
-  boss: def({ id: 'xp_boss', name: '截指鬼医 · 封鸩', group: '首领', role: '医官', line: '', kind: 'biped', attack: 'cast', tip: 11, build: boss }),
+  boss: def({ id: 'xp_boss', name: '截指鬼医 · 封寒', group: '首领', role: '医官', line: '', kind: 'biped', attack: 'cast', tip: 11, build: boss }),
 };
 void plate;
 

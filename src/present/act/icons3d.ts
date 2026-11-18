@@ -66,8 +66,9 @@ const ART: Record<string, (set: Set3) => void> = {
 /** the four buttons' pictures and the hideout's talk bubble, as thick voxel badges (dim / glow through Model3D) */
 export function btnIcon3D(key: 'attack' | 'dash' | 'jump' | 'special' | 'talk'): Model3D {
   // act-41 (用户：「所有道具我要求都是真实的模型，不要用立体简笔画糊弄我」): the buttons carry the real things — the ring-pommel sabre,
-  // the willow-leaf dart, the cloth boot, the straw sandal (itemModels.ts); the talk bubble stays a sign
-  const real = key === 'attack' ? itemModel('sabre') : key === 'special' ? itemModel('dart') : key === 'dash' ? itemModel('boot') : key === 'jump' ? itemModel('sandal') : null;
+  // the willow-leaf dart, the cloth boot (itemModels.ts); the talk bubble stays a sign. (act-50 用户：「跳跃的图标还是用之前的吧，现在这个
+  // 草鞋看起来很抽象」: the jump is the act-31 up-arrow badge again, not the straw sandal)
+  const real = key === 'attack' ? itemModel('sabre') : key === 'special' ? itemModel('dart') : key === 'dash' ? itemModel('boot') : null;
   if (real) return real;
   const art = key === 'attack' ? 'sabre' : key === 'special' ? 'dart' : key;
   return customIcon3D('ub:' + art, ART[art]);

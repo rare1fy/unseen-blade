@@ -528,6 +528,9 @@ export class ActShow {
       { label: () => `造型：${this.wearing.name}（点这里换）`, short: () => `造型：${this.wearing.name}`, run: () => { const ids = ['fine_white', 'fine_hat'], n = HEROES.find(d => d.id === ids[(ids.indexOf(this.wearing.id) + 1) % ids.length]); if (n) this.wear(n); } },
       { label: () => `像素：${PX.on ? PX.size + 'x' : '关'}（点这里换）`, short: () => `像素：${PX.on ? PX.size + 'x' : '关'}`, run: () => { const order = ['2', '3', 'off', '1'], cur = PX.on ? String(PX.size) : 'off', nx = order[(order.indexOf(cur) + 1) % order.length]; if (nx === 'off') setPixel(false); else setPixel(true, +nx); try { localStorage.setItem('ub.px', nx); } catch { /* private mode */ } } }];
     installActTune([...SET.map(x => ({ label: x.label, run: x.run })),
+      // act-50 (用户：「加入一个跳过当前剧情的调试按钮」): the cutscene / the talk running now and the ones chained after it, fast-forwarded
+      //  until she can be played again (fast-forward, not a cut: every shot's own events — 杜五 and the donkey coming in, her getting up — still happen)
+      { label: () => (this.storySkip ? '跳过剧情：快进中…' : '跳过剧情（演出和对话快进到能操作）'), run: () => this.skipStory() },
       // 11-18 测关卡用: she can't die / every 刀谱 move on (the tune panel only, not the pause menu)
       { label: () => `打不死：${this.god ? '开' : '关'}`, run: () => { this.god = !this.god; } },
       { label: () => `全部招式：${this.dbgAllMoves ? '开' : '关'}`, run: () => { this.dbgAllMoves = !this.dbgAllMoves; if (this.hero && !this.yard && !this.prologue) this.hero.moves = this.dbgAllMoves ? ALL_MOVES : this.perks.moves; } }],
@@ -983,9 +986,9 @@ export class ActShow {
         cue(bs ? 'roar' : 'summon', bs ? 0.9 : 0.4);
         // act-20: the chapter's boss the first time on this save — the intro cutscene and the lines before the fight (he
         // comes in the room's second wave); after that only his banner
-        if (bs && this.prologue === 2) { after(0.35, async () => { await this.cine(bossIntroShots(this.cineHost, f, '雷公渠帅 · 褚雷')); await this.talk(PRO_CHULEI); f.a.roar(); this.proFightT = 0; }); }
+        if (bs && this.prologue === 2) { after(0.35, async () => { await this.cine(bossIntroShots(this.cineHost, f, '雷公渠帅 · 石雷')); await this.talk(PRO_CHULEI); f.a.roar(); this.proFightT = 0; }); }
         // (11-18: 褚雷's own meeting — not any boss met first on a fresh save)
-        else if (bs && ko.kind === 'hj_boss' && seeOnce('ch1_boss')) { saveProfile(); after(0.35, async () => { if ((f.st as string) === 'dead') return; await this.cine(bossIntroShots(this.cineHost, f, '雷公渠帅 · 褚雷')); await this.talk(CHULEI_BEFORE); f.a.roar(); }); }
+        else if (bs && ko.kind === 'hj_boss' && seeOnce('ch1_boss')) { saveProfile(); after(0.35, async () => { if ((f.st as string) === 'dead') return; await this.cine(bossIntroShots(this.cineHost, f, '雷公渠帅 · 石雷')); await this.talk(CHULEI_BEFORE); f.a.roar(); }); }
         // 11-18 (一局五关): a later region's boss — its banner and its line over its head (no portrait talk or cutscene yet)
         else if (bs && EDEFS[ko.kind].intro) { this.bossLookT = 3.2; f.a.roar(); shake(0.3 * TUNE.shake); this.banner.show(EDEFS[ko.kind].name, EDEFS[ko.kind].tag ?? '', 2.2, '#ff8a6a'); after(0.9, () => { if (f.st !== 'dead') this.barks?.say(() => f.a.head(), EDEFS[ko.kind].intro!); }); }
         else if (bs) { f.a.roar(); shake(0.3 * TUNE.shake); this.banner.show(EDEFS[ko.kind].name, EDEFS[ko.kind].tag ?? '', 1.6, '#ff8a6a'); }
@@ -1536,6 +1539,9 @@ export class ActShow {
    *  knocked into a pot / crate / hay it smashes it, into an oil jar it lights it */
   private pushed(f: Foe, dx: number, dz: number) {
     const lp = this.lastPush; if (!lp || f.st === 'dead' || f.kind === 'dummy' || (Math.abs(dx) + Math.abs(dz)) < 1e-4) return;
+    // (act-50 用户：「立着的建筑和物件，敌人正常走过去碰到也会扣血……默认应该是建筑倒了或者被玩家一脚踢过去碰到才会掉血」: only a foe
+    //  knocked about — reeling from a blow or sent flying — slams; one charging or lunging into a wall under its own steam just stops)
+    if (f.st !== 'stagger' && f.airV == null) return;
     if (slamSpeed(f.vel.x, f.vel.z, lp.nx, lp.nz) < SLAM.minSpeed) return;
     const last = this.slamAt.get(f) ?? -9; if (clock.time - last < SLAM.cooldown) return; this.slamAt.set(f, clock.time);
     const vn = f.vel.x * lp.nx + f.vel.z * lp.nz; f.vel.x -= vn * lp.nx * 1.4; f.vel.z -= vn * lp.nz * 1.4;   // a little bounce off it
@@ -2141,7 +2147,19 @@ export class ActShow {
     const base = this.cam.clone().add(V3(0, TUNE.camH * k, TUNE.camD * k)), look = this.cam.clone().add(V3(0, 0.6 + 0.5 * n, 0));
     return { base, look, fov: TUNE.camFov };
   }
+  /** act-50 debug: fast-forward the story (FX.speed up, every line advanced at once, voices hushed) until play resumes */
+  private storySkip = false; private storyIdle = 0; private storyWas = 1; private storyT = 0;
+  private skipStory() { if (this.storySkip) return; this.storySkip = true; this.storyIdle = 0; this.storyWas = FX.speed; FX.speed = 12; this.storyT = performance.now(); }
+  private storySkipFrame() {
+    if (!this.storySkip) return;
+    const now = performance.now(), real = Math.min(0.1, (now - this.storyT) / 1000); this.storyT = now;
+    if (this.dialogue.on) { this.dialogue.advance(); this.dialogue.advance(); audio.stopVoice(); }
+    const busy = this.phase === 'cine' || this.phase === 'talk' || this.phase === 'opening' || this.timeline.on || this.dialogue.on || !!this.hero?.scriptPose;
+    this.storyIdle = busy ? 0 : this.storyIdle + real;
+    if (this.storyIdle > 0.5) { this.storySkip = false; FX.speed = this.storyWas; }
+  }
   private frame(dt: number, rdt: number) {
+    this.storySkipFrame();
     if (PAUSE.on) { this.L.text.hide('act.npc'); return; }   // the pause menu runs on its own (real time); the world gets nothing (11-18: a hideout name over the menu's pages hidden)
     this.inp.frame(rdt);
     this.padScreens(rdt);

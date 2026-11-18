@@ -469,7 +469,10 @@ function stompPose(I: Pose, k: number): Pose {
 }
 /** 11-18 3C poses: the guard after a fight, a braking step (weight back, the front foot out), a skid (lower, leaning hard back) */
 const READY: Partial<Pose> = { sx: 0.2, tL: -0.4, kL: 0.55, tR: 0.3, kR: 0.5, nx: -0.08 };
-const BRAKE: Partial<Pose> = { sx: -0.14, tL: -0.6, kL: 0.35, tR: 0.35, kR: 0.7, aLx: -0.45, aLz: 0.6, aRz: -0.65 };
+// (act-50 用户：「往一个方向跑步停下来那个身体后仰的动作很像挨了一下打」: the old step leaned back with both arms flung out, full on
+//  in 0.04 s — a flinch. Now the stop sinks: the front foot planted, both knees taking the weight, the trunk carried a touch forward by the
+//  run and coming back upright, the arms only swinging on a little ahead; eased in and out)
+const BRAKE: Partial<Pose> = { sx: 0.1, tL: -0.5, kL: 0.5, tR: 0.3, kR: 0.65, aLx: -0.25, aLz: 0.12, aRz: -0.12, nx: 0.04 };
 const SKID: Partial<Pose> = { sx: -0.26, tL: -0.8, kL: 0.3, tR: 0.5, kR: 0.95, aLx: -0.7, aLz: 0.85, aRz: -0.85, nx: -0.15 };
 /** the landing (11-18): down as the feet touch — deeper the harder the fall — then up slowly; k runs 1 → 0, the squash peaks early */
 function land(I: Pose, k: number, w = 0.6): Pose {
@@ -563,7 +566,7 @@ const heroHook = (b: Record<string, Bone>, t: number, a: Action | null, off: THR
   if (m && !inAir && !a) {
     if (m.ready > 0 && m.run < 0.3) P = mix(P, READY, m.ready * (1 - m.run / 0.3));
     if (m.run > 0.05) { P.sz += m.bank * m.run; P.hz += 0.5 * m.bank * m.run; P.sx += 0.22 * m.start; }
-    if (m.brake > 0) P = mix(P, BRAKE, curve(1 - m.brake, [[0, 0.4], [0.2, 1], [1, 0]]));
+    if (m.brake > 0) P = mix(P, BRAKE, curve(1 - m.brake, [[0, 0.15], [0.4, 1], [1, 0]]));
     if (m.skid > 0) P = mix(P, SKID, curve(1 - m.skid, [[0, 0.5], [0.15, 1], [1, 0]]));
   }
   if (m && m.squat > 0 && !inAir && !a) P = mix(P, J_SQUAT, curve(m.squat, [[0, 0.25], [0.55, 1], [1, 1]]));

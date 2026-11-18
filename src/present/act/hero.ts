@@ -413,7 +413,7 @@ export class Hero {
         // takes half the speed off in the first frame
         { const hs = Math.hypot(this.vel.x, this.vel.z), top = TUNE.heroSpeed;
           if (sl > 0.5 && hs > 0.65 * top && this.skidT <= 0 && (this.vel.x * stick.x + this.vel.z * stick.z) / (hs * sl) < -0.35) { this.skidT = 0.18; dustBlocks(this.pos.clone(), 6, this.vel.clone().normalize()); cue('skid', 0.7); }
-          else if (this.prevSl > 0.5 && sl < 0.15 && hs > 0.7 * top && this.brakeT <= 0) { this.brakeT = 0.22; dustBlocks(this.pos.clone(), 4, this.vel.clone().normalize()); cue('skid', 0.35); }
+          else if (this.prevSl > 0.5 && sl < 0.15 && hs > 0.7 * top && this.brakeT <= 0) { this.brakeT = 0.3; dustBlocks(this.pos.clone(), 4, this.vel.clone().normalize()); cue('skid', 0.35); }
           else if (this.prevSl < 0.15 && sl > 0.5 && hs < 0.3 * top) { this.startT = 0.16; dustBlocks(this.pos.clone(), 3, stick.clone().multiplyScalar(-1)); } }
         steer(TUNE.heroAccel);
         // 11-17: the dash links stay on for TUNE.linkDash after the dash has stopped (on the ground). Out of a combo, with 游身斩
@@ -732,7 +732,7 @@ export class Hero {
       let dy = this.a.yaw - this.prevYaw; while (dy > Math.PI) dy -= Math.PI * 2; while (dy < -Math.PI) dy += Math.PI * 2; this.prevYaw = this.a.yaw;
       const bank = this.st === 'free' && dt > 0 ? Math.max(-0.3, Math.min(0.3, dy / dt * 0.05)) : 0;
       m.bank += (bank - m.bank) * Math.min(1, dt * 10);
-      m.skid = this.skidT / 0.18; m.brake = this.brakeT / 0.22; m.start = this.startT / 0.16;
+      m.skid = this.skidT / 0.18; m.brake = this.brakeT / 0.3; m.start = this.startT / 0.16;
       m.ready = this.st === 'free' ? Math.min(1, this.readyT / 0.6) : 0;
       this.prevSl = Math.min(1, w.stickWorld().length());
     }

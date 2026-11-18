@@ -13,7 +13,7 @@ export const WAKE_DUWU: Line[] = [
   L('duwu', '白哥！别乱动，你肋下还插着孙婆婆的银针！'),
   L('jiangjin', '……刀呢。'),
   L('duwu', '在炉边烤着呢！我把你从长社死人堆里刨出来的。'),
-  L('jiangjin', '褚雷还在破庙？'),
+  L('jiangjin', '石雷还在破庙？'),
   L('duwu', '在！那贼道士刚抓了一批流民，今晚子时祭旗。'),
   L('jiangjin', '把我的斗笠拿来。子时前，他得死。'),
 ];
@@ -61,7 +61,7 @@ export const PRO_CAPTIONS = ['七年后', '中平元年 · 冬 · 颍川'];
 /** the snowy temple, before the fight she cannot win */
 export const PRO_CHULEI: Line[] = pick('pro_chulei', [
   L('chulei', '哪来的小瞎子，也配拎着刀挡老子的路？'),
-  L('jiangjin', '褚雷。'),
+  L('jiangjin', '石雷。'),
   L('chulei', '认得老子？……慢着，这刀脊上的锻纹……'),
   L('chulei', '寒山坞文家？哈，风箱底下那丫头，阿皎？'),
   L('jiangjin', '拔杖。'),
@@ -87,7 +87,7 @@ export const PRO_WAKE: Line[] = pick('pro_wake', [
   L('jiangjin', '刘白。'),
   L('duwu', '得，白哥。躺好，别糟践老子的本钱。'),
   L('act', '（刘白咬牙起身，血渗透粗布）'),
-  L('jiangjin', '褚雷还在庙里。'),
+  L('jiangjin', '石雷还在庙里。'),
   L('duwu', '疯了吧白哥！那铁杖能把你砸成肉泥！'),
   L('sunao', '好言劝不住该死的鬼，由她爬去。'),
   L('act', '（刘白直直伸出手，指节泛白）'),
