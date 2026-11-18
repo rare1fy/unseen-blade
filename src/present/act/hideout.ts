@@ -1,3 +1,4 @@
+import { finishBuild } from '../engine/buildSteps';
 // 据点「嵩山南麓 · 断碑古窑」（docs/STORY.md §6）：主角每局死了被拖回来、醒在孙媪的草席上的地方，局外的人都在这里。
 // 镜头从前上方看（和房间一样），所以高的东西放后面、矮的放前面：
 //   后排正中：塌了半边的青砖拱窑，前半截窑顶塌了（天光 / 雨从塌口落下），塌口里铺着砖，半地下铁炉烧着暗红炭火，冯铁臂在铁砧前打铁；
@@ -184,8 +185,9 @@ function ground(c: Ctx) {
 }
 
 // ------------------------------------------------------------------ the build
-function build(c: Ctx, o: { time: HideoutTime; weather: HideoutWeather }) {
+function* build(c: Ctx, o: { time: HideoutTime; weather: HideoutWeather }) {
   const w = c.w, lamp = lampFor(o.time, o.weather), lit = o.time === 'dusk' || o.time === 'night', wet = o.weather === 'rain';
+  yield;
   ground(c);
   // the hill: three terraces stepping up behind (the kiln built into the first); the steps up the first on the left, a wine jar and a
   // bowl on the bottom step (桓越's seat), firewood stacked in the nook beside them
@@ -193,10 +195,12 @@ function build(c: Ctx, o: { time: HideoutTime; weather: HideoutWeather }) {
   terrace(c, KILN.X + 54, C(18), T2.z + 1, WALL.Z0 - 1, T1.h, K.grass, 2);
   terrace(c, C(-18), C(18), T3.z + 1, T2.z, T2.h, K.grass, 3);
   terrace(c, C(-18), C(18), C(-22), T3.z, T3.h, K.grass, 4);
+  yield;
   steps(c, STEP.X, STEP.Z, STEP.hw, STEP.rise, STEP.run);
   { const B = loc(w, STEP.X - 11, STEP.Z - 5, 0); B(-1, 5, -2, 2, 8, 1, HV.clay); B(-1, 8, -2, 2, 8, 1, HV.clayL); B(0, 9, -1, 1, 9, 0, HV.clayD); B(0, 10, -1, 1, 10, 0, HV.red); B(4, 5, -1, 6, 5, 1, HV.grey); }
   logStack(c, LOGS.x0, LOGS.x1, LOGS.z0, LOGS.z1, 8);
   // the kiln, its bay, the forge, the anvil and the smith's things
+  yield;
   const vault = kiln(c, KILN.X, KILN.Z);
   const fire = forge(c, FORGE.X, FORGE.Z);
   const [ax, az] = anvilAt(); anvil(c, C(ax), C(az));
@@ -204,11 +208,13 @@ function build(c: Ctx, o: { time: HideoutTime; weather: HideoutWeather }) {
   trough(c, KILN.X + 29, KILN.Z + 5);
   coalBasket(c, KILN.X - 27, KILN.Z + 29);
   // the north wall (the stele stands before it; an offering beside it), 孙媪's corner and its side wall, pigeons on the wall top
+  yield;
   northWall(c, WALL.X0, WALL.X1, WALL.Z0, WALL.Z1, WALL.H, [[C(6.0), C(6.5), 3], [WALL.X1 - 5, WALL.X1, 8]]);
   bladeWall(c, RACK.X0, RACK.Z);
   const flame = offering(c, OFFER.X, OFFER.Z, lit);
   for (let Z = WALL.Z0; Z <= SIDE.Z1; Z++) { const h = Z <= C(-7.0) ? 22 : Z <= C(-6.0) ? 14 : 7; for (let x = SIDE.X0; x <= SIDE.X1; x++) for (let y = 0; y <= h; y++) w.set(x, y, Z, y <= 2 ? (y === 2 ? K.stoneL : K.stone) : brickAt(x + Z, y)); }
   recolor(w, SIDE.X0, 3, WALL.Z0, SIDE.X1, 23, SIDE.Z1, (x, y, z) => (w.has(x, y + 1, z) ? null : K.brickL));
+  yield;
   herbCorner(c, CORNER.X0, CORNER.X1, WALL.Z1, CORNER.Zp, CORNER.Zr);
   mat(c, MAT.X, MAT.X + 12, MAT.Z, MAT.Z + 27);
   const stove = medStove(c, STOVE.X, STOVE.Z, true);
@@ -219,11 +225,13 @@ function build(c: Ctx, o: { time: HideoutTime; weather: HideoutWeather }) {
   const L = loc(w, 0, 0, 0); for (const [a, b] of FENCE.runs) wattleZ(L, a, b, FENCE.X, 10);
   practiceRack(c, PRACTICE.X, PRACTICE.Z); for (const [x, z] of LOCKS) stoneLock(c, x, z);
   // water: the culvert under the terrace, the stone channel down the right side, the rail where 卢昭 stands
+  yield;
   channel(c, CH.X0, CH.X1, T1.z + 2, CH.Z1);
   culvert(c, Math.round((CH.X0 + CH.X1) / 2), WALL.Z0 - 1);
   railing(c, RAIL.X, RAIL.Z0, RAIL.Z1);
   { const B = loc(w, VAT.X, VAT.Z, 0); jar(B, 0, 0, 1, true, { lid: true }); B(-9, 0, 2, -5, 4, 6, HV.wood); B(-9, 2, 2, -5, 2, 6, K.iron); B(-8, 4, 3, -6, 4, 5, K.water); B(-7, 5, 4, -7, 7, 4, HV.woodD); }
   // 杜五's cook-fire, his cart and the donkey's feed; the front wall and the gate
+  yield;
   cart(c, CART.X, CART.Z);
   feed(c, FEED.X, FEED.Z);
   const pot = cookFire(c, POT.X, POT.Z, true);
@@ -231,6 +239,7 @@ function build(c: Ctx, o: { time: HideoutTime; weather: HideoutWeather }) {
   // two paper lanterns (lit at dusk and night): from the gate's lintel, and at the end of 孙媪's beam
   lantern(c, GATE.x0 - 6, 29, GATE.Z, lit); lantern(c, CORNER.X1 - 1, 25, CORNER.Zp - 1, lit);
   // trees and bamboo: groves on the terraces behind and down the right beyond the water, a few at the left
+  yield;
   grove(c, -15, -16, -7, -13.3, 14, 11, [6.6, 8.0]);
   grove(c, 5, -16, 15, -13.3, 16, 12, [6.6, 8.0]);
   grove(c, -16, -21, 16, -17.2, 24, 13, [8.6, 10.2]);
@@ -239,6 +248,7 @@ function build(c: Ctx, o: { time: HideoutTime; weather: HideoutWeather }) {
   deadTree(w, -11.6, -10.6, 5.6, HV.char, HV.charD, { seed: 9, crow: 0.6, moss: false });
   oak(w, 12.6, -10.8, 7.4, { seed: 21, bark: 0x4a3c30, dark: 0x30261e, leaf: 0x8a6a2c, leafTop: 0xb08a3a, low: 0.4, width: 1.1, vines: 0 });
   // dressing: dry grass on the vault's tiers and the terrace tops, reeds along the water and in the corners, grass outside the walls
+  yield;
   const card = (kind: string, x: number, z: number, s: number, tint?: number) => { const y = surface(c, x, z); if (y != null) c.cards.add(kind, x, z, { y, s, tint }); };
   for (let i = 0; i < 26; i++) { const x = -4.4 + hash(i, 1, 9) * 7.2, z = -12.4 + hash(i, 2, 9) * 3.3; card(i % 3 ? 'weeds' : 'grass', x, z, 0.55 + hash(i, 3, 9) * 0.3, 0xb0a078); }
   for (let i = 0; i < 90; i++) { const x = -18 + hash(i, 4, 9) * 36, z = -16 + hash(i, 5, 9) * 6.5; if (Math.abs(x + 0.8) < 3.8 && z > -12.6) continue; card(i % 4 ? 'grass' : 'weeds', x, z, 0.5 + hash(i, 6, 9) * 0.4, i % 2 ? 0xc8b890 : 0xb4a878); }
@@ -268,6 +278,9 @@ function build(c: Ctx, o: { time: HideoutTime; weather: HideoutWeather }) {
   c.shaft(vault.hole[0], vault.hole[1] + 0.3, { w: 1.6, h: 6, tilt: 0.12, yaw: 0.2, a: o.time === 'day' ? 0.12 : 0.18 });
   if (wet) { c.ambient({ kind: 'rain', color: 0xb8c4d4, rate: 30, area: { x0: -3.6, z0: -8.9, x1: 2.0, z1: -6.7 } }); c.ambient({ kind: 'rain', color: 0xb8c4d4, rate: 12, area: { x0: vault.hole[0] - 0.7, z0: vault.hole[1] - 0.5, x1: vault.hole[0] + 0.7, z1: vault.hole[1] + 0.5 } }); }
   for (const a of weatherAmbient(o.weather, 'autumn', o.time, true)) c.ambient(a.kind === 'rain' ? { ...a, area: { x0: -13, z0: -14, x1: 13, z1: 8 } } : a);
+  yield;
+}
+function addDonkey(c: Ctx) {
   // 杜五's grey donkey at the feed (an actor of its own, part of the stage: it goes when the stage goes)
   const donkey = new BattleActor(HIDEOUT_DONKEY); donkey.place(V3(DONKEY.x, 0, DONKEY.z), Math.PI / 2); donkey.yaw = Math.PI / 2; trimShadows(donkey.root, 3); c.add(donkey.root);
   const blob = contactShadow(1.1); blob.position.set(DONKEY.x - 0.1, 0.02, DONKEY.z); blob.scale.set(1.6, 1, 0.8); c.add(blob);
@@ -295,7 +308,8 @@ const LINEUP = { x0: C(-3.5) * CELL, gap: 1.75, z: 0 };
 
 /** the hideout as a stage (show it with showStage(def, { combat: true }), like a room) */
 export function hideoutScene(o: { time: HideoutTime; weather: HideoutWeather }): SceneDef {
-  return { id: `hideout_${o.time}_${o.weather}`, name: '断碑古窑', group: '节点', kind: '户外', blurb: '嵩山南麓 · 断碑古窑', mood: moodFor(o.time, 'autumn', o.weather), build: c => build(c, o) };
+  return { id: `hideout_${o.time}_${o.weather}`, name: '断碑古窑', group: '节点', kind: '户外', blurb: '嵩山南麓 · 断碑古窑', mood: moodFor(o.time, 'autumn', o.weather), pack: o.time === 'dusk' && o.weather === 'clear' ? 'yard' : undefined,
+    build: c => finishBuild(build(c, o)), buildSteps: c => build(c, o), decorate: addDonkey };
 }
 
 // ================================================================== debug: __dh.hideout(time?, weather?, view?), __dh.hideoutSolids(on?)

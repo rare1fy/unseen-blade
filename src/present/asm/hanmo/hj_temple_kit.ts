@@ -291,6 +291,7 @@ export function smoke(c: Ctx, at: P3, o: { rate?: number; col?: number } = {}) {
       }
     });
   });
+  mk.userData.stageEffect = ['templeSmoke', at, o];
   c.add(mk);
 }
 void ring;

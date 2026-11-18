@@ -148,9 +148,13 @@ export function installR45(show: unknown) {
   const build0 = S.buildRoom.bind(S);
   S.buildRoom = (first: boolean) => {
     r45Clear(); undark(); darkK = 0; darkNow = 0; fireOn = 0; fires.length = 0; pullTo = null;
-    build0(first);
-    const verb = ROOM_VERB[S.locale as string]; if (verb) audio.setRoom(verb);
-    if ((S.locale as string).startsWith('wl_') && S.leaves) S.leaves.on = false;
+    const loading = build0(first);
+    const apply = () => {
+      const verb = ROOM_VERB[S.locale as string]; if (verb) audio.setRoom(verb);
+      if ((S.locale as string).startsWith('wl_') && S.leaves) S.leaves.on = false;
+    };
+    if (loading) return loading.then(apply);
+    apply();
   };
   // ---- the bot (captures / smoke tests): it sees what she sees — the hidden ones are out of its list while it decides — and it steps
   // out of a ground warning about to land on it (the ballista's lane, a stone, the boom) before anything else

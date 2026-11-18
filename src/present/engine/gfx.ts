@@ -1,3 +1,4 @@
+import { bladeWorking, drawLoadingBlade } from '../scenes/loadingBlade';
 // Renderer + frame loop: real dt (capped) → game clock (hitstop / slowmo / speed) → updaters → dice → particles / prims →
 // camera rig (base + offset + trauma shake) → 3D render → UI render (pxui shares the WebGL context).
 import * as THREE from 'three';
@@ -58,6 +59,11 @@ export function createGfx(platform: Platform, canvas: any, o: { preserve?: boole
     start(onFrame, afterRender) {
       const frame = () => {
         platform.raf(frame);
+        if (bladeWorking()) {
+          last = platform.now();
+          drawLoadingBlade(renderer, view.w / Math.max(1, view.h));
+          return;
+        }
         const now = platform.now(), real = Math.min(0.05, Math.max(0, (now - last) / 1000)); stats.ms += ((now - last) - stats.ms) * 0.05; qualityFrame(now - last); last = now;
         const rdt0 = o.fixedDt != null ? o.fixedDt : real, rdt = PAUSE.on ? 0 : rdt0;   // paused: the world gets a zero step
         const t0 = platform.now(), dt = tick(rdt);
@@ -81,7 +87,7 @@ export function createGfx(platform: Platform, canvas: any, o: { preserve?: boole
         post.render(scene, camera, clock.rtime);
         const t2 = platform.now(); stats.logic += ((t1 - t0) - stats.logic) * 0.05; stats.render += ((t2 - t1) - stats.render) * 0.05;
         stats.calls = renderer.info.render.calls; stats.tris = renderer.info.render.triangles;
-        gpuMark('text'); afterRender(); gpuFrameEnd(); gpuCount();
+        gpuMark('text'); afterRender(); drawLoadingBlade(renderer, view.w / Math.max(1, view.h)); gpuFrameEnd(); gpuCount();
       };
       platform.raf(frame);
     },

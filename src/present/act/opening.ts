@@ -412,7 +412,7 @@ class Opening {
     if (!this.grabbed) {
       // no picture to split (see after()): the stage's own wipe carries it into the yard instead — never a black frame
       this.beat = 'done';
-      void wipeTransit(() => { for (const m of [this.top, this.bot, this.hint, ...this.line]) if (m) m.visible = false; this.restore(); this.host.enter(); }).then(() => this.finish());
+      void wipeTransit(() => { for (const m of [this.top, this.bot, this.hint, ...this.line]) if (m) m.visible = false; this.restore(); return this.host.enter(); }).then(() => this.finish());
       return;
     }
     const up = quad(this.frame!, v, 1, 95), dn = quad(this.frame!, 0, v, 95);

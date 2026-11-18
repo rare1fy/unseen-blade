@@ -1,3 +1,4 @@
+import { withLoadingBlade } from './present/scenes/loadingBlade';
 // 不见刀 boot: platform → renderer + post (the 3D-pixel look) → the action game (present/act/show.ts).
 import { initPlatform, G } from './platform/index';
 import { CRAZYGAMES, initCrazyGames, finishLoading, reportGameplay } from './platform/crazygames';
@@ -58,21 +59,27 @@ dh.add({
 });
 dh.install();
 
-(CRAZYGAMES ? Promise.all([initCrazyGames(), fontsReady]) : fontsReady).then(() => {
+(CRAZYGAMES ? Promise.all([initCrazyGames(), fontsReady]) : fontsReady).then(async () => {
   // 2x pixels by default on every device (act-14 用户在手机上：「我要2x」, which overrides the old 「手机上 1x」); the choice made in
   // the tuning panel is remembered on the device; the URL (px1 / px2 / px3, ?px=) and the [ ] / P keys still choose
   { const href = typeof location !== 'undefined' ? location.href : '';
     let saved: string | null = null; try { saved = localStorage.getItem('ub.px'); } catch { /* private mode */ }
     if (CRAZYGAMES || !/[#&?]px/.test(href)) { if (saved === 'off') setPixel(false); else setPixel(true, saved && /^[123]$/.test(saved) ? +saved : 2); } }
   try {
-    const A = new ActShow(platform); G.__act = A;
+    let A: ActShow;
+    const start = () => {
+      A = new ActShow(platform, true); G.__act = A;
+      return A.startWithAudio();
+    };
     gfx.start(() => {}, () => {
+      if (!A) return;
       A.L.renderText(gfx.renderer); A.ov.render(gfx.renderer); frames++;
       if (CRAZYGAMES) {
         if (frames === 1) finishLoading();
         reportGameplay(A.phase === 'fight' && !A.pause.on && !A.cards.on && !A.dialogue.on && !A.timeline.on);
       }
     });
+    if (__WX__) await withLoadingBlade(start); else await start();
     dh.ready();
   } catch (e) { platform.log('[act] ' + (((e as Error) && (e as Error).stack) || e)); dh.fail(e); }
 });
