@@ -59,9 +59,9 @@ export class Input {
     const dx = a.x - a.ox, dy = a.y - a.oy, d = Math.hypot(dx, dy); return d < 16 ? null : { x: dx / d, y: -dy / d };
   }
   /** everything held now is ignored until it is let go (the pause menu closing on a held button), and the buttons start up */
-  latch() {
+  latch(move = true) {
     for (const n of NAMES) { this.latched[n] = true; const b = this.b[n]; b.down = b.pressed = b.released = false; b.held = 0; }
-    this.latchMove = true; this.move.x = this.move.y = 0;
+    if (move) { this.latchMove = true; this.move.x = this.move.y = 0; }
   }
   frame(dt: number) {
     const k = this.keys, has = (ks: string[]) => ks.some(x => k.has(x));

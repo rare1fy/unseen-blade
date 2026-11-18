@@ -283,13 +283,15 @@ export class ActShow {
     if (!lines.length) return;
     const was = this.phase === 'talk' ? this.wasPhase : this.phase; this.wasPhase = was; this.phase = 'talk'; this.hud.on = false; this.banner.hide();
     await this.dialogue.play(lines, onLine);
-    this.phase = was; this.hud.on = true;
+    // (act-50 用户：「对话过后马上会蓄力」: the cut button that turned the last page was still down — read as a hold, 藏锋. It counts
+    //  again once let go; the stick is left alone)
+    this.phase = was; this.hud.on = true; this.inp.latch(false);
   }
   /** a timeline cutscene; the HUD hides, gameplay waits (phase 'cine') */
   async cine(shots: Parameters<Timeline['play']>[0]) {
     const was = this.phase; this.phase = 'cine'; this.hud.on = false; this.banner.hide();
     const skipped = await this.timeline.play(shots);
-    this.cineHost.clearPuppets();
+    this.cineHost.clearPuppets(); this.inp.latch(false);   // (a long press skipped it — the same held button)
     shot('act', () => this.camPose(), { cut: true, speed: 8 });
     this.phase = was; this.hud.on = true; return skipped;
   }
@@ -900,7 +902,7 @@ export class ActShow {
     // 11-18 一局五关: walking into a later region's first room, its name and line first (2.6 s), then the room's own banner
     if (!this.prologue && this.regionIn) {
       this.regionIn = false; const rb = regionBanner(this.region);
-      this.banner.show(rb.title, rb.sub, 2.6, '#ffe2b0'); cue('stingClear', 0.6);
+      this.banner.show(rb.title, rb.sub, 2.6, '#ffe2b0');   // (act-50 用户：「获胜的时候会放一个短乐段，我不想要那个声音」: the old jingle is gone everywhere)
       after(2.7, () => { if (this.phase === 'intro' || this.phase === 'fight') this.banner.show(`第一间 · ${info.name}`, `${name} · ${info.line}`, 1.4); });
     } else if (!this.prologue) this.banner.show(`第 ${'一二三四五六七八'[this.room] ?? this.room + 1} 间 · ${info.name}`, hint || `${name} · ${info.line}`, hint ? 3.2 : 1.6);
     // the rooms without a fight: the stations stand ready and the roads are open at once
@@ -2034,7 +2036,9 @@ export class ActShow {
   // ------------------------------------------------------------ clear → pick → doors → leave
   private async roomClear() {
     if (this.phase !== 'fight') return;
-    this.phase = 'pick'; cue('stingClear', 1); audio.duckMusic(0.35, 3.2);
+    // (act-50 用户：「我听线上版获胜和失败的声音还是老版的」: the clear was still the act-19 jingle — the user's win sound now, whole;
+    //  it fades as she walks out of the room (or when a new piece of music starts))
+    this.phase = 'pick'; cue('stingWin', 1); audio.duckMusic(0.35, 3.2);
     this.banner.show('清场', '', 1.0, '#ffe6a0');
     await new Promise(r => after(0.9, () => r(null)));
     if (this.prologue) { this.openDoors(); return; }   // act-29: the prologue's road just goes on
@@ -2109,7 +2113,7 @@ export class ActShow {
   }
   private leave(i: number) {
     if (this.phase !== 'doors') return;
-    this.phase = 'leaving'; const d = this.doors[i], next = this.nextRooms[i];
+    this.phase = 'leaving'; audio.stopSting(1.2); const d = this.doors[i], next = this.nextRooms[i];
     this.plan = next; const fromLocale = this.locale; this.locale = next.locale; if (this.prologue === 1) { this.prologue = 2; this.proFightT = 0; }
     // 11-18 一局五关: the road out of a boss room goes into the next region — its rooms count from one again, its own kinds of room,
     // its foes stronger (the run's TUNE scaled by flow.ts regionScale)
@@ -2124,7 +2128,8 @@ export class ActShow {
   }
   private dead() {
     this.phase = 'dead'; this.justDied = true; this.bankRun(false); audio.stopMusic(1.4); cue('stingLose', 1); slowmo(1.2, 0.3); this.banner.show('败北', '', 1.6, '#ff6a5a');
-    after(1.6, async () => {
+    // (act-50: the user's lose sound opens on a second of near silence and lands its heavy blow at 2–3 s — the card waits for it)
+    after(2.8, async () => {
       this.hud.on = false;
       await this.cards.open([returnCard(this.kills)]); // wp/boons: adapt non-boon cards and centralize their copy
       this.hud.on = true; void wipeTransit(() => this.enterYard());
