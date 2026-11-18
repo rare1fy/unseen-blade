@@ -6,6 +6,7 @@ import { language, t as localize, wrapWords } from './i18n';
 // 全是 UI 层里的 3D 实物（有厚度的盘 / 牌 / 甲片），正面是逐像素画出来的贴图（横平竖直，不撒随机点）。
 // 切换：U 键、调参面板的按钮、网址 ui=lacquer / bamboo / iron；记在浏览器里。
 import * as THREE from 'three';
+import { OPT } from '../engine/perfOpts';
 import type { UiLayer } from '../ui3d/layer';
 import { text, textW, PIX_H } from '../v2/overlay';
 import { UiSparks } from '../ui3d/vox';
@@ -281,7 +282,14 @@ export class SkinBanner {
     this.title = title; this.sub = sub; this.color = color && this.skin !== 'bamboo' ? color : undefined;
     const f = bannerFace(this.skin, title, sub, this.color); this.W = f.W; this.H = f.H;
     const mat = lam(f.t, 0xffffff, 0.6), body = lam(null, PALETTE[this.skin].side);
-    this.m = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 0.08), [body, body, body, body, mat, body]); this.m.renderOrder = 20; this.L.scene.add(this.m);
+    const box = new THREE.BoxGeometry(1, 1, 0.08);
+    if (OPT.bannerFaces) {
+      // Five sides share the same opaque iron. Keep the painted front in slot four for repaint().
+      const index = Array.from(box.index!.array);
+      box.setIndex([...index.slice(0,24), ...index.slice(30), ...index.slice(24,30)]);
+      box.clearGroups(); box.addGroup(0,30,0); box.addGroup(30,6,4);
+    }
+    this.m = new THREE.Mesh(box, [body, body, body, body, mat, body]); this.m.renderOrder = 20; this.L.scene.add(this.m);
     this.t = 0; this.hold = hold * 0.7;
   }
   hide() { this.hold = 0; this.t = 99; this.clear(); }
