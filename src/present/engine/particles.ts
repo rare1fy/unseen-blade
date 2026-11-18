@@ -1,3 +1,5 @@
+import { dirtyRange } from './uploads';
+import { OPT } from './perfOpts';
 // GPU-light particles: one instanced quad mesh per pool, simulated on the CPU (port of the prototype kit's ParticlePool).
 // Two pools like the kit: PADD (additive: glows, sparks, embers, flares) and PALPHA (alpha: smoke, dust, mist).
 // The tile sheet is look-dependent: 'pixel' = chunky stepped shapes (pixel looks), 'soft' = smooth falloffs (painterly / clean looks).
@@ -79,8 +81,10 @@ export class ParticlePool {
     const F = (k: number) => new Float32Array(max * k);
     this.p = F(3); this.v = F(3); this.c0 = F(3); this.c1 = F(3); this.s = F(2); this.lf = F(2); this.m = F(8);
   }
+  private changed = false;
   emit(o: Emit): number {
     if (this.n >= this.max) return -1;
+    this.changed = true;
     const i = this.n++, i3 = i * 3, i2 = i * 2, i8 = i * 8, p = o.p, v = o.v || ZERO, c0 = o.c0 || WHITE, c1 = o.c1 || c0;
     this.p[i3] = p.x; this.p[i3 + 1] = p.y; this.p[i3 + 2] = p.z; this.v[i3] = v.x; this.v[i3 + 1] = v.y; this.v[i3 + 2] = v.z;
     const b0 = o.bright ?? 1, b1 = o.bright1 ?? b0;
@@ -91,6 +95,9 @@ export class ParticlePool {
     return i;
   }
   update(dt: number) {
+    this.n = Math.min(this.n, this.max);
+    if (!dt && !this.changed && OPT.dirtyUploads) return;
+    this.changed = false;
     const P = this.p, Vv = this.v, ap = this.aPos.array as Float32Array, av = this.aVel.array as Float32Array, ac = this.aCol.array as Float32Array, am = this.aMisc.array as Float32Array;
     for (let i = 0; i < this.n; i++) {
       const i2 = i * 2; this.lf[i2] += dt;
@@ -105,7 +112,8 @@ export class ParticlePool {
       am[i4] = lerp(this.s[i2], this.s[i2 + 1], ease.outCubic(k)); am[i4 + 1] = this.m[i8 + 3]; am[i4 + 2] = this.m[i8 + 5]; am[i4 + 3] = this.m[i8 + 6];
     }
     this.geo.instanceCount = this.n;
-    this.aPos.needsUpdate = this.aVel.needsUpdate = this.aCol.needsUpdate = this.aMisc.needsUpdate = true;
+    dirtyRange(this.aPos, 0, this.n * 3); dirtyRange(this.aVel, 0, this.n * 3);
+    dirtyRange(this.aCol, 0, this.n * 4); dirtyRange(this.aMisc, 0, this.n * 4);
   }
   clear() { this.n = 0; this.geo.instanceCount = 0; }
   private kill(i: number) {

@@ -1,3 +1,4 @@
+import { instanceMatrix, instanceColor, finishInstances } from "../engine/uploads";
 // 血（act-23，用户：「给战斗加点血浆，砍上去要溅血才有感觉」）：砍中时从伤口顺着刀路喷一串体素血块，落地变成贴地的方块血点，
 // 几秒后缩掉；斩杀时身下洇开一摊。血块是小立方体、血点是贴地的正方形（不转角度：横平竖直，和体素场景一致），颜色是压暗的红，
 // 不发光、不饱和到荧光。全场血块和血点各一个实例化网格、各有上限（最老的先让位），一帧两次绘制。
@@ -12,6 +13,7 @@ const STAIN = [0x6a0c0c, 0x7c100e, 0x8c1612].map(c => new THREE.Color(c));
 const pick = <T,>(a: T[]) => a[Math.floor(Math.random() * a.length)];
 type Drop = { p: THREE.Vector3; v: THREE.Vector3; s: number; c: THREE.Color };
 type Stain = { x: number; y: number; z: number; s: number; grow: number; age: number; life: number; c: THREE.Color };
+const _white = new THREE.Color(1, 1, 1);
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _p = new THREE.Vector3(), _s = new THREE.Vector3();
 
 class Blood {
@@ -19,6 +21,10 @@ class Blood {
   private dm: THREE.InstancedMesh | null = null; private sm: THREE.InstancedMesh | null = null;
   /** 11-18 屋子形态: where a drop leaves no stain (over the water / a gully: it would float at floor height); set per room */
   skip: ((x: number, z: number) => boolean) | null = null;
+  prepare() {
+    this.init();
+    for (const m of [this.dm!, this.sm!]) if (!m.instanceColor) m.setColorAt(0, _white);
+  }
   private init() {
     if (this.dm) return;
     this.dm = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshLambertMaterial({ color: 0xffffff }), MAXD);
@@ -61,21 +67,24 @@ class Blood {
   clear() { this.drops.length = 0; this.stains.length = 0; if (this.dm) { this.dm.count = 0; this.sm!.count = 0; } }
   update(dt: number) {
     if (!this.dm || !this.sm) return;
+    const drops = this.drops.length - MAXD, stains = this.stains.length - MAXS;
+    if (drops > 0) this.drops.splice(0, drops);
+    if (stains > 0) this.stains.splice(0, stains);
     let n = 0;
     for (let i = this.drops.length - 1; i >= 0; i--) {
       const d = this.drops[i]; d.v.y -= 16 * dt; d.v.multiplyScalar(Math.exp(-0.6 * dt)); d.p.addScaledVector(d.v, dt);
       const g = floor.at(d.p.x, d.p.z);
       if (d.p.y <= g + d.s * 0.5) { this.stain(d.p.x, d.p.z, d.s * R(2.0, 3.8)); this.drops.splice(i, 1); continue; }
     }
-    for (const d of this.drops) { _m.compose(d.p, _q.identity(), _s.setScalar(d.s)); this.dm.setMatrixAt(n, _m); this.dm.setColorAt(n, d.c); n++; }
-    this.dm.count = n; this.dm.instanceMatrix.needsUpdate = true; if (this.dm.instanceColor) this.dm.instanceColor.needsUpdate = true;
+    for (const d of this.drops) { _m.compose(d.p, _q.identity(), _s.setScalar(d.s)); instanceMatrix(this.dm, n, _m); instanceColor(this.dm, n, d.c); n++; }
+    this.dm.count = n; finishInstances(this.dm);
     n = 0;
     for (let i = this.stains.length - 1; i >= 0; i--) { const s = this.stains[i]; s.age += dt; if (s.age >= s.life) this.stains.splice(i, 1); }
     for (let i = 0; i < this.stains.length; i++) {
       const s = this.stains[i], k = Math.min(1, s.age / s.grow) * Math.min(1, (s.life - s.age) / 1.2), w = s.s * k;
-      _m.compose(_p.set(s.x, s.y + 0.012 + i * 0.00004, s.z), _q.identity(), _s.set(w, 1, w)); this.sm.setMatrixAt(n, _m); this.sm.setColorAt(n, s.c); n++;
+      _m.compose(_p.set(s.x, s.y + 0.012 + i * 0.00004, s.z), _q.identity(), _s.set(w, 1, w)); instanceMatrix(this.sm, n, _m); instanceColor(this.sm, n, s.c); n++;
     }
-    this.sm.count = n; this.sm.instanceMatrix.needsUpdate = true; if (this.sm.instanceColor) this.sm.instanceColor.needsUpdate = true;
+    this.sm.count = n; finishInstances(this.sm);
   }
 }
 export const blood = new Blood();

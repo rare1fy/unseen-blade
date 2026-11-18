@@ -1,3 +1,4 @@
+import { instanceMatrix, instanceColor, finishInstances } from "../engine/uploads";
 // fx5: voxel FX blocks — the solid pieces of skill effects (铁壁 armour wall, ice shell / ice spikes, meteor rock, thrown knife,
 // stun stars, rune blocks of a magic circle). Two pooled instanced meshes (additive glow + lit solid), so every block on screen costs
 // at most 2 draw calls in total; a block is recycled as soon as its life runs out. Blocks are axis-aligned boxes (art rule: big
@@ -99,10 +100,10 @@ function update(dt: number) {
     if (b.rise) { _s.set(b.size.x * Math.min(1, gin * 3), b.size.y * gk * out, b.size.z * Math.min(1, gin * 3)); _p.y += (_s.y - b.size.y) / 2; }
     else _s.copy(b.size).multiplyScalar(Math.max(0.001, gk * (b.glow ? Math.sqrt(out) : out)));
     _m.compose(_p, b.q, _s);
-    if (b.glow) { if (ng >= MAX) continue; _c.copy(b.col).multiplyScalar(b.bright * out); glowMesh.setMatrixAt(ng, _m); glowMesh.setColorAt(ng, _c); ng++; }
-    else { if (ns >= MAX) continue; _c.copy(b.col).multiplyScalar(b.bright); solidMesh.setMatrixAt(ns, _m); solidMesh.setColorAt(ns, _c); ns++; }
+    if (b.glow) { if (ng >= MAX) continue; _c.copy(b.col).multiplyScalar(b.bright * out); instanceMatrix(glowMesh, ng, _m); instanceColor(glowMesh, ng, _c); ng++; }
+    else { if (ns >= MAX) continue; _c.copy(b.col).multiplyScalar(b.bright); instanceMatrix(solidMesh, ns, _m); instanceColor(solidMesh, ns, _c); ns++; }
   }
   glowMesh.count = ng; solidMesh.count = ns; glowMesh.visible = ng > 0; solidMesh.visible = ns > 0;
-  glowMesh.instanceMatrix.needsUpdate = true; glowMesh.instanceColor!.needsUpdate = true;
-  solidMesh.instanceMatrix.needsUpdate = true; solidMesh.instanceColor!.needsUpdate = true;
+  finishInstances(glowMesh);
+  finishInstances(solidMesh);
 }

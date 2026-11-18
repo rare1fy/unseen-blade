@@ -1,3 +1,5 @@
+import { instanceMatrix, instanceColor, finishInstances } from "../engine/uploads";
+import { OPT } from '../engine/perfOpts';
 // 落叶（act-19，用户：「场景里我希望有更多不同的天气效果和光影效果，飘飘落叶啊什么的，最好这些落叶也会跟战斗有所交互，当然是
 // 在性能允许的情况下」「导航…像哈迪斯和对马岛之魂一样由一个融入场景的特效导航」）：
 // 地上铺着一层落叶、空中不时飘下几片；挥刀经过的叶子被斩成两半旋开，冲刺带起一串，爆炸 / 倒地把周围的掀飞；
@@ -30,7 +32,7 @@ export class Leaves {
     this.motes.count = 0; this.motes.frustumCulled = false; this.motes.renderOrder = 5;
     scene.add(this.mesh, this.motes);
     this.fallRate = o.fall ?? 1.2; this.wind.multiplyScalar(o.wind ?? 1); this.where = o.where ?? null;
-    if (this.on) for (let i = 0, t = 0; i < (o.rest ?? 90) && t < (o.rest ?? 90) * 4; t++) { const x = PLAY.x0 + Math.random() * (PLAY.x1 - PLAY.x0), z = PLAY.z0 + Math.random() * (PLAY.z1 - PLAY.z0); if (this.where && !this.where(x, z)) continue; this.add(x, 0, z, 0, 0, 0, false); i++; }
+    if (this.on) for (let i = 0, t = 0; i < Math.min(o.rest ?? 90, effectLimit(o.rest ?? 90)) && t < (o.rest ?? 90) * 4; t++) { const x = PLAY.x0 + Math.random() * (PLAY.x1 - PLAY.x0), z = PLAY.z0 + Math.random() * (PLAY.z1 - PLAY.z0); if (this.where && !this.where(x, z)) continue; this.add(x, 0, z, 0, 0, 0, false); i++; }
   }
   /** where a leaf may come to rest (null = anywhere): one landing elsewhere (in the water, on a wall top) is gone */
   private where: ((x: number, z: number) => boolean) | null;
@@ -40,16 +42,18 @@ export class Leaves {
     if (!this.on) return -1;
     let i = this.live;
     if (i >= MAX) { // full: reuse the oldest leaf lying on the ground
-      let best = -1, age = -1; for (let k = 0; k < MAX; k++) if (!this.d[k * N + L.air] && this.d[k * N + L.age] > age) { age = this.d[k * N + L.age]; best = k; }
+      let best = -1, age = -1; for (let k = 0; k < this.live; k++) if (!this.d[k * N + L.air] && this.d[k * N + L.age] > age) { age = this.d[k * N + L.age]; best = k; }
       if (best < 0) return -1; i = best;
     } else this.live++;
     const o = i * N, d = this.d;
     d[o + L.px] = x; d[o + L.py] = air ? y : 0.012; d[o + L.pz] = z; d[o + L.vx] = vx; d[o + L.vy] = vy; d[o + L.vz] = vz;
     d[o + L.yaw] = Math.random() * 4; d[o + L.spin] = air ? (Math.random() - 0.5) * 9 : 0; d[o + L.flip] = 0; d[o + L.s] = s * (0.8 + Math.random() * 0.45);
     d[o + L.age] = 0; d[o + L.life] = 30 + Math.random() * 30; d[o + L.air] = air ? 1 : 0; d[o + L.ph] = Math.random() * 6.3;
-    this.tmpC.setHex(this.cols[Math.floor(Math.random() * this.cols.length)]); this.mesh.setColorAt(i, this.tmpC); this.mesh.instanceColor!.needsUpdate = true;
-    return i;
+    this.tmpC.setHex(this.cols[Math.floor(Math.random() * this.cols.length)]); instanceColor(this.mesh, i, this.tmpC); if (!OPT.dirtyUploads) this.mesh.instanceColor!.needsUpdate = true;
+    this.changed[i] = 1; return i;
   }
+  private pos = new THREE.Vector3(); private scale = new THREE.Vector3();
+  private changed = new Uint8Array(MAX);
   /** the leaves lying near (x, z) within r: lifted and thrown along (dx, dz) at speed sp (a dash, a footfall, a body hitting the ground) */
   kick(x: number, z: number, r: number, dx: number, dz: number, sp: number, up = 2.4) {
     const d = this.d;
@@ -89,12 +93,14 @@ export class Leaves {
       md[o + 3] = ux * (2.6 + Math.random() * 1.6); md[o + 4] = uz * (2.6 + Math.random() * 1.6); md[o + 5] = 0; md[o + 6] = l / 3.2 + Math.random() * 0.6; md[o + 7] = Math.random() * 6.3; }
   }
   update(dt: number, camX: number, camZ: number) {
+    this.live = Math.min(this.live, MAX); this.mLive = Math.min(this.mLive, MOTES);
     if (!this.on) { this.mesh.count = 0; this.motes.count = 0; return; }
     // a few leaves drift down round the view
     this.fallT -= dt * this.fallRate; while (this.fallT < 0) { this.fallT += 1; this.add(camX + (Math.random() - 0.5) * 22, 5 + Math.random() * 2.5, camZ - 4 + (Math.random() - 0.5) * 16, this.wind.x, -0.6, this.wind.y, true); }
     const d = this.d;
     for (let i = 0; i < this.live; i++) {
       const o = i * N; d[o + L.age] += dt;
+      const moved = !!d[o + L.air] || this.changed[i] !== 0;
       if (d[o + L.air]) {
         // air: drag toward the breeze, a slow fall with a sway, spin settling
         const k = Math.min(1, dt * 1.6); d[o + L.vx] += (this.wind.x - d[o + L.vx]) * k; d[o + L.vz] += (this.wind.y - d[o + L.vz]) * k;
@@ -103,24 +109,26 @@ export class Leaves {
         d[o + L.yaw] += d[o + L.spin] * dt; d[o + L.spin] *= Math.exp(-dt * 0.8); d[o + L.flip] += d[o + L.spin] * dt * 0.6;
         if (d[o + L.py] <= 0.012) { d[o + L.py] = 0.012; d[o + L.air] = 0; d[o + L.flip] = 0; d[o + L.age] = 0; if (this.where && !this.where(d[o + L.px], d[o + L.pz])) d[o + L.age] = d[o + L.life] + 1; }
       } else if (d[o + L.age] > d[o + L.life]) { // an old leaf on the ground goes: swap the last one in
-        const last = --this.live; if (i !== last) { d.copyWithin(o, last * N, last * N + N); const c = new THREE.Color(); this.mesh.getColorAt(last, c); this.mesh.setColorAt(i, c); this.mesh.instanceColor!.needsUpdate = true; i--; } continue;
+        const last = --this.live; if (i !== last) { d.copyWithin(o, last * N, last * N + N); this.changed[i] = 1; const c = new THREE.Color(); this.mesh.getColorAt(last, c); instanceColor(this.mesh, i, c); if (!OPT.dirtyUploads) this.mesh.instanceColor!.needsUpdate = true; i--; } continue;
       }
       // out of the stage: gone
       if (d[o + L.px] < PLAY.x0 - 14 || d[o + L.px] > PLAY.x1 + 14 || d[o + L.pz] < PLAY.z0 - 14 || d[o + L.pz] > PLAY.z1 + 8) d[o + L.age] = d[o + L.life] + 1, d[o + L.air] = 0;
       // flat on the ground; in the air it turns about the vertical and flips over whole (a half turn, not a slant)
+      if (OPT.dirtyUploads && !moved) continue;
+      this.changed[i] = 0;
       const flip = d[o + L.air] ? (Math.floor(d[o + L.flip] / 1.5708) & 1) * Math.PI : 0;
       this.e.set(flip, d[o + L.yaw], 0); this.q.setFromEuler(this.e); const s = d[o + L.s];
-      this.m4.compose(new THREE.Vector3(d[o + L.px], d[o + L.py], d[o + L.pz]), this.q, new THREE.Vector3(s, 1, s)); this.mesh.setMatrixAt(i, this.m4);
+      this.m4.compose(this.pos.set(d[o + L.px], d[o + L.py], d[o + L.pz]), this.q, this.scale.set(s, 1, s)); instanceMatrix(this.mesh, i, this.m4);
     }
-    this.mesh.count = this.live; this.mesh.instanceMatrix.needsUpdate = true;
+    this.mesh.count = this.live; finishInstances(this.mesh);
     const md = this.md;
     for (let i = 0; i < this.mLive; i++) {
       const o = i * 8; md[o + 5] += dt; if (md[o + 5] > md[o + 6]) { const last = --this.mLive; if (i !== last) { md.copyWithin(o, last * 8, last * 8 + 8); i--; } continue; }
       md[o] += md[o + 3] * dt; md[o + 2] += md[o + 4] * dt; md[o + 1] += Math.sin(md[o + 5] * 4 + md[o + 7]) * 0.3 * dt;
       const k = Math.min(1, md[o + 5] / 0.25) * Math.min(1, (md[o + 6] - md[o + 5]) / 0.5), s = 0.6 + 0.6 * k;
-      this.m4.makeScale(s, s, s).setPosition(md[o], md[o + 1], md[o + 2]); this.motes.setMatrixAt(i, this.m4);
+      this.m4.makeScale(s, s, s).setPosition(md[o], md[o + 1], md[o + 2]); instanceMatrix(this.motes, i, this.m4);
     }
-    this.motes.count = this.mLive; this.motes.instanceMatrix.needsUpdate = true;
+    this.motes.count = this.mLive; finishInstances(this.motes);
   }
   dispose() { scene.remove(this.mesh, this.motes); this.mesh.geometry.dispose(); (this.mesh.material as THREE.Material).dispose(); this.motes.geometry.dispose(); (this.motes.material as THREE.Material).dispose(); }
 }
