@@ -43,7 +43,9 @@ export const VIBE = { on: true };
 export const RUMBLE: { fn: ((level: VibeLevel) => boolean) | null } = { fn: null };
 /** what this device can do: 'api' = navigator.vibrate (Android browsers), 'ios' = no vibrate API but Safari 18's switch haptic,
  *  'none' = neither (the mini-game platforms have their own) */
-export function vibeSupport(): 'api' | 'ios' | 'ios-old' | 'none' {
+export function vibeSupport(): 'api' | 'ios' | 'ios-old' | 'none' | 'mini' {
+  // (11-18: a mini-game vibrates through wx / tt.vibrateShort — the settings line said 「这个浏览器不支持」 there)
+  if ((typeof wx !== 'undefined' && wx && wx.vibrateShort) || (typeof tt !== 'undefined' && tt && tt.vibrateShort)) return 'mini';
   const nav: any = G.navigator; if (nav && typeof nav.vibrate === 'function') return 'api';
   const ua = String(nav?.userAgent ?? ''), ios = /iP(hone|ad|od)/.test(ua) || (/Macintosh/.test(ua) && (nav?.maxTouchPoints ?? 0) > 1);
   if (!ios || typeof document === 'undefined') return 'none';

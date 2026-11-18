@@ -60,10 +60,14 @@ class AudioEngine {
     this.setRoom(this.room);
     this.voice = ctx.createGain(); this.voice.gain.value = 1.0; this.voice.connect(this.master);
     // music is decoded on demand (playMusic): six decoded tracks would hold ~250 MB on a phone
+    // (11-18 微信小游戏: a sample that won't load is skipped as before, but none loading at all is reported — the phone stayed silent
+    // without a word, act-65)
+    let failed: unknown = null, tried = 0;
     await Promise.all(Object.entries(byName).filter(([n]) => !n.startsWith('bgm_')).map(async ([n, url]) => {
       // (the build inlines each sample as a data: URL; the dev server hands back a plain file URL — fetch that one)
-      try { let ab: ArrayBuffer; if (!url.startsWith('data:')) ab = await (await fetch(url)).arrayBuffer(); else { const b64 = url.slice(url.indexOf(',') + 1), bin = atob(b64), arr = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i); ab = arr.buffer; } this.buf.set(n, await ctx.decodeAudioData(ab)); } catch { /* skip broken sample */ }
+      tried++; try { let ab: ArrayBuffer; if (!url.startsWith('data:')) ab = await (await fetch(url)).arrayBuffer(); else { const b64 = url.slice(url.indexOf(',') + 1), bin = atob(b64), arr = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i); ab = arr.buffer; } this.buf.set(n, await ctx.decodeAudioData(ab)); } catch (e) { failed = failed ?? e; /* skip broken sample */ }
     }));
+    if (tried && !this.buf.size) console.error('[audio] no sound could be loaded:', failed);
     this.ready = true;
   }
   private now() { return this.ctx ? this.ctx.currentTime : 0; }
@@ -139,6 +143,7 @@ class AudioEngine {
   private room: [number, number] = [0.6, 0.16];
   setRoom(r: [number, number]) {
     this.room = r; const [decay, w] = r, ctx = this.ctx; if (!ctx) return;
+    if ((ctx as unknown as { noReverb?: boolean }).noReverb) return;   // (11-18 微信小游戏: no ConvolverNode there — no room tail)
     const sr = ctx.sampleRate, n = Math.max(1, Math.floor(sr * decay)), ir = ctx.createBuffer(2, n, sr), pre = Math.floor(sr * 0.012);
     for (let c = 0; c < 2; c++) {
       const d = ir.getChannelData(c); let lp = 0;
