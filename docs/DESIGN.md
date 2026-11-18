@@ -1342,6 +1342,7 @@
 - 不见刀：触发条件照旧（杀气满三格，下一次完美闪避 / 破势时进入慢放的收拢），但收拢的金环和按的地方从攻击钮换成一颗**专门的钮**：平时不出现，触发那一刻在右手拇指区技能钮那一圈的上方弹出（金边铁盾、钮里是不见刀的图标、下面写「不见刀」和键位），金环往它身上收，环收到它身上那一段按下 = 放大招；早按 / 没按 = 错过，杀气留着。攻击钮在收拢期间照常是砍（不再把大招按掉，也不再被大招占住）。
 - 键位：新动作 `ult`（`input.ts` 的 `BtnName`），默认键盘 I、手柄 7（R2 / RT）；R2 原来是冲刺的第三个备用键，挪走（冲刺还有 B、RB）。旧存档里的键位表没有这一行：读档时补上默认，并把别的动作里撞上的备用键让出来。暂歇菜单「键位」多一行，可改。
 - 收拢的光圈（用户：「要变色才行吧，而且要有点光效，不然根本注意不到，也不知道到底什么时机是正确的」，`ironUi.ts QteRing`）：三层——钮外沿一道固定细金圈（目标：收到这里）、收拢的圈（开始是暗橙 0xc0501c，越收越暖到 0xffa040）、时机里（k 0.72～1.12）整圈换成亮白金、加粗 1.25 倍，外面一圈叠加发光的光晕先闪（亮度 1 → 0.33 秒退）再按 28 弧度/秒脉动，目标圈同时变亮；不见刀钮在进窗口那一下再跳一次（偏白金）；进窗口那一刻一声刀鸣（`bladeRing`）+ 轻震动。主角脚下那圈世界里的环也跟着：暗橙 → 时机里亮白、放大一点。
+- 让路（用户：「大招按钮出来的时候其他按钮要主动缩小一些然后动画上稍微往右下移一些来给大招按钮让路」，`hud.ts makeWay`）：不见刀钮在的时候，攻击 / 闪避 / 跳跃 / 远程四颗钮的位置朝屏幕右下角缩 14%（`角 + (原位 − 角) × 0.86`）、大小缩 16%，不见刀钮自己从 55% 长到全大；按真实时间缓入缓出（每秒 16 的指数逼近 + smoothstep，约 0.2 秒），世界慢放时也照常动。按钮下的字、点按的判定都跟着新位置走。
 
 - （11-18）发版时桌面不再出模型查看页 `不见刀_白发女模型.html`（用户：「不要模型页了」）；`?lab` 的模型查看页（`act/lab.ts`）保留。
 
@@ -1371,3 +1372,12 @@
 - （11-18，用户看了动作预览页）走跑挨打倒地「总体没啥问题」；问题在**出招**：「有好几个敌人的攻击都没用自己的武器，看起来很不自然」——规矩：每个敌人的出招都要用它手里的兵器（刀劈砍、枪戟刺、棍锤砸、弓弩射、盾撞、空手的才用拳爪），拿兵器的那只手带着兵器走完整个出招；「道士走路脚会穿帮漏出来」——长袍的人走路步子收小、袍摆跟着腿走，脚不能穿出袍子。预览页加自由拖拽视角。
 - 动作预览页的「出招」按 `src/present/act/animCatalog.ts` 放（实战录下的每个敌人的招：动作名、data.atk、命中时刻、时长；AI 改了招要重录）。长袍的人（`foe_motion.ts ROBED`）走路：节奏照常，脚的摆幅两成、抬脚两成五，鞋贴在袍摆下（会在袍下滑一点，看不见）。黄巾攻击动作回炉（用户自己的 Codex 活，原在主目录未提交，存档 `wip/main-models-1118`）已合：`foes/hj_poses.ts`（关键帧出招：刀手 hjCut / hjBackhand、渠帅 hjSweep / hjThrust / hjThunder、镰手 hjReap、掷罐手 hjLob，经 POSE_AFTER 叠在 act-53 的层上）、`foes/hj_ai.ts`（镰手、掷罐手的 AI）、`enemy.ts`（`startAttack` 可不带预警形状、出招后摇 tail、黄巾招的出手时钟对齐）、`regions/r1.ts`（波次加镰手、掷罐手）。
 
+### 第一次上真机：只有标题（11-18，act-65）
+
+用户：「我把包上传上去，手机上打开画面上还是只有一个标题……出了标题的其他游戏内容都没渲染出来。」手机 vConsole 日志：四条「vox: can't read ../../../vox/*.vox <TypeError: wx.base64ToArrayBuffer is not a function>」，然后是 three 的「EXT_blend_minmax / OES_vertex_array_object extension not supported」、我们自己的「WebGL1 without instancing…」、一串「gl.UNPACK_COLORSPACE_CONVERSION_WEBGL is not supported in wechat」「sRGBToLinear(): Unsupported image type」。
+
+- 根子：three.js r162 认 WebGL2 的那一句是 `typeof WebGL2RenderingContext !== 'undefined' && gl.constructor.name === 'WebGL2RenderingContext'`；微信给的是真 WebGL2 上下文，却没有这个全局类（社区里 Fukaki-Ato 的「修正 WebGL2 误判」PR 是同一个坑）。于是 three 在 WebGL2 上下文上走 WebGL1：去要 WebGL1 的扩展（实例化、浮点贴图、求导、深度贴图、VAO…）全是空，sRGB 贴图按 WebGL1 在 CPU 上转（就是那串 sRGBToLinear 警告）。开发者工具里的「没有实例化 / 浮点贴图 / 求导」（act-58～61）也是它——我当时当成「模拟器的 WebGL 弱」打了几轮补丁，没找到根。
+- 改：`wechat/glue.js` 里 `var WebGL2RenderingContext = GameGlobal.WebGL2RenderingContext || function WebGL2RenderingContext() {}`（游戏代码和它在同一个 game.js 作用域里，就近解析到它）；包一层主画布的 `getContext`：拿到 WebGL2 时，`constructor.name` 不对就补成这个函数；缺 `texStorage2D` / `createVertexArray` / `texImage3D` / `drawArraysInstanced` 的「半个 WebGL2」直接不给，three 退回 WebGL1——那时 act-59～61 的退让（不画实例化特效、不合批、不画倒角线、物理材质不求导）接得住。
+- 手机上没有 `atob`，glue 的后备用的 `wx.base64ToArrayBuffer` 也不存在：内联成 base64 的 .vox（用户在 MagicaVoxel 里改的主角）全读不进来。换成纯 JS 的 base64 解码（和 Node 的结果逐字节对过，含 20 万字节的随机数据）。
+- 诊断：测试阶段的微信包里，第一条错误（抛出的、未处理的 Promise、three 关于着色器 / 渲染器的 console.error）用 `wx.showModal` 弹出来——原生对话框不依赖 WebGL，画面坏了也看得见。
+- 替身页（`wechat/devtools-sim.html`）默认改成微信那样：WebGL2 给、全局类拿走、`atob` 拿走；`?gl1=1` 是只有 WebGL1 的机器。旧包在里面复现了用户开发者工具里那两条扩展警告，新包认对 WebGL2、四个 .vox 都读到、0 报错。

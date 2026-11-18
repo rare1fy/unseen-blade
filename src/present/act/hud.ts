@@ -153,7 +153,11 @@ export class ActHud {
     b.special.x = W - 150 * k; b.special.y = H - 300 * k;
     // 11-18 (用户：「大招可以触发的时候应该在右手拇指区域一个额外的地方出现一个按钮」): 不见刀's own button, over the jump button on the
     // thumb's arc (clear of the dart button and its label); it shows only while the ring closes (the QTE)
-    b.ult.size = 124 * k; b.ult.x = W - 300 * k; b.ult.y = H - 392 * k;
+    // (11-18 用户：「按钮离太远了，其他按钮已经给它让路了就可以再往右下移一些了」: into the room the four leave between the jump and the dart
+    // buttons once they have gathered toward the corner — its label just clears the jump button's top)
+    b.ult.size = 124 * k; b.ult.x = W - 225 * k; b.ult.y = H - 335 * k;
+    // (the laid-out places: the 不见刀 button's coming in moves the others from here, see makeWay)
+    for (const n of Object.keys(b) as BtnName[]) this.home[n] = { x: b[n].x, y: b[n].y, size: b[n].size };
     // the pause button at the top right: just left of the tuning panel's 「调」 (a 30 px square 8 px in from the corner), level with it;
     // the purse moves along to its left
     const ps = Math.max(34, 40 * k); this.pauseBtn.size = ps; this.pauseBtn.x = W - 46 - ps / 2; this.pauseBtn.y = 23;
@@ -200,6 +204,19 @@ export class ActHud {
   private ultHit = false; qteDt = 1 / 60;
   /** 不见刀's button is up (the QTE): drawn, labelled, and the only time it takes a touch */
   private ultUp = false;
+  /** 11-18 (用户：「大招按钮出来的时候其他按钮要主动缩小一些然后动画上稍微往右下移一些来给大招按钮让路，这样表现上也更灵动一些」): while the
+   *  不见刀 button is up the other four shrink a sixth and gather toward the screen's bottom-right corner, eased in and out over about
+   *  a fifth of a second (real time: the world is in slow motion then); the 不见刀 button grows in from small as they make way */
+  private home: Partial<Record<BtnName, { x: number; y: number; size: number }>> = {}; private wayK = 0;
+  private makeWay(dt: number) {
+    const to = this.ultUp ? 1 : 0; this.wayK += (to - this.wayK) * Math.min(1, dt * 16); if (Math.abs(to - this.wayK) < 1e-3) this.wayK = to;
+    const e = this.wayK * this.wayK * (3 - 2 * this.wayK), W = this.W, H = this.H;
+    for (const n of Object.keys(this.btns) as BtnName[]) {
+      const h = this.home[n], b = this.btns[n]; if (!h) continue;
+      if (n === 'ult') { b.size = h.size * (0.55 + 0.45 * e); continue; }
+      const g = 1 - 0.14 * e; b.x = W + (h.x - W) * g; b.y = H + (h.y - H) * g; b.size = h.size * (1 - 0.16 * e);
+    }
+  }
   /** act-29: a game moment on a button (a cut lands, a perfect dodge) */
   btnKick(n: BtnName, k: number, col?: number) { const b = this.btns[n]; if (b instanceof IronBtn) b.kick(k, col); }
   /** act-29: the dart's aim on screen (x right, y up), or null */
@@ -228,6 +245,7 @@ export class ActHud {
   update(dt: number, inp: Input, foes: Foe[]) {
     this.stick.root.visible = this.on; for (const b of Object.values(this.btns)) { const on = this.on && (b !== this.btns.ult || this.ultUp); b.root.visible = on; if (b instanceof IronBtn) b.iconG.visible = on; }
     this.flask.root.visible = this.on;
+    this.makeWay(dt);
     if (this.on) { this.stick.update(inp.stick, this.stickHome, this.stickSize); for (const b of Object.values(this.btns)) b.update(dt); }
     this.pauseBtn.on = this.on; this.pauseBtn.update(dt); this.markFrame(dt);
     // act-28 (user: 「技能下面我看还是没有写按键什么意思：闪避、跳跃、远程、攻击」): what each button does, in small pixel type just under
