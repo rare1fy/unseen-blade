@@ -90,9 +90,9 @@ export interface Locale {
   /** 11-18: the shallow water on the battle floor of this room (m, world; from the spec's seed) — 下邳's pools, where the 水鬼 swim */
   pools?(seed: number): Rect[];
   /** pave the ground (cells at y = −1) over the whole stage, knowing the layout's path and court */
-  floor(c: Ctx, f: { layout: Layout; p: Place }): void;
+  floor(c: Ctx, f: { layout: Layout; p: Place; arena?: import('./arena').ArenaPlan }): void;
   /** the far ring beyond the stage (hills, woods, roofs): no checks except the battle floor and the camera */
-  far?(c: Ctx, f: { layout: Layout; p: Place }): void;
+  far?(c: Ctx, f: { layout: Layout; p: Place; arena?: import('./arena').ArenaPlan }): void;
   /** cards, decals and ambient particles at the end (buildFlora is called by the assembler before this) */
   dress?(c: Ctx, f: { layout: Layout; p: Place; clear: Rect[] }): void;
   /** 11-18 屋子形态 (asm/roomShape.ts): the shapes this place's fight rooms take (one picked per room, never the last two again); absent =
