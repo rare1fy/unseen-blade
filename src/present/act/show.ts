@@ -1359,9 +1359,10 @@ export class ActShow {
   private async demoMove(id: string) {
     if (this.botOn || !this.hero) return;
     const was = this.phase; this.phase = 'pick'; this.hero.vel.set(0, 0, 0);
-    // the hint to skip, small, under the pause button (whole device px per font pixel, about 16 px tall)
+    // the hint to skip, small, at the top right where the pause button used to stand (11-18: the portrait pauses now), left of the
+    // tuning panel's 「调」 (whole device px per font pixel, about 16 px tall)
     const dpr = this.L.dpr || 1;
-    this.L.text.set('act.demoSkip', { text: UI_WORDS.demoSkip, x: this.L.w - 18, y: 64, pix: Math.max(1, Math.round(this.hud.k * dpr)), color: '#d9ccb2', outline: '#140c0a', align: 'right', alpha: 0.8 });
+    this.L.text.set('act.demoSkip', { text: UI_WORDS.demoSkip, x: this.L.w - 46, y: 23, pix: Math.max(1, Math.round(this.hud.k * dpr)), color: '#d9ccb2', outline: '#140c0a', align: 'right', alpha: 0.8 });
     await this.demo.play(id, { at: this.hero.pos.clone(), def: this.wearing, hud: this.hud });
     this.L.text.hide('act.demoSkip'); this.inp.latch();
     if (this.phase === 'pick') this.phase = was;
