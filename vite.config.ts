@@ -1,11 +1,13 @@
 /// <reference types="vitest" />
-// 不见刀: dev server (http://127.0.0.1:5237) + single-file web build (dist/index.html, everything inlined: one file to open or share).
+// 不见刀: dev server (http://127.0.0.1:5237) + single-file web build (dist/index.html, everything inlined: one file to open or share)
+// + the WeChat mini-game bundle (vite build --mode wechat → dist-wx/game.js + wx-assets.json; tools/build-wechat.mjs packs the project).
 import { defineConfig } from 'vite';
 import { viteSingleFile } from 'vite-plugin-singlefile';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { realpathSync, readFileSync } from 'node:fs';
 import type { Plugin } from 'vite';
+import { wxAssets } from './tools/wxAssets';
 
 const ROOT = realpathSync.native(path.dirname(fileURLToPath(import.meta.url)));
 const stamp = () => { const d = new Date(), z = (n: number) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())} ${z(d.getHours())}:${z(d.getMinutes())}`; };   // local time
@@ -15,7 +17,7 @@ const PXUI = path.resolve(ROOT, 'src/vendor/pxui');   // pxui's platform layer, 
  *  the build and the tests (Vite's own ?inline only inlines at build time); the dev server reloads when one is saved */
 const voxBytes = (): Plugin => ({ name: 'vox-bytes', enforce: 'pre', load(id) { const f = id.split('?')[0]; if (!f.endsWith('.vox')) return null; this.addWatchFile(f); return `export default ${JSON.stringify(readFileSync(f).toString('base64'))};`; } });
 
-export default defineConfig(({ command }) => ({
+export default defineConfig(({ command, mode }) => { const WX = command === 'build' && mode === 'wechat'; return {
   root: ROOT, // Use one canonical path for HTML proxy modules, including mapped worktree drives.
   cacheDir: path.resolve(ROOT, '.vite'), // Keep worktree caches local when node_modules is shared by junction.
   resolve: {
@@ -25,6 +27,7 @@ export default defineConfig(({ command }) => ({
   define: {
     __DEV__: JSON.stringify(command === 'serve'),
     __BUILD__: JSON.stringify(stamp()),
+    __WX__: JSON.stringify(WX),
   },
   optimizeDeps: { entries: ['index.html'] },
   server: {
@@ -32,8 +35,12 @@ export default defineConfig(({ command }) => ({
     hmr: { overlay: false },   // errors go to the console / cap.mjs log.txt, not over the screenshots
     watch: { ignored: ['**/docs/**', '**/out/**', '**/dist/**'] },
   },
-  plugins: command === 'build' ? [voxBytes(), viteSingleFile()] : [voxBytes()],
-  build: {
+  plugins: WX ? [voxBytes(), wxAssets(ROOT)] : command === 'build' ? [voxBytes(), viteSingleFile()] : [voxBytes()],
+  build: WX ? {
+    // the mini-game: one script (no HTML), the sounds / portraits / fonts as files
+    outDir: 'dist-wx', emptyOutDir: true, target: 'es2020', assetsInlineLimit: 0, chunkSizeWarningLimit: 8000, reportCompressedSize: false, modulePreload: false,
+    rollupOptions: { input: path.resolve(ROOT, 'src/main.ts'), output: { format: 'iife', entryFileNames: 'game.js', inlineDynamicImports: true } },
+  } : {
     outDir: 'dist',
     emptyOutDir: true,
     target: 'es2020',
@@ -46,4 +53,4 @@ export default defineConfig(({ command }) => ({
     environment: 'node',
     globals: true,
   },
-}));
+}; });

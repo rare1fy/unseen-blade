@@ -6,6 +6,8 @@ import * as THREE from 'three';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import type { Ui3DLayer } from './pixel';
 import { UI_LOOK } from './uiLook';
+import { bloomMips, bloom8bit } from './bloomMips';
+import { OPT } from '../engine/perfOpts';
 export { UI_LOOK } from './uiLook';
 
 const VS = `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
@@ -57,13 +59,16 @@ void main(){
   gl_FragColor = vec4(col + bl, a + (1.0 - a) * shade);
 }`;
 
+/** most screen rectangles the UI composite is cut into (more top-level UI groups than this: the whole screen) */
+const RMAX = 48;
 export class UiPass {
   rt: THREE.WebGLRenderTarget; bloom: UnrealBloomPass; mat: THREE.ShaderMaterial; qs = new THREE.Scene(); cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
   private cc = new THREE.Color(); private W = 4; private H = 4;
-  constructor(private renderer: THREE.WebGLRenderer, msaa: number) {
-    this.rt = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, depthTexture: new THREE.DepthTexture(4, 4), samples: msaa });
+  constructor(private renderer: THREE.WebGLRenderer, msaa: number, hdr = true) {
+    this.rt = new THREE.WebGLRenderTarget(4, 4, { type: hdr ? THREE.HalfFloatType : THREE.UnsignedByteType, depthTexture: new THREE.DepthTexture(4, 4), samples: msaa });
     this.rt.depthTexture.type = THREE.UnsignedIntType;
     this.bloom = new UnrealBloomPass(new THREE.Vector2(128, 128), 1, UI_LOOK.bloomRadius, UI_LOOK.bloomThreshold);
+    if (!hdr) bloom8bit(this.bloom);
     this.mat = new THREE.ShaderMaterial({ vertexShader: VS, fragmentShader: FS, depthTest: false, depthWrite: false, transparent: true,
       blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.OneFactor, blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
       uniforms: { tColor: { value: this.rt.texture }, tDepth: { value: this.rt.depthTexture }, tBloom: { value: null as THREE.Texture | null }, uRes: { value: new THREE.Vector2(4, 4) },
@@ -84,9 +89,8 @@ export class UiPass {
     if (bOn) {
       this.bloom.strength = 1; this.bloom.radius = UI_LOOK.bloomRadius; this.bloom.threshold = UI_LOOK.bloomThreshold;
       // the bloom is not blended back into the UI target: the composite reads the blurred mips and adds them over the world
-      const cu = (this.bloom as unknown as { copyUniforms: Record<string, THREE.IUniform> }).copyUniforms; cu.opacity.value = 0;
-      this.bloom.render(r, null as unknown as THREE.WebGLRenderTarget, this.rt, 0, false);
-      u.tBloom.value = (this.bloom as unknown as { renderTargetsHorizontal: THREE.WebGLRenderTarget[] }).renderTargetsHorizontal[0].texture;
+      // (11-18 微信帧率: so the bloom stops at the mips; the blend it used to end with, at opacity 0, drew the whole screen for nothing)
+      u.tBloom.value = bloomMips(this.bloom, r, this.rt);
     }
     u.uBloom.value = bOn ? UI_LOOK.bloom : 0; if (!bOn) u.tBloom.value = this.rt.texture;
     const p = UI_LOOK, scale = this.H / 720, on = p.enabled;
@@ -99,6 +103,56 @@ export class UiPass {
     u.uShadowBlur.value = Math.max(0, p.shadowBlur) * scale;
     u.uShadowStrength.value = on ? THREE.MathUtils.clamp(p.shadowStrength, 0, 1) : 0;
     u.uSeparate.value = on ? 1 : 0;
-    const ac = r.autoClear; r.autoClear = false; r.setRenderTarget(null); r.render(this.qs, this.cam); r.autoClear = ac;
+    const ac = r.autoClear; r.autoClear = false; r.setRenderTarget(null);
+    // 11-18 微信帧率: the composite (≈17 texture reads a pixel) only where the UI is: the screen bounds of each top-level UI group,
+    // grown by a margin for its contour, drop shadow and glow, drawn as one mesh of quads; where quads overlap the depth test lets
+    // a pixel through once (the blend is not idempotent). The whole screen when the UI covers most of it.
+    const n = OPT.uiScissor ? this.rects(L) : -1;
+    if (n < 0) r.render(this.qs, this.cam);
+    else if (n > 0) { r.clearDepth(); r.render(this.rs, this.cam); }
+    r.autoClear = ac;
+  }
+  private sz = new THREE.Vector2(); private box = new THREE.Box3(); private v = new THREE.Vector3();
+  /** the rectangles' mesh (up to RMAX quads in clip space; the composite's uniforms, depth-tested so overlaps draw once) */
+  private rs = new THREE.Scene(); private rg = new THREE.BufferGeometry();
+  private rp = new Float32Array(RMAX * 12); private ru = new Float32Array(RMAX * 8);
+  private initRects() {
+    const idx = new Uint16Array(RMAX * 6); for (let i = 0; i < RMAX; i++) idx.set([0, 1, 2, 0, 2, 3].map(k => k + i * 4), i * 6);
+    this.rg.setAttribute('position', new THREE.BufferAttribute(this.rp, 3)); this.rg.setAttribute('uv', new THREE.BufferAttribute(this.ru, 2)); this.rg.setIndex(new THREE.BufferAttribute(idx, 1));
+    const m = this.mat.clone(); m.uniforms = this.mat.uniforms; m.depthTest = true; m.depthWrite = true; m.depthFunc = THREE.LessDepth;
+    const q = new THREE.Mesh(this.rg, m); q.frustumCulled = false; this.rs.add(q);
+  }
+  /** fill the rectangles' mesh with what the UI covers now; returns how many (−1 = draw the whole screen) */
+  private rects(L: Ui3DLayer): number {
+    if (!this.rg.index) this.initRects();
+    const r = this.renderer; r.getSize(this.sz); const W = this.sz.x, H = this.sz.y, m = H * 0.06, cam = L.camera;
+    let n = 0, area = 0;
+    for (const top of L.scene.children) {
+      if (!top.visible) continue;
+      let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9, whole = false;
+      top.traverseVisible(o => {
+        const g = (o as THREE.Mesh).geometry; if (whole || !g || !((o as THREE.Mesh).isMesh || (o as THREE.Sprite).isSprite)) return;
+        if (!g.boundingBox) g.computeBoundingBox();
+        const b = this.box.copy(g.boundingBox!).applyMatrix4(o.matrixWorld);
+        for (let i = 0; i < 8; i++) {
+          this.v.set(i & 1 ? b.max.x : b.min.x, i & 2 ? b.max.y : b.min.y, i & 4 ? b.max.z : b.min.z).applyMatrix4(cam.matrixWorldInverse).applyMatrix4(cam.projectionMatrix);
+          if (!isFinite(this.v.x) || Math.abs(this.v.z) > 1.0001) { whole = true; return; }
+          const sx = (this.v.x + 1) / 2 * W, sy = (this.v.y + 1) / 2 * H;
+          if (sx < x0) x0 = sx; if (sx > x1) x1 = sx; if (sy < y0) y0 = sy; if (sy > y1) y1 = sy;
+        }
+      });
+      if (whole || n >= RMAX) return -1;
+      if (x1 < x0) continue;
+      x0 = Math.max(0, x0 - m); y0 = Math.max(0, y0 - m); x1 = Math.min(W, x1 + m); y1 = Math.min(H, y1 + m);
+      if (x1 <= x0 || y1 <= y0) continue;
+      area += (x1 - x0) * (y1 - y0);
+      const X0 = x0 / W * 2 - 1, X1 = x1 / W * 2 - 1, Y0 = y0 / H * 2 - 1, Y1 = y1 / H * 2 - 1;
+      this.rp.set([X0, Y0, 0, X1, Y0, 0, X1, Y1, 0, X0, Y1, 0], n * 12);
+      this.ru.set([x0 / W, y0 / H, x1 / W, y0 / H, x1 / W, y1 / H, x0 / W, y1 / H], n * 8);
+      n++;
+    }
+    if (area > W * H * 0.8) return -1;
+    this.rg.attributes.position.needsUpdate = true; this.rg.attributes.uv.needsUpdate = true; this.rg.setDrawRange(0, n * 6);
+    return n;
   }
 }

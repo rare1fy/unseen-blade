@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { scene, V3 } from '../engine/world';
 import { Action, Spring, resetPose, type Bone } from './rig';
+import { batchActor } from '../engine/rigidBatch';
 
 export abstract class Actor {
   readonly root = new THREE.Group();
@@ -23,7 +24,7 @@ export abstract class Actor {
   abstract readonly height: number;
   protected flashMats: Array<{ m: THREE.MeshToonMaterial | THREE.MeshStandardMaterial; base: THREE.Color }> = [];
 
-  constructor() { this.root.add(this.body); scene.add(this.root); }
+  constructor() { this.root.add(this.body); scene.add(this.root); batchActor(this.root); }   // (11-18 微信帧率: its parts drawn as one mesh per material)
 
   protected finish(meshes: THREE.Mesh[]) {
     this.meshes = meshes;

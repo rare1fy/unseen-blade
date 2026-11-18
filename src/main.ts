@@ -6,6 +6,11 @@ import { createGfx } from './present/engine/gfx';
 import { initParticles } from './present/engine/particles';
 import { initPrims } from './present/engine/prims';
 import { FX } from './present/engine/clock';
+import { gpuMeasure } from './present/engine/gpuTime';
+import { scene as worldScene } from './present/engine/world';
+import { OPT } from './present/engine/perfOpts';
+import { batchStats } from './present/engine/rigidBatch';
+import { initQuality, setQuality, QUALITY, type Choice } from './present/look/quality';
 import { PX, PXU, readPixelFlag, installPixelKeys, setPixel } from './present/look/pixel';
 import { ActShow } from './present/act/show';
 import './present/act/hideout';   // the hideout (据点): its scene, its five people, __dh.hideout()
@@ -25,6 +30,7 @@ const flags = readFlags(k => platform.query(k));
 const canvas = platform.createCanvas();
 // the 3D-pixel render style (look/pixel.ts): #px1 / #px2 / #px3 or ?px=1|2|3; P toggles, [ ] pixel size
 readPixelFlag(typeof location !== 'undefined' ? location.hash.slice(1) : '', k => platform.query(k));
+initQuality(platform);   // (11-18 微信帧率: the quality tier, before the renderer sizes its targets)
 const gfx = createGfx(platform, canvas, { preserve: !!TEST.preserve });
 installPixelKeys();
 initParticles('soft'); initPrims();
@@ -34,6 +40,14 @@ dh.add({
   info: () => ({ build: __BUILD__, dev: __DEV__, platform: platform.name, flags }),
   stats: () => ({ calls: gfx.stats.calls, tris: gfx.stats.tris, ms: Math.round(gfx.stats.ms * 10) / 10, logic: Math.round(gfx.stats.logic * 100) / 100, render: Math.round(gfx.stats.render * 100) / 100, px: PX.on ? PX.size : 0 }),
   gfx: () => gfx,
+  /** 11-18 微信帧率: GPU ms / draw calls / triangles per render stage, averaged over n frames (a promise) */
+  perf: (n = 120) => gpuMeasure(n),
+  worldScene: () => worldScene,
+  /** 11-18 微信帧率: turn single optimisations off / on to measure them: __dh.opt({ shadowTiles: false }) */
+  opt: (o: Partial<typeof OPT> = {}) => Object.assign(OPT, o),
+  batchStats,
+  /** 11-18 微信帧率: the quality tier — __dh.quality('mid') / 'auto'; no argument: the state */
+  quality: (c?: Choice) => { if (c) setQuality(c); return { ...QUALITY }; },
   /** the pixel render style: __dh.px(true, 2) / __dh.px(false) */
   px: (on = true, size?: number) => setPixel(on, size),
   /** live tuning of the pixel look: __dh.pxLook.ink = 0.6 … (see look/pixel.ts PX) */

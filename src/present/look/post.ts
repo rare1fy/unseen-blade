@@ -10,6 +10,9 @@ import { PX, PXU, UI3D, pxLightsBegin, pxLightsEnd, liftOverlays, drawOverlays }
 import { UiPass } from './uiPass';
 import { UI_SCENE_GLSL, uiSceneUniforms, updateUiSceneUniforms } from './uiLook';
 import { PADD } from '../engine/particles';
+import { gpuMark } from '../engine/gpuTime';
+import { bloomMips, bloom8bit, halfFloatOk } from './bloomMips';
+import { tierNow } from './quality';
 
 const VS = `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
 const FS = (pixel: boolean) => `
@@ -113,15 +116,20 @@ export class Post {
   pixel = 0;
   /** MSAA samples the GPU allows on the HDR targets (0 = none: no WebGL2 / no float colour buffers) */
   readonly msaa: number;
+  /** half-float targets drawable (else 8-bit, look/bloomMips.ts halfFloatOk) */
+  readonly hdr: boolean;
   /** the UI-layer 3D scene at native resolution (look/uiPass.ts) */
   ui: UiPass;
   private size = { w: 4, h: 4, dpr: 1 };
   constructor(private renderer: THREE.WebGLRenderer) {
     const cap = renderer.capabilities, ext = renderer.extensions;
     this.msaa = cap.isWebGL2 && (ext.has('EXT_color_buffer_float') || ext.has('EXT_color_buffer_half_float')) ? Math.min(4, cap.maxSamples || 0) : 0;
-    this.rt = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, depthTexture: new THREE.DepthTexture(4, 4), samples: 0 });
+    // 11-18 微信帧率: a GPU that can't draw into half floats gets 8-bit targets (no HDR bloom) instead of a black screen
+    this.hdr = halfFloatOk(renderer);
+    this.rt = new THREE.WebGLRenderTarget(4, 4, { type: this.hdr ? THREE.HalfFloatType : THREE.UnsignedByteType, depthTexture: new THREE.DepthTexture(4, 4), samples: 0 });
     this.rt.depthTexture.type = THREE.UnsignedIntType;
     this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), GRADE.bloomStrength, GRADE.bloomRadius, GRADE.bloomThreshold);
+    if (!this.hdr) bloom8bit(this.bloom);
     const mk = (pixel: boolean) => {
       const u = uniforms(); u.tColor.value = this.rt.texture; u.tDepth.value = this.rt.depthTexture;
       return new THREE.ShaderMaterial({ vertexShader: VS, fragmentShader: FS(pixel), depthTest: false, depthWrite: false, uniforms: u });
@@ -132,14 +140,15 @@ export class Post {
     this.blit = new THREE.ShaderMaterial({ vertexShader: VS, fragmentShader: BLIT_FS, depthTest: false, depthWrite: false,
       uniforms: { tLo: { value: this.lo.texture }, uLoRes: { value: new THREE.Vector2(4, 4) }, uOff: { value: new THREE.Vector2() }, uK: { value: 2 } } });
     const bq = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.blit); bq.frustumCulled = false; this.bs.add(bq);
-    this.ui = new UiPass(renderer, this.msaa);
+    this.ui = new UiPass(renderer, this.msaa, this.hdr);
   }
   setSize(w: number, h: number, dpr: number) {
     this.size = { w, h, dpr };
     const W = Math.max(1, Math.round(w * dpr)), H = Math.max(1, Math.round(h * dpr));
     // MSAA on the HDR target only where art pixels are screen pixels (1×, standard); chunky art pixels stay hard-edged
     // (high-DPI screens alias less and pay more per sample: ×2 there)
-    const msx = dpr >= 1.75 ? Math.min(2, this.msaa) : this.msaa, ms = this.pixel <= 1 ? msx : 0;
+    // (11-18 微信帧率: the 中 / 低 tiers draw the world without MSAA)
+    const T = tierNow(), msx = dpr >= 1.75 ? Math.min(2, this.msaa) : this.msaa, ms = this.pixel <= 1 && T.worldMsaa ? msx : 0;
     if (this.rt.samples !== ms) { this.rt.samples = ms; this.rt.dispose(); }
     if (this.pixel > 0) {
       // art buffer: PX.size CSS px per art pixel (device px per art px = size × dpr), a little larger than the screen, centred
@@ -157,7 +166,10 @@ export class Post {
       PXU.uArtH.value = H;
     }
     (this.matStd.uniforms.uRes.value as THREE.Vector2).set(W, H);
-    this.ui.setSize(W, H, msx);
+    // the UI layer at no more than the tier's device px per CSS px (高 3 = native on any phone; 中 2; 低 1.5), drawn back over the
+    // full-resolution frame with linear filtering
+    const uk = Math.min(1, T.uiDpr / Math.max(1, dpr));
+    this.ui.setSize(Math.max(1, Math.round(W * uk)), Math.max(1, Math.round(H * uk)), msx);
   }
   /** switch the pixel look (0 = standard, else CSS px per art pixel) */
   setPixel(n: number) { if (n === this.pixel) return; this.pixel = n; this.setSize(this.size.w, this.size.h, this.size.dpr); }
@@ -166,22 +178,23 @@ export class Post {
     updateUiSceneUniforms(u, !!UI3D.layer?.on);
     // busy screens (many additive particles) pull the bloom back in the pixel look (the reference's FXB)
     const busy = pix ? Math.min(1, Math.max(0, ((PADD?.n ?? 0) - 450) / 900)) : 0;
-    r.setRenderTarget(this.rt); r.clear();
+    gpuMark('world'); r.setRenderTarget(this.rt); r.clear();
     if (pix) { pxLightsBegin(scene); liftOverlays(scene); }
     r.render(scene, camera);
     if (pix) pxLightsEnd();
     this.bloom.strength = GRADE.bloomStrength * (1 - PX.busyDim * busy); this.bloom.radius = GRADE.bloomRadius; this.bloom.threshold = GRADE.bloomThreshold;
     // pixel look: the bloom is not blended in place; the final pass reads the composite, caps it and (at ≥ 2× art pixels) steps it into bands
-    (this.bloom as unknown as { copyUniforms: Record<string, THREE.IUniform> }).copyUniforms.opacity.value = pix ? 0 : 1;
-    this.bloom.render(r, null as unknown as THREE.WebGLRenderTarget, this.rt, 0, false);
-    if (pix) { u.tBloom.value = (this.bloom as unknown as { renderTargetsHorizontal: THREE.WebGLRenderTarget[] }).renderTargetsHorizontal[0].texture; u.uBloomCap.value = PX.bloomCap; u.uBands.value = this.pixel >= 2 ? PX.bands : 0; }
+    // (11-18 微信帧率: the pixel look stops at the mips — its blend back over the frame had opacity 0)
+    gpuMark('bloom');
+    if (pix) { u.tBloom.value = bloomMips(this.bloom, r, this.rt); u.uBloomCap.value = PX.bloomCap; u.uBands.value = this.pixel >= 2 ? PX.bands : 0; }
+    else { (this.bloom as unknown as { copyUniforms: Record<string, THREE.IUniform> }).copyUniforms.opacity.value = 1; this.bloom.render(r, null as unknown as THREE.WebGLRenderTarget, this.rt, 0, false); }
     const fog = scene.fog as (THREE.Fog & THREE.FogExp2) | null;   // x: exp2 density, y/z: linear near / far
     (u.uFog.value as THREE.Vector3).set(fog && (fog as THREE.FogExp2).isFogExp2 ? fog.density : 0, fog && (fog as THREE.Fog).isFog ? fog.near : 0, fog && (fog as THREE.Fog).isFog ? fog.far : 0);
     u.uNear.value = camera.near; u.uFar.value = camera.far; u.uInk.value = pix ? (this.pixel >= 2 ? PX.ink : PX.ink1) : GRADE.ink; u.uInkT.value = PX.inkT;
     u.uExposure.value = GRADE.exposure * (pix ? (this.pixel >= 2 ? PX.exposure : PX.exposure1) : 1); u.uSat.value = GRADE.sat * (pix ? PX.sat : 1); u.uVig.value = GRADE.vig * (pix ? PX.vig : 1); u.uCurve.value = pix ? PX.curve : 0;
     u.uFlash.value = GRADE.flash; u.uSplit.value = GRADE.split; u.uTime.value = time % 100; u.uDesat.value = GRADE.desat;
     (u.uFlashCol.value as THREE.Color).copy(GRADE.flashCol); (u.uLift.value as THREE.Color).copy(GRADE.lift); (u.uGain.value as THREE.Color).copy(GRADE.gain); (u.uInkCol.value as THREE.Color).copy(GRADE.inkCol);
-    this.quad.material = m;
+    this.quad.material = m; gpuMark('final');
     if (!pix) { r.setRenderTarget(null); r.render(this.qs, this.cam); }
     else {
       r.setRenderTarget(this.lo); r.render(this.qs, this.cam);
@@ -189,6 +202,6 @@ export class Post {
       drawOverlays(r, scene, camera);
     }
     // the UI-layer 3D scene: always at native resolution, over the finished world frame
-    const L = UI3D.layer; if (L && L.on) this.ui.render(L);
+    const L = UI3D.layer; if (L && L.on) { gpuMark('ui'); this.ui.render(L); }
   }
 }

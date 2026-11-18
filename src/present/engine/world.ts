@@ -2,6 +2,7 @@
 // presentation modules import these handles instead of passing them around.
 import * as THREE from 'three';
 import { makeCanvas } from '../../platform/index';
+import { syncBatches } from './rigidBatch';
 
 export const scene = new THREE.Scene();
 export const camera = new THREE.PerspectiveCamera(24, 1, 0.1, 400);
@@ -26,7 +27,7 @@ export function padLights() {
   for (let i = 0; i < pads.length; i++) pads[i].visible = i < want;
 }
 /** compile every material the scene now holds, so the first frames after a scene swap do not stall on shader compiles */
-export function precompile() { padLights(); try { GL.renderer?.compile(scene, camera); } catch (e) { console.warn('[precompile]', e); } }
+export function precompile() { padLights(); syncBatches(); try { GL.renderer?.compile(scene, camera); } catch (e) { console.warn('[precompile]', e); } }
 /** upload a group's meshes to the GPU ahead of its first real frame (act-34): it joins the scene for one render into a tiny
  *  target with culling off, then leaves again (the scene's own picture is untouched; its shadow map is redrawn next frame anyway) */
 export function warm(root: THREE.Object3D) {
