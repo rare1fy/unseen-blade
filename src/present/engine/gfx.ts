@@ -14,7 +14,7 @@ import { frameTimer } from './frameMeter';
 import { gpuMeasuring, gpuTimeInit, gpuMark, gpuFrameEnd, gpuCount } from './gpuTime';
 import { updateStageTiles, installShadowTiles } from './shadowTiles';
 import { syncBatches } from './rigidBatch';
-import { CAPS } from './perfOpts';
+import { OPT, CAPS } from './perfOpts';
 import { tierNow, onQualityChange, qualityFrame, QUALITY } from '../look/quality';
 
 /** The camera rig: directors write base / look / fov / roll / shift; the loop adds shake and renders. */
@@ -121,6 +121,8 @@ export function createGfx(platform: Platform, canvas: any, o: { preserve?: boole
  *  frame or (低) every other frame */
 let shadowFrame = 0;
 function shadowTier(r: THREE.WebGLRenderer, sc: THREE.Scene) {
+  r.shadowMap.enabled = !(OPT.bakedShadows && QUALITY.tier === 'low');
+  if (!r.shadowMap.enabled) return;
   const T = tierNow(), size = QUALITY.tier === 'high' && QUALITY.phone ? 1024 : T.shadowMap;
   for (const o of sc.children) {
     const l = o as THREE.DirectionalLight; if (!l.isDirectionalLight || !l.castShadow) continue;

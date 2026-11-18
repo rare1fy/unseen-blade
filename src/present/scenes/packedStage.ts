@@ -1,3 +1,4 @@
+import type { TerrainLight } from './terrainLight';
 import * as THREE from 'three';
 import { inflateSync, strFromU8 } from 'three/examples/jsm/libs/fflate.module.js';
 import { voxToon, glowMat } from '../look/voxkit';
@@ -27,7 +28,7 @@ type Surface = {
   attributes: Attribute[];
 };
 type Operation = [string, ...any[]];
-type Meta = { version: number; ops: Operation[]; meshes: Surface[]; report?: object };
+type Meta = { version: number; ops: Operation[]; meshes: Surface[]; light?: Omit<TerrainLight, 'depth'> & { start: number; length: number }; report?: object };
 type WxFiles = { loadSubpackage(o: object): void; getFileSystemManager(): { readFile(o: object): void } };
 const recent = new Map<string, Promise<Uint8Array | null>>();
 export function readStagePack(key: string): Promise<Uint8Array | null> {
@@ -110,6 +111,7 @@ export function* unpackStage(file: Uint8Array, ctx: Ctx, root: THREE.Group, cut:
     const parent = surface.cut ? cut : root;
     parent.add(mesh);
     if (surface.material === 'terrain') {
+      mesh.userData.stageTerrain = !surface.cut;
       const tiles = shadowTiles(mesh);
       if (tiles.length) {
         mesh.castShadow = false;
@@ -133,4 +135,9 @@ export function* unpackStage(file: Uint8Array, ctx: Ctx, root: THREE.Group, cut:
     if ((i & 127) === 127) yield;
   }
   if (report && meta.report) Object.assign(report, meta.report);
+  if (!meta.light) return null;
+  const { start, length, ...light } = meta.light;
+  const depth = inflateSync(file.subarray(base + start, base + start + length));
+  if (depth.length !== light.size * light.size) throw Error('Invalid baked light size');
+  return { ...light, depth };
 }

@@ -1,3 +1,5 @@
+import { OPT } from '../engine/perfOpts';
+import { ContactBatch } from '../engine/contactBatch';
 import { finishBuild, loadInFrames } from '../engine/buildSteps';
 import { bladeBusy, runRoomBuild, withLoadingBlade } from '../scenes/loadingBlade';
 import { format, language, msg, setLanguage } from './i18n';
@@ -12,7 +14,7 @@ import { hitstop, shake, slowmo, after, anim, clock, FX, waitReal, PAUSE } from 
 import { shot } from '../director';
 import { fxImpact, fxSparks, fxSmoke, fxRing, fxEmbers, fxFlare, trailSeg } from '../fx/fx';
 import { fxAfterimage } from '../fx/skillFx';
-import { addBlock } from '../fx/blocks';
+import { addBlock, debrisContacts } from '../fx/blocks';
 import { popPix } from '../v2/pix';
 import { playDeath } from '../v2/death';
 import { prepareFight } from './fightWarm';
@@ -627,6 +629,7 @@ export class ActShow {
   /** the training yard (room −1) and the costume on the hero */
   yard: Yard | null = null; wearing: ModelDef = savedHero(); private lineupActors: BattleActor[] = [];
   private aimLine!: THREE.Mesh;
+  private propContacts?: ContactBatch;
   private ring!: THREE.Mesh; private ringK = -1; private sparkT = 0; private shadows: THREE.Mesh[] = []; private exitSign: THREE.Group | null = null; private blob: THREE.Mesh;
   constructor(private platform: Platform, deferStart = false) {
     SELF = this; this.dialogue = new Dialogue(this.L, this.ov); this.timeline = new Timeline(this.L);
@@ -985,6 +988,7 @@ export class ActShow {
   title(n = 1) {
     try { localStorage.setItem('ub.title', String(n)); } catch { /* storage blocked */ }   // the last one shown opens next time
     // a room may be up (__dh.title from the yard): its actors go the way a room change sends them
+    this.propContacts?.dispose(); this.propContacts = undefined;
     this.duel?.newRoom(); for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = []; this.entering.length = 0;
     this.yard?.dispose(); this.yard = null; this.props?.dispose(); this.props = null; this.gates?.dispose(); this.gates = null; this.pieces?.dispose(); this.pieces = null; this.leaves?.dispose(); this.leaves = null; this.stations?.dispose(); this.stations = null; this.hero?.a.dispose();
     this.clearNpcs();
@@ -2869,12 +2873,18 @@ export class ActShow {
     // the landing spot under a jump
     this.blob.visible = h.alive || h.y > 0.03; this.blob.position.set(h.pos.x, 0.03, h.pos.z); this.blob.scale.setScalar(0.62 * Math.max(0.6, 1 - h.y * 0.22)); (this.blob.material as THREE.MeshBasicMaterial).opacity = 0.78 - Math.min(0.3, h.y * 0.12);
     // the foes' contact shadows (a pool, one per live foe; the dummies stand on their own stone feet)
+    const softOnly = OPT.bakedShadows && QUALITY.tier === 'low';
+    if (softOnly && this.stage && !this.propContacts) this.propContacts = new ContactBatch(this.stage.root);
+    this.propContacts?.begin();
+    if (softOnly && this.propContacts) { debrisContacts(this.propContacts); this.props?.contacts(this.propContacts); this.pieces?.contacts(this.propContacts); }
     let si = 0;
     for (const f of this.foes) {
       if (f.st === 'dead' || f.kind === 'dummy' || f.mem.hidden) continue;
+      if (softOnly && this.propContacts) { this.propContacts.add(f.pos.x, f.pos.z, f.d.r * 1.55); continue; }
       let m = this.shadows[si]; if (!m) { m = contactShadow(); scene.add(m); this.shadows.push(m); }
       m.visible = true; m.position.set(f.pos.x, 0.03, f.pos.z); m.scale.setScalar(f.d.r * 1.55); si++;
     }
+    this.propContacts?.end();
     for (; si < this.shadows.length; si++) this.shadows[si].visible = false;
     // HUD
     const B = this.hud.btns; void B;

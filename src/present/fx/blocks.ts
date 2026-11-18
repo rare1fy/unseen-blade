@@ -1,4 +1,7 @@
-import { instanceMatrix, instanceColor, finishInstances } from "../engine/uploads";
+import { instanceMatrix, instanceColor, finishInstances } from '../engine/uploads';
+import { OPT, CAPS } from '../engine/perfOpts';
+import { effectLimit, QUALITY } from '../look/quality';
+import type { ContactBatch } from '../engine/contactBatch';
 // fx5: voxel FX blocks — the solid pieces of skill effects (铁壁 armour wall, ice shell / ice spikes, meteor rock, thrown knife,
 // stun stars, rune blocks of a magic circle). Two pooled instanced meshes (additive glow + lit solid), so every block on screen costs
 // at most 2 draw calls in total; a block is recycled as soon as its life runs out. Blocks are axis-aligned boxes (art rule: big
@@ -20,16 +23,17 @@ export interface Blk {
   /** grows along y only (spikes, walls rising from the ground) */
   rise: boolean;
   /** the floor height it bounces / rests on (debris-like blocks); null = no floor */
-  floor: number | null;
+  floor: number | null; debris: boolean;
 }
 export interface BlkOpts {
   v?: THREE.Vector3; size?: number | [number, number, number]; col?: THREE.ColorRepresentation; bright?: number; life?: number; delay?: number;
   grow?: number; shrink?: number; grav?: number; drag?: number; spin?: number; glow?: boolean; host?: THREE.Object3D | null; lp?: THREE.Vector3;
-  orbit?: { r: number; w: number; a: number; bob?: number }; hold?: boolean; rise?: boolean; floor?: number | null; rot?: number;
+  orbit?: { r: number; w: number; a: number; bob?: number }; hold?: boolean; rise?: boolean; floor?: number | null; debris?: boolean; rot?: number;
 }
 
 const MAX = 480;
 let glowMesh: THREE.InstancedMesh | null = null, solidMesh: THREE.InstancedMesh | null = null;
+let debrisMesh: THREE.InstancedMesh | null = null;
 const live: Blk[] = [];
 const _m = new THREE.Matrix4(), _p = V3(), _s = V3(), _c = new THREE.Color(), _q = new THREE.Quaternion(), _ax = V3(), _zero = V3();
 
@@ -55,10 +59,10 @@ export function addBlock(p: THREE.Vector3, o: BlkOpts = {}): Blk {
     p: p.clone(), v: (o.v ?? _zero).clone(), size, col: C(o.col ?? 0xffffff), bright: o.bright ?? 1, life: o.life ?? 1, age: 0, delay: o.delay ?? 0,
     grow: o.grow ?? 0.12, shrink: o.shrink ?? 0.25, grav: o.grav ?? 0, drag: o.drag ?? 0, q: new THREE.Quaternion().setFromAxisAngle(V3(0, 1, 0), o.rot ?? 0),
     w: o.spin ? V3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize().multiplyScalar(o.spin) : V3(), glow: o.glow ?? true, dead: false,
-    host: o.host ?? null, lp: (o.lp ?? V3()).clone(), orbit: o.orbit ? { bob: 0, ...o.orbit } : null, hold: !!o.hold, rise: !!o.rise, floor: o.floor === undefined ? null : o.floor,
+    host: o.host ?? null, lp: (o.lp ?? V3()).clone(), orbit: o.orbit ? { bob: 0, ...o.orbit } : null, hold: !!o.hold, rise: !!o.rise, floor: o.floor ?? null, debris: !!o.debris,
   };
   // too many: the oldest goes first
-  if (live.length >= MAX * 2) live.shift();
+  if (live.length >= effectLimit(MAX) * 2) live.shift();
   live.push(b); return b;
 }
 /** a held block starts its fade-out now (life = the fade time) */
@@ -79,7 +83,8 @@ export const blockCount = () => live.length;
 
 function update(dt: number) {
   if (!glowMesh || !solidMesh) return;
-  let ng = 0, ns = 0;
+  const limit = effectLimit(MAX);
+  let ng = 0, ns = 0, nd = 0;
   for (let i = live.length - 1; i >= 0; i--) {
     const b = live[i];
     if (b.delay > 0) { b.delay -= dt; continue; }
@@ -100,10 +105,29 @@ function update(dt: number) {
     if (b.rise) { _s.set(b.size.x * Math.min(1, gin * 3), b.size.y * gk * out, b.size.z * Math.min(1, gin * 3)); _p.y += (_s.y - b.size.y) / 2; }
     else _s.copy(b.size).multiplyScalar(Math.max(0.001, gk * (b.glow ? Math.sqrt(out) : out)));
     _m.compose(_p, b.q, _s);
-    if (b.glow) { if (ng >= MAX) continue; _c.copy(b.col).multiplyScalar(b.bright * out); instanceMatrix(glowMesh, ng, _m); instanceColor(glowMesh, ng, _c); ng++; }
-    else { if (ns >= MAX) continue; _c.copy(b.col).multiplyScalar(b.bright); instanceMatrix(solidMesh, ns, _m); instanceColor(solidMesh, ns, _c); ns++; }
+    if (b.glow) { if (ng >= limit) continue; _c.copy(b.col).multiplyScalar(b.bright * out); instanceMatrix(glowMesh, ng, _m); instanceColor(glowMesh, ng, _c); ng++; }
+    else if (b.debris && OPT.bakedShadows && QUALITY.tier === 'mid' && CAPS.instancing) {
+      // Only chips of broken scenery enter the shadow map. A spell sharing the solid material remains an effect.
+      if (nd >= limit) continue;
+      if (!debrisMesh) {
+        debrisMesh = new THREE.InstancedMesh(solidMesh.geometry, solidMesh.material, MAX);
+        debrisMesh.frustumCulled = false; debrisMesh.castShadow = true;
+        debrisMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage); scene.add(debrisMesh);
+      }
+      _c.copy(b.col).multiplyScalar(b.bright); instanceMatrix(debrisMesh, nd, _m); instanceColor(debrisMesh, nd++, _c);
+    } else { if (ns >= limit) continue; _c.copy(b.col).multiplyScalar(b.bright); instanceMatrix(solidMesh, ns, _m); instanceColor(solidMesh, ns, _c); ns++; }
   }
   glowMesh.count = ng; solidMesh.count = ns; glowMesh.visible = ng > 0; solidMesh.visible = ns > 0;
+  if (debrisMesh) { debrisMesh.count = nd; debrisMesh.visible = nd > 0; finishInstances(debrisMesh); }
   finishInstances(glowMesh);
   finishInstances(solidMesh);
+}
+
+/** Ground contact follows each fragment and expires with the physical block. */
+export function debrisContacts(batch: ContactBatch) {
+  if (!CAPS.instancing) return;
+  for (const b of live) if (b.debris && !b.dead && b.delay <= 0) {
+    const radius = Math.max(b.size.x, b.size.z) * Math.min(1, (b.life - b.age) / Math.max(0.001, b.shrink));
+    batch.add(b.p.x, b.p.z, radius, radius, (b.floor ?? 0) + 0.005);
+  }
 }

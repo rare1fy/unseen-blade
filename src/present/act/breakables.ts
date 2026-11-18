@@ -1,4 +1,5 @@
 import { batchActor } from '../engine/rigidBatch';
+import type { ContactBatch } from '../engine/contactBatch';
 import { OPT } from '../engine/perfOpts';
 // 可破坏物件的表现（act-19，用户：「希望场景中有各种可破坏的场景物件，也可以对敌人造成伤害那种」）：
 // 陶罐 / 木箱 / 草垛 / 火油坛 / 立柱的体素模型、挨打晃一下、碎裂飞碎块、火油坛引线冒火星 → 爆炸、地上烧一片火、立柱顺刀势倒下。
@@ -79,6 +80,7 @@ interface Vis { p: BProp; g: THREE.Group; tilt: THREE.Group; solid: Solid; wob: 
 interface FireVis { id: number; x: number; z: number; r: number; t: number; disc: THREE.Mesh; emit: number }
 
 export class Breakables {
+  private readonly fallAxis = new THREE.Vector3();
   logic = new BreakLogic(); root = new THREE.Group(); private vis = new Map<number, Vis>(); private fires: FireVis[] = [];
   constructor(parent: THREE.Object3D, private solids: Solids) { parent.add(this.root); }
   /** the room's props (from asm/arena.ts arenaPlan) */
@@ -102,6 +104,17 @@ export class Breakables {
       this.vis.set(p.id, { p, g, tilt, solid, wob: { x: 0, z: 0, vx: 0, vz: 0 }, fall: -1, fuseT: 0, cover: cv });
     }
     this.root.userData.propBatch = true; batchActor(this.root);
+  }
+  contacts(batch: ContactBatch) {
+    for (const v of this.vis.values()) {
+      if (!v.g.parent || !v.g.visible) continue;
+      const s = v.solid, x = v.g.position.x, z = v.g.position.z;
+      if (v.fall >= 0 && v.p.fallDir) {
+        const reach = Math.sqrt(Math.max(0, 1 - v.tilt.quaternion.w ** 2)) * 2 * v.tilt.quaternion.w * BTUNE.toppleLen / 2;
+        batch.add(x + v.p.fallDir[0] * reach, z + v.p.fallDir[1] * reach,
+          s.r + Math.abs(v.p.fallDir[0] * reach), s.r + Math.abs(v.p.fallDir[1] * reach));
+      } else batch.add(x, z, (s.hx || s.r) * 1.15, (s.hz || s.r) * 1.15);
+    }
   }
   clear() {
     for (const v of this.vis.values()) this.root.remove(v.g); this.vis.clear();
@@ -161,7 +174,7 @@ export class Breakables {
       if (v.fall >= 0 && v.p.fallDir) {
         v.fall += dt; const k = Math.min(1, v.fall / 0.55), a = (Math.PI / 2) * (k * k) - (k >= 1 ? Math.sin(Math.min(1, (v.fall - 0.55) / 0.2) * Math.PI) * 0.06 : 0);
         v.tilt.rotation.set(0, 0, 0); v.g.rotation.set(0, 0, 0);
-        const ax = new THREE.Vector3(v.p.fallDir[1], 0, -v.p.fallDir[0]); v.tilt.quaternion.setFromAxisAngle(ax, a);
+        this.fallAxis.set(v.p.fallDir[1], 0, -v.p.fallDir[0]); v.tilt.quaternion.setFromAxisAngle(this.fallAxis, a);
         if (v.fall >= 0.55 && v.fall - dt < 0.55) {
           const [dx, dz] = v.p.fallDir; for (let s = 0.6; s <= BTUNE.toppleLen; s += 0.7) fxSmoke(V3(v.p.x + dx * s, 0.2, v.p.z + dz * s), 0x8a7a6a, 2, { r: 0.4, spd: 1.6, up: 0.4, s: 0.4, life: 0.7 });
           shake(v.drop != null ? 0.08 : 0.28); cue(v.drop != null ? 'land' : 'wallSlam', v.drop != null ? 0.5 : 1.0);
@@ -188,7 +201,7 @@ export class Breakables {
         this.root.remove(v.g); const g = new THREE.Group(), t = new THREE.Group(); t.add(coverModel(v.cover.kind, v.cover.rot, true)); g.add(t); g.position.copy(v.g.position); this.root.add(g); v.g = g; v.tilt = t;
         v.solid.hx *= BTUNE.rubbleK; v.solid.hz *= BTUNE.rubbleK; v.solid.r *= BTUNE.rubbleK;
         const at = V3(e.p.x, 0.6, e.p.z);
-        for (let i = 0; i < 16; i++) { const a = Math.random() * Math.PI * 2, sp = 2 + Math.random() * 3; addBlock(at.clone().add(V3(Math.cos(a) * 0.3, Math.random() * 0.6, Math.sin(a) * 0.3)), { size: 0.08 + Math.random() * 0.1, v: V3(Math.cos(a) * sp + e.dir[0] * 2, 2 + Math.random() * 3.5, Math.sin(a) * sp + e.dir[1] * 2), col: SHARDS.cover[i % 3], glow: false, grav: 14, floor: 0.03, spin: 6, life: 1.8, shrink: 0.5 }); }
+        for (let i = 0; i < 16; i++) { const a = Math.random() * Math.PI * 2, sp = 2 + Math.random() * 3; addBlock(at.clone().add(V3(Math.cos(a) * 0.3, Math.random() * 0.6, Math.sin(a) * 0.3)), { size: 0.08 + Math.random() * 0.1, v: V3(Math.cos(a) * sp + e.dir[0] * 2, 2 + Math.random() * 3.5, Math.sin(a) * sp + e.dir[1] * 2), col: SHARDS.cover[i % 3], glow: false, debris: true, grav: 14, floor: 0.03, spin: 6, life: 1.8, shrink: 0.5 }); }
         fxSmoke(at, 0x8a7a6a, 10, { r: 0.8, spd: 1.8, up: 0.8, s: 0.5, life: 0.9, alpha: 0.5 }); shake(0.3); cue('pillarFall', 0.7); cue('wallSlam', 0.8);
       }
       else if (e.k === 'break' && (e.p.kind === 'banner' || e.p.kind === 'lamp' || e.p.kind === 'fence' || e.p.kind === 'rack')) {
@@ -199,7 +212,7 @@ export class Breakables {
       else if (e.k === 'break') {
         const v = this.vis.get(e.p.id); if (v) { this.root.remove(v.g); v.solid.on = false; }
         const at = V3(e.p.x, 0.4, e.p.z), cols = SHARDS[e.p.kind];
-        for (let i = 0; i < (e.p.kind === 'hay' ? 6 : 10); i++) { const a = Math.random() * Math.PI * 2, s = 1.5 + Math.random() * 2.5; addBlock(at.clone().add(V3(Math.cos(a) * 0.15, Math.random() * 0.4, Math.sin(a) * 0.15)), { size: 0.06 + Math.random() * 0.07, v: V3(Math.cos(a) * s + e.dir[0] * 2, 2 + Math.random() * 3, Math.sin(a) * s + e.dir[1] * 2), col: cols[i % cols.length], glow: false, grav: 14, floor: 0.03, spin: 8, life: 1.4 + Math.random() * 0.6, shrink: 0.4 }); }
+        for (let i = 0; i < (e.p.kind === 'hay' ? 6 : 10); i++) { const a = Math.random() * Math.PI * 2, s = 1.5 + Math.random() * 2.5; addBlock(at.clone().add(V3(Math.cos(a) * 0.15, Math.random() * 0.4, Math.sin(a) * 0.15)), { size: 0.06 + Math.random() * 0.07, v: V3(Math.cos(a) * s + e.dir[0] * 2, 2 + Math.random() * 3, Math.sin(a) * s + e.dir[1] * 2), col: cols[i % cols.length], glow: false, debris: true, grav: 14, floor: 0.03, spin: 8, life: 1.4 + Math.random() * 0.6, shrink: 0.4 }); }
         if (e.p.kind === 'hay') { fxSmoke(at, 0xd8c890, 6, { r: 0.5, spd: 1.4, up: 0.8, s: 0.35, life: 0.8, alpha: 0.4 }); fxChips(at, cols, 12, { speed: 3, up: 3, size: 0.05 }); }
         else fxSmoke(at, 0x7a6a5a, 3, { r: 0.3, spd: 1.2, up: 0.5, s: 0.3, life: 0.5 });
         cue(e.p.kind === 'pot' ? 'potBreak' : e.p.kind === 'crate' ? 'crateBreak' : 'hayBurst', 0.8);

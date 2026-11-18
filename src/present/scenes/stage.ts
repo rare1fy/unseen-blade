@@ -1,3 +1,4 @@
+import { bakeTerrainLight, stageLighting, type TerrainLight } from './terrainLight';
 import { readStagePack, unpackStage } from './packedStage';
 import { bladeWorking } from './loadingBlade';
 import { finishBuild } from '../engine/buildSteps';
@@ -198,9 +199,10 @@ export function* prepareStageSteps(def: SceneDef, options: { combat?: boolean; p
   if (__WX__ && def.pack && !options.procedural && STAGE_OPTS.chunk === 0 && bladeWorking()) {
     yield readStagePack(def.pack).then(data => { packed = data; });
   }
+  let field: TerrainLight | null = null;
   if (packed) {
     try {
-      yield* unpackStage(packed, ctx, root, cutRoot, def.report);
+      field = yield* unpackStage(packed, ctx, root, cutRoot, def.report);
     } catch (error) {
       console.warn('[stage] invalid scenery pack', def.pack, error);
       root.traverse(object => (object as THREE.Mesh).geometry?.dispose());
@@ -243,9 +245,11 @@ export function* prepareStageSteps(def: SceneDef, options: { combat?: boolean; p
       }
     }
   };
-  syncStatic();
+  const surfaces = root.children.filter(o => o.userData.stageTerrain) as THREE.Mesh[];
+  const lighting = stageLighting(surfaces, earth, field ?? bakeTerrainLight(surfaces, md.moonPos));
+  lighting.sync(); syncStatic();
   let used = false;
-  const freeAll = () => { fixed.length = check.length = 0; root.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh) m.geometry.dispose(); }); };
+  const freeAll = () => { lighting.dispose(); fixed.length = check.length = 0; root.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh) m.geometry.dispose(); }); };
   return {
     def, root,
     drop() { if (used) return; used = true; freeAll(); },
@@ -261,7 +265,7 @@ export function* prepareStageSteps(def: SceneDef, options: { combat?: boolean; p
       applyMood(md);
       for (const l of lights) scene.add(l);
       const unsubscribe = onUpdate((dt, rdt) => {
-        syncStatic(); const t = clock.rtime;
+        lighting.sync(); syncStatic(); const t = clock.rtime;
         ambientTick(amb, rdt);
         cutRoot.visible = CUT.mode === 'show' || (CUT.mode === 'auto' && (camera.position.y < eaves || camera.position.distanceTo(CUT.focus) > CUT.far));
         for (const f of flames) {
