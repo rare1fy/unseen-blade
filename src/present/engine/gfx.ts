@@ -2,7 +2,7 @@ import { bladeWorking, drawLoadingBlade, setLoadingWarmup } from '../scenes/load
 // Renderer + frame loop: real dt (capped) → game clock (hitstop / slowmo / speed) → updaters → dice → particles / prims →
 // camera rig (base + offset + trauma shake) → 3D render → UI render (pxui shares the WebGL context).
 import * as THREE from 'three';
-import { scene, camera, view, runUpdaters, runLateUpdaters, runRealUpdaters, V3, GL, padLights } from './world';
+import { scene, camera, view, runUpdaters, runLateUpdaters, runRealUpdaters, V3, GL, padLights, restoreLights, lightFocus } from './world';
 import { tick, FX, clock, PAUSE } from './clock';
 import { updateParticles } from './particles';
 import { updatePrims } from './prims';
@@ -18,7 +18,7 @@ import { CAPS } from './perfOpts';
 import { tierNow, onQualityChange, qualityFrame, QUALITY } from '../look/quality';
 
 /** The camera rig: directors write base / look / fov / roll / shift; the loop adds shake and renders. */
-export const CAM = { base: V3(0, 12, 12), look: V3(0, 0, 0), fov: 30, off: V3(), shift: 0, shakeAmt: 0.22,
+export const CAM = { base: V3(0, 12, 12), look: lightFocus, fov: 30, off: V3(), shift: 0, shakeAmt: 0.22,
   /** 11-18 打击感: a push of the whole view (position and aim together, m) and a push-in (share of the distance to the aim) — set every
    *  frame by the game's springs, applied after the director's blend so they are not smoothed away */
   kick: V3(), zoom: 0 };
@@ -54,7 +54,7 @@ export function createGfx(platform: Platform, canvas: any, o: { preserve?: boole
       try {
         renderer.setRenderTarget(post.rt);
         ready = renderer.compileAsync(scene, camera);
-      } finally { renderer.setRenderTarget(previous); }
+      } finally { renderer.setRenderTarget(previous); restoreLights(); }
       await ready;
     });
   }
@@ -103,7 +103,7 @@ export function createGfx(platform: Platform, canvas: any, o: { preserve?: boole
         camera.updateProjectionMatrix(); camera.updateMatrixWorld(true);
         const t1 = platform.now();
         timer.begin(gpuMeasuring()); renderer.info.reset(); padLights(); syncBatches(); shadowTier(renderer, scene);
-        post.render(scene, camera, clock.rtime);
+        try { post.render(scene, camera, clock.rtime); } finally { restoreLights(); }
         const beforeText = renderer.info.render.calls;
         gpuMark('text'); afterRender();
         const uiCalls = post.ui.calls + renderer.info.render.calls - beforeText;
