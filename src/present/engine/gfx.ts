@@ -12,7 +12,7 @@ import { Post } from '../look/post';
 import { PX, onPixelChange } from '../look/pixel';
 import { frameTimer } from './frameMeter';
 import { gpuMeasuring, gpuTimeInit, gpuMark, gpuFrameEnd, gpuCount } from './gpuTime';
-import { installShadowTiles } from './shadowTiles';
+import { updateStageTiles, installShadowTiles } from './shadowTiles';
 import { syncBatches } from './rigidBatch';
 import { CAPS } from './perfOpts';
 import { tierNow, onQualityChange, qualityFrame, QUALITY } from '../look/quality';
@@ -102,7 +102,7 @@ export function createGfx(platform: Platform, canvas: any, o: { preserve?: boole
         if (CAM.shift) camera.setViewOffset(view.w, view.h, 0, CAM.shift, view.w, view.h); else camera.clearViewOffset();
         camera.updateProjectionMatrix(); camera.updateMatrixWorld(true);
         const t1 = platform.now();
-        timer.begin(gpuMeasuring()); renderer.info.reset(); padLights(); syncBatches(); shadowTier(renderer, scene);
+        timer.begin(gpuMeasuring()); renderer.info.reset(); updateStageTiles(camera); padLights(); syncBatches(); shadowTier(renderer, scene);
         try { post.render(scene, camera, clock.rtime); } finally { restoreLights(); }
         const beforeText = renderer.info.render.calls;
         gpuMark('text'); afterRender();
