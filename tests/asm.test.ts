@@ -6,7 +6,9 @@ import { assemble, stageLayout, mirrorLayout } from '../src/present/asm/assemble
 import { REGISTRY, LOCALES, addLocales } from '../src/present/asm/registry';
 import { NINJA_LOCALES } from '../src/present/asm/ninja';
 import { HANMO_LOCALES } from '../src/present/asm/hanmo';
-addLocales(NINJA_LOCALES); addLocales(HANMO_LOCALES);
+import { WULIN_LOCALES } from '../src/present/asm/wulin';   // wp/regB: 第四关 · 锁江
+import { CUI_LOCALES } from '../src/present/asm/cui';       // wp/regB: 第五关 · 许都雪
+addLocales(NINJA_LOCALES); addLocales(HANMO_LOCALES); addLocales(WULIN_LOCALES); addLocales(CUI_LOCALES);
 import { pickSpec, sameness } from '../src/present/asm/pick';
 import { setStage } from '../src/present/scenes/props';
 import { makeShape, SHAPE_K, type PitKind } from '../src/present/asm/roomShape';
