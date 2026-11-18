@@ -1,6 +1,6 @@
 // Native game services that the HTML entry normally supplies.
 // (11-18: the WeChat devtools run the game beside a real, read-only HTMLDocument / Window — 「Cannot assign to read only property
-// 'createElementNS' of object '#<HTMLDocument>'」 — while a phone has only the adapter's stand-in document. Only the stand-in is
+// 'createElementNS' of object '#<HTMLDocument>'」, then 「Illegal invocation」 — while a phone has only the adapter's stand-in document. Only the stand-in is
 // patched, and a global the runtime refuses to take is left alone: every name below is also a variable of this file, which is what the
 // bundle after it uses.)
 var document = GameGlobal.document;
@@ -54,7 +54,7 @@ function fetch(file) {
 
 var createElement = document.createElement;
 function makeElement(name) {
-  if (String(name).toLowerCase() !== 'img') return createElement(name);
+  if (String(name).toLowerCase() !== 'img') return createElement.call(document, name);
   var image = wx.createImage();
   if (typeof image.addEventListener !== 'function') {
     image.addEventListener = function (event, fn) { image['on' + event] = fn; };
@@ -64,7 +64,10 @@ function makeElement(name) {
   }
   return image;
 }
-if (!(typeof HTMLDocument !== 'undefined' && document instanceof HTMLDocument)) {
+// A real Document (nodeType 9) belongs to the devtools page and is never touched — whatever realm it comes from: in the devtools
+// `HTMLDocument` isn't visible to the game, so act-56's `instanceof HTMLDocument` test let the patch through, createElement (writable
+// there) was replaced, and called bare it threw 「Illegal invocation」 (act-57). Only the adapter's stand-in (a plain object) is patched.
+if (!(document && document.nodeType === 9)) {
   try { document.createElement = makeElement; document.createElementNS = function (_ns, name) { return makeElement(name); }; } catch (e) { /* a frozen document */ }
 }
 
