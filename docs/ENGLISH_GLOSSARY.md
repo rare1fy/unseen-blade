@@ -126,6 +126,8 @@
 | 符水道士 | Talisman Priest |
 | 流民 | Refugee |
 | 黄巾弓手 | Yellow Turban Archer |
+| 黄巾镰手 | Yellow Turban Reaper |
+| 黄巾掷罐手 | Yellow Turban Jar-Thrower |
 | 猎犬 | Hound |
 | 黄巾渠帅 | Yellow Turban Commander |
 | 执矛水卒 | Deck Spear |
