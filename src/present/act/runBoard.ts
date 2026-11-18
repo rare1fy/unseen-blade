@@ -1,10 +1,11 @@
+import { language, msg, t as localize } from './i18n';
 // The route board at each road out of a room (act-17): a wooden notice board (高札) on two posts with a little roof; burned into
 // the face: the room type's glyph and its two-character name (agy: 乱兵 / 死士 / 行商 / 歇脚 / 遗卷 / 渠帅), and below what
 // clearing it gives — a boon, copper coins, or healing — plus the place's name.
 import * as THREE from 'three';
 import { toon } from '../look/toon';
-import { icon, text, textW, PIX_H } from '../v2/overlay';
-import { bodyText, onBodyFontChange } from '../ui3d/bodyFont';
+import { icon } from '../v2/overlay';
+import { bodyText, bodyW, onBodyFontChange } from '../ui3d/bodyFont';
 import { roomInfo, type RoomPlan } from './run';
 import { SCROLL_GLYPH } from './manuals';
 
@@ -30,14 +31,19 @@ function face(p: RoomPlan, place: string) {
     g.fillStyle = WOOD_D; g.fillRect(0, 34, W, 2); g.fillRect(0, 70, W, 2); g.fillRect(0, 0, W, 4); g.fillRect(0, H - 4, W, 4); g.fillRect(0, 0, 4, H); g.fillRect(W - 4, 0, 4, H);
     icon(g, GLYPH[p.type], 10, 8, 5, { main: INK, acc: ACC, dark: INK });
     // (act-35: the 16 px 长坂点宋 — the name two board units per font pixel, in the top band)
-    const nk = PIX_H >= 16 ? 2 : 3, k = roomInfo(p.type, p.region ?? 0).name;   // (11-18: each region's own word for its boss room) text(g, k, 66 + (84 - textW(k, nk)) / 2, PIX_H >= 16 ? 3 : 12, nk, INK, 'left', null);
+    if (language === 'en') {
+      const title = localize(roomInfo(p.type, p.region ?? 0).name);
+      bodyText(g, title, 105, 10, Math.min(14, 14 * 100 / Math.max(1, bodyW(title, 14))), INK, 'center');
+    }
     const r = p.reward;
     if (r?.k === 'boon') icon(g, BOON_MARK, 10, 66, 3, { main: INK, acc: ACC, dark: INK });
     else if (r?.k === 'manual') icon(g, SCROLL_GLYPH, 10, 66, 3, { main: INK, acc: ACC, dark: INK });
     else if (r) icon(g, GLYPH[r.k === 'coins' ? 'coins' : 'heal'], 10, 66, 3, { main: INK, acc: ACC, dark: INK });
-    const sub = r?.k === 'boon' ? '秘传' : r?.k === 'coins' ? `铜钱 ${r.n}` : r?.k === 'heal' ? '回血' : r?.k === 'manual' ? '刀谱' : place;
+    const sub = r?.k === 'boon' ? '秘传' : r?.k === 'coins' ? msg`铜钱 ${r.n}` : r?.k === 'heal' ? '回血' : r?.k === 'manual' ? '刀谱' : place;
     g.setTransform(1, 0, 0, 1, 0, 0);
-    bodyText(g, sub.slice(0, 6), 46 * S, 73 * S, 15 * S, INK);
+    const line = language === 'en' ? localize(sub) : sub.slice(0, 6);
+    const px = language === 'en' ? Math.min(15, 15 * 106 * S / Math.max(1, bodyW(line, 15 * S))) : 15;
+    bodyText(g, line, 46 * S, 73 * S, px * S, INK);
   };
   paint();
   const t = new THREE.CanvasTexture(c); t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter; t.colorSpace = THREE.SRGBColorSpace; t.generateMipmaps = false;

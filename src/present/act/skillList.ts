@@ -12,6 +12,7 @@ import { makeCanvas } from '../../platform/index';
 import type { Model3D } from '../ui3d/models3d';
 import type { MiniShield } from './btnBadge';
 import { layoutPresses, paintSeps, pressShields, paintName, paintEffect, paintNum, type SkillEntry, type PressItem } from './skillFace';
+import { language, t } from './i18n';
 import { skillIcon3D } from './skillIcons';
 export type { SkillEntry } from './skillFace';
 
@@ -88,7 +89,7 @@ export class SkillList {
         const p = it.picture = skillIcon3D(it.e.icon);
         p.scale.setScalar(s * 0.94); p.position.set(x, 0, this.zf() + p.size[2] * p.scale.x / 2);
         p.traverse(o => { o.renderOrder = 61; }); it.root.add(p);
-        if (it.e.steps) { const ps = h * 0.3, lp = layoutPresses(it.e.steps, ps, it.e.lit); it.items = lp.items; it.presses = pressShields(lp.items, ps, it.root, this.textX(), 0, this.zf() + ps * 0.07, 63); }
+        if (it.e.steps) { const ps = h * (language === 'en' ? 0.23 : 0.3), lp = layoutPresses(it.e.steps, ps, it.e.lit); it.items = lp.items; it.presses = pressShields(lp.items, ps, it.root, this.textX(), language === 'en' ? h * 0.07 : 0, this.zf() + ps * 0.07, 63); }
       }
     }
   }
@@ -134,7 +135,7 @@ export class SkillList {
     const dpr = this.L.dpr || 1, { h } = this.lay;
     if (!it.e) {
       // a section's title (or the line for an empty one): pixel type on nothing, at the column's left
-      const empty = it.title.startsWith('\u0000'), txt = empty ? it.title.slice(1) : it.title, S = Math.max(1, Math.round(it.h * (empty ? 0.6 : 0.8) * dpr / PIX_H)), key = `${txt}|${S}|${dpr}`;
+      const empty = it.title.startsWith('\u0000'), txt = t(empty ? it.title.slice(1) : it.title), S = Math.max(1, Math.round(it.h * (empty ? 0.6 : 0.8) * dpr / PIX_H)), key = `${txt}|${S}|${dpr}`;
       if (key === it.faceKey) return; it.faceKey = key;
       const W = Math.round(it.w * dpr), H = Math.round(it.h * dpr), c = makeCanvas(W, H), g = c.getContext('2d') as CanvasRenderingContext2D; g.imageSmoothingEnabled = false;
       paintTitle(g, txt, empty ? Math.round(h * 0.2 * dpr) : 0, Math.round((H - PIX_H * S) / 2), S, 1, empty ? '#a89c8a' : '#e0c890', '#0a0708', Math.max(1, Math.round(S * 0.25)));
@@ -146,9 +147,11 @@ export class SkillList {
     const W = Math.max(8, Math.round(fw * dpr)), H = Math.max(8, Math.round(fh * dpr)), c = makeCanvas(W, H), g = c.getContext('2d') as CanvasRenderingContext2D; g.imageSmoothingEnabled = false;
     // three rows as on the card: the name and tier (numbers at the right), the presses (marks between them), the effect
     const e = it.e, S = Math.max(1, Math.round(H * 0.22 / PIX_H)), nameW = paintName(g, e, 0, Math.round(H * 0.05), S, dpr);
-    if (e.num) paintNum(g, e.num, W - Math.round(2 * dpr), Math.round(H * 0.05 + (PIX_H * S - H * 0.13) / 2), Math.round(H * 0.13), W - nameW - 16 * dpr, 'right');
-    paintSeps(g, it.items.map(x => ({ ...x, x: x.x * dpr, ...(x.kind === 'sep' ? { w: x.w * dpr } : {}) }) as PressItem), 0, Math.round(fh / 2 * dpr), h * 0.3 * dpr);
-    paintEffect(g, e.effect, 0, Math.round(H * 0.76), Math.round(H * 0.18), W - 4 * dpr);
+    const english = language === 'en';
+    if (e.num && english) paintNum(g, e.num, 0, Math.round(H * 0.84), Math.round(H * 0.135), W - 4 * dpr);
+    else if (e.num) paintNum(g, e.num, W - Math.round(2 * dpr), Math.round(H * 0.05 + (PIX_H * S - H * 0.13) / 2), Math.round(H * 0.13), W - nameW - 16 * dpr, 'right');
+    paintSeps(g, it.items.map(x => ({ ...x, x: x.x * dpr, ...(x.kind === 'sep' ? { w: x.w * dpr } : {}) }) as PressItem), 0, Math.round((fh / 2 - (english ? h * 0.07 : 0)) * dpr), h * (english ? 0.23 : 0.3) * dpr);
+    paintEffect(g, e.effect, 0, Math.round(H * (english ? 0.68 : 0.76)), Math.round(H * (english ? 0.15 : 0.18)), W - 4 * dpr);
     const m = it.face.material as THREE.MeshBasicMaterial; m.map?.dispose(); m.map = tex(c as HTMLCanvasElement); m.needsUpdate = true;
     it.face.scale.set(fw, fh, 1); it.face.position.set(tx + fw / 2, 0, this.zf());
   }

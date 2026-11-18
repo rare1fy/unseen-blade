@@ -1378,3 +1378,13 @@
 - 手机上没有 `atob`，glue 的后备用的 `wx.base64ToArrayBuffer` 也不存在：内联成 base64 的 .vox（用户在 MagicaVoxel 里改的主角）全读不进来。换成纯 JS 的 base64 解码（和 Node 的结果逐字节对过，含 20 万字节的随机数据）。
 - 诊断：测试阶段的微信包里，第一条错误（抛出的、未处理的 Promise、three 关于着色器 / 渲染器的 console.error）用 `wx.showModal` 弹出来——原生对话框不依赖 WebGL，画面坏了也看得见。
 - 替身页（`wechat/devtools-sim.html`）默认改成微信那样：WebGL2 给、全局类拿走、`atob` 拿走；`?gl1=1` 是只有 WebGL1 的机器。旧包在里面复现了用户开发者工具里那两条扩展警告，新包认对 WebGL2、四个 .vox 都读到、0 报错。
+
+### CrazyGames 英文版（11-18）
+
+用户：「crazygames的版本让codex做了，拉个分支，和主干的中文版本要时刻同步更新，翻译也让它做了。」
+
+- 中文网页、微信和 CrazyGames 都从同一份代码打包。普通构建和微信默认简中，CrazyGames 默认英文。要在普通网页上测试英文可以设 `VITE_LANG=en` 后启动开发服务器或构建。游戏内在「设置 → 语言」切换，保存在设备上，当场刷新文字。
+- 新文案先写中文。照 [英文译名表](ENGLISH_GLOSSARY.md) 在 [en.json](../src/present/act/en.json) 加一条「原文 → 英文」。变量用 `msg` 模板或 `format`，先翻译占位串，再填数值。对白继续从 `scriptData.json` 或 `hideoutLines.ts` 取中文原句给配音查找，字幕显示译文。技能依旧分别写按法、效果和数值。
+- `npx vitest run tests/i18n.test.ts` 会列出缺译的中文 key 和位置，同时检查占位符与像素字库。两套字体工具都读英文表。现有长坂点宋像素字和三套正文子集已覆盖本版使用的拉丁字母及标点。
+- 从主干运行 `npm run cg -- --tag act-NN`，得到桌面上的 `不见刀_CrazyGames_act-NN.zip`。用 `--out <目录>` 改输出位置。上传时选 HTML5，ZIP 根目录是 `index.html`，配音、字体、模型和游戏代码随包提供。
+- CrazyGames HTML 加 SDK v3 脚本。浏览器初始化后报加载开始，首帧报加载结束。开打与恢复战斗报 gameplayStart，暂停、对话、演出、选卡、清场或回据点报 gameplayStop。局外进度用 SDK Data Module，SDK 或存档模块不可用时用本机存档。提交平台时选 SDK Data Module 存档。本版无广告，调参面板和网址里的调试入口对玩家隐藏。

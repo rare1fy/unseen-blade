@@ -11,6 +11,7 @@ import { Mask, pillow, box } from '../ui3d/models3dArt';
 import { drawPix, pixW, PIX_H } from '../v2/pix';
 import { icon } from '../v2/overlay';
 import { bodyText, bodyW } from '../ui3d/bodyFont';
+import { t } from './i18n';
 import { makeCanvas } from '../../platform/index';
 
 export type CardStyle = 'boon' | 'manual' | 'forge' | 'medic' | 'meal';
@@ -131,6 +132,7 @@ const NUM = /^([+\-−]?[0-9]+(?:\.[0-9]+)?(?:%|秒|点|枚|倍|层)?|[一二三
 /** one line in the body font: the key words lit behind their icons, the numbers white; returns its width (draw = false only measures);
  *  keys = false: no key words (the small numbers line stays plain) */
 export function richLine(g: CanvasRenderingContext2D | null, line: string, x: number, y: number, px: number, base: string, numCol = '#ffffff', keys = true) {
+  line = t(line);
   let i = 0, cx = x, plain = '';
   const flush = () => { if (!plain) return; if (g) bodyText(g, plain, cx, y, px, base, 'left'); cx += bodyW(plain, px); plain = ''; };
   while (i < line.length) {

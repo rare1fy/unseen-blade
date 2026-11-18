@@ -6,6 +6,7 @@ import FONT_DATA from '../../../ui/font.js';
 import { scene } from '../engine/world';
 import { anim, ease, lerp } from '../engine/clock';
 import { canvasOf } from '../hud/paint';
+import { t, language, wrapWords } from '../act/i18n';
 
 interface FontData { size: number; chars: string; adv: string; bits: string; advOff?: number }
 interface Glyph { adv: number; rows: Uint8Array }
@@ -50,11 +51,12 @@ function glyph(cp: number): Glyph {
 }
 
 /** width of a line in font pixels */
-export function pixW(text: string) { let w = 0; for (const ch of text) w += glyph(ch.codePointAt(0)!).adv; return w; }
+export function pixW(text: string) { let w = 0; for (const ch of t(text)) w += glyph(ch.codePointAt(0)!).adv; return w; }
 export const PIX_H = SIZE;
 
 /** wrap text into lines no wider than maxW font pixels (CJK breaks anywhere, \n forces a break) */
 export function pixWrap(text: string, maxW: number): string[] {
+  if (language === 'en') return t(text).split('\n').flatMap(line => wrapWords(line, maxW, pixW));
   const out: string[] = [];
   for (const para of text.split('\n')) {
     let line = '', w = 0;
@@ -67,6 +69,7 @@ export function pixWrap(text: string, maxW: number): string[] {
 export interface PixStyle { scale: number; color: string; outline?: string | null; align?: 'left' | 'center' | 'right' }
 /** draw one line at (x, y) = top-left (or centre / right per align) in device px */
 export function drawPix(g: CanvasRenderingContext2D, text: string, x: number, y: number, st: PixStyle) {
+  text = t(text);
   const s = Math.max(1, Math.round(st.scale)), w = pixW(text) * s;
   let cx = st.align === 'center' ? x - w / 2 : st.align === 'right' ? x - w : x; cx = Math.round(cx); y = Math.round(y);
   const pass = (col: string, dx: number, dy: number) => {

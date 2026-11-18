@@ -10,6 +10,8 @@ import { PIX_H } from '../v2/pix';
 import { fxChips, fxSparks, fxSmoke } from '../fx/fx';
 import { shake } from '../engine/clock';
 import { cue } from '../../audio/cues';
+import { makeCanvas } from '../../platform/index';
+import { language, onLanguageChange, t } from './i18n';
 
 export const STELE_NAMES = ['石雷', '阎虎', '封寒', '周默'] as const;
 const STONE = 0x7a756d, STONE_L = 0x928c82, STONE_D = 0x5a554e, BASE = 0x524e48, BASE_L = 0x66615a;
@@ -44,7 +46,15 @@ function paint(c: HTMLCanvasElement, struck: number) {
   const g = c.getContext('2d')!; g.clearRect(0, 0, c.width, c.height); g.imageSmoothingEnabled = false;
   STELE_NAMES.forEach((name, i) => {
     const x = COL_X(i);
-    [...name].forEach((ch, r) => {
+    if (language === 'en') {
+      g.save();
+      // Roman lettering follows the original vertical grooves so the slash still lands on its name.
+      g.translate(x + CH - 4, ROW_Y(0) + 32);
+      g.rotate(Math.PI / 2);
+      text(g, t(name), 1, 1, 1, '#bcb6aa', 'center', null);
+      text(g, t(name), 0, 0, 1, '#3c3833', 'center', null);
+      g.restore();
+    } else [...name].forEach((ch, r) => {
       // intaglio: the lit lower-right wall of the groove, then the groove itself
       text(g, ch, x + 1, ROW_Y(r) + 1, S, '#bcb6aa', 'left', null);
       text(g, ch, x, ROW_Y(r), S, '#3c3833', 'left', null);
@@ -62,10 +72,12 @@ function paint(c: HTMLCanvasElement, struck: number) {
 
 export class Stele {
   readonly g = new THREE.Group();
-  private canvas = document.createElement('canvas'); private tex: THREE.CanvasTexture; private face: THREE.Mesh; private struck: number;
+  private canvas = makeCanvas(CW, CHH) as HTMLCanvasElement; private tex: THREE.CanvasTexture; private face: THREE.Mesh; private struck: number;
+  private unlisten: () => void;
   constructor(struck = 0) {
     this.struck = struck; this.canvas.width = CW; this.canvas.height = CHH; paint(this.canvas, struck);
     this.tex = new THREE.CanvasTexture(this.canvas); this.tex.magFilter = this.tex.minFilter = THREE.NearestFilter; this.tex.generateMipmaps = false; this.tex.colorSpace = THREE.SRGBColorSpace;
+    this.unlisten = onLanguageChange(() => { paint(this.canvas, this.struck); this.tex.needsUpdate = true; });
     const mat = new THREE.MeshLambertMaterial({ map: this.tex, transparent: true, alphaTest: 0.5, polygonOffset: true, polygonOffsetFactor: -2 });
     this.face = new THREE.Mesh(new THREE.PlaneGeometry(FACE_W * 0.94, FACE_W * 0.94 * CHH / CW), mat);
     this.face.position.set(FACE_X, FACE_Y0 + FACE_H / 2, FACE_Z); this.face.receiveShadow = true;
@@ -86,5 +98,5 @@ export class Stele {
     fxSmoke(p, 0x9a958c, 5, { r: 0.25, spd: 0.6, up: 0.4, life: 0.8 });
     cue('cutHeavy', 1); cue('wallSlam', 0.5); shake(0.25);
   }
-  dispose() { this.g.parent?.remove(this.g); this.tex.dispose(); (this.face.material as THREE.Material).dispose(); this.face.geometry.dispose(); }
+  dispose() { this.unlisten(); this.g.parent?.remove(this.g); this.tex.dispose(); (this.face.material as THREE.Material).dispose(); this.face.geometry.dispose(); }
 }

@@ -1,3 +1,4 @@
+import { language, msg } from './i18n';
 // 练武场（木桩关，11-16 用户：「你随后做一个木桩关，让我来调整这些手感」）。打开游戏先到这里：
 //   中间三个木人桩：挨打会晃、出伤害数字、打不死（enemy.ts 的 dummy）。
 //   右边一列召唤石板：踩上去，场子后面冒烟叫出一个陪练（山贼 / 山犬 / 弓手 / 头目），是真的敌人。
@@ -14,7 +15,7 @@ import { POSE_HOOKS } from '../bestiary/poseHooks';
 import { rot } from '../actors/rig';
 import { BattleActor } from '../bestiary/battle';
 import { text, textW, PIX_H } from '../v2/overlay';
-import { bodyText, onBodyFontChange } from '../ui3d/bodyFont';
+import { bodyText, bodyW, onBodyFontChange } from '../ui3d/bodyFont';
 import { toon } from '../look/toon';
 import { fxSmoke, fxRing } from '../fx/fx';
 import { cue } from '../../audio/cues';
@@ -45,17 +46,22 @@ POSE_HOOKS[DUMMY.id] = (b, _t, _a, _off, self) => { const w = WOBBLE.get(self as
 
 // ------------------------------------------------------------------ signs
 /** a wooden sign: a post and a thick board, the face painted with big pixel characters, leaning back a little toward the camera */
-export function makeSign(label: string, o: { w?: number; h?: number; board?: number; ink?: string; post?: number; sub?: string } = {}) {
+export function makeSign(label: string, o: { w?: number; h?: number; board?: number; ink?: string; post?: number; sub?: string; price?: number } = {}) {
   const g = new THREE.Group(), w = o.w ?? 1.1, h = o.h ?? 0.5, post = o.post ?? 0.75;
-  const U = 4, titleScale = o.sub ? U : 2 * U;
-  const cw = Math.max(textW(label, titleScale) + 16 * U, (o.sub?.length ?? 0) * 15 * U + 16 * U, o.sub ? Math.ceil(128 * w / h) : 0);
+  const subText = () => o.price ? msg`${o.price} 钱` : o.sub;
+  const U = 4, initialSub = subText(), titleScale = initialSub ? U : 2 * U;
+  const cw = Math.max(textW(label, titleScale) + 16 * U, (initialSub?.length ?? 0) * 15 * U + 16 * U, initialSub ? Math.ceil(128 * w / h) : 0);
   const ch = Math.round(cw * h / w);
   const c = document.createElement('canvas'); c.width = cw; c.height = ch; const x = c.getContext('2d')!; x.imageSmoothingEnabled = false;
   const repaint = () => {
     x.fillStyle = '#c4986a'; x.fillRect(0, 0, cw, ch); x.fillStyle = '#9a6e44'; x.fillRect(0, 0, cw, 2 * U); x.fillRect(0, ch - 2 * U, cw, 2 * U);
-    const ty = o.sub ? 2 * U : (ch - PIX_H * titleScale) / 2;
-    text(x, label, (cw - textW(label, titleScale)) / 2, ty, titleScale, o.ink ?? '#2a160c', 'left', null);
-    if (o.sub) bodyText(x, o.sub, cw / 2, ch - 17 * U, 14 * U, '#4a2a16', 'center');
+    const ls = language === 'en' ? Math.max(1, Math.min(titleScale, Math.floor((cw - 8 * U) / textW(label, 1)))) : titleScale;
+    const sub = subText(), ty = sub ? 2 * U : (ch - PIX_H * ls) / 2;
+    text(x, label, (cw - textW(label, ls)) / 2, ty, ls, o.ink ?? '#2a160c', 'left', null);
+    if (sub) {
+      const f = language === 'en' ? Math.min(14 * U, 14 * U * (cw - 8 * U) / Math.max(1, bodyW(sub, 14 * U))) : 14 * U;
+      bodyText(x, sub, cw / 2, ch - 17 * U, f, '#4a2a16', 'center');
+    }
   };
   repaint();
   const t = new THREE.CanvasTexture(c); t.magFilter = t.minFilter = THREE.NearestFilter; t.generateMipmaps = false; t.colorSpace = THREE.SRGBColorSpace;

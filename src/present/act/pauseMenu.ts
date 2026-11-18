@@ -1,3 +1,4 @@
+import { language, msg, t } from './i18n';
 // 暂停菜单（用户 11-17 选「一次做成铁器菜单」；设计见 docs/DESIGN.md「手柄、改键、暂停菜单」）：
 //   和开始画面同一套铁框漆面牌匾（铜端帽、铆钉），一块块从左边滑进来，选中的往前凸、发暖光，一把环首刀柄指着；不压暗画面。
 //   第一页（「暂歇」，文字 agy 定）：继续 / 键位 / 设置 / 回据点（出门打的时候才有，要再确认一次，这一趟算战死）。
@@ -18,7 +19,7 @@ import type { BtnName } from './input';
 import { SkillList, type Section } from './skillList';
 import { UI_WORDS } from './skillInfo';
 
-export interface MenuSetting { label: () => string; run: () => void }
+export interface MenuSetting { id?: string; label: () => string; run: () => void }
 export interface PauseHost {
   L: UiLayer;
   /** the player's settings (a label naming the current value; run = the next value) */
@@ -58,7 +59,7 @@ function faceTex(w: number, h: number, draw: (g: CanvasRenderingContext2D) => vo
   const t = new THREE.CanvasTexture(c); t.magFilter = THREE.NearestFilter; t.minFilter = THREE.LinearFilter; t.generateMipmaps = false; t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
-const textW = (s: string, S: number) => (pixW(s) + Math.max(0, [...s].length - 1)) * S;
+const textW = (s: string, S: number) => (pixW(s) + Math.max(0, [...t(s)].length - 1)) * S;
 /** pixel text with its thin outline; align l / c / r about x */
 function text(g: CanvasRenderingContext2D, s: string, x: number, y: number, S: number, col: string, align: 'l' | 'c' | 'r' = 'l') {
   const w = textW(s, S), x0 = align === 'c' ? x - w / 2 : align === 'r' ? x - w : x;
@@ -155,7 +156,7 @@ export class PauseMenu {
     // 已得 / 招式: the list is its own thing (skillList.ts); the column of slabs keeps only 返回
     if (this.page === 'owned' || this.page === 'skills') return [{ id: 'back', label: () => '返回' }];
     if (this.page === 'keys') return [...ACTIONS.map(a => ({ id: 'act', act: a, label: () => ACTION_WORD[a] })), { id: 'reset', label: () => '恢复默认' }, { id: 'back', label: () => '返回' }];
-    if (this.page === 'set') return [...h.settings.map((s, i) => ({ id: `s${i}`, label: s.label, run: s.run })), { id: 'back', label: () => '返回' }];
+    if (this.page === 'set') return [...h.settings.map((s, i) => ({ id: s.id ?? `s${i}`, label: s.label, run: s.run })), { id: 'back', label: () => '返回' }];
     return [{ id: 'yes', label: () => '回据点' }, { id: 'no', label: () => '再想想' }];
   }
   private go(page: Page, first = false) {
@@ -193,7 +194,7 @@ export class PauseMenu {
       case 'yes': this.on = false; this.wait = null; PAUSE.menu = false; PAUSE.on = false; this.list.close(); this.host.closed(); this.host.giveUp(); return;
       case 'reset': resetBinds(); cue('select', 0.6); for (const x of this.slabs) x.flash = 0.6; return;
       case 'act': { const p = activePad(); this.wait = { i: this.sel, t: 5, prev: p ? p.buttons.map(b => !!b.pressed) : [] }; cue('select', 0.4); return; }
-      default: if (r.run) { r.run(); cue('click', 0.5); }
+      default: if (r.run) { r.run(); if (r.id !== 'language') cue('click', 0.5); }
     }
   }
   private moveSel(d: number) { if (this.inList) { this.list.move(d); cue('tick', 0.3); return; } const n = this.rows.length; if (!n) return; this.sel = (this.sel + d + n) % n; cue('tick', 0.3); }
@@ -299,7 +300,7 @@ export class PauseMenu {
     const w = wide ? Math.max(280, Math.min(480, W * 0.36)) : Math.max(170, Math.min(290, W * 0.2));
     const headH = Math.max(28, Math.min(56, H * 0.075)), footH = Math.max(18, Math.min(30, H * 0.04));
     const avail = H * 0.86 - headH * 1.4 - footH * 1.6;
-    const h = Math.max(24, Math.min(wide ? 50 : 56, avail / (n * 1.32 - 0.32))), gap = h * 0.32;
+    const h = Math.max(language === 'en' || this.page === 'set' ? 20 : 24, Math.min(wide ? 50 : 56, avail / (n * 1.32 - 0.32))), gap = h * 0.32;
     const total = n * h + (n - 1) * gap, top = this.page === 'owned' || this.page === 'skills' ? headH * 1.5 + H * 0.05 : Math.max(headH * 1.5 + H * 0.05, (H - total) / 2 + headH * 0.4);
     const cx = Math.max(w / 2 + h * 1.6 + 24, W * 0.27);
     const S = Math.max(1, Math.round(h * 0.4 * k / PIX_H)), hS = Math.max(1, Math.round(headH * 0.8 * k / PIX_H));
@@ -308,7 +309,7 @@ export class PauseMenu {
     // the page's name over the column
     const name = { main: '暂歇', keys: '键位', set: '设置', ask: '回据点？', owned: UI_WORDS.owned, skills: UI_WORDS.skills }[this.page], note = this.page === 'ask' ? '视同战死：途中所获尽失，残铁与药引照带回' : this.page === 'keys' ? this.keysNote() : '';
     const nS = Math.max(1, Math.round(hS * 0.45)), hw = Math.max(textW(name, hS), textW(note, nS) + 8) / k + 8, hh = (PIX_H * hS + (note ? PIX_H * nS + 6 * k : 0)) / k + 6;
-    this.head.set(name + note, hw, hh, g => { text(g, name, 4 * k, 3 * k, hS, TXT.sel); if (note) text(g, note, 4 * k, 3 * k + PIX_H * hS + 6 * k, nS, TXT.dim); });
+    this.head.set(language + name + note, hw, hh, g => { text(g, name, 4 * k, 3 * k, hS, TXT.sel); if (note) text(g, note, 4 * k, 3 * k + PIX_H * hS + 6 * k, nS, TXT.dim); });
     const ent = Math.min(1, this.pageT / 0.25);
     this.head.place(cx - w / 2 + hw / 2, top - hh / 2 - h * 0.45, ent * ent);
     // the prompts at the foot: the device's own confirm / back
@@ -316,7 +317,7 @@ export class PauseMenu {
     if (parts.length) {
       const gs = fS * 2, gw = (i: number) => glyphArt(i).w * gs;
       const width = parts.reduce((a, p) => a + (p.pad != null ? gw(p.pad) + 4 * k : textW(p.key ?? '', fS) + 6 * k) + textW(p.word, fS) + 14 * k, 0) / k;
-      const fh = Math.max(PIX_H * fS, GLYPH_H * gs) / k + 4, keyStr = parts.map(p => `${p.pad ?? p.key}${p.word}`).join() + PAD.family;
+      const fh = Math.max(PIX_H * fS, GLYPH_H * gs) / k + 4, keyStr = parts.map(p => `${p.pad ?? p.key}${p.word}`).join() + PAD.family + language;
       this.foot.set(keyStr, width, fh, g => {
         let x = 0; const mid = fh * k / 2;
         for (const p of parts) {
@@ -329,7 +330,7 @@ export class PauseMenu {
       this.foot.place(cx - w / 2 + width / 2, Math.min(H - fh, fy), ent);
     } else this.foot.place(0, 0, 0);
   }
-  private keysNote() { return PAD.device === 'pad' ? `选中后按下新键 · ${pauseName()} 取消` : PAD.device === 'key' ? '选中后按下新键 · Esc 取消' : ''; }
+  private keysNote() { return PAD.device === 'pad' ? msg`选中后按下新键 · ${pauseName()} 取消` : PAD.device === 'key' ? '选中后按下新键 · Esc 取消' : ''; }
   private prompts(): Array<{ pad?: number; key?: string; word: string }> {
     const okWord = this.wait ? '' : this.inList ? '返回' : this.page === 'keys' && this.rows[this.sel]?.id === 'act' ? '改键' : this.page === 'set' && this.rows[this.sel]?.run ? '切换' : '确认';
     if (this.wait) return [];
@@ -343,7 +344,7 @@ export class PauseMenu {
     const s = this.slabs[i], r = this.rows[i], sel = i === this.sel, S = this.lay.S, col = sel ? TXT.sel : TXT.on;
     if (r.act) {
       const waiting = this.wait?.i === i, a = r.act, kk = BIND.key[a][0], pb = BIND.pad[a][0], blink = waiting ? Math.floor(this.t * 3) % 2 : 0;
-      s.paint(`${a}|${kk}|${pb}|${PAD.family}|${sel}|${waiting}|${blink}`, (g, cw, ch) => {
+      s.paint(`${language}|${a}|${kk}|${pb}|${PAD.family}|${sel}|${waiting}|${blink}`, (g, cw, ch) => {
         const ty = Math.round((ch - PIX_H * S) / 2), pad = ch * 0.3;
         text(g, ACTION_WORD[a], pad, ty, S, col);
         if (waiting) { text(g, '请按键…', cw * 0.72, ty, S, blink ? TXT.wait : TXT.sel, 'c'); return; }
@@ -353,7 +354,7 @@ export class PauseMenu {
       });
       return;
     }
-    const label = r.label();
+    const label = t(r.label());
     s.paint(`${label}|${sel}`, (g, cw, ch) => {
       let SS = S; while (SS > 1 && textW(label, SS) > cw * 0.92) SS--;
       text(g, label, cw / 2, Math.round((ch - PIX_H * SS) / 2), SS, col, 'c');
