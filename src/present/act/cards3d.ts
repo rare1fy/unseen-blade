@@ -37,13 +37,17 @@ const styleOf = (b: Boon): CardStyle => {
   if (s === 'ms') return b.id.startsWith('meal_') || b.id === 'leave' ? 'meal' : 'manual';
   return 'boon';
 };
-const tagOf = (b: Boon, tier: number, st: CardStyle) => (b as { tag?: string }).tag ?? (st === 'boon' ? TIER_NAMES[tier] ?? '' : st === 'manual' ? '刀谱' : '');
+const tagOf = (b: Boon, tier: number, st: CardStyle) => {
+  if (language === 'en' && (b.id === 'again' || b.id === 'retry')) return '';
+  return (b as { tag?: string }).tag ?? (st === 'boon' ? TIER_NAMES[tier] ?? '' : st === 'manual' ? '刀谱' : '');
+};
 /** the description with its {v} / {v2} for this tier (boons.ts vals / unit, cards.ts fillVals) */
 export const descOf = (b: Boon, tier: number): string[] => b.desc.map(l => fillVals(l, b, tier));
 const hexOf = (c: string) => parseInt(c.replace('#', ''), 16) || 0xd8d2c6;
 
 /** the skill face's rows, as shares of the face's height: the name's top and size, the presses' centre and size, the effect's top and size */
 const ROW = { nameY: 0.05, nameH: 0.21, pressY: 0.49, press: 0.34, effY: 0.76, eff: 0.17, num: 0.12 };
+const EN_ROW = { ...ROW, pressY: 0.41, press: 0.26, effY: 0.68, eff: 0.15, num: 0.125 };
 /** where a taken card goes (show.ts): the HUD button's place and size, the HUD back on as it flies, its landing */
 export interface CardFlight { at(t: MarkTarget): { x: number; y: number; size: number }; start(e: SkillEntry): void; land(e: SkillEntry): void }
 
@@ -85,8 +89,9 @@ export class CardPick3D {
         picture.traverse(o => { o.renderOrder = 32; }); root.add(picture);
         if (e.steps) {
           // the presses: in board units (the face spans F.x0..F.x1 × ±F.h / 2); the separators are painted on the face (paint)
-          const fw = F.x1 - F.x0, s = F.h * ROW.press, lp = layoutPresses(e.steps, s, e.lit); items = lp.items;
-          const x0 = F.x0 + fw * 0.004, cy = F.h / 2 - F.h * ROW.pressY;
+          const row = language === 'en' ? EN_ROW : ROW;
+          const fw = F.x1 - F.x0, s = F.h * row.press, lp = layoutPresses(e.steps, s, e.lit); items = lp.items;
+          const x0 = F.x0 + fw * 0.004, cy = F.h / 2 - F.h * row.pressY;
           presses = pressShields(items, s, root, x0, cy, 0.05, 33);
         }
       } else {
@@ -132,7 +137,7 @@ export class CardPick3D {
     const dpr = this.L.dpr || 1, F = c.L.FACE, fw = c.w * (F.x1 - F.x0), fh = c.w * F.h, key = `${Math.round(fw)}x${Math.round(fh)}@${dpr}`;
     if (key === c.faceKey) return; c.faceKey = key;
     const m = c.face.material as THREE.MeshBasicMaterial; m.map?.dispose();
-    m.map = c.e ? paintSkillFace(c.e, fw, fh, dpr, F.h * ROW.press / (F.x1 - F.x0)) : paintFace({ name: c.b.name, tag: tagOf(c.b, c.tier, c.st), desc: descOf(c.b, c.tier), tier: c.tier, style: c.st }, fw, fh, dpr);
+    m.map = c.e ? paintSkillFace(c.e, fw, fh, dpr) : paintFace({ name: c.b.name, tag: tagOf(c.b, c.tier, c.st), desc: descOf(c.b, c.tier), tier: c.tier, style: c.st }, fw, fh, dpr);
     m.needsUpdate = true;
   }
   update(dt: number) {
@@ -213,20 +218,19 @@ function fade(board: THREE.Object3D, a: number) {
   board.visible = a > 0.01;
 }
 /** the face of a 秘传 / 刀谱 card: the name and its tier, the numbers at the right; the marks between the presses (the buttons themselves
- *  are 3D, laid over this — the row is laid out again here in device px, the same proportions); the line of what comes out.
- *  press = the press buttons' size as a share of the face's width */
-function paintSkillFace(e: SkillEntry, w: number, h: number, dpr: number, press: number) {
+ *  are 3D, laid over this — the row is laid out again here in device px, the same proportions); the line of what comes out. */
+function paintSkillFace(e: SkillEntry, w: number, h: number, dpr: number) {
   const W = Math.max(8, Math.round(w * dpr)), H = Math.max(8, Math.round(h * dpr)), c = makeCanvas(W, H), g = c.getContext('2d') as CanvasRenderingContext2D;
   g.imageSmoothingEnabled = false;
   const S = Math.max(1, Math.round(H * ROW.nameH / PIX_H)), x0 = Math.round(W * 0.004);
   const nameW = paintName(g, e, x0, Math.round(H * ROW.nameY), S, dpr);
   // the numbers: small, right-aligned on the name's row (they never push the name)
-  const english = language === 'en';
+  const row = language === 'en' ? EN_ROW : ROW;
   // Give the longer English names and numbers separate lines so neither has to shrink around the other.
-  if (e.num && english) paintNum(g, e.num, x0, Math.round(H * 0.84), Math.round(H * 0.135), W - x0 - 4 * dpr);
+  if (e.num && row === EN_ROW) paintNum(g, e.num, x0, Math.round(H * 0.84), Math.round(H * row.num), W - x0 - 4 * dpr);
   else if (e.num) paintNum(g, e.num, W - Math.round(2 * dpr), Math.round(H * ROW.nameY + (PIX_H * S - H * ROW.num) / 2), Math.round(H * ROW.num), W - nameW - x0 - 16 * dpr, 'right');
-  const s = press * W; paintSeps(g, layoutPresses(e.steps ?? [], s, e.lit).items, x0, Math.round(H * ROW.pressY), s);
-  paintEffect(g, e.effect, x0, Math.round(H * (english ? 0.68 : ROW.effY)), Math.round(H * (english ? 0.15 : ROW.eff)), W - x0 - 4 * dpr);
+  const s = row.press * h * dpr; paintSeps(g, layoutPresses(e.steps ?? [], s, e.lit).items, x0, Math.round(H * row.pressY), s);
+  paintEffect(g, e.effect, x0, Math.round(H * row.effY), Math.round(H * row.eff), W - x0 - 4 * dpr);
   const t = new THREE.CanvasTexture(c as HTMLCanvasElement); t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearFilter; t.generateMipmaps = false; t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }

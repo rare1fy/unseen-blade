@@ -101,15 +101,16 @@ export function stickFace(skin: SkinId, knob: boolean) {
 }
 /** a banner plaque: the title big, the subtitle small; returns the texture and its size in art px */
 export function bannerFace(skin: SkinId, title: string, sub: string, titleCol?: string) {
-  const ts = 2, tw = Math.ceil(textW(title, ts)), maxLine = language === 'en' ? Math.max(220, tw) : 180;
+  const ts = 2, tw = Math.ceil(textW(title, ts)), maxLine = language === 'en' ? Math.max(330, tw) : 180;
+  const bodySize = language === 'en' ? 14 : 10;
   sub = localize(sub);
   let lines = sub ? [sub] : [];
-  if (sub && language === 'en') lines = wrapWords(sub, maxLine, line => bodyW(line, 10));
+  if (sub && language === 'en') lines = wrapWords(sub, maxLine, line => bodyW(line, bodySize));
   else if (sub && bodyW(sub, 10) > maxLine) {
     const chars = [...sub], mid = Math.ceil(chars.length / 2);
     lines = [chars.slice(0, mid).join(''), chars.slice(mid).join('')];
   }
-  const bodyPx = lines.length ? Math.min(10, 10 * maxLine / Math.max(...lines.map(line => bodyW(line, 10)))) : 10;
+  const bodyPx = lines.length ? Math.min(bodySize, bodySize * maxLine / Math.max(...lines.map(line => bodyW(line, bodySize)))) : bodySize;
   const sw = lines.length ? Math.ceil(Math.max(...lines.map(line => bodyW(line, bodyPx)))) : 0;
   const W = Math.max(tw, sw) + 20, H = PIX_H * ts + (lines.length ? Math.ceil(bodyPx * 1.3) * lines.length + 4 : 0) + 12, a = art(W, H, 8), pal = PALETTE[skin];
   if (skin === 'bamboo') {
@@ -287,7 +288,7 @@ export class SkinBanner {
     if (!this.m) return;
     this.t += dt; const L = this.L, inT = Math.min(1, this.t / 0.22), out = Math.max(0, (this.t - 0.22 - this.hold) / 0.25);
     if (out >= 1) { this.clear(); return; }
-    const scale = Math.min(L.w * (language === 'en' ? 0.57 : 0.3) / this.W, L.h * (language === 'en' ? 0.13 : 0.09) / this.H), wpx = this.W * scale, hpx = this.H * scale;
+    const scale = Math.min(L.w * (language === 'en' ? 0.57 : 0.3) / this.W, L.h * (language === 'en' ? 0.17 : 0.09) / this.H), wpx = this.W * scale, hpx = this.H * scale;
     const top = L.h * (this.bossOn() ? 0.13 : 0.05);
     L.at(L.w / 2, top + hpx / 2 - (1 - inT) * 30 - out * 30, 0, this.m.position);
     this.m.scale.set(L.px(wpx), L.px(hpx), L.px(hpx * 0.6)); this.m.visible = true;

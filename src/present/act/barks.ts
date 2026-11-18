@@ -41,7 +41,10 @@ export class Barks {
       const p = worldToUi(b.head().add(new THREE.Vector3(0, 0.55, 0))), L = this.L;
       const x = p.x + b.w * 0.2;
       const center = language === 'en' ? Math.min(L.w - b.w / 2, Math.max(b.w / 2, x)) : x;
-      L.at(Math.round(center), Math.round(p.y - b.h / 2), 0, b.mesh.position); b.mesh.scale.set(L.px(b.w) * k, L.px(b.h) * k, 1);
+      const y = p.y - b.h / 2;
+      // Bosses at the far end of a room can project above the screen on a short display.
+      const centerY = language === 'en' ? Math.min(L.h - b.h / 2, Math.max(L.h * 0.06 + b.h / 2, y)) : y;
+      L.at(Math.round(center), Math.round(centerY), 0, b.mesh.position); b.mesh.scale.set(L.px(b.w) * k, L.px(b.h) * k, 1);
       b.mesh.visible = !hidden && k > 0.02;
     }
   }
