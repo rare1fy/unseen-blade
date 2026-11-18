@@ -15,6 +15,7 @@ import { fxAfterimage } from '../fx/skillFx';
 import { addBlock } from '../fx/blocks';
 import { popPix } from '../v2/pix';
 import { playDeath } from '../v2/death';
+import { prepareFight } from './fightWarm';
 import { UiLayer } from '../ui3d/layer';
 import { Overlay } from '../v2/overlay';
 import { SkinBanner, SKIN, SKINS, SKIN_NAME, setSkin, type SkinId } from './skin';
@@ -1283,6 +1284,7 @@ export class ActShow {
       this.log.push(`room ${this.room} ${this.plan.type} ${spec.locale}`);
       this.openDoors(true); return;
     }
+    prepareFight(this.plan?.waves ?? []);
     // walk in from the front of the room, then the first wave
     const h = this.hero; this.introT = 0;
     after(1.1, () => {

@@ -1,5 +1,6 @@
 import { bladeBusy, runRoomBuild, withLoadingBlade } from '../scenes/loadingBlade';
 import { language, t } from './i18n';
+import { instanceMatrix, finishInstances } from "../engine/uploads";
 // 开始画面（docs/DESIGN.md 第二十轮 6；用户 11-17：「最后就是开始画面，再做一版吧，带、继续游戏那些的。氛围上多尝试几版，明早我来选，
 // 尽量避免特写镜头，我们体素风，太近了属于自找没趣。」）：
 // 几版不同的地点 / 天气 / 时段 / 构图（TITLES，网址 ?title=1…N、__dh.title(n)，开始画面上按数字键 1…N 也能切），都是远景：
@@ -276,10 +277,10 @@ class Birds {
       if (b.p.clone().sub(this.from).dot(this.dir) > 95) b.p.addScaledVector(this.dir, -110);
       const flap = Math.sin(t * 7.5 * b.sp + b.ph), glide = (Math.sin(t * 0.5 + b.ph) > 0.4) ? 0.15 : 1;
       this.q.setFromEuler(this.e.set(0, yaw, 0)); this.m.compose(b.p, this.q, V3(1, 1, 1));
-      this.body.setMatrixAt(i, this.m);
-      for (const [im, s] of [[this.wl, 1], [this.wr, -1]] as const) { this.w.makeRotationZ(s * (0.15 + 0.55 * flap * glide)); this.w.setPosition(s * 0.06, 0.03, 0); im.setMatrixAt(i, this.m.clone().multiply(this.w)); }
+      instanceMatrix(this.body, i, this.m);
+      for (const [im, s] of [[this.wl, 1], [this.wr, -1]] as const) { this.w.makeRotationZ(s * (0.15 + 0.55 * flap * glide)); this.w.setPosition(s * 0.06, 0.03, 0); instanceMatrix(im, i, this.m.clone().multiply(this.w)); }
     });
-    for (const im of [this.body, this.wl, this.wr]) im.instanceMatrix.needsUpdate = true;
+    for (const im of [this.body, this.wl, this.wr]) finishInstances(im);
   }
   dispose() { this.g.parent?.remove(this.g); this.body.geometry.dispose(); this.wl.geometry.dispose(); this.wr.geometry.dispose(); (this.body.material as THREE.Material).dispose(); }
 }
