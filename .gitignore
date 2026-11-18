@@ -4,3 +4,4 @@ out/
 *.log
 .vite/
 dist-wx/
+dist-cg/
