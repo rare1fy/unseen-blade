@@ -574,20 +574,103 @@ export class ActShow {
       /** captures: these boons as a pick, tiers 0 / 1 / 2 in turn */ cardsOf: (ids: string[]) => { void this.cards.open(ids.map((id, i) => ({ boon: BOONS.find(b => b.id === id) ?? BOONS[0], tier: i % 3 }))); },
       /** act-44 animation lab (用户：「你动画做精细点可以吗」): a stand-alone heroine / donkey / 杜五 on the current stage for close checks —
        *  labSpawn() puts them at (x, z), lab() returns them for posing from the console / captures, labTick(fn) runs fn(dt, t) every frame */
-      labSpawn: (x = 0, z = 1.5, bare = false) => {
-        for (const a of this.labActs) a.dispose(); this.labActs = [];
-        const mk = (def: ConstructorParameters<typeof BattleActor>[0], dx: number, yaw: number) => { const a = new BattleActor(def); a.place(V3(x + dx, 0, z), yaw); a.yaw = yaw; this.stage?.root.add(a.root); a.update(0.016); this.labActs.push(a); return a; };
-        mk(this.wearing as never, 0, 0); mk(HIDEOUT_DONKEY as never, 2.2, Math.PI / 2); mk(HIDEOUT_PEOPLE.duwu as never, -2.2, 0);
-        this.hero.a.root.visible = false;
-        // bare = a clean test floor: everything else on the stage hidden (not the lights), a plain floor with a half-metre grid
-        if (bare && this.stage) {
-          const keep = new Set<THREE.Object3D>(this.labActs.map(a => a.root));
-          for (const c of this.stage.root.children) { if (keep.has(c)) continue; let lit = false; c.traverse(o => { if ((o as THREE.Light).isLight) lit = true; }); if (!lit) c.visible = false; }
-          const fl = new THREE.Mesh(new THREE.PlaneGeometry(30, 30), new THREE.MeshLambertMaterial({ color: 0x9a968c })); fl.rotation.x = -Math.PI / 2; fl.position.set(x, -0.002, z); fl.receiveShadow = true;
-          const gr = new THREE.GridHelper(30, 60, 0x55524c, 0x77736a); gr.position.set(x, 0.001, z); this.stage.root.add(fl, gr);
-        }
-        return this.labActs.length;
-      },
+      ...(() => {
+        let foeStage: THREE.Object3D | undefined;
+        let floor: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshLambertMaterial> | undefined;
+        let grid: THREE.GridHelper | undefined;
+        const keep = new Set<THREE.Object3D>();
+        const hidden = new Map<THREE.Object3D, boolean>();
+        const hide = (o: THREE.Object3D) => {
+          if (keep.has(o) || (o as THREE.Light).isLight) return;
+          let hasLight = false;
+          o.traverse(child => { if ((child as THREE.Light).isLight) hasLight = true; });
+          if (hasLight || o === foeStage) { o.children.forEach(hide); return; }
+          if (!hidden.has(o)) hidden.set(o, o.visible);
+          o.visible = false;
+        };
+        const clear = () => {
+          foeStage = undefined;
+          for (const a of this.labActs) a.dispose();
+          this.labActs = [];
+          floor?.removeFromParent(); floor?.geometry.dispose(); floor?.material.dispose(); floor = undefined;
+          grid?.removeFromParent(); grid?.dispose(); grid = undefined;
+          for (const [o, wasVisible] of hidden) o.visible = wasVisible;
+          hidden.clear(); keep.clear();
+        };
+        const spawn = (def: ModelDef, x: number, z: number, yaw: number) => {
+          const a = new BattleActor(def);
+          a.place(V3(x, 0, z), yaw);
+          this.stage?.root.add(a.root);
+          a.update(0.016);
+          this.labActs.push(a); keep.add(a.root);
+        };
+        const bareFloor = (parent: THREE.Object3D, x: number, z: number) => {
+          floor = new THREE.Mesh(new THREE.PlaneGeometry(30, 30), new THREE.MeshLambertMaterial({ color: 0x9a968c }));
+          floor.rotation.x = -Math.PI / 2; floor.position.set(x, -0.002, z); floor.receiveShadow = true;
+          grid = new THREE.GridHelper(30, 60, 0x55524c, 0x77736a); grid.position.set(x, 0.001, z);
+          parent.add(floor, grid); keep.add(floor); keep.add(grid);
+        };
+        onUpdate(dt => {
+          if (!foeStage) return;
+          if ((this.stage?.root ?? scene) !== foeStage) { clear(); return; }
+          scene.children.forEach(hide);
+          for (const a of this.labActs) a.update(dt);
+        });
+        const namedImpact: Record<string, number> = {
+          thrust: 0.6, sweepHalberd: 0.55, paw: 0.92, bash: 0.55, aimXbow: 0.85, lob: 0.75,
+          axeSweep: 0.62, axeChop: 0.55, ram: 0.9, axeThrow: 0.7, kick: 0.7,
+          backstab: 0.6, backstab2: 0.6, blow: 0.85, sow: 0.7, rise: 0.75,
+          whirl: 0.6, slamChain: 0.55, snip: 0.6, needleFan: 0.8, burst: 0.85,
+        };
+        return {
+          labSpawn: (x = 0, z = 1.5, bare = false) => {
+            clear();
+            spawn(this.wearing, x, z, 0); spawn(HIDEOUT_DONKEY, x + 2.2, z, Math.PI / 2); spawn(HIDEOUT_PEOPLE.duwu, x - 2.2, z, 0);
+            hide(this.hero.a.root);
+            if (bare && this.stage) { this.stage.root.children.forEach(hide); bareFloor(this.stage.root, x, z); }
+            return this.labActs.length;
+          },
+          foeLab: (kinds: string[], { gap = 2.8, z = 1.5 } = {}) => {
+            if (!kinds.length) { if (foeStage) clear(); return 0; }
+            const defs = kinds.map(id => {
+              const def = ROSTER.find(model => model.id === id);
+              if (!def) throw new Error('Unknown foe model: ' + id);
+              return def;
+            });
+            clear();
+            foeStage = this.stage?.root ?? scene;
+            defs.forEach((def, i) => spawn(def, (i - (defs.length - 1) / 2) * gap, z, Math.PI / 2));
+            bareFloor(foeStage, 0, z);
+            scene.children.forEach(hide);
+            return this.labActs.length;
+          },
+          foeLabSpeed: (v: number) => {
+            if (!foeStage) return;
+            const speed = Number.isFinite(v) ? Math.max(0, v) : 0;
+            for (const a of this.labActs) a.setRunning(speed > 0.6, speed);
+          },
+          foeLabAct: (i: number, name: string, dur?: number, at?: number) => {
+            const a = foeStage ? this.labActs[i] : undefined;
+            if (!a) return;
+            a.dead = name === 'fall' || name === 'collapse';
+            if (dur === undefined && at === undefined) {
+              if (name === 'attack') return a.attack();
+              if (name === 'cast') return a.cast();
+              if (name === 'hurt') return a.hurt();
+              if (name === 'fall') return a.fall();
+              if (name === 'collapse') return a.collapse();
+              if (name === 'roar') return a.roar();
+            }
+            const variant = /^(wl|cx)_/.test(a.def.id) && !['attack', 'cast', 'hurt', 'fall', 'collapse', 'roar'].includes(name);
+            const impact = at ?? (name === 'cast' || name === 'fall' ? 0.6 : name === 'hurt' ? 0.1 : name === 'roar' ? 0.35 : namedImpact[name] ?? 0.5);
+            return a.play(new Action(variant ? 'attack' : name, dur ?? 1.2, impact, variant ? { atk: name } : {}));
+          },
+          foeLabHurtFrom: (i: number, angleRad: number) => {
+            const a = foeStage ? this.labActs[i] : undefined;
+            if (a && Number.isFinite(angleRad)) { a.dead = false; return a.hurt(1.4, angleRad); }
+          },
+        };
+      })(),
       lab: () => this.labActs,
       /** the cutscene poses, for the lab: drape(i, x, y, z, yaw, ph), getUp(i, k) */
       /** the colour grade / bloom settings, for lab checks */ grade: GRADE,

@@ -13,15 +13,30 @@ import { isGripHero } from './heroPose';
 import { poseShow } from './showPose';
 import { poseIai } from '../ronin/iaiPose';
 import { POSE_AFTER } from './poseHooks';
+import { FoeAccessories, FoeGait, poseFoeFall, poseFoeHurt, poseFoeIdle } from '../act/foes/foe_motion';
 
 const TIP: Record<string, [number, number]> = { warrior: [17, -3], boss_lich_forest: [29, 0], lego_warrior: [9, -3], lego_lich: [19, 0], fig_warrior: [19, -3], fig_lich: [29, 0] };
 
 export class BattleActor extends BActor {
   aim = 0; breath = 1; robeFire = 0; walkK = 0; running = false; private runK = 0;
+  moveSpeed?: number;
+  private gait?: FoeGait;
+  private accessories?: FoeAccessories;
+  private deathAction?: Action;
+  private projectileOrigin?: { point: THREE.Vector3; lift: number };
+  get strideSwing() { return this.gait?.armSwing ?? 0; }
   /** a roster id ('rogue' follows ?rogue=m, models.ts modelDef) or a ready model */
   constructor(id: string | ModelDef) { super(typeof id === 'string' ? modelDef(id) : id); }
+  /** Some attacks read weapon() as a gameplay anchor even when the rendered throw changes. */
+  preserveProjectileOrigin(point: THREE.Vector3, lift: number) { this.projectileOrigin = { point, lift }; }
   weapon() {
     if (isGripHero(this.hid)) return super.weapon();
+    if (this.projectileOrigin) {
+      const { point, lift } = this.projectileOrigin;
+      const origin = this.body.localToWorld(point.clone());
+      origin.y += lift - this.off.y;
+      return origin;
+    }
     const t = TIP[this.def.id];
     if (t && this.bones.weapon) return this.bones.weapon.localToWorld(V3(0, t[1] * this.cy, t[0] * this.cx));
     return this.bones.handR ? this.bones.handR.localToWorld(V3(0, -2 * this.cy, this.cx)) : this.chest();
@@ -35,7 +50,12 @@ export class BattleActor extends BActor {
   cheer() { return this.play(new Action('cheer', 1.6, 0.3)); }
   bleed() { return this.play(new Action('bleed', 0.65, 0.4)); }
   fall() { this.dead = true; return this.play(new Action('fall', 1.2, 0.6)); }
-  setRunning(on: boolean) { this.running = on; }
+  setRunning(on: boolean, speed?: number, lookYaw?: number, velocity?: { readonly x: number; readonly z: number }) {
+    this.running = on;
+    this.moveSpeed = speed;
+    this.lookYaw = lookYaw ?? this.lookYaw;
+    this.moveVelocity = velocity ?? this.moveVelocity;
+  }
   // lich
   summon() { return this.play(new Action('summon', 1.1, 0.55)); }
   shield() { return this.play(new Action('shield', 0.8, 0.45)); }
@@ -82,10 +102,20 @@ export class BattleActor extends BActor {
 
   protected pose(dt: number) {
     if (this.show && isGripHero(this.hid)) { poseShow(this); this.applyWarp(); return; }
+    this.projectileOrigin = undefined;
     super.pose(dt);
     // 11-18 (一局五关): a later region's foe adds its own layer over everything below (POSE_AFTER, by model id)
-    const after = POSE_AFTER[this.def.id]; if (after) { this.poseRest(dt); after(this.bones, this.t, this.act, this.off, this); return; }
     this.poseRest(dt);
+    const a = this.act, b = this.bones;
+    if (this.foe) {
+      if (!this.dead) this.deathAction = undefined;
+      if (a?.name === 'fall' || a?.name === 'collapse') this.deathAction = a;
+    }
+    POSE_AFTER[this.def.id]?.(b, this.t, a ?? this.deathAction ?? null, this.off, this);
+    if (!this.foe) return;
+    if (a?.name === 'hurt') poseFoeHurt(b, this.off, a, this.hitFrom, this.hurtVariant);
+    if (this.deathAction) poseFoeFall(b, this.off, this.def.kind, this.hitFrom, this.deathAction.k, this.deathAction.name === 'collapse');
+    (this.accessories ??= new FoeAccessories(this)).pose(this, dt);
   }
   /** the run cycle, the low-HP sag and the named actions over the base pose (pose() runs this, then any POSE_AFTER layer) */
   private poseRest(dt: number) {
@@ -93,7 +123,13 @@ export class BattleActor extends BActor {
     // running (intro) and the summons' lurching walk
     this.runK += ((this.running ? 1 : 0) - this.runK) * Math.min(1, dt * 8);
     const run = Math.max(this.runK, this.walkK * 0.7), ph = Math.sin(t * 11);
-    if (run > 0.01 && (!a || n === 'talk')) {
+    const bipedGait = this.def.kind === 'biped' && !!b.footL && !!b.footR && !b.horse;
+    const foeGait = this.foe && !!b.hips && (bipedGait || this.def.kind === 'quad');
+    if (this.foe && !this.dead && !a) poseFoeIdle(this, this.gait?.speed ?? 0);
+    if (foeGait) {
+      // The mounted rig has its own hoof solver. Special poses own their steps unless they are locomotion actions.
+      (this.gait ??= new FoeGait(this)).pose(this, dt, !this.dead && (!a || n === 'talk' || n === 'stalk' || n === 'flee' || n === 'ramRun'));
+    } else if (run > 0.01 && (!a || n === 'talk') && !this.def.id.startsWith('ly_rider')) {
       mov(b.hips, 0, Math.abs(ph) * 0.1 * run, 0); rot(b.spine, 0.22 * run, 0, 0); rot(b.legL, ph * 0.8 * run, 0, 0); rot(b.legR, -ph * 0.8 * run, 0, 0);
       rot(b.armL, -ph * 0.7 * run, 0, 0); rot(b.hat, -0.15 * run, 0, 0);
     }
@@ -124,11 +160,11 @@ export class BattleActor extends BActor {
       case 'block': { const s = curve(k, [[0, 0], [0.2, 1], [0.7, 1], [1, 0]]); rot(b.armR, -0.7 * s, 0.3 * s, 0.5 * s); rot(b.weapon, 0.3 * s, 1.1 * s, 0); rot(b.armL, -1.2 * s, 0, -0.4 * s); rot(b.foreL, -0.9 * s, 0, 0); mov(b.hips, 0, -0.1 * s, 0); break; }
       case 'bleed': { const s = curve(k, [[0, 0], [0.3, 1], [0.65, 1], [1, 0]]); rot(b.armL, -1.3 * s, 0, -0.5 * s); rot(b.foreL, -0.6 * s, 0, 0); rot(b.armR, -0.4 * s, 0, 0.6 * s); rot(b.weapon, 0.6 * s, 0.8 * s, 0); rot(b.jaw, 0.4 * s, 0, 0); break; }
       case 'cheer': { const s = curve(k, [[0, 0], [0.2, 1], [1, 1]]), j = Math.abs(Math.sin(k * Math.PI * 3)) * (1 - k); this.off.y += j * 0.5; rot(b.armR, -2.9 * s, 0, -0.3 * s); rot(b.foreR, 1.3 * s, 0, 0); rot(b.armL, -2.7 * s, 0, 0.4 * s); rot(b.jaw, 0.7 * s, 0, 0); break; }
-      case 'fall': { const s = curve(k, [[0, 0], [0.6, 1], [1, 1]]); rot(b.hips, -1.35 * s, 0, 0.2 * s); mov(b.hips, 0, -0.3 * s, -0.3 * s); rot(b.armR, -0.6 * s, 0, -0.9 * s); rot(b.armL, -0.4 * s, 0, 0.9 * s); break; }
+      case 'fall': { if (this.foe) break; const s = curve(k, [[0, 0], [0.6, 1], [1, 1]]); rot(b.hips, -1.35 * s, 0, 0.2 * s); mov(b.hips, 0, -0.3 * s, -0.3 * s); rot(b.armR, -0.6 * s, 0, -0.9 * s); rot(b.armL, -0.4 * s, 0, 0.9 * s); break; }
       case 'summon': { const up = curve(k, [[0, 0], [0.5, 1], [0.7, 1], [1, 0]]); rot(b.armL, -2.4 * up, 0, 0.4 * up); rot(b.armR, -1.9 * up, 0, -0.4 * up); rot(b.spine, -0.3 * up, 0, 0); rot(b.jaw, 0.5 * up, 0, 0); this.off.y += up * 0.4; break; }
       case 'shield': { const s = curve(k, [[0, 0], [0.4, 1], [0.8, 1], [1, 0]]); rot(b.armL, -1.3 * s, 0.6 * s, -0.6 * s); rot(b.armR, -0.8 * s, -0.5 * s, 0.6 * s); rot(b.spine, 0.2 * s, 0, 0); this.off.y -= 0.15 * s; break; }
       case 'talk': rot(b.jaw, Math.max(0, Math.sin(k * 40)) * 0.35, 0, 0); rot(b.armL, -0.4 * Math.sin(k * Math.PI), 0, 0); break;
-      case 'collapse': { const s = curve(k, [[0, 0], [0.3, 0.3], [1, 1]]); rot(b.spine, 0.6 * s, 0, 0.2 * s); rot(b.neck, 0.5 * s, 0, 0); rot(b.jaw, 0.6, 0, 0); this.off.y -= 0.9 * s; rot(b.armL, 0.6 * s, 0, -0.4 * s); rot(b.armR, 0.4 * s, 0, 0.5 * s); break; }
+      case 'collapse': { if (this.foe) break; const s = curve(k, [[0, 0], [0.3, 0.3], [1, 1]]); rot(b.spine, 0.6 * s, 0, 0.2 * s); rot(b.neck, 0.5 * s, 0, 0); rot(b.jaw, 0.6, 0, 0); this.off.y -= 0.9 * s; rot(b.armL, 0.6 * s, 0, -0.4 * s); rot(b.armR, 0.4 * s, 0, 0.5 * s); break; }
     }
   }
 
