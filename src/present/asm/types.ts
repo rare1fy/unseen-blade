@@ -35,6 +35,8 @@ export interface Layout {
   path: Rect[];
   /** an open court the locale should keep as plain paving (optional) */
   court?: Rect;
+  /** 11-18 定死的屋子 (asm/roomMaps.ts): this room's ways out, at the map's E marks (side, the centre of the gap on the floor's edge) */
+  drawn?: Partial<Record<'left' | 'right' | 'back', { side: 'left' | 'right' | 'back'; x: number; z: number }>>;
 }
 
 /** everything a builder needs to know about the spot it builds in */

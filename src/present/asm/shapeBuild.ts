@@ -50,7 +50,8 @@ export function outline(g: FloorGrid): Run[] {
 /** walls, gates, the pits, the bridges and the tops of the walled-off parts into the scene's cells (the shape's floor = ground) */
 export function buildShape(c: Ctx, sp: ShapePlan, plan: ArenaPlan, seed: number) {
   const box: B = (x0, y0, z0, x1, y1, z1, col) => { c.w.box(Math.min(x0, x1), y0, Math.min(z0, z1), Math.max(x0, x1), y1, Math.max(z0, z1), col); };
-  const g = new FloorGrid(sp, 4), T = M(WALL.thick), H = M(WALL.h) - 1;
+  // (a drawn room's doors, hollow walls and barricades are moving pieces (act/puzzles.ts): the walls are built round them as if open)
+  const g = new FloorGrid(sp.fixed ? { ...sp, fixed: { ...sp.fixed, closed: [] } } : sp, 4), T = M(WALL.thick), H = M(WALL.h) - 1;
   const cX = (i: number) => M(g.x0) + i * S, cZ = (j: number) => M(g.z0) + j * S;
   const r = (k: number) => { let h = (seed * 374761393 + k * 668265263) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
   // gates cut their gap in the run they sit on (the run's line, and only where the gap overlaps the run)
@@ -78,14 +79,21 @@ export function buildShape(c: Ctx, sp: ShapePlan, plan: ArenaPlan, seed: number)
   // (the gates sit on the walls' line: a shaped room's walls stand right on the floor's edge, no gap)
   for (const q of plan.gates) gateFrame(box, plan.style, q, T, 0);
   for (const p of sp.pits) pit(c, box, p, p.kind);
-  for (const q of sp.bridges) bridge(box, q, sp.pits.find(p => p.x0 <= q.x0 && p.x1 >= q.x1 && p.z0 <= q.z0 && p.z1 >= q.z1)?.kind ?? 'water', plan.style);
+  for (const q of sp.bridges) { const k = sp.pits.find(p => p.x0 <= q.x0 && p.x1 >= q.x1 && p.z0 <= q.z0 && p.z1 >= q.z1)?.kind; bridge(box, q, k === 'ditch' ? 'ditch' : 'water', plan.style); }
 }
 
 /** a pit: the ground cells taken out, a bed below; water: a stone kerb round the edge going down to a dark plane 0.2 m below the floor;
  *  a gully (深沟): two earth ledges stepping in and down, black at the bottom 0.8 m down */
-function pit(c: Ctx, box: B, p: Rect, kind: 'water' | 'ditch') {
+function pit(c: Ctx, box: B, p: Rect, kind: 'water' | 'ditch' | 'flood') {
   const X0 = M(p.x0), X1 = M(p.x1) - 1, Z0 = M(p.z0), Z1 = M(p.z1) - 1;
   const rim = (y0: number, y1: number, k: number, col: number) => { for (const [a0, b0, a1, b1] of [[X0 + k, Z0 + k, X1 - k, Z0 + k], [X0 + k, Z1 - k, X1 - k, Z1 - k], [X0 + k, Z0 + k, X0 + k, Z1 - k], [X1 - k, Z0 + k, X1 - k, Z1 - k]]) box(a0, y0, b0, a1, y1, b1, col); };
+  if (kind === 'flood') {
+    // 开闸 (LEVEL_DESIGN): a causeway of dressed stone one cell under the floor, a kerb round it; the water over it is a moving piece
+    // (act/puzzles.ts) that drains when the sluice turns
+    box(X0, -1, Z0, X1, -1, Z1, PAL.stoneD); box(X0 + 1, -1, Z0 + 1, X1 - 1, -1, Z1 - 1, PAL.stone);
+    for (let x = X0 + 4; x < X1 - 1; x += 5) box(x, -1, Z0 + 1, x, -1, Z1 - 1, PAL.stoneD);
+    return;
+  }
   box(X0, -1, Z0, X1, -1, Z1, null);
   // (the flat ground beyond the stage lies at −2 cells over everything: cut it open over the pit)
   c.earthHole?.(p.x0, p.z0, p.x1, p.z1);

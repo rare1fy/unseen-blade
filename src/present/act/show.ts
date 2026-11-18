@@ -61,6 +61,7 @@ const WALL_SOLID: Solid = { id: 0, kind: 'wall', shape: 'box', x: 0, z: 0, hx: 0
 const PIT_SPEED = 1.2;
 import { pickSpec } from '../asm/pick';
 import { exitInfo, withExits, type ExitId, type ExitInfo } from '../asm/exits';
+import { MAP_BY_ID, mapShape, mapStage, pickMap } from '../asm/roomMaps';
 import type { Layout, Spec, Report } from '../asm/types';
 import { wipeTransit, WIPE } from '../scenes/transWipe';
 import type { RouteOpt } from '../../core/v2/ronin/chapter';
@@ -183,6 +184,8 @@ function npcBubble() {
 interface RoomIn { isYard: boolean; room: number; recent: Spec[]; locale: string; plan: RoomPlan | null; nextRooms: RoomPlan[]; viewSpec: Partial<Spec> | null; forceSpec: Partial<Spec> | null; noArena: boolean;
   /** 11-18 屋子形态: force this room's shape (__dh.shape / captures) and its seed; the last rooms' shapes (not again so soon) */
   shape?: ShapeId | null; shapes?: ShapeId[]; seed?: number | null;
+  /** 11-18 定死的屋子: force this drawn room (asm/roomMaps.ts id); the drawn rooms used this run (not again while others are left) */
+  map?: string | null; maps?: string[];
   /** 11-18: the region's defaults for the pick (season …: 下邳 is winter); the place's own lists still apply */ regionSpec?: Partial<Spec> | null }
 /** a room's place, built (off the live scene) and ready to put up */
 interface Room { spec: Spec; big: boolean; layout: Layout; arena: ArenaPlan | null; report: Report | null; prep: PreparedStage; k: { x: number; z: number } }
@@ -207,14 +210,22 @@ function prepRoom(o: RoomIn): Room {
   // act-19: the 黄巾 rooms stand on the 2x stage; the yard keeps the old one (wp/regB: and every place in asm/arena.ts ARENA_LOOK). 11-18 屋子形态 (用户：「场景再大些，形态多样一些」): a fight
   // room on a big stage takes one of its place's shapes (the boss's, the calm rooms, the prologue's and the cutscenes' stay square)
   const ptype = o.plan?.type ?? 'fight', calm = ptype === 'shop' || ptype === 'rest' || ptype === 'boon';
+  // 11-18 定死的屋子 (用户：「还不如都做成几种确定的造型，避免不稳定因素」): a fight room of a place that has drawn rooms is one of them —
+  // the same every time: its own decoration seed, layout, time and weather (only the season is the region's)
+  const dm = !isYard && !o.noArena && !o.viewSpec && !o.forceSpec && !calm && !o.shape && bigStage(spec.locale)
+    ? (o.map ? MAP_BY_ID[o.map] ?? null : pickMap(spec.locale, ptype === 'boss' ? 'boss' : 'fight', o.maps ?? [], seed)) : null;
+  if (dm) {
+    const mb = pickSpec(dm.seed, Object.values(REGISTRY.locales), REGISTRY.layouts, [], { season: o.regionSpec?.season ?? 'autumn', locale: dm.locale });
+    Object.assign(spec, { ...mb, mirror: false, time: dm.time ?? mb.time, weather: dm.weather ?? mb.weather, seed: dm.seed });
+  }
   const loc = LOCALES[spec.locale], bigP = !isYard && bigStage(spec.locale);
-  const shapeId: ShapeId = !bigP || o.noArena ? 'square' : o.shape ?? (o.viewSpec || o.forceSpec ? 'square' : pickShape(loc?.shapes, calm ? 'calm' : ptype === 'boss' ? 'boss' : 'fight', spec.seed, o.shapes ?? []));
-  const k = SHAPE_K[shapeId];
-  const big = bigP; setStage(big, k);
+  const shapeId: ShapeId = dm ? 'map' : !bigP || o.noArena ? 'square' : o.shape ?? (o.viewSpec || o.forceSpec ? 'square' : pickShape(loc?.shapes, calm ? 'calm' : ptype === 'boss' ? 'boss' : 'fight', spec.seed, o.shapes ?? []));
+  const big = bigP, k = dm ? mapStage(dm) : SHAPE_K[shapeId]; setStage(big, k);
   const lb = REGISTRY.layouts[spec.layout] ?? Object.values(LOCALES).flatMap(l => l.extraLayouts ?? []).find(l => l.id === spec.layout)!;
-  const layout = withExits(spec.mirror ? mirrorLayout(stageLayout(lb)) : stageLayout(lb), spec.exits ?? []);
+  const drawn = dm ? mapShape(dm) : undefined;
+  const layout = withExits(spec.mirror ? mirrorLayout(stageLayout(lb)) : stageLayout(lb), spec.exits ?? [], drawn?.fixed);
   const pits = loc?.pits ?? ['water'], pitK = pits[Math.floor(((spec.seed * 2654435761) >>> 0) / 4294967296 * pits.length) % pits.length];
-  const shape = big && !o.noArena && shapeId !== 'square' ? makeShape(shapeId, spec.seed, { layout, pit: pitK }) : undefined;
+  const shape = drawn ?? (big && !o.noArena && shapeId !== 'square' ? makeShape(shapeId, spec.seed, { layout, pit: pitK }) : undefined);
   const arena = big && !o.noArena ? arenaPlan(layout, (spec.exits ?? []) as ExitId[], spec.seed, spec.locale, calm ? 'calm' : ptype === 'boss' ? 'boss' : 'fight', shape) : null;
   spec.arena = arena ?? undefined;
   if (isYard) return { spec, big, layout, arena, report: null, k, prep: prepareStage(hideoutScene({ time: 'dusk', weather: 'clear' }), { combat: true }) };
@@ -495,6 +506,7 @@ export class ActShow {
   solids = new Solids(); props: Breakables | null = null; gates: Gates | null = null; leaves: Leaves | null = null; private gustT = 0; arena: ArenaPlan | null = null; private lastPush: Push | null = null; private slamAt = new WeakMap<Foe, number>();
   /** 11-18 屋子形态: this room's floor grid (null = the act-19 rectangle), the shapes of the run's last rooms, a forced shape (__dh.shape) */
   grid: FloorGrid | null = null; private shapes: ShapeId[] = []; private forceShape: ShapeId | null = null; private forceSeed: number | null = null;
+  /** 11-18 定死的屋子: the drawn rooms used this run; one forced by __dh.room */ private maps: string[] = []; private forceMap: string | null = null;
   /** how long the last room took to build (ms, the place and its meshes; captures read it) */
   buildMs = 0;
   /** the foes going down into a pit (打出界): falling, then gone */
@@ -619,6 +631,13 @@ export class ActShow {
       // agents / captures: a fight-less room in one place (the scene builders check their place with it) — returns the assembler's report
       scene: (id: string, seed?: number, o: Partial<Spec> = {}) => { this.viewSpec = { ...o, locale: id, ...(seed != null ? { seed } : {}) }; this.room = 0; this.locale = id; this.buildRoom(true); this.viewSpec = null; const r = this.lastReport; return r ? { name: r.name, spec: r.spec, placed: r.placed.length, rejected: r.rejected.map(x => x.id + ':' + x.issues.map(i => i.kind).join('/')), empty: r.empty, warnings: r.warnings, lights: r.lights } : null; },
       // 11-18 屋子形态 (captures / tests): a fight room of this place in this shape (the next rooms pick their own again); null = pick
+      /** 11-18 定死的屋子: build this drawn room (asm/roomMaps.ts id: crossroads / courtyards / islands …) as a fight room */
+      room: (id: string, type: 'fight' | 'elite' = 'fight') => {
+        const m = MAP_BY_ID[id]; if (!m) return null;
+        this.startRun(); this.forceMap = id; this.locale = m.locale; if (this.plan) { this.plan.locale = m.locale; this.plan.type = type; }
+        this.room = 1; this.buildRoom(false); this.forceMap = null;
+        const sp = this.arena?.shape; return sp ? { id: sp.fixed?.id, box: sp.box, exits: this.spec?.exits } : null;
+      },
       shape: (id: ShapeId | null, locale = 'hj_village', seed?: number) => {
         this.startRun(); this.forceShape = id; this.locale = locale; if (this.plan) this.plan.locale = locale; if (seed != null) this.forceSeed = seed;
         this.room = 1; this.buildRoom(false); this.forceShape = null; this.forceSeed = null;
@@ -844,7 +863,7 @@ export class ActShow {
     // act-34: the place itself — built ahead of time when it can be (the title builds a new game's first room while it loads), else now
     // (11-18: a region's own look — 下邳 is always winter — unless the prologue or a view asks otherwise)
     const rspec = !isYard && !this.prologue ? REGIONS[this.region]?.spec ?? null : null;
-    const want: RoomIn = { isYard, room: this.room, recent: this.recent, locale: this.locale, plan: this.plan, nextRooms: this.nextRooms, viewSpec: this.viewSpec, forceSpec: this.forceSpec, noArena: this.noArena, shape: this.forceShape, shapes: this.shapes, seed: this.forceSeed, regionSpec: rspec };
+    const want: RoomIn = { isYard, room: this.room, recent: this.recent, locale: this.locale, plan: this.plan, nextRooms: this.nextRooms, viewSpec: this.viewSpec, forceSpec: this.forceSpec, noArena: this.noArena, shape: this.forceShape, shapes: this.shapes, seed: this.forceSeed, map: this.forceMap, maps: this.maps, regionSpec: rspec };
     const ready = this.pre && !isYard && !this.viewSpec && this.prologue === 1 && this.room === 0 && this.pre.locale === this.locale ? this.pre : null;
     if (this.pre && this.pre !== ready) this.pre.prep.drop();
     this.pre = null;
@@ -855,7 +874,8 @@ export class ActShow {
     this.grid = P.arena?.shape ? new FloorGrid(P.arena.shape) : null;
     { const g = this.grid; blood.skip = g ? (x, z) => g.at(x, z) === PIT : null; }
     if (P.arena?.shape && !this.viewSpec) this.shapes.push(P.arena.shape.id);
-    if (isYard) this.shapes = [];
+    if (P.arena?.shape?.fixed && !this.viewSpec) this.maps.push(P.arena.shape.fixed.id);
+    if (isYard) { this.shapes = []; this.maps = []; }
     const big = P.big;
     this.stage = P.prep.attach();
     if (isYard) Object.assign(PLAY, HIDEOUT.floor);   // act-20: the hideout 断碑古窑 (hideout.ts) is the yard now — its own stage and floor
@@ -881,8 +901,8 @@ export class ActShow {
     const lg = this.grid;
     this.leaves = new Leaves(spec.weather === 'rain' || spec.weather === 'snow' || LOCALES[spec.locale]?.noLeaves ? 'winter' : spec.season, { rest: big ? 100 : 40, fall: big ? 1.4 : 0.8, where: lg ? (x, z) => lg.at(x, z) === FLOOR || !(x > PLAY.x0 && x < PLAY.x1 && z > PLAY.z0 && z < PLAY.z1) && lg.at(x, z) !== PIT : undefined });
     // (11-18 屋子形态: a shaped room has its own way in — the 曲尺's front corner is walled off, the 窄巷's lane is off the middle)
-    const ent = this.arena?.shape?.enter[0] ?? 0;
-    this.hero = new Hero(isYard ? V3(HIDEOUT.spawn[0], 0, HIDEOUT.spawn[1]) : V3(ent, 0, SZ(5.0)), this.wearing); this.hero.moves = isYard || this.prologue || this.dbgAllMoves ? ALL_MOVES : this.perks.moves; this.hero.perks = this.perks; this.hero.hp = Math.min(hp, maxHp); this.hero.maxHp = maxHp;   // (act-40 用户：「开局第一场战斗默认给主角解锁所有技能」) (11-18: this comment used to sit before the perks / hp assignments and swallowed them — the hero's own boons never applied and her HP reset each room)
+    const ent = this.arena?.shape?.enter[0] ?? 0, entZ = this.arena?.shape?.fixed ? this.arena.shape.enter[1] : SZ(5.0);   // (a drawn room: its S)
+    this.hero = new Hero(isYard ? V3(HIDEOUT.spawn[0], 0, HIDEOUT.spawn[1]) : V3(ent, 0, entZ), this.wearing); this.hero.moves = isYard || this.prologue || this.dbgAllMoves ? ALL_MOVES : this.perks.moves; this.hero.perks = this.perks; this.hero.hp = Math.min(hp, maxHp); this.hero.maxHp = maxHp;   // (act-40 用户：「开局第一场战斗默认给主角解锁所有技能」) (11-18: this comment used to sit before the perks / hp assignments and swallowed them — the hero's own boons never applied and her HP reset each room)
     this.hero.qi = isYard ? Hero.QI_MAX : Math.min(Hero.QI_MAX, Math.max(qi, TUNE.qiStart));   // (11-17 气: carried on; a room starts with at least TUNE.qiStart)
     this.hero.a.yaw = isYard ? -0.6 : Math.PI;
     this.hud.flask.set({ hp: this.hero.hp, maxHp });
@@ -949,7 +969,7 @@ export class ActShow {
     this.exitSign = makeSign('出发', { w: 1.3, h: 0.6, post: 0.9 }); this.exitSign.position.set(HIDEOUT.exit.x1 + 0.9, 0, HIDEOUT.exit.z - 0.9); this.stage!.root.add(this.exitSign);
     // (a lane through the gate toward the camera: the clamp lets her walk on out there; the front wall either side is solid. The
     // id is a side road's, which the clamp treats as 'hold z to the lane, x to the solids' — the back road's rule would open the north)
-    const ex = { ...exitInfo(this.layout!, 'back'), id: 'left' as const, lane: { x0: HIDEOUT.exit.x0, x1: HIDEOUT.exit.x1, z0: HIDEOUT.exit.z - 1.0, z1: PLAY.z1 + 2.5 }, walk: [[gx, HIDEOUT.exit.z - 1.6], [gx, HIDEOUT.exit.z + 1.0]] as Array<[number, number]> };
+    const ex = { ...exitInfo(this.layout!, 'back'), id: 'left' as const, dir: [0, 1] as [number, number], lane: { x0: HIDEOUT.exit.x0, x1: HIDEOUT.exit.x1, z0: HIDEOUT.exit.z - 1.0, z1: PLAY.z1 + 2.5 }, walk: [[gx, HIDEOUT.exit.z - 1.6], [gx, HIDEOUT.exit.z + 1.0]] as Array<[number, number]> };
     this.doors = [{ ex, g: new THREE.Group(), lift: 1 }];
     const touch = this.inp.lastDevice === 'touch' && 'ontouchstart' in globalThis;
     this.banner.show('断碑古窑', touch ? '走近人点右下说话 · 踩石板叫陪练 · 出院门开打' : this.inp.lastDevice === 'pad' ? `走近人按 ${actPad('attack')} 说话 · 踩石板叫陪练 · 出院门开打` : `走近人按 ${actKey('attack')} 说话 · 踩石板叫陪练 · 出院门开打 · \` 键调手感`, 4);
@@ -978,7 +998,7 @@ export class ActShow {
           p = V3(R(PLAY.x0 + 1.5, PLAY.x1 - 1.5), 0, R(PLAY.z0 + 1.5, PLAY.z1 - 2.5));
           // (11-18 第三关: a 水鬼 comes up out of one of the room's pools — it hunts in the water; dry land is where it is weak)
           if (kindOr(k).kind === 'xp_diver' && this.pools.length) { const pl = this.pools[Math.floor(Math.random() * this.pools.length)]; p = V3(R(pl.x0 + 0.6, pl.x1 - 0.6), 0, R(pl.z0 + 0.6, pl.z1 - 0.6)); }
-          if (EDEFS[kindOr(k).kind].boss) p = V3(0, 0, SZ(-4.6));   // any region boss stands at the back
+          if (EDEFS[kindOr(k).kind].boss) { const bm = gd?.sp.fixed?.boss; p = bm ? V3(bm[0], 0, bm[1]) : V3(0, 0, SZ(-4.6)); }   // any region boss stands at the back (a drawn room: at its B)
           const d = p.distanceTo(hp), onFloor = !gd || (gd.clear(p.x, p.z, 0.7) && !gd.sp.bridges.some(b => p.x > b.x0 - 1 && p.x < b.x1 + 1 && p.z > b.z0 - 1 && p.z < b.z1 + 1));
           if (d > 5 && d < 12 && onFloor && this.foes.every(f => f.pos.distanceTo(p) > 1.4) && this.solids.free(p.x, p.z, 0.6, 0.3) && (!gd || t > 30 || gd.steps(p.x, p.z, hp.x, hp.z) >= 0)) break;
         }
@@ -1022,10 +1042,10 @@ export class ActShow {
   }
   private clamp = (p: THREE.Vector3, r: number) => {
     const x0 = PLAY.x0 + r + 0.2, x1 = PLAY.x1 - r - 0.2, z0 = PLAY.z0 + r + 0.3, z1 = PLAY.z1 - r - 0.2;
-    if (this.phase === 'doors' || this.phase === 'leaving' || this.phase === 'yard') for (const d of this.doors) { const l = d.ex.lane; if (p.x > l.x0 - 1.0 && p.x < l.x1 + 1.0 && p.z > l.z0 - (d.ex.id === 'back' ? 1.0 : 0.1) && p.z < l.z1 + (d.ex.id === 'back' ? 1.0 : 0.1)) {
+    if (this.phase === 'doors' || this.phase === 'leaving' || this.phase === 'yard') for (const d of this.doors) { const l = d.ex.lane, bk = d.ex.dir[1] < 0; if (p.x > l.x0 - 1.0 && p.x < l.x1 + 1.0 && p.z > l.z0 - (bk ? 1.0 : 0.1) && p.z < l.z1 + (bk ? 1.0 : 0.1)) {
         // the back road: held to its width, free to walk on out (a short lane, shallower than the hero is wide, used to clamp him back
         // inside the room so he could never reach the far end)
-        if (d.ex.id === 'back') { p.x = Math.max(l.x0 + r, Math.min(l.x1 - r, p.x)); p.z = Math.max(Math.min(l.z0, PLAY.z0) + r - 6, Math.min(PLAY.z1 - r, p.z)); }
+        if (bk) { p.x = Math.max(l.x0 + r, Math.min(l.x1 - r, p.x)); p.z = Math.max(Math.min(l.z0, PLAY.z0) + r - 6, Math.min(PLAY.z1 - r, p.z)); }
         else p.z = Math.max(l.z0 + r, Math.min(l.z1 - r, p.z));
         this.lastPush = this.solids.pushOut(p, r); return; } }
     const ox = p.x, oz = p.z;
@@ -2325,8 +2345,8 @@ export class ActShow {
     if (this.phase === 'doors') this.doors.forEach((d, i) => {
       d.lift = Math.min(1, d.lift + dt * 2.2); d.g.position.y = -2.4 * (1 - d.lift) ** 2;
       if (this.phase !== 'doors') return;
-      const p = h.pos, l = d.ex.lane, out = d.ex.id === 'left' ? p.x < l.x0 + 2.6 : d.ex.id === 'right' ? p.x > l.x1 - 2.6 : p.z < PLAY.z0 - 1.2;
-      if (this.gates?.onGlow(p, d.ex.id) || (out && p.x > l.x0 - 0.4 && p.x < l.x1 + 0.4 && p.z > l.z0 - (d.ex.id === 'back' ? 6 : 0.4) && p.z < l.z1 + 0.4)) this.leave(i);
+      const p = h.pos, l = d.ex.lane, bk = d.ex.dir[1] < 0, out = bk ? p.z < PLAY.z0 - 1.2 : d.ex.dir[0] < 0 ? p.x < l.x0 + 2.6 : p.x > l.x1 - 2.6;
+      if (this.gates?.onGlow(p, d.ex.id) || (out && p.x > l.x0 - 0.4 && p.x < l.x1 + 0.4 && p.z > l.z0 - (bk ? 6 : 0.4) && p.z < l.z1 + 0.4)) this.leave(i);
     });
     // the camera: follows the hero with a little lead, held inside the room
     // the lead follows the run, capped at running speed (a dash or a knock-back no longer throws the view forward)
