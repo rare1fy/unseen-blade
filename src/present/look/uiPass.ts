@@ -62,6 +62,7 @@ void main(){
 /** most screen rectangles the UI composite is cut into (more top-level UI groups than this: the whole screen) */
 const RMAX = 48;
 export class UiPass {
+  calls = 0;
   rt: THREE.WebGLRenderTarget; bloom: UnrealBloomPass; mat: THREE.ShaderMaterial; qs = new THREE.Scene(); cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
   private cc = new THREE.Color(); private W = 4; private H = 4;
   constructor(private renderer: THREE.WebGLRenderer, msaa: number, hdr = true) {
@@ -83,7 +84,7 @@ export class UiPass {
   }
   /** draw the UI layer over whatever is on screen now */
   render(L: Ui3DLayer) {
-    const r = this.renderer, u = this.mat.uniforms, ca = r.getClearAlpha(); r.getClearColor(this.cc);
+    const r = this.renderer, u = this.mat.uniforms, ca = r.getClearAlpha(), before = r.info.render.calls; r.getClearColor(this.cc);
     r.setRenderTarget(this.rt); r.setClearColor(0x000000, 0); r.clear(); r.render(L.scene, L.camera); r.setClearColor(this.cc, ca);
     const bOn = UI_LOOK.bloom > 0;
     if (bOn) {
@@ -110,7 +111,7 @@ export class UiPass {
     const n = OPT.uiScissor ? this.rects(L) : -1;
     if (n < 0) r.render(this.qs, this.cam);
     else if (n > 0) { r.clearDepth(); r.render(this.rs, this.cam); }
-    r.autoClear = ac;
+    this.calls = r.info.render.calls - before; r.autoClear = ac;
   }
   private sz = new THREE.Vector2(); private box = new THREE.Box3(); private v = new THREE.Vector3();
   /** the rectangles' mesh (up to RMAX quads in clip space; the composite's uniforms, depth-tested so overlaps draw once) */

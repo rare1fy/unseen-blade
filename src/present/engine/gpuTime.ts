@@ -51,6 +51,7 @@ export function gpuFrameEnd() {
     }
   }
 }
+export const gpuMeasuring = () => S.on;
 let frames = 0;
 export function gpuCount() { if (S.on) frames++; }
 /** measure for n frames (real frames: needs the page running), resolve the per-stage averages */

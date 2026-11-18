@@ -51,7 +51,8 @@ import { fallShots, snowShots, dawnShots, loadShots, brazier, getUpPose, drapeOv
 import { coldOpenShots, coldCardShots, BlindPOV } from './coldopen';
 import { Barks } from './barks';
 import { installR45 } from './regions/r45_hook';
-import { qualityLabel, cycleQuality } from '../look/quality';   // wp/regB: 第四关 · 锁江、第五关 · 许都雪 (their places, foes, bosses, __dh.region)
+import { measureFight, meterLabel, toggleMeter } from '../engine/frameMeter';
+import { QUALITY, setQuality, type Tier, qualityLabel, cycleQuality } from '../look/quality';   // wp/regB: 第四关 · 锁江、第五关 · 许都雪 (their places, foes, bosses, __dh.region)
 /** act-40 (用户：「现在开场太墨迹了，把那段timeline先搞成黑幕快速交代背景吧」): the cold open as black cards for now (false = the 寒山坞 cutscene) */
 const COLD_AS_CARDS = true;
 import { newGame, profile, save as saveProfile, seeOnce, hasSave } from './profile';
@@ -652,7 +653,8 @@ export class ActShow {
       { dbg: true, label: () => `造型：${this.wearing.name}（点这里换）`, short: () => msg`造型：${this.wearing.name}`, run: () => { const ids = ['fine_white', 'fine_hat'], n = HEROES.find(d => d.id === ids[(ids.indexOf(this.wearing.id) + 1) % ids.length]); if (n) this.wear(n); } },
       { dbg: true, label: () => `像素：${PX.on ? PX.size + 'x' : '关'}（点这里换）`, short: () => msg`像素：${PX.on ? PX.size + 'x' : '关'}`, run: () => { const order = ['2', '3', 'off', '1'], cur = PX.on ? String(PX.size) : 'off', nx = order[(order.indexOf(cur) + 1) % order.length]; if (nx === 'off') setPixel(false); else setPixel(true, +nx); try { localStorage.setItem('ub.px', nx); } catch { /* private mode */ } } },
       // 11-18 微信帧率: the quality tier (自动 → 高 → 中 → 低), kept on the device
-      { label: () => qualityLabel(), short: () => qualityLabel(), run: () => cycleQuality() }];
+      { label: () => qualityLabel(), short: () => qualityLabel(), run: () => cycleQuality() },
+      { label: meterLabel, short: meterLabel, run: toggleMeter }];
     installActTune([...SET.map(x => ({ label: x.label, run: x.run })),
       // act-50 (用户：「加入一个跳过当前剧情的调试按钮」): the cutscene / the talk running now and the ones chained after it, fast-forwarded
       //  until she can be played again (fast-forward, not a cut: every shot's own events — 杜五 and the donkey coming in, her getting up — still happen)
@@ -689,6 +691,7 @@ export class ActShow {
         return { at: [cx, cz], edited: !!code };
       }, prof: () => profile(), steleTest: (n = 0, cut = -1) => { const st = new Stele(n); st.g.position.set(this.hero.pos.x, 0, this.hero.pos.z - 2.2); this.stage!.root.add(st.g); if (cut >= 0) after(0.8, () => st.strike(cut)); return st; },
       // 11-18 一局五关: jump to a room of a region (n 0 起; room within it; the boss room = REGIONS[n].rooms), or straight to region n's boss
+      bench: (tiers?: Tier[]) => this.bench(tiers),
       region: (n = 1, room = 0, type: RoomType = 'fight') => this.jumpRegion(n, room, type),
       boss: (n = 0) => { this.jumpRegion(n, REGIONS[Math.max(0, Math.min(REGIONS.length - 1, n))].rooms, 'boss'); }, newGame: () => this.startNewGame(), talkTest: (n = 0) => this.talk(n ? CHULEI_BEFORE : WAKE_DUWU), act: () => this, bot: (on = true) => { this.botOn = on; }, run: () => this.startRun(), yard: () => this.enterYard(), wear: (id: string) => { const d = HEROES.find(h => h.id === id); if (d) this.wear(d); },
       skin: (id: SkinId) => this.cycleSkin(id),
@@ -1080,6 +1083,51 @@ export class ActShow {
   /** 11-18 一局五关 (用户：「你帮我在调试面板加一个快速切关，我好测试关卡」): a new run that starts in region n's room `room` (0 = its
    *  first room; REGIONS[n].rooms = its boss room) of the given kind — from the title, the hideout or mid-run (the tune panel's 快速切关,
    *  __dh.region / __dh.boss). Not while a cutscene or a talk is playing (they go on awaiting their own next steps) */
+  private benchmarking = false;
+  private async bench(tiers: Tier[] = ['high', 'mid', 'low']) {
+    if (this.benchmarking || this.pause.on || this.timeline.on || this.dialogue.on || this.cards.on) throw Error('Finish the current scene before benchmarking');
+    this.benchmarking = true;
+    const random = Math.random, oldQuality = { ...QUALITY }, choice = QUALITY.choice, god = this.god, bot = this.botOn, result: Partial<Record<Tier, unknown>> = {};
+    try {
+      if (this.phase === 'title') stopTitle();
+      this.hud.on = true; this.prologue = 0; this.god = true; this.botOn = false;
+      for (const tier of tiers) {
+        let seed = 4101;
+        Math.random = () => { seed = (Math.imul(1664525, seed) + 1013904223) >>> 0; return seed / 4294967296; };
+        setQuality(tier, false);
+        this.region = 0; this.room = 1; this.locale = 'hj_village'; this.forceMap = 'crossroads'; this.forceSeed = 4101;
+        this.forceSpec = this.viewSpec = null; this.noArena = false;
+        this.plan = { type: 'fight', locale: this.locale, reward: null, waves: [['hj_blade','hj_blade','hj_blade','hj_blade','hj_archer','hj_archer','hj_brute','hj_brute']] };
+        await this.buildRoom(true);
+        const deadline = performance.now() + 90000;
+        while (this.foes.length !== 8 || this.entering.length || this.phase !== 'fight') {
+          if (performance.now() > deadline) throw Error('Eight benchmark enemies did not enter');
+          await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+        }
+        const entry = this.arena!.shape!.enter, x = entry[0], z = entry[1];
+        this.hero.pos.set(x, 0, z); this.hero.vel.set(0,0,0);
+        this.foes.forEach((foe, i) => {
+          const a = Math.PI * (i + 0.5) / 8, pos = this.grid!.nearestFloor(x + 4 * Math.cos(a), z - 4 * Math.sin(a));
+          foe.pos.set(pos[0], 0, pos[1]); foe.vel.set(0,0,0);
+        });
+        this.camOverride = { base: V3(x, 12, z + 12), look: V3(x, 0, z), fov: 36 };
+        for (const foe of this.foes) foe.hp = foe.maxHp = 100000;
+        let nextSwing = 0;
+        result[tier] = await measureFight(seconds => {
+          const offset = 2.5 * Math.sin(seconds * Math.PI / 10);
+          this.camOverride!.base.x = x + offset;
+          this.camOverride!.look.x = x + offset;
+          if (seconds >= nextSwing) { this.inp.hold('attack', 0.10); nextSwing += 0.8; }
+        });
+      }
+      return result;
+    } finally {
+      Math.random = random; this.forceMap = this.forceSeed = null; this.camOverride = null;
+      this.god = god; this.botOn = bot; this.benchmarking = false;
+      QUALITY.auto = oldQuality.auto; QUALITY.reducedWorld = oldQuality.reducedWorld; setQuality(choice, false); QUALITY.drops = oldQuality.drops;
+      await this.enterYard();
+    }
+  }
   jumpRegion(n: number, room = 0, type: RoomType = 'fight') {
     if (this.phase === 'cine' || this.phase === 'talk' || this.phase === 'opening' || this.timeline.on || this.dialogue.on) return { why: '演出 / 对话还在放，放完再切' };
     if (this.phase === 'title') { stopTitle(); this.hud.on = true; }
