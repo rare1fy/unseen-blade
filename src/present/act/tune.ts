@@ -50,6 +50,9 @@ export const TUNE = {
   iaiWin: 0.25, iaiReflect: 20,
   /** 绝 · 一刀（杀意满三格后，完美闪避 / 见切时弹出 QTE）：金环收拢用多久（真实秒）、一刀的伤害 */
   qteTime: 0.9, ultDmg: 60,
+  /** 11-18 QTE（用户：「QTE我还希望再多几种情况，打起来刺激一下肾上腺素」）：拼刀——定胜负的时长（秒）、点一下推多少（满格 = 1）、对方每秒往回压
+   *  多少（精英 / 头目；越到后面越狠，二阶段再加两成）；连环破势——接招判定窗口（± 秒）；两种的镜头离两人多远、多高（米） */
+  clashTime: 2.0, clashPush: 0.13, clashElite: 0.36, clashBoss: 0.7, chainWin: 0.12, qteCamD: 9.5, qteCamH: 3.3,
   // 敌人
   enemyHp: 1, enemyDmg: 1, aggression: 0.85,   // act-20: windups ~18% longer
   /** act-20: the pause after any foe's blow before another may start one (s) */ atkCalm: 1.3,
@@ -77,6 +80,8 @@ export const TUNE_UI: Array<[TuneKey, string, number, number, number]> = [
   ['deflectWin', '砍箭窗口（秒）', 0.1, 0.8, 0.01], ['deflectStop', '弹箭顿帧', 0, 0.3, 0.01], ['deflectSlow', '弹箭慢放', 0, 0.6, 0.02], ['deflectDmg', '弹箭伤害', 4, 40, 1],
   ['dodgeSlow', '完美闪避慢放', 0, 1, 0.02], ['counterTime', '回锋斩持续（秒）', 0.5, 4, 0.1], ['counterMul', '回锋斩伤害倍数', 1, 4, 0.1],
   ['iaiWin', '破势窗口（秒）', 0.08, 0.6, 0.01], ['iaiReflect', '破势反弹伤害', 5, 60, 1], ['qteTime', '不见刀 QTE 收拢（秒）', 0.4, 2, 0.05], ['ultDmg', '不见刀伤害', 20, 150, 5],
+  ['clashTime', '拼刀：定胜负（秒）', 1, 4, 0.1], ['clashPush', '拼刀：点一下推多少', 0.02, 0.2, 0.005], ['clashElite', '拼刀：精英回压（每秒）', 0, 1, 0.02], ['clashBoss', '拼刀：头目回压（每秒）', 0, 1.2, 0.02],
+  ['chainWin', '连环破势：判定窗口（± 秒）', 0.04, 0.3, 0.01], ['qteCamD', 'QTE 镜头距离', 3, 12, 0.1], ['qteCamH', 'QTE 镜头高度', 1.2, 6, 0.1],
   ['enemyHp', '敌人血量', 0.3, 3, 0.05], ['enemyDmg', '敌人伤害', 0, 3, 0.05], ['aggression', '敌人凶度', 0.4, 2, 0.05], ['maxAttackers', '同时出手', 1, 5, 1], ['atkCalm', '出手间隙（秒）', 0, 2, 0.05],
   ['stickFixed', '摇杆（0 区域内浮动 / 1 固定）', 0, 1, 1],
   ['camH', '镜头高度', 4, 24, 0.2], ['camD', '镜头后退', 4, 24, 0.2], ['camFov', '视角', 20, 70, 1], ['camLead', '镜头前引', 0, 1.2, 0.02],

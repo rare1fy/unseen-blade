@@ -91,6 +91,7 @@ import type { Mark } from './hud';
 import { MANUALS } from './manuals';
 import { fillVals } from './cards';
 import { Hero, QI_LINK, type HeroWorld } from './hero';
+import { Duel, type DuelHost } from './qte';
 /** 11-17: the 刀谱 links the first few openings of which are slowed down to teach them (二段跳 is no link; 穿风斩 / 劈山 / 回锋斩 are known from the start) */
 // (11-18: 断云, 牵红, 踏顶 too; 掠地 not — like 二段跳 it is on whenever she is in the air, so it would slow every jump)
 const TEACH = ['chase', 'back', 'cdart', 'launch', 'kick', 'keep', 'pause', 'acut', 'reel', 'stomp'];
@@ -562,6 +563,7 @@ export class ActShow {
     SELF = this; this.dialogue = new Dialogue(this.L); this.timeline = new Timeline(this.L);
     HP_FACE.id = this.wearing.id;   // the HP medallion shows the look she wears
     this.hud = new ActHud(this.L); this.cards = new CardPick(this.L); this.banner = new SkinBanner(this.L, SKIN.id, () => this.hud.bossOn);
+    this.duel = new Duel(this.duelHost);   // 11-18 QTE 拼刀 / 连环破势 (act/qte.ts)
     platform.onPointer(ev => { if (ev.type === 'down') this.unlockAudio(); this.pointer(ev.type, (ev as { id?: number }).id ?? 0, ev.x, ev.y); });
     platform.onResize(() => this.layout2());
     if (typeof window !== 'undefined') window.addEventListener('keydown', e => this.key(e));
@@ -770,6 +772,8 @@ export class ActShow {
       grid: () => this.grid,
       // agents / captures: a foe of any kind at (x, z), facing the hero (elite: the stronger variant, where the kind has one)
       spawn: (kind: EKind, x = 0, z = -2, elite = false) => { const f = spawnFoe(kind, V3(x, 0, z), this.hero.pos.clone(), elite); /* wp/foes: elite into spawnFoe */ f.st = 'move'; this.foes.push(f); return f.uid; },
+      // 11-18 QTE: 拼刀 ('clash') / 连环破势 ('chain') against the nearest elite / boss at once (captures); what they did
+      qte: (kind: 'clash' | 'chain' = 'clash') => this.duel.force(kind), qteStats: () => this.duel.state,
       arrow: (d = 6) => { const h = this.hero, f = h.a.fwd(), p = h.pos.clone().addScaledVector(f, d).setY(1.25); this.arrows.push(new Arrow(p, Math.atan2(-f.x, -f.z), 8)); },
       // captures: every costume in a row facing the camera (the hero hidden), or gone again
       // any models by id (foes, the hideout's people…) standing in a row facing the camera (captures of model work); [] clears
@@ -870,7 +874,7 @@ export class ActShow {
   title(n = 1) {
     try { localStorage.setItem('ub.title', String(n)); } catch { /* storage blocked */ }   // the last one shown opens next time
     // a room may be up (__dh.title from the yard): its actors go the way a room change sends them
-    for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = [];
+    this.duel?.newRoom(); for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = [];
     this.yard?.dispose(); this.yard = null; this.props?.dispose(); this.props = null; this.gates?.dispose(); this.gates = null; this.pieces?.dispose(); this.pieces = null; this.leaves?.dispose(); this.leaves = null; this.stations?.dispose(); this.stations = null; this.hero?.a.dispose();
     this.clearNpcs();
     this.phase = 'title'; this.hud.on = false; this.hud.update(0, this.inp, []); this.banner.hide(); this.blob.visible = false; this.ring.visible = false; for (const m of this.shadows) m.visible = false;
@@ -1009,7 +1013,7 @@ export class ActShow {
     blood.clear();
     // 11-18 混音: each place its own room tail (the village's walls a short one, the open field barely any, the temple court long)
     audio.setRoom(ROOM_VERB[this.locale] ?? (this.room < 0 ? ROOM_VERB.yard : [0.6, 0.12]));
-    for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = [];
+    this.duel?.newRoom(); for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = [];
     this.falling = [];
     this.gates?.dispose(); this.gates = null; this.pieces?.dispose(); this.pieces = null; this.leaves?.dispose(); this.leaves = null; this.clearNpcs();
     for (const d of this.doors) d.g.parent?.remove(d.g); this.doors = []; this.stations?.dispose(); this.stations = null; this.coinsFx.clear();
@@ -1290,6 +1294,22 @@ export class ActShow {
     aimWorld: () => { const a = this.inp.aimScreen(); if (a) return V3(a.x, 0, -a.y); const r = this.inp.rstick; if (Math.hypot(r.x, r.y) > 0.3) return V3(r.x, 0, -r.y); const m = this.inp.move; return Math.hypot(m.x, m.y) > 0.2 ? V3(m.x, 0, -m.y) : null; },
     guard: o => this.guard(o), incoming: r => this.incoming(r), iaiCatch: win => this.iaiCatch(win),
     iaiGo: o => this.iaiGo(o), iaiCut: o => this.iaiCut(o), iaiBusy: () => this.iaiHeld,
+  };
+  /** 11-18 QTE（用户：「QTE我还希望再多几种情况，打起来刺激一下肾上腺素」）: 拼刀 and 连环破势, act/qte.ts — what it reaches here */
+  duel!: Duel;
+  private duelHost: DuelHost = {
+    L: this.L, hud: () => this.hud, inp: this.inp,
+    hero: () => this.hero, foes: () => this.foes, grid: () => this.grid,
+    // (not in the prologue — 打石雷 there is the scripted fall at a fifth of his life, a QTE must not take that blow; not with 不见刀's
+    //  ring up or its scene playing, the cards, a 刀谱's demonstration, a scripted pose)
+    canRun: forced => (this.phase === 'fight' || (!!forced && this.phase === 'yard')) && (!this.prologue || !!forced) && !this.proFalling && this.qteT < 0 && !this.ultOn && !this.cards.on && !this.demo.on && !this.dialogue.on && !this.timeline.on && !PAUSE.on,
+    clamp: (p, r) => this.clamp(p, r), solids: () => this.solids.list, bannerY: () => this.banner.bottomY,
+    hitFoe: (f, dmg, from, o) => this.hitFoe(f, dmg, from, o),
+    feel: dir => this.feel('rel', true, 1, dir),
+    hurtHero: (dmg, from, f) => this.hurtHero(dmg, from, f),
+    addIntent: () => { if (this.intent >= 3) this.startQte(); else this.addIntent(); },
+    camKick: (d, m) => this.camKick(d, m), camPunch: m => this.camPunch(m),
+    vibrate: l => this.platform.vibrate(l),
   };
   private foeWorld: FoeWorld = {
     pushed: (f, dx, dz) => this.pushed(f, dx, dz),
@@ -1954,10 +1974,14 @@ export class ActShow {
   private iaiHeld = false;
   private iaiGo(o: { from: THREE.Vector3; to: THREE.Vector3; r: number; soft?: boolean }) {
     const ab = o.to.clone().sub(o.from).setY(0), L2 = Math.max(1e-4, ab.lengthSq());
+    let locked: Foe | null = null;
     for (const f of this.foes) {
-      if (f.st === 'dead' || f.kind === 'dummy' || isBoss(f)) continue;
+      if (f.st === 'dead' || f.kind === 'dummy') continue;
       const t = Math.max(0, Math.min(1, f.pos.clone().sub(o.from).setY(0).dot(ab) / L2)), q = o.from.clone().addScaledVector(ab, t);
-      if (Math.hypot(f.pos.x - q.x, f.pos.z - q.z) <= o.r + f.d.r + 0.2) interruptFoe(f, 0.85);
+      if (Math.hypot(f.pos.x - q.x, f.pos.z - q.z) > o.r + f.d.r + 0.2) continue;
+      // 11-18 拼刀: the draw runs into an elite's / a boss's heavy blow coming down — blades lock (act/qte.ts), not pinned
+      if (!locked && this.duel.offerClash(f, true)) { locked = f; continue; }
+      if (!isBoss(f)) interruptFoe(f, 0.85);
     }
     this.flashScreen(o.soft ? 0.08 : 0.32, 0xfff4dc);   // (11-18 追步: the second draw only glints — one full flash a draw is enough)
   }
@@ -1983,6 +2007,8 @@ export class ActShow {
   private iaiCatch(win: number) {
     const t = this.threats(win); if (!t.foes.length && !t.arrows.length) return null;
     const near = t.foes.sort((a, b) => a.pos.distanceTo(this.hero.pos) - b.pos.distanceTo(this.hero.pos))[0];
+    // 11-18 拼刀: the draw met an elite's / a boss's heavy blow as it comes down — blades lock (act/qte.ts) instead of the parry
+    if (near && this.duel.offerClash(near)) { for (const f of t.foes) if (f !== near) interruptFoe(f); return near.pos.clone(); }
     for (const f of t.foes) interruptFoe(f);
     const from = near ? near.pos.clone() : t.arrows[0].p.clone();
     this.iaiParry(from);
@@ -2226,6 +2252,10 @@ export class ActShow {
     }
   }
   private hurtHero(dmg: number, from: THREE.Vector3, attacker?: Foe) { // wp/boons: melee source is explicit
+    // 11-18 QTE: held in a 拼刀 / a 连环 beat, nothing else reaches her (the duel lands its own blows on her through here once it lets go)
+    if (this.duel.shields) return;
+    // 11-18 拼刀: an elite's / a boss's heavy blow falling on her 破势 window — blades lock instead of the parry
+    if (this.hero.parrying && attacker && this.duel.offerClash(attacker)) return;
     // the yard: nobody dies there (the flask fills back up first); 11-18: nor under __dh.god (captures of a boss fight from start to end)
     if ((this.phase === 'yard' || this.god) && !this.hero.iframe && this.hero.hp - dmg <= 0) { this.hero.hp = this.hero.maxHp; this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp }); }
     // a blow that lands in the dash's invulnerable moment: a perfect dodge
@@ -2380,7 +2410,8 @@ export class ActShow {
     // (11-18: a later region's boss coming in — the camera draws back a while so he and the back of his room are in the frame together)
     const n = this.yard?.near ?? 0, k = (1 - 0.55 * n) * (1 + 0.08 * this.crowd) * (1 + 0.32 * this.bossLook);
     const base = this.cam.clone().add(V3(0, TUNE.camH * k, TUNE.camD * k)), look = this.cam.clone().add(V3(0, 0.6 + 0.5 * n, 0));
-    return { base, look, fov: TUNE.camFov };
+    // 11-18 QTE (用户：「QTE的时候要带镜头表现噢」): the duel's own framing blended over this one while it runs
+    return this.duel.cam({ base, look, fov: TUNE.camFov });
   }
   /** act-50 debug: fast-forward the story (FX.speed up, every line advanced at once, voices hushed) until play resumes */
   private storySkip = false; private storyIdle = 0; private storyWas = 1; private storyT = 0;
@@ -2422,8 +2453,9 @@ export class ActShow {
       this.demo.update(rdt);
       if (this.inp.b.attack.pressed || this.inp.b.dash.pressed || this.inp.b.jump.pressed || this.inp.b.special.pressed || padNav.poll(0).any) this.demo.skip();
     }
-    const busy = this.cards.on || this.phase === 'leaving' || this.ultOn || !!h.scriptPose || this.demo.on;   // (act-46: lying on the mat / getting up — no sliding off it)
+    const busy = this.cards.on || this.phase === 'leaving' || this.ultOn || !!h.scriptPose || this.demo.on || this.duel.locks;   // (act-46: lying on the mat / getting up — no sliding off it) (11-18 QTE: held in a 拼刀 / a 连环)
     this.qteFrame(rdt); this.parryCd -= rdt;
+    this.duel.frame(rdt);   // 11-18 拼刀 / 连环破势: reads the attack button before it is cleared below
     if (busy) { for (const b of Object.values(this.inp.b)) { b.pressed = false; b.down = false; b.held = 0; } this.inp.move.x = this.inp.move.y = 0; }
     if (this.phase === 'intro') { this.introT += dt; this.inp.move.x = 0; this.inp.move.y = this.introT < 0.5 ? 0.7 : 0; for (const b of Object.values(this.inp.b)) { b.pressed = false; b.down = false; b.held = 0; } }
     this.statusStep(dt, h);
@@ -2468,7 +2500,8 @@ export class ActShow {
     }
     this.decoyStep(dt); this.pinStep(dt); this.markStep();   // 11-18 秘传: 留影, 截脉, 枭首's mark
     for (const f of this.foes) {
-      if (!this.ultOn) {
+      if (this.duel.holds(f)) this.duel.holdFoe(f, dt);   // 11-18 QTE: the duel moves the foe it has (held in the bind / its string's beats)
+      else if (!this.ultOn) {
         // 11-18 留影: the foes the afterimage draws see it as her — they close on it and strike at it; a blow that lands bursts it
         if (this.decoyFor(f)) {
           const d = this.decoy!, hp = fw.heroPos.clone(), hy = fw.heroY, hd = fw.heroDodge, hurt = fw.hurtHero;
@@ -2479,6 +2512,7 @@ export class ActShow {
       }
       f.a.update(dt);
     }
+    this.duel.flush();   // 11-18 拼刀: a blow 破势 met in the loop above locks blades now (not a frame later)
     this.reelStep(dt); this.flatStep(dt); this.dropStep(dt);   // 11-18 牵红's cord, 踏顶's flattened, the dead coming down out of the air
     this.separate();   // act-37: bodies don't pass through each other
     this.pitFalls(dt);   // 11-18 打出界
@@ -2591,7 +2625,8 @@ export class ActShow {
     } else this.ringK = -1;
     if (h.fullT > 0.34) { fxRing(h.pos.clone().setY(0.08), 0xffe7a0, 1.3, { life: 0.3 } as never); shake(0.06 * TUNE.shake); this.camPunch(0.025); fxSparks(h.a.local(0.12, 0.95, 0.05), 0xfff6dc, 14, 4); this.flashScreen(0.1, 0xfff0c8); }
     // 11-18 藏锋: the blade hums in its sheath as the stance fills (and swells like a pulse while the breath is held); the world dims a little
-    { const ch = h.st === 'charge' ? h.charge : 0; audio.hum(ch > 0 ? Math.min(1, 0.25 + 0.75 * ch) : 0, ch >= 1 ? 1 : 0); this.dimTo(ch > 0 ? 0.35 + 0.65 * ch : 0, rdt); }
+    // (11-18 拼刀: while blades are locked the same steel drone is the edges grinding — higher and louder as it gets harder)
+    { const ch = h.st === 'charge' ? h.charge : 0, dh = this.duel.hum; audio.hum(dh >= 0 ? dh : ch > 0 ? Math.min(1, 0.25 + 0.75 * ch) : 0, dh >= 0 ? 0 : ch >= 1 ? 1 : 0); this.dimTo(ch > 0 ? 0.35 + 0.65 * ch : 0, rdt); }
     this.flashStep(rdt);
     this.hud.btns.attack.charge = ch;
     const nowCue = h.st === 'charge' && (this.threats(TUNE.iaiWin).foes.length > 0 || this.threats(TUNE.iaiWin).arrows.length > 0);
@@ -2676,7 +2711,7 @@ export class ActShow {
   }
   /** the world can stand still here: walking about or fighting (not the start screen, a cutscene, a conversation, the cards, a wipe) */
   canPause() {
-    return !this.pause.on && !this.labOn && !this.cards.on && !this.ultOn && !this.dialogue.on && !this.timeline.on && (['yard', 'intro', 'fight', 'doors'] as Phase[]).includes(this.phase);
+    return !this.pause.on && !this.labOn && !this.cards.on && !this.ultOn && !this.duel.locks && !this.dialogue.on && !this.timeline.on && (['yard', 'intro', 'fight', 'doors'] as Phase[]).includes(this.phase);
   }
   pauseGame() {
     if (!this.canPause() || this.botOn) return;
@@ -2701,6 +2736,8 @@ export class ActShow {
   private botYard() { return this.botStay; }
   private bot() {
     const h = this.hero, I = this.inp; if (!h) return;
+    // 11-18 QTE: the bot mashes a 拼刀 and presses a 连环's beats (else the smoke run would stand in the bind)
+    if (this.duel.locks) { for (const n of ['dash', 'special', 'jump'] as const) { const b = I.b[n]; b.pressed = false; b.down = false; b.held = 0; } I.move.x = I.move.y = 0; this.duel.bot(I.b.attack, clock.rdt); return; }
     if (this.qteT >= 0) { const k = this.qteT / TUNE.qteTime; const b = I.b.ult; const on = k > 0.85 && k < 1.0; b.pressed = on && !b.down; b.down = on; return; }
     if (this.cards.on) { this.cardT += clock.rdt; if (this.cardT > 1.2) { this.cardT = 0; this.cards.key('ok'); } return; } else this.cardT = 0;
     const live = this.foes.filter(f => f.st !== 'dead' && f.kind !== 'dummy' && !f.mem.hidden);   // (11-18: the bot can't see the hidden ones either)
