@@ -14,6 +14,7 @@ Object.assign(globalThis, {
 const { roomDefinition } = await import('../src/present/act/show');
 const { titleDefinition } = await import('../src/present/act/title');
 import { ROOM_MAPS } from '../src/present/asm/roomMaps';
+import { REGIONS } from '../src/present/act/regions';
 import { ASM_QA } from '../src/present/asm/assemble';
 import { VoxWorld } from '../src/present/look/voxkit';
 import { quietBattleGlow } from '../src/present/scenes/battleGlow';
@@ -150,6 +151,9 @@ bake(yard.def, true);
 const bakedMaps = new Set(['crossroads', 'courtyards', 'islands']);
 for (const m of ROOM_MAPS.filter(map => bakedMaps.has(map.id))) {
   const plan = { type: 'fight', locale: m.locale, reward: null, waves: [] } as const;
+  // (11-19: since the drawn rooms are picked per region, roomDefinition only takes the map when it knows the room's region — without it
+  //  the map was dropped and these three were baked as nameless random rooms, so the package had none of them)
+  const region = REGIONS.findIndex(rg => rg.locales.includes(m.locale) || rg.bossLocale === m.locale);
   for (const count of [1, 2]) {
     const r = roomDefinition({
       ...args,
@@ -157,6 +161,7 @@ for (const m of ROOM_MAPS.filter(map => bakedMaps.has(map.id))) {
       nextRooms: Array(count).fill(plan),
       locale: m.locale,
       map: m.id,
+      region: region >= 0 ? region : undefined,
       plan: { ...plan, waves: [] },
       regionSpec: { season: m.locale.startsWith('xp_') ? 'winter' : 'autumn' },
     });
