@@ -42,6 +42,9 @@ export default defineConfig(({ command, mode }) => { const WX = command === 'bui
     __WX__: JSON.stringify(WX),
     __CG__: JSON.stringify(CG),
     __LANG__: JSON.stringify(EN ? 'en' : 'zh'),
+    // 11-18 (用户：「调试只在我们本地打的桌面包里面存在就行了」): the debug switches — the look / skin / title / font / pixel rows in 设置,
+    // their keys and the URL switches — only in the dev server and the desktop web page; the WeChat and CrazyGames packages ship without
+    __DEBUG_UI__: JSON.stringify(!WX && !CG),
   },
   optimizeDeps: { entries: ['index.html'] },
   server: {
