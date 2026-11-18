@@ -11,7 +11,7 @@ import * as THREE from 'three';
 import { digitsCanvas } from '../ui3d/pixfont';
 import type { Model3D } from '../ui3d/models3d';
 import { btnIcon3D } from './icons3d';
-import { skillIcon3D } from './skillIcons';
+import { isLinkIcon, skillIcon3D } from './skillIcons';
 import { LINK_COLORS, STANCE_COLORS, type LinkIcon } from './skillInfo';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { UiLayer } from '../ui3d/layer';
@@ -45,9 +45,10 @@ function ol(rows: string[]): string[] {
   for (let y = 0; y < H; y++) { let r = ''; for (let x = 0; x < W; x++) { const c = at(x, y); r += c || ([[-1, 0], [1, 0], [0, -1], [0, 1]].some(([dx, dy]) => at(x + dx, y + dy)) ? '#' : '.'); } out.push(r); }
   return out;
 }
-/** Links retain their own rim colours and share their models with the skill pages. */
+/** A link shares its icon and colour with the skill pages. */
 export type HintKey = LinkIcon | 'talk';
 type FaceKey = HintKey | keyof typeof STANCE_COLORS;
+const LINK_FLIP_S = 0.18, LINK_GLOW_S = 0.35;
 
 const ICONS: Record<BtnKey, string[]> = {
   // act-29 (用户：「ICON的品质」): about twice the old resolution, each material in two or three tones with a lit edge
@@ -147,16 +148,13 @@ export class IronBtn {
   private pipCores: THREE.Mesh[] = []; private pipPrev = -1; private pipPopI = -1; private pipPopT = 0; private pipOutI = -1; private pipOutT = 0; private pipGainT = 0; private pipDenyT = 0;
   /** refused (11-17: a hold for the stance with less than a bar of 气): the shake and dull red of a press that cannot act, and the lamps go dull red */
   deny() { this.denyT = 0.32; this.pipDenyT = 0.45; }
-  private ring: ReturnType<typeof plateRing>; private icon: Model3D; private sock!: THREE.Mesh; private sockK = 0; private sockCol = new THREE.Color(); private linkT = 0; private shadow: THREE.Mesh; private tassel: THREE.Mesh | null = null;
+  private ring: ReturnType<typeof plateRing>; private icon: Model3D; private linkT = 0; private shadow: THREE.Mesh; private tassel: THREE.Mesh | null = null;
   private pressK = 0; private flashT = 0; private wasReady = true; private tt = 0; private wasFull = false; private lift = 6; private popT = 1;
   /** act-29 (用户：「UI组件的各种状态、动效的切换、特效的提示」): a spring on the button's size (press sinks, release overshoots), a
    *  shake + dull red when pressed while it cannot act, a run of light round the plates when it comes ready, a kick from the game
    *  (a cut lands, a perfect dodge) in a colour, and the dart button leaning toward where it is being aimed */
   private sc = 1; private scV = 0; private wasDown = false; private denyT = 0; private sweepT = 1; private kickT = 0; private kickCol = new THREE.Color(0xffffff);
   aim: { x: number; y: number } | null = null; private tiltX = 0; private tiltY = 0;
-  /** act-29 (用户：「派生技能的按钮反馈很弱」): the link opening bursts (sparks + a ring wave in its colour), the button rises and its
-   *  picture glows that colour, a 3D token of the move floats beside it; pressing while it is open flashes 'linked' */
-
   /** the hideout: the cut button is the 'talk' button while someone is near (its picture swaps to a speech bubble) */
   talk = false;
   /** act-35 (用户：「按钮的切换直接替换按钮里面的，不要在外面额外闪个图标出来」): the picture inside the button swaps — to the speech
@@ -168,7 +166,7 @@ export class IronBtn {
     const back = new THREE.Mesh(octCyl(0.5, 0.12), lam(IRON_D)); this.root.add(back);
     const rim = new THREE.Mesh(octCyl(0.47, 0.14), lam(0x30333b)); rim.position.z = 0.01; this.root.add(rim);
     // the socket the picture floats over: a darker recessed octagon
-    const sock = new THREE.Mesh(new THREE.CircleGeometry(0.3, 8, Math.PI / 8), lam(0x24272e)); sock.position.z = 0.085; this.root.add(sock); this.sock = sock;
+    const sock = new THREE.Mesh(new THREE.CircleGeometry(0.3, 8, Math.PI / 8), lam(0x24272e)); sock.position.z = 0.085; this.root.add(sock);
     this.shadow = new THREE.Mesh(new THREE.CircleGeometry(0.2, 8, Math.PI / 8), new THREE.MeshBasicMaterial({ color: 0x07080a, transparent: true, opacity: 0.5, depthWrite: false }));
     this.shadow.position.z = 0.088; this.root.add(this.shadow);
     this.ring = plateRing(0.39, 0.09, 0.27); this.root.add(this.ring.plates, this.ring.rivets);
@@ -237,32 +235,53 @@ export class IronBtn {
     if (ready && !this.wasReady) { this.flashT = 0.3; this.popT = 0; this.sweepT = 0; this.scV += 0.6; }   // no 'ready' tick (buttons are silent)
     this.wasReady = ready; this.flashT = Math.max(0, this.flashT - dt); this.popT = Math.min(1, this.popT + dt / 0.5);
     const altKey: FaceKey | null = this.talk ? 'talk' : this.qteOn ? 'ult' : this.now ? 'parry' : ch > 0 ? 'stance' : this.hint;
+    const link = altKey != null && altKey !== 'talk' && isLinkIcon(altKey);
+    const hc = altKey && !link && !this.now ? FACE_COLS[altKey] : null;
     const pulse = 0.5 + 0.5 * Math.sin(this.tt * 12), geo = this.ring.plates.geometry;
     for (let i = 0; i < 8; i++) {
       // cool-down: the plates come back one by one like a clock face from the top; charge: they heat up from the bottom
       const lit = ready || i / 8 < 1 - frac;
       const fromBottom = (4 - Math.abs(i - 4)) / 4, heat = ch > 0 ? Math.max(0, Math.min(1, (ch - (1 - fromBottom) * 0.85) * 3)) : 0;
-      const hc = altKey && !this.now ? FACE_COLS[altKey] : null;
-      const glow = this.now ? 0.9 : hc ? (altKey === 'talk' ? 0.42 : altKey === 'stance' ? heat : 1.12) : this.flashT > 0 ? Math.min(0.5, this.flashT * 1.6) : this.hot || full ? 0.45 + 0.4 * pulse : heat;
+      const glow = this.now ? 0.9 : hc ? (altKey === 'talk' ? 0.42 : altKey === 'stance' ? heat : 1.12) : this.flashT > 0 ? Math.min(0.5, this.flashT * 1.6) : (this.hot && !link) || full ? 0.45 + 0.4 * pulse : heat;
       this.col.copy(lit ? this.base : this.dark).lerp(this.now ? WHITE : hc ?? this.ember, lit ? glow * 0.8 : 0);
       // the next plate to come back while cooling: a dim ember edge (you can see where it is)
       if (!lit && i / 8 < 1 - frac + 1 / 8) this.col.lerp(this.ember, 0.22 + 0.12 * pulse);
       // came ready: a run of light round the plates from the top, clockwise
       if (this.sweepT < 1) { const at = this.sweepT * 9 - 0.5, w = Math.max(0, 1 - Math.abs(i - at)); this.col.lerp(WHITE, w * 0.25); }   // (act-34 / 35: 「太闪了」— a faint run of light)
       if (this.kickT > 0) this.col.lerp(this.kickCol, Math.min(1, this.kickT * 4) * 0.5);
-      if (this.linkT > 0 && hc) this.col.lerp(WHITE, 0.5 * (this.linkT / 0.35) * (this.linkT / 0.35));   // (act-37: the link opening — one soft lift, eased out)
       if (this.denyT > 0) this.col.lerp(DENY, Math.min(1, this.denyT * 4) * 0.6);
       paintRange(geo, this.ring.ranges[i * 2], this.col);
     }
     if (this.tassel) this.tassel.rotation.z = Math.sin(this.tt * 2.1) * 0.14 + Math.sin(this.tt * 5.3) * 0.04;
+    // 11-18 (用户：「那个圈有点丑」): the shield keeps its iron colour. Turn the icon to its edge before changing the visible face.
+    const wasFace = this.altK >= 0.5 ? this.altKey : null;
+    const wasLink = this.altKey != null && this.altKey !== 'talk' && isLinkIcon(this.altKey);
+    const flip = link || wasLink ? LINK_FLIP_S : 0.14;
+    if (altKey && !this.altKey && !link) this.scV += 0.9;
+    if (altKey && this.altK < 0.5) this.altKey = altKey;
+    if (altKey && this.altKey !== altKey) {
+      this.altK = Math.max(0.5, this.altK - dt / (flip / 2));
+      if (this.altK === 0.5) { this.altKey = altKey; if (!link) this.scV += 0.5; }
+    } else this.altK = Math.max(0, Math.min(1, this.altK + (altKey ? 1 : -1) * dt / flip));
+    if (!altKey && this.altK === 0) this.altKey = null;
+    if (this.altKey && !this.alts.has(this.altKey)) {
+      const key = this.altKey, m = key === 'talk' ? btnIcon3D('talk') : skillIcon3D(key);
+      m.rotation.y = Math.PI; this.alts.set(key, m); this.iconG.add(m);
+    }
+    const face = this.altK >= 0.5 ? this.altKey : null;
+    // act-37 (用户：「可派生的时候还是要亮一下，只不过不能太亮了」): start the one-shot when the new face first shows.
+    this.linkT = face && face !== wasFace ? LINK_GLOW_S : Math.max(0, this.linkT - dt);
+    const lk = (this.linkT / LINK_GLOW_S) ** 2, e = this.altK * this.altK * (3 - 2 * this.altK);
+
     // the floating picture: lift by state, bob, a hop-and-turn when it comes ready, pressed back onto the plate
-    const k = Math.min(1, dt * 10), hotK = this.hot || full || this.now;
+    const k = Math.min(1, dt * 10), hotK = (this.hot && !link) || full || this.now;
     const liftT = this.down ? 1 : !ready ? 2 : hotK ? 15 + 3 * Math.sin(this.tt * 6) : 7;
     this.lift += (liftT - this.lift) * k;
     const pop = this.popT < 1 ? Math.sin(this.popT * Math.PI) * 12 : 0, bob = Math.sin(this.tt * 2.6 + this.x * 0.01) * 1.6;
-    const hint = altKey && altKey !== 'talk' && altKey !== 'stance' ? altKey : null;
-    const liftPx = hint ? 6 : 0;
-    if (liftPx) L.at(this.x + deny * 5, this.y, this.root.position.z + L.px(liftPx), this.root.position);
+    const timingCue = altKey === 'parry' || altKey === 'ult';
+    // The larger icon needs room as it turns edge-on. Keep the plates and socket still underneath it.
+    const liftPx = link || wasLink ? this.size * 0.11 * Math.sin(e * Math.PI) : timingCue ? 6 : 0;
+    if (timingCue) L.at(this.x + deny * 5, this.y, this.root.position.z + L.px(6), this.root.position);
     // Move along the icon's view ray. Changing only z pulls a thick model off-centre on the slanted shield.
     const iconZ = L.px(this.size * 0.36 + (this.lift + pop) * 1.2 + liftPx);
     L.at(this.x + deny * 5, this.y - (this.lift * 0.35 + pop + bob) * (this.size / 100), iconZ, this.iconG.position);
@@ -282,34 +301,19 @@ export class IronBtn {
     // the shadow on the socket: smaller and fainter as the picture rises
     this.shadow.scale.setScalar(1.15 - Math.min(0.4, this.lift / 40)); (this.shadow.material as THREE.MeshBasicMaterial).opacity = 0.55 - Math.min(0.3, this.lift / 50);
     this.iconG.visible = this.root.visible;
-    // act-35 (用户：「现在的派生ui闪光太严重了，眼睛都要闪瞎了」): no sparks, no ring wave, no white sweep when a link opens or is
-    // taken — the rim simply takes the move's colour (above) and the picture inside becomes the move
-    // act-37 (用户：「现在切换到派生图标的表现又太不明显了」): a change of state, not a flash — the whole button takes the move's colour
-    // (plates above, the socket a deep shade of it, steady), and the picture turns over like a token: the sabre on its back, the
-    // move on its face (a light tint of its colour, standing out on the dark socket). Another move while one is up: the face turns to its edge, then round to the new one.
-    if (altKey && !this.altKey) { this.altKey = altKey; this.altK = 0; this.scV += 0.9; if (hint) this.linkT = 0.35; }   // (a small knock as it turns; act-37 用户：「可派生的时候还是要亮一下，只不过不能太亮了」→ one soft lift)
-    if (altKey && this.altKey && altKey !== this.altKey && this.altK < 0.5) this.altKey = altKey;   // not showing yet: just take it
-    let m = this.altKey ? this.alts.get(this.altKey) : null;
-    if (this.altKey && !m) {
-      const k = this.altKey; m = k === 'talk' ? btnIcon3D('talk') : skillIcon3D(k);
-      m.rotation.y = Math.PI; this.alts.set(k, m); this.iconG.add(m);
-    }
-    const toEdge = !!altKey && !!this.altKey && altKey !== this.altKey;   // a different move: turn to the edge first
-    this.altK = toEdge ? Math.max(0.5, this.altK - dt / 0.07) : Math.max(0, Math.min(1, this.altK + (altKey ? 1 : -1) * dt / 0.14));
-    if (toEdge && this.altK <= 0.5) { this.altKey = altKey; this.scV += 0.5; if (hint) this.linkT = 0.35; }
-    this.linkT = Math.max(0, this.linkT - dt); const lk = (this.linkT / 0.35) ** 2;
-    if (!altKey && this.altK <= 0) this.altKey = null;
-    const e = this.altK * this.altK * (3 - 2 * this.altK), face = e >= 0.5;
     this.iconG.rotateY(Math.PI * e);
-    for (const [k, o] of this.alts) {
-      o.visible = face && k === this.altKey;
-      if (o.visible) { o.scale.setScalar(1.05); if (k !== 'talk') { o.setDim(0); o.setGlow(1 + 1.2 * lk); } }
+    for (const [key, o] of this.alts) {
+      o.visible = key === face;
+      if (!o.visible) continue;
+      const move = key !== 'talk' && isLinkIcon(key);
+      o.scale.setScalar(move ? 1.3 : 1.05);
+      if (move) {
+        // Tint the lit voxels as well: some moves have few emissive cells, and the shape still needs to read at phone size.
+        for (const { m } of o.lit) { m.emissive.copy(FACE_COLS[key]); m.emissiveIntensity = 0.13 + 0.14 * lk; }
+        o.setGlow(1 + 0.4 * lk);
+      } else if (key === 'ult' || key === 'parry') o.setGlow(1 + 1.2 * lk);
     }
-    this.icon.visible = !face; this.icon.scale.setScalar(1);
-    // the socket: a deep shade of the move's colour while a move is up (not for 'talk')
-    { const on = hint ? 1 : 0; this.sockK += (on - this.sockK) * Math.min(1, dt * 14);
-      if (hint) this.sockCol.copy(FACE_COLS[hint]).multiplyScalar(0.2);
-      ((this.sock.material as THREE.MeshLambertMaterial).color).setHex(0x24272e).lerp(this.sockCol, this.sockK); if (hint && lk > 0) (this.sock.material as THREE.MeshLambertMaterial).color.lerp(FACE_COLS[hint], 0.6 * lk); }
+    this.icon.visible = !face;
   }
   dispose() { disposeTree(this.root); disposeTree(this.iconG); if (this.badge) disposeTree(this.badge); for (const m of this.alts.values()) m.dispose(); }
 }
