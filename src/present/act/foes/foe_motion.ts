@@ -1,6 +1,8 @@
 import { Euler, Quaternion, Vector3 } from 'three';
 import { curve, mov, rot, snap, type Action, type Bone } from '../../actors/rig';
 import type { BattleActor } from '../../bestiary/battle';
+/** the long-robed (a skirt to the ground on the hips): they walk in short, low steps under the hem */
+export const ROBED = new Set(['hj_taoist', 'hj_taoist_e', 'xp_frost', 'xp_frost_e', 'cx_zhu', 'cx_zhu_e', 'cx_boss', 'wl_boss', 'xp_boss']);
 
 type Bones = Record<string, Bone>;
 const TAU = Math.PI * 2;
@@ -99,18 +101,23 @@ export class FoeGait {
     const upper = -b.shinL.rest!.p.y, lower = -b.footL.rest!.p.y, length = upper + lower;
     const run = smooth((this.speed - 2) / 1.2), duty = mix(0.52, 0.45, run);
     const scale = Math.max(0.01, a.root.scale.x);
-    const stride = stand * mix(1.6, 2.4, run) * this.tempo;
+    // (11-18 用户：「道士走路脚会穿帮漏出来」: a robe to the ground hides the legs — its feet take short, quick, low steps that stay
+    //  under the hem, the hips hardly turn)
+    //  (the steps keep a walking rhythm — a tiny stride would patter — but the feet swing less than a fifth as far, so the shoes stay at the
+    //  hem; they slide a little, under the robe where nobody sees)
+    const robe = ROBED.has(a.def.id) ? 1 : 0;
+    const stride = stand * mix(1.6, 2.4, run) * this.tempo * mix(1, 0.7, robe), reach = stride * mix(1, 0.18, robe);
     this.phase = wrap(this.phase + speed * dt / (stride * scale));
-    const lift = stand * mix(0.035, 0.14, run);
-    const left = strideFoot(this.phase, duty, stride, lift);
-    const right = strideFoot(wrap(this.phase + 0.5), duty, stride, lift);
+    const lift = stand * mix(0.035, 0.14, run) * mix(1, 0.25, robe);
+    const left = strideFoot(this.phase, duty, reach, lift);
+    const right = strideFoot(wrap(this.phase + 0.5), duty, reach, lift);
     const flight = duty < 0.5 ? 0.018 * run * Math.sin(Math.PI * clamp((this.phase % 0.5 - duty) / (0.5 - duty))) : 0;
     left.lift += flight;
     right.lift += flight;
     const twist = Math.cos(this.phase * TAU);
     const heading = angleDelta(this.heading - a.yaw);
     const across = Math.sin(heading), forward = Math.cos(heading);
-    rot(hips, 0, 0.10 * twist * weight, clamp(-this.turn * this.speed * 0.015, -0.12, 0.12) * weight);
+    rot(hips, 0, 0.10 * twist * weight * mix(1, 0.4, robe), clamp(-this.turn * this.speed * 0.015, -0.12, 0.12) * weight);
 
     // Solve hip height from the longest reach each ankle needs. Near mid-stance the
     // support leg extends. At transfer the two splayed legs draw the pelvis down.

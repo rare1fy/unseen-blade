@@ -7,6 +7,16 @@ import * as THREE from 'three';
 import { onUpdate, scene, V3 } from '../engine/world';
 import type { ModelDef } from '../bestiary/models';
 import type { BattleActor } from '../bestiary/battle';
+import { Action } from '../actors/rig';
+import { movesOf, type FoeMove } from './animCatalog';
+
+/** what the moves are called on the button (the actions' own names are code) */
+const MOVE_CN: Record<string, string> = {
+  cut: '劈砍', sweep: '横扫', slam: '砸地', lunge: '扑击', poke: '刺', shoot: '射', cast: '施法', pull: '拽索', lob: '抛掷', burst: '爆身', fan: '扇射',
+  thrust: '戟刺', sweepHalberd: '戟扫', bash: '盾撞', cutAfter: '盾后补刀', paw: '马踏', charge: '冲锋', aimXbow: '弩射', axeSweep: '斧扫', axeChop: '斧劈',
+  backstab: '背刺', backstab2: '背刺（二）', blow: '吹针', sow: '撒霜', whirl: '甩链', slamChain: '砸链', needleFan: '针扇', kick: '踢',
+};
+const moveName = (m: FoeMove) => MOVE_CN[m.atk] ?? MOVE_CN[m.name] ?? (m.name === 'attack' ? '出招' : m.name);
 
 export interface AnimHost {
   /** where the group stands (the yard's open middle) */
@@ -16,7 +26,7 @@ export interface AnimHost {
 }
 export interface AnimItem { def: ModelDef; name: string; npc: boolean }
 type Mode = 'idle' | 'slow' | 'walk' | 'run';
-type View = 'side' | 'front' | 'back' | 'game' | 'orbit';
+type View = 'side' | 'front' | 'back' | 'game' | 'orbit' | 'free';
 const SPEED: Record<Mode, number> = { idle: 0, slow: 1.25, walk: 2.0, run: 4.0 };
 /** a person's walk turns this fast at 1.25 m/s (the cutscenes' pace, act/prologue.ts) — scaled with the speed */
 const NPC_PH = 7.5, NPC_PH_QUAD = 6.5;
@@ -38,8 +48,12 @@ export function openAnimPreview(h: AnimHost, groups: Array<{ name: string; items
   };
 
   let gi = 0, pick = -1, mode: Mode = 'idle', view: View = 'side', slow = 1, ang = 0.5, zoom = 1, t = 0;
-  let acts: Array<{ a: BattleActor; it: AnimItem; x: number; z: number; ph?: number; kneel: number; downT: number }> = [];
-  const yawOf = () => (view === 'front' ? 0 : view === 'back' ? Math.PI : Math.PI / 2);
+  // 11-18 (用户：「给这个页面加个我自由拖拽视角的功能」): drag on the picture to turn the camera round them (and up / down), the wheel to come
+  // closer; the way they face stays what the last view button set
+  let face = Math.PI / 2, cy = 0, cp = 0.1;
+  let acts: Array<{ a: BattleActor; it: AnimItem; x: number; z: number; ph?: number; kneel: number; downT: number; mi: number }> = [];
+  let lastMove = '';
+  const yawOf = () => face;
   const build = () => {
     for (const s of acts) { s.a.root.removeFromParent(); s.a.dispose(); }
     const g = groups[gi], list = pick >= 0 ? [g.items[pick]] : g.items;
@@ -49,7 +63,7 @@ export function openAnimPreview(h: AnimHost, groups: Array<{ name: string; items
       const row = Math.floor(i / per), col = i % per, inRow = Math.min(per, list.length - row * per);
       const x = h.home.x + (col - (inRow - 1) / 2) * gap, z = h.home.z - row * 3.6;
       const a = h.make(it.def); a.place(V3(x, 0, z), yawOf()); root.add(a.root); a.update(0.016);
-      return { a, it, x, z, kneel: 0, downT: -1 };
+      return { a, it, x, z, kneel: 0, downT: -1, mi: 0 };
     });
     (window as unknown as { __anim?: unknown }).__anim = acts;   // (captures: the figures on show)
     refresh();
@@ -85,6 +99,7 @@ export function openAnimPreview(h: AnimHost, groups: Array<{ name: string; items
     //  the right of the group — they stand left of the middle)
     const e = extent(), W = Math.max(2.2, e.w), D = Math.max(6.2, (W / 2 + 1.8) * 2.6 + e.d * 0.6) * zoom, off = D * 0.1;
     if (view === 'game') h.cam([e.cx + off, 9.5 * Math.max(1, W / 12) * zoom, e.cz + 8.5 * Math.max(1, W / 12) * zoom], [e.cx + off, 0.4, e.cz - e.d / 2], 38);
+    else if (view === 'free') { const tx = e.cx, tz = e.cz - e.d / 2; h.cam([tx + Math.sin(cy) * Math.cos(cp) * D, 0.9 + Math.sin(cp) * D, tz + Math.cos(cy) * Math.cos(cp) * D], [tx, 0.9, tz], 32); }
     else if (view === 'orbit') { ang += rdt * 0.4; h.cam([e.cx + Math.sin(ang) * D, 2.2, e.cz - e.d / 2 + Math.cos(ang) * D], [e.cx, 0.9, e.cz - e.d / 2], 32); }
     else h.cam([e.cx + off, 1.3, e.cz + D], [e.cx + off, 0.9, e.cz - e.d / 2], 30);
   });
@@ -112,7 +127,10 @@ export function openAnimPreview(h: AnimHost, groups: Array<{ name: string; items
   const mR = sec('走跑');
   const mBtns = ([['idle', '站着'], ['slow', '慢走'], ['walk', '走'], ['run', '跑']] as const).map(([m, title]) => [m, btn(mR, title, () => { mode = m; act(s => { s.kneel = 0; }); })] as const);
   const aR = sec('动作');
-  btn(aR, '出招', () => foeOnly(a => a.attack()));
+  // the moves each one really makes in a fight (animCatalog.ts), the next one each press
+  const play = (s: (typeof acts)[number], m: FoeMove) => s.a.play(new Action(m.name, m.dur, m.at, m.atk ? { atk: m.atk, dist: 0.6 } : { dist: 0.6 }));
+  btn(aR, '出招（下一招）', () => { const names: string[] = []; act(s => { if (s.it.npc) return; const ms = movesOf(s.it.def.id), m = ms[s.mi % ms.length]; s.mi++; play(s, m); names.push(`${moveName(m)}（${(s.mi - 1) % ms.length + 1}/${ms.length}）`); }); lastMove = pick >= 0 ? names[0] ?? '' : '各出一招'; });
+  btn(aR, '全部招式连放', () => { act(s => { if (s.it.npc) return; const ms = movesOf(s.it.def.id); let tt = 0; ms.forEach(m => { window.setTimeout(() => { if (s.downT < 0) play(s, m); }, tt * 1000 / slow); tt += m.dur + 0.5; }); }); lastMove = '全部招式'; });
   btn(aR, '施法', () => foeOnly(a => a.cast()));
   btn(aR, '吼', () => foeOnly(a => a.roar()));
   btn(aR, '正面挨打', () => act(s => { (s.a as unknown as { hurt(p: number, f?: number): void }).hurt(1.4, 0); }));
@@ -121,7 +139,17 @@ export function openAnimPreview(h: AnimHost, groups: Array<{ name: string; items
   btn(aR, '倒地', () => act(s => { if (s.it.npc) return; s.a.fall(); s.downT = 2.8; }));
   btn(aR, '蹲下 / 起来', () => act(s => { if (s.it.npc && s.it.def.kind !== 'quad') { s.kneel = s.kneel ? 0 : 1; if (s.kneel) mode = 'idle'; } }));
   const cR = sec('镜头');
-  const vBtns = ([['side', '侧面'], ['front', '正面'], ['back', '背面'], ['game', '游戏镜头'], ['orbit', '转圈']] as const).map(([v, title]) => [v, btn(cR, title, () => { view = v; })] as const);
+  const vBtns = ([['side', '侧面'], ['front', '正面'], ['back', '背面'], ['game', '游戏镜头'], ['orbit', '转圈']] as const).map(([v, title]) => [v, btn(cR, title, () => { view = v; face = v === 'front' ? 0 : v === 'back' ? Math.PI : Math.PI / 2; })] as const);
+  // the drag: anywhere on the picture (not the panel); from a fixed view it starts where that view looks from
+  let drag: { x: number; y: number } | null = null;
+  const onPanel = (e: Event) => !!(e.target as HTMLElement | null)?.closest?.('#anim, #animToggle');
+  window.addEventListener('pointerdown', e => {
+    if (onPanel(e)) return; drag = { x: e.clientX, y: e.clientY };
+    if (view !== 'free') { cy = view === 'orbit' ? ang : 0; cp = view === 'game' ? 0.78 : view === 'orbit' ? 0.2 : 0.08; view = 'free'; refresh(); }
+  });
+  window.addEventListener('pointermove', e => { if (!drag) return; cy -= (e.clientX - drag.x) * 0.008; cp = Math.max(-0.1, Math.min(1.45, cp + (e.clientY - drag.y) * 0.006)); drag = { x: e.clientX, y: e.clientY }; });
+  window.addEventListener('pointerup', () => { drag = null; }); window.addEventListener('pointercancel', () => { drag = null; });
+  window.addEventListener('wheel', e => { if (onPanel(e)) return; zoom = Math.max(0.3, Math.min(3, zoom * (e.deltaY > 0 ? 1.1 : 0.9))); }, { passive: true });
   btn(cR, '拉近', () => { zoom = Math.max(0.35, zoom * 0.8); }); btn(cR, '拉远', () => { zoom = Math.min(3, zoom * 1.25); });
   const sR = sec('速度');
   const sBtns = ([[1, '原速'], [0.5, '慢一半'], [0.25, '慢四倍']] as const).map(([k, title]) => [k, btn(sR, title, () => { slow = k; })] as const);
@@ -134,7 +162,9 @@ export function openAnimPreview(h: AnimHost, groups: Array<{ name: string; items
     for (const [v, b] of vBtns) b.classList.toggle('on', view === v);
     for (const [k, b] of sBtns) b.classList.toggle('on', slow === k);
     const g = groups[gi];
-    info.textContent = `${g.name}${pick >= 0 ? ' · ' + g.items[pick].name : `（${g.items.length} 个）`}\n走跑时脚下的格子往后走，落地的脚应该钉在格子上。\n据点的人不跑：选「跑」时他们快走。`;
+    const mv = pick >= 0 && !g.items[pick].npc ? '\n招式：' + movesOf(g.items[pick].def.id).map(moveName).join(' · ') + (lastMove ? `\n刚才：${lastMove}` : '') : '';
+    info.textContent = `${g.name}${pick >= 0 ? ' · ' + g.items[pick].name : `（${g.items.length} 个）`}${mv}\n在画面上按住拖动转视角，滚轮拉近拉远。
+走跑时脚下的格子往后走，落地的脚应该钉在格子上。\n据点的人不跑：选「跑」时他们快走。`;
   }
   build(); listRow();
 }
