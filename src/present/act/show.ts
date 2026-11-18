@@ -388,15 +388,17 @@ export class ActShow {
       wakeK = (k: number) => { gk = k; };
     }); });
     await new Promise(r => after(0.8, () => r(null)));
-    seeOnce('wake1'); let up = false;
+    seeOnce('wake1'); let up = false, talked = false;
+    // her sabre comes back once the talk is over (孙婆婆：「把刀给她吧」) and she is on her feet — whichever is later
+    const giveBlade = () => { const w = this.hero.a.bones.weapon; if (w) w.visible = true; };
     const getUp = () => { if (up) return; up = true; const h = this.hero; let k = 0; const step = () => { k = Math.min(1, k + 1 / (30 * 3.2)); wakeK(k);
       if (k < 1) { after(1 / 30, step); return; }
       // standing: the body offset goes into her position (she has stepped forward onto her feet), the cutscene pose lets go
-      h.pos.x += Math.sin(h.a.yaw) * GETUP_STEP; h.pos.z += Math.cos(h.a.yaw) * GETUP_STEP; h.a.root.position.copy(h.pos); h.a.body.position.set(0, 0, 0); h.a.body.rotation.set(0, 0, 0); h.scriptPose = null; };
+      h.pos.x += Math.sin(h.a.yaw) * GETUP_STEP; h.pos.z += Math.cos(h.a.yaw) * GETUP_STEP; h.a.root.position.copy(h.pos); h.a.body.position.set(0, 0, 0); h.a.body.rotation.set(0, 0, 0); h.scriptPose = null; if (talked) giveBlade(); };
       step(); };
     await this.talk(PRO_WAKE, (_i, l) => { if (l.who === 'act' && /撑起|站起|起身/.test(l.text)) getUp(); });
     getUp(); this.musicHold = null; this.music(); saveProfile();
-    { const w = this.hero.a.bones.weapon; if (w) w.visible = true; }   // 孙媪：「把刀给她吧」
+    talked = true; if (!this.hero.scriptPose) giveBlade();
     this.camOverride = null; GRADE.bloomThreshold = bloomWas;   // (the battle camera eases back in)
   }
   /** the run's haul goes home (meta.ts bank: currencies, runs / wins / deaths), saved */
