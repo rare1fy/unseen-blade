@@ -7,6 +7,7 @@
 import * as THREE from 'three';
 import { rot, mov, curve, snap, type Action, type Bone } from '../../actors/rig';
 import { POSE_AFTER, type PoseFn } from '../../bestiary/poseHooks';
+import type { BattleActor } from '../../bestiary/battle';
 import { attackBeats, attackBody } from './foe_motion';
 import { engagement, grip, shortThrust, stance, support, weaponArc } from './weapon_pose';
 
@@ -80,13 +81,13 @@ reg('xp_needle', (b, _t, a) => {
     attackBody(b, motion, 'ranged', 0.65);
     const up = curve(k, [[0, 0], [a!.at * 0.44, 1], [a!.at, 1], [1, 0]]);
     const draw = motion.load * up, puff = motion.hit;
-    rot(b.spine, -0.08 * draw + 0.12 * puff, 0, 0); put(b.neck, 0.08 * up, 0, 0);
+    rot(b.spine, -0.08 * draw + 0.12 * puff, 0.66 * up, 0); put(b.neck, 0.06 * up, -0.66 * up, 0);
     const s = 1 + 0.07 * draw; b.chest?.scale.set(s, 1, s);
     // The back of the pipe is just behind the holding fist. Bring it to the
     // posed mouth so leaning in to blow does not detach it from his lips.
-    b.root.worldToLocal(b.head.localToWorld(pipeMouth.set(0, -0.015, 0.29)));
-    grip(b, 'R', pipeMouth.x, pipeMouth.y, pipeMouth.z + 0.24, 0, 0, up);
-    support(b, 0.21, 0, 0, up, 0.035);
+    b.root.worldToLocal(b.head.localToWorld(pipeMouth.set(0, 0.0525, 0.255)));
+    grip(b, 'R', pipeMouth.x, pipeMouth.y, pipeMouth.z + 0.235, 0, 0, up);
+    grip(b, 'L', 0.39, 1.16, 0.20, -0.35, 0, up);
     return;
   }
   if (n === 'flee') {
@@ -125,12 +126,12 @@ reg('xp_frost', (b, _t, a) => {
 });
 
 // ================================================================== 沉江恶鬼（水鬼）
-reg('xp_diver', (b, _t, a, off) => {
+reg('xp_diver', (b, _t, a, off, self) => {
   const n = a?.name, k = a?.k ?? 0;
   // always: hunched from the water, the head pushed forward
   rot(b.spine, 0.18, 0, 0); rot(b.neck, -0.12, 0, 0);
   if (n === 'attack' && a?.data.atk === 'poke') {
-    shortThrust(b, a, 1.10, true);
+    shortThrust(self as BattleActor, a, 1.10, true);
     return;
   }
   if (n === 'rise') {
@@ -158,8 +159,8 @@ reg('xp_diver', (b, _t, a, off) => {
     return;
   }
 });
-reg('xp_conscript', (b, _t, a) => {
-  if (a?.name === 'attack' && a.data.atk === 'poke') shortThrust(b, a, 0.97);
+reg('xp_conscript', (_b, _t, a, _off, self) => {
+  if (a?.name === 'attack' && a.data.atk === 'poke') shortThrust(self as BattleActor, a, 0.97);
 }, false);
 POSE_AFTER.xp_conscript_b = POSE_AFTER.xp_conscript;
 

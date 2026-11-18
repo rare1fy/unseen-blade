@@ -15,7 +15,7 @@ const put = (b: Bone, x = 0, y = 0, z = 0) => b.rotation.set(x, y, z);
 const paired = (id: string, fn: PoseFn) => { POSE_AFTER[id] = fn; POSE_AFTER[id + '_e'] = fn; };
 const passive = (a: Action | null) => a?.name === 'fall' || a?.name === 'collapse' || a?.name === 'roar';
 const halberdSweep: readonly [GripKey, GripKey, GripKey] = [
-  [-0.53, 1.18, -0.18, -0.12, -1.72, PI], [-0.13, 1.04, 0.50, 0.04, -0.05, PI],
+  [-0.53, 1.18, -0.18, -0.12, -1.72, PI], [-0.13, 1.04, 0.16, 0.04, -0.05, PI],
   [0.32, 1.04, 0.42, 0.08, 1.22, PI],
 ];
 const shieldCut: readonly [GripKey, GripKey, GripKey] = [
@@ -282,7 +282,7 @@ paired('ly_torch', (b, t, a, off, self) => {
 const looter: PoseFn = (b, t, a, off, self) => {
   if (passive(a)) return;
   const { load, fire, step } = a?.name === 'attack' ? beats(b, a) : { load: 0, fire: 0, step: 0 };
-  if (a?.name === 'attack') { off.z = 0.31 * step; off.y = 0; put(b.spine, 0.16 + 0.35 * fire, -0.18 * load, 0); legs(b, 0.5 * load, 0.6 * step); }
+  if (a?.name === 'attack') { off.z = 0.03 * step; off.y = 0; put(b.spine, 0.16 + 0.35 * fire, -0.18 * load, 0); legs(b, 0.5 * load, 0.6 * step); }
   else rot(b.spine, 0.15, 0, 0);
   rot(b.neck, -0.16 * fire, 0, 0);
   put(b.cape, 0.03 * Math.sin(t * 6) - 0.12 * fire);
@@ -290,7 +290,7 @@ const looter: PoseFn = (b, t, a, off, self) => {
   hold(b, -0.25, 0.94, 0.20 + 0.06 * swing, 0.54, -0.38);
   if (a?.name !== 'attack') return;
   const w = engagement(a);
-  grip(b, 'R', -0.26 + 0.13 * fire, 0.97 + 0.03 * fire, -0.12 + 0.78 * fire, 0, 0, w);
+  grip(b, 'R', -0.26 + 0.13 * fire, 0.97 + 0.03 * fire, -0.12 + 0.63 * fire, 0, 0, w);
   grip(b, 'L', 0.38 + 0.07 * fire, 0.97 + 0.12 * load, 0.20 - 0.41 * fire, -0.26, 0, w);
 };
 POSE_AFTER.ly_looter = looter;
@@ -302,10 +302,11 @@ function axeReady(b: Bones, t: number, swing: number) {
 
 /** 斧刃触地的同一个落点，劈中和卡斧之间不用换姿势。 */
 function plantAxe(b: Bones, off: Vector3, t: number, s: number, strain = 0) {
-  legs(b, 0.16 * s, 0.83 * s);
+  mov(b.hips, 0, -0.14 * s, 0.08 * s);
   rot(b.spine, 0.56 * s - 0.08 * strain, 0, 0);
   rot(b.neck, -0.32 * s, 0, 0);
   off.z += 0.26 * s;
+  if (s > 0) stance(b, s, 0.17 * s);
   const pitch = mix(-1.15, 0.108, s), yaw = -0.76 * (1 - s), roll = 0.18 * (1 - s);
   grip(b, 'R', mix(-0.34, -0.13, s), mix(1.22 + 0.012 * Math.sin(t * 3), 1.03, s), mix(0.3, 0.50, s), pitch, yaw, 1, roll);
   supportGrip(b, -0.33, pitch, yaw, s, 0, roll);

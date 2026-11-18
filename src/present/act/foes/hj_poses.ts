@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { curve, type Action, type Bone } from '../../actors/rig';
 import { POSE_AFTER, type PoseFn } from '../../bestiary/poseHooks';
+import type { BattleActor } from '../../bestiary/battle';
 import { attackBeats, attackBody } from './foe_motion';
 import { engagement, grip, shortThrust, weaponArc } from './weapon_pose';
 
@@ -197,8 +198,8 @@ const pose: PoseFn = (b, t, action) => {
 
 for (const id of ['hj_blade', 'hj_blade_e', 'hj_boss', 'hj_sickle', 'hj_jar']) POSE_AFTER[id] = pose;
 
-const mobPoke: PoseFn = (b, _t, a) => {
-  if (a?.name === 'attack' && a.data.atk === 'poke') shortThrust(b, a, 0.97);
+const mobPoke: PoseFn = (_b, _t, a, _off, self) => {
+  if (a?.name === 'attack' && a.data.atk === 'poke') shortThrust(self as BattleActor, a, 0.97);
 };
 for (const id of ['hj_mob', 'hj_mob_b']) POSE_AFTER[id] = mobPoke;
 

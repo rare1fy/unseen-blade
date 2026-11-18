@@ -81,7 +81,10 @@ function thrust(b: Bones, a: Action, style: 'spear' | 'sword' | 'shield') {
   const { load, hit, hip, chest } = beats(b, a);
   const long = a.data.atk === 'lunge', w = engagement(a);
   const drive = Math.min(1, hip), extend = Math.min(1, hit);
-  const stride = curve(a.t, [[a.dur * a.at - 0.21, 0], [a.dur * a.at - 0.02, 1]]);
+  const at = a.dur * a.at, quickShield = style === 'shield' && at < 0.5;
+  // The elite's shield counter has a much shorter wind-up. Keep its lead
+  // foot back while the weapon is still held behind the shield.
+  const stride = curve(a.t, [[at - (quickShield ? at * 0.24 : 0.21), 0], [at - Math.min(0.02, at * 0.10), 1]]);
   const travel = (long ? 0.46 : 0.31) * stride * w;
   // (the shield-man stays upright behind his shield: leaning as deep as the swordsman's lunge put his back over it and hid it from
   //  both cameras)
@@ -102,7 +105,7 @@ function thrust(b: Bones, a: Action, style: 'spear' | 'sword' | 'shield') {
     const reach = b.foreR.position.length() + b.handR.position.length();
     grip(b, 'R', shield ? -0.40 : -0.32, 1.15 - 0.07 * drive,
       0.01 + (shoulder.z + reach) * extend, pitch, 0, w);
-    if (shield) grip(b, 'L', 0.20, 1.10 - 0.06 * drive, 0.47 + 0.13 * drive, 0, 0, w);
+    if (shield) grip(b, 'L', quickShield ? 0.20 : 0.11, 1.10 - 0.06 * drive, (quickShield ? 0.47 : 0.37) + 0.13 * drive, 0, 0, w);
     else {
       rot(b.armL, 0.70 * chest, 0, 0.32 * chest);
       rot(b.foreL, -0.27 * load + 0.44 * chest, 0, 0);
@@ -208,6 +211,17 @@ const xbowPose: PoseFn = (b, t, a, off) => {
 /** 没水鬼: low and crouched, the hook hand back; the cut: a quick cross-body slash */
 const diverPose: PoseFn = (b, t, a, off, self) => {
   base(b, t, { armed: 'r', hunch: 0.25 }); bend(b, 0.25); if (shared(b, a, off)) return;
+  if (a?.name === 'attack' && !a.data.atk) {
+    // The ambush deals its strike at resurfacing, before this short follow-up
+    // clip advances. Emerge with the hook already leading the body.
+    const w = curve(a.k, [[0, 1], [a.at, 1], [1, 0]]);
+    mov(b.hips, 0, -0.13 * w, 0.14 * w);
+    rot(b.spine, 0.21 * w, 0.19 * w, 0);
+    stance(b, w, 0.18 * w);
+    grip(b, 'R', -0.18 + 0.24 * a.k, 0.95 + 0.23 * a.k, 0.64 - 0.13 * a.k, 0.18 - 0.75 * a.k, 0.71 * a.k, w, 0.54);
+    grip(b, 'L', 0.41, 0.97, -0.11, -0.29, 0, w);
+    return;
+  }
   // The water ambush uses the same falling hook as the close cut, from a crouch.
   const motion = cuttingStep(b, a!, 0.07);
   weaponArc(b, a!, motion, 'R', ...hookCut);
@@ -328,10 +342,14 @@ const zhuPose: PoseFn = (b, t, a, off, self) => {
     const { load, hit, chest } = beats(b, a!, 'cast');
     const w = engagement(a!);
     rot(b.spine, 0.1 * chest, 0, 0);
-    grip(b, 'L', 0.15, 1.02, 0.37, 0, PI / 2, w);
+    grip(b, 'L', 0.29, 0.99, 0.59, -0.08, 0.89, w);
     // Place the end of the striker on the strings at the beat, over the
     // portion of the instrument which crosses the space in front of him.
-    grip(b, 'R', -0.25, 1.19 + 0.29 * load, 0.37, -0.52 * load + 0.36 * hit, 1.34, w);
+    const pitch = -0.57 * load + 0.37 * hit, yaw = 1.04, shaft = 0.545;
+    b.root.worldToLocal(b.offhand.localToWorld(shoulder.set(0, 0.0875, -0.12)));
+    grip(b, 'R', shoulder.x - shaft * Math.cos(pitch) * Math.sin(yaw),
+      shoulder.y + shaft * Math.sin(pitch) + 0.37 * load,
+      shoulder.z - shaft * Math.cos(pitch) * Math.cos(yaw), pitch, yaw, w);
   }
 };
 /** 崔玄: upright, unhurried, the fan held loose at the chest, the left hand behind his back; the fan stroke a flick across; with the

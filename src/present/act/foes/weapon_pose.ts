@@ -1,5 +1,6 @@
 import { Euler, Quaternion, Vector3 } from 'three';
 import { curve, mov, rot, type Action, type Bone } from '../../actors/rig';
+import type { BattleActor } from '../../bestiary/battle';
 import { attackBeats, attackBody } from './foe_motion';
 
 type Bones = Record<string, Bone>;
@@ -81,10 +82,6 @@ export function followThrough(a: Action) {
 export type GripKey = readonly [x: number, y: number, z: number, pitch: number, yaw: number, roll?: number];
 type AttackBeats = ReturnType<typeof attackBeats>;
 
-export function gripAt(b: Bones, side: Side, key: GripKey, weight = 1) {
-  grip(b, side, key[0], key[1], key[2], key[3], key[4], weight, key[5]);
-}
-
 /** The weapon passes through the hit key at Action.at, keeps moving past the
  * target, then blends back to guard. The arm follows the grip for all three. */
 export function weaponArc(b: Bones, a: Action, beats: AttackBeats, side: Side,
@@ -100,17 +97,24 @@ export function weaponArc(b: Bones, a: Action, beats: AttackBeats, side: Side,
 
 /** The short rushes share one straight line. The step and hips bring the
  * shoulder forward so the hand can draw back without losing extension. */
-export function shortThrust(b: Bones, a: Action, height: number, twoHanded = false) {
+export function shortThrust(actor: BattleActor, a: Action, height: number, twoHanded = false) {
+  const b = actor.bones;
   const motion = attackBeats(a), w = engagement(a);
   const { load, hit, hip, chest } = motion;
   const drive = Math.min(1, hit);
+  const reach = twoHanded ? 0.44 : 0.54, lane = twoHanded ? 1.8 : 1.6;
+  const tip = (reach + (actor.def.tip ?? 0) * actor.cx) * actor.root.scale.z;
   attackBody(b, motion, 'melee', 0.55);
+  // Replace the generic attack's visual lunge. It pushed the entire shaft
+  // past the short lane before the fist had finished extending.
+  actor.off.z = -0.07 * load + Math.min(0, lane - 0.11 - tip) * w;
   mov(b.hips, 0, -0.07 * hip, -0.05 * load + 0.18 * hip);
   rot(b.spine, 0.19 * chest, twoHanded ? -0.64 * w : -0.23 * load + 0.28 * chest, 0);
   rot(b.neck, -0.11 * chest, twoHanded ? 0.43 * w : 0, 0);
   stance(b, w, 0.24 * hip);
-  grip(b, 'R', -0.29 + (twoHanded ? 0.23 : 0.18) * drive, height, -0.11 + 0.81 * drive, 0, 0, w);
-  if (twoHanded) support(b, 0.25 - 0.10 * drive, 0, 0, w);
+  const yaw = 0.11 * drive;
+  grip(b, 'R', -0.34 + (twoHanded ? 0.14 : 0.10) * drive, height, -0.11 * (1 - drive) + reach * drive, 0, yaw, w);
+  if (twoHanded) support(b, 0.25 - 0.10 * drive, 0, yaw, w);
   else grip(b, 'L', 0.37 + 0.10 * drive, height + 0.07 * load, 0.11 - 0.28 * drive, -0.38, 0, w);
 }
 
