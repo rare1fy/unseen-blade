@@ -1334,3 +1334,4 @@
 - 改：垫片只在 `document` 不是真 `HTMLDocument` 时才改，改不动就跳过；全局 `localStorage` 也一样（模拟器里 `window.localStorage` 只有 getter）。立绘不再走 `THREE.TextureLoader`（它用 `document.createElementNS('img')`），改用平台层 `loadImage`：小游戏里 `wx.createImage`，网页里 `new Image()`。正文字体：`wx.loadFont` 没加载上时字体名是空的，拼出来的「24px , sans-serif」不是合法字体，画布就停在默认的 10 像素——改成空名字时用「24px sans-serif」。
 - 测法补上：`tools/wx-devtools-sim.mjs <工程目录>` + `wechat/devtools-sim.html`：普通网页里把 `document.createElement(NS)` 设成只读、装一个假 `wx`（画布、触摸、`createImage`、读包内文件、分包、存储）、`GameGlobal = window`，把 `game.js` 包在函数里执行（运行时是 `require` 它，顶层 `var` 是模块自己的）。旧包在这里同样起不来（报「只读属性」那一类），新包据点、战斗、立绘对话都正常。真机那种情况仍用无 DOM 沙盒测，两种都要过。
 
+- （11-18）发版时桌面不再出模型查看页 `不见刀_白发女模型.html`（用户：「不要模型页了」）；`?lab` 的模型查看页（`act/lab.ts`）保留。

@@ -15,7 +15,7 @@
 - 美术：横平竖直的大块体；**不许斜线阶梯「梯」**，不许逐格随机碎点；不加暗色遮罩；高亮克制；体素 7 厘米一格。
 - UI 全是 3D 实物（铁器风：铁盾按钮、甲片、铜钉），按钮上不放字；2D 平面面板不行。换场景不黑屏。
 - 玩家看到的文字由 agy 写、我核对（不把策划案式的说明放到玩家界面上）。
-- 构建只放桌面（`%USERPROFILE%\Desktop`），不发 Artifact；从 act-13 起文件名用 `不见刀_试玩.html`（act-12 及以前叫 `动作原型_试玩.html`）。每次给用户看的构建打 tag（`act-NN`，接着 dicehero3d 那边的编号），并在第五节记一行。**网页版**：用户 11-16 问「你布静态页没有，github」→ 每次出包同时发 GitHub Pages：`npm run build` 后 `node tools/publish-pages.mjs dist/index.html act-NN`（`gh-pages` 分支只留最新一版的 `index.html`，强推覆盖），地址 https://rare1fy.github.io/unseen-blade/ ，约 1 分钟生效。
+- 构建只放桌面（`%USERPROFILE%\Desktop`），不发 Artifact；**桌面只出 `不见刀_试玩.html` 和微信包，不再出 `不见刀_白发女模型.html`**（用户 11-18：「不要模型页了」；网页版 `?lab` 仍能打开模型查看页）；从 act-13 起文件名用 `不见刀_试玩.html`（act-12 及以前叫 `动作原型_试玩.html`）。每次给用户看的构建打 tag（`act-NN`，接着 dicehero3d 那边的编号），并在第五节记一行。**网页版**：用户 11-16 问「你布静态页没有，github」→ 每次出包同时发 GitHub Pages：`npm run build` 后 `node tools/publish-pages.mjs dist/index.html act-NN`（`gh-pages` 分支只留最新一版的 `index.html`，强推覆盖），地址 https://rare1fy.github.io/unseen-blade/ ，约 1 分钟生效。
 - git：不用 `git stash`、`checkout --`、`restore`、`reset --hard`；只提交自己改的文件；提交信息结尾 `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`。远端 `origin` = github.com/rare1fy/unseen-blade（2026-11-16 用户建好并给了地址）：出包提交后推 `main` 和新 tag；用户另有说法就照用户的。
 - 机械的、要求写得清清楚楚的活可以派 Codex；审美、判断、验收自己做。
 
@@ -54,6 +54,7 @@
 
 ## 四、用户反馈记录（原话 → 结论；细节见 `docs/DESIGN.md`）
 
+- **act-57 之后（11-18）**：问「不见刀_试玩.html、不见刀_白发女模型.html这两个啥区别」，听了解释后：「不要模型页了」→ 发版不再往桌面放 `不见刀_白发女模型.html`，桌面那份已删；模型查看页本身留在代码里（网页版地址加 `?lab`），要看时再单独出。
 - 用户 11-16：「没看懂这个游戏怎么玩，我其实觉得可以试试做实时战斗，哈迪斯那样的动作肉鸽你能做好吗」→「你用之前做了的日本素材和忍者角色做一个我看看效果，UI还是3D的UI，横版手机操作，尽量做到最好，让我有信心推进下一步」。
 - 目标：手感原型。影忍（京都篇忍者）一个人；移动 / 冲刺（无敌帧）/ 三段连斩 / 按住蓄力突进斩 / 影分身；山贼、山犬、弓手、头目四种敌人，出招前地上亮预警；拼装的日本场景当房间，清完开门进下一间；界面全是 3D 实物（左下虚拟摇杆、右下技能石钮、血瓶）；调参面板让用户边打边调。
 - **act-01 第一轮反馈（11-16）**，设计细节在 `docs/DESIGN.md`：
