@@ -126,7 +126,9 @@ const rider: RoleAI = {
   bumped(f, _w, dx, dz) {
     if (f.st !== 'strike' || !f.lunge || f.mem.thrown || Math.hypot(dx, dz) < 0.02) return;
     f.mem.thrown = true; f.lunge = null; f.vel.set(0, 0, 0); f.attacking = false; dropTeles(f);
-    AI.setSt(f, 'stagger', 2.0); f.a.play(new Action('unhorse', 2.0, 0.3)); shake(0.25 * TUNE.shake); cue('wallSlam', 1); cue('foePain', 1, 1);
+    // The fall rolls off the free side of the saddle, away from the surface that stopped the horse.
+    const fallSide = Math.sign(dx * Math.cos(f.yaw) - dz * Math.sin(f.yaw)) || -1;
+    AI.setSt(f, 'stagger', 2.0); f.a.play(new Action('unhorse', 2.0, 0.3, { fallSide })); shake(0.25 * TUNE.shake); cue('wallSlam', 1); cue('foePain', 1, 1);
     fxSmoke(f.pos.clone().setY(0.4), 0x8a7a6a, 10, { r: 0.8, spd: 1.8, up: 0.8, s: 0.5, life: 0.8 });
   },
   recover: () => 1.2,

@@ -17,6 +17,13 @@ const down = new Vector3(0, -1, 0), wrist = new Vector3(), delta = new Vector3()
 const inv = new Quaternion(), parentQ = new Quaternion();
 const gripQ = new Quaternion(), axis = new Vector3(), handPoint = new Vector3(), gripShift = new Vector3(), axes = new Euler();
 
+/** 抵消上半身的转动，手、掌心通孔和杆保持同一朝向。 */
+function turnHand(b: Bones, hand: Bone, q: Quaternion) {
+  parentQ.identity();
+  for (let n = hand.parent; n && n !== b.root; n = n.parent) parentQ.premultiply(n.quaternion);
+  hand.quaternion.copy(parentQ.invert().multiply(q));
+}
+
 /** 从握点倒推肘的位置。兵器仍是 hand 的孩子，手伸不到时先保肘的长度，再让另一手沿杆就近握。 */
 function handAt(b: Bones, side: Side, point: Vector3, q: Quaternion, grip = true) {
   const arm = b['arm' + side], fore = b['fore' + side], hand = b['hand' + side], p = arm.parent!;
@@ -34,11 +41,7 @@ function handAt(b: Bones, side: Side, point: Vector3, q: Quaternion, grip = true
   inv.copy(arm.quaternion).invert();
   fore.quaternion.setFromUnitVectors(down, delta.multiplyScalar(length).sub(elbow).applyQuaternion(inv).normalize());
 
-  // 抵消上半身的转动，手、掌心通孔和杆保持同一朝向。
-  parentQ.identity();
-  for (let n = hand.parent; n && n !== b.root; n = n.parent) parentQ.premultiply(n.quaternion);
-  hand.quaternion.copy(parentQ.invert().multiply(q));
-  return hand;
+  turnHand(b, hand, q);
 }
 
 function aim(pitch: number, yaw: number, roll = 0) {
@@ -137,6 +140,7 @@ paired('ly_rider', (b, t, a, off, self) => {
   const pull = reining ? Math.sin(k * PI) : 0;
   const bail = fall ? curve(k, [[0, 0], [0.13, 0.32], [0.32, 1], [0.63, 1], [0.8, 0.72], [1, 0]]) : 0;
   const vault = fall ? curve(k, [[0, 0], [0.13, 0.38], [0.30, 0], [0.83, 0], [0.92, 0.3], [1, 0]]) : 0;
+  const fallSide = (a?.data.fallSide as number | undefined) ?? -1;
   const bob = 0.018 * gait * (1 + Math.sin(phase * 2));
   b.hips.position.y = b.hips.rest!.p.y + bob;
   put(b.horse, -0.14 * rear - 0.08 * pull + 0.07 * gait * Math.sin(phase));
@@ -149,10 +153,10 @@ paired('ly_rider', (b, t, a, off, self) => {
     const lift = 0.16 * gait * Math.max(0, Math.cos(ph)) + 0.28 * scrape;
     hoof(b, id, 17 * CELL - bob - lift, 0.39 * gait * Math.sin(ph) + 0.30 * scrape);
   }
-  // 马保持独立的四足支撑。人在撞停后越过马肩落地，再用手撑地回到马侧。
-  mov(b.horse, 0.33 * bail, 0, -0.29 * bail);
-  mov(b.saddleSeat, -0.93 * bail, -1.04 * bail + vault, 0.84 * bail);
-  put(b.saddleSeat, -0.14 * rear + 0.21 * gait + 0.42 * bail, 0.27 * bail, -1.12 * bail);
+  // 马撞停时，骑手往内场侧后翻落。枪转向身侧，和人一起离开墙面。
+  mov(b.horse, -0.18 * fallSide * bail, 0, -0.18 * bail);
+  mov(b.saddleSeat, 0.99 * fallSide * bail, -1.02 * bail + vault, -0.47 * bail);
+  put(b.saddleSeat, -0.14 * rear + 0.21 * gait + 0.28 * bail, -0.22 * fallSide * bail, -1.24 * fallSide * bail);
   put(b.spine, 0.13 + 0.14 * gait - 0.22 * rear - 0.16 * pull);
   put(b.legL, -0.53 + 0.26 * bail, 0, 0.1); put(b.legR, -0.53 - 0.18 * bail, 0, -0.1);
   put(b.shinL, 0.96 - 0.38 * bail); put(b.shinR, 0.96 - 0.26 * bail);
@@ -160,7 +164,8 @@ paired('ly_rider', (b, t, a, off, self) => {
   const tilt = gallop ? 0.03 : -0.68 + 0.55 * rear;
   if (fall && bail > 0.04) {
     put(b.armR, -0.3 - bail, 0, -0.55 * bail); put(b.foreR, -0.8);
-    put(b.weapon, 1.45 * bail, -0.5 * bail, 0);
+    put(b.weapon);
+    turnHand(b, b.handR, aim(-0.11, fallSide * (PI * 0.62)));
     put(b.armL, -0.9 * bail, 0, 0.83 * bail); put(b.foreL, -0.4 - 0.45 * bail);
   } else {
     hold(b, -0.43, 1.69 + bob + 0.08 * rear, 0.32 - 0.09 * pull, tilt, -0.22, 0);
