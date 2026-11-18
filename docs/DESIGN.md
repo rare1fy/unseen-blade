@@ -1308,3 +1308,12 @@
 - 台式机显卡看不出手机的填充瓶颈（整帧 GPU 约 1.5～2 毫秒），软件渲染（SwiftShader）在 3 倍屏上一帧上千毫秒，量不准；真机上的帧率要用户在微信里看（暂停菜单「设置」→「画质」可切）。
 
 **微信打包进仓库**（`npm run wx`，见 CLAUDE.md 第二节）：act-50 那个包是仓库外打的，主包 `game.js` 里是 act-50 的代码加几处手改（音频走 `wx.createWebAudioContext`、正文字体走 `wx.loadFont`、资源按文件路径读），而且启动就会崩——小游戏垫片造的假 `document` 让调参面板的「没有 document 就不建」判断失效，`pane.append` 不存在。这几处改成仓库里的正式代码：`audio.ts` 没有 `AudioContext` 时用 `__ubWxAudio`；`bodyFont.ts` 有 `wx.loadFont` 就用它；`HAS_DOM` 挡住调参面板；`vite build --mode wechat` + `tools/wxAssets.ts` 把资源变成包内文件。打出来：主包约 3.7 MB（game.js 2.3 MB + 字体 / 立绘），三个音频分包各 3.2～3.7 MB，合计约 14 MB；在 pxui 的无 DOM 沙盒里启动、进开始画面、跳进战斗屋、界面齐全，自动档选「中」。
+
+### 微信开发者工具里启动报错（11-18，act-56）
+
+用户导入 act-55 的微信工程：「TypeError: MiniProgramError Cannot assign to read only property 'createElementNS' of object '#<HTMLDocument>' at game.js:91」。
+
+- 原因：开发者工具（模拟器）里，小游戏的代码旁边有一个**真的** `HTMLDocument`，方法是只读的；`wechat/glue.js`（从 act-50 那个包里拆出来的）无条件地把 `document.createElement` / `createElementNS` 换成自己的（为了让 `img` 走 `wx.createImage`），赋值在严格模式下直接抛错。真机上没有 `document`，pxui 的垫片造一个假的，改它没问题；我之前的冒烟用的是 pxui 的无 DOM Worker 沙盒，只覆盖了真机那种，所以没测出来。
+- 改：垫片只在 `document` 不是真 `HTMLDocument` 时才改，改不动就跳过；全局 `localStorage` 也一样（模拟器里 `window.localStorage` 只有 getter）。立绘不再走 `THREE.TextureLoader`（它用 `document.createElementNS('img')`），改用平台层 `loadImage`：小游戏里 `wx.createImage`，网页里 `new Image()`。正文字体：`wx.loadFont` 没加载上时字体名是空的，拼出来的「24px , sans-serif」不是合法字体，画布就停在默认的 10 像素——改成空名字时用「24px sans-serif」。
+- 测法补上：`tools/wx-devtools-sim.mjs <工程目录>` + `wechat/devtools-sim.html`：普通网页里把 `document.createElement(NS)` 设成只读、装一个假 `wx`（画布、触摸、`createImage`、读包内文件、分包、存储）、`GameGlobal = window`，把 `game.js` 包在函数里执行（运行时是 `require` 它，顶层 `var` 是模块自己的）。旧包在这里同样起不来（报「只读属性」那一类），新包据点、战斗、立绘对话都正常。真机那种情况仍用无 DOM 沙盒测，两种都要过。
+

@@ -13,6 +13,7 @@ import { cue } from '../../audio/cues';
 import { sayLine } from '../../audio/voice';
 import { audio } from '../../audio/audio';
 import { GL } from '../engine/world';
+import { loadImage } from '../../platform/index';
 
 export interface Line { who: string; text: string }
 interface Speaker { name: string; side: 'L' | 'R'; mute?: boolean }
@@ -31,7 +32,9 @@ const texCache = new Map<string, THREE.Texture>();
 function portraitTex(id: string, ready: (t: THREE.Texture) => void) {
   const url = PORTRAIT[id]; if (!url) return null;
   let t = texCache.get(id);
-  if (!t) { t = new THREE.TextureLoader().load(url, tt => ready(tt)); t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter; t.generateMipmaps = false; t.colorSpace = THREE.SRGBColorSpace; texCache.set(id, t); }
+  // (11-18 微信小游戏: through the platform's image loader — wx.createImage there — not THREE.TextureLoader's document.createElementNS)
+  if (!t) { const tx = new THREE.Texture(); t = tx; tx.magFilter = THREE.NearestFilter; tx.minFilter = THREE.NearestFilter; tx.generateMipmaps = false; tx.colorSpace = THREE.SRGBColorSpace; texCache.set(id, tx);
+    loadImage(url, im => { tx.image = im; tx.needsUpdate = true; ready(tx); }, e => console.warn('[portrait]', id, e)); }
   else if (t.image) ready(t);
   return t;
 }

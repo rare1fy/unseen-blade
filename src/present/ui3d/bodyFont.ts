@@ -41,7 +41,8 @@ export const fontsReady: Promise<void> = wxFont
 
 function useFont(g: CanvasRenderingContext2D, px: number) {
   const family = BODY_FONT.current === 'pixel' ? '' : loaded[BODY_FONT.current];
-  g.font = `${px}px ${family}, sans-serif`;
+  // (11-18 微信小游戏: a font that didn't load leaves no family — 「24px , sans-serif」 is not a valid font and the canvas kept its 10 px default)
+  g.font = family ? `${px}px ${family}, sans-serif` : `${px}px sans-serif`;
   g.textBaseline = 'top';
 }
 export function bodyText(g: CanvasRenderingContext2D, value: string, x: number, y: number, px: number, color: string,

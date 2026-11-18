@@ -1,0 +1,35 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>WeChat devtools stand-in</title>
+<style>html,body{margin:0;background:#000;overflow:hidden}</style>
+<script>
+// 11-18: a stand-in for the WeChat devtools' game context, to catch what the no-DOM worker sandbox can't: there the game runs next to a
+// REAL HTMLDocument whose methods are read-only (the devtools threw 「Cannot assign to read only property 'createElementNS'」 at the
+// glue). A fake `wx` like wechat/sandbox's, GameGlobal = window, document.createElement / createElementNS made non-writable, then the
+// built game.js run inside a function (the runtime require()s it). Served by tools/wx-devtools-sim.mjs next to the built project (?base=…).
+(function () {
+  'use strict';
+  const q = new URLSearchParams(location.search), base = q.get('base') || '/proj/', W = innerWidth, H = innerHeight, dpr = devicePixelRatio || 1;
+  for (const k of ['createElement', 'createElementNS']) Object.defineProperty(document, k, { value: Document.prototype[k].bind(document), writable: false, configurable: false });
+  const touch = { start: [], move: [], end: [], cancel: [] }; let first = null; const store = {};
+  const sync = p => { const x = new XMLHttpRequest(); x.open('GET', new URL(p, location.origin + base), false); x.overrideMimeType('text/plain; charset=x-user-defined'); x.send(); if (x.status !== 200) throw new Error('no file ' + p); const s = x.responseText, b = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) b[i] = s.charCodeAt(i) & 255; return b.buffer; };
+  window.wx = {
+    createCanvas() { if (!first) { first = document.createElement('canvas'); first.width = Math.round(W * dpr); first.height = Math.round(H * dpr); first.style.cssText = `width:${W}px;height:${H}px;display:block`; document.body.appendChild(first); return first; } return document.createElement('canvas'); },
+    getSystemInfoSync: () => ({ windowWidth: W, windowHeight: H, screenWidth: W, screenHeight: H, pixelRatio: dpr, platform: 'devtools', system: 'sim', safeArea: { left: 0, right: W, top: 0, bottom: H, width: W, height: H } }),
+    onTouchStart: f => touch.start.push(f), onTouchMove: f => touch.move.push(f), onTouchEnd: f => touch.end.push(f), onTouchCancel: f => touch.cancel.push(f),
+    onWindowResize() {}, getLaunchOptionsSync: () => ({ query: {} }),
+    createImage() { const im = new Image(); const set = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src').set; Object.defineProperty(im, 'src', { set(v) { set.call(im, new URL(v, location.origin + base).href); }, get() { return im.getAttribute('src'); } }); return im; },
+    getFileSystemManager: () => ({ readFileSync: (p, enc) => { const b = sync(p); return enc ? new TextDecoder().decode(b) : b; }, readFile: o => { try { o.success({ data: sync(o.filePath) }); } catch (e) { o.fail && o.fail(e); } } }),
+    loadSubpackage: o => { setTimeout(() => o.success && o.success({}), 10); return { onProgressUpdate() {} }; },
+    getStorageSync: k => store[k] ?? '', setStorageSync: (k, v) => { store[k] = v; }, removeStorageSync: k => { delete store[k]; },
+    createInnerAudioContext: () => ({ play() {}, stop() {}, pause() {}, destroy() {} }),
+    loadFont: () => null, vibrateShort() {}, onHide() {}, onShow() {},
+  };
+  window.GameGlobal = window;
+  window.__simTouch = (type, x, y) => { const ev = { touches: type === 'end' ? [] : [{ identifier: 1, clientX: x, clientY: y }], changedTouches: [{ identifier: 1, clientX: x, clientY: y }], timeStamp: Date.now() }; for (const f of touch[type] || []) f(ev); };
+  window.__simErrors = []; addEventListener('error', e => window.__simErrors.push(String(e.message))); addEventListener('unhandledrejection', e => window.__simErrors.push('rejection ' + String(e.reason && e.reason.stack || e.reason)));
+  // the runtime require()s game.js: its top-level `var`s are the module's own, not globals — so run it inside a function, as there
+  addEventListener('DOMContentLoaded', () => { fetch(base + 'game.js').then(r => r.text()).then(t => { try { new Function(t + String.fromCharCode(10) + '//# sourceURL=game.js')(); } catch (e) { window.__simErrors.push(String(e && e.stack || e)); throw e; } }); });
+})();
+</script>
+<body></body>
