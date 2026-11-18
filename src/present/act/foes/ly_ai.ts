@@ -330,6 +330,13 @@ class FlyingAxe extends Arrow {
   constructor(private owner: Foe, yaw: number, private len: number, dmg: number) {
     super(owner.pos.clone().add(V3(0, 1.1, 0)), yaw, dmg, 0, true); this.friendly = true; this.life = 9;
     this.start = this.p.clone(); this.out = this.p.clone().add(fwd(yaw).multiplyScalar(len));
+    // Spin the same blade about its middle so the broad edge reads on the way out and back.
+    const held = owner.a.bones.weapon?.children.find((part): part is THREE.Mesh => part instanceof THREE.Mesh);
+    if (held) {
+      const flying = new THREE.Mesh(held.geometry, held.material);
+      flying.scale.setScalar(0.72); flying.position.z = -0.55; this.body.add(flying);
+      return;
+    }
     const head = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.08, 0.4), new THREE.MeshLambertMaterial({ color: 0x9aa0a8 })), haft = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 1.2), new THREE.MeshLambertMaterial({ color: 0x3a2418 }));
     head.position.z = 0.5; this.body.add(head, haft);
   }
@@ -408,7 +415,10 @@ const yanhu: RoleAI = {
     const s = f.shape!;
     if (f.atk === 'ram') {
       f.lunge = fwd(f.teleYaw).multiplyScalar((s as { len: number }).len / 0.55); f.yaw = f.teleYaw; f.mem.rammed = false;
-      AI.setSt(f, 'strike', 0.55); cue('foeCry', 1, 2); cue('dash', 0.8); return true;
+      AI.setSt(f, 'strike', 0.55);
+      // The wind-up clip only lasts through the first stride; keep the axe braced for the whole run.
+      f.a.play(new Action('ramRun', f.dur + 0.28));
+      cue('foeCry', 1, 2); cue('dash', 0.8); return true;
     }
     if (f.atk === 'axeThrow') { f.mem.axeOut = true; showAxe(f, false); w.arrows.push(new FlyingAxe(f, f.teleYaw, 9, f.dmg)); cue('whoosh', 1); AI.setSt(f, 'strike', 0.3); return true; }
     if (f.atk === 'iron') {

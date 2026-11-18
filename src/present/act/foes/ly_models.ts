@@ -16,7 +16,7 @@ function soldier(body: Body, elite = false, sleeves = RED) {
   const rag = body === 'rags' || body === 'ragsB', z = mounted ? 17 : 0;
   const hip = (boss ? 26 : 23) + z, waist = hip + 4, chest = hip + 8;
   const shoulder = hip + (boss ? 16 : 13), elbow = shoulder - (boss ? 10 : mounted ? 7 : 8), hand = elbow - (boss ? 9 : mounted ? 6 : 7);
-  const sx = boss ? 13 : rag ? 9 : 10, spread = mounted ? 13 : boss ? 6 : 5, armZ = mounted ? 6 : 0;
+  const sx = boss ? 13 : rag ? 9 : 10, spread = mounted ? 14 : boss ? 6 : 5, armZ = mounted ? 6 : 0;
   const width = boss ? 9 : rag ? 5 : 7, depth = boss ? 5 : 4, knee = (boss ? 13 : 11) + z;
   const neck = shoulder + 2, skull = neck + 2, crown = skull + (boss ? 11 : 10), cap = elite ? GOLD : EDGE;
   const inside = boss ? SKIN_D : rag ? ASH_D : RED_D;
@@ -210,7 +210,7 @@ function crossbow(elite: boolean) {
   box(-6, 0, 35, 5, 1, 36, BLACK);
   box(-6, 0, 31, -4, 1, 34, BLACK);
   box(3, 0, 31, 5, 1, 34, BLACK);
-  v.bone('bolt', 'weapon', x, y + 5, z + 12);
+  v.bone('bolt', 'weapon', x, y + 5, z + 14);
   const bolt = prop(v, 'bolt');
   for (const row of elite ? [-3, 0, 3] : [0]) {
     bolt(row, 0, -6, row, 0, 14, ASH);
@@ -240,9 +240,10 @@ function torch(elite: boolean) {
   fire(-1, 2, 0, 0, 3, 0, 0xffce65, 1);
   // 罐口朝上，沿腰带绕到后腰。精英多带两罐，正面仍看得到它们。
   v.bone('jarBelt', 'hips', 0, 23, 0);
-  for (const [a, b] of [[-11, 4], [-5, -13], [3, -13], [11, 4], ...(elite ? [[-3, 10], [4, 10]] : [])]) {
+  for (const [a, b] of [[-11, -5], [-5, -13], [3, -13], [11, -5], ...(elite ? [[-3, 10], [4, 10]] : [])]) {
     jar(v, 'jarBelt', a, 15, b);
   }
+  v.part('jarBelt').symBox(7, 21, -6, 9, 22, -5, LEATHER);
   return v;
 }
 
@@ -277,7 +278,7 @@ function rider(elite: boolean) {
   B(v, 'horse', -7, 20, -15, 6, 22, 14, dark);
   B(v, 'horse', -8, 35, -10, 7, 36, 8, RED_D);
   B(v, 'horse', -8, 37, -6, 7, 39, 5, HIDE);
-  B(v, 'horse', -7, 40, -8, 6, 41, -5, LEATHER);
+  B(v, 'horse', -7, 40, -8, 6, 41, -6, LEATHER);
   for (const [L, s] of SIDES) {
     const [s0, s1] = MX(s, 8, 9);
     B(v, 'horse', s0, 28, -11, s1, 36, 9, RED);

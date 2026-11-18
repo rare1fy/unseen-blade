@@ -285,9 +285,9 @@ POSE_AFTER.ly_boss = (b, t, a, off, self) => {
     plantAxe(b, off, t, push, Math.abs(Math.sin(k * 14)) * push);
     return;
   }
-  if (a && n === 'ram') {
-    const runTime = a.t - a.at * a.dur;
-    const rush = runTime > 0 ? curve(runTime, [[0, 1], [0.47, 1], [0.65, 0], [1, 0]]) : fire;
+  if (a && (n === 'ram' || n === 'ramRun')) {
+    const runTime = n === 'ramRun' ? a.t : 0;
+    const rush = n === 'ramRun' ? curve(runTime, [[0, 1], [0.49, 1], [a.dur, 0]]) : fire;
     const step = Math.sin(runTime * 30) * rush;
     legs(b, 0.68 * load + 0.17 * rush, 0.34 * rush);
     rot(b.legL, step * 0.83, 0, 0); rot(b.legR, -step * 0.83, 0, 0);
