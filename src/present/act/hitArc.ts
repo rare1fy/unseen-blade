@@ -20,6 +20,8 @@ export class HitArcs {
     }
     scene.add(m); this.list.push({ m, t: 0, mats });
   }
+  /** all gone at once (a cutscene starts: the world stops updating, an arc would hang there) */
+  clear() { for (const a of this.list) { scene.remove(a.m); a.m.traverse(o => (o as THREE.Mesh).geometry?.dispose()); for (const mt of a.mats) mt.dispose(); } this.list.length = 0; }
   update(dt: number, at: THREE.Vector3) {
     for (const a of this.list) {
       a.t += dt; const k = a.t / LIFE;
