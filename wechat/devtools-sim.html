@@ -5,12 +5,27 @@
 <script>
 // 11-18: a stand-in for the WeChat devtools' game context, to catch what the no-DOM worker sandbox can't: there the game runs next to a
 // REAL HTMLDocument whose methods are read-only (the devtools threw 「Cannot assign to read only property 'createElementNS'」 at the
-// glue). A fake `wx` like wechat/sandbox's, GameGlobal = window, document.createElement / createElementNS made non-writable, then the
-// built game.js run inside a function (the runtime require()s it). Served by tools/wx-devtools-sim.mjs next to the built project (?base=…).
+// glue). A fake `wx` like wechat/sandbox's, GameGlobal = window, then the built game.js run inside a function (the runtime require()s
+// it). As in the devtools (both errors the user hit, act-55 and act-56): document.createElementNS is read-only but createElement is
+// writable — overwriting it takes the method off its document ("Illegal invocation" when called bare) — and the game code can't see
+// HTMLDocument / Document (the document comes from another realm there), so an `instanceof HTMLDocument` test can't tell it's real.
+// Served by tools/wx-devtools-sim.mjs next to the built project (?base=…).
 (function () {
   'use strict';
   const q = new URLSearchParams(location.search), base = q.get('base') || '/proj/', W = innerWidth, H = innerHeight, dpr = devicePixelRatio || 1;
-  for (const k of ['createElement', 'createElementNS']) Object.defineProperty(document, k, { value: Document.prototype[k].bind(document), writable: false, configurable: false });
+  // the devtools' canvas (act-58, the user's screenshot): no WebGL2, and its WebGL1 has no ANGLE_instanced_arrays and no float
+  // textures — three warned that instanced meshes and SkinnedMesh can't draw, every frame
+  { const gc = HTMLCanvasElement.prototype.getContext, NO = ['ANGLE_instanced_arrays', 'OES_texture_float', 'OES_texture_float_linear', ...(q.get('strip') || '').split(',').filter(Boolean)];   // ?strip=A,B: more missing extensions
+    HTMLCanvasElement.prototype.getContext = function (type, attrs) {
+      if (type === 'webgl2') return null;
+      const c = gc.call(this, type, attrs);
+      if (c && (type === 'webgl' || type === 'experimental-webgl') && !c.__sim) {
+        c.__sim = true; const ge = c.getExtension.bind(c), gs = c.getSupportedExtensions.bind(c);
+        c.getExtension = n => NO.includes(n) ? null : ge(n); c.getSupportedExtensions = () => (gs() || []).filter(n => !NO.includes(n));
+      }
+      return c;
+    }; }
+  Object.defineProperty(document, 'createElementNS', { value: Document.prototype.createElementNS.bind(document), writable: false, configurable: false });
   const touch = { start: [], move: [], end: [], cancel: [] }; let first = null; const store = {};
   const sync = p => { const x = new XMLHttpRequest(); x.open('GET', new URL(p, location.origin + base), false); x.overrideMimeType('text/plain; charset=x-user-defined'); x.send(); if (x.status !== 200) throw new Error('no file ' + p); const s = x.responseText, b = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) b[i] = s.charCodeAt(i) & 255; return b.buffer; };
   window.wx = {
@@ -29,7 +44,7 @@
   window.__simTouch = (type, x, y) => { const ev = { touches: type === 'end' ? [] : [{ identifier: 1, clientX: x, clientY: y }], changedTouches: [{ identifier: 1, clientX: x, clientY: y }], timeStamp: Date.now() }; for (const f of touch[type] || []) f(ev); };
   window.__simErrors = []; addEventListener('error', e => window.__simErrors.push(String(e.message))); addEventListener('unhandledrejection', e => window.__simErrors.push('rejection ' + String(e.reason && e.reason.stack || e.reason)));
   // the runtime require()s game.js: its top-level `var`s are the module's own, not globals — so run it inside a function, as there
-  addEventListener('DOMContentLoaded', () => { fetch(base + 'game.js').then(r => r.text()).then(t => { try { new Function(t + String.fromCharCode(10) + '//# sourceURL=game.js')(); } catch (e) { window.__simErrors.push(String(e && e.stack || e)); throw e; } }); });
+  addEventListener('DOMContentLoaded', () => { fetch(base + 'game.js').then(r => r.text()).then(t => { try { new Function('HTMLDocument', 'Document', t + String.fromCharCode(10) + '//# sourceURL=game.js')(undefined, undefined); } catch (e) { window.__simErrors.push(String(e && e.stack || e)); throw e; } }); });
 })();
 </script>
 <body></body>

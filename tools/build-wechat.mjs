@@ -41,7 +41,13 @@ const rd = f => fs.readFileSync(path.join(ROOT, 'wechat', f), 'utf8');
 fs.writeFileSync(path.join(OUT, 'game.js'), `'use strict';\n${rd('adapter.js')}\n${rd('glue.js')}\n${bundle}`);
 const subs = new Set();
 for (const [to, from] of Object.entries(assets)) {
-  const dst = path.join(OUT, to); fs.mkdirSync(path.dirname(dst), { recursive: true }); fs.copyFileSync(from, dst);
+  const dst = path.join(OUT, to); fs.mkdirSync(path.dirname(dst), { recursive: true });
+  // (11-18: wx.loadFont takes TrueType, not woff2 — the body fonts are unpacked with fontTools; without it they're copied as they are
+  // and the game draws the body text in the device's font)
+  if (/\.ttf$/i.test(to) && /\.woff2$/i.test(from)) {
+    try { execFileSync('python', ['-c', 'import sys; from fontTools.ttLib import TTFont; f = TTFont(sys.argv[1]); f.flavor = None; f.save(sys.argv[2])', from, dst], { stdio: 'pipe' }); }
+    catch (e) { console.log(`  （${path.basename(from)} 没转成 ttf：${String(e.stderr || e.message).trim().split(/\r?\n/).pop()}，原样放进去）`); fs.copyFileSync(from, dst); }
+  } else fs.copyFileSync(from, dst);
   const top = to.split('/')[0]; if (/^audio\d+$/.test(top)) subs.add(top);
 }
 const subpackages = [...subs].sort((a, b) => +a.slice(5) - +b.slice(5)).map(n => ({ name: n, root: n + '/' }));

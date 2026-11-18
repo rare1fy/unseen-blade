@@ -33,7 +33,7 @@ export abstract class Actor {
     for (const m of meshes) {
       const src = m.material as THREE.Material;
       if (!(src instanceof THREE.MeshToonMaterial || src instanceof THREE.MeshStandardMaterial)) continue;
-      if (!clones.has(src)) { const c = src.clone() as THREE.MeshToonMaterial; c.onBeforeCompile = src.onBeforeCompile; c.customProgramCacheKey = src.customProgramCacheKey; clones.set(src, c); this.flashMats.push({ m: c, base: c.emissive.clone() }); }
+      if (!clones.has(src)) { const c = src.clone() as THREE.MeshToonMaterial; c.onBeforeCompile = src.onBeforeCompile; c.customProgramCacheKey = src.customProgramCacheKey; (c as unknown as { extensions?: unknown }).extensions = (src as unknown as { extensions?: unknown }).extensions; clones.set(src, c); this.flashMats.push({ m: c, base: c.emissive.clone() }); }
       m.material = clones.get(src)!;
     }
   }
