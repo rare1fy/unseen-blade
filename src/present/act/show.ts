@@ -308,6 +308,7 @@ export class ActShow {
     hero: { get a() { return SELF!.hero.a; }, get pos() { return SELF!.hero.pos; } } as CineHost['hero'],
     puppet: (kind, x, z, fx, fz) => { const f = spawnFoe(kind, V3(x, 0, z), V3(fx, 0, fz)); f.st = 'move'; this.puppets.push(f); return f; },
     clearPuppets: () => { for (const f of this.puppets) f.a.dispose(); this.puppets = []; },
+    hold: (p, r) => this.clamp(p, r),
   };
   /** portrait lines; the fight / the hideout wait (phase 'talk') and resume */
   async talk(lines: Line[], onLine?: (i: number, line: Line) => void) {
