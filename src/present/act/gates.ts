@@ -12,7 +12,7 @@ import type { ArenaPlan, Gate } from '../asm/arena';
 
 const GOLD = 0xffd27a;
 /** a barricade: three horizontal logs across the opening, two stakes holding them; built along x, centred, standing on y = 0 */
-function barricade(w: number) {
+export function barricade(w: number) {
   const vw = new VoxWorld(CELL), half = Math.round(w / CELL / 2) + 2, wood = 0x6e5238, woodD = 0x4a3622, woodL = 0x8e6e4c, rope = 0x8a7650;
   for (const [y0, k] of [[1, 0], [7, 1], [13, 2]] as const) { vw.box(-half, y0, -1, half, y0 + 3, 1, k === 1 ? woodL : wood); vw.box(-half, y0, -1, half, y0, 1, woodD); vw.box(-half, y0 + 3, -1, -half, y0 + 3, 1, woodD); }
   for (const s of [-1, 1]) { const x = s * (half - 5); vw.box(x - 1, 0, -2, x + 1, 19, -2, woodD); vw.box(x - 1, 0, 2, x + 1, 19, 2, woodD); for (const y of [4, 10, 16]) vw.box(x - 1, y, -2, x + 1, y, 2, rope); }

@@ -5,6 +5,8 @@
 // 路牌（道標）和走过去的路线点由 exitInfo 给出，选路时（present/ronin/route.ts）用。
 import { PLAY, SX, SZ } from '../scenes/props';
 import type { Layout, Rect } from './types';
+import type { FixedPlan } from './roomShape';
+import { drawnExits } from './roomMaps';
 
 export type ExitId = 'left' | 'right' | 'back';
 /** the side road's band (z), behind the enemy line — 2.2 m wide, its centre through SZ on the 2x stage (act-19) */
@@ -28,15 +30,30 @@ function backOf(l: Layout): ExitInfo {
   const p = l.path.slice().sort((a, b) => a.z0 - b.z0)[0], cx = (p.x0 + p.x1) / 2, z = Math.min(p.z0, PLAY.z0 - 1.2);
   return { id: 'back', lane: { x0: p.x0, x1: p.x1, z0: p.z0, z1: PLAY.z0 }, walk: [[cx, PLAY.z0 + 0.6], [cx, z + 0.4], [cx, z - 2.2]], sign: { x: cx + (p.x1 - p.x0) / 2 + 1.6, z: PLAY.z0 - 0.6, yaw: 0 }, dir: [0, -1] };
 }
+/** 11-18 定死的屋子: a way out at a drawn map's E — a road 2.8 m wide from the floor's edge out past the stage */
+function drawnOf(id: ExitId, e: { side: ExitId; x: number; z: number }): ExitInfo {
+  if (e.side === 'back') {
+    const z = PLAY.z0;
+    return { id, lane: { x0: e.x - 1.4, x1: e.x + 1.4, z0: z - 12, z1: z }, walk: [[e.x, z + 0.6], [e.x, z - 0.8], [e.x, z - 3.4]], sign: { x: e.x + 3.0, z: z - 0.6, yaw: 0 }, dir: [0, -1] };
+  }
+  const s = e.side === 'left' ? -1 : 1, edge = e.x;
+  const lane = s < 0 ? { x0: edge - 12, x1: edge, z0: e.z - 1.4, z1: e.z + 1.4 } : { x0: edge, x1: edge + 12, z0: e.z - 1.4, z1: e.z + 1.4 };
+  return { id, lane, walk: [[edge - s * 0.8, e.z], [edge + s * 1.2, e.z], [edge + s * 9, e.z]], sign: { x: edge + s * 1.9, z: e.z - 1.9, yaw: 0 }, dir: [s, 0] };
+}
 export function exitInfo(l: Layout, id: ExitId): ExitInfo {
+  const dr = l.drawn?.[id]; if (dr) return drawnOf(id, dr);
   if (id === 'back') return backOf(l);
   const SIDE = side(), s = id === 'left' ? -1 : 1, edge = s < 0 ? PLAY.x0 : PLAY.x1, zc = (SIDE.z0 + SIDE.z1) / 2;
   const lane = s < 0 ? { x0: -SIDE.out, x1: edge, z0: SIDE.z0, z1: SIDE.z1 } : { x0: edge, x1: SIDE.out, z0: SIDE.z0, z1: SIDE.z1 };
   return { id, lane, walk: [[edge - s * 0.8, zc + 1.2], [edge + s * 1.2, zc], [s * (SIDE.out - 1.0), zc]], sign: { x: edge + s * 1.9, z: SIDE.z0 - 0.5, yaw: 0 }, dir: [s, 0] };
 }
 /** a layout with these exits cut in: side roads join the path (paved by the locale, kept free by the walk check), slots they cross go */
-export function withExits(l: Layout, ids: ExitId[]): Layout {
-  const lanes = ids.filter(i => i !== 'back').map(i => exitInfo(l, i).lane);
+export function withExits(l: Layout, ids: ExitId[], fixed?: FixedPlan): Layout {
+  // 11-18 定死的屋子: the ways out are the map's own (its E marks), every one a road of its own
+  if (fixed) { const drawn = drawnExits(fixed, ids), d: Layout = { ...l, drawn }; return withLanes(d, ids.filter(i => drawn[i]).map(i => exitInfo(d, i).lane)); }
+  return withLanes(l, ids.filter(i => i !== 'back').map(i => exitInfo(l, i).lane));
+}
+function withLanes(l: Layout, lanes: Rect[]): Layout {
   if (!lanes.length) return l;
   return { ...l, path: [...l.path, ...lanes], slots: l.slots.filter(s => !lanes.some(r => overlaps(r, { x0: s.x - s.w / 2, x1: s.x + s.w / 2, z0: s.z - s.d / 2, z1: s.z + s.d / 2 }))) };
 }

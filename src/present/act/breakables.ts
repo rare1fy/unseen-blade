@@ -2,6 +2,7 @@
 // 陶罐 / 木箱 / 草垛 / 火油坛 / 立柱的体素模型、挨打晃一下、碎裂飞碎块、火油坛引线冒火星 → 爆炸、地上烧一片火、立柱顺刀势倒下。
 // 规则全在 breakLogic.ts（纯逻辑，有测试）；这里只把它的事件变成画面，并维护碰撞（solids.ts）。
 import * as THREE from 'three';
+import type { Strike } from './puzzles';
 import { VoxWorld } from '../look/voxkit';
 import { CELL } from '../bestiary/kit';
 import { V3 } from '../engine/world';
@@ -89,7 +90,10 @@ export class Breakables {
   }
   dispose() { this.clear(); this.root.parent?.remove(this.root); }
   /** a blow on every live prop the hero's arc touches (range, half angle about yaw); returns the events and prop damage */
+  /** 11-18 定死的屋子: the room's puzzle pieces hear the hero's blows too (act/puzzles.ts — rope posts, hollow walls, bells) */
+  onStrike: ((s: Strike) => void) | null = null;
   hitArc(from: THREE.Vector3, yaw: number, range: number, half: number, o: { src: BSrc; heavy?: boolean }, targets: BTarget[]) {
+    if (o.src === 'hero') this.onStrike?.({ k: 'arc', x: from.x, z: from.z, yaw, range, half });
     const fx = Math.sin(yaw), fz = Math.cos(yaw), out = { events: [] as BEvent[], damage: [] as BDamage[] };
     for (const p of this.logic.near(from.x, from.z, range)) {
       if (p.state !== 'idle') continue;
@@ -101,12 +105,14 @@ export class Breakables {
   }
   /** a blow on every live prop inside a circle (a plunge, a dart, a body slammed into it) */
   hitCircle(x: number, z: number, r: number, o: { src: BSrc; heavy?: boolean; dir: [number, number] }, targets: BTarget[]) {
+    if (o.src === 'hero') this.onStrike?.({ k: 'circle', x, z, r });
     const out = { events: [] as BEvent[], damage: [] as BDamage[] };
     for (const p of this.logic.near(x, z, r)) if (p.state === 'idle') this.merge(out, this.logic.hit(p, o, targets));
     return out;
   }
   /** a blow on every live prop along a segment (the lunge, 穿风斩) */
   hitSeg(a: THREE.Vector3, b: THREE.Vector3, r: number, o: { src: BSrc; heavy?: boolean }, targets: BTarget[]) {
+    if (o.src === 'hero') this.onStrike?.({ k: 'seg', ax: a.x, az: a.z, bx: b.x, bz: b.z, r });
     const out = { events: [] as BEvent[], damage: [] as BDamage[] }, abx = b.x - a.x, abz = b.z - a.z, L2 = Math.max(1e-4, abx * abx + abz * abz), L = Math.sqrt(L2);
     for (const p of this.logic.props) {
       if (p.state !== 'idle') continue;

@@ -1,0 +1,109 @@
+// 定死的屋子（11-18，asm/roomMaps.ts）的检查，每张图都要满足——
+//   图是方的（每行一样宽）、只用图例里的字、出口在外沿上、起点在地上；
+//   门全开、机关全解开以后，每一格地、每个出口、每份赏、每个机关都能从起点走到；
+//   门关着的时候，起点那一块没有出口（分段的屋子）、每一块都放得下一波敌人（离入口 5 米外至少 40 格地）；
+//   人要走的地方至少 3 格宽（1.5 米）；建两次一模一样（掩体、可破坏物、出口）。
+import { describe, expect, it } from 'vitest';
+import { PLAY } from '../src/present/scenes/props';
+import { FloorGrid, FLOOR, PIT, type ShapePlan } from '../src/present/asm/roomShape';
+import { ROOM_MAPS, mapShape, mapStage, MAP_CELL, drawnExits, pickMap } from '../src/present/asm/roomMaps';
+import { arenaPlan } from '../src/present/asm/arena';
+import { LAYOUTS } from '../src/present/asm/layouts';
+import { stageLayout } from '../src/present/asm/assemble';
+import { withExits, exitInfo, type ExitId } from '../src/present/asm/exits';
+
+/** the plan with every door, wall and barricade open and every sunk piece down */
+const allOpen = (sp: ShapePlan): ShapePlan => ({ ...sp, pits: sp.pits.filter(p => !sp.fixed!.sunk.some(s => s.x0 <= p.x0 && s.x1 >= p.x1 && s.z0 <= p.z0 && s.z1 >= p.z1)), bridges: [...sp.bridges, ...sp.fixed!.sunk], fixed: { ...sp.fixed!, closed: [] } });
+/** the cells reachable from (x, z) over the floor (4-neighbour) */
+function reach(g: FloorGrid, x: number, z: number) {
+  const seen = new Set<number>(), st = [[g.ix(x), g.iz(z)]];
+  while (st.length) { const [i, j] = st.pop()!, k = j * g.nx + i; if (seen.has(k) || g.kind(i, j) !== FLOOR) continue; seen.add(k); st.push([i + 1, j], [i - 1, j], [i, j + 1], [i, j - 1]); }
+  return seen;
+}
+const cellOf = (g: FloorGrid, x: number, z: number) => g.iz(z) * g.nx + g.ix(x);
+
+describe('drawn rooms', () => {
+  for (const m of ROOM_MAPS) {
+    it(`${m.name} (${m.id}): the map is sound`, () => {
+      const W = m.rows[0].length;
+      for (const r of m.rows) expect(r.length).toBe(W);
+      for (const r of m.rows) for (const ch of r) expect('#.~=-wDG?XSEBo0jt!brWP$').toContain(ch);
+      expect(m.rows.join('').split('S').length - 1).toBe(1);
+      mapStage(m);
+      expect(PLAY.x1 - PLAY.x0).toBeCloseTo(W * MAP_CELL, 2); expect(PLAY.z1 - PLAY.z0).toBeCloseTo(m.rows.length * MAP_CELL, 2);
+      const sp = mapShape(m);
+      expect(sp.fixed!.exits.length).toBeGreaterThanOrEqual(m.kind === 'fight' ? 2 : 1);
+      if (m.rows.join('').includes('b')) expect(sp.fixed!.marks.filter(q => q.kind === 'bell').length).toBe(3);
+      if (sp.fixed!.sunk.some(s => s.kind === 'drop')) expect(sp.fixed!.marks.some(q => q.kind === 'rope')).toBe(true);
+    });
+
+    it(`${m.name}: everything is reachable once open, the zones hold a wave`, () => {
+      mapStage(m);
+      const sp = mapShape(m), fx = sp.fixed!, open = new FloorGrid(allOpen(sp)), from = reach(open, sp.enter[0], sp.enter[1]);
+      // every floor cell
+      let lost = 0; for (let k = 0; k < open.c.length; k++) if (open.c[k] === FLOOR && !from.has(k)) lost++;
+      expect(lost).toBe(0);
+      // the exits' mouths, the rewards, the puzzle pieces (a step from them)
+      for (const e of fx.exits) { const x = e.side === 'back' ? e.x : e.x + (e.side === 'left' ? 0.5 : -0.5), z = e.side === 'back' ? e.z + 0.5 : e.z; expect(from.has(cellOf(open, x, z)), `exit ${e.side} ${e.x},${e.z}`).toBe(true); }
+      for (const q of fx.marks) { const ok = [[0, 0], [0.9, 0], [-0.9, 0], [0, 0.9], [0, -0.9]].some(([dx, dz]) => from.has(cellOf(open, q.x + dx, q.z + dz))); expect(ok, `${q.kind} ${q.x},${q.z}`).toBe(true); }
+      // shut: S's piece has no exit when there are stages; each stage's piece has room for a wave
+      const shut = new FloorGrid(sp), zs = shut.zones(), z0 = shut.zoneAt(sp.enter[0], sp.enter[1]);
+      expect(z0).toBeGreaterThanOrEqual(0);
+      if (fx.stages > 1) for (const e of fx.exits) { const x = e.side === 'back' ? e.x : e.x + (e.side === 'left' ? 0.5 : -0.5), z = e.side === 'back' ? e.z + 0.5 : e.z; expect(shut.zoneAt(x, z)).not.toBe(z0); }
+      const room = new Map<number, number>();
+      for (let k = 0; k < zs.length; k++) if (zs[k] >= 0) { const i = k % shut.nx, j = (k - i) / shut.nx; if (Math.hypot(shut.cx(i) - sp.enter[0], shut.cz(j) - sp.enter[1]) > 5 || zs[k] !== z0) room.set(zs[k], (room.get(zs[k]) ?? 0) + 1); }
+      expect(room.get(z0) ?? 0).toBeGreaterThanOrEqual(40);
+    });
+
+    it(`${m.name}: the ways a body passes are at least 3 cells wide`, () => {
+      mapStage(m);
+      const g = new FloorGrid(allOpen(mapShape(m)));
+      // every floor cell sits in some 3 × 3 block of floor (no 1- or 2-cell slivers)
+      const thin: string[] = [];
+      for (let j = 0; j < g.nz; j++) for (let i = 0; i < g.nx; i++) {
+        if (g.kind(i, j) !== FLOOR) continue;
+        let ok = false;
+        for (let a = -2; a <= 0 && !ok; a++) for (let b = -2; b <= 0 && !ok; b++) { let all = true; for (let u = 0; u < 3 && all; u++) for (let v = 0; v < 3 && all; v++) if (g.kind(i + a + u, j + b + v) !== FLOOR) all = false; ok = all; }
+        if (!ok) thin.push(`${i},${j}`);
+      }
+      expect(thin).toEqual([]);
+    });
+
+    it(`${m.name}: built twice, the same room; the exits sit on the floor's edge`, () => {
+      const ids: ExitId[][] = [['left', 'right'], ['back']];
+      for (const ex of ids) {
+        const mk = () => { mapStage(m); const sp = mapShape(m), layout = withExits(stageLayout(LAYOUTS.axis), ex, sp.fixed); return { sp, layout, plan: arenaPlan(layout, ex, m.seed, m.locale, 'fight', sp) }; };
+        const a = mk(), b = mk();
+        expect(JSON.stringify(a.plan.covers)).toBe(JSON.stringify(b.plan.covers));
+        expect(JSON.stringify(a.plan.props)).toBe(JSON.stringify(b.plan.props));
+        expect(JSON.stringify(a.plan.gates)).toBe(JSON.stringify(b.plan.gates));
+        // the open gates are this room's exits, the rest shut; each exit's road starts at the floor's edge
+        const g = new FloorGrid(allOpen(a.sp));
+        for (const id of ex) {
+          const e = a.layout.drawn?.[id]; expect(e, id).toBeTruthy();
+          const info = exitInfo(a.layout, id), mouth = info.walk[0];
+          expect(g.at(mouth[0], mouth[1]), `${id} mouth`).toBe(FLOOR);
+          expect(a.plan.gates.some(q => q.open && q.id === id)).toBe(true);
+        }
+        expect(a.plan.gates.filter(q => q.open).length).toBe(Math.min(ex.length, a.sp.fixed!.exits.length));
+        expect(a.plan.gates.length).toBe(a.sp.fixed!.exits.length);
+        // cover and breakables on the floor, never in the water
+        for (const c of a.plan.covers) expect(g.at(c.x, c.z)).toBe(FLOOR);
+        for (const p of a.plan.props) expect(g.at(p.x, p.z), `${p.kind} ${p.x},${p.z}`).not.toBe(PIT);
+      }
+    });
+  }
+
+  it('a run takes each of a place\'s rooms before any again', () => {
+    const used: string[] = [];
+    for (let i = 0; i < 2; i++) { const m = pickMap('hj_village', 'fight', used, 7 + i)!; expect(used).not.toContain(m.id); used.push(m.id); }
+    expect(pickMap('hj_village', 'fight', used, 3)!.id).not.toBe(used[used.length - 1]);
+    expect(pickMap('ly_road', 'fight', [], 1)).toBeNull();
+  });
+  it('two exits: the pair farthest apart, left one first', () => {
+    const m = ROOM_MAPS.find(q => q.id === 'crossroads')!; mapStage(m); const fx = mapShape(m).fixed!;
+    const d = drawnExits(fx, ['left', 'right']);
+    expect(d.left!.side).toBe('left'); expect(d.right!.side).toBe('right');
+    expect(drawnExits(fx, ['back']).back!.side).toBe('back');
+  });
+});

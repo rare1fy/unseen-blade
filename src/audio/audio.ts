@@ -341,6 +341,16 @@ const H: Partial<Record<Cue, (k: number, x?: number) => void>> = {
   stingStele: () => ub('sting_stele', { gain: 0.9, jitter: 0 }), stingRevive: () => ub('sting_revive', { gain: 0.9, jitter: 0 }),
   stingLose: () => audio.stingPlay('ub_sting_lose_', 0.9),
   stingClear: () => ub('sting_clear', { gain: 0.7, jitter: 0 }),
+  // 11-18 机关 — no new samples: the blade's ring pitched down over sine partials for the bells (a bronze bell's minor-third / fifth
+  // partials, a long decay), the dummies' wood knock pitched down for a hollow wall, the crate / pillar / gate sounds pitched for the rest
+  bell: (k, x) => { const f = [392, 466, 587][x ?? 0] ?? 392; audio.tone(f, 2.2, { gain: 0.16 * k }); audio.tone(f * 2.4, 1.1, { gain: 0.05 * k }); audio.tone(f * 0.5, 2.6, { gain: 0.07 * k }); ub('blade_ring', { gain: 0.35 * k, rate: f / 700, jitter: 0, pri: 2 }); },
+  bellWrong: k => { for (const f of [392, 415, 587]) { audio.tone(f, 1.0, { gain: 0.1 * k }); audio.tone(f * 1.06, 0.8, { gain: 0.06 * k }); } ub('blade_ring', { gain: 0.4 * k, rate: 0.5, jitter: 0.03, pri: 2 }); },
+  hollow: k => { wood(0.6 + 0.3 * k, 0.55); audio.tone(110, 0.35, { to: 70, gain: 0.25 * k }); audio.noise(0.3, { from: 600, to: 200, gain: 0.08 * k, type: 'bandpass', delay: 0.04 }); },
+  wallBreak: k => { ub('crate_break', { gain: 0.7 * k, rate: 0.7 }); ub('pillar_fall', { gain: 0.6 * k, rate: 0.9, delay: 0.08 }); audio.noise(1.0, { from: 900, to: 80, gain: 0.25 * k, type: 'lowpass' }); },
+  ropeSnap: k => { ub('dart_hit', { gain: 0.6 * k, rate: 1.4 }); audio.noise(0.25, { from: 4000, to: 900, gain: 0.15 * k, type: 'highpass' }); },
+  bridgeDrop: k => { ub('wall_slam', { gain: 0.8 * k, rate: 0.75 }); ub('body_fall', { gain: 0.6 * k, rate: 0.6, delay: 0.05 }); audio.tone(60, 0.6, { to: 32, gain: 0.4 * k }); },
+  doorOpen: k => { ub('gate_open', { gain: 0.6 + 0.3 * k, rate: 0.85 }); },
+  plate: k => { wood(0.5 * k, 1.4); audio.tone(220, 0.12, { to: 160, gain: 0.12 * k }); },
 };
 setCueHandler((name, k, x) => {
   const now = performance.now() / 1000, cd = COOLDOWN[name] ?? 0.05;

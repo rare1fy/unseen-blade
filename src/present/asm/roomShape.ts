@@ -8,10 +8,11 @@
 import { PLAY, GRID, SZ, hash } from '../scenes/props';
 import type { Layout, Rect } from './types';
 
-export type ShapeId = 'square' | 'ell' | 'cloister' | 'neck' | 'bridge' | 'pond';
-export type PitKind = 'water' | 'ditch';
+export type ShapeId = 'square' | 'ell' | 'cloister' | 'neck' | 'bridge' | 'pond' | 'map';
+/** water / a gully; 'flood' = water over a sunken causeway (a sluice drains it — LEVEL_DESIGN 开闸) */
+export type PitKind = 'water' | 'ditch' | 'flood';
 /** 形状的叫法（日志 / 调试用，玩家看不到） */
-export const SHAPE_CN: Record<ShapeId, string> = { square: '方院', ell: '曲尺', cloister: '回廊', neck: '窄巷', bridge: '过桥', pond: '临水' };
+export const SHAPE_CN: Record<ShapeId, string> = { square: '方院', ell: '曲尺', cloister: '回廊', neck: '窄巷', bridge: '过桥', pond: '临水', map: '定制' };
 /** how much each shape stretches the old 10.6 × 12 m floor (setStage(true, k)): the floor's box is then PLAY */
 export const SHAPE_K: Record<ShapeId, { x: number; z: number }> = {
   square: { x: 2, z: 2 },      // 21 × 24 m (act-19's 2x stage)
@@ -20,6 +21,7 @@ export const SHAPE_K: Record<ShapeId, { x: number; z: number }> = {
   neck: { x: 2.4, z: 2.9 },    // 25.4 × 35
   bridge: { x: 2.4, z: 2.8 },  // 25.4 × 34
   pond: { x: 2.4, z: 2.5 },    // 25.4 × 30
+  map: { x: 3, z: 3 },         // (a drawn room sets its own: asm/roomMaps.ts)
 };
 
 /** one room's shape: rects in metres, every edge on the floor grid (GRID = 0.49 m = 7 scene cells = a wall's thickness) */
@@ -35,6 +37,28 @@ export interface ShapePlan {
   bridges: Rect[];
   /** where the hero walks in (m) */
   enter: [number, number];
+  /** a drawn room (docs/LEVEL_DESIGN.md, asm/roomMaps.ts): every piece fixed by the map */
+  fixed?: FixedPlan;
+}
+/** what a drawn room's map puts where (m; rects on the floor grid). The live grid starts with `closed` shut (OUT) and the drop-bridges
+ *  and flooded paths as pits; the walls are built as if all of it were open (the doors, the hollow walls and the barricades are moving
+ *  pieces of their own — act/puzzles.ts) */
+export interface FixedPlan {
+  id: string;
+  /** shut at the start, open later: a zone door (D) / a puzzle's door (G) / a hollow wall (?) / a barricade (X) */
+  closed: Array<Rect & { kind: 'door' | 'gate' | 'hollow' | 'barricade' }>;
+  /** pits at the start that become floor: a drop-bridge (-) / a flooded causeway (w) */
+  sunk: Array<Rect & { kind: 'drop' | 'flood' }>;
+  /** the ways out on the box's edge (E): which side, the centre of the gap on the edge line */
+  exits: Array<{ side: 'left' | 'right' | 'back'; x: number; z: number }>;
+  covers: Array<{ x: number; z: number; big: boolean }>;
+  props: Array<{ kind: 'small' | 'pillar' | 'oil'; x: number; z: number }>;
+  /** the puzzle pieces standing on the floor (bell, rope post, sluice wheel, plate, reward) */
+  marks: Array<{ kind: 'bell' | 'rope' | 'wheel' | 'plate' | 'reward'; x: number; z: number }>;
+  /** where the boss stands when it comes in */
+  boss?: [number, number];
+  /** how many pieces of the floor are fought in turn (1 = all at once): S's piece first, then on through its doors */
+  stages: number;
 }
 
 const sn = (v: number) => Math.round(v / GRID) * GRID;
@@ -136,12 +160,36 @@ export class FloorGrid {
     for (let j = 0; j < this.nz; j++) for (let i = 0; i < this.nx; i++) {
       const x = this.x0 + (i + 0.5) * G, z = this.z0 + (j + 0.5) * G, k = j * this.nx + i;
       if (!inR(b, x, z)) continue;
+      if (sp.fixed?.closed.some(q => inR(q, x, z))) { this.c[k] = OUT; continue; }
       if (sp.bridges.some(q => inR(q, x, z))) { this.c[k] = FLOOR; continue; }
       const p = sp.pits.find(q => inR(q, x, z));
-      if (p) { this.c[k] = PIT; this.wet[k] = p.kind === 'water' ? 1 : 0; continue; }
+      if (p) { this.c[k] = PIT; this.wet[k] = p.kind === 'ditch' ? 0 : 1; continue; }
       this.c[k] = sp.solid.some(q => inR(q, x, z)) ? OUT : FLOOR;
     }
   }
+  /** a drawn room's piece changed (a door opened, a wall broken, a bridge dropped, the water drained): the cells under r become kind;
+   *  the ways round found so far are forgotten */
+  set(r: Rect, kind: number) {
+    const inR = (x: number, z: number) => x > r.x0 && x < r.x1 && z > r.z0 && z < r.z1;
+    for (let j = 0; j < this.nz; j++) for (let i = 0; i < this.nx; i++) if (inR(this.cx(i), this.cz(j))) this.c[j * this.nx + i] = kind;
+    this.fields.clear(); this.zl = null;
+  }
+  private zl: Int16Array | null = null;
+  /** the floor cut into pieces by what is shut now (4-neighbour): a label per cell (−1 = not floor) — a drawn room's zones */
+  zones(): Int16Array {
+    if (this.zl) return this.zl;
+    const z = new Int16Array(this.nx * this.nz).fill(-1), st: number[] = []; let n = 0;
+    for (let k0 = 0; k0 < z.length; k0++) {
+      if (this.c[k0] !== FLOOR || z[k0] >= 0) continue;
+      z[k0] = n; st.push(k0);
+      while (st.length) { const k = st.pop()!, a = k % this.nx, b = (k - a) / this.nx;
+        for (const [u, v] of [[a + 1, b], [a - 1, b], [a, b + 1], [a, b - 1]]) { if (this.kind(u, v) !== FLOOR) continue; const q = v * this.nx + u; if (z[q] < 0) { z[q] = n; st.push(q); } } }
+      n++;
+    }
+    return (this.zl = z);
+  }
+  /** the zone (piece of floor) (x, z) is in now; −1 off the floor */
+  zoneAt(x: number, z: number) { const i = this.ix(x), j = this.iz(z); return i < 0 || j < 0 || i >= this.nx || j >= this.nz ? -1 : this.zones()[j * this.nx + i]; }
   ix(x: number) { return Math.floor((x - this.x0) / GRID); }
   iz(z: number) { return Math.floor((z - this.z0) / GRID); }
   kind(i: number, j: number) { return i < 0 || j < 0 || i >= this.nx || j >= this.nz ? OUT : this.c[j * this.nx + i]; }

@@ -119,7 +119,7 @@ export interface Registry { locales: Record<string, Locale>; layouts: Record<str
 export function assemble(spec: Spec, reg: Registry): { def: SceneDef; report: Report } {
   const loc = reg.locales[spec.locale], base = reg.layouts[spec.layout] ?? loc.extraLayouts?.find(l => l.id === spec.layout);
   if (!loc || !base) throw new Error(`unknown locale / layout ${spec.locale} / ${spec.layout}`);
-  const layout = withExits(spec.mirror ? mirrorLayout(stageLayout(base)) : stageLayout(base), spec.exits ?? []);
+  const layout = withExits(spec.mirror ? mirrorLayout(stageLayout(base)) : stageLayout(base), spec.exits ?? [], spec.arena?.shape?.fixed);
   const lmName = spec.landmark ? loc.landmarks.find(l => l.id === spec.landmark)?.name ?? '' : '';
   const name = `${loc.name}${lmName ? ' · ' + lmName : ''} · ${SEASON_CN[spec.season]}${TIME_CN[spec.time]}${spec.weather !== 'clear' ? '·' + WEATHER_CN[spec.weather] : ''}`;
   const report: Report = { spec, name, placed: [], rejected: [], empty: [], warnings: [], lights: 0 };

@@ -61,6 +61,7 @@ const sizeOf = (k: CoverKind): [number, number] => COVER_SIZE[k] ?? Object.value
 /** the plan for one room: gates from the layout's roads and this room's exits, cover and props from the seed; with a shape (11-18 屋子形态)
  *  the walls follow the shape's floor, cover and props stand only on its floor (never in the water, on a bridge or in a walled-off part) */
 export function arenaPlan(layout: Layout, exits: ExitId[], seed: number, locale: string, kind: 'fight' | 'boss' | 'calm', shape?: ShapePlan): ArenaPlan {
+  if (shape?.fixed) return drawnPlan(layout, exits, seed, locale, kind, shape);
   const r = (k: number) => hash(seed * 7 + 11, k, 4513), style = styleOf(locale), gates: Gate[] = [], look = ARENA_LOOK[locale];
   const grid = shape ? new FloorGrid(shape, 2) : null;
   // the side exits cut their own gate; every road that runs out through the back wall gets one (the back exit's road is open)
@@ -122,6 +123,47 @@ export function arenaPlan(layout: Layout, exits: ExitId[], seed: number, locale:
   many('lamp', look?.lamps ?? 2, 2.5);
   // (a shaped room's walls stand right on the floor's edge: no gap — act/gates.ts reads wall.gap for the gate's centre line)
   return { style, gates, covers, props, wall: { ...WALL, ...(shape ? { gap: 0 } : {}) }, ...(shape ? { shape } : {}) };
+}
+
+/** 11-18 定死的屋子 (asm/roomMaps.ts): the plan of a drawn room — every gate, cover piece and breakable where the map puts it (the
+ *  kinds and the small dressing from the room's own seed, so the room is the same every time). The E's this room uses are open gates,
+ *  the others shut ones; round each 'j' a little cluster of the place's small breakables */
+function drawnPlan(layout: Layout, exits: ExitId[], seed: number, locale: string, kind: 'fight' | 'boss' | 'calm', shape: ShapePlan): ArenaPlan {
+  const fx = shape.fixed!, r = (k: number) => hash(seed * 7 + 11, k, 4513), style = styleOf(locale), look = ARENA_LOOK[locale], gates: Gate[] = [];
+  const grid = new FloorGrid({ ...shape, fixed: { ...fx, closed: [] } }, 2);
+  const used = new Set<string>();
+  for (const id of exits) {
+    const e = layout.drawn?.[id]; if (!e) continue; used.add(`${e.x},${e.z}`);
+    gates.push(e.side === 'back' ? { id, x: e.x, z: PLAY.z0, along: 'x', w: 2.8, open: true, out: [0, -1] } : { id, x: e.x, z: e.z, along: 'z', w: 2.8, open: true, out: [e.side === 'left' ? -1 : 1, 0] });
+  }
+  for (const e of fx.exits) if (!used.has(`${e.x},${e.z}`)) gates.push(e.side === 'back' ? { id: 'path', x: e.x, z: PLAY.z0, along: 'x', w: 2.8, open: false, out: [0, -1] } : { id: 'path', x: e.x, z: e.z, along: 'z', w: 2.8, open: false, out: [e.side === 'left' ? -1 : 1, 0] });
+  // cover: the map's 'o' (the place's kinds in turn) and '0' (its biggest)
+  const kinds = look?.covers ?? coversOf(style), big = kinds.slice().sort((a, b) => sizeOf(b)[0] * sizeOf(b)[1] - sizeOf(a)[0] * sizeOf(a)[1])[0];
+  const covers: Cover[] = fx.covers.map((c, i) => { const k = c.big ? big : kinds[i % kinds.length], rot = (r(i + 1) < 0.5 ? 0 : 1) as 0 | 1, [a, b] = sizeOf(k); return { kind: k, x: c.x, z: c.z, hx: rot ? b : a, hz: rot ? a : b, rot }; });
+  const props: ArenaPlan['props'] = [], R0: Record<PropKind, number> = { pot: 0.32, crate: 0.4, hay: 0.55, oil: 0.38, pillar: 0.3, fence: 0.85, rack: 0.5, banner: 0.25, basket: 0.34, sack: 0.34, lamp: 0.25 };
+  // (the doors, the hollow walls, the barricades, the puzzle pieces, the exits' mouths and the way in stay clear)
+  const clear: Rect[] = [...fx.closed.map(q => ({ x0: q.x0 - 1.2, x1: q.x1 + 1.2, z0: q.z0 - 1.2, z1: q.z1 + 1.2 })), ...fx.sunk, ...shape.bridges.map(b => ({ x0: b.x0 - 0.6, x1: b.x1 + 0.6, z0: b.z0 - 1.6, z1: b.z1 + 1.6 })),
+    ...fx.marks.map(m => ({ x0: m.x - 1.2, x1: m.x + 1.2, z0: m.z - 1.2, z1: m.z + 1.2 })), ...gates.map(g => g.along === 'x' ? { x0: g.x - 2.4, x1: g.x + 2.4, z0: g.z, z1: g.z + 3.5 } : { x0: g.x - 3.5, x1: g.x + 3.5, z0: g.z - 2.4, z1: g.z + 2.4 }),
+    { x0: shape.enter[0] - 2, x1: shape.enter[0] + 2, z0: shape.enter[1] - 2, z1: shape.enter[1] + 3 }];
+  const free = (x: number, z: number, rr: number) => grid.clear(x, z, rr + 0.3) && !clear.some(c => x > c.x0 - rr && x < c.x1 + rr && z > c.z0 - rr && z < c.z1 + rr)
+    && covers.every(c => Math.abs(c.x - x) > c.hx + rr + 0.35 || Math.abs(c.z - z) > c.hz + rr + 0.35) && props.every(p => Math.hypot(p.x - x, p.z - z) > R0[p.kind] + rr + 0.25);
+  const put = (k: PropKind, x: number, z: number, rot?: 0 | 1, force = false) => { if (!force && !free(x, z, R0[k])) return false; props.push({ kind: k, x: +x.toFixed(2), z: +z.toFixed(2), ...(rot != null ? { rot } : {}) }); return true; };
+  const smalls: PropKind[] = look?.smalls ?? ARENA_STYLES[style]?.smalls ?? (style === 'wattle' ? ['hay', 'pot', 'sack', 'hay', 'basket'] : style === 'brick' ? ['pot', 'pot', 'crate', 'basket'] : ['pot', 'crate', 'sack', 'hay', 'basket']);
+  let salt = 100;
+  // the marked pieces first, exactly on their cells (an oil jar by a barricade is the puzzle's: it must be there)
+  for (const p of fx.props) if (p.kind !== 'small') put(p.kind, p.x, p.z, undefined, true);
+  for (const p of fx.props) if (p.kind === 'small') {
+    const k = smalls[Math.floor(r(salt++) * smalls.length)]; put(k, p.x, p.z, undefined, true);
+    for (let i = 0, t = 0; i < 2 && t < 10; t++) { const a = r(salt++) * Math.PI * 2, d = 0.55 + r(salt++) * 0.5; if (put(smalls[Math.floor(r(salt++) * smalls.length)], p.x + Math.cos(a) * d, p.z + Math.sin(a) * d)) i++; }
+  }
+  // the dressing along the walls: lanterns, racks, (region one) banners — few, from the room's own seed
+  const spot = () => [PLAY.x0 + 1 + r(salt++) * (PLAY.x1 - PLAY.x0 - 2), PLAY.z0 + 1 + r(salt++) * (PLAY.z1 - PLAY.z0 - 3)];
+  const many = (k: PropKind, n: number) => { for (let i = 0, t = 0; i < n && t < 60; t++) { const [x, z] = spot(); if (grid.clear(x, z, 1.2) && !grid.clear(x, z, 2.2) && put(k, x, z)) i++; } };
+  many('rack', look?.racks ?? 2);
+  if (look?.banners != null || (ARENA_STYLES[style]?.banners ?? true)) many('banner', look?.banners ?? 3); else many('lamp', 2);
+  many('lamp', look?.lamps ?? 2);
+  void kind;
+  return { style, gates, covers, props, wall: { ...WALL, gap: 0 }, shape };
 }
 
 // ================================================================== voxels: walls, gates, cover
