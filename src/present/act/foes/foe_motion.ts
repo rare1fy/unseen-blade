@@ -58,6 +58,8 @@ export class FoeGait {
   private turn = 0;
   private settle = 0;
   private stopping = false;
+  /** the velocity over the ground, smoothed as a vector (a body pushed back and forth between a crate and its neighbours cancels out) */
+  private vx = 0; private vz = 0;
 
   constructor(a: BattleActor) {
     this.phase = wrap(a.t * 0.731);
@@ -72,12 +74,19 @@ export class FoeGait {
     const dx = a.home.x - this.lastX, dz = a.home.z - this.lastZ;
     const distance = Math.hypot(dx, dz), dyaw = angleDelta(a.yaw - this.lastYaw);
     this.lastX = a.home.x; this.lastZ = a.home.z; this.lastYaw = a.yaw;
-    const measured = dt > 0 ? distance / dt : 0;
+    // (11-19 用户：「敌人经常会被卡在场景可破坏建筑里原地跑」: measured frame by frame, a foe jostled between a prop and the crowd —
+    //  pushed in, pushed out, a few cm each frame — read as walking at a good pace and ran on the spot. The velocity is smoothed as a
+    //  vector over ~0.12 s first, so back-and-forth cancels and only real travel moves the legs)
+    if (dt > 0 && distance / dt < 12) { const f = 1 - Math.exp(-dt / 0.12); this.vx += (dx / dt - this.vx) * f; this.vz += (dz / dt - this.vz) * f; }
+    const measured = dt > 0 ? (distance / dt < 12 ? Math.hypot(this.vx, this.vz) : distance / dt) : 0;
     // Warps are not steps. Reported speed also supports actors on a treadmill.
     const moving = measured > 0.015 && measured < (a.act?.name === 'ramRun' ? 26 : 12);
     if (moving) this.heading = Math.atan2(dx, dz);
     else if (dt > 0) this.heading += angleDelta(a.yaw - this.heading) * (1 - Math.exp(-dt / 0.09));
-    const targetSpeed = active ? (moving ? measured : a.moveSpeed ?? (a.running ? 3 : a.walkK * 1.5)) : 0;
+    // (11-19 用户：「敌人经常会被卡在场景可破坏建筑里原地跑」: a foe knocked into a crate / cover is stopped there with its knock-back
+    //  speed still reported — the legs ran at that speed on the spot. Standing still, the reported speed counts only while it is asked to
+    //  run (the preview page's and the lab's treadmill); otherwise the legs follow where it actually goes)
+    const targetSpeed = active ? (moving ? measured : a.running ? a.moveSpeed ?? 3 : a.moveSpeed === undefined ? a.walkK * 1.5 : 0) : 0;
     const old = this.speed, filter = 1 - Math.exp(-dt / 0.075);
     this.speed += (targetSpeed - old) * filter;
     this.turn += ((dt > 0 ? dyaw / dt : 0) - this.turn) * filter;
