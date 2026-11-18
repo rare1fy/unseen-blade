@@ -153,7 +153,9 @@ export class ActHud {
     b.special.x = W - 150 * k; b.special.y = H - 300 * k;
     // 11-18 (用户：「大招可以触发的时候应该在右手拇指区域一个额外的地方出现一个按钮」): 不见刀's own button, over the jump button on the
     // thumb's arc (clear of the dart button and its label); it shows only while the ring closes (the QTE)
-    b.ult.size = 124 * k; b.ult.x = W - 300 * k; b.ult.y = H - 392 * k;
+    // (11-18 用户：「按钮离太远了，其他按钮已经给它让路了就可以再往右下移一些了」: into the room the four leave between the jump and the dart
+    // buttons once they have gathered toward the corner — its label just clears the jump button's top)
+    b.ult.size = 124 * k; b.ult.x = W - 225 * k; b.ult.y = H - 335 * k;
     // (the laid-out places: the 不见刀 button's coming in moves the others from here, see makeWay)
     for (const n of Object.keys(b) as BtnName[]) this.home[n] = { x: b[n].x, y: b[n].y, size: b[n].size };
     // the pause button at the top right: just left of the tuning panel's 「调」 (a 30 px square 8 px in from the corner), level with it;
