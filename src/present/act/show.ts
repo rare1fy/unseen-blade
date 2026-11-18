@@ -1952,7 +1952,7 @@ export class ActShow {
     for (let i = 0; i < 3; i++) fxAfterimage(at.clone().add(V3(Math.sin(i * 2.1) * 0.5, h.y, Math.cos(i * 2.1) * 0.5)), 1.9, 0x8ac8ff, { life: 0.45, glow: 0.6 });
     fxSparks(h.a.chest(), 0xdff4ff, 18, 5); h.a.tint(0xbfe8ff, 0.6);
     popPix('闪', h.a.head().add(V3(0, 0.5, 0)), { color: '#bfe8ff', h: 0.9, big: true, life: 0.9, rise: 1.0 });
-    cue('parry', 1); cue('draw', 0.9); this.platform.vibrate('medium');
+    cue('dodgeOk', 1); this.platform.vibrate('medium');   // (11-19: its own sound — it was the parry's clang, read as a clash of blades)
     h.counterT = TUNE.counterTime; h.dashCd = 0; h.gainQi(0.5);   // (11-17 气: a perfect dodge is half a bar)
     if (this.intent >= 3) this.startQte(); else this.addIntent();
   }
