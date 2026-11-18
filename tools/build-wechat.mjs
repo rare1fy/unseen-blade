@@ -33,7 +33,10 @@ const DW = path.join(ROOT, 'dist-wx'), bundle = fs.readFileSync(path.join(DW, 'g
 // 2. the project folder (the old appid survives)
 let appid = 'touristappid';
 try { appid = JSON.parse(fs.readFileSync(path.join(OUT, 'project.config.json'), 'utf8')).appid || appid; } catch { /* a new folder */ }
-fs.rmSync(OUT, { recursive: true, force: true }); fs.mkdirSync(OUT, { recursive: true });
+// (11-18: the folder may be open in the WeChat devtools — Windows won't remove an open directory (EPERM): clear what's inside instead,
+// best effort, and write over it; the devtools pick the new files up)
+fs.mkdirSync(OUT, { recursive: true });
+for (const e of fs.readdirSync(OUT)) { if (e === 'project.config.json' || e === 'project.private.config.json') continue; try { fs.rmSync(path.join(OUT, e), { recursive: true, force: true }); } catch (err) { console.log(`  （没删掉 ${e}：${err.code}，直接覆盖）`); } }
 const rd = f => fs.readFileSync(path.join(ROOT, 'wechat', f), 'utf8');
 fs.writeFileSync(path.join(OUT, 'game.js'), `'use strict';\n${rd('adapter.js')}\n${rd('glue.js')}\n${bundle}`);
 const subs = new Set();
@@ -67,7 +70,7 @@ console.log(`  合计 ${kb(size(OUT))}；appid ${appid}；iOS 高性能模式 ${
 
 // 4. the zip (Python's zipfile writes UTF-8 names with the flag set, so the Chinese folder name survives on any unzip)
 if (ZIP) {
-  const py = `import zipfile,os,sys\nsrc,dst=sys.argv[1],sys.argv[2]\nbase=os.path.dirname(src)\nwith zipfile.ZipFile(dst,'w',zipfile.ZIP_DEFLATED) as z:\n  for d,_,fs in os.walk(src):\n    for f in fs:\n      p=os.path.join(d,f); z.write(p,os.path.relpath(p,base))\n`;
+  const py = `import zipfile,os,sys\nsrc,dst=sys.argv[1],sys.argv[2]\nbase=os.path.dirname(src)\nwith zipfile.ZipFile(dst,'w',zipfile.ZIP_DEFLATED) as z:\n  for d,_,fs in os.walk(src):\n    for f in fs:\n      if f=='project.private.config.json': continue\n      p=os.path.join(d,f); z.write(p,os.path.relpath(p,base))\n`;   // (the devtools' own per-machine settings stay out)
   try { fs.rmSync(ZIP, { force: true }); execFileSync('python', ['-c', py, OUT, ZIP], { stdio: 'inherit' }); console.log(`  压缩包 ${ZIP}（${kb(fs.statSync(ZIP).size)}）`); }
   catch (e) { console.log('  （没打压缩包：' + (e && e.message) + '）'); }
 }
