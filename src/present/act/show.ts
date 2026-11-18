@@ -717,7 +717,7 @@ export class ActShow {
       qi: (n?: number) => { if (n != null) this.hero.qi = Math.max(0, Math.min(Hero.QI_MAX, n)); return this.hero.qi; },
       untaught: () => { try { localStorage.removeItem('ub.taught'); } catch { /* */ } this.taught = null; },
       prologue: (n = 1) => { this.startPrologue(); if (n >= 2) { after(0.3, () => { this.prologue = 2; this.proFightT = 0; this.plan = { type: 'boss', locale: 'hj_temple', reward: null, waves: [['hj_boss']] }; this.locale = 'hj_temple'; this.room = 1; this.buildRoom(false); }); } },
-      sfx: () => ({ ready: audio.ready, all: audio.buf.size, loaded: [...audio.buf.keys()].filter(k => /^ub_(hit|vo|sw)_/.test(k)), muted: audio.muted, ctx: audio.ctx ? audio.ctx.state : 'none', recent: audio.recent.slice() }), unlockAudio: () => audio.unlock().then(() => audio.ready),
+      sfx: () => ({ ready: audio.ready, all: audio.buf.size, loaded: [...audio.buf.keys()].filter(k => /^ub_(hit|vo|sw)_/.test(k)), muted: audio.muted, ctx: audio.ctx ? audio.ctx.state : 'none', recent: audio.recent.slice() }), unlockAudio: () => audio.unlock().then(() => audio.loading).then(() => audio.ready),
       cam: (b: number[] | null, l?: number[], fov = 30) => { this.camOverride = b ? { base: V3(b[0], b[1], b[2]), look: V3(l![0], l![1], l![2]), fov } : null; },
       press: (n: 'attack' | 'dash' | 'special' | 'jump', ms = 80) => { this.inp.hold(n, ms / 1000); },
       unpress: (n: 'attack' | 'dash' | 'special' | 'jump') => { this.inp.unhold(n); },
@@ -785,6 +785,10 @@ export class ActShow {
     // unlockAudio)
     if (typeof window !== 'undefined') { const unlock = () => this.unlockAudio(); window.addEventListener('pointerdown', unlock); window.addEventListener('keydown', unlock); }
     this.start();
+    // 11-18 微信小游戏 (用户：「现在有声音了，但是声音出来的很慢」): a mini-game may make its sound before any touch — the effects and the
+    // track this scene plays download and decode while the title is up, then the other audio subpackages; the first touch only
+    // turns it on
+    if (!HAS_DOM) audio.prepare({ warm: [this.musicName()], prefetch: true });
     installR45(this);
   }
   /** act-19: the music for where we are — the opening, the yard, or the room's kind (a fight, a 死士 room, the 渠帅, a calm room);
@@ -804,13 +808,17 @@ export class ActShow {
   }
   music() {
     if (!this.audioOn) return;
-    const t = this.plan?.type ?? 'fight', ph = this.phase as string;
     // (act-37: a scored piece holds until its scene is over; the prologue's temple fight has its own; the hideout is the kiln's)
     if (this.musicHold) { void audio.playMusic(this.musicHold, 1.2); return; }
+    void audio.playMusic(this.musicName(), 1.8);
+  }
+  /** the track for where we are now (music() plays it; a mini-game decodes it at boot, before the first touch asks for it) */
+  private musicName() {
+    if (this.musicHold) return this.musicHold;
+    const t = this.plan?.type ?? 'fight', ph = this.phase as string;
     // (11-18: a region's own fight / boss track, from the songs there are — REGIONS[…].music)
     const rm = REGIONS[this.region]?.music;
-    const name = ph === 'opening' || ph === 'title' ? 'bgm_opening' : this.room < 0 || ph === 'yard' ? 'bgm_yard' : this.prologue === 2 ? 'bgm_boss' : t === 'boss' ? rm?.boss ?? 'bgm_boss' : t === 'elite' ? 'bgm_elite' : t === 'shop' || t === 'rest' || t === 'boon' ? 'bgm_calm' : rm?.fight ?? 'bgm_battle';
-    void audio.playMusic(name, 1.8);
+    return ph === 'opening' || ph === 'title' ? 'bgm_opening' : this.room < 0 || ph === 'yard' ? 'bgm_yard' : this.prologue === 2 ? 'bgm_boss' : t === 'boss' ? rm?.boss ?? 'bgm_boss' : t === 'elite' ? 'bgm_elite' : t === 'shop' || t === 'rest' || t === 'boon' ? 'bgm_calm' : rm?.fight ?? 'bgm_battle';
   }
   layout2() {
     const s = this.platform.canvasSize(), dpr = Math.min(this.platform.dpr(), 2);

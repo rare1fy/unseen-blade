@@ -3,6 +3,7 @@ import serifUrl from '../../../fonts/body/serif.woff2?inline';
 import sansUrl from '../../../fonts/body/sans.woff2?inline';
 import { text, textW, PIX_H } from '../v2/overlay';
 import { onLanguageChange, t } from '../act/i18n';
+import { firstSounds } from '../../audio/firstSounds';
 
 export type BodyFont = 'wenkai' | 'serif' | 'sans' | 'pixel';
 export const BODY_FONT_NAME: Record<BodyFont, string> = { wenkai: '文楷', serif: '宋体', sans: '黑体', pixel: '像素' };
@@ -29,12 +30,14 @@ const wxFont = typeof wx !== 'undefined' ? (wx as { loadFont?: (path: string) =>
 // 11-18 微信小游戏: the fonts are package files there and wx.loadFont registers them (no FontFace); a font it can't load is drawn
 // in the device's own font
 // (the TrueType files sit in the `fonts` subpackage — the main package has to stay under 4 MB — loaded in the background: the game
-// starts at once in the device's font and switches when they're in)
+// starts at once in the device's font and switches when they're in; 11-18: the download starts after the first sounds', at most 3 s
+// after the sound starts — audio/firstSounds.ts. fontsReady itself never waits for it: main.ts boots the game on it, and the game
+// is what starts the sound)
 const wxLoadFonts = () => { for (const k of Object.keys(urls) as Array<Exclude<BodyFont, 'pixel'>>) { try { loaded[k] = wxFont!(urls[k]) || ''; } catch { loaded[k] = ''; } } changed(); };
 export const fontsReady: Promise<void> = wxFont
   ? Promise.resolve().then(() => {
       const sub = (wx as { loadSubpackage?: (o: { name: string; success: () => void; fail: () => void }) => void }).loadSubpackage;
-      if (sub && /^fonts\//.test(urls.wenkai)) { for (const k of Object.keys(loaded) as Array<Exclude<BodyFont, 'pixel'>>) loaded[k] = ''; sub({ name: 'fonts', success: wxLoadFonts, fail: () => changed() }); }
+      if (sub && /^fonts\//.test(urls.wenkai)) { for (const k of Object.keys(loaded) as Array<Exclude<BodyFont, 'pixel'>>) loaded[k] = ''; void firstSounds.then(() => sub({ name: 'fonts', success: wxLoadFonts, fail: () => changed() })); }
       else wxLoadFonts();
     })
   : typeof document === 'undefined' || typeof FontFace === 'undefined'

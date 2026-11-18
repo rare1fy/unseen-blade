@@ -14,6 +14,8 @@ if (!PROJ) { console.log('usage: node tools/wx-devtools-sim.mjs <projectDir> [po
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.png': 'image/png', '.json': 'application/json', '.mp3': 'audio/mpeg', '.woff2': 'font/woff2' };
 http.createServer((req, res) => {
   const p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+  // (/__size/<subpackage>: its size in bytes — the stand-in's ?mbps= download time)
+  if (p.startsWith('/__size/')) { const d = path.join(path.resolve(PROJ), p.slice(8)); let n = 0; const walk = x => { for (const e of fs.readdirSync(x, { withFileTypes: true })) { const q = path.join(x, e.name); if (e.isDirectory()) walk(q); else n += fs.statSync(q).size; } }; if (fs.existsSync(d)) walk(d); res.writeHead(200, { 'Content-Type': 'text/plain' }); return res.end(String(n)); }
   const f = p === '/' ? path.join(ROOT, 'wechat', 'devtools-sim.html') : p.startsWith('/proj/') ? path.join(path.resolve(PROJ), p.slice(6)) : null;
   if (!f || !fs.existsSync(f) || fs.statSync(f).isDirectory()) { res.writeHead(404); return res.end(); }
   res.writeHead(200, { 'Content-Type': TYPES[path.extname(f)] || 'application/octet-stream' }); fs.createReadStream(f).pipe(res);
