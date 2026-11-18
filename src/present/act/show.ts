@@ -521,9 +521,8 @@ export class ActShow {
     if (p.meal) { await this.talk([{ who: 'duwu', text: pick(MEAL_TALK.packed) }]); return; }
     await this.talk([{ who: 'duwu', text: pick(MEAL_TALK.offer) }]);
     const cards = MEALS.map(m => ({ boon: { id: 'meal_' + m.id, school: 'ms' as never, name: m.name, desc: [m.desc, ''], col: '#ffd27a', glyph: MEAL_GLYPH[m.id], tag: '' } as Boon, tier: 0 }));
-    cards.push({ boon: { id: 'leave', school: 'ms' as never, name: '离开', desc: ['什么也不带', ''], col: '#f0e0b0', glyph: LEAVE, tag: '' } as Boon, tier: 0 });
     const was = this.phase; this.phase = 'pick'; this.hud.on = false;
-    const i = await this.cards.open(cards); this.phase = was; this.hud.on = true;
+    const i = await this.cards.open(cards, { leave: true }); this.phase = was; this.hud.on = true;
     const m = MEALS[i]; if (!m) return;
     p.meal = m.id; saveProfile(); cue('coin', 0.6);
     await this.talk([{ who: 'duwu', text: MEAL_TALK.after[m.id] }]);
@@ -537,10 +536,11 @@ export class ActShow {
       const glyph = who === 'forge' ? ANVIL : NEEDLE;
       const cards = ups.map(u => { const lv = level(p, u.id), cost = nextCost(p, u.id);
         return { boon: { id: 'mu_' + u.id, school: (who === 'forge' ? 'fg' : 'md') as never, name: u.name, desc: [...u.desc], col: '#ffd27a', glyph, tag: cost == null ? msg`满 · ${lv}级` : msg`${cur} ${cost} · ${lv}级` } as Boon, tier: cost == null ? 2 : lv > 0 ? 1 : 0 }; });
-      cards.push({ boon: { id: 'leave', school: 'ms' as never, name: '离开', desc: [msg`手上${cur} ${have}`, ''], col: '#f0e0b0', glyph: LEAVE, tag: '' } as Boon, tier: 0 });
+      // (11-19 用户：「npc商店页面没有退出按钮」: the back shield at the top left leaves — no 离开 card; what she holds shows on the page)
+      void have;
       const was = this.phase; this.phase = 'pick'; this.hud.on = false;
-      const i = await this.cards.open(cards); this.phase = was; this.hud.on = true;
-      if (i >= ups.length) return;
+      const i = await this.cards.open(cards, { leave: true }); this.phase = was; this.hud.on = true;
+      if (i < 0 || i >= ups.length) return;
       const u = ups[i];
       if (!buy(p, u.id)) { const poor = POOR_TALK[id]; if (poor) await this.talk([{ who: id, text: poor }]); return; }
       saveProfile(); cue('coin', 0.8); this.banner.show(u.name, msg`${level(p, u.id)} 级`, 1.0, '#ffd27a');
@@ -604,7 +604,7 @@ export class ActShow {
       { label: () => `全部招式：${this.dbgAllMoves ? '开' : '关'}`, run: () => { this.dbgAllMoves = !this.dbgAllMoves; if (this.hero && !this.yard && !this.prologue) this.hero.moves = this.dbgAllMoves ? ALL_MOVES : this.perks.moves; } }],
       { regions: REGIONS.map(r => r.name), rooms: ri => REGIONS[ri].rooms, go: (ri, room, type) => { const r = this.jumpRegion(ri, room, type); return 'why' in r ? r.why : undefined; } });
     // the pause menu (act-30 之后, user: 「帮我把手柄的按键映射和手柄支持做了吧」): Start / Esc, a pad pulled out, the page hidden
-    this.pause = new PauseMenu({ L: this.L, settings: [...SET.filter(x => __DEBUG_UI__ || !x.dbg).map(x => ({ label: x.short, run: x.run })), { id: 'language', label: () => '语言：简体中文', run: () => setLanguage(language === 'en' ? 'zh' : 'en') }], canGiveUp: () => this.canGiveUp(), giveUp: () => this.giveUp(), closed: () => this.unpaused(),
+    this.pause = new PauseMenu({ L: this.L, settings: [...SET.filter(x => __DEBUG_UI__ || !x.dbg).map(x => ({ label: x.short, run: x.run })), { id: 'language', label: () => '语言：简体中文', run: () => setLanguage(language === 'en' ? 'zh' : 'en') }], canGiveUp: () => this.canGiveUp(), giveUp: () => this.giveUp(), closed: () => this.unpaused(), toTitle: () => this.backToTitle(), onRun: () => this.canGiveUp(),
       owned: () => this.ownedSections(), skills: () => this.skillSections() });
     // 11-18 (用户：「游戏里也没有一个可以呼出暂停窗口的按钮」): the iron button at the top right opens it too
     this.hud.onPause = () => this.pauseGame();
@@ -2708,6 +2708,7 @@ export class ActShow {
     if (e.key === 'Escape' && !e.repeat && this.canPause()) { e.preventDefault(); this.pauseGame(); e.stopImmediatePropagation(); return; }   // (the menu must not take the same Esc as its 返回)
     if (this.dialogue.on) { if (!e.repeat && ['Enter', ' ', 'j', 'J'].includes(e.key)) { e.preventDefault(); this.dialogue.advance(); } return; }
     if (!this.cards.on) return;
+    if ((e.key === 'Escape' || e.key === 'Backspace') && !e.repeat && this.cards.leave()) { e.preventDefault(); return; }   // (11-19: a shop page — Esc leaves)
     const k = ({ arrowleft: 'left', a: 'left', arrowup: 'left', w: 'left', arrowright: 'right', d: 'right', arrowdown: 'right', s: 'right', enter: 'ok', ' ': 'ok', j: 'ok' } as const)[e.key.toLowerCase() as 'a'];
     if (k && !e.repeat) { e.preventDefault(); this.cards.key(k); }
   }
@@ -2721,7 +2722,7 @@ export class ActShow {
     if (this.timeline.on) { if (n.back) { this.padSkip = true; this.timeline.key(true); } else if (this.padSkip && !n.backHeld) { this.padSkip = false; this.timeline.key(false); } }
     else this.padSkip = false;
     if (this.dialogue.on) { if (n.ok || n.x) this.dialogue.advance(); return; }
-    if (this.cards.on) { if (n.up || n.left) this.cards.key('left'); else if (n.down || n.right) this.cards.key('right'); else if (n.ok) this.cards.key('ok'); return; }
+    if (this.cards.on) { if (n.up || n.left) this.cards.key('left'); else if (n.down || n.right) this.cards.key('right'); else if (n.ok) this.cards.key('ok'); else if (n.back) this.cards.leave(); return; }
     if (n.start && this.canPause()) this.pauseGame();
   }
   /** the world can stand still here: walking about or fighting (not the start screen, a cutscene, a conversation, the cards, a wipe) */
@@ -2740,6 +2741,14 @@ export class ActShow {
   /** 回据点 from the pause menu: out on a run (not the yard, not the prologue's scripted fights) */
   private canGiveUp() { return !this.prologue && (['intro', 'fight', 'doors'] as Phase[]).includes(this.phase); }
   private giveUp() { if (!this.hero.alive) return; this.hero.giveUp(); this.dead(); }
+  /** 11-19 (用户：「暂停没有回到主画面的选项」): 回主画面 from the pause menu — out on a run the trip ends as a death would (the haul home,
+   *  the run's gains lost), then the start screen; anywhere else straight to it. (Not during a cutscene or a talk: the pause has no 回主画面
+   *  row then — the menu only opens where play stops) */
+  private backToTitle() {
+    if (this.canGiveUp() && this.hero?.alive) { this.hero.giveUp(); this.bankRun(false); this.justDied = true; }
+    audio.stopMusic(0.8); this.hud.on = false;
+    void wipeTransit(() => { this.title(savedTitle()); });
+  }
   // ------------------------------------------------------------ a bot (captures / smoke tests)
   private botT = 0; private cardT = 0; private botStuckT = 0; private botLast = V3(); private botUnstick = 0; private botSide = 1;
   /** the bot stays in the yard and spars (captures of the yard) instead of walking out */

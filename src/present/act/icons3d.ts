@@ -55,6 +55,14 @@ const ART: Record<string, (set: Set3) => void> = {
     extrude(set, ring, -1, 0, C.br1); for (const [x, y] of ring.cells()) if (y === -1) set(x, y, 1, C.br2);
     box(set, -2, -12, -1, 1, -6, 0, C.red1); box(set, -1, -11, 1, 0, -7, 1, C.red2); box(set, -3, -14, -1, 2, -13, 0, C.red0);
   },
+  // 11-19 返回 (用户：「设置的返回按钮设计有问题」): an arrow turning back — a broad bronze bar along the top and down the right, the
+  //  head pointing left at the top (big flat tiers, no stair of single cells), a lit edge along its top
+  back: set => {
+    const m = new Mask().rect(-3, 3, 7, 6).rect(4, -6, 7, 2).rect(-2, -7, 7, -5)
+      .rect(-6, 2, -4, 7).rect(-8, 3, -7, 6).rect(-9, 4, -9, 5);
+    pillow(set, m, -2, 1, C.br0, C.br1, 0, C.brG, 1);
+    box(set, -3, 6, 2, 6, 6, 2, C.br2); box(set, -6, 7, 2, -4, 7, 2, C.br2);
+  },
   // 交谈: a white speech bubble (act-34, 用户：「对白气泡用白色，不要黄色，黄色看不懂」), three dark dots, the tail at its lower left
   talk: set => {
     const m = new Mask().rect(-8, -2, 7, 6).rect(-7, -3, 6, 7).cut(-8, 6, -8, 6).cut(7, 6, 7, 6).cut(-8, -2, -8, -2).cut(7, -2, 7, -2).rect(-6, -6, -4, -4).rect(-7, -7, -6, -6);
@@ -64,7 +72,7 @@ const ART: Record<string, (set: Set3) => void> = {
 };
 
 /** the four buttons' pictures and the hideout's talk bubble, as thick voxel badges (dim / glow through Model3D) */
-export function btnIcon3D(key: 'attack' | 'dash' | 'jump' | 'special' | 'talk'): Model3D {
+export function btnIcon3D(key: 'attack' | 'dash' | 'jump' | 'special' | 'talk' | 'back'): Model3D {
   // act-41 (用户：「所有道具我要求都是真实的模型，不要用立体简笔画糊弄我」): the buttons carry the real things — the ring-pommel sabre,
   // the willow-leaf dart, the cloth boot (itemModels.ts); the talk bubble stays a sign. (act-50 用户：「跳跃的图标还是用之前的吧，现在这个
   // 草鞋看起来很抽象」: the jump is the act-31 up-arrow badge again, not the straw sandal)
