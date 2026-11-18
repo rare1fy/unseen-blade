@@ -3,11 +3,11 @@
 // 同时右下角的真按钮跟着按法一颗颗按下去：按下那颗下沉、亮一下；到了能接这一招的那一刻，那颗钮像战斗里一样换成这一招的颜色和图标
 // （翻面）——玩家看一遍、照着按。点一下 / 任意键跳过。演示时真的她不接输入、站着不动（拿刀谱都在清场之后，场上没有活着的敌人）。
 // 幻影就是一个真的 Hero（同一套状态机、同一套动作和特效），只把它的输入换成脚本、它的世界换成只有那个虚影敌人的小世界，
-// 所以招式和游戏里一模一样；新加的刀谱只要 manuals.ts 填了 how / air，就按通用脚本自动演示（skillInfo manualHow）。
+// 幻影用 Hero 的招式和与卡面共用的按法。这里仅摆虚影和安排按下的时机。
 import * as THREE from 'three';
 import { V3 } from '../engine/world';
 import { BattleActor } from '../bestiary/battle';
-import { fxSparks } from '../fx/fx';
+import { fxRing, fxSparks, trailSeg } from '../fx/fx';
 import { smokeBurst } from '../kyoto/ninja_fx';
 import { cue } from '../../audio/cues';
 import { PLAY } from '../scenes/props';
@@ -19,35 +19,27 @@ import type { ActHud } from './hud';
 import type { Btn, BtnName, Input } from './input';
 import type { Foe } from './enemy';
 import type { ModelDef } from '../bestiary/models';
-import { manualOf, manualHow, MANUAL_HINT, KEY_BTN, isPress } from './skillInfo';
+import { manualOf, manualSteps, MANUAL_HINT, KEY_BTN, isPress } from './skillInfo';
+import type { MoveId } from './manuals';
 
 type Stick = 'toFoe' | 'away' | 'side' | null;
-interface Press { btn: BtnName; hold?: number; when?: (g: Hero, d: MoveDemo) => boolean; after?: number; stick?: Stick }
-interface Script { dist: number; steps: Press[]; tail: number }
+interface Timing { when?: (g: Hero, d: MoveDemo) => boolean; after?: number; stick?: Stick }
+interface Script { dist: number; steps: Timing[]; tail: number }
 const TAP = 0.08;
-/** the eight 刀谱 (each step fires when the ghost can take it — the same getters the HUD's link hints read) */
-const SCRIPTS: Record<string, Script> = {
-  chase: { dist: 4.2, tail: 0.9, steps: [{ btn: 'special', after: 0.35 }, { btn: 'attack', when: (_g, d) => d.stuck, after: 0.35 }] },
-  backDart: { dist: 3.2, tail: 0.9, steps: [{ btn: 'dash', stick: 'away', after: 0.35 }, { btn: 'special', when: g => g.canBackDart, after: 0.06 }] },
-  dbl: { dist: 3.2, tail: 1.0, steps: [{ btn: 'jump', after: 0.35 }, { btn: 'jump', when: g => g.canDoubleJump && g.vy < 2.2, after: 0.2 }] },
-  launch: { dist: 2.3, tail: 1.2, steps: [{ btn: 'attack', after: 0.35 }, { btn: 'jump', when: g => g.canLaunch, after: 0.14 }] },
-  cutDart: { dist: 2.3, tail: 0.9, steps: [{ btn: 'attack', after: 0.35 }, { btn: 'special', when: g => g.canCutDart, after: 0.14 }] },
-  keep: { dist: 2.3, tail: 1.0, steps: [{ btn: 'attack', after: 0.35 }, { btn: 'dash', stick: 'side', when: g => g.st === 'k1' && g.t / g.dur > 0.4 }, { btn: 'attack', when: g => g.canKeep && g.st === 'free', after: 0.04 }] },
-  pause: { dist: 2.3, tail: 1.4, steps: [{ btn: 'attack', after: 0.35 }, { btn: 'attack', when: g => g.st === 'k1' && g.t / g.dur > 0.35 }, { btn: 'attack', when: g => g.canPause && g.t > 0.3 }] },
-  kick: { dist: 3.8, tail: 1.0, steps: [{ btn: 'dash', stick: 'toFoe', after: 0.35 }, { btn: 'jump', when: g => g.canKick, after: 0.08 }] },
+const SCRIPTS: Record<MoveId, Script> = {
+  chase: { dist: 4.2, tail: 0.9, steps: [{}, { when: (_g, d) => d.stuck }] },
+  backDart: { dist: 3.2, tail: 0.9, steps: [{ stick: 'away' }, { when: g => g.canBackDart, after: 0.06 }] },
+  dbl: { dist: 3.2, tail: 1.0, steps: [{}, { when: g => g.canDoubleJump, after: 0.2 }] },
+  launch: { dist: 2.3, tail: 1.2, steps: [{}, { when: g => g.canLaunch }] },
+  cutDart: { dist: 2.3, tail: 0.9, steps: [{}, { when: g => g.canCutDart }] },
+  keep: { dist: 2.3, tail: 1.0, steps: [{}, { stick: 'side', when: g => g.st === 'k1' && g.t / g.dur > 0.4 }, { when: g => g.canKeep && g.st === 'free' }] },
+  pause: { dist: 2.3, tail: 1.4, steps: [{}, { when: g => g.st === 'k1' && g.t / g.dur > 0.35 }, { when: g => g.canPause && g.t > 0.3 }] },
+  kick: { dist: 3.8, tail: 1.0, steps: [{ stick: 'toFoe' }, { when: g => g.canKick, after: 0.08 }] },
+  acut: { dist: 2.3, tail: 1.25, steps: [{}, { when: g => g.canLaunch }, { when: g => g.canAirCut }] },
+  swoop: { dist: 3.4, tail: 1.0, steps: [{}, { when: g => g.canSwoop, stick: 'toFoe' }] },
+  reel: { dist: 4.1, tail: 1.05, steps: [{}, { when: g => g.canReel }] },
+  stomp: { dist: 1.08, tail: 1.2, steps: [{}, { when: g => g.canStomp }] },
 };
-/** any other manual: its presses one after another (a held 斩 held through the stance; a pause = a beat more; air = a jump first) */
-function genericScript(id: string): Script | null {
-  const m = manualOf(id); if (!m) return null;
-  const s = manualHow(m), steps: Press[] = []; let extra = 0;
-  if (s.air && s.how[0] !== 'jump') steps.push({ btn: 'jump', after: 0.35 });
-  for (const st of s.how) {
-    if (st === 'wait') { extra += 0.45; continue; }
-    if (!isPress(st)) continue;
-    steps.push({ btn: KEY_BTN[st], hold: st === 'hold' ? TUNE.holdToCharge + TUNE.chargeFull + 0.15 : TAP, after: (steps.length ? 0.3 : 0.35) + extra, stick: st === 'dash' ? 'toFoe' : null }); extra = 0;
-  }
-  return { dist: 2.4, tail: 1.1, steps };
-}
 const ghostMat = (col: number) => new THREE.MeshBasicMaterial({ vertexColors: true, color: col, transparent: true, opacity: 0 });
 function ghostOf(root: THREE.Object3D, mat: THREE.Material) { root.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh) { m.material = mat; m.castShadow = false; m.receiveShadow = false; } }); }
 const wrap = (a: number) => { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a; };
@@ -58,15 +50,20 @@ export class MoveDemo {
   private g: Hero | null = null; private foe: BattleActor | null = null; private F: Foe | null = null; private gm = ghostMat(0xd6e6ff); private fm = ghostMat(0xff9a88);
   private inp = { b: { attack: newBtn(), dash: newBtn(), special: newBtn(), jump: newBtn() } as Record<BtnName, Btn> };
   private hold: Record<BtnName, number> = { attack: 0, dash: 0, special: 0, jump: 0 };
-  private script: Script | null = null; private si = 0; private t = 0; private lastT = 0; private stick: { v: THREE.Vector3; t: number } = { v: V3(), t: 0 };
-  private darts: Dart[] = []; private fvy = 0; private fvel = V3(); private hint: HintKey | null = null; private skipped = false; private fade = 0; private ending = -1;
+  private script: Script | null = null; private keys: ReturnType<typeof manualSteps> = []; private readyAt = 0; private si = 0; private t = 0; private lastT = 0; private stick: { v: THREE.Vector3; t: number } = { v: V3(), t: 0 };
+  private darts: Dart[] = []; private fvy = 0; private fvel = V3(); private prone = 0; private hint: HintKey | null = null; private skipped = false; private fade = 0; private ending = -1;
   private done: (() => void) | null = null; private hud: ActHud | null = null; private dir = V3(1, 0, 0);
   /** play a manual's move beside the hero; resolves when it has played out or been skipped */
   play(id: string, o: { at: THREE.Vector3; def: ModelDef; hud: ActHud }): Promise<void> {
     this.stop();
-    const sc = SCRIPTS[id] ?? genericScript(id); if (!sc) return Promise.resolve();
+    const m = manualOf(id);
+    if (!m) return Promise.resolve();
+    const sc = SCRIPTS[m.id];
+    this.keys = manualSteps(m).filter(isPress);
+    this.readyAt = 0;
+    this.prone = 0;
     this.script = sc; this.si = 0; this.t = 0; this.lastT = 0; this.stuck = false; this.fvy = 0; this.fvel.set(0, 0, 0); this.skipped = false; this.fade = 0; this.ending = -1; this.hud = o.hud;
-    this.hint = (MANUAL_HINT[id] ?? null) as HintKey | null;
+    this.hint = MANUAL_HINT[m.id];
     // the stage: a line across the screen centred on her, just in front of her (toward the camera — the camera follows her, so the
     // whole move stays in frame; beside her it ran off the screen's edge, up-screen it went behind the hideout's wall); behind her when
     // she stands at the room's front edge
@@ -75,7 +72,7 @@ export class MoveDemo {
     const s = o.at.x > mid ? -1 : 1, dir = this.dir.set(s, 0, 0);
     let cx = o.at.x; cx = Math.max(PLAY.x0 + L / 2 + 1, Math.min(PLAY.x1 - L / 2 - 1, cx));
     const gAt = V3(cx - s * L / 2, 0, z), fAt = V3(cx + s * L / 2, 0, z);
-    const g = this.g = new Hero(gAt, o.def); g.moves = { [id]: true }; g.a.yaw = Math.atan2(dir.x, dir.z); ghostOf(g.a.root, this.gm);
+    const g = this.g = new Hero(gAt, o.def); g.moves = m.needs ? { [id]: true, [m.needs]: true } : { [id]: true }; g.a.yaw = Math.atan2(dir.x, dir.z); ghostOf(g.a.root, this.gm);
     const foe = this.foe = new BattleActor('hj_blade'); foe.place(fAt); foe.yaw = Math.atan2(-dir.x, -dir.z); ghostOf(foe.root, this.fm);
     this.F = { st: 'idle', pos: foe.home, d: { r: 0.44 }, a: foe, vel: V3(), kind: 'hj_blade' } as unknown as Foe;
     smokeBurst(gAt, 0.5, 6, { size: 0.24, life: 0.4 }); smokeBurst(fAt, 0.5, 6, { size: 0.24, life: 0.4 }); cue('whoosh', 0.4);
@@ -102,6 +99,26 @@ export class MoveDemo {
       dart: o => { me.darts.push(new Dart(o.from.clone(), o.dir.clone().multiplyScalar(TUNE.dartSpeed), 0, TUNE.dartRange)); },
       chaseTarget: () => (me.stuck ? F : null),
       chase: o => { smokeBurst(o.from, 0.5, 8, { size: 0.26, life: 0.5 }); smokeBurst(o.to, 0.5, 8, { size: 0.26, life: 0.5 }); for (const d of me.darts) if (d.stuck) d.stop(); me.stuck = false; cue('dash', 0.8); },
+      airFoe: () => F.pos.y > 0.15 ? F : null,
+      airHold: (_f, y) => { F.pos.y = Math.max(0.5, y - 0.1); me.fvy = 0; },
+      airCut: o => { if (o.n === 3) me.fvy = -16; return hit(o.n === 3 ? 1.3 : 0.9); },
+      airSlam: o => { F.pos.y = 0; me.fvy = 0; fxRing(o.at.clone().setY(0.06), 0xe1b5a9, 1.6); return hit(1.3); },
+      swoop: o => {
+        trailSeg(o.a.clone().setY(0.65), o.b.clone().setY(0.65), 0x9ad8a8, 0.12, { life: 0.28 });
+        return hit(1.2);
+      },
+      reelTarget: (from, min) => me.stuck && from.distanceTo(F.pos) >= min ? { foe: F, heavy: false } : null,
+      reel: o => {
+        for (const d of me.darts) if (d.stuck === F) d.stop();
+        me.stuck = false;
+        const g = me.g!;
+        trailSeg(g.a.chest(), foe.chest(), 0xd8283a, 0.055, { life: o.dur });
+        // The ghost foe has no enemy AI; move it with the tug in the little demonstration world.
+        me.fvel.copy(o.to).sub(F.pos).multiplyScalar(7);
+        hit(0.8);
+      },
+      stompable: (from, y) => y >= 0.5 && Math.hypot(from.x - F.pos.x, from.z - F.pos.z) <= 1.4 ? F : null,
+      stomp: o => { me.prone = 1.2; fxRing(o.foe.pos.clone().setY(0.06), 0xd8c8a8, 0.9); return hit(1.2); },
       guard: () => {}, incoming: () => null, iaiCatch: () => null,
       clamp: (p, r) => { p.x = Math.max(PLAY.x0 + r, Math.min(PLAY.x1 - r, p.x)); p.z = Math.max(PLAY.z0 + r, Math.min(PLAY.z1 - r, p.z)); },
       stickWorld: () => (me.stick.t > 0 ? me.stick.v.clone() : V3()),
@@ -116,11 +133,15 @@ export class MoveDemo {
     this.t += dt;
     // the script: the next press fires when its moment comes (and its own condition holds)
     if (this.ending < 0 && this.si < sc.steps.length) {
-      const p = sc.steps[this.si];
-      if (this.t - this.lastT >= (p.after ?? 0.12) && (!p.when || p.when(g, this))) {
-        this.hold[p.btn] = p.hold ?? TAP; this.lastT = this.t; this.si++;
+      const p = sc.steps[this.si], key = this.keys[this.si];
+      const ready = this.t - this.lastT >= (p.after ?? (this.si ? 0.12 : 0.35)) && (!p.when || p.when(g, this));
+      this.readyAt = ready ? this.readyAt + dt : 0;
+      // Give the final button time to turn before the ghost presses it.
+      const last = this.si === sc.steps.length - 1;
+      if (isPress(key) && ready && (!last || this.readyAt >= 0.14)) {
+        const btn = KEY_BTN[key]; this.hold[btn] = TAP; this.lastT = this.t; this.si++; this.readyAt = 0;
         if (p.stick) { const toF = foe.home.clone().sub(g.pos).setY(0).normalize(); this.stick.v.copy(p.stick === 'toFoe' ? toF : p.stick === 'away' ? toF.multiplyScalar(-1) : V3(-toF.z, 0, toF.x)); this.stick.t = 0.12; }
-        const b = this.hud?.btns[p.btn]; if (b instanceof IronBtn) b.kick(0.8, this.hint && this.si === sc.steps.length ? 0xfff2d0 : 0xffe8c0);
+        const b = this.hud?.btns[btn]; if (b instanceof IronBtn) b.kick(0.8, last ? 0xfff2d0 : 0xffe8c0);
       }
     } else if (this.ending < 0 && this.t - this.lastT > sc.tail) this.ending = 0;
     if (this.t > 5.5 && this.ending < 0) this.ending = 0;   // (never hangs: a step whose moment did not come)
@@ -138,6 +159,13 @@ export class MoveDemo {
     if (this.fvy !== 0 || foe.home.y > 0) { foe.home.y += this.fvy * dt; this.fvy -= 20 * dt; if (foe.home.y <= 0) { foe.home.y = 0; this.fvy = 0; } }
     if (this.fvel.lengthSq() > 1e-3) { foe.home.addScaledVector(this.fvel, dt); this.fvel.multiplyScalar(Math.exp(-5 * dt)); }
     foe.place(foe.home);
+    if (this.prone > 0) {
+      const down = Math.min(1, (1.2 - this.prone) / 0.1, this.prone / 0.25);
+      foe.body.rotation.x = Math.PI / 2 * down;
+      foe.body.position.y = 0.24 * down;
+      this.prone = Math.max(0, this.prone - dt);
+      if (!this.prone) { foe.body.rotation.x = 0; foe.body.position.y = 0; }
+    }
     // darts: fly, the first that reaches the foe sticks in it (寻声 follows it)
     for (const d of this.darts) {
       if (d.dead) continue;
@@ -146,17 +174,10 @@ export class MoveDemo {
       if (Math.hypot(foe.home.x - q.x, foe.home.z - q.z) < 0.64 && d.p.y < 2.4) { foe.hurt(0.4); cue('dartHit', 0.6); d.stickIn(this.F!, 3); this.stuck = true; }
       else if (d.life <= 0) d.stop(false);
     }
-    // the button the move goes on takes the move's colour and picture the moment it can be taken (as in a fight)
+    // The last press has the same ready condition, palette and model as the corresponding HUD link.
     if (this.hud) {
-      const open: Record<BtnName, HintKey | null> = { attack: null, dash: null, special: null, jump: null }, k = this.hint;
-      if (k === 'chase' && this.stuck) open.attack = 'chase';
-      else if (k === 'keep' && g.canKeep) open.attack = 'keep';
-      else if (k === 'pause' && g.canPause) open.attack = 'pause';
-      else if (k === 'back' && g.canBackDart) open.special = 'back';
-      else if (k === 'cdart' && g.canCutDart) open.special = 'cdart';
-      else if (k === 'launch' && g.canLaunch) open.jump = 'launch';
-      else if (k === 'kick' && g.canKick) open.jump = 'kick';
-      else if (k === 'dbl' && g.canDoubleJump) open.jump = 'dbl';
+      const last = sc.steps.length - 1, key = this.keys[last], timing = sc.steps[last];
+      const open = this.si === last && isPress(key) && timing.when?.(g, this) ? { [KEY_BTN[key]]: this.hint } : {};
       this.hud.setHints(open);
     }
     // fade in; at the end both go up in smoke

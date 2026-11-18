@@ -10,17 +10,16 @@ import { drawPix, pixW, PIX_H } from '../v2/pix';
 import { bodyText } from '../ui3d/bodyFont';
 import { richLine, TIER_TXT } from './cardBoard';
 import { MiniShield, btnShield } from './btnBadge';
-import { skillIcon3D } from './skillIcons';
-import { hintCol, isHintKey } from './ironUi';
+import { isLinkIcon, skillIcon3D } from './skillIcons';
 import { fillVals } from './cards';
-import { BOONS, TIER_NAMES, type Boon } from './boons';
+import { BOONS, TIER_NAMES, boonTier, type Boon, type BoonId, type SkillBoon } from './boons';
 import { MANUALS, type Manual } from './manuals';
-import { KEY_BTN, MANUAL_HINT, UI_WORDS, boonEffect, boonNum, boonSteps, boonTarget, isPress, manualEffect, manualHow, manualTarget, type BaseSkill, type MarkTarget, type Step } from './skillInfo';
+import { KEY_BTN, LINK_COLORS, MANUAL_HINT, STANCE_COLORS, UI_WORDS, boonSteps, boonTarget, isPress, manualSteps, manualTarget, type BaseIcon, type BaseSkill, type MarkTarget, type Step } from './skillInfo';
 import type { BtnName } from './input';
 
 export interface SkillEntry {
   id: string; kind: 'manual' | 'boon' | 'base'; name: string; tag: string; tier: number;
-  /** the picture (skillIcons skillIcon3D id) */ icon: string;
+  /** the picture (skillIcons skillIcon3D id) */ icon: BaseIcon | BoonId;
   /** the presses (null = nothing to press: a passive) */ steps: Step[] | null;
   effect: string; num: string;
   /** the colour of the move (a 刀谱's link light) or of the tier's metal — the big shield's plates and the last press's rim */ col: number;
@@ -29,32 +28,37 @@ export interface SkillEntry {
 }
 const TIER_GLOW = [0xb0c0d8, 0xffb060, 0xffd060];
 export function entryOfManual(m: Manual): SkillEntry {
-  const s = manualHow(m), hk = MANUAL_HINT[m.id], col = hk && isHintKey(hk) ? hintCol(hk) : 0xf0e0b0;
-  return { id: m.id, kind: 'manual', name: m.name, tag: UI_WORDS.manual, tier: 0, icon: hk ? 'hint:' + hk : 'btn:attack', steps: s.air && s.how[0] !== 'jump' ? ['jump', ...s.how] : s.how, effect: manualEffect(m), num: '', col, target: manualTarget(m), lit: col };
+  const icon = MANUAL_HINT[m.id], col = LINK_COLORS[icon];
+  return { id: m.id, kind: 'manual', name: m.name, tag: UI_WORDS.manual, tier: 0, icon, steps: manualSteps(m), effect: m.desc[0], num: m.desc[1], col, target: manualTarget(m), lit: col };
 }
-export function entryOfBoon(b: Boon, tier: number): SkillEntry {
-  const t = Math.max(0, Math.min(2, tier));
-  return { id: b.id, kind: 'boon', name: b.name, tag: TIER_NAMES[t], tier: t, icon: b.id, steps: boonSteps(b), effect: boonEffect(b), num: fillVals(boonNum(b), b, t), col: TIER_GLOW[t], target: boonTarget(b), lit: null };
+export function entryOfBoon(b: SkillBoon, tier: number): SkillEntry {
+  const t = boonTier(tier);
+  return { id: b.id, kind: 'boon', name: b.name, tag: TIER_NAMES[t], tier: t, icon: b.id, steps: boonSteps(b), effect: b.eff, num: fillVals(b.note, b, t), col: TIER_GLOW[t], target: boonTarget(b), lit: null };
 }
 export function entryOfBase(s: BaseSkill): SkillEntry {
-  const hk = s.icon.startsWith('hint:') ? s.icon.slice(5) : '', col = hk && isHintKey(hk) ? hintCol(hk) : s.id === 'ult' ? 0xffd060 : s.id === 'iai' || s.id === 'parry' ? 0xffb060 : 0xb0c0d8;
-  const target = KEY_BTN[(s.steps.find(isPress) ?? 'attack') as 'attack'] as BtnName;
-  return { id: s.id, kind: 'base', name: s.name, tag: '', tier: 0, icon: s.icon, steps: s.steps, effect: s.effect, num: s.num ?? '', col, target, lit: hk || s.id === 'ult' ? col : null };
+  const icon = s.icon;
+  const lit = isLinkIcon(icon) ? LINK_COLORS[icon] : icon === 'ult' || icon === 'stance' || icon === 'parry' ? STANCE_COLORS[icon] : null;
+  const target = KEY_BTN[s.steps.find(isPress) ?? 'attack'];
+  return { id: s.id, kind: 'base', name: s.name, tag: '', tier: 0, icon, steps: s.steps, effect: s.effect, num: s.num ?? '', col: lit ?? 0xb0c0d8, target, lit };
 }
-/** a pick card's entry (a 秘传 or a 刀谱 card), or null for the other cards (meals, the smith's and the healer's lists, 再来一次) */
+/** The other cards (meals, upgrades, 再来一次) use the regular item face. */
 export function entryOfCard(b: Boon, tier: number): SkillEntry | null {
-  if (b.id.startsWith('ms_')) { const m = MANUALS.find(x => 'ms_' + x.id === b.id); return m ? entryOfManual(m) : null; }
-  return BOONS.some(x => x.id === b.id) ? entryOfBoon(b, tier) : null;
+  if (b.id.startsWith('ms_')) {
+    const m = MANUALS.find(x => x.id === b.id.slice(3));
+    return m ? entryOfManual(m) : null;
+  }
+  const boon = BOONS.find(x => x.id === b.id);
+  return boon ? entryOfBoon(boon, tier) : null;
 }
 
 // ---------------------------------------------------------------- the presses in a row
 export type PressItem =
   | { kind: 'btn'; btn: BtnName; x: number; rim: number | null; rimK: number; bar: boolean }
-  | { kind: 'sep'; mark: 'arrow' | 'dots' | 'spark' | 'ingots'; x: number; w: number };
+  | { kind: 'sep'; mark: 'arrow' | 'dots' | 'spark' | 'ingots' | 'air' | 'full' | 'ring' | 'dartHit' | 'nearFoe'; x: number; w: number };
 /** lay the presses out left to right for buttons of diameter s (px): returns the items (x = left edge) and the row's width */
 export function layoutPresses(steps: Step[], s: number, lit: number | null) {
   const out: PressItem[] = []; let x = 0, prev: 'btn' | 'sep' | null = null;
-  const W = { arrow: s * 0.42, dots: s * 0.55, spark: s * 0.5, ingots: s * 0.95 };
+  const W = { arrow: s * 0.42, dots: s * 0.55, spark: s * 0.5, ingots: s * 0.95, air: s * 0.55, full: s * 0.55, ring: s * 0.6, dartHit: s * 0.62, nearFoe: s * 0.6 };
   const sep = (mark: keyof typeof W) => { out.push({ kind: 'sep', mark, x, w: W[mark] }); x += W[mark]; prev = 'sep'; };
   const lastPress = steps.reduce((a, st, i) => (isPress(st) || st === 'release' ? i : a), -1);
   steps.forEach((st, i) => {
@@ -62,9 +66,10 @@ export function layoutPresses(steps: Step[], s: number, lit: number | null) {
     if (st === 'more') { sep('dots'); return; }
     if (st === 'cue') { sep('spark'); return; }
     if (st === 'intent') { sep('ingots'); return; }
+    if (st === 'air' || st === 'full' || st === 'ring' || st === 'dartHit' || st === 'nearFoe') { sep(st); return; }
     if (prev === 'btn') sep('arrow'); else if (prev === 'sep' && out[out.length - 1]?.kind === 'sep' && (out[out.length - 1] as { mark: string }).mark === 'ingots') sep('arrow');
-    const hold = st === 'hold', rel = st === 'release', btn: BtnName = rel ? 'attack' : KEY_BTN[st as 'attack'];
-    const rim = rel ? 0xfff6e0 : hold ? 0xff7a2a : i === lastPress && lit != null ? lit : null;
+    const hold = st === 'hold', rel = st === 'release', btn: BtnName = rel ? 'attack' : KEY_BTN[st];
+    const rim = rel && steps[i - 1] === 'cue' ? STANCE_COLORS.parry : hold ? 0xff7a2a : i === lastPress && lit != null ? lit : null;
     out.push({ kind: 'btn', btn, x, rim, rimK: rel ? 0.85 : hold ? 0.6 : 0.8, bar: hold }); x += s; prev = 'btn';
   });
   return { items: out, w: x };
@@ -83,6 +88,28 @@ export function paintSeps(g: CanvasRenderingContext2D, items: PressItem[], x0: n
     if (it.mark === 'arrow') { R(cx - 3 * u, cy - u, 4 * u, 2 * u, '#c8b48a'); R(cx + u, cy - 3 * u, u, 6 * u, '#c8b48a'); R(cx + 2 * u, cy - 2 * u, u, 4 * u, '#c8b48a'); R(cx + 3 * u, cy - u, u, 2 * u, '#c8b48a'); }
     else if (it.mark === 'dots') for (const d of [-1, 0, 1]) R(cx + d * 3 * u - u, cy - u, 2 * u, 2 * u, '#c8b48a');
     else if (it.mark === 'spark') { R(cx - u, cy - 4 * u, 2 * u, 8 * u, '#9ad8ff'); R(cx - 4 * u, cy - u, 8 * u, 2 * u, '#9ad8ff'); R(cx - u, cy - u, 2 * u, 2 * u, '#f0fbff'); }
+    else if (it.mark === 'air') {
+      R(cx - 3 * u, cy + 4 * u, 6 * u, u, '#9b8b74');
+      R(cx - u, cy - 2 * u, 2 * u, 5 * u, '#c0ddec');
+      R(cx - 2 * u, cy - 3 * u, 4 * u, 2 * u, '#c0ddec');
+      R(cx - u, cy - 4 * u, 2 * u, u, '#c0ddec');
+    } else if (it.mark === 'dartHit') {
+      R(cx - 4 * u, cy, 6 * u, u, '#e8dfd0');
+      R(cx - 3 * u, cy, 2 * u, u, '#e2606a');
+      R(cx + 2 * u, cy - 3 * u, 2 * u, 7 * u, '#ea9f49');
+    } else if (it.mark === 'nearFoe') {
+      R(cx - 2 * u, cy - 3 * u, 4 * u, 3 * u, '#e3b969');
+      R(cx - u, cy, 2 * u, u, '#c77d56');
+      R(cx - 3 * u, cy + u, 6 * u, 2 * u, '#b68964');
+    } else if (it.mark === 'full') {
+      R(cx - 3 * u, cy - 2 * u, 6 * u, 4 * u, '#ffb369');
+      R(cx - 2 * u, cy - 2 * u, 4 * u, u, '#ffe0a0');
+    } else if (it.mark === 'ring') {
+      R(cx - 2 * u, cy - 3 * u, 4 * u, u, '#ffd060');
+      R(cx - 2 * u, cy + 2 * u, 4 * u, u, '#ffd060');
+      R(cx - 3 * u, cy - 2 * u, u, 4 * u, '#ffd060');
+      R(cx + 2 * u, cy - 2 * u, u, 4 * u, '#ffd060');
+    }
     else if (it.mark === 'ingots') for (const d of [-1, 0, 1]) { R(cx + d * 5 * u - 2 * u, cy - u * 1.5, 4 * u, 3 * u, '#d09a50'); R(cx + d * 5 * u - 2 * u, cy - u * 1.5, 4 * u, u, '#ffe0a0'); }
   }
 }

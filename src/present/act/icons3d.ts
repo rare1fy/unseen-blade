@@ -72,14 +72,3 @@ export function btnIcon3D(key: 'attack' | 'dash' | 'jump' | 'special' | 'talk'):
   const art = key === 'attack' ? 'sabre' : key === 'special' ? 'dart' : key;
   return customIcon3D('ub:' + art, ART[art]);
 }
-
-/** a move-link's picture (the 10 × 10 hint glyph) as a pillowed token in its colour: each pixel → 2 × 2 cells, outline darker, a
- *  lit core one cell proud and glowing */
-export function hintIcon3D(key: string, rows: string[], col: number): Model3D {
-  return customIcon3D('hint:' + key, set => {
-    const m = new Mask(), H = rows.length;
-    rows.forEach((row, py) => { for (let px = 0; px < row.length; px++) if (row[px] === '#') m.rect(px * 2, (H - 1 - py) * 2, px * 2 + 1, (H - 1 - py) * 2 + 1); });
-    const c = (k: number) => { const r = (col >> 16) & 255, g = (col >> 8) & 255, b = col & 255, f = (v: number) => Math.max(0, Math.min(255, Math.round(k < 1 ? v * k : v + (255 - v) * (k - 1)))); return (f(r) << 16) | (f(g) << 8) | f(b); };
-    pillow(set, m, -1, 0, c(0.45), c(1), 1, c(1.45), 1);
-  });
-}

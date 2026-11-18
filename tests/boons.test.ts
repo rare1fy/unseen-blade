@@ -86,10 +86,10 @@ describe('秘传：改招为主', () => {
   });
   it('卡面数值一行按档填', () => {
     const b = (id: string) => BOONS.find(x => x.id === id)!;
-    expect(fillVals(b('bladeWind').note!, b('bladeWind'), 1)).toBe('刀光伤害150%，飞得远20%');
-    expect(fillVals(b('pin').note!, b('pin'), 2)).toBe('僵住1.4秒（头目除外）');
-    expect(fillVals(b('decoy').note!, b('decoy'), 0)).toBe('残影引敌1秒，每4秒一个');
-    expect(fillVals(b('darts3').note!, b('darts3'), 1)).toBe('一次4枚');
+    expect(fillVals(b('bladeWind').note!, b('bladeWind'), 1)).toBe('刀光伤害 150% · 飞行距离 +20%');
+    expect(fillVals(b('pin').note!, b('pin'), 2)).toBe('定住 1.4秒 · 头目除外');
+    expect(fillVals(b('decoy').note!, b('decoy'), 0)).toBe('残影停 1秒 · 每 4秒 留一个');
+    expect(fillVals(b('darts3').note!, b('darts3'), 1)).toBe('一次 4 枚');
   });
   it('斩击类型含补刀、错身、掠顶、第二段箭步斩，不含飞镖、刀芒和环境伤害', () => {
     for (const kind of ['k1', 'k2', 'k3', 'k4', 'k5', 'rel', 'rel2', 'plunge', 'launch', 'parry', 'echo', 'pass', 'overhead']) expect(isBladeHit(kind)).toBe(true);
