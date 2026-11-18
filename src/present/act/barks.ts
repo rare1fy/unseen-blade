@@ -6,6 +6,7 @@ import type { UiLayer } from '../ui3d/layer';
 import { worldToUi } from '../ui3d/layer';
 import { text, textW } from '../v2/overlay';
 import { PIX_H } from '../v2/pix';
+import { language } from './i18n';
 
 /** the Yellow Turbans' shouts (short, rough, in their own voice) */
 export const BARK_LINES = ['苍天已死，黄天当立！', '瞎子？送死来了！', '围上去，砍了他！', '白毛的，留下刀！', '天公将军护着咱！', '一个瞎子，怕什么！',
@@ -38,7 +39,9 @@ export class Barks {
       if (b.t >= b.life) { this.drop(b); this.list.splice(i, 1); continue; }
       const pin = Math.min(1, b.t / 0.12), pout = Math.min(1, (b.life - b.t) / 0.18), k = Math.min(1 - (1 - pin) ** 3, pout);
       const p = worldToUi(b.head().add(new THREE.Vector3(0, 0.55, 0))), L = this.L;
-      L.at(Math.round(p.x + b.w * 0.2), Math.round(p.y - b.h / 2), 0, b.mesh.position); b.mesh.scale.set(L.px(b.w) * k, L.px(b.h) * k, 1);
+      const x = p.x + b.w * 0.2;
+      const center = language === 'en' ? Math.min(L.w - b.w / 2, Math.max(b.w / 2, x)) : x;
+      L.at(Math.round(center), Math.round(p.y - b.h / 2), 0, b.mesh.position); b.mesh.scale.set(L.px(b.w) * k, L.px(b.h) * k, 1);
       b.mesh.visible = !hidden && k > 0.02;
     }
   }

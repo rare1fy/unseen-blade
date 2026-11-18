@@ -1,3 +1,5 @@
+import { language, t } from './i18n';
+import { CRAZYGAMES } from '../../platform/crazygames';
 // 开始画面（docs/DESIGN.md 第二十轮 6；用户 11-17：「最后就是开始画面，再做一版吧，带、继续游戏那些的。氛围上多尝试几版，明早我来选，
 // 尽量避免特写镜头，我们体素风，太近了属于自找没趣。」）：
 // 几版不同的地点 / 天气 / 时段 / 构图（TITLES，网址 ?title=1…N、__dh.title(n)，开始画面上按数字键 1…N 也能切），都是远景：
@@ -330,13 +332,15 @@ class Plaque {
   get h() { return this.w * PH; }
   /** paint the name for the current size (device px), three states */
   private paint() {
-    const L = this.L, k = L.dpr, fw = this.w * 0.86, fh = this.h * 0.7, key = `${this.item.label}${fw.toFixed(0)}x${fh.toFixed(0)}@${k}`;
+    const label = t(this.item.label), L = this.L, k = L.dpr, fw = this.w * 0.86, fh = this.h * 0.7, key = `${label}${fw.toFixed(0)}x${fh.toFixed(0)}@${k}`;
     if (key === this.key) return; this.key = key;
-    const S = Math.max(1, Math.round(fh * 0.62 * k / PIX_H)), track = 1, o = Math.max(1, Math.round(S * 0.25)), tw = (pixW(this.item.label) + track * (this.item.label.length - 1)) * S;
+    const track = 1, width = pixW(label) + track * (label.length - 1);
+    const ideal = Math.round(fh * 0.62 * k / PIX_H), S = Math.max(1, language === 'en' ? Math.min(ideal, Math.floor((fw * k - 6) / width)) : ideal);
+    const o = Math.max(1, Math.round(S * 0.25)), tw = width * S;
     const cw = Math.round(fw * k), ch = Math.round(fh * k);
     for (const st of ['on', 'sel', 'off'] as const) {
       this.texs[st]?.dispose();
-      this.texs[st] = canvasTex(cw, ch, g => { g.imageSmoothingEnabled = false; paintTitle(g, this.item.label, Math.round((cw - tw) / 2), Math.round((ch - PIX_H * S) / 2), S, track, TXT[st], TXT.line, o); }) as THREE.CanvasTexture;
+      this.texs[st] = canvasTex(cw, ch, g => { g.imageSmoothingEnabled = false; paintTitle(g, label, Math.round((cw - tw) / 2), Math.round((ch - PIX_H * S) / 2), S, track, TXT[st], TXT.line, o); }) as THREE.CanvasTexture;
       const t = this.texs[st]!; t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearFilter; t.generateMipmaps = false;
     }
     this.face.scale.set(0.86, 0.7 * PH, 1);
@@ -565,13 +569,16 @@ class Title {
   }
   // ---------------------------------------------------------------- the overlay title (and the note over the confirm)
   private layout() {
-    const ov = this.host.ov, W = ov.w, H = ov.h, k = ov.dpr, key = `${W}x${H}@${k}`;
+    const ov = this.host.ov, W = ov.w, H = ov.h, k = ov.dpr, key = `${W}x${H}@${k}/${language}`;
     if (key === this.lay.key) return;
     this.lay.key = key;
     // the column: a fifth in from the side; the title a sixth of the screen tall, a whole number of device px per font px
-    const S = Math.max(3, Math.round(Math.min(H * 0.15, W * 0.26 / 3.6) * k / PIX_H)), track = 3, o = Math.max(1, Math.round(S * 0.18)), pad = 2 * o;
-    const cw = (pixW(TITLE) + track * (TITLE.length - 1)) * S + pad * 2, ch = PIX_H * S + pad * 2;
-    this.tex?.dispose(); this.tex = canvasTex(cw, ch, g => { g.imageSmoothingEnabled = false; paintTitle(g, TITLE, pad, pad, S, track, INK, LINE, o); }, { nearest: true }) as THREE.CanvasTexture;
+    const label = language === 'en' ? t(TITLE).toUpperCase() : TITLE, track = language === 'en' ? 1 : 3;
+    const width = pixW(label) + track * (label.length - 1);
+    const S = language === 'en' ? Math.max(1, Math.floor(Math.min(H * k / 70, W * k * 0.35 / width))) : Math.max(3, Math.round(Math.min(H * 0.15, W * 0.26 / 3.6) * k / PIX_H));
+    const o = Math.max(1, Math.round(S * 0.18)), pad = 2 * o;
+    const cw = width * S + pad * 2, ch = PIX_H * S + pad * 2;
+    this.tex?.dispose(); this.tex = canvasTex(cw, ch, g => { g.imageSmoothingEnabled = false; paintTitle(g, label, pad, pad, S, track, INK, LINE, o); }, { nearest: true }) as THREE.CanvasTexture;
     if (this.titleM) { ov.scene.remove(this.titleM); this.titleM.geometry.dispose(); (this.titleM.material as THREE.Material).dispose(); }
     this.titleM = quad(this.tex, 0, 1, 90); ov.scene.add(this.titleM);
     const colW = Math.max(cw / k, Math.min(300, W * 0.22)), cx = this.def.ui === 'left' ? Math.max(W * 0.21, colW / 2 + 28) : Math.min(W * 0.79, W - colW / 2 - 28);
@@ -591,7 +598,7 @@ class Title {
     const ta = this.titleA * this.titleA * (3 - 2 * this.titleA), rise = (1 - ta) * 8;
     if (this.titleM) { place(this.titleM, L.x, L.y + rise, L.w, L.h); const mt = this.titleM.material as THREE.MeshBasicMaterial; mt.opacity = ta * (1 - this.menuK); mt.color.setScalar(1 + this.flashK * 0.3); }
     // the note over the confirm (small, under the title)
-    const want = this.beat === 'confirm' ? ASK_NOTE : '';
+    const want = this.beat === 'confirm' ? t(ASK_NOTE) : '';
     if (want !== this.noteKey) {
       this.noteKey = want; const ov = this.host.ov, k = ov.dpr;
       if (this.noteM) { ov.scene.remove(this.noteM); this.noteM.geometry.dispose(); (this.noteM.material as THREE.Material).dispose(); this.noteM = null; } this.noteTex?.dispose(); this.noteTex = null;
@@ -680,7 +687,7 @@ class Title {
     else if (k === 'arrowdown' || k === 's') { e.preventDefault(); this.move(1); }
     else if (k === 'enter' || k === ' ' || k === 'j') { e.preventDefault(); this.confirm(); }
     else if ((k === 'escape' || k === 'backspace') && this.beat === 'confirm') { e.preventDefault(); cue('deselect', 0.5); this.ask(false); }
-    else if (/^[1-9]$/.test(k) && +k <= TITLES.length && +k !== this.n && this.beat === 'menu') { e.preventDefault(); dh.api.title && (dh.api.title as (n: number) => void)(+k); }
+    else if (!CRAZYGAMES && /^[1-9]$/.test(k) && +k <= TITLES.length && +k !== this.n && this.beat === 'menu') { e.preventDefault(); dh.api.title && (dh.api.title as (n: number) => void)(+k); }
   }
   private pad(rdt: number) {
     const gp = activePad();

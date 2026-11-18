@@ -6,13 +6,15 @@ import { text, textW, icon } from '../v2/overlay';
 import { clock } from '../engine/clock';
 import { cue } from '../../audio/cues';
 import { SCHOOL_NAMES, TIER_NAMES, type Boon, type BoonPick } from './boons';
+import { language, t as localize } from './i18n';
 import { SKIN, PALETTE } from './skin';
 import { bodyText, bodyW, onBodyFontChange } from '../ui3d/bodyFont';
 
 /** 把卡面数值按凡、珍、绝档填入；第二组数值供双效果秘传使用。 */
 export function fillVals(desc: string, boon: Boon, tier: number) {
   const t = Math.max(0, Math.min(2, Math.floor(tier) || 0));
-  return desc.replace(/\{v2?\}/g, key => key === '{v2}' ? `${boon.vals2?.[t] ?? 0}${boon.unit2 ?? ''}` : `${boon.vals?.[t] ?? 0}${boon.unit ?? ''}`);
+  const unit = (source = '') => language === 'en' && source === '秒' ? ' ' + localize(source) : source;
+  return localize(desc).replace(/\{v2?\}/g, key => key === '{v2}' ? `${boon.vals2?.[t] ?? 0}${unit(boon.unit2)}` : `${boon.vals?.[t] ?? 0}${unit(boon.unit)}`);
 }
 
 // act-19 (user: 「强化的卡片要像哈迪斯那些经典动作rogue游戏学习，描述关键字要高亮，图标与文字相结合，卡片的样式要和普通面板区分开来」):

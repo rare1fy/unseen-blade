@@ -8,6 +8,7 @@
 // 脚本，它们等着 phase === 'yard'）默认跳过，?opening / #opening 强制放；__dh.opening() 再放一次（截图用）。
 // 性能：雨是一条线段网格（一次绘制），声纹是一个实例化网格（最多 40 圈，一次绘制），灯笼几块体素加一盏点光；没有新的后期通道。
 import * as THREE from 'three';
+import { language, t as localize } from './i18n';
 import { V3, R, onUpdate, canvasTex, camera } from '../engine/world';
 import { clock, hitstop, shake } from '../engine/clock';
 import { shot } from '../director';
@@ -213,7 +214,7 @@ const HINT0 = '点一下，开始', HINT1 = '点一下，拔刀';
 /** the title's own painting: the face over a thin dark outline (a quarter of a font pixel, four directions, no diagonals) */
 export function paintTitle(g: CanvasRenderingContext2D, text: string, x: number, y: number, s: number, track: number, col: string, line: string, o: number) {
   let cx = x;
-  for (const ch of text) {
+  for (const ch of localize(text)) {
     for (const [dx, dy] of [[-o, 0], [o, 0], [0, -o], [0, o]]) drawPix(g, ch, cx + dx, y + dy, { scale: s, color: line, outline: null });
     drawPix(g, ch, cx, y, { scale: s, color: col, outline: null });
     cx += pixW(ch) * s + track * s;
@@ -452,10 +453,14 @@ class Opening {
     if (key === this.lay.key) return;
     this.lay.key = key;
     // the title: about a sixth of the screen tall, a whole number of device px per font px (S); three characters with a gap between
-    const S = Math.max(3, Math.round(Math.min(H * 0.15, W * 0.28 / 3.6) * k / PIX_H)), track = 3, o = Math.max(1, Math.round(S * 0.18)), pad = 2 * o;
-    const cw = (pixW(TITLE) + track * (TITLE.length - 1)) * S + pad * 2, ch = PIX_H * S + pad * 2;
+    const label = language === 'en' ? localize(TITLE).toUpperCase() : TITLE, track = language === 'en' ? 1 : 3;
+    const width = pixW(label) + track * (label.length - 1);
+    const ideal = Math.round(Math.min(H * 0.15, W * 0.28 / 3.6) * k / PIX_H);
+    const S = language === 'en' ? Math.max(1, Math.min(ideal, Math.floor(W * k * 0.62 / width))) : Math.max(3, ideal);
+    const o = Math.max(1, Math.round(S * 0.18)), pad = 2 * o;
+    const cw = width * S + pad * 2, ch = PIX_H * S + pad * 2;
     this.tex?.dispose();
-    this.tex = canvasTex(cw, ch, g => { g.imageSmoothingEnabled = false; paintTitle(g, TITLE, pad, pad, S, track, INK, LINE, o); }, { nearest: true });
+    this.tex = canvasTex(cw, ch, g => { g.imageSmoothingEnabled = false; paintTitle(g, label, pad, pad, S, track, INK, LINE, o); }, { nearest: true });
     const x = Math.round((W - cw / k) / 2), y = Math.round(H * 0.2 - ch / k / 2);
     // the cut runs through the middle row of the characters
     const cutRow = (pad + 6 * S) / k, v = 1 - (pad + 6 * S) / ch;

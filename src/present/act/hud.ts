@@ -1,3 +1,4 @@
+import { language, t as localize } from './i18n';
 // 动作原型的 3D 界面（UI 层里的实物，CLAUDE.md：UI 一律 3D 实物，不加暗色遮罩）。外观按题材风格（skin.ts：漆器 / 竹简 / 铁器）换：
 //   左下：摇杆——只在左下一块区域按下才出（默认按哪儿出在哪儿，之后底座不动；面板里可改成固定在左下）；
 //   右下：四颗技能钮（斩 / 冲 / 跳 / 影），刻着字；冷却时钮面被一层暗色盖住、从上往下退，转好时亮一下；蓄力时从下往上灌金；
@@ -223,7 +224,7 @@ export class ActHud {
       // the glyphs about 16–18 px tall (the 16 px 长坂点宋 at 1:1 on a 720p desktop, 3 device px per font pixel on a 3x phone)
       const dpr = this.L.dpr || 1, pk = Math.max(1, Math.round(Math.max(16, 18 * this.k) * dpr / PIX_H)), lh = (PIX_H + 2) * pk / dpr;
       const b = this.btns[n], word = n === 'attack' && b instanceof IronBtn && b.talk ? '交谈' : ACTION_WORD[n], dev = inp.lastDevice, px = lh * 0.8, y = b.y + b.size * 0.5 + lh * 0.5 + 2 * this.k;
-      const t = dev === 'key' ? `${word} ${actKey(n)}` : word;
+      const t = dev === 'key' ? `${localize(word)} ${localize(actKey(n))}` : word;
       let x = b.x;
       if (dev === 'pad' && this.on) { const gi = BIND.pad[n][0], gh = px * 1.3, gw = glyphArt(gi).w / GLYPH_H * gh, gap = px * 0.3, ww = pixTextW(word, pk, dpr); x = b.x - (gap + gw) / 2; this.glyph(n, gi, b.x - (ww + gap + gw) / 2 + ww + gap, y, gh); }
       else this.glyph(n, null, 0, 0, 0);
@@ -275,7 +276,7 @@ export class ActHud {
       if (!this.boss) this.boss = this.newBar();
       this.boss.g.visible = this.on; this.drawBar(this.boss, this.L.w / 2, 40 * this.k, Math.min(560, this.L.w * 0.44), 12 * this.k, chief.hp / chief.maxHp, dt);
       if (this.bossName !== chief.d.name) { this.bossName = chief.d.name; }
-      this.L.text.set('act.boss', { text: chief.d.name, x: this.L.w / 2, y: 18 * this.k, cell: Math.max(1, Math.round(2 * this.k)), color: '#ffe6b0', align: 'center', visible: this.on });
+      this.L.text.set('act.boss', { text: chief.d.name, x: this.L.w / 2, y: 18 * this.k, ...(language === 'en' ? { bodyPx: Math.max(14, 18 * this.k) } : { cell: Math.max(1, Math.round(2 * this.k)) }), color: '#ffe6b0', align: 'center', visible: this.on });
     } else { if (this.boss) { this.boss.g.parent?.remove(this.boss.g); this.boss = null; } this.L.text.hide('act.boss'); }
   }
 }

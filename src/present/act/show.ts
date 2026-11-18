@@ -1,3 +1,4 @@
+import { format, language, msg, setLanguage } from './i18n';
 // 动作原型（docs: CLAUDE.md「动作原型」、docs/act/DESIGN.md）：哈迪斯式的一间间屋子。每间屋 = 一张拼装的日本场景（asm），战斗区就是屋子；
 // 敌人分两波从边上出来；清场 → 三选一秘传 → 屋子边上的路口立起高札（写着下一间的地名和清完给什么）→ 自己走进路口 → 一丛竹子
 // （或一根木柱）从镜头前扫过，换到下一间。三间屋，第三间是山贼头目。
@@ -482,14 +483,14 @@ export class ActShow {
       const p = profile(), ups = META.filter(u => u.who === who), cur = who === 'forge' ? '残铁' : '药引', have = who === 'forge' ? p.iron : p.herb;
       const glyph = who === 'forge' ? ANVIL : NEEDLE;
       const cards = ups.map(u => { const lv = level(p, u.id), cost = nextCost(p, u.id);
-        return { boon: { id: 'mu_' + u.id, school: (who === 'forge' ? 'fg' : 'md') as never, name: u.name, desc: [...u.desc], col: '#ffd27a', glyph, tag: cost == null ? `满 · ${lv}级` : `${cur} ${cost} · ${lv}级` } as Boon, tier: cost == null ? 2 : lv > 0 ? 1 : 0 }; });
-      cards.push({ boon: { id: 'leave', school: 'ms' as never, name: '离开', desc: [`手上${cur} ${have}`, ''], col: '#f0e0b0', glyph: LEAVE, tag: '' } as Boon, tier: 0 });
+        return { boon: { id: 'mu_' + u.id, school: (who === 'forge' ? 'fg' : 'md') as never, name: u.name, desc: [...u.desc], col: '#ffd27a', glyph, tag: cost == null ? msg`满 · ${lv}级` : msg`${cur} ${cost} · ${lv}级` } as Boon, tier: cost == null ? 2 : lv > 0 ? 1 : 0 }; });
+      cards.push({ boon: { id: 'leave', school: 'ms' as never, name: '离开', desc: [msg`手上${cur} ${have}`, ''], col: '#f0e0b0', glyph: LEAVE, tag: '' } as Boon, tier: 0 });
       const was = this.phase; this.phase = 'pick'; this.hud.on = false;
       const i = await this.cards.open(cards); this.phase = was; this.hud.on = true;
       if (i >= ups.length) return;
       const u = ups[i];
       if (!buy(p, u.id)) { const poor = POOR_TALK[id]; if (poor) await this.talk([{ who: id, text: poor }]); return; }
-      saveProfile(); cue('coin', 0.8); this.banner.show(u.name, `${level(p, u.id)} 级`, 1.0, '#ffd27a');
+      saveProfile(); cue('coin', 0.8); this.banner.show(u.name, msg`${level(p, u.id)} 级`, 1.0, '#ffd27a');
     }
   }
   /** 继续游戏: the hideout with the saved progress */
@@ -522,17 +523,17 @@ export class ActShow {
     this.layout2();
     // the player's settings: the tuning panel shows the long labels, the pause menu's 设置 page the short ones (act-30 之后)
     const SET: Array<{ label: () => string; short: () => string; run: () => void }> = [
-      { label: () => `界面风格：${SKIN_NAME[SKIN.id]}（点这里换）`, short: () => `界面：${SKIN_NAME[SKIN.id]}`, run: () => this.cycleSkin() },
-      { label: () => `正文字体：${BODY_FONT_NAME[BODY_FONT.current]}`, short: () => `正文字体：${BODY_FONT_NAME[BODY_FONT.current]}`, run: () => { const order: BodyFont[] = ['wenkai', 'serif', 'sans', 'pixel']; setBodyFont(order[(order.indexOf(BODY_FONT.current) + 1) % order.length]); } },
+      { label: () => `界面风格：${SKIN_NAME[SKIN.id]}（点这里换）`, short: () => msg`界面：${SKIN_NAME[SKIN.id]}`, run: () => this.cycleSkin() },
+      { label: () => msg`正文字体：${BODY_FONT_NAME[BODY_FONT.current]}`, short: () => msg`正文字体：${BODY_FONT_NAME[BODY_FONT.current]}`, run: () => { const order: BodyFont[] = ['wenkai', 'serif', 'sans', 'pixel']; setBodyFont(order[(order.indexOf(BODY_FONT.current) + 1) % order.length]); } },
       // act-15 用户：「我浏览器玩没有震动诶」 — a switch, a test, and what this device supports
-      { label: () => `震动：${VIBE.on ? '开' : '关'}（${({ api: '这台设备支持', ios: `iPhone iOS ${iosMajor()}：系统触感，点屏幕时最灵`, 'ios-old': `iPhone iOS ${iosMajor() || '17 及以下'}：网页没法震，要 iOS 18`, none: '这个浏览器不支持' } as const)[vibeSupport()]}）`, short: () => `震动：${VIBE.on ? '开' : '关'}`, run: () => { VIBE.on = !VIBE.on; try { localStorage.setItem('ub.vibe', VIBE.on ? '1' : '0'); } catch { /* private mode */ } } },
+      { label: () => `震动：${VIBE.on ? '开' : '关'}（${({ api: '这台设备支持', ios: `iPhone iOS ${iosMajor()}：系统触感，点屏幕时最灵`, 'ios-old': `iPhone iOS ${iosMajor() || '17 及以下'}：网页没法震，要 iOS 18`, none: '这个浏览器不支持' } as const)[vibeSupport()]}）`, short: () => msg`震动：${VIBE.on ? '开' : '关'}`, run: () => { VIBE.on = !VIBE.on; try { localStorage.setItem('ub.vibe', VIBE.on ? '1' : '0'); } catch { /* private mode */ } } },
       { label: () => '试一下震动', short: () => '试一下震动', run: () => { const was = VIBE.on; VIBE.on = true; this.platform.vibrate('heavy'); VIBE.on = was; } },
       // act-14 用户：「我要2x，然后调试面板给我一个切换这个的功能」 — 2x → 3x → off → 1x, remembered on this device
       // act-21: which title screen (five moods; the user picks on a phone too, where there are no number keys)
-      { label: () => `开始画面：第 ${savedTitle()} 版（点这里换）`, short: () => `开始画面：第 ${savedTitle()} 版`, run: () => { const n = savedTitle() % TITLE_COUNT + 1; try { localStorage.setItem('ub.title', String(n)); } catch { /* storage blocked */ } if (this.phase === 'title') this.title(n); } },
+      { label: () => `开始画面：第 ${savedTitle()} 版（点这里换）`, short: () => msg`开始画面：第 ${savedTitle()} 版`, run: () => { const n = savedTitle() % TITLE_COUNT + 1; try { localStorage.setItem('ub.title', String(n)); } catch { /* storage blocked */ } if (this.phase === 'title') this.title(n); } },
       // act-20: her look (the story's heroine: the 斗笠 or the 白发 — the user's two picks); the hideout has no costume rack
-      { label: () => `造型：${this.wearing.name}（点这里换）`, short: () => `造型：${this.wearing.name}`, run: () => { const ids = ['fine_white', 'fine_hat'], n = HEROES.find(d => d.id === ids[(ids.indexOf(this.wearing.id) + 1) % ids.length]); if (n) this.wear(n); } },
-      { label: () => `像素：${PX.on ? PX.size + 'x' : '关'}（点这里换）`, short: () => `像素：${PX.on ? PX.size + 'x' : '关'}`, run: () => { const order = ['2', '3', 'off', '1'], cur = PX.on ? String(PX.size) : 'off', nx = order[(order.indexOf(cur) + 1) % order.length]; if (nx === 'off') setPixel(false); else setPixel(true, +nx); try { localStorage.setItem('ub.px', nx); } catch { /* private mode */ } } },
+      { label: () => `造型：${this.wearing.name}（点这里换）`, short: () => msg`造型：${this.wearing.name}`, run: () => { const ids = ['fine_white', 'fine_hat'], n = HEROES.find(d => d.id === ids[(ids.indexOf(this.wearing.id) + 1) % ids.length]); if (n) this.wear(n); } },
+      { label: () => `像素：${PX.on ? PX.size + 'x' : '关'}（点这里换）`, short: () => msg`像素：${PX.on ? PX.size + 'x' : '关'}`, run: () => { const order = ['2', '3', 'off', '1'], cur = PX.on ? String(PX.size) : 'off', nx = order[(order.indexOf(cur) + 1) % order.length]; if (nx === 'off') setPixel(false); else setPixel(true, +nx); try { localStorage.setItem('ub.px', nx); } catch { /* private mode */ } } },
       // 11-18 微信帧率: the quality tier (自动 → 高 → 中 → 低), kept on the device
       { label: () => qualityLabel(), short: () => qualityLabel(), run: () => cycleQuality() }];
     installActTune([...SET.map(x => ({ label: x.label, run: x.run })),
@@ -544,7 +545,7 @@ export class ActShow {
       { label: () => `全部招式：${this.dbgAllMoves ? '开' : '关'}`, run: () => { this.dbgAllMoves = !this.dbgAllMoves; if (this.hero && !this.yard && !this.prologue) this.hero.moves = this.dbgAllMoves ? ALL_MOVES : this.perks.moves; } }],
       { regions: REGIONS.map(r => r.name), rooms: ri => REGIONS[ri].rooms, go: (ri, room, type) => { const r = this.jumpRegion(ri, room, type); return 'why' in r ? r.why : undefined; } });
     // the pause menu (act-30 之后, user: 「帮我把手柄的按键映射和手柄支持做了吧」): Start / Esc, a pad pulled out, the page hidden
-    this.pause = new PauseMenu({ L: this.L, settings: SET.map(x => ({ label: x.short, run: x.run })), canGiveUp: () => this.canGiveUp(), giveUp: () => this.giveUp(), closed: () => this.unpaused(),
+    this.pause = new PauseMenu({ L: this.L, settings: [...SET.map(x => ({ label: x.short, run: x.run })), { id: 'language', label: () => '语言：简体中文', run: () => setLanguage(language === 'en' ? 'zh' : 'en') }], canGiveUp: () => this.canGiveUp(), giveUp: () => this.giveUp(), closed: () => this.unpaused(),
       owned: () => this.ownedSections(), skills: () => this.skillSections() });
     // 11-18 (用户：「游戏里也没有一个可以呼出暂停窗口的按钮」): the iron button at the top right opens it too
     this.hud.onPause = () => this.pauseGame();
@@ -868,7 +869,7 @@ export class ActShow {
   enterYard() {
     this.unscaleFoes();
     TUNE.dartCharges = 3; TUNE.aggression = 0.85; this.mods = { dmgMul: 1, dartBonus: 0, hpBonus: 0, deathDefy: 0, startIntent: 0, windupMul: 1, startManual: false };
-    if (this.banked) { const b = this.banked, alive = this.lastWon; this.banked = null; const t = HAUL[alive ? 0 : 1] ?? '', [title, sub] = t.split('：'); after(0.6, () => this.banner.show(title ?? '带回', (sub ?? '').replace('{iron}', String(b.iron)).replace('{herb}', String(b.herb)), 2.4, '#ffd27a')); }
+    if (this.banked) { const b = this.banked, alive = this.lastWon; this.banked = null; const [title, sub] = HAUL[alive ? 0 : 1]; after(0.6, () => this.banner.show(title, format(sub, { iron: b.iron, herb: b.herb }), 2.4, '#ffd27a')); }
     this.musicHold = null;
     if (this.justDied) { after(0.3, () => cue('stingRevive', 1)); }
     if (this.justDied) { this.justDied = false; const who = (['duwu', 'sunao', 'fengtiebi'] as const)[Math.floor(Math.random() * 3)]; after(1.0, () => { if (this.phase === 'yard') void this.talk(deathLine(who)); }); }
@@ -984,16 +985,16 @@ export class ActShow {
     const name = LOCALES[this.locale]?.name ?? '';
     // the very first room: the controls once, in the banner (no key hints on screen afterwards)
     const dev = this.inp.lastDevice, hint = !this.hinted ? (dev === 'touch' && 'ontouchstart' in globalThis ? '左边拖动走 · 斩 / 按住蓄力 · 冲 · 跳 · 镖'
-      : dev === 'pad' ? `左摇杆 走 · ${actPad('attack')} 斩（按住蓄力）· ${actPad('jump')} 跳 · ${actPad('dash')} 冲刺 · ${actPad('special')} 飞镖`
-      : `WASD 走 · ${actKey('attack')} 斩（按住蓄力）· ${actKey('jump')} 跳 · ${actKey('dash')} 冲刺 · ${actKey('special')} 飞镖`) : '';
+      : dev === 'pad' ? msg`左摇杆 走 · ${actPad('attack')} 斩（按住蓄力）· ${actPad('jump')} 跳 · ${actPad('dash')} 冲刺 · ${actPad('special')} 飞镖`
+      : msg`WASD 走 · ${actKey('attack')} 斩（按住蓄力）· ${actKey('jump')} 跳 · ${actKey('dash')} 冲刺 · ${actKey('special')} 飞镖`) : '';
     this.hinted = true;
     const info = roomInfo(this.plan?.type ?? 'fight', this.region);
     // 11-18 一局五关: walking into a later region's first room, its name and line first (2.6 s), then the room's own banner
-    if (!this.prologue && this.regionIn) {
+    if (!this.prologue && (this.regionIn || (language === 'en' && this.region === 0 && this.room === 0))) {
       this.regionIn = false; const rb = regionBanner(this.region);
       this.banner.show(rb.title, rb.sub, 2.6, '#ffe2b0');   // (act-50 用户：「获胜的时候会放一个短乐段，我不想要那个声音」: the old jingle is gone everywhere)
-      after(2.7, () => { if (this.phase === 'intro' || this.phase === 'fight') this.banner.show(`第一间 · ${info.name}`, `${name} · ${info.line}`, 1.4); });
-    } else if (!this.prologue) this.banner.show(`第 ${'一二三四五六七八'[this.room] ?? this.room + 1} 间 · ${info.name}`, hint || `${name} · ${info.line}`, hint ? 3.2 : 1.6);
+      after(2.7, () => { if (this.phase === 'intro' || this.phase === 'fight') this.banner.show(msg`第一间 · ${info.name}`, language === 'en' ? hint || msg`${name} · ${info.line}` : msg`${name} · ${info.line}`, 1.4); });
+    } else if (!this.prologue) this.banner.show(msg`第 ${language === 'en' ? this.room + 1 : '一二三四五六七八'[this.room] ?? this.room + 1} 间 · ${info.name}`, hint || msg`${name} · ${info.line}`, hint ? 3.2 : 1.6);
     // the rooms without a fight: the stations stand ready and the roads are open at once
     if (this.plan && (this.plan.type === 'shop' || this.plan.type === 'rest' || this.plan.type === 'boon')) {
       this.stations = new Stations(this.stage!.root);
@@ -1041,7 +1042,7 @@ export class ActShow {
     const ex = { ...exitInfo(this.layout!, 'back'), id: 'left' as const, lane: { x0: HIDEOUT.exit.x0, x1: HIDEOUT.exit.x1, z0: HIDEOUT.exit.z - 1.0, z1: PLAY.z1 + 2.5 }, walk: [[gx, HIDEOUT.exit.z - 1.6], [gx, HIDEOUT.exit.z + 1.0]] as Array<[number, number]> };
     this.doors = [{ ex, g: new THREE.Group(), lift: 1 }];
     const touch = this.inp.lastDevice === 'touch' && 'ontouchstart' in globalThis;
-    this.banner.show('断碑古窑', touch ? '走近人点右下说话 · 踩石板叫陪练 · 出院门开打' : this.inp.lastDevice === 'pad' ? `走近人按 ${actPad('attack')} 说话 · 踩石板叫陪练 · 出院门开打` : `走近人按 ${actKey('attack')} 说话 · 踩石板叫陪练 · 出院门开打 · \` 键调手感`, 4);
+    this.banner.show('断碑古窑', touch ? '走近人点右下说话 · 踩石板叫陪练 · 出院门开打' : this.inp.lastDevice === 'pad' ? msg`走近人按 ${actPad('attack')} 说话 · 踩石板叫陪练 · 出院门开打` : CRAZYGAMES ? msg`走近人按 ${actKey('attack')} 说话 · 踩石板叫陪练 · 出院门开打` : msg`走近人按 ${actKey('attack')} 说话 · 踩石板叫陪练 · 出院门开打 · \` 键调手感`, 4);
     this.log.push('yard');
   }
   private spawnWave() {
@@ -2093,7 +2094,7 @@ export class ActShow {
     if (!left && this.phase === 'fight') {
       const lastWave = this.wave >= (this.plan?.waves.length ?? 1) - 1;
       if (!boss) slowmo(lastWave ? 0.7 : 0.35, 0.3);
-      if (lastWave) after(1.0, () => this.roomClear()); else { this.wave++; after(0.9, () => { if (this.phase === 'fight') { this.banner.show(`第 ${this.wave + 1} 波`, '', 0.9); this.spawnWave(); } }); }
+      if (lastWave) after(1.0, () => this.roomClear()); else { this.wave++; after(0.9, () => { if (this.phase === 'fight') { this.banner.show(msg`第 ${this.wave + 1} 波`, '', 0.9); this.spawnWave(); } }); }
     }
   }
   private hurtHero(dmg: number, from: THREE.Vector3, attacker?: Foe) { // wp/boons: melee source is explicit
@@ -2228,7 +2229,7 @@ export class ActShow {
     this.phase = 'end'; this.bankRun(win); audio.stopMusic(2.0); cue(win ? 'stingWin' : 'stingLose', 1);
     after(0.4, async () => {
       this.hud.on = false;
-      await this.cards.open([{ boon: { id: win ? 'again' : 'retry', school: 'sr', name: win ? REGIONS[REGIONS.length - 1].name : '再来一次', desc: [win ? `${EDEFS[REGIONS[REGIONS.length - 1].boss as EKind]?.name ?? ''}伏诛` : '回练武场再出发', `斩了 ${this.kills} 个 · 点这里回练武场`], col: '#ffd070', glyph: BOONS.find(b => b.id === 'behead')!.glyph }, tier: 0 }]);
+      await this.cards.open([{ boon: { id: win ? 'again' : 'retry', school: 'sr', name: win ? REGIONS[REGIONS.length - 1].name : '再来一次', desc: [win ? msg`${EDEFS[REGIONS[REGIONS.length - 1].boss as EKind]?.name ?? ''}伏诛` : '回练武场再出发', msg`斩了 ${this.kills} 个 · 点这里回练武场`], col: '#ffd070', glyph: BOONS.find(b => b.id === 'behead')!.glyph }, tier: 0 }]);
       this.hud.on = true; void wipeTransit(() => this.enterYard());
     });
   }

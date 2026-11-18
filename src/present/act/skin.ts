@@ -1,3 +1,4 @@
+import { language, t as localize, wrapWords } from './i18n';
 // 界面的题材风格（act-08 用户：「现在的UI欠缺了题材的风格化」「都做给我看看样式」）。三套，游戏里随时切换对比：
 //   漆器（lacquer）：汉代漆器——黑漆底、朱红、描金；技能钮是八角漆盘，中间朱漆、一圈金色分段纹、金字；血量是黑漆长匣里一道朱红。
 //   竹简（bamboo）：竹简木牌——竹片拼的方牌、麻绳捆两道、正中一方朱砂印（阴文刻字）；血量是一排竹简，掉血一片片暗下去、沉下去。
@@ -100,9 +101,11 @@ export function stickFace(skin: SkinId, knob: boolean) {
 }
 /** a banner plaque: the title big, the subtitle small; returns the texture and its size in art px */
 export function bannerFace(skin: SkinId, title: string, sub: string, titleCol?: string) {
-  const ts = 2, tw = Math.ceil(textW(title, ts)), maxLine = 180;
+  const ts = 2, tw = Math.ceil(textW(title, ts)), maxLine = language === 'en' ? Math.max(220, tw) : 180;
+  sub = localize(sub);
   let lines = sub ? [sub] : [];
-  if (sub && bodyW(sub, 10) > maxLine) {
+  if (sub && language === 'en') lines = wrapWords(sub, maxLine, line => bodyW(line, 10));
+  else if (sub && bodyW(sub, 10) > maxLine) {
     const chars = [...sub], mid = Math.ceil(chars.length / 2);
     lines = [chars.slice(0, mid).join(''), chars.slice(mid).join('')];
   }
@@ -284,7 +287,7 @@ export class SkinBanner {
     if (!this.m) return;
     this.t += dt; const L = this.L, inT = Math.min(1, this.t / 0.22), out = Math.max(0, (this.t - 0.22 - this.hold) / 0.25);
     if (out >= 1) { this.clear(); return; }
-    const scale = Math.min(L.w * 0.3 / this.W, L.h * 0.09 / this.H), wpx = this.W * scale, hpx = this.H * scale;
+    const scale = Math.min(L.w * (language === 'en' ? 0.57 : 0.3) / this.W, L.h * (language === 'en' ? 0.13 : 0.09) / this.H), wpx = this.W * scale, hpx = this.H * scale;
     const top = L.h * (this.bossOn() ? 0.13 : 0.05);
     L.at(L.w / 2, top + hpx / 2 - (1 - inT) * 30 - out * 30, 0, this.m.position);
     this.m.scale.set(L.px(wpx), L.px(hpx), L.px(hpx * 0.6)); this.m.visible = true;

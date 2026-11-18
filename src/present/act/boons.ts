@@ -1,3 +1,4 @@
+import { msg } from './i18n';
 // 局内秘传（act-36 十三张刀客强化 → 11-18 改招为主，十六张）。用户 11-18：「我打了半天了还没个新招，一直在给我加数值。强化卡片也难以辨认
 // 都是干嘛的，icon造型和描述都很抽象。」→ 每张挂在一个键上（slot：斩 / 冲刺 / 镖 / 藏锋 / 跳；纯被动的 null），拿了以后那个键看得见地变；
 // 数值只做凡 / 珍 / 绝三档的强弱。原来 11 张看不见的数值（快刀、裂甲、断骨、搏命、出鞘、乘虚、游身…）拿掉，换成有表现的招。
@@ -70,5 +71,5 @@ export function drawBoons(pool: 'any', n: number, rnd: () => number, p: Perks, o
 }
 /** Non-boon cards share CardPick; their copy also lives here. */
 export function returnCard(kills: number, win = false): BoonPick {
-  return { boon: { id: win ? 'again' : 'retry', school: 'sr', name: win ? '原型到此' : '再来一次', desc: [win ? '三间都清了' : '回练武场再出发', `这一局斩了${kills}个`], col: '#b88b6c', glyph: BOONS.find(b => b.id === 'behead')!.glyph, vals: [0, 0, 0] }, tier: 0 };
+  return { boon: { id: win ? 'again' : 'retry', school: 'sr', name: win ? '原型到此' : '再来一次', desc: [win ? '三间都清了' : '回练武场再出发', msg`这一局斩了${kills}个`], col: '#b88b6c', glyph: BOONS.find(b => b.id === 'behead')!.glyph, vals: [0, 0, 0] }, tier: 0 };
 }

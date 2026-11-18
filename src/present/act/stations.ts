@@ -122,14 +122,14 @@ export class Stations {
   private add(id: string, label: string, sub: string, price: number, at: THREE.Vector3, prop: THREE.Group, once: boolean) {
     prop.position.set(at.x, 0, at.z - 1.15); this.root.add(prop);
     // (act-36: the board twice as big and on a taller post — readable from the game camera)
-    const sign = makeSign(label, { w: SIGN.w, h: SIGN.h, post: SIGN.post, sub }); sign.position.set(at.x + 1.25, 0, at.z - 1.05); this.root.add(sign);
+    const sign = makeSign(label, { w: SIGN.w, h: SIGN.h, post: SIGN.post, sub, price }); sign.position.set(at.x + 1.25, 0, at.z - 1.05); this.root.add(sign);
     this.list.push({ id, label, sub, price, at, fill: 0, done: false, once, g: prop, ring: this.mat(at), sign, poor: false, edge: this.edge(at), ware: (prop.userData.ware as THREE.Object3D) ?? null, wareY: (prop.userData.wareY as number) ?? 0, nearK: 0 });
   }
   /** 行商: 秘卷 (a boon), 金疮药 (heal), 青砥石 (sharpen a boon) */
   shop(prices: { boon: number; heal: number; sharpen: number }) {
-    this.add('buy_boon', '秘卷', `${prices.boon} 钱`, prices.boon, V3(-3.2, 0, -0.6), stall('scroll'), true);
-    this.add('buy_heal', '金疮药', `${prices.heal} 钱`, prices.heal, V3(0, 0, -1.4), stall('gourd'), true);
-    this.add('buy_sharpen', '青砥石', `${prices.sharpen} 钱`, prices.sharpen, V3(3.2, 0, -0.6), stall('stone'), true);
+    this.add('buy_boon', '秘卷', '', prices.boon, V3(-3.2, 0, -0.6), stall('scroll'), true);
+    this.add('buy_heal', '金疮药', '', prices.heal, V3(0, 0, -1.4), stall('gourd'), true);
+    this.add('buy_sharpen', '青砥石', '', prices.sharpen, V3(3.2, 0, -0.6), stall('stone'), true);
   }
   /** 歇脚: a campfire, 裹伤调息 (heal) or 寒石砺刃 (sharpen) — taking one puts the other out */
   rest() {
@@ -144,7 +144,7 @@ export class Stations {
     for (const s of this.list) {
       const poor = s.price > coins && !s.done; if (poor === s.poor) continue; s.poor = poor;
       const at = s.sign.position.clone(); this.root.remove(s.sign);
-      s.sign = makeSign(s.label, { w: SIGN.w, h: SIGN.h, post: SIGN.post, sub: s.sub, ink: poor ? '#8a2018' : undefined }); s.sign.position.copy(at); this.root.add(s.sign);
+      s.sign = makeSign(s.label, { w: SIGN.w, h: SIGN.h, post: SIGN.post, sub: s.sub, price: s.price, ink: poor ? '#8a2018' : undefined }); s.sign.position.copy(at); this.root.add(s.sign);
     }
   }
   /** one station is spent: its mat dims, its ring goes; `others` = put the rest out too (the rest room's either-or) */

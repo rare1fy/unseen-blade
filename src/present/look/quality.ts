@@ -1,3 +1,4 @@
+import { msg } from '../act/i18n';
 // 11-18 微信帧率: the quality tier. 高 = the look as it was (minus the work nobody saw); 中 / 低 cut what a phone pays for most.
 // 自动 picks from the device (WeChat's model tier, else phone / computer) and, on phones and mini-games, steps down a tier when the
 // frame rate stays low for a few seconds. The choice is kept on the device (platform storage 'ub.quality').
@@ -40,7 +41,7 @@ const ORDER: Choice[] = ['auto', 'high', 'mid', 'low'];
 /** the settings row: 自动 → 高 → 中 → 低 → 自动 */
 export function cycleQuality() { setQuality(ORDER[(ORDER.indexOf(QUALITY.choice) + 1) % ORDER.length]); }
 export function setQuality(c: Choice) { QUALITY.choice = c; QUALITY.drops = 0; try { P?.storage?.set('ub.quality', c); } catch { /* storage blocked */ } apply(); }
-export const qualityLabel = () => `画质：${QUALITY.choice === 'auto' ? `自动（${TIER_CN[QUALITY.tier]}）` : TIER_CN[QUALITY.choice]}`;
+export const qualityLabel = () => msg`画质：${QUALITY.choice === 'auto' ? msg`自动（${TIER_CN[QUALITY.tier]}）` : TIER_CN[QUALITY.choice]}`;
 
 /** at boot, before the renderer: the saved choice and the device's tier */
 export function initQuality(p: Platform) {
