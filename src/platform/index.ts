@@ -6,6 +6,10 @@ import { landscapeOnPortrait } from './rotate';
 /** The global object: GameGlobal in mini-games, globalThis elsewhere (also the worker sandbox). */
 export const G: any = typeof GameGlobal !== 'undefined' ? GameGlobal : globalThis;
 
+/** a real page (browser DOM): the mini-games' adapter fakes a `document` (canvas / image creation only), so `typeof document` can't tell
+ *  (11-18 微信小游戏: the DOM tuning panel crashed the boot there) */
+export const HAS_DOM = typeof window !== 'undefined' && typeof HTMLElement !== 'undefined' && typeof GameGlobal === 'undefined';
+
 export type VibeLevel = 'light' | 'medium' | 'heavy';
 
 export interface Platform extends PxPlatform {

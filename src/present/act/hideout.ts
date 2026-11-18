@@ -381,6 +381,6 @@ export function rackBlades(n: number): THREE.Group {
     w.box(x, y - 1, Z, x, y - 1, Z, 0xb08040); w.box(x, y - 2, Z, x, y - 2, Z, 0x7a2a20); w.box(x, y - 3, Z, x, y - 3, Z, 0x2a2a30);
     w.box(x, y - 7, Z, x, y - 4, Z, 0xb4bcc6); w.box(x, y - 8, Z, x, y - 8, Z, 0xe2e8ee);
   }
-  for (const m of w.build({ rim: 0.25, edge: 0.14 })) { m.castShadow = true; g.add(m); }
+  for (const m of w.build({ rim: 0.25, edge: 0.14 })) { if (!m.userData.shadowTiled && m.name !== 'shadowTile') m.castShadow = true; g.add(m); }   // (11-18: a big one casts from its shadow tiles)
   return g;
 }

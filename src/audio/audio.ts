@@ -39,8 +39,10 @@ class AudioEngine {
   buf = new Map<string, AudioBuffer>(); musicSrc: AudioBufferSourceNode | null = null; musicName = ''; ready = false; muted = false;
   async unlock() {
     if (this.ctx) { if (this.ctx.state === 'suspended') await this.ctx.resume(); return; }
-    const AC = (globalThis as any).AudioContext || (globalThis as any).webkitAudioContext; if (!AC) return;
-    const ctx: AudioContext = new AC(); this.ctx = ctx;
+    // (11-18 微信小游戏: no AudioContext there — wechat/glue.js wraps wx.createWebAudioContext as __ubWxAudio)
+    const AC = (globalThis as any).AudioContext || (globalThis as any).webkitAudioContext;
+    const ctx: AudioContext | null = AC ? new AC() : (globalThis as any).__ubWxAudio?.() ?? null; if (!ctx) return;
+    this.ctx = ctx;
     // 11-18: only a limiter at the end (the old −10 dB 8:1 compressor flattened every blow the moment two sounds overlapped)
     const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -2.5; comp.knee.value = 0; comp.ratio.value = 20; comp.attack.value = 0.001; comp.release.value = 0.12;
     this.master = ctx.createGain(); this.master.gain.value = 0.9; this.master.connect(comp); comp.connect(ctx.destination);

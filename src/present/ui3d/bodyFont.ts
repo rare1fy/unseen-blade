@@ -21,7 +21,14 @@ export function setBodyFont(font: BodyFont) {
   try { localStorage.setItem('ub.font', font); } catch { /* storage unavailable */ }
   changed();
 }
-export const fontsReady: Promise<void> = typeof document === 'undefined' || typeof FontFace === 'undefined'
+/** the family each body font goes by in canvas text (the browser: the FontFace names; WeChat: what wx.loadFont returns) */
+const loaded: Record<Exclude<BodyFont, 'pixel'>, string> = { ...families };
+const wxFont = typeof wx !== 'undefined' ? (wx as { loadFont?: (path: string) => string | null }).loadFont : undefined;
+// 11-18 微信小游戏: the fonts are package files there and wx.loadFont registers them (no FontFace); a font it can't load is drawn
+// in the device's own font
+export const fontsReady: Promise<void> = wxFont
+  ? Promise.resolve().then(() => { for (const k of Object.keys(urls) as Array<Exclude<BodyFont, 'pixel'>>) { try { loaded[k] = wxFont(urls[k]) || ''; } catch { loaded[k] = ''; } } changed(); })
+  : typeof document === 'undefined' || typeof FontFace === 'undefined'
   ? Promise.resolve()
   : Promise.all((Object.keys(urls) as Array<Exclude<BodyFont, 'pixel'>>).map(async key => {
       try {
@@ -33,7 +40,7 @@ export const fontsReady: Promise<void> = typeof document === 'undefined' || type
     })).then(() => {});
 
 function useFont(g: CanvasRenderingContext2D, px: number) {
-  const family = BODY_FONT.current === 'pixel' ? '' : families[BODY_FONT.current];
+  const family = BODY_FONT.current === 'pixel' ? '' : loaded[BODY_FONT.current];
   g.font = `${px}px ${family}, sans-serif`;
   g.textBaseline = 'top';
 }

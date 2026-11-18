@@ -9,6 +9,10 @@ import { updateDice } from '../dice/die3d';
 import type { Platform } from '../../platform/index';
 import { Post } from '../look/post';
 import { PX, onPixelChange } from '../look/pixel';
+import { gpuTimeInit, gpuMark, gpuFrameEnd, gpuCount } from './gpuTime';
+import { installShadowTiles } from './shadowTiles';
+import { syncBatches } from './rigidBatch';
+import { tierNow, onQualityChange, qualityFrame, QUALITY } from '../look/quality';
 
 /** The camera rig: directors write base / look / fov / roll / shift; the loop adds shake and renders. */
 export const CAM = { base: V3(0, 12, 12), look: V3(0, 0, 0), fov: 30, off: V3(), shift: 0, shakeAmt: 0.22,
@@ -19,11 +23,12 @@ export const CAM = { base: V3(0, 12, 12), look: V3(0, 0, 0), fov: 30, off: V3(),
 export interface Gfx { renderer: THREE.WebGLRenderer; post: Post; start(onFrame: (dt: number, rdt: number) => void, afterRender: () => void): void; stats: { calls: number; tris: number; ms: number; logic: number; render: number } }
 
 export function createGfx(platform: Platform, canvas: any, o: { preserve?: boolean; fixedDt?: number | null } = {}): Gfx {
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance', preserveDrawingBuffer: !!o.preserve });
+  // (11-18 微信帧率: no MSAA on the canvas itself — the world and the UI layer are drawn in their own targets and only copied onto it)
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false, powerPreference: 'high-performance', preserveDrawingBuffer: !!o.preserve });
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFShadowMap;
   renderer.info.autoReset = false;
-  GL.renderer = renderer;
+  GL.renderer = renderer; installShadowTiles(renderer); gpuTimeInit(renderer);
   const post = new Post(renderer);
   const fit = () => {
     const s = platform.canvasSize(); view.w = s.w; view.h = s.h; view.dpr = Math.min(platform.dpr(), PX.on ? 3 : 2);   // the pixel look at native resolution (a 3× phone upscaled 2→3 by the browser blurred the pixels)
@@ -32,6 +37,7 @@ export function createGfx(platform: Platform, canvas: any, o: { preserve?: boole
   fit(); platform.onResize(fit);
   // the pixel look (look/pixel.ts): the post pipeline swaps to the low-res art buffer; the canvas and the HUD keep full resolution
   const px = () => { fit(); post.setPixel(PX.on ? PX.size : 0); }; px(); onPixelChange(px);
+  onQualityChange(() => { fit(); post.setSize(view.w, view.h, view.dpr); });
   /** ms: the real frame interval; logic / render: CPU time spent in the game update and in issuing the render (smoothed) */
   const stats = { calls: 0, tris: 0, ms: 16, logic: 0, render: 0 };
   const shk = V3(), lk = V3();
@@ -41,7 +47,7 @@ export function createGfx(platform: Platform, canvas: any, o: { preserve?: boole
     start(onFrame, afterRender) {
       const frame = () => {
         platform.raf(frame);
-        const now = platform.now(), real = Math.min(0.05, Math.max(0, (now - last) / 1000)); stats.ms += ((now - last) - stats.ms) * 0.05; last = now;
+        const now = platform.now(), real = Math.min(0.05, Math.max(0, (now - last) / 1000)); stats.ms += ((now - last) - stats.ms) * 0.05; qualityFrame(now - last); last = now;
         const rdt0 = o.fixedDt != null ? o.fixedDt : real, rdt = PAUSE.on ? 0 : rdt0;   // paused: the world gets a zero step
         const t0 = platform.now(), dt = tick(rdt);
         runRealUpdaters(rdt0);
@@ -60,13 +66,26 @@ export function createGfx(platform: Platform, canvas: any, o: { preserve?: boole
         if (CAM.shift) camera.setViewOffset(view.w, view.h, 0, CAM.shift, view.w, view.h); else camera.clearViewOffset();
         camera.updateProjectionMatrix(); camera.updateMatrixWorld(true);
         const t1 = platform.now();
-        renderer.info.reset(); padLights();
+        renderer.info.reset(); padLights(); syncBatches(); shadowTier(renderer, scene);
         post.render(scene, camera, clock.rtime);
         const t2 = platform.now(); stats.logic += ((t1 - t0) - stats.logic) * 0.05; stats.render += ((t2 - t1) - stats.render) * 0.05;
         stats.calls = renderer.info.render.calls; stats.tris = renderer.info.render.triangles;
-        afterRender();
+        gpuMark('text'); afterRender(); gpuFrameEnd(); gpuCount();
       };
       platform.raf(frame);
     },
   };
+}
+
+/** 11-18 微信帧率: the tier's shadow map size on every shadow-casting light (a phone's 高 stays at 1024, as before), redrawn every
+ *  frame or (低) every other frame */
+let shadowFrame = 0;
+function shadowTier(r: THREE.WebGLRenderer, sc: THREE.Scene) {
+  const T = tierNow(), size = QUALITY.tier === 'high' && QUALITY.phone ? 1024 : T.shadowMap;
+  for (const o of sc.children) {
+    const l = o as THREE.DirectionalLight; if (!l.isDirectionalLight || !l.castShadow) continue;
+    if (l.shadow.mapSize.x !== size) { l.shadow.mapSize.set(size, size); l.shadow.map?.dispose(); (l.shadow as unknown as { map: THREE.WebGLRenderTarget | null }).map = null; }
+  }
+  shadowFrame++; r.shadowMap.autoUpdate = T.shadowEvery <= 1;
+  if (!r.shadowMap.autoUpdate) r.shadowMap.needsUpdate = shadowFrame % T.shadowEvery === 0;
 }
