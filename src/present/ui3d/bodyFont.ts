@@ -3,7 +3,7 @@ import serifUrl from '../../../fonts/body/serif.woff2?inline';
 import sansUrl from '../../../fonts/body/sans.woff2?inline';
 import { text, textW, PIX_H } from '../v2/overlay';
 import { onLanguageChange, t } from '../act/i18n';
-import { firstSounds } from '../../audio/audio';
+import { firstSounds } from '../../audio/firstSounds';
 
 export type BodyFont = 'wenkai' | 'serif' | 'sans' | 'pixel';
 export const BODY_FONT_NAME: Record<BodyFont, string> = { wenkai: '文楷', serif: '宋体', sans: '黑体', pixel: '像素' };
@@ -31,7 +31,7 @@ const wxFont = typeof wx !== 'undefined' ? (wx as { loadFont?: (path: string) =>
 // in the device's own font
 // (the TrueType files sit in the `fonts` subpackage — the main package has to stay under 4 MB — loaded in the background: the game
 // starts at once in the device's font and switches when they're in; 11-18: the download starts after the first sounds', at most 3 s
-// after the sound starts — audio.ts firstSounds. fontsReady itself never waits for it: main.ts boots the game on it, and the game
+// after the sound starts — audio/firstSounds.ts. fontsReady itself never waits for it: main.ts boots the game on it, and the game
 // is what starts the sound)
 const wxLoadFonts = () => { for (const k of Object.keys(urls) as Array<Exclude<BodyFont, 'pixel'>>) { try { loaded[k] = wxFont!(urls[k]) || ''; } catch { loaded[k] = ''; } } changed(); };
 export const fontsReady: Promise<void> = wxFont

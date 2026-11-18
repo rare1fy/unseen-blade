@@ -1,6 +1,7 @@
 // Audio: Web Audio graph — sfx bus (random pitch / volume per play, layered cues), music bus with a low-pass that closes at low HP,
 // voice bus that ducks music and sfx, a master limiter. Samples are bundled inline (mp3 → base64) and decoded on first unlock.
 import { setCueHandler, type Cue } from './cues';
+import { firstSoundsIn } from './firstSounds';
 
 const files = import.meta.glob('../assets/audio/*.mp3', { eager: true, query: '?inline', import: 'default' }) as Record<string, string>;
 const byName: Record<string, string> = {};
@@ -26,12 +27,6 @@ export const VOICE_LINES: Record<string, string> = {
   lowHp: '灵魂宝石……碎裂吧——释放一切死灵之力！',
   death: '不……你以为这就结束了？',
 };
-
-/** 11-18 微信小游戏 (用户：「声音出来的很慢」): settles once the track the first touch plays is in (at most 3 s after prepare(); 15 s
- *  after boot if the sound never starts) — the body fonts' subpackage waits for it (ui3d/bodyFont.ts), so at boot the two downloads
- *  don't split the bandwidth and the sound comes first */
-let firstSoundsIn: () => void = () => {};
-export const firstSounds = new Promise<void>(r => { firstSoundsIn = r; setTimeout(r, 15000); });
 
 class AudioEngine {
   ctx: AudioContext | null = null; master!: GainNode; sfx!: GainNode; music!: GainNode; voice!: GainNode; lp!: BiquadFilterNode; duck!: GainNode;
