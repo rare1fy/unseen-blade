@@ -2,6 +2,7 @@
 // 两翼宫墙一截截断开、焦柱、铜驼、石兽、残碑、华表、钟架。地标三选一：塌了一半的宫阙门楼（御道穿过门洞）/ 一对铜驼（隔着御道
 // 相对）/ 断阙台（一座阙还立着、一座塌成半截）。远景：外宫墙（几处豁口）、墙后烧剩的殿台骨架、两侧焦树、几柱烟。
 // 主色：焦砖灰、烧黑的木、剥落的暗朱、铜绿；火是暖色的点。和黄巾残村（黄土、茅草）一眼分开。
+import { burntInfill } from './ly_infill';
 import type { Ctx } from '../../scenes/stage';
 import { M, SX, SZ } from '../../scenes/props';
 import { CELL } from '../../bestiary/kit';
@@ -117,6 +118,7 @@ function far(c: Ctx, f: { layout: Layout; p: Place }) {
 }
 
 export const lyRoad: Locale = {
+  infill: burntInfill('road'),
   id: 'ly_road', name: '铜驼道', theme: 'luoyang',
   layouts: ['axis', 'pair', 'offset'],
   seasons: ['autumn', 'summer'], times: ['dusk', 'night', 'dawn'], weathers: ['clear', 'mist', 'rain'], noLeaves: true,

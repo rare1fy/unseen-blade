@@ -3,6 +3,7 @@
 // 炉口在正面低处发铁水的橙光，一条石槽把铁水引到场地边上；两侧风箱棚。场里两翼是钱范架、铜锭垛、炉渣堆、炭堆、化铜炉、
 // 铁水槽、半熔铜人、钱箱。地面是宫前方石板（被火熏黑、有铜水溅过的整块），场外是炉渣和炭灰地。
 // 头目阎虎在场地后部正中（z ≈ −9.2）出场，正好站在高炉炉口前；高炉从镜头里看是全场最高最亮的东西。
+import { burntInfill } from './ly_infill';
 import type { Ctx, Mood } from '../../scenes/stage';
 import { M, SX, SZ } from '../../scenes/props';
 import type { Landmark, Layout, Locale, Place } from '../types';
@@ -113,6 +114,7 @@ function far(c: Ctx, f: { layout: Layout; p: Place }) {
 }
 
 export const lyMint: Locale = {
+  infill: burntInfill('mint'),
   id: 'ly_mint', name: '铸钱场', theme: 'luoyang',
   // the two layouts with the big centred landmark slot (the furnace needs 14.8 m; 阎虎 enters in front of it on the axis)
   layouts: ['axis', 'garden'],
