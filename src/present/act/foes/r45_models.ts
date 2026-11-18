@@ -182,17 +182,32 @@ function spear(v: V, el: boolean) {
 /** 铁索: a short iron grip; the chain hanging from the fist (links two tones), an iron hook-weight at its end; a coil over the left
  *  shoulder (the chest's part) */
 function chain(v: V, el: boolean) {
-  B(v, 'weapon', -15, 16, -1, -12, 22, 2, IRON_D);
-  for (let y = 15, i = 0; y >= 2; y -= 2, i++) B(v, 'weapon', i % 2 ? -14 : -15, y - 1, 0, i % 2 ? -14 : -12, y, i % 2 ? 1 : 0, i % 2 ? IRON_L : IRON);
-  B(v, 'weapon', -16, -4, -2, -11, 1, 3, IRON_D).box(-15, -3, -1, -12, 0, 2, el ? GOLD : IRON_L).box(-16, -7, 2, -15, -5, 5, IRON_D);
+  B(v, 'weapon', -15, 18, -3, -12, 19, 4, IRON_D);
+  let parent = 'weapon';
+  for (let i = 0; i < 4; i++) {
+    const part = 'link' + i, z = 4 + i * 13;
+    v.bone(part, parent, -13.5, 19, z);
+    for (let j = 0; j < 3; j++) {
+      const start = z + j * 4;
+      if ((i + j) % 2) B(v, part, -14, 17, start, -13, 20, start + 4, IRON_L).box(-14, 18, start + 1, -13, 19, start + 3, null);
+      else B(v, part, -15, 18, start, -12, 19, start + 4, IRON).box(-14, 18, start + 1, -13, 19, start + 3, null);
+    }
+    parent = part;
+  }
+  B(v, parent, -16, 16, 54, -11, 21, 59, IRON_D).box(-15, 17, 55, -12, 20, 58, el ? GOLD : IRON_L)
+    .box(-16, 19, 59, -15, 22, 63, IRON_D).box(-16, 22, 56, -15, 23, 58, STEEL);
   // the coil: a band of links round the left shoulder, one hanging down across the chest
   for (let z = -7; z <= 6; z++) B(v, 'chest', 6, 37, z, 9, 38, z, (z & 1) ? IRON : IRON_L);
   for (let y = 26; y <= 36; y++) B(v, 'chest', -9, y, 6, -8, y, 6, (y & 1) ? IRON : IRON_L);
 }
 /** 火油罐: a clay jar in the fist (a cloth wick glowing at its mouth); four more on a carrying frame on the back */
+function heldOilJar(v: V, part: string, el: boolean) {
+  B(v, part, -17, 13, -2, -11, 20, 4, 0x8a4a2c).box(-17, 13, -2, -11, 13, 4, 0x6a3420)
+    .box(-16, 21, -1, -12, 22, 3, 0x8a4a2c).box(-15, 23, 0, -13, 24, 2, 0x2a2220).box(-15, 25, 0, -14, 26, 1, 0xff9a40, 1);
+  B(v, part, -17, 16, -2, -11, 16, 4, el ? GOLD : 0x6a3420);
+}
 function jar(v: V, el: boolean) {
-  B(v, 'weapon', -17, 13, -2, -11, 20, 4, 0x8a4a2c).box(-17, 13, -2, -11, 13, 4, 0x6a3420).box(-16, 21, -1, -12, 22, 3, 0x8a4a2c).box(-15, 23, 0, -13, 24, 2, 0x2a2220).box(-15, 25, 0, -14, 26, 1, 0xff9a40, 1);
-  B(v, 'weapon', -17, 16, -2, -11, 16, 4, el ? GOLD : 0x6a3420);
+  heldOilJar(v, 'weapon', el);
   // the back frame: two uprights, two rails, four jars sitting in it
   B(v, 'chest', -9, 24, -9, -8, 40, -9, WOOD_D).box(7, 24, -9, 8, 40, -9, WOOD_D).box(-9, 30, -10, 8, 31, -10, WOOD).box(-9, 38, -10, 8, 39, -10, WOOD);
   for (const [x, y] of [[-7, 31], [1, 31], [-7, 39], [1, 39]] as const) B(v, 'chest', x, y, -14, x + 5, y + 5, -10, 0x8a4a2c).box(x + 1, y + 6, -13, x + 4, y + 6, -11, 0x2a2220);
@@ -209,7 +224,8 @@ function xbow(v: V, el: boolean) {
 /** 钩刀: a short haft, a straight blade with a hook turned up at its end */
 function hook(v: V, el: boolean) {
   B(v, 'weapon', -14, 18, -3, -13, 19, 4, 0x2a1e18).box(-15, 17, 5, -12, 20, 5, el ? GOLD : IRON);
-  B(v, 'weapon', -14, 17, 6, -14, 19, 15, STEEL).box(-14, 20, 13, -14, 23, 15, STEEL).box(-14, 17, 6, -14, 17, 13, STEEL_D);
+  B(v, 'weapon', -14, 17, 6, -14, 19, 15, STEEL).box(-14, 13, 13, -14, 16, 15, STEEL)
+    .box(-14, 19, 6, -14, 19, 13, STEEL_D).box(-14, 17, 6, -14, 17, 13, 0xe8ecf2);
 }
 /** 环首刀: the ring pommel behind the fist, a small guard, the blade one cell thin (bright edge, darker back); bright = the 文家刀 —
  *  the 寒山 forge's pale wave line down the flat */
@@ -233,10 +249,11 @@ function sword(v: V, el: boolean) {
   B(v, 'weapon', -16, 17, 3, -11, 20, 3, el ? GOLD : 0x8a7a4a);
   B(v, 'weapon', -14, 17, 4, -14, 20, 31, STEEL).box(-14, 18, 4, -14, 19, 31, STEEL_D).box(-14, 18, 32, -14, 19, 33, STEEL);
 }
-/** 短刀 held point-down (the shades): the blade along the forearm's outside, below the fist */
+/** 短刀: the same +Z grip axis as the other blades, with its edge on -Y. */
 function dagger(v: V, el: boolean) {
-  B(v, 'weapon', -14, 17, -1, -13, 21, 1, 0x1a1418).box(-15, 16, -1, -12, 16, 1, el ? GOLD : IRON);
-  B(v, 'weapon', -14, 6, 0, -14, 15, 0, 0x9aa2ae).box(-14, 4, 0, -14, 5, 0, STEEL);
+  B(v, 'weapon', -14, 18, -2, -13, 20, 3, 0x1a1418).box(-15, 16, 4, -12, 21, 4, el ? GOLD : IRON);
+  B(v, 'weapon', -14, 16, 5, -14, 19, 16, 0x9aa2ae).box(-14, 16, 5, -14, 16, 16, STEEL)
+    .box(-14, 17, 17, -14, 18, 18, STEEL);
 }
 /** 杖 (the servants): a long wooden staff, iron ferrules at both ends */
 function staff(v: V, el: boolean) {
@@ -255,7 +272,11 @@ function flag(v: V) {
 }
 /** 袖弩 (周黯's hand crossbow, the right fist): a short stock, a small bow across */
 function sleeveBow(v: V) {
-  B(v, 'weapon', -14, 18, -1, -13, 20, 8, 0x3a2a20).box(-20, 20, 8, -7, 20, 9, IRON).box(-19, 20, 7, -8, 20, 7, 0xd8d0b8).box(-14, 21, 2, -13, 21, 11, STEEL_D);
+  v.bone('sleeveBow', 'weapon', -13, 19, 1).bone('sleeveBolt', 'sleeveBow', -13, 21, 2);
+  v.bone('oilJar', 'weapon', -13, 19, 1);
+  B(v, 'sleeveBow', -14, 18, -1, -13, 20, 8, 0x3a2a20).box(-20, 20, 8, -7, 20, 9, IRON).box(-19, 20, 7, -8, 20, 7, 0xd8d0b8);
+  B(v, 'sleeveBolt', -14, 21, 2, -13, 21, 11, STEEL_D);
+  heldOilJar(v, 'oilJar', true);
 }
 /** 便面 (崔玄's fan, the right fist): a square silk fan on a short handle; and the 文家刀 on its own joint, hidden until he draws it */
 function fanAndBlade(v: V) {
@@ -381,8 +402,8 @@ export const R45_DEFS = [
   def({ ...B2, id: 'cx_club_b', name: '持杖僮奴', group: '普通', role: '僮奴', tip: 26, build: () => servant(1, false) }),
   def({ ...B2, id: 'cx_sword', name: '门下剑客', group: '普通', role: '门客', tip: 32, build: () => swordsman(false) }),
   def({ ...B2, id: 'cx_sword_e', name: '门下剑客', group: '精英', role: '门客', tip: 32, build: () => swordsman(true) }),
-  def({ ...B2, id: 'cx_shade', name: '匿影死士', group: '普通', role: '死士', tip: 6, build: () => shade_(false) }),
-  def({ ...B2, id: 'cx_shade_e', name: '匿影死士', group: '精英', role: '死士', tip: 6, build: () => shade_(true) }),
+  def({ ...B2, id: 'cx_shade', name: '匿影死士', group: '普通', role: '死士', tip: 17, build: () => shade_(false) }),
+  def({ ...B2, id: 'cx_shade_e', name: '匿影死士', group: '精英', role: '死士', tip: 17, build: () => shade_(true) }),
   def({ ...B2, id: 'cx_guard', name: '百辟刀卫', group: '普通', role: '刀卫', tip: 31, build: () => guard(false) }),
   def({ ...B2, id: 'cx_guard_e', name: '百辟刀卫', group: '精英', role: '刀卫', tip: 31, build: () => guard(true) }),
   def({ ...B2, id: 'cx_zhu', name: '击筑客', group: '普通', role: '乐师', tip: 14, build: () => zhuPlayer(false) }),

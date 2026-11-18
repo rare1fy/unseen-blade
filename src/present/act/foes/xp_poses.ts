@@ -7,8 +7,9 @@
 import * as THREE from 'three';
 import { rot, mov, curve, snap, type Action, type Bone } from '../../actors/rig';
 import { POSE_AFTER, type PoseFn } from '../../bestiary/poseHooks';
+import type { BattleActor } from '../../bestiary/battle';
 import { attackBeats, attackBody } from './foe_motion';
-import { engagement, grip } from './weapon_pose';
+import { engagement, grip, shortThrust, stance, support, weaponArc } from './weapon_pose';
 
 type Bones = Record<string, Bone>;
 const PI = Math.PI;
@@ -58,14 +59,15 @@ reg('xp_assassin', (b, _t, a, off) => {
     const motion = attackBeats(a!);
     attackBody(b, motion);
     const coil = 0.55 * (1 - curve(k, [[0, 0], [a!.at, 1]])) + 0.65 * motion.load;
-    const r = two ? attackBeats(a!, false, a!.at * 0.73).hit : motion.hit;
-    const l = motion.hit, thr = motion.hip;
-    off.z += -0.06 * motion.load + D * thr;
-    bend(b, 0.6 * coil + 0.1 * thr); rot(b.spine, 0.42 * coil + 0.28 * thr, 0.25 * (r - l), 0); put(b.neck, -0.45 * coil - 0.2 * thr, 0, 0);
-    rot(b.legL, -0.45 * thr, 0, 0); rot(b.shinL, 0.25 * thr, 0, 0); rot(b.legR, 0.35 * thr, 0, 0);
-    put(b.armR, lerp(0.3 * coil, -1.45, r), 0, lerp(-0.18 * coil, 0.4, r)); put(b.foreR, lerp(-0.6 * coil, -0.1, r));
-    put(b.armL, lerp(0.3 * coil, -1.45, l), 0, lerp(0.18 * coil, -0.4, l)); put(b.foreL, lerp(-0.6 * coil, -0.1, l));
-    knivesDown(b); aimToward(b, 'weapon', 0.08, 0.3, r); aimToward(b, 'offhand', 0.08, -0.3, l);
+    const r = Math.min(1, two ? attackBeats(a!, false, a!.at * 0.73).hit : motion.hit);
+    const l = two ? Math.min(1, motion.hit) : 0, thr = motion.hip, w = engagement(a!);
+    mov(b.hips, 0, -0.14 * coil - 0.12 * thr, -0.07 * motion.load + D * 0.44 * thr);
+    rot(b.spine, 0.27 * coil + 0.40 * thr, 0.38 * (r - l), 0); put(b.neck, -0.22 * coil - 0.23 * thr);
+    stance(b, w, 0.27 * thr, 0, two ? 'L' : 'R');
+    // Both daggers point down the same line. The right retracts as the elite's left passes it.
+    const right = r * (1 - 0.89 * l);
+    grip(b, 'R', -0.36 + 0.15 * right, 0.88 + 0.14 * right, -0.14 + 0.92 * right, 0.04, 0, w);
+    grip(b, 'L', 0.37 - 0.16 * l, 0.89 + 0.13 * l, -0.19 + 1.0 * l, two ? 0.03 : 0.9, 0, w);
     return;
   }
 });
@@ -79,11 +81,13 @@ reg('xp_needle', (b, _t, a) => {
     attackBody(b, motion, 'ranged', 0.65);
     const up = curve(k, [[0, 0], [a!.at * 0.44, 1], [a!.at, 1], [1, 0]]);
     const draw = motion.load * up, puff = motion.hit;
-    put(b.armR, lerp(-0.4, -1.35, up), 0, 0.75 * up); put(b.foreR, lerp(-1.4, -0.9, up));
-    put(b.armL, -1.1 * up, 0, -0.45 * up); put(b.foreL, -1.1 * up);
-    rot(b.spine, -0.08 * draw + 0.12 * puff, 0, 0); put(b.neck, 0.08 * up, 0, 0);
+    rot(b.spine, -0.08 * draw + 0.12 * puff, 0.66 * up, 0); put(b.neck, 0.06 * up, -0.66 * up, 0);
     const s = 1 + 0.07 * draw; b.chest?.scale.set(s, 1, s);
-    aimToward(b, 'weapon', 0, 0, up);
+    // The back of the pipe is just behind the holding fist. Bring it to the
+    // posed mouth so leaning in to blow does not detach it from his lips.
+    b.root.worldToLocal(b.head.localToWorld(pipeMouth.set(0, 0.0525, 0.255)));
+    grip(b, 'R', pipeMouth.x, pipeMouth.y, pipeMouth.z + 0.235, 0, 0, up);
+    grip(b, 'L', 0.39, 1.16, 0.20, -0.35, 0, up);
     return;
   }
   if (n === 'flee') {
@@ -94,18 +98,19 @@ reg('xp_needle', (b, _t, a) => {
     return;
   }
 });
+const pipeMouth = new THREE.Vector3();
 
-// ================================================================== 凝霜毒吏 (and 封鸩's sow)
-/** 封鸩 scatters frost with the empty hand. */
-function sow(b: Bones, a: Action) {
+// ================================================================== 凝霜毒吏
+/** The doctor's throwing hand tips the mouth of his medicine gourd outward. */
+function sowGourd(b: Bones, a: Action) {
   const motion = attackBeats(a, true);
   attackBody(b, motion, 'cast');
-  const lift = curve(a.k, [[0, 0], [a.at * 0.48, 1], [a.at, 1], [1, 0]]);
-  const { load: back, hit: cast } = motion;
-  put(b.armR, lerp(-0.4, -2.55, lift), 0, -0.12 * lift); put(b.foreR, lerp(-1.4, -0.25, lift));
-  put(b.armL, 0.7 * back - 1.15 * cast, 0, 0.25 * back - 0.1 * cast); put(b.foreL, -1.2 * back - 0.25 * cast);
-  rot(b.spine, -0.1 * back + 0.38 * cast, 0.15 * back - 0.1 * cast, 0); rot(b.neck, -0.18 * cast, 0, 0);
-  toward(b.handL, -0.5 * cast, 0, 0, 1);
+  const { load, hit } = motion, w = engagement(a);
+  rot(b.spine, -0.14 * load + 0.31 * hit, -0.29 * load + 0.21 * hit, 0);
+  weaponArc(b, a, motion, 'R',
+    [-0.47, 1.52, -0.05, -1.02, -0.74], [-0.24, 1.24, 0.57, 0.27, 0],
+    [-0.16, 1.01, 0.47, 0.54, 0.48], w);
+  grip(b, 'L', 0.43, 1.03, -0.12, 1.26, 0, w);
 }
 reg('xp_frost', (b, _t, a) => {
   if (a?.name !== 'sow') return;
@@ -121,10 +126,14 @@ reg('xp_frost', (b, _t, a) => {
 });
 
 // ================================================================== 沉江恶鬼（水鬼）
-reg('xp_diver', (b, _t, a, off) => {
+reg('xp_diver', (b, _t, a, off, self) => {
   const n = a?.name, k = a?.k ?? 0;
   // always: hunched from the water, the head pushed forward
   rot(b.spine, 0.18, 0, 0); rot(b.neck, -0.12, 0, 0);
+  if (n === 'attack' && a?.data.atk === 'poke') {
+    shortThrust(self as BattleActor, a, 1.10, true);
+    return;
+  }
   if (n === 'rise') {
     // from far down (under the surface: only the head and the raised 叉 above it), a burst up through it at the blow, the 叉 driven straight
     // up over the head; a little off the ground at the top. (The crouch stays upright — a deeper fold tipped him over.)
@@ -134,9 +143,10 @@ reg('xp_diver', (b, _t, a, off) => {
     off.y += -low * (1 + 0.08 * motion.dip) + 0.3 * up;
     bend(b, 0.7 * low); rot(b.spine, 0.2 * low - 0.3 * up, 0, 0); rot(b.neck, -0.2 * low - 0.25 * up, 0, 0);
     rot(b.footL, 0.35 * up, 0, 0); rot(b.footR, 0.35 * up, 0, 0);
-    put(b.armR, -2.2 * low - 3.0 * up, 0, 0.25 * up); put(b.foreR, -0.4 * low - 0.15 * up);
-    put(b.armL, -1.0 * low - 2.8 * up, 0, -0.3 * up); put(b.foreL, -1.3 * low - 0.25 * up);
-    aim(b, 'weapon', -PI / 2 + 0.2, 0); aimToward(b, 'weapon', -PI / 2 + 0.04, 0, up);
+    const pitch = -1.16 - 0.40 * up;
+    const w = curve(k, [[0, 1], [a!.at, 1], [1, 0]]);
+    grip(b, 'R', -0.32, 1.11 + 0.59 * up, 0.36 + 0.10 * up, pitch, 0, w);
+    support(b, -0.31, pitch, 0, w);
     return;
   }
   if (n === 'sink') {
@@ -149,6 +159,10 @@ reg('xp_diver', (b, _t, a, off) => {
     return;
   }
 });
+reg('xp_conscript', (_b, _t, a, _off, self) => {
+  if (a?.name === 'attack' && a.data.atk === 'poke') shortThrust(self as BattleActor, a, 0.97);
+}, false);
+POSE_AFTER.xp_conscript_b = POSE_AFTER.xp_conscript;
 
 // ================================================================== 枷铁狱吏
 /** the chain off the fist: straight down for the first joint, then trailing on the ground behind him to the right (the hammer resting on
@@ -168,26 +182,28 @@ reg('xp_chain', (b, t, a) => {
     attackBody(b, motion, 'melee', 0.7);
     const spin = curve(k, [[0, 0], [a!.at * 0.19, 0], [a!.at + (1 - a!.at) * 0.78, 1], [1, 1]]);
     const out = 0.76 * curve(k, [[0, 0], [a!.at * 0.45, 1], [a!.at, 1], [1, 0]]) + 0.24 * motion.hit;
-    b.hips.rotation.y += spin * PI * 2 * turns;
-    put(b.armR, lerp(0.1, -0.15, out), 0, lerp(-0.1, -1.5, out)); put(b.foreR, lerp(-0.35, 0, out));
-    put(b.armL, -0.3 * out, 0, 0.7 * out); put(b.foreL, -0.8 * out);
+    const turn = spin * PI * 2 * turns, yaw = turn - PI / 2;
+    b.hips.rotation.y += turn;
     rot(b.spine, 0.06 * out, 0, 0); bend(b, 0.22 * out);
     dragChain(b);
-    toward(b.weapon, PI / 2, 0, 0, out); for (const c of CHAINS) toward(b[c], 0.03, 0, 0, out);
+    grip(b, 'R', Math.sin(yaw) * 1.13, 1.31, Math.cos(yaw) * 1.13, 0.08, yaw, out);
+    grip(b, 'L', -Math.sin(yaw) * 0.65, 1.34, -Math.cos(yaw) * 0.65, 0.18, turn, out);
+    for (const c of CHAINS) toward(b[c], 0.0, -0.04, 0, out);
     return;
   }
   if (n === 'slamChain') {
     // the hammer swung up over the head (the chain flopping back), then brought down in front onto the ground at the blow
     const motion = attackBeats(a!, true);
     attackBody(b, motion);
-    const { load: up, hit: dn, hip: brace } = motion;
-    const w = Math.max(up, dn), g = up + dn > 1e-4 ? up / (up + dn) : 0;
-    put(b.armR, lerp(0.1, -2.9, up) + (-1.0 - 0.1) * dn, 0, -0.1 * (1 - w) - 0.15 * up); put(b.foreR, lerp(-0.35, -0.2, w));
-    put(b.armL, -2.0 * up - 0.8 * dn, 0, 0.2 * up); put(b.foreL, -0.6 * up - 0.3 * dn);
+    const { load: up, hit: dn, hip: brace } = motion, w = engagement(a!);
     rot(b.spine, -0.28 * up + 0.5 * dn, 0, 0); rot(b.neck, 0.2 * up - 0.3 * dn, 0, 0); bend(b, 0.3 * dn);
     rot(b.legL, -0.35 * brace, 0, 0); rot(b.legR, 0.3 * brace, 0, 0);
     dragChain(b);
-    toward(b.weapon, PI / 2 + 0.9 * g, 0, 0, w); for (const c of CHAINS) toward(b[c], 0.1 * g, 0, 0, w);
+    weaponArc(b, a!, motion, 'R',
+      [-0.70, 1.97, 0.04, -2.02, -0.28], [-0.35, 1.19, 0.63, 0.55, 0.09],
+      [-0.30, 1.04, 0.62, 0.44, 0.08], w);
+    grip(b, 'L', 0.60, 1.35 + 0.27 * up, 0.16 - 0.18 * dn, -0.20, 0, w);
+    for (const c of CHAINS) toward(b[c], 0.08 * up, 0, 0, w);
     return;
   }
   // idle / walking / reeling: the arm hanging, the chain dragged behind him
@@ -208,9 +224,9 @@ reg('xp_boss', (b, t, a, off) => {
   // always: the frost on his arms shown with the shell on his chest (xp_ai.ts shows / hides `frost` only); the needles fanned between the
   // fingers; the gourd in hand only while he drinks (the one at his hip hidden then, and the needles put away)
   const fv = b.frost ? b.frost.visible : false; for (const p of FROST_PARTS) if (b[p]) b[p].visible = fv;
-  const drink = n === 'drink';
-  if (b.gourdH) b.gourdH.visible = drink; if (b.gourd) b.gourd.visible = !drink;
-  for (const p of ['needle1', 'needle2', 'needle3']) if (b[p]) b[p].visible = !drink;
+  const drink = n === 'drink', gourdInHand = drink || n === 'sow';
+  if (b.gourdH) b.gourdH.visible = gourdInHand; if (b.gourd) b.gourd.visible = !gourdInHand;
+  for (const p of ['needle1', 'needle2', 'needle3']) if (b[p]) b[p].visible = !gourdInHand && (n !== 'needleFan' || k < a!.at);
   rot(b.needle1, 0, 0.32, 0); rot(b.needle3, 0, -0.32, 0);
   rot(b.spine, 0.08, 0, 0); rot(b.neck, -0.06, 0, 0);
   if (n === 'needleFan') {
@@ -219,20 +235,24 @@ reg('xp_boss', (b, t, a, off) => {
     attackBody(b, motion, 'ranged');
     const { load: wind, hit: fl, late } = motion;
     rot(b.spine, 0, 0.35 * wind - 0.3 * fl, 0); rot(b.chest, 0, 0.25 * wind - 0.2 * fl, 0);
-    put(b.armR, -1.35 * wind - 1.45 * fl, 0, 0.95 * wind - 0.75 * fl); put(b.foreR, -1.7 * wind - 0.1 * fl);
-    aimToward(b, 'weapon', 0.05, -0.35, fl);
+    weaponArc(b, a!, motion, 'R',
+      [0.20, 1.49, 0.37, -0.28, 1.51], [-0.22, 1.31, 0.61, 0, 0], [-0.62, 1.19, 0.36, 0.20, -1.2]);
     put(b.armL, 0.25 * wind - 0.3 * late, 0, 0.3 * late); put(b.foreL, -0.4 * wind - 0.3 * late);
     rot(b.legL, -0.25 * fl, 0, 0); rot(b.legR, 0.2 * fl, 0, 0);
     return;
   }
-  if (n === 'sow') { sow(b, a!); return; }
+  if (n === 'sow') { sowGourd(b, a!); return; }
   if (n === 'snip') {
     // the knife hand back and up (the body turned right), one fast cut across in front at the blow, leaning in after it
     const motion = attackBeats(a!, true);
     attackBody(b, motion);
     const { load: wind, hit: cut, hip: step, late } = motion;
     rot(b.spine, 0.3 * cut, -0.4 * wind + 0.35 * cut, 0); rot(b.chest, 0, -0.2 * wind + 0.2 * cut, 0);
-    put(b.armL, -1.9 * wind - 1.3 * cut, 0, 0.7 * wind - 0.6 * cut); put(b.foreL, -0.6 * wind - 0.15 * cut);
+    // The short bright edge is on local -Y. Roll it toward the right so the
+    // edge leads the left-handed sweep across his chest.
+    weaponArc(b, a!, motion, 'L',
+      [0.52, 1.42, -0.04, -0.76, 1.75, -PI / 2], [0.03, 1.25, 0.58, 0.08, 0, -PI / 2],
+      [-0.31, 1.11, 0.43, 0.34, -1.08, -PI / 2]);
     off.z += -0.05 * wind + 0.35 * step;
     rot(b.armR, 0.32 * late, 0, -0.25 * late);
     rot(b.legL, -0.4 * step, 0, 0); rot(b.shinL, 0.25 * step, 0, 0); rot(b.legR, 0.3 * step, 0, 0); bend(b, 0.15 * step);
