@@ -50,17 +50,51 @@ function occupancy(cells: Map<number, unknown>) {
  * down-right. Smaller faces (character cells) keep their flat colour so nothing turns into speckle.
  */
 const matCache = new Map<string, THREE.MeshToonMaterial>();
-export function voxToon(o: { rim?: number; self?: number; edge?: number } = {}) {
-  const k = `${o.rim ?? 0.6}|${o.self ?? 0.05}|${o.edge ?? 0.2}`;
+/** 11-18 (用户：「墙都没人高，很不自然」 — the walls stand taller than a person now): scenery between the camera and her (or a foe near
+ *  her) opens in a pixel dither round the line of sight, so a wall in front never hides who is fighting behind it. Up to four targets:
+ *  xyz = the point to keep in sight (the chest), w = the hole's radius at that depth (0 = unused). The floor and anything lower than
+ *  0.45 m are never cut, nor anything behind the target. act/show.ts sets them every frame (seeThrough) */
+export const SEE_HOLES = { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] };
+export function voxToon(o: { rim?: number; self?: number; edge?: number; hole?: boolean } = {}) {
+  const hole = !!o.hole;
+  const k = `${o.rim ?? 0.6}|${o.self ?? 0.05}|${o.edge ?? 0.2}${hole ? '|hole' : ''}`;
   if (matCache.has(k)) return matCache.get(k)!;
   // a private copy: the cached toon material is shared, and this one gets an extra shader stage
   const src = toon(0xffffff, { vertexColors: true, rim: o.rim ?? 0.6, self: o.self ?? 0.05 }), m = src.clone(), edge = o.edge ?? 0.2;
   m.onBeforeCompile = (sh, r) => {
     src.onBeforeCompile(sh, r);
     sh.uniforms.uPx = PXU.uPx; sh.uniforms.uPxEdge = PXU.uPxEdge;
-    sh.vertexShader = 'attribute vec2 aVox; attribute vec2 aSize; attribute vec4 aOpen; varying vec2 vVox; varying vec2 vSize; varying vec4 vOpen; varying vec3 vWN;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n vVox = aVox; vSize = aSize; vOpen = aOpen; vWN = normalize(mat3(modelMatrix) * objectNormal);');
+    if (hole) sh.uniforms.uHole = SEE_HOLES;
+    sh.vertexShader = (hole ? '#define VOX_HOLE\nvarying vec3 vWP;\n' : '') + 'attribute vec2 aVox; attribute vec2 aSize; attribute vec4 aOpen; varying vec2 vVox; varying vec2 vSize; varying vec4 vOpen; varying vec3 vWN;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+ vVox = aVox; vSize = aSize; vOpen = aOpen; vWN = normalize(mat3(modelMatrix) * objectNormal);
+#ifdef VOX_HOLE
+ { vec4 hp = vec4(transformed, 1.0);
+#ifdef USE_INSTANCING
+   hp = instanceMatrix * hp;
+#endif
+   vWP = (modelMatrix * hp).xyz; }
+#endif`);
+    // the see-through: the hole's core is open, its rim a 4×4 ordered dither in the art pixels (a dithered core read as a purple mesh:
+    // the pixel pass outlines every gap); the radius is scaled with depth, so the hole is the same size on screen
+    const holeFn = hole ? `uniform vec4 uHole[4]; varying vec3 vWP;
+float voxB2(vec2 a) { a = floor(a); return fract(dot(a, vec2(0.5, a.y * 0.75))); }
+float voxB4(vec2 a) { return voxB2(0.5 * a) * 0.25 + voxB2(a); }
+void voxHole() {
+  if (vWP.y < 0.45) return;
+  float th = voxB4(gl_FragCoord.xy);
+  for (int i = 0; i < 4; i++) {
+    vec4 h = uHole[i]; if (h.w <= 0.0) continue;
+    vec3 d = h.xyz - cameraPosition; float L = length(d); d /= L;
+    vec3 p = vWP - cameraPosition; float t = dot(p, d);
+    if (t <= 0.0 || t > L - 0.55) continue;
+    float r = length(p - d * t) * L / t;
+    float k = 1.0 - smoothstep(h.w * 0.72, h.w, r);
+    if (k > th) discard;
+  }
+}
+` : '';
     // (11-18 微信小游戏: the 1-art-pixel bevel lines need dFdx / dFdy — without them (the devtools' WebGL1) the faces keep their tones)
-    sh.fragmentShader = (CAPS.derivatives ? '#define VOX_DERIV\n' : '') + 'varying vec2 vVox; varying vec2 vSize; varying vec4 vOpen; varying vec3 vWN; uniform float uPx, uPxEdge;\n' + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
+    sh.fragmentShader = (CAPS.derivatives ? '#define VOX_DERIV\n' : '') + 'varying vec2 vVox; varying vec2 vSize; varying vec4 vOpen; varying vec3 vWN; uniform float uPx, uPxEdge;\n' + holeFn + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>${hole ? '\n      voxHole();' : ''}
       { float d = 1.0; if (vOpen.x > 0.5) d = min(d, vVox.x); if (vOpen.y > 0.5) d = min(d, vSize.x - vVox.x); if (vOpen.z > 0.5) d = min(d, vVox.y); if (vOpen.w > 0.5) d = min(d, vSize.y - vVox.y);
         float bev = 1.0 + ${edge.toFixed(3)} * (1.0 - smoothstep(0.03, 0.1, d));
         if (uPx > 0.5) {
@@ -85,7 +119,7 @@ export function voxToon(o: { rim?: number; self?: number; edge?: number } = {}) 
         }
         diffuseColor.rgb *= bev; }`);
   };
-  m.customProgramCacheKey = () => src.customProgramCacheKey() + '|vox' + edge + '|px' + (CAPS.derivatives ? '' : '|noderiv');
+  m.customProgramCacheKey = () => src.customProgramCacheKey() + '|vox' + edge + '|px' + (CAPS.derivatives ? '' : '|noderiv') + (hole ? '|hole' : '');
   // (11-18 微信小游戏: the bevel uses dFdx / dFdy — built into WebGL2, an extension WebGL1 has to switch on: the WeChat devtools'
   // simulator is WebGL1, and without this every block material failed to compile there)
   (m as unknown as { extensions: Record<string, boolean> }).extensions = { derivatives: true };
@@ -316,7 +350,7 @@ export class VoxWorld {
       g.setAttribute('aVox', new THREE.Float32BufferAttribute(U, 2)); g.setAttribute('aOpen', new THREE.Float32BufferAttribute(E, 4)); g.setAttribute('aSize', new THREE.Float32BufferAttribute(S, 2));
       if (CH) g.setAttribute('aChunk', new THREE.Float32BufferAttribute(K, 2));
       g.setIndex(P.length / 3 > 65535 ? new THREE.Uint32BufferAttribute(I, 1) : new THREE.Uint16BufferAttribute(I, 1)); g.computeBoundingSphere();
-      const m = new THREE.Mesh(g, isGlow ? glowMat(o.glow ?? 2.4) : voxToon({ rim: o.rim ?? 0.35, self: o.self ?? 0.03, edge: o.edge ?? 0.16 }));
+      const m = new THREE.Mesh(g, isGlow ? glowMat(o.glow ?? 2.4) : voxToon({ rim: o.rim ?? 0.35, self: o.self ?? 0.03, edge: o.edge ?? 0.16, hole: true }));
       m.castShadow = !isGlow; m.receiveShadow = true; meshes.push(m);
       // 11-18 微信帧率: a big place draws its shadow from 12 m position-only tiles instead (engine/shadowTiles.ts)
       if (!isGlow) { const tiles = shadowTiles(m, o.tile ?? TILE_M); if (tiles.length) { m.castShadow = false; m.userData.shadowTiled = true; meshes.push(...tiles); } }

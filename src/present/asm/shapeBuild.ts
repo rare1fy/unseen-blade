@@ -7,7 +7,7 @@ import { M, GRID } from '../scenes/props';
 import type { Ctx } from '../scenes/stage';
 import type { Rect } from './types';
 import { FloorGrid, FLOOR, OUT, PIT, type ShapePlan } from './roomShape';
-import { wallPiece, gateFrame, WALL, type ArenaPlan, type WallStyle } from './arena';
+import { wallPiece, gateFrame, WALL, wallHOf, type ArenaPlan, type WallStyle } from './arena';
 
 /** cells per floor-grid step */
 const S = Math.round(GRID / CELL);
@@ -51,7 +51,7 @@ export function outline(g: FloorGrid): Run[] {
 export function buildShape(c: Ctx, sp: ShapePlan, plan: ArenaPlan, seed: number) {
   const box: B = (x0, y0, z0, x1, y1, z1, col) => { c.w.box(Math.min(x0, x1), y0, Math.min(z0, z1), Math.max(x0, x1), y1, Math.max(z0, z1), col); };
   // (a drawn room's doors, hollow walls and barricades are moving pieces (act/puzzles.ts): the walls are built round them as if open)
-  const g = new FloorGrid(sp.fixed ? { ...sp, fixed: { ...sp.fixed, closed: [] } } : sp, 4), T = M(WALL.thick), H = M(WALL.h) - 1;
+  const g = new FloorGrid(sp.fixed ? { ...sp, fixed: { ...sp.fixed, closed: [] } } : sp, 4), T = M(WALL.thick), H = M(wallHOf(plan.style)) - 1;
   const cX = (i: number) => M(g.x0) + i * S, cZ = (j: number) => M(g.z0) + j * S;
   const r = (k: number) => { let h = (seed * 374761393 + k * 668265263) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
   // gates cut their gap in the run they sit on (the run's line, and only where the gap overlaps the run)
@@ -67,9 +67,10 @@ export function buildShape(c: Ctx, sp: ShapePlan, plan: ArenaPlan, seed: number)
     // the wall stands just outside the floor: its inner face on the border line, T cells thick outward
     const L = run.along === 'x' ? cZ(run.line) : cX(run.line), b0 = run.out < 0 ? L - T : L, b1 = b0 + T - 1;
     const a0 = (run.along === 'x' ? cX(run.a0) : cZ(run.a0)) - (run.e0 ? T : 0), a1 = (run.along === 'x' ? cX(run.a1 + 1) : cZ(run.a1 + 1)) - 1 + (run.e1 ? T : 0);
-    // a wall on the camera side of the floor (the back of a walled-off block, seen across the floor) is knee-high: a full one would
-    // hide 1.7 m of the floor behind it from the battle camera (≈ 35° down)
-    const h = low ? LOW : H;
+    // 11-18 (用户：「墙都没人高，很不自然」): every wall stands at full height, the camera side too — where one stands between the
+    // camera and someone fighting behind it, the scenery's shader opens it round them (look/voxkit.ts SEE_HOLES); it was knee-high
+    // (LOW) so as not to hide the floor behind it
+    const h = H; void low; void LOW;
     const cuts = [a0, ...gaps(run).flat().sort((p, q) => p - q), a1];
     for (let i = 0; i < cuts.length; i += 2) {
       const s0 = cuts[i] + (i ? 1 : 0), s1 = cuts[i + 1] - (i + 1 < cuts.length - 1 ? 1 : 0); if (s1 - s0 < 2) continue;

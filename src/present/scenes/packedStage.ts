@@ -94,9 +94,9 @@ export function* unpackStage(file: Uint8Array, ctx: Ctx, root: THREE.Group, cut:
     }
     const material =
       surface.material === 'flora'
-        ? voxToon({ rim: 0.2, self: 0.16, edge: 0.1 })
+        ? voxToon({ rim: 0.2, self: 0.16, edge: 0.1, hole: true })
         : surface.material === 'terrain'
-          ? voxToon({ rim: 0.35, self: 0.03, edge: 0.16 })
+          ? voxToon({ rim: 0.35, self: 0.03, edge: 0.16, hole: true })
           : surface.material === 'glow'
             ? glowMat(surface.glow)
             : new THREE.MaterialLoader().parse(surface.plain as never);

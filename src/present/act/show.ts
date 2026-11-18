@@ -1,3 +1,4 @@
+import { SEE_HOLES } from '../look/voxkit';
 import { finishBuild, loadInFrames } from '../engine/buildSteps';
 import { bladeBusy, runRoomBuild, withLoadingBlade } from '../scenes/loadingBlade';
 import { format, language, msg, setLanguage } from './i18n';
@@ -2393,8 +2394,20 @@ export class ActShow {
     this.storyIdle = busy ? 0 : this.storyIdle + real;
     if (this.storyIdle > 0.5) { this.storySkip = false; FX.speed = this.storyWas; }
   }
+  /** 11-18 墙高过人: the scenery opens round her and the three nearest foes wherever it stands between them and the camera
+   *  (look/voxkit.ts SEE_HOLES — a pixel dither in the walls' own shader; nothing to do per wall) */
+  private seeThrough() {
+    const H = SEE_HOLES.value, h = this.hero;
+    for (const v of H) v.w = 0;
+    if (!h || this.phase === 'opening' || this.phase === 'title') return;
+    H[0].set(h.pos.x, h.y + 1.0, h.pos.z, 1.25);
+    let n = 1;
+    const near = this.foes.filter(f => f.st !== 'dead').sort((p, q) => p.pos.distanceToSquared(h.pos) - q.pos.distanceToSquared(h.pos));
+    for (const f of near) { if (n > 3) break; H[n++].set(f.pos.x, f.pos.y + Math.min(1.1, f.d.r * 1.6 + 0.4), f.pos.z, Math.max(0.8, f.d.r * 2.2)); }
+  }
   private frame(dt: number, rdt: number) {
     if (bladeBusy()) return;
+    this.seeThrough();
     this.storySkipFrame();
     if (PAUSE.on) { this.L.text.hide('act.npc'); return; }   // the pause menu runs on its own (real time); the world gets nothing (11-18: a hideout name over the menu's pages hidden)
     this.inp.frame(rdt);

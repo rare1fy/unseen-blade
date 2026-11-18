@@ -373,7 +373,7 @@ export function buildFlora(c: Ctx) {
   g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(N, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(Col, 3));
   g.setAttribute('aVox', new THREE.Float32BufferAttribute(U, 2)); g.setAttribute('aSize', new THREE.Float32BufferAttribute(S, 2)); g.setAttribute('aOpen', new THREE.Float32BufferAttribute(E, 4));
   g.setIndex(P.length / 3 > 65535 ? new THREE.Uint32BufferAttribute(I, 1) : new THREE.Uint16BufferAttribute(I, 1)); g.computeBoundingSphere();
-  const mesh = new THREE.Mesh(g, voxToon({ rim: 0.2, self: 0.16, edge: 0.1 })); mesh.castShadow = true; mesh.receiveShadow = true; mesh.name = 'flora';
+  const mesh = new THREE.Mesh(g, voxToon({ rim: 0.2, self: 0.16, edge: 0.1, hole: true })); mesh.castShadow = true; mesh.receiveShadow = true; mesh.name = 'flora';
   c.add(mesh);
 }
 /** leaf skin tints relative to their mass colours (the texture is painted pale; the leaves sit a little above their dark core) */
