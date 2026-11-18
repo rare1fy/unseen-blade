@@ -333,6 +333,8 @@ export class FoeAccessories {
     const swing = clamp((b.armR?.rotation.x ?? 0) + 0.6 * (b.foreR?.rotation.x ?? 0), -3, 3);
     const tip = this.tip.step(swing, dt, 21) - swing;
     for (const bone of this.tips) rot(bone, clamp(0.07 * tip, -0.13, 0.13), -0.12 * roll, 0);
-    rot(this.rigidTip, clamp(0.022 * tip, -0.047, 0.047), 0, 0);
+    // A second hand locks the brute's haft during a swing and the head rests on the floor after a slam.
+    if (!(a.act?.name === 'attack' && (a.def.id === 'hj_brute' || a.def.id === 'hj_brute_e')))
+      rot(this.rigidTip, clamp(0.022 * tip, -0.047, 0.047), 0, 0);
   }
 }

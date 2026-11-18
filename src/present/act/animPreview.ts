@@ -48,6 +48,12 @@ export function openAnimPreview(h: AnimHost, groups: Array<{ name: string; items
   };
 
   let gi = 0, pick = -1, mode: Mode = 'idle', view: View = 'side', slow = 1, ang = 0.5, zoom = 1, t = 0;
+  // 暂停 / 下一帧: paused, time moves only by the steps asked for (a frame each press; captures ask for exact seconds through
+  // window.__animStep and wait for window.__animLeft() to reach 0 — the steps run a 60th of a second per drawn frame)
+  let stepQ = 0;
+  const w = window as unknown as { __animStep?: (s: number) => void; __animLeft?: () => number };
+  w.__animStep = (s: number) => { slow = 0; stepQ += Math.max(0, s); refresh(); };
+  w.__animLeft = () => stepQ;
   // 11-18 (用户：「给这个页面加个我自由拖拽视角的功能」): drag on the picture to turn the camera round them (and up / down), the wheel to come
   // closer; the way they face stays what the last view button set
   let face = Math.PI / 2, cy = 0, cp = 0.1;
@@ -77,7 +83,8 @@ export function openAnimPreview(h: AnimHost, groups: Array<{ name: string; items
 
   onUpdate((rdt) => {
     scene.children.forEach(hide);
-    const dt = rdt * slow, v = SPEED[mode], yaw = yawOf(), dx = Math.sin(yaw), dz = Math.cos(yaw);
+    const step = Math.min(stepQ, 1 / 60); stepQ = Math.max(0, stepQ - step); if (stepQ < 1e-6) stepQ = 0;
+    const dt = rdt * slow + step, v = SPEED[mode], yaw = yawOf(), dx = Math.sin(yaw), dz = Math.cos(yaw);
     t += dt;
     // the ground slides back under them at their walking speed
     if (v > 0) { grid.position.x -= dx * v * dt; grid.position.z -= dz * v * dt; grid.position.x = h.home.x + ((((grid.position.x - h.home.x) % 0.5) + 0.5) % 0.5); grid.position.z = h.home.z + ((((grid.position.z - h.home.z) % 0.5) + 0.5) % 0.5); }
@@ -130,7 +137,7 @@ export function openAnimPreview(h: AnimHost, groups: Array<{ name: string; items
   // the moves each one really makes in a fight (animCatalog.ts), the next one each press
   const play = (s: (typeof acts)[number], m: FoeMove) => s.a.play(new Action(m.name, m.dur, m.at, m.atk ? { atk: m.atk, dist: 0.6 } : { dist: 0.6 }));
   btn(aR, '出招（下一招）', () => { const names: string[] = []; act(s => { if (s.it.npc) return; const ms = movesOf(s.it.def.id), m = ms[s.mi % ms.length]; s.mi++; play(s, m); names.push(`${moveName(m)}（${(s.mi - 1) % ms.length + 1}/${ms.length}）`); }); lastMove = pick >= 0 ? names[0] ?? '' : '各出一招'; });
-  btn(aR, '全部招式连放', () => { act(s => { if (s.it.npc) return; const ms = movesOf(s.it.def.id); let tt = 0; ms.forEach(m => { window.setTimeout(() => { if (s.downT < 0) play(s, m); }, tt * 1000 / slow); tt += m.dur + 0.5; }); }); lastMove = '全部招式'; });
+  btn(aR, '全部招式连放', () => { act(s => { if (s.it.npc) return; const ms = movesOf(s.it.def.id); let tt = 0; ms.forEach(m => { window.setTimeout(() => { if (s.downT < 0) play(s, m); }, tt * 1000 / Math.max(slow, 0.25)); tt += m.dur + 0.5; }); }); lastMove = '全部招式'; });
   btn(aR, '施法', () => foeOnly(a => a.cast()));
   btn(aR, '吼', () => foeOnly(a => a.roar()));
   btn(aR, '正面挨打', () => act(s => { (s.a as unknown as { hurt(p: number, f?: number): void }).hurt(1.4, 0); }));
@@ -152,7 +159,8 @@ export function openAnimPreview(h: AnimHost, groups: Array<{ name: string; items
   window.addEventListener('wheel', e => { if (onPanel(e)) return; zoom = Math.max(0.3, Math.min(3, zoom * (e.deltaY > 0 ? 1.1 : 0.9))); }, { passive: true });
   btn(cR, '拉近', () => { zoom = Math.max(0.35, zoom * 0.8); }); btn(cR, '拉远', () => { zoom = Math.min(3, zoom * 1.25); });
   const sR = sec('速度');
-  const sBtns = ([[1, '原速'], [0.5, '慢一半'], [0.25, '慢四倍']] as const).map(([k, title]) => [k, btn(sR, title, () => { slow = k; })] as const);
+  const sBtns = ([[1, '原速'], [0.5, '慢一半'], [0.25, '慢四倍'], [0, '暂停']] as const).map(([k, title]) => [k, btn(sR, title, () => { slow = k; })] as const);
+  btn(sR, '下一帧', () => { slow = 0; stepQ += 1 / 30; });
   const hR = sec(''); btn(hR, '收起面板', () => { box.style.display = 'none'; show.style.display = ''; });
   const info = document.createElement('div'); info.className = 'info'; box.appendChild(info);
   function refresh() {
@@ -164,6 +172,7 @@ export function openAnimPreview(h: AnimHost, groups: Array<{ name: string; items
     const g = groups[gi];
     const mv = pick >= 0 && !g.items[pick].npc ? '\n招式：' + movesOf(g.items[pick].def.id).map(moveName).join(' · ') + (lastMove ? `\n刚才：${lastMove}` : '') : '';
     info.textContent = `${g.name}${pick >= 0 ? ' · ' + g.items[pick].name : `（${g.items.length} 个）`}${mv}\n在画面上按住拖动转视角，滚轮拉近拉远。
+暂停后按「下一帧」一格一格看（一格 1/30 秒）。
 走跑时脚下的格子往后走，落地的脚应该钉在格子上。\n据点的人不跑：选「跑」时他们快走。`;
   }
   build(); listRow();

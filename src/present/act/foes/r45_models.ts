@@ -201,7 +201,10 @@ function jar(v: V, el: boolean) {
 function xbow(v: V, el: boolean) {
   B(v, 'weapon', -14, 18, -6, -13, 20, 16, WOOD).box(-14, 16, -4, -13, 17, 0, WOOD_D).box(-15, 18, 2, -12, 21, 4, el ? GOLD : IRON);
   B(v, 'weapon', -26, 20, 16, -1, 20, 17, WOOD_D).box(-26, 20, 14, -25, 20, 16, WOOD_D).box(-2, 20, 14, -1, 20, 16, WOOD_D);
-  B(v, 'weapon', -25, 20, 13, -2, 20, 13, 0xd8d0b8).box(-14, 21, 3, -13, 21, 19, 0x8a6a44).box(-14, 21, 20, -13, 21, 21, STEEL);
+  v.bone('stringA', 'weapon', -25, 20.5, 13.5).bone('stringB', 'weapon', -1, 20.5, 13.5);
+  B(v, 'stringA', -25, 20, 13, -14, 20, 13, 0xd8d0b8); B(v, 'stringB', -13, 20, 13, -2, 20, 13, 0xd8d0b8);
+  v.bone('bolt', 'weapon', -13, 21, 3);
+  B(v, 'bolt', -14, 21, 3, -13, 21, 19, 0x8a6a44).box(-14, 21, 20, -13, 21, 21, STEEL);
 }
 /** 钩刀: a short haft, a straight blade with a hook turned up at its end */
 function hook(v: V, el: boolean) {
