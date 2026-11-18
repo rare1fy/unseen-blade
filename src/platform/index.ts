@@ -29,6 +29,14 @@ export function makeCanvas(w: number, h: number): any {
   return c;
 }
 
+/** 11-18 微信小游戏: an image from a URL / package path — wx.createImage (tt) in a mini-game, an <img> in a browser. (THREE.TextureLoader
+ *  goes through document.createElementNS('img'), which in the WeChat devtools is the real, read-only document of the simulator page) */
+export function loadImage(url: string, done: (img: any) => void, fail?: (e: unknown) => void) {
+  const mini = typeof wx !== 'undefined' && wx && wx.createImage ? wx : typeof tt !== 'undefined' && tt && tt.createImage ? tt : null;
+  const im: any = mini ? mini.createImage() : new Image();
+  im.onload = () => done(im); im.onerror = (e: unknown) => fail?.(e); im.src = url;
+}
+
 /** haptics switch (settings) */
 export const VIBE = { on: true };
 /** the game's say before the phone's: a pad in use rumbles instead (act/pad.ts padRumble; true = handled) */

@@ -1,4 +1,8 @@
 // Native game services that the HTML entry normally supplies.
+// (11-18: the WeChat devtools run the game beside a real, read-only HTMLDocument / Window — 「Cannot assign to read only property
+// 'createElementNS' of object '#<HTMLDocument>'」 — while a phone has only the adapter's stand-in document. Only the stand-in is
+// patched, and a global the runtime refuses to take is left alone: every name below is also a variable of this file, which is what the
+// bundle after it uses.)
 var document = GameGlobal.document;
 var self = GameGlobal.self;
 var navigator = GameGlobal.navigator;
@@ -11,7 +15,7 @@ var localStorage = {
   setItem: function (key, value) { wx.setStorageSync(key, String(value)); },
   removeItem: function (key) { wx.removeStorageSync(key); }
 };
-GameGlobal.localStorage = globalThis.localStorage = localStorage;
+try { GameGlobal.localStorage = localStorage; } catch (e) { /* read-only there */ }
 
 var atob = GameGlobal.atob || function (value) {
   var bytes = new Uint8Array(wx.base64ToArrayBuffer(value));
@@ -60,8 +64,9 @@ function makeElement(name) {
   }
   return image;
 }
-document.createElement = makeElement;
-document.createElementNS = function (_ns, name) { return makeElement(name); };
+if (!(typeof HTMLDocument !== 'undefined' && document instanceof HTMLDocument)) {
+  try { document.createElement = makeElement; document.createElementNS = function (_ns, name) { return makeElement(name); }; } catch (e) { /* a frozen document */ }
+}
 
 globalThis.__ubWxAudio = function () {
   if (!wx.createWebAudioContext) return null;
