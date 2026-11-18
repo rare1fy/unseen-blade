@@ -13,11 +13,17 @@
 (function () {
   'use strict';
   const q = new URLSearchParams(location.search), base = q.get('base') || '/proj/', W = innerWidth, H = innerHeight, dpr = devicePixelRatio || 1;
-  // the devtools' canvas (act-58, the user's screenshot): no WebGL2, and its WebGL1 has no ANGLE_instanced_arrays and no float
-  // textures — three warned that instanced meshes and SkinnedMesh can't draw, every frame
-  { const gc = HTMLCanvasElement.prototype.getContext, NO = ['ANGLE_instanced_arrays', 'OES_texture_float', 'OES_texture_float_linear', ...(q.get('strip') || '').split(',').filter(Boolean)];   // ?strip=A,B: more missing extensions
+  // WeChat (the devtools AND phones, act-63 on a phone: only the title): getContext('webgl2') gives a real WebGL2 context, but there is
+  // no global WebGL2RenderingContext — three.js decides WebGL2 by `typeof WebGL2RenderingContext !== 'undefined' && gl.constructor.name
+  // === 'WebGL2RenderingContext'`, so it ran its WebGL1 path on a WebGL2 context: every WebGL1 extension it asked for came back null
+  // (no instancing, no float textures, no derivatives, no depth texture…). Here the global is taken away before game.js runs (the sim
+  // keeps its own reference). ?gl1=1: no WebGL2 at all, a WebGL1 without instancing / float textures (+ ?strip=A,B for more).
+  const GL2 = window.WebGL2RenderingContext; if (q.get('gl1') !== '1') delete window.WebGL2RenderingContext;
+  // a phone has no atob either (nor wx.base64ToArrayBuffer — 「vox: can't read … wx.base64ToArrayBuffer is not a function」, act-63)
+  delete window.atob; delete window.btoa;
+  { const gc = HTMLCanvasElement.prototype.getContext, NO = q.get('gl1') === '1' ? ['ANGLE_instanced_arrays', 'OES_texture_float', 'OES_texture_float_linear', ...(q.get('strip') || '').split(',').filter(Boolean)] : [];
     HTMLCanvasElement.prototype.getContext = function (type, attrs) {
-      if (type === 'webgl2') return null;
+      if (type === 'webgl2' && q.get('gl1') === '1') return null;
       const c = gc.call(this, type, attrs);
       if (c && (type === 'webgl' || type === 'experimental-webgl') && !c.__sim) {
         c.__sim = true; const ge = c.getExtension.bind(c), gs = c.getSupportedExtensions.bind(c);
@@ -39,6 +45,8 @@
     getStorageSync: k => store[k] ?? '', setStorageSync: (k, v) => { store[k] = v; }, removeStorageSync: k => { delete store[k]; },
     createInnerAudioContext: () => ({ play() {}, stop() {}, pause() {}, destroy() {} }),
     loadFont: () => null, vibrateShort() {}, onHide() {}, onShow() {},
+    // the native error dialog (wechat/glue.js shows the first error in one): recorded for the test
+    showModal: o => { (window.__simModals = window.__simModals || []).push(String(o && o.content || '')); }, onError() {}, onUnhandledRejection() {},
   };
   window.GameGlobal = window;
   window.__simTouch = (type, x, y) => { const ev = { touches: type === 'end' ? [] : [{ identifier: 1, clientX: x, clientY: y }], changedTouches: [{ identifier: 1, clientX: x, clientY: y }], timeStamp: Date.now() }; for (const f of touch[type] || []) f(ev); };

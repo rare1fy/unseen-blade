@@ -30,7 +30,8 @@ const size = d => { let n = 0; for (const e of fs.readdirSync(d, { withFileTypes
 await build({ root: ROOT, configFile: path.join(ROOT, 'vite.config.ts'), mode: 'wechat', logLevel: 'warn' });
 const DW = path.join(ROOT, 'dist-wx'), bundle = fs.readFileSync(path.join(DW, 'game.js'), 'utf8'), assets = JSON.parse(fs.readFileSync(path.join(DW, 'wx-assets.json'), 'utf8'));
 const rd = f => fs.readFileSync(path.join(ROOT, 'wechat', f), 'utf8');
-const gameJs = `'use strict';\n${rd('adapter.js')}\n${rd('glue.js')}\n${bundle}`;
+// (--no-diag: no native error dialog — wechat/glue.js shows the first error in one while the mini-game is still being brought up)
+const gameJs = `'use strict';\n${A.includes('--no-diag') ? 'var __UB_NO_DIAG = true;\n' : ''}${rd('adapter.js')}\n${rd('glue.js')}\n${bundle}`;
 // 11-18: the upload refused game.js for a `?.` (「invalid file: game.js, 122:12 SyntaxError: Unexpected token .」): the whole file must be
 // ES2015 (vite's wechat target is es2015; wechat/*.js are written by hand) — parse it as such and stop before touching the project
 // folder if it isn't (--no-syntax-check to skip)
