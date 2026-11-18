@@ -47,8 +47,9 @@ var __ubDiag = typeof __UB_NO_DIAG === 'undefined';
   try {
     console.error = function () {
       try {
-        var s = Array.prototype.map.call(arguments, function (a) { return a && a.stack ? a.stack : String(a); }).join(' ');
-        if (/Shader Error|WebGLRenderer|WebGLProgram|TypeError|ReferenceError|SyntaxError|RangeError/.test(s)) show(s);
+        // (an iPhone's error.stack has no message in it — the message first, then the stack)
+        var s = Array.prototype.map.call(arguments, function (a) { return a && a.stack ? String(a) + '\n' + a.stack : String(a); }).join(' ');
+        if (/Shader Error|WebGLRenderer|WebGLProgram|TypeError|ReferenceError|SyntaxError|RangeError|\[audio\]/.test(s)) show(s);
       } catch (e) { /* never break logging */ }
       return ce.apply(console, arguments);
     };
@@ -133,31 +134,124 @@ if (!(document && document.nodeType === 9)) {
   try { document.createElement = makeElement; document.createElementNS = function (_ns, name) { return makeElement(name); }; } catch (e) { /* a frozen document */ }
 }
 
+// 11-18 (act-65 on a phone: a picture, no sound): WeChat's WebAudioContext, shaped like the browser's AudioContext for src/audio. What
+// its documentation lists, and so what is filled in here:
+//   - AudioParam has only `value` — no setValueAtTime / linearRampToValueAtTime / exponentialRampToValueAtTime / setTargetAtTime /
+//     cancelScheduledValues, which the game uses for every fade, duck and swell. A param without them gets them in plain JS: the
+//     events are kept per param and its `value` is set from them about 60 times a second (enough for fades; a phone that has the
+//     real calls keeps them).
+//   - no createConvolver: the room reverb's send goes into a silent gain (`noReverb`, so the game doesn't build impulses for it).
+//   - decodeAudioData takes callbacks; resume / suspend are documented as synchronous — a promise is made of whatever comes back.
+var __ubParamNames = ['gain', 'frequency', 'detune', 'Q', 'playbackRate', 'threshold', 'knee', 'ratio', 'attack', 'release', 'offset', 'delayTime', 'pan'];
+function __ubAutomate(ctx) {
+  var live = [], timer = 0;
+  function at(p, now) {
+    // the value at `now` from the param's events (spec-like: a ramp runs from the event before it; a target decays from where it starts)
+    var v = p.__v, t0 = p.__t, ev = p.__ev;
+    while (ev.length) {
+      var e = ev[0];
+      if (e.k === 'set') { if (e.t > now) break; v = e.v; t0 = e.t; ev.shift(); continue; }
+      if (e.k === 'lin' || e.k === 'exp') {
+        if (e.t <= now) { v = e.v; t0 = e.t; ev.shift(); continue; }
+        var f = e.t > t0 ? (now - t0) / (e.t - t0) : 1; if (f < 0) f = 0;
+        p.__v = v; p.__t = t0;
+        return e.k === 'exp' && v > 0 && e.v > 0 ? v * Math.pow(e.v / v, f) : v + (e.v - v) * f;
+      }
+      // a target: decays toward e.v from e.t until the next event
+      if (e.t > now) break;
+      var n = ev[1];
+      if (n && n.t <= now) { v = e.v + (v - e.v) * Math.exp(-(n.t - e.t) / e.tau); t0 = n.t; ev.shift(); continue; }
+      var d = now - e.t;
+      if (d > e.tau * 12) { v = e.v; t0 = now; ev.shift(); continue; }
+      p.__v = v; p.__t = t0;
+      return e.v + (v - e.v) * Math.exp(-d / e.tau);
+    }
+    p.__v = v; p.__t = t0;
+    return v;
+  }
+  function tick() {
+    var now = ctx.currentTime;
+    for (var i = live.length - 1; i >= 0; i--) {
+      var p = live[i], v = at(p, now);
+      try { p.value = v; } catch (e) { /* out of range */ }
+      if (!p.__ev.length) { live.splice(i, 1); p.__on = false; }
+    }
+    if (!live.length && timer) { clearInterval(timer); timer = 0; }
+  }
+  function begin(p) {
+    if (!p.__ev.length) { p.__v = p.value; p.__t = ctx.currentTime; }
+  }
+  function add(p, e) {
+    var ev = p.__ev, i = ev.length;
+    while (i > 0 && ev[i - 1].t > e.t) i--;
+    ev.splice(i, 0, e);
+    if (!p.__on) { p.__on = true; live.push(p); }
+    if (!timer) timer = setInterval(tick, 16);
+    if (e.t <= ctx.currentTime && e.k === 'set') tick();
+    return p;
+  }
+  return function patch(node) {
+    if (!node) return node;
+    for (var k = 0; k < __ubParamNames.length; k++) {
+      var p = node[__ubParamNames[k]];
+      if (!p || typeof p !== 'object' || !('value' in p) || typeof p.setTargetAtTime === 'function') continue;
+      try {
+        p.__ev = []; p.__on = false; p.__v = p.value; p.__t = 0;
+        p.setValueAtTime = function (v, t) { begin(this); return add(this, { k: 'set', t: t, v: v }); };
+        p.linearRampToValueAtTime = function (v, t) { begin(this); return add(this, { k: 'lin', t: t, v: v }); };
+        p.exponentialRampToValueAtTime = function (v, t) { begin(this); return add(this, { k: 'exp', t: t, v: v }); };
+        p.setTargetAtTime = function (v, t, tau) { begin(this); return add(this, { k: 'tgt', t: t, v: v, tau: Math.max(1e-4, tau) }); };
+        p.setValueCurveAtTime = function (curve, t, dur) {
+          begin(this); var n = curve.length;
+          for (var j = 0; j < n; j++) add(this, { k: j ? 'lin' : 'set', t: t + dur * (n > 1 ? j / (n - 1) : 0), v: curve[j] });
+          return this;
+        };
+        p.cancelScheduledValues = function (t) {
+          var now = ctx.currentTime;
+          if (t <= now) { var v = at(this, now); this.__ev.length = 0; this.__v = v; this.__t = now; try { this.value = v; } catch (e) { /* range */ } }
+          else this.__ev = this.__ev.filter(function (e) { return e.t < t; });
+          return this;
+        };
+        p.cancelAndHoldAtTime = p.cancelScheduledValues;
+      } catch (e) { /* a frozen param: its fades are skipped */ }
+    }
+    return node;
+  };
+}
+function __ubPromise(r) { return r && typeof r.then === 'function' ? r : Promise.resolve(r); }
 globalThis.__ubWxAudio = function () {
   if (!wx.createWebAudioContext) return null;
   var native = wx.createWebAudioContext();
+  var patch = __ubAutomate(native);
   var context = {
     get currentTime() { return native.currentTime; },
     get sampleRate() { return native.sampleRate || 44100; },
     get state() { return native.state; },
     get destination() { return native.destination; },
+    noReverb: !native.createConvolver,
+    resume: function () { try { return __ubPromise(native.resume()); } catch (e) { return Promise.reject(e); } },
+    suspend: function () { try { return __ubPromise(native.suspend()); } catch (e) { return Promise.reject(e); } },
     decodeAudioData: function (buffer) {
-      return new Promise(function (resolve, reject) { native.decodeAudioData(buffer, resolve, reject); });
+      return new Promise(function (resolve, reject) {
+        try { var r = native.decodeAudioData(buffer, resolve, function (e) { reject(e || new Error('decodeAudioData failed')); }); if (r && typeof r.then === 'function') r.then(resolve, reject); }
+        catch (e) { reject(e); }
+      });
     },
     createConvolver: function () {
-      if (native.createConvolver) return native.createConvolver();
-      var silent = native.createGain();
+      if (native.createConvolver) return patch(native.createConvolver());
+      var silent = patch(native.createGain());
       silent.gain.value = 0;
       return silent;
     }
   };
-  for (var method of [
-    'resume', 'suspend', 'createBuffer', 'createBufferSource', 'createDynamicsCompressor',
-    'createGain', 'createBiquadFilter', 'createOscillator'
-  ]) context[method] = native[method].bind(native);
+  ['createBuffer', 'createBufferSource', 'createDynamicsCompressor', 'createGain', 'createBiquadFilter', 'createOscillator', 'createDelay', 'createWaveShaper', 'createPanner', 'createConstantSource', 'createAnalyser'].forEach(function (method) {
+    if (typeof native[method] !== 'function') return;
+    var make = native[method];
+    context[method] = method === 'createBuffer' ? make.bind(native) : function () { return patch(make.apply(native, arguments)); };
+  });
   // (11-18: ES2015 only in this file — the upload's compiler refused `wx.onHide?.(` 「SyntaxError: Unexpected token .」)
-  if (wx.onHide) wx.onHide(function () { context.suspend().catch(console.warn); });
-  if (wx.onShow) wx.onShow(function () { context.resume().catch(console.warn); });
+  if (wx.onHide) wx.onHide(function () { context.suspend().catch(function (e) { console.warn(e); }); });
+  if (wx.onShow) wx.onShow(function () { context.resume().catch(function (e) { console.warn(e); }); });
   return context;
 };
 
