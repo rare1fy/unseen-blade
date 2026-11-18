@@ -6,7 +6,15 @@ import { TUNE, TUNE_UI, type TuneKey } from './tune';
 export interface TuneAction { label: () => string; run: () => void }
 /** open / close the panel from code (the title screen's 设置); a no-op until installActTune has run */
 export let toggleActTune = () => {};
-export function installActTune(actions: TuneAction[] = []) {
+/** 11-18 (用户：「你帮我在调试面板加一个快速切关，我好测试关卡」): the regions to jump into and how */
+export interface TuneJump {
+  /** the regions' names in order (第一关 …) */ regions: string[];
+  /** go to region ri's room: room = its index in the region (0 = the first room), the boss room = rooms; type = what kind of room.
+   *  Returns why it could not (a cutscene / a talk running), or nothing when it went */
+  go(ri: number, room: number, type: 'fight' | 'elite' | 'shop' | 'rest' | 'boon' | 'boss'): string | void;
+  /** the fight rooms before the boss in region ri */ rooms(ri: number): number;
+}
+export function installActTune(actions: TuneAction[] = [], jump?: TuneJump) {
   if (typeof document === 'undefined') return;
   const btn = document.createElement('div');
   btn.textContent = '调'; Object.assign(btn.style, { position: 'fixed', right: '8px', top: '8px', width: '30px', height: '30px', lineHeight: '30px', textAlign: 'center',
@@ -17,6 +25,32 @@ export function installActTune(actions: TuneAction[] = []) {
   // the frame rate (act-14 用户在手机上说帧率低): frames counted over half a second, shown while the panel is open
   const fps = document.createElement('div'); fps.style.margin = '0 0 6px'; pane.append(fps);
   { let n = 0, t0 = performance.now(); const tick = () => { n++; const t = performance.now(); if (t - t0 >= 500) { if (pane.style.display !== 'none') fps.textContent = `帧率：${Math.round(n * 1000 / (t - t0))}`; n = 0; t0 = t; } requestAnimationFrame(tick); }; requestAnimationFrame(tick); }
+  if (jump) {
+    // 快速切关: pick the region, then the room — a new run starts there (the region's foes scaled as in a real run)
+    const box = document.createElement('div'); Object.assign(box.style, { margin: '0 0 8px', padding: '6px', border: '1px solid #5a4a36', borderRadius: '4px' });
+    const head = document.createElement('div'); head.textContent = '快速切关'; head.style.margin = '0 0 4px'; box.append(head);
+    const regRow = document.createElement('div'), roomRow = document.createElement('div'), note = document.createElement('div');
+    Object.assign(regRow.style, { display: 'flex', flexWrap: 'wrap', gap: '3px', margin: '0 0 4px' }); Object.assign(roomRow.style, { display: 'flex', flexWrap: 'wrap', gap: '3px' });
+    Object.assign(note.style, { margin: '4px 0 0', color: '#c8a070', minHeight: '1em' });
+    let ri = 0;
+    const small = (b: HTMLButtonElement, on = false) => Object.assign(b.style, { flex: '1 0 auto', padding: '3px 4px', minWidth: '44px', background: on ? '#8a6a3a' : '', color: on ? '#fff4dc' : '' });
+    const regBtns = jump.regions.map((name, i) => {
+      const b = document.createElement('button'); b.textContent = `${'一二三四五六七八九十'[i] ?? i + 1}关`; b.title = name; small(b, i === ri);
+      b.onclick = () => { ri = i; regBtns.forEach((x, k) => small(x, k === ri)); drawRooms(); note.textContent = name; }; regRow.append(b); return b;
+    });
+    const drawRooms = () => {
+      roomRow.textContent = '';
+      const n = jump.rooms(ri), add = (label: string, room: number, type: Parameters<TuneJump['go']>[2]) => {
+        const b = document.createElement('button'); b.textContent = label; small(b);
+        b.onclick = () => { const why = jump.go(ri, room, type); if (why) { note.textContent = why; return; } note.textContent = `${jump.regions[ri]} · ${label}`; pane.style.display = 'none'; };
+        roomRow.append(b);
+      };
+      for (let i = 0; i < n; i++) add(`第${i + 1}间`, i, 'fight');
+      add('死士', 2, 'elite'); add('行商', 2, 'shop'); add('歇脚', 2, 'rest'); add('遗卷', 2, 'boon'); add('头目', n, 'boss');
+    };
+    drawRooms(); note.textContent = jump.regions[0] ?? '';
+    box.append(regRow, roomRow, note); pane.append(box);
+  }
   for (const a of actions) {
     const b = document.createElement('button'); b.textContent = a.label(); Object.assign(b.style, { width: '100%', margin: '2px 0 6px' });
     b.onclick = () => { a.run(); b.textContent = a.label(); }; pane.append(b);
