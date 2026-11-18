@@ -1,7 +1,7 @@
 // 一条技能在界面上的样子（11-18，用户：「强化卡片也难以辨认都是干嘛的」「选了强化后根本看不到自己选的强化是啥，在哪儿、如何释放」）：
-//   左边一面小铁盾（它挂的那颗键，钮里是这一招 / 这一张的立体图标）；
-//   按法 = 一排小铁盾按钮（和右下角的四颗是同一套模型、同一个图标），中间画箭头；最后那一下的钮圈染成这一招的颜色（战斗里能接这招时，
-//          那颗钮就是这个颜色）；按住 = 钮圈烧成炉火色、钮下一道长条；松手接招 = 钮圈发白（「现在松手」的那个白）；
+//   左边是这一招 / 这一张的立体图标，托在深色铁槽里（11-18 用户：「那个圈有点丑」）；
+//   按法 = 一排小铁盾按钮（和右下角的四颗是同一套模型、同一个图标），中间画箭头；最后那一下的钮圈沿用招式色标；
+//          按住 = 钮圈烧成炉火色、钮下一道长条；松手接招 = 钮圈发白（「现在松手」的那个白）；
 //          稍停 = 三个点；完美闪避 = 一点冷蓝的光；杀气满 = 三颗铜锭；
 //   效果一句（关键词前带小图标、高亮），数值一行小字。
 // 三选一卡面（cards3d.ts）、暂停菜单「已得」「招式」两页（pauseMenu.ts）共用。
@@ -10,7 +10,7 @@ import { drawPix, pixW, PIX_H } from '../v2/pix';
 import { bodyText } from '../ui3d/bodyFont';
 import { richLine, TIER_TXT } from './cardBoard';
 import { MiniShield, btnShield } from './btnBadge';
-import { isLinkIcon, skillIcon3D } from './skillIcons';
+import { isLinkIcon } from './skillIcons';
 import { fillVals } from './cards';
 import { BOONS, TIER_NAMES, boonTier, type Boon, type BoonId, type SkillBoon } from './boons';
 import { MANUALS, type Manual } from './manuals';
@@ -22,7 +22,7 @@ export interface SkillEntry {
   /** the picture (skillIcons skillIcon3D id) */ icon: BaseIcon | BoonId;
   /** the presses (null = nothing to press: a passive) */ steps: Step[] | null;
   effect: string; num: string;
-  /** the colour of the move (a 刀谱's link light) or of the tier's metal — the big shield's plates and the last press's rim */ col: number;
+  /** the move's or tier's colour, used when the card lands on the HUD */ col: number;
   /** where the card flies when taken, where its mark sits */ target: MarkTarget;
   /** the link light on the last press (a 刀谱 / a link move), or none */ lit: number | null;
 }
@@ -150,6 +150,3 @@ export function paintNum(g: CanvasRenderingContext2D, line: string, x: number, y
   richLine(g, line, align === 'left' ? x : x - w(p), y, p, '#a89c8a', '#f0e4c8', false);
 }
 export { bodyText };
-
-/** the big shield on the left: the move's / the boon's picture, its plates in the entry's colour */
-export function bigShield(e: SkillEntry) { const m = new MiniShield(skillIcon3D(e.icon)); m.setRim(e.col, e.kind === 'boon' ? 0.45 : 0.75); m.icon.scale.setScalar(0.66); m.icon.position.z = 0.22; return m; }

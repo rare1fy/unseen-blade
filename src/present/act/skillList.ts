@@ -1,6 +1,6 @@
 // 暂停菜单「已得」「招式」两页的单子（11-18，用户：「选了强化后根本看不到自己选的强化是啥，在哪儿、如何释放，如何释放的教学不能是纯文字哈」
 // 「游戏里也没有一个可以呼出暂停窗口的按钮」+ 主会话：「暂停菜单再加一页技能一览」）。
-// 和暂停菜单同一套铁框漆面牌匾，一条一块，一块块从右边滑进来；每块 = 左边那颗键的小铁盾（钮里是这一招 / 这一张的立体图标）+ 名字和品阶 +
+// 和暂停菜单同一套铁框漆面牌匾，一条一块，一块块从右边滑进来；每块 = 左边深色铁槽里的立体图标 + 名字和品阶 +
 // 按法（右下角那几颗钮的小号，按顺序，中间画箭头）+ 一句会出什么（关键词带小图标）+ 数值小字。分组的小标题（身手 / 刀谱 / 秘传）用像素字。
 // 选中的那块往前凸、按法那几颗钮一颗颗按下去（和卡面一样）。条目多时：十字键 / 摇杆 / 方向键 / 滚轮 / 手指拖上下翻，选中的那块总在视野里。
 import * as THREE from 'three';
@@ -9,17 +9,25 @@ import { mergeBoxes, IRON_D, IRON, LACQ, LACQ_L, BRONZE, BRONZE_D } from './titl
 import { paintTitle } from './opening';
 import { PIX_H } from '../v2/pix';
 import { makeCanvas } from '../../platform/index';
+import type { Model3D } from '../ui3d/models3d';
 import type { MiniShield } from './btnBadge';
-import { layoutPresses, paintSeps, pressShields, paintName, paintEffect, paintNum, bigShield, type SkillEntry, type PressItem } from './skillFace';
+import { layoutPresses, paintSeps, pressShields, paintName, paintEffect, paintNum, type SkillEntry, type PressItem } from './skillFace';
+import { skillIcon3D } from './skillIcons';
 export type { SkillEntry } from './skillFace';
 
 export interface Section { title: string; list: SkillEntry[]; empty?: string }
 /** the slab in px (w × h), front toward +z — the pause menu's own make */
-function slab(w: number, h: number) {
+function slab(w: number, h: number, slotX: number, slot: number) {
   const d = Math.max(8, h * 0.14), cap = Math.max(6, Math.round(h * 0.12)), b: Parameters<typeof mergeBoxes>[0] = [];
   b.push({ w, h, d, x: 0, y: 0, z: 0, c: IRON_D });
   b.push({ w: w - 4, h: Math.max(2, h * 0.05), d: d + 1, x: 0, y: h / 2 - Math.max(1, h * 0.03), z: 0.4, c: IRON });
-  b.push({ w: w - cap * 1.6, h: h - Math.max(5, h * 0.12), d: d + 1.2, x: 0, y: 0, z: 0.6, c: LACQ });
+  // Break the lacquer around the slot so the dark floor sits behind its four walls.
+  const panelW = w - cap * 1.6, panelH = h - Math.max(5, h * 0.12), left = slotX - slot / 2, right = slotX + slot / 2;
+  const lacquer = { d: d + 1.2, z: 0.6, c: LACQ }, band = (panelH - slot) / 2;
+  b.push({ ...lacquer, w: left + panelW / 2, h: panelH, x: (left - panelW / 2) / 2, y: 0 });
+  b.push({ ...lacquer, w: panelW / 2 - right, h: panelH, x: (right + panelW / 2) / 2, y: 0 });
+  for (const s of [-1, 1]) b.push({ ...lacquer, w: slot, h: band, x: slotX, y: s * (slot + band) / 2 });
+  b.push({ w: slot, h: slot, d: d + 0.5, x: slotX, y: 0, z: 0, c: 0x111217 });
   b.push({ w: w - cap * 1.6, h: Math.max(2, h * 0.045), d: d + 1.3, x: 0, y: h / 2 - Math.max(4, h * 0.1), z: 0.6, c: LACQ_L });
   for (const s of [-1, 1]) {
     b.push({ w: cap, h: h + 4, d: d + 2, x: s * (w / 2 + 0.5), y: 0, z: 0.4, c: BRONZE_D });
@@ -30,7 +38,7 @@ function slab(w: number, h: number) {
 const tex = (c: HTMLCanvasElement) => { const t = new THREE.CanvasTexture(c); t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearFilter; t.generateMipmaps = false; t.colorSpace = THREE.SRGBColorSpace; return t; };
 
 interface Item {
-  e: SkillEntry | null; title: string; root: THREE.Group; body: THREE.Mesh | null; face: THREE.Mesh; big: MiniShield | null; presses: MiniShield[]; items: PressItem[];
+  e: SkillEntry | null; title: string; root: THREE.Group; body: THREE.Mesh | null; face: THREE.Mesh; picture: Model3D | null; presses: MiniShield[]; items: PressItem[];
   x: number; y: number; w: number; h: number; inK: number; selK: number; faceKey: string; t: number; delay: number;
 }
 export class SkillList {
@@ -50,13 +58,13 @@ export class SkillList {
   private make(e: SkillEntry | null, title: string, i: number): Item {
     const root = new THREE.Group(); root.userData.noTilt = true; root.renderOrder = 60; this.L.scene.add(root);
     const face = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, toneMapped: false })); face.renderOrder = 62; root.add(face);
-    return { e, title, root, body: null, face, big: null, presses: [], items: [], x: 0, y: 0, w: 0, h: 0, inK: 0, selK: 0, faceKey: '', t: 0, delay: Math.min(0.4, i * 0.04) };
+    return { e, title, root, body: null, face, picture: null, presses: [], items: [], x: 0, y: 0, w: 0, h: 0, inK: 0, selK: 0, faceKey: '', t: 0, delay: Math.min(0.4, i * 0.04) };
   }
   close() {
     for (const it of this.items) {
       it.root.parent?.remove(it.root); it.face.geometry.dispose(); const fm = it.face.material as THREE.MeshBasicMaterial; fm.map?.dispose(); fm.dispose();
       if (it.body) { it.body.geometry.dispose(); (it.body.material as THREE.Material).dispose(); }
-      it.big?.dispose(); for (const p of it.presses) p.dispose();
+      it.picture?.dispose(); for (const p of it.presses) p.dispose();
     }
     this.items = []; this.on = false;
   }
@@ -75,8 +83,11 @@ export class SkillList {
     for (const it of this.items) {
       const ih = it.e ? h : headH; it.w = w; it.h = ih; it.x = x; it.y = y + ih / 2; y += ih + gap;
       if (it.e && !it.body) {
-        it.body = slab(w, h); it.body.renderOrder = 60; it.root.add(it.body);
-        const s = h * 0.74; it.big = bigShield(it.e); it.big.scale.setScalar(s); it.big.position.set(-w / 2 + h * 0.18 + s / 2, 0, this.zf() + s * 0.07); it.big.setRenderOrder(61); it.root.add(it.big);
+        const s = h * 0.74, x = -w / 2 + h * 0.18 + s / 2;
+        it.body = slab(w, h, x, s); it.body.renderOrder = 60; it.root.add(it.body);
+        const p = it.picture = skillIcon3D(it.e.icon);
+        p.scale.setScalar(s * 0.94); p.position.set(x, 0, this.zf() + p.size[2] * p.scale.x / 2);
+        p.traverse(o => { o.renderOrder = 61; }); it.root.add(p);
         if (it.e.steps) { const ps = h * 0.3, lp = layoutPresses(it.e.steps, ps, it.e.lit); it.items = lp.items; it.presses = pressShields(lp.items, ps, it.root, this.textX(), 0, this.zf() + ps * 0.07, 63); }
       }
     }
@@ -108,9 +119,9 @@ export class SkillList {
       it.root.rotation.set(-0.04 + Math.sin(this.t * 0.8 + it.y * 0.02) * 0.01, -0.08 * (1 - 0.7 * it.selK), 0);
       if (it.body) { const bm = it.body.material as THREE.MeshLambertMaterial; bm.emissiveIntensity = it.selK * 0.05; bm.transparent = a < 0.999; bm.opacity = a; bm.depthWrite = a >= 0.999; }
       (it.face.material as THREE.MeshBasicMaterial).opacity = a;
-      it.big?.setOpacity(a); for (const p of it.presses) p.setOpacity(a);
+      it.picture?.setOpacity(a); for (const p of it.presses) p.setOpacity(a);
       this.paint(it);
-      if (it.big) { it.big.icon.idle(this.t, 0.02, 0.2 + 0.2 * it.selK); it.big.icon.setDim(0.15 * (1 - it.selK)); }
+      if (it.picture) { it.picture.idle(this.t, 0.02, 0.16 + 0.1 * it.selK); it.picture.setDim(0.15 * (1 - it.selK)); }
       // the selected one presses its buttons through, one after another (as on the card)
       if (it.presses.length) {
         it.t = i === this.sel ? it.t + dt : 0;
