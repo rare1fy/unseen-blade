@@ -3,7 +3,7 @@
 // 一层楼板还在）/ 坊门（夯土门墩、烧剩的门楼梁架、门板倒在地上）。远景：坊墙、墙外一排塌屋的焦梁和半截墙、焦树、烟。
 // 和铜驼道（宫墙、石板御道、铜驼）不同：这里是民居的夯土和焦木，地面是夯土和碎砖，矮、密、乱。
 import type { Ctx } from '../../scenes/stage';
-import { M, SX, SZ, field } from '../../scenes/props';
+import { M, SX, SZ } from '../../scenes/props';
 import type { Landmark, Layout, Locale, Place } from '../types';
 import { LY, frame, up, wp, fireLight, smoke, rubble, emberHeap, fireBasin, frameBay, earthWall, hanRoof, beamDown, charTree, shell } from './ly_kit';
 import { commonGroups, commonFiller, lyFloor, lyDress } from './ly_common';
@@ -59,20 +59,18 @@ const LANDMARKS: Landmark[] = [
 ];
 
 // ------------------------------------------------------------------ ground: trodden earth with broken brick, the lane of brick halves, ash beyond
-function floor(c: Ctx, f: { layout: Layout; p: Place }) {
-  // the street crossing is packed earth (no joints: big 12-cell blocks in four dull tones, whole blocks), with patches of the old
-  // brick paving left (over: 6-cell brick units where a coarse field says so) and ash where something burnt
-  const brick = { n: 6, m: 4, joint: 0x3a3532, tones: [LY.brick, 0x56504b, 0x67615b], bond: true, gone: 0.1, goneCol: LY.earthD };
-  const CX = SX(7.0), CZ0 = SZ(-9.4), CZ1 = SZ(7.0), sd = f.p.seed % 7;
+function floor(c: Ctx, f: { layout: Layout }) {
+  // 坊街中央是踩实的土。残砖留在房基旁和坊巷里，焦痕从两翼倒梁下接进路边。
+  const brick = { n: 18, m: 8, joint: 0x49413a, body: 0x60554b };
   lyFloor(c, f, {
-    court: { n: 12, joint: null, tones: [0x5c5248, 0x544a40, 0x4c443c, 0x58524c], gone: 0.12, goneCol: LY.ashD },
-    path: brick,
-    outer: [0x4a4440, 0x5a5048, 0x38332f, LY.ash], kerb: LY.earthD,
-    over: (x, z) => {
-      if (Math.abs(x) > CX || z < CZ0 || z > CZ1) return null;
-      const k = field(Math.floor(x / 1.26) * 0.9, Math.floor(z / 1.26) * 0.9, sd + 11);
-      return k > 0.55 ? brick : null;
-    },
+    court: 0x66594b, path: brick,
+    outer: [0x4a4440, 0x5a5048, 0x38332f], kerb: LY.earthD,
+    patches: [
+      { rect: { x0: SX(-7.2), x1: SX(-2.5), z0: SZ(-6.6), z1: SZ(-3.1) }, surface: 0x4d443d },
+      { rect: { x0: SX(2.9), x1: SX(7.2), z0: SZ(0.9), z1: SZ(4.3) }, surface: 0x554a40 },
+      { rect: { x0: SX(2.5), x1: SX(6.4), z0: SZ(-6.8), z1: SZ(-3.5) }, surface: brick },
+      { rect: { x0: SX(-5.8), x1: SX(-2.7), z0: SZ(2.1), z1: SZ(5.3) }, surface: brick },
+    ],
   });
 }
 // ------------------------------------------------------------------ the far ring: the ward wall, a row of burnt houses beyond, dead trees, smoke
@@ -96,5 +94,5 @@ export const lyWard: Locale = {
   layouts: ['axis', 'offset', 'garden', 'pair'],
   seasons: ['autumn', 'summer'], times: ['night', 'dusk', 'dawn'], weathers: ['clear', 'mist', 'rain'], noLeaves: true,
   landmarks: LANDMARKS, groups: [...WARD_GROUPS, ...commonGroups('ly_w')], filler: commonFiller('ly_w'),
-  floor, far, dress: (c, f) => lyDress(c, f, { embers: 2.2, ash: 30, scorch: 18, playScorch: 8 }),
+  floor, far, dress: (c, f) => lyDress(c, f, { embers: 2.2 }),
 };

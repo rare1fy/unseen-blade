@@ -37,7 +37,8 @@ const SEAS: SeasonId[] = ['spring', 'summer', 'autumn', 'winter'], TIMES: TimeId
 describe('assembled scenes', () => {
   // ASM_LOCALE=<id> checks just one place (the agent building it); unset = all
   const only = (globalThis as unknown as { process?: { env: Record<string, string | undefined> } }).process?.env.ASM_LOCALE;
-  const locales = Object.values(LOCALES).filter(l => (l.groups.length || l.landmarks.length) && (!only || l.id === only));
+  // Authored rooms such as 崔府 also need checking when their landmarks are built with the room instead of picked from slots.
+  const locales = Object.values(LOCALES).filter(l => (l.groups.length || l.landmarks.length || l.far) && (!only || l.id === only));
   it('has locales to test', () => { expect(Object.keys(LOCALES).length).toBeGreaterThan(0); });
   for (const loc of locales) {
     it(`${loc.name}: every layout builds clean`, () => {

@@ -130,7 +130,7 @@ export function assemble(spec: Spec, reg: Registry): { def: SceneDef; report: Re
       const place = (x: number, z: number, s: -1 | 0 | 1, salt: number): Place => ({ x, z, s, seed: spec.seed * 97 + salt, season: spec.season, time: spec.time, weather: spec.weather, lamp, rnd: rndOf(spec.seed, 1000 + salt) });
       const live: Live = { lights: 0, occ: newOcc(), soft: new Set(), hard: new Set() };
       const walk = [...layout.path, ...(layout.court ? [layout.court] : [])];
-      loc.floor(c, { layout, p: place(0, 0, 0, 1) });
+      loc.floor(c, { layout, p: place(0, 0, 0, 1), arena: spec.arena });
       const usedTags = new Set<string>(), count = new Map<string, number>();
       /** build a group (or landmark) in the sandbox at (x, z), check it, commit it if it passes */
       const tryPlace = (g: { id: string; foot: { w: number; d: number }; tags?: string[]; build(c: Ctx, p: Place): void }, x: number, z: number, s: -1 | 0 | 1, salt: number, slotId: string, o: { strict: boolean; maxH?: number }) => {
@@ -202,12 +202,12 @@ export function assemble(spec: Spec, reg: Registry): { def: SceneDef; report: Re
           for (const q of [...sh.pits, ...sh.bridges]) arenaClear.push({ x0: q.x0 - 0.2, x1: q.x1 + 0.2, z0: q.z0 - 0.2, z1: q.z1 + 0.2 });
         }
       }
-      loc.far?.(c, { layout, p: place(0, 0, 0, 3) });
+      loc.far?.(c, { layout, p: place(0, 0, 0, 3), arena: spec.arena });
       if (spec.season === 'winter' && !loc.noSnow) snowPass(c, walk);
       buildFlora(c);
       loc.dress?.(c, { layout, p: place(0, 0, 0, 4), clear: [...walk, ...arenaClear] });
       // (11-18: every region's places are Chinese — yellow-brown leaves, not red maple; a burned place has none)
-      for (const a of weatherAmbient(spec.weather, spec.season, spec.time, /^(hj|ly|xp|wl|cx)_/.test(spec.locale))) if (!(loc.noLeaves && a.kind === 'leaves')) c.ambient(a);
+      if (def.mood.sky) for (const a of weatherAmbient(spec.weather, spec.season, spec.time, /^(hj|ly|xp|wl|cx)_/.test(spec.locale))) if (!(loc.noLeaves && a.kind === 'leaves')) c.ambient(a);
       report.lights = live.lights;
       if (live.lights >= MAX_LIGHTS) report.warnings.push(`light budget reached (${MAX_LIGHTS})`);
       // glow cap (11-15 mixed sheet: some lantern / sign faces bloomed into white glare at dusk): every glowing cell keeps its hue

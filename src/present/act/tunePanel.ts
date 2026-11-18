@@ -1,6 +1,7 @@
 // 调参面板（调试用的 DOM 面板，和骰子版 v2/tunePanel 一样只在开发 / 试玩时用）：按 ` 键或点右上角的「调」打开。
 // 拉条即时生效；「复制」把当前数值拷成一行 JSON，发给我写回代码。
 import { TUNE, TUNE_UI, type TuneKey } from './tune';
+import { HAS_DOM } from '../../platform/index';
 
 /** extra buttons at the top of the panel: a label (re-read after each click) and what it does */
 export interface TuneAction { label: () => string; run: () => void }
@@ -15,7 +16,7 @@ export interface TuneJump {
   /** the fight rooms before the boss in region ri */ rooms(ri: number): number;
 }
 export function installActTune(actions: TuneAction[] = [], jump?: TuneJump) {
-  if (typeof document === 'undefined') return;
+  if (!HAS_DOM) return;   // (a mini-game has no DOM: no panel there)
   const btn = document.createElement('div');
   btn.textContent = '调'; Object.assign(btn.style, { position: 'fixed', right: '8px', top: '8px', width: '30px', height: '30px', lineHeight: '30px', textAlign: 'center',
     font: '14px/30px system-ui,"Microsoft YaHei",sans-serif', color: '#e8dcc0', background: 'rgba(30,26,36,0.72)', border: '1px solid #8a7456', borderRadius: '4px', cursor: 'pointer', zIndex: '20', userSelect: 'none' });

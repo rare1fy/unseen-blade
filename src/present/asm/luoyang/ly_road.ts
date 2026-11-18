@@ -82,11 +82,15 @@ const LANDMARKS: Landmark[] = [
 ];
 
 // ------------------------------------------------------------------ ground: burnt square brick, the 御道's long slabs, ash beyond
-function floor(c: Ctx, f: { layout: Layout; p: Place }) {
+function floor(c: Ctx, f: { layout: Layout }) {
   lyFloor(c, f, {
-    court: { n: 6, joint: 0x36322f, tones: [0x58524e, 0x605a55, 0x4e4844, 0x56504a], gone: 0.05, goneCol: LY.ashD },
-    path: { n: 17, m: 6, joint: LY.stoneD, tones: [LY.stone, 0x86827b, 0x726e68], bond: true },
-    outer: [0x4e4a46, 0x5a5550, 0x3c3835, LY.ashL],
+    court: { n: 26, m: 16, joint: 0x4d4846, body: 0x57524e },
+    path: { n: 30, m: 17, joint: 0x65625d, body: 0x77736d },
+    patches: [
+      { rect: { x0: SX(-6.9), x1: SX(-2.9), z0: SZ(-7.3), z1: SZ(-2.1) }, surface: 0x4c4744 },
+      { rect: { x0: SX(3.6), x1: SX(7.1), z0: SZ(1.7), z1: SZ(5.2) }, surface: 0x4c4744 },
+    ],
+    outer: [0x4e4a46, 0x5a5550, 0x3c3835],
   });
 }
 // ------------------------------------------------------------------ the far ring: the outer palace wall, burnt halls behind it, dead trees, smoke

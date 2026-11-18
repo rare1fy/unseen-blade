@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { toon } from './toon';
 import { PXU } from './pixel';
 import type { Bone } from '../actors/rig';
+import { shadowTiles, TILE_M } from '../engine/shadowTiles';
 
 export type Col = number;
 interface Cell { c: Col; g: number; part: string }
@@ -202,11 +203,13 @@ export class VoxWorld {
   }
   /** chunk (cells, > 0): no merged rectangle crosses a chunk border in x or z, and every vertex carries its chunk's centre (world xz)
    *  as aChunk — the voxel-wave transition (scenes/transVox.ts) moves each 1 m column as one rigid block */
-  build(o: { glow?: number; rim?: number; self?: number; edge?: number; chunk?: number } = {}) {
+  build(o: { glow?: number; rim?: number; self?: number; edge?: number; chunk?: number; tile?: number; ground?: boolean } = {}) {
     // act-34 (用户：「现在转场的时候有点卡」): a big place (the snowy village, 2.2 M cells) spent 2.7 s here asking the cell Map about
     // every neighbour. The occupancy now sits in a bitset over the cells' bounding box (padded by one cell, so every neighbour test of
     // a face, its AO corners and its edges stays inside it) and the face loop walks neighbours by index steps.
     const s = this.s, CH = o.chunk ?? 0, bits = occupancy(this.cells);
+    // (a whole place, not a prop that may topple or fly: those keep every face)
+    const GROUND = o.ground ?? this.cells.size > 200000;
     const occ = bits ? bits.occ : (x: number, y: number, z: number) => this.cells.has(key(x, y, z));
     const chk = (x: number, z: number) => (CH ? Math.floor(x / CH) * 4096 + Math.floor(z / CH) : 0);
     const out = { solid: [[], [], [], [], [], [], [], []] as number[][], glow: [[], [], [], [], [], [], [], []] as number[][] };
@@ -230,6 +233,7 @@ export class VoxWorld {
       const z = (k % 1024) - 512, y = (Math.floor(k / 1024) % 1024) - 512, x = Math.floor(k / (1024 * 1024)) - 512;
       const ci = bits ? bits.at(x, y, z) : 0;
       for (let d = 0; d < 6; d++) {
+        if (d === 3 && y <= 0 && GROUND) continue;   // 11-18 微信帧率: in a whole place, the underside of what lies on (or under) the ground is never seen, nor needed for a shadow
         const [dx, dy, dz] = DIRS[d], [t1, t2] = TAN[d], ox = x + dx, oy = y + dy, oz = z + dz;
         if (B) {
           const oi = ci + DD[d]; if ((B[oi >>> 5] >>> (oi & 31)) & 1) continue;
@@ -292,6 +296,8 @@ export class VoxWorld {
       g.setIndex(P.length / 3 > 65535 ? new THREE.Uint32BufferAttribute(I, 1) : new THREE.Uint16BufferAttribute(I, 1)); g.computeBoundingSphere();
       const m = new THREE.Mesh(g, isGlow ? glowMat(o.glow ?? 2.4) : voxToon({ rim: o.rim ?? 0.35, self: o.self ?? 0.03, edge: o.edge ?? 0.16 }));
       m.castShadow = !isGlow; m.receiveShadow = true; meshes.push(m);
+      // 11-18 微信帧率: a big place draws its shadow from 12 m position-only tiles instead (engine/shadowTiles.ts)
+      if (!isGlow) { const tiles = shadowTiles(m, o.tile ?? TILE_M); if (tiles.length) { m.castShadow = false; m.userData.shadowTiled = true; meshes.push(...tiles); } }
     }
     return meshes;
   }

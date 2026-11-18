@@ -12,7 +12,7 @@ import { FloorGrid, type ShapePlan } from './roomShape';
 import { buildShape } from './shapeBuild';
 
 export type WallStyle = 'earth' | 'wattle' | 'brick' | 'rail' | 'stockade' | 'plaster' | 'palace' | 'sandbag';
-export type CoverKind = 'well' | 'mill' | 'cart' | 'stones' | 'ding' | 'stele' | 'trough' | 'bollard' | 'chains' | 'barrels' | 'rockery' | 'screen' | 'basin'
+export type CoverKind = 'well' | 'mill' | 'cart' | 'stones' | 'ding' | 'stele' | 'trough' | 'bollard' | 'chains' | 'barrels' | 'rockery' | 'screen' | 'basin' | 'vaultChest'
   // 11-18 第二关「洛阳」(palace) / 第三关「下邳」(sandbag): drawn by their own arena_*.ts ('mooring' = 下邳's mooring stone; 'bollard' is 乌林's iron post)
   | 'camel' | 'bellrack' | 'charpile' | 'beast' | 'boat' | 'mooring' | 'bags' | 'raft';
 export type PropKind = 'pot' | 'crate' | 'hay' | 'oil' | 'pillar' | 'fence' | 'rack' | 'banner' | 'basket' | 'sack' | 'lamp';
@@ -47,7 +47,7 @@ export const styleOf = (locale: string): WallStyle => ARENA_LOOK[locale]?.style 
 const COVERS: Partial<Record<WallStyle, CoverKind[]>> = { earth: ['well', 'mill', 'cart', 'stones'], wattle: ['cart', 'trough', 'mill', 'stones'], brick: ['ding', 'stele', 'stones', 'well'],
   rail: ['bollard', 'chains', 'barrels'], stockade: ['barrels', 'chains', 'cart', 'stones'], plaster: ['rockery', 'screen', 'basin'] };
 const COVER_SIZE: Partial<Record<CoverKind, [number, number]>> = { well: [0.75, 0.75], mill: [0.8, 0.8], cart: [1.15, 0.65], stones: [0.7, 0.6], ding: [0.6, 0.6], stele: [0.75, 0.4], trough: [1.0, 0.45],
-  bollard: [0.55, 0.55], chains: [0.9, 0.7], barrels: [0.85, 0.6], rockery: [0.9, 0.75], screen: [1.1, 0.3], basin: [0.7, 0.7] };
+  bollard: [0.55, 0.55], chains: [0.9, 0.7], barrels: [0.85, 0.6], rockery: [0.9, 0.75], screen: [1.1, 0.3], basin: [0.7, 0.7], vaultChest: [0.95, 0.6] };
 /** wp/regB (第四关 · 锁江、第五关 · 许都雪): a place outside 地域一 registers the look of its battle floor here — the wall style, the
  *  cover, the small breakables and how many of the 黄巾 banners / lantern posts / oil jars / pillars it has (the banner is a yellow
  *  黄巾 one: the 曹军 and the 崔府 have none). Every place registered here is built on the 2x stage (bigStage) */
@@ -392,6 +392,20 @@ function cover(box: B, cv: Cover, r: (k: number) => number) {
     case 'basin': {    // 石缸: a big square stone basin full of ice (the snowy night), on a plinth
       bx(-9, 0, -9, 9, 2, 9, PAL.stoneD); bx(-10, 3, -10, 10, 13, 10, PAL.stone); bx(-10, 13, -10, 10, 13, 10, PAL.stoneL); bx(-8, 8, -8, 8, 13, 8, 0xb8c8d8); bx(-6, 13, -6, 6, 13, 6, 0xd8e4ee);
       bx(-10, 7, -10, 10, 7, 10, PAL.stoneD);
+      break;
+    }
+    case 'vaultChest': {
+      // 藏刀阁里可劈坏的木箱，铁箍压住箱盖，和墙上的刀架用同一套木色。
+      bx(-13, 0, -8, 13, 1, 8, PAL.woodD);
+      bx(-12, 2, -7, 12, 12, 7, PAL.wood);
+      bx(-13, 12, -8, 13, 12, 8, PAL.woodD);
+      bx(-13, 13, -8, 13, 15, 8, PAL.woodL);
+      for (const x of [-9, 8]) {
+        bx(x, 3, -8, x + 1, 15, -8, PAL.ironD);
+        bx(x, 15, -8, x + 1, 15, 8, PAL.ironD);
+        bx(x, 3, 8, x + 1, 15, 8, PAL.ironD);
+      }
+      bx(-2, 9, 8, 2, 12, 8, PAL.bronze);
       break;
     }
   }

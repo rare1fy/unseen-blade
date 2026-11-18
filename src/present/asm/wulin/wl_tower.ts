@@ -2,10 +2,10 @@
 // 颜色深、钉排齐），甲板两侧船舷上架着床弩、竖着拍竿；后方是三层的督造阁（朱柱、直棂窗、一层层退台的瓦檐，阁里亮灯，案上摊着锻谱），
 // 阁两侧是桅杆和帆；船舷外面的江上全是锁在一起的连环船，远处有几艘在烧。周黯放火后（r45_hook burn）甲板四周起火。
 import type { Ctx } from '../../scenes/stage';
-import { M, AREA, PLAY, hash, SX, SZ } from '../../scenes/props';
+import { M, AREA, PLAY, SX, SZ } from '../../scenes/props';
 import { CELL } from '../../bestiary/kit';
 import type { Group, Landmark, Layout, Locale, Place, Rect } from '../types';
-import { WL, WL_MOOD, river, WATER_MARK, frame, faceOf, flagpole, fireBasket, lantern, chainCoil, chainRun, hull, smoke, wp } from './wl_kit';
+import { WL, WL_MOOD, river, WATER_MARK, frame, deckBoard, faceOf, flagpole, fireBasket, lantern, chainCoil, chainRun, hull, smoke, wp } from './wl_kit';
 
 const lit = (p: Place) => p.lamp > 0.3;
 const lampLight = (c: Ctx, p: Place, at: [number, number, number], k = 1, d = 5) => { if (lit(p)) c.light(at, 0xffa050, 2.2 * p.lamp * k, d); };
@@ -74,19 +74,15 @@ const FILLER: Group[] = [
 
 /** the deck: the battle floor and its margin out to the wings (the ship is wider than the stage); water beyond */
 function deckRect(): Rect { return { x0: PLAY.x0 - 5.6, x1: PLAY.x1 + 5.6, z0: SZ(-14), z1: PLAY.z1 + 2.8 }; }
-function floor(c: Ctx, f: { layout: Layout; p: Place }) {
-  const w = c.w, d = deckRect(), sd = f.p.seed % 7;
+function floor(c: Ctx) {
+  const w = c.w, d = deckRect();
   for (let X = M(AREA.x0 - 6); X <= M(AREA.x1 + 6); X++) for (let Z = M(AREA.z0 - 8); Z <= M(AREA.z1 + 4); Z++) {
     const x = (X + 0.5) * CELL, z = (Z + 0.5) * CELL;
     if (x < d.x0 || x > d.x1 || z < d.z0 || z > d.z1) { w.set(X, -1, Z, WATER_MARK); continue; }
-    // the planks run along the ship (x), 4 cells wide, the seams dark, the plank ends staggered every 30; a nail row each 10 across —
-    // new oiled planks, honey-red (the flagship's deck, kept)
-    const pk = Math.floor(Z / 4), lz = ((Z % 4) + 4) % 4, endX = ((X + pk * 13) % 30 + 30) % 30;
-    let col = lz === 3 ? WL.oilJ : endX === 0 ? WL.oilD : [WL.oil, WL.oilD, WL.oilL][Math.floor(hash(pk, Math.floor((X + pk * 13) / 30), 3 + sd) * 3)];
-    if (((X % 10) + 10) % 10 === 0 && lz === 1) col = WL.iron;
+    // 11-18 (用户：「不许逐格随机碎点」): 框着较暗的船舷，整段新桐油木横铺，通往楼阁的中央略亮。
+    const body = z < PLAY.z0 + 2.4 || Math.abs(x) > PLAY.x1 - 2.7 ? WL.oilD : Math.abs(x) < 2.4 ? WL.oilL : WL.oil;
     const edge = x < d.x0 + 0.5 || x > d.x1 - 0.5 || z > d.z1 - 0.5;
-    if (edge) col = WL.tar;
-    w.set(X, -1, Z, col);
+    w.set(X, -1, Z, edge ? WL.tar : deckBoard(Z, X, 52, body, 0x66472e));
   }
   // the hull's sides below the deck edge, down into the water (the ship stands high): three strakes, the red sheer strake at the top
   const B = frame(w, 0, 0, 0), X0 = M(d.x0), X1 = M(d.x1), Z1 = M(d.z1);

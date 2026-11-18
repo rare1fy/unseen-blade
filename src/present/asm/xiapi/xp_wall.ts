@@ -4,7 +4,7 @@
 // （城墙开一个方洞，铁栅栏拦着，水从栅下涌进一条石渠）。马道外面是泥地，再外面是水。
 // 和浮栈巷拉开：这里是硬的——大块条石、城砖、沙袋、军营；浮栈巷是软的——民居、木栈道、漂着的东西。部件在 xp_kit.ts。
 import type { Ctx } from '../../scenes/stage';
-import { M, AREA, PLAY, SX, SZ, hash } from '../../scenes/props';
+import { M, AREA, PLAY, SX, SZ } from '../../scenes/props';
 import type { Group, Landmark, Layout, Locale, Place, Rect } from '../types';
 import { XP, frame, up, faceOf, orient, wp, capCol, fireLight, blackRoof, plasterWall, lattice, icicles, markWater, cityWall, grille, sackRow, crate, brazier, deadWillow, smoke } from './xp_kit';
 import { poolsOf, specSeedOf, xpFloor, carveMarks, slabs, commonGroups, commonFiller, xpDress, farHouse, farMass, farWall } from './xp_common';
@@ -159,20 +159,20 @@ const FILLER: Group[] = commonFiller('xw');
 
 // ------------------------------------------------------------------ ground: the drowned horse road of long blocks, mud beyond, the flood further out
 function floor(c: Ctx, f: { layout: Layout; p: Place }) {
-  const ps = pools(specSeedOf(f.p)), sd = f.p.seed % 29, wz = WALL_Z(), dryX = AREA.x1 + 1.2;
-  const BLK = [0x5a5b56, 0x53544f, 0x5f5e58, 0x575853], JNT = 0x3a3b37;
+  const ps = pools(specSeedOf(f.p)), wz = WALL_Z(), dryX = AREA.x1 + 1.2;
+  const roadJoint = 0x464843;
   xpFloor(c, f, ps, (X, Z, x, z, zone, path) => {
     if (zone === 'play') {
-      // long dressed blocks laid across the road (14 × 7 cells, courses offset); patches of four blocks sunk to mud (whole patches)
-      if (hash(Math.floor(X / 28), Math.floor(Z / 14), 41 + sd) < 0.1) return XP.mudL;
-      return slabs(X, Z, 14, 7, BLK, JNT, 23 + sd);
+      // 马道靠两翼的泥被踩实，湿线贴着积水走，马道中间整片露出条石。
+      const shoulder = (x < PLAY.x0 + 4.3 && z > SZ(-1.7)) || (x > PLAY.x1 - 4.2 && z < SZ(-1.2));
+      if (shoulder) return ps.some(q => x > q.x0 - 1.4 && x < q.x1 + 1.4 && z > q.z0 - 1.4 && z < q.z1 + 1.4) ? XP.mudD : XP.mudL;
+      return slabs(X, Z, 27, 15, 0x5a5b56, roadJoint);
     }
-    if (zone === 'path' && path) return slabs(X, Z, 7, 14, [0x5c5d58, 0x55564f], JNT, 29 + sd);
-    // behind the floor and on the wings: the trodden mud of the camp with flat stones in it (whole slabs); the flood beyond
+    if (zone === 'path' && path) return slabs(X, Z, 16, 24, 0x5c5d58, roadJoint);
     if (Math.abs(x) > dryX && z > wz - 0.5) return null;
     if (z > PLAY.z1 + 3.2) return null;
-    if (hash(Math.floor(X / 14), Math.floor(Z / 14), 47 + sd) < 0.18) return slabs(X, Z, 14, 14, [XP.stoneD, 0x4c4f50], XP.stoneDD, 31 + sd);
-    return ((Math.floor(X / 7) + Math.floor(Z / 7)) & 1) ? XP.mud : XP.mudD;
+    if (z > wz - 0.6 && z < wz + 2.2) return slabs(X, Z, 27, 16, XP.stoneD, XP.stoneDD);
+    return x < PLAY.x0 - 2.1 || x > PLAY.x1 + 2.1 ? XP.mudD : XP.mud;
   });
 }
 
@@ -208,7 +208,7 @@ function far(c: Ctx, f: { layout: Layout; p: Place }) {
 }
 
 function dress(c: Ctx, f: { layout: Layout; p: Place; clear: Rect[] }) {
-  xpDress(c, f, { wet: 14, playWet: 6, frost: 12 });
+  xpDress(c, f);
 }
 
 export const xpWall: Locale = {
