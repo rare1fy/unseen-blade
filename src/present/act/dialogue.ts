@@ -23,6 +23,8 @@ export const CAST: Record<string, Speaker> = {
   jiangjin: { name: '刘白', side: 'L' }, duwu: { name: '杜五', side: 'R' }, sunao: { name: '孙婆婆', side: 'R' }, fengtiebi: { name: '冯铁臂', side: 'R', mute: true },
   luzhao: { name: '卢昭', side: 'R' }, huanyue: { name: '韩越', side: 'R' }, chulei: { name: '石雷', side: 'R' }, yanhu: { name: '阎虎', side: 'R' },
   fengzhen: { name: '封寒', side: 'R' }, zhouan: { name: '周默', side: 'R' }, cuixuan: { name: '崔玄', side: 'R' },
+  /** 11-19: the snowy village's sentries (no portrait: the name over the box, the speaker in the scene) */
+  sentry: { name: '黄巾哨兵', side: 'R' },
   /** act-29: a line of action (in brackets, grey, no name): nobody speaks, both portraits stay and dim */
   act: { name: '', side: 'L', mute: true },
 };

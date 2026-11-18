@@ -43,9 +43,9 @@ import { IronHp, HP_FACE } from './ironUi';
 import { ROSTER } from '../bestiary/models';
 import { CODE_BUILD } from '../bestiary/voxEdit';
 import { rackBlades, hideoutScene, HIDEOUT, HIDEOUT_PEOPLE } from './hideout';
-import { Timeline } from './timeline';
+import { Timeline, type V } from './timeline';
 import { openingShots, bossIntroShots, type CineHost } from './cutscenes';
-import { NPC_TALK, STELE_TALK, MEAL_TALK, UP_TALK, POOR_TALK, WAKE_DUWU, WAKE_SUNAO, CHULEI_BEFORE, CHULEI_AFTER, deathLine, PRO_CHULEI, PRO_FALL, PRO_DAWN, PRO_WAKE, PRO_CAPTIONS } from './scripts';
+import { NPC_TALK, STELE_TALK, MEAL_TALK, UP_TALK, POOR_TALK, WAKE_DUWU, WAKE_SUNAO, CHULEI_BEFORE, CHULEI_AFTER, deathLine, PRO_CHULEI, PRO_FALL, PRO_DAWN, PRO_WAKE, PRO_CAPTIONS, PRO_AMBUSH } from './scripts';
 import { fallShots, snowShots, dawnShots, loadShots, brazier, getUpPose, drapeOver, GETUP_STEP, Kneel, KNEEL_ARMS, type PrologueHost } from './prologue';
 import { coldOpenShots, coldCardShots, BlindPOV } from './coldopen';
 import { Barks } from './barks';
@@ -200,7 +200,8 @@ interface Room { spec: Spec; big: boolean; layout: Layout; arena: ArenaPlan | nu
 /** the prologue's first room (act-29) and its one way on */
 /** act-44: where her hips lie on 孙媪's mat when she first wakes (the mat runs along z; her head toward the wall, a metre clear) */
 const WAKE_MAT: [number, number] = [6.42, -6.2];   // (her neck on the headrest at the wall end, her heels short of the folded quilt)
-const PRO_ROOM = { locale: 'hj_village', waves: [['hj_mob', 'hj_mob'], ['hj_blade', 'hj_mob', 'hj_mob']] as EKind[][], spec: { season: 'winter', weather: 'snow', time: 'night' } as Partial<Spec> };
+const PRO_ROOM = { locale: 'hj_village', waves: [['hj_mob', 'hj_blade', 'hj_mob', 'hj_mob'], ['hj_blade', 'hj_mob', 'hj_mob']] as EKind[][],   // (11-19: the first wave is the ambush that closes round her — four, from every side)
+  spec: { season: 'winter', weather: 'snow', time: 'night' } as Partial<Spec> };
 const PRO_BOSS: RoomPlan = { type: 'boss', locale: 'hj_temple', reward: null, waves: [['hj_boss']] };
 /** act-37 the cold open's place: 寒山坞 on that snowy night (its own layout and light) */
 const COLD_ROOM: RoomIn = { isYard: false, room: 0, recent: [], locale: 'hs_forge', plan: null, nextRooms: [], forceSpec: null, noArena: true,
@@ -384,13 +385,66 @@ export class ActShow {
     this.locale = PRO_ROOM.locale; this.forceSpec = { ...PRO_ROOM.spec };
     const loading = this.buildRoom(true); if (loading) await loading;
     // 「七年后」 over the snowy village while she walks in from the front; then the first sentries
-    const h = this.hero, p0 = h.pos.clone();
+    // (11-19 用户：「前面短促的悲伤音乐加字幕，突然就进入战斗了……需要一个timeline来放刘白走到战场中的过程，和敌人跳出来把她包围了的过程，
+    //  辅以对话和文字」): the place and the year over the village from high; she walks in alone up the snowy lane (a long walk, the
+    //  steps planted — heroWalk.ts), stops in the middle, turns her head to listen; sounds round her (rings in the snow); the first
+    //  wave's sentries jump out from behind the houses and the walls on every side and close round her; the words; she sets her hand
+    //  on the hilt — and the fight is on, the sentries already where they stood
+    const h = this.hero, p0 = h.pos.clone(), WALK = 6.5, stopZ = p0.z - WALK;
+    const ring = (this.plan?.waves[0] ?? []).map((k, i, all) => ({ k, a: Math.PI * 0.15 + (i / all.length) * Math.PI * 2 + 0.35, d: 3.4 + (i % 2) * 0.7 }));
+    const jumpers: Array<{ f: Foe; from: THREE.Vector3; to: THREE.Vector3; t0: number; landed: boolean }> = [];
+    const snowRing = (x: number, z: number, r = 1.4) => fxRing(V3(x, 0.05, z), 0xdfe8ff, r, { life: 0.9 } as never);
+    const stand = () => { h.pos.z = stopZ; motionOf(h.a).run = 0; };
+    const cam = (dx: number, y: number, dz: number, lz: number, fov: number): { pos: V; look: V; fov: number } => ({ pos: [p0.x + dx, y, stopZ + dz] as V, look: [p0.x, 0.9, stopZ + lz] as V, fov });
     void this.cine([
-      // (act-37: the cold open's last card says 七年了 — the walk opens on the year and the place only)
-      { dur: 3.4, ease: 'inOut', caption: { text: PRO_CAPTIONS[1], big: true, at: 0.5, hold: 2.2 }, from: { pos: [p0.x + 4, 16, p0.z + 14], look: [p0.x, 0, p0.z - 4], fov: 40 }, to: { pos: [p0.x + 3, 13, p0.z + 12], look: [p0.x, 0, p0.z - 4], fov: 40 } },
-      { dur: 3.6, ease: 'inOut', from: { pos: [p0.x + 6, 4.5, p0.z + 7], look: [p0.x, 1, p0.z - 1], fov: 36 }, to: { pos: [p0.x + 5, 4.2, p0.z + 6], look: [p0.x, 1, p0.z - 2.5], fov: 36 },
-        tick: (t, dt) => { const m = motionOf(h.a); h.pos.z = p0.z - Math.min(2.5, t * 0.8); h.a.yaw = Math.PI; m.run = t < 3.1 ? 0.3 : Math.max(0, m.run - dt * 4); m.phase += dt * 3; h.a.update(dt); } },
-    ]).then(() => { if (this.phase === 'intro' && this.hero === h) { this.phase = 'fight'; this.spawnWave(); } });
+      // the year and the place, high over the village (act-37: the cold open's last card says 七年了)
+      { dur: 3.6, ease: 'inOut', caption: { text: PRO_CAPTIONS[1], big: true, at: 0.6, hold: 2.3 }, from: { pos: [p0.x + 4, 17, p0.z + 15], look: [p0.x, 0, p0.z - 5], fov: 40 }, to: { pos: [p0.x + 3, 14, p0.z + 13], look: [p0.x, 0, p0.z - 5], fov: 40 },
+        at: [[0, () => { this.musicHold = null; void audio.playMusic('bgm_coldopen', 0.4); }]],
+        tick: (_t, dt) => h.a.update(dt) },
+      // she comes up the lane alone — from behind and to the side, the camera keeping pace, low enough to see her steps in the snow
+      { dur: 5.4, ease: 'linear', from: () => ({ pos: [p0.x + 4.2, 3.0, h.pos.z + 5.8] as V, look: [p0.x, 0.9, h.pos.z - 1.5] as V, fov: 36 }), to: () => ({ pos: [p0.x + 3.8, 2.8, h.pos.z + 5.2] as V, look: [p0.x, 0.9, h.pos.z - 1.8] as V, fov: 36 }),
+        tick: (t, dt) => { const m = motionOf(h.a); h.a.yaw = Math.PI; h.pos.z = p0.z - Math.min(WALK, t * 1.2); m.run = h.pos.z > stopZ + 0.05 ? 0.22 : Math.max(0, m.run - dt * 4); h.a.update(dt); } },
+      // she stops; her head turns; one ring after another in the snow round her — they are there, and she hears them
+      { dur: 2.6, ease: 'inOut', from: cam(4.6, 2.9, 6.4, -0.8, 34), to: cam(4.0, 2.7, 5.6, -0.6, 33),
+        at: [[0.3, () => snowRing(p0.x - 3.2, stopZ - 1.8)], [0.8, () => snowRing(p0.x + 3.6, stopZ + 0.6)], [1.3, () => snowRing(p0.x - 1.0, stopZ - 3.8)], [1.75, () => snowRing(p0.x + 1.8, stopZ + 3.2)], [1.0, () => cue('foeSwing', 0.25)]],
+        tick: (t, dt) => { stand(); h.a.update(dt); const hd = h.a.bones.head; if (hd) hd.rotation.y += 0.35 * Math.sin(Math.min(1, t / 1.6) * Math.PI); } },
+      // they come out: from behind the houses and over the walls, a jump each, landing round her in the snow, one after another
+      { dur: 2.4, ease: 'out', from: cam(0.6, 7.0, 8.4, -0.8, 40), to: cam(0.4, 6.4, 7.6, -0.6, 40),
+        at: [[0, () => {
+          for (const [i, r] of ring.entries()) {
+            // (where each lands: round her at its own angle, turned a little at a time until the spot is clear of the props, the cover
+            //  and the walls — none lands in a post or a crate)
+            let a = r.a; const ok = (x: number, z: number) => this.solids.free(x, z, 0.55, 0.3) && (!this.grid || this.grid.clear(x, z, 0.5)) && jumpers.every(j => j.to.distanceTo(V3(x, 0, z)) > 1.3);
+            for (let tt = 0; tt < 12 && !ok(p0.x + Math.sin(a) * r.d, stopZ + Math.cos(a) * r.d); tt++) a += (tt % 2 ? -1 : 1) * 0.28 * (tt + 1);
+            const ko = kindOr(r.k), to = V3(p0.x + Math.sin(a) * r.d, 0, stopZ + Math.cos(a) * r.d), from = to.clone().add(V3(Math.sin(a) * 4.5, 0, Math.cos(a) * 4.5));
+            if (this.grid && !this.grid.clear(from.x, from.z, 0.4)) from.lerp(to, 0.4);
+            const f = spawnFoe(ko.kind, from, h.pos.clone(), ko.elite); f.st = 'enter'; f.cd = 2.5; this.foes.push(f);
+            jumpers.push({ f, from, to, t0: 0.12 + i * 0.22, landed: false });
+          }
+          cue('roar', 0.35); void audio.playMusic(this.musicName(), 0.9);
+        }]],
+        tick: (t, dt) => {
+          stand(); h.a.update(dt);
+          for (const j of jumpers) {
+            const k = Math.max(0, Math.min(1, (t - j.t0) / 0.55)), f = j.f;
+            f.pos.lerpVectors(j.from, j.to, k); f.pos.y = 0; f.a.home.copy(f.pos); f.a.off.y = 1.6 * 4 * k * (1 - k);
+            f.yaw = Math.atan2(h.pos.x - f.pos.x, h.pos.z - f.pos.z); f.a.yaw = f.yaw;
+            if (k >= 1 && !j.landed) { j.landed = true; f.a.off.y = 0; cue('land', 0.35); fxSmoke(j.to.clone().setY(0.1), 0xe8eef8, 6, { r: 0.6, spd: 0.8, up: 0.4, s: 0.4, life: 0.6, alpha: 0.6 }); }
+            f.a.update(dt);
+          }
+        } },
+      // the ring closed: low, from outside it, her in the middle
+      { dur: 1.6, ease: 'inOut', from: cam(5.6, 4.4, 7.2, -0.4, 38), to: cam(5.0, 4.0, 6.6, -0.3, 36),
+        tick: (_t, dt) => { stand(); h.a.update(dt); for (const j of jumpers) { j.f.a.off.y = 0; j.f.a.update(dt); } } },
+    ]).then(async () => {
+      if (this.phase !== 'intro' || this.hero !== h) return;
+      for (const j of jumpers) { j.f.pos.copy(j.to); j.f.a.home.copy(j.to); j.f.a.off.y = 0; }
+      await this.talk(PRO_AMBUSH);
+      if (this.hero !== h) return;
+      for (const j of jumpers) { j.f.st = 'move'; j.f.cd = 0.6 + Math.random() * 0.8; }
+      // (the ambushers ARE the first wave: the fight starts with them on the floor; cutting them down brings the second as usual)
+      this.phase = 'fight'; this.wave = 0;
+    });
   }
   /** the fight she cannot win: the blow, his word, the snow; dawn and the man with the donkey; the kiln */
   private async prologueFall() {
