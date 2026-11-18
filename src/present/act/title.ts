@@ -723,7 +723,15 @@ class Title {
   }
   // ---------------------------------------------------------------- the way in: she draws, the cut runs through the choice, the picture splits
   private go(kind: 'new' | 'continue') {
-    this.choice = kind; this.beat = 'draw'; this.bt = 0;
+    this.choice = kind;
+    if (__WX__) {
+      this.beat = 'done';
+      void withLoadingBlade(() => {
+        this.hideOverlay(); this.restore(); return this.host.enter(kind);
+      }).finally(() => this.finish());
+      return;
+    }
+    this.beat = 'draw'; this.bt = 0;
     // (her draw-cut is a few pixels at this distance and its trail froze into a glowing blob under the cut's hit-stop: the cut is
     //  the screen's, she only flashes with it)
     const a = this.hero; this.walkK = 1; motionOf(a).run = 0; a.tint(0xe8f0ff, 0.6);
@@ -747,14 +755,6 @@ class Title {
   private split() {
     this.beat = 'split'; this.bt = 0;
     const ov = this.host.ov, W = ov.w, H = ov.h, c = this.cutY, v = 1 - c / H;
-    if (__WX__) {
-      this.beat = 'done';
-      const cover = this.grabbed && this.frame ? { texture: this.frame.clone(), cut: c / H } : 'bamboo';
-      void withLoadingBlade(() => {
-        this.hideOverlay(); this.restore(); return this.host.enter(this.choice);
-      }, cover).finally(() => { if (typeof cover !== 'string') cover.texture.dispose(); this.finish(); });
-      return;
-    }
     if (!this.grabbed) {
       // no picture to split: the stage's own wipe carries it over instead — never a black frame
       this.beat = 'done';

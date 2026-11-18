@@ -1,15 +1,15 @@
 import * as THREE from 'three';
 import { finishBuild, loadInFrames, type BuildSteps } from '../engine/buildSteps';
-
 import { wipeCover, type WipeLook } from './wipeCover';
+import { cue } from '../../audio/cues';
 
-type Cover = WipeLook | { texture: THREE.Texture; cut: number };
 const layer = new THREE.Scene();
 const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 20);
 camera.position.z = 8;
 const shutter = new THREE.Group(),
   blade = new THREE.Group(),
   rotor = new THREE.Group();
+const tassel = new THREE.Group();
 const unit = new THREE.BoxGeometry();
 const materials = new Map<number, THREE.MeshLambertMaterial>();
 function block(parent: THREE.Group, color: number, x: number, y: number, z: number, w: number, h: number, d: number) {
@@ -25,27 +25,6 @@ function block(parent: THREE.Group, color: number, x: number, y: number, z: numb
 }
 const bamboo = new THREE.Group(),
   pillar = new THREE.Group();
-const pictureMat = new THREE.MeshBasicMaterial({ toneMapped: false });
-const picture = new THREE.Group();
-const halves = [0, 1].map(() => new THREE.Mesh(new THREE.PlaneGeometry(2, 1), pictureMat));
-function placePicture(cut: number, open: number) {
-  const heights = [2 * cut, 2 * (1 - cut)];
-  for (let i = 0; i < halves.length; i++) {
-    const half = halves[i],
-      h = heights[i],
-      direction = i === 0 ? 1 : -1;
-    half.scale.y = h;
-    half.position.y = direction * (1 - h / 2 + open * (h + 0.03));
-  }
-}
-function splitPicture(cut: number) {
-  const boundary = 1 - cut;
-  halves.forEach((half, i) => {
-    const uv = half.geometry.getAttribute('uv');
-    for (let j = 0; j < 4; j++) uv.setY(j, i === 0 ? (j < 2 ? 1 : boundary) : j < 2 ? boundary : 0);
-    uv.needsUpdate = true;
-  });
-}
 let built = false;
 function makeLayer() {
   if (built) return;
@@ -54,10 +33,10 @@ function makeLayer() {
   const light = new THREE.DirectionalLight(0xfff1d8, 2.4);
   light.position.set(-2, 4, 5);
   layer.add(light);
-  shutter.add(bamboo, pillar, picture);
+  shutter.add(bamboo, pillar);
   rotor.add(blade);
   rotor.position.z = 1.4;
-  picture.add(...halves);
+  rotor.scale.setScalar(0.55);
   for (const [holder, look] of [
     [bamboo, 'bamboo'],
     [pillar, 'pillar'],
@@ -84,11 +63,15 @@ function makeLayer() {
   const ring = new THREE.Mesh(new THREE.TorusGeometry(0.052, 0.014, 5, 10), materials.get(0xd4ad68)!);
   ring.position.x = -0.55;
   blade.add(ring);
-  block(blade, 0xac3427, -0.58, -0.09, 0, 0.024, 0.13, 0.026);
-  block(blade, 0x923229, -0.61, -0.1, -0.008, 0.021, 0.1, 0.022);
+  tassel.position.set(-0.56, -0.035, 0);
+  blade.add(tassel);
+  block(tassel, 0xac3427, -0.02, -0.055, 0, 0.024, 0.13, 0.026);
+  block(tassel, 0x923229, -0.05, -0.065, -0.008, 0.021, 0.1, 0.022);
 }
-type Phase = 'enter' | 'work' | 'ready' | 'exit';
-type BladeState = { phase: Phase; since: number; start: number; frames: number; cut: number };
+const ARRIVAL = 225, APPROACH = 140, WINDUP = 96, DEPARTURE = 150;
+const SETTLED = 0.30, AIM = 0.16;
+type Phase = 'enter' | 'work' | 'ready' | 'windup' | 'exit';
+type BladeState = { phase: Phase; since: number; start: number; frames: number; releaseAngle: number };
 let active: BladeState | null = null;
 let warmDestination: (() => Promise<void>) | undefined;
 export function setLoadingWarmup(warm: () => Promise<void>) { warmDestination = warm; }
@@ -98,59 +81,100 @@ export function runRoomBuild<T>(steps: BuildSteps<T>) {
   return bladeWorking() ? loadInFrames(steps) : finishBuild(steps);
 }
 const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-export async function withLoadingBlade(work: () => void | Promise<void>, cover: Cover = 'bamboo') {
+const idleAngle = (age: number) => SETTLED + Math.max(0, age - ARRIVAL) * 0.0038;
+
+export async function withLoadingBlade(work: () => void | Promise<void>, cover: WipeLook = 'bamboo') {
   if (active) throw new Error('A scene transition is already running');
   makeLayer();
   bamboo.visible = cover === 'bamboo';
   pillar.visible = cover === 'pillar';
-  picture.visible = typeof cover !== 'string';
-  const cut = typeof cover === 'string' ? 0.5 : Math.max(0, Math.min(1, cover.cut));
-  if (typeof cover !== 'string') splitPicture(cut);
-  pictureMat.map = typeof cover === 'string' ? null : cover.texture;
-  pictureMat.needsUpdate = true;
-  const now = performance.now();
-  const state: BladeState = { phase: 'enter', since: now, start: now, frames: 0, cut };
+  const state: BladeState = { phase: 'enter', since: 0, start: 0, frames: 0, releaseAngle: 0 };
   active = state;
   try {
-    while (performance.now() - state.since < 240 || state.frames === 0) await nextFrame();
+    while (!state.frames || performance.now() - state.start < ARRIVAL) await nextFrame();
     state.phase = 'work';
     await nextFrame();
     await work();
     try { await warmDestination?.(); }
     catch (error) { console.warn('[stage] shader warmup failed', error); }
-    // The normal world pass now draws the destination under the cover. Wait
-    // for a submitted frame before revealing it, including GPU buffer uploads.
+
     state.phase = 'ready';
     state.frames = 0;
-    while (state.frames === 0) await nextFrame();
+    while (!state.frames) await nextFrame();
+    state.phase = 'windup';
+    state.since = performance.now();
+    state.releaseAngle = idleAngle(state.since - state.start);
+    while (performance.now() - state.since < WINDUP) await nextFrame();
     state.phase = 'exit';
     state.since = performance.now();
-    while (performance.now() - state.since < 260) await nextFrame();
-  } finally {
-    active = null;
-    pictureMat.map = null;
-  }
+    cue('bladeFlyOut');
+    do { await nextFrame(); } while (performance.now() - state.since < DEPARTURE);
+  } finally { active = null; }
 }
+
 export function drawLoadingBlade(renderer: THREE.WebGLRenderer, aspect: number) {
-  const s = active;
-  if (!s) return;
-  const now = performance.now(),
-    enter = Math.min(1, (now - s.since) / 240),
-    exit = Math.min(1, (now - s.since) / 260);
-  const x = s.phase === 'enter' ? -((1 - enter) ** 3) : s.phase === 'exit' ? exit ** 2 : 0;
+  const state = active;
+  if (!state) return;
+  const now = performance.now();
+  const firstFrame = state.phase === 'enter' && !state.frames;
+  const age = firstFrame ? 0 : now - state.start;
+  const elapsed = now - state.since;
+  const reach = aspect + 0.46;
+  let x = 0, y = 0, angle = idleAngle(age), coverX = 0;
+  let roll = 0.26 + 0.30 * Math.sin(Math.max(0, age - ARRIVAL) * 0.004);
+  let tasselAngle = -0.14;
+
+  if (state.phase === 'enter') {
+    coverX = -2.3 * aspect * (1 - Math.min(1, age / APPROACH)) ** 2;
+    if (age < APPROACH) {
+      const t = age / APPROACH;
+      x = 0.085 - (reach + 0.085) * (1 - t);
+      angle = AIM + 0.06 * t;
+      tasselAngle = -1.05;
+    } else {
+      const t = Math.min(1, (age - APPROACH) / (ARRIVAL - APPROACH));
+      const recoil = (1 - t) ** 2;
+      x = 0.085 * recoil;
+      angle = SETTLED + (AIM + 0.06 - SETTLED) * recoil + 0.22 * Math.sin(Math.PI * t) * (1 - t);
+      tasselAngle = -0.14 - 0.91 * recoil + 0.58 * Math.sin(Math.PI * t);
+    }
+    y = x * Math.tan(AIM);
+  } else if (state.phase === 'windup') {
+    const t = Math.min(1, elapsed / WINDUP);
+    const ease = t * t * (3 - 2 * t);
+    const turn = Math.atan2(Math.sin(AIM - state.releaseAngle), Math.cos(AIM - state.releaseAngle));
+    angle = state.releaseAngle + turn * ease;
+    x = -0.09 * ease;
+    y = x * Math.tan(AIM);
+    roll *= 1 - ease;
+    tasselAngle += 0.39 * ease;
+  } else if (state.phase === 'exit') {
+    const t = Math.min(1, elapsed / DEPARTURE);
+    const thrust = t * (0.48 + 0.52 * t);
+    x = -0.09 + (reach + 0.09) * thrust;
+    y = x * Math.tan(AIM);
+    angle = AIM;
+    roll = -0.28 * t;
+    tasselAngle = 0.25 - 1.40 * Math.min(1, t * 3);
+    coverX = 2.3 * aspect * thrust;
+  }
+
   camera.left = -aspect;
   camera.right = aspect;
   camera.updateProjectionMatrix();
   shutter.scale.x = aspect;
-  shutter.position.x = picture.visible ? 0 : x * aspect * 2.3;
-  if (picture.visible) placePicture(s.cut, s.phase === 'exit' ? exit ** 2 : 0);
-  rotor.position.x = x * (aspect + 1);
-  rotor.rotation.z = 0.4 + (now - s.start) * 0.0028;
-  blade.rotation.x = 0.42 + Math.sin((now - s.start) * 0.003) * 0.58;
+  shutter.position.x = coverX;
+  rotor.position.set(x, y, 1.4);
+  rotor.rotation.z = angle;
+  blade.rotation.x = roll;
+  tassel.rotation.z = tasselAngle;
   const clear = renderer.autoClear;
   renderer.autoClear = false;
-  renderer.clearDepth();
-  renderer.render(layer, camera);
-  renderer.autoClear = clear;
-  s.frames++;
+  try {
+    renderer.clearDepth();
+    renderer.render(layer, camera);
+  } finally { renderer.autoClear = clear; }
+  // Time the launch from the first submitted frame, even on a cold GPU.
+  if (firstFrame) { state.start = performance.now(); cue('bladeFlyIn'); }
+  state.frames++;
 }

@@ -37,6 +37,11 @@ export function wxAssets(root: string): Plugin {
   const where = new Map<string, string>();
   let bin = 1, fill = 0, last = -1;
   for (const f of audio) {
+    // The loading blade is already moving before audio1 can download on first launch.
+    if (['ub_draw_1.mp3', 'ub_sw_stab_1.mp3'].includes(path.basename(f))) {
+      where.set(f, 'assets/audio/' + path.basename(f));
+      continue;
+    }
     const sz = statSync(f).size, r = rank(f); if (fill > 0 && (fill + sz > BIN || (r !== last && last < OWN + 1))) { bin++; fill = 0; } fill += sz; last = r;
     const rel = norm(path.relative(path.join(root, 'src/assets'), f));   // audio/x.mp3 or voice/who/x.mp3
     where.set(f, `audio${bin}/${rel}`);

@@ -13,7 +13,7 @@ export const WIPE = { look: 'bamboo' as WipeLook };
 
 /** sweep the occluder across the lens; swap() runs while it covers the whole view */
 export async function wipeTransit(swap: () => void | Promise<void>) {
-  if (__WX__) { cue('whoosh', 0.7); await withLoadingBlade(swap, WIPE.look); return; }
+  if (__WX__) { await withLoadingBlade(swap, WIPE.look); return; }
   const g = wipeCover(WIPE.look); scene.add(g);
   const place = (x: number) => {
     // camera space: 1.05 m ahead, x across the view (the cluster is ~2.6 m wide; the view there is ~1.6 m)
