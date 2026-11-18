@@ -369,6 +369,10 @@ export class ActShow {
     const boss = this.foes.find(f => isBoss(f) && f.st !== 'dead') ?? null;
     this.hero.inv = 99;
     for (const f of this.foes) { dropTeles(f); f.attacking = false; f.lunge = null; }   // nothing left half-swung on the snow
+    // (11-18 用户：「这个地上的白光是啥，一直在那儿，被boss打死触发剧情的时候就这样」: 石雷's bolt that struck her down flashes its ground
+    //  mark white for a moment — but the cutscene stops the world before it fades, so it hung there through the talk. Every bolt, talisman
+    //  and mark in flight goes now, and the red arcs of the blow)
+    for (const a of this.arrows) a.kill(); this.arrows.length = 0; this.hitArcs.clear();
     if (boss) { await this.cine(fallShots(this.proHost, boss)); await this.talk(PRO_FALL); this.phase = 'cine'; await this.cine(snowShots(this.proHost, boss)); }
     // dawn in the same yard: the snow has stopped, the dead lie where they fell
     const sp = this.spec, at = { x: this.hero.pos.x, z: this.hero.pos.z };
@@ -2179,6 +2183,8 @@ export class ActShow {
     //  it fades as she walks out of the room (or when a new piece of music starts))
     this.phase = 'pick'; cue('stingWin', 1); audio.duckMusic(0.35, 3.2);
     if (this.pieces) for (const q of this.pieces.pieces) if (q.kind === 'door') this.pieces.openPiece(q);   // (11-18: a drawn room's side yards)
+    // (11-18: a bolt / talisman / mark still on its way when the last foe fell would hang mid-flash through the talks and cards that follow)
+    for (const a of this.arrows) a.kill(); this.arrows.length = 0;
     this.banner.show('清场', '', 1.0, '#ffe6a0');
     await new Promise(r => after(0.9, () => r(null)));
     if (this.prologue) { this.openDoors(); return; }   // act-29: the prologue's road just goes on

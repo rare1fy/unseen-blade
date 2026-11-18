@@ -1337,3 +1337,4 @@
 - （11-18）发版时桌面不再出模型查看页 `不见刀_白发女模型.html`（用户：「不要模型页了」）；`?lab` 的模型查看页（`act/lab.ts`）保留。
 
 **又一个（act-57 → act-58）**：用户在开发者工具里打开 act-57：「TypeError: MiniProgramError Illegal invocation at HTMLDocument.makeElement [as createElement] (game.js:84)」。开发者工具的真 `document` 只有 `createElementNS` 是只读的，`createElement` 能改；游戏代码的作用域里没有 `HTMLDocument`（那个 `document` 来自别的页面环境），act-56 的 `document instanceof HTMLDocument` 永远是假，于是垫片照样把 `createElement` 换成了自己的，自己的再去调原来的 `createElement(name)`（没带 `this`）就是 Illegal invocation。改成按 `document.nodeType === 9` 认真的 `document`（跨环境也成立），真的一律不碰；`makeElement` 调原方法时带上 `this`。替身页照着改（只让 `createElementNS` 只读，`game.js` 在一个把 `HTMLDocument`、`Document` 遮成 `undefined` 的函数里跑），旧包在里面报的就是用户那一句。
+- （11-18）演出 / 对话期间世界不更新，飞行物（`this.arrows`：雷、符、箭、地面标记）和挨打红弧（`HitArcs`）会停在当时那一帧：开篇倒地（`prologueFall`）一开始和每间屋清场（`roomClear`）时把它们全清掉（用户截图：落雷标记的白闪挂在她身下）。
