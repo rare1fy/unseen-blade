@@ -2,7 +2,7 @@
 // presentation modules import these handles instead of passing them around.
 import * as THREE from 'three';
 import { makeCanvas } from '../../platform/index';
-import { tierNow } from '../look/quality';
+import { QUALITY, tierNow } from '../look/quality';
 import { OPT } from './perfOpts';
 import { syncBatches } from './rigidBatch';
 
@@ -28,7 +28,8 @@ export function padLights() {
   const budget = OPT.pointLights ? tierNow().pointLights : 18;
   real.length = 0;
   scene.traverseVisible(o => { const l = o as THREE.PointLight; if (l.isPointLight && !l.userData.pad && l.layers.test(camera.layers)) real.push(l); });
-  if (OPT.pointLights && real.length > budget) {
+  // High quality keeps every real lamp, including rooms with more than the prewarmed eighteen.
+  if (OPT.pointLights && QUALITY.tier !== 'high' && real.length > budget) {
     // Score the patch around the look target, including a lamp just beyond its centre.
     for (const l of real) {
       const d = Math.max(1, l.getWorldPosition(lightPos).distanceTo(lightFocus) - 3);

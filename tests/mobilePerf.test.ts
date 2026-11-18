@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
+import { padLights, restoreLights, scene } from '../src/present/engine/world';
+import { QUALITY } from '../src/present/look/quality';
 import { OPT } from '../src/present/engine/perfOpts';
 import { VoxChar } from '../src/present/look/voxkit';
 import { bakeTerrainLight } from '../src/present/scenes/terrainLight';
@@ -28,6 +30,19 @@ describe('mobile room rendering', () => {
       expect(merged.area).toBeCloseTo(original.area, 6);
       expect(merged.triangles).toBeLessThan(original.triangles);
     } finally { OPT.greedyActors = saved; }
+  });
+
+  it('keeps all real lamps on high and restores lamps after the mobile pass', () => {
+    const lights = Array.from({ length: 21 }, () => new THREE.PointLight());
+    const oldTier = QUALITY.tier;
+    scene.add(...lights);
+    try {
+      QUALITY.tier = 'high'; padLights();
+      expect(lights.filter(l => l.visible)).toHaveLength(21);
+      restoreLights(); QUALITY.tier = 'mid'; padLights();
+      expect(lights.filter(l => l.visible)).toHaveLength(4);
+      restoreLights(); expect(lights.every(l => l.visible)).toBe(true);
+    } finally { restoreLights(); QUALITY.tier = oldTier; scene.remove(...lights); }
   });
 
   it('bakes the permanent roof over the floor and excludes a removable prop', () => {
