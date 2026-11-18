@@ -80,12 +80,20 @@ export function regionFirstRoom(ri: number, r: Rnd): RoomPlan {
 }
 
 /** the roads out of room `from` (0-based, within region `ri`): two different kinds of room, or the one road to the boss before the last room.
- *  No two shops or two rests in a region (visited = the kinds of room seen in this region); the room before the boss always offers a rest
- *  or a shop if neither was visited. After the boss: [] (flow.ts goes on into the next region). */
+ *  visited = the kinds of room seen in this region, in travel order, the current room last (show.ts pushes it before asking). No two
+ *  shops or two rests in a region; leaving a rest, a shop or a 遗卷 both roads lead to a fight (11-18 用户：「刚去篝火然后下一个节点又是
+ *  非战斗节点」— the user's own Codex fix, carried over from the main checkout); from a combat room the last fork before the boss offers
+ *  a rest or a shop if neither was visited. After the boss: [] (flow.ts goes on into the next region). */
 export function doorsFrom(from: number, visited: RoomType[], r: Rnd, ri = 0): RoomPlan[] {
   const next = from + 1, N = regionRooms(ri);
   if (next >= N) return [];
   if (next === N - 1) return [roomOf('boss', next, r, ri)];
+  const current = visited[visited.length - 1];
+  if (current === 'rest' || current === 'shop' || current === 'boon') {
+    // Keep the usual 3:1.5 odds for which combat room appears on the left.
+    const fightFirst = r() < 2 / 3;
+    return [roomOf(fightFirst ? 'fight' : 'elite', next, r, ri), roomOf(fightFirst ? 'elite' : 'fight', next, r, ri)];
+  }
   const w: Array<[RoomType, number]> = [['fight', 3], ['elite', next >= 2 ? 1.5 : 0], ['shop', next >= 2 && !visited.includes('shop') ? 1 : 0], ['rest', next >= 2 && !visited.includes('rest') ? 1 : 0], ['boon', 1]];
   const draw = (not?: RoomType) => { const ws = w.filter(([t]) => t !== not), tot = ws.reduce((s, [, n]) => s + n, 0); let x = r() * tot; for (const [t, n] of ws) { x -= n; if (x <= 0 && n > 0) return t; } return ws.find(([, n]) => n > 0)![0]; };
   const a = draw(); let b = draw(a);
