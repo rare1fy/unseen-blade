@@ -7,7 +7,7 @@ import { format, language, msg, setLanguage } from './i18n';
 // 打开游戏先到练武场（yard.ts：木人桩、召唤石板、换装木台），走进后面的「出发」路口开始一局；死了或打完回练武场。
 // 砍飞的箭：方向在出刀朝向左右 75° 里随机、附近有敌人就偏过去；砍中那一下顿帧 + 闪光 + 短慢放（用户：「这种属于高光操作，应该要有顿帧」）。
 import * as THREE from 'three';
-import { V3, onUpdate, R, scene, warm, frames } from '../engine/world';
+import { V3, onUpdate, R, scene, warm, frames, precompile } from '../engine/world';
 import { hitstop, shake, slowmo, after, anim, clock, FX, waitReal, PAUSE } from '../engine/clock';
 import { shot } from '../director';
 import { fxImpact, fxSparks, fxSmoke, fxRing, fxEmbers, fxFlare, trailSeg } from '../fx/fx';
@@ -47,7 +47,7 @@ import { rackBlades, hideoutScene, HIDEOUT, HIDEOUT_PEOPLE } from './hideout';
 import { Timeline } from './timeline';
 import { openingShots, bossIntroShots, type CineHost } from './cutscenes';
 import { NPC_TALK, STELE_TALK, MEAL_TALK, UP_TALK, POOR_TALK, WAKE_DUWU, WAKE_SUNAO, CHULEI_BEFORE, CHULEI_AFTER, deathLine, PRO_CHULEI, PRO_FALL, PRO_DAWN, PRO_WAKE, PRO_CAPTIONS } from './scripts';
-import { fallShots, snowShots, dawnShots, loadShots, lieDown, brazier, getUpPose, drapeOver, GETUP_STEP, type PrologueHost } from './prologue';
+import { fallShots, snowShots, dawnShots, loadShots, brazier, getUpPose, drapeOver, GETUP_STEP, Kneel, KNEEL_ARMS, type PrologueHost } from './prologue';
 import { coldOpenShots, coldCardShots, BlindPOV } from './coldopen';
 import { Barks } from './barks';
 import { installR45 } from './regions/r45_hook';
@@ -78,7 +78,6 @@ import { CAM } from '../engine/gfx';
 import { GRADE } from '../look/post';
 import { blood } from './blood';
 import { audio } from '../../audio/audio';
-import { CRAZYGAMES } from '../../platform/crazygames';
 import type { Platform } from '../../platform/index';
 import { dh } from '../../debug/dh';
 import { Input } from './input';
@@ -165,7 +164,8 @@ const DEFAULT_HERO = 'fine_white';   // act-22 (user: 「都换成细格子吧�
 function savedHero(): ModelDef {
   // (act.hero6 since act-22: the default became the 3.5 cm white-haired heroine; a look remembered under the old keys no longer overrides it)
   let id = ''; try { id = localStorage.getItem('act.hero6') ?? ''; } catch { /* storage blocked */ }
-  const q = !CRAZYGAMES && typeof location !== 'undefined' ? /[?&#]hero=([a-z_]+)/.exec(location.href)?.[1] : undefined;
+  if (!__DEBUG_UI__) return HEROES.find(d => d.id === DEFAULT_HERO) ?? HEROES[0];   // (11-18: the packages wear the default — no costume switch there)
+  const q = typeof location !== 'undefined' ? /[?&#]hero=([a-z_]+)/.exec(location.href)?.[1] : undefined;
   return HEROES.find(d => d.id === (q ?? id)) ?? HEROES.find(d => d.id === DEFAULT_HERO) ?? HEROES[0];
 }
 
@@ -295,8 +295,11 @@ export class ActShow {
   dialogue: Dialogue; timeline: Timeline; pause!: PauseMenu; private pauseHud: boolean | null = null; private padSkip = false; private puppets: Foe[] = []; private wasPhase: Phase = 'yard'; private justDied = false;
   /** act-29 开篇 (方案 1): 1 = the snowy village (the first fight, alone), 2 = the snowy temple (褚雷, a fight she cannot win), 0 = off */
   prologue = 0; private forceSpec: Partial<Spec> | null = null; private proFightT = 0; private proFalling = false; private proPeople: BattleActor[] = [];
+  /** 11-18: her pose from 石雷's blow until 杜五 lifts her onto the donkey — on one knee, bleeding (prologue.ts Kneel) */
+  private proKneel = new Kneel();
   private proHost: PrologueHost = {
     hero: { get a() { return SELF!.hero.a; }, get pos() { return SELF!.hero.pos; } } as PrologueHost['hero'],
+    kneel: this.proKneel,
     person: (id, x, z, yaw) => { const a = new BattleActor(id === 'duwu' ? HIDEOUT_PEOPLE.duwu : HIDEOUT_DONKEY); a.place(V3(x, 0, z), yaw); a.yaw = yaw; trimShadows(a.root, 4); this.proPeople.push(a); return a; },
     puppet: (kind, x, z, fx, fz) => this.cineHost.puppet(kind, x, z, fx, fz),
   };
@@ -336,16 +339,16 @@ export class ActShow {
         console.warn('[act] village preparation failed', error); return null;
       }) : null;
     const pov = await narrative;
+    // 11-18 (用户：「开场黑幕到第一个走在雪地的场景之间用渐黑转场，不要用竹子飞刀」): from the black cards straight into the snow
+    // walk through the dark — no blade, no bamboo, on every platform. The village is built (in frames on WeChat, where the
+    // title already started it) behind the black veil, the shaders warmed, then the black fades off
     if (__WX__) {
       while (bladeBusy()) await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
-      await withLoadingBlade(async () => {
-        const ready = await village;
-        if (ready) this.pre = { ...ready, locale: PRO_ROOM.locale };
-        await this.startPrologue();
-      });
-    } else await this.startPrologue();
-    // (the village was built behind the dark; now the dark lifts on 「七年后」)
-    if (pov) { await frames(3); pov.fill(0x000000, 0); after(1.6, () => pov.dispose(), { real: true }); }
+      const ready = await village;
+      if (ready) this.pre = { ...ready, locale: PRO_ROOM.locale };
+    }
+    await this.startPrologue();
+    if (pov) { precompile(); await frames(3); pov.fill(0x000000, 0); after(1.6, () => pov.dispose(), { real: true }); }
   }
   /** act-37 the cold open: 寒山坞 that night (coldopen.ts) — on the place the title built while it loaded; it ends in the dark */
   private async coldOpen(): Promise<BlindPOV | null> {
@@ -401,20 +404,28 @@ export class ActShow {
     //  mark white for a moment — but the cutscene stops the world before it fades, so it hung there through the talk. Every bolt, talisman
     //  and mark in flight goes now, and the red arcs of the blow)
     for (const a of this.arrows) a.kill(); this.arrows.length = 0; this.hitArcs.clear();
-    if (boss) { await this.cine(fallShots(this.proHost, boss)); await this.talk(PRO_FALL); this.phase = 'cine'; await this.cine(snowShots(this.proHost, boss)); }
+    const kneelPose = () => this.proKneel.frame(this.hero.a);
+    if (boss) {
+      await this.cine(fallShots(this.proHost, boss));
+      if (!this.proKneel.active) this.proKneel.start();   // (the shot skipped before the blow landed: she still goes down on her knee)
+      // (her line 「颤抖的指尖在雪泥里死死够向刀柄」: the right hand goes out toward the sabre on the snow; back down after it)
+      this.hero.scriptPose = kneelPose; await this.talk(PRO_FALL, (_i, l) => { this.proKneel.reachWant = l.who === 'act' && /刀柄/.test(l.text) ? 1 : 0; }); this.proKneel.reachWant = 0; this.hero.scriptPose = null;
+      this.phase = 'cine'; await this.cine(snowShots(this.proHost, boss));
+    } else this.proKneel.start();
     // dawn in the same yard: the snow has stopped, the dead lie where they fell
-    const sp = this.spec, at = { x: this.hero.pos.x, z: this.hero.pos.z };
+    const sp = this.spec, at = { x: this.hero.pos.x, z: this.hero.pos.z }, yaw = this.hero.a.yaw;
     await wipeTransit(async () => {
       for (const f of this.foes) f.a.dispose(); this.foes.length = 0;
       this.noArena = true; this.viewSpec = { locale: 'hj_temple', season: 'winter', time: 'dawn', weather: 'clear', layout: sp?.layout ?? 'axis', mirror: sp?.mirror ?? false, seed: sp?.seed ?? 5, exits: [] };
       this.forceSpec = null; await this.buildRoom(true); this.viewSpec = null; this.noArena = false;
-      this.hero.pos.set(at.x, 0, at.z); this.hero.a.yaw = 0.4; lieDown(this.hero.a, 1);
+      this.hero.pos.set(at.x, 0, at.z); this.hero.a.yaw = yaw; this.proKneel.dawn(); this.hero.scriptPose = kneelPose; this.hero.a.update(0.016); kneelPose();
     });
     const dead: Array<[EKind, number, number]> = [['hj_mob', at.x - 3.2, at.z + 2.6], ['hj_blade', at.x - 1.4, at.z + 3.6], ['hj_mob', at.x + 2.4, at.z - 1.8]];
     const who: { duwu: BattleActor | null; donkey: BattleActor | null } = { duwu: null, donkey: null };
     await this.cine(dawnShots(this.proHost, at, dead, who));
-    await this.talk(PRO_DAWN);
+    await this.talk(PRO_DAWN); this.hero.scriptPose = null;
     await this.cine(loadShots(this.proHost, who));
+    this.proKneel.stop();
     for (const a of this.proPeople) a.dispose(); this.proPeople = [];
     this.prologue = 0; this.forceSpec = null;
     let wakeK: (k: number) => void = () => {};
@@ -569,18 +580,20 @@ export class ActShow {
     onUpdate((dt, rdt) => this.frame(dt, rdt));
     this.layout2();
     // the player's settings: the tuning panel shows the long labels, the pause menu's 设置 page the short ones (act-30 之后)
-    const SET: Array<{ label: () => string; short: () => string; run: () => void }> = [
-      { label: () => `界面风格：${SKIN_NAME[SKIN.id]}（点这里换）`, short: () => msg`界面：${SKIN_NAME[SKIN.id]}`, run: () => this.cycleSkin() },
-      { label: () => msg`正文字体：${BODY_FONT_NAME[BODY_FONT.current]}`, short: () => msg`正文字体：${BODY_FONT_NAME[BODY_FONT.current]}`, run: () => { const order: BodyFont[] = ['wenkai', 'serif', 'sans', 'pixel']; setBodyFont(order[(order.indexOf(BODY_FONT.current) + 1) % order.length]); } },
+    // (11-18 用户：「调试只在我们本地打的桌面包里面存在就行了，比如换角色、换开场场景啥的」: dbg = a test switch — the WeChat and
+    //  CrazyGames packages leave it out of 设置; they keep 震动, 试一下震动, 画质 and 语言)
+    const SET: Array<{ label: () => string; short: () => string; run: () => void; dbg?: true }> = [
+      { dbg: true, label: () => `界面风格：${SKIN_NAME[SKIN.id]}（点这里换）`, short: () => msg`界面：${SKIN_NAME[SKIN.id]}`, run: () => this.cycleSkin() },
+      { dbg: true, label: () => msg`正文字体：${BODY_FONT_NAME[BODY_FONT.current]}`, short: () => msg`正文字体：${BODY_FONT_NAME[BODY_FONT.current]}`, run: () => { const order: BodyFont[] = ['wenkai', 'serif', 'sans', 'pixel']; setBodyFont(order[(order.indexOf(BODY_FONT.current) + 1) % order.length]); } },
       // act-15 用户：「我浏览器玩没有震动诶」 — a switch, a test, and what this device supports
       { label: () => `震动：${VIBE.on ? '开' : '关'}（${({ api: '这台设备支持', ios: `iPhone iOS ${iosMajor()}：系统触感，点屏幕时最灵`, 'ios-old': `iPhone iOS ${iosMajor() || '17 及以下'}：网页没法震，要 iOS 18`, none: '这个浏览器不支持', mini: '微信：手机震动' } as const)[vibeSupport()]}）`, short: () => msg`震动：${VIBE.on ? '开' : '关'}`, run: () => { VIBE.on = !VIBE.on; try { localStorage.setItem('ub.vibe', VIBE.on ? '1' : '0'); } catch { /* private mode */ } } },
       { label: () => '试一下震动', short: () => '试一下震动', run: () => { const was = VIBE.on; VIBE.on = true; this.platform.vibrate('heavy'); VIBE.on = was; } },
       // act-14 用户：「我要2x，然后调试面板给我一个切换这个的功能」 — 2x → 3x → off → 1x, remembered on this device
       // act-21: which title screen (five moods; the user picks on a phone too, where there are no number keys)
-      { label: () => `开始画面：第 ${savedTitle()} 版（点这里换）`, short: () => msg`开始画面：第 ${savedTitle()} 版`, run: () => { const n = savedTitle() % TITLE_COUNT + 1; try { localStorage.setItem('ub.title', String(n)); } catch { /* storage blocked */ } if (this.phase === 'title') this.title(n); } },
+      { dbg: true, label: () => `开始画面：第 ${savedTitle()} 版（点这里换）`, short: () => msg`开始画面：第 ${savedTitle()} 版`, run: () => { const n = savedTitle() % TITLE_COUNT + 1; try { localStorage.setItem('ub.title', String(n)); } catch { /* storage blocked */ } if (this.phase === 'title') this.title(n); } },
       // act-20: her look (the story's heroine: the 斗笠 or the 白发 — the user's two picks); the hideout has no costume rack
-      { label: () => `造型：${this.wearing.name}（点这里换）`, short: () => msg`造型：${this.wearing.name}`, run: () => { const ids = ['fine_white', 'fine_hat'], n = HEROES.find(d => d.id === ids[(ids.indexOf(this.wearing.id) + 1) % ids.length]); if (n) this.wear(n); } },
-      { label: () => `像素：${PX.on ? PX.size + 'x' : '关'}（点这里换）`, short: () => msg`像素：${PX.on ? PX.size + 'x' : '关'}`, run: () => { const order = ['2', '3', 'off', '1'], cur = PX.on ? String(PX.size) : 'off', nx = order[(order.indexOf(cur) + 1) % order.length]; if (nx === 'off') setPixel(false); else setPixel(true, +nx); try { localStorage.setItem('ub.px', nx); } catch { /* private mode */ } } },
+      { dbg: true, label: () => `造型：${this.wearing.name}（点这里换）`, short: () => msg`造型：${this.wearing.name}`, run: () => { const ids = ['fine_white', 'fine_hat'], n = HEROES.find(d => d.id === ids[(ids.indexOf(this.wearing.id) + 1) % ids.length]); if (n) this.wear(n); } },
+      { dbg: true, label: () => `像素：${PX.on ? PX.size + 'x' : '关'}（点这里换）`, short: () => msg`像素：${PX.on ? PX.size + 'x' : '关'}`, run: () => { const order = ['2', '3', 'off', '1'], cur = PX.on ? String(PX.size) : 'off', nx = order[(order.indexOf(cur) + 1) % order.length]; if (nx === 'off') setPixel(false); else setPixel(true, +nx); try { localStorage.setItem('ub.px', nx); } catch { /* private mode */ } } },
       // 11-18 微信帧率: the quality tier (自动 → 高 → 中 → 低), kept on the device
       { label: () => qualityLabel(), short: () => qualityLabel(), run: () => cycleQuality() }];
     installActTune([...SET.map(x => ({ label: x.label, run: x.run })),
@@ -592,7 +605,7 @@ export class ActShow {
       { label: () => `全部招式：${this.dbgAllMoves ? '开' : '关'}`, run: () => { this.dbgAllMoves = !this.dbgAllMoves; if (this.hero && !this.yard && !this.prologue) this.hero.moves = this.dbgAllMoves ? ALL_MOVES : this.perks.moves; } }],
       { regions: REGIONS.map(r => r.name), rooms: ri => REGIONS[ri].rooms, go: (ri, room, type) => { const r = this.jumpRegion(ri, room, type); return 'why' in r ? r.why : undefined; } });
     // the pause menu (act-30 之后, user: 「帮我把手柄的按键映射和手柄支持做了吧」): Start / Esc, a pad pulled out, the page hidden
-    this.pause = new PauseMenu({ L: this.L, settings: [...SET.map(x => ({ label: x.short, run: x.run })), { id: 'language', label: () => '语言：简体中文', run: () => setLanguage(language === 'en' ? 'zh' : 'en') }], canGiveUp: () => this.canGiveUp(), giveUp: () => this.giveUp(), closed: () => this.unpaused(),
+    this.pause = new PauseMenu({ L: this.L, settings: [...SET.filter(x => __DEBUG_UI__ || !x.dbg).map(x => ({ label: x.short, run: x.run })), { id: 'language', label: () => '语言：简体中文', run: () => setLanguage(language === 'en' ? 'zh' : 'en') }], canGiveUp: () => this.canGiveUp(), giveUp: () => this.giveUp(), closed: () => this.unpaused(),
       owned: () => this.ownedSections(), skills: () => this.skillSections() });
     // 11-18 (用户：「游戏里也没有一个可以呼出暂停窗口的按钮」): the iron button at the top right opens it too
     this.hud.onPause = () => this.pauseGame();
@@ -607,7 +620,7 @@ export class ActShow {
       window.addEventListener('gamepaddisconnected', () => { if (PAD.device === 'pad') this.pauseGame(); });
       document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') this.pauseGame(); });
     }
-    if (typeof window !== 'undefined') window.addEventListener('keydown', e => { if (!CRAZYGAMES && (e.key === 'u' || e.key === 'U') && !this.cards.on) this.cycleSkin(); });
+    if (__DEBUG_UI__ && typeof window !== 'undefined') window.addEventListener('keydown', e => { if ((e.key === 'u' || e.key === 'U') && !this.cards.on) this.cycleSkin(); });
     dh.add({ voxCompare: (id: string, only = -1, x?: number, z?: number) => {
         // before (the code model) on the left, the edited file on the right, beside the hero (captures of a model edit);
         // only = 0 / 1: just the original / just the edited one, at (x, z)
@@ -726,7 +739,10 @@ export class ActShow {
       lab: () => this.labActs,
       /** the cutscene poses, for the lab: drape(i, x, y, z, yaw, ph), getUp(i, k) */
       /** the colour grade / bloom settings, for lab checks */ grade: GRADE,
-      labPose: { drape: (i: number, x: number, y: number, z: number, yaw: number, ph: number) => drapeOver(this.labActs[i], x, y, z, yaw, ph), getUp: (i: number, k: number) => getUpPose(this.labActs[i], k) },
+      labPose: { drape: (i: number, x: number, y: number, z: number, yaw: number, ph: number) => drapeOver(this.labActs[i], x, y, z, yaw, ph), getUp: (i: number, k: number) => getUpPose(this.labActs[i], k),
+        /** 11-18: the prologue's kneel on lab actor i, running every frame (reach 0..1, dawn = the planted sabre, no bleeding) */
+        /** the kneel's arm angles, live (fitting the hands) */ kneelArms: KNEEL_ARMS,
+        kneel: (i: number, o: { reach?: number; dawn?: boolean } = {}) => { const a = this.labActs[i], k = new Kneel(); if (!a) return null; if (o.dawn) k.dawn(); else k.start(); k.reachWant = o.reach ?? 0; this.labFn = dt => { a.update(dt); k.frame(a); }; this.labT = 0; return k; } },
       /** world positions of an actor's bones (rounded to cm), to check a pose by numbers */
       labBones: (i: number) => { const a = this.labActs[i]; if (!a) return null; a.root.updateMatrixWorld(true); const o: Record<string, number[]> = {}, v = new THREE.Vector3();
         for (const [k, b] of Object.entries(a.bones)) { if (!b) continue; (b as THREE.Object3D).getWorldPosition(v); o[k] = [v.x, v.y, v.z].map(n => Math.round(n * 100) / 100); } return o; },
@@ -756,7 +772,9 @@ export class ActShow {
       // 11-18 屋子形态 (captures / tests): a fight room of this place in this shape (the next rooms pick their own again); null = pick
       /** 11-18 定死的屋子: the room's puzzle pieces and their state; solve one */
       puzzle: () => this.pieces?.list() ?? [], solve: (i: number) => this.pieces?.solve(i),
-      /** Enter the map with its actual region's waves, boss or stations. */
+      /** 11-18 小刀转场: play the loading blade over the current view while a pretend load takes ms (it is drawn every frame in the web build too) */
+      bladeDemo: (ms = 800, cover: 'bamboo' | 'pillar' = 'bamboo') => withLoadingBlade(() => new Promise<void>(r => setTimeout(r, ms)), cover),
+      /** 11-18 定死的屋子: enter this drawn room (asm/roomMaps.ts id) with its actual region's waves, boss or stations */
       room: (id: string, type?: RoomType) => {
         const m = MAP_BY_ID[id]; if (!m) return null;
         const ri = REGIONS.findIndex(r => r.locales.includes(m.locale) || r.bossLocale === m.locale);
@@ -862,7 +880,7 @@ export class ActShow {
   start() {
     dh.add({ opening: () => this.opening(), title: (n = 1) => this.title(n) });
     dh.add({ rack: (n = 30) => { if (this.stage) this.stage.root.add(rackBlades(n)); return n; } });   // captures: the hideout's rack with n blades   // captures: the old opening / a title variant again
-    if (CRAZYGAMES) { this.title(savedTitle()); return; }
+    if (!__DEBUG_UI__) { this.title(savedTitle()); return; }   // (the packages: no URL switches — the title the player gets)
     // ?lab, or the desktop model page (window.__LAB): the model viewer (lab.ts, act-21)
     if (typeof window !== 'undefined' && ((window as unknown as { __LAB?: number }).__LAB || /[?&#]lab\b/.test(location.href))) { this.lab(); return; }
     // 11-18 ?anim, or the desktop page (window.__ANIM): every character's moves side by side (animPreview.ts)
@@ -1171,7 +1189,7 @@ export class ActShow {
     const ex = { ...exitInfo(this.layout!, 'back'), id: 'left' as const, dir: [0, 1] as [number, number], lane: { x0: HIDEOUT.exit.x0, x1: HIDEOUT.exit.x1, z0: HIDEOUT.exit.z - 1.0, z1: PLAY.z1 + 2.5 }, walk: [[gx, HIDEOUT.exit.z - 1.6], [gx, HIDEOUT.exit.z + 1.0]] as Array<[number, number]> };
     this.doors = [{ ex, g: new THREE.Group(), lift: 1 }];
     const touch = this.inp.lastDevice === 'touch' && 'ontouchstart' in globalThis;
-    this.banner.show('断碑古窑', touch ? '走近人点右下说话 · 踩石板叫陪练 · 出院门开打' : this.inp.lastDevice === 'pad' ? msg`走近人按 ${actPad('attack')} 说话 · 踩石板叫陪练 · 出院门开打` : CRAZYGAMES ? msg`走近人按 ${actKey('attack')} 说话 · 踩石板叫陪练 · 出院门开打` : msg`走近人按 ${actKey('attack')} 说话 · 踩石板叫陪练 · 出院门开打 · \` 键调手感`, 4);
+    this.banner.show('断碑古窑', touch ? '走近人点右下说话 · 踩石板叫陪练 · 出院门开打' : this.inp.lastDevice === 'pad' ? msg`走近人按 ${actPad('attack')} 说话 · 踩石板叫陪练 · 出院门开打` : !__DEBUG_UI__ ? msg`走近人按 ${actKey('attack')} 说话 · 踩石板叫陪练 · 出院门开打` : msg`走近人按 ${actKey('attack')} 说话 · 踩石板叫陪练 · 出院门开打 · \` 键调手感`, 4);
     this.log.push('yard');
   }
   private spawnWave() {
@@ -1372,9 +1390,10 @@ export class ActShow {
   private async demoMove(id: string) {
     if (this.botOn || !this.hero) return;
     const was = this.phase; this.phase = 'pick'; this.hero.vel.set(0, 0, 0);
-    // the hint to skip, small, under the pause button (whole device px per font pixel, about 16 px tall)
+    // the hint to skip, small, at the top right where the pause button used to stand (11-18: the portrait pauses now), left of the
+    // tuning panel's 「调」 (whole device px per font pixel, about 16 px tall)
     const dpr = this.L.dpr || 1;
-    this.L.text.set('act.demoSkip', { text: UI_WORDS.demoSkip, x: this.L.w - 18, y: 64, pix: Math.max(1, Math.round(this.hud.k * dpr)), color: '#d9ccb2', outline: '#140c0a', align: 'right', alpha: 0.8 });
+    this.L.text.set('act.demoSkip', { text: UI_WORDS.demoSkip, x: this.L.w - 46, y: 23, pix: Math.max(1, Math.round(this.hud.k * dpr)), color: '#d9ccb2', outline: '#140c0a', align: 'right', alpha: 0.8 });
     await this.demo.play(id, { at: this.hero.pos.clone(), def: this.wearing, hud: this.hud });
     this.L.text.hide('act.demoSkip'); this.inp.latch();
     if (this.phase === 'pick') this.phase = was;
@@ -2427,6 +2446,7 @@ export class ActShow {
       if (this.botOn && this.dialogue.on && (this.botTalkT += rdt) > 0.6) { this.botTalkT = 0; this.dialogue.advance(); }
       if (this.phase === 'talk') { this.hero.a.update(dt); this.hero.scriptPose?.(); for (const f of this.foes) f.a.update(dt); for (const n of this.npcs) n.a.update(dt); this.leaves?.update(dt, this.cam.x, this.cam.z); this.gates?.update(dt); }
       for (const f of this.puppets) if (this.phase === 'talk' && !f.a.root.userData.still) f.a.update(dt);   // (act-30: the dead stay still)
+      blood.update(dt);   // (11-18: the prologue's wound bleeds through the cutscene and the talk — the drops fall instead of hanging in the air)
       this.hud.update(rdt, this.inp, []); this.L.on = true; return;
     }
     // act-29: the prologue's temple — about half a minute in, his blow ends it whatever her blood

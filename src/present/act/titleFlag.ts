@@ -17,4 +17,4 @@ export function wantTitle(href = typeof location !== 'undefined' ? location.href
 /** the variant the player last chose (设置 or the number keys on the title), remembered on this device; the default is 3 (雪夜 · 破庙 —
  *  the user's favourite, 11-17: 「我最喜欢3号，默认3号吧」) */
 export const DEFAULT_TITLE = 3;
-export function savedTitle() { try { const n = +(localStorage.getItem('ub.title') ?? ''); return n >= 1 && n <= TITLE_COUNT ? n : DEFAULT_TITLE; } catch { return DEFAULT_TITLE; } }
+export function savedTitle() { if (!__DEBUG_UI__) return DEFAULT_TITLE; try { const n = +(localStorage.getItem('ub.title') ?? ''); return n >= 1 && n <= TITLE_COUNT ? n : DEFAULT_TITLE; } catch { return DEFAULT_TITLE; } }

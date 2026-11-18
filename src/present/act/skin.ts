@@ -16,6 +16,7 @@ export type SkinId = 'lacquer' | 'bamboo' | 'iron';
 export const SKINS: SkinId[] = ['lacquer', 'bamboo', 'iron'];
 export const SKIN_NAME: Record<SkinId, string> = { lacquer: '汉代漆器', bamboo: '竹简木牌', iron: '兵戈铁器' };
 function initialSkin(): SkinId {
+  if (!__DEBUG_UI__) return 'iron';   // (11-18: the packages have no skin switch — the iron one)
   let id = ''; try { id = localStorage.getItem('act.ui2') ?? ''; } catch { /* storage blocked */ }
   const q = typeof location !== 'undefined' ? /[?&#]ui=([a-z]+)/.exec(location.href)?.[1] : undefined;
   const pick = (q ?? id) as SkinId; return SKINS.includes(pick) ? pick : 'iron';   // act-09 用户选了铁器

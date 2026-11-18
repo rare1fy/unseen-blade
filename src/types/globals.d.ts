@@ -6,6 +6,9 @@ declare const __BUILD__: string;
 declare const __WX__: boolean;
 declare const __CG__: boolean;
 declare const __LANG__: 'zh' | 'en';
+/** the debug switches (设置's look / skin / title / font / pixel rows, their keys, the URL switches): true in the dev server and the
+ *  desktop web build, false in the WeChat and CrazyGames packages (vite.config.ts) */
+declare const __DEBUG_UI__: boolean;
 
 /** WeChat / Douyin mini-game global object (absent in browsers). */
 declare const GameGlobal: any;

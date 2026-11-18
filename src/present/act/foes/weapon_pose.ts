@@ -1,5 +1,7 @@
 import { Euler, Quaternion, Vector3 } from 'three';
-import { curve, type Action, type Bone } from '../../actors/rig';
+import { curve, mov, rot, type Action, type Bone } from '../../actors/rig';
+import type { BattleActor } from '../../bestiary/battle';
+import { attackBeats, attackBody } from './foe_motion';
 
 type Bones = Record<string, Bone>;
 type Side = 'L' | 'R';
@@ -48,9 +50,9 @@ export function grip(b: Bones, side: Side, x: number, y: number, z: number,
 }
 
 /** Place the other fist at a particular point on the already posed shaft / stock. */
-export function support(b: Bones, along: number, pitch: number, yaw: number, weight: number, across = 0) {
+export function support(b: Bones, along: number, pitch: number, yaw: number, weight: number, across = 0, roll = 0) {
   b.root.worldToLocal(b.weapon.localToWorld(point.set(across, 0, along)));
-  grip(b, 'L', point.x, point.y, point.z, pitch, yaw, weight);
+  grip(b, 'L', point.x, point.y, point.z, pitch, yaw, weight, roll);
 }
 
 /** Plant both soles, with the lead foot lifting as it travels into the step. */
@@ -73,6 +75,47 @@ export function engagement(a: Action) {
 export function followThrough(a: Action) {
   const impact = a.dur * a.at;
   return curve(a.t, [[impact, 0], [impact + Math.min(0.12, (a.dur - impact) * 0.32), 1]]);
+}
+
+/** Fist position and weapon orientation in the actor's facing frame. The
+ * weapon's edge follows its roll around the haft, independently of its pitch. */
+export type GripKey = readonly [x: number, y: number, z: number, pitch: number, yaw: number, roll?: number];
+type AttackBeats = ReturnType<typeof attackBeats>;
+
+/** The weapon passes through the hit key at Action.at, keeps moving past the
+ * target, then blends back to guard. The arm follows the grip for all three. */
+export function weaponArc(b: Bones, a: Action, beats: AttackBeats, side: Side,
+  load: GripKey, impact: GripKey, follow: GripKey, weight = engagement(a)) {
+  const struck = a.t >= a.dur * a.at;
+  const from = struck ? impact : load, to = struck ? follow : impact;
+  const u = struck ? followThrough(a) : beats.hit;
+  const mix = (x: number, y: number) => x + (y - x) * u;
+  const pitch = mix(from[3], to[3]), yaw = mix(from[4], to[4]), roll = mix(from[5] ?? 0, to[5] ?? 0);
+  grip(b, side, mix(from[0], to[0]), mix(from[1], to[1]), mix(from[2], to[2]), pitch, yaw, weight, roll);
+  return { pitch, yaw, roll };
+}
+
+/** The short rushes share one straight line. The step and hips bring the
+ * shoulder forward so the hand can draw back without losing extension. */
+export function shortThrust(actor: BattleActor, a: Action, height: number, twoHanded = false) {
+  const b = actor.bones;
+  const motion = attackBeats(a), w = engagement(a);
+  const { load, hit, hip, chest } = motion;
+  const drive = Math.min(1, hit);
+  const reach = twoHanded ? 0.44 : 0.54, lane = twoHanded ? 1.8 : 1.6;
+  const tip = (reach + (actor.def.tip ?? 0) * actor.cx) * actor.root.scale.z;
+  attackBody(b, motion, 'melee', 0.55);
+  // Replace the generic attack's visual lunge. It pushed the entire shaft
+  // past the short lane before the fist had finished extending.
+  actor.off.z = -0.07 * load + Math.min(0, lane - 0.11 - tip) * w;
+  mov(b.hips, 0, -0.07 * hip, -0.05 * load + 0.18 * hip);
+  rot(b.spine, 0.19 * chest, twoHanded ? -0.64 * w : -0.23 * load + 0.28 * chest, 0);
+  rot(b.neck, -0.11 * chest, twoHanded ? 0.43 * w : 0, 0);
+  stance(b, w, 0.24 * hip);
+  const yaw = 0.11 * drive;
+  grip(b, 'R', -0.34 + (twoHanded ? 0.14 : 0.10) * drive, height, -0.11 * (1 - drive) + reach * drive, 0, yaw, w);
+  if (twoHanded) support(b, 0.25 - 0.10 * drive, 0, yaw, w);
+  else grip(b, 'L', 0.37 + 0.10 * drive, height + 0.07 * load, 0.11 - 0.28 * drive, -0.38, 0, w);
 }
 
 /** Each half is a single straight strip from a fixed limb tip to the moving nock. */
