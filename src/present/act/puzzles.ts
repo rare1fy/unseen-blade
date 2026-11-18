@@ -40,6 +40,16 @@ const strikeAt = (s: Strike): [number, number] => s.k === 'seg' ? [s.bx, s.bz] :
 const COL = { wood: 0x6e5238, woodD: 0x4a3622, woodL: 0x8e6e4c, red: 0x8e3b2c, redD: 0x6a2b21, redL: 0xa44c36, iron: 0x4a4f5a, ironL: 0x6e7480, tile: 0x56585e, tileD: 0x3a3c42,
   bronze: 0x8a6a34, bronzeD: 0x5e4a26, bronzeL: 0xb08a48, rope: 0x9a8058, ropeD: 0x7a6440, stone: 0x86827a, stoneD: 0x67635c, gold: 0xe8c060, goldD: 0xa88430, cloth: 0x7a2a22 };
 const HINT = 0xbfe0ff, GOOD = 0xffd27a;
+// 11-19 (用户：「可交互的场景解密物件要有特效提示噢」): every piece she can use shows it all the time, not only when she is close —
+// a square ring on the ground round it (横平竖直, no round glow), cool white / pale cyan (the exits' gold is another thing), breathing
+// slowly; as she comes near it brightens and the breath quickens; when she is close enough to use it (a blow reaches it, a plate under
+// her) it lights up once. One mesh per piece, flat on the floor, no new pass
+const CUE_GEO = (() => { const g = new THREE.BufferGeometry(), o = 1, i = 0.8;
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array([-o, 0, -o, o, 0, -o, o, 0, o, -o, 0, o, -i, 0, -i, i, 0, -i, i, 0, i, -i, 0, i]), 3));
+  g.setIndex([0, 5, 1, 0, 4, 5, 1, 6, 2, 1, 5, 6, 2, 7, 3, 2, 6, 7, 3, 4, 0, 3, 7, 4]); return g; })();
+/** the cue's colour: a clear cyan that holds on sunlit sand and on night snow alike (HINT's pale blue washed out by day) */
+const CUE_COL = 0x62d4ff;
+interface Cue { m: THREE.Mesh; wave: THREE.Mesh; x: number; z: number; hx: number; hz: number; reach: number; k: number; ready: boolean; flash: number; ph: number; on: () => boolean }
 const BUBBLE = new THREE.Color(0xb8d8e0);
 // (shadows as VoxWorld.build sets them: a big build hands its shadow to invisible tiles — act-55 微信帧率)
 const mesh = (vw: VoxWorld) => { const g = new THREE.Group(); for (const m of vw.build({ rim: 0.3, edge: 0.16, ground: false })) g.add(m); return g; };
@@ -75,6 +85,31 @@ export class RoomPieces {
   readonly zone0: Int16Array;
   private order: number[] = []; private got = 0; private seqT = -1; private seqDone = false; private bellsCalm = 0; private replayT = 0;
   private t = 0; private events: PieceEvent[] = [];
+  private cues: Cue[] = [];
+  /** a cue round a piece: centre (x, z), half-size (hx, hz) of the square, how near counts as "can use it now", whether it still waits */
+  private addCue(x: number, z: number, hx: number, hz: number, reach: number, on: () => boolean, col = CUE_COL) {
+    // (a plain blend, not additive: on a sunlit floor an additive pale ring all but vanished)
+    const mk = () => { const q = new THREE.Mesh(CUE_GEO, new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0, depthWrite: false, toneMapped: false })); q.position.set(x, 0.035, z); q.scale.set(hx, 1, hz); q.renderOrder = 3; this.root.add(q); return q; };
+    const m = mk(), wave = mk(); wave.position.y = 0.03;
+    this.cues.push({ m, wave, x, z, hx, hz, reach, k: 0, ready: false, flash: 0, ph: this.cues.length * 1.7, on });
+  }
+  private updateCues(dt: number, hero: THREE.Vector3) {
+    for (const c of this.cues) {
+      const live = c.on(); c.m.visible = c.wave.visible = live || c.k > 0.02; if (!c.m.visible) continue;
+      const dx = Math.max(0, Math.abs(hero.x - c.x) - c.hx), dz = Math.max(0, Math.abs(hero.z - c.z) - c.hz), d = Math.hypot(dx, dz);
+      const near = live ? Math.max(0, Math.min(1, 1 - (d - c.reach) / 7)) : 0, ready = live && d <= c.reach;
+      if (ready && !c.ready) c.flash = 1; c.ready = ready; c.flash = Math.max(0, c.flash - dt * 2.2);
+      c.k += ((live ? 1 : 0) - c.k) * Math.min(1, dt * 4);
+      const rate = 0.9 + 1.6 * near, br = 0.5 + 0.5 * Math.sin(this.t * Math.PI * rate + c.ph);
+      const a = c.k * Math.min(0.95, 0.38 + 0.3 * near + 0.15 * br + 0.45 * c.flash);
+      (c.m.material as THREE.MeshBasicMaterial).opacity = a;
+      const grow = 1 + 0.05 * br * near + 0.25 * c.flash; c.m.scale.set(c.hx * grow + 0.25, 1, c.hz * grow + 0.25);
+      // the wave: a second square running out from it and fading, like a sound ring — slow far off, quicker close
+      const u = (this.t * (0.45 + 0.55 * near) + c.ph * 0.1) % 1, sp = 0.25 + 0.9 * u;
+      (c.wave.material as THREE.MeshBasicMaterial).opacity = c.k * (1 - u) * (0.35 + 0.3 * near);
+      c.wave.scale.set(c.hx + sp, 1, c.hz + sp);
+    }
+  }
   private waiting = 0; private stageHint = 20;
   constructor(parent: THREE.Object3D, readonly sp: ShapePlan, readonly grid: FloorGrid, style: WallStyle, seed: number) {
     parent.add(this.root);
@@ -128,6 +163,16 @@ export class RoomPieces {
       w.paths.push(this.causeway(s));
     }
     for (const m of fx.marks) if (m.kind === 'reward') this.rewards.push(this.reward(m.x, m.z));
+    // the cues (see addCue): the hollow walls and barricades, the rope posts, the bells, the plates, the wheels, the rewards
+    for (const q of this.pieces) if (q.kind === 'hollow' || q.kind === 'barricade') {
+      const cx = (q.rect.x0 + q.rect.x1) / 2, cz = (q.rect.z0 + q.rect.z1) / 2, hx = (q.rect.x1 - q.rect.x0) / 2 + 0.15, hz = (q.rect.z1 - q.rect.z0) / 2 + 0.15;
+      this.addCue(cx, cz, hx, hz, q.kind === 'hollow' ? 1.4 : 2.4, () => !q.open && q.t < 0, q.kind === 'barricade' ? 0xffc890 : HINT);
+    }
+    for (const d of this.drops) this.addCue(d.post[0], d.post[1], 0.45, 0.45, 1.4, () => !d.down && d.t < 0);
+    for (const b of this.bells) this.addCue(b.x, b.z, 0.5, 0.5, 1.5, () => this.got < this.order.length);
+    for (const pl of this.plates) this.addCue(pl.x, pl.z, 0.75, 0.75, 0.05, () => !pl.down && pl.grace <= 0);
+    for (const w of this.wheels) this.addCue(w.x, w.z, 0.55, 0.55, 1.5, () => w.drain < 0);
+    for (const r of this.rewards) this.addCue(r.x, r.z, 0.45, 0.45, 0.6, () => !r.taken, GOOD);
   }
 
   // ------------------------------------------------------------ the models
@@ -433,6 +478,7 @@ export class RoomPieces {
     for (const liquid of this.copper) liquid.update(this.t, dt);
     if (this.plates.length) this.updatePlates(dt, { pos: hero, r: heroRadius }, heroHeight, foes);
     for (const w of this.wheels) this.updateWheel(w, hero, dt);
+    this.updateCues(dt, hero);
     if (calm && waitZone >= 0) {
       this.waiting += dt;
       if (this.waiting >= this.stageHint) {
