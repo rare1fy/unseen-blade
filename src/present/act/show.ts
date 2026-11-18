@@ -1958,18 +1958,21 @@ export class ActShow {
   }
   /** 绝 · 一刀 QTE: time nearly stops, a gold ring closes on the cut button (and on the hero); press 斩 as it lands = 一刀; miss = it
    *  passes and the 杀意 stays for the next time */
-  private qteT = -1; private ultOn = false; private qteW!: THREE.Mesh;
+  private qteT = -1; private ultOn = false; private qteW!: THREE.Mesh; private qteWin = false;
   private startQte() {
     if (this.qteT >= 0 || this.ultOn) return;
-    this.qteT = 0; slowmo(TUNE.qteTime * 1.3 + 0.2, 0.04); cue('timeSlow', 1);
+    this.qteT = 0; this.qteWin = false; slowmo(TUNE.qteTime * 1.3 + 0.2, 0.04); cue('timeSlow', 1);
   }
   private qteFrame(rdt: number) {
     if (this.qteT < 0) { this.hud.qte(null); this.qteW.visible = false; return; }
     this.qteT += rdt;
     const h = this.hero, k = this.qteT / TUNE.qteTime, win = k >= 0.72 && k <= 1.12;
-    this.hud.qte(Math.min(1, k), win);
-    this.qteW.visible = true; this.qteW.position.set(h.pos.x, 0.07, h.pos.z); this.qteW.scale.setScalar(0.9 + 2.6 * Math.max(0, 1 - k));
-    (this.qteW.material as THREE.MeshBasicMaterial).color.setHex(win ? 0xfff0b0 : 0xffb040);
+    // 11-18 (用户：「也不知道到底什么时机是正确的」): the window opening is heard and felt too — a blade's ring, a light buzz
+    if (win && !this.qteWin) { cue('bladeRing', 0.9); this.platform.vibrate('light'); }
+    this.qteWin = win;
+    this.hud.qteDt = rdt; this.hud.qte(Math.min(1, k), win);
+    this.qteW.visible = true; this.qteW.position.set(h.pos.x, 0.07, h.pos.z); this.qteW.scale.setScalar((0.9 + 2.6 * Math.max(0, 1 - k)) * (win ? 1.06 : 1));
+    (this.qteW.material as THREE.MeshBasicMaterial).color.setHex(win ? 0xfff6d8 : 0xc0601c);
     // 11-18 (用户：「不应该还是按普攻，高速战斗的时候经常都按不到」): 不见刀's own button (I / R2 / the button that pops up); the cut button
     // is left to cut
     const pressed = this.inp.b.ult.pressed;

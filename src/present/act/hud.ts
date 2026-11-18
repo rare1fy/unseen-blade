@@ -192,8 +192,12 @@ export class ActHud {
     const b = this.btns.ult, up = k != null;
     if (up && !this.ultUp && b instanceof IronBtn) b.kick(1.4, 0xffd060);
     this.ultUp = up; if (b instanceof IronBtn) { b.qteOn = up; b.hot = up; }
-    if (k == null) this.qteRing.hide(); else this.qteRing.show(b.x, b.y, b.size, k, hit);
+    // (the moment to press: the button itself jumps and glows white-gold too)
+    if (up && hit && !this.ultHit && b instanceof IronBtn) b.kick(1.2, 0xfff0c0);
+    this.ultHit = up && hit;
+    if (k == null) this.qteRing.hide(); else this.qteRing.show(b.x, b.y, b.size, k, hit, this.qteDt);
   }
+  private ultHit = false; qteDt = 1 / 60;
   /** 不见刀's button is up (the QTE): drawn, labelled, and the only time it takes a touch */
   private ultUp = false;
   /** act-29: a game moment on a button (a cut lands, a perfect dodge) */
