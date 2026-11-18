@@ -110,8 +110,11 @@ class AudioEngine {
   /** act-50 (用户：「sting_lose.mp3、sting_win.mp3 这两个文件没用上啊，我之前让替换胜利和失败的音效来着」): a sting played whole on its
    *  own bus (never stolen by the voice cap); the next music fades it out (stopSting) */
   private stingSrc: AudioBufferSourceNode[] = [];
+  private stingLast = { prefix: '', t: -9 };
   stingPlay(prefix: string, gain: number) {
     const ctx = this.ctx; if (!ctx) return; const v = variants(prefix); if (!v.length) return;
+    if (this.stingLast.prefix === prefix && this.now() - this.stingLast.t < 4 && this.stingSrc.length) return;   // still ringing: don't start it over
+    this.stingLast = { prefix, t: this.now() };
     const t = this.now(); this.sting.gain.cancelScheduledValues(t); this.sting.gain.setValueAtTime(1, t);
     const src = this.play(v[Math.floor(Math.random() * v.length)], { gain, jitter: 0, bus: 'sting', pri: 9 }); if (src) this.stingSrc.push(src);
   }
@@ -181,7 +184,7 @@ class AudioEngine {
   private musicWant = '';
   /** cross-fade to a music track (decoded now if needed; only the playing and the last one stay decoded). Same track: nothing. */
   async playMusic(name: string, fade = 1.6, offset = 0) {
-    const ctx = this.ctx; if (!ctx || this.musicWant === name) return; this.musicWant = name; this.stopSting(1.0);
+    const ctx = this.ctx; if (!ctx || this.musicWant === name) return; this.musicWant = name; this.stopSting(1.8);
     let b = this.buf.get(name);
     if (!b) { const d = await this.decodeName(name); if (!d) return; b = d; this.buf.set(name, d); }
     if (this.musicWant !== name) return;   // asked for another while decoding
