@@ -101,7 +101,7 @@ export function* unpackStage(file: Uint8Array, ctx: Ctx, root: THREE.Group, cut:
             ? glowMat(surface.glow)
             : new THREE.MaterialLoader().parse(surface.plain as never);
     const mesh = new THREE.Mesh(geometry, material);
-    mesh.name = surface.name;
+    mesh.name = surface.name; mesh.userData.packedStatic = true;
     mesh.matrix.fromArray(surface.matrix);
     mesh.matrix.decompose(mesh.position, mesh.quaternion, mesh.scale);
     mesh.castShadow = surface.shadow;

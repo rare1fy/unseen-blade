@@ -1,3 +1,4 @@
+import { OPT } from '../engine/perfOpts';
 // 可破坏物件的表现（act-19，用户：「希望场景中有各种可破坏的场景物件，也可以对敌人造成伤害那种」）：
 // 陶罐 / 木箱 / 草垛 / 火油坛 / 立柱的体素模型、挨打晃一下、碎裂飞碎块、火油坛引线冒火星 → 爆炸、地上烧一片火、立柱顺刀势倒下。
 // 规则全在 breakLogic.ts（纯逻辑，有测试）；这里只把它的事件变成画面，并维护碰撞（solids.ts）。
@@ -60,13 +61,13 @@ const GEO = new Map<string, THREE.Mesh[]>();
 function model(kind: keyof typeof BUILD, rot: 0 | 1 = 0) {
   if (rot) { const g = model(kind, 0); g.rotation.y = Math.PI / 2; const o = new THREE.Group(); o.add(g); return o; }
   if (!GEO.has(kind)) { const w = new VoxWorld(CELL); BUILD[kind](w); const ms = w.build({ rim: 0.3, edge: 0.16 }); for (const m of ms) m.geometry.translate(-CELL / 2 * 0, 0, 0); GEO.set(kind, ms); }
-  const g = new THREE.Group(); for (const m of GEO.get(kind)!) { const c = new THREE.Mesh(m.geometry, m.material); c.castShadow = m.castShadow; c.receiveShadow = true; g.add(c); } return g;
+  const g = new THREE.Group(); for (const m of GEO.get(kind)!) { const c = new THREE.Mesh(m.geometry, m.material); c.updateMatrix(); c.matrixAutoUpdate = !OPT.staticMatrices; c.castShadow = m.castShadow; c.receiveShadow = true; g.add(c); } return g;
 }
 const COVER_GEO = new Map<string, THREE.Mesh[]>();
 function coverModel(kind: CoverKind, rot: 0 | 1, rubble: boolean) {
   const key = kind + rot + (rubble ? 'r' : '');
   if (!COVER_GEO.has(key)) { const w = new VoxWorld(CELL); coverVox(w, kind, rot, rubble); COVER_GEO.set(key, w.build({ rim: 0.3, edge: 0.16 })); }
-  const g = new THREE.Group(); for (const m of COVER_GEO.get(key)!) { const c = new THREE.Mesh(m.geometry, m.material); c.castShadow = m.castShadow; c.receiveShadow = true; g.add(c); } return g;
+  const g = new THREE.Group(); for (const m of COVER_GEO.get(key)!) { const c = new THREE.Mesh(m.geometry, m.material); c.updateMatrix(); c.matrixAutoUpdate = !OPT.staticMatrices; c.castShadow = m.castShadow; c.receiveShadow = true; g.add(c); } return g;
 }
 /** shard colours per kind */
 const SHARDS: Record<string, number[]> = { pot: [COL.clay, COL.clayD, COL.clayL], crate: [COL.wood, COL.woodD, COL.woodL], hay: [COL.straw, COL.strawD, COL.strawL], oil: [COL.oil, COL.oilD, COL.seal], pillar: [COL.post, COL.postD, COL.postL],
