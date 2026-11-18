@@ -4,6 +4,7 @@ import { curve, mov, rot, snap, type Action, type Bone } from '../../actors/rig'
 import { POSE_AFTER, type PoseFn } from '../../bestiary/poseHooks';
 import type { BattleActor } from '../../bestiary/battle';
 import { attackBeats, attackBody } from './foe_motion';
+import { engagement, grip, stance, support as supportGrip, weaponArc, type GripKey } from './weapon_pose';
 
 type Bones = Record<string, Bone>;
 type Side = 'L' | 'R';
@@ -13,6 +14,18 @@ const angle = (r: number) => Math.atan2(Math.sin(r), Math.cos(r));
 const put = (b: Bone, x = 0, y = 0, z = 0) => b.rotation.set(x, y, z);
 const paired = (id: string, fn: PoseFn) => { POSE_AFTER[id] = fn; POSE_AFTER[id + '_e'] = fn; };
 const passive = (a: Action | null) => a?.name === 'fall' || a?.name === 'collapse' || a?.name === 'roar';
+const halberdSweep: readonly [GripKey, GripKey, GripKey] = [
+  [-0.53, 1.18, -0.18, -0.12, -1.72, PI], [-0.13, 1.04, 0.50, 0.04, -0.05, PI],
+  [0.32, 1.04, 0.42, 0.08, 1.22, PI],
+];
+const shieldCut: readonly [GripKey, GripKey, GripKey] = [
+  [-0.53, 1.58, 0.01, -1.97, -0.26, -0.72], [-0.25, 1.11, 0.60, 0.12, -0.02, -0.70],
+  [0.16, 0.78, 0.58, 0.44, 0.88, -0.55],
+];
+const axeSweep: readonly [GripKey, GripKey, GripKey] = [
+  [-0.58, 1.16, -0.10, -0.08, -1.85, PI / 2], [-0.12, 1.12, 0.58, 0.03, -0.12, PI / 2],
+  [0.32, 1.06, 0.53, 0.13, 1.27, PI / 2],
+];
 
 const down = new Vector3(0, -1, 0), wrist = new Vector3(), delta = new Vector3(), pole = new Vector3(), elbow = new Vector3();
 const inv = new Quaternion(), parentQ = new Quaternion();
@@ -87,15 +100,23 @@ paired('ly_halberd', (b, t, a, off, self) => {
   if (passive(a)) return;
   const n = a?.name;
   if (a && (n === 'thrust' || n === 'sweepHalberd')) {
-    const { load, fire, step } = beats(b, a);
+    const motion = attackBeats(a, n === 'sweepHalberd'), w = engagement(a);
+    const { load, hit: fire, hip: step } = motion;
+    attackBody(b, motion);
     const sweep = n === 'sweepHalberd';
-    legs(b, load, step);
-    rot(b.spine, -0.13 * load + 0.28 * fire, sweep ? -0.35 * load + 0.43 * fire : -0.22 * load, 0);
+    mov(b.hips, 0, -0.075 * step, 0.15 * step - 0.05 * load);
+    rot(b.spine, -0.13 * load + 0.28 * fire, sweep ? -0.50 * load + 0.45 * fire : -0.72 * w, 0);
     rot(b.neck, -0.16 * fire, 0, 0);
-    off.z += -0.12 * load + (sweep ? 0.18 : 0.49) * fire;
-    // 平端时戟杆从右腰送出。横扫先收到右侧，再让钩枝越过正前方。
-    hold(b, -0.22 - 0.1 * load + 0.12 * fire, 1.06 - 0.075 * fire, 0.28 - 0.20 * load + 0.22 * fire,
-      mix(-0.56, 0, Math.max(load, fire)), -0.19 + (sweep ? -1.26 * load + 1.17 * fire : 0.19 * (load + fire)), 0, 0.33);
+    stance(b, w, (sweep ? 0.14 : 0.35) * step);
+    hold(b, -0.24, 1.06, 0.28, -0.56, -0.19, 0, 0.31);
+    if (sweep) {
+      const { pitch, yaw, roll } = weaponArc(b, a, motion, 'R', ...halberdSweep, w);
+      supportGrip(b, -0.25, pitch, yaw, w, 0, roll);
+    } else {
+      const drive = Math.min(1, fire);
+      grip(b, 'R', -0.27 + 0.21 * drive, 1.12, -0.07 + 1.00 * drive, 0, 0, w);
+      supportGrip(b, 0.36 - 0.16 * drive, 0, 0, w);
+    }
     return;
   }
   if (n === 'hop' && a) {
@@ -175,38 +196,51 @@ paired('ly_rider', (b, t, a, off, self) => {
     turnHand(b, b.handR, aim(-0.11, fallSide * (PI * 0.62)));
     put(b.armL, -0.9 * bail, 0, 0.83 * bail); put(b.foreL, -0.4 - 0.45 * bail);
   } else {
-    hold(b, -0.43, 1.69 + bob + 0.08 * rear, 0.32 - 0.09 * pull, tilt, -0.22, 0);
-    handAt(b, 'L', handPoint.set(0.15, 1.62 + bob + rear * 0.10, 0.36 - 0.12 * pull), aim(-0.5, 0.08), false);
+    // 马抬蹄时枪尖已沿路压低，冲出去后不抬枪，只把握点送过马颈。
+    const level = gallop ? curve(k, [[0, 1], [0.80, 1], [1, 0]]) : paw ? curve(k, [[0, 0], [a!.at, 1]]) : 0;
+    grip(b, 'R', mix(-0.43, -0.35, level), 1.69 + bob + 0.08 * rear, 0.32 - 0.09 * pull + 0.30 * level,
+      mix(tilt, 0.035, level), -0.22 * (1 - level), 1);
+    grip(b, 'L', 0.15, 1.62 + bob + rear * 0.10, 0.36 - 0.12 * pull, -0.5, 0.08, 1);
   }
   off.y = 0;
 });
 
 paired('ly_shield', (b, t, a, off, self) => {
   if (passive(a)) return;
-  let load = 0, fire = 0, step = 0, cut = 0, open = 0;
-  if (a?.name === 'bash' || a?.name === 'cutAfter') {
+  let load = 0, fire = 0, step = 0, open = 0;
+  if (a?.name === 'cutAfter') {
+    const motion = attackBeats(a), w = engagement(a);
+    attackBody(b, motion);
+    mov(b.hips, 0, -0.09 * motion.hip, 0.10 * motion.hip);
+    rot(b.spine, 0.24 * motion.chest, -0.24 * motion.load + 0.30 * motion.chest, 0);
+    stance(b, w, 0.16 * motion.hip);
+    grip(b, 'L', 0.20 + 0.22 * w, 0.91, 0.32, -0.13, 0.40 * w, 1);
+    hold(b, -0.38, 0.87, 0.16, 0.39, -0.74);
+    weaponArc(b, a, motion, 'R', ...shieldCut, w);
+    return;
+  }
+  if (a?.name === 'bash') {
     ({ load, fire, step } = beats(b, a));
-    cut = a.name === 'cutAfter' ? fire : 0;
   }
   if (a?.name === 'stun') open = snap(a.k, [[0, 0], [0.09, 1], [0.22, 0.85], [0.84, 0.85], [1, 0]]);
   if (a?.name === 'bash') { off.set(0, 0, -0.14 * load + 0.34 * fire); put(b.spine, -0.1 * load + 0.32 * fire, -0.19 * load, 0); put(b.neck, -0.18 * fire); }
   if (load || step || open) legs(b, load + 0.45 * open, step * 0.85);
   const swing = (self as BattleActor).strideSwing;
   rot(b.chest, -0.25 * open, -0.42 * open, -0.1 * open);
-  put(b.offhand);
-  handAt(b, 'L', handPoint.set(0.10 + 0.51 * open + 0.16 * cut, 0.92 + 0.05 * load + 0.09 * fire - 0.19 * open,
-    0.34 - 0.12 * load + 0.17 * fire - 0.37 * open - 0.03 * swing), aim(-0.20 + 0.09 * fire + 0.34 * open, 1.48 * open + 0.68 * cut, -0.33 * open));
-  hold(b, -0.38 - 0.1 * load + 0.11 * cut, 0.87 + 0.25 * cut + 0.012 * Math.sin(t * 3), 0.16 + 0.27 * cut + 0.05 * swing,
-    0.39 - 0.46 * cut, -0.74 - 0.38 * (a?.name === 'cutAfter' ? load : 0) + 1.25 * cut);
+  grip(b, 'L', 0.10 + 0.51 * open, 0.92 + 0.05 * load + 0.09 * fire - 0.19 * open,
+    0.34 - 0.12 * load + 0.33 * fire - 0.37 * open - 0.03 * swing,
+    -0.20 + 0.20 * fire + 0.34 * open, 1.48 * open, 1, -0.33 * open);
+  hold(b, -0.38 - 0.1 * load, 0.87 + 0.012 * Math.sin(t * 3), 0.16 + 0.05 * swing, 0.39, -0.74);
 });
 
 paired('ly_xbow', (b, t, a, off, self) => {
   const n = a?.name, k = a?.k ?? 0;
   if (passive(a)) return;
-  let lift = 0, recoil = 0, down = 0, draw = 0;
+  let lift = 0, recoil = 0, down = 0, draw = 0, released = false;
   if (a && (n === 'aimXbow' || n === 'attack')) {
     recoil = beats(b, a, 'ranged').kick;
     lift = curve(k, [[0, 0], [a.at * 0.55, 1], [a.at, 1], [1, 0]]);
+    released = k >= a.at;
     off.z -= 0.10 * recoil;
   }
   if (n === 'reload') {
@@ -220,13 +254,11 @@ paired('ly_xbow', (b, t, a, off, self) => {
   rot(b.spine, -0.14 * recoil + 0.35 * down - 0.18 * draw, 0, 0);
   rot(b.neck, 0.22 * down - 0.12 * lift, 0, 0);
   if (down > 0) legs(b, 0.28 * down, 0.87 * down, 'L');
-  hold(b, -0.10 + 0.12 * down, 1.03 + 0.24 * lift + 0.08 * recoil - 0.04 * down + 0.01 * Math.sin(t * 3),
-    0.28 - 0.13 * recoil - 0.02 * lift + 0.16 * down + 0.06 * (self as BattleActor).strideSwing, pitch, -0.14 + 0.14 * lift, 0);
-  const q = aim(pitch, -0.14 + 0.14 * lift);
-  b.weapon.getWorldPosition(handPoint); b.root.worldToLocal(handPoint);
-  handPoint.add(axis.set(0.07, -0.035 + 0.15 * down, 0.30 + 0.13 * down - 0.20 * draw).applyQuaternion(q));
-  handAt(b, 'L', handPoint, q, false);
-  b.bolt.visible = n !== 'reload' || k > 0.69;
+  const yaw = -0.14 + 0.14 * lift;
+  grip(b, 'R', -0.24 + 0.18 * down, 1.03 + 0.24 * lift + 0.08 * recoil - 0.04 * down + 0.01 * Math.sin(t * 3),
+    0.28 - 0.13 * recoil - 0.02 * lift + 0.16 * down + 0.06 * (self as BattleActor).strideSwing, pitch, yaw, 1);
+  supportGrip(b, 0.39 + 0.13 * down - 0.20 * draw, pitch, yaw, 1, 0.08);
+  b.bolt.visible = n === 'reload' ? k > 0.69 : !released;
 });
 
 paired('ly_torch', (b, t, a, off, self) => {
@@ -238,8 +270,8 @@ paired('ly_torch', (b, t, a, off, self) => {
   rot(b.neck, 0.15 * load - 0.12 * fire, 0, 0);
   off.z += 0.13 * fire;
   const swing = (self as BattleActor).strideSwing;
-  hold(b, -0.39 - 0.05 * load + 0.18 * fire, 1.11 + 0.52 * load + 0.27 * fire, 0.27 - 0.45 * load + 0.31 * fire + 0.055 * swing,
-    0.02 + 0.08 * load - 0.38 * fire, -0.31 * load + 0.3 * fire);
+  grip(b, 'R', -0.39 - 0.08 * load + 0.21 * fire, 1.11 + 0.57 * load + 0.40 * fire,
+    0.27 - 0.53 * load + 0.36 * fire + 0.055 * swing, 0.02 - 0.88 * load - 0.40 * fire, -0.31 * load + 0.3 * fire, 1);
   put(b.armL, -0.58 * load + 0.36 * late - 0.12 + 0.35 * swing, 0, 0.2 + 0.59 * late);
   put(b.foreL, -0.54 - 0.37 * load);
   b.weapon.visible = n !== 'lob' || a!.k < a!.at || a!.k > 0.93;
@@ -254,7 +286,12 @@ const looter: PoseFn = (b, t, a, off, self) => {
   else rot(b.spine, 0.15, 0, 0);
   rot(b.neck, -0.16 * fire, 0, 0);
   put(b.cape, 0.03 * Math.sin(t * 6) - 0.12 * fire);
-  hold(b, -0.25, 0.94 - 0.05 * fire, 0.2 - 0.13 * load + 0.34 * fire + 0.06 * (self as BattleActor).strideSwing, 0.54 - 0.55 * fire, -0.38 + 0.38 * fire);
+  const swing = (self as BattleActor).strideSwing;
+  hold(b, -0.25, 0.94, 0.20 + 0.06 * swing, 0.54, -0.38);
+  if (a?.name !== 'attack') return;
+  const w = engagement(a);
+  grip(b, 'R', -0.26 + 0.13 * fire, 0.97 + 0.03 * fire, -0.12 + 0.78 * fire, 0, 0, w);
+  grip(b, 'L', 0.38 + 0.07 * fire, 0.97 + 0.12 * load, 0.20 - 0.41 * fire, -0.26, 0, w);
 };
 POSE_AFTER.ly_looter = looter;
 POSE_AFTER.ly_looter_b = looter;
@@ -269,8 +306,9 @@ function plantAxe(b: Bones, off: Vector3, t: number, s: number, strain = 0) {
   rot(b.spine, 0.56 * s - 0.08 * strain, 0, 0);
   rot(b.neck, -0.32 * s, 0, 0);
   off.z += 0.26 * s;
-  hold(b, mix(-0.34, -0.13, s), mix(1.22 + 0.012 * Math.sin(t * 3), 1.03, s), mix(0.3, 0.50, s),
-    mix(-1.15, 0.108, s), -0.76 * (1 - s), mix(0.18, 1.25, s), -0.22);
+  const pitch = mix(-1.15, 0.108, s), yaw = -0.76 * (1 - s), roll = 0.18 * (1 - s);
+  grip(b, 'R', mix(-0.34, -0.13, s), mix(1.22 + 0.012 * Math.sin(t * 3), 1.03, s), mix(0.3, 0.50, s), pitch, yaw, 1, roll);
+  supportGrip(b, -0.33, pitch, yaw, s, 0, roll);
 }
 
 POSE_AFTER.ly_boss = (b, t, a, off, self) => {
@@ -279,13 +317,15 @@ POSE_AFTER.ly_boss = (b, t, a, off, self) => {
   if (passive(a)) return;
   const attack = a && (n === 'axeSweep' || n === 'ram' || n === 'axeThrow' || n === 'kick');
   const { load, fire, step } = attack ? beats(b, a, 'melee', true) : { load: 0, fire: 0, step: 0 };
-  if (n === 'axeSweep') {
+  if (n === 'axeSweep' && a) {
     legs(b, 0.62 * load, 0.74 * step);
     rot(b.hips, 0, -0.26 * load + 0.33 * fire, 0);
     rot(b.spine, 0.19 * fire, -0.35 * load + 0.35 * fire, -0.13 * load + 0.16 * fire);
     off.z += 0.28 * fire - 0.10 * load;
-    hold(b, -0.34 - 0.15 * load + 0.28 * fire, 1.22 - 0.11 * load, 0.30 - 0.17 * load + 0.17 * fire,
-      -1.15 + 1.06 * load + 1.15 * fire, -0.76 - 0.85 * load + 1.65 * fire, 0.18, -0.3);
+    axeReady(b, t, 0);
+    const w = engagement(a);
+    const { pitch, yaw, roll } = weaponArc(b, a, attackBeats(a, true), 'R', ...axeSweep, w);
+    supportGrip(b, -0.37, pitch, yaw, w, 0, roll);
     return;
   }
   if (a && n === 'axeChop') {
@@ -301,8 +341,10 @@ POSE_AFTER.ly_boss = (b, t, a, off, self) => {
     rot(b.spine, -0.23 * lift + 0.56 * hit, 0, 0);
     rot(b.neck, -0.25 * lift - 0.32 * hit, 0, 0);
     off.z += 0.26 * hit - 0.08 * lift;
-    hold(b, -0.34 + 0.15 * lift + 0.21 * hit, 1.22 + 0.72 * lift - 0.19 * hit,
-      0.30 - 0.39 * lift + 0.20 * hit, -1.15 - 0.82 * lift + 1.258 * hit, -0.76 * (1 - s), 0.18 + 1.07 * hit, -0.22);
+    const pitch = -1.15 - 0.92 * lift + 1.258 * hit, yaw = -0.76 * (1 - s), roll = 0.18 * (1 - s);
+    grip(b, 'R', -0.34 - 0.11 * lift + 0.21 * hit, 1.22 + 0.67 * lift - 0.19 * hit,
+      0.30 - 0.25 * lift + 0.20 * hit, pitch, yaw, 1, roll);
+    supportGrip(b, -0.33, pitch, yaw, s, 0, roll);
     return;
   }
   if (n === 'axeStuck') {
@@ -315,7 +357,9 @@ POSE_AFTER.ly_boss = (b, t, a, off, self) => {
     const rush = n === 'ramRun' ? curve(runTime, [[0, 1], [0.49, 1], [a.dur, 0]]) : fire;
     if (n === 'ram') legs(b, 0.68 * load + 0.17 * rush, 0.34 * step);
     rot(b.spine, 0.27 * load + 0.36 * rush, -0.20 * rush, 0);
-    hold(b, -0.34, 1.22 - 0.2 * rush, 0.3 + 0.07 * rush, -1.15 + 1.06 * Math.max(load, rush), -0.76 - 0.68 * Math.max(load, rush), 0.18, -0.26);
+    const brace = Math.max(load * 0.74, rush), pitch = -1.15 * (1 - brace), yaw = -0.76 * (1 - brace);
+    grip(b, 'R', -0.34 + 0.15 * brace, 1.22 - 0.15 * rush, 0.30 + 0.32 * rush - 0.19 * load, pitch, yaw, 1);
+    supportGrip(b, -0.33, pitch, yaw, brace);
     return;
   }
   if (n === 'dazed') {
@@ -326,14 +370,15 @@ POSE_AFTER.ly_boss = (b, t, a, off, self) => {
     hold(b, -0.34, 1.19 - 0.19 * stun, 0.28, -1.15 + 1.57 * stun, -0.76 - 0.7 * stun);
     return;
   }
-  if (n === 'axeThrow') {
+  if (n === 'axeThrow' && a) {
     legs(b, 0.45 * load, 0.61 * step);
     rot(b.spine, -0.31 * load + 0.38 * fire, -0.25 * load, 0);
-    if (b.weapon.visible) hold(b, -0.34 + 0.17 * load, 1.22 + 0.72 * load, 0.3 - 0.53 * load, -1.15 - 0.99 * load, -0.76 + 0.72 * load, 0.18, 0.25);
-    else {
-      put(b.armR, -1.56 * fire, 0, -0.14 * fire); put(b.foreR, -0.32 - 0.35 * fire);
-      put(b.armL, -1.67 * fire, 0, 0.19 * fire); put(b.foreL, -0.42 - 0.2 * fire);
-    }
+    axeReady(b, t, 0);
+    const w = engagement(a);
+    weaponArc(b, a, attackBeats(a, true), 'R',
+      [-0.43, 1.90, -0.27, -2.10, -0.31], [-0.19, 1.43, 0.73, 0.04, 0],
+      [-0.11, 1.07, 0.65, 0.49, 0.18], w);
+    grip(b, 'L', 0.49, 1.18 + 0.42 * load, 0.11 + 0.35 * load - 0.25 * fire, -0.3, 0, w);
     return;
   }
   if (!b.weapon.visible) {
