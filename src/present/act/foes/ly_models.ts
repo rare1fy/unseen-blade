@@ -326,13 +326,18 @@ function yanhu() {
   // 大钺横截面够宽，侧翼是整块直刃；从杆尾到斧刃都随 weapon 一起藏。
   axe(-1, -1, -20, 0, 0, 66, HIDE);
   axe(-1, -1, -23, 0, 0, -19, BLACK);
+  // 11-18 (用户：「这个飞熊校尉的武器方向不对，攻击是用斧背打人的」): the head stood out sideways (along x), so the chop came down on
+  // its flat and the sweep led with the back spike. It now stands out along the swing (local −y = the way he faces with the haft
+  // upright): the blade's edge leads, the spike trails. `head` takes the old x-across / y-thick numbers and turns them a quarter
+  // round the haft.
+  const head = (a0: number, b0: number, z0: number, a1: number, b1: number, z1: number, c: number) => axe(b0, a0, z0, b1, a1, z1, c);
   axe(-2, -2, 48, 1, 1, 65, BRONZE_D);
-  axe(-20, -1, 51, -3, 1, 63, IRON);
-  axe(-24, -1, 48, -21, 1, 66, EDGE);
-  axe(-20, 0, 52, -6, 2, 61, BLACK);
-  axe(-10, 1, 54, -3, 2, 58, BRONZE);
-  axe(2, -1, 54, 7, 1, 61, IRON);
-  axe(8, -1, 55, 9, 1, 60, EDGE);
+  head(-20, -1, 51, -3, 1, 63, IRON);
+  head(-24, -1, 48, -21, 1, 66, EDGE);
+  head(-20, 0, 52, -6, 2, 61, BLACK);
+  head(-10, 1, 54, -3, 2, 58, BRONZE);
+  head(2, -1, 54, 7, 1, 61, IRON);
+  head(8, -1, 55, 9, 1, 60, EDGE);
   axe(-2, -2, 45, 1, 1, 47, GOLD_D);
   // 泼地那一招脚边的铁槽。翻过去之后接场地上的现成铁水效果。
   v.bone('trough', 'root', 6, 3, 23);
