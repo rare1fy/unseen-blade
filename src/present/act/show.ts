@@ -420,7 +420,7 @@ export class ActShow {
   private async coldOpen(): Promise<BlindPOV | null> {
     if (COLD_AS_CARDS) {
       const pov = new BlindPOV(this.L); pov.fill(0x000000, 1, true); this.hud.on = false; stopTitle();
-      void audio.playMusic('bgm_coldopen', 0.6);
+      this.musicHold = 'bgm_coldopen'; void audio.playMusic('bgm_coldopen', 0.6);   // (held through the walk; the ambush crossfades it out)
       await this.cine(coldCardShots(pov)); pov.fill(0x000000, 1, true);
       await frames(2); return pov;
     }
@@ -469,7 +469,6 @@ export class ActShow {
     void this.cine([
       // the year and the place, high over the village (act-37: the cold open's last card says 七年了)
       { dur: 3.6, ease: 'inOut', caption: { text: PRO_CAPTIONS[1], big: true, at: 0.6, hold: 2.3 }, from: { pos: [p0.x + 4, 17, p0.z + 15], look: [p0.x, 0, p0.z - 5], fov: 40 }, to: { pos: [p0.x + 3, 14, p0.z + 13], look: [p0.x, 0, p0.z - 5], fov: 40 },
-        at: [[0, () => { this.musicHold = null; void audio.playMusic('bgm_coldopen', 0.4); }]],
         tick: (_t, dt) => h.a.update(dt) },
       // she comes up the lane alone — from behind and to the side, the camera keeping pace, low enough to see her steps in the snow
       { dur: 5.4, ease: 'linear', from: () => ({ pos: [p0.x + 4.2, 3.0, h.pos.z + 5.8] as V, look: [p0.x, 0.9, h.pos.z - 1.5] as V, fov: 36 }), to: () => ({ pos: [p0.x + 3.8, 2.8, h.pos.z + 5.2] as V, look: [p0.x, 0.9, h.pos.z - 1.8] as V, fov: 36 }),
@@ -497,7 +496,7 @@ export class ActShow {
             const f = spawnFoe(ko.kind, from, h.pos.clone(), ko.elite); f.st = 'enter'; f.cd = 2.5; this.foes.push(f);
             jumpers.push({ f, from, to, t0: 0.12 + i * 0.22, landed: false });
           }
-          cue('roar', 0.35); void audio.playMusic(this.musicName(), 0.9);
+          cue('roar', 0.35); this.musicHold = null; void audio.playMusic(this.musicName(), 2.5);
         }]],
         tick: (t, dt) => {
           stand(); h.a.update(dt);
