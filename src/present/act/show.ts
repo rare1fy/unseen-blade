@@ -1478,8 +1478,8 @@ export class ActShow {
     if (!this.prologue && (this.regionIn || (language === 'en' && this.region === 0 && this.room === 0))) {
       this.regionIn = false; const rb = regionBanner(this.region);
       this.banner.show(rb.title, rb.sub, 2.6, '#ffe2b0');   // (act-50 用户：「获胜的时候会放一个短乐段，我不想要那个声音」: the old jingle is gone everywhere)
-      after(2.7, () => { if (this.phase === 'intro' || this.phase === 'fight') this.banner.show(msg`第一间 · ${info.name}`, msg`${name} · ${info.line}`, 1.4); });
-    } else if (!this.prologue) this.banner.show(msg`第 ${language === 'en' ? this.room + 1 : '一二三四五六七八'[this.room] ?? this.room + 1} 间 · ${info.name}`, msg`${name} · ${info.line}`, 1.6);
+      after(2.7, () => { if (this.phase === 'intro' || this.phase === 'fight') this.banner.show(msg`第一间 · ${info.name}`, '', 1.4); });
+    } else if (!this.prologue) this.banner.show(msg`第 ${language === 'en' ? this.room + 1 : '一二三四五六七八'[this.room] ?? this.room + 1} 间 · ${info.name}`, '', 1.6);   // (11-19 用户：「每次进房间横幅上都有个很小的字，看得眼睛疼」: the title only)
     // the rooms without a fight: the stations stand ready and the roads are open at once
     if (this.plan && (this.plan.type === 'shop' || this.plan.type === 'rest' || this.plan.type === 'boon')) {
       this.stations = new Stations(this.stage!.root, this.arena?.shape?.fixed?.stations);
