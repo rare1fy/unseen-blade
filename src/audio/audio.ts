@@ -30,7 +30,7 @@ export const VOICE_LINES: Record<string, string> = {
 };
 
 class AudioEngine {
-  ctx: AudioContext | null = null; master!: GainNode; sfx!: GainNode; music!: GainNode; voice!: GainNode; lp!: BiquadFilterNode; duck!: GainNode; private bandHi?: BiquadFilterNode; private bandLo?: BiquadFilterNode; private bandK = 0;
+  ctx: AudioContext | null = null; master!: GainNode; sfx!: GainNode; music!: GainNode; voice!: GainNode; lp?: BiquadFilterNode; private noFilter = false; duck!: GainNode; private bandHi?: BiquadFilterNode; private bandLo?: BiquadFilterNode; private bandK = 0;
   /** 11-18 混音 (用户：「音效……听起来很乱」): the hero's own sounds (her blade, her steps) on their own bus; the world's (foes, props,
    *  ambience) under `hush`, which dips when her blow lands; both send a little into a room reverb (setRoom) that glues them */
   /** act-50: the win / lose stings, whole (the user's own files run ~13 s) — on their own bus so the next scene's music can fade them */
@@ -62,20 +62,27 @@ class AudioEngine {
     this.master = ctx.createGain(); this.master.gain.value = 0.9; this.master.connect(comp); comp.connect(ctx.destination);
     // 11-19 新手引导的定格 / 慢放: the world's sound (not the voice) runs through a band that closes in toward the mids — slow motion
     // that sounds slow (用户：「慢动作时声音切掉高频和低频」)
-    this.bandHi = ctx.createBiquadFilter(); this.bandHi.type = 'highpass'; this.bandHi.frequency.value = 10; this.bandHi.Q.value = 0.7;
-    this.bandLo = ctx.createBiquadFilter(); this.bandLo.type = 'lowpass'; this.bandLo.frequency.value = 20000; this.bandLo.Q.value = 0.7;
-    this.bandHi.connect(this.bandLo); this.bandLo.connect(this.master);
-    this.duck = ctx.createGain(); this.duck.connect(this.bandHi);
+    // (11-19 安卓微信: 音乐、音效全无、只有配音 — the voice is the one bus without a BiquadFilter on its way; that phone's filter node
+    //  passes nothing. A mini-game (wechat/glue.js noFilter) builds the chain without filters: no tutorial band, no low-HP muffle)
+    const noFilter = !!(ctx as unknown as { noFilter?: boolean }).noFilter; this.noFilter = noFilter;
+    this.duck = ctx.createGain();
+    if (noFilter) this.duck.connect(this.master);
+    else {
+      this.bandHi = ctx.createBiquadFilter(); this.bandHi.type = 'highpass'; this.bandHi.frequency.value = 10; this.bandHi.Q.value = 0.7;
+      this.bandLo = ctx.createBiquadFilter(); this.bandLo.type = 'lowpass'; this.bandLo.frequency.value = 20000; this.bandLo.Q.value = 0.7;
+      this.bandHi.connect(this.bandLo); this.bandLo.connect(this.master); this.duck.connect(this.bandHi);
+    }
     this.hush = ctx.createGain(); this.hush.connect(this.duck);
     this.sfx = ctx.createGain(); this.sfx.gain.value = 0.72; this.sfx.connect(this.hush);
     this.hero = ctx.createGain(); this.hero.gain.value = 0.85; this.hero.connect(this.duck);
     this.sting = ctx.createGain(); this.sting.connect(this.duck);
     this.conv = ctx.createConvolver(); this.send = ctx.createGain(); this.wet = ctx.createGain(); this.wet.gain.value = 0;
     this.sfx.connect(this.send); this.hero.connect(this.send); this.send.connect(this.conv); this.conv.connect(this.wet); this.wet.connect(this.duck);
-    this.lp = ctx.createBiquadFilter(); this.lp.type = 'lowpass'; this.lp.frequency.value = 18000; this.lp.Q.value = 0.7;
     this.musicHush = ctx.createGain(); this.musicHush.connect(this.duck);
     // (act-43 反馈：「BGM要降低一点音量」: 0.42 → 0.3, about −3 dB)
-    this.music = ctx.createGain(); this.music.gain.value = MUSIC_BASE; this.music.connect(this.lp); this.lp.connect(this.musicHush);
+    this.music = ctx.createGain(); this.music.gain.value = MUSIC_BASE;
+    if (noFilter) this.music.connect(this.musicHush);
+    else { this.lp = ctx.createBiquadFilter(); this.lp.type = 'lowpass'; this.lp.frequency.value = 18000; this.lp.Q.value = 0.7; this.music.connect(this.lp); this.lp.connect(this.musicHush); }
     this.setRoom(this.room);
     this.voice = ctx.createGain(); this.voice.gain.value = 1.0; this.voice.connect(this.master);
     void Promise.all((o.warm ?? []).map(n => this.warm(n))).then(() => firstSoundsIn());
@@ -195,6 +202,7 @@ class AudioEngine {
   noise(dur: number, o: { from: number; to: number; gain: number; type?: BiquadFilterType; q?: number; delay?: number }) {
     const ctx = this.ctx; if (!ctx || this.muted) return;
     const n = Math.floor(ctx.sampleRate * dur), b = ctx.createBuffer(1, n, ctx.sampleRate), d = b.getChannelData(0); for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+    if (this.noFilter) return;   // (a mini-game: filtered noise passes nothing on Android, raw noise would hiss — skipped)
     const src = ctx.createBufferSource(); src.buffer = b; const f = ctx.createBiquadFilter(); f.type = o.type ?? 'bandpass'; f.Q.value = o.q ?? 1.2;
     const t = this.now() + (o.delay ?? 0); f.frequency.setValueAtTime(o.from, t); f.frequency.exponentialRampToValueAtTime(Math.max(20, o.to), t + dur);
     const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(o.gain, t + dur * 0.15); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
@@ -266,7 +274,7 @@ class AudioEngine {
     g.cancelScheduledValues(t); g.setValueAtTime(g.value, t); g.linearRampToValueAtTime(base * k, t + 0.25); g.setValueAtTime(base * k, t + hold); g.linearRampToValueAtTime(base, t + hold + back);
   }
   /** 0 = open, 1 = muffled (low HP) */
-  muffle(k: number) { if (!this.ctx) return; this.lp.frequency.setTargetAtTime(18000 * Math.pow(1 - k * 0.92, 2) + 600 * k, this.now(), 0.4); }
+  muffle(k: number) { if (!this.ctx || !this.lp) return; this.lp.frequency.setTargetAtTime(18000 * Math.pow(1 - k * 0.92, 2) + 600 * k, this.now(), 0.4); }
   /** 11-19 the tutorial's slow motion / freeze: 0 = the full band, 1 = only the mids (≈ 350 Hz – 2.4 kHz); eased */
   slowBand(k: number) {
     if (!this.ctx || !this.bandHi || !this.bandLo) return; k = Math.max(0, Math.min(1, k)); if (Math.abs(k - this.bandK) < 0.02) return; this.bandK = k;

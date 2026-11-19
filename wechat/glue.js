@@ -323,6 +323,9 @@ globalThis.__ubWxAudio = function () {
     get state() { return native.state; },
     get destination() { return native.destination; },
     noReverb: !native.createConvolver,
+    // 11-19 (安卓真机：音乐和音效全无、只有配音): the voice bus is the only one that skips the BiquadFilters — Android WeChat's filter
+    // node lets nothing through. No filters in the chain there (src/audio/audio.ts: no low-HP muffle, no tutorial band)
+    noFilter: true,
     resume: function () { try { return __ubPromise(native.resume()); } catch (e) { return Promise.reject(e); } },
     suspend: function () { try { return __ubPromise(native.suspend()); } catch (e) { return Promise.reject(e); } },
     decodeAudioData: function (buffer) {
