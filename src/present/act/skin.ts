@@ -103,18 +103,23 @@ export function stickFace(skin: SkinId, knob: boolean) {
 }
 /** a banner plaque: the title big, the subtitle small; returns the texture and its size in art px */
 export function bannerFace(skin: SkinId, title: string, sub: string, titleCol?: string) {
-  const ts = 2, tw = Math.ceil(textW(title, ts)), maxLine = language === 'en' ? Math.max(330, tw) : 180;
-  const bodySize = language === 'en' ? 14 : 10;
+  // (11-19 用户：「过关和波次切换的横幅调整一下吧，调宽调大，现在太小了有点，英文还会超框」: a wider plaque (a floor on its width,
+  //  so 「清场」 isn't a stub), a bigger subtitle, and every width measured at the size it is drawn — the HD font measured at 10–14 px came
+  //  out narrower than the same text drawn 8× larger, so English ran past the iron frame)
+  const S0 = 8, ts = 2, tw = Math.ceil(textW(title, ts)), maxLine = language === 'en' ? Math.max(340, tw) : Math.max(260, tw);
+  const bodySize = language === 'en' ? 13 : 12, PAD = 18;
+  const measure = (line: string, px: number) => bodyW(line, px * S0) / S0;
   sub = localize(sub);
   let lines = sub ? [sub] : [];
-  if (sub && language === 'en') lines = wrapWords(sub, maxLine, line => bodyW(line, bodySize));
-  else if (sub && bodyW(sub, 10) > maxLine) {
+  if (sub && language === 'en') lines = wrapWords(sub, maxLine, line => measure(line, bodySize));
+  else if (sub && measure(sub, bodySize) > maxLine) {
     const chars = [...sub], mid = Math.ceil(chars.length / 2);
     lines = [chars.slice(0, mid).join(''), chars.slice(mid).join('')];
   }
-  const bodyPx = lines.length ? Math.min(bodySize, bodySize * maxLine / Math.max(...lines.map(line => bodyW(line, bodySize)))) : bodySize;
-  const sw = lines.length ? Math.ceil(Math.max(...lines.map(line => bodyW(line, bodyPx)))) : 0;
-  const W = Math.max(tw, sw) + 20, H = PIX_H * ts + (lines.length ? Math.ceil(bodyPx * 1.3) * lines.length + 4 : 0) + 12, a = art(W, H, 8), pal = PALETTE[skin];
+  const bodyPx = lines.length ? Math.min(bodySize, bodySize * maxLine / Math.max(...lines.map(line => measure(line, bodySize)))) : bodySize;
+  const sw = lines.length ? Math.ceil(Math.max(...lines.map(line => measure(line, bodyPx)))) : 0;
+  const lineH = Math.ceil(bodyPx * 1.4);
+  const W = Math.max(200, Math.max(tw, sw) + PAD * 2), H = PIX_H * ts + (lines.length ? lineH * lines.length + 5 : 0) + 16, a = art(W, H, S0), pal = PALETTE[skin];
   if (skin === 'bamboo') {
     for (let i = 0; i < W; i++) a.P(i, 0, 1, H, i % 5 === 0 ? '#6e5630' : Math.floor(i / 5) % 2 ? '#c9ad6a' : '#b89a58');
     a.P(0, 2, W, 1, '#4a2e16'); a.P(0, H - 3, W, 1, '#4a2e16');
@@ -129,8 +134,8 @@ export function bannerFace(skin: SkinId, title: string, sub: string, titleCol?: 
     for (const [x, y] of [[0, 0], [W - 4, 0], [0, H - 4], [W - 4, H - 4]]) a.P(x, y, 4, 4, '#b8302a');
   }
   const S = a.S;
-  text(a.g, title, (W * S - textW(title, ts * S)) / 2, 5 * S, ts * S, titleCol ?? pal.title, 'left', skin === 'bamboo' ? null : '#0a0708');
-  lines.forEach((line, i) => bodyText(a.g, line, W * S / 2, (PIX_H * ts + 7 + i * Math.ceil(bodyPx * 1.3)) * S, bodyPx * S, pal.sub, 'center'));
+  text(a.g, title, (W * S - textW(title, ts * S)) / 2, 7 * S, ts * S, titleCol ?? pal.title, 'left', skin === 'bamboo' ? null : '#0a0708');
+  lines.forEach((line, i) => bodyText(a.g, line, W * S / 2, (PIX_H * ts + 10 + i * lineH) * S, bodyPx * S, pal.sub, 'center'));
   const t = tex(a.c); t.magFilter = t.minFilter = THREE.LinearFilter;
   return { t, W, H };
 }
@@ -298,7 +303,8 @@ export class SkinBanner {
     if (!this.m) return;
     this.t += dt; const L = this.L, inT = Math.min(1, this.t / 0.22), out = Math.max(0, (this.t - 0.22 - this.hold) / 0.25);
     if (out >= 1) { this.clear(); return; }
-    const scale = Math.min(L.w * (language === 'en' ? 0.57 : 0.3) / this.W, L.h * (language === 'en' ? 0.17 : 0.09) / this.H), wpx = this.W * scale, hpx = this.H * scale;
+    // one scale for every banner (art px → screen px), so 「清场」 and a two-line room banner have the same letter size; only a very wide one shrinks to fit
+    const scale = Math.min(L.h * 1.7 / 720, L.w * 0.8 / this.W), wpx = this.W * scale, hpx = this.H * scale;
     const top = L.h * (this.bossOn() ? 0.13 : 0.05);
     this.bottomY = top + hpx;
     L.at(L.w / 2, top + hpx / 2 - (1 - inT) * 30 - out * 30, 0, this.m.position);
