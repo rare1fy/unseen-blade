@@ -162,7 +162,7 @@ function disposeTree(o: THREE.Object3D) {
 export type BtnKey = 'attack' | 'dash' | 'special' | 'jump' | 'ult';
 const GLYPH: Record<BtnKey, string> = { attack: '斩', dash: '冲', special: '镖', jump: '跳', ult: '绝' };
 export class SkinBtn {
-  root = new THREE.Group(); x = 0; y = 0; size = 80; down = false; pid = -1; cd = 0; charge = 0; hot = false;
+  root = new THREE.Group(); x = 0; y = 0; size = 80; down = false; pid: number | null = null; cd = 0; charge = 0; hot = false;
   private faceMat: THREE.MeshLambertMaterial; private cover: THREE.Mesh; private fill: THREE.Mesh; private pressK = 0; private flashT = 0; private wasReady = true; private tt = 0; private wasFull = false;
   private D = 0.16;
   constructor(private L: UiLayer, public name: BtnKey, private sparks: UiSparks, skin: SkinId) {
@@ -200,8 +200,8 @@ export class SkinStick {
     L.scene.add(this.root);
   }
   /** s = the input's stick (origin and current thumb, CSS px); home / size = where and how big it rests */
-  update(s: { id: number; ox: number; oy: number; x: number; y: number }, home: { x: number; y: number }, size: number) {
-    const L = this.L, on = s.id >= 0, ox = on ? s.ox : home.x, oy = on ? s.oy : home.y;
+  update(s: { id: number | null; ox: number; oy: number; x: number; y: number }, home: { x: number; y: number }, size: number) {
+    const L = this.L, on = s.id !== null, ox = on ? s.ox : home.x, oy = on ? s.oy : home.y;
     L.at(ox, oy, 0, this.root.position); this.root.scale.setScalar(L.px(size));
     const dx = on ? s.x - s.ox : 0, dy = on ? s.y - s.oy : 0, d = Math.hypot(dx, dy), r = size * 0.32, k = d > r ? r / d : 1;
     this.knobG.position.set((dx * k) / size, (-dy * k) / size, 0.1);

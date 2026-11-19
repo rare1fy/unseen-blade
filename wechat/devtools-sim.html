@@ -71,15 +71,47 @@
       return o;
     }; }
   window.GameGlobal = window;
-  window.__simTouch = (type, x, y) => { const ev = { touches: type === 'end' ? [] : [{ identifier: 1, clientX: x, clientY: y }], changedTouches: [{ identifier: 1, clientX: x, clientY: y }], timeStamp: Date.now() }; for (const f of touch[type] || []) f(ev); };
+  // 11-19 ?hpplus=1 / ?hpplus=frozen — an iPhone in 高性能+ (act-91 / act-101 black screens): the game sees a bare `window` and a
+  // bare `GameGlobal.document` with no event or createElement methods, and GameGlobal carries the 高性能 / 高性能+ flags
+  const hpParam = q.get('hpplus');
+  const HPP = hpParam === '1' || hpParam === 'frozen';
+  window.__simTouch = (type, x, y, id) => {
+    const tid = id !== undefined ? id : (HPP ? -1428193215 : 1);
+    const t = { identifier: tid, clientX: x, clientY: y };
+    const ev = { touches: type === 'end' || type === 'cancel' ? [] : [t], changedTouches: [t], timeStamp: Date.now() };
+    for (const f of touch[type] || []) f(ev);
+  };
   window.__simErrors = []; addEventListener('error', e => window.__simErrors.push(String(e.message))); addEventListener('unhandledrejection', e => window.__simErrors.push('rejection ' + String(e.reason && e.reason.stack || e.reason)));
   // the runtime require()s game.js: its top-level `var`s are the module's own, not globals — so run it inside a function, as there
-  // 11-19 ?hpplus=1 — an iPhone in 高性能+ (act-91: a black screen, 「window.addEventListener is not a function」): the game sees a bare
-  // `window` with no event methods, and GameGlobal carries the 高性能 / 高性能+ flags
-  const HPP = q.get('hpplus') === '1';
-  if (HPP) { window.isIOSHighPerformanceMode = true; window.isIOSHighPerformanceModePlus = true; }
   const bareWindow = HPP ? { __bare: true } : undefined;
-  addEventListener('DOMContentLoaded', () => { fetch(base + 'game.js').then(r => r.text()).then(t => { try { if (HPP) new Function('HTMLDocument', 'Document', 'window', t + String.fromCharCode(10) + '//# sourceURL=game.js')(undefined, undefined, bareWindow); else new Function('HTMLDocument', 'Document', t + String.fromCharCode(10) + '//# sourceURL=game.js')(undefined, undefined); } catch (e) { window.__simErrors.push(String(e && e.stack || e)); throw e; } }); });
+  const bareDoc = HPP ? (hpParam === 'frozen' ? Object.freeze({ __bare: true }) : { __bare: true }) : undefined;
+  let simDoc = bareDoc;
+  const BIND_FNS = new Set(['requestAnimationFrame', 'cancelAnimationFrame', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval']);
+  const bareGlobal = HPP ? new Proxy({}, {
+    get(_t, prop) {
+      if (prop === 'document') return simDoc;
+      if (prop === 'isIOSHighPerformanceMode' || prop === 'isIOSHighPerformanceModePlus') return true;
+      const v = Reflect.get(window, prop, window);
+      return typeof v === 'function' && BIND_FNS.has(prop) ? v.bind(window) : v;
+    },
+    set(_t, prop, value) {
+      if (prop === 'document') { simDoc = value; return true; }
+      window[prop] = value;
+      return true;
+    },
+    has(_t, prop) {
+      if (prop === 'document' || prop === 'isIOSHighPerformanceMode' || prop === 'isIOSHighPerformanceModePlus') return true;
+      return prop in window;
+    }
+  }) : window;
+  addEventListener('DOMContentLoaded', () => {
+    fetch(base + 'game.js').then(r => r.text()).then(t => {
+      try {
+        if (HPP) new Function('HTMLDocument', 'Document', 'window', 'GameGlobal', 'document', t + String.fromCharCode(10) + '//# sourceURL=game.js')(undefined, undefined, bareWindow, bareGlobal, bareDoc);
+        else new Function('HTMLDocument', 'Document', t + String.fromCharCode(10) + '//# sourceURL=game.js')(undefined, undefined);
+      } catch (e) { window.__simErrors.push(String(e && e.stack || e)); throw e; }
+    });
+  });
 })();
 </script>
 <body></body>

@@ -102,9 +102,11 @@ var __ubDiag = typeof __UB_NO_DIAG === 'undefined';
   } catch (e) { /* console is read-only */ }
 })();
 
-var self = GameGlobal.self;
-var navigator = GameGlobal.navigator;
-var performance = GameGlobal.performance;
+var self = GameGlobal.self || GameGlobal;
+var navigator = GameGlobal.navigator || { userAgent: 'minigame', language: 'zh-CN' };
+var performance = (GameGlobal.performance && typeof GameGlobal.performance.now === 'function')
+  ? GameGlobal.performance
+  : (function () { var t0 = Date.now(); return { now: function () { return Date.now() - t0; } }; })();
 var localStorage = {
   getItem: function (key) {
     var value = wx.getStorageSync(key);
@@ -161,23 +163,66 @@ function fetch(file) {
   });
 }
 
-var createElement = document.createElement;
+// 11-19 (iOS 高性能+ black screen:「undefined is not an object (evaluating 'createElement.call')」): under 高性能+ the runtime can
+// expose a bare non-DOM `GameGlobal.document` with no `createElement` / `addEventListener`. Guard `createElement` calls, fall back
+// cleanly when missing, and if `GameGlobal.document` itself is frozen, switch this module's `document` binding to a fresh stand-in
+// (never touching a real `nodeType === 9` DOM Document).
+var createElement = document && typeof document.createElement === 'function' ? document.createElement : null;
 function makeElement(name) {
-  if (String(name).toLowerCase() !== 'img') return createElement.call(document, name);
-  var image = wx.createImage();
-  if (typeof image.addEventListener !== 'function') {
-    image.addEventListener = function (event, fn) { image['on' + event] = fn; };
-    image.removeEventListener = function (event, fn) {
-      if (image['on' + event] === fn) image['on' + event] = null;
-    };
+  var tag = String(name).toLowerCase();
+  if (tag === 'img') {
+    var image = wx.createImage();
+    if (typeof image.addEventListener !== 'function') {
+      image.addEventListener = function (event, fn) { image['on' + event] = fn; };
+      image.removeEventListener = function (event, fn) {
+        if (image['on' + event] === fn) image['on' + event] = null;
+      };
+    }
+    return image;
   }
-  return image;
+  if (createElement) return createElement.call(document, name);
+  var noop = function () {};
+  if (tag === 'canvas') {
+    var cv = wx.createCanvas();
+    if (!cv.style) cv.style = {};
+    if (!cv.addEventListener) { cv.addEventListener = noop; cv.removeEventListener = noop; }
+    return cv;
+  }
+  return { style: {}, appendChild: noop, append: noop, addEventListener: noop, removeEventListener: noop, setAttribute: noop, click: noop };
 }
 // A real Document (nodeType 9) belongs to the devtools page and is never touched — whatever realm it comes from: in the devtools
 // `HTMLDocument` isn't visible to the game, so act-56's `instanceof HTMLDocument` test let the patch through, createElement (writable
 // there) was replaced, and called bare it threw 「Illegal invocation」 (act-57). Only the adapter's stand-in (a plain object) is patched.
 if (!(document && document.nodeType === 9)) {
-  try { document.createElement = makeElement; document.createElementNS = function (_ns, name) { return makeElement(name); }; } catch (e) { /* a frozen document */ }
+  if (!document || (typeof document !== 'object' && typeof document !== 'function')) document = {};
+  var noopDoc = function () {};
+  var makeNS = function (_ns, name) { return makeElement(name); };
+  var putDoc = function (target, k, v, isFn) {
+    if (isFn ? typeof target[k] === 'function' : target[k]) return;
+    try { target[k] = v; } catch (e) {
+      try { Object.defineProperty(target, k, { value: v, configurable: true, writable: true }); } catch (e2) { /* frozen */ }
+    }
+  };
+  try { document.createElement = makeElement; } catch (e) {
+    try { Object.defineProperty(document, 'createElement', { value: makeElement, configurable: true, writable: true }); } catch (e2) { /* frozen */ }
+  }
+  try { document.createElementNS = makeNS; } catch (e) {
+    try { Object.defineProperty(document, 'createElementNS', { value: makeNS, configurable: true, writable: true }); } catch (e2) { /* frozen */ }
+  }
+  putDoc(document, 'addEventListener', noopDoc, true);
+  putDoc(document, 'removeEventListener', noopDoc, true);
+  putDoc(document, 'body', { appendChild: noopDoc, append: noopDoc }, false);
+  putDoc(document, 'documentElement', { style: {} }, false);
+  if (document.createElement !== makeElement || typeof document.createElementNS !== 'function' || typeof document.addEventListener !== 'function' || !document.body || !document.documentElement) {
+    document = {
+      createElement: makeElement,
+      createElementNS: makeNS,
+      addEventListener: noopDoc,
+      removeEventListener: noopDoc,
+      body: { appendChild: noopDoc, append: noopDoc },
+      documentElement: { style: {} }
+    };
+  }
 }
 
 // 11-18 (act-65 on a phone: a picture, no sound): WeChat's WebAudioContext, shaped like the browser's AudioContext for src/audio. What
@@ -240,7 +285,10 @@ function __ubAutomate(ctx) {
     if (!node) return node;
     for (var k = 0; k < __ubParamNames.length; k++) {
       var p = node[__ubParamNames[k]];
-      if (!p || typeof p !== 'object' || !('value' in p) || typeof p.setTargetAtTime === 'function') continue;
+      // 11-19 (安卓真机「一直没音乐」, effects fine): some Android WeChat params carry the scheduling methods but don't run them —
+      // the music's fade-in (gain 0 → ramp to 1) stayed at 0 while effects (gain set by `.value`) played. Every param is driven
+      // from JS here, whatever the runtime claims to have (one behaviour on every phone; iOS already ran this path).
+      if (!p || typeof p !== 'object' || !('value' in p) || p.__ev) continue;
       try {
         p.__ev = []; p.__on = false; p.__v = p.value; p.__t = 0;
         p.setValueAtTime = function (v, t) { begin(this); return add(this, { k: 'set', t: t, v: v }); };

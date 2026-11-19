@@ -378,7 +378,7 @@ export class Duel {
       this.sparkT -= rdt; if (this.sparkT <= 0) { this.sparkT = 0.09 - 0.03 * k; fxSparks(this.contact, 0xffd890, 2 + Math.round(k), 2.5 + 2 * k, { life: 0.07 }); }
       this.dustT -= rdt; if (this.dustT <= 0) { this.dustT = 0.5; dustBlocks(h.pos.clone(), 2, this.u.clone().multiplyScalar(-1)); }
       this.hum = 0.35 + 0.65 * k;
-      this.downT = Math.max(0, this.downT - rdt); const btn = this.host.hud().btns.attack as { down?: boolean; pid?: number }; if (this.downT <= 0 && btn.pid === -1 && inp.lastDevice !== 'touch') btn.down = false;
+      this.downT = Math.max(0, this.downT - rdt); const btn = this.host.hud().btns.attack as { down?: boolean; pid?: number | null }; if (this.downT <= 0 && btn.pid == null && inp.lastDevice !== 'touch') btn.down = false;
       this.drawClashUi(h, f, rdt, k);
       if (this.m >= 1 || (this.t >= this.dur && this.m > 0)) this.clashWin(h, f);
       else if (this.m <= -1 || this.t >= this.dur) this.clashLose(h, f);

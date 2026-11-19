@@ -20,7 +20,24 @@ export function createMinigamePlatform(api, name, opts = {}) {
     },
     query: k => { try { const q = (api.getLaunchOptionsSync && api.getLaunchOptionsSync().query) || {}; return q[k] ?? null; } catch (e) { return null; } },
     onPointer(fn) {
-      const each = type => e => { for (const t of e.changedTouches || []) fn({ type, id: t.identifier, x: t.clientX ?? t.x, y: t.clientY ?? t.y, raw: e }); };
+      // 11-19 (iOS 高性能+): WKWebView Touch.identifier can be a negative signed int32 (or -1), while UI/input code
+      // checks id >= 0 for active pointers. Map raw identifiers to positive ints (1, 2, ...) for each touch's lifetime.
+      const ids = new Map(); let nextId = 1;
+      const normId = (raw, type) => {
+        const key = raw == null || Number.isNaN(raw) ? '__default__' : raw;
+        let id = ids.get(key);
+        if (id === undefined) { id = nextId++; ids.set(key, id); }
+        if (type === 'up' || type === 'cancel') ids.delete(key);
+        return id;
+      };
+      const each = type => e => {
+        const list = e && e.changedTouches && e.changedTouches.length ? e.changedTouches : (type === 'move' && e && e.touches ? e.touches : []);
+        for (const t of list) fn({ type, id: normId(t.identifier, type), x: t.clientX ?? t.x ?? t.pageX ?? 0, y: t.clientY ?? t.y ?? t.pageY ?? 0, raw: e });
+        if ((type === 'up' || type === 'cancel') && Array.isArray(e && e.touches) && e.touches.length === 0) {
+          ids.clear();
+          if (nextId > 1e6) nextId = 1;
+        }
+      };
       api.onTouchStart(each('down')); api.onTouchMove(each('move')); api.onTouchEnd(each('up')); api.onTouchCancel(each('cancel'));
     },
     onResize(fn) { resizeFns.add(fn); if (api.onWindowResize) api.onWindowResize(() => { sys = api.getSystemInfoSync(); fn(); }); },

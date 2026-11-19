@@ -135,7 +135,7 @@ function voxIcon(rows: string[]) {
 // 浮雕），自己一个顶层物件浮在钮面上方，钮面上落着它的影子；平时轻轻上下浮、左右摆；转好时跳起转一圈；冷却时沉下去变暗；
 // 待发（反击 / 蓄满 / 见切时机）时抬高发光；按下时压回钮面。
 export class IronBtn {
-  root = new THREE.Group(); iconG = new THREE.Group(); x = 0; y = 0; size = 80; down = false; pid = -1; cd = 0; charge = 0; hot = false;
+  root = new THREE.Group(); iconG = new THREE.Group(); x = 0; y = 0; size = 80; down = false; pid: number | null = null; cd = 0; charge = 0; hot = false;
   /** a flash of white (the 见切 moment while holding the stance) */
   now = false;
   /** a move link open on this button right now (null = none) */
@@ -335,8 +335,8 @@ export class IronStick {
     this.knobG.position.z = 0.14; this.root.add(this.knobG);
     L.scene.add(this.root); batchUi(this.root);
   }
-  update(s: { id: number; ox: number; oy: number; x: number; y: number }, home: { x: number; y: number }, size: number) {
-    const L = this.L, on = s.id >= 0, ox = on ? s.ox : home.x, oy = on ? s.oy : home.y;
+  update(s: { id: number | null; ox: number; oy: number; x: number; y: number }, home: { x: number; y: number }, size: number) {
+    const L = this.L, on = s.id !== null, ox = on ? s.ox : home.x, oy = on ? s.oy : home.y;
     L.at(ox, oy, 0, this.root.position); this.root.scale.setScalar(L.px(size));
     const dx = on ? s.x - s.ox : 0, dy = on ? s.y - s.oy : 0, d = Math.hypot(dx, dy), r = size * 0.32, k = d > r ? r / d : 1;
     this.knobG.position.set((dx * k) / size, (-dy * k) / size, 0.14);

@@ -160,7 +160,7 @@ export class ActHud {
     // (the laid-out places: the 不见刀 button's coming in moves the others from here, see makeWay)
     for (const n of Object.keys(b) as BtnName[]) this.home[n] = { x: b[n].x, y: b[n].y, size: b[n].size };
   }
-  private pausePid = -1;
+  private pausePid: number | null = null;
   /** the portrait was let go over (show.ts opens the menu) */
   onPause: (() => void) | null = null;
   /** 11-18 (用户：「暂停按钮不要了，点头像暂停。」): the portrait medallion (and the purse hung under it) is the pause button now */
@@ -171,11 +171,18 @@ export class ActHud {
   private setBadgeDown(on: boolean) { if (this.flask instanceof IronHp) this.flask.down = on; }
   /** touch / mouse: the portrait, the buttons, else the bottom-left area is the stick. Returns true if used */
   pointer(type: string, id: number, x: number, y: number, inp: Input): boolean {
-    if (!this.on) return false;
+    if (!this.on) {
+      if (type === 'up' || type === 'cancel') {
+        if (this.pausePid === id) { this.setBadgeDown(false); this.pausePid = null; }
+        for (const b of Object.values(this.btns)) if (b.pid === id) { b.down = false; b.pid = null; }
+        inp.releaseAll(id);
+      }
+      return false;
+    }
     // the portrait: pressed, it sinks; let go over it, the menu opens (a slip off it cancels). The press that lands on it is the
     // portrait's alone (never a stick or a button press too); a finger already on the stick or a button is not touched by it
-    if (type === 'down' && this.pausePid < 0 && this.hitBadge(x, y)) { this.setBadgeDown(true); this.pausePid = id; return true; }
-    if (this.pausePid === id && (type === 'up' || type === 'cancel')) { const fire = type === 'up' && this.hitBadge(x, y); this.setBadgeDown(false); this.pausePid = -1; if (fire) this.onPause?.(); return true; }
+    if (type === 'down' && this.pausePid === null && this.hitBadge(x, y)) { this.setBadgeDown(true); this.pausePid = id; return true; }
+    if (this.pausePid === id && (type === 'up' || type === 'cancel')) { const fire = type === 'up' && this.hitBadge(x, y); this.setBadgeDown(false); this.pausePid = null; if (fire) this.onPause?.(); return true; }
     if (this.pausePid === id && type === 'move') { this.setBadgeDown(this.hitBadge(x, y)); return true; }
     if (type === 'down') {
       for (const b of Object.values(this.btns)) if ((b !== this.btns.ult || this.ultUp) && b.hit(x, y)) { b.down = true; b.pid = id; inp.press(b.name, id); if (b.name === 'special') inp.aimBegin(id, b.x, b.y, x, y); return true; }   // act-14 用户：「按操作的按钮不要有音效」
@@ -191,7 +198,7 @@ export class ActHud {
       return false;
     }
     if (type === 'move') { if (inp.aimMove(id, x, y)) return true; inp.stickMove(id, x, y); return inp.stick.id === id; }
-    if (type === 'up' || type === 'cancel') { for (const b of Object.values(this.btns)) if (b.pid === id) { b.down = false; b.pid = -1; } inp.releaseAll(id); return true; }
+    if (type === 'up' || type === 'cancel') { for (const b of Object.values(this.btns)) if (b.pid === id) { b.down = false; b.pid = null; } inp.releaseAll(id); return true; }
     return false;
   }
   /** the 绝·一刀 QTE: k 0 → 1 as the ring closes on the cut button; hit = inside the press window; null hides it */

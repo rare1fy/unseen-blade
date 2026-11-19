@@ -1,6 +1,7 @@
 // The cut button: a tap is decided at the release (held < TUNE.holdToCharge), a hold is not a tap (it is the 居合 stance) — act-12.
 // The ground warnings: who stands inside a 劈 / 扑 / 砸 / 箭 shape (the 见切 check and the hits use it).
 import { describe, it, expect } from 'vitest';
+import { createMinigamePlatform, type PxPointer } from 'pxui/platform/index.js';
 import { Input } from '../src/present/act/input';
 import { TUNE } from '../src/present/act/tune';
 import { inside } from '../src/present/act/tele';
@@ -58,5 +59,89 @@ describe('models', () => {
       expect(home, id).toBeTruthy();
       expect(imported(home!), `${id} (${home}) is imported somewhere`).toBe(true);
     }
+  });
+});
+
+describe('touch pointers (negative iOS identifiers)', () => {
+  it('Input tracks stick drags with negative pointer IDs and clears on release', () => {
+    for (const pid of [-1428193215, -1]) {
+      const inp = new Input();
+      inp.stick.r = 70;
+      inp.stickDown(pid, 100, 300);
+      inp.stickMove(pid, 160, 300);
+      inp.frame(1 / 60);
+      expect(Math.hypot(inp.move.x, inp.move.y)).toBeGreaterThan(0.3);
+      expect(inp.move.x).toBeGreaterThan(0.8);
+      inp.releaseAll(pid);
+      inp.frame(1 / 60);
+      expect(inp.stick.id).toBeNull();
+      expect(inp.move).toEqual({ x: 0, y: 0 });
+    }
+  });
+
+  it('Input keeps buttons held and dart aim dragging with negative pointer IDs', () => {
+    for (const pid of [-1428193215, -1]) {
+      const inp = new Input();
+      inp.press('attack', pid);
+      for (let i = 0; i < 16; i++) inp.frame(1 / 60);
+      expect(inp.b.attack.down).toBe(true);
+      expect(inp.b.attack.held).toBeGreaterThan(0.2);
+      inp.releaseAll(pid);
+      inp.frame(1 / 60);
+      expect(inp.b.attack.down).toBe(false);
+      expect(inp.b.attack.released).toBe(true);
+
+      inp.press('special', pid);
+      inp.aimBegin(pid, 700, 100, 700, 100);
+      expect(inp.aimMove(pid, 740, 100)).toBe(true);
+      const aim = inp.aimScreen();
+      expect(aim).not.toBeNull();
+      expect(aim!.x).toBeCloseTo(1, 5);
+      expect(aim!.y).toBeCloseTo(0, 5);
+      inp.releaseAll(pid);
+    }
+  });
+
+  it('createMinigamePlatform normalizes negative identifiers and isolates multi-touch fingers', () => {
+    const handlers: Record<string, Array<(e: any) => void>> = { start: [], move: [], end: [], cancel: [] };
+    const api = {
+      getSystemInfoSync: () => ({ windowWidth: 844, windowHeight: 390, pixelRatio: 2 }),
+      onTouchStart: (fn: (e: any) => void) => handlers.start.push(fn),
+      onTouchMove: (fn: (e: any) => void) => handlers.move.push(fn),
+      onTouchEnd: (fn: (e: any) => void) => handlers.end.push(fn),
+      onTouchCancel: (fn: (e: any) => void) => handlers.cancel.push(fn),
+    };
+    const emit = (kind: keyof typeof handlers, e: any) => { for (const fn of handlers[kind]) fn(e); };
+    const p = createMinigamePlatform(api, 'wx');
+    const seen: PxPointer[] = [];
+    p.onPointer(ev => { seen.push(ev); });
+
+    const stickRaw = -1428193215;
+    const btnRaw = -1;
+    emit('start', { changedTouches: [{ identifier: stickRaw, clientX: 110, clientY: 300 }], touches: [{ identifier: stickRaw, clientX: 110, clientY: 300 }] });
+    emit('start', {
+      changedTouches: [{ identifier: btnRaw, clientX: 720, clientY: 280 }],
+      touches: [{ identifier: stickRaw, clientX: 110, clientY: 300 }, { identifier: btnRaw, clientX: 720, clientY: 280 }],
+    });
+    // Empty changedTouches on move should fall back to touches
+    emit('move', {
+      changedTouches: [],
+      touches: [{ identifier: stickRaw, clientX: 180, clientY: 300 }, { identifier: btnRaw, clientX: 720, clientY: 280 }],
+    });
+    emit('end', { changedTouches: [{ identifier: btnRaw, clientX: 720, clientY: 280 }], touches: [{ identifier: stickRaw, clientX: 180, clientY: 300 }] });
+    emit('end', { changedTouches: [{ identifier: stickRaw, clientX: 180, clientY: 300 }], touches: [] });
+
+    expect(seen.length).toBe(6);
+    for (const ev of seen) {
+      expect(Number.isInteger(ev.id)).toBe(true);
+      expect(ev.id).toBeGreaterThanOrEqual(0);
+    }
+    const stickDown = seen[0], btnDown = seen[1], stickMove = seen[2], btnMove = seen[3], btnUp = seen[4], stickUp = seen[5];
+    expect(stickDown.id).not.toBe(btnDown.id);
+    expect(stickMove.id).toBe(stickDown.id);
+    expect(stickMove.x).toBe(180);
+    expect(btnMove.id).toBe(btnDown.id);
+    expect(btnUp.id).toBe(btnDown.id);
+    expect(stickUp.id).toBe(stickDown.id);
   });
 });

@@ -43,6 +43,7 @@ declare module 'pxui/platform/index.js' {
     attach?(UI: unknown): void;
   }
   export function createPlatform(opts?: { canvas?: any }): PxPlatform;
+  export function createMinigamePlatform(api: any, name: 'wx' | 'tt', opts?: { canvas?: any }): PxPlatform;
 }
 
 declare module 'pxui/core/pxui.js' {
