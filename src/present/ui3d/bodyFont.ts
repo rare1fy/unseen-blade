@@ -11,6 +11,7 @@ const families: Record<Exclude<BodyFont, 'pixel'>, string> = { wenkai: 'UBWenKai
 const urls = { wenkai: wenkaiUrl, serif: serifUrl, sans: sansUrl };
 const listeners = new Set<() => void>();
 function savedFont(): BodyFont {
+  if (!__DEBUG_UI__) return 'wenkai';   // (11-18: the packages have no font switch)
   try { const value = localStorage.getItem('ub.font') as BodyFont; if (value in BODY_FONT_NAME) return value; } catch { /* storage unavailable */ }
   return 'wenkai';
 }
@@ -57,16 +58,19 @@ function useFont(g: CanvasRenderingContext2D, px: number) {
   g.font = family ? `${px}px ${family}, sans-serif` : `${px}px sans-serif`;
   g.textBaseline = 'top';
 }
+/** 11-19: a string starting with this is drawn / measured as it is (no translation): text already in the reader's language, cut up */
+export const NOTR = '';
+const tr = (v: string) => (v.charCodeAt(0) === 1 ? v.slice(1) : t(v));
 export function bodyText(g: CanvasRenderingContext2D, value: string, x: number, y: number, px: number, color: string,
   align: 'left' | 'center' | 'right' = 'left', outline: string | null = null) {
-  value = t(value);
+  value = tr(value);
   if (BODY_FONT.current === 'pixel') return text(g, value, x, y, Math.max(1, Math.round(px / PIX_H)), color, align, outline);
   g.save(); useFont(g, px); g.textAlign = align; g.fillStyle = color;
   if (outline) { g.strokeStyle = outline; g.lineWidth = Math.max(1, Math.min(2, px * 0.1)); g.lineJoin = 'round'; g.strokeText(value, x, y); }
   g.fillText(value, x, y); g.restore();
 }
 export function bodyW(value: string, px: number) {
-  value = t(value);
+  value = tr(value);
   if (BODY_FONT.current === 'pixel') return textW(value, Math.max(1, Math.round(px / PIX_H)));
   if (typeof document === 'undefined') return value.length * px;
   const g = measureCtx ?? (measureCtx = document.createElement('canvas').getContext('2d')!);

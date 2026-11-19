@@ -58,6 +58,8 @@ export class FoeGait {
   private turn = 0;
   private settle = 0;
   private stopping = false;
+  /** the velocity over the ground, smoothed as a vector (a body pushed back and forth between a crate and its neighbours cancels out) */
+  private vx = 0; private vz = 0; private jostle = 0;
 
   constructor(a: BattleActor) {
     this.phase = wrap(a.t * 0.731);
@@ -72,12 +74,24 @@ export class FoeGait {
     const dx = a.home.x - this.lastX, dz = a.home.z - this.lastZ;
     const distance = Math.hypot(dx, dz), dyaw = angleDelta(a.yaw - this.lastYaw);
     this.lastX = a.home.x; this.lastZ = a.home.z; this.lastYaw = a.yaw;
-    const measured = dt > 0 ? distance / dt : 0;
+    // (11-19 用户：「敌人经常会被卡在场景可破坏建筑里原地跑」: measured frame by frame, a foe jostled between a prop and the crowd —
+    //  pushed in, pushed out, a few cm each frame — read as walking at a good pace and ran on the spot. The velocity is also smoothed as
+    //  a vector over ~0.12 s: where back-and-forth cancels out (the smoothed speed far below the frame's), it is jostling, not a walk.
+    //  A real walk keeps the frame's own distance, so the stride stays locked to the ground it covers and the planted foot holds)
+    // (jostling = this frame's step runs against the smoothed motion — a push back out after a push in; a walk starting from a stand,
+    //  every step the same way, is never taken for it)
+    const raw = dt > 0 ? distance / dt : 0, against = raw > 0.3 && dt > 0 && (dx * this.vx + dz * this.vz) / dt < -0.25 * raw * Math.hypot(this.vx, this.vz);
+    this.jostle = Math.max(0, Math.min(1, this.jostle + (against ? dt * 6 : -dt * 3)));
+    if (dt > 0 && raw < 12) { const f = 1 - Math.exp(-dt / 0.12); this.vx += (dx / dt - this.vx) * f; this.vz += (dz / dt - this.vz) * f; }
+    const measured = this.jostle > 0.3 ? Math.hypot(this.vx, this.vz) : raw;
     // Warps are not steps. Reported speed also supports actors on a treadmill.
     const moving = measured > 0.015 && measured < (a.act?.name === 'ramRun' ? 26 : 12);
     if (moving) this.heading = Math.atan2(dx, dz);
     else if (dt > 0) this.heading += angleDelta(a.yaw - this.heading) * (1 - Math.exp(-dt / 0.09));
-    const targetSpeed = active ? (moving ? measured : a.moveSpeed ?? (a.running ? 3 : a.walkK * 1.5)) : 0;
+    // (11-19 用户：「敌人经常会被卡在场景可破坏建筑里原地跑」: a foe knocked into a crate / cover is stopped there with its knock-back
+    //  speed still reported — the legs ran at that speed on the spot. Standing still, the reported speed counts only while it is asked to
+    //  run (the preview page's and the lab's treadmill); otherwise the legs follow where it actually goes)
+    const targetSpeed = active ? (moving ? measured : a.running ? a.moveSpeed ?? 3 : a.moveSpeed === undefined ? a.walkK * 1.5 : 0) : 0;
     const old = this.speed, filter = 1 - Math.exp(-dt / 0.075);
     this.speed += (targetSpeed - old) * filter;
     this.turn += ((dt > 0 ? dyaw / dt : 0) - this.turn) * filter;
@@ -332,9 +346,14 @@ export class FoeAccessories {
     for (const bone of this.ribbons) rot(bone, -0.42 * cloth, -0.30 * roll, 0.14 * roll);
     const swing = clamp((b.armR?.rotation.x ?? 0) + 0.6 * (b.foreR?.rotation.x ?? 0), -3, 3);
     const tip = this.tip.step(swing, dt, 21) - swing;
-    for (const bone of this.tips) rot(bone, clamp(0.07 * tip, -0.13, 0.13), -0.12 * roll, 0);
-    // A second hand locks the brute's haft during a swing and the head rests on the floor after a slam.
-    if (!(a.act?.name === 'attack' && (a.def.id === 'hj_brute' || a.def.id === 'hj_brute_e')))
+    // These poses already drive the blade or every chain link through the strike.
+    const name = a.act?.name;
+    const aimed = name === 'hjCut' || name === 'hjBackhand' || name === 'whirl' || name === 'slamChain'
+      || (name === 'attack' && a.def.id === 'cx_boss');
+    if (!aimed) for (const bone of this.tips) rot(bone, clamp(0.07 * tip, -0.13, 0.13), -0.12 * roll, 0);
+    // A rigid weapon driven by both hands or aimed down a lane cannot lag behind its grip.
+    const locked = name === 'attack' && /^(hj_(brute|mob)|xp_(diver|conscript))/.test(a.def.id);
+    if (!locked)
       rot(this.rigidTip, clamp(0.022 * tip, -0.047, 0.047), 0, 0);
   }
 }

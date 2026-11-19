@@ -1,8 +1,9 @@
 import { bladeWorking, drawLoadingBlade, setLoadingWarmup } from '../scenes/loadingBlade';
+import { drawBoot, bootBusy } from '../scenes/bootScreen';
 // Renderer + frame loop: real dt (capped) → game clock (hitstop / slowmo / speed) → updaters → dice → particles / prims →
 // camera rig (base + offset + trauma shake) → 3D render → UI render (pxui shares the WebGL context).
 import * as THREE from 'three';
-import { scene, camera, view, runUpdaters, runLateUpdaters, runRealUpdaters, V3, GL, padLights } from './world';
+import { scene, camera, view, runUpdaters, runLateUpdaters, runRealUpdaters, V3, GL, padLights, restoreLights, lightFocus } from './world';
 import { tick, FX, clock, PAUSE } from './clock';
 import { updateParticles } from './particles';
 import { updatePrims } from './prims';
@@ -10,14 +11,15 @@ import { updateDice } from '../dice/die3d';
 import type { Platform } from '../../platform/index';
 import { Post } from '../look/post';
 import { PX, onPixelChange } from '../look/pixel';
-import { gpuTimeInit, gpuMark, gpuFrameEnd, gpuCount } from './gpuTime';
-import { installShadowTiles } from './shadowTiles';
+import { frameTimer } from './frameMeter';
+import { gpuMeasuring, gpuTimeInit, gpuMark, gpuFrameEnd, gpuCount } from './gpuTime';
+import { updateStageTiles, installShadowTiles } from './shadowTiles';
 import { syncBatches } from './rigidBatch';
-import { CAPS } from './perfOpts';
+import { OPT, CAPS } from './perfOpts';
 import { tierNow, onQualityChange, qualityFrame, QUALITY } from '../look/quality';
 
 /** The camera rig: directors write base / look / fov / roll / shift; the loop adds shake and renders. */
-export const CAM = { base: V3(0, 12, 12), look: V3(0, 0, 0), fov: 30, off: V3(), shift: 0, shakeAmt: 0.22,
+export const CAM = { base: V3(0, 12, 12), look: lightFocus, fov: 30, off: V3(), shift: 0, shakeAmt: 0.22,
   /** 11-18 打击感: a push of the whole view (position and aim together, m) and a push-in (share of the distance to the aim) — set every
    *  frame by the game's springs, applied after the director's blend so they are not smoothed away */
   kick: V3(), zoom: 0 };
@@ -41,6 +43,7 @@ export function createGfx(platform: Platform, canvas: any, o: { preserve?: boole
     // without them it doesn't compile (water planes, glass, debris); a flat 0 there instead (it only softens specular on curved faces)
     if (!CAPS.derivatives) THREE.ShaderChunk.lights_physical_fragment = THREE.ShaderChunk.lights_physical_fragment.replace(/vec3 dxy = max\( abs\( dFdx\( nonPerturbedNormal \) \), abs\( dFdy\( nonPerturbedNormal \) \) \);\s*float geometryRoughness = [^;]*;/, 'float geometryRoughness = 0.0;');
     if (!CAPS.instancing || !CAPS.boneTex || !CAPS.derivatives) console.warn('[gfx] WebGL1 without ' + [!CAPS.instancing && 'instancing (particles, blood, leaves, debris are not drawn)', !CAPS.boneTex && 'float vertex textures (no part batching)', !CAPS.derivatives && 'derivatives (no block bevel lines, no flat shading)'].filter(Boolean).join(', ') + ' — the WeChat devtools simulator; phones have them'); }
+  const timer = frameTimer(renderer);
   const post = new Post(renderer);
   if (__WX__ && renderer.extensions.has('KHR_parallel_shader_compile')) {
     setLoadingWarmup(async () => {
@@ -52,7 +55,7 @@ export function createGfx(platform: Platform, canvas: any, o: { preserve?: boole
       try {
         renderer.setRenderTarget(post.rt);
         ready = renderer.compileAsync(scene, camera);
-      } finally { renderer.setRenderTarget(previous); }
+      } finally { renderer.setRenderTarget(previous); restoreLights(); }
       await ready;
     });
   }
@@ -67,18 +70,21 @@ export function createGfx(platform: Platform, canvas: any, o: { preserve?: boole
   /** ms: the real frame interval; logic / render: CPU time spent in the game update and in issuing the render (smoothed) */
   const stats = { calls: 0, tris: 0, ms: 16, logic: 0, render: 0 };
   const shk = V3(), lk = V3();
-  let last = platform.now();
+  let last = platform.now(), drawnAt = -1e9;
   return {
     renderer, stats, post,
     start(onFrame, afterRender) {
       const frame = () => {
         platform.raf(frame);
+        // 11-19 (用户：「手机发烫比较严重」): at most the tier's frame rate — on a 90 / 120 Hz screen the extra vsyncs are skipped (a
+        // small slack so a 60 Hz screen's own beat, a hair early, still draws every one)
+        { const now = platform.now(), gap = 1000 / tierNow().fps; if (now - drawnAt < gap - 2.5) return; drawnAt = now - Math.min(gap, Math.max(0, now - drawnAt - gap)); }
         if (bladeWorking()) {
           last = platform.now();
           drawLoadingBlade(renderer, view.w / Math.max(1, view.h));
           return;
         }
-        const now = platform.now(), real = Math.min(0.05, Math.max(0, (now - last) / 1000)); stats.ms += ((now - last) - stats.ms) * 0.05; qualityFrame(now - last); last = now;
+        const now = platform.now(), real = Math.min(0.05, Math.max(0, (now - last) / 1000)); const interval = now - last; stats.ms += ((now - last) - stats.ms) * 0.05; qualityFrame(now - last); last = now;
         const rdt0 = o.fixedDt != null ? o.fixedDt : real, rdt = PAUSE.on ? 0 : rdt0;   // paused: the world gets a zero step
         const t0 = platform.now(), dt = tick(rdt);
         runRealUpdaters(rdt0);
@@ -97,11 +103,15 @@ export function createGfx(platform: Platform, canvas: any, o: { preserve?: boole
         if (CAM.shift) camera.setViewOffset(view.w, view.h, 0, CAM.shift, view.w, view.h); else camera.clearViewOffset();
         camera.updateProjectionMatrix(); camera.updateMatrixWorld(true);
         const t1 = platform.now();
-        renderer.info.reset(); padLights(); syncBatches(); shadowTier(renderer, scene);
-        post.render(scene, camera, clock.rtime);
+        timer.begin(gpuMeasuring()); renderer.info.reset(); updateStageTiles(camera); padLights(); syncBatches(); shadowTier(renderer, scene);
+        try { post.render(scene, camera, clock.rtime); } finally { restoreLights(); }
+        const beforeText = renderer.info.render.calls;
+        gpuMark('text'); afterRender();
+        const uiCalls = post.ui.calls + renderer.info.render.calls - beforeText;
+        drawLoadingBlade(renderer, view.w / Math.max(1, view.h)); if (bootBusy()) drawBoot(renderer, view.w, view.h, platform.now()); gpuFrameEnd(); gpuCount();
         const t2 = platform.now(); stats.logic += ((t1 - t0) - stats.logic) * 0.05; stats.render += ((t2 - t1) - stats.render) * 0.05;
         stats.calls = renderer.info.render.calls; stats.tris = renderer.info.render.triangles;
-        gpuMark('text'); afterRender(); drawLoadingBlade(renderer, view.w / Math.max(1, view.h)); gpuFrameEnd(); gpuCount();
+        timer.end(interval, t2 - t0, stats.calls, stats.tris, uiCalls);
       };
       platform.raf(frame);
     },
@@ -112,6 +122,8 @@ export function createGfx(platform: Platform, canvas: any, o: { preserve?: boole
  *  frame or (低) every other frame */
 let shadowFrame = 0;
 function shadowTier(r: THREE.WebGLRenderer, sc: THREE.Scene) {
+  r.shadowMap.enabled = !(OPT.bakedShadows && QUALITY.tier === 'low');
+  if (!r.shadowMap.enabled) return;
   const T = tierNow(), size = QUALITY.tier === 'high' && QUALITY.phone ? 1024 : T.shadowMap;
   for (const o of sc.children) {
     const l = o as THREE.DirectionalLight; if (!l.isDirectionalLight || !l.castShadow) continue;

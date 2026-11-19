@@ -7,7 +7,7 @@ const root = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace
 // `npm run script` reads docs/对白/剧本.md; `npm run script -- 剧本2.md` reads another file in that folder
 const arg = process.argv.slice(2).find(x => x.endsWith('.md'));
 const src = path.join(root, 'docs', '对白', arg ?? '剧本.md'), out = path.join(root, 'src', 'present', 'act', 'scriptData.json');
-const WHO = { 刘白: 'jiangjin', 杜五: 'duwu', 孙媪: 'sunao', 冯铁臂: 'fengtiebi', 褚雷: 'chulei', 字幕: 'caption', 卢昭: 'luzhao', 桓越: 'huanyue' };
+const WHO = { 刘白: 'jiangjin', 杜五: 'duwu', 孙媪: 'sunao', 孙婆婆: 'sunao', 冯铁臂: 'fengtiebi', 褚雷: 'chulei', 石雷: 'chulei', 阎虎: 'yanhu', 封寒: 'fengzhen', 周默: 'zhouan', 崔玄: 'cuixuan', 哨兵: 'sentry', 字幕: 'caption', 卢昭: 'luzhao', 桓越: 'huanyue', 韩越: 'huanyue' };
 if (!fs.existsSync(src)) { console.error(`没有找到 ${src}`); process.exit(1); }
 const text = fs.readFileSync(src, 'utf8').replace(/\r/g, '');
 const data = {}, warn = []; let cur = null;

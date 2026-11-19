@@ -1,4 +1,6 @@
 import { withLoadingBlade } from './present/scenes/loadingBlade';
+import { bootShow, bootDone } from './present/scenes/bootScreen';
+import { frames as waitFrames, precompile as precompileAll } from './present/engine/world';
 // 不见刀 boot: platform → renderer + post (the 3D-pixel look) → the action game (present/act/show.ts).
 import { initPlatform, G } from './platform/index';
 import { CRAZYGAMES, initCrazyGames, finishLoading, reportGameplay } from './platform/crazygames';
@@ -8,11 +10,12 @@ import { createGfx } from './present/engine/gfx';
 import { initParticles } from './present/engine/particles';
 import { initPrims } from './present/engine/prims';
 import { FX } from './present/engine/clock';
+import { paintMeter } from './present/engine/frameMeter';
 import { gpuMeasure } from './present/engine/gpuTime';
 import { scene as worldScene } from './present/engine/world';
 import { OPT } from './present/engine/perfOpts';
 import { batchStats } from './present/engine/rigidBatch';
-import { initQuality, setQuality, QUALITY, type Choice } from './present/look/quality';
+import { initQuality, setQuality, refreshQuality, QUALITY, type Choice } from './present/look/quality';
 import { PX, PXU, readPixelFlag, installPixelKeys, setPixel } from './present/look/pixel';
 import { ActShow } from './present/act/show';
 import './present/act/hideout';   // the hideout (据点): its scene, its five people, __dh.hideout()
@@ -28,13 +31,13 @@ const TEST: { fixedTime?: number; preserve?: boolean } = G.__PXUI_TEST || {};
 // the haptics switch in the tuning panel is remembered on the device
 try { if (localStorage.getItem('ub.vibe') === '0') VIBE.on = false; } catch { /* private mode */ }
 const platform = initPlatform();
-const flags = readFlags(k => CRAZYGAMES ? null : platform.query(k));
+const flags = readFlags(k => __DEBUG_UI__ ? platform.query(k) : null);
 const canvas = platform.createCanvas();
 // the 3D-pixel render style (look/pixel.ts): #px1 / #px2 / #px3 or ?px=1|2|3; P toggles, [ ] pixel size
-if (!CRAZYGAMES) readPixelFlag(typeof location !== 'undefined' ? location.hash.slice(1) : '', k => platform.query(k));
+if (__DEBUG_UI__) readPixelFlag(typeof location !== 'undefined' ? location.hash.slice(1) : '', k => platform.query(k));
 initQuality(platform);   // (11-18 微信帧率: the quality tier, before the renderer sizes its targets)
 const gfx = createGfx(platform, canvas, { preserve: !!TEST.preserve });
-if (!CRAZYGAMES) installPixelKeys();
+if (__DEBUG_UI__) installPixelKeys();
 initParticles('soft'); initPrims();
 let frames = 0;
 
@@ -46,7 +49,7 @@ dh.add({
   perf: (n = 120) => gpuMeasure(n),
   worldScene: () => worldScene,
   /** 11-18 微信帧率: turn single optimisations off / on to measure them: __dh.opt({ shadowTiles: false }) */
-  opt: (o: Partial<typeof OPT> = {}) => Object.assign(OPT, o),
+  opt: (o: Partial<typeof OPT> = {}) => { Object.assign(OPT, o); if (Object.keys(o).length) refreshQuality(); return OPT; },
   batchStats,
   /** 11-18 微信帧率: the quality tier — __dh.quality('mid') / 'auto'; no argument: the state */
   quality: (c?: Choice) => { if (c) setQuality(c); return { ...QUALITY }; },
@@ -63,8 +66,9 @@ dh.install();
   // 2x pixels by default on every device (act-14 用户在手机上：「我要2x」, which overrides the old 「手机上 1x」); the choice made in
   // the tuning panel is remembered on the device; the URL (px1 / px2 / px3, ?px=) and the [ ] / P keys still choose
   { const href = typeof location !== 'undefined' ? location.href : '';
-    let saved: string | null = null; try { saved = localStorage.getItem('ub.px'); } catch { /* private mode */ }
-    if (CRAZYGAMES || !/[#&?]px/.test(href)) { if (saved === 'off') setPixel(false); else setPixel(true, saved && /^[123]$/.test(saved) ? +saved : 2); } }
+    // (11-18: the WeChat / CrazyGames packages have no pixel switch — always 2x, whatever a test build left on the device)
+    let saved: string | null = null; try { if (__DEBUG_UI__) saved = localStorage.getItem('ub.px'); } catch { /* private mode */ }
+    if (!__DEBUG_UI__ || !/[#&?]px/.test(href)) { if (saved === 'off') setPixel(false); else setPixel(true, saved && /^[123]$/.test(saved) ? +saved : 2); } }
   try {
     let A: ActShow;
     const start = () => {
@@ -73,13 +77,19 @@ dh.install();
     };
     gfx.start(() => {}, () => {
       if (!A) return;
+      paintMeter(A.L, gfx.stats, platform.now());
       A.L.renderText(gfx.renderer); A.ov.render(gfx.renderer); frames++;
       if (CRAZYGAMES) {
         if (frames === 1) finishLoading();
         reportGameplay(A.phase === 'fight' && !A.pause.on && !A.cards.on && !A.dialogue.on && !A.timeline.on);
       }
     });
-    if (__WX__) await withLoadingBlade(start); else await start();
+    // (11-19 用户：「首次进入游戏的加载画面我不希望是用竹子那个，做一个简单的黑色加载画面……等场景完全准备完了再渐变出来」: the first load is
+    //  the plain black screen with the turning blade on every platform; it fades only after the title is built, its shaders compiled
+    //  and a few of its frames drawn behind the black)
+    bootShow();
+    try { await start(); precompileAll(); await waitFrames(6); } finally { bootDone(); }
+    void withLoadingBlade;
     dh.ready();
   } catch (e) { platform.log('[act] ' + (((e as Error) && (e as Error).stack) || e)); dh.fail(e); }
 });

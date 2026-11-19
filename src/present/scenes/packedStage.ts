@@ -1,7 +1,10 @@
+import { CELL } from '../bestiary/kit';
+import type { TerrainLight } from './terrainLight';
 import * as THREE from 'three';
 import { inflateSync, strFromU8 } from 'three/examples/jsm/libs/fflate.module.js';
 import { voxToon, glowMat } from '../look/voxkit';
-import { shadowTiles } from '../engine/shadowTiles';
+import { OPT } from '../engine/perfOpts';
+import { shadowTiles, restoreShadowTiles, type ShadowLayout } from '../engine/shadowTiles';
 import { smoke as templeSmoke } from '../asm/hanmo/hj_temple_kit';
 import { smoke as villageSmoke } from '../asm/ninja/village_kit';
 import type { Ctx } from './stage';
@@ -13,6 +16,7 @@ type Attribute = {
   itemSize: number;
   count: number;
   parts: Part[];
+  faces?: { width: number; itemSize: number; type: Attribute['type']; table: Attribute; origins?: Attribute };
 };
 type Surface = {
   material: 'terrain' | 'glow' | 'flora' | 'plain';
@@ -20,6 +24,7 @@ type Surface = {
   plain?: object;
   cut: boolean;
   shadow: boolean;
+  tiles?: Pick<ShadowLayout, 'tiles' | 'groups'> & { order: Attribute; groupOf: Attribute; partner: Attribute };
   receive: boolean;
   order: number;
   name: string;
@@ -27,7 +32,7 @@ type Surface = {
   attributes: Attribute[];
 };
 type Operation = [string, ...any[]];
-type Meta = { version: number; ops: Operation[]; meshes: Surface[]; report?: object };
+type Meta = { version: number; ops: Operation[]; meshes: Surface[]; light?: Omit<TerrainLight, 'depth'> & { start: number; length: number }; report?: object };
 type WxFiles = { loadSubpackage(o: object): void; getFileSystemManager(): { readFile(o: object): void } };
 const recent = new Map<string, Promise<Uint8Array | null>>();
 export function readStagePack(key: string): Promise<Uint8Array | null> {
@@ -59,7 +64,7 @@ export function readStagePack(key: string): Promise<Uint8Array | null> {
   return request;
 }
 const constructors = { Float32Array, Uint16Array, Uint32Array };
-function* decodeAttribute(file: Uint8Array, base: number, a: Attribute) {
+function* decodeAttribute(file: Uint8Array, base: number, a: Attribute): Generator<void, THREE.BufferAttribute> {
   const array = new constructors[a.type](a.count);
   const bytes = array.BYTES_PER_ELEMENT;
   const words = bytes === 2 ? new Uint16Array(array.buffer) : new Uint32Array(array.buffer);
@@ -77,7 +82,20 @@ function* decodeAttribute(file: Uint8Array, base: number, a: Attribute) {
     yield;
   }
   if (offset !== array.length) throw new Error('Incomplete scenery buffer');
-  return new THREE.BufferAttribute(array, a.itemSize);
+  if (!a.faces) return new THREE.BufferAttribute(array, a.itemSize);
+  const { width, itemSize, type, table, origins } = a.faces;
+  const patterns = (yield* decodeAttribute(file, base, table)).array;
+  const coords = origins ? (yield* decodeAttribute(file, base, origins)).array : null;
+  const result = new constructors[type](array.length * width);
+  for (let q = 0; q < array.length; q++) {
+    const start = array[q] * width;
+    for (let j = 0; j < width; j++) {
+      const v = patterns[start + j];
+      result[q * width + j] = coords ? (coords[q * 3 + j % 3] - 32768 + v) * CELL : a.name === 'index' ? q * 4 + v : v;
+    }
+    if ((q & 2047) === 2047) yield;
+  }
+  return new THREE.BufferAttribute(result, itemSize);
 }
 export function* unpackStage(file: Uint8Array, ctx: Ctx, root: THREE.Group, cut: THREE.Group, report?: object) {
   const view = new DataView(file.buffer, file.byteOffset, file.byteLength);
@@ -101,7 +119,7 @@ export function* unpackStage(file: Uint8Array, ctx: Ctx, root: THREE.Group, cut:
             ? glowMat(surface.glow)
             : new THREE.MaterialLoader().parse(surface.plain as never);
     const mesh = new THREE.Mesh(geometry, material);
-    mesh.name = surface.name;
+    mesh.name = surface.name; mesh.userData.packedStatic = true;
     mesh.matrix.fromArray(surface.matrix);
     mesh.matrix.decompose(mesh.position, mesh.quaternion, mesh.scale);
     mesh.castShadow = surface.shadow;
@@ -110,7 +128,15 @@ export function* unpackStage(file: Uint8Array, ctx: Ctx, root: THREE.Group, cut:
     const parent = surface.cut ? cut : root;
     parent.add(mesh);
     if (surface.material === 'terrain') {
-      const tiles = shadowTiles(mesh);
+      mesh.userData.stageTerrain = !surface.cut;
+      const layout = surface.tiles;
+      let tiles: THREE.Mesh[];
+      if (OPT.packedLighting && layout) {
+        const order = (yield* decodeAttribute(file, base, layout.order)).array as Uint32Array;
+        const groupOf = (yield* decodeAttribute(file, base, layout.groupOf)).array as Uint32Array;
+        const partner = (yield* decodeAttribute(file, base, layout.partner)).array;
+        tiles = yield* restoreShadowTiles(mesh, { ...layout, order, groupOf, partner: new Int32Array(partner.buffer) });
+      } else tiles = shadowTiles(mesh);
       if (tiles.length) {
         mesh.castShadow = false;
         mesh.userData.shadowTiled = true;
@@ -133,4 +159,9 @@ export function* unpackStage(file: Uint8Array, ctx: Ctx, root: THREE.Group, cut:
     if ((i & 127) === 127) yield;
   }
   if (report && meta.report) Object.assign(report, meta.report);
+  if (!meta.light || !OPT.packedLighting) return null;
+  const { start, length, ...light } = meta.light;
+  const depth = inflateSync(file.subarray(base + start, base + start + length));
+  if (depth.length !== light.size * light.size) throw Error('Invalid baked light size');
+  return { ...light, depth };
 }

@@ -90,6 +90,8 @@ export function installR45(show: unknown) {
       const p = V3(0, 0, SZ(-4.6)), f = spawnFoe(kind, p, S.hero.pos.clone()); all.push(f);
       fxSmoke(p.clone().add(V3(0, 0.3, 0)), 0x6a6a74, 14, { r: 0.7, spd: 1.2, up: 0.6, s: 0.4, life: 0.7 }); fxRing(p.clone().setY(0.05), 0xff7a4a, 1.2, { life: 0.4 } as never);
       cue('roar', 0.9); f.a.roar(); shake(0.3 * TUNE.shake); f.cd = 2.2;
+      // (11-19 剧情改版: the first time on this save, or the prologue's 崔玄 — the meeting cutscene and the talk; else the banner)
+      if ((S as unknown as { bossArrived?: (f: unknown) => boolean }).bossArrived?.(f)) return;
       S.banner.show(EDEFS[kind].name, EDEFS[kind].tag ?? '', 2.2, '#ff8a6a');
       const line = ARRIVAL[kind]; if (line) after(1.0, () => { if (f.st !== 'dead') S.barks?.say(() => f.a.head(), line); });
     });

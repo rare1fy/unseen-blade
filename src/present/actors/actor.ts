@@ -1,6 +1,8 @@
 // Common actor shell: placement, facing, hit flash, knockback, squash, the action queue and world anchor points.
 import * as THREE from 'three';
-import { scene, V3 } from '../engine/world';
+import { OPT } from '../engine/perfOpts';
+import { QUALITY } from '../look/quality';
+import { camera, scene, V3 } from '../engine/world';
 import { Action, Spring, resetPose, type Bone } from './rig';
 import { batchActor } from '../engine/rigidBatch';
 
@@ -55,12 +57,22 @@ export abstract class Actor {
   /** subclasses pose bones here (after resetPose) */
   protected abstract pose(dt: number): void;
 
+  private nextPose = 0;
+  private posePosition = V3();
   update(dt: number) {
     if (!this.root.visible) return;
     this.t += dt;
     if (this.act && !this.act.step(dt)) this.act = null;
-    resetPose(this.bones);
-    this.pose(dt);
+    let interval = 0;
+    if (OPT.poseLod && QUALITY.tier !== 'high' && this.root.parent === scene) {
+      const p = this.posePosition.copy(this.home); p.y += this.height * 0.5;
+      p.project(camera);
+      if (Math.abs(p.x) > 1.35 || Math.abs(p.y) > 1.5 || p.z > 1 || this.home.distanceToSquared(camera.position) > 38 * 38) interval = 0.10;
+    }
+    this.nextPose += dt;
+    if (this.nextPose >= interval) {
+      resetPose(this.bones); this.pose(this.nextPose); this.nextPose = 0;
+    }
     const sq = this.squash.step(0, dt), kn = this.knock.step(0, dt);
     this.body.scale.set(1 + sq * 0.06, 1 - sq * 0.08, 1 + sq * 0.06);
     this.apply(kn);
@@ -68,8 +80,9 @@ export abstract class Actor {
     for (const f of this.flashMats) f.m.emissive.copy(f.base).lerp(this.flashCol, Math.min(1, this.flash) * 0.55);
   }
   private apply(kn = 0) {
-    const f = this.fwd(), r = V3(f.z, 0, -f.x);
-    this.root.position.copy(this.home).addScaledVector(f, this.off.z + kn * 0.12).addScaledVector(r, this.off.x); this.root.position.y += this.off.y;
+    const sin = Math.sin(this.yaw), cos = Math.cos(this.yaw), forward = this.off.z + kn * 0.12;
+    this.root.position.set(this.home.x + sin * forward + cos * this.off.x, this.home.y + this.off.y,
+      this.home.z + cos * forward - sin * this.off.x);
     this.root.rotation.y = this.yaw;
   }
 }

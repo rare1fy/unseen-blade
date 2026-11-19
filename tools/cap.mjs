@@ -11,6 +11,8 @@
 //   {"path":[[x,y],...],"stepMs":24,"holdMs":0}            pointer down at the first point, through every point, up at the last
 //   {"eval":"js"}  {"tapEval":"js -> [x,y]"}  {"pathEval":"js -> [[x,y],...]"}  {"waitFor":"js truthy (sync)","ms":20000}  {"json":"js","file":"x.json"}
 //   {"rec":"name","fps":30,"quality":85,"clip":[x,y,w,h]}  ...  {"stop":true,"thumbs":0.5}   records to <out>/<name>.webm; thumbs = also save a jpeg every N s in <out>/<name>_f/
+//   {"profStart":200} ... {"profStop":"x.cpuprofile"}  a JS CPU profile (sampling interval in µs) between them
+//   {"cpu":6}                                             slow the page's CPU down N times (a phone; 1 = off)
 //   {"fps":true}                                            real frames per second (rAF ticks in real mode, stepped frames in vt mode)
 // The log (console errors / warnings / exceptions + eval results) is written to <out>/log.txt.
 import { spawn } from 'node:child_process';
@@ -150,6 +152,9 @@ try {
         log(`rec ${r.name}: ${r.frames.length} frames in ${((Date.now() - r.t0) / 1000).toFixed(1)}s real`);
         if (a.thumbs) { mkdirSync(`${outDir}/${r.name}_f`, { recursive: true }); let next = r.frames[0]?.t ?? 0, k = 0; for (const f of r.frames) if (f.t >= next - 1e-6) { writeFileSync(`${outDir}/${r.name}_f/${String(k++).padStart(3, '0')}_${(f.t - r.frames[0].t).toFixed(2)}.jpg`, Buffer.from(f.data, 'base64')); next = f.t + a.thumbs; } }
         await encode(r.frames, `${outDir}/${r.name}.webm`); } }
+    else if (a.profStart) { await P.send('Profiler.enable'); await P.send('Profiler.setSamplingInterval', { interval: a.profStart }); await P.send('Profiler.start'); log('profile start'); }
+    else if (a.profStop) { const r = await P.send('Profiler.stop'); writeFileSync(`${outDir}/${a.profStop}`, JSON.stringify(r.result.profile)); log('profile saved ' + a.profStop); }   // a .cpuprofile (DevTools / speedscope)
+    else if (a.cpu) { await P.send('Emulation.setCPUThrottlingRate', { rate: a.cpu }); log('cpu throttle x' + a.cpu); }   // a phone-slow CPU (e.g. 6)
     else if (a.fps) { if (VT) { const ts = Date.now(), s0 = steps; await advance(1000); log('fps (vt stepping) ' + Math.round((steps - s0) * 1000 / (Date.now() - ts))); }
       else log('fps ' + await P.evaluate(`new Promise(r => { let n = 0; const t0 = performance.now(); (function f(){ n++; if (performance.now() - t0 < 1000) requestAnimationFrame(f); else r(n); })(); })`)); }
   }

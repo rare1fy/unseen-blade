@@ -1,3 +1,4 @@
+import { batchUi } from '../engine/rigidBatch';
 import { language, t as localize } from './i18n';
 // 动作原型的 3D 界面（UI 层里的实物，CLAUDE.md：UI 一律 3D 实物，不加暗色遮罩）。外观按题材风格（skin.ts：漆器 / 竹简 / 铁器）换：
 //   左下：摇杆——只在左下一块区域按下才出（默认按哪儿出在哪儿，之后底座不动；面板里可改成固定在左下）；
@@ -16,12 +17,11 @@ import { isBoss, type Foe } from './enemy';   // wp/foes: isBoss (the boss bar f
 import { V3 } from '../engine/world';
 import { TUNE } from './tune';
 import { SKIN, PALETTE, SkinBtn, SkinStick, SkinHp, type SkinId } from './skin';
-import { IronBtn, IronStick, IronHp, QteRing , type HintKey } from './ironUi';
+import { IronBtn, IronStick, IronHp, QteRing , type HintKey, HP_LAG, HP_LAG_HOLD, closeLag } from './ironUi';
 import { textCells, pixTextW } from '../ui3d/pixfont';
 import { PIX_H } from '../v2/pix';
 import { bodyW } from '../ui3d/bodyFont';
 import { ACTION_WORD, BIND, actKey, glyphTex, glyphArt, GLYPH_H } from './pad';
-import { PauseBtn } from './btnBadge';
 import type { MarkTarget } from './skillInfo';
 
 type AnyBtn = SkinBtn | IronBtn; type AnyHp = SkinHp | IronHp;
@@ -31,7 +31,7 @@ type AnyBtn = SkinBtn | IronBtn; type AnyHp = SkinHp | IronHp;
 export interface Mark { id: string; target: MarkTarget; kind: 'manual' | 'boon'; tier: number; col: number }
 const MARK_COL = { manual: 0x6ad8b0, boon: [0x8a929e, 0xd29a4a, 0xffd86a] };
 
-interface Bar { g: THREE.Group; back: THREE.Mesh; lag: THREE.Mesh; fill: THREE.Mesh; shown: number; lagV: number }
+interface Bar { g: THREE.Group; back: THREE.Mesh; lag: THREE.Mesh; fill: THREE.Mesh; shown: number; lagV: number; hold: number }
 const box = (c: number, o = 1) => new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: c, transparent: o < 1, opacity: o, depthWrite: false }));
 /** act-19 (user: 「敌人的血条怎么也是3d的，都穿帮了，能看到垫后面的白色」): flat cards in one plane, stacked by draw order only */
 const flat = (c: number) => new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: c, depthWrite: false, depthTest: false }));
@@ -70,11 +70,8 @@ export class ActHud {
   }
   constructor(private L: UiLayer) {
     this.sparks = new UiSparks(L.scene, 80); this.qteRing = new QteRing(L);
-    this.pauseBtn = new PauseBtn(L);
     this.build();
   }
-  /** 11-18 (用户：「游戏里也没有一个可以呼出暂停窗口的按钮」): the small iron button at the top right, beside the purse */
-  pauseBtn: PauseBtn;
   // ---------------------------------------------------------------- the marks of what this run has taken
   private marks2: Mark[] = []; private markMesh = new Map<string, THREE.Mesh>(); private ringFx: Array<{ m: THREE.Mesh; t: number; target: MarkTarget }> = [];
   /** the marks of this run (show.ts sets the whole list: a new run clears it) */
@@ -159,21 +156,24 @@ export class ActHud {
     b.ult.size = 124 * k; b.ult.x = W - 225 * k; b.ult.y = H - 335 * k;
     // (the laid-out places: the 不见刀 button's coming in moves the others from here, see makeWay)
     for (const n of Object.keys(b) as BtnName[]) this.home[n] = { x: b[n].x, y: b[n].y, size: b[n].size };
-    // the pause button at the top right: just left of the tuning panel's 「调」 (a 30 px square 8 px in from the corner), level with it;
-    // the purse moves along to its left
-    const ps = Math.max(34, 40 * k); this.pauseBtn.size = ps; this.pauseBtn.x = W - 46 - ps / 2; this.pauseBtn.y = 23;
   }
   private pausePid = -1;
-  /** the pause button was let go over (show.ts opens the menu) */
+  /** the portrait was let go over (show.ts opens the menu) */
   onPause: (() => void) | null = null;
-  /** touch / mouse: buttons first, else the bottom-left area is the stick. Returns true if used */
+  /** 11-18 (用户：「暂停按钮不要了，点头像暂停。」): the portrait medallion (and the purse hung under it) is the pause button now */
+  private hitBadge(x: number, y: number) {
+    const f = this.flask; if (f instanceof IronHp) return f.hitBadge(x, y);
+    const b = f.barAt(), x0 = b.x - f.W * this.k / 2; return x > x0 - 10 && x < x0 + 70 * this.k && y > b.y - 30 * this.k && y < b.y + 60 * this.k;
+  }
+  private setBadgeDown(on: boolean) { if (this.flask instanceof IronHp) this.flask.down = on; }
+  /** touch / mouse: the portrait, the buttons, else the bottom-left area is the stick. Returns true if used */
   pointer(type: string, id: number, x: number, y: number, inp: Input): boolean {
     if (!this.on) return false;
-    // the pause button: pressed, it sinks; let go over it, the menu opens (a slip off it cancels)
-    const pb = this.pauseBtn;
-    if (type === 'down' && pb.hit(x, y)) { pb.down = true; this.pausePid = id; return true; }
-    if (this.pausePid === id && (type === 'up' || type === 'cancel')) { const fire = type === 'up' && pb.hit(x, y); pb.down = false; this.pausePid = -1; if (fire) this.onPause?.(); return true; }
-    if (this.pausePid === id && type === 'move') { pb.down = pb.hit(x, y); return true; }
+    // the portrait: pressed, it sinks; let go over it, the menu opens (a slip off it cancels). The press that lands on it is the
+    // portrait's alone (never a stick or a button press too); a finger already on the stick or a button is not touched by it
+    if (type === 'down' && this.pausePid < 0 && this.hitBadge(x, y)) { this.setBadgeDown(true); this.pausePid = id; return true; }
+    if (this.pausePid === id && (type === 'up' || type === 'cancel')) { const fire = type === 'up' && this.hitBadge(x, y); this.setBadgeDown(false); this.pausePid = -1; if (fire) this.onPause?.(); return true; }
+    if (this.pausePid === id && type === 'move') { this.setBadgeDown(this.hitBadge(x, y)); return true; }
     if (type === 'down') {
       for (const b of Object.values(this.btns)) if ((b !== this.btns.ult || this.ultUp) && b.hit(x, y)) { b.down = true; b.pid = id; inp.press(b.name, id); if (b.name === 'special') inp.aimBegin(id, b.x, b.y, x, y); return true; }   // act-14 用户：「按操作的按钮不要有音效」
       // the stick: only the bottom-left area answers; floating = the base appears under the thumb (kept clear of the screen's edges)
@@ -232,13 +232,16 @@ export class ActHud {
   /** 11-17: the stance refused for want of 气 — the cut button shakes, dull red */
   denyAttack() { (this.btns.attack as { deny?: () => void }).deny?.(); }
   private newBar(): Bar {
-    // the lag a muted copper, not a pale strip (it read as "white behind the pad")
-    const p = PALETTE[this.skin], g = new THREE.Group(), back = flat(p.foeBack), lag = flat(0x9a5a34), fill = flat(p.foeFill);
+    // act-73 反馈 (用户：「我要的是所有血条都符合这个逻辑……垫在后面的我感觉白色效果会更好点」): the lost piece is white on every bar
+    // (it was a muted copper, too close to the red to read)
+    const p = PALETTE[this.skin], g = new THREE.Group(), back = flat(p.foeBack), lag = flat(HP_LAG), fill = flat(p.foeFill);
     back.renderOrder = 40; lag.renderOrder = 41; fill.renderOrder = 42;
-    g.add(back, lag, fill); this.L.scene.add(g); return { g, back, lag, fill, shown: 1, lagV: 1 };
+    g.add(back, lag, fill); this.L.scene.add(g); batchUi(g, true); return { g, back, lag, fill, shown: 1, lagV: 1, hold: 0 };
   }
   private drawBar(b: Bar, x: number, y: number, w: number, h: number, frac: number, dt: number) {
-    const L = this.L; b.shown = frac; b.lagV = Math.max(frac, b.lagV - dt * 0.6);
+    // the lost piece holds still a moment after each drop (a flurry piles into one piece), then closes in — the same as her own bar
+    if (frac < b.shown - 1e-6) b.hold = HP_LAG_HOLD; b.hold = Math.max(0, b.hold - dt);
+    const L = this.L; b.shown = frac; b.lagV = closeLag(b.lagV, frac, b.hold, dt);
     L.at(x, y, 0, b.g.position); const u = L.px(1);
     b.back.scale.set((w + 4) * u, (h + 4) * u, 1); b.lag.scale.set(Math.max(1e-4, w * b.lagV) * u, h * u, 1); b.fill.scale.set(Math.max(1e-4, w * frac) * u, h * u, 1);
     b.lag.position.x = (-w / 2 + (w * b.lagV) / 2) * u; b.fill.position.x = (-w / 2 + (w * frac) / 2) * u;
@@ -248,7 +251,7 @@ export class ActHud {
     this.flask.root.visible = this.on;
     this.makeWay(dt);
     if (this.on) { this.stick.update(inp.stick, this.stickHome, this.stickSize); for (const b of Object.values(this.btns)) b.update(dt); }
-    this.pauseBtn.on = this.on; this.pauseBtn.update(dt); this.markFrame(dt);
+    this.markFrame(dt);
     // act-28 (user: 「技能下面我看还是没有写按键什么意思：闪避、跳跃、远程、攻击」): what each button does, in small pixel type just under
     // its rim (never on the button face); with a keyboard or a pad the key follows the word
     for (const n of Object.keys(this.btns) as BtnName[]) {
@@ -269,27 +272,37 @@ export class ActHud {
     const st = this.flask.st, bar = this.flask.barAt();
     if (this.flask instanceof IronHp) this.L.text.hide('act.hp');   // act-34: the iron bar draws its own number, tilted with it
     else this.L.text.set('act.hp', { text: `${Math.max(0, Math.round(st.hp))} / ${st.maxHp}`, x: bar.x, y: bar.y, cell: Math.max(1, Math.round(bar.h * 0.62 / 5)), color: '#fff0d2', outline: '#21100e', align: 'center', visible: this.on });   // act-20: pixel digits again (user: 「金币数、血量、伤害漂字这些还是想像素」)
-    // the purse: a copper coin (a square-holed coin, in the UI layer) and the count
-    if (!this.coinIcon) {
-      const g = new THREE.Group(), m = new THREE.MeshBasicMaterial({ color: 0xd09040 }), d = new THREE.MeshBasicMaterial({ color: 0x5a3a18 });
-      const bar = (w: number, h: number, x: number, y: number, mat: THREE.Material) => { const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.2), mat); b.position.set(x, y, 0); g.add(b); };
-      bar(1, 0.36, 0, 0.32, m); bar(1, 0.36, 0, -0.32, m); bar(0.36, 0.3, -0.32, 0, m); bar(0.36, 0.3, 0.32, 0, m); bar(0.28, 0.28, 0, 0, d);
-      this.L.scene.add(g); this.coinIcon = g;
-    }
-    const coinCell = 3, coinRight = this.pauseBtn.x - this.pauseBtn.size / 2 - 12, coinY = 23;
+    // the purse: the count runs up to the real one, the coin hops on each step (act-29). 11-18 (用户：「把游戏中的货币放在头像下面，同样的
+    // 透视关系」): the iron skin hangs it under the portrait, part of that piece (ironUi.ts IronHp); the other two skins keep a coin and
+    // a count under their bar's left end
     { const want = this.coins, was = Math.floor(this.coinShown);
       if (want < this.coinShown) this.coinShown = want; else if (want > this.coinShown) this.coinShown = Math.min(want, this.coinShown + Math.max(12, (want - this.coinShown) * 6) * dt);
       if (Math.floor(this.coinShown) !== was) this.coinHop = 1; this.coinHop = Math.max(0, this.coinHop - dt * 6); }
     const shown = Math.floor(this.coinShown), hop = Math.sin(this.coinHop * Math.PI);
-    this.coinIcon.visible = this.on; this.L.at(coinRight - textCells(`${shown}`).w * coinCell - 13, coinY - hop * 4, 2, this.coinIcon.position); this.coinIcon.scale.setScalar(this.L.px(12) * (1 + 0.25 * hop)); this.coinIcon.rotation.y = hop * 0.8;
-    this.L.text.set('act.coins', { text: `${shown}`, x: coinRight, y: coinY, cell: coinCell, color: this.coinHop > 0 ? '#fff0b0' : '#ffd27a', outline: '#21100e', align: 'right', visible: this.on });
+    if (this.flask instanceof IronHp) {
+      this.flask.coins = shown; this.flask.coinHop = this.coinHop;
+      if (this.coinIcon) this.coinIcon.visible = false; this.L.text.hide('act.coins');
+    } else {
+      if (!this.coinIcon) {
+        const g = new THREE.Group(), m = new THREE.MeshBasicMaterial({ color: 0xd09040 }), d = new THREE.MeshBasicMaterial({ color: 0x5a3a18 });
+        const bar = (w: number, h: number, x: number, y: number, mat: THREE.Material) => { const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.2), mat); b.position.set(x, y, 0); g.add(b); };
+        bar(1, 0.36, 0, 0.32, m); bar(1, 0.36, 0, -0.32, m); bar(0.36, 0.3, -0.32, 0, m); bar(0.36, 0.3, 0.32, 0, m); bar(0.28, 0.28, 0, 0, d);
+        this.L.scene.add(g); batchUi(g); this.coinIcon = g;
+      }
+      const coinCell = 3, b = this.flask.barAt(), cx = b.x - this.flask.W * this.k / 2 + 10, cy = b.y + b.h / 2 + 18 * this.k;
+      this.coinIcon.visible = this.on; this.L.at(cx, cy - hop * 4, 2, this.coinIcon.position); this.coinIcon.scale.setScalar(this.L.px(12) * (1 + 0.25 * hop)); this.coinIcon.rotation.y = hop * 0.8;
+      this.L.text.set('act.coins', { text: `${shown}`, x: cx + 12, y: cy, cell: coinCell, color: this.coinHop > 0 ? '#fff0b0' : '#ffd27a', outline: '#21100e', align: 'left', visible: this.on });
+    }
     // bars over the foes (the chief: the long bar at the top instead)
     const live = new Set<number>();
     for (const f of foes) {
-      if (f.st === 'dead' || isBoss(f) || f.kind === 'dummy') continue; live.add(f.uid);   // wp/foes: isBoss
-      let b = this.bars.get(f.uid); if (!b) { b = this.newBar(); this.bars.set(f.uid, b); }
+      if (isBoss(f) || f.kind === 'dummy') continue;   // wp/foes: isBoss
+      let b = this.bars.get(f.uid);
+      // a fresh kill keeps its bar over the falling body until the white piece of the last blow has closed
+      if (f.st === 'dead') { if (!b || b.lagV <= 0.002) continue; } else if (!b) { b = this.newBar(); this.bars.set(f.uid, b); }
+      live.add(f.uid);
       const p = worldToUi(f.a.head().add(V3(0, 0.45, 0))); b.g.visible = this.on && p.z < 1;
-      this.drawBar(b, p.x, p.y, 64 * this.k, 9 * this.k, f.hp / f.maxHp, dt);
+      this.drawBar(b, p.x, p.y, 64 * this.k, 9 * this.k, f.st === 'dead' ? 0 : f.hp / f.maxHp, dt);
     }
     for (const [uid, b] of this.bars) if (!live.has(uid)) { b.g.parent?.remove(b.g); this.bars.delete(uid); }
     // act-19 (2x stage): a foe off the screen shows as a red sound-wave arc on the screen's edge, pointing at it, brighter when near

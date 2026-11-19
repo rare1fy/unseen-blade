@@ -12,7 +12,7 @@ import { UI_SCENE_GLSL, uiSceneUniforms, updateUiSceneUniforms } from './uiLook'
 import { PADD } from '../engine/particles';
 import { gpuMark } from '../engine/gpuTime';
 import { bloomMips, bloom8bit, halfFloatOk } from './bloomMips';
-import { tierNow } from './quality';
+import { QUALITY, lowTargets, mobileTargets, tierNow } from './quality';
 
 const VS = `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
 const FS = (pixel: boolean) => `
@@ -156,8 +156,9 @@ export class Post {
       // (phones, 2× laptops): sized from the screen's height so the picture has PX_ROWS / size rows whatever the screen — the
       // same pixel feel as a desktop window (act-17 用户：「手机上看2x像素又太糊了，可以让我在电脑端和手机端看起来像素感一致吗」;
       // a phone is only ~390 CSS px tall, so 2 CSS px a pixel left it with ~195 rows)
-      const k = dpr < 1.5 ? this.pixel * dpr : Math.max(1, H * this.pixel / PX_ROWS), Wa = Math.max(1, Math.ceil(W / k)), Ha = Math.max(1, Math.ceil(H / k));
-      this.rt.setSize(Wa, Ha); this.lo.setSize(Wa, Ha); this.bloom.setSize(Wa, Ha);
+      const pixel = lowTargets() && QUALITY.choice === 'auto' && QUALITY.reducedWorld ? this.pixel + 1 : this.pixel;
+      const k = dpr < 1.5 ? pixel * dpr : Math.max(1, H * pixel / PX_ROWS), Wa = Math.max(1, Math.ceil(W / k)), Ha = Math.max(1, Math.ceil(H / k));
+      this.rt.setSize(Wa, Ha); this.lo.setSize(Wa, Ha); this.bloom.setSize(mobileTargets() ? 32 : Wa, mobileTargets() ? 32 : Ha);
       (this.matPx.uniforms.uRes.value as THREE.Vector2).set(Wa, Ha);
       const bu = this.blit.uniforms; (bu.uLoRes.value as THREE.Vector2).set(Wa, Ha); bu.uK.value = k; (bu.uOff.value as THREE.Vector2).set((W - Wa * k) / 2, (H - Ha * k) / 2);
       PXU.uArtH.value = Ha;
@@ -168,8 +169,9 @@ export class Post {
     (this.matStd.uniforms.uRes.value as THREE.Vector2).set(W, H);
     // the UI layer at no more than the tier's device px per CSS px (高 3 = native on any phone; 中 2; 低 1.5), drawn back over the
     // full-resolution frame with linear filtering
-    const uk = Math.min(1, T.uiDpr / Math.max(1, dpr));
-    this.ui.setSize(Math.max(1, Math.round(W * uk)), Math.max(1, Math.round(H * uk)), msx);
+    const uiDpr = !mobileTargets() && QUALITY.tier !== 'high' ? (QUALITY.tier === 'low' ? 1.5 : 2) : T.uiDpr;
+    const uk = Math.min(1, uiDpr / Math.max(1, dpr));
+    this.ui.setSize(Math.max(1, Math.round(W * uk)), Math.max(1, Math.round(H * uk)), mobileTargets() ? 0 : msx);
   }
   /** switch the pixel look (0 = standard, else CSS px per art pixel) */
   setPixel(n: number) { if (n === this.pixel) return; this.pixel = n; this.setSize(this.size.w, this.size.h, this.size.dpr); }
@@ -186,7 +188,9 @@ export class Post {
     // pixel look: the bloom is not blended in place; the final pass reads the composite, caps it and (at ≥ 2× art pixels) steps it into bands
     // (11-18 微信帧率: the pixel look stops at the mips — its blend back over the frame had opacity 0)
     gpuMark('bloom');
-    if (pix) { u.tBloom.value = bloomMips(this.bloom, r, this.rt); u.uBloomCap.value = PX.bloomCap; u.uBands.value = this.pixel >= 2 ? PX.bands : 0; }
+    // 11-19：半分辨率泛光仍需十二次绘制；发光物本色保留在世界色缓冲中。
+    if (mobileTargets()) { u.tBloom.value = this.rt.texture; u.uBloomCap.value = 0; u.uBands.value = 0; }
+    else if (pix) { u.tBloom.value = bloomMips(this.bloom, r, this.rt); u.uBloomCap.value = PX.bloomCap; u.uBands.value = this.pixel >= 2 ? PX.bands : 0; }
     else { (this.bloom as unknown as { copyUniforms: Record<string, THREE.IUniform> }).copyUniforms.opacity.value = 1; this.bloom.render(r, null as unknown as THREE.WebGLRenderTarget, this.rt, 0, false); }
     const fog = scene.fog as (THREE.Fog & THREE.FogExp2) | null;   // x: exp2 density, y/z: linear near / far
     (u.uFog.value as THREE.Vector3).set(fog && (fog as THREE.FogExp2).isFogExp2 ? fog.density : 0, fog && (fog as THREE.Fog).isFog ? fog.near : 0, fog && (fog as THREE.Fog).isFog ? fog.far : 0);

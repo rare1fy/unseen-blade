@@ -1,3 +1,4 @@
+import { OPT } from '../present/engine/perfOpts';
 // Audio: Web Audio graph — sfx bus (random pitch / volume per play, layered cues), music bus with a low-pass that closes at low HP,
 // voice bus that ducks music and sfx, a master limiter. Samples are bundled inline (mp3 → base64) and decoded on first unlock.
 import { setCueHandler, type Cue } from './cues';
@@ -234,22 +235,24 @@ class AudioEngine {
     const ctx = this.ctx; if (!ctx || this.musicWant === name) return; this.musicWant = name; this.stopSting(1.8);
     let b = this.buf.get(name);
     if (!b) { const d = await this.warm(name); if (!d) return; b = d; }
-    if (this.musicWant !== name) return;   // asked for another while decoding
+    if (this.musicWant !== name) { if (OPT.singleMusic && this.musicName !== name) this.buf.delete(name); return; }   // asked for another while decoding
     const t = this.now();
-    if (this.musicSrc) { const old = this.musicSrc, og = (old as any)._g as GainNode; og.gain.cancelScheduledValues(t); og.gain.setValueAtTime(og.gain.value, t); og.gain.linearRampToValueAtTime(0, t + fade); old.stop(t + fade + 0.05); }
+    if (this.musicSrc) { const old = this.musicSrc, og = (old as any)._g as GainNode; og.gain.cancelScheduledValues(t); og.gain.setValueAtTime(og.gain.value, t); og.gain.linearRampToValueAtTime(0, t + fade); old.onended = () => { old.disconnect(); og.disconnect(); old.buffer = null; }; old.stop(t + fade + 0.05); }
     const src = ctx.createBufferSource(); src.buffer = b; src.loop = !MUSIC_ONCE.has(name);
     const lp = MUSIC_LOOPS[name]; if (lp) { src.loopStart = lp[0]; src.loopEnd = Math.min(lp[1], b.duration); }
     const g = ctx.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(1, t + fade); (src as any)._g = g;
     src.connect(g); g.connect(this.music); src.start(t, Math.min(offset, Math.max(0, b.duration - 1))); this.musicSrc = src; this.musicName = name;
-    // keep at most this one and the one before decoded
-    for (const k of [...this.buf.keys()]) if (k.startsWith('bgm_') && k !== name && k !== this.musicPrev) this.buf.delete(k);
+    // The fading source owns the old buffer until onended. The cache only needs the playing score.
+    for (const k of [...this.buf.keys()]) if (k.startsWith('bgm_') && k !== name && (OPT.singleMusic || k !== this.musicPrev)) this.buf.delete(k);
     this.musicPrev = name;
   }
   private musicPrev = '';
   /** fade the music out (a death, the end of a run); the next playMusic brings it back */
   stopMusic(fade = 1.5) {
+    this.musicWant = '';
     if (!this.ctx || !this.musicSrc) return; const t = this.now(), old = this.musicSrc, og = (old as any)._g as GainNode;
     og.gain.cancelScheduledValues(t); og.gain.setValueAtTime(og.gain.value, t); og.gain.linearRampToValueAtTime(0, t + fade); old.stop(t + fade + 0.05);
+    if (OPT.singleMusic) this.buf.delete(this.musicName);
     this.musicSrc = null; this.musicName = ''; this.musicWant = '';
   }
   /** dip the music under a stinger for a while (k = level, 0..1) */
@@ -393,6 +396,12 @@ const H: Partial<Record<Cue, (k: number, x?: number) => void>> = {
   gateOpen: k => ub('gate_open', { gain: 0.55 + 0.4 * k }),
   exitChime: k => ub('exit_chime', { gain: 0.3 + 0.4 * k, jitter: 0.02 }),
   timeSlow: k => ub('time_slow', { gain: 0.7 + 0.3 * k, jitter: 0 }),
+  // 11-19 (用户：「闪避成功那个音效怎么我感觉是拼刀的声音」 → then 「现在闪避的音效也不对啊，不是闪避的那种风声」): the bell over it
+  // read as a chime and the time-slow swell as a whoosh of something else. A dodge is wind: the dash's own rush of air sped up and
+  // brightened (she twists past the edge), a thin fast swing of cloth on top, and a short band of air tearing high to low — no tone,
+  // no bell, no metal
+  dodgeOk: k => { ub('dash', { gain: 0.7 * k, rate: 1.25, jitter: 0.04, bus: 'hero', pri: 3 }); audio.any('ub_sw_light_', { gain: 0.42 * k, rate: 1.5, jitter: 0.03, bus: 'hero', pri: 3, delay: 0.015 });
+    audio.noise(0.2, { from: 6800, to: 900, gain: 0.26 * k, type: 'bandpass', q: 0.7 }); },
   ultSlash: k => { ub('ult_slash', { gain: 1, jitter: 0.02 }); audio.tone(60, 0.8, { to: 30, gain: 0.5 * (k || 1) }); },
   scroll: k => ub('scroll', { gain: 0.45 + 0.3 * k }),
   hound: k => ub('hound', { gain: 0.45 + 0.4 * k }),

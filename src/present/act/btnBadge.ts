@@ -1,13 +1,11 @@
 // 小铁盾（11-18）：右下角技能钮那面铁盾的缩小版，一整块合并网格（黑铁底盘、外圈八片甲片和铜钉、钮心凹槽），钮心上浮一个立体图标。
-// 用在：三选一卡面和暂停菜单「已得」「招式」两页的「按法」小钮、右上角的暂停钮。
+// 用在：三选一卡面和暂停菜单「已得」「招式」两页的「按法」小钮。
 // 和右下角的按钮用同一套图形，玩家一眼认得出该按哪颗钮。
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { customIcon3D, type Model3D } from '../ui3d/models3d';
-import { Mask, pillow } from '../ui3d/models3dArt';
+import type { Model3D } from '../ui3d/models3d';
 import { btnIcon3D } from './icons3d';
 import { skillIcon3D } from './skillIcons';
-import type { UiLayer } from '../ui3d/layer';
 import type { BtnName } from './input';
 
 const IRON = 0x4a4f5a, IRON_D = 0x1e2026, IRON_L = 0x6c7380, RIM = 0x30333b, SOCK = 0x24272e, BRONZE = 0xb07a3a;
@@ -64,27 +62,8 @@ export class MiniShield extends THREE.Group {
   dispose() { this.mesh.geometry.dispose(); (this.mesh.material as THREE.Material).dispose(); this.icon.dispose(); this.parent?.remove(this); }
 }
 /** a button of the HUD in small: its shield (the cut button with its tassel) and its own picture */
+/** 11-19: the back button of the menu pages and the shops — the same small iron shield, a turning-back arrow on it */
+export function backShield() { return new MiniShield(btnIcon3D('back')); }
 export function btnShield(n: BtnName) { return new MiniShield(n === 'ult' ? skillIcon3D('ult') : btnIcon3D(n), { tassel: n === 'attack' }); }
-
-// ---------------------------------------------------------------- the pause button (11-18 用户：「游戏里也没有一个可以呼出暂停窗口的按钮」)
-/** two upright bronze bars, pillowed (no letters on a button) */
-const pauseIcon = () => customIcon3D('ub:pause', set => {
-  const m = new Mask().rect(-6, -8, -2, 8).rect(2, -8, 6, 8);
-  pillow(set, m, -1, 1, 0x6a4214, 0xb07a2e, 0, 0xe0aa48, 0);
-});
-/** the small iron button at the top right that opens the pause menu: it sinks when pressed, a touch of warmth when the pointer is on it */
-export class PauseBtn {
-  readonly shield = new MiniShield(pauseIcon()); x = 0; y = 0; size = 44; down = false; on = true; private press = 0; private t = 0;
-  constructor(private L: UiLayer) { this.shield.userData.noTilt = true; L.scene.add(this.shield); }
-  hit(x: number, y: number) { return this.on && Math.abs(x - this.x) < this.size * 0.62 && Math.abs(y - this.y) < this.size * 0.62; }
-  update(dt: number) {
-    const L = this.L; this.t += dt; this.press += ((this.down ? 1 : 0) - this.press) * Math.min(1, dt * 30);
-    this.shield.visible = this.on;
-    L.at(this.x, this.y, -this.press * 3, this.shield.position); this.shield.scale.setScalar(L.px(this.size) * (1 - 0.1 * this.press));
-    // turned a little toward the screen's centre (it sits in the corner) and swaying with the rest of the HUD
-    this.shield.rotation.set(0.28 + Math.sin(this.t * 0.9) * 0.03, -0.32 + Math.sin(this.t * 0.7) * 0.03, 0);
-    this.shield.icon.idle(this.t, 0.015, 0.12);
-    (this.shield.mesh.material as THREE.MeshLambertMaterial).emissiveIntensity = 0.12 * this.press;
-  }
-  dispose() { this.shield.dispose(); }
-}
+// (11-18 用户：「暂停按钮不要了，点头像暂停。」: the small pause button that stood at the top right is gone — the portrait medallion of the
+//  health bar opens the pause menu now, ironUi.ts IronHp / hud.ts)

@@ -1,3 +1,6 @@
+import { batchActor } from '../engine/rigidBatch';
+import type { ContactBatch } from '../engine/contactBatch';
+import { OPT } from '../engine/perfOpts';
 // 可破坏物件的表现（act-19，用户：「希望场景中有各种可破坏的场景物件，也可以对敌人造成伤害那种」）：
 // 陶罐 / 木箱 / 草垛 / 火油坛 / 立柱的体素模型、挨打晃一下、碎裂飞碎块、火油坛引线冒火星 → 爆炸、地上烧一片火、立柱顺刀势倒下。
 // 规则全在 breakLogic.ts（纯逻辑，有测试）；这里只把它的事件变成画面，并维护碰撞（solids.ts）。
@@ -12,7 +15,7 @@ import { shake } from '../engine/clock';
 import { cue } from '../../audio/cues';
 import { BreakLogic, BTUNE, type BEvent, type BProp, type BTarget, type BDamage, type BSrc } from './breakLogic';
 import type { Solids, Solid } from './solids';
-import { coverVox, type PropKind, type Cover, type CoverKind } from '../asm/arena';
+import { coverVox, type ArenaPlan, type PropKind, type Cover, type CoverKind } from '../asm/arena';
 
 // ------------------------------------------------------------------ models (cells of 7 cm; origin = the foot's centre)
 const COL = {
@@ -25,7 +28,22 @@ type W = VoxWorld;
 const nsq = (w: W, h: number, y0: number, y1: number, c: number) => { w.box(-h + 1, y0, -h, h - 1, y1, h, c); w.box(-h, y0, -h + 1, h, y1, h - 1, c); };
 // act-20 more breakables: a fence length (along x, 1.6 m), a weapon rack, a 黄巾 banner on its pole, a basket, a grain sack, a lantern post
 const MORE = { yellow: 0xd8b030, yellowD: 0xa8841c, red: 0xa8302a, iron: 0x6a6e78, ironL: 0x9aa0aa, glow: 0xffc070, sack: 0xc8b48a, sackD: 0x9a8662, wicker: 0xa07a44, wickerD: 0x7a5a30 };
-const BUILD: Record<PropKind | 'stump', (w: W) => void> = {
+const BUILD = {
+  palaceColumn: (w: W) => {
+    w.box(-7, 0, -7, 6, 2, 6, COL.stone);
+    w.box(-6, 3, -6, 5, 5, 5, COL.stoneL);
+    w.box(-4, 6, -4, 4, 39, 4, 0x963c2a);
+    w.box(-4, 6, -4, -4, 39, 4, 0x6a2c22);
+    w.box(-5, 39, -5, 5, 42, 5, 0x773020);
+    w.box(-8, 43, -3, 8, 45, 3, 0x543328);
+    w.box(-3, 46, -7, 3, 48, 7, 0x392c28);
+  },
+  palaceStump: (w: W) => {
+    w.box(-7, 0, -7, 6, 2, 6, COL.stone);
+    w.box(-6, 3, -6, 5, 5, 5, COL.stoneL);
+    w.box(-4, 6, -4, 4, 9, 4, 0x963c2a);
+    w.box(-4, 10, -4, 1, 11, 3, 0x9c7653);
+  },
   fence: w => { for (let x = -11; x <= 11; x += 5) w.box(x, 0, -1, x + 1, 13, 0, COL.postD); w.box(-12, 4, -1, 12, 5, 0, COL.wood); w.box(-12, 10, -1, 12, 11, 0, COL.wood); w.box(-12, 11, -1, 12, 11, 0, COL.woodL); },
   rack: w => { w.box(-7, 0, -1, -6, 18, 0, COL.postD); w.box(6, 0, -1, 7, 18, 0, COL.postD); w.box(-7, 16, -1, 7, 17, 0, COL.wood); w.box(-7, 5, -1, 7, 6, 0, COL.wood);
     for (const x of [-4, 0, 4]) { w.box(x, 1, 1, x, 20, 1, COL.post); w.box(x - 1, 21, 1, x + 1, 24, 1, MORE.iron); w.box(x, 25, 1, x, 26, 1, MORE.ironL); } },
@@ -40,41 +58,42 @@ const BUILD: Record<PropKind | 'stump', (w: W) => void> = {
   pillar: w => { w.box(-4, 0, -4, 4, 2, 4, COL.stone); w.box(-4, 2, -4, 4, 2, 4, COL.stoneL); w.box(-2, 3, -2, 2, 40, 2, COL.post); w.box(-2, 3, -2, -2, 40, 2, COL.postD); w.box(2, 3, -2, 2, 40, -2, COL.postL);
     w.box(-3, 18, -3, 3, 19, 3, COL.rope); w.box(-8, 35, -1, 8, 37, 1, COL.postD); w.box(-3, 41, -3, 3, 42, 3, COL.postD); w.box(6, 30, -1, 7, 34, 0, COL.rope); w.box(5, 26, -2, 8, 29, 1, COL.clay); },
   stump: w => { w.box(-4, 0, -4, 4, 2, 4, COL.stone); w.box(-4, 2, -4, 4, 2, 4, COL.stoneL); w.box(-2, 3, -2, 2, 7, 2, COL.post); w.box(-2, 8, -2, 0, 9, 2, COL.postL); w.box(1, 8, -2, 2, 8, 0, COL.postL); },
-};
+} satisfies Record<PropKind | 'stump' | 'palaceColumn' | 'palaceStump', (w: W) => void>;
 const GEO = new Map<string, THREE.Mesh[]>();
-function model(kind: PropKind | 'stump', rot: 0 | 1 = 0) {
+function model(kind: keyof typeof BUILD, rot: 0 | 1 = 0) {
   if (rot) { const g = model(kind, 0); g.rotation.y = Math.PI / 2; const o = new THREE.Group(); o.add(g); return o; }
   if (!GEO.has(kind)) { const w = new VoxWorld(CELL); BUILD[kind](w); const ms = w.build({ rim: 0.3, edge: 0.16 }); for (const m of ms) m.geometry.translate(-CELL / 2 * 0, 0, 0); GEO.set(kind, ms); }
-  const g = new THREE.Group(); for (const m of GEO.get(kind)!) { const c = new THREE.Mesh(m.geometry, m.material); c.castShadow = m.castShadow; c.receiveShadow = true; g.add(c); } return g;
+  const g = new THREE.Group(); for (const m of GEO.get(kind)!) { const c = new THREE.Mesh(m.geometry, m.material); c.updateMatrix(); c.matrixAutoUpdate = !OPT.staticMatrices; c.castShadow = m.castShadow; c.receiveShadow = true; g.add(c); } return g;
 }
 const COVER_GEO = new Map<string, THREE.Mesh[]>();
 function coverModel(kind: CoverKind, rot: 0 | 1, rubble: boolean) {
   const key = kind + rot + (rubble ? 'r' : '');
   if (!COVER_GEO.has(key)) { const w = new VoxWorld(CELL); coverVox(w, kind, rot, rubble); COVER_GEO.set(key, w.build({ rim: 0.3, edge: 0.16 })); }
-  const g = new THREE.Group(); for (const m of COVER_GEO.get(key)!) { const c = new THREE.Mesh(m.geometry, m.material); c.castShadow = m.castShadow; c.receiveShadow = true; g.add(c); } return g;
+  const g = new THREE.Group(); for (const m of COVER_GEO.get(key)!) { const c = new THREE.Mesh(m.geometry, m.material); c.updateMatrix(); c.matrixAutoUpdate = !OPT.staticMatrices; c.castShadow = m.castShadow; c.receiveShadow = true; g.add(c); } return g;
 }
 /** shard colours per kind */
 const SHARDS: Record<string, number[]> = { pot: [COL.clay, COL.clayD, COL.clayL], crate: [COL.wood, COL.woodD, COL.woodL], hay: [COL.straw, COL.strawD, COL.strawL], oil: [COL.oil, COL.oilD, COL.seal], pillar: [COL.post, COL.postD, COL.postL],
   fence: [COL.wood, COL.woodD, COL.postD], rack: [COL.wood, COL.postD, 0x6a6e78], banner: [0xd8b030, 0xa8841c, 0xa8302a], basket: [0xa07a44, 0x7a5a30, 0xc8b48a], sack: [0xc8b48a, 0x9a8662, 0xe0d0a0], lamp: [0xa8302a, 0xffc070, COL.postD],
   cover: [COL.stone, COL.stoneL, COL.woodD] };
 
-interface Vis { p: BProp; g: THREE.Group; tilt: THREE.Group; solid: Solid; wob: { x: number; z: number; vx: number; vz: number }; fall: number; fuseT: number; cover?: Cover; drop?: number }
+interface Vis { p: BProp; g: THREE.Group; tilt: THREE.Group; solid: Solid; wob: { x: number; z: number; vx: number; vz: number }; fall: number; fuseT: number; cover?: Cover; drop?: number; model?: 'palaceColumn' }
 interface FireVis { id: number; x: number; z: number; r: number; t: number; disc: THREE.Mesh; emit: number }
 
 export class Breakables {
+  private readonly fallAxis = new THREE.Vector3();
   logic = new BreakLogic(); root = new THREE.Group(); private vis = new Map<number, Vis>(); private fires: FireVis[] = [];
   constructor(parent: THREE.Object3D, private solids: Solids) { parent.add(this.root); }
   /** the room's props (from asm/arena.ts arenaPlan) */
-  *buildSteps(list: Array<{ kind: PropKind; x: number; z: number; rot?: 0 | 1 }>, covers: Cover[] = []) {
+  *buildSteps(list: ArenaPlan['props'], covers: Cover[] = [], detached = false) {
     this.clear();
     for (const it of list) {
       yield;
       const p = this.logic.add(it.kind, it.x, it.z), tilt = new THREE.Group(), g = new THREE.Group(), long = it.kind === 'fence' || it.kind === 'rack';
-      tilt.add(model(it.kind, long ? (it.rot ?? 0) : 0)); g.add(tilt); g.position.set(p.x, 0, p.z); if (!long) g.rotation.y = ((p.id * 2654435761) % 4) * (Math.PI / 2); this.root.add(g);
+      tilt.add(model(it.model ?? it.kind, long ? (it.rot ?? 0) : 0)); g.add(tilt); g.position.set(p.x, 0, p.z); if (!long) g.rotation.y = ((p.id * 2654435761) % 4) * (Math.PI / 2); this.root.add(g);
       // a fence / rack is a thin box along its length; the rest are round
       const solid = long ? this.solids.add({ kind: 'prop', shape: 'box', x: p.x, z: p.z, hx: it.rot ? 0.2 : (it.kind === 'fence' ? 0.85 : 0.5), hz: it.rot ? (it.kind === 'fence' ? 0.85 : 0.5) : 0.2, slam: true, tag: p })
         : this.solids.add({ kind: 'prop', shape: 'circle', x: p.x, z: p.z, r: p.r * 0.85, slam: it.kind === 'pillar', tag: p });
-      this.vis.set(p.id, { p, g, tilt, solid, wob: { x: 0, z: 0, vx: 0, vz: 0 }, fall: -1, fuseT: 0 });
+      this.vis.set(p.id, { p, g, tilt, solid, model: it.model, wob: { x: 0, z: 0, vx: 0, vz: 0 }, fall: -1, fuseT: 0 });
     }
     // act-20: the cover pieces break too — a solid box that crumbles to a lower heap after enough blows
     for (const cv of covers) {
@@ -83,6 +102,19 @@ export class Breakables {
       tilt.add(coverModel(cv.kind, cv.rot, false)); g.add(tilt); g.position.set(cv.x, 0, cv.z); this.root.add(g);
       const solid = this.solids.add({ kind: 'cover', shape: 'box', x: cv.x, z: cv.z, hx: cv.hx, hz: cv.hz, slam: true, tag: p });
       this.vis.set(p.id, { p, g, tilt, solid, wob: { x: 0, z: 0, vx: 0, vz: 0 }, fall: -1, fuseT: 0, cover: cv });
+    }
+    this.root.userData.propBatch = true;
+    if (!detached) batchActor(this.root);
+  }
+  contacts(batch: ContactBatch) {
+    for (const v of this.vis.values()) {
+      if (!v.g.parent || !v.g.visible) continue;
+      const s = v.solid, x = v.g.position.x, z = v.g.position.z;
+      if (v.fall >= 0 && v.p.fallDir) {
+        const reach = Math.sqrt(Math.max(0, 1 - v.tilt.quaternion.w ** 2)) * 2 * v.tilt.quaternion.w * BTUNE.toppleLen / 2;
+        batch.add(x + v.p.fallDir[0] * reach, z + v.p.fallDir[1] * reach,
+          s.r + Math.abs(v.p.fallDir[0] * reach), s.r + Math.abs(v.p.fallDir[1] * reach));
+      } else batch.add(x, z, (s.hx || s.r) * 1.15, (s.hz || s.r) * 1.15);
     }
   }
   clear() {
@@ -143,13 +175,13 @@ export class Breakables {
       if (v.fall >= 0 && v.p.fallDir) {
         v.fall += dt; const k = Math.min(1, v.fall / 0.55), a = (Math.PI / 2) * (k * k) - (k >= 1 ? Math.sin(Math.min(1, (v.fall - 0.55) / 0.2) * Math.PI) * 0.06 : 0);
         v.tilt.rotation.set(0, 0, 0); v.g.rotation.set(0, 0, 0);
-        const ax = new THREE.Vector3(v.p.fallDir[1], 0, -v.p.fallDir[0]); v.tilt.quaternion.setFromAxisAngle(ax, a);
+        this.fallAxis.set(v.p.fallDir[1], 0, -v.p.fallDir[0]); v.tilt.quaternion.setFromAxisAngle(this.fallAxis, a);
         if (v.fall >= 0.55 && v.fall - dt < 0.55) {
           const [dx, dz] = v.p.fallDir; for (let s = 0.6; s <= BTUNE.toppleLen; s += 0.7) fxSmoke(V3(v.p.x + dx * s, 0.2, v.p.z + dz * s), 0x8a7a6a, 2, { r: 0.4, spd: 1.6, up: 0.4, s: 0.4, life: 0.7 });
           shake(v.drop != null ? 0.08 : 0.28); cue(v.drop != null ? 'land' : 'wallSlam', v.drop != null ? 0.5 : 1.0);
         }
         if (v.drop != null && v.fall > v.drop) { this.root.remove(v.g); v.fall = -2; v.drop = undefined; continue; }
-        if (v.fall > 2.4) { this.root.remove(v.g); const st = model('stump'); st.position.set(v.p.x, 0, v.p.z); this.root.add(st); v.g = st; v.tilt = new THREE.Group(); v.fall = -2; }
+        if (v.fall > 2.4) { this.root.remove(v.g); const st = model(v.model === 'palaceColumn' ? 'palaceStump' : 'stump'); st.position.set(v.p.x, 0, v.p.z); this.root.add(st); v.g = st; v.tilt = new THREE.Group(); v.fall = -2; }
       }
     }
     for (const f of [...this.fires]) {
@@ -170,7 +202,7 @@ export class Breakables {
         this.root.remove(v.g); const g = new THREE.Group(), t = new THREE.Group(); t.add(coverModel(v.cover.kind, v.cover.rot, true)); g.add(t); g.position.copy(v.g.position); this.root.add(g); v.g = g; v.tilt = t;
         v.solid.hx *= BTUNE.rubbleK; v.solid.hz *= BTUNE.rubbleK; v.solid.r *= BTUNE.rubbleK;
         const at = V3(e.p.x, 0.6, e.p.z);
-        for (let i = 0; i < 16; i++) { const a = Math.random() * Math.PI * 2, sp = 2 + Math.random() * 3; addBlock(at.clone().add(V3(Math.cos(a) * 0.3, Math.random() * 0.6, Math.sin(a) * 0.3)), { size: 0.08 + Math.random() * 0.1, v: V3(Math.cos(a) * sp + e.dir[0] * 2, 2 + Math.random() * 3.5, Math.sin(a) * sp + e.dir[1] * 2), col: SHARDS.cover[i % 3], glow: false, grav: 14, floor: 0.03, spin: 6, life: 1.8, shrink: 0.5 }); }
+        for (let i = 0; i < 16; i++) { const a = Math.random() * Math.PI * 2, sp = 2 + Math.random() * 3; addBlock(at.clone().add(V3(Math.cos(a) * 0.3, Math.random() * 0.6, Math.sin(a) * 0.3)), { size: 0.08 + Math.random() * 0.1, v: V3(Math.cos(a) * sp + e.dir[0] * 2, 2 + Math.random() * 3.5, Math.sin(a) * sp + e.dir[1] * 2), col: SHARDS.cover[i % 3], glow: false, debris: true, grav: 14, floor: 0.03, spin: 6, life: 1.8, shrink: 0.5 }); }
         fxSmoke(at, 0x8a7a6a, 10, { r: 0.8, spd: 1.8, up: 0.8, s: 0.5, life: 0.9, alpha: 0.5 }); shake(0.3); cue('pillarFall', 0.7); cue('wallSlam', 0.8);
       }
       else if (e.k === 'break' && (e.p.kind === 'banner' || e.p.kind === 'lamp' || e.p.kind === 'fence' || e.p.kind === 'rack')) {
@@ -181,7 +213,7 @@ export class Breakables {
       else if (e.k === 'break') {
         const v = this.vis.get(e.p.id); if (v) { this.root.remove(v.g); v.solid.on = false; }
         const at = V3(e.p.x, 0.4, e.p.z), cols = SHARDS[e.p.kind];
-        for (let i = 0; i < (e.p.kind === 'hay' ? 6 : 10); i++) { const a = Math.random() * Math.PI * 2, s = 1.5 + Math.random() * 2.5; addBlock(at.clone().add(V3(Math.cos(a) * 0.15, Math.random() * 0.4, Math.sin(a) * 0.15)), { size: 0.06 + Math.random() * 0.07, v: V3(Math.cos(a) * s + e.dir[0] * 2, 2 + Math.random() * 3, Math.sin(a) * s + e.dir[1] * 2), col: cols[i % cols.length], glow: false, grav: 14, floor: 0.03, spin: 8, life: 1.4 + Math.random() * 0.6, shrink: 0.4 }); }
+        for (let i = 0; i < (e.p.kind === 'hay' ? 6 : 10); i++) { const a = Math.random() * Math.PI * 2, s = 1.5 + Math.random() * 2.5; addBlock(at.clone().add(V3(Math.cos(a) * 0.15, Math.random() * 0.4, Math.sin(a) * 0.15)), { size: 0.06 + Math.random() * 0.07, v: V3(Math.cos(a) * s + e.dir[0] * 2, 2 + Math.random() * 3, Math.sin(a) * s + e.dir[1] * 2), col: cols[i % cols.length], glow: false, debris: true, grav: 14, floor: 0.03, spin: 8, life: 1.4 + Math.random() * 0.6, shrink: 0.4 }); }
         if (e.p.kind === 'hay') { fxSmoke(at, 0xd8c890, 6, { r: 0.5, spd: 1.4, up: 0.8, s: 0.35, life: 0.8, alpha: 0.4 }); fxChips(at, cols, 12, { speed: 3, up: 3, size: 0.05 }); }
         else fxSmoke(at, 0x7a6a5a, 3, { r: 0.3, spd: 1.2, up: 0.5, s: 0.3, life: 0.5 });
         cue(e.p.kind === 'pot' ? 'potBreak' : e.p.kind === 'crate' ? 'crateBreak' : 'hayBurst', 0.8);

@@ -9,8 +9,10 @@ import * as THREE from 'three';
 import { toon } from './toon';
 import { PXU } from './pixel';
 import type { Bone } from '../actors/rig';
-import { shadowTiles, TILE_M } from '../engine/shadowTiles';
-import { CAPS } from '../engine/perfOpts';
+import { shadowTiles, shadowTileSteps, TILE_M } from '../engine/shadowTiles';
+import { cheapVoxelUniform } from './quality';
+import { mergeActorFaces } from './greedyActor';
+import { OPT, CAPS } from '../engine/perfOpts';
 
 export type Col = number;
 interface Cell { c: Col; g: number; part: string }
@@ -50,20 +52,22 @@ function occupancy(cells: Map<number, unknown>) {
  * down-right. Smaller faces (character cells) keep their flat colour so nothing turns into speckle.
  */
 const matCache = new Map<string, THREE.MeshToonMaterial>();
-/** 11-18 (用户：「墙都没人高，很不自然」 — the walls stand taller than a person now): scenery between the camera and her (or a foe near
- *  her) opens in a pixel dither round the line of sight, so a wall in front never hides who is fighting behind it. Up to four targets:
- *  xyz = the point to keep in sight (the chest), w = the hole's radius at that depth (0 = unused). The floor and anything lower than
- *  0.45 m are never cut, nor anything behind the target. act/show.ts sets them every frame (seeThrough) */
+/** 11-18 (the walls stand taller than a person now): scenery between the camera and her (or a foe near her) opens in a pixel
+ *  dither round the line of sight, so a wall in front never hides who is fighting behind it. Up to four targets: xyz = the point
+ *  to keep in sight (the chest), w = the hole's radius at that depth (0 = unused). The floor and anything lower than 0.45 m are
+ *  never cut, nor anything behind the target. act/show.ts sets them every frame (seeThrough) */
 export const SEE_HOLES = { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] };
-export function voxToon(o: { rim?: number; self?: number; edge?: number; hole?: boolean } = {}) {
+export function voxToon(o: { rim?: number; self?: number; edge?: number; actor?: boolean; hole?: boolean } = {}) {
   const hole = !!o.hole;
-  const k = `${o.rim ?? 0.6}|${o.self ?? 0.05}|${o.edge ?? 0.2}${hole ? '|hole' : ''}`;
+  const k = `${o.rim ?? 0.6}|${o.self ?? 0.05}|${o.edge ?? 0.2}|${!!o.actor}${hole ? '|hole' : ''}`;
   if (matCache.has(k)) return matCache.get(k)!;
   // a private copy: the cached toon material is shared, and this one gets an extra shader stage
   const src = toon(0xffffff, { vertexColors: true, rim: o.rim ?? 0.6, self: o.self ?? 0.05 }), m = src.clone(), edge = o.edge ?? 0.2;
   m.onBeforeCompile = (sh, r) => {
     src.onBeforeCompile(sh, r);
-    sh.uniforms.uPx = PXU.uPx; sh.uniforms.uPxEdge = PXU.uPxEdge;
+    // three's toon material clone drops the extensions bag. The lighting and HUD variants reuse this shader.
+    if (CAPS.derivatives) sh.extensionDerivatives = true;
+    sh.uniforms.uCheapVoxel = cheapVoxelUniform; sh.uniforms.uPx = PXU.uPx; sh.uniforms.uPxEdge = PXU.uPxEdge;
     if (hole) sh.uniforms.uHole = SEE_HOLES;
     sh.vertexShader = (hole ? '#define VOX_HOLE\nvarying vec3 vWP;\n' : '') + 'attribute vec2 aVox; attribute vec2 aSize; attribute vec4 aOpen; varying vec2 vVox; varying vec2 vSize; varying vec4 vOpen; varying vec3 vWN;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
  vVox = aVox; vSize = aSize; vOpen = aOpen; vWN = normalize(mat3(modelMatrix) * objectNormal);
@@ -74,8 +78,8 @@ export function voxToon(o: { rim?: number; self?: number; edge?: number; hole?: 
 #endif
    vWP = (modelMatrix * hp).xyz; }
 #endif`);
-    // the see-through: the hole's core is open, its rim a 4×4 ordered dither in the art pixels (a dithered core read as a purple mesh:
-    // the pixel pass outlines every gap); the radius is scaled with depth, so the hole is the same size on screen
+    // the see-through: the hole's core is open, its rim a 4x4 ordered dither in the art pixels; the radius is scaled with depth,
+    // so the hole is the same size on screen
     const holeFn = hole ? `uniform vec4 uHole[4]; varying vec3 vWP;
 float voxB2(vec2 a) { a = floor(a); return fract(dot(a, vec2(0.5, a.y * 0.75))); }
 float voxB4(vec2 a) { return voxB2(0.5 * a) * 0.25 + voxB2(a); }
@@ -94,7 +98,7 @@ void voxHole() {
 }
 ` : '';
     // (11-18 微信小游戏: the 1-art-pixel bevel lines need dFdx / dFdy — without them (the devtools' WebGL1) the faces keep their tones)
-    sh.fragmentShader = (CAPS.derivatives ? '#define VOX_DERIV\n' : '') + 'varying vec2 vVox; varying vec2 vSize; varying vec4 vOpen; varying vec3 vWN; uniform float uPx, uPxEdge;\n' + holeFn + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>${hole ? '\n      voxHole();' : ''}
+    sh.fragmentShader = (CAPS.derivatives ? '#define VOX_DERIV\n' : '') + 'varying vec2 vVox; varying vec2 vSize; varying vec4 vOpen; varying vec3 vWN; uniform float uPx, uPxEdge, uCheapVoxel;\n' + holeFn + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>${hole ? '\n      voxHole();' : ''}
       { float d = 1.0; if (vOpen.x > 0.5) d = min(d, vVox.x); if (vOpen.y > 0.5) d = min(d, vSize.x - vVox.x); if (vOpen.z > 0.5) d = min(d, vVox.y); if (vOpen.w > 0.5) d = min(d, vSize.y - vVox.y);
         float bev = 1.0 + ${edge.toFixed(3)} * (1.0 - smoothstep(0.03, 0.1, d));
         if (uPx > 0.5) {
@@ -102,8 +106,9 @@ void voxHole() {
           float tone = wn.y > 0.6 ? 1.06 : wn.y < -0.6 ? 0.66 : wn.x > 0.6 ? 0.9 : wn.x < -0.6 ? 0.92 : wn.z > 0.6 ? 1.0 : 0.84;
           float hl = 0.0, dk = 0.0;
 #ifdef VOX_DERIV
+          if (uCheapVoxel < 0.5) {
           vec2 gx = dFdx(vVox), gy = dFdy(vVox), fw = max(abs(gx) + abs(gy), vec2(1e-4));
-          float span = min(vSize.x / fw.x, vSize.y / fw.y);
+          vec2 cellSize = ${o.actor ? 'vec2(1.)' : 'vSize'}; float span = min(cellSize.x / fw.x, cellSize.y / fw.y);
           if (span > 6.0) {
             vec2 ux = normalize(vec2(gx.x, gy.x) + 1e-6), uy = normalize(vec2(gx.y, gy.y) + 1e-6), L = vec2(-0.5, 0.866);
             float e0 = vOpen.x > 0.5 ? vVox.x / fw.x : 1e4, e1 = vOpen.y > 0.5 ? (vSize.x - vVox.x) / fw.x : 1e4;
@@ -113,13 +118,13 @@ void voxHole() {
             if (e1 < 1.0) { hl = max(hl, step(0.2, s1)); dk = max(dk, step(s1, -0.2)); }
             if (e2 < 1.0) { hl = max(hl, step(0.2, s2)); dk = max(dk, step(s2, -0.2)); }
             if (e3 < 1.0) { hl = max(hl, step(0.2, s3)); dk = max(dk, step(s3, -0.2)); }
-          }
+          } }
 #endif
           bev = tone * (1.0 + uPxEdge * hl) * (1.0 - 0.2 * dk * (1.0 - hl));
         }
         diffuseColor.rgb *= bev; }`);
   };
-  m.customProgramCacheKey = () => src.customProgramCacheKey() + '|vox' + edge + '|px' + (CAPS.derivatives ? '' : '|noderiv') + (hole ? '|hole' : '');
+  m.customProgramCacheKey = () => src.customProgramCacheKey() + '|vox' + edge + (o.actor ? '|unit' : '') + '|px' + (CAPS.derivatives ? '' : '|noderiv') + (hole ? '|hole' : '');
   // (11-18 微信小游戏: the bevel uses dFdx / dFdy — built into WebGL2, an extension WebGL1 has to switch on: the WeChat devtools'
   // simulator is WebGL1, and without this every block material failed to compile there)
   (m as unknown as { extensions: Record<string, boolean> }).extensions = { derivatives: true };
@@ -170,7 +175,8 @@ export class VoxChar {
    * Build the rig: returns bones (Object3D, positioned relative to their parents, rest pose recorded) and the meshes per part.
    * jitter: per-cell brightness grain; glow: brightness multiplier for glowing cells (they feed the bloom).
    */
-  build(o: { jitter?: number; glow?: number; rim?: number; self?: number; edge?: number } = {}) {
+  build(o: { jitter?: number; glow?: number; rim?: number; self?: number; edge?: number } = {}) { return finishBuild(this.buildSteps(o)); }
+  *buildSteps(o: { jitter?: number; glow?: number; rim?: number; self?: number; edge?: number } = {}) {
     const s = this.s, bones: Record<string, Bone> = {}, meshes: THREE.Mesh[] = [];
     for (const [name, b] of this.bonesAbs) {
       const o3 = new THREE.Object3D() as Bone; o3.name = name; bones[name] = o3;
@@ -182,7 +188,9 @@ export class VoxChar {
     const jit = o.jitter ?? 0.05, col = new THREE.Color();
     const byPart = new Map<string, { solid: number[][]; glow: number[][] }>();
     const hash = (x: number, y: number, z: number) => { let h = (x * 374761393 + y * 668265263 + z * 1274126177) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
+    let visited = 0;
     for (const v of this.cells.values()) {
+      if ((++visited & 255) === 0) yield;
       if (!byPart.has(v.part)) byPart.set(v.part, { solid: [[], [], [], [], [], [], []], glow: [[], [], [], [], [], [], []] });
       const tgt = v.g > 0 ? byPart.get(v.part)!.glow : byPart.get(v.part)!.solid, [P, N, C, U, I, E, S] = tgt;
       col.set(v.c); const sh = v.g > 0 ? 1 : 1 + (hash(v.x, v.y, v.z) - 0.5) * 2 * jit;
@@ -212,10 +220,11 @@ export class VoxChar {
         if (pos) I.push(...q.map(i => base + i)); else I.push(base + q[0], base + q[2], base + q[1], base + q[3], base + q[5], base + q[4]);
       }
     }
-    const solidMat = voxToon({ rim: o.rim, self: o.self, edge: o.edge });
+    const solidMat = voxToon({ actor: true, rim: o.rim, self: o.self, edge: o.edge });
     for (const [part, { solid, glow }] of byPart) {
+      yield;
       for (const [arr, isGlow] of [[solid, false], [glow, true]] as const) {
-        const [P, N, C, U, I, E, S] = arr; if (!I.length) continue;
+        const [P, N, C, U, I, E, S] = OPT.greedyActors && !jit ? mergeActorFaces(arr, s) : arr; if (!I.length) continue;
         const g = new THREE.BufferGeometry();
         g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(N, 3));
         g.setAttribute('color', new THREE.Float32BufferAttribute(C, 3)); g.setAttribute('aVox', new THREE.Float32BufferAttribute(U, 2)); g.setAttribute('aOpen', new THREE.Float32BufferAttribute(E, 4)); g.setAttribute('aSize', new THREE.Float32BufferAttribute(S, 2)); g.setIndex(I);
@@ -342,19 +351,29 @@ export class VoxWorld {
       }
     }
     const meshes: THREE.Mesh[] = [];
-    yield;
-    for (const [arr, isGlow] of [[out.solid, false], [out.glow, true]] as const) {
-      const [P, N, C, U, I, E, S, K] = arr; if (!I.length) continue;
-      const g = new THREE.BufferGeometry();
-      g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(N, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(C, 3));
-      g.setAttribute('aVox', new THREE.Float32BufferAttribute(U, 2)); g.setAttribute('aOpen', new THREE.Float32BufferAttribute(E, 4)); g.setAttribute('aSize', new THREE.Float32BufferAttribute(S, 2));
-      if (CH) g.setAttribute('aChunk', new THREE.Float32BufferAttribute(K, 2));
-      g.setIndex(P.length / 3 > 65535 ? new THREE.Uint32BufferAttribute(I, 1) : new THREE.Uint16BufferAttribute(I, 1)); g.computeBoundingSphere();
-      const m = new THREE.Mesh(g, isGlow ? glowMat(o.glow ?? 2.4) : voxToon({ rim: o.rim ?? 0.35, self: o.self ?? 0.03, edge: o.edge ?? 0.16, hole: true }));
-      m.castShadow = !isGlow; m.receiveShadow = true; meshes.push(m);
-      // 11-18 微信帧率: a big place draws its shadow from 12 m position-only tiles instead (engine/shadowTiles.ts)
-      if (!isGlow) { const tiles = shadowTiles(m, o.tile ?? TILE_M); if (tiles.length) { m.castShadow = false; m.userData.shadowTiled = true; meshes.push(...tiles); } }
+    let transferred = false;
+    try {
+      yield;
+      for (const [arr, isGlow] of [[out.solid, false], [out.glow, true]] as const) {
+        const [P, N, C, U, I, E, S, K] = arr; if (!I.length) continue;
+        const g = new THREE.BufferGeometry();
+        const attrs: [string, number[], number][] = [['position', P, 3], ['normal', N, 3], ['color', C, 3],
+          ['aVox', U, 2], ['aOpen', E, 4], ['aSize', S, 2]];
+        if (CH) attrs.push(['aChunk', K, 2]);
+        for (const [name, values, width] of attrs) {
+          g.setAttribute(name, new THREE.Float32BufferAttribute(values, width));
+          if (OPT.slicedRoom) yield;
+        }
+        g.setIndex(P.length / 3 > 65535 ? new THREE.Uint32BufferAttribute(I, 1) : new THREE.Uint16BufferAttribute(I, 1)); g.computeBoundingSphere();
+        const m = new THREE.Mesh(g, isGlow ? glowMat(o.glow ?? 2.4) : voxToon({ rim: o.rim ?? 0.35, self: o.self ?? 0.03, edge: o.edge ?? 0.16, hole: true }));
+        m.castShadow = !isGlow; m.receiveShadow = true; meshes.push(m);
+        // 11-18 微信帧率: a big place draws its shadow from 12 m position-only tiles instead (engine/shadowTiles.ts)
+        if (!isGlow) { const tiles = OPT.slicedRoom ? yield* shadowTileSteps(m, o.tile ?? TILE_M) : shadowTiles(m, o.tile ?? TILE_M); if (tiles.length) { m.castShadow = false; m.userData.shadowTiled = true; meshes.push(...tiles); } }
+      }
+      transferred = true;
+      return meshes;
+    } finally {
+      if (!transferred) for (const m of meshes) m.geometry.dispose();
     }
-    return meshes;
   }
 }

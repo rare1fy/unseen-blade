@@ -575,7 +575,7 @@ export const ROSTER: ModelDef[] = [
 ];
 
 /** ?rogue=m: the title, class pick and battle use the male rogue (kept as a backup look); the default is the female rogueF */
-export const ROGUE_M = typeof location !== 'undefined' && /[?&#]rogue=m(?=[&#]|$)/i.test(location.search + location.hash);
+export const ROGUE_M = __DEBUG_UI__ && typeof location !== 'undefined' && /[?&#]rogue=m(?=[&#]|$)/i.test(location.search + location.hash);
 /** the model an actor id stands for: 'rogue' → the backup male look when ?rogue=m is on, otherwise the roster entry as is */
 export function modelDef(id: string): ModelDef {
   const k = id === 'rogue' && ROGUE_M ? 'rogue_m' : id, d = ROSTER.find(x => x.id === k);

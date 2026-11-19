@@ -8,40 +8,17 @@ const S = SCRIPT as Record<string, Line[]>;
 const pick = (id: string, fallback: Line[]) => (S[id]?.length ? S[id] : fallback);
 const pool = (id: string, fallback: string[]) => (S[id]?.length ? S[id].map(l => l.text) : fallback);
 
-/** the first time she wakes in the hideout (after the opening) */
-export const WAKE_DUWU: Line[] = [
-  L('duwu', '白哥！别乱动，你肋下还插着孙婆婆的银针！'),
-  L('jiangjin', '……刀呢。'),
-  L('duwu', '在炉边烤着呢！我把你从长社死人堆里刨出来的。'),
-  L('jiangjin', '石雷还在破庙？'),
-  L('duwu', '在！那贼道士刚抓了一批流民，今晚子时祭旗。'),
-  L('jiangjin', '把我的斗笠拿来。子时前，他得死。'),
-];
-export const WAKE_SUNAO: Line[] = [
-  L('sunao', '醒了？命比乱葬岗的野狗还硬，肺管子差一寸就破了。'),
-  L('jiangjin', '闭息散还有多少？'),
-  L('sunao', '省着点嚼！老身这把骨头，经不起三天两头给你缝皮。'),
-  L('jiangjin', '死不了就行。银针拔了，我要出门。'),
-  L('sunao', '裹胸布给你换过了。女娃娃家，非要往刀口上撞？'),
-  L('jiangjin', '那个女人六年前就死了。这袋碎银，买你的药。'),
-];
-/** chapter 1's boss, before and after the fight */
-export const CHULEI_BEFORE: Line[] = pick('ch1_before', [
-  L('chulei', '哪来的瞎眼野狗，敢踹本渠帅的山门？'),
-  L('jiangjin', '熹平六年，腊月廿三，汝南寒山坞。'),
-  L('chulei', '……寒山坞？那三十七户打铁的，早烧成炉渣了！'),
-  L('jiangjin', '风箱底下，有个十一岁的丫头没死透。'),
-  L('chulei', '是你？！当年那把生石灰，竟没把你毒死在坑里！'),
-  L('jiangjin', '你泼灰的时候，左手铜镯响了三声。跟刚才一样。'),
-  L('chulei', '找死！天公将军赐我五雷正法，今日便劈碎你的骨头！'),
-  L('jiangjin', '雷声太大，吵耳朵。拔刀吧。'),
-]);
-export const CHULEI_AFTER: Line[] = pick('ch1_after', [
-  L('chulei', '饶命……石灰是阎虎让我泼的！刀谱也不在我手！'),
-  L('jiangjin', '阎虎在哪。'),
-  L('chulei', '在洛阳！他投了西凉董卓的飞熊军，在洛阳掌兵！'),
-  L('jiangjin', '当年你们烧我眼窝的炉灰，我还给你。'),
-]);
+/** the first time she wakes in the hideout (debug talkTest only; the prologue's waking is PRO_WAKE) */
+export const WAKE_DUWU: Line[] = [L('duwu', '白哥！别乱动，你肋下还插着孙婆婆的银针！'), L('jiangjin', '……刀呢。'), L('duwu', '在火堆边烤着呢！')];
+export const WAKE_SUNAO: Line[] = [L('sunao', '醒了？命倒硬。'), L('jiangjin', '银针拔了，我要出门。')];
+/** 11-19 剧情改版: each region's boss, before and after the fight (index 0 = 石雷 … 4 = 崔玄; ch5_after is the blade at his throat,
+ *  then the ending she picks) */
+export const CH_BEFORE: Line[][] = [1, 2, 3, 4, 5].map(n => pick(`ch${n}_before`, []));
+export const CH_AFTER: Line[][] = [1, 2, 3, 4, 5].map(n => pick(`ch${n}_after`, []));
+export const CHULEI_BEFORE = CH_BEFORE[0], CHULEI_AFTER = CH_AFTER[0];
+/** the three endings (A 一个人走进雪里 / B 不杀、只带走阿爹那柄 / C 回破窑挂满刀架) and the choices' words, in that order */
+export const ENDING: Record<'a' | 'b' | 'c', Line[]> = { a: pick('ending_a', []), b: pick('ending_b', []), c: pick('ending_c', []) };
+export const ENDING_PICK: string[] = pool('ending_pick', ['挥刀封喉，独入风雪', '留刀阁内，抽身而去', '斩断恩仇，抱刀归窑']);
 /** what they say when she is dragged back after a death (one line each, picked at random) */
 export const DEATH_POOL: Record<string, string[]> = {
   duwu: pool('death_duwu', ['白哥！我顺着刀环声才在泥沟里摸到你，险些晚了！', '黄巾贼换了巡山哨卡，下次走东边麦田，我挂了铜铃。', '别硬撑了，你吐出来的全是黑血，先喝口热米汤！',
@@ -57,42 +34,17 @@ export function deathLine(who: keyof typeof DEATH_POOL, rnd = Math.random): Line
 // ---------------------------------------------------------------- act-29 开篇（方案 1，agy · gemini-3.8-flash-high 写，11-17）
 /** the cold open's last line (寒山坞, that night), then the two cards over the snowy village */
 export const PRO_COLD = pick('pro_cold', [L('caption', '白灰比雪烫。从此，再看不见。')])[0].text;
-export const PRO_CAPTIONS = ['七年后', '中平元年 · 冬 · 颍川'];
-/** the snowy temple, before the fight she cannot win */
-export const PRO_CHULEI: Line[] = pick('pro_chulei', [
-  L('chulei', '哪来的小瞎子，也配拎着刀挡老子的路？'),
-  L('jiangjin', '石雷。'),
-  L('chulei', '认得老子？……慢着，这刀脊上的锻纹……'),
-  L('chulei', '寒山坞文家？哈，风箱底下那丫头，阿皎？'),
-  L('jiangjin', '拔杖。'),
-]);
+export const PRO_CAPTIONS = ['七年后', '许都 · 冬'];   // (11-19: no year; history only the backdrop)
+/** 11-19 剧情改版: 崔府's snowy forecourt, before the fight she cannot win (崔玄) */
+export const PRO_CUIXUAN: Line[] = pick('pro_cuixuan', [L('cuixuan', '夜深落了锁。你走错门了。'), L('jiangjin', '七年前，寒山坞文家，三十柄百辟刀。'), L('cuixuan', '刀在我这。')]);
 /** struck down in the snow */
-export const PRO_FALL: Line[] = pick('pro_fall', [L('chulei', '当年一捧灰没烫醒你。小瞎子，烂在雪里吧。')]);
+/** 11-19 (用户：「突然就进入战斗了……敌人跳出来把她包围了的过程，辅以对话和文字」): the sentries close round her in the snowy village (agy) */
+export const PRO_AMBUSH: Line[] = pick('pro_ambush', [L('sentry', '摸她怀里！肯定藏着干粮！'), L('sentry', '少废话，先把袄子扒了！'), L('act', '（风雪骤急，刘白微偏下颌，按住刀镡）'), L('jiangjin', '刀都晃出声了，拿稳点。')]);
+export const PRO_FALL: Line[] = pick('pro_fall', [L('cuixuan', '拿刀的那四个人你一个都没杀过，就来找我？')]);
 /** dawn: the man with the donkey, picking over the dead */
-export const PRO_DAWN: Line[] = pick('pro_dawn', [
-  L('duwu', '冻死鬼的鞋，拔都拔不下来。'),
-  L('duwu', '好刀！少说能换两袋米面。'),
-  L('duwu', '松手……操，怎么还有气儿？！'),
-]);
+export const PRO_DAWN: Line[] = pick('pro_dawn', [L('duwu', '冻死鬼的鞋，拔都拔不下来。'), L('duwu', '松手……娘哎，怎么还有气儿？！')]);
 /** the kiln: her first waking (only 杜五 and 孙媪 — the others come later, each with their own story) */
-export const PRO_WAKE: Line[] = pick('pro_wake', [
-  L('act', '（刘白猛地惊醒，指尖抓空）'),
-  L('sunao', '别扑腾，肋骨断了三根，死不了。'),
-  L('jiangjin', '刀……在哪。'),
-  L('duwu', '刀在老子这！破瓦窑里冻不死你。'),
-  L('jiangjin', '……为什么救我。'),
-  L('duwu', '老子拿板车拖你回来的，就图刀和衣裳！'),
-  L('sunao', '图衣裳？倒赔老妇两双死人鞋请我接骨。'),
-  L('duwu', '……谁知老子犯什么邪！小瞎子，叫什么？'),
-  L('jiangjin', '刘白。'),
-  L('duwu', '得，白哥。躺好，别糟践老子的本钱。'),
-  L('act', '（刘白咬牙起身，血渗透粗布）'),
-  L('jiangjin', '石雷还在庙里。'),
-  L('duwu', '疯了吧白哥！那铁杖能把你砸成肉泥！'),
-  L('sunao', '好言劝不住该死的鬼，由她爬去。'),
-  L('act', '（刘白直直伸出手，指节泛白）'),
-  L('jiangjin', '刀给我。'),
-]);
+export const PRO_WAKE: Line[] = pick('pro_wake', [L('act', '（刘白猛地惊醒，指尖抓空）'), L('sunao', '别扑腾，肋骨断了三根。'), L('jiangjin', '刘白。'), L('act', '（刘白扶墙撑起身体）'), L('jiangjin', '刀给我。')]);
 
 // ---------------------------------------------------------------- act-40 (用户：「我感觉还有很多对话没配音」): the hideout's lines from the final
 // script too (docs/对白/剧本5.md) — the talk pools, the stele, the provisions, the needles — so they are the user's words and voiced;
@@ -100,7 +52,20 @@ export const PRO_WAKE: Line[] = pick('pro_wake', [
 import { NPC_LINES, STELE_LINES, MEAL_LINES, UP_LINES, POOR_LINES } from './hideoutLines';
 const one = (id: string, fallback: string) => (S[id]?.[0]?.text ?? fallback);
 export const NPC_TALK: Record<string, string[]> = { ...NPC_LINES, duwu: pool('npc_duwu', NPC_LINES.duwu), sunao: pool('npc_sunao', NPC_LINES.sunao) };
-export const STELE_TALK = { none: pool('stele_none', STELE_LINES.none), one: pool('stele_one', STELE_LINES.one), strike: one('stele_strike', STELE_LINES.strike) };
+export const STELE_TALK = {
+  none: pool('stele_none', STELE_LINES.none), one: pool('stele_one', STELE_LINES.one),
+  /** 11-19 剧情改版: what she says at the stone with n names cut (0 … 4; five cut is the end — ending A / C) */
+  byCount: [pool('stele_none', STELE_LINES.none), pool('stele_one', STELE_LINES.one), pool('stele_two', STELE_LINES.one), pool('stele_three', STELE_LINES.one), pool('stele_four', STELE_LINES.one), pool('stele_four', STELE_LINES.one)],
+  /** the cut down the n-th name (index 0 = 石雷) */
+  strike: [1, 2, 3, 4, 5].map(n => one(`stele_strike_${n}`, n === 1 ? one('stele_strike', STELE_LINES.strike) : STELE_LINES.strike)),
+};
+/** 11-19 剧情改版: a region's boss down for good (the five in order). The first four: their after-talk seen; 崔玄: dead by her hand
+ *  (ending A or C; ending B leaves him alive and his name uncut) */
+export const BOSS_AFTER = ['ch1_boss_after', 'ch2_boss_after', 'ch3_boss_after', 'ch4_boss_after', 'cuixuan_dead'] as const;
+export const STRIKE_FLAG = ['strike_chulei', 'strike_2', 'strike_3', 'strike_4', 'strike_5'] as const;
+const leading = (seen: Record<string, unknown>, ids: readonly string[]) => { let n = 0; while (n < ids.length && seen[ids[n]]) n++; return n; };
+export const bossesDown = (seen: Record<string, unknown>) => leading(seen, BOSS_AFTER);
+export const struckOnStele = (seen: Record<string, unknown>) => leading(seen, STRIKE_FLAG);
 export const MEAL_TALK = { offer: pool('meal_offer', MEAL_LINES.offer), packed: pool('meal_packed', MEAL_LINES.packed),
   after: { feast: one('meal_feast', MEAL_LINES.after.feast), purse: one('meal_purse', MEAL_LINES.after.purse), wine: one('meal_wine', MEAL_LINES.after.wine) } as Record<string, string> };
 export const UP_TALK: Record<string, string[]> = { ...UP_LINES, sunao: pool('up_sunao', UP_LINES.sunao ?? []) };

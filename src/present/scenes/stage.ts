@@ -1,10 +1,12 @@
+import { bakeTerrainLight, bakeTerrainLightSteps, stageLighting, type TerrainLight } from './terrainLight';
 import { readStagePack, unpackStage } from './packedStage';
 import { bladeWorking } from './loadingBlade';
 import { finishBuild } from '../engine/buildSteps';
+import { OPT } from '../engine/perfOpts';
 // Stage manager: builds one chapter scene at a time (voxel geometry + its lights, fog, sky, mist, flames, water, runes) and tears
 // it down when another is shown. Global lights are shared and re-tinted per scene. Returns an Env-compatible handle (phase2).
 import * as THREE from 'three';
-import { scene, camera, V3, onUpdate, canvasTex } from '../engine/world';
+import { scene, camera, V3, onUpdate, canvasTex, stageUpdates } from '../engine/world';
 import { clock } from '../engine/clock';
 import { VoxWorld } from '../look/voxkit';
 import { CELL } from '../bestiary/kit';
@@ -155,8 +157,26 @@ export interface PreparedStage { def: SceneDef; root: THREE.Group; attach(): Sta
 export function prepareStage(def: SceneDef, options: { combat?: boolean } = {}): PreparedStage {
   return finishBuild(prepareStageSteps(def, options));
 }
-export function* prepareStageSteps(def: SceneDef, options: { combat?: boolean; procedural?: boolean } = {}): Generator<void | Promise<void>, PreparedStage> {
-  const g = globals(), root = new THREE.Group();
+type StageOptions = { combat?: boolean; procedural?: boolean; background?: boolean };
+export function* prepareStageSteps(def: SceneDef, options: StageOptions = {}): Generator<void | Promise<void>, PreparedStage> {
+  const g = globals(), root = new THREE.Group(), updates = stageUpdates();
+  const steps = stageSteps(def, options, g, root, updates);
+  let complete = false;
+  try {
+    for (;;) {
+      const step = updates.during(() => steps.next());
+      if (step.done) { complete = true; return step.value; }
+      yield step.value;
+    }
+  } finally {
+    if (!complete) {
+      steps.return(undefined as never);
+      updates.clear();
+      root.traverse(o => (o as THREE.Mesh).geometry?.dispose());
+    }
+  }
+}
+function* stageSteps(def: SceneDef, options: StageOptions, g: ReturnType<typeof globals>, root: THREE.Group, updates: ReturnType<typeof stageUpdates>): Generator<void | Promise<void>, PreparedStage> {
   const md = def.mood, lights: THREE.Light[] = [], flames: Array<{ m: THREE.Mesh; l?: THREE.PointLight; base: number; s: number }> = [], phase: Array<(k: number) => void> = [];
   // the ground beyond the stage
   const earth: THREE.Mesh = new THREE.Mesh(new THREE.PlaneGeometry(140, 140), toon(0xffffff, { map: earthTex(md.earth) })); earth.rotation.x = -Math.PI / 2; earth.position.y = -2 * CELL; earth.receiveShadow = true; earth.userData.earth = true; root.add(earth);
@@ -194,15 +214,17 @@ export function* prepareStageSteps(def: SceneDef, options: { combat?: boolean; p
     add(o) { root.add(o); },
   };
   let packed: Uint8Array | null = null;
-  if (__WX__ && def.pack && !options.procedural && STAGE_OPTS.chunk === 0 && bladeWorking()) {
+  if (__WX__ && OPT.roomPacks && def.pack && !options.procedural && STAGE_OPTS.chunk === 0 && (bladeWorking() || options.background)) {
     yield readStagePack(def.pack).then(data => { packed = data; });
   }
+  let field: TerrainLight | null = null;
   if (packed) {
     try {
-      yield* unpackStage(packed, ctx, root, cutRoot, def.report);
+      field = yield* unpackStage(packed, ctx, root, cutRoot, def.report);
     } catch (error) {
       console.warn('[stage] invalid scenery pack', def.pack, error);
       root.traverse(object => (object as THREE.Mesh).geometry?.dispose());
+      updates.clear();
       return yield* prepareStageSteps(def, { ...options, procedural: true });
     }
   } else if (def.buildSteps) yield* def.buildSteps(ctx); else def.build(ctx);
@@ -217,14 +239,36 @@ export function* prepareStageSteps(def: SceneDef, options: { combat?: boolean; p
     for (let i = 0; i < pa.count; i++) { uv[i * 2] = (pa.getX(i) + 70) / 140; uv[i * 2 + 1] = (pa.getY(i) + 70) / 140; }
     sg.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); earth.geometry.dispose(); earth.geometry = sg;
   }
+  const staticStart = root.children.length;
   if (!packed && options.combat) quietBattleGlow(w);
-  if (!packed) for (const m of yield* w.buildSteps({ glow: options.combat ? 1.35 : md.glowK ?? 2.6, chunk: STAGE_OPTS.chunk })) root.add(m);
+  if (!packed) for (const m of yield* w.buildSteps({ glow: options.combat ? 1.35 : md.glowK ?? 2.6, chunk: STAGE_OPTS.chunk })) { if (m.name !== 'shadowTile' && (m.material as THREE.MeshToonMaterial).isMeshToonMaterial) m.userData.stageTerrain = true; root.add(m); }
   w.cells.clear();   // (the cells are meshed; a prepared place can wait a while, it should not hold two million of them)
   cards.build(root);
   if (cut.cells.size) for (const m of yield* cut.buildSteps({ glow: 2.6, chunk: STAGE_OPTS.chunk })) cutRoot.add(m);
   cut.cells.clear();
+  // Positive list: baked voxels, their shadow tiles, instanced grass/cards, the ground and roof.
+  // Props supplied through ctx.add/onPhase and the later gates, breakables and flames keep their own transforms.
+  const fixed = [earth, ...root.children.slice(staticStart), ...root.children.filter(o => o.userData.packedStatic), ...cutRoot.children];
+  let frozen = false;
+  const check = __DEV__ ? fixed.map(o => ({ p: o.position.clone(), q: o.quaternion.clone(), s: o.scale.clone() })) : [];
+  const syncStatic = () => {
+    if (frozen !== OPT.staticMatrices) {
+      frozen = OPT.staticMatrices;
+      for (const o of fixed) { o.updateMatrix(); o.matrixAutoUpdate = !frozen; }
+    }
+    if (__DEV__ && frozen) for (let i = 0; i < fixed.length; i++) {
+      const o = fixed[i], c = check[i];
+      if (!o.position.equals(c.p) || !o.quaternion.equals(c.q) || !o.scale.equals(c.s)) {
+        console.warn('[staticMatrices] scenery moved', def.id, o.name, o.id);
+        o.updateMatrix(); c.p.copy(o.position); c.q.copy(o.quaternion); c.s.copy(o.scale);
+      }
+    }
+  };
+  const surfaces = root.children.filter(o => o.userData.stageTerrain) as THREE.Mesh[];
+  const lighting = stageLighting(surfaces, earth, field ?? (OPT.slicedRoom ? yield* bakeTerrainLightSteps(surfaces, md.moonPos) : bakeTerrainLight(surfaces, md.moonPos)));
+  lighting.sync(); syncStatic();
   let used = false;
-  const freeAll = () => root.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh) m.geometry.dispose(); });
+  const freeAll = () => { updates.clear(); lighting.dispose(); fixed.length = check.length = 0; root.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh) m.geometry.dispose(); }); };
   return {
     def, root,
     drop() { if (used) return; used = true; freeAll(); },
@@ -239,9 +283,9 @@ export function* prepareStageSteps(def: SceneDef, options: { combat?: boolean; p
       // mood: sky or void, fog, light colours
       applyMood(md);
       for (const l of lights) scene.add(l);
-      const off = { on: true };
-      onUpdate((dt, rdt) => {
-        if (!off.on) return; const t = clock.rtime;
+      const unsubscribe = onUpdate((dt, rdt) => {
+        updates.tick(dt, rdt);
+        lighting.sync(); syncStatic(); const t = clock.rtime;
         ambientTick(amb, rdt);
         cutRoot.visible = CUT.mode === 'show' || (CUT.mode === 'auto' && (camera.position.y < eaves || camera.position.distanceTo(CUT.focus) > CUT.far));
         for (const f of flames) {
@@ -258,7 +302,7 @@ export function* prepareStageSteps(def: SceneDef, options: { combat?: boolean; p
           g.hemi.color.set(md.hemiSky).lerp(new THREE.Color(0x3a8a5a), 0.4 * k);
           for (const p of phase) p(k);
         },
-        dispose() { off.on = false; scene.remove(root); freeAll(); for (const l of lights) scene.remove(l); if (current === st) current = null; },
+        dispose() { unsubscribe(); scene.remove(root); freeAll(); for (const l of lights) scene.remove(l); if (current === st) current = null; },
       };
       current = st;
       STAGE_HOOK.built?.(st);

@@ -20,13 +20,23 @@ export interface CineHost {
   /** a foe-shaped puppet in the scene (not a fighter: the cutscene moves and kills it) */
   puppet(kind: EKind, x: number, z: number, faceX: number, faceZ: number): Foe;
   clearPuppets(): void;
+  /** 11-19 (用户：「现在演出里穿模的情况非常严重」): a body of radius r stepping from (x, z) toward (tx, tz) is held off the walls and the
+   *  props (the game's own clamp: walls, cover, pots, fences) — a cutscene walk that runs into a fence slides along it instead of through */
+  hold?(p: THREE.Vector3, r: number): void;
 }
 
-/** the hero walks from a to b over dur seconds (run pose at a walk), facing the way */
+/** the hero walks from a to b over dur seconds (run pose at a walk), facing the way she goes; held off the walls and the props as she
+ *  goes (11-19: a straight line from wherever she stood ran her through the fences) — the steps follow the ground she covers */
 function walker(h: CineHost, a: [number, number], b: [number, number], dur: number) {
+  const sp = Math.hypot(b[0] - a[0], b[1] - a[1]) / Math.max(0.1, dur);
   return (t: number, dt: number) => {
-    const k = Math.min(1, t / dur), x = a[0] + (b[0] - a[0]) * k, z = a[1] + (b[1] - a[1]) * k, m = motionOf(h.hero.a);
-    h.hero.pos.set(x, 0, z); h.hero.a.yaw = Math.atan2(b[0] - a[0], b[1] - a[1]); m.run = k < 1 ? 0.45 : Math.max(0, m.run - dt * 4); m.phase += dt * 4.2;
+    const p = h.hero.pos, m = motionOf(h.hero.a), dx = b[0] - p.x, dz = b[1] - p.z, d = Math.hypot(dx, dz);
+    if (t < dur && d > 0.05) {
+      const step = Math.min(d, sp * dt), was = p.clone();
+      p.x += dx / d * step; p.z += dz / d * step; p.y = 0; h.hold?.(p, 0.4);
+      const mx = p.x - was.x, mz = p.z - was.z; if (Math.hypot(mx, mz) > 1e-4) h.hero.a.yaw = Math.atan2(mx, mz);
+      m.run = 0.3;
+    } else m.run = Math.max(0, m.run - dt * 4);
     h.hero.a.update(dt);
   };
 }

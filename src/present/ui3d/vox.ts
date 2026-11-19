@@ -1,3 +1,4 @@
+import { instanceMatrix, instanceColor, finishInstances } from "../engine/uploads";
 // Small building blocks for the UI-layer models: static voxel models from cell callbacks (VoxChar, same block material and pixel
 // bevel as the world), pixel icons extruded into relief, flat-shaded real-geometry prisms (octagon buttons: straight diagonals, no
 // stair-stepped voxels), shared materials, and a pool of square pixel particles that lives in the UI scene.
@@ -66,9 +67,9 @@ export class UiSparks {
     }
     for (const q of this.ps) {
       const k = q.t / q.life, s = q.s * (k < 0.7 ? 1 : 1 - (k - 0.7) / 0.3);
-      this.m4.compose(q.p, this.q, this.sc.set(s, s, s)); this.mesh.setMatrixAt(n, this.m4); this.mesh.setColorAt(n, q.c); n++;
+      this.m4.compose(q.p, this.q, this.sc.set(s, s, s)); instanceMatrix(this.mesh, n, this.m4); instanceColor(this.mesh, n, q.c); n++;
     }
-    this.mesh.count = n; this.mesh.instanceMatrix.needsUpdate = true; if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
+    this.mesh.count = n; finishInstances(this.mesh);
   }
 }
 

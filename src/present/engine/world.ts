@@ -2,6 +2,8 @@
 // presentation modules import these handles instead of passing them around.
 import * as THREE from 'three';
 import { makeCanvas } from '../../platform/index';
+import { QUALITY, tierNow } from '../look/quality';
+import { OPT } from './perfOpts';
 import { syncBatches } from './rigidBatch';
 
 export const scene = new THREE.Scene();
@@ -18,16 +20,33 @@ export const GL: { renderer: THREE.WebGLRenderer | null } = { renderer: null };
 /** act-34: three.js builds every lit shader for the exact number of point lights in view, so a new place with a different count
  *  (a lantern more, a campfire less) recompiled every lit material in its first frame — 19 programs, 1.9 s on the title's cut. The
  *  scene now always holds the same number: zero-intensity filler lights make up the difference every frame (counted before render).
- *  More than PAD_N real lights still works, it only costs a recompile. */
-const PAD_N = 18, pads: THREE.PointLight[] = [];
+ *  Each tier keeps its light count fixed while rendering and restores the real lights afterwards. */
+export const lightFocus = V3();
+const pads: THREE.PointLight[] = [], real: THREE.PointLight[] = [], muted: THREE.PointLight[] = [];
+const lightPos = V3(), influence = new Map<THREE.PointLight, number>();
 export function padLights() {
-  let n = 0; scene.traverseVisible(o => { if ((o as THREE.PointLight).isPointLight && !o.userData.pad) n++; });
-  const want = Math.max(0, PAD_N - n);
+  const budget = OPT.pointLights ? tierNow().pointLights : 18;
+  real.length = 0;
+  scene.traverseVisible(o => { const l = o as THREE.PointLight; if (l.isPointLight && !l.userData.pad && l.layers.test(camera.layers)) real.push(l); });
+  // High quality keeps every real lamp, including rooms with more than the prewarmed eighteen.
+  if (OPT.pointLights && QUALITY.tier !== 'high' && real.length > budget) {
+    // Score the patch around the look target, including a lamp just beyond its centre.
+    for (const l of real) {
+      const d = Math.max(1, l.getWorldPosition(lightPos).distanceTo(lightFocus) - 3);
+      const cutoff = l.distance > 0 ? Math.max(0, 1 - (d / l.distance) ** 4) ** 2 : 1;
+      influence.set(l, l.intensity * (0.2126 * l.color.r + 0.7152 * l.color.g + 0.0722 * l.color.b) * cutoff / d ** l.decay);
+    }
+    real.sort((a,b) => influence.get(b)! - influence.get(a)! || a.id - b.id);
+    for (let i = budget; i < real.length; i++) { muted.push(real[i]); real[i].visible = false; }
+    influence.clear();
+  }
+  const want = Math.max(0, budget - real.length);
   while (pads.length < want) { const l = new THREE.PointLight(0x000000, 0, 0.01, 2); l.userData.pad = true; l.position.set(0, -400, 0); scene.add(l); pads.push(l); }
   for (let i = 0; i < pads.length; i++) pads[i].visible = i < want;
 }
+export function restoreLights() { for (const l of muted) l.visible = true; muted.length = 0; }
 /** compile every material the scene now holds, so the first frames after a scene swap do not stall on shader compiles */
-export function precompile() { padLights(); syncBatches(); try { GL.renderer?.compile(scene, camera); } catch (e) { console.warn('[precompile]', e); } }
+export function precompile() { padLights(); try { syncBatches(); GL.renderer?.compile(scene, camera); } catch (e) { console.warn('[precompile]', e); } finally { restoreLights(); } }
 /** upload a group's meshes to the GPU ahead of its first real frame (act-34): it joins the scene for one render into a tiny
  *  target with culling off, then leaves again (the scene's own picture is untouched; its shadow map is redrawn next frame anyway) */
 export function warm(root: THREE.Object3D) {
@@ -36,7 +55,7 @@ export function warm(root: THREE.Object3D) {
   root.traverse(o => { culled.push([o, o.frustumCulled]); o.frustumCulled = false; });
   scene.add(root); padLights();
   const prev = r.getRenderTarget();
-  try { r.setRenderTarget(rt); r.render(scene, camera); } catch (e) { console.warn('[warm]', e); }
+  try { r.setRenderTarget(rt); r.render(scene, camera); } catch (e) { console.warn('[warm]', e); } finally { restoreLights(); }
   r.setRenderTarget(prev); scene.remove(root);
   for (const [o, f] of culled) o.frustumCulled = f;
   rt.dispose();
@@ -45,8 +64,22 @@ export function warm(root: THREE.Object3D) {
 export const frames = (n: number) => new Promise<void>(res => { const f = () => (--n <= 0 ? res() : requestAnimationFrame(f)); requestAnimationFrame(f); });
 
 type Hook = (dt: number, rdt: number) => void;
-const updaters: Hook[] = [], lateUpdaters: Hook[] = [];
-export const onUpdate = (fn: Hook) => { updaters.push(fn); };
+const updaters = new Set<Hook>(), lateUpdaters: Hook[] = [];
+let target = updaters;
+export const onUpdate = (fn: Hook) => { const set = target; set.add(fn); return () => set.delete(fn); };
+/** Effects created on a detached stage start ticking when it is attached and die with it. */
+export function stageUpdates() {
+  const hooks = new Set<Hook>();
+  return {
+    during<T>(build: () => T) {
+      const previous = target;
+      target = hooks;
+      try { return build(); } finally { target = previous; }
+    },
+    tick(dt: number, rdt: number) { for (const fn of hooks) fn(dt, rdt); },
+    clear() { hooks.clear(); },
+  };
+}
 export const onLateUpdate = (fn: Hook) => { lateUpdaters.push(fn); };
 export function runUpdaters(dt: number, rdt: number) { for (const f of updaters) f(dt, rdt); }
 export function runLateUpdaters(dt: number, rdt: number) { for (const f of lateUpdaters) f(dt, rdt); }

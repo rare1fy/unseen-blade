@@ -2,6 +2,7 @@
 // 清场后木栅往外倒下、扬尘，门洞里亮一层淡金光幕（底亮上淡，克制），地上从门口一圈圈往场内扩淡金色声纹（敌人预警是红的，
 // 出口是金的——主角是瞎子，他「听」见门外的风）。墙、门柱、门楣是场景体素（asm/arena.ts），这里只管会动的部分。
 import * as THREE from 'three';
+import { finishBuild } from '../engine/buildSteps';
 import { VoxWorld } from '../look/voxkit';
 import { CELL } from '../bestiary/kit';
 import { V3 } from '../engine/world';
@@ -12,11 +13,12 @@ import type { ArenaPlan, Gate } from '../asm/arena';
 
 const GOLD = 0xffd27a;
 /** a barricade: three horizontal logs across the opening, two stakes holding them; built along x, centred, standing on y = 0 */
-export function barricade(w: number) {
+export function barricade(w: number) { return finishBuild(barricadeSteps(w)); }
+function* barricadeSteps(w: number) {
   const vw = new VoxWorld(CELL), half = Math.round(w / CELL / 2) + 2, wood = 0x6e5238, woodD = 0x4a3622, woodL = 0x8e6e4c, rope = 0x8a7650;
   for (const [y0, k] of [[1, 0], [7, 1], [13, 2]] as const) { vw.box(-half, y0, -1, half, y0 + 3, 1, k === 1 ? woodL : wood); vw.box(-half, y0, -1, half, y0, 1, woodD); vw.box(-half, y0 + 3, -1, -half, y0 + 3, 1, woodD); }
   for (const s of [-1, 1]) { const x = s * (half - 5); vw.box(x - 1, 0, -2, x + 1, 19, -2, woodD); vw.box(x - 1, 0, 2, x + 1, 19, 2, woodD); for (const y of [4, 10, 16]) vw.box(x - 1, y, -2, x + 1, y, 2, rope); }
-  const g = new THREE.Group(); for (const m of vw.build({ rim: 0.3, edge: 0.16 })) g.add(m); return g;
+  const g = new THREE.Group(); for (const m of yield* vw.buildSteps({ rim: 0.3, edge: 0.16 })) g.add(m); return g;
 }
 const CURTAIN_FS = `uniform vec3 uCol; uniform float uT, uK; varying vec2 vUv;
 void main() { float y = vUv.y, s = 0.75 + 0.25 * sin(uT * 1.7 + vUv.x * 9.0) * sin(uT * 0.9 - vUv.x * 4.0);
@@ -35,8 +37,11 @@ const VS_P = 'varying vec3 vP; void main() { vP = position; gl_Position = projec
 interface Item { g: Gate; pivot: THREE.Group; fallT: number; curtain: THREE.Mesh; ripple: THREE.Mesh; spill: THREE.Mesh; inward: THREE.Vector3; centre: THREE.Vector3 }
 export class Gates {
   root = new THREE.Group(); items: Item[] = []; private t = 0; private opened = false; private openT = 0;
-  constructor(parent: THREE.Object3D, plan: ArenaPlan) {
+  constructor(parent: THREE.Object3D, plan?: ArenaPlan) {
     parent.add(this.root);
+    if (plan) finishBuild(this.buildSteps(plan));
+  }
+  *buildSteps(plan: ArenaPlan) {
     const midOff = plan.wall.gap + plan.wall.thick / 2;
     for (const g of plan.gates) {
       if (!g.open) continue;
@@ -44,7 +49,7 @@ export class Gates {
       const inward = V3(-g.out[0], 0, -g.out[1]), centre = V3(g.x + g.out[0] * midOff, 0, g.z + g.out[1] * midOff);
       const yaw = g.along === 'x' ? 0 : Math.PI / 2;
       // the barricade hangs off a pivot at its outer foot, so it can fall outward
-      const pivot = new THREE.Group(), bar = barricade(g.w); pivot.position.copy(centre).addScaledVector(V3(g.out[0], 0, g.out[1]), 0.12); pivot.rotation.order = "YXZ"; pivot.rotation.y = yaw;
+      const pivot = new THREE.Group(), bar = yield* barricadeSteps(g.w); pivot.position.copy(centre).addScaledVector(V3(g.out[0], 0, g.out[1]), 0.12); pivot.rotation.order = "YXZ"; pivot.rotation.y = yaw;
       // in the pivot's frame the logs run along x and 'out of the room' is ±z
       const lo = g.along === 'x' ? g.out[1] : g.out[0]; bar.position.z = -lo * 0.12;
       pivot.add(bar); this.root.add(pivot);

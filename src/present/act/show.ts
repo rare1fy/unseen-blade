@@ -1,6 +1,9 @@
 import { SEE_HOLES } from '../look/voxkit';
-import { finishBuild, loadInFrames } from '../engine/buildSteps';
-import { bladeBusy, runRoomBuild, withLoadingBlade } from '../scenes/loadingBlade';
+import { batchActor } from '../engine/rigidBatch';
+import { OPT } from '../engine/perfOpts';
+import { ContactBatch } from '../engine/contactBatch';
+import { finishBuild, loadInFrames, BUILD_STATS } from '../engine/buildSteps';
+import { bladeWorking, bladeBusy, bladeTimes, runRoomBuild, withLoadingBlade } from '../scenes/loadingBlade';
 import { format, language, msg, setLanguage } from './i18n';
 // 动作原型（docs: CLAUDE.md「动作原型」、docs/act/DESIGN.md）：哈迪斯式的一间间屋子。每间屋 = 一张拼装的日本场景（asm），战斗区就是屋子；
 // 敌人分两波从边上出来；清场 → 三选一秘传 → 屋子边上的路口立起高札（写着下一间的地名和清完给什么）→ 自己走进路口 → 一丛竹子
@@ -8,18 +11,20 @@ import { format, language, msg, setLanguage } from './i18n';
 // 打开游戏先到练武场（yard.ts：木人桩、召唤石板、换装木台），走进后面的「出发」路口开始一局；死了或打完回练武场。
 // 砍飞的箭：方向在出刀朝向左右 75° 里随机、附近有敌人就偏过去；砍中那一下顿帧 + 闪光 + 短慢放（用户：「这种属于高光操作，应该要有顿帧」）。
 import * as THREE from 'three';
-import { V3, onUpdate, R, scene, warm, frames } from '../engine/world';
+import { V3, onUpdate, R, scene, warm, frames, precompile } from '../engine/world';
 import { hitstop, shake, slowmo, after, anim, clock, FX, waitReal, PAUSE } from '../engine/clock';
 import { shot } from '../director';
-import { fxImpact, fxSparks, fxSmoke, fxRing, trailSeg } from '../fx/fx';
+import { fxImpact, fxSparks, fxSmoke, fxRing, fxEmbers, fxFlare, trailSeg } from '../fx/fx';
 import { fxAfterimage } from '../fx/skillFx';
-import { addBlock } from '../fx/blocks';
+import { addBlock, debrisContacts } from '../fx/blocks';
 import { popPix } from '../v2/pix';
 import { playDeath } from '../v2/death';
+import { prepareFight, prepareFightModels } from './fightWarm';
 import { UiLayer } from '../ui3d/layer';
 import { Overlay } from '../v2/overlay';
 import { SkinBanner, SKIN, SKINS, SKIN_NAME, setSkin, type SkinId } from './skin';
 import { showStage, prepareStageSteps, followShadow, flashSky, tickSkyFlash, type Stage, type PreparedStage } from '../scenes/stage';
+import { COPPER_Y } from '../asm/luoyang/molten';
 import { PLAY, SZ, setStage, STAGE_BIG, stageNow } from '../scenes/props';
 import { addLocales, REGISTRY, LOCALES } from '../asm/registry';
 import { NINJA_LOCALES } from '../asm/ninja';
@@ -44,14 +49,15 @@ import { IronHp, HP_FACE } from './ironUi';
 import { ROSTER } from '../bestiary/models';
 import { CODE_BUILD } from '../bestiary/voxEdit';
 import { rackBlades, hideoutScene, HIDEOUT, HIDEOUT_PEOPLE } from './hideout';
-import { Timeline } from './timeline';
+import { Timeline, type V } from './timeline';
 import { openingShots, bossIntroShots, type CineHost } from './cutscenes';
-import { NPC_TALK, STELE_TALK, MEAL_TALK, UP_TALK, POOR_TALK, WAKE_DUWU, WAKE_SUNAO, CHULEI_BEFORE, CHULEI_AFTER, deathLine, PRO_CHULEI, PRO_FALL, PRO_DAWN, PRO_WAKE, PRO_CAPTIONS } from './scripts';
-import { fallShots, snowShots, dawnShots, loadShots, lieDown, brazier, getUpPose, drapeOver, GETUP_STEP, type PrologueHost } from './prologue';
+import { NPC_TALK, STELE_TALK, MEAL_TALK, UP_TALK, POOR_TALK, WAKE_DUWU, WAKE_SUNAO, CHULEI_BEFORE, CH_BEFORE, CH_AFTER, BOSS_AFTER, STRIKE_FLAG, bossesDown, struckOnStele, ENDING, ENDING_PICK, deathLine, PRO_CUIXUAN, PRO_FALL, PRO_DAWN, PRO_WAKE, PRO_CAPTIONS, PRO_AMBUSH } from './scripts';
+import { fallShots, snowShots, dawnShots, loadShots, brazier, getUpPose, drapeOver, GETUP_STEP, Kneel, KNEEL_ARMS, type PrologueHost } from './prologue';
 import { coldOpenShots, coldCardShots, BlindPOV } from './coldopen';
 import { Barks } from './barks';
 import { installR45 } from './regions/r45_hook';
-import { qualityLabel, cycleQuality } from '../look/quality';   // wp/regB: 第四关 · 锁江、第五关 · 许都雪 (their places, foes, bosses, __dh.region)
+import { measureFight, meterLabel, toggleMeter } from '../engine/frameMeter';
+import { QUALITY, setQuality, type Tier, qualityLabel, cycleQuality } from '../look/quality';   // wp/regB: 第四关 · 锁江、第五关 · 许都雪 (their places, foes, bosses, __dh.region)
 /** act-40 (用户：「现在开场太墨迹了，把那段timeline先搞成黑幕快速交代背景吧」): the cold open as black cards for now (false = the 寒山坞 cutscene) */
 const COLD_AS_CARDS = true;
 import { newGame, profile, save as saveProfile, seeOnce, hasSave } from './profile';
@@ -78,7 +84,6 @@ import { CAM } from '../engine/gfx';
 import { GRADE } from '../look/post';
 import { blood } from './blood';
 import { audio } from '../../audio/audio';
-import { CRAZYGAMES } from '../../platform/crazygames';
 import type { Platform } from '../../platform/index';
 import { dh } from '../../debug/dh';
 import { Input } from './input';
@@ -92,6 +97,7 @@ import type { Mark } from './hud';
 import { MANUALS } from './manuals';
 import { fillVals } from './cards';
 import { Hero, QI_LINK, type HeroWorld } from './hero';
+import { Duel, type DuelHost } from './qte';
 /** 11-17: the 刀谱 links the first few openings of which are slowed down to teach them (二段跳 is no link; 穿风斩 / 劈山 / 回锋斩 are known from the start) */
 // (11-18: 断云, 牵红, 踏顶 too; 掠地 not — like 二段跳 it is on whenever she is in the air, so it would slow every jump)
 const TEACH = ['chase', 'back', 'cdart', 'launch', 'kick', 'keep', 'pause', 'acut', 'reel', 'stomp'];
@@ -110,7 +116,7 @@ import './foes/xp_ai';
   for (const d of Object.values(EDEFS)) for (const m of [d.model, d.elite, ...(d.alt ?? [])]) if (m && !ROSTER.some(x => x.id === m)) { const base = ROSTER.find(x => x.id === (STAND[m.replace(/_(e|b)$/, '')] ?? 'hj_blade')); if (base) ROSTER.push({ ...base, id: m }); } }
 import { inside } from './tele';
 import { spawnFoe, updateFoe, damageFoe, type Foe, type FoeWorld, type EKind, Arrow } from './enemy';
-import { EDEFS, isBoss, lowAttack, trimShadows, dropTeles } from './enemy';   // wp/foes: the boss bar / banner / death and the bot's jump read these
+import { EDEFS, isBoss, lowAttack, trimShadows, dropTeles, UNSTICK } from './enemy';   // wp/foes: the boss bar / banner / death and the bot's jump read these
 import { BOONS, applyBoon, drawBoons, upgradeBoon, returnCard, TIER_NAMES, newPerks, tierOf, hasBoon, v, v2, isBladeHit, type Perks, type Boon, type BoonPick } from './boons';
 import { TUNE } from './tune';
 import { installActTune } from './tunePanel';
@@ -149,13 +155,16 @@ addLocales(NINJA_LOCALES); addLocales(HANMO_LOCALES); addLocales(HANSHAN_LOCALES
 const PRICES = { boon: 60, heal: 30, sharpen: 50 };
 /** a soft dark spot for under the feet: a radial fade drawn once, shared by every spot */
 let SHADOW_TEX: THREE.Texture | null = null;
-function contactShadow() {
+function contactMaterial() {
   if (!SHADOW_TEX && typeof document !== 'undefined') {
     const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d')!;
     const gr = g.createRadialGradient(32, 32, 4, 32, 32, 31); gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(0.55, 'rgba(0,0,0,0.75)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
     g.fillStyle = gr; g.fillRect(0, 0, 64, 64); SHADOW_TEX = new THREE.CanvasTexture(c);
   }
-  const m = new THREE.Mesh(new THREE.PlaneGeometry(2, 2).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x0a0608, map: SHADOW_TEX, transparent: true, opacity: 0.72, depthWrite: false }));
+  return new THREE.MeshBasicMaterial({ color: 0x0a0608, map: SHADOW_TEX, transparent: true, opacity: 0.72, depthWrite: false });
+}
+function contactShadow() {
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(2, 2).rotateX(-Math.PI / 2), contactMaterial());
   m.renderOrder = 2; return m;
 }
 type Phase = 'intro' | 'fight' | 'pick' | 'doors' | 'leaving' | 'dead' | 'end' | 'yard' | 'opening' | 'cine' | 'talk' | 'title';
@@ -165,7 +174,8 @@ const DEFAULT_HERO = 'fine_white';   // act-22 (user: 「都换成细格子吧�
 function savedHero(): ModelDef {
   // (act.hero6 since act-22: the default became the 3.5 cm white-haired heroine; a look remembered under the old keys no longer overrides it)
   let id = ''; try { id = localStorage.getItem('act.hero6') ?? ''; } catch { /* storage blocked */ }
-  const q = !CRAZYGAMES && typeof location !== 'undefined' ? /[?&#]hero=([a-z_]+)/.exec(location.href)?.[1] : undefined;
+  if (!__DEBUG_UI__) return HEROES.find(d => d.id === DEFAULT_HERO) ?? HEROES[0];   // (11-18: the packages wear the default — no costume switch there)
+  const q = typeof location !== 'undefined' ? /[?&#]hero=([a-z_]+)/.exec(location.href)?.[1] : undefined;
   return HEROES.find(d => d.id === (q ?? id)) ?? HEROES.find(d => d.id === DEFAULT_HERO) ?? HEROES[0];
 }
 
@@ -194,24 +204,73 @@ interface RoomIn { isYard: boolean; room: number; recent: Spec[]; locale: string
   /** 11-18 屋子形态: force this room's shape (__dh.shape / captures) and its seed; the last rooms' shapes (not again so soon) */
   shape?: ShapeId | null; shapes?: ShapeId[]; seed?: number | null;
   /** 11-18 定死的屋子: force this drawn room (asm/roomMaps.ts id); the drawn rooms used this run (not again while others are left) */
-  map?: string | null; maps?: string[];
+  map?: string | null; maps?: string[]; region?: number;
   /** 11-18: the region's defaults for the pick (season …: 下邳 is winter); the place's own lists still apply */ regionSpec?: Partial<Spec> | null }
 /** a room's place, built (off the live scene) and ready to put up */
-interface Room { spec: Spec; big: boolean; layout: Layout; arena: ArenaPlan | null; report: Report | null; prep: PreparedStage; k: { x: number; z: number } }
+interface Fixtures { props: Breakables; solids: Solids; gates: Gates; grid: FloorGrid | null; pieces: RoomPieces | null }
+interface Room { fixtures?: Fixtures; spec: Spec; big: boolean; layout: Layout; arena: ArenaPlan | null; report: Report | null; prep: PreparedStage; k: { x: number; z: number } }
 /** the prologue's first room (act-29) and its one way on */
 /** act-44: where her hips lie on 孙媪's mat when she first wakes (the mat runs along z; her head toward the wall, a metre clear) */
 const WAKE_MAT: [number, number] = [6.42, -6.2];   // (her neck on the headrest at the wall end, her heels short of the folded quilt)
-const PRO_ROOM = { locale: 'hj_village', waves: [['hj_mob', 'hj_mob'], ['hj_blade', 'hj_mob', 'hj_mob']] as EKind[][], spec: { season: 'winter', weather: 'snow', time: 'night' } as Partial<Spec> };
-const PRO_BOSS: RoomPlan = { type: 'boss', locale: 'hj_temple', reward: null, waves: [['hj_boss']] };
+const PRO_ROOM = { locale: 'hj_village', waves: [['hj_mob', 'hj_blade', 'hj_mob', 'hj_mob'], ['hj_blade', 'hj_mob', 'hj_mob']] as EKind[][],   // (11-19: the first wave is the ambush that closes round her — four, from every side)
+  spec: { season: 'winter', weather: 'snow', time: 'night' } as Partial<Spec> };
+const PRO_BOSS: RoomPlan = { type: 'boss', locale: 'cx_court', reward: null, waves: [['cx_boss']] };   // (11-19 剧情改版: 崔府's forecourt, 崔玄)
+/** 11-19 剧情改版: the five bosses in order (region 0 … 4), the meeting cutscene's name for each */
+const BOSS_ORDER: EKind[] = ['hj_boss', 'ly_boss', 'xp_boss', 'wl_boss', 'cx_boss'];
 /** act-37 the cold open's place: 寒山坞 on that snowy night (its own layout and light) */
 const COLD_ROOM: RoomIn = { isYard: false, room: 0, recent: [], locale: 'hs_forge', plan: null, nextRooms: [], forceSpec: null, noArena: true,
   viewSpec: { locale: 'hs_forge', layout: 'hs_valley', mirror: false, landmark: null, season: 'winter', time: 'night', weather: 'snow', seed: 7, exits: [] } };
 /** pick the spec, lay out the floor and the arena, assemble and build the place — touching nothing live except the stage size
  *  (setStage, which the caller sets again) */
 function prepRoom(o: RoomIn): Room { return finishBuild(prepRoomSteps(o)); }
-function* prepRoomSteps(o: RoomIn): Generator<void | Promise<void>, Room> {
+function* prepRoomSteps(o: RoomIn, background = false): Generator<void | Promise<void>, Room> {
   const { def, ...room } = roomDefinition(o);
-  return { ...room, prep: yield* prepareStageSteps(def, { combat: true }) };
+  const prep = yield* prepareStageSteps(def, { combat: true, background });
+  if (!background || !room.arena) return { ...room, prep };
+  const arena = room.arena, holder = new THREE.Group(), solids = new Solids();
+  const props = new Breakables(holder, solids);
+  let gates: Gates | undefined, pieces: RoomPieces | null = null, transferred = false;
+  const discard = () => { pieces?.dispose(); gates?.dispose(); props.dispose(); prep.drop(); };
+  try {
+    yield* props.buildSteps(arena.props, arena.covers, true);
+    yield;
+    gates = new Gates(holder);
+    yield* gates.buildSteps(arena);
+    yield;
+    const grid = arena.shape ? new FloorGrid(arena.shape) : null;
+    if (grid && arena.shape?.fixed) {
+      pieces = new RoomPieces(holder, arena.shape, grid, arena.style, room.spec.seed, OPT.slicedRoom);
+      if (OPT.slicedRoom) yield* pieces.buildSteps(arena.style, room.spec.seed);
+    }
+    if (o.plan && OPT.slicedRoom) yield* prepareFightModels(o.plan.waves);
+    transferred = true;
+    return { ...room, fixtures: { props, gates, grid, solids, pieces }, prep: { ...prep, drop: discard } };
+  } finally { if (!transferred) discard(); }
+}
+type AheadRoom = {
+  plan: RoomPlan; region: number; room: number; next: RoomPlan[];
+  steps: ReturnType<typeof prepRoomSteps>; size?: ReturnType<typeof stageNow>;
+  ready?: Room; wait?: Promise<void>;
+};
+function advanceAhead(job: AheadRoom, until = 0) {
+  // Both builders and gameplay read the same stage dimensions. The hideout also overrides PLAY independently.
+  const live = stageNow(), floor = { ...PLAY };
+  try {
+    if (job.size) setStage(job.size.big, job.size.k);
+    do {
+      const step = job.steps.next();
+      if (step.done) { job.ready = step.value; break; }
+      if (step.value) { job.wait = step.value.then(() => { job.wait = undefined; }); break; }
+    } while (performance.now() < until);
+  } finally {
+    job.size = stageNow();
+    setStage(live.big, live.k); Object.assign(PLAY, floor);
+  }
+}
+function onward(room: number, visited: RoomType[], region: number) {
+  if (!isBossRoom(region, room)) return doorsFrom(room, visited, Math.random, region);
+  const next = afterBoss(region);
+  return next === 'won' ? [] : [regionFirstRoom(next, Math.random)];
 }
 export function roomDefinition(o: RoomIn) {
   const { isYard } = o;
@@ -224,10 +283,10 @@ export function roomDefinition(o: RoomIn) {
   // act-19: the 黄巾 rooms stand on the 2x stage; the yard keeps the old one (wp/regB: and every place in asm/arena.ts ARENA_LOOK). 11-18 屋子形态 (用户：「场景再大些，形态多样一些」): a fight
   // room on a big stage takes one of its place's shapes (the boss's, the calm rooms, the prologue's and the cutscenes' stay square)
   const ptype = o.plan?.type ?? 'fight', calm = ptype === 'shop' || ptype === 'rest' || ptype === 'boon';
-  // 11-18 定死的屋子 (用户：「还不如都做成几种确定的造型，避免不稳定因素」): a fight room of a place that has drawn rooms is one of them —
-  // the same every time: its own decoration seed, layout, time and weather (only the season is the region's)
-  const dm = !isYard && !o.noArena && !o.viewSpec && !o.forceSpec && !calm && !o.shape && bigStage(spec.locale)
-    ? (o.map ? MAP_BY_ID[o.map] ?? null : pickMap(spec.locale, ptype === 'boss' ? 'boss' : 'fight', o.maps ?? [], seed)) : null;
+  const roomKind = calm ? 'calm' : ptype === 'boss' ? 'boss' : 'fight';
+  const region = o.region == null ? null : REGIONS[o.region];
+  const dm = region && !isYard && !o.noArena && !o.viewSpec && !o.forceSpec && !o.shape
+    ? (o.map ? MAP_BY_ID[o.map] : pickMap(region, roomKind, o.maps ?? [], seed)) : null;
   if (dm) {
     const mb = pickSpec(dm.seed, Object.values(REGISTRY.locales), REGISTRY.layouts, [], { season: o.regionSpec?.season ?? 'autumn', locale: dm.locale });
     Object.assign(spec, { ...mb, mirror: false, time: dm.time ?? mb.time, weather: dm.weather ?? mb.weather, seed: dm.seed });
@@ -245,7 +304,7 @@ export function roomDefinition(o: RoomIn) {
   if (isYard) return { spec, big, layout, arena, report: null, k, def: hideoutScene({ time: 'dusk', weather: 'clear' }) };
   const { def, report } = assemble(spec, REGISTRY);
   def.report = report;
-  if (dm && dm.kind === (ptype === 'boss' ? 'boss' : 'fight') && !o.forceSpec && !o.viewSpec) def.pack = `map-${dm.id}-${spec.season}-${spec.exits?.length ?? 0}`;
+  if (dm?.kind === roomKind && !o.forceSpec && !o.viewSpec) def.pack = `map-${dm.id}-${spec.season}-${spec.exits?.length ?? 0}`;
   return { spec, big, layout, arena, report, k, def };
 }
 
@@ -290,20 +349,29 @@ export class ActShow {
   /** a cutscene's place: the open land, no walls / gates / props */ private noArena = false;
   /** 11-18: the shallow water on this room's floor (下邳: the 水鬼 swim in it; LOCALES[…].pools) */ private pools: Array<{ x0: number; x1: number; z0: number; z1: number }> = [];
   /** act-34: a room built ahead of time (prepRoom), waiting to be put up; buildRoom uses it when it is the room asked for */
+  private ahead: AheadRoom[] = [];
+  private aheadTurn = 0;
   private pre: (Room & { locale: string }) | null = null;
   // ------------------------------------------------------------ act-20: story — portrait dialogue, timeline cutscenes, puppets
   dialogue: Dialogue; timeline: Timeline; pause!: PauseMenu; private pauseHud: boolean | null = null; private padSkip = false; private puppets: Foe[] = []; private wasPhase: Phase = 'yard'; private justDied = false;
   /** act-29 开篇 (方案 1): 1 = the snowy village (the first fight, alone), 2 = the snowy temple (褚雷, a fight she cannot win), 0 = off */
   prologue = 0; private forceSpec: Partial<Spec> | null = null; private proFightT = 0; private proFalling = false; private proPeople: BattleActor[] = [];
+  /** 11-19 剧情改版: the snowy village and the spot she stood ringed in — dawn is there (the ditch outside 崔府's back gate) */
+  private proSpec0: Spec | null = null; private proAt0: { x: number; z: number } | null = null;
+  /** 11-18: her pose from 石雷's blow until 杜五 lifts her onto the donkey — on one knee, bleeding (prologue.ts Kneel) */
+  private proKneel = new Kneel();
   private proHost: PrologueHost = {
     hero: { get a() { return SELF!.hero.a; }, get pos() { return SELF!.hero.pos; } } as PrologueHost['hero'],
+    kneel: this.proKneel,
     person: (id, x, z, yaw) => { const a = new BattleActor(id === 'duwu' ? HIDEOUT_PEOPLE.duwu : HIDEOUT_DONKEY); a.place(V3(x, 0, z), yaw); a.yaw = yaw; trimShadows(a.root, 4); this.proPeople.push(a); return a; },
     puppet: (kind, x, z, fx, fz) => this.cineHost.puppet(kind, x, z, fx, fz),
+    hold: (p, r) => this.clamp(p, r),
   };
   private cineHost: CineHost = {
     hero: { get a() { return SELF!.hero.a; }, get pos() { return SELF!.hero.pos; } } as CineHost['hero'],
     puppet: (kind, x, z, fx, fz) => { const f = spawnFoe(kind, V3(x, 0, z), V3(fx, 0, fz)); f.st = 'move'; this.puppets.push(f); return f; },
     clearPuppets: () => { for (const f of this.puppets) f.a.dispose(); this.puppets = []; },
+    hold: (p, r) => this.clamp(p, r),
   };
   /** portrait lines; the fight / the hideout wait (phase 'talk') and resume */
   async talk(lines: Line[], onLine?: (i: number, line: Line) => void) {
@@ -336,16 +404,16 @@ export class ActShow {
         console.warn('[act] village preparation failed', error); return null;
       }) : null;
     const pov = await narrative;
+    // 11-18 (用户：「开场黑幕到第一个走在雪地的场景之间用渐黑转场，不要用竹子飞刀」): from the black cards straight into the snow
+    // walk through the dark — no blade, no bamboo, on every platform. The village is built (in frames on WeChat, where the
+    // title already started it) behind the black veil, the shaders warmed, then the black fades off
     if (__WX__) {
       while (bladeBusy()) await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
-      await withLoadingBlade(async () => {
-        const ready = await village;
-        if (ready) this.pre = { ...ready, locale: PRO_ROOM.locale };
-        await this.startPrologue();
-      });
-    } else await this.startPrologue();
-    // (the village was built behind the dark; now the dark lifts on 「七年后」)
-    if (pov) { await frames(3); pov.fill(0x000000, 0); after(1.6, () => pov.dispose(), { real: true }); }
+      const ready = await village;
+      if (ready) this.pre = { ...ready, locale: PRO_ROOM.locale };
+    }
+    await this.startPrologue();
+    if (pov) { precompile(); await frames(3); pov.fill(0x000000, 0); after(1.6, () => pov.dispose(), { real: true }); }
   }
   /** act-37 the cold open: 寒山坞 that night (coldopen.ts) — on the place the title built while it loaded; it ends in the dark */
   private async coldOpen(): Promise<BlindPOV | null> {
@@ -382,13 +450,76 @@ export class ActShow {
     this.locale = PRO_ROOM.locale; this.forceSpec = { ...PRO_ROOM.spec };
     const loading = this.buildRoom(true); if (loading) await loading;
     // 「七年后」 over the snowy village while she walks in from the front; then the first sentries
-    const h = this.hero, p0 = h.pos.clone();
+    // (11-19 用户：「前面短促的悲伤音乐加字幕，突然就进入战斗了……需要一个timeline来放刘白走到战场中的过程，和敌人跳出来把她包围了的过程，
+    //  辅以对话和文字」): the place and the year over the village from high; she walks in alone up the snowy lane (a long walk, the
+    //  steps planted — heroWalk.ts), stops in the middle, turns her head to listen; sounds round her (rings in the snow); the first
+    //  wave's sentries jump out from behind the houses and the walls on every side and close round her; the words; she sets her hand
+    //  on the hilt — and the fight is on, the sentries already where they stood
+    // (where she stops: 6.5 m up the lane, or short of it if a pot / crate / post stands there — her hands and the sabre clear of it)
+    const h = this.hero, p0 = h.pos.clone(); let WALK = 6.5;
+    while (WALK > 3 && !(this.solids.free(p0.x, p0.z - WALK, 1.0, 0.3) && (!this.grid || this.grid.clear(p0.x, p0.z - WALK, 1.0)))) WALK -= 0.25;
+    const stopZ = p0.z - WALK;
+    this.proSpec0 = this.spec ?? null; this.proAt0 = { x: p0.x, z: stopZ };
+    const ring = (this.plan?.waves[0] ?? []).map((k, i, all) => ({ k, a: Math.PI * 0.15 + (i / all.length) * Math.PI * 2 + 0.35, d: 3.4 + (i % 2) * 0.7 }));
+    const jumpers: Array<{ f: Foe; from: THREE.Vector3; to: THREE.Vector3; t0: number; landed: boolean }> = [];
+    const snowRing = (x: number, z: number, r = 1.4) => fxRing(V3(x, 0.05, z), 0xdfe8ff, r, { life: 0.9 } as never);
+    const stand = () => { h.pos.z = stopZ; motionOf(h.a).run = 0; };
+    const cam = (dx: number, y: number, dz: number, lz: number, fov: number): { pos: V; look: V; fov: number } => ({ pos: [p0.x + dx, y, stopZ + dz] as V, look: [p0.x, 0.9, stopZ + lz] as V, fov });
     void this.cine([
-      // (act-37: the cold open's last card says 七年了 — the walk opens on the year and the place only)
-      { dur: 3.4, ease: 'inOut', caption: { text: PRO_CAPTIONS[1], big: true, at: 0.5, hold: 2.2 }, from: { pos: [p0.x + 4, 16, p0.z + 14], look: [p0.x, 0, p0.z - 4], fov: 40 }, to: { pos: [p0.x + 3, 13, p0.z + 12], look: [p0.x, 0, p0.z - 4], fov: 40 } },
-      { dur: 3.6, ease: 'inOut', from: { pos: [p0.x + 6, 4.5, p0.z + 7], look: [p0.x, 1, p0.z - 1], fov: 36 }, to: { pos: [p0.x + 5, 4.2, p0.z + 6], look: [p0.x, 1, p0.z - 2.5], fov: 36 },
-        tick: (t, dt) => { const m = motionOf(h.a); h.pos.z = p0.z - Math.min(2.5, t * 0.8); h.a.yaw = Math.PI; m.run = t < 3.1 ? 0.3 : Math.max(0, m.run - dt * 4); m.phase += dt * 3; h.a.update(dt); } },
-    ]).then(() => { if (this.phase === 'intro' && this.hero === h) { this.phase = 'fight'; this.spawnWave(); } });
+      // the year and the place, high over the village (act-37: the cold open's last card says 七年了)
+      { dur: 3.6, ease: 'inOut', caption: { text: PRO_CAPTIONS[1], big: true, at: 0.6, hold: 2.3 }, from: { pos: [p0.x + 4, 17, p0.z + 15], look: [p0.x, 0, p0.z - 5], fov: 40 }, to: { pos: [p0.x + 3, 14, p0.z + 13], look: [p0.x, 0, p0.z - 5], fov: 40 },
+        at: [[0, () => { this.musicHold = null; void audio.playMusic('bgm_coldopen', 0.4); }]],
+        tick: (_t, dt) => h.a.update(dt) },
+      // she comes up the lane alone — from behind and to the side, the camera keeping pace, low enough to see her steps in the snow
+      { dur: 5.4, ease: 'linear', from: () => ({ pos: [p0.x + 4.2, 3.0, h.pos.z + 5.8] as V, look: [p0.x, 0.9, h.pos.z - 1.5] as V, fov: 36 }), to: () => ({ pos: [p0.x + 3.8, 2.8, h.pos.z + 5.2] as V, look: [p0.x, 0.9, h.pos.z - 1.8] as V, fov: 36 }),
+        tick: (t, dt) => { const m = motionOf(h.a); h.a.yaw = Math.PI; h.pos.z = p0.z - Math.min(WALK, t * 1.2); m.run = h.pos.z > stopZ + 0.05 ? 0.22 : Math.max(0, m.run - dt * 4); h.a.update(dt); } },
+      // she stops; her head turns; one ring after another in the snow round her — they are there, and she hears them
+      { dur: 2.6, ease: 'inOut', from: cam(4.6, 2.9, 6.4, -0.8, 34), to: cam(4.0, 2.7, 5.6, -0.6, 33),
+        at: [[0.3, () => snowRing(p0.x - 3.2, stopZ - 1.8)], [0.8, () => snowRing(p0.x + 3.6, stopZ + 0.6)], [1.3, () => snowRing(p0.x - 1.0, stopZ - 3.8)], [1.75, () => snowRing(p0.x + 1.8, stopZ + 3.2)], [1.0, () => cue('foeSwing', 0.25)]],
+        tick: (t, dt) => { stand(); h.a.update(dt); const hd = h.a.bones.head; if (hd) hd.rotation.y += 0.35 * Math.sin(Math.min(1, t / 1.6) * Math.PI); } },
+      // they come out: from behind the houses and over the walls, a jump each, landing round her in the snow, one after another
+      { dur: 2.4, ease: 'out', from: cam(0.6, 7.0, 8.4, -0.8, 40), to: cam(0.4, 6.4, 7.6, -0.6, 40),
+        at: [[0, () => {
+          for (const [i, r] of ring.entries()) {
+            // (where each lands: round her at its own angle, turned a little at a time until the spot is clear of the props, the cover
+            //  and the walls — none lands in a post or a crate)
+            // (11-19 用户：「穿模的问题还是有没解决的」: a sentry landed with his arm in a fence and stood so through the talk; the spot now
+            //  keeps a body and its reach (0.9 m) clear of every prop, and the whole leap — from where he jumps to where he lands — passes
+            //  over nothing solid)
+            const clearAt = (x: number, z: number, rr: number) => this.solids.free(x, z, rr, 0.3) && (!this.grid || this.grid.clear(x, z, rr));
+            const leapClear = (fx: number, fz: number, tx: number, tz: number) => { for (let q = 0; q <= 10; q++) { const u = q / 10; if (!clearAt(fx + (tx - fx) * u, fz + (tz - fz) * u, 0.45)) return false; } return true; };
+            let a = r.a, dd = r.d; const ok = (x: number, z: number) => clearAt(x, z, 0.9) && jumpers.every(j => j.to.distanceTo(V3(x, 0, z)) > 1.3);
+            for (let tt = 0; tt < 24 && !ok(p0.x + Math.sin(a) * dd, stopZ + Math.cos(a) * dd); tt++) { a += (tt % 2 ? -1 : 1) * 0.22 * (tt + 1); if (tt === 12) dd += 0.6; }
+            const ko = kindOr(r.k), to = V3(p0.x + Math.sin(a) * dd, 0, stopZ + Math.cos(a) * dd);
+            let from = to.clone().add(V3(Math.sin(a) * 4.5, 0, Math.cos(a) * 4.5));
+            for (let back = 4.5; back > 0.6 && !leapClear(from.x, from.z, to.x, to.z); back -= 0.5) from = to.clone().add(V3(Math.sin(a) * back, 0, Math.cos(a) * back));
+            const f = spawnFoe(ko.kind, from, h.pos.clone(), ko.elite); f.st = 'enter'; f.cd = 2.5; this.foes.push(f);
+            jumpers.push({ f, from, to, t0: 0.12 + i * 0.22, landed: false });
+          }
+          cue('roar', 0.35); void audio.playMusic(this.musicName(), 0.9);
+        }]],
+        tick: (t, dt) => {
+          stand(); h.a.update(dt);
+          for (const j of jumpers) {
+            const k = Math.max(0, Math.min(1, (t - j.t0) / 0.55)), f = j.f;
+            f.pos.lerpVectors(j.from, j.to, k); f.pos.y = 0; f.a.home.copy(f.pos); f.a.off.y = 1.6 * 4 * k * (1 - k);
+            f.yaw = Math.atan2(h.pos.x - f.pos.x, h.pos.z - f.pos.z); f.a.yaw = f.yaw;
+            if (k >= 1 && !j.landed) { j.landed = true; f.a.off.y = 0; cue('land', 0.35); fxSmoke(j.to.clone().setY(0.1), 0xe8eef8, 6, { r: 0.6, spd: 0.8, up: 0.4, s: 0.4, life: 0.6, alpha: 0.6 }); }
+            f.a.update(dt);
+          }
+        } },
+      // the ring closed: low, from outside it, her in the middle
+      { dur: 1.6, ease: 'inOut', from: cam(5.6, 4.4, 7.2, -0.4, 38), to: cam(5.0, 4.0, 6.6, -0.3, 36),
+        tick: (_t, dt) => { stand(); h.a.update(dt); for (const j of jumpers) { j.f.a.off.y = 0; j.f.a.update(dt); } } },
+    ]).then(async () => {
+      if (this.phase !== 'intro' || this.hero !== h) return;
+      for (const j of jumpers) { j.f.pos.copy(j.to); j.f.a.home.copy(j.to); j.f.a.off.y = 0; }
+      await this.talk(PRO_AMBUSH);
+      if (this.hero !== h) return;
+      for (const j of jumpers) { j.f.st = 'move'; j.f.cd = 0.6 + Math.random() * 0.8; }
+      // (the ambushers ARE the first wave: the fight starts with them on the floor; cutting them down brings the second as usual)
+      this.phase = 'fight'; this.wave = 0;
+    });
   }
   /** the fight she cannot win: the blow, his word, the snow; dawn and the man with the donkey; the kiln */
   private async prologueFall() {
@@ -401,20 +532,29 @@ export class ActShow {
     //  mark white for a moment — but the cutscene stops the world before it fades, so it hung there through the talk. Every bolt, talisman
     //  and mark in flight goes now, and the red arcs of the blow)
     for (const a of this.arrows) a.kill(); this.arrows.length = 0; this.hitArcs.clear();
-    if (boss) { await this.cine(fallShots(this.proHost, boss)); await this.talk(PRO_FALL); this.phase = 'cine'; await this.cine(snowShots(this.proHost, boss)); }
-    // dawn in the same yard: the snow has stopped, the dead lie where they fell
-    const sp = this.spec, at = { x: this.hero.pos.x, z: this.hero.pos.z };
+    const kneelPose = () => this.proKneel.frame(this.hero.a);
+    if (boss) {
+      await this.cine(fallShots(this.proHost, boss));
+      if (!this.proKneel.active) this.proKneel.start();   // (the shot skipped before the blow landed: she still goes down on her knee)
+      // (her line 「颤抖的指尖在雪泥里死死够向刀柄」: the right hand goes out toward the sabre on the snow; back down after it)
+      this.hero.scriptPose = kneelPose; await this.talk(PRO_FALL, (_i, l) => { this.proKneel.reachWant = l.who === 'act' && /刀柄|长刀脱手/.test(l.text) ? 1 : 0; }); this.proKneel.reachWant = 0; this.hero.scriptPose = null;
+      this.phase = 'cine'; await this.cine(snowShots(this.proHost, boss));
+    } else this.proKneel.start();
+    // dawn outside: the snow has stopped, the frozen dead lie in the ditch (11-19 剧情改版: thrown out of 崔府's back gate — the
+    //  snowy village's own yard at dawn stands in for the ditch outside the walls, where 杜五 picks over the dead)
+    const sp = this.proSpec0 ?? this.spec, at = this.proAt0 ? { ...this.proAt0 } : { x: this.hero.pos.x, z: this.hero.pos.z }, yaw = this.hero.a.yaw;
     await wipeTransit(async () => {
       for (const f of this.foes) f.a.dispose(); this.foes.length = 0;
-      this.noArena = true; this.viewSpec = { locale: 'hj_temple', season: 'winter', time: 'dawn', weather: 'clear', layout: sp?.layout ?? 'axis', mirror: sp?.mirror ?? false, seed: sp?.seed ?? 5, exits: [] };
+      this.noArena = true; this.viewSpec = { locale: PRO_ROOM.locale, season: 'winter', time: 'dawn', weather: 'clear', layout: sp?.layout ?? 'axis', mirror: sp?.mirror ?? false, seed: sp?.seed ?? 5, exits: [] };
       this.forceSpec = null; await this.buildRoom(true); this.viewSpec = null; this.noArena = false;
-      this.hero.pos.set(at.x, 0, at.z); this.hero.a.yaw = 0.4; lieDown(this.hero.a, 1);
+      this.hero.pos.set(at.x, 0, at.z); this.hero.a.yaw = yaw; this.proKneel.dawn(); this.hero.scriptPose = kneelPose; this.hero.a.update(0.016); kneelPose();
     });
     const dead: Array<[EKind, number, number]> = [['hj_mob', at.x - 3.2, at.z + 2.6], ['hj_blade', at.x - 1.4, at.z + 3.6], ['hj_mob', at.x + 2.4, at.z - 1.8]];
     const who: { duwu: BattleActor | null; donkey: BattleActor | null } = { duwu: null, donkey: null };
     await this.cine(dawnShots(this.proHost, at, dead, who));
-    await this.talk(PRO_DAWN);
+    await this.talk(PRO_DAWN); this.hero.scriptPose = null;
     await this.cine(loadShots(this.proHost, who));
+    this.proKneel.stop();
     for (const a of this.proPeople) a.dispose(); this.proPeople = [];
     this.prologue = 0; this.forceSpec = null;
     let wakeK: (k: number) => void = () => {};
@@ -500,7 +640,7 @@ export class ActShow {
   }
   /** a word with someone at the hideout; the smith and the healer then show their upgrades */
   private async npcTalk(id: string) {
-    if (id === 'stele') { const pool = (this.stele?.count ?? 0) > 0 ? STELE_TALK.one : STELE_TALK.none; await this.talk([{ who: 'jiangjin', text: pool[Math.floor(Math.random() * pool.length)] }]); return; }
+    if (id === 'stele') { const pool = STELE_TALK.byCount[this.stele?.count ?? 0] ?? STELE_TALK.none; await this.talk([{ who: 'jiangjin', text: pool[Math.floor(Math.random() * pool.length)] }]); return; }
     if (id === 'duwu') { await this.mealMenu(); return; }
     const pool = NPC_TALK[id] ?? []; if (pool.length) await this.talk([{ who: id, text: pool[Math.floor(Math.random() * pool.length)] }]);
     if (id === 'fengtiebi' || id === 'sunao') await this.upgradeMenu(id === 'fengtiebi' ? 'forge' : 'medic');
@@ -511,9 +651,8 @@ export class ActShow {
     if (p.meal) { await this.talk([{ who: 'duwu', text: pick(MEAL_TALK.packed) }]); return; }
     await this.talk([{ who: 'duwu', text: pick(MEAL_TALK.offer) }]);
     const cards = MEALS.map(m => ({ boon: { id: 'meal_' + m.id, school: 'ms' as never, name: m.name, desc: [m.desc, ''], col: '#ffd27a', glyph: MEAL_GLYPH[m.id], tag: '' } as Boon, tier: 0 }));
-    cards.push({ boon: { id: 'leave', school: 'ms' as never, name: '离开', desc: ['什么也不带', ''], col: '#f0e0b0', glyph: LEAVE, tag: '' } as Boon, tier: 0 });
     const was = this.phase; this.phase = 'pick'; this.hud.on = false;
-    const i = await this.cards.open(cards); this.phase = was; this.hud.on = true;
+    const i = await this.cards.open(cards, { leave: true }); this.phase = was; this.hud.on = true;
     const m = MEALS[i]; if (!m) return;
     p.meal = m.id; saveProfile(); cue('coin', 0.6);
     await this.talk([{ who: 'duwu', text: MEAL_TALK.after[m.id] }]);
@@ -527,10 +666,11 @@ export class ActShow {
       const glyph = who === 'forge' ? ANVIL : NEEDLE;
       const cards = ups.map(u => { const lv = level(p, u.id), cost = nextCost(p, u.id);
         return { boon: { id: 'mu_' + u.id, school: (who === 'forge' ? 'fg' : 'md') as never, name: u.name, desc: [...u.desc], col: '#ffd27a', glyph, tag: cost == null ? msg`满 · ${lv}级` : msg`${cur} ${cost} · ${lv}级` } as Boon, tier: cost == null ? 2 : lv > 0 ? 1 : 0 }; });
-      cards.push({ boon: { id: 'leave', school: 'ms' as never, name: '离开', desc: [msg`手上${cur} ${have}`, ''], col: '#f0e0b0', glyph: LEAVE, tag: '' } as Boon, tier: 0 });
+      // (11-19 用户：「npc商店页面没有退出按钮」: the back shield at the top left leaves — no 离开 card; what she holds shows on the page)
+      void have;
       const was = this.phase; this.phase = 'pick'; this.hud.on = false;
-      const i = await this.cards.open(cards); this.phase = was; this.hud.on = true;
-      if (i >= ups.length) return;
+      const i = await this.cards.open(cards, { leave: true }); this.phase = was; this.hud.on = true;
+      if (i < 0 || i >= ups.length) return;
       const u = ups[i];
       if (!buy(p, u.id)) { const poor = POOR_TALK[id]; if (poor) await this.talk([{ who: id, text: poor }]); return; }
       saveProfile(); cue('coin', 0.8); this.banner.show(u.name, msg`${level(p, u.id)} 级`, 1.0, '#ffd27a');
@@ -558,31 +698,37 @@ export class ActShow {
   /** the training yard (room −1) and the costume on the hero */
   yard: Yard | null = null; wearing: ModelDef = savedHero(); private lineupActors: BattleActor[] = [];
   private aimLine!: THREE.Mesh;
+  private propContacts?: ContactBatch;
+  private foeContacts?: ContactBatch;
   private ring!: THREE.Mesh; private ringK = -1; private sparkT = 0; private shadows: THREE.Mesh[] = []; private exitSign: THREE.Group | null = null; private blob: THREE.Mesh;
   constructor(private platform: Platform, deferStart = false) {
-    SELF = this; this.dialogue = new Dialogue(this.L); this.timeline = new Timeline(this.L);
+    SELF = this; this.dialogue = new Dialogue(this.L, this.ov); this.timeline = new Timeline(this.L);
     HP_FACE.id = this.wearing.id;   // the HP medallion shows the look she wears
     this.hud = new ActHud(this.L); this.cards = new CardPick(this.L); this.banner = new SkinBanner(this.L, SKIN.id, () => this.hud.bossOn);
+    this.duel = new Duel(this.duelHost);   // 11-18 QTE 拼刀 / 连环破势 (act/qte.ts)
     platform.onPointer(ev => { if (ev.type === 'down') this.unlockAudio(); this.pointer(ev.type, (ev as { id?: number }).id ?? 0, ev.x, ev.y); });
     platform.onResize(() => this.layout2());
     if (typeof window !== 'undefined') window.addEventListener('keydown', e => this.key(e));
     onUpdate((dt, rdt) => this.frame(dt, rdt));
     this.layout2();
     // the player's settings: the tuning panel shows the long labels, the pause menu's 设置 page the short ones (act-30 之后)
-    const SET: Array<{ label: () => string; short: () => string; run: () => void }> = [
-      { label: () => `界面风格：${SKIN_NAME[SKIN.id]}（点这里换）`, short: () => msg`界面：${SKIN_NAME[SKIN.id]}`, run: () => this.cycleSkin() },
-      { label: () => msg`正文字体：${BODY_FONT_NAME[BODY_FONT.current]}`, short: () => msg`正文字体：${BODY_FONT_NAME[BODY_FONT.current]}`, run: () => { const order: BodyFont[] = ['wenkai', 'serif', 'sans', 'pixel']; setBodyFont(order[(order.indexOf(BODY_FONT.current) + 1) % order.length]); } },
+    // (11-18 用户：「调试只在我们本地打的桌面包里面存在就行了，比如换角色、换开场场景啥的」: dbg = a test switch — the WeChat and
+    //  CrazyGames packages leave it out of 设置; they keep 震动, 试一下震动, 画质 and 语言)
+    const SET: Array<{ label: () => string; short: () => string; run: () => void; dbg?: true }> = [
+      { dbg: true, label: () => `界面风格：${SKIN_NAME[SKIN.id]}（点这里换）`, short: () => msg`界面：${SKIN_NAME[SKIN.id]}`, run: () => this.cycleSkin() },
+      { dbg: true, label: () => msg`正文字体：${BODY_FONT_NAME[BODY_FONT.current]}`, short: () => msg`正文字体：${BODY_FONT_NAME[BODY_FONT.current]}`, run: () => { const order: BodyFont[] = ['wenkai', 'serif', 'sans', 'pixel']; setBodyFont(order[(order.indexOf(BODY_FONT.current) + 1) % order.length]); } },
       // act-15 用户：「我浏览器玩没有震动诶」 — a switch, a test, and what this device supports
       { label: () => `震动：${VIBE.on ? '开' : '关'}（${({ api: '这台设备支持', ios: `iPhone iOS ${iosMajor()}：系统触感，点屏幕时最灵`, 'ios-old': `iPhone iOS ${iosMajor() || '17 及以下'}：网页没法震，要 iOS 18`, none: '这个浏览器不支持', mini: '微信：手机震动' } as const)[vibeSupport()]}）`, short: () => msg`震动：${VIBE.on ? '开' : '关'}`, run: () => { VIBE.on = !VIBE.on; try { localStorage.setItem('ub.vibe', VIBE.on ? '1' : '0'); } catch { /* private mode */ } } },
       { label: () => '试一下震动', short: () => '试一下震动', run: () => { const was = VIBE.on; VIBE.on = true; this.platform.vibrate('heavy'); VIBE.on = was; } },
       // act-14 用户：「我要2x，然后调试面板给我一个切换这个的功能」 — 2x → 3x → off → 1x, remembered on this device
       // act-21: which title screen (five moods; the user picks on a phone too, where there are no number keys)
-      { label: () => `开始画面：第 ${savedTitle()} 版（点这里换）`, short: () => msg`开始画面：第 ${savedTitle()} 版`, run: () => { const n = savedTitle() % TITLE_COUNT + 1; try { localStorage.setItem('ub.title', String(n)); } catch { /* storage blocked */ } if (this.phase === 'title') this.title(n); } },
+      { dbg: true, label: () => `开始画面：第 ${savedTitle()} 版（点这里换）`, short: () => msg`开始画面：第 ${savedTitle()} 版`, run: () => { const n = savedTitle() % TITLE_COUNT + 1; try { localStorage.setItem('ub.title', String(n)); } catch { /* storage blocked */ } if (this.phase === 'title') this.title(n); } },
       // act-20: her look (the story's heroine: the 斗笠 or the 白发 — the user's two picks); the hideout has no costume rack
-      { label: () => `造型：${this.wearing.name}（点这里换）`, short: () => msg`造型：${this.wearing.name}`, run: () => { const ids = ['fine_white', 'fine_hat'], n = HEROES.find(d => d.id === ids[(ids.indexOf(this.wearing.id) + 1) % ids.length]); if (n) this.wear(n); } },
-      { label: () => `像素：${PX.on ? PX.size + 'x' : '关'}（点这里换）`, short: () => msg`像素：${PX.on ? PX.size + 'x' : '关'}`, run: () => { const order = ['2', '3', 'off', '1'], cur = PX.on ? String(PX.size) : 'off', nx = order[(order.indexOf(cur) + 1) % order.length]; if (nx === 'off') setPixel(false); else setPixel(true, +nx); try { localStorage.setItem('ub.px', nx); } catch { /* private mode */ } } },
+      { dbg: true, label: () => `造型：${this.wearing.name}（点这里换）`, short: () => msg`造型：${this.wearing.name}`, run: () => { const ids = ['fine_white', 'fine_hat'], n = HEROES.find(d => d.id === ids[(ids.indexOf(this.wearing.id) + 1) % ids.length]); if (n) this.wear(n); } },
+      { dbg: true, label: () => `像素：${PX.on ? PX.size + 'x' : '关'}（点这里换）`, short: () => msg`像素：${PX.on ? PX.size + 'x' : '关'}`, run: () => { const order = ['2', '3', 'off', '1'], cur = PX.on ? String(PX.size) : 'off', nx = order[(order.indexOf(cur) + 1) % order.length]; if (nx === 'off') setPixel(false); else setPixel(true, +nx); try { localStorage.setItem('ub.px', nx); } catch { /* private mode */ } } },
       // 11-18 微信帧率: the quality tier (自动 → 高 → 中 → 低), kept on the device
-      { label: () => qualityLabel(), short: () => qualityLabel(), run: () => cycleQuality() }];
+      { label: () => qualityLabel(), short: () => qualityLabel(), run: () => cycleQuality() },
+      { label: meterLabel, short: meterLabel, run: toggleMeter }];
     installActTune([...SET.map(x => ({ label: x.label, run: x.run })),
       // act-50 (用户：「加入一个跳过当前剧情的调试按钮」): the cutscene / the talk running now and the ones chained after it, fast-forwarded
       //  until she can be played again (fast-forward, not a cut: every shot's own events — 杜五 and the donkey coming in, her getting up — still happen)
@@ -592,7 +738,7 @@ export class ActShow {
       { label: () => `全部招式：${this.dbgAllMoves ? '开' : '关'}`, run: () => { this.dbgAllMoves = !this.dbgAllMoves; if (this.hero && !this.yard && !this.prologue) this.hero.moves = this.dbgAllMoves ? ALL_MOVES : this.perks.moves; } }],
       { regions: REGIONS.map(r => r.name), rooms: ri => REGIONS[ri].rooms, go: (ri, room, type) => { const r = this.jumpRegion(ri, room, type); return 'why' in r ? r.why : undefined; } });
     // the pause menu (act-30 之后, user: 「帮我把手柄的按键映射和手柄支持做了吧」): Start / Esc, a pad pulled out, the page hidden
-    this.pause = new PauseMenu({ L: this.L, settings: [...SET.map(x => ({ label: x.short, run: x.run })), { id: 'language', label: () => '语言：简体中文', run: () => setLanguage(language === 'en' ? 'zh' : 'en') }], canGiveUp: () => this.canGiveUp(), giveUp: () => this.giveUp(), closed: () => this.unpaused(),
+    this.pause = new PauseMenu({ L: this.L, settings: [...SET.filter(x => __DEBUG_UI__ || !x.dbg).map(x => ({ label: x.short, run: x.run })), { id: 'language', label: () => '语言：简体中文', run: () => setLanguage(language === 'en' ? 'zh' : 'en') }], canGiveUp: () => this.canGiveUp(), giveUp: () => this.giveUp(), closed: () => this.unpaused(), toTitle: () => this.backToTitle(), onRun: () => this.canGiveUp(),
       owned: () => this.ownedSections(), skills: () => this.skillSections() });
     // 11-18 (用户：「游戏里也没有一个可以呼出暂停窗口的按钮」): the iron button at the top right opens it too
     this.hud.onPause = () => this.pauseGame();
@@ -607,7 +753,7 @@ export class ActShow {
       window.addEventListener('gamepaddisconnected', () => { if (PAD.device === 'pad') this.pauseGame(); });
       document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') this.pauseGame(); });
     }
-    if (typeof window !== 'undefined') window.addEventListener('keydown', e => { if (!CRAZYGAMES && (e.key === 'u' || e.key === 'U') && !this.cards.on) this.cycleSkin(); });
+    if (__DEBUG_UI__ && typeof window !== 'undefined') window.addEventListener('keydown', e => { if ((e.key === 'u' || e.key === 'U') && !this.cards.on) this.cycleSkin(); });
     dh.add({ voxCompare: (id: string, only = -1, x?: number, z?: number) => {
         // before (the code model) on the left, the edited file on the right, beside the hero (captures of a model edit);
         // only = 0 / 1: just the original / just the edited one, at (x, z)
@@ -619,6 +765,7 @@ export class ActShow {
         return { at: [cx, cz], edited: !!code };
       }, prof: () => profile(), steleTest: (n = 0, cut = -1) => { const st = new Stele(n); st.g.position.set(this.hero.pos.x, 0, this.hero.pos.z - 2.2); this.stage!.root.add(st.g); if (cut >= 0) after(0.8, () => st.strike(cut)); return st; },
       // 11-18 一局五关: jump to a room of a region (n 0 起; room within it; the boss room = REGIONS[n].rooms), or straight to region n's boss
+      bench: (tiers?: Tier[]) => this.bench(tiers),
       region: (n = 1, room = 0, type: RoomType = 'fight') => this.jumpRegion(n, room, type),
       boss: (n = 0) => { this.jumpRegion(n, REGIONS[Math.max(0, Math.min(REGIONS.length - 1, n))].rooms, 'boss'); }, newGame: () => this.startNewGame(), talkTest: (n = 0) => this.talk(n ? CHULEI_BEFORE : WAKE_DUWU), act: () => this, bot: (on = true) => { this.botOn = on; }, run: () => this.startRun(), yard: () => this.enterYard(), wear: (id: string) => { const d = HEROES.find(h => h.id === id); if (d) this.wear(d); },
       skin: (id: SkinId) => this.cycleSkin(id),
@@ -724,9 +871,15 @@ export class ActShow {
         };
       })(),
       lab: () => this.labActs,
+      /** 11-19: the sound engine, for captures that check which samples a cue plays */ audio: () => audio,
+      /** 11-19: the foes' slide round a prop they're stuck on (on by default) */ unstick: (on = true) => { UNSTICK.on = on; return on; },
+      /** 11-19: the locomotion state of lab actor i (to drive a walk on the lab floor) */ motionOfLab: (i: number) => motionOf(this.labActs[i]),
       /** the cutscene poses, for the lab: drape(i, x, y, z, yaw, ph), getUp(i, k) */
       /** the colour grade / bloom settings, for lab checks */ grade: GRADE,
-      labPose: { drape: (i: number, x: number, y: number, z: number, yaw: number, ph: number) => drapeOver(this.labActs[i], x, y, z, yaw, ph), getUp: (i: number, k: number) => getUpPose(this.labActs[i], k) },
+      labPose: { drape: (i: number, x: number, y: number, z: number, yaw: number, ph: number) => drapeOver(this.labActs[i], x, y, z, yaw, ph), getUp: (i: number, k: number) => getUpPose(this.labActs[i], k),
+        /** 11-18: the prologue's kneel on lab actor i, running every frame (reach 0..1, dawn = the planted sabre, no bleeding) */
+        /** the kneel's arm angles, live (fitting the hands) */ kneelArms: KNEEL_ARMS,
+        kneel: (i: number, o: { reach?: number; dawn?: boolean } = {}) => { const a = this.labActs[i], k = new Kneel(); if (!a) return null; if (o.dawn) k.dawn(); else k.start(); k.reachWant = o.reach ?? 0; this.labFn = dt => { a.update(dt); k.frame(a); }; this.labT = 0; return k; } },
       /** world positions of an actor's bones (rounded to cm), to check a pose by numbers */
       labBones: (i: number) => { const a = this.labActs[i]; if (!a) return null; a.root.updateMatrixWorld(true); const o: Record<string, number[]> = {}, v = new THREE.Vector3();
         for (const [k, b] of Object.entries(a.bones)) { if (!b) continue; (b as THREE.Object3D).getWorldPosition(v); o[k] = [v.x, v.y, v.z].map(n => Math.round(n * 100) / 100); } return o; },
@@ -741,7 +894,7 @@ export class ActShow {
       intent: (n = 3) => { this.intent = Math.max(0, Math.min(3, n)); this.hud.intent = this.intent; },
       qi: (n?: number) => { if (n != null) this.hero.qi = Math.max(0, Math.min(Hero.QI_MAX, n)); return this.hero.qi; },
       untaught: () => { try { localStorage.removeItem('ub.taught'); } catch { /* */ } this.taught = null; },
-      prologue: (n = 1) => { this.startPrologue(); if (n >= 2) { after(0.3, () => { this.prologue = 2; this.proFightT = 0; this.plan = { type: 'boss', locale: 'hj_temple', reward: null, waves: [['hj_boss']] }; this.locale = 'hj_temple'; this.room = 1; this.buildRoom(false); }); } },
+      prologue: (n = 1) => { this.startPrologue(); if (n >= 2) { after(0.3, () => { this.prologue = 2; this.proFightT = 0; this.plan = { ...PRO_BOSS }; this.locale = PRO_BOSS.locale; this.room = 1; this.buildRoom(false); }); } },
       sfx: () => ({ ready: audio.ready, all: audio.buf.size, loaded: [...audio.buf.keys()].filter(k => /^ub_(hit|vo|sw)_/.test(k)), muted: audio.muted, ctx: audio.ctx ? audio.ctx.state : 'none', recent: audio.recent.slice() }), unlockAudio: () => audio.unlock().then(() => audio.loading).then(() => audio.ready),
       cam: (b: number[] | null, l?: number[], fov = 30) => { this.camOverride = b ? { base: V3(b[0], b[1], b[2]), look: V3(l![0], l![1], l![2]), fov } : null; },
       press: (n: 'attack' | 'dash' | 'special' | 'jump', ms = 80) => { this.inp.hold(n, ms / 1000); },
@@ -749,6 +902,31 @@ export class ActShow {
       stick: (x: number, y: number, ms = 300) => { this.inp.push(x, y, ms / 1000); },
       // captures: hold a lineup model in a locomotion state (run 0..1 at a stride phase, height off the ground…) or play it an action
       motion: (i: number, m: Record<string, number>) => { const a = this.lineupActors[i]; if (a) Object.assign(motionOf(a), m); },
+      /** 11-18: how far her planted foot slides (cm per step) walking at v m/s with run r and the stride phase advancing at rate rad/s —
+       *  the scripted walks in the cutscenes set these three themselves; a real walk is ~0 */
+      /** 11-18: her feet relative to her root over one stride cycle at run r (ph 0..2π): z (forward, cm) and height (cm) of each */
+      footCycle: (r: number, n = 16) => {
+        const h = this.hero; if (!h) return null; const a = h.a, m = motionOf(a), V = THREE.Vector3, out: number[][] = [];
+        for (let i = 0; i < n; i++) { m.run = r; m.phase = (i / n) * Math.PI * 2; a.update(1 / 60); a.root.updateMatrixWorld(true);
+          const L = a.root.worldToLocal(a.bones.footL.localToWorld(new V(0, -0.03, 0.02))), R = a.root.worldToLocal(a.bones.footR.localToWorld(new V(0, -0.03, 0.02)));
+          out.push([i, Math.round(L.z * 100), Math.round(L.y * 100), Math.round(R.z * 100), Math.round(R.y * 100), a.act ? 1 : 0]); }
+        m.run = 0; return out;
+      },
+      footSlide: (v: number, r: number, rate: number, secs = 3) => {
+        // the slip: while a foot is down (within 1.5 cm of the lowest a foot gets), how fast it moves over the ground (cm/s, averaged)
+        const h = this.hero; if (!h) return null; const a = h.a, m = motionOf(a), V = THREE.Vector3, p0 = a.home.clone(), yaw = a.yaw;
+        const fw = new V(Math.sin(yaw), 0, Math.cos(yaw)), dt = 1 / 60, rec: Array<[number, number, number, number]> = [];
+        for (let t = 0; t < secs; t += dt) {
+          a.home.addScaledVector(fw, v * dt); m.run = r; m.phase += rate * dt; a.update(dt); a.root.updateMatrixWorld(true);
+          for (const [i, n] of [[0, 'footL'], [1, 'footR']] as const) { const q = a.bones[n].localToWorld(new V(0, -0.03, 0.02)); rec.push([i, q.x, q.y, q.z]); }
+        }
+        a.home.copy(p0); m.run = 0;
+        // each frame the lower foot is the one carrying her: its speed over the ground (same foot as the frame before)
+        let slip = 0, n = 0, prev = -1, px = 0, pz = 0;
+        for (let k = 0; k + 1 < rec.length; k += 2) { const L = rec[k], R = rec[k + 1], c = L[2] <= R[2] ? L : R;
+          if (c[0] === prev) { slip += Math.hypot(c[1] - px, c[3] - pz) / dt; n++; } prev = c[0]; px = c[1]; pz = c[3]; }
+        return { slipCmS: Math.round(slip / Math.max(1, n) * 100) };
+      },
       lplay: (i: number, name: string, dur = 0.5, at = 0.5) => { this.lineupActors[i]?.play(new Action(name, dur, at)); },
       // tests: an arrow from d metres in front of the hero, flying at it
       // agents / captures: a fight-less room in one place (the scene builders check their place with it) — returns the assembler's report
@@ -756,12 +934,24 @@ export class ActShow {
       // 11-18 屋子形态 (captures / tests): a fight room of this place in this shape (the next rooms pick their own again); null = pick
       /** 11-18 定死的屋子: the room's puzzle pieces and their state; solve one */
       puzzle: () => this.pieces?.list() ?? [], solve: (i: number) => this.pieces?.solve(i),
-      /** 11-18 定死的屋子: build this drawn room (asm/roomMaps.ts id: crossroads / courtyards / islands …) as a fight room */
-      room: (id: string, type: 'fight' | 'elite' = 'fight') => {
+      /** 11-18 小刀转场: play the loading blade over the current view while a pretend load takes ms (it is drawn every frame in the web build too) */
+      bladeBusy: () => bladeBusy(),
+      /** the last frame-split room build: busy ms in its steps, wall ms, frames it spanned, steps, the longest single step (ms) */
+      buildStats: () => ({ ...BUILD_STATS }),
+      bladeTimes: () => bladeTimes.map(m => Object.fromEntries(Object.entries(m).map(([k, v]) => [k, Math.round(v)]))),
+      bladeDemo: (ms = 800, cover: 'bamboo' = 'bamboo') => withLoadingBlade(() => new Promise<void>(r => setTimeout(r, ms)), cover),
+      /** 11-18 定死的屋子: enter this drawn room (asm/roomMaps.ts id) with its actual region's waves, boss or stations */
+      room: (id: string, type?: RoomType) => {
         const m = MAP_BY_ID[id]; if (!m) return null;
-        this.startRun(); this.forceMap = id; this.locale = m.locale; if (this.plan) { this.plan.locale = m.locale; this.plan.type = type; }
-        this.room = 1; this.buildRoom(false); this.forceMap = null;
-        const sp = this.arena?.shape; return sp ? { id: sp.fixed?.id, box: sp.box, exits: this.spec?.exits } : null;
+        const ri = REGIONS.findIndex(r => r.locales.includes(m.locale) || r.bossLocale === m.locale);
+        if (ri < 0) return null;
+        const visit = m.kind === 'boss' ? 'boss' : m.kind === 'calm' ? (type === 'rest' || type === 'boon' ? type : 'shop') : type === 'elite' ? 'elite' : 'fight';
+        this.forceMap = id;
+        try {
+          const result = this.jumpRegion(ri, 1, visit);
+          if ('why' in result) return result;
+          const sp = this.arena?.shape; return sp ? { id: sp.fixed?.id, box: sp.box, exits: this.spec?.exits } : null;
+        } finally { this.forceMap = null; }
       },
       shape: (id: ShapeId | null, locale = 'hj_village', seed?: number) => {
         this.startRun(); this.forceShape = id; this.locale = locale; if (this.plan) this.plan.locale = locale; if (seed != null) this.forceSeed = seed;
@@ -771,6 +961,8 @@ export class ActShow {
       grid: () => this.grid,
       // agents / captures: a foe of any kind at (x, z), facing the hero (elite: the stronger variant, where the kind has one)
       spawn: (kind: EKind, x = 0, z = -2, elite = false) => { const f = spawnFoe(kind, V3(x, 0, z), this.hero.pos.clone(), elite); /* wp/foes: elite into spawnFoe */ f.st = 'move'; this.foes.push(f); return f.uid; },
+      // 11-18 QTE: 拼刀 ('clash') / 连环破势 ('chain') against the nearest elite / boss at once (captures); what they did
+      qte: (kind: 'clash' | 'chain' = 'clash') => this.duel.force(kind), qteStats: () => this.duel.state,
       arrow: (d = 6) => { const h = this.hero, f = h.a.fwd(), p = h.pos.clone().addScaledVector(f, d).setY(1.25); this.arrows.push(new Arrow(p, Math.atan2(-f.x, -f.z), 8)); },
       // captures: every costume in a row facing the camera (the hero hidden), or gone again
       // any models by id (foes, the hideout's people…) standing in a row facing the camera (captures of model work); [] clears
@@ -825,7 +1017,10 @@ export class ActShow {
   private unlockAudio() {
     if (this.audioOn) { const c = audio.ctx; if (c && c.state === 'suspended') void Promise.resolve(c.resume()).catch(() => { /* still paused */ }); return; }
     this.audioOn = true;
-    audio.unlock().then(() => this.music()).catch(e => { this.audioOn = false; console.error('[audio] the sound would not start:', e); });
+    // (a browser's autoplay rule: the context comes up suspended without a gesture — resume() then never settles, so the music is
+    //  asked for right away; it sounds the moment the context runs, on the first touch or key)
+    audio.prepare(); this.music();
+    audio.unlock().then(() => this.music()).catch(e => { console.warn('[audio] waiting for a touch to start the sound:', e); });
   }
   music() {
     if (!this.audioOn) return;
@@ -851,12 +1046,16 @@ export class ActShow {
     // start() selects the title, yard or fight synchronously, so preload its
     // music alongside the scenery even when preparing the scene takes frames.
     if (!HAS_DOM) audio.prepare({ warm: [this.musicName()], prefetch: true });
+    // (11-19 用户：「每次开场的音乐都要我点一下屏幕才播，我希望是加载完了就开始播了」: start the sound as soon as the page is up,
+    //  not on the first touch. A mini-game's WebAudio may play at once; a browser blocks sound until the first touch or key — there
+    //  the context stays suspended and the first input resumes it (unlockAudio), the music then starts from where it would be)
+    void Promise.resolve(ready).then(() => this.unlockAudio());
     return ready;
   }
   start() {
     dh.add({ opening: () => this.opening(), title: (n = 1) => this.title(n) });
     dh.add({ rack: (n = 30) => { if (this.stage) this.stage.root.add(rackBlades(n)); return n; } });   // captures: the hideout's rack with n blades   // captures: the old opening / a title variant again
-    if (CRAZYGAMES) { this.title(savedTitle()); return; }
+    if (!__DEBUG_UI__) { this.title(savedTitle()); return; }   // (the packages: no URL switches — the title the player gets)
     // ?lab, or the desktop model page (window.__LAB): the model viewer (lab.ts, act-21)
     if (typeof window !== 'undefined' && ((window as unknown as { __LAB?: number }).__LAB || /[?&#]lab\b/.test(location.href))) { this.lab(); return; }
     // 11-18 ?anim, or the desktop page (window.__ANIM): every character's moves side by side (animPreview.ts)
@@ -869,9 +1068,12 @@ export class ActShow {
   /** 开始画面 (title.ts, act-20): a wide shot of one of the place / weather variants with the menu (开始游戏 / 继续游戏 / 设置);
    *  the title builds its own place and poses its own heroine while frame() idles; the choice cuts into startNewGame / continueGame */
   title(n = 1) {
+    this.dropAhead();
     try { localStorage.setItem('ub.title', String(n)); } catch { /* storage blocked */ }   // the last one shown opens next time
     // a room may be up (__dh.title from the yard): its actors go the way a room change sends them
-    for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = [];
+    this.propContacts?.dispose(); this.propContacts = undefined;
+    this.foeContacts?.dispose(); this.foeContacts = undefined;
+    this.duel?.newRoom(); for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = []; this.entering.length = 0;
     this.yard?.dispose(); this.yard = null; this.props?.dispose(); this.props = null; this.gates?.dispose(); this.gates = null; this.pieces?.dispose(); this.pieces = null; this.leaves?.dispose(); this.leaves = null; this.stations?.dispose(); this.stations = null; this.hero?.a.dispose();
     this.clearNpcs();
     this.phase = 'title'; this.hud.on = false; this.hud.update(0, this.inp, []); this.banner.hide(); this.blob.visible = false; this.ring.visible = false; for (const m of this.shadows) m.visible = false;
@@ -970,6 +1172,51 @@ export class ActShow {
   /** 11-18 一局五关 (用户：「你帮我在调试面板加一个快速切关，我好测试关卡」): a new run that starts in region n's room `room` (0 = its
    *  first room; REGIONS[n].rooms = its boss room) of the given kind — from the title, the hideout or mid-run (the tune panel's 快速切关,
    *  __dh.region / __dh.boss). Not while a cutscene or a talk is playing (they go on awaiting their own next steps) */
+  private benchmarking = false;
+  private async bench(tiers: Tier[] = ['high', 'mid', 'low']) {
+    if (this.benchmarking || this.pause.on || this.timeline.on || this.dialogue.on || this.cards.on) throw Error('Finish the current scene before benchmarking');
+    this.benchmarking = true;
+    const random = Math.random, oldQuality = { ...QUALITY }, choice = QUALITY.choice, god = this.god, bot = this.botOn, result: Partial<Record<Tier, unknown>> = {};
+    try {
+      if (this.phase === 'title') stopTitle();
+      this.hud.on = true; this.prologue = 0; this.god = true; this.botOn = false;
+      for (const tier of tiers) {
+        let seed = 4101;
+        Math.random = () => { seed = (Math.imul(1664525, seed) + 1013904223) >>> 0; return seed / 4294967296; };
+        setQuality(tier, false);
+        this.region = 0; this.room = 1; this.locale = 'hj_village'; this.forceMap = 'crossroads'; this.forceSeed = 4101;
+        this.forceSpec = this.viewSpec = null; this.noArena = false;
+        this.plan = { type: 'fight', locale: this.locale, reward: null, waves: [['hj_blade','hj_blade','hj_blade','hj_blade','hj_archer','hj_archer','hj_brute','hj_brute']] };
+        await this.buildRoom(true);
+        const deadline = performance.now() + 90000;
+        while (this.foes.length !== 8 || this.entering.length || this.phase !== 'fight') {
+          if (performance.now() > deadline) throw Error('Eight benchmark enemies did not enter');
+          await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+        }
+        const entry = this.arena!.shape!.enter, x = entry[0], z = entry[1];
+        this.hero.pos.set(x, 0, z); this.hero.vel.set(0,0,0);
+        this.foes.forEach((foe, i) => {
+          const a = Math.PI * (i + 0.5) / 8, pos = this.grid!.nearestFloor(x + 4 * Math.cos(a), z - 4 * Math.sin(a));
+          foe.pos.set(pos[0], 0, pos[1]); foe.vel.set(0,0,0);
+        });
+        this.camOverride = { base: V3(x, 12, z + 12), look: V3(x, 0, z), fov: 36 };
+        for (const foe of this.foes) foe.hp = foe.maxHp = 100000;
+        let nextSwing = 0;
+        result[tier] = await measureFight(seconds => {
+          const offset = 2.5 * Math.sin(seconds * Math.PI / 10);
+          this.camOverride!.base.x = x + offset;
+          this.camOverride!.look.x = x + offset;
+          if (seconds >= nextSwing) { this.inp.hold('attack', 0.10); nextSwing += 0.8; }
+        });
+      }
+      return result;
+    } finally {
+      Math.random = random; this.forceMap = this.forceSeed = null; this.camOverride = null;
+      this.god = god; this.botOn = bot; this.benchmarking = false;
+      QUALITY.auto = oldQuality.auto; QUALITY.reducedWorld = oldQuality.reducedWorld; setQuality(choice, false); QUALITY.drops = oldQuality.drops;
+      await this.enterYard();
+    }
+  }
   jumpRegion(n: number, room = 0, type: RoomType = 'fight') {
     if (this.phase === 'cine' || this.phase === 'talk' || this.phase === 'opening' || this.timeline.on || this.dialogue.on) return { why: '演出 / 对话还在放，放完再切' };
     if (this.phase === 'title') { stopTitle(); this.hud.on = true; }
@@ -982,9 +1229,11 @@ export class ActShow {
     return { region: REGIONS[ri].id, room: this.room, locale: this.locale, waves: this.plan.waves };
   }
   startRun(build = true) {
+    const fromYard = this.room < 0 && OPT.roomAhead;
+    this.maps = [];
     this.intent = 0; this.hud.intent = 0;
     this.perks = newPerks(); this.room = 0; this.kills = 0; this.recent = []; this.demo.stop(); this.syncMarks();
-    this.plan = firstRoom(Math.random); this.visited = []; this.coins = 0; this.locale = this.plan.locale;
+    this.plan = (build && fromYard ? this.ahead[0]?.plan : null) ?? firstRoom(Math.random); this.visited = []; this.coins = 0; this.locale = this.plan.locale;
     // 11-18 一局五关: the first region; the TUNE values the regions scale from (the tune panel's, as the run starts)
     this.region = 0; this.bosses = 0; this.regionIn = false; this.baseFoe = { hp: TUNE.enemyHp, dmg: TUNE.enemyDmg, aggression: 0.85, calm: TUNE.atkCalm, attackers: TUNE.maxAttackers };
     // act-20: the hideout's upgrades (meta.ts) for this run
@@ -1005,12 +1254,54 @@ export class ActShow {
     if (this.hud.flask instanceof IronHp) this.hud.flask.setFace(d.id); else HP_FACE.id = d.id;
     if (this.hero) this.hero.setModel(d);
   }
+  private dropAhead(keep?: AheadRoom) {
+    for (const job of this.ahead) {
+      if (job === keep) continue;
+      if (job.ready) job.ready.prep.drop(); else job.steps.return(undefined as never);
+    }
+    this.ahead = [];
+  }
+  private queueAhead(yard: boolean) {
+    this.dropAhead();
+    if (!OPT.roomAhead || this.prologue || this.viewSpec || this.forceShape || this.forceMap || this.forceSpec || this.noArena) return;
+    for (const plan of yard ? [firstRoom(Math.random)] : this.nextRooms) {
+      const region = yard ? 0 : plan.region ?? this.region;
+      const first = yard || region !== this.region, room = first ? 0 : this.room + 1;
+      const next = onward(room, [...(first ? [] : this.visited), plan.type], region);
+      const steps = prepRoomSteps({ isYard: false, locale: plan.locale, plan, room, region, regionSpec: REGIONS[region].spec,
+        recent: yard ? [] : this.recent.slice(), shapes: yard ? [] : this.shapes.slice(), maps: yard ? [] : this.maps.slice(),
+        seed: Date.now() % 100000 + room * 977, nextRooms: next, noArena: false, forceSpec: null, viewSpec: null }, true);
+      this.ahead.push({ plan, region, room, next, steps });
+    }
+  }
+  private workAhead() {
+    if (!OPT.roomAhead) { this.dropAhead(); return; }
+    // Once she has stepped through, the selected room has the whole budget until the blade takes over.
+    const until = performance.now() + (this.phase === 'leaving' ? 8 : 4);
+    let nearer = -1;
+    if (this.phase === 'doors' && this.doors.length === 2 && this.ahead.length === 2) {
+      const p = this.hero.pos, left = this.doors[0].ex.sign, right = this.doors[1].ex.sign;
+      const dl = Math.hypot(left.x - p.x, left.z - p.z), dr = Math.hypot(right.x - p.x, right.z - p.z);
+      if (Math.abs(dl - dr) > 1.5) nearer = dl < dr ? 0 : 1;
+    }
+    do {
+      // Keep both roads moving. When she approaches one sign, give it three slices for each slice on the other.
+      const turn = this.aheadTurn++;
+      const index = nearer < 0 ? turn % this.ahead.length : turn % 4 === 3 ? 1 - nearer : nearer;
+      let job: AheadRoom | undefined = this.ahead[index];
+      if (job.ready || job.wait) job = this.ahead.find(j => !j.ready && !j.wait);
+      if (!job) break;
+      try { advanceAhead(job, until); }
+      catch (error) {
+        console.warn('[stage] background build failed', error);
+        this.dropAhead(); break;
+      }
+    } while (performance.now() < until && this.ahead.some(j => !j.ready && !j.wait));
+  }
   private buildRoom(first: boolean) { return runRoomBuild(this.roomSteps(first)); }
   private *roomSteps(first: boolean): Generator<void | Promise<void>, void> {
     blood.clear();
-    // 11-18 混音: each place its own room tail (the village's walls a short one, the open field barely any, the temple court long)
-    audio.setRoom(ROOM_VERB[this.locale] ?? (this.room < 0 ? ROOM_VERB.yard : [0.6, 0.12]));
-    for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = [];
+    this.duel?.newRoom(); for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = []; this.entering.length = 0;
     this.falling = [];
     this.gates?.dispose(); this.gates = null; this.pieces?.dispose(); this.pieces = null; this.leaves?.dispose(); this.leaves = null; this.clearNpcs();
     for (const d of this.doors) d.g.parent?.remove(d.g); this.doors = []; this.stations?.dispose(); this.stations = null; this.coinsFx.clear();
@@ -1019,22 +1310,35 @@ export class ActShow {
     this.hero?.a.dispose();
     const isYard = this.room < 0;
     if (!isYard && this.plan && !this.viewSpec) this.visited.push(this.plan.type);
-    this.nextRooms = !isYard && this.plan && !this.viewSpec ? doorsFrom(this.room, this.visited, Math.random, this.region) : [];
-    // 11-18 一局五关: past a region's boss the road goes on into the next region's first room (the last region's boss ends the run)
-    if (!isYard && this.plan && !this.viewSpec && !this.prologue && isBossRoom(this.region, this.room)) { const nx = afterBoss(this.region); this.nextRooms = nx === 'won' ? [] : [regionFirstRoom(nx, Math.random)]; }
+    const job = OPT.roomAhead && !this.viewSpec && !this.forceSpec && !this.forceShape && !this.forceMap && !this.noArena
+      && (!__WX__ || bladeWorking()) ? this.ahead.find(j => j.plan === this.plan && j.region === this.region && j.room === this.room) : undefined;
+    this.dropAhead(job);
+    this.nextRooms = job?.next ?? (!isYard && this.plan && !this.viewSpec ? onward(this.room, this.visited, this.region) : []);
     if (this.prologue === 1 && !this.viewSpec) this.nextRooms = [PRO_BOSS]; else if (this.prologue === 2) this.nextRooms = [];   // act-29
     // act-34: the place itself — built ahead of time when it can be (the title builds a new game's first room while it loads), else now
     // (11-18: a region's own look — 下邳 is always winter — unless the prologue or a view asks otherwise)
     const rspec = !isYard && !this.prologue ? REGIONS[this.region]?.spec ?? null : null;
-    const want: RoomIn = { isYard, room: this.room, recent: this.recent, locale: this.locale, plan: this.plan, nextRooms: this.nextRooms, viewSpec: this.viewSpec, forceSpec: this.forceSpec, noArena: this.noArena, shape: this.forceShape, shapes: this.shapes, seed: this.forceSeed, map: this.forceMap, maps: this.maps, regionSpec: rspec };
+    const want: RoomIn = { isYard, room: this.room, recent: this.recent, locale: this.locale, plan: this.plan, nextRooms: this.nextRooms, viewSpec: this.viewSpec, forceSpec: this.forceSpec, noArena: this.noArena, shape: this.forceShape, shapes: this.shapes, seed: this.forceSeed, map: this.forceMap, maps: this.maps, region: this.prologue ? undefined : this.region, regionSpec: rspec };
     const ready = this.pre && !isYard && !this.viewSpec && this.prologue === 1 && this.room === 0 && this.pre.locale === this.locale ? this.pre : null;
     if (this.pre && this.pre !== ready) this.pre.prep.drop();
     this.pre = null;
-    const t0 = performance.now(), P = ready ?? (yield* prepRoomSteps(want)); this.buildMs = Math.round(performance.now() - t0);
+    const t0 = performance.now();
+    if (job) while (!job.ready) {
+      if (job.wait) yield job.wait;
+      advanceAhead(job);
+      if (!job.ready) yield;
+    }
+    const P = job?.ready ?? ready ?? (yield* prepRoomSteps(want)); this.buildMs = Math.round(performance.now() - t0);
+    setStage(P.big, P.k);
     const spec = P.spec; this.recent.push(spec); this.spec = spec; this.pools = LOCALES[spec.locale]?.pools?.(spec.seed) ?? [];
-    setStage(P.big, P.k); this.layout = P.layout; this.arena = P.arena; if (P.report) this.lastReport = P.report;
+    if (P.arena?.shape?.fixed) {
+      this.locale = spec.locale;
+      if (this.plan) this.plan = { ...this.plan, locale: spec.locale };
+    }
+    audio.setRoom(ROOM_VERB[this.locale] ?? (isYard ? ROOM_VERB.yard : [0.6, 0.12]));
+    this.layout = P.layout; this.arena = P.arena; if (P.report) this.lastReport = P.report;
     // 11-18 屋子形态: the floor as a grid (the clamp, the foes' way round, the pits); the rectangle rooms have none
-    this.grid = P.arena?.shape ? new FloorGrid(P.arena.shape) : null;
+    this.grid = P.fixtures ? P.fixtures.grid : P.arena?.shape ? new FloorGrid(P.arena.shape) : null;
     { const g = this.grid; blood.skip = g ? (x, z) => g.at(x, z) === PIT : null; }
     if (P.arena?.shape && !this.viewSpec) this.shapes.push(P.arena.shape.id);
     if (P.arena?.shape?.fixed && !this.viewSpec) this.maps.push(P.arena.shape.fixed.id);
@@ -1044,10 +1348,12 @@ export class ActShow {
     yield;
     if (isYard) Object.assign(PLAY, HIDEOUT.floor);   // act-20: the hideout 断碑古窑 (hideout.ts) is the yard now — its own stage and floor
     this.solids.clear(); this.props?.dispose(); this.props = null; this.botWp = 0;
+    if (P.fixtures) this.solids = P.fixtures.solids;
     if (isYard) for (const so of HIDEOUT.solids) this.solids.add({ kind: 'prop', ...so });
     if (this.arena && this.stage) {
       // act-20: the cover pieces are breakable (Breakables builds them and their solids)
-      this.props = new Breakables(this.stage.root, this.solids); yield* this.props.buildSteps(this.arena.props, this.arena.covers);
+      if (P.fixtures) { this.props = P.fixtures.props; this.stage.root.add(this.props.root); batchActor(this.props.root); }
+      else { this.props = new Breakables(this.stage.root, this.solids); yield* this.props.buildSteps(this.arena.props, this.arena.covers); }
       // act-37: the snowy night's braziers (the prologue's village and temple): four warm points round the floor, where it is free
       // 11-18 (用户：「场景要有差异」): 崔府各间的灯由场景摆，雪夜的通用火盆会盖住冰色和石灯。
       if (spec.weather === 'snow' && spec.time === 'night' && !spec.locale.startsWith('cx_')) for (const [x, z] of [[PLAY.x0 + 1.6, PLAY.z0 + 1.8], [PLAY.x1 - 1.6, PLAY.z0 + 1.8], [PLAY.x0 + 1.6, PLAY.z1 - 3.2], [PLAY.x1 - 1.6, PLAY.z1 - 3.2]]) {
@@ -1057,18 +1363,23 @@ export class ActShow {
         this.stage.root.add(brazier(px, pz)); this.solids.add({ kind: 'prop', shape: 'circle', x: px, z: pz, r: 0.42 });
       }
       yield;
-      this.gates = new Gates(this.stage.root, this.arena);
+      if (P.fixtures) { this.gates = P.fixtures.gates; this.stage.root.add(this.gates.root); }
+      else { this.gates = new Gates(this.stage.root); yield* this.gates.buildSteps(this.arena); }
       // 11-18 定死的屋子: the moving pieces, and the floor's pieces fought in turn (S's first, then on through its doors)
       this.pieces = null; this.stageZ = []; this.stageOf = []; this.waitZone = -1; this.rewardsGot = 0;
       yield;
       const fsh = this.arena.shape;
       if (fsh?.fixed && this.grid) {
-        const P = this.pieces = new RoomPieces(this.stage.root, fsh, this.grid, this.arena.style, spec.seed); this.props.onStrike = s => this.pieces?.strike(s);
+        const built = P.fixtures?.pieces;
+        if (built) this.stage.root.add(built.root);
+        const pieces = this.pieces = built ?? new RoomPieces(this.stage.root, fsh, this.grid, this.arena.style, spec.seed, OPT.slicedRoom);
+        if (!built && OPT.slicedRoom) yield* pieces.buildSteps(this.arena.style, spec.seed);
+        this.props.onStrike = s => this.pieces?.strike(s);
         // (the bell frames and the rope posts stand in the way like any post)
-        for (const m of fsh.fixed.marks) if (m.kind === 'bell' || m.kind === 'rope') this.solids.add({ kind: 'prop', shape: 'circle', x: m.x, z: m.z, r: m.kind === 'bell' ? 0.42 : 0.3 });
-        const seen = [P.zoneAt(fsh.enter[0], fsh.enter[1])];
+        for (const m of fsh.fixed.marks) if (m.kind === 'bell' || m.kind === 'rope' || m.kind === 'wheel') this.solids.add({ kind: 'prop', shape: 'circle', x: m.x, z: m.z, r: m.kind === 'rope' ? 0.3 : 0.42 });
+        const seen = [pieces.zoneAt(fsh.enter[0], fsh.enter[1])];
         while (seen.length < fsh.fixed.stages) {
-          const cur = seen[seen.length - 1], nx = P.pieces.filter(q => q.kind === 'door' && q.sides.includes(cur)).map(q => q.sides[0] === cur ? q.sides[1] : q.sides[0]).filter(z => z >= 0 && !seen.includes(z));
+          const cur = seen[seen.length - 1], nx = pieces.pieces.filter(q => q.kind === 'door' && q.sides.includes(cur)).map(q => q.sides[0] === cur ? q.sides[1] : q.sides[0]).filter(z => z >= 0 && !seen.includes(z));
           if (!nx.length) break; seen.push(nx[0]);
         }
         this.stageZ = seen;
@@ -1116,11 +1427,14 @@ export class ActShow {
     } else if (!this.prologue) this.banner.show(msg`第 ${language === 'en' ? this.room + 1 : '一二三四五六七八'[this.room] ?? this.room + 1} 间 · ${info.name}`, hint || msg`${name} · ${info.line}`, hint ? 3.2 : 1.6);
     // the rooms without a fight: the stations stand ready and the roads are open at once
     if (this.plan && (this.plan.type === 'shop' || this.plan.type === 'rest' || this.plan.type === 'boon')) {
-      this.stations = new Stations(this.stage!.root);
+      this.stations = new Stations(this.stage!.root, this.arena?.shape?.fixed?.stations);
       if (this.plan.type === 'shop') this.stations.shop(PRICES); else if (this.plan.type === 'rest') this.stations.rest(); else this.stations.scroll();
       this.log.push(`room ${this.room} ${this.plan.type} ${spec.locale}`);
       this.openDoors(true); return;
     }
+    if (!P.fixtures || !OPT.slicedRoom) yield* prepareFightModels(this.plan?.waves ?? []);
+    yield;
+    yield* prepareFight();
     // walk in from the front of the room, then the first wave
     const h = this.hero; this.introT = 0;
     after(1.1, () => {
@@ -1138,21 +1452,24 @@ export class ActShow {
     for (const [x, z] of HIDEOUT.dummies) { yield; const p = V3(x, 0, z), f = spawnFoe('dummy', p, V3(x, 0, z + 4)); f.st = 'move'; this.foes.push(f); }
     // the people of chapter 1 at their places (卢昭 and 桓越 come later in the story)
     yield* this.placeNpcs((['duwu', 'sunao', 'fengtiebi'] as const).map(id => ({ id, ...HIDEOUT.people[id] })));
-    // the stele of names: a cut down each name she has killed; the first time home after 褚雷, she makes the cut
-    { const p = profile(), fresh = !!p.seen['ch1_boss_after'] && !p.seen['strike_chulei'];
-      this.stele = new Stele(p.seen['strike_chulei'] ? 1 : 0); this.stele.g.position.set(HIDEOUT.stele.x, 0, HIDEOUT.stele.z); this.stele.g.rotation.y = HIDEOUT.stele.yaw; this.stage!.root.add(this.stele.g);
-      // she goes to the stone (gone in a puff, there in a puff, facing it), sheathes, and draws the cut down his name
+    // the stele of names: a cut down each name she has killed; the first time home after each, she makes the cut
+    // (11-19 剧情改版: five names; a region's boss down = its after-talk seen, ch1_boss_after … ch5_boss_after; the cut's own flag
+    //  strike_chulei for the first as before, strike_2 … strike_5 for the rest)
+    { const p = profile(), down = bossesDown(p.seen), cut = struckOnStele(p.seen), fresh = cut < down;
+      this.stele = new Stele(cut); this.stele.g.position.set(HIDEOUT.stele.x, 0, HIDEOUT.stele.z); this.stele.g.rotation.y = HIDEOUT.stele.yaw; this.stage!.root.add(this.stele.g);
+      // she goes to the stone (gone in a puff, there in a puff, facing it), sheathes, and draws the cut down the name(s)
       if (fresh) after(1.4, () => {
-        const st = this.stele, h = this.hero; if (this.phase !== 'yard' || !st || !h) return; seeOnce('strike_chulei'); saveProfile();
+        const st = this.stele, h = this.hero; if (this.phase !== 'yard' || !st || !h) return;
+        for (let i = cut; i < down; i++) seeOnce(STRIKE_FLAG[i]); saveProfile();
         fxSmoke(h.pos.clone().setY(0.6), 0x8a8a94, 10, { r: 0.6, spd: 1.2, up: 0.8, s: 0.4, life: 0.6 }); cue('whoosh', 0.6);
         // beside the stone, not in front of it (the camera sees the names over her shoulder)
         this.noTalk = true; h.pos.set(HIDEOUT.stele.x + 1.05, 0, HIDEOUT.stele.z + 1.25); h.vel.set(0, 0, 0); h.a.yaw = Math.atan2(-1.05, -1.0);
         fxSmoke(h.pos.clone().setY(0.6), 0x8a8a94, 10, { r: 0.6, spd: 1.2, up: 0.8, s: 0.4, life: 0.6 });
         after(0.5, () => this.inp.hold('attack', 0.55));
-        after(1.2, () => { st.strike(0); hitstop(0.12); cue('stingStele', 1); after(0.7, () => { this.noTalk = false; void this.talk([{ who: 'jiangjin', text: STELE_TALK.strike }]); }); });
+        after(1.2, () => { for (let i = cut; i < down; i++) st.strike(i); hitstop(0.12); cue('stingStele', 1); after(0.7, () => { this.noTalk = false; void this.talk([{ who: 'jiangjin', text: STELE_TALK.strike[down - 1] ?? STELE_TALK.strike[0] }]); }); });
       }); }
-    // act-37: the rack of thirty blades — one hangs for each taken back (褚雷 had the first)
-    { const p = profile(); this.stage!.root.add(rackBlades(p.seen['ch1_boss_after'] ? 1 : 0)); }
+    // act-37: the rack of thirty blades — one hangs for each taken back (a boss each; ending C hangs them all)
+    { const p = profile(); this.stage!.root.add(rackBlades(p.seen['ending_c'] ? 30 : bossesDown(p.seen))); }
     // the way out: the gate in the front wall, a sign beside it; the bot walks there by the gate's mouth
     const gx = (HIDEOUT.exit.x0 + HIDEOUT.exit.x1) / 2;
     this.exitSign = makeSign('出发', { w: 1.3, h: 0.6, post: 0.9 }); this.exitSign.position.set(HIDEOUT.exit.x1 + 0.9, 0, HIDEOUT.exit.z - 0.9); this.stage!.root.add(this.exitSign);
@@ -1161,8 +1478,9 @@ export class ActShow {
     const ex = { ...exitInfo(this.layout!, 'back'), id: 'left' as const, dir: [0, 1] as [number, number], lane: { x0: HIDEOUT.exit.x0, x1: HIDEOUT.exit.x1, z0: HIDEOUT.exit.z - 1.0, z1: PLAY.z1 + 2.5 }, walk: [[gx, HIDEOUT.exit.z - 1.6], [gx, HIDEOUT.exit.z + 1.0]] as Array<[number, number]> };
     this.doors = [{ ex, g: new THREE.Group(), lift: 1 }];
     const touch = this.inp.lastDevice === 'touch' && 'ontouchstart' in globalThis;
-    this.banner.show('断碑古窑', touch ? '走近人点右下说话 · 踩石板叫陪练 · 出院门开打' : this.inp.lastDevice === 'pad' ? msg`走近人按 ${actPad('attack')} 说话 · 踩石板叫陪练 · 出院门开打` : CRAZYGAMES ? msg`走近人按 ${actKey('attack')} 说话 · 踩石板叫陪练 · 出院门开打` : msg`走近人按 ${actKey('attack')} 说话 · 踩石板叫陪练 · 出院门开打 · \` 键调手感`, 4);
+    this.banner.show('断碑古窑', touch ? '走近人点右下说话 · 踩石板叫陪练 · 出院门开打' : this.inp.lastDevice === 'pad' ? msg`走近人按 ${actPad('attack')} 说话 · 踩石板叫陪练 · 出院门开打` : !__DEBUG_UI__ ? msg`走近人按 ${actKey('attack')} 说话 · 踩石板叫陪练 · 出院门开打` : msg`走近人按 ${actKey('attack')} 说话 · 踩石板叫陪练 · 出院门开打 · \` 键调手感`, 4);
     this.log.push('yard');
+    this.queueAhead(true);
   }
   private spawnWave() {
     const kinds = this.plan?.waves[this.wave] ?? [], hp = this.hero.pos;
@@ -1191,22 +1509,74 @@ export class ActShow {
           const d = p.distanceTo(hp), onFloor = !gd || (gd.clear(p.x, p.z, 0.7) && !gd.sp.bridges.some(b => p.x > b.x0 - 1 && p.x < b.x1 + 1 && p.z > b.z0 - 1 && p.z < b.z1 + 1));
           if ((sz < 0 ? d > 5 && d < 12 : t > 25 ? d > 3 : d > 5 && d < 12) && onFloor && (sz < 0 || this.pieces!.zoneAt(p.x, p.z) === sz) && this.foes.every(f => f.pos.distanceTo(p) > 1.4) && this.solids.free(p.x, p.z, 0.6, 0.3) && (!gd || t > 30 || gd.steps(p.x, p.z, hp.x, hp.z) >= 0)) break;
         }
-        if (gd && gd.at(p.x, p.z) !== FLOOR) { const q = gd.nearestFloor(p.x, p.z); p.set(q[0], 0, q[1]); }
+        if (sz >= 0 && this.pieces && this.pieces.zoneAt(p.x, p.z) !== sz) {
+          const [x, z] = this.pieces.spawnInZone(sz, p.x, p.z); p.set(x, 0, z);
+        } else if (gd && gd.at(p.x, p.z) !== FLOOR) { const q = gd.nearestFloor(p.x, p.z); p.set(q[0], 0, q[1]); }
         // the plan's kind (黄巾 ids; 'kind*' = its elite) — the boss gets its banner: name and slogan from EDEFS
-        const ko = kindOr(k), f = spawnFoe(ko.kind, p, hp.clone(), ko.elite); this.foes.push(f);
-        const bs = !!EDEFS[ko.kind].boss;
-        fxSmoke(p.clone().add(V3(0, 0.3, 0)), 0x6a6a74, bs ? 14 : 8, { r: 0.7, spd: 1.2, up: 0.6, s: 0.4, life: 0.7 }); fxRing(p.clone().setY(0.05), 0xff7a4a, 1.2, { life: 0.4 } as never);
-        cue(bs ? 'roar' : 'summon', bs ? 0.9 : 0.4);
+        const ko = kindOr(k), bs = !!EDEFS[ko.kind].boss;
+        // 11-19 (用户：「敌人每次都是凭空出现的，我希望敌人能从四面八方正常冲进战斗场景或者翻墙过来」): the foe runs in from the room's
+        // edge — off the floor where she isn't, through a doorway or over the wall — to the spot it used to appear on (p). The
+        // boss and a 水鬼 out of its pool still rise where they stand
+        const way = bs || kindOr(k).kind === 'xp_diver' ? null : this.entryFrom(p, hp, i, zb ?? null, sz);
+        const f = spawnFoe(ko.kind, way ? way.from : p, hp.clone(), ko.elite); this.foes.push(f);
+        if (way) this.entering.push({ f, from: way.from, to: way.to, wall: way.wall, t: 0, dur: way.dur });
+        else { fxSmoke(p.clone().add(V3(0, 0.3, 0)), 0x6a6a74, bs ? 14 : 8, { r: 0.7, spd: 1.2, up: 0.6, s: 0.4, life: 0.7 }); fxRing(p.clone().setY(0.05), 0xff7a4a, 1.2, { life: 0.4 } as never); }
+        cue(bs ? 'roar' : way ? 'foeCry' : 'summon', bs ? 0.9 : way ? 0.25 : 0.4);
         // act-20: the chapter's boss the first time on this save — the intro cutscene and the lines before the fight (he
         // comes in the room's second wave); after that only his banner
-        if (bs && this.prologue === 2) { after(0.35, async () => { await this.cine(bossIntroShots(this.cineHost, f, '雷公渠帅 · 石雷')); await this.talk(PRO_CHULEI); f.a.roar(); this.proFightT = 0; }); }
-        // (11-18: 褚雷's own meeting — not any boss met first on a fresh save)
-        else if (bs && ko.kind === 'hj_boss' && seeOnce('ch1_boss')) { saveProfile(); after(0.35, async () => { if ((f.st as string) === 'dead') return; await this.cine(bossIntroShots(this.cineHost, f, '雷公渠帅 · 石雷')); await this.talk(CHULEI_BEFORE); f.a.roar(); }); }
+        if (bs && this.bossArrived(f)) { /* its meeting: cutscene + lines (11-19 剧情改版) */ }
         // 11-18 (一局五关): a later region's boss — its banner and its line over its head (no portrait talk or cutscene yet)
         else if (bs && EDEFS[ko.kind].intro) { this.bossLookT = 3.2; f.a.roar(); shake(0.3 * TUNE.shake); this.banner.show(EDEFS[ko.kind].name, EDEFS[ko.kind].tag ?? '', 2.2, '#ff8a6a'); after(0.9, () => { if (f.st !== 'dead') this.barks?.say(() => f.a.head(), EDEFS[ko.kind].intro!); }); }
         else if (bs) { f.a.roar(); shake(0.3 * TUNE.shake); this.banner.show(EDEFS[ko.kind].name, EDEFS[ko.kind].tag ?? '', 1.6, '#ff8a6a'); }
       });
     });
+  }
+  /** 11-19 敌人入场: those still on their way in (out of reach until they are on the floor: no blow, no AI, no damage) */
+  private entering: Array<{ f: Foe; from: THREE.Vector3; to: THREE.Vector3; wall: number; t: number; dur: number }> = [];
+  /** where a foe comes in from: the room's edge level with its spot p (the back and the two sides first, the side away from her
+   *  first; the camera's side last), and where it lands — 1.4–3.6 m inside that edge, on clear floor, in the piece of the room being
+   *  fought over. It always comes over the edge: the back and side walls stand a man's height (it climbs up behind them and hops
+   *  down inside), the camera's side is low (a hop). Nothing walks through a wall or a barricaded door. null = no edge works */
+  private entryFrom(p: THREE.Vector3, hp: THREE.Vector3, i: number, zb: { x0: number; x1: number; z0: number; z1: number } | null, sz: number): { from: THREE.Vector3; to: THREE.Vector3; wall: number; dur: number } | null {
+    const g = this.grid, b = zb ?? (g ? g.sp.box : { x0: PLAY.x0, x1: PLAY.x1, z0: PLAY.z0, z1: PLAY.z1 });
+    const sides: Array<[number, number]> = [[0, -1], [-1, 0], [1, 0], [0, 1]];
+    const order = sides.map((d, k) => ({ d, k, score: (k === 3 ? -50 : 0) + (d[0] ? (d[0] < 0 ? hp.x - b.x0 : b.x1 - hp.x) : (d[1] < 0 ? hp.z - b.z0 : b.z1 - hp.z)) + ((i * 7 + k * 3) % 5) }))
+      .sort((x, y) => y.score - x.score);
+    const okAt = (x: number, z: number) => (!g || g.clear(x, z, 0.5)) && this.solids.free(x, z, 0.5, 0.3) && (sz < 0 || this.pieces?.zoneAt(x, z) === sz)
+      && this.foes.every(f => f.pos.distanceTo(V3(x, 0, z)) > 1.2) && this.entering.every(e => e.to.distanceTo(V3(x, 0, z)) > 1.2) && hp.distanceTo(V3(x, 0, z)) > 3.5;
+    for (const { d, k } of order) {
+      const ex = d[0] ? (d[0] < 0 ? b.x0 : b.x1) : p.x, ez = d[1] ? (d[1] < 0 ? b.z0 : b.z1) : p.z;
+      const len = Math.hypot(p.x - ex, p.z - ez); if (len < 1.6) continue;
+      const ux = (p.x - ex) / len, uz = (p.z - ez) / len;
+      let land = -1; for (let t = 1.4 + (i % 3) * 0.55; t < Math.min(len, 6); t += 0.3) if (okAt(ex + ux * t, ez + uz * t)) { land = t; break; }
+      if (land < 0) continue;
+      const front = k === 3, wall = front ? 1.0 : 2.5;
+      const from = V3(ex - ux * 0.75, 0, ez - uz * 0.75), to = V3(ex + ux * land, 0, ez + uz * land);
+      return { from, to, wall, dur: 0.3 + 0.32 + 0.12 * Math.min(3, land) };
+    }
+    return null;
+  }
+  /** per frame: the foes on their way in — up the outside of the wall (0.3 s, behind it, out of sight from the back), a crouch on its
+   *  top, one hop down inside landing in a crouch with a puff (the hop longer the further in it lands). Then the fight takes them */
+  private enterStep(dt: number) {
+    for (let n = this.entering.length - 1; n >= 0; n--) {
+      const e = this.entering[n], f = e.f;
+      if (f.st === 'dead') { this.entering.splice(n, 1); continue; }
+      e.t += dt; const T = e.t, W = e.wall, CLIMB = 0.3, PERCH = 0.32;
+      f.vel.set(0, 0, 0); f.yaw = Math.atan2(e.to.x - e.from.x, e.to.z - e.from.z); f.a.yaw = f.yaw; f.a.setRunning(false);
+      if (T < CLIMB) { const c = T / CLIMB; f.pos.copy(e.from); f.pos.y = W * (1 - (1 - c) * (1 - c)); }
+      else if (T < PERCH) { f.pos.copy(e.from); f.pos.y = W; }
+      else {
+        const h = Math.min(1, (T - PERCH) / Math.max(0.05, e.dur - PERCH));
+        f.pos.lerpVectors(e.from, e.to, h); f.pos.y = W * (1 - h * h) + 0.6 * 4 * h * (1 - h);
+      }
+      f.st = 'enter'; f.t = 0; f.dur = 0.35; f.cd = Math.max(f.cd, 0.7); f.inv = Math.max(f.inv, 0.2);
+      if (T >= e.dur) {
+        f.pos.copy(e.to); f.pos.y = 0; f.inv = 0.15;
+        cue('land', 0.5); fxSmoke(e.to.clone().setY(0.1), 0x8a7a6a, 6, { r: 0.6, spd: 1.2, up: 0.4, s: 0.38, life: 0.55 }); shake(0.04 * TUNE.shake);
+        this.entering.splice(n, 1);
+      }
+    }
   }
   // ------------------------------------------------------------ the world the hero / foes see
   /** act-37 (用户：「碰撞必须要做，不然这游戏太多穿模了」): every body pushes the others out by their radii and weights — foe from foe,
@@ -1270,7 +1640,10 @@ export class ActShow {
   private foeWay = (f: Foe): THREE.Vector3 | null => {
     const g = this.grid, h = this.hero; if (!g || !h) return null;
     const m = this.wayMemo.get(f); if (m && clock.time - m.t < 0.15) return m.d;
-    const w = g.way(f.pos.x, f.pos.z, h.pos.x, h.pos.z, f.d.r), d = w ? V3(w[0], 0, w[1]) : null;
+    const w = g.way(f.pos.x, f.pos.z, h.pos.x, h.pos.z, f.d.r);
+    // (11-19 用户：「敌人经常会被卡在场景可破坏建筑里原地跑」: with no way to her at all — she is past a shut door, a barricade or a
+    //  hollow wall it can't get through — it used to walk straight at her and run on the spot against it; now it stands and waits)
+    const d = w ? V3(w[0], 0, w[1]) : !g.lineOpen(f.pos.x, f.pos.z, h.pos.x, h.pos.z, f.d.r) && g.steps(f.pos.x, f.pos.z, h.pos.x, h.pos.z) < 0 ? V3(0, 0, 0) : null;
     this.wayMemo.set(f, { t: clock.time, d }); return d;
   };
   /** can this foe see her over the floor (no wall, no walled-off block between)? the water and the gullies are low: they see across */
@@ -1291,6 +1664,22 @@ export class ActShow {
     aimWorld: () => { const a = this.inp.aimScreen(); if (a) return V3(a.x, 0, -a.y); const r = this.inp.rstick; if (Math.hypot(r.x, r.y) > 0.3) return V3(r.x, 0, -r.y); const m = this.inp.move; return Math.hypot(m.x, m.y) > 0.2 ? V3(m.x, 0, -m.y) : null; },
     guard: o => this.guard(o), incoming: r => this.incoming(r), iaiCatch: win => this.iaiCatch(win),
     iaiGo: o => this.iaiGo(o), iaiCut: o => this.iaiCut(o), iaiBusy: () => this.iaiHeld,
+  };
+  /** 11-18 QTE（用户：「QTE我还希望再多几种情况，打起来刺激一下肾上腺素」）: 拼刀 and 连环破势, act/qte.ts — what it reaches here */
+  duel!: Duel;
+  private duelHost: DuelHost = {
+    L: this.L, hud: () => this.hud, inp: this.inp,
+    hero: () => this.hero, foes: () => this.foes, grid: () => this.grid,
+    // (not in the prologue — 打石雷 there is the scripted fall at a fifth of his life, a QTE must not take that blow; not with 不见刀's
+    //  ring up or its scene playing, the cards, a 刀谱's demonstration, a scripted pose)
+    canRun: forced => (this.phase === 'fight' || (!!forced && this.phase === 'yard')) && (!this.prologue || !!forced) && !this.proFalling && this.qteT < 0 && !this.ultOn && !this.cards.on && !this.demo.on && !this.dialogue.on && !this.timeline.on && !PAUSE.on,
+    clamp: (p, r) => this.clamp(p, r), solids: () => this.solids.list, bannerY: () => this.banner.bottomY, log: s => this.log.push(s),
+    hitFoe: (f, dmg, from, o) => this.hitFoe(f, dmg, from, o),
+    feel: dir => this.feel('rel', true, 1, dir),
+    hurtHero: (dmg, from, f) => this.hurtHero(dmg, from, f),
+    addIntent: () => { if (this.intent >= 3) this.startQte(); else this.addIntent(); },
+    camKick: (d, m) => this.camKick(d, m), camPunch: m => this.camPunch(m),
+    vibrate: l => this.platform.vibrate(l),
   };
   private foeWorld: FoeWorld = {
     pushed: (f, dx, dz) => this.pushed(f, dx, dz),
@@ -1328,6 +1717,17 @@ export class ActShow {
   /** 11-18 镜头: a push of the view along a blow, springing back (peak ≈ m metres); a push-in (peak ≈ share of the distance) */
   private kick = V3(); private kickV = V3(); private punch = 0; private punchV = 0; private frameLean = V3(); private crowd = 0;
   /** 11-18: the boss's entrance look (0..1, eased) and how long it is held */ private bossLook = 0; private bossLookT = 0;
+  /** 11-19 剧情改版: a boss comes in — the prologue's 崔玄, or a region's boss the first time on this save: the meeting cutscene and
+   *  the lines before the fight. True when it has its meeting (the caller then skips the plain banner) */
+  bossArrived(f: Foe): boolean {
+    const name = EDEFS[f.kind]?.name ?? '';
+    if (this.prologue === 2) { after(0.35, async () => { await this.cine(bossIntroShots(this.cineHost, f, name)); await this.talk(PRO_CUIXUAN); f.a.roar(); this.proFightT = 0; }); return true; }
+    const i = BOSS_ORDER.indexOf(f.kind);
+    if (i < 0 || !CH_BEFORE[i].length || !seeOnce(`ch${i + 1}_boss`)) return false;
+    saveProfile();
+    after(0.35, async () => { if ((f.st as string) === 'dead') return; await this.cine(bossIntroShots(this.cineHost, f, name)); await this.talk(CH_BEFORE[i]); f.a.roar(); });
+    return true;
+  }
   camKick(dir: THREE.Vector3, m: number) { const d = dir.clone().setY(0); if (d.lengthSq() < 1e-6) return; this.kickV.addScaledVector(d.normalize(), m * CAM_W * Math.E * FX.shakeScale); }
   camPunch(m: number) { this.punchV += m * CAM_W * Math.E * FX.shakeScale; }
   private camSprings(rdt: number) {
@@ -1360,9 +1760,10 @@ export class ActShow {
   private async demoMove(id: string) {
     if (this.botOn || !this.hero) return;
     const was = this.phase; this.phase = 'pick'; this.hero.vel.set(0, 0, 0);
-    // the hint to skip, small, under the pause button (whole device px per font pixel, about 16 px tall)
+    // the hint to skip, small, at the top right where the pause button used to stand (11-18: the portrait pauses now), left of the
+    // tuning panel's 「调」 (whole device px per font pixel, about 16 px tall)
     const dpr = this.L.dpr || 1;
-    this.L.text.set('act.demoSkip', { text: UI_WORDS.demoSkip, x: this.L.w - 18, y: 64, pix: Math.max(1, Math.round(this.hud.k * dpr)), color: '#d9ccb2', outline: '#140c0a', align: 'right', alpha: 0.8 });
+    this.L.text.set('act.demoSkip', { text: UI_WORDS.demoSkip, x: this.L.w - 46, y: 23, pix: Math.max(1, Math.round(this.hud.k * dpr)), color: '#d9ccb2', outline: '#140c0a', align: 'right', alpha: 0.8 });
     await this.demo.play(id, { at: this.hero.pos.clone(), def: this.wearing, hud: this.hud });
     this.L.text.hide('act.demoSkip'); this.inp.latch();
     if (this.phase === 'pick') this.phase = was;
@@ -1934,7 +2335,7 @@ export class ActShow {
     for (let i = 0; i < 3; i++) fxAfterimage(at.clone().add(V3(Math.sin(i * 2.1) * 0.5, h.y, Math.cos(i * 2.1) * 0.5)), 1.9, 0x8ac8ff, { life: 0.45, glow: 0.6 });
     fxSparks(h.a.chest(), 0xdff4ff, 18, 5); h.a.tint(0xbfe8ff, 0.6);
     popPix('闪', h.a.head().add(V3(0, 0.5, 0)), { color: '#bfe8ff', h: 0.9, big: true, life: 0.9, rise: 1.0 });
-    cue('parry', 1); cue('draw', 0.9); this.platform.vibrate('medium');
+    cue('dodgeOk', 1); this.platform.vibrate('medium');   // (11-19: its own sound — it was the parry's clang, read as a clash of blades)
     h.counterT = TUNE.counterTime; h.dashCd = 0; h.gainQi(0.5);   // (11-17 气: a perfect dodge is half a bar)
     if (this.intent >= 3) this.startQte(); else this.addIntent();
   }
@@ -1955,10 +2356,14 @@ export class ActShow {
   private iaiHeld = false;
   private iaiGo(o: { from: THREE.Vector3; to: THREE.Vector3; r: number; soft?: boolean }) {
     const ab = o.to.clone().sub(o.from).setY(0), L2 = Math.max(1e-4, ab.lengthSq());
+    let locked: Foe | null = null;
     for (const f of this.foes) {
-      if (f.st === 'dead' || f.kind === 'dummy' || isBoss(f)) continue;
+      if (f.st === 'dead' || f.kind === 'dummy') continue;
       const t = Math.max(0, Math.min(1, f.pos.clone().sub(o.from).setY(0).dot(ab) / L2)), q = o.from.clone().addScaledVector(ab, t);
-      if (Math.hypot(f.pos.x - q.x, f.pos.z - q.z) <= o.r + f.d.r + 0.2) interruptFoe(f, 0.85);
+      if (Math.hypot(f.pos.x - q.x, f.pos.z - q.z) > o.r + f.d.r + 0.2) continue;
+      // 11-18 拼刀: the draw runs into an elite's / a boss's heavy blow coming down — blades lock (act/qte.ts), not pinned
+      if (!locked && this.duel.offerClash(f, true)) { locked = f; continue; }
+      if (!isBoss(f)) interruptFoe(f, 0.85);
     }
     this.flashScreen(o.soft ? 0.08 : 0.32, 0xfff4dc);   // (11-18 追步: the second draw only glints — one full flash a draw is enough)
   }
@@ -1984,6 +2389,8 @@ export class ActShow {
   private iaiCatch(win: number) {
     const t = this.threats(win); if (!t.foes.length && !t.arrows.length) return null;
     const near = t.foes.sort((a, b) => a.pos.distanceTo(this.hero.pos) - b.pos.distanceTo(this.hero.pos))[0];
+    // 11-18 拼刀: the draw met an elite's / a boss's heavy blow as it comes down — blades lock (act/qte.ts) instead of the parry
+    if (near && this.duel.offerClash(near)) { for (const f of t.foes) if (f !== near) interruptFoe(f); return near.pos.clone(); }
     for (const f of t.foes) interruptFoe(f);
     const from = near ? near.pos.clone() : t.arrows[0].p.clone();
     this.iaiParry(from);
@@ -2165,7 +2572,7 @@ export class ActShow {
       const v = f.vel.clone().setY(0); if (v.lengthSq() < 0.5) v.setLength(1.2);
       this.falling.push({ f, t: 0, vy: kind === 'water' ? -1.2 : 0.6, kind, v });
       cue('foeDeath', 1, voiceOf(f)); this.log.push(`pit ${kind} ${f.kind}`);
-      if (kind === 'water') cue('splash', 1); else cue('dropFar', 1);
+      cue(kind === 'water' ? 'splash' : kind === 'molten' ? 'fire' : 'dropFar', 1);
       this.killFoe(f, f.pos.clone().sub(v));
     }
     for (let i = this.falling.length - 1; i >= 0; i--) {
@@ -2174,7 +2581,12 @@ export class ActShow {
       q.v.multiplyScalar(Math.exp(-dt * 3)); f.pos.addScaledVector(q.v, dt); q.vy -= 22 * dt; f.pos.y += q.vy * dt;
       const tip = Math.min(1.5, q.t * 4.2); f.a.body.rotation.x = tip;
       f.a.place(f.pos.clone(), f.yaw);
-      const floorY = q.kind === 'water' ? -0.56 : -1.4;
+      const floorY = q.kind === 'molten' ? COPPER_Y : q.kind === 'water' ? -0.56 : -1.4;
+      if (q.kind === 'molten' && f.pos.y < floorY + 0.1 && !f.a.root.userData.splashed) {
+        f.a.root.userData.splashed = true;
+        const at = V3(f.pos.x, floorY, f.pos.z);
+        fxEmbers(at, 0xff7422, 18, { up: 1.8 }); fxFlare(at, 0xffaa44, 1.8, 0.35);
+      }
       if (q.kind === 'water' && f.pos.y < floorY + 0.1 && !f.a.root.userData.splashed) {
         f.a.root.userData.splashed = true; const at = V3(f.pos.x, floorY + 0.05, f.pos.z);
         fxRing(at.clone().setY(floorY + 0.03), 0xd8e8f0, 1.4, { life: 0.5 } as never); fxSparks(at.clone().setY(floorY + 0.25), 0xe8f4ff, 26, 5, { grav: 14, life: 0.6 } as never); fxSmoke(at.clone().setY(floorY + 0.4), 0xd8e4ea, 5, { r: 0.6, spd: 1.4, up: 1.2, s: 0.35, life: 0.6, alpha: 0.5 });
@@ -2227,6 +2639,10 @@ export class ActShow {
     }
   }
   private hurtHero(dmg: number, from: THREE.Vector3, attacker?: Foe) { // wp/boons: melee source is explicit
+    // 11-18 QTE: held in a 拼刀 / a 连环 beat, nothing else reaches her (the duel lands its own blows on her through here once it lets go)
+    if (this.duel.shields) return;
+    // 11-18 拼刀: an elite's / a boss's heavy blow falling on her 破势 window — blades lock instead of the parry
+    if (this.hero.parrying && attacker && this.duel.offerClash(attacker)) return;
     // the yard: nobody dies there (the flask fills back up first); 11-18: nor under __dh.god (captures of a boss fight from start to end)
     if ((this.phase === 'yard' || this.god) && !this.hero.iframe && this.hero.hp - dmg <= 0) { this.hero.hp = this.hero.maxHp; this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp }); }
     // a blow that lands in the dash's invulnerable moment: a perfect dodge
@@ -2257,7 +2673,7 @@ export class ActShow {
     if (this.phase !== 'fight') return;
     // (act-50 用户：「我听线上版获胜和失败的声音还是老版的」: the clear was still the act-19 jingle — the user's win sound now, whole;
     //  it fades as she walks out of the room (or when a new piece of music starts))
-    this.phase = 'pick'; cue('stingWin', 1); audio.duckMusic(0.35, 3.2);
+    this.phase = 'pick'; this.queueAhead(false); cue('stingWin', 1); audio.duckMusic(0.35, 3.2);
     if (this.pieces) for (const q of this.pieces.pieces) if (q.kind === 'door') this.pieces.openPiece(q);   // (11-18: a drawn room's side yards)
     // (11-18: a bolt / talisman / mark still on its way when the last foe fell would hang mid-flash through the talks and cards that follow)
     for (const a of this.arrows) a.kill(); this.arrows.length = 0;
@@ -2268,7 +2684,14 @@ export class ActShow {
     // road opens into the next region (a boon first, as any cleared fight)
     if (this.plan?.type === 'boss' && isBossRoom(this.region, this.room)) {
       this.bosses++;
-      if (this.region === 0 && seeOnce('ch1_boss_after')) { this.musicHold = 'bgm_afterkill'; void audio.playMusic('bgm_afterkill', 1.0); await this.talk(CHULEI_AFTER); saveProfile(); this.musicHold = null; }
+      // (11-19 剧情改版: every region's boss has its after-talk the first time; the last one's is the blade at his throat → the ending)
+      const ai = this.region, last = ai === BOSS_AFTER.length - 1;
+      if (CH_AFTER[ai]?.length && (last || seeOnce(BOSS_AFTER[ai]))) {
+        this.musicHold = 'bgm_afterkill'; void audio.playMusic('bgm_afterkill', 1.0); await this.talk(CH_AFTER[ai]); saveProfile();
+        // (the last one: the blade at his throat, and she picks — every time she gets there, not only the first)
+        if (last) { await this.ending(); return; }
+        this.musicHold = null;
+      }
       if (afterBoss(this.region) === 'won') { this.end(true); return; }
       await this.boonPick(); this.openDoors(); return;
     }
@@ -2337,18 +2760,23 @@ export class ActShow {
       g.rotation.y = Math.atan2(-g.position.x * 0.4, 12); this.stage?.root.add(g);
       return { ex, g, lift: 0 };
     });
-    this.phase = 'doors'; cue(this.gates ? 'gateOpen' : 'reveal', 0.8); if (this.gates) after(0.6, () => cue('exitChime', 0.7)); this.gates?.open(); this.gustT = 0.9;
+    this.phase = 'doors';
+    if (!this.ahead.length) this.queueAhead(false);
+    cue(this.gates ? 'gateOpen' : 'reveal', 0.8); if (this.gates) after(0.6, () => cue('exitChime', 0.7)); this.gates?.open(); this.gustT = 0.9;
     if (!quiet) this.banner.show('去路', ds.length > 1 ? '走进一条路口' : '往前走', 1.2);
   }
   private leave(i: number) {
     if (this.phase !== 'doors') return;
     this.phase = 'leaving'; audio.stopSting(1.2); const d = this.doors[i], next = this.nextRooms[i];
+    const chosen = this.ahead.find(job => job.plan === next);
+    this.dropAhead(chosen);
+    if (chosen) this.ahead.push(chosen);
     this.plan = next; const fromLocale = this.locale; this.locale = next.locale; if (this.prologue === 1) { this.prologue = 2; this.proFightT = 0; }
     // 11-18 一局五关: the road out of a boss room goes into the next region — its rooms count from one again, its own kinds of room,
     // its foes stronger (the run's TUNE scaled by flow.ts regionScale)
     const nextRegion = !this.prologue && next.region != null && next.region !== this.region;
     const h = this.hero; h.vel.set(d.ex.dir[0], 0, d.ex.dir[1]).multiplyScalar(TUNE.heroSpeed * 0.8);
-    WIPE.look = fromLocale === 'ninja_wilds' ? 'bamboo' : 'pillar';
+    WIPE.look = 'bamboo'; void fromLocale;   // (11-19: bamboo for every room — the timber post is gone)
     after(0.35, () => { void wipeTransit(() => {
       if (nextRegion) { this.region = next.region!; this.room = 0; this.visited = []; this.regionIn = true; this.scaleFoes(this.region); this.log.push(`region ${this.region} ${REGIONS[this.region]?.id}`); }
       else this.room++;
@@ -2364,11 +2792,24 @@ export class ActShow {
       this.hud.on = true; void wipeTransit(() => this.enterYard());
     });
   }
-  private end(win: boolean) {
+  /** 11-19 剧情改版 (用户：「结局让玩家选」): the blade at 崔玄's throat — she picks: A 杀了他、一个人走进雪里 / B 不杀、只带走阿爹那柄
+   *  刀出门 / C 杀了他、回破窑挂满刀架、被叫回「阿皎」. Then its scene, then the run is won */
+  private async ending() {
+    this.hud.on = false; const was = this.phase; this.phase = 'pick';
+    const glyph = BOONS.find(b => b.id === 'behead')!.glyph, ids = ['a', 'b', 'c'] as const, col = ['#d8dde8', '#c8b890', '#ffb070'];
+    const i = await this.cards.open(ids.map((id, k) => ({ boon: { id: `ending_${id}`, school: 'sr', name: ENDING_PICK[k] ?? id, desc: ['', ''], col: col[k], glyph } as unknown as Boon, tier: k === 2 ? 2 : 0 })));
+    const id = ids[Math.max(0, Math.min(2, i))];
+    seeOnce(`ending_${id}`); if (id !== 'b') seeOnce('cuixuan_dead'); saveProfile();
+    this.phase = was;
+    await this.talk(ENDING[id].map(l => (l.who === 'caption' ? { ...l, who: 'act' } : l)));
+    this.musicHold = null; this.hud.on = true; this.end(true, id === 'b');
+  }
+  private end(win: boolean, spared = false) {
     this.phase = 'end'; this.bankRun(win); audio.stopMusic(2.0); cue(win ? 'stingWin' : 'stingLose', 1);
     after(0.4, async () => {
       this.hud.on = false;
-      await this.cards.open([{ boon: { id: win ? 'again' : 'retry', school: 'sr', name: win ? REGIONS[REGIONS.length - 1].name : '再来一次', desc: [win ? msg`${EDEFS[REGIONS[REGIONS.length - 1].boss as EKind]?.name ?? ''}伏诛` : '回练武场再出发', msg`斩了 ${this.kills} 个 · 点这里回练武场`], col: '#ffd070', glyph: BOONS.find(b => b.id === 'behead')!.glyph }, tier: 0 }]);
+      const bossName = EDEFS[REGIONS[REGIONS.length - 1].boss as EKind]?.name ?? '';
+      await this.cards.open([{ boon: { id: win ? 'again' : 'retry', school: 'sr', name: win ? REGIONS[REGIONS.length - 1].name : '再来一次', desc: [win ? (spared ? msg`${bossName}未死` : msg`${bossName}伏诛`) : '回练武场再出发', msg`斩了 ${this.kills} 个 · 点这里回练武场`], col: '#ffd070', glyph: BOONS.find(b => b.id === 'behead')!.glyph }, tier: 0 }]);
       this.hud.on = true; void wipeTransit(() => this.enterYard());
     });
   }
@@ -2381,7 +2822,8 @@ export class ActShow {
     // (11-18: a later region's boss coming in — the camera draws back a while so he and the back of his room are in the frame together)
     const n = this.yard?.near ?? 0, k = (1 - 0.55 * n) * (1 + 0.08 * this.crowd) * (1 + 0.32 * this.bossLook);
     const base = this.cam.clone().add(V3(0, TUNE.camH * k, TUNE.camD * k)), look = this.cam.clone().add(V3(0, 0.6 + 0.5 * n, 0));
-    return { base, look, fov: TUNE.camFov };
+    // 11-18 QTE (用户：「QTE的时候要带镜头表现噢」): the duel's own framing blended over this one while it runs
+    return this.duel.cam({ base, look, fov: TUNE.camFov });
   }
   /** act-50 debug: fast-forward the story (FX.speed up, every line advanced at once, voices hushed) until play resumes */
   private storySkip = false; private storyIdle = 0; private storyWas = 1; private storyT = 0;
@@ -2406,6 +2848,9 @@ export class ActShow {
     for (const f of near) { if (n > 3) break; H[n++].set(f.pos.x, f.pos.y + Math.min(1.1, f.d.r * 1.6 + 0.4), f.pos.z, Math.max(0.8, f.d.r * 2.2)); }
   }
   private frame(dt: number, rdt: number) {
+    // Keep using the walk through the gate and the blade's arrival. roomSteps takes ownership before foreground work.
+    if (this.ahead.length && (this.phase === 'doors' || this.phase === 'leaving' || this.phase === 'pick' ||
+      (this.phase === 'yard' && !this.foes.some(f => f.kind !== 'dummy' && f.st !== 'dead')))) this.workAhead();
     if (bladeBusy()) return;
     this.seeThrough();
     this.storySkipFrame();
@@ -2422,6 +2867,7 @@ export class ActShow {
       if (this.botOn && this.dialogue.on && (this.botTalkT += rdt) > 0.6) { this.botTalkT = 0; this.dialogue.advance(); }
       if (this.phase === 'talk') { this.hero.a.update(dt); this.hero.scriptPose?.(); for (const f of this.foes) f.a.update(dt); for (const n of this.npcs) n.a.update(dt); this.leaves?.update(dt, this.cam.x, this.cam.z); this.gates?.update(dt); }
       for (const f of this.puppets) if (this.phase === 'talk' && !f.a.root.userData.still) f.a.update(dt);   // (act-30: the dead stay still)
+      blood.update(dt);   // (11-18: the prologue's wound bleeds through the cutscene and the talk — the drops fall instead of hanging in the air)
       this.hud.update(rdt, this.inp, []); this.L.on = true; return;
     }
     // act-29: the prologue's temple — about half a minute in, his blow ends it whatever her blood
@@ -2435,13 +2881,15 @@ export class ActShow {
       this.demo.update(rdt);
       if (this.inp.b.attack.pressed || this.inp.b.dash.pressed || this.inp.b.jump.pressed || this.inp.b.special.pressed || padNav.poll(0).any) this.demo.skip();
     }
-    const busy = this.cards.on || this.phase === 'leaving' || this.ultOn || !!h.scriptPose || this.demo.on;   // (act-46: lying on the mat / getting up — no sliding off it)
+    const busy = this.cards.on || this.phase === 'leaving' || this.ultOn || !!h.scriptPose || this.demo.on || this.duel.locks;   // (act-46: lying on the mat / getting up — no sliding off it) (11-18 QTE: held in a 拼刀 / a 连环)
     this.qteFrame(rdt); this.parryCd -= rdt;
+    this.duel.frame(rdt);   // 11-18 拼刀 / 连环破势: reads the attack button before it is cleared below
     if (busy) { for (const b of Object.values(this.inp.b)) { b.pressed = false; b.down = false; b.held = 0; } this.inp.move.x = this.inp.move.y = 0; }
     if (this.phase === 'intro') { this.introT += dt; this.inp.move.x = 0; this.inp.move.y = this.introT < 0.5 ? 0.7 : 0; for (const b of Object.values(this.inp.b)) { b.pressed = false; b.down = false; b.held = 0; } }
     this.statusStep(dt, h);
     // (11-18: her blade's aim and the auto-aimed darts don't find a foe out of sight — a 死士 in the shadow, a 水鬼 under the water)
-    this.heroWorld.foes = this.foes.some(f => f.mem.hidden) ? this.foes.filter(f => !f.mem.hidden) : this.foes;
+    // (11-19: a foe still running in / over the wall is not on the floor yet — no blade reaches it, and it strikes at nothing)
+    this.heroWorld.foes = this.foes.some(f => f.mem.hidden) || this.entering.length ? this.foes.filter(f => !f.mem.hidden && !this.entering.some(e => e.f === f)) : this.foes;
     h.update(dt, this.inp, this.heroWorld);
     this.hud.setAim(h.aiming ? { x: h.aimDir.x, y: -h.aimDir.z } : null);   // act-29: the dart button leans to the aim
     if (h.aiming) { const pv = h.aimPreview(this.heroWorld), L = TUNE.dartRange, al = this.aimLine;
@@ -2480,8 +2928,11 @@ export class ActShow {
       }
     }
     this.decoyStep(dt); this.pinStep(dt); this.markStep();   // 11-18 秘传: 留影, 截脉, 枭首's mark
+    this.enterStep(dt);
     for (const f of this.foes) {
-      if (!this.ultOn) {
+      if (!this.ultOn && this.entering.some(e => e.f === f)) { f.a.update(dt); continue; }
+      if (this.duel.holds(f)) this.duel.holdFoe(f, dt);   // 11-18 QTE: the duel moves the foe it has (held in the bind / its string's beats)
+      else if (!this.ultOn) {
         // 11-18 留影: the foes the afterimage draws see it as her — they close on it and strike at it; a blow that lands bursts it
         if (this.decoyFor(f)) {
           const d = this.decoy!, hp = fw.heroPos.clone(), hy = fw.heroY, hd = fw.heroDodge, hurt = fw.hurtHero;
@@ -2492,6 +2943,7 @@ export class ActShow {
       }
       f.a.update(dt);
     }
+    this.duel.flush();   // 11-18 拼刀: a blow 破势 met in the loop above locks blades now (not a frame later)
     this.reelStep(dt); this.flatStep(dt); this.dropStep(dt);   // 11-18 牵红's cord, 踏顶's flattened, the dead coming down out of the air
     this.separate();   // act-37: bodies don't pass through each other
     this.pitFalls(dt);   // 11-18 打出界
@@ -2544,7 +2996,10 @@ export class ActShow {
     if (this.props && this.phase !== 'pick') this.applyProps(this.props.update(dt, this.targets()), true);   // act-19: fuses, fires, the falling pillars
     this.gates?.update(dt);
     if (this.pieces && this.hero) {
-      for (const e of this.pieces.update(dt, this.hero.pos, !this.foes.some(f => f.st !== 'dead' && f.kind !== 'dummy'))) if (e.k === 'reward') void this.reward();
+      const bodies = this.pieces.plates.length ? this.foes.filter(f => f.st !== 'dead').map(f => ({ pos: f.pos, r: f.d.r })) : [];
+      const calm = !this.foes.some(f => f.st !== 'dead' && f.kind !== 'dummy');
+      const frame = { foes: bodies, heroRadius: this.hero.r, heroHeight: this.hero.y, waitZone: this.waitZone };
+      for (const e of this.pieces.update(dt, this.hero.pos, calm, frame)) if (e.k === 'reward') void this.reward();
       // 11-18 定死的屋子: she walked into the next piece of the floor — its wave
       if (this.waitZone >= 0 && this.phase === 'fight' && this.pieces.zoneAt(this.hero.pos.x, this.hero.pos.z) === this.waitZone) { this.waitZone = -1; after(0.35, () => { if (this.phase === 'fight') this.spawnWave(); }); }
     }
@@ -2604,7 +3059,8 @@ export class ActShow {
     } else this.ringK = -1;
     if (h.fullT > 0.34) { fxRing(h.pos.clone().setY(0.08), 0xffe7a0, 1.3, { life: 0.3 } as never); shake(0.06 * TUNE.shake); this.camPunch(0.025); fxSparks(h.a.local(0.12, 0.95, 0.05), 0xfff6dc, 14, 4); this.flashScreen(0.1, 0xfff0c8); }
     // 11-18 藏锋: the blade hums in its sheath as the stance fills (and swells like a pulse while the breath is held); the world dims a little
-    { const ch = h.st === 'charge' ? h.charge : 0; audio.hum(ch > 0 ? Math.min(1, 0.25 + 0.75 * ch) : 0, ch >= 1 ? 1 : 0); this.dimTo(ch > 0 ? 0.35 + 0.65 * ch : 0, rdt); }
+    // (11-18 拼刀: while blades are locked the same steel drone is the edges grinding — higher and louder as it gets harder)
+    { const ch = h.st === 'charge' ? h.charge : 0, dh = this.duel.hum; audio.hum(dh >= 0 ? dh : ch > 0 ? Math.min(1, 0.25 + 0.75 * ch) : 0, dh >= 0 ? 0 : ch >= 1 ? 1 : 0); this.dimTo(ch > 0 ? 0.35 + 0.65 * ch : 0, rdt); }
     this.flashStep(rdt);
     this.hud.btns.attack.charge = ch;
     const nowCue = h.st === 'charge' && (this.threats(TUNE.iaiWin).foes.length > 0 || this.threats(TUNE.iaiWin).arrows.length > 0);
@@ -2616,12 +3072,21 @@ export class ActShow {
     // the landing spot under a jump
     this.blob.visible = h.alive || h.y > 0.03; this.blob.position.set(h.pos.x, 0.03, h.pos.z); this.blob.scale.setScalar(0.62 * Math.max(0.6, 1 - h.y * 0.22)); (this.blob.material as THREE.MeshBasicMaterial).opacity = 0.78 - Math.min(0.3, h.y * 0.12);
     // the foes' contact shadows (a pool, one per live foe; the dummies stand on their own stone feet)
+    const softOnly = OPT.bakedShadows && QUALITY.tier === 'low';
+    if (softOnly && this.stage && !this.propContacts) this.propContacts = new ContactBatch(this.stage.root);
+    const groupFoes = OPT.foeContacts && QUALITY.tier === 'mid';
+    if (groupFoes && this.stage && !this.foeContacts) this.foeContacts = new ContactBatch(this.stage.root, contactMaterial());
+    this.foeContacts?.begin(); this.propContacts?.begin();
+    if (softOnly && this.propContacts) { debrisContacts(this.propContacts); this.props?.contacts(this.propContacts); this.pieces?.contacts(this.propContacts); }
     let si = 0;
     for (const f of this.foes) {
       if (f.st === 'dead' || f.kind === 'dummy' || f.mem.hidden) continue;
+      if (softOnly && this.propContacts) { this.propContacts.add(f.pos.x, f.pos.z, f.d.r * 1.55); continue; }
+      if (groupFoes && this.foeContacts) { this.foeContacts.add(f.pos.x, f.pos.z, f.d.r * 1.55, f.d.r * 1.55, 0.03); continue; }
       let m = this.shadows[si]; if (!m) { m = contactShadow(); scene.add(m); this.shadows.push(m); }
       m.visible = true; m.position.set(f.pos.x, 0.03, f.pos.z); m.scale.setScalar(f.d.r * 1.55); si++;
     }
+    this.foeContacts?.end(); this.propContacts?.end();
     for (; si < this.shadows.length; si++) this.shadows[si].visible = false;
     // HUD
     const B = this.hud.btns; void B;
@@ -2671,6 +3136,7 @@ export class ActShow {
     if (e.key === 'Escape' && !e.repeat && this.canPause()) { e.preventDefault(); this.pauseGame(); e.stopImmediatePropagation(); return; }   // (the menu must not take the same Esc as its 返回)
     if (this.dialogue.on) { if (!e.repeat && ['Enter', ' ', 'j', 'J'].includes(e.key)) { e.preventDefault(); this.dialogue.advance(); } return; }
     if (!this.cards.on) return;
+    if ((e.key === 'Escape' || e.key === 'Backspace') && !e.repeat && this.cards.leave()) { e.preventDefault(); return; }   // (11-19: a shop page — Esc leaves)
     const k = ({ arrowleft: 'left', a: 'left', arrowup: 'left', w: 'left', arrowright: 'right', d: 'right', arrowdown: 'right', s: 'right', enter: 'ok', ' ': 'ok', j: 'ok' } as const)[e.key.toLowerCase() as 'a'];
     if (k && !e.repeat) { e.preventDefault(); this.cards.key(k); }
   }
@@ -2684,12 +3150,12 @@ export class ActShow {
     if (this.timeline.on) { if (n.back) { this.padSkip = true; this.timeline.key(true); } else if (this.padSkip && !n.backHeld) { this.padSkip = false; this.timeline.key(false); } }
     else this.padSkip = false;
     if (this.dialogue.on) { if (n.ok || n.x) this.dialogue.advance(); return; }
-    if (this.cards.on) { if (n.up || n.left) this.cards.key('left'); else if (n.down || n.right) this.cards.key('right'); else if (n.ok) this.cards.key('ok'); return; }
+    if (this.cards.on) { if (n.up || n.left) this.cards.key('left'); else if (n.down || n.right) this.cards.key('right'); else if (n.ok) this.cards.key('ok'); else if (n.back) this.cards.leave(); return; }
     if (n.start && this.canPause()) this.pauseGame();
   }
   /** the world can stand still here: walking about or fighting (not the start screen, a cutscene, a conversation, the cards, a wipe) */
   canPause() {
-    return !this.pause.on && !this.labOn && !this.cards.on && !this.ultOn && !this.dialogue.on && !this.timeline.on && (['yard', 'intro', 'fight', 'doors'] as Phase[]).includes(this.phase);
+    return !this.pause.on && !this.labOn && !this.cards.on && !this.ultOn && !this.duel.locks && !this.dialogue.on && !this.timeline.on && (['yard', 'intro', 'fight', 'doors'] as Phase[]).includes(this.phase);
   }
   pauseGame() {
     if (!this.canPause() || this.botOn) return;
@@ -2703,6 +3169,14 @@ export class ActShow {
   /** 回据点 from the pause menu: out on a run (not the yard, not the prologue's scripted fights) */
   private canGiveUp() { return !this.prologue && (['intro', 'fight', 'doors'] as Phase[]).includes(this.phase); }
   private giveUp() { if (!this.hero.alive) return; this.hero.giveUp(); this.dead(); }
+  /** 11-19 (用户：「暂停没有回到主画面的选项」): 回主画面 from the pause menu — out on a run the trip ends as a death would (the haul home,
+   *  the run's gains lost), then the start screen; anywhere else straight to it. (Not during a cutscene or a talk: the pause has no 回主画面
+   *  row then — the menu only opens where play stops) */
+  private backToTitle() {
+    if (this.canGiveUp() && this.hero?.alive) { this.hero.giveUp(); this.bankRun(false); this.justDied = true; }
+    audio.stopMusic(0.8); this.hud.on = false;
+    void wipeTransit(() => { this.title(savedTitle()); });
+  }
   // ------------------------------------------------------------ a bot (captures / smoke tests)
   private botT = 0; private cardT = 0; private botStuckT = 0; private botLast = V3(); private botUnstick = 0; private botSide = 1;
   /** the bot stays in the yard and spars (captures of the yard) instead of walking out */
@@ -2714,6 +3188,8 @@ export class ActShow {
   private botYard() { return this.botStay; }
   private bot() {
     const h = this.hero, I = this.inp; if (!h) return;
+    // 11-18 QTE: the bot mashes a 拼刀 and presses a 连环's beats (else the smoke run would stand in the bind)
+    if (this.duel.locks) { for (const n of ['dash', 'special', 'jump'] as const) { const b = I.b[n]; b.pressed = false; b.down = false; b.held = 0; } I.move.x = I.move.y = 0; this.duel.bot(I.b.attack, clock.rdt); return; }
     if (this.qteT >= 0) { const k = this.qteT / TUNE.qteTime; const b = I.b.ult; const on = k > 0.85 && k < 1.0; b.pressed = on && !b.down; b.down = on; return; }
     if (this.cards.on) { this.cardT += clock.rdt; if (this.cardT > 1.2) { this.cardT = 0; this.cards.key('ok'); } return; } else this.cardT = 0;
     const live = this.foes.filter(f => f.st !== 'dead' && f.kind !== 'dummy' && !f.mem.hidden);   // (11-18: the bot can't see the hidden ones either)

@@ -103,7 +103,7 @@ function campfire() {
 
 export class Stations {
   list: Station[] = []; root = new THREE.Group(); private fires: THREE.Group[] = []; private t = 0;
-  constructor(parent: THREE.Object3D) { parent.add(this.root); }
+  constructor(parent: THREE.Object3D, private centre: [number, number] = [0, 0]) { parent.add(this.root); }
   /** the mat's glowing edge: four flat gold bars just outside the straw (one mesh, additive) */
   private edge(at: THREE.Vector3) {
     const W = 1.5, D = 1.2, T = 0.08, g: THREE.BufferGeometry[] = [];
@@ -120,6 +120,7 @@ export class Stations {
     ring.position.set(at.x, 0.07, at.z); ring.renderOrder = 3; this.root.add(ring); return ring;
   }
   private add(id: string, label: string, sub: string, price: number, at: THREE.Vector3, prop: THREE.Group, once: boolean) {
+    at.x += this.centre[0]; at.z += this.centre[1];
     prop.position.set(at.x, 0, at.z - 1.15); this.root.add(prop);
     // (act-36: the board twice as big and on a taller post — readable from the game camera)
     const sign = makeSign(label, { w: SIGN.w, h: SIGN.h, post: SIGN.post, sub, price }); sign.position.set(at.x + 1.25, 0, at.z - 1.05); this.root.add(sign);
@@ -133,7 +134,7 @@ export class Stations {
   }
   /** 歇脚: a campfire, 裹伤调息 (heal) or 寒石砺刃 (sharpen) — taking one puts the other out */
   rest() {
-    const f = campfire(); f.position.set(0, 0, -2.6); this.root.add(f); this.fires.push(f);
+    const f = campfire(); f.position.set(this.centre[0], 0, this.centre[1] - 2.6); this.root.add(f); this.fires.push(f);
     this.add('rest_heal', '裹伤调息', '回血', 0, V3(-2.4, 0, -0.4), new THREE.Group(), true);
     this.add('rest_sharpen', '寒石砺刃', '磨刀', 0, V3(2.4, 0, -0.4), stall('stone'), true);
   }
