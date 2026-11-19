@@ -129,6 +129,9 @@ export class Kneel {
     // the whole body pitches forward about the knee on the snow (it is ~0.5 m ahead of the hips' ground point when she kneels)
     const pitch = (Math.PI / 2 - 0.08) * e, piv = 0.06;
     a.body.rotation.set(pitch, 0, 0.12 * e); a.body.position.set(0, piv * Math.sin(pitch) * 0.3 + 0.1 * e, (1 - Math.cos(pitch)) * 0.15 + 0.32 * e);
+    // the hips back to their standing height as she goes (the kneel dropped them ~0.3 m; left there, the straightened legs reached
+    //  below the root and the feet sank into the snow once she lay down)
+    { const hp = b.hips as (THREE.Object3D & { rest?: { p: THREE.Vector3 } }) | undefined; if (hp?.rest) { hp.position.y += (hp.rest.p.y - hp.position.y) * e; hp.position.z += (hp.rest.p.z - hp.position.z) * e; } }
     // the legs: from the kneel to lying straight behind her (the knees undo, the feet lie on their tops)
     const back = e;
     for (const s of ['L', 'R'] as const) {
@@ -143,7 +146,7 @@ export class Kneel {
     // the arms: off the wound, flung out ahead and to the side as she goes down, lying slack in the snow
     for (const [arm, fore, sx] of [[b.armL, b.foreL, 1], [b.armR, b.foreR, -1]] as const) {
       if (!arm || !fore) continue;
-      arm.rotation.set(arm.rotation.x * (1 - e) - 2.3 * e, arm.rotation.y * (1 - e), arm.rotation.z * (1 - e) + sx * 0.5 * e);
+      arm.rotation.set(arm.rotation.x * (1 - e) - 2.55 * e, arm.rotation.y * (1 - e), arm.rotation.z * (1 - e) + sx * 0.5 * e);
       fore.rotation.x = fore.rotation.x * (1 - e) - 0.35 * e;
     }
   }
