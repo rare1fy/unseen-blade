@@ -5,6 +5,21 @@
 // bundle after it uses.)
 var document = GameGlobal.document;
 
+// 11-19 (act-91 on an iPhone in 高性能+: a black screen, vConsole「window.addEventListener is not a function」): under 高性能+ the runtime
+// has a bare `window` global — no addEventListener / removeEventListener — where plain 高性能 and normal mode have none. The game reads
+// `typeof window !== 'undefined'` as "a browser" in a dozen places (keys, the iOS haptic switch, the audio unlock, the pause menu's
+// wheel…) and the first of them threw at load, before anything drew. A window like that gets do-nothing listeners here, before any game
+// code runs: those handlers are browser-only (on a phone the touches come through wx.onTouch*, the keys never come), so they are simply
+// never called, as in the other modes.
+(function () {
+  var w = typeof window !== 'undefined' ? window : undefined;
+  if (!w || typeof w !== 'object' && typeof w !== 'function') return;
+  var noop = function () {};
+  var put = function (k) { if (typeof w[k] === 'function') return; try { w[k] = noop; } catch (e) { try { Object.defineProperty(w, k, { value: noop, configurable: true, writable: true }); } catch (e2) { /* frozen: leave it */ } } };
+  put('addEventListener'); put('removeEventListener'); put('dispatchEvent');
+  if (typeof w.setTimeout !== 'function' && typeof setTimeout === 'function') try { w.setTimeout = setTimeout; w.clearTimeout = clearTimeout; w.setInterval = setInterval; w.clearInterval = clearInterval; } catch (e) { /* frozen */ }
+})();
+
 // 11-18 (act-63 on a phone: only the title drew): WeChat hands out a real WebGL2 context from getContext('webgl2') — on phones and in
 // the devtools — but has no global WebGL2RenderingContext, and three.js takes a context for WebGL2 only when `typeof
 // WebGL2RenderingContext !== 'undefined' && gl.constructor.name === 'WebGL2RenderingContext'`. So it ran its WebGL1 path on a WebGL2

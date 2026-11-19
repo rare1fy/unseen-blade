@@ -1800,3 +1800,11 @@
 - 用户在 Neon 重写对照稿里逐行挑，合成 `docs/对白/剧本7.md`；开场黑幕字进剧本的 `cold_cards` 段（最后两行是地点字幕，倒数第三行是阿爹那句），代码从 scriptData 读。
 - 讲「鞋」的台词一律改成扒死人换钱 / 付药钱（用户：「鞋子的描述都改了吧，确实太抽象了」）。
 - 配音 `GameProtos/voice/gen_unseen_v8.py`：每句指示三层——处境（在哪、对谁、刚发生了什么）→ 这个人想干什么、压着什么 → 声音怎么出；刘白对仇人一律加「对着仇人说」那段口气。「廿三」送 TTS 写成「二十三」（会读出怪停顿）。
+
+## 高性能+ 下黑屏（act-100）
+
+- 用户 11-19 真机：「手机上打开一直黑屏」，vConsole：`TypeError: window.addEventListener is not a function`（game.js 加载时）。
+- 原因：act-91 打开 `iOSHighPerformance+` 后，iOS 上游戏运行环境里多了一个光秃秃的 `window`（没有事件方法）；普通模式和高性能模式没有 `window`。游戏里很多地方用 `typeof window !== 'undefined'` 判断浏览器，第一处（`platform/index.ts` 的 iOS 震动开关触摸监听）就在加载时抛错。微信的高性能 / 高性能+ 文档都没写这一点。
+- 改：`wechat/glue.js` 在游戏代码之前给这种 `window` 补空的 `addEventListener` / `removeEventListener` / `dispatchEvent`，缺定时器也补；这些监听只在浏览器里有用，手机上的触摸走 `wx.onTouch*`。
+- 替身页 `wechat/devtools-sim.html` 加 `?hpplus=1`：游戏看到一个没有事件方法的 `window`，`GameGlobal.isIOSHighPerformanceMode(Plus)` 为真。旧包（act-97）复现同一报错，新包 0 报错。
+- 规矩：判断「有没有网页 DOM」一律用 `HAS_DOM`（`src/platform/index.ts`），不要用 `typeof window`。
