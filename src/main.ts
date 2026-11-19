@@ -1,5 +1,5 @@
 import { withLoadingBlade } from './present/scenes/loadingBlade';
-import { bootShow, bootDone } from './present/scenes/bootScreen';
+import { bootShow, bootDone, bootDemo } from './present/scenes/bootScreen';
 import { frames as waitFrames, precompile as precompileAll } from './present/engine/world';
 // 不见刀 boot: platform → renderer + post (the 3D-pixel look) → the action game (present/act/show.ts).
 import { initPlatform, G } from './platform/index';
@@ -55,6 +55,8 @@ dh.add({
   quality: (c?: Choice) => { if (c) setQuality(c); return { ...QUALITY }; },
   /** the pixel render style: __dh.px(true, 2) / __dh.px(false) */
   px: (on = true, size?: number) => setPixel(on, size),
+  /** the first-load screen, brought back for a look */
+  bootDemo,
   /** live tuning of the pixel look: __dh.pxLook.ink = 0.6 … (see look/pixel.ts PX) */
   pxLook: PX, pxU: PXU,
   frames: () => frames,
