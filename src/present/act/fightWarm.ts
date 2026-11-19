@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { modelDef } from '../bestiary/models';
-import { modelTemplate } from '../bestiary/modelTemplate';
+import { modelTemplateSteps } from '../bestiary/modelTemplate';
 import { OPT, CAPS } from '../engine/perfOpts';
 import { GL, scene, camera, padLights, restoreLights } from '../engine/world';
 import { syncBatches } from '../engine/rigidBatch';
@@ -13,7 +13,26 @@ const effects = new THREE.Scene(), materials = new WeakSet<THREE.Material>();
 const uiVariants = new THREE.Scene();
 const variantKeys = new Set<string>();
 let target: THREE.WebGLRenderTarget | undefined;
-export function prepareFight(waves: string[][]) {
+export function* prepareFightModels(waves: string[][]) {
+  if (!OPT.fightWarmup || !GL.renderer) return;
+  const keys = new Set(waves.flat());
+  for (const k of keys) {
+    const d = EDEFS[k.replace(/\*$/, '')]; if (!d) continue;
+    const ids = k.endsWith('*') && d.elite ? [d.elite] : [d.model, ...(d.alt ?? [])];
+    for (const id of ids) {
+      yield;
+      const template = yield* modelTemplateSteps(modelDef(id));
+      template.root.traverse(o => {
+        if (!(o instanceof THREE.Mesh) || Array.isArray(o.material) || materials.has(o.material)) return;
+        materials.add(o.material);
+        // Only the attribute layout is used by compile(); keep the probes off the render list.
+        effects.add(new THREE.Mesh(o.geometry, o.material));
+        if (CAPS.boneTex) effects.add(new THREE.SkinnedMesh(o.geometry, o.material));
+      });
+    }
+  }
+}
+export function* prepareFight() {
   const renderer = GL.renderer;
   if (!OPT.fightWarmup || !renderer) return;
   if (!target) {
@@ -27,46 +46,45 @@ export function prepareFight(waves: string[][]) {
     effects.add(new THREE.Mesh(plane, new THREE.MeshBasicMaterial({ map: sprite.map, transparent: true, depthTest: false, depthWrite: false })));
     blood.prepare();
   }
-  const keys = new Set(waves.flat());
-  for (const k of keys) {
-    const d = EDEFS[k.replace(/\*$/, '')]; if (!d) continue;
-    const ids = k.endsWith('*') && d.elite ? [d.elite] : [d.model, ...(d.alt ?? [])];
-    for (const id of ids) {
-      modelTemplate(modelDef(id)).root.traverse(o => {
-        if (!(o instanceof THREE.Mesh) || Array.isArray(o.material) || materials.has(o.material)) return;
-        materials.add(o.material);
-        // Only the attribute layout is used by compile(); keep the probes off the render list.
-        effects.add(new THREE.Mesh(o.geometry, o.material));
-        if (CAPS.boneTex) effects.add(new THREE.SkinnedMesh(o.geometry, o.material));
-      });
+  const passes: [THREE.Scene, THREE.Camera, THREE.Scene][] = [[scene, camera, scene], [effects, camera, scene]];
+  const ui = UI3D.layer;
+  if (ui) {
+    ui.scene.traverse(o => {
+      const mesh = o as THREE.Mesh, src = mesh.material as THREE.Material;
+      if (!mesh.isMesh || !src || Array.isArray(src) || mesh.name === 'rigidBatch') return;
+      // Slot icons can become transparent independently, and cards replace the last owner of a program.
+      const key = [src.type, src.vertexColors, src.side, src.customProgramCacheKey(), !!(src as THREE.MeshBasicMaterial).map, src.toneMapped].join('|');
+      if (variantKeys.has(key)) return;
+      variantKeys.add(key);
+      for (const transparent of [false, true]) {
+        const mat = src.clone(); mat.transparent = transparent; mat.onBeforeCompile = src.onBeforeCompile; mat.customProgramCacheKey = src.customProgramCacheKey.bind(src);
+        uiVariants.add(new THREE.Mesh(mesh.geometry, mat));
+      }
+    });
+    passes.push([ui.scene, ui.camera, ui.scene], [uiVariants, ui.camera, ui.scene]);
+  }
+  syncBatches();
+  const compiled = new Set<THREE.Material>();
+  for (const [objects, view, lights] of passes) {
+    if (OPT.slicedRoom) yield;
+    const prev = renderer.getRenderTarget();
+    // The loading blade renders between passes with the live target and lights.
+    padLights();
+    try {
+      renderer.setRenderTarget(target);
+      for (const m of renderer.compile(objects, view, lights)) compiled.add(m);
+    } finally { renderer.setRenderTarget(prev); restoreLights(); }
+  }
+  // r162 links lazily on the first uniform lookup; probes sharing a program only need to resolve it once.
+  const linked = new Set<{ getUniforms(): unknown }>();
+  let until = performance.now() + 3;
+  for (const m of compiled) {
+    const programs = renderer.properties.get(m).programs as Map<string, { getUniforms(): unknown }> | undefined;
+    if (!programs) continue;
+    for (const program of programs.values()) {
+      if (linked.has(program)) continue;
+      linked.add(program); program.getUniforms();
+      if (OPT.slicedRoom && performance.now() >= until) { yield; until = performance.now() + 3; }
     }
   }
-  const prev = renderer.getRenderTarget();
-  padLights();
-  try {
-    // Match the linear offscreen world pass, including its fog, shadows and exact light count.
-    syncBatches(); renderer.setRenderTarget(target);
-    const compiled = [renderer.compile(scene, camera), renderer.compile(effects, camera, scene)];
-    const ui = UI3D.layer;
-    if (ui) {
-      ui.scene.traverse(o => {
-        const mesh = o as THREE.Mesh, src = mesh.material as THREE.Material;
-        if (!mesh.isMesh || !src || Array.isArray(src) || mesh.name === 'rigidBatch') return;
-        // Slot icons can become transparent independently, and cards replace the last owner of a program.
-        const key = [src.type, src.vertexColors, src.side, src.customProgramCacheKey(), !!(src as THREE.MeshBasicMaterial).map, src.toneMapped].join('|');
-        if (variantKeys.has(key)) return;
-        variantKeys.add(key);
-        for (const transparent of [false, true]) {
-          const mat = src.clone(); mat.transparent = transparent; mat.onBeforeCompile = src.onBeforeCompile; mat.customProgramCacheKey = src.customProgramCacheKey.bind(src);
-          uiVariants.add(new THREE.Mesh(mesh.geometry, mat));
-        }
-      });
-      compiled.push(renderer.compile(ui.scene, ui.camera), renderer.compile(uiVariants, ui.camera, ui.scene));
-    }
-    // r162 links lazily on the first uniform lookup. Resolve those locations while the room is loading.
-    for (const set of compiled) for (const m of set) {
-      const programs = renderer.properties.get(m).programs as Map<string, { getUniforms(): unknown }> | undefined;
-      if (programs) for (const p of programs.values()) p.getUniforms();
-    }
-  } finally { renderer.setRenderTarget(prev); restoreLights(); }
 }

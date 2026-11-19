@@ -39,7 +39,7 @@ export function stageLayout(l: Layout): Layout {
 /** most point lights per scene (each one costs every lit pixel; the shader also recompiles when the count changes) */
 export const MAX_LIGHTS = 12;
 /** QA-only work in the assembler: on in Node (the tests), off in the browser unless asked (__dh / the scene browser) */
-export const ASM_QA = { floating: !__WX__ && typeof window === 'undefined' };
+export const ASM_QA = { reports: __DEV__, floating: !__WX__ && typeof window === 'undefined' };
 
 // ------------------------------------------------------------------ mirroring a layout (x → −x)
 const mirR = (r: Rect): Rect => ({ x0: -r.x1, x1: -r.x0, z0: r.z0, z1: r.z1 });
@@ -93,7 +93,7 @@ function commitHeld(real: Ctx, h: Held, live: Live, cells: { hard: number[]; sof
   for (const [k, x, z, o] of h.cards) real.cards.add(k, x, z, o);
   for (const a of h.lights) { if (live.lights >= MAX_LIGHTS) break; real.light(...a); live.lights++; }
   for (const op of h.ops) op(real);
-  commit(live.occ, cells.hard); commit(live.occ, cells.soft);
+  commit(live.occ, cells.hard, ASM_QA.reports); commit(live.occ, cells.soft, ASM_QA.reports);
   for (const k of cells.hard) if (((Math.floor(k / 1024) % 1024) - 512) >= 0) live.hard.add(k);
   for (const k of cells.soft) live.soft.add(k);
 }
@@ -146,12 +146,13 @@ export function assemble(spec: Spec, reg: Registry): { def: SceneDef; report: Re
         const { ctx, held } = sandbox(c); const issues: Issue[] = [];
         try { g.build(ctx, place(x, z, s, salt)); } catch (e) { issues.push({ kind: 'error', detail: String((e as Error)?.message ?? e) }); }
         const cells = heldCells(held);
-        if (!issues.length) issues.push(...checkCells([...cells.hard, ...cells.soft], { anchor: [x, z], foot: g.foot, occ: live.occ, walk: o.strict ? walk : [], stage: stageRect() }));
-        if (!issues.length) { const n = upperClash(cells, live); if (n > 6) issues.push({ kind: 'collide', detail: `${n} cells clash above the body band (roof / crown into a building)` }); }
-        if (!issues.length && o.maxH != null) { let top = 0; for (const k of cells.hard) top = Math.max(top, (Math.floor(k / 1024) % 1024) - 512); if ((top + 1) * CELL > o.maxH + 0.05) issues.push({ kind: 'bounds', detail: `${((top + 1) * CELL).toFixed(1)} m tall > slot limit ${o.maxH} m` }); }
-        if (issues.length && o.strict) { report.rejected.push({ id: g.id, slot: slotId, issues }); return false; }
-        if (issues.length) report.warnings.push(`${g.id} @${slotId}: ${issues.map(i => i.kind + ' ' + i.detail).join('; ')}`);
-        commitHeld(c, held, live, cells); report.placed.push({ id: g.id, slot: slotId, x: +x.toFixed(2), z: +z.toFixed(2) });
+        const inspect = o.strict || ASM_QA.reports;
+        if (inspect && !issues.length) issues.push(...checkCells([...cells.hard, ...cells.soft], { anchor: [x, z], foot: g.foot, occ: live.occ, walk: o.strict ? walk : [], stage: stageRect(), firstOnly: !ASM_QA.reports }));
+        if (inspect && !issues.length) { const n = upperClash(cells, live); if (n > 6) issues.push({ kind: 'collide', detail: `${n} cells clash above the body band (roof / crown into a building)` }); }
+        if (inspect && !issues.length && o.maxH != null) { let top = 0; for (const k of cells.hard) top = Math.max(top, (Math.floor(k / 1024) % 1024) - 512); if ((top + 1) * CELL > o.maxH + 0.05) issues.push({ kind: 'bounds', detail: `${((top + 1) * CELL).toFixed(1)} m tall > slot limit ${o.maxH} m` }); }
+        if (issues.length && o.strict) { if (ASM_QA.reports) report.rejected.push({ id: g.id, slot: slotId, issues }); return false; }
+        if (ASM_QA.reports && issues.length) report.warnings.push(`${g.id} @${slotId}: ${issues.map(i => i.kind + ' ' + i.detail).join('; ')}`);
+        commitHeld(c, held, live, cells); if (ASM_QA.reports) report.placed.push({ id: g.id, slot: slotId, x: +x.toFixed(2), z: +z.toFixed(2) });
         for (const t of g.tags ?? []) usedTags.add(t); count.set(g.id, (count.get(g.id) ?? 0) + 1);
         return true;
       };
@@ -180,7 +181,7 @@ export function assemble(spec: Spec, reg: Registry): { def: SceneDef; report: Re
           if (besidePlay && sl.s > 0) x = Math.max(x, PLAY.x1 + gap + g.foot.w / 2); else if (besidePlay && sl.s < 0) x = Math.min(x, PLAY.x0 - gap - g.foot.w / 2);
           if (tryPlace(g, x, z, sl.s, 10 + si, sl.id, { strict: true, maxH: sl.maxH })) { ok = true; break; }
         }
-        if (!ok) report.empty.push(sl.id);
+        if (!ok && ASM_QA.reports) report.empty.push(sl.id);
       }
       // 3) filler: small pieces into the room left on the wings (a few tries each, every one checked like a group)
       if (loc.filler?.length) {
@@ -192,7 +193,7 @@ export function assemble(spec: Spec, reg: Registry): { def: SceneDef; report: Re
           const x = s * (PLAY.x1 + (STAGE_BIG.on ? 1.2 : 0.6) + g.foot.w / 2 + r(960 + t) * 4.2), z = SZ(-9.5) + r(970 + t) * (SZ(4.5) - SZ(-9.5));
           if ((count.get(g.id) ?? 0) >= (g.max ?? 3)) continue;
           if (tryPlace(g, x, z, s, 300 + t, 'filler', { strict: true })) n++;
-          else report.rejected.pop();   // filler misses are expected (it probes for room), keep them out of the report
+          else if (ASM_QA.reports) report.rejected.pop();   // filler misses are expected (it probes for room), keep them out of the report
         }
       }
       // 3b) the 2x stage's walls, gates and cover (inside / on the edge of the battle floor, where no slot group reaches)
