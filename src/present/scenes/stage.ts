@@ -196,7 +196,7 @@ export function* prepareStageSteps(def: SceneDef, options: { combat?: boolean; p
     add(o) { root.add(o); },
   };
   let packed: Uint8Array | null = null;
-  if (__WX__ && def.pack && !options.procedural && STAGE_OPTS.chunk === 0 && bladeWorking()) {
+  if (__WX__ && OPT.roomPacks && def.pack && !options.procedural && STAGE_OPTS.chunk === 0 && bladeWorking()) {
     yield readStagePack(def.pack).then(data => { packed = data; });
   }
   let field: TerrainLight | null = null;

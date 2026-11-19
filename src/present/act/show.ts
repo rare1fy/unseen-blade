@@ -254,7 +254,7 @@ export function roomDefinition(o: RoomIn) {
   if (isYard) return { spec, big, layout, arena, report: null, k, def: hideoutScene({ time: 'dusk', weather: 'clear' }) };
   const { def, report } = assemble(spec, REGISTRY);
   def.report = report;
-  if (dm && dm.kind === (ptype === 'boss' ? 'boss' : 'fight') && !o.forceSpec && !o.viewSpec) def.pack = `map-${dm.id}-${spec.season}-${spec.exits?.length ?? 0}`;
+  if (dm?.kind === roomKind && !o.forceSpec && !o.viewSpec) def.pack = `map-${dm.id}-${spec.season}-${spec.exits?.length ?? 0}`;
   return { spec, big, layout, arena, report, k, def };
 }
 

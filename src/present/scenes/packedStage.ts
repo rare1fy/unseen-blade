@@ -1,3 +1,4 @@
+import { CELL } from '../bestiary/kit';
 import type { TerrainLight } from './terrainLight';
 import * as THREE from 'three';
 import { inflateSync, strFromU8 } from 'three/examples/jsm/libs/fflate.module.js';
@@ -14,6 +15,7 @@ type Attribute = {
   itemSize: number;
   count: number;
   parts: Part[];
+  faces?: { width: number; itemSize: number; type: Attribute['type']; table: Attribute; origins?: Attribute };
 };
 type Surface = {
   material: 'terrain' | 'glow' | 'flora' | 'plain';
@@ -60,7 +62,7 @@ export function readStagePack(key: string): Promise<Uint8Array | null> {
   return request;
 }
 const constructors = { Float32Array, Uint16Array, Uint32Array };
-function* decodeAttribute(file: Uint8Array, base: number, a: Attribute) {
+function* decodeAttribute(file: Uint8Array, base: number, a: Attribute): Generator<void, THREE.BufferAttribute> {
   const array = new constructors[a.type](a.count);
   const bytes = array.BYTES_PER_ELEMENT;
   const words = bytes === 2 ? new Uint16Array(array.buffer) : new Uint32Array(array.buffer);
@@ -78,7 +80,20 @@ function* decodeAttribute(file: Uint8Array, base: number, a: Attribute) {
     yield;
   }
   if (offset !== array.length) throw new Error('Incomplete scenery buffer');
-  return new THREE.BufferAttribute(array, a.itemSize);
+  if (!a.faces) return new THREE.BufferAttribute(array, a.itemSize);
+  const { width, itemSize, type, table, origins } = a.faces;
+  const patterns = (yield* decodeAttribute(file, base, table)).array;
+  const coords = origins ? (yield* decodeAttribute(file, base, origins)).array : null;
+  const result = new constructors[type](array.length * width);
+  for (let q = 0; q < array.length; q++) {
+    const start = array[q] * width;
+    for (let j = 0; j < width; j++) {
+      const v = patterns[start + j];
+      result[q * width + j] = coords ? (coords[q * 3 + j % 3] - 32768 + v) * CELL : a.name === 'index' ? q * 4 + v : v;
+    }
+    if ((q & 2047) === 2047) yield;
+  }
+  return new THREE.BufferAttribute(result, itemSize);
 }
 export function* unpackStage(file: Uint8Array, ctx: Ctx, root: THREE.Group, cut: THREE.Group, report?: object) {
   const view = new DataView(file.buffer, file.byteOffset, file.byteLength);
