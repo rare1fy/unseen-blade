@@ -1,3 +1,4 @@
+import { SEE_HOLES } from '../look/voxkit';
 import { batchActor } from '../engine/rigidBatch';
 import { OPT } from '../engine/perfOpts';
 import { ContactBatch } from '../engine/contactBatch';
@@ -2836,6 +2837,17 @@ export class ActShow {
     this.storyIdle = busy ? 0 : this.storyIdle + real;
     if (this.storyIdle > 0.5) { this.storySkip = false; FX.speed = this.storyWas; }
   }
+  /** 11-18 墙高过人: the scenery opens round her and the three nearest foes wherever it stands between them and the camera
+   *  (look/voxkit.ts SEE_HOLES — a pixel dither in the walls' own shader; nothing to do per wall) */
+  private seeThrough() {
+    const H = SEE_HOLES.value, h = this.hero;
+    for (const v of H) v.w = 0;
+    if (!h || this.phase === 'opening' || this.phase === 'title') return;
+    H[0].set(h.pos.x, h.y + 1.0, h.pos.z, 1.25);
+    let n = 1;
+    const near = this.foes.filter(f => f.st !== 'dead').sort((p, q) => p.pos.distanceToSquared(h.pos) - q.pos.distanceToSquared(h.pos));
+    for (const f of near) { if (n > 3) break; H[n++].set(f.pos.x, f.pos.y + Math.min(1.1, f.d.r * 1.6 + 0.4), f.pos.z, Math.max(0.8, f.d.r * 2.2)); }
+  }
   private frame(dt: number, rdt: number) {
     // 11-19: cutscenes and conversations scale the art pixel with how near the shot is (director.ts CINE_PX)
     CINE_PX.on = this.phase === 'cine' || this.phase === 'talk'; CINE_PX.ref.d = Math.hypot(TUNE.camH, TUNE.camD); CINE_PX.ref.fov = TUNE.camFov;
@@ -2843,6 +2855,7 @@ export class ActShow {
     if (this.ahead.length && (this.phase === 'doors' || this.phase === 'leaving' || this.phase === 'pick' ||
       (this.phase === 'yard' && !this.foes.some(f => f.kind !== 'dummy' && f.st !== 'dead')))) this.workAhead();
     if (bladeBusy()) return;
+    this.seeThrough();
     this.storySkipFrame();
     if (PAUSE.on) { this.L.text.hide('act.npc'); return; }   // the pause menu runs on its own (real time); the world gets nothing (11-18: a hideout name over the menu's pages hidden)
     this.inp.frame(rdt);

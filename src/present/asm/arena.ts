@@ -43,6 +43,11 @@ export interface ArenaPlan { style: WallStyle; gates: Gate[]; covers: Cover[]; p
   shape?: ShapePlan }
 
 export const WALL = { gap: 0.1, thick: 0.49, h: 1.19 };
+/** 11-18 (用户：「我觉得怎么那么多矮墙啊……感觉墙都没人高，很不自然」): a wall stands taller than a person (she is ≈ 1.7 m); a field's
+ *  wattle fence, a ship's rail and a sandbag breastwork are low by nature and keep the old height */
+export const WALL_TALL = 2.45;
+const LOW_BY_NATURE: WallStyle[] = ['wattle', 'rail', 'sandbag'];
+export const wallHOf = (st: WallStyle) => LOW_BY_NATURE.includes(st) ? WALL.h : WALL_TALL;
 export const styleOf = (locale: string): WallStyle => ARENA_LOOK[locale]?.style ?? LOCALE_STYLE[locale] ?? (locale === 'hj_field' ? 'wattle' : locale === 'hj_temple' ? 'brick' : 'earth');
 const COVERS: Partial<Record<WallStyle, CoverKind[]>> = { earth: ['well', 'mill', 'cart', 'stones'], wattle: ['cart', 'trough', 'mill', 'stones'], brick: ['ding', 'stele', 'stones', 'well'],
   rail: ['bollard', 'chains', 'barrels'], stockade: ['barrels', 'chains', 'cart', 'stones'], plaster: ['rockery', 'screen', 'basin'] };
@@ -197,7 +202,7 @@ export function buildArena(c: Ctx, plan: ArenaPlan, seed: number) {
   if (plan.shape) { buildShape(c, plan.shape, plan, seed); return; }
   const box: B = (x0, y0, z0, x1, y1, z1, col) => { c.w.box(Math.min(x0, x1), y0, Math.min(z0, z1), Math.max(x0, x1), y1, Math.max(z0, z1), col); };
   const r = (k: number) => hash(seed * 3 + 5, k, 919);
-  const H = M(plan.wall.h) - 1, T = M(plan.wall.thick), G = M(plan.wall.gap);
+  const H = M(wallHOf(plan.style)) - 1, T = M(plan.wall.thick), G = M(plan.wall.gap);
   // the three runs, in cells: left (x fixed, along z), right, back (z fixed, along x); the front stays open
   const xl0 = M(PLAY.x0) - G - T, xl1 = M(PLAY.x0) - G - 1, xr0 = M(PLAY.x1) + G, xr1 = M(PLAY.x1) + G + T - 1;
   const zb0 = M(PLAY.z0) - G - T, zb1 = M(PLAY.z0) - G - 1, zf = M(PLAY.z1) + 2;
@@ -290,7 +295,7 @@ export function gateFrame(box: B, st: WallStyle, g: Gate, T: number, Gp: number)
   const b0 = along === 'x' ? M(PLAY.z0) - Gp - T : (g.out[0] < 0 ? M(PLAY.x0) - Gp - T : M(PLAY.x1) + Gp), b1 = b0 + T - 1;
   const bx = (p0: number, y0: number, q0: number, p1: number, y1: number, q1: number, col: number) => along === 'x' ? box(p0, y0, q0, p1, y1, q1, col) : box(q0, y0, p0, q1, y1, p1, col);
   const ext = ARENA_STYLES[st]?.post, post = ext?.[0] ?? (st === 'brick' ? PAL.red : st === 'plaster' ? 0x2a2a30 : PAL.wood), postD = ext?.[1] ?? (st === 'brick' ? PAL.redD : st === 'plaster' ? 0x1a1a20 : PAL.woodD), postL = ext?.[2] ?? (st === 'brick' ? PAL.redL : st === 'plaster' ? 0x3e3e46 : PAL.woodL);
-  const PH = 33, m0 = Math.floor((b0 + b1) / 2) - 2, m1 = m0 + 3;
+  const PH = Math.max(33, M(wallHOf(st)) + 6), m0 = Math.floor((b0 + b1) / 2) - 2, m1 = m0 + 3;   // (the posts stand over the wall)
   for (const s of [-1, 1]) {
     const a = cA + s * (half + 2), a0 = Math.min(a - 2, a + 1), a1 = Math.max(a - 2, a + 1);
     bx(a0 - 1, 0, m0 - 1, a1 + 1, 3, m1 + 1, PAL.stoneD); bx(a0 - 1, 3, m0 - 1, a1 + 1, 3, m1 + 1, PAL.stone);   // the plinth

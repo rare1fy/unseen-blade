@@ -20,7 +20,7 @@ import { shake, after } from '../engine/clock';
 import { cue } from '../../audio/cues';
 import { M } from '../scenes/props';
 import { FloorGrid, FLOOR, OUT, type ShapePlan } from '../asm/roomShape';
-import { wallPiece, WALL, type WallStyle } from '../asm/arena';
+import { wallPiece, WALL, wallHOf, type WallStyle } from '../asm/arena';
 import { barricade } from './gates';
 import { LiquidCopper } from '../asm/luoyang/molten';
 import type { Rect } from '../asm/types';
@@ -213,7 +213,7 @@ export class RoomPieces {
       });
     } else if (p.kind === 'hollow') {
       // the wall going on across the gap, flush with the bigger side's line — the same wall as the room's (the trick is to hear it)
-      const vw = new VoxWorld(CELL), T = M(WALL.thick), H = M(WALL.h) - 1, rr = (k: number) => ((Math.sin((seed + k) * 12.9898) * 43758.5453) % 1 + 1) % 1;
+      const vw = new VoxWorld(CELL), T = M(WALL.thick), H = M(wallHOf(style)) - 1, rr = (k: number) => ((Math.sin((seed + k) * 12.9898) * 43758.5453) % 1 + 1) % 1;
       wallPiece((x0, y0, z0, x1, y1, z1, c) => vw.box(Math.min(x0, x1), y0, Math.min(z0, z1), Math.max(x0, x1), y1, Math.max(z0, z1), c), style, 'x', -half - 1, half, -Math.floor(T / 2), T - Math.floor(T / 2) - 1, H, rr, 3);
       const wall = mesh(vw); wall.position.z = edge; p.g.add(wall);
       const rb = new VoxWorld(CELL); rb.box(-half + 1, 0, -4, -2, 3, 3, COL.stoneD); rb.box(1, 0, -3, half - 2, 2, 4, COL.stone); rb.box(-4, 3, -2, 3, 5, 2, COL.stoneD);
