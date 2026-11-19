@@ -86,6 +86,59 @@ export function updateStageTiles(camera: THREE.Camera) {
 }
 const TILES = new Set<Tile>();
 
+export interface ShadowLayout {
+  tiles: { ends: number[]; box: number[]; sphere: number[] }[];
+  groups: number[][];
+  order: Uint32Array;
+  groupOf: Uint32Array;
+  partner: Int32Array;
+}
+// Only the offline baker requests a copy of the face order.
+export const shadowBake: { capture?: (src: THREE.Mesh, layout: ShadowLayout) => void } = {};
+const bounds = (b: THREE.Box3) => [...b.min.toArray(), ...b.max.toArray()];
+const readBox = (b: number[]) => new THREE.Box3(new THREE.Vector3().fromArray(b), new THREE.Vector3().fromArray(b, 3));
+
+function installView(src: THREE.Mesh, tiles: Tile[], membership: Uint32Array, groups: THREE.Box3[], groupOf: Uint32Array, partner: Int32Array) {
+  const g = src.geometry;
+  const view: ViewTiles = { src, tiles, original: g.index!.array.slice() as Uint16Array | Uint32Array, membership,
+    visible: [], clipped: false, lastCamera: '', coarse: [], groups, groupOf, groupsOn: [], partner };
+  views.add(view);
+  g.addEventListener('dispose', () => views.delete(view));
+}
+
+export function* restoreShadowTiles(src: THREE.Mesh, layout: ShadowLayout) {
+  const index = src.geometry.index!.array, members = new Uint32Array(layout.order.length), tiles: Tile[] = [];
+  let offset = 0;
+  for (const t of layout.tiles) {
+    const length = t.ends[5], count = length / 6;
+    const indices = index instanceof Uint32Array ? new Uint32Array(length) : new Uint16Array(length);
+    for (let j = 0; j < count; j++) {
+      const q = layout.order[offset + j];
+      members[q] = tiles.length;
+      for (let k = 0; k < 6; k++) indices[j * 6 + k] = index[q * 6 + k];
+      if ((j & 2047) === 2047) yield;
+    }
+    offset += count;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', src.geometry.attributes.position);
+    g.setIndex(new THREE.BufferAttribute(indices, 1));
+    g.boundingBox = readBox(t.box);
+    g.boundingSphere = new THREE.Sphere(new THREE.Vector3().fromArray(t.sphere), t.sphere[3]);
+    const mesh = new THREE.Mesh(g, src.material);
+    mesh.name = 'shadowTile'; mesh.castShadow = true; mesh.visible = false;
+    const tile = { mesh, src, ends: t.ends, box: g.boundingBox };
+    tiles.push(tile);
+    yield;
+  }
+  // Register together, after the final yield, so an abandoned decoder leaves no global references.
+  for (const t of tiles) {
+    TILES.add(t);
+    t.mesh.geometry.addEventListener('dispose', () => TILES.delete(t));
+  }
+  installView(src, tiles, members, layout.groups.map(readBox), layout.groupOf, layout.partner);
+  return tiles.map(t => t.mesh);
+}
+
 /** position-only shadow tiles of a quad-soup mesh (4 vertices + 6 indices per quad, in order); [] when the mesh is small */
 export function shadowTiles(src: THREE.Mesh, T = TILE_M): THREE.Mesh[] {
   const g = src.geometry, P = g.attributes.position.array as ArrayLike<number>, N = g.attributes.normal.array as ArrayLike<number>, I = g.index!.array as ArrayLike<number>;
@@ -103,12 +156,15 @@ export function shadowTiles(src: THREE.Mesh, T = TILE_M): THREE.Mesh[] {
   }
   const out: THREE.Mesh[] = [];
   const members = new Uint32Array(nq), parts: Tile[] = [];
+  const order = shadowBake.capture ? new Uint32Array(nq) : null;
+  let oi = 0;
   for (const t of tiles.values()) {
     let nv = 0; for (const l of t) nv += l.length * 4;
     const pos = new Float32Array(nv * 3), idx = nv > 65535 ? new Uint32Array(nv / 4 * 6) : new Uint16Array(nv / 4 * 6), ends: number[] = [];
     let vo = 0, io = 0;
     for (const d of ORDER) {
       for (const q of t[d]) {
+        if (order) order[oi++] = q;
         members[q] = parts.length;
         for (let k = 0; k < 12; k++) pos[vo * 3 + k] = P[q * 12 + k];
         for (let k = 0; k < 6; k++) idx[io++] = I[q * 6 + k] - q * 4 + vo;
@@ -146,10 +202,11 @@ export function shadowTiles(src: THREE.Mesh, T = TILE_M): THREE.Mesh[] {
     if (other===undefined || partner[other] || other===q) continue;
     partner[q]=other+1; partner[other]=-1;
   }
-  const view: ViewTiles = { src, tiles: parts, original: g.index!.array.slice() as Uint16Array | Uint32Array, membership: members,
-    visible: [], clipped: false, lastCamera: '', coarse: [], groups, groupOf, groupsOn: [], partner };
-  views.add(view);
-  g.addEventListener('dispose', () => views.delete(view));
+  installView(src, parts, members, groups, groupOf, partner);
+  if (order) shadowBake.capture!(src, { order, groupOf, partner, groups: groups.map(bounds), tiles: parts.map(t => {
+    const sphere = t.mesh.geometry.boundingSphere!;
+    return { ends: t.ends, box: bounds(t.box), sphere: [...sphere.center.toArray(), sphere.radius] };
+  }) });
   return out;
 }
 

@@ -3,7 +3,8 @@ import type { TerrainLight } from './terrainLight';
 import * as THREE from 'three';
 import { inflateSync, strFromU8 } from 'three/examples/jsm/libs/fflate.module.js';
 import { voxToon, glowMat } from '../look/voxkit';
-import { shadowTiles } from '../engine/shadowTiles';
+import { OPT } from '../engine/perfOpts';
+import { shadowTiles, restoreShadowTiles, type ShadowLayout } from '../engine/shadowTiles';
 import { smoke as templeSmoke } from '../asm/hanmo/hj_temple_kit';
 import { smoke as villageSmoke } from '../asm/ninja/village_kit';
 import type { Ctx } from './stage';
@@ -23,6 +24,7 @@ type Surface = {
   plain?: object;
   cut: boolean;
   shadow: boolean;
+  tiles?: Pick<ShadowLayout, 'tiles' | 'groups'> & { order: Attribute; groupOf: Attribute; partner: Attribute };
   receive: boolean;
   order: number;
   name: string;
@@ -127,7 +129,14 @@ export function* unpackStage(file: Uint8Array, ctx: Ctx, root: THREE.Group, cut:
     parent.add(mesh);
     if (surface.material === 'terrain') {
       mesh.userData.stageTerrain = !surface.cut;
-      const tiles = shadowTiles(mesh);
+      const layout = surface.tiles;
+      let tiles: THREE.Mesh[];
+      if (OPT.packedLighting && layout) {
+        const order = (yield* decodeAttribute(file, base, layout.order)).array as Uint32Array;
+        const groupOf = (yield* decodeAttribute(file, base, layout.groupOf)).array as Uint32Array;
+        const partner = (yield* decodeAttribute(file, base, layout.partner)).array;
+        tiles = yield* restoreShadowTiles(mesh, { ...layout, order, groupOf, partner: new Int32Array(partner.buffer) });
+      } else tiles = shadowTiles(mesh);
       if (tiles.length) {
         mesh.castShadow = false;
         mesh.userData.shadowTiled = true;
@@ -150,7 +159,7 @@ export function* unpackStage(file: Uint8Array, ctx: Ctx, root: THREE.Group, cut:
     if ((i & 127) === 127) yield;
   }
   if (report && meta.report) Object.assign(report, meta.report);
-  if (!meta.light) return null;
+  if (!meta.light || !OPT.packedLighting) return null;
   const { start, length, ...light } = meta.light;
   const depth = inflateSync(file.subarray(base + start, base + start + length));
   if (depth.length !== light.size * light.size) throw Error('Invalid baked light size');

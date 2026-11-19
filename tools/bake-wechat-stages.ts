@@ -16,6 +16,7 @@ const { roomDefinition } = await import('../src/present/act/show');
 const { titleDefinition } = await import('../src/present/act/title');
 import { ROOM_MAPS } from '../src/present/asm/roomMaps';
 import { REGIONS } from '../src/present/act/regions';
+import { shadowBake, type ShadowLayout } from '../src/present/engine/shadowTiles';
 import { ASM_QA } from '../src/present/asm/assemble';
 import { VoxWorld } from '../src/present/look/voxkit';
 import { quietBattleGlow } from '../src/present/scenes/battleGlow';
@@ -34,6 +35,8 @@ function bake(def: SceneDef, combat: boolean, report?: any) {
     meshes: object[] = [];
   let size = 0;
   const terrain: THREE.Mesh[] = [];
+  const shadows = new WeakMap<THREE.Mesh, ShadowLayout>();
+  shadowBake.capture = (mesh, layout) => shadows.set(mesh, layout);
   function attribute(name: string, a: THREE.BufferAttribute) {
     const array = a.array,
       bytes = array.BYTES_PER_ELEMENT;
@@ -114,7 +117,15 @@ function bake(def: SceneDef, combat: boolean, report?: any) {
     const encode = source === 'terrain' || source === 'glow' ? faceAttribute : attribute;
     const attributes = Object.entries(geo.attributes).map(([k, v]) => encode(k, v as THREE.BufferAttribute));
     if (geo.index) attributes.push(encode('index', geo.index));
+    const layout = shadows.get(mesh);
+    const tiles = layout && {
+      tiles: layout.tiles, groups: layout.groups,
+      order: attribute('order', new THREE.BufferAttribute(layout.order, 1)),
+      groupOf: attribute('groupOf', new THREE.BufferAttribute(layout.groupOf, 1)),
+      partner: attribute('partner', new THREE.BufferAttribute(new Uint32Array(layout.partner.buffer), 1)),
+    };
     meshes.push({
+      tiles,
       material,
       plain: material === 'plain' ? mat.toJSON() : undefined,
       glow: cut ? 2.6 : combat ? 1.35 : (def.mood.glowK ?? 2.6),
@@ -126,7 +137,7 @@ function bake(def: SceneDef, combat: boolean, report?: any) {
       matrix: mesh.matrix.toArray(),
       attributes,
     });
-    geo.dispose();
+    if (!terrain.includes(mesh)) geo.dispose();
   }
   const w = new VoxWorld(CELL, true),
     cut = new VoxWorld(CELL, true),
@@ -174,6 +185,8 @@ function bake(def: SceneDef, combat: boolean, report?: any) {
     ? { placed: report.placed, rejected: report.rejected, empty: report.empty, warnings: report.warnings, lights: report.lights }
     : undefined;
   const field = bakeTerrainLight(terrain, def.mood.moonPos);
+  for (const mesh of terrain) mesh.geometry.dispose();
+  shadowBake.capture = undefined;
   let light;
   if (field) {
     const { depth, ...projection } = field;
