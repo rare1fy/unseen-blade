@@ -1,7 +1,7 @@
 import { OPT } from '../engine/perfOpts';
 import { ContactBatch } from '../engine/contactBatch';
 import { finishBuild, loadInFrames } from '../engine/buildSteps';
-import { bladeBusy, runRoomBuild, withLoadingBlade } from '../scenes/loadingBlade';
+import { bladeBusy, bladeTimes, runRoomBuild, withLoadingBlade } from '../scenes/loadingBlade';
 import { format, language, msg, setLanguage } from './i18n';
 // 动作原型（docs: CLAUDE.md「动作原型」、docs/act/DESIGN.md）：哈迪斯式的一间间屋子。每间屋 = 一张拼装的日本场景（asm），战斗区就是屋子；
 // 敌人分两波从边上出来；清场 → 三选一秘传 → 屋子边上的路口立起高札（写着下一间的地名和清完给什么）→ 自己走进路口 → 一丛竹子
@@ -868,6 +868,8 @@ export class ActShow {
       /** 11-18 定死的屋子: the room's puzzle pieces and their state; solve one */
       puzzle: () => this.pieces?.list() ?? [], solve: (i: number) => this.pieces?.solve(i),
       /** 11-18 小刀转场: play the loading blade over the current view while a pretend load takes ms (it is drawn every frame in the web build too) */
+      bladeBusy: () => bladeBusy(),
+      bladeTimes: () => bladeTimes.map(m => Object.fromEntries(Object.entries(m).map(([k, v]) => [k, Math.round(v)]))),
       bladeDemo: (ms = 800, cover: 'bamboo' | 'pillar' = 'bamboo') => withLoadingBlade(() => new Promise<void>(r => setTimeout(r, ms)), cover),
       /** 11-18 定死的屋子: enter this drawn room (asm/roomMaps.ts id) with its actual region's waves, boss or stations */
       room: (id: string, type?: RoomType) => {
