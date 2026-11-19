@@ -1,3 +1,4 @@
+import { batchActor } from '../engine/rigidBatch';
 import { OPT } from '../engine/perfOpts';
 import { ContactBatch } from '../engine/contactBatch';
 import { finishBuild, loadInFrames, BUILD_STATS } from '../engine/buildSteps';
@@ -17,7 +18,7 @@ import { fxAfterimage } from '../fx/skillFx';
 import { addBlock, debrisContacts } from '../fx/blocks';
 import { popPix } from '../v2/pix';
 import { playDeath } from '../v2/death';
-import { prepareFight } from './fightWarm';
+import { prepareFight, prepareFightModels } from './fightWarm';
 import { UiLayer } from '../ui3d/layer';
 import { Overlay } from '../v2/overlay';
 import { SkinBanner, SKIN, SKINS, SKIN_NAME, setSkin, type SkinId } from './skin';
@@ -228,12 +229,17 @@ function* prepRoomSteps(o: RoomIn, background = false): Generator<void | Promise
   let gates: Gates | undefined, pieces: RoomPieces | null = null, transferred = false;
   const discard = () => { pieces?.dispose(); gates?.dispose(); props.dispose(); prep.drop(); };
   try {
-    yield* props.buildSteps(arena.props, arena.covers);
+    yield* props.buildSteps(arena.props, arena.covers, true);
     yield;
-    gates = new Gates(holder, arena);
+    gates = new Gates(holder);
+    yield* gates.buildSteps(arena);
     yield;
     const grid = arena.shape ? new FloorGrid(arena.shape) : null;
-    if (grid && arena.shape?.fixed) pieces = new RoomPieces(holder, arena.shape, grid, arena.style, room.spec.seed);
+    if (grid && arena.shape?.fixed) {
+      pieces = new RoomPieces(holder, arena.shape, grid, arena.style, room.spec.seed, OPT.slicedRoom);
+      if (OPT.slicedRoom) yield* pieces.buildSteps(arena.style, room.spec.seed);
+    }
+    if (o.plan && OPT.slicedRoom) yield* prepareFightModels(o.plan.waves);
     transferred = true;
     return { ...room, fixtures: { props, gates, grid, solids, pieces }, prep: { ...prep, drop: discard } };
   } finally { if (!transferred) discard(); }
@@ -243,14 +249,16 @@ type AheadRoom = {
   steps: ReturnType<typeof prepRoomSteps>; size?: ReturnType<typeof stageNow>;
   ready?: Room; wait?: Promise<void>;
 };
-function advanceAhead(job: AheadRoom) {
+function advanceAhead(job: AheadRoom, until = 0) {
   // Both builders and gameplay read the same stage dimensions. The hideout also overrides PLAY independently.
   const live = stageNow(), floor = { ...PLAY };
   try {
     if (job.size) setStage(job.size.big, job.size.k);
-    const step = job.steps.next();
-    if (step.done) job.ready = step.value;
-    else if (step.value) job.wait = step.value.then(() => { job.wait = undefined; });
+    do {
+      const step = job.steps.next();
+      if (step.done) { job.ready = step.value; break; }
+      if (step.value) { job.wait = step.value.then(() => { job.wait = undefined; }); break; }
+    } while (performance.now() < until);
   } finally {
     job.size = stageNow();
     setStage(live.big, live.k); Object.assign(PLAY, floor);
@@ -1243,14 +1251,22 @@ export class ActShow {
   }
   private workAhead() {
     if (!OPT.roomAhead) { this.dropAhead(); return; }
-    const until = performance.now() + 2;
+    // Once she has stepped through, the selected room has the whole budget until the blade takes over.
+    const until = performance.now() + (this.phase === 'leaving' ? 8 : 4);
+    let nearer = -1;
+    if (this.phase === 'doors' && this.doors.length === 2 && this.ahead.length === 2) {
+      const p = this.hero.pos, left = this.doors[0].ex.sign, right = this.doors[1].ex.sign;
+      const dl = Math.hypot(left.x - p.x, left.z - p.z), dr = Math.hypot(right.x - p.x, right.z - p.z);
+      if (Math.abs(dl - dr) > 1.5) nearer = dl < dr ? 0 : 1;
+    }
     do {
-      const job = this.ahead[this.aheadTurn++ % this.ahead.length];
-      if (job.ready || job.wait) {
-        if (this.ahead.every(j => j.ready || j.wait)) break;
-        continue;
-      }
-      try { advanceAhead(job); }
+      // Keep both roads moving. When she approaches one sign, give it three slices for each slice on the other.
+      const turn = this.aheadTurn++;
+      const index = nearer < 0 ? turn % this.ahead.length : turn % 4 === 3 ? 1 - nearer : nearer;
+      let job: AheadRoom | undefined = this.ahead[index];
+      if (job.ready || job.wait) job = this.ahead.find(j => !j.ready && !j.wait);
+      if (!job) break;
+      try { advanceAhead(job, until); }
       catch (error) {
         console.warn('[stage] background build failed', error);
         this.dropAhead(); break;
@@ -1311,7 +1327,7 @@ export class ActShow {
     if (isYard) for (const so of HIDEOUT.solids) this.solids.add({ kind: 'prop', ...so });
     if (this.arena && this.stage) {
       // act-20: the cover pieces are breakable (Breakables builds them and their solids)
-      if (P.fixtures) { this.props = P.fixtures.props; this.stage.root.add(this.props.root); }
+      if (P.fixtures) { this.props = P.fixtures.props; this.stage.root.add(this.props.root); batchActor(this.props.root); }
       else { this.props = new Breakables(this.stage.root, this.solids); yield* this.props.buildSteps(this.arena.props, this.arena.covers); }
       // act-37: the snowy night's braziers (the prologue's village and temple): four warm points round the floor, where it is free
       // 11-18 (用户：「场景要有差异」): 崔府各间的灯由场景摆，雪夜的通用火盆会盖住冰色和石灯。
@@ -1322,8 +1338,8 @@ export class ActShow {
         this.stage.root.add(brazier(px, pz)); this.solids.add({ kind: 'prop', shape: 'circle', x: px, z: pz, r: 0.42 });
       }
       yield;
-      this.gates = P.fixtures?.gates ?? new Gates(this.stage.root, this.arena);
-      if (P.fixtures) this.stage.root.add(this.gates.root);
+      if (P.fixtures) { this.gates = P.fixtures.gates; this.stage.root.add(this.gates.root); }
+      else { this.gates = new Gates(this.stage.root); yield* this.gates.buildSteps(this.arena); }
       // 11-18 定死的屋子: the moving pieces, and the floor's pieces fought in turn (S's first, then on through its doors)
       this.pieces = null; this.stageZ = []; this.stageOf = []; this.waitZone = -1; this.rewardsGot = 0;
       yield;
@@ -1331,7 +1347,9 @@ export class ActShow {
       if (fsh?.fixed && this.grid) {
         const built = P.fixtures?.pieces;
         if (built) this.stage.root.add(built.root);
-        const pieces = this.pieces = built ?? new RoomPieces(this.stage.root, fsh, this.grid, this.arena.style, spec.seed); this.props.onStrike = s => this.pieces?.strike(s);
+        const pieces = this.pieces = built ?? new RoomPieces(this.stage.root, fsh, this.grid, this.arena.style, spec.seed, OPT.slicedRoom);
+        if (!built && OPT.slicedRoom) yield* pieces.buildSteps(this.arena.style, spec.seed);
+        this.props.onStrike = s => this.pieces?.strike(s);
         // (the bell frames and the rope posts stand in the way like any post)
         for (const m of fsh.fixed.marks) if (m.kind === 'bell' || m.kind === 'rope' || m.kind === 'wheel') this.solids.add({ kind: 'prop', shape: 'circle', x: m.x, z: m.z, r: m.kind === 'rope' ? 0.3 : 0.42 });
         const seen = [pieces.zoneAt(fsh.enter[0], fsh.enter[1])];
@@ -1389,7 +1407,9 @@ export class ActShow {
       this.log.push(`room ${this.room} ${this.plan.type} ${spec.locale}`);
       this.openDoors(true); return;
     }
-    prepareFight(this.plan?.waves ?? []);
+    if (!P.fixtures || !OPT.slicedRoom) yield* prepareFightModels(this.plan?.waves ?? []);
+    yield;
+    yield* prepareFight();
     // walk in from the front of the room, then the first wave
     const h = this.hero; this.introT = 0;
     after(1.1, () => {
@@ -2616,7 +2636,7 @@ export class ActShow {
     if (this.phase !== 'fight') return;
     // (act-50 用户：「我听线上版获胜和失败的声音还是老版的」: the clear was still the act-19 jingle — the user's win sound now, whole;
     //  it fades as she walks out of the room (or when a new piece of music starts))
-    this.phase = 'pick'; cue('stingWin', 1); audio.duckMusic(0.35, 3.2);
+    this.phase = 'pick'; this.queueAhead(false); cue('stingWin', 1); audio.duckMusic(0.35, 3.2);
     if (this.pieces) for (const q of this.pieces.pieces) if (q.kind === 'door') this.pieces.openPiece(q);   // (11-18: a drawn room's side yards)
     // (11-18: a bolt / talisman / mark still on its way when the last foe fell would hang mid-flash through the talks and cards that follow)
     for (const a of this.arrows) a.kill(); this.arrows.length = 0;
@@ -2696,12 +2716,17 @@ export class ActShow {
       g.rotation.y = Math.atan2(-g.position.x * 0.4, 12); this.stage?.root.add(g);
       return { ex, g, lift: 0 };
     });
-    this.phase = 'doors'; this.queueAhead(false); cue(this.gates ? 'gateOpen' : 'reveal', 0.8); if (this.gates) after(0.6, () => cue('exitChime', 0.7)); this.gates?.open(); this.gustT = 0.9;
+    this.phase = 'doors';
+    if (!this.ahead.length) this.queueAhead(false);
+    cue(this.gates ? 'gateOpen' : 'reveal', 0.8); if (this.gates) after(0.6, () => cue('exitChime', 0.7)); this.gates?.open(); this.gustT = 0.9;
     if (!quiet) this.banner.show('去路', ds.length > 1 ? '走进一条路口' : '往前走', 1.2);
   }
   private leave(i: number) {
     if (this.phase !== 'doors') return;
     this.phase = 'leaving'; audio.stopSting(1.2); const d = this.doors[i], next = this.nextRooms[i];
+    const chosen = this.ahead.find(job => job.plan === next);
+    this.dropAhead(chosen);
+    if (chosen) this.ahead.push(chosen);
     this.plan = next; const fromLocale = this.locale; this.locale = next.locale; if (this.prologue === 1) { this.prologue = 2; this.proFightT = 0; }
     // 11-18 一局五关: the road out of a boss room goes into the next region — its rooms count from one again, its own kinds of room,
     // its foes stronger (the run's TUNE scaled by flow.ts regionScale)
@@ -2755,7 +2780,9 @@ export class ActShow {
     if (this.storyIdle > 0.5) { this.storySkip = false; FX.speed = this.storyWas; }
   }
   private frame(dt: number, rdt: number) {
-    if (this.ahead.length && (this.phase === 'doors' || this.phase === 'yard') && !bladeBusy()) this.workAhead();
+    // Keep using the walk through the gate and the blade's arrival. roomSteps takes ownership before foreground work.
+    if (this.ahead.length && (this.phase === 'doors' || this.phase === 'leaving' || this.phase === 'pick' ||
+      (this.phase === 'yard' && !this.foes.some(f => f.kind !== 'dummy' && f.st !== 'dead')))) this.workAhead();
     if (bladeBusy()) return;
     this.storySkipFrame();
     if (PAUSE.on) { this.L.text.hide('act.npc'); return; }   // the pause menu runs on its own (real time); the world gets nothing (11-18: a hideout name over the menu's pages hidden)

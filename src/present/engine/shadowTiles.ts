@@ -7,6 +7,7 @@
 // them (−y, +z and the x side facing away; both x sides when the light is straight behind).
 import * as THREE from 'three';
 import { OPT } from './perfOpts';
+import { finishBuild } from './buildSteps';
 import { QUALITY } from '../look/quality';
 
 export const TILE_M = 12;
@@ -141,14 +142,18 @@ export function* restoreShadowTiles(src: THREE.Mesh, layout: ShadowLayout) {
 
 /** position-only shadow tiles of a quad-soup mesh (4 vertices + 6 indices per quad, in order); [] when the mesh is small */
 export function shadowTiles(src: THREE.Mesh, T = TILE_M): THREE.Mesh[] {
+  return finishBuild(shadowTileSteps(src, T));
+}
+export function* shadowTileSteps(src: THREE.Mesh, T = TILE_M): Generator<void, THREE.Mesh[]> {
   const g = src.geometry, P = g.attributes.position.array as ArrayLike<number>, N = g.attributes.normal.array as ArrayLike<number>, I = g.index!.array as ArrayLike<number>;
   const nq = I.length / 6; if (!nq) return [];
   let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9;
-  for (let i = 0; i < P.length; i += 3) { const x = P[i], z = P[i + 2]; if (x < x0) x0 = x; if (x > x1) x1 = x; if (z < z0) z0 = z; if (z > z1) z1 = z; }
+  for (let i = 0; i < P.length; i += 3) { if ((i & 16383) === 0) yield; const x = P[i], z = P[i + 2]; if (x < x0) x0 = x; if (x > x1) x1 = x; if (z < z0) z0 = z; if (z > z1) z1 = z; }
   if (x1 - x0 < T * 1.4 && z1 - z0 < T * 1.4) return [];
   // tile → per-direction lists of quads
   const tiles = new Map<number, number[][]>();
   for (let q = 0; q < nq; q++) {
+    if ((q & 2047) === 0) yield;
     let cx = 0, cz = 0; for (let v = 0; v < 4; v++) { cx += P[(q * 4 + v) * 3]; cz += P[(q * 4 + v) * 3 + 2]; }
     const tk = Math.floor(cx / 4 / T) * 4096 + Math.floor(cz / 4 / T), v0 = q * 4 * 3;
     let t = tiles.get(tk); if (!t) tiles.set(tk, (t = [[], [], [], [], [], []]));
@@ -164,6 +169,7 @@ export function shadowTiles(src: THREE.Mesh, T = TILE_M): THREE.Mesh[] {
     let vo = 0, io = 0;
     for (const d of ORDER) {
       for (const q of t[d]) {
+        if ((vo & 8191) === 0) yield;
         if (order) order[oi++] = q;
         members[q] = parts.length;
         for (let k = 0; k < 12; k++) pos[vo * 3 + k] = P[q * 12 + k];
@@ -175,8 +181,7 @@ export function shadowTiles(src: THREE.Mesh, T = TILE_M): THREE.Mesh[] {
     const sg = new THREE.BufferGeometry(); sg.setAttribute('position', new THREE.BufferAttribute(pos, 3)); sg.setIndex(new THREE.BufferAttribute(idx, 1)); sg.computeBoundingSphere();
     const m = new THREE.Mesh(sg, src.material); m.castShadow = true; m.receiveShadow = false; m.visible = false; m.name = 'shadowTile';
     sg.computeBoundingBox();
-    const tile: Tile = { box: sg.boundingBox!, mesh: m, src, ends }; TILES.add(tile); parts.push(tile);
-    sg.addEventListener('dispose', () => TILES.delete(tile));
+    const tile: Tile = { box: sg.boundingBox!, mesh: m, src, ends }; parts.push(tile);
     out.push(m);
   }
   const groupOf = new Uint32Array(nq), groups: THREE.Box3[] = [], groupIds = new Map<number, number>();
@@ -189,6 +194,7 @@ export function shadowTiles(src: THREE.Mesh, T = TILE_M): THREE.Mesh[] {
     return [groupOf[q], members[q], dirIndex(N[v],N[v+1],N[v+2]), col, P[A],P[A+1],P[A+2],P[B],P[B+1],P[B+2]].join('/');
   }
   for (let q=0; q<nq; q++) {
+    if ((q & 511) === 0) yield;
     const v=q*12, x=(P[v]+P[v+6])/2, z=(P[v+2]+P[v+8])/2, id=Math.floor(x/3)*65536+Math.floor(z/3);
     let i=groupIds.get(id);
     if (i===undefined) { i=groups.length; groups.push(new THREE.Box3()); groupIds.set(id,i); }
@@ -197,10 +203,15 @@ export function shadowTiles(src: THREE.Mesh, T = TILE_M): THREE.Mesh[] {
     leftEdges.set(edgeKey(q,0,3),q);
   }
   for (let q=0; q<nq; q++) {
+    if ((q & 511) === 0) yield;
     if (partner[q]) continue;
     const other=leftEdges.get(edgeKey(q,1,2));
     if (other===undefined || partner[other] || other===q) continue;
     partner[q]=other+1; partner[other]=-1;
+  }
+  for (const tile of parts) {
+    TILES.add(tile);
+    tile.mesh.geometry.addEventListener('dispose', () => TILES.delete(tile));
   }
   installView(src, parts, members, groups, groupOf, partner);
   if (order) shadowBake.capture!(src, { order, groupOf, partner, groups: groups.map(bounds), tiles: parts.map(t => {

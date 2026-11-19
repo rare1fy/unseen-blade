@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { finishBuild } from '../engine/buildSteps';
 import { OPT } from '../engine/perfOpts';
 import { QUALITY } from '../look/quality';
 
@@ -9,12 +10,16 @@ export interface TerrainLight {
   dx: number; dz: number; depth: Uint8Array;
 }
 export function bakeTerrainLight(meshes: THREE.Mesh[], sun: number[] = [-6, 14, -10]): TerrainLight | null {
+  return finishBuild(bakeTerrainLightSteps(meshes, sun));
+}
+export function* bakeTerrainLightSteps(meshes: THREE.Mesh[], sun: number[] = [-6, 14, -10]): Generator<void, TerrainLight | null> {
   if (!meshes.length || sun[1] <= 0) return null;
   const dx = sun[0] / sun[1], dz = sun[2] / sun[1];
   let left = Infinity, right = -Infinity, back = Infinity, front = -Infinity, bottom = Infinity, top = -Infinity;
   for (const m of meshes) {
     const p = m.geometry.getAttribute('position');
     for (let i = 0; i < p.count; i++) {
+      if ((i & 8191) === 0) yield;
       const y = p.getY(i), x = p.getX(i) - dx * y, z = p.getZ(i) - dz * y;
       left = Math.min(left, x); right = Math.max(right, x); back = Math.min(back, z); front = Math.max(front, z);
       bottom = Math.min(bottom, y); top = Math.max(top, y);
@@ -27,6 +32,7 @@ export function bakeTerrainLight(meshes: THREE.Mesh[], sun: number[] = [-6, 14, 
   for (const m of meshes) {
     const g = m.geometry, p = g.getAttribute('position'), idx = g.index!;
     for (let i = 0; i < idx.count; i += 3) {
+      if ((i & 2047) === 0) yield;
       const a = idx.getX(i), b = idx.getX(i + 1), c = idx.getX(i + 2);
       const ay = p.getY(a), by = p.getY(b), cy = p.getY(c);
       const ax = (p.getX(a) - dx * ay - left) / step, az = (p.getZ(a) - dz * ay - back) / step;

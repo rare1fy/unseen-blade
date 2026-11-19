@@ -1,4 +1,4 @@
-import { bakeTerrainLight, stageLighting, type TerrainLight } from './terrainLight';
+import { bakeTerrainLight, bakeTerrainLightSteps, stageLighting, type TerrainLight } from './terrainLight';
 import { readStagePack, unpackStage } from './packedStage';
 import { bladeWorking } from './loadingBlade';
 import { finishBuild } from '../engine/buildSteps';
@@ -265,7 +265,7 @@ function* stageSteps(def: SceneDef, options: StageOptions, g: ReturnType<typeof 
     }
   };
   const surfaces = root.children.filter(o => o.userData.stageTerrain) as THREE.Mesh[];
-  const lighting = stageLighting(surfaces, earth, field ?? bakeTerrainLight(surfaces, md.moonPos));
+  const lighting = stageLighting(surfaces, earth, field ?? (OPT.slicedRoom ? yield* bakeTerrainLightSteps(surfaces, md.moonPos) : bakeTerrainLight(surfaces, md.moonPos)));
   lighting.sync(); syncStatic();
   let used = false;
   const freeAll = () => { updates.clear(); lighting.dispose(); fixed.length = check.length = 0; root.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh) m.geometry.dispose(); }); };
