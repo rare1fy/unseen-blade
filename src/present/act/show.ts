@@ -98,6 +98,7 @@ import type { Mark } from './hud';
 import { MANUALS } from './manuals';
 import { fillVals } from './cards';
 import { Hero, QI_LINK, type HeroWorld } from './hero';
+import { Tutorial, type LessonId } from './tutorial';
 import { Duel, type DuelHost } from './qte';
 /** 11-17: the 刀谱 links the first few openings of which are slowed down to teach them (二段跳 is no link; 穿风斩 / 劈山 / 回锋斩 are known from the start) */
 // (11-18: 断云, 牵红, 踏顶 too; 掠地 not — like 二段跳 it is on whenever she is in the air, so it would slow every jump)
@@ -442,7 +443,7 @@ export class ActShow {
   }
   /** the prologue's first room: the snowy village at night, a few sentries; then the temple (leave() moves prologue to 2) */
   async startPrologue() {
-    this.prologue = 1; this.proFalling = false; this.proFightT = 0;
+    this.prologue = 1; this.proFalling = false; this.proFightT = 0; this.tut.reset();
     this.intent = 0; this.hud.intent = 0; this.perks = newPerks(); this.room = 0; this.kills = 0; this.recent = []; this.visited = []; this.coins = 0;
     this.mods = runMods(profile()); this.defy = 0; this.eliteKills = 0; this.bossKilled = false; this.wine = false;
     TUNE.heroHp = 100 + this.mods.hpBonus; TUNE.dartCharges = 3 + this.mods.dartBonus; TUNE.aggression = 0.85 / this.mods.windupMul;
@@ -695,7 +696,7 @@ export class ActShow {
   private viewSpec: Partial<Spec> | null = null; private lastReport: Report | null = null;
   private spec: Spec | null = null; private layout: Layout | null = null; private doors: Array<{ ex: ExitInfo; g: THREE.Group; lift: number }> = []; private locale = 'ninja_wilds';
   private cam = V3(0, 0, 0); private recent: Spec[] = [];
-  private botWp = 0; private botTalkT = 0; botOn = false; kills = 0; log: string[] = []; private introT = 0; private audioOn = false; private hinted = false;
+  private botWp = 0; private botTalkT = 0; botOn = false; kills = 0; log: string[] = []; private introT = 0; private audioOn = false; private hinted = false; tut!: Tutorial;
   /** the training yard (room −1) and the costume on the hero */
   yard: Yard | null = null; wearing: ModelDef = savedHero(); private lineupActors: BattleActor[] = [];
   private aimLine!: THREE.Mesh;
@@ -706,7 +707,7 @@ export class ActShow {
     SELF = this; this.dialogue = new Dialogue(this.L, this.ov); this.timeline = new Timeline(this.L);
     HP_FACE.id = this.wearing.id;   // the HP medallion shows the look she wears
     this.hud = new ActHud(this.L); this.cards = new CardPick(this.L); this.banner = new SkinBanner(this.L, SKIN.id, () => this.hud.bossOn);
-    this.duel = new Duel(this.duelHost);   // 11-18 QTE 拼刀 / 连环破势 (act/qte.ts)
+    this.tut = new Tutorial(this.L); this.duel = new Duel(this.duelHost);   // 11-18 QTE 拼刀 / 连环破势 (act/qte.ts)
     platform.onPointer(ev => { if (ev.type === 'down') this.unlockAudio(); this.pointer(ev.type, (ev as { id?: number }).id ?? 0, ev.x, ev.y); });
     platform.onResize(() => this.layout2());
     if (typeof window !== 'undefined') window.addEventListener('keydown', e => this.key(e));
@@ -727,6 +728,8 @@ export class ActShow {
       // act-20: her look (the story's heroine: the 斗笠 or the 白发 — the user's two picks); the hideout has no costume rack
       { dbg: true, label: () => `造型：${this.wearing.name}（点这里换）`, short: () => msg`造型：${this.wearing.name}`, run: () => { const ids = ['fine_white', 'fine_hat'], n = HEROES.find(d => d.id === ids[(ids.indexOf(this.wearing.id) + 1) % ids.length]); if (n) this.wear(n); } },
       { dbg: true, label: () => `像素：${PX.on ? PX.size + 'x' : '关'}（点这里换）`, short: () => msg`像素：${PX.on ? PX.size + 'x' : '关'}`, run: () => { const order = ['2', '3', 'off', '1'], cur = PX.on ? String(PX.size) : 'off', nx = order[(order.indexOf(cur) + 1) % order.length]; if (nx === 'off') setPixel(false); else setPixel(true, +nx); try { localStorage.setItem('ub.px', nx); } catch { /* private mode */ } } },
+      // 11-19 新手引导: the prologue's freezes can be turned off
+      { label: () => msg`操作提示：${this.tut.enabled ? '开' : '关'}`, short: () => msg`操作提示：${this.tut.enabled ? '开' : '关'}`, run: () => this.tut.setEnabled(!this.tut.enabled) },
       // 11-18 微信帧率: the quality tier (自动 → 高 → 中 → 低), kept on the device
       { label: () => qualityLabel(), short: () => qualityLabel(), run: () => cycleQuality() },
       // (11-19 用户：「github页面上的版本就是开发版……微信和crazygames都必须要做成面向用户的版本」: the frame meter is a debug item)
@@ -894,6 +897,7 @@ export class ActShow {
       boon: (id: string, tier = 0) => applyBoon(this.perks, id, tier), // wp/boons: browser effect checks
       /** 11-18 captures: exactly these boons at this tier (the old ones dropped); the hero reads this.perks */ boons: (ids: string[], tier = 0) => { this.perks.owned = {}; for (const id of ids) applyBoon(this.perks, id, tier); this.hero.perks = this.perks; return Object.keys(this.perks.owned); },
       intent: (n = 3) => { this.intent = Math.max(0, Math.min(3, n)); this.hud.intent = this.intent; },
+      ...(__DEBUG_UI__ ? { tutorial: (id?: LessonId | 'off' | 'on') => { if (id === 'off' || id === 'on') this.tut.setEnabled(id === 'on'); else if (id) this.tut.force(id); return { cur: this.tut.cur, k: this.tut.k, on: this.tut.enabled }; } } : {}),
       qi: (n?: number) => { if (n != null) this.hero.qi = Math.max(0, Math.min(Hero.QI_MAX, n)); return this.hero.qi; },
       untaught: () => { try { localStorage.removeItem('ub.taught'); } catch { /* */ } this.taught = null; },
       prologue: (n = 1) => { this.startPrologue(); if (n >= 2) { after(0.3, () => { this.prologue = 2; this.proFightT = 0; this.plan = { ...PRO_BOSS }; this.locale = PRO_BOSS.locale; this.room = 1; this.buildRoom(false); }); } },
@@ -1406,7 +1410,7 @@ export class ActShow {
     // (11-18 屋子形态: a shaped room has its own way in — the 曲尺's front corner is walled off, the 窄巷's lane is off the middle)
     const ent = this.arena?.shape?.enter[0] ?? 0, entZ = this.arena?.shape?.fixed ? this.arena.shape.enter[1] : SZ(5.0);   // (a drawn room: its S)
     yield;
-    this.hero = new Hero(isYard ? V3(HIDEOUT.spawn[0], 0, HIDEOUT.spawn[1]) : V3(ent, 0, entZ), this.wearing); this.hero.moves = isYard || this.prologue || this.dbgAllMoves ? ALL_MOVES : this.perks.moves; this.hero.perks = this.perks; this.hero.hp = Math.min(hp, maxHp); this.hero.maxHp = maxHp;   // (act-40 用户：「开局第一场战斗默认给主角解锁所有技能」) (11-18: this comment used to sit before the perks / hp assignments and swallowed them — the hero's own boons never applied and her HP reset each room)
+    this.hero = new Hero(isYard ? V3(HIDEOUT.spawn[0], 0, HIDEOUT.spawn[1]) : V3(ent, 0, entZ), this.wearing); this.hero.moves = isYard || this.dbgAllMoves ? ALL_MOVES : this.perks.moves; this.hero.perks = this.perks; this.hero.hp = Math.min(hp, maxHp); this.hero.maxHp = maxHp;   // (act-40 用户：「开局第一场战斗默认给主角解锁所有技能」) (11-18: this comment used to sit before the perks / hp assignments and swallowed them — the hero's own boons never applied and her HP reset each room)
     this.hero.qi = isYard ? Hero.QI_MAX : Math.min(Hero.QI_MAX, Math.max(qi, TUNE.qiStart));   // (11-17 气: carried on; a room starts with at least TUNE.qiStart)
     this.hero.a.yaw = isYard ? -0.6 : Math.PI;
     this.hud.flask.set({ hp: this.hero.hp, maxHp });
@@ -1421,14 +1425,14 @@ export class ActShow {
     const dev = this.inp.lastDevice, hint = !this.hinted ? (dev === 'touch' && 'ontouchstart' in globalThis ? '左边拖动走 · 斩 / 按住蓄力 · 冲 · 跳 · 镖'
       : dev === 'pad' ? msg`左摇杆 走 · ${actPad('attack')} 斩（按住蓄力）· ${actPad('jump')} 跳 · ${actPad('dash')} 冲刺 · ${actPad('special')} 飞镖`
       : msg`WASD 走 · ${actKey('attack')} 斩（按住蓄力）· ${actKey('jump')} 跳 · ${actKey('dash')} 冲刺 · ${actKey('special')} 飞镖`) : '';
-    this.hinted = true;
+    this.hinted = true; void hint;   // (11-19 新手引导: the controls are taught in the prologue's fights, not in a banner)
     const info = roomInfo(this.plan?.type ?? 'fight', this.region);
     // 11-18 一局五关: walking into a later region's first room, its name and line first (2.6 s), then the room's own banner
     if (!this.prologue && (this.regionIn || (language === 'en' && this.region === 0 && this.room === 0))) {
       this.regionIn = false; const rb = regionBanner(this.region);
       this.banner.show(rb.title, rb.sub, 2.6, '#ffe2b0');   // (act-50 用户：「获胜的时候会放一个短乐段，我不想要那个声音」: the old jingle is gone everywhere)
-      after(2.7, () => { if (this.phase === 'intro' || this.phase === 'fight') this.banner.show(msg`第一间 · ${info.name}`, language === 'en' ? hint || msg`${name} · ${info.line}` : msg`${name} · ${info.line}`, 1.4); });
-    } else if (!this.prologue) this.banner.show(msg`第 ${language === 'en' ? this.room + 1 : '一二三四五六七八'[this.room] ?? this.room + 1} 间 · ${info.name}`, hint || msg`${name} · ${info.line}`, hint ? 3.2 : 1.6);
+      after(2.7, () => { if (this.phase === 'intro' || this.phase === 'fight') this.banner.show(msg`第一间 · ${info.name}`, msg`${name} · ${info.line}`, 1.4); });
+    } else if (!this.prologue) this.banner.show(msg`第 ${language === 'en' ? this.room + 1 : '一二三四五六七八'[this.room] ?? this.room + 1} 间 · ${info.name}`, msg`${name} · ${info.line}`, 1.6);
     // the rooms without a fight: the stations stand ready and the roads are open at once
     if (this.plan && (this.plan.type === 'shop' || this.plan.type === 'rest' || this.plan.type === 'boon')) {
       this.stations = new Stations(this.stage!.root, this.arena?.shape?.fixed?.stations);
@@ -1764,12 +1768,8 @@ export class ActShow {
   private async demoMove(id: string) {
     if (this.botOn || !this.hero) return;
     const was = this.phase; this.phase = 'pick'; this.hero.vel.set(0, 0, 0);
-    // the hint to skip, small, at the top right where the pause button used to stand (11-18: the portrait pauses now), left of the
-    // tuning panel's 「调」 (whole device px per font pixel, about 16 px tall)
-    const dpr = this.L.dpr || 1;
-    this.L.text.set('act.demoSkip', { text: UI_WORDS.demoSkip, x: this.L.w - 46, y: 23, pix: Math.max(1, Math.round(this.hud.k * dpr)), color: '#d9ccb2', outline: '#140c0a', align: 'right', alpha: 0.8 });
     await this.demo.play(id, { at: this.hero.pos.clone(), def: this.wearing, hud: this.hud });
-    this.L.text.hide('act.demoSkip'); this.inp.latch();
+    this.inp.latch();
     if (this.phase === 'pick') this.phase = was;
   }
   /** the marks on the HUD's buttons: every 刀谱 and 秘传 this run has taken (none in the yard, where they are all open) */
@@ -2415,7 +2415,7 @@ export class ActShow {
     hitstop(0.16 * TUNE.hitstop); slowmo(0.35, 0.25); shake(0.35 * TUNE.shake);
     fxRing(h.pos.clone().setY(0.9), 0xfff2c8, 1.6, { life: 0.35 } as never); fxRing(h.pos.clone().setY(0.08), 0xffd890, 2.6, { life: 0.5 } as never); fxSparks(h.a.chest(), 0xfff2c8, 24, 7);
     popPix('破', h.a.head().add(V3(0, 0.5, 0)), { color: '#fff0c0', h: 0.95, big: true, life: 0.9, rise: 1.0 });
-    cue('parry', 1); cue('cutHeavy', 0.9); this.platform.vibrate('heavy');
+    cue('parry', 1); cue('cutHeavy', 0.9); this.platform.vibrate('heavy'); this.tut.parried();
     if (this.intent >= 3) this.startQte(); else this.addIntent();
   }
   /** 11-17 (用户选「新学的刀谱派生，前三次能接招时慢放」): the first three times (on this device) each 刀谱 link opens in a fight, time
@@ -2428,7 +2428,7 @@ export class ActShow {
       if (!this.taught) { try { this.taught = JSON.parse(localStorage.getItem('ub.taught') || '{}') ?? {}; } catch { this.taught = {}; } }
       const t = this.taught!; if ((t[k] ?? 0) >= 3) continue;
       t[k] = (t[k] ?? 0) + 1; try { localStorage.setItem('ub.taught', JSON.stringify(t)); } catch { /* private mode: it teaches again next time */ }
-      slowmo(0.6, 0.5); this.log.push(`teach ${k} ${t[k]}`);
+      this.log.push(`teach ${k} ${t[k]}`);   // (11-19: no half-speed any more — the move is shown in full when it is learnt)
     }
   }
   /** 杀意 +1 (perfect dodge, a batted arrow, a counter landing, 见切), up to 3; the third flares */
@@ -2885,10 +2885,10 @@ export class ActShow {
     // 11-18: a 刀谱's demonstration — the ghost plays on real time, the HUD shows its presses; she stands still, the world is quiet
     if (this.demo.on) {
       this.demo.update(rdt);
-      if (this.inp.b.attack.pressed || this.inp.b.dash.pressed || this.inp.b.jump.pressed || this.inp.b.special.pressed || padNav.poll(0).any) this.demo.skip();
     }
     const busy = this.cards.on || this.phase === 'leaving' || this.ultOn || !!h.scriptPose || this.demo.on || this.duel.locks;   // (act-46: lying on the mat / getting up — no sliding off it) (11-18 QTE: held in a 拼刀 / a 连环)
     this.qteFrame(rdt); this.parryCd -= rdt;
+    this.tut.frame(rdt, { phase: this.phase, prologue: this.prologue, hero: h, inp: this.inp, foes: this.foes, threats: w => { const t = this.threats(w); return t.foes.length + t.arrows.length; } }, busy || this.duel.locks || this.qteT >= 0 || this.botOn);
     this.duel.frame(rdt);   // 11-18 拼刀 / 连环破势: reads the attack button before it is cleared below
     if (busy) { for (const b of Object.values(this.inp.b)) { b.pressed = false; b.down = false; b.held = 0; } this.inp.move.x = this.inp.move.y = 0; }
     if (this.phase === 'intro') { this.introT += dt; this.inp.move.x = 0; this.inp.move.y = this.introT < 0.5 ? 0.7 : 0; for (const b of Object.values(this.inp.b)) { b.pressed = false; b.down = false; b.held = 0; } }
@@ -3066,7 +3066,7 @@ export class ActShow {
     if (h.fullT > 0.34) { fxRing(h.pos.clone().setY(0.08), 0xffe7a0, 1.3, { life: 0.3 } as never); shake(0.06 * TUNE.shake); this.camPunch(0.025); fxSparks(h.a.local(0.12, 0.95, 0.05), 0xfff6dc, 14, 4); this.flashScreen(0.1, 0xfff0c8); }
     // 11-18 藏锋: the blade hums in its sheath as the stance fills (and swells like a pulse while the breath is held); the world dims a little
     // (11-18 拼刀: while blades are locked the same steel drone is the edges grinding — higher and louder as it gets harder)
-    { const ch = h.st === 'charge' ? h.charge : 0, dh = this.duel.hum; audio.hum(dh >= 0 ? dh : ch > 0 ? Math.min(1, 0.25 + 0.75 * ch) : 0, dh >= 0 ? 0 : ch >= 1 ? 1 : 0); this.dimTo(ch > 0 ? 0.35 + 0.65 * ch : 0, rdt); }
+    { const ch = h.st === 'charge' ? h.charge : 0, dh = this.duel.hum; audio.hum(dh >= 0 ? dh : ch > 0 ? Math.min(1, 0.25 + 0.75 * ch) : 0, dh >= 0 ? 0 : ch >= 1 ? 1 : 0); this.dimTo(Math.max(ch > 0 ? 0.35 + 0.65 * ch : 0, this.tut.dim), rdt); }
     this.flashStep(rdt);
     this.hud.btns.attack.charge = ch;
     const nowCue = h.st === 'charge' && (this.threats(TUNE.iaiWin).foes.length > 0 || this.threats(TUNE.iaiWin).arrows.length > 0);
@@ -3074,6 +3074,7 @@ export class ActShow {
     if (nowCue && this.ring.visible) { const m = this.ring.material as THREE.MeshBasicMaterial; m.color.setHex(0xffffff); m.opacity = 0.95; }
     // the counter is waiting: gold sparks off the point, the cut button's rim lit
     this.dodgeCd -= rdt; this.hud.btns.attack.hot = h.counterT > 0;
+    this.tut.post(h, this.hud.btns as never, n => this.hud.btnKick(n, 0.6));
     if (h.counterT > 0) { this.sparkT -= rdt; if (this.sparkT <= 0) { this.sparkT = 0.06; fxSparks(h.a.bones.weapon ? h.a.bones.weapon.localToWorld(V3(0, 0, (h.def.tip ?? 13) * CELL)) : h.a.chest(), 0xffd060, 3, 2.5, { life: 0.3 }); } }
     // the landing spot under a jump
     this.blob.visible = h.alive || h.y > 0.03; this.blob.position.set(h.pos.x, 0.03, h.pos.z); this.blob.scale.setScalar(0.62 * Math.max(0.6, 1 - h.y * 0.22)); (this.blob.material as THREE.MeshBasicMaterial).opacity = 0.78 - Math.min(0.3, h.y * 0.12);
@@ -3126,7 +3127,7 @@ export class ActShow {
     if (this.dialogue.on) { if (type === 'down') this.dialogue.advance(); return; }
     if (this.cards.on) { this.cards.pointer(type, x, y); return; }
     // the demonstration: a tap anywhere skips it
-    if (this.demo.on && type === 'down') { this.demo.skip(); return; }
+    if (this.demo.on) return;   // (11-19: the demonstration plays to the end — no skipping)
     this.hud.pointer(type, id, x, y, this.inp);
   }
   /** the UI's skin: 漆器 → 竹简 → 铁器 (U key, the tuning panel, __dh.skin(id)) */
@@ -3137,7 +3138,7 @@ export class ActShow {
   }
   private key(e: KeyboardEvent) {
     if (bladeBusy()) return;
-    if (this.demo.on && !e.repeat && !this.pause.on) { this.demo.skip(); return; }   // 11-18: any key skips a 刀谱's demonstration
+    if (this.demo.on && !this.pause.on) return;   // (11-19: the demonstration plays to the end)
     if (this.timeline.on && e.key === 'Escape') { this.timeline.key(true); return; }
     if (e.key === 'Escape' && !e.repeat && this.canPause()) { e.preventDefault(); this.pauseGame(); e.stopImmediatePropagation(); return; }   // (the menu must not take the same Esc as its 返回)
     if (this.dialogue.on) { if (!e.repeat && ['Enter', ' ', 'j', 'J'].includes(e.key)) { e.preventDefault(); this.dialogue.advance(); } return; }

@@ -16,6 +16,9 @@ export const FX = {
   speed: 1,
   /** screen-shake multiplier (settings: off / weak / normal) */
   shakeScale: 1,
+  /** 11-19 the tutorial's freeze: a ceiling on timeScale that the tutorial eases toward ~0 and holds there until the right key is
+   *  pressed (unlike hitstop it never runs out by itself); 1 = off */
+  hold: 1,
 };
 /** the pause menu: while on, the frame loop hands every game updater a zero step (the world stands still); real-time UI keeps going */
 export const PAUSE = { on: false, /** the pause / settings menu is up (paused, or over the start screen): the screens under it ignore input */ menu: false };
@@ -50,6 +53,7 @@ export function tick(rdt: number): number {
   if (FX.hitstop > 0) { FX.hitstop -= rdt; FX.timeScale = HITSTOP_SCALE; }
   else if (FX.slowmo > 0) { FX.slowmo -= rdt; FX.timeScale = FX.slowmoScale; }
   else FX.timeScale = 1;
+  if (FX.hold < 1) FX.timeScale = Math.min(FX.timeScale, FX.hold);
   const dt = rdt * FX.timeScale * FX.speed, rd = rdt * FX.speed;
   clock.time += dt; clock.rtime += rd; clock.dt = dt; clock.rdt = rd; clock.frame++;
   for (let i = anims.length - 1; i >= 0; i--) {

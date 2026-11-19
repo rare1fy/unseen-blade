@@ -861,5 +861,15 @@
   "（风雪自破碎的阁门呼啸灌入，霜刃悬在毫厘之间）": "(Snow howls through the broken door. The frosted edge hangs a hair away.)",
   "{0}未死": "{0} lives.",
   "正在翻阅武功秘籍…": "Leafing through the old sword manuals…",
-  "雪深何处听刀声": "Deep snow. Listen for the blade."
+  "雪深何处听刀声": "Deep snow. Listen for the blade.",
+  "移动": "Move",
+  "出刀": "Strike",
+  "闪身": "Dodge",
+  "跳起": "Jump",
+  "按住": "Hold",
+  "松开": "Release",
+  "左下拖动": "Drag left",
+  "左摇杆": "L-stick",
+  "操作提示：{0}": "Control tips: {0}",
+  "WASD": "WASD"
 }

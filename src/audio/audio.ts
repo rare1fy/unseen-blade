@@ -30,7 +30,7 @@ export const VOICE_LINES: Record<string, string> = {
 };
 
 class AudioEngine {
-  ctx: AudioContext | null = null; master!: GainNode; sfx!: GainNode; music!: GainNode; voice!: GainNode; lp!: BiquadFilterNode; duck!: GainNode;
+  ctx: AudioContext | null = null; master!: GainNode; sfx!: GainNode; music!: GainNode; voice!: GainNode; lp!: BiquadFilterNode; duck!: GainNode; private bandHi?: BiquadFilterNode; private bandLo?: BiquadFilterNode; private bandK = 0;
   /** 11-18 混音 (用户：「音效……听起来很乱」): the hero's own sounds (her blade, her steps) on their own bus; the world's (foes, props,
    *  ambience) under `hush`, which dips when her blow lands; both send a little into a room reverb (setRoom) that glues them */
   /** act-50: the win / lose stings, whole (the user's own files run ~13 s) — on their own bus so the next scene's music can fade them */
@@ -60,7 +60,12 @@ class AudioEngine {
     // 11-18: only a limiter at the end (the old −10 dB 8:1 compressor flattened every blow the moment two sounds overlapped)
     const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -2.5; comp.knee.value = 0; comp.ratio.value = 20; comp.attack.value = 0.001; comp.release.value = 0.12;
     this.master = ctx.createGain(); this.master.gain.value = 0.9; this.master.connect(comp); comp.connect(ctx.destination);
-    this.duck = ctx.createGain(); this.duck.connect(this.master);
+    // 11-19 新手引导的定格 / 慢放: the world's sound (not the voice) runs through a band that closes in toward the mids — slow motion
+    // that sounds slow (用户：「慢动作时声音切掉高频和低频」)
+    this.bandHi = ctx.createBiquadFilter(); this.bandHi.type = 'highpass'; this.bandHi.frequency.value = 10; this.bandHi.Q.value = 0.7;
+    this.bandLo = ctx.createBiquadFilter(); this.bandLo.type = 'lowpass'; this.bandLo.frequency.value = 20000; this.bandLo.Q.value = 0.7;
+    this.bandHi.connect(this.bandLo); this.bandLo.connect(this.master);
+    this.duck = ctx.createGain(); this.duck.connect(this.bandHi);
     this.hush = ctx.createGain(); this.hush.connect(this.duck);
     this.sfx = ctx.createGain(); this.sfx.gain.value = 0.72; this.sfx.connect(this.hush);
     this.hero = ctx.createGain(); this.hero.gain.value = 0.85; this.hero.connect(this.duck);
@@ -262,6 +267,11 @@ class AudioEngine {
   }
   /** 0 = open, 1 = muffled (low HP) */
   muffle(k: number) { if (!this.ctx) return; this.lp.frequency.setTargetAtTime(18000 * Math.pow(1 - k * 0.92, 2) + 600 * k, this.now(), 0.4); }
+  /** 11-19 the tutorial's slow motion / freeze: 0 = the full band, 1 = only the mids (≈ 350 Hz – 2.4 kHz); eased */
+  slowBand(k: number) {
+    if (!this.ctx || !this.bandHi || !this.bandLo) return; k = Math.max(0, Math.min(1, k)); if (Math.abs(k - this.bandK) < 0.02) return; this.bandK = k;
+    const t = this.now(); this.bandHi.frequency.setTargetAtTime(10 * Math.pow(35, k), t, 0.12); this.bandLo.frequency.setTargetAtTime(20000 * Math.pow(2400 / 20000, k), t, 0.12);
+  }
   async speak(kind: string) {
     if (!this.ctx) return 0; const b = this.buf.get('vo_lich_' + kind); if (!b) return 0;
     const t = this.now(); this.duck.gain.setTargetAtTime(0.35, t, 0.08); this.play('vo_lich_' + kind, { bus: 'voice', jitter: 0, gain: 1.3 });
