@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { V3, view, onLateUpdate } from './engine/world';
 import { CAM } from './engine/gfx';
+import { PX, setPixel } from './look/pixel';
 
 export interface Shot { base: THREE.Vector3; look: THREE.Vector3; fov: number }
 type ShotFn = (t: number) => Shot;
@@ -17,6 +18,31 @@ const shotSeen: Array<(name: string) => void> = [];
 /** listen to every shot change (a transition starts its fog with the map's dive, which it does not own) */
 export const onShot = (f: (name: string) => void) => { shotSeen.push(f); };
 const pose = { base: V3(), look: V3(), fov: 30 };
+
+/** 11-19 (用户：「镜头拉近了以后像素感的描边也跟着变细了」→ 对比图后「这个处理方式可行」): while a cutscene or a conversation
+ *  holds the camera, the art pixel grows with how much nearer the shot is than the battle camera, so a voxel (and its 1-art-pixel
+ *  outline) keeps about the same size on screen. Whole multiples only, picked on a cut and held through the shot's move (no pop
+ *  mid-dolly), capped at 2× the player's size (the nearest a shot should come is half the battle distance); back to the player's
+ *  size when the scene ends. show.ts sets on / ref (the battle camera's distance and fov). */
+export const CINE_PX = { on: false, ref: { d: 20.1, fov: 45 }, max: 2 };
+let cineBase = 0, lastT = V3(), lastOk = false;
+const sizeK = (s: Shot) => {
+  const r = CINE_PX.ref, d = Math.max(0.5, s.base.distanceTo(s.look));
+  // on-screen size of one voxel ∝ 1 / (d · tan(fov/2)); relative to the battle camera (the same 0.86 landscape factor on both)
+  return (r.d * Math.tan(r.fov * Math.PI / 360)) / (d * Math.tan(s.fov * Math.PI / 360));
+};
+function cinePixel(cut: boolean, s: Shot) {
+  if (!CINE_PX.on) { lastOk = false; if (cineBase) { const b = cineBase; cineBase = 0; if (PX.on && PX.size !== b) setPixel(true, b); } return; }
+  if (!PX.on) return;
+  if (!cineBase) { cineBase = PX.size; cut = true; }
+  // a new framing: a cut, or the shot's target jumping (a conversation swapping its camera) — never a dolly's steady glide
+  const jumped = lastOk && s.base.distanceTo(lastT) > 0.6; lastT.copy(s.base); lastOk = true;
+  if (!cut && !jumped) return;
+  // a moving shot is judged by both ends (geometric mean), so neither end is far off
+  const e = target(1e4), k = Math.sqrt(sizeK(s) * sizeK(e));
+  const n = Math.max(cineBase, Math.min(cineBase * CINE_PX.max, Math.round(cineBase * k)));
+  if (n !== PX.size) setPixel(true, n);
+}
 
 /** Switch to a shot. speed = blend rate (higher = faster); cut = jump without blending. */
 export function shot(name: string, fn: ShotFn, o: { speed?: number; cut?: boolean } = {}) {
@@ -40,10 +66,12 @@ onLateUpdate((_dt, rdt) => {
   // portrait phones need a wider vertical view than desktop for the same composition
   const portrait = view.w / Math.max(1, view.h) < 0.8;
   const fov = s.fov * (portrait ? 1 : 0.86);
+  const cut = cutNext;
   if (cutNext) { cur.base.copy(s.base); cur.look.copy(s.look); cur.fov = fov; cutNext = false; }
   const k = 1 - Math.exp(-speed * rdt);
   cur.base.lerp(s.base, k); cur.look.lerp(s.look, k); cur.fov += (fov - cur.fov) * k;
   pose.base.copy(cur.base); pose.look.copy(cur.look); pose.fov = cur.fov;
+  cinePixel(cut, s);
   CAMHOOK.fn?.(pose, rdt);
   CAM.base.copy(pose.base); CAM.look.copy(pose.look); CAM.fov = pose.fov;
 });
