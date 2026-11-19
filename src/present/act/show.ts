@@ -1016,7 +1016,10 @@ export class ActShow {
   private unlockAudio() {
     if (this.audioOn) { const c = audio.ctx; if (c && c.state === 'suspended') void Promise.resolve(c.resume()).catch(() => { /* still paused */ }); return; }
     this.audioOn = true;
-    audio.unlock().then(() => this.music()).catch(e => { this.audioOn = false; console.error('[audio] the sound would not start:', e); });
+    // (a browser's autoplay rule: the context comes up suspended without a gesture — resume() then never settles, so the music is
+    //  asked for right away; it sounds the moment the context runs, on the first touch or key)
+    audio.prepare(); this.music();
+    audio.unlock().then(() => this.music()).catch(e => { console.warn('[audio] waiting for a touch to start the sound:', e); });
   }
   music() {
     if (!this.audioOn) return;
@@ -1042,6 +1045,10 @@ export class ActShow {
     // start() selects the title, yard or fight synchronously, so preload its
     // music alongside the scenery even when preparing the scene takes frames.
     if (!HAS_DOM) audio.prepare({ warm: [this.musicName()], prefetch: true });
+    // (11-19 用户：「每次开场的音乐都要我点一下屏幕才播，我希望是加载完了就开始播了」: start the sound as soon as the page is up,
+    //  not on the first touch. A mini-game's WebAudio may play at once; a browser blocks sound until the first touch or key — there
+    //  the context stays suspended and the first input resumes it (unlockAudio), the music then starts from where it would be)
+    void Promise.resolve(ready).then(() => this.unlockAudio());
     return ready;
   }
   start() {

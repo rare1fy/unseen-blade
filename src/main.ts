@@ -1,4 +1,6 @@
 import { withLoadingBlade } from './present/scenes/loadingBlade';
+import { bootShow, bootDone } from './present/scenes/bootScreen';
+import { frames as waitFrames, precompile as precompileAll } from './present/engine/world';
 // 不见刀 boot: platform → renderer + post (the 3D-pixel look) → the action game (present/act/show.ts).
 import { initPlatform, G } from './platform/index';
 import { CRAZYGAMES, initCrazyGames, finishLoading, reportGameplay } from './platform/crazygames';
@@ -82,7 +84,12 @@ dh.install();
         reportGameplay(A.phase === 'fight' && !A.pause.on && !A.cards.on && !A.dialogue.on && !A.timeline.on);
       }
     });
-    if (__WX__) await withLoadingBlade(start); else await start();
+    // (11-19 用户：「首次进入游戏的加载画面我不希望是用竹子那个，做一个简单的黑色加载画面……等场景完全准备完了再渐变出来」: the first load is
+    //  the plain black screen with the turning blade on every platform; it fades only after the title is built, its shaders compiled
+    //  and a few of its frames drawn behind the black)
+    bootShow();
+    try { await start(); precompileAll(); await waitFrames(6); } finally { bootDone(); }
+    void withLoadingBlade;
     dh.ready();
   } catch (e) { platform.log('[act] ' + (((e as Error) && (e as Error).stack) || e)); dh.fail(e); }
 });

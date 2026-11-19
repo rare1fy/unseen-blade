@@ -964,7 +964,11 @@ class Title {
   /** stop without the way in (another variant, __dh.title again): everything goes; the next stage replaces this one */
   stop() {
     if (!this.alive) return;
-    if (this.beat !== 'split' && this.beat !== 'done') { this.hideOverlay(); this.restore(); }
+    // (11-19 用户：「怎么开场斩开画面从两边打开画面的效果没有了？」: the new game's cold open stops the title the moment the split
+    //  starts (enter → startNewGame → coldOpen → stopTitle), which threw the two halves away before they parted. A split under way
+    //  is left to finish on its own — the halves slide open over the dark of the cold open and finish() clears them)
+    if (this.beat === 'split') return;
+    if (this.beat !== 'done') { this.hideOverlay(); this.restore(); }
     this.finish();
   }
 }
