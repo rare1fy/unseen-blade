@@ -65,7 +65,21 @@ export const frames = (n: number) => new Promise<void>(res => { const f = () => 
 
 type Hook = (dt: number, rdt: number) => void;
 const updaters = new Set<Hook>(), lateUpdaters: Hook[] = [];
-export const onUpdate = (fn: Hook) => { updaters.add(fn); return () => updaters.delete(fn); };
+let target = updaters;
+export const onUpdate = (fn: Hook) => { const set = target; set.add(fn); return () => set.delete(fn); };
+/** Effects created on a detached stage start ticking when it is attached and die with it. */
+export function stageUpdates() {
+  const hooks = new Set<Hook>();
+  return {
+    during<T>(build: () => T) {
+      const previous = target;
+      target = hooks;
+      try { return build(); } finally { target = previous; }
+    },
+    tick(dt: number, rdt: number) { for (const fn of hooks) fn(dt, rdt); },
+    clear() { hooks.clear(); },
+  };
+}
 export const onLateUpdate = (fn: Hook) => { lateUpdaters.push(fn); };
 export function runUpdaters(dt: number, rdt: number) { for (const f of updaters) f(dt, rdt); }
 export function runLateUpdaters(dt: number, rdt: number) { for (const f of lateUpdaters) f(dt, rdt); }

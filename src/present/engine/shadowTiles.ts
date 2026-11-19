@@ -37,7 +37,7 @@ export function updateStageTiles(camera: THREE.Camera) {
   frustum.setFromProjectionMatrix(projection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
   for (const view of views) {
     const { src, original, membership, tiles, visible } = view;
-    if (!src.userData.stageTerrain || !src.parent || src.geometry.attributes.aChunk) continue;
+    if (!src.userData.stageTerrain || !src.parent?.parent || src.geometry.attributes.aChunk) continue;
     const geometry = src.geometry, index = geometry.index!;
     if (!OPT.cameraTiles || !OPT.shadowTiles) {
       if (view.clipped) {
@@ -225,7 +225,7 @@ export function installShadowTiles(r: THREE.WebGLRenderer) {
       L.copy(dl.position).sub(dl.target.position);
       if (L.y > 0.01 && L.z < -0.01) blocks = L.x < -0.01 ? 3 : 4;
     }
-    for (const t of TILES) { t.src.castShadow = false; t.mesh.visible = !t.src.userData.usingBaked;
+    for (const t of TILES) { if (!t.src.parent?.parent) continue; t.src.castShadow = false; t.mesh.visible = !t.src.userData.usingBaked;
       if (t.mesh.visible && dl && dl.position.y > dl.target.position.y && OPT.cameraTiles && t.src.userData.stageTerrain && !t.src.geometry.attributes.aChunk) {
         // A roof outside the view can still cast into it. Test the full projected footprint too.
         box.copy(t.box).applyMatrix4(t.src.matrixWorld);

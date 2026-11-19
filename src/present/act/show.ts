@@ -1,7 +1,7 @@
 import { OPT } from '../engine/perfOpts';
 import { ContactBatch } from '../engine/contactBatch';
 import { finishBuild, loadInFrames, BUILD_STATS } from '../engine/buildSteps';
-import { bladeBusy, bladeTimes, runRoomBuild, withLoadingBlade } from '../scenes/loadingBlade';
+import { bladeWorking, bladeBusy, bladeTimes, runRoomBuild, withLoadingBlade } from '../scenes/loadingBlade';
 import { format, language, msg, setLanguage } from './i18n';
 // 动作原型（docs: CLAUDE.md「动作原型」、docs/act/DESIGN.md）：哈迪斯式的一间间屋子。每间屋 = 一张拼装的日本场景（asm），战斗区就是屋子；
 // 敌人分两波从边上出来；清场 → 三选一秘传 → 屋子边上的路口立起高札（写着下一间的地名和清完给什么）→ 自己走进路口 → 一丛竹子
@@ -205,7 +205,8 @@ interface RoomIn { isYard: boolean; room: number; recent: Spec[]; locale: string
   map?: string | null; maps?: string[]; region?: number;
   /** 11-18: the region's defaults for the pick (season …: 下邳 is winter); the place's own lists still apply */ regionSpec?: Partial<Spec> | null }
 /** a room's place, built (off the live scene) and ready to put up */
-interface Room { spec: Spec; big: boolean; layout: Layout; arena: ArenaPlan | null; report: Report | null; prep: PreparedStage; k: { x: number; z: number } }
+interface Fixtures { props: Breakables; solids: Solids; gates: Gates; grid: FloorGrid | null; pieces: RoomPieces | null }
+interface Room { fixtures?: Fixtures; spec: Spec; big: boolean; layout: Layout; arena: ArenaPlan | null; report: Report | null; prep: PreparedStage; k: { x: number; z: number } }
 /** the prologue's first room (act-29) and its one way on */
 /** act-44: where her hips lie on 孙媪's mat when she first wakes (the mat runs along z; her head toward the wall, a metre clear) */
 const WAKE_MAT: [number, number] = [6.42, -6.2];   // (her neck on the headrest at the wall end, her heels short of the folded quilt)
@@ -218,9 +219,47 @@ const COLD_ROOM: RoomIn = { isYard: false, room: 0, recent: [], locale: 'hs_forg
 /** pick the spec, lay out the floor and the arena, assemble and build the place — touching nothing live except the stage size
  *  (setStage, which the caller sets again) */
 function prepRoom(o: RoomIn): Room { return finishBuild(prepRoomSteps(o)); }
-function* prepRoomSteps(o: RoomIn): Generator<void | Promise<void>, Room> {
+function* prepRoomSteps(o: RoomIn, background = false): Generator<void | Promise<void>, Room> {
   const { def, ...room } = roomDefinition(o);
-  return { ...room, prep: yield* prepareStageSteps(def, { combat: true }) };
+  const prep = yield* prepareStageSteps(def, { combat: true, background });
+  if (!background || !room.arena) return { ...room, prep };
+  const arena = room.arena, holder = new THREE.Group(), solids = new Solids();
+  const props = new Breakables(holder, solids);
+  let gates: Gates | undefined, pieces: RoomPieces | null = null, transferred = false;
+  const discard = () => { pieces?.dispose(); gates?.dispose(); props.dispose(); prep.drop(); };
+  try {
+    yield* props.buildSteps(arena.props, arena.covers);
+    yield;
+    gates = new Gates(holder, arena);
+    yield;
+    const grid = arena.shape ? new FloorGrid(arena.shape) : null;
+    if (grid && arena.shape?.fixed) pieces = new RoomPieces(holder, arena.shape, grid, arena.style, room.spec.seed);
+    transferred = true;
+    return { ...room, fixtures: { props, gates, grid, solids, pieces }, prep: { ...prep, drop: discard } };
+  } finally { if (!transferred) discard(); }
+}
+type AheadRoom = {
+  plan: RoomPlan; region: number; room: number; next: RoomPlan[];
+  steps: ReturnType<typeof prepRoomSteps>; size?: ReturnType<typeof stageNow>;
+  ready?: Room; wait?: Promise<void>;
+};
+function advanceAhead(job: AheadRoom) {
+  // Both builders and gameplay read the same stage dimensions. The hideout also overrides PLAY independently.
+  const live = stageNow(), floor = { ...PLAY };
+  try {
+    if (job.size) setStage(job.size.big, job.size.k);
+    const step = job.steps.next();
+    if (step.done) job.ready = step.value;
+    else if (step.value) job.wait = step.value.then(() => { job.wait = undefined; });
+  } finally {
+    job.size = stageNow();
+    setStage(live.big, live.k); Object.assign(PLAY, floor);
+  }
+}
+function onward(room: number, visited: RoomType[], region: number) {
+  if (!isBossRoom(region, room)) return doorsFrom(room, visited, Math.random, region);
+  const next = afterBoss(region);
+  return next === 'won' ? [] : [regionFirstRoom(next, Math.random)];
 }
 export function roomDefinition(o: RoomIn) {
   const { isYard } = o;
@@ -299,6 +338,8 @@ export class ActShow {
   /** a cutscene's place: the open land, no walls / gates / props */ private noArena = false;
   /** 11-18: the shallow water on this room's floor (下邳: the 水鬼 swim in it; LOCALES[…].pools) */ private pools: Array<{ x0: number; x1: number; z0: number; z1: number }> = [];
   /** act-34: a room built ahead of time (prepRoom), waiting to be put up; buildRoom uses it when it is the room asked for */
+  private ahead: AheadRoom[] = [];
+  private aheadTurn = 0;
   private pre: (Room & { locale: string }) | null = null;
   // ------------------------------------------------------------ act-20: story — portrait dialogue, timeline cutscenes, puppets
   dialogue: Dialogue; timeline: Timeline; pause!: PauseMenu; private pauseHud: boolean | null = null; private padSkip = false; private puppets: Foe[] = []; private wasPhase: Phase = 'yard'; private justDied = false;
@@ -994,6 +1035,7 @@ export class ActShow {
   /** 开始画面 (title.ts, act-20): a wide shot of one of the place / weather variants with the menu (开始游戏 / 继续游戏 / 设置);
    *  the title builds its own place and poses its own heroine while frame() idles; the choice cuts into startNewGame / continueGame */
   title(n = 1) {
+    this.dropAhead();
     try { localStorage.setItem('ub.title', String(n)); } catch { /* storage blocked */ }   // the last one shown opens next time
     // a room may be up (__dh.title from the yard): its actors go the way a room change sends them
     this.propContacts?.dispose(); this.propContacts = undefined;
@@ -1154,10 +1196,11 @@ export class ActShow {
     return { region: REGIONS[ri].id, room: this.room, locale: this.locale, waves: this.plan.waves };
   }
   startRun(build = true) {
+    const fromYard = this.room < 0 && OPT.roomAhead;
     this.maps = [];
     this.intent = 0; this.hud.intent = 0;
     this.perks = newPerks(); this.room = 0; this.kills = 0; this.recent = []; this.demo.stop(); this.syncMarks();
-    this.plan = firstRoom(Math.random); this.visited = []; this.coins = 0; this.locale = this.plan.locale;
+    this.plan = (build && fromYard ? this.ahead[0]?.plan : null) ?? firstRoom(Math.random); this.visited = []; this.coins = 0; this.locale = this.plan.locale;
     // 11-18 一局五关: the first region; the TUNE values the regions scale from (the tune panel's, as the run starts)
     this.region = 0; this.bosses = 0; this.regionIn = false; this.baseFoe = { hp: TUNE.enemyHp, dmg: TUNE.enemyDmg, aggression: 0.85, calm: TUNE.atkCalm, attackers: TUNE.maxAttackers };
     // act-20: the hideout's upgrades (meta.ts) for this run
@@ -1178,6 +1221,42 @@ export class ActShow {
     if (this.hud.flask instanceof IronHp) this.hud.flask.setFace(d.id); else HP_FACE.id = d.id;
     if (this.hero) this.hero.setModel(d);
   }
+  private dropAhead(keep?: AheadRoom) {
+    for (const job of this.ahead) {
+      if (job === keep) continue;
+      if (job.ready) job.ready.prep.drop(); else job.steps.return(undefined as never);
+    }
+    this.ahead = [];
+  }
+  private queueAhead(yard: boolean) {
+    this.dropAhead();
+    if (!OPT.roomAhead || this.prologue || this.viewSpec || this.forceShape || this.forceMap || this.forceSpec || this.noArena) return;
+    for (const plan of yard ? [firstRoom(Math.random)] : this.nextRooms) {
+      const region = yard ? 0 : plan.region ?? this.region;
+      const first = yard || region !== this.region, room = first ? 0 : this.room + 1;
+      const next = onward(room, [...(first ? [] : this.visited), plan.type], region);
+      const steps = prepRoomSteps({ isYard: false, locale: plan.locale, plan, room, region, regionSpec: REGIONS[region].spec,
+        recent: yard ? [] : this.recent.slice(), shapes: yard ? [] : this.shapes.slice(), maps: yard ? [] : this.maps.slice(),
+        seed: Date.now() % 100000 + room * 977, nextRooms: next, noArena: false, forceSpec: null, viewSpec: null }, true);
+      this.ahead.push({ plan, region, room, next, steps });
+    }
+  }
+  private workAhead() {
+    if (!OPT.roomAhead) { this.dropAhead(); return; }
+    const until = performance.now() + 2;
+    do {
+      const job = this.ahead[this.aheadTurn++ % this.ahead.length];
+      if (job.ready || job.wait) {
+        if (this.ahead.every(j => j.ready || j.wait)) break;
+        continue;
+      }
+      try { advanceAhead(job); }
+      catch (error) {
+        console.warn('[stage] background build failed', error);
+        this.dropAhead(); break;
+      }
+    } while (performance.now() < until && this.ahead.some(j => !j.ready && !j.wait));
+  }
   private buildRoom(first: boolean) { return runRoomBuild(this.roomSteps(first)); }
   private *roomSteps(first: boolean): Generator<void | Promise<void>, void> {
     blood.clear();
@@ -1190,9 +1269,10 @@ export class ActShow {
     this.hero?.a.dispose();
     const isYard = this.room < 0;
     if (!isYard && this.plan && !this.viewSpec) this.visited.push(this.plan.type);
-    this.nextRooms = !isYard && this.plan && !this.viewSpec ? doorsFrom(this.room, this.visited, Math.random, this.region) : [];
-    // 11-18 一局五关: past a region's boss the road goes on into the next region's first room (the last region's boss ends the run)
-    if (!isYard && this.plan && !this.viewSpec && !this.prologue && isBossRoom(this.region, this.room)) { const nx = afterBoss(this.region); this.nextRooms = nx === 'won' ? [] : [regionFirstRoom(nx, Math.random)]; }
+    const job = OPT.roomAhead && !this.viewSpec && !this.forceSpec && !this.forceShape && !this.forceMap && !this.noArena
+      && (!__WX__ || bladeWorking()) ? this.ahead.find(j => j.plan === this.plan && j.region === this.region && j.room === this.room) : undefined;
+    this.dropAhead(job);
+    this.nextRooms = job?.next ?? (!isYard && this.plan && !this.viewSpec ? onward(this.room, this.visited, this.region) : []);
     if (this.prologue === 1 && !this.viewSpec) this.nextRooms = [PRO_BOSS]; else if (this.prologue === 2) this.nextRooms = [];   // act-29
     // act-34: the place itself — built ahead of time when it can be (the title builds a new game's first room while it loads), else now
     // (11-18: a region's own look — 下邳 is always winter — unless the prologue or a view asks otherwise)
@@ -1201,16 +1281,23 @@ export class ActShow {
     const ready = this.pre && !isYard && !this.viewSpec && this.prologue === 1 && this.room === 0 && this.pre.locale === this.locale ? this.pre : null;
     if (this.pre && this.pre !== ready) this.pre.prep.drop();
     this.pre = null;
-    const t0 = performance.now(), P = ready ?? (yield* prepRoomSteps(want)); this.buildMs = Math.round(performance.now() - t0);
+    const t0 = performance.now();
+    if (job) while (!job.ready) {
+      if (job.wait) yield job.wait;
+      advanceAhead(job);
+      if (!job.ready) yield;
+    }
+    const P = job?.ready ?? ready ?? (yield* prepRoomSteps(want)); this.buildMs = Math.round(performance.now() - t0);
+    setStage(P.big, P.k);
     const spec = P.spec; this.recent.push(spec); this.spec = spec; this.pools = LOCALES[spec.locale]?.pools?.(spec.seed) ?? [];
     if (P.arena?.shape?.fixed) {
       this.locale = spec.locale;
       if (this.plan) this.plan = { ...this.plan, locale: spec.locale };
     }
     audio.setRoom(ROOM_VERB[this.locale] ?? (isYard ? ROOM_VERB.yard : [0.6, 0.12]));
-    setStage(P.big, P.k); this.layout = P.layout; this.arena = P.arena; if (P.report) this.lastReport = P.report;
+    this.layout = P.layout; this.arena = P.arena; if (P.report) this.lastReport = P.report;
     // 11-18 屋子形态: the floor as a grid (the clamp, the foes' way round, the pits); the rectangle rooms have none
-    this.grid = P.arena?.shape ? new FloorGrid(P.arena.shape) : null;
+    this.grid = P.fixtures ? P.fixtures.grid : P.arena?.shape ? new FloorGrid(P.arena.shape) : null;
     { const g = this.grid; blood.skip = g ? (x, z) => g.at(x, z) === PIT : null; }
     if (P.arena?.shape && !this.viewSpec) this.shapes.push(P.arena.shape.id);
     if (P.arena?.shape?.fixed && !this.viewSpec) this.maps.push(P.arena.shape.fixed.id);
@@ -1220,10 +1307,12 @@ export class ActShow {
     yield;
     if (isYard) Object.assign(PLAY, HIDEOUT.floor);   // act-20: the hideout 断碑古窑 (hideout.ts) is the yard now — its own stage and floor
     this.solids.clear(); this.props?.dispose(); this.props = null; this.botWp = 0;
+    if (P.fixtures) this.solids = P.fixtures.solids;
     if (isYard) for (const so of HIDEOUT.solids) this.solids.add({ kind: 'prop', ...so });
     if (this.arena && this.stage) {
       // act-20: the cover pieces are breakable (Breakables builds them and their solids)
-      this.props = new Breakables(this.stage.root, this.solids); yield* this.props.buildSteps(this.arena.props, this.arena.covers);
+      if (P.fixtures) { this.props = P.fixtures.props; this.stage.root.add(this.props.root); }
+      else { this.props = new Breakables(this.stage.root, this.solids); yield* this.props.buildSteps(this.arena.props, this.arena.covers); }
       // act-37: the snowy night's braziers (the prologue's village and temple): four warm points round the floor, where it is free
       // 11-18 (用户：「场景要有差异」): 崔府各间的灯由场景摆，雪夜的通用火盆会盖住冰色和石灯。
       if (spec.weather === 'snow' && spec.time === 'night' && !spec.locale.startsWith('cx_')) for (const [x, z] of [[PLAY.x0 + 1.6, PLAY.z0 + 1.8], [PLAY.x1 - 1.6, PLAY.z0 + 1.8], [PLAY.x0 + 1.6, PLAY.z1 - 3.2], [PLAY.x1 - 1.6, PLAY.z1 - 3.2]]) {
@@ -1233,18 +1322,21 @@ export class ActShow {
         this.stage.root.add(brazier(px, pz)); this.solids.add({ kind: 'prop', shape: 'circle', x: px, z: pz, r: 0.42 });
       }
       yield;
-      this.gates = new Gates(this.stage.root, this.arena);
+      this.gates = P.fixtures?.gates ?? new Gates(this.stage.root, this.arena);
+      if (P.fixtures) this.stage.root.add(this.gates.root);
       // 11-18 定死的屋子: the moving pieces, and the floor's pieces fought in turn (S's first, then on through its doors)
       this.pieces = null; this.stageZ = []; this.stageOf = []; this.waitZone = -1; this.rewardsGot = 0;
       yield;
       const fsh = this.arena.shape;
       if (fsh?.fixed && this.grid) {
-        const P = this.pieces = new RoomPieces(this.stage.root, fsh, this.grid, this.arena.style, spec.seed); this.props.onStrike = s => this.pieces?.strike(s);
+        const built = P.fixtures?.pieces;
+        if (built) this.stage.root.add(built.root);
+        const pieces = this.pieces = built ?? new RoomPieces(this.stage.root, fsh, this.grid, this.arena.style, spec.seed); this.props.onStrike = s => this.pieces?.strike(s);
         // (the bell frames and the rope posts stand in the way like any post)
         for (const m of fsh.fixed.marks) if (m.kind === 'bell' || m.kind === 'rope' || m.kind === 'wheel') this.solids.add({ kind: 'prop', shape: 'circle', x: m.x, z: m.z, r: m.kind === 'rope' ? 0.3 : 0.42 });
-        const seen = [P.zoneAt(fsh.enter[0], fsh.enter[1])];
+        const seen = [pieces.zoneAt(fsh.enter[0], fsh.enter[1])];
         while (seen.length < fsh.fixed.stages) {
-          const cur = seen[seen.length - 1], nx = P.pieces.filter(q => q.kind === 'door' && q.sides.includes(cur)).map(q => q.sides[0] === cur ? q.sides[1] : q.sides[0]).filter(z => z >= 0 && !seen.includes(z));
+          const cur = seen[seen.length - 1], nx = pieces.pieces.filter(q => q.kind === 'door' && q.sides.includes(cur)).map(q => q.sides[0] === cur ? q.sides[1] : q.sides[0]).filter(z => z >= 0 && !seen.includes(z));
           if (!nx.length) break; seen.push(nx[0]);
         }
         this.stageZ = seen;
@@ -1340,6 +1432,7 @@ export class ActShow {
     const touch = this.inp.lastDevice === 'touch' && 'ontouchstart' in globalThis;
     this.banner.show('断碑古窑', touch ? '走近人点右下说话 · 踩石板叫陪练 · 出院门开打' : this.inp.lastDevice === 'pad' ? msg`走近人按 ${actPad('attack')} 说话 · 踩石板叫陪练 · 出院门开打` : !__DEBUG_UI__ ? msg`走近人按 ${actKey('attack')} 说话 · 踩石板叫陪练 · 出院门开打` : msg`走近人按 ${actKey('attack')} 说话 · 踩石板叫陪练 · 出院门开打 · \` 键调手感`, 4);
     this.log.push('yard');
+    this.queueAhead(true);
   }
   private spawnWave() {
     const kinds = this.plan?.waves[this.wave] ?? [], hp = this.hero.pos;
@@ -2603,7 +2696,7 @@ export class ActShow {
       g.rotation.y = Math.atan2(-g.position.x * 0.4, 12); this.stage?.root.add(g);
       return { ex, g, lift: 0 };
     });
-    this.phase = 'doors'; cue(this.gates ? 'gateOpen' : 'reveal', 0.8); if (this.gates) after(0.6, () => cue('exitChime', 0.7)); this.gates?.open(); this.gustT = 0.9;
+    this.phase = 'doors'; this.queueAhead(false); cue(this.gates ? 'gateOpen' : 'reveal', 0.8); if (this.gates) after(0.6, () => cue('exitChime', 0.7)); this.gates?.open(); this.gustT = 0.9;
     if (!quiet) this.banner.show('去路', ds.length > 1 ? '走进一条路口' : '往前走', 1.2);
   }
   private leave(i: number) {
@@ -2662,6 +2755,7 @@ export class ActShow {
     if (this.storyIdle > 0.5) { this.storySkip = false; FX.speed = this.storyWas; }
   }
   private frame(dt: number, rdt: number) {
+    if (this.ahead.length && (this.phase === 'doors' || this.phase === 'yard') && !bladeBusy()) this.workAhead();
     if (bladeBusy()) return;
     this.storySkipFrame();
     if (PAUSE.on) { this.L.text.hide('act.npc'); return; }   // the pause menu runs on its own (real time); the world gets nothing (11-18: a hideout name over the menu's pages hidden)
