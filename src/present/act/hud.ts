@@ -57,6 +57,8 @@ export class ActHud {
   /** copper coins in the purse (act-17), shown under the health number */
   coins = 0; private coinIcon: THREE.Group | null = null; /** act-29: the shown count runs up to the real one; the coin hops on each step */ private coinShown = 0; private coinHop = 0;
   stickHome = { x: 150, y: 600 }; stickSize = 150; k = 1; on = true; private W = 1280; private H = 720;
+  /** 11-19 获得提示: the top-left of the reward column, under the portrait's purse */
+  feedAt = { x: 18, y: 112 };
   /** the pad buttons drawn after the words under the buttons (in the text layer: crisp, on top) */
   private glyphs: Partial<Record<BtnName, THREE.Mesh>> = {};
   private glyph(n: BtnName, i: number | null, left: number, y: number, h: number) {
@@ -142,6 +144,7 @@ export class ActHud {
     setGrid(H, this.L.dpr || 1);
     const k = Math.min(1.25, Math.max(0.62, H / 720)); this.k = k;
     this.flask.place(Math.max(30, 40 * k), Math.max(34, 46 * k), Math.max(0.62, 0.8 * k));
+    { const fk = Math.max(0.62, 0.8 * k); this.feedAt = { x: Math.max(30, 40 * k) - 14 * fk, y: Math.max(34, 46 * k) + 78 * fk }; }
     this.stickHome = { x: 160 * k, y: H - 140 * k }; this.stickSize = 170 * k;
     // an arc of three round the big cut button: dash low left, jump up left, the special above
     const b = this.btns; if (b.attack instanceof IronBtn) b.attack.badgeSide = 1; b.attack.size = 150 * k; b.dash.size = 100 * k; b.special.size = 100 * k; b.jump.size = 100 * k;

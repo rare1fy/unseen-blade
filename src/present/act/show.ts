@@ -99,6 +99,7 @@ import { MANUALS } from './manuals';
 import { fillVals } from './cards';
 import { Hero, QI_LINK, type HeroWorld } from './hero';
 import { Tutorial, type LessonId } from './tutorial';
+import { RewardFeed } from './rewardFeed';
 import { Duel, type DuelHost } from './qte';
 /** 11-17: the 刀谱 links the first few openings of which are slowed down to teach them (二段跳 is no link; 穿风斩 / 劈山 / 回锋斩 are known from the start) */
 // (11-18: 断云, 牵红, 踏顶 too; 掠地 not — like 二段跳 it is on whenever she is in the air, so it would slow every jump)
@@ -734,7 +735,7 @@ export class ActShow {
   private viewSpec: Partial<Spec> | null = null; private lastReport: Report | null = null;
   private spec: Spec | null = null; private layout: Layout | null = null; private doors: Array<{ ex: ExitInfo; g: THREE.Group; lift: number }> = []; private locale = 'ninja_wilds';
   private cam = V3(0, 0, 0); private recent: Spec[] = [];
-  private botWp = 0; private botTalkT = 0; botOn = false; kills = 0; log: string[] = []; private introT = 0; private audioOn = false; private hinted = false; tut!: Tutorial;
+  private botWp = 0; private botTalkT = 0; botOn = false; kills = 0; log: string[] = []; private introT = 0; private audioOn = false; private hinted = false; tut!: Tutorial; feed!: RewardFeed;
   /** the training yard (room −1) and the costume on the hero */
   yard: Yard | null = null; wearing: ModelDef = savedHero(); private lineupActors: BattleActor[] = [];
   private aimLine!: THREE.Mesh;
@@ -745,7 +746,7 @@ export class ActShow {
     SELF = this; this.dialogue = new Dialogue(this.L, this.ov); this.timeline = new Timeline(this.L);
     HP_FACE.id = this.wearing.id;   // the HP medallion shows the look she wears
     this.hud = new ActHud(this.L); this.cards = new CardPick(this.L); this.banner = new SkinBanner(this.L, SKIN.id, () => this.hud.bossOn);
-    this.tut = new Tutorial(this.L); this.duel = new Duel(this.duelHost);   // 11-18 QTE 拼刀 / 连环破势 (act/qte.ts)
+    this.tut = new Tutorial(this.L); this.feed = new RewardFeed(this.L); this.duel = new Duel(this.duelHost);   // 11-18 QTE 拼刀 / 连环破势 (act/qte.ts)
     platform.onPointer(ev => { if (ev.type === 'down') this.unlockAudio(); this.pointer(ev.type, (ev as { id?: number }).id ?? 0, ev.x, ev.y); });
     platform.onResize(() => this.layout2());
     if (typeof window !== 'undefined') window.addEventListener('keydown', e => this.key(e));
@@ -1804,7 +1805,7 @@ export class ActShow {
     const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide();
     const i = await this.cards.open(list.map(m => ({ boon: manualCard(m), tier: 0 })));
     const m = list[i]; this.perks.moves[m.id] = true; this.log.push(`manual ${m.id}`); this.syncMarks();
-    this.hud.on = true; this.banner.show(m.name, '刀谱', 1.2, '#f0e0b0');
+    this.hud.on = true; this.feed.push('manual', () => msg`刀谱 · ${m.name}`, 0, 'manual:' + m.id);
     // 11-18 (用户：「如何释放的教学不能是纯文字哈」): a ghost of her does the move once beside her, the HUD's buttons pressed in step
     await this.demoMove(m.id);
     this.phase = was === 'pick' ? 'pick' : was;
@@ -2190,7 +2191,7 @@ export class ActShow {
     for (const e of r.events) if (e.k === 'boom') { this.leaves?.blast(e.x, e.z, 4.5, 8); this.pieces?.boom(e.x, e.z, e.r); }
     for (const e of r.events) if (e.k === 'break' && e.drop) {
       if (e.drop.kind === 'coins') this.coinsFx.drop(V3(e.p.x, 0.3, e.p.z), e.drop.n, 1);
-      else { this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + e.drop.n); this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp }); fxSparks(this.hero.a.chest(), 0x9aff9a, 10, 2); }
+      else { const was = this.hero.hp; this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + e.drop.n); this.healFeed(was); this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp }); fxSparks(this.hero.a.chest(), 0x9aff9a, 10, 2); }
     }
     for (const d of r.damage) {
       const from = V3(d.fromX, 0.5, d.fromZ);
@@ -2747,8 +2748,8 @@ export class ActShow {
       await this.boonPick(); this.openDoors(); return;
     }
     const rw = this.plan?.reward ?? null;
-    if (rw?.k === 'coins') { this.coinsFx.drop(this.hero.pos.clone().add(V3(0, 0, -1.5)), 12, Math.round(rw.n / 12)); this.banner.show('铜钱', `${rw.n}`, 1.0, '#ffd24a'); }
-    else if (rw?.k === 'heal') { this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + Math.round(this.hero.maxHp * 0.35)); this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp }); this.banner.show('回复', '三成五生命', 1.0, '#9aff9a'); await new Promise(r => after(0.8, () => r(null))); }
+    if (rw?.k === 'coins') { this.coinsFx.drop(this.hero.pos.clone().add(V3(0, 0, -1.5)), 12, Math.round(rw.n / 12)); }
+    else if (rw?.k === 'heal') { const was = this.hero.hp; this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + Math.round(this.hero.maxHp * 0.35)); this.healFeed(was); this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp }); await new Promise(r => after(0.8, () => r(null))); }
     else if (rw?.k === 'manual') await this.manualPick();
     else {
       await this.boonPick();
@@ -2758,9 +2759,9 @@ export class ActShow {
   /** 11-18 定死的屋子: a reward picked up (a hidden room's, an islet's): coins, a heal or (when the room is calm) a boon, by the room */
   private async reward() {
     const k = ((this.spec?.seed ?? 0) + this.rewardsGot++) % 3, calm = !this.foes.some(f => f.st !== 'dead' && f.kind !== 'dummy');
-    if (k === 1) { this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + Math.round(this.hero.maxHp * 0.25)); this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp }); this.banner.show('回复', '两成五生命', 1.0, '#9aff9a'); }
+    if (k === 1) { const was = this.hero.hp; this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + Math.round(this.hero.maxHp * 0.25)); this.healFeed(was); this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp }); }
     else if (k === 2 && calm && (this.phase === 'fight' || this.phase === 'doors')) await this.boonPick();
-    else { this.coinsFx.drop(this.hero.pos.clone().add(V3(0, 0, -0.6)), 10, 3); this.banner.show('铜钱', '30', 1.0, '#ffd24a'); }
+    else { this.coinsFx.drop(this.hero.pos.clone().add(V3(0, 0, -0.6)), 10, 3); }
   }
   /** three boons with rolled tiers — a 死士 room rolls better */
   private async boonPick() {
@@ -2770,6 +2771,8 @@ export class ActShow {
     const i = await this.cards.open(pick); const b = pick[i]; this.take(b.boon, b.tier);
     this.hud.on = true; this.phase = was === 'pick' ? 'pick' : was;
   }
+  /** 11-19 获得提示: a heal into the column (what it really gave back) */
+  private healFeed(was: number) { const n = Math.round(this.hero.hp - was); if (n > 0) this.feed.push('heal', v => msg`生命 +${v}`, n); }
   /** the boons in hand that can still go up a tier */
   private sharpenable() { return BOONS.filter(b => this.perks.owned[b.id] != null && this.perks.owned[b.id] < 2); }
   /** 磨刀: pick one of the boons in hand (shown at its next tier); it goes up a tier */
@@ -2778,18 +2781,18 @@ export class ActShow {
     const cards: BoonPick[] = own.map(b => ({ boon: b, tier: this.perks.owned[b.id] + 1 }));
     const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide();
     const i = await this.cards.open(cards); const b = own[i]; upgradeBoon(this.perks, b.id); this.log.push(`sharpen ${b.id} ${this.perks.owned[b.id]}`); this.syncMarks();
-    this.hud.on = true; this.phase = was; this.banner.show(b.name, TIER_NAMES[this.perks.owned[b.id]], 1.2, b.col);
+    this.hud.on = true; this.phase = was; this.feed.push('boon', () => msg`${b.name} · ${TIER_NAMES[this.perks.owned[b.id]]}`, 0, 'sharpen:' + b.id);
   }
   /** a station's ring filled: pay, then do its thing */
   private async useStation(s: Station) {
     if (!this.stations) return;
     if (s.price > this.coins) return;
     this.coins -= s.price; cue(s.price ? 'coin' : 'reveal', 0.6); this.log.push(`station ${s.id}`);
-    const heal = (k: number) => { this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + Math.round(this.hero.maxHp * k)); this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp }); };
+    const heal = (k: number) => { const was = this.hero.hp; this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + Math.round(this.hero.maxHp * k)); this.healFeed(was); this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp }); };
     if (s.id === 'buy_boon') { this.stations.spend(s); await this.boonPick(); }
-    else if (s.id === 'buy_heal') { this.stations.spend(s); heal(0.4); this.banner.show('金疮药', '四成生命', 1.0, '#9aff9a'); }
+    else if (s.id === 'buy_heal') { this.stations.spend(s); heal(0.4); }
     else if (s.id === 'buy_sharpen') { this.stations.spend(s); await this.sharpen(); }
-    else if (s.id === 'rest_heal') { this.stations.spend(s, true); heal(0.4); this.banner.show('裹伤调息', '四成生命', 1.0, '#9aff9a'); }
+    else if (s.id === 'rest_heal') { this.stations.spend(s, true); heal(0.4); }
     else if (s.id === 'rest_sharpen') { this.stations.spend(s, true); await this.sharpen(); }
     else if (s.id === 'scroll' && drawManuals(this.perks.moves, 1, Math.random).length) { this.stations.spend(s); await this.manualPick(); }   // act-19: the 遗卷 altar gives a 刀谱 while any are left
     else if (s.id === 'scroll') { this.stations.spend(s); await this.boonPick(); }
@@ -2797,8 +2800,8 @@ export class ActShow {
   private take(b: Boon, tier = 0) { // wp/boons: ownership lives on Perks
     applyBoon(this.perks, b.id, tier); this.log.push(`boon ${b.id} tier ${tier}`); // wp/boons: apply the selected tier
     this.syncMarks();
-    // (11-18: the banner says the one line of what it does — the card's — not the old percentages)
-    this.banner.show(b.name, boonEffect(b), 1.4, b.col);
+    // (11-19 获得提示: into the column under the portrait — the card already said what it does)
+    this.feed.push('boon', () => msg`秘传 · ${b.name}`, 0, 'boon:' + b.id);
   }
   private openDoors(quiet = false) {
     const ds = this.nextRooms, ids = (this.spec?.exits ?? []) as ExitId[];
@@ -2926,7 +2929,7 @@ export class ActShow {
       if (this.phase === 'talk') { this.hero.a.update(dt); this.hero.scriptPose?.(); for (const f of this.foes) f.a.update(dt); for (const n of this.npcs) n.a.update(dt); this.leaves?.update(dt, this.cam.x, this.cam.z); this.gates?.update(dt); }
       for (const f of this.puppets) if (this.phase === 'talk' && !f.a.root.userData.still) f.a.update(dt);   // (act-30: the dead stay still)
       blood.update(dt);   // (11-18: the prologue's wound bleeds through the cutscene and the talk — the drops fall instead of hanging in the air)
-      this.hud.update(rdt, this.inp, []); this.L.on = true; return;
+      this.hud.update(rdt, this.inp, []); this.feed.update(rdt, this.hud.feedAt, this.hud.k, false); this.L.on = true; return;
     }
     // act-29: the prologue's temple — about half a minute in, his blow ends it whatever her blood
     if (this.prologue === 2 && this.phase === 'fight' && !this.proFalling && this.foes.some(f => isBoss(f))) { this.proFightT += dt; if (this.proFightT > 60) void this.prologueFall(); }   // (a fallback only: the fifth of his life is the cue)
@@ -3073,7 +3076,7 @@ export class ActShow {
       if (this.phase === 'doors' && this.gates) { this.gustT -= dt; if (this.gustT <= 0) { this.gustT = 3.2; for (const t of this.gates.targets()) { const wd = this.grid?.way(h.pos.x, h.pos.z, t.x, t.z, 0.4); if (wd) this.leaves.gust(h.pos.x, h.pos.z, h.pos.x + wd[0] * 5, h.pos.z + wd[1] * 5); else this.leaves.gust(h.pos.x, h.pos.z, t.x, t.z); } cue('exitChime', 0.25); } }
     }
     // copper coins fly in; the stations of a shop / rest / scroll room fill their rings under a hero standing still on a mat
-    { const got = this.coinsFx.update(dt, h.pos); if (got) { this.coins += got; cue('coin', 0.3); } this.hud.coins = this.coins; }
+    { const got = this.coinsFx.update(dt, h.pos); if (got) { this.coins += got; cue('coin', 0.3); this.feed.push('coins', n => msg`铜钱 +${n}`, got); } this.hud.coins = this.coins; }
     if (this.stations && this.phase === 'doors') {
       const s = this.stations.update(dt, h.pos, Math.hypot(h.vel.x, h.vel.z) > 0.8, st => st.price <= this.coins && (!st.id.endsWith('sharpen') || this.sharpenable().length > 0));
       this.stations.setPurse(this.coins);
@@ -3167,7 +3170,7 @@ export class ActShow {
       if (!this.demo.on) { this.hud.setHints(hints); this.teach(hints); } }   // (the demonstration drives the buttons' links itself)
     this.hud.heroAt.copy(h.pos);
     // (11-18: a foe out of sight — a 死士 in the shadow, a 水鬼 under the water — shows no bar over its head)
-    this.hud.update(rdt, this.inp, this.foes.some(f => f.mem.hidden && !isBoss(f)) ? this.foes.filter(f => !f.mem.hidden || isBoss(f)) : this.foes); this.cards.update(rdt); this.banner.update(rdt);
+    this.hud.update(rdt, this.inp, this.foes.some(f => f.mem.hidden && !isBoss(f)) ? this.foes.filter(f => !f.mem.hidden || isBoss(f)) : this.foes); this.cards.update(rdt); this.banner.update(rdt); this.feed.update(rdt, this.hud.feedAt, this.hud.k, this.hud.on);
     this.L.on = true;
   }
   // ------------------------------------------------------------ input
