@@ -42,6 +42,7 @@ import { wipeTransit } from '../scenes/transWipe';
 import { dh } from '../../debug/dh';
 import { Rain, Ripples, lanternPost, paintTitle, quad, place, contactShadow, stopOpening, FLASH as FLASH_NIGHT } from './opening';
 import { TITLE_COUNT } from './titleFlag';
+import { TitleFx } from './titleFx';
 
 type P3 = [number, number, number];
 // ================================================================== the variants
@@ -54,7 +55,7 @@ export interface TitleDef {
   /** extra dressing built with the place (puddles, debris…) */
   dress?(c: Ctx): void;
   /** the light: the place's own mood (asm/sky.ts moodFor) with these changes; stars off unless asked */
-  mood(m: Mood): Mood; stars?: boolean; exposure?: number; bloomT?: number; /** colour saturation of the grade (default 1.12) */ sat?: number;
+  mood(m: Mood): Mood; stars?: boolean; exposure?: number; bloomT?: number; /** colour saturation of the grade (default 1.12) */ sat?: number; /** perimeter vignette strength (default 0.86) */ vig?: number;
   /** where she stands (x, z) and faces; walk = she walks there from `from` at `speed` m/s first */
   hero: { at: [number, number]; yaw: number; from?: [number, number]; speed?: number; wind?: number };
   /** the camera: its base swings slowly between a and b (period s); the focus (her, at focusY) is held at screen (nx, ny);
@@ -211,10 +212,10 @@ class Snow {
     this.pts = new THREE.Points(g, pointMat(0.055, false, 0.9)); this.pts.frustumCulled = false; this.pts.renderOrder = 6;
   }
   private spawn(i: number, y: number) { const b = this.box; this.p[i * 3] = R(b[0], b[1]); this.p[i * 3 + 1] = y; this.p[i * 3 + 2] = R(b[2], b[3]); this.ph[i] = R(0, 6.28); this.v[i] = R(0.55, 0.95); }
-  update(dt: number, t: number) {
+  update(dt: number, t: number, gust = 0) {
     const P = this.p;
     for (let i = 0; i < this.n; i++) {
-      const i3 = i * 3; P[i3 + 1] -= this.v[i] * dt; P[i3] += (0.35 + 0.25 * Math.sin(t * 0.6 + this.ph[i])) * dt; P[i3 + 2] += 0.12 * Math.sin(t * 0.8 + this.ph[i] * 1.7) * dt;
+      const i3 = i * 3; P[i3 + 1] -= this.v[i] * dt; P[i3] += (0.35 + 0.55 * gust + 0.25 * Math.sin(t * 0.6 + this.ph[i])) * dt; P[i3 + 2] += 0.12 * Math.sin(t * 0.8 + this.ph[i] * 1.7) * dt;
       if (P[i3 + 1] < 0) this.spawn(i, R(8, 9.5)); else if (P[i3] > this.box[1]) P[i3] = this.box[0];
     }
     this.pos.needsUpdate = true;
@@ -559,7 +560,7 @@ dh.add({
 });
 
 type Beat = 'menu' | 'confirm' | 'draw' | 'cut' | 'split' | 'done';
-const TITLE = '不见刀', INK = '#e8ece8', LINE = '#0a0d12';
+const TITLE = '不见刀', LINE = '#0a0d12';
 const MENU: Item[] = [{ id: 'new', label: '开始游戏', enabled: true }, { id: 'cont', label: '继续游戏', enabled: false }, { id: 'set', label: '设置', enabled: true }];
 const ASK: Item[] = [{ id: 'yes', label: '重新开始', enabled: true }, { id: 'no', label: '返回', enabled: true }];
 const ASK_NOTE = '原有进度将尽数清空';
@@ -573,11 +574,12 @@ class Title {
   private birds: Birds | null = null; private mist: Mist | null = null; private smoke: Smoke | null = null; private fires: THREE.PointLight[] = []; private blaze: Blaze | null = null; private crackle = 2;
   private glint: THREE.Mesh | null = null;
   private flashT = -1; private flashK = 0; private nextFlash = 6; private mood: Mood;
-  private shadowSave: { l: number; r: number; t: number; b: number } | null = null; private satSave = 1.12;
+  private shadowSave: { l: number; r: number; t: number; b: number } | null = null; private satSave = 1.12; private vigSave = 0.55; private baseVig = 0.86;
   // the overlay title, the cut line, the frozen picture
-  private tex: THREE.CanvasTexture | null = null; private titleM: THREE.Mesh | null = null; private noteTex: THREE.CanvasTexture | null = null; private noteM: THREE.Mesh | null = null;
+  private titleFx: TitleFx; private noteTex: THREE.CanvasTexture | null = null; private noteM: THREE.Mesh | null = null;
   private lay = { x: 0, y: 0, w: 1, h: 1, key: '', cx: 0, top: 0 };
-  private titleA = 0; private line: THREE.Mesh[] = []; private slabs: THREE.Mesh[] = []; private frame: THREE.Texture | null = null; private grab = false; private grabbed = false; private cutY = 0;
+  private gust = 0.4; private fireGlow = 1; private ptr = { x: 0, y: 0, tx: 0, ty: 0 };
+  private line: THREE.Mesh[] = []; private slabs: THREE.Mesh[] = []; private frame: THREE.Texture | null = null; private grab = false; private grabbed = false; private cutY = 0;
   // the menu
   private items: Item[]; private plaques: Plaque[] = []; private sel = 0; private menuK = 0; private marker: THREE.Mesh; private markerK = 0; private gap = 10;
   private choice: 'new' | 'continue' = 'new'; private padPrev = { up: false, down: false, ok: false, back: false }; private padRep = 0;
@@ -591,7 +593,7 @@ class Title {
     const def = stage.def;
     this.mood = d.mood({ ...def.mood, earth: [...def.mood.earth] });
     this.setMood(this.mood);
-    GRADE.exposure = d.exposure ?? this.mood.exposure ?? GRADE.exposure; if (d.bloomT != null) GRADE.bloomThreshold = d.bloomT; this.satSave = GRADE.sat; GRADE.sat = d.sat ?? GRADE.sat;
+    GRADE.exposure = d.exposure ?? this.mood.exposure ?? GRADE.exposure; if (d.bloomT != null) GRADE.bloomThreshold = d.bloomT; this.satSave = GRADE.sat; GRADE.sat = d.sat ?? GRADE.sat; this.vigSave = GRADE.vig; this.baseVig = d.vig ?? 0.86; GRADE.vig = this.baseVig;
     // the sun's shadows cover the whole wide view (restored at the end)
     const sun = scene.children.find(o => (o as THREE.DirectionalLight).isDirectionalLight && (o as THREE.DirectionalLight).castShadow) as THREE.DirectionalLight | undefined;
     if (sun) { const c = sun.shadow.camera; this.shadowSave = { l: c.left, r: c.right, t: c.top, b: c.bottom }; Object.assign(c, { left: -24, right: 24, top: 24, bottom: -20 }); c.updateProjectionMatrix(); }
@@ -624,7 +626,8 @@ class Title {
     if (fx.rain || fx.snow) PALPHA.mesh.visible = false;
     // ---- the camera
     shot('title', t => this.cam(t), { cut: true });
-    // ---- the menu
+    // ---- the menu & title fx
+    this.titleFx = new TitleFx(host.ov, d.id, d.ui);
     this.items = MENU.map(it => ({ ...it, enabled: it.id === 'cont' ? host.hasSave() : it.enabled }));
     this.sel = this.items[1].enabled ? 1 : 0;
     this.buildMenu();
@@ -690,10 +693,12 @@ class Title {
       this.rip?.update(dt, this.flashK);
       if (this.glint) { const g = this.glint, cp = camera.position; g.rotation.y = Math.atan2(cp.x - g.position.x, cp.z - g.position.z); (g.material as THREE.MeshBasicMaterial).opacity = 0.3 * (1 + Math.sin(this.t * 7.3) * 0.06) + this.flashK * 0.2; }
       if (this.lamp) { const s = this.lamp.swing; s.rotation.z = 0.2 + Math.sin(this.t * 0.9) * 0.05 + Math.sin(this.t * 2.3) * 0.015; s.rotation.x = Math.sin(this.t * 0.7 + 1) * 0.04; this.lamp.light.intensity = 5.2 * (1 + Math.sin(this.t * 7.3) * 0.05 + Math.sin(this.t * 17) * 0.03); }
-      if (!frozen) { this.snow?.update(dt, this.t); this.embers?.update(dt, this.t); this.blaze?.update(dt, this.t); }
+      this.gust = (0.5 + 0.5 * Math.sin(this.t * 0.7) * Math.sin(this.t * 0.31 + 1.3)) * (0.4 + (d.hero.wind ?? 0.5));
+      if (!frozen) { this.snow?.update(dt, this.t, this.gust); this.embers?.update(dt, this.t); this.blaze?.update(dt, this.t); }
       this.birds?.update(rdt, this.t); this.mist?.update(rdt); this.smoke?.update(rdt);
       // the fire light: a burning house breathes (blaze.level: slow swells), a brazier flickers
       const lv = this.blaze?.level(this.t);
+      this.fireGlow = lv ?? (d.fx.fire?.length ? 1 + Math.sin(this.t * 8) * 0.12 + Math.sin(this.t * 19) * 0.06 : this.lamp ? 1 + Math.sin(this.t * 7.3) * 0.05 + Math.sin(this.t * 17) * 0.03 : 1);
       this.fires.forEach((l, i) => { l.intensity = (d.fx.fire![i].i) * (lv ?? (1 + Math.sin(this.t * 8 + i * 3) * 0.12 + Math.sin(this.t * 19 + i) * 0.06)); });
       // now and then the fire's crackle (the oil-fire samples), quiet under the music, only while the menu is up
       if (this.blaze && this.beat === 'menu') { this.crackle -= rdt; if (this.crackle <= 0) { this.crackle = 3.5 + Math.random() * 4; cue('fire', 0); } }
@@ -704,8 +709,8 @@ class Title {
       if (this.flashT >= 0) {
         this.flashT += rdt; const f = this.flashT;
         this.flashK = f < 0.04 ? f / 0.04 : f < 0.1 ? 1 - (f - 0.04) / 0.06 * 0.75 : f < 0.15 ? 0.25 + (f - 0.1) / 0.05 * 0.55 : Math.max(0, 0.8 * Math.pow(Math.max(0, 1 - (f - 0.15) / 0.55), 2));
-        this.flashK *= 0.7; this.setMood(this.mood, { ...this.mood, ...FLASH_NIGHT, earth: this.mood.earth }, this.flashK); GRADE.flash = this.flashK * 0.05; GRADE.flashCol.setRGB(0.82, 0.88, 1);
-        if (f > 0.75) { this.flashT = -1; this.flashK = 0; this.setMood(this.mood); GRADE.flash = 0; }
+        this.flashK *= 0.7; this.setMood(this.mood, { ...this.mood, ...FLASH_NIGHT, earth: this.mood.earth }, this.flashK); GRADE.flash = this.flashK * 0.05; GRADE.flashCol.setRGB(0.82, 0.88, 1); GRADE.vig = this.baseVig * (1 - 0.35 * this.flashK);
+        if (f > 0.75) { this.flashT = -1; this.flashK = 0; this.setMood(this.mood); GRADE.flash = 0; GRADE.vig = this.baseVig; }
       }
     }
     this.pad(rdt);
@@ -728,18 +733,16 @@ class Title {
     this.lay.key = key;
     // the column: a fifth in from the side; the title a sixth of the screen tall, a whole number of device px per font px
     const label = language === 'en' ? t(TITLE).toUpperCase() : TITLE, track = language === 'en' ? 1 : 3;
-    const width = pixW(label) + track * (label.length - 1);
+    const width = pixW(label) + track * ([...label].length - 1);
     const S = language === 'en' ? Math.max(1, Math.floor(Math.min(H * k / 70, W * k * 0.35 / width))) : Math.max(3, Math.round(Math.min(H * 0.15, W * 0.26 / 3.6) * k / PIX_H));
-    const o = Math.max(1, Math.round(S * 0.18)), pad = 2 * o;
-    const cw = width * S + pad * 2, ch = PIX_H * S + pad * 2;
-    this.tex?.dispose(); this.tex = canvasTex(cw, ch, g => { g.imageSmoothingEnabled = false; paintTitle(g, label, pad, pad, S, track, INK, LINE, o); }, { nearest: true }) as THREE.CanvasTexture;
-    if (this.titleM) { ov.scene.remove(this.titleM); this.titleM.geometry.dispose(); (this.titleM.material as THREE.Material).dispose(); }
-    this.titleM = quad(this.tex, 0, 1, 90); ov.scene.add(this.titleM);
-    const colW = Math.max(cw / k, Math.min(300, W * 0.22)), cx = this.def.ui === 'left' ? Math.max(W * 0.21, colW / 2 + 28) : Math.min(W * 0.79, W - colW / 2 - 28);
-    Object.assign(this.lay, { cx, w: cw / k, h: ch / k, x: Math.round(cx - cw / k / 2), y: Math.round(H * 0.22 - ch / k / 2), top: H * 0.22 + ch / k / 2 });
+    const textW = width * S / k;
+    const colW = Math.max(textW, Math.min(300, W * 0.22)), cx = this.def.ui === 'left' ? Math.max(W * 0.21, colW / 2 + 28) : Math.min(W * 0.79, W - colW / 2 - 28);
+    const cy = Math.round(H * 0.21);
+    const box = this.titleFx.layout(label, cx, cy, S, track, k, W, H);
+    Object.assign(this.lay, { cx: box.cx, w: box.w, h: box.h, x: box.x, y: box.y, top: box.bladeBottom });
     // the plaques: under the title, a column
     const pw = Math.max(150, Math.min(270, W * 0.17)), gap = Math.max(8, pw * PH * 0.34); this.gap = gap;
-    const y0 = Math.max(this.lay.top + H * 0.1, H * 0.5) + pw * PH / 2;
+    const y0 = Math.max(this.lay.top + H * 0.09, H * 0.5) + pw * PH / 2;
     this.plaques.forEach((p, i) => { p.w = pw; p.x = cx; p.y = y0 + i * (pw * PH + gap); });
     this.noteKey = '\0';   // re-place the note (if any) on the next frame
   }
@@ -747,10 +750,18 @@ class Title {
   private drawOverlay(rdt: number) {
     if (this.beat === 'split' || this.beat === 'done') return;
     const L = this.lay;
-    // the title fades in slowly once the place has settled (from 0.6 s, over 2.4 s), rising a few pixels
-    this.titleA = Math.min(1, this.titleA + (this.t > 0.6 ? rdt / 2.4 : 0));
-    const ta = this.titleA * this.titleA * (3 - 2 * this.titleA), rise = (1 - ta) * 8;
-    if (this.titleM) { place(this.titleM, L.x, L.y + rise, L.w, L.h); const mt = this.titleM.material as THREE.MeshBasicMaterial; mt.opacity = ta * (1 - this.menuK); mt.color.setScalar(1 + this.flashK * 0.3); }
+    this.ptr.x += (this.ptr.tx - this.ptr.x) * Math.min(1, rdt * 6);
+    this.ptr.y += (this.ptr.ty - this.ptr.y) * Math.min(1, rdt * 6);
+    this.titleFx.update(rdt, this.t, {
+      gust: this.gust,
+      fireGlow: this.fireGlow,
+      flash: this.flashK,
+      menuFade: 1 - this.menuK,
+      beat: this.beat,
+      beatT: this.bt,
+      pointerX: this.ptr.x,
+      pointerY: this.ptr.y,
+    });
     // the note over the confirm (small, under the title)
     const want = this.beat === 'confirm' ? t(ASK_NOTE) : '';
     if (want !== this.noteKey) {
@@ -803,9 +814,9 @@ class Title {
     if (this.beat !== 'menu' && this.beat !== 'confirm') return;
     const n = this.items.length; let i = this.sel;
     for (let k = 0; k < n; k++) { i = (i + d + n) % n; if (this.items[i].enabled) break; }
-    if (i !== this.sel) { this.sel = i; cue('tick', 0.4); }
+    if (i !== this.sel) { this.sel = i; cue('tick', 0.4); this.titleFx.pulse(); }
   }
-  pick(i: number) { if (this.items[i]?.enabled) this.sel = i; }
+  pick(i: number) { if (this.items[i]?.enabled && i !== this.sel) { this.sel = i; this.titleFx.pulse(); } }
   confirm() {
     if (this.beat === 'menu' && this.t < 0.3) return;
     const it = this.items[this.sel]; if (!it) return;
@@ -830,7 +841,12 @@ class Title {
     if (bladeBusy()) return;
     if (this.beat !== 'menu' && this.beat !== 'confirm') return true;
     const i = this.plaques.findIndex(p => p.inK > 0.5 && p.hit(x, y, this.gap));
-    if (type === 'move') { if (i >= 0 && this.items[i].enabled && i !== this.sel) { this.sel = i; cue('tick', 0.3); } return false; }
+    if (type === 'move') {
+      this.ptr.tx = (x / Math.max(1, this.host.ov.w)) * 2 - 1;
+      this.ptr.ty = (y / Math.max(1, this.host.ov.h)) * 2 - 1;
+      if (i >= 0 && this.items[i].enabled && i !== this.sel) { this.sel = i; cue('tick', 0.3); this.titleFx.pulse(); }
+      return false;
+    }
     if (type === 'down') { this.downAt = i; if (i >= 0 && this.items[i].enabled) this.sel = i; return i >= 0; }
     if (type === 'up') { const was = this.downAt; this.downAt = -1; if (i >= 0 && i === was) { this.sel = i; this.confirm(); } return i >= 0; }
     return false;
@@ -864,6 +880,7 @@ class Title {
     //  page grab below drew the WebGL canvas into a 2D one, which a mini-game cannot do. The frame is now copied on the GPU (after()),
     //  so the cut and the split are the same on every platform)
     this.beat = 'draw'; this.bt = 0;
+    this.titleFx.triggerCut();
     // (her draw-cut is a few pixels at this distance and its trail froze into a glowing blob under the cut's hit-stop: the cut is
     //  the screen's, she only flashes with it)
     const a = this.hero; this.walkK = 1; motionOf(a).run = 0; a.tint(0xe8f0ff, 0.6);
@@ -922,7 +939,7 @@ class Title {
     if (l0 && l1) { l0.visible = l1.visible = edgeA > 0.01; place(l0, 0, c - e * (c + 8) - 2, W, 2); place(l1, 0, c + e * (H - c + 8), W, 2); for (const l of [l0, l1]) (l.material as THREE.MeshBasicMaterial).opacity = edgeA; }
     if (k >= 1) this.finish();
   }
-  private hideOverlay() { for (const m of [this.titleM, this.noteM, ...this.line]) if (m) m.visible = false; for (const p of this.plaques) p.root.visible = false; this.marker.visible = false; }
+  private hideOverlay() { this.titleFx.setVisible(false); for (const m of [this.noteM, ...this.line]) if (m) m.visible = false; for (const p of this.plaques) p.root.visible = false; this.marker.visible = false; }
   // ---------------------------------------------------------------- debug / captures
   /** the shadow-casting light from the mood's direction (moonPos), its shadow box centred on (x, z): the act's followShadow keeps
    *  one fixed direction for the fights, a title wants its own low sun */
@@ -939,7 +956,7 @@ class Title {
   /** the act's world takes over: give back the pose hook, the grade, the shadows and the motes; the place's effects go */
   private restore() {
     if (this.baseHook) POSE_HOOKS[this.hookId] = this.baseHook;
-    GRADE.flash = 0; GRADE.sat = this.satSave; PALPHA.clear(); PALPHA.mesh.visible = true;
+    GRADE.flash = 0; GRADE.sat = this.satSave; GRADE.vig = this.vigSave; PALPHA.clear(); PALPHA.mesh.visible = true;
     const sun = scene.children.find(o => (o as THREE.DirectionalLight).isDirectionalLight && (o as THREE.DirectionalLight).castShadow) as THREE.DirectionalLight | undefined;
     if (sun && this.shadowSave) { const c = sun.shadow.camera, s = this.shadowSave; Object.assign(c, { left: s.l, right: s.r, top: s.t, bottom: s.b }); c.updateProjectionMatrix(); this.shadowSave = null; }
     if (typeof window !== 'undefined') window.removeEventListener('keydown', this.onKey);
@@ -954,9 +971,10 @@ class Title {
     if (this.beat === 'done' && !this.alive) return;
     this.beat = 'done'; this.alive = false;
     const ov = this.host.ov;
-    for (const m of [this.titleM, this.noteM, ...this.line, ...this.slabs]) if (m) { ov.scene.remove(m); m.geometry.dispose(); (m.material as THREE.Material).dispose(); }
-    this.titleM = this.noteM = null; this.line = []; this.slabs = [];
-    this.tex?.dispose(); this.noteTex?.dispose(); this.frame?.dispose();
+    this.titleFx.dispose();
+    for (const m of [this.noteM, ...this.line, ...this.slabs]) if (m) { ov.scene.remove(m); m.geometry.dispose(); (m.material as THREE.Material).dispose(); }
+    this.noteM = null; this.line = []; this.slabs = [];
+    this.noteTex?.dispose(); this.frame?.dispose();
     const i = ov.after.indexOf(this.after); if (i >= 0) ov.after.splice(i, 1);
     if (running === this) running = null;
     this.resolve();
