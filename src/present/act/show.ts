@@ -401,7 +401,10 @@ export class ActShow {
     //  steps planted — heroWalk.ts), stops in the middle, turns her head to listen; sounds round her (rings in the snow); the first
     //  wave's sentries jump out from behind the houses and the walls on every side and close round her; the words; she sets her hand
     //  on the hilt — and the fight is on, the sentries already where they stood
-    const h = this.hero, p0 = h.pos.clone(), WALK = 6.5, stopZ = p0.z - WALK;
+    // (where she stops: 6.5 m up the lane, or short of it if a pot / crate / post stands there — her hands and the sabre clear of it)
+    const h = this.hero, p0 = h.pos.clone(); let WALK = 6.5;
+    while (WALK > 3 && !(this.solids.free(p0.x, p0.z - WALK, 1.0, 0.3) && (!this.grid || this.grid.clear(p0.x, p0.z - WALK, 1.0)))) WALK -= 0.25;
+    const stopZ = p0.z - WALK;
     const ring = (this.plan?.waves[0] ?? []).map((k, i, all) => ({ k, a: Math.PI * 0.15 + (i / all.length) * Math.PI * 2 + 0.35, d: 3.4 + (i % 2) * 0.7 }));
     const jumpers: Array<{ f: Foe; from: THREE.Vector3; to: THREE.Vector3; t0: number; landed: boolean }> = [];
     const snowRing = (x: number, z: number, r = 1.4) => fxRing(V3(x, 0.05, z), 0xdfe8ff, r, { life: 0.9 } as never);
@@ -425,10 +428,16 @@ export class ActShow {
           for (const [i, r] of ring.entries()) {
             // (where each lands: round her at its own angle, turned a little at a time until the spot is clear of the props, the cover
             //  and the walls — none lands in a post or a crate)
-            let a = r.a; const ok = (x: number, z: number) => this.solids.free(x, z, 0.55, 0.3) && (!this.grid || this.grid.clear(x, z, 0.5)) && jumpers.every(j => j.to.distanceTo(V3(x, 0, z)) > 1.3);
-            for (let tt = 0; tt < 12 && !ok(p0.x + Math.sin(a) * r.d, stopZ + Math.cos(a) * r.d); tt++) a += (tt % 2 ? -1 : 1) * 0.28 * (tt + 1);
-            const ko = kindOr(r.k), to = V3(p0.x + Math.sin(a) * r.d, 0, stopZ + Math.cos(a) * r.d), from = to.clone().add(V3(Math.sin(a) * 4.5, 0, Math.cos(a) * 4.5));
-            if (this.grid && !this.grid.clear(from.x, from.z, 0.4)) from.lerp(to, 0.4);
+            // (11-19 用户：「穿模的问题还是有没解决的」: a sentry landed with his arm in a fence and stood so through the talk; the spot now
+            //  keeps a body and its reach (0.9 m) clear of every prop, and the whole leap — from where he jumps to where he lands — passes
+            //  over nothing solid)
+            const clearAt = (x: number, z: number, rr: number) => this.solids.free(x, z, rr, 0.3) && (!this.grid || this.grid.clear(x, z, rr));
+            const leapClear = (fx: number, fz: number, tx: number, tz: number) => { for (let q = 0; q <= 10; q++) { const u = q / 10; if (!clearAt(fx + (tx - fx) * u, fz + (tz - fz) * u, 0.45)) return false; } return true; };
+            let a = r.a, dd = r.d; const ok = (x: number, z: number) => clearAt(x, z, 0.9) && jumpers.every(j => j.to.distanceTo(V3(x, 0, z)) > 1.3);
+            for (let tt = 0; tt < 24 && !ok(p0.x + Math.sin(a) * dd, stopZ + Math.cos(a) * dd); tt++) { a += (tt % 2 ? -1 : 1) * 0.22 * (tt + 1); if (tt === 12) dd += 0.6; }
+            const ko = kindOr(r.k), to = V3(p0.x + Math.sin(a) * dd, 0, stopZ + Math.cos(a) * dd);
+            let from = to.clone().add(V3(Math.sin(a) * 4.5, 0, Math.cos(a) * 4.5));
+            for (let back = 4.5; back > 0.6 && !leapClear(from.x, from.z, to.x, to.z); back -= 0.5) from = to.clone().add(V3(Math.sin(a) * back, 0, Math.cos(a) * back));
             const f = spawnFoe(ko.kind, from, h.pos.clone(), ko.elite); f.st = 'enter'; f.cd = 2.5; this.foes.push(f);
             jumpers.push({ f, from, to, t0: 0.12 + i * 0.22, landed: false });
           }
