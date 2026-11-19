@@ -168,13 +168,18 @@ export async function withLoadingBlade(work: () => void | Promise<void>, cover: 
   pillarRoot.visible = cover === 'pillar';
   const state: BladeState = { phase: 'enter', cover, since: 0, start: 0, frames: 0, hit: false, rx: 0, ry: 0, ta: 0, tw: 0, px: 0, py: 0, vx: 0, vy: 0, last: 0, seen: 0 };
   active = state;
+  // (11-19 用户：「转场加载速度还是有点慢」: how long each part takes — the last few kept in bladeTimes for __dh.bladeTimes())
+  const T0 = performance.now(), mark: Record<string, number> = {};
   try {
     while (!state.frames || performance.now() - state.start < ARRIVAL) await nextFrame();
+    mark.cover = performance.now() - T0;
     state.phase = 'work';
     await nextFrame();
-    await work();
+    const w0 = performance.now(); await work(); mark.work = performance.now() - w0;
+    const h0 = performance.now();
     try { await warmDestination?.(); }
     catch (error) { console.warn('[stage] shader warmup failed', error); }
+    mark.warm = performance.now() - h0;
 
     state.phase = 'ready';
     state.frames = 0;
@@ -186,8 +191,11 @@ export async function withLoadingBlade(work: () => void | Promise<void>, cover: 
     state.since = performance.now();
     cue('bladeFlyOut');
     do { await nextFrame(); } while (performance.now() - state.since < EXIT);
+    mark.total = performance.now() - T0; bladeTimes.push(mark); if (bladeTimes.length > 12) bladeTimes.shift();
   } finally { active = null; }
 }
+/** the last transitions' timings (ms): cover = until the screen is covered, work = building the next place, warm = its shaders, total */
+export const bladeTimes: Array<Record<string, number>> = [];
 
 // ---------------------------------------------------------------- per frame
 /** the stalk's height while it falls in: from above the screen, already moving, faster and faster; then a short stiff bounce */
