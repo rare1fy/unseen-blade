@@ -169,16 +169,15 @@ export class ActHud {
     const b = f.barAt(), x0 = b.x - f.W * this.k / 2; return x > x0 - 10 && x < x0 + 70 * this.k && y > b.y - 30 * this.k && y < b.y + 60 * this.k;
   }
   private setBadgeDown(on: boolean) { if (this.flask instanceof IronHp) this.flask.down = on; }
+  /** a finger let go (whatever screen took the touch): its button, the stick, the portrait are freed */
+  lift(id: number, inp: Input) {
+    if (this.pausePid === id) { this.setBadgeDown(false); this.pausePid = null; }
+    for (const b of Object.values(this.btns)) if (b.pid === id) { b.down = false; b.pid = null; }
+    inp.releaseAll(id);
+  }
   /** touch / mouse: the portrait, the buttons, else the bottom-left area is the stick. Returns true if used */
   pointer(type: string, id: number, x: number, y: number, inp: Input): boolean {
-    if (!this.on) {
-      if (type === 'up' || type === 'cancel') {
-        if (this.pausePid === id) { this.setBadgeDown(false); this.pausePid = null; }
-        for (const b of Object.values(this.btns)) if (b.pid === id) { b.down = false; b.pid = null; }
-        inp.releaseAll(id);
-      }
-      return false;
-    }
+    if (!this.on) return false;
     // the portrait: pressed, it sinks; let go over it, the menu opens (a slip off it cancels). The press that lands on it is the
     // portrait's alone (never a stick or a button press too); a finger already on the stick or a button is not touched by it
     if (type === 'down' && this.pausePid === null && this.hitBadge(x, y)) { this.setBadgeDown(true); this.pausePid = id; return true; }

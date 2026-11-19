@@ -61,7 +61,7 @@ export const TUNE = {
   /** 摇杆：0 = 左下区域里按哪儿出在哪儿（之后底座不动），1 = 固定在左下角 */
   stickFixed: 0,
   // 镜头
-  camH: 11.6, camD: 16.4, camFov: 45, camLead: 0.8,
+  camH: 11.6, camD: 16.4, camFov: 45, camLead: 0.45,
 };
 export type TuneKey = keyof typeof TUNE;
 /** 面板里显示的范围和中文名 */

@@ -705,15 +705,17 @@ export class ActShow {
     for (;;) {
       const p = profile(), ups = META.filter(u => u.who === who), cur = who === 'forge' ? '残铁' : '药引', have = who === 'forge' ? p.iron : p.herb;
       const glyph = who === 'forge' ? ANVIL : NEEDLE;
-      const cards = ups.map(u => { const lv = level(p, u.id), cost = nextCost(p, u.id);
-        return { boon: { id: 'mu_' + u.id, school: (who === 'forge' ? 'fg' : 'md') as never, name: u.name, desc: [...u.desc], col: '#ffd27a', glyph, tag: cost == null ? msg`满 · ${lv}级` : msg`${cur} ${cost} · ${lv}级` } as Boon, tier: cost == null ? 2 : lv > 0 ? 1 : 0 }; });
-      // (11-19 用户：「npc商店页面没有退出按钮」: the back shield at the top left leaves — no 离开 card; what she holds shows on the page)
-      void have;
+      // (11-20 用户：「npc那里购买强化不明」: each card says what it does, what rank it is at, what the next rank costs against what she
+      //  holds — or that she is short, or that it is full; a purchase she can't afford keeps the page open)
+      const cards = ups.map(u => { const lv = level(p, u.id), cost = nextCost(p, u.id), max = u.costs.length;
+        const state = cost == null ? msg`已满级` : have >= cost ? msg`下一级要${cur} ${cost}（有 ${have}）` : msg`${cur}不够：要 ${cost}，只有 ${have}`;
+        return { boon: { id: 'mu_' + u.id, school: (who === 'forge' ? 'fg' : 'md') as never, name: u.name, desc: [u.desc[1], state], col: '#ffd27a', glyph, tag: msg`${lv}/${max}级` } as Boon, tier: cost == null ? 2 : lv > 0 ? 1 : 0 }; });
       const was = this.phase; this.phase = 'pick'; this.hud.on = false;
       const i = await this.cards.open(cards, { leave: true }); this.phase = was; this.hud.on = true;
       if (i < 0 || i >= ups.length) return;
       const u = ups[i];
-      if (!buy(p, u.id)) { const poor = POOR_TALK[id]; if (poor) await this.talk([{ who: id, text: poor }]); return; }
+      if (nextCost(p, u.id) == null) continue;
+      if (!buy(p, u.id)) { const poor = POOR_TALK[id]; if (poor) await this.talk([{ who: id, text: poor }]); continue; }
       saveProfile(); cue('coin', 0.8); this.banner.show(u.name, msg`${level(p, u.id)} 级`, 1.0, '#ffd27a');
     }
   }
@@ -1460,6 +1462,8 @@ export class ActShow {
     const ent = this.arena?.shape?.enter[0] ?? 0, entZ = this.arena?.shape?.fixed ? this.arena.shape.enter[1] : SZ(5.0);   // (a drawn room: its S)
     yield;
     this.hero = new Hero(isYard ? V3(HIDEOUT.spawn[0], 0, HIDEOUT.spawn[1]) : V3(ent, 0, entZ), this.wearing); this.hero.moves = isYard || this.dbgAllMoves ? ALL_MOVES : this.perks.moves; this.hero.perks = this.perks; this.hero.hp = Math.min(hp, maxHp); this.hero.maxHp = maxHp;   // (act-40 用户：「开局第一场战斗默认给主角解锁所有技能」) (11-18: this comment used to sit before the perks / hp assignments and swallowed them — the hero's own boons never applied and her HP reset each room)
+    // (11-20: a new place starts still — a stick / key still held from the last one counts only once let go)
+    this.inp.latch();
     this.hero.qi = isYard ? Hero.QI_MAX : Math.min(Hero.QI_MAX, Math.max(qi, TUNE.qiStart));   // (11-17 气: carried on; a room starts with at least TUNE.qiStart)
     this.hero.a.yaw = isYard ? -0.6 : Math.PI;
     this.hud.flask.set({ hp: this.hero.hp, maxHp });
@@ -1772,7 +1776,7 @@ export class ActShow {
     this.hud.btnKick('attack', heavy ? 1 : 0.55, heavy ? 0xffb060 : 0xfff2d0);   // act-29: the cut button answers the hit
   }
   /** 11-18 镜头: a push of the view along a blow, springing back (peak ≈ m metres); a push-in (peak ≈ share of the distance) */
-  private kick = V3(); private kickV = V3(); private punch = 0; private punchV = 0; private frameLean = V3(); private crowd = 0;
+  private kick = V3(); private kickV = V3(); private punch = 0; private punchV = 0; private frameLean = V3(); private camLeadV = V3(); private crowd = 0;
   /** 11-18: the boss's entrance look (0..1, eased) and how long it is held */ private bossLook = 0; private bossLookT = 0;
   /** 11-19 剧情改版: a boss comes in — the prologue's 崔玄, or a region's boss the first time on this save: the meeting cutscene and
    *  the lines before the fight. True when it has its meeting (the caller then skips the plain banner) */
@@ -3120,7 +3124,10 @@ export class ActShow {
     const lean = fn ? V3(fx / fn, 0, fz / fn).multiplyScalar(0.22) : V3(); if (lean.length() > 2.2) lean.setLength(2.2);
     this.frameLean.lerp(lean, 1 - Math.exp(-2.2 * rdt)); this.crowd += (Math.max(0, Math.min(1, (fn - 2) / 4)) - this.crowd) * Math.min(1, rdt * 1.2);
     this.bossLookT = Math.max(0, this.bossLookT - rdt); this.bossLook += ((this.bossLookT > 0 ? 1 : 0) - this.bossLook) * Math.min(1, rdt * (this.bossLookT > 0 ? 2.2 : 1.2));
-    const lead = vel.multiplyScalar(TUNE.camLead), want = h.pos.clone().add(lead).add(this.frameLean);
+    // (11-20 用户：「镜头前移值有点过大，高速来回移动的时候会有点晕」: less lead, and the lead itself eases (≈0.45 s) — turning back
+    //  and forth no longer swings the view across with every reversal)
+    this.camLeadV.lerp(vel.multiplyScalar(TUNE.camLead), 1 - Math.exp(-2.2 * rdt));
+    const lead = this.camLeadV, want = h.pos.clone().add(lead).add(this.frameLean);
     // enemies come from the back of the room: the view sits a little ahead of the hero
     // held inside the room: 2.7 m in from the side edges, 2 m from the back, 3.2 m from the front (on the 2x stage it roams much more)
     const nr = this.yard?.near ?? 0, xc = (PLAY.x0 + PLAY.x1) / 2, xr = (PLAY.x1 - PLAY.x0) / 2 - 2.7 + 1.0 * nr;
@@ -3197,6 +3204,9 @@ export class ActShow {
   }
   // ------------------------------------------------------------ input
   private pointer(type: string, id: number, x: number, y: number) {
+    // (11-20 用户：「切场景过后上个场景的移动输入事件没结束，角色会自动跑」: a finger let go during a transition / a scene / a dialogue
+    //  never reached the HUD, so the stick stayed held into the next room — every let-go frees that finger first, whoever takes it)
+    if (type === 'up' || type === 'cancel') this.hud.lift(id, this.inp);
     if (bladeBusy()) return;
     if (this.pause.on) { this.pause.pointer(type, x, y); return; }
     if (this.phase === 'title') { titlePointer(type, x, y); return; }
