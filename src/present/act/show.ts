@@ -311,6 +311,7 @@ export class ActShow {
     kneel: this.proKneel,
     person: (id, x, z, yaw) => { const a = new BattleActor(id === 'duwu' ? HIDEOUT_PEOPLE.duwu : HIDEOUT_DONKEY); a.place(V3(x, 0, z), yaw); a.yaw = yaw; trimShadows(a.root, 4); this.proPeople.push(a); return a; },
     puppet: (kind, x, z, fx, fz) => this.cineHost.puppet(kind, x, z, fx, fz),
+    hold: (p, r) => this.clamp(p, r),
   };
   private cineHost: CineHost = {
     hero: { get a() { return SELF!.hero.a; }, get pos() { return SELF!.hero.pos; } } as CineHost['hero'],

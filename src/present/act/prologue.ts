@@ -27,6 +27,8 @@ export interface PrologueHost {
   /** a person placed in the scene for the cutscene (杜五, the donkey); the host updates and removes them */
   person(id: 'duwu' | 'donkey', x: number, z: number, yaw: number): BattleActor;
   puppet(kind: EKind, x: number, z: number, faceX: number, faceZ: number): Foe;
+  /** 11-19: a body held off the walls and the props (the game's clamp) — 石雷 walking off, not through the wall */
+  hold?(p: THREE.Vector3, r: number): void;
 }
 
 /** 11-18 (用户：「第一个剧情杀，主角被打倒以后的动作太搞笑了，直接侧躺在地上，做成单膝跪地胸口持续溅血的idle效果」): struck down by
@@ -51,14 +53,19 @@ export class Kneel {
   fresh = true;
   /** dawn: the sabre clutched to her, its point in the snow behind */
   grip = false;
+  /** 11-19 (用户：「说完话以后主角应该要体力不支趴下，这样等杜五出现的时候才会感觉是死人」): she gives way after his words — 0 kneeling →
+   *  1 face down in the snow (slumpWant is where it is headed; the fall takes ~0.9 s); at dawn she is found lying so */
+  slump = 0; slumpWant = 0;
   private beat = 0; private jerk = 0; private dripT = 0; private pooled = false;
   private sword: { g: THREE.Object3D; p0: THREE.Vector3; q0: THREE.Quaternion; p1: THREE.Vector3; q1: THREE.Quaternion; t: number } | null = null;
   private bladeLen = 0;
   private snap: Array<[THREE.Object3D, THREE.Vector3, THREE.Euler]> = [];
   /** the blow lands: from here she sinks onto the knee (over ~0.6 s, out of the hit she is playing) */
-  start() { this.on = true; this.t = 0; this.reach = this.reachWant = 0; this.fresh = true; this.grip = false; this.pooled = false; this.beat = 0.9; this.jerk = 0; this.a = null; this.dropSword(); }
+  start() { this.on = true; this.lying = false; this.slump = this.slumpWant = 0; this.t = 0; this.reach = this.reachWant = 0; this.fresh = true; this.grip = false; this.pooled = false; this.beat = 0.9; this.jerk = 0; this.a = null; this.dropSword(); }
   /** the next morning (a new hero actor, the same place): kneeling still, the blood stopped, the sabre in her hand */
-  dawn() { this.on = true; this.t = 99; this.fresh = false; this.grip = true; this.reach = this.reachWant = 0; this.pooled = false; this.jerk = 0; this.a = null; this.dropSword(); }
+  dawn() { this.on = true; this.t = 99; this.fresh = false; this.grip = false; this.lying = true; this.reach = this.reachWant = 0; this.slump = this.slumpWant = 1; this.pooled = false; this.jerk = 0; this.a = null; this.dropSword(); }
+  /** dawn: she has lain there all night — the sabre lies in the snow by her hand (laid there, not thrown), nothing moves */
+  private lying = false;
   get active() { return this.on; }
   /** done with it (she is lifted onto the donkey): the loose sabre goes */
   stop() { this.on = false; this.dropSword(); }
@@ -69,14 +76,17 @@ export class Kneel {
     const dt = Math.max(0, Math.min(0.1, a.t - this.lastT)); this.lastT = a.t; this.t += dt;
     const e = smK((this.t - 0.1) / 0.55);
     this.reach += (this.reachWant - this.reach) * Math.min(1, dt * 2.2);
+    // (the fall forward: slow to start — she sways — then all at once, the last of it a heavy drop into the snow)
+    if (this.slumpWant > this.slump) { const was = this.slump; this.slump = Math.min(1, this.slump + dt / 0.9); if (was < 0.7 && this.slump >= 0.7) { cue('bodyFall', 0.7); snowPuff(a.home.clone().addScaledVector(V3(Math.sin(a.yaw), 0, Math.cos(a.yaw)), 0.6).setY(0.05)); } }
     if (e < 1) { this.snap.length = 0; for (const b of Object.values(a.bones)) if (b) this.snap.push([b, b.position.clone(), b.rotation.clone()]); }
     this.pose(a, dt);
+    if (this.slump > 0) this.prone(a, this.slump);
     if (e < 1) for (const [b, p, r] of this.snap) { b.position.lerpVectors(p, b.position, e); b.rotation.set(r.x + (b.rotation.x - r.x) * e, r.y + (b.rotation.y - r.y) * e, r.z + (b.rotation.z - r.z) * e); }
     // the ponytail and the blindfold's tails hang down her back (stiff chains: with the head bowed they'd stick up)
     const f = V3(Math.sin(a.yaw), 0, Math.cos(a.yaw)), side = V3(Math.cos(a.yaw), 0, -Math.sin(a.yaw));
     hangChains(a, (n) => V3(0, -1, 0).addScaledVector(f, n.startsWith('hr') ? -0.45 : -0.3).addScaledVector(side, n.startsWith('bfA') ? 0.18 : n.startsWith('bfB') ? -0.18 : 0), e);
     if (this.grip) this.plant(a);
-    if (this.t > 0.15 && !this.sword && !this.grip) this.knockSword(a);
+    if (this.t > 0.15 && !this.sword && !this.grip) { this.knockSword(a); const sw = this.sword as { t: number } | null; if (this.lying && sw) sw.t = 1; }
     this.flySword(dt);
     this.bleed(a, dt);
   }
@@ -110,6 +120,32 @@ export class Kneel {
     const shake = r * (0.04 * Math.sin(this.t * 31) + 0.025 * Math.sin(this.t * 53 + 1.3)) * (this.fresh ? 1 : 0.2);
     if (this.grip) { rot(b.armR, K.gripR[0], K.gripR[1], K.gripR[2]); rot(b.foreR, K.gripF[0], K.gripF[1], K.gripF[2]); }
     else { rot(b.armR, K.armR[0] + K.reachR[0] * r + shake, K.armR[1] + K.reachR[1] * r, K.armR[2] + K.reachR[2] * r); rot(b.foreR, K.foreR[0] + K.reachF[0] * r + shake * 0.6, K.foreR[1] + K.reachF[1] * r, K.foreR[2] + K.reachF[2] * r); rot(b.handR, 0.35 * r); }
+  }
+  /** she gives way (k 0 → 1): from the kneel, the trunk pitches forward past the knee, the hands come off the wound and out to break
+   *  nothing, and she lies face down in the snow — the body pivots at the knee on the ground, the head turned to one side, the legs
+   *  straightening out behind. Laid over the kneel pose (k = 1: the kneel is gone) */
+  private prone(a: BattleActor, k: number) {
+    const b = a.bones, e = k < 0.45 ? 0.35 * (k / 0.45) ** 2 : 0.35 + 0.65 * (1 - (1 - (k - 0.45) / 0.55) ** 2);
+    // the whole body pitches forward about the knee on the snow (it is ~0.5 m ahead of the hips' ground point when she kneels)
+    const pitch = (Math.PI / 2 - 0.08) * e, piv = 0.06;
+    a.body.rotation.set(pitch, 0, 0.12 * e); a.body.position.set(0, piv * Math.sin(pitch) * 0.3 + 0.1 * e, (1 - Math.cos(pitch)) * 0.15 + 0.32 * e);
+    // the legs: from the kneel to lying straight behind her (the knees undo, the feet lie on their tops)
+    const back = e;
+    for (const s of ['L', 'R'] as const) {
+      const leg = b['leg' + s], shin = b['shin' + s], ft = b['foot' + s]; if (!leg || !shin || !ft) continue;
+      leg.rotation.x *= 1 - back; shin.rotation.x *= 1 - back * 0.9; ft.rotation.x = ft.rotation.x * (1 - back) + 0.9 * back;
+      leg.rotation.z += (s === 'L' ? 0.08 : -0.1) * back;
+    }
+    // the trunk straightens along the snow; the head turned to her right, cheek down
+    if (b.spine) b.spine.rotation.x *= 1 - e; if (b.chest) b.chest.rotation.x *= 1 - e;
+    if (b.neck) b.neck.rotation.x = b.neck.rotation.x * (1 - e) - 0.25 * e;
+    if (b.head) { b.head.rotation.x = b.head.rotation.x * (1 - e) - 0.1 * e; b.head.rotation.y = b.head.rotation.y * (1 - e) + 1.05 * e; }
+    // the arms: off the wound, flung out ahead and to the side as she goes down, lying slack in the snow
+    for (const [arm, fore, sx] of [[b.armL, b.foreL, 1], [b.armR, b.foreR, -1]] as const) {
+      if (!arm || !fore) continue;
+      arm.rotation.set(arm.rotation.x * (1 - e) - 2.3 * e, arm.rotation.y * (1 - e), arm.rotation.z * (1 - e) + sx * 0.5 * e);
+      fore.rotation.x = fore.rotation.x * (1 - e) - 0.35 * e;
+    }
   }
   /** her sabre knocked out of her hand by the blow: it flies a little and lands flat on the snow ahead of her, to her right */
   private knockSword(a: BattleActor) {
@@ -378,10 +414,23 @@ export function fallShots(h: PrologueHost, boss: Foe): CineShot[] {
 /** after his line: she lies in the snow, the camera rises slowly away, the snow keeps falling */
 export function snowShots(h: PrologueHost, boss: Foe): CineShot[] {
   const p = h.hero.pos.clone();
+  // (11-19 用户：「如果在墙边，他会直接穿墙离开？」: he walked straight back whatever stood there — the temple's back wall is close
+  //  behind the court. Now he turns away from her toward the open front of the yard and walks off round whatever is in the way,
+  //  held off the walls and the props by the game's clamp, the steps by the ground he covers)
+  const away = (() => { const dx = boss.pos.x - p.x, dz = boss.pos.z - p.z, l = Math.hypot(dx, dz) || 1; const ax = dx / l * 0.5, az = dz / l * 0.5 + 1; const m = Math.hypot(ax, az) || 1; return { x: ax / m, z: az / m }; })();
   return [
+    // (11-19: after his words she gives way — the kneel pitches forward and she lies face down in the snow; the camera holds on it)
+    { dur: 2.0, ease: 'inOut', from: camKey({ pos: [p.x + 2.8, 2.2, p.z + 3.8], look: [p.x, 0.4, p.z], fov: 34 }), to: camKey({ pos: [p.x + 2.6, 2.6, p.z + 4.0], look: [p.x, 0.25, p.z + 0.3], fov: 34 }),
+      at: [[0.15, () => { h.kneel.slumpWant = 1; }]],
+      tick: (_t, dt) => { h.hero.a.update(dt); h.kneel.frame(h.hero.a); boss.a.update(dt); } },
     { dur: 6.5, ease: 'inOut', from: camKey({ pos: [p.x + 2.5, 3.2, p.z + 4.0], look: [p.x, 0.3, p.z], fov: 34 }), to: camKey({ pos: [p.x + 1.0, 13, p.z + 7], look: [p.x, 0, p.z - 1], fov: 38 }),
-      at: [[0.4, () => { boss.a.yaw = Math.atan2(0, -1); }], [1.0, () => cue('bodyFall', 0.5)]],
-      tick: (t, dt) => { h.hero.a.update(dt); h.kneel.frame(h.hero.a); if (t > 0.8) { boss.pos.z -= dt * 1.2; boss.a.setRunning(true); } boss.a.update(dt); } },
+      at: [[0.4, () => { boss.a.yaw = Math.atan2(away.x, away.z); }]],
+      tick: (t, dt) => {
+        h.hero.a.update(dt); h.kneel.frame(h.hero.a);
+        if (t > 0.8) { const was = boss.pos.clone(); boss.pos.x += away.x * dt * 1.3; boss.pos.z += away.z * dt * 1.3; h.hold?.(boss.pos, boss.d.r);
+          const mx = boss.pos.x - was.x, mz = boss.pos.z - was.z, v = Math.hypot(mx, mz) / Math.max(1e-4, dt); if (v > 0.05) boss.a.yaw = Math.atan2(mx, mz); boss.a.setRunning(v > 0.4, v); }
+        boss.a.update(dt);
+      } },
   ];
 }
 /** act-30 (用户：「人物的动画、穿模那些问题必须好好解决一下了，不然看起来太滑稽了」): the people really walk (legs, arms, bob — the
