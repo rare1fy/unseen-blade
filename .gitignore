@@ -5,3 +5,6 @@ out/
 .vite/
 dist-wx/
 dist-cg/
+
+__pycache__/
+dist-model/

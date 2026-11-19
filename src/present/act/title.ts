@@ -31,6 +31,8 @@ import { M } from '../scenes/props';
 import { BattleActor } from '../bestiary/battle';
 import { CELL } from '../bestiary/kit';
 import { Action, rot, type Bone } from '../actors/rig';
+import { VoxChar } from '../look/voxkit';
+import { toon } from '../look/toon';
 import { POSE_HOOKS, type PoseFn } from '../bestiary/poseHooks';
 import { HEROES, motionOf } from './ninjaAct';
 import { trimShadows } from './enemy';
@@ -57,7 +59,9 @@ export interface TitleDef {
   /** the light: the place's own mood (asm/sky.ts moodFor) with these changes; stars off unless asked */
   mood(m: Mood): Mood; stars?: boolean; exposure?: number; bloomT?: number; /** colour saturation of the grade (default 1.12) */ sat?: number; /** perimeter vignette strength (default 0.86) */ vig?: number;
   /** where she stands (x, z) and faces; walk = she walks there from `from` at `speed` m/s first */
-  hero: { at: [number, number]; yaw: number; from?: [number, number]; speed?: number; wind?: number };
+  hero?: { at: [number, number]; yaw: number; from?: [number, number]; speed?: number; wind?: number };
+  /** close foreground planted sword in snow with flowing wind ribbons (when a variant omits `hero`) */
+  sword?: { at: [number, number]; yaw: number; tiltX: number; tiltZ: number; wind?: number };
   /** the camera: its base swings slowly between a and b (period s); the focus (her, at focusY) is held at screen (nx, ny);
    *  follow = a and b are offsets from her (a walking shot) */
   cam: { a: P3; b: P3; period: number; fov: number; ny: number; focusY?: number; follow?: boolean };
@@ -148,10 +152,10 @@ export const TITLES: TitleDef[] = [
     spec: { locale: 'hj_temple', layout: 'axis', mirror: false, landmark: 'hj_canhall', season: 'winter', time: 'dusk', weather: 'snow', seed: 5 },
     walls: true, cover: false, exits: ['back'],
     dress: burnHall,
-    mood: m => ({ ...m, bg: 0x1a2030, fog: 0x2a3446, fogD: 0.03, skyTop: 0x0c1020, skyMid: 0x1e2638, skyHor: 0x4a5468, skyDisc: [0.34, 0.07, -1], skyDiscCol: [0.3, 0.32, 0.38], hemiSky: 0x8a9ab8, hemiGround: 0x4a5060, hemiI: 1.4, moon: 0xa8b8e0, moonI: 1.6, key: 0x8090b0, keyI: 0.3, moonPos: [-8, 14, -6] }),
+    mood: m => ({ ...m, bg: 0x1a2030, fog: 0x2a3446, fogD: 0.03, skyTop: 0x0c1020, skyMid: 0x1e2638, skyHor: 0x4a5468, skyDisc: [0.11, 0.145, -1], skyDiscCol: [0.3, 0.32, 0.38], hemiSky: 0x8a9ab8, hemiGround: 0x4a5060, hemiI: 1.4, moon: 0xa8b8e0, moonI: 1.6, key: 0x8090b0, keyI: 0.3, moonPos: [-8, 14, -6] }),
     exposure: 1.35, bloomT: 1.3,
-    hero: { at: [0.2, -7.2], yaw: 0.15, wind: 0.35 },
-    cam: { a: [-4, 2.2, 17], b: [-1.5, 2.5, 15.5], period: 76, fov: 30, ny: -0.36 },
+    sword: { at: [-2.55, 6.6], yaw: 0.32, tiltX: 0.06, tiltZ: -0.13, wind: 0.55 },
+    cam: { a: [-2.2, 0.82, 11.7], b: [-1.45, 0.94, 11.3], period: 68, fov: 32, ny: -0.28, focusY: 0.74 },
     ui: 'right',
     fx: { snow: { n: 1300, box: [-14, 14, -22, 18] }, fire: [{ at: [0.2, 2.6, -14.6], col: 0xff7230, i: 15, d: 26 }],
       blaze: { vents: HALL_VENTS, smoke: [[-2.3, 6.4, -16.6], [0.2, 3.6, -19.6], [4.0, 2.2, -18.2]], sparks: [-8, 8, -21, -14] } } },
@@ -416,6 +420,110 @@ class Blaze {
   dispose() { this.g.parent?.remove(this.g); for (const im of [this.tongues, this.smoke]) { im.geometry.dispose(); (im.material as THREE.Material).dispose(); im.dispose(); } this.sparks.dispose(); }
 }
 
+interface RibbonStrip {
+  mesh: THREE.Mesh; geo: THREE.BufferGeometry; pos: THREE.BufferAttribute; pArr: Float32Array;
+  anchor: THREE.Vector3; len: number; w0: number; w1: number; phase: number; droop: number;
+}
+/** foreground snow-planted ring-pommel sword (细体素 2.2 cm 环首刀) + two wind-blown crimson silk ribbons */
+class PlantedSword {
+  readonly root = new THREE.Group();
+  private yaw: number;
+  private ribbons: RibbonStrip[] = [];
+  private geos: THREE.BufferGeometry[] = [];
+  private wave = 0;
+  private w = 0.12;
+  private static readonly SEGS = 18;
+  constructor(cfg: NonNullable<TitleDef['sword']>) {
+    this.yaw = cfg.yaw;
+    this.root.position.set(cfg.at[0], 0, cfg.at[1]);
+    this.root.rotation.y = cfg.yaw;
+    const S = 0.022;
+    // low wind-piled snow drift cradling the blade base
+    const mound = new VoxChar(S);
+    mound.box(-6, 0, -5, 6, 0, 5, 0xc8d2e2).box(-3, 1, -3, 3, 1, 3, 0xdbe4f2);
+    const builtMound = mound.build({ jitter: 0.02, rim: 0.55, self: 0.05, edge: 0.2 });
+    for (const m of builtMound.meshes) { m.castShadow = true; this.geos.push(m.geometry); }
+    this.root.add(builtMound.root);
+    // tilted ring-pommel sword driven into the snow
+    const swordG = new THREE.Group();
+    swordG.position.y = -0.08;
+    swordG.rotation.set(cfg.tiltX, 0, cfg.tiltZ);
+    swordG.updateMatrix();
+    const sw = new VoxChar(S);
+    sw.box(-1, 0, 0, -1, 44, 0, 0x626c7c).box(0, 0, 0, 0, 44, 0, 0xa8b4c4).box(1, 0, 0, 1, 44, 0, 0xf0f6ff)
+      .box(-1, 43, 0, 1, 44, 0, 0x464c58);
+    sw.box(-4, 45, -2, 4, 46, 2, 0x363a44).box(-3, 47, -1, 3, 47, 1, 0xb8893a);
+    sw.box(-1, 48, -1, 1, 60, 1, 0x242028);
+    for (const y of [50, 53, 56]) sw.box(-1, y, -1, 1, y, 1, 0x3c3644);
+    sw.box(-2, 58, -1, 2, 60, 1, 0xc23a30).box(-2, 58, -1, 2, 58, 1, 0x8a2420);
+    sw.box(-3, 61, -1, 3, 62, 1, 0x9e7632).box(-3, 67, -1, 3, 68, 1, 0xc89e4c)
+      .box(-3, 62, -1, -2, 67, 1, 0xa88038).box(2, 62, -1, 3, 67, 1, 0xc89e4c);
+    const builtSw = sw.build({ jitter: 0.03, rim: 0.85, self: 0.08, edge: 0.25 });
+    for (const m of builtSw.meshes) { m.castShadow = true; this.geos.push(m.geometry); }
+    swordG.add(builtSw.root);
+    this.root.add(swordG);
+    // two flowing crimson cloth strips anchored at the knot under the bronze ring
+    const mat = toon(0xffffff, { vertexColors: true, side: THREE.DoubleSide, rim: 0.75, self: 0.16 });
+    const make = (local: THREE.Vector3, len: number, w0: number, w1: number, phase: number, droop: number) => {
+      const N = PlantedSword.SEGS, verts = (N + 1) * 2;
+      const pArr = new Float32Array(verts * 3), cArr = new Float32Array(verts * 3), idx: number[] = [];
+      const top = new THREE.Color(0xd8463a), bot = new THREE.Color(0xb02c24), tip = new THREE.Color(0x841e1a), c = new THREE.Color();
+      for (let i = 0; i <= N; i++) {
+        const k = i / N, fade = k > 0.75 ? (k - 0.75) / 0.25 : 0;
+        c.copy(top).lerp(tip, fade); cArr.set([c.r, c.g, c.b], i * 6);
+        c.copy(bot).lerp(tip, fade); cArr.set([c.r, c.g, c.b], i * 6 + 3);
+        if (i < N) { const a = 2 * i, b = 2 * i + 1, cc = 2 * i + 2, d = 2 * i + 3; idx.push(a, b, cc, b, d, cc); }
+      }
+      const geo = new THREE.BufferGeometry();
+      const pos = new THREE.BufferAttribute(pArr, 3); pos.setUsage(THREE.DynamicDrawUsage);
+      geo.setAttribute('position', pos);
+      geo.setAttribute('color', new THREE.BufferAttribute(cArr, 3));
+      geo.setIndex(idx);
+      const mesh = new THREE.Mesh(geo, mat); mesh.castShadow = true; mesh.receiveShadow = false; mesh.frustumCulled = false;
+      this.root.add(mesh); this.geos.push(geo);
+      this.ribbons.push({ mesh, geo, pos, pArr, anchor: local.applyMatrix4(swordG.matrix), len, w0, w1, phase, droop });
+    };
+    make(V3(0.045, 59.5 * S, 0.022), 1.16, 0.068, 0.036, 0, 0.92);
+    make(V3(0.040, 58.5 * S, -0.005), 0.86, 0.048, 0.024, 2.35, 1.18);
+    this.update(0, 1.4, 0.10);
+  }
+  update(dt: number, t: number, gust: number) {
+    const N = PlantedSword.SEGS, cy = Math.cos(this.yaw), sy = Math.sin(this.yaw);
+    const env = 0.5 + 0.5 * Math.cos(t * 0.95 - 4.2);
+    const targetW = Math.pow(Math.max(0, Math.min(1, env * 0.82 + gust * 0.18)), 1.4);
+    if (dt > 0) this.w += (targetW - this.w) * Math.min(1, dt * 1.4); else this.w = targetW;
+    const w = this.w;
+    this.wave += dt * (1.25 + 1.15 * w);
+    const camZ = V3(-sy, 0, cy), p = V3(), d = V3(), u = V3(), side = V3();
+    for (const r of this.ribbons) {
+      const ds = r.len / N;
+      p.copy(r.anchor);
+      for (let i = 0; i <= N; i++) {
+        const k = i / N, arch = Math.sin(k * Math.PI);
+        const w1 = Math.sin(k * 4.5 - this.wave + r.phase);
+        const w2 = Math.sin(k * 8.2 - this.wave * 1.6 + r.phase * 1.9);
+        const fx = 0.14 + 0.16 * k * k + w * (0.30 + 0.95 * Math.pow(k, 0.7)) + (0.18 + 0.14 * w) * w1 * Math.pow(k, 0.75);
+        const fy = -r.droop * (1.20 - 0.88 * w) * (0.45 + 0.55 * k) + (0.12 + 0.26 * w) * w1 * k + (0.04 + 0.08 * w) * w2 * arch;
+        const fz = 0.05 + (0.18 + 0.22 * w) * w1 * Math.pow(k, 0.85) + (0.06 + 0.08 * w) * w2 * k;
+        d.set(cy * fx - sy * fz, fy, sy * fx + cy * fz).normalize();
+        u.crossVectors(d, camZ);
+        if (u.lengthSq() < 1e-4) u.set(0, 1, 0); else u.normalize();
+        side.crossVectors(d, u).normalize();
+        const twist = (0.26 + 0.24 * w) * w1 * k;
+        u.multiplyScalar(Math.cos(twist)).addScaledVector(side, Math.sin(twist)).normalize();
+        if (p.y < 0.03) p.y = 0.03;
+        const hw = (r.w0 + (r.w1 - r.w0) * k) * 0.5;
+        r.pArr[i * 6] = p.x + u.x * hw; r.pArr[i * 6 + 1] = p.y + u.y * hw; r.pArr[i * 6 + 2] = p.z + u.z * hw;
+        r.pArr[i * 6 + 3] = p.x - u.x * hw; r.pArr[i * 6 + 4] = p.y - u.y * hw; r.pArr[i * 6 + 5] = p.z - u.z * hw;
+        if (i < N) p.addScaledVector(d, ds);
+      }
+      r.pos.needsUpdate = true;
+      r.geo.computeVertexNormals();
+    }
+  }
+  dispose() { this.root.parent?.remove(this.root); for (const g of this.geos) g.dispose(); this.geos = []; this.ribbons = []; }
+}
+
 // ================================================================== the menu: plaques in the UI layer
 // A plaque: a black iron frame round a lacquered panel, bronze end caps with a rivet each, the name in the pixel title font on the
 // face. Selected: it slides a little toward the centre and comes forward, the face turns warm gold, the frame breathes an ember glow,
@@ -568,8 +676,8 @@ const ASK_NOTE = '原有进度将尽数清空';
 class Title {
   readonly done: Promise<void>; private resolve!: () => void;
   readonly def: TitleDef; beat: Beat = 'menu'; t = 0; private bt = 0; private alive = true;
-  private stage: Stage; private hero: BattleActor; private blob: THREE.Mesh; private heroAt = V3(); private walkFrom: THREE.Vector3 | null = null; private walkK = 0;
-  private hookId: string; private baseHook: PoseFn | undefined;
+  private stage: Stage; private hero: BattleActor | null = null; private sword: PlantedSword | null = null; private blob: THREE.Mesh; private heroAt = V3(); private walkFrom: THREE.Vector3 | null = null; private walkK = 0;
+  private hookId = ''; private baseHook: PoseFn | undefined;
   private rain: Rain | null = null; private rip: Ripples | null = null; private lamp: ReturnType<typeof lanternPost> | null = null; private snow: Snow | null = null; private embers: Embers | null = null;
   private birds: Birds | null = null; private mist: Mist | null = null; private smoke: Smoke | null = null; private fires: THREE.PointLight[] = []; private blaze: Blaze | null = null; private crackle = 2;
   private glint: THREE.Mesh | null = null;
@@ -597,15 +705,25 @@ class Title {
     // the sun's shadows cover the whole wide view (restored at the end)
     const sun = scene.children.find(o => (o as THREE.DirectionalLight).isDirectionalLight && (o as THREE.DirectionalLight).castShadow) as THREE.DirectionalLight | undefined;
     if (sun) { const c = sun.shadow.camera; this.shadowSave = { l: c.left, r: c.right, t: c.top, b: c.bottom }; Object.assign(c, { left: -24, right: 24, top: 24, bottom: -20 }); c.updateProjectionMatrix(); }
-    // ---- her: the slim 斗笠 the game wears by default, standing (or walking in) on the road
-    this.hero = new BattleActor(HEROES.find(d => d.id === 'fine_white') ?? HEROES[0]); trimShadows(this.hero.root, 7);
-    this.heroAt.set(d.hero.at[0], 0, d.hero.at[1]);
-    if (d.hero.from) { this.walkFrom = V3(d.hero.from[0], 0, d.hero.from[1]); this.hero.place(this.walkFrom.clone(), d.hero.yaw); }
-    else { this.hero.place(this.heroAt.clone(), d.hero.yaw); const hold = new Action('noto', 1e6, 2); hold.t = 0.97e6; this.hero.play(hold); }
-    this.hookId = this.hero.hid; this.baseHook = POSE_HOOKS[this.hookId];
-    const base = this.baseHook, a = this.hero;
-    if (base) POSE_HOOKS[this.hookId] = (b, t, act, off, self) => { base(b, t, act, off, self); if (self === a) this.pose(b, t); };
-    this.blob = contactShadow(); this.blob.position.set(this.heroAt.x, 0.02, this.heroAt.z); this.stage.root.add(this.blob);
+    // ---- her (standing / walking in) OR close foreground planted sword in snow
+    const wind = d.hero?.wind ?? d.sword?.wind ?? 0.5;
+    if (d.hero) {
+      const hero = new BattleActor(HEROES.find(h => h.id === 'fine_white') ?? HEROES[0]); trimShadows(hero.root, 7);
+      this.hero = hero;
+      this.heroAt.set(d.hero.at[0], 0, d.hero.at[1]);
+      if (d.hero.from) { this.walkFrom = V3(d.hero.from[0], 0, d.hero.from[1]); hero.place(this.walkFrom.clone(), d.hero.yaw); }
+      else { hero.place(this.heroAt.clone(), d.hero.yaw); const hold = new Action('noto', 1e6, 2); hold.t = 0.97e6; hero.play(hold); }
+      this.hookId = hero.hid; this.baseHook = POSE_HOOKS[this.hookId];
+      const base = this.baseHook;
+      if (base) POSE_HOOKS[this.hookId] = (b, t, act, off, self) => { base(b, t, act, off, self); if (self === hero) this.pose(b, t); };
+    } else if (d.sword) {
+      this.heroAt.set(d.sword.at[0], 0, d.sword.at[1]);
+      this.sword = new PlantedSword(d.sword);
+      this.stage.root.add(this.sword.root);
+    }
+    this.blob = contactShadow(); this.blob.position.set(this.heroAt.x, 0.02, this.heroAt.z);
+    if (d.sword) this.blob.scale.set(0.75, 1, 0.75);
+    this.stage.root.add(this.blob);
     // ---- the weather and the light
     const fx = d.fx, root = this.stage.root;
     if (fx.rain) { const l = fx.lantern, warm = l ? V3(l[0] + 10.5 * CELL, l[1] + 28 * CELL, l[2]) : V3(0, -100, 0); this.rain = new Rain(fx.rain.n, { x0: fx.rain.box[0], x1: fx.rain.box[1], z0: fx.rain.box[2], z1: fx.rain.box[3] }, warm); root.add(this.rain.lines); }
@@ -621,7 +739,7 @@ class Title {
     if (fx.mist) { this.mist = new Mist(fx.mist, fx.mistCol ?? 0xffffff); root.add(this.mist.g); }
     if (fx.smoke) { this.smoke = new Smoke(fx.smoke, d.id === 'embers' ? 0x241a1c : 0x5a4a50); root.add(this.smoke.g); }
     for (const f of fx.fire ?? []) { const l = new THREE.PointLight(f.col, f.i, f.d, 1.6); l.position.set(...f.at); root.add(l); this.fires.push(l); }
-    if (fx.blaze) { this.blaze = new Blaze(fx.blaze.vents, d.hero.wind ?? 0.5, fx.blaze.smoke, fx.blaze.sparks, fx.blaze.n); root.add(this.blaze.g); }
+    if (fx.blaze) { this.blaze = new Blaze(fx.blaze.vents, wind, fx.blaze.smoke, fx.blaze.sparks, fx.blaze.n); root.add(this.blaze.g); }
     // the stage's own drifting motes would read as speckle in the rain / snow: the alpha pool sits the title out (back at the end)
     if (fx.rain || fx.snow) PALPHA.mesh.visible = false;
     // ---- the camera
@@ -645,17 +763,17 @@ class Title {
     for (const n of ['uTop', 'uMid', 'uHor', 'uMoonCol']) (u[n].value as THREE.Color).multiplyScalar(1 / K);
     (u.uTint.value as THREE.Color).setScalar(K);
   }
-  // ---------------------------------------------------------------- the camera: wide, a slow swing, she held in her third
+  // ---------------------------------------------------------------- the camera: wide, a slow swing, held in her third
   private cam(t: number) {
-    const q = T_QA.cam, d = this.def.cam;
-    const focus = q ? q.focus.clone() : this.hero.home.clone().add(V3(0, d.focusY ?? 1.0, 0));
+    const q = T_QA.cam, d = this.def.cam, pt = this.hero ? this.hero.home : this.heroAt;
+    const focus = q ? q.focus.clone() : pt.clone().add(V3(0, d.focusY ?? 1.0, 0));
     const k = 0.5 - 0.5 * Math.cos((t / d.period) * Math.PI * 2), a = V3(...d.a), b = V3(...d.b);
-    const base = q ? q.base.clone() : a.lerp(b, k).add(d.follow ? V3(this.hero.home.x, 0, this.hero.home.z) : V3());
+    const base = q ? q.base.clone() : a.lerp(b, k).add(d.follow ? V3(pt.x, 0, pt.z) : V3());
     return frameOn(base, focus, q ? q.nx : this.def.ui === 'left' ? 0.34 : -0.34, q ? q.ny : d.ny, q ? q.fov : d.fov);
   }
   /** on top of the held 收刀 pose: standing tall, the face lifted, turning now and then to listen; the wind in the blindfold's tails */
   private pose(b: Record<string, Bone>, t: number) {
-    const walking = !!this.walkFrom && this.walkK < 1, wind = this.def.hero.wind ?? 0.5;
+    const walking = !!this.walkFrom && this.walkK < 1, wind = this.def.hero?.wind ?? 0.5;
     // walking in, the blade stays in its scabbard: the drawn blade the locomotion holds is folded down to the grip in her hand
     if (this.walkFrom && this.beat !== 'draw' && this.beat !== 'cut') b.weapon?.scale.setZ(0.06);
     if (!walking) {
@@ -678,23 +796,24 @@ class Title {
     const d = this.def, a = this.hero, frozen = this.beat === 'cut' || this.beat === 'split';
     if (this.beat !== 'split' && this.beat !== 'done') {
       // the walk in: along the road at a slow pace, the stride from the shared locomotion (ninjaAct run()), then she stands
-      if (this.walkFrom && this.walkK < 1) {
-        const L = this.walkFrom.distanceTo(this.heroAt), sp = d.hero.speed ?? 1, m = motionOf(a);
+      if (a && this.walkFrom && this.walkK < 1) {
+        const L = this.walkFrom.distanceTo(this.heroAt), sp = d.hero?.speed ?? 1, m = motionOf(a);
         this.walkK = Math.min(1, this.walkK + dt * sp / Math.max(0.1, L));
         const slow = Math.min(1, (1 - this.walkK) * L / 1.2);
         a.home.lerpVectors(this.walkFrom, this.heroAt, this.walkK); m.run = this.walkK < 1 ? 0.2 * Math.max(0.3, slow) : 0; m.phase += sp * Math.max(0.3, slow) * 2.9 * dt;
         a.yaw = Math.atan2(this.heroAt.x - this.walkFrom.x, this.heroAt.z - this.walkFrom.z);
         if (this.walkK >= 1) { m.run = 0; }
       }
-      this.blob.position.set(a.home.x, 0.02, a.home.z);
-      this.aimSun(a.home.x, a.home.z - 4);
-      a.update(dt);
-      this.rain?.update(dt, this.flashK, (x, z) => { const q = Math.hypot(x - a.home.x, z - a.home.z); if (q < 3.6) this.rip?.spawn(x, z); });
+      const pt = a ? a.home : this.heroAt;
+      this.blob.position.set(pt.x, 0.02, pt.z);
+      this.aimSun(pt.x, pt.z - 4);
+      a?.update(dt);
+      this.rain?.update(dt, this.flashK, (x, z) => { const q = Math.hypot(x - pt.x, z - pt.z); if (q < 3.6) this.rip?.spawn(x, z); });
       this.rip?.update(dt, this.flashK);
       if (this.glint) { const g = this.glint, cp = camera.position; g.rotation.y = Math.atan2(cp.x - g.position.x, cp.z - g.position.z); (g.material as THREE.MeshBasicMaterial).opacity = 0.3 * (1 + Math.sin(this.t * 7.3) * 0.06) + this.flashK * 0.2; }
       if (this.lamp) { const s = this.lamp.swing; s.rotation.z = 0.2 + Math.sin(this.t * 0.9) * 0.05 + Math.sin(this.t * 2.3) * 0.015; s.rotation.x = Math.sin(this.t * 0.7 + 1) * 0.04; this.lamp.light.intensity = 5.2 * (1 + Math.sin(this.t * 7.3) * 0.05 + Math.sin(this.t * 17) * 0.03); }
-      this.gust = (0.5 + 0.5 * Math.sin(this.t * 0.7) * Math.sin(this.t * 0.31 + 1.3)) * (0.4 + (d.hero.wind ?? 0.5));
-      if (!frozen) { this.snow?.update(dt, this.t, this.gust); this.embers?.update(dt, this.t); this.blaze?.update(dt, this.t); }
+      this.gust = (0.5 + 0.5 * Math.sin(this.t * 0.7) * Math.sin(this.t * 0.31 + 1.3)) * (0.4 + (d.hero?.wind ?? d.sword?.wind ?? 0.5));
+      if (!frozen) { this.sword?.update(dt, this.t, this.gust); this.snow?.update(dt, this.t, this.gust); this.embers?.update(dt, this.t); this.blaze?.update(dt, this.t); }
       this.birds?.update(rdt, this.t); this.mist?.update(rdt); this.smoke?.update(rdt);
       // the fire light: a burning house breathes (blaze.level: slow swells), a brazier flickers
       const lv = this.blaze?.level(this.t);
@@ -883,7 +1002,7 @@ class Title {
     this.titleFx.triggerCut();
     // (her draw-cut is a few pixels at this distance and its trail froze into a glowing blob under the cut's hit-stop: the cut is
     //  the screen's, she only flashes with it)
-    const a = this.hero; this.walkK = 1; motionOf(a).run = 0; a.tint(0xe8f0ff, 0.6);
+    if (this.hero) { const a = this.hero; this.walkK = 1; motionOf(a).run = 0; a.tint(0xe8f0ff, 0.6); }
     cue('draw', 1); cue('swishHeavy', 0.6);
     const p = this.plaques[this.sel]; this.cutY = p ? p.y : this.host.ov.h * 0.5;
   }
@@ -949,13 +1068,17 @@ class Title {
     sun.target.position.set(x, 0, z); sun.position.set(x + mp[0] * k, mp[1] * k, z + mp[2] * k); sun.target.updateMatrixWorld();
   }
   retint(m: Partial<Mood>, exposure?: number, bloomT?: number, sat?: number) { Object.assign(this.mood, m); this.setMood(this.mood); if (exposure != null) GRADE.exposure = exposure; if (bloomT != null) GRADE.bloomThreshold = bloomT; if (sat != null) GRADE.sat = sat; }
-  moveHero(x: number, z: number, yaw?: number) { this.heroAt.set(x, 0, z); this.walkFrom = null; this.hero.home.copy(this.heroAt); if (yaw != null) this.hero.yaw = yaw; }
+  moveHero(x: number, z: number, yaw?: number) {
+    this.heroAt.set(x, 0, z); this.walkFrom = null;
+    if (this.hero) { this.hero.home.copy(this.heroAt); if (yaw != null) this.hero.yaw = yaw; }
+    if (this.sword) { this.sword.root.position.copy(this.heroAt); if (yaw != null) this.sword.root.rotation.y = yaw; }
+  }
   skip(s: number) { for (let i = 0; i < Math.round(s * 30); i++) this.update(1 / 30, 1 / 30); }
-  info() { return { n: this.n, id: this.def.id, beat: this.beat, t: +this.t.toFixed(2), sel: this.items[this.sel]?.id, items: this.items.map(i => `${i.label}${i.enabled ? '' : '(off)'}`), hero: this.hero.home.toArray().map(v => +v.toFixed(2)), cam: camera.position.toArray().map(v => +v.toFixed(2)) }; }
+  info() { const pt = this.hero ? this.hero.home : this.heroAt; return { n: this.n, id: this.def.id, beat: this.beat, t: +this.t.toFixed(2), sel: this.items[this.sel]?.id, items: this.items.map(i => `${i.label}${i.enabled ? '' : '(off)'}`), hero: pt.toArray().map(v => +v.toFixed(2)), cam: camera.position.toArray().map(v => +v.toFixed(2)) }; }
   // ---------------------------------------------------------------- the end
   /** the act's world takes over: give back the pose hook, the grade, the shadows and the motes; the place's effects go */
   private restore() {
-    if (this.baseHook) POSE_HOOKS[this.hookId] = this.baseHook;
+    if (this.baseHook && this.hookId) POSE_HOOKS[this.hookId] = this.baseHook;
     GRADE.flash = 0; GRADE.sat = this.satSave; GRADE.vig = this.vigSave; PALPHA.clear(); PALPHA.mesh.visible = true;
     const sun = scene.children.find(o => (o as THREE.DirectionalLight).isDirectionalLight && (o as THREE.DirectionalLight).castShadow) as THREE.DirectionalLight | undefined;
     if (sun && this.shadowSave) { const c = sun.shadow.camera, s = this.shadowSave; Object.assign(c, { left: s.l, right: s.r, top: s.t, bottom: s.b }); c.updateProjectionMatrix(); this.shadowSave = null; }
@@ -963,7 +1086,8 @@ class Title {
     this.glint?.parent?.remove(this.glint); this.glint = null;
     this.rain?.dispose(); this.rip?.dispose(); this.snow?.dispose(); this.embers?.dispose(); this.birds?.dispose(); this.mist?.dispose(); this.smoke?.dispose(); this.blaze?.dispose();
     this.rain = null; this.rip = null; this.snow = null; this.embers = null; this.birds = null; this.mist = null; this.smoke = null; this.blaze = null;
-    this.hero.dispose();
+    this.hero?.dispose(); this.hero = null;
+    this.sword?.dispose(); this.sword = null;
     for (const p of this.plaques) p.dispose(); this.plaques = [];
     this.marker.parent?.remove(this.marker); this.marker.geometry.dispose(); (this.marker.material as THREE.Material).dispose();
   }
