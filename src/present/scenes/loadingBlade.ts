@@ -22,6 +22,9 @@ const camera = new THREE.PerspectiveCamera(46, 1, 0.1, 40);
 const CAM_Z = 3.2, CAM_Y = -0.18;
 camera.position.set(0, CAM_Y, CAM_Z); camera.lookAt(0, 0.05, 0);
 const shutter = new THREE.Group(), rotor = new THREE.Group(), blade = new THREE.Group(), tassel = new THREE.Group();
+/** the tassel's cord: LINKS joints, each LINK long (blade units), each bent from the one above */
+const LINKS = 4, LINK = 0.1;
+const links: THREE.Group[] = [];
 const unit = new THREE.BoxGeometry();
 const materials = new Map<number, THREE.Material>();
 const matOf = (color: number) => { let m = materials.get(color); if (!m) { m = toon(color, { rim: 0.8 }); materials.set(color, m); } return m; };
@@ -115,9 +118,21 @@ function makeLayer() {
   for (let i = 0; i < 4; i++) block(blade, 0x85513c, -0.3 - i * 0.053, 0, 0, 0.02, 0.094, 0.098);
   const ring = new THREE.Mesh(new THREE.TorusGeometry(0.052, 0.016, 6, 12), matOf(0xd4ad68));
   ring.position.x = RING; blade.add(ring);
+  // (11-19 用户：「飞刀的红绳再做长些，飘动要更明显些」: three links of cord off the ring, a knot, then a long fringe — each link its
+  //  own joint, so the cord bends as it swings instead of a short stiff stub)
   tassel.position.set(RING - 0.01, -0.035, 0); blade.add(tassel);
-  block(tassel, 0xac3427, -0.02, -0.055, 0, 0.026, 0.13, 0.03);
-  block(tassel, 0x923229, -0.05, -0.065, -0.01, 0.022, 0.1, 0.026);
+  { let parent: THREE.Group = tassel;
+    for (let k = 0; k < LINKS; k++) {
+      const j = new THREE.Group(); j.position.y = k === 0 ? 0 : -LINK; parent.add(j); links.push(j);
+      const w = k === LINKS - 1 ? 0.04 : 0.024;
+      block(j, k % 2 ? 0x9a2c24 : 0xb43a2c, 0, -LINK / 2, 0, w, LINK * 1.04, w);
+      if (k === 0) block(j, 0xd4ad68, 0, -0.012, 0, 0.026, 0.02, 0.026);   // (the brass cap on the ring)
+      if (k === LINKS - 2) block(j, 0x7a1e1a, 0, -LINK, 0, 0.034, 0.026, 0.034);   // the knot
+      parent = j;
+    }
+    // the fringe: a few strands off the last link, fanned a little
+    for (const [dx, h, c] of [[-0.016, 0.15, 0xb43a2c], [-0.005, 0.18, 0xa0302a], [0.006, 0.16, 0xc0402e], [0.017, 0.14, 0x9a2c24]] as const) block(parent, c, dx, -LINK - h / 2, 0, 0.011, h, 0.012);
+  }
   for (const o of [rotor, shutter, crack]) o.traverse(c => { const m = c as THREE.Mesh; if (m.isMesh) m.frustumCulled = false; });
 }
 
@@ -288,11 +303,11 @@ export function drawLoadingBlade(renderer: THREE.WebGLRenderer, aspect: number) 
   let ax = 0, ay = 0;
   if (s.seen >= 1 && dt > 0) {
     const vx = (ringP.x - s.px) / dt, vy = (ringP.y - s.py) / dt;
-    if (s.seen >= 2) { ax = Math.max(-250, Math.min(250, 0.05 * (vx - s.vx) / dt)); ay = Math.max(-250, Math.min(250, 0.05 * (vy - s.vy) / dt)); }
+    if (s.seen >= 2) { ax = Math.max(-420, Math.min(420, 0.09 * (vx - s.vx) / dt)); ay = Math.max(-420, Math.min(420, 0.09 * (vy - s.vy) / dt)); }
     s.vx = vx; s.vy = vy;
   }
-  const G = 6, LEN = 0.075, C = 3.5;
-  const breeze = 6 * Math.sin(now * 0.0021) + 3.5 * Math.sin(now * 0.0037 + 1);
+  const G = 6, LEN = LINK * LINKS * 0.6, C = 2.2;
+  const breeze = 14 * Math.sin(now * 0.0021) + 8 * Math.sin(now * 0.0037 + 1) + 4 * Math.sin(now * 0.0061 + 2);
   for (let n = 0; n < 4; n++) {
     const h = dt / 4;
     const acc = -(ax * Math.cos(s.ta) + (G + ay) * Math.sin(s.ta)) / LEN - C * s.tw + breeze;
@@ -300,13 +315,14 @@ export function drawLoadingBlade(renderer: THREE.WebGLRenderer, aspect: number) 
   }
   s.px = ringP.x; s.py = ringP.y; s.last = now; s.seen++;
   tassel.rotation.z = s.ta - rotor.rotation.z;
+  // the lower links follow the swing late and a little further (a wave down the cord), the fringe flicking at the end
+  for (let k = 1; k < links.length; k++) {
+    const lag = s.tw * 0.018 * k, ripple = 0.16 * k * Math.sin(now * 0.006 + k * 1.3) * (0.4 + 0.6 * Math.min(1, Math.abs(s.tw) / 6));
+    links[k].rotation.z = Math.max(-0.9, Math.min(0.9, -lag + ripple));
+  }
 
-  // the split: opens on the bite (a hair longer as the point drives in), rides the stalk as it falls away
-  { const g = set[hit].g, open = clamp01((age - IMPACT) / 40);
-    if (crack.parent !== g) g.add(crack);
-    crack.visible = open > 0;
-    crack.position.set(post ? 0.15 : 0, by + 0.02, set[hit].front - set[hit].z + 0.004);
-    crack.scale.set(0.03, (post ? 0.18 : 0.3) * (0.6 + 0.4 * open), 0.02); }
+  // (11-19 用户：「刀飞到柱子上有个黑条，不要」: the dark split mark on the stalk is gone — the bite shows in the jolt and the chips)
+  crack.visible = false;
   chipMat.color.setHex(post ? 0x8a6a44 : 0xc8c08a);
   // splinters off the bite: thrown back up and out to the left, falling, shrinking
   const t = (age - IMPACT) / 1000;
