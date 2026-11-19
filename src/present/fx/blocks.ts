@@ -8,7 +8,7 @@ import type { ContactBatch } from '../engine/contactBatch';
 // straight masses, no staircase diagonals) unless they are given a spin.
 import * as THREE from 'three';
 import { scene, V3, C, onUpdate } from '../engine/world';
-import { ease } from '../engine/clock';
+import { ease, PAUSE } from '../engine/clock';
 
 export interface Blk {
   /** world position (or the orbit centre when `orbit` is set without a host) */
@@ -48,7 +48,7 @@ function init() {
     m.instanceMatrix.setUsage(THREE.DynamicDrawUsage); m.setColorAt(0, new THREE.Color(1, 1, 1)); m.instanceColor!.setUsage(THREE.DynamicDrawUsage);
     m.count = 0; m.frustumCulled = false; m.castShadow = false; m.receiveShadow = false; m.visible = false; scene.add(m);
   }
-  onUpdate(dt => update(dt));
+  onUpdate(dt => update(PAUSE.on && PAUSE.fx ? PAUSE.rdt : dt));
 }
 
 /** spawn one block at p (world, or local to `host`) */

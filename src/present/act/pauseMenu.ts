@@ -38,6 +38,11 @@ export interface PauseHost {
    *  start with the 刀谱 she knows now (招式) */
   owned?(): Section[];
   skills?(): Section[];
+  /** 11-19 (用户：「暂停菜单『已得』里点某个招式也显示这一招的残影示意」): play a 刀谱's ghost beside her in the stopped world
+   *  (false = this entry has no demonstration); while it plays the menu steps aside */
+  preview?(id: string): boolean;
+  previewing?(): boolean;
+  stopPreview?(): void;
 }
 type Page = 'main' | 'keys' | 'set' | 'ask' | 'askTitle' | 'owned' | 'skills';
 interface Row { id: string; label: () => string; act?: BtnName; run?: () => void }
@@ -151,6 +156,7 @@ export class PauseMenu {
   }
   close() {
     if (!this.on) return;
+    this.host.stopPreview?.();
     this.on = false; this.wait = null; PAUSE.menu = false; PAUSE.on = false; cue('deselect', 0.4); this.list.close();
     this.host.closed();
   }
@@ -184,7 +190,15 @@ export class PauseMenu {
   /** on the 已得 / 招式 pages the arrows move in the list, not in the column (its only slab is 返回) */
   private get inList() { return (this.page === 'owned' || this.page === 'skills') && this.list.on; }
   private pageT = 0;
+  /** 11-19: 已得 / 招式 — confirm on a 刀谱 row plays its ghost; anything else leaves the page */
+  private listOk() {
+    const e = this.list.entry;
+    if (e && e.kind === 'manual' && this.host.preview?.(e.id)) { cue('select', 0.5); return; }
+    this.back();
+  }
+  private get previewing() { return !!this.host.previewing?.(); }
   private back() {
+    if (this.previewing) { this.host.stopPreview?.(); cue('deselect', 0.4); return; }
     if (this.wait) { this.wait = null; cue('deselect', 0.4); return; }
     if (this.page === 'main' || (this.page === 'set' && this.fromTitle)) { this.close(); return; }
     const was = this.page; cue('deselect', 0.4); this.go('main');
@@ -229,7 +243,7 @@ export class PauseMenu {
     else if (k === 'arrowdown' || k === 's') this.moveSel(1);
     else if (k === 'pageup') this.list.scrollBy(-this.host.L.h * 0.5); else if (k === 'pagedown') this.list.scrollBy(this.host.L.h * 0.5);
     else if (e.repeat) return;
-    else if (k === 'enter' || k === ' ' || k === 'j') { if (this.inList) this.back(); else this.ok(); }
+    else if (k === 'enter' || k === ' ' || k === 'j') { if (this.inList) this.listOk(); else this.ok(); }
     else this.back();
   }
   private bind(kind: 'key' | 'pad', code: string | number) {
@@ -244,9 +258,10 @@ export class PauseMenu {
     if (this.wait) return true;
     // the list (已得 / 招式): a finger dragged up / down scrolls it; a tap on a row selects it
     if (this.inList) {
+      if (this.previewing) { if (type === 'up') { this.host.stopPreview?.(); cue('deselect', 0.4); } return true; }   // a tap ends the demonstration
       if (type === 'down') { this.drag = { y, moved: 0 }; }
       else if (type === 'move' && this.drag) { const d = this.drag.y - y; this.drag.moved += Math.abs(d); this.drag.y = y; this.list.scrollBy(d); }
-      else if (type === 'up' && this.drag) { const tap = this.drag.moved < 8; this.drag = null; const li = this.list.hit(x, y); if (tap && li >= 0) { this.list.sel = li; cue('tick', 0.25); } }
+      else if (type === 'up' && this.drag) { const tap = this.drag.moved < 8; this.drag = null; const li = this.list.hit(x, y); if (tap && li >= 0) { this.list.sel = li; cue('tick', 0.25); if (this.list.entry?.kind === 'manual') { PAD.device = 'touch'; this.listOk(); } } }
       else if (type === 'move') { const li = this.list.hit(x, y); if (li >= 0 && li !== this.list.sel) { this.list.sel = li; cue('tick', 0.25); } }
     }
     // the back shield at the top left
@@ -288,13 +303,13 @@ export class PauseMenu {
       if (this.openT > 0.12) {
         if (n.up) this.moveSel(-1); else if (n.down) this.moveSel(1);
         else if (n.right && this.page === 'set') this.ok();
-        if (n.ok) { if (this.inList) this.back(); else this.ok(); } else if (n.back) this.back(); else if (n.start) this.close();
+        if (n.ok) { if (this.inList) this.listOk(); else this.ok(); } else if (n.back) this.back(); else if (n.start) { this.host.stopPreview?.(); this.close(); }
       }
     }
     if (!this.on) return;
     this.layout();
     // 已得 / 招式: the list right of the 返回 column, from under the page's name to above the prompts
-    { const want = this.inList ? 1 : 0; this.listRel += (want - this.listRel) * Math.min(1, rdt * 10);
+    { const want = this.inList && !this.previewing ? 1 : 0; this.listRel += (want - this.listRel) * Math.min(1, rdt * 10);
       if (this.list.on) {
         const W = L.w, H = L.h, lx0 = this.lay.cx + this.lay.w / 2 + Math.max(40, W * 0.05), lx1 = W - Math.max(40, W * 0.05);
         this.list.layout((lx0 + lx1) / 2, this.lay.top, H - Math.max(40, H * 0.08), Math.min(lx1 - lx0, 760));

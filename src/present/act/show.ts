@@ -93,7 +93,7 @@ import { CardPick3D as CardPick } from './cards3d';   // act-36: the pick cards 
 import { MoveDemo } from './moveDemo';
 import { entryOfManual, entryOfBoon, entryOfBase } from './skillFace';
 import type { Section } from './skillList';
-import { BASE_SKILLS, UI_WORDS, boonEffect } from './skillInfo';
+import { BASE_SKILLS, UI_WORDS, boonEffect, manualOf } from './skillInfo';
 import type { Mark } from './hud';
 import { MANUALS } from './manuals';
 import { fillVals } from './cards';
@@ -783,7 +783,8 @@ export class ActShow {
       { regions: REGIONS.map(r => r.name), rooms: ri => REGIONS[ri].rooms, go: (ri, room, type) => { const r = this.jumpRegion(ri, room, type); return 'why' in r ? r.why : undefined; } });
     // the pause menu (act-30 之后, user: 「帮我把手柄的按键映射和手柄支持做了吧」): Start / Esc, a pad pulled out, the page hidden
     this.pause = new PauseMenu({ L: this.L, settings: [...SET.filter(x => __DEBUG_UI__ || !x.dbg).map(x => ({ label: x.short, run: x.run })), { id: 'language', label: () => '语言：简体中文', run: () => setLanguage(language === 'en' ? 'zh' : 'en') }], canGiveUp: () => this.canGiveUp(), giveUp: () => this.giveUp(), closed: () => this.unpaused(), toTitle: () => this.backToTitle(), onRun: () => this.canGiveUp(),
-      owned: () => this.ownedSections(), skills: () => this.skillSections() });
+      owned: () => this.ownedSections(), skills: () => this.skillSections(),
+      preview: id => this.previewMove(id), previewing: () => this.previewOn, stopPreview: () => { if (this.previewOn) this.demo.stop(true); } });
     // 11-18 (用户：「游戏里也没有一个可以呼出暂停窗口的按钮」): the iron button at the top right opens it too
     this.hud.onPause = () => this.pauseGame();
     // 11-18 (用户：「选了强化后根本看不到自己选的强化是啥，在哪儿」): a taken 秘传 / 刀谱 flies onto the button it changes and leaves a mark
@@ -1819,6 +1820,18 @@ export class ActShow {
     await this.demo.play(id, { at: this.hero.pos.clone(), def: this.wearing, hud: this.hud });
     this.inp.latch();
     if (this.phase === 'pick') this.phase = was;
+  }
+  /** 11-19 (用户：「暂停菜单『已得』里点某个招式也显示这一招的残影示意」): the ghost plays in the stopped world (real time), the
+   *  HUD's buttons shown so its presses read; the list steps aside until it ends (a tap / back / Start ends it early) */
+  private previewOn = false;
+  private previewMove(id: string): boolean {
+    if (!this.hero || !manualOf(id) || this.demo.on) return false;
+    this.previewOn = true; PAUSE.fx = true; this.hud.on = true;
+    void this.demo.play(id, { at: this.hero.pos.clone(), def: this.wearing, hud: this.hud }).then(() => {
+      this.previewOn = false; PAUSE.fx = false;
+      if (PAUSE.on) { this.hud.on = false; this.hud.update(0, this.inp, []); }
+    });
+    return true;
   }
   /** the marks on the HUD's buttons: every 刀谱 and 秘传 this run has taken (none in the yard, where they are all open) */
   private syncMarks() {
@@ -2917,7 +2930,11 @@ export class ActShow {
     if (bladeBusy()) return;
     this.seeThrough();
     this.storySkipFrame();
-    if (PAUSE.on) { this.L.text.hide('act.npc'); return; }   // the pause menu runs on its own (real time); the world gets nothing (11-18: a hideout name over the menu's pages hidden)
+    if (PAUSE.on) {
+      this.L.text.hide('act.npc');
+      if (this.previewOn && this.demo.on) { this.demo.update(PAUSE.rdt); this.hud.update(PAUSE.rdt, this.inp, []); }   // (11-19: 已得's ghost, on real time)
+      return;
+    }   // the pause menu runs on its own (real time); the world gets nothing (11-18: a hideout name over the menu's pages hidden)
     this.inp.frame(rdt);
     this.padScreens(rdt);
     if (this.phase === 'opening' || this.phase === 'title') return;   // opening.ts / title.ts run the start screen

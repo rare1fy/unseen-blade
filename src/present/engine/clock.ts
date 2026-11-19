@@ -21,7 +21,9 @@ export const FX = {
   hold: 1,
 };
 /** the pause menu: while on, the frame loop hands every game updater a zero step (the world stands still); real-time UI keeps going */
-export const PAUSE = { on: false, /** the pause / settings menu is up (paused, or over the start screen): the screens under it ignore input */ menu: false };
+export const PAUSE = { on: false, /** the pause / settings menu is up (paused, or over the start screen): the screens under it ignore input */ menu: false,
+  /** 11-19: paused, but effects (particles, blocks) run on real time — the 已得 page's ghost demonstration plays in the stopped world */ fx: false,
+  /** this frame's real step (for the effects that run while paused) */ rdt: 0 };
 export const HITSTOP_SCALE = 0.04;
 export const TRAUMA_DECAY = 2.2;
 

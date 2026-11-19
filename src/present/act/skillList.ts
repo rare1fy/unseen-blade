@@ -71,6 +71,8 @@ export class SkillList {
   }
   /** the rows that can be selected */
   private picks() { return this.items.map((it, i) => (it.e ? i : -1)).filter(i => i >= 0); }
+  /** the selected row's entry */
+  get entry(): SkillEntry | null { return this.items[this.sel]?.e ?? null; }
   move(d: number) { const p = this.picks(); if (!p.length) return; const k = p.indexOf(this.sel); this.sel = p[(Math.max(0, k) + d + p.length) % p.length]; }
   /** a drag / a wheel: scroll by px */
   scrollBy(px: number) { this.scrollT = Math.max(0, Math.min(this.maxScroll(), this.scrollT + px)); }

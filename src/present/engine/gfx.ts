@@ -86,13 +86,14 @@ export function createGfx(platform: Platform, canvas: any, o: { preserve?: boole
         }
         const now = platform.now(), real = Math.min(0.05, Math.max(0, (now - last) / 1000)); const interval = now - last; stats.ms += ((now - last) - stats.ms) * 0.05; qualityFrame(now - last); last = now;
         const rdt0 = o.fixedDt != null ? o.fixedDt : real, rdt = PAUSE.on ? 0 : rdt0;   // paused: the world gets a zero step
-        const t0 = platform.now(), dt = tick(rdt);
+        const t0 = platform.now(), dt = tick(rdt); PAUSE.rdt = rdt0;
+        const fxDt = PAUSE.on && PAUSE.fx ? rdt0 : dt;
         runRealUpdaters(rdt0);
         runUpdaters(dt, rdt);
         onFrame(dt, rdt);
         updateDice(dt, rdt);
         runLateUpdaters(dt, rdt);
-        updateParticles(dt); updatePrims(dt);
+        updateParticles(fxDt); updatePrims(fxDt);
         // (11-18: the rumble runs on real time — on game time it stood still through every hit-stop, a frozen offset instead of a shake)
         // (act-43 反馈：「屏震还要再大点」: trauma^1.5 × 0.3 — the old trauma² × 0.22 left every small shake invisible)
         const s = Math.pow(FX.trauma, 1.5) * 0.3, T = clock.rtime;
