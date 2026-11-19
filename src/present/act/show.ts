@@ -870,7 +870,7 @@ export class ActShow {
       /** 11-18 小刀转场: play the loading blade over the current view while a pretend load takes ms (it is drawn every frame in the web build too) */
       bladeBusy: () => bladeBusy(),
       bladeTimes: () => bladeTimes.map(m => Object.fromEntries(Object.entries(m).map(([k, v]) => [k, Math.round(v)]))),
-      bladeDemo: (ms = 800, cover: 'bamboo' | 'pillar' = 'bamboo') => withLoadingBlade(() => new Promise<void>(r => setTimeout(r, ms)), cover),
+      bladeDemo: (ms = 800, cover: 'bamboo' = 'bamboo') => withLoadingBlade(() => new Promise<void>(r => setTimeout(r, ms)), cover),
       /** 11-18 定死的屋子: enter this drawn room (asm/roomMaps.ts id) with its actual region's waves, boss or stations */
       room: (id: string, type?: RoomType) => {
         const m = MAP_BY_ID[id]; if (!m) return null;
@@ -2612,7 +2612,7 @@ export class ActShow {
     // its foes stronger (the run's TUNE scaled by flow.ts regionScale)
     const nextRegion = !this.prologue && next.region != null && next.region !== this.region;
     const h = this.hero; h.vel.set(d.ex.dir[0], 0, d.ex.dir[1]).multiplyScalar(TUNE.heroSpeed * 0.8);
-    WIPE.look = fromLocale === 'ninja_wilds' ? 'bamboo' : 'pillar';
+    WIPE.look = 'bamboo'; void fromLocale;   // (11-19: bamboo for every room — the timber post is gone)
     after(0.35, () => { void wipeTransit(() => {
       if (nextRegion) { this.region = next.region!; this.room = 0; this.visited = []; this.regionIn = true; this.scaleFoes(this.region); this.log.push(`region ${this.region} ${REGIONS[this.region]?.id}`); }
       else this.room++;

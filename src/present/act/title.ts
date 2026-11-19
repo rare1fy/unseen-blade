@@ -577,7 +577,7 @@ class Title {
   // the overlay title, the cut line, the frozen picture
   private tex: THREE.CanvasTexture | null = null; private titleM: THREE.Mesh | null = null; private noteTex: THREE.CanvasTexture | null = null; private noteM: THREE.Mesh | null = null;
   private lay = { x: 0, y: 0, w: 1, h: 1, key: '', cx: 0, top: 0 };
-  private titleA = 0; private line: THREE.Mesh[] = []; private slabs: THREE.Mesh[] = []; private frame: THREE.CanvasTexture | null = null; private grab = false; private grabbed = false; private cutY = 0;
+  private titleA = 0; private line: THREE.Mesh[] = []; private slabs: THREE.Mesh[] = []; private frame: THREE.Texture | null = null; private grab = false; private grabbed = false; private cutY = 0;
   // the menu
   private items: Item[]; private plaques: Plaque[] = []; private sel = 0; private menuK = 0; private marker: THREE.Mesh; private markerK = 0; private gap = 10;
   private choice: 'new' | 'continue' = 'new'; private padPrev = { up: false, down: false, ok: false, back: false }; private padRep = 0;
@@ -860,13 +860,9 @@ class Title {
   // ---------------------------------------------------------------- the way in: she draws, the cut runs through the choice, the picture splits
   private go(kind: 'new' | 'continue') {
     this.choice = kind;
-    if (__WX__) {
-      this.beat = 'done';
-      void withLoadingBlade(() => {
-        this.hideOverlay(); this.restore(); return this.host.enter(kind);
-      }).finally(() => this.finish());
-      return;
-    }
+    // (11-19 用户：「你怎么把我原本开始游戏画面的一个刀光切开屏幕的转场给干掉了」: d732444 put the loading blade here on WeChat — the
+    //  page grab below drew the WebGL canvas into a 2D one, which a mini-game cannot do. The frame is now copied on the GPU (after()),
+    //  so the cut and the split are the same on every platform)
     this.beat = 'draw'; this.bt = 0;
     // (her draw-cut is a few pixels at this distance and its trail froze into a glowing blob under the cut's hit-stop: the cut is
     //  the screen's, she only flashes with it)
@@ -878,6 +874,16 @@ class Title {
   private after = (r: THREE.WebGLRenderer) => {
     if (!this.grab || this.frame) return;
     this.grab = false;
+    if (__WX__) {
+      // the screen as it stands, copied into a texture on the GPU (the default framebuffer, read before it is presented)
+      try {
+        const sz = r.getDrawingBufferSize(new THREE.Vector2()), t = new THREE.FramebufferTexture(sz.x, sz.y);
+        t.minFilter = t.magFilter = THREE.LinearFilter; t.generateMipmaps = false; t.colorSpace = THREE.SRGBColorSpace;
+        r.setRenderTarget(null); r.copyFramebufferToTexture(new THREE.Vector2(0, 0), t);   // (three r162: position first)
+        this.frame = t; this.grabbed = !T_QA.noGrab;
+      } catch (e) { console.error('[title] frame copy failed', e); this.grabbed = false; this.frame = new THREE.Texture(); }
+      return;
+    }
     try {
       const src = r.domElement as HTMLCanvasElement, ov = this.host.ov, k = Math.min(2, src.width / Math.max(1, ov.w));
       const c = document.createElement('canvas'); c.width = Math.round(ov.w * k); c.height = Math.round(ov.h * k);

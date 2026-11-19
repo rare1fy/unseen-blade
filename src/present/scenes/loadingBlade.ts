@@ -32,8 +32,8 @@ function block(parent: THREE.Object3D, color: number, x: number, y: number, z: n
 
 /** one stalk (or the post): its own group so each moves on its own (x, z: where it stands; r: its radius; front: its near face's z) */
 interface Stalk { g: THREE.Group; x: number; z: number; r: number; front: number }
-const bamboo: Stalk[] = [], pillar: Stalk[] = [];
-const bambooRoot = new THREE.Group(), pillarRoot = new THREE.Group();
+const bamboo: Stalk[] = [];
+const bambooRoot = new THREE.Group();
 const chips: THREE.Mesh[] = [];
 const chipMat = toon(0xc8c08a);
 /** the split the point opens in the stalk: a short dark slit along its length (bamboo splits along the grain), carried by the stalk */
@@ -76,7 +76,7 @@ function makeLayer() {
   layer.add(shutter, rotor, new THREE.HemisphereLight(0xfff4de, 0x405060, 1.1));
   const light = new THREE.DirectionalLight(0xfff1d8, 2.6); light.position.set(-2.5, 3, 4); layer.add(light);
   const back = new THREE.DirectionalLight(0x9ab8ff, 0.9); back.position.set(3, 1, -2); layer.add(back);
-  shutter.add(bambooRoot, pillarRoot);
+  shutter.add(bambooRoot);
   // the bamboo: round stalks with raised node rings and a pale band above each; the back rows darker so the three depths read;
   // behind them a dark wall so nothing of the old room shows through a gap
   const greens = [0x3a5a30, 0x46683a, 0x2e4a2a, 0x527440];
@@ -96,13 +96,7 @@ function makeLayer() {
       for (let y = -FAR_HALF + 0.2 + (k % 4) * 0.15; y < FAR_HALF; y += 0.66) column(g0, shade(0x7a9a58, 0.42), r * 1.1, y - 0.02, y + 0.02);
       for (const g of g0) { g.translate(x, 0, (k % 2) * -0.12); L.push(g); } }
     piece(bambooRoot, L, 0, FAR_Z, 0, 0, null); farRow = bambooRoot.children[bambooRoot.children.length - 1] as THREE.Group; }
-  // the post: one heavy dark timber, darker edges, a vermilion face strip and two iron bands with rivets
-  { const L: THREE.BufferGeometry[] = [];
-    // (wide enough that a 21:9 phone sees post from edge to edge; the dark seams split it into three planks)
-    box(L, 0x3a2a1e, 0, 0, 0, 7.2, TALL, 0.7); for (const x of [-1.9, 1.9]) box(L, 0x2c2016, x, 0, 0.3, 0.12, TALL, 0.2);
-    box(L, 0x7a2a1e, 0.8, 0, 0.36, 0.5, TALL, 0.04);
-    for (const y of [-0.85, 0.7]) { box(L, 0x2a2a30, 0, y, 0.37, 7.26, 0.1, 0.06); for (let k = -7; k <= 7; k++) box(L, 0x6a6a72, k * 0.48, y, 0.41, 0.05, 0.05, 0.03); }
-    piece(pillarRoot, L, 0, 0.3, 0.35, 0.65, pillar); }
+  // (11-19 用户：「战斗的转场也用竹子那一套，卷轴那个看不出来，删掉」: the timber post cover is gone; bamboo every time)
   crack.visible = false;
   for (let k = 0; k < 5; k++) { const c = new THREE.Mesh(unit, chipMat); c.visible = false; c.frustumCulled = false; shutter.add(c); chips.push(c); }
   // the game's ring-pommel dao: bright cutting edge, dark steel spine, wrapped grip, brass ring and a vermilion tassel — thick
@@ -164,8 +158,7 @@ const smooth = (t: number) => { t = clamp01(t); return t * t * (3 - 2 * t); };
 export async function withLoadingBlade(work: () => void | Promise<void>, cover: WipeLook = 'bamboo') {
   if (active) throw new Error('A scene transition is already running');
   makeLayer();
-  bambooRoot.visible = cover === 'bamboo';
-  pillarRoot.visible = cover === 'pillar';
+  bambooRoot.visible = true; void cover;
   const state: BladeState = { phase: 'enter', cover, since: 0, start: 0, frames: 0, hit: false, rx: 0, ry: 0, ta: 0, tw: 0, px: 0, py: 0, vx: 0, vy: 0, last: 0, seen: 0 };
   active = state;
   // (11-19 用户：「转场加载速度还是有点慢」: how long each part takes — the last few kept in bladeTimes for __dh.bladeTimes())
@@ -242,7 +235,7 @@ export function drawLoadingBlade(renderer: THREE.WebGLRenderer, aspect: number) 
   const now = performance.now();
   const first = s.phase === 'enter' && !s.frames;
   const age = first ? 0 : now - s.start;
-  const post = s.cover === 'pillar', set = post ? pillar : bamboo, hit = post ? 0 : HIT;
+  const post = false, set = bamboo, hit = HIT;
   const pull = s.phase === 'windup' ? (now - s.since) / WINDUP : s.phase === 'exit' ? 1 : 0;
   const out = s.phase === 'exit' ? now - s.since : -1;
   // the view: a 46° vertical field; wider screens spread the stalks so the wall still runs edge to edge; a slow breath of a push-in
@@ -258,14 +251,19 @@ export function drawLoadingBlade(renderer: THREE.WebGLRenderer, aspect: number) 
   // where it bites: the middle of the hit stalk (the post: left of the red strip), just behind the face
   const bx = post ? 0.15 : set[hit].x * spread, by = post ? 0.18 : 0.14, bz = set[hit].front - 0.02;
   if (age < IMPACT) {
-    // the throw: the centre of mass flies a shallow arc from off the left edge, the blade turning about it, slowing a little,
-    // a slight wobble of its own axis; it arrives tip first along the stuck heading
+    // the throw (11-19 用户：「我希望这个转场的刀从屏幕这边飞过去，要有点透视，我看现在感觉像是正交相机的效果」): from just in
+    // front of the lens at the lower left — big, close, spinning — away into the picture along a slight arc, smaller and smaller as
+    // it goes, until it bites the stalk tip first. It was a sideways arc in one depth band (it barely changed size: it read flat).
+    // The depth runs on an ease that is quick at first (it leaves the lens fast) and the turning slows as it flies
     const u = age / IMPACT, rest = (ANCHOR - CM) * BLADE_S * Math.cos(PHI);
     const ex = bx - Math.cos(THETA) * rest, ey = by - Math.sin(THETA) * rest;
-    const sx = -1.9 * spread - 0.8, sy = 0.75;
-    const x = sx + (ex - sx) * u, y = sy + (ey - sy) * u + ARC * 4 * u * (1 - u);
+    const ez = bz + 0.25, sz = CAM_Z - 0.55, du = 1 - (1 - u) * (1 - u);
+    const z = sz + (ez - sz) * du, near = (CAM_Z - z) / (CAM_Z - ez);
+    // where it starts on screen: low left of the view, as seen from the camera at that depth (the view there is a hand across)
+    const sx = -0.55 * near * 0.18 - 0.08, sy = CAM_Y - 0.14;
+    const x = sx + (ex - sx) * du, y = sy + (ey - sy) * du + ARC * 4 * du * (1 - du);
     const theta = THETA + SPIN * (1 - u) * (0.65 + 0.35 * (1 - u));
-    poseBlade(x, y, bz + 0.9 * (1 - u) + 0.25, theta, PHI * u * u * u, 0.4 * Math.sin(Math.PI * 2 * 1.8 * u) * (1 - u) + ROLL * u, CM);
+    poseBlade(x, y, z, theta, PHI * u * u * u, 0.4 * Math.sin(Math.PI * 2 * 1.8 * u) * (1 - u) + ROLL * u, CM);
   } else if (out < 0) {
     // stuck: the blade hums and stills; on the pull it is drawn back out along itself, the handle lifting
     if (!s.hit) { s.hit = true; cue('dartHit', 1); }
