@@ -68,7 +68,7 @@ export const PRO_CHULEI: Line[] = pick('pro_chulei', [
 ]);
 /** struck down in the snow */
 /** 11-19 (用户：「突然就进入战斗了……敌人跳出来把她包围了的过程，辅以对话和文字」): the sentries close round her in the snowy village (agy) */
-export const PRO_AMBUSH: Line[] = pick('pro_ambush', [L('sentry', '摸她怀里！肯定藏着干粮！'), L('sentry', '少废话，先把袄子扒了！'), L('act', '（风雪骤急，刘白微偏下颌，按住刀镡）'), L('jiangjin', '别抖。')]);
+export const PRO_AMBUSH: Line[] = pick('pro_ambush', [L('sentry', '摸她怀里！肯定藏着干粮！'), L('sentry', '少废话，先把袄子扒了！'), L('act', '（风雪骤急，刘白微偏下颌，按住刀镡）'), L('jiangjin', '刀都晃出声了，拿稳点。')]);
 export const PRO_FALL: Line[] = pick('pro_fall', [L('chulei', '当年一捧灰没烫醒你。小瞎子，烂在雪里吧。')]);
 /** dawn: the man with the donkey, picking over the dead */
 export const PRO_DAWN: Line[] = pick('pro_dawn', [
