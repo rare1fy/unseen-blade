@@ -33,8 +33,13 @@ export function deathLine(who: keyof typeof DEATH_POOL, rnd = Math.random): Line
 
 // ---------------------------------------------------------------- act-29 开篇（方案 1，agy · gemini-3.8-flash-high 写，11-17）
 /** the cold open's last line (寒山坞, that night), then the two cards over the snowy village */
-export const PRO_COLD = pick('pro_cold', [L('caption', '白灰比雪烫。从此，再看不见。')])[0].text;
-export const PRO_CAPTIONS = ['七年后', '许都 · 冬'];   // (11-19: no year; history only the backdrop)
+// 11-19 (neon 重写，用户挑过): the black cards and the two place captions are one section, cold_cards — the cards first, the last
+// two lines the place captions; the second-to-last card is her father's words (the slow heartbeat ring)
+const COLD = pick('cold_cards', [L('caption', '那年腊月，火比雪大。'), ...pick('pro_cold', [L('caption', '阿爹说，雪把血盖住，便没人能看见了。')]),
+  L('caption', '七年了。刀磨好了。'), L('caption', '七年后'), L('caption', '许都 · 冬')]).map(l => l.text);
+export const COLD_CARDS = COLD.slice(0, -2);
+export const PRO_COLD = COLD_CARDS[COLD_CARDS.length - 2] ?? COLD_CARDS[0];
+export const PRO_CAPTIONS = COLD.slice(-2);   // (11-19: no year; history only the backdrop)
 /** 11-19 剧情改版: 崔府's snowy forecourt, before the fight she cannot win (崔玄) */
 export const PRO_CUIXUAN: Line[] = pick('pro_cuixuan', [L('cuixuan', '夜深落了锁。你走错门了。'), L('jiangjin', '七年前，寒山坞文家，三十柄百辟刀。'), L('cuixuan', '刀在我这。')]);
 /** struck down in the snow */
@@ -42,7 +47,7 @@ export const PRO_CUIXUAN: Line[] = pick('pro_cuixuan', [L('cuixuan', '夜深落�
 export const PRO_AMBUSH: Line[] = pick('pro_ambush', [L('sentry', '摸她怀里！肯定藏着干粮！'), L('sentry', '少废话，先把袄子扒了！'), L('act', '（风雪骤急，刘白微偏下颌，按住刀镡）'), L('jiangjin', '刀都晃出声了，拿稳点。')]);
 export const PRO_FALL: Line[] = pick('pro_fall', [L('cuixuan', '拿刀的那四个人你一个都没杀过，就来找我？')]);
 /** dawn: the man with the donkey, picking over the dead */
-export const PRO_DAWN: Line[] = pick('pro_dawn', [L('duwu', '冻死鬼的鞋，拔都拔不下来。'), L('duwu', '松手……娘哎，怎么还有气儿？！')]);
+export const PRO_DAWN: Line[] = pick('pro_dawn', [L('duwu', '冻死鬼的衣裳，扒都扒不下来。'), L('duwu', '松手……娘哎，怎么还有气儿？！')]);
 /** the kiln: her first waking (only 杜五 and 孙媪 — the others come later, each with their own story) */
 export const PRO_WAKE: Line[] = pick('pro_wake', [L('act', '（刘白猛地惊醒，指尖抓空）'), L('sunao', '别扑腾，肋骨断了三根。'), L('jiangjin', '刘白。'), L('act', '（刘白扶墙撑起身体）'), L('jiangjin', '刀给我。')]);
 
