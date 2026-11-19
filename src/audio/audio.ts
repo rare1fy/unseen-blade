@@ -396,12 +396,12 @@ const H: Partial<Record<Cue, (k: number, x?: number) => void>> = {
   gateOpen: k => ub('gate_open', { gain: 0.55 + 0.4 * k }),
   exitChime: k => ub('exit_chime', { gain: 0.3 + 0.4 * k, jitter: 0.02 }),
   timeSlow: k => ub('time_slow', { gain: 0.7 + 0.3 * k, jitter: 0 }),
-  // 11-19 (用户：「闪避成功那个音效怎么我感觉是拼刀的声音，不是应该是一个很有辨识度的闪躲声音吗」): it was the parry's clang + the
-  // draw. Now its own: air torn past her (a fast high-to-low whoosh of noise, close and short), a clear high bell over it (two
-  // sines a fifth apart, a quick shimmer down) and the slow-time swell under it — no metal on metal anywhere in it
-  dodgeOk: k => { audio.noise(0.22, { from: 5200, to: 700, gain: 0.32 * k, type: 'bandpass', q: 0.9 }); audio.any('ub_sw_light_', { gain: 0.35 * k, rate: 1.35, jitter: 0.02, bus: 'hero', pri: 3 });
-    audio.tone(1760, 0.55, { to: 1720, gain: 0.11 * k, type: 'sine', delay: 0.02 }); audio.tone(2637, 0.38, { to: 2600, gain: 0.06 * k, type: 'sine', delay: 0.03 }); audio.tone(880, 0.3, { to: 870, gain: 0.05 * k, type: 'triangle', delay: 0.02 });
-    ub('time_slow', { gain: 0.45 * k, jitter: 0, rate: 1.15 }); },
+  // 11-19 (用户：「闪避成功那个音效怎么我感觉是拼刀的声音」 → then 「现在闪避的音效也不对啊，不是闪避的那种风声」): the bell over it
+  // read as a chime and the time-slow swell as a whoosh of something else. A dodge is wind: the dash's own rush of air sped up and
+  // brightened (she twists past the edge), a thin fast swing of cloth on top, and a short band of air tearing high to low — no tone,
+  // no bell, no metal
+  dodgeOk: k => { ub('dash', { gain: 0.7 * k, rate: 1.25, jitter: 0.04, bus: 'hero', pri: 3 }); audio.any('ub_sw_light_', { gain: 0.42 * k, rate: 1.5, jitter: 0.03, bus: 'hero', pri: 3, delay: 0.015 });
+    audio.noise(0.2, { from: 6800, to: 900, gain: 0.26 * k, type: 'bandpass', q: 0.7 }); },
   ultSlash: k => { ub('ult_slash', { gain: 1, jitter: 0.02 }); audio.tone(60, 0.8, { to: 30, gain: 0.5 * (k || 1) }); },
   scroll: k => ub('scroll', { gain: 0.45 + 0.3 * k }),
   hound: k => ub('hound', { gain: 0.45 + 0.4 * k }),

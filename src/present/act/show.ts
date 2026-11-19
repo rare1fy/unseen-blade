@@ -806,6 +806,7 @@ export class ActShow {
         };
       })(),
       lab: () => this.labActs,
+      /** 11-19: the sound engine, for captures that check which samples a cue plays */ audio: () => audio,
       /** 11-19: the foes' slide round a prop they're stuck on (on by default) */ unstick: (on = true) => { UNSTICK.on = on; return on; },
       /** 11-19: the locomotion state of lab actor i (to drive a walk on the lab floor) */ motionOfLab: (i: number) => motionOf(this.labActs[i]),
       /** the cutscene poses, for the lab: drape(i, x, y, z, yaw, ph), getUp(i, k) */
