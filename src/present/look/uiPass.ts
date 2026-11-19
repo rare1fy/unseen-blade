@@ -127,7 +127,10 @@ export class UiPass {
   /** fill the rectangles' mesh with what the UI covers now; returns how many (−1 = draw the whole screen) */
   private rects(L: Ui3DLayer): number {
     if (!this.rg.index) this.initRects();
-    const r = this.renderer; r.getSize(this.sz); const W = this.sz.x, H = this.sz.y, m = H * 0.06, cam = L.camera;
+    const r = this.renderer; r.getSize(this.sz); const W = this.sz.x, H = this.sz.y, cam = L.camera;
+    // (11-19 用户：「光是个大方块，看起来像个bug」: a lit button's glow spread past its rectangle and was cut off square — the margin
+    //  covers the bloom's reach when it is on)
+    const m = H * (!mobileTargets() && UI_LOOK.bloom > 0 ? 0.16 : 0.06);
     let n = 0, area = 0;
     for (const top of L.scene.children) {
       if (!top.visible) continue;

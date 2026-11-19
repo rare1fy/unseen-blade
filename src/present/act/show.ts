@@ -2427,7 +2427,7 @@ export class ActShow {
     after(BEAT_S, () => { this.iaiHeld = false; if (!this.hero?.alive) return; this.flashScreen(0.45, 0xffffff); this.sweep({ ...o, kind: 'rel' }); }, { real: true });
   }
   /** 11-18: a full-screen flash (the grade's flash, fading over ~0.2 s) and the stance's dimming (vignette + a little desaturation) */
-  private flashK = 0; private vigBase = -1; private dimK = 0;
+  private flashK = 0; private vigBase = -1; private dimK = 0; private tutCam = 0;
   private flashScreen(k: number, col: number) { this.flashK = Math.max(this.flashK, k); GRADE.flashCol.setHex(col); }
   private flashStep(rdt: number) {
     if (this.flashK > 0) { this.flashK = Math.max(0, this.flashK - rdt * 4); GRADE.flash = this.flashK * 0.75; }
@@ -2878,8 +2878,10 @@ export class ActShow {
     if (this.camOverride) return { base: this.camOverride.base.clone(), look: this.camOverride.look.clone(), fov: this.camOverride.fov };
     // the yard's costume rack: the camera leans in (half the distance) so the models can be looked at
     // (11-18: a later region's boss coming in — the camera draws back a while so he and the back of his room are in the frame together)
-    const n = this.yard?.near ?? 0, k = (1 - 0.55 * n) * (1 + 0.08 * this.crowd) * (1 + 0.32 * this.bossLook);
+    const n = this.yard?.near ?? 0, k = (1 - 0.55 * n) * (1 + 0.08 * this.crowd) * (1 + 0.32 * this.bossLook) * (1 - 0.38 * this.tutCam);
     const base = this.cam.clone().add(V3(0, TUNE.camH * k, TUNE.camD * k)), look = this.cam.clone().add(V3(0, 0.6 + 0.5 * n, 0));
+    // (11-19 用户：「镜头要拉近一下」: a lesson pulls the camera in on her, eased in and back out)
+    if (this.tutCam > 0.001 && this.hero) { const hp = this.hero.pos, d = V3(hp.x - this.cam.x, 0, hp.z - this.cam.z).multiplyScalar(this.tutCam); base.add(d); look.add(d).setY(look.y + 0.4 * this.tutCam); }
     // 11-18 QTE (用户：「QTE的时候要带镜头表现噢」): the duel's own framing blended over this one while it runs
     return this.duel.cam({ base, look, fov: TUNE.camFov });
   }
@@ -3122,6 +3124,9 @@ export class ActShow {
     // 11-18 藏锋: the blade hums in its sheath as the stance fills (and swells like a pulse while the breath is held); the world dims a little
     // (11-18 拼刀: while blades are locked the same steel drone is the edges grinding — higher and louder as it gets harder)
     { const ch = h.st === 'charge' ? h.charge : 0, dh = this.duel.hum; audio.hum(dh >= 0 ? dh : ch > 0 ? Math.min(1, 0.25 + 0.75 * ch) : 0, dh >= 0 ? 0 : ch >= 1 ? 1 : 0); this.dimTo(Math.max(ch > 0 ? 0.35 + 0.65 * ch : 0, this.tut.dim), rdt); }
+    // (11-19 用户：「画面的颜色也没有变」: a lesson drains the colour out of the world, so it reads as time held)
+    if (this.tut.k > 0.003) { const tk = this.tut.k; GRADE.desat = Math.max(GRADE.desat, 0.78 * tk); if (this.vigBase >= 0) GRADE.vig = Math.max(GRADE.vig, this.vigBase + 0.6 * tk); }
+    this.tutCam += (this.tut.k - this.tutCam) * Math.min(1, rdt * 5);
     this.flashStep(rdt);
     this.hud.btns.attack.charge = ch;
     const nowCue = h.st === 'charge' && (this.threats(TUNE.iaiWin).foes.length > 0 || this.threats(TUNE.iaiWin).arrows.length > 0);
