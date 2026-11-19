@@ -39,7 +39,7 @@ const col = (X: number, Z: number) => (X + 512) * 1024 + (Z + 512);
 
 /** check the cells a group just built (keys of a temporary VoxWorld) against the scene so far. foot = declared footprint (m), mirrored
  *  and centred at the anchor. Returns the problems (empty = OK). */
-export function checkCells(cells: Iterable<number>, o: { anchor: [number, number]; foot: { w: number; d: number }; occ: Occ; walk: Rect[]; stage: Rect; skipLos?: boolean }): Issue[] {
+export function checkCells(cells: Iterable<number>, o: { anchor: [number, number]; foot: { w: number; d: number }; occ: Occ; walk: Rect[]; stage: Rect; skipLos?: boolean; firstOnly?: boolean }): Issue[] {
   const issues: Issue[] = [], walk = o.walk.map(toC), stage = toC(o.stage), PC = playC();
   let groundN = 0, play = 0, walkN = 0, front = 0, hit = 0, outB = 0;
   let gx0 = 1e9, gx1 = -1e9, gz0 = 1e9, gz1 = -1e9;
@@ -54,6 +54,8 @@ export function checkCells(cells: Iterable<number>, o: { anchor: [number, number
     if (m(Z) > 6 && Y * CELL > 0.9) front++;
     if (Y <= BODY_Y && o.occ.body.has(col(X, Z))) hit++;
     if (!inC(stage, X, Z)) outB++;
+    // These counts can only increase. Bounds needs the final denominator, and a group may still touch ground later.
+    if (o.firstOnly && (play || walkN || front || hit)) return [{ kind: play ? 'play' : walkN ? 'walk' : front ? 'front' : 'collide', detail: '' }];
   }
   if (!solid.length) return issues;
   if (play) issues.push({ kind: 'play', detail: `${play} cells inside the battle floor` });
@@ -78,8 +80,8 @@ export function checkCells(cells: Iterable<number>, o: { anchor: [number, number
   return issues;
 }
 /** add a group's cells to the scene's occupancy */
-export function commit(occ: Occ, cells: Iterable<number>) {
-  for (const k of cells) { const [X, Y, Z] = unkey(k); if (Y < 0) continue; occ.cells.add(k); if (Y <= BODY_Y) occ.body.add(col(X, Z)); }
+export function commit(occ: Occ, cells: Iterable<number>, recordCells = true) {
+  for (const k of cells) { const [X, Y, Z] = unkey(k); if (Y < 0) continue; if (recordCells) occ.cells.add(k); if (Y <= BODY_Y) occ.body.add(col(X, Z)); }
 }
 /** a whole-scene audit after everything is built: floating clusters (no path down to the ground through solid cells) */
 export function floatingCells(cells: Pick<Map<number, unknown>, 'has'> & { keys(): Iterable<number> }, maxReport = 8) {

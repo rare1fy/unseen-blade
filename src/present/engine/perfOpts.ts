@@ -6,6 +6,7 @@
 export const CAPS = { gl2: true, instancing: true, boneTex: true, /** dFdx / dFdy (the block bevel, flat shading): WebGL2, or WebGL1's OES_standard_derivatives — the devtools have neither */ derivatives: true };
 
 export const OPT = {
+  roomPacks: true, packedLighting: true, roomAhead: true, slicedRoom: true,
   foeContacts: true, bannerFaces: true, propBatch: true, mobileTargets: true, effectBudget: true, bakedShadows: true, cameraTiles: true,
   poseLod: true, cheapVoxels: true, singleMusic: true, greedyActors: true,
   /** big places cast their shadow from 12 m position-only tiles (engine/shadowTiles.ts) */

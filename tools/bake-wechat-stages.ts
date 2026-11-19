@@ -16,6 +16,7 @@ const { roomDefinition } = await import('../src/present/act/show');
 const { titleDefinition } = await import('../src/present/act/title');
 import { ROOM_MAPS } from '../src/present/asm/roomMaps';
 import { REGIONS } from '../src/present/act/regions';
+import { shadowBake, type ShadowLayout } from '../src/present/engine/shadowTiles';
 import { ASM_QA } from '../src/present/asm/assemble';
 import { VoxWorld } from '../src/present/look/voxkit';
 import { quietBattleGlow } from '../src/present/scenes/battleGlow';
@@ -34,6 +35,8 @@ function bake(def: SceneDef, combat: boolean, report?: any) {
     meshes: object[] = [];
   let size = 0;
   const terrain: THREE.Mesh[] = [];
+  const shadows = new WeakMap<THREE.Mesh, ShadowLayout>();
+  shadowBake.capture = (mesh, layout) => shadows.set(mesh, layout);
   function attribute(name: string, a: THREE.BufferAttribute) {
     const array = a.array,
       bytes = array.BYTES_PER_ELEMENT;
@@ -58,6 +61,40 @@ function bake(def: SceneDef, combat: boolean, report?: any) {
     }
     return { name, type: array.constructor.name, itemSize: a.itemSize, count: array.length, parts };
   }
+  // The four vertices of a voxel face repeat a small vocabulary of colours, edges and normals.
+  // Store one dictionary index per face. Coordinates use the exact 7 cm grid, indices the local quad.
+  function faceAttribute(name: string, a: THREE.BufferAttribute) {
+    const index = name === 'index', grid = name === 'position', width = index ? 6 : 4 * a.itemSize;
+    const rows = a.array.length / width;
+    if (!Number.isInteger(rows)) return attribute(name, a);
+    const dictionary: number[] = [], ids = new Map<string, number>(), codes = new Uint16Array(rows);
+    const origins = grid ? new Uint16Array(rows * 3) : undefined;
+    for (let q = 0; q < rows; q++) {
+      const row: number[] = [];
+      for (let j = 0; j < width; j++) {
+        const value = a.array[q * width + j];
+        if (grid) {
+          const cell = Math.round(value / CELL);
+          if (Math.fround(cell * CELL) !== value || Math.abs(cell) > 32767) return attribute(name, a);
+          if (j < 3) origins![q * 3 + j] = cell + 32768;
+          row.push(cell - (origins![q * 3 + j % 3] - 32768));
+        } else row.push(value - (index ? 4 * q : 0));
+      }
+      const key = row.join(',');
+      let id = ids.get(key);
+      if (id === undefined) {
+        id = ids.size;
+        if (id > 65535) return attribute(name, a);
+        ids.set(key, id); dictionary.push(...row);
+      }
+      codes[q] = id;
+    }
+    return { ...attribute(name, new THREE.BufferAttribute(codes, 1)), faces: {
+      width, itemSize: a.itemSize, type: a.array.constructor.name,
+      table: attribute('table', new THREE.Float32BufferAttribute(dictionary, width)),
+      origins: origins && attribute('origins', new THREE.BufferAttribute(origins, 3)),
+    } };
+  }
   function add(obj: THREE.Object3D, source = 'plain', cut = false) {
     if (obj.userData.stageEffect) {
       ops.push(obj.userData.stageEffect);
@@ -77,9 +114,18 @@ function bake(def: SceneDef, combat: boolean, report?: any) {
     if (material === 'plain' && !['MeshLambertMaterial', 'MeshStandardMaterial', 'MeshBasicMaterial'].includes(mat.type))
       throw Error('Unregistered scenery material ' + mat.type);
     mesh.updateMatrix();
-    const attributes = Object.entries(geo.attributes).map(([k, v]) => attribute(k, v as THREE.BufferAttribute));
-    if (geo.index) attributes.push(attribute('index', geo.index));
+    const encode = source === 'terrain' || source === 'glow' ? faceAttribute : attribute;
+    const attributes = Object.entries(geo.attributes).map(([k, v]) => encode(k, v as THREE.BufferAttribute));
+    if (geo.index) attributes.push(encode('index', geo.index));
+    const layout = shadows.get(mesh);
+    const tiles = layout && {
+      tiles: layout.tiles, groups: layout.groups,
+      order: attribute('order', new THREE.BufferAttribute(layout.order, 1)),
+      groupOf: attribute('groupOf', new THREE.BufferAttribute(layout.groupOf, 1)),
+      partner: attribute('partner', new THREE.BufferAttribute(new Uint32Array(layout.partner.buffer), 1)),
+    };
     meshes.push({
+      tiles,
       material,
       plain: material === 'plain' ? mat.toJSON() : undefined,
       glow: cut ? 2.6 : combat ? 1.35 : (def.mood.glowK ?? 2.6),
@@ -91,7 +137,7 @@ function bake(def: SceneDef, combat: boolean, report?: any) {
       matrix: mesh.matrix.toArray(),
       attributes,
     });
-    geo.dispose();
+    if (!terrain.includes(mesh)) geo.dispose();
   }
   const w = new VoxWorld(CELL, true),
     cut = new VoxWorld(CELL, true),
@@ -139,6 +185,8 @@ function bake(def: SceneDef, combat: boolean, report?: any) {
     ? { placed: report.placed, rejected: report.rejected, empty: report.empty, warnings: report.warnings, lights: report.lights }
     : undefined;
   const field = bakeTerrainLight(terrain, def.mood.moonPos);
+  for (const mesh of terrain) mesh.geometry.dispose();
+  shadowBake.capture = undefined;
   let light;
   if (field) {
     const { depth, ...projection } = field;
@@ -158,24 +206,17 @@ bake(titleDefinition(3), false);
 const args = { isYard: false, room: 0, recent: [], nextRooms: [], viewSpec: null, forceSpec: null, noArena: false } as const;
 const yard = roomDefinition({ ...args, isYard: true, recent: [], nextRooms: [], locale: 'ninja_wilds', plan: null });
 bake(yard.def, true);
-// These authored rooms have deterministic terrain and fit the scenery budget.
-const bakedMaps = new Set(['crossroads', 'courtyards', 'islands']);
-for (const m of ROOM_MAPS.filter(map => bakedMaps.has(map.id))) {
-  const plan = { type: 'fight', locale: m.locale, reward: null, waves: [] } as const;
-  // (11-19: since the drawn rooms are picked per region, roomDefinition only takes the map when it knows the room's region — without it
-  //  the map was dropped and these three were baked as nameless random rooms, so the package had none of them)
-  const region = REGIONS.findIndex(rg => rg.locales.includes(m.locale) || rg.bossLocale === m.locale);
-  for (const count of [1, 2]) {
-    const r = roomDefinition({
-      ...args,
-      recent: [],
-      nextRooms: Array(count).fill(plan),
-      locale: m.locale,
-      map: m.id,
-      region: region >= 0 ? region : undefined,
-      plan: { ...plan, waves: [] },
-      regionSpec: { season: m.locale.startsWith('xp_') ? 'winter' : 'autumn' },
-    });
-    bake(r.def, true, r.report);
+const written = new Set<string>();
+for (const [region, rg] of REGIONS.entries()) {
+  for (const m of ROOM_MAPS.filter(map => map.kind === 'boss' ? rg.bossLocale === map.locale : rg.locales.includes(map.locale))) {
+    const plan = { type: m.kind === 'calm' ? 'rest' : m.kind, locale: m.locale, reward: null, waves: [] } as const;
+    // The room before a boss has one exit, including when it is a rest stop.
+    for (const count of m.kind === 'boss' ? [region === REGIONS.length - 1 ? 0 : 1] : [1, 2]) {
+      const r = roomDefinition({ ...args, recent: [], nextRooms: Array(count).fill(plan), locale: m.locale,
+        map: m.id, region, plan: { ...plan, waves: [] }, regionSpec: rg.spec });
+      if (!r.def.pack) throw Error('Missing stage key for ' + m.id);
+      if (!written.has(r.def.pack)) bake(r.def, true, r.report);
+      written.add(r.def.pack);
+    }
   }
 }

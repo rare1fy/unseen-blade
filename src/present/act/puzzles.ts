@@ -1,3 +1,4 @@
+import { finishBuild } from '../engine/buildSteps';
 import type { ContactBatch } from '../engine/contactBatch';
 // 定死的屋子里会动的东西（11-18，docs/LEVEL_DESIGN.md「小解谜」；用户：「甚至可以加点小解密元素」，六种都做、少数开路多数可选）。
 // 都围着「她看不见，靠听」：每个机关自己往外渗淡淡的声纹（地上一圈圈），砍上去有它自己的声音。
@@ -112,17 +113,24 @@ export class RoomPieces {
     }
   }
   private waiting = 0; private stageHint = 20;
-  constructor(parent: THREE.Object3D, readonly sp: ShapePlan, readonly grid: FloorGrid, style: WallStyle, seed: number) {
+  constructor(parent: THREE.Object3D, readonly sp: ShapePlan, readonly grid: FloorGrid, style: WallStyle, seed: number, deferred = false) {
     parent.add(this.root);
+    this.zone0 = grid.zones().slice();
+    if (!deferred) finishBuild(this.buildSteps(style, seed));
+  }
+  *buildSteps(style: WallStyle, seed: number) {
+    const { sp, grid } = this;
     for (const p of sp.pits) if (p.kind === 'molten') {
+      yield;
       const liquid = new LiquidCopper(p, sp.bridges, seed);
       this.root.add(liquid.mesh);
       this.copper.push(liquid);
     }
-    const fx = sp.fixed!; this.zone0 = grid.zones().slice();
+    const fx = sp.fixed!;
     const zoneAt = (x: number, z: number) => { const i = grid.ix(x), j = grid.iz(z); return i < 0 || j < 0 || i >= grid.nx || j >= grid.nz ? -1 : this.zone0[j * grid.nx + i]; };
     const size = new Map<number, number>(); for (const v of this.zone0) if (v >= 0) size.set(v, (size.get(v) ?? 0) + 1);
     for (const q of fx.closed) {
+      yield;
       const cx = (q.x0 + q.x1) / 2, cz = (q.z0 + q.z1) / 2;
       const zA = zoneAt(cx, q.z0 - 0.25), zB = zoneAt(cx, q.z1 + 0.25), xA = zoneAt(q.x0 - 0.25, cz), xB = zoneAt(q.x1 + 0.25, cz);
       const run: 'x' | 'z' = zA >= 0 && zB >= 0 ? 'z' : 'x', sides: [number, number] = run === 'z' ? [zA, zB] : [xA, xB];
@@ -134,6 +142,7 @@ export class RoomPieces {
     }
     // the drop-bridges: each hangs from the bank by the nearest rope post
     for (const s of fx.sunk) if (s.kind === 'drop') {
+      yield;
       const ropes = fx.marks.filter(m => m.kind === 'rope'); if (!ropes.length) continue;
       const cx = (s.x0 + s.x1) / 2, cz = (s.z0 + s.z1) / 2, post = ropes.sort((a, b) => Math.hypot(a.x - cx, a.z - cz) - Math.hypot(b.x - cx, b.z - cz))[0];
       this.drops.push(this.dropBridge(s, [post.x, post.z]));
@@ -141,9 +150,10 @@ export class RoomPieces {
     // the bells, in the order they ring (from the room's seed), each its own note by its place in the order
     const bm = fx.marks.filter(m => m.kind === 'bell');
     this.order = bm.map((_, i) => i).sort((a, b) => ((a * 7 + seed) % 5) - ((b * 7 + seed) % 5) || a - b);
-    bm.forEach((m, i) => this.bells.push(this.bell(m.x, m.z, this.order.indexOf(i))));
+    for (const [i, m] of bm.entries()) { yield; this.bells.push(this.bell(m.x, m.z, this.order.indexOf(i))); }
     const gates = this.pieces.filter(p => p.kind === 'gate');
     for (const m of fx.marks) {
+      yield;
       if (m.kind === 'wheel') this.wheels.push(this.wheel(m.x, m.z));
       if (m.kind !== 'plate') continue;
       const local = gates.filter(g => g.sides.includes(zoneAt(m.x, m.z)));

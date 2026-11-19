@@ -9,7 +9,7 @@ import * as THREE from 'three';
 import { toon } from './toon';
 import { PXU } from './pixel';
 import type { Bone } from '../actors/rig';
-import { shadowTiles, TILE_M } from '../engine/shadowTiles';
+import { shadowTiles, shadowTileSteps, TILE_M } from '../engine/shadowTiles';
 import { cheapVoxelUniform } from './quality';
 import { mergeActorFaces } from './greedyActor';
 import { OPT, CAPS } from '../engine/perfOpts';
@@ -59,6 +59,8 @@ export function voxToon(o: { rim?: number; self?: number; edge?: number; actor?:
   const src = toon(0xffffff, { vertexColors: true, rim: o.rim ?? 0.6, self: o.self ?? 0.05 }), m = src.clone(), edge = o.edge ?? 0.2;
   m.onBeforeCompile = (sh, r) => {
     src.onBeforeCompile(sh, r);
+    // three's toon material clone drops the extensions bag. The lighting and HUD variants reuse this shader.
+    if (CAPS.derivatives) sh.extensionDerivatives = true;
     sh.uniforms.uCheapVoxel = cheapVoxelUniform; sh.uniforms.uPx = PXU.uPx; sh.uniforms.uPxEdge = PXU.uPxEdge;
     sh.vertexShader = 'attribute vec2 aVox; attribute vec2 aSize; attribute vec4 aOpen; varying vec2 vVox; varying vec2 vSize; varying vec4 vOpen; varying vec3 vWN;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n vVox = aVox; vSize = aSize; vOpen = aOpen; vWN = normalize(mat3(modelMatrix) * objectNormal);');
     // (11-18 微信小游戏: the 1-art-pixel bevel lines need dFdx / dFdy — without them (the devtools' WebGL1) the faces keep their tones)
@@ -139,7 +141,8 @@ export class VoxChar {
    * Build the rig: returns bones (Object3D, positioned relative to their parents, rest pose recorded) and the meshes per part.
    * jitter: per-cell brightness grain; glow: brightness multiplier for glowing cells (they feed the bloom).
    */
-  build(o: { jitter?: number; glow?: number; rim?: number; self?: number; edge?: number } = {}) {
+  build(o: { jitter?: number; glow?: number; rim?: number; self?: number; edge?: number } = {}) { return finishBuild(this.buildSteps(o)); }
+  *buildSteps(o: { jitter?: number; glow?: number; rim?: number; self?: number; edge?: number } = {}) {
     const s = this.s, bones: Record<string, Bone> = {}, meshes: THREE.Mesh[] = [];
     for (const [name, b] of this.bonesAbs) {
       const o3 = new THREE.Object3D() as Bone; o3.name = name; bones[name] = o3;
@@ -151,7 +154,9 @@ export class VoxChar {
     const jit = o.jitter ?? 0.05, col = new THREE.Color();
     const byPart = new Map<string, { solid: number[][]; glow: number[][] }>();
     const hash = (x: number, y: number, z: number) => { let h = (x * 374761393 + y * 668265263 + z * 1274126177) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
+    let visited = 0;
     for (const v of this.cells.values()) {
+      if ((++visited & 255) === 0) yield;
       if (!byPart.has(v.part)) byPart.set(v.part, { solid: [[], [], [], [], [], [], []], glow: [[], [], [], [], [], [], []] });
       const tgt = v.g > 0 ? byPart.get(v.part)!.glow : byPart.get(v.part)!.solid, [P, N, C, U, I, E, S] = tgt;
       col.set(v.c); const sh = v.g > 0 ? 1 : 1 + (hash(v.x, v.y, v.z) - 0.5) * 2 * jit;
@@ -183,6 +188,7 @@ export class VoxChar {
     }
     const solidMat = voxToon({ actor: true, rim: o.rim, self: o.self, edge: o.edge });
     for (const [part, { solid, glow }] of byPart) {
+      yield;
       for (const [arr, isGlow] of [[solid, false], [glow, true]] as const) {
         const [P, N, C, U, I, E, S] = OPT.greedyActors && !jit ? mergeActorFaces(arr, s) : arr; if (!I.length) continue;
         const g = new THREE.BufferGeometry();
@@ -311,19 +317,29 @@ export class VoxWorld {
       }
     }
     const meshes: THREE.Mesh[] = [];
-    yield;
-    for (const [arr, isGlow] of [[out.solid, false], [out.glow, true]] as const) {
-      const [P, N, C, U, I, E, S, K] = arr; if (!I.length) continue;
-      const g = new THREE.BufferGeometry();
-      g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(N, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(C, 3));
-      g.setAttribute('aVox', new THREE.Float32BufferAttribute(U, 2)); g.setAttribute('aOpen', new THREE.Float32BufferAttribute(E, 4)); g.setAttribute('aSize', new THREE.Float32BufferAttribute(S, 2));
-      if (CH) g.setAttribute('aChunk', new THREE.Float32BufferAttribute(K, 2));
-      g.setIndex(P.length / 3 > 65535 ? new THREE.Uint32BufferAttribute(I, 1) : new THREE.Uint16BufferAttribute(I, 1)); g.computeBoundingSphere();
-      const m = new THREE.Mesh(g, isGlow ? glowMat(o.glow ?? 2.4) : voxToon({ rim: o.rim ?? 0.35, self: o.self ?? 0.03, edge: o.edge ?? 0.16 }));
-      m.castShadow = !isGlow; m.receiveShadow = true; meshes.push(m);
-      // 11-18 微信帧率: a big place draws its shadow from 12 m position-only tiles instead (engine/shadowTiles.ts)
-      if (!isGlow) { const tiles = shadowTiles(m, o.tile ?? TILE_M); if (tiles.length) { m.castShadow = false; m.userData.shadowTiled = true; meshes.push(...tiles); } }
+    let transferred = false;
+    try {
+      yield;
+      for (const [arr, isGlow] of [[out.solid, false], [out.glow, true]] as const) {
+        const [P, N, C, U, I, E, S, K] = arr; if (!I.length) continue;
+        const g = new THREE.BufferGeometry();
+        const attrs: [string, number[], number][] = [['position', P, 3], ['normal', N, 3], ['color', C, 3],
+          ['aVox', U, 2], ['aOpen', E, 4], ['aSize', S, 2]];
+        if (CH) attrs.push(['aChunk', K, 2]);
+        for (const [name, values, width] of attrs) {
+          g.setAttribute(name, new THREE.Float32BufferAttribute(values, width));
+          if (OPT.slicedRoom) yield;
+        }
+        g.setIndex(P.length / 3 > 65535 ? new THREE.Uint32BufferAttribute(I, 1) : new THREE.Uint16BufferAttribute(I, 1)); g.computeBoundingSphere();
+        const m = new THREE.Mesh(g, isGlow ? glowMat(o.glow ?? 2.4) : voxToon({ rim: o.rim ?? 0.35, self: o.self ?? 0.03, edge: o.edge ?? 0.16 }));
+        m.castShadow = !isGlow; m.receiveShadow = true; meshes.push(m);
+        // 11-18 微信帧率: a big place draws its shadow from 12 m position-only tiles instead (engine/shadowTiles.ts)
+        if (!isGlow) { const tiles = OPT.slicedRoom ? yield* shadowTileSteps(m, o.tile ?? TILE_M) : shadowTiles(m, o.tile ?? TILE_M); if (tiles.length) { m.castShadow = false; m.userData.shadowTiled = true; meshes.push(...tiles); } }
+      }
+      transferred = true;
+      return meshes;
+    } finally {
+      if (!transferred) for (const m of meshes) m.geometry.dispose();
     }
-    return meshes;
   }
 }

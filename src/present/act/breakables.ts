@@ -84,7 +84,7 @@ export class Breakables {
   logic = new BreakLogic(); root = new THREE.Group(); private vis = new Map<number, Vis>(); private fires: FireVis[] = [];
   constructor(parent: THREE.Object3D, private solids: Solids) { parent.add(this.root); }
   /** the room's props (from asm/arena.ts arenaPlan) */
-  *buildSteps(list: ArenaPlan['props'], covers: Cover[] = []) {
+  *buildSteps(list: ArenaPlan['props'], covers: Cover[] = [], detached = false) {
     this.clear();
     for (const it of list) {
       yield;
@@ -103,7 +103,8 @@ export class Breakables {
       const solid = this.solids.add({ kind: 'cover', shape: 'box', x: cv.x, z: cv.z, hx: cv.hx, hz: cv.hz, slam: true, tag: p });
       this.vis.set(p.id, { p, g, tilt, solid, wob: { x: 0, z: 0, vx: 0, vz: 0 }, fall: -1, fuseT: 0, cover: cv });
     }
-    this.root.userData.propBatch = true; batchActor(this.root);
+    this.root.userData.propBatch = true;
+    if (!detached) batchActor(this.root);
   }
   contacts(batch: ContactBatch) {
     for (const v of this.vis.values()) {
