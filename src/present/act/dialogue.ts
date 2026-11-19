@@ -82,7 +82,8 @@ class InkLine {
   private paint(line: Line, t: number, total: number) {
     const tr = (x: string) => tx(x);
     const L = this.L, dpr = Math.max(1, Math.round(L.dpr || 1));
-    const fpx = Math.round((L.h >= 600 ? 28 : 20) * dpr), raw = tr(line.text).replace(/^（|）$/g, '');
+    // (11-19 用户：「旁白的文字有点看不清楚」: bigger, a dark band behind the words, a dark rim round each character)
+    const fpx = Math.round((L.h >= 600 ? 32 : 24) * dpr), raw = tr(line.text).replace(/^（|）$/g, '');
     // two rows at most, broken near the middle (CJK breaks anywhere); English by words
     const maxW = Math.round(Math.min(L.w * 0.7, 900) * dpr);
     const rows: string[] = [];
@@ -95,6 +96,9 @@ class InkLine {
     const widest = Math.max(...rows.map(r => rawW(r, fpx)), 1);
     const W = widest + 2 * (stroke + gapX) + Math.round(24 * dpr), H = rows.length * lineH + Math.round(16 * dpr);
     const c = this.c; c.width = W; c.height = H; const g = c.getContext('2d')!; g.clearRect(0, 0, W, H);
+    // the band: dark in the middle, fading out toward both ends
+    { const bx = g.createLinearGradient(0, 0, W, 0); bx.addColorStop(0, 'rgba(6,5,10,0)'); bx.addColorStop(0.18, 'rgba(6,5,10,0.6)'); bx.addColorStop(0.82, 'rgba(6,5,10,0.6)'); bx.addColorStop(1, 'rgba(6,5,10,0)');
+      g.fillStyle = bx; g.globalAlpha = Math.min(1, t * 3); g.fillRect(0, 0, W, H); g.globalAlpha = 1; }
     // the two ink strokes, level with the first row's middle, darker toward the words
     const sy = Math.round(8 * dpr + lineH * 0.5);
     for (const sx of [Math.round(12 * dpr), W - Math.round(12 * dpr) - stroke]) {
@@ -110,7 +114,9 @@ class InkLine {
         const ct = t - idx / CPS2, a = Math.max(0, Math.min(1, ct / 0.35)); idx++;
         if (a <= 0) return;
         const cx = x + rawW(chars.slice(0, ci).join(''), fpx);
-        g.globalAlpha = a; rawText(g, ch, cx + Math.max(1, dpr), y + Math.max(1, dpr), fpx, 'rgba(5,4,10,0.85)'); rawText(g, ch, cx, y, fpx, a < 1 ? '#c8bca8' : '#efe6d6');
+        g.globalAlpha = a; const o = Math.max(1, Math.round(dpr * 1.5));
+        for (const [ox, oy] of [[-o, 0], [o, 0], [0, -o], [0, o], [o, o]]) rawText(g, ch, cx + ox, y + oy, fpx, 'rgba(5,4,10,0.9)');
+        rawText(g, ch, cx, y, fpx, a < 1 ? '#d8ccb8' : '#fff6e6');
       });
       if (language === 'en') idx++;
     });

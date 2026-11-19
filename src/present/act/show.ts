@@ -254,7 +254,10 @@ type AheadRoom = {
   steps: ReturnType<typeof prepRoomSteps>; size?: ReturnType<typeof stageNow>;
   ready?: Room; wait?: Promise<void>;
 };
-function advanceAhead(job: AheadRoom, until = 0) {
+/** 11-19 (用户：「开场剧情一系列的还是很慢」): the prologue's next place, built a slice a frame while the one before plays —
+ *  'boss' (崔府, during the snowy village), 'dawn' (the village at dawn, during 崔府), 'yard' (the kiln, during the dawn) */
+type ProJob = Pick<AheadRoom, 'steps' | 'size' | 'ready' | 'wait'> & { tag: 'boss' | 'dawn' | 'yard' };
+function advanceAhead(job: Pick<AheadRoom, 'steps' | 'size' | 'ready' | 'wait'>, until = 0) {
   // Both builders and gameplay read the same stage dimensions. The hideout also overrides PLAY independently.
   const live = stageNow(), floor = { ...PLAY };
   try {
@@ -360,6 +363,40 @@ export class ActShow {
   prologue = 0; private forceSpec: Partial<Spec> | null = null; private proFightT = 0; private proFalling = false; private proPeople: BattleActor[] = [];
   /** 11-19 剧情改版: the snowy village and the spot she stood ringed in — dawn is there (the ditch outside 崔府's back gate) */
   private proSpec0: Spec | null = null; private proAt0: { x: number; z: number } | null = null;
+  private proAhead: ProJob | null = null;
+  private dropPro() {
+    const j = this.proAhead; this.proAhead = null;
+    if (!j) return;
+    if (j.ready) j.ready.prep.drop(); else j.steps.return(undefined as never);
+  }
+  /** which prologue place a build now asks for (the one proAhead may hold) */
+  private proTag(isYard: boolean): ProJob['tag'] | null {
+    return isYard ? 'yard' : this.prologue === 2 ? (this.viewSpec && this.noArena ? 'dawn' : this.viewSpec ? null : 'boss') : null;
+  }
+  /** the dawn's view of the snowy village (prologueFall builds the same) */
+  private dawnView(): Partial<Spec> {
+    const sp = this.proSpec0 ?? this.spec;
+    return { locale: PRO_ROOM.locale, season: 'winter', time: 'dawn', weather: 'clear', layout: sp?.layout ?? 'axis', mirror: sp?.mirror ?? false, seed: sp?.seed ?? 5, exits: [] };
+  }
+  private queuePro(tag: ProJob['tag']) {
+    this.dropPro();
+    if (!OPT.roomAhead) return;
+    const base = { recent: this.recent.slice(), shapes: this.shapes.slice(), maps: this.maps.slice(), shape: this.forceShape, seed: this.forceSeed, map: this.forceMap, regionSpec: null };
+    const want: RoomIn = tag === 'boss'
+      ? { ...base, isYard: false, room: this.room + 1, locale: PRO_BOSS.locale, plan: PRO_BOSS, nextRooms: [], viewSpec: null, forceSpec: { ...PRO_ROOM.spec }, noArena: false, region: undefined }
+      : tag === 'dawn'
+      ? { ...base, isYard: false, room: this.room, locale: this.locale, plan: this.plan, nextRooms: [], viewSpec: this.dawnView() as Spec, forceSpec: null, noArena: true, region: undefined }
+      : { ...base, recent: [], isYard: true, room: -1, locale: 'ninja_wilds', plan: null, nextRooms: [], viewSpec: null, forceSpec: null, noArena: false, region: this.region };
+    this.proAhead = { tag, steps: prepRoomSteps(want, true) };
+  }
+  /** a slice of the prologue's next place each frame — more while a cutscene or a talk plays */
+  private workPro() {
+    const j = this.proAhead;
+    if (!j || j.ready || j.wait || bladeBusy()) return;
+    const ms = this.phase === 'cine' || this.phase === 'talk' || this.phase === 'doors' || this.phase === 'leaving' ? 8 : 3;
+    try { advanceAhead(j, performance.now() + ms); }
+    catch (error) { console.warn('[stage] prologue background build failed', error); this.dropPro(); }
+  }
   /** 11-18: her pose from 石雷's blow until 杜五 lifts her onto the donkey — on one knee, bleeding (prologue.ts Kneel) */
   private proKneel = new Kneel();
   private proHost: PrologueHost = {
@@ -421,7 +458,7 @@ export class ActShow {
   private async coldOpen(): Promise<BlindPOV | null> {
     if (COLD_AS_CARDS) {
       const pov = new BlindPOV(this.L); pov.fill(0x000000, 1, true); this.hud.on = false; stopTitle();
-      void audio.playMusic('bgm_coldopen', 0.6);
+      this.musicHold = 'bgm_coldopen'; void audio.playMusic('bgm_coldopen', 0.6);   // (held through the walk; the ambush crossfades it out)
       await this.cine(coldCardShots(pov)); pov.fill(0x000000, 1, true);
       await frames(2); return pov;
     }
@@ -451,6 +488,7 @@ export class ActShow {
     this.plan = { type: 'fight', locale: PRO_ROOM.locale, reward: null, waves: PRO_ROOM.waves };
     this.locale = PRO_ROOM.locale; this.forceSpec = { ...PRO_ROOM.spec };
     const loading = this.buildRoom(true); if (loading) await loading;
+    this.queuePro('boss');   // (11-19: 崔府 builds behind the walk, the ambush and the fight)
     // 「七年后」 over the snowy village while she walks in from the front; then the first sentries
     // (11-19 用户：「前面短促的悲伤音乐加字幕，突然就进入战斗了……需要一个timeline来放刘白走到战场中的过程，和敌人跳出来把她包围了的过程，
     //  辅以对话和文字」): the place and the year over the village from high; she walks in alone up the snowy lane (a long walk, the
@@ -470,7 +508,6 @@ export class ActShow {
     void this.cine([
       // the year and the place, high over the village (act-37: the cold open's last card says 七年了)
       { dur: 3.6, ease: 'inOut', caption: { text: PRO_CAPTIONS[1], big: true, at: 0.6, hold: 2.3 }, from: { pos: [p0.x + 4, 17, p0.z + 15], look: [p0.x, 0, p0.z - 5], fov: 40 }, to: { pos: [p0.x + 3, 14, p0.z + 13], look: [p0.x, 0, p0.z - 5], fov: 40 },
-        at: [[0, () => { this.musicHold = null; void audio.playMusic('bgm_coldopen', 0.4); }]],
         tick: (_t, dt) => h.a.update(dt) },
       // she comes up the lane alone — from behind and to the side, the camera keeping pace, low enough to see her steps in the snow
       { dur: 5.4, ease: 'linear', from: () => ({ pos: [p0.x + 4.2, 3.0, h.pos.z + 5.8] as V, look: [p0.x, 0.9, h.pos.z - 1.5] as V, fov: 36 }), to: () => ({ pos: [p0.x + 3.8, 2.8, h.pos.z + 5.2] as V, look: [p0.x, 0.9, h.pos.z - 1.8] as V, fov: 36 }),
@@ -498,7 +535,7 @@ export class ActShow {
             const f = spawnFoe(ko.kind, from, h.pos.clone(), ko.elite); f.st = 'enter'; f.cd = 2.5; this.foes.push(f);
             jumpers.push({ f, from, to, t0: 0.12 + i * 0.22, landed: false });
           }
-          cue('roar', 0.35); void audio.playMusic(this.musicName(), 0.9);
+          cue('roar', 0.35); this.musicHold = null; void audio.playMusic(this.musicName(), 2.5);
         }]],
         tick: (t, dt) => {
           stand(); h.a.update(dt);
@@ -539,7 +576,7 @@ export class ActShow {
       await this.cine(fallShots(this.proHost, boss));
       if (!this.proKneel.active) this.proKneel.start();   // (the shot skipped before the blow landed: she still goes down on her knee)
       // (her line 「颤抖的指尖在雪泥里死死够向刀柄」: the right hand goes out toward the sabre on the snow; back down after it)
-      this.hero.scriptPose = kneelPose; await this.talk(PRO_FALL, (_i, l) => { this.proKneel.reachWant = l.who === 'act' && /刀柄|长刀脱手/.test(l.text) ? 1 : 0; }); this.proKneel.reachWant = 0; this.hero.scriptPose = null;
+      this.hero.scriptPose = kneelPose; await this.talk(PRO_FALL, (_i, l) => { this.proKneel.reachWant = l.who === 'act' && /刀柄|长刀脱手|挑飞/.test(l.text) ? 1 : 0; }); this.proKneel.reachWant = 0; this.hero.scriptPose = null;
       this.phase = 'cine'; await this.cine(snowShots(this.proHost, boss));
     } else this.proKneel.start();
     // dawn outside: the snow has stopped, the frozen dead lie in the ditch (11-19 剧情改版: thrown out of 崔府's back gate — the
@@ -547,8 +584,9 @@ export class ActShow {
     const sp = this.proSpec0 ?? this.spec, at = this.proAt0 ? { ...this.proAt0 } : { x: this.hero.pos.x, z: this.hero.pos.z }, yaw = this.hero.a.yaw;
     await wipeTransit(async () => {
       for (const f of this.foes) f.a.dispose(); this.foes.length = 0;
-      this.noArena = true; this.viewSpec = { locale: PRO_ROOM.locale, season: 'winter', time: 'dawn', weather: 'clear', layout: sp?.layout ?? 'axis', mirror: sp?.mirror ?? false, seed: sp?.seed ?? 5, exits: [] };
+      this.noArena = true; this.viewSpec = this.dawnView();
       this.forceSpec = null; await this.buildRoom(true); this.viewSpec = null; this.noArena = false;
+      this.queuePro('yard');   // (11-19: the kiln builds behind the dawn)
       this.hero.pos.set(at.x, 0, at.z); this.hero.a.yaw = yaw; this.proKneel.dawn(); this.hero.scriptPose = kneelPose; this.hero.a.update(0.016); kneelPose();
     });
     const dead: Array<[EKind, number, number]> = [['hj_mob', at.x - 3.2, at.z + 2.6], ['hj_blade', at.x - 1.4, at.z + 3.6], ['hj_mob', at.x + 2.4, at.z - 1.8]];
@@ -1336,7 +1374,16 @@ export class ActShow {
       advanceAhead(job);
       if (!job.ready) yield;
     }
-    const P = job?.ready ?? ready ?? (yield* prepRoomSteps(want)); this.buildMs = Math.round(performance.now() - t0);
+    // (the prologue's places: the one built behind the scene before, when it is the one asked for)
+    const proTag = this.proTag(isYard), pro = proTag && this.proAhead?.tag === proTag && (!__WX__ || bladeWorking() || this.proAhead.ready) ? this.proAhead : null;
+    if (this.proAhead && this.proAhead !== pro) this.dropPro();
+    this.proAhead = null;
+    if (pro) while (!pro.ready) {
+      if (pro.wait) yield pro.wait;
+      advanceAhead(pro);
+      if (!pro.ready) yield;
+    }
+    const P = job?.ready ?? pro?.ready ?? ready ?? (yield* prepRoomSteps(want)); this.buildMs = Math.round(performance.now() - t0);
     setStage(P.big, P.k);
     const spec = P.spec; this.recent.push(spec); this.spec = spec; this.pools = LOCALES[spec.locale]?.pools?.(spec.seed) ?? [];
     if (P.arena?.shape?.fixed) {
@@ -2784,7 +2831,11 @@ export class ActShow {
     after(0.35, () => { void wipeTransit(() => {
       if (nextRegion) { this.region = next.region!; this.room = 0; this.visited = []; this.regionIn = true; this.scaleFoes(this.region); this.log.push(`region ${this.region} ${REGIONS[this.region]?.id}`); }
       else this.room++;
-      return this.buildRoom(false);
+      const r = this.buildRoom(false);
+      // (11-19: 崔府 is up — the village at dawn starts building behind its cutscenes)
+      const q = () => { if (this.prologue === 2) this.queuePro('dawn'); };
+      if (r instanceof Promise) return r.then(q);
+      q(); return r;
     }); });
   }
   private dead() {
@@ -2857,6 +2908,7 @@ export class ActShow {
     // Keep using the walk through the gate and the blade's arrival. roomSteps takes ownership before foreground work.
     if (this.ahead.length && (this.phase === 'doors' || this.phase === 'leaving' || this.phase === 'pick' ||
       (this.phase === 'yard' && !this.foes.some(f => f.kind !== 'dummy' && f.st !== 'dead')))) this.workAhead();
+    if (this.proAhead) this.workPro();
     if (bladeBusy()) return;
     this.seeThrough();
     this.storySkipFrame();

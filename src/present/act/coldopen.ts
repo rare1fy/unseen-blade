@@ -12,7 +12,7 @@ import { HS_FORGE, hsRoadY } from '../asm/hanshan/hs_forge';
 import { childPose, childSnap, killerPose, killerSnap, torchLight, fatherPose, CHILD_WENJIAO, CHILD_GREYS, CHILD_WHITE, FATHER_DEF } from './hanshan_people';
 import { GRADE } from '../look/post';
 import type { CineShot, V } from './timeline';
-import { PRO_COLD } from './scripts';
+import { PRO_COLD, COLD_CARDS } from './scripts';
 import { V3 } from '../engine/world';
 import { hitstop } from '../engine/clock';
 import { addBlock } from '../fx/blocks';
@@ -243,9 +243,9 @@ export function coldOpenShots(h: ColdHost): { shots: CineShot[]; dispose: () => 
 // as faint rings, a slow ring like a heartbeat under the father's words); the 寒山坞 cutscene above stays for later
 // (act-45 用户：「开局的黑幕文字太啰嗦了，本来是氛围文字，结果慌里慌气说一大堆」: three short cards with room between them — the night,
 //  her father's words, the years — nothing explained; who, where and why are the snowy village's and the temple's to tell)
-export const COLD_CARD_LINES = ['那年腊月，火比雪大。'];
+export const COLD_CARD_LINES = COLD_CARDS.slice(0, -2);
 export function coldCardShots(pov: BlindPOV): CineShot[] {
-  const cards = [...COLD_CARD_LINES, PRO_COLD, COLD_CARD2], last = cards.length - 1;
+  const cards = COLD_CARDS, last = cards.length - 1;
   return cards.map((text, i): CineShot => ({
     dur: i === last ? 3.2 : i === last - 1 ? 4.6 : 3.6, ease: 'linear', from: { pos: [0, 30, 30] as V, look: [0, 0, 0] as V, fov: 30 },
     caption: { text, big: true, at: 0.6, hold: i === last ? 2.0 : i === last - 1 ? 3.2 : 2.4 },
