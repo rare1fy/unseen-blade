@@ -50,7 +50,7 @@ import { CODE_BUILD } from '../bestiary/voxEdit';
 import { rackBlades, hideoutScene, HIDEOUT, HIDEOUT_PEOPLE } from './hideout';
 import { Timeline, type V } from './timeline';
 import { openingShots, bossIntroShots, type CineHost } from './cutscenes';
-import { NPC_TALK, STELE_TALK, MEAL_TALK, UP_TALK, POOR_TALK, WAKE_DUWU, WAKE_SUNAO, CHULEI_BEFORE, CHULEI_AFTER, deathLine, PRO_CHULEI, PRO_FALL, PRO_DAWN, PRO_WAKE, PRO_CAPTIONS, PRO_AMBUSH } from './scripts';
+import { NPC_TALK, STELE_TALK, MEAL_TALK, UP_TALK, POOR_TALK, WAKE_DUWU, WAKE_SUNAO, CHULEI_BEFORE, CH_BEFORE, CH_AFTER, BOSS_AFTER, STRIKE_FLAG, bossesDown, struckOnStele, ENDING, ENDING_PICK, deathLine, PRO_CUIXUAN, PRO_FALL, PRO_DAWN, PRO_WAKE, PRO_CAPTIONS, PRO_AMBUSH } from './scripts';
 import { fallShots, snowShots, dawnShots, loadShots, brazier, getUpPose, drapeOver, GETUP_STEP, Kneel, KNEEL_ARMS, type PrologueHost } from './prologue';
 import { coldOpenShots, coldCardShots, BlindPOV } from './coldopen';
 import { Barks } from './barks';
@@ -213,7 +213,9 @@ interface Room { fixtures?: Fixtures; spec: Spec; big: boolean; layout: Layout; 
 const WAKE_MAT: [number, number] = [6.42, -6.2];   // (her neck on the headrest at the wall end, her heels short of the folded quilt)
 const PRO_ROOM = { locale: 'hj_village', waves: [['hj_mob', 'hj_blade', 'hj_mob', 'hj_mob'], ['hj_blade', 'hj_mob', 'hj_mob']] as EKind[][],   // (11-19: the first wave is the ambush that closes round her — four, from every side)
   spec: { season: 'winter', weather: 'snow', time: 'night' } as Partial<Spec> };
-const PRO_BOSS: RoomPlan = { type: 'boss', locale: 'hj_temple', reward: null, waves: [['hj_boss']] };
+const PRO_BOSS: RoomPlan = { type: 'boss', locale: 'cx_court', reward: null, waves: [['cx_boss']] };   // (11-19 剧情改版: 崔府's forecourt, 崔玄)
+/** 11-19 剧情改版: the five bosses in order (region 0 … 4), the meeting cutscene's name for each */
+const BOSS_ORDER: EKind[] = ['hj_boss', 'ly_boss', 'xp_boss', 'wl_boss', 'cx_boss'];
 /** act-37 the cold open's place: 寒山坞 on that snowy night (its own layout and light) */
 const COLD_ROOM: RoomIn = { isYard: false, room: 0, recent: [], locale: 'hs_forge', plan: null, nextRooms: [], forceSpec: null, noArena: true,
   viewSpec: { locale: 'hs_forge', layout: 'hs_valley', mirror: false, landmark: null, season: 'winter', time: 'night', weather: 'snow', seed: 7, exits: [] } };
@@ -353,6 +355,8 @@ export class ActShow {
   dialogue: Dialogue; timeline: Timeline; pause!: PauseMenu; private pauseHud: boolean | null = null; private padSkip = false; private puppets: Foe[] = []; private wasPhase: Phase = 'yard'; private justDied = false;
   /** act-29 开篇 (方案 1): 1 = the snowy village (the first fight, alone), 2 = the snowy temple (褚雷, a fight she cannot win), 0 = off */
   prologue = 0; private forceSpec: Partial<Spec> | null = null; private proFightT = 0; private proFalling = false; private proPeople: BattleActor[] = [];
+  /** 11-19 剧情改版: the snowy village and the spot she stood ringed in — dawn is there (the ditch outside 崔府's back gate) */
+  private proSpec0: Spec | null = null; private proAt0: { x: number; z: number } | null = null;
   /** 11-18: her pose from 石雷's blow until 杜五 lifts her onto the donkey — on one knee, bleeding (prologue.ts Kneel) */
   private proKneel = new Kneel();
   private proHost: PrologueHost = {
@@ -454,6 +458,7 @@ export class ActShow {
     const h = this.hero, p0 = h.pos.clone(); let WALK = 6.5;
     while (WALK > 3 && !(this.solids.free(p0.x, p0.z - WALK, 1.0, 0.3) && (!this.grid || this.grid.clear(p0.x, p0.z - WALK, 1.0)))) WALK -= 0.25;
     const stopZ = p0.z - WALK;
+    this.proSpec0 = this.spec ?? null; this.proAt0 = { x: p0.x, z: stopZ };
     const ring = (this.plan?.waves[0] ?? []).map((k, i, all) => ({ k, a: Math.PI * 0.15 + (i / all.length) * Math.PI * 2 + 0.35, d: 3.4 + (i % 2) * 0.7 }));
     const jumpers: Array<{ f: Foe; from: THREE.Vector3; to: THREE.Vector3; t0: number; landed: boolean }> = [];
     const snowRing = (x: number, z: number, r = 1.4) => fxRing(V3(x, 0.05, z), 0xdfe8ff, r, { life: 0.9 } as never);
@@ -531,14 +536,15 @@ export class ActShow {
       await this.cine(fallShots(this.proHost, boss));
       if (!this.proKneel.active) this.proKneel.start();   // (the shot skipped before the blow landed: she still goes down on her knee)
       // (her line 「颤抖的指尖在雪泥里死死够向刀柄」: the right hand goes out toward the sabre on the snow; back down after it)
-      this.hero.scriptPose = kneelPose; await this.talk(PRO_FALL, (_i, l) => { this.proKneel.reachWant = l.who === 'act' && /刀柄/.test(l.text) ? 1 : 0; }); this.proKneel.reachWant = 0; this.hero.scriptPose = null;
+      this.hero.scriptPose = kneelPose; await this.talk(PRO_FALL, (_i, l) => { this.proKneel.reachWant = l.who === 'act' && /刀柄|长刀脱手/.test(l.text) ? 1 : 0; }); this.proKneel.reachWant = 0; this.hero.scriptPose = null;
       this.phase = 'cine'; await this.cine(snowShots(this.proHost, boss));
     } else this.proKneel.start();
-    // dawn in the same yard: the snow has stopped, the dead lie where they fell
-    const sp = this.spec, at = { x: this.hero.pos.x, z: this.hero.pos.z }, yaw = this.hero.a.yaw;
+    // dawn outside: the snow has stopped, the frozen dead lie in the ditch (11-19 剧情改版: thrown out of 崔府's back gate — the
+    //  snowy village's own yard at dawn stands in for the ditch outside the walls, where 杜五 picks over the dead)
+    const sp = this.proSpec0 ?? this.spec, at = this.proAt0 ? { ...this.proAt0 } : { x: this.hero.pos.x, z: this.hero.pos.z }, yaw = this.hero.a.yaw;
     await wipeTransit(async () => {
       for (const f of this.foes) f.a.dispose(); this.foes.length = 0;
-      this.noArena = true; this.viewSpec = { locale: 'hj_temple', season: 'winter', time: 'dawn', weather: 'clear', layout: sp?.layout ?? 'axis', mirror: sp?.mirror ?? false, seed: sp?.seed ?? 5, exits: [] };
+      this.noArena = true; this.viewSpec = { locale: PRO_ROOM.locale, season: 'winter', time: 'dawn', weather: 'clear', layout: sp?.layout ?? 'axis', mirror: sp?.mirror ?? false, seed: sp?.seed ?? 5, exits: [] };
       this.forceSpec = null; await this.buildRoom(true); this.viewSpec = null; this.noArena = false;
       this.hero.pos.set(at.x, 0, at.z); this.hero.a.yaw = yaw; this.proKneel.dawn(); this.hero.scriptPose = kneelPose; this.hero.a.update(0.016); kneelPose();
     });
@@ -633,7 +639,7 @@ export class ActShow {
   }
   /** a word with someone at the hideout; the smith and the healer then show their upgrades */
   private async npcTalk(id: string) {
-    if (id === 'stele') { const pool = (this.stele?.count ?? 0) > 0 ? STELE_TALK.one : STELE_TALK.none; await this.talk([{ who: 'jiangjin', text: pool[Math.floor(Math.random() * pool.length)] }]); return; }
+    if (id === 'stele') { const pool = STELE_TALK.byCount[this.stele?.count ?? 0] ?? STELE_TALK.none; await this.talk([{ who: 'jiangjin', text: pool[Math.floor(Math.random() * pool.length)] }]); return; }
     if (id === 'duwu') { await this.mealMenu(); return; }
     const pool = NPC_TALK[id] ?? []; if (pool.length) await this.talk([{ who: id, text: pool[Math.floor(Math.random() * pool.length)] }]);
     if (id === 'fengtiebi' || id === 'sunao') await this.upgradeMenu(id === 'fengtiebi' ? 'forge' : 'medic');
@@ -887,7 +893,7 @@ export class ActShow {
       intent: (n = 3) => { this.intent = Math.max(0, Math.min(3, n)); this.hud.intent = this.intent; },
       qi: (n?: number) => { if (n != null) this.hero.qi = Math.max(0, Math.min(Hero.QI_MAX, n)); return this.hero.qi; },
       untaught: () => { try { localStorage.removeItem('ub.taught'); } catch { /* */ } this.taught = null; },
-      prologue: (n = 1) => { this.startPrologue(); if (n >= 2) { after(0.3, () => { this.prologue = 2; this.proFightT = 0; this.plan = { type: 'boss', locale: 'hj_temple', reward: null, waves: [['hj_boss']] }; this.locale = 'hj_temple'; this.room = 1; this.buildRoom(false); }); } },
+      prologue: (n = 1) => { this.startPrologue(); if (n >= 2) { after(0.3, () => { this.prologue = 2; this.proFightT = 0; this.plan = { ...PRO_BOSS }; this.locale = PRO_BOSS.locale; this.room = 1; this.buildRoom(false); }); } },
       sfx: () => ({ ready: audio.ready, all: audio.buf.size, loaded: [...audio.buf.keys()].filter(k => /^ub_(hit|vo|sw)_/.test(k)), muted: audio.muted, ctx: audio.ctx ? audio.ctx.state : 'none', recent: audio.recent.slice() }), unlockAudio: () => audio.unlock().then(() => audio.loading).then(() => audio.ready),
       cam: (b: number[] | null, l?: number[], fov = 30) => { this.camOverride = b ? { base: V3(b[0], b[1], b[2]), look: V3(l![0], l![1], l![2]), fov } : null; },
       press: (n: 'attack' | 'dash' | 'special' | 'jump', ms = 80) => { this.inp.hold(n, ms / 1000); },
@@ -1438,21 +1444,24 @@ export class ActShow {
     for (const [x, z] of HIDEOUT.dummies) { yield; const p = V3(x, 0, z), f = spawnFoe('dummy', p, V3(x, 0, z + 4)); f.st = 'move'; this.foes.push(f); }
     // the people of chapter 1 at their places (卢昭 and 桓越 come later in the story)
     yield* this.placeNpcs((['duwu', 'sunao', 'fengtiebi'] as const).map(id => ({ id, ...HIDEOUT.people[id] })));
-    // the stele of names: a cut down each name she has killed; the first time home after 褚雷, she makes the cut
-    { const p = profile(), fresh = !!p.seen['ch1_boss_after'] && !p.seen['strike_chulei'];
-      this.stele = new Stele(p.seen['strike_chulei'] ? 1 : 0); this.stele.g.position.set(HIDEOUT.stele.x, 0, HIDEOUT.stele.z); this.stele.g.rotation.y = HIDEOUT.stele.yaw; this.stage!.root.add(this.stele.g);
-      // she goes to the stone (gone in a puff, there in a puff, facing it), sheathes, and draws the cut down his name
+    // the stele of names: a cut down each name she has killed; the first time home after each, she makes the cut
+    // (11-19 剧情改版: five names; a region's boss down = its after-talk seen, ch1_boss_after … ch5_boss_after; the cut's own flag
+    //  strike_chulei for the first as before, strike_2 … strike_5 for the rest)
+    { const p = profile(), down = bossesDown(p.seen), cut = struckOnStele(p.seen), fresh = cut < down;
+      this.stele = new Stele(cut); this.stele.g.position.set(HIDEOUT.stele.x, 0, HIDEOUT.stele.z); this.stele.g.rotation.y = HIDEOUT.stele.yaw; this.stage!.root.add(this.stele.g);
+      // she goes to the stone (gone in a puff, there in a puff, facing it), sheathes, and draws the cut down the name(s)
       if (fresh) after(1.4, () => {
-        const st = this.stele, h = this.hero; if (this.phase !== 'yard' || !st || !h) return; seeOnce('strike_chulei'); saveProfile();
+        const st = this.stele, h = this.hero; if (this.phase !== 'yard' || !st || !h) return;
+        for (let i = cut; i < down; i++) seeOnce(STRIKE_FLAG[i]); saveProfile();
         fxSmoke(h.pos.clone().setY(0.6), 0x8a8a94, 10, { r: 0.6, spd: 1.2, up: 0.8, s: 0.4, life: 0.6 }); cue('whoosh', 0.6);
         // beside the stone, not in front of it (the camera sees the names over her shoulder)
         this.noTalk = true; h.pos.set(HIDEOUT.stele.x + 1.05, 0, HIDEOUT.stele.z + 1.25); h.vel.set(0, 0, 0); h.a.yaw = Math.atan2(-1.05, -1.0);
         fxSmoke(h.pos.clone().setY(0.6), 0x8a8a94, 10, { r: 0.6, spd: 1.2, up: 0.8, s: 0.4, life: 0.6 });
         after(0.5, () => this.inp.hold('attack', 0.55));
-        after(1.2, () => { st.strike(0); hitstop(0.12); cue('stingStele', 1); after(0.7, () => { this.noTalk = false; void this.talk([{ who: 'jiangjin', text: STELE_TALK.strike }]); }); });
+        after(1.2, () => { for (let i = cut; i < down; i++) st.strike(i); hitstop(0.12); cue('stingStele', 1); after(0.7, () => { this.noTalk = false; void this.talk([{ who: 'jiangjin', text: STELE_TALK.strike[down - 1] ?? STELE_TALK.strike[0] }]); }); });
       }); }
-    // act-37: the rack of thirty blades — one hangs for each taken back (褚雷 had the first)
-    { const p = profile(); this.stage!.root.add(rackBlades(p.seen['ch1_boss_after'] ? 1 : 0)); }
+    // act-37: the rack of thirty blades — one hangs for each taken back (a boss each; ending C hangs them all)
+    { const p = profile(); this.stage!.root.add(rackBlades(p.seen['ending_c'] ? 30 : bossesDown(p.seen))); }
     // the way out: the gate in the front wall, a sign beside it; the bot walks there by the gate's mouth
     const gx = (HIDEOUT.exit.x0 + HIDEOUT.exit.x1) / 2;
     this.exitSign = makeSign('出发', { w: 1.3, h: 0.6, post: 0.9 }); this.exitSign.position.set(HIDEOUT.exit.x1 + 0.9, 0, HIDEOUT.exit.z - 0.9); this.stage!.root.add(this.exitSign);
@@ -1507,9 +1516,7 @@ export class ActShow {
         cue(bs ? 'roar' : way ? 'foeCry' : 'summon', bs ? 0.9 : way ? 0.25 : 0.4);
         // act-20: the chapter's boss the first time on this save — the intro cutscene and the lines before the fight (he
         // comes in the room's second wave); after that only his banner
-        if (bs && this.prologue === 2) { after(0.35, async () => { await this.cine(bossIntroShots(this.cineHost, f, '雷公渠帅 · 石雷')); await this.talk(PRO_CHULEI); f.a.roar(); this.proFightT = 0; }); }
-        // (11-18: 褚雷's own meeting — not any boss met first on a fresh save)
-        else if (bs && ko.kind === 'hj_boss' && seeOnce('ch1_boss')) { saveProfile(); after(0.35, async () => { if ((f.st as string) === 'dead') return; await this.cine(bossIntroShots(this.cineHost, f, '雷公渠帅 · 石雷')); await this.talk(CHULEI_BEFORE); f.a.roar(); }); }
+        if (bs && this.bossArrived(f)) { /* its meeting: cutscene + lines (11-19 剧情改版) */ }
         // 11-18 (一局五关): a later region's boss — its banner and its line over its head (no portrait talk or cutscene yet)
         else if (bs && EDEFS[ko.kind].intro) { this.bossLookT = 3.2; f.a.roar(); shake(0.3 * TUNE.shake); this.banner.show(EDEFS[ko.kind].name, EDEFS[ko.kind].tag ?? '', 2.2, '#ff8a6a'); after(0.9, () => { if (f.st !== 'dead') this.barks?.say(() => f.a.head(), EDEFS[ko.kind].intro!); }); }
         else if (bs) { f.a.roar(); shake(0.3 * TUNE.shake); this.banner.show(EDEFS[ko.kind].name, EDEFS[ko.kind].tag ?? '', 1.6, '#ff8a6a'); }
@@ -1702,6 +1709,17 @@ export class ActShow {
   /** 11-18 镜头: a push of the view along a blow, springing back (peak ≈ m metres); a push-in (peak ≈ share of the distance) */
   private kick = V3(); private kickV = V3(); private punch = 0; private punchV = 0; private frameLean = V3(); private crowd = 0;
   /** 11-18: the boss's entrance look (0..1, eased) and how long it is held */ private bossLook = 0; private bossLookT = 0;
+  /** 11-19 剧情改版: a boss comes in — the prologue's 崔玄, or a region's boss the first time on this save: the meeting cutscene and
+   *  the lines before the fight. True when it has its meeting (the caller then skips the plain banner) */
+  bossArrived(f: Foe): boolean {
+    const name = EDEFS[f.kind]?.name ?? '';
+    if (this.prologue === 2) { after(0.35, async () => { await this.cine(bossIntroShots(this.cineHost, f, name)); await this.talk(PRO_CUIXUAN); f.a.roar(); this.proFightT = 0; }); return true; }
+    const i = BOSS_ORDER.indexOf(f.kind);
+    if (i < 0 || !CH_BEFORE[i].length || !seeOnce(`ch${i + 1}_boss`)) return false;
+    saveProfile();
+    after(0.35, async () => { if ((f.st as string) === 'dead') return; await this.cine(bossIntroShots(this.cineHost, f, name)); await this.talk(CH_BEFORE[i]); f.a.roar(); });
+    return true;
+  }
   camKick(dir: THREE.Vector3, m: number) { const d = dir.clone().setY(0); if (d.lengthSq() < 1e-6) return; this.kickV.addScaledVector(d.normalize(), m * CAM_W * Math.E * FX.shakeScale); }
   camPunch(m: number) { this.punchV += m * CAM_W * Math.E * FX.shakeScale; }
   private camSprings(rdt: number) {
@@ -2658,7 +2676,14 @@ export class ActShow {
     // road opens into the next region (a boon first, as any cleared fight)
     if (this.plan?.type === 'boss' && isBossRoom(this.region, this.room)) {
       this.bosses++;
-      if (this.region === 0 && seeOnce('ch1_boss_after')) { this.musicHold = 'bgm_afterkill'; void audio.playMusic('bgm_afterkill', 1.0); await this.talk(CHULEI_AFTER); saveProfile(); this.musicHold = null; }
+      // (11-19 剧情改版: every region's boss has its after-talk the first time; the last one's is the blade at his throat → the ending)
+      const ai = this.region, last = ai === BOSS_AFTER.length - 1;
+      if (CH_AFTER[ai]?.length && (last || seeOnce(BOSS_AFTER[ai]))) {
+        this.musicHold = 'bgm_afterkill'; void audio.playMusic('bgm_afterkill', 1.0); await this.talk(CH_AFTER[ai]); saveProfile();
+        // (the last one: the blade at his throat, and she picks — every time she gets there, not only the first)
+        if (last) { await this.ending(); return; }
+        this.musicHold = null;
+      }
       if (afterBoss(this.region) === 'won') { this.end(true); return; }
       await this.boonPick(); this.openDoors(); return;
     }
@@ -2759,11 +2784,24 @@ export class ActShow {
       this.hud.on = true; void wipeTransit(() => this.enterYard());
     });
   }
-  private end(win: boolean) {
+  /** 11-19 剧情改版 (用户：「结局让玩家选」): the blade at 崔玄's throat — she picks: A 杀了他、一个人走进雪里 / B 不杀、只带走阿爹那柄
+   *  刀出门 / C 杀了他、回破窑挂满刀架、被叫回「阿皎」. Then its scene, then the run is won */
+  private async ending() {
+    this.hud.on = false; const was = this.phase; this.phase = 'pick';
+    const glyph = BOONS.find(b => b.id === 'behead')!.glyph, ids = ['a', 'b', 'c'] as const, col = ['#d8dde8', '#c8b890', '#ffb070'];
+    const i = await this.cards.open(ids.map((id, k) => ({ boon: { id: `ending_${id}`, school: 'sr', name: ENDING_PICK[k] ?? id, desc: ['', ''], col: col[k], glyph } as unknown as Boon, tier: k === 2 ? 2 : 0 })));
+    const id = ids[Math.max(0, Math.min(2, i))];
+    seeOnce(`ending_${id}`); if (id !== 'b') seeOnce('cuixuan_dead'); saveProfile();
+    this.phase = was;
+    await this.talk(ENDING[id].map(l => (l.who === 'caption' ? { ...l, who: 'act' } : l)));
+    this.musicHold = null; this.hud.on = true; this.end(true, id === 'b');
+  }
+  private end(win: boolean, spared = false) {
     this.phase = 'end'; this.bankRun(win); audio.stopMusic(2.0); cue(win ? 'stingWin' : 'stingLose', 1);
     after(0.4, async () => {
       this.hud.on = false;
-      await this.cards.open([{ boon: { id: win ? 'again' : 'retry', school: 'sr', name: win ? REGIONS[REGIONS.length - 1].name : '再来一次', desc: [win ? msg`${EDEFS[REGIONS[REGIONS.length - 1].boss as EKind]?.name ?? ''}伏诛` : '回练武场再出发', msg`斩了 ${this.kills} 个 · 点这里回练武场`], col: '#ffd070', glyph: BOONS.find(b => b.id === 'behead')!.glyph }, tier: 0 }]);
+      const bossName = EDEFS[REGIONS[REGIONS.length - 1].boss as EKind]?.name ?? '';
+      await this.cards.open([{ boon: { id: win ? 'again' : 'retry', school: 'sr', name: win ? REGIONS[REGIONS.length - 1].name : '再来一次', desc: [win ? (spared ? msg`${bossName}未死` : msg`${bossName}伏诛`) : '回练武场再出发', msg`斩了 ${this.kills} 个 · 点这里回练武场`], col: '#ffd070', glyph: BOONS.find(b => b.id === 'behead')!.glyph }, tier: 0 }]);
       this.hud.on = true; void wipeTransit(() => this.enterYard());
     });
   }
