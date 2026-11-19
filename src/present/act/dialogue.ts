@@ -232,7 +232,12 @@ export class Dialogue {
     const total = [...t(line.text)].length; this.t += dt; const n = Math.min(total, Math.floor(this.t * CPS * (language === 'en' ? 2.1 : 1)) + 1);
     if (n > this.shown) this.shown = n;
     // layout: the box across the bottom middle; pixel scale 2 on screens ≥ 600 px tall, else 1 (wrapped to two / three rows)
-    const scale = L.h >= 600 ? 2 : 1, rows = language === 'en' ? 3 : 2, hPx = Math.round(10 + PIX_H * scale + 12 + rows * Math.round(fontPx(scale) * 1.4) + 12), wPx = Math.round(Math.min(L.w * 0.72, 980));
+    // (11-19 用户：「再缩小下立绘对话的底板，现在手机上会很遮挡人物立绘，或者给底板不要搞那么宽，过长的文本就提行」: the box is
+    //  narrower — the middle of the screen between the two portraits, ~22 characters a row — and as tall as its text: a long line
+    //  wraps onto a third or fourth row instead of the box running wide over the pictures)
+    const scale = L.h >= 600 ? 2 : 1, fpx0 = fontPx(scale), wPx = Math.round(Math.min(L.w * 0.5, fpx0 * 22 + 40, 640));
+    const rowsFit = Math.max(1, Math.ceil(bodyW(t(line.text), fpx0) / Math.max(1, wPx - 32))), rows = Math.min(4, Math.max(language === 'en' ? 2 : 1, rowsFit));
+    const hPx = Math.round(10 + PIX_H * scale + 12 + rows * Math.round(fpx0 * 1.4) + 12);
     const narr = line.who === 'act';
     // (11-19 用户：「旁白的表现形式很low，重新设计一种形式」→ 居中墨字: a line of narration is no box — the box goes, the picture's edges
     //  darken a little, the words sit centred in the lower third between two thin ink strokes, each character inking in from pale)
