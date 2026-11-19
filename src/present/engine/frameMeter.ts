@@ -4,7 +4,8 @@ import type { UiLayer } from '../ui3d/layer';
 import { QUALITY, TIER_CN } from '../look/quality';
 import { msg, t } from '../act/i18n';
 
-export const meter = { visible: preferences.get('ub.frameMeter') === '1' };
+// (a debug item: the store builds never show it, even if this device turned it on once)
+export const meter = { visible: __DEBUG_UI__ && preferences.get('ub.frameMeter') === '1' };
 export const meterLabel = () => msg`显示帧率：${meter.visible ? '开' : '关'}`;
 export function toggleMeter() {
   meter.visible = !meter.visible;
