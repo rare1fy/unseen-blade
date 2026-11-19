@@ -13,7 +13,7 @@ import { format, language, msg, setLanguage } from './i18n';
 import * as THREE from 'three';
 import { V3, onUpdate, R, scene, warm, frames, precompile } from '../engine/world';
 import { hitstop, shake, slowmo, after, anim, clock, FX, waitReal, PAUSE } from '../engine/clock';
-import { shot } from '../director';
+import { shot, CINE_PX } from '../director';
 import { fxImpact, fxSparks, fxSmoke, fxRing, fxEmbers, fxFlare, trailSeg } from '../fx/fx';
 import { fxAfterimage } from '../fx/skillFx';
 import { addBlock, debrisContacts } from '../fx/blocks';
@@ -2839,6 +2839,8 @@ export class ActShow {
     if (this.storyIdle > 0.5) { this.storySkip = false; FX.speed = this.storyWas; }
   }
   private frame(dt: number, rdt: number) {
+    // 11-19: cutscenes and conversations scale the art pixel with how near the shot is (director.ts CINE_PX)
+    CINE_PX.on = this.phase === 'cine' || this.phase === 'talk'; CINE_PX.ref.d = Math.hypot(TUNE.camH, TUNE.camD); CINE_PX.ref.fov = TUNE.camFov;
     // Keep using the walk through the gate and the blade's arrival. roomSteps takes ownership before foreground work.
     if (this.ahead.length && (this.phase === 'doors' || this.phase === 'leaving' || this.phase === 'pick' ||
       (this.phase === 'yard' && !this.foes.some(f => f.kind !== 'dummy' && f.st !== 'dead')))) this.workAhead();
