@@ -24,7 +24,7 @@ const pose = { base: V3(), look: V3(), fov: 30 };
  *  outline) keeps about the same size on screen. Whole multiples only, picked on a cut and held through the shot's move (no pop
  *  mid-dolly), capped at 2× the player's size (the nearest a shot should come is half the battle distance); back to the player's
  *  size when the scene ends. show.ts sets on / ref (the battle camera's distance and fov). */
-export const CINE_PX = { on: false, ref: { d: 20.1, fov: 45 }, max: 2 };
+export const CINE_PX = { on: false, ref: { d: 20.1, fov: 45 }, max: 2, cap: 3 };   // (act-94 用户：「拉得最近最多3x我感觉就差不多了，不然完全是糊的」→ cap = 3x at most)
 let cineBase = 0, lastT = V3(), lastOk = false;
 const sizeK = (s: Shot) => {
   const r = CINE_PX.ref, d = Math.max(0.5, s.base.distanceTo(s.look));
@@ -40,7 +40,7 @@ function cinePixel(cut: boolean, s: Shot) {
   if (!cut && !jumped) return;
   // a moving shot is judged by both ends (geometric mean), so neither end is far off
   const e = target(1e4), k = Math.sqrt(sizeK(s) * sizeK(e));
-  const n = Math.max(cineBase, Math.min(cineBase * CINE_PX.max, Math.round(cineBase * k)));
+  const n = Math.max(cineBase, Math.min(cineBase * CINE_PX.max, Math.max(cineBase, CINE_PX.cap), Math.round(cineBase * k)));
   if (n !== PX.size) setPixel(true, n);
 }
 
