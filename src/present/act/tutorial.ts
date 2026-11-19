@@ -81,16 +81,21 @@ export class Tutorial {
     audio.slowBand(this.k);
   }
   private pick(c: TutCtx, rdt: number) {
-    const h = c.hero, d = this.done, gap = this.sinceDone > 0.8;
+    // (11-19 用户：「玩家几乎是连续几秒内被连续引导」: each lesson leaves her several seconds of free fighting before the next — the first
+    //  wave is several of them at once, so the next one's moment always comes at once otherwise)
+    const h = c.hero, d = this.done, gap = this.sinceDone > (d.has('move') && !d.has('attack') ? 2.5 : 6);
     if (c.prologue === 1) {
       if (!d.has('move') && this.fightT > 0.4) { this.cur = 'move'; return; }
       if (!d.has('attack') && d.has('move') && gap && c.foes.some(f => f.st !== 'dead' && f.st !== 'enter' && f.pos.distanceTo(h.pos) < 2.6)) { this.cur = 'attack'; return; }
-      if (!d.has('dash') && d.has('attack') && c.threats(0.5) > 0 && h.st !== 'dash') { this.cur = 'dash'; return; }
-      if (!d.has('jump') && d.has('dash') && this.sinceDone > 2 && !h.airborne && c.threats(1.2) === 0) { this.cur = 'jump'; return; }
+      if (!d.has('dash') && d.has('attack') && gap && c.threats(0.5) > 0 && h.st !== 'dash') { this.cur = 'dash'; return; }
+      if (!d.has('jump') && d.has('dash') && gap && !h.airborne && c.threats(1.2) === 0) { this.cur = 'jump'; return; }
       return;
     }
     if (c.prologue !== 2) return;
     const boss = c.foes.find(f => isBoss(f) && f.st !== 'dead'); if (!boss) return;
+    // (the sentries fell before 闪身 / 跳起 came up: they come here first, with the same rest between)
+    if (!d.has('dash') && d.has('attack') && gap && c.threats(0.5) > 0 && h.st !== 'dash') { this.cur = 'dash'; return; }
+    if (!d.has('jump') && d.has('attack') && gap && !h.airborne && c.threats(1.2) === 0) { this.cur = 'jump'; return; }
     if (!d.has('stance')) {
       // (he is within reach, so a blow will come while she holds: then the release on it is the 破势)
       const near = boss.st === 'move' && boss.pos.distanceTo(h.pos) < 3.0, coming = c.threats(0.9) > 0;
@@ -106,6 +111,8 @@ export class Tutorial {
   /** after the HUD's own button states are set: the asked-for button lit; the plate over her head */
   post(h: Hero, btns: Record<BtnName, { hot?: boolean }>, kick: (n: BtnName) => void) {
     const id = this.cur, n = id ? BTN[id] : null;
+    // (11-19: the lit button goes dark again when the lesson ends — the dash / jump buttons kept glowing after theirs)
+    for (const m of ['dash', 'jump', 'special'] as BtnName[]) btns[m].hot = false;
     if (n) { btns[n].hot = true; if (this.k < 0.25) kick(n); }
     const on = !!id && this.k > 0.05; this.plate.visible = on; if (!on || !id) return;
     this.paint(id);
