@@ -1,14 +1,16 @@
 #!/usr/bin/env node
 // 11-18 微信小游戏打包（用户：「我们后续开发什么的都放在一个工程下面做，以微信小游戏这个为准」）: the WeChat mini-game project, from
 // this repository, in one command:
-//   npm run wx -- [--out <dir>] [--tag act-NN] [--zip <file.zip>] [--no-ios-hp]
+//   npm run wx -- [--out <dir>] [--tag act-NN] [--zip <file.zip>] [--no-ios-hp] [--no-ios-hp-plus]
 // Default out: Desktop\不见刀_微信小游戏 (and the zip next to it, 不见刀_微信小游戏_<tag>.zip). An existing project.config.json in
 // the out folder keeps its appid (the user's own AppID for scanning on a phone).
 //   game.js        'use strict' + wechat/adapter.js (pxui's shims three.js needs) + wechat/glue.js (localStorage, atob, fetch of
 //                  package files, image elements, the WebAudio context) + the game bundle (vite build --mode wechat)
 //   assets/        body fonts and portraits (main package)
 //   audio1…/       the sounds and voice lines in subpackages of ~3.8 MB, each with an empty game.js; loaded on first use
-//   game.json      landscape, no status bar, the subpackages, iOS high-performance mode (JIT on iPhone; --no-ios-hp turns it off)
+//   game.json      landscape, no status bar, the subpackages, iOS high-performance mode (JIT on iPhone; --no-ios-hp turns it off) and
+//                  high-performance+ (11-19 用户：「我们把高性能+做了吧」: rendering back in WeChat's process, WebGL2 on every iOS — WeChat
+//                  ≥ 8.0.45, older clients fall back to plain high-performance; --no-ios-hp-plus turns it off)
 import { build } from 'vite';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -22,7 +24,7 @@ const DESK = path.join(os.homedir(), 'Desktop');
 const OUT = path.resolve(arg('--out') ?? path.join(DESK, '不见刀_微信小游戏'));
 let TAG = arg('--tag'); if (!TAG) { try { TAG = execFileSync('git', ['describe', '--tags', '--abbrev=0'], { cwd: ROOT, encoding: 'utf8' }).trim(); } catch { TAG = 'dev'; } }
 const ZIP = arg('--zip') ?? (arg('--out') ? null : path.join(DESK, `不见刀_微信小游戏_${TAG}.zip`));
-const HP = !A.includes('--no-ios-hp');
+const HP = !A.includes('--no-ios-hp'), HP_PLUS = HP && !A.includes('--no-ios-hp-plus');
 const kb = n => (n / 1024 / 1024).toFixed(2) + ' MB';
 const size = d => { let n = 0; for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); n += e.isDirectory() ? size(p) : fs.statSync(p).size; } return n; };
 
@@ -92,7 +94,7 @@ for (const [to, from] of Object.entries(assets)) {
 }
 const subpackages = [...subs].sort().map(n => ({ name: n, root: n + '/' }));
 for (const s of subpackages) fs.writeFileSync(path.join(OUT, s.name, 'game.js'), `'use strict';\n`);
-fs.writeFileSync(path.join(OUT, 'game.json'), JSON.stringify({ deviceOrientation: 'landscape', showStatusBar: false, ...(HP ? { iOSHighPerformance: true } : {}), subpackages }, null, 2) + '\n');
+fs.writeFileSync(path.join(OUT, 'game.json'), JSON.stringify({ deviceOrientation: 'landscape', showStatusBar: false, ...(HP ? { iOSHighPerformance: true } : {}), ...(HP_PLUS ? { 'iOSHighPerformance+': true } : {}), subpackages }, null, 2) + '\n');
 fs.writeFileSync(path.join(OUT, 'project.config.json'), JSON.stringify({
   description: `不见刀 · ${TAG} 微信小游戏试玩`, projectname: 'unseen-blade-wechat', compileType: 'game', appid, libVersion: '3.9.0',
   setting: { es6: false, minified: false, postcss: false, enhance: false, uploadWithSourceMap: false },
@@ -112,7 +114,7 @@ let main = 0; for (const e of fs.readdirSync(OUT, { withFileTypes: true })) { co
 console.log(`微信小游戏工程：${OUT}`);
 console.log(`  主包 ${kb(main)}（game.js ${kb(fs.statSync(path.join(OUT, 'game.js')).size)}）`);
 for (const s of subpackages) console.log(`  分包 ${s.name} ${kb(size(path.join(OUT, s.name)))}`);
-console.log(`  合计 ${kb(size(OUT))}；appid ${appid}；iOS 高性能模式 ${HP ? '开' : '关'}`);
+console.log(`  合计 ${kb(size(OUT))}；appid ${appid}；iOS 高性能模式 ${HP ? '开' : '关'}，高性能+ ${HP_PLUS ? '开' : '关'}`);
 // (11-18: the upload's limits as Cocos 3.8 / the community put them: main package ≤ 4 MB, all packages ≤ 30 MB — over them, stop here
 // rather than at the upload; the project folder is already written so it can still be opened and looked at)
 { const MB = 1024 * 1024, total = size(OUT) - (fs.existsSync(path.join(OUT, 'project.private.config.json')) ? fs.statSync(path.join(OUT, 'project.private.config.json')).size : 0);

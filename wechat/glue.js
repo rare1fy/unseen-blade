@@ -13,17 +13,48 @@ var document = GameGlobal.document;
 // after it resolves it here), and the screen canvas's WebGL2 context is given a constructor of that name. A WebGL2 context that lacks
 // WebGL2 calls (iOS reports of 「texStorage2D is not a function」) is refused, so three falls back to WebGL1 — handled by the game.
 var WebGL2RenderingContext = GameGlobal.WebGL2RenderingContext || function WebGL2RenderingContext() {};
+// 11-19 (用户：「我们把高性能+做了吧」; WeChat's 高性能 / 高性能+ guides) on iOS:
+//   · plain 高性能 mode: WebGL2 on iOS 15.0 / 15.1 is "基本不可用" (black or garbled screens) — refused there, three falls back to
+//     WebGL1 (高性能+ has WebGL2 on every iOS, so it keeps it);
+//   · iOS 14 caps some games at 20–40 fps even when a frame is cheap — the guide's fix is antialias: true below iOS 15;
+//   · 高性能+: an RGB texture upload garbles the first screen ("花屏") — any plain RGB upload goes as RGBA (three's own are RGBA).
+var __ubIOS = (function () {
+  try {
+    var s = typeof wx !== 'undefined' && wx.getSystemInfoSync ? wx.getSystemInfoSync() : null;
+    if (!s || String(s.platform).toLowerCase() !== 'ios') return null;
+    var m = /(\d+)(?:\.(\d+))?/.exec(String(s.system || ''));
+    return m ? { major: +m[1], minor: +(m[2] || 0) } : { major: 0, minor: 0 };
+  } catch (e) { return null; }
+})();
+var __ubHPPlus = !!GameGlobal.isIOSHighPerformanceModePlus;
 (function () {
   var cv = GameGlobal.canvas;
   if (!cv || typeof cv.getContext !== 'function') return;
   var getContext = cv.getContext;
   var wrapped = function (type, attrs) {
+    if (__ubIOS && (type === 'webgl' || type === 'webgl2')) {
+      if (type === 'webgl2' && !__ubHPPlus && __ubIOS.major === 15 && __ubIOS.minor < 2) return null;
+      if (__ubIOS.major > 0 && __ubIOS.major < 15) { var a2 = {}; for (var k in (attrs || {})) a2[k] = attrs[k]; a2.antialias = true; attrs = a2; }
+    }
     var gl = getContext.call(cv, type, attrs);
     if (gl && type === 'webgl2') {
       if (typeof gl.texStorage2D !== 'function' || typeof gl.createVertexArray !== 'function' || typeof gl.texImage3D !== 'function' || typeof gl.drawArraysInstanced !== 'function') return null;
       if (!gl.constructor || gl.constructor.name !== 'WebGL2RenderingContext') {
         try { Object.defineProperty(gl, 'constructor', { value: WebGL2RenderingContext, configurable: true, writable: true }); } catch (e) { /* frozen */ }
       }
+    }
+    if (gl && __ubHPPlus && !gl.__ubRGBA) {
+      try {
+        var RGB = gl.RGB, RGBA = gl.RGBA, t2 = gl.texImage2D;
+        gl.texImage2D = function () {
+          var a = arguments;
+          // (texImage2D(target, level, internalformat, format, type, source) and the sized form with a null pixel buffer)
+          if (a.length === 6 && a[2] === RGB && a[3] === RGB) return t2.call(gl, a[0], a[1], RGBA, RGBA, a[4], a[5]);
+          if (a.length >= 9 && a[2] === RGB && a[6] === RGB && a[8] == null) return t2.call(gl, a[0], a[1], RGBA, a[3], a[4], a[5], RGBA, a[7], null);
+          return t2.apply(gl, a);
+        };
+        gl.__ubRGBA = true;
+      } catch (e) { /* frozen context: leave it */ }
     }
     return gl;
   };
