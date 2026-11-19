@@ -112,7 +112,10 @@ export function bossIntroShots(h: CineHost, boss: Foe, name: string): CineShot[]
     // the two of them side-on, a long shot (no close-ups in voxels): she small at the left, he on his temple steps at the
     // right; he roars, the sky cracks, his name
     { dur: 3.8, from: { pos: [b.x + 16, 9, b.z + 6.5], look: [b.x - 0.4, 1.2, b.z + 3.2], fov: 36 }, to: { pos: [b.x + 16.5, 10, b.z + 7.5], look: [b.x - 0.4, 1.4, b.z + 3.2], fov: 36 }, caption: { text: name, at: 1.3, hold: 2.0 },
-      at: [[0.4, () => { boss.a.roar(); cue('roar', 0.9); }], [1.0, () => { flashSky(1); fxBolt(b.clone().add(V3(1.6, 14, 0)), b.clone().add(V3(1.6, 0, 0.5)), 0xfff2a0, { width: 0.35, life: 0.3, bright: 0.6 }); cue('thunder', 1); shake(0.35); }]],
+      // (11-19 用户：「开场结果还是之前那个BOSS唤雷」: only 石雷 (黄巾渠帅) calls the lightning; the others draw and the air goes still)
+      at: [[0.4, () => { boss.a.roar(); cue(boss.kind === 'hj_boss' ? 'roar' : 'draw', 0.9); }], [1.0, () => {
+        if (boss.kind === 'hj_boss') { flashSky(1); fxBolt(b.clone().add(V3(1.6, 14, 0)), b.clone().add(V3(1.6, 0, 0.5)), 0xfff2a0, { width: 0.35, life: 0.3, bright: 0.6 }); cue('thunder', 1); shake(0.35); }
+        else { cue('sheathe', 0.8); shake(0.15); } }]],
       tick: (_t, dt) => { boss.a.update(dt); h.hero.a.update(dt); } },
   ];
 }
