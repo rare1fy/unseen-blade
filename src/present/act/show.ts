@@ -1,6 +1,6 @@
 import { OPT } from '../engine/perfOpts';
 import { ContactBatch } from '../engine/contactBatch';
-import { finishBuild, loadInFrames } from '../engine/buildSteps';
+import { finishBuild, loadInFrames, BUILD_STATS } from '../engine/buildSteps';
 import { bladeBusy, bladeTimes, runRoomBuild, withLoadingBlade } from '../scenes/loadingBlade';
 import { format, language, msg, setLanguage } from './i18n';
 // 动作原型（docs: CLAUDE.md「动作原型」、docs/act/DESIGN.md）：哈迪斯式的一间间屋子。每间屋 = 一张拼装的日本场景（asm），战斗区就是屋子；
@@ -870,6 +870,8 @@ export class ActShow {
       puzzle: () => this.pieces?.list() ?? [], solve: (i: number) => this.pieces?.solve(i),
       /** 11-18 小刀转场: play the loading blade over the current view while a pretend load takes ms (it is drawn every frame in the web build too) */
       bladeBusy: () => bladeBusy(),
+      /** the last frame-split room build: busy ms in its steps, wall ms, frames it spanned, steps, the longest single step (ms) */
+      buildStats: () => ({ ...BUILD_STATS }),
       bladeTimes: () => bladeTimes.map(m => Object.fromEntries(Object.entries(m).map(([k, v]) => [k, Math.round(v)]))),
       bladeDemo: (ms = 800, cover: 'bamboo' = 'bamboo') => withLoadingBlade(() => new Promise<void>(r => setTimeout(r, ms)), cover),
       /** 11-18 定死的屋子: enter this drawn room (asm/roomMaps.ts id) with its actual region's waves, boss or stations */
