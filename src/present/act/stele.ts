@@ -13,7 +13,8 @@ import { cue } from '../../audio/cues';
 import { makeCanvas } from '../../platform/index';
 import { language, onLanguageChange, t } from './i18n';
 
-export const STELE_NAMES = ['石雷', '阎虎', '封寒', '周默'] as const;
+// 11-19 剧情改版: five names — the four in a row, 崔玄 cut alone across the bottom
+export const STELE_NAMES = ['石雷', '阎虎', '封寒', '周默', '崔玄'] as const;
 const STONE = 0x7a756d, STONE_L = 0x928c82, STONE_D = 0x5a554e, BASE = 0x524e48, BASE_L = 0x66615a;
 // the slab's front face (cells): x -7..7, y 4..; the names sit on y 6..17
 // (a cell i spans [i, i + 1] × CELL: the band x -6..6 → -6..7, its front at z 4 cells)
@@ -45,6 +46,7 @@ function stoneModel() {
 function paint(c: HTMLCanvasElement, struck: number) {
   const g = c.getContext('2d')!; g.clearRect(0, 0, c.width, c.height); g.imageSmoothingEnabled = false;
   STELE_NAMES.forEach((name, i) => {
+    if (i === 4) { paintLast(g, name, struck > 4); return; }
     const x = COL_X(i);
     if (language === 'en') {
       g.save();
@@ -70,6 +72,22 @@ function paint(c: HTMLCanvasElement, struck: number) {
   });
 }
 
+/** the last name, alone under the four, across (left to right); her cut runs across it */
+const LAST_Y = ROW_Y(1) + CH + 18;
+function paintLast(g: CanvasRenderingContext2D, name: string, cut: boolean) {
+  if (language === 'en') { text(g, t(name), CW / 2 + 1, LAST_Y + 1, 1, '#bcb6aa', 'center', null); text(g, t(name), CW / 2, LAST_Y, 1, '#3c3833', 'center', null); }
+  else {
+    const chars = [...name], w = chars.length * CH + (chars.length - 1) * 8, x0 = Math.round((CW - w) / 2);
+    chars.forEach((ch, k) => { const x = x0 + k * (CH + 8); text(g, ch, x + 1, LAST_Y + 1, S, '#bcb6aa', 'left', null); text(g, ch, x, LAST_Y, S, '#3c3833', 'left', null); });
+  }
+  if (cut) {
+    const gh = 12, gy = LAST_Y + Math.round(CH / 2) - gh / 2, x0 = CW / 2 - 50, x1 = CW / 2 + 50;
+    g.fillStyle = '#c4beb2'; g.fillRect(x0 + 2, gy + gh, x1 - x0 - 2, 2);
+    g.fillStyle = '#211d1a'; g.fillRect(x0, gy, x1 - x0, gh);
+    g.fillStyle = '#6a2a22'; g.fillRect(x0 + 4, gy + 4, x1 - x0 - 8, 4);
+  }
+}
+
 export class Stele {
   readonly g = new THREE.Group();
   private canvas = makeCanvas(CW, CHH) as HTMLCanvasElement; private tex: THREE.CanvasTexture; private face: THREE.Mesh; private struck: number;
@@ -86,7 +104,9 @@ export class Stele {
   get count() { return this.struck; }
   /** world point at the middle of name i (for the cut's sparks, a camera) */
   nameAt(i: number) {
-    const u = (COL_X(i) + CH / 2) / CW - 0.5, w = FACE_W * 0.94;
+    const w = FACE_W * 0.94;
+    if (i === 4) return this.face.localToWorld(V3(0, (0.5 - (LAST_Y + CH / 2) / CHH) * w * CHH / CW, 0.02));
+    const u = (COL_X(i) + CH / 2) / CW - 0.5;
     return this.face.localToWorld(V3(u * w, 0, 0.02));
   }
   /** the cut lands on name i: chips of stone, a few sparks off the blade, the groove appears */

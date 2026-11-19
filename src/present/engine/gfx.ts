@@ -1,4 +1,5 @@
 import { bladeWorking, drawLoadingBlade, setLoadingWarmup } from '../scenes/loadingBlade';
+import { drawBoot, bootBusy } from '../scenes/bootScreen';
 // Renderer + frame loop: real dt (capped) → game clock (hitstop / slowmo / speed) → updaters → dice → particles / prims →
 // camera rig (base + offset + trauma shake) → 3D render → UI render (pxui shares the WebGL context).
 import * as THREE from 'three';
@@ -107,7 +108,7 @@ export function createGfx(platform: Platform, canvas: any, o: { preserve?: boole
         const beforeText = renderer.info.render.calls;
         gpuMark('text'); afterRender();
         const uiCalls = post.ui.calls + renderer.info.render.calls - beforeText;
-        drawLoadingBlade(renderer, view.w / Math.max(1, view.h)); gpuFrameEnd(); gpuCount();
+        drawLoadingBlade(renderer, view.w / Math.max(1, view.h)); if (bootBusy()) drawBoot(renderer, view.w, view.h, platform.now()); gpuFrameEnd(); gpuCount();
         const t2 = platform.now(); stats.logic += ((t1 - t0) - stats.logic) * 0.05; stats.render += ((t2 - t1) - stats.render) * 0.05;
         stats.calls = renderer.info.render.calls; stats.tris = renderer.info.render.triangles;
         timer.end(interval, t2 - t0, stats.calls, stats.tris, uiCalls);
