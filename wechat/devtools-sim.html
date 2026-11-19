@@ -74,7 +74,12 @@
   window.__simTouch = (type, x, y) => { const ev = { touches: type === 'end' ? [] : [{ identifier: 1, clientX: x, clientY: y }], changedTouches: [{ identifier: 1, clientX: x, clientY: y }], timeStamp: Date.now() }; for (const f of touch[type] || []) f(ev); };
   window.__simErrors = []; addEventListener('error', e => window.__simErrors.push(String(e.message))); addEventListener('unhandledrejection', e => window.__simErrors.push('rejection ' + String(e.reason && e.reason.stack || e.reason)));
   // the runtime require()s game.js: its top-level `var`s are the module's own, not globals — so run it inside a function, as there
-  addEventListener('DOMContentLoaded', () => { fetch(base + 'game.js').then(r => r.text()).then(t => { try { new Function('HTMLDocument', 'Document', t + String.fromCharCode(10) + '//# sourceURL=game.js')(undefined, undefined); } catch (e) { window.__simErrors.push(String(e && e.stack || e)); throw e; } }); });
+  // 11-19 ?hpplus=1 — an iPhone in 高性能+ (act-91: a black screen, 「window.addEventListener is not a function」): the game sees a bare
+  // `window` with no event methods, and GameGlobal carries the 高性能 / 高性能+ flags
+  const HPP = q.get('hpplus') === '1';
+  if (HPP) { window.isIOSHighPerformanceMode = true; window.isIOSHighPerformanceModePlus = true; }
+  const bareWindow = HPP ? { __bare: true } : undefined;
+  addEventListener('DOMContentLoaded', () => { fetch(base + 'game.js').then(r => r.text()).then(t => { try { if (HPP) new Function('HTMLDocument', 'Document', 'window', t + String.fromCharCode(10) + '//# sourceURL=game.js')(undefined, undefined, bareWindow); else new Function('HTMLDocument', 'Document', t + String.fromCharCode(10) + '//# sourceURL=game.js')(undefined, undefined); } catch (e) { window.__simErrors.push(String(e && e.stack || e)); throw e; } }); });
 })();
 </script>
 <body></body>
