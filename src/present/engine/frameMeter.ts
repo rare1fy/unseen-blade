@@ -23,8 +23,12 @@ export function paintMeter(L: UiLayer, stats: { ms: number; calls: number; tris:
   if (now - lastLabel < 500) return;
   lastLabel = now;
   const gpu = lastGpu === null ? '' : ' GPU ' + lastGpu.toFixed(1) + 'ms';
+  // 11-19 (iPhone 16「低画质都经常只有15帧」): whether WeChat runs the game in iOS high-performance mode (JS with the JIT) — read
+  // straight from WeChat's own flags (they exist only on iOS; Android and the web show nothing)
+  const G = globalThis as { isIOSHighPerformanceMode?: boolean; isIOSHighPerformanceModePlus?: boolean };
+  const hp = G.isIOSHighPerformanceModePlus ? '  高性能+' : G.isIOSHighPerformanceMode ? '  高性能' : G.isIOSHighPerformanceMode === false ? '  普通模式' : '';
   L.text.set('fps', { x: L.w - 5, y: 10, align: 'right', pix: Math.max(1, Math.round(L.dpr * 0.62)),
-    text: `${Math.round(1000 / stats.ms)} FPS  ${stats.ms.toFixed(1)}ms  DC ${stats.calls}  △ ${stats.tris}  ${t(TIER_CN[QUALITY.tier])}${gpu}` });
+    text: `${Math.round(1000 / stats.ms)} FPS  ${stats.ms.toFixed(1)}ms  DC ${stats.calls}  △ ${stats.tris}  ${t(TIER_CN[QUALITY.tier])}${gpu}${hp}` });
 }
 
 /** A single asynchronous GPU query covers world, UI and text. Never wait for the driver. */
