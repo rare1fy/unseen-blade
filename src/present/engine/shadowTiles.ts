@@ -11,6 +11,8 @@ import { finishBuild } from './buildSteps';
 import { QUALITY } from '../look/quality';
 
 export const TILE_M = 12;
+/** how far (m, on any axis) the camera may wander from where the face list was made before it is made again */
+const CAM_SLACK = 2;
 // blocks in this order: −y, +z, +x, −x, +y, −z (DIRS indices 3, 4, 0, 1, 2, 5)
 const ORDER = [3, 4, 0, 1, 2, 5];
 const dirIndex = (nx: number, ny: number, nz: number) => (nx > 0.5 ? 0 : nx < -0.5 ? 1 : ny > 0.5 ? 2 : ny < -0.5 ? 3 : nz > 0.5 ? 4 : 5);
@@ -22,7 +24,9 @@ interface ViewTiles {
   tiles: Tile[];
   visible: boolean[];
   clipped: boolean;
-  lastCamera: string;
+  /** the camera (in the mesh's own space) the face list was made for, and the tier then; null = none yet */
+  camAt: THREE.Vector3 | null;
+  camTier: string;
   coarse: boolean[];
   groups: THREE.Box3[];
   groupOf: Uint32Array;
@@ -30,11 +34,17 @@ interface ViewTiles {
   partner: Int32Array;
 }
 const views = new Set<ViewTiles>();
+/** how often the camera's tile pass ran and rebuilt the index (frames, rebuilds, ms in rebuilds, ms in the whole pass), for __dh */
+export const TILE_STATS = { frames: 0, rebuilds: 0, rebuildMs: 0, passMs: 0, faces: 0, byCam: 0, byTile: 0, byGroup: 0, groups: 0, tiles: 0 };
 const frustum = new THREE.Frustum(), projection = new THREE.Matrix4(), box = new THREE.Box3();
 const shadows = new THREE.Box3(), offset = new THREE.Vector3();
 const localCamera = new THREE.Vector3(), corner = new THREE.Vector3();
 
 export function updateStageTiles(camera: THREE.Camera) {
+  const tp0 = performance.now(); TILE_STATS.frames++;
+  try { stageTilesPass(camera); } finally { TILE_STATS.passMs += performance.now() - tp0; }
+}
+function stageTilesPass(camera: THREE.Camera) {
   frustum.setFromProjectionMatrix(projection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
   for (const view of views) {
     const { src, original, membership, tiles, visible } = view;
@@ -48,30 +58,42 @@ export function updateStageTiles(camera: THREE.Camera) {
       continue;
     }
     src.worldToLocal(localCamera.copy(camera.position));
-    const cx = Math.floor(localCamera.x), cy = Math.floor(localCamera.y), cz = Math.floor(localCamera.z);
-    const key = cx + '/' + cy + '/' + cz + '/' + QUALITY.tier;
-    let changed = !view.clipped || key !== view.lastCamera;
-    view.lastCamera = key;
+    // 11-19 (用户：iPhone 16「低画质都经常只有15帧」): the face list was rebuilt whenever the camera crossed a 1 m cell — every few frames
+    // in a fight (the camera follows her, the shake jitters it across a cell line): 76 rebuilds in 133 frames, ~29 ms each without
+    // the JIT. Now it is rebuilt only once the camera is CAM_SLACK away (on any axis) from where the last list was made, or the tier
+    // changed; the back-face test keeps faces within that slack of the saved camera (the voxel normals are axis-aligned, so a camera
+    // anywhere within CAM_SLACK of it on every axis still sees every face the list kept)
+    const moved = !view.camAt || view.camTier !== QUALITY.tier
+      || Math.max(Math.abs(localCamera.x - view.camAt.x), Math.abs(localCamera.y - view.camAt.y), Math.abs(localCamera.z - view.camAt.z)) > CAM_SLACK;
+    if (moved) { (view.camAt ??= new THREE.Vector3()).copy(localCamera); view.camTier = QUALITY.tier; }
+    const cx = view.camAt!.x, cy = view.camAt!.y, cz = view.camAt!.z;
+    let changed = !view.clipped || moved; if (changed) TILE_STATS.byCam++; TILE_STATS.groups = view.groups.length; TILE_STATS.tiles = tiles.length;
     for (let i = 0; i < tiles.length; i++) {
-      box.copy(tiles[i].box).applyMatrix4(src.matrixWorld).expandByScalar(1.5);
+      // (the same band for the 12 m tiles: on 1.5 m out, off 3 m out)
+      box.copy(tiles[i].box).applyMatrix4(src.matrixWorld).expandByScalar(visible[i] ? 3 : 1.5);
       const on = frustum.intersectsBox(box);
       // Choose the exterior mesh before it enters the padded view. A visible tile keeps its mesh as the camera tracks.
       if (!visible[i] || !view.clipped || QUALITY.tier === 'high') view.coarse[i] = QUALITY.tier !== 'high' && box.distanceToPoint(camera.position) > 26;
-      if (visible[i] !== on) { visible[i] = on; changed = true; }
+      if (visible[i] !== on) { visible[i] = on; if (!changed) TILE_STATS.byTile++; changed = true; }
     }
+    // (11-19: 377 small groups in a room, each tested against the view every frame. As the camera follows her, one group's edge or
+    //  another crossed the view's edge almost every frame — 51 of 64 rebuilds in 106 frames. Now a group comes on as it nears the
+    //  view (2 m out) and goes off only once it is well clear (4 m out); within that band it keeps whatever it had)
     for (let i=0; i<view.groups.length; i++) {
-      box.copy(view.groups[i]).applyMatrix4(src.matrixWorld).expandByScalar(0.7);
+      const was = view.groupsOn[i];
+      box.copy(view.groups[i]).applyMatrix4(src.matrixWorld).expandByScalar(was ? 4 : 2);
       const on = frustum.intersectsBox(box);
-      if (view.groupsOn[i] !== on) { view.groupsOn[i] = on; changed = true; }
+      if (was !== on) { view.groupsOn[i] = on; if (!changed) TILE_STATS.byGroup++; changed = true; }
     }
     if (!changed) continue;
+    const rb0 = performance.now(); TILE_STATS.rebuilds++; TILE_STATS.faces = membership.length;
     // Keep original triangle order (coplanar details); only the index prefix changes at tile boundaries.
     let n = 0;
     const p = geometry.attributes.position.array, normal = geometry.attributes.normal.array;
     for (let q = 0; q < membership.length; q++) if (visible[membership[q]] && view.groupsOn[view.groupOf[q]]) {
       const v = q*12;
-      // Back faces cannot contribute to the opaque colour pass. Keep a whole metre of slack for the cached camera cell.
-      if ((cx-p[v])*normal[v] + (cy-p[v+1])*normal[v+1] + (cz-p[v+2])*normal[v+2] < -1.1) continue;
+      // Back faces cannot contribute to the opaque colour pass. Kept: anything not behind its plane by more than the camera's slack.
+      if ((cx-p[v])*normal[v] + (cy-p[v+1])*normal[v+1] + (cz-p[v+2])*normal[v+2] < -(CAM_SLACK + 0.1)) continue;
       const start = q * 6;
       const pair = view.coarse[membership[q]] ? view.partner[q] : 0;
       if (pair < 0) continue;
@@ -83,6 +105,7 @@ export function updateStageTiles(camera: THREE.Camera) {
     geometry.setDrawRange(0, n);
     index.clearUpdateRanges(); if (n) index.addUpdateRange(0, n);
     index.needsUpdate = true; view.clipped = true;
+    TILE_STATS.rebuildMs += performance.now() - rb0;
   }
 }
 const TILES = new Set<Tile>();
@@ -102,7 +125,7 @@ const readBox = (b: number[]) => new THREE.Box3(new THREE.Vector3().fromArray(b)
 function installView(src: THREE.Mesh, tiles: Tile[], membership: Uint32Array, groups: THREE.Box3[], groupOf: Uint32Array, partner: Int32Array) {
   const g = src.geometry;
   const view: ViewTiles = { src, tiles, original: g.index!.array.slice() as Uint16Array | Uint32Array, membership,
-    visible: [], clipped: false, lastCamera: '', coarse: [], groups, groupOf, groupsOn: [], partner };
+    visible: [], clipped: false, camAt: null, camTier: '', coarse: [], groups, groupOf, groupsOn: [], partner };
   views.add(view);
   g.addEventListener('dispose', () => views.delete(view));
 }

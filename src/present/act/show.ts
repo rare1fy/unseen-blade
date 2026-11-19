@@ -3,6 +3,7 @@ import { batchActor } from '../engine/rigidBatch';
 import { OPT } from '../engine/perfOpts';
 import { ContactBatch } from '../engine/contactBatch';
 import { finishBuild, loadInFrames, BUILD_STATS } from '../engine/buildSteps';
+import { TILE_STATS } from '../engine/shadowTiles';
 import { bladeWorking, bladeBusy, bladeTimes, runRoomBuild, withLoadingBlade } from '../scenes/loadingBlade';
 import { format, language, msg, setLanguage } from './i18n';
 // 动作原型（docs: CLAUDE.md「动作原型」、docs/act/DESIGN.md）：哈迪斯式的一间间屋子。每间屋 = 一张拼装的日本场景（asm），战斗区就是屋子；
@@ -939,6 +940,8 @@ export class ActShow {
       bladeBusy: () => bladeBusy(),
       /** the last frame-split room build: busy ms in its steps, wall ms, frames it spanned, steps, the longest single step (ms) */
       buildStats: () => ({ ...BUILD_STATS }),
+      /** the camera tile pass since the last call: frames, index rebuilds, ms in rebuilds / the whole pass, terrain faces (resets) */
+      tileStats: () => { const o = { ...TILE_STATS }; TILE_STATS.frames = TILE_STATS.rebuilds = TILE_STATS.byCam = TILE_STATS.byTile = TILE_STATS.byGroup = 0; TILE_STATS.rebuildMs = TILE_STATS.passMs = 0; return o; },
       bladeTimes: () => bladeTimes.map(m => Object.fromEntries(Object.entries(m).map(([k, v]) => [k, Math.round(v)]))),
       bladeDemo: (ms = 800, cover: 'bamboo' = 'bamboo') => withLoadingBlade(() => new Promise<void>(r => setTimeout(r, ms)), cover),
       /** 11-18 定死的屋子: enter this drawn room (asm/roomMaps.ts id) with its actual region's waves, boss or stations */
