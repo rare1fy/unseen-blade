@@ -154,8 +154,9 @@ export class Dialogue {
     this.lines = lines.filter(l => l.text).map(l => (/^（[^（）]*）$/.test(l.text.trim()) ? { ...l, who: 'act' } : l)); this.i = 0; this.shown = 0; this.t = 0; this.drawn = -1; this.on = true; this.openT = 0; this.box.visible = true;
     this.outK = 0;
     for (const s of ['L', 'R'] as const) { const S = this.sides[s]; if (S.mesh) { this.L.scene.remove(S.mesh); (S.mesh.material as THREE.Material).dispose(); S.mesh.geometry.dispose(); S.mesh = null; } S.id = ''; S.on = 0; S.k = 0; S.pop = 0; S.was = false; S.away = 0; }
-    // both portraits of the scene come up together: whoever speaks first on each side
-    for (const l of this.lines) { const sp = CAST[l.who]; if (sp && l.who !== 'act' && !this.sides[sp.side].id) this.setPortrait(sp.side, l.who); }
+    // (11-19 用户：「开场黄巾兵说话……后面垫了个主角的，感觉很奇怪……后面不要垫主角的立绘」: a portrait comes up when its speaker first
+    //  speaks — not at the start of the scene, so a talk where she says only the last word doesn't open with her picture behind them)
+    { const l = this.lines[0], sp = l && CAST[l.who]; if (sp && l.who !== 'act') this.setPortrait(sp.side, l.who); }
     cue('scroll', 0.4); this.say();
     return new Promise(res => { this.done = res; });
   }
