@@ -62,7 +62,7 @@ function rewardFor(type: RoomType, r: Rnd): Reward {
   if (type !== 'fight' && type !== 'elite') return null;
   const x = r();
   if (type === 'elite') return { k: 'manual' };
-  return x < 0.3 ? { k: 'manual' } : x < 0.72 ? { k: 'boon' } : x < 0.88 ? { k: 'coins', n: 30 } : { k: 'heal' };
+  return x < 0.3 ? { k: 'manual' } : x < 0.72 ? { k: 'boon' } : x < 0.88 ? { k: 'coins', n: 50 } : { k: 'heal' };
 }
 function placeFor(type: RoomType, r: Rnd, ri = 0) {
   const R = regionAt(ri);

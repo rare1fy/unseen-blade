@@ -17,15 +17,15 @@ import * as THREE from 'three';
 import type { UiLayer } from '../ui3d/layer';
 import { clock } from '../engine/clock';
 import { cue } from '../../audio/cues';
-import { TIER_NAMES, type Boon, type BoonPick } from './boons';
-import { cardBoard, glyphIcon3D, paintFace, boardLayout, CARD_H, SKILL_H, type CardStyle } from './cardBoard';
+import { TIER_NAMES, type Archetype, type Boon, type BoonPick } from './boons';
+import { cardBoard, glyphIcon3D, paintFace, boardLayout, scrollLayout, steleLayout, CARD_H, SKILL_H, type CardStyle } from './cardBoard';
 import { onBodyFontChange } from '../ui3d/bodyFont';
-import { language } from './i18n';
+import { language, msg, t as localize } from './i18n';
 import { fillVals } from './cards';
 import { itemModel, itemForCard } from './itemModels';
 import type { Model3D } from '../ui3d/models3d';
 import { makeCanvas } from '../../platform/index';
-import { PIX_H } from '../v2/pix';
+import { drawPix, pixW, PIX_H } from '../v2/pix';
 import { backShield, type MiniShield } from './btnBadge';
 import { entryOfCard, layoutPresses, paintSeps, pressShields, paintName, paintEffect, paintNum, type SkillEntry, type PressItem } from './skillFace';
 import { skillIcon3D } from './skillIcons';
@@ -33,7 +33,7 @@ import type { MarkTarget } from './skillInfo';
 
 const styleOf = (b: Boon): CardStyle => {
   const s = b.school as string;
-  if (s === 'fg') return 'forge'; if (s === 'md') return 'medic';
+  if (s === 'fg') return 'forge'; if (s === 'md') return 'medic'; if (s === 'mr') return 'mirror';
   if (s === 'ms') return b.id.startsWith('meal_') || b.id === 'leave' ? 'meal' : 'manual';
   return 'boon';
 };
@@ -53,7 +53,7 @@ export interface CardFlight { at(t: MarkTarget): { x: number; y: number; size: n
 
 interface Card {
   b: Boon; tier: number; st: CardStyle; e: SkillEntry | null; root: THREE.Group; board: THREE.Mesh; face: THREE.Mesh; rim: THREE.Mesh;
-  badge: Model3D | null; picture: Model3D | null; presses: MiniShield[]; items: PressItem[]; L: ReturnType<typeof boardLayout>;
+  badge: Model3D | null; picture: Model3D | null; presses: MiniShield[]; items: PressItem[]; L: ReturnType<typeof boardLayout> | ReturnType<typeof scrollLayout> | ReturnType<typeof steleLayout>;
   x: number; y: number; w: number; h: number; lift: number; t0: number; landed: boolean; faceKey: string; focusT: number;
 }
 export class CardPick3D {
@@ -65,50 +65,102 @@ export class CardPick3D {
   /** 11-19 (用户：「npc商店页面没有退出按钮」): a page you may leave without taking anything (the hideout's shops) has the back shield
    *  at its top left — a tap on it, Esc or pad B resolves with −1; the reward picks (a card must be taken) have none */
   private back: MiniShield | null = null; private backK = 0; private backHot = 0; private backDown = false; private backAt = { x: 0, y: 0, r: 0 }; private canLeave = false;
+  /** act-118: top category header (刀谱 vs 秘传 vs 碑铭潜能) & bottom reroll pill (换一批) */
+  private header: { title: string; sub?: string; col?: string } | null = null;
+  private rerollOpt: { left: number; onReroll: () => BoonPick[] | null } | null = null;
+  private rerollAt = { x: 0, y: 0, w: 0, h: 0 }; private rerollHot = false;
+  private lastOpenOpts: { leave?: boolean; header?: { title: string; sub?: string; col?: string }; archHave?: Partial<Record<Archetype, number>>; reroll?: { left: number; onReroll: () => BoonPick[] | null } } = {};
   constructor(private L: UiLayer) { onBodyFontChange(() => { for (const c of this.cards) c.faceKey = ''; }); }
-  open(boons: BoonPick[], o: { leave?: boolean } = {}): Promise<number> {
-    this.close(); this.canLeave = !!o.leave; this.backK = 0; const L = this.L;
-    const entries = boons.map(({ boon, tier }) => entryOfCard(boon, tier)), skill = entries.some(e => !!e);
-    // one wide card a row, centred; more rows than fit → a shorter board (skill cards) or smaller cards (the hideout's upgrade lists)
-    const kk = Math.max(0.8, Math.min(1.25, L.h / 720)), n = boons.length, room = L.h * 0.92;
-    let w: number, h: number, gap: number, Hh: number;
-    if (skill) {
-      // wide enough for the line of what comes out; a phone (short, wide) gets wider and flatter boards rather than smaller ones
-      w = Math.min(L.w * 0.72, 640 * kk, L.w - 40); gap = Math.max(8, Math.min(28, L.h * 0.035));
+  open(boons: BoonPick[], o: { leave?: boolean; header?: { title: string; sub?: string; col?: string }; archHave?: Partial<Record<Archetype, number>>; reroll?: { left: number; onReroll: () => BoonPick[] | null } } = {}): Promise<number> {
+    this.lastOpenOpts = o;
+    return new Promise(res => {
+      this.done = res;
+      this.buildCards(boons, o);
+    });
+  }
+  private buildCards(boons: BoonPick[], o: typeof this.lastOpenOpts) {
+    const keepDone = this.done;
+    this.close();
+    this.done = keepDone;
+    this.canLeave = !!o.leave; this.backK = 0; this.header = o.header ?? null; this.rerollOpt = o.reroll ?? null; this.rerollHot = false;
+    const L = this.L;
+    const entries = boons.map(({ boon, tier }) => entryOfCard(boon, tier, o.archHave)), skill = entries.some(e => !!e);
+    const isScrollRow = boons.length > 0 && boons.every(({ boon }) => styleOf(boon) === 'manual');
+    const isMirrorGrid = boons.length === 4 && boons.every(({ boon }) => styleOf(boon) === 'mirror');
+    const kk = Math.max(0.8, Math.min(1.25, L.h / 720)), n = boons.length;
+    const topPad = this.header ? (isMirrorGrid ? 126 : 76) * kk : 0, botPad = this.rerollOpt && this.rerollOpt.left > 0 ? 52 * kk : 0;
+    const room = L.h * 0.92 - topPad - botPad, centerY = L.h * 0.5 + (topPad - botPad) * 0.52;
+    let w: number, h: number, gap: number, gapY = 0, Hh: number;
+    if (isScrollRow) {
+      // act-118: 刀谱 = 1×3 side-by-side upright bamboo scrolls
+      gap = Math.max(18, Math.min(44, L.w * 0.032));
+      w = Math.min((L.w - 64 - (n - 1) * gap) / n, 268 * kk);
+      h = Math.min(room * 0.94, w * 1.48);
+      Hh = Math.max(1.18, Math.min(1.56, h / Math.max(1, w)));
+      h = w * Hh;
+    } else if (isMirrorGrid) {
+      // act-118: 复仇碑潜能 = 2×2 carved granite steles with tall Han arch crowns + pedestals
+      gap = Math.max(22, Math.min(42, L.w * 0.03));
+      gapY = Math.max(46, Math.min(64, L.h * 0.075));
+      w = Math.min((L.w - 110 - gap) / 2, 460 * kk);
+      h = Math.min((room - gapY) / 2, w * 0.44);
+      Hh = Math.max(0.36, Math.min(0.48, h / Math.max(1, w)));
+      h = w * Hh;
+    } else if (skill) {
+      w = Math.min(L.w * 0.72, 640 * kk, L.w - 40); gap = Math.max(8, Math.min(24, L.h * 0.03));
       h = Math.min(w * SKILL_H, (room - (n - 1) * gap) / n); Hh = Math.max(0.17, Math.min(SKILL_H, h / w)); h = w * Hh;
     } else {
-      w = Math.min(L.w * 0.7, 620 * kk); h = w * CARD_H; gap = Math.max(10, h * 0.16); Hh = CARD_H;
-      if (n * h + (n - 1) * gap > L.h * 0.9) { h = (L.h * 0.9 - (n - 1) * 8) / n; w = h / CARD_H; gap = 8; }
+      w = Math.min(L.w * 0.7, 620 * kk); h = w * CARD_H; gap = Math.max(10, h * 0.14); Hh = CARD_H;
+      if (n * h + (n - 1) * gap > room) { h = (room - (n - 1) * 8) / n; w = h / CARD_H; gap = 8; }
     }
-    const lay = boardLayout(Hh);
+    const lay = isScrollRow ? scrollLayout(Hh) : isMirrorGrid ? steleLayout(Hh) : boardLayout(Hh);
     this.cards = boons.map(({ boon: b, tier }, i) => {
       const st = styleOf(b), e = entries[i], root = new THREE.Group(); root.userData.noTilt = true;
-      const { mesh: board, metal } = cardBoard(st, tier, Hh, !!e); board.renderOrder = 30; root.add(board);
+      const accent = e?.accentHex ?? (st === 'mirror' ? hexOf(b.col) : undefined);
+      const { mesh: board, metal } = cardBoard(st, tier, Hh, !!e, accent); board.renderOrder = 30; root.add(board);
       const F = lay.FACE, face = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, toneMapped: false }));
-      face.position.set((F.x0 + F.x1) / 2, 0, 0.035); face.scale.set(F.x1 - F.x0, F.h, 1); face.renderOrder = 31; root.add(face);
+      face.position.set((F.x0 + F.x1) / 2, F.cy, st === 'mirror' ? 0.044 : 0.038); face.scale.set(F.x1 - F.x0, F.h, 1); face.renderOrder = 31; root.add(face);
       let badge: Model3D | null = null, picture: Model3D | null = null, presses: MiniShield[] = [], items: PressItem[] = [];
       if (e) {
-        picture = skillIcon3D(e.icon); picture.position.x = lay.SOCKET.x; picture.scale.setScalar(lay.SOCKET.size * 0.94);
-        picture.traverse(o => { o.renderOrder = 32; }); root.add(picture);
+        picture = skillIcon3D(e.icon); picture.position.set(lay.SOCKET.x, lay.SOCKET.y, 0); picture.scale.setScalar(lay.SOCKET.size * 0.94);
+        picture.traverse(o2 => { o2.renderOrder = 32; }); root.add(picture);
         if (e.steps) {
-          // the presses: in board units (the face spans F.x0..F.x1 × ±F.h / 2); the separators are painted on the face (paint)
-          const row = language === 'en' ? EN_ROW : ROW;
-          const fw = F.x1 - F.x0, s = F.h * row.press, lp = layoutPresses(e.steps, s, e.lit); items = lp.items;
-          const x0 = F.x0 + fw * 0.004, cy = F.h / 2 - F.h * row.pressY;
-          presses = pressShields(items, s, root, x0, cy, 0.05, 33);
+          if (lay.vertical) {
+            const fw = F.x1 - F.x0, sBase = Math.min(F.h * 0.19, fw * 0.22);
+            let s = sBase, lp = layoutPresses(e.steps, s, e.lit);
+            if (lp.w > fw * 0.92) { s *= (fw * 0.92) / lp.w; lp = layoutPresses(e.steps, s, e.lit); }
+            items = lp.items;
+            const x0 = -lp.w / 2, cy = F.y1 - F.h * 0.45;
+            presses = pressShields(items, s, root, x0, cy, 0.055, 33);
+          } else {
+            const row = language === 'en' ? EN_ROW : ROW;
+            const fw = F.x1 - F.x0, s = F.h * row.press, lp = layoutPresses(e.steps, s, e.lit); items = lp.items;
+            const x0 = F.x0 + fw * 0.004, cy = F.h / 2 - F.h * row.pressY;
+            presses = pressShields(items, s, root, x0, cy, 0.05, 33);
+          }
         }
       } else {
-        // act-41 (用户：「所有道具我要求都是真实的模型」): the real thing when there is one (itemModels.ts), else the old picture
-        const real = itemForCard(b.id); badge = (real ? itemModel(real) : null) ?? glyphIcon3D(b.id, b.glyph, hexOf(b.col)); badge.position.set(lay.SOCKET.x, 0, 0.07); badge.scale.setScalar(lay.SOCKET.size * 0.8); badge.renderOrder = 32; root.add(badge);
+        const real = itemForCard(b.id); badge = (real ? itemModel(real) : null) ?? glyphIcon3D(b.id, b.glyph, hexOf(b.col)); badge.position.set(lay.SOCKET.x, lay.SOCKET.y, 0.075); badge.scale.setScalar(lay.SOCKET.size * 0.78); badge.renderOrder = 32; root.add(badge);
       }
-      // a rim of the metal's light behind the board, only for the card in focus (kept low: no glare)
-      const rim = new THREE.Mesh(new THREE.PlaneGeometry(1.04, Hh + 0.04), new THREE.MeshBasicMaterial({ color: new THREE.Color(metal.glow), transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
+      const rim = new THREE.Mesh(new THREE.PlaneGeometry(lay.vertical ? 1.12 : 1.06, Hh + (st === 'mirror' ? 0.14 : 0.04)), new THREE.MeshBasicMaterial({ color: new THREE.Color(metal.glow), transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
       rim.position.z = -0.03; rim.renderOrder = 29; root.add(rim);
       L.scene.add(root);
-      return { b, tier, st, e, root, board, face, rim, badge, picture, presses, items, L: lay, x: L.w / 2, y: L.h * 0.5 + (i - (n - 1) / 2) * (h + gap), w, h, lift: 0, t0: clock.rtime + 0.05 + i * 0.11, landed: false, faceKey: '', focusT: 0 };
+      let cx: number, cy: number;
+      if (isScrollRow) { cx = L.w / 2 + (i - (n - 1) / 2) * (w + gap); cy = centerY; }
+      else if (isMirrorGrid) { const col = i % 2, row = Math.floor(i / 2); cx = L.w / 2 + (col - 0.5) * (w + gap); cy = centerY + (row - 0.5) * (h + gapY) + 12 * kk; }
+      else { cx = L.w / 2; cy = centerY + (i - (n - 1) / 2) * (h + gap); }
+      return { b, tier, st, e, root, board, face, rim, badge, picture, presses, items, L: lay, x: cx, y: cy, w, h, lift: 0, t0: clock.rtime + 0.05 + i * 0.11, landed: false, faceKey: '', focusT: 0 };
     });
     this.on = true; this.focus = Math.min(1, this.cards.length - 1); this.leaving = -1; this.flyStarted = false; cue('scroll', 0.8); this.openedAt = clock.rtime;
-    return new Promise(res => { this.done = res; });
+  }
+  /** act-118: reroll the current 3-choice offer in place (triggered by button click or R key) */
+  reroll(): boolean {
+    if (!this.on || this.leaving >= 0 || this.settling || !this.rerollOpt || this.rerollOpt.left <= 0) return false;
+    const next = this.rerollOpt.onReroll();
+    if (!next || !next.length) return false;
+    this.rerollOpt.left--;
+    this.buildCards(next, { ...this.lastOpenOpts, reroll: this.rerollOpt });
+    return true;
   }
   close() {
     for (const c of this.cards) {
@@ -116,7 +168,8 @@ export class CardPick3D {
       c.face.geometry.dispose(); const fm = c.face.material as THREE.MeshBasicMaterial; fm.map?.dispose(); fm.dispose();
       c.rim.geometry.dispose(); (c.rim.material as THREE.Material).dispose(); c.badge?.dispose(); c.picture?.dispose(); for (const p of c.presses) p.dispose();
     }
-    this.cards = []; this.on = false;
+    this.cards = []; this.on = false; this.header = null; this.rerollOpt = null;
+    this.L.text.hide('act.cards.title'); this.L.text.hide('act.cards.sub'); this.L.text.hide('act.cards.reroll');
     if (this.back) this.back.visible = false; this.backDown = false; this.backHot = 0;
   }
   /** leave without a card (the back shield, Esc, pad B) — only where the page allows it */
@@ -133,6 +186,11 @@ export class CardPick3D {
       if (type === 'move') this.backHot = onBack ? 1 : 0;
       if (type === 'down' && onBack) { this.backDown = true; return true; }
       if (type === 'up' && this.backDown) { this.backDown = false; if (onBack) this.leave(); return true; }
+    }
+    if (this.rerollOpt && this.rerollOpt.left > 0) {
+      const onRr = Math.abs(x - this.rerollAt.x) < this.rerollAt.w / 2 && Math.abs(y - this.rerollAt.y) < this.rerollAt.h / 2;
+      if (type === 'move') this.rerollHot = onRr;
+      if (type === 'down' && onRr) { this.reroll(); return true; }
     }
     const i = this.hit(x, y);
     if (type === 'move' && i >= 0 && i !== this.focus) { this.focus = i; cue('click', 0.25); }
@@ -152,7 +210,7 @@ export class CardPick3D {
     const dpr = this.L.dpr || 1, F = c.L.FACE, fw = c.w * (F.x1 - F.x0), fh = c.w * F.h, key = `${Math.round(fw)}x${Math.round(fh)}@${dpr}`;
     if (key === c.faceKey) return; c.faceKey = key;
     const m = c.face.material as THREE.MeshBasicMaterial; m.map?.dispose();
-    m.map = c.e ? paintSkillFace(c.e, fw, fh, dpr) : paintFace({ name: c.b.name, tag: tagOf(c.b, c.tier, c.st), desc: descOf(c.b, c.tier), tier: c.tier, style: c.st }, fw, fh, dpr);
+    m.map = c.e ? (c.L.vertical ? paintScrollFace(c.e, fw, fh, dpr) : paintSkillFace(c.e, fw, fh, dpr)) : paintFace({ name: c.b.name, tag: tagOf(c.b, c.tier, c.st), desc: descOf(c.b, c.tier), tier: c.tier, style: c.st }, fw, fh, dpr);
     m.needsUpdate = true;
   }
   update(dt: number) {
@@ -175,13 +233,40 @@ export class CardPick3D {
       L.at(this.backAt.x, this.backAt.y, bz, bb.position); bb.scale.setScalar(L.px(r * 2, bz) * (this.backDown ? 0.88 : 1) * (1 + 0.06 * this.backHot) * (0.6 + 0.4 * this.backK));
       bb.rotation.set(0, 0.12 + Math.sin(t * 0.7) * 0.03, Math.sin(t * 1.3) * 0.02); bb.setOpacity(this.backK); bb.setRim(this.backHot ? 0xffd88a : null, 0.45);
     } else if (this.back) this.back.visible = false;
+    // act-118: category header above cards (刀谱 vs 秘传 vs 碑铭潜能) & bottom reroll pill (换一批)
+    const showChrome = this.leaving < 0;
+    const dpr = L.dpr || 1, kk = Math.max(0.8, Math.min(1.25, L.h / 720));
+    const c0 = this.cards[0], cLast = this.cards[this.cards.length - 1];
+    const minTop = this.cards.reduce((a, c) => Math.min(a, c.y - c.h / 2), L.h);
+    const maxBot = this.cards.reduce((a, c) => Math.max(a, c.y + c.h / 2), 0);
+    if (this.header && showChrome && c0) {
+      const crownExtra = c0.L.shape === 'stele' ? 38 * kk : 0;
+      const topY = Math.max(20 * kk, minTop - crownExtra - (this.header.sub ? 52 : 34) * kk);
+      const pkT = Math.max(1, Math.round(24 * kk * dpr / PIX_H));
+      L.text.set('act.cards.title', { text: localize(this.header.title), x: L.w / 2, y: topY, pix: pkT, color: this.header.col ?? '#ffe6b0', outline: '#140c0a', align: 'center', visible: true });
+      if (this.header.sub) L.text.set('act.cards.sub', { text: localize(this.header.sub), x: L.w / 2, y: topY + 26 * kk, bodyPx: Math.max(12, Math.round(14 * kk)), color: '#dcd2be', outline: '#140c0a', align: 'center', visible: true });
+      else L.text.hide('act.cards.sub');
+    } else { L.text.hide('act.cards.title'); L.text.hide('act.cards.sub'); }
+    if (this.rerollOpt && this.rerollOpt.left > 0 && showChrome && cLast) {
+      const ry = Math.min(L.h - 24 * kk, maxBot + 28 * kk);
+      this.rerollAt = { x: L.w / 2, y: ry, w: 220 * kk, h: 36 * kk };
+      const pkR = Math.max(1, Math.round(16 * kk * dpr / PIX_H));
+      L.text.set('act.cards.reroll', { text: msg`换一批（剩 ${this.rerollOpt.left} 次）`, x: L.w / 2, y: ry, pix: pkR, color: this.rerollHot ? '#fff6c8' : '#ffd27a', outline: '#140c0a', align: 'center', visible: true });
+    } else { L.text.hide('act.cards.reroll'); }
     const back = (k: number) => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * (k - 1) ** 3 + c1 * (k - 1) ** 2; };   // ease-out, a little past and back
     for (const [i, c] of this.cards.entries()) {
       this.paint(c);
       const r = Math.min(1, Math.max(0, (t - c.t0) / 0.42)), e = back(r);
       if (r >= 1 && !c.landed) { c.landed = true; cue('clack', 0.55); }
       const want = i === this.focus && this.leaving < 0 ? 1 : 0; c.lift += (want - c.lift) * Math.min(1, dt * 12);
-      let x = c.x + (1 - e) * L.w * 0.75, y = c.y, sc = 1 + 0.05 * c.lift, rz = 0, rx = 0.1 * (1 - c.lift), ry = (1 - Math.min(1, r * 1.15)) * -1.1, z = L.px(24) * c.lift, dx = L.px(16) * c.lift;
+      // act-118: 刀谱 scrolls unfurl from top; 复仇碑 steles rise from the ground; 秘传 iron plaques fly in from right
+      const isStele = c.L.shape === 'stele';
+      let x = c.L.vertical || isStele ? c.x : c.x + (1 - e) * L.w * 0.75;
+      let y = c.L.vertical ? c.y - (1 - e) * L.h * 0.55 - 10 * c.lift : isStele ? c.y + (1 - e) * L.h * 0.48 - 8 * c.lift : c.y;
+      let sc = 1 + 0.05 * c.lift, rz = 0;
+      let rx = c.L.vertical ? (1 - Math.min(1, r * 1.15)) * -0.9 + 0.06 * (1 - c.lift) : isStele ? (1 - Math.min(1, r * 1.15)) * 0.55 + 0.05 * (1 - c.lift) : 0.1 * (1 - c.lift);
+      let ry = c.L.vertical || isStele ? 0 : (1 - Math.min(1, r * 1.15)) * -1.1;
+      let z = L.px(24) * c.lift, dx = c.L.vertical || isStele ? 0 : L.px(16) * c.lift;
       let warm = 0.04 + 0.16 * c.lift, rimA = c.lift * 0.22, alpha = r > 0 ? 1 : 0, scale = L.px(c.w);
       if (this.leaving >= 0) {
         const k = Math.min(1, this.leaveT / T);
@@ -194,8 +279,8 @@ export class CardPick3D {
             const at = this.flight!.at(c.e!.target), g = go < 0.5 ? 2 * go * go : 1 - (-2 * go + 2) ** 2 / 2;
             const endScale = at.size * 0.66 / c.picture.scale.x;
             scale = L.px(c.w) * sc + (L.px(endScale) - L.px(c.w) * sc) * g; sc = 1;
-            const sx = c.L.SOCKET.x * scale / L.px(1);
-            x = x + (at.x - sx - x) * g; y = y + (at.y - y) * g; z *= 1 - g; dx *= 1 - g; rx *= 1 - g; ry *= 1 - g;
+            const sx = c.L.SOCKET.x * scale / L.px(1), sy = c.L.SOCKET.y * scale / L.px(1);
+            x = x + (at.x - sx - x) * g; y = y + (at.y + sy - y) * g; z *= 1 - g; dx *= 1 - g; rx *= 1 - g; ry *= 1 - g;
             alpha = Math.max(0, 1 - go / 0.4); rimA *= alpha;
             c.picture.setGlow(1 + 0.6 * Math.sin(Math.min(1, go) * Math.PI));
           } else { const g2 = go * go; x += (L.w * 0.12 - x) * g2; y += (L.h * 0.08 - y) * g2; sc *= 1 - 0.8 * g2; alpha = 1 - g2 * 0.6; }
@@ -242,6 +327,49 @@ export class CardPick3D {
 function fade(board: THREE.Object3D, a: number) {
   board.traverse(o => { const m = o as THREE.Mesh; if (!m.isMesh) return; const mt = m.material as THREE.MeshLambertMaterial; mt.transparent = a < 0.999; mt.opacity = a; mt.depthWrite = a >= 0.999; });
   board.visible = a > 0.01;
+}
+/** act-118: vertical bamboo-scroll face for 刀谱 — centered name, tag + 新派生/变招 pill, button combo row, effect & trigger note */
+function paintScrollFace(e: SkillEntry, w: number, h: number, dpr: number) {
+  const W = Math.max(8, Math.round(w * dpr)), H = Math.max(8, Math.round(h * dpr)), c = makeCanvas(W, H), g = c.getContext('2d') as CanvasRenderingContext2D;
+  g.imageSmoothingEnabled = false;
+  const cx = Math.round(W / 2), pad = Math.round(8 * dpr), maxW = W - pad * 2;
+  // 1. Centered large pixel name
+  let S = Math.max(1, Math.round(H * 0.145 / PIX_H));
+  while (S > 1 && pixW(e.name) * S > maxW) S--;
+  drawPix(g, e.name, cx, Math.round(H * 0.04), { scale: S, color: '#fff2cc', outline: '#0a0708', align: 'center' });
+  // 2. Centered pills: 刀谱 + 新派生/变招
+  const s2 = Math.max(1, Math.round(H * 0.068 / PIX_H)), pp = Math.max(2, s2 * 3), gap = Math.round(8 * dpr);
+  const pills: Array<{ text: string; col: string }> = [];
+  if (e.tag) pills.push({ text: e.tag, col: '#f4d68c' });
+  if (e.badge) pills.push(e.badge);
+  const totalPW = pills.reduce((sum, p, idx) => sum + pixW(p.text) * s2 + pp * 2 + (idx ? gap : 0), 0);
+  let px0 = Math.round(cx - totalPW / 2);
+  const py = Math.round(H * 0.22);
+  for (const p of pills) {
+    const tw = pixW(p.text) * s2;
+    g.fillStyle = p.col; g.fillRect(px0, py, tw + pp * 2, PIX_H * s2 + pp * 2);
+    g.fillStyle = '#140f0a'; g.fillRect(px0 + s2, py + s2, tw + pp * 2 - 2 * s2, PIX_H * s2 + pp * 2 - 2 * s2);
+    drawPix(g, p.text, px0 + pp, py + pp, { scale: s2, color: p.col, outline: null, align: 'left' });
+    px0 += tw + pp * 2 + gap;
+  }
+  // 3. Separators between the centered 3D button shields (exact same scale & center math as buildCards)
+  if (e.steps?.length) {
+    const sBase = Math.min(H * 0.19, W * 0.22);
+    let s = sBase, lp = layoutPresses(e.steps, s, e.lit);
+    if (lp.w > W * 0.92) { s *= (W * 0.92) / lp.w; lp = layoutPresses(e.steps, s, e.lit); }
+    paintSeps(g, lp.items, Math.round((W - lp.w) / 2), Math.round(H * 0.45), s);
+  }
+  // 4. Effect description (split cleanly into 2 lines if wider than scroll width)
+  const eff = localize(e.effect);
+  const effPx = Math.max(10, Math.round(H * 0.088));
+  const mid = Math.ceil(eff.length / 2);
+  const comma = eff.indexOf('，');
+  const lines = eff.length > 10 ? (comma > 2 && comma < eff.length - 2 ? [eff.slice(0, comma + 1), eff.slice(comma + 1)] : [eff.slice(0, mid), eff.slice(mid)]) : [eff];
+  lines.forEach((ln, idx) => paintEffect(g, ln, pad, Math.round(H * (0.62 + idx * 0.115)), effPx, maxW, '#f0e6d2'));
+  // 5. Numbers & trigger condition at bottom
+  if (e.num) paintNum(g, e.num, pad, Math.round(H * 0.87), Math.max(9, Math.round(H * 0.072)), maxW, 'left');
+  const t = new THREE.CanvasTexture(c as HTMLCanvasElement); t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearFilter; t.generateMipmaps = false; t.colorSpace = THREE.SRGBColorSpace;
+  return t;
 }
 /** the face of a 秘传 / 刀谱 card: the name and its tier, the numbers at the right; the marks between the presses (the buttons themselves
  *  are 3D, laid over this — the row is laid out again here in device px, the same proportions); the line of what comes out. */

@@ -68,7 +68,7 @@ const PAL: Record<string, SlashPalette> = {
 };
 
 const MOVE_PAL: Record<string, keyof typeof PAL> = {
-  k1: 'light', k2: 'light', k3: 'spin', k4: 'stab', k5: 'heavy',
+  k1: 'light', k2: 'light', k3: 'spin', k4: 'stab', k5: 'heavy', chase: 'heavy',
   rel: 'iai', acut: 'air', acutF: 'heavy', swoop: 'swoop', plunge: 'heavy', launch: 'launch',
 };
 

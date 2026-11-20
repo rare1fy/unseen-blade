@@ -76,8 +76,11 @@ export class ActHud {
   /** the hero's floor position (show sets it every frame; the off-screen markers read their distance from it) */
   heroAt = new THREE.Vector3();
   get bossOn() { return !!this.boss && this.on; }
-  /** copper coins in the purse (act-17), shown under the health number */
-  coins = 0; private coinIcon: THREE.Group | null = null; /** act-29: the shown count runs up to the real one; the coin hops on each step */ private coinShown = 0; private coinHop = 0;
+  /** copper coins + meta currencies (iron / herb) shown together under the portrait */
+  coins = 0; iron = 0; herb = 0; private coinIcon: THREE.Group | null = null; /** act-29: the shown count runs up to the real one; the coin hops on each step */ private coinShown = 0; private coinHop = 0;
+  /** act-118: live combo variety readout & active archetype synergy pills */
+  combo = { hits: 0, bonus: 0, frac: 0 };
+  synergies: Array<{ name: string; count: number; col: string }> = [];
   stickHome = { x: 150, y: 600 }; stickSize = 150; k = 1; on = true; private W = 1280; private H = 720;
   /** 11-19 获得提示: the top-left of the reward column, under the portrait's purse */
   feedAt = { x: 18, y: 112 };
@@ -338,7 +341,7 @@ export class ActHud {
       if (Math.floor(this.coinShown) !== was) this.coinHop = 1; this.coinHop = Math.max(0, this.coinHop - dt * 6); }
     const shown = Math.floor(this.coinShown), hop = Math.sin(this.coinHop * Math.PI);
     if (this.flask instanceof IronHp) {
-      this.flask.coins = shown; this.flask.coinHop = this.coinHop;
+      this.flask.coins = shown; this.flask.iron = this.iron; this.flask.herb = this.herb; this.flask.coinHop = this.coinHop;
       if (this.coinIcon) this.coinIcon.visible = false; this.L.text.hide('act.coins');
     } else {
       if (!this.coinIcon) {
@@ -349,7 +352,27 @@ export class ActHud {
       }
       const coinCell = 3, b = this.flask.barAt(), cx = b.x - this.flask.W * this.k / 2 + 10, cy = b.y + b.h / 2 + 18 * this.k;
       this.coinIcon.visible = this.on; this.L.at(cx, cy - hop * 4, 2, this.coinIcon.position); this.coinIcon.scale.setScalar(this.L.px(12) * (1 + 0.25 * hop)); this.coinIcon.rotation.y = hop * 0.8;
-      this.L.text.set('act.coins', { text: `${shown}`, x: cx + 12, y: cy, cell: coinCell, color: this.coinHop > 0 ? '#fff0b0' : '#ffd27a', outline: '#21100e', align: 'left', visible: this.on });
+      this.L.text.set('act.coins', { text: `${shown}  ${this.iron}  ${this.herb}`, x: cx + 12, y: cy, cell: coinCell, color: this.coinHop > 0 ? '#fff0b0' : '#ffd27a', outline: '#21100e', align: 'left', visible: this.on });
+    }
+    // act-118: live combo variety readout (right edge, shown only during active combos) & active synergy badges (under portrait)
+    const dprH = this.L.dpr || 1, pkC = Math.max(1, Math.round(Math.max(18, 22 * this.k) * dprH / PIX_H));
+    const showCombo = this.on && this.combo.hits >= 2 && this.combo.frac > 0.01;
+    if (showCombo) {
+      const col = this.combo.bonus >= 45 ? '#ffe066' : this.combo.bonus >= 30 ? '#ffab5a' : this.combo.bonus >= 15 ? '#7ef0c4' : '#f4ecd8';
+      const rx = this.L.w - 24 * this.k, ry = this.L.h * 0.30;
+      this.L.text.set('act.combo', { text: `${this.combo.hits} ${localize('连击')}`, x: rx, y: ry, pix: pkC, color: col, outline: '#140c0a', align: 'right', visible: true });
+      if (this.combo.bonus > 0) this.L.text.set('act.comboSub', { text: `${localize('变招')} +${this.combo.bonus}%`, x: rx, y: ry + 26 * this.k, pix: Math.max(1, Math.round(pkC * 0.72)), color: col, outline: '#140c0a', align: 'right', visible: true });
+      else this.L.text.hide('act.comboSub');
+    } else {
+      this.L.text.hide('act.combo'); this.L.text.hide('act.comboSub');
+    }
+    if (this.on && this.synergies.length) {
+      const synTxt = this.synergies.map(s => `${localize(s.name)}(${s.count})`).join(' · ');
+      this.L.text.set('act.syn', { text: synTxt, x: 18 * this.k, y: 112 * this.k, pix: Math.max(1, Math.round(14 * this.k * dprH / PIX_H)), color: this.synergies[0].col, outline: '#140c0a', align: 'left', visible: true });
+      this.feedAt.y = 136 * this.k;
+    } else {
+      this.L.text.hide('act.syn');
+      this.feedAt.y = 112 * this.k;
     }
     // bars over the foes (the chief: the long bar at the top instead)
     const live = new Set<number>();

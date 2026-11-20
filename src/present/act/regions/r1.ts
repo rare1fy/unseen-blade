@@ -12,15 +12,27 @@ export function waves1(type: RoomType, depth: number, r: Rnd): string[][] {
   if (type === 'boss') return BOSS_WAVES_1.map(w => [...w]);
   if (type === 'elite') {
     const head = pick(['hj_blade', 'hj_brute', 'hj_taoist', 'hj_archer', 'hj_hound'], r) + '*';
-    return [[head, 'hj_sickle', 'hj_mob', 'hj_mob'], ['hj_blade', pick(['hj_archer', 'hj_taoist', 'hj_jar'], r), 'hj_hound', ...(depth >= 3 ? ['hj_brute'] : [])]];
+    const support = pick(['hj_archer', 'hj_taoist', 'hj_jar'], r);
+    return [
+      [head, support, 'hj_sickle', 'hj_mob'],
+      ['hj_blade', 'hj_hound', pick(['hj_archer', 'hj_taoist', 'hj_jar'], r), ...(depth >= 2 ? ['hj_brute'] : ['hj_sickle'])],
+    ];
   }
   if (type !== 'fight') return [];
-  if (depth === 0) return [['hj_blade', 'hj_sickle', 'hj_mob', 'hj_mob'], ['hj_blade', 'hj_jar', 'hj_hound', 'hj_mob', 'hj_mob']];
-  const w1 = ['hj_blade', 'hj_sickle', 'hj_mob', 'hj_mob', 'hj_mob', ...(depth >= 2 ? [pick(['hj_archer', 'hj_taoist', 'hj_jar'], r)] : [])];
-  const w2 = ['hj_blade', pick(['hj_brute', 'hj_hound'], r), pick(['hj_archer', 'hj_taoist', 'hj_jar'], r), 'hj_mob', 'hj_mob', ...(depth >= 3 ? [pick(['hj_brute', 'hj_taoist', 'hj_hound'], r)] : [])];
+  // act-118: structured tactical pairings from room 1 onward (frontline + ranged/flanker pressure instead of pure mob clumps)
+  if (depth === 0) return [
+    ['hj_blade', 'hj_archer', 'hj_sickle', 'hj_mob'],
+    ['hj_blade', 'hj_hound', 'hj_jar', 'hj_mob'],
+  ];
+  if (depth === 1) return [
+    ['hj_blade', 'hj_taoist', 'hj_sickle', 'hj_mob'],
+    ['hj_brute', 'hj_archer', 'hj_mob', 'hj_mob'],
+  ];
+  const w1 = ['hj_blade', pick(['hj_brute', 'hj_hound'], r), pick(['hj_archer', 'hj_taoist'], r), 'hj_sickle', 'hj_mob'];
+  const w2 = [depth >= 3 ? pick(['hj_blade', 'hj_hound', 'hj_taoist'], r) + '*' : 'hj_brute', 'hj_blade', pick(['hj_archer', 'hj_taoist', 'hj_jar'], r), 'hj_hound', 'hj_mob'];
   return [w1, w2];
 }
-const BOSS_WAVES_1 = [['hj_sickle', 'hj_jar', 'hj_mob', 'hj_mob', 'hj_mob'], ['hj_boss', 'hj_mob', 'hj_mob']];
+const BOSS_WAVES_1 = [['hj_blade', 'hj_taoist', 'hj_sickle', 'hj_mob'], ['hj_boss', 'hj_archer', 'hj_mob']];
 
 export const REGION_1: RegionDef = {
   id: 'r1_huangjin', name: '黄巾残村',

@@ -4,9 +4,10 @@ import { describe, it, expect } from 'vitest';
 import { createMinigamePlatform, type PxPointer } from 'pxui/platform/index.js';
 import { Input } from '../src/present/act/input';
 import { TUNE } from '../src/present/act/tune';
-import { inside } from '../src/present/act/tele';
+import { inside, HOT } from '../src/present/act/tele';
 import { slashArc } from '../src/present/act/slashArc';
-import { damageFoe, canStrike, isRangedFoe, updateFoe, POISE_BREAK_DUR, type Foe, type FoeWorld } from '../src/present/act/enemy';
+import { damageFoe, canStrike, isRangedFoe, updateFoe, elitePoise, EDEFS, POISE_BREAK_DUR, type Foe, type FoeWorld } from '../src/present/act/enemy';
+import { archCounts, archTier, applyBoon, newPerks } from '../src/present/act/boons';
 import { cueLog } from '../src/audio/cues';
 import { V3 } from '../src/present/engine/world';
 
@@ -259,5 +260,22 @@ describe('combat wave 2: poise break & staggered cadence (act-113)', () => {
     updateFoe(boss, w, 0.02);
     expect(boss.st).toBe('recover');
     expect(boss.dur).toBeCloseTo(0.95, 2);
+  });
+
+  it('combat & build overhaul invariants (act-118): universal elite poise, unified 0.26s parry beat, 4 build archetypes', () => {
+    expect(HOT).toBeCloseTo(0.26, 2);
+    expect(TUNE.maxAttackers).toBeGreaterThanOrEqual(2);
+    expect(elitePoise(EDEFS.hj_blade, 'hj_blade')).toBeGreaterThanOrEqual(28);
+    expect(elitePoise(EDEFS.hj_archer, 'hj_archer')).toBeGreaterThanOrEqual(20);
+    expect(elitePoise(EDEFS.hj_brute, 'hj_brute')).toBeGreaterThan(EDEFS.hj_brute.poise);
+
+    const p = newPerks();
+    applyBoon(p, 'bleed', 0);
+    expect(archTier(p, 'blood')).toBe(0);
+    applyBoon(p, 'behead', 1);
+    expect(archCounts(p).blood).toBe(2);
+    expect(archTier(p, 'blood')).toBe(2);
+    applyBoon(p, 'drink', 2);
+    expect(archTier(p, 'blood')).toBe(3);
   });
 });

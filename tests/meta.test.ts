@@ -1,24 +1,25 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { bank, buy, canBuy, level, META, nextCost, runMods, runReward } from '../src/present/act/meta';
+import { bank, buy, buyMirror, canBuy, canBuyMirror, flipMirror, hasAffordable, hasMirrorAffordable, level, META, MIRROR, mirrorNextCost, mirrorState, nextCost, runMods, runReward } from '../src/present/act/meta';
 import { fresh } from '../src/present/act/profile';
 
 afterEach(() => { vi.unstubAllGlobals(); vi.resetModules(); });
 
 describe('hideout upgrades', () => {
   it('lists the forge and medic upgrades in order with short descriptions', () => {
-    expect(META.map(x => x.id)).toEqual(['blade', 'darts', 'manual', 'vigor', 'breath', 'intent', 'ear']);
-    expect(META.every(x => x.desc.every(line => [...line].length <= 12))).toBe(true);
+    expect(META.map(x => x.id)).toEqual(['blade', 'darts', 'reroll', 'manual', 'vigor', 'ear', 'intent', 'leech', 'breath']);
+    expect(META.every(x => x.desc.every(line => [...line].length <= 14))).toBe(true);
   });
 
   it('deducts the matching currency and increases each purchased level', () => {
-    const p = fresh(); p.iron = 60; p.herb = 15;
+    const p = fresh(); p.iron = 32; p.herb = 10;
     expect(level(p, 'blade')).toBe(0);
-    expect(nextCost(p, 'blade')).toBe(20);
+    expect(nextCost(p, 'blade')).toBe(10);
     expect(canBuy(p, 'blade')).toBe(true);
+    expect(hasAffordable(p, 'forge')).toBe(true);
     expect(buy(p, 'blade')).toBe(true);
-    expect(p.iron).toBe(40);
+    expect(p.iron).toBe(22);
     expect(level(p, 'blade')).toBe(1);
-    expect(nextCost(p, 'blade')).toBe(40);
+    expect(nextCost(p, 'blade')).toBe(22);
     expect(buy(p, 'blade')).toBe(true);
     expect(p.iron).toBe(0);
     expect(buy(p, 'vigor')).toBe(true);
@@ -28,16 +29,16 @@ describe('hideout upgrades', () => {
   });
 
   it('refuses overspending, maxed upgrades, and unknown ids without mutating the profile', () => {
-    const p = fresh(); p.iron = 19; p.herb = 100;
+    const p = fresh(); p.iron = 9; p.herb = 100;
     expect(canBuy(p, 'blade')).toBe(false);
     expect(buy(p, 'blade')).toBe(false);
     expect(nextCost(p, 'missing')).toBeNull();
     expect(buy(p, 'missing')).toBe(false);
-    expect(p.iron).toBe(19);
+    expect(p.iron).toBe(9);
     expect(p.herb).toBe(100);
     expect(p.perks).toEqual({});
 
-    p.iron = 80;
+    p.iron = 35;
     expect(buy(p, 'manual')).toBe(true);
     expect(nextCost(p, 'manual')).toBeNull();
     expect(canBuy(p, 'manual')).toBe(false);
@@ -46,25 +47,52 @@ describe('hideout upgrades', () => {
     expect(p.perks).toEqual({ manual: 1 });
   });
 
+  it('supports Hades-style dual-aspect 碑铭潜能 (upgrade + free Yang/Yin flip)', () => {
+    const p = fresh(); p.iron = 26; p.herb = 8;
+    expect(MIRROR).toHaveLength(4);
+    expect(hasMirrorAffordable(p)).toBe(true);
+    expect(mirrorNextCost(p, 'edge')).toBe(8);
+    expect(canBuyMirror(p, 'edge')).toBe(true);
+    expect(buyMirror(p, 'edge')).toBe(true);
+    expect(p.iron).toBe(18);
+    expect(mirrorState(p, 'edge')).toEqual({ lv: 1, side: 0 });
+    expect(runMods(p).firstStrikeBonus).toBeCloseTo(0.25, 5);
+    expect(runMods(p).styleBonus).toBe(0);
+    // free flip to Yin side shares the upgraded rank immediately
+    expect(flipMirror(p, 'edge')).toBe(1);
+    expect(p.iron).toBe(18);
+    expect(runMods(p).firstStrikeBonus).toBe(0);
+    expect(runMods(p).styleBonus).toBeCloseTo(0.10, 5);
+    // upgrade Lv2 while on Yin side
+    expect(buyMirror(p, 'edge')).toBe(true);
+    expect(p.iron).toBe(0);
+    expect(runMods(p).styleBonus).toBeCloseTo(0.18, 5);
+  });
+
   it('turns a mixed set of purchases into run modifiers', () => {
     const p = fresh();
-    expect(runMods(p)).toEqual({ dmgMul: 1, dartBonus: 0, hpBonus: 0, deathDefy: 0, startIntent: 0, windupMul: 1, startManual: false });
-    p.perks = { blade: 2, darts: 1, manual: 1, vigor: 3, breath: 1, intent: 1, ear: 2 };
-    expect(runMods(p)).toEqual({ dmgMul: 1.2, dartBonus: 1, hpBonus: 45, deathDefy: 1, startIntent: 1, windupMul: 1.2, startManual: true });
+    expect(runMods(p)).toMatchObject({ dmgMul: 1, critBonus: 0, dartBonus: 0, rerolls: 1, hpBonus: 0, deathDefy: 0, startIntent: 0, windupMul: 1, startManual: false, poiseHeal: 0 });
+    p.perks = { blade: 2, darts: 1, reroll: 2, manual: 1, vigor: 3, breath: 1, intent: 1, leech: 2, ear: 2 };
+    expect(runMods(p)).toMatchObject({ dmgMul: 1.24, critBonus: 0.08, dartBonus: 1, rerolls: 3, hpBonus: 60, deathDefy: 1, startIntent: 1, windupMul: 1.2, startManual: true, poiseHeal: 10 });
   });
 });
 
 describe('run rewards', () => {
-  it('calculates death and win rewards and banks both with the correct counters', () => {
-    const p = fresh(); p.iron = 5; p.herb = 7;
+  it('calculates death and win rewards so even an early failed run affords upgrades', () => {
+    const p = fresh(); p.iron = 0; p.herb = 0;
+    const earlyFail = { rooms: 1, elites: 0, boss: false, won: false, kills: 9 };
+    const r0 = runReward(earlyFail);
+    expect(r0.iron).toBeGreaterThanOrEqual(10);
+    expect(r0.herb).toBeGreaterThanOrEqual(10);
+
     const death = { rooms: 4, elites: 2, boss: false, won: false, kills: 19 };
     const win = { rooms: 6, elites: 1, boss: true, won: true, kills: 20 };
-    expect(runReward(death)).toEqual({ iron: 10, herb: 9 });
-    expect(bank(p, death)).toEqual({ iron: 10, herb: 9 });
-    expect(p).toMatchObject({ iron: 15, herb: 16, runs: 1, wins: 0, deaths: 1 });
-    expect(runReward(win)).toEqual({ iron: 34, herb: 29 });
-    expect(bank(p, win)).toEqual({ iron: 34, herb: 29 });
-    expect(p).toMatchObject({ iron: 49, herb: 45, runs: 2, wins: 1, deaths: 1 });
+    expect(runReward(death)).toEqual({ iron: 42, herb: 38 });
+    expect(bank(p, death)).toEqual({ iron: 42, herb: 38 });
+    expect(p).toMatchObject({ iron: 42, herb: 38, runs: 1, wins: 0, deaths: 1 });
+    expect(runReward(win)).toEqual({ iron: 89, herb: 68 });
+    expect(bank(p, win)).toEqual({ iron: 89, herb: 68 });
+    expect(p).toMatchObject({ iron: 131, herb: 106, runs: 2, wins: 1, deaths: 1 });
   });
 });
 

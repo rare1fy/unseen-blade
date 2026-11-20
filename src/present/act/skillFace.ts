@@ -12,13 +12,17 @@ import { richLine, TIER_TXT } from './cardBoard';
 import { MiniShield, btnShield } from './btnBadge';
 import { isLinkIcon } from './skillIcons';
 import { fillVals } from './cards';
-import { BOONS, TIER_NAMES, boonTier, type Boon, type BoonId, type SkillBoon } from './boons';
+import { ARCH_INFO, BOONS, TIER_NAMES, boonTier, type Archetype, type Boon, type BoonId, type SkillBoon } from './boons';
 import { MANUALS, type Manual } from './manuals';
 import { KEY_BTN, LINK_COLORS, MANUAL_HINT, STANCE_COLORS, UI_WORDS, boonSteps, boonTarget, isPress, manualSteps, manualTarget, type BaseIcon, type BaseSkill, type MarkTarget, type Step } from './skillInfo';
 import type { BtnName } from './input';
 
 export interface SkillEntry {
   id: string; kind: 'manual' | 'boon' | 'base'; name: string; tag: string; tier: number;
+  /** act-118: second pill on the name row — e.g. 新派生/变招 (manuals) or 流派 label 血刃/破势/影镖/凌空 (boons) */
+  badge?: { text: string; col: string };
+  /** act-118: archetype accent colour for 3D boon plaque inlay */
+  accentHex?: number;
   /** the picture (skillIcons skillIcon3D id) */ icon: BaseIcon | BoonId;
   /** the presses (null = nothing to press: a passive) */ steps: Step[] | null;
   effect: string; num: string;
@@ -29,11 +33,14 @@ export interface SkillEntry {
 const TIER_GLOW = [0xb0c0d8, 0xffb060, 0xffd060];
 export function entryOfManual(m: Manual): SkillEntry {
   const icon = MANUAL_HINT[m.id], col = LINK_COLORS[icon];
-  return { id: m.id, kind: 'manual', name: m.name, tag: UI_WORDS.manual, tier: 0, icon, steps: manualSteps(m), effect: m.desc[0], num: m.desc[1], col, target: manualTarget(m), lit: col };
+  const badge = m.rel === 'new' ? { text: '新派生', col: '#7ef0c0' } : { text: '变招', col: '#ffd27a' };
+  return { id: m.id, kind: 'manual', name: m.name, tag: UI_WORDS.manual, badge, tier: 0, icon, steps: manualSteps(m), effect: m.desc[0], num: m.desc[1], col, target: manualTarget(m), lit: col };
 }
-export function entryOfBoon(b: SkillBoon, tier: number): SkillEntry {
-  const t = boonTier(tier);
-  return { id: b.id, kind: 'boon', name: b.name, tag: TIER_NAMES[t], tier: t, icon: b.id, steps: boonSteps(b), effect: b.eff, num: fillVals(b.note, b, t), col: TIER_GLOW[t], target: boonTarget(b), lit: null };
+export function entryOfBoon(b: SkillBoon, tier: number, archHave?: Partial<Record<Archetype, number>>): SkillEntry {
+  const t = boonTier(tier), ai = ARCH_INFO[b.arch];
+  const n = archHave?.[b.arch];
+  const badge = ai ? { text: n != null ? `${ai.name} ${n + 1}/2` : ai.name, col: ai.col } : undefined;
+  return { id: b.id, kind: 'boon', name: b.name, tag: `${UI_WORDS.boon}·${TIER_NAMES[t]}`, badge, accentHex: ai?.hex, tier: t, icon: b.id, steps: boonSteps(b), effect: b.eff, num: fillVals(b.note, b, t), col: TIER_GLOW[t], target: boonTarget(b), lit: null };
 }
 export function entryOfBase(s: BaseSkill): SkillEntry {
   const icon = s.icon;
@@ -42,13 +49,13 @@ export function entryOfBase(s: BaseSkill): SkillEntry {
   return { id: s.id, kind: 'base', name: s.name, tag: '', tier: 0, icon, steps: s.steps, effect: s.effect, num: s.num ?? '', col: lit ?? 0xb0c0d8, target, lit };
 }
 /** The other cards (meals, upgrades, 再来一次) use the regular item face. */
-export function entryOfCard(b: Boon, tier: number): SkillEntry | null {
+export function entryOfCard(b: Boon, tier: number, archHave?: Partial<Record<Archetype, number>>): SkillEntry | null {
   if (b.id.startsWith('ms_')) {
     const m = MANUALS.find(x => x.id === b.id.slice(3));
     return m ? entryOfManual(m) : null;
   }
   const boon = BOONS.find(x => x.id === b.id);
-  return boon ? entryOfBoon(boon, tier) : null;
+  return boon ? entryOfBoon(boon, tier, archHave) : null;
 }
 
 // ---------------------------------------------------------------- the presses in a row
@@ -131,10 +138,18 @@ export function paintName(g: CanvasRenderingContext2D, e: SkillEntry, x: number,
   let w = pixW(e.name) * S;
   if (e.tag) {
     const s2 = Math.max(1, Math.round(S / 2)), tw = pixW(e.tag) * s2, tx = Math.round(x + w + 10 * dpr), ty = Math.round(y + (PIX_H * S - PIX_H * s2) / 2);
-    const tc = e.kind === 'boon' ? TIER_TXT[e.tier] ?? TIER_TXT[0] : '#e0c890', pad = Math.max(2, s2 * 3);
+    const tc = e.kind === 'boon' ? TIER_TXT[e.tier] ?? TIER_TXT[0] : '#f4d68c', pad = Math.max(2, s2 * 3);
     g.fillStyle = tc; g.fillRect(tx - pad, ty - pad, tw + pad * 2, PIX_H * s2 + pad * 2);
     g.fillStyle = '#0d0a0b'; g.fillRect(tx - pad + s2, ty - pad + s2, tw + pad * 2 - 2 * s2, PIX_H * s2 + pad * 2 - 2 * s2);
     drawPix(g, e.tag, tx, ty, { scale: s2, color: tc, outline: null, align: 'left' });
+    w = tx - x + tw + pad;
+  }
+  if (e.badge) {
+    const s2 = Math.max(1, Math.round(S / 2)), tw = pixW(e.badge.text) * s2, tx = Math.round(x + w + 10 * dpr), ty = Math.round(y + (PIX_H * S - PIX_H * s2) / 2);
+    const tc = e.badge.col, pad = Math.max(2, s2 * 3);
+    g.fillStyle = tc; g.fillRect(tx - pad, ty - pad, tw + pad * 2, PIX_H * s2 + pad * 2);
+    g.fillStyle = '#120e10'; g.fillRect(tx - pad + s2, ty - pad + s2, tw + pad * 2 - 2 * s2, PIX_H * s2 + pad * 2 - 2 * s2);
+    drawPix(g, e.badge.text, tx, ty, { scale: s2, color: tc, outline: null, align: 'left' });
     w = tx - x + tw + pad;
   }
   return w;

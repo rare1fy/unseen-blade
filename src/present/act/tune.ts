@@ -13,7 +13,7 @@ export const TUNE = {
   // 停住、慢收），下一刀从「这一刀停完」开始接（不再一律做完 75%）；这里只是每刀的总长
   // 11-20 (act-109 去黏手): atkSpeed 0.8 → 0.92, dashCd 0.6 → 0.48，保留快慢反差但整体更干脆跟手
   k1: 0.46, k2: 0.46, k3: 0.62, k4: 0.58, k5: 0.88, atkSpeed: 0.92,
-  atkRange: 1.95, atkDmg: 7, finDmg: 17,
+  atkRange: 1.95, atkDmg: 6, finDmg: 18,
   /** 出刀往前冲（米，各段再乘自己的倍数：横斩 1、反撩 0.8、旋斩 0.4、连刺 1.2、重劈 1.5）；前面有敌人时冲到离它多远停下（米） */
   atkLunge: 0.6, lungeStop: 0.7,
   /** 按住多久算蓄力（秒），蓄满要多久 */
@@ -25,7 +25,7 @@ export const TUNE = {
   /** act-14 用户「飞刀太bt了，没有CD，囤3把刀然后转CD吧」：身上囤几把，用完后冷却几秒补满 */
   dartCharges: 3, dartReload: 4,
   /** 招式联动（act-14 用户：「几个基础操作要有招式联动」）：穿风斩冲多远（米）、伤害；追影——飞镖插在敌人身上可追的时间（秒） */
-  dashCutDist: 3.2, dashCutDmg: 12, chaseWin: 2,   // 11-17 战斗手感：寻声 1.2 → 2 秒
+  dashCutDist: 3.2, dashCutDmg: 9, chaseWin: 2,   // 11-17 战斗手感：寻声 1.2 → 2 秒；穿风斩偏位移起手、不压过刀谱派生
   /** 派生窗口（11-17 用户：「连招的窗口很多都太短了，很难放的出来，更很难被玩家感知到」）：冲刺在地上停下后，冲刺类派生（穿风斩 / 回身镖 /
    *  穿心腿）还能接多久（秒）；砍中类派生（挑云 / 迎面镖）在出刀那一下后多久内都算（秒，下一刀已经开始也算）；游身斩在冲刺后多久内（秒） */
   linkDash: 0.3, linkCut: 0.5, linkKeep: 0.6,
@@ -56,9 +56,10 @@ export const TUNE = {
   clashTime: 2.0, clashPush: 0.13, clashElite: 0.36, clashBoss: 0.7, chainWin: 0.12, qteCamD: 9.5, qteCamH: 3.3,
   // 敌人
   enemyHp: 1, enemyDmg: 1, aggression: 0.85,   // act-20: windups ~18% longer
-  /** act-20: the pause after any foe's blow before another may start one (s) */ atkCalm: 1.3,
+  /** act-118: brisker melee cadence (0.78s calm) + up to 2 coordinated attackers so packs pressure & flank instead of idling single-file */
+  atkCalm: 0.78,
   /** 同时出手的敌人上限（读得清，像哈迪斯） */
-  maxAttackers: 1,   // act-20 (user: 「打起来有点乱」): one at a time (流民 count half)
+  maxAttackers: 2,
   /** 摇杆：0 = 左下区域里按哪儿出在哪儿（之后底座不动），1 = 固定在左下角 */
   stickFixed: 0,
   // 镜头

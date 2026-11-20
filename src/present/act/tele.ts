@@ -12,8 +12,8 @@ export type TeleShape = { k: 'cone'; r: number; half: number } | { k: 'rect'; le
   // 11-18 (第三关 链锤狱卒 / 封鸩 寒毒爆): a ring round the attacker — r0..r1, the hole inside is safe; it fills from the inner edge outward
   | { k: 'ring'; r0: number; r1: number };
 const COL = 0xff4a26, EDGE = 0xff9a60, EDGE_C = new THREE.Color(EDGE), WHITE = new THREE.Color(0xffffff);
-/** the last beat before the blow, seconds */
-export const HOT = 0.15;
+/** the last beat before the blow, seconds — aligned with 见切 (0.25s) & 冲刺无敌 (0.24s) for consistent muscle memory */
+export const HOT = 0.26;
 const mat = (o: number, c = COL) => new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: o, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, side: THREE.DoubleSide });
 
 /** the sound-wave fill: hard-edged ripple bands running out from where the blow starts (cone apex / circle centre / the strip's

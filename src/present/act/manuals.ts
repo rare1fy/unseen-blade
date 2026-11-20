@@ -17,20 +17,22 @@ export type MoveKey = 'attack' | 'dash' | 'jump' | 'dart' | 'hold';
  *  pauseAt (0-based) — 扫八方 waits a beat after the 2nd cut; needs: a manual that must be learnt first (断云 starts from 挑云) */
 /** Some links need more than the preceding press; show that condition before the final button. */
 export type LinkCue = 'dartHit' | 'nearFoe';
-export interface Manual { id: MoveId; name: string; desc: [string, string]; how: [MoveKey, ...MoveKey[]]; air?: boolean; pauseAt?: number; needs?: MoveId; cue?: LinkCue }
+/** act-118: explicit relation badge so the player always knows whether a manual adds a fresh combo branch or alters a button under a condition */
+export type MoveRel = 'new' | 'alt';
+export interface Manual { id: MoveId; name: string; rel: MoveRel; desc: [string, string]; how: [MoveKey, ...MoveKey[]]; air?: boolean; pauseAt?: number; needs?: MoveId; cue?: LinkCue }
 export const MANUALS: Manual[] = [
-  { id: 'chase', name: '寻声', how: ['dart', 'attack'], cue: 'dartHit', desc: ['化烟闪到中镖人跟前，一记重斩', '伤害 150%'] },
-  { id: 'backDart', name: '回身镖', how: ['dash', 'dart'], desc: ['冲过人身旁，反手往背后甩三镖', '用一枚镖'] },
-  { id: 'dbl', name: '二段跳', how: ['jump'], air: true, desc: ['半空翻身，再往上蹿一截', '再高 1.8 米'] },
-  { id: 'launch', name: '挑云', how: ['attack', 'jump'], desc: ['一刀挑人上半空，跟着跃起', '伤害 110%'] },
-  { id: 'cutDart', name: '迎面镖', how: ['attack', 'dart'], desc: ['贴脸甩出三枚柳叶镖', '用一枚镖'] },
-  { id: 'keep', name: '游身斩', how: ['attack', 'dash', 'attack'], desc: ['闪开来招，转身接着砍连环刀', ''] },
-  { id: 'pause', name: '扫八方', how: ['attack', 'attack', 'attack'], pauseAt: 2, desc: ['原地转身挥两圈，扫退周围的人', ''] },
-  { id: 'kick', name: '穿心腿', how: ['dash', 'jump'], desc: ['贴地踹飞挡路人，撞墙伤得更重', '伤害 130%'] },
-  { id: 'acut', name: '断云', how: ['attack', 'jump', 'attack'], needs: 'launch', desc: ['半空追砍三刀，末刀砸人落地', '前两刀各 70% · 末刀 100% · 砸地 200%'] },
-  { id: 'swoop', name: '掠地', how: ['dash'], air: true, desc: ['俯冲斩到敌后，沿路每人挨一刀', '伤害 160%'] },
-  { id: 'reel', name: '牵红', how: ['dart', 'dart'], cue: 'dartHit', desc: ['扯绳拉人到身前，拉不动就飞过去', '伤害 40% · 拉到身前约 1.2 米'] },
-  { id: 'stomp', name: '踏顶', how: ['jump'], air: true, cue: 'nearFoe', desc: ['踩趴脚下的人，借力再跳起', '伤害 60% · 踩趴 1.2 秒'] },
+  { id: 'chase', name: '寻声', rel: 'alt', how: ['dart', 'attack'], cue: 'dartHit', desc: ['化烟闪到中镖人跟前，一记重斩', '伤害 200% · 高破势 · 敌中镖触发'] },
+  { id: 'backDart', name: '回身镖', rel: 'new', how: ['dash', 'dart'], desc: ['冲过人身旁，反手往背后甩三镖', '用一枚镖 · 冲后新派生'] },
+  { id: 'dbl', name: '二段跳', rel: 'new', how: ['jump'], air: true, desc: ['半空翻身，再往上蹿一截', '再高 1.8 米 · 空中新派生'] },
+  { id: 'launch', name: '挑云', rel: 'alt', how: ['attack', 'jump'], desc: ['一刀挑人上半空，跟着跃起', '伤害 150% · 浮空易伤 · 砍后变招'] },
+  { id: 'cutDart', name: '迎面镖', rel: 'new', how: ['attack', 'dart'], desc: ['贴脸甩出三枚柳叶镖', '用一枚镖 · 砍后新派生'] },
+  { id: 'keep', name: '游身斩', rel: 'alt', how: ['attack', 'dash', 'attack'], desc: ['闪开来招，转身接着砍连环刀', '连斩不断 · 冲后变招'] },
+  { id: 'pause', name: '扫八方', rel: 'new', how: ['attack', 'attack', 'attack'], pauseAt: 2, desc: ['原地转身挥两圈，扫退周围的人', '伤害 135%×2 · 停顿新派生'] },
+  { id: 'kick', name: '穿心腿', rel: 'new', how: ['dash', 'jump'], desc: ['贴地踹飞挡路人，撞墙伤得更重', '伤害 180% · 专破架势 · 冲后新派生'] },
+  { id: 'acut', name: '断云', rel: 'new', how: ['attack', 'jump', 'attack'], needs: 'launch', desc: ['半空追砍三刀，末刀砸人落地', '100%/100%/150% · 砸地 220%'] },
+  { id: 'swoop', name: '掠地', rel: 'alt', how: ['dash'], air: true, desc: ['俯冲斩到敌后，沿路每人挨一刀', '伤害 210% · 朝敌空冲触发'] },
+  { id: 'reel', name: '牵红', rel: 'alt', how: ['dart', 'dart'], cue: 'dartHit', desc: ['扯绳拉人到身前，拉不动就飞过去', '伤害 90% · 下刀必暴 · 敌中镖触发'] },
+  { id: 'stomp', name: '踏顶', rel: 'alt', how: ['jump'], air: true, cue: 'nearFoe', desc: ['踩趴脚下的人，借力再跳起', '伤害 130% · 高破势 · 敌旁空跳触发'] },
 ];
 export const ALL_MOVES: Record<string, boolean> = Object.fromEntries(MANUALS.map(m => [m.id, true]));
 /** the scroll glyph the manual cards show (12 × 12, axis-aligned: two rollers and the slips between) */

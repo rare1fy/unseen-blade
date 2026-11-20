@@ -14,7 +14,7 @@ import { bodyText, bodyW } from '../ui3d/bodyFont';
 import { t } from './i18n';
 import { makeCanvas } from '../../platform/index';
 
-export type CardStyle = 'boon' | 'manual' | 'forge' | 'medic' | 'meal';
+export type CardStyle = 'boon' | 'manual' | 'forge' | 'medic' | 'meal' | 'mirror';
 /** the board's height in units of its width */
 export const CARD_H = 0.24;
 interface Metal { d: number; m: number; l: number; glow: number }
@@ -23,14 +23,18 @@ const METAL: Metal[] = [
   { d: 0x553714, m: 0x96662c, l: 0xd29a4a, glow: 0xffb060 },   // bronze
   { d: 0x6e5014, m: 0xc0902a, l: 0xffd86a, glow: 0xffd060 },   // gold
 ];
-/** the other kinds of card: bamboo-and-wood for 刀谱 and meals, iron and ember for the smith, jade for the healer */
+/** the other kinds of card: bamboo-scroll for 刀谱 (distinct from forged iron 秘传), iron+ember for smith, jade for healer, obsidian-violet for 碑铭潜能 */
 const STYLE_METAL: Record<Exclude<CardStyle, 'boon'>, Metal> = {
-  manual: { d: 0x3a2814, m: 0x6e5030, l: 0xb08850, glow: 0xffd890 },
+  manual: { d: 0x6a4b1f, m: 0xb88a42, l: 0xf4d68c, glow: 0xffe49a },
   meal: { d: 0x3a2814, m: 0x6e5030, l: 0xb08850, glow: 0xffd890 },
   forge: { d: 0x1c1e24, m: 0x3c4049, l: 0x6c727e, glow: 0xff9040 },
   medic: { d: 0x1e3a2c, m: 0x3e7a5a, l: 0x86c8a0, glow: 0x9af0c0 },
+  mirror: { d: 0x2e2444, m: 0x685496, l: 0xc4b0f0, glow: 0xd8c4ff },
 };
-const PANEL: Record<CardStyle, [number, number]> = { boon: [LACQ, LACQ_L], manual: [0x2c2216, 0x3a2c1c], meal: [0x2c2216, 0x3a2c1c], forge: [0x221e1e, 0x2e2828], medic: [0x16221c, 0x1e2e26] };
+const PANEL: Record<CardStyle, [number, number]> = {
+  boon: [LACQ, LACQ_L], manual: [0x3b2d1a, 0x544024], meal: [0x2c2216, 0x3a2c1c],
+  forge: [0x221e1e, 0x2e2828], medic: [0x16221c, 0x1e2e26], mirror: [0x1b1628, 0x2a223e],
+};
 const RIVET = 0xb07a3a, RIVET_D = 0x6a4622;
 export const TIER_TXT = ['#d8d2c6', '#f0b870', '#ffe08a'];
 const NAME_TXT = ['#efe6d2', '#ffd8a0', '#fff0c0'];
@@ -39,17 +43,108 @@ const NAME_TXT = ['#efe6d2', '#ffd8a0', '#fff0c0'];
 /** 11-18 (用户：「强化卡片也难以辨认都是干嘛的」): the skill cards are taller — the icon on the left, the name, the presses and the effect on
  *  the right (three rows); the hideout's lists keep the short board */
 export const SKILL_H = 0.3;
+/** act-118: vertical bamboo-scroll layout for 刀谱 (3 side-by-side upright scrolls vs 3 stacked horizontal iron 秘传 plaques!) */
+export function scrollLayout(H: number) {
+  const SOCK = Math.min(0.42, H * 0.28);
+  const SY = H / 2 - 0.11 - SOCK / 2;
+  const DIV = SY - SOCK / 2 - 0.03;
+  const y0 = -H / 2 + 0.095, y1 = DIV - 0.015;
+  return { H, SOCK, SX: 0, SY, DIV, shape: 'scroll' as const, vertical: true as const, FACE: { x0: -0.43, x1: 0.43, y0, y1, h: y1 - y0, cy: (y0 + y1) / 2 }, SOCKET: { x: 0, y: SY, size: SOCK } };
+}
+/** act-118: 2×2 carved stone stele layout for 复仇碑 · 碑铭潜能 (tall stepped Han stone crown + wide granite pedestal base!) */
+export function steleLayout(H: number) {
+  const SOCK = Math.min(0.24, H * 0.46), SX = -0.5 + 0.06 + SOCK / 2, DIV = SX + SOCK / 2 + 0.025;
+  const y0 = -H / 2 + 0.078, y1 = H / 2 - 0.042;
+  return { H, SOCK, SX, SY: (y0 + y1) / 2, DIV, shape: 'stele' as const, vertical: false as const, FACE: { x0: DIV + 0.018, x1: 0.5 - 0.048, y0, y1, h: y1 - y0, cy: (y0 + y1) / 2 }, SOCKET: { x: SX, y: (y0 + y1) / 2, size: SOCK } };
+}
 export function boardLayout(H: number) {
   const SOCK = H - 0.072, SX = -0.5 + FR + 0.018 + SOCK / 2, DIV = SX + SOCK / 2 + 0.02;
-  return { H, SOCK, SX, DIV, FACE: { x0: DIV + 0.016, x1: 0.5 - FR - 0.012, h: H - 2 * FR - 0.014 }, SOCKET: { x: SX, y: 0, size: SOCK } };
+  return { H, SOCK, SX, SY: 0, DIV, shape: 'plaque' as const, vertical: false as const, FACE: { x0: DIV + 0.016, x1: 0.5 - FR - 0.012, y0: -(H - 2 * FR - 0.014) / 2, y1: (H - 2 * FR - 0.014) / 2, h: H - 2 * FR - 0.014, cy: 0 }, SOCKET: { x: SX, y: 0, size: SOCK } };
 }
 const FR = 0.024;
 const H = CARD_H, SOCK = H - 0.072, SX = -0.5 + FR + 0.018 + SOCK / 2, DIV = SX + SOCK / 2 + 0.02;
 /** the face (text) area on the lacquer: left edge, right edge, height */
 export const FACE = { x0: DIV + 0.016, x1: 0.5 - FR - 0.012, h: H - 2 * FR - 0.014 };
 
+/** act-118: 3D voxel vertical bamboo scroll (刀谱) — top & bottom wooden rollers with bronze caps, real vertical bamboo slats, crimson silk cords */
+export function scrollBoard(Hh: number) {
+  const M = STYLE_METAL.manual, lay = scrollLayout(Hh), H = lay.H, SOCK = lay.SOCK, SY = lay.SY, DIV = lay.DIV;
+  const p: Parameters<typeof mergeBoxes>[0] = [], b: Parameters<typeof mergeBoxes>[0] = [];
+  // backing spine + 9 individual 3D vertical bamboo slats across the full width
+  p.push({ w: 0.96, h: H - 0.08, d: 0.04, x: 0, y: 0, z: -0.004, c: 0x3a2a14 });
+  const slats = 9, sw = 0.94 / slats;
+  const slatCols = [0xd4b97c, 0xc7aa6c, 0xdcc388];
+  for (let i = 0; i < slats; i++) {
+    const sx = -0.47 + (i + 0.5) * sw;
+    p.push({ w: sw - 0.012, h: H - 0.10, d: 0.052, x: sx, y: 0, z: 0.002, c: slatCols[i % 3] });
+  }
+  // dark ink-lacquered reading parchment cleanly inset over the lower slats for crisp legibility
+  p.push({ w: 0.88, h: lay.FACE.h + 0.025, d: 0.058, x: 0, y: lay.FACE.cy, z: 0.005, c: 0x241a10 });
+  // crimson silk binding cords across top & bottom
+  for (const cy of [H / 2 - 0.088, DIV + 0.008, -H / 2 + 0.082]) {
+    b.push({ w: 0.96, h: 0.016, d: 0.068, x: 0, y: cy, z: 0.006, c: 0xb63228 });
+  }
+  // top & bottom protruding heavy sandalwood scroll rollers + turned bronze endcaps
+  for (const sy of [-1, 1]) {
+    const ry = sy * (H / 2 - 0.032);
+    b.push({ w: 1.06, h: 0.066, d: 0.088, x: 0, y: ry, z: 0.01, c: 0x56391c });
+    b.push({ w: 1.04, h: 0.018, d: 0.092, x: 0, y: ry + 0.022, z: 0.01, c: 0x8a5e32 });
+    for (const sx of [-1, 1]) {
+      b.push({ w: 0.058, h: 0.082, d: 0.098, x: sx * 0.545, y: ry, z: 0.01, c: M.m });
+      b.push({ w: 0.024, h: 0.09, d: 0.104, x: sx * 0.576, y: ry, z: 0.01, c: M.l });
+    }
+  }
+  // top-center square medallion socket framing the 3D skill icon
+  const r = 0.016, sd = 0.072;
+  b.push({ w: SOCK + 2 * r, h: r, d: sd, x: 0, y: SY + SOCK / 2 + r / 2, z: 0.008, c: M.l }, { w: SOCK + 2 * r, h: r, d: sd, x: 0, y: SY - SOCK / 2 - r / 2, z: 0.008, c: M.d });
+  b.push({ w: r, h: SOCK, d: sd, x: -SOCK / 2 - r / 2, y: SY, z: 0.008, c: M.m }, { w: r, h: SOCK, d: sd, x: SOCK / 2 + r / 2, y: SY, z: 0.008, c: M.d });
+  p.push({ w: SOCK, h: SOCK, d: 0.03, x: 0, y: SY, z: 0.022, c: 0x16110c });
+  const mesh = new THREE.Mesh(mergeBoxes(b), new THREE.MeshLambertMaterial({ vertexColors: true, emissive: M.glow, emissiveIntensity: 0 }));
+  const panel = new THREE.Mesh(mergeBoxes(p), new THREE.MeshLambertMaterial({ vertexColors: true })); panel.renderOrder = 30; mesh.add(panel);
+  return { mesh, metal: M };
+}
+
+/** act-118: 3D voxel carved stone stele (复仇碑 · 碑铭潜能) — 3-tier Han stone arch crown, weathered blue-grey granite body, wide stepped pedestal base & Yang(gold)/Yin(violet) jewel */
+export function steleBoard(Hh: number, accentHex?: number) {
+  const lay = steleLayout(Hh), H = lay.H, SOCK = lay.SOCK, SX = lay.SX, SY = lay.SY, DIV = lay.DIV;
+  const ST_D = 0x323946, ST_M = 0x545e70, ST_L = 0x7e8a9e, ST_FACE = 0x1a1f2a;
+  const jewel = accentHex ?? 0xffd268;
+  const M: Metal = { d: ST_D, m: ST_M, l: ST_L, glow: jewel };
+  const p: Parameters<typeof mergeBoxes>[0] = [], b: Parameters<typeof mergeBoxes>[0] = [];
+  // weathered blue-grey granite main slab + recessed dark chiseled inscription face
+  p.push({ w: 0.96, h: H - 0.04, d: 0.068, x: 0, y: 0.01, z: 0, c: ST_D });
+  p.push({ w: 0.88, h: H - 0.11, d: 0.072, x: 0, y: SY, z: 0.004, c: ST_FACE });
+  // chiseled stone pillar columns on left & right edges + top lintel
+  for (const sx of [-1, 1]) {
+    b.push({ w: 0.046, h: H - 0.03, d: 0.082, x: sx * 0.468, y: 0.01, z: 0.006, c: sx < 0 ? ST_M : ST_D });
+    b.push({ w: 0.014, h: H - 0.05, d: 0.086, x: sx * 0.486, y: 0.01, z: 0.007, c: ST_L });
+  }
+  b.push({ w: 0.98, h: 0.036, d: 0.086, x: 0, y: H / 2 - 0.012, z: 0.008, c: ST_M });
+  b.push({ w: 0.96, h: 0.012, d: 0.09, x: 0, y: H / 2 + 0.004, z: 0.009, c: ST_L });
+  // iconic 3-tier Han stone stele arch crown (碑额) rising tall above the slab + glowing Yang/Yin jewel
+  b.push({ w: 0.66, h: 0.034, d: 0.084, x: 0, y: H / 2 + 0.022, z: 0.006, c: ST_M });
+  b.push({ w: 0.44, h: 0.030, d: 0.088, x: 0, y: H / 2 + 0.052, z: 0.007, c: ST_L });
+  b.push({ w: 0.22, h: 0.024, d: 0.092, x: 0, y: H / 2 + 0.078, z: 0.008, c: ST_M });
+  b.push({ w: 0.07, h: 0.042, d: 0.098, x: 0, y: H / 2 + 0.042, z: 0.012, c: jewel });
+  // wide stepped granite pedestal base (碑座) anchoring the stele firmly at the bottom
+  b.push({ w: 1.02, h: 0.038, d: 0.096, x: 0, y: -H / 2 + 0.032, z: 0.01, c: ST_M });
+  b.push({ w: 1.08, h: 0.034, d: 0.108, x: 0, y: -H / 2 - 0.002, z: 0.012, c: ST_D });
+  b.push({ w: 1.02, h: 0.010, d: 0.10, x: 0, y: -H / 2 + 0.049, z: 0.011, c: ST_L });
+  // carved stone socket on left with Yang/Yin accent bar
+  const r = 0.014, sd = 0.08;
+  b.push({ w: SOCK + 2 * r, h: r, d: sd, x: SX, y: SY + SOCK / 2 + r / 2, z: 0.008, c: ST_L }, { w: SOCK + 2 * r, h: r, d: sd, x: SX, y: SY - SOCK / 2 - r / 2, z: 0.008, c: ST_D });
+  b.push({ w: r, h: SOCK, d: sd, x: SX - SOCK / 2 - r / 2, y: SY, z: 0.008, c: ST_M }, { w: r, h: SOCK, d: sd, x: SX + SOCK / 2 + r / 2, y: SY, z: 0.008, c: ST_D });
+  p.push({ w: SOCK, h: SOCK, d: 0.03, x: SX, y: SY, z: 0.018, c: 0x10131c });
+  b.push({ w: 0.014, h: H * 0.62, d: 0.084, x: DIV, y: SY, z: 0.01, c: jewel });
+  const mesh = new THREE.Mesh(mergeBoxes(b), new THREE.MeshLambertMaterial({ vertexColors: true, emissive: jewel, emissiveIntensity: 0 }));
+  const panel = new THREE.Mesh(mergeBoxes(p), new THREE.MeshLambertMaterial({ vertexColors: true })); panel.renderOrder = 30; mesh.add(panel);
+  return { mesh, metal: M };
+}
+
 /** the board itself: one merged mesh (vertex colours), its emissive used for the focus glow; Hh = the board's height (CARD_H / SKILL_H) */
-export function cardBoard(style: CardStyle, tier: number, Hh = CARD_H, skill = false) {
+export function cardBoard(style: CardStyle, tier: number, Hh = CARD_H, skill = false, accentHex?: number) {
+  if (style === 'manual') return scrollBoard(Hh);
+  if (style === 'mirror') return steleBoard(Hh, accentHex);
   const M = style === 'boon' ? METAL[Math.max(0, Math.min(2, tier))] : STYLE_METAL[style], [pc, pl] = PANEL[style];
   const { H, SOCK, SX, DIV } = boardLayout(Hh);
   // (two meshes: the panel never glows — only the metal warms in focus; act-36 first try tinted the whole lacquer orange)
@@ -67,6 +162,17 @@ export function cardBoard(style: CardStyle, tier: number, Hh = CARD_H, skill = f
   b.push({ w: r, h: SOCK, d: sd, x: SX - SOCK / 2 - r / 2, y: 0, z: 0.006, c: skill ? 0x26282e : M.m }, { w: r, h: SOCK, d: sd, x: SX + SOCK / 2 + r / 2, y: 0, z: 0.006, c: dark });
   p.push({ w: SOCK, h: SOCK, d: 0.03, x: SX, y: 0, z: skill ? 0.019 : -0.006, c: skill ? 0x111217 : 0x0b090a });
   b.push({ w: 0.01, h: H - 2 * FR, d: 0.06, x: DIV, y: 0, z: 0.003, c: M.d });
+  // act-118: 秘传 iron plaques wear stepped armor lugs + a glowing archetype-colored voxel inlay strip on the divider so they read as forged talisman armor
+  if (style === 'boon') {
+    for (const sx of [-1, 1]) {
+      b.push({ w: 0.022, h: H * 0.42, d: 0.078, x: sx * 0.506, y: 0, z: 0.006, c: M.m });
+      b.push({ w: 0.014, h: H * 0.24, d: 0.084, x: sx * 0.514, y: 0, z: 0.008, c: M.l });
+    }
+    if (accentHex != null) {
+      b.push({ w: 0.014, h: H * 0.68, d: 0.076, x: DIV, y: 0, z: 0.008, c: accentHex });
+      b.push({ w: 0.022, h: 0.022, d: 0.082, x: -0.506, y: 0, z: 0.01, c: accentHex });
+    }
+  }
   // rivets: the four corners of the frame, then along the top and bottom bars
   const rv = 0.016, rz = 0.04;
   for (const [x, y] of [[-0.5 + FR / 2, H / 2 - FR / 2], [0.5 - FR / 2, H / 2 - FR / 2], [-0.5 + FR / 2, -H / 2 + FR / 2], [0.5 - FR / 2, -H / 2 + FR / 2]]) b.push({ w: rv, h: rv, d: 0.02, x, y, z: rz, c: RIVET });
@@ -165,9 +271,13 @@ export function paintFace(f: FaceSpec, w: number, h: number, dpr: number) {
     g.fillStyle = '#0d0a0b'; g.fillRect(tx - pad + s2, ty - pad + s2, tw + pad * 2 - 2 * s2, PIX_H * s2 + pad * 2 - 2 * s2);
     drawPix(g, f.tag, tx, ty, { scale: s2, color: tc, outline: null, align: 'left' });
   }
-  // two lines of description (the HD body font, key words lit behind their icons, numbers white)
-  const px = Math.round(Hh * 0.2), y0 = Math.round(Hh * 0.05 + PIX_H * S + Hh * 0.08);
-  f.desc.slice(0, 2).forEach((l, i) => richLine(g, l, Math.round(2 * dpr), y0 + i * Math.round(px * 1.32), px, '#e6ddd0'));
+  // two lines of description (the HD body font, key words lit behind their icons, numbers white; auto-shrinks to fit card width)
+  const basePx = Math.round(Hh * 0.2), y0 = Math.round(Hh * 0.05 + PIX_H * S + Hh * 0.08), maxW = W - Math.round(8 * dpr);
+  f.desc.slice(0, 2).forEach((l, i) => {
+    let p = basePx;
+    while (p > 9 && richLine(null, l, 0, 0, p, '#e6ddd0') > maxW) p -= 1;
+    richLine(g, l, Math.round(2 * dpr), y0 + i * Math.round(basePx * 1.32), p, '#e6ddd0');
+  });
   const t = new THREE.CanvasTexture(c as HTMLCanvasElement); t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearFilter; t.generateMipmaps = false; t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }

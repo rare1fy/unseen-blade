@@ -52,12 +52,12 @@ export const EDEFS: Record<EKind, EDef> = {
   archer: { model: 'jp_archer', hp: 28, r: 0.42, speed: 2.6, mass: 0.9, poise: 0, gold: 3, name: '弓手', role: 'archer' },
   chief: { model: 'jp_bandit_chief', hp: 260, r: 0.8, speed: 1.9, mass: 3.2, poise: 46, gold: 20, name: '山贼头目', role: 'chief', boss: true, tag: '架势被打空才会晕' },
   dummy: { model: 'act_dummy', hp: 999, r: 0.45, speed: 0, mass: 99, poise: 0, gold: 0, name: '木人桩', role: 'dummy' },
-  hj_blade: { model: 'hj_blade', hp: 40, r: 0.44, speed: 2.8, mass: 1, poise: 0, gold: 3, name: '黄巾刀手', role: 'blade', elite: 'hj_blade_e' },
-  hj_brute: { model: 'hj_brute', hp: 110, r: 0.7, speed: 2.0, mass: 2.6, poise: 34, gold: 8, name: '黄巾力士', role: 'brute', elite: 'hj_brute_e' },
-  hj_taoist: { model: 'hj_taoist', hp: 30, r: 0.42, speed: 2.5, mass: 0.9, poise: 0, gold: 4, name: '符水道士', role: 'taoist', elite: 'hj_taoist_e' },
-  hj_mob: { model: 'hj_mob', hp: 14, r: 0.36, speed: 3.7, mass: 0.6, poise: 0, gold: 1, name: '流民', role: 'mob', alt: ['hj_mob_b'] },
-  hj_archer: { model: 'hj_archer', hp: 28, r: 0.44, speed: 2.6, mass: 0.9, poise: 0, gold: 3, name: '黄巾弓手', role: 'archer', elite: 'hj_archer_e' },
-  hj_hound: { model: 'hj_hound', hp: 24, r: 0.45, speed: 4.3, mass: 0.7, poise: 0, gold: 2, name: '猎犬', role: 'hound', elite: 'hj_hound_e' },
+  hj_blade: { model: 'hj_blade', hp: 48, r: 0.44, speed: 2.8, mass: 1, poise: 0, gold: 4, name: '黄巾刀手', role: 'blade', elite: 'hj_blade_e' },
+  hj_brute: { model: 'hj_brute', hp: 115, r: 0.7, speed: 2.0, mass: 2.6, poise: 34, gold: 10, name: '黄巾力士', role: 'brute', elite: 'hj_brute_e' },
+  hj_taoist: { model: 'hj_taoist', hp: 34, r: 0.42, speed: 2.5, mass: 0.9, poise: 0, gold: 5, name: '符水道士', role: 'taoist', elite: 'hj_taoist_e' },
+  hj_mob: { model: 'hj_mob', hp: 18, r: 0.36, speed: 3.7, mass: 0.6, poise: 0, gold: 2, name: '流民', role: 'mob', alt: ['hj_mob_b'] },
+  hj_archer: { model: 'hj_archer', hp: 32, r: 0.44, speed: 2.6, mass: 0.9, poise: 0, gold: 4, name: '黄巾弓手', role: 'archer', elite: 'hj_archer_e' },
+  hj_hound: { model: 'hj_hound', hp: 28, r: 0.45, speed: 4.3, mass: 0.7, poise: 0, gold: 3, name: '猎犬', role: 'hound', elite: 'hj_hound_e' },
   hj_boss: { model: 'hj_boss', hp: 420, r: 0.85, speed: 2.0, mass: 3.6, poise: 64, gold: 40, name: '黄巾渠帅', role: 'boss', boss: true, tag: '苍天已死 · 黄天当立' },
   // wp/regB — 第四关 · 锁江（乌林曹军水寨）: names by agy; the AI is foes/r45_ai.ts (FOE_AI), the models foes/r45_models.ts
   wl_spear: { model: 'wl_spear', hp: 22, r: 0.4, speed: 3.4, mass: 0.8, poise: 0, gold: 2, name: '执矛水卒', role: 'ext', half: true, alt: ['wl_spear_b'] },
@@ -120,6 +120,8 @@ export interface Foe {
   st: St; t: number; dur: number; tele: Tele | null; teleYaw: number; telePos: THREE.Vector3; shape: TeleShape | null; dmg: number;
   cd: number; poise: number; /** act-113: guard-broken vulnerability timer (>0 takes ×1.5 dmg) & idle timer before poise slowly recovers */ brokenT: number; poiseIdleT: number; attacking: boolean; hitHero: boolean; lunge: THREE.Vector3 | null; strafe: number; move: string;
   /** the last blow's numbers (death form), and timed blade wounds */ lastDmg: number; uid: number; bleed: number; bleedT: number; bleedTick: number; bleedDrop: number; sunderT: number;
+  /** act-118: boomerang dart-mark window (keeps 寻声/牵红 working with 折返!) and exposed window (next blade hit guaranteed crit) */
+  dartMarkT?: number; exposeT?: number;
   /** the dummy's wobble (lean angles and their speeds, rad) */ wob: { x: number; z: number; vx: number; vz: number };
   /** the stronger variant (+80 % HP, bigger, one extra trick) */ elite: boolean; role: Role;
   /** the attack under way ('cut' 'slam' 'sweep' 'poke' 'lunge' 'shoot' 'cast' 'thunder' …) and follow-ups left (elite double cut / lunge) */
@@ -180,9 +182,13 @@ export function trimShadows(root: THREE.Object3D, n: number) {
   ms.forEach((m, i) => { m.castShadow = i < n || grounded(m); });
 }
 
+/** act-118: every elite spawns with a real poise bar (resists brainless basic-attack stunlock, rewards 见切/破势/重击) */
+export const elitePoise = (base: EDef, kind: string) =>
+  base.poise > 0 ? Math.round(base.poise * 1.45) : (isRangedFoe({ kind, role: base.role }) ? 22 : 30);
+
 export function spawnFoe(kind: EKind, at: THREE.Vector3, face: THREE.Vector3, elite = false): Foe {
   const base = EDEFS[kind], el = elite && !!base.elite;
-  const d: EDef = el ? { ...base, r: base.r * 1.15, mass: base.mass * 1.3, poise: Math.round(base.poise * 1.4), gold: base.gold * 2 } : base;
+  const d: EDef = el ? { ...base, r: base.r * 1.15, mass: base.mass * 1.3, poise: elitePoise(base, kind), gold: base.gold * 2 + 2 } : base;
   const model = el ? base.elite! : base.alt ? [base.model, ...base.alt][Math.floor(Math.random() * (base.alt.length + 1))] : base.model;
   const a = new BattleActor(model); a.place(at.clone()); a.faceToward(face); trimShadows(a.root, d.boss ? 6 : base.role === 'brute' ? 5 : 3);
   if (el) a.root.scale.setScalar(1.15);
@@ -266,6 +272,8 @@ function attackPoint(f: Foe) {
 export function updateFoe(f: Foe, w: FoeWorld, dt: number) {
   if (f.st === 'dead') return;
   f.sunderT = Math.max(0, f.sunderT - dt);
+  if ((f.dartMarkT ?? 0) > 0) f.dartMarkT = Math.max(0, (f.dartMarkT ?? 0) - dt);
+  if ((f.exposeT ?? 0) > 0) f.exposeT = Math.max(0, (f.exposeT ?? 0) - dt);
   // act-113: guard-break vulnerability window & slow poise regeneration when left unpressured
   if (f.brokenT > 0) {
     f.brokenT = Math.max(0, f.brokenT - dt);
@@ -325,8 +333,18 @@ export function updateFoe(f: Foe, w: FoeWorld, dt: number) {
     const left = f.dur - f.t;
     f.tele?.set(f.telePos.x, f.telePos.z, f.teleYaw, p, left);
     for (const e of f.extra) e.t.set(f.telePos.x, f.telePos.z, f.teleYaw + e.dy, p, left);
-    // act-23 (出招节奏): the attacker itself on the last beat: the body warms pale, one glint off the weapon as it starts
-    if (left < HOT && f.atk !== 'thunder') { f.a.tint(0xfff0c8, 0.5 * (1 - left / HOT) + 0.15); if (!f.glint) { f.glint = true; fxFlare(attackPoint(f), 0xfff4d0, 0.9, 0.22); } }
+    // act-23 / act-118 (统一 0.26s 黄金反制拍点): crisp weapon cross-glint + metallic chime at exact HOT beat so 见切/闪避 timing is uniform
+    if (left < HOT && f.atk !== 'thunder') {
+      f.a.tint(0xfff0c8, 0.52 * (1 - left / HOT) + 0.18);
+      if (!f.glint) {
+        f.glint = true;
+        const ap = attackPoint(f);
+        fxFlare(ap, 0xfff8dc, 1.15, 0.24);
+        trailSeg(ap.clone().add(V3(-0.46, 0, 0)), ap.clone().add(V3(0.46, 0, 0)), 0xfff8d0, 0.08, { life: 0.22, bright: 3.2 });
+        trailSeg(ap.clone().add(V3(0, -0.46, 0)), ap.clone().add(V3(0, 0.46, 0)), 0xffe488, 0.08, { life: 0.22, bright: 3.0 });
+        cue('bladeRing', f.role === 'mob' || f.d.half ? 0.28 : 0.46, foePan(f, w));
+      }
+    }
     if (f.t >= f.dur) {
       const action = f.a.act;
       if (action?.name.startsWith('hj')) action.t = action.at * action.dur - dt;
@@ -389,13 +407,24 @@ function think(f: Foe, w: FoeWorld, dt: number, dist: number, dir: THREE.Vector3
   let want = V3(), sp = f.d.speed, aim = false;
   const r = f.role;
   if (r === 'blade') {
-    if (dist > 1.7) want.copy(dir).addScaledVector(side, meleeAttackers(w) >= TUNE.maxAttackers ? 0.85 : 0.18);
-    else if (!can) want.copy(side).multiplyScalar(0.85).addScaledVector(dir, dist > 2.4 ? 0.3 : -0.22);
-    if (can && dist < 2.1) { f.combo = f.elite ? 1 : 0; startAttack(f, w, { k: 'cone', r: 2.2, half: 0.95 }, 0.62, 10, yawTo, { atk: 'cut', act: f.kind === 'hj_blade' ? { name: 'hjCut', imp: 0.57 } : undefined }); return; }
+    const busy = !can || meleeAttackers(w) >= TUNE.maxAttackers;
+    // act-118: non-attacking blades hold an outer flanking ring (2.8–3.8m) instead of stacking right in front of the hero's swings
+    if (busy) {
+      if (dist > 3.8) want.copy(dir).addScaledVector(side, 0.75);
+      else if (dist < 2.6) want.copy(dir).multiplyScalar(-0.45).addScaledVector(side, 0.95);
+      else want.copy(side).multiplyScalar(1.0).addScaledVector(dir, 0.12);
+    } else if (dist > 1.75) {
+      want.copy(dir).addScaledVector(side, 0.24);
+    }
+    if (can && dist < 2.2) { f.combo = f.elite ? 1 : 0; startAttack(f, w, { k: 'cone', r: 2.2, half: 0.95 }, 0.62, 10, yawTo, { atk: 'cut', act: f.kind === 'hj_blade' ? { name: 'hjCut', imp: 0.57 } : undefined }); return; }
   } else if (r === 'mob') {
-    // the crowd: straight in, a little weave, quick short pokes
-    if (dist > 1.3) want.copy(dir).addScaledVector(side, 0.35); else if (!can) want.copy(side).addScaledVector(dir, -0.3);
-    if (can && dist < 1.7) { startAttack(f, w, { k: 'rect', len: 1.6, w: 0.6 }, 0.42, 5, yawTo, { atk: 'poke' }); f.cd = R(0.4, 0.9); return; }
+    // act-118: flankers orbit when waiting for a slot, then dart in from the side
+    if (!can) {
+      if (dist > 3.2) want.copy(dir).addScaledVector(side, 0.8);
+      else if (dist < 2.1) want.copy(dir).multiplyScalar(-0.45).addScaledVector(side, 0.95);
+      else want.copy(side).multiplyScalar(0.95);
+    } else if (dist > 1.35) want.copy(dir).addScaledVector(side, 0.35);
+    if (can && dist < 1.75) { startAttack(f, w, { k: 'rect', len: 1.6, w: 0.6 }, 0.44, 5, yawTo, { atk: 'poke' }); f.cd = R(0.45, 0.95); return; }
   } else if (r === 'hound') {
     if (dist > 5.2) want.copy(dir); else if (dist < 3.0) want.copy(dir).multiplyScalar(-0.6).add(side); else want.copy(side).addScaledVector(dir, 0.2);
     if (can && dist < 5.6 && dist > 2.2) { f.combo = f.elite ? 1 : 0; startAttack(f, w, { k: 'rect', len: 5.2, w: 1.0 }, 0.55, 8, yawTo, { atk: 'lunge' }); return; }
@@ -438,6 +467,19 @@ function think(f: Foe, w: FoeWorld, dt: number, dist: number, dir: THREE.Vector3
       if (Math.random() < 0.5) { f.combo = f.phase > 1 ? 1 : 0; startAttack(f, w, { k: 'cone', r: 3.0, half: 0.85 }, 0.85, 15, yawTo, { atk: 'sweep' }); }
       else startAttack(f, w, { k: 'circle', r: 2.5, ahead: 1.5 }, 1.1, 20, yawTo, { atk: 'slam' });
       return;
+    }
+  }
+  // act-118: soft ally-spread steering so foes fan out into flanking arcs / crossfire instead of clumping on one spot
+  if (r !== 'boss' && r !== 'chief' && r !== 'dummy') {
+    const spreadR = isRangedFoe(f) ? 3.2 : 2.15;
+    for (const o of w.foes) {
+      if (o === f || o.st === 'dead' || o.kind === 'dummy') continue;
+      if (isRangedFoe(f) !== isRangedFoe(o)) continue;
+      const dx = f.pos.x - o.pos.x, dz = f.pos.z - o.pos.z, d2 = dx * dx + dz * dz;
+      if (d2 > 1e-4 && d2 < spreadR * spreadR) {
+        const d = Math.sqrt(d2), push = ((spreadR - d) / spreadR) * 0.9;
+        want.x += (dx / d) * push; want.z += (dz / d) * push;
+      }
     }
   }
   const m = want.length();
