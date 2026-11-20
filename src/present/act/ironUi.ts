@@ -515,30 +515,27 @@ export class QteRing {
   // the outline lights up; past the window it all goes out
   private m: THREE.Mesh; private mat: THREE.MeshBasicMaterial; private glow: THREE.Mesh; private glowMat: THREE.MeshBasicMaterial;
   private tgt: THREE.Mesh; private tgtMat: THREE.MeshBasicMaterial; private was = false; private t = 0; private flash = 0;
-  private c0 = new THREE.Color(0xc0501c); private c1 = new THREE.Color(0xffa040);
+  private c0 = new THREE.Color(0xffd870); private c1 = new THREE.Color(0xfff6d8);
   constructor(private L: UiLayer) {
     const basic = (c: number, add = false) => new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide, ...(add ? { blending: THREE.AdditiveBlending } : {}) });
-    this.mat = basic(0xffb040); this.glowMat = basic(0xffe090, true); this.tgtMat = basic(0xffd060);
-    this.m = new THREE.Mesh(new THREE.RingGeometry(0.455, 0.5, 8, 1, Math.PI / 8), this.mat);
-    this.glow = new THREE.Mesh(new THREE.RingGeometry(0.38, 0.62, 8, 1, Math.PI / 8), this.glowMat);
+    this.mat = basic(0xffdc78); this.glowMat = basic(0xffe498, true); this.tgtMat = basic(0xffe69a);
+    this.m = new THREE.Mesh(new THREE.RingGeometry(0.46, 0.5, 8, 1, Math.PI / 8), this.mat);
+    this.glow = new THREE.Mesh(new THREE.RingGeometry(0.44, 0.535, 8, 1, Math.PI / 8), this.glowMat);
     this.tgt = new THREE.Mesh(new THREE.RingGeometry(0.485, 0.5, 8, 1, Math.PI / 8), this.tgtMat);
     for (const [o, r] of [[this.glow, 39], [this.tgt, 40], [this.m, 41]] as Array<[THREE.Mesh, number]>) { o.visible = false; o.renderOrder = r; o.userData.noTilt = true; L.scene.add(o); }
   }
-  /** k: 0 = just opened (wide) → 1 = on the button; hit = the moment to press */
-  show(x: number, y: number, size: number, k: number, hit: boolean, dt = 1 / 60) {
-    this.t += dt; if (hit && !this.was) this.flash = 1; this.was = hit; this.flash = Math.max(0, this.flash - dt * 3);
-    const s = size * (1 + 2.2 * Math.max(0, 1 - k)), thick = hit ? 1.25 : 1;
+  /** act-115: countdown opportunity ring — bright gold & pressable from frame 0 (k: 0 → 1); urgent = last 30% pulses faster */
+  show(x: number, y: number, size: number, k: number, urgent: boolean, dt = 1 / 60) {
+    this.t += dt; if (!this.was) this.flash = 1; this.was = true; this.flash = Math.max(0, this.flash - dt * 4);
+    const s = size * (1 + 1.85 * Math.max(0, 1 - k)), thick = urgent ? 1.14 : 1.06;
     for (const o of [this.m, this.glow, this.tgt]) this.L.at(x, y, 6, o.position);
-    // the closing ring: dull orange → warm orange as it closes; at the moment, bright white-gold and thicker
     this.m.visible = true; this.m.scale.set(this.L.px(s) * thick, this.L.px(s) * thick, 1);
-    if (hit) this.mat.color.setHex(0xfff6d8); else this.mat.color.copy(this.c0).lerp(this.c1, Math.min(1, Math.max(0, k)));
-    this.mat.opacity = hit ? 1 : 0.6 + 0.3 * Math.min(1, k);
-    // the glow: only in the window — a flash as it opens, then a pulse
-    this.glow.visible = hit || this.flash > 0; this.glow.scale.setScalar(this.L.px(s) * (1.05 + 0.15 * this.flash));
-    this.glowMat.opacity = hit ? Math.min(1, 0.45 + 0.2 * Math.sin(this.t * 28) + 0.5 * this.flash) : 0.6 * this.flash;
-    // the target outline at the rim: there all along, lit at the moment
+    if (urgent) this.mat.color.setHex(0xfff6d8); else this.mat.color.copy(this.c0).lerp(this.c1, Math.min(1, Math.max(0, k)));
+    this.mat.opacity = urgent ? 0.96 : 0.85 + 0.1 * Math.min(1, k);
+    this.glow.visible = true; this.glow.scale.setScalar(this.L.px(s) * (1.02 + 0.08 * this.flash));
+    this.glowMat.opacity = Math.min(0.32, (urgent ? 0.2 + 0.08 * Math.sin(this.t * 32) : 0.12 + 0.05 * Math.sin(this.t * 16)) + 0.12 * this.flash);
     this.tgt.visible = true; this.tgt.scale.setScalar(this.L.px(size));
-    this.tgtMat.color.setHex(hit ? 0xfff0c0 : 0xd09040); this.tgtMat.opacity = hit ? 0.95 : 0.45;
+    this.tgtMat.color.setHex(urgent ? 0xfff6d0 : 0xffe088); this.tgtMat.opacity = urgent ? 0.95 : 0.72;
   }
   hide() { this.m.visible = false; this.glow.visible = false; this.tgt.visible = false; this.was = false; this.flash = 0; }
 }

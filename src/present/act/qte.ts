@@ -252,17 +252,14 @@ export class Duel {
   }
   /** a new room: the room's count starts again, anything under way is dropped */
   newRoom() { this.abort(); this.roomN = 0; this.cool = 0; }
-  /** 破势 caught this foe's blow, or the draw ran into its wind-up (draw = only a wind-up counts): does it lock blades? true = the
-   *  duel has it (show.ts does not resolve the parry its usual way) */
+  /** 破势 / 箭步斩 / 回锋反击 / 重招撞上精英或头目的近战重招: 100% 进拼刀（受每场/每间次数与冷却限制，不再随机吞掉） */
   offerClash(f: Foe, draw = false): boolean {
     if (this.pend?.f === f) return true;
-    const why = this.mode ? 'busy' : !this.eligible(f) ? 'not eligible' : !this.room(f, 'clash') ? 'no room' : !(f.st === 'windup' || (!draw && f.st === 'strike' && f.t < Math.min(0.45, f.dur))) ? `state ${f.st}` : !CLASH_ATK.has(f.atk) ? `atk ${f.atk}` : '';
+    const why = this.mode ? 'busy' : !this.eligible(f) ? 'not eligible' : !this.room(f, 'clash') ? 'no room' : !(f.st === 'windup' || (f.st === 'strike' && f.t < Math.min(0.45, f.dur))) ? `state ${f.st}` : !CLASH_ATK.has(f.atk) ? `atk ${f.atk}` : '';
     this.stats.last = `offer ${f.kind} ${f.atk} ${draw ? 'draw' : 'parry'}${why ? ': ' + why : ''}`;
     if (why) return false;
-    // (the draw: only into a blow well on its way down — it meets his weapon, not a man still lifting it)
-    if (draw && f.t / Math.max(0.01, f.dur) < 0.45) return false;
-    const must = isBoss(f) && (MUST_CLASH[f.kind] ?? []).includes(f.atk);
-    if (!must && Math.random() > (isBoss(f) ? 0.4 : 0.6)) return false;
+    // (the draw / heavy counter: into a blow already well into its windup or early strike)
+    if (draw && f.st === 'windup' && f.t / Math.max(0.01, f.dur) < 0.35) return false;
     this.pend = { f, kind: 'clash', force: false }; return true;
   }
   /** start one waiting now (show.ts: right after her update, where the parry / the draw asked for it) */
@@ -284,13 +281,12 @@ export class Duel {
     for (const f of this.host.foes()) {
       if (f.st !== 'windup' || f.t > 0.2 || !f.tele || this.looked.has(f.tele)) continue;
       this.looked.add(f.tele);
-      if (!this.eligible(f) || !this.room(f, 'chain') || f.pos.distanceTo(h.pos) > 4.6) continue;
+      if (!this.eligible(f) || !this.room(f, 'chain') || f.pos.distanceTo(h.pos) > 5.2) continue;
       const B = CHAIN_BOSS[f.kind];
       let go = false;
-      // a boss: the first time his string's attack comes (in its phase) always, then one in two; an elite: one of its two-cut
-      // attacks in three
-      if (isBoss(f) && B) { if (f.atk === B.atk && (!B.p2 || f.phase > 1) && (B.combo == null || f.combo >= B.combo)) go = (f.mem.qChain ?? 0) === 0 || Math.random() < 0.5; }
-      else if (!isBoss(f) && f.combo > 0 && CLASH_ATK.has(f.atk)) go = Math.random() < 0.35;
+      // a boss: the first time his string's attack comes (in its phase) always, then 75%; an elite: 75% on its two-cut string (capped per fight/room)
+      if (isBoss(f) && B) { if (f.atk === B.atk && (!B.p2 || f.phase > 1) && (B.combo == null || f.combo >= B.combo)) go = (f.mem.qChain ?? 0) === 0 || Math.random() < 0.75; }
+      else if (!isBoss(f) && f.combo > 0 && CLASH_ATK.has(f.atk)) go = Math.random() < 0.75;
       if (go) { this.pend = { f, kind: 'chain', force: false }; return; }
     }
   }

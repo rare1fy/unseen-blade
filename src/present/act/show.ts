@@ -1735,8 +1735,8 @@ export class ActShow {
     L: this.L, hud: () => this.hud, inp: this.inp,
     hero: () => this.hero, foes: () => this.foes, grid: () => this.grid,
     // (not in the prologue — 打石雷 there is the scripted fall at a fifth of his life, a QTE must not take that blow; not with 不见刀's
-    //  ring up or its scene playing, the cards, a 刀谱's demonstration, a scripted pose)
-    canRun: forced => (this.phase === 'fight' || (!!forced && this.phase === 'yard')) && (!this.prologue || !!forced) && !this.proFalling && this.qteT < 0 && !this.ultOn && !this.cards.on && !this.demo.on && !this.dialogue.on && !this.timeline.on && !PAUSE.on,
+    //  ring up or its scene playing, the cards, a 刀谱's demonstration, a scripted pose; act-115: yard also allows natural QTE practice)
+    canRun: forced => (this.phase === 'fight' || this.phase === 'yard') && (!this.prologue || !!forced) && !this.proFalling && this.qteT < 0 && !this.ultOn && !this.cards.on && !this.demo.on && !this.dialogue.on && !this.timeline.on && !PAUSE.on,
     clamp: (p, r) => this.clamp(p, r), solids: () => this.solids.list, bannerY: () => this.banner.bottomY, log: s => this.log.push(s),
     hitFoe: (f, dmg, from, o) => this.hitFoe(f, dmg, from, o),
     feel: dir => this.feel('rel', true, 1, dir),
@@ -2347,10 +2347,14 @@ export class ActShow {
     }
     // 11-18 秘传 荡刃: the 3rd cut throws a ring of wind as far as its reach (hero.ts widens the reach)
     if (o.kind === 'k3' && hasBoon(this.perks, 'spin')) this.spinRing(o.from.clone(), o.range);
+    const clashHit = !!(o.counter || o.kind === 'k5');
+    let clashed = false;
     for (const f of this.foes.slice()) {
       if (f.st === 'dead') continue;
       const dx = f.pos.x - o.from.x, dz = f.pos.z - o.from.z, l = Math.hypot(dx, dz); if (l > o.range + f.d.r) continue;
       const ang = Math.abs(Math.atan2(dx * fz - dz * fx, dx * fx + dz * fz)); if (l > f.d.r + 0.3 && ang > o.half) continue;
+      // act-115: counter slash or heavy finisher colliding with an elite/boss heavy melee windup/lunge locks blades into Clash QTE
+      if (clashHit && !clashed && this.duel.offerClash(f, true)) { clashed = true; continue; }
       this.hitFoe(f, o.dmg, o.from, o); n++;
     }
     if (this.props) this.applyProps(this.props.hitArc(o.from, o.yaw, o.range, o.half, { src: 'hero', heavy: o.heavy }, this.targets()));   // act-19
@@ -2385,10 +2389,14 @@ export class ActShow {
   }
   private sweep(o: { a: THREE.Vector3; b: THREE.Vector3; r: number; dmg: number; knock: number; col?: number; kind?: string }) {
     const ab = o.b.clone().sub(o.a).setY(0), L2 = Math.max(1e-4, ab.lengthSq()); let n = 0;
+    let clashed = false;
     for (const f of this.foes.slice()) {
       if (f.st === 'dead') continue;
       const t = Math.max(0, Math.min(1, f.pos.clone().sub(o.a).setY(0).dot(ab) / L2)), q = o.a.clone().addScaledVector(ab, t);
-      if (Math.hypot(f.pos.x - q.x, f.pos.z - q.z) <= o.r + f.d.r) { this.hitFoe(f, o.dmg, q, { knock: o.knock, heavy: true, kind: o.kind ?? 'rel' }); n++; }
+      if (Math.hypot(f.pos.x - q.x, f.pos.z - q.z) <= o.r + f.d.r) {
+        if (o.kind === 'dcut' && !clashed && this.duel.offerClash(f, true)) { clashed = true; continue; }
+        this.hitFoe(f, o.dmg, q, { knock: o.knock, heavy: true, kind: o.kind ?? 'rel' }); n++;
+      }
     }
     if (this.props) this.applyProps(this.props.hitSeg(o.a, o.b, o.r, { src: 'hero', heavy: true }, this.targets()));   // act-19
     if ((o.kind ?? 'rel') === 'rel' || o.kind === 'rel2') {
@@ -2567,29 +2575,26 @@ export class ActShow {
     this.intent++; this.hud.intent = this.intent;
     if (this.intent >= 3) { cue('relic', 0.9); fxSparks(this.hero.a.chest(), 0xffa040, 20, 5); fxRing(this.hero.pos.clone().setY(0.08), 0xffa040, 1.6, { life: 0.4 } as never); }
   }
-  /** 绝 · 一刀 QTE: time nearly stops, a gold ring closes on the cut button (and on the hero); press 斩 as it lands = 一刀; miss = it
-   *  passes and the 杀意 stays for the next time */
+  /** 绝 · 一刀 QTE (act-115 改为直觉倒计时机会窗): time slows and 不见刀 button pops up; pressing it ANY time before the closing gold ring finishes releases 不见刀 */
   private qteT = -1; private ultOn = false; private qteW!: THREE.Mesh; private qteWin = false;
   private startQte() {
     if (this.qteT >= 0 || this.ultOn) return;
-    this.qteT = 0; this.qteWin = false; slowmo(TUNE.qteTime * 1.3 + 0.2, 0.04); cue('timeSlow', 1);
+    this.qteT = 0; this.qteWin = true; slowmo(TUNE.qteTime * 1.3 + 0.2, 0.04); cue('timeSlow', 1);
+    cue('bladeRing', 0.85); this.platform.vibrate('light');
   }
   private qteFrame(rdt: number) {
     if (this.qteT < 0) { this.hud.qte(null); this.qteW.visible = false; return; }
     this.qteT += rdt;
-    const h = this.hero, k = this.qteT / TUNE.qteTime, win = k >= 0.72 && k <= 1.12;
-    // 11-18 (用户：「也不知道到底什么时机是正确的」): the window opening is heard and felt too — a blade's ring, a light buzz
-    if (win && !this.qteWin) { cue('bladeRing', 0.9); this.platform.vibrate('light'); }
-    this.qteWin = win;
-    this.hud.qteDt = rdt; this.hud.qte(Math.min(1, k), win);
-    this.qteW.visible = true; this.qteW.position.set(h.pos.x, 0.07, h.pos.z); this.qteW.scale.setScalar((0.9 + 2.6 * Math.max(0, 1 - k)) * (win ? 1.06 : 1));
-    (this.qteW.material as THREE.MeshBasicMaterial).color.setHex(win ? 0xfff6d8 : 0xc0601c);
-    // 11-18 (用户：「不应该还是按普攻，高速战斗的时候经常都按不到」): 不见刀's own button (I / R2 / the button that pops up); the cut button
-    // is left to cut
+    const h = this.hero, k = this.qteT / TUNE.qteTime, urgent = k >= 0.72;
+    this.qteWin = k <= 1.2;
+    this.hud.qteDt = rdt; this.hud.qte(Math.min(1, k), urgent);
+    this.qteW.visible = true; this.qteW.position.set(h.pos.x, 0.07, h.pos.z); this.qteW.scale.setScalar((0.9 + 2.6 * Math.max(0, 1 - k)) * (urgent ? 1.06 : 1));
+    (this.qteW.material as THREE.MeshBasicMaterial).color.setHex(urgent ? 0xfff8dc : 0xffdc78);
+    // act-115: pressing 不见刀 at ANY time while the ring is closing triggers 不见刀 (never fails for pressing early)
     const pressed = this.inp.b.ult.pressed;
     if (pressed) this.inp.b.ult.pressed = false;
-    if (pressed && win) { this.qteT = -1; this.hud.qte(null); this.qteW.visible = false; void this.ult(); }
-    else if (pressed || k > 1.2) { this.qteT = -1; this.hud.qte(null); this.qteW.visible = false; FX.slowmo = 0; cue('click', 0.5); }
+    if (pressed && this.qteWin) { this.qteT = -1; this.hud.qte(null); this.qteW.visible = false; void this.ult(); }
+    else if (k > 1.2) { this.qteT = -1; this.hud.qte(null); this.qteW.visible = false; FX.slowmo = 0; cue('click', 0.5); }
   }
   /** 一刀: the hero flashes between every foe nearby (up to seven, nearest first along the way), then sheathes — everyone cut at once */
   private async ult() {

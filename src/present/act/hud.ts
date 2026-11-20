@@ -206,7 +206,12 @@ export class ActHud {
     if (this.pausePid === id && (type === 'up' || type === 'cancel')) { const fire = type === 'up' && this.hitBadge(x, y); this.setBadgeDown(false); this.pausePid = null; if (fire) this.onPause?.(); return true; }
     if (this.pausePid === id && type === 'move') { this.setBadgeDown(this.hitBadge(x, y)); return true; }
     if (type === 'down') {
-      for (const b of Object.values(this.btns)) if ((b !== this.btns.ult || this.ultUp) && b.hit(x, y)) { b.down = true; b.pid = id; inp.press(b.name, id); if (b.name === 'special') inp.aimBegin(id, b.x, b.y, x, y); return true; }   // act-14 用户：「按操作的按钮不要有音效」
+      for (const b of Object.values(this.btns)) {
+        if (b === this.btns.ult && !this.ultUp) continue;
+        // act-115: 不见刀 button uses its full target hitbox from frame 0 so an instant thumb tap never misses while popping in
+        const hit = b === this.btns.ult ? (Math.abs(x - b.x) < (this.home.ult?.size ?? b.size) * 0.65 && Math.abs(y - b.y) < (this.home.ult?.size ?? b.size) * 0.65) : b.hit(x, y);
+        if (hit) { b.down = true; b.pid = id; inp.press(b.name, id); if (b.name === 'special') inp.aimBegin(id, b.x, b.y, x, y); return true; }
+      }   // act-14 用户：「按操作的按钮不要有音效」
       // the stick: only the bottom-left area answers; floating = the base appears under the thumb (kept clear of the screen's edges)
       // and then stays put; fixed = the base sits at its home and only a press near it counts
       inp.stick.r = this.stickSize * 0.42;
@@ -245,7 +250,7 @@ export class ActHud {
     const e = this.wayK * this.wayK * (3 - 2 * this.wayK), W = this.W, H = this.H;
     for (const n of Object.keys(this.btns) as BtnName[]) {
       const h = this.home[n], b = this.btns[n]; if (!h) continue;
-      if (n === 'ult') { b.size = h.size * (0.55 + 0.45 * e); continue; }
+      if (n === 'ult') { b.size = h.size * (0.78 + 0.22 * e); continue; }
       const g = 1 - 0.14 * e; b.x = W + (h.x - W) * g; b.y = H + (h.y - H) * g; b.size = h.size * (1 - 0.16 * e);
     }
   }
