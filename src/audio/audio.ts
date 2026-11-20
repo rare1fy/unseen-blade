@@ -46,17 +46,108 @@ class AudioEngine {
    *  the first track and then fetching the other audio subpackages one by one (the first fight's music doesn't wait for a download);
    *  the touch only resumes the context. */
   loading: Promise<void> = Promise.resolve();
+  private lifecycleBound = false;
+  private wasInterrupted = false;
+  private musicEnded = false;
+  private musicStartedAt = 0;
+  private musicOffset = 0;
   async unlock() {
     if (!this.ctx) this.prepare();
-    const ctx = this.ctx; if (ctx && ctx.state === 'suspended') await ctx.resume();
+    const ctx = this.ctx;
+    if (ctx && (ctx.state === 'suspended' || (ctx.state as string) === 'interrupted')) {
+      try { await ctx.resume(); } catch { /* retry on next gesture */ }
+    }
+    if (this.wasInterrupted || this.musicEnded) this.recover();
+  }
+  /** Recover WebAudio + BGM + voice pool cleanly after returning from long tab/app backgrounding or OS audio interruption */
+  recover() {
+    const ctx = this.ctx; if (!ctx) return;
+    const st = ctx.state as string;
+    const needResume = st === 'suspended' || st === 'interrupted';
+    const restart = () => {
+      if (!this.ctx || (this.ctx.state as string) !== 'running') return;
+      this.wasInterrupted = false;
+      const t = this.now();
+      // Prune zombie SFX voices whose onended was dropped during OS suspension
+      for (let i = this.live.length - 1; i >= 0; i--) {
+        if (this.live[i].endAt <= t) this.live.splice(i, 1);
+      }
+      // Restore any ducking / stillness / low-pass ramps that may have frozen mid-automation while suspended
+      try {
+        if (!this.voSrc) { this.duck.gain.cancelScheduledValues(t); this.duck.gain.setValueAtTime(1, t); }
+        this.hush.gain.cancelScheduledValues(t); this.hush.gain.setValueAtTime(1, t);
+        this.musicHush.gain.cancelScheduledValues(t); this.musicHush.gain.setValueAtTime(1, t);
+        this.music.gain.cancelScheduledValues(t); this.music.gain.setValueAtTime(MUSIC_BASE, t);
+        if (this.bandHi && this.bandLo && this.bandK <= 0.02) {
+          this.bandHi.frequency.cancelScheduledValues(t); this.bandHi.frequency.setValueAtTime(10, t);
+          this.bandLo.frequency.cancelScheduledValues(t); this.bandLo.frequency.setValueAtTime(20000, t);
+        }
+      } catch { /* mini-game param guard */ }
+      // Restart wanted BGM if its BufferSource ended or stalled while away
+      const want = this.musicWant;
+      if (want && !MUSIC_ONCE.has(want) && (!this.musicSrc || this.musicEnded)) {
+        const b = this.buf.get(want);
+        const lp = MUSIC_LOOPS[want];
+        let off = 0;
+        if (b && lp) {
+          const span = Math.max(1, Math.min(lp[1], b.duration) - lp[0]);
+          const elapsed = Math.max(0, (performance.now() / 1000) - this.musicStartedAt);
+          off = lp[0] + ((this.musicOffset + elapsed) % span);
+        }
+        this.musicWant = '';
+        void this.playMusic(want, 0.6, off);
+      }
+    };
+    if (needResume) {
+      this.wasInterrupted = true;
+      void Promise.resolve(ctx.resume()).then(restart, () => { /* wait for next user gesture */ });
+    } else {
+      restart();
+    }
+  }
+  private bindLifecycle() {
+    if (this.lifecycleBound) return;
+    this.lifecycleBound = true;
+    const onHide = () => { this.wasInterrupted = true; };
+    const onShow = () => { this.recover(); };
+    const onGesture = () => {
+      const st = this.ctx?.state as string | undefined;
+      if (st && st !== 'running') this.recover();
+      else if (this.wasInterrupted || (this.musicWant && !MUSIC_ONCE.has(this.musicWant) && (!this.musicSrc || this.musicEnded))) this.recover();
+    };
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') onHide();
+        else onShow();
+      });
+    }
+    if (typeof window !== 'undefined') {
+      window.addEventListener('pageshow', onShow);
+      window.addEventListener('focus', onShow);
+      window.addEventListener('pointerdown', onGesture, { passive: true });
+      window.addEventListener('keydown', onGesture, { passive: true });
+    }
+    const wxg = (globalThis as unknown as { wx?: { onShow?: (cb: () => void) => void; onHide?: (cb: () => void) => void; onAudioInterruptionEnd?: (cb: () => void) => void; onAudioInterruptionBegin?: (cb: () => void) => void } }).wx;
+    wxg?.onHide?.(onHide);
+    wxg?.onShow?.(onShow);
+    wxg?.onAudioInterruptionBegin?.(onHide);
+    wxg?.onAudioInterruptionEnd?.(onShow);
   }
   prepare(o: { warm?: string[]; prefetch?: boolean } = {}) {
     if (this.ctx) return;
+    this.bindLifecycle();
     setTimeout(() => firstSoundsIn(), 3000);
     // (11-18 微信小游戏: no AudioContext there — wechat/glue.js wraps wx.createWebAudioContext as __ubWxAudio)
     const AC = (globalThis as any).AudioContext || (globalThis as any).webkitAudioContext;
     const ctx: AudioContext | null = AC ? new AC() : (globalThis as any).__ubWxAudio?.() ?? null; if (!ctx) { firstSoundsIn(); return; }
     this.ctx = ctx;
+    if ('onstatechange' in ctx) {
+      ctx.onstatechange = () => {
+        const st = ctx.state as string;
+        if (st === 'interrupted' || st === 'suspended') this.wasInterrupted = true;
+        else if (st === 'running' && (this.wasInterrupted || this.musicEnded)) this.recover();
+      };
+    }
     // 11-18: only a limiter at the end (the old −10 dB 8:1 compressor flattened every blow the moment two sounds overlapped)
     const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -2.5; comp.knee.value = 0; comp.ratio.value = 20; comp.attack.value = 0.001; comp.release.value = 0.12;
     this.master = ctx.createGain(); this.master.gain.value = 0.9; this.master.connect(comp); comp.connect(ctx.destination);
@@ -130,12 +221,16 @@ class AudioEngine {
     if (this.voSrc) { try { this.voSrc.stop(); } catch { /* ended */ } this.voSrc = null; if (this.ctx) this.duck.gain.setTargetAtTime(1, this.now(), 0.2); }
   }
   /** 11-18: the sounds playing now — at most MAX_VOICES; a new one past that stops the oldest of the least important (or is dropped
-   *  when everything playing matters more) */
-  private live: Array<{ src: AudioBufferSourceNode; pri: number; t: number }> = [];
+   *  when everything playing matters more). Tracks expected endAt so missed onended after OS suspension can never permanently clog SFX. */
+  private live: Array<{ src: AudioBufferSourceNode; pri: number; t: number; endAt: number }> = [];
   /** play one sample: rate / gain jittered; pri = how much it matters (3 her blows, 2 her moves, 1 the foes, 0 the rest) */
   play(name: string, o: { gain?: number; rate?: number; jitter?: number; delay?: number; bus?: 'sfx' | 'voice' | 'hero' | 'sting'; pri?: number; pan?: number } = {}) {
     const ctx = this.ctx, b = this.buf.get(name); if (!ctx || !b || this.muted) return null;
+    const st = ctx.state as string;
+    if (st === 'suspended' || st === 'interrupted') { this.wasInterrupted = true; void Promise.resolve(ctx.resume()).catch(() => {}); }
     const pri = o.pri ?? (o.bus === 'hero' ? 2 : 1), now = this.now();
+    // Prune expired voices whose onended callback may have been lost during tab/app suspension
+    for (let i = this.live.length - 1; i >= 0; i--) { if (this.live[i].endAt <= now) this.live.splice(i, 1); }
     if (o.bus !== 'voice' && this.live.length >= MAX_VOICES) {
       let worst = -1;
       for (let i = 0; i < this.live.length; i++) { const v = this.live[i]; if (v.pri <= pri && (worst < 0 || v.pri < this.live[worst].pri || (v.pri === this.live[worst].pri && v.t < this.live[worst].t))) worst = i; }
@@ -143,7 +238,8 @@ class AudioEngine {
       const v = this.live.splice(worst, 1)[0]; try { v.src.stop(); } catch { /* ended */ }
     }
     const src = ctx.createBufferSource(); src.buffer = b; const j = o.jitter ?? 0.08;
-    src.playbackRate.value = (o.rate ?? 1) * (1 + (Math.random() * 2 - 1) * j);
+    const playRate = Math.max(0.25, (o.rate ?? 1) * (1 + (Math.random() * 2 - 1) * j));
+    src.playbackRate.value = playRate;
     const g = ctx.createGain(); g.gain.value = (o.gain ?? 1) * (1 + (Math.random() * 2 - 1) * j * 0.6);
     const dest = o.bus === 'voice' ? this.voice : o.bus === 'hero' ? this.hero : o.bus === 'sting' ? this.sting : this.sfx;
     const panVal = o.pan ? Math.max(-0.85, Math.min(0.85, o.pan)) : 0;
@@ -153,8 +249,9 @@ class AudioEngine {
     } else {
       src.connect(g); g.connect(dest);
     }
-    src.start(now + (o.delay ?? 0));
-    if (o.bus !== 'voice') { const e = { src, pri, t: now }; this.live.push(e); src.onended = () => { const i = this.live.indexOf(e); if (i >= 0) this.live.splice(i, 1); }; }
+    const startAt = now + (o.delay ?? 0);
+    src.start(startAt);
+    if (o.bus !== 'voice') { const e = { src, pri, t: now, endAt: startAt + b.duration / playRate + 0.15 }; this.live.push(e); src.onended = () => { const i = this.live.indexOf(e); if (i >= 0) this.live.splice(i, 1); }; }
     this.recent.push(name); if (this.recent.length > 40) this.recent.shift(); return src;
   }
   /** act-50 (用户：「sting_lose.mp3、sting_win.mp3 这两个文件没用上啊，我之前让替换胜利和失败的音效来着」): a sting played whole on its
@@ -267,7 +364,10 @@ class AudioEngine {
     const src = ctx.createBufferSource(); src.buffer = b; src.loop = !MUSIC_ONCE.has(name);
     const lp = MUSIC_LOOPS[name]; if (lp) { src.loopStart = lp[0]; src.loopEnd = Math.min(lp[1], b.duration); }
     const g = ctx.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(1, t + fade); (src as any)._g = g;
-    src.connect(g); g.connect(this.music); src.start(t, Math.min(offset, Math.max(0, b.duration - 1))); this.musicSrc = src; this.musicName = name;
+    const startOff = Math.min(offset, Math.max(0, b.duration - 1));
+    src.connect(g); g.connect(this.music); src.start(t, startOff);
+    this.musicSrc = src; this.musicName = name; this.musicEnded = false; this.musicStartedAt = performance.now() / 1000; this.musicOffset = startOff;
+    src.onended = () => { if (this.musicSrc === src) { this.musicSrc = null; this.musicEnded = true; } };
     // The fading source owns the old buffer until onended. The cache only needs the playing score.
     for (const k of [...this.buf.keys()]) if (k.startsWith('bgm_') && k !== name && (OPT.singleMusic || k !== this.musicPrev)) this.buf.delete(k);
     this.musicPrev = name;

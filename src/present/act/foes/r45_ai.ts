@@ -583,26 +583,28 @@ FOE_AI.cx_boss = {
     }
     // phase two: the blade
     if (dist > 3) want.copy(dir).addScaledVector(side(dir, f.strafe), 0.2);
-    if (can && dist < 3.4) { bladeRing(w); f.combo = 2; startAttack(f, w, { k: 'cone', r: 3.0, half: 0.9 }, 0.42 + 0.35, 11, yawTo + 0.35, { atk: 'cut' }); f.cd = R(0.6, 1.0); return; }
-    if (can && dist >= 3.4 && dist < 7 && Math.random() < dt * 1.3) { bladeRing(w); startAttack(f, w, { k: 'rect', len: 6, w: 1.2 }, 0.55 + 0.35, 18, yawTo, { atk: 'lunge' }); f.cd = R(1.0, 1.4); return; }
+    if (can && dist < 3.4) { bladeRing(w); cue('draw', 0.72); f.combo = 2; startAttack(f, w, { k: 'cone', r: 3.0, half: 0.9 }, 0.42 + 0.35, 11, yawTo + 0.35, { atk: 'cut' }); f.cd = R(0.6, 1.0); return; }
+    if (can && dist >= 3.4 && dist < 7 && Math.random() < dt * 1.3) { bladeRing(w); cue('draw', 0.85); cue('snowWind', 0.55); startAttack(f, w, { k: 'rect', len: 6, w: 1.2 }, 0.55 + 0.35, 18, yawTo, { atk: 'lunge' }); f.cd = R(1.0, 1.4); return; }
     steerFoe(f, want, f.d.speed, dt, yawTo);
   },
   windup(f, _w, dt, p, yawTo) { if (p < 0.4) { f.teleYaw = f.atk === 'cut' ? f.teleYaw : yawTo; turnFoe(f, yawTo, dt, 10); } return true; },
   strike(f, w) {
     if (f.atk !== 'fan') return false;
-    // the fan: a push, not a cut (she is shoved back out of his reach)
-    f.tele?.flash(); setFoeState(f, 'strike', 0.2); cue('whoosh', 0.8);
+    // the fan: a cold gust that drives her back out of his reach
+    f.tele?.flash(); setFoeState(f, 'strike', 0.2); cue('snowWind', 0.85); cue('swingHeavy', 0.82);
     if (meleeLands(f, w)) w.pull?.(w.heroPos.clone().add(w.heroPos.clone().sub(f.pos).setY(0).normalize().multiplyScalar(2.4)));
     return true;
   },
-  follow(f, w, yawTo) { if (f.combo > 0 && f.atk === 'cut') { const s = f.combo % 2 ? -0.35 : 0.35; f.combo--; startAttack(f, w, { k: 'cone', r: 3.0, half: 0.9 }, 0.3, 11, yawTo + s, { atk: 'cut' }); return true; } return false; },
+  follow(f, w, yawTo) { if (f.combo > 0 && f.atk === 'cut') { const s = f.combo % 2 ? -0.35 : 0.35; f.combo--; cue('bladeRing', 0.65); startAttack(f, w, { k: 'cone', r: 3.0, half: 0.9 }, 0.3, 11, yawTo + s, { atk: 'cut' }); return true; } return false; },
   recover: f => (f.atk === 'lunge' ? 0.7 : f.phase > 1 ? 0.5 : 0.8),
 };
 /** he holds the fan / the drawn 文家刀 */
 function drawn(f: Foe, on: boolean) { const b = f.a.bones; if (b.fan) b.fan.visible = !on; if (b.blade) b.blade.visible = on; }
 function phaseTo(f: Foe, w: FoeWorld, n: 2 | 3) {
   dropTeles(f); f.attacking = false; f.phase = n; f.inv = 1.4; f.poise = f.d.poise; setFoeState(f, 'roar', 1.5);
-  w.say?.(f, n === 2 ? PHASE_LINES.cx_boss2 : PHASE_LINES.cx_boss3); cue(n === 2 ? 'draw' : 'whoosh', 1); shake(0.3 * TUNE.shake);
+  w.say?.(f, n === 2 ? PHASE_LINES.cx_boss2 : PHASE_LINES.cx_boss3);
+  if (n === 2) { cue('draw', 1); cue('bladeChorus', 0.85); } else { cue('snowWind', 1); cue('boom', 0.5); }
+  shake(0.3 * TUNE.shake);
   if (n === 2) { drawn(f, true); f.a.play(new Action('cast', 1.2, 0.6)); fxFlare(f.a.weapon(), 0xffffff, 1.2, 0.35); bladeRing(w); }
   else { f.a.play(new Action('cast', 1.0, 0.5)); w.dark?.(1); X(f).dark = 1; X(f).cuts = 0; X(f).hid = 1; hide(f, true); f.cd = 1.6; }
 }
@@ -610,20 +612,20 @@ function phaseTo(f: Foe, w: FoeWorld, n: 2 | 3) {
  *  side; 破势 on the gold catches him (he is out and reeling 2 s). Three cuts, then a shade called */
 function darkTick(f: Foe, w: FoeWorld, dt: number) {
   const x = X(f);
-  if (!x.hid) { x.out = (x.out ?? 0) + dt; if (x.out > 1.6 && f.st === 'move') { x.hid = 1; hide(f, true); smoke(f); } return false; }
+  if (!x.hid) { x.out = (x.out ?? 0) + dt; if (x.out > 1.6 && f.st === 'move') { x.hid = 1; hide(f, true); smoke(f); cue('dash', 0.65); cue('snowWind', 0.48); } return false; }
   if (f.st === 'windup') {
     // the gold first (her ears), the red only in the last 0.3 s
     const left = f.dur - f.t, show = left < 0.3; if (f.tele) f.tele.g.visible = show;
     f.tele?.set(f.telePos.x, f.telePos.z, f.teleYaw, f.t / f.dur, left);
-    if (f.t >= f.dur) { hide(f, false); x.hid = 0; x.out = 0; if (f.tele) f.tele.g.visible = true; defaultStrike(f, w); x.cuts = (x.cuts ?? 0) + 1; if (x.cuts >= 3) { x.cuts = 0; callIn(w, ['cx_shade'], f); } }
+    if (f.t >= f.dur) { hide(f, false); x.hid = 0; x.out = 0; if (f.tele) f.tele.g.visible = true; cue('foeHeavy', 0.95); defaultStrike(f, w); x.cuts = (x.cuts ?? 0) + 1; if (x.cuts >= 3) { x.cuts = 0; callIn(w, ['cx_shade'], f); } }
     return true;
   }
   const toH = w.heroPos.clone().sub(f.pos).setY(0), d = toH.length();
   const sideP = w.heroPos.clone().add(V3(toH.z, 0, -toH.x).normalize().multiplyScalar(2.2 * f.strafe));
   const go = sideP.sub(f.pos).setY(0); if (go.length() > 0.3) f.vel.lerp(go.normalize().multiplyScalar(f.d.speed * 1.2), Math.min(1, dt * 5));
-  x.step = (x.step ?? 0) - dt; if (x.step <= 0) { x.step = 0.3; soundRing(f.pos, 0xc8c8d8, 0.6, 0.6, 0.5); }
+  x.step = (x.step ?? 0) - dt; if (x.step <= 0) { x.step = 0.3; soundRing(f.pos, 0xc8c8d8, 0.6, 0.6, 0.5); cue('land', 0.36); }
   if (f.cd <= 0 && w.heroAlive && d < 3.2) {
-    soundRing(w.heroPos, 0xffd27a, 1.3, 0.7, 0.9); cue('bladeRing', 1);
+    soundRing(w.heroPos, 0xffd27a, 1.3, 0.7, 0.9); cue('bladeRing', 1); cue('draw', 0.75);
     const y = Math.atan2(toH.x, toH.z); f.yaw = y; f.combo = 0; startAttack(f, w, { k: 'cone', r: 3.2, half: 0.85 }, 0.9, 20, y, { atk: 'cut' }); if (f.tele) f.tele.g.visible = false;
     f.cd = R(1.6, 2.2);
   }
@@ -633,14 +635,14 @@ function darkTick(f: Foe, w: FoeWorld, dt: number) {
 function dragon(f: Foe, w: FoeWorld) {
   const d = w.heroPos.clone().sub(f.pos).setY(0), L = Math.max(4, d.length() + 2); d.normalize();
   for (let i = 0; i < 5; i++) { const p = f.pos.clone().addScaledVector(d, 1.6 + i * (L - 1.6) / 4); w.clamp(p, 0.3); w.arrows.push(stone(p, 1.2, 0.15 * i, 0.8, f, true)); }
-  cue('clack', 1);
+  cue('stoneCarve', 0.85); cue('snowWind', 0.55);
 }
 /** 围: six stones round her at once, one gap (the 眼) where the stone is white and does not fall */
 function ring(f: Foe, w: FoeWorld) {
   const gap = Math.floor(Math.random() * 7), a0 = Math.random() * Math.PI * 2;
   for (let i = 0; i < 7; i++) { const a = a0 + i * Math.PI * 2 / 7, p = w.heroPos.clone().add(V3(Math.sin(a) * 2.4, 0, Math.cos(a) * 2.4)); w.clamp(p, 0.3); if (i === gap) { whiteStone(p); continue; } w.arrows.push(stone(p, 1.2, 0, 1.1, f, true)); }
   w.arrows.push(stone(w.heroPos.clone(), 1.0, 0, 1.1, f, true));
-  cue('clack', 1);
+  cue('stoneCarve', 0.9); cue('snowWind', 0.65); cue('bladeRing', 0.45);
 }
 const stoneGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.12, 12), blackMat = toon(0x1a1a20), whiteMat = toon(0xeeeee6);
 /** the stones lying on the snow, each for a moment (stepped in soundRingsStep's frame via stonesStep) */
@@ -651,7 +653,8 @@ export function stonesStep(dt: number) { for (let i = STONES.length - 1; i >= 0;
 function stone(p: THREE.Vector3, r: number, delay: number, fill: number, owner: Foe, black: boolean) {
   return new GroundBlow(p, { k: 'circle', r, ahead: 0 }, 0, dmgOf(12), delay, fill, { owner, onLand: () => {
     lay(p, black, 1.5);
-    fxSmoke(V3(p.x, 0.2, p.z), 0xe8ecf4, 6, { r: 0.5, spd: 1.4, up: 0.4, s: 0.3, life: 0.5 }); fxSparks(V3(p.x, 0.2, p.z), 0xf0f4ff, 8, 3); cue('clack', 0.6);
+    fxSmoke(V3(p.x, 0.2, p.z), 0xe8ecf4, 6, { r: 0.5, spd: 1.4, up: 0.4, s: 0.3, life: 0.5 }); fxSparks(V3(p.x, 0.2, p.z), 0xf0f4ff, 8, 3);
+    cue('wallSlam', 0.62); cue('potBreak', 0.38);
   } });
 }
 /** the 眼: a white stone that never falls (the way out of the ring), and a pale ring round it */

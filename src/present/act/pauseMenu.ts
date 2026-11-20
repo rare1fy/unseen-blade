@@ -264,8 +264,9 @@ export class PauseMenu {
       else if (type === 'up' && this.drag) { const tap = this.drag.moved < 8; this.drag = null; const li = this.list.hit(x, y); if (tap && li >= 0) { this.list.sel = li; cue('tick', 0.25); if (this.list.entry?.kind === 'manual') { PAD.device = 'touch'; this.listOk(); } } }
       else if (type === 'move') { const li = this.list.hit(x, y); if (li >= 0 && li !== this.list.sel) { this.list.sel = li; cue('tick', 0.25); } }
     }
-    // the back shield at the top left
-    const onBack = this.backK > 0.5 && Math.hypot(x - this.backAt.x, y - this.backAt.y) < this.backAt.r * 1.15;
+    // the enlarged back shield + 返回 label at top left
+    const onBack = this.backK > 0.5 && (Math.hypot(x - this.backAt.x, y - this.backAt.y) < this.backAt.r * 1.25
+      || (x >= this.backAt.x - this.backAt.r && x <= this.backAt.x + this.backAt.r * 2.8 && Math.abs(y - this.backAt.y) < this.backAt.r * 1.1));
     if (type === 'move') this.backHot = onBack ? 1 : 0;
     if (type === 'down' && onBack) { this.downBack = true; return true; }
     if (type === 'up' && this.downBack) { this.downBack = false; if (onBack) { PAD.device = 'touch'; this.back(); } return true; }
@@ -286,7 +287,8 @@ export class PauseMenu {
       for (const s of this.slabs) { s.inK = Math.max(0, s.inK - rdt * 5); s.update(rdt, this.t, false, s.inK > 0.01); }
       if (this.fade < 0.02 && this.slabs.length) { for (const s of this.slabs) s.dispose(); this.slabs = []; }
       this.head.place(0, 0, 0); this.foot.place(0, 0, 0); this.marker.visible = false;
-      this.backK = Math.max(0, this.backK - rdt * 6); this.backBtn.visible = this.backK > 0.02; if (this.backBtn.visible) this.backBtn.setOpacity(this.backK); return;
+      this.backK = Math.max(0, this.backK - rdt * 6); this.backBtn.visible = this.backK > 0.02; if (this.backBtn.visible) this.backBtn.setOpacity(this.backK);
+      L.text.hide('pause.back'); return;
     }
     this.t += rdt; this.openT += rdt; this.pageT += rdt;
     // the pad: rebinding listens for any new button; otherwise up / down / confirm / back / Start
@@ -320,16 +322,19 @@ export class PauseMenu {
       this.paintRow(i);
       s.update(rdt, this.t, i === this.sel, true);
     });
-    // the back shield: every page but the first
+    // Larger, unmistakable back shield + crisp 返回 label on every sub-page
     { const want = this.page !== 'main' ? 1 : 0; this.backK += (want - this.backK) * Math.min(1, rdt * 10);
       this.backBtn.visible = this.backK > 0.02;
       if (this.backBtn.visible) {
         const p = this.backAt, press = this.downBack ? 0.88 : 1, hot = this.backHot;
-        const bz = 0.6 + hot * 0.2;   // (UI-layer units, like the slabs' few-unit lift)
-        L.at(p.x, p.y, bz, this.backBtn.position); this.backBtn.scale.setScalar(L.px(p.r * 2, bz) * press * (1 + 0.06 * hot) * (0.6 + 0.4 * this.backK));
+        const bz = 0.6 + hot * 0.2;
+        L.at(p.x, p.y, bz, this.backBtn.position); this.backBtn.scale.setScalar(L.px(p.r * 2, bz) * press * (1 + 0.07 * hot) * (0.6 + 0.4 * this.backK));
         this.backBtn.rotation.set(0, 0.12 + Math.sin(this.t * 0.7) * 0.03, Math.sin(this.t * 1.3) * 0.02);
-        this.backBtn.setOpacity(this.backK); this.backBtn.setRim(hot ? 0xffd88a : null, 0.45);
-      } }
+        this.backBtn.setOpacity(this.backK); this.backBtn.setRim(hot ? 0xffe498 : 0x9aa4b4, hot ? 0.65 : 0.25);
+        const dprB = L.dpr || 1, kkB = Math.max(0.8, Math.min(1.25, L.h / 720));
+        const pkB = Math.max(1, Math.round(18 * kkB * dprB / PIX_H));
+        L.text.set('pause.back', { text: '返回', x: p.x + p.r + 8 * kkB, y: p.y, pix: pkB, color: hot ? '#fff8d4' : '#f2e8d2', outline: '#140c0a', align: 'left', visible: this.backK > 0.35 });
+      } else L.text.hide('pause.back'); }
     // the pommel points at the selected slab from the left, bobbing
     const s = this.slabs[this.sel];
     this.markerK += ((s && s.inK > 0.9 ? 1 : 0) - this.markerK) * Math.min(1, rdt * 10);
@@ -356,7 +361,7 @@ export class PauseMenu {
     const name = { main: '暂歇', keys: '键位', set: '设置', ask: '回据点？', askTitle: '回主画面？', owned: UI_WORDS.owned, skills: UI_WORDS.skills }[this.page], note = this.page === 'ask' || this.page === 'askTitle' ? '视同战死：途中所获尽失，残铁与药引照带回' : this.page === 'keys' ? this.keysNote() : '';
     const nS = Math.max(1, Math.round(hS * 0.45)), hw = Math.max(textW(name, hS), textW(note, nS) + 8) / k + 8, hh = (PIX_H * hS + (note ? PIX_H * nS + 6 * k : 0)) / k + 6;
     this.head.set(language + name + note, hw, hh, g => { text(g, name, 4 * k, 3 * k, hS, TXT.sel); if (note) text(g, note, 4 * k, 3 * k + PIX_H * hS + 6 * k, nS, TXT.dim); });
-    const ent = Math.min(1, this.pageT / 0.25), br = Math.max(14, Math.min(24, headH * 0.42)), withBack = this.page !== 'main', nx = cx - w / 2 + (withBack ? br * 2 + 10 : 0);
+    const ent = Math.min(1, this.pageT / 0.25), br = Math.max(24, Math.min(36, headH * 0.64)), withBack = this.page !== 'main', nx = cx - w / 2 + (withBack ? br * 2 + 62 : 0);
     this.head.place(nx + hw / 2, top - hh / 2 - h * 0.45, ent * ent);
     this.backAt = { x: cx - w / 2 + br, y: top - h * 0.45 - hh / 2, r: br };
     // the prompts at the foot: the device's own confirm / back

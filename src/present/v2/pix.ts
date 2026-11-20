@@ -125,14 +125,87 @@ export function dropSprite(s: THREE.Sprite) {
   if (tex) { const n = Math.max(0, (users.get(tex) ?? 1) - 1); users.set(tex, n); if (!n && !retained.has(tex)) tex.dispose(); }
   s.material.dispose();
 }
-/** a number / word that punches in, rises and fades */
-export function popPix(text: string, at: THREE.Vector3, o: { color?: string; outline?: string; h?: number; life?: number; rise?: number; big?: boolean } = {}) {
-  const s = pixSprite(text, { ...o, h: (o.h ?? 0.55) * (o.big ? 1.5 : 1) }); s.position.copy(at);
-  const b = (s.userData.base as THREE.Vector3).clone(), y0 = at.y, life = o.life ?? 1.0, rise = o.rise ?? 0.8, mat = s.material as THREE.SpriteMaterial;
+export type PopTier = 'dot' | 'normal' | 'crit' | 'highlight';
+
+interface LivePop { x: number; y: number; z: number; t0: number }
+const LIVE_POPS: LivePop[] = [];
+let popSeq = 0;
+
+/** Anti-overlap fan-out + 4 distinct visual tiers (dot / normal / crit / highlight) so numbers never blur together and big plays pop cleanly. */
+export function popPix(
+  text: string,
+  at: THREE.Vector3,
+  o: { color?: string; outline?: string; h?: number; life?: number; rise?: number; big?: boolean; tier?: PopTier; accent?: string } = {},
+) {
+  const tier: PopTier = o.tier ?? (o.big ? 'crit' : 'normal');
+  const now = performance.now() / 1000;
+  for (let i = LIVE_POPS.length - 1; i >= 0; i--) {
+    if (now - LIVE_POPS[i].t0 > 0.42) LIVE_POPS.splice(i, 1);
+  }
+  let near = 0;
+  for (const p of LIVE_POPS) {
+    if (Math.hypot(p.x - at.x, p.z - at.z) < 1.35 && Math.abs(p.y - at.y) < 1.25) near++;
+  }
+  const slot = near, seq = ++popSeq;
+  const sideSign = ((slot + seq) & 1) ? 1 : -1;
+  const spreadX = tier === 'highlight'
+    ? (slot > 0 ? sideSign * (0.26 + Math.min(2, slot) * 0.22) : 0)
+    : tier === 'dot'
+      ? sideSign * (0.44 + (slot % 3) * 0.22)
+      : (slot > 0 ? sideSign * (0.28 + ((slot - 1) % 3) * 0.24) : (seq & 1 ? 0.08 : -0.08));
+  const spreadY = tier === 'highlight'
+    ? 0.44 + Math.min(2, slot) * 0.34
+    : tier === 'crit'
+      ? 0.16 + Math.min(3, slot) * 0.28
+      : tier === 'dot'
+        ? -0.06 + (slot % 3) * 0.18
+        : Math.min(4, slot) * 0.24;
+
+  const hBase = o.h ?? (tier === 'highlight' ? 0.94 : tier === 'crit' ? 0.72 : tier === 'dot' ? 0.38 : 0.48);
+  const color = o.color ?? (tier === 'highlight' ? '#fff4cc' : tier === 'crit' ? '#ffe478' : tier === 'dot' ? '#e87868' : '#f6f2e8');
+  const outline = o.outline ?? (tier === 'highlight' ? '#1c0a08' : tier === 'crit' ? '#261206' : '#140c0a');
+
+  let s: THREE.Sprite;
+  if (tier === 'highlight') {
+    // Dedicated highlight callout sprite with crisp gold/crimson underline bar so 破 / 见切 / 闪 / 血爆 / 斩 stand apart from damage digits
+    const scale = 2, pad = 4, tw = pixW(text) * scale, w = Math.max(8, tw + pad * 2), hh = PIX_H * scale + 10;
+    const { c, g } = canvasOf(w, hh);
+    const barW = Math.max(10, tw + 4), bx = Math.round((w - barW) / 2), by = hh - 5;
+    g.fillStyle = outline; g.fillRect(bx - 2, by - 2, barW + 4, 5);
+    g.fillStyle = o.accent ?? color; g.fillRect(bx, by, barW, 2);
+    drawPix(g, text, Math.round(w / 2), 2, { scale, color, outline, align: 'center' });
+    const tex = new THREE.CanvasTexture(c as HTMLCanvasElement);
+    tex.magFilter = tex.minFilter = THREE.NearestFilter; tex.generateMipmaps = false; tex.colorSpace = THREE.SRGBColorSpace;
+    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false, toneMapped: false });
+    s = new THREE.Sprite(mat); s.scale.set(hBase * w / hh, hBase, 1); s.renderOrder = 26; s.userData.base = s.scale.clone();
+    scene.add(s);
+  } else {
+    s = pixSprite(text, { color, outline, h: hBase });
+    s.renderOrder = tier === 'crit' ? 24 : tier === 'dot' ? 19 : 21;
+  }
+
+  const startPos = at.clone().add(new THREE.Vector3(spreadX, spreadY, 0));
+  s.position.copy(startPos);
+  LIVE_POPS.push({ x: at.x, y: at.y, z: at.z, t0: now });
+
+  const b = (s.userData.base as THREE.Vector3).clone(), mat = s.material as THREE.SpriteMaterial;
+  const life = o.life ?? (tier === 'highlight' ? 1.08 : tier === 'crit' ? 0.92 : tier === 'dot' ? 0.62 : 0.78);
+  const rise = o.rise ?? (tier === 'highlight' ? 0.72 : tier === 'crit' ? 0.88 : tier === 'dot' ? 0.52 : 0.72);
+  const driftX = tier === 'dot' ? sideSign * 0.34 : tier === 'normal' ? sideSign * 0.16 : tier === 'crit' ? sideSign * 0.12 : 0;
   anim(life, k => {
-    s.position.y = y0 + rise * ease.outCubic(k);
-    const sc = k < 0.1 ? lerp(0.3, 1.35, k / 0.1) : lerp(1.35, 1, Math.min(1, (k - 0.1) / 0.2)); s.scale.set(b.x * sc, b.y * sc, 1);
-    mat.opacity = k > 0.75 ? 1 - (k - 0.75) / 0.25 : 1;
+    const lift = ease.outCubic(k);
+    s.position.set(startPos.x + driftX * lift, startPos.y + rise * lift, startPos.z);
+    let sc = 1;
+    if (tier === 'highlight') {
+      sc = k < 0.12 ? lerp(0.5, 1.42, k / 0.12) : k < 0.26 ? lerp(1.42, 1.0, (k - 0.12) / 0.14) : 1.0;
+    } else if (tier === 'crit') {
+      sc = k < 0.1 ? lerp(0.4, 1.36, k / 0.1) : lerp(1.36, 1.0, Math.min(1, (k - 0.1) / 0.18));
+    } else {
+      sc = k < 0.1 ? lerp(0.65, 1.12, k / 0.1) : lerp(1.12, 1.0, Math.min(1, (k - 0.1) / 0.15));
+    }
+    s.scale.set(b.x * sc, b.y * sc, 1);
+    const fadeAt = tier === 'highlight' ? 0.72 : tier === 'crit' ? 0.68 : 0.62;
+    mat.opacity = k > fadeAt ? Math.max(0, 1 - (k - fadeAt) / (1 - fadeAt)) : 1;
   }, () => dropSprite(s));
   return s;
 }

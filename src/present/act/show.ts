@@ -177,11 +177,10 @@ function contactShadow() {
 }
 type Phase = 'intro' | 'fight' | 'pick' | 'doors' | 'leaving' | 'dead' | 'end' | 'yard' | 'opening' | 'cine' | 'talk' | 'title';
 /** the costume the player last wore (kept in the browser; the first time: the 斗笠 swordsman) */
-/** the heroine's look by default (user 11-17: 「默认角色用这个白发女」, her MagicaVoxel-edited model) */
-const DEFAULT_HERO = 'fine_white';   // act-22 (user: 「都换成细格子吧」): the 3.5 cm white-haired heroine
+/** Default heroine look: conical bamboo hat (斗笠) with full white hair underneath (hat comes off while healing in kiln, back on when departing) */
+const DEFAULT_HERO = 'fine_hat';
 function savedHero(): ModelDef {
-  // (act.hero6 since act-22: the default became the 3.5 cm white-haired heroine; a look remembered under the old keys no longer overrides it)
-  let id = ''; try { id = localStorage.getItem('act.hero6') ?? ''; } catch { /* storage blocked */ }
+  let id = ''; try { id = localStorage.getItem('act.hero7') ?? ''; } catch { /* storage blocked */ }
   if (!__DEBUG_UI__) return HEROES.find(d => d.id === DEFAULT_HERO) ?? HEROES[0];   // (11-18: the packages wear the default — no costume switch there)
   const q = typeof location !== 'undefined' ? /[?&#]hero=([a-z_]+)/.exec(location.href)?.[1] : undefined;
   return HEROES.find(d => d.id === (q ?? id)) ?? HEROES.find(d => d.id === DEFAULT_HERO) ?? HEROES[0];
@@ -206,6 +205,15 @@ function npcBubble() {
   rows.forEach((row, y) => { for (let x = 0; x < W; x++) { const ch = row[x], c = C[ch]; if (c == null) continue; const g = new THREE.BoxGeometry(s, s, s * (ch === 'r' ? 1.4 : 2)); g.translate((x - W / 2 + 0.5) * s, (H / 2 - y - 0.5) * s, 0); col.setHex(c); const n = g.attributes.position.count, cs = new Float32Array(n * 3); for (let i = 0; i < n; i++) { cs[i * 3] = col.r; cs[i * 3 + 1] = col.g; cs[i * 3 + 2] = col.b; } g.setAttribute('color', new THREE.BufferAttribute(cs, 3)); gs.push(g); } });
   const geo = mergeGeometries(gs); for (const g of gs) g.dispose();
   return new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0xffffff, emissiveIntensity: 0.12 }));
+}
+/** 3D voxel pixel exclamation mark (!) floating above actionable hideout NPCs & 复仇碑 */
+function npcExclaim() {
+  const rows = ['.ooo.', 'ohgho', 'ohgho', 'ohgho', 'ohgho', '.ooo.', '.....', '.ooo.', 'ohgho', '.ooo.'];
+  const H = rows.length, W = rows[0].length, s = 1 / H, gs: THREE.BufferGeometry[] = [], col = new THREE.Color();
+  const C: Record<string, number> = { o: 0x261a10, h: 0xfff4c2, g: 0xffc84a };
+  rows.forEach((row, y) => { for (let x = 0; x < W; x++) { const ch = row[x], c = C[ch]; if (c == null) continue; const g = new THREE.BoxGeometry(s, s, s * (ch === 'o' ? 1.5 : 2.2)); g.translate((x - W / 2 + 0.5) * s, (H / 2 - y - 0.5) * s, 0); col.setHex(c); const n = g.attributes.position.count, cs = new Float32Array(n * 3); for (let i = 0; i < n; i++) { cs[i * 3] = col.r; cs[i * 3 + 1] = col.g; cs[i * 3 + 2] = col.b; } g.setAttribute('color', new THREE.BufferAttribute(cs, 3)); gs.push(g); } });
+  const geo = mergeGeometries(gs); for (const g of gs) g.dispose();
+  return new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0xffd268, emissiveIntensity: 0.42 }));
 }
 /** act-34: what a room is built from (buildRoom reads these from the show; the prefetch passes a new game's first room) */
 interface RoomIn { isYard: boolean; room: number; recent: Spec[]; locale: string; plan: RoomPlan | null; nextRooms: RoomPlan[]; viewSpec: Partial<Spec> | null; forceSpec: Partial<Spec> | null; noArena: boolean;
@@ -638,30 +646,63 @@ export class ActShow {
     let wakeK: (k: number) => void = () => {};
     let bloomWas = GRADE.bloomThreshold;
     let duwuSaved: { x: number; z: number; yaw: number } | null = null;
-    // (act-40 用户：「被救回去应该是先趟垫子上的啊，怎么是站着的」: she wakes lying on 孙媪's mat, and gets up at the line where she
-    //  pushes herself up the wall; the kiln's own music for the scene — the hideout's comes after)
+    // (act-40 / act-126: she wakes hatless on 孙媪's mat with wider framing & smooth cinematic dolly/pan motion across the kiln scene)
+    let wakeCamT = 0, wakeStage = 0;
+    const wakeCamPos = V3(1.5, 4.3, -1.3), wakeCamLook = V3(5.85, 0.72, -6.15);
+    let wakeCamFov = 42;
     await wipeTransit(async () => {
       await this.enterYard(); this.musicHold = 'bgm_kiln'; void audio.playMusic('bgm_kiln', 1.2);
       const h = this.hero; h.pos.set(WAKE_MAT[0], 0, WAKE_MAT[1]); h.a.place(h.pos, 0); h.a.root.visible = true; h.a.body.visible = true; let gk = 0; h.scriptPose = () => getUpPose(h.a, gk);
-      // act-114: bring Du Wu beside Sun Ao's straw mat (5.45, -6.55 — completely clear of mat/stele/stove/table!) so he is in frame during PRO_WAKE
+      if (h.a.bones.hat) h.a.bones.hat.visible = false;
+      // Bring Du Wu beside Sun Ao's straw mat (5.45, -6.55 — completely clear of mat/stele/stove/table) so he is in frame during PRO_WAKE
       const dw = this.npcs.find(n => n.id === 'duwu');
       if (dw) {
         duwuSaved = { x: dw.x, z: dw.z, yaw: dw.yaw };
         dw.x = 5.45; dw.z = -6.55; dw.yaw = Math.atan2(WAKE_MAT[0] - dw.x, WAKE_MAT[1] - dw.z);
         dw.a.place(V3(dw.x, 0, dw.z), dw.yaw); dw.a.yaw = dw.yaw; dw.sh.position.set(dw.x, 0.025, dw.z);
       }
-      this.camOverride = { base: V3(3.7, 2.5, -3.9), look: V3(6.55, 0.45, -6.1), fov: 40 }; shot('act', () => this.camPose(), { cut: true, speed: 8 });
+      this.camOverride = { base: wakeCamPos.clone(), look: wakeCamLook.clone(), fov: wakeCamFov };
+      shot('act', () => this.camPose(), { cut: true, speed: 5 });
       bloomWas = GRADE.bloomThreshold; GRADE.bloomThreshold = Math.max(bloomWas, 1.6);
       wakeK = (k: number) => { gk = k; };
     });
+    // Smooth multi-beat camera movement during PRO_WAKE (wide kiln establishing drift -> gentle push-in -> slight rise as she stands)
+    this.talkTick = (dt: number) => {
+      wakeCamT += dt;
+      const sway = Math.sin(wakeCamT * 0.35) * 0.25;
+      const wantBase = wakeStage >= 2
+        ? V3(3.4 + sway, 3.65, -2.1)
+        : wakeStage === 1
+          ? V3(2.35 + sway, 3.35, -2.35)
+          : V3(1.65 + Math.min(0.6, wakeCamT * 0.14), 4.15 - Math.min(0.45, wakeCamT * 0.1), -1.55 - Math.min(0.5, wakeCamT * 0.12));
+      const wantLook = wakeStage >= 2
+        ? V3(6.15, 1.02, -5.85)
+        : wakeStage === 1
+          ? V3(5.85, 0.82, -6.2)
+          : V3(5.9, 0.72, -6.15);
+      const wantFov = wakeStage >= 2 ? 40 : wakeStage === 1 ? 39 : 42;
+      const easeK = 1 - Math.exp(-dt * 1.4);
+      wakeCamPos.lerp(wantBase, easeK);
+      wakeCamLook.lerp(wantLook, easeK);
+      wakeCamFov += (wantFov - wakeCamFov) * easeK;
+      if (this.camOverride) {
+        this.camOverride.base.copy(wakeCamPos);
+        this.camOverride.look.copy(wakeCamLook);
+        this.camOverride.fov = wakeCamFov;
+      }
+    };
     await new Promise(r => after(0.8, () => r(null)));
     seeOnce('wake1'); let up = false, talked = false;
     const giveBlade = () => { const w = this.hero.a.bones.weapon; if (w) w.visible = true; };
-    const getUp = () => { if (up) return; up = true; const h = this.hero; let k = 0; const step = () => { k = Math.min(1, k + 1 / (30 * 3.2)); wakeK(k);
+    const getUp = () => { if (up) return; up = true; wakeStage = 2; const h = this.hero; let k = 0; const step = () => { k = Math.min(1, k + 1 / (30 * 3.2)); wakeK(k);
       if (k < 1) { after(1 / 30, step); return; }
       h.pos.x += Math.sin(h.a.yaw) * GETUP_STEP; h.pos.z += Math.cos(h.a.yaw) * GETUP_STEP; h.a.root.position.copy(h.pos); h.a.body.position.set(0, 0, 0); h.a.body.rotation.set(0, 0, 0); h.scriptPose = null; if (talked) giveBlade(); };
       step(); };
-    await this.talk(PRO_WAKE, (_i, l) => { if (l.who === 'act' && /撑起|站起|起身/.test(l.text)) getUp(); });
+    await this.talk(PRO_WAKE, (i, l) => {
+      if (i >= 2 && wakeStage < 1) wakeStage = 1;
+      if (l.who === 'act' && /撑起|站起|起身/.test(l.text)) getUp();
+    });
+    this.talkTick = null;
     getUp(); this.musicHold = null; this.music(); saveProfile();
     // Restore Du Wu cleanly back to his cook-pot station after PRO_WAKE
     const dwOrig = duwuSaved as { x: number; z: number; yaw: number } | null;
@@ -671,12 +712,8 @@ export class ActShow {
     }
     talked = true; if (!this.hero.scriptPose) giveBlade();
     this.camOverride = null; GRADE.bloomThreshold = bloomWas;   // (the battle camera eases back in)
-    // act-125: show clear post-rescue guidance banner AFTER dialogue finishes so the player knows immediately what to do!
-    after(0.45, () => {
-      if (this.phase === 'yard' && !this.dialogue.on && !this.cards.on) {
-        this.banner.show('断碑古窑', '先找南边杜五领干粮，再从院门出发', 3.2, '#ffe6b0');
-      }
-    });
+    // Immediate guiding wind toward Du Wu as control returns (pure environmental guidance, no mobile banner spam)
+    this.yardGustT = 0.55;
   }
   /** the run's haul goes home (meta.ts bank: currencies, runs / wins / deaths), saved */
   private lastWon = false;
@@ -709,47 +746,32 @@ export class ActShow {
     this.L.text.hide('act.yard.guide');
     this.L.text.hide('act.yard.exit');
     for (const id of ['fengtiebi', 'sunao', 'duwu', 'stele']) this.L.text.hide('act.beacon.' + id);
-    if (this.yardArrow) this.yardArrow.visible = false;
   }
   private clearNpcs() {
     for (const n of this.npcs) { n.a.dispose(); n.sh.parent?.remove(n.sh); }
     this.npcs = []; this.npcNear = null; this.stele?.dispose(); this.stele = null;
     for (const m of this.marks.values()) { m.g.parent?.remove(m.g); m.ring.parent?.remove(m.ring); }
     this.marks.clear();
-    this.yardArrow?.parent?.remove(this.yardArrow); this.yardArrow = null;
+    this.steleExclaim?.parent?.remove(this.steleExclaim); this.steleExclaim = null;
     this.exitRing?.parent?.remove(this.exitRing); this.exitRing = null;
     this.hideHideoutLabels();
   }
-  /** act-125: 3D voxel floor compass chevron pointing toward the next hideout objective + south gate threshold glow */
-  private yardArrow: THREE.Group | null = null;
+  /** Environmental hideout guidance (guiding wind leaves.gust + subtle south gate threshold ring + 3D voxel ! markers) */
+  private yardGustT = 1.4;
   private exitRing: THREE.Mesh | null = null;
-  private makeYardArrow() {
-    const g = new THREE.Group();
-    const m1 = new THREE.MeshBasicMaterial({ color: 0xffd868, transparent: true, opacity: 0.92, depthWrite: false });
-    const m2 = new THREE.MeshBasicMaterial({ color: 0xfff6d0, transparent: true, opacity: 0.95, depthWrite: false });
-    // Stepped 3D voxel chevron pointing along +z
-    const b1 = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.05, 0.24), m1); b1.position.set(0, 0, -0.06);
-    const b2 = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.05, 0.12), m2); b2.position.set(0, 0.01, 0.08);
-    const b3 = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.05, 0.10), m1); b3.position.set(0, 0.01, 0.19);
-    const b4 = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.05, 0.10), m2); b4.position.set(0, 0.02, 0.28);
-    g.add(b1, b2, b3, b4);
-    g.traverse(o => { o.renderOrder = 6; });
-    this.stage?.root.add(g);
-    this.yardArrow = g;
-    return g;
-  }
-  private hideoutObjective(): { x: number; z: number; text: string; col: string; isExit: boolean } {
+  private steleExclaim: THREE.Group | null = null;
+  private hideoutObjective(): { x: number; z: number; isExit: boolean } {
     const prof = profile();
     const ex = (HIDEOUT.exit.x0 + HIDEOUT.exit.x1) / 2, ez = HIDEOUT.exit.z;
-    if (!prof.meal && prof.runs === 0) return { x: HIDEOUT.people.duwu.x, z: HIDEOUT.people.duwu.z, text: '据点指引 · 去找南边【杜五】领开局干粮', col: '#ffcf88', isExit: false };
-    if (hasAffordable(prof, 'forge')) return { x: HIDEOUT.people.fengtiebi.x, z: HIDEOUT.people.fengtiebi.z, text: '据点指引 · 去找【冯铁臂】锻刀强化', col: '#ffd868', isExit: false };
-    if (hasAffordable(prof, 'medic')) return { x: HIDEOUT.people.sunao.x, z: HIDEOUT.people.sunao.z, text: '据点指引 · 去找【孙媪】药石强化', col: '#8effb8', isExit: false };
-    if (hasMirrorAffordable(prof)) return { x: HIDEOUT.stele.x, z: HIDEOUT.stele.z + 0.6, text: '据点指引 · 去【复仇碑】参悟潜能', col: '#d8c4ff', isExit: false };
-    if (!prof.meal) return { x: HIDEOUT.people.duwu.x, z: HIDEOUT.people.duwu.z, text: '据点指引 · 去找南边【杜五】领开局干粮', col: '#ffcf88', isExit: false };
-    return { x: ex, z: ez, text: '据点指引 · 跨出南院门【出发】开打', col: '#ffe89a', isExit: true };
+    if (!prof.meal && prof.runs === 0) return { x: HIDEOUT.people.duwu.x, z: HIDEOUT.people.duwu.z, isExit: false };
+    if (hasAffordable(prof, 'forge')) return { x: HIDEOUT.people.fengtiebi.x, z: HIDEOUT.people.fengtiebi.z, isExit: false };
+    if (hasAffordable(prof, 'medic')) return { x: HIDEOUT.people.sunao.x, z: HIDEOUT.people.sunao.z, isExit: false };
+    if (hasMirrorAffordable(prof)) return { x: HIDEOUT.stele.x, z: HIDEOUT.stele.z + 0.6, isExit: false };
+    if (!prof.meal) return { x: HIDEOUT.people.duwu.x, z: HIDEOUT.people.duwu.z, isExit: false };
+    return { x: ex, z: ez, isExit: true };
   }
-  /** act-29 / act-118 / act-125: speech bubbles, role tags, interaction key prompts & glowing upgrade beacons in 断碑古窑 */
-  private marks = new Map<string, { g: THREE.Group; bub: THREE.Mesh; ring: THREE.Mesh; k: number }>();
+  /** 3D voxel exclamation mark (!) above actionable NPCs & 复仇碑, clean speech bubble on idle approach, guiding wind toward active objective */
+  private marks = new Map<string, { g: THREE.Group; bub: THREE.Mesh; exc: THREE.Mesh; ring: THREE.Mesh; k: number }>();
   private npcMarks(dt: number, near: string | null) {
     const t = clock.rtime, prof = profile(), h = this.hero;
     const uiClear = !this.noTalk && this.phase !== 'talk' && this.phase !== 'cine' && !this.dialogue.on && !this.cards.on && !this.demo.on && !this.pause.on;
@@ -766,75 +788,99 @@ export class ActShow {
     for (const n of this.npcs) {
       let m = this.marks.get(n.id);
       if (!m) {
-        const g = new THREE.Group(), bub = npcBubble(), ring = new THREE.Mesh(new THREE.RingGeometry(0.5, 0.62, 8, 1, Math.PI / 8).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xf2f4f8, transparent: true, opacity: 0, depthWrite: false }));
-        ring.renderOrder = 3; g.add(bub); this.stage?.root.add(g); this.stage?.root.add(ring); m = { g, bub, ring, k: 0 }; this.marks.set(n.id, m);
+        const g = new THREE.Group(), bub = npcBubble(), exc = npcExclaim(), ring = new THREE.Mesh(new THREE.RingGeometry(0.5, 0.62, 8, 1, Math.PI / 8).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xf2f4f8, transparent: true, opacity: 0, depthWrite: false }));
+        ring.renderOrder = 3; exc.visible = false; g.add(bub, exc); this.stage?.root.add(g); this.stage?.root.add(ring); m = { g, bub, exc, ring, k: 0 }; this.marks.set(n.id, m);
       }
       const on = near === n.id && !this.noTalk, bc = beaconOf(n.id);
       m.k += ((on ? 1 : 0) - m.k) * Math.min(1, dt * 10);
       const top = n.a.height ?? 1.8, pulse = 0.5 + 0.5 * Math.sin(t * 4.5 + n.x);
-      m.g.position.set(n.x, top + 0.45 + Math.sin(t * 2.4 + n.x) * 0.06 + 0.12 * m.k + (bc ? 0.06 * pulse : 0), n.z); m.g.rotation.y = Math.sin(t * 0.9 + n.z) * 0.4;
-      m.bub.scale.setScalar(0.32 * (1 + 0.45 * m.k + (bc ? 0.16 * pulse : 0)));
-      const bm = m.bub.material as THREE.MeshLambertMaterial;
-      bm.emissive.setHex(bc ? bc.hex : 0xffffff); bm.emissiveIntensity = (bc ? 0.45 + 0.35 * pulse : 0.12) + 0.3 * m.k;
-      m.ring.position.set(n.x, 0.04, n.z); const rs = 1 + 0.1 * Math.sin(t * 6); m.ring.scale.set(rs, 1, rs);
+      m.g.position.set(n.x, top + 0.52 + Math.sin(t * 2.8 + n.x) * 0.06 + 0.1 * m.k + (bc ? 0.06 * pulse : 0), n.z);
+      m.g.rotation.y = bc ? t * 1.4 : Math.sin(t * 0.9 + n.z) * 0.35;
+      // Distinct 3D voxel ! when NPC has an active quest/meal/upgrade; subtle white speech bubble only when idle/approached
+      m.exc.visible = !!bc && uiClear;
+      m.bub.visible = !bc && uiClear && (m.k > 0.05 || (h ? Math.hypot(h.pos.x - n.x, h.pos.z - n.z) < 5.5 : false));
+      if (m.exc.visible) {
+        m.exc.scale.setScalar(0.56 * (1 + 0.2 * m.k + 0.1 * pulse));
+        const em = m.exc.material as THREE.MeshLambertMaterial;
+        em.emissive.setHex(bc!.hex); em.emissiveIntensity = 0.42 + 0.32 * pulse + 0.25 * m.k;
+      }
+      if (m.bub.visible) {
+        m.bub.scale.setScalar(0.30 * (1 + 0.42 * m.k));
+        const bm = m.bub.material as THREE.MeshLambertMaterial;
+        bm.emissive.setHex(0xffffff); bm.emissiveIntensity = 0.12 + 0.28 * m.k;
+      }
+      m.ring.position.set(n.x, 0.04, n.z); const rs = 1 + 0.08 * Math.sin(t * 5); m.ring.scale.set(rs, 1, rs);
       const rm = m.ring.material as THREE.MeshBasicMaterial;
-      rm.color.setHex(bc ? bc.hex : 0xf2f4f8); rm.opacity = Math.max(0.75 * m.k, bc ? 0.38 + 0.25 * pulse : 0);
+      rm.color.setHex(bc ? bc.hex : 0xf2f4f8); rm.opacity = Math.max(0.7 * m.k, bc ? 0.26 + 0.18 * pulse : 0);
       const dHero = h ? Math.hypot(h.pos.x - n.x, h.pos.z - n.z) : 99;
-      if (uiClear && near !== n.id && (bc || dHero < 6.8)) {
-        const p = worldToUi(V3(n.x, top + 0.96, n.z));
+      if (uiClear && near !== n.id && dHero < 6.4) {
+        const p = worldToUi(V3(n.x, top + 1.05, n.z));
         const baseName = HIDEOUT_PEOPLE[n.id as keyof typeof HIDEOUT_PEOPLE]?.name ?? '';
         const txt = bc ? msg`${baseName} · ${bc.text}` : msg`${baseName} · ${roleOf[n.id] ?? ''}`;
         this.L.text.set('act.beacon.' + n.id, { text: txt, x: p.x, y: p.y, bodyPx: Math.max(12, Math.round(13.5 * Math.min(1.2, this.L.h / 720))), color: bc ? bc.col : '#dcd2be', outline: '#140c0a', align: 'center', visible: p.z < 1 });
       } else this.L.text.hide('act.beacon.' + n.id);
     }
-    // 复仇碑 beacon (Hades Mirror of Night-style 碑铭潜能)
+    // 复仇碑 3D ! marker & proximity label
     if (this.stele && HIDEOUT.stele) {
       const bc = beaconOf('stele'), dStele = h ? Math.hypot(h.pos.x - HIDEOUT.stele.x, h.pos.z - HIDEOUT.stele.z) : 99;
-      if (uiClear && near !== 'stele' && (bc || dStele < 6.2)) {
-        const p = worldToUi(V3(HIDEOUT.stele.x, 1.95, HIDEOUT.stele.z + 0.35));
+      if (bc && uiClear) {
+        if (!this.steleExclaim) {
+          const g = new THREE.Group(), exc = npcExclaim();
+          g.add(exc); this.stage?.root.add(g); this.steleExclaim = g;
+        }
+        const pulse = 0.5 + 0.5 * Math.sin(t * 4.5);
+        this.steleExclaim.visible = true;
+        this.steleExclaim.position.set(HIDEOUT.stele.x, 2.28 + 0.06 * pulse, HIDEOUT.stele.z + 0.35);
+        this.steleExclaim.rotation.y = t * 1.3;
+        const em = (this.steleExclaim.children[0] as THREE.Mesh).material as THREE.MeshLambertMaterial;
+        em.emissive.setHex(bc.hex); em.emissiveIntensity = 0.45 + 0.3 * pulse;
+        this.steleExclaim.children[0].scale.setScalar(0.56 * (1 + 0.1 * pulse));
+      } else if (this.steleExclaim) this.steleExclaim.visible = false;
+      if (uiClear && near !== 'stele' && dStele < 6.0) {
+        const p = worldToUi(V3(HIDEOUT.stele.x, 2.02, HIDEOUT.stele.z + 0.35));
         this.L.text.set('act.beacon.stele', { text: bc ? msg`复仇碑 · ${bc.text}` : '复仇碑 · 潜能', x: p.x, y: p.y, bodyPx: Math.max(12, Math.round(13.5 * Math.min(1.2, this.L.h / 720))), color: bc ? bc.col : '#ccc2dc', outline: '#140c0a', align: 'center', visible: p.z < 1 });
       } else this.L.text.hide('act.beacon.stele');
-    } else this.L.text.hide('act.beacon.stele');
+    } else {
+      if (this.steleExclaim) this.steleExclaim.visible = false;
+      this.L.text.hide('act.beacon.stele');
+    }
     const nn = near ? this.npcs.find(x => x.id === near) : null;
     if (near === 'stele' && uiClear && HIDEOUT.stele) {
-      const p = worldToUi(V3(HIDEOUT.stele.x, 1.95, HIDEOUT.stele.z + 0.35));
+      const p = worldToUi(V3(HIDEOUT.stele.x, 2.02, HIDEOUT.stele.z + 0.35));
       this.L.text.set('act.npc', { text: msg`复仇碑 · 潜能 ${talkKey}`, x: p.x, y: p.y, bodyPx: Math.max(13, Math.round(15 * Math.min(1.2, this.L.h / 720))), color: '#e2d0ff', outline: '#140c0a', align: 'center' });
     } else if (nn && uiClear) {
-      const p = worldToUi(V3(nn.x, (nn.a.height ?? 1.8) + 1.0, nn.z));
+      const p = worldToUi(V3(nn.x, (nn.a.height ?? 1.8) + 1.05, nn.z));
       const bc = beaconOf(nn.id);
       const baseName = HIDEOUT_PEOPLE[nn.id as keyof typeof HIDEOUT_PEOPLE]?.name ?? '';
       const role = bc ? bc.text : (roleOf[nn.id] ?? '');
       this.L.text.set('act.npc', { text: role ? msg`${baseName} · ${role} ${talkKey}` : msg`${baseName} ${talkKey}`, x: p.x, y: p.y, bodyPx: Math.max(13, Math.round(15 * Math.min(1.2, this.L.h / 720))), color: bc ? bc.col : '#ffe6b0', outline: '#140c0a', align: 'center' });
     } else this.L.text.hide('act.npc');
-    // act-125: persistent hideout objective guidance + 3D floor compass arrow + glowing south exit threshold
+    // Environmental Ghost-of-Tsushima guiding wind (leaves.gust) toward the active hideout objective — zero crude arrows or top bars!
+    this.L.text.hide('act.yard.guide');
     if (this.phase === 'yard' && uiClear && h) {
       const obj = this.hideoutObjective();
-      const dpr = this.L.dpr || 1, kk = Math.min(1.2, Math.max(0.75, this.L.h / 720));
-      const pk = Math.max(1, Math.round(Math.max(14, 16 * kk) * dpr / PIX_H));
-      if (this.banner.bottomY <= 0) this.L.text.set('act.yard.guide', { text: obj.text, x: this.L.w * 0.5, y: 24 * kk, pix: pk, color: obj.col, outline: '#140c0a', align: 'center', visible: true });
-      else this.L.text.hide('act.yard.guide');
       const dx = obj.x - h.pos.x, dz = obj.z - h.pos.z, dist = Math.hypot(dx, dz);
-      const arr = this.yardArrow ?? this.makeYardArrow();
-      if (dist > 2.3) {
-        const ang = Math.atan2(dx, dz), r = 1.15 + 0.1 * Math.sin(t * 6);
-        arr.visible = true;
-        arr.position.set(h.pos.x + Math.sin(ang) * r, 0.12, h.pos.z + Math.cos(ang) * r);
-        arr.rotation.y = ang;
-      } else arr.visible = false;
-      // Glowing south gate threshold ring & floating 出发 · 开打 label
+      if (dist > 2.6 && this.leaves) {
+        this.yardGustT -= dt;
+        if (this.yardGustT <= 0) {
+          this.yardGustT = 3.4;
+          this.leaves.gust(h.pos.x, h.pos.z, obj.x, obj.z);
+          cue('exitChime', 0.16);
+        }
+      }
+      // Subtle south gate threshold ring
       const ex = (HIDEOUT.exit.x0 + HIDEOUT.exit.x1) / 2, ez = HIDEOUT.exit.z - 0.15;
       if (!this.exitRing) {
-        this.exitRing = new THREE.Mesh(new THREE.RingGeometry(0.95, 1.18, 24).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffd868, transparent: true, opacity: 0.45, depthWrite: false, blending: THREE.AdditiveBlending }));
+        this.exitRing = new THREE.Mesh(new THREE.RingGeometry(0.95, 1.16, 24).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffd868, transparent: true, opacity: 0.35, depthWrite: false, blending: THREE.AdditiveBlending }));
         this.exitRing.position.set(ex, 0.06, ez); this.exitRing.renderOrder = 4; this.stage?.root.add(this.exitRing);
       }
-      const ep = 0.5 + 0.5 * Math.sin(t * 4.5);
-      this.exitRing.visible = true; this.exitRing.scale.setScalar(0.95 + 0.08 * ep);
-      (this.exitRing.material as THREE.MeshBasicMaterial).opacity = obj.isExit ? 0.45 + 0.35 * ep : 0.18 + 0.1 * ep;
-      const gp = worldToUi(V3(ex, 1.65, ez));
-      this.L.text.set('act.yard.exit', { text: '出发 · 开打', x: gp.x, y: gp.y, bodyPx: Math.max(12, Math.round(14 * kk)), color: '#ffe898', outline: '#140c0a', align: 'center', visible: gp.z < 1 && obj.isExit });
+      const ep = 0.5 + 0.5 * Math.sin(t * 3.8);
+      this.exitRing.visible = true; this.exitRing.scale.setScalar(0.96 + 0.06 * ep);
+      (this.exitRing.material as THREE.MeshBasicMaterial).opacity = obj.isExit ? 0.32 + 0.24 * ep : 0.12 + 0.08 * ep;
+      const gp = worldToUi(V3(ex, 1.65, ez)), kk = Math.min(1.2, Math.max(0.75, this.L.h / 720));
+      this.L.text.set('act.yard.exit', { text: '出发', x: gp.x, y: gp.y, bodyPx: Math.max(12, Math.round(14 * kk)), color: '#ffe898', outline: '#140c0a', align: 'center', visible: gp.z < 1 && obj.isExit && dist < 8.5 });
     } else {
-      this.L.text.hide('act.yard.guide'); this.L.text.hide('act.yard.exit');
-      if (this.yardArrow) this.yardArrow.visible = false;
+      this.L.text.hide('act.yard.exit');
     }
   }
   /** a word with someone at the hideout; the smith and the healer then show their upgrades; 复仇碑 opens 碑铭潜能 (Mirror of Night) */
@@ -858,7 +904,12 @@ export class ActShow {
         return { boon: { id: 'mr_' + m.id, school: 'mr' as never, name: msg`${m.group} · ${curSide.name}`, desc: [line1, line2], col: st.side === 0 ? '#ffd888' : '#b8a0ff', glyph: m.cur === 'iron' ? ANVIL : NEEDLE, tag: msg`${st.lv}/3级` } as Boon, tier: cost == null ? 2 : st.lv > 0 ? 1 : 0 };
       });
       const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
-      const i = await this.cards.open(cards, { leave: true, header: { title: '复仇碑 · 碑铭潜能', sub: '永久生效 · 点选潜能可升级或免费切换阳/阴两面', col: '#d8c4ff' } });
+      const i = await this.cards.open(cards, {
+        leave: true,
+        header: { title: '复仇碑 · 碑铭潜能', sub: '永久生效 · 点选潜能可升级或免费切换阳/阴两面', col: '#d8c4ff' },
+        wallet: { iron: p.iron, herb: p.herb },
+        footer: '点选潜能强化或切换 · 点左上返回离开',
+      });
       this.phase = was; this.hud.on = true;
       if (i < 0 || i >= MIRROR.length) return;
       const m = MIRROR[i], st = mirrorState(p, m.id), curSide = m.sides[st.side], altSide = m.sides[st.side === 0 ? 1 : 0];
@@ -869,7 +920,12 @@ export class ActShow {
         { boon: { id: 'mr_flip_' + m.id, school: 'mr' as never, name: msg`切换为【${altLbl}】${altSide.name}`, desc: [msg`${altSide.desc}（+${altVal}${altSide.unit}）`, '随时免费切换 · 共享潜能等级'], col: '#c4b0ff', glyph: SCROLL_GLYPH, tag: '免费切换' } as Boon, tier: 1 },
       ];
       this.phase = 'pick'; this.hud.on = false;
-      const act = await this.cards.open(actions, { leave: true, header: { title: msg`${m.group} · 潜能抉择`, sub: '选择升级当前潜能，或免费切换另一面', col: '#d8c4ff' } });
+      const act = await this.cards.open(actions, {
+        leave: true,
+        header: { title: msg`${m.group} · 潜能抉择`, sub: '选择升级当前潜能，或免费切换另一面', col: '#d8c4ff' },
+        wallet: { iron: p.iron, herb: p.herb, focus: m.cur },
+        footer: '点选执行 · 点左上返回上一层',
+      });
       this.phase = was; this.hud.on = true;
       if (act === 0) {
         if (buyMirror(p, m.id)) { saveProfile(); cue('coin', 0.85); this.banner.show(msg`${m.group} · ${curSide.name}`, msg`${mirrorState(p, m.id).lv} 级`, 1.1, '#d8c4ff'); }
@@ -884,9 +940,13 @@ export class ActShow {
     const p = profile(), pick = (a: string[]) => a[Math.floor(Math.random() * a.length)];
     if (p.meal) { await this.talk([{ who: 'duwu', text: pick(MEAL_TALK.packed) }]); return; }
     await this.talk([{ who: 'duwu', text: pick(MEAL_TALK.offer) }]);
-    const cards = MEALS.map(m => ({ boon: { id: 'meal_' + m.id, school: 'ms' as never, name: m.name, desc: [m.desc, ''], col: '#ffd27a', glyph: MEAL_GLYPH[m.id], tag: '' } as Boon, tier: 0 }));
-    const was = this.phase; this.phase = 'pick'; this.hud.on = false;
-    const i = await this.cards.open(cards, { leave: true }); this.phase = was; this.hud.on = true;
+    const cards = MEALS.map(m => ({ boon: { id: 'meal_' + m.id, school: 'ms' as never, name: m.name, desc: [m.desc, '免费携带 · 下一局生效'], col: '#ffd27a', glyph: MEAL_GLYPH[m.id], tag: '免费' } as Boon, tier: 0 }));
+    const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
+    const i = await this.cards.open(cards, {
+      leave: true,
+      header: { title: '杜五 · 行囊干粮', sub: '每次出发前免费挑一份带着上路', col: '#ffd27a' },
+      footer: '点选免费领取 · 点左上返回离开',
+    }); this.phase = was; this.hud.on = true;
     const m = MEALS[i]; if (!m) return;
     p.meal = m.id; saveProfile(); cue('coin', 0.6);
     await this.talk([{ who: 'duwu', text: MEAL_TALK.after[m.id] }]);
@@ -898,13 +958,17 @@ export class ActShow {
     for (;;) {
       const p = profile(), ups = META.filter(u => u.who === who), cur = who === 'forge' ? '残铁' : '药引', have = who === 'forge' ? p.iron : p.herb;
       const glyph = who === 'forge' ? ANVIL : NEEDLE;
-      // (11-20 用户：「npc那里购买强化不明」: each card says what it does, what rank it is at, what the next rank costs against what she
-      //  holds — or that she is short, or that it is full; a purchase she can't afford keeps the page open)
       const cards = ups.map(u => { const lv = level(p, u.id), cost = nextCost(p, u.id), max = u.costs.length;
-        const state = cost == null ? msg`已满级` : have >= cost ? msg`下一级要${cur} ${cost}（有 ${have}）` : msg`${cur}不够：要 ${cost}，只有 ${have}`;
-        return { boon: { id: 'mu_' + u.id, school: (who === 'forge' ? 'fg' : 'md') as never, name: u.name, desc: [u.desc[1], state], col: '#ffd27a', glyph, tag: msg`${lv}/${max}级` } as Boon, tier: cost == null ? 2 : lv > 0 ? 1 : 0 }; });
+        const canAfford = cost != null && have >= cost;
+        const state = cost == null ? '已满级' : canAfford ? msg`点击升级 · 消耗 ${cost} ${cur}` : msg`${cur}不足（需 ${cost}，当前 ${have}）`;
+        return { boon: { id: 'mu_' + u.id, school: (who === 'forge' ? 'fg' : 'md') as never, name: u.name, desc: [u.desc[1], state], col: canAfford ? '#ffd878' : '#a8a096', glyph, tag: cost == null ? '满级' : msg`${lv}/${max}级 · ${cost}${cur}` } as Boon, tier: cost == null ? 2 : canAfford ? 1 : 0 }; });
       const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
-      const i = await this.cards.open(cards, { leave: true, header: { title: who === 'forge' ? '铁炉锻造 · 永久强化' : '药棚行针 · 永久强化', sub: who === 'forge' ? msg`当前百辟残铁：${have}` : msg`当前沸血药引：${have}`, col: who === 'forge' ? '#ffd888' : '#8effb8' } }); this.phase = was; this.hud.on = true;
+      const i = await this.cards.open(cards, {
+        leave: true,
+        header: { title: who === 'forge' ? '铁炉锻造 · 永久强化' : '药棚行针 · 永久强化', col: who === 'forge' ? '#ffd888' : '#8effb8' },
+        wallet: { iron: p.iron, herb: p.herb, focus: who === 'forge' ? 'iron' : 'herb' },
+        footer: '点击卡片直接强化 · 点左上返回离开',
+      }); this.phase = was; this.hud.on = true;
       if (i < 0 || i >= ups.length) return;
       const u = ups[i];
       if (nextCost(p, u.id) == null) continue;
@@ -1359,7 +1423,7 @@ export class ActShow {
   private labOn = false; private labCmp: BattleActor | null = null; private labDummy: Foe | null = null; private labHome: () => void = () => {};
   lab() {
     this.labOn = true;
-    const fine = HEROES.find(d => d.id === 'fine_white'); if (fine) this.wearing = fine;
+    const fine = HEROES.find(d => d.id === DEFAULT_HERO); if (fine) this.wearing = fine;
     this.enterYard(); this.banner.hide();
     // the open middle of the yard (the 试剑坪's posts got in front of every camera), her own dummy 1.4 m ahead
     const HOME = { x: 0.9, z: 0.9, yaw: Math.PI };
@@ -1513,9 +1577,16 @@ export class ActShow {
   }
   /** put on another costume (the rack, or __dh.wear) and remember it */
   private wear(d: ModelDef) {
-    this.wearing = d; try { localStorage.setItem('act.hero6', d.id); } catch { /* storage blocked */ }
+    this.wearing = d; try { localStorage.setItem('act.hero7', d.id); } catch { /* storage blocked */ }
     if (this.hud.flask instanceof IronHp) this.hud.flask.setFace(d.id); else HP_FACE.id = d.id;
-    if (this.hero) this.hero.setModel(d);
+    if (this.hero) { this.hero.setModel(d); this.syncHeroHat(); }
+  }
+  /** Conical bamboo hat comes OFF while healing/resting in the kiln (PRO_WAKE & hideout yard), and goes cleanly BACK ON when departing or fighting */
+  private syncHeroHat() {
+    const hat = this.hero?.a?.bones?.hat;
+    if (!hat) return;
+    const resting = !this.labOn && (this.phase === 'yard' || (this.room < 0 && (this.phase === 'talk' || this.phase === 'pick')));
+    hat.visible = !resting;
   }
   private dropAhead(keep?: AheadRoom) {
     for (const job of this.ahead) {
@@ -1565,7 +1636,8 @@ export class ActShow {
   private *roomSteps(first: boolean): Generator<void | Promise<void>, void> {
     blood.clear();
     slashArc.clear();
-    this.splitK = 0; GRADE.split = 0;
+    this.cancelQte();
+    this.splitK = 0; GRADE.split = 0; GRADE.bloodVig = 0;
     this.cuiInspect.stop(); this.talkTick = null;
     if (this.allyGen) { this.allyGen.dispose(); this.allyGen = null; }
     this.duelGen = null;
@@ -1677,10 +1749,12 @@ export class ActShow {
     // fallen leaves on the floor, a few drifting down (act-19); none in winter or in the rain (11-18: on the shape's floor only)
     const lg = this.grid;
     this.leaves = new Leaves(spec.weather === 'rain' || spec.weather === 'snow' || LOCALES[spec.locale]?.noLeaves ? 'winter' : spec.season, { rest: big ? 100 : 40, fall: big ? 1.4 : 0.8, where: lg ? (x, z) => lg.at(x, z) === FLOOR || !(x > PLAY.x0 && x < PLAY.x1 && z > PLAY.z0 && z < PLAY.z1) && lg.at(x, z) !== PIT : undefined });
-    // (11-18 屋子形态: a shaped room has its own way in — the 曲尺's front corner is walled off, the 窄巷's lane is off the middle)
-    const ent = this.arena?.shape?.enter[0] ?? 0, entZ = this.arena?.shape?.fixed ? this.arena.shape.enter[1] : SZ(5.0);   // (a drawn room: its S)
+    // (11-18 屋子形态: a shaped room has its own way in; PRO_BOSS in cx_court starts further forward clear of the south gatehouse beam!)
+    const ent = this.arena?.shape?.enter[0] ?? 0;
+    const entZ = this.arena?.shape?.fixed ? this.arena.shape.enter[1] : (this.prologue === 2 || spec.locale === 'cx_court') ? SZ(1.6) : SZ(5.0);
     yield;
     this.hero = new Hero(isYard ? V3(HIDEOUT.spawn[0], 0, HIDEOUT.spawn[1]) : V3(ent, 0, entZ), this.wearing); this.hero.moves = isYard || this.dbgAllMoves ? ALL_MOVES : this.perks.moves; this.hero.perks = this.perks; this.hero.hp = Math.min(hp, maxHp); this.hero.maxHp = maxHp;   // (act-40 用户：「开局第一场战斗默认给主角解锁所有技能」) (11-18: this comment used to sit before the perks / hp assignments and swallowed them — the hero's own boons never applied and her HP reset each room)
+    this.syncHeroHat();
     // (11-20: a new place starts still — a stick / key still held from the last one counts only once let go)
     this.inp.latch();
     this.hero.qi = isYard ? Hero.QI_MAX : Math.min(Hero.QI_MAX, Math.max(qi, TUNE.qiStart + (this.mods.startIntent > 0 ? 0.5 : 0)));   // (11-17 气: carried on; 出鞘杀气 also grants +0.5 starting qi)
@@ -1911,17 +1985,25 @@ export class ActShow {
       return f;
     }
     if (way) this.entering.push({ f, from: way.from, to: way.to, wall: way.wall, t: 0, dur: way.dur });
-    else { fxSmoke(p.clone().add(V3(0, 0.3, 0)), 0x6a6a74, bs ? 14 : 8, { r: 0.7, spd: 1.2, up: 0.6, s: 0.4, life: 0.7 }); fxRing(p.clone().setY(0.05), 0xff7a4a, 1.2, { life: 0.4 } as never); }
-    cue(bs ? 'roar' : way ? 'foeCry' : 'summon', bs ? 0.9 : way ? 0.25 : 0.4);
-    if (bs && !deferredBoss && EDEFS[ko.kind].intro) { this.bossLookT = 3.2; f.a.roar(); shake(0.3 * TUNE.shake); this.banner.show(EDEFS[ko.kind].name, EDEFS[ko.kind].tag ?? '', 2.2, '#ff8a6a'); after(0.9, () => { if (f.st !== 'dead') this.barks?.say(() => f.a.head(), EDEFS[ko.kind].intro!); }); }
-    else if (bs && !deferredBoss) { f.a.roar(); shake(0.3 * TUNE.shake); this.banner.show(EDEFS[ko.kind].name, EDEFS[ko.kind].tag ?? '', 1.6, '#ff8a6a'); }
-    // act-125: first-time non-intrusive poise tip when player first encounters a golden poise bar in a real run
-    if (!this.prologue && this.phase === 'fight' && f.d.poise > 0 && seeOnce('tip_poise')) {
-      saveProfile(); this.showTip('金色架势条：破势或重击可破防！', '#ffe696', 3.4);
-    }
+    else { fxSmoke(p.clone().add(V3(0, 0.3, 0)), 0x6a6a74, bs ? 14 : 8, { r: 0.7, spd: 1.2, up: 0.6, s: 0.4, life: 0.7 }); fxRing(p.clone().setY(0.05), bs && ko.kind === 'cx_boss' ? 0xe0e8f4 : 0xff7a4a, 1.2, { life: 0.4 } as never); }
+    if (bs) this.bossEnterSound(ko.kind);
+    else cue(way ? 'foeCry' : 'summon', way ? 0.25 : 0.4);
+    if (bs && !deferredBoss && EDEFS[ko.kind].intro) { this.bossLookT = 3.2; this.bossEnterPose(f); shake(0.24 * TUNE.shake); this.banner.show(EDEFS[ko.kind].name, EDEFS[ko.kind].tag ?? '', 2.2, '#ff8a6a'); after(0.9, () => { if (f.st !== 'dead') this.barks?.say(() => f.a.head(), EDEFS[ko.kind].intro!); }); }
+    else if (bs && !deferredBoss) { this.bossEnterPose(f); shake(0.24 * TUNE.shake); this.banner.show(EDEFS[ko.kind].name, EDEFS[ko.kind].tag ?? '', 1.6, '#ff8a6a'); }
     return f;
   }
-  /** act-125: physical sky-slam entrance choreography for bosses (ground vortex buildup -> high plunge -> landing shockwave & roar) */
+  /** Per-boss signature entrance audio (Cui Xuan gets howling snow wind + blade chorus, NEVER a beast roar!) */
+  private bossEnterSound(kind: EKind) {
+    if (kind === 'cx_boss') { cue('snowWind', 0.95); cue('bladeChorus', 0.72); }
+    else if (kind === 'xp_boss') { cue('freeze', 0.8); cue('needleZing', 0.78); }
+    else if (kind === 'wl_boss') { cue('warHorn', 0.82); cue('fire', 0.65); }
+    else cue('roar', 0.88);
+  }
+  private bossEnterPose(f: Foe) {
+    if (f.kind === 'cx_boss' || f.kind === 'xp_boss' || f.kind === 'wl_boss') f.a.play(new Action('cast', 0.9, 0.45));
+    else f.a.roar();
+  }
+  /** act-125: physical sky-slam entrance choreography for bosses (ground vortex buildup -> high plunge -> landing shockwave & signature audio) */
   private bossDrops: Array<{ f: Foe; at: THREE.Vector3; t: number; ring: THREE.Mesh; deferred: boolean; onLand: (() => void) | null }> = [];
   private clearBossDrops() { for (const d of this.bossDrops) { d.ring.parent?.remove(d.ring); d.ring.geometry.dispose(); (d.ring.material as THREE.Material).dispose(); } this.bossDrops.length = 0; }
   private bossDropStep(dt: number) {
@@ -1937,7 +2019,7 @@ export class ActShow {
         f.a.root.visible = false;
         d.ring.scale.setScalar(1.35 - 0.55 * k);
         rm.opacity = 0.35 + 0.55 * k;
-        if (Math.random() < dt * 26) fxEmbers(d.at.clone().add(V3((Math.random() - 0.5) * 2.2, 0.12, (Math.random() - 0.5) * 2.2)), 0xff8a3a, 1, { r: 0.2, up: 2.2, life: 0.45 });
+        if (Math.random() < dt * 26) fxEmbers(d.at.clone().add(V3((Math.random() - 0.5) * 2.2, 0.12, (Math.random() - 0.5) * 2.2)), f.kind === 'cx_boss' ? 0xdce8ff : 0xff8a3a, 1, { r: 0.2, up: 2.2, life: 0.45 });
       } else if (d.t < TOTAL) {
         const k = (d.t - WARN) / DROP;
         f.a.root.visible = true;
@@ -1946,20 +2028,28 @@ export class ActShow {
         f.yaw = Math.atan2(this.hero.pos.x - d.at.x, this.hero.pos.z - d.at.z); f.a.yaw = f.yaw;
         d.ring.scale.setScalar(0.8 + 0.4 * k); rm.opacity = 0.9;
       } else {
-        // Thunderous landing!
+        // Poised snow-wind arrival for Cui Xuan vs thunderous heavy landing for brute bosses
         f.a.root.visible = true;
         f.pos.set(d.at.x, 0, d.at.z); f.a.root.position.copy(f.pos); f.inv = 0.2; f.cd = 0.7;
         d.ring.parent?.remove(d.ring); d.ring.geometry.dispose(); rm.dispose();
         this.bossDrops.splice(i, 1);
-        cue('pillarFall', 0.9); cue('boom', 0.65); cue('roar', 0.9);
-        shake(0.48 * TUNE.shake); this.camPunch(0.06);
-        fxShock(d.at.clone().setY(0.08), 0xff9a4a, 3.6, { life: 0.45 });
-        fxRing(d.at.clone().setY(0.1), 0xffe2a0, 4.2, { life: 0.5 } as never);
-        fxSmoke(d.at.clone().setY(0.4), 0x7a6a5a, 16, { r: 1.4, spd: 2.8, up: 1.0, s: 0.55, life: 0.85 });
-        fxSparks(d.at.clone().setY(0.35), 0xffd078, 22, 6.5);
+        if (f.kind === 'cx_boss') {
+          cue('snowWind', 0.95); cue('bladeChorus', 0.8); cue('land', 0.7);
+          shake(0.24 * TUNE.shake); this.camPunch(0.04);
+          fxRing(d.at.clone().setY(0.1), 0xe6f0ff, 3.8, { life: 0.55 } as never);
+          fxSmoke(d.at.clone().setY(0.35), 0xdce6f4, 14, { r: 1.4, spd: 2.4, up: 0.8, s: 0.5, life: 0.8 });
+          fxSparks(d.at.clone().setY(0.4), 0xfff0c0, 16, 5.2);
+        } else {
+          cue('pillarFall', 0.9); cue('boom', 0.65); this.bossEnterSound(f.kind);
+          shake(0.48 * TUNE.shake); this.camPunch(0.06);
+          fxShock(d.at.clone().setY(0.08), 0xff9a4a, 3.6, { life: 0.45 });
+          fxRing(d.at.clone().setY(0.1), 0xffe2a0, 4.2, { life: 0.5 } as never);
+          fxSmoke(d.at.clone().setY(0.4), 0x7a6a5a, 16, { r: 1.4, spd: 2.8, up: 1.0, s: 0.55, life: 0.85 });
+          fxSparks(d.at.clone().setY(0.35), 0xffd078, 22, 6.5);
+        }
         if (d.onLand) d.onLand();
         else if (!d.deferred) {
-          this.bossLookT = 2.6; f.a.roar();
+          this.bossLookT = 2.6; this.bossEnterPose(f);
           this.banner.show(EDEFS[f.kind].name, EDEFS[f.kind].tag ?? '', 2.2, '#ff8a6a');
           if (EDEFS[f.kind].intro) after(0.8, () => { if (f.st !== 'dead') this.barks?.say(() => f.a.head(), EDEFS[f.kind].intro!); });
         }
@@ -2228,7 +2318,7 @@ export class ActShow {
       void (async () => {
         await this.cine(bossIntroShots(this.cineHost, f, name, { prologue: true }));
         await this.talk(PRO_CUIXUAN);
-        f.a.roar(); this.proFightT = 0;
+        this.bossEnterPose(f); this.proFightT = 0;
         afterIntro?.();
       })();
       return true;
@@ -2242,7 +2332,7 @@ export class ActShow {
       if ((f.st as string) === 'dead') return;
       await this.talk(CH_BEFORE[i]);
       if ((f.st as string) === 'dead') return;
-      f.a.roar();
+      this.bossEnterPose(f);
       afterIntro?.();
     })();
     return true;
@@ -2281,7 +2371,6 @@ export class ActShow {
     // 11-18 (用户：「如何释放的教学不能是纯文字哈」): a ghost of her does the move once beside her, the HUD's buttons pressed in step
     await this.demoMove(m.id);
     this.phase = was === 'pick' ? 'pick' : was;
-    if (!this.prologue && seeOnce('tip_manual')) { saveProfile(); this.showTip('新刀谱已习得！留意右下按钮翻面连招', '#ffe696', 3.4); }
   }
   // ------------------------------------------------------------ 11-18: what this run has taken, shown on the HUD; the 刀谱 demonstration
   private demo = new MoveDemo();
@@ -2815,12 +2904,12 @@ export class ActShow {
     if (justBroke) {
       fxChips(p, [0xf2c248, 0xffe896, 0x4b5262], 10, { dir, speed: 5.5, up: 3.6, size: 0.095, glow: 0.8 });
       fxSparks(p, 0xffe48a, 16, 6.2, { hot: true, dir, dirK: 0.7, life: 0.42 });
-      popPix('破', f.a.head().add(V3(0, 0.72, 0)), { color: '#ffe878', h: 0.82, big: true, life: 0.95, rise: 0.85 });
+      popPix('破势', f.a.head().add(V3(0, 0.55, 0)), { tier: 'highlight', color: '#fff4c4', accent: '#ffd258', h: 0.92, life: 1.05 });
       hitstop(0.085 * TUNE.hitstop); shake(0.32 * TUNE.shake);
       this.splitScreen(0.55); this.camPunch(0.055); this.platform.vibrate('heavy');
       this.hero?.gainQi(0.65 * style.qiMul);
       if (this.mods.poiseHeal > 0) this.healHero(this.mods.poiseHeal);
-      if (this.phase === 'fight' || this.phase === 'yard') { if (this.intent >= 3) this.startQte(); else this.addIntent(); }
+      if ((this.phase === 'fight' || this.phase === 'yard') && !this.duel.on) { if (this.intent >= 3) this.startQte(); else this.addIntent(); }
     }
     if (this.prologue === 2 && isBoss(f)) f.hp = Math.max(f.hp, Math.ceil(f.maxHp * 0.2));
     if (fallNow) after(0.25, () => void this.prologueFall());
@@ -2841,14 +2930,14 @@ export class ActShow {
         if (this.duelGen && this.duelGen.f === f) f.hp = Math.max(f.hp, Math.ceil(f.maxHp * 0.72));
         blood.spray(p, dir, 36, 1.45);
         fxChips(p, [0xc82428, 0xff5a4a, 0xffd060], 10, { dir, speed: 5.0, up: 3.2, size: 0.09, glow: 0.85 });
-        popPix('血爆', f.a.head().add(V3(0, 0.88, 0)), { color: '#ff5248', h: 0.78, big: true, life: 0.95, rise: 0.85 });
-        popPix(String(bDmg), f.a.head().add(V3(0.35, 0.48, 0)), { color: '#ff7056', h: 0.64, big: true, life: 0.95, rise: 0.95 });
+        popPix('血爆', f.a.head().add(V3(0, 0.62, 0)), { tier: 'highlight', color: '#ff7064', accent: '#ff3a2c', h: 0.88, life: 1.02 });
+        popPix(String(bDmg), f.a.head().add(V3(0.28, 0.36, 0)), { tier: 'crit', color: '#ff8a70', h: 0.68 });
         cue('bloodBurst', 1); hitstop(0.055 * TUNE.hitstop); shake(0.24 * TUNE.shake); this.splitScreen(0.45);
         if (bloodTier >= 3) { this.healHero(5); if (this.hero) this.hero.counterT = Math.max(this.hero.counterT, 2.0); }
       }
     }
     if (wasBroken && f.kind !== 'dummy' && o.kind !== 'school' && o.kind !== 'dart') cue('bladeRing', 0.46, 1.34 + (o.heavy ? 0.12 : 0));
-    if (executed) { const c = f.a.chest(); trailSeg(c.clone().add(V3(-0.7, 0.55, 0)), c.clone().add(V3(0.7, -0.5, 0)), 0xff3a2a, 0.16, { life: 0.35, bright: 2.8, spark: 0.6 }); trailSeg(c.clone().add(V3(-0.7, -0.5, 0)), c.clone().add(V3(0.7, 0.55, 0)), 0xffe0d0, 0.1, { life: 0.3, bright: 2.6 }); popPix('斩', f.a.head().add(V3(0, 0.75, 0)), { color: '#ff5a4a', h: 0.85, big: true, life: 0.9, rise: 0.8 }); cue('gore', 0.9); this.splitScreen(0.55); }
+    if (executed) { const c = f.a.chest(); trailSeg(c.clone().add(V3(-0.7, 0.55, 0)), c.clone().add(V3(0.7, -0.5, 0)), 0xff3a2a, 0.16, { life: 0.35, bright: 2.8, spark: 0.6 }); trailSeg(c.clone().add(V3(-0.7, -0.5, 0)), c.clone().add(V3(0.7, 0.55, 0)), 0xffe0d0, 0.1, { life: 0.3, bright: 2.6 }); popPix('斩', f.a.head().add(V3(0, 0.6, 0)), { tier: 'highlight', color: '#ff6e5a', accent: '#ff2e22', h: 0.96, life: 1.05 }); cue('gore', 0.9); this.splitScreen(0.55); }
     if (o.kind !== 'school') {
       const groundRing = o.heavy && (o.kind === 'k5' || o.kind === 'plunge' || o.kind === 'acutS' || o.kind === 'rel' || o.kind === 'parry' || o.kind === 'ult');
       const pw = o.kind === 'dart' ? 0.4 : o.kind === 'ultTick' ? 0.35 : (o.heavy || crit) ? 1.2 : 0.72;
@@ -2856,7 +2945,13 @@ export class ActShow {
       f.a.jolt(dir, o.kind === 'dart' || o.kind === 'ultTick' ? 0.35 : o.heavy ? 1.15 : 0.6);
     }
     if (f.kind !== 'dummy' && o.kind !== 'school') { const n = o.kind === 'dart' ? 5 : o.kind === 'ultTick' ? 7 : o.kind === 'rel' ? 42 : o.heavy ? 28 : 16; blood.spray(p, dir, (died ? n + 20 : n) * (executed ? 2 : 1), o.heavy || died ? 1.35 : 1); this.fleshHit = true; }
-    popPix(crit ? `${d}!` : String(d), f.a.head().add(o.kind === 'ultTick' ? V3(R(-0.55, 0.55), R(0.05, 0.6), 0) : V3(R(-0.2, 0.2), 0.35, 0)), { color: crit ? '#ffe858' : wasBroken ? '#ffe870' : o.kind === 'rel' || o.kind === 'ult' ? '#ffe8a0' : o.kind === 'ultTick' ? '#ffd890' : o.heavy ? '#ff8a3a' : d >= 14 ? '#ffd060' : '#fff6e0', h: o.kind === 'rel' || o.kind === 'ult' ? 0.95 : o.kind === 'ultTick' ? 0.42 : (o.heavy || wasBroken || crit) ? 0.72 : 0.5, big: o.heavy || wasBroken || crit, life: o.kind === 'rel' || o.kind === 'ult' ? 1.2 : o.kind === 'ultTick' ? 0.5 : 0.9, rise: 0.9 });
+    {
+      const isBig = o.kind === 'rel' || o.kind === 'ult' || o.kind === 'parry';
+      const isDot = o.kind === 'ultTick' || o.kind === 'dart' || o.kind === 'echo';
+      const popTier = isBig ? 'highlight' : (crit || wasBroken || o.heavy) ? 'crit' : isDot ? 'dot' : 'normal';
+      const popCol = crit ? '#ffe860' : wasBroken ? '#ffec84' : isBig ? '#fff4cc' : o.kind === 'ultTick' ? '#ffd69a' : o.heavy ? '#ffae5a' : isDot ? '#e8d8c4' : '#f6f2e8';
+      popPix(crit ? `${d}!` : String(d), f.a.head().add(V3(0, 0.32, 0)), { tier: popTier, color: popCol, accent: isBig ? '#ffd268' : undefined, h: isBig ? 0.88 : popTier === 'crit' ? 0.68 : isDot ? 0.38 : 0.48 });
+    }
     if (crit && f.kind !== 'dummy') cue('crit', 0.55);
     if (!died && o.heavy && knock >= 1.2 && this.launchable(f) && f.pos.y < 0.05) f.airV = Math.max(f.airV ?? 0, 2.2 + knock * 1.3);
     if (died) this.killFoe(f, from);
@@ -3040,7 +3135,7 @@ export class ActShow {
     fxRing(origin.clone().setY(0.08), 0xe6e4dc, 2.4, { life: 0.5 } as never); fxRing(at.clone().setY(0.9), 0xf4f2ea, 1.2, { life: 0.3 } as never);
     this.spawnDodgeGhost(origin, originYaw);
     fxSparks(h.a.chest(), 0xeeece4, 16, 4.8); h.a.tint(0xe6e4dc, 0.55);
-    popPix('闪', h.a.head().add(V3(0, 0.5, 0)), { color: '#f2f0e8', h: 0.9, big: true, life: 0.9, rise: 1.0 });
+    popPix('闪', h.a.head().add(V3(0, 0.45, 0)), { tier: 'highlight', color: '#f6f4ec', accent: '#dcdad0', h: 0.9, life: 0.95 });
     cue('dodgeOk', 1); this.platform.vibrate('medium');
     h.counterT = TUNE.counterTime; h.dashCd = 0; h.gainQi(0.5);
     if (this.mods.poiseHeal > 0) this.healHero(this.mods.poiseHeal);
@@ -3075,17 +3170,16 @@ export class ActShow {
     }
     this.flashScreen(o.soft ? 0.08 : 0.32, 0xfff4dc);   // (11-18 追步: the second draw only glints — one full flash a draw is enough)
   }
-  /** she has arrived and stands: when foes/targets lie along her path, the world holds its breath (TUNE.iaiBeat), then
-   *  the line opens and everyone on it is cut at once; act-109: empty air whiffs cleanly with zero stillness freeze */
+  /** she has arrived and stands: hold the dramatic stillness beat ONLY on elites / bosses / 见切 counter-draws — plain mobs slice straight through with zero pause! */
   private iaiCut(o: { a: THREE.Vector3; b: THREE.Vector3; r: number; dmg: number; knock: number }) {
     const ab = o.b.clone().sub(o.a).setY(0), L2 = Math.max(1e-4, ab.lengthSq());
-    const hasHit = this.foes.some(f => {
-      if (f.st === 'dead') return false;
+    const hitMajor = this.foes.some(f => {
+      if (f.st === 'dead' || (!f.elite && !isBoss(f))) return false;
       const t = Math.max(0, Math.min(1, f.pos.clone().sub(o.a).setY(0).dot(ab) / L2));
       const qx = o.a.x + ab.x * t, qz = o.a.z + ab.z * t;
       return Math.hypot(f.pos.x - qx, f.pos.z - qz) <= o.r + f.d.r;
     });
-    if (!hasHit || TUNE.iaiBeat <= 0.01) {
+    if ((!hitMajor && !this.hero?.iaiBonus) || TUNE.iaiBeat <= 0.01) {
       this.sweep({ ...o, kind: 'rel' });
       return;
     }
@@ -3139,7 +3233,7 @@ export class ActShow {
     if (hasBoon(this.perks, 'burst')) this.burstOut(h.pos.clone());   // 11-18 秘传 崩劲
     hitstop(0.1 * TUNE.hitstop); slowmo(0.18, 0.3); shake(0.35 * TUNE.shake); this.splitScreen(0.72);
     fxRing(h.pos.clone().setY(0.9), 0xfff2c8, 1.6, { life: 0.35 } as never); fxRing(h.pos.clone().setY(0.08), 0xffd890, 2.6, { life: 0.5 } as never); fxSparks(h.a.chest(), 0xfff2c8, 24, 7);
-    popPix('破', h.a.head().add(V3(0, 0.5, 0)), { color: '#fff0c0', h: 0.95, big: true, life: 0.9, rise: 1.0 });
+    popPix('见切', h.a.head().add(V3(0, 0.48, 0)), { tier: 'highlight', color: '#fff6cc', accent: '#ffd868', h: 0.96, life: 1.05 });
     cue('parry', 1); cue('cutHeavy', 0.9); this.platform.vibrate('heavy'); this.tut.parried();
     if (this.intent >= 3) this.startQte(); else this.addIntent();
   }
@@ -3156,53 +3250,67 @@ export class ActShow {
       this.log.push(`teach ${k} ${t[k]}`);   // (11-19: no half-speed any more — the move is shown in full when it is learnt)
     }
   }
-  /** 杀意 +1 (perfect dodge, a batted arrow, a counter landing, 见切), up to 3; the third flares & wakes 不见刀 */
+  /** 杀意 +1 (perfect dodge, a batted arrow, a counter landing, 见切), up to 3; full intent enters a restrained golden blade-energy state */
   intent = 0; private qiVolley = 0;
-  private tip = { text: '', col: '#ffe8a0', t: 0 };
-  private qiTipCd = 0; private lowBeatT = 0;
-  private showTip(text: string, col = '#ffe8a0', dur = 3.0) { this.tip = { text, col, t: dur }; }
-  private tipStep(rdt: number) {
-    this.qiTipCd = Math.max(0, this.qiTipCd - rdt);
-    if (this.tip.t > 0 && !this.cards.on && !this.dialogue.on && !this.pause.on && this.hud.on) {
-      this.tip.t = Math.max(0, this.tip.t - rdt);
-      const dpr = this.L.dpr || 1, kk = Math.min(1.2, Math.max(0.7, this.L.h / 720));
-      const pk = Math.max(1, Math.round(Math.max(15, 17 * kk) * dpr / PIX_H));
-      this.L.text.set('act.tip', { text: this.tip.text, x: this.L.w * 0.5, y: Math.min(this.L.h - 42 * kk, this.L.h * 0.88), pix: pk, color: this.tip.col, outline: '#140c0a', align: 'center', visible: this.tip.t > 0 });
-    } else {
-      this.L.text.hide('act.tip');
+  private lowBeatT = 0; private lowVigK = 0;
+  private fullAuraT = 0; private fullRing: THREE.Mesh | null = null;
+  private fullAuraStep(rdt: number, h: Hero) {
+    const on = this.intent >= 3 && !this.ultOn && h.alive && (this.phase === 'fight' || this.phase === 'yard');
+    if (on) {
+      if (!this.fullRing) {
+        this.fullRing = new THREE.Mesh(
+          new THREE.RingGeometry(0.46, 0.54, 24).rotateX(-Math.PI / 2),
+          new THREE.MeshBasicMaterial({ color: 0xf4d88c, transparent: true, opacity: 0.22, depthWrite: false, blending: THREE.AdditiveBlending }),
+        );
+        this.fullRing.renderOrder = 3; scene.add(this.fullRing);
+      }
+      const breathe = 0.5 + 0.5 * Math.sin(clock.rtime * 4.2);
+      this.fullRing.visible = true;
+      this.fullRing.position.set(h.pos.x, 0.055, h.pos.z);
+      this.fullRing.scale.setScalar(0.96 + 0.08 * breathe);
+      (this.fullRing.material as THREE.MeshBasicMaterial).opacity = 0.14 + 0.14 * breathe;
+      this.fullAuraT -= rdt;
+      if (this.fullAuraT <= 0) {
+        this.fullAuraT = 0.26;
+        // Restrained single pale-gold wisp drifting upward along her sword / silhouette (distinct energy state, never noisy)
+        const ang = Math.random() * Math.PI * 2;
+        const p = h.pos.clone().add(V3(Math.cos(ang) * 0.34, 0.35 + Math.random() * 0.7, Math.sin(ang) * 0.34));
+        addBlock(p, { size: 0.055, v: V3(Math.cos(ang) * 0.12, 0.85, Math.sin(ang) * 0.12), col: 0xffe6a4, bright: 1.4, life: 0.55, shrink: 0.45, drag: 2, grav: 0 });
+      }
+    } else if (this.fullRing) {
+      this.fullRing.visible = false;
     }
   }
   private addIntent() {
     if (this.intent >= 3) return;
     this.intent++; this.hud.intent = this.intent;
     if (this.intent >= 3) {
-      cue('relic', 0.95); cue('bladeRing', 0.75);
-      fxSparks(this.hero.a.chest(), 0xffd060, 26, 5.5);
-      fxRing(this.hero.pos.clone().setY(0.08), 0xffc850, 2.0, { life: 0.5 } as never);
-      const dev = this.inp.lastDevice;
-      const hint = dev === 'key' ? msg`按 ${actKey('ult')} 施展「不见刀」` : dev === 'pad' ? msg`按 ${actPad('ult')} 施展「不见刀」` : '点右下「不见刀」施展绝杀';
-      if (!this.prologue) {
-        this.feed.push('boon', () => '杀气已满 · 不见刀就绪', 0);
-        this.showTip(hint, '#fff2b0', seeOnce('tip_ult') ? (saveProfile(), 4.2) : 2.6);
-      }
+      cue('bladeRing', 0.72);
+      fxRing(this.hero.pos.clone().setY(0.08), 0xffe098, 1.55, { life: 0.4 } as never);
     }
   }
-  /** 绝 · 一刀 QTE (act-115 / act-125): full intent lets player cast 不见刀 anytime, AND perfect dodge/parry/poise-break still pops a generous 1.45s slowmo ring! */
+  /** 绝 · 一刀 QTE (original QTE form, deadlock-proofed): pops out during slowmo QTE when 3 bars are full and player lands dodge/parry/poise-break/clash */
   private qteT = -1; private ultOn = false; private qteW!: THREE.Mesh; private qteWin = false;
+  private cancelQte() {
+    if (this.qteT >= 0 && FX.slowmo > 0 && FX.slowmoScale <= 0.1) FX.slowmo = 0;
+    this.qteT = -1; this.qteWin = false;
+    this.hud?.qte(null);
+    if (this.qteW) this.qteW.visible = false;
+  }
   private startQte() {
-    if (this.qteT >= 0 || this.ultOn) return;
+    if (this.qteT >= 0 || this.ultOn || this.proFalling || this.duel.on || this.cards.on || this.dialogue.on || this.timeline.on) return;
+    if (this.phase !== 'fight' && this.phase !== 'yard') return;
+    if (!this.hero?.alive) return;
     this.qteT = 0; this.qteWin = true; slowmo(TUNE.qteTime * 1.3 + 0.25, 0.05); cue('timeSlow', 1);
     cue('bladeRing', 0.85); this.platform.vibrate('light');
   }
   private qteFrame(rdt: number) {
-    this.hud.ultReady = !this.prologue && !this.ultOn && this.intent >= 3 && (this.phase === 'fight' || this.phase === 'yard');
     if (this.qteT < 0) {
       this.hud.qte(null); this.qteW.visible = false;
-      // act-125: when 3 bars of 杀气 are full, pressing 不见刀 (I / RT / touch button) fires immediately!
-      if (this.hud.ultReady && this.inp.b.ult.pressed && !this.cards.on && !this.duel.locks && !this.demo.on && !this.dialogue.on) {
-        this.inp.b.ult.pressed = false;
-        void this.ult();
-      }
+      return;
+    }
+    if (this.ultOn || this.proFalling || this.cards.on || this.dialogue.on || this.timeline.on || !this.hero?.alive || (this.phase !== 'fight' && this.phase !== 'yard')) {
+      this.cancelQte();
       return;
     }
     this.qteT += rdt;
@@ -3211,19 +3319,20 @@ export class ActShow {
     this.hud.qteDt = rdt; this.hud.qte(Math.min(1, k), urgent);
     this.qteW.visible = true; this.qteW.position.set(h.pos.x, 0.07, h.pos.z); this.qteW.scale.setScalar((0.9 + 2.6 * Math.max(0, 1 - k)) * (urgent ? 1.06 : 1));
     (this.qteW.material as THREE.MeshBasicMaterial).color.setHex(urgent ? 0xfff8dc : 0xffdc78);
-    // act-115: pressing 不见刀 at ANY time while the ring is closing triggers 不见刀 (never fails for pressing early)
+    // Pressing 不见刀 at any time during the QTE ring triggers 不见刀 cleanly
     const pressed = this.inp.b.ult.pressed;
     if (pressed) this.inp.b.ult.pressed = false;
     if (pressed && this.qteWin) { this.qteT = -1; this.hud.qte(null); this.qteW.visible = false; void this.ult(); }
-    else if (k > 1.25) { this.qteT = -1; this.hud.qte(null); this.qteW.visible = false; FX.slowmo = 0; cue('click', 0.5); }
+    else if (k > 1.25) { this.cancelQte(); cue('click', 0.5); }
   }
   /** 一刀: the hero flashes between every foe nearby (up to seven, nearest first along the way), then sheathes — everyone cut at once */
   private async ult() {
-    if (this.proFalling) return;
-    const h = this.hero; this.ultOn = true; this.intent = 0; this.hud.intent = 0; FX.slowmo = 0; FX.hitstop = 0;
+    if (this.ultOn || this.proFalling || !this.hero?.alive) { FX.slowmo = 0; return; }
+    const h = this.hero; this.ultOn = true; this.intent = 0; this.hud.intent = 0; FX.slowmo = 0; FX.hitstop = 0; FX.hold = 1;
     const G0 = { vig: GRADE.vig, desat: GRADE.desat, exp: GRADE.exposure };
     const restoreGrade = () => { GRADE.vig = G0.vig; GRADE.desat = G0.desat; GRADE.exposure = G0.exp; };
-    const aborted = () => this.proFalling || this.hero !== h || this.phase === 'cine' || this.phase === 'talk';
+    const aborted = () => this.proFalling || this.hero !== h || !h.alive || this.phase === 'cine' || this.phase === 'talk' || this.phase === 'dead' || this.phase === 'leaving' || this.phase === 'title' || this.phase === 'opening';
+    let finishedOk = false;
     try {
     h.forceFree(); h.inv = 6;
     const left = this.foes.filter(f => f.st !== 'dead' && f.pos.distanceTo(h.pos) < 11), targets: Foe[] = [];
@@ -3307,10 +3416,12 @@ export class ActShow {
     fxRing(C.clone().setY(0.08), 0xfff0c0, R + 1.5, { life: 0.7 } as never); fxRing(C.clone().setY(0.9), 0xffffff, R, { life: 0.4 } as never);
     cue('ultSlash', 1.2); cue('hitIai', 1, 1); cue('boom', 0.6); this.platform.vibrate('heavy');
     await waitReal(0.25);
+    finishedOk = true;
     anim(0.6, k => ink(1 - k), restoreGrade, { real: true });
     if (!this.proFalling) h.inv = 0.5;
     } finally {
       this.ultOn = false; h.a.body.visible = true; h.a.root.visible = true;
+      if (!finishedOk) { restoreGrade(); FX.slowmo = 0; FX.hitstop = 0; }
     }
   }
   /** a batted arrow strikes a foe */
@@ -3448,7 +3559,7 @@ export class ActShow {
     // where it came from: a red arc at the feet facing the attacker
     this.hitArcs.show(this.hero.pos, from);
     this.hud.flask.hit(dmg, { hp: this.hero.hp, maxHp: this.hero.maxHp });
-    popPix(`-${dmg}`, this.hero.a.head().add(V3(0, 0.3, 0)), { color: '#ff5a4a', h: 0.5, life: 0.8 });
+    popPix(`-${dmg}`, this.hero.a.head().add(V3(0, 0.3, 0)), { tier: 'dot', color: '#ff5a4a', h: 0.48, life: 0.8 });
     fxSparks(this.hero.a.chest(), 0xff4a3a, 12, 4); this.hero.a.tint(0xff3020, 0.9);
     { const away = this.hero.pos.clone().sub(from).setY(0); if (away.lengthSq() < 1e-4) away.set(0, 0, 1); blood.spray(this.hero.a.chest(), away.normalize(), 7, 0.8); }
     hitstop(0.07 * TUNE.hitstop); shake(0.42 * TUNE.shake); this.splitScreen(0.5); cue('hurt', 0.9); this.platform.vibrate('heavy');
@@ -3457,6 +3568,7 @@ export class ActShow {
   // ------------------------------------------------------------ clear → pick → doors → leave
   private async roomClear() {
     if (this.phase !== 'fight') return;
+    this.cancelQte();
     // (act-50 用户：「我听线上版获胜和失败的声音还是老版的」: the clear was still the act-19 jingle — the user's win sound now, whole;
     //  it fades as she walks out of the room (or when a new piece of music starts))
     this.phase = 'pick'; this.queueAhead(false); cue('stingWin', 1); audio.duckMusic(0.35, 3.2);
@@ -3688,6 +3800,7 @@ export class ActShow {
     }); });
   }
   private dead() {
+    this.cancelQte(); GRADE.bloodVig = 0;
     this.phase = 'dead'; this.justDied = true; this.bankRun(false); audio.stopMusic(1.4); cue('stingLose', 1); slowmo(1.2, 0.3); this.banner.show('败北', '', 1.6, '#ff6a5a');
     // (act-50: the user's lose sound opens on a second of near silence and lands its heavy blow at 2–3 s — the card waits for it)
     after(2.8, async () => {
@@ -3970,6 +4083,8 @@ export class ActShow {
     // (act-26: once a conversation ends the phase moves on at once — the portraits still have to slide out, so keep driving them)
     if (this.phase !== 'cine' && this.phase !== 'talk') { this.dialogue.update(rdt); this.timeline.update(rdt); }   // (act-36: the letterbox slides back out)
     if (this.phase === 'cine' || this.phase === 'talk') {
+      this.cancelQte(); GRADE.bloodVig = 0; this.syncHeroHat();
+      if (this.fullRing) this.fullRing.visible = false;
       this.timeline.update(rdt); this.dialogue.update(rdt);
       // the bot reads fast: a line every 0.6 s (cutscenes play out)
       if (this.botOn && this.dialogue.on && (this.botTalkT += rdt) > 0.6) { this.botTalkT = 0; this.dialogue.advance(); }
@@ -4057,7 +4172,7 @@ export class ActShow {
       }
       const E = HIDEOUT.exit;
       if (h.pos.z > E.z && h.pos.x > E.x0 - 0.2 && h.pos.x < E.x1 + 0.2) {
-        this.phase = 'leaving'; WIPE.look = 'bamboo'; h.vel.set(0, 0, TUNE.heroSpeed * 0.8);
+        this.phase = 'leaving'; this.syncHeroHat(); WIPE.look = 'bamboo'; h.vel.set(0, 0, TUNE.heroSpeed * 0.8);
         after(0.35, () => { void wipeTransit(() => this.startRun()); });
       }
     }
@@ -4258,18 +4373,24 @@ export class ActShow {
     // 11-17 气: the yard (试剑坪) fills it back by itself (practise 破势 without building it first)
     if (this.phase === 'yard' && h.st !== 'charge') h.qi = Math.min(Hero.QI_MAX, h.qi + rdt * 1.5);
     this.hud.setQi(h.qi, Hero.QI_MAX, h.st === 'charge');
-    if (h.qiDenied) {
-      h.qiDenied = false; this.hud.denyAttack();
-      if (!this.prologue && this.qiTipCd <= 0 && profile().runs < 2) {
-        this.qiTipCd = 10; this.showTip('气不足！先平砍积气，满一格再长按藏锋', '#ffd898', 3.0);
-      }
-    }
-    // act-125: subtle low-HP heartbeat cue during active combat so danger is audible as well as visible
-    if (this.phase === 'fight' && h.alive && h.hp / Math.max(1, h.maxHp) <= 0.3) {
+    this.syncHeroHat();
+    this.fullAuraStep(rdt, h);
+    if (h.qiDenied) { h.qiDenied = false; this.hud.denyAttack(); }
+    // Cinema-grade soft radial crimson shader vignette (GRADE.bloodVig) + subtle heartbeat pulse at <= 30% HP
+    const lowNow = this.phase === 'fight' && h.alive && h.hp / Math.max(1, h.maxHp) <= 0.3 && !this.cards.on && !this.pause.on;
+    if (lowNow) {
       this.lowBeatT -= rdt;
       if (this.lowBeatT <= 0) { this.lowBeatT = 1.15; cue('land', 0.22); }
-    } else this.lowBeatT = 0;
-    this.tipStep(rdt);
+      const beat = Math.pow(0.5 + 0.5 * Math.sin(clock.rtime * 6.2), 2);
+      const wantVig = 0.42 + 0.34 * beat;
+      this.lowVigK += (wantVig - this.lowVigK) * Math.min(1, rdt * 6);
+    } else {
+      this.lowBeatT = 0;
+      this.lowVigK += (0 - this.lowVigK) * Math.min(1, rdt * 7);
+      if (this.lowVigK < 0.005) this.lowVigK = 0;
+    }
+    GRADE.bloodVig = this.lowVigK;
+    this.L.text.hide('act.tip');
     if (h.exhaled) { h.exhaled = false; const at = h.a.head().add(h.a.fwd().multiplyScalar(0.25)); fxSmoke(at, 0xe6eef2, 12, { r: 0.12, spd: 1.7, up: 0.6, s: 0.24, life: 0.8 }); fxRing(h.pos.clone().setY(0.06), 0xb8a888, 0.9, { life: 0.3 } as never); }
     // the move links open right now, shown on the buttons (act-18): 追影 > 穿风斩 > 下劈 > 反击 on the cut button
     { const fighting = this.phase === 'fight' || this.phase === 'yard', chase = fighting && !!h.moves.chase && !!this.chaseTarget();
@@ -4375,6 +4496,7 @@ export class ActShow {
    *  the run's gains lost), then the start screen; anywhere else straight to it. (Not during a cutscene or a talk: the pause has no 回主画面
    *  row then — the menu only opens where play stops) */
   private backToTitle() {
+    this.cancelQte(); GRADE.bloodVig = 0;
     if (this.canGiveUp() && this.hero?.alive) { this.hero.giveUp(); this.bankRun(false); this.justDied = true; }
     audio.stopMusic(0.8); this.hud.on = false;
     void wipeTransit(() => { this.title(savedTitle()); });

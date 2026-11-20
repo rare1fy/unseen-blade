@@ -214,8 +214,14 @@ export function buildHatFine(): VoxChar {
     }
   }
   B(v, 'head', -2, 46, -8, 1, 50, -8, P.RED); B(v, 'head', -2, 50, -8, 1, 50, -8, RED_L);
-  // White hair under the bamboo hat: seamlessly integrated center-parted 八字 curtain bangs + slender 1-voxel-thick animated side-locks + low bun
+  // White hair under the bamboo hat: full rounded crown (y=50..55, tucked cleanly inside hat dome with zero poke-through)
+  // so taking the hat off while healing/resting in the kiln shows a complete, natural white-haired silhouette!
   CBox(v, 'head', -7, 50, -7, 6, 52, 6, P.HAIR, 3);
+  CBox(v, 'head', -6, 53, -6, 5, 53, 5, P.HAIR, 2);
+  CBox(v, 'head', -5, 54, -5, 4, 54, 4, P.HAIR, 2);
+  CBox(v, 'head', -4, 55, -4, 3, 55, 3, P.HAIR_L, 2);
+  B(v, 'head', -2, 55, -3, 1, 55, 2, P.HAIR_L);
+  B(v, 'head', -2, 53, 5, 1, 53, 5, P.HAIR_L);
   B(v, 'head', -2, 50, 6, 1, 50, 6, null);
   for (const s of [-1, 1] as const) {
     const rx = (n: number) => (s > 0 ? n : -1 - n);
@@ -227,15 +233,22 @@ export function buildHatFine(): VoxChar {
   }
   CBox(v, 'head', -3, 40, -9, 2, 45, -7, P.HAIR, 1); B(v, 'head', -2, 40, -9, 1, 41, -9, P.HAIR_D); B(v, 'head', -2, 45, -8, 1, 45, -7, P.RED);
   tails(v, P.RED, P.RED_D, 'knot');
-  // the 斗笠: seated cleanly onto y=50..51 skull (zero gap!), dark woven underside shadow ring, wide 3-step curved brim, tapered bamboo crown & finial
-  const brim = (y0: number, y1: number, c: number) => { B(v, 'hat', -18, y0, -12, 17, y1, 11, c); B(v, 'hat', -15, y0, -15, 14, y1, 14, c); B(v, 'hat', -12, y0, -18, 11, y1, 17, c); };
-  B(v, 'hat', -14, 50, -10, 13, 50, 9, STRAW_DD); B(v, 'hat', -10, 50, -14, 9, 50, 13, STRAW_DD);
+  // the 斗笠: hollow conical shell built strictly outside the full white hair crown (never overwrites 'head' hair cells!),
+  // so hiding bones.hat while healing in the kiln reveals a complete, sculpted white-haired head with zero gap or flat cut!
+  const hatBox = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, c: number) => {
+    v.part('hat');
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) {
+      if (!v.get(x, y, z)) v.set(x, y, z, c);
+    }
+  };
+  const brim = (y0: number, y1: number, c: number) => { hatBox(-18, y0, -12, 17, y1, 11, c); hatBox(-15, y0, -15, 14, y1, 14, c); hatBox(-12, y0, -18, 11, y1, 17, c); };
+  hatBox(-14, 50, -10, 13, 50, 9, STRAW_DD); hatBox(-10, 50, -14, 9, 50, 13, STRAW_DD);
   brim(51, 52, STRAW);
   v.paint(c => (c.part === 'hat' && c.y === 51 && (!v.get(c.x + 1, 51, c.z) || !v.get(c.x - 1, 51, c.z) || !v.get(c.x, 51, c.z + 1) || !v.get(c.x, 51, c.z - 1)) ? STRAW_D : null));
-  B(v, 'hat', -11, 53, -8, 10, 54, 7, STRAW); B(v, 'hat', -8, 53, -11, 7, 54, 10, STRAW);
-  B(v, 'hat', -11, 53, -8, 10, 53, 7, STRAW_D);
-  B(v, 'hat', -7, 55, -6, 6, 56, 5, STRAW_L); B(v, 'hat', -6, 55, -7, 5, 56, 6, STRAW_L);
-  B(v, 'hat', -4, 57, -4, 3, 58, 3, STRAW_L); B(v, 'hat', -1, 59, -1, 0, 59, 0, 0x3e3228);
+  hatBox(-11, 53, -8, 10, 54, 7, STRAW); hatBox(-8, 53, -11, 7, 54, 10, STRAW);
+  v.paint(c => (c.part === 'hat' && c.y === 53 && c.x >= -11 && c.x <= 10 && c.z >= -8 && c.z <= 7 ? STRAW_D : null));
+  hatBox(-7, 55, -6, 6, 56, 5, STRAW_L); hatBox(-6, 55, -7, 5, 56, 6, STRAW_L);
+  hatBox(-4, 57, -4, 3, 58, 3, STRAW_L); hatBox(-1, 59, -1, 0, 59, 0, 0x3e3228);
   return v;
 }
 

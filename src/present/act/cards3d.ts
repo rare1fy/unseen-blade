@@ -68,11 +68,13 @@ export class CardPick3D {
   private back: MiniShield | null = null; private backK = 0; private backHot = 0; private backDown = false; private backAt = { x: 0, y: 0, r: 0 }; private canLeave = false;
   /** act-118: top category header (刀谱 vs 秘传 vs 碑铭潜能) & bottom reroll pill (换一批) */
   private header: { title: string; sub?: string; col?: string } | null = null;
+  private wallet: { iron: number; herb: number; focus?: 'iron' | 'herb' } | null = null;
+  private footer: string | null = null;
   private rerollOpt: { left: number; onReroll: () => BoonPick[] | null } | null = null;
   private rerollAt = { x: 0, y: 0, w: 0, h: 0 }; private rerollHot = false;
-  private lastOpenOpts: { leave?: boolean; header?: { title: string; sub?: string; col?: string }; archHave?: Partial<Record<Archetype, number>>; reroll?: { left: number; onReroll: () => BoonPick[] | null } } = {};
+  private lastOpenOpts: { leave?: boolean; header?: { title: string; sub?: string; col?: string }; wallet?: { iron: number; herb: number; focus?: 'iron' | 'herb' }; footer?: string; archHave?: Partial<Record<Archetype, number>>; reroll?: { left: number; onReroll: () => BoonPick[] | null } } = {};
   constructor(private L: UiLayer) { onBodyFontChange(() => { for (const c of this.cards) c.faceKey = ''; }); }
-  open(boons: BoonPick[], o: { leave?: boolean; header?: { title: string; sub?: string; col?: string }; archHave?: Partial<Record<Archetype, number>>; reroll?: { left: number; onReroll: () => BoonPick[] | null } } = {}): Promise<number> {
+  open(boons: BoonPick[], o: { leave?: boolean; header?: { title: string; sub?: string; col?: string }; wallet?: { iron: number; herb: number; focus?: 'iron' | 'herb' }; footer?: string; archHave?: Partial<Record<Archetype, number>>; reroll?: { left: number; onReroll: () => BoonPick[] | null } } = {}): Promise<number> {
     this.lastOpenOpts = o;
     return new Promise(res => {
       this.done = res;
@@ -83,13 +85,14 @@ export class CardPick3D {
     const keepDone = this.done;
     this.close();
     this.done = keepDone;
-    this.canLeave = !!o.leave; this.backK = 0; this.header = o.header ?? null; this.rerollOpt = o.reroll ?? null; this.rerollHot = false;
+    this.canLeave = !!o.leave; this.backK = 0; this.header = o.header ?? null; this.wallet = o.wallet ?? null; this.footer = o.footer ?? null; this.rerollOpt = o.reroll ?? null; this.rerollHot = false;
     const L = this.L;
     const entries = boons.map(({ boon, tier }) => entryOfCard(boon, tier, o.archHave)), skill = entries.some(e => !!e);
     const isScrollRow = boons.length > 0 && boons.every(({ boon }) => styleOf(boon) === 'manual');
     const isMirrorGrid = boons.length === 4 && boons.every(({ boon }) => styleOf(boon) === 'mirror');
     const kk = Math.max(0.8, Math.min(1.25, L.h / 720)), n = boons.length;
-    const topPad = this.header ? (isMirrorGrid ? 126 : 76) * kk : 0, botPad = this.rerollOpt && this.rerollOpt.left > 0 ? 52 * kk : 0;
+    const topPad = (this.header ? (isMirrorGrid ? 128 : 88) : 0) * kk + (this.wallet ? 22 * kk : 0);
+    const botPad = (this.rerollOpt && this.rerollOpt.left > 0 ? 52 : this.footer ? 36 : 0) * kk;
     const room = L.h * 0.92 - topPad - botPad, centerY = L.h * 0.5 + (topPad - botPad) * 0.52;
     let w: number, h: number, gap: number, gapY = 0, Hh: number;
     if (isScrollRow) {
@@ -169,8 +172,8 @@ export class CardPick3D {
       c.face.geometry.dispose(); const fm = c.face.material as THREE.MeshBasicMaterial; fm.map?.dispose(); fm.dispose();
       c.rim.geometry.dispose(); (c.rim.material as THREE.Material).dispose(); c.badge?.dispose(); c.picture?.dispose(); for (const p of c.presses) p.dispose();
     }
-    this.cards = []; this.on = false; this.header = null; this.rerollOpt = null;
-    this.L.text.hide('act.cards.title'); this.L.text.hide('act.cards.sub'); this.L.text.hide('act.cards.reroll');
+    this.cards = []; this.on = false; this.header = null; this.wallet = null; this.footer = null; this.rerollOpt = null;
+    this.L.text.hide('act.cards.title'); this.L.text.hide('act.cards.sub'); this.L.text.hide('act.cards.wallet'); this.L.text.hide('act.cards.back'); this.L.text.hide('act.cards.footer'); this.L.text.hide('act.cards.reroll');
     if (this.back) this.back.visible = false; this.backDown = false; this.backHot = 0;
   }
   /** leave without a card (the back shield, Esc, pad B) — only where the page allows it */
@@ -183,7 +186,8 @@ export class CardPick3D {
     if (!this.on || this.leaving >= 0) return this.on;
     if (this.settling) return true;
     if (this.canLeave) {
-      const onBack = Math.hypot(x - this.backAt.x, y - this.backAt.y) < this.backAt.r * 1.15;
+      const onBack = Math.hypot(x - this.backAt.x, y - this.backAt.y) < this.backAt.r * 1.25
+        || (x >= this.backAt.x - this.backAt.r && x <= this.backAt.x + this.backAt.r * 3.1 && Math.abs(y - this.backAt.y) < this.backAt.r * 1.1);
       if (type === 'move') this.backHot = onBack ? 1 : 0;
       if (type === 'down' && onBack) { this.backDown = true; return true; }
       if (type === 'up' && this.backDown) { this.backDown = false; if (onBack) this.leave(); return true; }
@@ -223,31 +227,46 @@ export class CardPick3D {
       if (flies && !this.flyStarted && this.leaveT > 0.3) { this.flyStarted = true; this.flight!.start(chosen!.e!); }
       if (this.leaveT > T) { const i = this.leaving, d = this.done, e = chosen?.e; this.done = null; this.close(); if (flies && e) this.flight!.land(e); d?.(i); return; }
     }
-    // the back shield (the shops): top left of the column of cards, the same small iron shield as the pause menu's
+    // Larger, unmistakable back button at top-left (shield + crisp 返回 label)
+    const showChrome = this.leaving < 0;
+    const dpr = L.dpr || 1, kk = Math.max(0.8, Math.min(1.25, L.h / 720));
     if (this.canLeave) {
       if (!this.back) { this.back = backShield(); this.back.userData.noTilt = true; this.back.traverse(o => { o.renderOrder = 34; }); L.scene.add(this.back); }
       this.backK = this.leaving >= 0 ? Math.max(0, this.backK - dt * 6) : Math.min(1, this.backK + dt * 5);
-      const r = Math.max(22, Math.min(38, L.h * 0.05)), c0 = this.cards[0], top = c0 ? c0.y - c0.h / 2 : L.h * 0.1, left = c0 ? c0.x - c0.w / 2 : L.w * 0.2;
-      this.backAt = { x: Math.max(r + 12, left - r * 1.5), y: Math.max(r + 12, top + r), r };
+      const r = Math.max(30, Math.min(48, L.h * 0.068));
+      this.backAt = { x: Math.max(r + 22 * kk, L.w * 0.055), y: Math.max(r + 16 * kk, 44 * kk), r };
       const bb = this.back; bb.visible = this.backK > 0.02;
-      const bz = 0.6 + this.backHot * 0.2;   // (UI-layer units: a little in front of the cards' plane)
-      L.at(this.backAt.x, this.backAt.y, bz, bb.position); bb.scale.setScalar(L.px(r * 2, bz) * (this.backDown ? 0.88 : 1) * (1 + 0.06 * this.backHot) * (0.6 + 0.4 * this.backK));
-      bb.rotation.set(0, 0.12 + Math.sin(t * 0.7) * 0.03, Math.sin(t * 1.3) * 0.02); bb.setOpacity(this.backK); bb.setRim(this.backHot ? 0xffd88a : null, 0.45);
-    } else if (this.back) this.back.visible = false;
-    // act-118: category header above cards (刀谱 vs 秘传 vs 碑铭潜能) & bottom reroll pill (换一批)
-    const showChrome = this.leaving < 0;
-    const dpr = L.dpr || 1, kk = Math.max(0.8, Math.min(1.25, L.h / 720));
+      const bz = 0.6 + this.backHot * 0.2;
+      L.at(this.backAt.x, this.backAt.y, bz, bb.position); bb.scale.setScalar(L.px(r * 2, bz) * (this.backDown ? 0.88 : 1) * (1 + 0.07 * this.backHot) * (0.6 + 0.4 * this.backK));
+      bb.rotation.set(0, 0.12 + Math.sin(t * 0.7) * 0.03, Math.sin(t * 1.3) * 0.02); bb.setOpacity(this.backK); bb.setRim(this.backHot ? 0xffe498 : 0x9aa4b4, this.backHot ? 0.65 : 0.25);
+      const pkB = Math.max(1, Math.round(20 * kk * dpr / PIX_H));
+      const bLbl = PAD.device === 'key' ? '返回 Esc' : PAD.device === 'pad' ? msg`返回 ${padName(1)}` : '返回';
+      L.text.set('act.cards.back', { text: bLbl, x: this.backAt.x + r + 10 * kk, y: this.backAt.y, pix: pkB, color: this.backHot ? '#fff8d4' : '#f2e8d2', outline: '#140c0a', align: 'left', visible: this.backK > 0.3 });
+    } else {
+      if (this.back) this.back.visible = false;
+      L.text.hide('act.cards.back');
+    }
     const c0 = this.cards[0], cLast = this.cards[this.cards.length - 1];
     const minTop = this.cards.reduce((a, c) => Math.min(a, c.y - c.h / 2), L.h);
     const maxBot = this.cards.reduce((a, c) => Math.max(a, c.y + c.h / 2), 0);
     if (this.header && showChrome && c0) {
       const crownExtra = c0.L.shape === 'stele' ? 38 * kk : 0;
-      const topY = Math.max(20 * kk, minTop - crownExtra - (this.header.sub ? 52 : 34) * kk);
+      const topY = Math.max(24 * kk, minTop - crownExtra - (this.wallet ? 82 : this.header.sub ? 56 : 36) * kk);
       const pkT = Math.max(1, Math.round(24 * kk * dpr / PIX_H));
       L.text.set('act.cards.title', { text: localize(this.header.title), x: L.w / 2, y: topY, pix: pkT, color: this.header.col ?? '#ffe6b0', outline: '#140c0a', align: 'center', visible: true });
-      if (this.header.sub) L.text.set('act.cards.sub', { text: localize(this.header.sub), x: L.w / 2, y: topY + 26 * kk, bodyPx: Math.max(12, Math.round(14 * kk)), color: '#dcd2be', outline: '#140c0a', align: 'center', visible: true });
-      else L.text.hide('act.cards.sub');
-    } else { L.text.hide('act.cards.title'); L.text.hide('act.cards.sub'); }
+      if (this.wallet) {
+        const pkW = Math.max(1, Math.round(18 * kk * dpr / PIX_H));
+        const wTxt = msg`当前持有  百辟残铁 ${this.wallet.iron}  ·  沸血药引 ${this.wallet.herb}`;
+        const wCol = this.wallet.focus === 'herb' ? '#98f4b8' : '#ffd87a';
+        L.text.set('act.cards.wallet', { text: wTxt, x: L.w / 2, y: topY + 29 * kk, pix: pkW, color: wCol, outline: '#140c0a', align: 'center', visible: true });
+        if (this.header.sub) L.text.set('act.cards.sub', { text: localize(this.header.sub), x: L.w / 2, y: topY + 52 * kk, bodyPx: Math.max(12, Math.round(14 * kk)), color: '#dcd2be', outline: '#140c0a', align: 'center', visible: true });
+        else L.text.hide('act.cards.sub');
+      } else {
+        L.text.hide('act.cards.wallet');
+        if (this.header.sub) L.text.set('act.cards.sub', { text: localize(this.header.sub), x: L.w / 2, y: topY + 28 * kk, bodyPx: Math.max(12, Math.round(14 * kk)), color: '#dcd2be', outline: '#140c0a', align: 'center', visible: true });
+        else L.text.hide('act.cards.sub');
+      }
+    } else { L.text.hide('act.cards.title'); L.text.hide('act.cards.sub'); L.text.hide('act.cards.wallet'); }
     if (this.rerollOpt && this.rerollOpt.left > 0 && showChrome && cLast) {
       const ry = Math.min(L.h - 24 * kk, maxBot + 28 * kk);
       this.rerollAt = { x: L.w / 2, y: ry, w: 260 * kk, h: 36 * kk };
@@ -256,7 +275,14 @@ export class CardPick3D {
         : PAD.device === 'key' ? msg`换一批（剩 ${this.rerollOpt.left} 次 · R）`
         : msg`换一批（剩 ${this.rerollOpt.left} 次）`;
       L.text.set('act.cards.reroll', { text: rrText, x: L.w / 2, y: ry, pix: pkR, color: this.rerollHot ? '#fff6c8' : '#ffd27a', outline: '#140c0a', align: 'center', visible: true });
-    } else { L.text.hide('act.cards.reroll'); }
+      L.text.hide('act.cards.footer');
+    } else {
+      L.text.hide('act.cards.reroll');
+      if (this.footer && showChrome && cLast) {
+        const fy = Math.min(L.h - 22 * kk, maxBot + 26 * kk);
+        L.text.set('act.cards.footer', { text: localize(this.footer), x: L.w / 2, y: fy, bodyPx: Math.max(12, Math.round(14 * kk)), color: '#dcd2be', outline: '#140c0a', align: 'center', visible: true });
+      } else L.text.hide('act.cards.footer');
+    }
     const back = (k: number) => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * (k - 1) ** 3 + c1 * (k - 1) ** 2; };   // ease-out, a little past and back
     for (const [i, c] of this.cards.entries()) {
       this.paint(c);

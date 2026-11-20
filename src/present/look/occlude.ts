@@ -11,18 +11,25 @@ export const OCC_ORDER = { foe: 7, hero: 8, body: 9 } as const;
 
 const OCC_VS = `
 #include <skinning_pars_vertex>
+varying float vWorldY;
 void main() {
   #include <begin_vertex>
   #include <skinbase_vertex>
   #include <skinning_vertex>
+  vWorldY = (modelMatrix * vec4(transformed, 1.0)).y;
   #include <project_vertex>
+  // Slight depth bias suppresses grazing z-fights with nearby floor slabs while keeping real wall/pillar/tree occlusion crisp
+  gl_Position.z += 0.0004 * gl_Position.w;
 }
 `;
 
 const OCC_FS = `
 precision mediump float;
 uniform float uOcc;
+varying float vWorldY;
 void main() {
+  // Never outline ground-contact soles/hems dipping slightly into floor geometry
+  if (vWorldY < 0.24) discard;
   gl_FragColor = vec4(0.0, 0.0, 0.0, uOcc);
 }
 `;

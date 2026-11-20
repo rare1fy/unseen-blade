@@ -363,8 +363,8 @@ const PORTRAIT_WHITE = [
   '..wwssssssssww..', '..wwsss..sssww..', '..ww.ssssss.ww..', '..ww..ssss..ww..', '..wwbbrrrrbbww..', '..bbbbbrrbbbbb..', '.bbbbbbbbbbbbbb.',
 ];
 const PORTRAITS: Record<string, string[]> = { slim_hat: PORTRAIT_HAT, slim_white: PORTRAIT_WHITE, fine_hat: PORTRAIT_HAT, fine_white: PORTRAIT_WHITE };
-/** which look the HP medallion shows (show.ts sets it from the costume worn) */
-export const HP_FACE = { id: 'fine_white' };
+/** which look the HP medallion shows (show.ts sets it from the costume worn; default is 斗笠) */
+export const HP_FACE = { id: 'fine_hat' };
 /** every HP bar's lost piece (hers, the foes' over their heads, the chief's long bar): flat white, far from the red in lightness.
  *  11-18 (用户：「把血条减少垫背后的那个橙色调整一下……看不太出来扣血的效果」; act-73 反馈：「我要的是所有血条都符合这个逻辑……
  *  垫在后面的我感觉白色效果会更好点」) */
@@ -474,8 +474,10 @@ export class IronHp {
     this.badge.scale.setScalar(this.sc); this.badge.position.z = -this.pressK * 4;
     const lowHp = this.st.hp > 0 && this.st.hp / Math.max(1, this.st.maxHp) <= 0.3;
     const beat = lowHp ? Math.pow(0.5 + 0.5 * Math.sin(this.tt * 7.2), 2) : 0;
-    this.medRimMat.emissive.setHex(lowHp ? 0xff2416 : 0xffb060);
-    this.medRimMat.emissiveIntensity = lowHp ? 0.32 + 0.65 * beat : 0.18 * this.pressK;
+    const charged = this.intent >= 3;
+    const chargePulse = charged ? 0.5 + 0.5 * Math.sin(this.tt * 4.2) : 0;
+    this.medRimMat.emissive.setHex(lowHp ? 0xb81a12 : charged ? 0xf2c872 : 0xffb060);
+    this.medRimMat.emissiveIntensity = lowHp ? 0.25 + 0.45 * beat : charged ? 0.26 + 0.22 * chargePulse : 0.18 * this.pressK;
     const shown = Math.max(0, Math.floor(this.coins)), iron = Math.max(0, Math.floor(this.iron)), herb = Math.max(0, Math.floor(this.herb));
     const hot = this.coinHop > 0, cell = Math.max(1, Math.round(3 * this.k * dpr)), ss = 2, key = `${shown}|${iron}|${herb}|${cell}|${hot}`;
     if (key !== this.coinKey) {
@@ -538,12 +540,18 @@ export class IronHp {
     fm.emissive.setHex(this.flashT > 0 ? 0xff3a22 : this.healT > 0 ? 0x2a8a3a : 0xff2a1a); fm.emissiveIntensity = this.flashT > 0 ? 0.3 + this.flashT * 4 : this.healT > 0 ? 1 : low;
     // the 杀意 ingots: lit ones glow like coals; a new one flares
     if (this.intent > this.lastIntent) { this.sparks.burst(L.at(this.x + (X + 16 + (this.intent - 1) * 28) * this.k, this.y + 22 * this.k, 6), 12, L.px(110), L.px(4), 0xffa040, { life: 0.4 }); this.ingotPop = 1; this.popIdx = this.intent - 1; }
-    // act-29: the third one in — all three flare white-gold together, a wider burst (不见刀 is ready)
-    if (this.intent >= 3 && this.lastIntent < 3) { this.fullT = 0.6; this.sparks.burst(L.at(this.x + (X + 44) * this.k, this.y + 22 * this.k, 6), 26, L.px(190), L.px(5), 0xffe08a, { life: 0.55 }); }
+    // act-29 / act-126: when all 3 杀意 ingots fill, a single crisp flare followed by a quiet, steady white-gold energy state (restrained, non-flashy)
+    if (this.intent >= 3 && this.lastIntent < 3) { this.fullT = 0.55; this.sparks.burst(L.at(this.x + (X + 44) * this.k, this.y + 22 * this.k, 6), 16, L.px(140), L.px(4), 0xffe4a0, { life: 0.45 }); }
     this.ingotPop = Math.max(0, this.ingotPop - dt * 4); this.fullT = Math.max(0, this.fullT - dt);
     this.lastIntent = this.intent;
-    this.ingots.forEach((m, i) => { const on = i < this.intent; m.color.setHex(on ? 0xd09a50 : 0x2a2c32); m.emissive.setHex(this.fullT > 0 ? 0xfff0c0 : EMBER); m.emissiveIntensity = on ? (this.fullT > 0 ? 0.9 : this.intent >= 3 ? 0.6 + 0.35 * Math.sin(this.tt * 9) : 0.45) : 0;
-      this.ingotMesh[i].scale.setScalar(i === this.popIdx ? 1 + 0.35 * Math.sin(this.ingotPop * Math.PI) : this.fullT > 0 ? 1 + 0.15 * Math.sin(this.fullT * 10) : 1); });
+    const fullBreathe = this.intent >= 3 ? 0.5 + 0.5 * Math.sin(this.tt * 4.2) : 0;
+    this.ingots.forEach((m, i) => {
+      const on = i < this.intent;
+      m.color.setHex(on ? (this.intent >= 3 ? 0xf6de98 : 0xd09a50) : 0x2a2c32);
+      m.emissive.setHex(this.intent >= 3 ? 0xffe8a8 : EMBER);
+      m.emissiveIntensity = on ? (this.fullT > 0 ? 1.05 : this.intent >= 3 ? 0.62 + 0.28 * fullBreathe : 0.42) : 0;
+      this.ingotMesh[i].scale.setScalar(i === this.popIdx ? 1 + 0.32 * Math.sin(this.ingotPop * Math.PI) : this.fullT > 0 ? 1 + 0.12 * Math.sin(this.fullT * 10) : this.intent >= 3 ? 1.04 + 0.04 * fullBreathe : 1);
+    });
   }
   dispose() { disposeTree(this.root); }
 }

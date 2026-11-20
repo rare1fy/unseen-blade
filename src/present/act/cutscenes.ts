@@ -131,7 +131,9 @@ export function bossIntroShots(h: CineHost, boss: Foe, name: string, o: { prolog
   const toBoss = V3(b.x - p0.x, 0, b.z - p0.z);
   const dist = toBoss.length() || 1;
   const dir = toBoss.clone().divideScalar(dist);
-  const stepDist = dist > 5.0 ? Math.min(2.6, dist - 4.0) : 0;
+  const stepDist = o.prologue
+    ? (dist > 4.2 ? Math.min(2.2, dist - 3.6) : 0)
+    : (dist > 5.0 ? Math.min(2.6, dist - 4.0) : 0);
   const p1: [number, number] = [p0.x + dir.x * stepDist, p0.z + dir.z * stepDist];
   const heroStart: [number, number] = [p0.x, p0.z];
   // perpendicular side vector preferring +z (toward the open front of the courtyard/hall)

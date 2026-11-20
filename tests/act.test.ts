@@ -8,6 +8,9 @@ import { inside, HOT } from '../src/present/act/tele';
 import { slashArc } from '../src/present/act/slashArc';
 import { damageFoe, canStrike, isRangedFoe, updateFoe, elitePoise, EDEFS, POISE_BREAK_DUR, type Foe, type FoeWorld } from '../src/present/act/enemy';
 import { archCounts, archTier, applyBoon, newPerks } from '../src/present/act/boons';
+import { GRADE } from '../src/present/look/post';
+import { buildHatFine } from '../src/present/act/heroineFine';
+import { audio } from '../src/audio/audio';
 import { cueLog } from '../src/audio/cues';
 import { V3 } from '../src/present/engine/world';
 
@@ -284,5 +287,35 @@ describe('combat wave 2: poise break & staggered cadence (act-113)', () => {
     expect(TUNE.clashTime).toBeGreaterThanOrEqual(2.5);
     expect(TUNE.chainWin).toBeGreaterThanOrEqual(0.18);
     expect(TUNE.clashPush).toBeGreaterThanOrEqual(0.14);
+  });
+
+  it('console polish invariants (act-126): conical hat default with full under-hat hair crown, shader bloodVig, and zombie-voice audio recovery', () => {
+    expect(SRC['src/present/act/ironUi.ts']).toContain("HP_FACE = { id: 'fine_hat' }");
+    expect(SRC['src/present/act/show.ts']).toContain("DEFAULT_HERO = 'fine_hat'");
+    expect(GRADE.bloodVig).toBe(0);
+    // Conical hat model must have sculpted white hair crown at y=53..55 on bone 'head' so removing hat while healing has no bald top
+    const v = buildHatFine();
+    expect(v.get(0, 53, 0)?.part).toBe('head');
+    expect(v.get(0, 54, 0)?.part).toBe('head');
+    expect(v.get(0, 55, 0)?.part).toBe('head');
+    // Audio recover() must prune expired zombie voices whose onended was dropped during OS suspension
+    const eng = audio as unknown as {
+      ctx: { state: string; currentTime: number; resume: () => Promise<void> } | null;
+      live: Array<{ src: unknown; pri: number; t: number; endAt: number }>;
+      duck: { gain: { cancelScheduledValues: () => void; setValueAtTime: () => void } };
+      hush: { gain: { cancelScheduledValues: () => void; setValueAtTime: () => void } };
+      musicHush: { gain: { cancelScheduledValues: () => void; setValueAtTime: () => void } };
+      music: { gain: { cancelScheduledValues: () => void; setValueAtTime: () => void } };
+    };
+    const prevCtx = eng.ctx;
+    const noopGain = { gain: { cancelScheduledValues: () => {}, setValueAtTime: () => {} } };
+    eng.ctx = { state: 'running', currentTime: 100, resume: async () => {} };
+    eng.duck = noopGain; eng.hush = noopGain; eng.musicHush = noopGain; eng.music = noopGain;
+    eng.live.push({ src: {}, pri: 3, t: 10, endAt: 11 }, { src: {}, pri: 3, t: 99, endAt: 105 });
+    audio.recover();
+    expect(eng.live.length).toBe(1);
+    expect(eng.live[0].endAt).toBe(105);
+    eng.live.length = 0;
+    eng.ctx = prevCtx;
   });
 });

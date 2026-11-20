@@ -21,7 +21,7 @@ const FS = (pixel: boolean) => `
 precision highp float;
 ${pixel ? '#define PIXEL' : ''}
 uniform sampler2D tColor; uniform sampler2D tDepth; uniform sampler2D tBloom; uniform vec2 uRes; uniform float uNear, uFar, uBloomCap;
-uniform vec3 uFog; uniform float uBands; uniform float uInk, uInkT, uInkStep, uExposure, uSat, uVig, uFlash, uSplit, uTime, uDesat, uCurve, uCraft, uCraftDof; uniform vec3 uFlashCol, uLift, uGain, uInkCol;
+uniform vec3 uFog; uniform float uBands; uniform float uInk, uInkT, uInkStep, uExposure, uSat, uVig, uBloodVig, uFlash, uSplit, uTime, uDesat, uCurve, uCraft, uCraftDof; uniform vec3 uFlashCol, uLift, uGain, uInkCol;
 varying vec2 vUv;
 ${UI_SCENE_GLSL}
 float lin(float d){ float z = d * 2.0 - 1.0; return (2.0 * uNear * uFar) / (uFar + uNear - z * (uFar - uNear)); }
@@ -114,10 +114,15 @@ void main(){
 #ifdef PIXEL
   col = mix(col, uInkCol * 0.25, ink);
 #endif
-  // vignette (in HD-2D, smooth vignette runs at full native screen resolution in BLIT_FS)
+  // vignette + cinema-grade organic radial crimson low-HP pulse (in HD-2D, smooth native pass runs in BLIT_FS)
   if (!hd2d) {
     vec2 q = vUv - 0.5; q.x *= uRes.x / uRes.y * 0.75;
-    col *= 1.0 - uVig * smoothstep(0.25, 0.85, length(q));
+    float rq = length(q);
+    col *= 1.0 - uVig * smoothstep(0.25, 0.85, rq);
+    if (uBloodVig > 0.001) {
+      float bv = smoothstep(0.32, 0.92, rq) * uBloodVig;
+      col = mix(col, col * vec3(0.72, 0.20, 0.18) + vec3(0.28, 0.025, 0.02), clamp(bv * 0.85, 0.0, 0.78));
+    }
   }
   // flash
   col = mix(col, uFlashCol, uFlash);
@@ -150,7 +155,7 @@ void main(){
 // tilt-shift + native-resolution velvety HDR bloom + native smooth vignette (Octopath Traveler pipeline).
 const BLIT_FS = `precision highp float;
 uniform sampler2D tLo; uniform sampler2D tBloom;
-uniform vec2 uLoRes, uOff, uScreenRes; uniform float uK, uHd2d, uCraftDof, uDofFast, uBloomCap, uVig, uTime;
+uniform vec2 uLoRes, uOff, uScreenRes; uniform float uK, uHd2d, uCraftDof, uDofFast, uBloomCap, uVig, uBloodVig, uTime;
 ${UI_SCENE_GLSL}
 float hash2(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
 void main(){
@@ -196,9 +201,14 @@ void main(){
       vec3 glowSRGB = pow(max(bl, vec3(0.0)), vec3(1.0 / 2.2));
       col = clamp(col + glowSRGB * (1.0 - col * 0.48) * 0.80, 0.0, 1.0);
     }
-    // 3. native-resolution smooth cinematic vignette + UI background separation + fine native dither
+    // 3. native-resolution smooth cinematic vignette + low-HP radial crimson pulse + UI background separation + fine native dither
     vec2 q = uvCont - 0.5; q.x *= uScreenRes.x / max(uScreenRes.y, 1.0) * 0.75;
-    col *= 1.0 - uVig * smoothstep(0.28, 0.88, length(q));
+    float rq = length(q);
+    col *= 1.0 - uVig * smoothstep(0.28, 0.88, rq);
+    if (uBloodVig > 0.001) {
+      float bv = smoothstep(0.32, 0.92, rq) * uBloodVig;
+      col = mix(col, col * vec3(0.70, 0.18, 0.16) + vec3(0.30, 0.03, 0.025), clamp(bv * 0.85, 0.0, 0.78));
+    }
     col = separateUiBackground(col, uvCont);
     col += (hash2(gl_FragCoord.xy + uTime) - 0.5) / 255.0;
   }
@@ -206,7 +216,7 @@ void main(){
 }`;
 
 export const GRADE = {
-  ink: 0.85, exposure: 1.05, sat: 1.12, vig: 0.55, desat: 0,
+  ink: 0.85, exposure: 1.05, sat: 1.12, vig: 0.55, bloodVig: 0, desat: 0,
   lift: new THREE.Color(0.02, 0.015, 0.05), gain: new THREE.Color(1.0, 0.98, 1.02), inkCol: new THREE.Color(0.05, 0.03, 0.08),
   flash: 0, flashCol: new THREE.Color(1, 1, 1), split: 0,
   bloomStrength: 0.85, bloomRadius: 0.55, bloomThreshold: 1.05,   // 2026-11-13: only real glows bloom, not white cloth
@@ -215,7 +225,7 @@ export const GRADE = {
 const uniforms = () => ({
   ...uiSceneUniforms(),
   tColor: { value: null as THREE.Texture | null }, tDepth: { value: null as THREE.Texture | null }, tBloom: { value: null as THREE.Texture | null }, uBloomCap: { value: 0.7 }, uBands: { value: 6 }, uRes: { value: new THREE.Vector2(4, 4) }, uNear: { value: 0.1 }, uFar: { value: 400 },
-  uInk: { value: 1 }, uInkT: { value: 0.05 }, uInkStep: { value: 1 }, uFog: { value: new THREE.Vector3() }, uExposure: { value: 1 }, uSat: { value: 1 }, uVig: { value: 0.5 }, uFlash: { value: 0 }, uSplit: { value: 0 }, uTime: { value: 0 }, uDesat: { value: 0 }, uCurve: { value: 0 }, uCraft: CRAFTU.uCraft, uCraftDof: CRAFTU.uCraftDof,
+  uInk: { value: 1 }, uInkT: { value: 0.05 }, uInkStep: { value: 1 }, uFog: { value: new THREE.Vector3() }, uExposure: { value: 1 }, uSat: { value: 1 }, uVig: { value: 0.5 }, uBloodVig: { value: 0 }, uFlash: { value: 0 }, uSplit: { value: 0 }, uTime: { value: 0 }, uDesat: { value: 0 }, uCurve: { value: 0 }, uCraft: CRAFTU.uCraft, uCraftDof: CRAFTU.uCraftDof,
   uFlashCol: { value: new THREE.Color() }, uLift: { value: new THREE.Color() }, uGain: { value: new THREE.Color(1, 1, 1) }, uInkCol: { value: new THREE.Color() },
 });
 
@@ -258,7 +268,7 @@ export class Post {
     this.quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.mat); this.quad.frustumCulled = false; this.qs.add(this.quad);
     this.lo = new THREE.WebGLRenderTarget(4, 4, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: false, generateMipmaps: false });
     this.blit = new THREE.ShaderMaterial({ vertexShader: BLIT_VS, fragmentShader: BLIT_FS, depthTest: false, depthWrite: false,
-      uniforms: { ...uiSceneUniforms(), tLo: { value: this.lo.texture }, tBloom: { value: this.rt.texture as THREE.Texture | null }, uLoRes: { value: new THREE.Vector2(4, 4) }, uOff: { value: new THREE.Vector2() }, uScreenRes: { value: new THREE.Vector2(4, 4) }, uK: { value: 2 }, uHd2d: { value: 0 }, uCraftDof: CRAFTU.uCraftDof, uDofFast: { value: 0 }, uBloomCap: { value: 0 }, uVig: { value: 0.4 }, uTime: { value: 0 } } });
+      uniforms: { ...uiSceneUniforms(), tLo: { value: this.lo.texture }, tBloom: { value: this.rt.texture as THREE.Texture | null }, uLoRes: { value: new THREE.Vector2(4, 4) }, uOff: { value: new THREE.Vector2() }, uScreenRes: { value: new THREE.Vector2(4, 4) }, uK: { value: 2 }, uHd2d: { value: 0 }, uCraftDof: CRAFTU.uCraftDof, uDofFast: { value: 0 }, uBloomCap: { value: 0 }, uVig: { value: 0.4 }, uBloodVig: { value: 0 }, uTime: { value: 0 } } });
     const bq = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.blit); bq.frustumCulled = false; this.bs.add(bq);
     this.ui = new UiPass(renderer, this.msaa, this.hdr);
   }
@@ -335,7 +345,7 @@ export class Post {
     const cVig = cMode === 'ink' ? 0.92 : cMode === 'hd2d' ? 0.92 : cMode === 'diorama' ? 0.72 : (pix ? PX.vig : 1);
     const cCur = cMode === 'ink' ? 0.16 : cMode === 'hd2d' ? 0.18 : cMode === 'diorama' ? 0.13 : (pix ? PX.curve : 0);
     u.uNear.value = camera.near; u.uFar.value = camera.far; u.uInk.value = cInk; u.uInkT.value = cInkT; u.uInkStep.value = inkStep;
-    u.uExposure.value = GRADE.exposure * cExp; u.uSat.value = GRADE.sat * cSat; u.uVig.value = GRADE.vig * cVig; u.uCurve.value = cCur;
+    u.uExposure.value = GRADE.exposure * cExp; u.uSat.value = GRADE.sat * cSat; u.uVig.value = GRADE.vig * cVig; u.uBloodVig.value = GRADE.bloodVig; u.uCurve.value = cCur;
     u.uFlash.value = GRADE.flash; u.uSplit.value = GRADE.split; u.uTime.value = time % 100; u.uDesat.value = GRADE.desat;
     (u.uFlashCol.value as THREE.Color).copy(GRADE.flashCol); (u.uLift.value as THREE.Color).copy(GRADE.lift); (u.uGain.value as THREE.Color).copy(GRADE.gain); (u.uInkCol.value as THREE.Color).copy(GRADE.inkCol);
     const bu = this.blit.uniforms;
@@ -346,6 +356,7 @@ export class Post {
       bu.uBloomCap.value = skipBloom ? 0 : cBloomCap;
       bu.uDofFast.value = QUALITY.tier === 'mid' ? 1 : 0;
       bu.uVig.value = GRADE.vig * cVig;
+      bu.uBloodVig.value = GRADE.bloodVig;
       bu.uTime.value = time % 100;
     }
     this.quad.material = m; gpuMark('final');
