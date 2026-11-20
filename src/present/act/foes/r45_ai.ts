@@ -14,7 +14,7 @@ import { Action } from '../../actors/rig';
 import { Tele, inside, type TeleShape } from '../tele';
 import { TUNE } from '../tune';
 import {
-  FOE_AI, fx_, FOE_X, spawnFoe, startAttack, setFoeState, dropTeles, canStrike, steerFoe, turnFoe, meleeLands, defaultStrike, interruptFoe,
+  FOE_AI, fx_, FOE_X, spawnFoe, startAttack, setFoeState, dropTeles, canStrike, steerFoe, turnFoe, meleeLands, defaultStrike, interruptFoe, applyAllySpread,
   Arrow, LOW_CLEAR, type Foe, type FoeWorld, type EKind,
 } from '../enemy';
 import './r45_models';
@@ -165,7 +165,11 @@ function heardFirst(f: Foe) { if (!f.tele || f.combo < 0) return; const on = f.t
 FOE_AI.wl_spear = {
   think(f, w, dt, dist, dir, yawTo) {
     const can = canStrike(f, w), want = V3();
-    if (dist > 2.2) want.copy(dir).addScaledVector(side(dir, f.strafe), 0.3); else if (!can) want.copy(side(dir, f.strafe)).addScaledVector(dir, -0.35);
+    if (!can) {
+      if (dist > 3.6) want.copy(dir).addScaledVector(side(dir, f.strafe), 0.75);
+      else if (dist < 2.4) want.copy(dir).multiplyScalar(-0.45).addScaledVector(side(dir, f.strafe), 0.95);
+      else want.copy(side(dir, f.strafe)).multiplyScalar(0.95);
+    } else if (dist > 2.2) want.copy(dir).addScaledVector(side(dir, f.strafe), 0.3);
     if (can && dist < 2.8) { startAttack(f, w, { k: 'rect', len: 2.6, w: 0.5 }, 0.5, 7, yawTo, { atk: 'poke' }); f.cd = R(0.5, 1.0); return; }
     steerFoe(f, want, f.d.speed, dt, yawTo);
   },
@@ -316,6 +320,7 @@ FOE_AI.wl_shield = {
     if (can && dist < 2.4) { startAttack(f, w, { k: 'cone', r: 2.2, half: 0.85 }, 0.55, 10, yawTo, { atk: 'cut' }); return; }
     if (can && dist >= 2.4 && dist < 4.6 && Math.random() < dt * 1.4) { startAttack(f, w, { k: 'rect', len: 3.5, w: 1.2 }, 0.7, 11, yawTo, { atk: 'lunge' }); return; }
     // the slow turn: he swings round toward her at a third of the usual rate (so she can get round him)
+    applyAllySpread(f, w, want);
     const m = want.length(); if (m > 0.05) { want.multiplyScalar(f.d.speed / m); } turnFoe(f, yawTo, dt, 2.2);
     f.vel.lerp(want, Math.min(1, dt * 6)); f.a.setRunning(f.vel.length() > 0.6);
   },
@@ -344,7 +349,11 @@ FOE_AI.wl_shield = {
 FOE_AI.cx_club = {
   think(f, w, dt, dist, dir, yawTo) {
     const can = canStrike(f, w), want = V3();
-    if (dist > 1.8) want.copy(dir).addScaledVector(side(dir, f.strafe), 0.35); else if (!can) want.copy(side(dir, f.strafe)).addScaledVector(dir, -0.3);
+    if (!can) {
+      if (dist > 3.2) want.copy(dir).addScaledVector(side(dir, f.strafe), 0.8);
+      else if (dist < 2.1) want.copy(dir).multiplyScalar(-0.45).addScaledVector(side(dir, f.strafe), 0.95);
+      else want.copy(side(dir, f.strafe)).multiplyScalar(0.95);
+    } else if (dist > 1.8) want.copy(dir).addScaledVector(side(dir, f.strafe), 0.35);
     if (can && dist < 2.4) {
       startAttack(f, w, { k: 'rect', len: 2.2, w: 0.7 }, 0.55, 6, yawTo, { atk: 'cut' }); f.cd = R(0.6, 1.1);
       // the pincer partner: the nearest other servant on her far side, free, within reach of her

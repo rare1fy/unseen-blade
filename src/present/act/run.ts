@@ -18,15 +18,17 @@ export const RUN_ROOMS = 6;
 export const ROOM_INFO: Record<RoomType, { name: string; line: string }> = {
   fight: { name: '乱兵', line: '杀退拦路黄巾贼' },
   elite: { name: '死士', line: '恶战强敌夺取重赏' },
-  shop: { name: '行商', line: '用铜钱买随身好物' },
-  rest: { name: '歇脚', line: '歇口气回血或磨刀' },
-  boon: { name: '遗卷', line: '不战白得一张秘传' },
+  shop: { name: '行商', line: '铜钱换秘卷与奇货' },
+  rest: { name: '歇脚', line: '回血·磨刀·焚香蓄锐' },
+  boon: { name: '遗卷', line: '不战自得珍绝秘传' },
   boss: { name: '渠帅', line: '死战坐镇黄巾渠帅' },
 };
 /** 11-18: the later regions' own words for their fights and their boss room (agy; the rest as region one's) */
 const ROOM_INFO_BY: Record<string, Partial<Record<RoomType, { name: string; line: string }>>> = {
   r2_luoyang: { fight: { name: '乱兵', line: '斩退焚城飞熊卒' }, boss: { name: '校尉', line: '铸钱炉前斩阎虎' } },
   r3_xiapi: { fight: { name: '乱兵', line: '扫除浸水吕布兵' }, boss: { name: '医官', line: '白门楼下截鬼医' } },
+  r4_wulin: { fight: { name: '乱兵', line: '杀穿铁索连环船' }, boss: { name: '督造', line: '楼船烈火斩周黯' } },
+  r5_cui: { fight: { name: '乱兵', line: '雪夜破袭崔府众' }, boss: { name: '长史', line: '深宅雪落断崔玄' } },
 };
 /** a room type's name and line in region `ri` (0 起; out of range = region one's) */
 export const roomInfo = (type: RoomType, ri = 0) => ROOM_INFO_BY[REGIONS[ri]?.id ?? '']?.[type] ?? ROOM_INFO[type];

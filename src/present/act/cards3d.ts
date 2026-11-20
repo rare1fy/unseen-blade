@@ -30,6 +30,7 @@ import { backShield, type MiniShield } from './btnBadge';
 import { entryOfCard, layoutPresses, paintSeps, pressShields, paintName, paintEffect, paintNum, type SkillEntry, type PressItem } from './skillFace';
 import { skillIcon3D } from './skillIcons';
 import type { MarkTarget } from './skillInfo';
+import { PAD, padName } from './pad';
 
 const styleOf = (b: Boon): CardStyle => {
   const s = b.school as string;
@@ -249,9 +250,12 @@ export class CardPick3D {
     } else { L.text.hide('act.cards.title'); L.text.hide('act.cards.sub'); }
     if (this.rerollOpt && this.rerollOpt.left > 0 && showChrome && cLast) {
       const ry = Math.min(L.h - 24 * kk, maxBot + 28 * kk);
-      this.rerollAt = { x: L.w / 2, y: ry, w: 220 * kk, h: 36 * kk };
+      this.rerollAt = { x: L.w / 2, y: ry, w: 260 * kk, h: 36 * kk };
       const pkR = Math.max(1, Math.round(16 * kk * dpr / PIX_H));
-      L.text.set('act.cards.reroll', { text: msg`换一批（剩 ${this.rerollOpt.left} 次）`, x: L.w / 2, y: ry, pix: pkR, color: this.rerollHot ? '#fff6c8' : '#ffd27a', outline: '#140c0a', align: 'center', visible: true });
+      const rrText = PAD.device === 'pad' ? msg`换一批（剩 ${this.rerollOpt.left} 次 · ${padName(3)}）`
+        : PAD.device === 'key' ? msg`换一批（剩 ${this.rerollOpt.left} 次 · R）`
+        : msg`换一批（剩 ${this.rerollOpt.left} 次）`;
+      L.text.set('act.cards.reroll', { text: rrText, x: L.w / 2, y: ry, pix: pkR, color: this.rerollHot ? '#fff6c8' : '#ffd27a', outline: '#140c0a', align: 'center', visible: true });
     } else { L.text.hide('act.cards.reroll'); }
     const back = (k: number) => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * (k - 1) ** 3 + c1 * (k - 1) ** 2; };   // ease-out, a little past and back
     for (const [i, c] of this.cards.entries()) {

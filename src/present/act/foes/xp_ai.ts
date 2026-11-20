@@ -32,7 +32,7 @@ addFoes({
   xp_frost: { model: 'xp_frost', hp: 32, r: 0.44, speed: 2.4, mass: 0.9, poise: 0, gold: 5, name: '凝霜毒吏', role: 'xp_frost', elite: 'xp_frost_e', barks: BARK_XP },
   xp_diver: { model: 'xp_diver', hp: 40, r: 0.44, speed: 3.0, mass: 1.0, poise: 0, gold: 5, name: '沉江恶鬼', role: 'xp_diver', elite: 'xp_diver_e' },
   xp_chain: { model: 'xp_chain', hp: 120, r: 0.7, speed: 1.9, mass: 2.6, poise: 36, gold: 8, name: '枷铁狱吏', role: 'xp_chain', elite: 'xp_chain_e', barks: BARK_XP },
-  xp_conscript: { model: 'xp_conscript', hp: 16, r: 0.36, speed: 3.4, mass: 0.6, poise: 0, gold: 1, name: '冻骨溃兵', role: 'xp_conscript', alt: ['xp_conscript_b'], weight: 0.5, barks: BARK_XP },
+  xp_conscript: { model: 'xp_conscript', hp: 22, r: 0.36, speed: 3.4, mass: 0.6, poise: 0, gold: 2, name: '冻骨溃兵', role: 'xp_conscript', alt: ['xp_conscript_b'], weight: 0.5, barks: BARK_XP },
   xp_boss: { model: 'xp_boss', hp: 480, r: 0.55, speed: 2.7, mass: 1.8, poise: 44, gold: 50, name: '截指鬼医 · 封寒', role: 'xp_boss', boss: true, tag: '银针刺骨，截指入药', intro: '脉相浮而乱，该截下拇指了。' },
 });
 
@@ -297,11 +297,16 @@ const chain: RoleAI = {
   recover: () => 1.0,
 };
 
-// ------------------------------------------------------------------ 冻骨溃兵: the crowd
+// ------------------------------------------------------------------ 冻骨溃兵: outer-ring flanker (orbits when waiting for an attack slot)
 const conscript: RoleAI = {
   think(f, w, k) {
-    if (k.can && k.dist < 1.7) { AI.startAttack(f, w, { k: 'rect', len: 1.6, w: 0.6 }, 0.42, 5, k.yawTo, { atk: 'poke' }); f.cd = R(0.4, 0.9); return 'busy'; }
-    if (k.dist > 1.3) return { want: k.dir.clone().addScaledVector(k.side, 0.35) };
+    if (k.can && k.dist < 1.75) { AI.startAttack(f, w, { k: 'rect', len: 1.6, w: 0.6 }, 0.44, 5, k.yawTo, { atk: 'poke' }); f.cd = R(0.45, 0.95); return 'busy'; }
+    if (!k.can) {
+      if (k.dist > 3.2) return { want: k.dir.clone().addScaledVector(k.side, 0.8) };
+      if (k.dist < 2.1) return { want: away(k, 0.45).addScaledVector(k.side, 0.95) };
+      return { want: k.side.clone().multiplyScalar(0.95) };
+    }
+    if (k.dist > 1.35) return { want: k.dir.clone().addScaledVector(k.side, 0.35) };
     return { want: k.side.clone().addScaledVector(k.dir, -0.3) };
   },
   windup(f, _w, _dt, p, yawTo) { if (p < 0.35) { f.teleYaw = yawTo; f.yaw = yawTo; } return true; },

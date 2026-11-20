@@ -19,7 +19,7 @@ import { fxShock } from '../../fx/skillFx';
 import { addBlock } from '../../fx/blocks';
 import { TUNE } from '../tune';
 import { Tele, inside } from '../tele';
-import { EDEFS, addFoes, AI, Arrow, spawnFoe, LOW_CLEAR, dropTeles, type Foe, type FoeWorld } from '../enemy';
+import { EDEFS, addFoes, AI, Arrow, spawnFoe, LOW_CLEAR, dropTeles, applyAllySpread, type Foe, type FoeWorld } from '../enemy';
 import { ROLE_AI, type RoleAI, type ThinkCtx } from './roles';
 
 // ------------------------------------------------------------------ the roster (names: agy)
@@ -31,7 +31,7 @@ addFoes({
   ly_shield: { model: 'ly_shield', hp: 64, r: 0.55, speed: 1.9, mass: 2.0, poise: 0, gold: 5, name: '覆铁重盾', role: 'ly_shield', elite: 'ly_shield_e', barks: BARK_LY },
   ly_xbow: { model: 'ly_xbow', hp: 30, r: 0.44, speed: 2.4, mass: 0.9, poise: 0, gold: 4, name: '摧坚强弩', role: 'ly_xbow', elite: 'ly_xbow_e', barks: BARK_LY },
   ly_torch: { model: 'ly_torch', hp: 32, r: 0.44, speed: 2.7, mass: 0.9, poise: 0, gold: 4, name: '泼油狂卒', role: 'ly_torch', elite: 'ly_torch_e', barks: BARK_LY },
-  ly_looter: { model: 'ly_looter', hp: 16, r: 0.38, speed: 3.6, mass: 0.6, poise: 0, gold: 1, name: '搜骨乱卒', role: 'ly_looter', alt: ['ly_looter_b'], weight: 0.5, barks: BARK_LY },
+  ly_looter: { model: 'ly_looter', hp: 22, r: 0.38, speed: 3.6, mass: 0.6, poise: 0, gold: 2, name: '搜骨乱卒', role: 'ly_looter', alt: ['ly_looter_b'], weight: 0.5, barks: BARK_LY },
   ly_boss: { model: 'ly_boss', hp: 560, r: 0.95, speed: 2.1, mass: 4.2, poise: 80, gold: 50, name: '飞熊校尉 · 阎虎', role: 'ly_boss', boss: true, tag: '高炉火烈，大斧生嚼', intro: '哪来的瞎狗？投进炉里铸钱！' },
 });
 
@@ -147,7 +147,9 @@ const shield: RoleAI = {
       AI.startAttack(f, w, { k: 'rect', len: 2.0, w: 1.3 }, 0.65, 8, f.yaw, { atk: 'bash', act: { name: 'bash', imp: 0.55, data: { dist: 0.9 } } });
       return 'busy';
     }
-    const want = k.dist > 1.6 ? k.dir.clone().addScaledVector(k.side, 0.12).multiplyScalar(f.d.speed) : V3();
+    const want = k.dist > 1.6 ? k.dir.clone().addScaledVector(k.side, 0.12) : V3();
+    applyAllySpread(f, w, want);
+    if (want.lengthSq() > 0.0025) want.normalize().multiplyScalar(f.d.speed);
     f.vel.lerp(want, Math.min(1, k.dt * 6)); f.a.setRunning(f.vel.length() > 0.6);
     return 'busy';
   },
@@ -292,11 +294,16 @@ torch.tick = (f, w) => {
   }
 };
 
-// ------------------------------------------------------------------ 搜骨乱卒: the crowd (as the 流民)
+// ------------------------------------------------------------------ 搜骨乱卒: outer-ring flanker (orbits when waiting for an attack slot)
 const looter: RoleAI = {
   think(f, w, k) {
-    if (k.can && k.dist < 1.7) { AI.startAttack(f, w, { k: 'rect', len: 1.6, w: 0.6 }, 0.42, 5, k.yawTo, { atk: 'poke' }); f.cd = R(0.4, 0.9); return 'busy'; }
-    if (k.dist > 1.3) return { want: k.dir.clone().addScaledVector(k.side, 0.35) };
+    if (k.can && k.dist < 1.75) { AI.startAttack(f, w, { k: 'rect', len: 1.6, w: 0.6 }, 0.44, 5, k.yawTo, { atk: 'poke' }); f.cd = R(0.45, 0.95); return 'busy'; }
+    if (!k.can) {
+      if (k.dist > 3.2) return { want: k.dir.clone().addScaledVector(k.side, 0.8) };
+      if (k.dist < 2.1) return { want: away(k, 0.45).addScaledVector(k.side, 0.95) };
+      return { want: side(k, 0.95) };
+    }
+    if (k.dist > 1.35) return { want: k.dir.clone().addScaledVector(k.side, 0.35) };
     return { want: side(k, 1).addScaledVector(k.dir, -0.3) };
   },
   windup(f, _w, _dt, p, yawTo) { if (p < 0.35) { f.teleYaw = yawTo; f.yaw = yawTo; } return true; },

@@ -14,17 +14,27 @@ export function waves2(type: RoomType, depth: number, r: Rnd): string[][] {
   if (type === 'boss') return BOSS_WAVES_2.map(w => [...w]);
   if (type === 'elite') {
     const head = pick(['ly_halberd', 'ly_shield', 'ly_rider', 'ly_xbow', 'ly_torch'], r) + '*';
-    return [[head, 'ly_looter', 'ly_looter', pick(FRONT, r)], [pick(FRONT, r), pick(BACK, r), 'ly_rider', ...(depth >= 3 ? [pick(FRONT, r) + '*'] : ['ly_looter'])]];
+    return [
+      [head, pick(BACK, r), pick(FRONT, r), 'ly_looter'],
+      [depth >= 2 ? pick(FRONT, r) + '*' : 'ly_shield', 'ly_rider', pick(BACK, r), 'ly_halberd'],
+    ];
   }
   if (type !== 'fight') return [];
-  // the first room teaches the two that need reading: the shield (go round) and the halberd (side-step its thrust)
-  if (depth === 0) return [['ly_halberd', 'ly_looter', 'ly_looter', 'ly_looter'], ['ly_shield', 'ly_halberd', 'ly_looter', 'ly_looter']];
-  const w1 = [pick(FRONT, r), 'ly_looter', 'ly_looter', 'ly_looter', pick(BACK, r), ...(depth >= 2 ? [pick(FRONT, r)] : [])];
-  const w2 = [pick(FRONT, r), pick(FRONT, r), 'ly_rider', pick(BACK, r), 'ly_looter', ...(depth >= 2 ? ['ly_xbow'] : []), ...(depth >= 3 ? [pick(['ly_rider', 'ly_torch', 'ly_shield'], r)] : [])];
+  // act-122: structured combined-arms pairings (shield/halberd anchor + ranged crossfire + cavalry) instead of 3x looter clumps
+  if (depth === 0) return [
+    ['ly_halberd', 'ly_xbow', 'ly_looter', 'ly_looter'],
+    ['ly_shield', 'ly_halberd', 'ly_torch', 'ly_looter'],
+  ];
+  if (depth === 1) return [
+    ['ly_shield', 'ly_xbow', 'ly_torch', 'ly_looter'],
+    ['ly_rider', 'ly_halberd', 'ly_xbow', 'ly_looter'],
+  ];
+  const w1 = [pick(FRONT, r), pick(FRONT, r), pick(BACK, r), 'ly_rider', 'ly_looter'];
+  const w2 = [depth >= 3 ? pick(['ly_halberd', 'ly_shield', 'ly_rider'], r) + '*' : pick(FRONT, r), pick(BACK, r), 'ly_rider', pick(['ly_torch', 'ly_xbow'], r), 'ly_looter'];
   return [w1, w2];
 }
-/** 铸钱场: his guard first (a wall of shields, the crossbows behind), then 阎虎 with two looters */
-const BOSS_WAVES_2 = [['ly_shield', 'ly_halberd', 'ly_xbow', 'ly_xbow', 'ly_looter', 'ly_looter'], ['ly_boss', 'ly_looter', 'ly_looter']];
+/** 铸钱场: his guard first (a wall of shields, the crossbows & torch behind), then 阎虎 with two looters */
+const BOSS_WAVES_2 = [['ly_shield', 'ly_halberd', 'ly_xbow', 'ly_torch', 'ly_looter'], ['ly_boss', 'ly_looter', 'ly_looter']];
 
 export const REGION_2: RegionDef = {
   id: 'r2_luoyang', name: '洛阳余烬', tag: '焦柱生烟，烈火铸钱',

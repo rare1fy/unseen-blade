@@ -1,6 +1,7 @@
 // 手柄（act-30 之后）：改键对调、死区重映射、手柄型号、键位表的读档。
 import { describe, it, expect, beforeEach } from 'vitest';
-import { BIND, DEFAULT_BINDS, rebind, resetBinds, familyOf, padName, keyName, glyphArt, loadBinds } from '../src/present/act/pad';
+import { BIND, DEFAULT_BINDS, rebind, resetBinds, familyOf, padName, keyName, glyphArt, loadBinds, padNav } from '../src/present/act/pad';
+import { clock } from '../src/present/engine/clock';
 import { deadzone, Input } from '../src/present/act/input';
 
 describe('rebind', () => {
@@ -95,6 +96,21 @@ describe('pad makers', () => {
     for (const f of ['xbox', 'ps', 'ns'] as const) for (const i of [0, 1, 2, 3, 4, 5, 6, 7, 10, 11]) {
       const a = glyphArt(i, f); expect(a.px.length).toBeGreaterThan(40);
       for (const [x, y] of a.px) { expect(x).toBeGreaterThanOrEqual(0); expect(x).toBeLessThan(a.w); expect(y).toBeGreaterThanOrEqual(0); expect(y).toBeLessThan(a.h); }
+    }
+  });
+  it('padNav exposes Y (button 3) edge for card reroll', () => {
+    let pressed3 = false;
+    const mockPad = { index: 0, connected: true, id: 'Xbox Wireless Controller', axes: [0, 0, 0, 0], buttons: Array.from({ length: 17 }, (_, i) => ({ get pressed() { return i === 3 && pressed3; } })) };
+    const origNav = globalThis.navigator;
+    Object.defineProperty(globalThis, 'navigator', { value: { getGamepads: () => [mockPad] }, configurable: true });
+    try {
+      clock.frame++; padNav.sync();
+      pressed3 = true; clock.frame++;
+      expect(padNav.poll(0.016).y).toBe(true);
+      clock.frame++;
+      expect(padNav.poll(0.016).y).toBe(false);
+    } finally {
+      Object.defineProperty(globalThis, 'navigator', { value: origNav, configurable: true });
     }
   });
 });

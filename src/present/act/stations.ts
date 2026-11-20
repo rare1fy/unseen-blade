@@ -20,20 +20,23 @@ export interface Station { id: string; label: string; sub: string; price: number
   edge: THREE.Mesh; ware: THREE.Object3D | null; wareY: number; nearK: number }
 
 const box = (w: number, h: number, d: number, c: number, x = 0, y = 0, z = 0) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), toon(c)); m.position.set(x, y + h / 2, z); m.castShadow = true; m.receiveShadow = true; return m; };
-const MAT_R = 0.75, FILL_T = 1.0, NEAR = 2.2, SIGN = { w: 2.2, h: 1.0, post: 1.25 };
+const MAT_R = 0.75, FILL_T = 1.0, NEAR = 2.2, SIGN = { w: 1.85, h: 0.92, post: 1.25 };
 
 // ---------------------------------------------------------------- the stalls and their wares, voxel models in the scene's 7 cm cells
 // act-37 (用户：「商店里的选项……好丑，还过曝了」): the old ones were plain boxes under a bright red cloth with small white wares on
 // top. Now: a dark wooden trestle counter under an undyed hemp runner; the wares big enough to read from the game camera — a roll
-// of bamboo slips on a cradle (秘卷), a glazed medicine gourd with a red label (金疮药), a whetstone with a sabre across it (青砥石).
+// of bamboo slips on a cradle (秘卷), a glazed medicine gourd with a red label (金疮药), a whetstone with a sabre across it (青砥石),
+// and act-122's rotating specialty wares: 虎骨酒 (jar), 重铸骰 (die), 铁药囊 (satchel), plus 焚香蓄锐 (censer) at the campfire.
 // Big axis-aligned masses, two or three tones a material, lit like everything else (nothing glows).
-type Ware = 'scroll' | 'gourd' | 'stone';
+type Ware = 'scroll' | 'gourd' | 'stone' | 'jar' | 'die' | 'satchel' | 'censer';
+export type ShopSpecial = 'vigor' | 'reroll' | 'satchel';
 const WD = 0x3e2a1a, WM = 0x5a3c24, WL = 0x74503a;                     // dark wood: shade, body, lit top
 const HEMP = 0x8c7656, HEMP_D = 0x6e5c44;
 const BAM = 0xc4a058, BAM_D = 0xa8873e, BAM_E = 0xdcc282, CORD = 0x34261a, TAG = 0x9a3024;
 const GOURD = 0x7a4220, GOURD_L = 0x965428, GOURD_D = 0x5a2e16, LABEL = 0xa8322a, INK = 0x3a1a10, CORK = 0x9a7a4a;
-const POT = 0xc8bea8, POT_D = 0x8e8676, HERB = 0x5e7034, HERB_D = 0x44522a;
-const STONE = 0x4c5a62, STONE_L = 0x6a7a82, STEEL = 0x8e98a2, STEEL_L = 0xc8d0d8, GUARD = 0x26262c, GRIP = 0x8a2a20, BRONZE = 0xb08040;
+const POT = 0xc8bea8, POT_D = 0x8e8676, HERB = 0x5e7034, HERB_D = 0x44522a, HERB_L = 0x7a9a4a;
+const STONE = 0x4c5a62, STONE_L = 0x6a7a82, STEEL = 0x8e98a2, STEEL_L = 0xc8d0d8, GUARD = 0x26262c, GRIP = 0x8a2a20, BRONZE = 0xb08040, BRONZE_D = 0x785428;
+const BONE = 0xdcd2be, BONE_D = 0xb6aa94, IRON_B = 0x6a7482, IRON_L = 0x9aa4b2;
 const built = new Map<string, THREE.Mesh[]>();
 function voxModel(key: string, draw: (w: VoxWorld) => void) {
   let ms = built.get(key);
@@ -71,6 +74,38 @@ function wareModel(k: Ware) {
     w.box(-1, 1, 3, 0, 4, 3, LABEL); w.box(-1, 3, 3, 0, 3, 3, INK);
     w.box(4, 0, -1, 7, 2, 2, POT); w.box(4, 0, -1, 7, 0, 2, POT_D); w.box(5, 3, 0, 6, 3, 1, POT_D);
     w.box(-7, 0, -1, -5, 1, 2, HERB); w.box(-7, 2, 0, -6, 2, 1, HERB_D);
+  });
+  if (k === 'jar') return voxModel('w_jar', w => {
+    // 虎骨酒: stout glazed clay wine jar with crimson cloth cap, hemp tie, and a drinking bowl beside it
+    w.box(-4, 0, -3, 2, 1, 2, GOURD_D); w.box(-5, 2, -4, 3, 6, 3, GOURD); w.box(-5, 6, -4, 3, 6, 3, GOURD_L);
+    w.box(-3, 7, -2, 1, 8, 1, GOURD_D);
+    w.box(-4, 9, -3, 2, 10, 2, LABEL); w.box(-3, 8, 2, 1, 8, 2, CORD); // crimson cloth seal + tie
+    w.box(-2, 3, 4, 0, 5, 4, BONE); w.box(-1, 4, 4, -1, 4, 4, INK);    // paper wine label
+    w.box(5, 0, -1, 7, 2, 1, POT); w.box(5, 0, -1, 7, 0, 1, POT_D); w.box(6, 2, 0, 6, 2, 0, GOURD_L); // cup
+  });
+  if (k === 'die') return voxModel('w_die', w => {
+    // 重铸骰: dark wood casting tray + oversized carved ivory/bronze octagonal die + two tally tokens
+    w.box(-6, 0, -4, 5, 1, 3, WD); w.box(-5, 1, -3, 4, 1, 2, WM);
+    w.box(-6, 2, -4, 5, 2, -4, WL); w.box(-6, 2, 3, 5, 2, 3, WL);
+    w.box(-6, 2, -3, -6, 2, 2, WL); w.box(5, 2, -3, 5, 2, 2, WL);
+    w.box(-3, 2, -2, 2, 7, 2, BONE); w.box(-3, 2, -2, 2, 2, 2, BONE_D); // main bone die
+    w.box(-2, 7, -1, -2, 7, -1, LABEL); w.box(1, 7, 1, 1, 7, 1, LABEL); w.box(0, 7, 0, 0, 7, 0, LABEL); // crimson pips
+    w.box(-1, 4, 2, 0, 5, 2, BRONZE);
+    w.box(3, 2, -2, 4, 3, 1, BRONZE); w.box(3, 4, -1, 4, 4, 0, BRONZE_D);
+  });
+  if (k === 'satchel') return voxModel('w_satchel', w => {
+    // 铁药囊: forged iron ingots stacked beside a lush emerald herb bundle on hemp cloth
+    w.box(-6, 0, -3, 0, 2, 2, IRON_B); w.box(-5, 3, -2, -1, 4, 1, IRON_L); w.box(-4, 5, -1, -2, 5, 0, STEEL_L);
+    w.box(1, 0, -2, 6, 3, 2, HEMP); w.box(1, 0, -2, 6, 0, 2, HEMP_D);
+    w.box(2, 4, -2, 5, 6, 2, HERB); w.box(3, 7, -1, 5, 7, 1, HERB_L); w.box(1, 3, 0, 6, 3, 0, CORD);
+    w.box(3, 5, 2, 4, 6, 2, HERB_D);
+  });
+  if (k === 'censer') return voxModel('w_censer', w => {
+    // 焚香蓄锐: three-legged bronze incense tripod with ash bed and three burning incense sticks
+    for (const [x, z] of [[-3, -2], [2, -2], [-1, 3]]) w.box(x, 0, z, x + 1, 2, z + 1, BRONZE_D);
+    w.box(-4, 3, -3, 3, 7, 3, BRONZE); w.box(-4, 3, -3, 3, 3, 3, BRONZE_D); w.box(-5, 6, -1, -5, 8, 1, BRONZE); w.box(4, 6, -1, 4, 8, 1, BRONZE);
+    w.box(-3, 7, -2, 2, 7, 2, POT_D); // ash bed
+    for (const x of [-2, 0, 1]) { w.box(x, 8, 0, x, 11, 0, BAM_D); w.box(x, 12, 0, x, 12, 0, LABEL); }
   });
   return voxModel('w_stone', w => {
     // a wooden block, the blue-grey whetstone, a sabre lying along it (blade, dark guard, red-bound grip, bronze ring)
@@ -119,24 +154,29 @@ export class Stations {
     const ring = new THREE.Mesh(new THREE.RingGeometry(MAT_R - 0.08, MAT_R, 40, 1, 0, 0.001).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffd070, transparent: true, opacity: 0.9, depthWrite: false }));
     ring.position.set(at.x, 0.07, at.z); ring.renderOrder = 3; this.root.add(ring); return ring;
   }
-  private add(id: string, label: string, sub: string, price: number, at: THREE.Vector3, prop: THREE.Group, once: boolean) {
+  private add(id: string, label: string, sub: string, price: number, at: THREE.Vector3, prop: THREE.Group, once: boolean, signSide: 1 | -1 = 1) {
     at.x += this.centre[0]; at.z += this.centre[1];
-    prop.position.set(at.x, 0, at.z - 1.15); this.root.add(prop);
-    // (act-36: the board twice as big and on a taller post — readable from the game camera)
-    const sign = makeSign(label, { w: SIGN.w, h: SIGN.h, post: SIGN.post, sub, price }); sign.position.set(at.x + 1.25, 0, at.z - 1.05); this.root.add(sign);
+    prop.position.set(at.x, 0, at.z - 1.1); this.root.add(prop);
+    // (act-36 / act-122: sign sits slightly behind the counter so the 3D voxel ware stays completely unobstructed)
+    const sign = makeSign(label, { w: SIGN.w, h: SIGN.h, post: SIGN.post, sub, price }); sign.position.set(at.x + 1.15 * signSide, 0, at.z - 1.38); this.root.add(sign);
     this.list.push({ id, label, sub, price, at, fill: 0, done: false, once, g: prop, ring: this.mat(at), sign, poor: false, edge: this.edge(at), ware: (prop.userData.ware as THREE.Object3D) ?? null, wareY: (prop.userData.wareY as number) ?? 0, nearK: 0 });
   }
-  /** 行商: 秘卷 (a boon), 金疮药 (heal), 青砥石 (sharpen a boon) */
-  shop(prices: { boon: number; heal: number; sharpen: number }) {
-    this.add('buy_boon', '秘卷', '', prices.boon, V3(-3.2, 0, -0.6), stall('scroll'), true);
-    this.add('buy_heal', '金疮药', '', prices.heal, V3(0, 0, -1.4), stall('gourd'), true);
-    this.add('buy_sharpen', '青砥石', '', prices.sharpen, V3(3.2, 0, -0.6), stall('stone'), true);
+  /** 行商: 4 stalls in a staggered chevron — 秘卷 (boon), 金疮药 (heal), 青砥石 (sharpen), + 1 rotating specialty ware */
+  shop(prices: { boon: number; heal: number; sharpen: number; vigor?: number; reroll?: number; satchel?: number }, special: ShopSpecial = 'vigor') {
+    this.add('buy_boon', '秘卷', '秘传', prices.boon, V3(-3.5, 0, 0.45), stall('scroll'), true, -1);
+    this.add('buy_heal', '金疮药', '回血', prices.heal, V3(-1.35, 0, -1.95), stall('gourd'), true, 1);
+    this.add('buy_sharpen', '青砥石', '升阶', prices.sharpen, V3(1.65, 0, -1.95), stall('stone'), true, 1);
+    if (special === 'reroll') this.add('buy_reroll', '重铸骰', '重随+2', prices.reroll ?? 40, V3(3.6, 0, 0.45), stall('die'), true, 1);
+    else if (special === 'satchel') this.add('buy_satchel', '铁药囊', '残铁药引', prices.satchel ?? 45, V3(3.6, 0, 0.45), stall('satchel'), true, 1);
+    else this.add('buy_vigor', '虎骨酒', '血上限', prices.vigor ?? 55, V3(3.6, 0, 0.45), stall('jar'), true, 1);
   }
-  /** 歇脚: a campfire, 裹伤调息 (heal) or 寒石砺刃 (sharpen) — taking one puts the other out */
+  /** 歇脚: a campfire with 3 tactical choices — 裹伤调息 (heal), 焚香蓄锐 (qi+intent+meta), or 寒石砺刃 (sharpen) — taking one puts the rest out */
   rest() {
     const f = campfire(); f.position.set(this.centre[0], 0, this.centre[1] - 2.6); this.root.add(f); this.fires.push(f);
-    this.add('rest_heal', '裹伤调息', '回血', 0, V3(-2.4, 0, -0.4), new THREE.Group(), true);
-    this.add('rest_sharpen', '寒石砺刃', '磨刀', 0, V3(2.4, 0, -0.4), stall('stone'), true);
+    this.add('rest_heal', '裹伤调息', '回血', 0, V3(-3.0, 0, -0.4), new THREE.Group(), true);
+    const cen = new THREE.Group(), cw = wareModel('censer'); cw.scale.setScalar(1.3); cen.add(cw); cen.userData.ware = cw; cen.userData.wareY = 0;
+    this.add('rest_meditate', '焚香蓄锐', '满气·残铁', 0, V3(0, 0, 0.35), cen, true);
+    this.add('rest_sharpen', '寒石砺刃', '升阶', 0, V3(3.0, 0, -0.4), stall('stone'), true);
   }
   /** 遗卷: one scroll on an altar */
   scroll() { this.add('scroll', '遗卷', '秘传', 0, V3(0, 0, -1.0), altar(), true); }

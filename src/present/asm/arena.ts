@@ -227,7 +227,7 @@ function drawnPlan(layout: Layout, exits: ExitId[], seed: number, locale: string
   if (fx.boss) clear.push({ x0: fx.boss[0] - 2.8, x1: fx.boss[0] + 2.8, z0: fx.boss[1] - 2.8, z1: fx.boss[1] + 2.8 });
   if (fx.stations) {
     const [x, z] = fx.stations;
-    clear.push({ x0: x - 4.5, x1: x + 5.7, z0: z - 3.5, z1: z + 1.1 });
+    clear.push({ x0: x - 5.6, x1: x + 6.0, z0: z - 3.8, z1: z + 1.4 });
   }
   const free = (x: number, z: number, rr: number) => grid.clear(x, z, rr + 0.35) && !clear.some(c => x > c.x0 - rr && x < c.x1 + rr && z > c.z0 - rr && z < c.z1 + rr)
     && covers.every(c => Math.abs(c.x - x) > c.hx + rr + 0.4 || Math.abs(c.z - z) > c.hz + rr + 0.4) && props.every(p => Math.hypot(p.x - x, p.z - z) > R0[p.kind] + rr + 0.25);

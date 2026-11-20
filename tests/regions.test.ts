@@ -11,7 +11,8 @@ import { REGIONS } from '../src/present/act/regions';
 import { roomsIn, isBossRoom, afterBoss, roomsWorth, regionScale, regionBanner } from '../src/present/act/flow';
 import { doorsFrom, roomOf, regionFirstRoom, roomInfo, wavesFor, RUN_ROOMS, type RoomType } from '../src/present/act/run';
 import { REGION_1 } from '../src/present/act/regions/r1';
-import { EDEFS, FOE_AI } from '../src/present/act/enemy';
+import { EDEFS, FOE_AI, applyAllySpread, isRangedFoe, type Foe, type FoeWorld } from '../src/present/act/enemy';
+import { Vector3 } from 'three';
 import '../src/present/act/foes/ly_ai';
 import '../src/present/act/foes/xp_ai';
 import { ROLE_AI } from '../src/present/act/foes/roles';
@@ -89,6 +90,31 @@ describe('一局五关', () => {
   });
   it('后面几关的头目间有自己的叫法', () => {
     expect(roomInfo('boss', 1).name).toBe('校尉'); expect(roomInfo('boss', 2).name).toBe('医官');
+    expect(roomInfo('boss', 3).name).toBe('督造'); expect(roomInfo('boss', 4).name).toBe('长史');
     expect(roomOf('boss', 5, Math.random, 1).locale).toBe('ly_mint'); expect(roomOf('boss', 5, Math.random, 2).locale).toBe('xp_gate');
+  });
+  it('第 2~5 关波次不再堆叠 3 个及以上同种炮灰杂兵，保持多兵种战术配队', () => {
+    const fodder = new Set(['ly_looter', 'xp_conscript', 'wl_spear', 'cx_club']);
+    for (let ri = 1; ri < REGIONS.length; ri++) {
+      for (let s = 1; s < 16; s++) for (const t of ['fight', 'elite'] as RoomType[]) for (let d = 0; d < REGIONS[ri].rooms; d++) {
+        for (const w of wavesFor(t, d, rng(s), ri)) {
+          const fodderCount = w.filter(k => fodder.has(k.replace('*', ''))).length;
+          expect(fodderCount, `r${ri + 1} ${t} d${d} wave=${w.join(',')}`).toBeLessThanOrEqual(2);
+          expect(new Set(w.map(k => k.replace('*', ''))).size).toBeGreaterThanOrEqual(3);
+        }
+      }
+    }
+  });
+  it('applyAllySpread 对所有关的近战/远程敌人施加防扎堆推力，且不影响头目与跨职敌人', () => {
+    const mk = (kind: string, x: number, z: number) => ({ kind, role: EDEFS[kind].role, d: EDEFS[kind], st: 'move', pos: new Vector3(x, 0, z) }) as unknown as Foe;
+    const m1 = mk('ly_looter', 0, 0), m2 = mk('ly_halberd', 0.8, 0), r1 = mk('xp_needle', 0.4, 0), boss = mk('ly_boss', 0.5, 0);
+    expect(isRangedFoe(r1)).toBe(true);
+    const w = { foes: [m1, m2, r1, boss] } as unknown as FoeWorld;
+    const wantM = new Vector3(0, 0, 1);
+    applyAllySpread(m1, w, wantM);
+    expect(wantM.x).toBeLessThan(-0.3); // pushed away from m2 (+x), ignores r1 (ranged)
+    const wantB = new Vector3(0, 0, 1);
+    applyAllySpread(boss, w, wantB);
+    expect(wantB.x).toBe(0); // boss unaffected
   });
 });

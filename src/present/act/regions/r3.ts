@@ -13,17 +13,27 @@ export function waves3(type: RoomType, depth: number, r: Rnd): string[][] {
   if (type === 'boss') return BOSS_WAVES_3.map(w => [...w]);
   if (type === 'elite') {
     const head = pick(['xp_assassin', 'xp_chain', 'xp_diver', 'xp_needle', 'xp_frost'], r) + '*';
-    return [[head, 'xp_conscript', 'xp_conscript', pick(NEAR, r)], [pick(NEAR, r), pick(NEAR, r), pick(FAR, r), ...(depth >= 3 ? [pick(FAR, r) + '*'] : ['xp_conscript'])]];
+    return [
+      [head, pick(FAR, r), pick(NEAR, r), 'xp_conscript'],
+      [depth >= 2 ? pick(FAR, r) + '*' : 'xp_chain', 'xp_assassin', pick(['xp_chain', 'xp_diver'], r), pick(FAR, r)],
+    ];
   }
   if (type !== 'fight') return [];
-  // the first room: the divers in the pools (jump), then the first 死士 behind her (listen)
-  if (depth === 0) return [['xp_diver', 'xp_conscript', 'xp_conscript', 'xp_conscript'], ['xp_assassin', 'xp_needle', 'xp_conscript', 'xp_conscript']];
-  const w1 = [pick(NEAR, r), 'xp_conscript', 'xp_conscript', 'xp_conscript', pick(FAR, r), ...(depth >= 2 ? [pick(NEAR, r)] : [])];
-  const w2 = [pick(NEAR, r), pick(NEAR, r), pick(FAR, r), pick(FAR, r), 'xp_conscript', ...(depth >= 2 ? ['xp_assassin'] : []), ...(depth >= 3 ? [pick(['xp_chain', 'xp_diver'], r)] : [])];
+  // act-122: ambush + frost/needle control pairings instead of 3x conscript blobs
+  if (depth === 0) return [
+    ['xp_diver', 'xp_needle', 'xp_conscript', 'xp_conscript'],
+    ['xp_assassin', 'xp_frost', 'xp_diver', 'xp_conscript'],
+  ];
+  if (depth === 1) return [
+    ['xp_chain', 'xp_needle', 'xp_conscript', 'xp_conscript'],
+    ['xp_assassin', 'xp_diver', 'xp_frost', 'xp_needle'],
+  ];
+  const w1 = [pick(NEAR, r), 'xp_chain', pick(FAR, r), 'xp_conscript', 'xp_conscript'];
+  const w2 = [depth >= 3 ? pick(['xp_assassin', 'xp_chain', 'xp_diver'], r) + '*' : pick(NEAR, r), pick(NEAR, r), pick(FAR, r), pick(FAR, r), 'xp_conscript'];
   return [w1, w2];
 }
-/** 白门楼: the jailers and the needles first, then 封鸩 with two of his 死士 */
-const BOSS_WAVES_3 = [['xp_chain', 'xp_needle', 'xp_frost', 'xp_diver', 'xp_conscript', 'xp_conscript'], ['xp_boss', 'xp_assassin', 'xp_conscript']];
+/** 白门楼: the jailers and the needles first, then 封鸩 with an assassin & conscript */
+const BOSS_WAVES_3 = [['xp_chain', 'xp_needle', 'xp_frost', 'xp_diver', 'xp_conscript'], ['xp_boss', 'xp_assassin', 'xp_conscript']];
 
 export const REGION_3: RegionDef = {
   id: 'r3_xiapi', name: '下邳寒沼', tag: '泗水灌城，冬雾浸骨',

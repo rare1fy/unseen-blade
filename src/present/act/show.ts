@@ -133,7 +133,7 @@ import { Dart, BladeWave } from './missiles';
 import { RUN_ROOMS, firstRoom, regionFirstRoom, roomOf, roomInfo, doorsFrom, kindOr, isBossKind, type RoomPlan, type RoomType } from './run';
 import { REGIONS } from './regions';
 import { isBossRoom, afterBoss, roomsWorth, regionScale, regionBanner } from './flow';
-import { Stations, type Station } from './stations';
+import { Stations, type Station, type ShopSpecial } from './stations';
 import { Coins } from './coins';
 import { runBoard } from './runBoard';
 import { HitArcs } from './hitArc';
@@ -157,7 +157,8 @@ import { Action } from '../actors/rig';
 addLocales(NINJA_LOCALES); addLocales(HANMO_LOCALES); addLocales(HANSHAN_LOCALES); addLocales(LUOYANG_LOCALES); addLocales(XIAPI_LOCALES);   // (11-18: regions two and three)
 
 /** prices at the 行商 (copper coins) */
-const PRICES = { boon: 60, heal: 30, sharpen: 50 };
+const PRICES = { boon: 60, heal: 30, sharpen: 50, vigor: 55, reroll: 40, satchel: 45 };
+const SHOP_SPECIALS: ShopSpecial[] = ['vigor', 'reroll', 'satchel'];
 /** a soft dark spot for under the feet: a radial fade drawn once, shared by every spot */
 let SHADOW_TEX: THREE.Texture | null = null;
 function contactMaterial() {
@@ -1582,7 +1583,9 @@ export class ActShow {
     // the rooms without a fight: the stations stand ready and the roads are open at once
     if (this.plan && (this.plan.type === 'shop' || this.plan.type === 'rest' || this.plan.type === 'boon')) {
       this.stations = new Stations(this.stage!.root, this.arena?.shape?.fixed?.stations);
-      if (this.plan.type === 'shop') this.stations.shop(PRICES); else if (this.plan.type === 'rest') this.stations.rest(); else this.stations.scroll();
+      if (this.plan.type === 'shop') this.stations.shop(PRICES, SHOP_SPECIALS[Math.floor(Math.random() * SHOP_SPECIALS.length)]);
+      else if (this.plan.type === 'rest') this.stations.rest();
+      else this.stations.scroll();
       this.log.push(`room ${this.room} ${this.plan.type} ${spec.locale}`);
       this.openDoors(true); return;
     }
@@ -3054,7 +3057,7 @@ export class ActShow {
       await this.boonPick(); this.openDoors(); return;
     }
     const rw = this.plan?.reward ?? null;
-    if (this.plan?.type === 'elite') this.coinsFx.drop(this.hero.pos.clone().add(V3(0, 0, -1.2)), 10, 3);
+    if (this.plan?.type === 'elite') this.coinsFx.drop(this.hero.pos.clone().add(V3(0, 0, -1.2)), 10, 4);
     if (rw?.k === 'coins') { this.coinsFx.drop(this.hero.pos.clone().add(V3(0, 0, -1.5)), 12, Math.round(rw.n / 12)); }
     else if (rw?.k === 'heal') { const was = this.hero.hp; this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + Math.round(this.hero.maxHp * 0.35)); this.healFeed(was); this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp }); await new Promise(r => after(0.8, () => r(null))); }
     else if (rw?.k === 'manual') await this.manualPick();
@@ -3149,9 +3152,36 @@ export class ActShow {
     this.coins -= s.price; cue(s.price ? 'coin' : 'reveal', 0.6); this.log.push(`station ${s.id}`);
     const heal = (k: number) => { const was = this.hero.hp; this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + Math.round(this.hero.maxHp * k)); this.healFeed(was); this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp }); };
     if (s.id === 'buy_boon') { this.stations.spend(s); await this.boonPick(); }
-    else if (s.id === 'buy_heal') { this.stations.spend(s); heal(0.4); }
+    else if (s.id === 'buy_heal') { this.stations.spend(s); heal(0.45); }
     else if (s.id === 'buy_sharpen') { this.stations.spend(s); await this.sharpen(); }
-    else if (s.id === 'rest_heal') { this.stations.spend(s, true); heal(0.4); }
+    else if (s.id === 'buy_vigor') {
+      this.stations.spend(s);
+      this.hero.maxHp += 15; const was = this.hero.hp; this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + 25);
+      this.feed.push('heal', () => msg`气血上限 +${15}`, 0); this.healFeed(was);
+      this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp });
+    }
+    else if (s.id === 'buy_reroll') {
+      this.stations.spend(s); this.rerollsLeft += 2; cue('relic', 0.7);
+      this.feed.push('boon', () => msg`重随次数 +${2}`, 0);
+    }
+    else if (s.id === 'buy_satchel') {
+      this.stations.spend(s);
+      const p = profile(); p.iron += 10; p.herb += 10; saveProfile();
+      this.hud.iron = p.iron; this.hud.herb = p.herb; cue('relic', 0.7);
+      this.feed.push('coins', () => msg`残铁 +${10}`, 0);
+      this.feed.push('heal', () => msg`药引 +${10}`, 0);
+    }
+    else if (s.id === 'rest_heal') { this.stations.spend(s, true); heal(0.45); }
+    else if (s.id === 'rest_meditate') {
+      this.stations.spend(s, true);
+      this.hero.qi = Hero.QI_MAX;
+      this.intent = Math.min(3, this.intent + 2); this.hud.intent = this.intent;
+      const p = profile(); p.iron += 8; p.herb += 6; saveProfile();
+      this.hud.iron = p.iron; this.hud.herb = p.herb; cue('relic', 0.8);
+      this.feed.push('boon', () => '杀气充盈', 0);
+      this.feed.push('coins', () => msg`残铁 +${8}`, 0);
+      this.feed.push('heal', () => msg`药引 +${6}`, 0);
+    }
     else if (s.id === 'rest_sharpen') { this.stations.spend(s, true); await this.sharpen(); }
     else if (s.id === 'scroll' && drawManuals(this.perks.moves, 1, Math.random).length) { this.stations.spend(s); await this.manualPick(); }   // act-19: the 遗卷 altar gives a 刀谱 while any are left
     else if (s.id === 'scroll') { this.stations.spend(s); await this.boonPick(); }
@@ -3607,7 +3637,7 @@ export class ActShow {
     if (this.timeline.on) { if (n.back) { this.padSkip = true; this.timeline.key(true); } else if (this.padSkip && !n.backHeld) { this.padSkip = false; this.timeline.key(false); } }
     else this.padSkip = false;
     if (this.dialogue.on) { if (n.ok || n.x) this.dialogue.advance(); return; }
-    if (this.cards.on) { if (n.up || n.left) this.cards.key('left'); else if (n.down || n.right) this.cards.key('right'); else if (n.ok) this.cards.key('ok'); else if (n.back) this.cards.leave(); return; }
+    if (this.cards.on) { if (n.up || n.left) this.cards.key('left'); else if (n.down || n.right) this.cards.key('right'); else if (n.ok) this.cards.key('ok'); else if (n.y) this.cards.reroll(); else if (n.back) this.cards.leave(); return; }
     if (n.start && this.canPause()) this.pauseGame();
   }
   /** the world can stand still here: walking about or fighting (not the start screen, a cutscene, a conversation, the cards, a wipe) */

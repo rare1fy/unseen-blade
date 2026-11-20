@@ -13,16 +13,27 @@ export const REGION_5: RegionDef = {
   waves(type: RoomType, depth: number, r: () => number): string[][] {
     if (type === 'elite') {
       const head = pick(['cx_sword', 'cx_shade', 'cx_guard', 'cx_zhu'], r) + '*';
-      return [[head, 'cx_club', 'cx_club', 'cx_club', 'cx_sword'], ['cx_guard', pick(MID, r), pick(MID, r), 'cx_club', 'cx_club', ...(depth >= 2 ? [pick(MID, r) + '*'] : [])]];
+      return [
+        [head, 'cx_zhu', 'cx_sword', 'cx_club', 'cx_club'],
+        [depth >= 2 ? 'cx_guard*' : 'cx_guard', pick(MID, r), 'cx_shade', 'cx_sword'],
+      ];
     }
     if (type !== 'fight') return [];
-    if (depth === 0) return [['cx_club', 'cx_club', 'cx_club', 'cx_club', 'cx_sword'], ['cx_club', 'cx_club', 'cx_sword', 'cx_shade', 'cx_zhu']];
-    const w1 = ['cx_club', 'cx_club', 'cx_club', 'cx_sword', pick(MID, r), ...(depth >= 2 ? ['cx_guard'] : [])];
-    const w2 = ['cx_club', 'cx_club', 'cx_zhu', pick(['cx_sword', 'cx_guard'], r), pick(MID, r), 'cx_shade', ...(depth >= 2 ? [pick(MID, r) + '*'] : []), ...(depth >= 3 ? ['cx_guard*'] : [])];
+    // act-122: elite manor duels (guard/sword riposte + zither interference + shade ambushes) instead of 4x club swarms
+    if (depth === 0) return [
+      ['cx_sword', 'cx_zhu', 'cx_club', 'cx_club'],
+      ['cx_guard', 'cx_shade', 'cx_sword', 'cx_club', 'cx_club'],
+    ];
+    if (depth === 1) return [
+      ['cx_guard', 'cx_zhu', 'cx_sword', 'cx_club', 'cx_club'],
+      ['cx_shade', 'cx_guard', 'cx_sword', 'cx_zhu', 'cx_club'],
+    ];
+    const w1 = ['cx_guard', 'cx_sword', pick(MID, r), 'cx_club', 'cx_club'];
+    const w2 = [pick(MID, r) + '*', 'cx_zhu', 'cx_guard', 'cx_shade', ...(depth >= 3 ? ['cx_sword*'] : ['cx_sword'])];
     return [w1, w2];
   },
-  // his household first (the swordsmen and the zither player), then 崔玄 alone (he calls the rest himself)
-  bossWaves: [['cx_club', 'cx_club', 'cx_club', 'cx_sword', 'cx_sword', 'cx_zhu'], ['cx_boss']],
+  // his household first (the guard, swordsmen and zither player), then 崔玄 alone (he calls the rest himself)
+  bossWaves: [['cx_guard', 'cx_sword', 'cx_sword', 'cx_zhu', 'cx_club'], ['cx_boss']],
   boss: 'cx_boss',
   // the snowy night (act-36's light: deep indigo, cold moon, the bronze lamps the only warmth)
   spec: { season: 'winter', time: 'night', weather: 'snow' },

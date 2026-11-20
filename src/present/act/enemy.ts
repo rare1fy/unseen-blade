@@ -108,9 +108,9 @@ export const isBoss = (f: { d: EDef }) => !!f.d.boss;
 /** act-113: guard-break vulnerability duration (s) and incoming damage multiplier */
 export const POISE_BREAK_DUR = 2.6;
 export const POISE_BREAK_MUL = 1.5;
-/** act-113: ranged pressure roles that stagger cleanly on their own cadence instead of locking out melee */
+/** act-113 / act-122: ranged pressure roles that stagger cleanly on their own cadence instead of locking out melee */
 export const isRangedFoe = (f: { kind: string; role: string }) =>
-  f.role === 'archer' || f.role === 'taoist' || f.role === 'ly_xbow' || f.role === 'ly_torch' || f.role === 'xp_frost'
+  f.role === 'archer' || f.role === 'taoist' || f.role === 'ly_xbow' || f.role === 'ly_torch' || f.role === 'xp_needle' || f.role === 'xp_frost'
   || f.kind === 'hj_jar' || f.kind === 'wl_xbow' || f.kind === 'wl_oil' || f.kind === 'cx_zhu';
 
 type St = 'enter' | 'move' | 'windup' | 'strike' | 'recover' | 'stagger' | 'roar' | 'dead';
@@ -250,12 +250,39 @@ export const markCalm = (f?: Foe) => {
   if (f && isRangedFoe(f)) rangedCalmUntil = Math.max(rangedCalmUntil, clock.time + Math.max(0.55, TUNE.atkCalm * 0.9));
   else meleeCalmUntil = Math.max(meleeCalmUntil, clock.time + TUNE.atkCalm);
 };
+/** act-122: soft ally-spread steering shared across ALL 5 regions so melee/ranged foes fan out into flanking arcs / crossfire instead of clumping */
+export function applyAllySpread(f: Foe, w: FoeWorld, want: THREE.Vector3) {
+  if (f.d.boss || f.role === 'boss' || f.role === 'chief' || f.kind === 'dummy') return;
+  const ranged = isRangedFoe(f);
+  const spreadR = ranged ? 3.2 : 2.15, r2 = spreadR * spreadR;
+  for (const o of w.foes) {
+    if (o === f || o.st === 'dead' || o.kind === 'dummy') continue;
+    if (ranged !== isRangedFoe(o)) continue;
+    const dx = f.pos.x - o.pos.x, dz = f.pos.z - o.pos.z, d2 = dx * dx + dz * dz;
+    if (d2 > 1e-4 && d2 < r2) {
+      const d = Math.sqrt(d2), push = ((spreadR - d) / spreadR) * 0.9;
+      want.x += (dx / d) * push; want.z += (dz / d) * push;
+    }
+  }
+}
+/** current FoeWorld while updateFoe drives ext AIs, so steerFoe gets ally-spread & obstacle avoidance automatically */
+let activeWorld: FoeWorld | null = null;
 /** turn toward yaw y at rate k (as think does) */
 export function turnFoe(f: Foe, y: number, dt: number, k = 10) { let dy = y - f.yaw; while (dy > Math.PI) dy -= Math.PI * 2; while (dy < -Math.PI) dy += Math.PI * 2; f.yaw += dy * Math.min(1, dt * k); }
 /** the end of think: walk toward `want` at speed sp (a zero want stands and faces the hero), the run pose, the odd strafe flip */
-export function steerFoe(f: Foe, want: THREE.Vector3, sp: number, dt: number, yawTo: number, aim = false) {
+export function steerFoe(f: Foe, want: THREE.Vector3, sp: number, dt: number, yawTo: number, aim = false, w?: FoeWorld) {
+  const world = w ?? activeWorld;
+  if (world) {
+    applyAllySpread(f, world, want);
+    const m0 = want.length();
+    if (m0 > 0.05 && world.way) {
+      const toH = world.heroPos.clone().sub(f.pos).setY(0), dH = toH.length();
+      if (dH > 1e-3 && want.dot(toH) > 0.3 * m0 * dH) { const wd = world.way(f); if (wd) want.copy(wd).multiplyScalar(m0); }
+    }
+    if (aim && world.way && world.sees && !world.sees(f)) { const wd = world.way(f); if (wd) want.copy(wd); }
+  }
   const m = want.length();
-  if (m > 0.05) { want.multiplyScalar(sp / m); turnFoe(f, aim ? yawTo : Math.atan2(want.x, want.z), dt, 8); } else turnFoe(f, yawTo, dt, 6);
+  if (m > 0.05) { want.multiplyScalar(sp / m); turnFoe(f, aim && (!world?.sees || world.sees(f)) ? yawTo : Math.atan2(want.x, want.z), dt, 8); } else turnFoe(f, yawTo, dt, 6);
   f.vel.lerp(want, Math.min(1, dt * 6)); f.a.setRunning(f.vel.length() > 0.6, Math.hypot(f.vel.x, f.vel.z), yawTo, f.vel);
   if (Math.random() < dt * 0.25) f.strafe *= -1;
 }
@@ -372,7 +399,7 @@ export function updateFoe(f: Foe, w: FoeWorld, dt: number) {
       } else { markCalm(f); setSt(f, 'recover', rai?.recover?.(f) ?? (f.role === 'hound' ? 0.7 : f.role === 'chief' ? (f.phase > 1 ? 0.85 : 0.9) : f.role === 'brute' ? 1.0 : f.role === 'boss' ? (f.atk === 'slam' ? 0.95 : f.atk === 'lunge' ? 0.85 : f.atk === 'thunder' ? 0.55 : f.phase > 1 ? 0.5 : 0.75) : f.role === 'mob' ? 0.45 : 0.6)); }
     }
   }
-  if (free && ai) ai.think(f, w, dt, dist, dir, yawTo);
+  if (free && ai) { activeWorld = w; try { ai.think(f, w, dt, dist, dir, yawTo); } finally { activeWorld = null; } }
   else if (free && rai) roleThink(rai, f, w, dt, dist, dir, yawTo, face);
   else if (free) think(f, w, dt, dist, dir, yawTo, face);
   // (11-19: a reeling / thrown foe reports the speed it really makes after the push-out — a knock-back into a crate stops it there,
@@ -390,13 +417,18 @@ function teleStep(f: Foe, dt: number) {
   f.extra = f.extra.filter(e => !e.t.done);
 }
 
-/** 11-18: a region role's free movement — its think() decides; the steering (speed, facing, the run flag, the strafe flip) is shared */
+/** 11-18 / act-122: a region role's free movement — its think() decides; ally-spread, obstacle routing, and steering are shared */
 function roleThink(ai: NonNullable<(typeof ROLE_AI)[string]>, f: Foe, w: FoeWorld, dt: number, dist: number, dir: THREE.Vector3, yawTo: number, face: (y: number, k?: number) => void) {
   const can = canStrike(f, w, { calm: !!f.d.boss }) && (!w.sees || !isRangedFoe(f) || w.sees(f)), side = V3(dir.z, 0, -dir.x).multiplyScalar(f.strafe);
   const k: ThinkCtx = { dt, dist, dir, yawTo, can, side, face };
   const r = ai.think(f, w, k); if (r === 'busy') return;
-  const want = r.want.clone(), sp = f.d.speed * (r.sp ?? 1), m = want.length();
-  if (m > 0.05) { want.multiplyScalar(sp / m); face(r.aim ? yawTo : Math.atan2(want.x, want.z), 8); } else face(yawTo, 6);
+  const want = r.want.clone(), sp = f.d.speed * (r.sp ?? 1);
+  applyAllySpread(f, w, want);
+  const m = want.length();
+  if (m > 0.05 && w.way && want.dot(dir) > 0.3 * m) { const wd = w.way(f); if (wd) want.copy(wd).multiplyScalar(m); }
+  if (r.aim && w.way && w.sees && !w.sees(f)) { const wd = w.way(f); if (wd) want.copy(wd); }
+  const l = want.length();
+  if (l > 0.05) { want.multiplyScalar(sp / l); face(r.aim && (!w.sees || w.sees(f)) ? yawTo : Math.atan2(want.x, want.z), 8); } else face(yawTo, 6);
   f.vel.lerp(want, Math.min(1, dt * 6)); f.a.setRunning(f.vel.length() > 0.6, Math.hypot(f.vel.x, f.vel.z), yawTo, f.vel);
   if (Math.random() < dt * 0.25) f.strafe *= -1;
 }
@@ -469,19 +501,8 @@ function think(f: Foe, w: FoeWorld, dt: number, dist: number, dir: THREE.Vector3
       return;
     }
   }
-  // act-118: soft ally-spread steering so foes fan out into flanking arcs / crossfire instead of clumping on one spot
-  if (r !== 'boss' && r !== 'chief' && r !== 'dummy') {
-    const spreadR = isRangedFoe(f) ? 3.2 : 2.15;
-    for (const o of w.foes) {
-      if (o === f || o.st === 'dead' || o.kind === 'dummy') continue;
-      if (isRangedFoe(f) !== isRangedFoe(o)) continue;
-      const dx = f.pos.x - o.pos.x, dz = f.pos.z - o.pos.z, d2 = dx * dx + dz * dz;
-      if (d2 > 1e-4 && d2 < spreadR * spreadR) {
-        const d = Math.sqrt(d2), push = ((spreadR - d) / spreadR) * 0.9;
-        want.x += (dx / d) * push; want.z += (dz / d) * push;
-      }
-    }
-  }
+  // act-118 / act-122: soft ally-spread steering so foes fan out into flanking arcs / crossfire instead of clumping on one spot
+  applyAllySpread(f, w, want);
   const m = want.length();
   // 11-18 敌人绕路 (屋子形态): a foe walking at the hero with a wall, a walled-off block or a pit between them follows the floor grid's
   // way round instead (the attack choices above are untouched: they still read the straight distance). Backing off / circling stay

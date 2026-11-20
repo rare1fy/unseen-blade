@@ -186,9 +186,9 @@ export function padRumble(level: 'light' | 'medium' | 'heavy'): boolean {
 }
 
 // ---------------------------------------------------------------- menus: direction / confirm / back edges, held directions repeat
-export interface Nav { up: boolean; down: boolean; left: boolean; right: boolean; ok: boolean; back: boolean; start: boolean; x: boolean; any: boolean;
+export interface Nav { up: boolean; down: boolean; left: boolean; right: boolean; ok: boolean; back: boolean; start: boolean; x: boolean; y: boolean; any: boolean;
   /** the B button held (the cutscene skip) */ backHeld: boolean; }
-const NONE: Nav = { up: false, down: false, left: false, right: false, ok: false, back: false, start: false, x: false, any: false, backHeld: false };
+const NONE: Nav = { up: false, down: false, left: false, right: false, ok: false, back: false, start: false, x: false, y: false, any: false, backHeld: false };
 class PadNav {
   private prev: boolean[] = []; private dirPrev = { up: false, down: false, left: false, right: false }; private rep = 0; private at = -1; private last: Nav = NONE;
   /** this frame's edges (polled once a frame, whoever asks first) */
@@ -202,7 +202,7 @@ class PadNav {
     this.rep -= rdt; let fire: keyof typeof dir | null = null;
     for (const k of Object.keys(dir) as Array<keyof typeof dir>) if (dir[k] && !this.dirPrev[k]) { fire = k; this.rep = 0.38; }
     if (!fire && held && this.rep <= 0) { fire = held; this.rep = 0.12; }
-    const n: Nav = { up: fire === 'up', down: fire === 'down', left: fire === 'left', right: fire === 'right', ok: edge(0), back: edge(1), start: edge(9), x: edge(2),
+    const n: Nav = { up: fire === 'up', down: fire === 'down', left: fire === 'left', right: fire === 'right', ok: edge(0), back: edge(1), start: edge(9), x: edge(2), y: edge(3),
       any: b.some((v, i) => v && !this.prev[i]), backHeld: !!b[1] };
     if (n.any || fire) PAD.device = 'pad';
     this.prev = b; this.dirPrev = dir; this.last = n; return n;

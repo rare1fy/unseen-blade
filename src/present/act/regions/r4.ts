@@ -14,16 +14,27 @@ export const REGION_4: RegionDef = {
   waves(type: RoomType, depth: number, r: () => number): string[][] {
     if (type === 'elite') {
       const head = pick(['wl_chain', 'wl_shield', 'wl_xbow', 'wl_diver'], r) + '*';
-      return [[head, 'wl_spear', 'wl_spear', 'wl_spear', pick(MID, r)], ['wl_shield', pick(MID, r), pick(MID, r), 'wl_spear', 'wl_spear', ...(depth >= 3 ? [pick(MID, r) + '*'] : [])]];
+      return [
+        [head, 'wl_shield', pick(MID, r), 'wl_spear', 'wl_spear'],
+        [depth >= 2 ? pick(MID, r) + '*' : 'wl_shield', pick(MID, r), 'wl_xbow', 'wl_oil', 'wl_spear'],
+      ];
     }
     if (type !== 'fight') return [];
-    if (depth === 0) return [['wl_spear', 'wl_spear', 'wl_spear', 'wl_chain'], ['wl_spear', 'wl_spear', 'wl_oil', 'wl_xbow', 'wl_chain']];
-    const w1 = ['wl_spear', 'wl_spear', 'wl_spear', pick(MID, r), pick(MID, r), ...(depth >= 2 ? ['wl_shield'] : [])];
-    const w2 = ['wl_spear', 'wl_spear', 'wl_xbow', 'wl_xbow', pick(MID, r), pick(['wl_shield', 'wl_diver'], r), ...(depth >= 2 ? [pick(MID, r) + '*'] : []), ...(depth >= 3 ? ['wl_shield'] : [])];
+    // act-122: deck-warfare tactical pairings (shield anchor + chain/oil/xbow/diver specialists) instead of 3x spearman clumps
+    if (depth === 0) return [
+      ['wl_shield', 'wl_chain', 'wl_spear', 'wl_spear'],
+      ['wl_oil', 'wl_xbow', 'wl_chain', 'wl_diver', 'wl_spear'],
+    ];
+    if (depth === 1) return [
+      ['wl_shield', 'wl_xbow', 'wl_oil', 'wl_spear', 'wl_spear'],
+      ['wl_diver', 'wl_chain', 'wl_xbow', 'wl_shield', 'wl_spear'],
+    ];
+    const w1 = ['wl_shield', pick(MID, r), pick(MID, r), 'wl_spear', 'wl_spear'];
+    const w2 = [pick(MID, r) + '*', 'wl_shield', 'wl_xbow', pick(['wl_oil', 'wl_diver', 'wl_chain'], r), ...(depth >= 3 ? ['wl_xbow'] : ['wl_spear'])];
     return [w1, w2];
   },
   // the deck's guard first, then 周黯 with his crew (he calls his shield-bearers in himself)
-  bossWaves: [['wl_spear', 'wl_spear', 'wl_spear', 'wl_xbow', 'wl_chain', 'wl_oil'], ['wl_boss', 'wl_spear', 'wl_spear']],
+  bossWaves: [['wl_shield', 'wl_xbow', 'wl_chain', 'wl_oil', 'wl_spear'], ['wl_boss', 'wl_spear', 'wl_spear']],
   boss: 'wl_boss',
   // a night on the river: the fires on the water are the light. (The season only tints the light here: 'spring' because 'winter'
   // snows on the decks — the snow is region five's — and 'autumn' drops maple leaves, which read Japanese.)

@@ -48,7 +48,7 @@ POSE_HOOKS[DUMMY.id] = (b, _t, _a, _off, self) => { const w = WOBBLE.get(self as
 /** a wooden sign: a post and a thick board, the face painted with big pixel characters, leaning back a little toward the camera */
 export function makeSign(label: string, o: { w?: number; h?: number; board?: number; ink?: string; post?: number; sub?: string; price?: number } = {}) {
   const g = new THREE.Group(), w = o.w ?? 1.1, h = o.h ?? 0.5, post = o.post ?? 0.75;
-  const subText = () => o.price ? msg`${o.price} 钱` : o.sub;
+  const subText = () => (o.price && o.sub ? msg`${o.sub}·${o.price}钱` : o.price ? msg`${o.price} 钱` : o.sub);
   const U = 4, initialSub = subText(), titleScale = initialSub ? U : 2 * U;
   const cw = Math.max(textW(label, titleScale) + 16 * U, (initialSub?.length ?? 0) * 15 * U + 16 * U, initialSub ? Math.ceil(128 * w / h) : 0);
   const ch = Math.round(cw * h / w);
@@ -59,8 +59,8 @@ export function makeSign(label: string, o: { w?: number; h?: number; board?: num
     const sub = subText(), ty = sub ? 2 * U : (ch - PIX_H * ls) / 2;
     text(x, label, (cw - textW(label, ls)) / 2, ty, ls, o.ink ?? '#2a160c', 'left', null);
     if (sub) {
-      const f = language === 'en' ? Math.min(14 * U, 14 * U * (cw - 8 * U) / Math.max(1, bodyW(sub, 14 * U))) : 14 * U;
-      bodyText(x, sub, cw / 2, ch - 17 * U, f, '#4a2a16', 'center');
+      const f = Math.min(14 * U, 14 * U * (cw - 8 * U) / Math.max(1, bodyW(sub, 14 * U)));
+      bodyText(x, sub, cw / 2, ch - 17 * U, f, o.ink ?? '#4a2a16', 'center');
     }
   };
   repaint();
