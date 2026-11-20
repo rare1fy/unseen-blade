@@ -248,6 +248,10 @@ export class Hero {
   }
   /** 0..1 while holding a charge (the HUD and the ring under the hero show it), else 0 */
   get charge() { return this.st === 'charge' ? this.chargeK : 0; }
+  /** act-125 tutorial helpers: prevent running out of breath, ensure full charge on parry tutorial, clear dash cd */
+  tutHoldBreath() { this.heldFull = 0; }
+  tutFullCharge() { this.heldFull = 0; if (this.st === 'charge') this.chargeK = 1; }
+  tutReadyDash() { this.dashCd = 0; }
   get airborne() { return this.y > 0.01; }
   get iframe() { return this.inv > 0 || (this.st === 'dash' && this.t < TUNE.dashIframe) || (this.st === 'rel' && this.t < this.dur * 0.55) || (this.st === 'dcut' && this.t < DCUT_MOVE + 0.05)
     // 11-18: 掠地's dive and 牵红 pulling her to a big one pass through blows like a dash (no blinking inv for them)

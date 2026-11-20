@@ -472,7 +472,10 @@ export class IronHp {
       if (this.sc > 1.06) { this.sc = 1.06; this.scV = Math.min(0, this.scV); } else if (this.sc < 0.88) { this.sc = 0.88; this.scV = Math.max(0, this.scV); } }
     this.pressK += ((this.down ? 1 : 0) - this.pressK) * Math.min(1, dt * 30);
     this.badge.scale.setScalar(this.sc); this.badge.position.z = -this.pressK * 4;
-    this.medRimMat.emissive.setHex(0xffb060); this.medRimMat.emissiveIntensity = 0.18 * this.pressK;
+    const lowHp = this.st.hp > 0 && this.st.hp / Math.max(1, this.st.maxHp) <= 0.3;
+    const beat = lowHp ? Math.pow(0.5 + 0.5 * Math.sin(this.tt * 7.2), 2) : 0;
+    this.medRimMat.emissive.setHex(lowHp ? 0xff2416 : 0xffb060);
+    this.medRimMat.emissiveIntensity = lowHp ? 0.32 + 0.65 * beat : 0.18 * this.pressK;
     const shown = Math.max(0, Math.floor(this.coins)), iron = Math.max(0, Math.floor(this.iron)), herb = Math.max(0, Math.floor(this.herb));
     const hot = this.coinHop > 0, cell = Math.max(1, Math.round(3 * this.k * dpr)), ss = 2, key = `${shown}|${iron}|${herb}|${cell}|${hot}`;
     if (key !== this.coinKey) {
@@ -509,12 +512,15 @@ export class IronHp {
   update(dt: number) {
     const L = this.L, f = Math.max(0, Math.min(1, this.st.hp / Math.max(1, this.st.maxHp))); this.tt += dt;
     this.shakeT = Math.max(0, this.shakeT - dt); this.flashT = Math.max(0, this.flashT - dt); this.healT = Math.max(0, this.healT - dt);
-    const sx = this.shakeT > 0 ? Math.sin(this.shakeT * 90) * 4 * this.shakeT / 0.3 : 0;
+    const lowNow = this.st.hp > 0 && f <= 0.3;
+    const lowBeat = lowNow ? Math.pow(0.5 + 0.5 * Math.sin(this.tt * 7.2), 2) : 0;
+    const sx = (this.shakeT > 0 ? Math.sin(this.shakeT * 90) * 4 * this.shakeT / 0.3 : 0) + (lowNow && lowBeat > 0.78 ? Math.sin(this.tt * 55) * 1.4 : 0);
     L.at(this.x + sx, this.y, 0, this.root.position); this.root.scale.setScalar(L.px(this.k));
     { // the number: 5-row digits about 19 units tall (the trough is 26), redrawn only when it or the screen scale changes
-      const dpr = L.dpr || 1, cell = Math.max(1, Math.round(3.8 * this.k * dpr)), ss = 2, text = `${Math.max(0, Math.round(this.st.hp))} / ${this.st.maxHp}`, key = `${text}|${cell}`;
+      const dpr = L.dpr || 1, cell = Math.max(1, Math.round(3.8 * this.k * dpr)), ss = 2, text = `${Math.max(0, Math.round(this.st.hp))} / ${this.st.maxHp}`;
+      const numCol = lowNow && lowBeat > 0.45 ? '#ff7262' : '#fff0d2', key = `${text}|${cell}|${numCol}`;
       if (key !== this.numKey) {
-        this.numKey = key; const d = digitsCanvas(text, cell * ss, '#fff0d2', '#21100e'), mat = this.num.material as THREE.MeshBasicMaterial;
+        this.numKey = key; const d = digitsCanvas(text, cell * ss, numCol, '#21100e'), mat = this.num.material as THREE.MeshBasicMaterial;
         mat.map?.dispose(); const t = new THREE.CanvasTexture(d.c as HTMLCanvasElement); t.colorSpace = THREE.SRGBColorSpace; t.minFilter = t.magFilter = THREE.LinearFilter; t.generateMipmaps = false;
         mat.map = t; mat.needsUpdate = true; this.num.scale.set(d.w / ss / dpr / this.k, d.h / ss / dpr / this.k, 1);
       }
@@ -527,7 +533,7 @@ export class IronHp {
     this.fill.scale.x = Math.max(0.001, W * f); this.fill.position.x = X + (W * f) / 2;
     this.fillTop.scale.x = Math.max(0.001, W * f); this.fillTop.position.x = X + (W * f) / 2;
     this.lag.scale.x = Math.max(0.001, W * this.lagV); this.lag.position.x = X + (W * this.lagV) / 2;
-    const fm = this.fill.material as THREE.MeshLambertMaterial, low = f < 0.3 ? 0.35 + 0.35 * Math.sin(this.tt * 8) : 0;
+    const fm = this.fill.material as THREE.MeshLambertMaterial, low = lowNow ? 0.45 + 0.65 * lowBeat : 0;
     // a blow brightens the red, never to white (a white bar matched the lost piece behind it)
     fm.emissive.setHex(this.flashT > 0 ? 0xff3a22 : this.healT > 0 ? 0x2a8a3a : 0xff2a1a); fm.emissiveIntensity = this.flashT > 0 ? 0.3 + this.flashT * 4 : this.healT > 0 ? 1 : low;
     // the 杀意 ingots: lit ones glow like coals; a new one flares

@@ -17,9 +17,9 @@ import { V3, onUpdate, R, scene, warm, frames, precompile } from '../engine/worl
 import { hitstop, shake, slowmo, after, anim, clock, FX, waitReal, PAUSE } from '../engine/clock';
 import { shot, CINE_PX } from '../director';
 import { fxImpact, fxSparks, fxSmoke, fxRing, fxEmbers, fxFlare, fxGlow, fxChips, trailSeg } from '../fx/fx';
-import { fxAfterimage } from '../fx/skillFx';
+import { fxAfterimage, fxShock } from '../fx/skillFx';
 import { addBlock, debrisContacts } from '../fx/blocks';
-import { popPix } from '../v2/pix';
+import { popPix, PIX_H } from '../v2/pix';
 import { playDeath } from '../v2/death';
 import { prepareFight, prepareFightModels } from './fightWarm';
 import { UiLayer } from '../ui3d/layer';
@@ -671,6 +671,12 @@ export class ActShow {
     }
     talked = true; if (!this.hero.scriptPose) giveBlade();
     this.camOverride = null; GRADE.bloomThreshold = bloomWas;   // (the battle camera eases back in)
+    // act-125: show clear post-rescue guidance banner AFTER dialogue finishes so the player knows immediately what to do!
+    after(0.45, () => {
+      if (this.phase === 'yard' && !this.dialogue.on && !this.cards.on) {
+        this.banner.show('断碑古窑', '先找南边杜五领干粮，再从院门出发', 3.2, '#ffe6b0');
+      }
+    });
   }
   /** the run's haul goes home (meta.ts bank: currencies, runs / wins / deaths), saved */
   private lastWon = false;
@@ -700,14 +706,56 @@ export class ActShow {
   }
   private hideHideoutLabels() {
     this.L.text.hide('act.npc');
+    this.L.text.hide('act.yard.guide');
+    this.L.text.hide('act.yard.exit');
     for (const id of ['fengtiebi', 'sunao', 'duwu', 'stele']) this.L.text.hide('act.beacon.' + id);
+    if (this.yardArrow) this.yardArrow.visible = false;
   }
-  private clearNpcs() { for (const n of this.npcs) { n.a.dispose(); n.sh.parent?.remove(n.sh); } this.npcs = []; this.npcNear = null; this.stele?.dispose(); this.stele = null; for (const m of this.marks.values()) { m.g.parent?.remove(m.g); m.ring.parent?.remove(m.ring); } this.marks.clear(); this.hideHideoutLabels(); }
-  /** act-29 / act-118: speech bubbles + glowing upgrade beacons above Forge / Medic / Du Wu / 复仇碑 whenever an upgrade or meal is available */
+  private clearNpcs() {
+    for (const n of this.npcs) { n.a.dispose(); n.sh.parent?.remove(n.sh); }
+    this.npcs = []; this.npcNear = null; this.stele?.dispose(); this.stele = null;
+    for (const m of this.marks.values()) { m.g.parent?.remove(m.g); m.ring.parent?.remove(m.ring); }
+    this.marks.clear();
+    this.yardArrow?.parent?.remove(this.yardArrow); this.yardArrow = null;
+    this.exitRing?.parent?.remove(this.exitRing); this.exitRing = null;
+    this.hideHideoutLabels();
+  }
+  /** act-125: 3D voxel floor compass chevron pointing toward the next hideout objective + south gate threshold glow */
+  private yardArrow: THREE.Group | null = null;
+  private exitRing: THREE.Mesh | null = null;
+  private makeYardArrow() {
+    const g = new THREE.Group();
+    const m1 = new THREE.MeshBasicMaterial({ color: 0xffd868, transparent: true, opacity: 0.92, depthWrite: false });
+    const m2 = new THREE.MeshBasicMaterial({ color: 0xfff6d0, transparent: true, opacity: 0.95, depthWrite: false });
+    // Stepped 3D voxel chevron pointing along +z
+    const b1 = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.05, 0.24), m1); b1.position.set(0, 0, -0.06);
+    const b2 = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.05, 0.12), m2); b2.position.set(0, 0.01, 0.08);
+    const b3 = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.05, 0.10), m1); b3.position.set(0, 0.01, 0.19);
+    const b4 = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.05, 0.10), m2); b4.position.set(0, 0.02, 0.28);
+    g.add(b1, b2, b3, b4);
+    g.traverse(o => { o.renderOrder = 6; });
+    this.stage?.root.add(g);
+    this.yardArrow = g;
+    return g;
+  }
+  private hideoutObjective(): { x: number; z: number; text: string; col: string; isExit: boolean } {
+    const prof = profile();
+    const ex = (HIDEOUT.exit.x0 + HIDEOUT.exit.x1) / 2, ez = HIDEOUT.exit.z;
+    if (!prof.meal && prof.runs === 0) return { x: HIDEOUT.people.duwu.x, z: HIDEOUT.people.duwu.z, text: '据点指引 · 去找南边【杜五】领开局干粮', col: '#ffcf88', isExit: false };
+    if (hasAffordable(prof, 'forge')) return { x: HIDEOUT.people.fengtiebi.x, z: HIDEOUT.people.fengtiebi.z, text: '据点指引 · 去找【冯铁臂】锻刀强化', col: '#ffd868', isExit: false };
+    if (hasAffordable(prof, 'medic')) return { x: HIDEOUT.people.sunao.x, z: HIDEOUT.people.sunao.z, text: '据点指引 · 去找【孙媪】药石强化', col: '#8effb8', isExit: false };
+    if (hasMirrorAffordable(prof)) return { x: HIDEOUT.stele.x, z: HIDEOUT.stele.z + 0.6, text: '据点指引 · 去【复仇碑】参悟潜能', col: '#d8c4ff', isExit: false };
+    if (!prof.meal) return { x: HIDEOUT.people.duwu.x, z: HIDEOUT.people.duwu.z, text: '据点指引 · 去找南边【杜五】领开局干粮', col: '#ffcf88', isExit: false };
+    return { x: ex, z: ez, text: '据点指引 · 跨出南院门【出发】开打', col: '#ffe89a', isExit: true };
+  }
+  /** act-29 / act-118 / act-125: speech bubbles, role tags, interaction key prompts & glowing upgrade beacons in 断碑古窑 */
   private marks = new Map<string, { g: THREE.Group; bub: THREE.Mesh; ring: THREE.Mesh; k: number }>();
   private npcMarks(dt: number, near: string | null) {
-    const t = clock.rtime, prof = profile();
+    const t = clock.rtime, prof = profile(), h = this.hero;
     const uiClear = !this.noTalk && this.phase !== 'talk' && this.phase !== 'cine' && !this.dialogue.on && !this.cards.on && !this.demo.on && !this.pause.on;
+    const dev = this.inp.lastDevice;
+    const talkKey = dev === 'touch' ? '点右下交谈' : dev === 'pad' ? msg`[${actPad('attack')}]` : msg`[${actKey('attack')}]`;
+    const roleOf: Record<string, string> = { fengtiebi: '锻刀', sunao: '药石', duwu: '干粮', stele: '潜能' };
     const beaconOf = (id: string): { text: string; col: string; hex: number } | null => {
       if (id === 'fengtiebi' && hasAffordable(prof, 'forge')) return { text: '可锻造', col: '#ffd868', hex: 0xffc848 };
       if (id === 'sunao' && hasAffordable(prof, 'medic')) return { text: '可强化', col: '#8effb8', hex: 0x62e898 };
@@ -731,29 +779,63 @@ export class ActShow {
       m.ring.position.set(n.x, 0.04, n.z); const rs = 1 + 0.1 * Math.sin(t * 6); m.ring.scale.set(rs, 1, rs);
       const rm = m.ring.material as THREE.MeshBasicMaterial;
       rm.color.setHex(bc ? bc.hex : 0xf2f4f8); rm.opacity = Math.max(0.75 * m.k, bc ? 0.38 + 0.25 * pulse : 0);
-      if (bc && uiClear && near !== n.id) {
+      const dHero = h ? Math.hypot(h.pos.x - n.x, h.pos.z - n.z) : 99;
+      if (uiClear && near !== n.id && (bc || dHero < 6.8)) {
         const p = worldToUi(V3(n.x, top + 0.96, n.z));
-        this.L.text.set('act.beacon.' + n.id, { text: bc.text, x: p.x, y: p.y, bodyPx: Math.max(12, Math.round(14 * Math.min(1.2, this.L.h / 720))), color: bc.col, outline: '#140c0a', align: 'center', visible: p.z < 1 });
+        const baseName = HIDEOUT_PEOPLE[n.id as keyof typeof HIDEOUT_PEOPLE]?.name ?? '';
+        const txt = bc ? msg`${baseName} · ${bc.text}` : msg`${baseName} · ${roleOf[n.id] ?? ''}`;
+        this.L.text.set('act.beacon.' + n.id, { text: txt, x: p.x, y: p.y, bodyPx: Math.max(12, Math.round(13.5 * Math.min(1.2, this.L.h / 720))), color: bc ? bc.col : '#dcd2be', outline: '#140c0a', align: 'center', visible: p.z < 1 });
       } else this.L.text.hide('act.beacon.' + n.id);
     }
     // 复仇碑 beacon (Hades Mirror of Night-style 碑铭潜能)
     if (this.stele && HIDEOUT.stele) {
-      const bc = beaconOf('stele');
-      if (bc && uiClear && near !== 'stele') {
+      const bc = beaconOf('stele'), dStele = h ? Math.hypot(h.pos.x - HIDEOUT.stele.x, h.pos.z - HIDEOUT.stele.z) : 99;
+      if (uiClear && near !== 'stele' && (bc || dStele < 6.2)) {
         const p = worldToUi(V3(HIDEOUT.stele.x, 1.95, HIDEOUT.stele.z + 0.35));
-        this.L.text.set('act.beacon.stele', { text: bc.text, x: p.x, y: p.y, bodyPx: Math.max(12, Math.round(14 * Math.min(1.2, this.L.h / 720))), color: bc.col, outline: '#140c0a', align: 'center', visible: p.z < 1 });
+        this.L.text.set('act.beacon.stele', { text: bc ? msg`复仇碑 · ${bc.text}` : '复仇碑 · 潜能', x: p.x, y: p.y, bodyPx: Math.max(12, Math.round(13.5 * Math.min(1.2, this.L.h / 720))), color: bc ? bc.col : '#ccc2dc', outline: '#140c0a', align: 'center', visible: p.z < 1 });
       } else this.L.text.hide('act.beacon.stele');
     } else this.L.text.hide('act.beacon.stele');
     const nn = near ? this.npcs.find(x => x.id === near) : null;
     if (near === 'stele' && uiClear && HIDEOUT.stele) {
       const p = worldToUi(V3(HIDEOUT.stele.x, 1.95, HIDEOUT.stele.z + 0.35));
-      this.L.text.set('act.npc', { text: '复仇碑 · 碑铭潜能', x: p.x, y: p.y, bodyPx: Math.max(12, Math.round(15 * Math.min(1.2, this.L.h / 720))), color: '#d8c4ff', outline: '#140c0a', align: 'center' });
+      this.L.text.set('act.npc', { text: msg`复仇碑 · 潜能 ${talkKey}`, x: p.x, y: p.y, bodyPx: Math.max(13, Math.round(15 * Math.min(1.2, this.L.h / 720))), color: '#e2d0ff', outline: '#140c0a', align: 'center' });
     } else if (nn && uiClear) {
       const p = worldToUi(V3(nn.x, (nn.a.height ?? 1.8) + 1.0, nn.z));
       const bc = beaconOf(nn.id);
       const baseName = HIDEOUT_PEOPLE[nn.id as keyof typeof HIDEOUT_PEOPLE]?.name ?? '';
-      this.L.text.set('act.npc', { text: bc ? msg`${baseName} · ${bc.text}` : baseName, x: p.x, y: p.y, bodyPx: Math.max(12, Math.round(15 * Math.min(1.2, this.L.h / 720))), color: bc ? bc.col : '#ffe6b0', outline: '#140c0a', align: 'center' });
+      const role = bc ? bc.text : (roleOf[nn.id] ?? '');
+      this.L.text.set('act.npc', { text: role ? msg`${baseName} · ${role} ${talkKey}` : msg`${baseName} ${talkKey}`, x: p.x, y: p.y, bodyPx: Math.max(13, Math.round(15 * Math.min(1.2, this.L.h / 720))), color: bc ? bc.col : '#ffe6b0', outline: '#140c0a', align: 'center' });
     } else this.L.text.hide('act.npc');
+    // act-125: persistent hideout objective guidance + 3D floor compass arrow + glowing south exit threshold
+    if (this.phase === 'yard' && uiClear && h) {
+      const obj = this.hideoutObjective();
+      const dpr = this.L.dpr || 1, kk = Math.min(1.2, Math.max(0.75, this.L.h / 720));
+      const pk = Math.max(1, Math.round(Math.max(14, 16 * kk) * dpr / PIX_H));
+      if (this.banner.bottomY <= 0) this.L.text.set('act.yard.guide', { text: obj.text, x: this.L.w * 0.5, y: 24 * kk, pix: pk, color: obj.col, outline: '#140c0a', align: 'center', visible: true });
+      else this.L.text.hide('act.yard.guide');
+      const dx = obj.x - h.pos.x, dz = obj.z - h.pos.z, dist = Math.hypot(dx, dz);
+      const arr = this.yardArrow ?? this.makeYardArrow();
+      if (dist > 2.3) {
+        const ang = Math.atan2(dx, dz), r = 1.15 + 0.1 * Math.sin(t * 6);
+        arr.visible = true;
+        arr.position.set(h.pos.x + Math.sin(ang) * r, 0.12, h.pos.z + Math.cos(ang) * r);
+        arr.rotation.y = ang;
+      } else arr.visible = false;
+      // Glowing south gate threshold ring & floating 出发 · 开打 label
+      const ex = (HIDEOUT.exit.x0 + HIDEOUT.exit.x1) / 2, ez = HIDEOUT.exit.z - 0.15;
+      if (!this.exitRing) {
+        this.exitRing = new THREE.Mesh(new THREE.RingGeometry(0.95, 1.18, 24).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffd868, transparent: true, opacity: 0.45, depthWrite: false, blending: THREE.AdditiveBlending }));
+        this.exitRing.position.set(ex, 0.06, ez); this.exitRing.renderOrder = 4; this.stage?.root.add(this.exitRing);
+      }
+      const ep = 0.5 + 0.5 * Math.sin(t * 4.5);
+      this.exitRing.visible = true; this.exitRing.scale.setScalar(0.95 + 0.08 * ep);
+      (this.exitRing.material as THREE.MeshBasicMaterial).opacity = obj.isExit ? 0.45 + 0.35 * ep : 0.18 + 0.1 * ep;
+      const gp = worldToUi(V3(ex, 1.65, ez));
+      this.L.text.set('act.yard.exit', { text: '出发 · 开打', x: gp.x, y: gp.y, bodyPx: Math.max(12, Math.round(14 * kk)), color: '#ffe898', outline: '#140c0a', align: 'center', visible: gp.z < 1 && obj.isExit });
+    } else {
+      this.L.text.hide('act.yard.guide'); this.L.text.hide('act.yard.exit');
+      if (this.yardArrow) this.yardArrow.visible = false;
+    }
   }
   /** a word with someone at the hideout; the smith and the healer then show their upgrades; 复仇碑 opens 碑铭潜能 (Mirror of Night) */
   private async npcTalk(id: string) {
@@ -1246,7 +1328,7 @@ export class ActShow {
     // a room may be up (__dh.title from the yard): its actors go the way a room change sends them
     this.propContacts?.dispose(); this.propContacts = undefined;
     this.foeContacts?.dispose(); this.foeContacts = undefined;
-    this.duel?.newRoom(); for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = []; this.entering.length = 0;
+    this.duel?.newRoom(); for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = []; this.entering.length = 0; this.clearBossDrops();
     this.yard?.dispose(); this.yard = null; this.props?.dispose(); this.props = null; this.gates?.dispose(); this.gates = null; this.pieces?.dispose(); this.pieces = null; this.leaves?.dispose(); this.leaves = null; this.stations?.dispose(); this.stations = null; this.hero?.a.dispose();
     this.clearNpcs();
     this.phase = 'title'; this.hud.on = false; this.hud.update(0, this.inp, []); this.banner.hide(); this.blob.visible = false; this.ring.visible = false; for (const m of this.shadows) m.visible = false;
@@ -1488,7 +1570,7 @@ export class ActShow {
     if (this.allyGen) { this.allyGen.dispose(); this.allyGen = null; }
     this.duelGen = null;
     if (this.endCui) { this.endCui.dispose(); this.endCui = null; }
-    this.duel?.newRoom(); for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = []; this.entering.length = 0;
+    this.duel?.newRoom(); for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = []; this.entering.length = 0; this.clearBossDrops();
     this.falling = [];
     this.gates?.dispose(); this.gates = null; this.pieces?.dispose(); this.pieces = null; this.leaves?.dispose(); this.leaves = null; this.clearNpcs();
     for (const d of this.doors) d.g.parent?.remove(d.g); this.doors = []; this.stations?.dispose(); this.stations = null; this.coinsFx.clear();
@@ -1817,12 +1899,72 @@ export class ActShow {
     const ko = kindOr(k), bs = !!EDEFS[ko.kind].boss;
     const way = bs || kindOr(k).kind === 'xp_diver' ? null : this.entryFrom(p, hp, i, zb ?? null, sz);
     const f = spawnFoe(ko.kind, way ? way.from : p, hp.clone(), ko.elite); this.foes.push(f);
+    // act-125: Bosses NEVER pop out of thin air mid-room — they descend with a ground-warning vortex & heavy landing shockwave!
+    if (bs && this.prologue !== 2) {
+      f.pos.set(p.x, 11.5, p.z); f.a.root.position.copy(f.pos); f.a.root.visible = false;
+      f.st = 'enter'; f.t = 0; f.dur = 1.2; f.inv = 1.4; f.cd = 1.4;
+      const ring = new THREE.Mesh(new THREE.RingGeometry(0.4, 2.2, 24).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xff5a2c, transparent: true, opacity: 0.75, depthWrite: false, blending: THREE.AdditiveBlending }));
+      ring.position.set(p.x, 0.08, p.z); ring.renderOrder = 4; this.stage?.root.add(ring);
+      this.bossDrops.push({ f, at: p.clone(), t: 0, ring, deferred: deferredBoss, onLand: null });
+      this.bossLookT = Math.max(this.bossLookT, 3.0);
+      cue('whoosh', 0.85);
+      return f;
+    }
     if (way) this.entering.push({ f, from: way.from, to: way.to, wall: way.wall, t: 0, dur: way.dur });
     else { fxSmoke(p.clone().add(V3(0, 0.3, 0)), 0x6a6a74, bs ? 14 : 8, { r: 0.7, spd: 1.2, up: 0.6, s: 0.4, life: 0.7 }); fxRing(p.clone().setY(0.05), 0xff7a4a, 1.2, { life: 0.4 } as never); }
     cue(bs ? 'roar' : way ? 'foeCry' : 'summon', bs ? 0.9 : way ? 0.25 : 0.4);
     if (bs && !deferredBoss && EDEFS[ko.kind].intro) { this.bossLookT = 3.2; f.a.roar(); shake(0.3 * TUNE.shake); this.banner.show(EDEFS[ko.kind].name, EDEFS[ko.kind].tag ?? '', 2.2, '#ff8a6a'); after(0.9, () => { if (f.st !== 'dead') this.barks?.say(() => f.a.head(), EDEFS[ko.kind].intro!); }); }
     else if (bs && !deferredBoss) { f.a.roar(); shake(0.3 * TUNE.shake); this.banner.show(EDEFS[ko.kind].name, EDEFS[ko.kind].tag ?? '', 1.6, '#ff8a6a'); }
+    // act-125: first-time non-intrusive poise tip when player first encounters a golden poise bar in a real run
+    if (!this.prologue && this.phase === 'fight' && f.d.poise > 0 && seeOnce('tip_poise')) {
+      saveProfile(); this.showTip('金色架势条：破势或重击可破防！', '#ffe696', 3.4);
+    }
     return f;
+  }
+  /** act-125: physical sky-slam entrance choreography for bosses (ground vortex buildup -> high plunge -> landing shockwave & roar) */
+  private bossDrops: Array<{ f: Foe; at: THREE.Vector3; t: number; ring: THREE.Mesh; deferred: boolean; onLand: (() => void) | null }> = [];
+  private clearBossDrops() { for (const d of this.bossDrops) { d.ring.parent?.remove(d.ring); d.ring.geometry.dispose(); (d.ring.material as THREE.Material).dispose(); } this.bossDrops.length = 0; }
+  private bossDropStep(dt: number) {
+    const WARN = 0.62, DROP = 0.24, TOTAL = WARN + DROP;
+    for (let i = this.bossDrops.length - 1; i >= 0; i--) {
+      const d = this.bossDrops[i], f = d.f;
+      if (f.st === 'dead') { d.ring.parent?.remove(d.ring); this.bossDrops.splice(i, 1); continue; }
+      d.t += dt;
+      f.st = 'enter'; f.t = 0; f.dur = 0.35; f.inv = 0.4; f.vel.set(0, 0, 0);
+      const rm = d.ring.material as THREE.MeshBasicMaterial;
+      if (d.t < WARN) {
+        const k = d.t / WARN;
+        f.a.root.visible = false;
+        d.ring.scale.setScalar(1.35 - 0.55 * k);
+        rm.opacity = 0.35 + 0.55 * k;
+        if (Math.random() < dt * 26) fxEmbers(d.at.clone().add(V3((Math.random() - 0.5) * 2.2, 0.12, (Math.random() - 0.5) * 2.2)), 0xff8a3a, 1, { r: 0.2, up: 2.2, life: 0.45 });
+      } else if (d.t < TOTAL) {
+        const k = (d.t - WARN) / DROP;
+        f.a.root.visible = true;
+        f.pos.set(d.at.x, 11.5 * (1 - k * k), d.at.z);
+        f.a.root.position.copy(f.pos);
+        f.yaw = Math.atan2(this.hero.pos.x - d.at.x, this.hero.pos.z - d.at.z); f.a.yaw = f.yaw;
+        d.ring.scale.setScalar(0.8 + 0.4 * k); rm.opacity = 0.9;
+      } else {
+        // Thunderous landing!
+        f.a.root.visible = true;
+        f.pos.set(d.at.x, 0, d.at.z); f.a.root.position.copy(f.pos); f.inv = 0.2; f.cd = 0.7;
+        d.ring.parent?.remove(d.ring); d.ring.geometry.dispose(); rm.dispose();
+        this.bossDrops.splice(i, 1);
+        cue('pillarFall', 0.9); cue('boom', 0.65); cue('roar', 0.9);
+        shake(0.48 * TUNE.shake); this.camPunch(0.06);
+        fxShock(d.at.clone().setY(0.08), 0xff9a4a, 3.6, { life: 0.45 });
+        fxRing(d.at.clone().setY(0.1), 0xffe2a0, 4.2, { life: 0.5 } as never);
+        fxSmoke(d.at.clone().setY(0.4), 0x7a6a5a, 16, { r: 1.4, spd: 2.8, up: 1.0, s: 0.55, life: 0.85 });
+        fxSparks(d.at.clone().setY(0.35), 0xffd078, 22, 6.5);
+        if (d.onLand) d.onLand();
+        else if (!d.deferred) {
+          this.bossLookT = 2.6; f.a.roar();
+          this.banner.show(EDEFS[f.kind].name, EDEFS[f.kind].tag ?? '', 2.2, '#ff8a6a');
+          if (EDEFS[f.kind].intro) after(0.8, () => { if (f.st !== 'dead') this.barks?.say(() => f.a.head(), EDEFS[f.kind].intro!); });
+        }
+      }
+    }
   }
   private scheduleWaveBarks(count: number) {
     after(count * 0.28 + 0.45, () => {
@@ -1843,14 +1985,28 @@ export class ActShow {
       const bk = kindOr(kinds[bossIdx]).kind;
       const bi = BOSS_ORDER.indexOf(bk);
       const willIntro = this.prologue === 2 || (bi >= 0 && CH_BEFORE[bi].length > 0 && !profile().seen[`ch${bi + 1}_boss`]);
-      if (willIntro) {
-        const rest = kinds.filter((_, idx) => idx !== bossIdx);
-        const f = this.spawnEntry(kinds[bossIdx], 0, true);
-        if (f && this.bossArrived(f, () => {
-          rest.forEach((k, i) => after(i * 0.28, () => { this.spawnEntry(k, i + 1); }));
-          if (rest.length) this.scheduleWaveBarks(rest.length);
-        })) return;
+      const rest = kinds.filter((_, idx) => idx !== bossIdx);
+      const spawnEscorts = () => {
+        rest.forEach((k, i) => after(i * 0.28 + 0.35, () => { this.spawnEntry(k, i + 1); }));
+        if (rest.length) this.scheduleWaveBarks(rest.length);
+      };
+      const f = this.spawnEntry(kinds[bossIdx], 0, willIntro);
+      if (f) {
+        const drop = this.bossDrops.find(d => d.f === f);
+        if (drop) {
+          drop.onLand = () => {
+            if (willIntro && this.bossArrived(f, spawnEscorts)) return;
+            this.bossLookT = 2.6; f.a.roar();
+            this.banner.show(EDEFS[f.kind].name, EDEFS[f.kind].tag ?? '', 2.2, '#ff8a6a');
+            if (EDEFS[f.kind].intro) after(0.8, () => { if (f.st !== 'dead') this.barks?.say(() => f.a.head(), EDEFS[f.kind].intro!); });
+            spawnEscorts();
+          };
+          return;
+        }
+        if (willIntro && this.bossArrived(f, spawnEscorts)) return;
       }
+      spawnEscorts();
+      return;
     }
     this.scheduleWaveBarks(kinds.length);
     kinds.forEach((k, i) => {
@@ -1913,16 +2069,28 @@ export class ActShow {
    *  the hero from a foe (a boss barely gives, a dummy and the hideout's people not at all); a dashing or airborne hero passes
    *  (the dash-cut goes through by design); whatever moved is held by the walls and the solids again */
   private separate() {
-    const h = this.hero, B: Array<{ p: THREE.Vector3; r: number; m: number; moved: boolean; f?: Foe }> = [];
-    if (h && h.hp > 0 && h.st !== 'dash' && !h.airborne) B.push({ p: h.pos, r: h.r, m: 1, moved: false });
-    for (const f of this.foes) if (f.st !== 'dead') B.push({ p: f.pos, r: f.d.r * 0.9, m: f.kind === 'dummy' ? 1e6 : isBoss(f) ? 8 : f.d.mass, moved: false, f });
+    const h = this.hero, B: Array<{ p: THREE.Vector3; r: number; m: number; moved: boolean; f?: Foe; isHero?: boolean }> = [];
+    // act-125 (Hades-style clean dash pass-through): hero NEVER collides during dash / dcut / swoop / rel / airborne
+    const heroPhasing = !h || h.hp <= 0 || h.st === 'dash' || h.st === 'dcut' || h.st === 'swoop' || h.st === 'rel' || h.airborne;
+    if (!heroPhasing) B.push({ p: h.pos, r: h.r, m: 1, moved: false, isHero: true });
+    for (const f of this.foes) if (f.st !== 'dead' && !this.bossDrops.some(d => d.f === f)) B.push({ p: f.pos, r: f.d.r * 0.9, m: f.kind === 'dummy' ? 1e6 : isBoss(f) ? 8 : f.d.mass, moved: false, f });
     for (const n of this.npcs) B.push({ p: V3(n.x, 0, n.z), r: 0.42, m: 1e6, moved: false });
     for (let i = 0; i < B.length; i++) for (let j = i + 1; j < B.length; j++) {
       const a = B[i], b = B[j], dx = b.p.x - a.p.x, dz = b.p.z - a.p.z, min = a.r + b.r, d2 = dx * dx + dz * dz;
       if (d2 >= min * min || a.m >= 1e6 && b.m >= 1e6) continue;
-      const d = Math.sqrt(d2) || 1e-3, nx = d2 > 1e-8 ? dx / d : 1, nz = d2 > 1e-8 ? dz / d : 0, over = min - d, wa = b.m / (a.m + b.m), wb = a.m / (a.m + b.m);
-      if (a.m < 1e6) { a.p.x -= nx * over * wa; a.p.z -= nz * over * wa; a.moved = true; }
-      if (b.m < 1e6) { b.p.x += nx * over * wb; b.p.z += nz * over * wb; b.moved = true; }
+      const d = Math.sqrt(d2) || 1e-3, nx = d2 > 1e-8 ? dx / d : 1, nz = d2 > 1e-8 ? dz / d : 0, over = min - d;
+      let wa = b.m / (a.m + b.m), wb = a.m / (a.m + b.m);
+      // act-125: right after a dash finishes (dodgeWin), ONLY slide hero cleanly off the foe — NEVER shove enemies like bowling pins!
+      // Even during normal walking contact, cap hero's shove on foes so brushing past never knocks mobs out of attack reach.
+      if (a.isHero && b.f) {
+        if (h.dodgeWin) { wa = 1; wb = 0; }
+        else if (b.m < 1e6) { wb = Math.min(0.15, wb); wa = 1 - wb; }
+      } else if (b.isHero && a.f) {
+        if (h.dodgeWin) { wa = 0; wb = 1; }
+        else if (a.m < 1e6) { wa = Math.min(0.15, wa); wb = 1 - wa; }
+      }
+      if (a.m < 1e6 && wa > 0) { a.p.x -= nx * over * wa; a.p.z -= nz * over * wa; a.moved = true; }
+      if (b.m < 1e6 && wb > 0) { b.p.x += nx * over * wb; b.p.z += nz * over * wb; b.moved = true; }
     }
     const keep = this.lastPush;
     // (a foe knocked over a pit's edge stays loose there: the crowd's push must not hold it back on the floor)
@@ -2113,6 +2281,7 @@ export class ActShow {
     // 11-18 (用户：「如何释放的教学不能是纯文字哈」): a ghost of her does the move once beside her, the HUD's buttons pressed in step
     await this.demoMove(m.id);
     this.phase = was === 'pick' ? 'pick' : was;
+    if (!this.prologue && seeOnce('tip_manual')) { saveProfile(); this.showTip('新刀谱已习得！留意右下按钮翻面连招', '#ffe696', 3.4); }
   }
   // ------------------------------------------------------------ 11-18: what this run has taken, shown on the HUD; the 刀谱 demonstration
   private demo = new MoveDemo();
@@ -2987,25 +3156,58 @@ export class ActShow {
       this.log.push(`teach ${k} ${t[k]}`);   // (11-19: no half-speed any more — the move is shown in full when it is learnt)
     }
   }
-  /** 杀意 +1 (perfect dodge, a batted arrow, a counter landing, 见切), up to 3; the third flares */
+  /** 杀意 +1 (perfect dodge, a batted arrow, a counter landing, 见切), up to 3; the third flares & wakes 不见刀 */
   intent = 0; private qiVolley = 0;
+  private tip = { text: '', col: '#ffe8a0', t: 0 };
+  private qiTipCd = 0; private lowBeatT = 0;
+  private showTip(text: string, col = '#ffe8a0', dur = 3.0) { this.tip = { text, col, t: dur }; }
+  private tipStep(rdt: number) {
+    this.qiTipCd = Math.max(0, this.qiTipCd - rdt);
+    if (this.tip.t > 0 && !this.cards.on && !this.dialogue.on && !this.pause.on && this.hud.on) {
+      this.tip.t = Math.max(0, this.tip.t - rdt);
+      const dpr = this.L.dpr || 1, kk = Math.min(1.2, Math.max(0.7, this.L.h / 720));
+      const pk = Math.max(1, Math.round(Math.max(15, 17 * kk) * dpr / PIX_H));
+      this.L.text.set('act.tip', { text: this.tip.text, x: this.L.w * 0.5, y: Math.min(this.L.h - 42 * kk, this.L.h * 0.88), pix: pk, color: this.tip.col, outline: '#140c0a', align: 'center', visible: this.tip.t > 0 });
+    } else {
+      this.L.text.hide('act.tip');
+    }
+  }
   private addIntent() {
     if (this.intent >= 3) return;
     this.intent++; this.hud.intent = this.intent;
-    if (this.intent >= 3) { cue('relic', 0.9); fxSparks(this.hero.a.chest(), 0xffa040, 20, 5); fxRing(this.hero.pos.clone().setY(0.08), 0xffa040, 1.6, { life: 0.4 } as never); }
+    if (this.intent >= 3) {
+      cue('relic', 0.95); cue('bladeRing', 0.75);
+      fxSparks(this.hero.a.chest(), 0xffd060, 26, 5.5);
+      fxRing(this.hero.pos.clone().setY(0.08), 0xffc850, 2.0, { life: 0.5 } as never);
+      const dev = this.inp.lastDevice;
+      const hint = dev === 'key' ? msg`按 ${actKey('ult')} 施展「不见刀」` : dev === 'pad' ? msg`按 ${actPad('ult')} 施展「不见刀」` : '点右下「不见刀」施展绝杀';
+      if (!this.prologue) {
+        this.feed.push('boon', () => '杀气已满 · 不见刀就绪', 0);
+        this.showTip(hint, '#fff2b0', seeOnce('tip_ult') ? (saveProfile(), 4.2) : 2.6);
+      }
+    }
   }
-  /** 绝 · 一刀 QTE (act-115 改为直觉倒计时机会窗): time slows and 不见刀 button pops up; pressing it ANY time before the closing gold ring finishes releases 不见刀 */
+  /** 绝 · 一刀 QTE (act-115 / act-125): full intent lets player cast 不见刀 anytime, AND perfect dodge/parry/poise-break still pops a generous 1.45s slowmo ring! */
   private qteT = -1; private ultOn = false; private qteW!: THREE.Mesh; private qteWin = false;
   private startQte() {
     if (this.qteT >= 0 || this.ultOn) return;
-    this.qteT = 0; this.qteWin = true; slowmo(TUNE.qteTime * 1.3 + 0.2, 0.04); cue('timeSlow', 1);
+    this.qteT = 0; this.qteWin = true; slowmo(TUNE.qteTime * 1.3 + 0.25, 0.05); cue('timeSlow', 1);
     cue('bladeRing', 0.85); this.platform.vibrate('light');
   }
   private qteFrame(rdt: number) {
-    if (this.qteT < 0) { this.hud.qte(null); this.qteW.visible = false; return; }
+    this.hud.ultReady = !this.prologue && !this.ultOn && this.intent >= 3 && (this.phase === 'fight' || this.phase === 'yard');
+    if (this.qteT < 0) {
+      this.hud.qte(null); this.qteW.visible = false;
+      // act-125: when 3 bars of 杀气 are full, pressing 不见刀 (I / RT / touch button) fires immediately!
+      if (this.hud.ultReady && this.inp.b.ult.pressed && !this.cards.on && !this.duel.locks && !this.demo.on && !this.dialogue.on) {
+        this.inp.b.ult.pressed = false;
+        void this.ult();
+      }
+      return;
+    }
     this.qteT += rdt;
     const h = this.hero, k = this.qteT / TUNE.qteTime, urgent = k >= 0.72;
-    this.qteWin = k <= 1.2;
+    this.qteWin = k <= 1.25;
     this.hud.qteDt = rdt; this.hud.qte(Math.min(1, k), urgent);
     this.qteW.visible = true; this.qteW.position.set(h.pos.x, 0.07, h.pos.z); this.qteW.scale.setScalar((0.9 + 2.6 * Math.max(0, 1 - k)) * (urgent ? 1.06 : 1));
     (this.qteW.material as THREE.MeshBasicMaterial).color.setHex(urgent ? 0xfff8dc : 0xffdc78);
@@ -3013,7 +3215,7 @@ export class ActShow {
     const pressed = this.inp.b.ult.pressed;
     if (pressed) this.inp.b.ult.pressed = false;
     if (pressed && this.qteWin) { this.qteT = -1; this.hud.qte(null); this.qteW.visible = false; void this.ult(); }
-    else if (k > 1.2) { this.qteT = -1; this.hud.qte(null); this.qteW.visible = false; FX.slowmo = 0; cue('click', 0.5); }
+    else if (k > 1.25) { this.qteT = -1; this.hud.qte(null); this.qteW.visible = false; FX.slowmo = 0; cue('click', 0.5); }
   }
   /** 一刀: the hero flashes between every foe nearby (up to seven, nearest first along the way), then sheathes — everyone cut at once */
   private async ult() {
@@ -3205,7 +3407,16 @@ export class ActShow {
         // 11-18 定死的屋子: this piece of the floor is clear — its doors on to the next open; the next wave comes when she walks in there
         const from = this.stageZ[this.stageOf[this.wave]], to = this.stageZ[this.stageOf[this.wave + 1]]; this.wave++;
         after(0.6, () => { if (this.phase !== 'fight' || !this.pieces) return; for (const q of this.pieces.pieces) if (q.kind === 'door' && q.sides.includes(from) && q.sides.includes(to)) this.pieces.openPiece(q); this.waitZone = to; });
-      } else { this.wave++; after(0.9, () => { if (this.phase === 'fight') { this.banner.show(msg`第 ${this.wave + 1} 波`, '', 0.9); this.spawnWave(); } }); }
+      } else {
+        this.wave++;
+        const nextWave = this.plan?.waves[this.wave] ?? [];
+        const isNextBoss = nextWave.some(k => !!EDEFS[kindOr(k).kind].boss);
+        after(isNextBoss ? 0.55 : 0.9, () => {
+          if (this.phase !== 'fight') return;
+          if (!isNextBoss) this.banner.show(msg`第 ${this.wave + 1} 波`, '', 0.9);
+          this.spawnWave();
+        });
+      }
     }
   }
   private hurtHero(dmg: number, from: THREE.Vector3, attacker?: Foe) { // wp/boons: melee source is explicit
@@ -3787,14 +3998,32 @@ export class ActShow {
     }
     const busy = this.cards.on || this.phase === 'leaving' || this.ultOn || !!h.scriptPose || this.demo.on || this.duel.locks;   // (act-46: lying on the mat / getting up — no sliding off it) (11-18 QTE: held in a 拼刀 / a 连环)
     this.qteFrame(rdt); this.parryCd -= rdt;
-    this.tut.frame(rdt, { phase: this.phase, prologue: this.prologue, hero: h, inp: this.inp, foes: this.foes, threats: w => { const t = this.threats(w); return t.foes.length + t.arrows.length; } }, busy || this.duel.locks || this.qteT >= 0 || this.botOn);
+    this.tut.frame(rdt, {
+      phase: this.phase, prologue: this.prologue, hero: h, inp: this.inp, foes: this.foes,
+      threats: w => { const t = this.threats(w); return t.foes.length + t.arrows.length; },
+      onGuarantee: (id, target) => {
+        if (id === 'attack' && target) {
+          const to = target.pos.clone().sub(h.pos).setY(0), d = to.length();
+          if (d > 1.35) { h.pos.addScaledVector(to.normalize(), Math.min(0.55, d - 1.25)); this.clamp(h.pos, h.r); }
+        } else if (id === 'dash') {
+          const from = target?.pos.clone() ?? h.pos.clone();
+          after(0.03, () => { if (this.hero?.alive && this.dodgeCd <= 0) this.perfectDodge(from); }, { real: true });
+        } else if (id === 'parry') {
+          const from = target?.pos.clone() ?? h.pos.clone();
+          h.inv = Math.max(h.inv, 0.55);
+          after(0.02, () => { if (this.hero?.alive && this.parryCd <= 0) this.iaiParry(from); }, { real: true });
+        }
+      },
+    }, busy || this.duel.locks || this.qteT >= 0 || this.botOn);
     this.duel.frame(rdt);   // 11-18 拼刀 / 连环破势: reads the attack button before it is cleared below
     if (busy) { for (const b of Object.values(this.inp.b)) { b.pressed = false; b.down = false; b.held = 0; } this.inp.move.x = this.inp.move.y = 0; }
     if (this.phase === 'intro') { this.introT += dt; this.inp.move.x = 0; this.inp.move.y = this.introT < 0.5 ? 0.7 : 0; for (const b of Object.values(this.inp.b)) { b.pressed = false; b.down = false; b.held = 0; } }
     this.statusStep(dt, h);
     // (11-18: her blade's aim and the auto-aimed darts don't find a foe out of sight — a 死士 in the shadow, a 水鬼 under the water)
-    // (11-19: a foe still running in / over the wall is not on the floor yet — no blade reaches it, and it strikes at nothing)
-    this.heroWorld.foes = this.foes.some(f => f.mem.hidden) || this.entering.length ? this.foes.filter(f => !f.mem.hidden && !this.entering.some(e => e.f === f)) : this.foes;
+    // (11-19 / act-125: foes climbing in or bosses mid-sky-drop are untargetable until landing)
+    this.heroWorld.foes = this.foes.some(f => f.mem.hidden) || this.entering.length || this.bossDrops.length
+      ? this.foes.filter(f => !f.mem.hidden && !this.entering.some(e => e.f === f) && !this.bossDrops.some(d => d.f === f))
+      : this.foes;
     h.update(dt, this.inp, this.heroWorld);
     this.hud.setAim(h.aiming ? { x: h.aimDir.x, y: -h.aimDir.z } : null);   // act-29: the dart button leans to the aim
     if (h.aiming) { const pv = h.aimPreview(this.heroWorld), L = TUNE.dartRange, al = this.aimLine;
@@ -3834,9 +4063,9 @@ export class ActShow {
     }
     this.decoyStep(dt); this.pinStep(dt); this.markStep(); this.dodgeGhostStep(rdt);   // 11-18 秘传 + act-118 完美闪避残影
     if (this.comboT > 0) { this.comboT = Math.max(0, this.comboT - dt); if (this.comboT <= 0) this.resetCombo(); else this.hud.combo = { hits: this.comboHits, bonus: this.comboStyle().dmgPct, frac: this.comboT / 3.2 }; }
-    this.enterStep(dt);
+    this.enterStep(dt); this.bossDropStep(dt);
     for (const f of this.foes) {
-      if (!this.ultOn && this.entering.some(e => e.f === f)) { f.a.update(dt); continue; }
+      if (!this.ultOn && (this.entering.some(e => e.f === f) || this.bossDrops.some(d => d.f === f))) { f.a.update(dt); continue; }
       if (this.duel.holds(f)) this.duel.holdFoe(f, dt);   // 11-18 QTE: the duel moves the foe it has (held in the bind / its string's beats)
       else if (!this.ultOn) {
         // 11-18 留影: the foes the afterimage draws see it as her — they close on it and strike at it; a blow that lands bursts it
@@ -4029,7 +4258,18 @@ export class ActShow {
     // 11-17 气: the yard (试剑坪) fills it back by itself (practise 破势 without building it first)
     if (this.phase === 'yard' && h.st !== 'charge') h.qi = Math.min(Hero.QI_MAX, h.qi + rdt * 1.5);
     this.hud.setQi(h.qi, Hero.QI_MAX, h.st === 'charge');
-    if (h.qiDenied) { h.qiDenied = false; this.hud.denyAttack(); }
+    if (h.qiDenied) {
+      h.qiDenied = false; this.hud.denyAttack();
+      if (!this.prologue && this.qiTipCd <= 0 && profile().runs < 2) {
+        this.qiTipCd = 10; this.showTip('气不足！先平砍积气，满一格再长按藏锋', '#ffd898', 3.0);
+      }
+    }
+    // act-125: subtle low-HP heartbeat cue during active combat so danger is audible as well as visible
+    if (this.phase === 'fight' && h.alive && h.hp / Math.max(1, h.maxHp) <= 0.3) {
+      this.lowBeatT -= rdt;
+      if (this.lowBeatT <= 0) { this.lowBeatT = 1.15; cue('land', 0.22); }
+    } else this.lowBeatT = 0;
+    this.tipStep(rdt);
     if (h.exhaled) { h.exhaled = false; const at = h.a.head().add(h.a.fwd().multiplyScalar(0.25)); fxSmoke(at, 0xe6eef2, 12, { r: 0.12, spd: 1.7, up: 0.6, s: 0.24, life: 0.8 }); fxRing(h.pos.clone().setY(0.06), 0xb8a888, 0.9, { life: 0.3 } as never); }
     // the move links open right now, shown on the buttons (act-18): 追影 > 穿风斩 > 下劈 > 反击 on the cut button
     { const fighting = this.phase === 'fight' || this.phase === 'yard', chase = fighting && !!h.moves.chase && !!this.chaseTarget();

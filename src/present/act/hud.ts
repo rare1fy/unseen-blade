@@ -1,5 +1,5 @@
 import { batchUi } from '../engine/rigidBatch';
-import { language, t as localize } from './i18n';
+import { language, msg, t as localize } from './i18n';
 // 动作原型的 3D 界面（UI 层里的实物，CLAUDE.md：UI 一律 3D 实物，不加暗色遮罩）。外观按题材风格（skin.ts：漆器 / 竹简 / 铁器）换：
 //   左下：摇杆——只在左下一块区域按下才出（默认按哪儿出在哪儿，之后底座不动；面板里可改成固定在左下）；
 //   右下：四颗技能钮（斩 / 冲 / 跳 / 影），刻着字；冷却时钮面被一层暗色盖住、从上往下退，转好时亮一下；蓄力时从下往上灌金；
@@ -21,7 +21,7 @@ import { IronBtn, IronStick, IronHp, QteRing , type HintKey, HP_LAG, HP_LAG_HOLD
 import { textCells, pixTextW } from '../ui3d/pixfont';
 import { PIX_H } from '../v2/pix';
 import { bodyW } from '../ui3d/bodyFont';
-import { ACTION_WORD, BIND, actKey, glyphTex, glyphArt, GLYPH_H } from './pad';
+import { ACTION_WORD, BIND, actKey, actPad, glyphTex, glyphArt, GLYPH_H } from './pad';
 import type { MarkTarget } from './skillInfo';
 
 type AnyBtn = SkinBtn | IronBtn; type AnyHp = SkinHp | IronHp;
@@ -210,7 +210,7 @@ export class ActHud {
     if (this.pausePid === id && type === 'move') { this.setBadgeDown(this.hitBadge(x, y)); return true; }
     if (type === 'down') {
       for (const b of Object.values(this.btns)) {
-        if (b === this.btns.ult && !this.ultUp) continue;
+        if (b === this.btns.ult && !this.ultShown) continue;
         // act-115: 不见刀 button uses its full target hitbox from frame 0 so an instant thumb tap never misses while popping in
         const hit = b === this.btns.ult ? (Math.abs(x - b.x) < (this.home.ult?.size ?? b.size) * 0.65 && Math.abs(y - b.y) < (this.home.ult?.size ?? b.size) * 0.65) : b.hit(x, y);
         if (hit) { b.down = true; b.pid = id; inp.press(b.name, id); if (b.name === 'special') inp.aimBegin(id, b.x, b.y, x, y); return true; }
@@ -235,21 +235,25 @@ export class ActHud {
   qte(k: number | null, hit = false) {
     const b = this.btns.ult, up = k != null;
     if (up && !this.ultUp && b instanceof IronBtn) b.kick(1.4, 0xffd060);
-    this.ultUp = up; if (b instanceof IronBtn) { b.qteOn = up; b.hot = up; }
+    this.ultUp = up;
+    const shown = this.ultShown;
+    if (b instanceof IronBtn) { b.qteOn = shown; b.hot = shown; }
     // (the moment to press: the button itself jumps and glows white-gold too)
     if (up && hit && !this.ultHit && b instanceof IronBtn) b.kick(1.2, 0xfff0c0);
     this.ultHit = up && hit;
     if (k == null) this.qteRing.hide(); else this.qteRing.show(b.x, b.y, b.size, k, hit, this.qteDt);
   }
   private ultHit = false; qteDt = 1 / 60;
-  /** 不见刀's button is up (the QTE): drawn, labelled, and the only time it takes a touch */
+  /** 不见刀's button is up during slowmo QTE or whenever 3 bars of 杀气 are full (act-125: full energy is always readable & usable) */
   private ultUp = false;
-  /** 11-18 (用户：「大招按钮出来的时候其他按钮要主动缩小一些然后动画上稍微往右下移一些来给大招按钮让路，这样表现上也更灵动一些」): while the
-   *  不见刀 button is up the other four shrink a sixth and gather toward the screen's bottom-right corner, eased in and out over about
-   *  a fifth of a second (real time: the world is in slow motion then); the 不见刀 button grows in from small as they make way */
+  ultReady = false;
+  private ultReadyPrev = false;
+  private get ultShown() { return this.ultUp || this.ultReady; }
+  private lowEdges: THREE.Mesh[] = [];
+  private lowT = 0;
   private home: Partial<Record<BtnName, { x: number; y: number; size: number }>> = {}; private wayK = 0;
   private makeWay(dt: number) {
-    const to = this.ultUp ? 1 : 0; this.wayK += (to - this.wayK) * Math.min(1, dt * 16); if (Math.abs(to - this.wayK) < 1e-3) this.wayK = to;
+    const to = this.ultShown ? 1 : 0; this.wayK += (to - this.wayK) * Math.min(1, dt * 16); if (Math.abs(to - this.wayK) < 1e-3) this.wayK = to;
     const e = this.wayK * this.wayK * (3 - 2 * this.wayK), W = this.W, H = this.H;
     for (const n of Object.keys(this.btns) as BtnName[]) {
       const h = this.home[n], b = this.btns[n]; if (!h) continue;
@@ -308,7 +312,11 @@ export class ActHud {
     }
   }
   update(dt: number, inp: Input, foes: Foe[]) {
-    this.stick.root.visible = this.on; for (const b of Object.values(this.btns)) { const on = this.on && (b !== this.btns.ult || this.ultUp); b.root.visible = on; if (b instanceof IronBtn) b.iconG.visible = on; }
+    const ultVis = this.ultShown;
+    if (this.ultReady && !this.ultReadyPrev && this.btns.ult instanceof IronBtn) this.btns.ult.kick(1.25, 0xffd870);
+    this.ultReadyPrev = this.ultReady;
+    if (this.btns.ult instanceof IronBtn) { this.btns.ult.qteOn = ultVis; this.btns.ult.hot = ultVis; }
+    this.stick.root.visible = this.on; for (const b of Object.values(this.btns)) { const on = this.on && (b !== this.btns.ult || ultVis); b.root.visible = on; if (b instanceof IronBtn) b.iconG.visible = on; }
     this.flask.root.visible = this.on;
     this.makeWay(dt);
     if (this.on) { this.stick.update(inp.stick, this.stickHome, this.stickSize); for (const b of Object.values(this.btns)) b.update(dt); }
@@ -325,8 +333,41 @@ export class ActHud {
       let x = b.x;
       if (dev === 'pad' && this.on) { const gi = BIND.pad[n][0], gh = px * 1.3, gw = glyphArt(gi).w / GLYPH_H * gh, gap = px * 0.3, ww = pixTextW(word, pk, dpr); x = b.x - (gap + gw) / 2; this.glyph(n, gi, b.x - (ww + gap + gw) / 2 + ww + gap, y, gh); }
       else this.glyph(n, null, 0, 0, 0);
-      const shown = this.on && (n !== 'ult' || this.ultUp);
+      const shown = this.on && (n !== 'ult' || ultVis);
       this.L.text.set('act.btn.' + n, { text: t, x, y, pix: pk, color: n === 'ult' ? '#ffe6a0' : '#f4ecd8', outline: '#140c0a', align: 'center', visible: shown });
+    }
+    // act-125: clear low-HP danger warning (pulsing crimson rim strips + 危 badge) & full-intent ult readiness badge
+    this.lowT += dt;
+    const hpSt = this.flask.st, lowHp = this.on && hpSt.hp > 0 && hpSt.hp / Math.max(1, hpSt.maxHp) <= 0.3;
+    if (!this.lowEdges.length) {
+      for (let i = 0; i < 4; i++) {
+        const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: 0xcc1810, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
+        m.renderOrder = 35; m.userData.noTilt = true; m.visible = false; this.L.scene.add(m); this.lowEdges.push(m);
+      }
+    }
+    if (lowHp) {
+      const beat = Math.pow(0.5 + 0.5 * Math.sin(this.lowT * 7.2), 2), op = 0.12 + 0.24 * beat, th = Math.max(8, 13 * this.k);
+      const specs: Array<[number, number, number, number]> = [
+        [this.W / 2, th / 2, this.W, th], [this.W / 2, this.H - th / 2, this.W, th],
+        [th / 2, this.H / 2, th, this.H], [this.W - th / 2, this.H / 2, th, this.H],
+      ];
+      specs.forEach(([ex, ey, ew, eh], i) => {
+        const m = this.lowEdges[i]; m.visible = true; this.L.at(ex, ey, 4, m.position);
+        m.scale.set(this.L.px(ew, 4), this.L.px(eh, 4), 1); (m.material as THREE.MeshBasicMaterial).opacity = op;
+      });
+      const bAt = this.flask.barAt(), dprL = this.L.dpr || 1, pkW = Math.max(1, Math.round(Math.max(16, 18 * this.k) * dprL / PIX_H));
+      this.L.text.set('act.lowhp', { text: '残血！', x: bAt.x + 115 * this.k, y: bAt.y, pix: pkW, color: beat > 0.45 ? '#ff5848' : '#ffd0c0', outline: '#140c0a', align: 'left', visible: true });
+    } else {
+      for (const m of this.lowEdges) m.visible = false;
+      this.L.text.hide('act.lowhp');
+    }
+    if (this.on && this.ultReady && !this.ultUp) {
+      const bAt = this.flask.barAt(), dprU = this.L.dpr || 1, pkU = Math.max(1, Math.round(Math.max(14, 15 * this.k) * dprU / PIX_H));
+      const dev = inp.lastDevice, uTxt = dev === 'key' ? msg`不见刀就绪 · ${localize(actKey('ult'))}` : dev === 'pad' ? msg`不见刀就绪 · ${localize(actPad('ult'))}` : '不见刀就绪！';
+      const pulseU = 0.5 + 0.5 * Math.sin(this.lowT * 9);
+      this.L.text.set('act.ultReady', { text: uTxt, x: bAt.x + 112 * this.k, y: bAt.y + 22 * this.k, pix: pkU, color: pulseU > 0.5 ? '#fff8cc' : '#ffd268', outline: '#140c0a', align: 'left', visible: true });
+    } else {
+      this.L.text.hide('act.ultReady');
     }
     if (this.flask instanceof IronHp) this.flask.intent = this.intent;
     this.flask.update(dt); this.sparks.update(dt);

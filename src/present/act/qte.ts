@@ -84,8 +84,8 @@ function meleeMoves(f: Foe): Move[] {
   const list = movesOf(id).filter(m => !NOT_MELEE.test(m.name) && !(m.atk && RANGED_ATK.test(m.atk)));
   return list.length ? list.map(m => [m.name, m.at, m.atk ? { atk: m.atk, dist: 0.4 } : { dist: 0.4 }] as Move) : [['attack', 0.5, { atk: 'cut', dist: 0.4 }]];
 }
-/** the gaps between the string's blows (real s): the first ring takes longest to close, then they come quicker */
-const LEAD = 0.85, GAPS = [0.62, 0.52, 0.45, 0.42];
+/** the gaps between the string's blows (real s): generous lead-in & crisp readable rhythm so players can react cleanly */
+const LEAD = 1.15, GAPS = [0.78, 0.68, 0.60, 0.56];
 /** where her draw's pose is held in the bind (k of the 'rel' action: the arm out, past its streak window) */
 const HOLD_K = 0.52;
 
@@ -211,18 +211,22 @@ class DuelUi {
   hidePlates() { if (this.plates) this.plates.visible = false; }
   /** the closing ring on the attack button (k 0 → 1 lands; hot = the moment to press) and the studs (state per blow: 0 to come, 1
    *  caught, −1 missed; cur = the one coming now) */
-  showChain(bx: number, by: number, size: number, k: number, hot: boolean, n: number, res: number[], cur: number) {
+  showChain(bx: number, by: number, size: number, k: number, hot: boolean, n: number, res: number[], cur: number, callout?: string, kHud = 1) {
     if (!this.ring) this.buildChain();
-    const s = size * (1 + 2.0 * Math.max(0, 1 - k)), th = hot ? 1.22 : 1;
+    const s = size * (1 + 2.0 * Math.max(0, 1 - k)), th = hot ? 1.24 : 1;
     for (const o of [this.ring!, this.tgt]) this.L.at(bx, by, 6, o.position);
     this.ring!.visible = k >= 0; this.ring!.scale.set(this.L.px(s, 6) * th, this.L.px(s, 6) * th, 1);
-    const rm = this.ring!.material as THREE.MeshBasicMaterial; rm.color.setHex(hot ? 0xf2f8ff : 0x7e92a4).lerp(new THREE.Color(hot ? 0xf2f8ff : 0xc6d4e0), Math.min(1, Math.max(0, k))); rm.opacity = hot ? 1 : 0.55 + 0.35 * k;
-    this.tgt.visible = true; this.tgt.scale.setScalar(this.L.px(size, 6)); const tm = this.tgt.material as THREE.MeshBasicMaterial; tm.color.setHex(hot ? 0xe8f2fa : 0x8a9aa8); tm.opacity = hot ? 0.95 : 0.45;
+    const rm = this.ring!.material as THREE.MeshBasicMaterial; rm.color.setHex(hot ? 0xfff8dc : 0x7e92a4).lerp(new THREE.Color(hot ? 0xfff8dc : 0xc6d4e0), Math.min(1, Math.max(0, k))); rm.opacity = hot ? 1 : 0.6 + 0.35 * k;
+    this.tgt.visible = true; this.tgt.scale.setScalar(this.L.px(size, 6)); const tm = this.tgt.material as THREE.MeshBasicMaterial; tm.color.setHex(hot ? 0xffe898 : 0x8a9aa8); tm.opacity = hot ? 0.98 : 0.52;
     if (this.studN !== n) this.buildStuds(n);
     const st = this.studs!; st.visible = true; this.L.at(bx, by, 2, st.position); st.scale.setScalar(this.L.px(size, 2));
-    for (let i = 0; i < n; i++) paint(this.studM!.geometry, this.studR[i], this.c.setHex(res[i] > 0 ? 0xe8f2fa : res[i] < 0 ? 0x8a2a20 : i === cur ? 0x6a7a88 : 0x30333b));
+    for (let i = 0; i < n; i++) paint(this.studM!.geometry, this.studR[i], this.c.setHex(res[i] > 0 ? 0xfff0b8 : res[i] < 0 ? 0x8a2a20 : i === cur ? 0x9ab0c4 : 0x30333b));
+    if (callout) {
+      const dpr = this.L.dpr || 1, pk = Math.max(1, Math.round(Math.max(18, 22 * kHud) * dpr / PIX_H));
+      this.L.text.set('qte.chain.tip', { text: callout, x: this.L.w * 0.5, y: Math.min(this.L.h - 86 * kHud, this.L.h * 0.78), pix: pk, color: hot ? '#ffffff' : '#ffe49e', outline: '#140c0a', align: 'center', visible: true });
+    }
   }
-  hideChain() { if (this.ring) { this.ring.visible = false; this.tgt.visible = false; this.studs!.visible = false; } }
+  hideChain() { if (this.ring) { this.ring.visible = false; this.tgt.visible = false; this.studs!.visible = false; } this.L.text.hide('qte.chain.tip'); }
   hideAll() { this.hideBar(); this.hidePlates(); this.hideChain(); }
 }
 
@@ -385,7 +389,8 @@ export class Duel {
       // a little kinder). With TUNE's numbers, to be ahead when the time runs out: an elite takes about 3.5 presses a second, a boss
       // about 7, his second phase about 7.6 (a phone's thumb does 7–9); at 8 an elite is pushed right through in about 1.5 s
       const base = (isBoss(f) ? TUNE.clashBoss * (f.phase > 1 ? 1.12 : 1) : TUNE.clashElite) * (this.first ? 0.8 : 1);
-      if (this.t > 0.15) this.m -= base * (1 + 0.5 * Math.min(1, this.t / this.dur)) * rdt;
+      // act-125: 0.45s reaction grace at clash start so players read the prompt before losing ground
+      if (this.t > 0.45) this.m -= base * (1 + 0.45 * Math.min(1, this.t / this.dur)) * rdt;
       this.m = Math.max(-1, Math.min(1, this.m));
       const k = this.tension();
       // the bind slides toward whoever is losing
@@ -497,15 +502,16 @@ export class Duel {
         h.pos.lerp(this.hero0, ent); h.vel.set(0, 0, 0); h.a.yaw = Math.atan2(f.pos.x - h.pos.x, f.pos.z - h.pos.z);
         f.pos.copy(this.foe0);
         const pressed = this.edge(A);
-        if (pressed && !b.pressed && this.ct >= b.T - 0.34) {
+        if (pressed && !b.pressed && this.ct >= b.T - 0.42) {
           b.pressed = true; b.pressAt = this.ct; b.ok = Math.abs(this.ct - b.T) <= this.win;
           this.host.hud().btnKick('attack', 0.35, 0xe8f2fa);
           if (!b.ok) { h.a.play(new Action('rel', 0.45, 0.3)); cue('swish', 0.5); }   // too early: she swings at nothing
         }
         const k = Math.min(1, Math.max(0, (this.ct - b.start) / Math.max(0.05, b.T - b.start))), hot = Math.abs(this.ct - b.T) <= this.win;
-        this.ui.showChain(this.host.hud().btns.attack.x, this.host.hud().btns.attack.y, this.host.hud().btns.attack.size, k, hot, this.beats.length, this.beats.map(x => x.res), this.bi);
-        const rw = this.ringW!; rw.visible = true; rw.position.set(h.pos.x, 0.07, h.pos.z); rw.scale.setScalar((0.95 + 2.3 * (1 - k)) * (hot ? 1.05 : 1));
-        (rw.material as THREE.MeshBasicMaterial).color.setHex(hot ? 0xf2f8ff : 0x9aaebe); (rw.material as THREE.MeshBasicMaterial).opacity = hot ? 0.95 : 0.5 + 0.35 * k;
+        const hud = this.host.hud(), callout = this.host.inp.lastDevice === 'key' ? msg`连环破势 · 缩圈即按 ${localize(actKey('attack'))}` : '连环破势 · 缩圈即按';
+        this.ui.showChain(hud.btns.attack.x, hud.btns.attack.y, hud.btns.attack.size, k, hot, this.beats.length, this.beats.map(x => x.res), this.bi, callout, hud.k);
+        const rw = this.ringW!; rw.visible = true; rw.position.set(h.pos.x, 0.07, h.pos.z); rw.scale.setScalar((0.95 + 2.3 * (1 - k)) * (hot ? 1.08 : 1));
+        (rw.material as THREE.MeshBasicMaterial).color.setHex(hot ? 0xfff8dc : 0x9aaebe); (rw.material as THREE.MeshBasicMaterial).opacity = hot ? 1 : 0.55 + 0.35 * k;
         // the beat resolves: caught (on the beat, or as soon as a late press within the window comes), or it lands on her
         if (b.pressed && b.ok && this.ct >= Math.max(b.T - 0.01, b.pressAt)) this.catchBeat(h, f, b);
         else if ((b.pressed && !b.ok && this.ct >= b.T) || (!b.pressed && this.ct > b.T + this.win)) this.missBeat(h, f, b);

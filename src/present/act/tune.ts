@@ -49,11 +49,10 @@ export const TUNE = {
   dodgeSlow: 0.45, counterTime: 2, counterMul: 2,
   /** 居合 · 见切（act-09 用户：「居合那种招数，按住，看准时机出招霸体反弹」）：松手抽刀后多久之内挨打算见切（秒）、反弹给出手者的伤害 */
   iaiWin: 0.25, iaiReflect: 20,
-  /** 绝 · 一刀（杀意满三格后，完美闪避 / 见切时弹出 QTE）：金环收拢用多久（真实秒）、一刀的伤害 */
-  qteTime: 0.9, ultDmg: 60,
-  /** 11-18 QTE（用户：「QTE我还希望再多几种情况，打起来刺激一下肾上腺素」）：拼刀——定胜负的时长（秒）、点一下推多少（满格 = 1）、对方每秒往回压
-   *  多少（精英 / 头目；越到后面越狠，二阶段再加两成）；连环破势——接招判定窗口（± 秒）；两种的镜头离两人多远、多高（米） */
-  clashTime: 2.0, clashPush: 0.13, clashElite: 0.36, clashBoss: 0.7, chainWin: 0.12, qteCamD: 9.5, qteCamH: 3.3,
+  /** 绝 · 一刀（杀意满三格后随时可放，完美闪避 / 见切 / 破防时亦弹出慢放 QTE）：金环收拢用多久（真实秒）、一刀的伤害 */
+  qteTime: 1.45, ultDmg: 60,
+  /** 11-18 / act-125 QTE：拼刀——定胜负的时长（秒）、点一下推多少（满格 = 1）、对方每秒往回压多少；连环破势——接招判定窗口（± 秒） */
+  clashTime: 2.8, clashPush: 0.145, clashElite: 0.34, clashBoss: 0.58, chainWin: 0.2, qteCamD: 9.5, qteCamH: 3.3,
   // 敌人
   enemyHp: 1, enemyDmg: 1, aggression: 0.85,   // act-20: windups ~18% longer
   /** act-118: brisker melee cadence (0.78s calm) + up to 2 coordinated attackers so packs pressure & flank instead of idling single-file */

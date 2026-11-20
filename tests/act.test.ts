@@ -278,4 +278,11 @@ describe('combat wave 2: poise break & staggered cadence (act-113)', () => {
     applyBoon(p, 'drink', 2);
     expect(archTier(p, 'blood')).toBe(3);
   });
+
+  it('onboarding & QTE readability invariants (act-125): generous QTE windows for ult, clash, and chain parry', () => {
+    expect(TUNE.qteTime).toBeGreaterThanOrEqual(1.4);
+    expect(TUNE.clashTime).toBeGreaterThanOrEqual(2.5);
+    expect(TUNE.chainWin).toBeGreaterThanOrEqual(0.18);
+    expect(TUNE.clashPush).toBeGreaterThanOrEqual(0.14);
+  });
 });
