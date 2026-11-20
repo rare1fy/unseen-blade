@@ -1,32 +1,28 @@
-// Stylized high-craft voxel rendering presets ("画风实验"):
-//   off     (0): original 2x toon-pixel look
-//   ink     (1): A · 国风版画 — 1x sharp graphic ink outlines (matches 3D iron UI), crisp 2-step cel + warm terminator rim, sliced anime specular, subtle paper tooth
-//   hd2d    (2): B · HD-2D像素 — keeps 2x pixel grid (matches voxel precision) + next-gen smooth HDR bloom, deep indigo shadows, warm lantern pools, cloud dapple & subtle tilt-shift
-//   diorama (3): C · 精致微缩 — 1x pristine noiseless artisan lacquer blocks, crisp micro-chamfers, airy sky/ground bounce GI, satin clearcoat & diorama tilt-shift (The Touryst / Tunic)
+// Visual style presets ("画面风格"):
+//   off     (0): Classic 2x toon-pixel look
+//   ink     (1): Ink Print (国风版画) — 1x sharp graphic ink outlines (matches 3D iron UI), crisp 2-step cel + warm terminator rim, sliced anime specular, resolution-normalized Xuan-paper tooth
+//   hd2d    (2): HD-2D — 2x crisp voxel pixel world + native-resolution silky HDR bloom, optical tilt-shift bokeh (tier-scaled), deep indigo shadows, warm lantern pools & drifting cloud dapple
+//   diorama (3): Diorama (精致微缩) — 1x pristine noiseless artisan lacquer blocks, crisp micro-chamfers, airy sky/ground bounce GI, satin clearcoat & diorama tilt-shift
 // Controlled purely via shared uniforms (zero shader recompilation on switch) and WebGL1-safe.
 import * as THREE from 'three';
-import { PX, setPixel } from './pixel';
+import type { Platform } from '../../platform/index';
+import { msg } from '../act/i18n';
+import { setPixel } from './pixel';
+import { QUALITY } from './quality';
 
 export type CraftMode = 'off' | 'ink' | 'hd2d' | 'diorama';
 export const CRAFT_ORDER: CraftMode[] = ['off', 'ink', 'hd2d', 'diorama'];
 const MODE_ID: Record<CraftMode, number> = { off: 0, ink: 1, hd2d: 2, diorama: 3 };
-const MODE_NAME: Record<CraftMode, string> = {
-  off: '关（原版 2x）',
-  ink: 'A · 国风版画（1x 墨线赛璐璐）',
-  hd2d: 'B · HD-2D 像素（2x 光影氛围）',
-  diorama: 'C · 精致微缩（1x 漆器手办）',
-};
-const MODE_SHORT: Record<CraftMode, string> = {
-  off: '画风：原版',
-  ink: '画风：国风版画',
-  hd2d: '画风：HD-2D',
-  diorama: '画风：精致微缩',
+const STYLE_NAME: Record<CraftMode, string> = {
+  off: '经典',
+  ink: '国风版画',
+  hd2d: 'HD-2D',
+  diorama: '精致微缩',
 };
 
 export const CRAFT = {
   mode: 'off' as CraftMode,
   get on() { return this.mode !== 'off'; },
-  prevPx: { on: true, size: 2 },
   /** live-tunable multipliers */
   dof: 1.0,
   ink: 1.0,
@@ -44,6 +40,8 @@ export const CRAFTU = {
   uCraftTime: { value: 0 },
 };
 
+let P: Platform | null = null;
+
 function parseMode(v: CraftMode | boolean | number | string): CraftMode {
   if (v === false || v === 0 || v === '0' || v === 'off' || v === 'false') return 'off';
   if (v === true || v === 1 || v === '1' || v === 'a' || v === 'A' || v === 'ink') return 'ink';
@@ -52,18 +50,18 @@ function parseMode(v: CraftMode | boolean | number | string): CraftMode {
   return 'off';
 }
 
-export function setCraft(target: CraftMode | boolean | number | string, keepPixel = false): CraftMode {
+export function setCraft(target: CraftMode | boolean | number | string, keepPixel = false, persist = true): CraftMode {
   const next = parseMode(target);
-  const prev = CRAFT.mode;
-  if (prev === 'off' && next !== 'off') CRAFT.prevPx = { on: PX.on, size: PX.size };
   CRAFT.mode = next;
   CRAFTU.uCraft.value = MODE_ID[next];
   if (!keepPixel) {
-    if (next === 'off') setPixel(CRAFT.prevPx.on, CRAFT.prevPx.size);
-    else if (next === 'hd2d') setPixel(true, 2);
+    // always lock each preset to its canonical pixel size so earlier pixel settings never contaminate the chosen look
+    if (next === 'off' || next === 'hd2d') setPixel(true, 2);
     else setPixel(true, 1);
   }
-  try { if (typeof localStorage !== 'undefined') localStorage.setItem('ub.craft', next); } catch { /* private mode */ }
+  if (persist) {
+    try { P?.storage?.set('ub.craft', next); } catch { /* storage blocked */ }
+  }
   return next;
 }
 
@@ -75,7 +73,9 @@ export function cycleCraft(): CraftMode {
 export function syncCraftUniforms(time: number) {
   const m = MODE_ID[CRAFT.mode];
   CRAFTU.uCraft.value = m;
-  CRAFTU.uCraftDof.value = (m === 2 ? 0.62 : m === 3 ? 0.84 : 0) * CRAFT.dof;
+  // low quality tier disables tilt-shift DOF automatically for WeChat mobile GPU safety
+  const dofTier = QUALITY.tier === 'low' ? 0 : 1;
+  CRAFTU.uCraftDof.value = (m === 2 ? 0.62 : m === 3 ? 0.84 : 0) * CRAFT.dof * dofTier;
   CRAFTU.uCraftGrain.value = CRAFT.grain;
   CRAFTU.uCraftSpec.value = CRAFT.spec;
   CRAFTU.uCraftTime.value = time;
@@ -87,8 +87,19 @@ export function readCraftFlag(query: (k: string) => string | null): CraftMode | 
   return parseMode(q);
 }
 
-export const craftLabel = () => `画风实验：${MODE_NAME[CRAFT.mode]}（点这里换）`;
-export const craftShort = () => MODE_SHORT[CRAFT.mode];
+/** Restore the player's saved visual style (all platforms: web, WeChat Mini-Game, CrazyGames) or apply ?craft= in debug builds. */
+export function initCraft(platform: Platform, urlOverride: CraftMode | null = null) {
+  P = platform;
+  if (urlOverride != null) {
+    setCraft(urlOverride, false, false);
+    return;
+  }
+  let saved: string | null = null;
+  try { saved = platform.storage?.get('ub.craft') ?? null; } catch { /* storage blocked */ }
+  if (saved && saved !== '0' && saved !== 'off') setCraft(saved, false, false);
+}
+
+export const craftLabel = () => msg`画面风格：${STYLE_NAME[CRAFT.mode]}`;
 
 /** Attach animated procedural ripples + Fresnel sky sheen + 45° camera wave glints to any water material (WebGL1-safe). */
 export function attachCraftWater(mat: THREE.MeshStandardMaterial) {

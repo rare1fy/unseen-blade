@@ -13,13 +13,14 @@ import { PADD } from '../engine/particles';
 import { gpuMark } from '../engine/gpuTime';
 import { bloomMips, bloom8bit, halfFloatOk } from './bloomMips';
 import { QUALITY, lowTargets, mobileTargets, tierNow } from './quality';
+import { CRAFT, CRAFTU, syncCraftUniforms } from './craft';
 
 const VS = `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
 const FS = (pixel: boolean) => `
 precision highp float;
 ${pixel ? '#define PIXEL' : ''}
 uniform sampler2D tColor; uniform sampler2D tDepth; uniform sampler2D tBloom; uniform vec2 uRes; uniform float uNear, uFar, uBloomCap;
-uniform vec3 uFog; uniform float uBands; uniform float uInk, uInkT, uExposure, uSat, uVig, uFlash, uSplit, uTime, uDesat, uCurve; uniform vec3 uFlashCol, uLift, uGain, uInkCol;
+uniform vec3 uFog; uniform float uBands; uniform float uInk, uInkT, uInkStep, uExposure, uSat, uVig, uFlash, uSplit, uTime, uDesat, uCurve, uCraft, uCraftDof; uniform vec3 uFlashCol, uLift, uGain, uInkCol;
 varying vec2 vUv;
 ${UI_SCENE_GLSL}
 float lin(float d){ float z = d * 2.0 - 1.0; return (2.0 * uNear * uFar) / (uFar + uNear - z * (uFar - uNear)); }
@@ -34,27 +35,45 @@ void main(){
   dir = floor(dir * uRes + 0.5) * px;   // whole art pixels
 #endif
   vec3 col = vec3(texture2D(tColor, vUv + dir).r, texture2D(tColor, vUv).g, texture2D(tColor, vUv - dir).b);
+  bool hd2d = uCraft > 1.5 && uCraft < 2.5;
+  // subtle diorama tilt-shift DOF in 1x craft modes (radius scaled by uRes.y / 720 for resolution independence)
+  if (!hd2d && uCraft > 0.5 && uCraftDof > 0.01) {
+    float dofBand = smoothstep(0.24, 0.52, abs(vUv.y - 0.48)) * uCraftDof;
+    if (dofBand > 0.01) {
+      vec2 br = px * (2.6 * max(uRes.y / 720.0, 0.5) * dofBand);
+      vec3 acc = col * 0.2;
+      acc += texture2D(tColor, vUv + vec2( br.x,  0.0)).rgb * 0.1;
+      acc += texture2D(tColor, vUv + vec2(-br.x,  0.0)).rgb * 0.1;
+      acc += texture2D(tColor, vUv + vec2( 0.0,  br.y)).rgb * 0.1;
+      acc += texture2D(tColor, vUv + vec2( 0.0, -br.y)).rgb * 0.1;
+      acc += texture2D(tColor, vUv + vec2( br.x,  br.y) * 0.72).rgb * 0.1;
+      acc += texture2D(tColor, vUv + vec2(-br.x,  br.y) * 0.72).rgb * 0.1;
+      acc += texture2D(tColor, vUv + vec2( br.x, -br.y) * 0.72).rgb * 0.1;
+      acc += texture2D(tColor, vUv + vec2(-br.x, -br.y) * 0.72).rgb * 0.1;
+      col = mix(col, acc, dofBand * 0.88);
+    }
+  }
 #ifdef PIXEL
-  // the bloom arrives separately: capped (big bursts never white the screen out) and stepped into bands (pixel halos)
-  vec4 bt = texture2D(tBloom, vUv);   // UnrealBloom blends rgb × alpha (alpha = strength × mip weights), same here
-  vec3 bl = min(bt.rgb * bt.a, vec3(uBloomCap)); float bm = max(bl.r, max(bl.g, bl.b));
-  if (uBands > 0.5) {
-    float bq = floor(bm * uBands / uBloomCap + 0.5) / uBands * uBloomCap;   // rounded, so the halo keeps its energy
-    bq = max(bq, min(bm, 0.5 * uBloomCap / uBands));                         // the faint outer haze stays smooth
-    col += bl * bq / max(bm, 1e-4);
-  } else col += bl;   // 1× art pixels: a smooth halo (stepped bands read as rings at full resolution)
+  // in HD-2D mode, smooth HDR bloom is composited at native screen resolution in BLIT_FS (Octopath Traveler style)
+  if (!hd2d) {
+    vec4 bt = texture2D(tBloom, vUv);   // UnrealBloom blends rgb × alpha (alpha = strength × mip weights), same here
+    vec3 bl = min(bt.rgb * bt.a, vec3(uBloomCap)); float bm = max(bl.r, max(bl.g, bl.b));
+    if (uBands > 0.5) {
+      float bq = floor(bm * uBands / uBloomCap + 0.5) / uBands * uBloomCap;   // rounded, so the halo keeps its energy
+      bq = max(bq, min(bm, 0.5 * uBloomCap / uBands));                         // the faint outer haze stays smooth
+      col += bl * bq / max(bm, 1e-4);
+    } else col += bl;   // 1× art pixels: a smooth halo (stepped bands read as rings at full resolution)
+  }
 #endif
   float d0 = lin(texture2D(tDepth, vUv).r);
-  float dl = lin(texture2D(tDepth, vUv - vec2(px.x,0.0)).r), dr = lin(texture2D(tDepth, vUv + vec2(px.x,0.0)).r);
-  float du = lin(texture2D(tDepth, vUv + vec2(0.0,px.y)).r), dd = lin(texture2D(tDepth, vUv - vec2(0.0,px.y)).r);
+  vec2 st = px * uInkStep;
+  float dl = lin(texture2D(tDepth, vUv - vec2(st.x,0.0)).r), dr = lin(texture2D(tDepth, vUv + vec2(st.x,0.0)).r);
+  float du = lin(texture2D(tDepth, vUv + vec2(0.0,st.y)).r), dd = lin(texture2D(tDepth, vUv - vec2(0.0,st.y)).r);
 #ifdef PIXEL
-  // 1-art-pixel silhouette outline, drawn just outside the nearer surface (like an inverted hull): this pixel is ink when a
-  // 4-neighbour is clearly nearer AND that nearer surface is at least 3 art px thick in that direction, so solid bodies get a
-  // contour while grass blades, fence bars and twigs (1-2 px) stay clean instead of turning into black speckle. Fog and
-  // distance thin the line the way they thin the body it belongs to.
+  // resolution-normalized silhouette outline (uInkStep scales with viewport height / reference height so 540p, 720p, 1080p, 1440p match)
   float ink = 0.0, dn = d0;
   for (int i = 0; i < 4; i++) {
-    vec2 o = i == 0 ? vec2(-px.x, 0.0) : i == 1 ? vec2(px.x, 0.0) : i == 2 ? vec2(0.0, px.y) : vec2(0.0, -px.y);
+    vec2 o = i == 0 ? vec2(-st.x, 0.0) : i == 1 ? vec2(st.x, 0.0) : i == 2 ? vec2(0.0, st.y) : vec2(0.0, -st.y);
     float d1 = i == 0 ? dl : i == 1 ? dr : i == 2 ? du : dd;
     if ((d0 - d1) / max(d1, 0.001) < uInkT) continue;
     float d2 = lin(texture2D(tDepth, vUv + 2.0 * o).r), d3 = lin(texture2D(tDepth, vUv + 3.0 * o).r);
@@ -75,22 +94,98 @@ void main(){
   col = aces(col);
   col = col * uGain + uLift * (1.0 - col);
   col = mix(col, col * col * (3.0 - 2.0 * col), uCurve);
+  if (uCraft > 0.5) {
+    float lm = dot(col, vec3(0.299, 0.587, 0.114));
+    if (uCraft < 1.5) {
+      // A · 国风版画: warm parchment highlight, deep ink-indigo shadow, resolution-normalized Xuan-paper tooth
+      col *= mix(vec3(0.93, 0.97, 1.07), vec3(1.05, 1.02, 0.95), smoothstep(0.12, 0.76, lm));
+      vec2 pp = gl_FragCoord.xy * (720.0 / max(uRes.y, 1.0));
+      float paper = sin(pp.x * 1.7 + sin(pp.y * 0.42) * 1.1) * cos(pp.y * 1.9);
+      col *= 1.0 + paper * 0.017 * (1.0 - smoothstep(0.55, 0.95, lm));
+    } else if (uCraft < 2.5) {
+      // B · HD-2D 像素: Octopath-style rich indigo shadows + golden lantern highlights
+      col *= mix(vec3(0.94, 0.98, 1.08), vec3(1.05, 1.01, 0.95), smoothstep(0.15, 0.78, lm));
+    } else {
+      // C · 精致微缩: crisp, airy, clean miniature color grade
+      col *= mix(vec3(0.97, 1.00, 1.05), vec3(1.03, 1.02, 0.98), smoothstep(0.18, 0.80, lm));
+    }
+  }
 #ifdef PIXEL
   col = mix(col, uInkCol * 0.25, ink);
 #endif
-  // vignette
-  vec2 q = vUv - 0.5; q.x *= uRes.x / uRes.y * 0.75;
-  col *= 1.0 - uVig * smoothstep(0.25, 0.85, length(q));
+  // vignette (in HD-2D, smooth vignette runs at full native screen resolution in BLIT_FS)
+  if (!hd2d) {
+    vec2 q = vUv - 0.5; q.x *= uRes.x / uRes.y * 0.75;
+    col *= 1.0 - uVig * smoothstep(0.25, 0.85, length(q));
+  }
   // flash
   col = mix(col, uFlashCol, uFlash);
   col = toSRGB(clamp(col, 0.0, 1.0));
-  col = separateUiBackground(col, vUv);
-  col += (hash(vUv * uRes + uTime) - 0.5) / 255.0;   // dither against banding
+  if (!hd2d) {
+    col = separateUiBackground(col, vUv);
+    col += (hash(vUv * uRes + uTime) - 0.5) / 255.0;   // dither against banding
+  }
   gl_FragColor = vec4(col, 1.0);
 }`;
-// the art buffer → screen: whole device pixels per art pixel, centred (the < 1 art px remainder is cropped evenly)
-const BLIT_FS = `precision highp float; uniform sampler2D tLo; uniform vec2 uLoRes, uOff; uniform float uK;
-void main(){ vec2 p = floor((gl_FragCoord.xy - uOff) / uK); gl_FragColor = texture2D(tLo, (clamp(p, vec2(0.0), uLoRes - 1.0) + 0.5) / uLoRes); }`;
+// the art buffer → screen: whole device pixels per art pixel, centred (the < 1 art px remainder is cropped evenly).
+// In HD-2D mode (uHd2d > 0.5): razor-sharp 2x pixel world in the central combat band + native-resolution 12-tap optical bokeh
+// tilt-shift + native-resolution velvety HDR bloom + native smooth vignette (Octopath Traveler pipeline).
+const BLIT_FS = `precision highp float;
+uniform sampler2D tLo; uniform sampler2D tBloom;
+uniform vec2 uLoRes, uOff, uScreenRes; uniform float uK, uHd2d, uCraftDof, uDofFast, uBloomCap, uVig, uTime;
+${UI_SCENE_GLSL}
+float hash2(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+void main(){
+  vec2 p = floor((gl_FragCoord.xy - uOff) / uK);
+  vec2 uvSnap = (clamp(p, vec2(0.0), uLoRes - 1.0) + 0.5) / uLoRes;
+  vec3 col = texture2D(tLo, uvSnap).rgb;
+  if (uHd2d > 0.5) {
+    vec2 uvCont = clamp((gl_FragCoord.xy - uOff) / (uK * uLoRes), vec2(0.0), vec2(1.0));
+    // 1. native-resolution silky optical tilt-shift bokeh (middle combat zone stays 100% razor-sharp 2x pixels;
+    //    radius normalized to 720p; mid tier uses lightweight 4-tap bokeh for WeChat mobile GPU safety)
+    float dofBand = smoothstep(0.25, 0.54, abs(uvCont.y - 0.48)) * uCraftDof;
+    if (dofBand > 0.01) {
+      float scale = max(uScreenRes.y / 720.0, 0.5);
+      vec2 br = (1.0 / max(uScreenRes, vec2(1.0))) * (5.2 * scale * dofBand);
+      vec3 acc;
+      if (uDofFast > 0.5) {
+        acc = texture2D(tLo, uvCont).rgb * 0.24;
+        acc += texture2D(tLo, clamp(uvCont + vec2( br.x,  br.y) * 0.72, vec2(0.0), vec2(1.0))).rgb * 0.19;
+        acc += texture2D(tLo, clamp(uvCont + vec2(-br.x,  br.y) * 0.72, vec2(0.0), vec2(1.0))).rgb * 0.19;
+        acc += texture2D(tLo, clamp(uvCont + vec2( br.x, -br.y) * 0.72, vec2(0.0), vec2(1.0))).rgb * 0.19;
+        acc += texture2D(tLo, clamp(uvCont + vec2(-br.x, -br.y) * 0.72, vec2(0.0), vec2(1.0))).rgb * 0.19;
+      } else {
+        acc = texture2D(tLo, uvCont).rgb * 0.16;
+        acc += texture2D(tLo, clamp(uvCont + vec2( br.x,  br.y) * 0.46, vec2(0.0), vec2(1.0))).rgb * 0.08;
+        acc += texture2D(tLo, clamp(uvCont + vec2(-br.x,  br.y) * 0.46, vec2(0.0), vec2(1.0))).rgb * 0.08;
+        acc += texture2D(tLo, clamp(uvCont + vec2( br.x, -br.y) * 0.46, vec2(0.0), vec2(1.0))).rgb * 0.08;
+        acc += texture2D(tLo, clamp(uvCont + vec2(-br.x, -br.y) * 0.46, vec2(0.0), vec2(1.0))).rgb * 0.08;
+        acc += texture2D(tLo, clamp(uvCont + vec2( br.x,  0.0), vec2(0.0), vec2(1.0))).rgb * 0.065;
+        acc += texture2D(tLo, clamp(uvCont + vec2(-br.x,  0.0), vec2(0.0), vec2(1.0))).rgb * 0.065;
+        acc += texture2D(tLo, clamp(uvCont + vec2( 0.0,  br.y), vec2(0.0), vec2(1.0))).rgb * 0.065;
+        acc += texture2D(tLo, clamp(uvCont + vec2( 0.0, -br.y), vec2(0.0), vec2(1.0))).rgb * 0.065;
+        acc += texture2D(tLo, clamp(uvCont + vec2( br.x,  br.y) * 0.72, vec2(0.0), vec2(1.0))).rgb * 0.065;
+        acc += texture2D(tLo, clamp(uvCont + vec2(-br.x,  br.y) * 0.72, vec2(0.0), vec2(1.0))).rgb * 0.065;
+        acc += texture2D(tLo, clamp(uvCont + vec2( br.x, -br.y) * 0.72, vec2(0.0), vec2(1.0))).rgb * 0.065;
+        acc += texture2D(tLo, clamp(uvCont + vec2(-br.x, -br.y) * 0.72, vec2(0.0), vec2(1.0))).rgb * 0.065;
+      }
+      col = mix(col, acc, smoothstep(0.0, 0.65, dofBand) * 0.90);
+    }
+    // 2. native-resolution velvety HDR bloom floating smoothly over crisp 2x pixels
+    if (uBloomCap > 0.001) {
+      vec4 bt = texture2D(tBloom, uvCont);
+      vec3 bl = min(bt.rgb * bt.a, vec3(uBloomCap));
+      vec3 glowSRGB = pow(max(bl, vec3(0.0)), vec3(1.0 / 2.2));
+      col = clamp(col + glowSRGB * (1.0 - col * 0.48) * 0.80, 0.0, 1.0);
+    }
+    // 3. native-resolution smooth cinematic vignette + UI background separation + fine native dither
+    vec2 q = uvCont - 0.5; q.x *= uScreenRes.x / max(uScreenRes.y, 1.0) * 0.75;
+    col *= 1.0 - uVig * smoothstep(0.28, 0.88, length(q));
+    col = separateUiBackground(col, uvCont);
+    col += (hash2(gl_FragCoord.xy + uTime) - 0.5) / 255.0;
+  }
+  gl_FragColor = vec4(col, 1.0);
+}`;
 
 export const GRADE = {
   ink: 0.85, exposure: 1.05, sat: 1.12, vig: 0.55, desat: 0,
@@ -102,7 +197,7 @@ export const GRADE = {
 const uniforms = () => ({
   ...uiSceneUniforms(),
   tColor: { value: null as THREE.Texture | null }, tDepth: { value: null as THREE.Texture | null }, tBloom: { value: null as THREE.Texture | null }, uBloomCap: { value: 0.7 }, uBands: { value: 6 }, uRes: { value: new THREE.Vector2(4, 4) }, uNear: { value: 0.1 }, uFar: { value: 400 },
-  uInk: { value: 1 }, uInkT: { value: 0.05 }, uFog: { value: new THREE.Vector3() }, uExposure: { value: 1 }, uSat: { value: 1 }, uVig: { value: 0.5 }, uFlash: { value: 0 }, uSplit: { value: 0 }, uTime: { value: 0 }, uDesat: { value: 0 }, uCurve: { value: 0 },
+  uInk: { value: 1 }, uInkT: { value: 0.05 }, uInkStep: { value: 1 }, uFog: { value: new THREE.Vector3() }, uExposure: { value: 1 }, uSat: { value: 1 }, uVig: { value: 0.5 }, uFlash: { value: 0 }, uSplit: { value: 0 }, uTime: { value: 0 }, uDesat: { value: 0 }, uCurve: { value: 0 }, uCraft: CRAFTU.uCraft, uCraftDof: CRAFTU.uCraftDof,
   uFlashCol: { value: new THREE.Color() }, uLift: { value: new THREE.Color() }, uGain: { value: new THREE.Color(1, 1, 1) }, uInkCol: { value: new THREE.Color() },
 });
 
@@ -138,7 +233,7 @@ export class Post {
     this.quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.mat); this.quad.frustumCulled = false; this.qs.add(this.quad);
     this.lo = new THREE.WebGLRenderTarget(4, 4, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: false, generateMipmaps: false });
     this.blit = new THREE.ShaderMaterial({ vertexShader: VS, fragmentShader: BLIT_FS, depthTest: false, depthWrite: false,
-      uniforms: { tLo: { value: this.lo.texture }, uLoRes: { value: new THREE.Vector2(4, 4) }, uOff: { value: new THREE.Vector2() }, uK: { value: 2 } } });
+      uniforms: { ...uiSceneUniforms(), tLo: { value: this.lo.texture }, tBloom: { value: this.rt.texture as THREE.Texture | null }, uLoRes: { value: new THREE.Vector2(4, 4) }, uOff: { value: new THREE.Vector2() }, uScreenRes: { value: new THREE.Vector2(4, 4) }, uK: { value: 2 }, uHd2d: { value: 0 }, uCraftDof: CRAFTU.uCraftDof, uDofFast: { value: 0 }, uBloomCap: { value: 0 }, uVig: { value: 0.4 }, uTime: { value: 0 } } });
     const bq = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.blit); bq.frustumCulled = false; this.bs.add(bq);
     this.ui = new UiPass(renderer, this.msaa, this.hdr);
   }
@@ -157,10 +252,10 @@ export class Post {
       // same pixel feel as a desktop window (act-17 用户：「手机上看2x像素又太糊了，可以让我在电脑端和手机端看起来像素感一致吗」;
       // a phone is only ~390 CSS px tall, so 2 CSS px a pixel left it with ~195 rows)
       const pixel = lowTargets() && QUALITY.choice === 'auto' && QUALITY.reducedWorld ? this.pixel + 1 : this.pixel;
-      const k = dpr < 1.5 ? pixel * dpr : Math.max(1, H * pixel / PX_ROWS), Wa = Math.max(1, Math.ceil(W / k)), Ha = Math.max(1, Math.ceil(H / k));
+      const k = dpr < 1.5 ? (CRAFT.on && pixel >= 2 ? Math.max(1, Math.round(H * pixel / PX_ROWS)) : pixel * dpr) : Math.max(1, H * pixel / PX_ROWS), Wa = Math.max(1, Math.ceil(W / k)), Ha = Math.max(1, Math.ceil(H / k));
       this.rt.setSize(Wa, Ha); this.lo.setSize(Wa, Ha); this.bloom.setSize(mobileTargets() ? 32 : Wa, mobileTargets() ? 32 : Ha);
       (this.matPx.uniforms.uRes.value as THREE.Vector2).set(Wa, Ha);
-      const bu = this.blit.uniforms; (bu.uLoRes.value as THREE.Vector2).set(Wa, Ha); bu.uK.value = k; (bu.uOff.value as THREE.Vector2).set((W - Wa * k) / 2, (H - Ha * k) / 2);
+      const bu = this.blit.uniforms; (bu.uLoRes.value as THREE.Vector2).set(Wa, Ha); bu.uK.value = k; (bu.uOff.value as THREE.Vector2).set((W - Wa * k) / 2, (H - Ha * k) / 2); (bu.uScreenRes.value as THREE.Vector2).set(W, H);
       PXU.uArtH.value = Ha;
     } else {
       this.rt.setSize(W, H); this.bloom.setSize(Math.round(W / 2), Math.round(H / 2));
@@ -176,6 +271,7 @@ export class Post {
   /** switch the pixel look (0 = standard, else CSS px per art pixel) */
   setPixel(n: number) { if (n === this.pixel) return; this.pixel = n; this.setSize(this.size.w, this.size.h, this.size.dpr); }
   render(scene: THREE.Scene, camera: THREE.PerspectiveCamera, time: number) {
+    syncCraftUniforms(time);
     const r = this.renderer, pix = this.pixel > 0, m = pix ? this.matPx : this.matStd, u = m.uniforms;
     updateUiSceneUniforms(u, !!UI3D.layer?.on);
     // busy screens (many additive particles) pull the bloom back in the pixel look (the reference's FXB)
@@ -184,20 +280,46 @@ export class Post {
     if (pix) { pxLightsBegin(scene); liftOverlays(scene); }
     r.render(scene, camera);
     if (pix) pxLightsEnd();
-    this.bloom.strength = GRADE.bloomStrength * (1 - PX.busyDim * busy); this.bloom.radius = GRADE.bloomRadius; this.bloom.threshold = GRADE.bloomThreshold;
+    this.bloom.strength = GRADE.bloomStrength * (1 - PX.busyDim * busy); this.bloom.radius = GRADE.bloomRadius; this.bloom.threshold = CRAFT.on ? Math.max(GRADE.bloomThreshold, 1.16) : GRADE.bloomThreshold;
     // pixel look: the bloom is not blended in place; the final pass reads the composite, caps it and (at ≥ 2× art pixels) steps it into bands
     // (11-18 微信帧率: the pixel look stops at the mips — its blend back over the frame had opacity 0)
     gpuMark('bloom');
     // 11-19：半分辨率泛光仍需十二次绘制；发光物本色保留在世界色缓冲中。
+    const cMode = CRAFT.mode, isHd2d = pix && cMode === 'hd2d';
+    const wantFilter = isHd2d ? THREE.LinearFilter : THREE.NearestFilter;
+    if (this.lo.texture.magFilter !== wantFilter) { this.lo.texture.minFilter = this.lo.texture.magFilter = wantFilter; this.lo.texture.needsUpdate = true; }
+    const cBloomCap = cMode === 'hd2d' ? 1.25 : cMode === 'diorama' ? 1.15 : cMode === 'ink' ? 1.05 : PX.bloomCap;
     if (mobileTargets()) { u.tBloom.value = this.rt.texture; u.uBloomCap.value = 0; u.uBands.value = 0; }
-    else if (pix) { u.tBloom.value = bloomMips(this.bloom, r, this.rt); u.uBloomCap.value = PX.bloomCap; u.uBands.value = this.pixel >= 2 ? PX.bands : 0; }
+    else if (pix) { u.tBloom.value = bloomMips(this.bloom, r, this.rt); u.uBloomCap.value = cBloomCap; u.uBands.value = !CRAFT.on && this.pixel >= 2 ? PX.bands : 0; }
     else { (this.bloom as unknown as { copyUniforms: Record<string, THREE.IUniform> }).copyUniforms.opacity.value = 1; this.bloom.render(r, null as unknown as THREE.WebGLRenderTarget, this.rt, 0, false); }
     const fog = scene.fog as (THREE.Fog & THREE.FogExp2) | null;   // x: exp2 density, y/z: linear near / far
     (u.uFog.value as THREE.Vector3).set(fog && (fog as THREE.FogExp2).isFogExp2 ? fog.density : 0, fog && (fog as THREE.Fog).isFog ? fog.near : 0, fog && (fog as THREE.Fog).isFog ? fog.far : 0);
-    u.uNear.value = camera.near; u.uFar.value = camera.far; u.uInk.value = pix ? (this.pixel >= 2 ? PX.ink : PX.ink1) : GRADE.ink; u.uInkT.value = PX.inkT;
-    u.uExposure.value = GRADE.exposure * (pix ? (this.pixel >= 2 ? PX.exposure : PX.exposure1) : 1); u.uSat.value = GRADE.sat * (pix ? PX.sat : 1); u.uVig.value = GRADE.vig * (pix ? PX.vig : 1); u.uCurve.value = pix ? PX.curve : 0;
+    // resolution-normalized outline thickness (matches UiPass's H / 720 scaling so small windows, 1080p, 2K & 4K look identical)
+    const artH = (u.uRes.value as THREE.Vector2).y;
+    const refH = this.pixel >= 2 ? 450 : 720;
+    const resScale = artH / refH;
+    const inkStep = CRAFT.on ? Math.max(1, resScale) : 1;
+    const inkSmallFade = CRAFT.on ? Math.min(1, Math.max(0.55, resScale)) : 1;
+    const cInk = (cMode === 'ink' ? 0.68 * CRAFT.ink : cMode === 'hd2d' ? 0.50 * CRAFT.ink : cMode === 'diorama' ? 0.08 * CRAFT.ink : (pix ? (this.pixel >= 2 ? PX.ink : PX.ink1) : GRADE.ink)) * inkSmallFade;
+    const cInkT = cMode === 'ink' ? 0.045 : cMode === 'diorama' ? 0.08 : PX.inkT;
+    const cExp = cMode === 'ink' ? 0.96 : cMode === 'hd2d' ? 0.96 : cMode === 'diorama' ? 1.00 : (pix ? (this.pixel >= 2 ? PX.exposure : PX.exposure1) : 1);
+    const cSat = cMode === 'ink' ? 1.10 : cMode === 'hd2d' ? 1.14 : cMode === 'diorama' ? 1.16 : (pix ? PX.sat : 1);
+    const cVig = cMode === 'ink' ? 0.92 : cMode === 'hd2d' ? 0.92 : cMode === 'diorama' ? 0.72 : (pix ? PX.vig : 1);
+    const cCur = cMode === 'ink' ? 0.16 : cMode === 'hd2d' ? 0.18 : cMode === 'diorama' ? 0.13 : (pix ? PX.curve : 0);
+    u.uNear.value = camera.near; u.uFar.value = camera.far; u.uInk.value = cInk; u.uInkT.value = cInkT; u.uInkStep.value = inkStep;
+    u.uExposure.value = GRADE.exposure * cExp; u.uSat.value = GRADE.sat * cSat; u.uVig.value = GRADE.vig * cVig; u.uCurve.value = cCur;
     u.uFlash.value = GRADE.flash; u.uSplit.value = GRADE.split; u.uTime.value = time % 100; u.uDesat.value = GRADE.desat;
     (u.uFlashCol.value as THREE.Color).copy(GRADE.flashCol); (u.uLift.value as THREE.Color).copy(GRADE.lift); (u.uGain.value as THREE.Color).copy(GRADE.gain); (u.uInkCol.value as THREE.Color).copy(GRADE.inkCol);
+    const bu = this.blit.uniforms;
+    bu.uHd2d.value = isHd2d ? 1 : 0;
+    if (isHd2d) {
+      updateUiSceneUniforms(bu, !!UI3D.layer?.on);
+      bu.tBloom.value = u.tBloom.value;
+      bu.uBloomCap.value = mobileTargets() ? 0 : cBloomCap;
+      bu.uDofFast.value = QUALITY.tier === 'mid' ? 1 : 0;
+      bu.uVig.value = GRADE.vig * cVig;
+      bu.uTime.value = time % 100;
+    }
     this.quad.material = m; gpuMark('final');
     if (!pix) { r.setRenderTarget(null); r.render(this.qs, this.cam); }
     else {

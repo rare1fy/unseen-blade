@@ -15,6 +15,7 @@ import { toon } from '../look/toon';
 import { buildSky, noiseTex, runeTex } from '../look/env';
 import { AREA } from './props';
 import { GRADE } from '../look/post';
+import { attachCraftWater } from '../look/craft';
 import { Cards, ambientTick, shaft, type Ambient } from './cards';
 import { quietBattleGlow } from './battleGlow';
 
@@ -200,7 +201,8 @@ function* stageSteps(def: SceneDef, options: StageOptions, g: ReturnType<typeof 
     },
     flame(p, color, size = 0.12) { const m = new THREE.Mesh(new THREE.BoxGeometry(size, size * 1.4, size), glow(color, 3)); m.position.set(...p); root.add(m); flames.push({ m, base: size, s: Math.random() * 10 }); },
     water(x0, z0, x1, z1, color, y = -0.05) {
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(x1 - x0, z1 - z0), new THREE.MeshStandardMaterial({ color, roughness: 0.15, metalness: 0.1, transparent: true, opacity: 0.82, emissive: new THREE.Color(color).multiplyScalar(0.25) }));
+      const mat = attachCraftWater(new THREE.MeshStandardMaterial({ color, roughness: 0.15, metalness: 0.1, transparent: true, opacity: 0.82, emissive: new THREE.Color(color).multiplyScalar(0.25) }));
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(x1 - x0, z1 - z0), mat);
       m.rotation.x = -Math.PI / 2; m.position.set((x0 + x1) / 2, y, (z0 + z1) / 2); m.renderOrder = 2; root.add(m);
     },
     earthHole(x0, z0, x1, z1) { holes.push([x0, z0, x1, z1]); },

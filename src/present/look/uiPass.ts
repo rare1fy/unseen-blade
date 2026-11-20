@@ -9,6 +9,7 @@ import type { Ui3DLayer } from './pixel';
 import { UI_LOOK } from './uiLook';
 import { bloomMips, bloom8bit } from './bloomMips';
 import { OPT } from '../engine/perfOpts';
+import { CRAFTU } from './craft';
 export { UI_LOOK } from './uiLook';
 
 const VS = `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
@@ -86,7 +87,11 @@ export class UiPass {
   /** draw the UI layer over whatever is on screen now */
   render(L: Ui3DLayer) {
     const r = this.renderer, u = this.mat.uniforms, ca = r.getClearAlpha(), before = r.info.render.calls; r.getClearColor(this.cc);
-    r.setRenderTarget(this.rt); r.setClearColor(0x000000, 0); r.clear(); r.render(L.scene, L.camera); r.setClearColor(this.cc, ca);
+    r.setRenderTarget(this.rt); r.setClearColor(0x000000, 0); r.clear();
+    // isolate the 3D UI layer completely from world craft-look shaders (zero impact on buttons, HUD or 3D icons)
+    const prevCraft = CRAFTU.uCraft.value; CRAFTU.uCraft.value = 0;
+    try { r.render(L.scene, L.camera); } finally { CRAFTU.uCraft.value = prevCraft; }
+    r.setClearColor(this.cc, ca);
     const bOn = !mobileTargets() && UI_LOOK.bloom > 0;
     if (bOn) {
       this.bloom.strength = 1; this.bloom.radius = UI_LOOK.bloomRadius; this.bloom.threshold = UI_LOOK.bloomThreshold;

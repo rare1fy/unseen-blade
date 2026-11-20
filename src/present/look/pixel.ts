@@ -8,6 +8,7 @@
 // the same flat face tones, bevel lines and silhouette outline as the pixel look, at screen resolution with MSAA and a smooth bloom.
 // #px2 / #px3 bring back the chunky pixels, #std the standard (toon) look.
 import * as THREE from 'three';
+import { CRAFT } from './craft';
 
 export const PX = {
   /** the user picked the pixel look as the default (2026-11-13), first at 3x, then 2x ("2x的效果其实是最好的"); R5 (TARGET_MOCKUP: high-res
@@ -78,9 +79,28 @@ export function pxLightsBegin(scene: THREE.Scene) {
   for (const o of scene.children) {
     const L = o as THREE.Light; if (!L.isLight || !L.visible) continue;
     let k = 1;
-    if ((L as THREE.DirectionalLight).isDirectionalLight) { const c = L.color; k = c.r > c.b * 1.08 ? PX.warmK : c.b > c.r * 1.08 ? PX.coolK : 1; }
-    else if ((L as THREE.HemisphereLight).isHemisphereLight) k = PX.hemiK;
-    else if ((L as THREE.PointLight).isPointLight) k = PX.pointK;
+    if (CRAFT.on) {
+      if (CRAFT.mode === 'ink') {
+        // A · 国风版画: bold directional key for crisp graphic shadow shapes, restrained fill
+        if ((L as THREE.DirectionalLight).isDirectionalLight) k = L.castShadow ? 1.30 : 0.62;
+        else if ((L as THREE.HemisphereLight).isHemisphereLight) k = 0.92;
+        else if ((L as THREE.PointLight).isPointLight) k = 1.32;
+      } else if (CRAFT.mode === 'hd2d') {
+        // B · HD-2D 像素: dramatic Octopath lighting + glowing lantern pools
+        if ((L as THREE.DirectionalLight).isDirectionalLight) k = L.castShadow ? 1.28 : 0.68;
+        else if ((L as THREE.HemisphereLight).isHemisphereLight) k = 0.90;
+        else if ((L as THREE.PointLight).isPointLight) k = 1.48;
+      } else {
+        // C · 精致微缩: airy luminous tabletop sun + bright sky bounce
+        if ((L as THREE.DirectionalLight).isDirectionalLight) k = L.castShadow ? 1.20 : 0.84;
+        else if ((L as THREE.HemisphereLight).isHemisphereLight) k = 1.14;
+        else if ((L as THREE.PointLight).isPointLight) k = 1.22;
+      }
+    } else {
+      if ((L as THREE.DirectionalLight).isDirectionalLight) { const c = L.color; k = c.r > c.b * 1.08 ? PX.warmK : c.b > c.r * 1.08 ? PX.coolK : 1; }
+      else if ((L as THREE.HemisphereLight).isHemisphereLight) k = PX.hemiK;
+      else if ((L as THREE.PointLight).isPointLight) k = PX.pointK;
+    }
     if (k !== 1) { saved.push([L, L.intensity]); L.intensity *= k; }
   }
 }

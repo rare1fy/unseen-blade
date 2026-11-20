@@ -4,6 +4,7 @@
 // 道具组建在沙盒里拿不走地面格子，所以要「泡在水里」的组在地面层涂 XP_MARK，far() 里统一挖掉（carveMarks）。
 // 战斗区里的积水矩形由 poolsOf(spec.seed) 给出：show.ts 用 LOCALES[id].pools(spec.seed) 取同一份给水鬼用，所以必须只看种子。
 import * as THREE from 'three';
+import { attachCraftWater } from '../../look/craft';
 import type { Ctx } from '../../scenes/stage';
 import { M, AREA, PLAY, hash, STAGE_BIG } from '../../scenes/props';
 import { CELL } from '../../bestiary/kit';
@@ -83,7 +84,7 @@ export function xpFloor(c: Ctx, f: { layout: Layout; p: Place }, pools: Rect[], 
 export function waterPlanes(c: Ctx) {
   const bed = new THREE.Mesh(new THREE.PlaneGeometry(150, 150), new THREE.MeshLambertMaterial({ color: XP.bed }));
   bed.rotation.x = -Math.PI / 2; bed.position.y = -0.12; bed.receiveShadow = true; c.add(bed);
-  const top = new THREE.Mesh(new THREE.PlaneGeometry(150, 150), new THREE.MeshStandardMaterial({ color: XP.water, roughness: 0.18, metalness: 0.35, transparent: true, opacity: 0.86, emissive: new THREE.Color(0x0a1216) }));
+  const top = new THREE.Mesh(new THREE.PlaneGeometry(150, 150), attachCraftWater(new THREE.MeshStandardMaterial({ color: XP.water, roughness: 0.18, metalness: 0.35, transparent: true, opacity: 0.86, emissive: new THREE.Color(0x0a1216) })));
   top.rotation.x = -Math.PI / 2; top.position.y = -0.045; top.renderOrder = 2; top.receiveShadow = true; c.add(top);
 }
 /** dig out what the groups marked as water (XP_MARK at y = −1): no cell there, so the water shows. A mark that reached the battle

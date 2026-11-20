@@ -17,6 +17,7 @@ import { OPT } from './present/engine/perfOpts';
 import { batchStats } from './present/engine/rigidBatch';
 import { initQuality, setQuality, refreshQuality, QUALITY, type Choice } from './present/look/quality';
 import { PX, PXU, readPixelFlag, installPixelKeys, setPixel } from './present/look/pixel';
+import { CRAFT, initCraft, setCraft, readCraftFlag, type CraftMode } from './present/look/craft';
 import { ActShow } from './present/act/show';
 import './present/act/hideout';   // the hideout (据点): its scene, its five people, __dh.hideout()
 import { VIBE } from './platform/index';
@@ -55,6 +56,9 @@ dh.add({
   quality: (c?: Choice) => { if (c) setQuality(c); return { ...QUALITY }; },
   /** the pixel render style: __dh.px(true, 2) / __dh.px(false) */
   px: (on = true, size?: number) => setPixel(on, size),
+  /** visual style presets: __dh.craft('ink' | 'hd2d' | 'diorama' | 'off') */
+  craft: (mode: CraftMode | boolean | number | string = 'ink', keepPixel = false) => setCraft(mode, keepPixel),
+  craftLook: CRAFT,
   /** the first-load screen, brought back for a look */
   bootDemo,
   /** live tuning of the pixel look: __dh.pxLook.ink = 0.6 … (see look/pixel.ts PX) */
@@ -70,7 +74,8 @@ dh.install();
   { const href = typeof location !== 'undefined' ? location.href : '';
     // (11-18: the WeChat / CrazyGames packages have no pixel switch — always 2x, whatever a test build left on the device)
     let saved: string | null = null; try { if (__DEBUG_UI__) saved = localStorage.getItem('ub.px'); } catch { /* private mode */ }
-    if (!__DEBUG_UI__ || !/[#&?]px/.test(href)) { if (saved === 'off') setPixel(false); else setPixel(true, saved && /^[123]$/.test(saved) ? +saved : 2); } }
+    if (!__DEBUG_UI__ || !/[#&?]px/.test(href)) { if (saved === 'off') setPixel(false); else setPixel(true, saved && /^[123]$/.test(saved) ? +saved : 2); }
+    initCraft(platform, __DEBUG_UI__ ? readCraftFlag(k => platform.query(k)) : null); }
   try {
     let A: ActShow;
     const start = () => {

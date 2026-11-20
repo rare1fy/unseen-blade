@@ -142,6 +142,7 @@ import { wantOpening } from './openingFlag';
 import { stopTitle, playTitle, titlePointer } from './title';
 import { wantTitle, savedTitle, TITLE_COUNT } from './titleFlag';
 import { PX, setPixel } from '../look/pixel';
+import { craftLabel, cycleCraft } from '../look/craft';
 import { VIBE, vibeSupport, iosMajor, RUMBLE } from '../../platform/index';
 import { PauseMenu } from './pauseMenu';
 import { padNav, padRumble, PAD, actKey, actPad } from './pad';
@@ -775,6 +776,8 @@ export class ActShow {
       { label: () => msg`操作提示：${this.tut.enabled ? '开' : '关'}`, short: () => msg`操作提示：${this.tut.enabled ? '开' : '关'}`, run: () => this.tut.setEnabled(!this.tut.enabled) },
       // 11-18 微信帧率: the quality tier (自动 → 高 → 中 → 低), kept on the device
       { label: () => qualityLabel(), short: () => qualityLabel(), run: () => cycleQuality() },
+      // 11-20 画面风格: visual style presets (经典 → 国风版画 → HD-2D → 精致微缩), player-facing on all platforms
+      { label: () => craftLabel(), short: () => craftLabel(), run: () => cycleCraft() },
       // (11-19 用户：「github页面上的版本就是开发版……微信和crazygames都必须要做成面向用户的版本」: the frame meter is a debug item)
       { dbg: true, label: meterLabel, short: meterLabel, run: toggleMeter }];
     installActTune([...SET.map(x => ({ label: x.label, run: x.run })),

@@ -46,7 +46,7 @@ function missingKeys() {
       visit(file);
     }
   };
-  walkFiles(import.meta.glob<string>(['../src/present/act/**/*.ts', '../src/present/look/quality.ts', '../src/present/ui3d/bodyFont.ts'], { query: '?raw', import: 'default', eager: true }));
+  walkFiles(import.meta.glob<string>(['../src/present/act/**/*.ts', '../src/present/look/quality.ts', '../src/present/look/craft.ts', '../src/present/ui3d/bodyFont.ts'], { query: '?raw', import: 'default', eager: true }));
   walkFiles(import.meta.glob<string>('../src/present/asm/**/*.ts', { query: '?raw', import: 'default', eager: true }), true);
   return [...missing].sort();
 }
