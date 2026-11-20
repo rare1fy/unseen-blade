@@ -1,10 +1,9 @@
-// 纯 3D 立体体素块刀光（act-110 重构，严格统一体素/像素风格）：
-//   - 用实心 3D 体素长方体与立方体块拼出刀弧与直线光棱柱，带真实 3D 厚度与顶/侧/底面平直明暗；
-//   - 外径严格对齐每招实际攻击范围，玩家靠体素刀锋直读判定边；
-//   - 不透明实色（transparent: false, depthWrite: true），无平滑曲线与半透明雾感，自动融入场景前后遮挡与 1 像素轮廓描边；
-//   - 消散按体素格阶梯缩块剥落（1.0 -> 0.70 -> 0.42 -> 0），并沿刀势崩出 7cm 级 3D 体素小方块；
-//   - 按游戏时间 dt 推进，顿帧期间刀块定格在最锐利的一帧；
-//   - 单槽位单 Mesh 池化、无 InstancedMesh 依赖、纯 WebGL1（无 dFdx/dFdy），零 GC，全平台一致。
+// 轻盈 3D 体素刀光（act-111 重调：体素风格一致 + 轻盈刀光感，非高清矢量也非沉重实体）：
+//   - 用轻薄的 3D 离散体素长方体/立方体块拼出刀弧与直线光棱柱（按 3.5cm/7cm 体素格量化，无 smoothstep 平滑曲线）；
+//   - transparent: true + depthWrite: false（保留 depthTest: true 正常前后遮挡），彻底去掉黑色实体轮廓描边；
+//   - 分层离散透光：外刃刀锋亮实带克制自发光（0.88）、中层主色半透（0.48，可隐约透见地面与人物）、内尾轻透（0.26）；
+//   - 消散按格阶梯缩块并同步阶梯降透（1.0 -> 0.64 -> 0.30 -> 0），沿刀势崩出少量 3.5~7cm 发光小体素方块；
+//   - 轻招精简纤利、重劈 / 反击 / 一闪 / 见红层次饱满；单槽位单 Mesh、纯 WebGL1、零 GC。
 import * as THREE from 'three';
 import { scene, onUpdate, V3 } from '../engine/world';
 
@@ -21,7 +20,7 @@ uniform float uHead;
 uniform float uTail;
 uniform float uFade;
 
-varying vec3 vCol;
+varying vec4 vCol;
 
 void main() {
   float u = aMeta.x;
@@ -30,81 +29,87 @@ void main() {
   float flyDist = aMeta.w;
 
   float s = 0.0;
+  float ak = 0.0;
   vec3 center = position;
 
   if (tier > 2.5) {
-    // Detached 7cm 3D voxel spark cubes: spawn behind blade head and step down cleanly
+    // Detached 3.5-7cm luminous voxel spark cubes stepping down crisply
     float born = step(u - 0.10, uHead);
-    float life = clamp(1.0 - (uFade * 1.15 + delay), 0.0, 1.0);
-    s = born * (life > 0.62 ? 1.0 : life > 0.30 ? 0.66 : life > 0.06 ? 0.38 : 0.0);
+    float life = clamp(1.0 - (uFade * 1.18 + delay), 0.0, 1.0);
+    s = born * (life > 0.62 ? 1.0 : life > 0.30 ? 0.68 : life > 0.06 ? 0.42 : 0.0);
+    ak = life > 0.62 ? 1.0 : life > 0.30 ? 0.65 : 0.34;
     float moveK = clamp(uFade * 1.35 + max(0.0, uHead - u) * 0.25, 0.0, 1.0);
     center += aFly * (flyDist * moveK);
   } else {
-    // Main slash voxel blocks: inner wake peels off first, outer razor rim stays last
-    float tierOff = tier * 0.14;
+    // Main voxel light blocks: inner wake peels first, outer razor lingers last
+    float tierOff = tier * 0.15;
     float cut = uTail + tierOff + delay;
     if (u <= uHead && u >= cut) {
       float rem = clamp((u - cut) / 0.24, 0.0, 1.0);
-      s = rem > 0.58 ? 1.0 : rem > 0.26 ? 0.72 : 0.44;
-      if (uFade > 0.86 && tier > 0.5) s = 0.0;
+      s = rem > 0.58 ? 1.0 : rem > 0.26 ? 0.72 : 0.46;
+      ak = rem > 0.58 ? 1.0 : rem > 0.26 ? 0.64 : 0.30;
+      if (uFade > 0.84 && tier > 0.5) s = 0.0;
     }
   }
 
   if (s <= 0.001) {
     gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
-    vCol = vec3(0.0);
+    vCol = vec4(0.0);
     return;
   }
 
-  vec3 baseCol = tier < 0.5 ? uEdgeCol : tier < 1.5 ? uBodyCol : tier < 2.5 ? uTailCol : mix(uBodyCol, uEdgeCol, 0.62);
-  float hot = step(uHead - 0.20, u) * step(tier, 0.5);
-  vCol = (baseCol + uEdgeCol * hot * 0.12) * aShade;
+  vec3 baseCol = tier < 0.5 ? uEdgeCol : tier < 1.5 ? uBodyCol : tier < 2.5 ? uTailCol : mix(uBodyCol, uEdgeCol, 0.72);
+  float baseA = tier < 0.5 ? 0.88 : tier < 1.5 ? 0.48 : tier < 2.5 ? 0.26 : 0.78;
+  float hot = step(uHead - 0.22, u) * step(tier, 0.5);
+  vec3 rgb = (baseCol + uEdgeCol * hot * 0.16) * aShade;
+  vCol = vec4(rgb, baseA * ak);
 
   gl_Position = projectionMatrix * modelViewMatrix * vec4(center + aOffset * s, 1.0);
 }`;
 
 const BOX_FS = `
 precision highp float;
-varying vec3 vCol;
+varying vec4 vCol;
 void main() {
-  gl_FragColor = vec4(vCol, 1.0);
+  if (vCol.a < 0.04) discard;
+  gl_FragColor = vCol;
 }`;
 
 export interface SlashPalette {
   edge: number;
   body: number;
   tail: number;
-  /** restrained HDR boost on outer razor voxel row (1.08..1.26) */
+  /** restrained HDR boost on outer razor voxel row so it reads as glowing light (1.14..1.26) */
   hdr?: number;
 }
 
 const PAL: Record<string, SlashPalette> = {
-  light:   { edge: 0xf0f6ff, body: 0x7ea6d6, tail: 0x385074, hdr: 1.12 },
-  spin:    { edge: 0xeef9ff, body: 0x6ab2d6, tail: 0x2c5270, hdr: 1.14 },
-  stab:    { edge: 0xf6fbff, body: 0x90c6f0, tail: 0x3b6594, hdr: 1.16 },
-  heavy:   { edge: 0xfff0cc, body: 0xe8562e, tail: 0x801e16, hdr: 1.22 },
-  counter: { edge: 0xfff8dc, body: 0xf0b63a, tail: 0x9a4f14, hdr: 1.24 },
-  iai:     { edge: 0xfffaf0, body: 0xf2c95e, tail: 0x8f5718, hdr: 1.26 },
-  dcut:    { edge: 0xeefcff, body: 0x54b8e8, tail: 0x20507a, hdr: 1.16 },
-  launch:  { edge: 0xf0faff, body: 0x70c6f0, tail: 0x2a5680, hdr: 1.16 },
-  air:     { edge: 0xffecf2, body: 0xe86e98, tail: 0x7a2444, hdr: 1.16 },
-  swoop:   { edge: 0xeefff0, body: 0x5ec988, tail: 0x225a3c, hdr: 1.16 },
+  light:   { edge: 0xf2f7ff, body: 0x8eb4de, tail: 0x4c6b94, hdr: 1.15 },
+  spin:    { edge: 0xf0faff, body: 0x7ac0e0, tail: 0x3a6a8a, hdr: 1.16 },
+  stab:    { edge: 0xf6fcff, body: 0x9cd0f5, tail: 0x4a78a8, hdr: 1.18 },
+  heavy:   { edge: 0xfff3d4, body: 0xf26438, tail: 0x9c281c, hdr: 1.24 },
+  counter: { edge: 0xfff9e2, body: 0xf5be44, tail: 0xb26218, hdr: 1.25 },
+  iai:     { edge: 0xfffcf2, body: 0xf7d26a, tail: 0xa86c20, hdr: 1.28 },
+  dcut:    { edge: 0xf0fdff, body: 0x62c4f0, tail: 0x2c6694, hdr: 1.18 },
+  launch:  { edge: 0xf2fbff, body: 0x7cd0f5, tail: 0x366894, hdr: 1.18 },
+  air:     { edge: 0xfff0f5, body: 0xf07ca4, tail: 0x8e3054, hdr: 1.18 },
+  swoop:   { edge: 0xf0fff2, body: 0x6ed496, tail: 0x2d6e4a, hdr: 1.18 },
 };
 
-// Unit cube 6 faces (CCW outward winding) + flat voxel face shading factors
+// Unit cube 6 faces (CCW outward winding) + subtle luminous facet contrast (glowing light, no dark clay undersides)
 const FACES: Array<{ v: Array<[number, number, number]>; shade: number }> = [
-  // +Y top (sunlit)
-  { v: [[-0.5, 0.5, 0.5], [0.5, 0.5, 0.5], [0.5, 0.5, -0.5], [-0.5, 0.5, -0.5]], shade: 1.06 },
-  // -Y bottom (shaded)
-  { v: [[-0.5, -0.5, -0.5], [0.5, -0.5, -0.5], [0.5, -0.5, 0.5], [-0.5, -0.5, 0.5]], shade: 0.62 },
+  // +Y top
+  { v: [[-0.5, 0.5, 0.5], [0.5, 0.5, 0.5], [0.5, 0.5, -0.5], [-0.5, 0.5, -0.5]], shade: 1.04 },
+  // -Y bottom
+  { v: [[-0.5, -0.5, -0.5], [0.5, -0.5, -0.5], [0.5, -0.5, 0.5], [-0.5, -0.5, 0.5]], shade: 0.84 },
   // +Z outer cutting rim
-  { v: [[-0.5, -0.5, 0.5], [0.5, -0.5, 0.5], [0.5, 0.5, 0.5], [-0.5, 0.5, 0.5]], shade: 0.94 },
+  { v: [[-0.5, -0.5, 0.5], [0.5, -0.5, 0.5], [0.5, 0.5, 0.5], [-0.5, 0.5, 0.5]], shade: 1.00 },
   // -Z inner rim
-  { v: [[0.5, -0.5, -0.5], [-0.5, -0.5, -0.5], [-0.5, 0.5, -0.5], [0.5, 0.5, -0.5]], shade: 0.74 },
+  { v: [[0.5, -0.5, -0.5], [-0.5, -0.5, -0.5], [-0.5, 0.5, -0.5], [0.5, 0.5, -0.5]], shade: 0.88 },
   // +X leading end-cap
-  { v: [[0.5, -0.5, 0.5], [0.5, -0.5, -0.5], [0.5, 0.5, -0.5], [0.5, 0.5, 0.5]], shade: 0.86 },
+  { v: [[0.5, -0.5, 0.5], [0.5, -0.5, -0.5], [0.5, 0.5, -0.5], [0.5, 0.5, 0.5]], shade: 0.94 },
   // -X trailing end-cap
-  { v: [[-0.5, -0.5, -0.5], [-0.5, -0.5, 0.5], [-0.5, 0.5, 0.5], [-0.5, 0.5, -0.5]], shade: 0.76 },
+  { v: [[-0.5, -0.5, -0.5], [-0.5, -0.5, 0.5], [-0.5, 0.5, 0.5], [-0.5, 0.5, -0.5]], shade: 0.88 },
 ];
 
 const VOX = 0.035; // 3.5cm character voxel unit (2 * VOX = 7cm world voxel unit)
@@ -205,74 +210,72 @@ function commitPool(pool: BoxPool) {
   (pool.geo.getAttribute('aFly') as THREE.BufferAttribute).needsUpdate = true;
 }
 
-function buildVoxelArc(pool: BoxPool, a0: number, a1: number, rIn: number, rOut: number, heavy: boolean) {
+function buildVoxelArc(pool: BoxPool, a0: number, a1: number, rIn: number, rOut: number, heavy: boolean, bleed: boolean) {
   pool.count = 0;
   const span = Math.abs(a1 - a0);
   const dir = a1 >= a0 ? 1 : -1;
-  const nOuter = Math.max(9, Math.min(20, Math.round(span * 5.2)));
-  const band = Math.max(0.28, rOut - rIn);
-  const hScale = heavy ? 1.25 : 1.0;
+  const nOuter = Math.max(8, Math.min(18, Math.round(span * 4.8)));
+  const band = Math.max(0.24, rOut - rIn);
 
-  // Tier 0: outer razor voxel slabs (aligned strictly to rOut)
+  // Tier 0: lean luminous outer razor voxel row (aligned strictly to real attack reach rOut)
   for (let i = 0; i < nOuter; i++) {
     const u = (i + 0.5) / nOuter;
     const a = a0 + (a1 - a0) * u;
     const stepArc = (span / nOuter) * rOut;
-    // Discrete stepped voxel profile (bold head -> sturdy mid -> chunky tail bricks)
-    const rw = qv(u > 0.58 ? Math.min(0.21, band * 0.26) : u > 0.18 ? Math.min(0.14, band * 0.20) : 0.105);
-    const h = qv((u > 0.52 ? 0.105 : u > 0.18 ? 0.07 : 0.07) * hScale);
-    const len = qv(stepArc * (u > 0.26 ? 0.94 : 0.72));
+    const maxW = heavy ? 0.14 : 0.105;
+    const rw = qv(u > 0.55 ? Math.min(maxW, band * 0.22) : u > 0.22 ? 0.07 : 0.035);
+    const h = qv(heavy ? (u > 0.45 ? 0.07 : 0.035) : (u > 0.5 ? 0.052 : 0.035));
+    const len = qv(stepArc * (u > 0.28 ? 0.90 : 0.68));
     const r = rOut - rw * 0.5;
     const delay = (hash1(i * 3 + 1) - 0.5) * 0.06;
     pushBox(pool, Math.sin(a) * r, 0, Math.cos(a) * r, len, h, rw, a, u, 0, delay, 0);
   }
 
-  // Tier 1: chunky mid-body voxel bricks (stepped 1 tier down in Y and inward behind the blade rim)
-  const nMid = Math.max(7, Math.min(16, Math.round(nOuter * 0.82)));
+  // Tier 1: translucent mid-body voxel band (slim & airy so ground/foes stay visible through blade light)
+  const nMid = Math.max(6, Math.min(14, Math.round(nOuter * 0.78)));
   for (let i = 0; i < nMid; i++) {
-    const u = 0.14 + (i + 0.5) / nMid * 0.78;
+    const u = 0.20 + (i + 0.5) / nMid * 0.70;
     const a = a0 + (a1 - a0) * u;
-    const outerW = u > 0.62 ? Math.min(0.21, band * 0.26) : Math.min(0.14, band * 0.20);
-    const rw = qv(Math.min(band - outerW - 0.07, u > 0.52 ? 0.28 : u > 0.26 ? 0.21 : 0.14));
-    if (rw < 0.07) continue;
-    const r = rOut - outerW - rw * 0.5 + 0.015;
-    const stepArc = ((span * 0.78) / nMid) * r;
-    const len = qv(stepArc * (u > 0.38 ? 0.86 : 0.68));
-    const h = qv(0.07 * hScale);
+    const outerW = heavy ? (u > 0.55 ? 0.14 : 0.07) : (u > 0.55 ? 0.105 : 0.07);
+    const maxMid = heavy ? 0.175 : 0.14;
+    const rw = qv(Math.min(band - outerW - 0.035, u > 0.52 ? maxMid : u > 0.28 ? 0.105 : 0.07));
+    if (rw < 0.035) continue;
+    const r = rOut - outerW - rw * 0.5 + 0.005;
+    const stepArc = ((span * 0.70) / nMid) * r;
+    const len = qv(stepArc * (u > 0.40 ? 0.84 : 0.64));
+    const h = qv(heavy ? 0.052 : 0.035);
     const delay = (hash1(i * 5 + 7) - 0.5) * 0.07;
-    pushBox(pool, Math.sin(a) * r, -0.018, Math.cos(a) * r, len, h, rw, a, u, 1, delay, 0);
+    pushBox(pool, Math.sin(a) * r, -0.008, Math.cos(a) * r, len, h, rw, a, u, 1, delay, 0);
   }
 
-  // Tier 2: inner broken-voxel wake chunks (deliberate gaps so it reads as chunky voxel wake, never fog)
-  const nWake = Math.max(5, Math.min(10, Math.round(nOuter * 0.5)));
+  // Tier 2: light sparse trailing wake blocks (minimal on light attacks; richer on heavy/bleed)
+  const nWake = heavy || bleed ? Math.max(4, Math.min(7, Math.round(nOuter * 0.42))) : 3;
   for (let i = 0; i < nWake; i++) {
-    const u = 0.08 + (i + 0.5) / nWake * 0.68;
+    const u = 0.14 + (i + 0.5) / nWake * 0.58;
     const a = a0 + (a1 - a0) * u;
-    const r = rIn + qv(band * (0.18 + (i % 2) * 0.16));
-    const stepArc = ((span * 0.68) / nWake) * r;
-    const len = qv(Math.min(0.28, stepArc * 0.56));
-    const rw = qv(i % 2 === 0 ? 0.14 : 0.105);
-    const h = qv(0.052 * hScale);
+    const r = rOut - qv(Math.min(band * 0.78, (heavy ? 0.35 : 0.26) + (i % 2) * 0.08));
+    const stepArc = ((span * 0.58) / nWake) * r;
+    const len = qv(Math.min(0.21, stepArc * 0.48));
+    const rw = qv(heavy || bleed ? 0.105 : 0.07);
     const delay = (hash1(i * 7 + 13) - 0.5) * 0.08;
-    pushBox(pool, Math.sin(a) * r, -0.035, Math.cos(a) * r, len, h, rw, a, u, 2, delay, 0);
+    pushBox(pool, Math.sin(a) * r, -0.016, Math.cos(a) * r, len, 0.035, rw, a, u, 2, delay, 0);
   }
 
-  // Tier 3: 7cm detached 3D voxel spark cubes bursting tangentially along outer blade edge
-  const nSpark = heavy ? 10 : 7;
+  // Tier 3: tiny glowing voxel spark cubes bursting tangentially off the blade tip/rim
+  const nSpark = heavy ? 6 : 4;
   for (let i = 0; i < nSpark; i++) {
-    const u = 0.24 + (i + 0.5) / nSpark * 0.72;
+    const u = 0.30 + (i + 0.5) / nSpark * 0.66;
     const a = a0 + (a1 - a0) * u;
-    const r = rOut - (i % 3 === 0 ? 0.02 : 0.16);
-    const sz = qv(heavy && i % 2 === 0 ? 0.105 : 0.07);
+    const r = rOut - (i % 2 === 0 ? 0.02 : 0.12);
+    const sz = qv(heavy && i % 2 === 0 ? 0.07 : 0.035);
     const sa = Math.sin(a), ca = Math.cos(a);
-    // Tangent along swing direction + slight outward radial pop + slight Y scatter
     const tx = ca * dir, tz = -sa * dir;
-    const fx = tx * 0.78 + sa * 0.55;
-    const fy = (hash1(i * 11 + 3) - 0.35) * 0.55;
-    const fz = tz * 0.78 + ca * 0.55;
+    const fx = tx * 0.80 + sa * 0.50;
+    const fy = (hash1(i * 11 + 3) - 0.35) * 0.50;
+    const fz = tz * 0.80 + ca * 0.50;
     const fl = Math.hypot(fx, fy, fz) || 1;
-    const flyDist = 0.32 + hash1(i * 13 + 5) * (heavy ? 0.52 : 0.34);
-    const yOff = (hash1(i * 17 + 2) - 0.5) * 0.14;
+    const flyDist = 0.26 + hash1(i * 13 + 5) * (heavy ? 0.42 : 0.26);
+    const yOff = (hash1(i * 17 + 2) - 0.5) * 0.10;
     const delay = (hash1(i * 19 + 9) - 0.5) * 0.12;
     pushBox(pool, sa * r, yOff, ca * r, sz, sz, sz, a, u, 3, delay, flyDist, fx / fl, fy / fl, fz / fl);
   }
@@ -282,73 +285,72 @@ function buildVoxelArc(pool: BoxPool, a0: number, a1: number, rIn: number, rOut:
 
 function buildVoxelLine(pool: BoxPool, len: number, width: number, lance: boolean) {
   pool.count = 0;
-  const nCore = Math.max(5, Math.min(12, Math.round(len / 0.38)));
+  const effW = Math.max(0.22, width * 0.58);
+  const nCore = Math.max(5, Math.min(12, Math.round(len / 0.40)));
   const stepZ = len / nCore;
-  const coreW = qv(Math.max(0.07, width * (lance ? 0.24 : 0.30)));
-  const coreH = qv(lance ? 0.105 : 0.12);
+  const coreW = qv(lance ? 0.07 : Math.min(0.105, Math.max(0.07, effW * 0.24)));
+  const coreH = qv(lance ? 0.052 : 0.07);
 
-  // Tier 0: central 3D square-section voxel spine along +Z
+  // Tier 0: sleek luminous voxel core blade line along +Z
   for (let i = 0; i < nCore; i++) {
     const u = (i + 0.5) / nCore;
     const z = u * len;
-    // Unbroken solid voxel blade spine in front 80%, breaking into crisp trailing bricks at tail
-    const segL = qv(stepZ * (u > 0.22 ? 1.04 : 0.76));
-    // Lance narrows sharply at the needle tip; cleave holds a crisp square spine
-    const w = lance ? qv(u > 0.78 ? 0.07 : coreW) : qv(u > 0.88 || u < 0.14 ? Math.max(0.07, coreW * 0.65) : coreW);
-    const h = lance ? qv(u > 0.78 ? 0.07 : coreH) : coreH;
+    const segL = qv(stepZ * (u > 0.22 ? 1.02 : 0.72));
+    const w = lance ? qv(u > 0.72 ? 0.035 : coreW) : qv(u > 0.88 || u < 0.14 ? 0.035 : coreW);
+    const h = lance ? qv(u > 0.72 ? 0.035 : coreH) : coreH;
     const delay = (hash1(i * 3 + 2) - 0.5) * 0.05;
     pushBox(pool, 0, 0, z, w, h, segL, 0, u, 0, delay, 0);
   }
 
-  // Tier 1: staggered asymmetric flanking 3D voxel ribs (kinetic velocity silhouette, never a symmetric dotted track)
-  const nSide = Math.max(4, Math.min(7, Math.round(nCore * 0.62)));
-  const sideSpan = lance ? 0.64 : 0.78;
-  const sideBase = lance ? 0.12 : 0.14;
+  // Tier 1: slender asymmetric translucent flanking voxel streaks
+  const nSide = Math.max(3, Math.min(6, Math.round(nCore * 0.55)));
+  const sideSpan = lance ? 0.58 : 0.76;
+  const sideBase = lance ? 0.14 : 0.14;
   for (let i = 0; i < nSide; i++) {
-    const uL = sideBase + (i + 0.42) / nSide * sideSpan;
-    const uR = Math.min(0.94, sideBase + (i + 0.82) / nSide * sideSpan);
+    const uL = sideBase + (i + 0.38) / nSide * sideSpan;
+    const uR = Math.min(0.92, sideBase + (i + 0.80) / nSide * sideSpan);
     for (let side = -1; side <= 1; side += 2) {
       const u = side < 0 ? uL : uR;
       const z = u * len;
-      const wing = lance ? (1 - u * 0.70) : (u > 0.35 && u < 0.88 ? 1.0 : 0.62);
-      const rw = qv(Math.max(0.07, width * 0.24 * wing));
-      const lenK = lance ? 0.84 : (u > 0.45 ? 0.92 : 0.62);
+      const wing = lance ? (1 - u * 0.72) : (u > 0.35 && u < 0.86 ? 1.0 : 0.6);
+      const rw = qv(Math.min(0.105, Math.max(0.035, effW * 0.24 * wing)));
+      const lenK = lance ? 0.78 : (u > 0.45 ? 0.84 : 0.56);
       const segL = qv(((len * sideSpan) / nSide) * lenK);
-      const h = qv(0.07);
-      const xOff = coreW * 0.5 + rw * 0.5 - 0.01;
+      const xOff = coreW * 0.5 + rw * 0.5;
       const delay = (hash1(i * 5 + (side < 0 ? 4 : 11)) - 0.5) * 0.07;
-      pushBox(pool, side * xOff, -0.015, z, rw, h, segL, 0, u, 1, delay, 0);
+      pushBox(pool, side * xOff, -0.006, z, rw, 0.035, segL, 0, u, 1, delay, 0);
     }
   }
 
-  // Tier 2: outer staggered voxel wake blocks (3rd tier width)
-  const nWake = Math.min(6, Math.max(3, Math.round(len / 0.75)));
-  for (let i = 0; i < nWake; i++) {
-    const u = 0.12 + (i + 0.5) / nWake * 0.68;
-    const z = u * len;
-    const side = i % 2 === 0 ? 1 : -1;
-    const xOff = qv(width * (lance ? 0.42 * (1 - u * 0.55) : 0.46));
-    const rw = qv(0.07);
-    const segL = qv(Math.min(0.28, stepZ * 0.68));
-    const delay = (hash1(i * 7 + 9) - 0.5) * 0.08;
-    pushBox(pool, side * xOff, -0.03, z, rw, 0.052, segL, 0, u, 2, delay, 0);
+  // Tier 2: sparse outer wake slivers (cleaves only; lance stays ultra-sharp)
+  if (!lance) {
+    const nWake = Math.min(4, Math.max(2, Math.round(len / 1.1)));
+    for (let i = 0; i < nWake; i++) {
+      const u = 0.18 + (i + 0.5) / nWake * 0.62;
+      const z = u * len;
+      const side = i % 2 === 0 ? 1 : -1;
+      const xOff = qv(effW * 0.48);
+      const segL = qv(Math.min(0.24, stepZ * 0.56));
+      const delay = (hash1(i * 7 + 9) - 0.5) * 0.08;
+      pushBox(pool, side * xOff, -0.012, z, 0.07, 0.035, segL, 0, u, 2, delay, 0);
+    }
   }
 
-  // Tier 3: detached 7cm 3D voxel cubes bursting sideways off the cleave path
-  const nSpark = lance ? 6 : 8;
+  // Tier 3: tiny luminous voxel sparks peeling off the blade path
+  const nSpark = lance ? 4 : 5;
   for (let i = 0; i < nSpark; i++) {
-    const u = 0.16 + (i + 0.5) / nSpark * 0.76;
+    const u = 0.18 + (i + 0.5) / nSpark * 0.72;
     const z = u * len;
     const side = i % 2 === 0 ? 1 : -1;
-    const sz = qv(i % 3 === 0 ? 0.105 : 0.07);
-    const x0 = side * (coreW * 0.6 + width * 0.25);
+    const sz = qv(i % 2 === 0 ? 0.07 : 0.035);
+    const x0 = side * (coreW * 0.6 + effW * 0.22);
     const fx = side * 0.85;
-    const fy = (hash1(i * 11 + 6) - 0.35) * 0.5;
+    const fy = (hash1(i * 11 + 6) - 0.35) * 0.45;
     const fz = lance ? 0.55 : 0.22;
     const fl = Math.hypot(fx, fy, fz) || 1;
-    const flyDist = 0.28 + hash1(i * 13 + 7) * 0.42;
+    const flyDist = 0.24 + hash1(i * 13 + 7) * 0.34;
     const delay = (hash1(i * 17 + 4) - 0.5) * 0.1;
-    pushBox(pool, x0, (hash1(i * 9 + 1) - 0.5) * 0.14, z, sz, sz, sz, 0, u, 3, delay, flyDist, fx / fl, fy / fl, fz / fl);
+    pushBox(pool, x0, (hash1(i * 9 + 1) - 0.5) * 0.10, z, sz, sz, sz, 0, u, 3, delay, flyDist, fx / fl, fy / fl, fz / fl);
   }
 
   commitPool(pool);
@@ -377,8 +379,8 @@ interface LineSlot {
   fadeDur: number;
 }
 
-const MAX_ARC_BOXES = 56;
-const MAX_LINE_BOXES = 40;
+const MAX_ARC_BOXES = 50;
+const MAX_LINE_BOXES = 36;
 const ARC_POOL = 6;
 const LINE_POOL = 5;
 
@@ -390,14 +392,15 @@ function makeVoxelMat(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     vertexShader: BOX_VS,
     fragmentShader: BOX_FS,
-    transparent: false,
-    depthWrite: true,
+    transparent: true,
+    depthWrite: false,
     depthTest: true,
     side: THREE.FrontSide,
+    blending: THREE.NormalBlending,
     uniforms: {
-      uEdgeCol: { value: new THREE.Color(0xf0f6ff) },
-      uBodyCol: { value: new THREE.Color(0x7ea6d6) },
-      uTailCol: { value: new THREE.Color(0x385074) },
+      uEdgeCol: { value: new THREE.Color(0xf2f7ff) },
+      uBodyCol: { value: new THREE.Color(0x8eb4de) },
+      uTailCol: { value: new THREE.Color(0x4c6b94) },
       uHead: { value: 1 },
       uTail: { value: 0 },
       uFade: { value: 0 },
@@ -421,8 +424,9 @@ class SlashSystem {
       mesh.frustumCulled = false;
       mesh.castShadow = false;
       mesh.receiveShadow = false;
+      mesh.renderOrder = 6;
       scene.add(mesh);
-      this.arcs.push({ mesh, pool, mat, active: false, t: 0, sweepDur: 0.055, holdDur: 0.04, fadeDur: 0.14, anchor: null, yOff: 0.95 });
+      this.arcs.push({ mesh, pool, mat, active: false, t: 0, sweepDur: 0.04, holdDur: 0.02, fadeDur: 0.095, anchor: null, yOff: 0.95 });
     }
   }
 
@@ -436,8 +440,9 @@ class SlashSystem {
       mesh.frustumCulled = false;
       mesh.castShadow = false;
       mesh.receiveShadow = false;
+      mesh.renderOrder = 7;
       scene.add(mesh);
-      this.lines.push({ mesh, pool, mat, active: false, t: 0, sweepDur: 0.045, fadeDur: 0.22 });
+      this.lines.push({ mesh, pool, mat, active: false, t: 0, sweepDur: 0.03, fadeDur: 0.16 });
     }
   }
 
@@ -457,7 +462,7 @@ class SlashSystem {
     return s;
   }
 
-  /** Spawn a 3D chunky voxel-block crescent arc aligned to the swing's real reach. */
+  /** Spawn a lightweight luminous 3D voxel crescent aligned to the swing's real reach. */
   arc(o: {
     at: THREE.Vector3;
     yaw: number;
@@ -477,16 +482,16 @@ class SlashSystem {
   }) {
     const s = this.pickArc();
     const pal = PAL[o.palette ?? 'light'] ?? PAL.light;
-    const hdr = pal.hdr ?? 1.14;
+    const hdr = pal.hdr ?? 1.16;
     const rOut = Math.max(0.6, o.rOut);
-    const rIn = Math.max(0.25, o.rIn ?? rOut * 0.48);
+    const rIn = Math.max(0.25, o.rIn ?? rOut * 0.56);
     const heavy = o.palette === 'heavy' || o.palette === 'counter' || o.palette === 'iai';
-    buildVoxelArc(s.pool, o.a0, o.a1, rIn, rOut, heavy);
+    buildVoxelArc(s.pool, o.a0, o.a1, rIn, rOut, heavy, !!o.bleed);
 
     const u = s.mat.uniforms;
     setCol(u.uEdgeCol.value, pal.edge, hdr);
     setCol(u.uBodyCol.value, pal.body, 1.0);
-    setCol(u.uTailCol.value, o.bleed ? 0x7d1618 : pal.tail, 1.0);
+    setCol(u.uTailCol.value, o.bleed ? 0x9c2024 : pal.tail, 1.0);
     // Start at 0.80 on the impact frame so hitstop freezes a full, bold voxel crescent cutting across the target
     u.uHead.value = 0.80;
     u.uTail.value = 0;
@@ -500,12 +505,12 @@ class SlashSystem {
     s.mesh.visible = true;
     s.active = true;
     s.t = 0;
-    s.sweepDur = o.sweep ?? 0.055;
-    s.holdDur = o.hold ?? 0.04;
-    s.fadeDur = o.fade ?? 0.14;
+    s.sweepDur = o.sweep ?? 0.04;
+    s.holdDur = o.hold ?? 0.02;
+    s.fadeDur = o.fade ?? 0.095;
   }
 
-  /** Spawn a 3D voxel prism beam / thrust lance along a -> b. */
+  /** Spawn a lightweight luminous 3D voxel blade beam / thrust lance along a -> b. */
   line(o: {
     a: THREE.Vector3;
     b: THREE.Vector3;
@@ -523,7 +528,7 @@ class SlashSystem {
     if (len < 0.05) return;
     const yaw = Math.atan2(dx, dz);
     const pal = PAL[o.palette ?? 'iai'] ?? PAL.iai;
-    const hdr = pal.hdr ?? 1.22;
+    const hdr = pal.hdr ?? 1.24;
 
     buildVoxelLine(s.pool, len, Math.max(0.28, o.width), !!o.lance);
 
@@ -541,8 +546,8 @@ class SlashSystem {
     s.mesh.visible = true;
     s.active = true;
     s.t = 0;
-    s.sweepDur = o.sweep ?? (o.lance ? 0.045 : 0.03);
-    s.fadeDur = o.fade ?? (o.lance ? 0.15 : 0.24);
+    s.sweepDur = o.sweep ?? (o.lance ? 0.03 : 0.025);
+    s.fadeDur = (o.fade ?? (o.lance ? 0.14 : 0.22)) * 0.72;
   }
 
   /** Convenience helper for the hero's 5-hit combo and derivatives. */
@@ -562,34 +567,34 @@ class SlashSystem {
     const at = V3(o.from.x, y0, o.from.z);
     const counter = !!o.counter;
     const bleed = !!o.bleed && !counter;
-    const r = o.range * (counter ? 1.1 : 1.0);
+    const r = o.range * (counter ? 1.08 : 1.0);
 
     if (o.kind === 'k1') {
-      const h = Math.min(1.55, Math.max(1.15, o.half + 0.18));
-      this.arc({ at, follow: o.follow, yaw: o.yaw, rOut: r, rIn: r * 0.46, a0: -h, a1: h, y: 0.96, tiltZ: -0.14, palette: counter ? 'counter' : 'light', bleed, sweep: 0.05, hold: 0.035, fade: 0.13 });
+      const h = Math.min(1.5, Math.max(1.1, o.half + 0.15));
+      this.arc({ at, follow: o.follow, yaw: o.yaw, rOut: r, rIn: r * 0.60, a0: -h, a1: h, y: 0.96, tiltZ: -0.14, palette: counter ? 'counter' : 'light', bleed, sweep: 0.04, hold: 0.02, fade: 0.095 });
     } else if (o.kind === 'k2') {
-      const h = Math.min(1.6, Math.max(1.2, o.half + 0.18));
-      this.arc({ at, follow: o.follow, yaw: o.yaw, rOut: r, rIn: r * 0.46, a0: h, a1: -h, y: 1.0, tiltZ: 0.26, palette: counter ? 'counter' : 'light', bleed, sweep: 0.05, hold: 0.035, fade: 0.13 });
+      const h = Math.min(1.55, Math.max(1.15, o.half + 0.15));
+      this.arc({ at, follow: o.follow, yaw: o.yaw, rOut: r, rIn: r * 0.60, a0: h, a1: -h, y: 1.0, tiltZ: 0.26, palette: counter ? 'counter' : 'light', bleed, sweep: 0.04, hold: 0.02, fade: 0.095 });
     } else if (o.kind === 'k3') {
-      this.arc({ at, follow: o.follow, yaw: o.yaw, rOut: r, rIn: r * (o.wide ? 0.50 : 0.56), a0: -Math.PI, a1: Math.PI + 0.35, y: 0.92, tiltZ: 0.06, palette: counter ? 'counter' : 'spin', bleed, sweep: 0.095, hold: 0.045, fade: 0.17 });
+      this.arc({ at, follow: o.follow, yaw: o.yaw, rOut: r, rIn: r * (o.wide ? 0.62 : 0.66), a0: -Math.PI, a1: Math.PI + 0.25, y: 0.92, tiltZ: 0.06, palette: counter ? 'counter' : 'spin', bleed, sweep: 0.075, hold: 0.025, fade: 0.12 });
     } else if (o.kind === 'k4') {
       const second = (o.n ?? 1) > 1;
       const fx = Math.sin(o.yaw), fz = Math.cos(o.yaw);
       const a = V3(at.x + fx * 0.35, y0, at.z + fz * 0.35);
-      const b = V3(at.x + fx * (r + (second ? 0.65 : 0.3)), y0, at.z + fz * (r + (second ? 0.65 : 0.3)));
-      this.line({ a, b, width: second ? 0.68 : 0.54, y: 1.0, palette: counter ? 'counter' : 'stab', lance: true, tiltZ: second ? -0.12 : 0.12, sweep: 0.035, fade: second ? 0.17 : 0.13 });
+      const b = V3(at.x + fx * (r + (second ? 0.55 : 0.25)), y0, at.z + fz * (r + (second ? 0.55 : 0.25)));
+      this.line({ a, b, width: second ? 0.58 : 0.46, y: 1.0, palette: counter ? 'counter' : 'stab', lance: true, tiltZ: second ? -0.10 : 0.10, sweep: 0.03, fade: second ? 0.16 : 0.13 });
     } else if (o.kind === 'k5') {
-      // Dramatic steep diagonal overhead voxel cleave + low sweeping voxel arc
-      this.arc({ at, follow: o.follow, yaw: o.yaw, rOut: r * 1.06, rIn: r * 0.38, a0: -1.45, a1: 1.25, y: 1.08, tiltX: 0.18, tiltZ: -1.08, palette: counter ? 'counter' : 'heavy', bleed, sweep: 0.06, hold: 0.065, fade: 0.22 });
-      this.arc({ at, follow: o.follow, yaw: o.yaw, rOut: r * 0.98, rIn: r * 0.58, a0: -1.2, a1: 1.2, y: 0.48, tiltZ: -0.08, palette: counter ? 'counter' : 'heavy', bleed, sweep: 0.055, hold: 0.05, fade: 0.18 });
+      // Dramatic steep diagonal overhead voxel cleave + restrained low follow-through accent
+      this.arc({ at, follow: o.follow, yaw: o.yaw, rOut: r * 1.04, rIn: r * 0.50, a0: -1.40, a1: 1.20, y: 1.08, tiltX: 0.18, tiltZ: -1.08, palette: counter ? 'counter' : 'heavy', bleed, sweep: 0.05, hold: 0.045, fade: 0.16 });
+      this.arc({ at, follow: o.follow, yaw: o.yaw, rOut: r * 0.96, rIn: r * 0.72, a0: -1.10, a1: 1.10, y: 0.48, tiltZ: -0.08, palette: counter ? 'counter' : 'heavy', bleed, sweep: 0.045, hold: 0.025, fade: 0.11 });
     } else if (o.kind === 'launch') {
-      this.arc({ at, follow: o.follow, yaw: o.yaw, rOut: r, rIn: r * 0.44, a0: 1.25, a1: -1.35, y: 0.95, tiltX: -0.15, tiltZ: 1.15, palette: 'launch', sweep: 0.055, hold: 0.045, fade: 0.18 });
+      this.arc({ at, follow: o.follow, yaw: o.yaw, rOut: r, rIn: r * 0.58, a0: 1.20, a1: -1.30, y: 0.95, tiltX: -0.15, tiltZ: 1.15, palette: 'launch', sweep: 0.045, hold: 0.03, fade: 0.13 });
     } else if (o.kind === 'acut' || o.kind === 'acutF') {
       const last = o.kind === 'acutF';
       const n = o.n ?? 1;
       const tilt = last ? -1.12 : n === 1 ? -0.45 : 0.45;
-      const a0 = n === 2 ? 1.35 : -1.35;
-      this.arc({ at, follow: o.follow, yaw: o.yaw, rOut: r, rIn: r * 0.46, a0, a1: -a0, y: 0.92, tiltZ: tilt, palette: last ? 'heavy' : 'air', sweep: 0.045, hold: 0.03, fade: last ? 0.19 : 0.13 });
+      const a0 = n === 2 ? 1.30 : -1.30;
+      this.arc({ at, follow: o.follow, yaw: o.yaw, rOut: r, rIn: r * 0.60, a0, a1: -a0, y: 0.92, tiltZ: tilt, palette: last ? 'heavy' : 'air', sweep: 0.04, hold: 0.02, fade: last ? 0.14 : 0.095 });
     }
   }
 

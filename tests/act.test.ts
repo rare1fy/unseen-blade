@@ -158,11 +158,11 @@ describe('combat feel polish (act-109)', () => {
       expect(c).toContain('shake: false');
     }
   });
-  it('slashArc uses opaque 3D voxel blocks, pure WebGL1 (no derivatives/smoothstep), and updates cleanly', () => {
+  it('slashArc uses lightweight translucent 3D voxel blocks (no solid ink outline / smoothstep / derivatives)', () => {
     const src = SRC['src/present/act/slashArc.ts'].replace(/\/\/.*$/gm, '');
     expect(src).not.toMatch(/\bdFd[xy]\b|\bfwidth\b|\btexelFetch\b|\bsmoothstep\b/);
-    expect(src).toContain('transparent: false');
-    expect(src).toContain('depthWrite: true');
+    expect(src).toContain('transparent: true');
+    expect(src).toContain('depthWrite: false');
     slashArc.swing({ kind: 'k1', from: V3(0, 0, 0), yaw: 0, range: 2, half: 1.0 });
     slashArc.swing({ kind: 'k3', from: V3(0, 0, 0), yaw: 0, range: 2.4, half: Math.PI });
     slashArc.swing({ kind: 'k4', from: V3(0, 0, 0), yaw: 0, range: 2.5, half: 0.3, n: 2 });
