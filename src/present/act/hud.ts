@@ -71,6 +71,8 @@ export class ActHud {
   /** 杀意 (0..3): shown as the ingots under the iron health bar */
   intent = 0; private qteRing: QteRing;
   private bars = new Map<number, Bar>(); private boss: Bar | null = null; private bossName = ''; private marks: THREE.Mesh[] = [];
+  /** act-114: off-screen foes currently in high-danger state (fires spatialized dangerOff once per windup) */
+  private offDanger = new Set<number>();
   /** the hero's floor position (show sets it every frame; the off-screen markers read their distance from it) */
   heroAt = new THREE.Vector3();
   get bossOn() { return !!this.boss && this.on; }
@@ -357,8 +359,9 @@ export class ActHud {
       this.drawBar(b, p.x, p.y, 64 * this.k, 9 * this.k, f.st === 'dead' ? 0 : f.hp / f.maxHp, dt, poise);
     }
     for (const [uid, b] of this.bars) if (!live.has(uid)) { b.g.parent?.remove(b.g); this.bars.delete(uid); }
-    // act-19 / act-113: off-screen foes show a red sound wave on the edge; foes winding up / lunging upgrade to an urgent gold-white high-danger wave
+    // act-19 / act-113 / act-114: off-screen foes show a red sound wave on the edge; foes winding up / lunging upgrade to an urgent gold-white high-danger wave + spatialized audio glint
     let nm = 0; const W = this.L.w, H = this.L.h, pad = 30 * this.k, nowMs = performance.now();
+    const hotNow = new Set<number>();
     for (const f of foes) {
       if (f.st === 'dead' || f.kind === 'dummy' || nm >= 10) continue;
       const q = worldToUi(f.pos.clone().setY(1)); if (q.z < 1 && q.x > 0 && q.x < W && q.y > 0 && q.y < H) continue;
@@ -368,6 +371,13 @@ export class ActHud {
       const dist = Math.hypot(f.pos.x - this.heroAt.x, f.pos.z - this.heroAt.z), near = Math.max(0, Math.min(1, 1 - (dist - 6) / 14));
       const danger = f.st === 'windup' || (f.st === 'strike' && !!f.lunge);
       const imminent = f.st === 'windup' && (f.dur - f.t) < 0.38;
+      if (danger && this.on) {
+        hotNow.add(f.uid);
+        if (!this.offDanger.has(f.uid)) {
+          const pan = Math.max(-0.8, Math.min(0.8, (x - W / 2) / Math.max(1, W / 2)));
+          cue('dangerOff', 0.55 + 0.45 * near, pan);
+        }
+      }
       const mat = m.material as THREE.MeshBasicMaterial;
       const wantTex = danger ? arcHotTex() : arcTex();
       if (mat.map !== wantTex) { mat.map = wantTex; mat.needsUpdate = true; }
@@ -377,6 +387,7 @@ export class ActHud {
       mat.opacity = danger ? (0.72 + 0.28 * Math.sin(nowMs / (imminent ? 38 : 65))) : (0.45 + 0.5 * near * (0.8 + 0.2 * Math.sin(nowMs / 160)));
       m.visible = this.on; nm++;
     }
+    this.offDanger = hotNow;
     for (let i = nm; i < this.marks.length; i++) this.marks[i].visible = false;
     const chief = foes.find(f => isBoss(f) && f.st !== 'dead');   // wp/foes: isBoss
     if (chief) {

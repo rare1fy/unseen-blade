@@ -28,7 +28,7 @@ import { TUNE } from './tune';
 import { toon } from '../look/toon';
 import { cue } from '../../audio/cues';
 import { shake, clock } from '../engine/clock';
-import { fxSparks, fxSmoke, fxRing, fxGlow, fxEmbers, fxFlare, trailSeg } from '../fx/fx';
+import { fxSparks, fxSmoke, fxRing, fxGlow, fxEmbers, fxFlare, fxChips, trailSeg } from '../fx/fx';
 import { fxBolt, fxShock } from '../fx/skillFx';
 import { ROLE_AI, type ThinkCtx } from './foes/roles';
 
@@ -294,7 +294,7 @@ export function updateFoe(f: Foe, w: FoeWorld, dt: number) {
   const toH = w.heroPos.clone().sub(f.pos).setY(0), dist = toH.length(), dir = dist > 1e-3 ? toH.clone().divideScalar(dist) : V3(0, 0, 1);
   const face = (y: number, k = 10) => { let dy = y - f.yaw; while (dy > Math.PI) dy -= Math.PI * 2; while (dy < -Math.PI) dy += Math.PI * 2; f.yaw += dy * Math.min(1, dt * k); };
   const yawTo = Math.atan2(dir.x, dir.z);
-  if (f.role === 'boss') bossTick(f, w, dt);
+  if (f.role === 'boss' || f.role === 'chief') bossTick(f, w, dt);
   const rai = ROLE_AI[f.role]; if (rai?.tick) rai.tick(f, w, dt);   // 11-18: a region-two / -three role
   if ((f.st as St) === 'dead') return;
   // wp/regB: a region-four / -five foe runs its own frame first (hiding under the planks, the boss's machinery, its phases)
@@ -348,8 +348,10 @@ export function updateFoe(f: Foe, w: FoeWorld, dt: number) {
       else if (f.combo > 0 && w.heroAlive) {
         f.combo--;
         if (f.role === 'hound') startAttack(f, w, { k: 'rect', len: 5.2, w: 1.0 }, 0.36, 8, yawTo, { atk: 'lunge' });
+        else if (f.role === 'boss') startAttack(f, w, { k: 'circle', r: 2.8, ahead: 1.5 }, 0.72, 18, yawTo, { atk: 'slam', low: true, extra: [{ s: { k: 'circle', r: SHOCK_R, ahead: 1.5 }, dy: 0, low: true }] });
+        else if (f.role === 'chief') startAttack(f, w, { k: 'cone', r: 3.1, half: 1.0 }, 0.56, 16, yawTo, { atk: 'sweep' });
         else startAttack(f, w, { k: 'cone', r: 2.3, half: 1.0 }, 0.34, 10, yawTo, { atk: 'cut', act: { name: 'hjBackhand', imp: 0.58 } });
-      } else { markCalm(f); setSt(f, 'recover', rai?.recover?.(f) ?? (f.role === 'hound' ? 0.7 : f.role === 'chief' ? 0.9 : f.role === 'brute' ? 1.0 : f.role === 'boss' ? (f.atk === 'thunder' ? 0.5 : f.phase > 1 ? 0.45 : 0.75) : f.role === 'mob' ? 0.45 : 0.6)); }
+      } else { markCalm(f); setSt(f, 'recover', rai?.recover?.(f) ?? (f.role === 'hound' ? 0.7 : f.role === 'chief' ? (f.phase > 1 ? 0.85 : 0.9) : f.role === 'brute' ? 1.0 : f.role === 'boss' ? (f.atk === 'slam' ? 0.95 : f.atk === 'lunge' ? 0.85 : f.atk === 'thunder' ? 0.55 : f.phase > 1 ? 0.5 : 0.75) : f.role === 'mob' ? 0.45 : 0.6)); }
     }
   }
   if (free && ai) ai.think(f, w, dt, dist, dir, yawTo);
@@ -428,12 +430,12 @@ function think(f: Foe, w: FoeWorld, dt: number, dist: number, dir: THREE.Vector3
     sp *= f.phase > 1 ? 1.2 : 1;
     if (dist > 2.4) want.copy(dir).addScaledVector(side, 0.2);
     if (can && f.thunderCd <= 0 && (dist > 3.4 || Math.random() < 0.3)) { startThunder(f, w); return; }
-    if (can && dist < 3.3) { startAttack(f, w, { k: 'cone', r: 3.3, half: 1.05 }, 0.85, 15, yawTo, { atk: 'sweep', act: { name: 'hjSweep', imp: 0.56 } }); f.cd = f.phase > 1 ? 0.15 : 0.4; return; }
-    if (can && dist >= 3.3 && dist < 6.5 && Math.random() < dt * 1.6) { startAttack(f, w, { k: 'rect', len: Math.min(6.5, dist + 1.6), w: 1.4 }, 0.75, 16, yawTo, { atk: 'lunge', act: { name: 'hjThrust', imp: 0.55, tail: 0.58 } }); f.cd = f.phase > 1 ? 0.15 : 0.4; return; }
+    if (can && dist < 3.3) { f.combo = f.phase > 1 ? 1 : 0; startAttack(f, w, { k: 'cone', r: 3.3, half: 1.05 }, f.phase > 1 ? 0.78 : 0.85, 15, yawTo, { atk: 'sweep', act: { name: 'hjSweep', imp: 0.56 } }); f.cd = f.phase > 1 ? 0.2 : 0.4; return; }
+    if (can && dist >= 3.3 && dist < 6.5 && Math.random() < dt * 1.6) { startAttack(f, w, { k: 'rect', len: Math.min(6.5, dist + 1.6), w: 1.4 }, 0.75, 16, yawTo, { atk: 'lunge', act: { name: 'hjThrust', imp: 0.55, tail: 0.58 } }); f.cd = f.phase > 1 ? 0.25 : 0.4; return; }
   } else {
     if (dist > 2.0) want.copy(dir);
     if (can && dist < 2.8) {
-      if (Math.random() < 0.5) startAttack(f, w, { k: 'cone', r: 3.0, half: 0.85 }, 0.85, 15, yawTo, { atk: 'sweep' });
+      if (Math.random() < 0.5) { f.combo = f.phase > 1 ? 1 : 0; startAttack(f, w, { k: 'cone', r: 3.0, half: 0.85 }, 0.85, 15, yawTo, { atk: 'sweep' }); }
       else startAttack(f, w, { k: 'circle', r: 2.5, ahead: 1.5 }, 1.1, 20, yawTo, { atk: 'slam' });
       return;
     }
@@ -474,16 +476,21 @@ function callThunder(f: Foe, w: FoeWorld) {
   }
   cue('thunder', 0.8); fxSparks(attackPoint(f), 0xfff4c0, 14, 5);
 }
+/** act-114: stereo pan (-0.8..+0.8) from foe's horizontal offset relative to hero (blind swordswoman hears direction) */
+const foePan = (f: Foe, w: FoeWorld) => Math.max(-0.8, Math.min(0.8, (f.pos.x - w.heroPos.x) / 8));
+
 /** every frame for the boss: the roar at half HP, phase 2's aura and summons */
 function bossTick(f: Foe, w: FoeWorld, dt: number) {
   if (f.phase === 1 && f.hp <= f.maxHp * 0.5) {
     // the roar: the attack breaks off, a brief invulnerable flash, the yellow-white aura from now on
-    dropTeles(f); f.attacking = false; f.lunge = null; f.phase = 2; f.inv = 1.1; f.poise = f.d.poise; setSt(f, 'roar', 1.3);
-    f.a.roar(); cue('roar', 1); shake(0.45 * TUNE.shake);
-    const c = f.pos.clone().setY(0.08); fxRing(c, 0xfff2b0, 3.2, { life: 0.6 } as never); fxShock(c, 0xffe080, 3.0, { life: 0.55 }); fxSparks(f.a.chest(), 0xfff2c0, 30, 7);
-    f.summonT = 2.5; f.thunderCd = Math.min(f.thunderCd, 1.5);
+    const isHj = f.role === 'boss';
+    dropTeles(f); f.attacking = false; f.lunge = null; f.combo = 0; f.brokenT = 0; f.phase = 2; f.inv = isHj ? 1.1 : 0.85; f.poise = f.d.poise; setSt(f, 'roar', isHj ? 1.3 : 0.95);
+    f.a.roar(); cue('roar', 1); if (isHj) cue('thunder', 0.85); shake(0.45 * TUNE.shake);
+    const c = f.pos.clone().setY(0.08); fxRing(c, 0xfff2b0, 3.2, { life: 0.6 } as never); fxShock(c, 0xffe080, 3.0, { life: 0.55 });
+    fxSparks(f.a.chest(), 0xfff2c0, 30, 7); fxChips(f.a.chest(), [0xffe888, 0xffc844, 0xffffff], 10, { speed: 5.2, up: 3.4, size: 0.09, glow: 0.9 });
+    if (isHj) { f.summonT = 2.5; f.thunderCd = Math.min(f.thunderCd, 1.5); }
   }
-  if (f.phase > 1 && f.st !== 'dead') {
+  if (f.role === 'boss' && f.phase > 1 && f.st !== 'dead') {
     f.auraT -= dt; if (f.auraT <= 0) { f.auraT = 0.12; fxEmbers(f.pos.clone().setY(0.4), 0xfff0a0, 2, { r: 0.7, up: 1.4, life: 0.8 }); }
     f.summonT -= dt;
     if (f.summonT <= 0 && w.heroAlive && f.st !== 'roar') {
@@ -503,15 +510,18 @@ function strike(f: Foe, w: FoeWorld) {
   f.tele?.flash(); for (const e of f.extra) e.t.flash();
   if (ROLE_AI[f.role]?.strike?.(f, w)) return;   // 11-18: a region role's own blow
   if (f.atk === 'thunder') { setSt(f, 'strike', 0.9); callThunder(f, w); return; }
-  const s = f.shape!;
+  const s = f.shape!, pan = foePan(f, w);
   if (f.role === 'hound' || f.atk === 'lunge') {
     const d = V3(Math.sin(f.teleYaw), 0, Math.cos(f.teleYaw)), t = f.role === 'boss' ? 0.4 : 0.36;
-    f.lunge = d.multiplyScalar(s.k === 'rect' ? s.len / t : 10); setSt(f, 'strike', t); f.yaw = f.teleYaw; cue(f.role === 'boss' ? 'foeHeavy' : f.role === 'hound' ? 'hound' : 'foeCry', f.role === 'hound' ? 0.8 : 0.7, f.role === 'boss' ? 2 : f.role === 'brute' ? 1 : 0); if (f.role !== 'hound') cue('foeSwing', 0.6); return;   // (11-18: a shout and a rush, not the 1.4 s thunder it was)
+    f.lunge = d.multiplyScalar(s.k === 'rect' ? s.len / t : 10); setSt(f, 'strike', t); f.yaw = f.teleYaw;
+    if (f.role === 'boss') cue('foeHeavy', 0.85, pan);
+    else cue(f.role === 'hound' ? 'hound' : 'foeCry', f.role === 'hound' ? 0.8 : 0.7, f.role === 'brute' ? 1 : 0);
+    if (f.role !== 'hound') cue('foeSwing', 0.6, pan); return;   // (11-18: a shout and a rush, not the 1.4 s thunder it was)
   }
   setSt(f, 'strike', 0.18);
   if (f.role === 'archer') {
     for (const dy of [0, ...f.extra.map(e => e.dy)]) w.arrows.push(new Arrow(f.pos.clone().add(V3(0, 1.25, 0)), f.teleYaw + dy, f.dmg));
-    cue('arrow', 0.6); return;
+    cue('arrow', 0.6, pan); return;
   }
   if (f.role === 'taoist') {
     const len = s.k === 'line' ? s.len : 7;
@@ -519,10 +529,13 @@ function strike(f: Foe, w: FoeWorld) {
     cue('magic', 0.6); fxSparks(f.a.weapon(), 0xffb050, 10, 3); return;
   }
   const heavy = f.role === 'chief' || f.role === 'brute' || f.role === 'boss' || (f.role === 'ext' && f.dmg >= 14);
-  cue(heavy ? 'foeHeavy' : 'foeSwing', heavy ? 1 : f.role === 'mob' || f.d.half ? 0.45 : 0.7);   // (11-18: the heavy swing has its own sound — it used the hero's heavy hit)
+  cue(heavy ? 'foeHeavy' : 'foeSwing', heavy ? 1 : f.role === 'mob' || f.d.half ? 0.45 : 0.7, pan);   // (11-18: the heavy swing has its own sound — it used the hero's heavy hit)
   if (s.k === 'circle' && f.role !== 'ext') {
     const c = f.pos.clone().add(V3(Math.sin(f.teleYaw) * s.ahead, 0.05, Math.cos(f.teleYaw) * s.ahead)); fxSmoke(c, 0x8a7a6a, 10, { r: 1.4, spd: 2, up: 0.6, s: 0.5, life: 0.8 }); fxSparks(c.clone().add(V3(0, 0.2, 0)), 0xffc080, 16, 6);
-    if (f.elite && f.role === 'brute') w.arrows.push(new Shockwave(c, Math.round(10 * TUNE.enemyDmg), 0.8, SHOCK_R, 0.45));
+    if ((f.elite && f.role === 'brute') || f.role === 'boss') {
+      w.arrows.push(new Shockwave(c, Math.round((f.role === 'boss' ? 12 : 10) * TUNE.enemyDmg), 0.85, SHOCK_R, 0.45));
+      if (f.role === 'boss') { cue('thunder', 0.65); fxChips(c.clone().setY(0.25), [0xffe888, 0xffc240, 0x6a5c4a], 8, { speed: 4.5, up: 3.0, size: 0.09, glow: 0.7 }); }
+    }
   }
   meleeLands(f, w);
 }

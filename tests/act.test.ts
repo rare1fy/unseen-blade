@@ -6,7 +6,8 @@ import { Input } from '../src/present/act/input';
 import { TUNE } from '../src/present/act/tune';
 import { inside } from '../src/present/act/tele';
 import { slashArc } from '../src/present/act/slashArc';
-import { damageFoe, canStrike, isRangedFoe, POISE_BREAK_DUR, type Foe, type FoeWorld } from '../src/present/act/enemy';
+import { damageFoe, canStrike, isRangedFoe, updateFoe, POISE_BREAK_DUR, type Foe, type FoeWorld } from '../src/present/act/enemy';
+import { cueLog } from '../src/audio/cues';
 import { V3 } from '../src/present/engine/world';
 
 /** every source file's text, keyed 'src/…' (vite's glob: no node types needed) */
@@ -220,5 +221,43 @@ describe('combat wave 2: poise break & staggered cadence (act-113)', () => {
     // archer is occupying the ranged slot -> melee blade can STILL strike, while a second archer waits
     expect(canStrike(blade, w, { calm: true, slots: 1 })).toBe(true);
     expect(canStrike(archer2, w, { calm: true, slots: 1 })).toBe(false);
+  });
+
+  it('boss phase 2 transitions cleanly at half HP and chains sweep into a low thunder-slam with recovery window (act-114)', () => {
+    const boss = fakeFoe({
+      kind: 'hj_boss', role: 'boss', hp: 200, maxHp: 420, poise: 0, brokenT: 1.4, phase: 1, st: 'move', attacking: false,
+      d: { model: 'hj_boss', hp: 420, r: 0.85, speed: 2.0, mass: 3.6, poise: 64, gold: 40, name: '黄巾渠帅', role: 'boss', boss: true },
+      a: { pos: V3(), yaw: 0, act: null, hit: () => {}, play: () => {}, setRunning: () => {}, roar: () => {}, tint: () => {}, chest: () => V3(0, 1, 0), weapon: () => V3(0, 1, 0), head: () => V3(0, 2, 0), die: () => {} } as unknown as Foe['a'],
+    });
+    const w = {
+      heroPos: V3(0, 0, -2), heroR: 0.38, heroAlive: true, heroY: 0, heroDodge: false,
+      foes: [boss], arrows: [], clamp: () => {}, hurtHero: () => {}, dodged: () => {},
+    } as unknown as FoeWorld;
+    const before = cueLog.length;
+    updateFoe(boss, w, 0.05);
+    expect(boss.phase).toBe(2);
+    expect(boss.st).toBe('roar');
+    expect(boss.brokenT).toBe(0);
+    expect(boss.poise).toBe(64);
+    expect(cueLog.slice(before).some(c => c.name === 'thunder')).toBe(true);
+
+    // Phase 2 close-range sweep sets combo = 1 and chains into a jumpable thunder slam
+    boss.st = 'move'; boss.inv = 0; boss.cd = 0; boss.thunderCd = 9; boss.t = 0; boss.dur = 1;
+    updateFoe(boss, w, 0.05);
+    expect(boss.st).toBe('windup');
+    expect(boss.atk).toBe('sweep');
+    expect(boss.combo).toBe(1);
+    // Finish sweep strike -> chains directly into low thunder slam
+    boss.st = 'strike'; boss.t = 0.2; boss.dur = 0.18;
+    updateFoe(boss, w, 0.02);
+    expect(boss.st).toBe('windup');
+    expect(boss.atk).toBe('slam');
+    expect(boss.lowAtk).toBe(true);
+    expect(boss.combo).toBe(0);
+    // Finish slam -> enters readable 0.95s punish recovery
+    boss.st = 'strike'; boss.t = 0.2; boss.dur = 0.18;
+    updateFoe(boss, w, 0.02);
+    expect(boss.st).toBe('recover');
+    expect(boss.dur).toBeCloseTo(0.95, 2);
   });
 });

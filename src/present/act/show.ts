@@ -2047,7 +2047,7 @@ export class ActShow {
     f.a.tint(0x8a1010, 0.25 + 0.06 * f.bleed);
   }
   /** 枭首: the foe is low enough to take the head (not the boss, not a dummy, not shielded) */
-  private beheadable(f: Foe) { return hasBoon(this.perks, 'behead') && f.kind !== 'dummy' && !isBoss(f) && f.inv <= 0 && f.st !== 'dead' && f.hp < f.maxHp * v(this.perks, 'behead') / (f.elite ? 200 : 100); }
+  private beheadable(f: Foe) { return hasBoon(this.perks, 'behead') && f.kind !== 'dummy' && !isBoss(f) && f.inv <= 0 && f.st !== 'dead' && f.hp < f.maxHp * v(this.perks, 'behead') * (f.brokenT > 0 ? 1.6 : 1) / (f.elite ? 200 : 100); }
   /** 枭首's mark: a dark red ring at the feet of each foe that can be taken now (a pooled mesh each) */
   private markRings: THREE.Mesh[] = [];
   private markStep() {
@@ -2277,18 +2277,39 @@ export class ActShow {
     if (this.prologue === 2 && isBoss(f) && !this.proFalling) { const floor = Math.ceil(f.maxHp * 0.2); if (f.hp - d <= floor) { d = Math.max(0, f.hp - floor); fallNow = true; } }
     // 11-18: a region role's guard (the 铁盾兵's shield in front, …): the blow glances off (sparks, no blood, no number) or lands lighter
     { const g = f.inv <= 0 ? ROLE_AI[f.role]?.guard?.(f, d, from, o.kind) : undefined; if (g != null) { if (g < 0) return; if (g === 0) { this.glance(f, from, o.kind); return; } d = Math.round(g); } }   // (< 0: not touched at all — under the water)
-    const poiseMul = o.kind === 'dart' ? 0.5 : (o.kind === 'parry' || o.kind === 'kick' || o.kind === 'launch') ? 2.4 : o.heavy ? 1.8 : 1;
-    const died = damageFoe(f, d, from, { knock, stagger, poiseDmg: d * poiseMul });
-    if (!died && !wasBroken && f.brokenT > 0) {
+    const poiseMul = o.kind === 'dart' ? 0.5 : o.kind === 'parry' ? 3.0 : (o.kind === 'kick' || o.kind === 'launch') ? 2.4 : o.kind === 'burst' ? 2.2 : o.heavy ? 1.8 : 1;
+    let died = damageFoe(f, d, from, { knock, stagger, poiseDmg: d * poiseMul });
+    const justBroke = !died && !wasBroken && f.brokenT > 0;
+    if (justBroke) {
       fxChips(p, [0xf2c248, 0xffe896, 0x4b5262], 10, { dir, speed: 5.5, up: 3.6, size: 0.095, glow: 0.8 });
       fxSparks(p, 0xffe48a, 16, 6.2, { hot: true, dir, dirK: 0.7, life: 0.42 });
       popPix('破', f.a.head().add(V3(0, 0.72, 0)), { color: '#ffe878', h: 0.82, big: true, life: 0.95, rise: 0.85 });
       hitstop(0.085 * TUNE.hitstop); shake(0.32 * TUNE.shake);
       this.splitScreen(0.55); this.camPunch(0.055); this.platform.vibrate('heavy');
+      // act-114: guard-break resource payoff — refills 气 and feeds 杀意 / 一刀 cycle
+      this.hero?.gainQi(0.65);
+      if (this.phase === 'fight' || this.phase === 'yard') { if (this.intent >= 3) this.startQte(); else this.addIntent(); }
     }
     if (this.prologue === 2 && isBoss(f)) f.hp = Math.max(f.hp, Math.ceil(f.maxHp * 0.2));
     if (fallNow) after(0.25, () => void this.prologueFall());   // (the blow lands, a beat, then the scripted fall)
     if (cut && !died && f.inv <= 0 && hasBoon(this.perks, 'bleed') && f.kind !== 'dummy') { f.bleed = Math.min(5, f.bleed + 1); f.bleedT = 0; }
+    // act-114 见红 血爆: guard break or heavy finisher on >= 3 bleed stacks detonates them for an instant crimson burst
+    const heavyFinisher = o.kind === 'k5' || o.kind === 'rel' || o.kind === 'rel2' || o.kind === 'parry' || o.kind === 'plunge' || o.kind === 'acutS';
+    if (!died && f.inv <= 0 && f.kind !== 'dummy' && hasBoon(this.perks, 'bleed') && f.bleed >= 3 && (justBroke || heavyFinisher)) {
+      let bDmg = Math.max(4, Math.round(f.bleed * v(this.perks, 'bleed') * 3.2 * (f.brokenT > 0 ? POISE_BREAK_MUL : 1)));
+      if (this.prologue === 2 && isBoss(f)) bDmg = Math.min(bDmg, Math.max(0, f.hp - Math.ceil(f.maxHp * 0.2)));
+      f.bleed = 1; f.bleedT = 0;
+      if (bDmg > 0) {
+        died = damageFoe(f, bDmg, from, { knock: 0.6, stagger: 0.45, poiseDmg: bDmg * 0.6 });
+        if (this.prologue === 2 && isBoss(f)) f.hp = Math.max(f.hp, Math.ceil(f.maxHp * 0.2));
+        blood.spray(p, dir, 36, 1.45);
+        fxChips(p, [0xc82428, 0xff5a4a, 0xffd060], 10, { dir, speed: 5.0, up: 3.2, size: 0.09, glow: 0.85 });
+        popPix('血爆', f.a.head().add(V3(0, 0.88, 0)), { color: '#ff5248', h: 0.78, big: true, life: 0.95, rise: 0.85 });
+        popPix(String(bDmg), f.a.head().add(V3(0.35, 0.48, 0)), { color: '#ff7056', h: 0.64, big: true, life: 0.95, rise: 0.95 });
+        cue('bloodBurst', 1); hitstop(0.055 * TUNE.hitstop); shake(0.24 * TUNE.shake); this.splitScreen(0.45);
+      }
+    }
+    if (wasBroken && f.kind !== 'dummy' && o.kind !== 'school' && o.kind !== 'dart') cue('bladeRing', 0.46, 1.34 + (o.heavy ? 0.12 : 0));
     // 11-18 秘传 枭首: the head comes off — a crossing red cut, 「斩」 over the body (the blood is doubled below)
     if (executed) { const c = f.a.chest(); trailSeg(c.clone().add(V3(-0.7, 0.55, 0)), c.clone().add(V3(0.7, -0.5, 0)), 0xff3a2a, 0.16, { life: 0.35, bright: 2.8, spark: 0.6 }); trailSeg(c.clone().add(V3(-0.7, -0.5, 0)), c.clone().add(V3(0.7, 0.55, 0)), 0xffe0d0, 0.1, { life: 0.3, bright: 2.6 }); popPix('斩', f.a.head().add(V3(0, 0.75, 0)), { color: '#ff5a4a', h: 0.85, big: true, life: 0.9, rise: 0.8 }); cue('gore', 0.9); this.splitScreen(0.55); }
     // act-109 打击感收口: fxImpact no longer triggers hidden shake/hitstop or ground rings on light hits/darts; feel() owns all timing
@@ -2354,6 +2375,12 @@ export class ActShow {
     trailSeg(o.from.clone().setY(1.0), o.to.clone().setY(1.0), 0x7a86ff, 0.22, { life: 0.35, bright: 2.4, spark: 0.4 });
     smokeBurst(o.to, 0.5, 8, { size: 0.26, life: 0.5 });
     for (const d of this.darts) if (d.stuck === o.foe && !d.dead) d.stop();
+    // act-114 追影 × 截脉/破防协同: chasing a pinned or guard-broken foe refunds 1 dart charge for nonstop flow
+    if (o.foe.brokenT > 0 || this.pinned.has(o.foe.uid)) {
+      this.hero.dartAmmo = Math.min(TUNE.dartCharges, this.hero.dartAmmo + 1);
+      if (this.hero.dartAmmo > 0) this.hero.dartReload = 0;
+      this.hud.btnKick('special', 0.9, 0x9ad8ff); cue('exitChime', 0.4);
+    }
     cue('dash', 0.9); cue('swishHeavy', 0.6); shake(0.1 * TUNE.shake);
   }
   private sweep(o: { a: THREE.Vector3; b: THREE.Vector3; r: number; dmg: number; knock: number; col?: number; kind?: string }) {

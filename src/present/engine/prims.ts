@@ -23,7 +23,7 @@ function initRings() {
   }
 }
 export function ringFx(pos: THREE.Vector3, o: RingOpts = {}) {
-  const r = rings.find(x => !x.busy) || rings[0]; r.busy = true; r.t = 0; r.life = o.life ?? 0.45; r.o = o;
+  const r = rings.find(x => !x.busy) || rings[0]; if (!r) return; r.busy = true; r.t = 0; r.life = o.life ?? 0.45; r.o = o;
   r.m.position.copy(pos); r.m.quaternion.setFromUnitVectors(V3(0, 0, 1), o.normal || V3(0, 1, 0));
   if (o.billboard) r.m.quaternion.copy(camera.quaternion);
   (r.mat.uniforms.uCol.value as THREE.Color).set(o.color ?? 0xffffff).multiplyScalar(o.bright ?? 2);
@@ -43,7 +43,7 @@ function initDecals() {
   }
 }
 export function decalFx(pos: THREE.Vector3, o: { life?: number; alpha?: number; color?: THREE.ColorRepresentation; additive?: boolean; radius?: number; y?: number } = {}) {
-  const d = decals.find(x => !x.busy) || decals[0]; d.busy = true; d.t = 0; d.life = o.life ?? 2.5; d.a = o.alpha ?? 0.55; d.mat.color.set(o.color ?? 0x000000);
+  const d = decals.find(x => !x.busy) || decals[0]; if (!d) return; d.busy = true; d.t = 0; d.life = o.life ?? 2.5; d.a = o.alpha ?? 0.55; d.mat.color.set(o.color ?? 0x000000);
   d.mat.blending = o.additive ? THREE.AdditiveBlending : THREE.NormalBlending;
   d.m.position.set(pos.x, (o.y ?? pos.y) + 0.012, pos.z); d.m.scale.setScalar(o.radius ?? 1.5); d.m.rotation.z = R(0, TAU); d.m.visible = true;
 }
@@ -53,6 +53,7 @@ interface Pulse { l: THREE.PointLight; t: number; life: number; busy: boolean; p
 const pulses: Pulse[] = [];
 function initPulses() { for (let i = 0; i < 3; i++) { const l = new THREE.PointLight(0xffffff, 0, 9, 2); scene.add(l); pulses.push({ l, t: 0, life: 0, busy: false, peak: 0 }); } }
 export function lightPulse(pos: THREE.Vector3, color: THREE.ColorRepresentation, intensity = 30, life = 0.35, dist = 9) {
+  if (!pulses.length) return;
   const p = pulses.find(x => !x.busy) || pulses.reduce((a, b) => (a.t / a.life > b.t / b.life ? a : b));
   p.busy = true; p.t = 0; p.life = life; p.peak = intensity; p.l.color.set(color); p.l.distance = dist; p.l.position.copy(pos);
 }

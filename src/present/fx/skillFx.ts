@@ -82,7 +82,7 @@ export function fxShock(p: THREE.Vector3, col: Col, r = 2.2, o: { decal?: boolea
   ringFx(g, { color: col, radius: r, r0: 0.3, life: o.life ?? 0.45, width: 0.22, fill: 0.08, bright: 2 });
   ringFx(g, { color: 0xffffff, radius: r * 0.6, r0: 0.2, life: (o.life ?? 0.45) * 0.7, width: 0.16, fill: 0, bright: 1.4 });
   if (o.decal !== false) decalFx(g, { radius: r * 0.5, alpha: 0.4, life: 2.4 });
-  if (o.dust !== false) for (let i = 0; i < 10; i++) { const a = (i / 10) * TAU; fxSmoke(V3(g.x + Math.cos(a) * 0.5, 0.1, g.z + Math.sin(a) * 0.5), 0x5a5862, 1, { spd: 0.2, up: 0.3, s: 0.32, alpha: 0.32, life: 0.9 }); PALPHA.emit({ p: V3(g.x, 0.12, g.z), v: V3(Math.cos(a) * 5, 0.4, Math.sin(a) * 5), s0: 0.3, s1: 0.6, life: 0.45, c0: C(0x6a6670), alpha: 0.35, tile: TILE.smoke, drag: 5 }); }
+  if (o.dust !== false) for (let i = 0; i < 10; i++) { const a = (i / 10) * TAU; fxSmoke(V3(g.x + Math.cos(a) * 0.5, 0.1, g.z + Math.sin(a) * 0.5), 0x5a5862, 1, { spd: 0.2, up: 0.3, s: 0.32, alpha: 0.32, life: 0.9 }); PALPHA?.emit({ p: V3(g.x, 0.12, g.z), v: V3(Math.cos(a) * 5, 0.4, Math.sin(a) * 5), s0: 0.3, s1: 0.6, life: 0.45, c0: C(0x6a6670), alpha: 0.35, tile: TILE.smoke, drag: 5 }); }
 }
 
 // ---------------------------------------------------------------- 铁壁: the armour wall that condenses in front of the hero

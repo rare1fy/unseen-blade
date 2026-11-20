@@ -14,8 +14,9 @@ export const COL = {
 type Col = THREE.ColorRepresentation;
 const pick = <T,>(a: T[]) => a[Math.floor(Math.random() * a.length)];
 
-export function fxGlow(p: THREE.Vector3, color: Col, size = 1.2, life = 0.3, bright = 3) { PADD.emit({ p, c0: C(color), bright, s0: size * 0.4, s1: size, life, tile: TILE.glow, fadeIn: 0.05, rot: 0 }); }
+export function fxGlow(p: THREE.Vector3, color: Col, size = 1.2, life = 0.3, bright = 3) { PADD?.emit({ p, c0: C(color), bright, s0: size * 0.4, s1: size, life, tile: TILE.glow, fadeIn: 0.05, rot: 0 }); }
 export function fxSparks(p: THREE.Vector3, color: Col, n = 14, speed = 6, o: { dir?: THREE.Vector3; dirK?: number; spread?: number; size?: number; life?: number; hot?: boolean; bright?: number; stretch?: number; grav?: number; drag?: number } = {}) {
+  if (!PADD) return;
   const c = C(color);
   for (let i = 0; i < n; i++) {
     const d = V3(R(-1, 1), R(-0.2, 1), R(-1, 1)).normalize(); if (o.dir) d.addScaledVector(o.dir, o.dirK ?? 1.2).normalize();
@@ -23,15 +24,17 @@ export function fxSparks(p: THREE.Vector3, color: Col, n = 14, speed = 6, o: { d
   }
 }
 export function fxEmbers(p: THREE.Vector3, color: Col, n = 10, o: { r?: number; up?: number; life?: number } = {}) {
+  if (!PADD) return;
   const c = C(color);
   for (let i = 0; i < n; i++) PADD.emit({ p: p.clone().add(V3(R(-1, 1) * (o.r ?? 0.5), R(0, 0.4), R(-1, 1) * (o.r ?? 0.5))), v: V3(R(-0.5, 0.5), R(0.6, 2.2) * (o.up ?? 1), R(-0.5, 0.5)), s0: R(0.04, 0.08), s1: 0.01, life: R(0.8, 1.8) * (o.life ?? 1), c0: WHITE, c1: c, bright: 2.6, tile: TILE.glow, drag: 0.8, grav: -0.4, fadeIn: 0.1 });
 }
 export function fxSmoke(p: THREE.Vector3, color: Col = 0x6a7a74, n = 6, o: { r?: number; spd?: number; up?: number; s?: number; life?: number; alpha?: number } = {}) {
+  if (!PALPHA) return;
   const c = C(color);
   for (let i = 0; i < n; i++) PALPHA.emit({ p: p.clone().add(V3(R(-1, 1) * (o.r ?? 0.3), R(0, 0.3), R(-1, 1) * (o.r ?? 0.3))), v: V3(R(-1, 1) * (o.spd ?? 0.6), R(0.2, 1) * (o.up ?? 1), R(-1, 1) * (o.spd ?? 0.6)), s0: (o.s ?? 0.5) * R(0.6, 1), s1: (o.s ?? 0.5) * R(1.8, 2.8), life: (o.life ?? 1.4) * R(0.7, 1.2), c0: c, c1: c.clone().multiplyScalar(0.6), alpha: o.alpha ?? 0.45, tile: TILE.smoke, drag: 1.4, grav: -0.15, spin: R(-0.6, 0.6), fadeIn: 0.12 });
 }
 export function fxRing(p: THREE.Vector3, color: Col, radius = 2, o: RingOpts = {}) { ringFx(p, { color, radius, ...o }); }
-export function fxFlare(p: THREE.Vector3, color: Col, size = 1.5, life = 0.35) { PADD.emit({ p, c0: WHITE, c1: C(color), bright: 3.5, s0: size, s1: size * 0.3, life, tile: TILE.flare, rot: R(-0.3, 0.3), spin: R(-1, 1), fadeIn: 0.02 }); }
+export function fxFlare(p: THREE.Vector3, color: Col, size = 1.5, life = 0.35) { PADD?.emit({ p, c0: WHITE, c1: C(color), bright: 3.5, s0: size, s1: size * 0.3, life, tile: TILE.flare, rot: R(-0.3, 0.3), spin: R(-1, 1), fadeIn: 0.02 }); }
 export function fxChips(p: THREE.Vector3, cols: Col[], n = 10, o: { dir?: THREE.Vector3; speed?: number; up?: number; size?: number; glow?: number } = {}) {
   for (let i = 0; i < n; i++) {
     const d = V3(R(-1, 1), R(0.2, 1), R(-1, 1)).normalize(); if (o.dir) d.addScaledVector(o.dir, 0.9).normalize();

@@ -21,7 +21,9 @@ export type Cue =
   | 'stingWin' | 'stingLose' | 'stingClear' | 'stingStele' | 'stingRevive'
   // 11-18 定死的屋子的机关 (act/puzzles.ts): a bronze bell (x = which of three notes), the three at once out of tune, a hollow knock in a
   // wall, a wall caving in, a rope snapping, a bridge slamming down, a door / gate swinging open, a pressure plate's click
-  | 'bell' | 'bellWrong' | 'hollow' | 'wallBreak' | 'ropeSnap' | 'bridgeDrop' | 'doorOpen' | 'plate';
+  | 'bell' | 'bellWrong' | 'hollow' | 'wallBreak' | 'ropeSnap' | 'bridgeDrop' | 'doorOpen' | 'plate'
+  // act-114 (战斗优化第三波): spatialized off-screen high-danger sound-wave cue (x = stereo pan -1..1) & bleed-detonation burst
+  | 'dangerOff' | 'bloodBurst';
 
 type Handler = (name: Cue, intensity: number, extra?: number) => void;
 let handler: Handler | null = null;

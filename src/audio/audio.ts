@@ -128,7 +128,7 @@ class AudioEngine {
    *  when everything playing matters more) */
   private live: Array<{ src: AudioBufferSourceNode; pri: number; t: number }> = [];
   /** play one sample: rate / gain jittered; pri = how much it matters (3 her blows, 2 her moves, 1 the foes, 0 the rest) */
-  play(name: string, o: { gain?: number; rate?: number; jitter?: number; delay?: number; bus?: 'sfx' | 'voice' | 'hero' | 'sting'; pri?: number } = {}) {
+  play(name: string, o: { gain?: number; rate?: number; jitter?: number; delay?: number; bus?: 'sfx' | 'voice' | 'hero' | 'sting'; pri?: number; pan?: number } = {}) {
     const ctx = this.ctx, b = this.buf.get(name); if (!ctx || !b || this.muted) return null;
     const pri = o.pri ?? (o.bus === 'hero' ? 2 : 1), now = this.now();
     if (o.bus !== 'voice' && this.live.length >= MAX_VOICES) {
@@ -140,7 +140,15 @@ class AudioEngine {
     const src = ctx.createBufferSource(); src.buffer = b; const j = o.jitter ?? 0.08;
     src.playbackRate.value = (o.rate ?? 1) * (1 + (Math.random() * 2 - 1) * j);
     const g = ctx.createGain(); g.gain.value = (o.gain ?? 1) * (1 + (Math.random() * 2 - 1) * j * 0.6);
-    src.connect(g); g.connect(o.bus === 'voice' ? this.voice : o.bus === 'hero' ? this.hero : o.bus === 'sting' ? this.sting : this.sfx); src.start(now + (o.delay ?? 0));
+    const dest = o.bus === 'voice' ? this.voice : o.bus === 'hero' ? this.hero : o.bus === 'sting' ? this.sting : this.sfx;
+    const panVal = o.pan ? Math.max(-0.85, Math.min(0.85, o.pan)) : 0;
+    if (Math.abs(panVal) > 0.04 && typeof (ctx as unknown as { createStereoPanner?: () => StereoPannerNode }).createStereoPanner === 'function') {
+      const p = (ctx as unknown as { createStereoPanner: () => StereoPannerNode }).createStereoPanner();
+      p.pan.value = panVal; src.connect(g); g.connect(p); p.connect(dest);
+    } else {
+      src.connect(g); g.connect(dest);
+    }
+    src.start(now + (o.delay ?? 0));
     if (o.bus !== 'voice') { const e = { src, pri, t: now }; this.live.push(e); src.onended = () => { const i = this.live.indexOf(e); if (i >= 0) this.live.splice(i, 1); }; }
     this.recent.push(name); if (this.recent.length > 40) this.recent.shift(); return src;
   }
@@ -307,7 +315,7 @@ function foeVoice(kind: 'pain' | 'death' | 'cry', who: number, k: number) {
   ub(id, { gain: (kind === 'death' ? 0.62 : kind === 'cry' ? 0.5 : 0.5) * (0.7 + 0.3 * k), rate, jitter: 0.06 });
 }
 /** 11-18: the same sound twice within this (s) is played once (default 0.05) */
-const COOLDOWN: Partial<Record<Cue, number>> = { flurry: 0.03, count: 0, coin: 0.03, tick: 0, swingLight: 0.04, hitLight: 0.04, hitStab: 0.03, bodyFall: 0.08, dartHit: 0.04, foeSwing: 0.08, foeHeavy: 0.1, arrow: 0.06 };
+const COOLDOWN: Partial<Record<Cue, number>> = { flurry: 0.03, count: 0, coin: 0.03, tick: 0, swingLight: 0.04, hitLight: 0.04, hitStab: 0.03, bodyFall: 0.08, dartHit: 0.04, foeSwing: 0.08, foeHeavy: 0.1, arrow: 0.06, dangerOff: 0.48, bloodBurst: 0.08, guardBreak: 0.12 };
 const lastCue: Partial<Record<Cue, number>> = {};
 // The first blade arrives before the mixer is ready. Its two samples live in
 // the main WeChat package, so a cold launch can play them at the animation beat.
@@ -384,12 +392,19 @@ const H: Partial<Record<Cue, (k: number, x?: number) => void>> = {
   swingStab: k => audio.any('ub_sw_stab_', { gain: 0.45 + 0.3 * k, jitter: 0.04, bus: 'hero', pri: 2 }),
   swingHeavy: k => audio.any('ub_sw_heavy_', { gain: 0.55 + 0.4 * k, jitter: 0.04, bus: 'hero', pri: 2 }),
   breath: k => audio.any('ub_vo_breath_', { gain: 0.55 * k, jitter: 0.03, bus: 'hero', pri: 2 }),
-  bladeRing: k => audio.any('ub_blade_ring_', { gain: 0.55 * k, jitter: 0.02, bus: 'hero', pri: 2 }),
+  bladeRing: (k, x) => audio.any('ub_blade_ring_', { gain: 0.55 * k, rate: x && x > 0 ? x : 1, jitter: 0.02, bus: 'hero', pri: 2 }),
   skid: k => audio.any('ub_skid_', { gain: 0.45 * k, jitter: 0.05, bus: 'hero', pri: 1 }),
-  // the foes: x = whose voice (0 a man, 1 a big man, 2 the chief, 3 a hound)
+  // the foes: x = whose voice (0 a man, 1 a big man, 2 the chief, 3 a hound); swing/heavy/arrow accept optional stereo pan (-1..1) in x
   foePain: (k, x) => foeVoice('pain', x ?? 0, k), foeDeath: (k, x) => foeVoice('death', x ?? 0, k), foeCry: (k, x) => foeVoice('cry', x ?? 0, k),
-  foeHeavy: k => ub('sw_foeheavy', { gain: 0.5 + 0.4 * k, jitter: 0.05 }),
-  guardBreak: k => ub('guard_break', { gain: 0.8 * (k || 1), jitter: 0.03 }),
+  foeHeavy: (k, x) => ub('sw_foeheavy', { gain: 0.5 + 0.4 * k, jitter: 0.05, pan: x }),
+  // act-114: layered armor-shatter on hero bus with crisp metallic ring + low weight + mix ducking (works under WeChat noFilter)
+  guardBreak: k => {
+    const v = k || 1;
+    ub('guard_break', { gain: 0.95 * v, jitter: 0.03, bus: 'hero', pri: 3 });
+    audio.any('ub_blade_ring_', { gain: 0.48 * v, rate: 1.24, delay: 0.02, jitter: 0.03, bus: 'hero', pri: 3 });
+    audio.tone(110, 0.26, { to: 42, gain: 0.32 * v });
+    audio.hitDuck(1);
+  },
   draw: k => ub('draw', { gain: 0.6 + 0.4 * k, jitter: 0.04, bus: 'hero', pri: 2 }),
   sheathe: k => ub('sheathe', { gain: 0.55 + 0.4 * k, jitter: 0.03, bus: 'hero', pri: 2 }),
   parry: k => ub('parry', { gain: 0.8 + 0.3 * k, jitter: 0.03, bus: 'hero', pri: 3 }),
@@ -398,9 +413,22 @@ const H: Partial<Record<Cue, (k: number, x?: number) => void>> = {
   land: k => audio.any('ub_land2_', { gain: 0.3 + 0.5 * k, jitter: 0.05, bus: 'hero', pri: 2 }),
   dartThrow: k => ub('dart_throw', { gain: 0.35 + 0.3 * k, rate: 1.1, bus: 'hero', pri: 2 }),
   dartHit: k => ub('dart_hit', { gain: 0.4 + 0.4 * k }),
-  arrow: k => ub('arrow', { gain: 0.35 + 0.4 * k }),
+  arrow: (k, x) => ub('arrow', { gain: 0.35 + 0.4 * k, pan: x }),
   bodyFall: k => ub('body_fall', { gain: 0.45 + 0.4 * k }),
-  foeSwing: k => ub('foe_swing', { gain: 0.35 + 0.4 * k }),
+  foeSwing: (k, x) => ub('foe_swing', { gain: 0.35 + 0.4 * k, pan: x }),
+  // act-114: spatialized off-screen high-danger sound-wave glint (blind swordswoman hears incoming unseen steel, noFilter-safe)
+  dangerOff: (k, x) => {
+    const pan = x ?? 0;
+    audio.any('ub_blade_ring_', { gain: 0.26 * (k || 1), rate: 1.65, jitter: 0.03, pan, pri: 2 });
+    ub('foe_swing', { gain: 0.22 * (k || 1), rate: 1.32, delay: 0.02, jitter: 0.04, pan, pri: 2 });
+  },
+  // act-114: crimson bleed-detonation burst (见红 血爆)
+  bloodBurst: k => {
+    const v = k || 1;
+    hb('hit_kill', { gain: 0.78 * v, rate: 1.08 });
+    hb('hit_heavy', { gain: 0.52 * v, rate: 1.16, delay: 0.015 });
+    audio.hitDuck(0.9);
+  },
   thunder: k => ub('thunder', { gain: 0.5 + 0.5 * k }),
   freeze: k => ub('freeze', { gain: 0.45 + 0.4 * k }),
   iceShatter: k => ub('ice_shatter', { gain: 0.5 + 0.4 * k }),
