@@ -1012,8 +1012,8 @@ export class ActShow {
       grid: () => this.grid,
       // agents / captures: a foe of any kind at (x, z), facing the hero (elite: the stronger variant, where the kind has one)
       spawn: (kind: EKind, x = 0, z = -2, elite = false) => { const f = spawnFoe(kind, V3(x, 0, z), this.hero.pos.clone(), elite); /* wp/foes: elite into spawnFoe */ f.st = 'move'; this.foes.push(f); return f.uid; },
-      // 11-18 QTE: 拼刀 ('clash') / 连环破势 ('chain') against the nearest elite / boss at once (captures); what they did
-      qte: (kind: 'clash' | 'chain' = 'clash') => this.duel.force(kind), qteStats: () => this.duel.state,
+      // 11-18 / act-116 QTE: 拼刀 ('clash', style: 'flurry' | 'bind') / 连环破势 ('chain') against the nearest elite / boss at once
+      qte: (kind: 'clash' | 'chain' = 'clash', style?: 'bind' | 'flurry') => this.duel.force(kind, style), qteStats: () => this.duel.state,
       arrow: (d = 6) => { const h = this.hero, f = h.a.fwd(), p = h.pos.clone().addScaledVector(f, d).setY(1.25); this.arrows.push(new Arrow(p, Math.atan2(-f.x, -f.z), 8)); },
       // captures: every costume in a row facing the camera (the hero hidden), or gone again
       // any models by id (foes, the hideout's people…) standing in a row facing the camera (captures of model work); [] clears
@@ -1743,6 +1743,7 @@ export class ActShow {
     hurtHero: (dmg, from, f) => this.hurtHero(dmg, from, f),
     addIntent: () => { if (this.intent >= 3) this.startQte(); else this.addIntent(); },
     camKick: (d, m) => this.camKick(d, m), camPunch: m => this.camPunch(m),
+    splitScreen: k => this.splitScreen(k),
     vibrate: l => this.platform.vibrate(l),
   };
   private foeWorld: FoeWorld = {

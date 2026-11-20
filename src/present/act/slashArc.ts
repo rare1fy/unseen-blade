@@ -482,6 +482,33 @@ class SlashSystem {
     }
   }
 
+  /**
+   * act-116 高速拼刀 (Rapid Clash): emit a crisp diagonal slash of world-axis-aligned 3D luminous voxel cubes
+   * right across the weapon contact point so rapid blade exchanges weave a kinetic voxel clash web.
+   */
+  clashCross(at: THREE.Vector3, side: THREE.Vector3, angle: number, palette: keyof typeof PAL = 'iai', life = 0.11, halfLen = 0.72) {
+    const pal = PAL[palette] ?? PAL.iai;
+    const hdr = pal.hdr ?? 1.24;
+    const ca = Math.cos(angle), sa = Math.sin(angle);
+    const dx = side.x * ca, dy = sa, dz = side.z * ca;
+    const steps = 11;
+    for (let i = 0; i <= steps; i++) {
+      const u = (i / steps) * 2 - 1;
+      const px = at.x + dx * u * halfLen;
+      const py = at.y + dy * u * halfLen;
+      const pz = at.z + dz * u * halfLen;
+      const sz = Math.abs(u) < 0.7 ? 0.088 : 0.064;
+      this.emitCube(px, py, pz, sz, pal.edge, hdr, 0.9, life, 0, 0, 0, 0, 0, false);
+      if (i % 2 === 0 && Math.abs(u) < 0.75) {
+        const s = (i % 4 === 0) ? 1 : -1;
+        this.emitCube(px, py + s * 0.065, pz, 0.072, pal.body, 1.0, 0.48, life * 0.85, 1, 0, 0, 0, 0, false);
+      }
+    }
+    this.activeUntil = Math.max(this.activeUntil, this.now + life + 0.05);
+    this.dirty = true;
+    if (this.mesh) this.mesh.visible = true;
+  }
+
   /** Clear all active voxel slash cubes on room change / reset. */
   clear() {
     this.used = 0;
