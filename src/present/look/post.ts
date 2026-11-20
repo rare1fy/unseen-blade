@@ -16,6 +16,7 @@ import { QUALITY, lowTargets, mobileTargets, tierNow } from './quality';
 import { CRAFT, CRAFTU, syncCraftUniforms } from './craft';
 
 const VS = `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
+const BLIT_VS = `void main(){ gl_Position = vec4(position.xy, 0.0, 1.0); }`;
 const FS = (pixel: boolean) => `
 precision highp float;
 ${pixel ? '#define PIXEL' : ''}
@@ -121,6 +122,23 @@ void main(){
   // flash
   col = mix(col, uFlashCol, uFlash);
   col = toSRGB(clamp(col, 0.0, 1.0));
+  // occluded character silhouette outline (hero/ally: warm ivory-gold, foe: vermilion; zero cost on unoccluded pixels)
+  float occA = texture2D(tColor, vUv).a;
+  if (occA < 0.88) {
+    vec2 os = px * max(1.0, floor(uRes.y / 420.0 + 0.5));
+    float aL = texture2D(tColor, vUv - vec2(os.x, 0.0)).a;
+    float aR = texture2D(tColor, vUv + vec2(os.x, 0.0)).a;
+    float aU = texture2D(tColor, vUv + vec2(0.0, os.y)).a;
+    float aD = texture2D(tColor, vUv - vec2(0.0, os.y)).a;
+    float maxN = max(max(aL, aR), max(aU, aD));
+    float minN = min(min(aL, aR), min(aU, aD));
+    bool isHero = min(occA, minN) < 0.36;
+    bool isEdge = maxN >= 0.88 || (isHero && maxN > 0.44) || (!isHero && minN < 0.36);
+    vec3 occCol = isHero ? vec3(1.0, 0.90, 0.62) : vec3(1.0, 0.40, 0.32);
+    vec3 occFill = isHero ? vec3(0.10, 0.12, 0.20) : vec3(0.28, 0.06, 0.06);
+    float fade = 1.0 - uFlash * 0.7;
+    col = isEdge ? mix(col, occCol, 0.92 * fade) : mix(col, occFill, 0.22 * fade);
+  }
   if (!hd2d) {
     col = separateUiBackground(col, vUv);
     col += (hash(vUv * uRes + uTime) - 0.5) / 255.0;   // dither against banding
@@ -218,13 +236,20 @@ export class Post {
   private size = { w: 4, h: 4, dpr: 1 };
   constructor(private renderer: THREE.WebGLRenderer) {
     const cap = renderer.capabilities, ext = renderer.extensions;
-    this.msaa = cap.isWebGL2 && (ext.has('EXT_color_buffer_float') || ext.has('EXT_color_buffer_half_float')) ? Math.min(4, cap.maxSamples || 0) : 0;
-    // 11-18 微信帧率: a GPU that can't draw into half floats gets 8-bit targets (no HDR bloom) instead of a black screen
+    // 11-18 微信帧率: a GPU that can't draw into half floats gets 8-bit targets (no HDR bloom) instead of a black/flickering screen
     this.hdr = halfFloatOk(renderer);
+    this.msaa = cap.isWebGL2 && this.hdr && ext.has('EXT_color_buffer_float') ? Math.min(4, cap.maxSamples || 0) : 0;
     this.rt = new THREE.WebGLRenderTarget(4, 4, { type: this.hdr ? THREE.HalfFloatType : THREE.UnsignedByteType, depthTexture: new THREE.DepthTexture(4, 4), samples: 0 });
     this.rt.depthTexture.type = THREE.UnsignedIntType;
     this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), GRADE.bloomStrength, GRADE.bloomRadius, GRADE.bloomThreshold);
     if (!this.hdr) bloom8bit(this.bloom);
+    // Preserve rt alpha (occluded character silhouette mask) when standard-mode bloom blends onto this.rt
+    const bCopy = (this.bloom as unknown as { materialCopy?: THREE.Material }).materialCopy;
+    if (bCopy) {
+      bCopy.blending = THREE.CustomBlending;
+      bCopy.blendEquation = THREE.AddEquation; bCopy.blendSrc = THREE.SrcAlphaFactor; bCopy.blendDst = THREE.OneFactor;
+      bCopy.blendEquationAlpha = THREE.AddEquation; bCopy.blendSrcAlpha = THREE.ZeroFactor; bCopy.blendDstAlpha = THREE.OneFactor;
+    }
     const mk = (pixel: boolean) => {
       const u = uniforms(); u.tColor.value = this.rt.texture; u.tDepth.value = this.rt.depthTexture;
       return new THREE.ShaderMaterial({ vertexShader: VS, fragmentShader: FS(pixel), depthTest: false, depthWrite: false, uniforms: u });
@@ -232,7 +257,7 @@ export class Post {
     this.matStd = this.mat = mk(false); this.matPx = mk(true);
     this.quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.mat); this.quad.frustumCulled = false; this.qs.add(this.quad);
     this.lo = new THREE.WebGLRenderTarget(4, 4, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: false, generateMipmaps: false });
-    this.blit = new THREE.ShaderMaterial({ vertexShader: VS, fragmentShader: BLIT_FS, depthTest: false, depthWrite: false,
+    this.blit = new THREE.ShaderMaterial({ vertexShader: BLIT_VS, fragmentShader: BLIT_FS, depthTest: false, depthWrite: false,
       uniforms: { ...uiSceneUniforms(), tLo: { value: this.lo.texture }, tBloom: { value: this.rt.texture as THREE.Texture | null }, uLoRes: { value: new THREE.Vector2(4, 4) }, uOff: { value: new THREE.Vector2() }, uScreenRes: { value: new THREE.Vector2(4, 4) }, uK: { value: 2 }, uHd2d: { value: 0 }, uCraftDof: CRAFTU.uCraftDof, uDofFast: { value: 0 }, uBloomCap: { value: 0 }, uVig: { value: 0.4 }, uTime: { value: 0 } } });
     const bq = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.blit); bq.frustumCulled = false; this.bs.add(bq);
     this.ui = new UiPass(renderer, this.msaa, this.hdr);
@@ -253,7 +278,7 @@ export class Post {
       // a phone is only ~390 CSS px tall, so 2 CSS px a pixel left it with ~195 rows)
       const pixel = lowTargets() && QUALITY.choice === 'auto' && QUALITY.reducedWorld ? this.pixel + 1 : this.pixel;
       const k = dpr < 1.5 ? (CRAFT.on && pixel >= 2 ? Math.max(1, Math.round(H * pixel / PX_ROWS)) : pixel * dpr) : Math.max(1, H * pixel / PX_ROWS), Wa = Math.max(1, Math.ceil(W / k)), Ha = Math.max(1, Math.ceil(H / k));
-      this.rt.setSize(Wa, Ha); this.lo.setSize(Wa, Ha); this.bloom.setSize(mobileTargets() ? 32 : Wa, mobileTargets() ? 32 : Ha);
+      this.rt.setSize(Wa, Ha); this.lo.setSize(Wa, Ha); this.bloom.setSize(mobileTargets() || !this.hdr ? 32 : Wa, mobileTargets() || !this.hdr ? 32 : Ha);
       (this.matPx.uniforms.uRes.value as THREE.Vector2).set(Wa, Ha);
       const bu = this.blit.uniforms; (bu.uLoRes.value as THREE.Vector2).set(Wa, Ha); bu.uK.value = k; (bu.uOff.value as THREE.Vector2).set((W - Wa * k) / 2, (H - Ha * k) / 2); (bu.uScreenRes.value as THREE.Vector2).set(W, H);
       PXU.uArtH.value = Ha;
@@ -276,7 +301,9 @@ export class Post {
     updateUiSceneUniforms(u, !!UI3D.layer?.on);
     // busy screens (many additive particles) pull the bloom back in the pixel look (the reference's FXB)
     const busy = pix ? Math.min(1, Math.max(0, ((PADD?.n ?? 0) - 450) / 900)) : 0;
-    gpuMark('world'); r.setRenderTarget(this.rt); r.clear();
+    gpuMark('world'); r.setRenderTarget(this.rt);
+    if (r.getClearAlpha() !== 1) r.setClearAlpha(1);
+    r.clear();
     if (pix) { pxLightsBegin(scene); liftOverlays(scene); }
     r.render(scene, camera);
     if (pix) pxLightsEnd();
@@ -289,7 +316,8 @@ export class Post {
     const wantFilter = isHd2d ? THREE.LinearFilter : THREE.NearestFilter;
     if (this.lo.texture.magFilter !== wantFilter) { this.lo.texture.minFilter = this.lo.texture.magFilter = wantFilter; this.lo.texture.needsUpdate = true; }
     const cBloomCap = cMode === 'hd2d' ? 1.25 : cMode === 'diorama' ? 1.15 : cMode === 'ink' ? 1.05 : PX.bloomCap;
-    if (mobileTargets()) { u.tBloom.value = this.rt.texture; u.uBloomCap.value = 0; u.uBands.value = 0; }
+    const skipBloom = mobileTargets() || !this.hdr;
+    if (skipBloom) { u.tBloom.value = this.rt.texture; u.uBloomCap.value = 0; u.uBands.value = 0; }
     else if (pix) { u.tBloom.value = bloomMips(this.bloom, r, this.rt); u.uBloomCap.value = cBloomCap; u.uBands.value = !CRAFT.on && this.pixel >= 2 ? PX.bands : 0; }
     else { (this.bloom as unknown as { copyUniforms: Record<string, THREE.IUniform> }).copyUniforms.opacity.value = 1; this.bloom.render(r, null as unknown as THREE.WebGLRenderTarget, this.rt, 0, false); }
     const fog = scene.fog as (THREE.Fog & THREE.FogExp2) | null;   // x: exp2 density, y/z: linear near / far
@@ -315,7 +343,7 @@ export class Post {
     if (isHd2d) {
       updateUiSceneUniforms(bu, !!UI3D.layer?.on);
       bu.tBloom.value = u.tBloom.value;
-      bu.uBloomCap.value = mobileTargets() ? 0 : cBloomCap;
+      bu.uBloomCap.value = skipBloom ? 0 : cBloomCap;
       bu.uDofFast.value = QUALITY.tier === 'mid' ? 1 : 0;
       bu.uVig.value = GRADE.vig * cVig;
       bu.uTime.value = time % 100;

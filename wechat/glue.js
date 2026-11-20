@@ -95,7 +95,7 @@ var __ubDiag = typeof __UB_NO_DIAG === 'undefined';
       try {
         // (an iPhone's error.stack has no message in it — the message first, then the stack)
         var s = Array.prototype.map.call(arguments, function (a) { return a && a.stack ? String(a) + '\n' + a.stack : String(a); }).join(' ');
-        if (/Shader Error|WebGLRenderer|WebGLProgram|TypeError|ReferenceError|SyntaxError|RangeError|\[audio\]/.test(s)) show(s);
+        if (/Shader Error|WebGLRenderer|WebGLProgram|TypeError|ReferenceError|SyntaxError|RangeError|\[audio\]|\[act\]/.test(s)) show(s);
       } catch (e) { /* never break logging */ }
       return ce.apply(console, arguments);
     };

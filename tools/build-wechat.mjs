@@ -24,6 +24,7 @@ const DESK = path.join(os.homedir(), 'Desktop');
 const OUT = path.resolve(arg('--out') ?? path.join(DESK, '不见刀_微信小游戏'));
 let TAG = arg('--tag'); if (!TAG) { try { TAG = execFileSync('git', ['describe', '--tags', '--abbrev=0'], { cwd: ROOT, encoding: 'utf8' }).trim(); } catch { TAG = 'dev'; } }
 const ZIP = arg('--zip') ?? null;
+const REUSE_SCENES = A.includes('--reuse-scenes');
 const HP = !A.includes('--no-ios-hp'), HP_PLUS = HP && !A.includes('--no-ios-hp-plus');
 const kb = n => (n / 1024 / 1024).toFixed(2) + ' MB';
 const size = d => { let n = 0; for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); n += e.isDirectory() ? size(p) : fs.statSync(p).size; } return n; };
@@ -33,18 +34,10 @@ await build({ root: ROOT, configFile: path.join(ROOT, 'vite.config.ts'), mode: '
 const DW = path.join(ROOT, 'dist-wx'), bundle = fs.readFileSync(path.join(DW, 'game.js'), 'utf8'), assets = JSON.parse(fs.readFileSync(path.join(DW, 'wx-assets.json'), 'utf8'));
 // Bake static terrain with the same definitions used by procedural rooms.
 // Keep the default title in the main package so the first screen needs no second download.
-const bakeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ub-wechat-scenes-'));
 const scenes = new Map();
-try {
-  execFileSync(process.execPath, [path.join(ROOT, 'node_modules/vite-node/vite-node.mjs'), 'tools/bake-wechat-stages.ts'], {
-    cwd: ROOT, env: { ...process.env, UB_STAGE_OUT: bakeDir }, stdio: 'inherit',
-  });
-  // Budget-aware scenery packing: keep total WeChat package safely under 30 MB by pre-baking
-  // title, hideout, all boss arenas, and the heaviest rooms first; lighter rooms build smoothly
-  // in background slices via readStagePack() → null.
-  const BOSS_IDS = new Set(['mint', 'baimen', 'wl_flagship', 'cx_hall']);
-  const allBins = fs.readdirSync(bakeDir).map(name => {
-    const data = fs.readFileSync(path.join(bakeDir, name));
+const BOSS_IDS = new Set(['mint', 'baimen', 'wl_flagship', 'cx_hall']);
+const packBudget = (rawBins) => {
+  const allBins = rawBins.map(({ name, data }) => {
     const id = name.startsWith('map-') ? name.split('-')[1] : name.slice(0, -4);
     const prio = name === 'title-snow.bin' ? 0 : name === 'yard.bin' ? 1 : BOSS_IDS.has(id) ? 2 : 3;
     return { name, data, prio };
@@ -63,8 +56,39 @@ try {
     scTotal += data.length;
   }
   if (skipped) console.log(`  （30 MB 总包预算内预烘焙 ${scenes.size} 张重场，其余 ${skipped} 张轻场走后台分帧生成）`);
-} finally {
-  fs.rmSync(bakeDir, { recursive: true, force: true });
+};
+let reusedScenes = false;
+if (REUSE_SCENES && fs.existsSync(path.join(OUT, 'assets', 'scenes', 'title-snow.bin'))) {
+  const raw = [];
+  const collect = (dir) => {
+    if (!fs.existsSync(dir)) return;
+    for (const name of fs.readdirSync(dir).sort()) {
+      if (name.endsWith('.bin')) raw.push({ name, data: fs.readFileSync(path.join(dir, name)) });
+    }
+  };
+  collect(path.join(OUT, 'assets', 'scenes'));
+  for (const e of fs.readdirSync(OUT, { withFileTypes: true })) {
+    if (e.isDirectory() && e.name.startsWith('scenery')) collect(path.join(OUT, e.name));
+  }
+  if (raw.length) {
+    packBudget(raw);
+    reusedScenes = true;
+    console.log(`  复用已有烘焙场景 ${scenes.size} 个（--reuse-scenes）`);
+  }
+}
+if (!reusedScenes) {
+  const bakeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ub-wechat-scenes-'));
+  try {
+    execFileSync(process.execPath, [path.join(ROOT, 'node_modules/vite-node/vite-node.mjs'), 'tools/bake-wechat-stages.ts'], {
+      cwd: ROOT, env: { ...process.env, UB_STAGE_OUT: bakeDir }, stdio: 'inherit',
+    });
+    // Budget-aware scenery packing: keep total WeChat package safely under 30 MB by pre-baking
+    // title, hideout, all boss arenas, and the heaviest rooms first; lighter rooms build smoothly
+    // in background slices via readStagePack() → null.
+    packBudget(fs.readdirSync(bakeDir).map(name => ({ name, data: fs.readFileSync(path.join(bakeDir, name)) })));
+  } finally {
+    fs.rmSync(bakeDir, { recursive: true, force: true });
+  }
 }
 const stageFiles = Object.fromEntries([...scenes].map(([key, file]) => [key, file.to]));
 const rd = f => fs.readFileSync(path.join(ROOT, 'wechat', f), 'utf8');

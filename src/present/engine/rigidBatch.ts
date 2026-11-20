@@ -12,6 +12,7 @@ import { dirtyRange } from './uploads';
 import * as THREE from 'three';
 import { PartPalette, PartState, partMaterial } from './partPalette';
 import { OPT, CAPS } from './perfOpts';
+import { occMaterial, OCC_ORDER, type OccKind } from '../look/occlude';
 
 const HIDE = 31;
 /** parts now hidden from the cameras → their own layer mask */
@@ -39,14 +40,14 @@ class RigidSkeleton extends THREE.Skeleton {
   }
 }
 interface Part { mesh: THREE.Mesh; geo: THREE.BufferGeometry; i: number; mask: number; merged: boolean; vertex: number; colorVersion: number }
-interface Group { mesh: THREE.SkinnedMesh; inv: THREE.Matrix4[]; mat: THREE.Material; cast: boolean; recv: boolean; parts: Part[]; state?: PartState; palette?: PartPalette; packed?: Packed }
+interface Group { mesh: THREE.SkinnedMesh; occ?: THREE.SkinnedMesh; occKind?: 1 | 2; inv: THREE.Matrix4[]; mat: THREE.Material; cast: boolean; recv: boolean; parts: Part[]; state?: PartState; palette?: PartPalette; packed?: Packed }
 
 const sig = (g: THREE.BufferGeometry) => Object.keys(g.attributes).sort().map(k => { const a = g.attributes[k] as THREE.BufferAttribute; return `${k}:${a.itemSize}:${a.normalized ? 1 : 0}:${a.array.constructor.name}`; }).join('|');
 const plainRender = THREE.Object3D.prototype.onBeforeRender;
 // r162 calls this material hook too; the installed typings only declare the object hook.
 const plainMaterialRender: unknown = Reflect.get(THREE.Material.prototype, 'onBeforeRender');
 function eligible(m: THREE.Mesh, ui: boolean) {
-  if (!m.isMesh || (m as THREE.SkinnedMesh).isSkinnedMesh || (m as THREE.InstancedMesh).isInstancedMesh || m.userData.noBatch) return false;
+  if (!m.isMesh || (m as THREE.SkinnedMesh).isSkinnedMesh || (m as THREE.InstancedMesh).isInstancedMesh || m.userData.noBatch || m.userData.isOcc) return false;
   const mat = m.material as THREE.Material, g = m.geometry;
   if (!mat || Array.isArray(mat) || mat.transparent || !g || !g.index || !g.attributes.position) return false;
   if (Object.keys(g.morphAttributes).length || (!ui && g.groups.length > 1) || m.onBeforeRender !== plainRender) return false;
@@ -149,12 +150,32 @@ class RigidBatch {
         G.inv[p.i] = ok && vis ? ID : ZERO;
       }
       G.mesh.visible = on && visible;
+      if (!this.uiRoots && !this.root.userData.propBatch) {
+        const wantOcc = (this.root.userData.occ as OccKind | undefined) ?? 0;
+        if (wantOcc !== 0 && !G.occ) {
+          const occ = new THREE.SkinnedMesh(G.mesh.geometry, occMaterial(wantOcc, true));
+          occ.layers.mask = G.mesh.layers.mask; occ.userData.noTilt = true; occ.userData.isOcc = true; occ.name = 'rigidOcc';
+          occ.frustumCulled = false; occ.castShadow = false; occ.receiveShadow = false;
+          occ.renderOrder = wantOcc === 1 ? OCC_ORDER.hero : OCC_ORDER.foe;
+          occ.bind(G.mesh.skeleton, G.mesh.bindMatrix);
+          this.root.add(occ); G.occ = occ; G.occKind = wantOcc;
+        }
+        if (G.occ) {
+          if (wantOcc !== 0 && G.occKind !== wantOcc) {
+            G.occ.material = occMaterial(wantOcc, true);
+            G.occ.renderOrder = wantOcc === 1 ? OCC_ORDER.hero : OCC_ORDER.foe;
+            G.occKind = wantOcc;
+          }
+          G.occ.visible = G.mesh.visible && wantOcc !== 0;
+        }
+      }
       if (dirty) G.palette!.texture.needsUpdate = true;
     }
   }
   release() {
     for (const G of this.groups) {
       for (const p of G.parts) if (p.merged) { p.merged = false; HIDDEN.delete(p.mesh); p.mesh.layers.mask = p.mask; }
+      G.occ?.parent?.remove(G.occ);
       G.mesh.parent?.remove(G.mesh); if (!G.packed || --G.packed.users === 0) G.mesh.geometry.dispose();
       G.mesh.skeleton.dispose(); if (G.palette) retiredPalettes.push(G.palette);
     }

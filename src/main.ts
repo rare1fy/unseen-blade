@@ -56,7 +56,7 @@ dh.add({
   quality: (c?: Choice) => { if (c) setQuality(c); return { ...QUALITY }; },
   /** the pixel render style: __dh.px(true, 2) / __dh.px(false) */
   px: (on = true, size?: number) => setPixel(on, size),
-  /** visual style presets: __dh.craft('ink' | 'hd2d' | 'diorama' | 'off') */
+  /** stylized voxel look presets: __dh.craft('ink' | 'hd2d' | 'diorama' | 'off') */
   craft: (mode: CraftMode | boolean | number | string = 'ink', keepPixel = false) => setCraft(mode, keepPixel),
   craftLook: CRAFT,
   /** the first-load screen, brought back for a look */
@@ -98,5 +98,5 @@ dh.install();
     try { await start(); precompileAll(); await waitFrames(6); } finally { bootDone(); }
     void withLoadingBlade;
     dh.ready();
-  } catch (e) { platform.log('[act] ' + (((e as Error) && (e as Error).stack) || e)); dh.fail(e); }
+  } catch (e) { const err = e as Error | null; console.error('[act]', err && err.stack ? String(err) + '\n' + err.stack : err); dh.fail(e); }
 });

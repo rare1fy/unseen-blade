@@ -144,6 +144,8 @@ const ANCHOR = 0.40, CM = -0.08;
 const DROP_STAG = 13, DROP = 92, ARRIVAL = 205, IMPACT = 180;
 /** the pull (blade tugged out of the stalk), then away: the blade off screen and every stalk fallen by EXIT */
 const WINDUP = 80, EXIT = 240, EXIT_STAG = 14;
+/** 11-20 (用户：「现在转场至少停留2秒吧，一闪而过很诡异」): minimum dwell (ms) while covered so fast pre-built rooms never flash past */
+const MIN_HOLD = 2000;
 /** stuck pose: tip pointing right and a little down, the point driven into the screen so the stalk's face hides it */
 const THETA = -0.32, PHI = 0.62, ROLL = 0.16;
 /** the throw: spin before it bites (rad); the arc's bulge (screen units) */
@@ -188,6 +190,7 @@ export async function withLoadingBlade(work: () => void | Promise<void>, cover: 
     try { await warmDestination?.(); }
     catch (error) { console.warn('[stage] shader warmup failed', error); }
     mark.warm = performance.now() - h0;
+    while (performance.now() - state.start < ARRIVAL + MIN_HOLD) await nextFrame();
 
     state.phase = 'ready';
     state.frames = 0;

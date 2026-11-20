@@ -27,9 +27,11 @@ export async function wipeTransit(swap: () => void | Promise<void>) {
   // Now the cover glides in and comes to rest over the view; the swap, the shader compile and three frames of uploads happen while
   // nothing on screen is meant to move; then it leaves, gathering speed.
   await animP(0.4, k => place(2.6 * (1 - k) * (1 - k) * (1 - k)), { real: true });   // in, easing to rest
+  const holdStart = performance.now();
   try { await swap(); } catch (e) { console.error('[wipe] swap failed', e); }
   precompile();
   await frames(3);
+  while (performance.now() - holdStart < 2000) { place(0); await frames(1); }
   await animP(0.45, k => place(-2.6 * k * k * (1.4 - 0.4 * k)), { real: true });   // out, gathering speed
   scene.remove(g); g.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh) m.geometry.dispose(); });
 }

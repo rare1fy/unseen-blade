@@ -36,8 +36,35 @@ export function bloom8bit(pass: UnrealBloomPass) {
   const p = pass as unknown as Inner;
   for (const t of [p.renderTargetBright, ...p.renderTargetsHorizontal, ...p.renderTargetsVertical]) t.texture.type = THREE.UnsignedByteType;
 }
-/** can this renderer draw into half-float colour targets? (WebGL2: EXT_color_buffer_(half_)float; WebGL1: both half-float extensions) */
+/** can this renderer draw into half-float colour targets?
+ *  WebGL2 requires EXT_color_buffer_float (three r162 requests it for RGBA16F and iOS WeChat 高性能+ flickers without it)
+ *  and passes an actual 2×2 FBO completeness probe; WebGL1 requires both half-float extensions + the same probe. */
 export function halfFloatOk(r: THREE.WebGLRenderer) {
-  const e = r.extensions;
-  return r.capabilities.isWebGL2 ? e.has('EXT_color_buffer_float') || e.has('EXT_color_buffer_half_float') : e.has('OES_texture_half_float') && e.has('EXT_color_buffer_half_float');
+  const e = r.extensions, gl2 = r.capabilities.isWebGL2;
+  const hasExt = gl2 ? e.has('EXT_color_buffer_float') : e.has('OES_texture_half_float') && e.has('EXT_color_buffer_half_float');
+  if (!hasExt) return false;
+  const gl = r.getContext?.() as WebGL2RenderingContext | WebGLRenderingContext | undefined;
+  if (!gl || typeof gl.createFramebuffer !== 'function' || typeof gl.checkFramebufferStatus !== 'function') return true;
+  const prevFb = gl.getParameter(gl.FRAMEBUFFER_BINDING), prevTex = gl.getParameter(gl.TEXTURE_BINDING_2D);
+  const fb = gl.createFramebuffer(), tex = gl.createTexture();
+  if (!fb || !tex) { if (fb) gl.deleteFramebuffer(fb); if (tex) gl.deleteTexture(tex); return false; }
+  try {
+    const type = gl2 ? (gl as WebGL2RenderingContext).HALF_FLOAT : (e.get('OES_texture_half_float') as { HALF_FLOAT_OES: number } | null)?.HALF_FLOAT_OES;
+    if (!type) return false;
+    const internal = gl2 ? (gl as WebGL2RenderingContext).RGBA16F : gl.RGBA;
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texImage2D(gl.TEXTURE_2D, 0, internal, 2, 2, 0, gl.RGBA, type, null);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+    return gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+  } catch {
+    return false;
+  } finally {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, prevFb);
+    gl.bindTexture(gl.TEXTURE_2D, prevTex);
+    gl.deleteFramebuffer(fb);
+    gl.deleteTexture(tex);
+  }
 }

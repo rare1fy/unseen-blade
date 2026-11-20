@@ -79,15 +79,27 @@ export function runeTex() {
   });
 }
 export function noiseTex() {
-  const S = 128, t = canvasTex(S, S, g => {
-    const img = g.createImageData(S, S), val = new Float32Array(S * S);
-    for (let o = 0; o < 4; o++) { const f = 4 << o, amp = 1 / (o + 1); const grid: number[] = []; for (let i = 0; i < (f + 1) * (f + 1); i++) grid.push(rnd());
-      for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) { const gx = (x / S) * f, gy = (y / S) * f, x0 = Math.floor(gx), y0 = Math.floor(gy), fx = gx - x0, fy = gy - y0, sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
-        const v = (a: number, b: number) => grid[((b % f) * (f + 1)) + (a % f)]; val[y * S + x] += amp * ((v(x0, y0) * (1 - sx) + v(x0 + 1, y0) * sx) * (1 - sy) + (v(x0, y0 + 1) * (1 - sx) + v(x0 + 1, y0 + 1) * sx) * sy); } }
-    for (let i = 0; i < S * S; i++) { const a = Math.max(0, Math.min(1, (val[i] / 2.08 - 0.42) * 2.4)); img.data.set([255, 255, 255, Math.round(a * 255)], i * 4); }
-    g.putImageData(img, 0, 0);
-  });
-  t.wrapS = t.wrapT = THREE.RepeatWrapping; return t;
+  const S = 128, val = new Float32Array(S * S), data = new Uint8Array(S * S * 4);
+  for (let o = 0; o < 4; o++) {
+    const f = 4 << o, amp = 1 / (o + 1); const grid: number[] = []; for (let i = 0; i < (f + 1) * (f + 1); i++) grid.push(rnd());
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+      const gx = (x / S) * f, gy = (y / S) * f, x0 = Math.floor(gx), y0 = Math.floor(gy), fx = gx - x0, fy = gy - y0, sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
+      const v = (a: number, b: number) => grid[((b % f) * (f + 1)) + (a % f)];
+      val[y * S + x] += amp * ((v(x0, y0) * (1 - sx) + v(x0 + 1, y0) * sx) * (1 - sy) + (v(x0, y0 + 1) * (1 - sx) + v(x0 + 1, y0 + 1) * sx) * sy);
+    }
+  }
+  for (let i = 0; i < S * S; i++) {
+    const a = Math.max(0, Math.min(1, (val[i] / 2.08 - 0.42) * 2.4));
+    data[i * 4] = 255; data[i * 4 + 1] = 255; data[i * 4 + 2] = 255; data[i * 4 + 3] = Math.round(a * 255);
+  }
+  const t = new THREE.DataTexture(data, S, S, THREE.RGBAFormat);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.magFilter = THREE.LinearFilter;
+  t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.generateMipmaps = true;
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.needsUpdate = true;
+  return t;
 }
 
 // ---------------------------------------------------------------- sky: gradient dome, stars, moon with halo, cloud band

@@ -1,4 +1,5 @@
 import { SEE_HOLES } from '../look/voxkit';
+import { setActorOcc } from '../look/occlude';
 import { batchActor } from '../engine/rigidBatch';
 import { OPT } from '../engine/perfOpts';
 import { ContactBatch } from '../engine/contactBatch';
@@ -432,6 +433,7 @@ export class ActShow {
   /** portrait lines; the fight / the hideout wait (phase 'talk') and resume */
   async talk(lines: Line[], onLine?: (i: number, line: Line) => void) {
     if (!lines.length) return;
+    if (this.hero) { this.hero.a.root.visible = true; this.hero.a.body.visible = true; }
     const was = this.phase === 'talk' ? this.wasPhase : this.phase; this.wasPhase = was; this.phase = 'talk'; this.hud.on = false; this.banner.hide();
     await this.dialogue.play(lines, onLine);
     // (act-50 用户：「对话过后马上会蓄力」: the cut button that turned the last page was still down — read as a hold, 藏锋. It counts
@@ -440,6 +442,7 @@ export class ActShow {
   }
   /** a timeline cutscene; the HUD hides, gameplay waits (phase 'cine'); optional onEnd guarantees skip-safe end state */
   async cine(shots: Parameters<Timeline['play']>[0], onEnd?: (skipped: boolean) => void) {
+    if (this.hero) { this.hero.a.root.visible = true; this.hero.a.body.visible = true; }
     const was = this.phase; this.phase = 'cine'; this.hud.on = false; this.banner.hide();
     const skipped = await this.timeline.play(shots, onEnd);
     this.cineHost.clearPuppets(); this.inp.latch(false);   // (a long press skipped it — the same held button)
@@ -591,6 +594,9 @@ export class ActShow {
     this.musicHold = 'bgm_fall'; void audio.playMusic('bgm_fall', 0.8);   // (act-37: struck down → the camera rises → the dawn)
     const boss = this.foes.find(f => isBoss(f) && f.st !== 'dead') ?? null;
     this.hero.inv = 99;
+    this.hero.a.root.visible = true; this.hero.a.body.visible = true;
+    this.hero.a.home.copy(this.hero.pos);
+    this.qteT = -1; this.hud.qte(null); this.qteW.visible = false;
     for (const f of this.foes) { dropTeles(f); f.attacking = false; f.lunge = null; }   // nothing left half-swung on the snow
     for (const a of this.arrows) a.kill(); this.arrows.length = 0; this.hitArcs.clear();
     const kneelPose = () => this.proKneel.frame(this.hero.a);
@@ -618,7 +624,8 @@ export class ActShow {
       this.noArena = true; this.viewSpec = this.dawnView();
       this.forceSpec = null; await this.buildRoom(true); this.viewSpec = null; this.noArena = false;
       this.queuePro('yard');   // (11-19: the kiln builds behind the dawn)
-      this.hero.pos.set(at.x, 0, at.z); this.hero.a.yaw = yaw; this.proKneel.dawn(); this.hero.scriptPose = kneelPose; this.hero.a.update(0.016); kneelPose();
+      this.hero.pos.set(at.x, 0, at.z); this.hero.a.place(this.hero.pos, yaw); this.hero.a.root.visible = true; this.hero.a.body.visible = true;
+      this.proKneel.dawn(); this.hero.scriptPose = kneelPose; this.hero.a.update(0.016); kneelPose();
     });
     const dead: Array<[EKind, number, number]> = [['hj_mob', at.x - 3.2, at.z + 2.6], ['hj_blade', at.x - 1.4, at.z + 3.6], ['hj_mob', at.x + 2.4, at.z - 1.8]];
     const who: { duwu: BattleActor | null; donkey: BattleActor | null } = { duwu: null, donkey: null };
@@ -635,7 +642,7 @@ export class ActShow {
     //  pushes herself up the wall; the kiln's own music for the scene — the hideout's comes after)
     await wipeTransit(async () => {
       await this.enterYard(); this.musicHold = 'bgm_kiln'; void audio.playMusic('bgm_kiln', 1.2);
-      const h = this.hero; h.pos.set(WAKE_MAT[0], 0, WAKE_MAT[1]); h.a.yaw = 0; let gk = 0; h.scriptPose = () => getUpPose(h.a, gk);
+      const h = this.hero; h.pos.set(WAKE_MAT[0], 0, WAKE_MAT[1]); h.a.place(h.pos, 0); h.a.root.visible = true; h.a.body.visible = true; let gk = 0; h.scriptPose = () => getUpPose(h.a, gk);
       // act-114: bring Du Wu beside Sun Ao's straw mat (5.45, -6.55 — completely clear of mat/stele/stove/table!) so he is in frame during PRO_WAKE
       const dw = this.npcs.find(n => n.id === 'duwu');
       if (dw) {
@@ -3010,7 +3017,12 @@ export class ActShow {
   }
   /** 一刀: the hero flashes between every foe nearby (up to seven, nearest first along the way), then sheathes — everyone cut at once */
   private async ult() {
+    if (this.proFalling) return;
     const h = this.hero; this.ultOn = true; this.intent = 0; this.hud.intent = 0; FX.slowmo = 0; FX.hitstop = 0;
+    const G0 = { vig: GRADE.vig, desat: GRADE.desat, exp: GRADE.exposure };
+    const restoreGrade = () => { GRADE.vig = G0.vig; GRADE.desat = G0.desat; GRADE.exposure = G0.exp; };
+    const aborted = () => this.proFalling || this.hero !== h || this.phase === 'cine' || this.phase === 'talk';
+    try {
     h.forceFree(); h.inv = 6;
     const left = this.foes.filter(f => f.st !== 'dead' && f.pos.distanceTo(h.pos) < 11), targets: Foe[] = [];
     let at = h.pos.clone();
@@ -3019,7 +3031,6 @@ export class ActShow {
     // the world cut in two and pressed into ink, everyone near pinned where they stand; she vanishes; two shadows go through each of
     // them from two sides and every pass leaves its streak hanging in the air (a web by the end); she stands up out of the smoke, a held
     // breath, the click of the sheath; each of them bursts open cut by cut; one great cross through all of them; the ink lifts
-    const G0 = { vig: GRADE.vig, desat: GRADE.desat, exp: GRADE.exposure };
     const ink = (k: number) => { GRADE.vig = G0.vig + 0.75 * k; GRADE.desat = Math.max(G0.desat, 0.7 * k); GRADE.exposure = G0.exp * (1 - 0.3 * k); };
     for (const f of this.foes) if (f.st !== 'dead' && f.pos.distanceTo(h.pos) < 14) interruptFoe(f, 4);
     const feet = h.pos.clone().setY(0), side0 = V3(1, 0, 0);
@@ -3027,14 +3038,16 @@ export class ActShow {
     this.flashScreen(0.4, 0xffffff); this.camPunch(0.08); shake(0.25 * TUNE.shake); cue('draw', 1); cue('timeSlow', 1); audio.stillness(2.2);
     anim(0.18, k => ink(k), undefined, { real: true });
     await waitReal(0.12);
+    if (aborted()) { restoreGrade(); return; }
     // 烟遁: the hero goes up in a burst of smoke (act-13 用户：「影分身的特效挺叼的，可以拿给别的技能」)
     smokeBurst(feet, 0.9, 14, { yaw: h.a.yaw, life: 0.5 }); h.a.body.visible = false; fxRing(feet.clone().setY(0.06), 0xa0a8c0, 1.8, { life: 0.4 } as never); cue('whoosh', 0.9);
     await waitReal(0.12);
+    if (aborted()) { restoreGrade(); return; }
     // two shadow passes through each target, from either side, one after another; each leaves its streak hanging in the air
     const passes: Array<[Foe, number]> = []; for (let r = 0; r < 2; r++) targets.forEach((f, i) => passes.push([f, i * 2 + r]));
     passes.forEach(([f, j], n) => {
       after(n * 0.06, () => {
-        if (f.st === 'dead') return;
+        if (f.st === 'dead' || aborted()) return;
         const base = Math.atan2(f.pos.x - feet.x, f.pos.z - feet.z) + (j % 2 ? 1.1 : -1.1) + (Math.random() - 0.5) * 0.5;
         const dir = V3(Math.sin(base), 0, Math.cos(base)), reach = f.d.r + 1.6;
         const from = f.pos.clone().addScaledVector(dir, -reach).setY(0); this.clamp(from, 0.3);
@@ -3051,9 +3064,11 @@ export class ActShow {
     await waitReal(0.06 * passes.length + 0.5);
     // she stands up out of the smoke where she vanished: the world holds its breath, then the sheath clicks home
     smokeBurst(feet, 0.4, 6, { size: 0.22, life: 0.35, yaw: h.a.yaw }); h.a.body.visible = true; cue('whoosh', 0.4);
+    if (aborted()) { restoreGrade(); return; }
     h.a.play(new Action('cast', 0.5, 0.4));
     await waitReal(0.3);
     hitstop(0.3); await waitReal(0.32);
+    if (aborted()) { restoreGrade(); return; }
     // 11-18 (用户：「终极技能应该是有一个爆发绽裂的伤害，而不是一次性的，要响起多段快速斩击的声音才爽」): the blade clicks home and
     // every one the clones cut bursts open — ULT_TICKS quick cuts across each of them (a streak of light, a spray, a small number and
     // a short slash sound each, a hair of hit-stop), then the last one crosses them all wide open
@@ -3061,6 +3076,7 @@ export class ActShow {
     const tickDmg = Math.max(1, Math.round(TUNE.ultDmg * ULT_TICK_SHARE));
     for (let i = 0; i < ULT_TICKS; i++) {
       await waitReal(ULT_GAP * (1 - 0.35 * i / ULT_TICKS));   // a little faster as it goes
+      if (aborted()) { restoreGrade(); return; }
       let any = 0;
       for (const f of targets) {
         if (f.st === 'dead') continue; any++;
@@ -3073,6 +3089,7 @@ export class ActShow {
       if (any) { cue('flurry', 0.7 + 0.3 * i / ULT_TICKS, this.fleshHit ? 1 : 0); this.fleshHit = false; hitstop(0.012); this.camKick(V3(Math.random() - 0.5, 0, Math.random() - 0.5), 0.05 * TUNE.shake / 2); this.flashScreen(0.05, 0xffe8c8); }
     }
     await waitReal(ULT_GAP * 1.6);
+    if (aborted()) { restoreGrade(); return; }
     // the last cut: one great cross through all of them (across their middle, as wide as they stand), then the ink lifts
     const alive = targets.filter(f => f.st !== 'dead'), C = V3();
     for (const f of alive) C.add(f.pos);
@@ -3088,8 +3105,11 @@ export class ActShow {
     fxRing(C.clone().setY(0.08), 0xfff0c0, R + 1.5, { life: 0.7 } as never); fxRing(C.clone().setY(0.9), 0xffffff, R, { life: 0.4 } as never);
     cue('ultSlash', 1.2); cue('hitIai', 1, 1); cue('boom', 0.6); this.platform.vibrate('heavy');
     await waitReal(0.25);
-    anim(0.6, k => ink(1 - k), () => { GRADE.vig = G0.vig; GRADE.desat = G0.desat; GRADE.exposure = G0.exp; }, { real: true });
-    this.ultOn = false; h.inv = 0.5;
+    anim(0.6, k => ink(1 - k), restoreGrade, { real: true });
+    if (!this.proFalling) h.inv = 0.5;
+    } finally {
+      this.ultOn = false; h.a.body.visible = true; h.a.root.visible = true;
+    }
   }
   /** a batted arrow strikes a foe */
   private arrowHit(f: Foe, a: Arrow) {
@@ -3705,16 +3725,16 @@ export class ActShow {
     this.storyIdle = busy ? 0 : this.storyIdle + real;
     if (this.storyIdle > 0.5) { this.storySkip = false; FX.speed = this.storyWas; }
   }
-  /** 11-18 墙高过人: the scenery opens round her and the three nearest foes wherever it stands between them and the camera
-   *  (look/voxkit.ts SEE_HOLES — a pixel dither in the walls' own shader; nothing to do per wall) */
+  /** 11-20 (用户：「被遮挡的人做轮廓线吧」): keep walls intact (SEE_HOLES disabled) and mark live actors so post.ts draws crisp
+   *  silhouette outlines (warm ivory-gold for hero/allies/NPCs, vermilion for foes) wherever walls/roofs/trees occlude them */
   private seeThrough() {
     const H = SEE_HOLES.value, h = this.hero;
     for (const v of H) v.w = 0;
-    if (!h || this.phase === 'opening' || this.phase === 'title') return;
-    H[0].set(h.pos.x, h.y + 1.0, h.pos.z, 1.25);
-    let n = 1;
-    const near = this.foes.filter(f => f.st !== 'dead').sort((p, q) => p.pos.distanceToSquared(h.pos) - q.pos.distanceToSquared(h.pos));
-    for (const f of near) { if (n > 3) break; H[n++].set(f.pos.x, f.pos.y + Math.min(1.1, f.d.r * 1.6 + 0.4), f.pos.z, Math.max(0.8, f.d.r * 2.2)); }
+    const on = this.phase !== 'opening' && this.phase !== 'title';
+    if (h) setActorOcc(h.a.root, on && (h.alive || this.proFalling) ? 1 : 0);
+    for (const f of this.foes) setActorOcc(f.a.root, on && f.st !== 'dead' && !f.mem.hidden ? 2 : 0);
+    if (this.allyGen) setActorOcc(this.allyGen.a.root, on && this.allyGen.active ? 1 : 0);
+    for (const n of this.npcs) setActorOcc(n.a.root, on ? 1 : 0);
   }
   private frame(dt: number, rdt: number) {
     // 11-19: cutscenes and conversations scale the art pixel with how near the shot is (director.ts CINE_PX)
@@ -4026,20 +4046,23 @@ export class ActShow {
   // ------------------------------------------------------------ input
   private pointer(type: string, id: number, x: number, y: number) {
     // (11-20 用户：「切场景过后上个场景的移动输入事件没结束，角色会自动跑」: a finger let go during a transition / a scene / a dialogue
-    //  never reached the HUD, so the stick stayed held into the next room — every let-go frees that finger first, whoever takes it)
-    if (type === 'up' || type === 'cancel') this.hud.lift(id, this.inp);
-    if (bladeBusy()) return;
-    if (this.pause.on) { this.pause.pointer(type, x, y); return; }
-    if (this.phase === 'title') { titlePointer(type, x, y); return; }
-    if (this.timeline.on) { this.timeline.pointer(type); return; }
+    //  never reached the HUD, so the stick stayed held into the next room — free it on any intercepting branch, while letting normal
+    //  HUD up events reach hud.pointer() first so portrait tap → onPause still fires!)
+    const lift = () => { if (type === 'up' || type === 'cancel') this.hud.lift(id, this.inp); };
+    if (bladeBusy()) { lift(); return; }
+    if (this.pause.on) { lift(); this.pause.pointer(type, x, y); return; }
+    if (this.phase === 'title') { lift(); titlePointer(type, x, y); return; }
+    if (this.timeline.on) { lift(); this.timeline.pointer(type); return; }
     if (this.dialogue.on) {
+      lift();
       if (type === 'down') { this.dialogue.advance(); this.dialogue.holdSkip(true); }
       else if (type === 'up' || type === 'cancel') this.dialogue.holdSkip(false);
       return;
     }
-    if (this.cards.on) { this.cards.pointer(type, x, y); return; }
+    if (this.cards.on) { lift(); this.cards.pointer(type, x, y); return; }
     // the demonstration: a tap anywhere skips it
-    if (this.demo.on) return;   // (11-19: the demonstration plays to the end — no skipping)
+    if (this.demo.on) { lift(); return; }   // (11-19: the demonstration plays to the end — no skipping)
+    if (!this.hud.on) { lift(); return; }
     this.hud.pointer(type, id, x, y, this.inp);
   }
   /** the UI's skin: 漆器 → 竹简 → 铁器 (U key, the tuning panel, __dh.skin(id)) */

@@ -302,7 +302,7 @@ export class Cards {
     }
   }
   build(root: THREE.Object3D) {
-    if (typeof window !== "undefined") { (window as any).__cards = Object.fromEntries([...this.items].map(([k, v]) => [k, v.length])); (window as any).__cardsAt = (k: string) => (this.items.get(k) ?? []).map(i => [+i.p.x.toFixed(2), +i.p.y.toFixed(2), +i.p.z.toFixed(2), +i.s.toFixed(2), +i.ry.toFixed(2)]); }
+    if (__DEBUG_UI__ && typeof window !== "undefined") try { (window as any).__cards = Object.fromEntries([...this.items].map(([k, v]) => [k, v.length])); (window as any).__cardsAt = (k: string) => (this.items.get(k) ?? []).map(i => [+i.p.x.toFixed(2), +i.p.y.toFixed(2), +i.p.z.toFixed(2), +i.s.toFixed(2), +i.ry.toFixed(2)]); } catch { /* read-only window */ }
     const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
     for (const [kind, list] of this.items) {
       const d = CARD[kind]; if (!d || !list.length) continue;

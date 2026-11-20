@@ -66,8 +66,9 @@ const RMAX = 48;
 export class UiPass {
   calls = 0;
   rt: THREE.WebGLRenderTarget; bloom: UnrealBloomPass; mat: THREE.ShaderMaterial; qs = new THREE.Scene(); cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-  private cc = new THREE.Color(); private W = 4; private H = 4;
+  private cc = new THREE.Color(); private W = 4; private H = 4; private hdr: boolean;
   constructor(private renderer: THREE.WebGLRenderer, msaa: number, hdr = true) {
+    this.hdr = hdr;
     this.rt = new THREE.WebGLRenderTarget(4, 4, { type: hdr ? THREE.HalfFloatType : THREE.UnsignedByteType, depthTexture: new THREE.DepthTexture(4, 4), samples: msaa });
     this.rt.depthTexture.type = THREE.UnsignedIntType;
     this.bloom = new UnrealBloomPass(new THREE.Vector2(128, 128), 1, UI_LOOK.bloomRadius, UI_LOOK.bloomThreshold);
@@ -81,7 +82,7 @@ export class UiPass {
   }
   setSize(W: number, H: number, samples = this.rt.samples) {
     if (this.rt.samples !== samples) { this.rt.samples = samples; this.rt.dispose(); }
-    this.W = W; this.H = H; this.rt.setSize(W, H); this.bloom.setSize(mobileTargets() ? 1 : Math.max(1, Math.round(W / 2)), mobileTargets() ? 1 : Math.max(1, Math.round(H / 2)));
+    this.W = W; this.H = H; this.rt.setSize(W, H); this.bloom.setSize(mobileTargets() || !this.hdr ? 1 : Math.max(1, Math.round(W / 2)), mobileTargets() || !this.hdr ? 1 : Math.max(1, Math.round(H / 2)));
     (this.mat.uniforms.uRes.value as THREE.Vector2).set(W, H);
   }
   /** draw the UI layer over whatever is on screen now */
@@ -92,7 +93,7 @@ export class UiPass {
     const prevCraft = CRAFTU.uCraft.value; CRAFTU.uCraft.value = 0;
     try { r.render(L.scene, L.camera); } finally { CRAFTU.uCraft.value = prevCraft; }
     r.setClearColor(this.cc, ca);
-    const bOn = !mobileTargets() && UI_LOOK.bloom > 0;
+    const bOn = !mobileTargets() && this.hdr && UI_LOOK.bloom > 0;
     if (bOn) {
       this.bloom.strength = 1; this.bloom.radius = UI_LOOK.bloomRadius; this.bloom.threshold = UI_LOOK.bloomThreshold;
       // the bloom is not blended back into the UI target: the composite reads the blurred mips and adds them over the world
@@ -135,7 +136,7 @@ export class UiPass {
     const r = this.renderer; r.getSize(this.sz); const W = this.sz.x, H = this.sz.y, cam = L.camera;
     // (11-19 用户：「光是个大方块，看起来像个bug」: a lit button's glow spread past its rectangle and was cut off square — the margin
     //  covers the bloom's reach when it is on)
-    const m = H * (!mobileTargets() && UI_LOOK.bloom > 0 ? 0.16 : 0.06);
+    const m = H * (!mobileTargets() && this.hdr && UI_LOOK.bloom > 0 ? 0.16 : 0.06);
     let n = 0, area = 0;
     for (const top of L.scene.children) {
       if (!top.visible) continue;
