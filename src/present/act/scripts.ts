@@ -19,6 +19,10 @@ export const CHULEI_BEFORE = CH_BEFORE[0], CHULEI_AFTER = CH_AFTER[0];
 /** the three endings (A 一个人走进雪里 / B 不杀、只带走阿爹那柄 / C 回破窑挂满刀架) and the choices' words, in that order */
 export const ENDING: Record<'a' | 'b' | 'c', Line[]> = { a: pick('ending_a', []), b: pick('ending_b', []), c: pick('ending_c', []) };
 export const ENDING_PICK: string[] = pool('ending_pick', ['挥刀封喉，独入风雪', '留刀阁内，抽身而去', '斩断恩仇，抱刀归窑']);
+export const ENDING_DESC: string[] = ['一刀封喉，孤身没入风雪', '留他性命，只带阿爹旧刀', '斩尽血仇，抱三十刀归窑'];
+/** act-114 三国名将客串（一～四关：赵云 / 吕布 / 夏侯惇 / 陆逊） */
+export const GEN_BEFORE: Line[][] = [1, 2, 3, 4].map(n => pick(`gen${n}_before`, []));
+export const GEN_AFTER: Line[][] = [1, 2, 3, 4].map(n => pick(`gen${n}_after`, []));
 /** what they say when she is dragged back after a death (one line each, picked at random) */
 export const DEATH_POOL: Record<string, string[]> = {
   duwu: pool('death_duwu', ['白哥！我顺着刀环声才在泥沟里摸到你，险些晚了！', '黄巾贼换了巡山哨卡，下次走东边麦田，我挂了铜铃。', '别硬撑了，你吐出来的全是黑血，先喝口热米汤！',
@@ -59,10 +63,10 @@ const one = (id: string, fallback: string) => (S[id]?.[0]?.text ?? fallback);
 export const NPC_TALK: Record<string, string[]> = { ...NPC_LINES, duwu: pool('npc_duwu', NPC_LINES.duwu), sunao: pool('npc_sunao', NPC_LINES.sunao) };
 export const STELE_TALK = {
   none: pool('stele_none', STELE_LINES.none), one: pool('stele_one', STELE_LINES.one),
-  /** 11-19 剧情改版: what she says at the stone with n names cut (0 … 4; five cut is the end — ending A / C) */
-  byCount: [pool('stele_none', STELE_LINES.none), pool('stele_one', STELE_LINES.one), pool('stele_two', STELE_LINES.one), pool('stele_three', STELE_LINES.one), pool('stele_four', STELE_LINES.one), pool('stele_four', STELE_LINES.one)],
-  /** the cut down the n-th name (index 0 = 石雷) */
-  strike: [1, 2, 3, 4, 5].map(n => one(`stele_strike_${n}`, n === 1 ? one('stele_strike', STELE_LINES.strike) : STELE_LINES.strike)),
+  /** 11-19 剧情改版: what she says at the stone with n names cut (0 … 5; five cut = stele_five, act-114) */
+  byCount: [pool('stele_none', STELE_LINES.none), pool('stele_one', STELE_LINES.one), pool('stele_two', STELE_LINES.one), pool('stele_three', STELE_LINES.one), pool('stele_four', STELE_LINES.one), pool('stele_five', ['五个名字，全都划平了。'])],
+  /** the cut down the n-th name (index 0 = 石雷 … 4 = 崔玄) */
+  strike: [1, 2, 3, 4, 5].map(n => one(`stele_strike_${n}`, n === 5 ? '崔玄，销了。阿爹，这笔账平了。' : n === 1 ? one('stele_strike', STELE_LINES.strike) : STELE_LINES.strike)),
 };
 /** 11-19 剧情改版: a region's boss down for good (the five in order). The first four: their after-talk seen; 崔玄: dead by her hand
  *  (ending A or C; ending B leaves him alive and his name uncut) */

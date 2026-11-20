@@ -32,7 +32,7 @@ import { K, kiln, forge, anvil, bladeRack, bladeWall, RACK_RAILS, trough, coalBa
 export { HIDEOUT_PEOPLE } from './hideout_people';
 
 export type HideoutTime = 'dusk' | 'night' | 'dawn' | 'day';
-export type HideoutWeather = 'clear' | 'rain' | 'mist';
+export type HideoutWeather = 'clear' | 'rain' | 'mist' | 'snow';
 type PersonId = 'duwu' | 'sunao' | 'fengtiebi' | 'luzhao' | 'huanyue';
 /** a collision shape on the floor (metres): an axis-aligned box (half sizes) or a circle */
 export type HideoutSolid = { shape: 'box'; x: number; z: number; hx: number; hz: number } | { shape: 'circle'; x: number; z: number; r: number };
@@ -487,7 +487,7 @@ const LINEUP = { x0: C(-3.5) * CELL, gap: 1.75, z: 0 };
 
 /** the hideout as a stage (show it with showStage(def, { combat: true }), like a room) */
 export function hideoutScene(o: { time: HideoutTime; weather: HideoutWeather }): SceneDef {
-  return { id: `hideout_${o.time}_${o.weather}`, name: '断碑古窑', group: '节点', kind: '户外', blurb: '嵩山南麓 · 断碑古窑', mood: moodFor(o.time, 'autumn', o.weather), pack: o.time === 'dusk' && o.weather === 'clear' ? 'yard' : undefined,
+  return { id: `hideout_${o.time}_${o.weather}`, name: '断碑古窑', group: '节点', kind: '户外', blurb: '嵩山南麓 · 断碑古窑', mood: moodFor(o.time, o.weather === 'snow' ? 'winter' : 'autumn', o.weather), pack: o.time === 'dusk' && o.weather === 'clear' ? 'yard' : undefined,
     build: c => finishBuild(build(c, o)), buildSteps: c => build(c, o), decorate: addDonkey };
 }
 

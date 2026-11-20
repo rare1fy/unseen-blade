@@ -103,10 +103,12 @@ class AudioEngine {
   }
   private now() { return this.ctx ? this.ctx.currentTime : 0; }
   /** act-37: a voiced dialogue line — decoded on first use, one at a time on the voice bus (the line before stops), the music and
-   *  the effects ducked under it */
-  private vo = new Map<string, Promise<AudioBuffer | null>>(); private voSrc: AudioBufferSourceNode | null = null;
+   *  the effects ducked under it. act-114: generation counter prevents fast dialogue skips from playing stale async decodes */
+  private vo = new Map<string, Promise<AudioBuffer | null>>(); private voSrc: AudioBufferSourceNode | null = null; private voGen = 0;
   async voiceLine(url: string) {
     const ctx = this.ctx; if (!ctx || this.muted) return;
+    const gen = ++this.voGen;
+    this.stopVoice(false);
     let p = this.vo.get(url);
     if (!p) {
       p = (async () => { try {
@@ -116,14 +118,17 @@ class AudioEngine {
       } catch { return null; } })();
       this.vo.set(url, p);
     }
-    const b = await p; if (!b) return;
-    this.stopVoice();
+    const b = await p; if (!b || gen !== this.voGen || this.muted) return;
+    this.stopVoice(false);
     const src = ctx.createBufferSource(); src.buffer = b; src.connect(this.voice); const t = this.now(); src.start(t); this.voSrc = src;
     this.duck.gain.cancelScheduledValues(t); this.duck.gain.setTargetAtTime(0.55, t, 0.06); this.duck.gain.setTargetAtTime(1, t + b.duration, 0.25);
     src.onended = () => { if (this.voSrc === src) this.voSrc = null; };
   }
   get voicing() { return !!this.voSrc; }
-  stopVoice() { if (this.voSrc) { try { this.voSrc.stop(); } catch { /* ended */ } this.voSrc = null; if (this.ctx) this.duck.gain.setTargetAtTime(1, this.now(), 0.2); } }
+  stopVoice(bump = true) {
+    if (bump) this.voGen++;
+    if (this.voSrc) { try { this.voSrc.stop(); } catch { /* ended */ } this.voSrc = null; if (this.ctx) this.duck.gain.setTargetAtTime(1, this.now(), 0.2); }
+  }
   /** 11-18: the sounds playing now — at most MAX_VOICES; a new one past that stops the oldest of the least important (or is dropped
    *  when everything playing matters more) */
   private live: Array<{ src: AudioBufferSourceNode; pri: number; t: number }> = [];
@@ -471,6 +476,13 @@ const H: Partial<Record<Cue, (k: number, x?: number) => void>> = {
   bridgeDrop: k => { ub('wall_slam', { gain: 0.8 * k, rate: 0.75 }); ub('body_fall', { gain: 0.6 * k, rate: 0.6, delay: 0.05 }); audio.tone(60, 0.6, { to: 32, gain: 0.4 * k }); },
   doorOpen: k => { ub('gate_open', { gain: 0.6 + 0.3 * k, rate: 0.85 }); },
   plate: k => { wood(0.5 * k, 1.4); audio.tone(220, 0.12, { to: 160, gain: 0.12 * k }); },
+  // act-114 剧情演出音效 (Stable Audio 3 medium, fallback gracefully if sample not yet loaded)
+  textTick: k => { if (audio.buf.has('ub_text_tick_1')) ub('text_tick', { gain: 0.28 * k, jitter: 0.06 }); else audio.any('ui_tap', { gain: 0.14 * k, rate: 1.5, jitter: 0.05 }); },
+  bladeChorus: k => { if (audio.buf.has('ub_blade_chorus_1')) ub('blade_chorus', { gain: 0.78 * k, jitter: 0.02, pri: 3 }); else ub('blade_ring', { gain: 0.7 * k, rate: 0.85, pri: 3 }); },
+  snowWind: k => { if (audio.buf.has('ub_snow_wind_1')) ub('snow_wind', { gain: 0.56 * k, jitter: 0.03, pri: 2 }); else audio.noise(1.6, { from: 900, to: 220, gain: 0.16 * k, type: 'bandpass', q: 1.4 }); },
+  needleZing: k => { if (audio.buf.has('ub_needle_zing_1')) ub('needle_zing', { gain: 0.75 * k, jitter: 0.04, pri: 2 }); else ub('dart_throw', { gain: 0.65 * k, rate: 1.35, pri: 2 }); },
+  warHorn: k => { if (audio.buf.has('ub_war_horn_1')) ub('war_horn', { gain: 0.82 * k, jitter: 0.02, pri: 3 }); else { ub('boom', { gain: 0.6 * k, rate: 0.7 }); ub('fire', { gain: 0.55 * k }); } },
+  stoneCarve: k => { if (audio.buf.has('ub_stone_carve_1')) ub('stone_carve', { gain: 0.88 * k, jitter: 0.03, pri: 3 }); else { ub('wall_slam', { gain: 0.7 * k }); ub('blade_ring', { gain: 0.55 * k, rate: 0.9 }); } },
 };
 setCueHandler((name, k, x) => {
   const now = performance.now() / 1000, cd = COOLDOWN[name] ?? 0.05;

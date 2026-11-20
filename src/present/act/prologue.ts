@@ -450,32 +450,32 @@ export function dawnShots(h: PrologueHost, at: { x: number; z: number }, dead: A
   // where he goes: in from the left, a stop (crouched) at each body, then to her
   // (11-18: she kneels now, facing where she fell — he comes to stand a step in front of her, a little to her right where the sabre is,
   //  not into her: the old end point was beside a body lying flat)
-  const hy = h.hero.a.yaw, stop: [number, number, number] = [ox + Math.sin(hy) * 1.1 - Math.cos(hy) * 0.3, oz + Math.cos(hy) * 1.1 + Math.sin(hy) * 0.3, 0];
-  const way: Array<[number, number, number]> = [[ox - 10, oz + 6, 0], ...dead.slice(0, 2).map(([, x, z]) => [x + 0.8, z + 0.5, 1.7] as [number, number, number]), stop];
+  const hy = h.hero.a.yaw, stop: [number, number, number] = [ox + Math.sin(hy) * 1.15 - Math.cos(hy) * 0.35, oz + Math.cos(hy) * 1.15 + Math.sin(hy) * 0.35, 0];
+  const way: Array<[number, number, number]> = [[ox - 9.2, oz + 5.2, 0], ...dead.slice(0, 2).map(([, x, z]) => [x + 0.8, z + 0.5, 0.85] as [number, number, number]), stop];
   let seg = 0, segT = 0, dwell = 0, crouch = 0, heading = 0;
-  const fx = { x: ox - 4, z: oz + 3 };
-  const cam = () => { const d = duwu as Walker | null; if (d) { fx.x += ((d.home.x + ox) / 2 - fx.x) * 0.06; fx.z += ((d.home.z + oz) / 2 - fx.z) * 0.06; }
-    return camKey({ pos: [fx.x + 5.2, 4.6, fx.z + 6.4] as V, look: [fx.x, 0.6, fx.z] as V, fov: 38 }); };
+  const fx = { x: ox - 3.6, z: oz + 2.6 };
+  const cam = () => { const d = duwu as Walker | null; if (d) { fx.x += ((d.home.x + ox) / 2 - fx.x) * 0.08; fx.z += ((d.home.z + oz) / 2 - fx.z) * 0.08; }
+    return camKey({ pos: [fx.x + 5.0, 4.4, fx.z + 6.0] as V, look: [fx.x, 0.6, fx.z] as V, fov: 38 }); };
   const step = (dt: number) => {
     if (!duwu || !donkey) return;
     if (dwell > 0) {
-      dwell -= dt; crouch = Math.min(1, crouch + dt * 3); if (dwell < 0.35) crouch = Math.max(0, crouch - dt * 6);
+      dwell -= dt; crouch = Math.min(1, crouch + dt * 4); if (dwell < 0.28) crouch = Math.max(0, crouch - dt * 7);
       duwu.walkPh = undefined; donkey.walkPh = undefined; duwu.kneel = crouch; if (dwell <= 0) { duwu.kneel = 0; crouch = 0; }
     } else if (seg < way.length - 1) {
-      const [x0, z0] = way[seg], [x1, z1, d1] = way[seg + 1], L = Math.hypot(x1 - x0, z1 - z0), dur = L / 1.25; segT += dt;
+      const [x0, z0] = way[seg], [x1, z1, d1] = way[seg + 1], L = Math.hypot(x1 - x0, z1 - z0), dur = Math.max(0.25, L / 1.9); segT += dt;
       const k = Math.min(1, segT / dur); heading = Math.atan2(x1 - x0, z1 - z0);
-      duwu.walkPh = (duwu.walkPh ?? 0) + dt * 7.5; donkey.walkPh = (donkey.walkPh ?? 0) + dt * 6.5; duwu.kneel = 0;
+      duwu.walkPh = (duwu.walkPh ?? 0) + dt * 8.6; donkey.walkPh = (donkey.walkPh ?? 0) + dt * 7.4; duwu.kneel = 0;
       place(duwu, x0 + (x1 - x0) * k, z0 + (z1 - z0) * k, heading);
       if (k >= 1) { seg++; segT = 0; if (d1 > 0) { dwell = d1; cue('coin', 0.25); } }
     } else { duwu.walkPh = undefined; donkey.walkPh = undefined; duwu.kneel = 0; duwu.yaw = Math.atan2(ox - duwu.home.x, oz - duwu.home.z); }
     // the donkey keeps a pace behind him, on his line
     const bx = duwu.home.x - Math.sin(heading) * 1.9, bz = duwu.home.z - Math.cos(heading) * 1.9;
-    place(donkey, donkey.home.x + (bx - donkey.home.x) * Math.min(1, dt * 3), donkey.home.z + (bz - donkey.home.z) * Math.min(1, dt * 3), heading);
+    place(donkey, donkey.home.x + (bx - donkey.home.x) * Math.min(1, dt * 3.5), donkey.home.z + (bz - donkey.home.z) * Math.min(1, dt * 3.5), heading);
     duwu.update(dt); donkey.update(dt);
   };
   return [
     // the yard at dawn, wide: the dead in the snow, her among them; far off a man and a donkey come in
-    { dur: 5.5, ease: 'inOut', from: camKey({ pos: [ox + 10, 9.5, oz + 14], look: [ox - 2, 0.2, oz + 1], fov: 40 }), to: camKey({ pos: [ox + 7, 7.5, oz + 11], look: [ox - 2, 0.2, oz + 1.5], fov: 38 }),
+    { dur: 3.5, ease: 'inOut', from: camKey({ pos: [ox + 9.5, 9.0, oz + 13], look: [ox - 2, 0.2, oz + 1], fov: 40 }), to: camKey({ pos: [ox + 6.8, 7.0, oz + 10.2], look: [ox - 2, 0.2, oz + 1.5], fov: 38 }),
       at: [[0, () => {
         // the dead: laid down once, never updated again (no breathing corpses)
         // act-36 (用户：「死人堆，就那么几个，算啥死人堆」): the two he stops at, then the rest of the night's dead — heaps of two and three
@@ -491,9 +491,22 @@ export function dawnShots(h: PrologueHost, at: { x: number; z: number }, dead: A
       tick: (_t, dt) => { step(dt); h.hero.a.update(dt); h.kneel.frame(h.hero.a); } },
     // closer (medium): he stops, crouches over the bodies, then comes to her
     // (the camera keeps him in frame: it follows a smoothed point between him and her)
-    { dur: 9.5, ease: 'linear', from: () => cam(), to: () => cam(),
+    { dur: 5.5, ease: 'linear', from: () => cam(), to: () => cam(),
       tick: (_t, dt) => { step(dt); h.hero.a.update(dt); h.kneel.frame(h.hero.a); } },
   ];
+}
+/** act-114 skip-safety for dawnShots: guarantees duwu & donkey are spawned and parked cleanly beside Liu Bai even if player skipped */
+export function snapDawn(h: PrologueHost, at: { x: number; z: number }, out: { duwu: BattleActor | null; donkey: BattleActor | null }) {
+  const hy = h.hero.a.yaw;
+  const sx = at.x + Math.sin(hy) * 1.15 - Math.cos(hy) * 0.35, sz = at.z + Math.cos(hy) * 1.15 + Math.sin(hy) * 0.35;
+  const faceYaw = Math.atan2(at.x - sx, at.z - sz);
+  if (!out.duwu) out.duwu = h.person('duwu', sx, sz, faceYaw);
+  if (!out.donkey) out.donkey = h.person('donkey', sx - Math.sin(faceYaw) * 1.9, sz - Math.cos(faceYaw) * 1.9, faceYaw);
+  const d = out.duwu as Walker, k = out.donkey as Walker;
+  d.walkPh = undefined; d.kneel = 0; k.walkPh = undefined;
+  place(d, sx, sz, faceYaw);
+  place(k, sx - Math.sin(faceYaw) * 1.9, sz - Math.cos(faceYaw) * 1.9, faceYaw);
+  d.update(0.016); k.update(0.016);
 }
 /** after his words: he kneels to her, looks round; then (a cut) she lies across the donkey's back and he leads it away */
 /** the top of the grey donkey's back (m) */
@@ -526,3 +539,225 @@ export function loadShots(h: PrologueHost, who: { duwu: BattleActor | null; donk
 }
 /** snow in the air for the snow shots (the room's weather does it in play; the cutscenes add a little more near the camera) */
 export function snowPuff(p: THREE.Vector3) { fxSmoke(p.clone().setY(0.2), 0xe8eef8, 2, { r: 0.4, spd: 0.4, up: 0.3, s: 0.3, life: 0.8, alpha: 0.4 }); fxGlow(p, 0xffffff, 0.3, 0.2, 0.5); fxSparks(p, 0xffffff, 2, 1); }
+
+/** act-114 (pro_fall): Cui Xuan approaches the kneeling heroine, half-crouches (robe-safe: 3-tier silk robe folds neatly onto snow
+ *  without floor sink or boot poke-through), extends his right hand gently toward her white blindfold, pauses, and stands back up. */
+export class CuiInspect {
+  private on = false;
+  private boss: Foe | null = null;
+  private target = new THREE.Vector3();
+  private heroPos = new THREE.Vector3();
+  private crouch = 0; private crouchWant = 0;
+  private reach = 0; private reachWant = 0;
+  private hold?: (p: THREE.Vector3, r: number) => void;
+  start(boss: Foe, heroPos: THREE.Vector3, hold?: (p: THREE.Vector3, r: number) => void) {
+    this.on = true; this.boss = boss; this.heroPos.copy(heroPos); this.hold = hold;
+    this.crouch = this.crouchWant = 0; this.reach = this.reachWant = 0;
+    const dx = boss.pos.x - heroPos.x, dz = boss.pos.z - heroPos.z, l = Math.hypot(dx, dz) || 1;
+    this.target.set(heroPos.x + (dx / l) * 1.18, 0, heroPos.z + (dz / l) * 1.18);
+    this.hold?.(this.target, boss.d.r);
+  }
+  setStage(stage: 'approach' | 'reach' | 'stand') {
+    if (stage === 'approach') { this.crouchWant = 0.65; this.reachWant = 0; }
+    else if (stage === 'reach') { this.crouchWant = 1; this.reachWant = 1; }
+    else { this.crouchWant = 0; this.reachWant = 0; }
+  }
+  stop() { this.on = false; this.boss = null; }
+  get active() { return this.on; }
+  frame(dt: number) {
+    const f = this.boss; if (!this.on || !f) return;
+    const a = f.a, b = a.bones;
+    const dx = this.target.x - f.pos.x, dz = this.target.z - f.pos.z, dist = Math.hypot(dx, dz);
+    if (dist > 0.08 && this.crouchWant > 0) {
+      const spd = Math.min(dist / Math.max(0.016, dt), 1.65);
+      f.pos.x += (dx / dist) * spd * dt; f.pos.z += (dz / dist) * spd * dt;
+      this.hold?.(f.pos, f.d.r);
+      a.home.copy(f.pos); a.root.position.copy(f.pos);
+      a.yaw = Math.atan2(this.heroPos.x - f.pos.x, this.heroPos.z - f.pos.z);
+      a.setRunning(true, spd);
+      a.update(dt);
+      return;
+    }
+    a.setRunning(false, 0);
+    a.yaw = Math.atan2(this.heroPos.x - f.pos.x, this.heroPos.z - f.pos.z);
+    a.update(dt);
+    this.crouch += (this.crouchWant - this.crouch) * Math.min(1, dt * 3.8);
+    this.reach += (this.reachWant - this.reach) * Math.min(1, dt * 3.2);
+    const c = this.crouch, r = this.reach;
+    if (c < 0.01 && r < 0.01) return;
+    resetPose(b);
+    a.root.position.copy(f.pos).setY(0); a.root.rotation.set(0, a.yaw, 0);
+    // Robe-safe aristocratic half-crouch: moderate hip drop (-0.21 local) + folded 3-tier silk hem so robe3 sits flush on snow,
+    // while legs bend modestly INSIDE the wide bell robe (zero boot poke-through!)
+    mov(b.hips, 0, -0.21 * c, 0);
+    rot(b.legL, -0.28 * c, 0, 0.06 * c); rot(b.shinL, 0.56 * c); rot(b.footL, -0.28 * c);
+    rot(b.legR, -0.22 * c, 0, -0.06 * c); rot(b.shinR, 0.44 * c); rot(b.footR, -0.22 * c);
+    mov(b.robe1, 0, 0.05 * c, 0); rot(b.robe1, 0.18 * c);
+    mov(b.robe2, 0, 0.07 * c, 0); rot(b.robe2, -0.36 * c);
+    mov(b.robe3, 0, 0.07 * c, 0); rot(b.robe3, -0.28 * c);
+    rot(b.spine, 0.28 * c + 0.08 * r, -0.06 * r, 0);
+    rot(b.chest, 0.14 * c + 0.06 * r, -0.04 * r, 0);
+    rot(b.neck, 0.12 * c); rot(b.head, 0.22 * c, 0.04 * Math.sin(a.t * 1.4), 0);
+    // Left hand tucked calmly behind back / holding folded fan; right hand gently reaches out toward her white blindfold
+    rot(b.armL, 0.25 * c, 0, 0.12 * c); rot(b.foreL, -0.45 * c);
+    rot(b.armR, -0.35 * c - 0.72 * r, 0.14 * r, -0.08 * r);
+    rot(b.foreR, -0.32 * c - 0.16 * r, 0, 0);
+  }
+}
+
+/** act-114 (Ch5 ending choice): Cui Xuan kneeling in defeat on the vault flagstones — weapon gone, ivory silk robe spread cleanly
+ *  around his knees without floor clipping or boot poke-through, breathing heavily. */
+export function cuiKneelDefeatPose(a: BattleActor, t: number) {
+  const b = a.bones; resetPose(b);
+  a.root.position.copy(a.home).setY(0); a.root.rotation.set(0, a.yaw, 0);
+  a.body.position.set(0, 0, 0); a.body.rotation.set(0, 0, 0); a.body.scale.set(1, 1, 1);
+  if (b.weapon) b.weapon.visible = false;
+  if (b.offhand) b.offhand.visible = false;
+  const br = Math.sin(t * 2.4);
+  // Lower hips onto knees (-0.30 local) while draping robe1/2/3 cleanly above floor y>=0.02
+  mov(b.hips, 0, -0.30 + 0.005 * br, 0);
+  rot(b.legL, -0.14, 0, 0.08); rot(b.shinL, 1.38); rot(b.footL, 0.25);
+  rot(b.legR, -0.14, 0, -0.08); rot(b.shinR, 1.38); rot(b.footR, 0.25);
+  mov(b.robe1, 0, 0.08, 0); rot(b.robe1, 0.26);
+  mov(b.robe2, 0, 0.11, 0); rot(b.robe2, -0.52);
+  mov(b.robe3, 0, 0.11, 0); rot(b.robe3, -0.42);
+  rot(b.spine, 0.14 + 0.025 * br, 0, 0);
+  rot(b.chest, 0.08 - 0.02 * br, 0, 0);
+  rot(b.neck, 0.06); rot(b.head, 0.10 + 0.03 * br, 0.04 * Math.sin(t * 0.9), 0);
+  rot(b.armL, -0.38, -0.22, 0.12); rot(b.foreL, -0.52);
+  rot(b.armR, -0.38, 0.22, -0.12); rot(b.foreR, -0.52);
+}
+
+/** act-114 (Ch5 ending choice): Liu Bai standing opposite kneeling Cui Xuan, extending her bright sabre level so its tip hovers
+ *  just short of his throat with a subtle controlled tremble — world-space quaternion aim guarantees ZERO neck clipping. */
+export function heroHoldThroatPose(a: BattleActor, targetWorld: THREE.Vector3, t: number) {
+  const b = a.bones; resetPose(b);
+  a.root.position.copy(a.home).setY(0); a.root.rotation.set(0, a.yaw, 0);
+  a.body.position.set(0, 0, 0); a.body.rotation.set(0, 0, 0); a.body.scale.set(1, 1, 1);
+  if (b.weapon) b.weapon.visible = true;
+  const br = Math.sin(t * 2.1), tr = 0.012 * Math.sin(t * 17) + 0.008 * Math.sin(t * 29);
+  rot(b.legL, -0.14, 0, 0.08); rot(b.shinL, 0.16); rot(b.footL, -0.02);
+  rot(b.legR, 0.16, 0, -0.08); rot(b.shinR, 0.12); rot(b.footR, -0.28);
+  rot(b.spine, 0.05 + 0.015 * br, -0.22, 0);
+  rot(b.chest, 0.04, -0.14, 0);
+  rot(b.neck, 0.04, 0.18); rot(b.head, 0.06, 0.18, 0);
+  // Left hand poised on scabbard; right arm extended forward holding blade steady
+  rot(b.armL, 0.16, 0.2, 0.18); rot(b.foreL, -0.82);
+  rot(b.armR, -1.24 + tr, 0.16, -0.06); rot(b.foreR, -0.22 + tr * 0.5);
+  // Aim weapon strictly toward targetWorld (throat stop point) so the blade flat & tip align cleanly without piercing him
+  const w = b.weapon;
+  if (w && w.parent) {
+    a.root.updateMatrixWorld(true);
+    const grip = new THREE.Vector3(); w.getWorldPosition(grip);
+    const dir = targetWorld.clone().sub(grip);
+    if (dir.lengthSq() > 1e-4) {
+      dir.normalize();
+      const side = V3(0, 1, 0).cross(dir);
+      if (side.lengthSq() < 1e-4) side.set(1, 0, 0); else side.normalize();
+      const qw = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(side, dir.clone().cross(side), dir));
+      const qp = new THREE.Quaternion(); w.parent.getWorldQuaternion(qp);
+      w.quaternion.copy(qp.invert().multiply(qw)); w.updateMatrixWorld(true);
+    }
+  }
+}
+
+/** act-114 helper: smoothly hide/show the crimson blindfold band baked into heroine's head mesh vertex colors for Ending C */
+function setHeadUnblind(head: THREE.Object3D | undefined, unblind: boolean) {
+  if (!head) return;
+  head.traverse(o => {
+    const m = o as THREE.Mesh; if (!m.isMesh || !m.geometry) return;
+    const col = m.geometry.getAttribute('color') as THREE.BufferAttribute | undefined;
+    const pos = m.geometry.getAttribute('position') as THREE.BufferAttribute | undefined;
+    if (!col || !pos) return;
+    if (m.userData._unblindState === unblind) return;
+    if (!m.userData._origColors) {
+      const saved = new Float32Array(col.count * 3);
+      for (let i = 0; i < col.count; i++) { saved[i * 3] = col.getX(i); saved[i * 3 + 1] = col.getY(i); saved[i * 3 + 2] = col.getZ(i); }
+      m.userData._origColors = saved;
+    }
+    const orig = m.userData._origColors as Float32Array;
+    if (!unblind) {
+      for (let i = 0; i < col.count; i++) col.setXYZ(i, orig[i * 3], orig[i * 3 + 1], orig[i * 3 + 2]);
+    } else {
+      const skin = new THREE.Color(0xf6c9a5), hair = new THREE.Color(0xf1ede9), eye = new THREE.Color(0x281e24);
+      for (let i = 0; i < col.count; i++) {
+        const r = orig[i * 3], g = orig[i * 3 + 1], bl = orig[i * 3 + 2];
+        // Match crimson blindfold band vertices (works for both Uint8 normalized & Float32 sRGB/linear!)
+        if (r > 0.25 && r > g * 2.2 && r > bl * 2.2) {
+          const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+          if (z > 0.08) {
+            const isEye = y > 0.06 && y < 0.14 && ((x > 0.04 && x < 0.13) || (x < -0.04 && x > -0.13));
+            const c = isEye ? eye : skin;
+            col.setXYZ(i, c.r, c.g, c.b);
+          } else {
+            col.setXYZ(i, hair.r, hair.g, hair.b);
+          }
+        }
+      }
+    }
+    col.needsUpdate = true;
+    m.userData._unblindState = unblind;
+  });
+}
+
+/** act-114 (Ending C): Liu Bai seated solidly ON Du Wu's wooden bench beside the warm cook-fire, unarmed, hands warming by the fire;
+ *  when `unblind` is true both the head blindfold band and trailing ribbons come off cleanly in 3D! */
+export function heroSitFirePose(a: BattleActor, t: number, unblind: boolean) {
+  const b = a.bones; resetPose(b);
+  a.root.position.copy(a.home).setY(0); a.root.rotation.set(0, a.yaw, 0);
+  a.body.position.set(0, 0, 0); a.body.rotation.set(0, 0, 0); a.body.scale.set(1, 1, 1);
+  if (b.weapon) b.weapon.visible = false;
+  for (const n of ['bfA1', 'bfA2', 'bfA3', 'bfB1', 'bfB2', 'bfB3']) if (b[n]) b[n].visible = !unblind;
+  setHeadUnblind(b.head, unblind);
+  const H = hipHeight(a), br = Math.sin(t * 1.6);
+  // Seated squarely on Du Wu's wooden bench (seat top ≈ 0.42m -> hip center ≈ 0.46m; soles planted on ground!)
+  mov(b.hips, 0, 0.46 - H + 0.004 * br, 0);
+  rot(b.legL, -1.46, 0.12, 0.10); rot(b.shinL, 1.48); rot(b.footL, -0.02);
+  rot(b.legR, -1.46, -0.12, -0.10); rot(b.shinR, 1.48); rot(b.footR, -0.02);
+  rot(b.spine, 0.08 + 0.02 * br); rot(b.chest, 0.04 - 0.015 * br);
+  rot(b.neck, 0.04); rot(b.head, 0.05 + 0.025 * Math.sin(t * 0.8), 0.07 * Math.sin(t * 0.55), 0);
+  // Hands cupped gently toward the warmth of the cook-fire
+  rot(b.armL, -0.58, -0.26, 0.12); rot(b.foreL, -0.82);
+  rot(b.armR, -0.58, 0.26, -0.12); rot(b.foreR, -0.82);
+  const f = V3(Math.sin(a.yaw), 0, Math.cos(a.yaw));
+  hangChains(a, () => V3(0, -1, 0).addScaledVector(f, -0.35), 1);
+}
+
+/** act-114 (Ending C): Du Wu / Sun Ao seated or crouched warmly around the cook-fire */
+export function npcWarmPose(a: BattleActor, t: number, kneelAmt = 0.62) {
+  const w = a as Walker;
+  w.walkPh = undefined;
+  w.kneel = kneelAmt + 0.03 * Math.sin(t * 1.4);
+  a.update(0.016);
+}
+
+/** act-114 (Endings A & B): reusable smooth exit walk shot — heroine walks steadily away from `from` to `to` (clamped inside room),
+ *  never walking backwards or clipping walls, with crisp zero-slide stride animation. */
+export function endingWalkShots(
+  hero: { a: BattleActor; pos: THREE.Vector3 },
+  from: [number, number], to: [number, number], dur: number,
+  camFrom: { pos: V; look: V; fov: number }, camTo: { pos: V; look: V; fov: number },
+  opts?: { hold?: (p: THREE.Vector3, r: number) => void; tickExtra?: (t: number, dt: number) => void; at?: Array<[number, () => void]> },
+): CineShot[] {
+  const yaw = Math.atan2(to[0] - from[0], to[1] - from[1]);
+  const dist = Math.hypot(to[0] - from[0], to[1] - from[1]);
+  const spd = dist / Math.max(0.5, dur);
+  const m = motionOf(hero.a);
+  return [{
+    dur, ease: 'inOut',
+    from: camKey(camFrom), to: camKey(camTo),
+    at: [[0, () => {
+      hero.pos.set(from[0], 0, from[1]); hero.a.home.copy(hero.pos); hero.a.root.position.copy(hero.pos);
+      hero.a.yaw = yaw; m.run = 0.42;
+    }], ...(opts?.at ?? [])],
+    tick: (t, dt) => {
+      const u = Math.min(1, t / Math.max(0.1, dur));
+      hero.pos.set(from[0] + (to[0] - from[0]) * u, 0, from[1] + (to[1] - from[1]) * u);
+      opts?.hold?.(hero.pos, 0.35);
+      hero.a.home.copy(hero.pos); hero.a.root.position.copy(hero.pos); hero.a.yaw = yaw;
+      m.run = u < 0.96 ? 0.44 : 0; m.phase += dt * Math.max(4.5, spd * 3.8);
+      hero.a.update(dt);
+      opts?.tickExtra?.(t, dt);
+    },
+  }];
+}

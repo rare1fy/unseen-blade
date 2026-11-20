@@ -15,7 +15,7 @@ import * as THREE from 'three';
 import { V3, onUpdate, R, scene, warm, frames, precompile } from '../engine/world';
 import { hitstop, shake, slowmo, after, anim, clock, FX, waitReal, PAUSE } from '../engine/clock';
 import { shot, CINE_PX } from '../director';
-import { fxImpact, fxSparks, fxSmoke, fxRing, fxEmbers, fxFlare, fxChips, trailSeg } from '../fx/fx';
+import { fxImpact, fxSparks, fxSmoke, fxRing, fxEmbers, fxFlare, fxGlow, fxChips, trailSeg } from '../fx/fx';
 import { fxAfterimage } from '../fx/skillFx';
 import { addBlock, debrisContacts } from '../fx/blocks';
 import { popPix } from '../v2/pix';
@@ -51,9 +51,10 @@ import { ROSTER } from '../bestiary/models';
 import { CODE_BUILD } from '../bestiary/voxEdit';
 import { rackBlades, hideoutScene, HIDEOUT, HIDEOUT_PEOPLE } from './hideout';
 import { Timeline, type V } from './timeline';
-import { openingShots, bossIntroShots, type CineHost } from './cutscenes';
-import { NPC_TALK, STELE_TALK, MEAL_TALK, UP_TALK, POOR_TALK, WAKE_DUWU, WAKE_SUNAO, CHULEI_BEFORE, CH_BEFORE, CH_AFTER, BOSS_AFTER, STRIKE_FLAG, bossesDown, struckOnStele, ENDING, ENDING_PICK, deathLine, PRO_CUIXUAN, PRO_FALL, PRO_DAWN, PRO_WAKE, PRO_CAPTIONS, PRO_AMBUSH } from './scripts';
-import { fallShots, snowShots, dawnShots, loadShots, brazier, getUpPose, drapeOver, GETUP_STEP, Kneel, KNEEL_ARMS, type PrologueHost } from './prologue';
+import { openingShots, bossIntroShots, generalIntroShots, steleStrikeShots, safeCam, type CineHost } from './cutscenes';
+import { NPC_TALK, STELE_TALK, MEAL_TALK, UP_TALK, POOR_TALK, WAKE_DUWU, WAKE_SUNAO, CHULEI_BEFORE, CH_BEFORE, CH_AFTER, BOSS_AFTER, STRIKE_FLAG, bossesDown, struckOnStele, ENDING, ENDING_PICK, ENDING_DESC, GEN_BEFORE, GEN_AFTER, deathLine, PRO_CUIXUAN, PRO_FALL, PRO_DAWN, PRO_WAKE, PRO_CAPTIONS, PRO_AMBUSH } from './scripts';
+import { fallShots, snowShots, dawnShots, snapDawn, loadShots, brazier, getUpPose, drapeOver, GETUP_STEP, Kneel, KNEEL_ARMS, CuiInspect, cuiKneelDefeatPose, heroHoldThroatPose, heroSitFirePose, npcWarmPose, endingWalkShots, type PrologueHost } from './prologue';
+import { AllyGeneral, GENERAL_REGIONS, type AllyHost } from './foes/generals_ai';
 import { coldOpenShots, coldCardShots, BlindPOV } from './coldopen';
 import { Barks } from './barks';
 import { installR45 } from './regions/r45_hook';
@@ -407,6 +408,14 @@ export class ActShow {
   }
   /** 11-18: her pose from 石雷's blow until 杜五 lifts her onto the donkey — on one knee, bleeding (prologue.ts Kneel) */
   private proKneel = new Kneel();
+  /** act-114: Cui Xuan's inspect/reach motion during pro_fall, Three Kingdoms ally/duel generals, ending scene puppet & per-frame talk hook */
+  private cuiInspect = new CuiInspect();
+  private allyGen: AllyGeneral | null = null;
+  private duelGen: { f: Foe; region: number; t: number; parries: number; done: boolean } | null = null;
+  private endCui: BattleActor | null = null;
+  private talkTick: ((dt: number) => void) | null = null;
+  private pendingDeathTalk = false;
+  private forceGeneral: number | null = null;
   private proHost: PrologueHost = {
     hero: { get a() { return SELF!.hero.a; }, get pos() { return SELF!.hero.pos; } } as PrologueHost['hero'],
     kneel: this.proKneel,
@@ -429,10 +438,10 @@ export class ActShow {
     //  again once let go; the stick is left alone)
     this.phase = was; this.hud.on = true; this.inp.latch(false);
   }
-  /** a timeline cutscene; the HUD hides, gameplay waits (phase 'cine') */
-  async cine(shots: Parameters<Timeline['play']>[0]) {
+  /** a timeline cutscene; the HUD hides, gameplay waits (phase 'cine'); optional onEnd guarantees skip-safe end state */
+  async cine(shots: Parameters<Timeline['play']>[0], onEnd?: (skipped: boolean) => void) {
     const was = this.phase; this.phase = 'cine'; this.hud.on = false; this.banner.hide();
-    const skipped = await this.timeline.play(shots);
+    const skipped = await this.timeline.play(shots, onEnd);
     this.cineHost.clearPuppets(); this.inp.latch(false);   // (a long press skipped it — the same held button)
     shot('act', () => this.camPose(), { cut: true, speed: 8 });
     this.phase = was; this.hud.on = true; return skipped;
@@ -513,6 +522,23 @@ export class ActShow {
     const snowRing = (x: number, z: number, r = 1.4) => fxRing(V3(x, 0.05, z), 0xdfe8ff, r, { life: 0.9 } as never);
     const stand = () => { h.pos.z = stopZ; motionOf(h.a).run = 0; };
     const cam = (dx: number, y: number, dz: number, lz: number, fov: number): { pos: V; look: V; fov: number } => ({ pos: [p0.x + dx, y, stopZ + dz] as V, look: [p0.x, 0.9, stopZ + lz] as V, fov });
+    const spawnAmbushers = () => {
+      if (jumpers.length) return;
+      for (const [i, r] of ring.entries()) {
+        // (where each lands: round her at its own angle, turned a little at a time until the spot is clear of the props, the cover
+        //  and the walls — none lands in a post or a crate)
+        const clearAt = (x: number, z: number, rr: number) => this.solids.free(x, z, rr, 0.3) && (!this.grid || this.grid.clear(x, z, rr));
+        const leapClear = (fx: number, fz: number, tx: number, tz: number) => { for (let q = 0; q <= 10; q++) { const u = q / 10; if (!clearAt(fx + (tx - fx) * u, fz + (tz - fz) * u, 0.45)) return false; } return true; };
+        let a = r.a, dd = r.d; const ok = (x: number, z: number) => clearAt(x, z, 0.9) && jumpers.every(j => j.to.distanceTo(V3(x, 0, z)) > 1.3);
+        for (let tt = 0; tt < 24 && !ok(p0.x + Math.sin(a) * dd, stopZ + Math.cos(a) * dd); tt++) { a += (tt % 2 ? -1 : 1) * 0.22 * (tt + 1); if (tt === 12) dd += 0.6; }
+        const ko = kindOr(r.k), to = V3(p0.x + Math.sin(a) * dd, 0, stopZ + Math.cos(a) * dd);
+        let from = to.clone().add(V3(Math.sin(a) * 4.5, 0, Math.cos(a) * 4.5));
+        for (let back = 4.5; back > 0.6 && !leapClear(from.x, from.z, to.x, to.z); back -= 0.5) from = to.clone().add(V3(Math.sin(a) * back, 0, Math.cos(a) * back));
+        const f = spawnFoe(ko.kind, from, h.pos.clone(), ko.elite); f.st = 'enter'; f.cd = 2.5; this.foes.push(f);
+        jumpers.push({ f, from, to, t0: 0.12 + i * 0.22, landed: false });
+      }
+      cue('roar', 0.35); this.musicHold = null; void audio.playMusic(this.musicName(), 2.5);
+    };
     void this.cine([
       // the year and the place, high over the village (act-37: the cold open's last card says 七年了)
       { dur: 3.6, ease: 'inOut', caption: { text: PRO_CAPTIONS[1], big: true, at: 0.6, hold: 2.3 }, from: { pos: [p0.x + 4, 17, p0.z + 15], look: [p0.x, 0, p0.z - 5], fov: 40 }, to: { pos: [p0.x + 3, 14, p0.z + 13], look: [p0.x, 0, p0.z - 5], fov: 40 },
@@ -526,25 +552,7 @@ export class ActShow {
         tick: (t, dt) => { stand(); h.a.update(dt); const hd = h.a.bones.head; if (hd) hd.rotation.y += 0.35 * Math.sin(Math.min(1, t / 1.6) * Math.PI); } },
       // they come out: from behind the houses and over the walls, a jump each, landing round her in the snow, one after another
       { dur: 2.4, ease: 'out', from: cam(0.6, 7.0, 8.4, -0.8, 40), to: cam(0.4, 6.4, 7.6, -0.6, 40),
-        at: [[0, () => {
-          for (const [i, r] of ring.entries()) {
-            // (where each lands: round her at its own angle, turned a little at a time until the spot is clear of the props, the cover
-            //  and the walls — none lands in a post or a crate)
-            // (11-19 用户：「穿模的问题还是有没解决的」: a sentry landed with his arm in a fence and stood so through the talk; the spot now
-            //  keeps a body and its reach (0.9 m) clear of every prop, and the whole leap — from where he jumps to where he lands — passes
-            //  over nothing solid)
-            const clearAt = (x: number, z: number, rr: number) => this.solids.free(x, z, rr, 0.3) && (!this.grid || this.grid.clear(x, z, rr));
-            const leapClear = (fx: number, fz: number, tx: number, tz: number) => { for (let q = 0; q <= 10; q++) { const u = q / 10; if (!clearAt(fx + (tx - fx) * u, fz + (tz - fz) * u, 0.45)) return false; } return true; };
-            let a = r.a, dd = r.d; const ok = (x: number, z: number) => clearAt(x, z, 0.9) && jumpers.every(j => j.to.distanceTo(V3(x, 0, z)) > 1.3);
-            for (let tt = 0; tt < 24 && !ok(p0.x + Math.sin(a) * dd, stopZ + Math.cos(a) * dd); tt++) { a += (tt % 2 ? -1 : 1) * 0.22 * (tt + 1); if (tt === 12) dd += 0.6; }
-            const ko = kindOr(r.k), to = V3(p0.x + Math.sin(a) * dd, 0, stopZ + Math.cos(a) * dd);
-            let from = to.clone().add(V3(Math.sin(a) * 4.5, 0, Math.cos(a) * 4.5));
-            for (let back = 4.5; back > 0.6 && !leapClear(from.x, from.z, to.x, to.z); back -= 0.5) from = to.clone().add(V3(Math.sin(a) * back, 0, Math.cos(a) * back));
-            const f = spawnFoe(ko.kind, from, h.pos.clone(), ko.elite); f.st = 'enter'; f.cd = 2.5; this.foes.push(f);
-            jumpers.push({ f, from, to, t0: 0.12 + i * 0.22, landed: false });
-          }
-          cue('roar', 0.35); this.musicHold = null; void audio.playMusic(this.musicName(), 2.5);
-        }]],
+        at: [[0, spawnAmbushers]],
         tick: (t, dt) => {
           stand(); h.a.update(dt);
           for (const j of jumpers) {
@@ -558,7 +566,16 @@ export class ActShow {
       // the ring closed: low, from outside it, her in the middle
       { dur: 1.6, ease: 'inOut', from: cam(5.6, 4.4, 7.2, -0.4, 38), to: cam(5.0, 4.0, 6.6, -0.3, 36),
         tick: (_t, dt) => { stand(); h.a.update(dt); for (const j of jumpers) { j.f.a.off.y = 0; j.f.a.update(dt); } } },
-    ]).then(async () => {
+    ], () => {
+      // act-114 skip-safety: even if player skipped shot 0/1/2, hero is at stopZ and wave-0 ambushers are landed & music is live
+      h.pos.set(p0.x, 0, stopZ); h.a.home.copy(h.pos); h.a.root.position.copy(h.pos); h.a.yaw = Math.PI; motionOf(h.a).run = 0;
+      spawnAmbushers();
+      for (const j of jumpers) {
+        j.landed = true; j.f.pos.copy(j.to); j.f.pos.y = 0; j.f.a.home.copy(j.to); j.f.a.off.y = 0;
+        j.f.yaw = Math.atan2(h.pos.x - j.f.pos.x, h.pos.z - j.f.pos.z); j.f.a.yaw = j.f.yaw; j.f.a.update(0.016);
+      }
+      if (this.musicHold) { this.musicHold = null; void audio.playMusic(this.musicName(), 2.0); }
+    }).then(async () => {
       if (this.phase !== 'intro' || this.hero !== h) return;
       for (const j of jumpers) { j.f.pos.copy(j.to); j.f.a.home.copy(j.to); j.f.a.off.y = 0; }
       await this.talk(PRO_AMBUSH);
@@ -575,16 +592,22 @@ export class ActShow {
     const boss = this.foes.find(f => isBoss(f) && f.st !== 'dead') ?? null;
     this.hero.inv = 99;
     for (const f of this.foes) { dropTeles(f); f.attacking = false; f.lunge = null; }   // nothing left half-swung on the snow
-    // (11-18 用户：「这个地上的白光是啥，一直在那儿，被boss打死触发剧情的时候就这样」: 石雷's bolt that struck her down flashes its ground
-    //  mark white for a moment — but the cutscene stops the world before it fades, so it hung there through the talk. Every bolt, talisman
-    //  and mark in flight goes now, and the red arcs of the blow)
     for (const a of this.arrows) a.kill(); this.arrows.length = 0; this.hitArcs.clear();
     const kneelPose = () => this.proKneel.frame(this.hero.a);
     if (boss) {
       await this.cine(fallShots(this.proHost, boss));
       if (!this.proKneel.active) this.proKneel.start();   // (the shot skipped before the blow landed: she still goes down on her knee)
-      // (her line 「颤抖的指尖在雪泥里死死够向刀柄」: the right hand goes out toward the sabre on the snow; back down after it)
-      this.hero.scriptPose = kneelPose; await this.talk(PRO_FALL, (_i, l) => { this.proKneel.reachWant = l.who === 'act' && /刀柄|长刀脱手|挑飞/.test(l.text) ? 1 : 0; }); this.proKneel.reachWant = 0; this.hero.scriptPose = null;
+      // act-114: Cui Xuan steps closer, half-crouches (robe-safe), and gently reaches toward her white blindfold during PRO_FALL
+      this.cuiInspect.start(boss, this.hero.pos, (p, r) => this.clamp(p, r));
+      this.hero.scriptPose = kneelPose;
+      await this.talk(PRO_FALL, (i, l) => {
+        this.proKneel.reachWant = l.who === 'act' && /刀柄|长刀脱手|挑飞/.test(l.text) ? 1 : 0;
+        if (i === 1) this.cuiInspect.setStage('approach');
+        else if (i === 2) this.cuiInspect.setStage('reach');
+        else if (i >= 4) this.cuiInspect.setStage('stand');
+      });
+      this.cuiInspect.stop();
+      this.proKneel.reachWant = 0; this.hero.scriptPose = null;
       this.phase = 'cine'; await this.cine(snowShots(this.proHost, boss));
     } else this.proKneel.start();
     // dawn outside: the snow has stopped, the frozen dead lie in the ditch (11-19 剧情改版: thrown out of 崔府's back gate — the
@@ -599,7 +622,7 @@ export class ActShow {
     });
     const dead: Array<[EKind, number, number]> = [['hj_mob', at.x - 3.2, at.z + 2.6], ['hj_blade', at.x - 1.4, at.z + 3.6], ['hj_mob', at.x + 2.4, at.z - 1.8]];
     const who: { duwu: BattleActor | null; donkey: BattleActor | null } = { duwu: null, donkey: null };
-    await this.cine(dawnShots(this.proHost, at, dead, who));
+    await this.cine(dawnShots(this.proHost, at, dead, who), () => snapDawn(this.proHost, at, who));
     await this.talk(PRO_DAWN); this.hero.scriptPose = null;
     await this.cine(loadShots(this.proHost, who));
     this.proKneel.stop();
@@ -607,32 +630,38 @@ export class ActShow {
     this.prologue = 0; this.forceSpec = null;
     let wakeK: (k: number) => void = () => {};
     let bloomWas = GRADE.bloomThreshold;
+    let duwuSaved: { x: number; z: number; yaw: number } | null = null;
     // (act-40 用户：「被救回去应该是先趟垫子上的啊，怎么是站着的」: she wakes lying on 孙媪's mat, and gets up at the line where she
     //  pushes herself up the wall; the kiln's own music for the scene — the hideout's comes after)
     await wipeTransit(async () => {
       await this.enterYard(); this.musicHold = 'bgm_kiln'; void audio.playMusic('bgm_kiln', 1.2);
-      // (act-44 用户：「躺着那个更扯，头都插进墙了，起来的时候直接以足底为圆心旋转」: on her back along the mat, her hips at its middle and
-      //  her head toward the wall with a metre to spare; getting up pivots on the hips — getUpPose)
       const h = this.hero; h.pos.set(WAKE_MAT[0], 0, WAKE_MAT[1]); h.a.yaw = 0; let gk = 0; h.scriptPose = () => getUpPose(h.a, gk);
-      // (the battle camera looks down the mat from her feet — lying and standing look the same from there; this scene is seen from
-      //  the side, low, the mat across the middle of the screen between the two portraits)
+      // act-114: bring Du Wu beside Sun Ao's straw mat (5.45, -6.55 — completely clear of mat/stele/stove/table!) so he is in frame during PRO_WAKE
+      const dw = this.npcs.find(n => n.id === 'duwu');
+      if (dw) {
+        duwuSaved = { x: dw.x, z: dw.z, yaw: dw.yaw };
+        dw.x = 5.45; dw.z = -6.55; dw.yaw = Math.atan2(WAKE_MAT[0] - dw.x, WAKE_MAT[1] - dw.z);
+        dw.a.place(V3(dw.x, 0, dw.z), dw.yaw); dw.a.yaw = dw.yaw; dw.sh.position.set(dw.x, 0.025, dw.z);
+      }
       this.camOverride = { base: V3(3.7, 2.5, -3.9), look: V3(6.55, 0.45, -6.1), fov: 40 }; shot('act', () => this.camPose(), { cut: true, speed: 8 });
-      // (on her back the white hair at the back of her head faces the sun square on and went over the bloom threshold — a halo round
-      //  her head; the threshold up for this scene)
       bloomWas = GRADE.bloomThreshold; GRADE.bloomThreshold = Math.max(bloomWas, 1.6);
       wakeK = (k: number) => { gk = k; };
     });
     await new Promise(r => after(0.8, () => r(null)));
     seeOnce('wake1'); let up = false, talked = false;
-    // her sabre comes back once the talk is over (孙婆婆：「把刀给她吧」) and she is on her feet — whichever is later
     const giveBlade = () => { const w = this.hero.a.bones.weapon; if (w) w.visible = true; };
     const getUp = () => { if (up) return; up = true; const h = this.hero; let k = 0; const step = () => { k = Math.min(1, k + 1 / (30 * 3.2)); wakeK(k);
       if (k < 1) { after(1 / 30, step); return; }
-      // standing: the body offset goes into her position (she has stepped forward onto her feet), the cutscene pose lets go
       h.pos.x += Math.sin(h.a.yaw) * GETUP_STEP; h.pos.z += Math.cos(h.a.yaw) * GETUP_STEP; h.a.root.position.copy(h.pos); h.a.body.position.set(0, 0, 0); h.a.body.rotation.set(0, 0, 0); h.scriptPose = null; if (talked) giveBlade(); };
       step(); };
     await this.talk(PRO_WAKE, (_i, l) => { if (l.who === 'act' && /撑起|站起|起身/.test(l.text)) getUp(); });
     getUp(); this.musicHold = null; this.music(); saveProfile();
+    // Restore Du Wu cleanly back to his cook-pot station after PRO_WAKE
+    const dwOrig = duwuSaved as { x: number; z: number; yaw: number } | null;
+    if (dwOrig) {
+      const dw = this.npcs.find(n => n.id === 'duwu');
+      if (dw) { dw.x = dwOrig.x; dw.z = dwOrig.z; dw.yaw = dwOrig.yaw; dw.a.place(V3(dw.x, 0, dw.z), dw.yaw); dw.a.yaw = dw.yaw; dw.sh.position.set(dw.x, 0.025, dw.z); }
+    }
     talked = true; if (!this.hero.scriptPose) giveBlade();
     this.camOverride = null; GRADE.bloomThreshold = bloomWas;   // (the battle camera eases back in)
   }
@@ -826,7 +855,10 @@ export class ActShow {
     this.tut = new Tutorial(this.L); this.feed = new RewardFeed(this.L); this.duel = new Duel(this.duelHost);   // 11-18 QTE 拼刀 / 连环破势 (act/qte.ts)
     platform.onPointer(ev => { if (ev.type === 'down') this.unlockAudio(); this.pointer(ev.type, (ev as { id?: number }).id ?? 0, ev.x, ev.y); });
     platform.onResize(() => this.layout2());
-    if (typeof window !== 'undefined') window.addEventListener('keydown', e => this.key(e));
+    if (HAS_DOM) {
+      window.addEventListener('keydown', e => this.key(e));
+      window.addEventListener('keyup', e => this.keyUp(e));
+    }
     onUpdate((dt, rdt) => this.frame(dt, rdt));
     this.layout2();
     // the player's settings: the tuning panel shows the long labels, the pause menu's 设置 page the short ones (act-30 之后)
@@ -891,7 +923,14 @@ export class ActShow {
       // 11-18 一局五关: jump to a room of a region (n 0 起; room within it; the boss room = REGIONS[n].rooms), or straight to region n's boss
       bench: (tiers?: Tier[]) => this.bench(tiers),
       region: (n = 1, room = 0, type: RoomType = 'fight') => this.jumpRegion(n, room, type),
-      boss: (n = 0) => { this.jumpRegion(n, REGIONS[Math.max(0, Math.min(REGIONS.length - 1, n))].rooms, 'boss'); }, newGame: () => this.startNewGame(), talkTest: (n = 0) => this.talk(n ? CHULEI_BEFORE : WAKE_DUWU), act: () => this, bot: (on = true) => { this.botOn = on; }, run: () => this.startRun(), yard: () => this.enterYard(), wear: (id: string) => { const d = HEROES.find(h => h.id === id); if (d) this.wear(d); },
+      boss: (n = 0) => { this.jumpRegion(n, REGIONS[Math.max(0, Math.min(REGIONS.length - 1, n))].rooms, 'boss'); },
+      /** act-114: jump straight to Three Kingdoms general encounter (0=赵云, 1=吕布, 2=夏侯惇, 3=陆逊) */
+      general: (n = 0) => { const ri = Math.max(0, Math.min(GENERAL_REGIONS.length - 1, n)); this.forceGeneral = ri; return this.jumpRegion(ri, 2, 'fight'); },
+      /** act-114: preview Ch5 blade-at-throat ending choice, or directly play ending 'a' | 'b' | 'c' */
+      ending: (choice?: 'a' | 'b' | 'c') => { void this.debugEnding(choice); },
+      /** act-114: preview hideout stele carving cutscene for name index n (0..4) */
+      steleCut: (n = 0) => { void this.debugSteleCut(Math.max(0, Math.min(4, n))); },
+      newGame: () => this.startNewGame(), talkTest: (n = 0) => this.talk(n ? CHULEI_BEFORE : WAKE_DUWU), act: () => this, bot: (on = true) => { this.botOn = on; }, run: () => this.startRun(), yard: () => this.enterYard(), wear: (id: string) => { const d = HEROES.find(h => h.id === id); if (d) this.wear(d); },
       skin: (id: SkinId) => this.cycleSkin(id),
       cardsDemo: () => { void this.cards.open([BOONS[0], BOONS[6], BOONS[12]].map((boon, tier) => ({ boon, tier }))); },
       /** captures: these boons as a pick, tiers 0 / 1 / 2 in turn */ cardsOf: (ids: string[]) => { void this.cards.open(ids.map((id, i) => ({ boon: BOONS.find(b => b.id === id) ?? BOONS[0], tier: i % 3 }))); },
@@ -984,7 +1023,7 @@ export class ActShow {
               if (name === 'collapse') return a.collapse();
               if (name === 'roar') return a.roar();
             }
-            const variant = /^(wl|cx)_/.test(a.def.id) && !['attack', 'cast', 'hurt', 'fall', 'collapse', 'roar'].includes(name);
+            const variant = /^(wl|cx|gen)_/.test(a.def.id) && !['attack', 'cast', 'hurt', 'fall', 'collapse', 'roar'].includes(name);
             const impact = at ?? (name === 'cast' || name === 'fall' ? 0.6 : name === 'hurt' ? 0.1 : name === 'roar' ? 0.35 : namedImpact[name] ?? 0.5);
             return a.play(new Action(variant ? 'attack' : name, dur ?? 1.2, impact, variant ? { atk: name } : {}));
           },
@@ -1298,8 +1337,7 @@ export class ActShow {
       after(0.6, () => this.banner.show(title, line, 3.0, '#ffd27a'));
     }
     this.musicHold = null;
-    if (this.justDied) { after(0.3, () => cue('stingRevive', 1)); }
-    if (this.justDied) { this.justDied = false; const who = (['duwu', 'sunao', 'fengtiebi'] as const)[Math.floor(Math.random() * 3)]; after(1.0, () => { if (this.phase === 'yard') void this.talk(deathLine(who)); }); }
+    if (this.justDied) { this.justDied = false; this.pendingDeathTalk = true; after(0.3, () => cue('stingRevive', 1)); }
     this.intent = 0; this.hud.intent = 0;
     this.perks = newPerks(); this.room = -1; this.kills = 0; this.locale = 'ninja_wilds'; this.recent = []; this.plan = null; this.demo.stop(); this.syncMarks();
     TUNE.heroHp = 100; return this.buildRoom(true);
@@ -1439,6 +1477,10 @@ export class ActShow {
     blood.clear();
     slashArc.clear();
     this.splitK = 0; GRADE.split = 0;
+    this.cuiInspect.stop(); this.talkTick = null;
+    if (this.allyGen) { this.allyGen.dispose(); this.allyGen = null; }
+    this.duelGen = null;
+    if (this.endCui) { this.endCui.dispose(); this.endCui = null; }
     this.duel?.newRoom(); for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = []; this.entering.length = 0;
     this.falling = [];
     this.gates?.dispose(); this.gates = null; this.pieces?.dispose(); this.pieces = null; this.leaves?.dispose(); this.leaves = null; this.clearNpcs();
@@ -1592,13 +1634,135 @@ export class ActShow {
     if (!P.fixtures || !OPT.slicedRoom) yield* prepareFightModels(this.plan?.waves ?? []);
     yield;
     yield* prepareFight();
-    // walk in from the front of the room, then the first wave
+    // walk in from the front of the room, then the first wave (or Three Kingdoms famous general encounter on room 2!)
     const h = this.hero; this.introT = 0;
     after(1.1, () => {
       if (this.hero !== h || this.phase !== 'intro') return;
-      this.phase = 'fight'; this.spawnWave();
+      this.phase = 'fight';
+      if (!this.tryGeneralEncounter()) this.spawnWave();
     });
     this.log.push(`room ${this.room} ${spec.locale} ${spec.layout} ${spec.time} ${this.arena?.shape?.id ?? 'square'}`);
+  }
+  /** act-114 三国名将遭遇（第一关赵云 / 第二关吕布 / 第三关夏侯惇 / 第四关陆逊，出现在每关第 3 间，房间索引 2） */
+  private tryGeneralEncounter(): boolean {
+    const forced = this.forceGeneral;
+    this.forceGeneral = null;
+    if (this.prologue || this.plan?.type !== 'fight') return false;
+    const ri = forced != null ? forced : this.region;
+    if (ri < 0 || ri >= GENERAL_REGIONS.length) return false;
+    if (forced == null && (this.room !== 2 || !seeOnce(`gen_r${ri + 1}`))) return false;
+    saveProfile();
+    const g = GENERAL_REGIONS[ri];
+    const hp = this.hero.pos;
+    // Find a verified clear spot on the floor in front of Liu Bai (never inside props/walls/pits/bridges!)
+    const findSpot = (dist: number) => {
+      const p = V3(hp.x, 0, hp.z - dist);
+      for (let t = 0; t < 24; t++) {
+        const ang = (t === 0 ? 0 : (t % 2 ? 1 : -1) * Math.ceil(t / 2) * 0.28);
+        const tx = hp.x + Math.sin(ang) * dist, tz = hp.z - Math.cos(ang) * dist;
+        const onBridge = this.grid?.sp.bridges.some(b => tx > b.x0 - 0.9 && tx < b.x1 + 0.9 && tz > b.z0 - 0.9 && tz < b.z1 + 0.9);
+        if (!onBridge && this.solids.free(tx, tz, 0.85, 0.3) && (!this.grid || this.grid.clear(tx, tz, 0.85))) { p.set(tx, 0, tz); break; }
+      }
+      this.clamp(p, 0.72);
+      if (this.grid && this.grid.at(p.x, p.z) !== FLOOR) { const q = this.grid.nearestFloor(p.x, p.z); p.set(q[0], 0, q[1]); }
+      return p;
+    };
+
+    if (g.mode === 'ally') {
+      const sp = findSpot(2.8);
+      const ally = new AllyGeneral(g.id as 'zhaoyun' | 'luxun', sp, Math.atan2(hp.x - sp.x, hp.z - sp.z));
+      this.allyGen = ally;
+      void (async () => {
+        await this.cine(generalIntroShots(this.cineHost, ally.pos, ally.a, g.title, g.id));
+        if (this.allyGen !== ally) return;
+        await this.talk(GEN_BEFORE[ri]);
+        if (this.allyGen !== ally) return;
+        this.banner.show(g.name, g.title, 1.8, g.id === 'zhaoyun' ? '#c8e4ff' : '#90f0d8');
+        this.spawnWave();
+      })();
+      return true;
+    }
+
+    // Duel mode (Lu Bu / Xiahou Dun): 1-on-1 sparring trial — clears room once player lands 2 parries, trims HP to 75%, or survives 22s!
+    const sp = findSpot(4.6);
+    const kind: EKind = g.id === 'lubu' ? 'gen_lubu' : 'gen_xiahoudun';
+    const f = spawnFoe(kind, sp, hp.clone(), false);
+    this.foes.push(f);
+    this.duelGen = { f, region: ri, t: 0, parries: 0, done: false };
+    void (async () => {
+      await this.cine(generalIntroShots(this.cineHost, f.pos, f.a, g.title, g.id));
+      if (!this.duelGen || this.duelGen.f !== f) return;
+      await this.talk(GEN_BEFORE[ri]);
+      if (!this.duelGen || this.duelGen.f !== f) return;
+      this.banner.show(EDEFS[kind].name, EDEFS[kind].tag ?? g.title, 2.0, g.id === 'lubu' ? '#ff9a5a' : '#e07a7a');
+      f.a.roar();
+    })();
+    return true;
+  }
+  /** act-114 交锋名将（吕布 / 夏侯惇）收招结算：绝不强杀历史名将，弹反两次/削血 25%/满 22 秒即收招对话 + 馈赠 */
+  private async finishDuelGeneral() {
+    const dg = this.duelGen; if (!dg || dg.done) return;
+    dg.done = true;
+    const f = dg.f, ri = dg.region, g = GENERAL_REGIONS[ri];
+    dropTeles(f); f.attacking = false; f.lunge = null; f.vel.set(0, 0, 0); f.inv = 99;
+    for (const a of this.arrows) a.kill(); this.arrows.length = 0;
+    this.hitArcs.clear();
+    hitstop(0.14); shake(0.32 * TUNE.shake); cue('parry', 1); cue('bladeRing', 0.9);
+    fxRing(f.pos.clone().setY(0.9), 0xffe4a0, 2.4, { life: 0.45 } as never);
+    fxSparks(f.a.chest(), 0xffffff, 22, 6);
+    this.phase = 'pick';
+    await new Promise(r => after(0.55, () => r(null)));
+    f.a.yaw = Math.atan2(this.hero.pos.x - f.pos.x, this.hero.pos.z - f.pos.z);
+    f.a.play(new Action('salute', 1.0, 0.5));
+    await this.talk(GEN_AFTER[ri]);
+    // Departure smoke puff & dispose
+    fxSmoke(f.pos.clone().setY(0.6), g.id === 'lubu' ? 0xd83a28 : 0x585c68, 12, { r: 0.7, spd: 1.2, up: 0.9, s: 0.4, life: 0.6 });
+    cue('whoosh', 0.7);
+    f.a.dispose();
+    this.foes = this.foes.filter(x => x !== f);
+    this.duelGen = null;
+    // Reward: heal 30% HP + full intent + boon pick
+    const was = this.hero.hp;
+    this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + Math.round(this.hero.maxHp * 0.3));
+    this.healFeed(was); this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp });
+    this.addIntent();
+    this.banner.show(g.name, '交锋已罢 · 得其所赠', 1.6, '#ffe2a0');
+    await this.boonPick();
+    this.openDoors();
+  }
+  /** act-114 据点归来统一事件队列（断碑划名过场优先，其次战败安慰对白，绝不并发冲突） */
+  private async hideoutArrive(cut: number, down: number) {
+    if (this.phase !== 'yard' || this.dialogue.on || this.timeline.on || this.prologue) return;
+    const st = this.stele, h = this.hero;
+    if (cut < down && st && h) {
+      this.pendingDeathTalk = false;
+      this.noTalk = true;
+      for (let i = cut; i < down; i++) seeOnce(STRIKE_FLAG[i]);
+      saveProfile();
+      await this.cine(steleStrikeShots(this.cineHost, HIDEOUT.stele, () => {
+        for (let i = cut; i < down; i++) st.strike(i);
+      }), () => {
+        for (let i = cut; i < down; i++) st.strike(i);
+      });
+      this.noTalk = false;
+      if (this.phase === 'yard') {
+        await this.talk([{ who: 'jiangjin', text: STELE_TALK.strike[down - 1] ?? STELE_TALK.strike[0] }]);
+      }
+      return;
+    }
+    if (this.pendingDeathTalk) {
+      this.pendingDeathTalk = false;
+      const who = (['duwu', 'sunao', 'fengtiebi'] as const)[Math.floor(Math.random() * 3)];
+      if (this.phase === 'yard') await this.talk(deathLine(who));
+    }
+  }
+  private async debugSteleCut(n: number) {
+    if (this.phase !== 'yard') await this.enterYard();
+    const st = this.stele; if (!st) return;
+    this.noTalk = true;
+    await this.cine(steleStrikeShots(this.cineHost, HIDEOUT.stele, () => st.strike(n)), () => st.strike(n));
+    this.noTalk = false;
+    await this.talk([{ who: 'jiangjin', text: STELE_TALK.strike[n] ?? STELE_TALK.strike[0] }]);
   }
   private *openYard() {
     this.phase = 'yard'; this.wave = 0;
@@ -1609,22 +1773,10 @@ export class ActShow {
     for (const [x, z] of HIDEOUT.dummies) { yield; const p = V3(x, 0, z), f = spawnFoe('dummy', p, V3(x, 0, z + 4)); f.st = 'move'; this.foes.push(f); }
     // the people of chapter 1 at their places (卢昭 and 桓越 come later in the story)
     yield* this.placeNpcs((['duwu', 'sunao', 'fengtiebi'] as const).map(id => ({ id, ...HIDEOUT.people[id] })));
-    // the stele of names: a cut down each name she has killed; the first time home after each, she makes the cut
-    // (11-19 剧情改版: five names; a region's boss down = its after-talk seen, ch1_boss_after … ch5_boss_after; the cut's own flag
-    //  strike_chulei for the first as before, strike_2 … strike_5 for the rest)
-    { const p = profile(), down = bossesDown(p.seen), cut = struckOnStele(p.seen), fresh = cut < down;
+    // the stele of names: a cut down each name she has killed; unified hideout arrival queue handles fresh cuts & defeat talks cleanly
+    { const p = profile(), down = bossesDown(p.seen), cut = struckOnStele(p.seen);
       this.stele = new Stele(cut); this.stele.g.position.set(HIDEOUT.stele.x, 0, HIDEOUT.stele.z); this.stele.g.rotation.y = HIDEOUT.stele.yaw; this.stage!.root.add(this.stele.g);
-      // she goes to the stone (gone in a puff, there in a puff, facing it), sheathes, and draws the cut down the name(s)
-      if (fresh) after(1.4, () => {
-        const st = this.stele, h = this.hero; if (this.phase !== 'yard' || !st || !h) return;
-        for (let i = cut; i < down; i++) seeOnce(STRIKE_FLAG[i]); saveProfile();
-        fxSmoke(h.pos.clone().setY(0.6), 0x8a8a94, 10, { r: 0.6, spd: 1.2, up: 0.8, s: 0.4, life: 0.6 }); cue('whoosh', 0.6);
-        // beside the stone, not in front of it (the camera sees the names over her shoulder)
-        this.noTalk = true; h.pos.set(HIDEOUT.stele.x + 1.05, 0, HIDEOUT.stele.z + 1.25); h.vel.set(0, 0, 0); h.a.yaw = Math.atan2(-1.05, -1.0);
-        fxSmoke(h.pos.clone().setY(0.6), 0x8a8a94, 10, { r: 0.6, spd: 1.2, up: 0.8, s: 0.4, life: 0.6 });
-        after(0.5, () => this.inp.hold('attack', 0.55));
-        after(1.2, () => { for (let i = cut; i < down; i++) st.strike(i); hitstop(0.12); cue('stingStele', 1); after(0.7, () => { this.noTalk = false; void this.talk([{ who: 'jiangjin', text: STELE_TALK.strike[down - 1] ?? STELE_TALK.strike[0] }]); }); });
-      }); }
+      if (cut < down || this.pendingDeathTalk) after(0.85, () => { void this.hideoutArrive(cut, down); }); }
     // act-37: the rack of thirty blades — one hangs for each taken back (a boss each; ending C hangs them all)
     { const p = profile(); this.stage!.root.add(rackBlades(p.seen['ending_c'] ? 30 : bossesDown(p.seen))); }
     // the way out: the gate in the front wall, a sign beside it; the bot walks there by the gate's mouth
@@ -1639,53 +1791,63 @@ export class ActShow {
     this.log.push('yard');
     this.queueAhead(true);
   }
-  private spawnWave() {
-    const kinds = this.plan?.waves[this.wave] ?? [], hp = this.hero.pos;
-    // act-40 (用户：「做点小杂兵的战斗中说话气泡……战斗开始的时候会说两句」): once the wave is in, one or two of them call out
-    after(kinds.length * 0.28 + 0.45, () => {
+  /** act-114 helper: spawn a single wave entry cleanly (used by spawnWave and deferred boss-wave escort spawns) */
+  private spawnEntry(k: string, i: number, deferredBoss = false): Foe | null {
+    if (this.phase !== 'fight') return null;
+    const hp = this.hero.pos;
+    let p = V3();
+    const gd = this.grid, sz = this.stageZ.length ? this.stageZ[this.stageOf[this.wave] ?? 0] : -1, zb = sz >= 0 ? this.pieces?.zoneBox(sz) : null;
+    for (let t = 0; t < 40; t++) {
+      p = zb ? V3(R(zb.x0 + 0.8, zb.x1 - 0.8), 0, R(zb.z0 + 0.8, zb.z1 - 0.8)) : V3(R(PLAY.x0 + 1.5, PLAY.x1 - 1.5), 0, R(PLAY.z0 + 1.5, PLAY.z1 - 2.5));
+      if (kindOr(k).kind === 'xp_diver' && this.pools.length) { const pl = this.pools[Math.floor(Math.random() * this.pools.length)]; p = V3(R(pl.x0 + 0.6, pl.x1 - 0.6), 0, R(pl.z0 + 0.6, pl.z1 - 0.6)); }
+      if (EDEFS[kindOr(k).kind].boss) { const bm = gd?.sp.fixed?.boss; p = bm ? V3(bm[0], 0, bm[1]) : V3(0, 0, SZ(-4.6)); }
+      const d = p.distanceTo(hp), onFloor = !gd || (gd.clear(p.x, p.z, 0.7) && !gd.sp.bridges.some(b => p.x > b.x0 - 1 && p.x < b.x1 + 1 && p.z > b.z0 - 1 && p.z < b.z1 + 1));
+      if ((sz < 0 ? d > 5 && d < 12 : t > 25 ? d > 3 : d > 5 && d < 12) && onFloor && (sz < 0 || this.pieces!.zoneAt(p.x, p.z) === sz) && this.foes.every(f => f.pos.distanceTo(p) > 1.4) && this.solids.free(p.x, p.z, 0.6, 0.3) && (!gd || t > 30 || gd.steps(p.x, p.z, hp.x, hp.z) >= 0)) break;
+    }
+    if (sz >= 0 && this.pieces && this.pieces.zoneAt(p.x, p.z) !== sz) {
+      const [x, z] = this.pieces.spawnInZone(sz, p.x, p.z); p.set(x, 0, z);
+    } else if (gd && gd.at(p.x, p.z) !== FLOOR) { const q = gd.nearestFloor(p.x, p.z); p.set(q[0], 0, q[1]); }
+    const ko = kindOr(k), bs = !!EDEFS[ko.kind].boss;
+    const way = bs || kindOr(k).kind === 'xp_diver' ? null : this.entryFrom(p, hp, i, zb ?? null, sz);
+    const f = spawnFoe(ko.kind, way ? way.from : p, hp.clone(), ko.elite); this.foes.push(f);
+    if (way) this.entering.push({ f, from: way.from, to: way.to, wall: way.wall, t: 0, dur: way.dur });
+    else { fxSmoke(p.clone().add(V3(0, 0.3, 0)), 0x6a6a74, bs ? 14 : 8, { r: 0.7, spd: 1.2, up: 0.6, s: 0.4, life: 0.7 }); fxRing(p.clone().setY(0.05), 0xff7a4a, 1.2, { life: 0.4 } as never); }
+    cue(bs ? 'roar' : way ? 'foeCry' : 'summon', bs ? 0.9 : way ? 0.25 : 0.4);
+    if (bs && !deferredBoss && EDEFS[ko.kind].intro) { this.bossLookT = 3.2; f.a.roar(); shake(0.3 * TUNE.shake); this.banner.show(EDEFS[ko.kind].name, EDEFS[ko.kind].tag ?? '', 2.2, '#ff8a6a'); after(0.9, () => { if (f.st !== 'dead') this.barks?.say(() => f.a.head(), EDEFS[ko.kind].intro!); }); }
+    else if (bs && !deferredBoss) { f.a.roar(); shake(0.3 * TUNE.shake); this.banner.show(EDEFS[ko.kind].name, EDEFS[ko.kind].tag ?? '', 1.6, '#ff8a6a'); }
+    return f;
+  }
+  private scheduleWaveBarks(count: number) {
+    after(count * 0.28 + 0.45, () => {
       if (this.phase !== 'fight') return;
-      // (11-18: a later region's foe without lines of its own — the 死士, the 水鬼 — keeps quiet: the 黄巾 shouts are region one's)
       const can = this.foes.filter(f => f.st !== 'dead' && !isBoss(f) && f.kind !== 'dummy' && !String(f.kind).includes('hound') && (!!f.d.barks || !/^(ly|xp|wl|cx)_/.test(String(f.kind))));
       for (let n = Math.min(can.length, Math.random() < 0.5 ? 1 : 2), k = 0; k < n; k++) {
         const f = can.splice(Math.floor(Math.random() * can.length), 1)[0];
         after(k * 0.7, () => { if (f.st !== 'dead' && this.phase === 'fight') { const ls = f.d.barks; this.barks?.say(() => f.a.head(), ls?.length ? ls[Math.floor(Math.random() * ls.length)] : undefined); } });
       }
     });
+  }
+  private spawnWave() {
+    const kinds = this.plan?.waves[this.wave] ?? [];
+    // act-114 P0 fix: if this wave contains a boss that has a first-time intro cutscene, spawn ONLY the boss right away and defer
+    // its escort minions until the cutscene + talk finish — zero dropped minions, zero foes frozen mid-wall-vault!
+    const bossIdx = kinds.findIndex(k => !!EDEFS[kindOr(k).kind].boss);
+    if (bossIdx >= 0) {
+      const bk = kindOr(kinds[bossIdx]).kind;
+      const bi = BOSS_ORDER.indexOf(bk);
+      const willIntro = this.prologue === 2 || (bi >= 0 && CH_BEFORE[bi].length > 0 && !profile().seen[`ch${bi + 1}_boss`]);
+      if (willIntro) {
+        const rest = kinds.filter((_, idx) => idx !== bossIdx);
+        const f = this.spawnEntry(kinds[bossIdx], 0, true);
+        if (f && this.bossArrived(f, () => {
+          rest.forEach((k, i) => after(i * 0.28, () => { this.spawnEntry(k, i + 1); }));
+          if (rest.length) this.scheduleWaveBarks(rest.length);
+        })) return;
+      }
+    }
+    this.scheduleWaveBarks(kinds.length);
     kinds.forEach((k, i) => {
-      after(i * 0.34, () => {
-        if (this.phase !== 'fight') return;
-        let p = V3();
-        const gd = this.grid, sz = this.stageZ.length ? this.stageZ[this.stageOf[this.wave] ?? 0] : -1, zb = sz >= 0 ? this.pieces?.zoneBox(sz) : null;
-        for (let t = 0; t < 40; t++) {
-          // act-19 (2x stage): anywhere on the floor 5–12 m from the hero, clear of the walls' edge, the cover and the props;
-          // 11-18 屋子形态: on the shape's floor (not in the water, on a bridge or in a walled-off part), and a walk away from her
-          p = zb ? V3(R(zb.x0 + 0.8, zb.x1 - 0.8), 0, R(zb.z0 + 0.8, zb.z1 - 0.8)) : V3(R(PLAY.x0 + 1.5, PLAY.x1 - 1.5), 0, R(PLAY.z0 + 1.5, PLAY.z1 - 2.5));
-          // (11-18 第三关: a 水鬼 comes up out of one of the room's pools — it hunts in the water; dry land is where it is weak)
-          if (kindOr(k).kind === 'xp_diver' && this.pools.length) { const pl = this.pools[Math.floor(Math.random() * this.pools.length)]; p = V3(R(pl.x0 + 0.6, pl.x1 - 0.6), 0, R(pl.z0 + 0.6, pl.z1 - 0.6)); }
-          if (EDEFS[kindOr(k).kind].boss) { const bm = gd?.sp.fixed?.boss; p = bm ? V3(bm[0], 0, bm[1]) : V3(0, 0, SZ(-4.6)); }   // any region boss stands at the back (a drawn room: at its B)
-          const d = p.distanceTo(hp), onFloor = !gd || (gd.clear(p.x, p.z, 0.7) && !gd.sp.bridges.some(b => p.x > b.x0 - 1 && p.x < b.x1 + 1 && p.z > b.z0 - 1 && p.z < b.z1 + 1));
-          if ((sz < 0 ? d > 5 && d < 12 : t > 25 ? d > 3 : d > 5 && d < 12) && onFloor && (sz < 0 || this.pieces!.zoneAt(p.x, p.z) === sz) && this.foes.every(f => f.pos.distanceTo(p) > 1.4) && this.solids.free(p.x, p.z, 0.6, 0.3) && (!gd || t > 30 || gd.steps(p.x, p.z, hp.x, hp.z) >= 0)) break;
-        }
-        if (sz >= 0 && this.pieces && this.pieces.zoneAt(p.x, p.z) !== sz) {
-          const [x, z] = this.pieces.spawnInZone(sz, p.x, p.z); p.set(x, 0, z);
-        } else if (gd && gd.at(p.x, p.z) !== FLOOR) { const q = gd.nearestFloor(p.x, p.z); p.set(q[0], 0, q[1]); }
-        // the plan's kind (黄巾 ids; 'kind*' = its elite) — the boss gets its banner: name and slogan from EDEFS
-        const ko = kindOr(k), bs = !!EDEFS[ko.kind].boss;
-        // 11-19 (用户：「敌人每次都是凭空出现的，我希望敌人能从四面八方正常冲进战斗场景或者翻墙过来」): the foe runs in from the room's
-        // edge — off the floor where she isn't, through a doorway or over the wall — to the spot it used to appear on (p). The
-        // boss and a 水鬼 out of its pool still rise where they stand
-        const way = bs || kindOr(k).kind === 'xp_diver' ? null : this.entryFrom(p, hp, i, zb ?? null, sz);
-        const f = spawnFoe(ko.kind, way ? way.from : p, hp.clone(), ko.elite); this.foes.push(f);
-        if (way) this.entering.push({ f, from: way.from, to: way.to, wall: way.wall, t: 0, dur: way.dur });
-        else { fxSmoke(p.clone().add(V3(0, 0.3, 0)), 0x6a6a74, bs ? 14 : 8, { r: 0.7, spd: 1.2, up: 0.6, s: 0.4, life: 0.7 }); fxRing(p.clone().setY(0.05), 0xff7a4a, 1.2, { life: 0.4 } as never); }
-        cue(bs ? 'roar' : way ? 'foeCry' : 'summon', bs ? 0.9 : way ? 0.25 : 0.4);
-        // act-20: the chapter's boss the first time on this save — the intro cutscene and the lines before the fight (he
-        // comes in the room's second wave); after that only his banner
-        if (bs && this.bossArrived(f)) { /* its meeting: cutscene + lines (11-19 剧情改版) */ }
-        // 11-18 (一局五关): a later region's boss — its banner and its line over its head (no portrait talk or cutscene yet)
-        else if (bs && EDEFS[ko.kind].intro) { this.bossLookT = 3.2; f.a.roar(); shake(0.3 * TUNE.shake); this.banner.show(EDEFS[ko.kind].name, EDEFS[ko.kind].tag ?? '', 2.2, '#ff8a6a'); after(0.9, () => { if (f.st !== 'dead') this.barks?.say(() => f.a.head(), EDEFS[ko.kind].intro!); }); }
-        else if (bs) { f.a.roar(); shake(0.3 * TUNE.shake); this.banner.show(EDEFS[ko.kind].name, EDEFS[ko.kind].tag ?? '', 1.6, '#ff8a6a'); }
-      });
+      after(i * 0.34, () => { this.spawnEntry(k, i); });
     });
   }
   /** 11-19 敌人入场: those still on their way in (out of reach until they are on the floor: no blow, no AI, no damage) */
@@ -1884,15 +2046,30 @@ export class ActShow {
   /** 11-18 镜头: a push of the view along a blow, springing back (peak ≈ m metres); a push-in (peak ≈ share of the distance) */
   private kick = V3(); private kickV = V3(); private punch = 0; private punchV = 0; private frameLean = V3(); private camLeadV = V3(); private crowd = 0;
   /** 11-18: the boss's entrance look (0..1, eased) and how long it is held */ private bossLook = 0; private bossLookT = 0;
-  /** 11-19 剧情改版: a boss comes in — the prologue's 崔玄, or a region's boss the first time on this save: the meeting cutscene and
-   *  the lines before the fight. True when it has its meeting (the caller then skips the plain banner) */
-  bossArrived(f: Foe): boolean {
+  /** 11-19 / act-114 剧情改版: a boss comes in — zero-delay cutscene + lines before the fight, then spawns any deferred wave minions */
+  bossArrived(f: Foe, afterIntro?: () => void): boolean {
     const name = EDEFS[f.kind]?.name ?? '';
-    if (this.prologue === 2) { after(0.35, async () => { await this.cine(bossIntroShots(this.cineHost, f, name)); await this.talk(PRO_CUIXUAN); f.a.roar(); this.proFightT = 0; }); return true; }
+    if (this.prologue === 2) {
+      void (async () => {
+        await this.cine(bossIntroShots(this.cineHost, f, name, { prologue: true }));
+        await this.talk(PRO_CUIXUAN);
+        f.a.roar(); this.proFightT = 0;
+        afterIntro?.();
+      })();
+      return true;
+    }
     const i = BOSS_ORDER.indexOf(f.kind);
     if (i < 0 || !CH_BEFORE[i].length || !seeOnce(`ch${i + 1}_boss`)) return false;
     saveProfile();
-    after(0.35, async () => { if ((f.st as string) === 'dead') return; await this.cine(bossIntroShots(this.cineHost, f, name)); await this.talk(CH_BEFORE[i]); f.a.roar(); });
+    void (async () => {
+      if ((f.st as string) === 'dead') return;
+      await this.cine(bossIntroShots(this.cineHost, f, name, { prologue: false }));
+      if ((f.st as string) === 'dead') return;
+      await this.talk(CH_BEFORE[i]);
+      if ((f.st as string) === 'dead') return;
+      f.a.roar();
+      afterIntro?.();
+    })();
     return true;
   }
   camKick(dir: THREE.Vector3, m: number) { const d = dir.clone().setY(0); if (d.lengthSq() < 1e-6) return; this.kickV.addScaledVector(d.normalize(), m * CAM_W * Math.E * FX.shakeScale); }
@@ -2448,6 +2625,12 @@ export class ActShow {
     const p = f.a.chest(), dir = f.pos.clone().sub(from).setY(0).normalize();
     let fallNow = false;
     if (this.prologue === 2 && isBoss(f) && !this.proFalling) { const floor = Math.ceil(f.maxHp * 0.2); if (f.hp - d <= floor) { d = Math.max(0, f.hp - floor); fallNow = true; } }
+    // act-122 三国名将交锋（吕布 / 夏侯惇）：绝不强杀历史名将，血量触及 75% 即优雅收招触发战后对白与馈赠
+    let duelDoneNow = false;
+    if (this.duelGen && !this.duelGen.done && this.duelGen.f === f) {
+      const floor = Math.ceil(f.maxHp * 0.72);
+      if (f.hp - d <= Math.ceil(f.maxHp * 0.75)) { d = Math.max(0, f.hp - floor); duelDoneNow = true; }
+    }
     { const g = f.inv <= 0 ? ROLE_AI[f.role]?.guard?.(f, d, from, o.kind) : undefined; if (g != null) { if (g < 0) return; if (g === 0) { this.glance(f, from, o.kind); return; } d = Math.round(g); } }
     const basePoiseMul = o.kind === 'dart' ? 0.5 : o.kind === 'kick' ? 3.2 : o.kind === 'parry' ? 3.0 : o.kind === 'stomp' ? 2.8 : o.kind === 'launch' ? 2.4 : (o.kind === 'chase' || o.kind === 'burst') ? 2.2 : o.heavy ? 1.8 : 1;
     const poiseMul = basePoiseMul * this.mods.poiseDmgMul * (archTier(this.perks, 'poise') >= 2 ? 1.35 : 1);
@@ -2465,6 +2648,8 @@ export class ActShow {
     }
     if (this.prologue === 2 && isBoss(f)) f.hp = Math.max(f.hp, Math.ceil(f.maxHp * 0.2));
     if (fallNow) after(0.25, () => void this.prologueFall());
+    if (this.duelGen && this.duelGen.f === f) f.hp = Math.max(f.hp, Math.ceil(f.maxHp * 0.72));
+    if (duelDoneNow) after(0.18, () => { void this.finishDuelGeneral(); });
     if (cut && !died && f.inv <= 0 && hasBoon(this.perks, 'bleed') && f.kind !== 'dummy') { f.bleed = Math.min(5, f.bleed + 1); f.bleedT = 0; }
     // act-114 / act-118 见红 × 血刃成势: blood burst detonates on >=3 stacks; 血刃 2pc boosts damage +35%, 3pc heals 5 HP + empowers next cut
     const heavyFinisher = o.kind === 'k5' || o.kind === 'rel' || o.kind === 'rel2' || o.kind === 'parry' || o.kind === 'plunge' || o.kind === 'acutS' || o.kind === 'chase';
@@ -2472,10 +2657,12 @@ export class ActShow {
     if (!died && f.inv <= 0 && f.kind !== 'dummy' && hasBoon(this.perks, 'bleed') && f.bleed >= 3 && (justBroke || heavyFinisher || (bloodTier >= 2 && f.bleed >= 4))) {
       let bDmg = Math.max(4, Math.round(f.bleed * v(this.perks, 'bleed') * 3.2 * (bloodTier >= 2 ? 1.35 : 1) * (f.brokenT > 0 ? POISE_BREAK_MUL : 1)));
       if (this.prologue === 2 && isBoss(f)) bDmg = Math.min(bDmg, Math.max(0, f.hp - Math.ceil(f.maxHp * 0.2)));
+      if (this.duelGen && this.duelGen.f === f) bDmg = Math.min(bDmg, Math.max(0, f.hp - Math.ceil(f.maxHp * 0.72)));
       f.bleed = 1; f.bleedT = 0;
       if (bDmg > 0) {
         died = damageFoe(f, bDmg, from, { knock: 0.6, stagger: 0.45, poiseDmg: bDmg * 0.6 });
         if (this.prologue === 2 && isBoss(f)) f.hp = Math.max(f.hp, Math.ceil(f.maxHp * 0.2));
+        if (this.duelGen && this.duelGen.f === f) f.hp = Math.max(f.hp, Math.ceil(f.maxHp * 0.72));
         blood.spray(p, dir, 36, 1.45);
         fxChips(p, [0xc82428, 0xff5a4a, 0xffd060], 10, { dir, speed: 5.0, up: 3.2, size: 0.09, glow: 0.85 });
         popPix('血爆', f.a.head().add(V3(0, 0.88, 0)), { color: '#ff5248', h: 0.78, big: true, life: 0.95, rise: 0.85 });
@@ -2764,7 +2951,14 @@ export class ActShow {
     const h = this.hero; h.iaiBonus = true; h.inv = Math.max(h.inv, 0.35);
     let atk: Foe | null = null, bd = 2.8;
     for (const f of this.foes) { if (f.st === 'dead' || f.kind === 'dummy') continue; const d = f.pos.distanceTo(from); if (d < bd) { bd = d; atk = f; } }
-    if (atk) { trailSeg(h.a.chest(), atk.a.chest(), 0xfff2c8, 0.2, { life: 0.25, bright: 3, spark: 0.6 }); this.hitFoe(atk, TUNE.iaiReflect, h.pos.clone(), { knock: 2.0, heavy: true, kind: 'parry' }); }
+    if (atk) {
+      trailSeg(h.a.chest(), atk.a.chest(), 0xfff2c8, 0.2, { life: 0.25, bright: 3, spark: 0.6 });
+      this.hitFoe(atk, TUNE.iaiReflect, h.pos.clone(), { knock: 2.0, heavy: true, kind: 'parry' });
+      if (this.duelGen && !this.duelGen.done && this.duelGen.f === atk) {
+        this.duelGen.parries++;
+        if (this.duelGen.parries >= 2) after(0.22, () => { void this.finishDuelGeneral(); });
+      }
+    }
     for (const a of this.arrows) if (!a.dead && !a.friendly && a.p.distanceTo(h.pos.clone().setY(1.25)) < 1.8) a.deflect(a.v.clone().multiplyScalar(-1));
     if (hasBoon(this.perks, 'burst')) this.burstOut(h.pos.clone());   // 11-18 秘传 崩劲
     hitstop(0.1 * TUNE.hitstop); slowmo(0.18, 0.3); shake(0.35 * TUNE.shake); this.splitScreen(0.72);
@@ -3040,17 +3234,38 @@ export class ActShow {
     for (const a of this.arrows) a.kill(); this.arrows.length = 0;
     this.banner.show('清场', '', 1.0, '#ffe6a0');
     await new Promise(r => after(0.9, () => r(null)));
+    // act-114 友军名将（赵云 / 陆逊）清场告别：抱拳致意、战后对白、赠气血杀意，再从容离场
+    if (this.allyGen && this.allyGen.active) {
+      const ally = this.allyGen;
+      const ri = ally.kind === 'zhaoyun' ? 0 : 3;
+      const g = GENERAL_REGIONS[ri];
+      ally.a.yaw = Math.atan2(this.hero.pos.x - ally.pos.x, this.hero.pos.z - ally.pos.z);
+      this.hero.a.yaw = Math.atan2(ally.pos.x - this.hero.pos.x, ally.pos.z - this.hero.pos.z);
+      ally.salute();
+      await this.talk(GEN_AFTER[ri]);
+      ally.dispose();
+      this.allyGen = null;
+      const was = this.hero.hp;
+      this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + Math.round(this.hero.maxHp * 0.35));
+      this.healFeed(was); this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp });
+      this.addIntent();
+      this.banner.show(g.name, '并肩破阵 · 气血尽复', 1.5, '#ffe2a0');
+    }
     if (this.prologue) { this.openDoors(); return; }   // act-29: the prologue's road just goes on
     // 11-18 一局五关: a region's boss fell — region one's after-talk (褚雷) the first time; then the run is won (the last region) or the
     // road opens into the next region (a boon first, as any cleared fight)
     if (this.plan?.type === 'boss' && isBossRoom(this.region, this.room)) {
       this.bosses++;
-      // (11-19 剧情改版: every region's boss has its after-talk the first time; the last one's is the blade at his throat → the ending)
+      // (11-19 / act-114 剧情改版: every region's boss has its after-talk; Ch5 stages real 3D blade-at-throat confrontation before choice)
       const ai = this.region, last = ai === BOSS_AFTER.length - 1;
       if (CH_AFTER[ai]?.length && (last || seeOnce(BOSS_AFTER[ai]))) {
-        this.musicHold = 'bgm_afterkill'; void audio.playMusic('bgm_afterkill', 1.0); await this.talk(CH_AFTER[ai]); saveProfile();
-        // (the last one: the blade at his throat, and she picks — every time she gets there, not only the first)
-        if (last) { await this.ending(); return; }
+        this.musicHold = 'bgm_afterkill'; void audio.playMusic('bgm_afterkill', 1.0);
+        if (last) {
+          this.stageCh5ThroatScene();
+          await this.talk(CH_AFTER[ai]); saveProfile();
+          await this.ending(); return;
+        }
+        await this.talk(CH_AFTER[ai]); saveProfile();
         this.musicHold = null;
       }
       if (afterBoss(this.region) === 'won') { this.end(true); return; }
@@ -3251,16 +3466,209 @@ export class ActShow {
       this.hud.on = true; void wipeTransit(() => this.enterYard());
     });
   }
-  /** 11-19 剧情改版 (用户：「结局让玩家选」): the blade at 崔玄's throat — she picks: A 杀了他、一个人走进雪里 / B 不杀、只带走阿爹那柄
-   *  刀出门 / C 杀了他、回破窑挂满刀架、被叫回「阿皎」. Then its scene, then the run is won */
-  private async ending() {
+  /** act-114 第五关战后 3D 刀锋抵喉构图：崔玄卸兵跪地、刘白持刀平指喉前半寸（2.05m 安全间距让完整刀身清晰可见、零穿模） */
+  private stageCh5ThroatScene() {
+    if (this.endCui) { this.endCui.dispose(); this.endCui = null; }
+    for (const f of this.foes) { dropTeles(f); f.a.dispose(); }
+    this.foes.length = 0;
+    const cx = 0, cz = -2.4;
+    const cuiPos = V3(cx, 0, cz); this.clamp(cuiPos, 0.7);
+    const heroPos = V3(cuiPos.x, 0, cuiPos.z + 2.05); this.clamp(heroPos, 0.5);
+    const def = ROSTER.find(d => d.id === 'cx_boss');
+    if (def) {
+      const a = new BattleActor(def);
+      a.place(cuiPos.clone(), Math.atan2(heroPos.x - cuiPos.x, heroPos.z - cuiPos.z));
+      a.yaw = Math.atan2(heroPos.x - cuiPos.x, heroPos.z - cuiPos.z);
+      trimShadows(a.root, 4);
+      this.endCui = a;
+    }
+    this.hero.pos.copy(heroPos); this.hero.vel.set(0, 0, 0);
+    this.hero.a.home.copy(heroPos); this.hero.a.root.position.copy(heroPos);
+    this.hero.a.yaw = Math.atan2(cuiPos.x - heroPos.x, cuiPos.z - heroPos.z);
+    motionOf(this.hero.a).run = 0;
+    // Target point strictly 0.22m in front of Cui Xuan's neck so the gleaming steel blade spans the gap cleanly without clipping!
+    const throatStop = V3(cuiPos.x, 0.96, cuiPos.z + 0.22);
+    let endT = 0;
+    this.hero.scriptPose = () => heroHoldThroatPose(this.hero.a, throatStop, endT);
+    this.talkTick = (dt: number) => {
+      endT += dt;
+      if (this.endCui) { this.endCui.update(dt); cuiKneelDefeatPose(this.endCui, endT); }
+    };
+    const cam = safeCam([cuiPos.x + 4.5, 2.35, cuiPos.z + 2.45], [cuiPos.x, 0.96, cuiPos.z + 1.02], 36);
+    this.camOverride = { base: V3(...cam.pos), look: V3(...cam.look), fov: cam.fov };
+    shot('act', () => this.camPose(), { cut: true, speed: 8 });
+  }
+  /** act-114 结局实景切换至据点（雪夜断碑 / 黄昏暖窑），附带对应数量刀架、断碑刻痕与众人站位 */
+  private async buildEndingHideout(opts: { time: 'night' | 'dusk'; weather: 'snow' | 'clear'; blades: number; cuts: number }) {
+    this.hud.on = false;
+    this.talkTick = null; this.hero.scriptPose = null;
+    if (this.endCui) { this.endCui.dispose(); this.endCui = null; }
+    for (const f of this.foes) f.a.dispose(); this.foes.length = 0;
+    this.clearNpcs(); this.yard?.dispose(); this.yard = null;
+    this.gates?.dispose(); this.gates = null; this.pieces?.dispose(); this.pieces = null;
+    this.leaves?.dispose(); this.leaves = null;
+    setStage(false);
+    const def = hideoutScene({ time: opts.time, weather: opts.weather });
+    this.stage = showStage(def, { combat: true });
+    Object.assign(PLAY, HIDEOUT.floor);
+    this.solids.clear();
+    for (const so of HIDEOUT.solids) this.solids.add({ kind: 'prop', ...so });
+    this.stele = new Stele(opts.cuts);
+    this.stele.g.position.set(HIDEOUT.stele.x, 0, HIDEOUT.stele.z);
+    this.stele.g.rotation.y = HIDEOUT.stele.yaw;
+    this.stage.root.add(this.stele.g);
+    this.stage.root.add(rackBlades(opts.blades));
+    for (const id of ['duwu', 'sunao', 'fengtiebi'] as const) {
+      const sp = HIDEOUT.people[id];
+      const a = new BattleActor(HIDEOUT_PEOPLE[id]); a.place(V3(sp.x, 0, sp.z), sp.yaw); a.yaw = sp.yaw; trimShadows(a.root, 4);
+      const sh = contactShadow(); sh.scale.setScalar(id === 'fengtiebi' ? 0.55 : 0.42); sh.position.set(sp.x, 0.025, sp.z); this.stage.root.add(sh);
+      this.npcs.push({ id, x: sp.x, z: sp.z, yaw: sp.yaw, a, sh });
+    }
+    this.hero.a.dispose();
+    this.hero = new Hero(V3(HIDEOUT.spawn[0], 0, HIDEOUT.spawn[1]), this.wearing);
+    this.hero.a.yaw = -0.6;
+    this.hud.on = false;
+    await frames(2);
+  }
+  /** act-114 调试入口：直接切第五关藏刀阁预览刀锋抵喉抉择，或直接播放结局 A / B / C */
+  private async debugEnding(choice?: 'a' | 'b' | 'c') {
+    if (this.phase === 'title') stopTitle();
+    if (this.cards.on) void this.cards.close?.();
+    this.prologue = 0; this.forceSpec = null; this.viewSpec = null; this.noArena = false;
+    this.region = 4; this.room = REGIONS[4].rooms; this.locale = 'cx_vault';
+    this.plan = { type: 'boss', locale: 'cx_vault', reward: null, waves: [] };
+    await this.buildRoom(false);
+    this.stageCh5ThroatScene();
+    await frames(2);
+    if (choice) { await this.ending(choice); return; }
+    await this.talk(CH_AFTER[4]);
+    await this.ending();
+  }
+  /** 11-19 / act-114 剧情改版 (用户：「结局让玩家选」): 刀锋抵喉抉择 + A/B/C 三大实景 3D 结局演出 */
+  private async ending(forced?: 'a' | 'b' | 'c') {
     this.hud.on = false; const was = this.phase; this.phase = 'pick';
     const glyph = BOONS.find(b => b.id === 'behead')!.glyph, ids = ['a', 'b', 'c'] as const, col = ['#d8dde8', '#c8b890', '#ffb070'];
-    const i = await this.cards.open(ids.map((id, k) => ({ boon: { id: `ending_${id}`, school: 'sr', name: ENDING_PICK[k] ?? id, desc: ['', ''], col: col[k], glyph } as unknown as Boon, tier: k === 2 ? 2 : 0 })));
-    const id = ids[Math.max(0, Math.min(2, i))];
-    seeOnce(`ending_${id}`); if (id !== 'b') seeOnce('cuixuan_dead'); saveProfile();
+    let id: 'a' | 'b' | 'c';
+    if (forced) {
+      id = forced;
+    } else {
+      const i = await this.cards.open(ids.map((k, idx) => ({
+        boon: { id: `ending_${k}`, school: 'sr', name: ENDING_PICK[idx] ?? k, desc: [ENDING_DESC[idx] ?? '', ''], col: col[idx], glyph, tag: '' } as unknown as Boon,
+        tier: idx === 2 ? 2 : 0,
+      })));
+      id = ids[Math.max(0, Math.min(2, i))];
+    }
+    seeOnce(`ending_${id}`);
+    if (id !== 'b') { seeOnce('cuixuan_dead'); seeOnce('strike_5'); }
+    saveProfile();
     this.phase = was;
-    await this.talk(ENDING[id].map(l => (l.who === 'caption' ? { ...l, who: 'act' } : l)));
+    const toLines = (arr: Line[]) => arr.map(l => (l.who === 'caption' ? { ...l, who: 'act' } : l));
+
+    if (id === 'a') {
+      // Ending A: lethal draw in vault → snowy night Hideout stele 5th strike → walk out gate into snow alone
+      this.hero.scriptPose = null; this.talkTick = null;
+      this.hero.a.play(new Action('rel', 0.45, 0.32));
+      this.flashScreen(0.45, 0xffffff); hitstop(0.14); shake(0.42);
+      cue('cutHeavy', 1); cue('snowWind', 0.65);
+      if (this.endCui) {
+        blood.spray(this.endCui.chest(), V3(0, 0.15, -1), 28, 1.3);
+        blood.pool(this.endCui.home.x, this.endCui.home.z, 1.4, 300);
+        this.endCui.fall();
+      }
+      await this.talk(toLines(ENDING.a.slice(0, 2)));
+      await wipeTransit(() => this.buildEndingHideout({ time: 'night', weather: 'snow', blades: 5, cuts: 4 }));
+      const st = this.stele;
+      if (st) await this.cine(steleStrikeShots(this.cineHost, HIDEOUT.stele, () => st.strike(4)), () => st.strike(4));
+      const dw = this.npcs.find(n => n.id === 'duwu');
+      if (dw) { dw.yaw = Math.atan2(this.hero.pos.x - dw.x, this.hero.pos.z - dw.z); dw.a.yaw = dw.yaw; }
+      await this.talk(toLines(ENDING.a.slice(2, 5)));
+      const gx = (HIDEOUT.exit.x0 + HIDEOUT.exit.x1) / 2;
+      await this.cine(endingWalkShots(
+        this.hero, [gx, HIDEOUT.exit.z - 4.4], [gx, HIDEOUT.exit.z + 1.6], 4.2,
+        { pos: [gx + 3.8, 4.4, HIDEOUT.exit.z + 1.6], look: [gx, 0.95, HIDEOUT.exit.z - 2.2], fov: 40 },
+        { pos: [gx + 3.2, 4.8, HIDEOUT.exit.z + 5.8], look: [gx, 0.95, HIDEOUT.exit.z + 0.6], fov: 40 },
+        { at: [[0.3, () => cue('snowWind', 0.72)]] },
+      ));
+      await this.talk(toLines(ENDING.a.slice(5)));
+    } else if (id === 'b') {
+      // Ending B: sheath blade, spare kneeling Cui Xuan → war horn & firelight outside → walk out into snow without looking back
+      this.hero.scriptPose = null;
+      this.hero.a.play(new Action('noto', 0.75, 0.55));
+      cue('sheathe', 0.95);
+      await this.talk(toLines(ENDING.b.slice(0, 4)));
+      const gateAt = V3(0, 0.6, PLAY.z1 - 0.8);
+      cue('warHorn', 0.9); cue('fire', 0.7);
+      fxGlow(gateAt, 0xff6a24, 3.6, 1.4, 2.2);
+      fxEmbers(gateAt, 0xff8a30, 18, { r: 2.2, up: 3.4, life: 1.6 });
+      fxRing(gateAt.clone().setY(0.1), 0xff4a2a, 3.4, { life: 1.1, width: 0.14, bright: 1.5 } as never);
+      await this.talk(toLines(ENDING.b.slice(4, 5)));
+      const fromPos: [number, number] = [this.hero.pos.x, this.hero.pos.z];
+      const toPos: [number, number] = [0, Math.min(PLAY.z1 - 0.9, this.hero.pos.z + 5.6)];
+      const cui = this.endCui; let ct = 0;
+      this.talkTick = null;
+      await this.cine(endingWalkShots(
+        this.hero, fromPos, toPos, 3.8,
+        { pos: [4.2, 3.6, fromPos[1] + 3.4], look: [0, 0.9, fromPos[1] - 0.8], fov: 38 },
+        { pos: [3.2, 4.2, toPos[1] + 4.8], look: [0, 0.9, toPos[1] - 1.4], fov: 40 },
+        { hold: (p, r) => this.clamp(p, r),
+          at: [[0.4, () => cue('snowWind', 0.65)]],
+          tickExtra: (_t, dt) => { ct += dt; if (cui) { cui.update(dt); cuiKneelDefeatPose(cui, ct); } } },
+      ));
+      await this.talk(toLines(ENDING.b.slice(5)));
+    } else {
+      // Ending C: lethal slash → warm dusk Hideout with 30-blade rack + 5-cut stele → camera glide → seated ON Du Wu's bench, unblinded!
+      this.hero.scriptPose = null; this.talkTick = null;
+      this.hero.a.play(new Action('rel', 0.45, 0.32));
+      this.flashScreen(0.45, 0xffffff); hitstop(0.14); shake(0.42);
+      cue('cutHeavy', 1);
+      if (this.endCui) {
+        blood.spray(this.endCui.chest(), V3(0, 0.15, -1), 24, 1.2);
+        this.endCui.fall();
+      }
+      await this.talk(toLines(ENDING.c.slice(0, 1)));
+      await wipeTransit(() => this.buildEndingHideout({ time: 'dusk', weather: 'clear', blades: 30, cuts: 5 }));
+      // Seat Liu Bai squarely ON the hideout's real wooden bench (2.48, 2.23) facing POT(3.25, 1.95), zero air-squatting!
+      const pot = V3(3.25, 0.6, 1.95);
+      this.hero.pos.set(2.48, 0, 2.23); this.hero.a.home.copy(this.hero.pos);
+      this.hero.a.yaw = Math.atan2(pot.x - 2.48, pot.z - 2.23);
+      const dw = this.npcs.find(n => n.id === 'duwu');
+      const sa = this.npcs.find(n => n.id === 'sunao');
+      if (dw) { dw.x = 4.15; dw.z = 2.95; dw.yaw = Math.atan2(pot.x - dw.x, pot.z - dw.z); dw.a.place(V3(dw.x, 0, dw.z), dw.yaw); dw.sh.position.set(dw.x, 0.025, dw.z); }
+      if (sa) { sa.x = 4.35; sa.z = 1.35; sa.yaw = Math.atan2(pot.x - sa.x, pot.z - sa.z); sa.a.place(V3(sa.x, 0, sa.z), sa.yaw); sa.sh.position.set(sa.x, 0.025, sa.z); }
+      let fireT = 0, unblind = false;
+      this.hero.scriptPose = () => heroSitFirePose(this.hero.a, fireT, unblind);
+      this.talkTick = (dt: number) => {
+        fireT += dt;
+        if (dw) npcWarmPose(dw.a, fireT, 0.72);
+        if (sa) npcWarmPose(sa.a, fireT + 0.9, 0.56);
+      };
+      // Smooth 4.0s camera glide: 30-blade rack (bladeChorus!) -> 5-cut stele -> warm fire circle
+      await this.cine([
+        { dur: 2.0, ease: 'inOut',
+          from: safeCam([0.8, 3.0, -4.4], [-2.5, 1.5, -7.8], 38),
+          to: safeCam([4.6, 2.8, -4.6], [HIDEOUT.stele.x, 1.1, HIDEOUT.stele.z], 36),
+          at: [[0.2, () => cue('bladeChorus', 0.95)]],
+          tick: (_t, dt) => { this.talkTick?.(dt); this.hero.a.update(dt); this.hero.scriptPose?.(); } },
+        { dur: 2.0, ease: 'inOut',
+          from: safeCam([4.6, 2.8, -4.6], [HIDEOUT.stele.x, 1.1, HIDEOUT.stele.z], 36),
+          to: safeCam([0.65, 2.4, 4.45], [3.25, 0.8, 2.0], 34),
+          tick: (_t, dt) => { this.talkTick?.(dt); this.hero.a.update(dt); this.hero.scriptPose?.(); } },
+      ]);
+      const fireCam = safeCam([0.65, 2.4, 4.45], [3.25, 0.8, 2.0], 34);
+      this.camOverride = { base: V3(...fireCam.pos), look: V3(...fireCam.look), fov: fireCam.fov };
+      shot('act', () => this.camPose(), { cut: true, speed: 6 });
+      await this.talk(toLines(ENDING.c.slice(1)), (idx) => {
+        // Line idx 1 corresponds to ENDING.c[2] ("她在断碑底下划完最后一道，抬手解开蒙眼布")
+        if (idx >= 1) unblind = true;
+        if (idx >= 5) {
+          const closeCam = safeCam([1.1, 2.05, 3.65], [2.95, 0.78, 2.05], 32);
+          this.camOverride = { base: V3(...closeCam.pos), look: V3(...closeCam.look), fov: closeCam.fov };
+        }
+      });
+    }
+
+    this.talkTick = null; this.hero.scriptPose = null; this.camOverride = null;
+    if (this.endCui) { this.endCui.dispose(); this.endCui = null; }
     this.musicHold = null; this.hud.on = true; this.end(true, id === 'b');
   }
   private end(win: boolean, spared = false) {
@@ -3334,7 +3742,15 @@ export class ActShow {
       this.timeline.update(rdt); this.dialogue.update(rdt);
       // the bot reads fast: a line every 0.6 s (cutscenes play out)
       if (this.botOn && this.dialogue.on && (this.botTalkT += rdt) > 0.6) { this.botTalkT = 0; this.dialogue.advance(); }
-      if (this.phase === 'talk') { this.hero.a.update(dt); this.hero.scriptPose?.(); for (const f of this.foes) f.a.update(dt); for (const n of this.npcs) n.a.update(dt); this.leaves?.update(dt, this.cam.x, this.cam.z); this.gates?.update(dt); }
+      if (this.phase === 'talk') {
+        this.hero.a.update(dt); this.hero.scriptPose?.();
+        for (const f of this.foes) f.a.update(dt);
+        for (const n of this.npcs) n.a.update(dt);
+        this.allyGen?.a.update(dt);
+        this.cuiInspect.frame(dt);
+        this.talkTick?.(dt);
+        this.leaves?.update(dt, this.cam.x, this.cam.z); this.gates?.update(dt);
+      }
       for (const f of this.puppets) if (this.phase === 'talk' && !f.a.root.userData.still) f.a.update(dt);   // (act-30: the dead stay still)
       blood.update(dt);   // (11-18: the prologue's wound bleeds through the cutscene and the talk — the drops fall instead of hanging in the air)
       this.hud.update(rdt, this.inp, []); this.feed.update(rdt, this.hud.feedAt, this.hud.k, false); this.L.on = true; return;
@@ -3414,6 +3830,19 @@ export class ActShow {
       f.a.update(dt);
     }
     this.duel.flush();   // 11-18 拼刀: a blow 破势 met in the loop above locks blades now (not a frame later)
+    // act-114 三国友军名将（赵云 / 陆逊）并肩作战与交锋名将（吕布 / 夏侯惇）计时收招
+    if (this.allyGen && this.allyGen.active && this.phase === 'fight') {
+      const allyHost: AllyHost = {
+        foes: this.foes, heroPos: h.pos, clamp: (p, r) => this.clamp(p, r),
+        hitFoe: (f, dmg, from, _col) => this.hitFoe(f, dmg, from, { knock: 0.7, heavy: false, kind: 'ally' }),
+        say: (head, line) => { if (this.phase === 'fight') this.barks?.say(head, line); },
+      };
+      this.allyGen.update(dt, allyHost);
+    }
+    if (this.duelGen && !this.duelGen.done && this.phase === 'fight') {
+      this.duelGen.t += dt;
+      if (this.duelGen.t >= 22) void this.finishDuelGeneral();
+    }
     this.reelStep(dt); this.flatStep(dt); this.dropStep(dt);   // 11-18 牵红's cord, 踏顶's flattened, the dead coming down out of the air
     this.separate();   // act-37: bodies don't pass through each other
     this.pitFalls(dt);   // 11-18 打出界
@@ -3603,7 +4032,11 @@ export class ActShow {
     if (this.pause.on) { this.pause.pointer(type, x, y); return; }
     if (this.phase === 'title') { titlePointer(type, x, y); return; }
     if (this.timeline.on) { this.timeline.pointer(type); return; }
-    if (this.dialogue.on) { if (type === 'down') this.dialogue.advance(); return; }
+    if (this.dialogue.on) {
+      if (type === 'down') { this.dialogue.advance(); this.dialogue.holdSkip(true); }
+      else if (type === 'up' || type === 'cancel') this.dialogue.holdSkip(false);
+      return;
+    }
     if (this.cards.on) { this.cards.pointer(type, x, y); return; }
     // the demonstration: a tap anywhere skips it
     if (this.demo.on) return;   // (11-19: the demonstration plays to the end — no skipping)
@@ -3618,14 +4051,30 @@ export class ActShow {
   private key(e: KeyboardEvent) {
     if (bladeBusy()) return;
     if (this.demo.on && !this.pause.on) return;   // (11-19: the demonstration plays to the end)
-    if (this.timeline.on && e.key === 'Escape') { this.timeline.key(true); return; }
+    if (this.timeline.on && e.key === 'Escape') { e.preventDefault(); this.timeline.key(true); return; }
     if (e.key === 'Escape' && !e.repeat && this.canPause()) { e.preventDefault(); this.pauseGame(); e.stopImmediatePropagation(); return; }   // (the menu must not take the same Esc as its 返回)
-    if (this.dialogue.on) { if (!e.repeat && ['Enter', ' ', 'j', 'J'].includes(e.key)) { e.preventDefault(); this.dialogue.advance(); } return; }
+    if (this.dialogue.on) {
+      if (e.key === 'Escape') { e.preventDefault(); this.dialogue.holdSkip(true); return; }
+      if (e.key === 'Tab' && !e.repeat) {
+        e.preventDefault();
+        const on = this.dialogue.toggleAuto();
+        this.banner.show('自动对话', on ? '已开启' : '已关闭', 1.1);
+        return;
+      }
+      if (!e.repeat && ['Enter', ' ', 'j', 'J'].includes(e.key)) { e.preventDefault(); this.dialogue.advance(); }
+      return;
+    }
     if (!this.cards.on) return;
     if ((e.key === 'Escape' || e.key === 'Backspace') && !e.repeat && this.cards.leave()) { e.preventDefault(); return; }   // (11-19: a shop page — Esc leaves)
     if ((e.key === 'r' || e.key === 'R') && !e.repeat && this.cards.reroll()) { e.preventDefault(); return; }
     const k = ({ arrowleft: 'left', a: 'left', arrowup: 'left', w: 'left', arrowright: 'right', d: 'right', arrowdown: 'right', s: 'right', enter: 'ok', ' ': 'ok', j: 'ok' } as const)[e.key.toLowerCase() as 'a'];
     if (k && !e.repeat) { e.preventDefault(); this.cards.key(k); }
+  }
+  private keyUp(e: KeyboardEvent) {
+    if (e.key === 'Escape') {
+      this.timeline.key(false);
+      this.dialogue.holdSkip(false);
+    }
   }
   // ------------------------------------------------------------ the pad on the screens that are menus; the pause
   /** the pad on the cards, the conversations, the cutscenes, the opening; Start pauses (act-30 之后) */
@@ -3635,7 +4084,10 @@ export class ActShow {
     if (this.phase === 'title') return;   // title.ts reads the pad itself
     // a cutscene: B held = the long press that skips (the ring at the bottom right fills)
     if (this.timeline.on) { if (n.back) { this.padSkip = true; this.timeline.key(true); } else if (this.padSkip && !n.backHeld) { this.padSkip = false; this.timeline.key(false); } }
-    else this.padSkip = false;
+    else if (this.dialogue.on) {
+      if (n.back) { this.padSkip = true; this.dialogue.holdSkip(true); }
+      else if (this.padSkip && !n.backHeld) { this.padSkip = false; this.dialogue.holdSkip(false); }
+    } else this.padSkip = false;
     if (this.dialogue.on) { if (n.ok || n.x) this.dialogue.advance(); return; }
     if (this.cards.on) { if (n.up || n.left) this.cards.key('left'); else if (n.down || n.right) this.cards.key('right'); else if (n.ok) this.cards.key('ok'); else if (n.y) this.cards.reroll(); else if (n.back) this.cards.leave(); return; }
     if (n.start && this.canPause()) this.pauseGame();

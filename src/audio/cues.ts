@@ -23,7 +23,9 @@ export type Cue =
   // wall, a wall caving in, a rope snapping, a bridge slamming down, a door / gate swinging open, a pressure plate's click
   | 'bell' | 'bellWrong' | 'hollow' | 'wallBreak' | 'ropeSnap' | 'bridgeDrop' | 'doorOpen' | 'plate'
   // act-114 (战斗优化第三波): spatialized off-screen high-danger sound-wave cue (x = stereo pan -1..1) & bleed-detonation burst
-  | 'dangerOff' | 'bloodBurst';
+  | 'dangerOff' | 'bloodBurst'
+  // act-122 剧情演出音效 (Stable Audio 3 medium): 对白木石轻点、藏刀阁百刃齐鸣、寒夜风雪、寒针轻啸、乱兵破门、刀劈青石
+  | 'textTick' | 'bladeChorus' | 'snowWind' | 'needleZing' | 'warHorn' | 'stoneCarve';
 
 type Handler = (name: Cue, intensity: number, extra?: number) => void;
 let handler: Handler | null = null;

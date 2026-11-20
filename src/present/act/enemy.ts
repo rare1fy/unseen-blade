@@ -46,6 +46,9 @@ export interface EDef { model: string; hp: number; r: number; speed: number; mas
   /** wp/regB: counts as half an attacker (a crowd foe, like the 流民) */ half?: boolean;
   /** 11-18: counts as this many attackers toward TUNE.maxAttackers (the crowds: 0.5) */ weight?: number;
   /** 11-18: a line it says over its head when it comes in (a boss), and its own bark lines (barks.ts) */ intro?: string; barks?: string[] }
+/** act-114 第四关曹军水寨 / 第五关崔府门客战斗喊话（暗袭系水鬼与死士保持静默） */
+const BARK_WL = ['护住主舰，别让瞎子过桥！', '火船靠过来了，快砍铁索！', '强弩压住甲板！', '放箭，把那白发贼射下江！', '曹军水师，结盾迎敌！', '哪来的盲眼刺客，拦下她！', '甩钩索，扯进江里！', '泼火油，烧死这疯子！'];
+const BARK_CX = ['何人夜闯司空府！', '拿下这蒙眼刺客，重重有赏！', '文家刀？！快报长史大人！', '结剑阵，莫让她近阁门！', '瞎子也敢擅闯崔府？找死！', '百辟刀卫，封死长廊！', '击筑起音，乱她耳力！', '雪夜行刺，留她不得！'];
 export const EDEFS: Record<EKind, EDef> = {
   bandit: { model: 'jp_bandit', hp: 40, r: 0.42, speed: 2.7, mass: 1, poise: 0, gold: 3, name: '山贼', role: 'blade' },
   dog: { model: 'jp_dog', hp: 24, r: 0.45, speed: 4.2, mass: 0.7, poise: 0, gold: 2, name: '山犬', role: 'hound' },
@@ -58,21 +61,21 @@ export const EDEFS: Record<EKind, EDef> = {
   hj_mob: { model: 'hj_mob', hp: 18, r: 0.36, speed: 3.7, mass: 0.6, poise: 0, gold: 2, name: '流民', role: 'mob', alt: ['hj_mob_b'] },
   hj_archer: { model: 'hj_archer', hp: 32, r: 0.44, speed: 2.6, mass: 0.9, poise: 0, gold: 4, name: '黄巾弓手', role: 'archer', elite: 'hj_archer_e' },
   hj_hound: { model: 'hj_hound', hp: 28, r: 0.45, speed: 4.3, mass: 0.7, poise: 0, gold: 3, name: '猎犬', role: 'hound', elite: 'hj_hound_e' },
-  hj_boss: { model: 'hj_boss', hp: 420, r: 0.85, speed: 2.0, mass: 3.6, poise: 64, gold: 40, name: '黄巾渠帅', role: 'boss', boss: true, tag: '苍天已死 · 黄天当立' },
+  hj_boss: { model: 'hj_boss', hp: 420, r: 0.85, speed: 2.0, mass: 3.6, poise: 64, gold: 40, name: '黄巾渠帅 · 石雷', role: 'boss', boss: true, tag: '苍天已死 · 黄天当立' },
   // wp/regB — 第四关 · 锁江（乌林曹军水寨）: names by agy; the AI is foes/r45_ai.ts (FOE_AI), the models foes/r45_models.ts
-  wl_spear: { model: 'wl_spear', hp: 22, r: 0.4, speed: 3.4, mass: 0.8, poise: 0, gold: 2, name: '执矛水卒', role: 'ext', half: true, alt: ['wl_spear_b'] },
-  wl_chain: { model: 'wl_chain', hp: 58, r: 0.48, speed: 2.6, mass: 1.3, poise: 0, gold: 5, name: '拽索手', role: 'ext', elite: 'wl_chain_e' },
-  wl_oil: { model: 'wl_oil', hp: 34, r: 0.44, speed: 2.7, mass: 0.9, poise: 0, gold: 4, name: '掷火卒', role: 'ext', elite: 'wl_oil_e' },
-  wl_xbow: { model: 'wl_xbow', hp: 36, r: 0.44, speed: 2.4, mass: 0.9, poise: 0, gold: 4, name: '楼船弩士', role: 'ext', elite: 'wl_xbow_e' },
+  wl_spear: { model: 'wl_spear', hp: 22, r: 0.4, speed: 3.4, mass: 0.8, poise: 0, gold: 2, name: '执矛水卒', role: 'ext', half: true, alt: ['wl_spear_b'], barks: BARK_WL },
+  wl_chain: { model: 'wl_chain', hp: 58, r: 0.48, speed: 2.6, mass: 1.3, poise: 0, gold: 5, name: '拽索手', role: 'ext', elite: 'wl_chain_e', barks: BARK_WL },
+  wl_oil: { model: 'wl_oil', hp: 34, r: 0.44, speed: 2.7, mass: 0.9, poise: 0, gold: 4, name: '掷火卒', role: 'ext', elite: 'wl_oil_e', barks: BARK_WL },
+  wl_xbow: { model: 'wl_xbow', hp: 36, r: 0.44, speed: 2.4, mass: 0.9, poise: 0, gold: 4, name: '楼船弩士', role: 'ext', elite: 'wl_xbow_e', barks: BARK_WL },
   wl_diver: { model: 'wl_diver', hp: 40, r: 0.44, speed: 3.6, mass: 0.9, poise: 0, gold: 5, name: '没水鬼', role: 'ext', elite: 'wl_diver_e' },
-  wl_shield: { model: 'wl_shield', hp: 90, r: 0.58, speed: 2.2, mass: 2.0, poise: 0, gold: 7, name: '执楯刀士', role: 'ext', elite: 'wl_shield_e' },
+  wl_shield: { model: 'wl_shield', hp: 90, r: 0.58, speed: 2.2, mass: 2.0, poise: 0, gold: 7, name: '执楯刀士', role: 'ext', elite: 'wl_shield_e', barks: BARK_WL },
   wl_boss: { model: 'wl_boss', hp: 640, r: 0.6, speed: 2.4, mass: 3.0, poise: 40, gold: 60, name: '督造少监 · 周默', role: 'ext', boss: true, tag: '机关算尽，只求活' },
   // wp/regB — 第五关 · 许都雪（崔府深宅）
-  cx_club: { model: 'cx_club', hp: 26, r: 0.4, speed: 3.5, mass: 0.8, poise: 0, gold: 2, name: '持杖僮奴', role: 'ext', half: true, alt: ['cx_club_b'] },
-  cx_sword: { model: 'cx_sword', hp: 64, r: 0.44, speed: 3.0, mass: 1.1, poise: 0, gold: 6, name: '门下剑客', role: 'ext', elite: 'cx_sword_e' },
+  cx_club: { model: 'cx_club', hp: 26, r: 0.4, speed: 3.5, mass: 0.8, poise: 0, gold: 2, name: '持杖僮奴', role: 'ext', half: true, alt: ['cx_club_b'], barks: BARK_CX },
+  cx_sword: { model: 'cx_sword', hp: 64, r: 0.44, speed: 3.0, mass: 1.1, poise: 0, gold: 6, name: '门下剑客', role: 'ext', elite: 'cx_sword_e', barks: BARK_CX },
   cx_shade: { model: 'cx_shade', hp: 38, r: 0.42, speed: 4.2, mass: 0.9, poise: 0, gold: 6, name: '匿影死士', role: 'ext', elite: 'cx_shade_e' },
-  cx_guard: { model: 'cx_guard', hp: 96, r: 0.5, speed: 2.6, mass: 1.6, poise: 30, gold: 8, name: '百辟刀卫', role: 'ext', elite: 'cx_guard_e' },
-  cx_zhu: { model: 'cx_zhu', hp: 30, r: 0.42, speed: 2.6, mass: 0.9, poise: 0, gold: 5, name: '击筑客', role: 'ext', elite: 'cx_zhu_e' },
+  cx_guard: { model: 'cx_guard', hp: 96, r: 0.5, speed: 2.6, mass: 1.6, poise: 30, gold: 8, name: '百辟刀卫', role: 'ext', elite: 'cx_guard_e', barks: BARK_CX },
+  cx_zhu: { model: 'cx_zhu', hp: 30, r: 0.42, speed: 2.6, mass: 0.9, poise: 0, gold: 5, name: '击筑客', role: 'ext', elite: 'cx_zhu_e', barks: BARK_CX },
   cx_boss: { model: 'cx_boss', hp: 960, r: 0.6, speed: 2.6, mass: 3.0, poise: 50, gold: 80, name: '司空长史 · 崔玄', role: 'ext', boss: true, tag: '弹指落子，定生死' },
 };
 /** wp/regB: the behaviour of a role-'ext' foe (regions four and five). Filled by foes/r45_ai.ts when it is imported (the region files
@@ -548,7 +551,7 @@ function bossTick(f: Foe, w: FoeWorld, dt: number) {
     // the roar: the attack breaks off, a brief invulnerable flash, the yellow-white aura from now on
     const isHj = f.role === 'boss';
     dropTeles(f); f.attacking = false; f.lunge = null; f.combo = 0; f.brokenT = 0; f.phase = 2; f.inv = isHj ? 1.1 : 0.85; f.poise = f.d.poise; setSt(f, 'roar', isHj ? 1.3 : 0.95);
-    f.a.roar(); cue('roar', 1); if (isHj) cue('thunder', 0.85); shake(0.45 * TUNE.shake);
+    f.a.roar(); cue('roar', 1); if (isHj) { cue('thunder', 0.85); w.say?.(f, '天雷降世，劈死这瞎子！'); } shake(0.45 * TUNE.shake);
     const c = f.pos.clone().setY(0.08); fxRing(c, 0xfff2b0, 3.2, { life: 0.6 } as never); fxShock(c, 0xffe080, 3.0, { life: 0.55 });
     fxSparks(f.a.chest(), 0xfff2c0, 30, 7); fxChips(f.a.chest(), [0xffe888, 0xffc844, 0xffffff], 10, { speed: 5.2, up: 3.4, size: 0.09, glow: 0.9 });
     if (isHj) { f.summonT = 2.5; f.thunderCd = Math.min(f.thunderCd, 1.5); }
