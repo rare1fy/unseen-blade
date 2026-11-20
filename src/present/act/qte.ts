@@ -18,9 +18,9 @@ import { FX, slowmo, hitstop, shake } from '../engine/clock';
 import { Action, rot } from '../actors/rig';
 import { cue } from '../../audio/cues';
 import { audio } from '../../audio/audio';
-import { fxSparks, fxRing, fxChips, trailSeg } from '../fx/fx';
+import { fxSparks, fxRing, trailSeg } from '../fx/fx';
 import { dustBlocks } from '../kyoto/ninja_fx';
-import { popPix, PIX_H } from '../v2/pix';
+import { PIX_H } from '../v2/pix';
 import { slashArc } from './slashArc';
 import { actKey } from './pad';
 import { msg, t as localize } from './i18n';
@@ -37,7 +37,6 @@ import type { Input, Btn } from './input';
 import type { ActHud } from './hud';
 
 export type QteKind = 'clash' | 'chain';
-export type ClashStyle = 'bind' | 'flurry';
 /** what the duel needs from the show (show.ts builds it; its fields are private, the closures reach them) */
 export interface DuelHost {
   L: UiLayer; hud: () => ActHud; inp: Input;
@@ -232,14 +231,11 @@ interface Beat { move: Move; start: number; T: number; pressed: boolean; ok: boo
 export class Duel {
   /** the QTE running (null = none); 'tail' = a string went on after a miss, she is free again */
   mode: QteKind | null = null;
-  /** act-116: current clash choreography ('flurry' = high-speed rapid blade exchange, 'bind' = classic blade lock) */
-  clashStyle: ClashStyle = 'flurry';
-  private f: Foe | null = null; private pend: { f: Foe; kind: QteKind; force: boolean; style?: ClashStyle } | null = null;
+  private f: Foe | null = null; private pend: { f: Foe; kind: QteKind; force: boolean } | null = null;
   private stage: 'run' | 'win' | 'lose' | 'tail' | 'out' = 'run'; private t = 0; private endT = 0;
   private ui: DuelUi; private cool = 0;
   // the clash
   private m = 0; private presses = 0; private dur = 2; private press0 = 0.5; private first = false;
-  private clashSeq = 0; private flurryT = 0; private flurryStep = 0; private clashMoves: Move[] = [];
   private hero0 = V3(); private foe0 = V3(); private u = V3(0, 0, 1); private contact = V3(); private sparkT = 0; private dustT = 0; private downT = 0;
   // the chain
   private beats: Beat[] = []; private bi = 0; private ct = 0; private win = 0.12;
@@ -289,14 +285,14 @@ export class Duel {
     this.pend = { f, kind: 'clash', force: false }; return true;
   }
   /** start one waiting now (show.ts: right after her update, where the parry / the draw asked for it) */
-  flush() { if (this.pend && !this.mode) { const p = this.pend; this.pend = null; if (p.f.st !== 'dead' && this.host.hero()?.alive && this.host.canRun(p.force)) { this.forced = p.force; this.begin(p.f, p.kind, p.style); } } }
-  /** __dh.qte(kind, style?): the nearest elite / boss (else any foe) at once */
-  force(kind: QteKind = 'clash', style?: ClashStyle) {
+  flush() { if (this.pend && !this.mode) { const p = this.pend; this.pend = null; if (p.f.st !== 'dead' && this.host.hero()?.alive && this.host.canRun(p.force)) { this.forced = p.force; this.begin(p.f, p.kind); } } }
+  /** __dh.qte(kind): the nearest elite / boss (else any foe) at once */
+  force(kind: QteKind = 'clash') {
     const h = this.host.hero(); if (!h || this.on) return false;
     const live = this.host.foes().filter(f => f.st !== 'dead' && f.kind !== 'dummy' && !hiddenFoe(f));
     const pick = (l: Foe[]) => l.sort((a, b) => a.pos.distanceTo(h.pos) - b.pos.distanceTo(h.pos))[0];
     const f = pick(live.filter(f => f.elite || isBoss(f))) ?? pick(live); if (!f) return false;
-    this.pend = { f, kind, force: true, style }; return true;
+    this.pend = { f, kind, force: true }; return true;
   }
   /** a boss / an elite starting the string that is its 连环破势 (each attack looked at once: its warning is new) */
   private looked = new WeakSet<object>();
@@ -335,16 +331,12 @@ export class Duel {
     this.camStep(rdt);
   }
 
-  private begin(f: Foe, kind: QteKind, style?: ClashStyle) {
+  private begin(f: Foe, kind: QteKind) {
     const h = this.host.hero()!;
     this.mode = kind; this.f = f; this.stage = 'run'; this.t = 0; this.camT = 0; this.camIn = true; this.first = this.firstTime(kind);
-    if (kind === 'clash') {
-      f.mem.qClash = (f.mem.qClash ?? 0) + 1;
-      // act-116: alternate between high-speed rapid blade exchange ('flurry', first) and classic blade lock ('bind')
-      this.clashStyle = style ?? ((this.clashSeq++ % 2 === 0) ? 'flurry' : 'bind');
-    } else f.mem.qChain = (f.mem.qChain ?? 0) + 1;
+    if (kind === 'clash') f.mem.qClash = (f.mem.qClash ?? 0) + 1; else f.mem.qChain = (f.mem.qChain ?? 0) + 1;
     if (!isBoss(f)) this.roomN++;
-    this.seen(kind); this.lastDown = this.host.inp.b.attack.down; this.host.log('qte ' + kind + (kind === 'clash' ? '(' + this.clashStyle + ') ' : ' ') + f.kind + (f.elite ? ' elite ' : ' ') + f.atk);
+    this.seen(kind); this.lastDown = this.host.inp.b.attack.down; this.host.log('qte ' + kind + ' ' + f.kind + (f.elite ? ' elite ' : ' ') + f.atk);
     // she stops whatever she was doing (the draw's lunge, a cut) and stands to him; nothing of the press that started it carries on
     h.forceFree(); h.parryT = 0; h.iaiBonus = false; h.clearInput(); h.inv = 30;   // (> 20: held, not the hit blink)
     dropTeles(f); f.vel.set(0, 0, 0); f.lunge = null; f.attacking = true; setFoeState(f, 'stagger', 99);
@@ -354,74 +346,41 @@ export class Duel {
     if (kind === 'clash') this.beginClash(h, f); else this.beginChain(h, f);
   }
 
-  // ---------------------------------------------------------------- 拼刀（架刀角力 bind / 高速拼刀 flurry）
+  // ---------------------------------------------------------------- 拼刀（架刀角力）
   private beginClash(h: Hero, f: Foe) {
-    this.m = 0; this.presses = 0; this.flurryT = 0; this.flurryStep = 0; this.stats.clash.n++;
+    this.m = 0; this.presses = 0; this.stats.clash.n++;
     this.dur = TUNE.clashTime * (this.first ? 1.35 : 1);
-    const rapid = this.clashStyle === 'flurry';
-    const D = h.r + f.d.r + (rapid ? 0.92 : 0.75);
+    const D = h.r + f.d.r + 0.75;
     this.foe0.copy(f.pos); this.hero0.copy(f.pos).addScaledVector(this.u, -D); this.host.clamp(this.hero0, h.r);
     this.press0 = 0.45;
-    this.clashMoves = CHAIN_BOSS[f.kind]?.moves ?? meleeMoves(f);
-    if (rapid) {
-      h.a.play(new Action('k1', 0.24, 0.35));
-      const mv = this.clashMoves[0]; f.a.play(new Action(mv[0], 0.36, mv[1], mv[2] ?? {}));
-      h.scriptPose = null;
-    } else {
-      // her: the draw's reach held — arm out, the blade forward into his; him: his blow held where it met hers
-      { const a = new Action('rel', 1, 0.3); a.t = HOLD_K; h.a.play(a); }
-      if (!f.a.act || NOT_MELEE.test(f.a.act.name)) { const mv = this.clashMoves[0]; f.a.play(new Action(mv[0], 1.2, mv[1], mv[2] ?? {})); }
-      h.scriptPose = () => this.lean(h);
-    }
+    // her: the draw's reach held — arm out, the blade forward into his; him: his blow held where it met hers
+    { const a = new Action('rel', 1, 0.3); a.t = HOLD_K; h.a.play(a); }
+    if (!f.a.act || NOT_MELEE.test(f.a.act.name)) { const mv = (CHAIN_BOSS[f.kind]?.moves ?? meleeMoves(f))[0]; f.a.play(new Action(mv[0], 1.2, mv[1], mv[2] ?? {})); }
+    h.scriptPose = () => this.lean(h);
     this.contactAt(h);
     const crossSide = V3(this.u.z, 0, -this.u.x);
     slashArc.clashCross(this.contact, crossSide, 0.62, 'iai', 0.14, 0.85);
     slashArc.clashCross(this.contact, crossSide, -0.62, 'heavy', 0.14, 0.8);
-    popPix('拼', this.contact.clone().add(V3(0, 0.62, 0)), { color: '#ffe878', h: 0.48, big: true, life: 0.45, rise: 0.9 });
-    this.host.splitScreen?.(0.48);
+    this.host.splitScreen?.(0.45);
     hitstop(0.11); shake(0.32 * TUNE.shake); this.host.vibrate('heavy');
     fxSparks(this.contact, 0xfff0c8, 20, 7.5, { life: 0.14 }); fxRing(this.contact.clone(), 0xffe6b0, 1.0, { life: 0.08 } as never);
     cue('parry', 1); cue('bladeRing', 0.9); cue('timeSlow', 0.5);
     dustBlocks(h.pos.clone(), 5, this.u.clone().multiplyScalar(-1)); dustBlocks(f.pos.clone(), 5, this.u.clone());
   }
-  /** act-116 高速拼刀: fire one rapid steel-on-steel exchange (hero slash + enemy counter + crossed 3D voxel blade cubes) */
-  private flurryClashBeat(h: Hero, f: Foe, byPlayer: boolean) {
-    const step = this.flurryStep++;
-    const k = this.tension();
-    const heroMoves = ['k1', 'k2', 'k3', 'rel'] as const;
-    h.a.play(new Action(heroMoves[step % heroMoves.length], 0.22, 0.35));
-    const mv = this.clashMoves[step % this.clashMoves.length];
-    const fa = new Action(mv[0], 0.32, mv[1], mv[2] ?? {});
-    fa.t = Math.max(0, fa.at * fa.dur * 0.55);
-    f.a.play(fa);
-    const crossSide = V3(this.u.z, 0, -this.u.x);
-    const ang = (step % 2 === 0 ? 1 : -1) * (0.38 + ((step * 37) % 10) * 0.055);
-    const jitter = crossSide.clone().multiplyScalar(((step % 3) - 1) * 0.14).add(V3(0, ((step % 5) - 2) * 0.08, 0));
-    const at = this.contact.clone().add(jitter);
-    slashArc.clashCross(at, crossSide, ang, byPlayer ? (step % 2 === 0 ? 'iai' : 'counter') : 'heavy', 0.11, byPlayer ? 0.82 : 0.7);
-    if (byPlayer) slashArc.clashCross(at, crossSide, -ang * 0.85, 'bleed', 0.09, 0.62);
-    fxSparks(at, byPlayer ? 0xfff4c8 : 0xffb878, byPlayer ? 8 : 5, 5.5 + 2.5 * k, { life: 0.09 });
-    if (byPlayer) {
-      fxChips(at, [0xffe896, 0xffa84c, 0xffffff], 3, { speed: 4.2, up: 2.2, size: 0.055, glow: 0.9 });
-      this.host.camKick(crossSide.clone().multiplyScalar(step % 2 === 0 ? 1 : -1), 0.032 * TUNE.shake / 2);
-    }
-    audio.any('ub_parry_', { gain: (byPlayer ? 0.36 : 0.22) + 0.14 * k, rate: 1.25 + 0.55 * k + (step % 3) * 0.06, jitter: 0.05, bus: 'hero', pri: 2 });
-    audio.any('ub_sw_stab_', { gain: byPlayer ? 0.24 : 0.15, rate: 1.15 + 0.35 * k, jitter: 0.06, bus: 'hero', pri: 1 });
-  }
   private contactAt(h: Hero) { this.contact.copy(h.pos).addScaledVector(this.u, h.r + 0.62).setY(1.18); }
   /** her body in the bind (拼刀: leaning in, the sword arm trembling as it gets harder) / on guard between the string's blows */
   private lean(h: Hero) {
     const b = h.a.bones, k = this.tension(), tr = Math.sin(this.t * 47) * 0.02 * k;
-    if (this.mode === 'clash' && this.stage === 'run' && this.clashStyle === 'bind') { rot(b.spine, 0.16 + 0.1 * k); rot(b.chest, 0.06 + 0.04 * k); rot(b.armR, tr, 0, tr * 0.6); rot(b.neck, -0.08); }
+    if (this.mode === 'clash' && this.stage === 'run') { rot(b.spine, 0.16 + 0.1 * k); rot(b.chest, 0.06 + 0.04 * k); rot(b.armR, tr, 0, tr * 0.6); rot(b.neck, -0.08); }
     else if (this.mode === 'chain' && this.stage === 'run') { rot(b.spine, 0.14); rot(b.neck, -0.06); rot(b.legL, -0.18); rot(b.shinL, 0.3); rot(b.legR, 0.1); rot(b.shinR, 0.25); }
   }
   private tension() { return this.mode === 'clash' ? Math.min(1, 0.55 * Math.min(1, this.t / this.dur) + 0.45 * Math.abs(this.m)) : Math.min(1, this.bi / 4); }
   private clashFrame(rdt: number, h: Hero, f: Foe) {
-    const inp = this.host.inp, A = inp.b.attack, rapid = this.clashStyle === 'flurry';
+    const inp = this.host.inp, A = inp.b.attack;
     if (this.stage === 'run') {
-      slowmo(rapid ? 0.26 : 0.05, 0.1);   // rapid clash runs snappier so slashes & voxel crosses crackle in real rhythm
-      // the press: the marker on, a scrape/rapid exchange and sparks, a plate lit, the button down a moment
-      if (this.edge(A)) this.onPress(h, f);
+      slowmo(0.05, 0.1);   // the world nearly still — the sparks, the snow, the cloth go on slowly
+      // the press: the marker on, a scrape and a few sparks, a plate lit, the button down a moment
+      if (this.edge(A)) this.onPress(f);
       // his weight against hers, harder as it goes (×1 → ×1.5 over the bind; a boss more, his second phase more still; the first time
       // a little kinder). With TUNE's numbers, to be ahead when the time runs out: an elite takes about 3.5 presses a second, a boss
       // about 7, his second phase about 7.6 (a phone's thumb does 7–9); at 8 an elite is pushed right through in about 1.5 s
@@ -429,26 +388,17 @@ export class Duel {
       if (this.t > 0.15) this.m -= base * (1 + 0.5 * Math.min(1, this.t / this.dur)) * rdt;
       this.m = Math.max(-1, Math.min(1, this.m));
       const k = this.tension();
-      // the clash slides toward whoever is losing (rapid clash adds brisk footwork pulse)
+      // the bind slides toward whoever is losing
       const slide = this.m * 0.38, ent = Math.min(1, this.t / 0.12);
-      const stepOsc = rapid ? Math.sin(this.t * 28) * 0.08 : 0;
-      const lat = V3(this.u.z, 0, -this.u.x);
-      h.pos.lerp(this.hero0.clone().addScaledVector(this.u, slide).addScaledVector(lat, stepOsc), ent);
-      f.pos.copy(this.foe0).addScaledVector(this.u, slide).addScaledVector(lat, -stepOsc * 0.7);
+      h.pos.lerp(this.hero0.clone().addScaledVector(this.u, slide), ent);
+      f.pos.copy(this.foe0).addScaledVector(this.u, slide);
       h.vel.set(0, 0, 0); h.a.yaw = Math.atan2(this.u.x, this.u.z); f.yaw = Math.atan2(-this.u.x, -this.u.z); f.a.yaw = f.yaw;
+      // her draw's reach held (the arm out, the blade forward into his) — held past the draw's streak window (k 0.14–0.46)
+      if (h.a.act?.name === 'rel') h.a.act.t = HOLD_K; else { const a = new Action('rel', 1, 0.3); a.t = HOLD_K; h.a.play(a); }
       this.contactAt(h);
-      if (rapid) {
-        // advance both fighters' rapid-slash actions in real time + auto-exchange pulses so blades never freeze
-        if (h.a.act) h.a.act.t = Math.min(h.a.act.dur * 0.96, h.a.act.t + rdt * 1.15);
-        this.flurryT -= rdt;
-        if (this.flurryT <= 0) { this.flurryT = Math.max(0.095, 0.155 - 0.045 * k); this.flurryClashBeat(h, f, false); }
-      } else {
-        // her draw's reach held (the arm out, the blade forward into his) — held past the draw's streak window (k 0.14–0.46)
-        if (h.a.act?.name === 'rel') h.a.act.t = HOLD_K; else { const a = new Action('rel', 1, 0.3); a.t = HOLD_K; h.a.play(a); }
-        this.sparkT -= rdt; if (this.sparkT <= 0) { this.sparkT = 0.09 - 0.03 * k; fxSparks(this.contact, 0xffd890, 2 + Math.round(k), 2.5 + 2 * k, { life: 0.07 }); }
-      }
-      this.dustT -= rdt; if (this.dustT <= 0) { this.dustT = rapid ? 0.24 : 0.5; dustBlocks(h.pos.clone(), 2, this.u.clone().multiplyScalar(-1)); }
-      this.hum = rapid ? 0.22 + 0.4 * k : 0.35 + 0.65 * k;
+      this.sparkT -= rdt; if (this.sparkT <= 0) { this.sparkT = 0.09 - 0.03 * k; fxSparks(this.contact, 0xffd890, 2 + Math.round(k), 2.5 + 2 * k, { life: 0.07 }); }
+      this.dustT -= rdt; if (this.dustT <= 0) { this.dustT = 0.5; dustBlocks(h.pos.clone(), 2, this.u.clone().multiplyScalar(-1)); }
+      this.hum = 0.35 + 0.65 * k;
       this.downT = Math.max(0, this.downT - rdt); const btn = this.host.hud().btns.attack as { down?: boolean; pid?: number | null }; if (this.downT <= 0 && btn.pid == null && inp.lastDevice !== 'touch') btn.down = false;
       this.drawClashUi(h, f, rdt, k);
       if (this.m >= 1 || (this.t >= this.dur && this.m > 0)) this.clashWin(h, f);
@@ -460,31 +410,24 @@ export class Duel {
     if (this.stage === 'win' && this.t >= this.endT) this.release(h, 0);
     if (this.stage === 'out' && this.camK <= 0.001 && !this.camIn) this.finish();
   }
-  private onPress(h: Hero, f: Foe) {
+  private onPress(f: Foe) {
     const k = this.tension(), inp = this.host.inp;
     this.m = Math.min(1, this.m + TUNE.clashPush); this.presses++; this.stats.clash.presses++;
     this.ui.press(); this.host.hud().btnKick('attack', 0.42, 0xffd890);
     const btn = this.host.hud().btns.attack as { down?: boolean }; if (inp.lastDevice !== 'touch') { btn.down = true; this.downT = 0.05; }
-    if (this.clashStyle === 'flurry') {
-      this.flurryT = Math.max(0.08, 0.14 - 0.04 * k);
-      this.flurryClashBeat(h, f, true);
-      shake(0.045 * TUNE.shake); this.host.vibrate('light');
-    } else {
-      fxSparks(this.contact, 0xffe8b0, 4, 4.5 + 2 * k, { life: 0.07 });
-      audio.any('ub_parry_', { gain: 0.18 + 0.14 * k, rate: 1.45 + 0.45 * k, jitter: 0.06, bus: 'hero', pri: 1 });
-      audio.noise(0.07, { from: 5200 + 2400 * k, to: 2200, gain: 0.05 + 0.05 * k, q: 2.5 });
-      shake(0.03 * TUNE.shake);
-    }
+    fxSparks(this.contact, 0xffe8b0, 4, 4.5 + 2 * k, { life: 0.07 });
+    audio.any('ub_parry_', { gain: 0.18 + 0.14 * k, rate: 1.45 + 0.45 * k, jitter: 0.06, bus: 'hero', pri: 1 });
+    audio.noise(0.07, { from: 5200 + 2400 * k, to: 2200, gain: 0.05 + 0.05 * k, q: 2.5 });
+    shake(0.03 * TUNE.shake); void f;
   }
   private drawClashUi(h: Hero, f: Foe, rdt: number, k: number) {
     const L = this.host.L, hud = this.host.hud(), b = hud.btns.attack;
-    // act-116: prominent centered lower-third focus (clear of top Boss HP bar and mid-screen swordplay, right between thumbs/eyes)
+    // act-116 / act-117: prominent centered lower-third focus (clear of top Boss HP bar and mid-screen swordplay, right between thumbs/eyes)
     const len = Math.min(L.w * 0.44, 370 * hud.k);
     const x = L.w * 0.5, y = Math.min(L.h - 90 * hud.k, L.h * 0.77);
     const herLeft = worldToUi(h.pos).x <= worldToUi(f.pos).x;
-    const title = this.clashStyle === 'flurry' ? '疾斩拼刀 · 连按' : '拼刀 · 连按';
     const btnHint = this.host.inp.lastDevice === 'key' ? msg`连按 ${localize(actKey('attack'))}` : '连按攻击';
-    this.ui.showBar(x, y, len, this.m, herLeft, k, rdt, title, btnHint, b.x, b.y, b.size, hud.k);
+    this.ui.showBar(x, y, len, this.m, herLeft, k, rdt, '拼刀 · 连按', btnHint, b.x, b.y, b.size, hud.k);
     // always run a bright gold chase round the attack button plates during clash so the mash target is unmistakable
     this.ui.showPlates(b.x, b.y, b.size, this.presses === 0 ? 1 : 0.72, rdt);
   }
@@ -647,14 +590,8 @@ export class Duel {
   /** show.ts's foe loop calls this instead of the foe's AI while the duel has it: held in the blow (拼刀) or driven by the string's
    *  beats (连环) — the actor's own update runs after */
   holdFoe(f: Foe, dt: number) {
-    f.vel.set(0, 0, 0); f.a.yaw = f.yaw; f.a.setRunning(false, 0, f.yaw, f.vel);
-    if (this.mode === 'clash' && this.stage === 'run') {
-      const a = f.a.act;
-      if (a) {
-        if (this.clashStyle === 'flurry') a.t = Math.min(a.dur * 0.96, a.t + dt * 3.8);
-        else a.t = Math.max(0, a.at * a.dur - 0.02);
-      }
-    }
+    void dt; f.vel.set(0, 0, 0); f.a.yaw = f.yaw; f.a.setRunning(false, 0, f.yaw, f.vel);
+    if (this.mode === 'clash' && this.stage === 'run') { const a = f.a.act; if (a) a.t = Math.max(0, a.at * a.dur - 0.02); }
   }
 
   // ---------------------------------------------------------------- the camera
@@ -738,5 +675,5 @@ export class Duel {
     b.pressed = on && !b.down; b.down = on; b.held = on ? b.held + rdt : 0;
   }
   /** what a capture reads (__dh.qteStats()); toBeat = real s until the 连环's next blow lands (captures press on it) */
-  get state() { const b = this.mode === 'chain' ? this.beats[this.bi] : null; return { mode: this.mode, style: this.clashStyle, stage: this.stage, m: +this.m.toFixed(3), t: +this.t.toFixed(3), beat: this.bi, beats: this.beats.length, toBeat: b && !b.pressed ? +(b.T - this.ct).toFixed(3) : null, camK: +this.camK.toFixed(3), stats: this.stats }; }
+  get state() { const b = this.mode === 'chain' ? this.beats[this.bi] : null; return { mode: this.mode, stage: this.stage, m: +this.m.toFixed(3), t: +this.t.toFixed(3), beat: this.bi, beats: this.beats.length, toBeat: b && !b.pressed ? +(b.T - this.ct).toFixed(3) : null, camK: +this.camK.toFixed(3), stats: this.stats }; }
 }
