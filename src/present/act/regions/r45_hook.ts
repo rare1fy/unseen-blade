@@ -135,9 +135,9 @@ export function installR45(show: unknown) {
     for (const d of S.darts as Array<{ stuck: unknown; dead: boolean; stop(b?: boolean): void }>) if (d.stuck && !d.dead && hiddenFoe(d.stuck as Foe)) d.stop(false);
     // the hidden ones cast no contact shadow (show.ts lays one per live foe at its feet; hide the ones under hidden foes)
     const sh = S.shadows as THREE.Mesh[]; if (sh?.length) for (const m of sh) if (m.visible) for (const f of all) if (hiddenFoe(f) && Math.abs(m.position.x - f.pos.x) < 1e-3 && Math.abs(m.position.z - f.pos.z) < 1e-3) m.visible = false;
-    // 崔玄's dark: the frame sinks and the vignette closes in (eased); lifted when he dies or the room changes
+    // 崔玄's dark: the frame sinks and the vignette closes in (eased); lifted when he dies, enters a cutscene, or the room changes
     const boss = all.find(f => isBoss(f) && f.st !== 'dead');
-    if (!boss) darkK = 0;
+    if (!boss || S.proFalling || S.phase === 'cine' || S.phase === 'talk') darkK = 0;
     darkNow += (darkK - darkNow) * Math.min(1, rdt * (darkK > darkNow ? 2.5 : 4));
     if (darkNow > 0.003) { if (vig0 < 0) { vig0 = GRADE.vig; exp0 = GRADE.exposure; } GRADE.vig = vig0 + 0.6 * darkNow; GRADE.desat = 0.35 * darkNow; GRADE.exposure = exp0 * (1 - 0.32 * darkNow); }
     else undark();

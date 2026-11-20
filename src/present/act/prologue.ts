@@ -405,7 +405,8 @@ export function fallShots(h: PrologueHost, boss: Foe): CineShot[] {
   let down = false;
   return [
     { dur: 2.2, ease: 'out', from: () => side(11, 5.5), to: () => side(10, 5.0),
-      at: [[0.1, () => { boss.a.yaw = Math.atan2(hp().x - b().x, hp().z - b().z); boss.a.roar(); cue(boss.kind === 'hj_boss' ? 'roar' : 'draw', 0.8); }],
+      at: [[0, () => { boss.a.root.visible = true; boss.a.body.visible = true; }],
+        [0.1, () => { boss.a.root.visible = true; boss.a.body.visible = true; boss.a.yaw = Math.atan2(hp().x - b().x, hp().z - b().z); boss.a.roar(); cue(boss.kind === 'hj_boss' ? 'roar' : 'draw', 0.8); }],
         // (11-19 剧情改版: 崔玄 in the forecourt — no thunder: one cut, the blade off her hands, the hilt into her chest)
         [0.9, () => { if (boss.kind === 'hj_boss') { flashSky(1); fxBolt(V3(b().x, 24, b().z), V3(b().x, 3.4, b().z), 0xd8c8ff, { width: 0.5, life: 0.4, bright: 0.7 }); cue('thunder', 1); }
           else { const d = hp().clone().sub(b()).setY(0); const l = d.length() || 1; boss.pos.addScaledVector(d, Math.max(0, l - 1.3) / l); boss.a.home.copy(boss.pos); boss.a.root.position.copy(boss.pos); fxSparks(h.hero.a.chest(), 0xffffff, 12, 3); cue('parry', 1); } }],

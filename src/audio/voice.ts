@@ -8,7 +8,8 @@ import { dh } from '../debug/dh';
 const FILES = import.meta.glob('../assets/voice/*/*.mp3', { eager: true, query: '?inline', import: 'default' }) as Record<string, string>;
 const BY_TEXT = new Map<string, string>();
 for (const [sec, rows] of Object.entries(SCRIPT as Record<string, Array<{ who: string; text: string }>>)) rows.forEach((r, i) => {
-  const url = FILES[`../assets/voice/${r.who}/${sec}_${i}.mp3`]; if (url) BY_TEXT.set(r.who + '|' + r.text, url);
+  const dir = r.who === 'sentry2' ? 'sentry' : r.who;
+  const url = FILES[`../assets/voice/${dir}/${sec}_${i}.mp3`]; if (url) BY_TEXT.set(r.who + '|' + r.text, url);
 });
 /** say this line if there is a clip for it (stops the line before) */
 export function sayLine(who: string, text: string) { const url = BY_TEXT.get(who + '|' + text); if (url) void audio.voiceLine(url); else audio.stopVoice(); }

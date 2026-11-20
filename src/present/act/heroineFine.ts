@@ -214,13 +214,14 @@ export function buildHatFine(): VoxChar {
     }
   }
   B(v, 'head', -2, 46, -8, 1, 50, -8, P.RED); B(v, 'head', -2, 50, -8, 1, 50, -8, RED_L);
-  // White hair under the bamboo hat: full rounded crown (y=50..55, tucked cleanly inside hat dome with zero poke-through)
-  // so taking the hat off while healing/resting in the kiln shows a complete, natural white-haired silhouette!
+  // White hair under the bamboo hat: full sculpted rounded crown (y=50..57, matching buildWhiteFine's full dome)
+  // so taking the hat off while healing/resting in the kiln shows a complete, natural white-haired head with zero flat cut-off!
   CBox(v, 'head', -7, 50, -7, 6, 52, 6, P.HAIR, 3);
   CBox(v, 'head', -6, 53, -6, 5, 53, 5, P.HAIR, 2);
-  CBox(v, 'head', -5, 54, -5, 4, 54, 4, P.HAIR, 2);
-  CBox(v, 'head', -4, 55, -4, 3, 55, 3, P.HAIR_L, 2);
-  B(v, 'head', -2, 55, -3, 1, 55, 2, P.HAIR_L);
+  CBox(v, 'head', -5, 54, -5, 4, 55, 4, P.HAIR, 2);
+  CBox(v, 'head', -4, 56, -4, 3, 56, 3, P.HAIR_L, 2);
+  B(v, 'head', -2, 57, -2, 1, 57, 1, P.HAIR_L);
+  B(v, 'head', -5, 44, -7, 4, 52, -7, P.HAIR); B(v, 'head', -2, 44, -7, -2, 52, -7, P.HAIR_D); B(v, 'head', 1, 44, -7, 1, 52, -7, P.HAIR_D);
   B(v, 'head', -2, 53, 5, 1, 53, 5, P.HAIR_L);
   B(v, 'head', -2, 50, 6, 1, 50, 6, null);
   for (const s of [-1, 1] as const) {
@@ -233,7 +234,7 @@ export function buildHatFine(): VoxChar {
   }
   CBox(v, 'head', -3, 40, -9, 2, 45, -7, P.HAIR, 1); B(v, 'head', -2, 40, -9, 1, 41, -9, P.HAIR_D); B(v, 'head', -2, 45, -8, 1, 45, -7, P.RED);
   tails(v, P.RED, P.RED_D, 'knot');
-  // the 斗笠: hollow conical shell built strictly outside the full white hair crown (never overwrites 'head' hair cells!),
+  // the 斗笠: hollow conical shell built strictly outside the full white hair dome (y=50..60, never overwrites 'head' hair cells!),
   // so hiding bones.hat while healing in the kiln reveals a complete, sculpted white-haired head with zero gap or flat cut!
   const hatBox = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, c: number) => {
     v.part('hat');
@@ -247,8 +248,8 @@ export function buildHatFine(): VoxChar {
   v.paint(c => (c.part === 'hat' && c.y === 51 && (!v.get(c.x + 1, 51, c.z) || !v.get(c.x - 1, 51, c.z) || !v.get(c.x, 51, c.z + 1) || !v.get(c.x, 51, c.z - 1)) ? STRAW_D : null));
   hatBox(-11, 53, -8, 10, 54, 7, STRAW); hatBox(-8, 53, -11, 7, 54, 10, STRAW);
   v.paint(c => (c.part === 'hat' && c.y === 53 && c.x >= -11 && c.x <= 10 && c.z >= -8 && c.z <= 7 ? STRAW_D : null));
-  hatBox(-7, 55, -6, 6, 56, 5, STRAW_L); hatBox(-6, 55, -7, 5, 56, 6, STRAW_L);
-  hatBox(-4, 57, -4, 3, 58, 3, STRAW_L); hatBox(-1, 59, -1, 0, 59, 0, 0x3e3228);
+  hatBox(-8, 55, -7, 7, 56, 6, STRAW_L); hatBox(-7, 55, -8, 6, 56, 7, STRAW_L);
+  hatBox(-5, 57, -5, 4, 58, 4, STRAW_L); hatBox(-3, 59, -3, 2, 59, 2, STRAW_L); hatBox(-1, 60, -1, 0, 60, 0, 0x3e3228);
   return v;
 }
 

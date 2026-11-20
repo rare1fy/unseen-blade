@@ -438,27 +438,31 @@ export class VoxChar {
         const [t1, t2] = TAN[d], base = P.length / 3, pos = dx + dy + dz > 0;
         const cx = v.x + 0.5 + dx * 0.5, cy = v.y + 0.5 + dy * 0.5, cz = v.z + 0.5 + dz * 0.5;
         const aos: number[] = [];
-        // 2-ring overhang & cavity AO across the whole statue (MagicaVoxel depth under hats, chins, collars, armor & armpits)
+        // 2-ring overhang & cavity AO across the whole statue (ignore removable 'hat' part when shading 'head' so taking the hat off leaves bright, clean hair)
+        const occA = (x: number, y: number, z: number) => {
+          const c = this.cells.get(key(x, y, z));
+          return !!c && !(v.part === 'head' && c.part === 'hat');
+        };
         let sky = 1;
         if (v.g === 0) {
           const ox0 = v.x + dx, oy0 = v.y + dy, oz0 = v.z + dz;
           let ov = 0;
-          if (occ(ox0, oy0 + 1, oz0)) ov += 1.0;
-          if (occ(ox0, oy0 + 2, oz0)) ov += 0.75;
-          if (occ(ox0 + dx, oy0 + 1, oz0 + dz)) ov += 0.65;
-          if (occ(ox0 + dx, oy0 + 2, oz0 + dz)) ov += 0.45;
+          if (occA(ox0, oy0 + 1, oz0)) ov += 1.0;
+          if (occA(ox0, oy0 + 2, oz0)) ov += 0.75;
+          if (occA(ox0 + dx, oy0 + 1, oz0 + dz)) ov += 0.65;
+          if (occA(ox0 + dx, oy0 + 2, oz0 + dz)) ov += 0.45;
           sky = (dy > 0 ? 1.03 : dy < 0 ? 0.88 : 0.99) * (1 - Math.min(0.18, ov * 0.055));
         }
         // an edge of this face is "open" (gets the bevel) only where the block sticks out (convex edge)
-        const open = (tx: number, ty: number, tz: number) => (occ(v.x + tx, v.y + ty, v.z + tz) ? 0 : 1);
+        const open = (tx: number, ty: number, tz: number) => (occA(v.x + tx, v.y + ty, v.z + tz) ? 0 : 1);
         const eo = [open(-t1[0], -t1[1], -t1[2]), open(t1[0], t1[1], t1[2]), open(-t2[0], -t2[1], -t2[2]), open(t2[0], t2[1], t2[2])];
         for (const [s1, s2] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
           P.push((cx + (t1[0] * s1 + t2[0] * s2) * 0.5 - bp.x) * s, (cy + (t1[1] * s1 + t2[1] * s2) * 0.5 - bp.y) * s, (cz + (t1[2] * s1 + t2[2] * s2) * 0.5 - bp.z) * s);
           N.push(dx, dy, dz); U.push(s1 > 0 ? 1 : 0, s2 > 0 ? 1 : 0); E.push(...eo); S.push(1, 1);
           // corner AO from the three cells in front of the face around this corner
           const ox = v.x + dx, oy = v.y + dy, oz = v.z + dz;
-          const a1 = occ(ox + t1[0] * s1, oy + t1[1] * s1, oz + t1[2] * s1) ? 1 : 0, a2 = occ(ox + t2[0] * s2, oy + t2[1] * s2, oz + t2[2] * s2) ? 1 : 0;
-          const a3 = occ(ox + t1[0] * s1 + t2[0] * s2, oy + t1[1] * s1 + t2[1] * s2, oz + t1[2] * s1 + t2[2] * s2) ? 1 : 0;
+          const a1 = occA(ox + t1[0] * s1, oy + t1[1] * s1, oz + t1[2] * s1) ? 1 : 0, a2 = occA(ox + t2[0] * s2, oy + t2[1] * s2, oz + t2[2] * s2) ? 1 : 0;
+          const a3 = occA(ox + t1[0] * s1 + t2[0] * s2, oy + t1[1] * s1 + t2[1] * s2, oz + t1[2] * s1 + t2[2] * s2) ? 1 : 0;
           const ao = v.g > 0 ? 3 : a1 && a2 ? 0 : 3 - (a1 + a2 + a3); aos.push(ao);
           const f = AO[ao] * sh * sky; C.push(Math.min(1, col.r * f), Math.min(1, col.g * f), Math.min(1, col.b * f));
         }

@@ -14,17 +14,19 @@ export interface Profile {
   /** relationships with the people at the hideout (id → points) */ bonds: Record<string, number>;
   /** the costume worn */ wear?: string;
   /** 杜五's provisions packed for the next run (feast / purse / wine), used up when the run starts */ meal?: string;
+  /** act-127 prologue checkpoint so quitting mid-prologue resumes at the right beat instead of restarting from the village */
+  proStage?: 'village' | 'boss' | 'wake' | 'done';
   /** last saved (ms since epoch) */ at: number;
 }
 const KEY = 'ub.profile';
-export const fresh = (): Profile => ({ v: 1, runs: 0, wins: 0, deaths: 0, iron: 0, herb: 0, perks: {}, mirror: {}, seen: {}, bonds: {}, at: Date.now() });
+export const fresh = (): Profile => ({ v: 1, runs: 0, wins: 0, deaths: 0, iron: 0, herb: 0, perks: {}, mirror: {}, seen: {}, bonds: {}, proStage: 'village', at: Date.now() });
 let cur: Profile | null = null;
 /** is there a saved profile on this device? */
 export function hasSave(): boolean { try { return !!profileStorage.getItem(KEY); } catch { return false; } }
 /** the current profile (loaded from the device the first time; a fresh one if there is none or it can't be read) */
 export function profile(): Profile {
   if (cur) return cur;
-  try { const raw = profileStorage.getItem(KEY); if (raw) { const p = JSON.parse(raw) as Partial<Profile> & { scraps?: number }; if (p && p.v === 1) { const { scraps, ...saved } = p; cur = { ...fresh(), ...saved, iron: p.iron ?? scraps ?? 0, herb: p.herb ?? 0 }; return cur; } } } catch { /* blocked / broken: start fresh */ }
+  try { const raw = profileStorage.getItem(KEY); if (raw) { const p = JSON.parse(raw) as Partial<Profile> & { scraps?: number }; if (p && p.v === 1) { const { scraps, ...saved } = p; const legacyDone = !saved.proStage && ((saved.runs ?? 0) > 0 || (saved.iron ?? scraps ?? 0) > 0 || (saved.herb ?? 0) > 0 || Object.keys(saved.seen ?? {}).length > 0); cur = { ...fresh(), ...saved, iron: p.iron ?? scraps ?? 0, herb: p.herb ?? 0, proStage: saved.proStage ?? (legacyDone ? 'done' : 'done') }; return cur; } } } catch { /* blocked / broken: start fresh */ }
   cur = fresh(); return cur;
 }
 /** write the current profile to the device */

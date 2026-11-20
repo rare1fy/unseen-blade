@@ -415,33 +415,33 @@ export class IronHp {
     const face = new THREE.Mesh(new THREE.CircleGeometry(24, 8, Math.PI / 8), lam(0xffffff, pixTex(PORTRAITS[HP_FACE.id] ?? PORTRAIT_WHITE, '#5a1a16'))); face.position.set(0, 0, 9.6); this.badge.add(face); this.face = face;
     this.badge.add(new THREE.Mesh(mergeBoxes(Array.from({ length: 8 }, (_, i) => { const a = (i / 8) * Math.PI * 2 + Math.PI / 8; return { w: 4, h: 4, d: 4, x: Math.cos(a) * 27, y: Math.sin(a) * 27, z: 10, c: BRONZE }; })).geo, vcMat()));
     // the purse: an iron tab hung from the medallion's foot by a short link, a square-holed copper coin set in its left end and the
-    // count in the pixel digits beside it (act-19: numbers stay pixel); its length follows the count (the digits never overflow)
+    // count in the pixel digits beside it (act-19: numbers stay pixel); enlarged for comfortable glance legibility
     this.badge.add(this.purse);
-    const link = box(10, 8, 6, IRON); link.position.set(0, -34, 1); this.purse.add(link);
-    for (const [h, d, y, z, c] of [[28, 8, -50, 0, IRON_D], [3, 9, -37.5, 0.5, IRON_L], [20, 2, -50.5, 4.2, 0x1a1412]] as const) { const m = box(1, h, d, c); m.position.set(0, y, z); this.purse.add(m); this.tab.push(m); }
-    const cap = box(6, 32, 10, IRON); cap.position.set(0, -50, 1); this.purse.add(cap); this.tab.push(cap);
-    const cm = lam(0xd09040), cd = lam(0x5a3a18);
-    for (const [w, h, x, y] of [[16, 5, 0, 5.5], [16, 5, 0, -5.5], [5, 6, -5.5, 0], [5, 6, 5.5, 0]] as const) { const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, 4), cm); b.position.set(x, y, 0); this.coin.add(b); }
-    const hole = new THREE.Mesh(new THREE.BoxGeometry(6, 6, 2), cd); hole.position.z = -0.5; this.coin.add(hole);
-    this.coin.position.set(-14, -50.5, 7); this.purse.add(this.coin);
+    const link = box(12, 10, 6, IRON); link.position.set(0, -35, 1); this.purse.add(link);
+    for (const [h, d, y, z, c] of [[42, 8, -59, 0, IRON_D], [4, 9, -40, 0.5, IRON_L], [32, 2, -59.5, 4.2, 0x1a1412]] as const) { const m = box(1, h, d, c); m.position.set(0, y, z); this.purse.add(m); this.tab.push(m); }
+    const cap = box(8, 46, 10, IRON); cap.position.set(0, -59, 1); this.purse.add(cap); this.tab.push(cap);
+    const cm = lam(0xe2a246), cd = lam(0x5a3a18);
+    for (const [w, h, x, y] of [[22, 7, 0, 7.5], [22, 7, 0, -7.5], [7, 8, -7.5, 0], [7, 8, 7.5, 0]] as const) { const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, 4.5), cm); b.position.set(x, y, 0); this.coin.add(b); }
+    const hole = new THREE.Mesh(new THREE.BoxGeometry(8, 8, 2.5), cd); hole.position.z = -0.5; this.coin.add(hole);
+    this.coin.position.set(-16, -59.5, 7); this.purse.add(this.coin);
     this.coinNum = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ transparent: true, depthTest: false, depthWrite: false, toneMapped: false }));
-    this.coinNum.position.set(0, -50, 7); this.coinNum.renderOrder = 31; this.purse.add(this.coinNum);
-    // act-118: 残铁 (iron ingot) & 草药/药引 (emerald herb sprig) sit right beside the coin on the same 3D perspective iron tab
-    const im = lam(0x9ca6b8), idm = lam(0x4c5260), ie = lam(0xf08c38);
-    { const b1 = new THREE.Mesh(new THREE.BoxGeometry(13, 6, 4), idm); b1.position.set(0, -2.5, 0); this.ironG.add(b1);
-      const b2 = new THREE.Mesh(new THREE.BoxGeometry(10, 5, 4), im); b2.position.set(0, 2.2, 0.4); this.ironG.add(b2);
-      const b3 = new THREE.Mesh(new THREE.BoxGeometry(4, 3.5, 4.4), ie); b3.position.set(3.2, 3.4, 0.6); this.ironG.add(b3); }
-    this.ironG.position.set(22, -50.5, 7); this.purse.add(this.ironG);
+    this.coinNum.position.set(0, -59, 7); this.coinNum.renderOrder = 31; this.purse.add(this.coinNum);
+    // act-118 / act-127: 残铁 (iron ingot) & 草药/药引 (emerald herb sprig) sit right beside the coin on the same 3D perspective iron tab
+    const im = lam(0xa8b4c8), idm = lam(0x4c5260), ie = lam(0xff9842);
+    { const b1 = new THREE.Mesh(new THREE.BoxGeometry(20, 9, 4.5), idm); b1.position.set(0, -3.5, 0); this.ironG.add(b1);
+      const b2 = new THREE.Mesh(new THREE.BoxGeometry(15, 7.5, 4.5), im); b2.position.set(0, 3.2, 0.4); this.ironG.add(b2);
+      const b3 = new THREE.Mesh(new THREE.BoxGeometry(6, 5, 5), ie); b3.position.set(4.8, 5, 0.6); this.ironG.add(b3); }
+    this.ironG.position.set(28, -59.5, 7); this.purse.add(this.ironG);
     this.ironNum = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ transparent: true, depthTest: false, depthWrite: false, toneMapped: false }));
-    this.ironNum.position.set(36, -50, 7); this.ironNum.renderOrder = 31; this.purse.add(this.ironNum);
-    const hm = lam(0x5ed88a), hd = lam(0x286a42), hl = lam(0xb4ffd0);
-    { const stem = new THREE.Mesh(new THREE.BoxGeometry(3.2, 10, 3.5), hd); stem.position.set(0, -2.5, 0); this.herbG.add(stem);
-      const l1 = new THREE.Mesh(new THREE.BoxGeometry(7, 5, 4), hm); l1.position.set(-4.2, 1.8, 0.4); this.herbG.add(l1);
-      const l2 = new THREE.Mesh(new THREE.BoxGeometry(7, 5, 4), hm); l2.position.set(4.2, 2.8, 0.4); this.herbG.add(l2);
-      const tip = new THREE.Mesh(new THREE.BoxGeometry(4.5, 4.5, 4.4), hl); tip.position.set(0, 5.4, 0.6); this.herbG.add(tip); }
-    this.herbG.position.set(58, -50.5, 7); this.purse.add(this.herbG);
+    this.ironNum.position.set(44, -59, 7); this.ironNum.renderOrder = 31; this.purse.add(this.ironNum);
+    const hm = lam(0x66e494), hd = lam(0x286a42), hl = lam(0xc4ffd8);
+    { const stem = new THREE.Mesh(new THREE.BoxGeometry(4.6, 14, 4), hd); stem.position.set(0, -3.5, 0); this.herbG.add(stem);
+      const l1 = new THREE.Mesh(new THREE.BoxGeometry(10, 7.2, 4.5), hm); l1.position.set(-6.0, 2.5, 0.4); this.herbG.add(l1);
+      const l2 = new THREE.Mesh(new THREE.BoxGeometry(10, 7.2, 4.5), hm); l2.position.set(6.0, 3.8, 0.4); this.herbG.add(l2);
+      const tip = new THREE.Mesh(new THREE.BoxGeometry(6.5, 6.5, 5), hl); tip.position.set(0, 7.8, 0.6); this.herbG.add(tip); }
+    this.herbG.position.set(72, -59.5, 7); this.purse.add(this.herbG);
     this.herbNum = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ transparent: true, depthTest: false, depthWrite: false, toneMapped: false }));
-    this.herbNum.position.set(72, -50, 7); this.herbNum.renderOrder = 31; this.purse.add(this.herbNum);
+    this.herbNum.position.set(88, -59, 7); this.herbNum.renderOrder = 31; this.purse.add(this.herbNum);
     // three 杀意 ingots under the trough
     for (let i = 0; i < 3; i++) { const m = new THREE.Mesh(new THREE.BoxGeometry(20, 10, 8), lam(0x2a2c32)); m.position.set(this.X0 + 16 + i * 28, -22, 2); this.root.add(m); this.ingots.push(m.material as THREE.MeshLambertMaterial); this.ingotMesh.push(m); }
     this.num = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ transparent: true, depthTest: false, depthWrite: false, toneMapped: false }));
@@ -461,7 +461,7 @@ export class IronHp {
   /** the badge (medallion + purse) on the screen: a finger-sized box round both (CSS px), clear of the stick's area far below */
   hitBadge(x: number, y: number) {
     const cx = this.x + 14 * this.k, r = Math.max(26, 38 * this.k);
-    return x > cx - r && x < cx + Math.max(r, (this.tabR - 10) * this.k) && y > this.y - r && y < this.y + Math.max(r + 14, 68 * this.k);
+    return x > cx - r && x < cx + Math.max(r, (this.tabR - 6) * this.k) && y > this.y - r && y < this.y + Math.max(r + 22, 86 * this.k);
   }
   /** the press (sink, spring back past rest, settle — the skill buttons' curve, capped so it never grows into the bar) and the purse:
    *  its count painted on a plane on the tab (it turns with the piece, like the health number), the tab as long as the count */
@@ -479,7 +479,7 @@ export class IronHp {
     this.medRimMat.emissive.setHex(lowHp ? 0xb81a12 : charged ? 0xf2c872 : 0xffb060);
     this.medRimMat.emissiveIntensity = lowHp ? 0.25 + 0.45 * beat : charged ? 0.26 + 0.22 * chargePulse : 0.18 * this.pressK;
     const shown = Math.max(0, Math.floor(this.coins)), iron = Math.max(0, Math.floor(this.iron)), herb = Math.max(0, Math.floor(this.herb));
-    const hot = this.coinHop > 0, cell = Math.max(1, Math.round(3 * this.k * dpr)), ss = 2, key = `${shown}|${iron}|${herb}|${cell}|${hot}`;
+    const hot = this.coinHop > 0, cell = Math.max(2, Math.round(4.6 * this.k * dpr)), ss = 2, key = `${shown}|${iron}|${herb}|${cell}|${hot}`;
     if (key !== this.coinKey) {
       this.coinKey = key;
       const paint = (mesh: THREE.Mesh, txt: string, col: string) => {
@@ -489,25 +489,25 @@ export class IronHp {
         const w = d.w / ss / dpr / this.k, h = d.h / ss / dpr / this.k; mesh.scale.set(w, h, 1);
         return w;
       };
-      const wC = paint(this.coinNum, `${shown}`, hot ? '#fff0b0' : '#ffd27a');
-      const wI = paint(this.ironNum, `${iron}`, '#f0c488');
-      const wH = paint(this.herbNum, `${herb}`, '#98f4b4');
-      // lay out coin -> iron -> herb left-to-right on the unified 3D hanging iron bar
-      const x0 = -26;
-      this.coinNum.position.x = -3 + wC / 2;
-      const ix = -3 + wC + 16;
+      const wC = paint(this.coinNum, `${shown}`, hot ? '#fff2b8' : '#ffd87a');
+      const wI = paint(this.ironNum, `${iron}`, '#f4cc92');
+      const wH = paint(this.herbNum, `${herb}`, '#a2f8be');
+      // lay out coin -> iron -> herb left-to-right on the unified 3D hanging iron bar with generous spacing
+      const x0 = -34;
+      this.coinNum.position.x = 1 + wC / 2;
+      const ix = 1 + wC + 24;
       this.ironG.position.x = ix;
-      this.ironNum.position.x = ix + 10 + wI / 2;
-      const hx = ix + 10 + wI + 16;
+      this.ironNum.position.x = ix + 15 + wI / 2;
+      const hx = ix + 15 + wI + 24;
       this.herbG.position.x = hx;
-      this.herbNum.position.x = hx + 10 + wH / 2;
-      const x1 = Math.max(26, hx + 10 + wH + 6);
-      this.tabR = x1 + 14;
+      this.herbNum.position.x = hx + 15 + wH / 2;
+      const x1 = Math.max(36, hx + 15 + wH + 10);
+      this.tabR = x1 + 16;
       for (const m of this.tab.slice(0, 3)) { m.scale.x = x1 - x0; m.position.x = (x0 + x1) / 2; }
-      this.tab[3].position.x = x1 + 2;
+      this.tab[3].position.x = x1 + 3;
     }
     const hop = Math.sin(this.coinHop * Math.PI);
-    this.coin.position.y = -50.5 + hop * 3; this.coin.scale.setScalar(1 + 0.25 * hop); this.coin.rotation.y = hop * 0.8;
+    this.coin.position.y = -59.5 + hop * 3.5; this.coin.scale.setScalar(1 + 0.25 * hop); this.coin.rotation.y = hop * 0.8;
     this.coinNum.visible = this.ironNum.visible = this.herbNum.visible = this.root.visible;
     this.ironG.visible = this.herbG.visible = this.root.visible;
   }

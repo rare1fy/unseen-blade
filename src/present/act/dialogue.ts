@@ -20,7 +20,7 @@ import { shake } from '../engine/clock';
 import { loadImage, makeCanvas } from '../../platform/index';
 import { paintPixelSkipRing } from './timeline';
 
-export interface Line { who: string; text: string }
+export interface Line { who: string; text: string; mood?: string }
 interface Speaker { name: string; side: 'L' | 'R'; mute?: boolean }
 /** the cast: ids match the portrait files (src/assets/portraits/<id>.png) and docs/STORY.md */
 export const CAST: Record<string, Speaker> = {
@@ -29,14 +29,55 @@ export const CAST: Record<string, Speaker> = {
   fengzhen: { name: '封寒', side: 'R' }, zhouan: { name: '周默', side: 'R' }, cuixuan: { name: '崔玄', side: 'R' },
   /** act-114 三国名将客串 */
   zhaoyun: { name: '赵云', side: 'R' }, lubu: { name: '吕布', side: 'R' }, xiahoudun: { name: '夏侯惇', side: 'R' }, luxun: { name: '陆逊', side: 'R' },
-  /** 11-19: the snowy village's sentries */
+  /** 11-19 / act-127: the snowy village's two sentries (sly skinny sentry + burly scowling sentry2) */
   sentry: { name: '黄巾哨兵', side: 'R' },
+  sentry2: { name: '黄巾哨兵', side: 'R' },
   /** act-29: a line of action (in brackets, grey, no name): nobody speaks, both portraits slide out */
   act: { name: '', side: 'L', mute: true },
 };
 const files = import.meta.glob('../../assets/portraits/*.png', { eager: true, query: '?inline', import: 'default' }) as Record<string, string>;
 const PORTRAIT: Record<string, string> = {};
 for (const [p, url] of Object.entries(files)) PORTRAIT[p.split('/').pop()!.replace('.png', '')] = url;
+
+/** Resolve the expressive portrait variant for a spoken line based on character, costume state (Liu Bai hat on/off), explicit mood, and dialogue emotion cues. */
+export function resolvePortrait(who: string, text: string, mood?: string, heroHat = true): string {
+  let want = who;
+  if (who === 'jiangjin') {
+    if (mood === 'hurt' || (!heroHat && /肋|血|痛|伤口|醒|……|刀呢|我的刀|银针|躺/.test(text))) want = 'jiangjin_hurt';
+    else if (heroHat) {
+      if (mood === 'fierce' || /百辟刀|还文家|命|斩|杀|滚|拿稳|仇|死|销了|欠|债|闭嘴|放开|来|拔刀|谁/.test(text)) want = 'jiangjin_hat_fierce';
+      else want = 'jiangjin_hat';
+    } else want = 'jiangjin';
+  } else if (who === 'duwu') {
+    if (mood === 'shock' || /娘哎|活、活的|诈尸|别乱动|不要命|吓|？！/.test(text)) want = 'duwu_shock';
+    else if (mood === 'worry' || /吐|血|麦饼|热米汤|歇|保重|小心|活着|白发|惨|缝|衣裳|肉饼|水囊|暖暖|吃饱/.test(text)) want = 'duwu_worry';
+  } else if (who === 'sunao') {
+    if (mood === 'stern' || /别乱挺|张嘴|闭嘴|瞪|忍着|咽下去|扎透|钉棺材|木棍|推回去|裹胸布|死丫头|唬老身|忍着点|不够/.test(text)) want = 'sunao_stern';
+    else if (mood === 'soft' || /好重的仇|可怜|烤烤手|热水|活着回来|苦|叹|留了|去吧|熬|药罐|接骨|铜钱/.test(text)) want = 'sunao_soft';
+  } else if (who === 'cuixuan') {
+    if (mood === 'defeat' || /阿皎|亲爹|不全是为了|动手吧|来吧|够了|了结|名字是我起|认出/.test(text)) want = 'cuixuan_defeat';
+    else if (mood === 'blade' || /刀在我这|四个人|看看你的手|听好了|配|拔刀|杀|第几柄|灯灭/.test(text)) want = 'cuixuan_blade';
+  } else if (who === 'chulei') {
+    if (mood === 'panic' || /饶|别杀|不是我|求|饶命|放过|我说|供|崔|洛阳|阎虎/.test(text)) want = 'chulei_panic';
+  } else if (who === 'yanhu') {
+    if (mood === 'defeat' || /崔府|乐伎|逃出来|封寒|下邳|吐血|咳|不是铁匠/.test(text)) want = 'yanhu_defeat';
+    else if (mood === 'rage' || /哈！|老子|野狗|烧得|砸|杀|滚|高炉|推进去/.test(text)) want = 'yanhu_rage';
+  } else if (who === 'fengzhen') {
+    if (mood === 'defeat' || /灭口|追杀|收账|周默|乌林|咳|替他|每一个/.test(text)) want = 'fengzhen_defeat';
+    else if (mood === 'smirk' || /漆匣|拇指|药酒|脉象|故人|试我|新配/.test(text)) want = 'fengzhen_smirk';
+  } else if (who === 'zhouan') {
+    if (mood === 'bitter' || /亲爹|烧|认出|愧|对不住|姜汤|感念|那夜|连那|贱婢|清掉/.test(text)) want = 'zhouan_bitter';
+  } else if (who === 'zhaoyun') {
+    if (mood === 'fight' || /并肩|杀出去|枪|迎敌|贼兵|好刀法/.test(text)) want = 'zhaoyun_fight';
+  } else if (who === 'lubu') {
+    if (mood === 'smirk' || /有点意思|倒敢|不错|哈哈|方天画戟/.test(text)) want = 'lubu_smirk';
+  } else if (who === 'xiahoudun') {
+    if (mood === 'respect' || /暗处|不在战场|敬|同道|去吧/.test(text)) want = 'xiahoudun_respect';
+  } else if (who === 'luxun') {
+    if (mood === 'smile' || /巧了|同行|火势已成|走不脱|笑|铁索/.test(text)) want = 'luxun_smile';
+  }
+  return PORTRAIT[want] ? want : who;
+}
 const texCache = new Map<string, THREE.Texture>();
 function portraitTex(id: string, ready: (t: THREE.Texture) => void) {
   const url = PORTRAIT[id]; if (!url) return null;
@@ -51,7 +92,7 @@ function portraitTex(id: string, ready: (t: THREE.Texture) => void) {
 
 const BG = '#14121c', EDGE_G = '#c8963a', EDGE_R = '#a8302a', NAME = '#ffd27a', BODY = '#f2e8d6', MUTE = '#a8a2a8';
 const CPS = 34;   // base characters per second (with punctuation micro-pauses)
-interface Side { mesh: THREE.Mesh | null; id: string; k: number; on: number; aspect: number; ih: number; pop: number; was: boolean; away: number }
+interface Side { mesh: THREE.Mesh | null; who: string; id: string; k: number; on: number; aspect: number; ih: number; pop: number; was: boolean; away: number }
 
 /** the line's HD body font size (CSS px): 26 on tall screens, 19 on a phone held sideways */
 const fontPx = (scale: number) => (scale >= 2 ? 26 : 19);
@@ -186,12 +227,14 @@ export class Dialogue {
   on = false;
   /** act-114: optional auto-advance (waits for voice + reading beat, toggled via Tab or setting) */
   autoPlay = false;
+  /** Whether Liu Bai is currently wearing her conical bamboo hat (true outside / combat, false healing/resting in kiln) */
+  heroHat = true;
   private box: THREE.Mesh; private boxTex: THREE.CanvasTexture | null = null;
   private boxW = 0; private boxH = 0;
   private canvas: HTMLCanvasElement = makeCanvas(64, 32) as HTMLCanvasElement;
   private sides: Record<'L' | 'R', Side> = {
-    L: { mesh: null, id: '', k: 0, on: 0, aspect: 0.8, ih: 144, pop: 0, was: false, away: 0 },
-    R: { mesh: null, id: '', k: 0, on: 0, aspect: 0.8, ih: 144, pop: 0, was: false, away: 0 },
+    L: { mesh: null, who: '', id: '', k: 0, on: 0, aspect: 0.8, ih: 144, pop: 0, was: false, away: 0 },
+    R: { mesh: null, who: '', id: '', k: 0, on: 0, aspect: 0.8, ih: 144, pop: 0, was: false, away: 0 },
   };
   private outK = 0; private lastSpeaker: 'L' | 'R' | null = null;
   private onLine: ((i: number, line: Line) => void) | null = null;
@@ -222,21 +265,33 @@ export class Dialogue {
     for (const s of ['L', 'R'] as const) {
       const S = this.sides[s];
       if (S.mesh) { this.L.scene.remove(S.mesh); (S.mesh.material as THREE.Material).dispose(); S.mesh.geometry.dispose(); S.mesh = null; }
-      S.id = ''; S.on = 0; S.k = 0; S.pop = 0; S.was = false; S.away = 0;
+      S.who = ''; S.id = ''; S.on = 0; S.k = 0; S.pop = 0; S.was = false; S.away = 0;
     }
-    { const l = this.lines[0], sp = l && CAST[l.who]; if (sp && l.who !== 'act') this.setPortrait(sp.side, l.who); }
+    { const l = this.lines[0], sp = l && CAST[l.who]; if (sp && l.who !== 'act') this.setPortrait(sp.side, l.who, resolvePortrait(l.who, l.text, l.mood, this.heroHat)); }
     cue('scroll', 0.4); this.say();
     return new Promise(res => { this.done = res; });
   }
   /** hold Escape / pointer / pad Back for 0.65 s to skip the entire conversation */
   holdSkip(down: boolean) { if (this.on || !down) this.holding = down; }
   toggleAuto() { this.autoPlay = !this.autoPlay; return this.autoPlay; }
-  private setPortrait(side: 'L' | 'R', id: string) {
-    const S = this.sides[side]; if (S.id === id && S.mesh) return; S.id = id; S.k = 0;
+  private setPortrait(side: 'L' | 'R', who: string, id: string) {
+    const S = this.sides[side];
+    if (S.id === id && S.who === who && S.mesh) return;
+    const sameChar = S.who === who && !!S.mesh;
+    S.who = who; S.id = id;
+    if (sameChar) {
+      // Same character changing expression/pose: instant crisp swap + subtle pop (no awkward off-screen slide!)
+      const m = S.mesh!, mat = m.material as THREE.MeshBasicMaterial;
+      S.pop = Math.max(S.pop, 0.72);
+      const tex = portraitTex(id, tt => { if (S.id !== id) return; mat.map = tt; mat.needsUpdate = true; const img = tt.image as { width: number; height: number }; S.aspect = img.width / img.height; S.ih = img.height; m.visible = this.on; });
+      if (tex) { mat.map = tex; mat.needsUpdate = true; if (tex.image) { const img = tex.image as { width: number; height: number }; S.aspect = img.width / img.height; S.ih = img.height; m.visible = this.on; } }
+      return;
+    }
+    S.k = 0;
     if (S.mesh) { this.L.scene.remove(S.mesh); (S.mesh.material as THREE.Material).dispose(); S.mesh.geometry.dispose(); S.mesh = null; }
     const mat = new THREE.MeshBasicMaterial({ transparent: true, depthTest: false, depthWrite: false, alphaTest: 0.5, color: 0xffffff });
     const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat); m.renderOrder = 59; m.visible = false; this.L.scene.add(m); S.mesh = m;
-    const tex = portraitTex(id, tt => { mat.map = tt; mat.needsUpdate = true; const img = tt.image as { width: number; height: number }; S.aspect = img.width / img.height; S.ih = img.height; m.visible = this.on; });
+    const tex = portraitTex(id, tt => { if (S.id !== id) return; mat.map = tt; mat.needsUpdate = true; const img = tt.image as { width: number; height: number }; S.aspect = img.width / img.height; S.ih = img.height; m.visible = this.on; });
     if (!tex) { m.visible = false; return; }
     mat.map = tex; if (tex.image) { const img = tex.image as { width: number; height: number }; S.aspect = img.width / img.height; S.ih = img.height; m.visible = true; }
   }
@@ -248,7 +303,8 @@ export class Dialogue {
     if (line && this.shown < total) { this.shown = total; return true; }
     this.i++; this.shown = 0; this.charBudget = 0; this.t = 0; this.autoWait = 0; this.tickCount = 0;
     if (this.i >= this.lines.length) { this.close(); return true; }
-    const sp = CAST[this.lines[this.i].who]; if (sp && this.lines[this.i].who !== 'act') this.setPortrait(sp.side, this.lines[this.i].who);
+    const next = this.lines[this.i], sp = CAST[next.who];
+    if (sp && next.who !== 'act') this.setPortrait(sp.side, next.who, resolvePortrait(next.who, next.text, next.mood, this.heroHat));
     cue('click', 0.2); this.say(); return true;
   }
   /** skip every remaining line cleanly (firing onLine for any scripted state hooks along the way) */
@@ -324,7 +380,7 @@ export class Dialogue {
       this.ink.fadeOut(dt);
       if (this.outK > 0) {
         this.outK = Math.max(0, this.outK - dt * 5); this.portraits(dt, this.lastSpeaker, 0, 0);
-        if (this.outK <= 0) for (const s of ['L', 'R'] as const) { const S = this.sides[s]; if (S.mesh) S.mesh.visible = false; S.id = ''; }
+        if (this.outK <= 0) for (const s of ['L', 'R'] as const) { const S = this.sides[s]; if (S.mesh) S.mesh.visible = false; S.who = ''; S.id = ''; }
       }
       return;
     }

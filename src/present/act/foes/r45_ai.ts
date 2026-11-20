@@ -152,7 +152,13 @@ export function soundRingsStep(dt: number) {
 /** a room change: every ring and every stone left lying goes */
 export function r45Clear() { for (const s of RINGS) { s.t = s.life; s.m.parent?.remove(s.m); } for (const m of STONES) m.m.parent?.remove(m.m); STONES.length = 0; }
 /** the hidden body: drawn or not, and with no contact shadow / HUD bar (show.ts / hud.ts read hiddenFoe) */
-function hide(f: Foe, on: boolean) { X(f).hidden = on ? 1 : 0; f.a.root.visible = !on; }
+function hide(f: Foe, on: boolean) { if (on && f.mem.noHide) return; X(f).hidden = on ? 1 : 0; f.mem.hidden = on; f.a.root.visible = !on; }
+/** Force a hidden / stealthed foe (e.g. Cui Xuan in Phase 3 dark) back into full visibility (used by cutscenes & prologueFall). */
+export function revealFoe(f: Foe) {
+  const x = X(f); x.hidden = 0; x.hid = 0; x.dark = 0; x.under = 0; x.up = 0;
+  f.mem.hidden = false;
+  f.a.root.visible = true; f.a.body.visible = true;
+}
 /** a 文家刀 is about to be drawn: she hears it first — a gold ring at her feet and a low iron ring in the air (0.35 s before the red) */
 function bladeRing(w: FoeWorld) { soundRing(w.heroPos, 0xffd27a, 1.25, 0.5, 0.85); cue('bladeRing', 0.8); }
 /** how long the gold ring leads the red warning (s) */
@@ -558,9 +564,9 @@ FOE_AI.cx_boss = {
   tick(f, w, dt) {
     const x = X(f);
     if (x.init == null) { x.init = 1; x.stone = 3; x.call = 0; x.calls = 0; x.dark = 0; f.cd = 1.2; drawn(f, false); }
-    // the phases: at two thirds he takes a blade down from the rack; at a third he blows the lamps out
+    // the phases: at two thirds he takes a blade down from the rack; at a third he blows the lamps out (prologue skips lights-out vanish)
     if (f.phase === 1 && f.hp <= f.maxHp * (2 / 3)) { phaseTo(f, w, 2); return true; }
-    if (f.phase === 2 && f.hp <= f.maxHp / 3) { phaseTo(f, w, 3); return true; }
+    if (f.phase === 2 && f.hp <= f.maxHp / 3 && !f.mem.noHide) { phaseTo(f, w, 3); return true; }
     // summons through the first two phases: one at each sixth of his life
     const sixth = Math.floor((1 - f.hp / f.maxHp) * 6);
     if (f.phase < 3 && sixth > (x.calls ?? 0)) { x.calls = sixth; callIn(w, [Math.random() < 0.5 ? 'cx_sword' : 'cx_guard'], f); }

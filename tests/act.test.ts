@@ -293,11 +293,14 @@ describe('combat wave 2: poise break & staggered cadence (act-113)', () => {
     expect(SRC['src/present/act/ironUi.ts']).toContain("HP_FACE = { id: 'fine_hat' }");
     expect(SRC['src/present/act/show.ts']).toContain("DEFAULT_HERO = 'fine_hat'");
     expect(GRADE.bloodVig).toBe(0);
-    // Conical hat model must have sculpted white hair crown at y=53..55 on bone 'head' so removing hat while healing has no bald top
+    // Conical hat model must have full sculpted white hair dome at y=53..57 on bone 'head' so removing hat while healing has no cut-off top
     const v = buildHatFine();
     expect(v.get(0, 53, 0)?.part).toBe('head');
     expect(v.get(0, 54, 0)?.part).toBe('head');
     expect(v.get(0, 55, 0)?.part).toBe('head');
+    expect(v.get(0, 56, 0)?.part).toBe('head');
+    expect(v.get(0, 57, 0)?.part).toBe('head');
+    expect(v.get(0, 60, 0)?.part).toBe('hat');
     // Audio recover() must prune expired zombie voices whose onended was dropped during OS suspension
     const eng = audio as unknown as {
       ctx: { state: string; currentTime: number; resume: () => Promise<void> } | null;
@@ -317,5 +320,21 @@ describe('combat wave 2: poise break & staggered cadence (act-113)', () => {
     expect(eng.live[0].endAt).toBe(105);
     eng.live.length = 0;
     eng.ctx = prevCtx;
+  });
+
+  it('act-127 invariants: prologue boss never vanishes, Chinese terminology (识破), opening bandit pronoun (他) + 2nd sentry, prologue checkpoints', () => {
+    expect(SRC['src/present/act/show.ts']).toContain("popPix('识破'");
+    expect(SRC['src/present/act/show.ts']).not.toContain("popPix('见切'");
+    expect(SRC['src/present/act/show.ts']).toContain('revealFoe(boss)');
+    expect(SRC['src/present/act/show.ts']).toContain("profile().proStage = 'boss'");
+    expect(SRC['src/present/act/show.ts']).toContain("profile().proStage = 'wake'");
+    expect(SRC['src/present/act/show.ts']).toContain("profile().proStage = 'done'");
+    expect(SRC['src/present/act/show.ts']).toContain('resumePrologueBoss');
+    expect(SRC['src/present/act/scripts.ts']).toContain('摸他怀里！肯定藏着干粮！');
+    expect(SRC['src/present/act/scripts.ts']).not.toContain('摸她怀里！肯定藏着干粮！');
+    expect(SRC['src/present/act/scripts.ts']).toContain("L('sentry2'");
+    expect(SRC['src/present/act/dialogue.ts']).toContain('resolvePortrait');
+    expect(SRC['src/present/act/dialogue.ts']).toContain('sentry2:');
+    expect(SRC['src/present/act/title.ts']).toContain("h.id === 'fine_hat'");
   });
 });

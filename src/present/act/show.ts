@@ -59,6 +59,7 @@ import { AllyGeneral, GENERAL_REGIONS, type AllyHost } from './foes/generals_ai'
 import { coldOpenShots, coldCardShots, BlindPOV } from './coldopen';
 import { Barks } from './barks';
 import { installR45 } from './regions/r45_hook';
+import { revealFoe } from './foes/r45_ai';
 import { measureFight, meterLabel, toggleMeter } from '../engine/frameMeter';
 import { QUALITY, setQuality, type Tier, qualityLabel, cycleQuality } from '../look/quality';   // wp/regB: 第四关 · 锁江、第五关 · 许都雪 (their places, foes, bosses, __dh.region)
 /** act-40 (用户：「现在开场太墨迹了，把那段timeline先搞成黑幕快速交代背景吧」): the cold open as black cards for now (false = the 寒山坞 cutscene) */
@@ -443,6 +444,7 @@ export class ActShow {
     if (!lines.length) return;
     if (this.hero) { this.hero.a.root.visible = true; this.hero.a.body.visible = true; }
     const was = this.phase === 'talk' ? this.wasPhase : this.phase; this.wasPhase = was; this.phase = 'talk'; this.hud.on = false; this.banner.hide();
+    this.syncHeroHat();
     await this.dialogue.play(lines, onLine);
     // (act-50 用户：「对话过后马上会蓄力」: the cut button that turned the last page was still down — read as a hold, 藏锋. It counts
     //  again once let go; the stick is left alone)
@@ -461,7 +463,7 @@ export class ActShow {
   async startNewGame() {
     newGame();
     // a new game: 刘白 in her default look again, the white-haired one (the costume the browser remembered goes)
-    { const d = HEROES.find(x => x.id === DEFAULT_HERO); if (d) { this.wearing = d; if (this.hud.flask instanceof IronHp) this.hud.flask.setFace(d.id); else HP_FACE.id = d.id; try { localStorage.setItem('act.hero6', d.id); } catch { /* storage blocked */ } } }
+    { const d = HEROES.find(x => x.id === DEFAULT_HERO); if (d) { this.wearing = d; if (this.hud.flask instanceof IronHp) this.hud.flask.setFace(d.id); else HP_FACE.id = d.id; try { localStorage.setItem('act.hero7', d.id); } catch { /* storage blocked */ } } }
     // act-29 (用户：「方案1开做吧」): the night seven years before (once its place is built), then the prologue — alone in the snow
     const narrative = this.coldOpen();
     // Once the player chooses New Game the first village is known. Build it
@@ -599,14 +601,23 @@ export class ActShow {
   /** the fight she cannot win: the blow, his word, the snow; dawn and the man with the donkey; the kiln */
   private async prologueFall() {
     if (this.proFalling || this.prologue !== 2) return; this.proFalling = true;
+    this.cancelQte();
+    this.foeWorld.dark?.(0);
     this.musicHold = 'bgm_fall'; void audio.playMusic('bgm_fall', 0.8);   // (act-37: struck down → the camera rises → the dawn)
     const boss = this.foes.find(f => isBoss(f) && f.st !== 'dead') ?? null;
     this.hero.inv = 99;
     this.hero.a.root.visible = true; this.hero.a.body.visible = true;
     this.hero.a.home.copy(this.hero.pos);
-    this.qteT = -1; this.hud.qte(null); this.qteW.visible = false;
     for (const f of this.foes) { dropTeles(f); f.attacking = false; f.lunge = null; }   // nothing left half-swung on the snow
     for (const a of this.arrows) a.kill(); this.arrows.length = 0; this.hitArcs.clear();
+    if (boss) {
+      boss.mem.noHide = true;
+      revealFoe(boss);
+      boss.st = 'move'; boss.inv = 99; boss.vel.set(0, 0, 0);
+      if (boss.a.bones.blade) boss.a.bones.blade.visible = true;
+      if (boss.a.bones.fan) boss.a.bones.fan.visible = false;
+      boss.a.home.copy(boss.pos); boss.a.root.position.copy(boss.pos);
+    }
     const kneelPose = () => this.proKneel.frame(this.hero.a);
     if (boss) {
       await this.cine(fallShots(this.proHost, boss));
@@ -642,7 +653,24 @@ export class ActShow {
     await this.cine(loadShots(this.proHost, who));
     this.proKneel.stop();
     for (const a of this.proPeople) a.dispose(); this.proPeople = [];
-    this.prologue = 0; this.forceSpec = null;
+    // Checkpoint: survived Cui Xuan & carried to the kiln -> if the player quits now, Continue resumes cleanly at kiln wake-up
+    profile().proStage = 'wake'; saveProfile();
+    await this.playKilnWake();
+  }
+  /** act-127 checkpoint resume: jump straight back to Cui Xuan's forecourt duel (skipping the already-cleared snowy village) */
+  private async resumePrologueBoss() {
+    this.prologue = 2; this.proFalling = false; this.proFightT = 0; this.tut.stop();
+    this.intent = 0; this.hud.intent = 0; this.perks = newPerks(); this.room = 1; this.kills = 0; this.recent = []; this.visited = []; this.coins = 0;
+    this.mods = runMods(profile()); this.defy = 0; this.eliteKills = 0; this.bossKilled = false; this.wine = false;
+    TUNE.heroHp = 100 + this.mods.hpBonus; TUNE.dartCharges = 3 + this.mods.dartBonus; TUNE.aggression = 0.85 / this.mods.windupMul;
+    this.baseFoe.aggression = TUNE.aggression; this.scaleFoes(0);
+    this.plan = PRO_BOSS; this.locale = PRO_BOSS.locale; this.forceSpec = { ...PRO_ROOM.spec };
+    const loading = this.buildRoom(true); if (loading) await loading;
+    this.queuePro('dawn');
+  }
+  /** act-127 shared kiln wake-up sequence (used both at the end of prologueFall and when resuming from the 'wake' checkpoint) */
+  private async playKilnWake() {
+    this.prologue = 0; this.proFalling = false; this.forceSpec = null;
     let wakeK: (k: number) => void = () => {};
     let bloomWas = GRADE.bloomThreshold;
     let duwuSaved: { x: number; z: number; yaw: number } | null = null;
@@ -703,7 +731,9 @@ export class ActShow {
       if (l.who === 'act' && /撑起|站起|起身/.test(l.text)) getUp();
     });
     this.talkTick = null;
-    getUp(); this.musicHold = null; this.music(); saveProfile();
+    getUp(); this.musicHold = null; this.music();
+    // Checkpoint: prologue complete -> future Continue always enters the hideout directly
+    profile().proStage = 'done'; saveProfile();
     // Restore Du Wu cleanly back to his cook-pot station after PRO_WAKE
     const dwOrig = duwuSaved as { x: number; z: number; yaw: number } | null;
     if (dwOrig) {
@@ -976,8 +1006,14 @@ export class ActShow {
       saveProfile(); cue('coin', 0.8); this.banner.show(u.name, msg`${level(p, u.id)} 级`, 1.0, '#ffd27a');
     }
   }
-  /** 继续游戏: the hideout with the saved progress */
-  continueGame() { profile(); return this.enterYard(); }
+  /** 继续游戏: resumes at the last prologue checkpoint (village / Cui Xuan forecourt / kiln wake-up) or directly in the hideout */
+  continueGame() {
+    const p = profile();
+    if (p.proStage === 'village') return this.startPrologue();
+    if (p.proStage === 'boss') return this.resumePrologueBoss();
+    if (p.proStage === 'wake') return this.playKilnWake();
+    return this.enterYard();
+  }
   solids = new Solids(); props: Breakables | null = null; gates: Gates | null = null; leaves: Leaves | null = null; private gustT = 0; arena: ArenaPlan | null = null; private lastPush: Push | null = null; private slamAt = new WeakMap<Foe, number>();
   /** 11-18 屋子形态: this room's floor grid (null = the act-19 rectangle), the shapes of the run's last rooms, a forced shape (__dh.shape) */
   grid: FloorGrid | null = null; private shapes: ShapeId[] = []; private forceShape: ShapeId | null = null; private forceSeed: number | null = null;
@@ -1584,9 +1620,9 @@ export class ActShow {
   /** Conical bamboo hat comes OFF while healing/resting in the kiln (PRO_WAKE & hideout yard), and goes cleanly BACK ON when departing or fighting */
   private syncHeroHat() {
     const hat = this.hero?.a?.bones?.hat;
-    if (!hat) return;
     const resting = !this.labOn && (this.phase === 'yard' || (this.room < 0 && (this.phase === 'talk' || this.phase === 'pick')));
-    hat.visible = !resting;
+    if (hat) hat.visible = !resting;
+    if (this.dialogue) this.dialogue.heroHat = !resting && !!hat;
   }
   private dropAhead(keep?: AheadRoom) {
     for (const job of this.ahead) {
@@ -2276,7 +2312,18 @@ export class ActShow {
     clampAir: this.clampAir, clampFoe: this.foeClamp, way: this.foeWay, sees: this.foeSees,
     hurtHero: (dmg, from, attacker) => this.hurtHero(dmg, from, attacker), // wp/boons: exact melee attacker; arrows omit it
     killFoe: (f, from) => this.killFoe(f, from), // wp/boons: lethal burn ticks use the death hook too
-    bleedDamage: f => f.bleed * v(this.perks, 'bleed'),
+    bleedDamage: f => {
+      let dmg = f.bleed * v(this.perks, 'bleed');
+      if (this.prologue === 2 && isBoss(f)) {
+        const floor = Math.ceil(f.maxHp * 0.2);
+        if (f.hp - dmg <= floor) { dmg = Math.max(0, f.hp - floor); if (!this.proFalling) after(0.25, () => void this.prologueFall()); }
+      }
+      if (this.duelGen && !this.duelGen.done && this.duelGen.f === f) {
+        const floor = Math.ceil(f.maxHp * 0.72);
+        dmg = Math.min(dmg, Math.max(0, f.hp - floor));
+      }
+      return dmg;
+    },
     bleedSpill: f => this.bleedDrip(f),
     arrowHit: (f, a) => this.arrowHit(f, a),
     dodged: from => this.perfectDodge(from),
@@ -2315,6 +2362,7 @@ export class ActShow {
   bossArrived(f: Foe, afterIntro?: () => void): boolean {
     const name = EDEFS[f.kind]?.name ?? '';
     if (this.prologue === 2) {
+      f.mem.noHide = true;   // prologue forecourt duel stays in Phase 1-2 (never vanishes into Phase 3 dark before the 20% prologue trigger)
       void (async () => {
         await this.cine(bossIntroShots(this.cineHost, f, name, { prologue: true }));
         await this.talk(PRO_CUIXUAN);
@@ -2912,7 +2960,7 @@ export class ActShow {
       if ((this.phase === 'fight' || this.phase === 'yard') && !this.duel.on) { if (this.intent >= 3) this.startQte(); else this.addIntent(); }
     }
     if (this.prologue === 2 && isBoss(f)) f.hp = Math.max(f.hp, Math.ceil(f.maxHp * 0.2));
-    if (fallNow) after(0.25, () => void this.prologueFall());
+    if (fallNow) { f.mem.noHide = true; revealFoe(f); this.foeWorld.dark?.(0); after(0.25, () => void this.prologueFall()); }
     if (this.duelGen && this.duelGen.f === f) f.hp = Math.max(f.hp, Math.ceil(f.maxHp * 0.72));
     if (duelDoneNow) after(0.18, () => { void this.finishDuelGeneral(); });
     if (cut && !died && f.inv <= 0 && hasBoon(this.perks, 'bleed') && f.kind !== 'dummy') { f.bleed = Math.min(5, f.bleed + 1); f.bleedT = 0; }
@@ -3233,7 +3281,7 @@ export class ActShow {
     if (hasBoon(this.perks, 'burst')) this.burstOut(h.pos.clone());   // 11-18 秘传 崩劲
     hitstop(0.1 * TUNE.hitstop); slowmo(0.18, 0.3); shake(0.35 * TUNE.shake); this.splitScreen(0.72);
     fxRing(h.pos.clone().setY(0.9), 0xfff2c8, 1.6, { life: 0.35 } as never); fxRing(h.pos.clone().setY(0.08), 0xffd890, 2.6, { life: 0.5 } as never); fxSparks(h.a.chest(), 0xfff2c8, 24, 7);
-    popPix('见切', h.a.head().add(V3(0, 0.48, 0)), { tier: 'highlight', color: '#fff6cc', accent: '#ffd868', h: 0.96, life: 1.05 });
+    popPix('识破', h.a.head().add(V3(0, 0.48, 0)), { tier: 'highlight', color: '#fff6cc', accent: '#ffd868', h: 0.96, life: 1.05 });
     cue('parry', 1); cue('cutHeavy', 0.9); this.platform.vibrate('heavy'); this.tut.parried();
     if (this.intent >= 3) this.startQte(); else this.addIntent();
   }
@@ -3783,7 +3831,7 @@ export class ActShow {
     const chosen = this.ahead.find(job => job.plan === next);
     this.dropAhead(chosen);
     if (chosen) this.ahead.push(chosen);
-    this.plan = next; const fromLocale = this.locale; this.locale = next.locale; if (this.prologue === 1) { this.prologue = 2; this.proFightT = 0; }
+    this.plan = next; const fromLocale = this.locale; this.locale = next.locale; if (this.prologue === 1) { this.prologue = 2; this.proFightT = 0; profile().proStage = 'boss'; saveProfile(); }
     // 11-18 一局五关: the road out of a boss room goes into the next region — its rooms count from one again, its own kinds of room,
     // its foes stronger (the run's TUNE scaled by flow.ts regionScale)
     const nextRegion = !this.prologue && next.region != null && next.region !== this.region;

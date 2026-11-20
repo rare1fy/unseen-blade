@@ -255,15 +255,14 @@ export class CardPick3D {
       const pkT = Math.max(1, Math.round(24 * kk * dpr / PIX_H));
       L.text.set('act.cards.title', { text: localize(this.header.title), x: L.w / 2, y: topY, pix: pkT, color: this.header.col ?? '#ffe6b0', outline: '#140c0a', align: 'center', visible: true });
       if (this.wallet) {
-        const pkW = Math.max(1, Math.round(18 * kk * dpr / PIX_H));
         const wTxt = msg`当前持有  百辟残铁 ${this.wallet.iron}  ·  沸血药引 ${this.wallet.herb}`;
         const wCol = this.wallet.focus === 'herb' ? '#98f4b8' : '#ffd87a';
-        L.text.set('act.cards.wallet', { text: wTxt, x: L.w / 2, y: topY + 29 * kk, pix: pkW, color: wCol, outline: '#140c0a', align: 'center', visible: true });
-        if (this.header.sub) L.text.set('act.cards.sub', { text: localize(this.header.sub), x: L.w / 2, y: topY + 52 * kk, bodyPx: Math.max(12, Math.round(14 * kk)), color: '#dcd2be', outline: '#140c0a', align: 'center', visible: true });
+        L.text.set('act.cards.wallet', { text: wTxt, x: L.w / 2, y: topY + 34 * kk, bodyPx: Math.max(20, Math.round(22 * kk)), color: wCol, outline: '#140c0a', align: 'center', visible: true });
+        if (this.header.sub) L.text.set('act.cards.sub', { text: localize(this.header.sub), x: L.w / 2, y: topY + 60 * kk, bodyPx: Math.max(14, Math.round(15 * kk)), color: '#dcd2be', outline: '#140c0a', align: 'center', visible: true });
         else L.text.hide('act.cards.sub');
       } else {
         L.text.hide('act.cards.wallet');
-        if (this.header.sub) L.text.set('act.cards.sub', { text: localize(this.header.sub), x: L.w / 2, y: topY + 28 * kk, bodyPx: Math.max(12, Math.round(14 * kk)), color: '#dcd2be', outline: '#140c0a', align: 'center', visible: true });
+        if (this.header.sub) L.text.set('act.cards.sub', { text: localize(this.header.sub), x: L.w / 2, y: topY + 30 * kk, bodyPx: Math.max(14, Math.round(15 * kk)), color: '#dcd2be', outline: '#140c0a', align: 'center', visible: true });
         else L.text.hide('act.cards.sub');
       }
     } else { L.text.hide('act.cards.title'); L.text.hide('act.cards.sub'); L.text.hide('act.cards.wallet'); }

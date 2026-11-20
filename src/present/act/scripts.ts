@@ -48,7 +48,7 @@ export const PRO_CAPTIONS = COLD.slice(-2);   // (11-19: no year; history only t
 export const PRO_CUIXUAN: Line[] = pick('pro_cuixuan', [L('cuixuan', '夜深落了锁。你走错门了。'), L('jiangjin', '七年前，寒山坞文家，三十柄百辟刀。'), L('cuixuan', '刀在我这。')]);
 /** struck down in the snow */
 /** 11-19 (用户：「突然就进入战斗了……敌人跳出来把她包围了的过程，辅以对话和文字」): the sentries close round her in the snowy village (agy) */
-export const PRO_AMBUSH: Line[] = pick('pro_ambush', [L('sentry', '摸她怀里！肯定藏着干粮！'), L('sentry', '少废话，先把袄子扒了！'), L('act', '（风雪骤急，刘白微偏下颌，按住刀镡）'), L('jiangjin', '刀都晃出声了，拿稳点。')]);
+export const PRO_AMBUSH: Line[] = pick('pro_ambush', [L('sentry', '摸他怀里！肯定藏着干粮！'), L('sentry2', '少废话，先把袄子扒了！'), L('act', '（风雪骤急，刘白微偏下颌，按住刀镡）'), L('jiangjin', '刀都晃出声了，拿稳点。')]);
 export const PRO_FALL: Line[] = pick('pro_fall', [L('cuixuan', '拿刀的那四个人你一个都没杀过，就来找我？')]);
 /** dawn: the man with the donkey, picking over the dead */
 export const PRO_DAWN: Line[] = pick('pro_dawn', [L('duwu', '冻死鬼的衣裳，扒都扒不下来。'), L('duwu', '松手……娘哎，怎么还有气儿？！')]);

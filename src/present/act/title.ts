@@ -708,7 +708,7 @@ class Title {
     // ---- her (standing / walking in) OR close foreground planted sword in snow
     const wind = d.hero?.wind ?? d.sword?.wind ?? 0.5;
     if (d.hero) {
-      const hero = new BattleActor(HEROES.find(h => h.id === 'fine_white') ?? HEROES[0]); trimShadows(hero.root, 7);
+      const hero = new BattleActor(HEROES.find(h => h.id === 'fine_hat') ?? HEROES[0]); trimShadows(hero.root, 7);
       this.hero = hero;
       this.heroAt.set(d.hero.at[0], 0, d.hero.at[1]);
       if (d.hero.from) { this.walkFrom = V3(d.hero.from[0], 0, d.hero.from[1]); hero.place(this.walkFrom.clone(), d.hero.yaw); }

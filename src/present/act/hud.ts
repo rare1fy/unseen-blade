@@ -169,7 +169,7 @@ export class ActHud {
     setGrid(H, this.L.dpr || 1);
     const k = Math.min(1.25, Math.max(0.62, H / 720)); this.k = k;
     this.flask.place(Math.max(30, 40 * k), Math.max(34, 46 * k), Math.max(0.62, 0.8 * k));
-    { const fk = Math.max(0.62, 0.8 * k); this.feedAt = { x: Math.max(30, 40 * k) - 14 * fk, y: Math.max(34, 46 * k) + 78 * fk }; }
+    { const fk = Math.max(0.62, 0.8 * k); this.feedAt = { x: Math.max(18, 40 * k - 14 * fk), y: Math.max(34, 46 * k) + 96 * fk }; }
     this.stickHome = { x: 160 * k, y: H - 140 * k }; this.stickSize = 170 * k;
     // an arc of three round the big cut button: dash low left, jump up left, the special above
     const b = this.btns; if (b.attack instanceof IronBtn) b.attack.badgeSide = 1; b.attack.size = 150 * k; b.dash.size = 100 * k; b.special.size = 100 * k; b.jump.size = 100 * k;
@@ -350,9 +350,9 @@ export class ActHud {
         bar(1, 0.36, 0, 0.32, m); bar(1, 0.36, 0, -0.32, m); bar(0.36, 0.3, -0.32, 0, m); bar(0.36, 0.3, 0.32, 0, m); bar(0.28, 0.28, 0, 0, d);
         this.L.scene.add(g); batchUi(g); this.coinIcon = g;
       }
-      const coinCell = 3, b = this.flask.barAt(), cx = b.x - this.flask.W * this.k / 2 + 10, cy = b.y + b.h / 2 + 18 * this.k;
-      this.coinIcon.visible = this.on; this.L.at(cx, cy - hop * 4, 2, this.coinIcon.position); this.coinIcon.scale.setScalar(this.L.px(12) * (1 + 0.25 * hop)); this.coinIcon.rotation.y = hop * 0.8;
-      this.L.text.set('act.coins', { text: `${shown}  ${this.iron}  ${this.herb}`, x: cx + 12, y: cy, cell: coinCell, color: this.coinHop > 0 ? '#fff0b0' : '#ffd27a', outline: '#21100e', align: 'left', visible: this.on });
+      const coinCell = 4, b = this.flask.barAt(), cx = b.x - this.flask.W * this.k / 2 + 12, cy = b.y + b.h / 2 + 22 * this.k;
+      this.coinIcon.visible = this.on; this.L.at(cx, cy - hop * 4, 2, this.coinIcon.position); this.coinIcon.scale.setScalar(this.L.px(18) * (1 + 0.25 * hop)); this.coinIcon.rotation.y = hop * 0.8;
+      this.L.text.set('act.coins', { text: `${shown}  ${this.iron}  ${this.herb}`, x: cx + 16, y: cy, cell: coinCell, color: this.coinHop > 0 ? '#fff0b0' : '#ffd27a', outline: '#21100e', align: 'left', visible: this.on });
     }
     // act-118: live combo variety readout (right edge, shown only during active combos) & active synergy badges (under portrait)
     const dprH = this.L.dpr || 1, pkC = Math.max(1, Math.round(Math.max(18, 22 * this.k) * dprH / PIX_H));
@@ -368,11 +368,11 @@ export class ActHud {
     }
     if (this.on && this.synergies.length) {
       const synTxt = this.synergies.map(s => `${localize(s.name)}(${s.count})`).join(' · ');
-      this.L.text.set('act.syn', { text: synTxt, x: 18 * this.k, y: 112 * this.k, pix: Math.max(1, Math.round(14 * this.k * dprH / PIX_H)), color: this.synergies[0].col, outline: '#140c0a', align: 'left', visible: true });
-      this.feedAt.y = 136 * this.k;
+      this.L.text.set('act.syn', { text: synTxt, x: 18 * this.k, y: 126 * this.k, bodyPx: Math.max(16, Math.round(18 * this.k)), color: this.synergies[0].col, outline: '#140c0a', align: 'left', visible: true });
+      this.feedAt.y = 156 * this.k;
     } else {
       this.L.text.hide('act.syn');
-      this.feedAt.y = 112 * this.k;
+      this.feedAt.y = 128 * this.k;
     }
     // bars over the foes (the chief: the long bar at the top instead)
     const live = new Set<number>();

@@ -11,7 +11,7 @@ export const META: MetaUp[] = [
   { id: 'reroll', who: 'forge', cur: 'iron', name: '重铸', desc: ['选牌可换一批', '每级每局+1次重随'], costs: [16, 36] },
   { id: 'manual', who: 'forge', cur: 'iron', name: '旧谱', desc: ['每局开局', '先挑一本刀谱'], costs: [35] },
   { id: 'vigor', who: 'medic', cur: 'herb', name: '筋骨', desc: ['生命上限提高', '每级加二十'], costs: [10, 22, 38] },
-  { id: 'ear', who: 'medic', cur: 'herb', name: '听宫', desc: ['敌人起手更慢', '每级慢一成易见切'], costs: [14, 30] },
+  { id: 'ear', who: 'medic', cur: 'herb', name: '听宫', desc: ['敌人起手更慢', '每级慢一成易识破'], costs: [14, 30] },
   { id: 'intent', who: 'medic', cur: 'herb', name: '杀气', desc: ['每间开场带杀气', '自带一格杀气半格气'], costs: [20] },
   { id: 'leech', who: 'medic', cur: 'herb', name: '养气', desc: ['破甲或完美闪避', '每级回复5点生命'], costs: [24, 48] },
   { id: 'breath', who: 'medic', cur: 'herb', name: '闭息', desc: ['每局一次', '致命伤留四成血'], costs: [35] },
