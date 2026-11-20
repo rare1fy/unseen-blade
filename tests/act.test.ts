@@ -158,12 +158,16 @@ describe('combat feel polish (act-109)', () => {
       expect(c).toContain('shake: false');
     }
   });
-  it('slashArc shaders use pure WebGL1 (no derivative / WebGL2 intrinsics) and update cleanly', () => {
+  it('slashArc uses opaque 3D voxel blocks, pure WebGL1 (no derivatives/smoothstep), and updates cleanly', () => {
     const src = SRC['src/present/act/slashArc.ts'].replace(/\/\/.*$/gm, '');
-    expect(src).not.toMatch(/\bdFd[xy]\b|\bfwidth\b|\btexelFetch\b/);
+    expect(src).not.toMatch(/\bdFd[xy]\b|\bfwidth\b|\btexelFetch\b|\bsmoothstep\b/);
+    expect(src).toContain('transparent: false');
+    expect(src).toContain('depthWrite: true');
     slashArc.swing({ kind: 'k1', from: V3(0, 0, 0), yaw: 0, range: 2, half: 1.0 });
+    slashArc.swing({ kind: 'k3', from: V3(0, 0, 0), yaw: 0, range: 2.4, half: Math.PI });
     slashArc.swing({ kind: 'k4', from: V3(0, 0, 0), yaw: 0, range: 2.5, half: 0.3, n: 2 });
     slashArc.swing({ kind: 'k5', from: V3(0, 0, 0), yaw: 0, range: 2.3, half: 1.2 });
+    slashArc.line({ a: V3(0, 0, 0), b: V3(0, 0, 5), width: 0.9, palette: 'iai' });
     slashArc.update(0.05);
     slashArc.update(0.5);
     slashArc.clear();

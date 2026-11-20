@@ -2,7 +2,7 @@
 // 11-18 微信小游戏打包（用户：「我们后续开发什么的都放在一个工程下面做，以微信小游戏这个为准」）: the WeChat mini-game project, from
 // this repository, in one command:
 //   npm run wx -- [--out <dir>] [--tag act-NN] [--zip <file.zip>] [--no-ios-hp] [--no-ios-hp-plus]
-// Default out: Desktop\不见刀_微信小游戏 (and the zip next to it, 不见刀_微信小游戏_<tag>.zip). An existing project.config.json in
+// Default out: Desktop\不见刀_微信小游戏 (no zip by default; pass --zip <file.zip> if a zip archive is needed). An existing project.config.json in
 // the out folder keeps its appid (the user's own AppID for scanning on a phone).
 //   game.js        'use strict' + wechat/adapter.js (pxui's shims three.js needs) + wechat/glue.js (localStorage, atob, fetch of
 //                  package files, image elements, the WebAudio context) + the game bundle (vite build --mode wechat)
@@ -23,7 +23,7 @@ const A = process.argv.slice(2), arg = k => { const i = A.indexOf(k); return i >
 const DESK = path.join(os.homedir(), 'Desktop');
 const OUT = path.resolve(arg('--out') ?? path.join(DESK, '不见刀_微信小游戏'));
 let TAG = arg('--tag'); if (!TAG) { try { TAG = execFileSync('git', ['describe', '--tags', '--abbrev=0'], { cwd: ROOT, encoding: 'utf8' }).trim(); } catch { TAG = 'dev'; } }
-const ZIP = arg('--zip') ?? (arg('--out') ? null : path.join(DESK, `不见刀_微信小游戏_${TAG}.zip`));
+const ZIP = arg('--zip') ?? null;
 const HP = !A.includes('--no-ios-hp'), HP_PLUS = HP && !A.includes('--no-ios-hp-plus');
 const kb = n => (n / 1024 / 1024).toFixed(2) + ' MB';
 const size = d => { let n = 0; for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); n += e.isDirectory() ? size(p) : fs.statSync(p).size; } return n; };
