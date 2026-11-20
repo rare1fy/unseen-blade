@@ -226,6 +226,6 @@ export const xpLane: Locale = {
   id: 'xp_lane', name: '浮栈巷', theme: 'xiapi',
   layouts: ['street', 'axis', 'offset', 'pair', 'garden'],
   landmarks: LANDMARKS, groups: GROUPS, filler: FILLER,
-  seasons: ['winter'], weathers: ['mist', 'snow', 'clear'], noSnow: true, noLeaves: true,
+  seasons: ['winter'], times: ['overcast', 'dawn', 'dusk', 'night', 'sunset', 'day'], weathers: ['mist', 'snow', 'storm', 'clear'], noSnow: true, noLeaves: true,
   pools, floor, far, dress, infill: xiapiInfill('lane'),
 };

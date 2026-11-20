@@ -694,6 +694,98 @@ POSE_HOOKS.npc_donkey = (b: Bones, t: number, _a: unknown, _o: unknown, self: un
 export const HIDEOUT_DONKEY: ModelDef = { id: 'npc_donkey', name: '灰驴', group: '普通', role: '', line: '', kind: 'quad', attack: 'bite', build: buildDonkey };
 if (!ROSTER.some(r => r.id === HIDEOUT_DONKEY.id)) ROSTER.push(HIDEOUT_DONKEY);
 
+// ================================================================== 行商（乱世货郎）
+// act-128: visible 3D voxel traveling merchant behind the 4 shop stalls — wide woven traveling hat, weathered smiling bearded face,
+// indigo-ochre traveling coat with crimson sash & hanging coin pouch, and an iconic tall wooden peddler pack-frame loaded with
+// rolled bolts of cloth, medicine gourd, scrolls, and a warm hanging paper lantern!
+function buildMerchant(): V {
+  const v = fine();
+  const C = {
+    SKIN: 0xdfa06c, SKIN_D: 0xb67b4c, BEARD: 0x3a2a22, EYE: 0x1c1412, MOUTH: 0x764030,
+    COAT: 0x304258, COAT_D: 0x1e2c3c, COAT_L: 0x48607a, TRIM: 0xc28a44, LINEN: 0xe6dbc6,
+    SASH: 0x9e3028, SASH_L: 0xc8463a, POUCH: 0x6e4a28, COIN: 0xe8bc58,
+    TROU: 0x463d34, BOOT: 0x26201c,
+    HAT: 0xba9656, HAT_D: 0x866838, HAT_L: 0xd8b874, STRAP: 0x4a301c,
+    WOOD: 0x664426, WOOD_D: 0x422a16, WOOD_L: 0x8a5e36,
+    BOLT_R: 0xa4342e, BOLT_G: 0x3a7058, SCROLL: 0xd4b672, GOURD: 0x9c5a26,
+    LANT: 0xffd078, LANT_F: 0x3a2414,
+  };
+  rig(v, { hip: 20, spine: 24, chest: 30, neck: 36, head: 40, hat: 52, ax: 8, sh: 36, elbow: 28, wrist: 20, grip: 18, lx: 4, knee: 10, back: 4 });
+  // legs & sturdy road boots
+  LR(v, 'leg', 2, 10, -2, 5, 19, 1, C.TROU);
+  LR(v, 'shin', 2, 4, -2, 5, 9, 1, C.TROU);
+  LR(v, 'foot', 2, 0, -2, 5, 1, 4, C.BOOT); LR(v, 'foot', 2, 2, -2, 5, 3, 2, C.BOOT);
+  // indigo traveling coat with warm ochre hem & crossed collar + crimson merchant sash & hanging bronze coin pouch
+  C2(v, 'hips', -6, 18, -4, 5, 23, 3, C.COAT, 2);
+  R(v, 'legL', 0, 12, -4, 5, 19, 3, C.COAT); R(v, 'legR', -6, 12, -4, -1, 19, 3, C.COAT);
+  for (const L of ['legL', 'legR']) v.paint(c => (c.y === 12 ? C.TRIM : c.y === 13 ? C.COAT_D : null), L);
+  C2(v, 'spine', -6, 24, -4, 5, 29, 3, C.COAT, 2);
+  ring(v, 'spine', -6, 5, -4, 3, 24, 25, C.SASH);
+  B(v, 'spine', -2, 24, 4, 1, 25, 4, C.SASH_L);
+  // hanging coin pouch at left hip
+  B(v, 'hips', 5, 17, 1, 7, 21, 3, C.POUCH); B(v, 'hips', 6, 21, 2, 6, 23, 2, C.COIN); B(v, 'hips', 6, 19, 3, 6, 19, 3, C.COIN);
+  // torso & crossed lapels
+  C2(v, 'chest', -7, 30, -4, 6, 35, 3, C.COAT, 2); C2(v, 'chest', -5, 36, -3, 4, 36, 2, C.COAT_L, 2);
+  B(v, 'neck', -2, 36, -2, 1, 39, 1, C.SKIN); B(v, 'neck', -2, 36, -2, 1, 36, 1, C.SKIN_D);
+  B(v, 'chest', -2, 34, 3, 1, 36, 3, C.LINEN);
+  B(v, 'chest', -3, 31, 3, -2, 35, 3, C.TRIM); B(v, 'chest', 1, 29, 3, 3, 35, 3, C.TRIM);
+  B(v, 'spine', -1, 26, 3, 1, 29, 3, C.TRIM);
+  // pack shoulder straps across chest
+  for (const sx of [-5, 4]) B(v, 'chest', sx, 28, 3, sx, 36, 3, C.STRAP);
+  // arms & sleeves with ochre cuffs
+  LR(v, 'arm', 6, 28, -2, 9, 35, 1, C.COAT); LR(v, 'arm', 6, 35, -2, 9, 35, 1, C.COAT_L); LR(v, 'arm', 9, 35, -2, 9, 35, 1, null);
+  LR(v, 'fore', 6, 21, -2, 8, 27, 0, C.COAT); LR(v, 'fore', 6, 21, -2, 8, 22, 0, C.TRIM);
+  hands(v, 17, C.SKIN, C.SKIN_D);
+  // iconic tall wooden peddler pack-frame (背架货箱) on chest back: wooden frame, cloth bolts, scroll roll, gourd & warm glowing lantern!
+  B(v, 'chest', -7, 22, -6, -6, 48, -5, C.WOOD); B(v, 'chest', 5, 22, -6, 6, 48, -5, C.WOOD);
+  B(v, 'chest', -7, 22, -12, 6, 23, -5, C.WOOD_D); B(v, 'chest', -7, 36, -12, 6, 37, -5, C.WOOD_L);
+  B(v, 'chest', -7, 47, -11, 6, 48, -5, C.WOOD_L);
+  // cargo boxes & rolled cloth bolts (crimson + jade + bamboo scroll)
+  C2(v, 'chest', -6, 24, -12, 5, 35, -6, C.WOOD, 1);
+  B(v, 'chest', -6, 38, -11, -2, 45, -7, C.BOLT_R); B(v, 'chest', -1, 38, -11, 2, 44, -7, C.BOLT_G);
+  B(v, 'chest', 3, 38, -11, 5, 46, -8, C.SCROLL);
+  // hanging gourd on left side of pack
+  B(v, 'chest', 6, 27, -10, 8, 31, -8, C.GOURD); B(v, 'chest', 7, 32, -9, 7, 34, -9, C.GOURD);
+  // overhanging lantern pole & warm glowing paper lantern above his right shoulder
+  B(v, 'chest', -7, 48, -6, -6, 56, -5, C.WOOD_D);
+  B(v, 'chest', -11, 55, -6, -6, 56, -5, C.WOOD_L);
+  B(v, 'chest', -11, 51, -6, -10, 54, -5, C.LANT_F);
+  v.part('chest').box(-12, 48, -7, -9, 52, -4, C.LANT, 1);
+  B(v, 'chest', -12, 53, -7, -9, 53, -4, C.LANT_F); B(v, 'chest', -12, 47, -7, -9, 47, -4, C.LANT_F);
+  // head: warm shrewd smiling face, short trimmed beard, wide woven merchant straw/felt hat
+  C2(v, 'head', -6, 42, -5, 5, 51, 5, C.SKIN, 2);
+  C2(v, 'head', -4, 40, -4, 3, 41, 4, C.SKIN, 1);
+  v.paint(({ y, z }) => z <= -3 && y >= 43 ? C.BEARD : undefined, 'head');
+  S(v, 'head', 5, 43, -1, 6, 47, 1, C.SKIN);
+  // shrewd brows, twinkling eyes, nose, warm beard & smile
+  B(v, 'head', -4, 47, 5, -1, 47, 5, C.BEARD); B(v, 'head', 1, 47, 5, 4, 47, 5, C.BEARD);
+  S(v, 'head', 1, 45, 5, 3, 45, 5, C.EYE);
+  B(v, 'head', -1, 44, 6, 0, 44, 6, C.SKIN); B(v, 'head', -2, 42, 5, 1, 42, 5, C.MOUTH);
+  B(v, 'head', -3, 40, 4, 2, 41, 5, C.BEARD); B(v, 'head', -2, 39, 4, 1, 39, 5, C.BEARD);
+  // wide-brimmed merchant conical/felt hat
+  C2(v, 'head', -10, 51, -10, 9, 52, 9, C.HAT, 3);
+  C2(v, 'head', -8, 53, -8, 7, 54, 7, C.HAT_L, 2);
+  C2(v, 'head', -5, 55, -5, 4, 57, 4, C.HAT_D, 2);
+  C2(v, 'head', -3, 58, -3, 2, 59, 2, C.HAT, 1);
+  fuseStill(v);
+  return v;
+}
+POSE_HOOKS.npc_merchant = (b: Bones, t: number) => {
+  const br = asymBreath(t, 3.2), c = t % 6.5;
+  const wave = win(c, 1.2, 3.2, 0.45), nod = win(c, 4.0, 5.4, 0.35);
+  rot(b.spine, 0.04 + br * 0.015, Math.sin(t * 0.45) * 0.06, 0);
+  rot(b.chest, br * 0.018, 0, 0);
+  rot(b.head, -0.02 + 0.08 * nod, Math.sin(t * 0.65) * 0.14 * (1 - wave * 0.5), 0.04 * wave);
+  // right arm waves warmly to beckon the player toward his stalls
+  rot(b.armR, -0.35 - 0.95 * wave, 0, -0.14 - 0.25 * wave);
+  rot(b.foreR, -0.6 - 0.85 * wave + Math.sin(t * 7.5) * 0.18 * wave, 0, 0);
+  // left arm rests cheerfully near his belt / coin pouch
+  rot(b.armL, -0.25, 0, 0.16);
+  rot(b.foreL, -0.85 + 0.12 * nod, 0, 0);
+};
+export const HIDEOUT_MERCHANT: ModelDef = { id: 'npc_merchant', name: '行商', group: '普通', role: '行商', line: '', kind: 'biped', attack: 'swing', tip: 16, build: buildMerchant };
+if (!ROSTER.some(r => r.id === HIDEOUT_MERCHANT.id)) ROSTER.push(HIDEOUT_MERCHANT);
+
 // ================================================================== registry
 // tip: the generic weapon point in cells (BActor.weapon), 16 fine = the 8 coarse cells it was (0.56 m)
 const def = (id: string, name: string, role: string, build: () => V): ModelDef => ({ id, name, group: '普通', role, line: '', kind: 'biped', attack: 'swing', tip: 16, build });

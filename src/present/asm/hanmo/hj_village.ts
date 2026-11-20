@@ -671,7 +671,7 @@ function dress(c: Ctx, f: { layout: Layout; p: Place; clear: Rect[] }) {
 export const hjVillage: Locale = {
   id: 'hj_village', name: '残村', theme: 'hanmo',
   layouts: ['axis', 'offset', 'pair', 'garden'],
-  weathers: ['clear', 'rain', 'mist', 'snow'],
+  weathers: ['clear', 'rain', 'storm', 'mist', 'snow', 'embers'],
   landmarks: LANDMARKS, groups: G, filler: FILLER,
   floor, far, dress,
   // 11-18 屋子形态: a corner of burnt yards (曲尺), a ruined compound to fight round (回廊), a lane between the houses (窄巷), the

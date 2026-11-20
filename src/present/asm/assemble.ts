@@ -132,6 +132,10 @@ export function assemble(spec: Spec, reg: Registry): { def: SceneDef; report: Re
   }
   const def: SceneDef = {
     id: `asm_${spec.locale}_${spec.seed}`, name, group: '普通', kind: '户外', blurb: '', mood,
+    // act-128: attach weather ambient particles in decorate() so baked WeChat packs ALSO get randomized weather particles!
+    decorate(c) {
+      if (def.mood.sky) for (const a of weatherAmbient(spec.weather, spec.season, spec.time, /^(hj|ly|xp|wl|cx)_/.test(spec.locale))) if (!(loc.noLeaves && a.kind === 'leaves')) c.ambient(a);
+    },
     build(c) { finishBuild(def.buildSteps!(c)); },
     *buildSteps(c) {
       const r = rndOf(spec.seed, 1), lamp = lampFor(spec.time, spec.weather);
@@ -223,8 +227,6 @@ export function assemble(spec: Spec, reg: Registry): { def: SceneDef; report: Re
       buildFlora(c);
       yield;
       loc.dress?.(c, { layout, p: place(0, 0, 0, 4), clear: [...walk, ...arenaClear] });
-      // (11-18: every region's places are Chinese — yellow-brown leaves, not red maple; a burned place has none)
-      if (def.mood.sky) for (const a of weatherAmbient(spec.weather, spec.season, spec.time, /^(hj|ly|xp|wl|cx)_/.test(spec.locale))) if (!(loc.noLeaves && a.kind === 'leaves')) c.ambient(a);
       report.lights = live.lights;
       if (live.lights >= MAX_LIGHTS) report.warnings.push(`light budget reached (${MAX_LIGHTS})`);
       // glow cap (11-15 mixed sheet: some lantern / sign faces bloomed into white glare at dusk): every glowing cell keeps its hue

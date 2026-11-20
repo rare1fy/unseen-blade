@@ -122,7 +122,7 @@ export const lyRoad: Locale = {
   infill: burntInfill('road'),
   id: 'ly_road', name: '铜驼道', theme: 'luoyang',
   layouts: ['axis', 'pair', 'offset'],
-  seasons: ['autumn', 'summer'], times: ['dusk', 'night', 'dawn'], weathers: ['clear', 'mist', 'rain'], noLeaves: true,
+  seasons: ['autumn', 'summer'], times: ['sunset', 'dusk', 'night', 'overcast', 'dawn'], weathers: ['embers', 'mist', 'rain', 'storm', 'clear'], noLeaves: true,
   landmarks: LANDMARKS, groups: [...ROAD_GROUPS, ...commonGroups('ly_r')], filler: commonFiller('ly_r'),
   floor, far, dress: (c, f) => lyDress(c, f, { embers: 1.6 }),
 };

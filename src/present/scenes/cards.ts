@@ -320,7 +320,7 @@ export class Cards {
 }
 
 // ------------------------------------------------------------------ atmosphere: drifting particles and light shafts
-export type Ambient = { kind: 'fireflies' | 'leaves' | 'spores' | 'dust' | 'embers' | 'rain' | 'snow' | 'petals'; color: number; rate: number; area?: { x0: number; z0: number; x1: number; z1: number }; y?: [number, number] };
+export type Ambient = { kind: 'fireflies' | 'leaves' | 'spores' | 'dust' | 'embers' | 'rain' | 'storm' | 'snow' | 'petals'; color: number; rate: number; area?: { x0: number; z0: number; x1: number; z1: number }; y?: [number, number] };
 export function ambientTick(list: Ambient[], dt: number) {
   for (const a of list) {
     const ar = a.area ?? { x0: -9, z0: -11, x1: 9, z1: 6 }, n = a.rate * dt + (Math.random() < (a.rate * dt) % 1 ? 1 : 0);
@@ -330,10 +330,11 @@ export function ambientTick(list: Ambient[], dt: number) {
       else if (a.kind === 'leaves') PALPHA.emit({ p: p.setY(R(3.5, 6)), v: V3(R(0.2, 0.6), R(-0.55, -0.35), R(-0.2, 0.2)), s0: 0.09, s1: 0.09, life: R(6, 10), c0: c, alpha: 0.95, tile: TILE.pixel, spin: R(-3, 3), fadeIn: 0.3 });
       else if (a.kind === 'spores') PADD.emit({ p, v: V3(R(-0.06, 0.06), R(0.08, 0.25), R(-0.06, 0.06)), s0: 0.05, s1: 0.03, life: R(4, 7), c0: c, bright: 1.8, tile: TILE.pixel, fadeIn: 0.6 });
       else if (a.kind === 'rain') PALPHA.emit({ p: p.setY(R(5, 8)), v: V3(R(0.3, 0.5), R(-9.5, -8), R(-0.1, 0.1)), s0: 0.03, s1: 0.03, life: R(0.6, 0.9), c0: c, alpha: 0.45, tile: TILE.streak, stretch: 0.06 });
+      else if (a.kind === 'storm') PALPHA.emit({ p: p.setY(R(5.5, 8.5)), v: V3(R(1.6, 2.5), R(-13.5, -11.2), R(-0.25, 0.25)), s0: 0.036, s1: 0.036, life: R(0.48, 0.72), c0: c, alpha: 0.62, tile: TILE.streak, stretch: 0.095 });
       else if (a.kind === 'snow') PALPHA.emit({ p: p.setY(R(4, 7)), v: V3(R(0.1, 0.35), R(-0.7, -0.45), R(-0.12, 0.12)), s0: 0.06, s1: 0.06, life: R(8, 12), c0: c, alpha: 0.9, tile: TILE.pixel, fadeIn: 0.4 });
       else if (a.kind === 'petals') PALPHA.emit({ p: p.setY(R(3, 6)), v: V3(R(0.4, 0.9), R(-0.45, -0.25), R(-0.25, 0.25)), s0: 0.07, s1: 0.07, life: R(7, 11), c0: c, alpha: 0.95, tile: TILE.pixel, spin: R(-4, 4), fadeIn: 0.3 });
       else if (a.kind === 'dust') PALPHA.emit({ p, v: V3(R(-0.05, 0.05), R(-0.02, 0.05), R(-0.05, 0.05)), s0: 0.035, s1: 0.035, life: R(5, 8), c0: c, alpha: 0.5, tile: TILE.pixel, fadeIn: 0.8 });
-      else PADD.emit({ p, v: V3(R(-0.1, 0.1), R(0.4, 0.9), R(-0.1, 0.1)), s0: 0.05, s1: 0.02, life: R(1.5, 3), c0: c, bright: 2.6, tile: TILE.pixel });
+      else PADD.emit({ p, v: V3(R(-0.25, 0.35), R(0.45, 1.05), R(-0.18, 0.18)), s0: 0.055, s1: 0.02, life: R(1.8, 3.6), c0: c, bright: 2.8, tile: TILE.pixel });
     }
   }
 }

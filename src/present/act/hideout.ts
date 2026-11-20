@@ -49,9 +49,8 @@ export const HIDEOUT: {
   exit: { x0: number; x1: number; z: number };
   solids: HideoutSolid[];
 } = {
-  // the walkable floor: from the kiln's bay and the north wall at the back into the gate at the front (the front wall either side of
-  // the gate is in `solids`, so past z ≈ 6.7 only the gate's opening is open)
-  floor: { x0: -8, x1: 8, z0: -8, z1: 7.4 },
+  // the walkable floor: from the kiln's bay and the north wall at the back out through the front gate and down the outer departure corridor
+  floor: { x0: -8, x1: 8, z0: -8, z1: 10.2 },
   // on 孙媪's straw mat, where the heroine wakes
   spawn: [6.45, -6.1],
   people: {
@@ -69,9 +68,8 @@ export const HIDEOUT: {
   // 试剑坪: three wooden dummies inside the ring of bell posts, four summon slabs along its front edge (kept clear of everything)
   dummies: [[-5.6, -1.9], [-3.4, -1.9], [-4.5, 0.3]],
   slabs: [[-6.9, 4.0], [-5.5, 4.0], [-4.1, 4.0], [-2.7, 4.0]],
-  // the gate in the front wall (its opening x 0.63..3.0, its posts at z 6.9): walking past z = exit.z (toward +z) between x0..x1 starts
-  // a run — the floor's clamp lets her get to z ≈ 6.8 inside the opening
-  exit: { x0: 0.75, x1: 2.9, z: 6.4 },
+  // act-128: outer departure corridor past the front gate (z 6.9..9.4) so walking inside the courtyard never accidentally triggers departure
+  exit: { x0: 0.75, x1: 2.9, z: 9.2 },
   // filled below from the plan (everything she must not walk through)
   solids: [],
 };
@@ -156,6 +154,8 @@ function solidsOf(): HideoutSolid[] {
   const pa = GATE.x0 - 3, pb = GATE.x1 + 1;
   out.push(cbox(GATE.w0, GATE.x0 - 4, GATE.Z - 3, GATE.Z + 2), cbox(GATE.x1 + 4, GATE.w1, GATE.Z - 3, GATE.Z + 2));
   out.push(cbox(pa - 1, pa + 3, GATE.Z - 2, GATE.Z + 2), cbox(pb - 1, pb + 3, GATE.Z - 2, GATE.Z + 2), cbox(pb - 1, pb, GATE.Z - 14, GATE.Z - 3));
+  // act-128: outer exit corridor flanking rails & departure piers (keeps player neatly inside the lane from gate z 6.9 out to exit z 9.4)
+  out.push(cbox(GATE.x0 - 6, GATE.x0 - 2, GATE.Z + 3, C(10.8)), cbox(GATE.x1 + 2, GATE.x1 + 6, GATE.Z + 3, C(10.8)));
   out.push(cbox(C(-8.8), C(-7.3), C(5.3), C(6.6)), cbox(C(-1.3), C(-0.1), C(5.5), C(6.6)), cbox(C(4.7), C(5.8), C(5.5), C(6.3)));
   return out;
 }
@@ -269,10 +269,11 @@ function ground(c: Ctx) {
   flagstones(-1.55, -1.45, -0.75, -0.35, 10, 10, 29);
   void stepRunX;
 
-  // the road outside the front gate: worn earth with stone verges and two deep wheel ruts
+  // the road outside the front gate: worn earth with stone verges, stepping flagstones through the outer departure corridor, and two wheel ruts
   fill(0.45, 7.2, 3.15, 14, K.path);
+  stepRunZ(1.8, 7.15, 9.75, 11, 10, 4, 23);
   for (const X of [C(0.45), C(3.15)]) for (let Z = C(7.3); Z <= C(14); Z++) w.set(X, -1, Z, (Z % 12 < 2) ? K.stoneD : K.earthD);
-  for (const X of [C(0.95), C(2.55)]) for (let Z = C(7.3); Z <= C(14); Z++) { w.set(X, -1, Z, K.rut); w.set(X + 1, -1, Z, K.rut); }
+  for (const X of [C(0.95), C(2.55)]) for (let Z = C(10.0); Z <= C(14); Z++) { w.set(X, -1, Z, K.rut); w.set(X + 1, -1, Z, K.rut); }
 }
 
 // ------------------------------------------------------------------ the build
@@ -328,6 +329,32 @@ function* build(c: Ctx, o: { time: HideoutTime; weather: HideoutWeather }) {
   feed(c, FEED.X, FEED.Z);
   const pot = cookFire(c, POT.X, POT.Z, true);
   frontGate(c, GATE.w0, GATE.x0, GATE.x1, GATE.w1, GATE.Z);
+  // act-128: outer departure corridor flanking low stone curbs, timber rails, and two weathered stone departure piers at z = 9.45
+  {
+    const cz0 = GATE.Z + 4, cz1 = C(9.55);
+    for (const [cx0, cx1] of [[GATE.x0 - 5, GATE.x0 - 3], [GATE.x1 + 3, GATE.x1 + 5]] as const) {
+      // low stone curb along the corridor
+      w.box(cx0, 0, cz0, cx1, 2, cz1, K.stone);
+      w.box(cx0, 3, cz0, cx1, 3, cz1, K.stoneL);
+      // wooden fence posts & two timber crossbars connecting the gate to the outer piers
+      const px = cx0 + 1;
+      for (let z = cz0 + 6; z <= cz1 - 6; z += 10) {
+        w.box(px - 1, 4, z, px, 12, z + 1, HV.post);
+        w.box(px - 1, 13, z, px, 13, z + 1, HV.woodL);
+      }
+      w.box(px, 6, cz0, px, 7, cz1, HV.wood);
+      w.box(px, 10, cz0, px, 11, cz1, HV.woodL);
+      // outer departure stone piers (门阙石墩) framing the exit light curtain
+      w.box(cx0 - 1, 0, cz1 - 2, cx1 + 1, 14, cz1 + 3, K.stone);
+      w.box(cx0 - 1, 0, cz1 - 2, cx1 + 1, 3, cz1 + 3, K.stoneD);
+      w.box(cx0 - 2, 15, cz1 - 3, cx1 + 2, 17, cz1 + 4, K.stoneL);
+      w.box(cx0 - 1, 18, cz1 - 2, cx1 + 1, 19, cz1 + 3, K.stone);
+    }
+    // warm departure beacon lantern hanging from the west outer pier
+    w.box(GATE.x0 - 4, 20, cz1, GATE.x0 - 3, 27, cz1 + 1, HV.post);
+    w.box(GATE.x0 - 3, 26, cz1, GATE.x0 + 2, 27, cz1 + 1, HV.wood);
+    lantern(c, GATE.x0 + 1, 25, cz1, true);
+  }
   // two paper lanterns (lit at dusk and night): from the gate's lintel, and at the end of 孙媪's beam
   lantern(c, GATE.x0 - 6, 29, GATE.Z, lit); lantern(c, CORNER.X1 - 1, 25, CORNER.Zp - 1, lit);
   // trees and bamboo: lush Mount Song bamboo valleys framing BOTH East & West flanks plus layered groves behind the kiln!

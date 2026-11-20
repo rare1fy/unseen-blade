@@ -34,6 +34,55 @@ void main() { float v = vUv.y, side = smoothstep(0.0, 0.22, vUv.x) * (1.0 - smoo
 const VS_UV = 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }';
 const VS_P = 'varying vec3 vP; void main() { vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }';
 
+/** Reusable combat-gate golden light FX (curtain + expanding floor ripples + floor light spill), also used for the hideout departure corridor */
+export class GateGlow {
+  root = new THREE.Group();
+  curtain: THREE.Mesh;
+  ripple: THREE.Mesh;
+  spill: THREE.Mesh;
+  private t = 0;
+  constructor(parent: THREE.Object3D, centre: THREE.Vector3, w: number, inward: THREE.Vector3, o: { radius?: number; spillLen?: number; height?: number } = {}) {
+    const yaw = Math.abs(inward.z) >= Math.abs(inward.x) ? 0 : Math.PI / 2;
+    const h = o.height ?? 2.3;
+    this.curtain = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.ShaderMaterial({
+      vertexShader: VS_UV, fragmentShader: CURTAIN_FS, transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
+      uniforms: { uCol: { value: new THREE.Color(GOLD) }, uT: { value: 0 }, uK: { value: 0 } },
+    }));
+    this.curtain.position.copy(centre).setY(h / 2); this.curtain.rotation.y = yaw; this.curtain.renderOrder = 6; this.root.add(this.curtain);
+
+    const R = o.radius ?? 4.6;
+    const rg = new THREE.CircleGeometry(R, 36, 0, Math.PI); rg.rotateX(-Math.PI / 2);
+    this.ripple = new THREE.Mesh(rg, new THREE.ShaderMaterial({
+      vertexShader: VS_P, fragmentShader: RIPPLE_FS, transparent: true, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2,
+      uniforms: { uCol: { value: new THREE.Color(GOLD) }, uT: { value: 0 }, uK: { value: 0 }, uR: { value: R } },
+    }));
+    this.ripple.position.copy(centre).setY(0.045); this.ripple.rotation.y = Math.atan2(inward.x, inward.z) + Math.PI; this.ripple.renderOrder = 3; this.root.add(this.ripple);
+
+    const spillLen = o.spillLen ?? 3.6;
+    const sg = new THREE.PlaneGeometry(1, 1, 1, 1); sg.rotateX(-Math.PI / 2); sg.translate(0, 0, -0.5);
+    const pa = sg.attributes.position as THREE.BufferAttribute;
+    for (let i = 0; i < pa.count; i++) { const far = pa.getZ(i) < -0.5; pa.setX(i, pa.getX(i) * (far ? w * 1.45 : w)); pa.setZ(i, pa.getZ(i) * spillLen); }
+    this.spill = new THREE.Mesh(sg, new THREE.ShaderMaterial({
+      vertexShader: VS_UV, fragmentShader: SPILL_FS, transparent: true, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -3,
+      uniforms: { uCol: { value: new THREE.Color(GOLD) }, uT: { value: 0 }, uK: { value: 0 } },
+    }));
+    this.spill.position.copy(centre).setY(0.05); this.spill.rotation.y = Math.atan2(-inward.x, -inward.z); this.spill.renderOrder = 4; this.root.add(this.spill);
+    parent.add(this.root);
+  }
+  update(dt: number, k = 1) {
+    this.t += dt;
+    const on = k > 0.001;
+    for (const m of [this.curtain, this.ripple, this.spill]) {
+      const u = (m.material as THREE.ShaderMaterial).uniforms;
+      u.uT.value = this.t; u.uK.value = k; m.visible = on;
+    }
+  }
+  dispose() {
+    for (const m of [this.curtain, this.ripple, this.spill]) { m.geometry.dispose(); (m.material as THREE.Material).dispose(); }
+    this.root.parent?.remove(this.root);
+  }
+}
+
 interface Item { g: Gate; pivot: THREE.Group; fallT: number; curtain: THREE.Mesh; ripple: THREE.Mesh; spill: THREE.Mesh; inward: THREE.Vector3; centre: THREE.Vector3 }
 export class Gates {
   root = new THREE.Group(); items: Item[] = []; private t = 0; private opened = false; private openT = 0;

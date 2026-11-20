@@ -40,7 +40,9 @@ import { arenaPlan, bigStage, type ArenaPlan } from '../asm/arena';
 import { FloorGrid, FLOOR, PIT, makeShape, pickShape, SHAPE_K, SHAPE_CN, type ShapeId, type PitKind } from '../asm/roomShape';
 import { Solids, SLAM, slamSpeed, type Push } from './solids';
 import { Breakables } from './breakables';
-import { Gates } from './gates';
+import { Gates, GateGlow } from './gates';
+import { UI_LOOK } from '../look/uiLook';
+import { sayMerchant, setHurtBreath } from '../../audio/voice';
 import { ALL_MOVES, drawManuals, manualCard, SCROLL_GLYPH } from './manuals';
 import { Dialogue, type Line } from './dialogue';
 import { Stele } from './stele';
@@ -310,7 +312,9 @@ export function roomDefinition(o: RoomIn) {
     ? (o.map ? MAP_BY_ID[o.map] : pickMap(region, roomKind, o.maps ?? [], seed)) : null;
   if (dm) {
     const mb = pickSpec(dm.seed, Object.values(REGISTRY.locales), REGISTRY.layouts, [], { season: o.regionSpec?.season ?? 'autumn', locale: dm.locale });
-    Object.assign(spec, { ...mb, mirror: false, time: dm.time ?? mb.time, weather: dm.weather ?? mb.weather, seed: dm.seed });
+    // act-128: roll varied time-of-day & weather per room using the live run seed & recent history (while keeping dm.seed for deterministic map geometry/packs!)
+    const atmo = pickSpec(seed * 13 + dm.seed, Object.values(REGISTRY.locales), REGISTRY.layouts, o.recent, { season: mb.season, locale: dm.locale });
+    Object.assign(spec, { ...mb, mirror: false, time: atmo.time, weather: atmo.weather, seed: dm.seed });
   }
   const loc = LOCALES[spec.locale], bigP = !isYard && bigStage(spec.locale);
   const shapeId: ShapeId = dm ? 'map' : !bigP || o.noArena ? 'square' : o.shape ?? (o.viewSpec || o.forceSpec ? 'square' : pickShape(loc?.shapes, calm ? 'calm' : ptype === 'boss' ? 'boss' : 'fight', spec.seed, o.shapes ?? []));
@@ -621,7 +625,7 @@ export class ActShow {
     const kneelPose = () => this.proKneel.frame(this.hero.a);
     if (boss) {
       await this.cine(fallShots(this.proHost, boss));
-      if (!this.proKneel.active) this.proKneel.start();   // (the shot skipped before the blow landed: she still goes down on her knee)
+      if (!this.proKneel.active) { this.proKneel.start(); setHurtBreath(true); }   // (the shot skipped before the blow landed: she still goes down on her knee)
       // act-114: Cui Xuan steps closer, half-crouches (robe-safe), and gently reaches toward her white blindfold during PRO_FALL
       this.cuiInspect.start(boss, this.hero.pos, (p, r) => this.clamp(p, r));
       this.hero.scriptPose = kneelPose;
@@ -634,6 +638,7 @@ export class ActShow {
       this.cuiInspect.stop();
       this.proKneel.reachWant = 0; this.hero.scriptPose = null;
       this.phase = 'cine'; await this.cine(snowShots(this.proHost, boss));
+      setHurtBreath(false);
     } else this.proKneel.start();
     // dawn outside: the snow has stopped, the frozen dead lie in the ditch (11-19 剧情改版: thrown out of 崔府's back gate — the
     //  snowy village's own yard at dawn stands in for the ditch outside the walls, where 杜五 picks over the dead)
@@ -783,12 +788,12 @@ export class ActShow {
     for (const m of this.marks.values()) { m.g.parent?.remove(m.g); m.ring.parent?.remove(m.ring); }
     this.marks.clear();
     this.steleExclaim?.parent?.remove(this.steleExclaim); this.steleExclaim = null;
-    this.exitRing?.parent?.remove(this.exitRing); this.exitRing = null;
+    this.exitGlow?.dispose(); this.exitGlow = null;
     this.hideHideoutLabels();
   }
-  /** Environmental hideout guidance (guiding wind leaves.gust + subtle south gate threshold ring + 3D voxel ! markers) */
+  /** Environmental hideout guidance (guiding wind leaves.gust + combat-style golden departure gate light FX + 3D voxel ! markers) */
   private yardGustT = 1.4;
-  private exitRing: THREE.Mesh | null = null;
+  private exitGlow: GateGlow | null = null;
   private steleExclaim: THREE.Group | null = null;
   private hideoutObjective(): { x: number; z: number; isExit: boolean } {
     const prof = profile();
@@ -898,17 +903,14 @@ export class ActShow {
           cue('exitChime', 0.16);
         }
       }
-      // Subtle south gate threshold ring
-      const ex = (HIDEOUT.exit.x0 + HIDEOUT.exit.x1) / 2, ez = HIDEOUT.exit.z - 0.15;
-      if (!this.exitRing) {
-        this.exitRing = new THREE.Mesh(new THREE.RingGeometry(0.95, 1.16, 24).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffd868, transparent: true, opacity: 0.35, depthWrite: false, blending: THREE.AdditiveBlending }));
-        this.exitRing.position.set(ex, 0.06, ez); this.exitRing.renderOrder = 4; this.stage?.root.add(this.exitRing);
+      // act-128: combat-gate golden light curtain, expanding ripples, and floor light spill at the outer departure corridor!
+      const ex = (HIDEOUT.exit.x0 + HIDEOUT.exit.x1) / 2, ez = HIDEOUT.exit.z + 0.15;
+      if (!this.exitGlow && this.stage) {
+        this.exitGlow = new GateGlow(this.stage.root, V3(ex, 0, ez), 2.45, V3(0, 0, -1), { radius: 4.5, spillLen: 3.4, height: 2.3 });
       }
-      const ep = 0.5 + 0.5 * Math.sin(t * 3.8);
-      this.exitRing.visible = true; this.exitRing.scale.setScalar(0.96 + 0.06 * ep);
-      (this.exitRing.material as THREE.MeshBasicMaterial).opacity = obj.isExit ? 0.32 + 0.24 * ep : 0.12 + 0.08 * ep;
-      const gp = worldToUi(V3(ex, 1.65, ez)), kk = Math.min(1.2, Math.max(0.75, this.L.h / 720));
-      this.L.text.set('act.yard.exit', { text: '出发', x: gp.x, y: gp.y, bodyPx: Math.max(12, Math.round(14 * kk)), color: '#ffe898', outline: '#140c0a', align: 'center', visible: gp.z < 1 && obj.isExit && dist < 8.5 });
+      this.exitGlow?.update(dt, obj.isExit ? 1.0 : 0.72);
+      const gp = worldToUi(V3(ex, 1.85, ez)), kk = Math.min(1.2, Math.max(0.75, this.L.h / 720));
+      this.L.text.set('act.yard.exit', { text: '出发', x: gp.x, y: gp.y, bodyPx: Math.max(13, Math.round(15 * kk)), color: '#ffe898', outline: '#140c0a', align: 'center', visible: gp.z < 1 && (obj.isExit || dist < 6.5) });
     } else {
       this.L.text.hide('act.yard.exit');
     }
@@ -1824,7 +1826,16 @@ export class ActShow {
     // the rooms without a fight: the stations stand ready and the roads are open at once
     if (this.plan && (this.plan.type === 'shop' || this.plan.type === 'rest' || this.plan.type === 'boon')) {
       this.stations = new Stations(this.stage!.root, this.arena?.shape?.fixed?.stations);
-      if (this.plan.type === 'shop') this.stations.shop(PRICES, SHOP_SPECIALS[Math.floor(Math.random() * SHOP_SPECIALS.length)]);
+      if (this.plan.type === 'shop') {
+        this.stations.shop(PRICES, SHOP_SPECIALS[Math.floor(Math.random() * SHOP_SPECIALS.length)]);
+        const st = this.stations;
+        after(0.65, () => {
+          if (this.stations !== st || !st.merchant) return;
+          const line = sayMerchant('greet');
+          const m = st.merchant;
+          (this.barks ??= new Barks(this.L)).say(() => m.head(), line);
+        });
+      }
       else if (this.plan.type === 'rest') this.stations.rest();
       else this.stations.scroll();
       this.log.push(`room ${this.room} ${this.plan.type} ${spec.locale}`);
@@ -1978,9 +1989,9 @@ export class ActShow {
       if (cut < down || this.pendingDeathTalk) after(0.85, () => { void this.hideoutArrive(cut, down); }); }
     // act-37: the rack of thirty blades — one hangs for each taken back (a boss each; ending C hangs them all)
     { const p = profile(); this.stage!.root.add(rackBlades(p.seen['ending_c'] ? 30 : bossesDown(p.seen))); }
-    // the way out: the gate in the front wall, a sign beside it; the bot walks there by the gate's mouth
+    // the way out: outer departure corridor past the front gate, a sign beside the departure pier; the bot walks down the corridor
     const gx = (HIDEOUT.exit.x0 + HIDEOUT.exit.x1) / 2;
-    this.exitSign = makeSign('出发', { w: 1.3, h: 0.6, post: 0.9 }); this.exitSign.position.set(HIDEOUT.exit.x1 + 0.9, 0, HIDEOUT.exit.z - 0.9); this.stage!.root.add(this.exitSign);
+    this.exitSign = makeSign('出发', { w: 1.3, h: 0.6, post: 0.9 }); this.exitSign.position.set(HIDEOUT.exit.x1 + 0.72, 0, HIDEOUT.exit.z - 0.55); this.stage!.root.add(this.exitSign);
     // (a lane through the gate toward the camera: the clamp lets her walk on out there; the front wall either side is solid. The
     // id is a side road's, which the clamp treats as 'hold z to the lane, x to the solids' — the back road's rule would open the north)
     const ex = { ...exitInfo(this.layout!, 'back'), id: 'left' as const, dir: [0, 1] as [number, number], lane: { x0: HIDEOUT.exit.x0, x1: HIDEOUT.exit.x1, z0: HIDEOUT.exit.z - 1.0, z1: PLAY.z1 + 2.5 }, walk: [[gx, HIDEOUT.exit.z - 1.6], [gx, HIDEOUT.exit.z + 1.0]] as Array<[number, number]> };
@@ -3756,6 +3767,11 @@ export class ActShow {
     if (!this.stations) return;
     if (s.price > this.coins) return;
     this.coins -= s.price; cue(s.price ? 'coin' : 'reveal', 0.6); this.log.push(`station ${s.id}`);
+    if (s.id.startsWith('buy_') && this.stations.merchant) {
+      const line = sayMerchant('buy');
+      const m = this.stations.merchant;
+      (this.barks ??= new Barks(this.L)).say(() => m.head(), line);
+    }
     const heal = (k: number) => { const was = this.hero.hp; this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + Math.round(this.hero.maxHp * k)); this.healFeed(was); this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp }); };
     if (s.id === 'buy_boon') { this.stations.spend(s); await this.boonPick(); }
     else if (s.id === 'buy_heal') { this.stations.spend(s); heal(0.45); }
@@ -4118,8 +4134,16 @@ export class ActShow {
     if (bladeBusy()) return;
     this.seeThrough();
     this.storySkipFrame();
+    // act-128: smoothly dim the 3D world behind all selection UIs (Cards3D) and PauseMenu while keeping the 3D UI layer full brightness
+    {
+      const uiDt = PAUSE.on ? PAUSE.rdt : rdt;
+      const wantDim = (this.cards.on || this.pause.on) ? 1 : 0;
+      UI_LOOK.modalDim += (wantDim - UI_LOOK.modalDim) * Math.min(1, uiDt * 12);
+      if (Math.abs(wantDim - UI_LOOK.modalDim) < 0.004) UI_LOOK.modalDim = wantDim;
+    }
     if (PAUSE.on) {
       this.L.text.hide('act.npc');
+      this.L.text.hide('act.station.hint');
       if (this.previewOn && this.demo.on) { this.demo.update(PAUSE.rdt); this.hud.update(PAUSE.rdt, this.inp, []); }   // (11-19: 已得's ghost, on real time)
       return;
     }   // the pause menu runs on its own (real time); the world gets nothing (11-18: a hideout name over the menu's pages hidden)
@@ -4320,9 +4344,19 @@ export class ActShow {
       // 11-18 定死的屋子: she walked into the next piece of the floor — its wave
       if (this.waitZone >= 0 && this.phase === 'fight' && this.pieces.zoneAt(this.hero.pos.x, this.hero.pos.z) === this.waitZone) { this.waitZone = -1; after(0.35, () => { if (this.phase === 'fight') this.spawnWave(); }); }
     }
-    // a rainy room: now and then lightning lights everything for a beat, the thunder a moment later
+    // a rainy or stormy room: lightning lights everything for a beat, the thunder a moment later
     tickSkyFlash(rdt);
-    if (this.spec?.weather === 'rain' && (this.phase as string) !== 'opening') { this.lightningT -= rdt; if (this.lightningT <= 0) { this.lightningT = 7 + Math.random() * 9; flashSky(1); after(0.14, () => flashSky(0.7)); const d = 0.35 + Math.random() * 0.8; after(d, () => cue('thunder', 0.45)); } }
+    if ((this.spec?.weather === 'rain' || this.spec?.weather === 'storm') && (this.phase as string) !== 'opening') {
+      const storm = this.spec.weather === 'storm';
+      this.lightningT -= rdt;
+      if (this.lightningT <= 0) {
+        this.lightningT = storm ? 3.8 + Math.random() * 4.5 : 7 + Math.random() * 9;
+        flashSky(storm ? 1.25 : 1);
+        after(0.14, () => flashSky(storm ? 0.9 : 0.7));
+        const d = storm ? 0.2 + Math.random() * 0.45 : 0.35 + Math.random() * 0.8;
+        after(d, () => cue('thunder', storm ? 0.72 : 0.45));
+      }
+    }
     if (this.leaves) {
       this.leaves.update(dt, this.cam.x, this.cam.z);
       blood.update(dt);
@@ -4333,10 +4367,33 @@ export class ActShow {
     }
     // copper coins fly in; the stations of a shop / rest / scroll room fill their rings under a hero standing still on a mat
     { const got = this.coinsFx.update(dt, h.pos); if (got) { this.coins += got; cue('coin', 0.3); this.feed.push('coins', n => msg`铜钱 +${n}`, got); } const prof = profile(); this.hud.coins = this.coins; this.hud.iron = prof.iron; this.hud.herb = prof.herb; }
-    if (this.stations && this.phase === 'doors') {
-      const s = this.stations.update(dt, h.pos, Math.hypot(h.vel.x, h.vel.z) > 0.8, st => st.price <= this.coins && (!st.id.endsWith('sharpen') || this.sharpenable().length > 0));
+    if (this.stations && this.phase === 'doors' && !this.cards.on && !this.pause.on) {
+      const moving = Math.hypot(h.vel.x, h.vel.z) > 0.8;
+      const canPay = (st: Station) => st.price <= this.coins && (!st.id.endsWith('sharpen') || this.sharpenable().length > 0);
+      const s = this.stations.update(dt, h.pos, moving, canPay);
       this.stations.setPurse(this.coins);
+      const ns = this.stations.near(h.pos);
+      if (ns) {
+        const p = worldToUi(V3(ns.at.x, 1.55, ns.at.z));
+        const kk = Math.min(1.2, Math.max(0.8, this.L.h / 720));
+        const noSharp = ns.id.endsWith('sharpen') && !this.sharpenable().length;
+        const txt = ns.fill > 0.02
+          ? msg`触发中 ${Math.round(ns.fill * 100)}% · ${ns.label}`
+          : ns.poor
+            ? msg`${ns.label} · 铜钱不足（需 ${ns.price} 钱）`
+            : noSharp
+              ? msg`${ns.label} · 暂无可升阶秘传`
+              : ns.onMat && moving
+                ? msg`停步站立即可触发 · ${ns.label}`
+                : msg`踩上草席站立片刻 · ${ns.label}（${ns.sub}）`;
+        const col = ns.fill > 0.02 ? '#fff6b0' : ns.poor ? '#ff907a' : noSharp ? '#c0b8ac' : '#ffe8a8';
+        this.L.text.set('act.station.hint', { text: txt, x: p.x, y: p.y, bodyPx: Math.max(15, Math.round(16.5 * kk)), color: col, outline: '#140c0a', align: 'center', visible: p.z < 1 });
+      } else {
+        this.L.text.hide('act.station.hint');
+      }
       if (s) void this.useStation(s);
+    } else {
+      this.L.text.hide('act.station.hint');
     }
     // (act-36 floated the stall's name and price over it in reach; act-37 (用户：「商店里的选项……好丑」) took it out — it said what
     //  the big board beside it says, and covered the next stall's board)

@@ -66,10 +66,10 @@ const H = CARD_H, SOCK = H - 0.072, SX = -0.5 + FR + 0.018 + SOCK / 2, DIV = SX 
 /** the face (text) area on the lacquer: left edge, right edge, height */
 export const FACE = { x0: DIV + 0.016, x1: 0.5 - FR - 0.012, h: H - 2 * FR - 0.014 };
 
-/** act-118: 3D voxel vertical bamboo scroll (刀谱) — top & bottom wooden rollers with bronze caps, real vertical bamboo slats, crimson silk cords */
+/** act-118 / act-128: 3D voxel vertical bamboo scroll (刀谱) — animated top & bottom sandalwood rollers with bronze caps, real vertical bamboo slats, crimson silk cords */
 export function scrollBoard(Hh: number) {
   const M = STYLE_METAL.manual, lay = scrollLayout(Hh), H = lay.H, SOCK = lay.SOCK, SY = lay.SY, DIV = lay.DIV;
-  const p: Parameters<typeof mergeBoxes>[0] = [], b: Parameters<typeof mergeBoxes>[0] = [];
+  const p: Parameters<typeof mergeBoxes>[0] = [], b: Parameters<typeof mergeBoxes>[0] = [], rBoxes: Parameters<typeof mergeBoxes>[0] = [];
   // backing spine + 9 individual 3D vertical bamboo slats across the full width
   p.push({ w: 0.96, h: H - 0.08, d: 0.04, x: 0, y: 0, z: -0.004, c: 0x3a2a14 });
   const slats = 9, sw = 0.94 / slats;
@@ -84,24 +84,60 @@ export function scrollBoard(Hh: number) {
   for (const cy of [H / 2 - 0.088, DIV + 0.008, -H / 2 + 0.082]) {
     b.push({ w: 0.96, h: 0.016, d: 0.068, x: 0, y: cy, z: 0.006, c: 0xb63228 });
   }
-  // top & bottom protruding heavy sandalwood scroll rollers + turned bronze endcaps
-  for (const sy of [-1, 1]) {
-    const ry = sy * (H / 2 - 0.032);
-    b.push({ w: 1.06, h: 0.066, d: 0.088, x: 0, y: ry, z: 0.01, c: 0x56391c });
-    b.push({ w: 1.04, h: 0.018, d: 0.092, x: 0, y: ry + 0.022, z: 0.01, c: 0x8a5e32 });
-    for (const sx of [-1, 1]) {
-      b.push({ w: 0.058, h: 0.082, d: 0.098, x: sx * 0.545, y: ry, z: 0.01, c: M.m });
-      b.push({ w: 0.024, h: 0.09, d: 0.104, x: sx * 0.576, y: ry, z: 0.01, c: M.l });
-    }
+  // protruding heavy sandalwood scroll roller + turned bronze endcaps (built around local y = 0 so each roller spins cleanly while unfurling!)
+  rBoxes.push({ w: 1.06, h: 0.066, d: 0.088, x: 0, y: 0, z: 0.01, c: 0x56391c });
+  rBoxes.push({ w: 1.04, h: 0.018, d: 0.092, x: 0, y: 0.022, z: 0.01, c: 0x8a5e32 });
+  for (const sx of [-1, 1]) {
+    rBoxes.push({ w: 0.058, h: 0.082, d: 0.098, x: sx * 0.545, y: 0, z: 0.01, c: M.m });
+    rBoxes.push({ w: 0.024, h: 0.09, d: 0.104, x: sx * 0.576, y: 0, z: 0.01, c: M.l });
   }
   // top-center square medallion socket framing the 3D skill icon
   const r = 0.016, sd = 0.072;
   b.push({ w: SOCK + 2 * r, h: r, d: sd, x: 0, y: SY + SOCK / 2 + r / 2, z: 0.008, c: M.l }, { w: SOCK + 2 * r, h: r, d: sd, x: 0, y: SY - SOCK / 2 - r / 2, z: 0.008, c: M.d });
   b.push({ w: r, h: SOCK, d: sd, x: -SOCK / 2 - r / 2, y: SY, z: 0.008, c: M.m }, { w: r, h: SOCK, d: sd, x: SOCK / 2 + r / 2, y: SY, z: 0.008, c: M.d });
   p.push({ w: SOCK, h: SOCK, d: 0.03, x: 0, y: SY, z: 0.022, c: 0x16110c });
-  const mesh = new THREE.Mesh(mergeBoxes(b), new THREE.MeshLambertMaterial({ vertexColors: true, emissive: M.glow, emissiveIntensity: 0 }));
-  const panel = new THREE.Mesh(mergeBoxes(p), new THREE.MeshLambertMaterial({ vertexColors: true })); panel.renderOrder = 30; mesh.add(panel);
+
+  const frameMat = new THREE.MeshLambertMaterial({ vertexColors: true, emissive: M.glow, emissiveIntensity: 0 });
+  const panelMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  const mesh = new THREE.Mesh(new THREE.BufferGeometry(), frameMat);
+  const body = new THREE.Group();
+  const bodyFrame = new THREE.Mesh(mergeBoxes(b), frameMat); bodyFrame.renderOrder = 30; body.add(bodyFrame);
+  const panel = new THREE.Mesh(mergeBoxes(p), panelMat); panel.renderOrder = 30; body.add(panel);
+  mesh.add(body);
+  const halfH = H / 2 - 0.032;
+  const topRoller = new THREE.Mesh(mergeBoxes(rBoxes), frameMat); topRoller.position.y = halfH; topRoller.renderOrder = 31;
+  const botRoller = new THREE.Mesh(mergeBoxes(rBoxes), frameMat); botRoller.position.y = -halfH; botRoller.renderOrder = 31;
+  mesh.add(topRoller, botRoller);
+  mesh.userData.scrollAnim = { body, topRoller, botRoller, halfH };
   return { mesh, metal: M };
+}
+
+/** act-128: 3D wrought-iron & bronze-riveted plaque button for 「换一批」 (matching title plaques & iron cards) */
+export function rerollPlaque() {
+  const M: Metal = { d: 0x2c2216, m: 0x7a5628, l: 0xe6b868, glow: 0xffd27a };
+  const H = 0.175, fr = 0.022;
+  const p: Parameters<typeof mergeBoxes>[0] = [], b: Parameters<typeof mergeBoxes>[0] = [];
+  p.push({ w: 1.0, h: H, d: 0.048, x: 0, y: 0, z: 0, c: IRON_D });
+  p.push({ w: 1.0 - 2 * fr, h: H - 2 * fr, d: 0.056, x: 0, y: 0, z: 0.002, c: 0x1b1614 });
+  p.push({ w: 1.0 - 2 * fr, h: 0.011, d: 0.058, x: 0, y: H / 2 - fr - 0.006, z: 0.003, c: 0x2f251e });
+  // beveled bronze-iron frame with warm lit top ridge
+  b.push({ w: 1.0, h: fr, d: 0.066, x: 0, y: H / 2 - fr / 2, z: 0.004, c: M.m });
+  b.push({ w: 0.99, h: 0.008, d: 0.070, x: 0, y: H / 2 - 0.004, z: 0.005, c: M.l });
+  b.push({ w: 1.0, h: fr, d: 0.066, x: 0, y: -H / 2 + fr / 2, z: 0.004, c: M.d });
+  for (const sx of [-1, 1]) {
+    b.push({ w: fr, h: H, d: 0.068, x: sx * (0.5 - fr / 2), y: 0, z: 0.004, c: sx < 0 ? M.m : M.d });
+    // stepped end lugs
+    b.push({ w: 0.022, h: H * 0.52, d: 0.076, x: sx * 0.508, y: 0, z: 0.006, c: M.m });
+    b.push({ w: 0.014, h: H * 0.28, d: 0.082, x: sx * 0.518, y: 0, z: 0.008, c: M.l });
+  }
+  // four corner bronze rivets
+  for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
+    b.push({ w: 0.018, h: 0.018, d: 0.022, x: sx * (0.5 - fr * 0.65), y: sy * (H / 2 - fr * 0.65), z: 0.036, c: sy > 0 ? M.l : RIVET });
+  }
+  const mesh = new THREE.Mesh(mergeBoxes(b), new THREE.MeshLambertMaterial({ vertexColors: true, emissive: M.glow, emissiveIntensity: 0.08 }));
+  const panel = new THREE.Mesh(mergeBoxes(p), new THREE.MeshLambertMaterial({ vertexColors: true })); panel.renderOrder = 32; mesh.add(panel);
+  mesh.renderOrder = 32;
+  return { mesh, metal: M, ratio: H };
 }
 
 /** act-118: 3D voxel carved stone stele (复仇碑 · 碑铭潜能) — 3-tier Han stone arch crown, weathered blue-grey granite body, wide stepped pedestal base & Yang(gold)/Yin(violet) jewel */

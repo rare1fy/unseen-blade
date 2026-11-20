@@ -196,10 +196,9 @@ class AudioEngine {
   /** act-37: a voiced dialogue line — decoded on first use, one at a time on the voice bus (the line before stops), the music and
    *  the effects ducked under it. act-114: generation counter prevents fast dialogue skips from playing stale async decodes */
   private vo = new Map<string, Promise<AudioBuffer | null>>(); private voSrc: AudioBufferSourceNode | null = null; private voGen = 0;
-  async voiceLine(url: string) {
-    const ctx = this.ctx; if (!ctx || this.muted) return;
-    const gen = ++this.voGen;
-    this.stopVoice(false);
+  private loopSrc: AudioBufferSourceNode | null = null; private loopG: GainNode | null = null; private loopGen = 0; private loopBase = 0.55;
+  private decodeVoice(url: string): Promise<AudioBuffer | null> {
+    const ctx = this.ctx; if (!ctx) return Promise.resolve(null);
     let p = this.vo.get(url);
     if (!p) {
       p = (async () => { try {
@@ -209,16 +208,54 @@ class AudioEngine {
       } catch { return null; } })();
       this.vo.set(url, p);
     }
-    const b = await p; if (!b || gen !== this.voGen || this.muted) return;
+    return p;
+  }
+  async voiceLine(url: string) {
+    const ctx = this.ctx; if (!ctx || this.muted) return;
+    const gen = ++this.voGen;
+    this.stopVoice(false);
+    const b = await this.decodeVoice(url); if (!b || gen !== this.voGen || this.muted) return;
     this.stopVoice(false);
     const src = ctx.createBufferSource(); src.buffer = b; src.connect(this.voice); const t = this.now(); src.start(t); this.voSrc = src;
     this.duck.gain.cancelScheduledValues(t); this.duck.gain.setTargetAtTime(0.55, t, 0.06); this.duck.gain.setTargetAtTime(1, t + b.duration, 0.25);
+    // gently duck any background voice loop (e.g. Liu Bai's wounded breathing) while dialogue speaks
+    if (this.loopG) {
+      this.loopG.gain.cancelScheduledValues(t);
+      this.loopG.gain.setTargetAtTime(this.loopBase * 0.28, t, 0.06);
+      this.loopG.gain.setTargetAtTime(this.loopBase, t + b.duration, 0.28);
+    }
     src.onended = () => { if (this.voSrc === src) this.voSrc = null; };
+  }
+  /** act-128: start a subtle looping voice bed (e.g. Liu Bai's wounded breathing during prologue defeat), ducked automatically under dialogue */
+  async startVoiceLoop(url: string, gain = 0.58) {
+    const ctx = this.ctx; if (!ctx || this.muted) return;
+    const gen = ++this.loopGen;
+    this.stopVoiceLoop(0.15, false);
+    const b = await this.decodeVoice(url); if (!b || gen !== this.loopGen || this.muted) return;
+    this.stopVoiceLoop(0.05, false);
+    const src = ctx.createBufferSource(); src.buffer = b; src.loop = true;
+    const g = ctx.createGain(); const t = this.now();
+    this.loopBase = gain;
+    const target = this.voSrc ? gain * 0.28 : gain;
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(target, t + 0.35);
+    src.connect(g); g.connect(this.voice); src.start(t);
+    this.loopSrc = src; this.loopG = g;
+  }
+  stopVoiceLoop(fade = 0.45, bump = true) {
+    if (bump) this.loopGen++;
+    if (this.loopSrc && this.loopG && this.ctx) {
+      const s = this.loopSrc, g = this.loopG, t = this.now();
+      this.loopSrc = null; this.loopG = null;
+      try { g.gain.cancelScheduledValues(t); g.gain.setValueAtTime(g.gain.value, t); g.gain.linearRampToValueAtTime(0.0001, t + fade); s.stop(t + fade + 0.05); } catch { /* ended */ }
+    } else if (this.loopSrc) {
+      try { this.loopSrc.stop(); } catch { /* ended */ }
+      this.loopSrc = null; this.loopG = null;
+    }
   }
   get voicing() { return !!this.voSrc; }
   stopVoice(bump = true) {
     if (bump) this.voGen++;
-    if (this.voSrc) { try { this.voSrc.stop(); } catch { /* ended */ } this.voSrc = null; if (this.ctx) this.duck.gain.setTargetAtTime(1, this.now(), 0.2); }
+    if (this.voSrc) { try { this.voSrc.stop(); } catch { /* ended */ } this.voSrc = null; if (this.ctx) { this.duck.gain.setTargetAtTime(1, this.now(), 0.2); if (this.loopG) this.loopG.gain.setTargetAtTime(this.loopBase, this.now(), 0.2); } }
   }
   /** 11-18: the sounds playing now — at most MAX_VOICES; a new one past that stops the oldest of the least important (or is dropped
    *  when everything playing matters more). Tracks expected endAt so missed onended after OS suspension can never permanently clog SFX. */

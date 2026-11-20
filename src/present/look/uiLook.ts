@@ -17,6 +17,8 @@ export const UI_LOOK = {
   vignette: 0.1,
   /** 骰子读数带免受新增的背景压暗与去饱和影响，上下羽化各 20/720。 */
   diceTop: 430 / 720, diceBottom: 520 / 720, diceFeather: 20 / 720,
+  /** 选择卡片 / 暂停菜单弹出时的全屏场景压黑强度（0～1，仅作用于世界层，UI 层保持原亮度）。 */
+  modalDim: 0,
 };
 dh.add({ uiLook: UI_LOOK });
 
@@ -25,6 +27,7 @@ export const uiSceneUniforms = () => ({
   uUiCorner: { value: new THREE.Vector4() },
   uUiDim: { value: new THREE.Vector2() },
   uUiDice: { value: new THREE.Vector3() },
+  uUiModalDim: { value: 0 },
 });
 
 const unit = (n: number) => THREE.MathUtils.clamp(n, 0, 1);
@@ -35,6 +38,7 @@ export function updateUiSceneUniforms(u: Record<string, THREE.IUniform>, active:
   (u.uUiDim.value as THREE.Vector2).set(on ? unit(p.cornerStrength) : 0, on ? unit(p.vignette) : 0);
   const top = unit(Math.min(p.diceTop, p.diceBottom)), bottom = unit(Math.max(p.diceTop, p.diceBottom));
   (u.uUiDice.value as THREE.Vector3).set(top, bottom, Math.max(0.0001, p.diceFeather));
+  u.uUiModalDim.value = p.enabled ? unit(p.modalDim) : 0;
 }
 
 // 在世界色调映射 / sRGB 转换后执行，使 35% 对应最终显示亮度的实际降幅；UI 随后独立合成。
@@ -42,6 +46,7 @@ export const UI_SCENE_GLSL = `
 uniform vec3 uUiBand, uUiDice;
 uniform vec4 uUiCorner;
 uniform vec2 uUiDim;
+uniform float uUiModalDim;
 vec3 separateUiBackground(vec3 col, vec2 uv) {
   vec2 p = vec2(uv.x, 1.0 - uv.y);
   float dice = smoothstep(uUiDice.x - uUiDice.z, uUiDice.x, p.y)
@@ -53,7 +58,14 @@ vec3 separateUiBackground(vec3 col, vec2 uv) {
   float corner = 1.0 - smoothstep(0.0, 1.0, length((p - uUiCorner.xy) / uUiCorner.zw));
   // 归一化椭圆，任意宽高比下只在边缘渐变，不覆盖中央战场。
   float vig = smoothstep(0.45, 1.0, length((p - 0.5) * 1.41421356));
-  return col * (1.0 - band * uUiBand.y)
-             * (1.0 - corner * uUiDim.x * allowed)
-             * (1.0 - vig * uUiDim.y * allowed);
+  col = col * (1.0 - band * uUiBand.y)
+            * (1.0 - corner * uUiDim.x * allowed)
+            * (1.0 - vig * uUiDim.y * allowed);
+  if (uUiModalDim > 0.001) {
+    float ml = dot(col, vec3(0.2126, 0.7152, 0.0722));
+    col = mix(col, vec3(ml), 0.28 * uUiModalDim);
+    float mv = smoothstep(0.20, 0.98, length((p - 0.5) * 1.45));
+    col *= (1.0 - (0.50 + 0.16 * mv) * uUiModalDim);
+  }
+  return col;
 }`;

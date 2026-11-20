@@ -102,7 +102,7 @@ export const lyWard: Locale = {
   infill: burntInfill('ward'),
   id: 'ly_ward', name: '焦梁坊', theme: 'luoyang',
   layouts: ['axis', 'offset', 'garden', 'pair'],
-  seasons: ['autumn', 'summer'], times: ['night', 'dusk', 'dawn'], weathers: ['clear', 'mist', 'rain'], noLeaves: true,
+  seasons: ['autumn', 'summer'], times: ['sunset', 'night', 'dusk', 'overcast', 'dawn'], weathers: ['embers', 'mist', 'rain', 'storm', 'clear'], noLeaves: true,
   landmarks: LANDMARKS, groups: [...WARD_GROUPS, ...commonGroups('ly_w')], filler: commonFiller('ly_w'),
   floor, far, dress: (c, f) => lyDress(c, f, { embers: 2.2 }),
 };

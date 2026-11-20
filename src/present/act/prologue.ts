@@ -9,6 +9,7 @@ import { fxRing, fxSparks, fxImpact, fxGlow, fxSmoke } from '../fx/fx';
 import { fxBolt } from '../fx/skillFx';
 import { shake, slowmo } from '../engine/clock';
 import { cue } from '../../audio/cues';
+import { setHurtBreath } from '../../audio/voice';
 import { flashSky, currentStage } from '../scenes/stage';
 import { PLAY } from '../scenes/props';
 import { toon, glow } from '../look/toon';
@@ -77,7 +78,7 @@ export class Kneel {
     const e = smK((this.t - 0.1) / 0.55);
     this.reach += (this.reachWant - this.reach) * Math.min(1, dt * 2.2);
     // (the fall forward: slow to start — she sways — then all at once, the last of it a heavy drop into the snow)
-    if (this.slumpWant > this.slump) { const was = this.slump; this.slump = Math.min(1, this.slump + dt / 0.9); if (was < 0.7 && this.slump >= 0.7) { cue('bodyFall', 0.7); snowPuff(a.home.clone().addScaledVector(V3(Math.sin(a.yaw), 0, Math.cos(a.yaw)), 0.6).setY(0.05)); } }
+    if (this.slumpWant > this.slump) { const was = this.slump; this.slump = Math.min(1, this.slump + dt / 0.9); if (was < 0.7 && this.slump >= 0.7) { setHurtBreath(false); cue('bodyFall', 0.7); snowPuff(a.home.clone().addScaledVector(V3(Math.sin(a.yaw), 0, Math.cos(a.yaw)), 0.6).setY(0.05)); } }
     if (e < 1) { this.snap.length = 0; for (const b of Object.values(a.bones)) if (b) this.snap.push([b, b.position.clone(), b.rotation.clone()]); }
     this.pose(a, dt);
     if (this.slump > 0) this.prone(a, this.slump);
@@ -411,7 +412,7 @@ export function fallShots(h: PrologueHost, boss: Foe): CineShot[] {
         [0.9, () => { if (boss.kind === 'hj_boss') { flashSky(1); fxBolt(V3(b().x, 24, b().z), V3(b().x, 3.4, b().z), 0xd8c8ff, { width: 0.5, life: 0.4, bright: 0.7 }); cue('thunder', 1); }
           else { const d = hp().clone().sub(b()).setY(0); const l = d.length() || 1; boss.pos.addScaledVector(d, Math.max(0, l - 1.3) / l); boss.a.home.copy(boss.pos); boss.a.root.position.copy(boss.pos); fxSparks(h.hero.a.chest(), 0xffffff, 12, 3); cue('parry', 1); } }],
         [1.25, () => { slowmo(0.9, 0.2); shake(0.6); fxImpact(h.hero.a.chest(), 0xfff0d0, 2.2, { stop: false }); fxRing(hp().clone().setY(0.06), 0xffffff, 3, { life: 0.6 } as never);
-          h.hero.a.play(new Action('hurt', 0.6, 0.1, { power: 2 })); cue('cutHeavy', 1); cue('hurt', 1); down = true; h.kneel.start(); }],
+          h.hero.a.play(new Action('hurt', 0.6, 0.1, { power: 2 })); cue('cutHeavy', 1); cue('hurt', 1); down = true; h.kneel.start(); setHurtBreath(true); }],
         // (11-18: down on one knee — the knee meets the snow; the blood starts)
         [1.85, () => { cue('land', 0.45); snowPuff(hp().clone().setY(0.05)); blood.spray(h.hero.a.chest(), V3(Math.sin(h.hero.a.yaw), -0.3, Math.cos(h.hero.a.yaw)).normalize(), 18, 0.8); }]],
       tick: (_t, dt) => { h.hero.a.update(dt); if (down) h.kneel.frame(h.hero.a); boss.a.update(dt); } },

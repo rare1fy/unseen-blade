@@ -4,11 +4,11 @@
 import type { Ctx } from '../scenes/stage';
 
 export type SeasonId = 'spring' | 'summer' | 'autumn' | 'winter';
-export type TimeId = 'dusk' | 'night' | 'dawn' | 'day';
-export type WeatherId = 'clear' | 'rain' | 'snow' | 'petals' | 'mist';
+export type TimeId = 'dawn' | 'day' | 'overcast' | 'sunset' | 'dusk' | 'night';
+export type WeatherId = 'clear' | 'rain' | 'storm' | 'snow' | 'petals' | 'mist' | 'embers';
 export const SEASON_CN: Record<SeasonId, string> = { spring: '春', summer: '夏', autumn: '秋', winter: '冬' };
-export const TIME_CN: Record<TimeId, string> = { dusk: '黄昏', night: '月夜', dawn: '晨雾', day: '午后' };
-export const WEATHER_CN: Record<WeatherId, string> = { clear: '晴', rain: '雨', snow: '雪', petals: '樱吹雪', mist: '雾' };
+export const TIME_CN: Record<TimeId, string> = { dawn: '晨雾', day: '午后', overcast: '阴云', sunset: '残阳', dusk: '黄昏', night: '月夜' };
+export const WEATHER_CN: Record<WeatherId, string> = { clear: '晴', rain: '细雨', storm: '骤雨', snow: '飞雪', petals: '落英', mist: '浓雾', embers: '余烬' };
 
 export interface Rect { x0: number; z0: number; x1: number; z1: number }
 

@@ -218,7 +218,7 @@ export const xpWall: Locale = {
   id: 'xp_wall', name: '湿马道', theme: 'xiapi',
   layouts: ['axis', 'offset', 'ridge', 'pair'],
   landmarks: LANDMARKS, groups: GROUPS, filler: FILLER,
-  seasons: ['winter'], weathers: ['mist', 'snow', 'clear'], noSnow: true, noLeaves: true,
+  seasons: ['winter'], times: ['overcast', 'dawn', 'dusk', 'night', 'sunset', 'day'], weathers: ['mist', 'snow', 'storm', 'clear'], noSnow: true, noLeaves: true,
   pools, floor, far, dress, infill: xiapiInfill('wall'),
 };
 void (0 as unknown as Place);

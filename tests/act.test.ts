@@ -337,4 +337,78 @@ describe('combat wave 2: poise break & staggered cadence (act-113)', () => {
     expect(SRC['src/present/act/dialogue.ts']).toContain('sentry2:');
     expect(SRC['src/present/act/title.ts']).toContain("h.id === 'fine_hat'");
   });
+
+  it('act-128 invariants: modal dim, scroll unroll + 3D reroll plaque, hideout outer corridor + GateGlow, rich weather/time variety, 3D merchant + voice, hurt_breath loop', async () => {
+    const { UI_LOOK, uiSceneUniforms, updateUiSceneUniforms } = await import('../src/present/look/uiLook');
+    const u = uiSceneUniforms();
+    UI_LOOK.modalDim = 1;
+    updateUiSceneUniforms(u, true);
+    expect(u.uUiModalDim.value).toBe(1);
+    UI_LOOK.modalDim = 0;
+    updateUiSceneUniforms(u, true);
+    expect(u.uUiModalDim.value).toBe(0);
+
+    // Bamboo scroll unroll & 3D iron reroll plaque invariants
+    expect(SRC['src/present/act/cardBoard.ts']).toContain('scrollAnim = { body, topRoller, botRoller, halfH }');
+    expect(SRC['src/present/act/cardBoard.ts']).toContain('export function rerollPlaque()');
+    expect(SRC['src/present/act/cards3d.ts']).toContain('sa.topRoller.rotation.x');
+    expect(SRC['src/present/act/cards3d.ts']).toContain('rerollPlaque()');
+    expect(SRC['src/present/act/show.ts']).toContain('UI_LOOK.modalDim');
+    expect(SRC['src/present/act/show.ts']).toContain('new GateGlow(');
+    expect(SRC['src/present/act/show.ts']).toContain("sayMerchant('greet')");
+    expect(SRC['src/present/act/show.ts']).toContain("sayMerchant('buy')");
+    expect(SRC['src/present/act/prologue.ts']).toContain('setHurtBreath(true)');
+    expect(SRC['src/present/act/prologue.ts']).toContain('setHurtBreath(false)');
+
+    const { HIDEOUT } = await import('../src/present/act/hideout');
+    expect(HIDEOUT.exit.z).toBeGreaterThanOrEqual(9.0);
+    expect(HIDEOUT.floor.z1).toBeGreaterThanOrEqual(10.0);
+
+    const { TIMES, WEATHER_OF, pickSpec } = await import('../src/present/asm/pick');
+    const { moodFor, weatherAmbient, lampFor } = await import('../src/present/asm/sky');
+    expect(TIMES.length).toBeGreaterThanOrEqual(6);
+    expect(WEATHER_OF.autumn).toContain('storm');
+    expect(WEATHER_OF.autumn).toContain('embers');
+    for (const tm of TIMES) {
+      expect(moodFor(tm, 'autumn', 'storm').sky).toBe(true);
+      expect(lampFor(tm, 'storm')).toBeGreaterThan(0);
+    }
+    expect(weatherAmbient('storm', 'autumn', 'overcast', true).some(a => a.kind === 'storm')).toBe(true);
+    expect(weatherAmbient('embers', 'autumn', 'sunset', true).some(a => a.kind === 'embers')).toBe(true);
+
+    // Check pickSpec consecutive variety
+    const { HANMO_LOCALES } = await import('../src/present/asm/hanmo');
+    const { LAYOUTS } = await import('../src/present/asm/layouts');
+    const recent: ReturnType<typeof pickSpec>[] = [];
+    for (let i = 0; i < 6; i++) {
+      const sp = pickSpec(100 + i * 37, HANMO_LOCALES, LAYOUTS, recent, { season: 'autumn' });
+      if (recent.length) expect(sp.time).not.toBe(recent[recent.length - 1].time);
+      recent.push(sp);
+    }
+    expect(new Set(recent.map(s => s.time)).size).toBeGreaterThanOrEqual(4);
+    expect(new Set(recent.map(s => s.weather)).size).toBeGreaterThanOrEqual(3);
+
+    // 3D traveling merchant actor builds & updates cleanly without NaN
+    const { HIDEOUT_MERCHANT } = await import('../src/present/act/hideout_people');
+    const { BattleActor } = await import('../src/present/bestiary/battle');
+    const merchant = new BattleActor(HIDEOUT_MERCHANT);
+    merchant.update(0.5);
+    expect(merchant.height).toBeGreaterThan(1.5);
+    merchant.dispose();
+    expect(SRC['src/present/act/stations.ts']).toContain('new BattleActor(HIDEOUT_MERCHANT)');
+    expect(SRC['src/present/act/stations.ts']).toContain('track.position.set');
+
+    // All new Breeze TTS 2 voice clips exist and are bundled via voice.ts
+    const { hasVoiceAsset } = await import('../src/audio/voice');
+    for (const rel of [
+      'jiangjin/pro_wake_2.mp3',
+      'jiangjin/hurt_breath.mp3',
+      'merchant/greet_0.mp3',
+      'merchant/greet_1.mp3',
+      'merchant/buy_0.mp3',
+      'merchant/buy_1.mp3',
+    ]) {
+      expect(hasVoiceAsset(rel), rel).toBe(true);
+    }
+  });
 });

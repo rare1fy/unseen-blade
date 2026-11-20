@@ -18,7 +18,7 @@ import type { UiLayer } from '../ui3d/layer';
 import { clock } from '../engine/clock';
 import { cue } from '../../audio/cues';
 import { TIER_NAMES, type Archetype, type Boon, type BoonPick } from './boons';
-import { cardBoard, glyphIcon3D, paintFace, boardLayout, scrollLayout, steleLayout, CARD_H, SKILL_H, type CardStyle } from './cardBoard';
+import { cardBoard, rerollPlaque, glyphIcon3D, paintFace, boardLayout, scrollLayout, steleLayout, CARD_H, SKILL_H, type CardStyle } from './cardBoard';
 import { onBodyFontChange } from '../ui3d/bodyFont';
 import { language, msg, t as localize } from './i18n';
 import { fillVals } from './cards';
@@ -55,7 +55,7 @@ export interface CardFlight { at(t: MarkTarget): { x: number; y: number; size: n
 interface Card {
   b: Boon; tier: number; st: CardStyle; e: SkillEntry | null; root: THREE.Group; board: THREE.Mesh; face: THREE.Mesh; rim: THREE.Mesh;
   badge: Model3D | null; picture: Model3D | null; presses: MiniShield[]; items: PressItem[]; L: ReturnType<typeof boardLayout> | ReturnType<typeof scrollLayout> | ReturnType<typeof steleLayout>;
-  x: number; y: number; w: number; h: number; lift: number; t0: number; landed: boolean; faceKey: string; focusT: number;
+  x: number; y: number; w: number; h: number; lift: number; t0: number; landed: boolean; unfurled: boolean; faceKey: string; focusT: number;
 }
 export class CardPick3D {
   on = false; focus = 0; private openedAt = 0;
@@ -66,12 +66,13 @@ export class CardPick3D {
   /** 11-19 (用户：「npc商店页面没有退出按钮」): a page you may leave without taking anything (the hideout's shops) has the back shield
    *  at its top left — a tap on it, Esc or pad B resolves with −1; the reward picks (a card must be taken) have none */
   private back: MiniShield | null = null; private backK = 0; private backHot = 0; private backDown = false; private backAt = { x: 0, y: 0, r: 0 }; private canLeave = false;
-  /** act-118: top category header (刀谱 vs 秘传 vs 碑铭潜能) & bottom reroll pill (换一批) */
+  /** act-118 / act-128: top category header (刀谱 vs 秘传 vs 碑铭潜能) & 3D iron-plaque reroll button (换一批) */
   private header: { title: string; sub?: string; col?: string } | null = null;
   private wallet: { iron: number; herb: number; focus?: 'iron' | 'herb' } | null = null;
   private footer: string | null = null;
   private rerollOpt: { left: number; onReroll: () => BoonPick[] | null } | null = null;
-  private rerollAt = { x: 0, y: 0, w: 0, h: 0 }; private rerollHot = false;
+  private rerollAt = { x: 0, y: 0, w: 0, h: 0 }; private rerollHot = false; private rerollDown = false; private rerollK = 0;
+  private rerollBtn: THREE.Mesh | null = null;
   private lastOpenOpts: { leave?: boolean; header?: { title: string; sub?: string; col?: string }; wallet?: { iron: number; herb: number; focus?: 'iron' | 'herb' }; footer?: string; archHave?: Partial<Record<Archetype, number>>; reroll?: { left: number; onReroll: () => BoonPick[] | null } } = {};
   constructor(private L: UiLayer) { onBodyFontChange(() => { for (const c of this.cards) c.faceKey = ''; }); }
   open(boons: BoonPick[], o: { leave?: boolean; header?: { title: string; sub?: string; col?: string }; wallet?: { iron: number; herb: number; focus?: 'iron' | 'herb' }; footer?: string; archHave?: Partial<Record<Archetype, number>>; reroll?: { left: number; onReroll: () => BoonPick[] | null } } = {}): Promise<number> {
@@ -85,14 +86,14 @@ export class CardPick3D {
     const keepDone = this.done;
     this.close();
     this.done = keepDone;
-    this.canLeave = !!o.leave; this.backK = 0; this.header = o.header ?? null; this.wallet = o.wallet ?? null; this.footer = o.footer ?? null; this.rerollOpt = o.reroll ?? null; this.rerollHot = false;
+    this.canLeave = !!o.leave; this.backK = 0; this.header = o.header ?? null; this.wallet = o.wallet ?? null; this.footer = o.footer ?? null; this.rerollOpt = o.reroll ?? null; this.rerollHot = false; this.rerollDown = false; this.rerollK = 0;
     const L = this.L;
     const entries = boons.map(({ boon, tier }) => entryOfCard(boon, tier, o.archHave)), skill = entries.some(e => !!e);
     const isScrollRow = boons.length > 0 && boons.every(({ boon }) => styleOf(boon) === 'manual');
     const isMirrorGrid = boons.length === 4 && boons.every(({ boon }) => styleOf(boon) === 'mirror');
     const kk = Math.max(0.8, Math.min(1.25, L.h / 720)), n = boons.length;
     const topPad = (this.header ? (isMirrorGrid ? 128 : 88) : 0) * kk + (this.wallet ? 22 * kk : 0);
-    const botPad = (this.rerollOpt && this.rerollOpt.left > 0 ? 52 : this.footer ? 36 : 0) * kk;
+    const botPad = (this.rerollOpt && this.rerollOpt.left > 0 ? 74 : this.footer ? 36 : 0) * kk;
     const room = L.h * 0.92 - topPad - botPad, centerY = L.h * 0.5 + (topPad - botPad) * 0.52;
     let w: number, h: number, gap: number, gapY = 0, Hh: number;
     if (isScrollRow) {
@@ -153,7 +154,7 @@ export class CardPick3D {
       if (isScrollRow) { cx = L.w / 2 + (i - (n - 1) / 2) * (w + gap); cy = centerY; }
       else if (isMirrorGrid) { const col = i % 2, row = Math.floor(i / 2); cx = L.w / 2 + (col - 0.5) * (w + gap); cy = centerY + (row - 0.5) * (h + gapY) + 12 * kk; }
       else { cx = L.w / 2; cy = centerY + (i - (n - 1) / 2) * (h + gap); }
-      return { b, tier, st, e, root, board, face, rim, badge, picture, presses, items, L: lay, x: cx, y: cy, w, h, lift: 0, t0: clock.rtime + 0.05 + i * 0.11, landed: false, faceKey: '', focusT: 0 };
+      return { b, tier, st, e, root, board, face, rim, badge, picture, presses, items, L: lay, x: cx, y: cy, w, h, lift: 0, t0: clock.rtime + 0.05 + i * 0.11, landed: false, unfurled: false, faceKey: '', focusT: 0 };
     });
     this.on = true; this.focus = Math.min(1, this.cards.length - 1); this.leaving = -1; this.flyStarted = false; cue('scroll', 0.8); this.openedAt = clock.rtime;
   }
@@ -175,6 +176,7 @@ export class CardPick3D {
     this.cards = []; this.on = false; this.header = null; this.wallet = null; this.footer = null; this.rerollOpt = null;
     this.L.text.hide('act.cards.title'); this.L.text.hide('act.cards.sub'); this.L.text.hide('act.cards.wallet'); this.L.text.hide('act.cards.back'); this.L.text.hide('act.cards.footer'); this.L.text.hide('act.cards.reroll');
     if (this.back) this.back.visible = false; this.backDown = false; this.backHot = 0;
+    if (this.rerollBtn) this.rerollBtn.visible = false; this.rerollDown = false; this.rerollHot = false; this.rerollK = 0;
   }
   /** leave without a card (the back shield, Esc, pad B) — only where the page allows it */
   leave() {
@@ -194,8 +196,9 @@ export class CardPick3D {
     }
     if (this.rerollOpt && this.rerollOpt.left > 0) {
       const onRr = Math.abs(x - this.rerollAt.x) < this.rerollAt.w / 2 && Math.abs(y - this.rerollAt.y) < this.rerollAt.h / 2;
-      if (type === 'move') this.rerollHot = onRr;
-      if (type === 'down' && onRr) { this.reroll(); return true; }
+      if (type === 'move') { if (onRr && !this.rerollHot) cue('click', 0.2); this.rerollHot = onRr; }
+      if (type === 'down' && onRr) { this.rerollDown = true; cue('click', 0.35); return true; }
+      if (type === 'up' && this.rerollDown) { this.rerollDown = false; if (onRr) this.reroll(); return true; }
     }
     const i = this.hit(x, y);
     if (type === 'move' && i >= 0 && i !== this.focus) { this.focus = i; cue('click', 0.25); }
@@ -267,15 +270,34 @@ export class CardPick3D {
       }
     } else { L.text.hide('act.cards.title'); L.text.hide('act.cards.sub'); L.text.hide('act.cards.wallet'); }
     if (this.rerollOpt && this.rerollOpt.left > 0 && showChrome && cLast) {
-      const ry = Math.min(L.h - 24 * kk, maxBot + 28 * kk);
-      this.rerollAt = { x: L.w / 2, y: ry, w: 260 * kk, h: 36 * kk };
+      if (!this.rerollBtn) {
+        const rp = rerollPlaque();
+        this.rerollBtn = rp.mesh;
+        this.rerollBtn.userData.noTilt = true;
+        L.scene.add(this.rerollBtn);
+      }
+      this.rerollK = Math.min(1, this.rerollK + dt * 5.5);
+      const rw = Math.round(296 * kk), rh = Math.round(rw * 0.175);
+      const ry = Math.min(L.h - rh * 0.62 - 10 * kk, maxBot + rh * 0.62 + 14 * kk);
+      this.rerollAt = { x: L.w / 2, y: ry, w: rw + 14 * kk, h: rh + 12 * kk };
+      const rb = this.rerollBtn;
+      rb.visible = this.rerollK > 0.02;
+      const bz = 0.55 + (this.rerollHot ? 0.14 : 0) - (this.rerollDown ? 0.08 : 0);
+      L.at(this.rerollAt.x, ry + (1 - this.rerollK) * 16 * kk, bz, rb.position);
+      const scR = L.px(rw, bz) * (this.rerollDown ? 0.94 : 1) * (this.rerollHot ? 1.05 : 1) * (0.78 + 0.22 * this.rerollK);
+      rb.scale.setScalar(scR);
+      rb.rotation.set(this.rerollHot ? 0.02 : 0.06, 0, 0);
+      const rbm = rb.material as THREE.MeshLambertMaterial;
+      rbm.emissiveIntensity = this.rerollDown ? 0.48 : this.rerollHot ? 0.34 : 0.08 + 0.04 * Math.sin(t * 2.8);
       const pkR = Math.max(1, Math.round(16 * kk * dpr / PIX_H));
       const rrText = PAD.device === 'pad' ? msg`换一批（剩 ${this.rerollOpt.left} 次 · ${padName(3)}）`
         : PAD.device === 'key' ? msg`换一批（剩 ${this.rerollOpt.left} 次 · R）`
         : msg`换一批（剩 ${this.rerollOpt.left} 次）`;
-      L.text.set('act.cards.reroll', { text: rrText, x: L.w / 2, y: ry, pix: pkR, color: this.rerollHot ? '#fff6c8' : '#ffd27a', outline: '#140c0a', align: 'center', visible: true });
+      L.text.set('act.cards.reroll', { text: rrText, x: L.w / 2, y: ry + (this.rerollDown ? 1.5 * kk : 0), pix: pkR, color: this.rerollHot ? '#fff8d4' : '#ffe29c', outline: '#140c0a', align: 'center', visible: this.rerollK > 0.35 });
       L.text.hide('act.cards.footer');
     } else {
+      if (this.rerollBtn) this.rerollBtn.visible = false;
+      this.rerollK = 0;
       L.text.hide('act.cards.reroll');
       if (this.footer && showChrome && cLast) {
         const fy = Math.min(L.h - 22 * kk, maxBot + 26 * kk);
@@ -285,18 +307,35 @@ export class CardPick3D {
     const back = (k: number) => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * (k - 1) ** 3 + c1 * (k - 1) ** 2; };   // ease-out, a little past and back
     for (const [i, c] of this.cards.entries()) {
       this.paint(c);
-      const r = Math.min(1, Math.max(0, (t - c.t0) / 0.42)), e = back(r);
+      const sa = c.board.userData.scrollAnim as { body: THREE.Group; topRoller: THREE.Mesh; botRoller: THREE.Mesh; halfH: number } | undefined;
+      const isScroll = !!sa && c.L.vertical;
+      const r = Math.min(1, Math.max(0, (t - c.t0) / (isScroll ? 0.56 : 0.42))), e = back(r);
+      if (isScroll && r > 0.14 && !c.unfurled) { c.unfurled = true; cue('scroll', 0.45); }
       if (r >= 1 && !c.landed) { c.landed = true; cue('clack', 0.55); }
       const want = i === this.focus && this.leaving < 0 ? 1 : 0; c.lift += (want - c.lift) * Math.min(1, dt * 12);
-      // act-118: 刀谱 scrolls unfurl from top; 复仇碑 steles rise from the ground; 秘传 iron plaques fly in from right
+      // act-118 / act-128: 刀谱 bamboo scrolls glide in rolled up & unfurl vertically (rollers spinning apart); 复仇碑 steles rise; 秘传 iron plaques fly in from right
       const isStele = c.L.shape === 'stele';
+      const rDrop = isScroll ? Math.min(1, Math.max(0, (t - c.t0) / 0.18)) : r;
+      const dropE = 1 - (1 - rDrop) ** 3;
+      const uRaw = isScroll ? Math.min(1, Math.max(0, (t - c.t0 - 0.07) / 0.46)) : 1;
+      const unroll = isScroll ? 1 - (1 - uRaw) ** 3 : 1;
       let x = c.L.vertical || isStele ? c.x : c.x + (1 - e) * L.w * 0.75;
-      let y = c.L.vertical ? c.y - (1 - e) * L.h * 0.55 - 10 * c.lift : isStele ? c.y + (1 - e) * L.h * 0.48 - 8 * c.lift : c.y;
+      let y = isScroll ? c.y - (1 - dropE) * L.h * 0.16 - 10 * c.lift : c.L.vertical ? c.y - (1 - e) * L.h * 0.55 - 10 * c.lift : isStele ? c.y + (1 - e) * L.h * 0.48 - 8 * c.lift : c.y;
       let sc = 1 + 0.05 * c.lift, rz = 0;
-      let rx = c.L.vertical ? (1 - Math.min(1, r * 1.15)) * -0.9 + 0.06 * (1 - c.lift) : isStele ? (1 - Math.min(1, r * 1.15)) * 0.55 + 0.05 * (1 - c.lift) : 0.1 * (1 - c.lift);
+      let rx = isScroll ? (1 - dropE) * -0.24 + 0.06 * (1 - c.lift) : c.L.vertical ? (1 - Math.min(1, r * 1.15)) * -0.9 + 0.06 * (1 - c.lift) : isStele ? (1 - Math.min(1, r * 1.15)) * 0.55 + 0.05 * (1 - c.lift) : 0.1 * (1 - c.lift);
       let ry = c.L.vertical || isStele ? 0 : (1 - Math.min(1, r * 1.15)) * -1.1;
       let z = L.px(24) * c.lift, dx = c.L.vertical || isStele ? 0 : L.px(16) * c.lift;
-      let warm = 0.04 + 0.16 * c.lift, rimA = c.lift * 0.22, alpha = r > 0 ? 1 : 0, scale = L.px(c.w);
+      let warm = 0.04 + 0.16 * c.lift, rimA = c.lift * 0.22 * unroll, alpha = r > 0 ? 1 : 0, scale = L.px(c.w);
+      if (sa) {
+        sa.body.scale.y = Math.max(0.02, unroll);
+        const span = 0.06 + 0.94 * unroll;
+        sa.topRoller.position.y = sa.halfH * span;
+        sa.botRoller.position.y = -sa.halfH * span;
+        sa.topRoller.rotation.x = -(1 - unroll) * Math.PI * 2.5;
+        sa.botRoller.rotation.x = (1 - unroll) * Math.PI * 2.5;
+        c.face.scale.y = c.L.FACE.h * Math.max(0.02, unroll);
+        c.face.position.y = c.L.FACE.cy * unroll;
+      }
       if (this.leaving >= 0) {
         const k = Math.min(1, this.leaveT / T);
         if (i === this.leaving) {
@@ -325,25 +364,36 @@ export class CardPick3D {
       const bm = c.board.material as THREE.MeshLambertMaterial; bm.emissiveIntensity = warm;
       if (flies && i === this.leaving) fade(c.board, alpha);
       (c.rim.material as THREE.MeshBasicMaterial).opacity = rimA;
-      const fm = c.face.material as THREE.MeshBasicMaterial; fm.opacity = alpha; fm.color.setScalar(0.82 + 0.18 * c.lift);
+      const faceUnrollA = isScroll ? Math.min(1, Math.max(0, (unroll - 0.30) / 0.42)) : 1;
+      const fm = c.face.material as THREE.MeshBasicMaterial; fm.opacity = alpha * faceUnrollA; fm.color.setScalar(0.82 + 0.18 * c.lift);
       // the picture: a slow idle, up and turning toward the viewer in focus, a little brighter
       const dim = this.leaving >= 0 && i !== this.leaving ? 0.4 : 0.15 * (1 - c.lift);
+      const picReveal = isScroll ? Math.min(1, Math.max(0, (unroll - 0.44) / 0.42)) : 1;
       if (c.badge) { c.badge.idle(t, 0.025, 0.3 + 0.2 * c.lift); c.badge.position.z = 0.07 + 0.05 * c.lift; c.badge.setGlow(1 + 0.25 * c.lift); c.badge.setDim(dim); }
       if (c.picture) {
         const p = c.picture;
         p.idle(t, 0.02, 0.18 + 0.12 * c.lift);
+        p.position.y = c.L.SOCKET.y * (isScroll ? unroll : 1);
         p.position.z = 0.048 + p.size[2] * p.scale.x / 2 + 0.02 * c.lift;
         p.setDim(dim);
+        if (isScroll && this.leaving < 0) {
+          p.visible = picReveal > 0.02;
+          p.scale.setScalar(c.L.SOCKET.size * 0.94 * (0.25 + 0.75 * picReveal));
+          p.setOpacity(picReveal);
+        }
         if (!(flies && i === this.leaving)) p.setGlow(1 + 0.25 * c.lift);
       }
       // the presses: the card in focus plays them through — each button sinks and lights in turn (a beat each), then a rest, again
       if (c.presses.length) {
         c.focusT = i === this.focus && this.leaving < 0 && r >= 1 ? c.focusT + dt : 0;
         const beat = 0.32, cyc = c.presses.length * beat + 0.9, u = c.focusT > 0 ? c.focusT % cyc : -1;
+        const pressReveal = isScroll ? Math.min(1, Math.max(0, (unroll - 0.50) / 0.38)) : 1;
         c.presses.forEach((p, j) => {
           const local = u - j * beat, on = local >= 0 && local < beat * 0.85 ? Math.sin(Math.min(1, local / (beat * 0.85)) * Math.PI) : 0;
           p.position.z = 0.05 - 0.012 * on; p.icon.setGlow(1 + 1.1 * on); (p.mesh.material as THREE.MeshLambertMaterial).emissiveIntensity = 0.35 * on;
-          p.icon.setDim(dim); p.visible = alpha > 0.02; if (flies && i === this.leaving) p.setOpacity(alpha);
+          p.icon.setDim(dim); p.visible = alpha * pressReveal > 0.02;
+          if (flies && i === this.leaving) p.setOpacity(alpha);
+          else if (isScroll && this.leaving < 0) p.setOpacity(pressReveal);
         });
       }
       L.at(x, y, z, c.root.position); c.root.scale.setScalar(scale * sc);

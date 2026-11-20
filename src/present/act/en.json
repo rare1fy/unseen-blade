@@ -1351,5 +1351,10 @@
   "返回 Esc": "Back Esc",
   "返回 {0}": "Back {0}",
   "铸钱炉前决生死": "A duel to the death before the furnace",
-  "长按攻击": "Hold Cut"
+  "长按攻击": "Hold Cut",
+  "{0} · 暂无可升阶秘传": "{0} · No upgradable Arts",
+  "{0} · 铜钱不足（需 {1} 钱）": "{0} · Not enough coins ({1} needed)",
+  "停步站立即可触发 · {0}": "Stand still to activate · {0}",
+  "触发中 {0}% · {1}": "Activating {0}% · {1}",
+  "踩上草席站立片刻 · {0}（{1}）": "Stand on mat to activate · {0} ({1})"
 }
