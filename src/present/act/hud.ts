@@ -13,7 +13,7 @@ import { setGrid } from '../ui3d/pixelGrid';
 import { UiSparks } from '../ui3d/vox';
 import { cue } from '../../audio/cues';
 import type { Input, BtnName } from './input';
-import { isBoss, type Foe } from './enemy';   // wp/foes: isBoss (the boss bar for hj_boss too)
+import { isBoss, POISE_BREAK_DUR, type Foe } from './enemy';   // wp/foes: isBoss (the boss bar for hj_boss too)
 import { V3 } from '../engine/world';
 import { TUNE } from './tune';
 import { SKIN, PALETTE, SkinBtn, SkinStick, SkinHp, type SkinId } from './skin';
@@ -31,12 +31,18 @@ type AnyBtn = SkinBtn | IronBtn; type AnyHp = SkinHp | IronHp;
 export interface Mark { id: string; target: MarkTarget; kind: 'manual' | 'boon'; tier: number; col: number }
 const MARK_COL = { manual: 0x6ad8b0, boon: [0x8a929e, 0xd29a4a, 0xffd86a] };
 
-interface Bar { g: THREE.Group; back: THREE.Mesh; lag: THREE.Mesh; fill: THREE.Mesh; shown: number; lagV: number; hold: number }
+interface Bar {
+  g: THREE.Group; back: THREE.Mesh; lag: THREE.Mesh; fill: THREE.Mesh; shown: number; lagV: number; hold: number;
+  /** act-113: crisp golden poise bar tucked directly under HP bar for armored/boss foes (d.poise > 0) */
+  pBack: THREE.Mesh; pLag: THREE.Mesh; pFill: THREE.Mesh; pShown: number; pLagV: number; pHold: number;
+}
+const POISE_COL = 0xe8a832, POISE_BRK_A = 0xfff2b0, POISE_BRK_B = 0xffbc38;
 const box = (c: number, o = 1) => new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: c, transparent: o < 1, opacity: o, depthWrite: false }));
 /** act-19 (user: 「敌人的血条怎么也是3d的，都穿帮了，能看到垫后面的白色」): flat cards in one plane, stacked by draw order only */
 const flat = (c: number) => new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: c, depthWrite: false, depthTest: false }));
 /** the off-screen marker: three nested arcs (a sound wave) opening toward +x, red, pixel-drawn */
 let ARC_TEX: THREE.Texture | null = null;
+let ARC_HOT_TEX: THREE.Texture | null = null;
 function arcTex() {
   if (ARC_TEX) return ARC_TEX;
   const c = document.createElement('canvas'); c.width = c.height = 32; const g = c.getContext('2d')!;
@@ -44,6 +50,20 @@ function arcTex() {
     const dx = x + 0.5 - 8, dy = y + 0.5 - 16, d = Math.hypot(dx, dy), ang = Math.abs(Math.atan2(dy, dx));
     if (Math.abs(d - r) < 1.1 && ang < 0.75) { g.fillStyle = `rgba(255,86,58,${a})`; g.fillRect(x, y, 1, 1); } }
   const t = new THREE.CanvasTexture(c); t.magFilter = t.minFilter = THREE.NearestFilter; t.generateMipmaps = false; ARC_TEX = t; return t;
+}
+/** act-113: high-danger off-screen sound wave (off-screen foe winding up / lunging): pixel-drawn bright white-gold + amber arcs + alert diamond */
+function arcHotTex() {
+  if (ARC_HOT_TEX) return ARC_HOT_TEX;
+  const c = document.createElement('canvas'); c.width = c.height = 32; const g = c.getContext('2d')!;
+  const rings: Array<[number, string]> = [[5, 'rgba(255,252,224,1)'], [9, 'rgba(255,214,88,0.95)'], [13, 'rgba(255,134,42,0.85)']];
+  for (const [r, col] of rings) for (let y = 0; y < 32; y++) for (let x = 0; x < 32; x++) {
+    const dx = x + 0.5 - 8, dy = y + 0.5 - 16, d = Math.hypot(dx, dy), ang = Math.abs(Math.atan2(dy, dx));
+    if (Math.abs(d - r) < 1.25 && ang < 0.82) { g.fillStyle = col; g.fillRect(x, y, 1, 1); }
+  }
+  // crisp 3x3 pixel diamond focus at the wave's source
+  g.fillStyle = '#ffffff';
+  g.fillRect(4, 15, 3, 2); g.fillRect(5, 14, 1, 4);
+  const t = new THREE.CanvasTexture(c); t.magFilter = t.minFilter = THREE.NearestFilter; t.generateMipmaps = false; ARC_HOT_TEX = t; return t;
 }
 
 export class ActHud {
@@ -244,16 +264,38 @@ export class ActHud {
     // act-73 反馈 (用户：「我要的是所有血条都符合这个逻辑……垫在后面的我感觉白色效果会更好点」): the lost piece is white on every bar
     // (it was a muted copper, too close to the red to read)
     const p = PALETTE[this.skin], g = new THREE.Group(), back = flat(p.foeBack), lag = flat(HP_LAG), fill = flat(p.foeFill);
+    const pBack = flat(p.foeBack), pLag = flat(HP_LAG), pFill = flat(POISE_COL);
     back.renderOrder = 40; lag.renderOrder = 41; fill.renderOrder = 42;
-    g.add(back, lag, fill); this.L.scene.add(g); batchUi(g, true); return { g, back, lag, fill, shown: 1, lagV: 1, hold: 0 };
+    pBack.renderOrder = 40; pLag.renderOrder = 41; pFill.renderOrder = 42;
+    pBack.visible = pLag.visible = pFill.visible = false;
+    g.add(back, lag, fill, pBack, pLag, pFill); this.L.scene.add(g); batchUi(g, true);
+    return { g, back, lag, fill, shown: 1, lagV: 1, hold: 0, pBack, pLag, pFill, pShown: 1, pLagV: 1, pHold: 0 };
   }
-  private drawBar(b: Bar, x: number, y: number, w: number, h: number, frac: number, dt: number) {
+  private drawBar(b: Bar, x: number, y: number, w: number, h: number, frac: number, dt: number, poise?: { frac: number; broken: boolean; h: number } | null) {
     // the lost piece holds still a moment after each drop (a flurry piles into one piece), then closes in — the same as her own bar
     if (frac < b.shown - 1e-6) b.hold = HP_LAG_HOLD; b.hold = Math.max(0, b.hold - dt);
     const L = this.L; b.shown = frac; b.lagV = closeLag(b.lagV, frac, b.hold, dt);
     L.at(x, y, 0, b.g.position); const u = L.px(1);
     b.back.scale.set((w + 4) * u, (h + 4) * u, 1); b.lag.scale.set(Math.max(1e-4, w * b.lagV) * u, h * u, 1); b.fill.scale.set(Math.max(1e-4, w * frac) * u, h * u, 1);
     b.lag.position.x = (-w / 2 + (w * b.lagV) / 2) * u; b.fill.position.x = (-w / 2 + (w * frac) / 2) * u;
+    if (poise) {
+      const pf = Math.max(0, Math.min(1, poise.frac));
+      if (poise.broken) { b.pShown = pf; b.pLagV = pf; b.pHold = 0; }
+      else {
+        if (pf < b.pShown - 1e-6) b.pHold = HP_LAG_HOLD * 0.7;
+        b.pHold = Math.max(0, b.pHold - dt); b.pShown = pf;
+        b.pLagV = pf > b.pLagV ? pf : closeLag(b.pLagV, pf, b.pHold, dt);
+      }
+      const ph = poise.h, py = -(h / 2 + ph / 2 + 4) * u;
+      b.pBack.visible = b.pLag.visible = b.pFill.visible = true;
+      b.pBack.position.set(0, py, 0); b.pBack.scale.set((w + 4) * u, (ph + 2) * u, 1);
+      b.pLag.position.set((-w / 2 + (w * b.pLagV) / 2) * u, py, 0); b.pLag.scale.set(Math.max(1e-4, w * b.pLagV) * u, ph * u, 1);
+      b.pFill.position.set((-w / 2 + (w * pf) / 2) * u, py, 0); b.pFill.scale.set(Math.max(1e-4, w * pf) * u, ph * u, 1);
+      const pm = b.pFill.material as THREE.MeshBasicMaterial;
+      pm.color.setHex(poise.broken ? ((Math.floor(performance.now() / 85) & 1) ? POISE_BRK_A : POISE_BRK_B) : POISE_COL);
+    } else {
+      b.pBack.visible = b.pLag.visible = b.pFill.visible = false;
+    }
   }
   update(dt: number, inp: Input, foes: Foe[]) {
     this.stick.root.visible = this.on; for (const b of Object.values(this.btns)) { const on = this.on && (b !== this.btns.ult || this.ultUp); b.root.visible = on; if (b instanceof IronBtn) b.iconG.visible = on; }
@@ -311,11 +353,12 @@ export class ActHud {
       if (f.st === 'dead') { if (!b || b.lagV <= 0.002) continue; } else if (!b) { b = this.newBar(); this.bars.set(f.uid, b); }
       live.add(f.uid);
       const p = worldToUi(f.a.head().add(V3(0, 0.45, 0))); b.g.visible = this.on && p.z < 1;
-      this.drawBar(b, p.x, p.y, 64 * this.k, 9 * this.k, f.st === 'dead' ? 0 : f.hp / f.maxHp, dt);
+      const poise = f.st !== 'dead' && f.d.poise > 0 ? { frac: f.brokenT > 0 ? f.brokenT / POISE_BREAK_DUR : f.poise / f.d.poise, broken: f.brokenT > 0, h: Math.max(3, 4 * this.k) } : null;
+      this.drawBar(b, p.x, p.y, 64 * this.k, 9 * this.k, f.st === 'dead' ? 0 : f.hp / f.maxHp, dt, poise);
     }
     for (const [uid, b] of this.bars) if (!live.has(uid)) { b.g.parent?.remove(b.g); this.bars.delete(uid); }
-    // act-19 (2x stage): a foe off the screen shows as a red sound-wave arc on the screen's edge, pointing at it, brighter when near
-    let nm = 0; const W = this.L.w, H = this.L.h, pad = 30 * this.k;
+    // act-19 / act-113: off-screen foes show a red sound wave on the edge; foes winding up / lunging upgrade to an urgent gold-white high-danger wave
+    let nm = 0; const W = this.L.w, H = this.L.h, pad = 30 * this.k, nowMs = performance.now();
     for (const f of foes) {
       if (f.st === 'dead' || f.kind === 'dummy' || nm >= 10) continue;
       const q = worldToUi(f.pos.clone().setY(1)); if (q.z < 1 && q.x > 0 && q.x < W && q.y > 0 && q.y < H) continue;
@@ -323,14 +366,23 @@ export class ActHud {
       const s = Math.min((W / 2 - pad) / Math.max(1e-3, Math.abs(dx)), (H / 2 - pad) / Math.max(1e-3, Math.abs(dy))), x = W / 2 + dx * s, y = H / 2 + dy * s;
       let m = this.marks[nm]; if (!m) { m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: arcTex(), transparent: true, depthWrite: false, depthTest: false })); m.renderOrder = 43; this.L.scene.add(m); this.marks.push(m); }
       const dist = Math.hypot(f.pos.x - this.heroAt.x, f.pos.z - this.heroAt.z), near = Math.max(0, Math.min(1, 1 - (dist - 6) / 14));
-      this.L.at(x, y, 0, m.position); m.scale.setScalar(this.L.px((26 + 10 * near) * this.k)); m.rotation.z = -Math.atan2(dy, dx);
-      (m.material as THREE.MeshBasicMaterial).opacity = 0.45 + 0.5 * near * (0.8 + 0.2 * Math.sin(performance.now() / 160)); m.visible = this.on; nm++;
+      const danger = f.st === 'windup' || (f.st === 'strike' && !!f.lunge);
+      const imminent = f.st === 'windup' && (f.dur - f.t) < 0.38;
+      const mat = m.material as THREE.MeshBasicMaterial;
+      const wantTex = danger ? arcHotTex() : arcTex();
+      if (mat.map !== wantTex) { mat.map = wantTex; mat.needsUpdate = true; }
+      this.L.at(x, y, 0, m.position);
+      const sz = danger ? (34 + 10 * near + (imminent ? 5 : 0)) : (26 + 10 * near);
+      m.scale.setScalar(this.L.px(sz * this.k)); m.rotation.z = -Math.atan2(dy, dx);
+      mat.opacity = danger ? (0.72 + 0.28 * Math.sin(nowMs / (imminent ? 38 : 65))) : (0.45 + 0.5 * near * (0.8 + 0.2 * Math.sin(nowMs / 160)));
+      m.visible = this.on; nm++;
     }
     for (let i = nm; i < this.marks.length; i++) this.marks[i].visible = false;
     const chief = foes.find(f => isBoss(f) && f.st !== 'dead');   // wp/foes: isBoss
     if (chief) {
       if (!this.boss) this.boss = this.newBar();
-      this.boss.g.visible = this.on; this.drawBar(this.boss, this.L.w / 2, 40 * this.k, Math.min(560, this.L.w * 0.44), 12 * this.k, chief.hp / chief.maxHp, dt);
+      const bPoise = chief.d.poise > 0 ? { frac: chief.brokenT > 0 ? chief.brokenT / POISE_BREAK_DUR : chief.poise / chief.d.poise, broken: chief.brokenT > 0, h: Math.max(4, 6 * this.k) } : null;
+      this.boss.g.visible = this.on; this.drawBar(this.boss, this.L.w / 2, 40 * this.k, Math.min(560, this.L.w * 0.44), 12 * this.k, chief.hp / chief.maxHp, dt, bPoise);
       if (this.bossName !== chief.d.name) { this.bossName = chief.d.name; }
       this.L.text.set('act.boss', { text: chief.d.name, x: this.L.w / 2, y: 18 * this.k, ...(language === 'en' ? { bodyPx: Math.max(14, 18 * this.k) } : { cell: Math.max(1, Math.round(2 * this.k)) }), color: '#ffe6b0', align: 'center', visible: this.on });
     } else { if (this.boss) { this.boss.g.parent?.remove(this.boss.g); this.boss = null; } this.L.text.hide('act.boss'); }

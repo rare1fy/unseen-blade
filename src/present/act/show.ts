@@ -15,7 +15,7 @@ import * as THREE from 'three';
 import { V3, onUpdate, R, scene, warm, frames, precompile } from '../engine/world';
 import { hitstop, shake, slowmo, after, anim, clock, FX, waitReal, PAUSE } from '../engine/clock';
 import { shot, CINE_PX } from '../director';
-import { fxImpact, fxSparks, fxSmoke, fxRing, fxEmbers, fxFlare, trailSeg } from '../fx/fx';
+import { fxImpact, fxSparks, fxSmoke, fxRing, fxEmbers, fxFlare, fxChips, trailSeg } from '../fx/fx';
 import { fxAfterimage } from '../fx/skillFx';
 import { addBlock, debrisContacts } from '../fx/blocks';
 import { popPix } from '../v2/pix';
@@ -107,7 +107,7 @@ import { Duel, type DuelHost } from './qte';
 const TEACH = ['chase', 'back', 'cdart', 'launch', 'kick', 'keep', 'pause', 'acut', 'reel', 'stomp'];
 /** 11-18: the new 刀谱's blade blows count as cuts for the boons (出血, 裂甲, 搏命, 枭首) — boons.ts isBladeHit stays as it is */
 const bladeHit = (kind: string) => isBladeHit(kind) || kind === 'acut' || kind === 'acutF' || kind === 'acutS' || kind === 'swoop';
-import { interruptFoe } from './enemy';
+import { interruptFoe, POISE_BREAK_MUL } from './enemy';
 import { ROLE_AI } from './foes/roles';
 import { unfade } from './foes/fade';
 // 11-18: the later regions' foe models (bestiary ROSTER) — a glob, so a region's model file is picked up the moment it exists
@@ -2266,7 +2266,8 @@ export class ActShow {
     const cut = bladeHit(o.kind);
     // (11-18 改招为主: 断骨 / 出鞘 / 乘虚 / 裂甲 / 搏命 — numbers you never saw change — are out of the pool)
     const knock = o.knock, stagger = o.stagger ?? (o.heavy ? 0.55 : 0.3);
-    let d = Math.round(dmg * this.mods.dmgMul * this.dmgMul(o.kind));
+    const wasBroken = f.brokenT > 0;
+    let d = Math.round(dmg * this.mods.dmgMul * this.dmgMul(o.kind) * (wasBroken ? POISE_BREAK_MUL : 1));
     const executed = cut && this.beheadable(f);
     if (executed) d = f.hp + 1;
     const p = f.a.chest(), dir = f.pos.clone().sub(from).setY(0).normalize();
@@ -2276,7 +2277,15 @@ export class ActShow {
     if (this.prologue === 2 && isBoss(f) && !this.proFalling) { const floor = Math.ceil(f.maxHp * 0.2); if (f.hp - d <= floor) { d = Math.max(0, f.hp - floor); fallNow = true; } }
     // 11-18: a region role's guard (the 铁盾兵's shield in front, …): the blow glances off (sparks, no blood, no number) or lands lighter
     { const g = f.inv <= 0 ? ROLE_AI[f.role]?.guard?.(f, d, from, o.kind) : undefined; if (g != null) { if (g < 0) return; if (g === 0) { this.glance(f, from, o.kind); return; } d = Math.round(g); } }   // (< 0: not touched at all — under the water)
-    const died = damageFoe(f, d, from, { knock, stagger, poiseDmg: o.kind === 'dart' ? d * 0.5 : o.heavy ? d * 1.8 : d });
+    const poiseMul = o.kind === 'dart' ? 0.5 : (o.kind === 'parry' || o.kind === 'kick' || o.kind === 'launch') ? 2.4 : o.heavy ? 1.8 : 1;
+    const died = damageFoe(f, d, from, { knock, stagger, poiseDmg: d * poiseMul });
+    if (!died && !wasBroken && f.brokenT > 0) {
+      fxChips(p, [0xf2c248, 0xffe896, 0x4b5262], 10, { dir, speed: 5.5, up: 3.6, size: 0.095, glow: 0.8 });
+      fxSparks(p, 0xffe48a, 16, 6.2, { hot: true, dir, dirK: 0.7, life: 0.42 });
+      popPix('破', f.a.head().add(V3(0, 0.72, 0)), { color: '#ffe878', h: 0.82, big: true, life: 0.95, rise: 0.85 });
+      hitstop(0.085 * TUNE.hitstop); shake(0.32 * TUNE.shake);
+      this.splitScreen(0.55); this.camPunch(0.055); this.platform.vibrate('heavy');
+    }
     if (this.prologue === 2 && isBoss(f)) f.hp = Math.max(f.hp, Math.ceil(f.maxHp * 0.2));
     if (fallNow) after(0.25, () => void this.prologueFall());   // (the blow lands, a beat, then the scripted fall)
     if (cut && !died && f.inv <= 0 && hasBoon(this.perks, 'bleed') && f.kind !== 'dummy') { f.bleed = Math.min(5, f.bleed + 1); f.bleedT = 0; }
@@ -2286,12 +2295,12 @@ export class ActShow {
     if (o.kind !== 'school') {
       const groundRing = o.heavy && (o.kind === 'k5' || o.kind === 'plunge' || o.kind === 'acutS' || o.kind === 'rel' || o.kind === 'parry' || o.kind === 'ult');
       const pw = o.kind === 'dart' ? 0.4 : o.kind === 'ultTick' ? 0.35 : o.heavy ? 1.2 : 0.72;
-      fxImpact(p, o.heavy ? 0xff6a3a : o.kind === 'ultTick' ? 0xffc890 : 0xfff0d0, pw, { dir, ground: groundRing, chips: o.heavy ? [0xff5a3a, 0x2b3147] : undefined, stop: false, shake: false });
+      fxImpact(p, wasBroken ? 0xffda60 : o.heavy ? 0xff6a3a : o.kind === 'ultTick' ? 0xffc890 : 0xfff0d0, pw, { dir, ground: groundRing, chips: o.heavy ? [0xff5a3a, 0x2b3147] : undefined, stop: false, shake: false });
       f.a.jolt(dir, o.kind === 'dart' || o.kind === 'ultTick' ? 0.35 : o.heavy ? 1.15 : 0.6);
     }
     // act-23 (用户：「砍上去要溅血才有感觉」): blood from the wound along the blade's way; more for the heavy blows and the killing one
     if (f.kind !== 'dummy' && o.kind !== 'school') { const n = o.kind === 'dart' ? 5 : o.kind === 'ultTick' ? 7 : o.kind === 'rel' ? 42 : o.heavy ? 28 : 16; blood.spray(p, dir, (died ? n + 20 : n) * (executed ? 2 : 1), o.heavy || died ? 1.35 : 1); this.fleshHit = true; }
-    popPix(String(d), f.a.head().add(o.kind === 'ultTick' ? V3(R(-0.55, 0.55), R(0.05, 0.6), 0) : V3(R(-0.2, 0.2), 0.35, 0)), { color: o.kind === 'rel' || o.kind === 'ult' ? '#ffe8a0' : o.kind === 'ultTick' ? '#ffd890' : o.heavy ? '#ff8a3a' : d >= 14 ? '#ffd060' : '#fff6e0', h: o.kind === 'rel' || o.kind === 'ult' ? 0.95 : o.kind === 'ultTick' ? 0.42 : o.heavy ? 0.66 : 0.5, big: o.heavy, life: o.kind === 'rel' || o.kind === 'ult' ? 1.2 : o.kind === 'ultTick' ? 0.5 : 0.9, rise: 0.9 });
+    popPix(String(d), f.a.head().add(o.kind === 'ultTick' ? V3(R(-0.55, 0.55), R(0.05, 0.6), 0) : V3(R(-0.2, 0.2), 0.35, 0)), { color: wasBroken ? '#ffe870' : o.kind === 'rel' || o.kind === 'ult' ? '#ffe8a0' : o.kind === 'ultTick' ? '#ffd890' : o.heavy ? '#ff8a3a' : d >= 14 ? '#ffd060' : '#fff6e0', h: o.kind === 'rel' || o.kind === 'ult' ? 0.95 : o.kind === 'ultTick' ? 0.42 : (o.heavy || wasBroken) ? 0.68 : 0.5, big: o.heavy || wasBroken, life: o.kind === 'rel' || o.kind === 'ult' ? 1.2 : o.kind === 'ultTick' ? 0.5 : 0.9, rise: 0.9 });
     if (!died && o.heavy && knock >= 1.2 && this.launchable(f) && f.pos.y < 0.05) f.airV = Math.max(f.airV ?? 0, 2.2 + knock * 1.3);   // act-19: heavy blows throw the light foes
     if (died) this.killFoe(f, from);
     else if (f.kind !== 'dummy' && o.kind !== 'school' && o.kind !== 'dart' && (o.heavy || Math.random() < 0.33)) cue('foePain', o.heavy ? 1 : 0.75, voiceOf(f));

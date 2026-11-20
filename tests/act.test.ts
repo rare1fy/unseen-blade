@@ -6,6 +6,7 @@ import { Input } from '../src/present/act/input';
 import { TUNE } from '../src/present/act/tune';
 import { inside } from '../src/present/act/tele';
 import { slashArc } from '../src/present/act/slashArc';
+import { damageFoe, canStrike, isRangedFoe, POISE_BREAK_DUR, type Foe, type FoeWorld } from '../src/present/act/enemy';
 import { V3 } from '../src/present/engine/world';
 
 /** every source file's text, keyed 'src/…' (vite's glob: no node types needed) */
@@ -183,5 +184,41 @@ describe('combat feel polish (act-109)', () => {
     inp.frame(1 / 60, false);
     expect(inp.b.attack.released).toBe(true);
     expect(inp.b.attack.last).toBeLessThan(TUNE.holdToCharge);
+  });
+});
+
+describe('combat wave 2: poise break & staggered cadence (act-113)', () => {
+  const fakeActor = () => ({ hit: () => {}, hurt: () => {}, play: () => {}, tint: () => {}, chest: () => V3(0, 1, 0), head: () => V3(0, 1.7, 0) }) as unknown as Foe['a'];
+  const fakeFoe = (over: Partial<Foe>): Foe => ({
+    kind: 'hj_brute', d: { model: 'hj_brute', hp: 120, r: 0.7, speed: 2, mass: 2.6, poise: 34, gold: 8, name: '黄巾力士', role: 'brute' },
+    a: fakeActor(), hp: 120, maxHp: 120, pos: V3(0, 0, 0), vel: V3(), yaw: 0, st: 'windup', t: 0.2, dur: 0.9, tele: null, teleYaw: 0, telePos: V3(), shape: null, dmg: 12,
+    cd: 0, poise: 34, brokenT: 0, poiseIdleT: 0, attacking: true, hitHero: false, lunge: null, strafe: 1, move: '', lastDmg: 0, uid: 1,
+    bleed: 0, bleedT: 0, bleedTick: 0, bleedDrop: 0, sunderT: 0, wob: { x: 0, z: 0, vx: 0, vz: 0 }, elite: false, role: 'brute', atk: 'slam', combo: 0, extra: [], inv: 0, phase: 1, summonT: 3, thunderCd: 3, auraT: 0, mem: {},
+    ...over,
+  });
+
+  it('depleting poise triggers guard-break vulnerability window and interrupts attack', () => {
+    const brute = fakeFoe({});
+    damageFoe(brute, 10, V3(0, 0, -2), { poiseDmg: 18, quiet: true });
+    expect(brute.poise).toBe(16);
+    expect(brute.brokenT).toBe(0);
+    expect(brute.st).toBe('windup');
+    damageFoe(brute, 10, V3(0, 0, -2), { poiseDmg: 20, quiet: true });
+    expect(brute.poise).toBe(0);
+    expect(brute.brokenT).toBeCloseTo(POISE_BREAK_DUR, 5);
+    expect(brute.st).toBe('stagger');
+    expect(brute.attacking).toBe(false);
+  });
+
+  it('ranged and melee foes have independent attacker budgets so an aiming archer does not freeze melee', () => {
+    const archer = fakeFoe({ kind: 'hj_archer', role: 'archer', attacking: true, d: { model: 'hj_archer', hp: 28, r: 0.44, speed: 2.6, mass: 0.9, poise: 0, gold: 3, name: '黄巾弓手', role: 'archer' } });
+    const blade = fakeFoe({ kind: 'hj_blade', role: 'blade', attacking: false, st: 'move', cd: 0, d: { model: 'hj_blade', hp: 40, r: 0.44, speed: 2.8, mass: 1, poise: 0, gold: 3, name: '黄巾刀手', role: 'blade' } });
+    const archer2 = fakeFoe({ kind: 'hj_archer', role: 'archer', attacking: false, st: 'move', cd: 0, d: archer.d });
+    const w = { heroAlive: true, foes: [archer, blade, archer2] } as unknown as FoeWorld;
+    expect(isRangedFoe(archer)).toBe(true);
+    expect(isRangedFoe(blade)).toBe(false);
+    // archer is occupying the ranged slot -> melee blade can STILL strike, while a second archer waits
+    expect(canStrike(blade, w, { calm: true, slots: 1 })).toBe(true);
+    expect(canStrike(archer2, w, { calm: true, slots: 1 })).toBe(false);
   });
 });

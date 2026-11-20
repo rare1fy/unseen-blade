@@ -105,12 +105,20 @@ export function addFoes(defs: Record<string, EDef>) { Object.assign(EDEFS, defs)
 /** the boss bar / banner / big death (show.ts, hud.ts) */
 export const isBoss = (f: { d: EDef }) => !!f.d.boss;
 
+/** act-113: guard-break vulnerability duration (s) and incoming damage multiplier */
+export const POISE_BREAK_DUR = 2.6;
+export const POISE_BREAK_MUL = 1.5;
+/** act-113: ranged pressure roles that stagger cleanly on their own cadence instead of locking out melee */
+export const isRangedFoe = (f: { kind: string; role: string }) =>
+  f.role === 'archer' || f.role === 'taoist' || f.role === 'ly_xbow' || f.role === 'ly_torch' || f.role === 'xp_frost'
+  || f.kind === 'hj_jar' || f.kind === 'wl_xbow' || f.kind === 'wl_oil' || f.kind === 'cx_zhu';
+
 type St = 'enter' | 'move' | 'windup' | 'strike' | 'recover' | 'stagger' | 'roar' | 'dead';
 export interface Foe {
   kind: EKind; d: EDef; a: BattleActor; hp: number; maxHp: number; pos: THREE.Vector3; vel: THREE.Vector3; yaw: number;
   /** act-19: thrown into the air (挑空斩, 飞踢, a heavy blow): the upward speed; undefined = on the ground */ airV?: number;
   st: St; t: number; dur: number; tele: Tele | null; teleYaw: number; telePos: THREE.Vector3; shape: TeleShape | null; dmg: number;
-  cd: number; poise: number; attacking: boolean; hitHero: boolean; lunge: THREE.Vector3 | null; strafe: number; move: string;
+  cd: number; poise: number; /** act-113: guard-broken vulnerability timer (>0 takes ×1.5 dmg) & idle timer before poise slowly recovers */ brokenT: number; poiseIdleT: number; attacking: boolean; hitHero: boolean; lunge: THREE.Vector3 | null; strafe: number; move: string;
   /** the last blow's numbers (death form), and timed blade wounds */ lastDmg: number; uid: number; bleed: number; bleedT: number; bleedTick: number; bleedDrop: number; sunderT: number;
   /** the dummy's wobble (lean angles and their speeds, rad) */ wob: { x: number; z: number; vx: number; vz: number };
   /** the stronger variant (+80 % HP, bigger, one extra trick) */ elite: boolean; role: Role;
@@ -180,7 +188,7 @@ export function spawnFoe(kind: EKind, at: THREE.Vector3, face: THREE.Vector3, el
   if (el) a.root.scale.setScalar(1.15);
   const hp = Math.round(d.hp * TUNE.enemyHp * (el ? 1.8 : 1));
   return { kind, d, a, hp, maxHp: hp, pos: a.home, vel: V3(), yaw: a.yaw, st: 'enter', t: 0, dur: 0.55, tele: null, teleYaw: 0, telePos: V3(), shape: null, dmg: 0,
-    cd: R(0.4, 1.2), poise: d.poise, attacking: false, hitHero: false, lunge: null, strafe: Math.random() < 0.5 ? -1 : 1, move: '', lastDmg: 0, bleed: 0, bleedT: 0, bleedTick: 0, bleedDrop: 0, sunderT: 0, uid: UID++,
+    cd: R(0.4, 1.2), poise: d.poise, brokenT: 0, poiseIdleT: 0, attacking: false, hitHero: false, lunge: null, strafe: Math.random() < 0.5 ? -1 : 1, move: '', lastDmg: 0, bleed: 0, bleedT: 0, bleedTick: 0, bleedDrop: 0, sunderT: 0, uid: UID++,
     wob: { x: 0, z: 0, vx: 0, vz: 0 }, elite: el, role: base.role, atk: '', combo: 0, extra: [], inv: 0, phase: 1, summonT: 3, thunderCd: R(2, 4), auraT: 0, mem: {} };
 }
 
@@ -202,6 +210,8 @@ export function startAttack(f: Foe, w: FoeWorld, shape: TeleShape | null, windup
   f.a.tint(0x8a1a10, 0.7);
   for (const e of o.extra ?? []) { const t = new Tele(e.s, { low: e.low }); t.set(f.telePos.x, f.telePos.z, yaw + e.dy, 0); f.extra.push({ t, dy: e.dy }); }
   const wu = windup / TUNE.aggression * (f.elite ? 0.85 : 1) * (f.phase > 1 ? 0.75 : 1); setSt(f, 'windup', wu);
+  // act-113: staggered cross-beat between melee and ranged so arrows and slashes alternate cleanly instead of landing on the same frame
+  crossBeatUntil = Math.max(crossBeatUntil, clock.time + 0.30);
   // the body's own wind-up: the attack action timed so its impact frame lands at the end of the wind-up
   const imp = o.act?.imp ?? (f.role === 'hound' ? 0.42 : 0.5), total = Math.max(wu / imp, wu + (o.act?.tail ?? 0));
   if (o.act) f.a.play(new Action(o.act.name, total, wu / total, o.act.data ?? {}));
@@ -213,14 +223,27 @@ export function startAttack(f: Foe, w: FoeWorld, shape: TeleShape | null, windup
 const isLow = (f: Foe, s: TeleShape) => !!f.lowAtk || (ROLE_AI[f.role]?.low?.(f, s) ?? ((f.role === 'hound' && s.k === 'rect') || ((f.role === 'chief' || f.role === 'brute') && s.k === 'circle')));
 /** the foe is winding up an attack a jump clears (the bot jumps these) */
 export const lowAttack = (f: Foe) => f.st === 'windup' && !!f.shape && isLow(f, f.shape);
-/** act-20 (user: 「敌人攻击频率有点太高了，打起来有点乱」): after a blow is over nobody starts the next for TUNE.atkCalm s */
-let calmUntil = 0;
-const attackers = (w: FoeWorld) => w.foes.reduce((n, o) => n + (o.attacking && o.st !== 'dead' ? (o.d.weight ?? (o.role === 'mob' || o.d.half ? 0.5 : 1)) : 0), 0);
+/** act-20 / act-113: separate melee & ranged attacker cadence with a 0.30s cross-beat so ranged snipers don't freeze all melee foes into standing around */
+let meleeCalmUntil = 0;
+let rangedCalmUntil = 0;
+let crossBeatUntil = 0;
+const meleeAttackers = (w: FoeWorld) => w.foes.reduce((n, o) => n + (o.attacking && o.st !== 'dead' && !isRangedFoe(o) ? (o.d.weight ?? (o.role === 'mob' || o.d.half ? 0.5 : 1)) : 0), 0);
+const rangedAttackers = (w: FoeWorld) => w.foes.reduce((n, o) => n + (o.attacking && o.st !== 'dead' && isRangedFoe(o) ? 1 : 0), 0);
+const attackers = (w: FoeWorld) => meleeAttackers(w);
 // ---- wp/regB: what the 'ext' AIs (foes/r45_ai.ts) share with the old ones
-/** may this foe start an attack now (its cool-down, the attacker cap, the calm after a blow; a boss ignores the calm) */
-export const canStrike = (f: Foe, w: FoeWorld, o: { calm?: boolean; slots?: number } = {}) => w.heroAlive && f.cd <= 0 && attackers(w) < (o.slots ?? TUNE.maxAttackers) && (clock.time >= calmUntil || !!o.calm);
+/** may this foe start an attack now (its cool-down, staggered melee/ranged slot budget, and calm after a blow; a boss ignores calm) */
+export const canStrike = (f: Foe, w: FoeWorld, o: { calm?: boolean; slots?: number } = {}) => {
+  if (!w.heroAlive || f.cd > 0) return false;
+  if (isRangedFoe(f)) {
+    return rangedAttackers(w) < 1 && (clock.time >= rangedCalmUntil || !!o.calm) && clock.time >= crossBeatUntil;
+  }
+  return meleeAttackers(w) < (o.slots ?? TUNE.maxAttackers) && (clock.time >= meleeCalmUntil || !!o.calm || !!f.d.boss);
+};
 /** the calm after a blow starts now (an AI that recovers in its own way) */
-export const markCalm = () => { calmUntil = Math.max(calmUntil, clock.time + TUNE.atkCalm); };
+export const markCalm = (f?: Foe) => {
+  if (f && isRangedFoe(f)) rangedCalmUntil = Math.max(rangedCalmUntil, clock.time + Math.max(0.55, TUNE.atkCalm * 0.9));
+  else meleeCalmUntil = Math.max(meleeCalmUntil, clock.time + TUNE.atkCalm);
+};
 /** turn toward yaw y at rate k (as think does) */
 export function turnFoe(f: Foe, y: number, dt: number, k = 10) { let dy = y - f.yaw; while (dy > Math.PI) dy -= Math.PI * 2; while (dy < -Math.PI) dy += Math.PI * 2; f.yaw += dy * Math.min(1, dt * k); }
 /** the end of think: walk toward `want` at speed sp (a zero want stands and faces the hero), the run pose, the odd strafe flip */
@@ -232,7 +255,7 @@ export function steerFoe(f: Foe, want: THREE.Vector3, sp: number, dt: number, ya
 }
 /** 11-18: the shared pieces a region's RoleAI uses (startAttack, the attacker count, the calm, the state setter) */
 export const AI = { startAttack: (f: Foe, w: FoeWorld, shape: TeleShape, windup: number, dmg: number, yaw: number, o?: Parameters<typeof startAttack>[6]) => startAttack(f, w, shape, windup, dmg, yaw, o),
-  attackers, setSt: (f: Foe, st: St, dur: number) => setSt(f, st, dur), calm: (s: number) => { calmUntil = Math.max(calmUntil, clock.time + s); }, calmOver: () => clock.time >= calmUntil, isLow: (f: Foe, s: TeleShape) => isLow(f, s) };
+  attackers, setSt: (f: Foe, st: St, dur: number) => setSt(f, st, dur), calm: (s: number) => { meleeCalmUntil = Math.max(meleeCalmUntil, clock.time + s); }, calmOver: () => clock.time >= meleeCalmUntil, isLow: (f: Foe, s: TeleShape) => isLow(f, s) };
 
 function attackPoint(f: Foe) {
   if (f.atk === 'lob' && f.kind === 'hj_jar') return f.a.bonePos('jar');
@@ -243,6 +266,15 @@ function attackPoint(f: Foe) {
 export function updateFoe(f: Foe, w: FoeWorld, dt: number) {
   if (f.st === 'dead') return;
   f.sunderT = Math.max(0, f.sunderT - dt);
+  // act-113: guard-break vulnerability window & slow poise regeneration when left unpressured
+  if (f.brokenT > 0) {
+    f.brokenT = Math.max(0, f.brokenT - dt);
+    if (f.brokenT <= 0) { f.poise = f.d?.poise ?? 0; f.poiseIdleT = 0; }
+    else if (f.st === 'stagger') f.a.tint(0xffcf54, 0.20 + 0.16 * Math.sin(clock.time * 16));
+  } else if (f.d && f.d.poise > 0 && f.poise < f.d.poise) {
+    f.poiseIdleT += dt;
+    if (f.poiseIdleT >= 3.5) f.poise = Math.min(f.d.poise, f.poise + f.d.poise * 0.14 * dt);
+  }
   if (f.bleed > 0) {
     const active = Math.min(dt, Math.max(0, 3 - f.bleedT)); f.bleedT += dt; f.bleedTick += active; f.bleedDrop += active;
     while (f.bleedDrop >= 0.4) { f.bleedDrop -= 0.4; w.bleedSpill(f); }
@@ -312,12 +344,12 @@ export function updateFoe(f: Foe, w: FoeWorld, dt: number) {
     if (f.t >= f.dur) {
       f.lunge = null; f.vel.multiplyScalar(0.2);
       // the elite follow-up: a second cut (backhand, re-aimed) / a second lunge
-      if (ai) { if (!(w.heroAlive && ai.follow?.(f, w, yawTo))) { markCalm(); setSt(f, 'recover', ai.recover?.(f) ?? 0.6); } }
+      if (ai) { if (!(w.heroAlive && ai.follow?.(f, w, yawTo))) { markCalm(f); setSt(f, 'recover', ai.recover?.(f) ?? 0.6); } }
       else if (f.combo > 0 && w.heroAlive) {
         f.combo--;
         if (f.role === 'hound') startAttack(f, w, { k: 'rect', len: 5.2, w: 1.0 }, 0.36, 8, yawTo, { atk: 'lunge' });
         else startAttack(f, w, { k: 'cone', r: 2.3, half: 1.0 }, 0.34, 10, yawTo, { atk: 'cut', act: { name: 'hjBackhand', imp: 0.58 } });
-      } else (calmUntil = Math.max(calmUntil, clock.time + TUNE.atkCalm), setSt(f, 'recover', rai?.recover?.(f) ?? (f.role === 'hound' ? 0.7 : f.role === 'chief' ? 0.9 : f.role === 'brute' ? 1.0 : f.role === 'boss' ? (f.atk === 'thunder' ? 0.5 : f.phase > 1 ? 0.45 : 0.75) : f.role === 'mob' ? 0.45 : 0.6)));
+      } else { markCalm(f); setSt(f, 'recover', rai?.recover?.(f) ?? (f.role === 'hound' ? 0.7 : f.role === 'chief' ? 0.9 : f.role === 'brute' ? 1.0 : f.role === 'boss' ? (f.atk === 'thunder' ? 0.5 : f.phase > 1 ? 0.45 : 0.75) : f.role === 'mob' ? 0.45 : 0.6)); }
     }
   }
   if (free && ai) ai.think(f, w, dt, dist, dir, yawTo);
@@ -340,7 +372,7 @@ function teleStep(f: Foe, dt: number) {
 
 /** 11-18: a region role's free movement — its think() decides; the steering (speed, facing, the run flag, the strafe flip) is shared */
 function roleThink(ai: NonNullable<(typeof ROLE_AI)[string]>, f: Foe, w: FoeWorld, dt: number, dist: number, dir: THREE.Vector3, yawTo: number, face: (y: number, k?: number) => void) {
-  const can = w.heroAlive && f.cd <= 0 && attackers(w) < TUNE.maxAttackers && (clock.time >= calmUntil || !!f.d.boss), side = V3(dir.z, 0, -dir.x).multiplyScalar(f.strafe);
+  const can = canStrike(f, w, { calm: !!f.d.boss }) && (!w.sees || !isRangedFoe(f) || w.sees(f)), side = V3(dir.z, 0, -dir.x).multiplyScalar(f.strafe);
   const k: ThinkCtx = { dt, dist, dir, yawTo, can, side, face };
   const r = ai.think(f, w, k); if (r === 'busy') return;
   const want = r.want.clone(), sp = f.d.speed * (r.sp ?? 1), m = want.length();
@@ -351,12 +383,12 @@ function roleThink(ai: NonNullable<(typeof ROLE_AI)[string]>, f: Foe, w: FoeWorl
 /** free movement: close in / keep away / circle, and decide when to attack */
 function think(f: Foe, w: FoeWorld, dt: number, dist: number, dir: THREE.Vector3, yawTo: number, face: (y: number, k?: number) => void) {
   // (11-18 屋子形态: a ranged foe behind a wall / a walled-off block does not loose at her — its arrow would hit the wall)
-  const can = w.heroAlive && f.cd <= 0 && attackers(w) < TUNE.maxAttackers && (clock.time >= calmUntil || f.role === 'boss') && (!w.sees || (f.role !== 'archer' && f.role !== 'taoist') || w.sees(f)), side = V3(dir.z, 0, -dir.x).multiplyScalar(f.strafe);
+  const can = canStrike(f, w, { calm: f.role === 'boss' }) && (!w.sees || !isRangedFoe(f) || w.sees(f)), side = V3(dir.z, 0, -dir.x).multiplyScalar(f.strafe);
   let want = V3(), sp = f.d.speed, aim = false;
   const r = f.role;
   if (r === 'blade') {
-    if (dist > 1.7) want.copy(dir).addScaledVector(side, attackers(w) >= TUNE.maxAttackers ? 0.8 : 0.15);
-    else if (!can) want.copy(side).addScaledVector(dir, -0.4);
+    if (dist > 1.7) want.copy(dir).addScaledVector(side, meleeAttackers(w) >= TUNE.maxAttackers ? 0.85 : 0.18);
+    else if (!can) want.copy(side).multiplyScalar(0.85).addScaledVector(dir, dist > 2.4 ? 0.3 : -0.22);
     if (can && dist < 2.1) { f.combo = f.elite ? 1 : 0; startAttack(f, w, { k: 'cone', r: 2.2, half: 0.95 }, 0.62, 10, yawTo, { atk: 'cut', act: f.kind === 'hj_blade' ? { name: 'hjCut', imp: 0.57 } : undefined }); return; }
   } else if (r === 'mob') {
     // the crowd: straight in, a little weave, quick short pokes
@@ -577,8 +609,19 @@ export function damageFoe(f: Foe, dmg: number, from: THREE.Vector3, o: { knock?:
   if (f.hp <= 0) { f.hp = 0; f.st = 'dead'; f.attacking = false; dropTeles(f); return true; }
   if (o.dot) return false;
   if (f.d.poise > 0) {
-    f.poise -= o.poiseDmg ?? dmg;
-    if (f.poise <= 0) { f.poise = f.d.poise; dropTeles(f); f.attacking = false; f.lunge = null; f.combo = 0; setSt(f, 'stagger', 1.3); f.a.play(new Action('hurt', 1.0, 0.1, { power: 1.6 })); cue('guardBreak', 1); }
+    if (f.brokenT <= 0) {
+      f.poiseIdleT = 0;
+      f.poise -= o.poiseDmg ?? dmg;
+      if (f.poise <= 0) {
+        f.poise = 0;
+        f.brokenT = POISE_BREAK_DUR;
+        dropTeles(f); f.attacking = false; f.lunge = null; f.combo = 0;
+        setSt(f, 'stagger', 1.65);
+        f.a.play(new Action('hurt', 1.2, 0.1, { power: 1.7 }));
+        f.a.tint(0xfff0b0, 0.95);
+        if (!o.quiet) cue('guardBreak', 1);
+      }
+    }
   } else if ((o.stagger ?? 0.28) > 0 && f.st !== 'strike') {
     // light foes: a hit breaks the wind-up (reward for pressing in)
     dropTeles(f); f.attacking = false; f.lunge = null; f.combo = 0; setSt(f, 'stagger', o.stagger ?? 0.28); f.cd = Math.max(f.cd, 0.25);
