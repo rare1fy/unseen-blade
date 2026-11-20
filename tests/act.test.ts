@@ -158,15 +158,14 @@ describe('combat feel polish (act-109)', () => {
       expect(c).toContain('shake: false');
     }
   });
-  it('slashArc uses lightweight translucent 3D voxel blocks (no solid ink outline / smoothstep / derivatives)', () => {
+  it('slashArc uses blade-tip-glued world-axis-aligned 3D voxel cubes (no solid outline / smoothstep / derivatives)', () => {
     const src = SRC['src/present/act/slashArc.ts'].replace(/\/\/.*$/gm, '');
     expect(src).not.toMatch(/\bdFd[xy]\b|\bfwidth\b|\btexelFetch\b|\bsmoothstep\b/);
     expect(src).toContain('transparent: true');
     expect(src).toContain('depthWrite: false');
-    slashArc.swing({ kind: 'k1', from: V3(0, 0, 0), yaw: 0, range: 2, half: 1.0 });
-    slashArc.swing({ kind: 'k3', from: V3(0, 0, 0), yaw: 0, range: 2.4, half: Math.PI });
-    slashArc.swing({ kind: 'k4', from: V3(0, 0, 0), yaw: 0, range: 2.5, half: 0.3, n: 2 });
-    slashArc.swing({ kind: 'k5', from: V3(0, 0, 0), yaw: 0, range: 2.3, half: 1.2 });
+    slashArc.bladeStep(V3(0, 0.9, 0.2), V3(0.8, 0.9, 0.8), V3(0, 0.9, 0.2), V3(-0.8, 0.9, 0.8), 'k1');
+    slashArc.bladeStep(V3(0, 0.9, 0.2), V3(0, 0.9, 1.0), V3(0, 0.9, 0.4), V3(0, 0.9, 1.6), 'k4');
+    slashArc.swing({ kind: 'k1', from: V3(0, 0, 0), yaw: 0, range: 2, half: 1.0, counter: true });
     slashArc.line({ a: V3(0, 0, 0), b: V3(0, 0, 5), width: 0.9, palette: 'iai' });
     slashArc.update(0.05);
     slashArc.update(0.5);

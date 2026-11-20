@@ -14,7 +14,6 @@ import { type Action, type Bone, curve, snap, rot } from '../actors/rig';
 import { POSE_HOOKS } from '../bestiary/poseHooks';
 import { CELL } from '../bestiary/kit';
 import type { BActor } from '../bestiary/bactor';
-import { trailSeg } from '../fx/fx';
 import { dustBlocks } from '../kyoto/ninja_fx';
 import { ninja } from '../kyoto/ninja';
 import { ROSTER, type ModelDef } from '../bestiary/models';
@@ -22,6 +21,7 @@ import { idle, mix, apply, hurt, attack as leapCut, cast, type Pose } from '../k
 import { BLIND } from './blind';
 import { SLIM } from './blind2';
 import { stepWalk } from './heroWalk';
+import { slashArc } from './slashArc';
 
 type Keys = Array<[number, number]>;
 const TAU = Math.PI * 2;
@@ -511,24 +511,51 @@ export function tails(b: Record<string, Bone>, t: number, lift: number, flut: nu
 }
 
 // ---- blade trails along each cut's swing, dust on the dash, the run and the landings
-/** the blade's point on a model: the far end (+z) of its 'blade' part's mesh, measured once; models without one: def.tip in their own cells */
-const TIP = new WeakMap<object, { mesh: THREE.Object3D; p: THREE.Vector3 } | null>();
-export function bladeTip(self: BActor) {
-  let t = TIP.get(self);
+/** the blade's real root (-z) and point (+z) on a model, measured once from its 'blade' part's mesh */
+const SPAN = new WeakMap<object, { mesh: THREE.Object3D; root: THREE.Vector3; tip: THREE.Vector3 } | null>();
+function measureBlade(self: BActor) {
+  let t = SPAN.get(self);
   if (t === undefined) {
     t = null; const b = (self.bones as Record<string, THREE.Object3D | undefined>).blade;
-    if (b) b.traverse(o => { const m = o as THREE.Mesh; if (!t && m.isMesh && m.geometry) { m.geometry.computeBoundingBox(); const bb = m.geometry.boundingBox!; t = { mesh: m, p: new THREE.Vector3((bb.min.x + bb.max.x) / 2, (bb.min.y + bb.max.y) / 2, bb.max.z) }; } });
-    TIP.set(self, t);
+    if (b) b.traverse(o => {
+      const m = o as THREE.Mesh;
+      if (!t && m.isMesh && m.geometry) {
+        m.geometry.computeBoundingBox(); const bb = m.geometry.boundingBox!;
+        const cx = (bb.min.x + bb.max.x) / 2, cy = (bb.min.y + bb.max.y) / 2;
+        t = { mesh: m, root: new THREE.Vector3(cx, cy, bb.min.z), tip: new THREE.Vector3(cx, cy, bb.max.z) };
+      }
+    });
+    SPAN.set(self, t);
   }
-  if (t) return t.mesh.localToWorld(t.p.clone());
+  return t;
+}
+export function bladeTip(self: BActor) {
+  const t = measureBlade(self);
+  if (t) return t.mesh.localToWorld(t.tip.clone());
   return self.bones.weapon.localToWorld(new THREE.Vector3(0, 0, (self.def.tip ?? 13) * ((self as unknown as { cx?: number }).cx ?? CELL)));
 }
-const mem = new WeakMap<object, { tip: THREE.Vector3 | null; tipL: THREE.Vector3 | null; k: number; name: string; ph: number; air: number }>();
-const SWING: Record<string, Array<[number, number, number, number]>> = {
-  // act-109: primary blade arcs are now drawn by sculpted 3D hard-edged ribbons (act/slashArc.ts);
-  // keep plunge's falling vertical glint + restrained fine tip accents on heavy swings only
-  k5: [[0.42, 0.56, 0xff7848, 0.08]],
-  plunge: [[0.6, 1.01, 0xffe0a0, 0.14]],
+export function bladeSpan(self: BActor): { root: THREE.Vector3; tip: THREE.Vector3 } {
+  const t = measureBlade(self);
+  if (t) return { root: t.mesh.localToWorld(t.root.clone()), tip: t.mesh.localToWorld(t.tip.clone()) };
+  const len = (self.def.tip ?? 13) * ((self as unknown as { cx?: number }).cx ?? CELL);
+  return {
+    root: self.bones.weapon.localToWorld(new THREE.Vector3(0, 0, 0)),
+    tip: self.bones.weapon.localToWorld(new THREE.Vector3(0, 0, len)),
+  };
+}
+const mem = new WeakMap<object, { root: THREE.Vector3 | null; tip: THREE.Vector3 | null; tipL: THREE.Vector3 | null; k: number; name: string; ph: number; air: number }>();
+// act-112: exact blade-acceleration windows for world-axis-aligned 3D voxel blade light glued directly to bladeTip(self)
+const VOX_SWING: Record<string, Array<[number, number]>> = {
+  k1: [[0.26, 0.56]],
+  k2: [[0.24, 0.54]],
+  k3: [[0.18, 0.75]],
+  k4: [[0.22, 0.39], [0.48, 0.68]],
+  k5: [[0.34, 0.66]],
+  rel: [[0.08, 0.44]],
+  acut: [[0.10, 0.27], [0.30, 0.54]],
+  acutF: [[0.30, 0.80]],
+  swoop: [[0.30, 0.54]],
+  plunge: [[0.55, 1.01]],
 };
 /** act-109: taut 0-frame coil pose on pressing 斩 in free state — seamlessly feeds k1 (tap) or 藏锋 (hold) */
 const COIL: Partial<Pose> = {
@@ -538,13 +565,13 @@ const COIL: Partial<Pose> = {
   tL: -0.65, kL: 0.96, tR: 0.36, kR: 0.86, lift: 0.55, flut: 0.5,
 };
 function trails(self: BActor, a: Action | null, m: Motion | undefined) {
-  let M = mem.get(self); if (!M) { M = { tip: null, tipL: null, k: 0, name: '', ph: 0, air: 0 }; mem.set(self, M); }
-  const k = a ? poseK(a) : 0, name = a?.name ?? '', fresh = name !== M.name || k < M.k, sw = SWING[name];
-  // act-30 (user: 「挥刀特效的位置有点问题，我之前修过一次刀的长度」): the trail's point is the blade's real tip, measured from the model's
-  // blade part (the user shortens / reshapes it in MagicaVoxel), not def.tip × the scene cell (twice too long on the 3.5 cm heroines)
-  const tip = bladeTip(self), tipL = self.bones.offhand.localToWorld(new THREE.Vector3(0, 0, 6 * CELL));
-  const heavy = name === 'k5' || name === 'rel' || name === 'plunge';
-  if (sw && !fresh && M.tip) for (const w of sw) if (k > w[0] && k < w[1]) trailSeg(M.tip, tip, w[2], w[3], { life: heavy ? 0.18 : 0.12, bright: 1.6, spark: name === 'k5' ? 0.45 : 0.15 });
+  let M = mem.get(self); if (!M) { M = { root: null, tip: null, tipL: null, k: 0, name: '', ph: 0, air: 0 }; mem.set(self, M); }
+  const k = a ? poseK(a) : 0, name = a?.name ?? '', fresh = name !== M.name || k < M.k, vsw = VOX_SWING[name];
+  // act-30 / act-112: measure the blade's real root & tip from the model's blade mesh so voxel slash light stays 100% glued to the tip
+  const { root, tip } = bladeSpan(self), tipL = self.bones.offhand.localToWorld(new THREE.Vector3(0, 0, 6 * CELL));
+  if (vsw && !fresh && M.tip && M.root && k > M.k) {
+    for (const w of vsw) if (k > w[0] && k < w[1]) slashArc.bladeStep(M.root, M.tip, root, tip, name);
+  }
   if (name === 'dashA' && (fresh ? -1 : M.k) < 0.05 && k >= 0.05 && (!m || m.air < 0.05)) dustBlocks(self.local(0, 0, -0.2), 7, self.fwd().multiplyScalar(-1));
   if (name === 'rel' && (fresh ? -1 : M.k) < 0.02 && k >= 0.02) dustBlocks(self.local(0, 0, -0.25), 9, self.fwd().multiplyScalar(-1));
   if (m) {
@@ -552,7 +579,7 @@ function trails(self: BActor, a: Action | null, m: Motion | undefined) {
     if (m.run > 0.85 && m.air < 0.02 && !a && Math.floor(m.phase / Math.PI) !== Math.floor(M.ph / Math.PI)) dustBlocks(self.local(0, 0, -0.15), 2, self.fwd().multiplyScalar(-0.6));
     M.ph = m.phase; M.air = m.air;
   }
-  M.tip = tip; M.tipL = tipL; M.k = k; M.name = name;
+  M.root = root; M.tip = tip; M.tipL = tipL; M.k = k; M.name = name;
 }
 
 /** the blind swordsmen tilt the head now and then, listening */
