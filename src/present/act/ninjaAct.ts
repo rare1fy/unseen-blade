@@ -55,10 +55,11 @@ export interface Motion { run: number; phase: number; charge: number; air: numbe
   /** 11-18 (act-42 反馈): squat = 0 → 1 through the crouch on the ground before a jump; airT = seconds since a plain jump left the ground */
   squat: number; airT: number;
   /** 11-18 3C: bank = the body leaning into a turn (rad, + = to her left); skid / brake / start = 1 → 0 through a reversal at speed,
-   *  a stop from a run, the first push of a run; ready = 0..1 the guard held for a while after fighting */
-  bank: number; skid: number; brake: number; start: number; ready: number }
+   *  a stop from a run, the first push of a run; ready = 0..1 the guard held for a while after fighting;
+   *  coil = 0..1 instant 0-frame pre-cut coil while 斩 is held prior to tap release / 藏锋 transition (act-109) */
+  bank: number; skid: number; brake: number; start: number; ready: number; coil: number }
 export const MOTION = new WeakMap<object, Motion>();
-export const motionOf = (a: object) => { let m = MOTION.get(a); if (!m) { m = { run: 0, phase: 0, charge: 0, air: 0, rise: 0, land: 0, flip: 0, creep: 0, dart: 0, dartBack: 0, takeoff: 0, lean: 0, landW: 0.6, landDur: 0.16, squat: 0, airT: 9, bank: 0, skid: 0, brake: 0, start: 0, ready: 0 }; MOTION.set(a, m); } return m; };
+export const motionOf = (a: object) => { let m = MOTION.get(a); if (!m) { m = { run: 0, phase: 0, charge: 0, air: 0, rise: 0, land: 0, flip: 0, creep: 0, dart: 0, dartBack: 0, takeoff: 0, lean: 0, landW: 0.6, landDur: 0.16, squat: 0, airT: 9, bank: 0, skid: 0, brake: 0, start: 0, ready: 0, coil: 0 }; MOTION.set(a, m); } return m; };
 
 /** walk → run: the walk is the old light stride; past ~60% of top speed it blends into a forward-leaning sprint */
 function run(I: Pose, r: number, ph: number, off: THREE.Vector3): Pose {
@@ -524,11 +525,17 @@ export function bladeTip(self: BActor) {
 }
 const mem = new WeakMap<object, { tip: THREE.Vector3 | null; tipL: THREE.Vector3 | null; k: number; name: string; ph: number; air: number }>();
 const SWING: Record<string, Array<[number, number, number, number]>> = {
-  k1: [[0.28, 0.54, 0xbcd0ff, 0.11]], k2: [[0.26, 0.52, 0xd8e4ff, 0.12]], k3: [[0.24, 0.74, 0xc8e0ff, 0.12]],
-  k4: [[0.25, 0.31, 0xe8f0ff, 0.07], [0.51, 0.57, 0xe8f0ff, 0.08]], k5: [[0.42, 0.57, 0xff5a3a, 0.16]],
-  rel: [[0.14, 0.46, 0xfff0c8, 0.2]], plunge: [[0.6, 1.01, 0xffe0a0, 0.16]],
-  // 11-18 断云's three cuts in the air, 掠地's cut through on touching down
-  acut: [[0.11, 0.22, 0xffc8dc, 0.11], [0.3, 0.49, 0xffd8e6, 0.12]], acutF: [[0.33, 0.72, 0xffb0c8, 0.16]], swoop: [[0.34, 0.5, 0xe0ffd0, 0.15]],
+  // act-109: primary blade arcs are now drawn by sculpted 3D hard-edged ribbons (act/slashArc.ts);
+  // keep plunge's falling vertical glint + restrained fine tip accents on heavy swings only
+  k5: [[0.42, 0.56, 0xff7848, 0.08]],
+  plunge: [[0.6, 1.01, 0xffe0a0, 0.14]],
+};
+/** act-109: taut 0-frame coil pose on pressing 斩 in free state — seamlessly feeds k1 (tap) or 藏锋 (hold) */
+const COIL: Partial<Pose> = {
+  hy: -0.58, sy: -0.45, sx: 0.34, nx: -0.2, ny: 0.3,
+  aRx: -1.0, aRz: -0.95, fR: -1.52, eR: 0.65, yR: -1.1,
+  aLx: -0.28, aLz: 0.2, fL: -0.65, eL: 0.1,
+  tL: -0.65, kL: 0.96, tR: 0.36, kR: 0.86, lift: 0.55, flut: 0.5,
 };
 function trails(self: BActor, a: Action | null, m: Motion | undefined) {
   let M = mem.get(self); if (!M) { M = { tip: null, tipL: null, k: 0, name: '', ph: 0, air: 0 }; mem.set(self, M); }
@@ -537,7 +544,7 @@ function trails(self: BActor, a: Action | null, m: Motion | undefined) {
   // blade part (the user shortens / reshapes it in MagicaVoxel), not def.tip × the scene cell (twice too long on the 3.5 cm heroines)
   const tip = bladeTip(self), tipL = self.bones.offhand.localToWorld(new THREE.Vector3(0, 0, 6 * CELL));
   const heavy = name === 'k5' || name === 'rel' || name === 'plunge';
-  if (sw && !fresh && M.tip) for (const w of sw) if (k > w[0] && k < w[1]) trailSeg(M.tip, tip, w[2], w[3], { life: heavy ? 0.24 : name === 'k3' ? 0.2 : 0.16, bright: 1.9, spark: name === 'k5' ? 0.5 : 0.2 });
+  if (sw && !fresh && M.tip) for (const w of sw) if (k > w[0] && k < w[1]) trailSeg(M.tip, tip, w[2], w[3], { life: heavy ? 0.18 : 0.12, bright: 1.6, spark: name === 'k5' ? 0.45 : 0.15 });
   if (name === 'dashA' && (fresh ? -1 : M.k) < 0.05 && k >= 0.05 && (!m || m.air < 0.05)) dustBlocks(self.local(0, 0, -0.2), 7, self.fwd().multiplyScalar(-1));
   if (name === 'rel' && (fresh ? -1 : M.k) < 0.02 && k >= 0.02) dustBlocks(self.local(0, 0, -0.25), 9, self.fwd().multiplyScalar(-1));
   if (m) {
@@ -580,6 +587,7 @@ const heroHook = (b: Record<string, Bone>, t: number, a: Action | null, off: THR
     if (m.skid > 0) P = mix(P, SKID, curve(1 - m.skid, [[0, 0.5], [0.15, 1], [1, 0]]));
   }
   if (m && m.squat > 0 && !inAir && !a) P = mix(P, J_SQUAT, curve(m.squat, [[0, 0.25], [0.55, 1], [1, 1]]));
+  if (m && m.coil > 0 && !inAir && !a && m.charge <= 0) P = mix(P, COIL, m.coil * (2 - m.coil));
   if (m && inAir && (!a || a.name === 'hurt' || a.name === 'dashA')) P = air(P, m.rise, m.airT, m.lean);
   if (m && m.land > 0 && !a) P = land(P, m.land, m.landW);
   if (m && m.flip > 0 && !a) P = flip(P, m.flip);

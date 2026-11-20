@@ -5,6 +5,8 @@ import { createMinigamePlatform, type PxPointer } from 'pxui/platform/index.js';
 import { Input } from '../src/present/act/input';
 import { TUNE } from '../src/present/act/tune';
 import { inside } from '../src/present/act/tele';
+import { slashArc } from '../src/present/act/slashArc';
+import { V3 } from '../src/present/engine/world';
 
 /** every source file's text, keyed 'src/…' (vite's glob: no node types needed) */
 const SRC = Object.fromEntries(Object.entries(import.meta.glob('../src/**/*.ts', { query: '?raw', import: 'default', eager: true }) as Record<string, string>).map(([k, v]) => [k.slice(3), v]));   // '../src/…' → 'src/…'
@@ -143,5 +145,40 @@ describe('touch pointers (negative iOS identifiers)', () => {
     expect(btnMove.id).toBe(btnDown.id);
     expect(btnUp.id).toBe(btnDown.id);
     expect(stickUp.id).toBe(stickDown.id);
+  });
+});
+
+describe('combat feel polish (act-109)', () => {
+  it('show.ts combat fxImpact calls disable duplicate hitstop/shake so feel() owns BEAT contrast', () => {
+    const show = SRC['src/present/act/show.ts'];
+    const calls = [...show.matchAll(/fxImpact\([^\n]+/g)].map(m => m[0]);
+    expect(calls.length).toBeGreaterThanOrEqual(4);
+    for (const c of calls) {
+      expect(c).toContain('stop: false');
+      expect(c).toContain('shake: false');
+    }
+  });
+  it('slashArc shaders use pure WebGL1 (no derivative / WebGL2 intrinsics) and update cleanly', () => {
+    const src = SRC['src/present/act/slashArc.ts'].replace(/\/\/.*$/gm, '');
+    expect(src).not.toMatch(/\bdFd[xy]\b|\bfwidth\b|\btexelFetch\b/);
+    slashArc.swing({ kind: 'k1', from: V3(0, 0, 0), yaw: 0, range: 2, half: 1.0 });
+    slashArc.swing({ kind: 'k4', from: V3(0, 0, 0), yaw: 0, range: 2.5, half: 0.3, n: 2 });
+    slashArc.swing({ kind: 'k5', from: V3(0, 0, 0), yaw: 0, range: 2.3, half: 1.2 });
+    slashArc.update(0.05);
+    slashArc.update(0.5);
+    slashArc.clear();
+  });
+  it('Input.frame(dt, true) freezes hold timer during hitstop so taps are not misread as 藏锋', () => {
+    const inp = new Input();
+    inp.press('attack', 1);
+    inp.frame(0.05, false);
+    expect(inp.b.attack.held).toBeCloseTo(0.05, 5);
+    // during 0.4s of hitstop, held timer stays frozen below holdToCharge
+    for (let i = 0; i < 24; i++) inp.frame(1 / 60, true);
+    expect(inp.b.attack.held).toBeCloseTo(0.05, 5);
+    inp.releaseAll(1);
+    inp.frame(1 / 60, false);
+    expect(inp.b.attack.released).toBe(true);
+    expect(inp.b.attack.last).toBeLessThan(TUNE.holdToCharge);
   });
 });

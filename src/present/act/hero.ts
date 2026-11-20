@@ -65,14 +65,14 @@ const SWISH_LEAD: Record<Cut, number> = { k1: 0.05, k2: 0.05, k3: 0.08, k4: 0.04
 const QI_CUT: Record<Cut, number> = { k1: 0.15, k2: 0.15, k3: 0.15, k4: 0.1, k5: 0.25 };
 export const QI_LINK = 0.3, QI_DCUT = 0.15, QI_PLUNGE = 0.2, QI_COST = 1;
 const PLUNGE_HANG = 0.1, PLUNGE_V = 22, FLIP_T = 0.42;
-/** the dart throw's length and the moment the dart leaves the hand (s) */
-const DART_T = 0.26, DART_REL = 0.12;
+/** the dart throw's length and the moment the dart leaves the hand (s) — act-109: snappier release 0.12 → 0.06 */
+const DART_T = 0.2, DART_REL = 0.06;
 /** act-27: holding the dart button this long turns the throw into an aimed one */
 const AIM_T = 0.2;
 /** 穿风斩: the whole move and its dash part (s) */
 const DCUT_T = 0.42, DCUT_MOVE = 0.17;
-/** 11-18: the crouch before a jump leaves the ground (s) */
-const JUMP_SQUAT = 0.1;
+/** 11-18: the crouch before a jump leaves the ground (s) — act-109: 0.1 → 0.04 so jumping feels instant while keeping the visual dip */
+const JUMP_SQUAT = 0.04;
 /** the sheathing after 见切 (s), and the moment the blade clicks home (fraction of it) */
 const NOTO_T = 0.95, NOTO_CLICK = 0.64;
 /** 11-18 断云: up beside him — two quick cuts and the blade raised overhead (s; the blows at ACUT_HITS, ninjaAct airCombo), then the
@@ -276,15 +276,22 @@ export class Hero {
   }
   /** 11-18 3C: the skid, the braking step, the push (s left); the guard after fighting (s left); the stick a frame ago; facing a frame ago */
   private skidT = 0; private brakeT = 0; private startT = 0; private readyT = 0; private prevSl = 0; private prevYaw = 0;
-  private startCut(n: Cut, w: HeroWorld, chase = false, big = false, keep = false) {
-    this.readyT = 2.2;
+  /** 11-20 (act-109 普攻起手去延迟): time spent coiling on pressing 斩 in free state before release/藏锋; lungeStart adapts step window */
+  private coilT = 0; private lungeStart = 0;
+  private startCut(n: Cut, w: HeroWorld, chase = false, big = false, keep = false, skip = 0) {
+    this.readyT = 2.2; this.coilT = 0;
     this.chaseOn = chase; this.bigSpin = big; this.keepCut = keep;
     const dur = TUNE[n] / TUNE.atkSpeed; this.set(n, dur); this.next = null; const tgt = this.aim(w);
     this.counterCut = this.counterT > 0; if (this.counterCut) this.counterT = 0;
     // the step in: TUNE.atkLunge × this cut's share; with a foe ahead, stop TUNE.lungeStop short of it
     const full = TUNE.atkLunge * SW[n].lunge;
     this.lungeLen = tgt ? Math.max(0, Math.min(full, tgt.pos.distanceTo(this.pos) - (tgt.d.r + TUNE.lungeStop))) : full;
-    this.a.play(new Action(n, dur, SW[n].imps[0], { warp: CUT_F[n].warp })); this.swished = 0;
+    const act = this.a.play(new Action(n, dur, SW[n].imps[0], { warp: CUT_F[n].warp })); this.swished = 0;
+    // act-109: if the player already coiled in free state before releasing tap, fast-forward the wind-up (never past impact or swish)
+    const maxSkip = Math.max(0, (SW[n].imps[0] - 0.055) * dur);
+    const adv = skip > 0 ? Math.min(skip * 0.85, maxSkip) : 0;
+    if (adv > 0) { this.t = adv; act.t = adv; }
+    this.lungeStart = Math.max(CUT_F[n].step[0], adv / dur);
   }
   private startDash(w: HeroWorld) {
     const s = w.stickWorld(); this.dashDir.copy(s.lengthSq() > 0.04 ? s.normalize() : this.a.fwd());
@@ -342,18 +349,19 @@ export class Hero {
     this.showBlade();
     this.t += dt; this.age += dt; this.keepT = Math.max(0, this.keepT - dt); this.dashTailT = Math.max(0, this.dashTailT - dt); this.linkT = Math.max(0, this.linkT - dt); this.pauseT = Math.max(0, this.pauseT - dt); this.parryT = Math.max(0, this.parryT - dt); this.fullT = Math.max(0, this.fullT - dt); this.counterT = Math.max(0, this.counterT - dt); this.inv = Math.max(0, this.inv - dt); this.dashCd -= dt; this.dartCd -= dt;
     if (this.dartReload > 0) { this.dartReload -= dt; if (this.dartReload <= 0) { this.dartReload = 0; this.dartAmmo = TUNE.dartCharges; } } m.land = Math.max(0, m.land - dt / Math.max(0.05, m.landDur)); this.airT += dt;
-    // buffers: a press counts for a short while (so a press slightly early still chains)
-    const A = B.attack;
+    // buffers: a press counts for a short while (so a press slightly early still chains);
+    // act-109: freeze buffer decay during 一闪 stillness so inputs pressed during the 0.16s beat are never swallowed
+    const A = B.attack, bdt = w.iaiBusy?.() ? 0 : dt;
     if (A.pressed) this.atkEaten = false;
     const tap = A.released && A.last < TUNE.holdToCharge && !this.atkEaten, holding = A.down && A.held >= TUNE.holdToCharge && !this.atkEaten;
-    this.buf.atk = tap ? 0.2 : Math.max(0, this.buf.atk - dt);
-    this.buf.press = A.pressed ? 0.2 : Math.max(0, this.buf.press - dt);
-    this.pendT = Math.max(0, this.pendT - dt);
+    this.buf.atk = tap ? 0.26 : Math.max(0, this.buf.atk - bdt);
+    this.buf.press = A.pressed ? 0.24 : Math.max(0, this.buf.press - bdt);
+    this.pendT = Math.max(0, this.pendT - bdt);
     if (this.flipT >= 0) { this.flipT += dt; if (this.flipT >= FLIP_T) this.flipT = -1; }
-    this.buf.dash = B.dash.pressed ? 0.15 : Math.max(0, this.buf.dash - dt);
+    this.buf.dash = B.dash.pressed ? 0.24 : Math.max(0, this.buf.dash - bdt);
     // (11-17: 0.15 / 0.12 → 0.2 — a link pressed a moment before its window opens still counts)
-    this.buf.sp = B.special.pressed ? 0.2 : Math.max(0, this.buf.sp - dt);
-    this.buf.jump = B.jump.pressed ? 0.2 : Math.max(0, this.buf.jump - dt);
+    this.buf.sp = B.special.pressed ? 0.22 : Math.max(0, this.buf.sp - bdt);
+    this.buf.jump = B.jump.pressed ? 0.22 : Math.max(0, this.buf.jump - bdt);
     // flicker while invulnerable after a hit
     // (the hit blink is for the short i-frames after a hit; a scripted invulnerability — the prologue's fall sets 99 — must not blink:
     //  act-40 用户：「剧情杀的时候主角的模型不见了」— a cutscene froze her on an off frame of the blink)
@@ -428,18 +436,26 @@ export class Hero {
           if (this.buf.sp > 0 && this.has('cutDart') && this.dartAmmo > 0 && this.dartCd <= 0) { this.buf.sp = 0; this.spUsed = true; this.fanNext = true; this.linkT = 0; this.startDart(w); }
           if (canJump && this.has('launch')) { this.buf.jump = 0; this.startLaunch(w); break; }
         }
-        if (canDash) { this.buf.dash = 0; this.startDash(w); break; }
-        if (canJump) { this.buf.jump = 0; this.startJump(); break; }
+        if (canDash) { this.coilT = 0; this.buf.dash = 0; this.startDash(w); break; }
+        if (canJump) { this.coilT = 0; this.buf.jump = 0; this.startJump(); break; }
+        // act-109 (普攻起手去延迟): pressing 斩 in free state snaps aim & coils on frame 0; releasing within holdToCharge fast-forwards
+        // the cut's wind-up by the time already coiled; holding past holdToCharge flows straight into 藏锋 with no unwanted cut
+        if (A.down && !this.atkEaten && !holding) {
+          if (this.coilT <= 0) { this.aim(w); this.readyT = 2.2; }
+          this.coilT += dt;
+          this.vel.multiplyScalar(Math.exp(-dt * 5));
+        }
         // a tap cuts (at the release; a press begun in the last cut carries the combo on); a hold goes straight into the stance, no cut
         if (this.buf.atk > 0) {
-          this.buf.atk = 0;
+          const skip = this.coilT; this.coilT = 0; this.buf.atk = 0;
           // 游身不断招: out of a dash that broke off the combo, the combo goes on from the side
-          if (this.keepOpen) { const n = this.keepNext!; this.keepNext = null; this.keepT = 0; this.pendT = 0; this.startCut(n, w, false, false, true); this.sideCut(w); break; }
+          if (this.keepOpen) { const n = this.keepNext!; this.keepNext = null; this.keepT = 0; this.pendT = 0; this.startCut(n, w, false, false, true, skip); this.sideCut(w); break; }
           // 停顿变招: a beat's pause after the 2nd cut, then a press = the 3rd as a double spin that sweeps everyone outward
-          if (this.pauseT > 0 && this.pauseT < 0.8 && this.has('pause')) { this.pauseT = 0; this.pendT = 0; this.spinsLeft = 2; this.startCut('k3', w, false, true); break; }
-          const n = this.pendT > 0 && this.pendNext ? this.pendNext as Cut : 'k1'; this.pendT = 0; this.startCut(n, w); break;
+          if (this.pauseT > 0 && this.pauseT < 0.8 && this.has('pause')) { this.pauseT = 0; this.pendT = 0; this.spinsLeft = 2; this.startCut('k3', w, false, true, false, skip); break; }
+          const n = this.pendT > 0 && this.pendNext ? this.pendNext as Cut : 'k1'; this.pendT = 0; this.startCut(n, w, false, false, false, skip); break;
         }
-        if (holding) this.tryCharge();
+        if (!A.down) this.coilT = 0;
+        if (holding) { this.coilT = 0; this.tryCharge(); }
         break;
       }
       case 'air': {
@@ -558,16 +574,19 @@ export class Hero {
       }
       case 'plungeL': {
         this.vel.multiplyScalar(Math.exp(-dt * 14));
-        if (this.t > 0.12 && canDash) { this.buf.dash = 0; this.startDash(w); break; }
-        if (this.t > 0.12 && canJump) { this.buf.jump = 0; this.startJump(); break; }
+        if (this.t > 0.1 && canDash) { this.buf.dash = 0; this.startDash(w); break; }
+        if (this.t > 0.1 && canJump) { this.buf.jump = 0; this.startJump(); break; }
+        if (this.t > 0.14 && this.buf.atk > 0) { this.buf.atk = 0; this.startCut('k1', w); break; }
+        if (this.t > 0.18 && sl > 0.4) { this.set('free', 0); break; }
         if (this.t >= this.dur) this.set('free', 0);
         break;
       }
       case 'k1': case 'k2': case 'k3': case 'k4': case 'k5': {
         const cut = this.st as Cut, sw = SW[cut], k = this.t / this.dur, cf = CUT_F[cut];
-        // the lunge: the cut steps in over its step window (11-18: the last part of the wind-up into the blow — the 5th not during its held breath)
-        const ahead = this.a.fwd(), inWin = k > cf.step[0] && k < cf.step[1];
-        this.vel.copy(ahead).multiplyScalar(inWin ? this.lungeLen / (this.dur * (cf.step[1] - cf.step[0])) : 0);
+        // the lunge: the cut steps in over its step window; afterwards damp smoothly instead of dead-stopping like glue
+        const ahead = this.a.fwd(), s0 = this.lungeStart, s1 = cf.step[1], inWin = k > s0 && k < s1 && s1 > s0 + 0.01;
+        if (inWin) this.vel.copy(ahead).multiplyScalar(this.lungeLen / (this.dur * (s1 - s0)));
+        else this.vel.multiplyScalar(Math.exp(-dt * 14));
         // 11-18: the blade's whoosh rides the blow itself (a beat before each impact), not the start of the wind-up
         while (this.swished < sw.imps.length && k >= sw.imps[this.swished] - SWISH_LEAD[cut] / this.dur) {
           this.swished++; cue(SWISH_CUE[cut], cut === 'k5' ? 1 : cut === 'k3' ? 0.8 : 0.6);
@@ -586,26 +605,29 @@ export class Hero {
         const ts = this.t, lastI = sw.imps[sw.imps.length - 1];
         if (ts >= 0.03 && ts <= Math.max(sw.imps[0] * this.dur - 0.1 + TUNE.deflectWin, lastI * this.dur - 0.1 + TUNE.deflectWin * 0.6)) w.guard({ from: this.pos.clone(), yaw: this.a.yaw, range: TUNE.atkRange + sw.range + 0.5 });
         // (11-18: the 2nd cut's left-hand strike is gone — act-42 反馈 found the left hand pushed out in front stiff)
-        if (A.pressed) { this.pendNext = NEXT[cut]; this.pendT = 0.45; }
+        if (A.pressed) {
+          this.pendNext = NEXT[cut]; this.pendT = 0.45;
+          // act-109: when Qi < 1 bar (cannot enter 藏锋 anyway), queue the next cut on press with 0 release latency
+          if (this.qi < QI_COST - 1e-6 && NEXT[cut]) { this.next = NEXT[cut]; this.atkEaten = true; }
+        }
         if (this.buf.atk > 0) this.next = NEXT[cut];
         // a press held in the cut: after the blow lands it turns into the stance (the next cut is not queued by a hold)
         if (this.hitDone && holding) { if (this.tryCharge()) break; }
-        // cancels: after the blow lands a dash or a jump cuts the recovery; the next cut starts a little after the impact
+        // cancels: act-109 去黏手 — dash cancels ANYTIME (including wind-up, like Hades / Dead Cells) so dodging is never locked or swallowed
+        if (canDash) { const nx = this.hitDone ? NEXT[cut] : cut; if (this.has('keep') && nx) { this.keepNext = nx; this.keepT = TUNE.dashTime + TUNE.linkKeep; } this.buf.dash = 0; this.startDash(w); break; }
         // 近身三镖: after the blow, the dart button = three darts from the left hand straight into the face of the foe
         // (11-17: the cut links stay open TUNE.linkCut after the blow — also through the wind-up of the next cut, so mashing 斩 still lets them in)
         const linkOn = this.hitDone || this.linkT > 0;
         if (linkOn && this.buf.sp > 0 && this.has('cutDart') && this.dartAmmo > 0 && this.dartCd <= 0) { this.buf.sp = 0; this.spUsed = true; this.fanNext = true; this.linkT = 0; this.set('free', 0); this.startDart(w); break; }
-        // 游身不断招: a dash out of the combo keeps its place in it for a moment
-        if (this.hitDone && canDash) { const nx = NEXT[cut]; if (this.has('keep') && nx) { this.keepNext = nx; this.keepT = TUNE.dashTime + TUNE.linkKeep; } this.buf.dash = 0; this.startDash(w); break; }
         // 挑空斩: after the blow, jump = a rising cut that throws the light foes up, the hero going up after them
         if (canJump && (this.hitDone || (this.linkT > 0 && this.has('launch')))) { this.buf.jump = 0; if (this.has('launch') && !this.airborne) this.startLaunch(w); else this.startJump(); break; }
         // 停顿变招: the second spin follows the first at once
         if (cut === 'k3' && this.spinsLeft > 1 && k >= 0.9) { this.spinsLeft--; this.startCut('k3', w, false, true); break; }
-        // the next cut waits until this one has played out to TUNE.chainAt (the recovery is part of the rhythm)
+        // the next cut waits until this one has played out to cf.chain (the recovery is part of the rhythm)
         const last = sw.imps[sw.imps.length - 1];
-        if (this.next && k >= Math.max(last + 0.04, cf.chain)) { const n = this.next as Cut; this.buf.atk = 0; this.startCut(n, w); break; }
-        // 11-18 操控: once the blow has stopped at full reach, pushing the stick cancels the recovery and runs
-        if (!this.next && this.buf.atk <= 0 && k >= cf.chain + 0.04 && sl > 0.5 && !holding) { this.spinsLeft = 0; this.set('free', 0); break; }
+        if (this.next && k >= Math.max(last + 0.04, cf.chain)) { const n = this.next as Cut; const sk = A.last > 0 && A.last < TUNE.holdToCharge ? A.last * 0.5 : 0; this.buf.atk = 0; this.startCut(n, w, false, false, false, sk); break; }
+        // 11-18 → act-109 操控: once the blow reaches cf.chain, pushing the stick (> 0.35) cleanly cancels the recovery and runs
+        if (!this.next && this.buf.atk <= 0 && k >= cf.chain && sl > 0.35 && !holding) { this.spinsLeft = 0; this.set('free', 0); break; }
         if (k >= 1) { if (cut === 'k2' && this.has('pause')) this.pauseT = 0.95; this.spinsLeft = 0; this.set('free', 0); }
         break;
       }
@@ -675,6 +697,9 @@ export class Hero {
         if (this.hitDone && !held && !this.relSecond && hasBoon(this.perks, 'twinDraw') && k >= 0.5 && this.startDraw2(w)) break;
         if (this.hitDone && !held && canDash) { this.buf.dash = 0; this.startDash(w); break; }
         if (this.hitDone && !held && canJump) { this.buf.jump = 0; this.startJump(); break; }
+        // act-109 一闪去黏手: once the slash has opened, chain straight into k1 or walk out (no forced 0.27s recovery freeze)
+        if (this.hitDone && !held && k >= 0.44 && this.buf.atk > 0) { this.buf.atk = 0; this.startCut('k1', w); break; }
+        if (this.hitDone && !held && k >= 0.48 && sl > 0.4 && (!hasBoon(this.perks, 'twinDraw') || this.relSecond)) { this.set('free', 0); break; }
         if (k >= 1) { if (this.iaiBonus) this.startNoto(); else this.set('free', 0); }
         break;
       }
@@ -717,6 +742,9 @@ export class Hero {
         }
         if (this.dcutHit && canDash) { this.buf.dash = 0; this.startDash(w); break; }
         if (this.dcutHit && canJump) { this.buf.jump = 0; this.startJump(); break; }
+        // act-109 去黏手: 穿风斩 can chain smoothly into k1 or move-cancel right after the slash lands
+        if (this.dcutHit && this.t >= DCUT_MOVE + 0.06 && this.buf.atk > 0) { this.buf.atk = 0; this.startCut('k1', w); break; }
+        if (this.dcutHit && this.t >= DCUT_MOVE + 0.11 && sl > 0.45) { this.set('free', 0); break; }
         if (this.t >= this.dur) this.set('free', 0);
         break;
       }
@@ -734,6 +762,8 @@ export class Hero {
       m.bank += (bank - m.bank) * Math.min(1, dt * 10);
       m.skid = this.skidT / 0.18; m.brake = this.brakeT / 0.3; m.start = this.startT / 0.16;
       m.ready = this.st === 'free' ? Math.min(1, this.readyT / 0.6) : 0;
+      m.coil = this.st === 'free' ? Math.min(1, this.coilT / 0.12) : 0;
+      if (this.st !== 'free') this.coilT = 0;
       this.prevSl = Math.min(1, w.stickWorld().length());
     }
     m.run = this.st === 'free' ? r : 0; m.phase += sp * (3.0 - 0.5 * r) * dt;

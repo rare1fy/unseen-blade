@@ -84,6 +84,7 @@ import { cue, type Cue } from '../../audio/cues';
 import { CAM } from '../engine/gfx';
 import { GRADE } from '../look/post';
 import { blood } from './blood';
+import { slashArc } from './slashArc';
 import { audio } from '../../audio/audio';
 import type { Platform } from '../../platform/index';
 import { dh } from '../../debug/dh';
@@ -315,16 +316,16 @@ export function roomDefinition(o: RoomIn) {
 }
 
 /** 11-18 per blow: [hit-stop s (× TUNE.hitstop), camera push m, rumble (trauma × TUNE.shake), push-in share, hit sound] */
-// (act-43 反馈：「我感觉屏震还要再大点，普通攻击几乎感觉不到任何效果」→ every push about 2.5×, the light cuts a little rumble of their own
-//  and a longer stop; the rumble's curve in gfx.ts is gentler so the small ones show)
+// (act-109 打击感收口重构: fxImpact no longer injects hidden per-target shake/hitstop — BEAT is the single source of truth, restoring
+//  clear dynamic contrast from feather-light darts → crisp light cuts → heavy finisher / 破势 / 一闪)
 const BEAT: Record<string, [number, number, number, number, Cue]> = {
-  k1: [0.05, 0.15, 0.07, 0, 'hitLight'], k2: [0.05, 0.15, 0.07, 0, 'hitLight'], k3: [0.06, 0.18, 0.09, 0, 'hitLight'], k4: [0.035, 0.11, 0.05, 0, 'hitStab'],
-  k5: [0.11, 0.26, 0.24, 0.06, 'hitHeavy'], heavy: [0.08, 0.2, 0.14, 0.03, 'hitHeavy'], dcut: [0.06, 0.16, 0.08, 0, 'hitHeavy'], launch: [0.07, 0.16, 0.12, 0.02, 'hitHeavy'],
-  kick: [0.07, 0.2, 0.14, 0, 'hitKick'], plunge: [0.09, 0.14, 0.26, 0.05, 'hitHeavy'], rel: [0.08, 0.3, 0.34, 0.08, 'hitIai'], parry: [0.1, 0.22, 0.22, 0.05, 'hitHeavy'],
-  arrow: [0.05, 0.1, 0.07, 0, 'hitLight'], wind: [0.03, 0.06, 0, 0, 'hitLight'], kunai: [0.02, 0.05, 0, 0, 'hitStab'],
+  k1: [0.042, 0.15, 0.09, 0, 'hitLight'], k2: [0.044, 0.16, 0.095, 0, 'hitLight'], k3: [0.056, 0.2, 0.13, 0.015, 'hitLight'], k4: [0.032, 0.12, 0.065, 0, 'hitStab'],
+  k5: [0.115, 0.32, 0.29, 0.075, 'hitHeavy'], heavy: [0.085, 0.24, 0.18, 0.04, 'hitHeavy'], dcut: [0.062, 0.2, 0.12, 0.02, 'hitHeavy'], launch: [0.072, 0.18, 0.15, 0.03, 'hitHeavy'],
+  kick: [0.078, 0.24, 0.18, 0.025, 'hitKick'], plunge: [0.098, 0.18, 0.28, 0.06, 'hitHeavy'], rel: [0.04, 0.36, 0.34, 0.09, 'hitIai'], parry: [0.09, 0.28, 0.28, 0.065, 'hitHeavy'],
+  arrow: [0.052, 0.12, 0.085, 0, 'hitLight'], wind: [0.028, 0.06, 0.03, 0, 'hitLight'], kunai: [0.014, 0.045, 0.018, 0, 'hitStab'],
   // 11-18 四本新刀谱: 断云's two quick cuts in the air, its third, its slam into the ground; 掠地; 踏顶; 牵红's yank
-  acut: [0.035, 0.12, 0.05, 0, 'hitLight'], acutF: [0.06, 0.2, 0.1, 0.02, 'hitHeavy'], acutS: [0.1, 0.24, 0.26, 0.05, 'hitHeavy'],
-  swoop: [0.07, 0.2, 0.12, 0.02, 'hitHeavy'], stomp: [0.06, 0.14, 0.16, 0.02, 'hitKick'], reel: [0.03, 0.1, 0.03, 0, 'hitStab'],
+  acut: [0.034, 0.12, 0.06, 0, 'hitLight'], acutF: [0.065, 0.22, 0.14, 0.03, 'hitHeavy'], acutS: [0.105, 0.26, 0.28, 0.06, 'hitHeavy'],
+  swoop: [0.072, 0.22, 0.15, 0.03, 'hitHeavy'], stomp: [0.065, 0.16, 0.18, 0.025, 'hitKick'], reel: [0.028, 0.1, 0.035, 0, 'hitStab'],
 };
 /** 11-18 whose voice a foe cries with (the audio picks the takes and the pitch): 0 a man, 1 a big man, 2 the chief, 3 a hound */
 const voiceOf = (f: Foe) => isBoss(f) ? 2 : f.d.role === 'hound' ? 3 : f.d.role === 'brute' || f.elite ? 1 : 0;
@@ -1351,6 +1352,8 @@ export class ActShow {
   private buildRoom(first: boolean) { return runRoomBuild(this.roomSteps(first)); }
   private *roomSteps(first: boolean): Generator<void | Promise<void>, void> {
     blood.clear();
+    slashArc.clear();
+    this.splitK = 0; GRADE.split = 0;
     this.duel?.newRoom(); for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = []; this.entering.length = 0;
     this.falling = [];
     this.gates?.dispose(); this.gates = null; this.pieces?.dispose(); this.pieces = null; this.leaves?.dispose(); this.leaves = null; this.clearNpcs();
@@ -1764,14 +1767,19 @@ export class ActShow {
   private dmgMul(kind: string) { void kind; return 1; }   // (11-18: 搏命 — a number you never saw — went with the other plain-number boons)
   /** 11-18 打击感分档 (用户：「一招一式节奏都差不多」「3C总之都要再加强」): a blow's hit-stop (× TUNE.hitstop), the camera pushed along it,
    *  the rumble, the push-in, its sound; a kill in it holds a little longer and slows a moment */
-  private killBeat = false;
+  private killBeat = false; private bigKill = false;
   private feel(kind: string, heavy: boolean, n: number, dir?: THREE.Vector3) {
-    if (!n) { this.killBeat = false; return; }
+    if (!n) { this.killBeat = false; this.bigKill = false; return; }
     const b = BEAT[heavy && /^k[1-4]$/.test(kind) ? 'heavy' : kind] ?? (heavy ? BEAT.heavy : BEAT.k1), more = Math.min(3, n - 1), sh = TUNE.shake / 2;
-    hitstop((b[0] * (1 + 0.15 * more) + (this.killBeat ? 0.03 : 0)) * TUNE.hitstop);
-    if (dir) this.camKick(dir, b[1] * sh); if (b[2]) shake(b[2] * TUNE.shake); if (b[3]) this.camPunch(b[3] * sh);
-    if (this.killBeat) slowmo(0.14, 0.4);
-    cue(b[4], (heavy ? 1.0 : 0.7) + 0.1 * more, this.fleshHit ? 1 : 0); this.fleshHit = false; this.killBeat = false;
+    hitstop((b[0] * (1 + 0.14 * more) + (this.killBeat ? 0.028 : 0)) * TUNE.hitstop);
+    if (dir) this.camKick(dir, b[1] * (1 + 0.1 * more) * sh);
+    if (b[2]) shake(b[2] * (1 + 0.12 * more) * TUNE.shake);
+    if (b[3]) this.camPunch(b[3] * sh);
+    // act-109 去黏手: plain mob kills stay snappy (hitstop + split, no 0.14s molasses slowmo); slowmo reserved for elites/bosses/heavy finishers
+    if (this.killBeat) { if (this.bigKill || heavy) slowmo(0.14, 0.4); this.splitScreen(0.32); }
+    else if (kind === 'k5' || kind === 'rel' || kind === 'acutS') this.splitScreen(kind === 'rel' ? 0.6 : 0.35);
+    const step = kind === 'k2' ? 2 : kind === 'k3' ? 3 : kind === 'k4' ? 4 : 1;
+    cue(b[4], (heavy ? 1.0 : 0.7) + 0.1 * more, this.fleshHit ? step : 0); this.fleshHit = false; this.killBeat = false; this.bigKill = false;
     this.platform.vibrate(heavy ? 'medium' : 'light');
     this.hud.btnKick('attack', heavy ? 1 : 0.55, heavy ? 0xffb060 : 0xfff2d0);   // act-29: the cut button answers the hit
   }
@@ -1872,7 +1880,7 @@ export class ActShow {
     }
     if (this.props) this.applyProps(this.props.hitArc(o.from, o.yaw, o.range, o.half, { src: 'hero', heavy: true }, this.targets()));
     this.leaves?.blast(o.from.x + fx, o.from.z + fz, 1.6, 4);
-    trailSeg(o.from.clone().add(V3(fx * 0.6, 0.2, fz * 0.6)), o.from.clone().add(V3(fx * 1.2, 2.4, fz * 1.2)), 0xffe8a0, 0.2, { life: 0.3, bright: 2.4, spark: 0.5 });
+    slashArc.swing({ kind: 'launch', from: o.from, follow: this.hero.pos, yaw: o.yaw, range: o.range, half: o.half });
     this.feel('launch', true, n, V3(fx, 0, fz)); return n;
   }
   /** 飞踢: the first foe in front takes the kick and is sent flying the way the hero was dashing (into walls, jars, others) */
@@ -1891,7 +1899,7 @@ export class ActShow {
       const fly = this.launchable(best), sp = fly ? 15 : 5 / Math.max(1, best.d.mass * 0.6);
       best.vel.copy(o.dir).setY(0).normalize().multiplyScalar(sp); if (fly) { best.airV = 4.2; best.pos.y = Math.max(best.pos.y, 0.05); }
     }
-    fxImpact(best.a.chest(), 0xfff0d0, 1.4, { dir: o.dir.clone() }); this.feel('kick', true, 1, o.dir.clone());
+    fxImpact(best.a.chest(), 0xfff0d0, 1.2, { dir: o.dir.clone(), ground: false, stop: false, shake: false }); this.feel('kick', true, 1, o.dir.clone());
     this.leaves?.blast(best.pos.x, best.pos.z, 1.5, 6);
     return 1;
   }
@@ -2075,9 +2083,7 @@ export class ActShow {
   private airCut(o: { foe: Foe | null; from: THREE.Vector3; yaw: number; dmg: number; n: number }) {
     const fx = Math.sin(o.yaw), fz = Math.cos(o.yaw), f = o.foe, last = o.n >= 3;
     const at = f ? f.a.chest() : o.from.clone().add(V3(fx * 1.0, 0.9, fz * 1.0)), side = V3(fz, 0, -fx);
-    // the cut's line across him: flat for the first, rising back for the second, the third down across
-    const a = at.clone().addScaledVector(side, o.n === 2 ? -0.55 : 0.55).add(V3(0, o.n === 2 ? -0.25 : last ? 0.55 : 0.15, 0)), b = at.clone().addScaledVector(side, o.n === 2 ? 0.55 : -0.55).add(V3(0, o.n === 2 ? 0.25 : last ? -0.55 : -0.1, 0));
-    trailSeg(a, b, last ? 0xffb0c8 : 0xffd8e6, last ? 0.16 : 0.11, { life: 0.2, bright: last ? 2.8 : 2.2, spark: 0.4 });
+    slashArc.swing({ kind: last ? 'acutF' : 'acut', from: o.from, follow: this.hero.pos, yaw: o.yaw, range: 1.75, half: 1.15, n: o.n });
     if (!f || f.st === 'dead') { cue('whoosh', 0.5); return 0; }
     this.hitFoe(f, o.dmg, o.from.clone().setY(0), { knock: 0, heavy: last, kind: last ? 'acutF' : 'acut', stagger: 0.6 });
     if ((f.st as string) !== 'dead') { if (last) { f.airV = -16; this.lofted.delete(f); } else f.airV = 0; }
@@ -2275,8 +2281,14 @@ export class ActShow {
     if (fallNow) after(0.25, () => void this.prologueFall());   // (the blow lands, a beat, then the scripted fall)
     if (cut && !died && f.inv <= 0 && hasBoon(this.perks, 'bleed') && f.kind !== 'dummy') { f.bleed = Math.min(5, f.bleed + 1); f.bleedT = 0; }
     // 11-18 秘传 枭首: the head comes off — a crossing red cut, 「斩」 over the body (the blood is doubled below)
-    if (executed) { const c = f.a.chest(); trailSeg(c.clone().add(V3(-0.7, 0.55, 0)), c.clone().add(V3(0.7, -0.5, 0)), 0xff3a2a, 0.16, { life: 0.35, bright: 2.8, spark: 0.6 }); trailSeg(c.clone().add(V3(-0.7, -0.5, 0)), c.clone().add(V3(0.7, 0.55, 0)), 0xffe0d0, 0.1, { life: 0.3, bright: 2.6 }); popPix('斩', f.a.head().add(V3(0, 0.75, 0)), { color: '#ff5a4a', h: 0.85, big: true, life: 0.9, rise: 0.8 }); cue('gore', 0.9); }
-    if (o.kind !== 'school') fxImpact(p, o.heavy ? 0xff6a3a : o.kind === 'ultTick' ? 0xffc890 : 0xfff0d0, o.kind === 'dart' ? 0.4 : o.kind === 'ultTick' ? 0.28 : o.heavy ? 1.3 : 1.0, { dir, chips: o.heavy ? [0xff5a3a, 0x2b3147] : undefined });
+    if (executed) { const c = f.a.chest(); trailSeg(c.clone().add(V3(-0.7, 0.55, 0)), c.clone().add(V3(0.7, -0.5, 0)), 0xff3a2a, 0.16, { life: 0.35, bright: 2.8, spark: 0.6 }); trailSeg(c.clone().add(V3(-0.7, -0.5, 0)), c.clone().add(V3(0.7, 0.55, 0)), 0xffe0d0, 0.1, { life: 0.3, bright: 2.6 }); popPix('斩', f.a.head().add(V3(0, 0.75, 0)), { color: '#ff5a4a', h: 0.85, big: true, life: 0.9, rise: 0.8 }); cue('gore', 0.9); this.splitScreen(0.55); }
+    // act-109 打击感收口: fxImpact no longer triggers hidden shake/hitstop or ground rings on light hits/darts; feel() owns all timing
+    if (o.kind !== 'school') {
+      const groundRing = o.heavy && (o.kind === 'k5' || o.kind === 'plunge' || o.kind === 'acutS' || o.kind === 'rel' || o.kind === 'parry' || o.kind === 'ult');
+      const pw = o.kind === 'dart' ? 0.4 : o.kind === 'ultTick' ? 0.35 : o.heavy ? 1.2 : 0.72;
+      fxImpact(p, o.heavy ? 0xff6a3a : o.kind === 'ultTick' ? 0xffc890 : 0xfff0d0, pw, { dir, ground: groundRing, chips: o.heavy ? [0xff5a3a, 0x2b3147] : undefined, stop: false, shake: false });
+      f.a.jolt(dir, o.kind === 'dart' || o.kind === 'ultTick' ? 0.35 : o.heavy ? 1.15 : 0.6);
+    }
     // act-23 (用户：「砍上去要溅血才有感觉」): blood from the wound along the blade's way; more for the heavy blows and the killing one
     if (f.kind !== 'dummy' && o.kind !== 'school') { const n = o.kind === 'dart' ? 5 : o.kind === 'ultTick' ? 7 : o.kind === 'rel' ? 42 : o.heavy ? 28 : 16; blood.spray(p, dir, (died ? n + 20 : n) * (executed ? 2 : 1), o.heavy || died ? 1.35 : 1); this.fleshHit = true; }
     popPix(String(d), f.a.head().add(o.kind === 'ultTick' ? V3(R(-0.55, 0.55), R(0.05, 0.6), 0) : V3(R(-0.2, 0.2), 0.35, 0)), { color: o.kind === 'rel' || o.kind === 'ult' ? '#ffe8a0' : o.kind === 'ultTick' ? '#ffd890' : o.heavy ? '#ff8a3a' : d >= 14 ? '#ffd060' : '#fff6e0', h: o.kind === 'rel' || o.kind === 'ult' ? 0.95 : o.kind === 'ultTick' ? 0.42 : o.heavy ? 0.66 : 0.5, big: o.heavy, life: o.kind === 'rel' || o.kind === 'ult' ? 1.2 : o.kind === 'ultTick' ? 0.5 : 0.9, rise: 0.9 });
@@ -2291,12 +2303,13 @@ export class ActShow {
     if (o.counter) {
       o = { ...o, dmg: Math.round(o.dmg * TUNE.counterMul), heavy: true, knock: Math.max(o.knock, 1.4) };
       const tip = o.from.clone().add(V3(fx * 1.2, 1.0, fz * 1.2));
-      fxImpact(tip, 0xffd060, 1.6, { dir: V3(fx, 0, fz) }); fxRing(tip, 0xffe090, 1.4, { life: 0.3 } as never); cue('crit', 1.0);
+      fxImpact(tip, 0xffd060, 1.25, { dir: V3(fx, 0, fz), ground: false, stop: false, shake: false }); fxRing(tip, 0xffe090, 1.4, { life: 0.3 } as never); cue('crit', 1.0);
     }
-    // a thrust: a straight streak of light from the point straight ahead (the top-down camera reads 「刺」 by this line), a burst at its end
+    // act-109 体素硬边刀弧面片: exact-reach blade crescent/lance synced to every swing, frozen crisply during hitstop
+    slashArc.swing({ kind: o.kind, from: o.from, follow: this.hero.pos, yaw: o.yaw, range: o.range, half: o.half, n: o.n, counter: o.counter, bleed: hasBoon(this.perks, 'bleed'), wide: o.kind === 'k3' && hasBoon(this.perks, 'spin') });
+    // a thrust: a straight burst at the point (the lance itself is now drawn by slashArc)
     if (o.kind === 'k4') {
-      const second = (o.n ?? 1) > 1, a = o.from.clone().add(V3(fx * 0.7, 1.0, fz * 0.7)), b = o.from.clone().add(V3(fx * (o.range + (second ? 0.8 : 0.4)), 1.0, fz * (o.range + (second ? 0.8 : 0.4))));
-      trailSeg(a, b, 0xeaf4ff, second ? 0.13 : 0.1, { life: second ? 0.22 : 0.16, bright: second ? 3.0 : 2.4, spark: 0.4 });
+      const second = (o.n ?? 1) > 1, b = o.from.clone().add(V3(fx * (o.range + (second ? 0.8 : 0.4)), 1.0, fz * (o.range + (second ? 0.8 : 0.4))));
       fxSparks(b, 0xffffff, second ? 10 : 6, second ? 4 : 3, { dir: V3(fx, 0, fz), dirK: 0.8 });
       cue('whoosh', second ? 0.8 : 0.6);
       // 11-18 秘传 透骨: the second thrust runs on as a long white line through everyone in a row (the line is the hit)
@@ -2343,12 +2356,13 @@ export class ActShow {
     }
     if (this.props) this.applyProps(this.props.hitSeg(o.a, o.b, o.r, { src: 'hero', heavy: true }, this.targets()));   // act-19
     if ((o.kind ?? 'rel') === 'rel' || o.kind === 'rel2') {
-      // 11-18 一闪: the line opens along her whole path — a long white blade-light, a thin gold one inside, sparks along it
-      const ext = ab.clone().setY(0).normalize().multiplyScalar(0.8), a0 = o.a.clone().sub(ext).setY(1.0), b0 = o.b.clone().add(ext).setY(1.0);
-      trailSeg(a0, b0, 0xffffff, 0.42, { life: 0.55, bright: 3.4, spark: 1 }); trailSeg(a0.clone().setY(1.04), b0.clone().setY(1.04), 0xffd890, 0.12, { life: 0.7, bright: 3, spark: 0.4 });
-      for (let i = 0; i <= 6; i++) fxSparks(a0.clone().lerp(b0, i / 6), 0xfff4d8, 5, 3);
+      // 11-18 一闪 → act-109: sculpted wide white-gold Iai cleave ribbon + sparks along her path
+      const ext = ab.clone().setY(0).normalize().multiplyScalar(0.8), a0 = o.a.clone().sub(ext), b0 = o.b.clone().add(ext);
+      slashArc.line({ a: a0, b: b0, width: 1.05, y: 1.0, palette: 'iai', sweep: 0.025, fade: 0.34 });
+      for (let i = 0; i <= 6; i++) fxSparks(a0.clone().lerp(b0, i / 6).setY(1.0), 0xfff4d8, 5, 3);
+    } else if (o.kind === 'dcut' || o.kind === 'swoop') {
+      slashArc.line({ a: o.a, b: o.b, width: o.kind === 'dcut' ? 0.78 : 0.85, y: o.kind === 'dcut' ? 0.72 : 0.86, palette: o.kind === 'dcut' ? 'dcut' : 'swoop', sweep: 0.03, fade: 0.24 });
     } else trailSeg(o.a.clone().setY(1.0), o.b.clone().setY(1.0), o.col ?? 0xff7a4a, 0.3, { life: 0.3, bright: 2.2, spark: 0.6 });
-    if (o.kind === 'dcut') trailSeg(o.a.clone().setY(0.55), o.b.clone().setY(0.55), 0xeaf8ff, 0.12, { life: 0.4, bright: 2.6, spark: 0.3 });
     // arrows along the lunge's path are cut too
     const cut = this.arrows.filter(a => { if (a.dead || a.friendly) return false; const t = Math.max(0, Math.min(1, a.p.clone().sub(o.a).setY(0).dot(ab) / L2)), q = o.a.clone().addScaledVector(ab, t); return Math.hypot(a.p.x - q.x, a.p.z - q.z) < o.r + 0.4; });
     this.deflect(cut, Math.atan2(ab.x, ab.z));
@@ -2368,10 +2382,10 @@ export class ActShow {
         if (Math.abs(d) < best) { best = Math.abs(d); ang = Math.atan2(dx, dz); }
       }
       const dir = V3(Math.sin(ang), 0, Math.cos(ang));
-      fxImpact(a.p.clone(), 0xfff4d8, 1.25, { dir }); fxRing(a.p.clone(), 0xffe6a0, 0.7, { life: 0.25 } as never);
+      fxImpact(a.p.clone(), 0xfff4d8, 1.0, { dir, ground: false, stop: false, shake: false }); fxRing(a.p.clone(), 0xffe6a0, 0.7, { life: 0.25 } as never);
       a.deflect(dir);
     }
-    hitstop(TUNE.deflectStop); slowmo(TUNE.deflectSlow, 0.3); shake(0.22 * TUNE.shake);
+    hitstop(TUNE.deflectStop); slowmo(TUNE.deflectSlow, 0.3); shake(0.22 * TUNE.shake); this.splitScreen(0.42);
     cue('swishHeavy', 0.7); cue('exitChime', 0.35); this.platform.vibrate('medium'); this.addIntent();
     this.hero.gainQi(Math.min(0.5, 0.25 * cut.length));   // (11-17 气: a batted arrow is a quarter of a bar)
   }
@@ -2436,18 +2450,32 @@ export class ActShow {
     }
     this.flashScreen(o.soft ? 0.08 : 0.32, 0xfff4dc);   // (11-18 追步: the second draw only glints — one full flash a draw is enough)
   }
-  /** she has arrived and stands: the world holds its breath 0.25 s (time all but stopped, the sound fallen away but her own), then
-   *  the line opens along her path and everyone on it is cut at once — the sweep, its blood, its numbers, the stop and the push */
+  /** she has arrived and stands: when foes/targets lie along her path, the world holds its breath (TUNE.iaiBeat), then
+   *  the line opens and everyone on it is cut at once; act-109: empty air whiffs cleanly with zero stillness freeze */
   private iaiCut(o: { a: THREE.Vector3; b: THREE.Vector3; r: number; dmg: number; knock: number }) {
+    const ab = o.b.clone().sub(o.a).setY(0), L2 = Math.max(1e-4, ab.lengthSq());
+    const hasHit = this.foes.some(f => {
+      if (f.st === 'dead') return false;
+      const t = Math.max(0, Math.min(1, f.pos.clone().sub(o.a).setY(0).dot(ab) / L2));
+      const qx = o.a.x + ab.x * t, qz = o.a.z + ab.z * t;
+      return Math.hypot(f.pos.x - qx, f.pos.z - qz) <= o.r + f.d.r;
+    });
+    if (!hasHit || TUNE.iaiBeat <= 0.01) {
+      this.sweep({ ...o, kind: 'rel' });
+      return;
+    }
     const BEAT_S = TUNE.iaiBeat; this.iaiHeld = true;
     hitstop(BEAT_S + 0.02); audio.stillness(BEAT_S); this.camPunch(0.03);
-    after(BEAT_S, () => { this.iaiHeld = false; if (!this.hero?.alive) return; this.flashScreen(0.45, 0xffffff); this.sweep({ ...o, kind: 'rel' }); }, { real: true });
+    after(BEAT_S, () => { this.iaiHeld = false; if (!this.hero?.alive) return; this.flashScreen(0.45, 0xffffff); this.splitScreen(0.78); this.sweep({ ...o, kind: 'rel' }); }, { real: true });
   }
-  /** 11-18: a full-screen flash (the grade's flash, fading over ~0.2 s) and the stance's dimming (vignette + a little desaturation) */
-  private flashK = 0; private vigBase = -1; private dimK = 0; private tutCam = 0;
+  /** 11-18: a full-screen flash (the grade's flash, fading over ~0.2 s) and the stance's dimming (vignette + a little desaturation);
+   *  act-109: restrained pixel-snapped radial chromatic split (GRADE.split) on highlight impacts, decaying briskly */
+  private flashK = 0; private splitK = 0; private vigBase = -1; private dimK = 0; private tutCam = 0;
   private flashScreen(k: number, col: number) { this.flashK = Math.max(this.flashK, k); GRADE.flashCol.setHex(col); }
+  private splitScreen(k: number) { this.splitK = Math.max(this.splitK, Math.min(1, k)); }
   private flashStep(rdt: number) {
     if (this.flashK > 0) { this.flashK = Math.max(0, this.flashK - rdt * 4); GRADE.flash = this.flashK * 0.75; }
+    if (this.splitK > 0) { this.splitK = Math.max(0, this.splitK - rdt * 6.5); GRADE.split = this.splitK * 0.9; }
   }
   private dimTo(want: number, rdt: number) {
     this.dimK += (want - this.dimK) * Math.min(1, rdt * (want > this.dimK ? 5 : 9));
@@ -2477,7 +2505,7 @@ export class ActShow {
     if (atk) { trailSeg(h.a.chest(), atk.a.chest(), 0xfff2c8, 0.2, { life: 0.25, bright: 3, spark: 0.6 }); this.hitFoe(atk, TUNE.iaiReflect, h.pos.clone(), { knock: 2.0, heavy: true, kind: 'parry' }); }
     for (const a of this.arrows) if (!a.dead && !a.friendly && a.p.distanceTo(h.pos.clone().setY(1.25)) < 1.8) a.deflect(a.v.clone().multiplyScalar(-1));
     if (hasBoon(this.perks, 'burst')) this.burstOut(h.pos.clone());   // 11-18 秘传 崩劲
-    hitstop(0.16 * TUNE.hitstop); slowmo(0.35, 0.25); shake(0.35 * TUNE.shake);
+    hitstop(0.1 * TUNE.hitstop); slowmo(0.18, 0.3); shake(0.35 * TUNE.shake); this.splitScreen(0.72);
     fxRing(h.pos.clone().setY(0.9), 0xfff2c8, 1.6, { life: 0.35 } as never); fxRing(h.pos.clone().setY(0.08), 0xffd890, 2.6, { life: 0.5 } as never); fxSparks(h.a.chest(), 0xfff2c8, 24, 7);
     popPix('破', h.a.head().add(V3(0, 0.5, 0)), { color: '#fff0c0', h: 0.95, big: true, life: 0.9, rise: 1.0 });
     cue('parry', 1); cue('cutHeavy', 0.9); this.platform.vibrate('heavy'); this.tut.parried();
@@ -2603,7 +2631,7 @@ export class ActShow {
     }
     const fin = Math.max(1, TUNE.ultDmg - tickDmg * ULT_TICKS);
     for (const f of targets) if (f.st !== 'dead') { blood.spray(f.a.chest(), f.pos.clone().sub(C).setY(0).normalize(), 30, 1.5); this.hitFoe(f, fin, C.clone(), { knock: 1.8, heavy: true, kind: 'ult' }); }
-    hitstop(0.22); slowmo(0.6, 0.3); shake(0.8 * TUNE.shake); this.camPunch(0.1); this.flashScreen(0.42, 0xffffff);
+    hitstop(0.22); slowmo(0.6, 0.3); shake(0.8 * TUNE.shake); this.camPunch(0.1); this.flashScreen(0.42, 0xffffff); this.splitScreen(0.95);
     fxRing(C.clone().setY(0.08), 0xfff0c0, R + 1.5, { life: 0.7 } as never); fxRing(C.clone().setY(0.9), 0xffffff, R, { life: 0.4 } as never);
     cue('ultSlash', 1.2); cue('hitIai', 1, 1); cue('boom', 0.6); this.platform.vibrate('heavy');
     await waitReal(0.25);
@@ -2673,7 +2701,7 @@ export class ActShow {
     const fell = this.falling.some(x => x.f === f);
     if (f.elite) this.eliteKills++; if (isBoss(f)) this.bossKilled = true;
     // 11-18: the kill holds the blow a little longer (feel()); the cry and the gush now, the body on the ground a moment later
-    if (!fell) { this.killBeat = true; after(0.32, () => cue('bodyFall', 0.7)); }
+    if (!fell) { this.killBeat = true; this.bigKill = this.bigKill || isBoss(f) || !!f.elite; after(0.32, () => cue('bodyFall', 0.7)); }
     // act-23: a pool spreads under the body as it settles
     if (f.kind !== 'dummy' && !fell) { const bx = f.pos.x, bz = f.pos.z, sz = isBoss(f) ? 2.0 : f.elite ? 1.4 : 1.05; after(0.45, () => blood.pool(bx, bz, sz)); cue('hitKill', isBoss(f) ? 1.3 : 1); cue('foeDeath', 1, voiceOf(f)); }
     if (!fell) this.leaves?.blast(f.pos.x, f.pos.z, 1.3, 2.5);
@@ -2695,7 +2723,7 @@ export class ActShow {
       after(0.32, () => { if (!h.alive) return; h.hp = Math.min(h.maxHp, h.hp + heal); this.hud.flask.heal({ hp: h.hp, maxHp: h.maxHp }); h.a.tint(0xff4a3a, 0.35); popPix(`+${heal}`, h.a.head().add(V3(0, 0.3, 0)), { color: '#ff8a7a', h: 0.42, life: 0.7 }); });
     }
     const left = this.foes.filter(x => x.st !== 'dead').length;
-    if (boss) { slowmo(1.1, 0.25); shake(0.6 * TUNE.shake); cue('win', 0.9); }
+    if (boss) { slowmo(1.1, 0.25); shake(0.6 * TUNE.shake); this.splitScreen(0.85); cue('win', 0.9); }
     if (!left && this.phase === 'fight') {
       const lastWave = this.wave >= (this.plan?.waves.length ?? 1) - 1;
       if (!boss) slowmo(lastWave ? 0.7 : 0.35, 0.3);
@@ -2734,7 +2762,7 @@ export class ActShow {
     popPix(`-${dmg}`, this.hero.a.head().add(V3(0, 0.3, 0)), { color: '#ff5a4a', h: 0.5, life: 0.8 });
     fxSparks(this.hero.a.chest(), 0xff4a3a, 12, 4); this.hero.a.tint(0xff3020, 0.9);
     { const away = this.hero.pos.clone().sub(from).setY(0); if (away.lengthSq() < 1e-4) away.set(0, 0, 1); blood.spray(this.hero.a.chest(), away.normalize(), 7, 0.8); }
-    hitstop(0.07 * TUNE.hitstop); shake(0.42 * TUNE.shake); cue('hurt', 0.9); this.platform.vibrate('heavy');
+    hitstop(0.07 * TUNE.hitstop); shake(0.42 * TUNE.shake); this.splitScreen(0.5); cue('hurt', 0.9); this.platform.vibrate('heavy');
     if (!this.hero.alive) this.dead();
   }
   // ------------------------------------------------------------ clear → pick → doors → leave
@@ -2939,7 +2967,8 @@ export class ActShow {
       if (this.previewOn && this.demo.on) { this.demo.update(PAUSE.rdt); this.hud.update(PAUSE.rdt, this.inp, []); }   // (11-19: 已得's ghost, on real time)
       return;
     }   // the pause menu runs on its own (real time); the world gets nothing (11-18: a hideout name over the menu's pages hidden)
-    this.inp.frame(rdt);
+    // act-109: freeze hold-timer accumulation during hitstop / 一闪 stillness so quick taps never get misread as a 藏锋 hold
+    this.inp.frame(rdt, FX.hitstop > 0 || this.iaiHeld);
     this.padScreens(rdt);
     if (this.phase === 'opening' || this.phase === 'title') return;   // opening.ts / title.ts run the start screen
     // act-20: a cutscene or a conversation — the timeline / the dialogue run, the people idle, nothing fights

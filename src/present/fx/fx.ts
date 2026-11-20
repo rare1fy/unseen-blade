@@ -39,20 +39,21 @@ export function fxChips(p: THREE.Vector3, cols: Col[], n = 10, o: { dir?: THREE.
   }
 }
 /** The main hit: core flash + hot sparks + billboard shockwave + ground ring + decal + chips + smoke + speed lines + light + camera. */
-export function fxImpact(p: THREE.Vector3, color: Col, power = 1, o: { dir?: THREE.Vector3; ground?: boolean; chips?: Col[]; stop?: boolean } = {}) {
-  const c = C(color), pw = clamp(power, 0.4, 3.2);
-  fxGlow(p, c, Math.min(0.9, 0.36 * pw), 0.12 + 0.04 * pw, 0.6);
-  fxFlare(p, c, Math.min(1.8, 0.7 * pw), 0.18 + 0.04 * pw);
-  fxSparks(p, c, Math.round(12 + 10 * pw), 5 + 3 * pw, { hot: true, dir: o.dir, dirK: 0.8, stretch: 0.07, life: 0.4 + 0.15 * pw });
-  fxRing(p, c, 1.3 + 0.9 * pw, { billboard: true, life: 0.28 + 0.08 * pw, width: 0.2, fill: 0.03, bright: 1.8 });
+export function fxImpact(p: THREE.Vector3, color: Col, power = 1, o: { dir?: THREE.Vector3; ground?: boolean; chips?: Col[]; stop?: boolean; shake?: boolean } = {}) {
+  const c = C(color), pw = clamp(power, 0.35, 3.2), light = pw < 0.85;
+  fxGlow(p, c, Math.min(0.9, 0.36 * pw), 0.1 + 0.04 * pw, light ? 0.45 : 0.6);
+  fxFlare(p, c, Math.min(1.8, 0.68 * pw), 0.14 + 0.04 * pw);
+  fxSparks(p, c, Math.round((light ? 7 : 12) + 9 * pw), 4.5 + 3 * pw, { hot: true, dir: o.dir, dirK: o.dir ? 1.05 : 0.8, stretch: 0.075, life: 0.32 + 0.14 * pw });
+  if (!light) fxRing(p, c, 1.1 + 0.85 * pw, { billboard: true, life: 0.24 + 0.07 * pw, width: 0.18, fill: 0.03, bright: 1.7 });
   if (o.ground !== false) { fxRing(V3(p.x, 0.04, p.z), c, 1.4 + 1.1 * pw, { life: 0.5 + 0.1 * pw, width: 0.18, bright: 1.6 }); decalFx(V3(p.x, 0, p.z), { radius: 1 + 0.6 * pw, alpha: 0.45, life: 2.2 }); }
   if (o.chips) fxChips(p, o.chips, Math.round(6 + 8 * pw), { dir: o.dir, speed: 4 + pw * 2, glow: 0.5 });
-  fxSmoke(V3(p.x, 0.15, p.z - 0.2), 0x4a504c, Math.round(2 + 2 * pw), { s: 0.28 + 0.08 * pw, alpha: 0.28, r: 0.5, up: 0.6 });
-  for (let i = 0; i < Math.round(6 + 6 * pw); i++) { const d = V3(R(-1, 1), R(-0.6, 1), R(-0.3, 0.6)).normalize(); PADD.emit({ p: p.clone().addScaledVector(d, 0.2), v: d.multiplyScalar(R(9, 15) * (0.7 + 0.3 * pw)), s0: 0.06, s1: 0.02, life: R(0.1, 0.18), c0: WHITE, c1: c, bright: 2.0, tile: TILE.streak, stretch: 0.045, drag: 4 }); }
-  fxEmbers(p, c, Math.round(4 + 5 * pw), { r: 0.35, life: 0.9 });
+  if (!light) fxSmoke(V3(p.x, 0.15, p.z - 0.2), 0x4a504c, Math.round(2 + 2 * pw), { s: 0.28 + 0.08 * pw, alpha: 0.26, r: 0.5, up: 0.6 });
+  for (let i = 0; i < Math.round((light ? 4 : 6) + 5 * pw); i++) { const d = V3(R(-1, 1), R(-0.6, 1), R(-0.3, 0.6)).normalize(); if (o.dir) d.addScaledVector(o.dir, 0.6).normalize(); PADD.emit({ p: p.clone().addScaledVector(d, 0.18), v: d.multiplyScalar(R(9, 15) * (0.7 + 0.3 * pw)), s0: 0.055, s1: 0.018, life: R(0.09, 0.16), c0: WHITE, c1: c, bright: 2.0, tile: TILE.streak, stretch: 0.05, drag: 4 }); }
+  if (!light) fxEmbers(p, c, Math.round(4 + 4 * pw), { r: 0.35, life: 0.8 });
   if (pw > 1.1) after(0.09, () => fxRing(p, c, 0.9 + 0.7 * pw, { billboard: true, life: 0.3, width: 0.12, fill: 0, bright: 2 }));
-  lightPulse(V3(p.x, 0.25, p.z + 1.2), c, Math.min(2.2, 0.9 + 0.5 * pw), 0.22 + 0.06 * pw, 4 + pw);
-  shake(0.12 + 0.12 * pw); if (o.stop !== false) hitstop(0.035 + 0.035 * pw);
+  if (!light) lightPulse(V3(p.x, 0.25, p.z + 1.2), c, Math.min(2.2, 0.9 + 0.5 * pw), 0.2 + 0.06 * pw, 4 + pw);
+  if (o.shake !== false) shake(0.12 + 0.12 * pw);
+  if (o.stop !== false) hitstop(0.035 + 0.035 * pw);
 }
 /** A continuous ribbon of glow between two points (called every frame by moving objects so trails never look dotted). */
 export function trailSeg(a: THREE.Vector3, b: THREE.Vector3, color: Col, size = 0.2, o: { life?: number; core?: THREE.Color; bright?: number; spark?: number } = {}) {

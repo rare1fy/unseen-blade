@@ -369,8 +369,9 @@ const H: Partial<Record<Cue, (k: number, x?: number) => void>> = {
   // is ONE composed sound (GameProtos/sfx/make_hits_v4.py — the edge, the cut into flesh, a touch of low, a 0.3–0.6 s tail, every layer
   // on one onset), five tiers × 3 takes, ±3 % pitch, on her own bus (the world steps back under it). x = 0: only wood was hit (the dummies)
   cut: (k, x) => H.hitLight!(k, x), cutHeavy: (k, x) => H.hitHeavy!(k, x),
-  hitLight: (k, x) => { if (x === 0) return wood(0.55 + 0.3 * k, 1); hb('hit_light', { gain: 0.85 + 0.15 * k }); audio.hitDuck(0.7); },
-  hitStab: (k, x) => { if (x === 0) return wood(0.45 + 0.3 * k, 1.15); hb('hit_stab', { gain: 0.72 + 0.2 * k }); audio.hitDuck(0.5); },
+  // act-109: x === 0 is wooden dummy; x >= 1 is flesh (x = 1..4 ramps combo pitch slightly for crisp cadence)
+  hitLight: (k, x) => { if (x === 0) return wood(0.55 + 0.3 * k, 1); const step = x && x > 1 ? Math.min(4, x - 1) : 0; hb('hit_light', { gain: 0.85 + 0.15 * k, rate: 1 + step * 0.045 }); audio.hitDuck(0.7); },
+  hitStab: (k, x) => { if (x === 0) return wood(0.45 + 0.3 * k, 1.15); const step = x && x > 1 ? Math.min(4, x - 1) : 0; hb('hit_stab', { gain: 0.72 + 0.2 * k, rate: 1 + step * 0.05 }); audio.hitDuck(0.5); },
   hitHeavy: (k, x) => { if (x === 0) return wood(0.7 + 0.3 * k, 0.85); hb('hit_heavy', { gain: 0.85 + 0.15 * k }); audio.hitDuck(1); },
   hitKick: (k, x) => { hb('hit_kick', { gain: 0.8 + 0.2 * k }); if (x !== 0) audio.hitDuck(0.8); },
   hitKill: k => hb('hit_kill', { gain: 0.7 * k, delay: 0.015 }),

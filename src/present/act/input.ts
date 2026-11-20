@@ -68,7 +68,7 @@ export class Input {
     for (const n of NAMES) { this.latched[n] = true; const b = this.b[n]; b.down = b.pressed = b.released = false; b.held = 0; }
     if (move) { this.latchMove = true; this.move.x = this.move.y = 0; }
   }
-  frame(dt: number) {
+  frame(dt: number, freezeHold = false) {
     const k = this.keys, has = (ks: string[]) => ks.some(x => k.has(x));
     let mx = (has(['d', 'arrowright']) ? 1 : 0) - (has(['a', 'arrowleft']) ? 1 : 0), my = (has(['w', 'arrowup']) ? 1 : 0) - (has(['s', 'arrowdown']) ? 1 : 0);
     // the touch stick: full speed from 55% of its radius, a small dead zone
@@ -98,7 +98,8 @@ export class Input {
       if (this.latched[n]) { if (!this.raw[n]) this.latched[n] = false; else this.raw[n] = false; }
       if (this.virt[n] > 0) { this.virt[n] -= dt; this.raw[n] = true; }
       const b = this.b[n], d = this.raw[n];
-      const was = b.held; b.pressed = d && !b.down; b.released = !d && b.down; b.down = d; b.held = d ? b.held + dt : 0; if (b.released) b.last = was;
+      const was = b.held; b.pressed = d && !b.down; b.released = !d && b.down; b.down = d;
+      b.held = d ? b.held + (freezeHold ? 0 : dt) : 0; if (b.released) b.last = was;
     }
   }
 }
