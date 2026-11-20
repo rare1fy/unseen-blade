@@ -17,6 +17,16 @@ export function cbox(v: V, part: string, x0: number, y0: number, z0: number, x1:
   for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) if (!((x === x0 || x === x1) && (z === z0 || z === z1))) for (let y = y0; y <= y1; y++) v.set(x, y, z, c, g);
   return v;
 }
+/** a box with its four vertical corners chamfered by r cells (clean rounded designer-toy form, zero bumpy stair-steps) */
+export function cbox2(v: V, part: string, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, c: Col, r = 2, g = 0) {
+  v.part(part);
+  for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) {
+    const ex = Math.min(x - x0, x1 - x), ez = Math.min(z - z0, z1 - z);
+    if (ex + ez < r) continue;
+    for (let y = y0; y <= y1; y++) v.set(x, y, z, c, g);
+  }
+  return v;
+}
 /** a flat plate in the x-y plane at depth z, its four corner cells cut (a one-cell chamfer) */
 export function plate(v: V, part: string, x0: number, y0: number, x1: number, y1: number, z: number, c: Col) {
   v.part(part);
@@ -53,7 +63,7 @@ export function sandalLegs(v: V, o: { x0: number; x1: number; z0: number; z1: nu
     if (o.wrap) B(v, f, sa, 2, o.z0, sb, 3, o.z0 + 2, W);
     B(v, f, sa, 2, zs, sb, 3, zs, S0);
     B(v, 'shin' + L, sa, 4, o.z0, sb, o.knee - 1, zs, o.wrap ? W : sk);
-    if (o.wrap) B(v, 'shin' + L, sa, o.knee - 1, o.z0, sb, o.knee - 1, zs, WD).box(sa, 6, o.z0, sb, 6, zs, WD);
+    if (o.wrap) B(v, 'shin' + L, sa, o.knee - 1, o.z0, sb, o.knee - 1, zs, WD).box(sa, 6, o.z0, sb, 6, zs, WD).box(sa, 4, o.z0, sb, 4, zs, WD);
     B(v, 'leg' + L, a, o.knee, o.z0, b, o.hip - 1, o.z1, o.trou);
   }
 }

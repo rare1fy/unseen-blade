@@ -10,9 +10,9 @@ import { VoxChar, type Col } from '../../look/voxkit';
 import { CELL, type V } from '../../bestiary/kit';
 import { ROSTER, type ModelDef } from '../../bestiary/models';
 
-const Y = 0xe0b434, Y_D = 0xa8821c, GLOW = 0xffd84a, GLOW_D = 0xf0b030, GOLD = 0xe2b040, GOLD_D = 0xb08424;
-const SKIN = 0xcc9670, SKIN_D = 0x9c6c4c, HAIR = 0x201814, EYE = 0x140e0a, MOUTH = 0x4a2a1c, LINEN = 0x9a917e, LINEN_D = 0x76705e;
-const STRAW = 0xc4a05a, STRAW_D = 0x9a7a3e, INNER = 0xe6dfcc;
+const Y = 0xe4b230, Y_L = 0xf7d86c, Y_D = 0x9c6c16, GLOW = 0xffd84a, GLOW_D = 0xf0b030, GOLD = 0xe4b440, GOLD_D = 0xa67a1e;
+const SKIN = 0xd2966e, SKIN_D = 0x9e6848, HAIR = 0x221814, EYE = 0x140e0a, MOUTH = 0x4e2a1c, LINEN = 0xb8ae96, LINEN_D = 0x7a6e5a;
+const STRAW = 0xd2ad64, STRAW_D = 0x927034, INNER = 0xebe2ce;
 
 /** one fine cell = 3.5 cm (half a scene cell: a scene block is exactly 2 × 2 × 2 of these) */
 const fine = () => new VoxChar(CELL / 2);
@@ -84,13 +84,32 @@ function hair(v: V, o: { y: number; back: number; side: number; front: number; c
  * in — the big yellow square the top-down camera reads), a knot at the back, two tails on joints hanging from under the knot a cell
  * behind the hair, one cell thin (elite: glowing). Head footprint x0..x1 × z0..z1, band rows yb..yt; the tail joints sit where the 7 cm ones did (x ∓2, z0 − 5).
  */
+/** a box with its four vertical edges chamfered by r cells (clean designer-toy rounded planes, zero bumpy stair-steps) */
+function cbox2(v: V, part: string, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, c: Col, r = 2, g = 0) {
+  v.part(part);
+  for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) {
+    const ex = Math.min(x - x0, x1 - x), ez = Math.min(z - z0, z1 - z);
+    if (ex + ez < r) continue;
+    for (let y = y0; y <= y1; y++) v.set(x, y, z, c, g);
+  }
+  return v;
+}
 function turban(v: V, o: { x0: number; x1: number; z0: number; z1: number; yb: number; yt: number; tails: [number[], number[]]; glow: boolean }) {
   const { x0, x1, z0, z1, yb, yt } = o;
-  cbox(v, 'head', x0 - 1, yb, z0 - 1, x1 + 1, yt, z1 + 1, Y); B(v, 'head', x0 - 1, yb, z0 - 1, x1 + 1, yb, z1 + 1, Y_D);
-  for (const [x, z] of [[x0 - 1, z0 - 1], [x1 + 1, z0 - 1], [x0 - 1, z1 + 1], [x1 + 1, z1 + 1]]) v.box(x, yb, z, x, yt, z, null);
-  cbox(v, 'head', x0, yt + 1, z0, x1, yt + 1, z1, Y); cbox(v, 'head', x0 + 1, yt + 2, z0 + 1, x1 - 1, yt + 2, z1 - 1, Y);
-  // the knot: a block one cell proud of the band at the back, a darker tuck across it
-  B(v, 'head', -2, yb - 1, z0 - 2, 1, yt, z0 - 2, Y).box(-2, yb + 1, z0 - 2, 1, yb + 1, z0 - 2, Y_D).box(-2, yb - 1, z0 - 1, 1, yb - 1, z0 - 1, Y);
+  cbox2(v, 'head', x0 - 1, yb, z0 - 1, x1 + 1, yt, z1 + 1, Y, 2);
+  cbox2(v, 'head', x0 - 1, yb, z0 - 1, x1 + 1, yb, z1 + 1, Y_D, 2);
+  cbox2(v, 'head', x0 - 1, yt, z0 - 1, x1 + 1, yt, z1 + 1, Y_L, 2);
+  // Subtle front cloth fold tuck across the brow
+  B(v, 'head', -3, yb + 1, z1 + 1, 2, yt - 1, z1 + 1, Y_L).box(-3, yb + 1, z1 + 1, 2, yb + 1, z1 + 1, Y_D);
+  cbox2(v, 'head', x0, yt + 1, z0, x1, yt + 1, z1, Y, 2); B(v, 'head', x0 + 2, yt + 1, -1, x1 - 2, yt + 1, 0, Y_D);
+  cbox2(v, 'head', x0 + 1, yt + 2, z0 + 1, x1 - 1, yt + 2, z1 - 1, Y_L, 2);
+  if (o.glow) {
+    // Elite headband brow ornament + gold top diadem ring (unmistakable top-down elite crown!)
+    B(v, 'head', -2, yb, z1 + 2, 1, yt, z1 + 2, GOLD).box(-1, yb + 1, z1 + 2, 0, yt - 1, z1 + 2, GLOW, 1);
+    cbox2(v, 'head', x0 + 2, yt + 3, z0 + 2, x1 - 2, yt + 3, z1 - 2, GOLD, 1);
+  }
+  // the knot: a layered block one cell proud of the band at the back
+  B(v, 'head', -2, yb - 1, z0 - 2, 1, yt, z0 - 2, Y).box(-2, yt, z0 - 2, 1, yt, z0 - 2, Y_L).box(-2, yb + 1, z0 - 2, 1, yb + 1, z0 - 2, Y_D).box(-2, yb - 1, z0 - 1, 1, yb - 1, z0 - 1, Y_D);
   const zt = z0 - 1, g = o.glow ? 1 : 0, body = o.glow ? GLOW : Y, tip = o.glow ? GLOW_D : Y_D;
   const chain = (name: string, bx: number, xa: number, xb: number, lens: number[]) => {
     let y = yb, parent = 'head';
@@ -98,6 +117,7 @@ function turban(v: V, o: { x0: number; x1: number; z0: number; z1: number; yb: n
       const bn = `${name}${i + 1}`, lo = y - L, hi = i === 0 ? yb - 2 : y - 1;
       v.bone(bn, parent, bx, y, z0 - 5);
       B(v, bn, xa, lo, zt, xb, hi, zt, body, g);
+      if (!o.glow) B(v, bn, xa, lo + 1, zt, xa, hi, zt, Y_L, 0);
       if (i === lens.length - 1) B(v, bn, xa, lo, zt, xb, lo, zt, tip, g);
       parent = bn; y -= L;
     });
@@ -109,38 +129,92 @@ const TAILS = (elite: boolean): [number[], number[]] => (elite ? [[8, 8, 6], [8,
 
 // ------------------------------------------------------------------ 黄巾刀手 / 黄巾弓手
 function soldier(elite: boolean, bow: boolean): V {
-  const v = fine(), JK = bow ? 0x5c6838 : 0x7a5636, JK_D = bow ? 0x404a24 : 0x543a22, TROU = bow ? 0x4a3a2a : 0x2e3444;
-  const SASH = elite ? GOLD : 0x3a2a20, SASH_D = elite ? GOLD_D : 0x261a12, TRIM = elite ? GOLD : JK_D;
+  const v = fine(), JK = bow ? 0x5c6838 : 0x7e5436, JK_D = bow ? 0x404a24 : 0x4c2e1c, JK_L = bow ? 0x728048 : 0xa4744e;
+  const TROU = bow ? 0x4a3a2a : 0x2a3448, LEA = 0x3e322a, LEA_L = 0x5a483c, LEA_D = 0x281f1a;
+  const BRZ = elite ? GOLD : 0xc8983c, BRZ_L = 0xf2d274, BRZ_D = 0x7e5c20;
+  const SASH = elite ? GOLD : 0x36261e, SASH_L = elite ? BRZ_L : 0x523c2e, SASH_D = elite ? GOLD_D : 0x221712, TRIM = elite ? GOLD : JK_D;
   skel(v, { hip: 20, spine: 24, chest: 30, neck: 38, head: 40, jaw: [44, 4], hat: 54, cape: [36, -6], sh: [13, 38, 1], fore: 30, hand: 22,
     weapon: bow ? [-13, 20, 1] : [-13, 19, 1], offhand: bow ? [13, 19, 1] : [13, 20, 1], leg: 5, knee: 10 });
   sandalLegs(v, { x0: 2, x1: 7, z0: -2, z1: 3, knee: 10, hip: 20, trou: TROU, wrap: true, toe: 5 });
-  // the short jacket's skirt on the thighs (each thigh carries its half, so a stride opens it), its hem one row darker
-  for (const [L, s] of SIDES) { const [a, b] = MX(s, 0, 8); B(v, 'leg' + L, a, 14, -5, b, 19, 5, JK).box(a, 14, -5, b, 14, 5, TRIM); }
-  // hips and the sash (two rows, one cell proud of the waist), its knot and two short tails hanging in front of the left thigh
-  cbox(v, 'hips', -8, 20, -6, 7, 21, 5, JK); cbox(v, 'hips', -9, 22, -7, 8, 23, 6, SASH);
-  B(v, 'hips', 3, 21, 7, 5, 23, 7, SASH).box(3, 21, 6, 5, 21, 6, SASH).box(4, 16, 6, 5, 20, 6, SASH).box(4, 16, 6, 5, 16, 6, SASH_D);
-  // waist and chest (the chest's top row runs flat out to the shoulders), a short neck
-  cbox(v, 'spine', -8, 24, -6, 7, 29, 5, JK); cbox(v, 'chest', -10, 30, -6, 9, 37, 5, JK);
-  B(v, 'neck', -2, 38, -2, 1, 39, 1, SKIN);
-  // 交领: a dark collar band round the neck on the shoulders, the pale inner collar at the throat, the outer edge straight down to the sash
+  // the short jacket's skirt on the thighs: flared A-line hem (!bow) + clean layered side hip guard
+  for (const [L, s] of SIDES) {
+    const [a, b] = MX(s, 0, 8), [fa, fb] = MX(s, 0, 9), [oa, ob] = MX(s, 7, 8), [pa, pb] = MX(s, 4, 5);
+    B(v, 'leg' + L, a, 16, -5, b, 19, 5, JK);
+    B(v, 'leg' + L, bow ? a : fa, 14, -5, bow ? b : fb, 15, 5, JK).box(bow ? a : fa, 14, -5, bow ? b : fb, 14, 5, TRIM);
+    if (!bow) {
+      B(v, 'leg' + L, pa, 16, 5, pb, 19, 5, JK_L);
+      B(v, 'leg' + L, oa, 15, -3, ob, 19, 3, LEA).box(oa, 19, -3, ob, 19, 3, LEA_L).box(oa, 15, -3, ob, 15, 3, LEA_D);
+    }
+  }
+  // hips & cinched waist (V-taper silhouette!): leather sash with restrained single bronze clasp & simple dark hip pouch
+  cbox(v, 'hips', -8, 20, -6, 7, 21, 5, JK); cbox2(v, 'hips', -9, 22, -7, 8, 23, 6, SASH, 2);
+  cbox2(v, 'hips', -9, 23, -7, 8, 23, 6, SASH_L, 2);
+  if (!bow) {
+    B(v, 'hips', -2, 22, 7, 1, 23, 7, BRZ).box(-1, 23, 7, 0, 23, 7, BRZ_L);
+    B(v, 'hips', -10, 16, -2, -9, 20, 2, LEA).box(-10, 20, -2, -9, 20, 2, LEA_L).box(-10, 16, -2, -9, 16, 2, LEA_D);
+  }
+  B(v, 'hips', 3, 21, 7, 5, 23, 7, SASH).box(3, 21, 6, 5, 21, 6, SASH_D).box(4, 16, 6, 5, 20, 6, SASH).box(4, 17, 6, 4, 20, 6, SASH_L).box(4, 16, 6, 5, 16, 6, SASH_D);
+  // V-taper waist (slimmed spine) & sculpted broad chest with sloped shoulder contour (flush at z <= 5 for Box3 safety!)
+  cbox2(v, 'spine', -7, 24, -5, 6, 29, 5, JK, 2);
+  cbox2(v, 'chest', -10, 30, -6, 9, 36, 5, JK, 2);
+  cbox2(v, 'chest', -8, 37, -5, 7, 37, 4, JK_L, 2);
+  B(v, 'neck', -2, 38, -2, 1, 39, 1, SKIN); B(v, 'neck', -2, 38, -2, 1, 38, 1, SKIN_D);
+  // 交领: dark collar band round the neck on the shoulders, pale inner collar at the throat, outer lapel down to the sash
   B(v, 'chest', -4, 37, -4, 3, 37, 3, TRIM);
   B(v, 'chest', -4, 36, 4, 1, 37, 5, INNER).box(2, 30, 5, 3, 37, 5, TRIM).box(2, 37, 4, 3, 37, 5, TRIM); B(v, 'spine', 2, 24, 5, 3, 29, 5, TRIM);
-  // arms: the jacket sleeve with a darker hem; bare forearms with a linen wrap at the wrist, a cell in from the sleeve on both sides (the
-  // elbow turns about x: no face of the forearm may share a plane with the sleeve's)
-  for (const [L, s] of SIDES) {
-    const [a, b] = MX(s, 10, 15), [fa, fb] = MX(s, 11, 14);
-    B(v, 'arm' + L, a, 30, -2, b, 37, 3, JK).box(a, 30, -2, b, 30, 3, JK_D);
-    B(v, 'fore' + L, fa, 22, -2, fb, 29, 2, SKIN).box(fa, 22, -2, fb, 23, 2, LINEN);
+  if (!bow) {
+    // Clean, bold charcoal-leather sleeveless vest (裲裆) — zero noisy studs or busy yellow stripes!
+    B(v, 'chest', -8, 30, 5, -5, 36, 5, LEA).box(-8, 36, 5, -5, 36, 5, LEA_L).box(-8, 30, 5, -5, 30, 5, LEA_D);
+    B(v, 'chest', 4, 30, 5, 7, 36, 5, LEA).box(4, 36, 5, 7, 36, 5, LEA_L).box(4, 30, 5, 7, 30, 5, LEA_D);
+    B(v, 'chest', -7, 37, -4, -5, 37, 4, LEA_L).box(4, 37, -4, 6, 37, 4, LEA_L);
+    B(v, 'chest', -8, 31, -6, 7, 35, -6, LEA).box(-8, 35, -6, 7, 35, -6, LEA_L).box(-8, 31, -6, 7, 31, -6, LEA_D);
+    B(v, 'chest', -8, 32, 5, 7, 33, 5, LEA_D);
+    B(v, 'spine', -6, 24, 5, -5, 29, 5, LEA).box(4, 24, 5, 5, 29, 5, LEA).box(-6, 25, -5, 5, 28, -5, LEA_D);
   }
-  // the head (16 × 14 × 16), corner columns cut; hair at the back and sides; the face
-  cbox(v, 'head', -8, 40, -8, 7, 53, 7, SKIN);
+  // arms: naturally sloped muscular shoulders (chamfered outer top edge!) + clean folded sleeve & wrapped forearm
+  for (const [L, s] of SIDES) {
+    const [a, b] = MX(s, 10, 15), [fa, fb] = MX(s, 11, 14), [sa, sb] = MX(s, 12, 14), outerX = s > 0 ? 15 : -16;
+    B(v, 'arm' + L, a, 30, -2, b, 37, 3, JK).box(a, 37, -2, b, 37, 3, JK_L).box(a, 30, -2, b, 30, 3, JK_D);
+    B(v, 'arm' + L, outerX, 37, -2, outerX, 37, 3, null);                      // sloped natural shoulder line!
+    B(v, 'arm' + L, outerX, 36, -2, outerX, 36, -2, null).box(outerX, 36, 3, outerX, 36, 3, null);
+    if (!bow) {
+      B(v, 'arm' + L, sa, 34, -2, sb, 37, 3, LEA).box(sa, 37, -2, sb, 37, 3, LEA_L).box(outerX, 34, -1, outerX, 36, 2, LEA);
+      if (elite) {
+        // Elite 黄巾百夫长: heavy layered iron-and-gold pauldrons flaring outward over both shoulders!
+        const [pa, pb] = MX(s, 11, 17);
+        B(v, 'arm' + L, pa, 33, -4, pb, 37, 4, 0x3e4450).box(pa, 38, -3, s > 0 ? 16 : -17, 38, 3, 0x5c6474)
+          .box(pa, 33, -4, pb, 33, 4, GOLD).box(pa, 36, -4, pb, 36, 4, GOLD_D);
+      }
+    } else if (elite && s < 0) {
+      // Elite 黄巾神射: asymmetric right iron-leather archer shoulder guard!
+      B(v, 'armR', -17, 34, -3, -11, 38, 4, 0x4a3828).box(-17, 34, -3, -11, 34, 4, GOLD).box(-16, 38, -2, -11, 38, 3, 0x6c543c);
+    }
+    B(v, 'fore' + L, fa, 22, -2, fb, 29, 2, SKIN).box(fa, 22, -2, fb, 25, 2, LINEN).box(fa, 22, -2, fb, 22, 2, LINEN_D).box(fa, 24, -2, fb, 24, 2, LINEN_D);
+    if (!bow) B(v, 'fore' + L, fa, 25, -2, fb, 25, 2, elite ? 0x3e4450 : LEA);
+  }
+  if (elite) {
+    // Sweeping articulated officer cape (`cape` bone — swings dynamically in combat!)
+    if (!bow) {
+      B(v, 'cape', -10, 14, -8, 9, 36, -7, 0x6e241e).box(-8, 15, -9, 7, 34, -9, 0x8e3026).box(-10, 14, -9, 9, 15, -7, GOLD);
+    } else {
+      // Elite archer half-mantle & twin eagle feathers on turban!
+      B(v, 'cape', -10, 20, -8, 1, 36, -7, 0x3a4424).box(-10, 20, -8, 1, 21, -7, GOLD);
+      B(v, 'head', 6, 53, -1, 7, 62, 0, 0xf2eee4).box(6, 59, -1, 7, 62, 0, GOLD).box(8, 55, -2, 8, 60, -1, 0xe8e0cc);
+    }
+  }
+  // sculpted rounded-bevel head (2-cell vertical corner chamfers -> breaks the flat brick head!) + tapered jaw
+  cbox2(v, 'head', -8, 42, -8, 7, 53, 7, SKIN, 2);
+  cbox2(v, 'head', -7, 40, -7, 6, 41, 7, SKIN, 2);
   hair(v, { y: 44, back: -5, side: 6, front: 3 });
   face(v, { F: 7, eyes: [2, 3], eyeY: 44, brows: [2, 5], browY: 46, nose: [-1, 0], noseY: [43, 44], mouth: bow ? [-2, 1, 41] : undefined });
   if (!bow) {
-    // a full black beard: from the sideburns round the jaw, hanging below the chin in two tiers; a moustache over the mouth
-    const BD = 0x2a1c14;
-    v.paint(q => (q.y <= 44 && q.y >= 40 && (q.x <= -7 || q.x >= 6) && q.z >= 0 ? BD : null), 'head');
-    B(v, 'jaw', -7, 38, 6, 6, 42, 8, BD).box(-5, 35, 6, 4, 37, 8, BD).box(-2, 41, 8, 1, 41, 8, MOUTH);
+    v.part('head').symBox(3, 43, 7, 4, 43, 7, 0xdfa67e);
+    // sculpted tapered two-tone full beard (chamfered sides, bold tapered chin silhouette)
+    const BD = 0x261a14, BD_L = 0x3a281e, BD_D = 0x160e0a;
+    v.paint(q => (q.y <= 44 && q.y >= 40 && (q.x <= -6 || q.x >= 5) && q.z >= 0 ? BD : null), 'head');
+    B(v, 'jaw', -6, 38, 6, 5, 42, 8, BD).box(-5, 42, 7, 4, 42, 8, BD_L)
+      .box(-4, 36, 6, 3, 37, 8, BD).box(-3, 35, 6, 2, 35, 8, BD_D)
+      .box(-6, 38, 8, -6, 38, 8, null).box(5, 38, 8, 5, 38, 8, null).box(-2, 41, 8, 1, 41, 8, MOUTH);
   }
   turban(v, { x0: -8, x1: 7, z0: -8, z1: 7, yb: 50, yt: 53, tails: TAILS(elite), glow: elite });
   if (bow) {
@@ -161,16 +235,17 @@ function soldier(elite: boolean, bow: boolean): V {
   } else {
     // the left hand: open, small, hanging relaxed under the wrist
     B(v, 'handL', 12, 17, -1, 14, 21, 2, SKIN).box(14, 17, -1, 14, 19, 2, SKIN_D);
-    // 環首刀: the right fist round the grip, the ring pommel (a square outline one cell thick) behind it, a small guard, the blade
+    // 環首刀: sculpted antique-bronze ring pommel, two-tone leather grip, bronze-rimmed guard, 3-tone forged blade
     B(v, 'handR', -15, 17, -1, -13, 21, 2, SKIN).box(-15, 17, -1, -15, 20, 2, SKIN_D).box(-14, 18, -1, -13, 19, 2, null);
-    const RING = elite ? GOLD : 0x9a7a3a;
-    B(v, 'weapon', -14, 18, -3, -13, 19, 3, 0x2a1e18).box(-14, 18, -1, -13, 19, -1, 0x3a2a20);
-    B(v, 'weapon', -14, 17, -8, -13, 20, -4, RING).box(-14, 18, -7, -13, 19, -5, null);
-    B(v, 'weapon', -14, 16, 4, -13, 21, 4, 0x5a4a3a);
-    if (elite) B(v, 'weapon', -14, 12, -7, -13, 16, -6, 0xc8302a).box(-14, 12, -7, -13, 12, -6, 0x8a1e1a);
-    // the blade (its own joint, so it can be hidden while sheathed): one cell thick, two edge rows and the back, a chisel tip
+    B(v, 'weapon', -14, 18, -3, -13, 19, 3, 0x261a14).box(-14, 18, -1, -13, 19, -1, 0x483424).box(-14, 18, 2, -13, 19, 2, 0x483424);
+    B(v, 'weapon', -14, 17, -8, -13, 20, -4, BRZ).box(-14, 20, -8, -13, 20, -4, BRZ_L).box(-14, 17, -8, -13, 17, -4, BRZ_D).box(-14, 18, -7, -13, 19, -5, null);
+    B(v, 'weapon', -14, 16, 4, -13, 21, 4, LEA_L).box(-14, 21, 4, -13, 21, 4, BRZ_L).box(-14, 16, 4, -13, 16, 4, BRZ_D);
+    if (elite) B(v, 'weapon', -14, 10, -8, -13, 16, -6, 0xd4382c).box(-14, 15, -8, -13, 16, -6, 0xee5440).box(-14, 10, -8, -13, 11, -6, GOLD);
+    // the blade (its own joint, so it can be hidden while sheathed): 3-tone forged cold steel; elite gets wider heavy great-sabre!
     v.bone('blade', 'weapon', -13, 19, 6);
-    B(v, 'blade', -14, 17, 5, -14, 19, 5, 0x5a4a3a).box(-14, 17, 6, -14, 18, 29, 0xe8ecf2).box(-14, 19, 6, -14, 19, 27, 0x8a92a0);
+    const bl = elite ? 32 : 29;
+    B(v, 'blade', -14, 17, 5, -14, 19, 5, BRZ).box(-14, 17, 6, -14, 17, bl, 0xf6faff).box(-14, 18, 6, -14, 18, bl, 0xc2ccd8).box(-14, 18, bl - 2, -14, 18, bl, 0xf6faff).box(-14, 19, 6, -14, 19, bl - 2, 0x545e6e);
+    if (elite) B(v, 'blade', -14, 20, 6, -14, 20, bl - 5, GOLD_D).box(-14, 20, bl - 6, -14, 20, bl - 4, GOLD);
   }
   return v;
 }
@@ -186,39 +261,43 @@ function mob(look: 0 | 1): V {
   // a long ragged shirt over the thighs, its hem darker, a whole piece torn out of each front hem (in a different place each side)
   B(v, 'legL', 0, 10, -4, 7, 15, 3, SH).box(0, 10, -4, 7, 10, 3, SH_D).box(4, 10, 3, 5, 11, 3, null);
   B(v, 'legR', -8, 10, -4, -1, 15, 3, SH).box(-8, 10, -4, -1, 10, 3, SH_D).box(-5, 10, 3, -3, 12, 3, null);
-  // hips with a rope belt and its knot; waist, chest, a patch sewn on the shirt
-  cbox(v, 'hips', -8, 16, -4, 7, 19, 3, SH); cbox(v, 'hips', -8, 18, -4, 7, 18, 3, ROPE); B(v, 'hips', 2, 15, 4, 3, 18, 4, ROPE);
-  cbox(v, 'spine', -8, 20, -4, 7, 25, 3, SH); cbox(v, 'chest', -8, 26, -4, 7, 31, 3, SH);
+  // hips with a rope belt and its knot; slightly cinched waist, sloped shoulders on ragged shirt
+  cbox2(v, 'hips', -8, 16, -4, 7, 19, 3, SH, 2); cbox2(v, 'hips', -8, 18, -4, 7, 18, 3, ROPE, 2); B(v, 'hips', 2, 15, 4, 3, 18, 4, ROPE);
+  cbox2(v, 'spine', -7, 20, -4, 6, 25, 3, SH, 2); cbox2(v, 'chest', -8, 26, -4, 7, 30, 3, SH, 2); cbox2(v, 'chest', -6, 31, -3, 5, 31, 2, look ? 0xa07e58 : 0xc8b696, 2);
   B(v, 'chest', -4, 31, 2, 3, 31, 3, SH_D).box(-2, 30, 3, 1, 31, 3, SH_D);
   if (look === 0) B(v, 'chest', 2, 26, 4, 5, 29, 4, SH_D); else B(v, 'spine', -6, 21, -5, -2, 24, -5, SH_D);
-  B(v, 'neck', -2, 32, -2, 1, 33, 1, SKIN);
-  // arms: the shirt sleeve, a bare forearm one cell slimmer (on the outer side), a small hand
+  B(v, 'neck', -2, 32, -2, 1, 33, 1, SKIN); B(v, 'neck', -2, 32, -2, 1, 32, 1, SKIN_D);
+  // arms: sloped shirt sleeve, bare forearm one cell slimmer, small hand
   for (const [L, s] of SIDES) {
-    const [a, b] = MX(s, 8, 11), [fa, fb] = MX(s, 8, 10);
-    B(v, 'arm' + L, a, 24, -2, b, 31, 1, SH).box(a, 24, -2, b, 24, 1, SH_D);
+    const [a, b] = MX(s, 8, 11), [fa, fb] = MX(s, 8, 10), ox = s > 0 ? 11 : -12;
+    B(v, 'arm' + L, a, 24, -2, b, 31, 1, SH).box(a, 24, -2, b, 24, 1, SH_D).box(ox, 31, -2, ox, 31, 1, null);
     B(v, 'fore' + L, fa, 18, -1, fb, 23, 1, SKIN);
   }
   B(v, 'handL', 8, 14, -1, 10, 17, 1, SKIN).box(10, 14, -1, 10, 16, 1, SKIN_D);
   B(v, 'handR', -11, 13, -1, -8, 17, 2, SKIN).box(-11, 13, -1, -11, 16, 2, SKIN_D).box(-10, 14, -1, -9, 15, 2, null);
-  // the head (12 × 12 × 12): the face, dark hair at back, sides and crown, a topknot tied with a strip of cloth
-  cbox(v, 'head', -6, 34, -6, 5, 45, 5, SKIN);
+  // sculpted rounded-bevel head with tapered jaw, smooth crown & tied topknot
+  cbox2(v, 'head', -6, 36, -6, 5, 45, 5, SKIN, 2);
+  cbox2(v, 'head', -5, 34, -5, 4, 35, 5, SKIN, 2);
   hair(v, { y: 38, back: -3, side: 4, front: 1 });
   face(v, { F: 5, eyes: [2, 3], eyeY: 38, brows: [2, 4], browY: 40, nose: [-1, 0], noseY: [36, 37], mouth: [-2, 1, 35] });
-  cbox(v, 'head', -6, 44, -6, 5, 45, 5, HAIR); B(v, 'head', -2, 46, -2, 1, 46, 1, LINEN_D).box(-2, 47, -2, 1, 48, 1, HAIR).box(-1, 49, -1, 0, 49, 0, HAIR);
-  // a strip of yellow cloth tied round the brow (no full wrap: dragooned peasants), the knot and two short ends at the back
-  for (let x = -7; x <= 6; x++) for (let z = -7; z <= 6; z++) if ((x === -7 || x === 6 || z === -7 || z === 6) && !((x === -7 || x === 6) && (z === -7 || z === 6))) v.box(x, 41, z, x, 42, z, Y);
+  cbox2(v, 'head', -6, 44, -6, 5, 45, 5, HAIR, 2); cbox2(v, 'head', -4, 46, -4, 3, 46, 3, HAIR, 1);
+  B(v, 'head', -2, 46, -2, 1, 46, 1, LINEN_D).box(-2, 47, -2, 1, 48, 1, HAIR).box(-1, 49, -1, 0, 49, 0, HAIR);
+  // yellow peasant brow band following the exact beveled contour + knot and two short ends at the back
+  cbox2(v, 'head', -7, 41, -7, 6, 42, 6, Y, 3);
+  cbox2(v, 'head', -6, 41, -6, 5, 42, 5, SKIN, 2);
+  hair(v, { y: 41, back: -3, side: 4, front: 1 });
   B(v, 'head', -2, 40, -8, 1, 43, -8, Y_D).box(-3, 35, -8, -2, 39, -8, Y).box(1, 36, -8, 2, 39, -8, Y);
-  // the weapon through the fist: a hoe (iron socket and a one-cell-thin plate with a bright edge) / a bamboo spear (raised nodes, a cut point)
+  // the weapon through the fist: a hoe (3-tone forged iron blade) / a bamboo spear (raised nodes, cut point)
   const x0 = -10, x1 = -9, y0 = 14, y1 = 15;
   if (look === 0) {
-    const IR = 0x6a6c74;
-    B(v, 'weapon', x0, y0, -10, x1, y1, 27, 0x7a5a36).box(x0 - 1, y0 - 1, 26, x1 + 1, y1 + 1, 29, IR)
-      .box(-12, 6, 29, -7, 12, 29, IR).box(-12, 6, 29, -7, 7, 29, 0xb8bcc4);
+    const IR = 0x565a64;
+    B(v, 'weapon', x0, y0, -10, x1, y1, 27, 0x7a5a36).box(x0 - 1, y0 - 1, 26, x1 + 1, y1 + 1, 29, 0x383c44)
+      .box(-12, 6, 29, -7, 12, 29, IR).box(-12, 7, 29, -7, 8, 29, 0xb8c2ce).box(-12, 6, 29, -7, 6, 29, 0xeef4fa);
   } else {
     const BM = 0x7a9a4a, BM_D = 0x5a7a34;
     B(v, 'weapon', x0, y0, -12, x1, y1, 33, BM);
     for (const z of [-2, 10, 22]) v.box(x0 - 1, y0 - 1, z, x1 + 1, y1 + 1, z, BM_D);
-    v.box(x0, y0, 34, x1, y1, 35, 0xd8d0a0).box(x0, y0, 36, x1, y0, 37, 0xd8d0a0);
+    v.box(x0, y0, 34, x1, y1, 35, 0xd8d0a0).box(x0, y0, 36, x1, y0, 37, 0xece4b8);
   }
   return v;
 }
@@ -233,28 +312,38 @@ function brute(elite: boolean): V {
   // hips in the trousers; the broad yellow sash (six rows over hips and waist), its knot and two hanging ends at the left
   cbox(v, 'hips', -14, 18, -8, 13, 23, 7, TROU); cbox(v, 'hips', -14, 22, -8, 13, 23, 7, Y);
   B(v, 'hips', 4, 20, 8, 8, 25, 8, Y_D).box(5, 11, 8, 6, 19, 8, Y).box(5, 11, 8, 6, 11, 8, Y_D);
-  // waist and chest in the dark leather vest, open down the front over the bare belly and chest (a shadow under the pecs); a lighter
-  // edge down each side of the opening
-  cbox(v, 'spine', -14, 24, -8, 13, 31, 7, VEST); cbox(v, 'spine', -14, 24, -8, 13, 27, 7, Y);
+  // waist (sculpted V-taper) and broad chest with sloped muscular shoulders in dark open leather vest
+  cbox2(v, 'spine', -13, 24, -8, 12, 31, 7, VEST, 2); cbox2(v, 'spine', -13, 24, -8, 12, 27, 7, Y, 2);
   B(v, 'spine', -4, 28, 7, 3, 31, 7, SK); B(v, 'spine', -6, 28, 7, -5, 31, 7, VEST_L).box(4, 28, 7, 5, 31, 7, VEST_L);
-  cbox(v, 'chest', -16, 32, -8, 15, 41, 7, VEST);
-  B(v, 'chest', -6, 32, 7, 5, 41, 7, SK).box(-6, 35, 7, 5, 35, 7, SKD).box(-6, 41, 4, 5, 41, 7, SK);
-  B(v, 'chest', -8, 32, 7, -7, 41, 7, VEST_L).box(6, 32, 7, 7, 41, 7, VEST_L);
-  B(v, 'neck', -4, 42, -3, 3, 43, 2, SK);
-  // bare arms; forearms a cell in from the upper arm on both sides, a wide wrap at each wrist (elite: gold); fists smaller than the 7 cm ones
+  cbox2(v, 'chest', -16, 32, -8, 15, 40, 7, VEST, 2); cbox2(v, 'chest', -13, 41, -7, 12, 41, 6, VEST_L, 2);
+  B(v, 'chest', -6, 32, 7, 5, 41, 7, SK).box(-6, 35, 7, 5, 35, 7, SKD).box(-6, 41, 4, 5, 41, 7, 0xcf8e64);
+  B(v, 'chest', -8, 32, 7, -7, 41, 8, VEST_L).box(6, 32, 7, 7, 41, 8, VEST_L);
+  B(v, 'neck', -4, 42, -3, 3, 43, 2, SK); B(v, 'neck', -4, 42, -3, 3, 42, 2, SKD);
+  // sloped muscular bare shoulders & arms; ELITE gets massive spiked black-iron shoulder pauldrons & crimson war-cape!
   for (const [L, s] of SIDES) {
-    const [a, b] = MX(s, 16, 25), [fa, fb] = MX(s, 17, 24);
-    B(v, 'arm' + L, a, 32, -4, b, 41, 5, SK);
+    const [a, b] = MX(s, 16, 25), [fa, fb] = MX(s, 17, 24), ox = s > 0 ? 25 : -26;
+    B(v, 'arm' + L, a, 32, -4, b, 41, 5, SK).box(a, 41, -4, b, 41, 5, 0xcf8e64);
+    B(v, 'arm' + L, ox, 40, -4, ox, 41, 5, null).box(s > 0 ? 24 : -25, 41, -4, s > 0 ? 24 : -25, 41, 5, null);
+    if (elite) {
+      const [pa, pb] = MX(s, 16, 27), spx = s > 0 ? 25 : -26;
+      B(v, 'arm' + L, pa, 35, -6, pb, 42, 6, 0x363a44).box(pa, 35, -6, pb, 35, 6, GOLD).box(pa, 42, -5, pb, 42, 5, 0x565c6c);
+      B(v, 'arm' + L, spx, 43, -1, spx + (s > 0 ? 1 : -1), 46, 1, GOLD);
+    }
     B(v, 'fore' + L, fa, 26, -4, fb, 31, 4, SK).box(a, 22, -4, b, 25, 5, WRAP).box(a, 25, -4, b, 25, 5, elite ? GOLD_D : LINEN_D);
+  }
+  if (elite) {
+    B(v, 'cape', -14, 14, -10, 13, 40, -9, 0x6a221c).box(-14, 14, -10, 13, 15, -9, GOLD);
+    B(v, 'cape', -10, 14, -10, -7, 17, -10, null).box(5, 14, -10, 8, 16, -10, null);
   }
   B(v, 'handL', 18, 16, -2, 24, 21, 4, SKD).box(24, 16, -2, 24, 20, 4, 0x6e4228);
   B(v, 'handR', -25, 16, -2, -19, 21, 4, SKD).box(-25, 16, -2, -25, 20, 4, 0x6e4228).box(-22, 18, -2, -21, 19, 4, null);
-  // the head (16 × 16 × 16): a wide face, heavy brows, a broad nose, a thick black beard and moustache
-  cbox(v, 'head', -8, 44, -8, 7, 59, 7, SK);
+  // sculpted rounded-bevel brute head + fierce tapered beard (keeps y>=44 head Box3 exact!)
+  cbox2(v, 'head', -8, 46, -8, 7, 59, 7, SK, 2);
+  cbox2(v, 'head', -7, 44, -7, 6, 45, 7, SK, 2);
   hair(v, { y: 50, back: -5, side: 6, front: 3, skin: SK });
-  v.paint(q => (q.y <= 50 && q.y >= 44 && (q.x <= -7 || q.x >= 6) && q.z >= 0 ? BD : null), 'head');
+  v.paint(q => (q.y <= 50 && q.y >= 44 && (q.x <= -6 || q.x >= 5) && q.z >= 0 ? BD : null), 'head');
   face(v, { F: 7, eyes: [2, 4], eyeY: 49, brows: [2, 6], browY: 51, nose: [-2, 1], noseY: [47, 48], noseC: SKD });
-  B(v, 'jaw', -7, 42, 6, 6, 45, 8, BD).box(-5, 38, 8, 4, 41, 9, BD).box(-5, 46, 8, 4, 46, 8, BD).box(-2, 45, 8, 1, 45, 8, MOUTH);
+  B(v, 'jaw', -6, 42, 6, 5, 45, 8, BD).box(-5, 39, 7, 4, 41, 9, BD).box(-3, 37, 7, 2, 38, 8, 0x18100c).box(-5, 46, 8, 4, 46, 8, BD).box(-2, 45, 8, 1, 45, 8, MOUTH);
   turban(v, { x0: -8, x1: 7, z0: -8, z1: 7, yb: 56, yt: 59, tails: TAILS(elite), glow: elite });
   // the club: a haft through the fist with an iron butt cap; a chamfered wooden head, two iron bands one cell proud, a stud in the
   // middle of each face, an iron cap
@@ -265,7 +354,16 @@ function brute(elite: boolean): V {
   v.part('weapon'); oct(-25, 15, -18, 22, 12, 31, WOOD); oct(-25, 15, -18, 22, 12, 12, WOOD_D);
   for (const z of [15, 26]) oct(-26, 14, -17, 23, z, z + 1, BAND);
   v.box(-23, 17, 32, -20, 20, 33, BAND);
-  v.box(-22, 23, 20, -21, 23, 21, BAND).box(-22, 14, 20, -21, 14, 21, BAND).box(-26, 18, 20, -26, 19, 21, BAND).box(-17, 18, 20, -17, 19, 21, BAND);
+  v.box(-22, 23, 20, -21, 23, 21, GOLD_D).box(-22, 14, 20, -21, 14, 21, GOLD_D).box(-26, 18, 20, -26, 19, 21, GOLD_D).box(-17, 18, 20, -17, 19, 21, GOLD_D);
+  if (elite) {
+    // Elite heavy gilded war-mace: dense iron-gold stud rings & gilded crown cap (keeps y=14..23 slam floor exact!)
+    for (const z of [13, 18, 23, 29]) {
+      v.box(-22, 23, z, -21, 23, z, GOLD).box(-22, 14, z, -21, 14, z, GOLD)
+        .box(-26, 18, z, -26, 19, z, GOLD).box(-17, 18, z, -17, 19, z, GOLD);
+    }
+    oct(-25, 15, -18, 22, 31, 31, GOLD);
+    v.box(-23, 17, 32, -20, 20, 33, GOLD).box(-22, 18, 33, -21, 19, 33, GLOW, 1);
+  }
   return v;
 }
 
@@ -274,43 +372,57 @@ function taoist(elite: boolean): V {
   const v = fine(), ROBE = 0xc89a38, ROBE_D = 0xa47a24, BLACK = 0x1e1a1c, PEACH = 0xc0705a, PEACH_D = 0x9a5040, PAPER = 0xf2d466, INK = 0xc02818, TRIM = elite ? GOLD : BLACK;
   skel(v, { hip: 20, spine: 24, chest: 30, neck: 38, head: 40, jaw: [44, 2], hat: 54, cape: [36, -6], sh: [11, 38, 1], fore: 30, hand: 22,
     weapon: [-11, 19, 1], offhand: [11, 19, 1], leg: 4, knee: 10 });
-  // the robe to the ground in two clean tiers (a wide skirt, then straight), a dark hem; the black shoes' upturned toes peek out in front
-  cbox(v, 'hips', -12, 0, -10, 11, 9, 9, ROBE); cbox(v, 'hips', -12, 0, -10, 11, 2, 9, TRIM); cbox(v, 'hips', -12, 9, -10, 11, 9, 9, ROBE_D);
-  cbox(v, 'hips', -8, 10, -6, 7, 21, 5, ROBE); cbox(v, 'hips', -9, 22, -7, 8, 23, 6, BLACK);
-  for (const [L, s] of SIDES) { const [a, b] = MX(s, 2, 5); B(v, 'foot' + L, a, 0, 10, b, 0, 11, INNER).box(a, 1, 10, b, 2, 10, BLACK).box(a, 1, 11, b, 3, 11, BLACK); }
-  cbox(v, 'spine', -8, 24, -6, 7, 29, 5, ROBE); cbox(v, 'chest', -8, 30, -6, 7, 37, 5, ROBE);
-  B(v, 'neck', -2, 38, -2, 1, 39, 1, SKIN);
+  v.bone('robe1', 'hips', 0, 21, 0).bone('robe2', 'robe1', 0, 14, 0).bone('robe3', 'robe2', 0, 6, 0)
+    .bone('gourd', 'hips', 4, 21, -8).bone('pendL', 'hips', -2, 21, 6).bone('pendR', 'hips', -6, 21, 6)
+    .bone('swTassel', 'weapon', -11.5, 17, -6);
+  // Graceful articulated 3-tier A-line flared yellow Taoist robe (robe1 -> robe2 -> robe3)
+  cbox2(v, 'robe3', -12, 0, -10, 11, 5, 9, ROBE, 3); cbox2(v, 'robe3', -12, 0, -10, 11, 2, 9, TRIM, 3); cbox2(v, 'robe3', -12, 3, -10, 11, 3, 9, ROBE_D, 3);
+  cbox2(v, 'robe2', -10, 6, -8, 9, 13, 7, ROBE, 2); cbox2(v, 'robe2', -10, 6, -8, 9, 6, 7, ROBE_D, 2);
+  cbox2(v, 'robe1', -8, 14, -6, 7, 20, 5, ROBE, 2); cbox2(v, 'hips', -8, 21, -6, 7, 21, 5, ROBE, 2); cbox2(v, 'hips', -9, 22, -7, 8, 23, 6, BLACK, 2);
+  for (const [L, s] of SIDES) { const [a, b] = MX(s, 2, 5); B(v, 'foot' + L, a, 0, 2, b, 0, 8, INNER).box(a, 1, 2, b, 2, 8, BLACK).box(a, 1, 8, b, 2, 8, BLACK); }
+  cbox2(v, 'spine', -7, 24, -6, 6, 29, 5, ROBE, 2); cbox2(v, 'chest', -8, 30, -6, 7, 36, 5, ROBE, 2); cbox2(v, 'chest', -6, 37, -5, 5, 37, 4, 0xdcb04c, 2);
+  B(v, 'neck', -2, 38, -2, 1, 39, 1, SKIN); B(v, 'neck', -2, 38, -2, 1, 38, 1, SKIN_D);
   // the broad black collar: round the neck on the shoulders, the pale inner collar at the throat, the band straight down the front
-  B(v, 'chest', -4, 37, -4, 3, 37, 3, TRIM).box(-4, 36, 4, 1, 37, 5, INNER).box(2, 30, 5, 5, 37, 5, TRIM).box(2, 37, 4, 5, 37, 5, TRIM);
-  B(v, 'spine', 2, 24, 5, 5, 29, 5, TRIM); B(v, 'hips', 2, 10, 5, 5, 21, 5, TRIM);
-  // 符水: a water gourd tied to the sash at the back, a red stopper
-  B(v, 'hips', 2, 12, -11, 6, 16, -7, 0x9a6a2a).box(3, 17, -10, 5, 17, -8, 0x7a5020).box(3, 18, -10, 5, 20, -8, 0x9a6a2a).box(4, 21, -9, 4, 21, -9, 0xc8302a)
+  B(v, 'chest', -4, 37, -4, 3, 37, 3, TRIM).box(-4, 36, 4, 1, 37, 5, INNER).box(2, 30, 5, 4, 37, 5, TRIM).box(2, 37, 4, 4, 37, 5, TRIM);
+  B(v, 'spine', 2, 24, 5, 4, 29, 5, TRIM); B(v, 'hips', 2, 21, 5, 4, 21, 5, TRIM); B(v, 'robe1', 2, 14, 5, 4, 20, 5, TRIM);
+  // 符水: a water gourd tied to the sash at the back (articulated on gourd bone), a red stopper
+  B(v, 'gourd', 2, 12, -11, 6, 16, -7, 0x9a6a2a).box(3, 17, -10, 5, 17, -8, 0x7a5020).box(3, 18, -10, 5, 20, -8, 0x9a6a2a).box(4, 21, -9, 4, 21, -9, 0xc8302a)
     .box(4, 21, -7, 4, 22, -7, 0xc8302a).box(2, 12, -11, 6, 12, -7, 0x7a5020);
-  // two talismans hanging from the sash, one cell proud of the robe, a red stroke down each (elite: the paper glows)
-  for (const x of [-7, -3]) B(v, 'hips', x, 12, 6, x + 2, 21, 6, PAPER, elite ? 1 : 0).box(x + 1, 13, 6, x + 1, 19, 6, INK);
-  // arms: the robe sleeve, then the wide sleeve over the forearm with a dark cuff
+  // two articulated talismans hanging from the sash (pendR / pendL), one cell proud of the robe
+  for (const [x, pn] of [[-7, 'pendR'], [-3, 'pendL']] as const) B(v, pn, x, 12, 6, x + 2, 21, 6, PAPER, elite ? 1 : 0).box(x + 1, 13, 6, x + 1, 19, 6, INK);
+  // arms: sloped Taoist shoulder + TRUE bell-flared wide sleeve on forearm
   for (const [L, s] of SIDES) {
-    const [a, b] = MX(s, 8, 13), [wa, wb] = MX(s, 8, 15);
-    B(v, 'arm' + L, a, 30, -2, b, 37, 3, ROBE);
-    B(v, 'fore' + L, wa, 22, -4, wb, 29, 5, ROBE).box(wa, 22, -4, wb, 23, 5, TRIM);
+    const [a, b] = MX(s, 8, 13), [wa, wb] = MX(s, 8, 16), ox = s > 0 ? 13 : -14;
+    B(v, 'arm' + L, a, 30, -2, b, 37, 3, ROBE).box(a, 37, -2, b, 37, 3, 0xdcb04c).box(ox, 37, -2, ox, 37, 3, null);
+    cbox2(v, 'fore' + L, a, 27, -3, b, 29, 4, ROBE, 1);
+    cbox2(v, 'fore' + L, wa, 22, -4, wb, 26, 5, ROBE, 2);
+    cbox2(v, 'fore' + L, wa, 22, -4, wb, 23, 5, TRIM, 2);
   }
   // the fists: the right round the sword's grip, the left pinching a talisman in front of it
   B(v, 'handR', -13, 17, -1, -11, 21, 2, SKIN).box(-13, 17, -1, -13, 20, 2, SKIN_D).box(-12, 18, -1, -11, 19, 2, null);
   B(v, 'handL', 10, 17, -1, 12, 21, 2, SKIN).box(12, 17, -1, 12, 20, 2, SKIN_D);
   B(v, 'offhand', 11, 13, 3, 11, 21, 5, PAPER, elite ? 1 : 0).box(11, 14, 4, 11, 19, 4, INK);
-  // the head (12 × 14 × 12): hair, the face, a thin moustache and a long goatee
-  cbox(v, 'head', -6, 40, -6, 5, 53, 5, SKIN);
+  // lean sculpted scholar head (cbox2 + tapered chin) + moustache and long goatee
+  cbox2(v, 'head', -6, 42, -6, 5, 53, 5, SKIN, 2);
+  cbox2(v, 'head', -5, 40, -5, 4, 41, 5, SKIN, 2);
   hair(v, { y: 44, back: -3, side: 4, front: 1 });
   face(v, { F: 5, eyes: [2, 3], eyeY: 44, brows: [2, 4], browY: 46, nose: [-1, 0], noseY: [43, 44], mouth: [-1, 0, 41] });
   B(v, 'jaw', -4, 42, 6, 3, 42, 6, HAIR).box(-4, 41, 6, -4, 41, 6, HAIR).box(3, 41, 6, 3, 41, 6, HAIR)
     .box(-2, 39, 4, 1, 40, 6, HAIR).box(-2, 34, 6, 1, 38, 6, HAIR).box(-1, 32, 6, 0, 33, 6, HAIR);
   turban(v, { x0: -6, x1: 5, z0: -6, z1: 5, yb: 50, yt: 53, tails: TAILS(elite), glow: elite });
-  // a black crown on the topknot, a gold pin through it: the tallest head in the band
-  B(v, 'head', -2, 56, -2, 1, 61, 1, BLACK).box(-5, 59, 0, 4, 59, 0, GOLD);
-  // the peach-wood sword: a dark grip, a red tassel under the pommel, a guard, the wooden blade one cell thin with a darker ridge, a point
-  B(v, 'weapon', -12, 18, -4, -11, 19, 3, 0x3a2418).box(-12, 17, -5, -11, 20, -5, PEACH_D).box(-12, 13, -6, -11, 16, -6, 0xc8302a);
-  B(v, 'weapon', -12, 16, 4, -11, 21, 4, PEACH_D);
-  B(v, 'weapon', -12, 17, 5, -12, 19, 25, PEACH).box(-12, 18, 5, -12, 18, 25, PEACH_D).box(-12, 18, 26, -12, 18, 27, PEACH);
+  // a black crown on the topknot, a gold pin through it; ELITE gets towering gilded lotus Daoist crown + sweeping black-gold crane cloak!
+  B(v, 'head', -2, 56, -2, 1, 60, 1, BLACK).box(-2, 61, -2, 1, 61, 1, 0x363238).box(-5, 59, 0, 4, 59, 0, GOLD).box(-5, 59, 0, -5, 59, 0, 0xf6dc7a).box(4, 59, 0, 4, 59, 0, 0xf6dc7a);
+  if (elite) {
+    cbox2(v, 'head', -4, 56, -4, 3, 62, 3, BLACK, 1);
+    B(v, 'head', -4, 57, 3, 3, 57, 3, GOLD).box(-3, 63, -3, 2, 65, 2, GOLD).box(-2, 66, -2, 1, 67, 1, GLOW, 1);
+    B(v, 'head', -7, 60, 0, 6, 60, 0, GOLD).box(-7, 60, 0, -7, 60, 0, GLOW, 1).box(6, 60, 0, 6, 60, 0, GLOW, 1);
+    B(v, 'cape', -10, 10, -8, 9, 36, -7, BLACK).box(-10, 10, -8, 9, 12, -7, GOLD).box(-10, 34, -8, 9, 36, -7, GOLD_D);
+  }
+  // the peach-wood sword: a dark grip, a red tassel on swTassel under the pommel, a guard, the wooden blade (elite: gilded glowing ritual sword!)
+  B(v, 'weapon', -12, 18, -4, -11, 19, 3, 0x3a2418).box(-12, 17, -5, -11, 20, -5, elite ? GOLD : PEACH_D);
+  B(v, 'swTassel', -12, 13, -6, -11, 16, -6, 0xc8302a);
+  B(v, 'weapon', -12, 16, 4, -11, 21, 4, elite ? GOLD : PEACH_D);
+  B(v, 'weapon', -12, 17, 5, -12, 19, elite ? 28 : 25, elite ? GOLD_D : PEACH).box(-12, 18, 5, -12, 18, elite ? 28 : 25, elite ? GLOW : PEACH_D, elite ? 1 : 0).box(-12, 18, elite ? 29 : 26, -12, 18, elite ? 30 : 27, elite ? GOLD : PEACH);
   return v;
 }
 
@@ -331,11 +443,17 @@ function hound(elite: boolean): V {
   // gold at the ends)
   cbox(v, 'neck', -4, 20, 10, 3, 29, 19, F);
   B(v, 'neck', -5, 22, 9, 4, 25, 20, CL, g).box(-5, 22, 9, 4, 22, 20, CL_D, g).box(-2, 17, 20, 1, 21, 20, CL, g).box(-2, 17, 20, 1, 17, 20, CL_D, g);
-  if (elite) B(v, 'neck', -5, 23, 20, -5, 24, 20, GOLD).box(4, 23, 20, 4, 24, 20, GOLD);
+  if (elite) {
+    // Elite war-hound: spiked iron neck collar & armored saddle plates + blazing golden dorsal mane!
+    B(v, 'neck', -5, 23, 20, -5, 24, 20, GOLD).box(4, 23, 20, 4, 24, 20, GOLD);
+    B(v, 'chest', -7, 21, -2, 6, 26, 11, 0x343842).box(-7, 21, -2, 6, 21, 11, GOLD);
+    B(v, 'chest', -2, 26, -3, 1, 28, 12, GLOW, 1);
+    B(v, 'hips', -1, 24, -20, 0, 25, -4, GLOW, 1);
+  }
   // the head: skull, a long pale muzzle with a dark nose and a bare tooth row, amber eyes, pricked ears with dark tips; the lower jaw
   back('head', -4, 26, 14, 3, 33, 25);
   B(v, 'head', -2, 25, 26, 1, 29, 33, FL).box(-2, 28, 32, 1, 29, 33, FD).box(-2, 25, 32, 1, 25, 33, 0xe8e0d0).box(-2, 30, 26, 1, 30, 28, F);
-  v.part('head').symBox(2, 30, 25, 2, 31, 25, 0xd8a040).symBox(2, 34, 16, 3, 39, 18, F).symBox(2, 38, 16, 3, 39, 18, FD);
+  v.part('head').symBox(2, 30, 25, 2, 31, 25, elite ? GLOW : 0xd8a040, elite ? 1 : 0).symBox(2, 34, 16, 3, 39, 18, F).symBox(2, 38, 16, 3, 39, 18, elite ? GOLD : FD);
   B(v, 'jaw', -2, 22, 22, 1, 24, 32, FL).box(-2, 22, 22, 1, 22, 32, F);
   // legs: a muscled upper leg, a thin lower leg, a dark paw a cell wider and longer
   for (const [n, s, z] of [['legFL', 1, 4], ['legFR', -1, 4], ['legBL', 1, -18], ['legBR', -1, -18]] as Array<[string, number, number]>) {
@@ -362,32 +480,33 @@ function boss(): V {
     B(v, 'leg' + L, a, 10, -4, b, 19, 5, TROU);
     B(v, 'leg' + L, ka, 10, -6, kb, 19, 7, YR).box(ka, 10, -6, kb, 10, 7, YR_D).box(ka, 14, -6, kb, 19, 7, IRON).box(ka, 14, -6, kb, 14, 7, IRON_L).box(ka, 17, -6, kb, 17, 7, IRON_L);
   }
-  // hips in the robe, the dark belt (one cell proud of the waist) with a gold buckle
-  cbox(v, 'hips', -14, 20, -8, 13, 23, 7, YR); cbox(v, 'hips', -15, 24, -9, 14, 25, 8, BELT); B(v, 'hips', -2, 23, 9, 1, 26, 9, GOLD);
-  // the lamellar coat: waist and chest in rows of plates, a lighter line at the foot of each row
-  cbox(v, 'spine', -14, 26, -8, 13, 35, 7, IRON); cbox(v, 'chest', -16, 36, -8, 15, 45, 7, IRON);
-  for (const p of ['spine', 'chest']) v.paint(q => ((q.y - 26) % 4 === 0 ? IRON_L : null), p);
+  // hips in the robe, the dark belt with antique-gold buckle; V-taper lamellar coat with sloped shoulder profile
+  cbox2(v, 'hips', -14, 20, -8, 13, 23, 7, YR, 2); cbox2(v, 'hips', -15, 24, -9, 14, 25, 8, BELT, 2); B(v, 'hips', -2, 23, 9, 1, 26, 9, GOLD);
+  cbox2(v, 'spine', -13, 26, -8, 12, 35, 7, IRON, 2); cbox2(v, 'chest', -16, 36, -8, 15, 44, 7, IRON, 2); cbox2(v, 'chest', -13, 45, -7, 12, 45, 6, IRON_L, 2);
+  for (const p of ['spine', 'chest']) v.paint(q => ((q.y - 26) % 4 === 0 && q.c === IRON ? IRON_L : null), p);
   // the yellow robe at the neck (round it on the shoulders, deeper at the throat), the bronze mirror on the chest
   B(v, 'chest', -6, 45, -5, 5, 45, 4, YR).box(-6, 44, 5, 5, 45, 7, YR).box(-6, 44, 5, 5, 44, 7, YR_D);
-  plate(v, 'chest', -4, 31, 3, 38, 8, BRONZE); B(v, 'chest', -2, 33, 8, 1, 36, 8, BRONZE_L);
-  B(v, 'neck', -4, 46, -2, 3, 47, 1, SKIN);
-  // arms: iron sleeves under shoulder guards one cell proud (two rows of plates), the yellow robe sleeve below, iron bracers; small fists
+  plate(v, 'chest', -4, 31, 3, 38, 8, BRONZE); B(v, 'chest', -2, 33, 8, 1, 36, 8, BRONZE_L).box(-1, 34, 8, 0, 35, 8, 0xf8e298);
+  B(v, 'neck', -4, 46, -2, 3, 47, 1, SKIN); B(v, 'neck', -4, 46, -2, 3, 46, 1, SKIN_D);
+  // arms: sloped layered lamellar pauldrons (chamfered top outer edge!) + yellow robe sleeve + iron bracers
   for (const [L, s] of SIDES) {
-    const [a, b] = MX(s, 16, 25), [pa, pb] = MX(s, 16, 26), [fa, fb] = MX(s, 17, 24);
-    B(v, 'arm' + L, a, 34, -4, b, 45, 5, IRON).box(pa, 38, -5, pb, 45, 6, IRON).box(pa, 38, -5, pb, 38, 6, IRON_D).box(pa, 42, -5, pb, 42, 6, IRON_L);
+    const [a, b] = MX(s, 16, 25), [pa, pb] = MX(s, 16, 26), [fa, fb] = MX(s, 17, 24), ox = s > 0 ? 26 : -27;
+    B(v, 'arm' + L, a, 34, -4, b, 45, 5, IRON).box(pa, 38, -5, pb, 44, 6, IRON).box(pa, 38, -5, pb, 38, 6, IRON_D).box(pa, 42, -5, pb, 42, 6, IRON_L);
+    B(v, 'arm' + L, a, 45, -4, b, 45, 5, IRON_L).box(ox, 43, -5, ox, 45, 6, null).box(s > 0 ? 25 : -26, 45, -5, s > 0 ? 25 : -26, 45, 6, null);
     B(v, 'fore' + L, fa, 28, -4, fb, 33, 4, YR).box(a, 24, -4, b, 27, 5, IRON).box(a, 27, -4, b, 27, 5, IRON_L);
   }
   B(v, 'handL', 18, 18, -2, 24, 23, 4, SKIN_D).box(24, 18, -2, 24, 22, 4, 0x7a5038);
   B(v, 'handR', -25, 18, -2, -19, 23, 4, SKIN_D).box(-25, 18, -2, -25, 22, 4, 0x7a5038).box(-22, 20, -2, -21, 21, 4, null);
-  // the head: a wide face, heavy brows, a strong nose; a long black beard in three tiers down onto the chest
-  cbox(v, 'head', -8, 48, -8, 7, 63, 7, SKIN);
+  // sculpted rounded-bevel warlord head + bold tapered 3-tier beard
+  cbox2(v, 'head', -8, 50, -8, 7, 63, 7, SKIN, 2);
+  cbox2(v, 'head', -7, 48, -7, 6, 49, 7, SKIN, 2);
   hair(v, { y: 52, back: -5, side: 6, front: 3 });
-  v.paint(q => (q.y <= 53 && q.y >= 48 && (q.x <= -7 || q.x >= 6) && q.z >= 0 ? BD : null), 'head');
+  v.paint(q => (q.y <= 53 && q.y >= 48 && (q.x <= -6 || q.x >= 5) && q.z >= 0 ? BD : null), 'head');
   face(v, { F: 7, eyes: [2, 4], eyeY: 53, brows: [2, 6], browY: 55, nose: [-1, 0], noseY: [51, 53] });
-  B(v, 'jaw', -7, 46, 6, 6, 49, 8, BD).box(-6, 42, 8, 5, 45, 9, BD).box(-3, 39, 8, 2, 41, 9, BD);
+  B(v, 'jaw', -6, 46, 6, 5, 49, 8, BD).box(-5, 42, 8, 4, 45, 9, BD).box(-3, 39, 8, 2, 41, 9, BD).box(-2, 38, 8, 1, 38, 8, 0x120c0a);
   B(v, 'jaw', -5, 50, 8, 4, 50, 8, BD).box(-2, 49, 8, 1, 49, 8, MOUTH);
   turban(v, { x0: -8, x1: 7, z0: -8, z1: 7, yb: 60, yt: 63, tails: [[8, 8, 8], [8, 8, 6]], glow: false });
-  B(v, 'head', -2, 60, 9, 1, 63, 9, GOLD).box(-1, 61, 9, 0, 62, 9, 0xf4d070);
+  B(v, 'head', -2, 60, 8, 1, 63, 8, GOLD).box(-1, 61, 8, 0, 62, 8, 0xf4d070);
   // the 戟: a long dark haft with an iron butt, a red tassel, an iron socket, a straight spearhead one cell thin with bright edges, and
   // the 戈 blade out to the side, one cell thin, with an upturned tip
   const ST = 0xc8d0dc, ED = 0xeef2f8;
@@ -416,18 +535,19 @@ function farmhand(sickle: boolean): V {
     weapon: [-12, 20, 0], offhand: [12, 20, 0], leg: 5, knee: 10 });
   sandalLegs(v, { x0: 2, x1: 7, z0: -3, z1: 3, knee: 10, hip: 20, trou: 0x3c3632, wrap: true, toe: 5 });
   for (const [side, sign] of SIDES) {
-    const [x0, x1] = MX(sign, 0, 8), [a, b] = MX(sign, 10, 15), [u, w] = MX(sign, 11, 14);
-    B(v, 'leg' + side, x0, 16, -5, x1, 19, 5, coat).box(x0, 16, -5, x1, 16, 5, cuff);
-    B(v, 'arm' + side, a, 31, -3, b, 37, 2, coat).box(a, 30, -3, b, 31, 2, cuff);
+    const [x0, x1] = MX(sign, 0, 9), [a, b] = MX(sign, 10, 15), [u, w] = MX(sign, 11, 14), ox = sign > 0 ? 15 : -16;
+    B(v, 'leg' + side, x0, 15, -5, x1, 19, 5, coat).box(x0, 15, -5, x1, 15, 5, cuff);
+    B(v, 'arm' + side, a, 31, -3, b, 37, 2, coat).box(a, 30, -3, b, 31, 2, cuff).box(ox, 37, -3, ox, 37, 2, null);
     B(v, 'fore' + side, u, 24, -2, w, 29, 1, SKIN).box(u, 22, -2, w, 24, 1, LINEN_D);
     B(v, 'hand' + side, u, 18, -2, w, 21, 1, SKIN_D);
   }
-  cbox(v, 'hips', -9, 20, -6, 8, 23, 5, 0x48382a);
-  cbox(v, 'spine', -8, 24, -5, 7, 29, 4, coat);
-  cbox(v, 'chest', -10, 30, -5, 9, 37, 4, coat);
+  cbox2(v, 'hips', -9, 20, -6, 8, 23, 5, 0x48382a, 2);
+  cbox2(v, 'spine', -7, 24, -5, 6, 29, 4, coat, 2);
+  cbox2(v, 'chest', -10, 30, -5, 9, 36, 4, coat, 2); cbox2(v, 'chest', -8, 37, -4, 7, 37, 3, sickle ? 0x56746b : 0x925a48, 2);
   B(v, 'chest', -5, 36, 4, 1, 37, 4, INNER).box(1, 30, 4, 3, 36, 4, cuff);
-  B(v, 'neck', -2, 38, -2, 1, 39, 1, SKIN_D);
-  cbox(v, 'head', -7, 40, -7, 6, 53, 6, SKIN);
+  B(v, 'neck', -2, 38, -2, 1, 39, 1, SKIN); B(v, 'neck', -2, 38, -2, 1, 38, 1, SKIN_D);
+  cbox2(v, 'head', -7, 42, -7, 6, 53, 6, SKIN, 2);
+  cbox2(v, 'head', -6, 40, -6, 5, 41, 6, SKIN, 2);
   hair(v, { y: 43, back: -4, side: 5, front: 2 });
   face(v, { F: 6, eyes: [2, 3], eyeY: 44, brows: [2, 5], browY: 46, nose: [-1, 0], noseY: [42, 44], mouth: [-2, 1, 41] });
   turban(v, { x0: -7, x1: 6, z0: -7, z1: 6, yb: 50, yt: 53, tails: sickle ? [[8, 6], [5, 5]] : [[5, 4], [5, 4]], glow: false });
@@ -468,7 +588,7 @@ export const HJ_DEFS = {
   mob_b: def({ id: 'hj_mob_b', name: '流民', group: '普通', role: '流民', line: '', kind: 'biped', attack: 'swing', tip: 34, build: () => mob(1) }),
   hound: def({ id: 'hj_hound', name: '猎犬', group: '普通', role: '野兽', line: '', kind: 'quad', attack: 'bite', build: () => hound(false) }),
   hound_e: def({ id: 'hj_hound_e', name: '猎犬', group: '精英', role: '野兽', line: '', kind: 'quad', attack: 'bite', build: () => hound(true) }),
-  boss: def({ id: 'hj_boss', name: '黄巾渠帅', group: '首领', role: '渠帅', line: '', kind: 'biped', attack: 'swing', tip: 56, build: boss }),
+  boss: def({ id: 'hj_boss', name: '黄巾渠帅', group: '首领', role: '渠帅', line: '', kind: 'biped', attack: 'swing', tip: 56, scale: 1.08, build: boss }),
   sickle: def({ id: 'hj_sickle', name: '黄巾镰手', group: '普通', role: '镰手', line: '', kind: 'biped', attack: 'swing', tip: 37, build: () => farmhand(true) }),
   jar: def({ id: 'hj_jar', name: '黄巾掷罐手', group: '普通', role: '掷罐手', line: '', kind: 'biped', attack: 'swing', tip: 6, build: () => farmhand(false) }),
 };

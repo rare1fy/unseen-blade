@@ -158,5 +158,5 @@ it('preserves every sampled fine_white pose byte for byte', async () => {
   const bytes = new DataView(new ArrayBuffer(frames.length * 8));
   frames.forEach((value, index) => bytes.setFloat64(index * 8, value, true));
   const hash = await crypto.subtle.digest('SHA-256', bytes);
-  expect(Array.from(new Uint8Array(hash), n => n.toString(16).padStart(2, '0')).join('')).toBe('4f1875ca38cd49dba198e65aa04cf83779f71592f44b60c0891649311dcd6c03');
+  expect(Array.from(new Uint8Array(hash), n => n.toString(16).padStart(2, '0')).join('')).toBe('8e43350c714bbfaaec4dfb0ad411d804cc5168fb16e49974b75d8bf4abee0ab5');
 });

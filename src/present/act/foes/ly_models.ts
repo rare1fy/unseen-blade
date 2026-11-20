@@ -1,9 +1,9 @@
 // 洛阳余烬 · 西凉兵。3.5 厘米格。暗朱衣、横札、皮靴是军籍，大块兵器轮廓才是俯视下的兵种标记。
 import type { V } from '../../bestiary/kit';
 import type { ModelDef } from '../../bestiary/models';
-import { B, MX, SIDES, SKIN, SKIN_D, HAIR, GOLD, GOLD_D, cbox, def, face, fine, hair, plate, skel } from './fine_kit';
+import { B, MX, SIDES, SKIN, SKIN_D, HAIR, GOLD, GOLD_D, cbox, cbox2, def, face, fine, hair, plate, skel } from './fine_kit';
 
-const IRON = 0x555e63, BLACK = 0x343c41, EDGE = 0x9ca7a7;
+const IRON = 0x555e63, BLACK = 0x343c41, EDGE = 0xdce4ee, STEEL_M = 0x9aa6b4;
 const RED = 0x8a302b, RED_D = 0x55231e, RED_L = 0xb64e3c;
 const LEATHER = 0x40302a, SOLE = 0x241b1a, HIDE = 0x74533e;
 const BRONZE = 0x588179, BRONZE_D = 0x344e49, BRONZE_L = 0x89a38e;
@@ -16,9 +16,9 @@ function soldier(body: Body, elite = false, sleeves = RED) {
   const rag = body === 'rags' || body === 'ragsB', z = mounted ? 17 : 0;
   const hip = (boss ? 26 : 23) + z, waist = hip + 4, chest = hip + 8;
   const shoulder = hip + (boss ? 16 : 13), elbow = shoulder - (boss ? 10 : mounted ? 7 : 8), hand = elbow - (boss ? 9 : mounted ? 6 : 7);
-  const sx = boss ? 13 : rag ? 9 : 10, spread = mounted ? 14 : boss ? 6 : 5, armZ = mounted ? 6 : 0;
-  const width = boss ? 9 : rag ? 5 : 7, depth = boss ? 5 : 4, knee = (boss ? 13 : 11) + z;
-  const neck = shoulder + 2, skull = neck + 2, crown = skull + (boss ? 11 : 10), cap = elite ? GOLD : EDGE;
+  const sx = boss ? 14 : rag ? 9 : 11, spread = mounted ? 14 : boss ? 6 : 5, armZ = mounted ? 6 : 0;
+  const width = boss ? 10 : rag ? 5 : 8, depth = boss ? 8 : rag ? 5 : 6, knee = (boss ? 13 : 11) + z;
+  const neck = shoulder + 2, skull = neck + 2, crown = skull + (boss ? 12 : rag ? 10 : 11), cap = elite ? GOLD : STEEL_M;
   const inside = boss ? SKIN_D : rag ? ASH_D : RED_D;
   skel(v, { hip, spine: waist, chest, neck, head: skull, jaw: [skull + 2, 3], hat: crown, cape: [shoulder, -depth],
     sh: [sx, shoulder, armZ], fore: elbow, hand, weapon: [-sx, hand - 1, armZ], offhand: [sx, hand - 1, armZ], leg: spread, knee });
@@ -32,43 +32,51 @@ function soldier(body: Body, elite = false, sleeves = RED) {
     }
   }
 
-  B(v, waistPart, -width, hip, -depth, width - 1, waist - 1, depth - 1, inside);
-  B(v, waistPart, -width, hip + 1, -depth - 1, width - 1, hip + 2, depth, LEATHER);
-  B(v, waistPart, -2, hip + 1, depth + 1, 1, hip + 2, depth + 1, elite || boss ? GOLD_D : BRONZE);
-  B(v, 'spine', -width, waist, -depth, width - 1, chest - 1, depth - 1, boss ? SKIN : sleeves);
-  cbox(v, 'chest', -width - 1, chest, -depth, width, neck - 1, depth - 1, boss ? SKIN : sleeves);
-  B(v, 'neck', -3, neck, -3, 2, skull - 1, 2, SKIN_D);
-  cbox(v, 'head', -5, skull, -4, 4, crown - 1, 4, SKIN);
-  hair(v, { y: skull + 1, back: -2, side: 4, front: 1 });
-  face(v, { F: 4, eyes: [2, 3], eyeY: skull + 5, brows: [1, 3], browY: skull + 7,
+  cbox2(v, waistPart, -width, hip, -depth, width - 1, waist - 1, depth - 1, inside, 2);
+  cbox2(v, waistPart, -width, hip + 1, -depth - 1, width - 1, hip + 2, depth, LEATHER, 2);
+  B(v, waistPart, -2, hip + 1, depth + 1, 1, hip + 2, depth + 1, elite || boss ? GOLD : BRONZE_L);
+  // Sculpted V-taper waist & deep 3D solid torso (full front-to-back imperial thickness!)
+  cbox2(v, 'spine', -width + 1, waist, -depth, width - 2, chest - 1, depth - 1, boss ? SKIN : sleeves, 2);
+  cbox2(v, 'chest', -width - 1, chest, -depth, width, neck - 2, depth - 1, boss ? SKIN : sleeves, 2);
+  cbox2(v, 'chest', -width + 1, neck - 1, -depth + 1, width - 2, neck - 1, depth - 2, boss ? 0xdca880 : sleeves === RED ? RED_L : sleeves, 2);
+  B(v, 'neck', -3, neck, -3, 2, skull - 1, 2, SKIN); B(v, 'neck', -3, neck, -3, 2, neck, 2, SKIN_D);
+  // Full-depth 3D sculpted head (matching Region 1/4/5 solid depth — never flat from the side!)
+  const hw = boss ? 8 : rag ? 6 : 7, hd = boss ? 8 : rag ? 6 : 7;
+  cbox2(v, 'head', -hw, skull + 2, -hd, hw - 1, crown - 1, hd - 1, SKIN, 2);
+  cbox2(v, 'head', -hw + 1, skull, -hd + 1, hw - 2, skull + 1, hd - 1, SKIN, 2);
+  hair(v, { y: skull + 1, back: -hd + 3, side: hw - 1, front: 2 });
+  face(v, { F: hd - 1, eyes: [2, 3], eyeY: skull + 5, brows: [1, Math.min(4, hw - 2)], browY: skull + 7,
     nose: [-1, 0], noseY: [skull + 3, skull + 5], mouth: [-2, 1, skull + 2] });
   if (boss || body === 'ragsB') {
-    B(v, 'jaw', -3, skull - 1, 5, 2, skull + 1, 5, HAIR);
-    B(v, 'head', -4, skull + 3, 5, 3, skull + 3, 5, HAIR);
+    B(v, 'jaw', -4, skull - 1, hd, 3, skull + 1, hd, HAIR);
+    B(v, 'head', -4, skull + 3, hd, 3, skull + 3, hd, HAIR);
   }
   if (boss) {
-    B(v, 'jaw', -4, skull, 5, 3, skull + 2, 5, HAIR);
-    B(v, 'head', -5, skull + 2, 3, -5, skull + 5, 4, HAIR);
-    B(v, 'head', 4, skull + 2, 3, 4, skull + 5, 4, HAIR);
+    B(v, 'jaw', -5, skull, hd, 4, skull + 2, hd, HAIR).box(-3, skull - 3, hd, 2, skull - 2, hd, HAIR).box(-2, skull - 4, hd, 1, skull - 4, hd, 0x120c0a);
+    B(v, 'head', -hw, skull + 2, hd - 2, -hw, skull + 5, hd - 1, HAIR);
+    B(v, 'head', hw - 1, skull + 2, hd - 2, hw - 1, skull + 5, hd - 1, HAIR);
   }
 
   for (const [L, s] of SIDES) {
     const [arm0, arm1] = MX(s, sx - 2, sx + (boss ? 4 : 3)), [fore0, fore1] = MX(s, sx - 1, sx + 2);
-    const [fist0, fist1] = s > 0 ? [sx - 2, sx + 1] : [-sx - 2, -sx + 1];
-    B(v, 'arm' + L, arm0, elbow, armZ - 3, arm1, shoulder - 1, armZ + 2, boss || (rag && s > 0) ? SKIN : sleeves);
-    B(v, 'fore' + L, fore0, hand + 1, armZ - 2, fore1, elbow - 1, armZ + 1, SKIN_D);
-    if (!rag) B(v, 'fore' + L, fore0, hand + 2, armZ - 2, fore1, elbow - 2, armZ + 1, LEATHER);
+    const [fist0, fist1] = s > 0 ? [sx - 2, sx + 1] : [-sx - 2, -sx + 1], ox = s > 0 ? arm1 : arm0;
+    const ad = boss ? 4 : rag ? 3 : 4;
+    B(v, 'arm' + L, arm0, elbow, armZ - ad, arm1, shoulder - 1, armZ + ad - 1, boss || (rag && s > 0) ? SKIN : sleeves);
+    B(v, 'arm' + L, ox, shoulder - 1, armZ - ad, ox, shoulder - 1, armZ + ad - 1, null); // sloped shoulder cap!
+    B(v, 'fore' + L, fore0, hand + 1, armZ - 3, fore1, elbow - 1, armZ + 2, SKIN_D);
+    if (!rag) B(v, 'fore' + L, fore0, hand + 2, armZ - 3, fore1, elbow - 2, armZ + 2, LEATHER);
     B(v, 'hand' + L, fist0, hand - 3, armZ - 2, fist1, hand, armZ + 1, SKIN);
     // 握心是通孔。两只手都能接长兵器，柄随手转时不会把掌心盖掉。
     const grip = s * sx;
     B(v, 'hand' + L, grip - 1, hand - 2, armZ - 2, grip, hand - 1, armZ + 1, null);
 
-    const [a, b] = MX(s, spread - 3, spread + (boss ? 4 : rag ? 1 : 2)), [ia, ib] = MX(s, spread - 2, spread + 2);
-    B(v, 'leg' + L, a, knee, -3, b, hip - 1, 3, rag ? (s > 0 ? ASH : ASH_D) : RED_D);
-    B(v, 'shin' + L, ia, z + 4, -2, ib, knee - 1, 2, rag ? HIDE : LEATHER);
-    B(v, 'shin' + L, ia, knee - 2, -2, ib, knee - 1, 3, rag ? ASH_D : HIDE);
-    B(v, 'foot' + L, ia, z, -3, ib, z, 5, SOLE);
-    B(v, 'foot' + L, ia, z + 1, -2, ib, z + 3, 5, rag ? HIDE : LEATHER);
+    const [a, b] = MX(s, spread - 3, spread + (boss ? 4 : rag ? 1 : 3)), [ia, ib] = MX(s, spread - 2, spread + 2);
+    const ld = rag ? 3 : 4;
+    B(v, 'leg' + L, a, knee, -ld, b, hip - 1, ld, rag ? (s > 0 ? ASH : ASH_D) : RED_D);
+    B(v, 'shin' + L, ia, z + 4, -ld + 1, ib, knee - 1, ld - 1, rag ? HIDE : LEATHER);
+    B(v, 'shin' + L, ia, knee - 2, -ld + 1, ib, knee - 1, ld, rag ? ASH_D : HIDE);
+    B(v, 'foot' + L, ia, z, -ld, ib, z, 6, SOLE);
+    B(v, 'foot' + L, ia, z + 1, -ld + 1, ib, z + 3, 6, rag ? HIDE : LEATHER);
   }
 
   if (rag) {
@@ -76,13 +84,13 @@ function soldier(body: Body, elite = false, sleeves = RED) {
     B(v, 'chest', -width - 1, chest, depth, 0, neck - 2, depth, body === 'ragsB' ? ASH : BRONZE_D);
     B(v, 'legL', 2, hip - 9, 4, 7, hip - 1, 4, body === 'ragsB' ? RED_D : ASH_D);
     if (body === 'ragsB') {
-      cbox(v, 'hat', -6, crown, -5, 5, crown + 1, 5, ASH_D);
-      B(v, 'hat', -5, crown + 2, -3, 3, crown + 3, 3, ASH);
-      B(v, 'hat', -6, skull + 4, -4, -6, crown - 1, -1, ASH_D);
+      cbox2(v, 'hat', -7, crown, -7, 6, crown + 1, 6, ASH_D, 2);
+      cbox2(v, 'hat', -5, crown + 2, -5, 4, crown + 3, 4, ASH, 2);
+      B(v, 'hat', -7, skull + 4, -5, -7, crown - 1, -1, ASH_D);
     } else {
-      cbox(v, 'head', -5, crown, -4, 4, crown + 1, 4, HAIR);
+      cbox2(v, 'head', -6, crown, -6, 5, crown + 1, 5, HAIR, 2);
       B(v, 'hat', -4, crown + 2, -3, 0, crown + 4, 0, HAIR);
-      B(v, 'hat', 5, skull + 4, -4, 6, crown, -1, RED_D);
+      B(v, 'hat', 6, skull + 4, -5, 7, crown, -1, RED_D);
     }
     return v;
   }
@@ -91,56 +99,94 @@ function soldier(body: Body, elite = false, sleeves = RED) {
   if (boss) {
     v.bone(armor, 'chest', 0, neck - 1, 0).bone(skirt, 'hips', 0, hip + 2, 0);
   }
-  // 盔冠、眉檐、顿项。耳侧和后颈的铁片低下来，顶上留暗朱缨，脸仍能从正面看见。
-  cbox(v, 'hat', -6, crown, -5, 5, crown + 2, 5, IRON);
-  cbox(v, 'hat', -5, crown + 3, -4, 4, crown + 4, 4, BLACK);
-  B(v, 'hat', -5, crown, 6, 4, crown, 6, cap);
-  B(v, 'hat', -5, skull + 1, -6, 4, crown - 1, -5, BLACK);
+  // Full-depth 3D iron 兜鍪 helmet; ELITES get unmistakable winged gilded officer war-helm + flowing crimson horsehair plume!
+  cbox2(v, 'hat', -hw - 1, crown - 1, -hd - 1, hw, crown + 2, hd, IRON, 2);
+  cbox2(v, 'hat', -hw, crown + 3, -hd, hw - 1, crown + 3, hd - 1, BLACK, 2);
+  cbox2(v, 'hat', -hw + 1, crown + 4, -hd + 1, hw - 2, crown + 4, hd - 2, elite || boss ? GOLD : STEEL_M, 2);
+  B(v, 'hat', -hw + 1, crown - 1, hd + 1, hw - 2, crown - 1, hd + 1, cap);
+  B(v, 'hat', -hw, skull + 1, -hd - 2, hw - 1, crown - 1, -hd - 1, BLACK);
   for (const [, s] of SIDES) {
-    const [a, b] = MX(s, 5, 6);
-    B(v, 'hat', a, skull + 2, -4, b, crown - 1, 1, IRON);
-    B(v, 'hat', a, skull + 2, -4, b, skull + 2, 1, cap);
+    const [a, b] = MX(s, hw, hw + 1);
+    B(v, 'hat', a, skull + 2, -hd, b, crown - 1, 2, IRON);
+    B(v, 'hat', a, skull + 2, -hd, b, skull + 2, 2, cap);
   }
-  B(v, 'hat', -2, crown + 5, -3, 1, crown + (boss ? 10 : 6), 0, boss ? RED_L : RED);
+  B(v, 'hat', -2, crown + 5, -3, 1, crown + (boss ? 11 : elite ? 10 : 7), 0, boss || elite ? RED_L : RED);
   if (elite || boss) {
-    B(v, 'hat', -2, crown + 5, 1, 1, crown + 6, 3, GOLD_D);
-    B(v, 'hat', -3, crown + 6, -7, 2, crown + (boss ? 9 : 8), -4, RED_L);
+    // Officer winged gold crest + soaring crimson horsehair cascade visible immediately from top-down camera!
+    cbox2(v, 'hat', -hw + 2, crown + 5, -hd + 2, hw - 3, crown + 5, hd - 3, GOLD_D, 1);
+    B(v, 'hat', -2, crown + 1, hd + 1, 1, crown + 6, hd + 1, GOLD);
+    for (const [, s] of SIDES) {
+      const [wa, wb] = MX(s, hw + 1, hw + 3);
+      B(v, 'hat', wa, crown + 2, -1, wb, crown + 4, 2, GOLD).box(s > 0 ? wb : wa, crown + 5, -1, s > 0 ? wb : wa, crown + 6, 1, 0xf6dc7a);
+    }
+    B(v, 'hat', -3, crown + 7, -hd - 2, 2, crown + (boss ? 11 : 10), -2, RED_L);
+    B(v, 'hat', -3, crown + 2, -hd - 4, 2, crown + 7, -hd - 2, RED).box(-2, crown - 2, -hd - 5, 1, crown + 3, -hd - 3, RED_D);
   }
-  if (boss) B(v, 'hat', -2, crown + 1, 6, 1, crown + 5, 6, GOLD_D);
 
-  // 每叠札甲留一行暗接缝。阎虎的皮肉都做在内侧，一格之外才是能脱掉的甲。
+  // Thick 360-degree layered lamellar cuirass (front, back, AND sides wrapped solidly!)
   for (let y = chest; y + 2 < neck; y += 3) {
     B(v, armor, -width, y, depth, width - 1, y + 2, depth, BLACK);
     B(v, armor, -width, y + 1, depth + 1, width - 1, y + 2, depth + 1, IRON);
     B(v, armor, -width, y, -depth - 1, width - 1, y + 2, -depth - 1, BLACK);
     B(v, armor, -width, y + 1, -depth - 2, width - 1, y + 2, -depth - 2, IRON);
+    // Solid side lamellar flank plates so side profile looks thick & armored!
+    for (const [, s] of SIDES) {
+      const [sa, sb] = MX(s, width, width);
+      B(v, armor, sa, y + 1, -depth, sb, y + 2, depth - 1, IRON);
+      B(v, armor, sa, y, -depth, sb, y, depth - 1, BLACK);
+    }
   }
-  B(v, armor, -width, neck - 2, depth + 2, width - 1, neck - 2, depth + 2, elite || boss ? GOLD_D : EDGE);
-  if (boss) {
-    // 护心镜宽而平，炉火照到时还看得出厚甲里面的人。
-    plate(v, armor, -5, chest + 1, 4, chest + 8, depth + 2, BRONZE_D);
-    plate(v, armor, -4, chest + 2, 3, chest + 7, depth + 3, GOLD_D);
-    B(v, armor, -2, chest + 4, depth + 4, 1, chest + 5, depth + 4, GOLD);
+  B(v, armor, -width, neck - 2, depth + 2, width - 1, neck - 2, depth + 2, elite || boss ? GOLD : STEEL_M);
+  if (boss || elite) {
+    // Bold bronze/gold chest mirror (护心镜) — full warlord plate on boss, sleek gilded officer disc on elites!
+    const mr = boss ? 4 : 3;
+    plate(v, armor, -mr - 1, chest + 1, mr, chest + (boss ? 8 : 6), depth + 2, BRONZE_D);
+    plate(v, armor, -mr, chest + 2, mr - 1, chest + (boss ? 7 : 5), depth + 3, GOLD_D);
+    B(v, armor, -1, chest + (boss ? 4 : 3), depth + 3, 0, chest + (boss ? 5 : 4), depth + 3, GOLD);
+    if (boss) B(v, armor, -1, chest + 5, depth + 4, 0, chest + 5, depth + 4, 0xf8e298);
   }
+  // Deep sloped layered lamellar pauldrons (ELITES get 3-tier flared gilded officer wings!)
   for (const [L, s] of SIDES) {
-    const [a, b] = MX(s, sx - 1, sx + (elite || boss ? 6 : 4));
+    const [a, b] = MX(s, sx - 1, sx + (elite || boss ? 6 : 4)), ox = s > 0 ? b : a;
     const part = boss ? 'armorSh' + L : 'sh' + L;
     if (boss) v.bone(part, 'sh' + L, s * sx, shoulder, armZ);
-    B(v, part, a, shoulder, -4, b, shoulder + 1, armZ + 3, BLACK);
-    B(v, part, a, shoulder + 1, -3, b, shoulder + 2, armZ + 2, elite ? GOLD_D : IRON);
-    B(v, part, a, shoulder - 4, armZ + 4, b, shoulder - 1, armZ + 4, IRON);
-    B(v, part, a, shoulder - 2, armZ + 5, b, shoulder - 2, armZ + 5, elite ? GOLD : boss ? GOLD_D : EDGE);
+    B(v, part, a, shoulder, armZ - 5, b, shoulder + 1, armZ + 4, BLACK);
+    B(v, part, a, shoulder + 1, armZ - 4, b, shoulder + 2, armZ + 3, elite ? GOLD_D : IRON);
+    B(v, part, ox, shoulder + 2, armZ - 5, ox, shoulder + 2, armZ + 4, null);
+    B(v, part, a, shoulder - 4, armZ + 4, b, shoulder - 1, armZ + 5, IRON);
+    B(v, part, a, shoulder - 4, armZ - 5, b, shoulder - 1, armZ - 4, IRON);
+    B(v, part, a, shoulder - 2, armZ + 5, b, shoulder - 2, armZ + 5, elite ? GOLD : boss ? GOLD_D : STEEL_M);
+    if (elite) {
+      // Raised gold-trimmed shoulder ridge & extra flared lower lames for instant elite silhouette!
+      B(v, part, a, shoulder + 3, armZ - 3, s > 0 ? b - 2 : a + 2, shoulder + 3, armZ + 2, GOLD);
+      B(v, part, ox, shoulder - 5, armZ - 4, ox, shoulder - 1, armZ + 4, GOLD_D);
+    }
   }
   if (!mounted) {
-    const low = hip - (boss ? 9 : 6);
+    // 360-degree wrap-around heavy lamellar war-skirt (front, sides, AND back — full solid thickness!)
+    const low = hip - (boss ? 10 : elite ? 9 : 7);
     for (const [, s] of SIDES) {
       const [a, b] = MX(s, 1, boss ? width : width - 1);
-      B(v, skirt, a, low, 5, b, hip, 5, BLACK);
-      B(v, skirt, a, low + 1, 6, b, hip - 1, 6, IRON);
-      B(v, skirt, a, low, 6, b, low, 6, elite || boss ? GOLD_D : RED);
+      const [sa, sb] = MX(s, width, width + 1);
+      B(v, skirt, a, low, depth, b, hip, depth, BLACK);
+      B(v, skirt, a, low + 1, depth + 1, b, hip - 1, depth + 1, IRON);
+      B(v, skirt, a, low, depth + 1, b, low, depth + 1, elite || boss ? GOLD : RED);
+      // Side & rear lamellar skirt plates!
+      B(v, skirt, sa, low + 1, -depth + 1, sb, hip - 1, depth - 1, IRON);
+      B(v, skirt, sa, low, -depth + 1, sb, low, depth - 1, elite || boss ? GOLD_D : RED_D);
     }
-    B(v, 'cape', -width, hip - (boss ? 6 : 5), -depth - 4, width - 1, shoulder - 1, -depth - 4, RED_D);
-    B(v, 'cape', -width + 2, hip - (boss ? 6 : 5), -depth - 5, width - 3, shoulder - 3, -depth - 5, RED);
+    B(v, skirt, -width + 1, low + 1, -depth - 1, width - 2, hip - 1, -depth - 1, IRON);
+    B(v, skirt, -width + 1, low, -depth - 1, width - 2, low, -depth - 1, elite || boss ? GOLD_D : RED_D);
+    // Cloak: regular troops get a crisp crimson war-cape; ELITES & BOSS get a sweeping wide gold-hemmed commander cloak!
+    const cLow = hip - (boss ? 10 : elite ? 11 : 6), cw = elite || boss ? width + 2 : width;
+    B(v, 'cape', -cw, cLow, -depth - 4, cw - 1, shoulder - 1, -depth - 4, elite ? BLACK : RED_D);
+    B(v, 'cape', -cw + 2, cLow, -depth - 5, cw - 3, shoulder - 2, -depth - 5, elite ? RED_L : RED);
+    if (elite || boss) B(v, 'cape', -cw, cLow, -depth - 5, cw - 1, cLow + 1, -depth - 4, GOLD);
+  } else if (elite) {
+    // Mounted elite commander gets a dramatic billowing crimson-and-gold cavalry cloak!
+    B(v, 'cape', -width - 1, hip - 6, -depth - 4, width, shoulder - 1, -depth - 4, RED_D);
+    B(v, 'cape', -width + 1, hip - 6, -depth - 5, width - 2, shoulder - 2, -depth - 5, RED_L);
+    B(v, 'cape', -width - 1, hip - 6, -depth - 5, width, hip - 5, -depth - 4, GOLD);
   }
   return v;
 }
@@ -164,7 +210,15 @@ function halberd(elite: boolean) {
   box(-12, 0, 65, -10, 0, 69, EDGE);
   box(-12, 0, 68, -9, 0, 74, EDGE);
   box(-2, -1, 53, 1, 1, 55, elite ? GOLD : BRONZE);
-  if (elite) box(1, 0, 45, 8, 0, 52, RED_L);
+  if (elite) {
+    // Double-crescent 方天画戟 twin ear-blade + grand crimson banner tassel!
+    box(1, 0, 63, 9, 0, 69, IRON);
+    box(9, 0, 65, 11, 0, 69, EDGE);
+    box(8, 0, 68, 11, 0, 74, EDGE);
+    box(-1, -1, 56, 0, 0, 77, GOLD_D);
+    box(1, 0, 44, 9, 0, 52, RED_L);
+    box(2, 0, 41, 7, 0, 44, RED);
+  }
   return v;
 }
 
@@ -193,8 +247,14 @@ function shield(elite: boolean) {
     box(-12, row, 12, -10, row + 2, 12, rim);
     box(9, row, 12, 11, row + 2, 12, rim);
   }
-  if (elite) box(-11, 16, 11, 10, 19, 11, RED_L);
-  saber(v, 21, rim);
+  if (elite) {
+    // Spiked-crown gilded heavy siege tower shield!
+    box(-13, 17, 10, 12, 19, 11, GOLD);
+    for (const sx2 of [-12, -5, 2, 9]) box(sx2, 20, 10, sx2 + 2, 23, 11, EDGE);
+    box(-8, 16, 12, 7, 18, 12, RED_L);
+    box(-6, -5, 13, 5, 5, 14, GOLD);
+  }
+  saber(v, elite ? 24 : 21, rim);
   return v;
 }
 
@@ -203,7 +263,8 @@ function crossbow(elite: boolean) {
   box(-1, -1, -8, 0, 0, 27, HIDE);
   box(-2, 1, 4, 1, 2, 30, HIDE);
   box(-3, 1, 14, 2, 3, 17, elite ? GOLD_D : BRONZE);
-  box(-21, 1, 26, 20, 2, 28, LEATHER);
+  box(-21, 1, 26, 20, 2, 28, elite ? IRON : LEATHER);
+  if (elite) box(-24, 1, 28, 23, 2, 30, BLACK).box(-24, 2, 28, 23, 2, 29, GOLD_D);
   for (const [a, b] of [[-22, -17], [16, 21]]) box(a, 1, 23, b, 2, 25, HIDE);
   box(-21, 2, 22, 20, 2, 22, ASH);
   box(-3, 0, 31, 2, 1, 34, BLACK);
@@ -274,16 +335,19 @@ function rider(elite: boolean) {
   const trim = elite ? GOLD_D : BRONZE;
   v.bone('horse', 'hips', 0, 27, 0).bone('horseNeck', 'horse', 0, 29, 15)
     .bone('horseHead', 'horseNeck', 0, 40, 20).bone('horseTail', 'horse', 0, 29, -18);
-  cbox(v, 'horse', -8, 21, -18, 7, 35, 17, coat);
+  cbox2(v, 'horse', -9, 21, -19, 8, 35, 18, coat, 2);
   B(v, 'horse', -7, 20, -15, 6, 22, 14, dark);
-  B(v, 'horse', -8, 35, -10, 7, 36, 8, RED_D);
+  B(v, 'horse', -9, 35, -10, 8, 36, 8, RED_D);
   B(v, 'horse', -8, 37, -6, 7, 39, 5, HIDE);
   B(v, 'horse', -7, 40, -8, 6, 41, -6, LEATHER);
   for (const [L, s] of SIDES) {
-    const [s0, s1] = MX(s, 8, 9);
+    const [s0, s1] = MX(s, 9, 10);
     B(v, 'horse', s0, 28, -11, s1, 36, 9, RED);
     B(v, 'horse', s0, 28, -11, s1, 29, 9, trim);
-    if (elite) B(v, 'horse', s0, 24, 10, s1, 35, 16, IRON).box(s0, 24, 10, s1, 25, 16, trim);
+    if (elite) {
+      // Full heavy iron barding (具装铠) along flanks, chest & rump!
+      B(v, 'horse', s0, 23, -18, s1, 35, 18, IRON).box(s0, 23, -18, s1, 24, 18, GOLD).box(s0, 34, -18, s1, 35, 18, GOLD_D);
+    }
     for (const end of ['F', 'B']) {
       const front = end === 'F', z = front ? 12 : -13, upper = 'horseLeg' + end + L, lower = 'horseShin' + end + L;
       const [a, b] = MX(s, 4, 7), [c, d] = MX(s, 4, 6);
@@ -293,11 +357,17 @@ function rider(elite: boolean) {
       B(v, 'hoof' + end + L, c, 0, z - 2, d, 2, z + 2, SOLE);
     }
   }
+  if (elite) B(v, 'horse', -8, 24, 19, 7, 34, 19, IRON).box(-8, 24, 19, 7, 25, 19, GOLD).box(-3, 28, 20, 2, 31, 20, GOLD);
   B(v, 'horseNeck', -5, 26, 18, 4, 38, 22, coat);
+  if (elite) B(v, 'horseNeck', -6, 28, 17, 5, 37, 23, IRON).box(-6, 36, 17, 5, 37, 23, GOLD_D);
   B(v, 'horseNeck', -5, 36, 13, 4, 39, 17, dark);
   B(v, 'horseNeck', -3, 37, 11, 2, 43, 17, dark);
-  cbox(v, 'horseHead', -5, 39, 18, 4, 47, 25, coat);
-  cbox(v, 'horseHead', -4, 36, 26, 3, 44, 31, coat);
+  cbox2(v, 'horseHead', -5, 39, 18, 4, 47, 25, coat, 2);
+  cbox2(v, 'horseHead', -4, 36, 26, 3, 44, 31, coat, 1);
+  if (elite) {
+    // Gilded iron warhorse chamfron (马面帘) + forehead spike!
+    B(v, 'horseHead', -4, 43, 25, 3, 48, 30, IRON).box(-2, 45, 31, 1, 47, 33, GOLD).box(-1, 48, 26, 0, 52, 28, GOLD);
+  }
   B(v, 'horseHead', -4, 36, 32, 3, 40, 34, dark);
   B(v, 'horseHead', -3, 38, 35, -2, 39, 35, SOLE);
   B(v, 'horseHead', 1, 38, 35, 2, 39, 35, SOLE);
@@ -351,18 +421,18 @@ function yanhu() {
   return v;
 }
 
-function pair(id: string, name: string, build: (elite: boolean) => V, tip: number, attack: ModelDef['attack'] = 'swing') {
-  for (const elite of [false, true]) def({ id: id + (elite ? '_e' : ''), name, group: elite ? '精英' : '普通', role: name, line: '', kind: 'biped', attack, tip, build: () => build(elite) });
+function pair(id: string, name: string, build: (elite: boolean) => V, tip: number, attack: ModelDef['attack'] = 'swing', scale = 1.12) {
+  for (const elite of [false, true]) def({ id: id + (elite ? '_e' : ''), name, group: elite ? '精英' : '普通', role: name, line: '', kind: 'biped', attack, tip, scale, build: () => build(elite) });
 }
 
 // 名字沿用 ly_ai 中已经定稿的玩家文案。战斗中精英的 15% 放大仍由 spawnFoe 做。
-pair('ly_halberd', '飞熊长戟', halberd, 83);
-pair('ly_rider', '凉州突骑', rider, 64);
-pair('ly_shield', '覆铁重盾', shield, 22);
-pair('ly_xbow', '摧坚强弩', crossbow, 31, 'shoot');
-pair('ly_torch', '泼油狂卒', torch, 12, 'cast');
+pair('ly_halberd', '飞熊长戟', halberd, 83, 'swing', 1.12);
+pair('ly_rider', '凉州突骑', rider, 64, 'swing', 1.08);
+pair('ly_shield', '覆铁重盾', shield, 22, 'swing', 1.12);
+pair('ly_xbow', '摧坚强弩', crossbow, 31, 'shoot', 1.12);
+pair('ly_torch', '泼油狂卒', torch, 12, 'cast', 1.12);
 def({ id: 'ly_looter', name: '搜骨乱卒', group: '普通', role: '搜骨乱卒', line: '', kind: 'biped', attack: 'swing', tip: 28, build: () => looter(false) });
 def({ id: 'ly_looter_b', name: '搜骨乱卒', group: '普通', role: '搜骨乱卒', line: '', kind: 'biped', attack: 'swing', tip: 30, build: () => looter(true) });
-def({ id: 'ly_boss', name: '飞熊校尉 · 阎虎', group: '首领', role: '飞熊校尉', line: '', kind: 'biped', attack: 'swing', tip: 67, build: yanhu });
+def({ id: 'ly_boss', name: '飞熊校尉 · 阎虎', group: '首领', role: '飞熊校尉', line: '', kind: 'biped', attack: 'swing', tip: 67, scale: 1.18, build: yanhu });
 
 import './ly_poses';

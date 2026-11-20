@@ -23,6 +23,15 @@ const fine = () => new VoxChar(CELL / 2);
 const B = (v: V, part: string, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, c: Col | null) => v.part(part).box(x0, y0, z0, x1, y1, z1, c);
 /** a box with its four vertical edges cut one cell in (and its top ring too, when top): a softer mass */
 const R = (v: V, part: string, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, c: Col, top = false) => { v.part(part); rbox(v, x0, y0, z0, x1, y1, z1, c, 1, top); };
+/** a box with vertical corners chamfered by r cells (clean rounded sculptural form, zero stair-steps) */
+function C2(v: V, part: string, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, c: Col, r = 2) {
+  v.part(part);
+  for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) {
+    const ex = Math.min(x - x0, x1 - x), ez = Math.min(z - z0, z1 - z);
+    if (ex + ez < r) continue;
+    for (let y = y0; y <= y1; y++) v.set(x, y, z, c);
+  }
+}
 /** a box on the left limb (part + 'L') and its mirror (cell x ↔ −1 − x) on the right (part + 'R') */
 const LR = (v: V, part: string, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, c: Col | null) => {
   B(v, part + 'L', x0, y0, z0, x1, y1, z1, c); B(v, part + 'R', -1 - x1, y0, z0, -1 - x0, y1, z1, c);
@@ -76,299 +85,310 @@ const ss = (a: number, b: number, x: number) => { const t = clamp01((x - a) / (b
 const win = (x: number, a: number, b: number, e = 0.4) => ss(a, a + e, x) * (1 - ss(b - e, b, x));
 
 // ================================================================== 杜五（赶车伙夫）
-// 二十二岁，圆短脸带雀斑，灰褐布巾上露一束深棕头发，下巴有浅胡茬；土橙补丁短褐，肩搭灰白汗巾，挽裤腿、草鞋；背一口黑铁炒锅，
-// 腰插剁骨菜刀，右胯挂一盘捆尸麻绳；左手缺两指（无名指、小指：手背后那一列的指头没了）。
+// 照立绘 duwu.png 重构：二十二岁，圆润微暖的脸，斜八字眉、亮眼、下巴正中一小撮深棕胡茬、露耳；层叠灰褐布包头巾，头顶露出束起的深棕发髻，
+// 左耳后垂布结与双带；暖土橙补丁交领短褐配深棕宽领缘与米白内领、左肩厚叠米白汗巾；背后编织棕竹背篓（口内嵌黑铁炒锅），腰插剁骨菜刀、
+// 右胯挂麻绳；左手缺两指；双腿保留分节骨骼（走路/蹲下自然弯折）。
 function buildDuwu(): V {
   const v = fine();
-  const C = { SKIN: 0xd99060, SKIN_D: 0xb5714d, FRECK: 0xb57350, JK: 0x98582b, JK_D: 0x643a29, JK_L: 0xaa733e, PATCH: 0x704635, PATCH2: 0x794c36,
-    TROU: 0x5a5042, TROU_L: 0x7a6e58, STRAW: 0xc4a05a, STRAW_D: 0x8e7038, WRAP: 0x7b685e, WRAP_D: 0x574840, WRAP_L: 0x9c8678,
-    HAIR: 0x382821, HAIR_L: 0x614334, STUB: 0xa56f53, MOUTH: 0x75412f, LINEN: 0xded0bb,
-    TOWEL: 0xd7cab7, TOWEL_D: 0x9e8e7d, WOK: 0x2a2a2e, WOK_L: 0x4e4e56, ROPE: 0x9a774b, ROPE_D: 0x6e4a32, BLADE: 0xaab0b8, EDGE: 0xd8dce2, HAFT: 0x5a3c26, EYE: 0x291a19 };
+  const C = {
+    SKIN: 0xe69f66, SKIN_D: 0xbf7a48, JK: 0xa8642e, JK_D: 0x703e1d, JK_L: 0xc27a3e, LAPEL: 0x7e4624,
+    PATCH: 0x864728, PATCH_D: 0x5c2e18, TROU: 0x5c5042, TROU_L: 0x7a6c5a, STRAW: 0xc8a45c, STRAW_D: 0x8e7038,
+    WRAP: 0x9b8a7e, WRAP_D: 0x6f5f55, WRAP_L: 0xb8a89a, HAIR: 0x3b2a22, HAIR_L: 0x5c4234, STUB: 0x4b382e, MOUTH: 0x7a422e,
+    LINEN: 0xede2cf, TOWEL: 0xebe2d2, TOWEL_D: 0xbdb09c, BASKET: 0x9e6334, BASKET_D: 0x6b3e1c, BASKET_L: 0xc28046,
+    WOK: 0x2a2a30, WOK_L: 0x4e4e58, ROPE: 0xa48050, ROPE_D: 0x725232, BLADE: 0xaeb4bc, HAFT: 0x5c3e26, EYE: 0x241816,
+  };
   rig(v, { hip: 20, spine: 24, chest: 30, neck: 36, head: 40, hat: 54, ax: 8, sh: 36, elbow: 28, wrist: 20, grip: 18, lx: 4, knee: 10, back: 4 });
-  // ---------------------------------------------------------------- legs: trousers rolled to the knee (a lighter cuff), bare shins, straw sandals
+  // ---------------------------------------------------------------- legs: rolled trousers, bare shins, straw sandals (separate bones for walk/squat)
   LR(v, 'leg', 2, 10, -2, 5, 19, 1, C.TROU);
   LR(v, 'shin', 2, 8, -2, 5, 9, 1, C.TROU_L); LR(v, 'shin', 3, 4, -2, 5, 7, 0, C.SKIN);
   LR(v, 'foot', 2, 0, -2, 5, 0, 4, C.STRAW_D); LR(v, 'foot', 2, 1, -2, 5, 1, 4, C.SKIN); LR(v, 'foot', 2, 2, -2, 5, 2, 2, C.SKIN); LR(v, 'foot', 3, 3, -2, 5, 3, 0, C.SKIN);
-  LR(v, 'foot', 2, 1, -2, 5, 2, -2, C.STRAW); LR(v, 'foot', 2, 1, 0, 5, 2, 0, C.STRAW);                    // heel cup and the strap over the instep
-  // ---------------------------------------------------------------- the short jacket: skirt to mid-thigh (each thigh carries its half), a rope belt
-  R(v, 'hips', -6, 20, -4, 5, 23, 3, C.JK);
-  R(v, 'legL', 0, 14, -4, 5, 19, 3, C.JK); R(v, 'legR', -6, 14, -4, -1, 19, 3, C.JK); for (const L of ['legL', 'legR']) v.paint(c => (c.y === 14 ? C.JK_D : null), L);
-  B(v, 'legR', -6, 16, 3, -4, 18, 3, C.PATCH2);                                                      // a patch on the right flap
-  R(v, 'spine', -6, 24, -4, 5, 29, 3, C.JK); v.paint(c => (c.y <= 25 ? C.ROPE : null), 'spine');
-  B(v, 'spine', -4, 24, 4, -3, 25, 4, C.ROPE_D); B(v, 'hips', -4, 20, 4, -4, 23, 4, C.ROPE); B(v, 'hips', -3, 21, 4, -3, 23, 4, C.ROPE);   // the knot, two ends
-  R(v, 'chest', -7, 30, -4, 6, 35, 3, C.JK, true);
-  B(v, 'neck', -2, 36, -2, 1, 39, 1, C.SKIN);
-  // Light linen follows the V at the throat. The wok strap crosses from his left shoulder to the opposite hip.
-  B(v, 'chest', -2, 35, 2, 1, 35, 2, C.LINEN);
-  v.paint(({ part, x, y, z }) => {
-    if ((part !== 'chest' && part !== 'spine') || z !== 3 || y < 26) return;
-    const strap = x - (y - 31);
-    if (strap >= 1 && strap <= 3) return strap === 3 ? C.ROPE_D : C.ROPE;
-    const lapel = Math.abs(x + 0.5) - (y - 30.5);
-    if (y >= 31 && y <= 34 && lapel >= 0 && lapel <= 1) return C.LINEN;
-    if (y >= 30 && Math.abs(x + 0.5) <= y - 29.5) return C.JK_D;
-  });
-  // ---------------------------------------------------------------- arms: sleeves rolled to the elbow (a light cuff), bare forearms, small hands
-  LR(v, 'arm', 6, 28, -2, 9, 35, 1, C.JK); B(v, 'armR', -10, 30, -1, -10, 32, 0, C.PATCH);
-  B(v, 'armR', -9, 32, 1, -7, 34, 1, C.PATCH); B(v, 'armL', 7, 29, 1, 9, 31, 1, C.PATCH2);
+  LR(v, 'foot', 2, 1, -2, 5, 2, -2, C.STRAW); LR(v, 'foot', 2, 1, 0, 5, 2, 0, C.STRAW);
+  // ---------------------------------------------------------------- warm amber-ochre patched short jacket + deep-brown crossed lapel + cream inner collar
+  C2(v, 'hips', -6, 20, -4, 5, 23, 3, C.JK, 2);
+  R(v, 'legL', 0, 14, -4, 5, 19, 3, C.JK); R(v, 'legR', -6, 14, -4, -1, 19, 3, C.JK);
+  for (const L of ['legL', 'legR']) v.paint(c => (c.y === 14 ? C.JK_D : null), L);
+  B(v, 'legR', -6, 16, 3, -4, 18, 3, C.PATCH);
+  C2(v, 'spine', -6, 24, -4, 5, 29, 3, C.JK, 2); v.paint(c => (c.y <= 25 ? C.ROPE : null), 'spine');
+  B(v, 'spine', -4, 24, 4, -3, 25, 4, C.ROPE_D); B(v, 'hips', -4, 20, 4, -4, 23, 4, C.ROPE); B(v, 'hips', -3, 21, 4, -3, 23, 4, C.ROPE);
+  C2(v, 'chest', -7, 30, -4, 6, 35, 3, C.JK, 2); C2(v, 'chest', -5, 36, -3, 4, 36, 2, C.JK_L, 2);
+  B(v, 'neck', -2, 36, -2, 1, 39, 1, C.SKIN); B(v, 'neck', -2, 36, -2, 1, 36, 1, C.SKIN_D);
+  // Crisp pale-cream inner collar & rich brown crossed lapel matching duwu.png
+  B(v, 'chest', -2, 34, 3, 1, 36, 3, C.LINEN); B(v, 'chest', -2, 36, 2, 1, 36, 2, C.LINEN);
+  B(v, 'chest', -3, 32, 3, -2, 35, 3, C.LAPEL); B(v, 'chest', 1, 30, 3, 3, 35, 3, C.LAPEL);
+  B(v, 'spine', -1, 26, 3, 1, 29, 3, C.LAPEL); B(v, 'chest', -1, 30, 3, 0, 33, 3, C.LAPEL);
+  // Crisp square shoulder patch on right shoulder (portrait)
+  B(v, 'chest', -7, 33, 0, -5, 35, 3, C.PATCH); B(v, 'chest', -7, 33, 3, -5, 33, 3, C.PATCH_D);
+  // ---------------------------------------------------------------- arms: sloped rolled sleeves with crisp patches, bare forearms, 3-fingered left hand
+  LR(v, 'arm', 6, 28, -2, 9, 35, 1, C.JK); LR(v, 'arm', 6, 35, -2, 9, 35, 1, C.JK_L); LR(v, 'arm', 9, 35, -2, 9, 35, 1, null);
+  B(v, 'armR', -10, 31, -1, -10, 33, 1, C.PATCH); B(v, 'armL', 7, 29, 1, 9, 31, 1, C.PATCH); B(v, 'armL', 7, 29, 1, 9, 29, 1, C.PATCH_D);
   LR(v, 'fore', 6, 26, -2, 9, 27, 1, C.JK_L); LR(v, 'fore', 6, 20, -2, 8, 25, 0, C.SKIN);
   hands(v, 16, C.SKIN, C.SKIN_D);
-  B(v, 'handL', 6, 16, -2, 8, 17, -2, null);                                                         // the ring and little fingers gone
-  // The folded towel drapes over both sides of his left shoulder.
-  R(v, 'chest', 2, 35, -4, 6, 36, 4, C.TOWEL);
-  B(v, 'chest', 3, 27, 4, 6, 35, 4, C.TOWEL); B(v, 'chest', 6, 28, 4, 6, 34, 4, C.TOWEL_D);
-  B(v, 'chest', 3, 27, 4, 6, 27, 4, C.TOWEL_D); B(v, 'chest', 3, 32, -4, 6, 34, -4, C.TOWEL_D);
-  // ---------------------------------------------------------------- the black wok on his back: the rim, the deeper middle, the flat base (its
-  // round bottom outward), two ear handles; it sits from the hips to the shoulders
-  slab(v, 'chest', -8, 20, -6, 7, 37, -5, C.WOK, 2);
-  slab(v, 'chest', -6, 23, -8, 5, 34, -7, C.WOK, 2);
-  slab(v, 'chest', -3, 26, -9, 2, 31, -9, C.WOK_L, 1);
-  B(v, 'chest', -10, 27, -6, -9, 29, -5, C.WOK_L); B(v, 'chest', 8, 27, -6, 9, 29, -5, C.WOK_L);
-  B(v, 'chest', 3, 37, -6, 5, 38, -4, C.ROPE); B(v, 'chest', 6, 35, -6, 6, 37, -5, C.ROPE_D);
-  // ---------------------------------------------------------------- the rope coil at the back of the right hip (a ring seen from the side, clear
-  // of the hanging arm), the cleaver tucked into the belt in front, its blade flat on the skirt
+  B(v, 'handL', 6, 16, -2, 8, 17, -2, null);
+  // Prominent thick folded off-white sweat towel draped over left shoulder (duwu.png signature!)
+  C2(v, 'chest', 2, 35, -5, 6, 37, 4, C.TOWEL, 1);
+  B(v, 'chest', 2, 26, 4, 6, 36, 4, C.TOWEL); B(v, 'chest', 5, 27, 4, 6, 35, 4, C.TOWEL_D);
+  B(v, 'chest', 2, 26, 4, 6, 26, 4, C.TOWEL_D); B(v, 'chest', 2, 31, -5, 6, 35, -5, C.TOWEL_D);
+  // ---------------------------------------------------------------- woven brown wicker back-basket (duwu.png!) with black iron wok nested on its back
+  C2(v, 'chest', -7, 22, -10, 7, 36, -5, C.BASKET, 2);
+  // Horizontal woven reed bands & thick woven top rim visible behind his left shoulder
+  for (const y of [24, 28, 32]) B(v, 'chest', -7, y, -10, 7, y, -5, C.BASKET_D);
+  C2(v, 'chest', -8, 35, -11, 8, 37, -5, C.BASKET_L, 2);
+  B(v, 'chest', -6, 36, -9, 6, 37, -6, C.BASKET_D);
+  // Black iron wok strapped snugly across the back face of the wicker basket
+  slab(v, 'chest', -6, 23, -12, 5, 34, -11, C.WOK, 2); slab(v, 'chest', -3, 26, -13, 2, 31, -13, C.WOK_L, 1);
+  // Rope coil at right hip & cleaver tucked into the belt in front
   B(v, 'hips', -8, 13, -10, -7, 20, -3, C.ROPE); B(v, 'hips', -8, 15, -8, -7, 18, -5, null);
   for (const y of [13, 20]) for (const z of [-10, -3]) B(v, 'hips', -8, y, z, -7, y, z, null);
-  B(v, 'hips', -8, 13, -9, -7, 13, -4, C.ROPE_D); B(v, 'hips', -7, 21, -4, -7, 22, -4, C.ROPE_D);
-  B(v, 'hips', 0, 15, 4, 3, 20, 4, C.BLADE); B(v, 'hips', 0, 15, 4, 3, 15, 4, C.EDGE); B(v, 'hips', 1, 21, 4, 2, 23, 4, C.HAFT); B(v, 'spine', 1, 24, 4, 2, 26, 4, C.HAFT);
-  // Round cheeks, a short chin, and visible ears beneath the cloth.
-  R(v, 'head', -4, 40, -4, 3, 41, 4, C.SKIN);
-  R(v, 'head', -6, 42, -5, 5, 53, 5, C.SKIN);
-  B(v, 'head', -3, 41, 5, 2, 41, 5, C.SKIN);
+  B(v, 'hips', -8, 13, -9, -7, 13, -4, C.ROPE_D);
+  B(v, 'hips', 0, 15, 4, 3, 20, 4, C.BLADE); B(v, 'hips', 0, 15, 4, 3, 15, 4, 0xeef2f8); B(v, 'hips', 1, 21, 4, 2, 23, 4, C.HAFT); B(v, 'spine', 1, 24, 4, 2, 26, 4, C.HAFT);
+  // ---------------------------------------------------------------- head: warm youthful round face, layered taupe headwrap, neat dark-brown topknot bun & left-ear tails
+  C2(v, 'head', -6, 42, -5, 5, 52, 5, C.SKIN, 2);
+  C2(v, 'head', -4, 40, -4, 3, 41, 4, C.SKIN, 1);
   v.paint(({ y, z }) => z <= -3 && y >= 43 ? C.HAIR : undefined, 'head');
-  S(v, 'head', 5, 43, 0, 6, 47, 2, C.SKIN);
-  S(v, 'head', 6, 44, 0, 6, 46, 1, C.SKIN_D);
-  S(v, 'head', 4, 46, 3, 5, 50, 4, C.HAIR);
-  B(v, 'head', 2, 49, 5, 4, 50, 5, C.HAIR); B(v, 'head', -4, 50, 5, -3, 50, 5, C.HAIR);
-
-  // The wrap folds around the head, exposes a topknot and ties behind his left ear.
-  R(v, 'head', -7, 51, -6, 6, 53, 6, C.WRAP);
-  R(v, 'head', -6, 53, -6, 5, 55, 5, C.WRAP, true);
-  B(v, 'head', -6, 51, 6, 5, 51, 6, C.WRAP_D);
-  B(v, 'head', -6, 52, 6, 1, 52, 6, C.WRAP_L); B(v, 'head', -4, 54, 5, 4, 54, 5, C.WRAP_L);
-  B(v, 'head', -4, 55, 1, 4, 55, 2, C.WRAP_L);
-  R(v, 'head', -2, 55, -5, 3, 58, -1, C.HAIR, true);
-  B(v, 'head', 0, 57, -1, 1, 58, -1, C.HAIR_L); B(v, 'head', -1, 55, -1, 2, 55, -1, C.WRAP_D);
-  R(v, 'head', 5, 48, -6, 7, 51, -3, C.WRAP);
-  B(v, 'head', 6, 43, -6, 7, 49, -5, C.WRAP_D); B(v, 'head', 7, 45, -4, 8, 48, -3, C.WRAP);
-
-  // Raised inner brows, open eyes and a slight, uneven smile.
-  S(v, 'head', 1, 48, 5, 2, 48, 5, C.HAIR_L); S(v, 'head', 3, 47, 5, 4, 47, 5, C.HAIR_L);
+  S(v, 'head', 5, 43, -1, 6, 47, 1, C.SKIN); S(v, 'head', 6, 44, 0, 6, 46, 0, C.SKIN_D);
+  S(v, 'head', 4, 46, 2, 5, 49, 4, C.HAIR);
+  // Layered warm grey-taupe cloth headwrap (clean horizontal folds)
+  C2(v, 'head', -7, 50, -6, 6, 53, 6, C.WRAP, 2);
+  C2(v, 'head', -6, 54, -6, 5, 55, 5, C.WRAP_L, 2);
+  B(v, 'head', -5, 51, 6, 4, 51, 6, C.WRAP_D); B(v, 'head', -5, 53, 6, 4, 53, 6, C.WRAP_L);
+  // Topknot bun peeking out the top, bound with a cloth ring
+  C2(v, 'head', -3, 56, -4, 2, 56, 1, C.WRAP_D, 1);
+  C2(v, 'head', -3, 57, -4, 2, 60, 1, C.HAIR, 1);
+  B(v, 'head', -1, 59, 0, 1, 60, 1, C.HAIR_L);
+  // Cloth knot + twin hanging tails behind his left ear (duwu.png!)
+  C2(v, 'head', 5, 48, -6, 7, 51, -3, C.WRAP, 1);
+  B(v, 'head', 6, 42, -6, 7, 48, -5, C.WRAP_D); B(v, 'head', 7, 44, -4, 8, 48, -3, C.WRAP);
+  // Worried/kind tilted brows, bright dark eyes, 1-cell nose, warm smile & tiny chin goatee tuft
+  B(v, 'head', -4, 47, 5, -3, 47, 5, C.HAIR); B(v, 'head', -2, 48, 5, -1, 48, 5, C.HAIR);
+  B(v, 'head', 1, 48, 5, 2, 48, 5, C.HAIR); B(v, 'head', 3, 47, 5, 4, 47, 5, C.HAIR);
   S(v, 'head', 1, 45, 5, 4, 46, 5, C.LINEN); S(v, 'head', 2, 45, 5, 3, 46, 5, C.EYE);
-  S(v, 'head', 3, 43, 5, 4, 43, 5, C.FRECK);
   B(v, 'head', -1, 44, 6, 0, 44, 6, C.SKIN); B(v, 'head', -1, 43, 5, 0, 43, 5, C.SKIN_D);
-  B(v, 'head', -1, 41, 5, 1, 41, 5, C.MOUTH); B(v, 'head', 2, 42, 5, 2, 42, 5, C.MOUTH);
-  B(v, 'head', -2, 40, 4, 1, 40, 4, C.STUB);
+  B(v, 'head', -2, 42, 5, 1, 42, 5, C.MOUTH);
+  B(v, 'head', -1, 40, 4, 0, 40, 4, C.STUB);
   fuseStill(v);
-  // (act-44 用户：「下蹲一条腿直着，走路脚板都脱离脚踝了」: the shins and feet were merged into the thighs when he only stood — he walks
-  //  and squats now, so each keeps its own part and bends at the knee and the ankle)
   return v;
 }
 
 // ================================================================== 鬼针孙媪（暴室医婆）
-// 六十二岁，消瘦的菱形脸刻满皱纹，银发后梳成低髻，耳后横插骨簪；暗枣红交领窄袖粗布衣（长衣过膝，下面露裙），腰系挂满小药葫芦的皮囊；
-// 右手夹着两根银针、左手一把刮骨小刀；左眼浑浊惨白、右眼精光；嘴角下撇。女性平脸，不出鼻子。
+// 照立绘 sunao.png 重构：六十二岁，瘦削高颧窄颌，女性平脸不出鼻子；严厉皱眉、右眼锐黑、左眼惨白盲翳、嘴角下撇；银白发丝后梳饱满低髻、
+// 横插暖色骨簪；深暗枣红交领长衣配暖褐领缘，两节可动喇叭裙摆，腰悬药葫芦皮囊，右指银针、左执刮骨小刀。
 function buildSunao(): V {
   const v = fine();
-  const C = { SKIN: 0xc79068, SKIN_D: 0x9c644c, WRINKLE: 0xb17659, ROBE: 0x492d34, ROBE_D: 0x30212a, ROBE_L: 0x72404a, JACKET: 0x62323a, BINDING: 0x87604b,
-    HAIR: 0xb7a6ab, HAIR_D: 0x84747c, HAIR_L: 0xd5c3bd, BONE: 0xcfa77e, BONE_D: 0x9a7253, BELT: 0x4a3020, BELT_L: 0x6a4a30, GOURD: 0xb77a34, GOURD_D: 0x855322, CORD: 0x702522,
-    EYE: 0x2f2121, EYE_W: 0xd6b6a1, BLIND: 0xddcebf, MOUTH: 0x684139, NEEDLE: 0xeef2f8, KNIFE: 0x9aa0aa, SHOE: 0x2a2224 };
+  const C = {
+    SKIN: 0xd99b6c, SKIN_D: 0xad744c, WRINKLE: 0xba7d54, ROBE: 0x452228, ROBE_D: 0x2c151a, ROBE_L: 0x733c44, JACKET: 0x582c32, BINDING: 0x9b6644,
+    HAIR: 0xc2b6bc, HAIR_D: 0x8d8088, HAIR_L: 0xe0d6d8, BONE: 0xdfa97a, BONE_D: 0xa6744e, BELT: 0x4a3020, BELT_L: 0x6a4a30,
+    GOURD: 0xba7e36, GOURD_D: 0x855322, CORD: 0x742624, EYE: 0x281818, EYE_W: 0xebd4c0, BLIND: 0xe6dcd0, MOUTH: 0x6e4036,
+    NEEDLE: 0xeef2f8, KNIFE: 0xa0a6b0, SHOE: 0x2a2224,
+  };
   rig(v, { hip: 18, spine: 22, chest: 28, neck: 34, head: 36, hat: 50, ax: 8, sh: 34, elbow: 26, wrist: 18, grip: 16, lx: 4, knee: 10, back: 4 });
-  // ---------------------------------------------------------------- the skirt to the ground (a wide hem tier, a dark hem), the long jacket over it
-  // to the knee (a dark hem, the overlap down the front), dark shoe tips under the hem
-  R(v, 'hips', -7, 0, -5, 6, 1, 4, C.ROBE_D); R(v, 'hips', -7, 2, -5, 6, 5, 4, C.ROBE); R(v, 'hips', -6, 6, -4, 5, 9, 3, C.ROBE);
-  R(v, 'hips', -6, 10, -5, 5, 21, 4, C.JACKET); R(v, 'hips', -6, 10, -5, 5, 10, 4, C.ROBE_D);
-  B(v, 'hips', -3, 11, 4, -2, 21, 4, C.ROBE_L);
-  S(v, 'hips', 2, 0, 5, 4, 1, 5, C.SHOE);
-  R(v, 'spine', -6, 22, -4, 5, 27, 3, C.JACKET); B(v, 'spine', -6, 22, -4, 5, 23, 4, C.BELT);
-  for (const k of [...v.cells.keys()]) { const c = v.cells.get(k)!; if (c.part === 'spine' && c.y <= 23 && (c.x === -6 || c.x === 5) && (c.z === -4 || c.z === 4)) v.cells.delete(k); }
-  R(v, 'chest', -7, 28, -4, 6, 33, 3, C.JACKET, true);
-  B(v, 'neck', -2, 34, -2, 1, 35, 2, C.SKIN);
-  B(v, 'chest', -2, 33, 2, 1, 33, 2, C.SKIN);
-  // Dark crossed lapels with a narrow warm edge like the portrait.
-  v.paint(({ part, x, y, z }) => {
-    if ((part !== 'chest' && part !== 'spine') || z !== 3) return;
-    const overlap = x - Math.max(y - 28, -3);
-    if (overlap === -1 || overlap === 0) return C.BINDING;
-    if (overlap === 1 || overlap === 2) return C.ROBE_D;
-    const underlap = x + (y - 28);
-    if (y >= 29 && underlap >= -1 && underlap <= 1) return C.ROBE_D;
-  });
-  // ---------------------------------------------------------------- the belt's leather pouch at the back of her right hip, the gourds on red cords in front
+  v.bone('robe1', 'hips', 0, 19, 0).bone('robe2', 'robe1', 0, 10, 0);
+  // ---------------------------------------------------------------- articulated 2-tier A-line flared plum-burgundy skirt (robe1 -> robe2)
+  C2(v, 'robe2', -8, 0, -6, 7, 1, 5, C.ROBE_D, 2); C2(v, 'robe2', -8, 2, -6, 7, 5, 5, C.ROBE, 2); C2(v, 'robe2', -7, 6, -5, 6, 9, 4, C.ROBE, 2);
+  C2(v, 'robe1', -6, 10, -5, 5, 19, 4, C.JACKET, 2); C2(v, 'robe1', -6, 10, -5, 5, 10, 4, C.ROBE_D, 2);
+  C2(v, 'hips', -6, 20, -5, 5, 21, 4, C.JACKET, 2);
+  B(v, 'robe1', -3, 11, 4, -2, 19, 4, C.ROBE_L); B(v, 'hips', -3, 20, 4, -2, 21, 4, C.ROBE_L);
+  S(v, 'robe2', 2, 0, 5, 4, 1, 5, C.SHOE);
+  C2(v, 'spine', -5, 22, -4, 4, 27, 3, C.JACKET, 1);
+  C2(v, 'spine', -6, 22, -4, 5, 23, 4, C.BELT, 1);
+  C2(v, 'chest', -7, 28, -4, 6, 33, 3, C.JACKET, 2); C2(v, 'chest', -5, 34, -3, 4, 34, 2, C.ROBE_L, 2);
+  B(v, 'neck', -2, 34, -2, 1, 36, 2, C.SKIN); B(v, 'neck', -2, 34, -2, 1, 34, 2, C.SKIN_D);
+  // Clean warm russet-brown crossed V-lapel trim over deep plum-burgundy robe (sunao.png!)
+  B(v, 'chest', -1, 33, 3, 0, 34, 3, C.SKIN);
+  B(v, 'chest', -3, 32, 3, -2, 34, 3, C.BINDING); B(v, 'chest', 1, 32, 3, 2, 34, 3, C.BINDING);
+  B(v, 'chest', -2, 30, 3, -1, 31, 3, C.BINDING); B(v, 'chest', 0, 28, 3, 1, 31, 3, C.BINDING);
+  B(v, 'spine', 1, 24, 3, 2, 27, 3, C.BINDING); B(v, 'chest', -3, 29, 3, -2, 29, 3, C.ROBE_D);
+  // ---------------------------------------------------------------- leather pouch & medicine gourds on red cords
   B(v, 'hips', -8, 12, -6, -7, 19, -3, C.BELT_L); B(v, 'hips', -8, 18, -6, -7, 19, -3, C.BELT); B(v, 'hips', -7, 20, -4, -7, 21, -4, C.BELT);
   const gourd = (x: number, w: number, y: number, small: boolean) => {
     const x1 = x + w - 1, m0 = x + (w > 2 ? 1 : 0), m1 = x1 - (w > 2 ? 1 : 0);
     B(v, 'hips', x, y, 5, x1, y + (small ? 2 : 3), small ? 6 : 7, C.GOURD); B(v, 'hips', x, y, 5, x1, y, small ? 6 : 7, C.GOURD_D);
+    B(v, 'hips', m0, y + (small ? 2 : 3), small ? 6 : 7, m1, y + (small ? 2 : 3), small ? 6 : 7, 0xd4964c);
     const t = y + (small ? 3 : 4);
     B(v, 'hips', m0, t, 5, m1, t, 6, C.GOURD_D); if (!small) B(v, 'hips', m0, t + 1, 5, m1, t + 2, 6, C.GOURD);
     B(v, 'hips', m0, t + (small ? 1 : 3), 5, m0, 23, 5, C.CORD);
   };
   gourd(-6, 4, 15, false); gourd(-1, 2, 17, true); gourd(3, 4, 14, false);
-  // ---------------------------------------------------------------- narrow sleeves (a dark edge at the wrist), small bony hands
-  LR(v, 'arm', 6, 26, -2, 9, 33, 1, C.JACKET);
+  // ---------------------------------------------------------------- sloped narrow sleeves, small bony hands, silver needles & bone knife
+  LR(v, 'arm', 6, 26, -2, 9, 33, 1, C.JACKET); LR(v, 'arm', 6, 33, -2, 9, 33, 1, C.ROBE_L); LR(v, 'arm', 9, 33, -2, 9, 33, 1, null);
   LR(v, 'fore', 6, 18, -2, 8, 25, 0, C.JACKET); LR(v, 'fore', 6, 18, -2, 8, 18, 0, C.ROBE_D);
   hands(v, 14, C.SKIN, C.SKIN_D);
-  // two silver needles forward from the right fist, one cell thin with a gap between; the small scraping knife in the left
   B(v, 'weapon', -8, 14, 1, -8, 14, 4, C.NEEDLE); B(v, 'weapon', -8, 16, 1, -8, 16, 6, C.NEEDLE);
   B(v, 'offhand', 7, 15, 1, 7, 16, 1, C.BELT); B(v, 'offhand', 7, 15, 2, 7, 16, 5, C.KNIFE); B(v, 'offhand', 7, 16, 5, 7, 16, 5, null);
-  // A narrow chin under broad cheekbones, with the hair swept off the forehead.
-  R(v, 'head', -4, 36, -4, 3, 39, 4, C.SKIN);
-  R(v, 'head', -5, 38, -5, 4, 49, 5, C.SKIN, true);
-  R(v, 'head', -6, 40, -4, 5, 44, 4, C.SKIN);
-  S(v, 'head', 5, 41, -1, 6, 44, 1, C.SKIN); S(v, 'head', 6, 42, 0, 6, 43, 1, C.SKIN_D);
-  R(v, 'head', -6, 46, -6, 5, 50, 4, C.HAIR);
-  v.part('head');
-  rbox(v, -5, 50, -6, 4, 52, 3, C.HAIR, 2);
-  B(v, 'head', -6, 46, -5, -4, 48, 5, C.HAIR); B(v, 'head', 3, 45, -5, 5, 48, 5, C.HAIR);
-  B(v, 'head', -4, 48, 5, 4, 49, 5, C.HAIR);
-  B(v, 'head', -2, 49, 5, -1, 49, 5, C.HAIR_D); B(v, 'head', -2, 50, 4, -1, 51, 4, C.HAIR_D);
-  B(v, 'head', -5, 47, 5, -4, 47, 5, C.HAIR_L); B(v, 'head', 0, 48, 5, 4, 48, 5, C.HAIR_L);
-  B(v, 'head', 4, 46, 5, 5, 46, 5, C.HAIR_D);
+  // ---------------------------------------------------------------- strictly flat female face (ZERO nose!), mature sculpted cheekbones, swept silver hair & low bun + bone pin
+  C2(v, 'head', -5, 39, -5, 4, 49, 5, C.SKIN, 2);
+  C2(v, 'head', -4, 37, -4, 3, 38, 4, C.SKIN, 1);
+  S(v, 'head', 5, 41, -1, 6, 44, 1, C.SKIN); S(v, 'head', 6, 42, 0, 6, 43, 0, C.SKIN_D);
+  // Swept silver-white streaked hair (smooth rounded crown + clean silver highlight bands)
+  C2(v, 'head', -6, 46, -6, 5, 50, 4, C.HAIR, 2);
+  C2(v, 'head', -5, 51, -6, 4, 52, 3, C.HAIR_L, 2);
+  B(v, 'head', -6, 45, -5, -5, 49, 4, C.HAIR); B(v, 'head', 4, 45, -5, 5, 49, 4, C.HAIR);
+  B(v, 'head', -4, 48, 5, 3, 49, 5, C.HAIR); B(v, 'head', -2, 49, 5, 1, 49, 5, C.HAIR_L);
   S(v, 'head', 5, 48, -4, 5, 48, 2, C.HAIR_L); S(v, 'head', 5, 46, -5, 5, 46, -1, C.HAIR_D);
-  // The broad highlights on the crown fan out from the part toward the nape.
-  v.paint(({ c, x, y, z }) => {
-    if (c !== C.HAIR || y < 50) return;
-    const lock = x + Math.trunc((z - 2) / 2);
-    if (lock === -2 || lock === 1 || lock === 2) return C.HAIR_L;
-  }, 'head');
-  // The bun sits low at the nape. The ends of the horizontal bone pin clear the hair.
-  R(v, 'head', -5, 40, -6, 4, 45, -3, C.HAIR_D);
-  R(v, 'head', -4, 40, -9, 4, 45, -5, C.HAIR, true);
-  B(v, 'head', -3, 41, -9, 3, 41, -9, C.HAIR_D);
-  B(v, 'head', -6, 43, -7, 7, 43, -7, C.BONE); B(v, 'head', -6, 43, -7, -5, 43, -7, C.BONE_D);
-
-  // Stern brows, a thin line of wrinkles, and a milk-white left eye.
-  S(v, 'head', 1, 44, 5, 2, 44, 5, C.HAIR_D); S(v, 'head', 3, 45, 5, 4, 45, 5, C.HAIR_D);
-  B(v, 'head', -4, 43, 5, -2, 43, 5, C.EYE_W); B(v, 'head', -3, 43, 5, -2, 43, 5, C.EYE);
-  B(v, 'head', 1, 43, 5, 4, 43, 5, C.BLIND);
-  S(v, 'head', 2, 42, 5, 4, 42, 5, C.WRINKLE);
-  B(v, 'head', -2, 46, 5, 2, 46, 5, C.WRINKLE);
-  S(v, 'head', 3, 40, 5, 4, 40, 5, C.WRINKLE); S(v, 'head', 2, 39, 5, 2, 39, 5, C.SKIN_D);
-  B(v, 'head', -1, 41, 5, 0, 41, 5, C.WRINKLE);
-  B(v, 'head', -2, 38, 5, 1, 38, 5, C.MOUTH);
-  S(v, 'head', 2, 37, 4, 2, 37, 4, C.SKIN_D);
+  // Full round low nape bun + horizontal warm bone hairpin extending cleanly past the bun
+  C2(v, 'head', -5, 40, -6, 4, 45, -3, C.HAIR_D, 2);
+  C2(v, 'head', -4, 39, -9, 3, 45, -5, C.HAIR, 2);
+  B(v, 'head', -3, 44, -8, 2, 44, -6, C.HAIR_L); B(v, 'head', -3, 40, -9, 2, 40, -8, C.HAIR_D);
+  B(v, 'head', -7, 42, -7, 7, 42, -7, C.BONE); B(v, 'head', -7, 42, -7, -6, 42, -7, C.BONE_D);
+  // Stern angled brows, dark right eye, milky-white blind left eye, subtle frown (ZERO nose!)
+  B(v, 'head', -4, 45, 5, -2, 45, 5, C.HAIR_D); B(v, 'head', 1, 45, 5, 3, 45, 5, C.HAIR_D);
+  B(v, 'head', -4, 43, 5, -2, 43, 5, C.EYE_W); B(v, 'head', -3, 43, 5, -3, 43, 5, C.EYE);
+  B(v, 'head', 1, 43, 5, 3, 43, 5, C.BLIND);
+  S(v, 'head', 3, 41, 5, 4, 41, 5, C.WRINKLE);
+  B(v, 'head', -2, 39, 5, 1, 39, 5, C.MOUTH);
   fuseStill(v); fuse(v, 'foreR', 'weapon');
   return v;
 }
 
 // ================================================================== 冯铁臂（独腕老匠）
-// 五十岁，魁梧如铁塔；古铜棱角方脸，寸短灰白硬发（平顶），满脸浓密络腮胡；赤膊，烫伤和刀疤纵横；玄黑厚牛皮围裙，粗麻长裤；左手长柄火钳
-// （钳着一条烧红的刀坯），右小臂断口套着熟铁套筒、筒头焊死一把方锤，套筒用皮带绑在上臂；脖子上挂半枚残缺的刀环。
+// 照立绘 fengtiebi.png 重构：五十岁，魁梧如铁塔；灰白头发后梳成高丸子发髻、深棕布带缠扎并垂双带于脑后；浓黑粗眉、左颊斜疤、满口修整灰白络腮胡；
+// 穿土褐粗麻短袖交领工衣（领口露米白中衣、双袖卷起系米白布圈与深棕绳结），外罩深棕厚牛皮铁匠围裙（宽皮肩带+方形金属扣）；
+// 保留右小臂熟铁套筒焊死方锤与左手火钳夹红热刀坯，保证 FENG_STRIKE 砸砧火星完全一致。
 /** where his strike lands, in his own frame (metres: x to his left, up, forward): the anvil is built under it (hideout.ts) */
 export const FENG_STRIKE = { x: -0.49, y: 0.7, z: 0.665 };
 function buildFeng(): V {
   const v = fine();
-  const C = { SKIN: 0xa87452, SKIN_D: 0x80583e, SCAR: 0xc89c80, BURN: 0x8a4a36, HAIR: 0xbab6ae, HAIR_D: 0x8a8680, BEARD: 0x66605a, BEARD_L: 0x8a847c, BROW: 0x4e4a46,
-    APRON: 0x2a2522, APRON_D: 0x1a1614, APRON_L: 0x46403a, TROU: 0x6a5e4c, TROU_D: 0x4e4538, SHOE: 0x262220, IRON: 0x3c3c44, IRON_L: 0x62626c, IRON_D: 0x26262c,
-    HOT: 0xff7a30, HOT_L: 0xffb058, BRONZE: 0xb08a3a, CORD: 0x3a2a20, EYE: 0x140e0c };
+  const C = {
+    SKIN: 0xd9925c, SKIN_D: 0xad6e40, SCAR: 0x9e5e3c,
+    HAIR: 0xa89f9a, HAIR_L: 0xc8c0ba, HAIR_D: 0x78706c,
+    BEARD: 0x9e9792, BEARD_L: 0xc4bdb8, BEARD_D: 0x6f6864, BROW: 0x241a18, TIE: 0x543624, TIE_D: 0x382216,
+    TUNIC: 0xb08358, TUNIC_D: 0x825c3a, TUNIC_L: 0xc99c70, LINEN: 0xdfcdb2, LINEN_D: 0xb59f80,
+    APRON: 0x452d28, APRON_D: 0x2c1b18, APRON_L: 0x5e4038, CLASP: 0x8a6446, CLASP_D: 0x261816,
+    TROU: 0x5c4c3c, TROU_D: 0x403428, SHOE: 0x26201c, IRON: 0x42444c, IRON_L: 0x6c707c, IRON_D: 0x282a30,
+    HOT: 0xff7a30, HOT_L: 0xffb058, EYE: 0x1a1210,
+  };
   rig(v, { hip: 22, spine: 26, chest: 34, neck: 42, head: 44, hat: 58, ax: 13, az: 1, sh: 42, elbow: 32, wrist: 24, grip: 22, lx: 5, knee: 12, back: 6 });
-  // ---------------------------------------------------------------- legs in coarse trousers (a wrapped ankle), heavy shoes
+  // ---------------------------------------------------------------- coarse hemp trousers & heavy smith boots
   LR(v, 'leg', 2, 12, -2, 7, 21, 3, C.TROU);
   LR(v, 'shin', 3, 6, -2, 7, 11, 2, C.TROU); LR(v, 'shin', 3, 4, -2, 7, 5, 2, C.TROU_D);
   LR(v, 'foot', 2, 0, -2, 7, 1, 5, C.SHOE); LR(v, 'foot', 2, 2, -2, 7, 3, 3, C.SHOE);
-  // ---------------------------------------------------------------- the bare torso: a narrow waist under a chest twice as wide
-  R(v, 'hips', -8, 22, -6, 7, 25, 5, C.TROU);
-  R(v, 'spine', -8, 26, -6, 7, 33, 5, C.SKIN);
-  R(v, 'chest', -12, 34, -6, 11, 41, 5, C.SKIN, true);
-  B(v, 'neck', -4, 42, -4, 3, 43, 3, C.SKIN);
-  // scars and burns: a long cut down the left flank, a burn on the left shoulder, two old cuts across the back
-  B(v, 'chest', 8, 33, 5, 8, 40, 5, C.SCAR); B(v, 'chest', 6, 41, -2, 9, 41, 1, C.BURN);
-  B(v, 'chest', -9, 34, -6, -9, 40, -6, C.SCAR); B(v, 'chest', 3, 37, -6, 8, 37, -6, C.SCAR);
-  // ---------------------------------------------------------------- the leather apron (one cell thin): the bib, straps over the shoulders and down
-  // the back, the body down the belly and hips, the skirt hanging in front of the thighs to the knee; the tie round the waist, knotted at
-  // the back; a worn light edge at the bib top and the hem
-  B(v, 'chest', -6, 34, 6, 5, 39, 6, C.APRON); B(v, 'chest', -6, 39, 6, 5, 39, 6, C.APRON_L);
-  for (const x of [-6, 4]) { B(v, 'chest', x, 40, 6, x + 1, 41, 6, C.APRON); B(v, 'chest', x, 42, -7, x + 1, 42, 6, C.APRON); B(v, 'chest', x, 30, -7, x + 1, 41, -7, C.APRON); }
+  // ---------------------------------------------------------------- warm tan coarse-hemp short-sleeved Han work tunic + crisp pale inner collar (fengtiebi.png!)
+  C2(v, 'hips', -8, 22, -6, 7, 25, 5, C.TROU, 2);
+  C2(v, 'spine', -8, 26, -6, 7, 33, 5, C.TUNIC, 2);
+  C2(v, 'chest', -12, 34, -6, 11, 41, 5, C.TUNIC, 2);
+  C2(v, 'chest', -10, 42, -5, 9, 42, 4, C.TUNIC_L, 2);
+  B(v, 'neck', -4, 42, -4, 3, 43, 3, C.SKIN); B(v, 'neck', -4, 42, -4, 3, 42, 3, C.SKIN_D);
+  // Pale-cream crossed inner collar at his throat
+  B(v, 'chest', -4, 39, 5, 3, 41, 5, C.LINEN); B(v, 'chest', -3, 40, 5, 2, 41, 5, C.SKIN);
+  B(v, 'chest', -4, 41, 4, 3, 41, 4, C.LINEN); B(v, 'chest', -2, 38, 5, 1, 39, 5, C.LINEN);
+  B(v, 'chest', -1, 39, 5, 0, 39, 5, C.LINEN_D);
+  // ---------------------------------------------------------------- deep dark-chocolate leather blacksmith apron with wide straps & square clasps (fengtiebi.png!)
+  B(v, 'chest', -7, 34, 6, 6, 38, 6, C.APRON); B(v, 'chest', -7, 38, 6, 6, 38, 6, C.APRON_L);
+  for (const x of [-7, 5]) {
+    B(v, 'chest', x, 39, 6, x + 1, 42, 6, C.APRON);
+    B(v, 'chest', x, 43, -7, x + 1, 43, 6, C.APRON);
+    B(v, 'chest', x, 30, -7, x + 1, 42, -7, C.APRON);
+    // Square metal/leather clasp at each bib corner
+    B(v, 'chest', x, 37, 7, x + 1, 38, 7, C.CLASP); B(v, 'chest', x, 37, 7, x, 37, 7, C.CLASP_D);
+  }
   B(v, 'spine', -8, 26, 6, 7, 33, 6, C.APRON);
   B(v, 'hips', -8, 22, 6, 7, 25, 6, C.APRON); B(v, 'hips', -8, 10, 4, 7, 21, 6, C.APRON); B(v, 'hips', -8, 10, 6, 7, 10, 6, C.APRON_L);
   B(v, 'spine', -8, 30, -7, 7, 31, -7, C.APRON); B(v, 'spine', -9, 30, -6, -9, 31, 5, C.APRON); B(v, 'spine', 8, 30, -6, 8, 31, 5, C.APRON);
   B(v, 'spine', -2, 29, -8, 1, 32, -8, C.APRON_D); B(v, 'spine', -2, 24, -8, -1, 28, -8, C.APRON_D); B(v, 'spine', 0, 25, -8, 1, 28, -8, C.APRON_D);
-  // half of a broken sword ring on its cord, lying on the bib
-  B(v, 'chest', -2, 35, 7, 0, 35, 7, C.BRONZE); B(v, 'chest', -2, 36, 7, -2, 36, 7, C.BRONZE); B(v, 'chest', 0, 36, 7, 0, 36, 7, C.BRONZE);
-  B(v, 'chest', -2, 37, 7, -2, 39, 7, C.CORD); B(v, 'chest', 0, 37, 7, 0, 39, 7, C.CORD);
-  // ---------------------------------------------------------------- arms: big upper arms (scars), the left forearm and fist; the right forearm is a
-  // stump in the iron sleeve — two raised bands — with the square hammer welded to its end (a light striking face below), the sleeve
-  // strapped on with a leather band round the upper arm and two straps down to it
-  LR(v, 'arm', 10, 32, -2, 15, 41, 3, C.SKIN);
-  B(v, 'armL', 15, 34, 1, 15, 39, 1, C.SCAR); B(v, 'armR', -16, 37, -2, -16, 37, 3, C.SCAR);
+  // ---------------------------------------------------------------- hulking arms: tan short sleeves with pale rolled cuffs & brown ties; iron hammer prosthetic on right!
+  LR(v, 'arm', 10, 34, -2, 15, 41, 3, C.TUNIC); LR(v, 'arm', 10, 41, -2, 15, 41, 3, C.TUNIC_L); LR(v, 'arm', 15, 41, -2, 15, 41, 3, null);
+  // Rolled pale-cream cuff bands with dark-brown knots on both upper arms (fengtiebi.png!)
+  LR(v, 'arm', 10, 32, -2, 15, 33, 3, C.LINEN); LR(v, 'arm', 15, 32, 0, 16, 33, 1, C.TIE); LR(v, 'arm', 15, 30, 0, 16, 31, 1, C.TIE_D);
+  // Left bare muscular forearm + hand holding blacksmith tongs
   B(v, 'foreL', 10, 24, -2, 14, 31, 2, C.SKIN);
   B(v, 'handL', 11, 20, -2, 14, 23, 1, C.SKIN); B(v, 'handL', 11, 20, 1, 14, 21, 1, C.SKIN_D);
+  // Right iron prosthetic sleeve + welded square forging hammer (exact strike coords preserved!)
   B(v, 'foreR', -16, 24, -2, -11, 31, 3, C.IRON);
-  ring(v, 'foreR', -16, -11, -2, 3, 25, 25, C.IRON_L); ring(v, 'foreR', -16, -11, -2, 3, 30, 30, C.IRON_L);
+  ring(v, 'foreR', -16, -11, -2, 3, 25, 25, C.IRON_L); ring(v, 'foreR', -16, -11, -2, 3, 30, 30, 0x7c808e);
   R(v, 'foreR', -18, 17, -4, -9, 22, 5, C.IRON_D);
-  B(v, 'foreR', -17, 16, -3, -10, 16, 4, C.IRON_L); B(v, 'foreR', -17, 23, -3, -10, 23, 4, C.IRON);
+  B(v, 'foreR', -17, 16, -3, -10, 16, 4, 0x828694); B(v, 'foreR', -17, 23, -3, -10, 23, 4, C.IRON_L);
   B(v, 'armR', -16, 34, 4, -11, 35, 4, C.APRON); B(v, 'armR', -16, 34, -3, -11, 35, -3, C.APRON); B(v, 'armR', -17, 34, -2, -17, 35, 3, C.APRON);
-  B(v, 'armR', -14, 32, 4, -13, 33, 4, C.APRON); B(v, 'armR', -14, 32, -3, -13, 33, -3, C.APRON);
-  // the tongs from the left fist: two thin handles, a rivet, the jaws closed on the red-hot blank lying across in front of him (it glows;
-  // brighter at its far end, where the hammer falls)
+  // Tongs holding glowing red-hot blade blank (exact coords for FENG_STRIKE!)
   B(v, 'offhand', 12, 20, 2, 12, 20, 19, C.IRON); B(v, 'offhand', 12, 22, 2, 12, 22, 19, C.IRON); B(v, 'offhand', 12, 20, 14, 12, 22, 15, C.IRON_L);
   B(v, 'offhand', 12, 22, 9, 12, 22, 19, C.IRON_L);
   v.part('offhand').box(-14, 21, 18, 12, 21, 19, C.HOT, 1).box(-14, 21, 18, -5, 21, 19, C.HOT_L, 1);
-  // ---------------------------------------------------------------- the head: grey bristle cut flat on top (a raised brush), short at the sides
-  // and back; heavy brows; the full beard wider than the jaw and hanging below the chin, a lighter moustache under the nose
-  R(v, 'head', -6, 44, -6, 5, 57, 5, C.SKIN);
-  v.paint(c => (c.y >= 56 ? C.HAIR : (c.z <= -3 && c.y >= 48) || ((c.x === -6 || c.x === 5) && c.y >= 52) ? C.HAIR_D : null), 'head');
-  B(v, 'head', -5, 58, -5, 4, 58, 4, C.HAIR);
-  v.paint(c => ((c.x <= -5 || c.x >= 4) && c.y <= 49 && c.z >= -2) || (c.y <= 46 && c.z >= 2) ? C.BEARD : null, 'head');
-  B(v, 'head', -7, 44, -1, -7, 49, 4, C.BEARD); B(v, 'head', 6, 44, -1, 6, 49, 4, C.BEARD);
-  B(v, 'head', -4, 42, 4, 3, 43, 6, C.BEARD); B(v, 'head', -4, 40, 6, 3, 41, 6, C.BEARD); B(v, 'head', -5, 44, 6, 4, 45, 6, C.BEARD);
-  B(v, 'head', -4, 46, 6, 3, 46, 6, C.BEARD_L); B(v, 'head', -4, 45, 6, -4, 45, 6, C.BEARD_L); B(v, 'head', 3, 45, 6, 3, 45, 6, C.BEARD_L);
+  // ---------------------------------------------------------------- head: silver-grey swept hair + high tied topknot bun with brown hanging tails, bold dark brows, left cheek scar & full silver-grey beard!
+  C2(v, 'head', -6, 46, -6, 5, 57, 5, C.SKIN, 2);
+  C2(v, 'head', -5, 44, -5, 4, 45, 5, C.SKIN, 2);
+  S(v, 'head', 5, 48, -1, 6, 51, 1, C.SKIN); S(v, 'head', 6, 49, 0, 6, 50, 0, C.SKIN_D);
+  // Swept-back silver-grey hair & prominent high rounded topknot bun bound with dark-brown cloth + two hanging back tails (fengtiebi.png!)
+  v.paint(c => (c.y >= 55 ? C.HAIR : (c.z <= -3 && c.y >= 47) || ((c.x <= -5 || c.x >= 4) && c.y >= 51) ? C.HAIR_D : null), 'head');
+  C2(v, 'head', -5, 58, -5, 4, 58, 4, C.HAIR_L, 2);
+  C2(v, 'head', -3, 59, -4, 2, 60, 1, C.TIE, 1);
+  C2(v, 'head', -3, 61, -4, 2, 63, 1, C.HAIR, 1); B(v, 'head', -2, 63, -3, 1, 63, 0, C.HAIR_L);
+  // Two dark-brown hanging cloth tails fluttering down the back of his head
+  B(v, 'head', -2, 51, -7, -1, 58, -6, C.TIE); B(v, 'head', 0, 49, -7, 1, 58, -6, C.TIE_D);
+  // Neat full silver-grey moustache & sculpted full beard
+  v.paint(c => ((c.x <= -5 || c.x >= 4) && c.y <= 48 && c.z >= -1) || (c.y <= 46 && c.z >= 2) ? C.BEARD : null, 'head');
+  B(v, 'head', -5, 44, 6, 4, 46, 6, C.BEARD); B(v, 'head', -4, 46, 6, 3, 46, 6, C.BEARD_L);
+  B(v, 'head', -4, 42, 4, 3, 43, 6, C.BEARD); B(v, 'head', -3, 41, 5, 2, 41, 6, C.BEARD_D);
+  // Craftsman nose, steady dark eyes, bold dark eyebrows & subtle diagonal scar on left cheek
   B(v, 'head', -1, 47, 6, 0, 49, 6, C.SKIN); B(v, 'head', -1, 47, 6, 0, 47, 6, C.SKIN_D);
-  B(v, 'head', -4, 50, 5, -4, 51, 5, C.EYE); B(v, 'head', 3, 50, 5, 3, 51, 5, C.EYE);
+  B(v, 'head', -4, 50, 5, -3, 51, 5, C.EYE); B(v, 'head', 2, 50, 5, 3, 51, 5, C.EYE);
   B(v, 'head', -5, 52, 6, -2, 52, 6, C.BROW); B(v, 'head', 1, 52, 6, 4, 52, 6, C.BROW);
+  B(v, 'head', 3, 48, 5, 3, 48, 5, 0xc27c50); B(v, 'head', 4, 47, 5, 4, 47, 5, 0xc27c50);
   fuseStill(v);
   fuse(v, 'hips', 'legL', 'legR', 'shinL', 'shinR', 'footL', 'footR');
   return v;
 }
 
 // ================================================================== 卢昭（世家孤女）
-// 二十岁，鹅蛋脸，乌黑长发梳成堕马髻（偏在脑后左下）、斜插素银步摇；外披墨黑带兜帽的夜行鹤氅（前面敞开，两侧垂到地），内露绯红织金交领
-// 曲裾深衣；袖中半露象牙柄金错短匕，手里摊开一卷竹简舆图；右眼角下一颗暗红泪痣，颈间一道淡淡的勒痕。女性平脸，不出鼻子。
+// 照立绘 luzhao.png 重构：二十岁，清丽鹅蛋脸（女性平脸不出鼻子），右眼下暗红泪痣、精致小口；墨紫黑发中分带两侧极细1格垂鬓，后梳高云髻/堕马髻，
+// 髻上斜插素金发簪，耳垂缀细长淡色耳坠；墨紫黑披氅裹双肩并在左胸以古金圆环扣住，内露深酒红交领曲裾深衣配素净米白内领；手展竹简舆图。
 function buildLuzhao(): V {
   const v = fine();
-  const C = { SKIN: 0xf0d4bc, SKIN_D: 0xc8a890, SCAR: 0xe4aea4, ROBE: 0x922a34, ROBE_D: 0x6a1c26, GOLD: 0xc89a48, CLOAK: 0x1e1c24, CLOAK_L: 0x34303e, CLOAK_D: 0x121016,
-    HAIR: 0x16141a, HAIR_L: 0x2a2630, SILVER: 0xd8dce6, SILVER_D: 0x9aa0ac, PEARL: 0xf4f0e8, MOLE: 0x7a2026, LIP: 0xa8343a, EYE: 0x16100e,
-    BAMBOO: 0xbca878, BAMBOO_D: 0x9a8a60, CORD: 0x5a3a26, IVORY: 0xece2c8 };
+  const C = {
+    SKIN: 0xf4d6be, SKIN_D: 0xd0ae94, SCAR: 0xe4aea4,
+    ROBE: 0x6b1e30, ROBE_D: 0x481220, ROBE_L: 0x8c2c42, LINEN: 0xf0e0c6, LINEN_D: 0xcab698,
+    GOLD: 0xd8a66e, GOLD_D: 0x8c5e38, CLOAK: 0x2e1a28, CLOAK_L: 0x4a2c40, CLOAK_D: 0x1c1018,
+    HAIR: 0x2a1826, HAIR_L: 0x462a3e, HAIR_D: 0x180e16, PIN: 0xe6be94, PIN_L: 0xf6dcc0,
+    MOLE: 0x8a2832, LIP: 0x9e3842, EYE: 0x261820, BAMBOO: 0xc8a874, BAMBOO_D: 0x987a4e, CORD: 0x5c3824, IVORY: 0xf0e6d0,
+  };
   rig(v, { hip: 22, spine: 26, chest: 30, neck: 36, head: 40, hat: 54, ax: 8, sh: 36, elbow: 28, wrist: 20, grip: 18, lx: 4, knee: 12, back: 4 });
-  v.bone('clA1', 'chest', 0, 34, -7).bone('clA2', 'clA1', 0, 16, -9);
-  // ---------------------------------------------------------------- the 曲裾 robe to the ground: a wide trailing hem tier (dark hem, a gold line),
-  // the narrow skirt above with the wrap's dark band and gold edge round the hips
-  R(v, 'hips', -9, 0, -5, 8, 2, 4, C.ROBE_D); R(v, 'hips', -9, 3, -5, 8, 9, 4, C.ROBE); R(v, 'hips', -9, 4, -5, 8, 4, 4, C.GOLD);
-  R(v, 'hips', -6, 10, -4, 5, 25, 3, C.ROBE); R(v, 'hips', -6, 16, -4, 5, 17, 3, C.ROBE_D); R(v, 'hips', -6, 18, -4, 5, 18, 3, C.GOLD);
-  R(v, 'spine', -6, 26, -4, 5, 29, 3, C.ROBE); v.paint(c => (c.y <= 27 ? C.ROBE_D : null), 'spine');
-  R(v, 'chest', -7, 30, -4, 6, 35, 3, C.ROBE, true);
-  // the gold-edged crossed collar
-  B(v, 'chest', -2, 34, 3, 1, 35, 3, C.GOLD); B(v, 'chest', -2, 35, 2, 1, 35, 2, C.GOLD); B(v, 'chest', 2, 30, 3, 2, 33, 3, C.GOLD); B(v, 'spine', 2, 28, 3, 2, 29, 3, C.GOLD);
-  B(v, 'neck', -2, 36, -2, 1, 39, 1, C.SKIN); B(v, 'neck', -2, 38, 1, 1, 38, 1, C.SCAR);
-  // ---------------------------------------------------------------- the black cloak, open in front: its edges down the sides of the chest, the side
-  // panels from under the arms to the floor (their front edges turned in, a lighter line down the opening; clear of the hanging arms and
-  // of the moving back), the hood bunched behind the neck, the long back on two joints
-  v.paint(c => (c.x <= -6 || c.x >= 5 ? C.CLOAK : null), 'chest');
+  v.bone('clA1', 'chest', 0, 34, -7).bone('clA2', 'clA1', 0, 16, -9)
+    .bone('robe1', 'hips', 0, 22, 0).bone('robe2', 'robe1', 0, 10, 0);
+  // ---------------------------------------------------------------- articulated 2-tier A-line flared deep wine-crimson 曲裾 robe
+  C2(v, 'robe2', -10, 0, -6, 9, 2, 5, C.ROBE_D, 3); C2(v, 'robe2', -10, 3, -6, 9, 5, 5, C.ROBE, 3); C2(v, 'robe2', -10, 4, -6, 9, 4, 5, C.GOLD_D, 3);
+  C2(v, 'robe2', -8, 6, -5, 7, 9, 4, C.ROBE, 2);
+  C2(v, 'robe1', -6, 10, -4, 5, 21, 3, C.ROBE, 2); C2(v, 'robe1', -6, 16, -4, 5, 17, 3, C.ROBE_D, 2); C2(v, 'robe1', -6, 18, -4, 5, 18, 3, C.GOLD_D, 2);
+  C2(v, 'hips', -6, 22, -4, 5, 25, 3, C.ROBE, 2);
+  C2(v, 'spine', -5, 26, -4, 4, 29, 3, C.ROBE, 1); v.paint(c => (c.y <= 27 ? C.ROBE_D : null), 'spine');
+  C2(v, 'chest', -7, 30, -4, 6, 35, 3, C.ROBE, 2); C2(v, 'chest', -5, 36, -3, 4, 36, 2, C.CLOAK_L, 2);
+  // Crisp clean cream-ivory crossed inner collar at throat (luzhao.png! Replaces harsh bright yellow bar)
+  B(v, 'chest', -3, 34, 3, 2, 35, 3, C.LINEN); B(v, 'chest', -2, 35, 3, 1, 35, 3, C.SKIN);
+  B(v, 'chest', -2, 33, 3, 1, 34, 3, C.LINEN); B(v, 'chest', 1, 31, 3, 2, 33, 3, C.LINEN); B(v, 'chest', 0, 32, 3, 0, 33, 3, C.LINEN_D);
+  B(v, 'neck', -2, 36, -2, 1, 39, 1, C.SKIN); B(v, 'neck', -2, 36, -2, 1, 36, 1, C.SKIN_D); B(v, 'neck', -2, 38, 1, 1, 38, 1, C.SCAR);
+  // ---------------------------------------------------------------- deep plum-black draped cloak clasped across the upper chest with antique-gold circular ring brooch (luzhao.png!)
+  v.paint(c => ((c.x <= -5 || c.x >= 4) && c.y >= 32) || c.y >= 35 ? (c.y === 35 ? C.CLOAK_L : C.CLOAK) : null, 'chest');
+  // Draped cloak fold crossing front chest to left-front circular ring brooch
+  B(v, 'chest', -7, 29, 4, 3, 31, 4, C.CLOAK); B(v, 'chest', -7, 31, 4, 2, 31, 4, C.CLOAK_L);
+  B(v, 'chest', 2, 29, 4, 4, 31, 4, C.GOLD); B(v, 'chest', 3, 30, 4, 3, 30, 4, C.CLOAK_D);
   S(v, 'hips', -11, 2, -5, -11, 15, 1, C.CLOAK); S(v, 'hips', -11, 16, -4, -11, 25, 1, C.CLOAK); S(v, 'spine', -11, 26, -4, -11, 29, 1, C.CLOAK);
-  S(v, 'spine', -10, 26, -4, -7, 29, -3, C.CLOAK); S(v, 'hips', -10, 12, 1, -10, 21, 1, C.CLOAK_L);   // the front edges turned in
-  R(v, 'chest', -4, 36, -5, 3, 38, -3, C.CLOAK_L); B(v, 'chest', -3, 36, -5, 2, 36, -3, C.CLOAK);
+  S(v, 'spine', -10, 26, -4, -7, 29, -3, C.CLOAK); S(v, 'hips', -10, 12, 1, -10, 21, 1, C.CLOAK_L);
+  C2(v, 'chest', -5, 36, -5, 4, 38, -3, C.CLOAK_L, 1); B(v, 'chest', -4, 36, -5, 3, 36, -3, C.CLOAK);
   B(v, 'clA1', -11, 16, -5, 10, 35, -5, C.CLOAK); S(v, 'clA1', -11, 16, -5, -11, 35, -5, C.CLOAK_L);
   B(v, 'clA2', -11, 2, -6, 10, 15, -6, C.CLOAK); B(v, 'clA2', -11, 2, -6, 10, 2, -6, C.CLOAK_D);
-  // ---------------------------------------------------------------- wide black sleeves, the robe's crimson inner sleeve at the wrist, small hands;
-  // the ivory hilt of the gold-inlaid dagger peeping out beside the left hand
-  LR(v, 'arm', 6, 28, -2, 9, 35, 1, C.CLOAK); LR(v, 'fore', 6, 22, -2, 9, 27, 1, C.CLOAK); LR(v, 'fore', 6, 20, -2, 8, 21, 0, C.ROBE);
+  // ---------------------------------------------------------------- sloped wide plum-black sleeves, wine-crimson inner cuff, small hands & bamboo map
+  LR(v, 'arm', 6, 28, -2, 9, 35, 1, C.CLOAK); LR(v, 'arm', 6, 35, -2, 9, 35, 1, C.CLOAK_L); LR(v, 'arm', 9, 35, -2, 9, 35, 1, null);
+  LR(v, 'fore', 6, 22, -2, 9, 27, 1, C.CLOAK); LR(v, 'fore', 6, 20, -2, 8, 21, 0, C.ROBE);
   hands(v, 16, C.SKIN, C.SKIN_D);
-  B(v, 'foreL', 8, 17, 1, 8, 19, 1, C.IVORY); B(v, 'foreL', 8, 16, 1, 8, 16, 1, C.GOLD); B(v, 'foreL', 8, 20, 1, 8, 20, 1, C.GOLD);
-  // ---------------------------------------------------------------- the bamboo map, unrolled flat at the waist: slats along z in two tones, two
-  // binding cords across, a roll at each end (in both hands)
+  B(v, 'foreL', 8, 17, 1, 8, 19, 1, C.IVORY); B(v, 'foreL', 8, 16, 1, 8, 16, 1, C.GOLD); B(v, 'foreL', 8, 20, 1, 8, 20, 1, C.GOLD_D);
   for (let x = -9; x <= 8; x++) B(v, 'chest', x, 22, 4, x, 22, 13, ((x + 9) >> 1) & 1 ? C.BAMBOO_D : C.BAMBOO);
   B(v, 'chest', -9, 22, 7, 8, 22, 7, C.CORD); B(v, 'chest', -9, 22, 12, 8, 22, 12, C.CORD);
   S(v, 'chest', -11, 22, 4, -10, 23, 13, C.BAMBOO_D);
-  // ---------------------------------------------------------------- the head: an oval face (the chin one cell in), black hair parted in the middle
-  // and framing the face, the 堕马髻 slipping low at the back to her left, a plain silver pin through it with two short drops
-  R(v, 'head', -6, 40, -6, 5, 53, 5, C.SKIN, true);
-  B(v, 'head', -6, 40, -6, 5, 40, 5, null); B(v, 'head', -5, 40, -5, 4, 40, 4, C.SKIN);
-  v.paint(c => (c.y >= 50 || (c.z <= -3 && c.y >= 40) || ((c.x <= -5 || c.x >= 4) && c.y >= 44) ? C.HAIR : null), 'head');
-  B(v, 'head', -1, 53, -5, 0, 53, 4, C.HAIR_L);
-  R(v, 'head', 1, 43, -10, 7, 48, -7, C.HAIR); B(v, 'head', 2, 48, -9, 6, 48, -8, C.HAIR_L);
-  B(v, 'head', 7, 47, -9, 11, 47, -9, C.SILVER);
-  B(v, 'head', 11, 44, -9, 11, 46, -9, C.SILVER_D); B(v, 'head', 11, 43, -9, 11, 43, -9, C.PEARL);
-  B(v, 'head', 9, 45, -9, 9, 46, -9, C.SILVER_D); B(v, 'head', 9, 44, -9, 9, 44, -9, C.PEARL);
+  // ---------------------------------------------------------------- strictly flat oval porcelain female head (ZERO nose!), plum-black parted hair, ultra-slender 1-cell wispy side strands, sweeping high-back chignon + pale-gold hairpin + drop earrings!
+  C2(v, 'head', -6, 42, -6, 5, 52, 5, C.SKIN, 2);
+  C2(v, 'head', -5, 41, -5, 4, 41, 5, C.SKIN, 2);
+  C2(v, 'head', -4, 40, -4, 3, 40, 4, C.SKIN, 1);
+  // Plum-black sculpted crown & center-parted hairline
+  C2(v, 'head', -5, 53, -5, 4, 53, 4, C.HAIR, 2);
+  v.paint(c => (c.y >= 50 || (c.z <= -3 && c.y >= 41) || ((c.x <= -5 || c.x >= 4) && c.y >= 44) ? C.HAIR : null), 'head');
+  B(v, 'head', -3, 50, 5, 2, 50, 5, C.SKIN); B(v, 'head', -1, 50, 5, 0, 50, 5, C.HAIR);
+  B(v, 'head', -4, 52, 5, -2, 52, 5, C.HAIR_L); B(v, 'head', 1, 52, 5, 3, 52, 5, C.HAIR_L);
+  // Two ultra-slender 1-cell-thin face-framing strands curving past her cheeks (luzhao.png!)
+  B(v, 'head', -5, 40, 5, -5, 49, 5, C.HAIR); B(v, 'head', 4, 40, 5, 4, 49, 5, C.HAIR);
+  // Delicate pale-ivory drop earrings below each ear
+  B(v, 'head', -6, 41, 0, -6, 43, 0, C.PIN_L); B(v, 'head', 5, 41, 0, 5, 43, 0, C.PIN_L);
+  // High-back sweeping double-tier chignon (云髻/堕马髻) + pale-gold hairpin angled out at upper back (luzhao.png!)
+  C2(v, 'head', -4, 46, -9, 4, 52, -6, C.HAIR, 2); B(v, 'head', -2, 52, -8, 2, 52, -7, C.HAIR_L);
+  C2(v, 'head', -3, 53, -8, 3, 56, -5, C.HAIR, 1); B(v, 'head', -1, 55, -7, 1, 56, -6, C.HAIR_L);
+  B(v, 'head', 3, 53, -8, 9, 53, -8, C.PIN); B(v, 'head', 8, 53, -8, 9, 54, -8, C.PIN_L);
+  // Refined flat female face: delicate thin brows, graceful vertical dark eyes, right-cheek tear mole, dainty small mouth (ZERO nose!)
+  B(v, 'head', -3, 48, 5, -2, 48, 5, C.HAIR_L); B(v, 'head', 1, 48, 5, 2, 48, 5, C.HAIR_L);
   B(v, 'head', -3, 45, 5, -3, 46, 5, C.EYE); B(v, 'head', 2, 45, 5, 2, 46, 5, C.EYE);
   B(v, 'head', -4, 44, 5, -4, 44, 5, C.MOLE);
   B(v, 'head', -1, 42, 5, 0, 42, 5, C.LIP);
@@ -377,72 +397,83 @@ function buildLuzhao(): V {
   return v;
 }
 
-// ================================================================== 桓越（血衣剑客）
-// 二十四岁，剑眉星目的窄长脸，原本高束的黑发被削断一截、披散，发梢齐齐削平，额绑暗红抹额；染着陈旧暗红血斑的月白窄袖劲装，左肩半边
-// 亮银轻骑肩甲；四尺青铜夹钢汉剑（青铜剑身、两道钢刃），剑柄垂黑穗；左颊浅疤。坐在石阶上：剑插在脚前地上、右手拄着剑柄，左手一只酒葫芦。
+// ================================================================== 桓越（红衣剑客）
+// 照立绘 huanyue.png 重构：二十四岁，剑眉朗目俊朗青年；乌黑长发高束丸子发髻、墨黑布抹额缠额束发并在脑后垂双黑带（tlA1）；
+// 穿深绯红交领汉风劲装（米白内领、暗革斜挎剑带配青铜方扣、左肩后探出黑柄铜格汉剑鞘与剑柄），黑革护腕长靴；
+// 仍保留石阶坐姿中右手所拄汉剑（weapon）与左手酒葫芦（offhand），待机喝一口动作完全贴合。
 function buildHuanyue(): V {
   const v = fine();
-  const C = { SKIN: 0xe0b896, SKIN_D: 0xae8668, SCAR: 0xf2ccb4, WHITE: 0xd4d8e0, WHITE_D: 0xa4aab8, WHITE_L: 0xeceef4, BLOOD: 0x7e2a2a, BLOOD_D: 0x5c1e20,
-    BELT: 0x2a2830, BUCKLE: 0xb08a3a, BOOT: 0x1e1e24, BRACER: 0x3a3036, SILVER: 0xc8d0dc, SILVER_D: 0x8a92a0,
-    HAIR: 0x141218, BAND: 0x8a1e24, BAND_D: 0x5e1418, EYE: 0x140e0c, MOUTH: 0x6a3a30,
-    BRONZE: 0xb08e52, EDGE: 0xe0e4ea, GUARD: 0x8a6a30, GRIP: 0x241c1a, TASSEL: 0x18181c, GOURD: 0xc8963e, GOURD_D: 0x946426, CORD: 0x8a2a20 };
+  const C = {
+    SKIN: 0xf0c69e, SKIN_D: 0xc29672,
+    ROBE: 0x9c1e24, ROBE_D: 0x681218, ROBE_L: 0xba2c32, LINEN: 0xede0c4, LINEN_D: 0xc2b092,
+    TROU: 0x2c2428, STRAP: 0x442a2c, STRAP_D: 0x2c1a1c, BELT: 0x382426, BUCKLE: 0xb8864c, BUCKLE_L: 0xd8a866,
+    BOOT: 0x1e1b20, BRACER: 0x36282a,
+    HAIR: 0x1e181e, HAIR_L: 0x382e36, BAND: 0x342a32, BAND_L: 0x4e404a, BAND_D: 0x221b20,
+    EYE: 0x1e1416, MOUTH: 0x7c4a3c,
+    BRONZE: 0xb8864c, EDGE: 0xe2e6ee, GUARD: 0x9c6e38, GRIP: 0x2a2024, TASSEL: 0x1a161c, GOURD: 0xc8963e, GOURD_D: 0x946426, CORD: 0x8a2a20,
+  };
   rig(v, { hip: 22, spine: 26, chest: 32, neck: 38, head: 42, hat: 56, ax: 8, sh: 38, elbow: 30, wrist: 22, grip: 20, lx: 4, knee: 12, back: 4 });
-  v.bone('tlA1', 'head', 0, 48, -9);
-  // ---------------------------------------------------------------- legs: white trousers, the coat's skirt to mid-thigh, black boots to mid-shin
-  LR(v, 'leg', 2, 12, -2, 5, 21, 1, C.WHITE);
-  R(v, 'legL', 0, 14, -4, 5, 21, 3, C.WHITE); R(v, 'legR', -6, 14, -4, -1, 21, 3, C.WHITE); for (const L of ['legL', 'legR']) v.paint(c => (c.y === 14 ? C.WHITE_D : null), L);
-  LR(v, 'shin', 3, 10, -2, 5, 11, 0, C.WHITE); LR(v, 'shin', 2, 4, -2, 5, 9, 1, C.BOOT);
+  v.bone('tlA1', 'head', 0, 49, -8);
+  // ---------------------------------------------------------------- dark martial trousers, crimson coat hem & black boots
+  LR(v, 'leg', 2, 12, -2, 5, 21, 1, C.TROU);
+  R(v, 'legL', 0, 14, -4, 5, 21, 3, C.ROBE); R(v, 'legR', -6, 14, -4, -1, 21, 3, C.ROBE);
+  for (const L of ['legL', 'legR']) v.paint(c => (c.y === 14 ? C.ROBE_D : null), L);
+  LR(v, 'shin', 3, 10, -2, 5, 11, 0, C.TROU); LR(v, 'shin', 2, 4, -2, 5, 9, 1, C.BOOT); LR(v, 'shin', 2, 9, -2, 5, 9, 1, 0x36323a);
   LR(v, 'foot', 2, 0, -2, 5, 1, 5, C.BOOT); LR(v, 'foot', 2, 2, -2, 5, 3, 3, C.BOOT);
-  // ---------------------------------------------------------------- the fitted coat: a black belt with a bronze buckle, the crossed collar
-  R(v, 'hips', -6, 22, -4, 5, 25, 3, C.WHITE);
-  R(v, 'spine', -5, 26, -4, 4, 31, 3, C.WHITE); v.paint(c => (c.y <= 28 ? C.BELT : null), 'spine'); B(v, 'spine', -1, 26, 4, 0, 28, 4, C.BUCKLE);
-  R(v, 'chest', -7, 32, -4, 6, 37, 3, C.WHITE, true);
-  B(v, 'neck', -2, 38, -2, 1, 41, 1, C.SKIN);
-  B(v, 'chest', -2, 35, 3, 1, 37, 3, C.WHITE_L); B(v, 'chest', -2, 37, 2, 1, 37, 2, C.WHITE_L);
-  B(v, 'chest', 2, 32, 3, 2, 36, 3, C.WHITE_D); B(v, 'spine', 2, 29, 3, 2, 31, 3, C.WHITE_D);
-  // ---------------------------------------------------------------- narrow white sleeves, dark leather bracers, small hands
-  LR(v, 'arm', 6, 30, -2, 9, 37, 1, C.WHITE);
-  LR(v, 'fore', 6, 22, -2, 8, 29, 0, C.WHITE); LR(v, 'fore', 6, 22, -2, 8, 27, 0, C.BRACER); LR(v, 'fore', 6, 25, -2, 8, 25, 0, C.BELT);
+  // ---------------------------------------------------------------- rich crimson-red Han martial robe + pale cream inner collar + leather baldric strap & bronze buckle (huanyue.png!)
+  C2(v, 'hips', -6, 22, -4, 5, 25, 3, C.ROBE, 2);
+  C2(v, 'spine', -5, 26, -4, 4, 31, 3, C.ROBE, 1); v.paint(c => (c.y <= 28 ? C.BELT : null), 'spine');
+  B(v, 'spine', -1, 26, 4, 0, 28, 4, C.BUCKLE);
+  C2(v, 'chest', -7, 32, -4, 6, 37, 3, C.ROBE, 2); C2(v, 'chest', -5, 38, -3, 4, 38, 2, C.ROBE_L, 2);
+  B(v, 'neck', -2, 38, -2, 1, 41, 1, C.SKIN); B(v, 'neck', -2, 38, -2, 1, 38, 1, C.SKIN_D);
+  // Crisp pale-cream crossed inner collar & shaded crimson outer lapel
+  B(v, 'chest', -2, 35, 3, 1, 38, 3, C.LINEN); B(v, 'chest', -2, 38, 2, 1, 38, 2, C.LINEN);
+  B(v, 'chest', -1, 37, 3, 0, 38, 3, C.SKIN); B(v, 'chest', 1, 34, 3, 2, 37, 3, C.LINEN_D);
+  B(v, 'chest', -3, 32, 3, -2, 37, 3, C.ROBE_D); B(v, 'chest', 2, 32, 3, 2, 36, 3, C.ROBE_D);
+  // Diagonal dark-brown leather baldric strap with antique-bronze rectangular buckle across chest (huanyue.png!)
+  B(v, 'chest', 4, 36, 4, 5, 38, 4, C.STRAP); B(v, 'chest', 2, 34, 4, 4, 36, 4, C.STRAP);
+  B(v, 'chest', 0, 32, 4, 2, 34, 4, C.STRAP); B(v, 'spine', -2, 29, 4, 0, 31, 4, C.STRAP);
+  B(v, 'chest', 2, 34, 4, 4, 36, 4, C.BUCKLE); B(v, 'chest', 3, 35, 4, 3, 35, 4, C.STRAP_D);
+  // Back Han sword scabbard & bronze-guarded hilt rising behind his left shoulder (huanyue.png!)
+  B(v, 'chest', 2, 32, -5, 4, 39, -5, C.STRAP_D);
+  B(v, 'chest', 4, 38, -6, 6, 40, -5, C.STRAP_D);
+  B(v, 'chest', 3, 40, -6, 7, 41, -5, C.GUARD);
+  B(v, 'chest', 5, 42, -6, 6, 46, -5, C.GRIP);
+  B(v, 'chest', 5, 47, -6, 6, 48, -5, C.BUCKLE_L);
+  // ---------------------------------------------------------------- sloped crimson sleeves, dark leather bracers, small hands
+  LR(v, 'arm', 6, 30, -2, 9, 37, 1, C.ROBE); LR(v, 'arm', 6, 37, -2, 9, 37, 1, C.ROBE_L); LR(v, 'arm', 9, 37, -2, 9, 37, 1, null);
+  LR(v, 'fore', 6, 22, -2, 8, 29, 0, C.ROBE); LR(v, 'fore', 6, 22, -2, 8, 27, 0, C.BRACER); LR(v, 'fore', 6, 25, -2, 8, 25, 0, C.BELT);
   hands(v, 18, C.SKIN, C.SKIN_D);
-  // ---------------------------------------------------------------- old blood: the right sleeve, the chest's lower left, the left flap
-  B(v, 'armR', -10, 32, -2, -10, 34, 0, C.BLOOD); B(v, 'armR', -10, 32, -2, -10, 32, -1, C.BLOOD_D);
-  B(v, 'chest', 3, 32, 3, 5, 33, 3, C.BLOOD); B(v, 'chest', 4, 32, 3, 5, 32, 3, C.BLOOD_D);
-  B(v, 'legL', 3, 16, 3, 5, 18, 3, C.BLOOD); B(v, 'legL', 4, 16, 3, 5, 16, 3, C.BLOOD_D);
-  // ---------------------------------------------------------------- the bright silver half shoulder guard on the left: a cap over the shoulder and
-  // three plates down the outside (dark lines between)
-  B(v, 'armL', 5, 38, -3, 10, 38, 2, C.SILVER); B(v, 'armL', 5, 38, -3, 5, 38, 2, C.SILVER_D);
-  B(v, 'armL', 10, 30, -3, 10, 37, 2, C.SILVER); B(v, 'armL', 10, 35, -3, 10, 35, 2, C.SILVER_D); B(v, 'armL', 10, 32, -3, 10, 32, 2, C.SILVER_D);
-  // ---------------------------------------------------------------- the head: a narrow long face; black hair hanging loose round it, cut off
-  // dead straight at the nape; two tufts standing up, a lock fallen over the brow; the dark red headband (one cell proud) knotted at
-  // the back, its two tails on their own joint
-  R(v, 'head', -6, 42, -6, 5, 55, 5, C.SKIN, true);
-  B(v, 'head', -6, 42, -6, 5, 42, 5, null); B(v, 'head', -5, 42, -5, 4, 42, 4, C.SKIN);
-  v.paint(c => (c.y >= 52 || (c.z <= -3 && c.y >= 43) || ((c.x <= -5 || c.x >= 4) && c.y >= 46) ? C.HAIR : null), 'head');
-  B(v, 'head', -6, 40, -7, 5, 51, -7, C.HAIR);
-  B(v, 'head', -7, 44, -6, -7, 51, 3, C.HAIR); B(v, 'head', 6, 46, -6, 6, 51, 3, C.HAIR);
-  B(v, 'head', -4, 56, -2, -2, 56, 0, C.HAIR); B(v, 'head', 2, 56, -4, 3, 58, -3, C.HAIR);
-  ring(v, 'head', -6, 5, -6, 5, 50, 51, C.BAND);
-  B(v, 'head', -2, 48, -8, 1, 51, -8, C.BAND_D);
-  B(v, 'head', -5, 48, 6, -4, 53, 6, C.HAIR);
-  B(v, 'tlA1', -3, 38, -9, -2, 49, -9, C.BAND); B(v, 'tlA1', 0, 36, -9, 1, 49, -9, C.BAND);
-  B(v, 'tlA1', -3, 38, -9, -2, 38, -9, C.BAND_D); B(v, 'tlA1', 0, 36, -9, 1, 36, -9, C.BAND_D);
-  // the face: straight brows, dark eyes, the nose one cell proud, a mouth with one corner up, the pale scar on the left cheek
-  B(v, 'head', -5, 49, 5, -2, 49, 5, C.HAIR); B(v, 'head', 1, 49, 5, 4, 49, 5, C.HAIR);
+  // ---------------------------------------------------------------- handsome young swordsman head: high tied black topknot bun, charcoal-ink headband & dark hanging tails (huanyue.png!)
+  C2(v, 'head', -6, 44, -6, 5, 54, 5, C.SKIN, 2);
+  C2(v, 'head', -5, 43, -5, 4, 43, 5, C.SKIN, 2);
+  C2(v, 'head', -4, 42, -4, 3, 42, 4, C.SKIN, 1);
+  S(v, 'head', 5, 46, -1, 6, 49, 1, C.SKIN); S(v, 'head', 6, 47, 0, 6, 48, 0, C.SKIN_D);
+  // Black swept hair + high sculpted topknot bun bound with charcoal-ink cloth
+  C2(v, 'head', -5, 55, -5, 4, 55, 4, C.HAIR, 2);
+  v.paint(c => (c.y >= 52 || (c.z <= -3 && c.y >= 44) || ((c.x <= -5 || c.x >= 4) && c.y >= 47) ? C.HAIR : null), 'head');
+  ring(v, 'head', -6, 5, -6, 5, 51, 52, C.BAND);
+  B(v, 'head', -5, 52, 6, 4, 52, 6, C.BAND_L);
+  // High topknot bun wrapped with charcoal cloth band
+  C2(v, 'head', -3, 56, -4, 2, 57, 1, C.BAND, 1);
+  C2(v, 'head', -3, 58, -4, 2, 60, 1, C.HAIR, 1); B(v, 'head', -1, 60, -2, 1, 60, 0, C.HAIR_L);
+  // Back headband knot + twin dark charcoal hanging tails on tlA1
+  B(v, 'head', -2, 49, -7, 1, 52, -7, C.BAND_D);
+  B(v, 'tlA1', -2, 40, -8, -1, 50, -8, C.BAND); B(v, 'tlA1', 0, 38, -8, 1, 50, -8, C.BAND_D);
+  // Sharp confident black sword-brows, focused heroic eyes, crisp 1-cell nose & composed half-smile
+  B(v, 'head', -4, 49, 5, -2, 49, 5, C.HAIR); B(v, 'head', 1, 49, 5, 3, 49, 5, C.HAIR);
   B(v, 'head', -3, 46, 5, -3, 47, 5, C.EYE); B(v, 'head', 2, 46, 5, 2, 47, 5, C.EYE);
   B(v, 'head', -1, 45, 6, 0, 46, 6, C.SKIN); B(v, 'head', -1, 45, 6, 0, 45, 6, C.SKIN_D);
-  B(v, 'head', -2, 43, 5, 1, 43, 5, C.MOUTH); B(v, 'head', 2, 44, 5, 2, 44, 5, C.MOUTH);
-  B(v, 'head', 4, 43, 5, 4, 45, 5, C.SCAR);
-  // ---------------------------------------------------------------- the 四尺 sword along the fist's forward axis: the pommel and black tassel behind,
-  // the grip through the fist, a small bronze guard, the bronze blade with a steel edge each side, the point one cell
+  B(v, 'head', -2, 43, 5, 1, 43, 5, C.MOUTH);
+  // ---------------------------------------------------------------- grounded 四尺 Han sword in right hand + wine gourd in left hand
   B(v, 'weapon', -8, 19, -5, -8, 21, -4, C.BUCKLE); B(v, 'weapon', -8, 20, -3, -8, 20, 3, C.GRIP);
   B(v, 'weapon', -9, 18, 4, -6, 22, 4, C.GUARD);
-  B(v, 'weapon', -8, 19, 5, -8, 21, 27, C.BRONZE); B(v, 'weapon', -8, 19, 5, -8, 19, 27, C.EDGE); B(v, 'weapon', -8, 21, 5, -8, 21, 27, C.EDGE);
-  B(v, 'weapon', -8, 20, 28, -8, 20, 29, C.EDGE);
+  B(v, 'weapon', -8, 19, 5, -8, 21, 27, C.BRONZE); B(v, 'weapon', -8, 19, 5, -8, 19, 27, 0xf2f6fc); B(v, 'weapon', -8, 21, 5, -8, 21, 27, C.EDGE);
+  B(v, 'weapon', -8, 20, 28, -8, 20, 29, 0xf2f6fc);
   B(v, 'weapon', -10, 20, -5, -9, 20, -5, C.TASSEL); B(v, 'weapon', -10, 20, -4, -10, 20, 1, C.TASSEL);
-  // the gourd hanging from the left fist by its neck: a red cord, a small upper bulb, the big bulb below
   B(v, 'offhand', 7, 17, -1, 7, 17, -1, C.CORD);
   B(v, 'offhand', 7, 14, -2, 8, 16, -1, C.GOURD); B(v, 'offhand', 7, 13, -2, 8, 13, -1, C.GOURD_D);
-  B(v, 'offhand', 6, 9, -3, 9, 12, 0, C.GOURD); B(v, 'offhand', 6, 9, -3, 9, 9, 0, C.GOURD_D);
+  B(v, 'offhand', 6, 9, -3, 9, 12, 0, C.GOURD); B(v, 'offhand', 7, 12, -2, 8, 12, 0, 0xe2b254); B(v, 'offhand', 6, 9, -3, 9, 9, 0, C.GOURD_D);
   fuseStill(v); fuse(v, 'foreL', 'offhand'); fuse(v, 'shinL', 'footL'); fuse(v, 'shinR', 'footR');
   return v;
 }

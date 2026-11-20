@@ -17,7 +17,9 @@ function* buildSteps(def: ModelDef) {
   if (top <= 0) for (const c of v.cells.values()) {
     top = Math.max(top, (c.y + 1) * cy); width = Math.max(width, (Math.abs(c.x + 0.5) + 0.5) * 2 * cx);
   }
-  return { ...rig, cx, cy, top, width };
+  const sc = def.scale ?? 1;
+  if (sc !== 1) rig.root.scale.setScalar(sc);
+  return { ...rig, cx, cy, top: top * sc, width: width * sc };
 }
 
 type Rig = ReturnType<typeof build>;

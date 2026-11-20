@@ -10,7 +10,7 @@
 // 一起藏 / 露。冰壳都比身体外扩一格，不和身体同格）。
 import { type Col } from '../../look/voxkit';
 import { type V } from '../../bestiary/kit';
-import { fine, B, cbox, plate, SIDES, MX, skel, face, hair, def, HAIR, MOUTH } from './fine_kit';
+import { fine, B, cbox, cbox2, plate, SIDES, MX, skel, face, hair, def, HAIR, MOUTH } from './fine_kit';
 
 // ------------------------------------------------------------------ palette (每种材料 2～3 档；冷色)
 const BLK = 0x1e2026, BLK_D = 0x131418, BLK_L = 0x30343c;
@@ -27,10 +27,12 @@ const RUST = 0x7a2c28, RUST_D = 0x561e1c;
 /** soft cloth shoes (a dark sole row, the shoe, the toe a row lower) and wrapped shins (a darker band under the knee, the shoe's top
  *  row); the shin a cell in from the thigh's outer side (the knee bend turns it about x: their faces must not share a plane) */
 function softLegs(v: V, o: { x0: number; x1: number; z0: number; z1: number; knee: number; hip: number; trou: Col; shoe: Col; shoeD: Col; wrap: Col; wrapD: Col; toe: number }) {
+  const mid = Math.floor((4 + o.knee - 2) / 2);
   for (const [L, s] of SIDES) {
     const [a, b] = MX(s, o.x0, o.x1), [sa, sb] = MX(s, o.x0, o.x1 - 1), f = 'foot' + L, zs = o.z1 - 1;
     B(v, f, a, 0, o.z0, b, 0, o.toe, o.shoeD).box(a, 1, o.z0, b, 1, o.toe, o.shoe).box(sa, 2, o.z0, sb, 3, o.toe - 1, o.shoe);
     B(v, 'shin' + L, sa, 4, o.z0, sb, o.knee - 1, zs, o.wrap).box(sa, 4, o.z0, sb, 4, zs, o.shoe).box(sa, o.knee - 2, o.z0, sb, o.knee - 2, zs, o.wrapD);
+    if (o.knee >= 10) v.box(sa, mid, o.z0, sb, mid, zs, o.wrapD);
     B(v, 'leg' + L, a, o.knee, o.z0, b, o.hip - 1, o.z1, o.trou);
   }
 }
@@ -50,38 +52,48 @@ function assassin(elite: boolean): V {
   skel(v, { hip: 20, spine: 24, chest: 30, neck: 37, head: 39, jaw: [42, 3], hat: 51, cape: [35, -5], sh: [10, 36, 0], fore: 29, hand: 22,
     weapon: [-10, 19, 1], offhand: [10, 19, 1], leg: 4, knee: 10 });
   softLegs(v, { x0: 2, x1: 5, z0: -2, z1: 2, knee: 10, hip: 20, trou: BLK, shoe: BLK_D, shoeD: 0x0c0d10, wrap: BLK_L, wrapD: BLK, toe: 4 });
-  // the short jacket's skirt on the thighs (each thigh its half), a lighter hem
-  for (const [L, s] of SIDES) { const [a, b] = MX(s, 0, 7); B(v, 'leg' + L, a, 14, -4, b, 19, 3, BLK).box(a, 14, -4, b, 14, 3, TRIM); }
-  // hips, the slate sash (one cell proud) with its knot at the front; a narrow waist and chest (thinner than the 黄巾刀手 by a third)
-  cbox(v, 'hips', -7, 20, -4, 6, 21, 3, BLK); cbox(v, 'hips', -8, 22, -5, 7, 23, 4, SASH); B(v, 'hips', -6, 21, 5, -4, 23, 5, SASH);
-  cbox(v, 'spine', -7, 24, -4, 6, 29, 3, BLK); cbox(v, 'chest', -8, 30, -4, 7, 36, 3, BLK);
+  // the short jacket's skirt on the thighs (gently flared A-line hem)
+  for (const [L, s] of SIDES) { const [a, b] = MX(s, 0, 7), [fa, fb] = MX(s, 0, 8); B(v, 'leg' + L, a, 16, -4, b, 19, 3, BLK); B(v, 'leg' + L, fa, 14, -4, fb, 15, 3, BLK).box(fa, 14, -4, fb, 14, 3, TRIM); }
+  // hips, cinched waist & sloped agile shoulders
+  cbox2(v, 'hips', -7, 20, -4, 6, 21, 3, BLK, 2); cbox2(v, 'hips', -8, 22, -5, 7, 23, 4, SASH, 2); B(v, 'hips', -6, 21, 5, -4, 23, 5, SASH);
+  cbox2(v, 'spine', -6, 24, -4, 5, 29, 3, BLK, 2); cbox2(v, 'chest', -8, 30, -4, 7, 35, 3, BLK, 2); cbox2(v, 'chest', -6, 36, -3, 5, 36, 2, BLK_L, 2);
   // 交领: the crossed edge one cell proud down to the sash, a ring round the neck on the shoulders
   B(v, 'chest', 1, 30, 4, 2, 36, 4, TRIM).box(-3, 36, -3, 2, 36, 2, TRIM); B(v, 'spine', 1, 24, 4, 2, 29, 4, TRIM);
-  B(v, 'neck', -2, 37, -2, 1, 38, 1, BLK);
-  // arms: tight black sleeves, the forearm a cell in on the outer side, a slate wrap at the wrist (elite: silver); black gloves
+  B(v, 'neck', -2, 37, -2, 1, 38, 1, BLK).box(-2, 37, -2, 1, 37, 1, BLK_D);
+  // arms: sloped narrow agile sleeves; ELITE gets dark-iron shoulder guards + jagged shadow half-cape!
   for (const [L, s] of SIDES) {
-    const [a, b] = MX(s, 8, 11), [fa, fb] = MX(s, 8, 10);
-    B(v, 'arm' + L, a, 29, -2, b, 35, 1, BLK);
+    const [a, b] = MX(s, 8, 11), [fa, fb] = MX(s, 8, 10), ox = s > 0 ? 11 : -12;
+    B(v, 'arm' + L, a, 29, -2, b, 35, 1, BLK).box(a, 35, -2, b, 35, 1, BLK_L).box(ox, 35, -2, ox, 35, 1, null);
+    if (elite) {
+      const [pa, pb] = MX(s, 8, 13);
+      B(v, 'arm' + L, pa, 32, -3, pb, 36, 2, IRON).box(pa, 36, -3, pb, 36, 2, SILV).box(pa, 32, -3, pb, 32, 2, ICE, 1);
+    }
     B(v, 'fore' + L, fa, 22, -1, fb, 28, 1, BLK).box(fa, 22, -1, fb, 24, 1, elite ? SILV_D : SLATE_D);
+  }
+  if (elite) {
+    B(v, 'cape', -8, 16, -6, 7, 35, -5, BLK_D).box(-8, 16, -6, 7, 17, -5, SLATE_L);
+    B(v, 'cape', -5, 16, -6, -3, 18, -5, null).box(2, 16, -6, 4, 18, -5, null);
   }
   fist(v, 'handL', 8, 10, 9, 10, 17, 21, 18, BLK_D, 0x0c0d10, 10);
   fist(v, 'handR', -11, -9, -11, -10, 17, 21, 18, BLK_D, 0x0c0d10, -11);
-  // the knives (weapon right, offhand left): a wrapped grip through the fist, a steel pommel, a small guard, a short blade one cell thin
-  // (the edge row bright, the back darker), a two-cell point on the edge row
+  // the knives (elite: longer frost-glow curved daggers!)
   for (const [part, s] of [['weapon', -1], ['offhand', 1]] as const) {
-    const [ga, gb] = MX(s, 9, 10), bx = s > 0 ? 10 : -11;
+    const [ga, gb] = MX(s, 9, 10), bx = s > 0 ? 10 : -11, dl = elite ? 16 : 13;
     B(v, part, ga, 18, -2, gb, 19, 2, BLK_L).box(ga, 18, -3, gb, 19, -3, STEEL_D).box(ga, 17, 3, gb, 20, 3, elite ? SILV : STEEL_D);
-    v.box(bx, 18, 4, bx, 18, 13, STEEL).box(bx, 19, 4, bx, 19, 11, STEEL_D);
+    v.box(bx, 18, 4, bx, 18, dl, elite ? ICE_L : STEEL, g).box(bx, 18, dl - 1, bx, 18, dl, 0xeef4f8, g).box(bx, 19, 4, bx, 19, dl - 2, STEEL_D);
   }
-  // the head wrapped in black (12 × 12 × 12): a slit across the eyes, the eyes one cold white cell each (elite: glowing); the cloth over
-  // the nose a cell proud; the wrap's turns as a lighter band flush round the head (a band one cell proud read as a hat brim); the
-  // topknot wrapped small; the mask's knot at the back and two tails
-  cbox(v, 'head', -6, 39, -6, 5, 50, 5, BLK);
+  // sleek rounded-bevel masked head; ELITE gets horned dark-iron brow diadem + long glowing cyan tails!
+  cbox2(v, 'head', -6, 41, -6, 5, 50, 5, BLK, 2);
+  cbox2(v, 'head', -5, 39, -5, 4, 40, 5, BLK, 2);
+  cbox2(v, 'head', -4, 51, -4, 3, 51, 3, BLK_L, 2);
   B(v, 'head', -4, 45, 5, 3, 46, 5, CSK_D).sym(2, 46, 5, elite ? ICE_L : 0xe4eef4, g);
   B(v, 'head', -1, 42, 6, 0, 44, 6, BLK);
   v.paint(q => (q.y === 48 && q.c === BLK ? BAND : null), 'head');
-  B(v, 'head', -1, 51, -2, 1, 52, 0, BLK);
-  B(v, 'head', -2, 43, -7, 1, 45, -7, BAND).box(-3, 34, -7, -2, 42, -7, elite ? ICE : BLK_L, g).box(1, 36, -7, 2, 42, -7, elite ? ICE : BLK_L, g);
+  if (elite) {
+    B(v, 'head', -5, 48, 6, 4, 49, 6, SILV).box(-5, 50, 6, -4, 52, 6, ICE, 1).box(3, 50, 6, 4, 52, 6, ICE, 1).box(-1, 49, 6, 0, 51, 6, SILV);
+  }
+  B(v, 'head', -1, 52, -2, 0, 53, -1, BLK);
+  B(v, 'head', -2, 43, -7, 1, 45, -7, BAND).box(-3, elite ? 28 : 34, -7, -2, 42, -7, elite ? ICE : BLK_L, g).box(1, elite ? 30 : 36, -7, 2, 42, -7, elite ? ICE : BLK_L, g);
   return v;
 }
 
@@ -91,36 +103,38 @@ function needler(elite: boolean): V {
   skel(v, { hip: 20, spine: 24, chest: 30, neck: 38, head: 40, jaw: [44, 3], hat: 50, cape: [36, -6], sh: [12, 38, 1], fore: 30, hand: 22,
     weapon: [-12, 19, 1], offhand: [12, 19, 1], leg: 4, knee: 10 });
   softLegs(v, { x0: 2, x1: 5, z0: -2, z1: 2, knee: 10, hip: 20, trou: SLATE_D, shoe: BLK, shoeD: BLK_D, wrap: 0x5a5e62, wrapD: 0x44484c, toe: 4 });
-  // the long robe's skirt on the thighs down to the shin (each thigh its half: a stride opens it), its hem darker
-  for (const [L, s] of SIDES) { const [a, b] = MX(s, 0, 8); B(v, 'leg' + L, a, 8, -5, b, 19, 4, R).box(a, 8, -5, b, 8, 4, TRIM); }
-  cbox(v, 'hips', -8, 20, -5, 7, 21, 4, R); cbox(v, 'hips', -9, 22, -6, 8, 23, 5, BLK); B(v, 'hips', 2, 21, 6, 4, 23, 6, BLK);
+  // the long robe's skirt on the thighs down to the shin (gently flared A-line hem)
+  for (const [L, s] of SIDES) { const [a, b] = MX(s, 0, 8), [fa, fb] = MX(s, 0, 9); B(v, 'leg' + L, a, 12, -5, b, 19, 4, R); B(v, 'leg' + L, fa, 8, -5, fb, 11, 4, R).box(fa, 8, -5, fb, 8, 4, TRIM); }
+  cbox2(v, 'hips', -8, 20, -5, 7, 21, 4, R, 2); cbox2(v, 'hips', -9, 22, -6, 8, 23, 5, BLK, 2); B(v, 'hips', 2, 21, 6, 4, 23, 6, BLK);
   // the needle pouch on the belt in front of the left thigh: leather, a darker flap, three needles standing out of it (elite: glowing)
   B(v, 'hips', 4, 15, 6, 7, 20, 7, 0x4a3e34).box(4, 20, 6, 7, 20, 7, 0x32281f).box(5, 21, 7, 5, 22, 7, elite ? ICE : STEEL, g).box(6, 21, 7, 6, 23, 7, elite ? ICE : STEEL, g);
-  cbox(v, 'spine', -8, 24, -5, 7, 29, 4, R); cbox(v, 'chest', -10, 30, -5, 9, 37, 4, R);
+  cbox2(v, 'spine', -7, 24, -5, 6, 29, 4, R, 2); cbox2(v, 'chest', -10, 30, -5, 9, 36, 4, R, 2); cbox2(v, 'chest', -8, 37, -4, 7, 37, 3, SLATE_L, 2);
   // 交领: the dark collar round the neck, the pale inner collar at the throat, the edge down the front to the belt
   B(v, 'chest', -4, 37, -4, 3, 37, 3, TRIM).box(-4, 36, 3, 1, 37, 4, 0xc8ccc8).box(2, 30, 4, 3, 37, 4, TRIM).box(2, 37, 3, 3, 37, 4, TRIM);
   B(v, 'spine', 2, 24, 4, 3, 29, 4, TRIM);
-  B(v, 'neck', -2, 38, -2, 1, 39, 1, CSK);
+  B(v, 'neck', -2, 38, -2, 1, 39, 1, CSK).box(-2, 38, -2, 1, 38, 1, CSK_D);
   for (const [L, s] of SIDES) {
-    const [a, b] = MX(s, 9, 14), [fa, fb] = MX(s, 10, 13);
-    B(v, 'arm' + L, a, 30, -2, b, 37, 3, R).box(a, 30, -2, b, 30, 3, R_D);
+    const [a, b] = MX(s, 9, 14), [fa, fb] = MX(s, 10, 13), ox = s > 0 ? 14 : -15;
+    B(v, 'arm' + L, a, 30, -2, b, 37, 3, R).box(a, 37, -2, b, 37, 3, SLATE_L).box(a, 30, -2, b, 30, 3, R_D).box(ox, 37, -2, ox, 37, 3, null);
     B(v, 'fore' + L, fa, 22, -2, fb, 29, 2, R).box(fa, 22, -2, fb, 23, 2, TRIM);
   }
   B(v, 'handL', 11, 17, -1, 13, 21, 2, CSK).box(13, 17, -1, 13, 20, 2, CSK_D);
   fist(v, 'handR', -14, -12, -13, -12, 17, 21, 18, CSK, CSK_D, -14);
-  // the head (14 × 13 × 14): hair, a lean face
-  cbox(v, 'head', -7, 40, -7, 6, 52, 6, CSK);
+  // sculpted rounded-bevel head + tapered chin
+  cbox2(v, 'head', -7, 42, -7, 6, 52, 6, CSK, 2);
+  cbox2(v, 'head', -6, 40, -6, 5, 41, 6, CSK, 2);
   hair(v, { y: 44, back: -4, side: 5, front: 2, skin: CSK });
   face(v, { F: 6, eyes: [2, 3], eyeY: 44, brows: [2, 4], browY: 46, nose: [-1, 0], noseY: [42, 43], mouth: [-2, 1, 41], noseC: CSK_D });
-  // the 笠 (on the hat joint): flat-topped, wide (77 cm) — a brim one row thick (its outer ring darker, elite silver), a second tier, the
-  // crown over the head, a flat top a shade lighter. No point on it (that would read Japanese); from above it is one big square plate
-  v.part('hat');
-  for (let x = -11; x <= 10; x++) for (let z = -11; z <= 10; z++) {
-    if ((x === -11 || x === 10) && (z === -11 || z === 10)) continue;
-    v.set(x, 50, z, x === -11 || x === 10 || z === -11 || z === 10 ? (elite ? SILV : HAT_D) : HAT);
+  // sleek octagonal wide-brimmed flat 笠; ELITE gets wider black-lacquer double-tier silver ghost hat + hanging frost pendants + dark shoulder cloak!
+  const hr = elite ? 14 : 12;
+  cbox2(v, 'hat', -hr, 50, -hr, hr - 1, 50, hr - 1, elite ? BLK : HAT, 4);
+  v.paint(q => (q.part === 'hat' && q.y === 50 && (!v.get(q.x + 1, 50, q.z) || !v.get(q.x - 1, 50, q.z) || !v.get(q.x, 50, q.z + 1) || !v.get(q.x, 50, q.z - 1)) ? (elite ? SILV : HAT_D) : null));
+  cbox2(v, 'hat', -9, 51, -9, 8, 51, 8, elite ? BLK_L : HAT, 3); cbox2(v, 'hat', -8, 52, -8, 7, 53, 7, elite ? BLK : HAT, 2); cbox2(v, 'hat', -8, 52, -8, 7, 52, 7, elite ? SILV : HAT_D, 2); cbox2(v, 'hat', -6, 54, -6, 5, 54, 5, elite ? SILV : HAT_L, 2);
+  if (elite) {
+    B(v, 'hat', -2, 55, -2, 1, 57, 1, ICE, 1);
+    for (const [px, pz] of [[-11, 5], [10, 5], [-11, -6], [10, -6]] as const) B(v, 'hat', px, 47, pz, px, 49, pz, ICE_L, 1);
+    B(v, 'cape', -10, 16, -7, 9, 36, -6, BLK).box(-10, 16, -7, 9, 17, -6, SILV);
   }
-  cbox(v, 'hat', -9, 51, -9, 8, 51, 8, HAT); cbox(v, 'hat', -8, 50, -8, 7, 53, 7, HAT); cbox(v, 'hat', -6, 54, -6, 5, 54, 5, HAT_L);
-  if (elite) B(v, 'hat', -1, 55, -1, 0, 55, 0, ICE, 1);
   // the blowpipe through the fist: weathered bamboo 2 × 2 × 31, raised nodes, a dark mouthpiece behind the fist, a lacquered muzzle;
   // a short dark-red cord tied near the mouthpiece (吕布军's one touch of red)
   const BM = 0x7e8462, NODE = elite ? SILV : 0x5e6448;
@@ -135,35 +149,46 @@ function frostOfficer(elite: boolean): V {
   const v = fine(), R = 0xc8ccc8, R_D = 0x9ea6a8, R_L = 0xdcdedb, HEM = elite ? SILV_D : SLATE_D, COLLAR = elite ? SILV : BLK, MASK = 0xe2e4e0, MASK_D = 0xb4b8b6;
   skel(v, { hip: 20, spine: 24, chest: 30, neck: 38, head: 40, jaw: [44, 2], hat: 54, cape: [36, -6], sh: [11, 38, 1], fore: 30, hand: 22,
     weapon: [-11, 19, 1], offhand: [11, 19, 1], leg: 4, knee: 10 });
-  // the robe in two clean tiers (a wide skirt, then straight), a slate hem; black shoes' upturned toes in front
-  cbox(v, 'hips', -12, 0, -10, 11, 9, 9, R); cbox(v, 'hips', -12, 0, -10, 11, 1, 9, HEM); cbox(v, 'hips', -12, 9, -10, 11, 9, 9, R_D);
-  cbox(v, 'hips', -8, 10, -6, 7, 21, 5, R); cbox(v, 'hips', -9, 22, -7, 8, 23, 6, BLK);
-  for (const [L, s] of SIDES) { const [a, b] = MX(s, 2, 5); B(v, 'foot' + L, a, 0, 10, b, 0, 11, SLATE_D).box(a, 1, 10, b, 2, 10, BLK).box(a, 1, 11, b, 3, 11, BLK); }
-  cbox(v, 'spine', -8, 24, -6, 7, 29, 5, R); cbox(v, 'chest', -8, 30, -6, 7, 37, 5, R);
-  B(v, 'neck', -2, 38, -2, 1, 39, 1, CSK);
+  v.bone('robe1', 'hips', 0, 21, 0).bone('robe2', 'robe1', 0, 14, 0).bone('robe3', 'robe2', 0, 6, 0);
+  // Graceful articulated 3-tier A-line flared frost-white robe (robe1 -> robe2 -> robe3)
+  cbox2(v, 'robe3', -12, 0, -10, 11, 5, 9, R, 3); cbox2(v, 'robe3', -12, 0, -10, 11, 1, 9, HEM, 3); cbox2(v, 'robe3', -12, 5, -10, 11, 5, 9, R_D, 3);
+  cbox2(v, 'robe2', -10, 6, -8, 9, 13, 7, R, 2); cbox2(v, 'robe2', -10, 6, -8, 9, 6, 7, R_D, 2);
+  cbox2(v, 'robe1', -8, 14, -6, 7, 20, 5, R, 2); cbox2(v, 'hips', -8, 21, -6, 7, 21, 5, R, 2); cbox2(v, 'hips', -9, 22, -7, 8, 23, 6, BLK, 2);
+  for (const [L, s] of SIDES) { const [a, b] = MX(s, 2, 5); B(v, 'foot' + L, a, 0, 2, b, 0, 8, SLATE_D).box(a, 1, 2, b, 2, 8, BLK); }
+  cbox2(v, 'spine', -7, 24, -6, 6, 29, 5, R, 2); cbox2(v, 'chest', -8, 30, -6, 7, 36, 5, R, 2); cbox2(v, 'chest', -6, 37, -5, 5, 37, 4, R_L, 2);
+  B(v, 'neck', -2, 38, -2, 1, 39, 1, CSK).box(-2, 38, -2, 1, 38, 1, CSK_D);
   // the black collar band round the neck and down the front, a slate inner collar at the throat
-  B(v, 'chest', -4, 37, -4, 3, 37, 3, COLLAR).box(-4, 36, 4, 1, 37, 5, SLATE).box(2, 30, 5, 5, 37, 5, COLLAR).box(2, 37, 4, 5, 37, 5, COLLAR);
-  B(v, 'spine', 2, 24, 5, 5, 29, 5, COLLAR); B(v, 'hips', 2, 10, 5, 5, 21, 5, COLLAR);
+  B(v, 'chest', -4, 37, -4, 3, 37, 3, COLLAR).box(-4, 36, 4, 1, 37, 5, SLATE).box(2, 30, 5, 4, 37, 5, COLLAR).box(2, 37, 4, 4, 37, 5, COLLAR);
+  B(v, 'spine', 2, 24, 5, 4, 29, 5, COLLAR); B(v, 'hips', 2, 21, 5, 4, 21, 5, COLLAR); B(v, 'robe1', 2, 14, 5, 4, 20, 5, COLLAR);
   // a row of three small sealed jars on the belt at the right hip (the poisons), their lids darker
   for (const z of [-3, 0, 3]) B(v, 'hips', -11, 18, z, -10, 21, z + 1, 0x8a9aa4).box(-11, 22, z, -10, 22, z + 1, SLATE_D);
-  // arms: the robe sleeve, the wide sleeve over the forearm; frost on the cuffs: a ring one cell proud, a row of even teeth under it
+  // sloped shoulders + TRUE bell-flared wide sleeves with frosted cuffs
   for (const [L, s] of SIDES) {
-    const [a, b] = MX(s, 8, 13), [wa, wb] = MX(s, 8, 15), [ra, rb] = MX(s, 7, 16);
-    B(v, 'arm' + L, a, 30, -2, b, 37, 3, R);
-    B(v, 'fore' + L, wa, 22, -4, wb, 29, 5, R).box(wa, 24, -4, wb, 24, 5, R_L).box(ra, 22, -5, rb, 23, 6, FROST);
-    for (let x = ra + 1; x <= rb - 1; x += 2) v.box(x, 21, 6, x, 21, 6, FROST_D).box(x, 21, -5, x, 21, -5, FROST_D);
+    const [a, b] = MX(s, 8, 13), [wa, wb] = MX(s, 8, 15), [ra, rb] = MX(s, 7, 16), ox = s > 0 ? 13 : -14;
+    B(v, 'arm' + L, a, 30, -2, b, 37, 3, R).box(a, 37, -2, b, 37, 3, R_L).box(ox, 37, -2, ox, 37, 3, null);
+    cbox2(v, 'fore' + L, a, 27, -3, b, 29, 4, R, 1);
+    cbox2(v, 'fore' + L, wa, 22, -4, wb, 26, 5, R, 2);
+    B(v, 'fore' + L, wa, 24, -4, wb, 24, 5, R_L);
+    cbox2(v, 'fore' + L, ra, 22, -5, rb, 23, 6, FROST, 2); cbox2(v, 'fore' + L, ra, 23, -5, rb, 23, 6, ICE_L, 2);
+    for (let x = ra + 2; x <= rb - 2; x += 2) v.box(x, 21, 6, x, 21, 6, FROST_D).box(x, 21, -5, x, 21, -5, FROST_D);
   }
   fist(v, 'handR', -13, -11, -12, -11, 17, 21, 18, CSK, CSK_D, -13);
   B(v, 'handL', 10, 17, -1, 12, 21, 2, CSK).box(12, 17, -1, 12, 20, 2, CSK_D);
-  // the head (12 × 14 × 12): hair, the face; a white cloth over the mouth and nose (against his own poisons), its ties round to the back
-  cbox(v, 'head', -6, 40, -6, 5, 53, 5, CSK);
+  // lean sculpted scholar head (cbox2 + tapered chin) + protective cloth mask
+  cbox2(v, 'head', -6, 42, -6, 5, 53, 5, CSK, 2);
+  cbox2(v, 'head', -5, 40, -5, 4, 41, 5, CSK, 2);
   hair(v, { y: 44, back: -3, side: 4, front: 1, skin: CSK });
   face(v, { F: 5, eyes: [2, 3], eyeY: 45, brows: [2, 4], browY: 47, nose: [-1, 0], noseY: [43, 44], noseC: CSK_D });
   v.paint(q => (q.y <= 43 && q.z >= 1 ? MASK : null), 'head').paint(q => (q.y === 43 && (q.x <= -6 || q.x >= 5) ? MASK_D : null), 'head');
-  // hair on the crown, the topknot, the tall black cap over it (the tallest head in the room), a pin through it (elite: glowing)
-  cbox(v, 'head', -6, 52, -6, 5, 53, 5, HAIR);
-  cbox(v, 'head', -3, 54, -3, 2, 60, 3, BLK); cbox(v, 'head', -3, 61, -3, 2, 61, 3, BLK_L);
+  // hair on the crown, the topknot, sleek tall black official cap; ELITE gets towering winged frost-crystal crown + frosted mantle!
+  cbox2(v, 'head', -6, 52, -6, 5, 53, 5, HAIR, 2);
+  cbox2(v, 'head', -3, 54, -3, 2, elite ? 63 : 60, 3, BLK, 1); cbox2(v, 'head', -3, elite ? 64 : 61, -3, 2, elite ? 64 : 61, 3, elite ? ICE_L : BLK_L, 1, elite ? 1 : 0);
   B(v, 'head', -6, 57, 0, 5, 57, 0, elite ? ICE : SILV_D, elite ? 1 : 0);
+  if (elite) {
+    // Winged frost-crystal crown spires + icy flowing back mantle (`cape`)!
+    B(v, 'head', -6, 58, 0, -4, 63, 1, ICE, 1).box(3, 58, 0, 5, 63, 1, ICE, 1).box(-1, 65, -1, 0, 67, 0, ICE_L, 1);
+    B(v, 'cape', -10, 12, -8, 9, 36, -7, SLATE_D).box(-10, 12, -8, 9, 14, -7, ICE_L, 1).box(-10, 34, -8, 9, 36, -7, FROST);
+  }
   // the staff: a dark haft through the fist, an iron butt; the gourd on its head (a cord ring, a big lower bulb, a waist, the upper bulb,
   // the stopper glowing cold blue — elite: a glowing band round the bulb too)
   const WD = 0x5a4a3c, GD = 0xdcecf4, GD_D = 0xa8c8dc;
@@ -196,34 +221,39 @@ function diver(elite: boolean): V {
   // hips; the weed wound round the waist (two rows one cell proud, darker turns), strands down the back
   cbox(v, 'hips', -8, 20, -6, 7, 21, 5, WET); cbox(v, 'hips', -9, 22, -7, 8, 23, 6, WEED); B(v, 'hips', -9, 23, -7, 8, 23, 6, WEED_D);
   for (const x of [-6, -2, 2, 5]) B(v, 'hips', x, 17, -7, x, 21, -7, WEED).box(x, 17, -7, x, 17, -7, WEED_D);
-  // bare torso: lean, the pecs' shadow, the ribs as two rows at each side, the belly line
-  cbox(v, 'spine', -8, 24, -6, 7, 29, 5, DSK); cbox(v, 'chest', -10, 30, -6, 9, 37, 5, DSK);
+  // lean sculpted bare torso (V-taper waist + sloped shoulders)
+  cbox2(v, 'spine', -7, 24, -6, 6, 29, 5, DSK, 2); cbox2(v, 'chest', -10, 30, -6, 9, 36, 5, DSK, 2); cbox2(v, 'chest', -8, 37, -5, 7, 37, 4, DSK_L, 2);
   B(v, 'chest', -7, 33, 5, 6, 33, 5, DSK_D).box(-1, 30, 5, 0, 32, 5, DSK_D);
   for (const y of [30, 32]) B(v, 'chest', -9, y, 4, -8, y, 4, DSK_D).box(7, y, 4, 8, y, 4, DSK_D);
-  B(v, 'spine', -1, 25, 5, 0, 29, 5, DSK_D); B(v, 'chest', -10, 37, -6, 9, 37, 5, DSK_L);
-  B(v, 'neck', -2, 38, -2, 1, 39, 1, DSK);
-  // bare arms; the forearm a cell in on both sides; a strip of weed tied round the right wrist
+  B(v, 'spine', -1, 25, 5, 0, 29, 5, DSK_D);
+  B(v, 'neck', -2, 38, -2, 1, 39, 1, DSK).box(-2, 38, -2, 1, 38, 1, DSK_D);
+  // bare arms with sloped shoulder caps
   for (const [L, s] of SIDES) {
-    const [a, b] = MX(s, 10, 15), [fa, fb] = MX(s, 11, 14);
-    B(v, 'arm' + L, a, 30, -2, b, 37, 3, DSK).box(a, 37, -2, b, 37, 3, DSK_L);
+    const [a, b] = MX(s, 10, 15), [fa, fb] = MX(s, 11, 14), ox = s > 0 ? 15 : -16;
+    B(v, 'arm' + L, a, 30, -2, b, 37, 3, DSK).box(a, 37, -2, b, 37, 3, DSK_L).box(ox, 37, -2, ox, 37, 3, null);
     B(v, 'fore' + L, fa, 22, -2, fb, 29, 2, DSK);
   }
-  B(v, 'foreR', -16, 22, -3, -11, 23, 3, WEED).box(-16, 23, -3, -11, 23, 3, WEED_D);   // (one row proud of the forearm all round)
+  B(v, 'foreR', -16, 22, -3, -11, 23, 3, WEED).box(-16, 23, -3, -11, 23, 3, WEED_D);
   // a clawed left hand (three fingers hanging under the palm, darker nails); the right fist round the haft
   B(v, 'handL', 12, 18, -1, 14, 21, 2, DSK).box(12, 16, 2, 12, 17, 2, DSK_D).box(13, 16, 2, 13, 17, 2, DSK_D).box(14, 16, 2, 14, 17, 2, DSK_D);
   fist(v, 'handR', -15, -13, -14, -13, 17, 21, 18, DSK, DSK_D, -15);
-  // the head (16 × 14 × 16): a drowned face — dark eyes (elite: glowing cold), heavy brows, the nose, the mouth hanging open
-  cbox(v, 'head', -8, 40, -8, 7, 53, 7, DSK);
+  // sculpted rounded-bevel drowned head + seamless flowing wet hair curtain (no clunky front sticks!)
+  cbox2(v, 'head', -8, 42, -8, 7, 53, 7, DSK, 2);
+  cbox2(v, 'head', -7, 40, -7, 6, 41, 7, DSK, 2);
   hair(v, { y: 43, back: -5, side: 6, front: 2, c: WHAIR, skin: DSK });
   face(v, { F: 7, eyes: [2, 3], eyeY: 46, brows: [2, 5], browY: 48, nose: [-1, 0], noseY: [44, 45], noseC: DSK_D });
   if (elite) v.part('head').symBox(2, 46, 7, 3, 47, 7, ICE_L, 1);
   B(v, 'head', -2, 41, 7, 1, 42, 7, 0x1a1414);
-  // the wet hair: the crown, a curtain down the back to the shoulders (a cell behind the head and clear of the back), two locks hanging
-  // down each side of the face a cell proud of it
-  cbox(v, 'head', -8, 52, -8, 7, 53, 7, WHAIR); cbox(v, 'head', -7, 54, -7, 6, 54, 6, WHAIR);
-  B(v, 'head', -8, 38, -9, 7, 53, -9, WHAIR).box(-8, 38, -9, 7, 38, -9, 0x232c30);
-  for (const x of [-9, 8]) B(v, 'head', x, 40, -6, x, 52, 3, WHAIR).box(x, 40, -6, x, 40, 3, 0x232c30);
-  for (const x of [-7, 6]) B(v, 'head', x, 41, 8, x, 51, 8, WHAIR);
+  cbox2(v, 'head', -8, 52, -8, 7, 53, 7, WHAIR, 2); cbox2(v, 'head', -6, 54, -6, 5, 54, 5, WHAIR, 2);
+  B(v, 'head', -7, 38, -9, 6, 52, -9, WHAIR).box(-7, 38, -9, 6, 38, -9, 0x232c30);
+  for (const x of [-9, 8]) B(v, 'head', x, 40, -5, x, 51, 3, WHAIR).box(x, 40, -5, x, 40, 3, 0x232c30);
+  if (elite) {
+    // Elite 寒渊水煞: jagged frost-bone horns on brow + sunken iron shoulder chains & ragged sea-weed shroud!
+    B(v, 'head', -7, 53, 4, -5, 57, 6, ICE, 1).box(-8, 57, 5, -7, 60, 6, ICE_L, 1);
+    B(v, 'head', 4, 53, 4, 6, 57, 6, ICE, 1).box(6, 57, 5, 7, 60, 6, ICE_L, 1);
+    B(v, 'cape', -9, 14, -8, 8, 36, -7, WEED_D).box(-9, 14, -8, 8, 16, -7, ICE, 1);
+    for (const [L, s] of SIDES) { const [pa, pb] = MX(s, 11, 16); B(v, 'arm' + L, pa, 34, -3, pb, 38, 4, IRON).box(pa, 38, -3, pb, 38, 4, ICE, 1); }
+  }
   // the 三股叉: a dark wet haft through the fist, an iron butt, weed bound round the socket; the iron crossbar flat (one cell thick), three
   // flat prongs on it (the middle one longer), each side prong with a barb turned out at its tip (elite: silver, a glowing ring)
   const HT = 0x3c3a34, FI = elite ? SILV : IRON, FI_L = elite ? 0xeef4f8 : IRON_L;
@@ -255,26 +285,40 @@ function jailer(elite: boolean): V {
   // hips; a black belt one cell proud with an iron ring at the front; the apron's top on the hips
   cbox(v, 'hips', -14, 18, -8, 13, 21, 7, TROU); cbox(v, 'hips', -15, 22, -9, 14, 23, 8, BLK); B(v, 'hips', -2, 21, 9, 1, 24, 9, BR).box(-1, 22, 9, 0, 23, 9, null);
   B(v, 'hips', -11, 18, 8, 10, 21, 8, LEA);
-  // a dark sleeveless tunic; the apron's bib up the chest on two straps over the shoulders, a lighter top edge
-  cbox(v, 'spine', -14, 24, -8, 13, 31, 7, TUN); cbox(v, 'chest', -16, 32, -8, 15, 41, 7, TUN);
+  // V-taper waist + sloped hulking shoulders in sleeveless tunic & leather apron
+  cbox2(v, 'spine', -13, 24, -8, 12, 31, 7, TUN, 2); cbox2(v, 'chest', -16, 32, -8, 15, 40, 7, TUN, 2); cbox2(v, 'chest', -13, 41, -7, 12, 41, 6, 0x4c5662, 2);
   B(v, 'chest', -16, 32, -8, 15, 32, 7, TUN_D);
   B(v, 'spine', -9, 24, 8, 8, 31, 8, LEA); B(v, 'chest', -8, 32, 8, 7, 37, 8, LEA).box(-8, 37, 8, 7, 37, 8, LEA_L);
-  for (const x of [-8, 6]) B(v, 'chest', x, 38, 8, x + 1, 40, 8, LEA_D).box(x, 41, -8, x + 1, 41, 7, LEA_D);
-  B(v, 'neck', -4, 42, -3, 3, 43, 2, CSK);
-  // bare arms (cold skin); forearms a cell in from the upper arm on both sides; a broad iron bracer one cell proud at each wrist
+  for (const x of [-8, 6]) B(v, 'chest', x, 38, 8, x + 1, 40, 8, LEA_D).box(x, 41, -7, x + 1, 41, 6, LEA_D);
+  B(v, 'neck', -4, 42, -3, 3, 43, 2, CSK).box(-4, 42, -3, 3, 42, 2, CSK_D);
+  // sloped bare muscular shoulders + iron bracers; ELITE gets massive spiked executioner iron pauldrons + hooded iron war-helm!
   for (const [L, s] of SIDES) {
-    const [a, b] = MX(s, 16, 25), [fa, fb] = MX(s, 17, 24);
-    B(v, 'arm' + L, a, 32, -4, b, 41, 5, CSK).box(a, 41, -4, b, 41, 5, TUN);
+    const [a, b] = MX(s, 16, 25), [fa, fb] = MX(s, 17, 24), ox = s > 0 ? 25 : -26;
+    B(v, 'arm' + L, a, 32, -4, b, 41, 5, CSK).box(a, 41, -4, b, 41, 5, 0x4c5662);
+    B(v, 'arm' + L, ox, 40, -4, ox, 41, 5, null).box(s > 0 ? 24 : -25, 41, -4, s > 0 ? 24 : -25, 41, 5, null);
+    if (elite) {
+      const [pa, pb] = MX(s, 16, 27), spx = s > 0 ? 25 : -26;
+      B(v, 'arm' + L, pa, 35, -6, pb, 42, 6, IRON_D).box(pa, 35, -6, pb, 35, 6, SILV).box(pa, 42, -5, pb, 42, 5, IRON_L);
+      B(v, 'arm' + L, spx, 43, -1, spx + (s > 0 ? 1 : -1), 46, 1, ICE, 1);
+    }
     B(v, 'fore' + L, fa, 26, -4, fb, 31, 4, CSK).box(a, 22, -5, b, 25, 5, BR).box(a, 25, -5, b, 25, 5, BR_L);
   }
   B(v, 'handL', 18, 16, -2, 24, 21, 4, CSK_D).box(24, 16, -2, 24, 20, 4, 0x6e5444);
   B(v, 'handR', -25, 16, -2, -19, 21, 4, CSK_D).box(-25, 16, -2, -25, 20, 4, 0x6e5444).box(-22, 18, -2, -21, 19, 4, null);
-  // the shaven head (16 × 16 × 16): stubble low round the back and sides, heavy brows, a broad nose, a short dark beard
-  cbox(v, 'head', -8, 44, -8, 7, 59, 7, CSK);
-  v.paint(q => (q.y >= 49 && q.y <= 51 && (q.z <= -5 || q.x <= -7 || q.x >= 6) && q.c === CSK ? 0x5a4a42 : null), 'head');
+  // sculpted rounded-bevel shaven brute skull + clean crown dome & short tapered beard
+  cbox2(v, 'head', -8, 46, -8, 7, 58, 7, CSK, 2);
+  cbox2(v, 'head', -7, 44, -7, 6, 45, 7, CSK, 2);
+  cbox2(v, 'head', -6, 59, -6, 5, 59, 5, CSK, 2);
+  v.paint(q => (q.y >= 49 && q.y <= 51 && (q.z <= -5 || q.x <= -6 || q.x >= 5) && q.c === CSK ? 0x5a4a42 : null), 'head');
   face(v, { F: 7, eyes: [2, 3], eyeY: 50, brows: [2, 6], browY: 52, nose: [-2, 1], noseY: [47, 48], noseC: CSK_D });
-  v.paint(q => (q.y <= 49 && q.y >= 44 && (q.x <= -7 || q.x >= 6) && q.z >= 0 ? BD : null), 'head');
-  B(v, 'jaw', -7, 42, 6, 6, 45, 8, BD).box(-2, 45, 8, 1, 45, 8, MOUTH).box(-5, 46, 8, 4, 46, 8, BD);
+  v.paint(q => (q.y <= 49 && q.y >= 44 && (q.x <= -6 || q.x >= 5) && q.z >= 0 ? BD : null), 'head');
+  B(v, 'jaw', -6, 42, 6, 5, 45, 8, BD).box(-4, 41, 7, 3, 41, 8, BD).box(-2, 45, 8, 1, 45, 8, MOUTH).box(-5, 46, 8, 4, 46, 8, BD);
+  if (elite) {
+    // Elite 典狱刑官: iron executioner helm with crest & cheek plates!
+    cbox2(v, 'head', -9, 53, -9, 8, 59, 8, IRON_D, 2); cbox2(v, 'head', -7, 60, -7, 6, 61, 6, IRON, 2);
+    B(v, 'head', -9, 53, 8, 8, 53, 8, SILV).box(-2, 54, 9, 1, 63, 9, SILV).box(-1, 62, -4, 0, 64, 8, ICE, 1);
+    for (const x of [-9, 8]) B(v, 'head', x, 46, -3, x, 52, 5, IRON_D).box(x, 46, -3, x, 46, 5, SILV);
+  }
   // the 木枷 slung on his back, a cell clear of it: two planks (a dark seam down the middle), a dark rim, two iron bands, the neck hole
   // and the two wrist holes cut through; from above it is the big wooden board over his shoulders
   B(v, 'chest', -14, 28, -10, 13, 47, -9, PLANK);
@@ -315,18 +359,19 @@ function conscript(look: 0 | 1): V {
   // collar and a patch (吕布军)
   B(v, 'legL', 0, 10, -4, 7, 15, 3, TUN).box(0, 10, -4, 7, 10, 3, TUN_D).box(4, 10, 3, 6, 11, 3, null);
   B(v, 'legR', -8, 10, -4, -1, 15, 3, TUN).box(-8, 10, -4, -1, 10, 3, TUN_D).box(-4, 10, 3, -2, 12, 3, null);
-  cbox(v, 'hips', -8, 16, -4, 7, 19, 3, TUN); cbox(v, 'hips', -8, 18, -4, 7, 18, 3, 0x7a6a50);
-  cbox(v, 'spine', -8, 20, -4, 7, 25, 3, TUN); cbox(v, 'chest', -8, 26, -4, 7, 31, 3, TUN);
+  cbox2(v, 'hips', -8, 16, -4, 7, 19, 3, TUN, 2); cbox2(v, 'hips', -8, 18, -4, 7, 18, 3, 0x7a6a50, 2);
+  cbox2(v, 'spine', -7, 20, -4, 6, 25, 3, TUN, 2); cbox2(v, 'chest', -8, 26, -4, 7, 30, 3, TUN, 2); cbox2(v, 'chest', -6, 31, -3, 5, 31, 2, 0x7e6860, 2);
   B(v, 'chest', -4, 31, -3, 3, 31, 2, RUST).box(-3, 29, 4, 3, 31, 4, RUST).box(-2, 30, 4, 1, 31, 4, RUST_D);
-  B(v, 'neck', -2, 32, -2, 1, 33, 1, CSK);
+  B(v, 'neck', -2, 32, -2, 1, 33, 1, CSK).box(-2, 32, -2, 1, 32, 1, CSK_D);
   for (const [L, s] of SIDES) {
-    const [a, b] = MX(s, 8, 11), [fa, fb] = MX(s, 8, 10);
-    B(v, 'arm' + L, a, 24, -2, b, 31, 1, TUN).box(a, 24, -2, b, 24, 1, TUN_D);
+    const [a, b] = MX(s, 8, 11), [fa, fb] = MX(s, 8, 10), ox = s > 0 ? 11 : -12;
+    B(v, 'arm' + L, a, 24, -2, b, 31, 1, TUN).box(a, 24, -2, b, 24, 1, TUN_D).box(ox, 31, -2, ox, 31, 1, null);
     B(v, 'fore' + L, fa, 18, -1, fb, 23, 1, TUN).box(fa, 18, -1, fb, 18, 1, TUN_D);
   }
   B(v, 'handL', 8, 14, -1, 10, 17, 1, CSK).box(10, 14, -1, 10, 16, 1, CSK_D);
   B(v, 'handR', -11, 13, -1, -8, 17, 2, CSK).box(-11, 13, -1, -11, 16, 2, CSK_D).box(-10, 14, -1, -9, 15, 2, null);
-  cbox(v, 'head', -6, 34, -6, 5, 45, 5, CSK);
+  cbox2(v, 'head', -6, 36, -6, 5, 45, 5, CSK, 2);
+  cbox2(v, 'head', -5, 34, -5, 4, 35, 5, CSK, 2);
   face(v, { F: 5, eyes: [2, 3], eyeY: 38, brows: [2, 4], browY: 40, nose: [-1, 0], noseY: [36, 37], mouth: [-2, 1, 35], noseC: CSK_D });
   if (look === 0) {
     // a straw cape down the back (two tiers, the lower wider, a dark line at the foot of every tier of straw), tied at the throat
@@ -362,80 +407,121 @@ function conscript(look: 0 | 1): V {
   return v;
 }
 
-// ------------------------------------------------------------------ 头目 · 截指鬼医 · 封鸩: a ghost-thin physician in white robes, a black 进贤冠, silver needles, a small hooked knife
-const FSK = 0x98aaa2, FSK_D = 0x6c7e78, FBD = 0x262628;
+// ------------------------------------------------------------------ 头目 · 截指鬼医 · 封鸩: towering Ghost-Physician Sovereign in frost-white & obsidian ceremonial robes, upturned high collar, sweeping frost-hemmed cloak, winged frost-crystal 进贤冠, 3-needle frost fan & hooked surgeon's blade
+const FSK = 0xa8b6ae, FSK_D = 0x768880, FBD = 0x1c1c20;
 /** an octagonal block round the y axis (x0..x1 × z0..z1, its four vertical edges cut), rows y0..y1: a gourd hanging */
 const octY = (v: V, part: string, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, c: Col, g = 0) => cbox(v, part, x0, y0, z0, x1, y1, z1, c, g);
 function boss(): V {
-  const v = fine(), R = 0xd6d8d2, R_D = 0xaeb2ae, R_DD = 0x8e9490, BAG = 0x3e3630, BAG_D = 0x2a2420, BAG_L = 0x5a4e44;
-  skel(v, { hip: 22, spine: 26, chest: 32, neck: 40, head: 42, jaw: [45, 3], hat: 55, cape: [38, -5], sh: [9, 40, 0], fore: 31, hand: 22,
-    weapon: [-9, 19, 2], offhand: [9, 19, 1], leg: 4, knee: 11 });
-  // the robe's skirt in two tiers on the thighs (each thigh its half: a stride opens it) — the upper narrow, the outer hem wider; the inner
-  // robe's darker hem showing under it at mid-calf. Written before the legs, so the shins keep their own cells inside it
+  const v = fine(), R = 0xd8dee2, R_D = 0xa8b4be, R_DD = 0x7e8c98, BAG = 0x36343a, JADE_D = 0x2a3c3c;
+  skel(v, { hip: 22, spine: 26, chest: 32, neck: 40, head: 42, jaw: [45, 4], hat: 54, cape: [38, -6], sh: [10, 40, 0], fore: 31, hand: 22,
+    weapon: [-11, 19, 2], offhand: [11, 19, 1], leg: 4, knee: 11 });
+  // Grand 3-tier A-line flared frost-white & obsidian ceremonial robe (wider sovereign hem, crisp dark outer panels & silver trim)
   for (const [L, s] of SIDES) {
-    const [a, b] = MX(s, 0, 6), [wa, wb] = MX(s, 0, 7), [ia, ib] = MX(s, 1, 6), p = 'leg' + L;
-    B(v, p, a, 14, -5, b, 21, 4, R); B(v, p, wa, 8, -6, wb, 13, 5, R).box(wa, 8, -6, wb, 8, 5, BLK).box(wa, 13, -6, wb, 13, 5, R_D);
-    B(v, p, ia, 6, -4, ib, 7, 3, R_DD);
+    const [a, b] = MX(s, 0, 7), [ma, mb] = MX(s, 0, 8), [wa, wb] = MX(s, 0, 9), [ia, ib] = MX(s, 1, 7), p = 'leg' + L;
+    const [oa1, ob1] = MX(s, 6, 7), [oa2, ob2] = MX(s, 7, 8), [oa3, ob3] = MX(s, 8, 9);
+    B(v, p, a, 16, -5, b, 21, 4, R).box(oa1, 16, -5, ob1, 21, 4, BLK);
+    B(v, p, ma, 11, -5, mb, 15, 5, R).box(oa2, 11, -5, ob2, 15, 5, BLK).box(ma, 15, -5, mb, 15, 5, R_D);
+    B(v, p, wa, 6, -6, wb, 10, 5, R).box(oa3, 6, -6, ob3, 10, 5, BLK).box(wa, 6, -6, wb, 7, 5, BLK).box(wa, 8, -6, wb, 8, 5, SILV).box(oa3, 8, -6, ob3, 8, 5, ICE);
+    B(v, p, ia, 5, -4, ib, 5, 3, R_DD);
   }
-  softLegs(v, { x0: 2, x1: 4, z0: -2, z1: 1, knee: 11, hip: 22, trou: R_D, shoe: BLK, shoeD: BLK_D, wrap: 0xc8ccc6, wrapD: 0x9ea4a0, toe: 4 });
-  // hips, the black belt one cell proud; a row of dark medicine bags hanging from it in front (their ties lighter)
-  cbox(v, 'hips', -6, 22, -4, 5, 25, 3, R); cbox(v, 'hips', -7, 24, -5, 6, 25, 4, BLK);
-  for (const x of [-6, -3, 0]) B(v, 'hips', x, 22, 5, x + 1, 25, 5, x === -3 ? BAG_L : BAG).box(x, 25, 5, x + 1, 25, 5, BAG_D);
-  // the waist and the narrow chest; the black 领缘 round the neck on the shoulders and down the crossed front to the belt, the slate
-  // inner collar at the throat
-  cbox(v, 'spine', -6, 26, -4, 5, 31, 3, R); cbox(v, 'chest', -7, 32, -4, 6, 39, 3, R);
-  B(v, 'chest', -3, 39, -3, 2, 39, 2, BLK).box(-3, 38, 3, 0, 39, 3, SLATE).box(1, 32, 3, 2, 39, 3, BLK); B(v, 'spine', 1, 26, 3, 2, 31, 3, BLK);
-  B(v, 'neck', -2, 40, -2, 1, 41, 1, FSK);
-  // thin upper arms; the wide sleeve hanging from the elbow (a black cuff); thin pale hands
+  softLegs(v, { x0: 2, x1: 5, z0: -2, z1: 2, knee: 11, hip: 22, trou: R_D, shoe: BLK, shoeD: BLK_D, wrap: 0xc2ccd4, wrapD: 0x92a0ac, toe: 5 });
+  // Hips, ornate obsidian-silver sovereign belt, frost-jade vials & ceremonial front tabard (蔽膝)
+  cbox2(v, 'hips', -7, 22, -5, 6, 25, 4, R, 2);
+  cbox2(v, 'hips', -8, 24, -6, 7, 26, 5, BLK, 2);
+  B(v, 'hips', -2, 24, 5, 1, 26, 5, SILV).box(-1, 25, 5, 0, 25, 5, ICE);
+  // Crisp non-blooming frost-poison vials tucked along the belt
+  for (const x of [-6, -4, 3, 5]) B(v, 'hips', x, 22, 5, x, 25, 5, BAG).box(x, 22, 6, x, 24, 6, ICE).box(x, 25, 6, x, 25, 6, SILV_D);
+  // Ceremonial obsidian front tabard with silver border & frost-blue sigil
+  B(v, 'hips', -2, 12, 6, 1, 23, 6, BLK).box(-2, 12, 6, 1, 12, 6, SILV).box(-1, 15, 6, 0, 18, 6, SLATE_L);
+  // Broad imposing aristocratic torso, wide obsidian crossed collar (matching portrait) & dark outer mantle drape
+  cbox2(v, 'spine', -7, 26, -5, 6, 31, 4, R, 2);
+  cbox2(v, 'chest', -8, 32, -5, 7, 39, 4, R, 2);
+  cbox2(v, 'chest', -6, 40, -4, 5, 40, 3, 0xe8eef2, 2);
+  // Wide obsidian crossed lapel + silver inner trim + venomous-jade outer shoulder panels
+  B(v, 'chest', -4, 39, -3, 3, 40, 3, BLK);
+  B(v, 'chest', -3, 36, 4, 2, 39, 4, BLK).box(-2, 38, 4, 1, 39, 4, JADE_D).box(1, 32, 4, 3, 39, 4, BLK).box(0, 32, 4, 0, 39, 4, SILV);
+  B(v, 'spine', 1, 26, 4, 3, 31, 4, BLK).box(0, 26, 4, 0, 31, 4, SILV);
+  B(v, 'chest', -8, 33, -4, -6, 39, 3, BLK).box(5, 33, -4, 7, 39, 3, BLK).box(-8, 39, -4, -6, 39, 3, SILV_D).box(5, 39, -4, 7, 39, 3, SILV_D);
+  // High upturned obsidian-and-silver standing sovereign collar framing his pale head
+  B(v, 'chest', -7, 40, -6, 6, 45, -5, BLK).box(-7, 45, -6, 6, 45, -5, SILV).box(-5, 43, -5, 4, 44, -5, JADE_D);
+  B(v, 'chest', -8, 40, -5, -7, 44, -2, BLK).box(-8, 44, -5, -7, 44, -2, SILV);
+  B(v, 'chest', 6, 40, -5, 7, 44, -2, BLK).box(6, 44, -5, 7, 44, -2, SILV);
+  B(v, 'neck', -2, 40, -2, 1, 41, 2, FSK).box(-2, 40, -2, 1, 40, 2, FSK_D);
+  // Sweeping full-length obsidian & frost-hemmed sovereign cloak on cape bone
+  B(v, 'cape', -10, 32, -7, 9, 39, -6, BLK).box(-10, 39, -7, 9, 39, -6, SILV);
+  B(v, 'cape', -11, 18, -7, 10, 31, -6, BLK).box(-11, 18, -7, -11, 31, -6, SILV_D).box(10, 18, -7, 10, 31, -6, SILV_D);
+  B(v, 'cape', -6, 18, -7, -5, 31, -7, BLK_D).box(4, 18, -7, 5, 31, -7, BLK_D);
+  B(v, 'cape', -12, 6, -8, 11, 17, -6, BLK).box(-12, 6, -8, 11, 7, -6, BLK_D).box(-12, 8, -8, 11, 8, -6, ICE);
+  B(v, 'cape', -12, 9, -8, -12, 17, -6, SILV_D).box(11, 9, -8, 11, 17, -6, SILV_D);
+  // Broad obsidian-silver mantle pauldrons + dramatic bell-flared ceremonial silk sleeves
   for (const [L, s] of SIDES) {
-    const [a, b] = MX(s, 7, 10), [wa, wb] = MX(s, 6, 11);
-    B(v, 'arm' + L, a, 31, -2, b, 39, 1, R);
-    B(v, 'fore' + L, wa, 23, -3, wb, 30, 4, R).box(wa, 23, -3, wb, 24, 4, BLK).box(wa, 30, -3, wb, 30, 4, R_D);
+    const [a, b] = MX(s, 8, 11), [pa, pb] = MX(s, 7, 13), [wa, wb] = MX(s, 7, 14), ox = s > 0 ? 13 : -14;
+    B(v, 'arm' + L, a, 31, -2, b, 39, 2, R);
+    // Broad sculpted sovereign shoulder mantle (obsidian + silver ridge + icy-jade accent)
+    B(v, 'arm' + L, pa, 35, -4, pb, 40, 3, BLK).box(pa, 40, -4, pb, 40, 3, SILV).box(ox, 40, -4, ox, 40, 3, null);
+    B(v, 'arm' + L, pa, 35, -4, pb, 35, 3, JADE_D).box(ox, 37, -1, ox, 38, 0, ICE);
+    cbox2(v, 'fore' + L, a, 28, -2, b, 30, 3, R, 1);
+    cbox2(v, 'fore' + L, wa, 22, -4, wb, 27, 4, R, 2);
+    cbox2(v, 'fore' + L, wa, 22, -4, wb, 24, 4, BLK, 2);
+    B(v, 'fore' + L, wa + 1, 24, -4, wb - 1, 24, 4, SILV);
+    B(v, 'fore' + L, wa + 1, 27, -4, wb - 1, 27, 4, R_D);
   }
-  fist(v, 'handL', 8, 10, 9, 10, 18, 21, 19, FSK, FSK_D, 10);
-  B(v, 'handR', -11, 18, -1, -9, 21, 2, FSK).box(-11, 18, -1, -11, 20, 2, FSK_D);
-  // 银针: three needles, one cell thin, between the fingers of the right hand (each its own joint: the pose fans them out)
-  for (let i = 0; i < 3; i++) { const x = -11 + i, bn = `needle${i + 1}`; v.bone(bn, 'weapon', x + 0.5, 19.5, 3); B(v, bn, x, 19, 3, x, 19, 11, 0xeef2f6).box(x, 19, 11, x, 19, 11, SILV_D); }
-  // 截指刀: a dark grip through the left fist, a small blade one cell thin (the edge row bright, the back darker), its tip turned straight down
-  B(v, 'offhand', 9, 19, -2, 10, 20, 2, BLK_L).box(9, 19, -3, 10, 20, -3, SILV_D);
-  B(v, 'offhand', 9, 18, 3, 10, 21, 3, SILV_D).box(9, 19, 4, 9, 19, 9, STEEL).box(9, 20, 4, 9, 20, 9, STEEL_D).box(9, 17, 9, 9, 18, 9, STEEL);
-  // the head (10 × 13 × 10, long and narrow): hair; the face — sunken eyes, hollow cheeks under the cheekbones, a thin nose; a long thin
-  // moustache down each side of the mouth and a long thin goatee, all one cell proud of the face
-  cbox(v, 'head', -5, 42, -5, 4, 54, 4, FSK);
-  hair(v, { y: 47, back: -3, side: 3, front: 1, skin: FSK });
-  face(v, { F: 4, eyes: [1, 2], eyeY: 48, brows: [1, 3], browY: 50, nose: [-1, 0], noseY: [45, 47], noseC: FSK_D, browC: FBD });
-  v.part('head').symBox(1, 47, 4, 2, 47, 4, FSK_D).symBox(3, 44, 4, 3, 46, 4, FSK_D).box(-1, 43, 4, 0, 43, 4, MOUTH);
-  B(v, 'jaw', -3, 39, 5, -3, 44, 5, FBD).box(2, 39, 5, 2, 44, 5, FBD).box(-2, 44, 5, 1, 44, 5, FBD).box(-1, 36, 5, 0, 42, 5, FBD);
-  // the black 进贤冠: a 帻 band one cell proud round the head, the crown over it, the tall 展筩 plate standing at the front (its top a lighter
-  // 梁 row), the low back part, a silver pin through it
-  cbox(v, 'head', -6, 51, -6, 5, 53, 5, BLK); cbox(v, 'head', -5, 54, -5, 4, 55, 4, BLK);
-  B(v, 'head', -3, 56, 1, 2, 59, 2, BLK).box(-3, 59, 1, 2, 59, 2, BLK_L).box(-2, 57, 2, -2, 58, 2, BLK_L).box(1, 57, 2, 1, 58, 2, BLK_L);
-  B(v, 'head', -3, 56, -4, 2, 57, 0, BLK); B(v, 'head', -5, 56, -2, 4, 56, -2, SILV);
-  // the cold-poison gourd hanging at the left hip behind the hand, glowing (its own joint: hidden while he drinks from the one in his hand);
-  // a black cord to the belt
-  v.bone('gourd', 'hips', 8.5, 24, -5.5);
-  octY(v, 'gourd', 7, 15, -7, 10, 18, -4, ICE, 1); B(v, 'gourd', 8, 19, -6, 9, 19, -5, SLATE_D); octY(v, 'gourd', 7, 20, -7, 10, 21, -4, ICE, 1);
-  B(v, 'gourd', 8, 22, -6, 9, 22, -5, BLK).box(7, 23, -5, 8, 23, -5, BLK).box(7, 24, -5, 7, 24, -5, BLK);
-  // the gourd he drinks from at the turn (on the right hand, in front of the open fingers; hidden until then — the needles are hidden
-  // while it shows): lying along the hand's +z, its mouth forward
-  v.bone('gourdH', 'handR', -10, 19.5, 3);
-  oct(v, 'gourdH', -12, 17, -9, 20, 3, 6, ICE, 1); B(v, 'gourdH', -11, 18, 7, -10, 19, 7, SLATE_D); B(v, 'gourdH', -11, 18, 8, -10, 19, 9, ICE, 1);
-  B(v, 'gourdH', -11, 18, 10, -10, 19, 10, BLK);
-  // 二阶段的霜 (frost: shown at the turn; the arms' and sleeves' pieces follow it): an ice shell one cell outside the body — over the
-  // shoulders, down the chest front and back with a row of even icicles at its foot; over each upper arm; round each cuff
-  v.bone('frost', 'chest', 0, 40, 0);
+  fist(v, 'handL', 9, 12, 10, 11, 18, 21, 19, FSK, FSK_D, 12);
+  B(v, 'handR', -13, 18, -1, -10, 21, 2, FSK).box(-13, 18, -1, -13, 20, 2, FSK_D);
+  // 寒霜银针: three longer gleaming frost-silver needles fanned between the fingers of the right hand
+  for (let i = 0; i < 3; i++) {
+    const x = -12 + i, bn = `needle${i + 1}`;
+    v.bone(bn, 'weapon', x + 0.5, 19.5, 3);
+    B(v, bn, x, 19, 3, x, 19, 13, STEEL).box(x, 19, 11, x, 19, 13, ICE_L);
+  }
+  // 截指弯刀: ornate obsidian-silver grip & longer hooked crescent surgeon's blade in the left fist
+  B(v, 'offhand', 10, 19, -3, 11, 20, 2, BLK_L).box(10, 19, -4, 11, 20, -4, SILV);
+  B(v, 'offhand', 10, 18, 3, 11, 21, 3, SILV).box(10, 19, 4, 10, 19, 11, STEEL).box(10, 20, 4, 10, 20, 11, STEEL_D);
+  v.part('offhand').box(10, 16, 11, 10, 19, 12, ICE_L).box(10, 17, 10, 10, 18, 10, STEEL);
+  // Sculpted gaunt aristocratic skull (faithful to fengzhen.png: pale sunken cheeks, widow's peak, sharp slanted eyes, sly thin moustache & pointed goatee)
+  cbox2(v, 'head', -6, 44, -5, 5, 54, 5, FSK, 2);
+  cbox2(v, 'head', -4, 42, -4, 3, 43, 5, FSK, 1);
+  hair(v, { y: 47, back: -3, side: 4, front: 1, skin: FSK });
+  // Widow's peak slick black hairline
+  B(v, 'head', -1, 51, 5, 0, 52, 5, FBD).box(-5, 52, 5, 4, 53, 5, FBD);
+  face(v, { F: 5, eyes: [1, 3], eyeY: 48, brows: [1, 4], browY: 50, nose: [-1, 0], noseY: [45, 47], noseC: FSK_D, browC: FBD });
+  v.part('head').symBox(1, 47, 5, 3, 47, 5, FSK_D).symBox(4, 44, 5, 4, 46, 5, FSK_D).box(-1, 43, 5, 0, 43, 5, MOUTH);
+  // Sly thin dark moustache + neat sharp pointed dark goatee (山羊胡)
+  B(v, 'jaw', -3, 44, 6, -1, 44, 6, FBD).box(0, 44, 6, 2, 44, 6, FBD);
+  B(v, 'jaw', -1, 39, 6, 0, 42, 6, FBD).box(-1, 38, 6, 0, 38, 6, FBD);
+  // Towering Sovereign Physician Crown (进贤玄霜冠) mounted on `hat` bone (moves rigidly with head, preserves head Box3)
+  cbox2(v, 'hat', -7, 52, -6, 6, 54, 6, BLK, 2);
+  B(v, 'hat', -5, 53, 6, 4, 53, 6, SILV).box(-1, 53, 6, 0, 55, 6, ICE);
+  cbox2(v, 'hat', -5, 55, -5, 4, 57, 4, BLK, 2);
+  B(v, 'hat', -4, 58, -3, 3, 63, 3, BLK).box(-4, 63, -3, 3, 63, 3, SILV);
+  // 3 sovereign silver ridges on crown front
+  for (const rx of [-3, 0, 2]) B(v, 'hat', rx, 58, 3, rx, 62, 3, SILV);
+  // Twin swept silver-ice wing crests flanking the crown
+  B(v, 'hat', -8, 57, -2, -5, 62, 0, BLK).box(-8, 62, -2, -5, 63, 0, SILV).box(-8, 59, -1, -8, 62, -1, ICE);
+  B(v, 'hat', 4, 57, -2, 7, 62, 0, BLK).box(4, 62, -2, 7, 63, 0, SILV).box(7, 59, -1, 7, 62, -1, ICE);
+  // Long gleaming silver hairpin piercing the crown
+  B(v, 'hat', -10, 57, -2, 9, 57, -2, SILV).box(-10, 57, -2, -10, 57, -2, ICE).box(9, 57, -2, 9, 57, -2, ICE);
+  // Larger glowing cold-poison crystal gourd hanging at the left hip behind the hand (ONLY emissive glow element!)
+  v.bone('gourd', 'hips', 9.5, 24, -5.5);
+  octY(v, 'gourd', 8, 14, -8, 11, 18, -4, ICE, 1); B(v, 'gourd', 9, 19, -7, 10, 19, -5, SILV_D); octY(v, 'gourd', 8, 20, -8, 11, 22, -4, ICE, 1);
+  B(v, 'gourd', 9, 23, -6, 10, 23, -5, BLK).box(8, 24, -5, 9, 24, -5, BLK).box(7, 25, -5, 8, 25, -5, BLK);
+  // Drinking frost-crystal gourd in the right hand (shown during drink / sow)
+  v.bone('gourdH', 'handR', -11.5, 19.5, 3);
+  oct(v, 'gourdH', -13, 17, -10, 20, 3, 7, ICE, 1); B(v, 'gourdH', -12, 18, 8, -11, 19, 8, SILV_D); B(v, 'gourdH', -12, 18, 9, -11, 19, 10, ICE, 1);
+  B(v, 'gourdH', -12, 18, 11, -11, 19, 11, BLK);
+  // 二阶段的霜 (sculpted icy-blue crystal rim shell 1 cell proud — frames the obsidian shoulders & cuffs without blanking out his dark sovereign armor!)
+  v.bone('frost', 'chest', 0, 41, 0);
   v.part('frost');
-  for (let x = -7; x <= 6; x++) for (let z = -5; z <= 4; z++) if (!(x >= -2 && x <= 1 && z >= -2 && z <= 1)) v.set(x, 40, z, z === 4 || z === -5 ? ICE_L : FROST);
-  v.box(-7, 35, 4, 6, 39, 4, FROST).box(-7, 35, -5, 6, 39, -5, FROST).box(-7, 37, 4, 6, 37, 4, FROST_D).box(-7, 37, -5, 6, 37, -5, FROST_D);
-  for (let x = -7; x <= 6; x += 2) v.set(x, 34, 4, FROST_D).set(x, 34, -5, FROST_D);
+  for (let x = -7; x <= 6; x += 2) v.set(x, 34, 5, ICE).set(x, 35, 5, FROST_D).set(x, 34, -6, ICE);
+  v.box(-6, 36, 5, 5, 36, 5, FROST_D).box(-6, 41, 3, -4, 41, 4, ICE).box(3, 41, 3, 5, 41, 4, ICE);
   for (const [L, s] of SIDES) {
-    const A = 'frostA' + L, F = 'frostF' + L, [a, b] = MX(s, 7, 11), ox = s > 0 ? 11 : -12, [ca, cb] = MX(s, 6, 12), cx = s > 0 ? 12 : -13;
-    v.bone(A, 'arm' + L, s * 9, 40, 0).bone(F, 'fore' + L, s * 9, 31, 0);
-    B(v, A, a, 40, -3, b, 40, 2, FROST).box(ox, 35, -3, ox, 39, 2, FROST).box(ox, 35, -3, ox, 35, 2, FROST_D);
-    const [ia, ib] = MX(s, 7, 10); v.box(ia, 36, 2, ib, 39, 2, FROST).box(ia, 36, -3, ib, 39, -3, FROST);
-    B(v, F, ca, 23, 5, cb, 24, 5, FROST).box(ca, 23, -4, cb, 24, -4, FROST).box(cx, 23, -4, cx, 24, 5, FROST);
-    for (let x = ca; x <= cb; x += 2) v.set(x, 22, 5, FROST_D).set(x, 22, -4, FROST_D);
-    for (let z = -2; z <= 4; z += 2) v.set(cx, 22, z, FROST_D);
+    const A = 'frostA' + L, F = 'frostF' + L, [a, b] = MX(s, 9, 14), ox = s > 0 ? 14 : -15, [ca, cb] = MX(s, 7, 14), cx = s > 0 ? 14 : -15;
+    v.bone(A, 'arm' + L, s * 10, 40, 0).bone(F, 'fore' + L, s * 10, 31, 0);
+    // Crisp jagged frost crystal crests on the outer shoulder pauldrons & icicles under the bell cuffs
+    B(v, A, a, 41, -2, b, 41, 1, ICE).box(ox, 36, -2, ox, 40, 1, FROST_D).box(ox, 35, -1, ox, 35, 0, ICE);
+    B(v, F, ca, 22, 5, cb, 22, 5, ICE).box(ca, 22, -5, cb, 22, -5, ICE).box(cx, 22, -4, cx, 22, 4, FROST_D);
+    for (let x = ca; x <= cb; x += 2) v.set(x, 21, 5, FROST_D).set(x, 21, -5, FROST_D);
+    for (let z = -3; z <= 3; z += 2) v.set(cx, 21, z, ICE);
   }
   return v;
 }
@@ -454,7 +540,7 @@ export const XP_DEFS = {
   chain_e: def({ id: 'xp_chain_e', name: '枷铁狱吏', group: '精英', role: '狱卒', line: '', kind: 'biped', attack: 'slam', tip: 8, build: () => jailer(true) }),
   conscript: def({ id: 'xp_conscript', name: '冻骨溃兵', group: '普通', role: '降卒', line: '', kind: 'biped', attack: 'swing', tip: 30, build: () => conscript(0) }),
   conscript_b: def({ id: 'xp_conscript_b', name: '冻骨溃兵', group: '普通', role: '降卒', line: '', kind: 'biped', attack: 'swing', tip: 21, build: () => conscript(1) }),
-  boss: def({ id: 'xp_boss', name: '截指鬼医 · 封寒', group: '首领', role: '医官', line: '', kind: 'biped', attack: 'cast', tip: 11, build: boss }),
+  boss: def({ id: 'xp_boss', name: '截指鬼医 · 封寒', group: '首领', role: '医官', line: '', kind: 'biped', attack: 'cast', tip: 11, scale: 1.24, build: boss }),
 };
 void plate;
 

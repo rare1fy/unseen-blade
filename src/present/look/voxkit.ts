@@ -8,6 +8,7 @@ import { finishBuild } from '../engine/buildSteps';
 import * as THREE from 'three';
 import { toon } from './toon';
 import { PXU } from './pixel';
+import { CRAFTU } from './craft';
 import type { Bone } from '../actors/rig';
 import { shadowTiles, shadowTileSteps, TILE_M } from '../engine/shadowTiles';
 import { cheapVoxelUniform } from './quality';
@@ -67,20 +68,18 @@ export function voxToon(o: { rim?: number; self?: number; edge?: number; actor?:
     src.onBeforeCompile(sh, r);
     // three's toon material clone drops the extensions bag. The lighting and HUD variants reuse this shader.
     if (CAPS.derivatives) sh.extensionDerivatives = true;
-    sh.uniforms.uCheapVoxel = cheapVoxelUniform; sh.uniforms.uPx = PXU.uPx; sh.uniforms.uPxEdge = PXU.uPxEdge;
+    sh.uniforms.uCheapVoxel = cheapVoxelUniform; sh.uniforms.uPx = PXU.uPx; sh.uniforms.uPxEdge = PXU.uPxEdge; sh.uniforms.uCraftGrain = CRAFTU.uCraftGrain; sh.uniforms.uCraftTime = CRAFTU.uCraftTime;
     if (hole) sh.uniforms.uHole = SEE_HOLES;
-    sh.vertexShader = (hole ? '#define VOX_HOLE\nvarying vec3 vWP;\n' : '') + 'attribute vec2 aVox; attribute vec2 aSize; attribute vec4 aOpen; varying vec2 vVox; varying vec2 vSize; varying vec4 vOpen; varying vec3 vWN;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+    sh.vertexShader = (hole ? '#define VOX_HOLE\n' : '') + 'attribute vec2 aVox; attribute vec2 aSize; attribute vec4 aOpen; varying vec2 vVox; varying vec2 vSize; varying vec4 vOpen; varying vec3 vWN; varying vec3 vWP;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
  vVox = aVox; vSize = aSize; vOpen = aOpen; vWN = normalize(mat3(modelMatrix) * objectNormal);
-#ifdef VOX_HOLE
  { vec4 hp = vec4(transformed, 1.0);
 #ifdef USE_INSTANCING
    hp = instanceMatrix * hp;
 #endif
-   vWP = (modelMatrix * hp).xyz; }
-#endif`);
+   vWP = (modelMatrix * hp).xyz; }`);
     // the see-through: the hole's core is open, its rim a 4x4 ordered dither in the art pixels; the radius is scaled with depth,
     // so the hole is the same size on screen
-    const holeFn = hole ? `uniform vec4 uHole[4]; varying vec3 vWP;
+    const holeFn = hole ? `uniform vec4 uHole[4];
 float voxB2(vec2 a) { a = floor(a); return fract(dot(a, vec2(0.5, a.y * 0.75))); }
 float voxB4(vec2 a) { return voxB2(0.5 * a) * 0.25 + voxB2(a); }
 void voxHole() {
@@ -98,17 +97,80 @@ void voxHole() {
 }
 ` : '';
     // (11-18 微信小游戏: the 1-art-pixel bevel lines need dFdx / dFdy — without them (the devtools' WebGL1) the faces keep their tones)
-    sh.fragmentShader = (CAPS.derivatives ? '#define VOX_DERIV\n' : '') + 'varying vec2 vVox; varying vec2 vSize; varying vec4 vOpen; varying vec3 vWN; uniform float uPx, uPxEdge, uCheapVoxel;\n' + holeFn + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>${hole ? '\n      voxHole();' : ''}
+    sh.fragmentShader = (CAPS.derivatives ? '#define VOX_DERIV\n' : '') + 'varying vec2 vVox; varying vec2 vSize; varying vec4 vOpen; varying vec3 vWN; varying vec3 vWP; uniform float uPx, uPxEdge, uCheapVoxel, uCraftGrain, uCraftTime;\n' + holeFn + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>${hole ? '\n      voxHole();' : ''}
       { float d = 1.0; if (vOpen.x > 0.5) d = min(d, vVox.x); if (vOpen.y > 0.5) d = min(d, vSize.x - vVox.x); if (vOpen.z > 0.5) d = min(d, vVox.y); if (vOpen.w > 0.5) d = min(d, vSize.y - vVox.y);
         float bev = 1.0 + ${edge.toFixed(3)} * (1.0 - smoothstep(0.03, 0.1, d));
-        if (uPx > 0.5) {
+        if (uCraft > 0.5) {
           vec3 wn = normalize(vWN);
-          float tone = wn.y > 0.6 ? 1.06 : wn.y < -0.6 ? 0.66 : wn.x > 0.6 ? 0.9 : wn.x < -0.6 ? 0.92 : wn.z > 0.6 ? 1.0 : 0.84;
+          if (uCraft < 1.5) {
+            // A · 国风版画: bold graphic face contrast + crisp hand-inked bright convex edge + clean wash grounding
+            float tone = wn.y > 0.6 ? 1.05 : wn.y < -0.6 ? 0.66 : wn.x > 0.6 ? 0.87 : wn.x < -0.6 ? 0.94 : wn.z > 0.6 ? 1.0 : 0.80;
+            float chamf = (1.0 - smoothstep(0.03, ${o.actor ? '0.18' : '0.15'}, d)) * ${o.actor ? '0.18' : '0.22'} * (wn.y > -0.2 ? 1.0 : 0.25);
+            bev = tone * (1.0 + chamf);
+            ${o.actor ? '' : `
+            float gK = uCraftGrain;
+            if (abs(wn.y) < 0.5) {
+              float baseWash = mix(0.78, 1.0, smoothstep(0.0, 0.72, max(vWP.y, 0.0)));
+              bev *= mix(1.0, baseWash, gK);
+            } else {
+              // quiet stylized ink-wash tonal sweep on large ground planes (no realistic noise)
+              float wash = sin(vWP.x * 0.36 + vWP.z * 0.24) * cos(vWP.z * 0.34 - vWP.x * 0.22);
+              float stepWash = smoothstep(-0.35, 0.45, wash) * 0.08 - 0.04;
+              bev *= mix(1.0, 1.0 + stepWash, gK);
+            }`}
+          } else if (uCraft < 2.5) {
+            // B · HD-2D 像素: matches 2x pixel grid + crisp 1-art-pixel bevel + cloud-dapple atmospheric light
+            float tone = wn.y > 0.6 ? 1.04 : wn.y < -0.6 ? 0.66 : wn.x > 0.6 ? 0.89 : wn.x < -0.6 ? 0.93 : wn.z > 0.6 ? 1.0 : 0.83;
+            float hl = 0.0, dk = 0.0;
+#ifdef VOX_DERIV
+            if (uCheapVoxel < 0.5) {
+            vec2 gx = dFdx(vVox), gy = dFdy(vVox), fw = max(abs(gx) + abs(gy), vec2(1e-4));
+            vec2 cellSize = ${o.actor ? 'vec2(1.)' : 'vSize'}; float span = min(cellSize.x / fw.x, cellSize.y / fw.y);
+            if (span > 5.0) {
+              vec2 ux = normalize(vec2(gx.x, gy.x) + 1e-6), uy = normalize(vec2(gx.y, gy.y) + 1e-6), L = vec2(-0.5, 0.866);
+              float e0 = vOpen.x > 0.5 ? vVox.x / fw.x : 1e4, e1 = vOpen.y > 0.5 ? (vSize.x - vVox.x) / fw.x : 1e4;
+              float e2 = vOpen.z > 0.5 ? vVox.y / fw.y : 1e4, e3 = vOpen.w > 0.5 ? (vSize.y - vVox.y) / fw.y : 1e4;
+              float s0 = dot(-ux, L), s1 = dot(ux, L), s2 = dot(-uy, L), s3 = dot(uy, L);
+              if (e0 < 1.0) { hl = max(hl, step(0.2, s0)); dk = max(dk, step(s0, -0.2)); }
+              if (e1 < 1.0) { hl = max(hl, step(0.2, s1)); dk = max(dk, step(s1, -0.2)); }
+              if (e2 < 1.0) { hl = max(hl, step(0.2, s2)); dk = max(dk, step(s2, -0.2)); }
+              if (e3 < 1.0) { hl = max(hl, step(0.2, s3)); dk = max(dk, step(s3, -0.2)); }
+            } }
+#endif
+            bev = tone * (1.0 + 0.28 * hl) * (1.0 - 0.18 * dk * (1.0 - hl));
+            ${o.actor ? '' : `
+            float gK = uCraftGrain;
+            if (abs(wn.y) < 0.5) {
+              float baseAO = mix(0.76, 1.0, smoothstep(0.0, 0.80, max(vWP.y, 0.0)));
+              bev *= mix(1.0, baseAO, gK);
+            } else {
+              float drift = sin((vWP.x + uCraftTime * 0.28) * 0.22 + vWP.z * 0.16) * cos((vWP.z - uCraftTime * 0.18) * 0.20 - vWP.x * 0.14);
+              float cloudLight = smoothstep(-0.55, 0.65, drift) * 0.14 - 0.08;
+              bev *= mix(1.0, 1.0 + cloudLight, gK);
+              diffuseColor.rgb *= mix(vec3(1.0), vec3(1.0 + cloudLight * 0.45, 1.0 + cloudLight * 0.1, 1.0 - cloudLight * 0.55), gK);
+            }`}
+          } else {
+            // C · 精致微缩: pristine noiseless artisan lacquer blocks + luminous precision-milled chamfer edge (The Touryst / Tunic)
+            float tone = wn.y > 0.6 ? 1.05 : wn.y < -0.6 ? 0.78 : wn.x > 0.6 ? 0.94 : wn.x < -0.6 ? 0.96 : wn.z > 0.6 ? 1.0 : 0.90;
+            float chamf = (1.0 - smoothstep(0.0, ${o.actor ? '0.26' : '0.22'}, d)) * ${o.actor ? '0.20' : '0.25'} * (wn.y > -0.2 ? 1.0 : 0.45);
+            bev = tone * (1.0 + chamf);
+            ${o.actor ? '' : `
+            if (abs(wn.y) < 0.5) {
+              bev *= mix(0.88, 1.0, smoothstep(0.0, 0.48, max(vWP.y, 0.0)));
+            }`}
+          }
+        } else if (uPx > 0.5) {
+          vec3 wn = normalize(vWN);
+          float tone = wn.y > 0.6 ? 1.06 : wn.y < -0.6 ? 0.68 : wn.x > 0.6 ? 0.90 : wn.x < -0.6 ? 0.93 : wn.z > 0.6 ? 1.0 : 0.84;
+          ${o.actor ? `
+          // WebGL1-safe precision micro-chamfer catchlight on 3.5cm character voxels (replaces invisible span>6 bevel on small cells)
+          float chamf = (1.0 - smoothstep(0.0, 0.20, d)) * 0.12 * (wn.y > -0.2 ? 1.0 : 0.35);
+          bev = tone * (1.0 + chamf);` : `
           float hl = 0.0, dk = 0.0;
 #ifdef VOX_DERIV
           if (uCheapVoxel < 0.5) {
           vec2 gx = dFdx(vVox), gy = dFdy(vVox), fw = max(abs(gx) + abs(gy), vec2(1e-4));
-          vec2 cellSize = ${o.actor ? 'vec2(1.)' : 'vSize'}; float span = min(cellSize.x / fw.x, cellSize.y / fw.y);
+          vec2 cellSize = vSize; float span = min(cellSize.x / fw.x, cellSize.y / fw.y);
           if (span > 6.0) {
             vec2 ux = normalize(vec2(gx.x, gy.x) + 1e-6), uy = normalize(vec2(gx.y, gy.y) + 1e-6), L = vec2(-0.5, 0.866);
             float e0 = vOpen.x > 0.5 ? vVox.x / fw.x : 1e4, e1 = vOpen.y > 0.5 ? (vSize.x - vVox.x) / fw.x : 1e4;
@@ -120,7 +182,7 @@ void voxHole() {
             if (e3 < 1.0) { hl = max(hl, step(0.2, s3)); dk = max(dk, step(s3, -0.2)); }
           } }
 #endif
-          bev = tone * (1.0 + uPxEdge * hl) * (1.0 - 0.2 * dk * (1.0 - hl));
+          bev = tone * (1.0 + uPxEdge * hl) * (1.0 - 0.2 * dk * (1.0 - hl));`}
         }
         diffuseColor.rgb *= bev; }`);
   };
@@ -132,6 +194,180 @@ void voxHole() {
 }
 const glowMats = new Map<number, THREE.MeshBasicMaterial>();
 export const glowMat = (k: number) => { if (!glowMats.has(k)) glowMats.set(k, new THREE.MeshBasicMaterial({ color: new THREE.Color(k, k, k), vertexColors: true, toneMapped: false })); return glowMats.get(k)!; };
+
+const DOWN_JOINTS = new Set([
+  'foreL', 'foreR', 'handL', 'handR', 'shinL', 'shinR', 'footL', 'footR', 'legL', 'legR',
+  'legFL', 'legFR', 'legBL', 'legBR', 'horseLegFL', 'horseLegFR', 'horseLegBL', 'horseLegBR',
+  'horseShinFL', 'horseShinFR', 'horseShinBL', 'horseShinBR',
+  'hrA2', 'hrA3', 'bfA2', 'bfA3', 'bfB2', 'bfB3', 'hipSlv2', 'hipSlv3', 'clA2', 'robe2',
+]);
+const UP_JOINTS = new Set(['spine', 'chest', 'neck', 'head']);
+const SIDE_JOINTS = new Set(['armL', 'armR']);
+
+interface SealBox { x0: number; y0: number; z0: number; x1: number; y1: number; z1: number; c: number; part: string; axis: 'x' | 'y' }
+
+/**
+ * Automatic recessed joint-core plugs (build-time only; never mutates `cells` so .vox round-trips stay exact).
+ * Every plug sits strictly inside voxels already occupied by the parent bone and is inset by 11% on cross-section axes,
+ * making it invisible at rest (zero z-fighting, zero silhouette bloat) while smoothly sealing gaps when joints bend 45°–135°.
+ */
+function computeJointSeals(
+  cells: Map<number, Cell & { x: number; y: number; z: number }>,
+  bonesAbs: Map<string, { parent: string | null; p: THREE.Vector3 }>,
+  s: number,
+): Map<string, SealBox[]> {
+  const out = new Map<string, SealBox[]>();
+  if (bonesAbs.size < 4 || s > 0.085) return out;
+  const byPart = new Map<string, Array<Cell & { x: number; y: number; z: number }>>();
+  for (const c of cells.values()) {
+    let arr = byPart.get(c.part);
+    if (!arr) byPart.set(c.part, (arr = []));
+    arr.push(c);
+  }
+  const depth = s < 0.05 ? 2 : 1;
+  const parentWithCells = (name: string): string | null => {
+    let cur = bonesAbs.get(name)?.parent ?? null;
+    while (cur && cur !== 'root') {
+      if (byPart.has(cur)) return cur;
+      cur = bonesAbs.get(cur)?.parent ?? null;
+    }
+    return null;
+  };
+  const modeColor = (list: Array<{ c: number }>) => {
+    const counts = new Map<number, number>();
+    let best = list[0].c, bestN = 0;
+    for (const item of list) {
+      const n = (counts.get(item.c) ?? 0) + 1;
+      counts.set(item.c, n);
+      if (n > bestN) { bestN = n; best = item.c; }
+    }
+    return best;
+  };
+  const push = (box: SealBox) => {
+    let arr = out.get(box.part);
+    if (!arr) out.set(box.part, (arr = []));
+    arr.push(box);
+  };
+
+  for (const [part, list] of byPart) {
+    if (!list.length) continue;
+    const isDown = DOWN_JOINTS.has(part), isUp = UP_JOINTS.has(part), isSide = SIDE_JOINTS.has(part);
+    if (!isDown && !isUp && !isSide) continue;
+    const par = parentWithCells(part);
+    if (!par) continue;
+    const bp = bonesAbs.get(part)!.p;
+
+    if (isDown) {
+      // Boundary layer of `part` nearest the joint pivot along Y
+      let yEdge = -1e9;
+      for (const c of list) {
+        if (Math.abs(c.x + 0.5 - bp.x) > 5.5 || Math.abs(c.z + 0.5 - bp.z) > 5.5) continue;
+        if (c.y > yEdge) yEdge = c.y;
+      }
+      if (!Number.isFinite(yEdge) || Math.abs(yEdge + 1 - bp.y) > 3.5) continue;
+      const rim = list.filter(c => c.y === yEdge && Math.abs(c.x + 0.5 - bp.x) <= 5.5 && Math.abs(c.z + 0.5 - bp.z) <= 5.5);
+      if (!rim.length) continue;
+      const valid = rim.filter(c => cells.get(key(c.x, yEdge + 1, c.z))?.part === par);
+      if (!valid.length) continue;
+      let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9;
+      for (const c of valid) { if (c.x < x0) x0 = c.x; if (c.x > x1) x1 = c.x; if (c.z < z0) z0 = c.z; if (c.z > z1) z1 = c.z; }
+      let maxD = 1;
+      if (depth >= 2) {
+        let ok2 = true;
+        for (let x = x0; x <= x1 && ok2; x++) for (let z = z0; z <= z1 && ok2; z++) {
+          if (cells.get(key(x, yEdge + 2, z))?.part !== par) ok2 = false;
+        }
+        if (ok2) maxD = 2;
+      }
+      push({ x0, y0: yEdge + 1, z0, x1, y1: yEdge + maxD, z1, c: modeColor(valid), part, axis: 'y' });
+    } else if (isUp) {
+      // Ball-and-socket column on the lower parent extending UP into `part` (keeps `chest` and `head` Box3 untouched!)
+      let yEdge = 1e9;
+      for (const c of list) {
+        if (Math.abs(c.x + 0.5 - bp.x) > 5.5 || Math.abs(c.z + 0.5 - bp.z) > 5.5) continue;
+        if (c.y < yEdge) yEdge = c.y;
+      }
+      if (!Number.isFinite(yEdge) || Math.abs(yEdge - bp.y) > 3.5) continue;
+      const rim = list.filter(c => c.y === yEdge && Math.abs(c.x + 0.5 - bp.x) <= 5.5 && Math.abs(c.z + 0.5 - bp.z) <= 5.5);
+      if (!rim.length) continue;
+      const valid = rim.filter(c => cells.get(key(c.x, yEdge - 1, c.z))?.part === par);
+      if (!valid.length) continue;
+      let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9;
+      for (const c of valid) { if (c.x < x0) x0 = c.x; if (c.x > x1) x1 = c.x; if (c.z < z0) z0 = c.z; if (c.z > z1) z1 = c.z; }
+      let maxD = 1;
+      if (depth >= 2 && part !== 'neck') {
+        let ok2 = true;
+        for (let x = x0; x <= x1 && ok2; x++) for (let z = z0; z <= z1 && ok2; z++) {
+          if (cells.get(key(x, yEdge + 1, z))?.part !== part) ok2 = false;
+        }
+        if (ok2) maxD = 2;
+      }
+      const parRim = valid.map(c => cells.get(key(c.x, yEdge - 1, c.z))!);
+      const sealCol = part === 'neck' ? modeColor(valid) : modeColor(parRim);
+      push({ x0, y0: yEdge, z0, x1, y1: yEdge + maxD - 1, z1, c: sealCol, part: par, axis: 'y' });
+    } else if (isSide) {
+      // Shoulder socket plug extending inward from armL (-x) / armR (+x) into chest
+      const inward = part === 'armL' ? -1 : 1;
+      let yMax = -1e9;
+      for (const c of list) if (c.y > yMax) yMax = c.y;
+      const upper = list.filter(c => c.y >= Math.floor(bp.y) - 4 && c.y <= yMax - 1 && Math.abs(c.z + 0.5 - bp.z) <= 4.5);
+      if (!upper.length) continue;
+      let xInner = inward < 0 ? 1e9 : -1e9;
+      for (const c of upper) if (inward < 0 ? c.x < xInner : c.x > xInner) xInner = c.x;
+      const rim = upper.filter(c => c.x === xInner && cells.get(key(xInner + inward, c.y, c.z))?.part === par);
+      if (!rim.length) continue;
+      let y0 = 1e9, y1 = -1e9, z0 = 1e9, z1 = -1e9;
+      for (const c of rim) { if (c.y < y0) y0 = c.y; if (c.y > y1) y1 = c.y; if (c.z < z0) z0 = c.z; if (c.z > z1) z1 = c.z; }
+      let maxD = 1;
+      if (depth >= 2) {
+        let ok2 = true;
+        for (let y = y0; y <= y1 && ok2; y++) for (let z = z0; z <= z1 && ok2; z++) {
+          if (cells.get(key(xInner + inward * 2, y, z))?.part !== par) ok2 = false;
+        }
+        if (ok2) maxD = 2;
+      }
+      const xA = inward < 0 ? xInner - maxD : xInner + 1;
+      const xB = inward < 0 ? xInner - 1 : xInner + maxD;
+      push({ x0: xA, y0, z0, x1: xB, y1, z1, c: modeColor(rim), part, axis: 'x' });
+    }
+  }
+  return out;
+}
+
+/** Emit one slightly-inset recessed joint-core box into an actor part's geometry arrays (after greedy merge). */
+function appendSealBox(arr: number[][], box: SealBox, bp: THREE.Vector3, s: number, col: THREE.Color) {
+  const [P, N, C, U, I, E, S] = arr;
+  const inX = box.axis === 'y' ? 0.11 : 0.05;
+  const inY = box.axis === 'x' ? 0.11 : 0.05;
+  const inZ = 0.11;
+  const x0 = (box.x0 + inX - bp.x) * s, x1 = (box.x1 + 1 - inX - bp.x) * s;
+  const y0 = (box.y0 + inY - bp.y) * s, y1 = (box.y1 + 1 - inY - bp.y) * s;
+  const z0 = (box.z0 + inZ - bp.z) * s, z1 = (box.z1 + 1 - inZ - bp.z) * s;
+  if (x1 <= x0 || y1 <= y0 || z1 <= z0) return;
+  col.set(box.c);
+  const f = 0.84;
+  const r = col.r * f, g = col.g * f, b = col.b * f;
+  const faces: Array<[number[], Array<[number, number, number]>]> = [
+    [[1, 0, 0], [[x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1]]],
+    [[-1, 0, 0], [[x0, y0, z1], [x0, y1, z1], [x0, y1, z0], [x0, y0, z0]]],
+    [[0, 1, 0], [[x0, y1, z1], [x1, y1, z1], [x1, y1, z0], [x0, y1, z0]]],
+    [[0, -1, 0], [[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]]],
+    [[0, 0, 1], [[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]]],
+    [[0, 0, -1], [[x1, y0, z0], [x0, y0, z0], [x0, y1, z0], [x1, y1, z0]]],
+  ];
+  for (const [n, verts] of faces) {
+    const base = P.length / 3;
+    for (let k = 0; k < 4; k++) {
+      P.push(verts[k][0], verts[k][1], verts[k][2]);
+      N.push(n[0], n[1], n[2]);
+      C.push(r, g, b);
+      U.push(k === 1 || k === 2 ? 1 : 0, k >= 2 ? 1 : 0);
+      E.push(0, 0, 0, 0);
+      S.push(1, 1);
+    }
+    I.push(base, base + 1, base + 2, base, base + 2, base + 3);
+  }
+}
 
 export class VoxChar {
   cells = new Map<number, Cell & { x: number; y: number; z: number }>();
@@ -187,6 +423,7 @@ export class VoxChar {
     const occ = (x: number, y: number, z: number) => this.cells.has(key(x, y, z));
     const jit = o.jitter ?? 0.05, col = new THREE.Color();
     const byPart = new Map<string, { solid: number[][]; glow: number[][] }>();
+    const seals = computeJointSeals(this.cells, this.bonesAbs, s);
     const hash = (x: number, y: number, z: number) => { let h = (x * 374761393 + y * 668265263 + z * 1274126177) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
     let visited = 0;
     for (const v of this.cells.values()) {
@@ -201,6 +438,17 @@ export class VoxChar {
         const [t1, t2] = TAN[d], base = P.length / 3, pos = dx + dy + dz > 0;
         const cx = v.x + 0.5 + dx * 0.5, cy = v.y + 0.5 + dy * 0.5, cz = v.z + 0.5 + dz * 0.5;
         const aos: number[] = [];
+        // 2-ring overhang & cavity AO across the whole statue (MagicaVoxel depth under hats, chins, collars, armor & armpits)
+        let sky = 1;
+        if (v.g === 0) {
+          const ox0 = v.x + dx, oy0 = v.y + dy, oz0 = v.z + dz;
+          let ov = 0;
+          if (occ(ox0, oy0 + 1, oz0)) ov += 1.0;
+          if (occ(ox0, oy0 + 2, oz0)) ov += 0.75;
+          if (occ(ox0 + dx, oy0 + 1, oz0 + dz)) ov += 0.65;
+          if (occ(ox0 + dx, oy0 + 2, oz0 + dz)) ov += 0.45;
+          sky = (dy > 0 ? 1.03 : dy < 0 ? 0.88 : 0.99) * (1 - Math.min(0.18, ov * 0.055));
+        }
         // an edge of this face is "open" (gets the bevel) only where the block sticks out (convex edge)
         const open = (tx: number, ty: number, tz: number) => (occ(v.x + tx, v.y + ty, v.z + tz) ? 0 : 1);
         const eo = [open(-t1[0], -t1[1], -t1[2]), open(t1[0], t1[1], t1[2]), open(-t2[0], -t2[1], -t2[2]), open(t2[0], t2[1], t2[2])];
@@ -212,7 +460,7 @@ export class VoxChar {
           const a1 = occ(ox + t1[0] * s1, oy + t1[1] * s1, oz + t1[2] * s1) ? 1 : 0, a2 = occ(ox + t2[0] * s2, oy + t2[1] * s2, oz + t2[2] * s2) ? 1 : 0;
           const a3 = occ(ox + t1[0] * s1 + t2[0] * s2, oy + t1[1] * s1 + t2[1] * s2, oz + t1[2] * s1 + t2[2] * s2) ? 1 : 0;
           const ao = v.g > 0 ? 3 : a1 && a2 ? 0 : 3 - (a1 + a2 + a3); aos.push(ao);
-          const f = AO[ao] * sh; C.push(col.r * f, col.g * f, col.b * f);
+          const f = AO[ao] * sh * sky; C.push(Math.min(1, col.r * f), Math.min(1, col.g * f), Math.min(1, col.b * f));
         }
         // flip the quad diagonal so AO interpolates without the anisotropy seam
         const flip = aos[0] + aos[2] < aos[1] + aos[3];
@@ -223,8 +471,12 @@ export class VoxChar {
     const solidMat = voxToon({ actor: true, rim: o.rim, self: o.self, edge: o.edge });
     for (const [part, { solid, glow }] of byPart) {
       yield;
+      const bp = this.bonesAbs.get(part)!.p;
+      const partSeals = seals.get(part);
       for (const [arr, isGlow] of [[solid, false], [glow, true]] as const) {
-        const [P, N, C, U, I, E, S] = OPT.greedyActors && !jit ? mergeActorFaces(arr, s) : arr; if (!I.length) continue;
+        const merged = OPT.greedyActors && !jit ? mergeActorFaces(arr, s) : arr;
+        if (!isGlow && partSeals) for (const sb of partSeals) appendSealBox(merged, sb, bp, s, col);
+        const [P, N, C, U, I, E, S] = merged; if (!I.length) continue;
         const g = new THREE.BufferGeometry();
         g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(N, 3));
         g.setAttribute('color', new THREE.Float32BufferAttribute(C, 3)); g.setAttribute('aVox', new THREE.Float32BufferAttribute(U, 2)); g.setAttribute('aOpen', new THREE.Float32BufferAttribute(E, 4)); g.setAttribute('aSize', new THREE.Float32BufferAttribute(S, 2)); g.setIndex(I);

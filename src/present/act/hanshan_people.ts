@@ -26,6 +26,15 @@ const fine = () => new VoxChar(CELL / 2);
 const B = (v: V, part: string, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, c: Col | null, g = 0) => v.part(part).box(x0, y0, z0, x1, y1, z1, c, g);
 /** a box with its four vertical edges cut one cell (and its top ring when top): a softer mass */
 const R = (v: V, part: string, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, c: Col, top = false) => { v.part(part); rbox(v, x0, y0, z0, x1, y1, z1, c, 1, top); };
+/** a box with vertical corners chamfered by r cells (clean rounded sculptural form, zero stair-steps) */
+function C2(v: V, part: string, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, c: Col, r = 2) {
+  v.part(part);
+  for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) {
+    const ex = Math.min(x - x0, x1 - x), ez = Math.min(z - z0, z1 - z);
+    if (ex + ez < r) continue;
+    for (let y = y0; y <= y1; y++) v.set(x, y, z, c);
+  }
+}
 /** a box on the left limb (part + 'L') and its mirror (cell x ↔ −1 − x) on the right (part + 'R') */
 const LR = (v: V, part: string, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, c: Col | null, g = 0) => {
   B(v, part + 'L', x0, y0, z0, x1, y1, z1, c, g); B(v, part + 'R', -1 - x1, y0, z0, -1 - x0, y1, z1, c, g);
@@ -61,7 +70,7 @@ function buildChild(): V {
   v.bone('bfA1', 'head', 7.5, 43, -1.5).bone('bfA2', 'bfA1', 7.5, 38, -1.5).bone('bfA3', 'bfA2', 7.5, 35, -1.5)
     .bone('bfB1', 'head', -7.5, 43, -1.5).bone('bfB2', 'bfB1', -7.5, 38, -1.5);
   // ---- cloth shoes (black uppers on a white layered sole, the toe a row lower), the trouser leg over the ankle, loose trousers
-  LR(v, 'foot', 1, 0, -2, 3, 0, 3, C.SOLE); LR(v, 'foot', 1, 1, -2, 3, 1, 3, C.SHOE); LR(v, 'foot', 1, 2, -2, 3, 2, 1, C.SHOE);
+  LR(v, 'foot', 1, 0, -2, 3, 0, 3, C.SOLE); LR(v, 'foot', 1, 1, -2, 3, 1, 3, C.SHOE); LR(v, 'foot', 1, 1, 2, 3, 1, 3, 0x3c3636); LR(v, 'foot', 1, 2, -2, 3, 2, 1, C.SHOE);
   LR(v, 'shin', 1, 3, -2, 3, 8, 1, C.TROU); LR(v, 'shin', 1, 3, -2, 3, 3, 1, C.TROU_D);
   LR(v, 'leg', 0, 9, -3, 4, 15, 2, C.TROU);
   // the jacket's skirt over each thigh to mid-thigh (each thigh carries its half, so a stride opens it), its hem a shade darker
@@ -71,29 +80,29 @@ function buildChild(): V {
   R(v, 'spine', -5, 19, -3, 4, 22, 2, C.JK); B(v, 'spine', -6, 19, -4, 5, 20, 3, C.SASH);
   for (const [x, z] of [[-6, -4], [5, -4], [-6, 3], [5, 3]]) B(v, 'spine', x, 19, z, x, 20, z, null);
   B(v, 'spine', 1, 18, 4, 2, 21, 4, C.SASH_D); B(v, 'hips', 1, 16, 4, 1, 17, 4, C.SASH_D);
-  R(v, 'chest', -5, 23, -3, 4, 27, 2, C.JK); B(v, 'chest', -4, 28, -2, 3, 28, 1, C.JK);
+  R(v, 'chest', -5, 23, -3, 4, 27, 2, C.JK); B(v, 'chest', -4, 28, -2, 3, 28, 1, C.JK_L);
   // 交领: the light inner collar at the throat, the outer edge straight down the front to the sash
   B(v, 'chest', -2, 26, 3, 1, 27, 3, C.JK_L); B(v, 'chest', 2, 23, 3, 2, 27, 3, C.JK_D); B(v, 'spine', 2, 21, 3, 2, 22, 3, C.JK_D);
-  B(v, 'neck', -2, 28, -2, 1, 29, 1, C.SKIN);
-  // ---- arms: the sleeve on the upper arm, the narrower forearm sleeve (a cell clear of the upper arm both sides: the elbow turns about
-  // x and coplanar faces would flicker) with a darker cuff, small hands
-  LR(v, 'arm', 5, 22, -2, 8, 27, 1, C.JK); LR(v, 'arm', 5, 22, -2, 8, 22, 1, C.JK_D);
+  B(v, 'neck', -2, 28, -2, 1, 29, 1, C.SKIN); B(v, 'neck', -2, 28, -2, 1, 28, 1, C.SKIN_D);
+  // ---- arms: sloped child sleeves, narrower forearm sleeves, small hands
+  LR(v, 'arm', 5, 22, -2, 8, 27, 1, C.JK); LR(v, 'arm', 5, 27, -2, 8, 27, 1, C.JK_L); LR(v, 'arm', 8, 27, -2, 8, 27, 1, null); LR(v, 'arm', 5, 22, -2, 8, 22, 1, C.JK_D);
   LR(v, 'fore', 6, 17, -1, 7, 21, 0, C.JK); LR(v, 'fore', 6, 17, -1, 7, 17, 0, C.JK_D);
   LR(v, 'hand', 6, 13, -1, 7, 16, 0, C.SKIN); LR(v, 'hand', 6, 13, -1, 7, 13, 0, C.SKIN_D);
-  // ---- the head: 12 × 12 × 12, corner columns cut, the chin a step narrower; flat face; black hair with a straight fringe
-  R(v, 'head', -6, 30, -6, 5, 41, 5, C.SKIN);
-  B(v, 'head', -6, 30, -6, 5, 30, 5, null); B(v, 'head', -5, 30, -5, 4, 30, 4, C.SKIN);
-  v.paint(q => (q.part === 'head' && q.c === C.SKIN && (q.y >= 38 || q.z <= -3 || ((q.x <= -6 || q.x >= 5) && q.y >= 33)) ? C.HAIR : null));
+  // ---- sculpted child head: rounded bevel skull, delicate tapered chin, strictly flat female face (ZERO nose!), seamless bangs & twin buns
+  C2(v, 'head', -6, 32, -6, 5, 41, 5, C.SKIN, 2);
+  C2(v, 'head', -5, 31, -5, 4, 31, 5, C.SKIN, 2);
+  C2(v, 'head', -4, 30, -4, 3, 30, 4, C.SKIN, 1);
+  v.paint(q => (q.part === 'head' && q.c === C.SKIN && (q.y >= 38 || q.z <= -3 || ((q.x <= -5 || q.x >= 4) && q.y >= 33)) ? C.HAIR : null));
   B(v, 'head', -4, 34, 5, -3, 35, 5, C.EYE); B(v, 'head', 2, 34, 5, 3, 35, 5, C.EYE);
   B(v, 'head', -1, 32, 5, 0, 32, 5, C.MOUTH);
-  // the hair shell: crown, back (two darker parting lines), sides over the ears down to the jaw, the fringe one cell proud over the brow
-  B(v, 'head', -5, 42, -5, 4, 42, 4, C.HAIR);
+  // Seamless rounded hair crown & integrated fringe (flush on rounded contour, zero abrupt brick shelf!)
+  C2(v, 'head', -5, 42, -5, 4, 42, 4, C.HAIR, 2); B(v, 'head', -1, 42, -4, 0, 42, 3, C.HAIR_D);
   B(v, 'head', -5, 32, -7, 4, 41, -7, C.HAIR); B(v, 'head', -2, 32, -7, -2, 41, -7, C.HAIR_D); B(v, 'head', 1, 32, -7, 1, 41, -7, C.HAIR_D);
-  B(v, 'head', -7, 33, -5, -7, 41, 3, C.HAIR); B(v, 'head', 6, 33, -5, 6, 41, 3, C.HAIR);
-  B(v, 'head', -5, 38, 6, 4, 41, 6, C.HAIR);
+  B(v, 'head', -7, 33, -4, -7, 40, 2, C.HAIR); B(v, 'head', 6, 33, -4, 6, 40, 2, C.HAIR);
+  B(v, 'head', -4, 38, 5, 3, 40, 5, C.HAIR); B(v, 'head', -2, 38, 5, -2, 39, 5, C.HAIR_D); B(v, 'head', 1, 38, 5, 1, 39, 5, C.HAIR_D);
   // two small buns high on either side of the crown, a dark red cord round each foot, the cords' ends hanging behind the ears
   for (const [x0, x1] of [[2, 6], [-7, -3]] as const) {
-    R(v, 'head', x0, 43, -3, x1, 47, 1, C.HAIR, true); B(v, 'head', x0, 46, -1, x1, 46, -1, C.HAIR_D);
+    C2(v, 'head', x0, 43, -3, x1, 46, 1, C.HAIR, 2); C2(v, 'head', x0 + 1, 47, -2, x1 - 1, 47, 0, C.HAIR_D, 1);
     B(v, 'head', x0, 42, -3, x1, 42, 1, C.HAIR); B(v, 'head', x0, 43, -3, x1, 43, 1, C.CORD);
   }
   B(v, 'bfA1', 7, 39, -2, 7, 42, -2, C.CORD); B(v, 'bfA1', 7, 39, -2, 7, 39, -2, C.CORD_D);
@@ -222,7 +231,7 @@ function buildKiller(big: boolean): V {
   // ---- hips (armour skirt top) with the belt one cell proud and its bronze buckle; the lamellar coat in rows on waist and chest
   const hw = k.hw, cw = k.cw, d = k.d;
   R(v, 'hips', -hw, k.hip, -d, hw - 1, k.spine - 1, d - 1, C.IRON);
-  R(v, 'hips', -hw - 1, k.spine - 2, -d - 1, hw, k.spine - 1, d, C.BELT); B(v, 'hips', -2, k.spine - 3, d + 1, 1, k.spine, d + 1, C.BRONZE);
+  R(v, 'hips', -hw - 1, k.spine - 2, -d - 1, hw, k.spine - 1, d, C.BELT); B(v, 'hips', -2, k.spine - 3, d + 1, 1, k.spine, d + 1, C.BRONZE); B(v, 'hips', -1, k.spine - 2, d + 1, 0, k.spine - 1, d + 1, C.BRONZE_L);
   R(v, 'spine', -hw, k.spine, -d, hw - 1, k.chest - 1, d - 1, C.IRON); R(v, 'chest', -cw, k.chest, -d, cw - 1, k.neck - 1, d - 1, C.IRON, true);
   for (const p of ['spine', 'chest']) v.paint(q => (q.part === p && q.c === C.IRON && (q.y - k.spine) % 3 === 2 ? C.IRON_L : null));
   // ---- the cloak: the mantle round the shoulders (one cell out, open down the middle of the front), the long back panel on the cape joint
@@ -237,21 +246,23 @@ function buildKiller(big: boolean): V {
       v.paint(q => (q.part === p && (q.x === -wx || q.x === wx - 1) ? C.CLOAK : null));
     }
     B(v, 'chest', -cw, k.neck, -d - 1, cw - 1, k.neck, d, C.CLOAK);
+    B(v, 'chest', -cw + 1, k.neck, -d, cw - 2, k.neck, d - 1, C.CLOAK_L);
     B(v, 'chest', -cw, y0, -d - 1, cw - 1, y0, -d - 1, C.CLOAK_D);
     const cz = -d - 2, bot = big ? 9 : 8;
     B(v, 'cape', -cw - 1, bot, cz, cw, y0 - 1, cz, C.CLOAK); B(v, 'cape', -cw - 1, bot, cz, cw, bot + 1, cz, C.CLOAK_D);
     for (const x of [-Math.round(cw * 0.45), Math.round(cw * 0.45) - 1]) B(v, 'cape', x, bot + 2, cz, x, y0 - 1, cz, C.CLOAK_D);
   }
-  // ---- arms: the mantle's cap over each upper arm (one cell proud), the sleeve of the robe under it, leather bracers, gloved fists
+  // ---- arms: sloped cloaked shoulders, robe sleeve, leather bracers, gloved fists
   { const [a, b] = LX(k.ax, k.aw + 0.5), [fa, fb] = LX(k.ax, k.aw - 0.5), hand = k.wrist - k.hand0;
-    LR(v, 'arm', a, k.elbow, -2, b, k.neck - 1, 2, C.ROBE); LR(v, 'arm', a, k.neck - 6, -3, b + 1, k.neck - 1, 3, C.CLOAK); LR(v, 'arm', a, k.neck - 6, -3, b + 1, k.neck - 6, 3, C.CLOAK_D);
+    LR(v, 'arm', a, k.elbow, -2, b, k.neck - 1, 2, C.ROBE); LR(v, 'arm', a, k.neck - 6, -3, b + 1, k.neck - 1, 3, C.CLOAK); LR(v, 'arm', a, k.neck - 1, -3, b + 1, k.neck - 1, 3, C.CLOAK_L); LR(v, 'arm', b + 1, k.neck - 1, -3, b + 1, k.neck - 1, 3, null); LR(v, 'arm', a, k.neck - 6, -3, b + 1, k.neck - 6, 3, C.CLOAK_D);
     LR(v, 'fore', fa, k.wrist, -2, fb, k.elbow - 1, 1, C.GLOVE_D); LR(v, 'fore', fa, k.elbow - 2, -2, fb, k.elbow - 1, 1, C.ROBE);
     LR(v, 'hand', fa, k.hand0, -2, fb, k.hand0 + hand - 1, 1, C.GLOVE);
   }
-  // ---- the head under the hood: a rounded hood block one cell bigger than the head all round, the face sunk into its opening, a peak
-  // over the brow; in the opening a band of shadow under the peak, the eyes in a slit of skin, a dark cloth over the mouth (or the beard)
+  // ---- sculpted rounded hood dome over the shadowed face
   { const h0 = k.head, F = 4;
-    R(v, 'head', -7, h0 - 1, -7, 6, h0 + 13, 6, C.CLOAK, true);
+    C2(v, 'head', -7, h0 - 1, -7, 6, h0 + 11, 6, C.CLOAK, 2);
+    C2(v, 'head', -6, h0 + 12, -6, 5, h0 + 12, 5, C.CLOAK, 2);
+    C2(v, 'head', -4, h0 + 13, -4, 3, h0 + 13, 3, C.CLOAK_L, 2);
     B(v, 'head', -4, h0, F + 1, 3, h0 + 10, 6, null);
     B(v, 'head', -4, h0 + 7, F, 3, h0 + 10, F, C.SHADOW);
     B(v, 'head', -4, h0, F, 3, h0 + 6, F, C.SKIN); B(v, 'head', -3, h0 + 5, F, -2, h0 + 5, F, C.EYE); B(v, 'head', 1, h0 + 5, F, 2, h0 + 5, F, C.EYE);
@@ -262,7 +273,7 @@ function buildKiller(big: boolean): V {
       B(v, 'head', -4, h0, F + 1, 3, h0 + 2, F + 1, C.BEARD); B(v, 'head', -3, h0 + 2, F + 1, 2, h0 + 2, F + 1, C.BEARD);
       B(v, 'jaw', -4, h0 - 4, F + 1, 3, h0 - 1, F + 2, C.BEARD); B(v, 'jaw', -2, h0 - 7, F + 1, 1, h0 - 5, F + 2, C.BEARD);
     }
-    B(v, 'head', -5, h0 + 11, 7, 4, h0 + 11, 7, C.CLOAK_D); v.paint(q => (q.part === 'head' && q.y === h0 - 1 && q.c === C.CLOAK ? C.CLOAK_D : null));
+    B(v, 'head', -5, h0 + 11, 7, 4, h0 + 11, 7, C.CLOAK_D); B(v, 'head', -5, h0 + 12, 6, 4, h0 + 12, 6, C.CLOAK_L); v.paint(q => (q.part === 'head' && q.y === h0 - 1 && q.c === C.CLOAK ? C.CLOAK_D : null));
     B(v, 'head', -1, h0 + 2, -8, 0, h0 + 11, -8, C.CLOAK_D);   // the hood's back seam
   }
   // ---- 環首刀 in the right fist along its forward axis: grip through the fist, the ring pommel behind, a guard, the blade one cell thick
@@ -272,7 +283,7 @@ function buildKiller(big: boolean): V {
     B(v, 'weapon', x0, y - 1, -8, x1, y + 2, -4, C.RING); B(v, 'weapon', x0, y, -7, x1, y + 1, -5, null);
     B(v, 'weapon', x0 - 1, y - 1, 4, x1 + 1, y + 2, 4, C.RING);
     const L = big ? 30 : 26;
-    B(v, 'blade', x0, y - 1, 5, x0, y, 4 + L, C.EDGE); B(v, 'blade', x0, y + 1, 5, x0, y + 1, 2 + L, C.STEEL);
+    B(v, 'blade', x0, y - 1, 5, x0, y, 4 + L, C.EDGE); B(v, 'blade', x0, y - 1, 2 + L, x0, y - 1, 4 + L, 0xf2f6fc); B(v, 'blade', x0, y + 1, 5, x0, y + 1, 2 + L, C.STEEL);
   }
   // ---- the torch in the left fist along its forward axis (the hook stands it up): the stick, the pitch-cloth head with a binding,
   // two tiers of flame (glowing cells) on their own joint
@@ -287,7 +298,7 @@ function buildKiller(big: boolean): V {
     const z = -d - 4, top = 92, xs = 3;
     B(v, 'chest', xs, 18, z, xs + 1, top - 8, z, 0x3a2418); B(v, 'chest', xs, 18, z, xs + 1, 20, z, C.IRON_D);
     // the head: a square loop of bronze round the shaft's end, two small rings hanging on each side of it
-    B(v, 'chest', xs - 3, top - 8, z, xs + 4, top, z, C.BRONZE); B(v, 'chest', xs - 2, top - 7, z, xs + 3, top - 1, z, null); B(v, 'chest', xs, top - 7, z, xs + 1, top - 3, z, C.BRONZE_L);
+    B(v, 'chest', xs - 3, top - 8, z, xs + 4, top, z, C.BRONZE); B(v, 'chest', xs - 3, top, z, xs + 4, top, z, 0xf2d07a); B(v, 'chest', xs - 2, top - 7, z, xs + 3, top - 1, z, null); B(v, 'chest', xs, top - 7, z, xs + 1, top - 3, z, C.BRONZE_L);
     for (const x of [xs - 6, xs + 5]) for (const y of [top - 9, top - 5]) { B(v, 'chest', x, y, z, x + 2, y + 2, z, C.BRONZE_L); B(v, 'chest', x + 1, y + 1, z, x + 1, y + 1, z, null); }
     B(v, 'chest', -cw, k.neck - 9, d, cw - 1, k.neck - 8, d, C.BELT); B(v, 'chest', -cw, k.neck - 9, -d - 1, cw - 1, k.neck - 8, -d - 1, C.BELT);
     B(v, 'chest', xs - 1, k.neck - 10, z + 1, xs + 2, k.neck - 7, -d - 2, C.BELT);
@@ -400,27 +411,30 @@ function buildFather(): V {
   R(v, 'hips', -hw, k.hip, -d, hw - 1, k.spine - 1, d - 1, C.JK);
   R(v, 'spine', -hw, k.spine, -d, hw - 1, k.chest - 1, d - 1, C.JK); B(v, 'spine', -hw - 1, k.spine, -d - 1, hw, k.spine + 1, d, C.JK_D);
   R(v, 'chest', -cw, k.chest, -d, cw - 1, k.neck - 1, d - 1, C.JK, true);
+  v.paint(c => (c.y === k.neck - 1 && c.c === C.JK ? C.JK_L : null), 'chest');
   // the crossed collar (the outer edge from the right shoulder down to the left side), the light inner collar at the throat
   B(v, 'chest', -3, k.neck - 2, d, 2, k.neck - 1, d, C.JK_L); for (let y = k.chest; y < k.neck - 2; y++) B(v, 'chest', 2 - Math.floor((k.neck - 2 - y) / 2), y, d, 2 - Math.floor((k.neck - 2 - y) / 2), y, d, C.JK_D);
   // the leather apron: the bib on the chest, the body over the belly and the hips (one cell proud), straps over the shoulders
   B(v, 'chest', -5, k.chest, d, 4, k.neck - 4, d, C.APRON); B(v, 'chest', -5, k.neck - 4, d, 4, k.neck - 4, d, C.APRON_L);
   B(v, 'spine', -6, k.spine, d, 5, k.chest - 1, d, C.APRON); B(v, 'hips', -6, k.hip, d, 5, k.spine - 1, d, C.APRON);
   for (const x of [-5, 3]) B(v, 'chest', x, k.neck - 3, -d, x + 1, k.neck - 1, d, C.APRON_D);
-  B(v, 'neck', -2, k.neck, -2, 1, k.head - 1, 1, C.SKIN);
-  // arms: the sleeve to the elbow, bare forearms, the hands
+  B(v, 'neck', -2, k.neck, -2, 1, k.head - 1, 1, C.SKIN); B(v, 'neck', -2, k.neck, -2, 1, k.neck, 1, C.SKIN_D);
+  // arms: sloped sleeves to the elbow, bare forearms, hands
   { const [a, b] = LX(k.ax, k.aw + 0.5), [fa, fb] = LX(k.ax, k.aw - 0.5);
-    LR(v, 'arm', a, k.elbow, -2, b, k.neck - 1, 2, C.JK); LR(v, 'arm', a, k.elbow, -2, b, k.elbow, 2, C.JK_D);
+    LR(v, 'arm', a, k.elbow, -2, b, k.neck - 1, 2, C.JK); LR(v, 'arm', a, k.neck - 1, -2, b, k.neck - 1, 2, C.JK_L); LR(v, 'arm', b, k.neck - 1, -2, b, k.neck - 1, 2, null); LR(v, 'arm', a, k.elbow, -2, b, k.elbow, 2, C.JK_D);
     LR(v, 'fore', fa, k.wrist, -1, fb, k.elbow - 1, 1, C.SKIN); LR(v, 'hand', fa, k.hand0, -2, fb, k.wrist - 1, 1, C.SKIN); LR(v, 'hand', fa, k.hand0, -2, fb, k.hand0, 1, C.SKIN_D);
   }
-  // the head: a plain square face, eyes, a short beard on the jaw and chin; black hair, a topknot on the crown under a dark band
+  // sculpted rounded-bevel craftsman head + tapered jaw + short beard & topknot
   { const h0 = k.head;
-    R(v, 'head', -5, h0, -5, 4, h0 + 10, 4, C.SKIN);
+    C2(v, 'head', -5, h0 + 2, -5, 4, h0 + 10, 4, C.SKIN, 2);
+    C2(v, 'head', -4, h0, -4, 3, h0 + 1, 4, C.SKIN, 1);
     v.paint(q => (q.part === 'head' && q.c === C.SKIN && (q.y >= h0 + 8 || q.z <= -3 || ((q.x <= -5 || q.x >= 4) && q.y >= h0 + 5)) ? C.HAIR : null));
-    B(v, 'head', -5, h0 + 11, -5, 4, h0 + 11, 4, C.HAIR);
+    C2(v, 'head', -5, h0 + 11, -5, 4, h0 + 11, 4, C.HAIR, 2);
     B(v, 'head', -3, h0 + 6, 5, -2, h0 + 6, 5, C.EYE); B(v, 'head', 1, h0 + 6, 5, 2, h0 + 6, 5, C.EYE);
+    B(v, 'head', -1, h0 + 4, 5, 0, h0 + 5, 5, C.SKIN_D);
     B(v, 'head', -4, h0, 5, 3, h0 + 2, 5, C.BEARD); B(v, 'head', -3, h0 + 3, 5, -2, h0 + 3, 5, C.BEARD); B(v, 'head', 1, h0 + 3, 5, 2, h0 + 3, 5, C.BEARD);
-    B(v, 'head', -5, h0, -1, -5, h0 + 3, 4, C.BEARD); B(v, 'head', 4, h0, -1, 4, h0 + 3, 4, C.BEARD);
-    R(v, 'head', -2, h0 + 12, -3, 1, h0 + 15, 0, C.HAIR, true); B(v, 'head', -3, h0 + 12, -4, 2, h0 + 12, 1, C.BAND);
+    B(v, 'head', -5, h0 + 1, -1, -5, h0 + 3, 3, C.BEARD); B(v, 'head', 4, h0 + 1, -1, 4, h0 + 3, 3, C.BEARD);
+    C2(v, 'head', -2, h0 + 12, -3, 1, h0 + 15, 0, C.HAIR, 1); B(v, 'head', -3, h0 + 12, -4, 2, h0 + 12, 1, C.BAND);
   }
   fuse(v, 'chest', 'neck'); fuse(v, 'foreL', 'handL'); fuse(v, 'foreR', 'handR');
   return v;

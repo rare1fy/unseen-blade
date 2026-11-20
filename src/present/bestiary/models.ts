@@ -12,6 +12,8 @@ export interface ModelDef {
   as?: string;
   /** weapon tip, in cells along the weapon joint's +z (FX anchor; default 8) */
   tip?: number;
+  /** uniform visual scale applied on rig.root so bosses & heavy troops tower cleanly without altering local IK bone metrics */
+  scale?: number;
 }
 
 // ------------------------------------------------------------------ shared bits
