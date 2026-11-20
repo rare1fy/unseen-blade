@@ -269,9 +269,9 @@ function dress(c: Ctx, f: { layout: Layout; p: Place; clear: Rect[] }) {
       placed++;
     }
   };
-  plantIn('vtuft', 80, [0.55, 0.88], nearEdge, [0xffffff, 0xe8e0c0], 0);
-  plantIn('maituft', 44, [0.58, 0.82], nearEdge, [cropOf(se, 0).ear, cropOf(se, 1).ear], 0);
-  plantIn('vpebble', 64, [0.85, 1.25], (x, z) => nearEdge(x, z) || floorAt(x, z) === HC.trackD, [0xffffff, 0xe6dcc8], 0.012);
+  plantIn('weeds', 36, [0.34, 0.50], nearEdge, [0xc4b078, 0xb2a06c], 0);
+  plantIn('maituft', 44, [0.50, 0.72], nearEdge, [cropOf(se, 0).ear, cropOf(se, 1).ear], 0);
+  plantIn('vpebble', 44, [0.70, 0.98], (x, z) => nearEdge(x, z), [0xffffff, 0xe6dcc8], 0.012);
   plantIn('straw', 48, [0.75, 1.15], (x, z) => nearEdge(x, z) || floorAt(x, z) === HC.yardL, [0xd8c07a, 0xc2a862], 0.012);
   // small non-blocking 3D field stones tucked right along wattle fences & granary footings
   let stones = 0;

@@ -18,7 +18,7 @@ import { LANDMARKS as FIELD_LANDMARKS } from './hj_field_lm';
 const night = (p: Place) => p.lamp > 0.3;
 
 /** warm aged lime-plaster, weathered buff sandstone & neutral charcoal-clay tile palette (matching 02-environments.png & 04-combat-ui.png) */
-const PL = {
+export const PL = {
   wall: 0xc8b99c, wallS: 0xb5a689, wallD: 0x97886d,
   stone: 0x9c8e78, stoneD: 0x7e725e, stoneL: 0xb4a68e,
   cap: 0xb6a78c, capD: 0x8e7f67, capL: 0xcabca2,
@@ -39,7 +39,7 @@ function clearShapeWalls(w: Ctx['w'], q: Rect, wc: number, dc: number) {
 }
 
 /** Warm neutral charcoal-clay Han tile roof (zero cool slate-blue cast, 100% supported tiers, never floating) */
-function hallTileRoof(B: ReturnType<typeof frame>, x0: number, x1: number, z0: number, z1: number, y: number, tiers: 2 | 3 = 3, th = 4) {
+export function hallTileRoof(B: ReturnType<typeof frame>, x0: number, x1: number, z0: number, z1: number, y: number, tiers: 2 | 3 = 3, th = 4) {
   const D = z1 - z0 + 1, ins = tiers >= 3 ? [0, 0.2, 0.34] : [0, 0.28];
   let top = y;
   for (let i = 0; i < tiers; i++) {

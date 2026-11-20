@@ -40,7 +40,7 @@ function clearShapeWalls(w: Ctx['w'], q: Rect, wc: number, dc: number) {
 }
 
 /** Graceful upturned aristocratic Cui Manor snow-dusted black-tile roof (crisp ribbed black tile + clean snow cap!) */
-function manorRoof(B: Bx, x0: number, x1: number, z0: number, z1: number, y0: number, tiers = 3, th = 4) {
+export function manorRoof(B: Bx, x0: number, x1: number, z0: number, z1: number, y0: number, tiers = 3, th = 4) {
   let ya = y0, a = x0, b = x1, c = z0, e = z1;
   for (let i = 0; i < tiers; i++) {
     if (i > 0) { a += 4; b -= 4; c += 5; e -= 5; }
@@ -67,7 +67,7 @@ function manorRoof(B: Bx, x0: number, x1: number, z0: number, z1: number, y0: nu
 }
 
 /** Sculptural gnarled crimson winter plum tree with full layered blossom clouds (傲雪老红梅, 100% solid connected boughs) */
-function lushPlumTree(B: Bx, x: number, y: number, z: number, H: number, seed: number) {
+export function lushPlumTree(B: Bx, x: number, y: number, z: number, H: number, seed: number) {
   const dir = seed % 2 === 0 ? 1 : -1;
   // gnarled dark trunk rising & leaning slightly
   B(x - 2, y, z - 2, x + 2, y + 6, z + 2, CX.ink);
@@ -92,7 +92,7 @@ function lushPlumTree(B: Bx, x: number, y: number, z: number, H: number, seed: n
 }
 
 /** Sculptural carved Taihu scholar's rockery (太湖假山石) + snow cap */
-function taihuRock(B: Bx, x: number, y: number, z: number, scale = 1) {
+export function taihuRock(B: Bx, x: number, y: number, z: number, scale = 1) {
   const s = (v: number) => Math.max(1, Math.round(v * scale));
   B(x - s(10), y, z - s(7), x + s(10), y + s(7), z + s(7), CX.stoneD);
   B(x - s(8), y + s(8), z - s(5), x + s(6), y + s(16), z + s(5), CX.stone);
@@ -118,7 +118,7 @@ function stoneLantern(c: Ctx, q: Rect, B: Bx, x: number, y: number, z: number) {
 }
 
 /** Warm candlelit lattice window helper on a Cui Manor wall */
-function manorWindow(B: Bx, wx: number, y0: number, y1: number, zf: number) {
+export function manorWindow(B: Bx, wx: number, y0: number, y1: number, zf: number) {
   B(wx - 6, y0, zf - 2, wx + 6, y1, zf, null);
   B(wx - 6, y0, zf - 3, wx + 6, y1, zf - 3, 0xe2b068, 1);
   for (let u = wx - 5; u <= wx + 5; u += 3) B(u, y0, zf - 1, u, y1, zf - 1, CX.woodD);
@@ -127,7 +127,7 @@ function manorWindow(B: Bx, wx: number, y0: number, y1: number, zf: number) {
 }
 
 /** Hanging glowing red palace silk lantern under eaves */
-function eaveLantern(B: Bx, x: number, y: number, z: number) {
+export function eaveLantern(B: Bx, x: number, y: number, z: number) {
   B(x, y + 5, z, x, y + 8, z, CX.ink);
   B(x - 2, y, z - 2, x + 2, y + 4, z + 2, CX.red);
   B(x - 1, y + 1, z - 2, x + 1, y + 3, z + 2, 0xf2b868, 1);

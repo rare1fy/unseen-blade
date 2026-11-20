@@ -62,15 +62,55 @@ const PULSE_GEO = (() => {
   return g;
 })();
 const PIP_GEO = new THREE.BoxGeometry(0.16, 0.16, 0.16);
-/** crossed vertical planes for the unmistakable Treasure Light Pillar (光柱) */
-const BEAM_GEO = (() => {
-  const a = new THREE.PlaneGeometry(0.62, 1), b = new THREE.PlaneGeometry(0.62, 1).rotateY(Math.PI / 2);
+/** Tapered crossed-plane helper: wider glowing base smoothly narrowing to a razor-slender tip (zero blunt bar!) */
+function taperedCross(bw: number, tw: number) {
+  const mk = (rotY: number) => {
+    const g = new THREE.BufferGeometry();
+    const pos = new Float32Array([-bw, 0, 0, bw, 0, 0, tw, 1, 0, -tw, 1, 0]);
+    const uv = new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]);
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    g.setIndex([0, 1, 2, 0, 2, 3]);
+    if (rotY) g.rotateY(rotY);
+    return g;
+  };
+  const a = mk(0), b = mk(Math.PI / 2);
   const g = mergeGeometries([a, b]); a.dispose(); b.dispose();
-  g.translate(0, 0.5, 0);
   return g;
+}
+/** Inner razor-slender tapered loot needle (0.24m wide at chest lid → 0.028m needle-fine tip!) */
+const BEAM_GEO = taperedCross(0.12, 0.014);
+/** Soft short base-bloom skirt hugging only the lower 45% around the chest lid */
+const BEAM_HALO_GEO = taperedCross(0.34, 0.04);
+/** Procedural DataTexture: crisp white-hot core + rich tinted rim + smooth vertical fade to alpha=0 (reads cleanly in both daylight & night!) */
+const BEAM_TEX = (() => {
+  const W = 32, H = 128, data = new Uint8Array(W * H * 4);
+  for (let y = 0; y < H; y++) {
+    const v = y / (H - 1); // 0 = bottom, 1 = top
+    const vIn = Math.min(1, v / 0.06);
+    // Hold luminous visibility cleanly through lower half, then feather smoothly to 0 before the tip
+    const vOut = Math.pow(Math.max(0, 1 - v), 1.65);
+    const vFade = vIn * vOut;
+    for (let x = 0; x < W; x++) {
+      const hx = Math.abs(x / (W - 1) - 0.5) * 2; // 0 = center filament, 1 = edge
+      const core = Math.pow(Math.max(0, 1 - hx * 1.45), 1.6);
+      const rim = Math.pow(Math.max(0, 1 - hx), 2.0) * 0.72;
+      const a = Math.min(1, (core * 0.95 + rim) * vFade);
+      const idx = (y * W + x) * 4;
+      // White-hot center blends into rich saturated material tint at edges so it pops against bright daytime walls too
+      data[idx] = 255;
+      data[idx + 1] = Math.round(215 + 40 * core);
+      data[idx + 2] = Math.round(145 + 110 * core);
+      data[idx + 3] = Math.round(a * 255);
+    }
+  }
+  const t = new THREE.DataTexture(data, W, H, THREE.RGBAFormat);
+  t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearFilter;
+  t.needsUpdate = true;
+  return t;
 })();
-/** floating diamond treasure crest hovering & spinning above every chest */
-const GEM_GEO = new THREE.OctahedronGeometry(0.24, 0);
+/** delicate miniature spinning treasure star-glint inside the slender beam core */
+const GEM_GEO = new THREE.OctahedronGeometry(0.10, 0);
 export type RewardTier = 'gold' | 'mythic';
 interface Cue { m: THREE.Mesh; wave: THREE.Mesh; x: number; z: number; hx: number; hz: number; reach: number; k: number; ready: boolean; flash: number; ph: number; on: () => boolean }
 interface Trail { meshes: THREE.Mesh[]; x0: number; z0: number; x1: number; z1: number; t: number; dur: number }
@@ -92,7 +132,7 @@ interface Piece {
 }
 interface Drop { rect: Rect; post: [number, number]; pivot: THREE.Group; rope: THREE.Mesh; axis: 'x' | 'z'; sign: number; t: number; down: boolean; hintT: number }
 interface Bell { x: number; z: number; g: THREE.Group; bell: THREE.Group; note: number; swing: number; halo: THREE.Mesh }
-interface Reward { x: number; z: number; g: THREE.Group; beam: THREE.Mesh; gem: THREE.Mesh; tier: RewardTier; taken: boolean; t: number }
+interface Reward { x: number; z: number; g: THREE.Group; beam: THREE.Mesh; halo: THREE.Mesh; gem: THREE.Mesh; tier: RewardTier; taken: boolean; t: number }
 interface Plate { x: number; z: number; slab: THREE.Group; seal: THREE.Mesh; timer: THREE.Mesh; gate: Piece; down: boolean; grace: number; hint: number }
 interface Causeway { rect: Rect; water: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshLambertMaterial>; deck: THREE.Group }
 interface Wheel { x: number; z: number; rim: THREE.Mesh; pips: THREE.Mesh[]; paths: Causeway[]; blows: number[]; drain: number; bubbles: number; hint: number }
@@ -450,27 +490,42 @@ export class RoomPieces {
     for (let i = 0; i < 4; i++) vw.box(7, 0 + i, -1 + (i % 2), 8, 0 + i, 0 + (i % 2), COL.gold, i === 3 ? 1 : 0);
     if (mythic) for (let i = 0; i < 4; i++) vw.box(-9, 0 + i, -1 + (i % 2), -8, 0 + i, 0 + (i % 2), COL.gold, i === 3 ? 1 : 0);
     const g = mesh(vw); g.position.set(x, 0, z); this.root.add(g);
-    // Tall translucent Light Beacon (光柱) visible even behind courtyard walls or across rivers!
+    // Slender, tapered, alpha-feathered AAA Loot Beam:
+    //  1) Razor-slender inner luminous spire (0.24m base → 0.028m needle tip, NormalBlending so it pops cleanly in bright daylight & night!)
+    //  2) Short soft base-bloom aura hugging only the chest lid and vanishing smoothly halfway up
     const beam = new THREE.Mesh(
       BEAM_GEO,
       new THREE.MeshBasicMaterial({
-        color: mythic ? MYTHIC_COL : GOOD,
-        transparent: true, opacity: mythic ? 0.36 : 0.24,
+        color: mythic ? 0xff7c2e : 0xffcb48,
+        map: BEAM_TEX,
+        transparent: true, opacity: mythic ? 0.96 : 0.9,
         side: THREE.DoubleSide, depthWrite: false, toneMapped: false,
       }),
     );
-    beam.position.set(x, 0.35, z);
-    beam.scale.set(mythic ? 1.3 : 0.95, mythic ? 4.8 : 3.5, mythic ? 1.3 : 0.95);
-    beam.renderOrder = 3; this.root.add(beam);
-    // Floating rotating Treasure Crest hovering cleanly above the chest
+    beam.position.set(x, 0.42, z);
+    beam.scale.set(mythic ? 1.15 : 0.95, mythic ? 3.5 : 2.75, mythic ? 1.15 : 0.95);
+    beam.renderOrder = 4; this.root.add(beam);
+    const halo = new THREE.Mesh(
+      BEAM_HALO_GEO,
+      new THREE.MeshBasicMaterial({
+        color: mythic ? MYTHIC_COL : GOOD,
+        map: BEAM_TEX,
+        transparent: true, opacity: mythic ? 0.52 : 0.42,
+        side: THREE.DoubleSide, depthWrite: false, toneMapped: false,
+      }),
+    );
+    halo.position.set(x, 0.36, z);
+    halo.scale.set(mythic ? 1.15 : 0.95, mythic ? 1.7 : 1.3, mythic ? 1.15 : 0.95);
+    halo.renderOrder = 3; this.root.add(halo);
+    // Delicate miniature spinning star-glint tucked right inside the slender luminous core
     const gem = new THREE.Mesh(
       GEM_GEO,
-      new THREE.MeshBasicMaterial({ color: mythic ? 0xff9a44 : 0xffe27a, transparent: true, opacity: 0.92, toneMapped: false }),
+      new THREE.MeshBasicMaterial({ color: mythic ? 0xffd288 : 0xfff6c2, transparent: true, opacity: 0.95, toneMapped: false }),
     );
-    gem.position.set(x, mythic ? 1.9 : 1.65, z);
-    gem.scale.setScalar(mythic ? 1.25 : 0.95);
-    gem.renderOrder = 4; this.root.add(gem);
-    return { x, z, g, beam, gem, tier, taken: false, t: 0 };
+    gem.position.set(x, mythic ? 1.32 : 1.18, z);
+    gem.scale.setScalar(mythic ? 1.1 : 0.88);
+    gem.renderOrder = 5; this.root.add(gem);
+    return { x, z, g, beam, halo, gem, tier, taken: false, t: 0 };
   }
 
   // ------------------------------------------------------------ what the game does to them
@@ -768,15 +823,22 @@ export class RoomPieces {
     this.rewards.forEach((r, i) => {
       if (r.taken) return;
       const mythic = r.tier === 'mythic';
-      // Gently breathe the vertical light pillar & spin/bob the floating diamond treasure crest
-      const pulse = 0.5 + 0.5 * Math.sin(this.t * (mythic ? 3.8 : 2.6) + i * 1.3);
-      (r.beam.material as THREE.MeshBasicMaterial).opacity = (mythic ? 0.28 : 0.18) + pulse * (mythic ? 0.18 : 0.12);
-      r.beam.rotation.y = this.t * (mythic ? 0.65 : 0.4);
-      r.gem.position.y = (mythic ? 1.85 : 1.62) + Math.sin(this.t * 3.2 + i) * 0.16;
-      r.gem.rotation.y = this.t * (mythic ? 2.6 : 1.8);
-      r.t -= dt; if (r.t <= 0) { r.t = mythic ? 2.1 : 2.8; fxRing(V3(r.x, 0.05, r.z), mythic ? MYTHIC_COL : GOOD, mythic ? 1.5 : 1.1, { life: 1.0, width: 0.06 }); }
+      // Gently breathe the slender tapered light spire & base aura + float the delicate star-glint + slow rising motes
+      const pulse = 0.5 + 0.5 * Math.sin(this.t * (mythic ? 3.4 : 2.4) + i * 1.3);
+      (r.beam.material as THREE.MeshBasicMaterial).opacity = (mythic ? 0.84 : 0.76) + pulse * 0.14;
+      (r.halo.material as THREE.MeshBasicMaterial).opacity = (mythic ? 0.38 : 0.30) + pulse * 0.16;
+      r.beam.rotation.y = this.t * (mythic ? 0.5 : 0.32);
+      r.halo.rotation.y = -this.t * (mythic ? 0.35 : 0.22);
+      r.gem.position.y = (mythic ? 1.32 : 1.18) + Math.sin(this.t * 3.0 + i) * 0.09;
+      r.gem.rotation.y = this.t * (mythic ? 2.4 : 1.6);
+      r.t -= dt;
+      if (r.t <= 0) {
+        r.t = mythic ? 1.6 : 2.2;
+        fxRing(V3(r.x, 0.05, r.z), mythic ? MYTHIC_COL : GOOD, mythic ? 1.35 : 1.0, { life: 0.95, width: 0.05 });
+        PALPHA.emit({ p: V3(r.x + (Math.random() - 0.5) * 0.24, 0.75, r.z + (Math.random() - 0.5) * 0.24), v: V3(0, 0.65, 0), tile: TILE.ring, c0: new THREE.Color(mythic ? 0xffb25a : 0xffe484), s0: 0.08, s1: 0.02, life: 1.4 });
+      }
       if (Math.hypot(r.x - hero.x, r.z - hero.z) < 0.95) {
-        r.taken = true; r.g.visible = r.beam.visible = r.gem.visible = false;
+        r.taken = true; r.g.visible = r.beam.visible = r.halo.visible = r.gem.visible = false;
         fxFlare(V3(r.x, 0.7, r.z), mythic ? MYTHIC_COL : GOOD, mythic ? 2.8 : 2.0, 0.65);
         fxEmbers(V3(r.x, 0.6, r.z), mythic ? MYTHIC_COL : GOOD, mythic ? 22 : 12, { r: 1.1, up: 2.2, life: 1.0 });
         fxRing(V3(r.x, 0.08, r.z), mythic ? MYTHIC_COL : GOOD, mythic ? 3.4 : 2.4, { life: 0.85, width: 0.09 });
@@ -787,7 +849,7 @@ export class RoomPieces {
     return ev;
   }
   dispose() {
-    const shared = new Set<THREE.BufferGeometry>([CUE_GEO, PULSE_GEO, PIP_GEO, BEAM_GEO, GEM_GEO]);
+    const shared = new Set<THREE.BufferGeometry>([CUE_GEO, PULSE_GEO, PIP_GEO, BEAM_GEO, BEAM_HALO_GEO, GEM_GEO]);
     const geometry = new Set<THREE.BufferGeometry>();
     this.root.traverse(obj => { if (obj instanceof THREE.Mesh && !shared.has(obj.geometry)) geometry.add(obj.geometry); });
     for (const g of geometry) g.dispose();
@@ -799,7 +861,7 @@ export class RoomPieces {
     }
     for (const p of this.plates) { (p.seal.material as THREE.Material).dispose(); (p.timer.material as THREE.Material).dispose(); }
     for (const b of this.bells) (b.halo.material as THREE.Material).dispose();
-    for (const r of this.rewards) { (r.beam.material as THREE.Material).dispose(); (r.gem.material as THREE.Material).dispose(); }
+    for (const r of this.rewards) { (r.beam.material as THREE.Material).dispose(); (r.halo.material as THREE.Material).dispose(); (r.gem.material as THREE.Material).dispose(); }
     for (const c of this.cues) { (c.m.material as THREE.Material).dispose(); (c.wave.material as THREE.Material).dispose(); }
     for (const tr of this.trails) for (const m of tr.meshes) (m.material as THREE.Material).dispose();
     for (const q of this.pieces) {

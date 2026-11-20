@@ -11,7 +11,7 @@ import type { ArenaPlan } from '../arena';
 import type { Group, Landmark, Layout, Locale, Place, Rect, SeasonId } from '../types';
 import { HV, frame, faceOf, orient, house, yardWall, yardWallZ, roof, earth, jar, strawStack, disc, smoke, stain } from './hj_village_kit';
 import { mill, well, oxCart, cartJar, granary, shrine, stove, emberHeap, banner, bannerDown, jiRack, headbands, woodpile, trough, roller, grainHeap, winnow, fork, rack, rows, sweep, gate, wattle } from './hj_village_props';
-import { villageInfill } from './hj_infill';
+import { villageInfill, hallTileRoof, PL } from './hj_infill';
 import { cropOf, wheatBed } from './hj_field_kit';
 
 const night = (p: Place) => p.lamp > 0.3;
@@ -343,25 +343,120 @@ function far(c: Ctx, f: { layout: Layout; p: Place; arena?: ArenaPlan }) {
     for (let X = X0; X <= X1; X += 4) for (let Z = Z0; Z <= Z1; Z += 4) if (w.has(X, 2, Z) || w.has(X, 12, Z) || w.has(X, 26, Z)) return false;
     return true;
   };
-  // rear golden wheat fields outside the back wall (between buildings & flanking the north road)
-  const rearZ0 = PLAY.z0 - 5.6, rearZ1 = PLAY.z0 - 1.1;
-  for (let x = PLAY.x0 - 4.5; x < PLAY.x1 + 3.5; x += 3.6) {
-    const x0 = x, x1 = x + 3.1;
-    if (hitsRoad(x0, x1, rearZ0, rearZ1)) continue;
-    const X0 = M(x0), X1 = M(x1), Z0 = M(rearZ0), Z1 = M(rearZ1);
-    if (!clearSpace(X0, Z0, X1, Z1)) continue;
-    for (let rx = X0; rx + 4 <= X1; rx += 6) wheatBed(c, rx, Z0, Math.min(X1, rx + 4), Z1, 13, pal, ['+z', '+x']);
+
+  // --- Opening Prologue & Procedural Village Streetfront (!f.layout.drawn, e.g. PRO_ROOM snowy village & dawn rescue) ---
+  // Hugs strictly OUTSIDE PLAY so the courtyard is framed by real 2-storey white-plaster & charcoal-tile village halls,
+  // warm lantern-lit eaves & winter village silhouettes instead of a bare empty mud rectangle!
+  if (!f.layout.drawn) {
+    const lit = f.p.time === 'night' || f.p.time === 'dusk';
+    const buildStreetHouse = (cx: number, cz: number, rot: number, hw: number, hd: number, H: number, twoStorey: boolean, burntEnd = false) => {
+      const Bh = frame(w, cx, cz, rot);
+      // Stone plinth + aged lime-plaster lower hall + timber framing
+      Bh(-hw, -1, -hd, hw, 4, hd, PL.stoneD);
+      Bh(-hw, 5, -hd, hw, 5, hd, PL.stoneL);
+      Bh(-hw, 6, -hd, hw, H, hd, PL.wall);
+      for (const px of [-hw, 0, hw]) {
+        Bh(px - 1, 6, hd - 1, px + 1, H, hd, HV.post);
+        Bh(px - 1, 6, -hd, px + 1, H, -hd + 1, HV.post);
+      }
+      Bh(-hw, H - 1, -hd, hw, H, hd, HV.woodD);
+      // Ground-floor warm glowing lattice windows facing the courtyard (+z in local frame)
+      for (const wx of [-Math.round(hw * 0.52), Math.round(hw * 0.52)]) {
+        if (Math.abs(wx) + 6 >= hw) continue;
+        Bh(wx - 5, 14, hd, wx + 5, 24, hd, HV.woodD);
+        Bh(wx - 4, 15, hd, wx + 4, 23, hd, lit ? 0xffb858 : HV.dark, lit ? 1 : 0);
+        for (let u = wx - 2; u <= wx + 2; u += 2) Bh(u, 15, hd, u, 23, hd, HV.woodD);
+      }
+      // Subtle overhanging red lantern on timber bracket under the front eave
+      if (lit) {
+        Bh(-2, H - 2, hd + 1, 2, H - 1, hd + 3, HV.woodD);
+        Bh(-1, H - 6, hd + 2, 1, H - 3, hd + 4, 0xc84028, 1);
+      }
+      if (twoStorey) {
+        // First-floor waist eave skirt
+        Bh(-hw - 3, H + 1, -hd - 2, hw + 3, H + 3, hd + 3, PL.tileD);
+        Bh(-hw - 3, H + 3, -hd - 2, hw + 3, H + 3, hd + 3, PL.tileL);
+        // Upper timber-and-plaster storey
+        const uw = hw - 5, ud = hd - 3, y2 = H + 4, H2 = H + 22;
+        Bh(-uw, y2, -ud, uw, H2, ud, PL.wall);
+        for (const px of [-uw, 0, uw]) Bh(px - 1, y2, ud - 1, px + 1, H2, ud, HV.post);
+        Bh(-uw, H2 - 1, -ud, uw, H2, ud, HV.woodD);
+        for (const wx of [-Math.round(uw * 0.48), 0, Math.round(uw * 0.48)]) {
+          if (Math.abs(wx) + 5 >= uw) continue;
+          Bh(wx - 4, y2 + 4, ud, wx + 4, y2 + 13, ud, HV.woodD);
+          Bh(wx - 3, y2 + 5, ud, wx + 3, y2 + 12, ud, lit ? 0xffc86a : HV.dark, lit ? 1 : 0);
+          Bh(wx, y2 + 5, ud, wx, y2 + 12, ud, HV.woodD);
+        }
+        hallTileRoof(Bh, -uw - 4, uw + 4, -ud - 4, ud + 4, H2 + 1, 3, 4);
+      } else {
+        hallTileRoof(Bh, -hw - 4, hw + 4, -hd - 4, hd + 4, H + 1, 2, 4);
+      }
+      if (burntEnd) {
+        // Subtle war-scarred charred corner rafters + curling smoke (fits the ambush atmosphere!)
+        Bh(hw - 12, H - 6, -hd - 1, hw + 1, H + 10, hd + 1, HV.char);
+        smoke(c, [cx + (rot === 0 ? hw * 0.05 : 0), (H + 10) * 0.07, cz], { rate: 1.5, col: 0x625d58 });
+      }
+    };
+
+    const nearGate = (x0: number, x1: number, z0: number, z1: number) =>
+      gates.some(g => g.x > x0 - 1.6 && g.x < x1 + 1.6 && g.z > z0 - 2.2 && g.z < z1 + 2.2);
+
+    // 1) North streetfront: flanking 2-storey village granary hall (NW) & war-scarred tavern dwelling (NE) right behind back wall!
+    const nz = PLAY.z0 - 1.85;
+    if (!nearGate(PLAY.x0 + 0.2, -2.6, nz - 1.4, PLAY.z0 + 0.5)) {
+      const cx = (PLAY.x0 + 0.6 - 2.8) / 2;
+      buildStreetHouse(cx, nz, 0, 44, 15, 32, true, false);
+      if (lit) c.light([cx, 2.2, PLAY.z0 + 0.5], 0xff9d4a, 2.2 * f.p.lamp, 7.5);
+    }
+    if (!nearGate(2.6, PLAY.x1 - 0.2, nz - 1.4, PLAY.z0 + 0.5)) {
+      const cx = (2.8 + PLAY.x1 - 0.6) / 2;
+      buildStreetHouse(cx, nz, 0, 44, 15, 30, true, true);
+      if (lit) c.light([cx, 2.2, PLAY.z0 + 0.5], 0xff9240, 2.1 * f.p.lamp, 7.5);
+    }
+    // 2) West & East flanking village houses tucked snugly right outside left & right walls (fits inside the corridor before G-slots!)
+    for (const side of [-1, 1] as const) {
+      const hx = side < 0 ? PLAY.x0 - 1.7 : PLAY.x1 + 1.7;
+      const rot = side < 0 ? 1 : 3; // face inward toward the courtyard!
+      const zSlots: Array<[number, boolean, boolean]> = [
+        [PLAY.z0 + 4.2, true, false],
+        [PLAY.z0 + 12.2, true, side > 0],
+        [PLAY.z1 - 4.0, true, false],
+      ];
+      for (const [hz, twoS, burnt] of zSlots) {
+        if (nearGate(hx - 1.8, hx + 1.8, hz - 3.2, hz + 3.2)) continue;
+        // check only tall structures right on the house core so outer G-slots never prevent flanking streetfronts
+        let blocked = false;
+        for (let X = M(hx - 0.6); X <= M(hx + 0.6) && !blocked; X += 4)
+          for (let Z = M(hz - 2.0); Z <= M(hz + 2.0) && !blocked; Z += 4)
+            if (w.has(X, 14, Z) || w.has(X, 28, Z)) blocked = true;
+        if (blocked) continue;
+        buildStreetHouse(hx, hz, rot, 36, 14, twoS ? 30 : 28, twoS, burnt);
+        if (lit) c.light([side < 0 ? PLAY.x0 + 0.8 : PLAY.x1 - 0.8, 2.1, hz], 0xff9c48, (twoS ? 2.0 : 1.5) * f.p.lamp, 6.5);
+      }
+    }
   }
-  // flank golden wheat fields outside left & right walls (especially opening out SW & West into bright wheat!)
-  for (const side of [-1, 1]) {
-    const fx0 = side < 0 ? PLAY.x0 - 6.2 : PLAY.x1 + 1.2;
-    const fx1 = side < 0 ? PLAY.x0 - 1.2 : PLAY.x1 + 6.2;
-    for (let z = PLAY.z0 - 1.0; z < PLAY.z1 + 1.0; z += 4.0) {
-      const z0 = z, z1 = z + 3.5;
-      if (hitsRoad(fx0, fx1, z0, z1)) continue;
-      const X0 = M(fx0), X1 = M(fx1), Z0 = M(z0), Z1 = M(z1);
+
+  // rear golden wheat fields outside the back wall (skip ripe yellow wheat in heavy winter snow!)
+  if (se !== 'winter') {
+    const rearZ0 = PLAY.z0 - 5.6, rearZ1 = PLAY.z0 - 1.1;
+    for (let x = PLAY.x0 - 4.5; x < PLAY.x1 + 3.5; x += 3.6) {
+      const x0 = x, x1 = x + 3.1;
+      if (hitsRoad(x0, x1, rearZ0, rearZ1)) continue;
+      const X0 = M(x0), X1 = M(x1), Z0 = M(rearZ0), Z1 = M(rearZ1);
       if (!clearSpace(X0, Z0, X1, Z1)) continue;
-      for (let rx = X0; rx + 4 <= X1; rx += 6) wheatBed(c, rx, Z0, Math.min(X1, rx + 4), Z1, 13, pal, ['+z', side < 0 ? '+x' : '-x']);
+      for (let rx = X0; rx + 4 <= X1; rx += 6) wheatBed(c, rx, Z0, Math.min(X1, rx + 4), Z1, 13, pal, ['+z', '+x']);
+    }
+    // flank golden wheat fields outside left & right walls (especially opening out SW & West into bright wheat!)
+    for (const side of [-1, 1]) {
+      const fx0 = side < 0 ? PLAY.x0 - 6.2 : PLAY.x1 + 1.2;
+      const fx1 = side < 0 ? PLAY.x0 - 1.2 : PLAY.x1 + 6.2;
+      for (let z = PLAY.z0 - 1.0; z < PLAY.z1 + 1.0; z += 4.0) {
+        const z0 = z, z1 = z + 3.5;
+        if (hitsRoad(fx0, fx1, z0, z1)) continue;
+        const X0 = M(fx0), X1 = M(fx1), Z0 = M(z0), Z1 = M(z1);
+        if (!clearSpace(X0, Z0, X1, Z1)) continue;
+        for (let rx = X0; rx + 4 <= X1; rx += 6) wheatBed(c, rx, Z0, Math.min(X1, rx + 4), Z1, 13, pal, ['+z', side < 0 ? '+x' : '-x']);
+      }
     }
   }
   // towering village autumn locust trees outside key corners (gives grand vertical hierarchy instead of toy cottages!)
@@ -387,7 +482,7 @@ function far(c: Ctx, f: { layout: Layout; p: Place; arena?: ArenaPlan }) {
   const n = STAGE_BIG.on ? 4 : 3;
   for (let i = 0; i < n; i++) {
     const x = (i - (n - 1) / 2) * 10.5 + (r(420 + i) - 0.5) * 2, z = SZ(-19.8) - r(430 + i) * 1.4, burnt = r(440 + i) < 0.35;
-    house(c, x, z, 0, { hw: 32, hd: 16, H: 32, roof: i % 2 === 0 ? 'tile' : 'thatch', burnt: burnt ? 1 : 0, chimney: !burnt, wins: [] });
+    house(c, x, z, 0, { hw: 34, hd: 16, H: i === 1 || i === 2 ? 44 : 36, roof: i % 2 === 0 ? 'tile' : 'thatch', tiers: 3, burnt: burnt ? 1 : 0, lit: f.p.time === 'night' && !burnt, chimney: !burnt, wins: [-16, 16] });
     if (burnt) smoke(c, [x, 2.8, z], { rate: 2.0, col: 0x5e5a56 });
   }
   for (let i = 0; i < (STAGE_BIG.on ? 10 : 6); i++) {
@@ -492,16 +587,20 @@ function dress(c: Ctx, f: { layout: Layout; p: Place; clear: Rect[] }) {
       }
     }
   };
-  // 1) crisp wall-root & corner plant tufts hugging every building plinth, porch post, yard wall, well & gate corner
+  // 1) Keep paved village streets & market squares CLEAN — ZERO grass along roads/track edges!
+  //    Only tiny, withered dry-autumn weeds tucked tightly into dusty wall roots (≤ 5 cells from solid masonry)
   const hitsPath = (x: number, z: number) => f.layout.path.some(q => x > q.x0 + 0.4 && x < q.x1 - 0.4 && z > q.z0 + 0.4 && z < q.z1 - 0.4);
-  const wallOrCorner = (x: number, z: number) => nearWall(x, z) && !hitsPath(x, z);
-  plantIn('vtuft', 150, [0.68, 1.0], wallOrCorner, [0xffffff, 0xe8e0c4, 0xd8d0a8], 2, 0.80, 0);
-  plantIn('vtuft', 52, [0.58, 0.82], onTrackEdge, [0xece4c8, 0xd8d0a8], 1, 0.55, 0);
-  // 2) crisp weathered roadside pebbles & fallen autumn leaves along road verges, cart tracks & wall bases
-  plantIn('vpebble', 130, [0.90, 1.35], (x, z) => nearWall(x, z) || onTrackEdge(x, z), [0xffffff, 0xeae2d4, 0xd8cebe], 2, 0.90, 0.012);
-  plantIn('vleaf', 96, [0.85, 1.25], (x, z) => nearWall(x, z) || onTrackEdge(x, z), [0xffffff, 0xead8be], 2, 0.90, 0.010);
+  const tightWallRoot = (x: number, z: number) => {
+    const X = M(x), Z = M(z);
+    if (w.has(X, 1, Z) || w.has(X, 6, Z) || hitsPath(x, z)) return false;
+    return w.has(X + 5, 6, Z) || w.has(X - 5, 6, Z) || w.has(X, 6, Z + 5) || w.has(X, 6, Z - 5);
+  };
+  plantIn('weeds', 24, [0.26, 0.38], tightWallRoot, weedTints, 1, 0.35, 0);
+  // 2) crisp weathered roadside pebbles & fallen autumn leaves hugging wall bases (keeps central fighting street clean!)
+  plantIn('vpebble', 56, [0.65, 0.92], tightWallRoot, [0xffffff, 0xeae2d4, 0xd8cebe], 1, 0.55, 0.012);
+  plantIn('vleaf', 48, [0.65, 0.95], (x, z) => nearWall(x, z) && !hitsPath(x, z), [0xffffff, 0xead8be], 1, 0.70, 0.010);
   // 3) lived-in village ground scatter: golden straw near granary/threshing walls & corners
-  plantIn('straw', 54, [0.75, 1.15], (x, z) => nearWall(x, z) && at(x, z) !== HV.ash, [0xd4bc78, 0xc2a860], 2, 0.85, 0.012);
+  plantIn('straw', 38, [0.65, 0.95], (x, z) => tightWallRoot(x, z) && at(x, z) !== HV.ash, [0xd4bc78, 0xc2a860], 1, 0.65, 0.012);
   // 4) hanging dry vines on south-facing walls inside PLAY
   let vines = 0;
   for (let i = 0; i < 200 && vines < 22; i++) {
@@ -531,18 +630,15 @@ function dress(c: Ctx, f: { layout: Layout; p: Place; clear: Rect[] }) {
     const isAsh = at(x, z) === HV.ash;
     const kind = edgeProps % 5;
     if (kind === 0 || kind === 3 || isAsh) {
-      // weathered wall-root stone cluster / fallen roof tiles (04-combat-ui.png bottom-left feel)
+      // weathered wall-root stone cluster / fallen roof tiles (clean dusty masonry, no lawn grass!)
       w.box(X - 3, 0, Z - 2, X + 2, 2, Z + 1, isAsh ? 0x3e3b3c : 0x8d806c);
       w.box(X - 2, 3, Z - 1, X + 1, 3, Z, isAsh ? 0x524f50 : 0xa89a84);
       w.box(X + 3, 0, Z - 1, X + 5, 1, Z + 1, isAsh ? 0x2e2c2d : 0x766a58);
-      // plant a tuft of grass/weeds right beside the stones for organic grounding!
-      c.cards.add('vtuft', x + 0.32, z + 0.15, { y: 0, s: 0.52, tint: edgeProps % 2 === 0 ? 0xffffff : 0xe4dcb8 });
     } else if (kind === 1) {
       // civic stone wheel-guard / horse-hitching bollard (拴马石墩)
       w.box(X - 2, 0, Z - 2, X + 2, 1, Z + 2, 0x766a58);
       w.box(X - 1, 2, Z - 1, X + 1, 7, Z + 1, 0x988b76);
       w.box(X - 1, 8, Z - 1, X + 1, 8, Z + 1, 0xb2a48c);
-      c.cards.add('vtuft', x - 0.28, z + 0.12, { y: 0, s: 0.46, tint: 0xe6deb8 });
     } else if (kind === 2 && touchN) {
       // lived-in low wooden roadside bench (长条木凳) tucked flush against a north building wall
       w.box(X - 7, 0, Z - 1, X - 6, 3, Z + 1, HV.post);
@@ -550,13 +646,12 @@ function dress(c: Ctx, f: { layout: Layout; p: Place; clear: Rect[] }) {
       w.box(X - 8, 4, Z - 2, X + 8, 4, Z + 2, HV.wood);
       w.box(X - 8, 4, Z + 2, X + 8, 4, Z + 2, HV.woodL);
     } else if (kind === 4 && touchN) {
-      // village wooden notice post / roadside marker (村口木牌/告示桩) + grass tuft at its base
+      // village wooden notice post / roadside marker (村口木牌/告示桩)
       w.box(X - 1, 0, Z - 1, X + 1, 14, Z, HV.post);
       w.box(X - 5, 9, Z + 1, X + 5, 14, Z + 1, HV.wood);
       w.box(X - 4, 10, Z + 1, X + 4, 13, Z + 1, HV.hemp);
       w.box(X - 3, 11, Z + 1, X + 2, 11, Z + 1, HV.char);
       w.box(X - 6, 15, Z - 1, X + 6, 16, Z + 2, HV.woodD);
-      c.cards.add('vtuft', x + 0.25, z + 0.14, { y: 0, s: 0.50, tint: 0xffffff });
     } else {
       // small wall-hugging clay jar + wooden bucket pair
       w.box(X - 2, 0, Z - 2, X + 1, 4, Z + 1, HV.clay);
