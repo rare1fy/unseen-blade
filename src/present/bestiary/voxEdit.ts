@@ -40,10 +40,26 @@ export function applyVox(v: VoxChar, f: VoxFile, warn: (msg: string) => void = (
   const glow = new Map<number, Map<number, number>>();
   for (const c of v.cells.values()) { const m = glow.get(c.c) ?? glow.set(c.c, new Map()).get(c.c)!; m.set(c.g, (m.get(c.g) ?? 0) + 1); }
   const gOf = (col: number) => { const m = glow.get(col); if (!m) return 0; let best = 0, n = -1; for (const [g, k] of m) if (k > n) { n = k; best = g; } return best; };
-  const mine = f.models.filter(m => { if (v.bonesAbs.has(m.name)) return true; warn(`vox: no bone "${m.name}" — that object is ignored`); return false; });
-  const names = new Set(mine.map(m => m.name));
+  const splitHipSlv = v.bonesAbs.has('hipSlv1') && v.bonesAbs.has('hipSlv2') && v.bonesAbs.has('hipSlv3') && !v.bonesAbs.has('hipSlv');
+  const mine = f.models.filter(m => {
+    if (v.bonesAbs.has(m.name) || (splitHipSlv && m.name === 'hipSlv')) return true;
+    warn(`vox: no bone "${m.name}" — that object is ignored`); return false;
+  });
+  const names = new Set<string>();
+  for (const m of mine) {
+    if (splitHipSlv && m.name === 'hipSlv') { names.add('hipSlv1'); names.add('hipSlv2'); names.add('hipSlv3'); }
+    else names.add(m.name);
+  }
   for (const [k, c] of v.cells) if (names.has(c.part)) v.cells.delete(k);
   for (const m of mine) {
+    if (splitHipSlv && m.name === 'hipSlv') {
+      for (const [x, y, z, ci] of m.voxels) {
+        const [gx, gy, gz] = fromVox(...voxWorld(m, x, y, z)), col = f.palette[ci - 1] ?? 0xff00ff;
+        const part = gy >= 21 ? 'hipSlv1' : gy >= 17 ? 'hipSlv2' : 'hipSlv3';
+        v.part(part).set(gx, gy, gz, col, gOf(col));
+      }
+      continue;
+    }
     v.part(m.name);
     for (const [x, y, z, ci] of m.voxels) { const [gx, gy, gz] = fromVox(...voxWorld(m, x, y, z)), col = f.palette[ci - 1] ?? 0xff00ff; v.set(gx, gy, gz, col, gOf(col)); }
   }

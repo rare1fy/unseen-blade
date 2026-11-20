@@ -4,7 +4,7 @@ import { curve, mov, rot, snap, type Action, type Bone } from '../../actors/rig'
 import { POSE_AFTER, type PoseFn } from '../../bestiary/poseHooks';
 import type { BattleActor } from '../../bestiary/battle';
 import { attackBeats, attackBody } from './foe_motion';
-import { engagement, grip, stance, support as supportGrip, weaponArc, type GripKey } from './weapon_pose';
+import { engagement, clearTorso, grip, limitAnatomicalWrist, stance, support as supportGrip, weaponArc, type GripKey } from './weapon_pose';
 
 type Bones = Record<string, Bone>;
 type Side = 'L' | 'R';
@@ -15,16 +15,16 @@ const put = (b: Bone, x = 0, y = 0, z = 0) => b.rotation.set(x, y, z);
 const paired = (id: string, fn: PoseFn) => { POSE_AFTER[id] = fn; POSE_AFTER[id + '_e'] = fn; };
 const passive = (a: Action | null) => a?.name === 'fall' || a?.name === 'collapse' || a?.name === 'roar';
 const halberdSweep: readonly [GripKey, GripKey, GripKey] = [
-  [-0.53, 1.18, -0.18, -0.12, -1.72, PI], [-0.13, 1.04, 0.16, 0.04, -0.05, PI],
-  [0.32, 1.04, 0.42, 0.08, 1.22, PI],
+  [-0.68, 1.18, 0.36, -0.12, -1.62, PI], [-0.18, 1.10, 0.72, 0.04, -0.05, PI],
+  [0.24, 1.08, 0.68, 0.08, 1.12, PI],
 ];
 const shieldCut: readonly [GripKey, GripKey, GripKey] = [
-  [-0.53, 1.58, 0.01, -1.97, -0.26, -0.72], [-0.25, 1.11, 0.60, 0.12, -0.02, -0.70],
-  [0.16, 0.78, 0.58, 0.44, 0.88, -0.55],
+  [-0.58, 1.58, 0.08, -1.97, -0.26, -0.72], [-0.24, 1.11, 0.72, 0.12, -0.02, -0.70],
+  [0.20, 0.78, 0.68, 0.44, 0.88, -0.55],
 ];
 const axeSweep: readonly [GripKey, GripKey, GripKey] = [
-  [-0.58, 1.16, -0.10, -0.08, -1.85, PI / 2], [-0.12, 1.12, 0.58, 0.03, -0.12, PI / 2],
-  [0.32, 1.06, 0.53, 0.13, 1.27, PI / 2],
+  [-0.84, 1.24, 0.46, -0.08, -1.72, PI / 2], [-0.10, 1.20, 0.98, 0.03, -0.10, PI / 2],
+  [0.38, 1.14, 0.90, 0.13, 1.16, PI / 2],
 ];
 
 const down = new Vector3(0, -1, 0), wrist = new Vector3(), delta = new Vector3(), pole = new Vector3(), elbow = new Vector3();
@@ -41,14 +41,23 @@ function turnHand(b: Bones, hand: Bone, q: Quaternion) {
 /** 从握点倒推肘的位置。兵器仍是 hand 的孩子，手伸不到时先保肘的长度，再让另一手沿杆就近握。 */
 function handAt(b: Bones, side: Side, point: Vector3, q: Quaternion, grip = true) {
   const arm = b['arm' + side], fore = b['fore' + side], hand = b['hand' + side], p = arm.parent!;
+  const prop = side === 'R' ? b.weapon : b.offhand;
+  if (prop?.userData?._wShifted && prop.rest) {
+    prop.position.copy(prop.rest.p);
+    prop.userData._wShifted = false;
+  }
   wrist.copy(point);
-  if (grip) wrist.sub(gripShift.set(0, -CELL, 0).applyQuaternion(q));
+  if (grip) wrist.sub(gripShift.copy(prop.rest?.p ?? gripShift.set(0, -CELL, 0)).applyQuaternion(q));
+  clearTorso(b, side, wrist);
   b.root.localToWorld(wrist); p.worldToLocal(wrist); wrist.sub(arm.position);
   const upper = fore.position.length(), lower = hand.position.length();
-  const length = Math.max(Math.abs(upper - lower) + 0.002, Math.min(upper + lower - 0.002, wrist.length()));
+  const minD = Math.sqrt(Math.max(1e-6, upper * upper + lower * lower - 1.32 * upper * lower));
+  const length = Math.max(minD, Math.min(upper + lower - 0.002, wrist.length()));
   delta.copy(wrist).normalize();
-  pole.set(side === 'L' ? 0.9 : -0.9, -1, -0.38);
-  pole.addScaledVector(delta, -pole.dot(delta)).normalize();
+  pole.set(side === 'L' ? 0.9 : -0.9, -1, -0.45);
+  pole.addScaledVector(delta, -pole.dot(delta));
+  if (pole.lengthSq() < 1e-6) pole.set(side === 'L' ? 1 : -1, -0.5, -0.5);
+  pole.normalize();
   const d = (upper * upper - lower * lower + length * length) / (2 * length);
   elbow.copy(delta).multiplyScalar(d).addScaledVector(pole, Math.sqrt(Math.max(0, upper * upper - d * d)));
   arm.quaternion.setFromUnitVectors(down, pole.copy(elbow).normalize());
@@ -56,6 +65,7 @@ function handAt(b: Bones, side: Side, point: Vector3, q: Quaternion, grip = true
   fore.quaternion.setFromUnitVectors(down, delta.multiplyScalar(length).sub(elbow).applyQuaternion(inv).normalize());
 
   turnHand(b, hand, q);
+  if (grip) limitAnatomicalWrist(hand, prop);
 }
 
 function aim(pitch: number, yaw: number, roll = 0) {
@@ -67,6 +77,8 @@ function hold(b: Bones, x: number, y: number, z: number, pitch: number, yaw: num
   put(b.weapon);
   handAt(b, 'R', handPoint.set(x, y, z), q);
   if (!support) return;
+  // Refresh world transforms from this frame so the support hand tracks the shaft with zero 1-frame drift
+  b.root.updateMatrixWorld(true);
   // 用右手实际落点，保证副手跟着杆。算出左肩够得到的那段，再选离惯用握点最近的位置。
   b.weapon.getWorldPosition(handPoint); b.root.worldToLocal(handPoint);
   axis.set(0, 0, 1).applyQuaternion(q);
@@ -105,17 +117,22 @@ paired('ly_halberd', (b, t, a, off, self) => {
     attackBody(b, motion);
     const sweep = n === 'sweepHalberd';
     mov(b.hips, 0, -0.075 * step, 0.15 * step - 0.05 * load);
-    rot(b.spine, -0.13 * load + 0.28 * fire, sweep ? -0.50 * load + 0.45 * fire : -0.72 * w, 0);
-    rot(b.neck, -0.16 * fire, 0, 0);
+    const hipYaw = sweep ? -0.24 * load + 0.26 * fire : 0;
+    const spineYaw = sweep ? -0.62 * load + 0.58 * fire : -0.72 * w;
+    if (sweep) rot(b.hips, 0, hipYaw, 0);
+    rot(b.spine, -0.13 * load + 0.26 * fire, spineYaw, 0);
+    // Keep gaze locked on the player against the large halberd torso twist
+    rot(b.neck, -0.16 * fire, -(hipYaw + spineYaw) * 0.72, 0);
     stance(b, w, (sweep ? 0.14 : 0.35) * step);
-    hold(b, -0.24, 1.06, 0.28, -0.56, -0.19, 0, 0.31);
+    hold(b, -0.26, 1.06, 0.42, -0.56, -0.19, 0, 0.31);
     if (sweep) {
-      const { pitch, yaw, roll } = weaponArc(b, a, motion, 'R', ...halberdSweep, w);
-      supportGrip(b, -0.25, pitch, yaw, w, 0, roll);
+      const { pitch, yaw, roll } = weaponArc(b, a, motion, 'R', ...halberdSweep, w, 0.24);
+      // Keep left support hand AHEAD (+0.32) on the shaft so the longer forearm sweeps completely clear of the cuirass
+      supportGrip(b, 0.32, pitch, yaw, w, 0, roll);
     } else {
       const drive = Math.min(1, fire);
-      grip(b, 'R', -0.27 + 0.21 * drive, 1.12, -0.07 + 1.00 * drive, 0, 0, w);
-      supportGrip(b, 0.36 - 0.16 * drive, 0, 0, w);
+      grip(b, 'R', -0.44 + 0.28 * drive, 1.12, 0.20 + 0.78 * drive, 0, 0, w);
+      supportGrip(b, 0.34 - 0.14 * drive, 0, 0, w);
     }
     return;
   }
@@ -127,7 +144,7 @@ paired('ly_halberd', (b, t, a, off, self) => {
     rot(b.spine, -0.2 * spring + 0.3 * land, 0, 0);
   }
   const swing = (self as BattleActor).strideSwing;
-  hold(b, -0.24, 1.06 + Math.sin(t * 2.2) * 0.016, 0.28 + 0.065 * swing, -0.56 - 0.07 * swing, -0.19, 0, 0.31);
+  hold(b, -0.26, 1.06 + Math.sin(t * 2.2) * 0.016, 0.36 + 0.065 * swing, -0.56 - 0.07 * swing, -0.19, 0, 0.31);
 });
 
 const mountedMotion = new WeakMap<BattleActor, { t: number; yaw: number; gait: number; phase: number; x: number; z: number }>();
@@ -200,7 +217,7 @@ paired('ly_rider', (b, t, a, off, self) => {
     const level = gallop ? curve(k, [[0, 1], [0.80, 1], [1, 0]]) : paw ? curve(k, [[0, 0], [a!.at, 1]]) : 0;
     grip(b, 'R', mix(-0.43, -0.35, level), 1.69 + bob + 0.08 * rear, 0.32 - 0.09 * pull + 0.30 * level,
       mix(tilt, 0.035, level), -0.22 * (1 - level), 1);
-    grip(b, 'L', 0.15, 1.62 + bob + rear * 0.10, 0.36 - 0.12 * pull, -0.5, 0.08, 1);
+    grip(b, 'L', 0.25, 1.62 + bob + rear * 0.10, 0.44 - 0.10 * pull, -0.5, 0.08, 1);
   }
   off.y = 0;
 });
@@ -227,10 +244,10 @@ paired('ly_shield', (b, t, a, off, self) => {
   if (load || step || open) legs(b, load + 0.45 * open, step * 0.85);
   const swing = (self as BattleActor).strideSwing;
   rot(b.chest, -0.25 * open, -0.42 * open, -0.1 * open);
-  grip(b, 'L', 0.10 + 0.51 * open, 0.92 + 0.05 * load + 0.09 * fire - 0.19 * open,
-    0.34 - 0.12 * load + 0.33 * fire - 0.37 * open - 0.03 * swing,
+  grip(b, 'L', 0.16 + 0.50 * open, 0.92 + 0.05 * load + 0.09 * fire - 0.19 * open,
+    0.46 - 0.10 * load + 0.32 * fire - 0.37 * open - 0.03 * swing,
     -0.20 + 0.20 * fire + 0.34 * open, 1.48 * open, 1, -0.33 * open);
-  hold(b, -0.38 - 0.1 * load, 0.87 + 0.012 * Math.sin(t * 3), 0.16 + 0.05 * swing, 0.39, -0.74);
+  hold(b, -0.40 - 0.1 * load, 0.85 + 0.012 * Math.sin(t * 3), 0.24 + 0.05 * swing, 0.39, -0.74);
 });
 
 paired('ly_xbow', (b, t, a, off, self) => {
@@ -255,8 +272,8 @@ paired('ly_xbow', (b, t, a, off, self) => {
   rot(b.neck, 0.22 * down - 0.12 * lift, 0, 0);
   if (down > 0) legs(b, 0.28 * down, 0.87 * down, 'L');
   const yaw = -0.14 + 0.14 * lift;
-  grip(b, 'R', -0.24 + 0.18 * down, 1.03 + 0.24 * lift + 0.08 * recoil - 0.04 * down + 0.01 * Math.sin(t * 3),
-    0.28 - 0.13 * recoil - 0.02 * lift + 0.16 * down + 0.06 * (self as BattleActor).strideSwing, pitch, yaw, 1);
+  grip(b, 'R', -0.26 + 0.18 * down, 1.03 + 0.24 * lift + 0.08 * recoil - 0.04 * down + 0.01 * Math.sin(t * 3),
+    0.48 - 0.13 * recoil - 0.02 * lift + 0.16 * down + 0.06 * (self as BattleActor).strideSwing, pitch, yaw, 1);
   supportGrip(b, 0.39 + 0.13 * down - 0.20 * draw, pitch, yaw, 1, 0.08);
   b.bolt.visible = n === 'reload' ? k > 0.69 : !released;
 });
@@ -281,23 +298,41 @@ paired('ly_torch', (b, t, a, off, self) => {
 
 const looter: PoseFn = (b, t, a, off, self) => {
   if (passive(a)) return;
-  const { load, fire, step } = a?.name === 'attack' ? beats(b, a) : { load: 0, fire: 0, step: 0 };
-  if (a?.name === 'attack') { off.z = 0.03 * step; off.y = 0; put(b.spine, 0.16 + 0.35 * fire, -0.18 * load, 0); legs(b, 0.5 * load, 0.6 * step); }
-  else rot(b.spine, 0.15, 0, 0);
-  rot(b.neck, -0.16 * fire, 0, 0);
-  put(b.cape, 0.03 * Math.sin(t * 6) - 0.12 * fire);
+  const swinging = a?.name === 'attack';
+  const motion = swinging ? attackBeats(a) : null;
+  if (motion) attackBody(b, motion, 'melee', 0.72);
+  const load = motion?.load ?? 0, fire = motion?.hit ?? 0, step = motion?.hip ?? 0, chest = motion?.chest ?? 0;
   const swing = (self as BattleActor).strideSwing;
-  hold(b, -0.25, 0.94, 0.20 + 0.06 * swing, 0.54, -0.38);
-  if (a?.name !== 'attack') return;
-  const w = engagement(a);
-  grip(b, 'R', -0.26 + 0.13 * fire, 0.97 + 0.03 * fire, -0.12 + 0.63 * fire, 0, 0, w);
-  grip(b, 'L', 0.38 + 0.07 * fire, 0.97 + 0.12 * load, 0.20 - 0.41 * fire, -0.26, 0, w);
+  if (swinging && a) {
+    const w = engagement(a), drive = Math.min(1, fire);
+    // Full-body scavenger lunge-stab: hips coil right -> unwind powerfully left, spine & chest drive forward,
+    // head counter-rotates to lock gaze on target, left arm counter-balances athletically, loot pack lags with inertia.
+    off.z = -0.06 * load + 0.06 * step;
+    off.y = 0;
+    const hipY = -0.30 * load + 0.30 * step;
+    const spY = -0.28 * load + 0.34 * chest;
+    rot(b.hips, 0, hipY, -0.05 * load + 0.06 * step);
+    put(b.spine, 0.14 - 0.14 * load + 0.34 * chest, spY, 0);
+    rot(b.chest, 0.06 * chest, -0.14 * load + 0.18 * chest, 0);
+    rot(b.neck, -0.20 * chest + 0.08 * load, -(hipY + spY) * 0.74, 0);
+    legs(b, 0.58 * load, 0.72 * step);
+    put(b.cape, 0.04 * Math.sin(t * 6) + 0.16 * load - 0.22 * chest, -spY * 0.35, 0);
+    hold(b, -0.26, 0.94, 0.20, 0.45, -0.32);
+    // Right hand draws cleanly beside the right hip then drives straight forward down the 1.6m warning lane;
+    // Left arm leads forward-outward during coil then swings naturally back-outward for balance (zero backward elbow!).
+    grip(b, 'R', -0.28 + 0.14 * drive, 0.98 - 0.04 * load + 0.05 * drive, -0.10 + 0.56 * drive, 0, 0.04 * drive, w);
+    grip(b, 'L', 0.36 + 0.10 * drive, 1.02 + 0.08 * load - 0.08 * drive, 0.26 * (1 - drive) - 0.06 * drive, -0.32 + 0.18 * drive, 0.22 * (1 - drive), w);
+    return;
+  }
+  rot(b.spine, 0.14, 0, 0);
+  put(b.cape, 0.04 * Math.sin(t * 5.2) + 0.06 * Math.abs(swing), 0, 0.04 * swing);
+  hold(b, -0.26, 0.94, 0.20 + 0.06 * swing, 0.48, -0.34);
 };
 POSE_AFTER.ly_looter = looter;
 POSE_AFTER.ly_looter_b = looter;
 
 function axeReady(b: Bones, t: number, swing: number) {
-  hold(b, -0.34, 1.22 + 0.012 * Math.sin(t * 3), 0.3 + 0.048 * swing, -1.15 + 0.04 * swing, -0.76, 0.18);
+  hold(b, -0.38, 1.20 + 0.012 * Math.sin(t * 3), 0.42 + 0.048 * swing, -1.15 + 0.04 * swing, -0.76, 0.18);
 }
 
 /** 斧刃触地的同一个落点，劈中和卡斧之间不用换姿势。 */
@@ -307,9 +342,10 @@ function plantAxe(b: Bones, off: Vector3, t: number, s: number, strain = 0) {
   rot(b.neck, -0.32 * s, 0, 0);
   off.z += 0.26 * s;
   if (s > 0) stance(b, s, 0.17 * s);
+  mov(b.shR, 0.06 * s, 0, 0.12 * s); mov(b.shL, -0.06 * s, 0, 0.14 * s);
   const pitch = mix(-1.15, 0.108, s), yaw = -0.76 * (1 - s), roll = 0.18 * (1 - s);
-  grip(b, 'R', mix(-0.34, -0.13, s), mix(1.22 + 0.012 * Math.sin(t * 3), 1.03, s), mix(0.3, 0.50, s), pitch, yaw, 1, roll);
-  supportGrip(b, -0.33, pitch, yaw, s, 0, roll);
+  grip(b, 'R', mix(-0.34, -0.13, s), mix(1.22 + 0.012 * Math.sin(t * 3), 1.05, s), mix(0.48, 0.78, s), pitch, yaw, 1, roll);
+  supportGrip(b, -0.25, pitch, yaw, s, 0, roll);
 }
 
 POSE_AFTER.ly_boss = (b, t, a, off, self) => {
@@ -320,13 +356,16 @@ POSE_AFTER.ly_boss = (b, t, a, off, self) => {
   const { load, fire, step } = attack ? beats(b, a, 'melee', true) : { load: 0, fire: 0, step: 0 };
   if (n === 'axeSweep' && a) {
     legs(b, 0.62 * load, 0.74 * step);
-    rot(b.hips, 0, -0.26 * load + 0.33 * fire, 0);
-    rot(b.spine, 0.19 * fire, -0.35 * load + 0.35 * fire, -0.13 * load + 0.16 * fire);
+    const hipY = -0.34 * load + 0.42 * fire, spY = -0.44 * load + 0.46 * fire;
+    rot(b.hips, 0, hipY, 0);
+    rot(b.spine, 0.19 * fire, spY, -0.13 * load + 0.16 * fire);
+    rot(b.neck, -0.12 * fire, -(hipY + spY) * 0.72, 0);
     off.z += 0.28 * fire - 0.10 * load;
     axeReady(b, t, 0);
     const w = engagement(a);
-    const { pitch, yaw, roll } = weaponArc(b, a, attackBeats(a, true), 'R', ...axeSweep, w);
-    supportGrip(b, -0.37, pitch, yaw, w, 0, roll);
+    mov(b.shR, 0.07 * w, 0, 0.12 * w); mov(b.shL, -0.08 * w, 0, 0.14 * w);
+    const { pitch, yaw, roll } = weaponArc(b, a, attackBeats(a, true), 'R', ...axeSweep, w, 0.24);
+    supportGrip(b, -0.25, pitch, yaw, w, 0, roll);
     return;
   }
   if (a && n === 'axeChop') {
@@ -342,10 +381,11 @@ POSE_AFTER.ly_boss = (b, t, a, off, self) => {
     rot(b.spine, -0.23 * lift + 0.56 * hit, 0, 0);
     rot(b.neck, -0.25 * lift - 0.32 * hit, 0, 0);
     off.z += 0.26 * hit - 0.08 * lift;
+    mov(b.shR, 0.06 * s, 0, 0.12 * s); mov(b.shL, -0.06 * s, 0, 0.14 * s);
     const pitch = -1.15 - 0.92 * lift + 1.258 * hit, yaw = -0.76 * (1 - s), roll = 0.18 * (1 - s);
-    grip(b, 'R', -0.34 - 0.11 * lift + 0.21 * hit, 1.22 + 0.67 * lift - 0.19 * hit,
-      0.30 - 0.25 * lift + 0.20 * hit, pitch, yaw, 1, roll);
-    supportGrip(b, -0.33, pitch, yaw, s, 0, roll);
+    grip(b, 'R', -0.34 - 0.11 * lift + 0.21 * hit, 1.22 + 0.67 * lift - 0.17 * hit,
+      0.48 - 0.14 * lift + 0.30 * hit, pitch, yaw, 1, roll);
+    supportGrip(b, -0.25, pitch, yaw, s, 0, roll);
     return;
   }
   if (n === 'axeStuck') {

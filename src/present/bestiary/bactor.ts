@@ -219,7 +219,9 @@ export class BActor extends Actor {
     switch (style) {
       case 'swing': {
         this.off.z = -0.15 * load + (distance ?? 0.7) * hip;
-        rot(b.spine, -0.28 * load + 0.28 * chest, 0.21 * load - 0.16 * chest, 0);
+        const spY = 0.21 * load - 0.16 * chest;
+        rot(b.spine, -0.28 * load + 0.28 * chest, spY, 0);
+        rot(b.neck, 0, -spY * 0.7, 0);
         rot(b.armR, -2.75 * load + 0.15 * hit, 0, 0.15 * load);
         rot(b.foreR, 0.75 * load + 1.5 * hit, 0, 0); rot(b.weapon, 0.1 * load + 1.35 * hit, 0, 0);
         rot(b.armL, -0.8 * load + 0.47 * late, 0, -0.27 * late); rot(b.jaw, 0.36 * (load + hit), 0, 0);
@@ -274,5 +276,8 @@ export class BActor extends Actor {
         this.off.y += 0.13 * load + 0.06 * hip;
       }
     }
+    // Anatomical elbow guard: generic enemy attacks must never hyperextend forearms backwards (+X)
+    if (b.foreL && b.foreL.rotation.x > -0.08) b.foreL.rotation.x = -0.08;
+    if (b.foreR && b.foreR.rotation.x > -0.08) b.foreR.rotation.x = -0.08;
   }
 }

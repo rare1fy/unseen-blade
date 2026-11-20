@@ -63,7 +63,7 @@ function cuttingStep(b: Bones, a: Action, hunch = 0, travel = 0.16, arcTurn = 0.
   const turn = -arcTurn * load + arcTurn * chest;
   mov(b.hips, 0, -0.055 * hip - hunch * w, travel * hip - 0.07 * load);
   rot(b.spine, -0.14 * load + 0.29 * chest, turn, 0);
-  rot(b.neck, -0.16 * chest, -0.48 * turn, 0);
+  rot(b.neck, -0.16 * chest, -0.72 * turn, 0);
   stance(b, w, (0.1 + travel) * hip);
   return motion;
 }
@@ -96,16 +96,17 @@ function thrust(b: Bones, a: Action, style: 'spear' | 'sword' | 'shield') {
   stance(b, w, travel, 0.09 * Math.sin(Math.PI * stride) * w);
   if (style === 'spear') {
     const yaw = 0.13 * (1 - extend);
-    grip(b, 'R', -0.32 + 0.27 * extend, 1.15, -0.07 + 0.65 * extend, 0, yaw, w);
+    grip(b, 'R', -0.32 + 0.27 * extend, 1.15, -0.07 + 0.72 * extend, 0, yaw, w);
     support(b, 0.39 - 0.14 * extend, 0, yaw, w);
   } else {
     // the blade level from the start of the load, drawn back beside the shield's edge, then driven past it
     const pitch = shield ? -0.10 * (1 - extend) : -0.07 * (1 - extend);
+    b.root.updateMatrixWorld(true);
     b.root.worldToLocal(b.armR.getWorldPosition(shoulder));
     const reach = b.foreR.position.length() + b.handR.position.length();
     grip(b, 'R', shield ? -0.40 : -0.32, 1.15 - 0.07 * drive,
       0.01 + (shoulder.z + reach) * extend, pitch, 0, w);
-    if (shield) grip(b, 'L', quickShield ? 0.20 : 0.11, 1.10 - 0.06 * drive, (quickShield ? 0.47 : 0.37) + 0.13 * drive, 0, 0, w);
+    if (shield) grip(b, 'L', quickShield ? 0.20 : 0.15, 1.10 - 0.06 * drive, (quickShield ? 0.47 : 0.40) + 0.13 * drive, 0, 0, w);
     else {
       rot(b.armL, 0.70 * chest, 0, 0.32 * chest);
       rot(b.foreL, -0.27 * load + 0.44 * chest, 0, 0);
@@ -200,6 +201,7 @@ const xbowPose: PoseFn = (b, t, a, off) => {
     const recoil = shot * (1 - curve(a!.t, [[a!.dur * at + 0.025, 0], [a!.dur * at + 0.14, 1]]));
     rot(b.spine, -0.08 * kick, -1.25 * w, 0); rot(b.neck, -0.12 * recoil, 0.98 * w, 0);
     stance(b, w);
+    b.root.updateMatrixWorld(true);
     b.root.worldToLocal(b.armR.getWorldPosition(shoulder));
     grip(b, 'R', shoulder.x - 0.09, 1.295, shoulder.z + 0.35 - 0.085 * recoil, -0.06 * recoil, 0, w);
     support(b, 0.32, 0, 0, w);
@@ -287,9 +289,9 @@ const clubPose: PoseFn = (b, t, a, off, self) => {
   base(b, t, { armed: 'two' }); if (shared(b, a, off)) return;
   const motion = cuttingStep(b, a!, 0.03, 0.16, 0.18), w = engagement(a!);
   const { pitch, yaw } = weaponArc(b, a!, motion, 'R',
-    [-0.34, 1.66, 0.20, -2.01, -0.38], [-0.04, 1.17, 0.60, 0.30, 0],
-    [0.02, 0.94, 0.48, 0.84, 0.22], w);
-  support(b, -0.31, pitch, yaw, w);
+    [-0.32, 1.66, 0.28, -2.01, -0.38], [-0.04, 1.18, 0.70, 0.30, 0],
+    [0.02, 0.98, 0.62, 0.84, 0.22], w);
+  support(b, -0.24, pitch, yaw, w);
 };
 /** 门下剑客: the sword upright in front of the face (the guard: the 中平 of the Han sword), the left hand in the sword mudra behind;
  *  the thrust: the arm straight out, the body after it */
@@ -355,16 +357,16 @@ const zhuPose: PoseFn = (b, t, a, off, self) => {
 /** 崔玄: upright, unhurried, the fan held loose at the chest, the left hand behind his back; the fan stroke a flick across; with the
  *  blade the drawing cut; the lunge a long straight 一字 thrust */
 const cuiPose: PoseFn = (b, t, a, off, self) => {
-  base(b, t, { armed: 'r', hunch: -0.04 }); rot(b.armR, -0.5, 0, 0.2); rot(b.foreR, -0.9, 0, 0); rot(b.armL, 0.5, 0, 0.25); rot(b.foreL, -1.4, 0, 0);
-  if (shared(b, a, off)) return;
+  base(b, t, { armed: 'r', hunch: -0.04 }); rot(b.armR, -0.5, 0, 0.2); rot(b.foreR, -0.9, 0, 0);
+  if (shared(b, a, off)) { rot(b.armL, 0.30, 0, 0.22); rot(b.foreL, -0.92, 0, 0); return; }
   const atk = a!.data.atk;
   if (a!.name === 'cast') {
     const motion = beats(b, a!, 'cast', true), w = engagement(a!);
     const sword = b.blade.visible;
     weaponArc(b, a!, motion, 'R',
-      [-0.53, 1.44, 0.15, sword ? -1.83 : 0.10, -0.35],
-      [-0.27, 1.54, 0.51, sword ? -1.45 : 0.01, 0],
-      [-0.38, 1.38, 0.49, sword ? -0.8 : 0.05, 0.24], w);
+      [-0.53, 1.44, 0.18, sword ? -1.83 : 0.10, -0.35],
+      [-0.27, 1.54, 0.56, sword ? -1.45 : 0.01, 0],
+      [-0.38, 1.38, 0.54, sword ? -0.8 : 0.05, 0.24], w);
     balance(b, a!, motion);
     return;
   }
@@ -373,8 +375,8 @@ const cuiPose: PoseFn = (b, t, a, off, self) => {
     // The fan extends along its local +Y. Turn that axis outward so the
     // silk, and not the knuckles holding it, lead the sweep.
     weaponArc(b, a!, motion, 'R',
-      [-0.52, 1.22, -0.07, 1.20, -1.86, -0.18], [-0.18, 1.19, 0.59, 1.18, 0.02, -0.26],
-      [0.22, 1.02, 0.48, 1.08, 1.27, -0.35]);
+      [-0.54, 1.22, 0.04, 1.20, -1.86, -0.18], [-0.18, 1.19, 0.64, 1.18, 0.02, -0.26],
+      [0.20, 1.04, 0.56, 1.08, 1.27, -0.35], engagement(a!), 0.14);
     balance(b, a!, motion);
     return;
   }
@@ -384,8 +386,8 @@ const cuiPose: PoseFn = (b, t, a, off, self) => {
   }
   const motion = cuttingStep(b, a!, 0.04, 0.27, 0.53);
   weaponArc(b, a!, motion, 'R',
-    [-0.53, 1.21, -0.20, -0.17, -1.95, PI / 2], [-0.16, 1.11, 0.67, 0.04, 0, PI / 2],
-    [0.26, 0.97, 0.54, 0.16, 1.39, PI / 2]);
+    [-0.56, 1.21, -0.06, -0.17, -1.95, PI / 2], [-0.16, 1.12, 0.72, 0.04, 0, PI / 2],
+    [0.24, 1.00, 0.62, 0.16, 1.39, PI / 2], engagement(a!), 0.18);
   balance(b, a!, motion);
 };
 

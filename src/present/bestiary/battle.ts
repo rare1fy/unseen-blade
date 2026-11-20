@@ -12,8 +12,8 @@ import type { Cast } from '../actors/cast';
 import { isGripHero } from './heroPose';
 import { poseShow } from './showPose';
 import { poseIai } from '../ronin/iaiPose';
-import { POSE_AFTER } from './poseHooks';
-import { FoeAccessories, FoeGait, poseFoeFall, poseFoeHurt, poseFoeIdle } from '../act/foes/foe_motion';
+import { POSE_AFTER, POSE_HOOKS } from './poseHooks';
+import { FoeAccessories, FoeGait, ROBED, poseFoeFall, poseFoeHurt, poseFoeIdle } from '../act/foes/foe_motion';
 
 const TIP: Record<string, [number, number]> = { warrior: [17, -3], boss_lich_forest: [29, 0], lego_warrior: [9, -3], lego_lich: [19, 0], fig_warrior: [19, -3], fig_lich: [29, 0] };
 
@@ -25,6 +25,8 @@ export class BattleActor extends BActor {
   private deathAction?: Action;
   private projectileOrigin?: { point: THREE.Vector3; lift: number };
   get strideSwing() { return this.gait?.armSwing ?? 0; }
+  get stridePhase() { return this.gait?.phase ?? 0; }
+  get gaitSpeed() { return this.gait?.speed ?? 0; }
   /** a roster id ('rogue' follows ?rogue=m, models.ts modelDef) or a ready model */
   constructor(id: string | ModelDef) { super(typeof id === 'string' ? modelDef(id) : id); }
   /** Some attacks read weapon() as a gameplay anchor even when the rendered throw changes. */
@@ -49,7 +51,11 @@ export class BattleActor extends BActor {
   dodge() { return this.play(new Action('dodge', 0.55, 0.2)); }
   cheer() { return this.play(new Action('cheer', 1.6, 0.3)); }
   bleed() { return this.play(new Action('bleed', 0.65, 0.4)); }
-  fall() { this.dead = true; return this.play(new Action('fall', 1.2, 0.6)); }
+  fall(fromAngle?: number) {
+    this.dead = true;
+    const isHeroHook = !this.foe && !!POSE_HOOKS[this.hid];
+    return this.play(new Action('fall', isHeroHook ? 1.65 : 1.2, 0.6, fromAngle === undefined ? {} : { fromAngle }));
+  }
   setRunning(on: boolean, speed?: number, lookYaw?: number, velocity?: { readonly x: number; readonly z: number }) {
     this.running = on;
     this.moveSpeed = speed;
@@ -113,7 +119,7 @@ export class BattleActor extends BActor {
     }
     POSE_AFTER[this.def.id]?.(b, this.t, a ?? this.deathAction ?? null, this.off, this);
     if (!this.foe) return;
-    if (a?.name === 'hurt') poseFoeHurt(b, this.off, a, this.hitFrom, this.hurtVariant);
+    if (a?.name === 'hurt') poseFoeHurt(b, this.off, a, this.hitFrom, this.hurtVariant, ROBED.has(this.def.id));
     if (this.deathAction) poseFoeFall(b, this.off, this.def.kind, this.hitFrom, this.deathAction.k, this.deathAction.name === 'collapse');
     (this.accessories ??= new FoeAccessories(this)).pose(this, dt);
   }
@@ -160,7 +166,7 @@ export class BattleActor extends BActor {
       case 'block': { const s = curve(k, [[0, 0], [0.2, 1], [0.7, 1], [1, 0]]); rot(b.armR, -0.7 * s, 0.3 * s, 0.5 * s); rot(b.weapon, 0.3 * s, 1.1 * s, 0); rot(b.armL, -1.2 * s, 0, -0.4 * s); rot(b.foreL, -0.9 * s, 0, 0); mov(b.hips, 0, -0.1 * s, 0); break; }
       case 'bleed': { const s = curve(k, [[0, 0], [0.3, 1], [0.65, 1], [1, 0]]); rot(b.armL, -1.3 * s, 0, -0.5 * s); rot(b.foreL, -0.6 * s, 0, 0); rot(b.armR, -0.4 * s, 0, 0.6 * s); rot(b.weapon, 0.6 * s, 0.8 * s, 0); rot(b.jaw, 0.4 * s, 0, 0); break; }
       case 'cheer': { const s = curve(k, [[0, 0], [0.2, 1], [1, 1]]), j = Math.abs(Math.sin(k * Math.PI * 3)) * (1 - k); this.off.y += j * 0.5; rot(b.armR, -2.9 * s, 0, -0.3 * s); rot(b.foreR, 1.3 * s, 0, 0); rot(b.armL, -2.7 * s, 0, 0.4 * s); rot(b.jaw, 0.7 * s, 0, 0); break; }
-      case 'fall': { if (this.foe) break; const s = curve(k, [[0, 0], [0.6, 1], [1, 1]]); rot(b.hips, -1.35 * s, 0, 0.2 * s); mov(b.hips, 0, -0.3 * s, -0.3 * s); rot(b.armR, -0.6 * s, 0, -0.9 * s); rot(b.armL, -0.4 * s, 0, 0.9 * s); break; }
+      case 'fall': { if (this.foe || POSE_HOOKS[this.hid]) break; const s = curve(k, [[0, 0], [0.6, 1], [1, 1]]); rot(b.hips, -1.35 * s, 0, 0.2 * s); mov(b.hips, 0, -0.3 * s, -0.3 * s); rot(b.armR, -0.6 * s, 0, -0.9 * s); rot(b.armL, -0.4 * s, 0, 0.9 * s); break; }
       case 'summon': { const up = curve(k, [[0, 0], [0.5, 1], [0.7, 1], [1, 0]]); rot(b.armL, -2.4 * up, 0, 0.4 * up); rot(b.armR, -1.9 * up, 0, -0.4 * up); rot(b.spine, -0.3 * up, 0, 0); rot(b.jaw, 0.5 * up, 0, 0); this.off.y += up * 0.4; break; }
       case 'shield': { const s = curve(k, [[0, 0], [0.4, 1], [0.8, 1], [1, 0]]); rot(b.armL, -1.3 * s, 0.6 * s, -0.6 * s); rot(b.armR, -0.8 * s, -0.5 * s, 0.6 * s); rot(b.spine, 0.2 * s, 0, 0); this.off.y -= 0.15 * s; break; }
       case 'talk': rot(b.jaw, Math.max(0, Math.sin(k * 40)) * 0.35, 0, 0); rot(b.armL, -0.4 * Math.sin(k * Math.PI), 0, 0); break;

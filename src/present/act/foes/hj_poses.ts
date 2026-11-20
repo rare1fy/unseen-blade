@@ -3,7 +3,7 @@ import { curve, type Action, type Bone } from '../../actors/rig';
 import { POSE_AFTER, type PoseFn } from '../../bestiary/poseHooks';
 import type { BattleActor } from '../../bestiary/battle';
 import { attackBeats, attackBody } from './foe_motion';
-import { engagement, grip, shortThrust, weaponArc } from './weapon_pose';
+import { clearTorso, engagement, grip, limitAnatomicalWrist, shortThrust, weaponArc } from './weapon_pose';
 
 type Point = [number, number, number];
 interface Key {
@@ -29,41 +29,44 @@ interface AttackPose {
 const cut: AttackPose = {
   feet: [0.25, 0.10, -0.21], step: 0.24,
   // 11-18 (用户：「都看起来像是用手在打」): 两刀照旧横过身前，只转握刀的手，让亮刃沿挥动方向走。
-  load: { hip: [-0.10, -0.135, -0.13], turn: -42, lean: 5, right: [-0.64, 1.05, -0.29], left: [-24, 15, 33], yaw: -123, pitch: -14, roll: 81 },
-  impact: { hip: [0.045, -0.16, 0.19], turn: 22, lean: 15, right: [-0.26, 1.09, 0.56], left: [24, 27, 27], yaw: -7, pitch: 5, roll: 77 },
-  follow: { hip: [0.13, -0.145, 0.22], turn: 57, lean: 13, right: [0.12, 1.01, 0.52], left: [34, 18, 40], yaw: 89, pitch: 20, roll: 68 },
+  load: { hip: [-0.10, -0.135, -0.10], turn: -42, lean: 5, right: [-0.64, 1.08, -0.14], left: [-28, 16, 48], yaw: -115, pitch: -12, roll: 81 },
+  impact: { hip: [0.045, -0.15, 0.19], turn: 22, lean: 14, right: [-0.24, 1.10, 0.62], left: [14, 24, 42], yaw: -7, pitch: 5, roll: 77 },
+  follow: { hip: [0.12, -0.14, 0.22], turn: 54, lean: 12, right: [0.08, 1.04, 0.58], left: [22, 18, 48], yaw: 78, pitch: 18, roll: 68 },
 };
 const motions: Record<string, AttackPose> = {
   hjCut: cut,
   hjBackhand: {
     entry: cut.follow, feet: [cut.feet[0], cut.feet[1] + cut.step!, cut.feet[2]],
-    load: { hip: [0.12, -0.17, 0.14], turn: 56, lean: 9, right: [0.09, 1.11, 0.46], left: [23, 19, 45], yaw: 111, pitch: 20, roll: -71 },
-    impact: { hip: [-0.07, -0.19, 0.15], turn: 4, lean: 17, right: [-0.32, 1.10, 0.52], left: [8, 25, 25], yaw: 7, pitch: -8, roll: -88 },
-    follow: { hip: [-0.12, -0.13, 0.13], turn: -37, lean: 8, right: [-0.64, 1.19, 0.19], left: [-7, 22, 26], yaw: -89, pitch: -25, roll: -96 },
+    load: { hip: [0.10, -0.15, 0.14], turn: 52, lean: 9, right: [0.06, 1.12, 0.56], left: [18, 20, 48], yaw: 96, pitch: 18, roll: -71 },
+    impact: { hip: [-0.07, -0.17, 0.15], turn: 4, lean: 15, right: [-0.32, 1.10, 0.60], left: [6, 24, 38], yaw: 7, pitch: -8, roll: -88 },
+    follow: { hip: [-0.12, -0.13, 0.13], turn: -37, lean: 8, right: [-0.64, 1.18, 0.26], left: [-12, 22, 36], yaw: -86, pitch: -22, roll: -96 },
   },
   hjReap: {
     feet: [0.31, 0.13, -0.24], step: 0.25,
-    load: { hip: [-0.13, -0.24, -0.14], turn: -43, lean: 23, right: [-0.66, 0.63, -0.18], left: [-13, 21, 40], yaw: -131, pitch: 14 },
-    impact: { hip: [0.05, -0.27, 0.20], turn: 27, lean: 34, right: [-0.24, 0.59, 0.56], left: [24, 33, 24], yaw: -7, pitch: 8 },
-    follow: { hip: [0.14, -0.21, 0.21], turn: 59, lean: 22, right: [0.15, 0.70, 0.58], left: [42, 21, 38], yaw: 109, pitch: 6 },
+    // Keep sickle cleanly in front of the waist/knees (never jammed under chin or slicing across torso!)
+    load: { hip: [-0.12, -0.16, -0.10], turn: -40, lean: 14, right: [-0.66, 0.84, -0.04], left: [-24, 20, 52], yaw: -118, pitch: 10 },
+    impact: { hip: [0.05, -0.18, 0.20], turn: 24, lean: 20, right: [-0.22, 0.78, 0.68], left: [14, 26, 44], yaw: -6, pitch: 6 },
+    follow: { hip: [0.12, -0.15, 0.21], turn: 50, lean: 16, right: [0.04, 0.84, 0.66], left: [22, 22, 48], yaw: 76, pitch: 4 },
   },
   hjLob: {
     feet: [0.24, 0.12, -0.21], step: 0.21,
-    load: { hip: [-0.09, -0.16, -0.15], turn: -32, lean: -17, right: [-0.53, 1.69, -0.38], left: [-38, 14, 43], yaw: -9, pitch: -95 },
-    impact: { hip: [0.035, -0.14, 0.18], turn: 18, lean: 19, right: [-0.31, 1.64, 0.59], left: [14, 22, 28], yaw: 5, pitch: -31 },
-    follow: { hip: [0.09, -0.20, 0.24], turn: 38, lean: 34, right: [-0.05, 0.93, 0.68], left: [29, 17, 39], yaw: 7, pitch: 36 },
+    load: { hip: [-0.09, -0.14, -0.12], turn: -32, lean: -14, right: [-0.54, 1.66, -0.26], left: [-38, 16, 48], yaw: -9, pitch: -92 },
+    impact: { hip: [0.035, -0.12, 0.18], turn: 18, lean: 14, right: [-0.30, 1.60, 0.62], left: [10, 22, 40], yaw: 5, pitch: -30 },
+    follow: { hip: [0.08, -0.14, 0.22], turn: 34, lean: 20, right: [-0.08, 1.02, 0.68], left: [16, 18, 44], yaw: 7, pitch: 30 },
   },
   hjSweep: {
-    feet: [0.39, 0.14, -0.30], step: 0.28,
-    load: { hip: [-0.15, -0.22, -0.11], turn: -45, lean: 7, right: [-0.60, 1.21, 0.14], left: [-53, 13, 40], yaw: -116, pitch: -9, grip: 1 },
-    impact: { hip: [0.065, -0.25, 0.20], turn: 26, lean: 16, right: [0.04, 1.19, 0.70], left: [-38, 16, 30], yaw: -8, pitch: 0, grip: 1 },
-    follow: { hip: [0.18, -0.22, 0.25], turn: 62, lean: 14, right: [0.29, 1.14, 0.63], left: [33, 30, 38], yaw: 101, pitch: 12 },
+    feet: [0.40, 0.16, -0.30], step: 0.28,
+    // Scaled for hj_boss's broad armored frame (sh at ±0.74m, y=1.61m) & long halberd (-0.63m rear butt):
+    // keeps BOTH hands and the entire polearm shaft cleanly IN FRONT of his chest/beard with zero face/torso penetration!
+    load: { hip: [-0.14, -0.18, -0.08], turn: -42, lean: 6, right: [-0.82, 1.34, 0.36], left: [-46, 16, 44], yaw: -98, pitch: -8, grip: 1 },
+    impact: { hip: [0.06, -0.20, 0.20], turn: 24, lean: 12, right: [-0.18, 1.30, 0.94], left: [-34, 18, 36], yaw: -8, pitch: 0, grip: 1 },
+    follow: { hip: [0.16, -0.18, 0.24], turn: 54, lean: 10, right: [0.12, 1.26, 0.90], left: [18, 26, 44], yaw: 72, pitch: 10 },
   },
   hjThrust: {
-    feet: [0.32, 0.21, -0.28], step: 0.19,
-    load: { hip: [-0.09, -0.24, -0.19], turn: -22, lean: 18, right: [-0.64, 0.98, -0.28], left: [-24, 17, 44], yaw: 6, pitch: 4 },
-    impact: { hip: [0.04, -0.22, 0.25], turn: 28, lean: 34, right: [-0.35, 1.17, 0.97], left: [34, 24, 23], yaw: 0, pitch: -2 },
-    follow: { hip: [0.09, -0.16, 0.29], turn: 24, lean: 21, right: [-0.40, 1.13, 0.80], left: [20, 19, 38], yaw: 0, pitch: 8 },
+    feet: [0.34, 0.21, -0.28], step: 0.19,
+    load: { hip: [-0.09, -0.18, -0.14], turn: -22, lean: 14, right: [-0.74, 1.22, 0.04], left: [-24, 18, 48], yaw: 6, pitch: 4 },
+    impact: { hip: [0.04, -0.18, 0.25], turn: 26, lean: 24, right: [-0.36, 1.28, 1.02], left: [22, 24, 34], yaw: 0, pitch: -2 },
+    follow: { hip: [0.09, -0.14, 0.29], turn: 22, lean: 16, right: [-0.42, 1.24, 0.86], left: [16, 20, 40], yaw: 0, pitch: 8 },
   },
   hjThunder: {
     feet: [0.37, 0.05, -0.08],
@@ -111,11 +114,11 @@ function reach(frame: THREE.Object3D, upper: Bone, lower: Bone, end: Bone, at: T
 /** Hips drive first. The weapon accelerates into the strike and brakes into the follow-through. */
 function sample(a: Action, move: AttackPose, body = false) {
   const wind = a.at * a.dur, tail = a.dur - wind, time = a.t - wind;
-  const drive = Math.min(body ? 0.18 : 0.105, wind * (body ? 0.40 : 0.34));
+  const drive = Math.min(body ? 0.18 : 0.10, wind * (body ? 0.40 : 0.32));
   const brake = Math.min(body ? 0.15 : 0.12, tail * 0.48);
-  if (time < -drive) return { from: move.entry, to: move.load, mix: curve(a.t, [[0, 0], [wind * 0.55, 1]]) };
-  if (time < 0) return { from: move.load, to: move.impact, mix: (1 + time / drive) ** (body ? 1.25 : 1.85) };
-  if (time < brake) return { from: move.impact, to: move.follow, mix: 1 - (1 - time / brake) ** 2 };
+  if (time < -drive) return { from: move.entry, to: move.load, mix: curve(a.t, [[0, 0], [wind * 0.52, 1]]) };
+  if (time < 0) return { from: move.load, to: move.impact, mix: (1 + time / drive) ** (body ? 1.3 : 2.15) };
+  if (time < brake) return { from: move.impact, to: move.follow, mix: 1 - (1 - time / brake) ** 2.4 };
   const settle = Math.min(tail * 0.78, a.name === 'hjThrust' ? 0.40 : brake + 0.085);
   return { from: move.follow, to: undefined, mix: curve(time, [[Math.max(brake, settle), 0], [tail, 1]]) };
 }
@@ -174,26 +177,27 @@ const pose: PoseFn = (b, t, action) => {
   const rotation = (key?: Key) => key ? new THREE.Quaternion().setFromEuler(new THREE.Euler(key.pitch * RAD, key.yaw * RAD, (key.roll ?? 0) * RAD, 'YXZ')) : idleGrip.clone();
   const grip = rotation(from).slerp(rotation(to), mix);
   const right = (from ? xyz(from.right) : idleR.clone()).lerp(to ? xyz(to.right) : idleR, mix);
-  reach(frame, b.armR, b.foreR, b.handR, right, new THREE.Vector3(-1, -0.65, -0.3));
-  // Orient the fist and weapon together so the blade never spins independently of the grip.
+  clearTorso(b, 'R', right, weight);
+  reach(frame, b.armR, b.foreR, b.handR, right, new THREE.Vector3(-1, -0.65, -0.45), true);
+  // Orient the fist and weapon together with anatomical wrist limit so wrists never snap off the forearm cuff.
   orient(frame, b.handR, grip.clone().multiply(b.weapon.quaternion.clone().invert()));
+  limitAnatomicalWrist(b.handR, b.weapon);
   b.armL.rotation.x = blend(from ? from.left[0] * RAD : b.armL.rotation.x, to ? to.left[0] * RAD : b.armL.rotation.x);
   b.armL.rotation.z = blend(from ? from.left[1] * RAD : b.armL.rotation.z, to ? to.left[1] * RAD : b.armL.rotation.z);
   const elbow = b.foreL.rotation.x;
   b.foreL.rotation.set(blend(from ? -from.left[2] * RAD : elbow, to ? -to.left[2] * RAD : elbow), 0, 0);
+  // Refresh matrices before reading weapon haft for two-handed guide grip (prevents 1-frame support lag)
   const guide = blend(from?.grip ?? 0, to?.grip ?? 0);
   if (guide > 0) {
+    frame.updateMatrixWorld(true);
     const haft = frame.worldToLocal(b.weapon.localToWorld(new THREE.Vector3(-0.015, 0.015, -0.47)));
     const left = positionIn(frame, b.handL), palm = rotationIn(frame, b.handL);
     left.lerp(haft.add(new THREE.Vector3(-0.018, 0.09, -0.018).applyQuaternion(grip)), guide);
     reach(frame, b.armL, b.foreL, b.handL, left, new THREE.Vector3(0.8, -1, -0.38), true);
     orient(frame, b.handL, palm.slerp(grip, guide));
   }
-
-  const swing = Math.sin(t * 17) * 0.06 * weight;
-  for (const name of ['scA1', 'scA2', 'scB1', 'scB2']) {
-    if (b[name]) b[name].rotation.x -= (0.25 + Math.abs(turn) * 0.30) * weight + swing;
-  }
+  // Yellow Turban tails (scA/scB) are now driven by FoeAccessories 2nd-order spring chains (no sine override)
+  void t;
 };
 
 for (const id of ['hj_blade', 'hj_blade_e', 'hj_boss', 'hj_sickle', 'hj_jar']) POSE_AFTER[id] = pose;

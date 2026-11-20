@@ -241,18 +241,10 @@ export class Hero {
   /** act-44: a cutscene's own pose, laid on after the actor's update each frame (getting up off the mat); null = none */
   scriptPose: (() => void) | null = null;
   deathPose() {
+    // Handled natively inside ninjaAct.ts heroFall() (4-beat kneel -> blade-prop -> side-forward collapse) for both gameplay & preview
     if (this.st !== 'dead') return;
-    const t = this.t, b = this.a.bones, sm = (x: number) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
-    const k1 = sm(t / 0.16) * (1 - sm((t - 0.2) / 0.3)), k2 = sm((t - 0.14) / 0.42), k3 = sm((t - 0.72) / 0.55), s = this.deathSide;
-    rot(b.spine, -0.4 * k1 + 0.5 * k2 * (1 - 0.7 * k3), 0, 0); rot(b.chest, -0.15 * k1 + 0.22 * k2 * (1 - 0.5 * k3), 0, 0);
-    rot(b.neck, -0.3 * k1 + 0.3 * k2, 0, 0); rot(b.head, -0.25 * k1 + 0.35 * k2, 0.25 * k3 * s, 0);
-    mov(b.hips, 0, -0.44 * k2 * (1 - 0.7 * k3), -0.06 * k2);
-    rot(b.legL, 0.3 * k2 * (1 - 0.4 * k3) + 0.4 * k3, 0, 0.06 * k2); rot(b.shinL, -1.75 * k2 * (1 - 0.55 * k3), 0, 0); rot(b.footL, 0.5 * k2 * (1 - k3), 0, 0);
-    rot(b.legR, 0.2 * k2 * (1 - 0.4 * k3) + 0.15 * k3, 0, -0.06 * k2); rot(b.shinR, -1.65 * k2 * (1 - 0.7 * k3), 0, 0); rot(b.footR, 0.5 * k2 * (1 - k3), 0, 0);
-    rot(b.armR, -0.6 * k1 + 0.45 * k2, 0, 0.25 * k2); rot(b.foreR, 0.2 * k2, 0, 0);
-    rot(b.armL, -0.35 * k1 + 0.25 * k2 + 0.6 * k3, 0, -0.15 * k2 - 0.5 * k3 * s); rot(b.foreL, -0.3 * k3, 0, 0);
-    // over onto her side, pivoting low (the hips are already down on the heels)
-    this.a.body.rotation.set(0, 0, (Math.PI / 2 - 0.12) * k3 * s); this.a.body.position.set(-0.18 * k3 * s, 0.1 * k3, 0);
+    this.a.body.rotation.set(0, 0, 0);
+    this.a.body.position.set(0, 0, 0);
   }
   /** 0..1 while holding a charge (the HUD and the ring under the hero show it), else 0 */
   get charge() { return this.st === 'charge' ? this.chargeK : 0; }
@@ -336,15 +328,18 @@ export class Hero {
   /** seconds since the last take-off (the push pose) */
   private airT = 9;
   /** 回据点 from the pause menu: she falls where she stands (the run ends as a death) */
-  giveUp() { this.hp = 0; this.set('dead', 99); this.a.dead = true; }
+  giveUp() { this.hp = 0; this.set('dead', 99); this.a.fall(0); }
   hurt(dmg: number, from: THREE.Vector3): boolean {
     if (!this.alive || this.iframe) return false;
     this.hp = Math.max(0, this.hp - dmg); this.inv = TUNE.hurtIframe; this.linkT = 0; this.dashTailT = 0;
     const away = this.pos.clone().sub(from).setY(0); if (away.lengthSq() < 1e-4) away.set(0, 0, 1); away.normalize();
+    // Direction blow arrived FROM in hero's local frame (0 = front, PI = back, +PI/2 = left, -PI/2 = right)
+    const rawFrom = Math.atan2(from.x - this.pos.x, from.z - this.pos.z) - this.a.yaw;
+    const fromAngle = Math.atan2(Math.sin(rawFrom), Math.cos(rawFrom));
     this.vel.copy(away).multiplyScalar(7); motionOf(this.a).charge = 0;
     if (this.vy > 0) this.vy = 0;
-    if (this.hp <= 0) { this.set('dead', 99); this.a.dead = true; this.deathSide = Math.random() < 0.5 ? 1 : -1; return true; }
-    this.set('hurt', 0.26); this.a.play(new Action('hurt', 0.4, 0.1, { power: 1.2 })); this.a.hit(1);
+    if (this.hp <= 0) { this.set('dead', 99); this.deathSide = Math.random() < 0.5 ? 1 : -1; this.a.fall(fromAngle); return true; }
+    this.set('hurt', 0.26); this.a.play(new Action('hurt', 0.42, 0.1, { power: 1.2, fromAngle })); this.a.hit(1);
     return true;
   }
   update(dt: number, inp: Input, w: HeroWorld) {

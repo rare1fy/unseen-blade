@@ -15,13 +15,15 @@ function soldier(body: Body, elite = false, sleeves = RED) {
   const v = fine(), boss = body === 'boss', mounted = body === 'mounted';
   const rag = body === 'rags' || body === 'ragsB', z = mounted ? 17 : 0;
   const hip = (boss ? 26 : 23) + z, waist = hip + 4, chest = hip + 8;
-  const shoulder = hip + (boss ? 16 : 13), elbow = shoulder - (boss ? 10 : mounted ? 7 : 8), hand = elbow - (boss ? 9 : mounted ? 6 : 7);
+  // Heroic martial arm proportions (elongated from stubby 13-19 cells to full 17-23 cells so arms clear broad lamellar chests cleanly!)
+  const shoulder = hip + (boss ? 16 : 13), elbow = shoulder - (boss ? 12 : mounted ? 9 : 10), hand = elbow - (boss ? 11 : mounted ? 8 : 9);
   const sx = boss ? 14 : rag ? 9 : 11, spread = mounted ? 14 : boss ? 6 : 5, armZ = mounted ? 6 : 0;
   const width = boss ? 10 : rag ? 5 : 8, depth = boss ? 8 : rag ? 5 : 6, knee = (boss ? 13 : 11) + z;
   const neck = shoulder + 2, skull = neck + 2, crown = skull + (boss ? 12 : rag ? 10 : 11), cap = elite ? GOLD : STEEL_M;
   const inside = boss ? SKIN_D : rag ? ASH_D : RED_D;
+  const gripY = hand - (rag ? 1 : 2);
   skel(v, { hip, spine: waist, chest, neck, head: skull, jaw: [skull + 2, 3], hat: crown, cape: [shoulder, -depth],
-    sh: [sx, shoulder, armZ], fore: elbow, hand, weapon: [-sx, hand - 1, armZ], offhand: [sx, hand - 1, armZ], leg: spread, knee });
+    sh: [sx, shoulder, armZ], fore: elbow, hand, weapon: [-sx, gripY, armZ], offhand: [sx, gripY, armZ], leg: spread, knee });
 
   // 髋和上身能与马分开。腿在鞍两侧，足关节第二次定义是为了抬到镫的位置。
   const waistPart = mounted ? 'saddleSeat' : 'hips';
@@ -59,16 +61,26 @@ function soldier(body: Body, elite = false, sleeves = RED) {
 
   for (const [L, s] of SIDES) {
     const [arm0, arm1] = MX(s, sx - 2, sx + (boss ? 4 : 3)), [fore0, fore1] = MX(s, sx - 1, sx + 2);
-    const [fist0, fist1] = s > 0 ? [sx - 2, sx + 1] : [-sx - 2, -sx + 1], ox = s > 0 ? arm1 : arm0;
+    const ox = s > 0 ? arm1 : arm0;
     const ad = boss ? 4 : rag ? 3 : 4;
     B(v, 'arm' + L, arm0, elbow, armZ - ad, arm1, shoulder - 1, armZ + ad - 1, boss || (rag && s > 0) ? SKIN : sleeves);
     B(v, 'arm' + L, ox, shoulder - 1, armZ - ad, ox, shoulder - 1, armZ + ad - 1, null); // sloped shoulder cap!
     B(v, 'fore' + L, fore0, hand + 1, armZ - 3, fore1, elbow - 1, armZ + 2, SKIN_D);
     if (!rag) B(v, 'fore' + L, fore0, hand + 2, armZ - 3, fore1, elbow - 2, armZ + 2, LEATHER);
-    B(v, 'hand' + L, fist0, hand - 3, armZ - 2, fist1, hand, armZ + 1, SKIN);
+    // Proportionate beefy fists (6×6×6 warlord fist on boss, 5×5×5 armored soldier fist on troops, 4×5×4 on looters)
+    const [fist0, fist1] = boss
+      ? (s > 0 ? [sx - 3, sx + 2] : [-sx - 3, -sx + 2])
+      : rag
+        ? (s > 0 ? [sx - 2, sx + 1] : [-sx - 2, -sx + 1])
+        : (s > 0 ? [sx - 2, sx + 2] : [-sx - 3, -sx + 1]);
+    const fy0 = hand - (boss ? 5 : 4), fz0 = armZ - (boss ? 3 : 2), fz1 = armZ + (rag ? 1 : 2);
+    const knX = s > 0 ? fist1 : fist0;
+    B(v, 'hand' + L, fist0, fy0, fz0, fist1, hand, fz1, SKIN)
+      .box(knX, fy0, fz0, knX, hand - 1, fz1, SKIN_D);
+    if (!rag) B(v, 'hand' + L, fist0, hand, fz0, fist1, hand, fz1, boss ? IRON : LEATHER);
     // 握心是通孔。两只手都能接长兵器，柄随手转时不会把掌心盖掉。
-    const grip = s * sx;
-    B(v, 'hand' + L, grip - 1, hand - 2, armZ - 2, grip, hand - 1, armZ + 1, null);
+    const grip = s * sx, gh0 = rag ? hand - 2 : hand - 3, gh1 = rag ? hand - 1 : hand - 2;
+    B(v, 'hand' + L, grip - 1, gh0, fz0, grip, gh1, fz1, null);
 
     const [a, b] = MX(s, spread - 3, spread + (boss ? 4 : rag ? 1 : 3)), [ia, ib] = MX(s, spread - 2, spread + 2);
     const ld = rag ? 3 : 4;

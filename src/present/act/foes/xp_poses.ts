@@ -62,7 +62,8 @@ reg('xp_assassin', (b, _t, a, off) => {
     const r = Math.min(1, two ? attackBeats(a!, false, a!.at * 0.73).hit : motion.hit);
     const l = two ? Math.min(1, motion.hit) : 0, thr = motion.hip, w = engagement(a!);
     mov(b.hips, 0, -0.14 * coil - 0.12 * thr, -0.07 * motion.load + D * 0.44 * thr);
-    rot(b.spine, 0.27 * coil + 0.40 * thr, 0.38 * (r - l), 0); put(b.neck, -0.22 * coil - 0.23 * thr);
+    const spY = 0.38 * (r - l);
+    rot(b.spine, 0.27 * coil + 0.40 * thr, spY, 0); put(b.neck, -0.22 * coil - 0.23 * thr, -spY * 0.7, 0);
     stance(b, w, 0.27 * thr, 0, two ? 'L' : 'R');
     // Both daggers point down the same line. The right retracts as the elite's left passes it.
     const right = r * (1 - 0.89 * l);
@@ -187,7 +188,8 @@ reg('xp_chain', (b, t, a) => {
     rot(b.spine, 0.06 * out, 0, 0); bend(b, 0.22 * out);
     dragChain(b);
     grip(b, 'R', Math.sin(yaw) * 1.13, 1.31, Math.cos(yaw) * 1.13, 0.08, yaw, out);
-    grip(b, 'L', -Math.sin(yaw) * 0.65, 1.34, -Math.cos(yaw) * 0.65, 0.18, turn, out);
+    // Counter-balance left arm directly in torso frame so spinning never drags the hand through his chest
+    put(b.armL, -0.18 * out, 0, 1.12 * out); put(b.foreL, -0.38 * out); put(b.handL, 0, 0, 0);
     for (const c of CHAINS) toward(b[c], 0.0, -0.04, 0, out);
     return;
   }
@@ -202,7 +204,7 @@ reg('xp_chain', (b, t, a) => {
     weaponArc(b, a!, motion, 'R',
       [-0.70, 1.97, 0.04, -2.02, -0.28], [-0.35, 1.19, 0.63, 0.55, 0.09],
       [-0.30, 1.04, 0.62, 0.44, 0.08], w);
-    grip(b, 'L', 0.60, 1.35 + 0.27 * up, 0.16 - 0.18 * dn, -0.20, 0, w);
+    grip(b, 'L', 0.68, 1.28 + 0.24 * up, 0.32 - 0.08 * dn, -0.20, 0, w);
     for (const c of CHAINS) toward(b[c], 0.08 * up, 0, 0, w);
     return;
   }
@@ -234,9 +236,10 @@ reg('xp_boss', (b, t, a, off) => {
     const motion = attackBeats(a!, true);
     attackBody(b, motion, 'ranged');
     const { load: wind, hit: fl, late } = motion;
-    rot(b.spine, 0, 0.35 * wind - 0.3 * fl, 0); rot(b.chest, 0, 0.25 * wind - 0.2 * fl, 0);
+    const spY = 0.35 * wind - 0.3 * fl, chY = 0.25 * wind - 0.2 * fl;
+    rot(b.spine, 0, spY, 0); rot(b.chest, 0, chY, 0); rot(b.neck, 0, -(spY + chY) * 0.7, 0);
     weaponArc(b, a!, motion, 'R',
-      [0.20, 1.49, 0.37, -0.28, 1.51], [-0.22, 1.31, 0.61, 0, 0], [-0.62, 1.19, 0.36, 0.20, -1.2]);
+      [0.20, 1.49, 0.37, -0.28, 1.51], [-0.22, 1.31, 0.61, 0, 0], [-0.62, 1.19, 0.36, 0.20, -1.2], engagement(a!), 0.12);
     put(b.armL, 0.25 * wind - 0.3 * late, 0, 0.3 * late); put(b.foreL, -0.4 * wind - 0.3 * late);
     rot(b.legL, -0.25 * fl, 0, 0); rot(b.legR, 0.2 * fl, 0, 0);
     return;
@@ -247,12 +250,13 @@ reg('xp_boss', (b, t, a, off) => {
     const motion = attackBeats(a!, true);
     attackBody(b, motion);
     const { load: wind, hit: cut, hip: step, late } = motion;
-    rot(b.spine, 0.3 * cut, -0.4 * wind + 0.35 * cut, 0); rot(b.chest, 0, -0.2 * wind + 0.2 * cut, 0);
+    const spY = -0.4 * wind + 0.35 * cut, chY = -0.2 * wind + 0.2 * cut;
+    rot(b.spine, 0.3 * cut, spY, 0); rot(b.chest, 0, chY, 0); rot(b.neck, -0.14 * cut, -(spY + chY) * 0.72, 0);
     // The short bright edge is on local -Y. Roll it toward the right so the
     // edge leads the left-handed sweep across his chest.
     weaponArc(b, a!, motion, 'L',
       [0.52, 1.42, -0.04, -0.76, 1.75, -PI / 2], [0.03, 1.25, 0.58, 0.08, 0, -PI / 2],
-      [-0.31, 1.11, 0.43, 0.34, -1.08, -PI / 2]);
+      [-0.31, 1.11, 0.43, 0.34, -1.08, -PI / 2], engagement(a!), 0.14);
     off.z += -0.05 * wind + 0.35 * step;
     rot(b.armR, 0.32 * late, 0, -0.25 * late);
     rot(b.legL, -0.4 * step, 0, 0); rot(b.shinL, 0.25 * step, 0, 0); rot(b.legR, 0.3 * step, 0, 0); bend(b, 0.15 * step);

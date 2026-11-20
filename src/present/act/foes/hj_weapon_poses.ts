@@ -19,10 +19,12 @@ export function shootBow(b: Bones, a: Action) {
   // The stave's long axis is +Z, the string sits behind it on local +Y.
   grip(b, 'L', -0.16 + 0.57 * (1 - w), 1.34 - 0.035 * kick, 0.39 + 0.32 * draw - 0.055 * kick,
     -Math.PI / 2 + 0.09 * kick, 0, w);
+  b.root.updateMatrixWorld(true);
   slack.copy(b.stringA.position).lerp(b.stringB.position, 0.5);
   b.root.worldToLocal(b.offhand.localToWorld(nock.copy(slack)));
   grip(b, 'R', nock.x + (-0.39 - nock.x) * draw, nock.y + (1.46 - nock.y) * draw,
     nock.z + (0.13 - nock.z) * draw - 0.105 * loose, -0.18, 0, w);
+  b.root.updateMatrixWorld(true);
   b.offhand.worldToLocal(b.weapon.getWorldPosition(nock));
   drawString(b, slack.lerp(nock, w * (1 - loose)), 'z');
 }
@@ -42,12 +44,14 @@ export function swingHammer(b: Bones, a: Action) {
   stance(b, w, 0.13 * beats.hip);
   // Both shoulders come forward when the large fists close around the short haft.
   mov(b.shR, 0.14 * w, 0, 0.10 * w); mov(b.shL, -0.15 * w, 0, 0.12 * w);
-  // Turn the head of the hammer out over the brow before the fists descend.
+  // Turn the head of the hammer out over the brow before the fists descend; add impact micro-shudder on ground slam.
   const arc = 1 - (1 - hit) ** 3;
-  const pitch = sweep ? 0.04 : -2.48 + 2.70 * arc;
-  const yaw = sweep ? -1.83 + 1.87 * hit + 1.40 * follow * w ** 2 : 0.70 - 1.16 * arc - 0.65 * Math.sin(Math.PI * hit);
+  const sh = beats.shudder * (sweep ? 0.025 : 0.032);
+  const pitch = (sweep ? 0.04 : -2.48 + 2.70 * arc) + sh;
+  const yaw = (sweep ? -1.83 + 1.87 * hit + 1.40 * follow * w ** 2 : 0.70 - 1.16 * arc - 0.65 * Math.sin(Math.PI * hit)) + (sweep ? sh : 0);
   if (sweep) {
     // Carry the space between the fists around the outside of the turning breastplate.
+    b.root.updateMatrixWorld(true);
     b.root.worldToLocal(b.chest.localToWorld(haft.set(0, -0.035, 0.52)));
     haft.x += 0.105 * Math.sin(yaw); haft.z += 0.105 * Math.cos(yaw);
   } else {

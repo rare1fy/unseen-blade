@@ -480,6 +480,24 @@ function buildHuanyue(): V {
 
 // ================================================================== poses (bone angles and metres only: the same on the 7 cm and the fine figures)
 type Bones = Record<string, Bone>;
+/** asymmetric natural breath: slightly brisker inhale (42%), slower relaxed exhale (58%) */
+function asymBreath(t: number, period: number) {
+  const u = ((t / period) % 1 + 1) % 1;
+  return u < 0.42 ? Math.sin((u / 0.42) * Math.PI * 0.5) ** 1.3 * 2 - 1 : Math.cos(((u - 0.42) / 0.58) * Math.PI);
+}
+interface NpcSpring { x: number; vx: number; z: number; vz: number; t: number }
+const NPC_SPR = new WeakMap<object, NpcSpring>();
+function stepNpcCloth(key: object, t: number, tx: number, tz: number, k = 32, d = 8.5): [number, number] {
+  let s = NPC_SPR.get(key);
+  if (!s || t < s.t || t - s.t > 0.5) { s = { x: tx, vx: 0, z: tz, vz: 0, t }; NPC_SPR.set(key, s); return [s.x, s.z]; }
+  const dt = Math.min(0.05, t - s.t); s.t = t;
+  if (dt > 0) {
+    s.vx += ((tx - s.x) * k - s.vx * d) * dt; s.x += s.vx * dt;
+    s.vz += ((tz - s.z) * k - s.vz * d) * dt; s.z += s.vz * dt;
+  }
+  return [s.x, s.z];
+}
+
 /** act-30 (用户：「人物的动画、穿模那些问题必须好好解决一下」): a walk for any of the people while a cutscene walks them (it sets
  *  walkPh on the actor; the idle hook runs first, this replaces the legs, arms and the bob). Returns true while walking */
 function walkOver(b: Bones, self: unknown, stoop = 0) {
@@ -487,17 +505,18 @@ function walkOver(b: Bones, self: unknown, stoop = 0) {
   const s = Math.sin(ph), c = Math.cos(ph), k = 0.48;
   restOf(b, WALK_BONES, 1);   // (the idle's hand-rubbing, toe taps and weight shifts would ride on the stride)
   // (act-44 用户：「走路脚板都脱离脚踝了」) the thighs swing opposite; a knee bends while its leg swings forward (cos > 0 for the left),
-  // straight when it plants; the foot turns at the ankle only, most of the way back to level; the hips ride on the longer leg so the
-  // planted foot stays on the ground (lowest when the legs are spread, highest as they pass)
-  const tL = -s * k, tR = s * k, kL = Math.max(0, c) * 0.75, kR = Math.max(0, -c) * 0.75;
+  // straight when it plants; ankle rolls smoothly from heel-strike to push-off; hips ride on the longer leg so the planted foot stays down
+  const tL = -s * k, tR = s * k, kL = Math.max(0, c) * 0.82, kR = Math.max(0, -c) * 0.82;
+  const rollL = 0.14 * Math.sin(ph - 0.55) * Math.max(0, c), rollR = 0.14 * Math.sin(ph + Math.PI - 0.55) * Math.max(0, -c);
   rot(b.legL, tL, 0, 0); rot(b.legR, tR, 0, 0);
   if (b.shinL) rot(b.shinL, kL, 0, 0); if (b.shinR) rot(b.shinR, kR, 0, 0);
-  if (b.footL) rot(b.footL, -0.75 * (tL + kL), 0, 0); if (b.footR) rot(b.footR, -0.75 * (tR + kR), 0, 0);
+  if (b.footL) rot(b.footL, -0.78 * (tL + kL) + rollL, 0, 0); if (b.footR) rot(b.footR, -0.78 * (tR + kR) + rollR, 0, 0);
   const [T, S] = legLen(b), reach = Math.max(T * Math.cos(tL) + S * Math.cos(tL + kL), T * Math.cos(tR) + S * Math.cos(tR + kR));
-  mov(b.hips, 0, -(T + S - reach), 0); rot(b.hips, 0, s * 0.08, 0);
-  if (b.spine) rot(b.spine, 0.08 + stoop, -s * 0.06, 0);
-  if (b.armL) rot(b.armL, s * 0.45, 0, 0.1); if (b.armR) rot(b.armR, -s * 0.45, 0, -0.1);
-  if (b.foreL) rot(b.foreL, -0.35, 0, 0); if (b.foreR) rot(b.foreR, -0.35, 0, 0);
+  mov(b.hips, 0, -(T + S - reach), 0); rot(b.hips, 0, -s * 0.075, -s * 0.025);
+  if (b.spine) rot(b.spine, 0.08 + stoop, s * 0.11, s * 0.02);
+  if (b.neck) rot(b.neck, 0, -s * 0.035, 0);
+  if (b.armL) rot(b.armL, s * 0.48, 0, 0.1); if (b.armR) rot(b.armR, -s * 0.48, 0, -0.1);
+  if (b.foreL) rot(b.foreL, -0.34 - 0.18 * Math.max(0, -s), 0, 0); if (b.foreR) rot(b.foreR, -0.34 - 0.18 * Math.max(0, s), 0, 0);
   if (b.head) rot(b.head, 0, 0, 0);
   return true;
 }
@@ -540,51 +559,84 @@ POSE_HOOKS.npc_duwu = (b: Bones, t: number, _a: unknown, _o: unknown, self: unkn
   rot(b.neck, 0.1 * scr, 0, -0.1 * scr);
   if (!walkOver(b, self)) crouchOver(b, self);   // act-30: cutscenes
 };
-/** 孙媪: still — a slight sway and the breath, a stoop; now and then the needles come up close to the good eye */
-POSE_HOOKS.npc_sunao = (b: Bones, t: number) => {
-  const c = t % 10, br = Math.sin(t * 1.6), look = win(c, 6.0, 8.6, 0.6);
+/** 孙媪: still — a slight sway and the breath, a stoop; articulated 2-tier skirt flows gently when walking/turning */
+POSE_HOOKS.npc_sunao = (b: Bones, t: number, _a, _o, self) => {
+  const c = t % 10, br = asymBreath(t, 3.8), look = win(c, 6.0, 8.6, 0.6);
+  const ph = (self as { walkPh?: number } | undefined)?.walkPh;
+  const walking = typeof ph === 'number';
   rot(b.hips, 0, 0, Math.sin(t * 0.7) * 0.02);
-  rot(b.spine, 0.22 + br * 0.012, Math.sin(t * 0.45) * 0.05, Math.sin(t * 0.7) * -0.015); rot(b.chest, 0.06, 0, 0);
-  rot(b.neck, -0.18, 0, 0); rot(b.head, -0.06 + 0.22 * look, Math.sin(t * 0.3) * 0.15 * (1 - look) + 0.15 * look, 0.05 * look);
+  rot(b.spine, 0.22 + br * 0.015, Math.sin(t * 0.45) * 0.05, Math.sin(t * 0.7) * -0.015); rot(b.chest, 0.06 + br * 0.01, 0, 0);
+  rot(b.neck, -0.18 - br * 0.008, 0, 0); rot(b.head, -0.06 + 0.22 * look, Math.sin(t * 0.3) * 0.15 * (1 - look) + 0.15 * look, 0.05 * look);
   rot(b.armR, -0.3 - 0.35 * look, 0, -0.08); rot(b.foreR, -1.25 - 0.55 * look, 0.2, 0); rot(b.weapon, 0.2 - 0.6 * look, 0, 0);
   rot(b.armL, -0.08, 0, 0.1); rot(b.foreL, -0.75, -0.2, 0); rot(b.offhand, 0.4, 0, 0);
+  if (walking) walkOver(b, self);
+  const trail = walking ? 0.09 + 0.03 * Math.sin(ph! * 2) : 0.015 * Math.sin(t * 1.4);
+  const side = walking ? 0.045 * Math.sin(ph!) : -Math.sin(t * 0.7) * 0.018;
+  const [rx1, rz1] = stepNpcCloth(b.robe1 ?? b, t, trail * 0.6, side * 0.6, 36, 7.2);
+  const [rx2, rz2] = stepNpcCloth(b.robe2 ?? (self as object), t, rx1 * 0.75 + (walking ? 0.05 : 0.01 * Math.sin(t * 1.4 - 0.7)), rz1 * 0.7, 26, 6.0);
+  rot(b.robe1, rx1, 0, rz1); rot(b.robe2, rx2, 0, rz2);
 };
-/** 冯铁臂: one slow blow every 2.4 s — lift high, a beat at the top, down hard on the blank (sparks), rest on it; the tongs steady */
+/** 冯铁臂: one heavy forged blow every 2.4 s — lift high with chest inhale & top hold, hip-led drop onto the blank, anvil rebound shudder */
 const FENG_LAST = new WeakMap<object, number>();
 POSE_HOOKS.npc_fengtiebi = (b: Bones, t: number, _a, _off, self) => {
-  const P = 2.4, k = (t % P) / P, br = Math.sin(t * 1.8);
-  const lift = ss(0.1, 0.52, k) * (1 - ss(0.66, 0.76, k)), hit = win(k, 0.74, 0.9, 0.04);
-  const strike = -0.78, top = -2.75;
-  rot(b.armR, strike + (top - strike) * lift, 0, -0.08 - 0.12 * lift); rot(b.foreR, -0.15 - 1.1 * lift, 0, 0);
-  rot(b.spine, 0.1 + 0.08 * hit - 0.06 * lift + br * 0.01, -0.12 * lift, 0); rot(b.chest, 0.04 + 0.04 * hit, -0.08 * lift, 0);
-  mov(b.hips, 0, -0.03 * hit, 0); rot(b.head, 0.18 + 0.06 * hit - 0.1 * lift, 0.1 * lift, 0); rot(b.neck, 0.05, 0, 0);
-  rot(b.armL, -0.1, 0, 0.04); rot(b.foreL, -0.2, 0, 0); rot(b.offhand, 0.3 + 0.06 * Math.sin(t * P), 0, 0);
+  const P = 2.4, k = (t % P) / P, br = asymBreath(t, 3.2);
+  // Slow heavy hoist (0.10->0.52), taut apex beat (0.52->0.66), explosive 2-3 frame downward drop (0.66->0.76)
+  const liftUp = ss(0.10, 0.50, k);
+  const drop = k < 0.66 ? 0 : k < 0.76 ? ((k - 0.66) / 0.10) ** 2.1 : 1;
+  const lift = liftUp * (1 - drop);
+  const hit = win(k, 0.75, 0.92, 0.035);
+  // Crisp anvil impact rebound + shudder right after k = 0.76
+  const post = k - 0.76;
+  const rebound = post > 0 && post < 0.14 ? Math.sin(post * 92) * Math.exp(-post * 26) * 0.095 : 0;
+  const hipLead = ss(0.62, 0.75, k) * (1 - ss(0.84, 0.96, k));
+  const strike = -0.78, top = -2.82;
+  rot(b.armR, strike + (top - strike) * lift - rebound, 0, -0.08 - 0.14 * lift);
+  rot(b.foreR, -0.15 - 1.15 * lift - rebound * 0.6, 0, 0);
+  rot(b.spine, 0.10 + 0.12 * hit - 0.08 * lift + br * 0.012, -0.15 * lift + 0.09 * hipLead, 0);
+  rot(b.chest, 0.04 + 0.06 * hit + 0.02 * rebound, -0.10 * lift + 0.07 * hit, 0);
+  mov(b.hips, 0, -0.042 * hit - 0.014 * hipLead, 0);
+  rot(b.head, 0.18 + 0.08 * hit - 0.12 * lift + rebound * 0.25, 0.12 * lift - 0.06 * hit, 0); rot(b.neck, 0.05, 0, 0);
+  rot(b.armL, -0.10 + 0.04 * rebound, 0, 0.04); rot(b.foreL, -0.20, 0, 0); rot(b.offhand, 0.30 + 0.05 * Math.sin(t * P) + 0.08 * rebound, 0, 0);
   // sparks off the blank as the hammer lands (once per blow)
   const act = self as { local?(x: number, y: number, z: number): THREE.Vector3; root?: THREE.Object3D } | undefined, prev = FENG_LAST.get(self as object) ?? k;
   FENG_LAST.set(self as object, k);
   if (act?.local && act.root?.parent && prev < 0.76 && k >= 0.76) fxSparks(act.local(FENG_STRIKE.x, FENG_STRIKE.y + 0.08, FENG_STRIKE.z), 0xffb050, 9, 3.4, { life: 0.4, size: 0.06, grav: 9, spread: 0.08 });
 };
-/** 卢昭: composed — reads the bamboo map, breathes, the cloak stirs; every few seconds she looks up and out, then back down */
-POSE_HOOKS.npc_luzhao = (b: Bones, t: number) => {
-  const c = t % 11, br = Math.sin(t * 1.4), up = win(c, 6.5, 9.5, 0.8);
-  rot(b.spine, 0.03 + br * 0.008, 0, 0); rot(b.chest, br * 0.01, 0, 0);
+/** 卢昭: composed — reads the bamboo map, breathes, cloak & articulated 2-tier 曲裾 robe stir on damped springs */
+POSE_HOOKS.npc_luzhao = (b: Bones, t: number, _a, _o, self) => {
+  const c = t % 11, br = asymBreath(t, 4.2), up = win(c, 6.5, 9.5, 0.8);
+  const ph = (self as { walkPh?: number } | undefined)?.walkPh;
+  const walking = typeof ph === 'number';
+  rot(b.spine, 0.03 + br * 0.01, 0, 0); rot(b.chest, br * 0.014, 0, 0);
   rot(b.neck, 0.12 * (1 - up), 0, 0); rot(b.head, 0.22 * (1 - up) - 0.04 * up, 0.38 * up * (Math.sin(t * 0.21) > 0 ? 1 : -1), 0.03 * up);
   rot(b.armL, -0.22, 0, 0.16); rot(b.foreL, -1.18, 0, 0); rot(b.armR, -0.22, 0, -0.16); rot(b.foreR, -1.18, 0, 0);
-  rot(b.clA1, 0.06 + Math.sin(t * 1.1) * 0.03, 0, Math.sin(t * 0.8) * 0.02); rot(b.clA2, 0.03 + Math.sin(t * 1.1 - 0.7) * 0.03, 0, 0);
+  if (walking) walkOver(b, self);
+  const gust = (walking ? 0.24 : 0.06) + 0.035 * Math.sin(t * 1.15) + 0.02 * Math.sin(t * 2.7 + 0.9);
+  const side = (walking ? 0.055 * Math.sin(ph!) : 0.025 * Math.sin(t * 0.85)) + 0.015 * Math.sin(t * 2.1);
+  const [cx1, cz1] = stepNpcCloth(b.clA1 ?? (self as object), t, gust, side, 22, 7.0);
+  const [cx2, cz2] = stepNpcCloth(b.clA2 ?? b, t, cx1 * 0.65 + 0.025 * Math.sin(t * 1.15 - 0.8), cz1 * 0.55, 16, 5.8);
+  rot(b.clA1, cx1, 0, cz1); rot(b.clA2, cx2, 0, cz2);
+  const rTrail = walking ? 0.11 + 0.035 * Math.sin(ph! * 2) : 0.02 * Math.sin(t * 1.3);
+  const rSide = walking ? 0.045 * Math.sin(ph!) : 0.012 * Math.sin(t * 0.9);
+  const [rx1, rz1] = stepNpcCloth(b.robe1 ?? b.hips, t, rTrail * 0.6, rSide * 0.6, 36, 7.0);
+  const [rx2, rz2] = stepNpcCloth(b.robe2 ?? b.spine, t, rx1 * 0.78 + (walking ? 0.06 : 0.015 * Math.sin(t * 1.3 - 0.8)), rz1 * 0.72, 24, 5.6);
+  rot(b.robe1, rx1, 0, rz1); rot(b.robe2, rx2, 0, rz2);
 };
-/** 桓越: sits on the bottom step (hips 0.35 m down, thighs out, shins down), the sword stuck in the ground before his right foot and
- *  his right hand on its hilt; the gourd on his left knee, up to his mouth every few seconds; the headband tails stir */
-POSE_HOOKS.npc_huanyue = (b: Bones, t: number) => {
-  const c = t % 8, br = Math.sin(t * 1.5), drink = win(c, 5.0, 7.0, 0.45);
+/** 桓越: sits on the bottom step, sword grounded, drinks from gourd, headband tails on damped spring */
+POSE_HOOKS.npc_huanyue = (b: Bones, t: number, _a, _o, self) => {
+  const c = t % 8, br = asymBreath(t, 4.0), drink = win(c, 5.0, 7.0, 0.45);
   mov(b.hips, 0, -0.35, 0);
   rot(b.legL, -1.5, 0, 0.16); rot(b.shinL, 1.38, 0, -0.1); rot(b.legR, -1.42, 0, -0.08); rot(b.shinR, 1.5, 0, 0.06);
-  const sp = -0.1 + br * 0.01, ch = 0.06;
+  const sp = -0.1 + br * 0.014, ch = 0.06 + br * 0.008;
   rot(b.spine, sp, 0, 0); rot(b.chest, ch, 0, 0);
   rot(b.neck, -0.05, 0, 0); rot(b.head, -0.1 - 0.3 * drink, 0.25 * Math.sin(t * 0.33) * (1 - drink), 0.05);
   const aR = -0.55, fR = -1.55;
   rot(b.armR, aR, 0, -0.18); rot(b.foreR, fR, 0, 0); rot(b.weapon, Math.PI / 2 - (sp + ch + aR + fR), 0, 0);
   rot(b.armL, -0.55 - 0.75 * drink, 0, 0.1 + 0.2 * drink); rot(b.foreL, -0.75 - 1.5 * drink, 0, 0); rot(b.offhand, 0.5 * (1 - drink), 0, 0);
-  rot(b.tlA1, 0.25 + Math.sin(t * 2.3) * 0.12, 0, Math.sin(t * 1.7) * 0.15);
+  const tx = 0.22 + 0.14 * drink + 0.09 * Math.sin(t * 2.1) + 0.05 * Math.sin(t * 4.9 + 0.7);
+  const tz = 0.11 * Math.sin(t * 1.5) + 0.06 * Math.sin(t * 3.7);
+  const [rx, rz] = stepNpcCloth(b.tlA1 ?? (self as object), t, tx, tz, 28, 7.0);
+  rot(b.tlA1, Math.max(0.04, rx), 0, rz);
 };
 
 // ================================================================== 杜五's grey donkey (灰驴): scene dressing that moves (hideout.ts builds it)
@@ -600,7 +652,7 @@ function buildDonkey(): V {
   const barrel = (part: string, z0: number, z1: number) => {
     B(v, part, -6, 16, z0, 5, 27, z1, G);
     for (const x of [-6, 5]) for (const y of [16, 27]) B(v, part, x, y, z0, x, y, z1, null);
-    v.paint(c => (c.y <= 17 ? GL : null), part);
+    v.paint(c => (c.y <= 17 ? GL : c.y === 27 ? 0x827e78 : null), part);
   };
   barrel('hips', -20, -1); for (const x of [-6, 5]) B(v, 'hips', x, 16, -20, x, 27, -20, null);
   // the neck first: where it sinks into the front barrel the barrel keeps its cells (no notch when the neck dips to the hay)
