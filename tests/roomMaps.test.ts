@@ -199,7 +199,14 @@ describe('drawn rooms', () => {
     expect(pickMap(REGIONS[1], 'calm', [], 1)?.id).toBe('yard_2');
     expect(pickMap(REGIONS[1], 'boss', [], 1)?.id).toBe('mint');
     expect(pickMap(REGIONS[0], 'boss', [], 1)).toBeNull();
-    expect(pickMap(REGIONS[3], 'fight', [], 1)).toBeNull();
+    expect(pickMap(REGIONS[2], 'boss', [], 1)?.id).toBe('baimen');
+    expect(pickMap(REGIONS[2], 'calm', [], 1)?.id).toBe('yard_3');
+    expect(pickMap(REGIONS[3], 'fight', [], 1)).not.toBeNull();
+    expect(pickMap(REGIONS[3], 'boss', [], 1)?.id).toBe('wl_flagship');
+    expect(pickMap(REGIONS[3], 'calm', [], 1)?.id).toBe('yard_4');
+    expect(pickMap(REGIONS[4], 'fight', [], 1)).not.toBeNull();
+    expect(pickMap(REGIONS[4], 'boss', [], 1)?.id).toBe('cx_hall');
+    expect(pickMap(REGIONS[4], 'calm', [], 1)?.id).toBe('yard_5');
   });
   it('holds the side gate with a foe, grants the heroine five seconds, and clears both faces on closure', () => {
     const p = piecesFor('palace_road'), [inside, outside] = p.plates, g = outside.gate;
@@ -323,5 +330,39 @@ describe('drawn rooms', () => {
     const d = drawnExits(fx, ['left', 'right']);
     expect(d.left!.side).toBe('left'); expect(d.right!.side).toBe('right');
     expect(drawnExits(fx, ['back']).back!.side).toBe('back');
+  });
+  it('provides at least 8 distinct fight rooms per region and upgrades micro-puzzle feedback', () => {
+    for (const r of REGIONS) {
+      const fights = ROOM_MAPS.filter(m => m.kind === 'fight' && r.locales.includes(m.locale));
+      expect(fights.length, r.id).toBeGreaterThanOrEqual(8);
+    }
+    // Verify cx_garden sluice wheel 4-pip gauge & center lotus reward reachability
+    const g = piecesFor('cx_garden'), [sx, sz] = g.sp.enter, hero = new THREE.Vector3(sx, 0, sz);
+    const [wheel] = g.wheels, [prize] = g.rewards;
+    expect(wheel.pips).toHaveLength(4);
+    expect(g.grid.reach(sx, sz).has(cellOf(g.grid, prize.x, prize.z))).toBe(false);
+    hero.set(wheel.x - 0.8, 0, wheel.z);
+    for (let i = 0; i < 4; i++) {
+      g.strike({ k: 'arc', x: hero.x, z: hero.z, yaw: Math.PI / 2, range: 1.4, half: 0.6 });
+      g.update(0.2, hero, true);
+    }
+    g.update(1.6, hero, true);
+    expect(g.grid.reach(sx, sz).has(cellOf(g.grid, prize.x, prize.z))).toBe(true);
+    expect(prize.beam.visible).toBe(true);
+    expect(prize.gem.visible).toBe(true);
+    g.dispose();
+    // Verify per-visit random treasure roll varies spawn presence & rolls both gold and mythic tiers
+    const m = MAP_BY_ID.hj_granary; mapStage(m);
+    const sp = mapShape(m);
+    let empties = 0, golds = 0, mythics = 0;
+    for (let roll = 1; roll <= 40; roll++) {
+      const rp = new RoomPieces(new THREE.Group(), sp, new FloorGrid(sp), 'wattle', m.seed, false, roll * 7919);
+      if (rp.rewards.length < 2) empties++;
+      for (const r of rp.rewards) { if (r.tier === 'mythic') mythics++; else golds++; }
+      rp.dispose();
+    }
+    expect(empties).toBeGreaterThan(0);
+    expect(golds).toBeGreaterThan(0);
+    expect(mythics).toBeGreaterThan(0);
   });
 });

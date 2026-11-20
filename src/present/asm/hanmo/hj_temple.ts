@@ -159,8 +159,21 @@ function dress(c: Ctx, f: { layout: Layout; p: Place; clear: Rect[] }) {
       c.cards.add(kind, x, z, { y: y + 0.004 + k * 0.0004, s: s[0] + hash(q, 3, salt) * (s[1] - s[0]), ry: Math.floor(hash(q, 4, salt) * 4) * Math.PI / 2, tint: kind === 'crack' ? 0xc8c4bc : 0xffffff }); k++; }
   };
   // (act-17 review: the dark crack decals read as diagonal scribbles on the court — the user's most hated 「梯」/ speckle — so none;
-  // a few dropped talismans only off the battle floor)
-  deco('hjfu', 4, [0.5, 0.7], false, 60);
+  // dropped talismans, plus wall-root tufts & weathered stone chips hugging the courtyard perimeter walls while keeping the boss center clean)
+  deco('hjfu', 8, [0.55, 0.78], false, 60);
+  const w = c.w;
+  for (let i = 0, n2 = 0; i < 240 && n2 < 46; i++) {
+    const x = SX(-7.2) + hash(i, sd, 91) * (SX(7.2) - SX(-7.2)), z = SZ(-9.4) + hash(i, sd, 97) * (SZ(6.8) - SZ(-9.4));
+    const X = M(x), Z = M(z);
+    if (w.has(X, 1, Z) || w.has(X, 6, Z)) continue;
+    const hugs = w.has(X + 8, 6, Z) || w.has(X - 8, 6, Z) || w.has(X, 6, Z + 8) || w.has(X, 6, Z - 8);
+    if (!hugs) continue;
+    const y = ground(c, x, z); if (y == null || y > 0.08) continue;
+    if (n2 % 3 === 0) c.cards.add('vtuft', x, z, { y, s: 0.48 + hash(i, sd, 103) * 0.25, tint: 0xdcd4b0 });
+    else if (n2 % 3 === 1) c.cards.add('vpebble', x, z, { y: y + 0.012, s: 0.75 + hash(i, sd, 107) * 0.35, tint: 0xd0ccc4 });
+    else c.cards.add('hjfu', x, z, { y: y + 0.010, s: 0.52 + hash(i, sd, 109) * 0.24, ry: Math.floor(hash(i, sd, 113) * 4) * Math.PI / 2 });
+    n2++;
+  }
   if (f.p.time === 'dusk' || f.p.time === 'night') c.ambient({ kind: 'embers', color: 0xff8a3a, rate: 1.0, area: { x0: -8, z0: -13, x1: 8, z1: -8 } });
   c.ambient({ kind: 'dust', color: 0xb8b0a4, rate: 1.0 });
 }

@@ -8,7 +8,7 @@ import { M, SX, SZ } from '../../scenes/props';
 import { CELL } from '../../bestiary/kit';
 import type { Landmark, Layout, Locale, Place } from '../types';
 import { LY, frame, up, wp, fireLight, smoke, shell, hanRoof, palaceWall, charPost, rubble, emberHeap, fireBasin, camel, lyQue, earthWall, beamDown, charTree } from './ly_kit';
-import { commonGroups, commonFiller, lyFloor, lyDress } from './ly_common';
+import { commonGroups, commonFiller, lyFloor, lyDress, lyFlankRuins } from './ly_common';
 import { ROAD_GROUPS } from './ly_road_props';
 
 /** a lit basin at local (x, z) of a landmark built with frame(p.x, p.z, 0), its light and (sometimes) smoke */
@@ -115,6 +115,7 @@ function far(c: Ctx, f: { layout: Layout; p: Place }) {
   smoke(c, [SX(-9 + r(2) * 4), 3.2, SZ(-21.5)], { rate: 1.6, col: 0x4e4a46 });
   smoke(c, [SX(6 + r(3) * 5), 3.2, SZ(-22)], { rate: 1.3, col: 0x5a5650 });
   if (r(4) < 0.6) smoke(c, [SX(-15), 2.4, SZ(-8)], { rate: 1.0, col: 0x55504b });
+  lyFlankRuins(c, f, 'road');
 }
 
 export const lyRoad: Locale = {

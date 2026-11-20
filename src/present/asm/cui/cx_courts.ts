@@ -2,8 +2,9 @@
 import type { Ctx } from '../../scenes/stage';
 import { M, PLAY, SX, SZ } from '../../scenes/props';
 import type { ArenaPlan } from '../arena';
-import type { Locale, Layout } from '../types';
+import type { Locale, Layout, Place } from '../types';
 import { CX, frame, gardenWall, paintFloor, plum, roofK, wp } from './cx_kit';
+import { cuiInfill, cuiEdgeDress, cuiDistantBackdrop } from './cx_infill';
 
 function courtFloor(c: Ctx, f: { layout: Layout }) {
   const h0 = M(PLAY.x0 + 1.65), h1 = M(PLAY.x1 - 1.65);
@@ -18,7 +19,7 @@ function courtFloor(c: Ctx, f: { layout: Layout }) {
   });
 }
 
-function courtFar(c: Ctx, f: { arena?: ArenaPlan }) {
+function courtFar(c: Ctx, f: { layout: Layout; p: Place; arena?: ArenaPlan }) {
   // 影壁落在正面墙线上。中门是本间出口时，给中门和它的道路完整让开。
   const exit = f.arena?.gates.find(g => g.id === 'back' && g.open);
   const screenX = exit ? (exit.x > 0 ? -4.7 : 4.7) : 0;
@@ -64,11 +65,12 @@ function courtFar(c: Ctx, f: { arena?: ArenaPlan }) {
 
   const far = frame(c.w, 0, 0);
   gardenWall(far, M(SX(-17)), M(SX(17)), M(SZ(-16)), 36);
+  cuiDistantBackdrop(c, f);
 }
 
 export const cxCourt: Locale = {
   id: 'cx_court', name: '覆雪前庭', theme: 'cui',
   layouts: ['axis', 'pair', 'garden'], landmarks: [], groups: [],
   seasons: ['winter'], times: ['night'], weathers: ['snow', 'clear'], noSnow: true,
-  floor: courtFloor, far: courtFar,
+  floor: courtFloor, far: courtFar, dress: (c, f) => cuiEdgeDress(c, f), infill: cuiInfill('court'),
 };

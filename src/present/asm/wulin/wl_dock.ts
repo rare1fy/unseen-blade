@@ -8,6 +8,7 @@ import { CELL } from '../../bestiary/kit';
 import { ground } from '../../scenes/dress';
 import type { Group, Landmark, Layout, Locale, Place, Rect } from '../types';
 import { WL, WL_MOOD, river, WATER_MARK, frame, faceOf, orient, deck, deckBoard, pile, flagpole, tent, fireBasket, lantern, chainCoil, chainRun, hull, smoke, wp } from './wl_kit';
+import { wulinInfill, wulinEdgeDress, wulinDistantBackdrop } from './wl_infill';
 
 const lit = (p: Place) => p.lamp > 0.3;
 const lampLight = (c: Ctx, p: Place, at: [number, number, number], k = 1, d = 5) => { if (lit(p)) c.light(at, 0xff9a48, 2.2 * p.lamp * k, d); };
@@ -149,6 +150,7 @@ function far(c: Ctx, f: { layout: Layout; p: Place }) {
   });
   // the great chain linking the back row (low over the water between the hulls)
   const B = frame(c.w, 0, SZ(-17.5), 0); chainRun(B, M(SX(-16)), M(SX(16)), 0, 4);
+  wulinDistantBackdrop(c, f, 'dock');
 }
 // ------------------------------------------------------------------ dressing: reeds at the water's edge on the far banks, embers and smoke
 function dress(c: Ctx, f: { layout: Layout; p: Place; clear: Rect[] }) {
@@ -160,6 +162,7 @@ function dress(c: Ctx, f: { layout: Layout; p: Place; clear: Rect[] }) {
     const y = ground(c, x, z); if (y != null) continue;
     c.cards.add('reeds', x, z, { y: -0.12, s: 0.5 + hash(t, 3, sd) * 0.3, tint: 0x8a8a5a }); n++;
   }
+  wulinEdgeDress(c, f);
   c.ambient({ kind: 'embers', color: 0xff8a3a, rate: 1.6, area: { x0: -16, z0: -20, x1: 16, z1: -6 } });
   c.ambient({ kind: 'dust', color: 0x8a8480, rate: 0.6 });
   void f;
@@ -170,5 +173,5 @@ export const wlDock: Locale = {
   layouts: ['axis', 'offset', 'pair'],
   landmarks: LANDMARKS, groups: GROUPS, filler: FILLER,
   seasons: ['spring'], times: ['night'], weathers: ['clear', 'mist'], mood: WL_MOOD,
-  floor, far, dress,
+  floor, far, dress, infill: wulinInfill('dock'),
 };

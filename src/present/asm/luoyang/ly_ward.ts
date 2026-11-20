@@ -7,7 +7,7 @@ import type { Ctx } from '../../scenes/stage';
 import { M, SX, SZ } from '../../scenes/props';
 import type { Landmark, Layout, Locale, Place } from '../types';
 import { LY, frame, up, wp, fireLight, smoke, rubble, emberHeap, fireBasin, frameBay, earthWall, hanRoof, beamDown, charTree, shell } from './ly_kit';
-import { commonGroups, commonFiller, lyFloor, lyDress } from './ly_common';
+import { commonGroups, commonFiller, lyFloor, lyDress, lyFlankRuins } from './ly_common';
 import { WARD_GROUPS } from './ly_ward_props';
 
 function basin(c: Ctx, p: Place, B: ReturnType<typeof frame>, x: number, z: number, h = 10) {
@@ -95,6 +95,7 @@ function far(c: Ctx, f: { layout: Layout; p: Place }) {
   }
   for (const s of [-1, 1]) for (let i = 0; i < 4; i++) charTree(c, s * (SX(16.2) + (i % 2) * 1.4), SZ(-14 + i * 4.2), 5 + r(70 + i + (s > 0 ? 9 : 0)) * 2, 400 + i + (s > 0 ? 20 : 0), 0.3);
   for (let i = 0; i < 3; i++) smoke(c, [SX(-12 + i * 11 + r(5 + i) * 3), 2.6, SZ(-21 - r(8 + i) * 2)], { rate: 1.2 + r(11 + i), col: 0x54504c });
+  lyFlankRuins(c, f, 'ward');
 }
 
 export const lyWard: Locale = {

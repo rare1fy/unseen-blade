@@ -4,6 +4,7 @@ import { M, PLAY } from '../../scenes/props';
 import { moodFor } from '../sky';
 import type { Locale } from '../types';
 import { CX, bladeRack, column, frame, paintFloor, planks, roofK, wp } from './cx_kit';
+import { cuiInfill, cuiEdgeDress } from './cx_infill';
 
 const TIMBER = 0x543b2e;
 const PANEL = 0x634638;
@@ -83,5 +84,5 @@ export const cxVault: Locale = {
   mood: { ...night, sky: false, bg: 0x29201e, fog: 0x33241e, fogD: 0.016, earth: [0x39302d, 0x3a302d, 0x382f2c],
     mistA: 0, hemiSky: 0xa9907c, hemiGround: 0x68504b, hemiI: 1.15,
     moon: 0xe8c8a8, moonI: 0.7, key: 0xffba8b, keyI: 0.4, exposure: 1.24, bloomT: 1.2 },
-  floor, far,
+  floor, far, dress: (c, f) => cuiEdgeDress(c, f), infill: cuiInfill('vault'),
 };

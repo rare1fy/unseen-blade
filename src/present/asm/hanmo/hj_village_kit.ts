@@ -5,8 +5,35 @@
 import { M, type W } from '../../scenes/props';
 import type { Ctx } from '../../scenes/stage';
 import { loc, locM, type Bx, type P3 } from '../../scenes/k_village';
+import { addCardKind } from '../../scenes/cards';
 import type { Place } from '../types';
 export { smoke } from '../ninja/village_kit';
+
+// crisp village & hideout street-edge micro-cards (own 16×16 pixel canvases so every tuft, pebble & leaf reads cleanly at gameplay scale)
+addCardKind('vpebble', { kind: 'decal', w: 16, h: 16 }, g => {
+  const r = (x: number, y: number, w2: number, h2: number, c: string) => { g.fillStyle = c; g.fillRect(x, y, w2, h2); };
+  for (const [x, y, w2, h2] of [[1, 2, 6, 4], [9, 2, 5, 3], [3, 9, 7, 5], [11, 8, 4, 4]] as const) {
+    r(x, y, w2, h2, '#7d7362');
+    r(x, y, w2, 1, '#c4b89e');
+    r(x, y + h2 - 1, w2, 1, '#3d372e');
+  }
+});
+addCardKind('vleaf', { kind: 'decal', w: 16, h: 16 }, g => {
+  const r = (x: number, y: number, w2: number, h2: number, c: string) => { g.fillStyle = c; g.fillRect(x, y, w2, h2); };
+  for (const [x, y, c1, c2] of [[1, 2, '#c47e36', '#72441c'], [9, 3, '#d69c42', '#7e5620'], [4, 9, '#a6682e', '#5e3818'], [10, 10, '#be8438', '#6c481c']] as const) {
+    r(x, y, 5, 2, c1); r(x + 1, y + 2, 4, 1, c2);
+  }
+  r(1, 13, 6, 1, '#4c3a28'); r(8, 1, 1, 5, '#4c3a28');
+});
+addCardKind('vtuft', { kind: 'cross', w: 16, h: 16, sway: 0.05 }, g => {
+  const r = (x: number, y: number, w2: number, h2: number, c: string) => { g.fillStyle = c; g.fillRect(x, y, w2, h2); };
+  const cols = ['#4d6e30', '#63883c', '#3e5c26'];
+  for (const [x, h, k, w2] of [[0, 7, 0, 2], [2, 11, 1, 2], [5, 14, 2, 3], [8, 12, 0, 2], [11, 10, 1, 2], [13, 6, 2, 2]] as const) {
+    r(x, 16 - h, w2, h, cols[k]);
+    r(x, 16 - h, w2, 2, '#9ec060');
+  }
+  r(0, 14, 15, 2, '#2a3c1a');
+});
 
 /** 残村调色：夯土黄、灰褐茅草、灰瓦、旧木、焦黑，黄巾黄只做点缀 */
 export const HV = {

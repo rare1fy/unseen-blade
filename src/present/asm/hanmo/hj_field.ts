@@ -54,13 +54,23 @@ const plotAt = (ps: Plot[], x: number, z: number) => ps.find(p => x >= p.x0 - RH
 const yardOf = (l: Layout): Rect | null => l.landmark ? { x0: l.landmark.x - l.landmark.w / 2 - 0.3, x1: l.landmark.x + l.landmark.w / 2 + 0.3, z0: l.landmark.z - l.landmark.d / 2 - 0.3, z1: l.landmark.z + l.landmark.d / 2 + 0.3 } : null;
 
 // ------------------------------------------------------------------ ground
-function floor(c: Ctx, f: { layout: Layout; p: Place }) {
+function floor(c: Ctx, f: Parameters<Locale['floor']>[1]) {
   const w = c.w, se = f.p.season, sd = f.p.seed % 97, paths = f.layout.path, court = f.layout.court, ps = plotsOf(f.p.seed, se), yard = yardOf(f.layout);
+  const isThreshing = f.arena?.shape?.fixed?.id === 'threshing';
   const G = GRASS[se], S = STUBBLE[se], q = (v: number, s: number) => Math.round(v / s) * s;
   for (let X = M(AREA.x0 - 6); X <= M(AREA.x1 + 6); X++) for (let Z = M(AREA.z0 - 8); Z <= M(AREA.z1 + 4); Z++) {
     const x = (X + 0.5) * CELL, z = (Z + 0.5) * CELL; let col: number;
     const r = paths.find(p => inR(p, x, z));
-    if (r) {
+    if (isThreshing && x > PLAY.x0 + 0.4 && x < PLAY.x1 - 0.4 && z > PLAY.z0 + 0.4 && z < PLAY.z1 - 0.4) {
+      // Beaten-earth threshing plaza: central rolled chaff circle + surrounding golden stubble band + cart track leading N/S
+      const rad = Math.hypot(x + 1.0, z - 0.6);
+      if (rad < 5.6) col = rad > 5.0 ? HC.earthD : (rad < 1.8 ? HC.yard : HC.yardL);
+      else if (r) {
+        const along = r.z1 - r.z0 >= r.x1 - r.x0, v = along ? X - M((r.x0 + r.x1) / 2) : Z - M((r.z0 + r.z1) / 2), hw = Math.round((along ? r.x1 - r.x0 : r.z1 - r.z0) / CELL / 2), av = Math.abs(v);
+        col = av >= hw - 6 && av <= hw - 5 ? HC.trackD : av < hw - 6 ? HC.track : HC.earthL;
+      } else if (rad < 8.4) col = (((X + Z) % 10) + 10) % 10 < 2 ? S[1] : HC.earthL;
+      else col = (((X % 8) + 8) % 8) < 2 ? S[1] : S[0];
+    } else if (r) {
       // the cart track: packed earth, two wheel ruts 1.5 m apart, a slightly lighter crown between them
       const along = r.z1 - r.z0 >= r.x1 - r.x0, v = along ? X - M((r.x0 + r.x1) / 2) : Z - M((r.z0 + r.z1) / 2), hw = Math.round((along ? r.x1 - r.x0 : r.z1 - r.z0) / CELL / 2), av = Math.abs(v);
       col = av >= hw - 6 && av <= hw - 5 ? HC.trackD : av < hw - 6 ? HC.track : HC.earthL;
@@ -240,6 +250,41 @@ function dress(c: Ctx, f: { layout: Layout; p: Place; clear: Rect[] }) {
   plant('weeds', 40, [0.4, 0.6], (x, z) => grassy.has(floorAt(x, z) ?? 0), TUFT[se], 2, 0.3);
   const stubbly = (x: number, z: number) => { const pl = plotAt(ps, x, z); return !!pl && pl.kind === 'stubble' && x > pl.x0 + 0.3 && x < pl.x1 - 0.3 && z > pl.z0 + 0.3 && z < pl.z1 - 0.3; };
   plant('maituft', 36, [0.55, 0.75], stubbly, [cropOf(se, 0).ear, cropOf(se, 1).ear], 3, 0.3);
+  // inside-PLAY edge micro-detail: stray wheat stalks, grass tufts, scattered threshing straw & warm road pebbles hugging fence/wall bases
+  const w = c.w;
+  const nearEdge = (x: number, z: number) => {
+    const X = M(x), Z = M(z);
+    if (w.has(X, 1, Z) || w.has(X, 6, Z)) return false;
+    return w.has(X + 8, 6, Z) || w.has(X - 8, 6, Z) || w.has(X, 6, Z + 8) || w.has(X, 6, Z - 8);
+  };
+  const plantIn = (kind: string, n: number, s: [number, number], want: (x: number, z: number) => boolean, tints: number[], yOff = 0.01) => {
+    let placed = 0, tries = 0;
+    while (placed < n && tries < n * 28) {
+      tries++;
+      const x = PLAY.x0 + 0.3 + hash(tries, sd + 17, kind.length * 19 + 1) * (PLAY.x1 - PLAY.x0 - 0.6);
+      const z = PLAY.z0 + 0.3 + hash(tries, sd + 29, kind.length * 23 + 2) * (PLAY.z1 - PLAY.z0 - 0.6);
+      if (!want(x, z)) continue;
+      const y = ground(c, x, z); if (y == null || y > 0.08) continue;
+      c.cards.add(kind, x, z, { y: y + yOff, s: s[0] + hash(tries, sd, 37) * (s[1] - s[0]), tint: tints[Math.floor(hash(tries, sd, 43) * tints.length)] });
+      placed++;
+    }
+  };
+  plantIn('vtuft', 80, [0.55, 0.88], nearEdge, [0xffffff, 0xe8e0c0], 0);
+  plantIn('maituft', 44, [0.58, 0.82], nearEdge, [cropOf(se, 0).ear, cropOf(se, 1).ear], 0);
+  plantIn('vpebble', 64, [0.85, 1.25], (x, z) => nearEdge(x, z) || floorAt(x, z) === HC.trackD, [0xffffff, 0xe6dcc8], 0.012);
+  plantIn('straw', 48, [0.75, 1.15], (x, z) => nearEdge(x, z) || floorAt(x, z) === HC.yardL, [0xd8c07a, 0xc2a862], 0.012);
+  // small non-blocking 3D field stones tucked right along wattle fences & granary footings
+  let stones = 0;
+  for (let i = 0; i < 180 && stones < 16; i++) {
+    const x = PLAY.x0 + 0.6 + hash(i, sd, 71) * (PLAY.x1 - PLAY.x0 - 1.2);
+    const z = PLAY.z0 + 0.6 + hash(i, sd, 73) * (PLAY.z1 - PLAY.z0 - 1.2);
+    const X = M(x), Z = M(z);
+    if (w.has(X, 1, Z) || f.layout.path.some(q => inR(q, x, z, 0.5))) continue;
+    if (!(w.has(X, 6, Z - 5) || w.has(X - 5, 6, Z) || w.has(X + 5, 6, Z))) continue;
+    w.box(X - 2, 0, Z - 2, X + 2, 1, Z + 1, 0x8d806c);
+    w.box(X - 1, 2, Z - 1, X + 1, 2, Z, 0xa89a84);
+    stones++;
+  }
   // the air: chaff and dust drifting over the fields
   c.ambient({ kind: 'dust', color: 0xe8d8a8, rate: 1.6 });
   void tone;

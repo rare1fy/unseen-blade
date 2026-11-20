@@ -7,6 +7,7 @@ import { CELL } from '../../bestiary/kit';
 import { ground } from '../../scenes/dress';
 import type { Group, Landmark, Layout, Locale, Place, Rect } from '../types';
 import { WL, WL_MOOD, frame, faceOf, orient, deck, flagpole, tent, fireBasket, lantern, chainCoil, hull, smoke, wp } from './wl_kit';
+import { wulinInfill, wulinEdgeDress, wulinDistantBackdrop } from './wl_infill';
 
 const lit = (p: Place) => p.lamp > 0.3;
 const fireLight = (c: Ctx, p: Place, at: [number, number, number], k = 1, d = 5.5) => { if (lit(p)) c.light(at, 0xff8a3a, 2.4 * p.lamp * k, d); };
@@ -150,6 +151,7 @@ function far(c: Ctx, f: { layout: Layout; p: Place }) {
   for (let i = 0; i < 6; i++) { const x = SX(-14 + i * 5.6), z = SZ(-21) - r(10 + i) * 1.6; tent(frame(w, x, z, 0), 14, 10, 24, { officer: i % 3 === 0, lit: lit(f.p) && r(20 + i) < 0.5 }); }
   for (let i = 0; i < 3; i++) hull(c, SX(-12 + i * 12), SZ(-26) - (i % 2) * 2, 0, { L: 120, burning: r(40 + i) < 0.35, tall: 14 });
   smoke(c, [SX(-6 + r(1) * 12), 2.4, SZ(-24)], { rate: 1.4, col: 0x4e4a46 });
+  wulinDistantBackdrop(c, f, 'camp');
 }
 function dress(c: Ctx, f: { layout: Layout; p: Place; clear: Rect[] }) {
   const sd = f.p.seed, clear = (x: number, z: number) => f.clear.some(r => x > r.x0 && x < r.x1 && z > r.z0 && z < r.z1);
@@ -160,6 +162,7 @@ function dress(c: Ctx, f: { layout: Layout; p: Place; clear: Rect[] }) {
     const y = ground(c, x, z); if (y == null || y > 0.06) continue;
     c.cards.add('grass', x, z, { y, s: 0.28 + hash(t, 2, sd) * 0.2, tint: 0x8a8470 }); n++;
   }
+  wulinEdgeDress(c, f);
   c.ambient({ kind: 'embers', color: 0xff8a3a, rate: 0.9, area: { x0: -14, z0: -18, x1: 14, z1: -8 } });
   c.ambient({ kind: 'dust', color: 0x9a9080, rate: 1.0 });
 }
@@ -169,5 +172,5 @@ export const wlCamp: Locale = {
   layouts: ['axis', 'offset', 'garden', 'street'],
   landmarks: LANDMARKS, groups: GROUPS, filler: FILLER,
   seasons: ['spring'], times: ['night'], weathers: ['clear', 'mist'], mood: WL_MOOD,
-  floor, far, dress,
+  floor, far, dress, infill: wulinInfill('camp'),
 };

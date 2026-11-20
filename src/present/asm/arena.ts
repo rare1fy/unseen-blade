@@ -63,6 +63,44 @@ export const bigStage = (locale: string) => locale.startsWith('hj_') || locale i
 const coversOf = (st: WallStyle) => ARENA_STYLES[st]?.covers ?? COVERS[st] ?? COVERS.earth!;
 const sizeOf = (k: CoverKind): [number, number] => COVER_SIZE[k] ?? Object.values(ARENA_STYLES).find(s => s?.size[k])?.size[k] ?? [0.7, 0.6];
 
+interface WallAnchor { x: number; z: number; along: 'x' | 'z'; nx: number; nz: number }
+
+/** Scan clean, wide-facing wall-hugging anchor points (never inside narrow corridors, doorways, or pits). */
+function wallAnchors(grid: FloorGrid | null, box: Rect): WallAnchor[] {
+  const out: WallAnchor[] = [];
+  if (grid) {
+    const step = 3; // ~1.47 m between candidate wall stations
+    const dirs: Array<[number, number, 'x' | 'z']> = [[-1, 0, 'z'], [1, 0, 'z'], [0, -1, 'x'], [0, 1, 'x']];
+    for (let j = 0; j < grid.nz; j++) for (let i = 0; i < grid.nx; i++) {
+      if (grid.kind(i, j) !== 1) continue; // FLOOR === 1
+      for (const [dx, dz, along] of dirs) {
+        if ((along === 'z' ? j : i) % step !== 1) continue;
+        // must back onto an actual solid wall (OUT === 0), never a water/ditch pit (PIT === 2)
+        if (grid.kind(i + dx, j + dz) !== 0) continue;
+        // never hug the open camera-facing front edge
+        if (dz > 0 && grid.cz(j) > box.z1 - 0.9) continue;
+        // wall must continue on at least one side along its tangent (solid flat wall, not a corner tooth)
+        const tx = along === 'x' ? 1 : 0, tz = along === 'z' ? 1 : 0;
+        if (grid.kind(i + dx + tx, j + dz + tz) !== 0 && grid.kind(i + dx - tx, j + dz - tz) !== 0) continue;
+        const nx = -dx, nz = -dz;
+        const ax = grid.cx(i) + nx * 0.42, az = grid.cz(j) + nz * 0.42;
+        // strict narrow-corridor avoidance: open floor must extend at least ~2.6 m in front of the wall station
+        if (!grid.clear(ax, az, 0.45) || !grid.clear(ax + nx * 1.45, az + nz * 1.45, 0.95)) continue;
+        out.push({ x: +ax.toFixed(2), z: +az.toFixed(2), along, nx, nz });
+      }
+    }
+    return out;
+  }
+  for (let z = box.z0 + 2.2; z <= box.z1 - 3.6; z += 1.8) {
+    out.push({ x: +(box.x0 + 0.82).toFixed(2), z: +z.toFixed(2), along: 'z', nx: 1, nz: 0 });
+    out.push({ x: +(box.x1 - 0.82).toFixed(2), z: +z.toFixed(2), along: 'z', nx: -1, nz: 0 });
+  }
+  for (let x = box.x0 + 2.4; x <= box.x1 - 2.4; x += 1.8) {
+    out.push({ x: +x.toFixed(2), z: +(box.z0 + 0.82).toFixed(2), along: 'x', nx: 0, nz: 1 });
+  }
+  return out;
+}
+
 /** the plan for one room: gates from the layout's roads and this room's exits, cover and props from the seed; with a shape (11-18 屋子形态)
  *  the walls follow the shape's floor, cover and props stand only on its floor (never in the water, on a bridge or in a walled-off part) */
 export function arenaPlan(layout: Layout, exits: ExitId[], seed: number, locale: string, kind: 'fight' | 'boss' | 'calm', shape?: ShapePlan): ArenaPlan {
@@ -78,17 +116,19 @@ export function arenaPlan(layout: Layout, exits: ExitId[], seed: number, locale:
     const open = !!back && Math.abs((back.lane.x0 + back.lane.x1) / 2 - cx) < 0.5;
     gates.push({ id: open ? 'back' : 'path', x: cx, z: PLAY.z0, along: 'x', w, open, out: [0, -1] });
   }
-  // the floor kept clear: the hero's way in, the gates' approaches, the boss's mark, the stations of a calm room
+  // the floor kept clear: the hero's way in, generous gate funnels, main paved paths, boss mark, calm stations, bridges
   const ent = shape?.enter ?? [0, PLAY.z1 - 2.5];
-  const clear: Rect[] = [{ x0: ent[0] - 2.6, x1: ent[0] + 2.6, z0: ent[1] - 3, z1: PLAY.z1 + 1 }];
-  for (const g of gates) clear.push(g.along === 'x' ? { x0: g.x - g.w / 2 - 1, x1: g.x + g.w / 2 + 1, z0: g.z, z1: g.z + 4.5 } : { x0: g.out[0] < 0 ? g.x : g.x - 4.5, x1: g.out[0] < 0 ? g.x + 4.5 : g.x, z0: g.z - g.w / 2 - 1, z1: g.z + g.w / 2 + 1 });
-  clear.push({ x0: -2.6, x1: 2.6, z0: SZ(-4.6) - 2.6, z1: SZ(-4.6) + 2.6 });
+  const clear: Rect[] = [{ x0: ent[0] - 2.8, x1: ent[0] + 2.8, z0: ent[1] - 4.2, z1: PLAY.z1 + 1 }];
+  for (const g of gates) clear.push(g.along === 'x'
+    ? { x0: g.x - g.w / 2 - 1.4, x1: g.x + g.w / 2 + 1.4, z0: g.z, z1: g.z + 5.0 }
+    : { x0: g.out[0] < 0 ? g.x : g.x - 5.0, x1: g.out[0] < 0 ? g.x + 5.0 : g.x, z0: g.z - g.w / 2 - 1.4, z1: g.z + g.w / 2 + 1.4 });
+  for (const p of layout.path) clear.push({ x0: p.x0 - 0.5, x1: p.x1 + 0.5, z0: p.z0 - 0.5, z1: p.z1 + 0.5 });
+  clear.push({ x0: -2.8, x1: 2.8, z0: SZ(-4.6) - 2.8, z1: SZ(-4.6) + 2.8 });
   if (kind === 'calm') clear.push({ x0: -5.5, x1: 5.5, z0: -3.4, z1: 1.6 });
-  // (the bridges and the way onto them stay open: a crate on a bridge would shut the way across)
-  for (const b of shape?.bridges ?? []) clear.push({ x0: b.x0 - 0.6, x1: b.x1 + 0.6, z0: b.z0 - 2.2, z1: b.z1 + 2.2 });
+  for (const b of shape?.bridges ?? []) clear.push({ x0: b.x0 - 0.8, x1: b.x1 + 0.8, z0: b.z0 - 2.4, z1: b.z1 + 2.4 });
   const inClear = (x: number, z: number, pad: number) => clear.some(c => x > c.x0 - pad && x < c.x1 + pad && z > c.z0 - pad && z < c.z1 + pad);
   const inFloor = (x: number, z: number, pad: number) => grid ? grid.clear(x, z, pad) : x > PLAY.x0 + pad && x < PLAY.x1 - pad && z > PLAY.z0 + pad && z < PLAY.z1 - pad;
-  // cover: on a jittered 3 m grid, ≥ 6 m apart, ≥ 2.5 m in from the walls
+  // cover: on a jittered 3 m grid, ≥ 6 m apart, ≥ 2.5 m in from the walls, clear of paths & gate funnels
   const covers: Cover[] = [], kinds = look?.covers ?? coversOf(style), want = kind === 'calm' ? 2 : kind === 'boss' ? 2 : 3 + (r(1) < 0.4 ? 1 : 0);
   const spots: Array<[number, number, number]> = [];
   for (let x = PLAY.x0 + 3; x < PLAY.x1 - 2.5; x += 3) for (let z = PLAY.z0 + 3; z < PLAY.z1 - 2.5; z += 3) spots.push([x + (r(x * 31 + z) - 0.5) * 1.2, z + (r(x * 37 + z * 3) - 0.5) * 1.2, r(x * 41 + z * 7)]);
@@ -96,43 +136,66 @@ export function arenaPlan(layout: Layout, exits: ExitId[], seed: number, locale:
   for (const [x, z] of spots) {
     if (covers.length >= want) break;
     const k = kinds[covers.length % kinds.length], rot = (r(x * 13 + z) < 0.5 ? 0 : 1) as 0 | 1, [a, b] = sizeOf(k), hx = rot ? b : a, hz = rot ? a : b;
-    if (!inFloor(x, z, 2.5) || inClear(x, z, Math.max(hx, hz) + 0.4) || covers.some(c => Math.hypot(c.x - x, c.z - z) < 6)) continue;
+    if (!inFloor(x, z, 2.5) || inClear(x, z, Math.max(hx, hz) + 0.5) || covers.some(c => Math.hypot(c.x - x, c.z - z) < 6)) continue;
     covers.push({ kind: k, x: +x.toFixed(2), z: +z.toFixed(2), hx, hz, rot });
   }
-  // props: clusters of 2–3 by the cover and along the walls, oil jars and pillars on the open floor
+  // props: structured clusters beside cover and snapped flush along walls (never floating in lanes or blocking doors)
   const props: ArenaPlan['props'] = [], R0: Record<PropKind, number> = { pot: 0.32, crate: 0.4, hay: 0.55, oil: 0.38, pillar: 0.3, fence: 0.85, rack: 0.5, banner: 0.25, basket: 0.34, sack: 0.34, lamp: 0.25 };
-  const free = (x: number, z: number, rr: number) => inFloor(x, z, rr + 0.3) && !inClear(x, z, rr + 0.2) && covers.every(c => Math.abs(c.x - x) > c.hx + rr + 0.35 || Math.abs(c.z - z) > c.hz + rr + 0.35) && props.every(p => Math.hypot(p.x - x, p.z - z) > R0[p.kind] + rr + 0.25);
+  const free = (x: number, z: number, rr: number) => inFloor(x, z, rr + 0.3) && !inClear(x, z, rr + 0.25) && covers.every(c => Math.abs(c.x - x) > c.hx + rr + 0.35 || Math.abs(c.z - z) > c.hz + rr + 0.35) && props.every(p => Math.hypot(p.x - x, p.z - z) > R0[p.kind] + rr + 0.25);
   const put = (k: PropKind, x: number, z: number, rot?: 0 | 1) => { if (!free(x, z, R0[k])) return false; props.push({ kind: k, x: +x.toFixed(2), z: +z.toFixed(2), ...(rot != null ? { rot } : {}) }); return true; };
-  // act-20 (user: 「场景中的东西尽量都能破坏才爽」): baskets and grain sacks in the clusters too
-  const smalls: PropKind[] = look?.smalls ?? ARENA_STYLES[style]?.smalls ?? (style === 'wattle' ? ['hay', 'pot', 'sack', 'hay', 'basket'] : style === 'brick' ? ['pot', 'pot', 'crate', 'basket'] : ['pot', 'crate', 'sack', 'hay', 'basket']);
+  const smalls: PropKind[] = look?.smalls ?? ARENA_STYLES[style]?.smalls ?? (style === 'wattle' ? ['hay', 'pot', 'sack', 'hay', 'basket'] : style === 'brick' ? ['pot', 'pot', 'crate', 'basket'] : ['hay', 'crate', 'pot', 'sack', 'basket']);
   let salt = 100;
   const cluster = (ax: number, az: number, n: number) => { const k = smalls[Math.floor(r(salt++) * smalls.length)]; for (let i = 0, t = 0; i < n && t < 12; t++) { const a = r(salt++) * Math.PI * 2, d = 0.5 + r(salt++) * 0.8; if (put(i === 0 ? k : smalls[Math.floor(r(salt++) * smalls.length)], ax + Math.cos(a) * d, az + Math.sin(a) * d)) i++; } };
   for (const c of covers) { const s = r(salt++) < 0.5 ? -1 : 1; cluster(c.x + s * (c.hx + 0.9), c.z + (r(salt++) - 0.5) * c.hz * 2, 2 + (r(salt++) < 0.5 ? 1 : 0)); }
-  for (let i = 0; i < (kind === 'calm' ? 3 : 4); i++) {   // along the walls
-    const side = Math.floor(r(salt++) * 3), t = r(salt++);
-    const [x, z] = side === 0 ? [PLAY.x0 + 0.9, PLAY.z0 + 2 + t * (PLAY.z1 - PLAY.z0 - 6)] : side === 1 ? [PLAY.x1 - 0.9, PLAY.z0 + 2 + t * (PLAY.z1 - PLAY.z0 - 6)] : [PLAY.x0 + 3 + t * (PLAY.x1 - PLAY.x0 - 6), PLAY.z0 + 0.9];
-    cluster(x, z, 2 + (r(salt++) < 0.6 ? 1 : 0));
+
+  // wall-snapped stations (ordered by seeded shuffle, spaced evenly along walls, never inside clear corridors)
+  const anchors = wallAnchors(grid, shape?.box ?? PLAY).map(a => ({ a, o: r(salt++) })).sort((p, q) => p.o - q.o).map(q => q.a);
+  const usedStations: Array<[number, number]> = [];
+  const takeAnchor = (minGap: number) => {
+    for (const a of anchors) {
+      if (inClear(a.x, a.z, 0.7)) continue;
+      if (usedStations.some(([ux, uz]) => Math.hypot(ux - a.x, uz - a.z) < minGap)) continue;
+      usedStations.push([a.x, a.z]);
+      return a;
+    }
+    return null;
+  };
+  const putWall = (a: WallAnchor, k: PropKind, tang = 0, rot?: 0 | 1) => {
+    const tx = a.along === 'x' ? 1 : 0, tz = a.along === 'z' ? 1 : 0;
+    const off = Math.max(0, R0[k] - 0.24);
+    return put(k, a.x + a.nx * off + tx * tang, a.z + a.nz * off + tz * tang, rot);
+  };
+  // structured wall-hugging narrative sets (hay pairs / crate+pot groups lined up parallel to the wall)
+  const nWallSets = kind === 'calm' ? 3 : 5;
+  for (let i = 0; i < nWallSets; i++) {
+    const a = takeAnchor(4.2); if (!a) break;
+    const lead = style === 'earth' || style === 'wattle' ? (i % 2 === 0 ? 'hay' : 'crate') : smalls[i % smalls.length];
+    const side = smalls[(i + 2) % smalls.length];
+    putWall(a, lead, 0);
+    putWall(a, lead === 'hay' ? 'hay' : side, 1.18);
+    if (r(salt++) < 0.7) putWall(a, side, -1.08);
   }
   if (kind !== 'calm') {
     const nOil = look?.oil ?? (kind === 'boss' ? 3 : 2 + (r(salt++) < 0.5 ? 1 : 0)), nPil = look?.pillars ?? (kind === 'boss' ? 2 : 1 + (r(salt++) < 0.5 ? 1 : 0));
     for (let i = 0, t = 0; i < nOil && t < 40; t++) { const x = PLAY.x0 + 3 + r(salt++) * (PLAY.x1 - PLAY.x0 - 6), z = PLAY.z0 + 3 + r(salt++) * (PLAY.z1 - PLAY.z0 - 8); if (covers.every(c => Math.hypot(c.x - x, c.z - z) > 3) && props.filter(p => p.kind === 'oil').every(p => Math.hypot(p.x - x, p.z - z) > 4) && put('oil', x, z)) i++; }
     for (let i = 0, t = 0; i < nPil && t < 40; t++) { const x = PLAY.x0 + 3.5 + r(salt++) * (PLAY.x1 - PLAY.x0 - 7), z = PLAY.z0 + 3.5 + r(salt++) * (PLAY.z1 - PLAY.z0 - 9); if (props.filter(p => p.kind === 'pillar').every(p => Math.hypot(p.x - x, p.z - z) > 6) && put('pillar', x, z)) i++; }
   }
-  // act-20: more to break — fence lengths across the floor, weapon racks by the walls, 黄巾 banners, lantern posts
-  const spot = (pad: number) => [PLAY.x0 + pad + r(salt++) * (PLAY.x1 - PLAY.x0 - pad * 2), PLAY.z0 + pad + r(salt++) * (PLAY.z1 - PLAY.z0 - pad * 2 - 2)];
-  const many = (k: PropKind, n: number, pad: number, rot = false) => { for (let i = 0, t = 0; i < n && t < 40; t++) { const [x, z] = spot(pad); if (put(k, x, z, rot ? (r(salt++) < 0.5 ? 0 : 1) : undefined)) i++; } };
-  many('fence', look?.fences ?? (kind === 'calm' ? 1 : 3), 3, true);
-  for (let i = 0, t = 0; i < (look?.racks ?? 2) && t < 30; t++) { const side = r(salt++) < 0.5 ? -1 : 1, z = PLAY.z0 + 3 + r(salt++) * (PLAY.z1 - PLAY.z0 - 8); if (put('rack', side < 0 ? PLAY.x0 + 0.8 : PLAY.x1 - 0.8, z, 1)) i++; }
-  // (11-18: the 黄巾 banners only in region one's places; regions two / three put up lanterns instead)
-  if (look?.banners != null || (ARENA_STYLES[style]?.banners ?? true)) many('banner', look?.banners ?? (kind === 'calm' ? 1 : 3), 2.5); else many('lamp', kind === 'calm' ? 1 : 2, 2.5);
-  many('lamp', look?.lamps ?? 2, 2.5);
-  // (a shaped room's walls stand right on the floor's edge: no gap — act/gates.ts reads wall.gap for the gate's centre line)
+  // wall-aligned racks, banners, lamps, and flank fences (keeping the middle combat space & roads clean)
+  const nRacks = look?.racks ?? 2;
+  for (let i = 0; i < nRacks; i++) { const a = takeAnchor(4.5); if (a) putWall(a, 'rack', 0, a.along === 'z' ? 1 : 0); }
+  const wantBanners = look?.banners != null || (ARENA_STYLES[style]?.banners ?? true);
+  const nBan = wantBanners ? (look?.banners ?? (kind === 'calm' ? 1 : 3)) : 0;
+  for (let i = 0; i < nBan; i++) { const a = takeAnchor(4.8); if (a) putWall(a, 'banner', 0); }
+  const nLamp = (look?.lamps ?? 2) + (wantBanners ? 0 : (kind === 'calm' ? 1 : 2));
+  for (let i = 0; i < nLamp; i++) { const a = takeAnchor(5.2); if (a) putWall(a, 'lamp', 0); }
+  const nFence = look?.fences ?? (kind === 'calm' ? 1 : 2);
+  for (let i = 0; i < nFence; i++) { const a = takeAnchor(4.8); if (a) putWall(a, 'fence', 0, a.along === 'z' ? 1 : 0); }
   return { style, gates, covers, props, wall: { ...WALL, ...(shape ? { gap: 0 } : {}) }, ...(shape ? { shape } : {}) };
 }
 
 /** 11-18 定死的屋子 (asm/roomMaps.ts): the plan of a drawn room — every gate, cover piece and breakable where the map puts it (the
- *  kinds and the small dressing from the room's own seed, so the room is the same every time). The E's this room uses are open gates,
- *  the others shut ones; round each 'j' a little cluster of the place's small breakables */
+ *  kinds and the small dressing from the room's own seed, so the room is the same every time). Wall dressing snaps cleanly to wide
+ *  walls and avoids entrances, internal doors, puzzle mechanisms, and narrow lanes. */
 function drawnPlan(layout: Layout, exits: ExitId[], seed: number, locale: string, kind: 'fight' | 'boss' | 'calm', shape: ShapePlan): ArenaPlan {
   const fx = shape.fixed!, r = (k: number) => hash(seed * 7 + 11, k, 4513), style = styleOf(locale), look = ARENA_LOOK[locale], gates: Gate[] = [];
   const grid = new FloorGrid({ ...shape, fixed: { ...fx, closed: [] } }, 2);
@@ -150,40 +213,76 @@ function drawnPlan(layout: Layout, exits: ExitId[], seed: number, locale: string
     return { kind: k, x: c.x, z: c.z, hx: rot ? b : a, hz: rot ? a : b, rot };
   });
   const props: ArenaPlan['props'] = [], R0: Record<PropKind, number> = { pot: 0.32, crate: 0.4, hay: 0.55, oil: 0.38, pillar: 0.3, fence: 0.85, rack: 0.5, banner: 0.25, basket: 0.34, sack: 0.34, lamp: 0.25 };
-  // (the doors, the hollow walls, the barricades, the puzzle pieces, the exits' mouths and the way in stay clear)
-  const clear: Rect[] = [...fx.closed.map(q => ({ x0: q.x0 - 1.2, x1: q.x1 + 1.2, z0: q.z0 - 1.2, z1: q.z1 + 1.2 })), ...fx.sunk, ...shape.bridges.map(b => ({ x0: b.x0 - 0.6, x1: b.x1 + 0.6, z0: b.z0 - 1.6, z1: b.z1 + 1.6 })),
-    ...fx.marks.map(m => ({ x0: m.x - 1.2, x1: m.x + 1.2, z0: m.z - 1.2, z1: m.z + 1.2 })), ...gates.map(g => g.along === 'x' ? { x0: g.x - 2.4, x1: g.x + 2.4, z0: g.z, z1: g.z + 3.5 } : { x0: g.x - 3.5, x1: g.x + 3.5, z0: g.z - 2.4, z1: g.z + 2.4 }),
-    { x0: shape.enter[0] - 2, x1: shape.enter[0] + 2, z0: shape.enter[1] - 2, z1: shape.enter[1] + 3 }];
+  // strict avoidance zones: doors/hollow walls/barricades (both sides), sunk paths, bridges, puzzle marks, gate funnels, spawn runway
+  const clear: Rect[] = [
+    ...fx.closed.map(q => ({ x0: q.x0 - 1.85, x1: q.x1 + 1.85, z0: q.z0 - 1.85, z1: q.z1 + 1.85 })),
+    ...fx.sunk.map(q => ({ x0: q.x0 - 0.8, x1: q.x1 + 0.8, z0: q.z0 - 0.8, z1: q.z1 + 0.8 })),
+    ...shape.bridges.map(b => ({ x0: b.x0 - 0.8, x1: b.x1 + 0.8, z0: b.z0 - 2.0, z1: b.z1 + 2.0 })),
+    ...fx.marks.map(m => ({ x0: m.x - 1.65, x1: m.x + 1.65, z0: m.z - 1.65, z1: m.z + 1.65 })),
+    ...gates.map(g => g.along === 'x'
+      ? { x0: g.x - 2.6, x1: g.x + 2.6, z0: g.z, z1: g.z + 4.4 }
+      : { x0: g.out[0] < 0 ? g.x : g.x - 4.4, x1: g.out[0] < 0 ? g.x + 4.4 : g.x, z0: g.z - 2.6, z1: g.z + 2.6 }),
+    { x0: shape.enter[0] - 2.4, x1: shape.enter[0] + 2.4, z0: shape.enter[1] - 4.2, z1: shape.enter[1] + 3.0 },
+  ];
+  if (fx.boss) clear.push({ x0: fx.boss[0] - 2.8, x1: fx.boss[0] + 2.8, z0: fx.boss[1] - 2.8, z1: fx.boss[1] + 2.8 });
   if (fx.stations) {
     const [x, z] = fx.stations;
     clear.push({ x0: x - 4.5, x1: x + 5.7, z0: z - 3.5, z1: z + 1.1 });
   }
-  const free = (x: number, z: number, rr: number) => grid.clear(x, z, rr + 0.3) && !clear.some(c => x > c.x0 - rr && x < c.x1 + rr && z > c.z0 - rr && z < c.z1 + rr)
-    && covers.every(c => Math.abs(c.x - x) > c.hx + rr + 0.35 || Math.abs(c.z - z) > c.hz + rr + 0.35) && props.every(p => Math.hypot(p.x - x, p.z - z) > R0[p.kind] + rr + 0.25);
+  const free = (x: number, z: number, rr: number) => grid.clear(x, z, rr + 0.35) && !clear.some(c => x > c.x0 - rr && x < c.x1 + rr && z > c.z0 - rr && z < c.z1 + rr)
+    && covers.every(c => Math.abs(c.x - x) > c.hx + rr + 0.4 || Math.abs(c.z - z) > c.hz + rr + 0.4) && props.every(p => Math.hypot(p.x - x, p.z - z) > R0[p.kind] + rr + 0.25);
   const put = (k: PropKind, x: number, z: number, rot?: 0 | 1, force = false) => { if (!force && !free(x, z, R0[k])) return false; props.push({ kind: k, x: +x.toFixed(2), z: +z.toFixed(2), ...(rot != null ? { rot } : {}) }); return true; };
-  const smalls: PropKind[] = look?.smalls ?? ARENA_STYLES[style]?.smalls ?? (style === 'wattle' ? ['hay', 'pot', 'sack', 'hay', 'basket'] : style === 'brick' ? ['pot', 'pot', 'crate', 'basket'] : ['pot', 'crate', 'sack', 'hay', 'basket']);
+  const smalls: PropKind[] = look?.smalls ?? ARENA_STYLES[style]?.smalls ?? (style === 'wattle' ? ['hay', 'pot', 'sack', 'hay', 'basket'] : style === 'brick' ? ['pot', 'pot', 'crate', 'basket'] : ['hay', 'crate', 'pot', 'sack', 'basket']);
   let salt = 100;
-  // the marked pieces first, exactly on their cells (an oil jar by a barricade is the puzzle's: it must be there)
+  // 1) authored map marks first, strictly on their cells
   for (const p of fx.props) if (p.kind !== 'small') put(p.kind, p.x, p.z, undefined, true);
   if (fx.id === 'fallen_hall') for (const p of props) if (p.kind === 'pillar') p.model = 'palaceColumn';
   for (const p of fx.props) if (p.kind === 'small') {
     const k = smalls[Math.floor(r(salt++) * smalls.length)]; put(k, p.x, p.z, undefined, true);
-    for (let i = 0, t = 0; i < 2 && t < 10; t++) { const a = r(salt++) * Math.PI * 2, d = 0.55 + r(salt++) * 0.5; if (put(smalls[Math.floor(r(salt++) * smalls.length)], p.x + Math.cos(a) * d, p.z + Math.sin(a) * d)) i++; }
+    for (let i = 0, t = 0; i < 2 && t < 10; t++) { const a = r(salt++) * Math.PI * 2, d = 0.58 + r(salt++) * 0.45; if (put(smalls[Math.floor(r(salt++) * smalls.length)], p.x + Math.cos(a) * d, p.z + Math.sin(a) * d)) i++; }
   }
-  // the dressing along the walls: lanterns, racks, (region one) banners — few, from the room's own seed
-  const spot = () => [PLAY.x0 + 1 + r(salt++) * (PLAY.x1 - PLAY.x0 - 2), PLAY.z0 + 1 + r(salt++) * (PLAY.z1 - PLAY.z0 - 3)];
-  const many = (k: PropKind, n: number) => { for (let i = 0, t = 0; i < n && t < 60; t++) { const [x, z] = spot(); if (grid.clear(x, z, 1.2) && !grid.clear(x, z, 2.2) && put(k, x, z)) i++; } };
-  many('rack', look?.racks ?? 2);
-  if (look?.banners != null || (ARENA_STYLES[style]?.banners ?? true)) many('banner', look?.banners ?? 3); else many('lamp', 2);
-  many('lamp', look?.lamps ?? 2);
-  void kind;
+  // 2) ordered wall-snapped dressing along wide courtyard walls (never blocking lanes, doors, or puzzles)
+  const anchors = wallAnchors(grid, shape.box).map(a => ({ a, o: r(salt++) })).sort((p, q) => p.o - q.o).map(q => q.a);
+  const usedStations: Array<[number, number]> = [];
+  const takeAnchor = (minGap: number) => {
+    for (const a of anchors) {
+      if (clear.some(c => a.x > c.x0 - 0.6 && a.x < c.x1 + 0.6 && a.z > c.z0 - 0.6 && a.z < c.z1 + 0.6)) continue;
+      if (usedStations.some(([ux, uz]) => Math.hypot(ux - a.x, uz - a.z) < minGap)) continue;
+      usedStations.push([a.x, a.z]);
+      return a;
+    }
+    return null;
+  };
+  const putWall = (a: WallAnchor, k: PropKind, tang = 0, rot?: 0 | 1) => {
+    const tx = a.along === 'x' ? 1 : 0, tz = a.along === 'z' ? 1 : 0;
+    const off = Math.max(0, R0[k] - 0.24);
+    return put(k, a.x + a.nx * off + tx * tang, a.z + a.nz * off + tz * tang, rot);
+  };
+  const nRacks = look?.racks ?? 2;
+  for (let i = 0; i < nRacks; i++) { const a = takeAnchor(4.6); if (a) putWall(a, 'rack', 0, a.along === 'z' ? 1 : 0); }
+  const wantBanners = look?.banners != null || (ARENA_STYLES[style]?.banners ?? true);
+  const nBan = wantBanners ? (look?.banners ?? 3) : 0;
+  for (let i = 0; i < nBan; i++) { const a = takeAnchor(4.8); if (a) putWall(a, 'banner', 0); }
+  const nLamp = (look?.lamps ?? 2) + (wantBanners ? 0 : 2);
+  for (let i = 0; i < nLamp; i++) { const a = takeAnchor(5.2); if (a) putWall(a, 'lamp', 0); }
+  // grouped wall-hugging prop clusters (kept purposeful & restrained so functional architecture dominates)
+  const nClusters = kind === 'calm' ? 1 : style === 'earth' || style === 'wattle' ? 3 : 2;
+  for (let i = 0; i < nClusters; i++) {
+    const a = takeAnchor(3.8); if (!a) break;
+    const lead = style === 'earth' || style === 'wattle' ? (i % 2 === 0 ? 'hay' : 'crate') : smalls[i % smalls.length];
+    const side = smalls[(i + 2) % smalls.length];
+    if (putWall(a, lead, 0)) {
+      putWall(a, lead === 'hay' ? 'hay' : side, 1.18);
+      putWall(a, side, -1.06);
+    }
+  }
   return { style, gates, covers, props, wall: { ...WALL, gap: 0 }, shape };
 }
 
 // ================================================================== voxels: walls, gates, cover
 type B = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, c: number) => void;
 const PAL = {
-  earth: { body: 0xa88a60, seam: 0x957a54, top: 0xbc9e72, foot: 0x7e6848, cap: 0x56585e, capD: 0x3a3c42, capL: 0x72747a },
+  earth: { body: 0xa88a60, seam: 0x947954, top: 0xbc9e72, foot: 0x7e6848, cap: 0xb6a78c, capD: 0x8e7f67, capL: 0xcabca2, base: 0x90826e, baseD: 0x746856, baseL: 0xa69882 },
   wattle: { post: 0x4a3622, postL: 0x6e5238, rail: 0x5e4630, weave: 0x8c703e, weaveD: 0x6a5430, weaveL: 0xa8884c },
   brick: { body: 0x7f7c75, joint: 0x5c5a55, top: 0xa4a19a, foot: 0x5c5a55, cap: 0x6c6a64, capL: 0x8a8780 },
   wood: 0x6e5238, woodD: 0x4a3622, woodL: 0x8e6e4c, red: 0x8e3b2c, redD: 0x6a2b21, redL: 0xa44c36,
@@ -231,20 +330,68 @@ export function wallPiece(box: B, st: WallStyle, along: 'x' | 'z', a0: number, a
   const ext = ARENA_STYLES[st]; if (ext) { ext.wall(bx, segs, b0, b1, H); return; }   // 11-18: a later region's own walls
   if (st === 'earth') {
     const P = PAL.earth;
+    const c0 = b1 - b0 >= 4 ? b0 + 1 : b0, c1 = b1 - b0 >= 4 ? b1 - 1 : b1;
     for (const [p0, p1, h] of segs) {
-      bx(p0, 0, b0, p1, h, b1, P.body); bx(p0, 0, b0, p1, 1, b1, P.foot);
-      for (let y = 5; y < h - 1; y += 5) bx(p0, y, b0, p1, y, b1, P.seam);                       // the tamped courses
-      if (h === H) { bx(p0, h + 1, b0 - 1, p1, h + 1, b1 + 1, P.capD); bx(p0, h + 2, b0, p1, h + 2, b1, P.cap); bx(p0, h + 3, b0 + 2, p1, h + 3, b1 - 2, P.capL); }
-      else bx(p0, h, b0, p1, h, b1, P.top);
+      // warm weathered sandstone footing (harmonizes with yellow loess, zero cold blue-grey clash)
+      bx(p0, 0, b0, p1, 2, b1, P.base);
+      bx(p0, 0, b0, p1, 0, b1, P.baseD);
+      bx(p0, 2, b0, p1, 2, b1, P.baseL);
+      for (let a = p0 + 10; a < p1 - 4; a += 14) bx(a, 0, b0, a, 2, b1, P.baseD);
+      // recessed rammed-earth curtain with tamped horizontal courses
+      bx(p0, 3, c0, p1, h, c1, P.body);
+      bx(p0, 3, c0, p1, 4, c1, P.foot);
+      for (let y = 8; y < h - 1; y += 5) bx(p0, y, c0, p1, y, c1, P.seam);
+      // rhythmic full-width rammed-earth pilasters (墙垛) capped with warm buff stone blocks (matching 02-environments.png & 04-combat-ui.png)
+      if (p1 - p0 >= 28) {
+        for (let a = p0 + 4; a + 4 <= p1 - 4; a += 44) {
+          bx(a, 0, b0, a + 4, 3, b1, P.baseD);
+          bx(a, 3, b0, a + 4, 3, b1, P.baseL);
+          bx(a, 4, b0, a + 4, h, b1, P.body);
+          for (let y = 8; y < h - 1; y += 5) bx(a, y, b0, a + 4, y, b1, P.seam);
+          if (h === H) {
+            bx(a - 1, h + 1, b0 - 1, a + 5, h + 2, b1 + 1, P.cap);
+            bx(a - 1, h + 3, b0 - 1, a + 5, h + 3, b1 + 1, P.capL);
+          } else bx(a, h, b0, a + 4, h, b1, P.top);
+        }
+      }
+      if (h === H) {
+        // warm buff sandstone coping blocks (墙顶压石) with recessed mortar joints every 12 cells — faithful to 04-combat-ui.png
+        bx(p0, h + 1, b0 - 1, p1, h + 1, b1 + 1, P.capD);
+        bx(p0, h + 2, b0 - 1, p1, h + 2, b1 + 1, P.cap);
+        bx(p0, h + 3, b0, p1, h + 3, b1, P.capL);
+        for (let a = p0 + 6; a < p1 - 2; a += 12) {
+          bx(a, h + 1, b0 - 1, a, h + 3, b1 + 1, P.capD);
+        }
+      } else {
+        // broken wall top: stepped exposed earth & loose warm stone cap
+        bx(p0, h, c0, p1, h, c1, P.top);
+        bx(p0 + 2, h - 1, c0, p1 - 2, h - 1, c1, P.seam);
+      }
     }
   } else if (st === 'brick') {
     const P = PAL.brick;
+    const c0 = b1 - b0 >= 4 ? b0 + 1 : b0, c1 = b1 - b0 >= 4 ? b1 - 1 : b1;
     for (const [p0, p1, h] of segs) {
-      bx(p0, 0, b0, p1, h, b1, P.body); bx(p0, 0, b0, p1, 1, b1, P.foot);
-      for (let y = 4; y < h; y += 4) bx(p0, y, b0, p1, y, b1, P.joint);
-      for (let y = 0; y < h; y += 4) for (let a = p0 + ((y / 4) % 2 ? 4 : 0); a <= p1; a += 8) { bx(a, y + 1, b0, a, Math.min(h, y + 3), b0, P.joint); bx(a, y + 1, b1, a, Math.min(h, y + 3), b1, P.joint); }
-      if (h === H) { bx(p0, h + 1, b0 - 1, p1, h + 2, b1 + 1, P.cap); bx(p0, h + 3, b0 + 1, p1, h + 3, b1 - 1, P.capL); }
-      else bx(p0, h, b0, p1, h, b1, P.top);
+      bx(p0, 0, b0, p1, 2, b1, P.foot);
+      bx(p0, 2, b0, p1, 2, b1, PAL.stone);
+      bx(p0, 3, c0, p1, h, c1, P.body);
+      for (let y = 6; y < h; y += 4) bx(p0, y, c0, p1, y, c1, P.joint);
+      for (let y = 3; y < h; y += 4) for (let a = p0 + ((y / 4) % 2 ? 4 : 0); a <= p1; a += 8) {
+        bx(a, y + 1, c0, a, Math.min(h, y + 3), c0, P.joint);
+        bx(a, y + 1, c1, a, Math.min(h, y + 3), c1, P.joint);
+      }
+      if (p1 - p0 >= 28) {
+        for (let a = p0 + 4; a + 4 <= p1 - 4; a += 44) {
+          bx(a, 0, b0, a + 4, h, b1, P.body);
+          bx(a, 0, b0, a + 4, 2, b1, P.foot);
+          if (h === H) { bx(a - 1, h + 1, b0 - 1, a + 5, h + 2, b1 + 1, P.cap); bx(a, h + 3, b0, a + 4, h + 4, b1, P.capL); }
+        }
+      }
+      if (h === H) {
+        bx(p0, h + 1, b0 - 1, p1, h + 2, b1 + 1, P.cap);
+        bx(p0, h + 3, c0, p1, h + 3, c1, P.capL);
+        for (let a = p0 + 1; a <= p1; a += 4) bx(a, h + 1, b1 + 1, a, h + 1, b1 + 1, P.capL);
+      } else bx(p0, h, c0, p1, h, c1, P.top);
     }
   } else if (st === 'wattle') {
     // 编篱: posts every 9 cells, two rails, a woven panel between (horizontal bands, two tones)
@@ -295,20 +442,66 @@ export function gateFrame(box: B, st: WallStyle, g: Gate, T: number, Gp: number)
   const b0 = along === 'x' ? M(PLAY.z0) - Gp - T : (g.out[0] < 0 ? M(PLAY.x0) - Gp - T : M(PLAY.x1) + Gp), b1 = b0 + T - 1;
   const bx = (p0: number, y0: number, q0: number, p1: number, y1: number, q1: number, col: number) => along === 'x' ? box(p0, y0, q0, p1, y1, q1, col) : box(q0, y0, p0, q1, y1, p1, col);
   const ext = ARENA_STYLES[st]?.post, post = ext?.[0] ?? (st === 'brick' ? PAL.red : st === 'plaster' ? 0x2a2a30 : PAL.wood), postD = ext?.[1] ?? (st === 'brick' ? PAL.redD : st === 'plaster' ? 0x1a1a20 : PAL.woodD), postL = ext?.[2] ?? (st === 'brick' ? PAL.redL : st === 'plaster' ? 0x3e3e46 : PAL.woodL);
-  const PH = Math.max(33, M(wallHOf(st)) + 6), m0 = Math.floor((b0 + b1) / 2) - 2, m1 = m0 + 3;   // (the posts stand over the wall)
+  const PH = Math.max(35, M(wallHOf(st)) + 7), m0 = Math.floor((b0 + b1) / 2) - 2, m1 = m0 + 4;   // thick Han timber gatehouse
+  const warmGate = st === 'earth' || st === 'wattle';
+  const stC = warmGate ? PAL.earth.base : PAL.stone, stD = warmGate ? PAL.earth.baseD : PAL.stoneD, stL = warmGate ? PAL.earth.baseL : PAL.stoneL;
+  // flush stone threshold across the gate floor
+  bx(cA - half - 2, -1, b0 - 1, cA + half + 2, -1, b1 + 1, stC);
+  bx(cA - half - 2, -1, b1 + 1, cA + half + 2, -1, b1 + 1, stL);
   for (const s of [-1, 1]) {
-    const a = cA + s * (half + 2), a0 = Math.min(a - 2, a + 1), a1 = Math.max(a - 2, a + 1);
-    bx(a0 - 1, 0, m0 - 1, a1 + 1, 3, m1 + 1, PAL.stoneD); bx(a0 - 1, 3, m0 - 1, a1 + 1, 3, m1 + 1, PAL.stone);   // the plinth
-    bx(a0, 4, m0, a1, PH, m1, post); bx(a0, 4, m0, a0, PH, m0, postD); bx(a1, 4, m1, a1, PH, m1, postL);
+    const a = cA + s * (half + 2), a0 = Math.min(a - 2, a + 2), a1 = Math.max(a - 2, a + 2);
+    // stepped stone pier base (抱鼓石础) + sturdy timber column
+    bx(a0 - 1, 0, m0 - 1, a1 + 1, 2, m1 + 1, stD);
+    bx(a0 - 1, 3, m0 - 1, a1 + 1, 4, m1 + 1, stC);
+    bx(a0, 4, m0, a1, 4, m1, stL);
+    const postTop = warmGate ? PH + 6 : PH;
+    bx(a0, 5, m0, a1, postTop, m1, post);
+    bx(a0, 5, m0, a0, postTop, m0, postD);
+    bx(a1, 5, m1, a1, postTop, m1, postL);
+    bx(a0, 6, m0, a1, 7, m1, PAL.ironD);
+    if (warmGate) {
+      // stepped timber post cap projecting cleanly above the twin crossbeams (matching 02-environments.png & 04-combat-ui.png!)
+      bx(a0 - 1, postTop + 1, m0 - 1, a1 + 1, postTop + 2, m1 + 1, postD);
+      bx(a0, postTop + 2, m0, a1, postTop + 2, m1, postL);
+    }
+    // heavy wooden bracket (雀替) supporting the lintel
+    const bi0 = s < 0 ? a1 + 1 : a0 - 3, bi1 = s < 0 ? a1 + 3 : a0 - 1;
+    bx(bi0, PH - 4, m0 + 1, bi1, PH - 2, m1 - 1, postD);
   }
-  const L0 = cA - half - 6, L1 = cA + half + 6;
-  bx(L0, PH + 1, m0, L1, PH + 3, m1, postD); bx(L0 + 2, PH - 2, m0, L1 - 2, PH - 2, m1, post);              // lintel + the tie beam under it
-  bx(L0 - 2, PH + 4, m0 - 4, L1 + 2, PH + 5, m1 + 4, PAL.tileD); bx(L0, PH + 6, m0 - 2, L1, PH + 7, m1 + 2, PAL.tile); bx(L0 + 3, PH + 8, m0, L1 - 3, PH + 8, m1, PAL.tileL);
-  if (!g.open) {   // two board doors, shut
+  const L0 = cA - half - 7, L1 = cA + half + 7;
+  // double heavy Han lintel beams + projecting beam ends
+  bx(L0, PH + 1, m0 - 1, L1, PH + 3, m1 + 1, postD);
+  bx(L0 + 1, PH + 2, m0 - 1, L1 - 1, PH + 2, m1 + 1, post);
+  bx(L0 + 2, PH - 2, m0, L1 - 2, PH - 1, m1, post);
+  if (!warmGate) {
+    // 3-tier overhanging tile roof for brick/plaster gates (village earth/wattle gates stay authentic twin-beam timber archways!)
+    bx(L0 - 3, PH + 4, m0 - 4, L1 + 3, PH + 5, m1 + 4, PAL.tileD);
+    bx(L0 - 1, PH + 6, m0 - 2, L1 + 1, PH + 7, m1 + 2, PAL.tile);
+    bx(L0 + 2, PH + 8, m0, L1 - 2, PH + 9, m1, PAL.tileL);
+    for (let a = L0 - 2; a <= L1 + 2; a += 4) {
+      bx(a, PH + 4, m1 + 4, a, PH + 4, m1 + 4, PAL.tileL);
+      bx(a, PH + 6, m0 - 2, a, PH + 6, m1 + 2, PAL.tileD);
+    }
+  } else {
+    // twin vertical strut blocks tying lower & upper beams (authentic Han timber gateway from 04-combat-ui.png)
+    for (const s of [-1, 1]) bx(cA + s * 6 - 1, PH - 1, m0, cA + s * 6 + 1, PH + 1, m1, postD);
+  }
+  // torn Yellow Turban banner draped from the high crossbeam (matching 04-combat-ui.png gatehouse, high above walking headroom)
+  if (warmGate && g.open) {
+    const qf = m1;
+    bx(cA - 4, PH - 11, qf, cA + 4, PH - 3, qf, 0xd4ac30);
+    bx(cA - 4, PH - 4, qf, cA + 4, PH - 3, qf, 0xa4821e);
+    bx(cA - 4, PH - 14, qf, cA - 1, PH - 12, qf, 0xd4ac30);
+    bx(cA + 2, PH - 13, qf, cA + 4, PH - 12, qf, 0xa4821e);
+    bx(cA, PH - 10, qf, cA, PH - 5, qf, 0xa4821e);
+  }
+  if (!g.open) {   // heavy double plank doors with iron cross-straps and bronze knockers
     const d0 = cA - half, d1 = cA + half;
     bx(d0, 0, m0 + 1, d1, PH - 3, m1 - 1, PAL.woodD);
     for (let a = d0 + 2; a < d1; a += 4) bx(a, 1, m0 + 1, a + 2, PH - 4, m1 - 1, PAL.wood);
-    bx(d0, 8, m0, d1, 9, m1, PAL.tileD); bx(d0, 22, m0, d1, 23, m1, PAL.tileD); bx(cA, 1, m0, cA, PH - 4, m1, PAL.woodD);
+    for (const y of [7, 17, 26]) bx(d0, y, m0, d1, y + 1, m1, PAL.ironD);
+    bx(cA, 1, m0, cA, PH - 4, m1, PAL.woodD);
+    for (const s of [-1, 1]) bx(cA + s * 4, 13, m1, cA + s * 4 + s, 15, m1, PAL.bronzeL);
   }
 }
 
@@ -331,11 +524,16 @@ function cover(box: B, cv: Cover, r: (k: number) => number) {
   const X = M(cv.x), Z = M(cv.z), rot = cv.rot;
   const bx = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, col: number) => rot ? box(X + z0, y0, Z + x0, X + z1, y1, Z + x1, col) : box(X + x0, y0, Z + z0, X + x1, y1, Z + z1, col);
   switch (cv.kind) {
-    case 'well': {   // 井: a square stone curb with a dark water face, a wooden windlass frame across it
-      bx(-10, 0, -10, 10, 9, 10, PAL.stone); bx(-10, 9, -10, 10, 10, 10, PAL.stoneL); bx(-7, 0, -7, 7, 10, 7, PAL.stoneD); bx(-7, 0, -7, 7, 6, 7, PAL.water);
-      bx(-10, 0, -10, 10, 1, 10, PAL.stoneD);
+    case 'well': {   // 井: warm weathered sandstone apron & curb, windlass frame with neutral charcoal-clay roof
+      const ws = PAL.earth.base, wsD = PAL.earth.baseD, wsL = PAL.earth.baseL;
+      bx(-11, 0, -11, 11, 1, 11, wsD);
+      bx(-10, 2, -10, 10, 9, 10, ws); bx(-10, 9, -10, 10, 10, 10, wsL);
+      for (const k of [-4, 4]) { bx(k, 2, 10, k, 9, 10, wsD); bx(k, 2, -10, k, 9, -10, wsD); bx(10, 2, k, 10, 9, k, wsD); bx(-10, 2, k, -10, 9, k, wsD); }
+      bx(-7, 2, -7, 7, 10, 7, wsD); bx(-7, 2, -7, 7, 6, 7, PAL.water);
       for (const s of [-1, 1]) bx(s * 11 - 1, 0, -1, s * 11 + 1, 30, 1, PAL.woodD);
-      bx(-12, 31, -1, 12, 33, 1, PAL.wood); bx(-4, 26, -3, 4, 30, 3, PAL.woodL); bx(-1, 14, -1, 1, 25, 1, PAL.woodD); bx(-3, 10, -3, 3, 14, 3, PAL.wood);
+      bx(-12, 31, -1, 12, 32, 1, PAL.wood);
+      bx(-14, 33, -6, 14, 34, 6, 0x363435); bx(-13, 35, -4, 13, 35, 4, 0x4b4849); bx(-11, 36, -2, 11, 36, 2, 0x625f60);
+      bx(-4, 24, -3, 4, 28, 3, PAL.woodL); bx(-1, 14, -1, 1, 23, 1, PAL.woodD); bx(-3, 10, -3, 3, 14, 3, PAL.wood);
       break;
     }
     case 'mill': {   // 石碾: a round-cornered stone bed (notched), a stone roller on it held by a timber frame
@@ -344,16 +542,32 @@ function cover(box: B, cv: Cover, r: (k: number) => number) {
       bx(-9, 10, -1, 9, 11, 1, PAL.woodD); bx(-1, 7, -1, 1, 24, 1, PAL.woodD); bx(-1, 24, -1, 9, 25, 1, PAL.wood);
       break;
     }
-    case 'cart': {   // 柴车: a plank bed on two wheels (notched squares), shafts on the ground, a load of firewood bundles
-      bx(-16, 9, -8, 16, 11, 8, PAL.wood); bx(-16, 12, -8, 16, 14, -7, PAL.woodD); bx(-16, 12, 7, 16, 14, 8, PAL.woodD); for (let x = -14; x <= 14; x += 6) bx(x, 9, -8, x, 11, 8, PAL.woodD);
-      for (const s of [-1, 1]) { const z = s * 9; bx(-6, 2, z, 6, 14, z + s, PAL.woodD); bx(-4, 0, z, 4, 16, z + s, PAL.woodD); bx(-2, 6, z + s, 2, 10, z + s, PAL.wood); }
-      bx(16, 0, -6, 28, 2, -5, PAL.woodD); bx(16, 0, 5, 28, 2, 6, PAL.woodD); bx(16, 2, -6, 18, 9, 6, PAL.woodD);
-      for (let i = 0; i < 4; i++) { const x = -13 + i * 7; bx(x, 12, -6, x + 5, 19 + (i % 2) * 2, 6, PAL.straw); bx(x, 15, -6, x + 5, 15, 6, PAL.strawD); }
+    case 'cart': {   // 柴车: sturdy Han ox-cart with spoke-banded solid wheels, iron hubs, plank sideboards, bound golden straw bales & sack
+      bx(-16, 9, -8, 16, 11, 8, PAL.wood); bx(-16, 12, -8, 16, 15, -7, PAL.woodD); bx(-16, 12, 7, 16, 15, 8, PAL.woodD); bx(-16, 12, -8, -15, 15, 8, PAL.woodD);
+      for (let x = -14; x <= 14; x += 6) bx(x, 9, -8, x, 11, 8, PAL.woodD);
+      for (const s of [-1, 1]) {
+        const z = s * 9;
+        bx(-7, 3, z, 7, 13, z + s, PAL.woodD); bx(-5, 1, z, 5, 15, z + s, PAL.woodD); bx(-3, 0, z, 3, 16, z + s, PAL.woodD);
+        bx(-5, 4, z, 5, 12, z + s, PAL.wood); bx(-3, 2, z, 3, 14, z + s, PAL.wood);
+        bx(-2, 6, z + s, 2, 10, z + s, PAL.iron); bx(-1, 7, z + s, 1, 9, z + s, PAL.ironL);
+      }
+      bx(16, 0, -6, 26, 2, -5, PAL.woodD); bx(16, 0, 5, 26, 2, 6, PAL.woodD); bx(16, 2, -6, 18, 9, 6, PAL.woodD);
+      for (let i = 0; i < 3; i++) {
+        const x = -13 + i * 8;
+        bx(x, 12, -6, x + 6, 19 + (i % 2) * 2, 6, PAL.straw);
+        bx(x, 19 + (i % 2) * 2, -6, x + 6, 19 + (i % 2) * 2, 6, 0xdcc484);
+        bx(x, 15, -6, x + 6, 15, 6, PAL.woodD);
+      }
+      bx(10, 12, -5, 15, 18, 4, 0xc0b08c); bx(11, 18, -4, 14, 18, 3, 0x9e906e);
       break;
     }
-    case 'stones': {   // a heap of three dressed blocks, the top one set back
-      bx(-10, 0, -8, 4, 7, 8, PAL.stone); bx(-10, 7, -8, 4, 7, 8, PAL.stoneL); bx(4, 0, -6, 10, 5, 4, PAL.stoneD); bx(4, 5, -6, 10, 5, 4, PAL.stone);
-      bx(-7, 8, -5, 1, 13, 4, PAL.stoneD); bx(-7, 13, -5, 1, 13, 4, PAL.stone);
+    case 'stones': {   // architectural masonry rubble: dressed ashlar blocks + stacked dark broken roof tiles
+      bx(-10, 0, -8, 10, 1, 8, PAL.stoneD);
+      bx(-10, 2, -8, 3, 7, 7, PAL.stone); bx(-10, 7, -8, 3, 7, 7, PAL.stoneL);
+      bx(4, 2, -6, 10, 5, 5, PAL.stoneD); bx(4, 5, -6, 10, 5, 5, PAL.stone);
+      bx(-8, 8, -5, 1, 12, 3, PAL.stone); bx(-8, 12, -5, 1, 12, 3, PAL.stoneL);
+      bx(3, 6, -4, 9, 8, 2, PAL.tileD); bx(4, 8, -3, 8, 9, 1, PAL.tile);
+      bx(-9, 2, 5, -2, 3, 8, PAL.tileD);
       break;
     }
     case 'ding': {   // 香鼎: a square bronze cauldron on four legs, two upright handles, ash inside

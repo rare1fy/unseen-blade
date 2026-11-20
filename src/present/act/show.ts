@@ -243,7 +243,8 @@ function* prepRoomSteps(o: RoomIn, background = false): Generator<void | Promise
     yield;
     const grid = arena.shape ? new FloorGrid(arena.shape) : null;
     if (grid && arena.shape?.fixed) {
-      pieces = new RoomPieces(holder, arena.shape, grid, arena.style, room.spec.seed, OPT.slicedRoom);
+      const roll = Math.floor(Math.random() * 1e9);
+      pieces = new RoomPieces(holder, arena.shape, grid, arena.style, room.spec.seed, OPT.slicedRoom, roll);
       if (OPT.slicedRoom) yield* pieces.buildSteps(arena.style, room.spec.seed);
     }
     if (o.plan && OPT.slicedRoom) yield* prepareFightModels(o.plan.waves);
@@ -1434,7 +1435,7 @@ export class ActShow {
       if (fsh?.fixed && this.grid) {
         const built = P.fixtures?.pieces;
         if (built) this.stage.root.add(built.root);
-        const pieces = this.pieces = built ?? new RoomPieces(this.stage.root, fsh, this.grid, this.arena.style, spec.seed, OPT.slicedRoom);
+        const pieces = this.pieces = built ?? new RoomPieces(this.stage.root, fsh, this.grid, this.arena.style, spec.seed, OPT.slicedRoom, Math.floor(Math.random() * 1e9));
         if (!built && OPT.slicedRoom) yield* pieces.buildSteps(this.arena.style, spec.seed);
         this.props.onStrike = s => this.pieces?.strike(s);
         // (the bell frames and the rope posts stand in the way like any post)
@@ -2843,16 +2844,55 @@ export class ActShow {
     }
     this.openDoors();
   }
-  /** 11-18 定死的屋子: a reward picked up (a hidden room's, an islet's): coins, a heal or (when the room is calm) a boon, by the room */
-  private async reward() {
-    const k = ((this.spec?.seed ?? 0) + this.rewardsGot++) % 3, calm = !this.foes.some(f => f.st !== 'dead' && f.kind !== 'dummy');
-    if (k === 1) { const was = this.hero.hp; this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + Math.round(this.hero.maxHp * 0.25)); this.healFeed(was); this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp }); }
-    else if (k === 2 && calm && (this.phase === 'fight' || this.phase === 'doors')) await this.boonPick();
-    else { this.coinsFx.drop(this.hero.pos.clone().add(V3(0, 0, -0.6)), 10, 3); }
+  /** 11-20 解谜秘藏重赏：gold（稀世鎏金秘匣）与 mythic（传世赤金大秘藏）双档高价值奖励，绝不再“挠痒痒”！ */
+  private async reward(tier: 'gold' | 'mythic' = 'gold') {
+    this.rewardsGot++;
+    const dropPos = this.hero.pos.clone().add(V3(0, 0, -0.6));
+    const canPick = this.phase === 'fight' || this.phase === 'doors';
+    const boostMaxHp = (addMax: number, healFrac: number) => {
+      this.hero.maxHp += addMax;
+      const was = this.hero.hp;
+      this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + addMax + Math.round(this.hero.maxHp * healFrac));
+      this.feed.push('heal', () => msg`气血上限 +${addMax}`, 0);
+      this.healFeed(was);
+      this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp });
+    };
+    cue('reveal', 0.85);
+    if (tier === 'mythic') {
+      // 传世赤金大秘藏：必出双重大奖（新刀谱 / 高阶秘传 + 65铜钱喷泉 + 永久气血上限+10 & 大幅回血）！
+      this.banner.show('传世秘藏', '寻得绝世隐宝', 1.6);
+      this.coinsFx.drop(dropPos, 13, 5);
+      boostMaxHp(10, 0.35);
+      if (canPick) {
+        if (drawManuals(this.perks.moves, 1, Math.random).length) await this.manualPick();
+        else await this.boonPick([0.1, 0.45, 0.45]);
+      }
+      return;
+    }
+    // 稀世鎏金秘匣：高阶秘传 / 免费磨刀升阶 / 永久加血上限 / 75铜钱金库，每一种都诚意满满！
+    this.banner.show('秘藏入手', '破阵夺得重宝', 1.3);
+    const r = Math.random();
+    if (r < 0.38 && canPick) {
+      this.coinsFx.drop(dropPos, 7, 5);
+      await this.boonPick([0.35, 0.45, 0.2]);
+    } else if (r < 0.62 && canPick) {
+      this.coinsFx.drop(dropPos, 7, 5);
+      if (this.sharpenable().length) await this.sharpen();
+      else await this.boonPick([0.35, 0.45, 0.2]);
+    } else if (r < 0.82) {
+      this.coinsFx.drop(dropPos, 6, 5);
+      boostMaxHp(15, 0.4);
+    } else {
+      this.coinsFx.drop(dropPos, 15, 5);
+      const was = this.hero.hp;
+      this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + Math.round(this.hero.maxHp * 0.35));
+      this.healFeed(was);
+      this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp });
+    }
   }
-  /** three boons with rolled tiers — a 死士 room rolls better */
-  private async boonPick() {
-    const odds = this.plan?.type === 'elite' ? [0.35, 0.45, 0.2] : [0.7, 0.25, 0.05];
+  /** three boons with rolled tiers — a 死士 room or treasure coffer rolls better */
+  private async boonPick(customOdds?: [number, number, number]) {
+    const odds = customOdds ?? (this.plan?.type === 'elite' ? [0.35, 0.45, 0.2] : [0.7, 0.25, 0.05]);
     const pick = drawBoons('any', 3, Math.random, this.perks, odds); if (!pick.length) return;
     const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide();
     const i = await this.cards.open(pick); const b = pick[i]; this.take(b.boon, b.tier);
@@ -3154,7 +3194,7 @@ export class ActShow {
       const bodies = this.pieces.plates.length ? this.foes.filter(f => f.st !== 'dead').map(f => ({ pos: f.pos, r: f.d.r })) : [];
       const calm = !this.foes.some(f => f.st !== 'dead' && f.kind !== 'dummy');
       const frame = { foes: bodies, heroRadius: this.hero.r, heroHeight: this.hero.y, waitZone: this.waitZone };
-      for (const e of this.pieces.update(dt, this.hero.pos, calm, frame)) if (e.k === 'reward') void this.reward();
+      for (const e of this.pieces.update(dt, this.hero.pos, calm, frame)) if (e.k === 'reward') void this.reward(e.tier);
       // 11-18 定死的屋子: she walked into the next piece of the floor — its wave
       if (this.waitZone >= 0 && this.phase === 'fight' && this.pieces.zoneAt(this.hero.pos.x, this.hero.pos.z) === this.waitZone) { this.waitZone = -1; after(0.35, () => { if (this.phase === 'fight') this.spawnWave(); }); }
     }

@@ -28,7 +28,7 @@ import { trimShadows } from './enemy';
 import { dh } from '../../debug/dh';
 import type { ActShow } from './show';
 import { HIDEOUT_PEOPLE, HIDEOUT_DONKEY, FENG_STRIKE } from './hideout_people';
-import { K, kiln, forge, anvil, bladeRack, bladeWall, RACK_RAILS, trough, coalBasket, northWall, offering, logStack, herbCorner, mat, medStove, lowTable, bellPost, steps, terrace, culvert, channel, railing, cart, feed, cookFire, practiceRack, stoneLock, lantern, frontGate, pigeon, recolor, brickAt } from './hideout_kit';
+import { K, kiln, forge, anvil, bladeRack, bladeWall, RACK_RAILS, trough, coalBasket, northWall, offering, logStack, herbCorner, mat, medStove, lowTable, bellPost, steps, terrace, culvert, channel, railing, cart, feed, cookFire, practiceRack, stoneLock, lantern, frontGate, pigeon, recolor, brickAt, strawCluster, stoneCluster, terraceRuin, cliffOutcrop, forgeSupply, campSupply } from './hideout_kit';
 export { HIDEOUT_PEOPLE } from './hideout_people';
 
 export type HideoutTime = 'dusk' | 'night' | 'dawn' | 'day';
@@ -152,10 +152,11 @@ function solidsOf(): HideoutSolid[] {
   // 杜五's corner: the cook-fire with its pot frame, the cart, the donkey, its trough and hay
   out.push(cbox(POT.X - 9, POT.X + 9, POT.Z - 7, POT.Z + 7), cbox(CART.X - 34, CART.X + 24, CART.Z - 11, CART.Z + 11));
   out.push(mbox(DONKEY.x - 0.8, DONKEY.x + 1.12, DONKEY.z - 0.24, DONKEY.z + 0.24), cbox(FEED.X - 10, FEED.X + 8, FEED.Z - 3, FEED.Z + 12));
-  // the front wall either side of the gate, the gate's posts, the leaf standing open inside the right post
+  // the front wall either side of the gate, the gate's posts, the leaf standing open inside the right post, plus inner corner clusters
   const pa = GATE.x0 - 3, pb = GATE.x1 + 1;
   out.push(cbox(GATE.w0, GATE.x0 - 4, GATE.Z - 3, GATE.Z + 2), cbox(GATE.x1 + 4, GATE.w1, GATE.Z - 3, GATE.Z + 2));
   out.push(cbox(pa - 1, pa + 3, GATE.Z - 2, GATE.Z + 2), cbox(pb - 1, pb + 3, GATE.Z - 2, GATE.Z + 2), cbox(pb - 1, pb, GATE.Z - 14, GATE.Z - 3));
+  out.push(cbox(C(-8.8), C(-7.3), C(5.3), C(6.6)), cbox(C(-1.3), C(-0.1), C(5.5), C(6.6)), cbox(C(4.7), C(5.8), C(5.5), C(6.3)));
   return out;
 }
 HIDEOUT.solids.push(...solidsOf());
@@ -163,24 +164,114 @@ HIDEOUT.solids.push(...solidsOf());
 // ------------------------------------------------------------------ the ground
 function ground(c: Ctx) {
   const w = c.w, r = (k: number) => hash(k, 71, 3);
-  const fill = (x0: number, z0: number, x1: number, z1: number, col: number | ((x: number, z: number) => number)) => { for (let X = C(x0); X <= C(x1); X++) for (let Z = C(z0); Z <= C(z1); Z++) w.set(X, -1, Z, typeof col === 'number' ? col : col(X, Z)); };
+  const fill = (x0: number, z0: number, x1: number, z1: number, col: number | ((x: number, z: number) => number)) => {
+    for (let X = C(x0); X <= C(x1); X++) for (let Z = C(z0); Z <= C(z1); Z++) w.set(X, -1, Z, typeof col === 'number' ? col : col(X, Z));
+  };
   const snap = (v: number) => Math.round(v / 0.35) * 0.35;
-  // grass outside, in big patches; the hideout's packed earth inside the walls, in big patches
+  // ordered dressed-stone flagstone helper (running-bond large slabs with crisp mortar joints, zero random single-cell noise)
+  const flagstones = (x0: number, z0: number, x1: number, z1: number, sw = 12, sd = 10, seed = 3) => {
+    const X0 = C(x0), X1 = C(x1), Z0 = C(z0), Z1 = C(z1);
+    for (let X = X0; X <= X1; X++) for (let Z = Z0; Z <= Z1; Z++) {
+      const rz = Math.floor((Z + 600) / sd), u = X + 600 + (rz & 1) * Math.floor(sw / 2);
+      const joint = (Z + 600) % sd === 0 || u % sw === 0 || X === X0 || X === X1 || Z === Z0 || Z === Z1;
+      if (joint) { w.set(X, -1, Z, K.paveJ); continue; }
+      const h = hash(Math.floor(u / sw), rz, seed);
+      w.set(X, -1, Z, h < 0.28 ? K.paveD : h < 0.82 ? K.pave : K.paveL);
+    }
+  };
+  // stepping-stone runner: large grey slabs spaced cleanly with 3-cell tamped earth strips between them (aligned with 04-combat-ui.png)
+  const stepRunZ = (xc: number, z0: number, z1: number, hw = 8, len = 12, gap = 3, seed = 9) => {
+    const Xc = C(xc), Z0 = C(z0), Z1 = C(z1), step = len + gap;
+    for (let Z = Z0; Z <= Z1; Z++) {
+      const idx = Math.floor((Z - Z0) / step), lz = (Z - Z0) - idx * step;
+      if (lz >= len) continue;
+      for (let dx = -hw; dx <= hw; dx++) {
+        const border = lz === 0 || lz === len - 1 || dx === -hw || dx === hw;
+        const h = hash(idx, dx > 0 ? 1 : 0, seed);
+        w.set(Xc + dx, -1, Z, border ? K.paveJ : h < 0.3 ? K.paveD : h < 0.8 ? K.pave : K.paveL);
+      }
+    }
+  };
+  const stepRunX = (zc: number, x0: number, x1: number, hd = 7, len = 12, gap = 3, seed = 11) => {
+    const Zc = C(zc), X0 = C(x0), X1 = C(x1), step = len + gap;
+    for (let X = X0; X <= X1; X++) {
+      const idx = Math.floor((X - X0) / step), lx = (X - X0) - idx * step;
+      if (lx >= len) continue;
+      for (let dz = -hd; dz <= hd; dz++) {
+        const border = lx === 0 || lx === len - 1 || dz === -hd || dz === hd;
+        const h = hash(idx, dz > 0 ? 1 : 0, seed);
+        w.set(X, -1, Zc + dz, border ? K.paveJ : h < 0.3 ? K.paveD : h < 0.8 ? K.pave : K.paveL);
+      }
+    }
+  };
+
+  // grass outside, in gentle broad patches; calm unified packed earth inside the courtyard (no harsh random linoleum rectangles)
   fill(-18, -9.5, 18, 14, GRASS[0]);
-  for (let i = 0; i < 40; i++) { const x = -18 + r(i) * 36, z = -9 + r(50 + i) * 23, hw = 0.6 + r(100 + i) * 1.6, hd = 0.5 + r(150 + i) * 1.2; fill(snap(x - hw), snap(z - hd), snap(x + hw), snap(z + hd), r(200 + i) < 0.6 ? GRASS[1] : GRASS[2]); }
+  for (let i = 0; i < 32; i++) {
+    const x = -18 + r(i) * 36, z = -9 + r(50 + i) * 23, hw = 1.0 + r(100 + i) * 2.0, hd = 0.8 + r(150 + i) * 1.6;
+    fill(snap(x - hw), snap(z - hd), snap(x + hw), snap(z + hd), r(200 + i) < 0.6 ? GRASS[1] : GRASS[2]);
+  }
   fill(-9.3, -9.5, 8.6, 7.2, K.earth);
-  for (let i = 0; i < 34; i++) { const x = -9 + r(300 + i) * 17.4, z = -9.2 + r(350 + i) * 16, hw = 0.5 + r(400 + i) * 1.4, hd = 0.4 + r(450 + i) * 1.0; fill(Math.max(-9.3, snap(x - hw)), Math.max(-9.5, snap(z - hd)), Math.min(8.6, snap(x + hw)), Math.min(7.2, snap(z + hd)), r(500 + i) < 0.55 ? K.earthD : K.earthL); }
-  // 试剑坪: the packed light earth, a timber kerb round it (log lengths with a dark joint every 0.9 m)
+  // damp / tamped-earth border grounding the perimeter walls, fence, kiln bay, and water channel
+  fill(-9.3, -9.5, 8.6, -8.1, K.earthD);
+  fill(-9.3, 6.2, 8.6, 7.2, K.earthD);
+  fill(-9.3, -9.5, -8.2, 7.2, K.earthD);
+  fill(7.8, -9.5, 8.6, 7.2, K.earthD);
+  // subtle warm trodden apron around Du Wu's cook-fire & cart area
+  fill(2.0, 0.8, 7.5, 5.8, K.earthL);
+  fill(2.4, 1.2, 4.1, 2.8, K.earthD);
+
+  // 试剑坪: warm packed earth framed by a 2-cell timber curb + 4 corner stone bollards, open stone threshold on the east edge
   fill(-7.8, -5.2, -1.4, 4.8, K.yard);
-  fill(-6.3, -3.4, -2.7, 1.6, (X, Z) => ((X >> 3) + (Z >> 3)) % 7 === 0 ? K.yardD : K.yard);
+  fill(-7.6, -5.0, -1.6, -4.6, K.yardD); fill(-7.6, 4.4, -1.6, 4.6, K.yardD);
+  fill(-7.6, -5.0, -7.2, 4.6, K.yardD); fill(-2.0, -5.0, -1.6, 4.6, K.yardD);
+  // subtle flat ring marking the central wooden-dummy sparring ground + stone pads under the 4 summon slabs
+  fill(-6.4, -3.5, -2.6, 1.7, K.yardD);
+  fill(-6.1, -3.2, -2.9, 1.4, K.yard);
+  // subtle warm stone plinths flush under the 4 summon slabs (harmonizes with packed training dirt!)
+  for (const [sx, sz] of HIDEOUT.slabs) flagstones(sx - 0.5, sz - 0.44, sx + 0.5, sz + 0.44, 14, 12, 17);
   const kx0 = C(-7.8), kx1 = C(-1.4), kz0 = C(-5.2), kz1 = C(4.8);
-  for (let X = kx0; X <= kx1; X++) for (const Z of [kz0, kz1]) w.set(X, 0, Z, (X - kx0) % 13 === 12 ? HV.woodD : HV.wood);
-  for (let Z = kz0; Z <= kz1; Z++) for (const X of [kx0, kx1]) w.set(X, 0, Z, (Z - kz0) % 13 === 12 ? HV.woodD : HV.wood);
-  // brick pavers in front of the north wall (the stele's apron), worn paths from the middle to each station, the road out with its ruts
-  for (let X = WALL.X0; X <= C(6.4); X++) for (let Z = WALL.Z1 + 1; Z <= C(-7.0); Z++) { const row = Math.floor((Z + 600) / 6), u = X + 600 + (row & 1) * 6; w.set(X, -1, Z, (Z + 600) % 6 === 5 || u % 12 === 11 ? K.paveJ : (row + Math.floor(u / 12)) % 3 === 0 ? K.paveD : K.pave); }
-  fill(0.9, 0.2, 2.6, 7.2, K.path); fill(-0.4, -2.2, 3.6, 0.6, K.path); fill(0.4, -2.0, 3.0, 0.2, K.earthL);
-  fill(-0.2, -6.6, 1.5, -2.2, K.path); fill(3.6, -6.9, 5.2, -4.0, K.path); fill(5.2, -5.4, 6.0, -4.0, K.path); fill(-1.4, -1.6, -0.4, -0.2, K.path); fill(3.6, -1.4, 6.8, -0.4, K.earthL);
-  fill(0.55, 7.2, 3.05, 14, K.path);
+  const entZ0 = C(-1.55), entZ1 = C(-0.25);
+  for (let X = kx0; X <= kx1; X++) for (const Z of [kz0, kz1]) {
+    w.set(X, 0, Z, (X - kx0) % 14 === 13 ? HV.woodD : HV.wood);
+    w.set(X, 0, Z === kz0 ? Z - 1 : Z + 1, HV.woodD);
+  }
+  for (let Z = kz0; Z <= kz1; Z++) for (const X of [kx0, kx1]) {
+    if (X === kx1 && Z >= entZ0 && Z <= entZ1) continue;
+    w.set(X, 0, Z, (Z - kz0) % 14 === 13 ? HV.woodD : HV.wood);
+    w.set(X === kx0 ? X - 1 : X + 1, 0, Z, HV.woodD);
+  }
+  // four dressed corner stone blocks anchoring the training yard
+  for (const X of [kx0 - 1, kx1]) for (const Z of [kz0 - 1, kz1]) {
+    w.box(X, 0, Z, X + 1, 2, Z + 1, K.stoneD);
+    w.box(X, 3, Z, X + 1, 3, Z + 1, K.stoneL);
+  }
+
+  // warm weathered sandstone apron in front of the north wall (stele offering pad)
+  for (let X = WALL.X0; X <= C(6.4); X++) for (let Z = WALL.Z1 + 1; Z <= C(-7.0); Z++) {
+    const row = Math.floor((Z + 600) / 6), u = X + 600 + (row & 1) * 6;
+    w.set(X, -1, Z, (Z + 600) % 6 === 5 || u % 12 === 11 ? K.paveJ : (row + Math.floor(u / 12)) % 3 === 0 ? K.paveD : K.pave);
+  }
+  // natural mountain-courtyard trodden earth footpaths (warm darker ochre dirt — NO jarring blue-grey flagstones across yellow soil!)
+  const dirtPath = (x0: number, z0: number, x1: number, z1: number) => {
+    fill(x0 - 0.14, z0 - 0.14, x1 + 0.14, z1 + 0.14, K.earthD);
+    fill(x0, z0, x1, z1, K.path);
+  };
+  dirtPath(0.95, -2.0, 2.55, 6.7);      // front gate → central courtyard
+  dirtPath(0.2, -6.5, 1.8, -1.6);       // central courtyard → kiln forge bay
+  dirtPath(3.9, -6.9, 5.2, -1.6);       // stele apron → east yard
+  dirtPath(2.2, -1.6, 7.2, -0.35);      // central courtyard → Lu Zhao rail & channel
+  dirtPath(-1.5, -1.5, 1.4, -0.25);     // central courtyard → training yard entrance
+  dirtPath(5.0, -5.2, 6.3, -4.2);       // stele spur → Sun Ao herb corner
+  // sparse weathered warm-sandstone stepping slabs ONLY at real thresholds (front gate step & kiln hearth step)
+  stepRunZ(1.75, 4.4, 6.5, 8, 12, 5, 7);
+  flagstones(-0.2, -6.55, 1.8, -5.85, 12, 10, 13);
+  flagstones(-1.55, -1.45, -0.75, -0.35, 10, 10, 29);
+  void stepRunX;
+
+  // the road outside the front gate: worn earth with stone verges and two deep wheel ruts
+  fill(0.45, 7.2, 3.15, 14, K.path);
+  for (const X of [C(0.45), C(3.15)]) for (let Z = C(7.3); Z <= C(14); Z++) w.set(X, -1, Z, (Z % 12 < 2) ? K.stoneD : K.earthD);
   for (const X of [C(0.95), C(2.55)]) for (let Z = C(7.3); Z <= C(14); Z++) { w.set(X, -1, Z, K.rut); w.set(X + 1, -1, Z, K.rut); }
 }
 
@@ -206,6 +297,7 @@ function* build(c: Ctx, o: { time: HideoutTime; weather: HideoutWeather }) {
   const [ax, az] = anvilAt(); anvil(c, C(ax), C(az));
   bladeRack(c, KILN.X - 42, KILN.Z + 16);
   trough(c, KILN.X + 29, KILN.Z + 5);
+  forgeSupply(c, KILN.X + 18, KILN.Z + 12);
   coalBasket(c, KILN.X - 27, KILN.Z + 29);
   // the north wall (the stele stands before it; an offering beside it), 孙媪's corner and its side wall, pigeons on the wall top
   yield;
@@ -238,15 +330,73 @@ function* build(c: Ctx, o: { time: HideoutTime; weather: HideoutWeather }) {
   frontGate(c, GATE.w0, GATE.x0, GATE.x1, GATE.w1, GATE.Z);
   // two paper lanterns (lit at dusk and night): from the gate's lintel, and at the end of 孙媪's beam
   lantern(c, GATE.x0 - 6, 29, GATE.Z, lit); lantern(c, CORNER.X1 - 1, 25, CORNER.Zp - 1, lit);
-  // trees and bamboo: groves on the terraces behind and down the right beyond the water, a few at the left
+  // trees and bamboo: lush Mount Song bamboo valleys framing BOTH East & West flanks plus layered groves behind the kiln!
   yield;
-  grove(c, -15, -16, -7, -13.3, 14, 11, [6.6, 8.0]);
-  grove(c, 5, -16, 15, -13.3, 16, 12, [6.6, 8.0]);
-  grove(c, -16, -21, 16, -17.2, 24, 13, [8.6, 10.2]);
-  grove(c, 10.3, -6.5, 13.2, 2.5, 14, 14, [5.4, 7.2]);
-  grove(c, -13, -6, -10.4, 3.5, 10, 15, [4.6, 6.0]);
+  grove(c, -16.5, -16.5, -6.5, -12.6, 28, 11, [6.4, 8.6]);
+  grove(c, 5.0, -16.5, 16.5, -12.6, 30, 12, [6.4, 8.6]);
+  grove(c, -18.0, -21.5, 18.0, -16.8, 46, 13, [8.4, 10.8]);
+  // Dense East bamboo forest beyond the water channel
+  grove(c, 9.9, -9.2, 14.4, 4.8, 40, 14, [5.4, 7.8]);
+  grove(c, 12.0, -4.0, 18.2, 10.5, 32, 16, [5.0, 7.4]);
+  // Dense West bamboo forest outside the training-yard wattle fence
+  grove(c, -14.8, -9.0, -9.9, 6.2, 38, 15, [5.0, 7.4]);
+  grove(c, -18.5, -12.5, -13.2, 10.2, 30, 17, [5.4, 7.8]);
   deadTree(w, -11.6, -10.6, 5.6, HV.char, HV.charD, { seed: 9, crow: 0.6, moss: false });
+  oak(w, -13.8, -11.4, 6.8, { seed: 33, bark: 0x4a3c30, dark: 0x30261e, leaf: 0x866c32, leafTop: 0xaa8a40, low: 0.42, width: 1.05, vines: 0 });
+  oak(w, -13.4, 2.2, 6.0, { seed: 53, bark: 0x4a3c30, dark: 0x30261e, leaf: 0x6c7c3a, leafTop: 0x8ea04c, low: 0.40, width: 1.0, vines: 0 });
+  oak(w, -12.2, 7.6, 5.4, { seed: 59, bark: 0x4a3c30, dark: 0x30261e, leaf: 0x8a6d32, leafTop: 0xb08d42, low: 0.42, width: 0.95, vines: 0 });
   oak(w, 12.6, -10.8, 7.4, { seed: 21, bark: 0x4a3c30, dark: 0x30261e, leaf: 0x8a6a2c, leafTop: 0xb08a3a, low: 0.4, width: 1.1, vines: 0 });
+  oak(w, 13.8, -1.8, 6.2, { seed: 61, bark: 0x4a3c30, dark: 0x30261e, leaf: 0x62783a, leafTop: 0x829c4c, low: 0.40, width: 1.0, vines: 0 });
+  oak(w, 14.5, 5.8, 6.2, { seed: 47, bark: 0x4a3c30, dark: 0x30261e, leaf: 0x7c6834, leafTop: 0xa28842, low: 0.42, width: 0.95, vines: 0 });
+  // Low lush hillside voxel shrubs nestled under both bamboo flanks
+  for (const [bx, bz, r2] of [
+    [-10.6, -7.2, 7], [-11.4, -0.4, 8], [-10.8, 3.6, 7], [-12.6, 5.8, 9],
+    [10.8, -7.4, 7], [11.6, -4.6, 8], [11.2, 1.2, 8], [12.4, 4.8, 9],
+  ] as const) {
+    const X = C(bx), Z = C(bz);
+    w.box(X - r2, 0, Z - r2, X + r2, 5, Z + r2, 0x4f6434);
+    w.box(X - r2 + 2, 6, Z - r2 + 2, X + r2 - 2, 9, Z + r2 - 2, 0x647d40);
+    w.box(X - r2 + 4, 10, Z - r2 + 4, X + r2 - 4, 11, Z + r2 - 4, 0x7a944c);
+  }
+  // Mount Song rugged limestone/sandstone cliff outcrops anchoring the ancient kiln into the mountainside (bleeding off camera edges!)
+  cliffOutcrop(c, C(-8.6), T1.h + 1, C(-11.4), 22, 14, 24);
+  cliffOutcrop(c, C(-14.8), T2.h + 1, C(-14.6), 28, 18, 30);
+  cliffOutcrop(c, C(9.4), T1.h + 1, C(-11.8), 20, 14, 22);
+  cliffOutcrop(c, C(15.2), T2.h + 1, C(-15.0), 28, 18, 28);
+  cliffOutcrop(c, C(-3.8), T3.h + 1, C(-18.6), 34, 16, 26);
+  cliffOutcrop(c, C(5.8), T3.h + 1, C(-18.2), 30, 16, 24);
+  // lived-in courtyard edge details: gate stone bollards (门墩石), low wooden stool by Du Wu's cook-fire, & wall-root weathered pebbles
+  for (const bx of [GATE.x0 - 8, GATE.x1 + 6]) {
+    w.box(bx - 1, 0, GATE.Z + 4, bx + 2, 1, GATE.Z + 7, K.stoneD);
+    w.box(bx, 2, GATE.Z + 5, bx + 1, 6, GATE.Z + 6, K.stone);
+    w.box(bx, 7, GATE.Z + 5, bx + 1, 7, GATE.Z + 6, K.stoneL);
+  }
+  // low wooden bench/stool beside Du Wu's cook-fire (pure visual grounding inside fire zone)
+  w.box(POT.X - 15, 0, POT.Z + 3, POT.X - 14, 3, POT.Z + 5, HV.post);
+  w.box(POT.X - 8, 0, POT.Z + 3, POT.X - 7, 3, POT.Z + 5, HV.post);
+  w.box(POT.X - 16, 4, POT.Z + 2, POT.X - 6, 4, POT.Z + 6, HV.wood);
+  w.box(POT.X - 16, 4, POT.Z + 6, POT.X - 6, 4, POT.Z + 6, HV.woodL);
+  // small 3D weathered road-edge stones tucked cleanly by wall roots & gate shoulders
+  for (const [rx, rz] of [[-4.2, 6.2], [-2.2, 6.3], [3.6, 6.2], [7.8, 1.5], [7.9, -4.1], [-8.2, 2.2], [-8.2, -3.8], [0.1, 7.6], [3.8, 7.7]] as const) {
+    const X = C(rx), Z = C(rz);
+    w.box(X - 2, 0, Z - 2, X + 2, 1, Z + 1, K.stoneD);
+    w.box(X - 1, 2, Z - 1, X + 1, 2, Z, K.stoneL);
+    w.box(X + 3, 0, Z - 1, X + 4, 0, Z + 1, K.stone);
+  }
+  // functional camp & yard narrative details (unpacked crates by Du Wu's cart, straw & timber stacks on flanks, old hillside ruins)
+  campSupply(c, C(5.2), C(5.9));
+  strawCluster(c, C(-8.1), C(5.9), 2);
+  logStack(c, C(-1.2), C(-0.2), C(5.6), C(6.4), 7);
+  stoneCluster(c, C(-1.6), C(8.0));
+  strawCluster(c, C(-10.8), C(-1.8), 3);
+  strawCluster(c, C(-11.2), C(4.0), 3);
+  stoneCluster(c, C(-10.4), C(6.6));
+  logStack(c, C(-10.1), C(-9.1), C(-5.8), C(-4.4), 7);
+  stoneCluster(c, C(10.8), C(-3.0));
+  stoneCluster(c, C(10.7), C(2.8));
+  strawCluster(c, C(11.8), C(7.0), 3);
+  terraceRuin(c, C(-10.4), T1.h + 1, C(-10.2));
+  terraceRuin(c, C(11.4), T2.h + 1, C(-14.0));
   // dressing: dry grass on the vault's tiers and the terrace tops, reeds along the water and in the corners, grass outside the walls
   yield;
   const card = (kind: string, x: number, z: number, s: number, tint?: number) => { const y = surface(c, x, z); if (y != null) c.cards.add(kind, x, z, { y, s, tint }); };
@@ -254,13 +404,42 @@ function* build(c: Ctx, o: { time: HideoutTime; weather: HideoutWeather }) {
   for (let i = 0; i < 90; i++) { const x = -18 + hash(i, 4, 9) * 36, z = -16 + hash(i, 5, 9) * 6.5; if (Math.abs(x + 0.8) < 3.8 && z > -12.6) continue; card(i % 4 ? 'grass' : 'weeds', x, z, 0.5 + hash(i, 6, 9) * 0.4, i % 2 ? 0xc8b890 : 0xb4a878); }
   for (let i = 0; i < 46; i++) { const z = -8.6 + hash(i, 7, 9) * 22, x = hash(i, 8, 9) < 0.5 ? 9.85 + hash(i, 9, 9) * 0.5 : 8.6 + hash(i, 10, 9) * 0.1; if (x < 9 && (z < 1.2 && z > -5.1)) continue; card('reeds', x, z, 0.6 + hash(i, 11, 9) * 0.5, 0xb8b088); }
   for (let i = 0; i < 26; i++) { const x = -10.5 + hash(i, 12, 9) * 3, z = 4.6 + hash(i, 13, 9) * 4; card('reeds', x, z, 0.6 + hash(i, 14, 9) * 0.4, 0xb8b088); }
-  for (let i = 0; i < 220; i++) {
-    const x = -18 + hash(i, 15, 9) * 36, z = -9 + hash(i, 16, 9) * 23;
-    if (x > -9.5 && x < 8.7 && z < 7.4) continue; if (x > 0.4 && x < 3.2 && z > 7) continue;
-    card(i % 5 ? 'grass' : 'weeds', x, z, 0.4 + hash(i, 17, 9) * 0.35, i % 3 ? 0xc8b890 : 0xa8b080);
+  for (let i = 0; i < 360; i++) {
+    const x = -18 + hash(i, 15, 9) * 36, z = -10 + hash(i, 16, 9) * 24;
+    if (x > -9.3 && x < 8.7 && z < 7.4) continue; if (x > 0.4 && x < 3.2 && z > 7) continue;
+    const isFlank = x < -9.3 || x > 9.5;
+    card(isFlank && i % 3 === 0 ? 'vtuft' : (i % 5 ? 'grass' : 'weeds'), x, z, 0.48 + hash(i, 17, 9) * 0.42, isFlank ? (i % 2 ? 0x9eb878 : 0xb8c488) : (i % 3 ? 0xc8b890 : 0xa8b080));
   }
-  // a few weeds on the courtyard's darker patches, off the paths and the yard (never in anyone's way: they are flat cards)
-  for (let i = 0; i < 40; i++) { const x = -9 + hash(i, 18, 9) * 17.5, z = -6 + hash(i, 19, 9) * 13; const at = w.get(C(x), -1, C(z))?.c; if (at === K.earthD && !(x < -1.2 && x > -8 && z > -5.4 && z < 5)) card('weeds', x, z, 0.35 + hash(i, 20, 9) * 0.2, 0xb0a07c); }
+  // lived-in courtyard micro-details: crisp wall-root tufts, weathered pebbles along paths, autumn leaf litter & twigs
+  for (let i = 0; i < 42; i++) {
+    const x = -9 + hash(i, 18, 9) * 17.5, z = -7.8 + hash(i, 19, 9) * 14.5;
+    const at = w.get(C(x), -1, C(z))?.c;
+    const inYard = x < -1.2 && x > -8 && z > -5.4 && z < 5;
+    if (at === K.earthD && !inYard) card('vtuft', x, z, 0.55 + hash(i, 20, 9) * 0.25, i % 2 ? 0xe8e0be : 0xffffff);
+  }
+  // pebbles along footpath verges, gate threshold, training-yard timber curb, and stele mound
+  for (const [px, pz, s] of [
+    [0.6, 5.4, 1.05], [2.9, 5.1, 1.0], [0.4, 2.2, 1.02], [2.6, -0.8, 0.96], [4.2, -3.5, 1.05],
+    [-1.2, 4.6, 1.02], [-1.2, -4.8, 0.98], [-7.9, 5.2, 1.05], [5.8, -1.8, 0.96], [3.6, 7.6, 1.12],
+    [0.2, 8.2, 1.08], [4.8, 8.0, 1.05], [-4.8, 7.6, 1.12], [6.6, 5.8, 0.98], [1.6, 1.0, 0.95],
+  ] as const) {
+    c.cards.add('vpebble', px, pz, { y: 0.012, s, tint: 0xffffff });
+  }
+  // fallen autumn leaves tucked along the east bamboo edge, west fence, and cook-fire/firewood corners
+  for (const [lx, lz, s] of [
+    [7.4, -3.2, 1.1], [7.2, 0.4, 1.05], [6.4, 5.2, 1.0], [-8.0, 2.5, 1.1], [-7.8, -5.6, 1.05],
+    [-0.4, 5.9, 1.02], [3.8, 3.0, 0.96], [4.8, -6.5, 0.98], [-3.2, 7.8, 1.15], [5.2, 7.9, 1.1],
+  ] as const) {
+    c.cards.add('vleaf', lx, lz, { y: 0.010, s, tint: 0xffffff });
+  }
+  // crisp plant tufts hugging the outside gate wall, broken stele mound, and training curb corners
+  for (const [gx, gz, k] of [
+    [-0.1, 7.3, 'vtuft'], [3.7, 7.3, 'vtuft'], [4.9, 7.9, 'vtuft'], [5.6, 7.5, 'vtuft'],
+    [-7.9, 4.9, 'vtuft'], [-1.3, 4.9, 'vtuft'], [-1.3, -5.3, 'vtuft'], [-7.9, -5.3, 'vtuft'],
+    [-5.8, 6.4, 'vtuft'], [-2.6, 6.4, 'vtuft'], [4.4, 6.3, 'vtuft'], [7.6, 3.8, 'vtuft'],
+  ] as const) {
+    card(k, gx, gz, 0.68, gx > 0 ? 0xe6deb8 : 0xffffff);
+  }
   if (wet) {
     // rain: the bare ground a shade darker (wet), a few small puddles
     for (const [k, cell] of w.cells) if ((Math.floor(k / 1024) % 1024) - 512 === -1 && !cell.g) cell.c = mixC(cell.c, 0x2a2c34, 0.18);

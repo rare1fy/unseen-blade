@@ -6,6 +6,7 @@ import { M, AREA, PLAY, SX, SZ } from '../../scenes/props';
 import { CELL } from '../../bestiary/kit';
 import type { Group, Landmark, Layout, Locale, Place, Rect } from '../types';
 import { WL, WL_MOOD, river, WATER_MARK, frame, deckBoard, faceOf, flagpole, fireBasket, lantern, chainCoil, chainRun, hull, smoke, wp } from './wl_kit';
+import { wulinInfill, wulinEdgeDress, wulinDistantBackdrop } from './wl_infill';
 
 const lit = (p: Place) => p.lamp > 0.3;
 const lampLight = (c: Ctx, p: Place, at: [number, number, number], k = 1, d = 5) => { if (lit(p)) c.light(at, 0xffa050, 2.2 * p.lamp * k, d); };
@@ -79,10 +80,13 @@ function floor(c: Ctx) {
   for (let X = M(AREA.x0 - 6); X <= M(AREA.x1 + 6); X++) for (let Z = M(AREA.z0 - 8); Z <= M(AREA.z1 + 4); Z++) {
     const x = (X + 0.5) * CELL, z = (Z + 0.5) * CELL;
     if (x < d.x0 || x > d.x1 || z < d.z0 || z > d.z1) { w.set(X, -1, Z, WATER_MARK); continue; }
-    // 11-18 (用户：「不许逐格随机碎点」): 框着较暗的船舷，整段新桐油木横铺，通往楼阁的中央略亮。
-    const body = z < PLAY.z0 + 2.4 || Math.abs(x) > PLAY.x1 - 2.7 ? WL.oilD : Math.abs(x) < 2.4 ? WL.oilL : WL.oil;
+    // 11-18 (用户：「不许逐格随机碎点」): 框着较暗的船舷，整段新桐油木横铺，通往楼阁的中央带朱漆镶边御道与横向船肋压条。
+    const ax = Math.abs(x);
+    const body = z < PLAY.z0 + 2.4 || ax > PLAY.x1 - 2.7 ? WL.oilD : ax < 2.2 ? WL.oilL : WL.oil;
     const edge = x < d.x0 + 0.5 || x > d.x1 - 0.5 || z > d.z1 - 0.5;
-    w.set(X, -1, Z, edge ? WL.tar : deckBoard(Z, X, 52, body, 0x66472e));
+    const runnerTrim = ax >= 2.2 && ax <= 2.45 && z > PLAY.z0 + 1.5 && z < PLAY.z1 - 1.5;
+    const crossRib = ((Z % 48) + 48) % 48 <= 1 && ax < PLAY.x1 - 1.2 && z > PLAY.z0 + 1.2 && z < PLAY.z1 - 1.2;
+    w.set(X, -1, Z, edge ? WL.tar : runnerTrim ? WL.redD : crossRib ? WL.tar : deckBoard(Z, X, 52, body, 0x66472e));
   }
   // the hull's sides below the deck edge, down into the water (the ship stands high): three strakes, the red sheer strake at the top
   const B = frame(w, 0, 0, 0), X0 = M(d.x0), X1 = M(d.x1), Z1 = M(d.z1);
@@ -103,8 +107,10 @@ function far(c: Ctx, f: { layout: Layout; p: Place }) {
     if (burning) { for (const l of q.lights) c.light([l[0], l[1] - 0.6, l[2]], 0xff7a2a, 2.8, 10); smoke(c, [x, 2.4, z], { rate: 2.4, col: 0x3a3430 }); }
   });
   for (const s of [-1, 1]) chainRun(frame(w, s * (PLAY.x1 + 4.4), 0, 1), M(SZ(-14)), M(SZ(6)), 0, -2);
+  wulinDistantBackdrop(c, f, 'tower');
 }
 function dress(c: Ctx, f: { layout: Layout; p: Place; clear: Rect[] }) {
+  wulinEdgeDress(c, f);
   c.ambient({ kind: 'embers', color: 0xff8a3a, rate: 2.4, area: { x0: -18, z0: -22, x1: 18, z1: 8 } });
   c.ambient({ kind: 'dust', color: 0x6a5e56, rate: 0.8 });
   void f;
@@ -115,5 +121,5 @@ export const wlTower: Locale = {
   layouts: ['axis', 'garden'],
   landmarks: LANDMARKS, groups: GROUPS, filler: FILLER,
   seasons: ['spring'], times: ['night'], weathers: ['clear'], mood: WL_MOOD,
-  floor, far, dress,
+  floor, far, dress, infill: wulinInfill('tower'),
 };

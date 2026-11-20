@@ -47,13 +47,38 @@ const BUILD = {
   fence: w => { for (let x = -11; x <= 11; x += 5) w.box(x, 0, -1, x + 1, 13, 0, COL.postD); w.box(-12, 4, -1, 12, 5, 0, COL.wood); w.box(-12, 10, -1, 12, 11, 0, COL.wood); w.box(-12, 11, -1, 12, 11, 0, COL.woodL); },
   rack: w => { w.box(-7, 0, -1, -6, 18, 0, COL.postD); w.box(6, 0, -1, 7, 18, 0, COL.postD); w.box(-7, 16, -1, 7, 17, 0, COL.wood); w.box(-7, 5, -1, 7, 6, 0, COL.wood);
     for (const x of [-4, 0, 4]) { w.box(x, 1, 1, x, 20, 1, COL.post); w.box(x - 1, 21, 1, x + 1, 24, 1, MORE.iron); w.box(x, 25, 1, x, 26, 1, MORE.ironL); } },
-  banner: w => { w.box(-1, 0, -1, 0, 34, 0, COL.postD); w.box(1, 33, -1, 9, 33, 0, COL.postD); w.box(1, 14, 0, 8, 32, 0, MORE.yellow); w.box(1, 14, 0, 8, 15, 0, MORE.yellowD); w.box(3, 22, 0, 6, 26, 0, MORE.red); w.box(-2, 0, -2, 1, 1, 1, COL.stone); },
+  banner: w => {
+    w.box(-3, 0, -3, 2, 2, 2, COL.stone); w.box(-2, 3, -2, 1, 3, 1, COL.stoneL);
+    w.box(-1, 0, -1, 0, 36, 0, COL.postD); w.box(1, 35, -1, 10, 35, 0, COL.postD);
+    w.box(1, 14, 0, 9, 34, 0, MORE.yellow); w.box(1, 32, 0, 9, 34, 0, MORE.yellowD);
+    w.box(5, 16, 0, 5, 31, 0, MORE.yellowD); w.box(7, 14, 0, 9, 17, 0, null);
+    w.box(3, 22, 0, 6, 27, 0, MORE.red);
+  },
   basket: w => { nsq(w, 4, 0, 6, MORE.wicker); for (let y = 1; y <= 6; y += 2) nsq(w, 4, y, y, MORE.wickerD); nsq(w, 3, 7, 7, MORE.sack); w.box(-1, 8, -1, 0, 8, 0, MORE.sackD); },
   sack: w => { nsq(w, 4, 0, 5, MORE.sack); nsq(w, 3, 6, 8, MORE.sack); w.box(-1, 9, -1, 0, 10, 0, MORE.sackD); w.box(-4, 3, -4, 4, 3, 4, MORE.sackD); },
   lamp: w => { w.box(-1, 0, -1, 0, 28, 0, COL.postD); w.box(-1, 27, -1, 6, 28, 0, COL.postD); w.box(4, 18, -2, 7, 25, 1, MORE.red); w.box(5, 19, -1, 6, 24, 0, MORE.glow); w.box(4, 25, -2, 7, 26, 1, COL.postD); w.box(4, 17, -2, 7, 17, 1, COL.postD); w.box(-2, 0, -2, 1, 1, 1, COL.stone); },
-  pot: w => { nsq(w, 3, 0, 1, COL.clayD); nsq(w, 4, 2, 7, COL.clay); w.box(-4, 5, -4, 4, 5, 4, COL.clayD); nsq(w, 3, 8, 8, COL.clay); nsq(w, 2, 9, 10, COL.clayD); nsq(w, 3, 11, 11, COL.clayL); },
-  crate: w => { w.box(-5, 0, -5, 5, 9, 5, COL.wood); for (const [x, z] of [[-5, -5], [5, -5], [-5, 5], [5, 5]]) w.box(x, 0, z, x, 9, z, COL.woodD); w.box(-5, 9, -5, 5, 9, 5, COL.woodL); w.box(-5, 0, -5, 5, 0, 5, COL.woodD); w.box(-5, 4, -5, 5, 4, 5, COL.woodD); },
-  hay: w => { w.box(-7, 0, -5, 7, 9, 5, COL.straw); w.box(-7, 9, -5, 7, 9, 5, COL.strawL); w.box(-7, 0, -5, 7, 0, 5, COL.strawD); for (const x of [-4, 4]) w.box(x, 0, -5, x, 9, 5, COL.rope); w.box(-7, 3, -5, 7, 3, -5, COL.strawD); w.box(-7, 6, 5, 7, 6, 5, COL.strawD); },
+  pot: w => {
+    // paired earthenware jar + smaller jug tucked tight inside the same footprint
+    nsq(w, 3, 0, 1, COL.clayD); nsq(w, 4, 2, 7, COL.clay); w.box(-4, 5, -4, 4, 5, 4, COL.clayD); nsq(w, 3, 8, 8, COL.clay); nsq(w, 2, 9, 10, COL.clayD); nsq(w, 3, 11, 11, COL.clayL);
+    w.box(3, 0, 2, 6, 5, 5, COL.clayD); w.box(3, 1, 2, 6, 4, 5, COL.clayL); w.box(4, 6, 3, 5, 6, 4, COL.woodD);
+  },
+  crate: w => {
+    w.box(-5, 0, -5, 5, 9, 5, COL.wood);
+    for (const [x, z] of [[-5, -5], [5, -5], [-5, 5], [5, 5]]) { w.box(x, 0, z, x, 9, z, COL.woodD); w.box(x, 0, z, x, 1, z, MORE.iron); w.box(x, 8, z, x, 9, z, MORE.iron); }
+    w.box(-5, 9, -5, 5, 9, 5, COL.woodL); w.box(-5, 0, -5, 5, 0, 5, COL.woodD); w.box(-5, 4, -5, 5, 5, 5, COL.woodD);
+    w.box(-3, 10, -3, 3, 10, 3, COL.wood);
+  },
+  hay: w => {
+    // paired upright bound golden wheat sheaves (aligned with 04-combat-ui.png)
+    for (const [ox, h] of [[-4, 12], [4, 10]] as const) {
+      w.box(ox - 3, 0, -4, ox + 3, h, 4, COL.straw);
+      w.box(ox - 3, 0, -4, ox + 3, 1, 4, COL.strawD);
+      w.box(ox - 3, h, -4, ox + 3, h, 4, COL.strawL);
+      w.box(ox - 2, h + 1, -3, ox + 2, h + 1, 3, COL.strawL);
+      w.box(ox - 3, 4, -4, ox + 3, 4, 4, COL.rope);
+      w.box(ox - 3, h - 3, -4, ox + 3, h - 3, 4, COL.rope);
+    }
+  },
   oil: w => { nsq(w, 4, 0, 1, COL.oilD); nsq(w, 5, 2, 9, COL.oil); w.box(-5, 3, -5, 5, 3, 5, COL.oilD); nsq(w, 4, 10, 10, COL.oilL); nsq(w, 3, 11, 12, COL.oil); nsq(w, 3, 13, 13, COL.cloth); nsq(w, 3, 14, 15, COL.seal); w.box(3, 9, -1, 4, 13, 0, COL.cloth); w.box(-1, 16, -1, 0, 17, 0, COL.seal); },
   pillar: w => { w.box(-4, 0, -4, 4, 2, 4, COL.stone); w.box(-4, 2, -4, 4, 2, 4, COL.stoneL); w.box(-2, 3, -2, 2, 40, 2, COL.post); w.box(-2, 3, -2, -2, 40, 2, COL.postD); w.box(2, 3, -2, 2, 40, -2, COL.postL);
     w.box(-3, 18, -3, 3, 19, 3, COL.rope); w.box(-8, 35, -1, 8, 37, 1, COL.postD); w.box(-3, 41, -3, 3, 42, 3, COL.postD); w.box(6, 30, -1, 7, 34, 0, COL.rope); w.box(5, 26, -2, 8, 29, 1, COL.clay); },

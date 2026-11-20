@@ -8,6 +8,7 @@ import { M, AREA, PLAY, SX, SZ } from '../../scenes/props';
 import type { Group, Landmark, Layout, Locale, Place, Rect } from '../types';
 import { XP, frame, up, faceOf, orient, wp, capCol, fireLight, floodedHouse, blackRoof, plasterWall, lattice, icicles, markWater, boardsZ, crate, brazier, deadWillow, sunkBoat } from './xp_kit';
 import { poolsOf, specSeedOf, xpFloor, carveMarks, slabs, deck, inR, commonGroups, commonFiller, xpDress, farHouse, farWall, farTower } from './xp_common';
+import { xiapiInfill, xiapiEdgeDress, xiapiDistantBackdrop } from './xp_infill';
 
 /** this place's pools (its own pattern for a seed: salt 1) */
 const pools = (seed: number) => poolsOf(seed, 1);
@@ -212,11 +213,13 @@ function far(c: Ctx, f: { layout: Layout; p: Place }) {
   farWall(c, -48, 48, SZ(-11.2) - 13.5, 72, cap);
   farTower(c, -15 + r(260) * 4, SZ(-11.2) - 16, 40, 72, cap); farTower(c, 18 + r(261) * 4, SZ(-11.2) - 16, 34, 72, cap);
   for (let i = 0; i < 4; i++) deadWillow(c, (i % 2 ? 1 : -1) * (AREA.x1 + 3.2 + r(280 + i) * 1.4), SZ(-14) + i * 6.4 + r(290 + i) * 2, 4.6 + r(300 + i) * 1.4, 400 + i);
+  xiapiDistantBackdrop(c, f, 'lane');
   void SX;
 }
 
 function dress(c: Ctx, f: { layout: Layout; p: Place; clear: Rect[] }) {
   xpDress(c, f);
+  xiapiEdgeDress(c, f);
 }
 
 export const xpLane: Locale = {
@@ -224,5 +227,5 @@ export const xpLane: Locale = {
   layouts: ['street', 'axis', 'offset', 'pair', 'garden'],
   landmarks: LANDMARKS, groups: GROUPS, filler: FILLER,
   seasons: ['winter'], weathers: ['mist', 'snow', 'clear'], noSnow: true, noLeaves: true,
-  pools, floor, far, dress,
+  pools, floor, far, dress, infill: xiapiInfill('lane'),
 };

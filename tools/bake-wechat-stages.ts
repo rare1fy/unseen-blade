@@ -210,8 +210,9 @@ const written = new Set<string>();
 for (const [region, rg] of REGIONS.entries()) {
   for (const m of ROOM_MAPS.filter(map => map.kind === 'boss' ? rg.bossLocale === map.locale : rg.locales.includes(map.locale))) {
     const plan = { type: m.kind === 'calm' ? 'rest' : m.kind, locale: m.locale, reward: null, waves: [] } as const;
-    // The room before a boss has one exit, including when it is a rest stop.
-    for (const count of m.kind === 'boss' ? [region === REGIONS.length - 1 ? 0 : 1] : [1, 2]) {
+    // Bake the primary exit layout per room (2 exits for fight/calm, 0/1 for boss) to keep all 49 rooms within WeChat's 30 MB total limit;
+    // rare 1-exit pre-boss rooms fall back cleanly to sliced procedural building via readStagePack().
+    for (const count of m.kind === 'boss' ? [region === REGIONS.length - 1 ? 0 : 1] : [2]) {
       const r = roomDefinition({ ...args, recent: [], nextRooms: Array(count).fill(plan), locale: m.locale,
         map: m.id, region, plan: { ...plan, waves: [] }, regionSpec: rg.spec });
       if (!r.def.pack) throw Error('Missing stage key for ' + m.id);

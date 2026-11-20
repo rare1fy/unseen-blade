@@ -1036,5 +1036,10 @@
   "血爆": "REND",
   "拼刀 · 连按": "CLASH · MASH",
   "连按 {0}": "MASH {0}",
-  "连按攻击": "MASH ATK"
+  "连按攻击": "MASH ATK",
+  "传世秘藏": "Mythic Cache",
+  "寻得绝世隐宝": "Rare hidden treasure found",
+  "秘藏入手": "Cache Claimed",
+  "破阵夺得重宝": "Puzzle solved, rich spoils won",
+  "气血上限 +{0}": "Max Health +{0}"
 }

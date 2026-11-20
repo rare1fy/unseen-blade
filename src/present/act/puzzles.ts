@@ -51,7 +51,29 @@ const CUE_GEO = (() => { const g = new THREE.BufferGeometry(), o = 1, i = 0.8;
   g.setIndex([0, 5, 1, 0, 4, 5, 1, 6, 2, 1, 5, 6, 2, 7, 3, 2, 6, 7, 3, 4, 0, 3, 7, 4]); return g; })();
 /** the cue's colour: a clear cyan that holds on sunlit sand and on night snow alike (HINT's pale blue washed out by day) */
 const CUE_COL = 0x62d4ff;
+const BOMB_COL = 0xff9a3c;
+const PLATE_COL = 0x72e6c8;
+const MYTHIC_COL = 0xff6e30;
+/** flat glowing diamond used for causal sound-wave pulses racing from trigger → target */
+const PULSE_GEO = (() => {
+  const g = new THREE.BufferGeometry(), s = 0.24;
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array([0, 0, -s, s, 0, 0, 0, 0, s, -s, 0, 0]), 3));
+  g.setIndex([0, 2, 1, 0, 3, 2]);
+  return g;
+})();
+const PIP_GEO = new THREE.BoxGeometry(0.16, 0.16, 0.16);
+/** crossed vertical planes for the unmistakable Treasure Light Pillar (光柱) */
+const BEAM_GEO = (() => {
+  const a = new THREE.PlaneGeometry(0.62, 1), b = new THREE.PlaneGeometry(0.62, 1).rotateY(Math.PI / 2);
+  const g = mergeGeometries([a, b]); a.dispose(); b.dispose();
+  g.translate(0, 0.5, 0);
+  return g;
+})();
+/** floating diamond treasure crest hovering & spinning above every chest */
+const GEM_GEO = new THREE.OctahedronGeometry(0.24, 0);
+export type RewardTier = 'gold' | 'mythic';
 interface Cue { m: THREE.Mesh; wave: THREE.Mesh; x: number; z: number; hx: number; hz: number; reach: number; k: number; ready: boolean; flash: number; ph: number; on: () => boolean }
+interface Trail { meshes: THREE.Mesh[]; x0: number; z0: number; x1: number; z1: number; t: number; dur: number }
 const BUBBLE = new THREE.Color(0xb8d8e0);
 // (shadows as VoxWorld.build sets them: a big build hands its shadow to invisible tiles — act-55 微信帧率)
 const mesh = (vw: VoxWorld) => { const g = new THREE.Group(); for (const m of vw.build({ rim: 0.3, edge: 0.16, ground: false })) g.add(m); return g; };
@@ -66,16 +88,17 @@ interface Piece {
   g: THREE.Group; t: number; hits: number; hintT: number;
   /** a door's two leaves (pivots at the posts) */ leaves?: THREE.Group[];
   /** the heap a hollow wall falls to */ rubble?: THREE.Group;
+  /** luminous crack seam on a hollow wall that widens with each hit */ seam?: THREE.Mesh;
 }
 interface Drop { rect: Rect; post: [number, number]; pivot: THREE.Group; rope: THREE.Mesh; axis: 'x' | 'z'; sign: number; t: number; down: boolean; hintT: number }
-interface Bell { x: number; z: number; g: THREE.Group; bell: THREE.Group; note: number; swing: number }
-interface Reward { x: number; z: number; g: THREE.Group; taken: boolean; t: number }
-interface Plate { x: number; z: number; slab: THREE.Group; gate: Piece; down: boolean; grace: number; hint: number }
+interface Bell { x: number; z: number; g: THREE.Group; bell: THREE.Group; note: number; swing: number; halo: THREE.Mesh }
+interface Reward { x: number; z: number; g: THREE.Group; beam: THREE.Mesh; gem: THREE.Mesh; tier: RewardTier; taken: boolean; t: number }
+interface Plate { x: number; z: number; slab: THREE.Group; seal: THREE.Mesh; timer: THREE.Mesh; gate: Piece; down: boolean; grace: number; hint: number }
 interface Causeway { rect: Rect; water: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshLambertMaterial>; deck: THREE.Group }
-interface Wheel { x: number; z: number; rim: THREE.Mesh; paths: Causeway[]; blows: number[]; drain: number; bubbles: number; hint: number }
+interface Wheel { x: number; z: number; rim: THREE.Mesh; pips: THREE.Mesh[]; paths: Causeway[]; blows: number[]; drain: number; bubbles: number; hint: number }
 type Body = { pos: THREE.Vector3; r: number };
 interface PuzzleFrame { foes?: readonly Body[]; heroRadius?: number; heroHeight?: number; waitZone?: number }
-export type PieceEvent = { k: 'reward'; i: number; x: number; z: number } | { k: 'opened'; kind: PieceKind; rect: Rect } | { k: 'bridge'; rect: Rect };
+export type PieceEvent = { k: 'reward'; i: number; x: number; z: number; tier: RewardTier } | { k: 'opened'; kind: PieceKind; rect: Rect } | { k: 'bridge'; rect: Rect };
 
 export class RoomPieces {
   root = new THREE.Group();
@@ -88,6 +111,35 @@ export class RoomPieces {
   private order: number[] = []; private got = 0; private seqT = -1; private seqDone = false; private bellsCalm = 0; private replayT = 0;
   private t = 0; private events: PieceEvent[] = [];
   private cues: Cue[] = [];
+  private trails: Trail[] = [];
+  private spawnTrail(x0: number, z0: number, x1: number, z1: number, col = GOOD) {
+    const meshes: THREE.Mesh[] = [];
+    for (let i = 0; i < 4; i++) {
+      const m = new THREE.Mesh(PULSE_GEO, new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0, depthWrite: false, toneMapped: false }));
+      m.position.set(x0, 0.075, z0); m.renderOrder = 4; this.root.add(m); meshes.push(m);
+    }
+    const dist = Math.hypot(x1 - x0, z1 - z0);
+    this.trails.push({ meshes, x0, z0, x1, z1, t: 0, dur: Math.max(0.35, Math.min(0.75, dist * 0.06)) });
+  }
+  private updateTrails(dt: number) {
+    for (let i = this.trails.length - 1; i >= 0; i--) {
+      const tr = this.trails[i]; tr.t += dt;
+      if (tr.t >= tr.dur + 0.28) {
+        for (const m of tr.meshes) { (m.material as THREE.Material).dispose(); this.root.remove(m); }
+        this.trails.splice(i, 1); continue;
+      }
+      tr.meshes.forEach((m, k) => {
+        const u = (tr.t - k * 0.065) / tr.dur;
+        m.visible = u >= 0 && u <= 1;
+        if (!m.visible) return;
+        const e = 1 - (1 - u) * (1 - u);
+        m.position.set(tr.x0 + (tr.x1 - tr.x0) * e, 0.075, tr.z0 + (tr.z1 - tr.z0) * e);
+        const s = (1.15 - k * 0.16) * (0.7 + 0.5 * Math.sin(u * Math.PI));
+        m.scale.set(s, 1, s);
+        (m.material as THREE.MeshBasicMaterial).opacity = Math.sin(u * Math.PI) * (0.95 - k * 0.16);
+      });
+    }
+  }
   /** a cue round a piece: centre (x, z), half-size (hx, hz) of the square, how near counts as "can use it now", whether it still waits */
   private addCue(x: number, z: number, hx: number, hz: number, reach: number, on: () => boolean, col = CUE_COL) {
     // (a plain blend, not additive: on a sunlit floor an additive pale ring all but vanished)
@@ -113,7 +165,7 @@ export class RoomPieces {
     }
   }
   private waiting = 0; private stageHint = 20;
-  constructor(parent: THREE.Object3D, readonly sp: ShapePlan, readonly grid: FloorGrid, style: WallStyle, seed: number, deferred = false) {
+  constructor(parent: THREE.Object3D, readonly sp: ShapePlan, readonly grid: FloorGrid, style: WallStyle, seed: number, deferred = false, private treasureRoll?: number) {
     parent.add(this.root);
     this.zone0 = grid.zones().slice();
     if (!deferred) finishBuild(this.buildSteps(style, seed));
@@ -161,10 +213,17 @@ export class RoomPieces {
       const gate = (local.length ? local : gates).slice().sort((a, b) => distance(a) - distance(b))[0];
       if (!gate) throw new Error('Unpaired plate in ' + fx.id);
       const stone = new VoxWorld(CELL);
-      stone.box(-10, 0, -10, 9, 0, 9, COL.tileD);
-      stone.box(-9, 0, -9, 8, 0, 8, COL.stone);
+      stone.box(-11, 0, -11, 10, 0, 10, COL.tileD);
+      stone.box(-9, 1, -9, 8, 1, 8, COL.stone);
+      stone.box(-7, 1, -7, 6, 1, 6, COL.stoneD);
+      stone.box(-6, 1, -6, 5, 1, 5, COL.stone);
+      for (const a of [-8, 7]) for (const b of [-8, 7]) stone.box(a, 1, b, a, 1, b, COL.bronze);
       const slab = mesh(stone); slab.position.set(m.x, 0, m.z); this.root.add(slab);
-      this.plates.push({ x: m.x, z: m.z, slab, gate, down: false, grace: 0, hint: 2.5 });
+      const seal = new THREE.Mesh(CUE_GEO, new THREE.MeshBasicMaterial({ color: PLATE_COL, transparent: true, opacity: 0.72, depthWrite: false, toneMapped: false }));
+      seal.position.set(m.x, 0.11, m.z); seal.scale.set(0.42, 1, 0.42); seal.renderOrder = 3; this.root.add(seal);
+      const timer = new THREE.Mesh(CUE_GEO, new THREE.MeshBasicMaterial({ color: GOOD, transparent: true, opacity: 0, depthWrite: false, toneMapped: false }));
+      timer.position.set(m.x, 0.055, m.z); timer.scale.set(0.95, 1, 0.95); timer.renderOrder = 3; this.root.add(timer);
+      this.plates.push({ x: m.x, z: m.z, slab, seal, timer, gate, down: false, grace: 0, hint: 2.5 });
       if (!this.plateGates.includes(gate)) this.plateGates.push(gate);
     }
     for (const s of fx.sunk) if (s.kind === 'flood') {
@@ -173,17 +232,49 @@ export class RoomPieces {
       if (!w) throw new Error('Flooded causeway without a wheel in ' + fx.id);
       w.paths.push(this.causeway(s));
     }
-    for (const m of fx.marks) if (m.kind === 'reward') this.rewards.push(this.reward(m.x, m.z));
-    // the cues (see addCue): the hollow walls and barricades, the rope posts, the bells, the plates, the wheels, the rewards
+    // Random per-visit treasure spawning & rarity roll (when treasureRoll is provided by live gameplay):
+    // ~62% spawn rate per chest spot (so finding a blazing Treasure Pillar feels like real discovery!),
+    // ~30% of spawned chests upgrade into a Mythic Crimson-Gold Grand Coffer (传世赤金大秘藏)!
+    let rewardIdx = 0;
+    for (const m of fx.marks) if (m.kind === 'reward') {
+      const idx = rewardIdx++;
+      if (this.treasureRoll != null) {
+        const h = Math.imul((this.treasureRoll ^ (idx * 2246822519)) >>> 0, 2654435761) >>> 0;
+        if (h % 100 >= 62) continue;
+        const tier: RewardTier = ((h >>> 8) % 100) < 30 ? 'mythic' : 'gold';
+        this.rewards.push(this.reward(m.x, m.z, tier));
+      } else {
+        const tier: RewardTier = (seed + idx) % 3 === 0 ? 'mythic' : 'gold';
+        this.rewards.push(this.reward(m.x, m.z, tier));
+      }
+    }
+    // Visual oil-trail hint between a barricade and its nearest nearby oil jar (makes bomb→barricade causal link unmistakable!)
+    const oils = fx.props.filter(q => q.kind === 'oil');
+    for (const q of this.pieces) if (q.kind === 'barricade' && oils.length) {
+      const cx = (q.rect.x0 + q.rect.x1) / 2, cz = (q.rect.z0 + q.rect.z1) / 2;
+      const near = oils.slice().sort((a, b) => Math.hypot(a.x - cx, a.z - cz) - Math.hypot(b.x - cx, b.z - cz))[0];
+      const dist = Math.hypot(near.x - cx, near.z - cz);
+      if (dist > 0.3 && dist <= 5.2) {
+        const steps = Math.max(2, Math.floor(dist / 0.55));
+        for (let i = 1; i < steps; i++) {
+          const u = i / steps;
+          const dot = new THREE.Mesh(PULSE_GEO, new THREE.MeshBasicMaterial({ color: BOMB_COL, transparent: true, opacity: 0.45, depthWrite: false, toneMapped: false }));
+          dot.position.set(near.x + (cx - near.x) * u, 0.032, near.z + (cz - near.z) * u);
+          dot.scale.set(0.55, 1, 0.55); dot.renderOrder = 2; this.root.add(dot);
+          q.g.userData.oilDots = [...(q.g.userData.oilDots ?? []), dot];
+        }
+      }
+    }
+    // Differentiated semantic cues per puzzle verb: chop = cyan, bomb = warm amber, plate = teal-gold, bell = gold, reward = gold
     for (const q of this.pieces) if (q.kind === 'hollow' || q.kind === 'barricade') {
       const cx = (q.rect.x0 + q.rect.x1) / 2, cz = (q.rect.z0 + q.rect.z1) / 2, hx = (q.rect.x1 - q.rect.x0) / 2 + 0.15, hz = (q.rect.z1 - q.rect.z0) / 2 + 0.15;
-      this.addCue(cx, cz, hx, hz, q.kind === 'hollow' ? 1.4 : 2.4, () => !q.open && q.t < 0, q.kind === 'barricade' ? 0xffc890 : HINT);
+      this.addCue(cx, cz, hx, hz, q.kind === 'hollow' ? 1.4 : 2.4, () => !q.open && q.t < 0, q.kind === 'barricade' ? BOMB_COL : CUE_COL);
     }
-    for (const d of this.drops) this.addCue(d.post[0], d.post[1], 0.45, 0.45, 1.4, () => !d.down && d.t < 0);
-    for (const b of this.bells) this.addCue(b.x, b.z, 0.5, 0.5, 1.5, () => this.got < this.order.length);
-    for (const pl of this.plates) this.addCue(pl.x, pl.z, 0.75, 0.75, 0.05, () => !pl.down && pl.grace <= 0);
-    for (const w of this.wheels) this.addCue(w.x, w.z, 0.55, 0.55, 1.5, () => w.drain < 0);
-    for (const r of this.rewards) this.addCue(r.x, r.z, 0.45, 0.45, 0.6, () => !r.taken, GOOD);
+    for (const d of this.drops) this.addCue(d.post[0], d.post[1], 0.48, 0.48, 1.4, () => !d.down && d.t < 0, CUE_COL);
+    for (const b of this.bells) this.addCue(b.x, b.z, 0.52, 0.52, 1.5, () => this.got < this.order.length, GOOD);
+    for (const pl of this.plates) this.addCue(pl.x, pl.z, 0.78, 0.78, 0.05, () => !pl.down && pl.grace <= 0, PLATE_COL);
+    for (const w of this.wheels) this.addCue(w.x, w.z, 0.58, 0.58, 1.5, () => w.drain < 0, CUE_COL);
+    for (const r of this.rewards) this.addCue(r.x, r.z, 0.56, 0.56, 0.7, () => !r.taken, r.tier === 'mythic' ? MYTHIC_COL : GOOD);
   }
 
   // ------------------------------------------------------------ the models
@@ -212,10 +303,24 @@ export class RoomPieces {
         const piv = new THREE.Group(); piv.position.set(s * (half - 0.5) * CELL, 0, 0); piv.add(mesh(lv)); p.g.add(piv); return piv;
       });
     } else if (p.kind === 'hollow') {
-      // the wall going on across the gap, flush with the bigger side's line — the same wall as the room's (the trick is to hear it)
+      // Hollow wall with a carved dark jagged fracture & subtle inner seam glow (so sharp eyes + keen ears both spot it!)
       const vw = new VoxWorld(CELL), T = M(WALL.thick), H = M(wallHOf(style)) - 1, rr = (k: number) => ((Math.sin((seed + k) * 12.9898) * 43758.5453) % 1 + 1) % 1;
-      wallPiece((x0, y0, z0, x1, y1, z1, c) => vw.box(Math.min(x0, x1), y0, Math.min(z0, z1), Math.max(x0, x1), y1, Math.max(z0, z1), c), style, 'x', -half - 1, half, -Math.floor(T / 2), T - Math.floor(T / 2) - 1, H, rr, 3);
+      const zLo = -Math.floor(T / 2), zHi = T - Math.floor(T / 2) - 1;
+      wallPiece((x0, y0, z0, x1, y1, z1, c) => vw.box(Math.min(x0, x1), y0, Math.min(z0, z1), Math.max(x0, x1), y1, Math.max(z0, z1), c), style, 'x', -half - 1, half, zLo, zHi, H, rr, 3);
+      // Carve a jagged dark fissure on both faces so it reads immediately as cracked masonry
+      for (let y = 4; y < H - 3; y++) {
+        const cx = ((y >> 2) % 2 === 0 ? -1 : 1) + (y % 5 === 0 ? 1 : 0);
+        vw.set(cx, y, zHi, null); vw.set(cx, y, zLo, null);
+        if (y % 4 === 0) { vw.set(cx - 1, y, zHi, COL.tileD); vw.set(cx + 1, y, zLo, COL.tileD); }
+      }
       const wall = mesh(vw); wall.position.z = edge; p.g.add(wall);
+      // Luminous crack seam inside the wall fissure that widens and brightens on Hit 1 & Hit 2
+      const seam = new THREE.Mesh(
+        new THREE.BoxGeometry(0.11, Math.max(0.8, (H - 8) * CELL), Math.max(0.12, (T + 1) * CELL)),
+        new THREE.MeshBasicMaterial({ color: CUE_COL, transparent: true, opacity: 0.42, depthWrite: false, toneMapped: false })
+      );
+      seam.position.set(0, (H * 0.48) * CELL, edge); seam.renderOrder = 3;
+      p.seam = seam; p.g.add(seam);
       const rb = new VoxWorld(CELL); rb.box(-half + 1, 0, -4, -2, 3, 3, COL.stoneD); rb.box(1, 0, -3, half - 2, 2, 4, COL.stone); rb.box(-4, 3, -2, 3, 5, 2, COL.stoneD);
       p.rubble = mesh(rb); p.rubble.position.z = edge; p.rubble.visible = false; p.g.add(p.rubble);
     } else {
@@ -239,17 +344,21 @@ export class RoomPieces {
     pivot.rotation.order = 'YXZ'; pivot.rotation.y = alongZ ? (sign < 0 ? Math.PI : 0) : (sign < 0 ? -Math.PI / 2 : Math.PI / 2);
     pivot.rotation.x = 1.3;   // standing up
     this.root.add(pivot);
-    // the rope post: a squat timber post, rope wound round it; the rope from its top to the deck's far end
-    const pv = new VoxWorld(CELL); pv.box(-2, 0, -2, 1, 22, 1, COL.woodD); pv.box(-3, 0, -3, 2, 2, 2, COL.stoneD); for (const y of [8, 11, 14]) pv.box(-3, y, -3, 2, y + 1, 2, COL.rope); pv.box(-1, 23, -1, 0, 24, 0, COL.ropeD);
+    // the rope post: stout timber post with braided hemp coil + crimson silk knot marker for instant slash readability!
+    const pv = new VoxWorld(CELL);
+    pv.box(-2, 0, -2, 1, 23, 1, COL.woodD); pv.box(-3, 0, -3, 2, 2, 2, COL.stoneD);
+    for (const y of [8, 11, 14, 17]) pv.box(-3, y, -3, 2, y + 1, 2, COL.rope);
+    pv.box(-4, 14, -1, 3, 16, 1, COL.redL); pv.box(-3, 10, 2, -2, 14, 2, COL.red); // crimson silk slash knot!
+    pv.box(-1, 24, -1, 0, 25, 0, COL.bronzeL);
     const pm = mesh(pv); pm.position.set(post[0], 0, post[1]); this.root.add(pm);
-    const rope = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 1), new THREE.MeshLambertMaterial({ color: COL.rope })); this.root.add(rope);
+    const rope = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.085, 1), new THREE.MeshLambertMaterial({ color: 0xb89c6a })); this.root.add(rope);
     const d: Drop = { rect: s, post, pivot, rope, axis, sign, t: -1, down: false, hintT: 2 };
     this.ropeTo(d); return d;
   }
   /** the rope from the post's top to the raised deck's far end */
   private ropeTo(d: Drop) {
     d.pivot.updateMatrixWorld(true);
-    const n = Math.round((d.axis === 'z' ? d.rect.z1 - d.rect.z0 : d.rect.x1 - d.rect.x0) / CELL), tip = V3(0, 0.1, -n * CELL).applyMatrix4(d.pivot.matrixWorld), top = V3(d.post[0], 1.62, d.post[1]);
+    const n = Math.round((d.axis === 'z' ? d.rect.z1 - d.rect.z0 : d.rect.x1 - d.rect.x0) / CELL), tip = V3(0, 0.1, -n * CELL).applyMatrix4(d.pivot.matrixWorld), top = V3(d.post[0], 1.66, d.post[1]);
     d.rope.position.copy(tip).add(top).multiplyScalar(0.5); d.rope.scale.set(1, 1, tip.distanceTo(top)); d.rope.lookAt(top);
   }
   private bell(x: number, z: number, note: number): Bell {
@@ -281,17 +390,20 @@ export class RoomPieces {
     } else {
       bv.box(-3, -12, -3, 2, -4, 2, COL.bronze); bv.box(-4, -13, -4, 3, -12, 3, COL.bronzeD); bv.box(-2, -4, -2, 1, -2, 1, COL.bronzeL); bv.box(-1, -1, -1, 0, 0, 0, COL.rope);
     }
-    for (let i = 0; i <= note; i++) bv.box(-3 + i * 2, -9, 3, -3 + i * 2, -8, 3, tree ? 0xf0c060 : COL.bronzeL);
+    for (let i = 0; i <= note; i++) bv.box(-3 + i * 2, -9, 3, -3 + i * 2, -8, 3, tree ? 0xf0c060 : COL.gold);
     const bell = mesh(bv); bell.position.y = (tree ? 29 : 30) * CELL; g.add(bell); this.root.add(g);
-    return { x, z, g, bell, note, swing: 0 };
+    // Persistent golden floor halo that stays illuminated once this bell is rung correctly in order!
+    const halo = new THREE.Mesh(CUE_GEO, new THREE.MeshBasicMaterial({ color: GOOD, transparent: true, opacity: 0, depthWrite: false, toneMapped: false }));
+    halo.position.set(x, 0.048, z); halo.scale.set(0.62, 1, 0.62); halo.renderOrder = 3; this.root.add(halo);
+    return { x, z, g, bell, note, swing: 0, halo };
   }
   private wheel(x: number, z: number): Wheel {
     const timber = new VoxWorld(CELL);
     for (const a of [-8, 5]) {
       timber.box(a - 1, 0, -6, a + 3, 2, 4, COL.stoneD);
-      timber.box(a, 3, -4, a + 2, 20, -1, COL.woodD);
+      timber.box(a, 3, -4, a + 2, 22, -1, COL.woodD);
     }
-    timber.box(-9, 16, -5, 9, 20, -1, COL.wood);
+    timber.box(-9, 18, -5, 9, 22, -1, COL.wood);
     timber.box(-2, 15, -5, 2, 19, 5, COL.iron);
     const frame = mesh(timber); frame.position.set(x, 0, z); this.root.add(frame);
     const parts: THREE.BufferGeometry[] = [new THREE.TorusGeometry(0.62, 0.085, 4, 12)];
@@ -300,7 +412,14 @@ export class RoomPieces {
     const rim = new THREE.Mesh(mergeGeometries(parts), new THREE.MeshLambertMaterial({ color: COL.bronzeL }));
     for (const p of parts) p.dispose();
     rim.position.set(x, 1.22, z + 0.33); rim.castShadow = true; this.root.add(rim);
-    return { x, z, rim, paths: [], blows: [], drain: -1, bubbles: 2, hint: 1 };
+    // 4 charge indicator pips across the sluice lintel (light up 1→2→3→4 as player slashes the wheel!)
+    const pips: THREE.Mesh[] = [];
+    for (let i = 0; i < 4; i++) {
+      const pip = new THREE.Mesh(PIP_GEO, new THREE.MeshBasicMaterial({ color: 0x3a464e, toneMapped: false }));
+      pip.position.set(x + (i - 1.5) * 0.28, 1.68, z - 0.14);
+      this.root.add(pip); pips.push(pip);
+    }
+    return { x, z, rim, pips, paths: [], blows: [], drain: -1, bubbles: 2, hint: 1 };
   }
   private causeway(rect: Rect): Causeway {
     const w = rect.x1 - rect.x0, d = rect.z1 - rect.z0;
@@ -315,12 +434,43 @@ export class RoomPieces {
     const deck = mesh(stone); deck.position.set(rect.x0, -0.42, rect.z0); this.root.add(deck);
     return { rect, water, deck };
   }
-  private reward(x: number, z: number): Reward {
-    // a cloth bundle tied with red cord on a flat stone, a coin string beside it
-    const vw = new VoxWorld(CELL); vw.box(-5, 0, -4, 4, 2, 3, COL.stoneD); vw.box(-4, 3, -3, 3, 8, 2, COL.cloth); vw.box(-1, 9, -1, 0, 10, 0, COL.cloth); vw.box(-4, 6, -1, 3, 6, 0, COL.red);
-    for (let i = 0; i < 4; i++) vw.box(5, 0 + i, -2 + i, 6, 0 + i, -1 + i, COL.gold);
+  private reward(x: number, z: number, tier: RewardTier): Reward {
+    const mythic = tier === 'mythic';
+    // Unmistakable high-craft Treasure Altar + Coffer:
+    //  - gold   (稀世鎏金秘匣): crimson-lacquered bronze-locked coffer + warm gold light beacon (3.6m) + floating golden diamond crest
+    //  - mythic (传世赤金大秘藏): imperial full-gold jewel chest + blazing crimson-gold light beacon (4.8m) + radiant spinning ruby-gold crest
+    const vw = new VoxWorld(CELL);
+    vw.box(-8, 0, -6, 7, 2, 5, COL.stoneD); vw.box(-7, 3, -5, 6, 4, 4, mythic ? COL.goldD : COL.stone);
+    vw.box(-6, 5, -4, 5, 11, 3, mythic ? COL.goldD : COL.redD);
+    vw.box(-6, 12, -4, 5, 14, 3, mythic ? COL.gold : COL.redL);
+    for (const bx of [-6, 5]) vw.box(bx, 5, -4, bx, 14, 3, mythic ? COL.red : COL.goldD);
+    vw.box(-6, 11, -4, 5, 11, 3, mythic ? 0xffe484 : COL.gold, 1); // glowing treasure seam!
+    vw.box(-1, 9, 4, 0, 12, 4, mythic ? 0xff7a34 : COL.gold, 1);   // radiant front clasp!
+    // gleaming coin piles flanking the chest
+    for (let i = 0; i < 4; i++) vw.box(7, 0 + i, -1 + (i % 2), 8, 0 + i, 0 + (i % 2), COL.gold, i === 3 ? 1 : 0);
+    if (mythic) for (let i = 0; i < 4; i++) vw.box(-9, 0 + i, -1 + (i % 2), -8, 0 + i, 0 + (i % 2), COL.gold, i === 3 ? 1 : 0);
     const g = mesh(vw); g.position.set(x, 0, z); this.root.add(g);
-    return { x, z, g, taken: false, t: 0 };
+    // Tall translucent Light Beacon (光柱) visible even behind courtyard walls or across rivers!
+    const beam = new THREE.Mesh(
+      BEAM_GEO,
+      new THREE.MeshBasicMaterial({
+        color: mythic ? MYTHIC_COL : GOOD,
+        transparent: true, opacity: mythic ? 0.36 : 0.24,
+        side: THREE.DoubleSide, depthWrite: false, toneMapped: false,
+      }),
+    );
+    beam.position.set(x, 0.35, z);
+    beam.scale.set(mythic ? 1.3 : 0.95, mythic ? 4.8 : 3.5, mythic ? 1.3 : 0.95);
+    beam.renderOrder = 3; this.root.add(beam);
+    // Floating rotating Treasure Crest hovering cleanly above the chest
+    const gem = new THREE.Mesh(
+      GEM_GEO,
+      new THREE.MeshBasicMaterial({ color: mythic ? 0xff9a44 : 0xffe27a, transparent: true, opacity: 0.92, toneMapped: false }),
+    );
+    gem.position.set(x, mythic ? 1.9 : 1.65, z);
+    gem.scale.setScalar(mythic ? 1.25 : 0.95);
+    gem.renderOrder = 4; this.root.add(gem);
+    return { x, z, g, beam, gem, tier, taken: false, t: 0 };
   }
 
   // ------------------------------------------------------------ what the game does to them
@@ -337,7 +487,12 @@ export class RoomPieces {
     for (const p of this.pieces) if (p.kind === 'hollow' && !p.open && p.t < 0) {
       const [nx, nz] = nearest(p.rect, sx, sz); if (!reaches(s, nx, nz, 0.35)) continue;
       p.hits++; p.hintT = 0.3;
-      const at = V3(nx, 0.7, nz); fxChips(at, [COL.stone, COL.stoneD], 6, { speed: 2 }); fxRing(V3(nx, 0.06, nz), HINT, 1.6 + p.hits * 0.4, { life: 0.6 });
+      if (p.seam) {
+        p.seam.scale.x = 1 + p.hits * 0.85;
+        (p.seam.material as THREE.MeshBasicMaterial).color.setHex(p.hits >= 2 ? GOOD : CUE_COL);
+        (p.seam.material as THREE.MeshBasicMaterial).opacity = 0.65 + p.hits * 0.15;
+      }
+      const at = V3(nx, 0.7, nz); fxChips(at, [COL.stone, COL.stoneD], 6 + p.hits * 3, { speed: 2 + p.hits * 0.6 }); fxRing(V3(nx, 0.06, nz), p.hits >= 2 ? GOOD : HINT, 1.6 + p.hits * 0.4, { life: 0.6 });
       cue('hollow', 0.7 + p.hits * 0.1); p.g.position.x += (Math.random() - 0.5) * 0.04;
       if (p.hits >= 3) this.openPiece(p);
     }
@@ -351,6 +506,9 @@ export class RoomPieces {
   openPiece(p: Piece) {
     if (p.open || p.t >= 0) return;
     p.t = 0;
+    if (p.seam) p.seam.visible = false;
+    const oilDots = p.g.userData.oilDots as THREE.Mesh[] | undefined;
+    if (oilDots) for (const d of oilDots) d.visible = false;
     const c = V3((p.rect.x0 + p.rect.x1) / 2, 0.3, (p.rect.z0 + p.rect.z1) / 2);
     if (p.kind === 'door' || p.kind === 'gate') { cue('doorOpen', 1); fxRing(c.clone().setY(0.06), GOOD, 3.2, { life: 0.9 }); }
     else if (p.kind === 'hollow') { cue('wallBreak', 1); shake(0.25); fxSmoke(c, 0x9a8a72, 14, { r: 1.2, spd: 1.4, up: 0.8, s: 0.5, life: 0.9 }); fxChips(c.clone().setY(0.8), [COL.stone, COL.stoneD], 18, { speed: 4 }); }
@@ -358,12 +516,21 @@ export class RoomPieces {
   }
   private cut(d: Drop) {
     d.t = 0; d.rope.visible = false; cue('ropeSnap', 1); fxChips(V3(d.post[0], 1.5, d.post[1]), [COL.rope, COL.ropeD], 8, { speed: 3 });
+    this.spawnTrail(d.post[0], d.post[1], (d.rect.x0 + d.rect.x1) / 2, (d.rect.z0 + d.rect.z1) / 2, CUE_COL);
   }
   private ring(b: Bell) {
     b.swing = 1; cue('bell', 1, b.note); fxRing(V3(b.x, 0.06, b.z), GOOD, 2.6, { life: 0.9 });
     if (!this.seqDone || this.got >= this.order.length) return;
     const want = this.bells[this.order[this.got]];
-    if (b === want) { this.got++; if (this.got >= this.order.length) this.openBellGates(); }
+    if (b === want) {
+      this.got++;
+      if (this.got >= this.order.length) {
+        for (const p of this.pieces) if (p.kind === 'gate' && !this.plateGates.includes(p)) {
+          this.spawnTrail(b.x, b.z, p.g.position.x, p.g.position.z, GOOD);
+        }
+        this.openBellGates();
+      }
+    }
     else { this.got = 0; this.replayT = 1.6; after(0.38, () => { cue('bellWrong', 1); for (const q of this.bells) { q.swing = 1.4; fxRing(V3(q.x, 0.06, q.z), 0xff9a7a, 2.0, { life: 0.5 }); } }); }
   }
   /** play the order: each bell in turn rings and rings out its sound */
@@ -373,8 +540,16 @@ export class RoomPieces {
   }
   private drain(w: Wheel) {
     w.drain = 0; w.bubbles = 0; cue('doorOpen', 0.7); cue('splash', 0.65);
+    for (const { rect } of w.paths) this.spawnTrail(w.x, w.z, (rect.x0 + rect.x1) / 2, (rect.z0 + rect.z1) / 2, CUE_COL);
   }
   private updateWheel(w: Wheel, hero: THREE.Vector3, dt: number) {
+    // Update the 4 sluice charge pips on the lintel (always crisp visual feedback!)
+    const activeBlows = w.drain >= 0 ? 4 : w.blows.filter(t => this.t - t <= 3).length;
+    w.pips.forEach((pip, i) => {
+      const lit = i < activeBlows;
+      (pip.material as THREE.MeshBasicMaterial).color.setHex(w.drain >= 0 ? GOOD : lit ? CUE_COL : 0x364048);
+      pip.scale.setScalar(lit ? 1.18 : 0.85);
+    });
     if (w.drain >= 1.5) return;
     w.hint -= dt; w.bubbles -= dt;
     if (w.drain < 0 && w.hint <= 0 && Math.hypot(hero.x - w.x, hero.z - w.z) < 7) {
@@ -407,8 +582,23 @@ export class RoomPieces {
       if (down && !p.down) {
         cue('plate', 1);
         fxRing(V3(p.x, 0.09, p.z), GOOD, Math.hypot(p.x - p.gate.g.position.x, p.z - p.gate.g.position.z), { life: 0.8, width: 0.06, fill: 0 });
+        this.spawnTrail(p.x, p.z, p.gate.g.position.x, p.gate.g.position.z, GOOD);
       }
       p.down = down; p.slab.position.y = down ? -CELL * 0.85 : 0;
+      // Glowing rune seal on slab + shrinking golden countdown frame while grace ticks down!
+      const sealMat = p.seal.material as THREE.MeshBasicMaterial;
+      sealMat.color.setHex(down || p.grace > 0 ? GOOD : PLATE_COL);
+      sealMat.opacity = down ? 0.96 : p.grace > 0 ? 0.82 : 0.52 + 0.18 * Math.sin(this.t * 3);
+      p.seal.position.y = p.slab.position.y + 0.11;
+      const showTimer = !down && p.grace > 0;
+      p.timer.visible = showTimer;
+      if (showTimer) {
+        const frac = Math.max(0.18, p.grace / 5);
+        p.timer.scale.set(0.98 * frac, 1, 0.98 * frac);
+        const urgent = p.grace < 1.5 ? (0.45 + 0.55 * Math.abs(Math.sin(this.t * 14))) : 0.85;
+        (p.timer.material as THREE.MeshBasicMaterial).color.setHex(p.grace < 1.5 ? BOMB_COL : GOOD);
+        (p.timer.material as THREE.MeshBasicMaterial).opacity = urgent;
+      }
       p.hint -= dt;
       if (!down && p.hint <= 0 && Math.hypot(hero.pos.x - p.x, hero.pos.z - p.z) < 7) {
         p.hint = 2.5; fxRing(V3(p.x, 0.09, p.z), HINT, 1.2, { life: 1, width: 0.06, bright: 0.7, fill: 0 });
@@ -509,6 +699,7 @@ export class RoomPieces {
     if (this.plates.length) this.updatePlates(dt, { pos: hero, r: heroRadius }, heroHeight, foes);
     for (const w of this.wheels) this.updateWheel(w, hero, dt);
     this.updateCues(dt, hero);
+    this.updateTrails(dt);
     if (calm && waitZone >= 0) {
       this.waiting += dt;
       if (this.waiting >= this.stageHint) {
@@ -525,10 +716,15 @@ export class RoomPieces {
         if (p.kind === 'barricade') { const bar = p.g.children[0]; bar.scale.y = Math.max(0.05, 1 - k); if (p.t % 0.25 < dt) fxEmbers(bar.getWorldPosition(V3()).setY(0.5), 0xff7a2a, 4, { r: 0.9, up: 1.2, life: 0.8 }); if (k >= 1) bar.visible = false; }
         if (k >= 1 || (p.kind === 'hollow' && p.t > 0.15)) { p.open = true; this.grid.set(p.rect, FLOOR); ev.push({ k: 'opened', kind: p.kind, rect: p.rect }); }
       }
+      // Subtle luminous crack pulse on hollow wall so players spot the fissure even from across the courtyard
+      if (!p.open && p.t < 0 && p.seam) {
+        const base = 0.34 + p.hits * 0.22;
+        (p.seam.material as THREE.MeshBasicMaterial).opacity = Math.min(0.95, base + 0.14 * Math.sin(this.t * (2.6 + p.hits * 2)));
+      }
       // the hints: a hollow wall breathes rings when she is near; a barricade (wind behind it) too
       if (!p.open && p.t < 0 && (p.kind === 'hollow' || p.kind === 'barricade')) {
         const [nx, nz] = nearest(p.rect, hero.x, hero.z), d = Math.hypot(nx - hero.x, nz - hero.z);
-        p.hintT -= dt; if (d < 6.5 && p.hintT <= 0) { p.hintT = p.kind === 'hollow' ? 1.8 : 2.4; fxRing(V3(nx, 0.05, nz), HINT, 1.2, { life: 1.1, width: 0.05 }); }
+        p.hintT -= dt; if (d < 6.5 && p.hintT <= 0) { p.hintT = p.kind === 'hollow' ? 1.8 : 2.4; fxRing(V3(nx, 0.05, nz), p.kind === 'barricade' ? BOMB_COL : HINT, 1.2, { life: 1.1, width: 0.05 }); }
       }
     }
     for (const d of this.drops) {
@@ -556,23 +752,60 @@ export class RoomPieces {
         for (let i = 0; i < this.order.length; i++) { const at = 0.2 + i * 0.95; if (was < at && this.seqT >= at) { const b = this.bells[this.order[i]]; b.swing = 1; cue('bell', 0.9, b.note); fxRing(V3(b.x, 0.06, b.z), GOOD, 3.0, { life: 1.2 }); } }
         if (this.seqT > 0.2 + this.order.length * 0.95) { this.seqT = -1; this.seqDone = true; }
       }
-      for (const b of this.bells) { b.swing = Math.max(0, b.swing - dt * 0.9); b.bell.rotation.x = Math.sin(this.t * 9) * 0.35 * b.swing; }
+      this.bells.forEach((b, idx) => {
+        b.swing = Math.max(0, b.swing - dt * 0.9); b.bell.rotation.x = Math.sin(this.t * 9) * 0.35 * b.swing;
+        const posInOrder = this.order.indexOf(idx);
+        const solved = posInOrder >= 0 && posInOrder < this.got;
+        const haloAlpha = solved ? 0.82 + 0.14 * Math.sin(this.t * 4) : b.swing > 0.1 ? b.swing * 0.85 : 0;
+        b.halo.visible = haloAlpha > 0.02;
+        if (b.halo.visible) {
+          (b.halo.material as THREE.MeshBasicMaterial).opacity = haloAlpha;
+          const sc = solved ? 0.68 : 0.62 + b.swing * 0.35;
+          b.halo.scale.set(sc, 1, sc);
+        }
+      });
     }
     this.rewards.forEach((r, i) => {
       if (r.taken) return;
-      r.t -= dt; if (r.t <= 0) { r.t = 3; fxRing(V3(r.x, 0.05, r.z), GOOD, 1.0, { life: 1.0, width: 0.05 }); }
-      if (Math.hypot(r.x - hero.x, r.z - hero.z) < 0.9) { r.taken = true; r.g.visible = false; fxFlare(V3(r.x, 0.6, r.z), GOOD, 1.8, 0.5); cue('coin', 1); ev.push({ k: 'reward', i, x: r.x, z: r.z }); }
+      const mythic = r.tier === 'mythic';
+      // Gently breathe the vertical light pillar & spin/bob the floating diamond treasure crest
+      const pulse = 0.5 + 0.5 * Math.sin(this.t * (mythic ? 3.8 : 2.6) + i * 1.3);
+      (r.beam.material as THREE.MeshBasicMaterial).opacity = (mythic ? 0.28 : 0.18) + pulse * (mythic ? 0.18 : 0.12);
+      r.beam.rotation.y = this.t * (mythic ? 0.65 : 0.4);
+      r.gem.position.y = (mythic ? 1.85 : 1.62) + Math.sin(this.t * 3.2 + i) * 0.16;
+      r.gem.rotation.y = this.t * (mythic ? 2.6 : 1.8);
+      r.t -= dt; if (r.t <= 0) { r.t = mythic ? 2.1 : 2.8; fxRing(V3(r.x, 0.05, r.z), mythic ? MYTHIC_COL : GOOD, mythic ? 1.5 : 1.1, { life: 1.0, width: 0.06 }); }
+      if (Math.hypot(r.x - hero.x, r.z - hero.z) < 0.95) {
+        r.taken = true; r.g.visible = r.beam.visible = r.gem.visible = false;
+        fxFlare(V3(r.x, 0.7, r.z), mythic ? MYTHIC_COL : GOOD, mythic ? 2.8 : 2.0, 0.65);
+        fxEmbers(V3(r.x, 0.6, r.z), mythic ? MYTHIC_COL : GOOD, mythic ? 22 : 12, { r: 1.1, up: 2.2, life: 1.0 });
+        fxRing(V3(r.x, 0.08, r.z), mythic ? MYTHIC_COL : GOOD, mythic ? 3.4 : 2.4, { life: 0.85, width: 0.09 });
+        cue('coin', 1);
+        ev.push({ k: 'reward', i, x: r.x, z: r.z, tier: r.tier });
+      }
     });
     return ev;
   }
   dispose() {
+    const shared = new Set<THREE.BufferGeometry>([CUE_GEO, PULSE_GEO, PIP_GEO, BEAM_GEO, GEM_GEO]);
     const geometry = new Set<THREE.BufferGeometry>();
-    this.root.traverse(obj => { if (obj instanceof THREE.Mesh) geometry.add(obj.geometry); });
+    this.root.traverse(obj => { if (obj instanceof THREE.Mesh && !shared.has(obj.geometry)) geometry.add(obj.geometry); });
     for (const g of geometry) g.dispose();
     for (const liquid of this.copper) liquid.mesh.material.dispose();
     for (const w of this.wheels) {
       (w.rim.material as THREE.Material).dispose();
+      for (const pip of w.pips) (pip.material as THREE.Material).dispose();
       for (const { water } of w.paths) water.material.dispose();
+    }
+    for (const p of this.plates) { (p.seal.material as THREE.Material).dispose(); (p.timer.material as THREE.Material).dispose(); }
+    for (const b of this.bells) (b.halo.material as THREE.Material).dispose();
+    for (const r of this.rewards) { (r.beam.material as THREE.Material).dispose(); (r.gem.material as THREE.Material).dispose(); }
+    for (const c of this.cues) { (c.m.material as THREE.Material).dispose(); (c.wave.material as THREE.Material).dispose(); }
+    for (const tr of this.trails) for (const m of tr.meshes) (m.material as THREE.Material).dispose();
+    for (const q of this.pieces) {
+      if (q.seam) (q.seam.material as THREE.Material).dispose();
+      const dots = q.g.userData.oilDots as THREE.Mesh[] | undefined;
+      if (dots) for (const d of dots) (d.material as THREE.Material).dispose();
     }
     for (const d of this.drops) (d.rope.material as THREE.Material).dispose();
     this.root.parent?.remove(this.root);

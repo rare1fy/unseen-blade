@@ -8,6 +8,7 @@ import { M, AREA, PLAY, SX, SZ } from '../../scenes/props';
 import type { Group, Landmark, Layout, Locale, Place, Rect } from '../types';
 import { XP, frame, up, faceOf, orient, wp, capCol, fireLight, blackRoof, plasterWall, lattice, icicles, markWater, cityWall, grille, sackRow, crate, brazier, deadWillow, smoke } from './xp_kit';
 import { poolsOf, specSeedOf, xpFloor, carveMarks, slabs, commonGroups, commonFiller, xpDress, farHouse, farMass, farWall } from './xp_common';
+import { xiapiInfill, xiapiEdgeDress, xiapiDistantBackdrop } from './xp_infill';
 
 /** this place's pools (its own pattern for a seed: salt 2) */
 const pools = (seed: number) => poolsOf(seed, 2);
@@ -204,11 +205,13 @@ function far(c: Ctx, f: { layout: Layout; p: Place }) {
   // over the wall, far off: the roofs of the drowned city and a second wall line in the mist
   farWall(c, -52, 52, wz - 14, 60, cap, 24);
   for (let i = 0; i < 6; i++) farHouse(c, -26 + i * 10.4 + (r(320 + i) - 0.5) * 2, wz - 6.5 - r(330 + i) * 2, 26, 22, 70 + Math.floor(r(340 + i) * 12), cap);
+  xiapiDistantBackdrop(c, f, 'wall');
   void farMass; void SX; void crate;
 }
 
 function dress(c: Ctx, f: { layout: Layout; p: Place; clear: Rect[] }) {
   xpDress(c, f);
+  xiapiEdgeDress(c, f);
 }
 
 export const xpWall: Locale = {
@@ -216,6 +219,6 @@ export const xpWall: Locale = {
   layouts: ['axis', 'offset', 'ridge', 'pair'],
   landmarks: LANDMARKS, groups: GROUPS, filler: FILLER,
   seasons: ['winter'], weathers: ['mist', 'snow', 'clear'], noSnow: true, noLeaves: true,
-  pools, floor, far, dress,
+  pools, floor, far, dress, infill: xiapiInfill('wall'),
 };
 void (0 as unknown as Place);

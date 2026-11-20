@@ -39,14 +39,30 @@ try {
   execFileSync(process.execPath, [path.join(ROOT, 'node_modules/vite-node/vite-node.mjs'), 'tools/bake-wechat-stages.ts'], {
     cwd: ROOT, env: { ...process.env, UB_STAGE_OUT: bakeDir }, stdio: 'inherit',
   });
-  const groupSizes = new Map();
-  for (const name of fs.readdirSync(bakeDir).sort()) {
+  // Budget-aware scenery packing: keep total WeChat package safely under 30 MB by pre-baking
+  // title, hideout, all boss arenas, and the heaviest rooms first; lighter rooms build smoothly
+  // in background slices via readStagePack() → null.
+  const BOSS_IDS = new Set(['mint', 'baimen', 'wl_flagship', 'cx_hall']);
+  const allBins = fs.readdirSync(bakeDir).map(name => {
     const data = fs.readFileSync(path.join(bakeDir, name));
-    const group = name === 'title-snow.bin' ? 'assets/scenes' : 'scenery' + (name.startsWith('map-') ? name.split('-')[1] : 'yard');
-    if (data.length + (groupSizes.get(group) || 0) > 3.9 * 1024 * 1024) throw Error('Scenery package too large: ' + group);
-    groupSizes.set(group, (groupSizes.get(group) || 0) + data.length);
-    scenes.set(name.slice(0, -4), { to: group + '/' + name, data });
+    const id = name.startsWith('map-') ? name.split('-')[1] : name.slice(0, -4);
+    const prio = name === 'title-snow.bin' ? 0 : name === 'yard.bin' ? 1 : BOSS_IDS.has(id) ? 2 : 3;
+    return { name, data, prio };
+  }).sort((a, b) => a.prio - b.prio || b.data.length - a.data.length);
+  const MAX_SC_TOTAL = 11.6 * 1024 * 1024, MAX_SC_PKG = 3.6 * 1024 * 1024;
+  let scTotal = 0, scIdx = 1, scBytes = 0, skipped = 0;
+  for (const { name, data } of allBins) {
+    if (name === 'title-snow.bin') {
+      scenes.set(name.slice(0, -4), { to: 'assets/scenes/' + name, data });
+      continue;
+    }
+    if (scTotal + data.length > MAX_SC_TOTAL) { skipped++; continue; }
+    if (scBytes > 0 && scBytes + data.length > MAX_SC_PKG) { scIdx++; scBytes = 0; }
+    scenes.set(name.slice(0, -4), { to: 'scenery' + scIdx + '/' + name, data });
+    scBytes += data.length;
+    scTotal += data.length;
   }
+  if (skipped) console.log(`  （30 MB 总包预算内预烘焙 ${scenes.size} 张重场，其余 ${skipped} 张轻场走后台分帧生成）`);
 } finally {
   fs.rmSync(bakeDir, { recursive: true, force: true });
 }

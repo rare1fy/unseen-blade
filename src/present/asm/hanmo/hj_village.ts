@@ -4,13 +4,15 @@
 // 主色：黄土、夯土赭黄、灰褐茅草、灰瓦、焦黑木；黄巾黄只在旗和头巾上。写法照忍里：foot（米，未镜像），h、kinds、size；build 以 p.x / p.z 为锚点。
 import type { Ctx } from '../../scenes/stage';
 import { M, AREA, PLAY, hash, SX, SZ, STAGE_BIG } from '../../scenes/props';
-import { oak, deadTree } from '../../scenes/flora';
+import { oak, deadTree, plot, tone } from '../../scenes/flora';
 import { ground } from '../../scenes/dress';
 import { LEAF_BY } from '../season';
+import type { ArenaPlan } from '../arena';
 import type { Group, Landmark, Layout, Locale, Place, Rect, SeasonId } from '../types';
 import { HV, frame, faceOf, orient, house, yardWall, yardWallZ, roof, earth, jar, strawStack, disc, smoke, stain } from './hj_village_kit';
 import { mill, well, oxCart, cartJar, granary, shrine, stove, emberHeap, banner, bannerDown, jiRack, headbands, woodpile, trough, roller, grainHeap, winnow, fork, rack, rows, sweep, gate, wattle } from './hj_village_props';
 import { villageInfill } from './hj_infill';
+import { cropOf, wheatBed } from './hj_field_kit';
 
 const night = (p: Place) => p.lamp > 0.3;
 const fireLight = (c: Ctx, p: Place, at: [number, number, number], k = 1, d = 4.5) => { if (night(p)) c.light(at, 0xff8a3a, 2.4 * p.lamp * k, d); };
@@ -200,49 +202,229 @@ const FILLER: Group[] = [
   } },
 ];
 
-// ------------------------------------------------------------------ ground: loess earth in big patches, a cart track with ruts, dry grass beyond
-function floor(c: Ctx, f: { layout: Layout; p: Place }) {
+// ------------------------------------------------------------------ ground: warm loess earth, sparse worn buff-sandstone cartwheel tracks (04-combat-ui.png), functional zone earth tones
+function floor(c: Ctx, f: { layout: Layout; p: Place; arena?: ArenaPlan }) {
   const w = c.w, sd = f.p.seed, r = (k: number) => hash(sd, k, 61), G3 = GRASS[f.p.season];
-  const X0 = M(AREA.x0 - 6), X1 = M(AREA.x1 + 6), Z0 = M(AREA.z0 - 8), Z1 = M(AREA.z1 + 4);
-  const fill = (x0: number, z0: number, x1: number, z1: number, col: number) => { for (let X = Math.max(X0, M(x0)); X <= Math.min(X1, M(x1)); X++) for (let Z = Math.max(Z0, M(z0)); Z <= Math.min(Z1, M(z1)); Z++) w.set(X, -1, Z, col); };
+  const X0 = M(AREA.x0 - 12), X1 = M(AREA.x1 + 12), Z0 = M(AREA.z0 - 12), Z1 = M(AREA.z1 + 8);
+  const fill = (x0: number, z0: number, x1: number, z1: number, col: number) => {
+    for (let X = Math.max(X0, M(x0)); X <= Math.min(X1, M(x1)); X++)
+      for (let Z = Math.max(Z0, M(z0)); Z <= Math.min(Z1, M(z1)); Z++) w.set(X, -1, Z, col);
+  };
   const snap = (v: number) => Math.round(v / 0.35) * 0.35;
-  fill(AREA.x0 - 6, AREA.z0 - 8, AREA.x1 + 6, AREA.z1 + 4, G3[0]);
-  for (let i = 0; i < 26; i++) { const x = AREA.x0 - 5 + r(i) * (AREA.x1 - AREA.x0 + 10), z = AREA.z0 - 7 + r(50 + i) * (AREA.z1 - AREA.z0 + 10), hw = 0.6 + r(100 + i) * 1.4, hd = 0.5 + r(150 + i) * 1.0; fill(snap(x - hw), snap(z - hd), snap(x + hw), snap(z + hd), r(200 + i) < 0.6 ? G3[1] : G3[2]); }
-  // the village ground
-  // act-19: the old stage's numbers go through SX / SZ (the 2x stage moves everything outside the floor outward)
-  fill(SX(-12.6), SZ(-15.4), SX(12.6), SZ(8.6), HV.loess);
-  for (let i = 0; i < (STAGE_BIG.on ? 70 : 30); i++) { const x = SX(-12) + r(300 + i) * (SX(12) - SX(-12)), z = SZ(-15) + r(350 + i) * (SZ(8) - SZ(-15)), hw = 0.5 + r(400 + i) * 1.6, hd = 0.4 + r(450 + i) * 1.2; fill(snap(x - hw), snap(z - hd), snap(x + hw), snap(z + hd), r(500 + i) < 0.55 ? HV.loessD : HV.loessL); }
-  for (let i = 0; i < 10; i++) { const s = r(550 + i) < 0.5 ? -1 : 1, x = SX(s * (9.4 + r(560 + i) * 3)), z = SZ(-14 + r(570 + i) * 21), hw = 0.4 + r(580 + i) * 0.8, hd = 0.5 + r(590 + i) * 1.2; fill(snap(x - hw), snap(z - hd), snap(x + hw), snap(z + hd), G3[r(600 + i) < 0.5 ? 0 : 2]); }
-  // the cart track along each path: trodden light earth, two dark ruts a third in from its edges
-  for (const q of f.layout.path) {
-    fill(q.x0, q.z0, q.x1, q.z1, HV.track);
-    const along = q.z1 - q.z0 >= q.x1 - q.x0;
-    if (along) { const a = M(q.x0), b = M(q.x1), k = Math.max(2, Math.round((b - a) / 4)); for (const X of [a + k, b - k - 1]) for (let Z = M(q.z0); Z <= M(q.z1); Z++) { w.set(X, -1, Z, HV.rut); w.set(X + 1, -1, Z, HV.rut); } }
-    else { const a = M(q.z0), b = M(q.z1), k = Math.max(2, Math.round((b - a) / 4)); for (const Z of [a + k, b - k - 1]) for (let X = M(q.x0); X <= M(q.x1); X++) { w.set(X, -1, Z, HV.rut); w.set(X, -1, Z + 1, HV.rut); } }
+  // warm dusty buff-sandstone track slabs harmonizing gently with yellow loess (faithful to 02-environments.png & 04-combat-ui.png — zero cold blue-grey clash!)
+  const SLAB = 0xa4957e, SLAB_D = 0x958670, SLAB_L = 0xb0a18a, SLAB_J = 0x857763;
+  const slabStripZ = (xc: number, z0: number, z1: number, hw = 4, len = 18, gap = 6, salt = 5) => {
+    const Xc = M(xc), a0 = Math.max(Z0, M(z0)), a1 = Math.min(Z1, M(z1)), step = len + gap;
+    for (let Z = a0; Z <= a1; Z++) {
+      const idx = Math.floor((Z - a0) / step), lz = (Z - a0) - idx * step;
+      if (lz >= len) continue;
+      for (let dx = -hw; dx <= hw; dx++) {
+        const X = Xc + dx; if (X < X0 || X > X1) continue;
+        const edge = lz === 0 || lz === len - 1 || dx === -hw || dx === hw;
+        const h = hash(idx, salt, sd);
+        w.set(X, -1, Z, edge ? SLAB_J : h < 0.3 ? SLAB_D : h < 0.8 ? SLAB : SLAB_L);
+      }
+    }
+  };
+  const slabStripX = (zc: number, x0: number, x1: number, hd = 4, len = 18, gap = 6, salt = 11) => {
+    const Zc = M(zc), a0 = Math.max(X0, M(x0)), a1 = Math.min(X1, M(x1)), step = len + gap;
+    for (let X = a0; X <= a1; X++) {
+      const idx = Math.floor((X - a0) / step), lx = (X - a0) - idx * step;
+      if (lx >= len) continue;
+      for (let dz = -hd; dz <= hd; dz++) {
+        const Z = Zc + dz; if (Z < Z0 || Z > Z1) continue;
+        const edge = lx === 0 || lx === len - 1 || dz === -hd || dz === hd;
+        const h = hash(idx, salt, sd);
+        w.set(X, -1, Z, edge ? SLAB_J : h < 0.3 ? SLAB_D : h < 0.8 ? SLAB : SLAB_L);
+      }
+    }
+  };
+  const stonePad = (x0: number, z0: number, x1: number, z1: number, sw = 14, sd2 = 12) => {
+    const ax0 = Math.max(X0, M(x0)), ax1 = Math.min(X1, M(x1)), az0 = Math.max(Z0, M(z0)), az1 = Math.min(Z1, M(z1));
+    for (let X = ax0; X <= ax1; X++) for (let Z = az0; Z <= az1; Z++) {
+      const rz = Math.floor((Z + 600) / sd2), u = X + 600 + (rz & 1) * Math.floor(sw / 2);
+      const j = (Z + 600) % sd2 === 0 || u % sw === 0 || X === ax0 || X === ax1 || Z === az0 || Z === az1;
+      w.set(X, -1, Z, j ? SLAB_J : (hash(Math.floor(u / sw), rz, 19) < 0.35 ? SLAB_D : SLAB));
+    }
+  };
+
+  // outer dry grass field
+  fill(AREA.x0 - 12, AREA.z0 - 12, AREA.x1 + 12, AREA.z1 + 8, G3[0]);
+  for (let i = 0; i < 26; i++) {
+    const x = AREA.x0 - 6 + r(i) * (AREA.x1 - AREA.x0 + 12), z = AREA.z0 - 8 + r(50 + i) * (AREA.z1 - AREA.z0 + 12);
+    const hw = 0.8 + r(100 + i) * 1.6, hd = 0.6 + r(150 + i) * 1.2;
+    fill(snap(x - hw), snap(z - hd), snap(x + hw), snap(z + hd), r(200 + i) < 0.6 ? G3[1] : G3[2]);
   }
-  if (f.layout.court) { const q = f.layout.court; fill(q.x0, q.z0, q.x1, q.z1, HV.loessL); }
+  // calm packed-loess village ground (warm sandy ochre, broad subtle zones, zero speckle)
+  fill(SX(-12.6), SZ(-15.4), SX(12.6), SZ(8.6), HV.loess);
+  for (let i = 0; i < (STAGE_BIG.on ? 32 : 16); i++) {
+    const x = SX(-12) + r(300 + i) * (SX(12) - SX(-12)), z = SZ(-15) + r(350 + i) * (SZ(8) - SZ(-15));
+    const hw = 1.4 + r(400 + i) * 2.4, hd = 1.2 + r(450 + i) * 2.0;
+    fill(snap(x - hw), snap(z - hd), snap(x + hw), snap(z + hd), r(500 + i) < 0.52 ? HV.loessD : HV.loessL);
+  }
+  // grassy verge strips far outside PLAY
+  for (let i = 0; i < 10; i++) {
+    const s = r(550 + i) < 0.5 ? -1 : 1, x = SX(s * (9.4 + r(560 + i) * 3)), z = SZ(-14 + r(570 + i) * 21);
+    const hw = 0.5 + r(580 + i) * 0.9, hd = 0.6 + r(590 + i) * 1.2;
+    fill(snap(x - hw), snap(z - hd), snap(x + hw), snap(z + hd), G3[r(600 + i) < 0.5 ? 0 : 2]);
+  }
+  if (f.layout.court) { const q = f.layout.court; fill(q.x0, q.z0, q.x1, q.z1, HV.loess); }
+
+  // subtle wall-base tamped earth grounding (0.35 m band hugging perimeter walls & every # compound)
+  const sp = f.arena?.shape;
+  fill(PLAY.x0, PLAY.z0, PLAY.x1, PLAY.z0 + 0.35, HV.loessD);
+  fill(PLAY.x0, PLAY.z0, PLAY.x0 + 0.35, PLAY.z1, HV.loessD);
+  fill(PLAY.x1 - 0.35, PLAY.z0, PLAY.x1, PLAY.z1, HV.loessD);
+  if (sp) {
+    for (const rc of sp.solid) fill(rc.x0 - 0.35, rc.z0 - 0.35, rc.x1 + 0.35, rc.z1 + 0.35, HV.loessD);
+  }
+
+  // worn packed-earth main roads + sparse warm buff-sandstone cartwheel tracks (matching 02-environments.png & 04-combat-ui.png)
+  if (sp?.fixed) {
+    const fx = sp.fixed, cx = (PLAY.x0 + PLAY.x1) / 2;
+    const exN = fx.exits.find(e => e.side === 'back');
+    const axisX = exN ? (exN.x + sp.enter[0]) / 2 : sp.enter[0];
+    // main N-S village cart road: packed warm dirt + two sparse worn warm-sandstone wheel tracks
+    fill(axisX - 2.6, PLAY.z0 - 5, axisX + 2.6, PLAY.z1 + 3, HV.track);
+    slabStripZ(axisX - 1.5, PLAY.z0 + 0.6, PLAY.z1 + 1.2, 4, 18, 7, 7);
+    slabStripZ(axisX + 1.5, PLAY.z0 + 0.6, PLAY.z1 + 1.2, 4, 18, 7, 13);
+    // E-W lane if side exits exist (kept warm packed earth with one calm single track line so it doesn't turn into a busy grid)
+    const sideEs = fx.exits.filter(e => e.side === 'left' || e.side === 'right');
+    if (sideEs.length) {
+      const axisZ = sideEs.reduce((s, e) => s + e.z, 0) / sideEs.length;
+      fill(PLAY.x0 - 5, axisZ - 1.8, PLAY.x1 + 5, axisZ + 1.8, HV.track);
+      slabStripX(axisZ, PLAY.x0 - 3, PLAY.x1 + 3, 4, 18, 8, 17);
+    } else if (fx.id === 'courtyards') {
+      slabStripZ(cx, PLAY.z0 + 0.6, PLAY.z1 + 1.0, 5, 16, 6, 29);
+    } else if (fx.stations) {
+      stonePad(fx.stations[0] - 3.4, fx.stations[1] - 2.2, fx.stations[0] + 3.4, fx.stations[1] + 0.6, 14, 12);
+    }
+    // crossroads functional zone ground storytelling: sunny threshing floor in SW, ash & soot scars in SE burned ruin!
+    if (fx.id === 'crossroads') {
+      fill(PLAY.x0 + 0.35, PLAY.z1 - 5.6, PLAY.x0 + 7.4, PLAY.z1 - 0.2, HV.track);
+      fill(PLAY.x1 - 8.4, PLAY.z1 - 7.8, PLAY.x1 - 0.35, PLAY.z1 - 2.2, HV.loessD);
+      fill(PLAY.x1 - 6.8, PLAY.z1 - 6.6, PLAY.x1 - 1.6, PLAY.z1 - 3.6, HV.ash);
+      fill(PLAY.x1 - 9.2, PLAY.z1 - 6.2, PLAY.x1 - 7.0, PLAY.z1 - 4.4, HV.ash);
+    }
+    // subtle warm-sandstone thresholds only at main gates and internal doorways
+    for (const g of f.arena!.gates) stonePad(g.x - (g.along === 'x' ? 1.5 : 0.8), g.z - (g.along === 'x' ? 0.7 : 1.5), g.x + (g.along === 'x' ? 1.5 : 0.8), g.z + (g.along === 'x' ? 0.9 : 1.5), 12, 10);
+    for (const cl of fx.closed) stonePad(cl.x0 - 0.35, cl.z0 - 0.35, cl.x1 + 0.35, cl.z1 + 0.35, 10, 10);
+  } else {
+    for (const q of f.layout.path) {
+      fill(q.x0, q.z0, q.x1, q.z1, HV.track);
+      const along = q.z1 - q.z0 >= q.x1 - q.x0;
+      if (along) {
+        const cx = (q.x0 + q.x1) / 2, span = q.x1 - q.x0;
+        if (span > 2.8) { slabStripZ(cx - 1.2, q.z0, q.z1, 4, 18, 7, 31); slabStripZ(cx + 1.2, q.z0, q.z1, 4, 18, 7, 37); }
+        else slabStripZ(cx, q.z0, q.z1, 4, 18, 7, 31);
+      } else {
+        const cz = (q.z0 + q.z1) / 2;
+        slabStripX(cz, q.x0, q.x1, 4, 18, 7, 41);
+      }
+    }
+  }
   // two or three ash scars outside the battle floor where something burnt
-  for (let i = 0; i < 3; i++) { const s = r(700 + i) < 0.5 ? -1 : 1, x = SX(s * (6.4 + r(710 + i) * 4.5)), z = SZ(-12 + r(720 + i) * 14), h = 0.6 + r(730 + i) * 0.6; fill(snap(x - h), snap(z - h * 0.8), snap(x + h), snap(z + h * 0.8), HV.ash); }
+  for (let i = 0; i < 3; i++) {
+    const s = r(700 + i) < 0.5 ? -1 : 1, x = SX(s * (6.4 + r(710 + i) * 4.5)), z = SZ(-12 + r(720 + i) * 14), h = 0.6 + r(730 + i) * 0.6;
+    fill(snap(x - h), snap(z - h * 0.8), snap(x + h), snap(z + h * 0.8), HV.ash);
+  }
 }
-// ------------------------------------------------------------------ the far ring: loess terraces on the flanks, the village wall and roofs beyond, smoke
-function far(c: Ctx, f: { layout: Layout; p: Place }) {
+// ------------------------------------------------------------------ the far ring: expansive golden wheat sea, towering village locust trees & loess terraces (no repetitive miniature cottages!)
+function far(c: Ctx, f: { layout: Layout; p: Place; arena?: ArenaPlan }) {
   const w = c.w, r = f.p.rnd, se = f.p.season;
   const top = se === 'autumn' ? [0xa88a48, 0x98803e] : se === 'winter' ? [0x7a6a52, 0x6e604a] : se === 'summer' ? [0x5a7a38, 0x66843e] : [0x72884a, 0x7e9452];
+  // rich golden wheat fields hugging the outer walls wherever no building extends or road passes (matching 02-environments.png & 04-combat-ui.png!)
+  const pal = cropOf(se === 'winter' ? 'autumn' : se, 0);
+  const gates = f.arena?.gates ?? [];
+  const hitsRoad = (x0: number, x1: number, z0: number, z1: number) =>
+    f.layout.path.some(q => x0 < q.x1 + 0.9 && x1 > q.x0 - 0.9 && z0 < q.z1 + 0.9 && z1 > q.z0 - 0.9)
+    || gates.some(g => Math.abs((x0 + x1) / 2 - g.x) < 2.8 && Math.abs((z0 + z1) / 2 - g.z) < 5.0);
+  const clearSpace = (X0: number, Z0: number, X1: number, Z1: number) => {
+    for (let X = X0; X <= X1; X += 4) for (let Z = Z0; Z <= Z1; Z += 4) if (w.has(X, 2, Z) || w.has(X, 12, Z) || w.has(X, 26, Z)) return false;
+    return true;
+  };
+  // rear golden wheat fields outside the back wall (between buildings & flanking the north road)
+  const rearZ0 = PLAY.z0 - 5.6, rearZ1 = PLAY.z0 - 1.1;
+  for (let x = PLAY.x0 - 4.5; x < PLAY.x1 + 3.5; x += 3.6) {
+    const x0 = x, x1 = x + 3.1;
+    if (hitsRoad(x0, x1, rearZ0, rearZ1)) continue;
+    const X0 = M(x0), X1 = M(x1), Z0 = M(rearZ0), Z1 = M(rearZ1);
+    if (!clearSpace(X0, Z0, X1, Z1)) continue;
+    for (let rx = X0; rx + 4 <= X1; rx += 6) wheatBed(c, rx, Z0, Math.min(X1, rx + 4), Z1, 13, pal, ['+z', '+x']);
+  }
+  // flank golden wheat fields outside left & right walls (especially opening out SW & West into bright wheat!)
+  for (const side of [-1, 1]) {
+    const fx0 = side < 0 ? PLAY.x0 - 6.2 : PLAY.x1 + 1.2;
+    const fx1 = side < 0 ? PLAY.x0 - 1.2 : PLAY.x1 + 6.2;
+    for (let z = PLAY.z0 - 1.0; z < PLAY.z1 + 1.0; z += 4.0) {
+      const z0 = z, z1 = z + 3.5;
+      if (hitsRoad(fx0, fx1, z0, z1)) continue;
+      const X0 = M(fx0), X1 = M(fx1), Z0 = M(z0), Z1 = M(z1);
+      if (!clearSpace(X0, Z0, X1, Z1)) continue;
+      for (let rx = X0; rx + 4 <= X1; rx += 6) wheatBed(c, rx, Z0, Math.min(X1, rx + 4), Z1, 13, pal, ['+z', side < 0 ? '+x' : '-x']);
+    }
+  }
+  // towering village autumn locust trees outside key corners (gives grand vertical hierarchy instead of toy cottages!)
+  const L = LEAF_BY[se];
+  for (const [tx, tz, th, sd2] of [
+    [PLAY.x0 - 2.6, PLAY.z0 + 11.2, 8.2, 91],
+    [PLAY.x1 + 2.8, PLAY.z0 + 8.5, 7.6, 97],
+    [(PLAY.x0 + PLAY.x1) / 2 + 3.8, PLAY.z0 - 3.6, 8.6, 103],
+  ] as const) {
+    if (!hitsRoad(tx - 1.8, tx + 1.8, tz - 1.8, tz + 1.8) && clearSpace(M(tx - 1.4), M(tz - 1.4), M(tx + 1.4), M(tz + 1.4))) {
+      oak(w, tx, tz, th, { seed: sd2 + f.p.seed, bark: 0x4a3c30, dark: 0x30261e, leaf: L[0], leafTop: L[1], low: 0.42, width: 1.15, vines: 0 });
+    }
+  }
+  // loess terraces on the far flanks
   for (const s of [-1, 1]) for (let t = 0; t < 3; t++) {
     const xa = s > 0 ? SX(13.6 + t * 2.2) : SX(-15.8 - t * 2.2), H = 4 + t * 7, X0 = M(xa), X1 = M(xa + 2.2) - 1;
     for (let Z = M(SZ(-17)); Z <= M(SZ(8)); Z += 26) { const Z1 = Math.min(M(SZ(8)), Z + 24); w.box(X0, -1, Z, X1, H - 1, Z1, HV.earthD); for (let y = 5; y < H; y += 6) w.box(X0, y, Z, X1, y, Z1, HV.earthS); w.box(X0, H, Z, X1, H, Z1, top[(Math.floor(Z / 26) + t) & 1]); }
   }
-  // the village wall across the back, gaps knocked in it
+  // warm rammed-earth outer village wall across the distant back (thatch/earth coping, NOT blue tile!), gaps knocked in it
   const B = frame(w, 0, SZ(-16.6)), WW = STAGE_BIG.on ? 340 : 190;
-  yardWall(B, -WW, WW, 0, 30, { drops: [[-120, -96, 14], [40, 62, 18], [140, 166, 10], ...(STAGE_BIG.on ? [[-300, -270, 12], [250, 280, 16]] as Array<[number, number, number]> : [])] });
-  // roofs beyond the wall: houses, one or two burnt to the walls and smoking
-  const n = STAGE_BIG.on ? 6 : 4;
+  yardWall(B, -WW, WW, 0, 26, { tile: false, drops: [[-120, -96, 12], [40, 62, 16], [140, 166, 10], ...(STAGE_BIG.on ? [[-300, -270, 12], [250, 280, 14]] as Array<[number, number, number]> : [])] });
+  // distant roofs & trees beyond the outer wall
+  const n = STAGE_BIG.on ? 4 : 3;
   for (let i = 0; i < n; i++) {
-    const x = (i - (n - 1) / 2) * 7.2 + (r(420 + i) - 0.5) * 2, z = SZ(-19.6) - r(430 + i) * 1.4, burnt = r(440 + i) < 0.4;
-    house(c, x, z, 0, { hw: 26, hd: 14, H: 30, burnt: burnt ? 2 : 0, chimney: !burnt, wins: [] });
-    if (burnt) smoke(c, [x, 2.6, z], { rate: 2.2, col: 0x5e5a56 });
+    const x = (i - (n - 1) / 2) * 10.5 + (r(420 + i) - 0.5) * 2, z = SZ(-19.8) - r(430 + i) * 1.4, burnt = r(440 + i) < 0.35;
+    house(c, x, z, 0, { hw: 32, hd: 16, H: 32, roof: i % 2 === 0 ? 'tile' : 'thatch', burnt: burnt ? 1 : 0, chimney: !burnt, wins: [] });
+    if (burnt) smoke(c, [x, 2.8, z], { rate: 2.0, col: 0x5e5a56 });
   }
-  for (let i = 0; i < (STAGE_BIG.on ? 9 : 6); i++) { const x = (STAGE_BIG.on ? -24 : -15) + i * 6 + r(460 + i) * 2, z = SZ(-23) - r(470 + i) * 2; if (r(480 + i) < 0.4) deadTree(w, x, z, 6 + r(490 + i) * 2, HV.char, HV.charD, { seed: 70 + i, crow: 0.3, moss: false }); else oak(w, x, z, 7 + r(490 + i) * 2, { seed: 80 + i, leaf: LEAF_BY[se][0], leafTop: LEAF_BY[se][1], low: 0.45, width: 0.8, vines: 0 }); }
+  for (let i = 0; i < (STAGE_BIG.on ? 10 : 6); i++) {
+    const x = (STAGE_BIG.on ? -25 : -15) + i * 5.4 + r(460 + i) * 1.8, z = SZ(-22.5) - r(470 + i) * 2;
+    if (r(480 + i) < 0.25) deadTree(w, x, z, 6.5 + r(490 + i) * 2, HV.char, HV.charD, { seed: 70 + i, crow: 0.3, moss: false });
+    else oak(w, x, z, 7.5 + r(490 + i) * 2, { seed: 80 + i, leaf: L[0], leafTop: L[1], low: 0.44, width: 1.0, vines: 0 });
+  }
+
+  // Distant atmospheric backdrop (远景氛围衬托): layered yellow-earth loess plateaus, distant watchtower skyline & Mount Song ridges!
+  const addMass = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, side: number, topC?: number, lowC?: number) => {
+    plot(w).masses.push({
+      x0: Math.min(x0, x1), x1: Math.max(x0, x1), y0, y1, z0: Math.min(z0, z1), z1: Math.max(z0, z1),
+      cx: 0, cz: 0, top: topC ?? tone(side, 1.12), side, low: lowC ?? tone(side, 0.76), band: 5,
+    });
+  };
+  const farZ = Math.min(PLAY.z0 - 12, SZ(-22));
+  const hillTop = se === 'autumn' ? 0x9b8852 : se === 'winter' ? 0x867c6e : 0x74854a;
+  // Distant 3-storey village watchtower silhouette on the north-east horizon (landmark depth!)
+  const wtx = M(PLAY.x1 + 6), wtz = M(farZ - 5);
+  let wy = -1;
+  for (const [hw, hh] of [[18, 38], [14, 28], [11, 22]] as const) {
+    addMass(wtx - hw, wy, wtz - hw, wtx + hw, wy + hh, wtz + hw, 0x7a654a, 0x8c7556, 0x5c4a36);
+    addMass(wtx - hw - 7, wy + hh + 1, wtz - hw - 7, wtx + hw + 7, wy + hh + 4, wtz + hw + 7, 0x454346, 0x58565a, 0x2c2a2d);
+    wy += hh + 5;
+  }
+  smoke(c, [PLAY.x0 - 8, 4.5, farZ - 4], { rate: 1.8, col: 0x6a645d });
+  // Three receding atmospheric tiers of Mount Song loess hills & distant mountain ridges spanning the full horizon
+  for (const [x0, x1, dz0, dz1, h, side, topC] of [
+    [-82, -26, -16, -8,  72, 0xa88f64, hillTop],
+    [ 20,  82, -16, -7,  84, 0xa48c62, hillTop],
+    [-46,  42, -22, -13, 62, 0x9c865e, hillTop],
+    [-92, -18, -32, -20, 138, 0x8d7f66, 0x9c8e74],
+    [ 10,  94, -34, -21, 154, 0x867a64, 0x968a72],
+    [-60,  58, -46, -30, 210, 0x747068, 0x848078],
+  ] as const) {
+    addMass(M(x0), -1, M(farZ + dz0), M(x1), h, M(farZ + dz1), side, topC, tone(side, 0.78));
+  }
 }
 // ------------------------------------------------------------------ dressing: dry grass on the grass, weeds by the walls, straw, dust and ash
 function dress(c: Ctx, f: { layout: Layout; p: Place; clear: Rect[] }) {
@@ -268,6 +450,124 @@ function dress(c: Ctx, f: { layout: Layout; p: Place; clear: Rect[] }) {
   plant('grass', 220, [0.3, 0.5], (x, z) => G3.has(at(x, z)), 8);
   plant('weeds', 60, [0.4, 0.6], (x, z) => at(x, z) === HV.loess || at(x, z) === HV.loessD, 3);
   plant('straw', 24, [0.6, 0.9], (x, z) => at(x, z) !== HV.track, 2);
+
+  // --- Street-edge & wall-root micro-detail INSIDE PLAY (bold visible plant cards, roadside pebbles, & lived-in 3D wall-root stones) ---
+  const nearWall = (x: number, z: number) => {
+    const X = M(x), Z = M(z);
+    if (w.has(X, 1, Z) || w.has(X, 6, Z)) return false;
+    const hit = (ax: number, az: number) => w.has(ax, 4, az) || w.has(ax, 25, az);
+    return hit(X + 10, Z) || hit(X - 10, Z) || hit(X, Z + 10) || hit(X, Z - 10);
+  };
+  const onTrackEdge = (x: number, z: number) => {
+    const c0 = at(x, z);
+    if (c0 !== HV.track && c0 !== HV.loess && c0 !== HV.loessD) return false;
+    return at(x + 0.65, z) !== c0 || at(x - 0.65, z) !== c0 || at(x, z + 0.65) !== c0 || at(x, z - 0.65) !== c0;
+  };
+  const grassTints = se === 'winter' ? [0x9e9a90, 0x8a867e] : [0x7e964a, 0x92a458, 0x6f8642];
+  const weedTints = se === 'winter' ? [0xa49e90, 0x908a7e] : [0xb4a470, 0xa29662, 0xc4b27c];
+  const pebbleTints = [0x827563, 0x6e6353, 0x948672];
+  const plantIn = (
+    kind: string, n: number, s: [number, number],
+    want: (x: number, z: number) => boolean,
+    pal: number[], cl = 2, spread = 0.65, yOff = 0.015,
+  ) => {
+    let placed = 0, tries = 0;
+    while (placed < n && tries < n * 32) {
+      tries++;
+      const cx = PLAY.x0 + 0.3 + hash(tries, sd + 19, kind.length * 29 + 1) * (PLAY.x1 - PLAY.x0 - 0.6);
+      const cz = PLAY.z0 + 0.3 + hash(tries, sd + 23, kind.length * 31 + 2) * (PLAY.z1 - PLAY.z0 - 0.6);
+      if (!want(cx, cz)) continue;
+      for (let k = 0; k < cl && placed < n; k++) {
+        const x = cx + (hash(tries, k, sd + 41) - 0.5) * spread;
+        const z = cz + (hash(tries, k, sd + 47) - 0.5) * spread;
+        if (x < PLAY.x0 + 0.18 || x > PLAY.x1 - 0.18 || z < PLAY.z0 + 0.18 || z > PLAY.z1 - 0.18) continue;
+        if (w.has(M(x), 1, M(z)) || w.has(M(x), 6, M(z))) continue;
+        const y = ground(c, x, z); if (y == null || y > 0.08) continue;
+        c.cards.add(kind, x, z, {
+          y: y + yOff,
+          s: s[0] + hash(tries, k, 53) * (s[1] - s[0]),
+          tint: pal[Math.floor(hash(tries, k, 59) * pal.length)],
+        });
+        placed++;
+      }
+    }
+  };
+  // 1) crisp wall-root & corner plant tufts hugging every building plinth, porch post, yard wall, well & gate corner
+  const hitsPath = (x: number, z: number) => f.layout.path.some(q => x > q.x0 + 0.4 && x < q.x1 - 0.4 && z > q.z0 + 0.4 && z < q.z1 - 0.4);
+  const wallOrCorner = (x: number, z: number) => nearWall(x, z) && !hitsPath(x, z);
+  plantIn('vtuft', 150, [0.68, 1.0], wallOrCorner, [0xffffff, 0xe8e0c4, 0xd8d0a8], 2, 0.80, 0);
+  plantIn('vtuft', 52, [0.58, 0.82], onTrackEdge, [0xece4c8, 0xd8d0a8], 1, 0.55, 0);
+  // 2) crisp weathered roadside pebbles & fallen autumn leaves along road verges, cart tracks & wall bases
+  plantIn('vpebble', 130, [0.90, 1.35], (x, z) => nearWall(x, z) || onTrackEdge(x, z), [0xffffff, 0xeae2d4, 0xd8cebe], 2, 0.90, 0.012);
+  plantIn('vleaf', 96, [0.85, 1.25], (x, z) => nearWall(x, z) || onTrackEdge(x, z), [0xffffff, 0xead8be], 2, 0.90, 0.010);
+  // 3) lived-in village ground scatter: golden straw near granary/threshing walls & corners
+  plantIn('straw', 54, [0.75, 1.15], (x, z) => nearWall(x, z) && at(x, z) !== HV.ash, [0xd4bc78, 0xc2a860], 2, 0.85, 0.012);
+  // 4) hanging dry vines on south-facing walls inside PLAY
+  let vines = 0;
+  for (let i = 0; i < 200 && vines < 22; i++) {
+    const x = PLAY.x0 + 1.0 + hash(i, sd, 83) * (PLAY.x1 - PLAY.x0 - 2.0);
+    const z = PLAY.z0 + 0.5 + hash(i, sd, 89) * (PLAY.z1 - PLAY.z0 - 2.0);
+    const X = M(x), Z = M(z);
+    if (w.has(X, 22, Z - 2) && !w.has(X, 22, Z) && !w.has(X, 12, Z)) {
+      c.cards.add('deadvine', x, z + 0.05, { y: 1.55 + hash(i, sd, 97) * 0.5, ry: 0, s: 0.85 + hash(i, sd, 101) * 0.35, tint: 0xbda87c });
+      vines++;
+    }
+  }
+  // 5) lived-in 3D street-edge micro-props tucked strictly against wall roots (never protruding into combat lanes or doorways!)
+  //    cycles between: weathered stone clusters, street-corner stone bollards (拴马石/护墙石墩), wooden hitching posts / village notice boards, and low wooden stools/benches!
+  let edgeProps = 0;
+  const placedPts: Array<[number, number]> = [];
+  for (let i = 0; i < 420 && edgeProps < 34; i++) {
+    const x = PLAY.x0 + 0.55 + hash(i, sd, 131) * (PLAY.x1 - PLAY.x0 - 1.1);
+    const z = PLAY.z0 + 0.55 + hash(i, sd, 137) * (PLAY.z1 - PLAY.z0 - 1.1);
+    const X = M(x), Z = M(z);
+    if (w.has(X, 1, Z) || w.has(X, 5, Z) || hitsPath(x, z)) continue;
+    if (placedPts.some(([px, pz]) => Math.hypot(px - x, pz - z) < 1.85)) continue;
+    // must hug a solid wall while keeping wide open space in front so doors, alleys, and movement stay 100% clear!
+    const touchN = w.has(X, 6, Z - 5) && !w.has(X, 1, Z + 12) && !w.has(X - 5, 1, Z) && !w.has(X + 5, 1, Z);
+    const touchW = w.has(X - 5, 6, Z) && !w.has(X + 12, 1, Z) && !w.has(X, 1, Z - 5) && !w.has(X, 1, Z + 5);
+    const touchE = w.has(X + 5, 6, Z) && !w.has(X - 12, 1, Z) && !w.has(X, 1, Z - 5) && !w.has(X, 1, Z + 5);
+    if (!touchN && !touchW && !touchE) continue;
+    const isAsh = at(x, z) === HV.ash;
+    const kind = edgeProps % 5;
+    if (kind === 0 || kind === 3 || isAsh) {
+      // weathered wall-root stone cluster / fallen roof tiles (04-combat-ui.png bottom-left feel)
+      w.box(X - 3, 0, Z - 2, X + 2, 2, Z + 1, isAsh ? 0x3e3b3c : 0x8d806c);
+      w.box(X - 2, 3, Z - 1, X + 1, 3, Z, isAsh ? 0x524f50 : 0xa89a84);
+      w.box(X + 3, 0, Z - 1, X + 5, 1, Z + 1, isAsh ? 0x2e2c2d : 0x766a58);
+      // plant a tuft of grass/weeds right beside the stones for organic grounding!
+      c.cards.add('vtuft', x + 0.32, z + 0.15, { y: 0, s: 0.52, tint: edgeProps % 2 === 0 ? 0xffffff : 0xe4dcb8 });
+    } else if (kind === 1) {
+      // civic stone wheel-guard / horse-hitching bollard (拴马石墩)
+      w.box(X - 2, 0, Z - 2, X + 2, 1, Z + 2, 0x766a58);
+      w.box(X - 1, 2, Z - 1, X + 1, 7, Z + 1, 0x988b76);
+      w.box(X - 1, 8, Z - 1, X + 1, 8, Z + 1, 0xb2a48c);
+      c.cards.add('vtuft', x - 0.28, z + 0.12, { y: 0, s: 0.46, tint: 0xe6deb8 });
+    } else if (kind === 2 && touchN) {
+      // lived-in low wooden roadside bench (长条木凳) tucked flush against a north building wall
+      w.box(X - 7, 0, Z - 1, X - 6, 3, Z + 1, HV.post);
+      w.box(X + 6, 0, Z - 1, X + 7, 3, Z + 1, HV.post);
+      w.box(X - 8, 4, Z - 2, X + 8, 4, Z + 2, HV.wood);
+      w.box(X - 8, 4, Z + 2, X + 8, 4, Z + 2, HV.woodL);
+    } else if (kind === 4 && touchN) {
+      // village wooden notice post / roadside marker (村口木牌/告示桩) + grass tuft at its base
+      w.box(X - 1, 0, Z - 1, X + 1, 14, Z, HV.post);
+      w.box(X - 5, 9, Z + 1, X + 5, 14, Z + 1, HV.wood);
+      w.box(X - 4, 10, Z + 1, X + 4, 13, Z + 1, HV.hemp);
+      w.box(X - 3, 11, Z + 1, X + 2, 11, Z + 1, HV.char);
+      w.box(X - 6, 15, Z - 1, X + 6, 16, Z + 2, HV.woodD);
+      c.cards.add('vtuft', x + 0.25, z + 0.14, { y: 0, s: 0.50, tint: 0xffffff });
+    } else {
+      // small wall-hugging clay jar + wooden bucket pair
+      w.box(X - 2, 0, Z - 2, X + 1, 4, Z + 1, HV.clay);
+      w.box(X - 1, 5, Z - 1, X, 5, Z, HV.clayL);
+      w.box(X + 2, 0, Z - 1, X + 4, 3, Z + 1, HV.woodD);
+      w.box(X + 2, 2, Z - 1, X + 4, 2, Z + 1, HV.iron);
+    }
+    placedPts.push([x, z]);
+    edgeProps++;
+  }
+
   c.ambient({ kind: 'dust', color: 0xd8c8a4, rate: 1.4 });
   c.ambient({ kind: 'dust', color: 0x8a8480, rate: 0.7, area: { x0: -11, z0: -14, x1: 11, z1: 2 } });
   if (f.p.time === 'dusk' || f.p.time === 'night') c.ambient({ kind: 'embers', color: 0xff8a3a, rate: 0.5, area: { x0: -11, z0: -16, x1: 11, z1: -8 } });

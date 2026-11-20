@@ -5,8 +5,9 @@ import { M, PLAY, SZ } from '../../scenes/props';
 import { CELL } from '../../bestiary/kit';
 import type { ArenaPlan } from '../arena';
 import { moodFor } from '../sky';
-import type { Layout, Locale, Rect } from '../types';
+import type { Layout, Locale, Place, Rect } from '../types';
 import { CX, bamboo, column, frame, gardenWall, paintFloor, planks, roofK, wp } from './cx_kit';
+import { cuiInfill, cuiEdgeDress, cuiDistantBackdrop } from './cx_infill';
 
 function floor(c: Ctx, f: { layout: Layout; arena?: ArenaPlan }) {
   const pond = f.arena?.shape?.solid[0];
@@ -68,7 +69,7 @@ function poolCourt(c: Ctx, r: Rect) {
   eaves(c, r.x1 - 0.18, r.z1 - 0.05, 1, h);
 }
 
-function far(c: Ctx, f: { arena?: ArenaPlan }) {
+function far(c: Ctx, f: { layout: Layout; p: Place; arena?: ArenaPlan }) {
   // 歇脚房的地面按原来留空，冰池和廊退到后墙以外。
   if (!f.arena?.shape) {
     const side = f.arena?.gates.some(g => g.id === 'back' && g.open) ? -1 : 0;
@@ -80,6 +81,7 @@ function far(c: Ctx, f: { arena?: ArenaPlan }) {
     const x = s < 0 ? PLAY.x0 - 2.4 : PLAY.x1 + 2.4;
     bamboo(frame(c.w, x, z), -8, 8, 0, 47, M(z));
   }
+  cuiDistantBackdrop(c, f);
 }
 
 const night = moodFor('night', 'winter', 'snow');
@@ -88,6 +90,6 @@ export const cxGallery: Locale = {
   layouts: ['axis', 'garden'], landmarks: [], groups: [],
   seasons: ['winter'], times: ['night'], weathers: ['snow', 'mist'], noSnow: true,
   mood: { ...night, moon: 0xabd8ec, hemiSky: 0x7296a7, moonI: 1.87, hemiI: 1.18, fog: 0x233644 },
-  floor, far, shapes: ['cloister'],
-  infill(c, f) { poolCourt(c, f.rect); },
+  floor, far, dress: (c, f) => cuiEdgeDress(c, f), shapes: ['cloister'],
+  infill: cuiInfill('gallery', poolCourt),
 };

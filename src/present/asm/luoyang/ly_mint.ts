@@ -8,7 +8,7 @@ import type { Ctx, Mood } from '../../scenes/stage';
 import { M, SX, SZ } from '../../scenes/props';
 import type { Landmark, Layout, Locale, Place } from '../types';
 import { LY, frame, up, wp, fireLight, smoke, blastFurnace, copperMan, qianfan, coinHeap, ingots, camel, camelDown, heap, palaceWall, charPost, rubble, charTree, cashStrings, fireBasin } from './ly_kit';
-import { commonGroups, commonFiller, lyFloor, lyDress } from './ly_common';
+import { commonGroups, commonFiller, lyFloor, lyDress, lyFlankRuins } from './ly_common';
 import { MINT_GROUPS } from './ly_mint_props';
 
 /** the boss room's own light (a burning city at night, so the moonlit blue of the generic night is wrong here): a smoke-brown sky
@@ -111,6 +111,7 @@ function far(c: Ctx, f: { layout: Layout; p: Place }) {
   for (const s of [-1, 1]) for (let i = 0; i < 3; i++) charTree(c, s * (SX(16.4) + (i % 2) * 1.2), SZ(-13 + i * 5), 5.4 + r(70 + i + (s > 0 ? 9 : 0)) * 2, 500 + i + (s > 0 ? 20 : 0), 0.3);
   smoke(c, [SX(-12), 3.6, SZ(-21)], { rate: 1.2, col: 0x4a4644 }); smoke(c, [SX(12 + r(2) * 2), 3.6, SZ(-21.5)], { rate: 1.0, col: 0x55504b });
   rubble(B, M(SX(-14)), M(SZ(-17.6)), 14, 6, 2);
+  lyFlankRuins(c, f, 'mint');
 }
 
 export const lyMint: Locale = {

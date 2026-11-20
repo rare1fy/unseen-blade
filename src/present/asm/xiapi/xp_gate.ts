@@ -7,6 +7,7 @@ import { M, AREA, PLAY, SZ, STAGE_BIG, hash } from '../../scenes/props';
 import type { Group, Landmark, Layout, Locale, Place, Rect } from '../types';
 import { XP, frame, up, faceOf, orient, wp, capCol, fireLight, floodedHouse, blackRoof, plasterWall, lattice, icicles, markWater, cityWall, crate, brazier, deadWillow, noose, stoneHeap } from './xp_kit';
 import { specSeedOf, xpFloor, carveMarks, slabs, deck, inR, commonGroups, commonFiller, xpDress, farHouse, farWall } from './xp_common';
+import { xiapiInfill, xiapiEdgeDress, xiapiDistantBackdrop } from './xp_infill';
 
 // ------------------------------------------------------------------ the pools: a ring along the floor's sides (left / right, middle and front)
 /** 3–4 pools along the edges of the court (the 水鬼 come up from them), never on the way in, the boss's mark or the back strip */
@@ -181,10 +182,12 @@ function far(c: Ctx, f: { layout: Layout; p: Place }) {
     farHouse(c, s * (AREA.x1 + 6.2 + r(40 + i) * 1.5), z, 22 + Math.floor(r(60 + i) * 6), 28, 24 + Math.floor(r(100 + i) * 8), cap, { cut: r(120 + i) < 0.4 });
   }
   for (let i = 0; i < 4; i++) deadWillow(c, (i % 2 ? 1 : -1) * (AREA.x1 + 3.0 + r(280 + i) * 1.2), SZ(-9) + i * 5.4 + r(290 + i) * 2, 4.4 + r(300 + i) * 1.2, 600 + i);
+  xiapiDistantBackdrop(c, f, 'gate');
 }
 
 function dress(c: Ctx, f: { layout: Layout; p: Place; clear: Rect[] }) {
   xpDress(c, f, 1.3);
+  xiapiEdgeDress(c, f);
 }
 
 export const xpGate: Locale = {
@@ -192,6 +195,6 @@ export const xpGate: Locale = {
   layouts: ['axis', 'garden'],
   landmarks: LANDMARKS, groups: GROUPS, filler: FILLER,
   seasons: ['winter'], weathers: ['mist', 'snow', 'clear'], noSnow: true, noLeaves: true,
-  pools, floor, far, dress,
+  pools, floor, far, dress, infill: xiapiInfill('gate'),
 };
 void (0 as unknown as Place);

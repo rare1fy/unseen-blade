@@ -15,14 +15,14 @@ export const K = {
   brick: 0x6c7478, brickT: 0x646b70, joint: 0x4a5054, brickL: 0x8a9296, soot: 0x2e2a28, sootD: 0x1c1816, hole: 0x110e0c,
   // the earth and dead grass grown over the vault
   top: 0x77684a, topL: 0x8a7a56,
-  // dressed stone, the packed earth of the training ground, its timber kerb
-  stone: 0x8a857c, stoneD: 0x6a665f, stoneL: 0xa49e94, yard: 0x8e7c5a, yardD: 0x847252, pave: 0x7a7c78, paveD: 0x6a6c6a, paveJ: 0x555856,
+  // warm weathered mountain sandstone, packed training earth (harmonizes with yellow loess, zero cold blue-grey clash!)
+  stone: 0x948774, stoneD: 0x766b5a, stoneL: 0xaa9d88, yard: 0x8d7c5e, yardD: 0x7c6c50, pave: 0x90826e, paveD: 0x7b6f5d, paveL: 0xa1937e, paveJ: 0x675c4c,
   // iron, embers, the hot blank
   iron: 0x38373e, ironL: 0x5c5c66, ironD: 0x222126, ember: 0x8a2412, emberL: 0xc8461c, coal: 0x2a2422, coalL: 0x3a322e,
   // bronze bells, the offering's candle
   bronze: 0x6a6a46, bronzeL: 0x8e8c5c, bronzeD: 0x46462e, wax: 0xeee4ca, flame: 0xffb050,
   // the courtyard's packed earth, the path, the terraces' tamped faces and grassy tops
-  earth: 0x76644a, earthD: 0x6a5a42, earthL: 0x84705a, path: 0x968264, rut: 0x6a5840, face: 0x8a7252, faceS: 0x76603f, grass: [0x6e6a40, 0x5e5a36, 0x7a744a] as const,
+  earth: 0x7e6d53, earthD: 0x685842, earthL: 0x8b795e, path: 0x8d7b60, rut: 0x64543e, face: 0x8a7252, faceS: 0x725d3e, grass: [0x6a6740, 0x5c5936, 0x787349] as const,
   // herbs drying, medicine jars (glazes), the mat, the quilt
   herbs: [0x7a7a40, 0x8e6a3a, 0x5e6a3e, 0x9a8a5a, 0x6a4a3a] as const, glazeB: 0x4a3020, glazeG: 0x5c6a5a, stain: 0x6a2e24,
   // the cart's black hood, the water
@@ -157,7 +157,28 @@ export function coalBasket(c: Ctx, X: number, Z: number) {
  *  drops: [x0, x1, d] knock the top down d cells (coping and all) */
 export function northWall(c: Ctx, X0: number, X1: number, Z0: number, Z1: number, h: number, drops: Array<[number, number, number]>) {
   const w = c.w, B = boxOf(w);
-  for (let x = X0; x <= X1; x++) { const d = drops.find(q => x >= q[0] && x <= q[1])?.[2] ?? 0, top = h - d; for (let y = 0; y <= top; y++) for (let z = Z0; z <= Z1; z++) w.set(x, y, z, y <= 2 ? (y === 2 ? K.stoneL : K.stone) : brickAt(x + z, y)); if (!d) { B(x, h + 1, Z0 - 1, x, h + 1, Z1 + 1, HV.tileD); B(x, h + 2, Z0, x, h + 2, Z1, (x & 3) === 0 ? HV.tileL : HV.tile); } else B(x, top, Z0, x, top, Z1, K.brickL); }
+  for (let x = X0; x <= X1; x++) {
+    const d = drops.find(q => x >= q[0] && x <= q[1])?.[2] ?? 0, top = h - d;
+    for (let y = 0; y <= top; y++) for (let z = Z0; z <= Z1; z++) {
+      w.set(x, y, z, y <= 3 ? (y === 3 ? K.stoneL : y === 0 ? K.stoneD : K.stone) : brickAt(x + z, y));
+    }
+    if (!d) {
+      B(x, h + 1, Z0 - 2, x, h + 1, Z1 + 2, HV.tileD);
+      B(x, h + 2, Z0 - 1, x, h + 2, Z1 + 1, (x % 3 === 0) ? HV.tileD : HV.tile);
+      B(x, h + 3, Z0, x, h + 3, Z1, (x & 3) === 0 ? HV.tileL : HV.tile);
+      if (x % 3 === 0) B(x, h + 1, Z1 + 2, x, h + 1, Z1 + 2, HV.tileL);
+    } else B(x, top, Z0, x, top, Z1, K.brickL);
+  }
+  // stone footing proud by 1 cell on the back face + two brick pilasters framing the stele & blade rack
+  B(X0, 0, Z0 - 1, X1, 2, Z0 - 1, K.stoneD);
+  for (const px of [X0 + 22, X0 + 52]) {
+    if (px + 2 > X1) continue;
+    const dropped = drops.some(q => px >= q[0] - 2 && px <= q[1] + 2);
+    if (dropped) continue;
+    B(px, 0, Z0 - 1, px + 3, 3, Z1, K.stone);
+    B(px, 4, Z0 - 1, px + 3, h, Z1, K.brick);
+    B(px, h + 1, Z0 - 2, px + 3, h + 2, Z1 + 1, HV.tileD);
+  }
 }
 /** act-37 (用户：「据点墙上的刀架」可以): the rack for the thirty 百辟刀 of the 文家 forge, on the north wall beside the kiln — two
  *  dark stiles, three rails (y 31 / 22 / 13), ten pegs on each rail sticking out toward the yard. The blades she has taken back hang
@@ -220,10 +241,14 @@ export function herbCorner(c: Ctx, X0: number, X1: number, Zw: number, Zp: numbe
  *  at the back end, an old blood stain, an indigo quilt folded at the foot */
 export function mat(c: Ctx, X0: number, X1: number, Z0: number, Z1: number) {
   const w = c.w, B = boxOf(w);
-  for (let x = X0; x <= X1; x++) for (let z = Z0; z <= Z1; z++) w.set(x, 0, z, x === X0 || x === X1 || z === Z0 || z === Z1 ? HV.strawD : (z - Z0) % 3 === 0 ? 0xb89c5c : HV.straw);
+  // weathered woven reed mat (muted warm straw, avoiding harsh bright yellow/blue plastic contrast)
+  const reed = 0xb49c66, reedL = 0xc2aa74, reedD = 0x8e794c, quilt = 0x3b485b, quiltL = 0x4f5f75;
+  for (let x = X0; x <= X1; x++) for (let z = Z0; z <= Z1; z++) {
+    w.set(x, 0, z, x === X0 || x === X1 || z === Z0 || z === Z1 ? reedD : (z - Z0) % 3 === 0 ? reedL : reed);
+  }
   B(X0 + 3, 1, Z0 + 2, X1 - 3, 2, Z0 + 4, HV.wood); B(X0 + 3, 2, Z0 + 2, X1 - 3, 2, Z0 + 4, HV.woodL);
   recolor(w, X0 + 3, 0, Z0 + 12, X0 + 6, 0, Z0 + 15, K.stain);
-  B(X0 + 1, 1, Z1 - 3, X1 - 1, 2, Z1 - 1, HV.indigo); B(X0 + 1, 2, Z1 - 3, X1 - 1, 2, Z1 - 3, HV.indigoL);
+  B(X0 + 1, 1, Z1 - 3, X1 - 1, 2, Z1 - 1, quilt); B(X0 + 1, 2, Z1 - 3, X1 - 1, 2, Z1 - 3, quiltL);
 }
 /** a little clay stove (cells): an earth block, a glowing mouth, a clay pot with a wooden lid on top. Returns the fire and the pot top */
 export function medStove(c: Ctx, X: number, Z: number, lit: boolean) {
@@ -309,7 +334,24 @@ export function culvert(c: Ctx, X: number, Zf: number) {
 export function channel(c: Ctx, X0: number, X1: number, Z0: number, Z1: number) {
   const w = c.w, B = boxOf(w);
   B(X0, -1, Z0, X1, -1, Z1, null); B(X0, -2, Z0, X1, -2, Z1, K.bed);
-  for (const x of [X0 - 2, X1 + 1]) { B(x, -1, Z0, x + 1, 0, Z1, K.stone); for (let z = Z0; z <= Z1; z += 9) B(x, 0, z, x + 1, 0, z, K.stoneD); }
+  // dressed stone banks (2 cells wide, inner lip dark wet stone, staggered kerb joints)
+  for (const x of [X0 - 2, X1 + 1]) {
+    const inner = x < X0 ? x + 1 : x;
+    B(x, -1, Z0, x + 1, 0, Z1, K.stone);
+    B(inner, -1, Z0, inner, -1, Z1, K.stoneD);
+    for (let z = Z0; z <= Z1; z += 10) {
+      B(x, 0, z, x + 1, 0, z, K.stoneD);
+      if ((z / 10) % 2 === 0) B(x, 0, z + 1, x + 1, 0, Math.min(Z1, z + 4), K.stoneL);
+    }
+  }
+  // small weathered plank footbridge outside the front gate (z ≈ 8.4..9.5 m) connecting the road to the bamboo bank
+  const bz0 = Math.min(Z1 - 24, Math.round(8.4 / CELL)), bz1 = bz0 + 14;
+  if (bz0 > Z0 + 20) {
+    B(X0 - 3, 0, bz0, X1 + 3, 0, bz1, HV.woodD);
+    B(X0 - 2, 1, bz0, X1 + 2, 1, bz1, HV.wood);
+    for (let z = bz0 + 2; z < bz1; z += 3) B(X0 - 2, 1, z, X1 + 2, 1, z, HV.woodD);
+    for (const x of [X0 - 2, X1 + 2]) for (const z of [bz0, bz1]) B(x, 1, z, x, 5, z, HV.post);
+  }
   c.water(X0 * CELL, Z0 * CELL, (X1 + 1) * CELL, (Z1 + 1) * CELL, K.water);
 }
 /** a rail fence along z at cell X (Z0..Z1): posts every 13 cells, a top rail and a mid rail */
@@ -356,16 +398,142 @@ export function feed(c: Ctx, X: number, Z: number) {
  *  is named for: its standing stump on a stone base and its top half (the stepped crown) lying flat beside it */
 export function frontGate(c: Ctx, x0: number, gx0: number, gx1: number, x1: number, Z: number) {
   const w = c.w, B = boxOf(w), F = loc(w, 0, Z, 0);
-  yardWall(F, x0, gx0 - 4, 0, 7, { drops: [[x0 + 30, x0 + 52, 3], [gx0 - 30, gx0 - 14, 4]] });
-  yardWall(F, gx1 + 4, x1, 0, 7, { drops: [[gx1 + 26, gx1 + 44, 4], [x1 - 22, x1, 3]] });
+  // low rammed-earth front wall with warm mountain-sandstone footing & coping blocks (no blue tiles on a rustic mountain earth wall!)
+  const dropsL: Array<[number, number, number]> = [[x0 + 30, x0 + 52, 4], [gx0 - 30, gx0 - 14, 4]];
+  const dropsR: Array<[number, number, number]> = [[gx1 + 26, gx1 + 44, 4], [x1 - 22, x1, 3]];
+  yardWall(F, x0, gx0 - 4, 0, 9, { tile: false, drops: dropsL });
+  yardWall(F, gx1 + 4, x1, 0, 9, { tile: false, drops: dropsR });
+  for (const [a0, a1, dr] of [[x0, gx0 - 4, dropsL], [gx1 + 4, x1, dropsR]] as const) {
+    B(a0, 0, Z - 2, a1, 2, Z + 1, K.stone);
+    B(a0, 0, Z - 2, a1, 0, Z + 1, K.stoneD);
+    // warm buff sandstone coping blocks replacing thatch cap on unbroken stretches
+    for (let x = a0; x <= a1; x++) {
+      if (dr.some(([d0, d1]) => x >= d0 && x <= d1)) continue;
+      const joint = (x - a0) % 12 === 0;
+      B(x, 10, Z - 3, x, 10, Z + 2, K.stoneD);
+      B(x, 11, Z - 3, x, 11, Z + 2, joint ? K.stoneD : K.stoneL);
+    }
+    for (let x = a0; x <= a1; x += 42) {
+      if (dr.some(([d0, d1]) => x + 3 >= d0 && x <= d1)) continue;
+      B(x, 0, Z - 3, x + 3, 2, Z + 2, K.stoneD);
+      B(x, 3, Z - 3, x + 3, 9, Z + 2, HV.earth);
+      B(x - 1, 10, Z - 4, x + 4, 11, Z + 3, K.stone);
+      B(x - 1, 12, Z - 3, x + 4, 12, Z + 2, K.stoneL);
+    }
+    // fallen warm earth/stone rubble tucked outside each break
+    for (const [d0, d1] of dr) {
+      const m = Math.round((d0 + d1) / 2);
+      B(m - 4, 0, Z + 2, m + 3, 2, Z + 5, HV.earthD);
+      B(m - 2, 0, Z + 4, m + 5, 1, Z + 7, K.stone);
+      B(m + 1, 2, Z + 3, m + 3, 3, Z + 5, K.stoneL);
+    }
+  }
+  // authentic mountain timber twin-beam gateway on stepped warm sandstone plinths (matches 04-combat-ui.png silhouette!)
   const pa = gx0 - 3, pb = gx1 + 1;
-  for (const x of [pa, pb]) { B(x - 1, 0, Z - 2, x + 3, 2, Z + 2, K.stoneD); B(x, 3, Z - 1, x + 2, 29, Z + 1, HV.post); B(x, 3, Z + 1, x + 2, 29, Z + 1, HV.woodD); }
-  B(pa - 4, 30, Z - 1, pb + 6, 31, Z + 1, HV.woodD); B(pa, 27, Z - 1, pb + 2, 27, Z, HV.wood);
-  B(pa - 6, 32, Z - 3, pb + 8, 32, Z + 3, HV.tileD); B(pa - 5, 33, Z - 2, pb + 7, 33, Z + 2, HV.tile); B(pa - 3, 34, Z - 1, pb + 5, 34, Z + 1, HV.tileD);
-  for (let x = pa - 5; x <= pb + 7; x += 3) B(x, 32, Z + 3, x, 32, Z + 3, HV.tileL);
+  for (const x of [pa, pb]) {
+    B(x - 2, 0, Z - 3, x + 4, 1, Z + 3, K.stoneD);
+    B(x - 1, 2, Z - 2, x + 3, 3, Z + 2, K.stone);
+    B(x - 1, 3, Z - 2, x + 3, 3, Z + 2, K.stoneL);
+    B(x, 4, Z - 1, x + 2, 34, Z + 1, HV.post);
+    B(x, 4, Z + 1, x + 2, 34, Z + 1, HV.woodD);
+    B(x, 4, Z - 1, x, 34, Z - 1, HV.woodD);
+    B(x - 1, 35, Z - 2, x + 3, 36, Z + 2, HV.woodD);
+    B(x, 36, Z - 1, x + 2, 36, Z + 1, HV.woodL);
+  }
+  // warm weathered sandstone threshold across the gate opening
+  B(gx0 - 1, -1, Z - 2, gx1 + 1, -1, Z + 2, K.pave);
+  B(gx0 - 1, -1, Z + 2, gx1 + 1, -1, Z + 2, K.paveL);
+  // twin weathered timber crossbeams with projecting ends + strut blocks
+  B(pa - 6, 31, Z - 2, pb + 8, 33, Z + 2, HV.woodD);
+  B(pa - 5, 32, Z - 2, pb + 7, 32, Z + 2, HV.wood);
+  B(pa - 1, 27, Z - 1, pb + 3, 28, Z + 1, HV.wood);
+  for (const x of [gx0 + 5, gx1 - 6]) B(x, 29, Z - 1, x + 1, 30, Z + 1, HV.woodD);
   // a leaf fallen flat outside, the other swung in against the wall
   B(gx0 + 1, 0, Z + 4, gx0 + 15, 0, Z + 13, HV.wood); for (const k of [6, 10]) B(gx0 + 1, 0, Z + k, gx0 + 15, 0, Z + k, HV.woodD);
   B(pb - 1, 0, Z - 14, pb, 25, Z - 3, HV.wood); for (const y of [5, 18]) B(pb - 1, y, Z - 14, pb - 1, y, Z - 3, HV.woodD);
+  // the namesake broken stele (断碑) on a weathered earthen mound outside the gate to the right: standing broken shaft + snapped crown lying beside it
+  const sx = gx1 + 15, sz = Z + 10;
+  B(sx - 8, -1, sz - 5, sx + 22, -1, sz + 6, K.earthD);
+  B(sx - 6, 0, sz - 4, sx + 7, 1, sz + 4, HV.earthD);
+  B(sx - 5, 2, sz - 3, sx + 5, 3, sz + 3, K.stoneD);
+  B(sx - 4, 4, sz - 2, sx + 4, 4, sz + 2, K.stone);
+  B(sx - 3, 5, sz - 1, sx + 3, 14, sz + 1, K.stone);
+  B(sx - 3, 15, sz - 1, sx + 1, 17, sz + 1, K.stoneL);
+  B(sx - 2, 7, sz + 1, sx + 2, 12, sz + 1, K.stoneD);
+  // fallen top half lying cleanly beside the mound
+  B(sx + 9, 0, sz - 1, sx + 19, 2, sz + 3, K.stone);
+  B(sx + 10, 2, sz, sx + 17, 2, sz + 2, K.stoneL);
+  B(sx + 19, 0, sz, sx + 21, 1, sz + 2, K.stoneD);
+}
+
+// ------------------------------------------------------------------ Mount Song rocky cliff outcrops & functional narrative clusters
+/** rugged asymmetric Mount Song limestone/sandstone rock ledge integrating the kiln into the mountainside */
+export function cliffOutcrop(c: Ctx, X: number, Y: number, Z: number, hw: number, hd: number, h: number) {
+  const B = loc(c.w, X, Z, 0);
+  const s = X < 0 ? -1 : 1;
+  // main irregular shoulder anchored deeply into the rear hillside (asymmetric, NOT a centered pyramid!)
+  B(-hw, Y, -hd, hw, Y + Math.round(h * 0.55), hd, K.stoneD);
+  B(-hw, Y + Math.round(h * 0.55), -hd, hw, Y + Math.round(h * 0.55), hd, K.stone);
+  // taller crag offset toward the outer mountainside
+  const x0 = s < 0 ? -hw : -Math.round(hw * 0.2), x1 = s < 0 ? Math.round(hw * 0.25) : hw;
+  B(x0, Y + Math.round(h * 0.55) + 1, -hd, x1, Y + h, Math.round(hd * 0.2), K.stone);
+  B(x0, Y + h, -hd, x1, Y + h, Math.round(hd * 0.2), K.stoneL);
+  B(x0 + 2, Y + h + 1, -hd + 1, x1 - 2, Y + h + 1, Math.round(hd * 0.1), K.top);
+  // lower shelf jutting forward on the opposite side
+  const fx0 = s < 0 ? Math.round(hw * 0.15) : -hw, fx1 = s < 0 ? hw + 5 : -Math.round(hw * 0.15);
+  B(fx0, Y, -Math.round(hd * 0.4), fx1, Y + Math.round(h * 0.3), hd + 3, K.stoneD);
+  B(fx0, Y + Math.round(h * 0.3), -Math.round(hd * 0.4), fx1, Y + Math.round(h * 0.3), hd + 3, K.stoneL);
+}
+/** stacked forged iron ingots & slag by Feng Tiebi's quench trough */
+export function forgeSupply(c: Ctx, X: number, Z: number) {
+  const B = loc(c.w, X, Z, 0);
+  B(-5, 0, -3, 5, 1, 3, K.ironD);
+  B(-4, 2, -2, 3, 3, 2, K.iron);
+  B(-3, 4, -1, 1, 4, 1, K.ironL);
+  B(4, 0, 2, 7, 1, 4, K.coal);
+}
+/** unpacked supply crate & bound water cask beside Du Wu's camp */
+export function campSupply(c: Ctx, X: number, Z: number) {
+  const B = loc(c.w, X, Z, 0);
+  B(-6, 0, -4, 1, 6, 3, HV.wood);
+  B(-6, 6, -4, 1, 6, 3, HV.woodL);
+  B(-6, 3, -4, 1, 3, 3, HV.woodD);
+  B(3, 0, -3, 8, 7, 2, HV.woodD);
+  B(3, 2, -3, 8, 2, 2, K.iron);
+  B(3, 5, -3, 8, 5, 2, K.iron);
+  B(4, 7, -2, 7, 7, 1, HV.woodL);
+}
+/** grouped bound straw bundles (aligned with 04-combat-ui.png): 2-3 tight bundles tied with dark rope bands */
+export function strawCluster(c: Ctx, X: number, Z: number, count: 2 | 3 = 3) {
+  const B = loc(c.w, X, Z, 0);
+  const bundle = (ox: number, oz: number, h: number) => {
+    B(ox - 4, 0, oz - 3, ox + 4, h, oz + 3, HV.straw);
+    B(ox - 4, 0, oz - 3, ox + 4, 1, oz + 3, HV.strawD);
+    B(ox - 4, h, oz - 3, ox + 4, h, oz + 3, HV.strawL);
+    B(ox - 3, h + 1, oz - 2, ox + 3, h + 1, oz + 2, HV.strawL);
+    for (const y of [Math.round(h * 0.35), Math.round(h * 0.72)]) B(ox - 4, y, oz - 3, ox + 4, y, oz + 3, HV.rope);
+  };
+  bundle(-6, 0, 10);
+  bundle(4, -1, 11);
+  if (count >= 3) bundle(-1, 6, 8);
+}
+/** dressed stone blocks & broken roof tiles stacked along a wall or hillside */
+export function stoneCluster(c: Ctx, X: number, Z: number) {
+  const B = loc(c.w, X, Z, 0);
+  B(-9, 0, -5, 2, 4, 4, K.stone); B(-9, 4, -5, 2, 4, 4, K.stoneL); B(-9, 0, -5, 2, 0, 4, K.stoneD);
+  B(3, 0, -4, 9, 3, 5, K.stoneD); B(3, 3, -4, 9, 3, 5, K.stone);
+  B(-6, 5, -3, 0, 8, 2, K.stoneD); B(-6, 8, -3, 0, 8, 2, K.stoneL);
+  B(-2, 0, 5, 5, 1, 8, HV.tileD); B(0, 2, 6, 4, 2, 7, HV.tile);
+}
+/** weathered hillside ruin stub & small stone shrine for the rear terraces */
+export function terraceRuin(c: Ctx, X: number, Y: number, Z: number) {
+  const B = loc(c.w, X, Z, 0);
+  B(-12, Y, -5, 12, Y + 1, 5, K.stoneD);
+  B(-11, Y + 2, -4, 3, Y + 12, -2, K.brick);
+  B(-11, Y + 2, -4, -9, Y + 10, 4, K.brickT);
+  B(-11, Y + 12, -4, 3, Y + 12, -2, K.brickL);
+  B(5, Y + 2, -2, 10, Y + 6, 3, K.stone);
+  B(6, Y + 7, -1, 9, Y + 7, 2, K.stoneL);
 }
 // ------------------------------------------------------------------ 杜五's cook-fire
 /** the cook-fire at cell (X, Z): eight stones in a ring round an ash bed, embers under three logs (two along x, one across), a pot
