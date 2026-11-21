@@ -30,8 +30,8 @@ export function toon(color: THREE.ColorRepresentation, o: ToonOpts = {}): THREE.
   const rimK = o.rim ?? 1, selfK = o.self ?? 0;
   m.onBeforeCompile = sh => {
     sh.uniforms.uRimColor = rimUniforms.uRimColor; sh.uniforms.uRimStrength = rimUniforms.uRimStrength; sh.uniforms.uRimPow = rimUniforms.uRimPow; sh.uniforms.uRimK = { value: rimK }; sh.uniforms.uSelf = { value: selfK };
-    sh.uniforms.uCraft = CRAFTU.uCraft; sh.uniforms.uCraftSpec = CRAFTU.uCraftSpec;
-    sh.fragmentShader = 'uniform vec3 uRimColor; uniform float uRimStrength, uRimPow, uRimK, uSelf, uCraft, uCraftSpec;\n' + sh.fragmentShader
+    sh.uniforms.uCraft = CRAFTU.uCraft; sh.uniforms.uCraftSpec = CRAFTU.uCraftSpec; sh.uniforms.uPxPolish = CRAFTU.uPxPolish;
+    sh.fragmentShader = 'uniform vec3 uRimColor; uniform float uRimStrength, uRimPow, uRimK, uSelf, uCraft, uCraftSpec, uPxPolish;\n' + sh.fragmentShader
       .replace('#include <lights_toon_pars_fragment>', `varying vec3 vViewPosition;
 struct ToonMaterial { vec3 diffuseColor; };
 void RE_Direct_Toon( const in IncidentLight directLight, const in vec3 geometryPosition, const in vec3 geometryNormal, const in vec3 geometryViewDir, const in vec3 geometryClearcoatNormal, const in ToonMaterial material, inout ReflectedLight reflectedLight ) {
@@ -78,15 +78,21 @@ void RE_Direct_Toon( const in IncidentLight directLight, const in vec3 geometryP
     }
   } else {
     vec3 dc = material.diffuseColor;
-    vec3 diff = toonIrr * directLight.color * BRDF_Lambert( dc );
-    // Subtle metallic specular glint for characters' steel blades & bronze/gold fittings (WebGL1-safe, uSelf > 0.04 = actors only)
+    vec3 irr = toonIrr;
+    if (uPxPolish > 0.5) {
+      // Classic 2x Hue-Shifted 4-step hard cel ramp (zero softness, cool indigo shadow -> warm sunlit peak)
+      float t = dot( geometryNormal, directLight.direction ) * 0.5 + 0.5;
+      irr = t < 0.22 ? vec3(0.27, 0.31, 0.45) : t < 0.45 ? vec3(0.47, 0.51, 0.62) : t < 0.75 ? vec3(0.79, 0.78, 0.76) : vec3(1.04, 1.01, 0.95);
+    }
+    vec3 diff = irr * directLight.color * BRDF_Lambert( dc );
+    // Subtle metallic specular glint for characters' steel blades & bronze/gold fittings (exclude white hair cMax > 0.72)
     if (uSelf > 0.04) {
       float ndl = dot( geometryNormal, directLight.direction );
       float cMax = max( dc.r, max( dc.g, dc.b ) );
       float cMin = min( dc.r, min( dc.g, dc.b ) );
       float sat = (cMax - cMin) / max( cMax, 0.001 );
-      float isSteel = step( sat, 0.18 ) * smoothstep( 0.42, 0.72, cMax );
-      float isBronze = smoothstep( 0.28, 0.42, sat ) * step( sat, 0.76 ) * smoothstep( 0.46, 0.68, cMax ) * step( dc.g * 1.06, dc.r ) * step( dc.b * 1.30, dc.g );
+      float isSteel = step( sat, 0.18 ) * smoothstep( 0.34, 0.56, cMax ) * (uPxPolish > 0.5 ? (1.0 - smoothstep( 0.66, 0.74, cMax )) : 1.0);
+      float isBronze = smoothstep( 0.28, 0.42, sat ) * step( sat, 0.76 ) * smoothstep( 0.42, 0.64, cMax ) * (1.0 - smoothstep( 0.72, 0.84, cMax )) * step( dc.g * 1.06, dc.r ) * step( dc.b * 1.30, dc.g );
       float mMask = max( isSteel, isBronze );
       if (mMask > 0.01 && ndl > 0.02) {
         vec3 halfDir = normalize( directLight.direction + geometryViewDir );
@@ -113,10 +119,11 @@ void RE_IndirectDiffuse_Toon( const in vec3 irradiance, const in vec3 geometryPo
       .replace('#include <opaque_fragment>',
       `{ float rim = pow(1.0 - clamp(dot(normalize(normal), normalize(vViewPosition)), 0.0, 1.0), uRimPow);
         float rimBand = uCraft > 0.5 ? (uCraft < 1.5 ? smoothstep(0.42, 0.54, rim) * 1.05 : smoothstep(0.18, 0.84, rim) * 0.78) : smoothstep(0.35, 0.6, rim);
-        outgoingLight += uRimColor * rimBand * uRimStrength * uRimK * (0.5 + 0.5 * diffuseColor.rgb) + diffuseColor.rgb * uSelf;
-        // non-emissive craft surfaces soft-compress strictly under the bloom threshold (asymptote 1.02 < 1.15),
+        float actorBoost = (uCraft < 0.5 && uPxPolish > 0.5 && uSelf > 0.04) ? 1.15 : 1.0;
+        outgoingLight += uRimColor * rimBand * uRimStrength * uRimK * actorBoost * (0.5 + 0.5 * diffuseColor.rgb) + diffuseColor.rgb * uSelf;
+        // non-emissive surfaces soft-compress strictly under the bloom threshold (asymptote 1.02 < 1.12),
         // so white hair, snow, cloth and sunlit stone NEVER glow like lightbulbs; only true glow/emissive objects bloom
-        if (uCraft > 0.5 && dot(totalEmissiveRadiance, vec3(1.0)) < 0.05) {
+        if ((uCraft > 0.5 || uPxPolish > 0.5) && dot(totalEmissiveRadiance, vec3(1.0)) < 0.05) {
           vec3 over = max(outgoingLight - vec3(0.82), vec3(0.0));
           outgoingLight = min(outgoingLight, vec3(0.82)) + over / (vec3(1.0) + over * 5.0);
         } }

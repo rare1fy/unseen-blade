@@ -89,9 +89,9 @@ export class UiPass {
   render(L: Ui3DLayer) {
     const r = this.renderer, u = this.mat.uniforms, ca = r.getClearAlpha(), before = r.info.render.calls; r.getClearColor(this.cc);
     r.setRenderTarget(this.rt); r.setClearColor(0x000000, 0); r.clear();
-    // isolate the 3D UI layer completely from world craft-look shaders (zero impact on buttons, HUD or 3D icons)
-    const prevCraft = CRAFTU.uCraft.value; CRAFTU.uCraft.value = 0;
-    try { r.render(L.scene, L.camera); } finally { CRAFTU.uCraft.value = prevCraft; }
+    // isolate the 3D UI layer completely from world craft/polish shaders (zero impact on buttons, HUD or 3D icons)
+    const prevCraft = CRAFTU.uCraft.value, prevPolish = CRAFTU.uPxPolish.value; CRAFTU.uCraft.value = 0; CRAFTU.uPxPolish.value = 0;
+    try { r.render(L.scene, L.camera); } finally { CRAFTU.uCraft.value = prevCraft; CRAFTU.uPxPolish.value = prevPolish; }
     r.setClearColor(this.cc, ca);
     const bOn = !mobileTargets() && this.hdr && UI_LOOK.bloom > 0;
     if (bOn) {

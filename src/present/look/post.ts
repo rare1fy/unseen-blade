@@ -13,7 +13,7 @@ import { PADD } from '../engine/particles';
 import { gpuMark } from '../engine/gpuTime';
 import { bloomMips, bloom8bit, halfFloatOk } from './bloomMips';
 import { QUALITY, lowTargets, mobileTargets, tierNow } from './quality';
-import { CRAFT, CRAFTU, syncCraftUniforms } from './craft';
+import { CRAFT, CRAFTU, PX_POLISH, syncCraftUniforms } from './craft';
 
 const VS = `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
 const BLIT_VS = `void main(){ gl_Position = vec4(position.xy, 0.0, 1.0); }`;
@@ -21,7 +21,7 @@ const FS = (pixel: boolean) => `
 precision highp float;
 ${pixel ? '#define PIXEL' : ''}
 uniform sampler2D tColor; uniform sampler2D tDepth; uniform sampler2D tBloom; uniform vec2 uRes; uniform float uNear, uFar, uBloomCap;
-uniform vec3 uFog; uniform float uBands; uniform float uInk, uInkT, uInkStep, uExposure, uSat, uVig, uBloodVig, uFlash, uSplit, uTime, uDesat, uCurve, uCraft, uCraftDof; uniform vec3 uFlashCol, uLift, uGain, uInkCol;
+uniform vec3 uFog; uniform float uBands; uniform float uInk, uInkT, uInkStep, uExposure, uSat, uVig, uBloodVig, uFlash, uSplit, uImpact, uTime, uDesat, uCurve, uCraft, uPxPolish, uCraftDof; uniform vec3 uFlashCol, uLift, uGain, uInkCol;
 varying vec2 vUv;
 ${UI_SCENE_GLSL}
 float lin(float d){ float z = d * 2.0 - 1.0; return (2.0 * uNear * uFar) / (uFar + uNear - z * (uFar - uNear)); }
@@ -71,14 +71,18 @@ void main(){
   float dl = lin(texture2D(tDepth, vUv - vec2(st.x,0.0)).r), dr = lin(texture2D(tDepth, vUv + vec2(st.x,0.0)).r);
   float du = lin(texture2D(tDepth, vUv + vec2(0.0,st.y)).r), dd = lin(texture2D(tDepth, vUv - vec2(0.0,st.y)).r);
 #ifdef PIXEL
-  // resolution-normalized silhouette outline (uInkStep scales with viewport height / reference height so 540p, 720p, 1080p, 1440p match)
+  // resolution-normalized silhouette outline (tracks nearest-surface UV for colored/tinted deep-ink outlines in classic 2x polish)
   float ink = 0.0, dn = d0;
+  vec2 nearUv = vUv;
   for (int i = 0; i < 4; i++) {
     vec2 o = i == 0 ? vec2(-st.x, 0.0) : i == 1 ? vec2(st.x, 0.0) : i == 2 ? vec2(0.0, st.y) : vec2(0.0, -st.y);
     float d1 = i == 0 ? dl : i == 1 ? dr : i == 2 ? du : dd;
     if ((d0 - d1) / max(d1, 0.001) < uInkT) continue;
     float d2 = lin(texture2D(tDepth, vUv + 2.0 * o).r), d3 = lin(texture2D(tDepth, vUv + 3.0 * o).r);
-    if (abs(d2 - d1) < d1 * 0.06 && abs(d3 - d1) < d1 * 0.1) { ink = 1.0; dn = min(dn, d1); }
+    if (abs(d2 - d1) < d1 * 0.06 && abs(d3 - d1) < d1 * 0.1) {
+      ink = 1.0;
+      if (d1 < dn) { dn = d1; nearUv = vUv + o; }
+    }
   }
   float fogK = uFog.x > 0.0 ? 1.0 - exp(-uFog.x * uFog.x * dn * dn) : uFog.z > uFog.y ? smoothstep(uFog.y, uFog.z, dn) : 0.0;
   ink *= uInk * (1.0 - smoothstep(34.0, 64.0, dn)) * (1.0 - 0.85 * fogK);   // applied after the grade: a fixed near-black
@@ -112,8 +116,20 @@ void main(){
     }
   }
 #ifdef PIXEL
-  col = mix(col, uInkCol * 0.25, ink);
+  vec3 inkFinal = uInkCol * 0.25;
+  if (uCraft < 0.5 && uPxPolish > 0.5 && ink > 0.001) {
+    // Eastward / Celeste style tinted deep-ink pixel outline: harmonizes with each surface's hue instead of harsh dead black
+    vec3 nb = aces(texture2D(tColor, nearUv).rgb * uExposure);
+    inkFinal = mix(uInkCol * 0.22, nb * vec3(0.24, 0.26, 0.36), 0.72);
+  }
+  col = mix(col, inkFinal, ink);
 #endif
+  // 2-frame graphic woodblock impact frame on 破势 / 拼刀胜出 / 一闪 highlights
+  if (uImpact > 0.01) {
+    float il = dot(col, vec3(0.299, 0.587, 0.114));
+    vec3 imp = mix(vec3(0.05, 0.04, 0.09), vec3(1.0, 0.96, 0.86), step(0.38, il));
+    col = mix(col, imp, uImpact * 0.76);
+  }
   // vignette + cinema-grade organic radial crimson low-HP pulse (in HD-2D, smooth native pass runs in BLIT_FS)
   if (!hd2d) {
     vec2 q = vUv - 0.5; q.x *= uRes.x / uRes.y * 0.75;
@@ -218,14 +234,14 @@ void main(){
 export const GRADE = {
   ink: 0.85, exposure: 1.05, sat: 1.12, vig: 0.55, bloodVig: 0, desat: 0,
   lift: new THREE.Color(0.02, 0.015, 0.05), gain: new THREE.Color(1.0, 0.98, 1.02), inkCol: new THREE.Color(0.05, 0.03, 0.08),
-  flash: 0, flashCol: new THREE.Color(1, 1, 1), split: 0,
+  flash: 0, flashCol: new THREE.Color(1, 1, 1), split: 0, impact: 0,
   bloomStrength: 0.85, bloomRadius: 0.55, bloomThreshold: 1.05,   // 2026-11-13: only real glows bloom, not white cloth
 };
 
 const uniforms = () => ({
   ...uiSceneUniforms(),
   tColor: { value: null as THREE.Texture | null }, tDepth: { value: null as THREE.Texture | null }, tBloom: { value: null as THREE.Texture | null }, uBloomCap: { value: 0.7 }, uBands: { value: 6 }, uRes: { value: new THREE.Vector2(4, 4) }, uNear: { value: 0.1 }, uFar: { value: 400 },
-  uInk: { value: 1 }, uInkT: { value: 0.05 }, uInkStep: { value: 1 }, uFog: { value: new THREE.Vector3() }, uExposure: { value: 1 }, uSat: { value: 1 }, uVig: { value: 0.5 }, uBloodVig: { value: 0 }, uFlash: { value: 0 }, uSplit: { value: 0 }, uTime: { value: 0 }, uDesat: { value: 0 }, uCurve: { value: 0 }, uCraft: CRAFTU.uCraft, uCraftDof: CRAFTU.uCraftDof,
+  uInk: { value: 1 }, uInkT: { value: 0.05 }, uInkStep: { value: 1 }, uFog: { value: new THREE.Vector3() }, uExposure: { value: 1 }, uSat: { value: 1 }, uVig: { value: 0.5 }, uBloodVig: { value: 0 }, uFlash: { value: 0 }, uSplit: { value: 0 }, uImpact: { value: 0 }, uTime: { value: 0 }, uDesat: { value: 0 }, uCurve: { value: 0 }, uCraft: CRAFTU.uCraft, uPxPolish: CRAFTU.uPxPolish, uCraftDof: CRAFTU.uCraftDof,
   uFlashCol: { value: new THREE.Color() }, uLift: { value: new THREE.Color() }, uGain: { value: new THREE.Color(1, 1, 1) }, uInkCol: { value: new THREE.Color() },
 });
 
@@ -287,7 +303,7 @@ export class Post {
       // same pixel feel as a desktop window (act-17 用户：「手机上看2x像素又太糊了，可以让我在电脑端和手机端看起来像素感一致吗」;
       // a phone is only ~390 CSS px tall, so 2 CSS px a pixel left it with ~195 rows)
       const pixel = lowTargets() && QUALITY.choice === 'auto' && QUALITY.reducedWorld ? this.pixel + 1 : this.pixel;
-      const k = dpr < 1.5 ? (CRAFT.on && pixel >= 2 ? Math.max(1, Math.round(H * pixel / PX_ROWS)) : pixel * dpr) : Math.max(1, H * pixel / PX_ROWS), Wa = Math.max(1, Math.ceil(W / k)), Ha = Math.max(1, Math.ceil(H / k));
+      const k = dpr < 1.5 ? ((CRAFT.on || PX_POLISH.on) && pixel >= 2 ? Math.max(1, Math.round(H * pixel / PX_ROWS)) : pixel * dpr) : Math.max(1, H * pixel / PX_ROWS), Wa = Math.max(1, Math.ceil(W / k)), Ha = Math.max(1, Math.ceil(H / k));
       this.rt.setSize(Wa, Ha); this.lo.setSize(Wa, Ha); this.bloom.setSize(mobileTargets() || !this.hdr ? 32 : Wa, mobileTargets() || !this.hdr ? 32 : Ha);
       (this.matPx.uniforms.uRes.value as THREE.Vector2).set(Wa, Ha);
       const bu = this.blit.uniforms; (bu.uLoRes.value as THREE.Vector2).set(Wa, Ha); bu.uK.value = k; (bu.uOff.value as THREE.Vector2).set((W - Wa * k) / 2, (H - Ha * k) / 2); (bu.uScreenRes.value as THREE.Vector2).set(W, H);
@@ -317,7 +333,7 @@ export class Post {
     if (pix) { pxLightsBegin(scene); liftOverlays(scene); }
     r.render(scene, camera);
     if (pix) pxLightsEnd();
-    this.bloom.strength = GRADE.bloomStrength * (1 - PX.busyDim * busy); this.bloom.radius = GRADE.bloomRadius; this.bloom.threshold = CRAFT.on ? Math.max(GRADE.bloomThreshold, 1.16) : GRADE.bloomThreshold;
+    this.bloom.strength = GRADE.bloomStrength * (1 - PX.busyDim * busy); this.bloom.radius = GRADE.bloomRadius; this.bloom.threshold = CRAFT.on ? Math.max(GRADE.bloomThreshold, 1.16) : PX_POLISH.on ? Math.max(GRADE.bloomThreshold, 1.12) : GRADE.bloomThreshold;
     // pixel look: the bloom is not blended in place; the final pass reads the composite, caps it and (at ≥ 2× art pixels) steps it into bands
     // (11-18 微信帧率: the pixel look stops at the mips — its blend back over the frame had opacity 0)
     gpuMark('bloom');
@@ -336,8 +352,9 @@ export class Post {
     const artH = (u.uRes.value as THREE.Vector2).y;
     const refH = this.pixel >= 2 ? 450 : 720;
     const resScale = artH / refH;
-    const inkStep = CRAFT.on ? Math.max(1, resScale) : 1;
-    const inkSmallFade = CRAFT.on ? Math.min(1, Math.max(0.55, resScale)) : 1;
+    const normRes = CRAFT.on || PX_POLISH.on;
+    const inkStep = normRes ? Math.max(1, resScale) : 1;
+    const inkSmallFade = normRes ? Math.min(1, Math.max(0.65, resScale)) : 1;
     const cInk = (cMode === 'ink' ? 0.68 * CRAFT.ink : cMode === 'hd2d' ? 0.50 * CRAFT.ink : cMode === 'diorama' ? 0.08 * CRAFT.ink : (pix ? (this.pixel >= 2 ? PX.ink : PX.ink1) : GRADE.ink)) * inkSmallFade;
     const cInkT = cMode === 'ink' ? 0.045 : cMode === 'diorama' ? 0.08 : PX.inkT;
     const cExp = cMode === 'ink' ? 0.96 : cMode === 'hd2d' ? 0.96 : cMode === 'diorama' ? 1.00 : (pix ? (this.pixel >= 2 ? PX.exposure : PX.exposure1) : 1);
@@ -346,7 +363,7 @@ export class Post {
     const cCur = cMode === 'ink' ? 0.16 : cMode === 'hd2d' ? 0.18 : cMode === 'diorama' ? 0.13 : (pix ? PX.curve : 0);
     u.uNear.value = camera.near; u.uFar.value = camera.far; u.uInk.value = cInk; u.uInkT.value = cInkT; u.uInkStep.value = inkStep;
     u.uExposure.value = GRADE.exposure * cExp; u.uSat.value = GRADE.sat * cSat; u.uVig.value = GRADE.vig * cVig; u.uBloodVig.value = GRADE.bloodVig; u.uCurve.value = cCur;
-    u.uFlash.value = GRADE.flash; u.uSplit.value = GRADE.split; u.uTime.value = time % 100; u.uDesat.value = GRADE.desat;
+    u.uFlash.value = GRADE.flash; u.uSplit.value = GRADE.split; u.uImpact.value = GRADE.impact; u.uTime.value = time % 100; u.uDesat.value = GRADE.desat;
     (u.uFlashCol.value as THREE.Color).copy(GRADE.flashCol); (u.uLift.value as THREE.Color).copy(GRADE.lift); (u.uGain.value as THREE.Color).copy(GRADE.gain); (u.uInkCol.value as THREE.Color).copy(GRADE.inkCol);
     const bu = this.blit.uniforms;
     bu.uHd2d.value = isHd2d ? 1 : 0;

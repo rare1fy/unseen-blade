@@ -1071,8 +1071,8 @@ export class ActShow {
       { label: () => msg`操作提示：${this.tut.enabled ? '开' : '关'}`, short: () => msg`操作提示：${this.tut.enabled ? '开' : '关'}`, run: () => this.tut.setEnabled(!this.tut.enabled) },
       // 11-18 微信帧率: the quality tier (自动 → 高 → 中 → 低), kept on the device
       { label: () => qualityLabel(), short: () => qualityLabel(), run: () => cycleQuality() },
-      // 11-20 画面风格: visual style presets (经典 → 国风版画 → HD-2D → 精致微缩), player-facing on all platforms
-      { label: () => craftLabel(), short: () => craftLabel(), run: () => cycleCraft() },
+      // 11-21: experimental visual style presets stay in desktop/dev builds only; classic 2x pixel craft is the unified main look
+      { dbg: true, label: () => craftLabel(), short: () => craftLabel(), run: () => cycleCraft() },
       // (11-19 用户：「github页面上的版本就是开发版……微信和crazygames都必须要做成面向用户的版本」: the frame meter is a debug item)
       { dbg: true, label: meterLabel, short: meterLabel, run: toggleMeter }];
     installActTune([...SET.map(x => ({ label: x.label, run: x.run })),
@@ -1675,7 +1675,7 @@ export class ActShow {
     blood.clear();
     slashArc.clear();
     this.cancelQte();
-    this.splitK = 0; GRADE.split = 0; GRADE.bloodVig = 0;
+    this.splitK = 0; this.impactK = 0; GRADE.split = 0; GRADE.impact = 0; GRADE.bloodVig = 0;
     this.cuiInspect.stop(); this.talkTick = null;
     if (this.allyGen) { this.allyGen.dispose(); this.allyGen = null; }
     this.duelGen = null;
@@ -2314,7 +2314,7 @@ export class ActShow {
     hurtHero: (dmg, from, f) => this.hurtHero(dmg, from, f),
     addIntent: () => { if (this.intent >= 3) this.startQte(); else this.addIntent(); },
     camKick: (d, m) => this.camKick(d, m), camPunch: m => this.camPunch(m),
-    splitScreen: k => this.splitScreen(k),
+    splitScreen: k => { this.splitScreen(k); if (k >= 0.65) this.impactScreen(0.85); },
     vibrate: l => this.platform.vibrate(l),
   };
   private foeWorld: FoeWorld = {
@@ -2965,7 +2965,7 @@ export class ActShow {
       fxSparks(p, 0xffe48a, 16, 6.2, { hot: true, dir, dirK: 0.7, life: 0.42 });
       popPix('破势', f.a.head().add(V3(0, 0.55, 0)), { tier: 'highlight', color: '#fff4c4', accent: '#ffd258', h: 0.92, life: 1.05 });
       hitstop(0.085 * TUNE.hitstop); shake(0.32 * TUNE.shake);
-      this.splitScreen(0.55); this.camPunch(0.055); this.platform.vibrate('heavy');
+      this.splitScreen(0.55); this.impactScreen(0.75); this.camPunch(0.055); this.platform.vibrate('heavy');
       this.hero?.gainQi(0.65 * style.qiMul);
       if (this.mods.poiseHeal > 0) this.healHero(this.mods.poiseHeal);
       if ((this.phase === 'fight' || this.phase === 'yard') && !this.duel.on) { if (this.intent >= 3) this.startQte(); else this.addIntent(); }
@@ -3248,12 +3248,14 @@ export class ActShow {
   }
   /** 11-18: a full-screen flash (the grade's flash, fading over ~0.2 s) and the stance's dimming (vignette + a little desaturation);
    *  act-109: restrained pixel-snapped radial chromatic split (GRADE.split) on highlight impacts, decaying briskly */
-  private flashK = 0; private splitK = 0; private vigBase = -1; private dimK = 0; private tutCam = 0;
+  private flashK = 0; private splitK = 0; private impactK = 0; private vigBase = -1; private dimK = 0; private tutCam = 0;
   private flashScreen(k: number, col: number) { this.flashK = Math.max(this.flashK, k); GRADE.flashCol.setHex(col); }
   private splitScreen(k: number) { this.splitK = Math.max(this.splitK, Math.min(1, k)); }
+  private impactScreen(k: number) { this.impactK = Math.max(this.impactK, Math.min(1, k)); GRADE.impact = this.impactK; }
   private flashStep(rdt: number) {
     if (this.flashK > 0) { this.flashK = Math.max(0, this.flashK - rdt * 4); GRADE.flash = this.flashK * 0.75; }
     if (this.splitK > 0) { this.splitK = Math.max(0, this.splitK - rdt * 6.5); GRADE.split = this.splitK * 0.9; }
+    if (this.impactK > 0) { this.impactK = Math.max(0, this.impactK - rdt * 22); GRADE.impact = this.impactK; }
   }
   private dimTo(want: number, rdt: number) {
     this.dimK += (want - this.dimK) * Math.min(1, rdt * (want > this.dimK ? 5 : 9));
@@ -3405,7 +3407,7 @@ export class ActShow {
     for (const f of this.foes) if (f.st !== 'dead' && f.pos.distanceTo(h.pos) < 14) interruptFoe(f, 4);
     const feet = h.pos.clone().setY(0), side0 = V3(1, 0, 0);
     trailSeg(feet.clone().addScaledVector(side0, -9).setY(1.1), feet.clone().addScaledVector(side0, 9).setY(1.1), 0xffffff, 0.3, { life: 0.45, bright: 3.4, spark: 0.6 });
-    this.flashScreen(0.4, 0xffffff); this.camPunch(0.08); shake(0.25 * TUNE.shake); cue('draw', 1); cue('timeSlow', 1); audio.stillness(2.2);
+    this.flashScreen(0.4, 0xffffff); this.impactScreen(0.95); this.camPunch(0.08); shake(0.25 * TUNE.shake); cue('draw', 1); cue('timeSlow', 1); audio.stillness(2.2);
     anim(0.18, k => ink(k), undefined, { real: true });
     await waitReal(0.12);
     if (aborted()) { restoreGrade(); return; }

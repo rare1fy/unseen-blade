@@ -74,16 +74,20 @@ export function stageLighting(surfaces: THREE.Mesh[], earth: THREE.Mesh, field: 
         s.uniforms.terrainBounds = { value: new THREE.Vector4(field.left, field.back, field.step * field.size, field.bottom) };
         s.uniforms.terrainSun = { value: new THREE.Vector3(field.dx, field.dz, field.height) };
         s.uniforms.uTerrainCraft = CRAFTU.uCraft;
+        s.uniforms.uTerrainPolish = CRAFTU.uPxPolish;
         s.vertexShader = 'varying vec3 vTerrainP;\n' + s.vertexShader.replace('#include <project_vertex>',
           '#include <project_vertex>\n vTerrainP = (modelMatrix * vec4(transformed, 1.)).xyz;');
-        s.fragmentShader = 'varying vec3 vTerrainP; uniform sampler2D terrainDepth; uniform vec4 terrainBounds; uniform vec3 terrainSun; uniform float uTerrainCraft;\n' +
+        s.fragmentShader = 'varying vec3 vTerrainP; uniform sampler2D terrainDepth; uniform vec4 terrainBounds; uniform vec3 terrainSun; uniform float uTerrainCraft, uTerrainPolish;\n' +
           s.fragmentShader.replace('#include <opaque_fragment>', `vec2 lightUV = (vTerrainP.xz - vTerrainP.y * terrainSun.xy - terrainBounds.xy) / terrainBounds.z;
           float h = texture2D(terrainDepth, lightUV).r * 255.;
           if (h > 0.5 && all(greaterThanEqual(lightUV, vec2(0.))) && all(lessThanEqual(lightUV, vec2(1.)))) {
             float above = terrainBounds.w + (h - 1.) * terrainSun.z / 254. - vTerrainP.y;
             float sh = smoothstep(0.12, 0.30, above);
             if (uTerrainCraft > 0.5) outgoingLight *= mix(vec3(1.0), vec3(0.56, 0.64, 0.80), 0.74 * sh);
-            else outgoingLight *= 1. - 0.38 * sh;
+            else if (uTerrainPolish > 0.5) {
+              float psh = smoothstep(0.14, 0.24, above);
+              outgoingLight *= mix(vec3(1.0), vec3(0.58, 0.65, 0.80), 0.72 * psh);
+            } else outgoingLight *= 1. - 0.38 * sh;
           }
           #include <opaque_fragment>`);
       };

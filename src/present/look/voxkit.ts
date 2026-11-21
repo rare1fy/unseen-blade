@@ -171,7 +171,8 @@ void voxHole() {
           if (uCheapVoxel < 0.5) {
           vec2 gx = dFdx(vVox), gy = dFdy(vVox), fw = max(abs(gx) + abs(gy), vec2(1e-4));
           vec2 cellSize = vSize; float span = min(cellSize.x / fw.x, cellSize.y / fw.y);
-          if (span > 6.0) {
+          float minSpan = uPxPolish > 0.5 ? 4.2 : 6.0;
+          if (span > minSpan) {
             vec2 ux = normalize(vec2(gx.x, gy.x) + 1e-6), uy = normalize(vec2(gx.y, gy.y) + 1e-6), L = vec2(-0.5, 0.866);
             float e0 = vOpen.x > 0.5 ? vVox.x / fw.x : 1e4, e1 = vOpen.y > 0.5 ? (vSize.x - vVox.x) / fw.x : 1e4;
             float e2 = vOpen.z > 0.5 ? vVox.y / fw.y : 1e4, e3 = vOpen.w > 0.5 ? (vSize.y - vVox.y) / fw.y : 1e4;
@@ -182,7 +183,22 @@ void voxHole() {
             if (e3 < 1.0) { hl = max(hl, step(0.2, s3)); dk = max(dk, step(s3, -0.2)); }
           } }
 #endif
-          bev = tone * (1.0 + uPxEdge * hl) * (1.0 - 0.2 * dk * (1.0 - hl));`}
+          bev = tone * (1.0 + uPxEdge * hl) * (1.0 - 0.2 * dk * (1.0 - hl));
+          if (uPxPolish > 0.5) {
+            // 1. Hard-stepped 2-row voxel wall-base grounding (pure 7cm pixel steps, zero smooth gradient)
+            if (abs(wn.y) < 0.5 && vWP.y >= -0.02 && vWP.y < 0.23) {
+              if (vWP.y < 0.08) { bev *= 0.80; diffuseColor.rgb *= vec3(0.95, 0.97, 1.05); }
+              else bev *= 0.91;
+            }
+            // 2. Figure-ground separation: gently calm giant flat battle floors (-10% sat, -4% val) + quiet 4-cell stepped tone patch
+            if (wn.y > 0.7 && vWP.y > -0.06 && vWP.y < 0.08) {
+              float gl = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
+              diffuseColor.rgb = mix(vec3(gl), diffuseColor.rgb, 0.90) * 0.96;
+              vec2 b4 = floor(vWP.xz / 0.28) * 0.28;
+              float sw = sin(b4.x * 0.42 + b4.y * 0.29) * cos(b4.y * 0.38 - b4.x * 0.24);
+              bev *= sw > 0.32 ? 1.035 : sw < -0.32 ? 0.965 : 1.0;
+            }
+          }`}
         }
         diffuseColor.rgb *= bev; }`);
   };
