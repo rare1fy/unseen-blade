@@ -71,42 +71,47 @@ describe('act-125: 文家四柄名刀系统', () => {
   });
 });
 
-describe('act-125: 八件随身信物匣', () => {
-  it('八件信物解锁、佩戴、随战斗房间数升星（★→★★→★★★）与流派加权生效', () => {
-    expect(KEEPSAKE_ORDER.length).toBe(8);
+describe('act-125 / act-147: 据点四件随身信物匣', () => {
+  it('四件据点信物解锁、佩戴、随战斗房间数升星（★→★★→★★★）、流派加权生效，且旧档名将信物优雅降级', () => {
+    expect(KEEPSAKE_ORDER).toEqual(['duwu', 'sunao', 'fengtiebi', 'luzhao']);
     const p = fresh();
     expect(equippedKeepsake(p)).toBeNull();
-    expect(isKeepsakeUnlocked(p, 'zhaoyun')).toBe(false);
+    expect(isKeepsakeUnlocked(p, 'luzhao')).toBe(false);
 
-    expect(unlockKeepsake(p, 'zhaoyun')).toBe(true);
-    expect(unlockKeepsake(p, 'zhaoyun')).toBe(false);
-    expect(equipKeepsake(p, 'zhaoyun')).toBe(true);
-    expect(equippedKeepsake(p)).toBe('zhaoyun');
-    expect(keepsakeStar(p, 'zhaoyun')).toBe(1);
+    // Old save with a removed general keepsake safely returns null
+    p.keepsakes = { zhaoyun: 5 };
+    p.keepsake = 'zhaoyun';
+    expect(equippedKeepsake(p)).toBeNull();
+
+    expect(unlockKeepsake(p, 'luzhao')).toBe(true);
+    expect(unlockKeepsake(p, 'luzhao')).toBe(false);
+    expect(equipKeepsake(p, 'luzhao')).toBe(true);
+    expect(equippedKeepsake(p)).toBe('luzhao');
+    expect(keepsakeStar(p, 'luzhao')).toBe(1);
 
     // Advance to ★2 (5 rooms) and ★3 (12 rooms)
     for (let i = 0; i < KEEPSAKE_STARS[0] - 1; i++) {
       expect(advanceKeepsake(p, 1)).toBeNull();
     }
-    expect(advanceKeepsake(p, 1)).toEqual({ id: 'zhaoyun', star: 2 });
-    expect(keepsakeStar(p, 'zhaoyun')).toBe(2);
+    expect(advanceKeepsake(p, 1)).toEqual({ id: 'luzhao', star: 2 });
+    expect(keepsakeStar(p, 'luzhao')).toBe(2);
 
     const up3 = advanceKeepsake(p, KEEPSAKE_STARS[1] - KEEPSAKE_STARS[0]);
-    expect(up3).toEqual({ id: 'zhaoyun', star: 3 });
-    expect(keepsakeStar(p, 'zhaoyun')).toBe(3);
+    expect(up3).toEqual({ id: 'luzhao', star: 3 });
+    expect(keepsakeStar(p, 'luzhao')).toBe(3);
 
     // Keepsake 3D model
     expect(buildKeepsakeBoxModel(true).children.length).toBeGreaterThan(0);
 
-    // Archetype bias check: zhaoyun biases 'gale'
-    expect(KEEPSAKES.zhaoyun.arch).toBe('gale');
+    // Archetype bias check: luzhao biases 'blood'
+    expect(KEEPSAKES.luzhao.arch).toBe('blood');
     const rnd = makeRng(20261121);
-    let galeCount = 0;
+    let bloodCount = 0;
     for (let i = 0; i < 60; i++) {
-      const picks = drawBoons('any', 3, rnd, newPerks(), [0.7, 0.25, 0.05], 'gale');
-      galeCount += picks.filter(pk => pk.boon.arch === 'gale').length;
+      const picks = drawBoons('any', 3, rnd, newPerks(), [0.7, 0.25, 0.05], 'blood');
+      bloodCount += picks.filter(pk => pk.boon.arch === 'blood').length;
     }
-    expect(galeCount).toBeGreaterThan(60);
+    expect(bloodCount).toBeGreaterThan(60);
   });
 });
 
@@ -148,27 +153,13 @@ describe('act-125: 扩建断碑古窑与名将奇遇岔路', () => {
     }
   });
 
-  it('前四关名将奇遇数据完整（守×斗×猎×谋），且第 2/3 间岔路必出 event 门、永不连出两间非战斗屋', () => {
-    expect(GENERAL_EVENTS.length).toBe(4);
-    expect(GENERAL_EVENTS.map(e => e.eventTitle)).toEqual(['死守村口', '三合试锋', '雾巷听弦', '借风引火']);
-    // act-137: Zhao Yun's lines are urgent battlefield comrade calls — zero announcer tone and zero '姑娘'
-    const zyText = [...GENERAL_EVENTS[0].intro, ...GENERAL_EVENTS[0].outro].map(l => l.text).join('');
-    expect(zyText).not.toContain('姑娘');
-    expect(zyText).not.toContain('常山赵子龙！');
-    const ks = new Set(GENERAL_EVENTS.map(e => e.keepsake));
-    const bs = new Set(GENERAL_EVENTS.map(e => e.id));
-    expect(ks.size).toBe(4);
-    expect(bs.size).toBe(4);
-
-    for (let reg = 0; reg < 4; reg++) {
-      expect(roomInfo('event', reg).name).toContain('奇遇');
+  it('act-147: 局内岔路不再刷出名将奇遇 event 门，保持紧凑战斗/商铺/歇脚/遗卷节奏', () => {
+    for (let reg = 0; reg < 5; reg++) {
       const rnd = makeRng(100 + reg);
-      // Room 2 (from=1 -> next=2) offers event fork
-      const d2 = doorsFrom(1, ['fight', 'fight'], rnd, reg);
-      expect(d2.some(d => d.type === 'event')).toBe(true);
-      // After visiting event, next doors never chain another non-combat room
-      const d3 = doorsFrom(2, ['fight', 'fight', 'event'], rnd, reg);
-      expect(d3.every(d => d.type !== 'event' && d.type !== 'shop' && d.type !== 'rest')).toBe(true);
+      for (const from of [0, 1, 2, 3]) {
+        const doors = doorsFrom(from, ['fight', 'fight'], rnd, reg);
+        expect(doors.every(d => d.type !== 'event')).toBe(true);
+      }
     }
   });
 });

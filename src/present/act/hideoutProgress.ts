@@ -60,7 +60,7 @@ export const HIDEOUT_ZONES: Record<HideoutZoneId, HideoutZoneDef> = {
     color: '#8effb0',
     hex: 0x62e898,
     npc: 'luzhao',
-    npcLine: '东桥水渠清亮，新垦的药畦就归你打理。孙媪留了几包初种，趁湿土播下罢；江湖各路名将的动静，我也替你留心着。',
+    npcLine: '东桥水渠清亮，新垦的药畦就归你打理。孙媪留了几包初种，趁湿土播下罢；前路各关的动静，我也替你留心着。',
   },
   rack: {
     id: 'rack',

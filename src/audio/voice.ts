@@ -11,33 +11,9 @@ for (const [sec, rows] of Object.entries(SCRIPT as Record<string, Array<{ who: s
   const dir = r.who === 'sentry2' ? 'sentry' : r.who;
   const url = FILES[`../assets/voice/${dir}/${sec}_${i}.mp3`]; if (url) BY_TEXT.set(r.who + '|' + r.text, url);
 });
-/** act-132: Breeze TTS 2 voice lines for the 4 reworked General Trials & hideout newcomers (卢昭 / 桓越) */
+/** act-132 / act-147: Breeze TTS 2 voice lines for hideout newcomers (卢昭 / 桓越); Four Generals trial voices removed */
 const EXTRA_VOICES: Array<[string, string, string]> = [
-  // Act 1: Zhao Yun — 死守村口 · 断后护民 (act-137 reworked urgent comrade tone, zero announcer / zero 姑娘)
-  ['zhaoyun', 'ev1_intro_0', '来得正好！村里老小还没撤完，帮我把这道口子死死掐住！'],
-  ['zhaoyun', 'ev1_intro_1', '外头贼兵正往这儿涌——漏进一个，后头就全完了！'],
-  ['zhaoyun', 'ev1_outro_0', '都撤出去了……方才若非你顶在口上，我一人绝护不住这许多性命。'],
-  ['zhaoyun', 'ev1_outro_1', '这枚银穗你收着，往后路上保重。常山赵云，记你这一刀。'],
-  ['zhaoyun', 'ev1_outro_hurt', '乡民伤得不轻……所幸人还活着，你也辛苦了。'],
-  // Act 2: Lu Bu — 三合试锋
-  ['lubu', 'ev2_intro_0', '哼，一个蒙眼盲女，也敢提刀闯本侯的地界？'],
-  ['lubu', 'ev2_intro_1', '少废话！接住我三合戟势不退，本侯便认你这把刀！'],
-  ['lubu', 'ev2_outro_win_0', '哈哈哈哈！好俊的卸势破招！本侯认你这把盲刀了！'],
-  ['lubu', 'ev2_outro_win_1', '这缕赤兔红鬃拿去，再去铸钱场把阎虎那蠢物宰了！'],
-  ['lubu', 'ev2_outro_lose_0', '火候还差三分！留你一命，练好破势再来见本侯！'],
-  // Act 3: Xiahou Dun — 雾巷听弦
-  ['xiahoudun', 'ev3_intro_0', '雾巷连弩暗伏，曹某左目新伤，偏要试你一试！'],
-  ['xiahoudun', 'ev3_intro_1', '我藏身雾影之中——听声甩镖追影破我三回，便算你赢！'],
-  ['jiangjin', 'ev3_intro_2', '暗处，归我。'],
-  ['xiahoudun', 'ev3_outro_0', '好俊的听弦追影……你我同在暗处挥刀，曹某服你了。'],
-  ['xiahoudun', 'ev3_outro_1', '这幅玄铁眼带留给你，白门楼的账你自己去算！'],
-  // Act 4: Lu Xun — 借风引火
-  ['luxun', 'ev4_intro_0', '江东陆逊。水闸与油桥皆有重盾曹兵把守，正面硬拼只会吃亏。'],
-  ['luxun', 'ev4_intro_1', '姑娘善借地势——破盾关闸、断绳落桥，再劈爆引火油坛连环焚舰！'],
-  ['luxun', 'ev4_outro_0', '火借江风、连营成势！好利落的身手，陆某佩服！'],
-  ['luxun', 'ev4_outro_1', '这枚江东火折赠予姑娘，周默困在楼船已走不脱了。'],
   // Hideout: Lu Zhao & Huan Yue
-  ['luzhao', 'hideout_0', '水渠边清净，我替你记着各路消息。每关岔路常有乱世名将，顺手走一遭，自有重礼。'],
   ['luzhao', 'hideout_1', '文家三十柄刀散落五地，每夺回一柄，北台刀廊便多一分锋芒。'],
   ['huanyue', 'hideout_0', '石阶上喝一口山泉酿，倒比洛阳城里的酒痛快。刀换了手，就去西边大试剑坪先劈两下听听响。'],
   ['huanyue', 'hideout_1', '快刀重势、重刀破阵、断刃听声——哪一柄顺手，全看你自己。'],

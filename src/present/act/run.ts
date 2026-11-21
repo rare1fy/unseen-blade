@@ -97,11 +97,7 @@ export function doorsFrom(from: number, visited: RoomType[], r: Rnd, ri = 0): Ro
     const fightFirst = r() < 2 / 3;
     return [roomOf(fightFirst ? 'fight' : 'elite', next, r, ri), roomOf(fightFirst ? 'elite' : 'fight', next, r, ri)];
   }
-  // act-125: in regions 0..3 (赵云/吕布/夏侯惇/陆逊), guarantee one fork offers the Famous General puzzle encounter on room 2 (or 3 if skipped)
-  if (ri >= 0 && ri <= 3 && !visited.includes('event') && (next === 2 || next === 3)) {
-    const other: RoomType = next >= 2 && r() < 0.4 ? 'elite' : 'fight';
-    return r() < 0.5 ? [roomOf('event', next, r, ri), roomOf(other, next, r, ri)] : [roomOf(other, next, r, ri), roomOf('event', next, r, ri)];
-  }
+  // act-147: Four Generals ('event') encounters removed from runs (user: 玩法走过场、先拿掉)
   const w: Array<[RoomType, number]> = [['fight', 3], ['elite', next >= 2 ? 1.5 : 0], ['shop', next >= 2 && !visited.includes('shop') ? 1 : 0], ['rest', next >= 2 && !visited.includes('rest') ? 1 : 0], ['boon', 1]];
   const draw = (not?: RoomType) => { const ws = w.filter(([t]) => t !== not), tot = ws.reduce((s, [, n]) => s + n, 0); let x = r() * tot; for (const [t, n] of ws) { x -= n; if (x <= 0 && n > 0) return t; } return ws.find(([, n]) => n > 0)![0]; };
   const a = draw(); let b = draw(a);

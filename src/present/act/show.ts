@@ -1475,11 +1475,7 @@ export class ActShow {
     if (id === 'stele') { await this.steleMenu(); return; }
     if (id === 'duwu') { await this.mealMenu(); this.grantKeepsake('duwu'); return; }
     if (id === 'luzhao') {
-      const lines = [
-        '水渠边清净，我替你记着各路消息。每关岔路常有乱世名将，顺手走一遭，自有重礼。',
-        '文家三十柄刀散落五地，每夺回一柄，北台刀廊便多一分锋芒。',
-      ];
-      await this.talk([{ who: 'luzhao', text: lines[Math.floor(Math.random() * lines.length)] }]);
+      await this.talk([{ who: 'luzhao', text: '文家三十柄刀散落五地，每夺回一柄，北台刀廊便多一分锋芒。' }]);
       this.grantKeepsake('luzhao');
       return;
     }
@@ -3067,13 +3063,10 @@ export class ActShow {
     await this.boonPick(outcome.bonusCoins ? [0.05, 0.50, 0.45] : [0.15, 0.60, 0.25]);
     this.openDoors();
   }
-  /** Legacy helper disabled for normal fight rooms — generals now appear via dedicated 'event' puzzle rooms */
+  /** act-147: Four Generals encounters removed from gameplay */
   private tryGeneralEncounter(): boolean {
-    const forced = this.forceGeneral;
     this.forceGeneral = null;
-    if (forced == null) return false;
-    void this.startGeneralEvent(forced);
-    return true;
+    return false;
   }
   /** act-114 交锋名将（吕布 / 夏侯惇）收招结算：绝不强杀历史名将，弹反两次/削血 25%/满 22 秒即收招对话 + 馈赠 */
   private async finishDuelGeneral() {

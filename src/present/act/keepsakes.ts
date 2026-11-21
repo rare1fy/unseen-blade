@@ -25,7 +25,8 @@ export interface KeepsakeDef {
   glyph: string[];
 }
 
-export const KEEPSAKE_ORDER: KeepsakeId[] = ['duwu', 'sunao', 'fengtiebi', 'luzhao', 'zhaoyun', 'lubu', 'xiahoudun', 'luxun'];
+/** act-147: Active keepsake roster limited to the 4 Hideout companions (Four Generals encounters removed) */
+export const KEEPSAKE_ORDER: KeepsakeId[] = ['duwu', 'sunao', 'fengtiebi', 'luzhao'];
 /** Combat rooms cleared with this keepsake to reach ★2 and ★3 */
 export const KEEPSAKE_STARS: [number, number] = [5, 12];
 
@@ -235,13 +236,13 @@ export function starLabel(star: 1 | 2 | 3): string {
 
 export function equippedKeepsake(p: Profile, allUnlocked = false): KeepsakeId | null {
   const cur = p.keepsake as KeepsakeId | null | undefined;
-  if (!cur || !(cur in KEEPSAKES)) return null;
+  if (!cur || !KEEPSAKE_ORDER.includes(cur)) return null;
   return isKeepsakeUnlocked(p, cur, allUnlocked) ? cur : null;
 }
 
 export function equipKeepsake(p: Profile, id: KeepsakeId | null, allUnlocked = false): boolean {
   if (id === null) { p.keepsake = null; return true; }
-  if (!isKeepsakeUnlocked(p, id, allUnlocked)) return false;
+  if (!KEEPSAKE_ORDER.includes(id) || !isKeepsakeUnlocked(p, id, allUnlocked)) return false;
   p.keepsake = id;
   return true;
 }
