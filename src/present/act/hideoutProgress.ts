@@ -93,6 +93,11 @@ export interface HideoutProgressState {
   pendingZones: HideoutZoneId[];
 }
 
+/** Whether Du Wu has perished at Xiapi White Gate (shifts his SE hearth into a memorial tended by Sun Ao) */
+export function isDuwuDead(p: Profile): boolean {
+  return !!p.seen?.['duwu_dead'];
+}
+
 /** Pure query for hideout progressive unlock state (also backward-compatible with veteran saves) */
 export function hideoutProgress(p: Profile, allWeapons = false): HideoutProgressState {
   const forgeVeteran = FORGE_PERK_KEYS.some(k => (p.perks?.[k] ?? 0) > 0) || p.keepsake != null;
@@ -107,7 +112,7 @@ export function hideoutProgress(p: Profile, allWeapons = false): HideoutProgress
   const gardenReady = gardenBuilt || p.runs >= 2 || p.wins > 0;
   const rackReady = rackBuilt || bossesDown(p.seen ?? {}) >= 1 || p.runs >= 3 || p.wins > 0;
 
-  const visibleNpcs: HideoutProgressState['visibleNpcs'] = ['duwu', 'sunao'];
+  const visibleNpcs: HideoutProgressState['visibleNpcs'] = isDuwuDead(p) ? ['sunao'] : ['duwu', 'sunao'];
   if (forgeBuilt) visibleNpcs.push('fengtiebi');
   if (gardenBuilt) visibleNpcs.push('luzhao');
   if (rackBuilt) visibleNpcs.push('huanyue');

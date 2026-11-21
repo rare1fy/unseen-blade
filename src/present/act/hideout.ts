@@ -748,6 +748,72 @@ export function hideoutScene(o: { time: HideoutTime; weather: HideoutWeather }):
     build: c => finishBuild(build(c, o)), buildSteps: c => build(c, o), decorate: addDonkey };
 }
 
+/** Du Wu's hearthside memorial (杜五的遗灶, pure 3D voxel grounded at y = 0, zero extra airwalls):
+ *  weathered timber ration table, red-cloth-sealed stove wine jar, warm flatbread on hemp cloth, clay coin jar, and a soft white mourning paper lantern. */
+export function buildDuwuMemorial(): THREE.Group {
+  const vw = new VoxWorld(CELL);
+  const WD = 0x422d1e, WM = 0x5c402a, WL = 0x76543a;
+  const CLAY_D = 0x623a24, CLAY = 0x865234, CLAY_L = 0xa26846;
+  const RED = 0x9e2820, CORD = 0x36281c;
+  const HEMP = 0x9c8664, BREAD = 0xd6a456, BREAD_L = 0xe8be72;
+  const BOWL = 0xb8ae9c, BOWL_D = 0x867e70;
+  const LANTERN = 0xeee8da, LANTERN_G = 0xfff0c4, CAP = 0x322a24;
+
+  // Low weathered wooden stand (grounded at y = 0, top at y = 5 -> 0.42m)
+  for (const [lx, lz] of [[-5, -3], [4, -3], [-5, 2], [4, 2]]) vw.box(lx, 0, lz, lx + 1, 4, lz + 1, WD);
+  vw.box(-6, 4, -4, 6, 5, 4, WM);
+  vw.box(-6, 5, -4, 6, 5, 4, WL);
+  vw.box(-3, 6, -3, 4, 6, 3, HEMP);
+
+  // Red-cloth-sealed stove-buried wine jar (灶底老酒) on left
+  vw.box(-5, 6, -2, -2, 7, 1, CLAY_D);
+  vw.box(-5, 8, -2, -2, 10, 1, CLAY);
+  vw.box(-4, 11, -1, -3, 11, 0, CLAY_L);
+  vw.box(-5, 12, -2, -2, 13, 1, RED);
+  vw.box(-4, 11, 1, -3, 11, 1, CORD);
+
+  // Warm flatbreads wrapped on hemp cloth in center
+  vw.box(-1, 7, -1, 2, 7, 2, BREAD);
+  vw.box(0, 8, 0, 1, 8, 1, BREAD_L);
+
+  // Clay soup bowl & coin jar on right
+  vw.box(3, 7, -2, 5, 8, 0, BOWL);
+  vw.box(3, 7, -2, 5, 7, 0, BOWL_D);
+  vw.box(3, 7, 1, 5, 9, 3, CLAY_D);
+  vw.box(3, 9, 1, 5, 9, 3, CLAY);
+
+  // Slender dark-timber pole + hanging white paper mourning lantern at back-left
+  vw.box(-7, 0, -4, -6, 22, -3, WD);
+  vw.box(-6, 22, -4, -2, 22, -3, WM);
+  vw.box(-2, 21, -3, -2, 21, -3, CORD);
+  vw.box(-3, 20, -4, -1, 20, -2, CAP);
+  vw.box(-3, 15, -4, -1, 19, -2, LANTERN);
+  vw.box(-2, 16, -3, -2, 18, -3, LANTERN_G);
+  vw.box(-3, 14, -4, -1, 14, -2, CAP);
+
+  const g = new THREE.Group();
+  for (const m of vw.build({ rim: 0.25, edge: 0.14 })) {
+    m.castShadow = true;
+    m.receiveShadow = true;
+    g.add(m);
+  }
+  const light = new THREE.PointLight(0xffbe74, 1.45, 5.2, 1.8);
+  light.position.set(-2 * CELL, 17 * CELL, -3 * CELL);
+  g.add(light);
+  return g;
+}
+
+/** Single warm clay soup bowl placed for Du Wu's empty seat in Ending C */
+export function buildExtraBowl(): THREE.Group {
+  const vw = new VoxWorld(CELL);
+  vw.box(-2, 0, -2, 2, 0, 2, 0x5c402a); // small wooden stool/trivet
+  vw.box(-2, 1, -2, 2, 2, 2, 0x9c9486); // clay bowl body
+  vw.box(-1, 3, -1, 1, 3, 1, 0xe8b868); // warm broth
+  const g = new THREE.Group();
+  for (const m of vw.build({ rim: 0.2, edge: 0.12 })) { m.castShadow = true; m.receiveShadow = true; g.add(m); }
+  return g;
+}
+
 // ================================================================== debug: __dh.hideout(time?, weather?, view?), __dh.hideoutSolids(on?)
 let SHADOW_TEX: THREE.Texture | null = null;
 function contactShadow(r = 0.7) {

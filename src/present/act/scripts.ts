@@ -18,6 +18,13 @@ export const CH_AFTER: Line[][] = [1, 2, 3, 4, 5].map(n => pick(`ch${n}_after`, 
 export const CHULEI_BEFORE = CH_BEFORE[0], CHULEI_AFTER = CH_AFTER[0];
 /** the three endings (A 一个人走进雪里 / B 不杀、只带走阿爹那柄 / C 回破窑挂满刀架) and the choices' words, in that order */
 export const ENDING: Record<'a' | 'b' | 'c', Line[]> = { a: pick('ending_a', []), b: pick('ending_b', []), c: pick('ending_c', []) };
+export const ENDING_A_NO_DUWU: Line[] = pick('ending_a_no_duwu', ENDING.a);
+export const ENDING_C_NO_DUWU: Line[] = pick('ending_c_no_duwu', ENDING.c);
+export const DUWU_ROAD_1: Line[] = pick('duwu_road_1', []);
+export const DUWU_ROAD_2: Line[] = pick('duwu_road_2', []);
+export const DUWU_DIE: Line[] = pick('duwu_die', []);
+export const DUWU_MEMORIAL_INTRO: Line[] = pick('duwu_memorial_intro', []);
+export const DEATH_SUNAO_AFTER_DUWU: string[] = pool('death_sunao_after_duwu', []);
 export const ENDING_PICK: string[] = pool('ending_pick', ['挥刀封喉，独入风雪', '留刀阁内，抽身而去', '斩断恩仇，抱刀归窑']);
 export const ENDING_DESC: string[] = ['一刀封喉，孤身没入风雪', '留他性命，只带阿爹旧刀', '斩尽血仇，抱三十刀归窑'];
 /** act-114 三国名将客串（一～四关：赵云 / 吕布 / 夏侯惇 / 陆逊） */

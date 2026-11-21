@@ -48,16 +48,17 @@ export function resolvePortrait(who: string, text: string, mood?: string, heroHa
   if (who === 'jiangjin') {
     if (mood === 'hurt' || (!heroHat && /肋|血|痛|伤口|刀呢|我的刀|不喝外人|把刀给我|银针|躺|散架/.test(text))) want = 'jiangjin_hurt';
     else if (heroHat) {
-      if (mood === 'fierce' || /还文家的命|归位|陪她|闭嘴|命|斩|杀|滚|拿稳|仇|死|销了|欠|债|放开|拔刀|来吧/.test(text)) want = 'jiangjin_hat_fierce';
+      if (mood === 'fierce' || /还文家的命|归位|陪她|闭嘴|命|斩|杀|滚|拿稳|仇|死|销了|欠|债|放开|拔刀|来吧|碎尸万段/.test(text)) want = 'jiangjin_hat_fierce';
       else want = 'jiangjin_hat';
     } else want = 'jiangjin';
   } else if (who === 'duwu') {
     if (mood === 'shock' || /娘哎|活、活的|诈尸|别乱动|不要命|吓|？！/.test(text)) want = 'duwu_shock';
-    else if (mood === 'worry' || /吐|血|麦饼|保重|小心|活着|白发|惨|缝|衣裳|肉饼|水囊|吃饱|半死|干粮|歇/.test(text)) want = 'duwu_worry';
-    else if (mood === 'grin' || /捡了便宜|值钱货|火堆边烤着|拖回来的|叫你白哥|安心养着|热汤|暖暖|手艺|尝尝|热乎|好酒|挑一样|带些/.test(text)) want = 'duwu_grin';
+    else if (mood === 'grin' || /撵上|兔子快|搭两间|头一回/.test(text)) want = 'duwu_grin';
+    else if (mood === 'worry' || /吐|血|麦饼|保重|小心|活着|白发|惨|缝|衣裳|肉饼|水囊|吃饱|半死|干粮|歇|火堆里|这毒脏|僵了|喝不着/.test(text)) want = 'duwu_worry';
+    else if (/捡了便宜|值钱货|火堆边烤着|拖回来的|叫你白哥|安心养着|热汤|暖暖|手艺|尝尝|热乎|好酒|挑一样|带些/.test(text)) want = 'duwu_grin';
   } else if (who === 'sunao') {
     if (mood === 'stern' || /别乱挺|断肋|扎破肺|跨不进去|张嘴|闭嘴|瞪|忍着|咽下去|扎透|钉棺材|木棍|推回去|裹胸布|死丫头|唬老身|忍着点|不够|捻针|下针/.test(text)) want = 'sunao_stern';
-    else if (mood === 'soft' || /好重的仇|可怜|烤烤手|热水|活着回来|苦|叹|留了|去吧|熬|药罐|阿皎|闺女|暖/.test(text)) want = 'sunao_soft';
+    else if (mood === 'soft' || /好重的仇|可怜|烤烤手|热水|活着回来|苦|叹|留了|去吧|熬|药罐|阿皎|闺女|暖|傻小子|挖出来|白养|温着汤|摆了一只碗|摘了布/.test(text)) want = 'sunao_soft';
   } else if (who === 'cuixuan') {
     if (mood === 'defeat' || /阿皎|亲爹|不全是为了|动手吧|来吧|够了|了结|名字是我起|认出|像你娘|抵上喉咙|反倒抖|真不杀我|破了前门/.test(text)) want = 'cuixuan_defeat';
     else if (mood === 'blade' || /刀在我这|四个人|那四个|太早了|看看你的手|听好了|配|拔刀|杀|第几柄|灯灭|乱葬沟/.test(text)) want = 'cuixuan_blade';
@@ -68,7 +69,7 @@ export function resolvePortrait(who: string, text: string, mood?: string, heroHa
     else if (mood === 'rage' || /哈！|老子|野狗|烧得|砸|杀|滚|高炉|推进去/.test(text)) want = 'yanhu_rage';
   } else if (who === 'fengzhen') {
     if (mood === 'defeat' || /灭口|追杀|收账|周默|乌林|咳|替他|每一个/.test(text)) want = 'fengzhen_defeat';
-    else if (mood === 'smirk' || /漆匣|拇指|药酒|脉象|故人|试我|新配/.test(text)) want = 'fengzhen_smirk';
+    else if (mood === 'smirk' || /漆匣|拇指|药酒|脉象|故人|试我|新配|废药渣|药引/.test(text)) want = 'fengzhen_smirk';
   } else if (who === 'zhouan') {
     if (mood === 'bitter' || /亲爹|烧|认出|愧|对不住|姜汤|感念|那夜|连那|贱婢|清掉|腊月二十三|咳/.test(text)) want = 'zhouan_bitter';
   } else if (who === 'zhaoyun') {
@@ -112,7 +113,7 @@ function pauseWeight(ch: string): number {
   return 0;
 }
 /** dramatic emphasis detection (subtle box/portrait shake or brief blade flash on pivotal story beats) */
-const EMPHASIS_SHAKE = /亲爹|烧干净|阿皎|闭嘴|呕出血|挑飞|断喉|一刀|砸地|画戟|火光骤起|吃曹某|少废话|活、活的|惊醒/;
+const EMPHASIS_SHAKE = /亲爹|烧干净|阿皎|闭嘴|呕出血|挑飞|断喉|一刀|砸地|画戟|火光骤起|吃曹某|少废话|活、活的|惊醒|废药渣|杜五！|碎尸万段/;
 const EMPHASIS_FLASH = /（[^）]*(?:挑飞|断喉|一送一收|挥刀|斩断|出鞘|砸地|火光骤起)[^）]*）/;
 
 /** act-114 居中像素墨字: hard-stepped pixel ink bar (no smooth radial vignette, no linear fog band),

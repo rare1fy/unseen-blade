@@ -829,6 +829,7 @@ export function heroSitFirePose(a: BattleActor, t: number, unblind: boolean) {
   a.root.position.copy(a.home).setY(0); a.root.rotation.set(0, a.yaw, 0);
   a.body.position.set(0, 0, 0); a.body.rotation.set(0, 0, 0); a.body.scale.set(1, 1, 1);
   if (b.weapon) b.weapon.visible = false;
+  if (b.hat) b.hat.visible = false;
   for (const n of ['bfA1', 'bfA2', 'bfA3', 'bfB1', 'bfB2', 'bfB3']) if (b[n]) b[n].visible = !unblind;
   setHeadUnblind(b.head, unblind);
   const H = hipHeight(a), br = Math.sin(t * 1.6);
@@ -851,6 +852,83 @@ export function npcWarmPose(a: BattleActor, t: number, kneelAmt = 0.62) {
   w.walkPh = undefined;
   w.kneel = kneelAmt + 0.03 * Math.sin(t * 1.4);
   a.update(0.016);
+}
+
+/** act-154 (Du Wu tragic sacrifice at Xiapi White Gate): curled weakly on his side beside spilled poison dregs in the snow;
+ *  while alive (`dead === false`) he shivers painfully and clutches the warm flatbread inside his inner coat;
+ *  once `dead === true` his right arm slips flat onto the snow and all movement ceases. Grounded at y = 0, zero floor sink. */
+export function duwuPoisonPose(a: BattleActor, t: number, dead: boolean) {
+  const b = a.bones; resetPose(b);
+  a.root.position.copy(a.home).setY(0); a.root.rotation.set(0, a.yaw, 0);
+  const shv = dead ? 0 : Math.sin(t * 24) * 0.024 + Math.sin(t * 15) * 0.014;
+  a.body.rotation.set(0, 0, Math.PI / 2 - 0.14 + shv * 0.4);
+  a.body.position.set(0.14, 0.14, 0);
+  a.body.scale.set(1, 1, 1);
+  // Legs curled tightly against poison & cold
+  rot(b.legL, -0.78, 0, 0.12); rot(b.shinL, 1.05); rot(b.footL, 0.25);
+  rot(b.legR, -0.56, 0, -0.10); rot(b.shinR, 0.85); rot(b.footR, 0.25);
+  // Trunk hunched weakly; head lifts slightly toward Liu Bai while alive, drops limp when dead
+  rot(b.spine, 0.26 + shv * 0.6, 0.14, 0);
+  rot(b.chest, 0.16 - shv * 0.4);
+  rot(b.neck, dead ? 0.18 : -0.12 + shv);
+  rot(b.head, dead ? 0.28 : -0.16, dead ? -0.35 : 0.42, dead ? 0.22 : -0.08);
+  // Left hand clutches inner coat (protecting the warm flatbread); right hand pushes weakly or slips limp onto the snow
+  rot(b.armL, -0.72, -0.58, -0.25); rot(b.foreL, -1.35);
+  if (dead) {
+    rot(b.armR, -0.25, 0.2, -0.95); rot(b.foreR, -0.18);
+  } else {
+    rot(b.armR, -0.95 + shv * 1.4, 0.35, -0.38); rot(b.foreR, -0.45);
+  }
+}
+
+/** act-154 (Du Wu tragic sacrifice at Xiapi White Gate): 2-shot discovery & rush-in before Feng Han boss fight.
+ *  All camera keys clamped cleanly inside the yard via camKey() — zero wall clipping. */
+export function duwuDieShots(
+  h: { hero: { a: BattleActor; pos: THREE.Vector3 }; hold?: (p: THREE.Vector3, r: number) => void }, duwu: BattleActor, donkey: BattleActor, boss: Foe, dPos: THREE.Vector3,
+): CineShot[] {
+  const fromPos = h.hero.pos.clone();
+  const toPos = V3(dPos.x + 1.15, 0, dPos.z + 0.55);
+  h.hold?.(toPos, 0.38);
+  const rushYaw = Math.atan2(toPos.x - fromPos.x, toPos.z - fromPos.z);
+  const faceDuwuYaw = Math.atan2(dPos.x - toPos.x, dPos.z - toPos.z);
+  const m = motionOf(h.hero.a);
+  let tAcc = 0;
+  const tickCommon = (dt: number) => {
+    tAcc += dt;
+    duwu.update(dt); duwuPoisonPose(duwu, tAcc, false);
+    donkey.update(dt);
+    boss.a.yaw = Math.atan2(dPos.x - boss.pos.x, dPos.z - boss.pos.z);
+    boss.a.update(dt);
+  };
+  return [
+    // Shot 1: Wide reveal of snowy Xiapi yard — curled Du Wu & anxious donkey at the edge, cold Feng Han nearby
+    {
+      dur: 2.1, ease: 'inOut',
+      from: camKey({ pos: [dPos.x + 5.8, 5.2, dPos.z + 7.2], look: [dPos.x + 1.2, 0.7, dPos.z - 0.5], fov: 40 }),
+      to: camKey({ pos: [dPos.x + 3.2, 3.0, dPos.z + 4.4], look: [dPos.x, 0.45, dPos.z], fov: 36 }),
+      at: [[0.1, () => { cue('snowWind', 0.6); }]],
+      tick: (_t, dt) => { tickCommon(dt); h.hero.a.update(dt); },
+    },
+    // Shot 2: Liu Bai rushes into the snow beside Du Wu, dropping into a tense two-shot
+    {
+      dur: 1.75, ease: 'out',
+      from: camKey({ pos: [dPos.x + 3.5, 3.2, dPos.z + 4.8], look: [dPos.x + 0.4, 0.55, dPos.z + 0.15], fov: 36 }),
+      to: camKey({ pos: [dPos.x + 3.3, 3.15, dPos.z + 4.5], look: [dPos.x + 0.35, 0.55, dPos.z + 0.05], fov: 36 }),
+      at: [[0, () => { m.run = 0.85; }]],
+      tick: (t, dt) => {
+        tickCommon(dt);
+        const u = Math.min(1, t / 1.15);
+        h.hero.pos.lerpVectors(fromPos, toPos, u);
+        h.hold?.(h.hero.pos, 0.36);
+        h.hero.a.home.copy(h.hero.pos);
+        h.hero.a.root.position.copy(h.hero.pos);
+        h.hero.a.yaw = u < 0.96 ? rushYaw : faceDuwuYaw;
+        m.run = u < 0.94 ? 0.88 : 0;
+        m.phase += dt * 11;
+        h.hero.a.update(dt);
+      },
+    },
+  ];
 }
 
 /** act-114 (Endings A & B): reusable smooth exit walk shot — heroine walks steadily away from `from` to `to` (clamped inside room),
