@@ -31,6 +31,10 @@ export function waves2(type: RoomType, depth: number, r: Rnd): string[][] {
   ];
   const w1 = [pick(FRONT, r), pick(FRONT, r), pick(BACK, r), 'ly_rider', 'ly_looter'];
   const w2 = [depth >= 3 ? pick(['ly_halberd', 'ly_shield', 'ly_rider'], r) + '*' : pick(FRONT, r), pick(BACK, r), 'ly_rider', pick(['ly_torch', 'ly_xbow'], r), 'ly_looter'];
+  if (depth >= 5) {
+    const w3 = [pick(['ly_shield', 'ly_halberd'], r) + '*', 'ly_rider', 'ly_xbow', 'ly_torch'];
+    return [w1, w2, w3];
+  }
   return [w1, w2];
 }
 /** 铸钱场: his guard first (a wall of shields, the crossbows & torch behind), then 阎虎 with two looters */
@@ -38,7 +42,7 @@ const BOSS_WAVES_2 = [['ly_shield', 'ly_halberd', 'ly_xbow', 'ly_torch', 'ly_loo
 
 export const REGION_2: RegionDef = {
   id: 'r2_luoyang', name: '洛阳余烬', tag: '焦柱生烟，烈火铸钱',
-  locales: ['ly_road', 'ly_ward'], bossLocale: 'ly_mint', rooms: 5,
+  locales: ['ly_road', 'ly_ward'], bossLocale: 'ly_mint', rooms: 7,
   waves: waves2, bossWaves: BOSS_WAVES_2, boss: 'ly_boss',
   // a burned city: dusk and night, the fires the light; no snow
   spec: { season: 'autumn' },

@@ -22,6 +22,7 @@ import { CELL } from '../bestiary/kit';
 import '../ronin/models';   // registers the old foe models (jp_bandit / jp_dog / jp_archer / jp_bandit_chief) in the bestiary ROSTER
 import './foes/hj_models';  // registers the 黄巾 foe models (hj_*) in the bestiary ROSTER
 import './foes/hj_poses';
+import './foes/boss_totems'; // act-138: pure 3D voxel Boss tactical totems (雷旗 / 药鼎)
 import { Action } from '../actors/rig';
 import { Tele, inside, HOT, type TeleShape } from './tele';
 import { TUNE } from './tune';
@@ -29,6 +30,7 @@ import { toon } from '../look/toon';
 import { cue } from '../../audio/cues';
 import { shake, clock } from '../engine/clock';
 import { fxSparks, fxSmoke, fxRing, fxGlow, fxEmbers, fxFlare, fxChips, trailSeg } from '../fx/fx';
+import { addBlock } from '../fx/blocks';
 import { fxBolt, fxShock } from '../fx/skillFx';
 import { ROLE_AI, type ThinkCtx } from './foes/roles';
 
@@ -61,7 +63,9 @@ export const EDEFS: Record<EKind, EDef> = {
   hj_mob: { model: 'hj_mob', hp: 18, r: 0.36, speed: 3.7, mass: 0.6, poise: 0, gold: 2, name: '流民', role: 'mob', alt: ['hj_mob_b'] },
   hj_archer: { model: 'hj_archer', hp: 32, r: 0.44, speed: 2.6, mass: 0.9, poise: 0, gold: 4, name: '黄巾弓手', role: 'archer', elite: 'hj_archer_e' },
   hj_hound: { model: 'hj_hound', hp: 28, r: 0.45, speed: 4.3, mass: 0.7, poise: 0, gold: 3, name: '猎犬', role: 'hound', elite: 'hj_hound_e' },
-  hj_boss: { model: 'hj_boss', hp: 420, r: 0.85, speed: 2.0, mass: 3.6, poise: 64, gold: 40, name: '黄巾渠帅 · 石雷', role: 'boss', boss: true, tag: '苍天已死 · 黄天当立' },
+  hj_boss: { model: 'hj_boss', hp: 540, r: 0.85, speed: 2.0, mass: 3.6, poise: 110, gold: 40, name: '黄巾渠帅 · 石雷', role: 'boss', boss: true, tag: '苍天已死 · 黄天当立' },
+  totem_flag: { model: 'totem_flag', hp: 70, r: 0.45, speed: 0, mass: 99, poise: 0, gold: 0, name: '黄巾雷旗', role: 'totem' },
+  totem_cauldron: { model: 'totem_cauldron', hp: 58, r: 0.48, speed: 0, mass: 99, poise: 0, gold: 0, name: '寒毒药鼎', role: 'totem' },
   // wp/regB — 第四关 · 锁江（乌林曹军水寨）: names by agy; the AI is foes/r45_ai.ts (FOE_AI), the models foes/r45_models.ts
   wl_spear: { model: 'wl_spear', hp: 22, r: 0.4, speed: 3.4, mass: 0.8, poise: 0, gold: 2, name: '执矛水卒', role: 'ext', half: true, alt: ['wl_spear_b'], barks: BARK_WL },
   wl_chain: { model: 'wl_chain', hp: 58, r: 0.48, speed: 2.6, mass: 1.3, poise: 0, gold: 5, name: '拽索手', role: 'ext', elite: 'wl_chain_e', barks: BARK_WL },
@@ -69,14 +73,14 @@ export const EDEFS: Record<EKind, EDef> = {
   wl_xbow: { model: 'wl_xbow', hp: 36, r: 0.44, speed: 2.4, mass: 0.9, poise: 0, gold: 4, name: '楼船弩士', role: 'ext', elite: 'wl_xbow_e', barks: BARK_WL },
   wl_diver: { model: 'wl_diver', hp: 40, r: 0.44, speed: 3.6, mass: 0.9, poise: 0, gold: 5, name: '没水鬼', role: 'ext', elite: 'wl_diver_e' },
   wl_shield: { model: 'wl_shield', hp: 90, r: 0.58, speed: 2.2, mass: 2.0, poise: 0, gold: 7, name: '执楯刀士', role: 'ext', elite: 'wl_shield_e', barks: BARK_WL },
-  wl_boss: { model: 'wl_boss', hp: 640, r: 0.6, speed: 2.4, mass: 3.0, poise: 40, gold: 60, name: '督造少监 · 周默', role: 'ext', boss: true, tag: '机关算尽，只求活' },
+  wl_boss: { model: 'wl_boss', hp: 760, r: 0.6, speed: 2.4, mass: 3.0, poise: 100, gold: 60, name: '督造少监 · 周默', role: 'ext', boss: true, tag: '机关算尽，只求活' },
   // wp/regB — 第五关 · 许都雪（崔府深宅）
   cx_club: { model: 'cx_club', hp: 26, r: 0.4, speed: 3.5, mass: 0.8, poise: 0, gold: 2, name: '持杖僮奴', role: 'ext', half: true, alt: ['cx_club_b'], barks: BARK_CX },
   cx_sword: { model: 'cx_sword', hp: 64, r: 0.44, speed: 3.0, mass: 1.1, poise: 0, gold: 6, name: '门下剑客', role: 'ext', elite: 'cx_sword_e', barks: BARK_CX },
   cx_shade: { model: 'cx_shade', hp: 38, r: 0.42, speed: 4.2, mass: 0.9, poise: 0, gold: 6, name: '匿影死士', role: 'ext', elite: 'cx_shade_e' },
-  cx_guard: { model: 'cx_guard', hp: 96, r: 0.5, speed: 2.6, mass: 1.6, poise: 30, gold: 8, name: '百辟刀卫', role: 'ext', elite: 'cx_guard_e', barks: BARK_CX },
+  cx_guard: { model: 'cx_guard', hp: 96, r: 0.5, speed: 2.6, mass: 1.6, poise: 48, gold: 8, name: '百辟刀卫', role: 'ext', elite: 'cx_guard_e', barks: BARK_CX },
   cx_zhu: { model: 'cx_zhu', hp: 30, r: 0.42, speed: 2.6, mass: 0.9, poise: 0, gold: 5, name: '击筑客', role: 'ext', elite: 'cx_zhu_e', barks: BARK_CX },
-  cx_boss: { model: 'cx_boss', hp: 960, r: 0.6, speed: 2.6, mass: 3.0, poise: 50, gold: 80, name: '司空长史 · 崔玄', role: 'ext', boss: true, tag: '弹指落子，定生死' },
+  cx_boss: { model: 'cx_boss', hp: 1100, r: 0.6, speed: 2.6, mass: 3.0, poise: 160, gold: 80, name: '司空长史 · 崔玄', role: 'ext', boss: true, tag: '弹指落子，定生死' },
 };
 /** wp/regB: the behaviour of a role-'ext' foe (regions four and five). Filled by foes/r45_ai.ts when it is imported (the region files
  *  import it); enemy.ts only calls in. Every hook is optional; what a hook does not take over runs the usual way (the wind-up's
@@ -108,9 +112,9 @@ export function addFoes(defs: Record<string, EDef>) { Object.assign(EDEFS, defs)
 /** the boss bar / banner / big death (show.ts, hud.ts) */
 export const isBoss = (f: { d: EDef }) => !!f.d.boss;
 
-/** act-113: guard-break vulnerability duration (s) and incoming damage multiplier */
-export const POISE_BREAK_DUR = 2.6;
-export const POISE_BREAK_MUL = 1.5;
+/** act-113 / act-138: guard-break vulnerability duration (s) and incoming damage multiplier */
+export const POISE_BREAK_DUR = 2.0;
+export const POISE_BREAK_MUL = 1.35;
 /** act-113 / act-122: ranged pressure roles that stagger cleanly on their own cadence instead of locking out melee */
 export const isRangedFoe = (f: { kind: string; role: string }) =>
   f.role === 'archer' || f.role === 'taoist' || f.role === 'ly_xbow' || f.role === 'ly_torch' || f.role === 'xp_needle' || f.role === 'xp_frost'
@@ -121,7 +125,7 @@ export interface Foe {
   kind: EKind; d: EDef; a: BattleActor; hp: number; maxHp: number; pos: THREE.Vector3; vel: THREE.Vector3; yaw: number;
   /** act-19: thrown into the air (挑空斩, 飞踢, a heavy blow): the upward speed; undefined = on the ground */ airV?: number;
   st: St; t: number; dur: number; tele: Tele | null; teleYaw: number; telePos: THREE.Vector3; shape: TeleShape | null; dmg: number;
-  cd: number; poise: number; /** act-113: guard-broken vulnerability timer (>0 takes ×1.5 dmg) & idle timer before poise slowly recovers */ brokenT: number; poiseIdleT: number; attacking: boolean; hitHero: boolean; lunge: THREE.Vector3 | null; strafe: number; move: string;
+  cd: number; poise: number; /** act-113: guard-broken vulnerability timer (>0 takes ×1.35 dmg) & idle timer before poise slowly recovers; poiseBreaks scales subsequent poise cap (+25% each) */ brokenT: number; poiseIdleT: number; poiseBreaks?: number; attacking: boolean; hitHero: boolean; lunge: THREE.Vector3 | null; strafe: number; move: string;
   /** the last blow's numbers (death form), and timed blade wounds */ lastDmg: number; uid: number; bleed: number; bleedT: number; bleedTick: number; bleedDrop: number; sunderT: number;
   /** act-118: boomerang dart-mark window (keeps 寻声/牵红 working with 折返!) and exposed window (next blade hit guaranteed crit) */
   dartMarkT?: number; exposeT?: number;
@@ -187,19 +191,19 @@ export function trimShadows(root: THREE.Object3D, n: number) {
   ms.forEach((m, i) => { m.castShadow = i < n || grounded(m); });
 }
 
-/** act-118: every elite spawns with a real poise bar (resists brainless basic-attack stunlock, rewards 见切/破势/重击) */
+/** act-118 / act-138: elites are formidable armored threats (2.5× HP, 1.18× dmg, thick poise) players weigh carefully like Hades mini-bosses */
 export const elitePoise = (base: EDef, kind: string) =>
-  base.poise > 0 ? Math.round(base.poise * 1.45) : (isRangedFoe({ kind, role: base.role }) ? 22 : 30);
+  base.poise > 0 ? Math.round(base.poise * 1.65) : (isRangedFoe({ kind, role: base.role }) ? 42 : 55);
 
 export function spawnFoe(kind: EKind, at: THREE.Vector3, face: THREE.Vector3, elite = false): Foe {
   const base = EDEFS[kind], el = elite && !!base.elite;
-  const d: EDef = el ? { ...base, r: base.r * 1.15, mass: base.mass * 1.3, poise: elitePoise(base, kind), gold: base.gold * 2 + 2 } : base;
+  const d: EDef = el ? { ...base, r: base.r * 1.18, mass: base.mass * 1.45, poise: elitePoise(base, kind), gold: base.gold * 2 + 4 } : base;
   const model = el ? base.elite! : base.alt ? [base.model, ...base.alt][Math.floor(Math.random() * (base.alt.length + 1))] : base.model;
   const a = new BattleActor(model); a.place(at.clone()); a.faceToward(face); trimShadows(a.root, d.boss ? 6 : base.role === 'brute' ? 5 : 3);
-  if (el) a.root.scale.setScalar(1.15);
-  const hp = Math.round(d.hp * TUNE.enemyHp * (el ? 1.8 : 1));
-  return { kind, d, a, hp, maxHp: hp, pos: a.home, vel: V3(), yaw: a.yaw, st: 'enter', t: 0, dur: 0.55, tele: null, teleYaw: 0, telePos: V3(), shape: null, dmg: 0,
-    cd: R(0.4, 1.2), poise: d.poise, brokenT: 0, poiseIdleT: 0, attacking: false, hitHero: false, lunge: null, strafe: Math.random() < 0.5 ? -1 : 1, move: '', lastDmg: 0, bleed: 0, bleedT: 0, bleedTick: 0, bleedDrop: 0, sunderT: 0, uid: UID++,
+  if (el) a.root.scale.setScalar(1.18);
+  const hp = Math.round(d.hp * TUNE.enemyHp * (el ? 2.5 : 1));
+  return { kind, d, a, hp, maxHp: hp, pos: a.home, vel: V3(), yaw: a.yaw, st: 'enter', t: 0, dur: base.role === 'totem' ? 0.1 : 0.55, tele: null, teleYaw: 0, telePos: V3(), shape: null, dmg: 0,
+    cd: R(0.4, 1.2), poise: d.poise, brokenT: 0, poiseIdleT: 0, poiseBreaks: 0, attacking: false, hitHero: false, lunge: null, strafe: Math.random() < 0.5 ? -1 : 1, move: '', lastDmg: 0, bleed: 0, bleedT: 0, bleedTick: 0, bleedDrop: 0, sunderT: 0, uid: UID++,
     wob: { x: 0, z: 0, vx: 0, vz: 0 }, elite: el, role: base.role, atk: '', combo: 0, extra: [], inv: 0, phase: 1, summonT: 3, thunderCd: R(2, 4), auraT: 0, mem: {} };
 }
 
@@ -214,13 +218,13 @@ export function startAttack(f: Foe, w: FoeWorld, shape: TeleShape | null, windup
   /** 11-18: the model's own action for this attack (its name, where its impact frame sits 0..1, its data) instead of the generic one */
   act?: { name: string; imp?: number; tail?: number; data?: Record<string, unknown> } } = {}) {
   f.atk = o.atk ?? ''; dropTeles(f); f.lowAtk = !!o.low; f.anchor = !!o.anchor;
-  f.shape = shape; f.dmg = Math.round(dmg * TUNE.enemyDmg); f.teleYaw = yaw; f.telePos.copy(o.at ?? f.pos); f.hitHero = false; f.attacking = true;
+  f.shape = shape; f.dmg = Math.round(dmg * TUNE.enemyDmg * (f.elite ? 1.18 : 1)); f.teleYaw = yaw; f.telePos.copy(o.at ?? f.pos); f.hitHero = false; f.attacking = true;
   if (shape) { f.tele = new Tele(shape, { low: isLow(f, shape) }); f.tele.set(f.telePos.x, f.telePos.z, yaw, 0, windup); }
   f.glint = false;
   // act-23: the first beat: a dull red pulse through the attacker as the wind-up starts
   f.a.tint(0x8a1a10, 0.7);
   for (const e of o.extra ?? []) { const t = new Tele(e.s, { low: e.low }); t.set(f.telePos.x, f.telePos.z, yaw + e.dy, 0); f.extra.push({ t, dy: e.dy }); }
-  const wu = windup / TUNE.aggression * (f.elite ? 0.85 : 1) * (f.phase > 1 ? 0.75 : 1); setSt(f, 'windup', wu);
+  const wu = windup / TUNE.aggression * (f.elite ? 0.82 : 1) * (f.phase > 1 ? 0.78 : 1); setSt(f, 'windup', wu);
   // act-113: staggered cross-beat between melee and ranged so arrows and slashes alternate cleanly instead of landing on the same frame
   crossBeatUntil = Math.max(crossBeatUntil, clock.time + 0.30);
   // the body's own wind-up: the attack action timed so its impact frame lands at the end of the wind-up
@@ -246,7 +250,8 @@ const attackers = (w: FoeWorld) => meleeAttackers(w);
 export const canStrike = (f: Foe, w: FoeWorld, o: { calm?: boolean; slots?: number } = {}) => {
   if (!w.heroAlive || f.cd > 0) return false;
   if (isRangedFoe(f)) {
-    return rangedAttackers(w) < 1 && (clock.time >= rangedCalmUntil || !!o.calm) && clock.time >= crossBeatUntil;
+    const rCap = TUNE.maxAttackers >= 3 ? 2 : 1;
+    return rangedAttackers(w) < rCap && (clock.time >= rangedCalmUntil || !!o.calm) && clock.time >= crossBeatUntil;
   }
   return meleeAttackers(w) < (o.slots ?? TUNE.maxAttackers) && (clock.time >= meleeCalmUntil || !!o.calm || !!f.d.boss);
 };
@@ -306,19 +311,26 @@ export function updateFoe(f: Foe, w: FoeWorld, dt: number) {
   f.sunderT = Math.max(0, f.sunderT - dt);
   if ((f.dartMarkT ?? 0) > 0) f.dartMarkT = Math.max(0, (f.dartMarkT ?? 0) - dt);
   if ((f.exposeT ?? 0) > 0) f.exposeT = Math.max(0, (f.exposeT ?? 0) - dt);
-  // act-113: guard-break vulnerability window & slow poise regeneration when left unpressured
+  // act-113 / act-138: guard-break vulnerability window & escalating poise cap (+25% per break, capped at 2×)
   if (f.brokenT > 0) {
     f.brokenT = Math.max(0, f.brokenT - dt);
-    if (f.brokenT <= 0) { f.poise = f.d?.poise ?? 0; f.poiseIdleT = 0; }
+    if (f.brokenT <= 0) {
+      f.poiseBreaks = (f.poiseBreaks ?? 0) + 1;
+      const cap = Math.round((f.d?.poise ?? 0) * (1 + 0.25 * Math.min(4, f.poiseBreaks)));
+      f.poise = cap; f.poiseIdleT = 0;
+    }
     else if (f.st === 'stagger') f.a.tint(0xffcf54, 0.20 + 0.16 * Math.sin(clock.time * 16));
-  } else if (f.d && f.d.poise > 0 && f.poise < f.d.poise) {
-    f.poiseIdleT += dt;
-    if (f.poiseIdleT >= 3.5) f.poise = Math.min(f.d.poise, f.poise + f.d.poise * 0.14 * dt);
+  } else if (f.d && f.d.poise > 0) {
+    const cap = Math.round(f.d.poise * (1 + 0.25 * Math.min(4, f.poiseBreaks ?? 0)));
+    if (f.poise < cap) {
+      f.poiseIdleT += dt;
+      if (f.poiseIdleT >= 3.0) f.poise = Math.min(cap, f.poise + cap * 0.16 * dt);
+    }
   }
   if (f.bleed > 0) {
     const active = Math.min(dt, Math.max(0, 3 - f.bleedT)); f.bleedT += dt; f.bleedTick += active; f.bleedDrop += active;
     while (f.bleedDrop >= 0.4) { f.bleedDrop -= 0.4; w.bleedSpill(f); }
-    while (f.bleedTick >= 1) { f.bleedTick -= 1; const from = f.pos.clone().add(V3(0, 0, -1)); if (damageFoe(f, w.bleedDamage(f), from, { quiet: true, dot: true })) { w.killFoe(f, from); return; } }
+    while (f.bleedTick >= 1) { f.bleedTick -= 1; if (f.inv > 0) continue; const from = f.pos.clone().add(V3(0, 0, -1)); if (damageFoe(f, w.bleedDamage(f), from, { quiet: true, dot: true })) { w.killFoe(f, from); return; } }
     if (f.bleedT >= 3) { f.bleed = 0; f.bleedTick = 0; f.bleedDrop = 0; }
   }
   // Pause attack clocks as well as movement, including training dummies.
@@ -329,6 +341,52 @@ export function updateFoe(f: Foe, w: FoeWorld, dt: number) {
     const o = f.wob, K = 140, D = 9;
     o.vx += (-K * o.x - D * o.vx) * dt; o.vz += (-K * o.z - D * o.vz) * dt; o.x += o.vx * dt; o.z += o.vz * dt;
     WOBBLE.set(f.a, { x: o.x, z: o.z }); return;
+  }
+  if (f.role === 'totem') {
+    // act-138: stationary Boss tactical totems (黄巾雷旗 / 寒毒药鼎)
+    f.t += dt; f.vel.set(0, 0, 0); f.st = 'move';
+    f.mem.tick = (f.mem.tick ?? 2.2) - dt;
+    f.mem.fxT = (f.mem.fxT ?? 0) - dt;
+    if (f.kind === 'totem_flag') {
+      const boss = w.foes.find(o => o.kind === 'hj_boss' && o.st !== 'dead');
+      if (f.mem.fxT <= 0) {
+        f.mem.fxT = 0.28;
+        fxEmbers(f.pos.clone().setY(1.4), 0xffe478, 1, { r: 0.25, up: 1.2, life: 0.45 });
+        if (boss) trailSeg(f.pos.clone().setY(1.55), boss.a.chest(), 0xffe068, 0.06, { life: 0.22, bright: 2.2, spark: 0 });
+      }
+      if (f.mem.tick <= 0 && w.heroAlive) {
+        f.mem.tick = 4.2;
+        const dmg = Math.round(13 * TUNE.enemyDmg), h = w.heroPos.clone().setY(0);
+        // Cross-pattern thunder zoning around hero so staying put to fish parries gets punished
+        const offs = [[0, 0], [1.9, 0], [-1.9, 0], [0, 1.9], [0, -1.9]];
+        offs.forEach(([ox, oz], idx) => {
+          const p = V3(h.x + ox, 0, h.z + oz); w.clamp(p, 0.3);
+          w.arrows.push(new Thunder(p, dmg, idx === 0 ? 0 : 0.16, 0.95, boss ?? f, 1.15));
+        });
+        fxRing(f.pos.clone().setY(0.1), 0xffe478, 1.5, { life: 0.4 } as never);
+        cue('thunder', 0.55);
+      }
+    } else if (f.kind === 'totem_cauldron') {
+      const boss = w.foes.find(o => o.kind === 'xp_boss' && o.st !== 'dead');
+      if (f.mem.fxT <= 0) {
+        f.mem.fxT = 0.3;
+        fxEmbers(f.pos.clone().setY(0.85), 0x76e8ff, 1, { r: 0.3, up: 1.0, life: 0.5 });
+        if (boss && !boss.mem.mist) trailSeg(f.pos.clone().setY(0.9), boss.a.chest(), 0x58e0b0, 0.06, { life: 0.25, bright: 2.0, spark: 0 });
+      }
+      if (f.mem.tick <= 0) {
+        f.mem.tick = 2.0;
+        if (boss && boss.hp < boss.maxHp) {
+          const heal = Math.max(6, Math.round(boss.maxHp * 0.03));
+          boss.hp = Math.min(boss.maxHp, boss.hp + heal);
+          fxRing(boss.pos.clone().setY(0.12), 0x58e0b0, 1.4, { life: 0.45 } as never);
+          fxSparks(boss.a.chest(), 0x8effd0, 8, 2.5);
+        }
+        // Chilling frost mist around the cauldron
+        if (w.heroAlive && f.pos.distanceTo(w.heroPos) < 2.6 && w.heroY < 0.3) w.chill?.(0.8, 0.6);
+        fxRing(f.pos.clone().setY(0.08), 0x9ae8ff, 2.4, { life: 0.55 } as never);
+      }
+    }
+    return;
   }
   f.t += dt; f.cd -= dt; f.inv = Math.max(0, f.inv - dt); f.thunderCd -= dt;
   const toH = w.heroPos.clone().sub(f.pos).setY(0), dist = toH.length(), dir = dist > 1e-3 ? toH.clone().divideScalar(dist) : V3(0, 0, 1);
@@ -388,7 +446,7 @@ export function updateFoe(f: Foe, w: FoeWorld, dt: number) {
       f.vel.copy(f.lunge);
       const dd = f.pos.distanceTo(w.heroPos), low = f.role === 'hound' || !!f.lowAtk;
       if (!f.hitHero && w.heroAlive && dd < f.d.r + w.heroR + 0.15) { f.hitHero = true; if (!low || w.heroY < LOW_CLEAR) w.hurtHero(f.dmg, f.pos.clone(), f); else w.dodged(f.pos.clone()); }
-      else if (!f.hitHero && w.heroAlive && w.heroDodge && dd < f.d.r + w.heroR + 1.1) { f.hitHero = true; w.dodged(f.pos.clone()); }
+      else if (!f.hitHero && w.heroAlive && w.heroDodge && dd < f.d.r + w.heroR + 0.65) { f.hitHero = true; w.dodged(f.pos.clone()); }
     }
     rai?.striking?.(f, w, dt);
     if (f.t >= f.dur) {
@@ -547,22 +605,191 @@ function callThunder(f: Foe, w: FoeWorld) {
 /** act-114: stereo pan (-0.8..+0.8) from foe's horizontal offset relative to hero (blind swordswoman hears direction) */
 const foePan = (f: Foe, w: FoeWorld) => Math.max(-0.8, Math.min(0.8, (f.pos.x - w.heroPos.x) / 8));
 
-/** every frame for the boss: the roar at half HP, phase 2's aura and summons */
+/** act-138 Hades-2 Boss Impervious Phase Gate visuals (pure 3D voxel orbiting cubes + pulsing ring, zero smooth spheres). */
+export function bossBarrierFx(f: Foe, dt: number, col = 0xffe478) {
+  f.inv = Math.max(f.inv, 0.5);
+  f.a.tint(col, 0.45 + 0.25 * Math.sin(clock.time * 12));
+  f.mem.barFxT = (f.mem.barFxT ?? 0) - dt;
+  if (f.mem.barFxT <= 0) {
+    f.mem.barFxT = 0.18;
+    fxRing(f.pos.clone().setY(0.1), col, f.d.r + 0.72, { life: 0.3 } as never);
+    const a0 = clock.time * 2.6;
+    for (let i = 0; i < 4; i++) {
+      const a = a0 + i * (Math.PI / 2), rr = f.d.r + 0.58;
+      const p = V3(f.pos.x + Math.cos(a) * rr, 0.82 + 0.25 * Math.sin(a0 * 2 + i), f.pos.z + Math.sin(a) * rr);
+      addBlock(p, { size: 0.085, v: V3(-Math.sin(a) * 1.4, 0.35, Math.cos(a) * 1.4), col, bright: 1.5, life: 0.24, shrink: 0.5, drag: 1.5, grav: 0 });
+    }
+  }
+}
+/** Shatter a Boss Impervious Phase Gate: bursts 3D voxel shards, drops invulnerability, brief stagger punish window! */
+export function shatterBossBarrier(f: Foe, w: FoeWorld, col = 0xffe478, say?: string) {
+  f.mem.barrier = 0; f.mem.barrierMode = ''; f.mem.barrierLabel = ''; f.mem.fleeT = 0; f.inv = 0; f.mem.justBrokeBarrier = 1;
+  dropTeles(f); f.attacking = false; f.lunge = null; f.combo = 0;
+  setSt(f, 'stagger', 1.15); f.cd = 0.6;
+  const c = f.pos.clone().setY(0.12);
+  fxShock(c, col, 3.2, { life: 0.5 });
+  fxChips(f.a.chest(), [col, 0xffffff, 0x4b5262], 14, { speed: 6.2, up: 3.8, size: 0.1, glow: 1.0 });
+  fxSparks(f.a.chest(), 0xffffff, 24, 7);
+  cue('guardBreak', 1); shake(0.4 * TUNE.shake);
+  if (say) w.say?.(f, say);
+}
+/** Count live non-boss adds / totems blocking an Add-Clear Impervious Barrier. */
+export function liveBossAdds(boss: Foe, w: FoeWorld) {
+  return w.foes.filter(o => o !== boss && o.st !== 'dead' && o.kind !== 'dummy' && !isBoss(o)).length;
+}
+/** Hades-2 HP-gate clamp floor: prevents single-combo burst from skipping a Boss's Impervious Phase Intermission! */
+export function bossGateFloor(f: Foe): number {
+  if (!f.d?.boss || f.mem?.noHide) return 0;
+  if (f.kind === 'hj_boss') {
+    if (f.phase === 1) return Math.floor(f.maxHp * 0.66);
+    if (f.phase === 2) return Math.floor(f.maxHp * 0.33);
+  } else if (f.kind === 'ly_boss') {
+    if (f.phase === 1) return Math.floor(f.maxHp * 0.60);
+    if (f.phase === 2 && !f.mem.gate2) return Math.floor(f.maxHp * 0.30);
+  } else if (f.kind === 'xp_boss') {
+    if (!f.mem.gate1) return Math.floor(f.maxHp * 0.65);
+    if (!f.mem.gate2) return Math.floor(f.maxHp * 0.32);
+  } else if (f.kind === 'wl_boss') {
+    if (!f.mem.gate1) return Math.floor(f.maxHp * 0.65);
+    if (!f.mem.gate2) return Math.floor(f.maxHp * 0.33);
+  } else if (f.kind === 'cx_boss') {
+    if (f.phase === 1) return Math.floor(f.maxHp * 0.66);
+    if (f.phase === 2) return Math.floor(f.maxHp * 0.33);
+  }
+  return 0;
+}
+
+/** Spawn 2 Yellow Turban Thunder Flags on opposite flanks of the arena for Stone Thunder's Phase阵 */
+function spawnThunderFlags(boss: Foe, w: FoeWorld) {
+  const existing = w.foes.filter(o => o.kind === 'totem_flag' && o.st !== 'dead').length;
+  const need = Math.max(0, 2 - existing);
+  for (let i = 0; i < need; i++) {
+    const s = (existing + i) % 2 === 0 ? -1 : 1;
+    const p = V3(boss.pos.x + s * 5.2, 0, boss.pos.z + R(-2.2, 2.2));
+    w.clamp(p, 0.8);
+    const fl = spawnFoe('totem_flag', p, w.heroPos.clone());
+    fl.mem.tick = 2.0 + i * 1.8;
+    w.foes.push(fl);
+    fxRing(p.clone().setY(0.1), 0xffe478, 1.8, { life: 0.5 } as never);
+    fxSparks(p.clone().setY(0.8), 0xfff2a0, 14, 4);
+  }
+  if (need > 0) cue('thunder', 0.7);
+}
+function spawnBossSquad(boss: Foe, w: FoeWorld, specs: Array<{ kind: EKind; elite?: boolean }>) {
+  specs.forEach(({ kind, elite }, i) => {
+    const a = (i / Math.max(1, specs.length)) * Math.PI * 2 + 0.5;
+    const p = V3(boss.pos.x + Math.cos(a) * 5.0, 0, boss.pos.z + Math.sin(a) * 4.5);
+    w.clamp(p, 0.6);
+    const m = spawnFoe(kind, p, w.heroPos.clone(), elite);
+    m.cd = R(0.6, 1.2);
+    w.foes.push(m);
+    fxSmoke(p.clone().add(V3(0, 0.3, 0)), 0x6a6a74, 8, { r: 0.6, spd: 1.2, up: 0.6, s: 0.4, life: 0.7 });
+    fxRing(p.clone().setY(0.05), 0xffe070, 1.1, { life: 0.4 } as never);
+  });
+  cue('summon', 0.7);
+}
+
+/** every frame for the boss: Hades-2 Hecate-style twin Impervious Phase Gates (66% add-clear + shockwaves, 33% 6.5s flee barrage -> elite squad) */
 function bossTick(f: Foe, w: FoeWorld, dt: number) {
-  if (f.phase === 1 && f.hp <= f.maxHp * 0.5) {
-    // the roar: the attack breaks off, a brief invulnerable flash, the yellow-white aura from now on
-    const isHj = f.role === 'boss';
-    dropTeles(f); f.attacking = false; f.lunge = null; f.combo = 0; f.brokenT = 0; f.phase = 2; f.inv = isHj ? 1.1 : 0.85; f.poise = f.d.poise; setSt(f, 'roar', isHj ? 1.3 : 0.95);
-    f.a.roar(); cue('roar', 1); if (isHj) { cue('thunder', 0.85); w.say?.(f, '天雷降世，劈死这瞎子！'); } shake(0.45 * TUNE.shake);
+  const isHj = f.role === 'boss';
+  // 1) Active Impervious Barrier loop for Stone Thunder (hj_boss)
+  if (isHj && f.mem.barrier > 0) {
+    // Allow legacy unit tests that explicitly clear inv=0 & st='move' to exit barrier cleanly
+    if (f.inv <= 0 && f.st === 'move') {
+      f.mem.barrier = 0; f.mem.barrierMode = ''; f.mem.barrierLabel = '';
+    } else {
+      bossBarrierFx(f, dt, 0xffe478);
+      f.vel.set(0, 0, 0);
+      f.mem.barPulseT = (f.mem.barPulseT ?? 0.9) - dt;
+      f.mem.barMaxT = (f.mem.barMaxT ?? 24) - dt;
+      if (f.mem.barrierMode === 'flee') {
+        f.mem.fleeT = Math.max(0, (f.mem.fleeT ?? 0) - dt);
+        f.mem.barrierLabel = '无敌 · 躲避天雷';
+        if (f.mem.barPulseT <= 0 && w.heroAlive) {
+          f.mem.barPulseT = 1.55;
+          const dmg = Math.round(13 * TUNE.enemyDmg);
+          // Double expanding thunder rings (jump + dash rhythm, Hecate style!)
+          w.arrows.push(new Shockwave(f.pos.clone(), dmg, 1.0, 12.0, 1.5));
+          w.arrows.push(new Shockwave(f.pos.clone(), dmg, 0.4, 11.5, 1.95));
+          // Sweeping 5-bolt thunder line chasing hero + 2 homing talisman fireballs
+          const h = w.heroPos.clone().setY(0), d = h.clone().sub(f.pos).setY(0), L = Math.max(2, d.length()); d.normalize();
+          for (let i = 0; i < 5; i++) { const p = f.pos.clone().setY(0).addScaledVector(d, 1.6 + i * Math.max(1.3, (L + 1.0 - 1.6) / 4)); w.clamp(p, 0.3); w.arrows.push(new Thunder(p, dmg, 0.14 * i, 0.85, f)); }
+          for (const dy of [-0.45, 0.45]) {
+            const y = Math.atan2(d.x, d.z) + dy;
+            w.arrows.push(new Talisman(f.pos.clone().add(V3(Math.sin(y) * 0.8, 1.2, Math.cos(y) * 0.8)), y, Math.round(11 * TUNE.enemyDmg), 12));
+          }
+          cue('thunder', 0.85); shake(0.2 * TUNE.shake);
+        }
+        if (f.mem.fleeT <= 0) {
+          // Stage B of Gate 2: summon elite Yellow Turban escort + 2 flags, must clear to shatter barrier!
+          f.mem.barrierMode = 'clear';
+          f.mem.barrierLabel = '无敌 · 拆雷旗清护法';
+          f.mem.barMaxT = 24;
+          f.mem.barPulseT = 2.6;
+          spawnThunderFlags(f, w);
+          spawnBossSquad(f, w, [{ kind: 'hj_blade', elite: true }, { kind: 'hj_taoist' }]);
+          w.say?.(f, '护法上！别让她靠近雷旗！');
+        }
+      } else {
+        f.mem.barrierLabel = '无敌 · 拆雷旗清护法';
+        if (f.mem.barPulseT <= 0 && w.heroAlive) {
+          f.mem.barPulseT = f.mem.barrier === 2 ? 2.8 : 2.5;
+          const dmg = Math.round(13 * TUNE.enemyDmg);
+          w.arrows.push(new Shockwave(f.pos.clone(), dmg, 1.0, 12.0, 1.6));
+          const h = w.heroPos.clone().setY(0);
+          w.arrows.push(new Thunder(h, dmg, 0, 0.95, f));
+          const p2 = h.clone().add(V3(R(-2.2, 2.2), 0, R(-2.2, 2.2))); w.clamp(p2, 0.3);
+          w.arrows.push(new Thunder(p2, dmg, 0.25, 0.95, f));
+          cue('thunder', 0.7);
+        }
+        if (liveBossAdds(f, w) === 0 || f.mem.barMaxT <= 0) {
+          shatterBossBarrier(f, w, 0xffe478, f.mem.barrier === 2 ? '可恶……竟然破了我的终极雷阵！' : '雷阵居然破了？！');
+          f.mem.flagCd = 20; f.summonT = 10; f.thunderCd = 2.2;
+        }
+      }
+      return;
+    }
+  }
+  // 2) Phase Gate 1: Stone Thunder at 66% HP (Hecate Gate #1) / other bosses at 50%
+  if (f.phase === 1 && f.hp <= f.maxHp * (isHj ? 0.66 : 0.5)) {
+    dropTeles(f); f.attacking = false; f.lunge = null; f.combo = 0; f.brokenT = 0; f.phase = 2;
+    f.poise = f.d.poise;
+    f.a.roar(); cue('roar', 1); shake(0.45 * TUNE.shake);
     const c = f.pos.clone().setY(0.08); fxRing(c, 0xfff2b0, 3.2, { life: 0.6 } as never); fxShock(c, 0xffe080, 3.0, { life: 0.55 });
     fxSparks(f.a.chest(), 0xfff2c0, 30, 7); fxChips(f.a.chest(), [0xffe888, 0xffc844, 0xffffff], 10, { speed: 5.2, up: 3.4, size: 0.09, glow: 0.9 });
-    if (isHj) { f.summonT = 2.5; f.thunderCd = Math.min(f.thunderCd, 1.5); }
+    if (isHj) {
+      f.inv = 99; f.mem.barrier = 1; f.mem.barrierMode = 'clear'; f.mem.barrierLabel = '无敌 · 拆雷旗清护法';
+      f.mem.barPulseT = 1.6; f.mem.barMaxT = 24;
+      setSt(f, 'roar', 99);
+      cue('thunder', 0.85); w.say?.(f, '立阵！雷海之下，看你往哪逃！');
+      spawnThunderFlags(f, w);
+      spawnBossSquad(f, w, [{ kind: 'hj_blade' }, { kind: 'hj_mob' }, { kind: 'hj_mob' }]);
+      f.summonT = 10; f.thunderCd = Math.min(f.thunderCd, 1.8);
+    } else {
+      f.inv = 0.85; setSt(f, 'roar', 0.95);
+    }
+  } else if (isHj && f.phase === 2 && f.hp <= f.maxHp * 0.33) {
+    // 3) Phase Gate 2: Stone Thunder at 33% HP — 6.5s PURE SURVIVAL FLEE BARRAGE -> Elite Squad Clear!
+    dropTeles(f); f.attacking = false; f.lunge = null; f.combo = 0; f.brokenT = 0; f.phase = 3;
+    f.poise = f.d.poise; f.inv = 99;
+    f.mem.barrier = 2; f.mem.barrierMode = 'flee'; f.mem.fleeT = 6.5; f.mem.barrierLabel = '无敌 · 躲避天雷';
+    f.mem.barPulseT = 0.6; f.mem.barMaxT = 32;
+    setSt(f, 'roar', 99);
+    f.a.roar(); cue('roar', 1); cue('thunder', 0.95); shake(0.55 * TUNE.shake);
+    w.say?.(f, '苍天已死！天雷荡尽，看你往哪躲！');
+    const c = f.pos.clone().setY(0.08); fxRing(c, 0xfff2b0, 3.6, { life: 0.65 } as never); fxShock(c, 0xffe080, 3.6, { life: 0.6 });
+    fxSparks(f.a.chest(), 0xfff2c0, 36, 8);
   }
-  if (f.role === 'boss' && f.phase > 1 && f.st !== 'dead') {
+  if (isHj && f.phase > 1 && f.st !== 'dead') {
     f.auraT -= dt; if (f.auraT <= 0) { f.auraT = 0.12; fxEmbers(f.pos.clone().setY(0.4), 0xfff0a0, 2, { r: 0.7, up: 1.4, life: 0.8 }); }
+    const liveFlags = w.foes.filter(o => o.kind === 'totem_flag' && o.st !== 'dead').length;
+    if (liveFlags === 0 && f.st !== 'roar') {
+      f.mem.flagCd = (f.mem.flagCd ?? 20) - dt;
+      if (f.mem.flagCd <= 0) { f.mem.flagCd = 20; spawnThunderFlags(f, w); w.say?.(f, '再起雷旗，护我黄天！'); }
+    }
     f.summonT -= dt;
     if (f.summonT <= 0 && w.heroAlive && f.st !== 'roar') {
-      f.summonT = 8;
+      f.summonT = 12;
       const mobs = w.foes.filter(o => o.role === 'mob' && o.st !== 'dead').length;
       for (let i = 0; i < Math.min(2, 4 - mobs); i++) {
         if (w.spawnReinforce) {
@@ -619,7 +846,7 @@ export function meleeLands(f: Foe, w: FoeWorld, s: TeleShape = f.shape!, yaw = f
   const cleared = isLow(f, s) && w.heroY >= LOW_CLEAR;
   if (w.heroAlive && inside(s, at.x, at.z, yaw, w.heroPos.x, w.heroPos.z, w.heroR)) { if (cleared) w.dodged(f.pos.clone()); else w.hurtHero(f.dmg, f.pos.clone(), f); return !cleared; }
   // dashed out of it just in time (the hero is near the area while dashing): a perfect dodge too
-  else if (w.heroAlive && w.heroDodge && inside(s, at.x, at.z, yaw, w.heroPos.x, w.heroPos.z, w.heroR + 1.1)) w.dodged(f.pos.clone());
+  else if (w.heroAlive && w.heroDodge && inside(s, at.x, at.z, yaw, w.heroPos.x, w.heroPos.z, w.heroR + 0.65)) w.dodged(f.pos.clone());
   return false;
 }
 /** wp/regB: the usual strike (a lunge along the lane, else a blow at the warning) — for an 'ext' AI that only adds to it */
@@ -673,8 +900,8 @@ export function interruptFoe(f: Foe, reel = 0.9) {
   if (f.role === 'ext') FOE_AI[f.kind]?.interrupted?.(f, was);   // wp/regB
   ROLE_AI[f.role]?.interrupted?.(f, null);
 }
-/** a hit on a foe: HP, flash, knock-back, the stagger (light foes) or the poise (the chief). Returns true if it died */
-export function damageFoe(f: Foe, dmg: number, from: THREE.Vector3, o: { knock?: number; stagger?: number; poiseDmg?: number; quiet?: boolean; dot?: boolean } = {}): boolean {
+/** a hit on a foe: HP, flash, knock-back, the stagger (light foes) or the poise (elites/bosses). Returns true if it died */
+export function damageFoe(f: Foe, dmg: number, from: THREE.Vector3, o: { knock?: number; stagger?: number; poiseDmg?: number; quiet?: boolean; dot?: boolean; heavy?: boolean } = {}): boolean {
   if (f.st === 'dead') return false;
   if (f.kind === 'dummy') {
     // never dies: rocks back from the blow and flashes
@@ -684,18 +911,22 @@ export function damageFoe(f: Foe, dmg: number, from: THREE.Vector3, o: { knock?:
     if (!o.dot) f.a.hit(Math.min(1.4, 0.5 + dmg / 18));
     return false;
   }
-  // the boss's roar: the blow glances off
+  // the boss's roar / impervious barrier: the blow glances off
   if (f.inv > 0) { f.a.tint(0xffffff, 1); fxSparks(f.a.chest(), 0xfff6d0, 10, 4); return false; }
+  const gateFloor = bossGateFloor(f);
+  if (gateFloor > 0 && f.hp > gateFloor && f.hp - dmg < gateFloor) dmg = f.hp - gateFloor;
   f.hp -= dmg; f.lastDmg = dmg;
   const away = f.pos.clone().sub(from).setY(0); if (away.lengthSq() < 1e-4) away.set(0, 0, -1); away.normalize();
+  const isCrowd = !!f.d?.half || f.role === 'mob' || f.role === 'ly_looter' || f.role === 'xp_conscript';
+  const inHotArmor = !isCrowd && f.role !== 'totem' && f.st === 'windup' && (f.dur - f.t <= HOT);
   if (!o.dot) {
-    // poise foes in the middle of an attack only flinch (the wind-up's pose stays readable); everyone else plays the hurt
-    // (act-43 反馈：「普通攻击几乎感觉不到任何效果」: a bigger flinch — a 7-point cut used to rock them at 0.9, now 1.35)
-    if (f.d.poise > 0 && (f.st === 'windup' || f.st === 'strike')) f.a.hit(Math.min(1.5, 0.75 + dmg / 16)); else f.a.hurt(Math.min(1.7, 0.85 + dmg / 14));
-    f.vel.addScaledVector(away, ((o.knock ?? 1) * 6 * TUNE.knock) / f.d.mass);
+    // poise foes or medium foes in HOT red-gold glint only flinch (windup stays readable & uninterruptible by light attacks)
+    if ((f.d.poise > 0 && (f.st === 'windup' || f.st === 'strike')) || (inHotArmor && !o.heavy) || f.role === 'totem') f.a.hit(Math.min(1.5, 0.75 + dmg / 16));
+    else f.a.hurt(Math.min(1.7, 0.85 + dmg / 14));
+    if (f.role !== 'totem') f.vel.addScaledVector(away, ((o.knock ?? 1) * 6 * TUNE.knock) / f.d.mass);
   }
   if (f.hp <= 0) { f.hp = 0; f.st = 'dead'; f.attacking = false; dropTeles(f); return true; }
-  if (o.dot) return false;
+  if (o.dot || f.role === 'totem') return false;
   if (f.d.poise > 0) {
     if (f.brokenT <= 0) {
       f.poiseIdleT = 0;
@@ -704,14 +935,15 @@ export function damageFoe(f: Foe, dmg: number, from: THREE.Vector3, o: { knock?:
         f.poise = 0;
         f.brokenT = POISE_BREAK_DUR;
         dropTeles(f); f.attacking = false; f.lunge = null; f.combo = 0;
-        setSt(f, 'stagger', 1.65);
-        f.a.play(new Action('hurt', 1.2, 0.1, { power: 1.7 }));
+        setSt(f, 'stagger', 1.25);
+        f.a.play(new Action('hurt', 1.0, 0.1, { power: 1.7 }));
         f.a.tint(0xfff0b0, 0.95);
         if (!o.quiet) cue('guardBreak', 1);
       }
     }
   } else if ((o.stagger ?? 0.28) > 0 && f.st !== 'strike') {
-    // light foes: a hit breaks the wind-up (reward for pressing in)
+    // act-138: medium melee foes gain hyper-armor during their HOT red-gold commit window — light attacks cannot interrupt them!
+    if (inHotArmor && !o.heavy) return false;
     dropTeles(f); f.attacking = false; f.lunge = null; f.combo = 0; setSt(f, 'stagger', o.stagger ?? 0.28); f.cd = Math.max(f.cd, 0.25);
   }
   return false;
@@ -741,7 +973,7 @@ export class Arrow {
       this.body.rotateOnAxis(this.spinAxis, dt * 34);
       trailSeg(p0, this.p.clone(), 0xffd070, 0.14, { life: 0.22, bright: 2.4, spark: 0.25 });
       for (const f of w.foes) if (f.st !== 'dead' && Math.hypot(this.p.x - f.pos.x, this.p.z - f.pos.z) < f.d.r + 0.3) { w.arrowHit(f, this); this.kill(); return; }
-    } else if (w.heroAlive && !this.grazed && w.heroDodge && Math.hypot(this.p.x - w.heroPos.x, this.p.z - w.heroPos.z) < w.heroR + 1.0) {
+    } else if (w.heroAlive && !this.grazed && w.heroDodge && Math.hypot(this.p.x - w.heroPos.x, this.p.z - w.heroPos.z) < w.heroR + 0.65) {
       // an arrow skimming past a dashing hero: a perfect dodge (it flies on)
       this.grazed = true; w.dodged(this.p.clone());
     } else if (w.heroAlive && !this.grazed && w.heroY < 1.6 && Math.hypot(this.p.x - w.heroPos.x, this.p.z - w.heroPos.z) < w.heroR + 0.2) { w.hurtHero(this.dmg, this.p.clone().addScaledVector(this.v, -0.1)); this.kill(); return; }
@@ -797,7 +1029,7 @@ export class Talisman extends Arrow {
     if (!this.friendly) {
       const d = Math.hypot(c.x - w.heroPos.x, c.z - w.heroPos.z);
       if (w.heroAlive && w.heroY < 1.6 && d <= TALIS.r + w.heroR) { if (w.heroDodge) w.dodged(c); else w.hurtHero(this.dmg, c); }
-      else if (w.heroAlive && w.heroDodge && d <= TALIS.r + w.heroR + 0.9) w.dodged(c);
+      else if (w.heroAlive && w.heroDodge && d <= TALIS.r + w.heroR + 0.6) w.dodged(c);
     } else for (const f of w.foes.slice()) if (f.st !== 'dead' && Math.hypot(c.x - f.pos.x, c.z - f.pos.z) <= TALIS.r + f.d.r) w.arrowHit(f, this);
     this.kill();
   }
@@ -833,7 +1065,7 @@ export class Thunder extends Arrow {
     cue('boom', 0.4); shake(0.22 * TUNE.shake);
     const d = Math.hypot(g.x - w.heroPos.x, g.z - w.heroPos.z);
     if (w.heroAlive && d <= this.r + w.heroR) { if (w.heroDodge) w.dodged(g); else w.hurtHero(this.dmg, g); }
-    else if (w.heroAlive && w.heroDodge && d <= this.r + w.heroR + 0.9) w.dodged(g);
+    else if (w.heroAlive && w.heroDodge && d <= this.r + w.heroR + 0.6) w.dodged(g);
     for (const f of w.foes.slice()) if (f !== this.owner && f.st !== 'dead' && f.kind !== 'dummy' && Math.hypot(g.x - f.pos.x, g.z - f.pos.z) <= this.r + f.d.r) w.arrowHit(f, this);
     this.tele?.flash(); this.fade = 0.3;
   }

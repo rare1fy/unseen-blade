@@ -22,7 +22,7 @@ import { fxSparks, fxRing, trailSeg } from '../fx/fx';
 import { dustBlocks } from '../kyoto/ninja_fx';
 import { PIX_H } from '../v2/pix';
 import { slashArc } from './slashArc';
-import { actKey, actPad, isTouchLayout } from './pad';
+import { actKey, actPad } from './pad';
 import { msg, t as localize } from './i18n';
 import { worldToUi, type UiLayer } from '../ui3d/layer';
 import { PLAY } from '../scenes/props';
@@ -223,8 +223,7 @@ class DuelUi {
     for (let i = 0; i < n; i++) paint(this.studM!.geometry, this.studR[i], this.c.setHex(res[i] > 0 ? 0xfff0b8 : res[i] < 0 ? 0x8a2a20 : i === cur ? 0x9ab0c4 : 0x30333b));
     if (callout) {
       const dpr = this.L.dpr || 1, pk = Math.max(1, Math.round(Math.max(18, 22 * kHud) * dpr / PIX_H));
-      const tipY = isTouchLayout() ? Math.min(this.L.h - 86 * kHud, this.L.h * 0.78) : Math.min(this.L.h - 156 * kHud, this.L.h * 0.72);
-      this.L.text.set('qte.chain.tip', { text: callout, x: this.L.w * 0.5, y: tipY, pix: pk, color: hot ? '#ffffff' : '#ffe49e', outline: '#140c0a', align: 'center', visible: true });
+      this.L.text.set('qte.chain.tip', { text: callout, x: this.L.w * 0.5, y: Math.min(this.L.h - 86 * kHud, this.L.h * 0.78), pix: pk, color: hot ? '#ffffff' : '#ffe49e', outline: '#140c0a', align: 'center', visible: true });
     }
   }
   hideChain() { if (this.ring) { this.ring.visible = false; this.tgt.visible = false; this.studs!.visible = false; } this.L.text.hide('qte.chain.tip'); }
@@ -428,9 +427,9 @@ export class Duel {
   }
   private drawClashUi(h: Hero, f: Foe, rdt: number, k: number) {
     const L = this.host.L, hud = this.host.hud(), b = hud.btns.attack, dev = this.host.inp.lastDevice;
-    // act-116 / act-117: prominent centered lower-third focus (clear of top Boss HP bar, mid-screen swordplay, and bottom-center console dock)
+    // act-116 / act-117: prominent centered lower-third focus (clear of top Boss HP bar, mid-screen swordplay, and bottom-right dock)
     const len = Math.min(L.w * 0.44, 370 * hud.k);
-    const x = L.w * 0.5, y = isTouchLayout(dev) ? Math.min(L.h - 90 * hud.k, L.h * 0.77) : Math.min(L.h - 168 * hud.k, L.h * 0.69);
+    const x = L.w * 0.5, y = Math.min(L.h - 90 * hud.k, L.h * 0.77);
     const herLeft = worldToUi(h.pos).x <= worldToUi(f.pos).x;
     const btnHint = dev === 'pad' ? msg`连按 ${actPad('attack')}` : dev === 'key' ? msg`连按 ${localize(actKey('attack'))}` : '连按攻击';
     this.ui.showBar(x, y, len, this.m, herLeft, k, rdt, '拼刀 · 连按', btnHint, b.x, b.y, b.size, hud.k);
@@ -453,10 +452,10 @@ export class Duel {
     slashArc.clashCross(c, side, -0.52, 'counter', 0.2, 0.92);
     this.host.splitScreen?.(0.55);
     trailSeg(c.clone().addScaledVector(side, -0.8).add(V3(0, 0.45, 0)), c.clone().addScaledVector(side, 0.8).add(V3(0, -0.3, 0)), 0xfff2c8, 0.14, { life: 0.22, bright: 2.6, spark: 0.4 });
-    const dmg = Math.round(TUNE.relDmg * 2.4 + (isBoss(f) ? f.maxHp * 0.04 : f.maxHp * 0.08));
-    // (kind 'parry': the 破势 family — no shield or guard turns it, it breaks the guard)
-    this.host.hitFoe(f, dmg, h.pos.clone(), { knock: 2.2, heavy: true, kind: 'parry' }); this.host.feel(dir); this.dim(f);
-    if (f.st !== 'dead') { setFoeState(f, 'stagger', 1.7); f.cd = Math.max(f.cd, 2); }
+    const dmg = Math.round(TUNE.relDmg * 1.8 + (isBoss(f) ? f.maxHp * 0.06 : f.maxHp * 0.14));
+    // (act-138: kind 'clash' bypasses shield guards & awards clash trial progress without triple-dipping parry/counter multipliers)
+    this.host.hitFoe(f, dmg, h.pos.clone(), { knock: 2.2, heavy: true, kind: 'clash' }); this.host.feel(dir); this.dim(f);
+    if (f.st !== 'dead') { setFoeState(f, 'stagger', 1.45); f.cd = Math.max(f.cd, 1.8); }
     this.host.camKick(dir, 0.12 * TUNE.shake / 2); this.host.camPunch(0.07); slowmo(0.32, 0.3);
     this.gain = true; h.qi = Math.min(3, h.qi + 1);   // (杀气 +1 as the duel lets go, 气 +1 now)
   }
@@ -564,9 +563,9 @@ export class Duel {
     const c = f.a.chest(), side = V3(dir.z, 0, -dir.x);
     trailSeg(c.clone().addScaledVector(side, 0.8).add(V3(0, 0.5, 0)), c.clone().addScaledVector(side, -0.8).add(V3(0, -0.35, 0)), 0xf2f8ff, 0.14, { life: 0.25, bright: 2.6, spark: 0.4 });
     cue('guardBreak', 1); cue('swishHeavy', 1); this.host.vibrate('heavy');
-    const dmg = Math.round(TUNE.relDmg * 2.8 + (isBoss(f) ? f.maxHp * 0.05 : f.maxHp * 0.1));
-    this.host.hitFoe(f, dmg, h.pos.clone(), { knock: 2.4, heavy: true, kind: 'parry' }); this.host.feel(dir); this.dim(f);
-    if (f.st !== 'dead') { setFoeState(f, 'stagger', 1.8); f.poise = f.d.poise; f.cd = Math.max(f.cd, 2); }
+    const dmg = Math.round(TUNE.relDmg * 2.1 + (isBoss(f) ? f.maxHp * 0.08 : f.maxHp * 0.16));
+    this.host.hitFoe(f, dmg, h.pos.clone(), { knock: 2.4, heavy: true, kind: 'clash' }); this.host.feel(dir); this.dim(f);
+    if (f.st !== 'dead') { setFoeState(f, 'stagger', 1.5); f.poise = f.d.poise; f.cd = Math.max(f.cd, 1.8); }
     slowmo(0.5, 0.25); this.host.camPunch(0.1); this.gain = true;
   }
 

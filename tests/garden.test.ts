@@ -50,7 +50,7 @@ describe('act-132: 营地竹溪药圃种田系统与据点路尽头光圈', () =
     const res1 = harvestPlot(p, 1, t24);
     expect(res1?.buff).toBe('lotus');
     const mods = runMods(p);
-    expect(mods.hpBonus).toBe(25);
+    expect(mods.hpBonus).toBe(18);
     expect(mods.rerolls).toBe(2); // base 1 + lotus 1
 
     // Reclaim plot 2 with harvested herbs
@@ -59,7 +59,7 @@ describe('act-132: 营地竹溪药圃种田系统与据点路尽头光圈', () =
     expect(p.garden?.unlocked).toBe(3);
 
     // Next calendar day return triggers Sun Ao's daily seed gift
-    const nextDay = new Date(2026, 10, 22, 9, 0, 0).getTime();
+    const nextDay = Math.max(Date.now(), t24) + 2 * 86400000;
     const { dailyGift: gift2 } = ensureGarden(p, nextDay);
     expect(gift2.length).toBeGreaterThan(0);
 

@@ -6,13 +6,13 @@ export const TUNE = {
   // 主角
   heroSpeed: 5.4,        // 跑速 m/s
   heroAccel: 42,         // 起步 / 转向的跟手程度（越大越跟手）
-  dashDist: 3.6, dashTime: 0.2, dashCd: 0.48, dashIframe: 0.24,
+  dashDist: 3.6, dashTime: 0.2, dashCd: 0.58, dashIframe: 0.19,
   /** 五段连斩每一刀的时长（秒：横斩、反撩、回身旋斩、连刺、跃起重劈）；整体再乘 atkSpeed 的倒数 */
   // 11-16 用户：「攻击动作有点太快了」「攻击的动作频率还是有点太高了」→ 每刀加长，且要做完 chainAt 才接下一刀
   // 11-18 用户：「现在一招一式节奏都差不多」→ 快、快、蓄、连、重：每刀的时间按 hero.ts CUT_T 重新分配（起手先慢后快、两三帧砍到、
   // 停住、慢收），下一刀从「这一刀停完」开始接（不再一律做完 75%）；这里只是每刀的总长
-  // 11-20 (act-109 去黏手): atkSpeed 0.8 → 0.92, dashCd 0.6 → 0.48，保留快慢反差但整体更干脆跟手
-  k1: 0.46, k2: 0.46, k3: 0.62, k4: 0.58, k5: 0.88, atkSpeed: 0.92,
+  // 11-21 (act-138 哈迪斯节奏重构): atkSpeed 0.92 → 0.84, dashCd 0.48 → 0.58, dashIframe 0.24 → 0.19，告别鬼畜攻速与无限翻滚无敌
+  k1: 0.46, k2: 0.46, k3: 0.62, k4: 0.58, k5: 0.88, atkSpeed: 0.84,
   atkRange: 1.95, atkDmg: 6, finDmg: 18,
   /** 出刀往前冲（米，各段再乘自己的倍数：横斩 1、反撩 0.8、旋斩 0.4、连刺 1.2、重劈 1.5）；前面有敌人时冲到离它多远停下（米） */
   atkLunge: 0.6, lungeStop: 0.7,
@@ -38,7 +38,7 @@ export const TUNE = {
   jumpH: 1.3, jumpT: 0.55, plungeDmg: 12, plungeR: 2.1,
   /** 二段跳（11-16 用户「要有二段跳！」）：空中再按跳，再往上蹿多高（米），带一个前空翻 */
   jump2H: 1.8,   // act-14 用户「二段跳高度不够」：1.0 → 1.8
-  heroHp: 100, hurtIframe: 0.75,
+  heroHp: 100, hurtIframe: 0.55,
   // 打击感
   hitstop: 1.5, shake: 2.5, knock: 1,
   /** 砍飞箭那一下：顿帧（秒）、之后慢放多久（秒）、弹回去的伤害 */
@@ -46,17 +46,17 @@ export const TUNE = {
   /** 砍箭窗口（秒）：每一刀从命中前 0.1 秒起，刀挡箭这么久（act-07 用户：「砍箭的反馈窗口太短了」） */
   deflectWin: 0.35,
   /** 完美闪避（冲刺无敌时躲过一记会打中的攻击，或跳过低招）：慢放多久（秒）；奖励「反击」持续多久（秒）、下一刀伤害倍数 */
-  dodgeSlow: 0.45, counterTime: 2, counterMul: 2,
+  dodgeSlow: 0.35, counterTime: 2, counterMul: 1.6,
   /** 居合 · 见切（act-09 用户：「居合那种招数，按住，看准时机出招霸体反弹」）：松手抽刀后多久之内挨打算见切（秒）、反弹给出手者的伤害 */
-  iaiWin: 0.25, iaiReflect: 20,
-  /** 绝 · 一刀（杀意满三格后随时可放，完美闪避 / 见切 / 破防时亦弹出慢放 QTE）：金环收拢用多久（真实秒）、一刀的伤害 */
-  qteTime: 1.45, ultDmg: 60,
+  iaiWin: 0.25, iaiReflect: 18,
+  /** 绝 · 一刀（杀意满三格后随时可放，完美闪避 / 见切 / 破防时亦弹出慢放 QTE）：金环收拢用多久（真实秒）、一刀的基础伤害 */
+  qteTime: 1.45, ultDmg: 52,
   /** 11-18 / act-125 QTE：拼刀——定胜负的时长（秒）、点一下推多少（满格 = 1）、对方每秒往回压多少；连环破势——接招判定窗口（± 秒） */
   clashTime: 2.8, clashPush: 0.145, clashElite: 0.34, clashBoss: 0.58, chainWin: 0.2, qteCamD: 9.5, qteCamH: 3.3,
   // 敌人
-  enemyHp: 1, enemyDmg: 1, aggression: 0.85,   // act-20: windups ~18% longer
-  /** act-118: brisker melee cadence (0.78s calm) + up to 2 coordinated attackers so packs pressure & flank instead of idling single-file */
-  atkCalm: 0.78,
+  enemyHp: 1, enemyDmg: 1, aggression: 0.95,   // act-138: crisp Hades-pace windups (0.85 → 0.95)
+  /** act-138: tighter melee cadence (0.62s base calm, scales down to 0.28s by Act 5) + 2→4 coordinated attackers */
+  atkCalm: 0.62,
   /** 同时出手的敌人上限（读得清，像哈迪斯） */
   maxAttackers: 2,
   /** 摇杆：0 = 左下区域里按哪儿出在哪儿（之后底座不动），1 = 固定在左下角 */

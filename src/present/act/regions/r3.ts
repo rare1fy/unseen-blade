@@ -30,6 +30,10 @@ export function waves3(type: RoomType, depth: number, r: Rnd): string[][] {
   ];
   const w1 = [pick(NEAR, r), 'xp_chain', pick(FAR, r), 'xp_conscript', 'xp_conscript'];
   const w2 = [depth >= 3 ? pick(['xp_assassin', 'xp_chain', 'xp_diver'], r) + '*' : pick(NEAR, r), pick(NEAR, r), pick(FAR, r), pick(FAR, r), 'xp_conscript'];
+  if (depth >= 5) {
+    const w3 = [pick(['xp_chain', 'xp_assassin'], r) + '*', 'xp_diver', 'xp_frost', 'xp_needle'];
+    return [w1, w2, w3];
+  }
   return [w1, w2];
 }
 /** 白门楼: the jailers and the needles first, then 封鸩 with an assassin & conscript */
@@ -37,7 +41,7 @@ const BOSS_WAVES_3 = [['xp_chain', 'xp_needle', 'xp_frost', 'xp_diver', 'xp_cons
 
 export const REGION_3: RegionDef = {
   id: 'r3_xiapi', name: '下邳寒沼', tag: '泗水灌城，冬雾浸骨',
-  locales: ['xp_lane', 'xp_wall'], bossLocale: 'xp_gate', rooms: 5,
+  locales: ['xp_lane', 'xp_wall'], bossLocale: 'xp_gate', rooms: 7,
   waves: waves3, bossWaves: BOSS_WAVES_3, boss: 'xp_boss',
   // always winter; the weather from the places' own list (mist / snow / clear)
   spec: { season: 'winter' },

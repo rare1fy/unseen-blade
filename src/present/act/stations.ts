@@ -178,7 +178,7 @@ export class Stations {
   /** 行商: 4 stalls in a staggered chevron + visible 3D Traveling Merchant NPC behind the center gap */
   shop(prices: { boon: number; heal: number; sharpen: number; vigor?: number; reroll?: number; satchel?: number }, special: ShopSpecial = 'vigor') {
     this.add('buy_boon', '秘卷', '秘传', '三选一习得新秘传强化', 'scroll', prices.boon, V3(-3.5, 0, 0.45), stall('scroll'), true, -1);
-    this.add('buy_heal', '金疮药', '回血', '立刻恢复 45% 气血', 'heal', prices.heal, V3(-1.35, 0, -1.95), stall('gourd'), true, -1);
+    this.add('buy_heal', '金疮药', '回血', '立刻恢复 30% 气血', 'heal', prices.heal, V3(-1.35, 0, -1.95), stall('gourd'), true, -1);
     this.add('buy_sharpen', '青砥石', '升阶', '挑一张已得秘传提升品阶', 'forge', prices.sharpen, V3(1.65, 0, -1.95), stall('stone'), true, 1);
     if (special === 'reroll') this.add('buy_reroll', '重铸骰', '重随+2', '本局选牌重随次数 +2', 'scroll', prices.reroll ?? 40, V3(3.6, 0, 0.45), stall('die'), true, 1);
     else if (special === 'satchel') this.add('buy_satchel', '铁药囊', '残铁药引', '立刻获得 残铁+10 与 药引+10', 'iron', prices.satchel ?? 45, V3(3.6, 0, 0.45), stall('satchel'), true, 1);
@@ -201,7 +201,7 @@ export class Stations {
   /** 歇脚: a campfire with 3 tactical choices — 裹伤调息 (heal), 焚香蓄锐 (qi+intent+meta), or 寒石砺刃 (sharpen) — taking one puts the rest out */
   rest() {
     const f = campfire(); f.position.set(this.centre[0], 0, this.centre[1] - 2.6); this.root.add(f); this.fires.push(f);
-    this.add('rest_heal', '裹伤调息', '回血', '免费恢复 45% 气血（三选一）', 'heal', 0, V3(-3.0, 0, -0.4), new THREE.Group(), true);
+    this.add('rest_heal', '裹伤调息', '回血', '免费恢复 30% 气血（三选一）', 'heal', 0, V3(-3.0, 0, -0.4), new THREE.Group(), true);
     const cen = new THREE.Group(), cw = wareModel('censer'); cw.scale.setScalar(1.3); cen.add(cw); cen.userData.ware = cw; cen.userData.wareY = 0;
     this.add('rest_meditate', '焚香蓄锐', '满气·残铁', '满气 +2杀气，另得残铁+8 药引+6', 'iron', 0, V3(0, 0, 0.35), cen, true);
     this.add('rest_sharpen', '寒石砺刃', '升阶', '免费挑一张已得秘传提升品阶', 'forge', 0, V3(3.0, 0, -0.4), stall('stone'), true);

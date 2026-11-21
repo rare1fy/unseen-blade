@@ -6,14 +6,17 @@ import { EDEFS, type EKind } from './enemy';
 import { LOCALES } from '../asm/registry';
 import { REGIONS } from './regions';
 import type { RegionDef } from './regionDef';
+import type { Archetype } from './boons';
+
+const ARCHS: readonly Archetype[] = ['blood', 'poise', 'shadow', 'gale'];
 
 export type RoomType = 'fight' | 'elite' | 'shop' | 'rest' | 'boon' | 'event' | 'boss';
-export type Reward = { k: 'boon' } | { k: 'coins'; n: number } | { k: 'heal' } | { k: 'manual' } | null;
+export type Reward = { k: 'boon'; arch?: Archetype } | { k: 'coins'; n: number } | { k: 'heal' } | { k: 'manual' } | { k: 'maxHp'; n: number } | { k: 'meta'; iron: number; herb: number } | null;
 /** one room of the run: what it is, where, what clearing it gives, the waves ('kind*' = the elite of that kind); region = which 关 (0 起) */
 export interface RoomPlan { type: RoomType; locale: string; reward: Reward; waves: string[][]; region?: number }
 
-/** the rooms of region one, the boss room included (the other regions: REGIONS[i].rooms + 1) */
-export const RUN_ROOMS = 6;
+/** the rooms of region one, the boss room included (act-152: 7 pre-boss + 1 boss = 8 rooms per region) */
+export const RUN_ROOMS = 8;
 /** names on the route boards and in the room banner (agy) — region one's */
 export const ROOM_INFO: Record<RoomType, { name: string; line: string }> = {
   fight: { name: '乱兵', line: '杀退拦路黄巾贼' },
@@ -58,50 +61,65 @@ export function wavesFor(type: RoomType, depth: number, r: Rnd, ri = 0): string[
   if (type === 'boss') return R.bossWaves.map(w => [...w]);
   return R.waves(type, depth, r);
 }
-/** 11-18 (用户：「我打了半天了还没个新招，一直在给我加数值」): 刀谱 come much more often — every 死士 room gives one, a 乱兵 room about
- *  three times in ten (the rest a boon / coins / a heal), the 遗卷 altar as before; with the first room's one a run sees about 3–4. When
- *  every 刀谱 is learnt, show.ts falls back to a boon (manualPick) */
-function rewardFor(type: RoomType, r: Rnd): Reward {
+/** act-152 哈迪斯2强化节奏: 刀谱整局严控 2~3 本；秘传门直接标明流派（血刃/破势/影镖/凌空），过门前一目了然！ */
+function pickArch(r: Rnd, exclude?: Archetype): Archetype {
+  const pool = exclude ? ARCHS.filter(a => a !== exclude) : ARCHS;
+  return pool[Math.floor(r() * pool.length) % pool.length];
+}
+function rewardFor(type: RoomType, r: Rnd, ri = 0): Reward {
   if (type !== 'fight' && type !== 'elite') return null;
+  if (type === 'elite') return { k: 'boon', arch: pickArch(r) };
   const x = r();
-  if (type === 'elite') return { k: 'manual' };
-  return x < 0.3 ? { k: 'manual' } : x < 0.72 ? { k: 'boon' } : x < 0.88 ? { k: 'coins', n: 50 } : { k: 'heal' };
+  if (x < 0.36) return { k: 'boon', arch: pickArch(r) };
+  if (x < 0.62) return { k: 'coins', n: 45 + ri * 10 };
+  if (x < 0.80) return { k: 'maxHp', n: 12 };
+  if (x < 0.92) return { k: 'meta', iron: 8 + ri * 3, herb: 8 + ri * 3 };
+  return { k: 'heal' };
 }
 function placeFor(type: RoomType, r: Rnd, ri = 0) {
   const R = regionAt(ri);
   return type === 'boss' ? R.bossLocale : type === 'fight' || type === 'elite' ? pick(R.locales, r) : R.locales[0];
 }
 export function roomOf(type: RoomType, depth: number, r: Rnd, ri = 0): RoomPlan {
-  return { type, locale: placeOr(placeFor(type, r, ri)), reward: rewardFor(type, r), waves: wavesFor(type, depth, r, ri), region: ri };
+  return { type, locale: placeOr(placeFor(type, r, ri)), reward: rewardFor(type, r, ri), waves: wavesFor(type, depth, r, ri), region: ri };
 }
-/** the first room of a run: a fight in the village, then a 刀谱 (11-18: a new move straight away, not a number) */
+/** the first room of a run: a fight in the village, then Weapon Manual #1 */
 export function firstRoom(r: Rnd): RoomPlan { const p = roomOf('fight', 0, r); p.locale = placeOr('hj_village'); p.reward = { k: 'manual' }; return p; }
-/** 11-18: the first room of region `ri` (a later one, after its boss fell): a fight in its first place, a boon for it (as firstRoom) */
+/** 11-18 / act-152: the first room of region `ri` — Region 3 (mid-run) grants Manual #2; others grant an archetype boon */
 export function regionFirstRoom(ri: number, r: Rnd): RoomPlan {
   if (ri <= 0) return firstRoom(r);
-  const p = roomOf('fight', 0, r, ri); p.locale = placeOr(regionAt(ri).locales[0]); p.reward = { k: 'boon' }; return p;
+  const p = roomOf('fight', 0, r, ri); p.locale = placeOr(regionAt(ri).locales[0]); p.reward = ri === 2 ? { k: 'manual' } : { k: 'boon', arch: pickArch(r) }; return p;
 }
 
-/** the roads out of room `from` (0-based, within region `ri`): two different kinds of room, or the one road to the boss before the last room.
- *  visited = the kinds of room seen in this region, in travel order, the current room last (show.ts pushes it before asking). No two
- *  shops or two rests in a region; leaving a rest, a shop or a 遗卷 both roads lead to a fight (11-18 用户：「刚去篝火然后下一个节点又是
- *  非战斗节点」— the user's own Codex fix, carried over from the main checkout); from a combat room the last fork before the boss offers
- *  a rest or a shop if neither was visited. After the boss: [] (flow.ts goes on into the next region). */
+/** Ensure two combat doors at a fork offer visibly distinct rewards/archetypes (like Hades 2 route planning). */
+function distinctFork(pair: RoomPlan[], r: Rnd): RoomPlan[] {
+  if (pair.length < 2) return pair;
+  const [p0, p1] = pair;
+  if (p0.reward?.k === 'boon' && p1.reward?.k === 'boon' && p0.reward.arch && p0.reward.arch === p1.reward.arch) {
+    p1.reward = { k: 'boon', arch: pickArch(r, p0.reward.arch) };
+  }
+  return pair;
+}
+
 export function doorsFrom(from: number, visited: RoomType[], r: Rnd, ri = 0): RoomPlan[] {
   const next = from + 1, N = regionRooms(ri);
   if (next >= N) return [];
   if (next === N - 1) return [roomOf('boss', next, r, ri)];
   const current = visited[visited.length - 1];
   if (current === 'rest' || current === 'shop' || current === 'boon' || current === 'event') {
-    // Keep the usual 3:1.5 odds for which combat room appears on the left.
     const fightFirst = r() < 2 / 3;
-    return [roomOf(fightFirst ? 'fight' : 'elite', next, r, ri), roomOf(fightFirst ? 'elite' : 'fight', next, r, ri)];
+    return distinctFork([roomOf(fightFirst ? 'fight' : 'elite', next, r, ri), roomOf(fightFirst ? 'elite' : 'fight', next, r, ri)], r);
   }
   // act-147: Four Generals ('event') encounters removed from runs (user: 玩法走过场、先拿掉)
-  const w: Array<[RoomType, number]> = [['fight', 3], ['elite', next >= 2 ? 1.5 : 0], ['shop', next >= 2 && !visited.includes('shop') ? 1 : 0], ['rest', next >= 2 && !visited.includes('rest') ? 1 : 0], ['boon', 1]];
-  const draw = (not?: RoomType) => { const ws = w.filter(([t]) => t !== not), tot = ws.reduce((s, [, n]) => s + n, 0); let x = r() * tot; for (const [t, n] of ws) { x -= n; if (x <= 0 && n > 0) return t; } return ws.find(([, n]) => n > 0)![0]; };
+  const w: Array<[RoomType, number]> = [
+    ['fight', 3.2],
+    ['elite', next >= 1 ? 1.4 : 0],
+    ['shop', next >= 2 && !visited.includes('shop') ? 1 : 0],
+    ['rest', next >= 3 && !visited.includes('rest') ? 0.9 : 0],
+    ['boon', next >= 1 && !visited.includes('boon') ? 0.75 : 0],
+  ];
+  const draw = (not?: RoomType): RoomType => { const ws = w.filter(([t]) => t !== not), tot = ws.reduce((s, [, n]) => s + n, 0); let x = r() * tot; for (const [t, n] of ws) { x -= n; if (x <= 0 && n > 0) return t; } return ws.find(([, n]) => n > 0)?.[0] ?? 'fight'; };
   const a = draw(); let b = draw(a);
-  // the last choice before the boss: a breather if the region had none
   if (next === N - 2 && !visited.includes('shop') && !visited.includes('rest') && a !== 'shop' && a !== 'rest') b = r() < 0.5 ? 'rest' : 'shop';
-  return [roomOf(a, next, r, ri), roomOf(b, next, r, ri)];
+  return distinctFork([roomOf(a, next, r, ri), roomOf(b, next, r, ri)], r);
 }

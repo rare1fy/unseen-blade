@@ -10,7 +10,7 @@ const MID = ['wl_chain', 'wl_oil', 'wl_xbow', 'wl_diver'];
 
 export const REGION_4: RegionDef = {
   id: 'r4_wulin', name: '锁江', tag: '铁索连环，一江火',
-  locales: ['wl_dock', 'wl_camp'], bossLocale: 'wl_tower', rooms: 5,
+  locales: ['wl_dock', 'wl_camp'], bossLocale: 'wl_tower', rooms: 7,
   waves(type: RoomType, depth: number, r: () => number): string[][] {
     if (type === 'elite') {
       const head = pick(['wl_chain', 'wl_shield', 'wl_xbow', 'wl_diver'], r) + '*';
@@ -31,6 +31,10 @@ export const REGION_4: RegionDef = {
     ];
     const w1 = ['wl_shield', pick(MID, r), pick(MID, r), 'wl_spear', 'wl_spear'];
     const w2 = [pick(MID, r) + '*', 'wl_shield', 'wl_xbow', pick(['wl_oil', 'wl_diver', 'wl_chain'], r), ...(depth >= 3 ? ['wl_xbow'] : ['wl_spear'])];
+    if (depth >= 5) {
+      const w3 = ['wl_shield*', pick(MID, r), 'wl_xbow', 'wl_oil'];
+      return [w1, w2, w3];
+    }
     return [w1, w2];
   },
   // the deck's guard first, then 周黯 with his crew (he calls his shield-bearers in himself)

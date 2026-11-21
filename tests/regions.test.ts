@@ -31,9 +31,9 @@ describe('一局五关', () => {
     expect(new Set(REGIONS.map(r => r.id)).size).toBe(REGIONS.length);
     for (const r of REGIONS) { expect(r.locales.length).toBeGreaterThanOrEqual(2); expect(r.locales).not.toContain(r.bossLocale); expect(r.rooms).toBeGreaterThanOrEqual(3); }
   });
-  it('第一关和原来一样：6 间（5 间 + 渠帅），头目是黄巾渠帅', () => {
-    expect(roomsIn(0)).toBe(RUN_ROOMS); expect(REGION_1.boss).toBe('hj_boss'); expect(REGION_1.bossLocale).toBe('hj_temple');
-    expect(isBossRoom(0, 5)).toBe(true); expect(isBossRoom(0, 4)).toBe(false);
+  it('第一关扩充至 8 间（7 间 + 渠帅），头目是黄巾渠帅', () => {
+    expect(roomsIn(0)).toBe(RUN_ROOMS); expect(RUN_ROOMS).toBe(8); expect(REGION_1.boss).toBe('hj_boss'); expect(REGION_1.bossLocale).toBe('hj_temple');
+    expect(isBossRoom(0, 7)).toBe(true); expect(isBossRoom(0, 6)).toBe(false);
     expect(roomInfo('boss', 0).name).toBe('首领'); expect(roomInfo('fight', 0).line).toBe('杀退拦路黄巾贼');
   });
   it('每关的头目是头目、头目间里有它，每种兵都登记了（模型合进来以后）', () => {
@@ -78,14 +78,15 @@ describe('一局五关', () => {
     expect(regionBanner(1)).toEqual({ title: '洛阳余烬', sub: '焦柱生烟，烈火铸钱' });
   });
   it('局外货币：第 n 关的一间算 n 间', () => {
+    const r0 = roomsIn(0), r1 = roomsIn(1);
     expect(roomsWorth(0, 0)).toBe(0); expect(roomsWorth(0, 3)).toBe(3);
-    expect(roomsWorth(1, 2)).toBe(6 + 2 * 2);
-    expect(roomsWorth(2, 2)).toBe(6 + 6 * 2 + 2 * 3);
+    expect(roomsWorth(1, 2)).toBe(r0 + 2 * 2);
+    expect(roomsWorth(2, 2)).toBe(r0 + r1 * 2 + 2 * 3);
     const last = REGIONS.length - 1, all = REGIONS.reduce((n, _r, i) => n + roomsIn(i) * (i + 1), 0);
     expect(roomsWorth(last, roomsIn(last) - 1, true)).toBe(all);
   });
-  it('难度：第一关不变，后面逐关加码', () => {
-    expect(regionScale(0)).toEqual({ hp: 1, dmg: 1, quick: 1, calm: -0, attackers: 1 });
+  it('难度：按哈迪斯2曲线逐关加码', () => {
+    expect(regionScale(0)).toEqual({ hp: 1.15, dmg: 1.25, quick: 1, calm: 0, attackers: 2 });
     for (let i = 1; i < 5; i++) { const a = regionScale(i - 1), b = regionScale(i); expect(b.hp).toBeGreaterThan(a.hp); expect(b.dmg).toBeGreaterThan(a.dmg); expect(b.quick).toBeGreaterThan(a.quick); expect(b.calm).toBeLessThan(a.calm); expect(b.attackers).toBeGreaterThanOrEqual(a.attackers); }
   });
   it('各关头目间路牌统一写作「首领」，不提前剧透具体身份', () => {

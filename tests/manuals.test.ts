@@ -1,7 +1,8 @@
 // 刀谱 (manuals.ts): the twelve moves' shared fields — the presses (how / air) the card face and the demonstration draw, the one-line
 // effect (≤ 20 characters, no presses written into it), a 断云 that only comes after 挑云 — and their voxel models on the buttons.
 import { describe, it, expect } from 'vitest';
-import { MANUALS, ALL_MOVES, drawManuals } from '../src/present/act/manuals';
+import { MANUALS, ALL_MOVES, drawManuals, manualsForWeapon, weaponMoves } from '../src/present/act/manuals';
+import { WEAPON_ORDER } from '../src/present/act/weapons';
 import FONT from '../ui/font.js';
 import { LINK_COLORS, MANUAL_HINT, type LinkIcon } from '../src/present/act/skillInfo';
 import { skillIcon3D } from '../src/present/act/skillIcons';
@@ -29,6 +30,23 @@ describe('刀谱', () => {
     const always = () => 0.5;
     expect(drawManuals({}, 12, always).map(m => m.id)).not.toContain('acut');
     expect(drawManuals({ launch: true }, 12, always).map(m => m.id)).toContain('acut');
+  });
+  it('按四把名刀分池：每把刀 4 本专属刀谱，全部 12 本均有归属且单武器不超载', () => {
+    const always = () => 0.5;
+    const covered = new Set<string>();
+    for (const wid of WEAPON_ORDER) {
+      const own = manualsForWeapon(wid);
+      expect(own, wid).toHaveLength(4);
+      for (const m of own) covered.add(m.id);
+      const firstDraw = drawManuals({}, 3, always, wid);
+      expect(firstDraw, wid).toHaveLength(3);
+      expect(firstDraw.every(m => m.weapons.includes(wid)), wid).toBe(true);
+      expect(Object.keys(weaponMoves(wid))).toHaveLength(4);
+    }
+    expect(covered.size).toBe(12);
+    // 霜鳞短刃独占全部飞镖系派生；寒山旧刀拥有挑云/断云而不混入飞镖派生
+    expect(manualsForWeapon('frost').map(m => m.id).sort()).toEqual(['backDart', 'chase', 'cutDart', 'reel']);
+    expect(manualsForWeapon('hanshan').map(m => m.id).sort()).toEqual(['acut', 'dbl', 'keep', 'launch']);
   });
   it('四招各有按钮提示图标和颜色，前三次能接时慢放', () => {
     const show = SRC['src/present/act/show.ts'];

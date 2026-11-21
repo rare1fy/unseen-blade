@@ -61,24 +61,24 @@ describe('hideout upgrades', () => {
     expect(buyMirror(p, 'edge')).toBe(true);
     expect(p.iron).toBe(18);
     expect(mirrorState(p, 'edge')).toEqual({ lv: 1, side: 0 });
-    expect(runMods(p).firstStrikeBonus).toBeCloseTo(0.25, 5);
+    expect(runMods(p).firstStrikeBonus).toBeCloseTo(0.20, 5);
     expect(runMods(p).styleBonus).toBe(0);
     // free flip to Yin side shares the upgraded rank immediately
     expect(flipMirror(p, 'edge')).toBe(1);
     expect(p.iron).toBe(18);
     expect(runMods(p).firstStrikeBonus).toBe(0);
-    expect(runMods(p).styleBonus).toBeCloseTo(0.10, 5);
+    expect(runMods(p).styleBonus).toBeCloseTo(0.05, 5);
     // upgrade Lv2 while on Yin side
     expect(buyMirror(p, 'edge')).toBe(true);
     expect(p.iron).toBe(0);
-    expect(runMods(p).styleBonus).toBeCloseTo(0.18, 5);
+    expect(runMods(p).styleBonus).toBeCloseTo(0.09, 5);
   });
 
   it('turns a mixed set of purchases into run modifiers', () => {
     const p = fresh();
     expect(runMods(p)).toMatchObject({ dmgMul: 1, critBonus: 0, dartBonus: 0, rerolls: 1, hpBonus: 0, deathDefy: 0, startIntent: 0, windupMul: 1, startManual: false, poiseHeal: 0 });
     p.perks = { blade: 2, darts: 1, reroll: 2, manual: 1, vigor: 3, breath: 1, intent: 1, leech: 2, ear: 2 };
-    expect(runMods(p)).toMatchObject({ dmgMul: 1.24, critBonus: 0.08, dartBonus: 1, rerolls: 3, hpBonus: 60, deathDefy: 1, startIntent: 1, windupMul: 1.2, startManual: true, poiseHeal: 10 });
+    expect(runMods(p)).toMatchObject({ dmgMul: 1.16, critBonus: 0.06, dartBonus: 1, rerolls: 3, hpBonus: 36, deathDefy: 1, startIntent: 1, windupMul: 1.12, startManual: true, poiseHeal: 6 });
   });
 
   it('supports Hades-2-style 3×3 药炉悟性牌阵 (Grasp cap, free toggle, 0-grasp center Awakening, refine & expand)', () => {
@@ -91,18 +91,18 @@ describe('hideout upgrades', () => {
     expect(toggleArcana(p, 'vigor')).toBe('on');
     expect(toggleArcana(p, 'ear')).toBe('on');
     expect(arcanaUsed(p)).toBe(3);
-    expect(runMods(p).hpBonus).toBe(20);
-    expect(runMods(p).windupMul).toBeCloseTo(1.1, 5);
+    expect(runMods(p).hpBonus).toBe(12);
+    expect(runMods(p).windupMul).toBeCloseTo(1.06, 5);
     // Unlock center 0-grasp Awakening card + 3rd card wind(1) -> center auto-awakens!
     expect(unlockArcana(p, 'center')).toBe(true);
     expect(isArcanaActive(p, 'center')).toBe(false);
     expect(unlockArcana(p, 'wind')).toBe(true);
     expect(isArcanaActive(p, 'wind')).toBe(true);
     expect(isArcanaActive(p, 'center')).toBe(true);
-    expect(runMods(p).dmgMul).toBeCloseTo(1.12, 5);
+    expect(runMods(p).dmgMul).toBeCloseTo(1.08, 5);
     // Refine vigor rank 1 -> 2 and expand Grasp 6 -> 8
     expect(upgradeArcana(p, 'vigor')).toBe(true);
-    expect(runMods(p).hpBonus).toBe(35);
+    expect(runMods(p).hpBonus).toBe(24);
     expect(expandArcanaCap(p)).toBe(true);
     expect(arcanaCap(p)).toBe(8);
   });

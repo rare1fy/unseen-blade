@@ -9,7 +9,7 @@ const MID = ['cx_sword', 'cx_shade', 'cx_guard', 'cx_zhu'];
 
 export const REGION_5: RegionDef = {
   id: 'r5_cui', name: '许都雪', tag: '深宅落子，听刀鸣',
-  locales: ['cx_court', 'cx_gallery'], bossLocale: 'cx_vault', rooms: 5,
+  locales: ['cx_court', 'cx_gallery'], bossLocale: 'cx_vault', rooms: 7,
   waves(type: RoomType, depth: number, r: () => number): string[][] {
     if (type === 'elite') {
       const head = pick(['cx_sword', 'cx_shade', 'cx_guard', 'cx_zhu'], r) + '*';
@@ -30,6 +30,10 @@ export const REGION_5: RegionDef = {
     ];
     const w1 = ['cx_guard', 'cx_sword', pick(MID, r), 'cx_club', 'cx_club'];
     const w2 = [pick(MID, r) + '*', 'cx_zhu', 'cx_guard', 'cx_shade', ...(depth >= 3 ? ['cx_sword*'] : ['cx_sword'])];
+    if (depth >= 5) {
+      const w3 = ['cx_guard*', 'cx_sword*', 'cx_zhu', 'cx_shade'];
+      return [w1, w2, w3];
+    }
     return [w1, w2];
   },
   // his household first (the guard, swordsmen and zither player), then 崔玄 alone (he calls the rest himself)

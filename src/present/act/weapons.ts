@@ -115,9 +115,9 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     parryWinMul: 1,
     pal: { light: 'thunder_light', heavy: 'thunder_heavy', iai: 'thunder_heavy' },
     cuts: [
-      { pose: 'k1', durMul: 1.24, dmgMul: 1.42, rangeAdd: 0.62, halfMul: 1.22, knockMul: 1.55, lungeMul: 0.92, poiseMul: 1.5, qiMul: 1.25, heavy: false },
-      { pose: 'k2', durMul: 1.26, dmgMul: 1.55, rangeAdd: 0.72, halfMul: 1.28, knockMul: 1.75, lungeMul: 1.0, poiseMul: 1.75, qiMul: 1.35, heavy: true },
-      { pose: 'k5', durMul: 1.15, dmgMul: 1.62, rangeAdd: 0.85, halfMul: 1.32, knockMul: 2.35, lungeMul: 1.25, poiseMul: 2.25, qiMul: 1.55, heavy: true, hyperArmor: true },
+      { pose: 'k1', durMul: 1.24, dmgMul: 1.28, rangeAdd: 0.62, halfMul: 1.22, knockMul: 1.55, lungeMul: 0.92, poiseMul: 1.35, qiMul: 1.2, heavy: false },
+      { pose: 'k2', durMul: 1.26, dmgMul: 1.38, rangeAdd: 0.72, halfMul: 1.28, knockMul: 1.75, lungeMul: 1.0, poiseMul: 1.55, qiMul: 1.3, heavy: true },
+      { pose: 'k5', durMul: 1.15, dmgMul: 1.48, rangeAdd: 0.85, halfMul: 1.32, knockMul: 2.35, lungeMul: 1.25, poiseMul: 1.85, qiMul: 1.45, heavy: true, hyperArmor: true },
     ],
   },
   frost: {

@@ -224,25 +224,25 @@ export class ActHud {
     this.layoutTouch = touch;
     const b = this.btns;
     if (touch) {
-      // Mobile touch mode: bottom-right thumb arc round the big cut button + permanent upper-arc ult slot + bottom-left virtual joystick
+      // Mobile touch mode: bottom-right thumb arc round the big cut button + QTE-only ult pop-in + bottom-left virtual joystick
       if (b.attack instanceof IronBtn) { b.attack.badgeSide = 1; b.attack.pipArc = [1.25, 0.38]; b.attack.pipR = 0.6; }
       b.attack.size = 150 * k; b.dash.size = 100 * k; b.special.size = 100 * k; b.jump.size = 100 * k;
       b.attack.x = W - 150 * k; b.attack.y = H - 140 * k;
       b.dash.x = W - 300 * k; b.dash.y = H - 92 * k;
       b.jump.x = W - 292 * k; b.jump.y = H - 238 * k;
       b.special.x = W - 150 * k; b.special.y = H - 300 * k;
-      b.ult.size = 90 * k; b.ult.x = W - 274 * k; b.ult.y = H - 372 * k;
+      b.ult.size = 136 * k; b.ult.x = W - 252 * k; b.ult.y = H - 246 * k;
     } else {
-      // Console / PC mode: NO virtual joystick, 5-medallion forged-iron horizontal skill dock centered at bottom (including permanent 不见刀 slot!)
+      // Console / PC mode: NO virtual joystick, 4-medallion forged-iron horizontal skill dock centered at bottom; 不见刀 pops above ONLY during QTE!
       const cx = W * 0.5, dockY = H - 80 * k, step = 96 * k;
       if (b.attack instanceof IronBtn) { b.attack.badgeSide = 1; b.attack.pipArc = [0, 0.42]; b.attack.pipR = 0.66; }
-      b.attack.size = 68 * k; b.dash.size = 58 * k; b.jump.size = 58 * k; b.special.size = 58 * k; b.ult.size = 66 * k;
-      b.attack.x = cx - 2.0 * step; b.attack.y = dockY - 3 * k;
-      b.dash.x = cx - 1.0 * step; b.dash.y = dockY;
-      b.jump.x = cx + 0.0 * step; b.jump.y = dockY;
-      b.special.x = cx + 1.0 * step; b.special.y = dockY;
-      b.ult.x = cx + 2.0 * step; b.ult.y = dockY - 3 * k;
-      this.dockGeom = { x: cx, y: dockY + 2 * k, w: step * 4.85, h: 52 * k };
+      b.attack.size = 68 * k; b.dash.size = 58 * k; b.jump.size = 58 * k; b.special.size = 58 * k; b.ult.size = 92 * k;
+      b.attack.x = cx - 1.5 * step; b.attack.y = dockY - 3 * k;
+      b.dash.x = cx - 0.5 * step; b.dash.y = dockY;
+      b.jump.x = cx + 0.5 * step; b.jump.y = dockY;
+      b.special.x = cx + 1.5 * step; b.special.y = dockY;
+      b.ult.x = cx; b.ult.y = dockY - 82 * k;
+      this.dockGeom = { x: cx, y: dockY + 2 * k, w: step * 3.85, h: 52 * k };
     }
     // (the laid-out places: the 不见刀 button's coming in moves the others from here, see makeWay)
     for (const n of Object.keys(b) as BtnName[]) this.home[n] = { x: b[n].x, y: b[n].y, size: b[n].size };
@@ -250,13 +250,8 @@ export class ActHud {
   private pausePid: number | null = null;
   /** the portrait was let go over (show.ts opens the menu) */
   onPause: (() => void) | null = null;
-  /** 11-18 (用户：「暂停按钮不要了，点头像暂停。」): the portrait medallion (and the purse hung under it) is the pause button now;
-   *  in console/PC mode the top-right Esc/Menu hint pill is clickable too */
+  /** 11-18 (用户：「暂停按钮不要了，点头像暂停。」): the portrait medallion (and the purse hung under it) is the pause button now */
   private hitBadge(x: number, y: number) {
-    if (!this.layoutTouch && this.pausePillRect.w > 0) {
-      const r = this.pausePillRect;
-      if (Math.abs(x - r.x) < r.w / 2 + 10 && Math.abs(y - r.y) < r.h / 2 + 10) return true;
-    }
     const f = this.flask; if (f instanceof IronHp) return f.hitBadge(x, y);
     const b = f.barAt(), x0 = b.x - f.W * this.k / 2; return x > x0 - 10 && x < x0 + 70 * this.k && y > b.y - 30 * this.k && y < b.y + 60 * this.k;
   }
@@ -285,9 +280,9 @@ export class ActHud {
     if (this.buildPid === id && type === 'move') return true;
     if (type === 'down') {
       for (const b of Object.values(this.btns)) {
-        // act-149: 不见刀 medallion is always visible & responsive (tapping while charging gives tactile deny-shake; ready or QTE fires immediately!)
+        if (b === this.btns.ult && !this.ultUp) continue;
         const hit = b === this.btns.ult
-          ? (Math.abs(x - b.x) < Math.max(b.size, this.home.ult?.size ?? b.size) * 0.65 && Math.abs(y - b.y) < Math.max(b.size, this.home.ult?.size ?? b.size) * 0.65)
+          ? (Math.abs(x - b.x) < Math.max(b.size, this.home.ult?.size ?? b.size) * 0.7 && Math.abs(y - b.y) < Math.max(b.size, this.home.ult?.size ?? b.size) * 0.7)
           : b.hit(x, y);
         if (hit) { b.down = true; b.pid = id; inp.press(b.name, id, touch); if (b.name === 'special') inp.aimBegin(id, b.x, b.y, x, y); return true; }
       }   // act-14 用户：「按操作的按钮不要有音效」
@@ -325,25 +320,18 @@ export class ActHud {
   private makeWay(dt: number) {
     const to = this.ultUp ? 1 : 0; this.wayK += (to - this.wayK) * Math.min(1, dt * 16); if (Math.abs(to - this.wayK) < 1e-3) this.wayK = to;
     const e = this.wayK * this.wayK * (3 - 2 * this.wayK), W = this.W, H = this.H;
-    const readyBoost = this.intent >= 3 && !this.ultUp ? 1.07 : 1;
     for (const n of Object.keys(this.btns) as BtnName[]) {
       const h = this.home[n], b = this.btns[n]; if (!h) continue;
       if (n === 'ult') {
-        if (this.layoutTouch) {
-          b.x = h.x + 42 * this.k * e;
-          b.y = h.y + 32 * this.k * e;
-          b.size = h.size * (readyBoost + 0.30 * e);
-        } else {
-          b.x = h.x;
-          b.y = h.y - 24 * this.k * e;
-          b.size = h.size * (readyBoost + 0.28 * e);
-        }
+        b.x = h.x;
+        b.y = h.y + (this.layoutTouch ? 18 : 20) * this.k * (1 - e);
+        b.size = h.size * (0.65 + 0.35 * e);
         continue;
       }
       if (this.layoutTouch) {
-        const g = 1 - 0.12 * e; b.x = W + (h.x - W) * g; b.y = H + (h.y - H) * g; b.size = h.size * (1 - 0.14 * e);
+        const g = 1 - 0.16 * e; b.x = W + (h.x - W) * g; b.y = H + (h.y - H) * g; b.size = h.size * (1 - 0.18 * e);
       } else {
-        b.x = h.x; b.y = h.y + 4 * this.k * e; b.size = h.size * (1 - 0.05 * e);
+        b.x = h.x; b.y = h.y + 4 * this.k * e; b.size = h.size * (1 - 0.06 * e);
       }
     }
   }
@@ -433,25 +421,28 @@ export class ActHud {
       this.L.at(dg.x, dg.y, -12, this.dockRail.position);
       this.dockRail.scale.set(dg.w * u, dg.h * u, dg.h * u);
     }
-    const ultReady = this.ultUp || this.intent >= 3;
+    // 不见刀 button is strictly QTE-only (appears ONLY while the QTE ring is active, never permanently parked on HUD)
     const ultBtn = this.btns.ult;
-    ultBtn.cd = ultReady ? 0 : Math.max(0.06, (3 - Math.max(0, Math.min(3, this.intent))) / 3);
+    ultBtn.cd = 0;
     if (ultBtn instanceof IronBtn) {
-      ultBtn.hot = ultReady;
+      ultBtn.hot = this.ultUp;
       ultBtn.qteOn = this.ultUp;
     }
-    for (const b of Object.values(this.btns)) { const on = this.on; b.root.visible = on; if (b instanceof IronBtn) b.iconG.visible = on; }
+    for (const b of Object.values(this.btns)) {
+      const on = this.on && (b !== this.btns.ult || this.ultUp);
+      b.root.visible = on;
+      if (b instanceof IronBtn) b.iconG.visible = on;
+    }
     this.flask.root.visible = this.on;
     this.makeWay(dt);
     if (this.on) {
       if (wantTouch) this.stick.update(inp.stick, this.stickHome, this.stickSize);
-      for (const b of Object.values(this.btns)) b.update(dt);
+      for (const b of Object.values(this.btns)) if (b !== this.btns.ult || this.ultUp) b.update(dt);
     }
     this.markFrame(dt);
-    // act-28 / act-149 / device-adaptive HUD:
-    //   Touch mode: clean action words under the thumb-arc shields + permanent upper-arc ult slot + hold-stance cue
-    //   Console/PC mode: 5-medallion forged-iron skill dock with crisp pixel keycaps (J/K/空格/L/I), clear action labels,
-    //                    and permanent 不见刀 charging/ready slot so players immediately see their full moveset!
+    // act-28 / device-adaptive HUD:
+    //   Touch mode: clean action words under the thumb-arc shields + QTE-only ult pop-in + hold-stance cue
+    //   Console/PC mode: 4-medallion forged-iron skill dock with crisp pixel keycaps (J/K/空格/L); 不见刀 pops above ONLY during QTE
     const dpr = this.L.dpr || 1;
     const pk = Math.max(1, Math.round(Math.max(wantTouch ? 15 : 14, (wantTouch ? 17 : 15) * this.k) * dpr / PIX_H));
     const subPk = Math.max(1, Math.round(Math.max(11, 11.5 * this.k) * dpr / PIX_H));
@@ -460,16 +451,14 @@ export class ActHud {
     for (const n of Object.keys(this.btns) as BtnName[]) {
       const b = this.btns[n];
       const isTalk = n === 'attack' && b instanceof IronBtn && b.talk;
-      const word = isTalk ? '交谈'
-        : n === 'ult' ? (ultReady ? '不见刀' : `${localize('绝技')} ${Math.floor(this.intent)}/3`)
-          : ACTION_WORD[n];
-      if (!this.on) {
+      const word = isTalk ? '交谈' : n === 'ult' ? '不见刀' : ACTION_WORD[n];
+      if (!this.on || (n === 'ult' && !this.ultUp)) {
         this.hideBadge(n);
         this.L.text.hide('act.btn.' + n);
         if (n === 'attack') this.L.text.hide('act.btn.attackSub');
         continue;
       }
-      const lblCol = n === 'ult' ? (ultReady ? '#ffe892' : '#aba496') : '#f4ecd8';
+      const lblCol = n === 'ult' ? '#ffe892' : '#f4ecd8';
       if (wantTouch) {
         const px = lh * 0.8, y = b.y + b.size * 0.5 + lh * 0.5 + 2 * this.k;
         const t = dev === 'key' ? `${localize(word)} ${localize(actKey(n))}` : word;
@@ -485,20 +474,22 @@ export class ActHud {
           else this.L.text.hide('act.btn.attackSub');
         }
       } else {
-        const badgeH = n === 'ult' && ultReady ? Math.max(19, 22 * this.k) : Math.max(17, 20 * this.k);
+        const badgeH = n === 'ult' ? Math.max(20, 23 * this.k) : Math.max(17, 20 * this.k);
         const by = b.y + b.size * 0.34;
         if (dev === 'pad') {
           const gi = BIND.pad[n][0], a = glyphArt(gi);
           this.showTexBadge(n, glyphTex(gi), a.w, GLYPH_H, b.x + b.size * 0.38, by, badgeH);
         } else {
-          const kc = keyCapTex(actKey(n), n === 'ult' && ultReady);
+          const kc = keyCapTex(actKey(n), n === 'ult');
           if (kc) {
             // wider keycaps (e.g. 空格) anchor slightly right so the center skill emblem stays unobscured
             const extraX = kc.w > kc.h ? Math.min(10 * this.k, ((kc.w - kc.h) / kc.h) * badgeH * 0.32) : 0;
             this.showTexBadge(n, kc.tex, kc.w, kc.h, b.x + b.size * 0.38 + extraX, by, badgeH);
           } else this.hideBadge(n);
         }
-        const ly = this.dockGeom.y + this.dockGeom.h * 0.5 + lh * 0.55 + 6 * this.k;
+        const ly = n === 'ult'
+          ? b.y - b.size * 0.55 - lh * 0.55
+          : this.dockGeom.y + this.dockGeom.h * 0.5 + lh * 0.55 + 6 * this.k;
         this.L.text.set('act.btn.' + n, { text: word, x: b.x, y: ly, pix: pk, color: lblCol, outline: '#140c0a', align: 'center', visible: true });
         if (n === 'attack') {
           if (!isTalk) this.L.text.set('act.btn.attackSub', { text: '长按藏锋', x: b.x, y: ly + lh * 0.52 + subLh * 0.48, pix: subPk, color: '#d8be84', outline: '#140c0a', align: 'center', visible: true });
@@ -506,31 +497,10 @@ export class ActHud {
         }
       }
     }
-    // Console/PC top-right pause hint ([ESC] 暂停 or [Menu/Options/+] 暂停) — clear of the dev '调' button when __DEBUG_UI__ is active
-    if (this.on && !wantTouch) {
-      const pPk = Math.max(1, Math.round(Math.max(14, 15 * this.k) * dpr / PIX_H));
-      const pWord = '暂停', ww = pixTextW(pWord, pPk, dpr), py = Math.max(24, 28 * this.k), rx = this.W - Math.max(__DEBUG_UI__ ? 56 : 18, (__DEBUG_UI__ ? 60 : 22) * this.k), gap = 6 * this.k;
-      const bh = Math.max(18, 21 * this.k);
-      let bw = 0;
-      if (dev === 'pad') {
-        const a = glyphArt(9), res = this.showTexBadge('pause', glyphTex(9), a.w, GLYPH_H, rx - ww - gap - (a.w / GLYPH_H * bh) / 2, py, bh);
-        bw = res.w;
-      } else {
-        const kc = keyCapTex('ESC');
-        if (kc) {
-          const estW = kc.w / kc.h * bh;
-          const res = this.showTexBadge('pause', kc.tex, kc.w, kc.h, rx - ww - gap - estW / 2, py, bh);
-          bw = res.w;
-        } else this.hideBadge('pause');
-      }
-      this.L.text.set('act.pauseHint', { text: pWord, x: rx, y: py, pix: pPk, color: '#dcd2be', outline: '#140c0a', align: 'right', visible: true });
-      const totalW = ww + gap + bw;
-      this.pausePillRect = { x: rx - totalW / 2, y: py, w: totalW, h: Math.max(bh, PIX_H * pPk / dpr) };
-    } else {
-      this.hideBadge('pause');
-      this.L.text.hide('act.pauseHint');
-      this.pausePillRect = { x: 0, y: 0, w: 0, h: 0 };
-    }
+    // No permanent top-right pause button (portrait tap + Esc/Start pause cleanly)
+    this.hideBadge('pause');
+    this.L.text.hide('act.pauseHint');
+    this.pausePillRect = { x: 0, y: 0, w: 0, h: 0 };
     this.L.text.hide('act.lowhp');
     this.L.text.hide('act.ultReady');
     if (this.flask instanceof IronHp) this.flask.intent = this.intent;
@@ -679,7 +649,11 @@ export class ActHud {
       const bPoise = chief.d.poise > 0 ? { frac: chief.brokenT > 0 ? chief.brokenT / POISE_BREAK_DUR : chief.poise / chief.d.poise, broken: chief.brokenT > 0, h: Math.max(4, 6 * this.k) } : null;
       this.boss.g.visible = this.on; this.drawBar(this.boss, this.L.w / 2, 40 * this.k, Math.min(560 * this.k, this.L.w * 0.44), 12 * this.k, chief.hp / chief.maxHp, dt, bPoise);
       if (this.bossName !== chief.d.name) { this.bossName = chief.d.name; }
-      this.L.text.set('act.boss', { text: chief.d.name, x: this.L.w / 2, y: 18 * this.k, ...(language === 'en' ? { bodyPx: Math.max(14, 18 * this.k) } : { cell: Math.max(1, Math.round(2 * this.k)) }), color: '#ffe6b0', align: 'center', visible: this.on });
+      const bLbl = chief.inv > 0 && typeof chief.mem?.barrierLabel === 'string' && chief.mem.barrierLabel
+        ? `${localize(chief.d.name)} · ${localize(chief.mem.barrierLabel)}`
+        : chief.d.name;
+      const bCol = chief.inv > 0 && chief.mem?.barrierLabel ? '#ffe066' : '#ffe6b0';
+      this.L.text.set('act.boss', { text: bLbl, x: this.L.w / 2, y: 18 * this.k, ...(language === 'en' ? { bodyPx: Math.max(14, 18 * this.k) } : { cell: Math.max(1, Math.round(2 * this.k)) }), color: bCol, align: 'center', visible: this.on });
     } else { if (this.boss) { this.boss.g.parent?.remove(this.boss.g); this.boss = null; } this.L.text.hide('act.boss'); }
   }
 }

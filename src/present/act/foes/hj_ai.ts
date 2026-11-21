@@ -99,7 +99,7 @@ class ClayLob extends Arrow {
     cue('wallSlam', 0.52);
     if (!w.heroAlive) return;
     const { x, z } = w.heroPos;
-    if (w.heroDodge && inside(jarShape, this.at.x, this.at.z, 0, x, z, w.heroR + 0.7)) w.dodged(impact);
+    if (w.heroDodge && inside(jarShape, this.at.x, this.at.z, 0, x, z, w.heroR + 0.5)) w.dodged(impact);
     else if (inside(jarShape, this.at.x, this.at.z, 0, x, z, w.heroR)) w.hurtHero(this.dmg, impact);
   }
 

@@ -15,7 +15,7 @@ import { Tele, inside, type TeleShape } from '../tele';
 import { TUNE } from '../tune';
 import {
   FOE_AI, fx_, FOE_X, spawnFoe, startAttack, setFoeState, dropTeles, canStrike, steerFoe, turnFoe, meleeLands, defaultStrike, interruptFoe, applyAllySpread,
-  Arrow, LOW_CLEAR, type Foe, type FoeWorld, type EKind,
+  Arrow, Shockwave, LOW_CLEAR, bossBarrierFx, shatterBossBarrier, liveBossAdds, type Foe, type FoeWorld, type EKind,
 } from '../enemy';
 import './r45_models';
 import './r45_pose';
@@ -56,7 +56,7 @@ export class GroundBlow extends Arrow {
     const inH = w.heroAlive && inside(this.shape, this.at.x, this.at.z, this.yaw, w.heroPos.x, w.heroPos.z, w.heroR);
     let hit = false;
     if (inH) { if ((this.o.low && w.heroY >= LOW_CLEAR) || w.heroDodge) w.dodged(this.at.clone()); else { w.hurtHero(this.dmg, this.at.clone()); hit = true; } }
-    else if (w.heroAlive && w.heroDodge && inside(this.shape, this.at.x, this.at.z, this.yaw, w.heroPos.x, w.heroPos.z, w.heroR + 0.9)) w.dodged(this.at.clone());
+    else if (w.heroAlive && w.heroDodge && inside(this.shape, this.at.x, this.at.z, this.yaw, w.heroPos.x, w.heroPos.z, w.heroR + 0.6)) w.dodged(this.at.clone());
     if (this.o.foes) for (const f of w.foes.slice()) if (f !== this.o.owner && f.st !== 'dead' && f.kind !== 'dummy' && inside(this.shape, this.at.x, this.at.z, this.yaw, f.pos.x, f.pos.z, f.d.r)) w.arrowHit(f, this);
     this.o.onLand?.(w, hit, this.yaw);
   }
@@ -122,7 +122,7 @@ export class OilJar extends Arrow {
     else {
       const d = flat(c, w.heroPos);
       if (w.heroAlive && w.heroY < 1.4 && d <= r + w.heroR) { if (w.heroDodge) w.dodged(c); else w.hurtHero(this.dmg, c); }
-      else if (w.heroAlive && w.heroDodge && d <= r + w.heroR + 0.9) w.dodged(c);
+      else if (w.heroAlive && w.heroDodge && d <= r + w.heroR + 0.6) w.dodged(c);
       w.arrows.push(new FirePatch(c, 1.35, 3, this.burnDmg));
     }
     this.kill();
@@ -481,18 +481,77 @@ export function deafAt(w: { foes: Foe[] }, x: number, z: number) { for (const f 
 FOE_AI.wl_boss = {
   tick(f, w, dt) {
     const x = X(f);
-    if (x.init == null) { x.init = 1; x.bal = 3.5; x.pole = 6; x.lines = 9; x.calls = 0; x.fire = 0; x.wind = 0; f.cd = 1.5; }
+    if (x.init == null) { x.init = 1; x.bal = 3.5; x.pole = 6; x.lines = 9; x.calls = 0; x.fire = 0; x.wind = 0; x.shielded = 0; x.linkFx = 0; x.comboBoom = 0; f.cd = 1.5; }
+    // act-138 铁楯护主: while any wl_shield escort is alive, Zhou Mo takes 50% reduced damage & golden shield tethers visibly link them!
+    const guards = w.foes.filter(o => o.kind === 'wl_shield' && o.st !== 'dead');
+    x.shielded = guards.length > 0 ? 1 : 0;
+    if (x.shielded) {
+      x.linkFx = (x.linkFx ?? 0) - dt;
+      if (x.linkFx <= 0) {
+        x.linkFx = 0.32;
+        for (const g of guards) trailSeg(g.a.chest(), f.a.chest(), 0xffd878, 0.055, { life: 0.24, bright: 2.0, spark: 0 });
+      }
+    }
+    // Phase 2 combo follow-up: chainLines (jump) -> sweeping boom (dash) 1.15s later
+    if ((x.comboBoom ?? 0) > 0) {
+      x.comboBoom -= dt;
+      if (x.comboBoom <= 0 && w.heroAlive) boom(f, w, false);
+    }
+    // act-138 Hades-2 Boss Impervious Phase Gates (65% 6s Warship Broadside flee; 33% Shield Escort clear!)
+    if (f.mem.barrier > 0) {
+      bossBarrierFx(f, dt, 0xffa848);
+      f.vel.multiplyScalar(Math.exp(-dt * 8)); f.a.setRunning(false);
+      f.mem.barPulseT = (f.mem.barPulseT ?? 0.6) - dt;
+      f.mem.barMaxT = (f.mem.barMaxT ?? 24) - dt;
+      if (f.mem.barrier === 1) {
+        f.mem.fleeT = Math.max(0, (f.mem.fleeT ?? 0) - dt);
+        f.mem.barrierLabel = '无敌 · 躲避全舰齐射';
+        if (f.mem.barPulseT <= 0 && w.heroAlive) {
+          f.mem.barPulseT = 1.5;
+          const step = (f.mem.barStep ?? 0) % 4; f.mem.barStep = step + 1;
+          if (step === 0) ballista(f, w, true);
+          else if (step === 1) chainLines(f, w);
+          else if (step === 2) boom(f, w, true);
+          else { ballista(f, w, false); chainLines(f, w); }
+        }
+        if (f.mem.fleeT <= 0) {
+          shatterBossBarrier(f, w, 0xffa848, '居然躲过了全舰齐射？！');
+          x.bal = 3.5; x.pole = 5; x.lines = 6.5;
+        }
+      } else {
+        f.mem.barrierLabel = '无敌 · 清执楯亲卫';
+        if (f.mem.barPulseT <= 0 && w.heroAlive) {
+          f.mem.barPulseT = 2.6;
+          if ((f.mem.barStep = (f.mem.barStep ?? 0) + 1) % 2 === 0) ballista(f, w, false);
+          else chainLines(f, w);
+        }
+        if (liveBossAdds(f, w) === 0 || f.mem.barMaxT <= 0) {
+          shatterBossBarrier(f, w, 0xffd878, '亲卫全没了……别过来！');
+        }
+      }
+      return true;
+    }
     // he raises the flag and the ballista crew answers: the ballista's spanning time (he stands still at the windlass, easy to stagger)
     if ((x.wind ?? 0) > 0) { x.wind -= dt; f.vel.multiplyScalar(Math.exp(-dt * 8)); f.a.setRunning(false); if (x.wind <= 0) f.a.play(new Action('cast', 0.3, 0.9)); return f.st === 'move'; }
-    // the guards: two at the start, two more at seven tenths
+    // the guards: two at the start
     if (!x.calls) { x.calls = 1; callIn(w, ['wl_shield', 'wl_shield'], f); }
-    if (x.calls === 1 && f.hp < f.maxHp * 0.7) { x.calls = 2; callIn(w, ['wl_shield', f.phase > 1 ? 'wl_oil' : 'wl_shield'], f); }
-    // the second phase: the fire
-    if (f.phase === 1 && f.hp <= f.maxHp * 0.5) {
-      dropTeles(f); f.attacking = false; f.phase = 2; f.inv = 1.3; f.poise = f.d.poise; setFoeState(f, 'roar', 1.4); f.a.roar(); cue('roar', 1); shake(0.5 * TUNE.shake);
-      w.say?.(f, PHASE_LINES.wl_boss); w.burnStage?.(1);
+    // Gate 1 at 65% HP: 6.0s Impervious Full Warship Broadside + Fire Phase 2!
+    if (!f.mem.gate1 && f.hp <= f.maxHp * 0.65) {
+      f.mem.gate1 = true; dropTeles(f); f.attacking = false; f.phase = 2; f.inv = 99; f.poise = f.d.poise;
+      f.mem.barrier = 1; f.mem.fleeT = 6.0; f.mem.barPulseT = 0.5; f.mem.barStep = 0; f.mem.barrierLabel = '无敌 · 躲避全舰齐射';
+      setFoeState(f, 'roar', 99); f.a.roar(); cue('roar', 1); shake(0.5 * TUNE.shake);
+      w.say?.(f, '全舰齐射！把她轰下江去！'); w.burnStage?.(1);
       const c = f.pos.clone().setY(0.08); fxRing(c, 0xff8a30, 4, { life: 0.6 } as never); fxShock(c, 0xff9a40, 3.5, { life: 0.55 });
       x.fire = 8; return true;
+    }
+    // Gate 2 at 33% HP: Impervious Command Shield + Escort Squad Clear!
+    if (!f.mem.gate2 && f.hp <= f.maxHp * 0.33) {
+      f.mem.gate2 = true; dropTeles(f); f.attacking = false; f.inv = 99; f.poise = f.d.poise;
+      f.mem.barrier = 2; f.mem.barPulseT = 1.6; f.mem.barMaxT = 24; f.mem.barStep = 0; f.mem.barrierLabel = '无敌 · 清执楯亲卫';
+      setFoeState(f, 'roar', 99); f.a.roar(); cue('roar', 1); shake(0.45 * TUNE.shake);
+      w.say?.(f, '铁楯死守！护住中军，放箭！');
+      callIn(w, ['wl_shield', 'wl_shield', 'wl_oil', 'wl_xbow'], f);
+      return true;
     }
     if (f.phase > 1) { x.fire -= dt; if (x.fire <= 0) { x.fire = 8; w.burnStage?.(0); } }
     // the machinery runs on its own clocks (not the attacker cap: these are the ship's, not his)
@@ -501,10 +560,11 @@ FOE_AI.wl_boss = {
     if (f.st === 'move' && w.heroAlive) {
       if (x.bal <= 0) { x.bal = R(6.5, 8); ballista(f, w, f.phase > 1); x.wind = 1.6; f.a.play(new Action('cast', 0.6, 0.4)); return true; }
       if (x.pole <= 0) { x.pole = R(7, 9); boom(f, w, f.phase > 1); return false; }
-      if (x.lines <= 0) { x.lines = R(9, 11); chainLines(f, w); return false; }
+      if (x.lines <= 0) { x.lines = R(8.5, 10.5); chainLines(f, w); if (f.phase > 1) x.comboBoom = 1.15; return false; }
     }
     return false;
   },
+  taken: f => (X(f).shielded ? 0.5 : 1),
   think(f, w, dt, dist, dir, yawTo) {
     const want = V3(), can = canStrike(f, w, { calm: true });
     // keeps away: backs off when she closes in, holds 6–9 m, edging along the back of the deck
@@ -570,12 +630,69 @@ FOE_AI.cx_boss = {
   tick(f, w, dt) {
     const x = X(f);
     if (x.init == null) { x.init = 1; x.stone = 3; x.call = 0; x.calls = 0; x.dark = 0; f.cd = 1.2; drawn(f, false); }
-    // the phases: at two thirds he takes a blade down from the rack; at a third he blows the lamps out (prologue skips lights-out vanish)
-    if (f.phase === 1 && f.hp <= f.maxHp * (2 / 3)) { phaseTo(f, w, 2); return true; }
-    if (f.phase === 2 && f.hp <= f.maxHp / 3 && !f.mem.noHide) { phaseTo(f, w, 3); return true; }
-    // summons through the first two phases: one at each sixth of his life
+    // act-138 Hades-2 Boss Impervious Phase Gates (66% 6s Go-stone death-trap flee; 33% Lights-out zither+shades clear)
+    if (f.mem.barrier > 0) {
+      bossBarrierFx(f, dt, 0xd8e4ff);
+      f.vel.multiplyScalar(Math.exp(-dt * 8)); f.a.setRunning(false);
+      f.mem.barPulseT = (f.mem.barPulseT ?? 0.6) - dt;
+      f.mem.barMaxT = (f.mem.barMaxT ?? 24) - dt;
+      if (f.mem.barrier === 1) {
+        f.mem.fleeT = Math.max(0, (f.mem.fleeT ?? 0) - dt);
+        f.mem.barrierLabel = '无敌 · 走气眼躲棋阵';
+        if (f.mem.barPulseT <= 0 && w.heroAlive) {
+          f.mem.barPulseT = 1.85;
+          const step = (f.mem.barStep ?? 0) % 3; f.mem.barStep = step + 1;
+          if (step === 0) ring(f, w);
+          else if (step === 1) { dragon(f, w); w.arrows.push(new Shockwave(f.pos.clone(), dmgOf(14), 1.0, 12.0, 1.5)); }
+          else { ring(f, w); dragon(f, w); }
+          f.a.play(new Action('cast', 0.6, 0.45));
+        }
+        if (f.mem.fleeT <= 0) {
+          shatterBossBarrier(f, w, 0xe8ecff);
+          drawn(f, true); fxFlare(f.a.weapon(), 0xffffff, 1.2, 0.35); bladeRing(w);
+          cue('draw', 1); cue('bladeChorus', 0.85);
+        }
+      } else {
+        f.mem.barrierLabel = '无敌 · 诛击筑与影卫';
+        if (f.mem.barPulseT <= 0 && w.heroAlive) {
+          f.mem.barPulseT = 2.8;
+          dragon(f, w);
+          w.arrows.push(new Shockwave(f.pos.clone(), dmgOf(13), 1.0, 12.0, 1.55));
+        }
+        if (liveBossAdds(f, w) === 0 || f.mem.barMaxT <= 0) {
+          shatterBossBarrier(f, w, 0xc8d8ff, '有点意思……那便亲手送你上路。');
+          x.hid = 1; hide(f, true); f.cd = 1.4;
+        }
+      }
+      return true;
+    }
+    // the phases: at two thirds 6s Go-stone flee -> blade; at a third lights-out zither+shade barrier (prologue skips barriers)
+    if (f.phase === 1 && f.hp <= f.maxHp * (2 / 3)) {
+      if (f.mem.noHide) { phaseTo(f, w, 2); return true; }
+      dropTeles(f); f.attacking = false; f.phase = 2; f.inv = 99; f.poise = f.d.poise;
+      f.mem.barrier = 1; f.mem.fleeT = 6.0; f.mem.barPulseT = 0.5; f.mem.barStep = 0; f.mem.barrierLabel = '无敌 · 走气眼躲棋阵';
+      setFoeState(f, 'roar', 99); f.a.play(new Action('cast', 1.2, 0.6)); cue('snowWind', 0.9); shake(0.4 * TUNE.shake);
+      w.say?.(f, '天元死局！连环三手，看你往哪逃！');
+      return true;
+    }
+    if (f.phase === 2 && f.hp <= f.maxHp / 3 && !f.mem.noHide) {
+      dropTeles(f); f.attacking = false; f.phase = 3; f.inv = 99; f.poise = f.d.poise;
+      f.mem.barrier = 2; f.mem.barPulseT = 1.6; f.mem.barMaxT = 26; f.mem.barrierLabel = '无敌 · 诛击筑与影卫';
+      setFoeState(f, 'roar', 99); f.a.play(new Action('cast', 1.0, 0.5));
+      w.dark?.(1); x.dark = 1; x.cuts = 0; x.hid = 0;
+      cue('snowWind', 1); cue('boom', 0.5); shake(0.45 * TUNE.shake);
+      w.say?.(f, '灭灯！影卫与击筑齐发，看你听得清谁！');
+      callIn(w, ['cx_zhu', 'cx_shade', 'cx_shade'], f);
+      return true;
+    }
+    // summons through the first two phases: one at each sixth of his life (Phase 2 includes 击筑客 to jam auditory cues!)
     const sixth = Math.floor((1 - f.hp / f.maxHp) * 6);
-    if (f.phase < 3 && sixth > (x.calls ?? 0)) { x.calls = sixth; callIn(w, [Math.random() < 0.5 ? 'cx_sword' : 'cx_guard'], f); }
+    if (f.phase < 3 && sixth > (x.calls ?? 0)) {
+      x.calls = sixth;
+      const pick = f.phase === 2 && !w.foes.some(o => o.kind === 'cx_zhu' && o.st !== 'dead') ? 'cx_zhu' : (Math.random() < 0.5 ? 'cx_sword' : 'cx_guard');
+      callIn(w, [pick], f);
+    }
+    if ((x.exposed ?? 0) > 0) x.exposed = Math.max(0, x.exposed - dt);
     // phase three: in the dark — hidden, only footsteps; three cuts, then a shade called
     if (f.phase === 3) return darkTick(f, w, dt);
     // the stones: one move every 6 s (phase one: every 4.5)
@@ -608,6 +725,8 @@ FOE_AI.cx_boss = {
     return true;
   },
   follow(f, w, yawTo) { if (f.combo > 0 && f.atk === 'cut') { const s = f.combo % 2 ? -0.35 : 0.35; f.combo--; cue('bladeRing', 0.65); startAttack(f, w, { k: 'cone', r: 3.0, half: 0.9 }, 0.3, 11, yawTo + s, { atk: 'cut' }); return true; } return false; },
+  // act-138 Phase 3 灭灯暗室: blind swings deal only 40% dmg until exposed by 破势 / 闪反 / 追影!
+  taken: f => (f.phase === 3 && f.st !== 'stagger' && f.brokenT <= 0 && (X(f).exposed ?? 0) <= 0 ? 0.4 : 1),
   recover: f => (f.atk === 'lunge' ? 0.7 : f.phase > 1 ? 0.5 : 0.8),
 };
 /** he holds the fan / the drawn 文家刀 */
@@ -649,11 +768,16 @@ function dragon(f: Foe, w: FoeWorld) {
   for (let i = 0; i < 5; i++) { const p = f.pos.clone().addScaledVector(d, 1.6 + i * (L - 1.6) / 4); w.clamp(p, 0.3); w.arrows.push(stone(p, 1.2, 0.15 * i, 0.8, f, true)); }
   cue('stoneCarve', 0.85); cue('snowWind', 0.55);
 }
-/** 围: six stones round her at once, one gap (the 眼) where the stone is white and does not fall */
+/** 围 (act-138 真棋局气眼): 8 dense high-damage black stones encircle the hero with ONE bright white-stone safe gap (气眼) — must step into the eye! */
 function ring(f: Foe, w: FoeWorld) {
-  const gap = Math.floor(Math.random() * 7), a0 = Math.random() * Math.PI * 2;
-  for (let i = 0; i < 7; i++) { const a = a0 + i * Math.PI * 2 / 7, p = w.heroPos.clone().add(V3(Math.sin(a) * 2.4, 0, Math.cos(a) * 2.4)); w.clamp(p, 0.3); if (i === gap) { whiteStone(p); continue; } w.arrows.push(stone(p, 1.2, 0, 1.1, f, true)); }
-  w.arrows.push(stone(w.heroPos.clone(), 1.0, 0, 1.1, f, true));
+  const n = 8, gap = Math.floor(Math.random() * n), a0 = Math.random() * Math.PI * 2;
+  for (let i = 0; i < n; i++) {
+    const a = a0 + i * Math.PI * 2 / n, p = w.heroPos.clone().add(V3(Math.sin(a) * 2.55, 0, Math.cos(a) * 2.55));
+    w.clamp(p, 0.3);
+    if (i === gap) { whiteStone(p); continue; }
+    w.arrows.push(stone(p, 1.55, 0, 1.25, f, true, 18));
+  }
+  w.arrows.push(stone(w.heroPos.clone(), 1.25, 0, 1.25, f, true, 18));
   cue('stoneCarve', 0.9); cue('snowWind', 0.65); cue('bladeRing', 0.45);
 }
 const stoneGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.12, 12), blackMat = toon(0x1a1a20), whiteMat = toon(0xeeeee6);
@@ -662,20 +786,20 @@ const STONES: Array<{ m: THREE.Mesh; t: number }> = [];
 function lay(p: THREE.Vector3, black: boolean, t: number) { const m = new THREE.Mesh(stoneGeo, black ? blackMat : whiteMat); m.position.set(p.x, 0.07, p.z); scene.add(m); STONES.push({ m, t }); }
 export function stonesStep(dt: number) { for (let i = STONES.length - 1; i >= 0; i--) { STONES[i].t -= dt; if (STONES[i].t <= 0) { STONES[i].m.parent?.remove(STONES[i].m); STONES.splice(i, 1); } } }
 /** a falling go stone: a circle on the snow fills, the stone drops onto it and stays a moment (black), bursting the snow */
-function stone(p: THREE.Vector3, r: number, delay: number, fill: number, owner: Foe, black: boolean) {
-  return new GroundBlow(p, { k: 'circle', r, ahead: 0 }, 0, dmgOf(12), delay, fill, { owner, onLand: () => {
+function stone(p: THREE.Vector3, r: number, delay: number, fill: number, owner: Foe, black: boolean, baseDmg = 12) {
+  return new GroundBlow(p, { k: 'circle', r, ahead: 0 }, 0, dmgOf(baseDmg), delay, fill, { owner, onLand: () => {
     lay(p, black, 1.5);
     fxSmoke(V3(p.x, 0.2, p.z), 0xe8ecf4, 6, { r: 0.5, spd: 1.4, up: 0.4, s: 0.3, life: 0.5 }); fxSparks(V3(p.x, 0.2, p.z), 0xf0f4ff, 8, 3);
     cue('wallSlam', 0.62); cue('potBreak', 0.38);
   } });
 }
-/** the 眼: a white stone that never falls (the way out of the ring), and a pale ring round it */
-function whiteStone(p: THREE.Vector3) { lay(p, false, 1.8); fxRing(V3(p.x, 0.08, p.z), 0xffffff, 0.9, { life: 1.1 } as never); }
+/** the 眼: a white stone that never falls (the way out of the ring), and a bright pale ring round it */
+function whiteStone(p: THREE.Vector3) { lay(p, false, 2.0); fxRing(V3(p.x, 0.08, p.z), 0xffffff, 1.15, { life: 1.35 } as never); fxRing(V3(p.x, 0.09, p.z), 0xdff6ff, 0.7, { life: 1.35 } as never); }
 
 /** the bosses' lines on changing phase (agy); the arrival lines are in the region files */
 export const PHASE_LINES = { wl_boss: '点火！连船带索，全烧了！', cx_boss2: '听好了，这是你文家第几柄刀？', cx_boss3: '灯灭了，老夫的刀你可看得见？' };
-// 崔玄 caught by 破势 (or pinned by 一闪): out of the dark at once, and he reels a moment longer (1.5 s; in the dark 2 s)
-FOE_AI.cx_boss!.interrupted = f => { const x = X(f); if (x.hid) { x.hid = 0; x.out = 0; hide(f, false); } if (f.tele) f.tele.g.visible = true; f.dur = Math.max(f.dur, f.phase === 3 ? 2 : 1.5); };
+// 崔玄 caught by 破势 (or pinned by 一闪): out of the dark at once, exposed for 3.5s full damage, and he reels a moment longer
+FOE_AI.cx_boss!.interrupted = f => { const x = X(f); if (x.hid) { x.hid = 0; x.out = 0; hide(f, false); } if (f.phase === 3) x.exposed = 3.5; if (f.tele) f.tele.g.visible = true; f.dur = Math.max(f.dur, f.phase === 3 ? 2 : 1.5); };
 // a shade or a diver caught out of hiding mid-strike shows itself
 FOE_AI.cx_shade!.interrupted = f => { const x = X(f); x.hid = 0; x.out = 0; hide(f, false); };
 FOE_AI.wl_diver!.interrupted = f => { const x = X(f); x.under = 0; x.up = 0; hide(f, false); };

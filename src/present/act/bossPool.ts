@@ -39,32 +39,32 @@ function proxyExtAI(target: EKind): FoeAI {
 
 addFoes({
   pb_heishan: {
-    model: 'hj_brute_e', hp: 460, r: 0.78, speed: 2.15, mass: 3.4, poise: 62, gold: 45,
+    model: 'hj_brute_e', hp: 580, r: 0.78, speed: 2.15, mass: 3.4, poise: 105, gold: 45,
     name: '黑山铁煞 · 屠刚', role: 'chief', boss: true,
     tag: '断斧横山 · 力劈千钧', intro: '石雷那废物既死了，这山头归老子管！',
   },
   pb_feixiong: {
-    model: 'ly_halberd_e', hp: 490, r: 0.68, speed: 2.45, mass: 2.8, poise: 58, gold: 50,
+    model: 'ly_halberd_e', hp: 620, r: 0.68, speed: 2.45, mass: 2.8, poise: 100, gold: 50,
     name: '西凉戟将 · 樊稠', role: 'ly_halberd', boss: true,
     tag: '飞熊残部 · 戟扫长街', intro: '阎校尉的空缺，就拿你的首级来补！',
   },
   pb_xianzhen: {
-    model: 'ly_rider_e', hp: 480, r: 0.72, speed: 2.8, mass: 3.0, poise: 56, gold: 50,
+    model: 'ly_rider_e', hp: 610, r: 0.72, speed: 2.8, mass: 3.0, poise: 98, gold: 50,
     name: '陷阵铁骑 · 魏续', role: 'ly_rider', boss: true,
     tag: '铁甲奔雷 · 破阵无双', intro: '敢闯我营寨？先吃一记铁骑突阵！',
   },
   pb_yingge: {
-    model: 'xp_assassin_e', hp: 440, r: 0.56, speed: 3.35, mass: 1.8, poise: 46, gold: 52,
+    model: 'xp_assassin_e', hp: 560, r: 0.56, speed: 3.35, mass: 1.8, poise: 88, gold: 52,
     name: '影阁魁首 · 墨鸦', role: 'xp_assassin', boss: true,
     tag: '无声夺命 · 影刃连环', intro: '封鬼医既死，暗账便由影阁来收。',
   },
   pb_tiebi: {
-    model: 'wl_shield_e', hp: 540, r: 0.64, speed: 2.3, mass: 3.2, poise: 64, gold: 55,
+    model: 'wl_shield_e', hp: 690, r: 0.64, speed: 2.3, mass: 3.2, poise: 115, gold: 55,
     name: '水寨铁壁 · 蔡中', role: 'ext', boss: true,
     tag: '重盾镇江 · 坚不可摧', intro: '周少监没了，这水寨还轮不到你撒野！',
   },
   pb_daowei: {
-    model: 'cx_guard_e', hp: 560, r: 0.62, speed: 2.65, mass: 2.6, poise: 60, gold: 60,
+    model: 'cx_guard_e', hp: 740, r: 0.62, speed: 2.65, mass: 2.6, poise: 120, gold: 60,
     name: '百辟刀首 · 司空校尉', role: 'ext', boss: true,
     tag: '奉令镇守 · 百辟寒锋', intro: '司空府的刀架，岂容外人踏足？',
   },

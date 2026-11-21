@@ -19,7 +19,7 @@ import { fxShock } from '../../fx/skillFx';
 import { TUNE } from '../tune';
 import { PLAY } from '../../scenes/props';
 import { Tele, inside } from '../tele';
-import { addFoes, AI, Arrow, spawnFoe, LOW_CLEAR, dropTeles, type Foe, type FoeWorld } from '../enemy';
+import { addFoes, AI, Arrow, Shockwave, spawnFoe, LOW_CLEAR, dropTeles, bossBarrierFx, shatterBossBarrier, liveBossAdds, type Foe, type FoeWorld } from '../enemy';
 import { ROLE_AI, type RoleAI, type ThinkCtx } from './roles';
 import { fade, fadeTo } from './fade';
 
@@ -33,7 +33,7 @@ addFoes({
   xp_diver: { model: 'xp_diver', hp: 40, r: 0.44, speed: 3.0, mass: 1.0, poise: 0, gold: 5, name: '沉江恶鬼', role: 'xp_diver', elite: 'xp_diver_e' },
   xp_chain: { model: 'xp_chain', hp: 120, r: 0.7, speed: 1.9, mass: 2.6, poise: 36, gold: 8, name: '枷铁狱吏', role: 'xp_chain', elite: 'xp_chain_e', barks: BARK_XP },
   xp_conscript: { model: 'xp_conscript', hp: 22, r: 0.36, speed: 3.4, mass: 0.6, poise: 0, gold: 2, name: '冻骨溃兵', role: 'xp_conscript', alt: ['xp_conscript_b'], weight: 0.5, barks: BARK_XP },
-  xp_boss: { model: 'xp_boss', hp: 480, r: 0.55, speed: 2.7, mass: 1.8, poise: 44, gold: 50, name: '截指鬼医 · 封寒', role: 'xp_boss', boss: true, tag: '银针刺骨，截指入药', intro: '脉相浮而乱，该截下拇指了。' },
+  xp_boss: { model: 'xp_boss', hp: 660, r: 0.55, speed: 2.7, mass: 1.8, poise: 95, gold: 50, name: '截指鬼医 · 封寒', role: 'xp_boss', boss: true, tag: '银针刺骨，截指入药', intro: '脉相浮而乱，该截下拇指了。' },
 });
 
 // ------------------------------------------------------------------ shared bits
@@ -43,7 +43,7 @@ const recover = (f: Foe, s: number) => { f.lunge = null; AI.calm(TUNE.atkCalm); 
 function areaHit(f: Foe, w: FoeWorld, low = false) {
   const s = f.shape; if (!s || !w.heroAlive) return false;
   if (inside(s, f.telePos.x, f.telePos.z, f.teleYaw, w.heroPos.x, w.heroPos.z, w.heroR)) { if (low && w.heroY >= LOW_CLEAR) w.dodged(f.pos.clone()); else { w.hurtHero(f.dmg, f.pos.clone(), f); return true; } }
-  else if (w.heroDodge && inside(s, f.telePos.x, f.telePos.z, f.teleYaw, w.heroPos.x, w.heroPos.z, w.heroR + 1.1)) w.dodged(f.pos.clone());
+  else if (w.heroDodge && inside(s, f.telePos.x, f.telePos.z, f.teleYaw, w.heroPos.x, w.heroPos.z, w.heroR + 0.65)) w.dodged(f.pos.clone());
   return false;
 }
 /** a free spot on the floor at distance d0..d1 from p (the walls kept off) */
@@ -74,7 +74,7 @@ class Needle extends Arrow {
     if (this.friendly) { super.update(dt, w); return; }
     const p0 = this.p.clone(); this.p.addScaledVector(this.v, dt); this.g.position.copy(this.p); this.life -= dt;
     trailSeg(p0, this.p.clone(), 0xbfe4ff, 0.05, { life: 0.12, bright: 2, spark: 0 });
-    if (w.heroAlive && !this.grazed && w.heroDodge && Math.hypot(this.p.x - w.heroPos.x, this.p.z - w.heroPos.z) < w.heroR + 0.9) { this.grazed = true; w.dodged(this.p.clone()); }
+    if (w.heroAlive && !this.grazed && w.heroDodge && Math.hypot(this.p.x - w.heroPos.x, this.p.z - w.heroPos.z) < w.heroR + 0.6) { this.grazed = true; w.dodged(this.p.clone()); }
     else if (w.heroAlive && !this.grazed && w.heroY < 1.6 && Math.hypot(this.p.x - w.heroPos.x, this.p.z - w.heroPos.z) < w.heroR + 0.15) { w.hurtHero(this.dmg, this.p.clone().addScaledVector(this.v, -0.1)); chillHero(w); this.kill(); return; }
     const q = this.p.clone(); w.clamp(q, 0); if (q.distanceTo(this.p) > 0.3 || this.life <= 0) { fxSparks(this.p, 0xdff0ff, 4, 2); this.kill(); }
   }
@@ -113,7 +113,7 @@ class FrostMark extends Arrow {
       fxShock(g, 0xdff4ff, this.r + 0.2, { life: 0.35 }); fxSparks(g.clone().setY(0.4), 0xf0f8ff, 14, 4); fxSmoke(g.clone().setY(0.3), 0xe6eef4, 5, { r: this.r * 0.6, spd: 0.8, up: 0.4, s: 0.4, life: 0.8 }); cue('parry', 0.35);
       const d = Math.hypot(g.x - w.heroPos.x, g.z - w.heroPos.z);
       if (w.heroAlive && d <= this.r + w.heroR) { if (w.heroDodge) w.dodged(g); else w.hurtHero(this.dmg, g); }
-      else if (w.heroAlive && w.heroDodge && d <= this.r + w.heroR + 0.9) w.dodged(g);
+      else if (w.heroAlive && w.heroDodge && d <= this.r + w.heroR + 0.6) w.dodged(g);
       if (this.patch > 0) w.arrows.push(new FrostPatch(g, this.r, this.patch));
       this.tele.flash(); this.fadeT = 0.25;
     }
@@ -332,8 +332,24 @@ function appear(f: Foe, w: FoeWorld) {
   f.a.play(new Action('appear', 0.5, 0.5)); fxRing(f.pos.clone().setY(0.06), 0xdff4ff, 1.2, { life: 0.4 } as never); cue('draw', 0.5);
   AI.setSt(f, 'move', 0); f.cd = 0.5;
 }
+/** Spawn up to 2 Frost-Venom Cauldrons at arena flanks (heal 封寒 3%/2s & radiate chill until smashed!) */
+function spawnCauldrons(f: Foe, w: FoeWorld) {
+  const existing = w.foes.filter(o => o.kind === 'totem_cauldron' && o.st !== 'dead').length;
+  const need = Math.max(0, 2 - existing);
+  for (let i = 0; i < need; i++) {
+    const p = spotNear(w.heroPos, 5.5, 8.5, w);
+    const c = spawnFoe('totem_cauldron', p, w.heroPos.clone());
+    c.mem.tick = 1.6 + i * 0.9;
+    w.foes.push(c);
+    fxRing(p.clone().setY(0.1), 0x58e0b0, 1.6, { life: 0.5 } as never);
+    fxSmoke(p.clone().setY(0.3), 0xb8f0f4, 8, { r: 0.6, spd: 1.2, up: 0.7, s: 0.4, life: 0.7 });
+  }
+  if (need > 0) cue('magic', 0.7);
+  void f;
+}
 const fengzhen: RoleAI = {
   think(f, w, k) {
+    if (f.mem.barrier > 0) return 'busy';
     const d = k.dist, p2 = f.phase > 1;
     if (f.mem.mist) return 'busy';
     // close in on him for 2 s, or three cuts: into the mist
@@ -354,16 +370,80 @@ const fengzhen: RoleAI = {
   },
   tick(f, w, dt) {
     for (const key of ['burstCd', 'sowCd']) f.mem[key] = (f.mem[key] ?? 0) - dt;
-    if (!f.mem.init) { f.mem.init = true; const fr = f.a.bones.frost; if (fr) fr.visible = false; }
-    // the turn at half life: 「饮下至寒，骨肉皆为毒。」 — he drinks the cold poison (stands still 1.6 s; 0.8 s of it unhittable), the
-    // frost comes out on him; then seven needles, the burst, the 死士 called up every 14 s, frost where he walks
-    if (f.phase === 1 && f.hp <= f.maxHp * 0.5 && !f.mem.mist) {
-      dropTeles(f); f.attacking = false; f.lunge = null; f.phase = 2; f.inv = 0.8;
-      AI.setSt(f, 'roar', 1.6); f.a.play(new Action('drink', 1.6, 0.5)); cue('roar', 0.7); w.say?.(f, '饮下至寒，骨肉皆为毒。');
-      after(0.9, () => { if (f.st === 'dead') return; const fr = f.a.bones.frost; if (fr) fr.visible = true; fxShock(f.pos.clone().setY(0.08), 0xdff4ff, 3.0, { life: 0.5 }); fxSparks(f.a.chest(), 0xf0f8ff, 30, 6); shake(0.3 * TUNE.shake); });
-      f.summonT = 3; f.mem.burstCd = 2;
+    if (!f.mem.init) { f.mem.init = true; const fr = f.a.bones.frost; if (fr) fr.visible = false; f.mem.caulCd = 20; }
+    // act-138 Hades-2 Boss Impervious Phase Gates (65% Cauldron + Assassin clear; 32% 6s Absolute Zero flee)
+    if (f.mem.barrier > 0) {
+      bossBarrierFx(f, dt, 0x76e8ff);
+      f.vel.set(0, 0, 0);
+      f.mem.barPulseT = (f.mem.barPulseT ?? 0.8) - dt;
+      f.mem.barMaxT = (f.mem.barMaxT ?? 24) - dt;
+      if (f.mem.barrier === 1) {
+        f.mem.barrierLabel = '无敌 · 拆寒鼎诛死士';
+        if (f.mem.barPulseT <= 0 && w.heroAlive) {
+          f.mem.barPulseT = 2.4;
+          const h = w.heroPos.clone().setY(0), a0 = Math.random() * Math.PI * 2;
+          w.arrows.push(new FrostMark(h, Math.round(10 * TUNE.enemyDmg), 0, 0.95));
+          for (let i = 0; i < 2; i++) { const p = h.clone().add(V3(Math.sin(a0 + i * Math.PI) * 2.2, 0, Math.cos(a0 + i * Math.PI) * 2.2)); w.clamp(p, 0.3); w.arrows.push(new FrostMark(p, Math.round(10 * TUNE.enemyDmg), 0.18 * (i + 1), 0.95)); }
+          const toH = h.clone().sub(f.pos).setY(0), yaw = Math.atan2(toH.x, toH.z);
+          for (const dy of [-0.32, -0.16, 0, 0.16, 0.32]) w.arrows.push(new Needle(f.pos.clone().add(V3(0, 1.3, 0)), yaw + dy, f.dmg));
+          cue('arrow', 0.7);
+        }
+        if (liveBossAdds(f, w) === 0 || f.mem.barMaxT <= 0) {
+          shatterBossBarrier(f, w, 0x76e8ff, '寒鼎竟毁？！那就饮下至寒！');
+          f.phase = 2; f.poise = f.d.poise;
+          const fr = f.a.bones.frost; if (fr) fr.visible = true;
+          fxShock(f.pos.clone().setY(0.08), 0xdff4ff, 3.0, { life: 0.5 });
+          f.summonT = 8; f.mem.burstCd = 2.5; f.mem.caulCd = 20;
+        }
+      } else {
+        f.mem.fleeT = Math.max(0, (f.mem.fleeT ?? 0) - dt);
+        f.mem.barrierLabel = '无敌 · 躲避寒潮';
+        if (f.mem.barPulseT <= 0 && w.heroAlive) {
+          f.mem.barPulseT = 1.6;
+          const dmg = Math.round(13 * TUNE.enemyDmg), h = w.heroPos.clone().setY(0);
+          w.arrows.push(new Shockwave(f.pos.clone(), dmg, 1.0, 12.0, 1.5));
+          for (const [ox, oz] of [[0, 0], [2.2, 0], [-2.2, 0], [0, 2.2], [0, -2.2]]) {
+            const p = V3(h.x + ox, 0, h.z + oz); w.clamp(p, 0.3);
+            w.arrows.push(new FrostMark(p, dmg, 0.12, 0.9));
+          }
+          cue('magic', 0.75); shake(0.2 * TUNE.shake);
+        }
+        if (f.mem.fleeT <= 0) {
+          shatterBossBarrier(f, w, 0x76e8ff);
+        }
+      }
+      return;
+    }
+    // Gate 1 at 65% HP: Impervious Frost-Mist Cauldron Barrier!
+    if (!f.mem.gate1 && f.hp <= f.maxHp * 0.65 && !f.mem.mist) {
+      f.mem.gate1 = true; dropTeles(f); f.attacking = false; f.lunge = null; f.inv = 99;
+      f.mem.barrier = 1; f.mem.barPulseT = 1.4; f.mem.barMaxT = 24; f.mem.barrierLabel = '无敌 · 拆寒鼎诛死士';
+      AI.setSt(f, 'roar', 99); f.a.play(new Action('drink', 1.6, 0.5)); cue('roar', 0.8);
+      w.say?.(f, '寒鼎毒阵起！破不了鼎，休想近老夫身！');
+      spawnCauldrons(f, w);
+      for (let i = 0; i < 2; i++) {
+        const p = spotNear(w.heroPos, 5, 8, w), m = spawnFoe('xp_assassin', p, w.heroPos.clone()); m.cd = R(0.8, 1.5); w.foes.push(m);
+        fxSmoke(p.clone().setY(0.3), 0x8a98a4, 8, { r: 0.6, spd: 1.2, up: 0.6, s: 0.4, life: 0.7 });
+      }
+      cue('summon', 0.6);
+      return;
+    }
+    // Gate 2 at 32% HP: 6.0s Absolute Zero survival barrage!
+    if (!f.mem.gate2 && f.hp <= f.maxHp * 0.32 && !f.mem.mist) {
+      f.mem.gate2 = true; f.phase = 2; dropTeles(f); f.attacking = false; f.lunge = null; f.inv = 99;
+      const fr = f.a.bones.frost; if (fr) fr.visible = true;
+      f.mem.barrier = 2; f.mem.fleeT = 6.0; f.mem.barPulseT = 0.6; f.mem.barrierLabel = '无敌 · 躲避寒潮';
+      AI.setSt(f, 'roar', 99); f.a.play(new Action('drink', 1.6, 0.5)); cue('roar', 0.9); shake(0.4 * TUNE.shake);
+      w.say?.(f, '冰封千里，寸步难行！');
+      return;
     }
     if (f.phase > 1 && f.st !== 'dead') {
+      // respawn cauldrons every 20s if cleared
+      const liveCaul = w.foes.filter(o => o.kind === 'totem_cauldron' && o.st !== 'dead').length;
+      if (liveCaul === 0 && f.st !== 'roar' && !f.mem.mist) {
+        f.mem.caulCd = (f.mem.caulCd ?? 20) - dt;
+        if (f.mem.caulCd <= 0) { f.mem.caulCd = 20; spawnCauldrons(f, w); }
+      }
       // frost where he walks
       if (!f.mem.mist && f.vel.lengthSq() > 0.4 && (f.mem.trailT = (f.mem.trailT ?? 0) - dt) <= 0) { f.mem.trailT = 0.55; w.arrows.push(new FrostPatch(f.pos.clone(), 0.85, 3)); }
       f.summonT -= dt;
@@ -403,8 +483,17 @@ const fengzhen: RoleAI = {
     areaHit(f, w); cue('foeSwing', 0.9); AI.setSt(f, 'strike', 0.15); f.mem.vanishNext = true; return true;
   },
   striking(f) { if (f.t >= f.dur) recover(f, f.atk === 'burst' ? 0.7 : f.atk === 'snip' ? 0.2 : 0.4); },
-  // the cuts that land count toward the mist; in the mist nothing finds him
-  guard(f) { if (f.mem.mist) return -1; f.mem.hits = (f.mem.hits ?? 0) + 1; return undefined; },
+  // the cuts that land count toward the mist; in the mist nothing finds him; act-138: deflected needles ('arrow') break his mist & stagger!
+  guard(f, _dmg, _from, kind) {
+    if (f.mem.mist) return -1;
+    if (kind === 'arrow') {
+      f.mem.hits = 0; f.mem.closeT = 0; f.mem.vanishNext = false; f.mem.needleBreak = 1;
+      AI.setSt(f, 'stagger', 1.15); cue('guardBreak', 0.9);
+      return undefined;
+    }
+    f.mem.hits = (f.mem.hits ?? 0) + 1;
+    return undefined;
+  },
   // 破势 caught the snip: he reels 1.6 s, then into the mist
   interrupted(f) { if (f.mem.intFrom === 'windup' && f.atk === 'snip') { AI.setSt(f, 'stagger', 1.6); f.mem.vanishNext = true; cue('guardBreak', 1); } },
   recover: f => (f.atk === 'burst' ? 0.7 : 0.4),

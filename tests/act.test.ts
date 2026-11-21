@@ -265,6 +265,45 @@ describe('combat wave 2: poise break & staggered cadence (act-113)', () => {
     expect(boss.dur).toBeCloseTo(0.95, 2);
   });
 
+  it('act-152 Hades-2 Boss Impervious Phase Gates: HP clamps at 66%/33%, invulnerable until adds cleared or flee barrage ends', () => {
+    const boss = fakeFoe({
+      kind: 'hj_boss', role: 'boss', hp: 540, maxHp: 540, poise: 110, brokenT: 0, phase: 1, st: 'move', attacking: false,
+      d: { model: 'hj_boss', hp: 540, r: 0.85, speed: 2.0, mass: 3.6, poise: 110, gold: 40, name: '黄巾渠帅 · 石雷', role: 'boss', boss: true },
+      a: { pos: V3(), yaw: 0, act: null, hit: () => {}, hurt: () => {}, play: () => {}, setRunning: () => {}, roar: () => {}, tint: () => {}, chest: () => V3(0, 1, 0), weapon: () => V3(0, 1, 0), head: () => V3(0, 2, 0), die: () => {} } as unknown as Foe['a'],
+    });
+    const w = {
+      heroPos: V3(0, 0, -4), heroR: 0.38, heroAlive: true, heroY: 0, heroDodge: false,
+      foes: [boss], arrows: [], clamp: () => {}, hurtHero: () => {}, dodged: () => {},
+    } as unknown as FoeWorld;
+    // Huge burst hit cannot skip 66% gate threshold!
+    damageFoe(boss, 450, V3(0, 0, -2), { quiet: true });
+    expect(boss.hp).toBe(Math.floor(540 * 0.66));
+    // Next tick triggers Impervious Gate #1 (spawns flags + squad, boss becomes invincible)
+    updateFoe(boss, w, 0.05);
+    expect(boss.phase).toBe(2);
+    expect(boss.inv).toBeGreaterThan(10);
+    expect(boss.mem.barrier).toBe(1);
+    expect(w.foes.length).toBeGreaterThan(3);
+    // Attacks while barrier is up deal 0 damage
+    const hpLocked = boss.hp;
+    damageFoe(boss, 100, V3(0, 0, -2), { quiet: true });
+    expect(boss.hp).toBe(hpLocked);
+    // Clearing all spawned flags & adds shatters the barrier and staggers the boss
+    for (const o of w.foes) if (o !== boss) o.st = 'dead';
+    updateFoe(boss, w, 0.05);
+    expect(boss.mem.barrier).toBe(0);
+    expect(boss.inv).toBe(0);
+    expect(boss.st).toBe('stagger');
+    // Burst past 33% clamps at 33% and enters 6.5s pure flee barrage
+    damageFoe(boss, 350, V3(0, 0, -2), { quiet: true });
+    expect(boss.hp).toBe(Math.floor(540 * 0.33));
+    updateFoe(boss, w, 0.05);
+    expect(boss.phase).toBe(3);
+    expect(boss.mem.barrier).toBe(2);
+    expect(boss.mem.barrierMode).toBe('flee');
+    expect(boss.inv).toBeGreaterThan(10);
+  });
+
   it('combat & build overhaul invariants (act-118): universal elite poise, unified 0.26s parry beat, 4 build archetypes', () => {
     expect(HOT).toBeCloseTo(0.26, 2);
     expect(TUNE.maxAttackers).toBeGreaterThanOrEqual(2);

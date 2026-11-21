@@ -64,7 +64,7 @@ export const SEEDS: Record<SeedId, SeedDef> = {
     steps: 6, minsPerStep: 18, herb: 12, iron: 12,
     buff: 'lotus', buffName: '温脉药汤',
     desc: '双产药草+12 残铁+12 · 赠下局「温脉药汤」',
-    buffDesc: '下局生命上限+25、秘传重随+1',
+    buffDesc: '下局生命上限+18、秘传重随+1',
   },
   xuanzhi: {
     id: 'xuanzhi', name: '九叶玄芝', col: 0xd696ff, hex: '#e0a8ff',

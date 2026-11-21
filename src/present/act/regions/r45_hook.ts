@@ -30,7 +30,7 @@ addLocales(WULIN_LOCALES); addLocales(CUI_LOCALES);
 /** the bosses' arrival lines (agy): over his head as he comes in */
 export const ARRIVAL: Partial<Record<EKind, string>> = { wl_boss: '那碗姜汤……是你？瞎子也配寻仇？', cx_boss: '天下如棋，你这弃子，走得太远了。' };
 /** the hero's blows a guard (a shield, a parrying sword) never turns: the room's props, the ultimate, the parry's own reflect */
-const UNBLOCKABLE = new Set(['school', 'ult', 'ultTick', 'parry', 'echo']);
+const UNBLOCKABLE = new Set(['school', 'ult', 'ultTick', 'parry', 'echo', 'clash']);
 /** each place's room tail (the open river short, the walled garden courts long) [tail s, how much] */
 const ROOM_VERB: Record<string, [number, number]> = { wl_dock: [0.4, 0.08], wl_camp: [0.5, 0.1], wl_tower: [0.6, 0.12], cx_court: [0.8, 0.16], cx_gallery: [1.0, 0.18], cx_vault: [1.3, 0.22] };
 /** the foes' shouts as a wave comes in (agy): the 曹军 on the river, the 崔府's household — not the 黄巾's */
@@ -62,11 +62,15 @@ export function installR45(show: unknown) {
   // ---- a blow the guard turns aside never reaches the game's hit (no blood, no number); a disarmed guard takes double; a dart does
   // not find a foe the hero cannot see (it is under the planks / in its smoke)
   const hit0 = S.hitFoe.bind(S);
-  S.hitFoe = (f: Foe, dmg: number, from: THREE.Vector3, o: { knock: number; heavy: boolean; kind: string; stagger?: number }) => {
+  S.hitFoe = (f: Foe, dmg: number, from: THREE.Vector3, o: { knock: number; heavy: boolean; kind: string; stagger?: number; counter?: boolean }) => {
     if (f.role === 'ext' && f.st !== 'dead') {
       if (o.kind === 'dart' && hiddenFoe(f)) return;
       const ai = FOE_AI[f.kind];
       if (!UNBLOCKABLE.has(o.kind) && ai?.guard?.(f, from, { heavy: o.heavy, dart: o.kind === 'dart' })) return;
+      // act-138 Boss 5 (崔玄) Phase 3: parry / dodge-counter / chase exposes him in the darkness for 3.5s
+      if (f.kind === 'cx_boss' && f.phase === 3 && (o.kind === 'parry' || o.kind === 'chase' || o.kind === 'clash' || o.counter)) {
+        const fx = FOE_X.get(f); if (fx) fx.exposed = 3.5;
+      }
       dmg *= ai?.taken?.(f) ?? 1;
     }
     hit0(f, dmg, from, o);

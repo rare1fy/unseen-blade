@@ -36,8 +36,8 @@ export const KEEPSAKES: Record<KeepsakeId, KeepsakeDef> = {
     owner: '杜五',
     name: '瓦壶老酒',
     source: '据点找杜五领取干粮后获赠',
-    vals: [1, 1, 2],
-    effect: s => s === 1 ? '每关首战获 1 层护酒免伤，破酒震退近敌' : s === 2 ? '每关首战获 1 层护酒免伤，破酒震退并回 10 血' : '每关首战获 2 层护酒免伤，破酒震退并回 12 血',
+    vals: [1, 1, 1],
+    effect: s => s === 1 ? '每关首战获 1 层护酒免伤，破酒震退近敌' : s === 2 ? '每关首战获 1 层护酒免伤，破酒震退并回 5 血' : '每关首战获 1 层护酒免伤，破酒震退并回 8 血',
     col: '#ffbe78',
     glyph: [
       '....##....',
@@ -57,8 +57,8 @@ export const KEEPSAKES: Record<KeepsakeId, KeepsakeDef> = {
     owner: '孙媪',
     name: '百草香囊',
     source: '据点向孙媪问诊行针后获赠',
-    vals: [8, 12, 16],
-    effect: s => `进入新屋回复 ${[8, 12, 16][s - 1]}% 生命，草垛回血翻倍`,
+    vals: [4, 6, 8],
+    effect: s => `进入新屋回复 ${[4, 6, 8][s - 1]}% 生命，草垛回血翻倍`,
     col: '#8effb8',
     glyph: [
       '....##....',
@@ -79,8 +79,8 @@ export const KEEPSAKES: Record<KeepsakeId, KeepsakeDef> = {
     name: '淬火残铁',
     source: '据点向冯铁臂锻造后获赠',
     arch: 'poise',
-    vals: [15, 25, 35],
-    effect: s => `【破势】秘传出现率大增，破甲追伤 +${[15, 25, 35][s - 1]}%`,
+    vals: [12, 20, 28],
+    effect: s => `【破势】秘传出现率大增，破甲追伤 +${[12, 20, 28][s - 1]}%`,
     col: '#ffd268',
     glyph: [
       '..........',

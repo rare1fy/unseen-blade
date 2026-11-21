@@ -7,6 +7,7 @@ import { toon } from '../look/toon';
 import { icon, text as pixText, textW as pixTextW, PIX_H } from '../v2/overlay';
 import { bodyText, bodyW, onBodyFontChange } from '../ui3d/bodyFont';
 import { roomInfo, type RoomPlan } from './run';
+import { ARCH_INFO } from './boons';
 import { SCROLL_GLYPH } from './manuals';
 
 const GLYPH: Record<string, string[]> = {
@@ -19,6 +20,7 @@ const GLYPH: Record<string, string[]> = {
   boss: ['....##....', '..######..', '.##....##.', '##..##..##', '#..####..#', '#..####..#', '##..##..##', '.##....##.', '..######..', '....##....'],
   coins: ['..######..', '.#oooooo#.', '#oo####oo#', '#oo#..#oo#', '#oo#..#oo#', '#oo####oo#', '.#oooooo#.', '..######..', '..........', '..........'],
   heal: ['.##...##..', '####.####.', '#########.', '#########.', '.#######..', '..#####...', '...###....', '....#.....', '..........', '..........'],
+  meta: ['..........', '.########.', '##########', '..######..', '...####...', '...####...', '..######..', '.########.', '..........', '..........'],
 };
 const INK = '#2a170c', WOOD = '#c09464', WOOD_D = '#8a6440', ACC = '#7a2a1e';
 const BOON_MARK = ['....##....', '....##....', '....##....', '....##....', '....##....', '....##....', '..######..', '..#oooo#..', '..######..', '..........'];
@@ -35,13 +37,14 @@ const BOARD_THEME: Record<string, { band: string; title: string; acc: string }> 
 
 function boardSub(p: RoomPlan, place: string): string {
   const r = p.reward;
-  if (p.type === 'elite') return '刀谱·重赏';
+  if (p.type === 'elite') return r?.k === 'boon' && r.arch ? msg`${ARCH_INFO[r.arch].name}·珍绝` : '珍绝秘传';
   if (p.type === 'boss') return '终战';
   if (p.type === 'event') return '信物·加护';
-  if (p.type === 'boon') return '珍品秘传';
+  if (p.type === 'boon') return '稀世遗卷';
   if (p.type === 'shop') return '四摊百货';
   if (p.type === 'rest') return '调息三选';
-  return r?.k === 'boon' ? '秘传' : r?.k === 'coins' ? msg`铜钱 ${r.n}` : r?.k === 'heal' ? '回血' : r?.k === 'manual' ? '刀谱' : place;
+  if (r?.k === 'boon') return r.arch ? msg`${ARCH_INFO[r.arch].name}秘传` : '秘传';
+  return r?.k === 'coins' ? msg`铜钱 ${r.n}` : r?.k === 'maxHp' ? msg`气血+${r.n}` : r?.k === 'meta' ? '残铁药引' : r?.k === 'heal' ? '回血' : r?.k === 'manual' ? '刀谱' : place;
 }
 
 function face(p: RoomPlan, place: string) {
@@ -58,9 +61,10 @@ function face(p: RoomPlan, place: string) {
     const rawTitle = roomInfo(p.type, p.region ?? 0).name;
     const title = language === 'en' ? localize(rawTitle) : rawTitle;
     const r = p.reward;
-    if (r?.k === 'boon' || p.type === 'boon') icon(g, BOON_MARK, 10, 71, 3, { main: INK, acc: theme.acc, dark: INK });
-    else if (r?.k === 'manual' || p.type === 'elite') icon(g, SCROLL_GLYPH, 10, 71, 3, { main: INK, acc: theme.acc, dark: INK });
-    else if (r) icon(g, GLYPH[r.k === 'coins' ? 'coins' : 'heal'], 10, 71, 3, { main: INK, acc: theme.acc, dark: INK });
+    const archCol = r?.k === 'boon' && r.arch ? ARCH_INFO[r.arch].col : null;
+    if (r?.k === 'boon' || p.type === 'boon' || p.type === 'elite') icon(g, BOON_MARK, 10, 71, 3, { main: archCol ?? INK, acc: archCol ?? theme.acc, dark: INK });
+    else if (r?.k === 'manual') icon(g, SCROLL_GLYPH, 10, 71, 3, { main: INK, acc: theme.acc, dark: INK });
+    else if (r) icon(g, GLYPH[r.k === 'coins' ? 'coins' : r.k === 'meta' ? 'meta' : 'heal'], 10, 71, 3, { main: INK, acc: theme.acc, dark: INK });
     else icon(g, GLYPH[p.type], 10, 71, 3, { main: INK, acc: theme.acc, dark: INK });
     const sub = boardSub(p, place);
     g.setTransform(1, 0, 0, 1, 0, 0);

@@ -11,7 +11,8 @@ import { uiScale } from './uiScale';
 
 export type MiniIcon =
   | 'coin' | 'iron' | 'herb' | 'chest' | 'mythic' | 'scroll' | 'heal'
-  | 'forge' | 'stele' | 'star' | 'starOff' | 'door' | 'leaf' | 'blade' | 'talk';
+  | 'forge' | 'stele' | 'star' | 'starOff' | 'door' | 'leaf' | 'blade' | 'talk'
+  | 'blood' | 'poise' | 'shadow' | 'gale' | 'meta' | 'fire' | 'boss';
 
 /** Draw crisp axis-aligned 9x9 pixel icon centered at (cx, cy) with block size u (device px). */
 export function drawMiniIcon(g: CanvasRenderingContext2D, kind: MiniIcon, cx: number, cy: number, sz: number) {
@@ -96,6 +97,54 @@ export function drawMiniIcon(g: CanvasRenderingContext2D, kind: MiniIcon, cx: nu
       R(1, 1, 7, 6, '#14121a'); R(2, 2, 5, 4, '#f2e8d6');
       R(3, 3, 1, 1, '#262028'); R(5, 3, 1, 1, '#262028');
       R(2, 7, 2, 1, '#f2e8d6');
+      break;
+    case 'blood':
+      // Crimson blood-blade drop emblem (血刃)
+      R(4, 0, 1, 2, '#1c080a'); R(3, 1, 3, 3, '#1c080a'); R(2, 3, 5, 5, '#1c080a'); R(3, 8, 3, 1, '#1c080a');
+      R(4, 1, 1, 2, '#ff6a60'); R(3, 3, 3, 4, '#e6322c'); R(2, 4, 5, 3, '#d82824'); R(3, 7, 3, 1, '#a81c1a');
+      R(4, 3, 1, 2, '#ffd6cc'); R(3, 4, 1, 1, '#fff0ec');
+      break;
+    case 'poise':
+      // Golden shattered shield / heavy crest (破势)
+      R(1, 0, 7, 6, '#1a1206'); R(2, 6, 5, 2, '#1a1206'); R(3, 8, 3, 1, '#1a1206');
+      R(2, 1, 5, 5, '#e8a832'); R(3, 6, 3, 1, '#c88420'); R(4, 7, 1, 1, '#a06418');
+      R(2, 1, 5, 1, '#fff0a8'); R(2, 2, 2, 3, '#ffd258');
+      // Diagonal crack slash across shield
+      R(6, 1, 1, 1, '#1a1206'); R(5, 2, 1, 2, '#fff8dc'); R(4, 4, 1, 1, '#fff8dc'); R(3, 5, 1, 1, '#1a1206');
+      break;
+    case 'shadow':
+      // Indigo-violet willow dart / shuriken emblem (影镖)
+      R(4, 0, 1, 9, '#121428'); R(0, 4, 9, 1, '#121428'); R(2, 2, 5, 5, '#121428');
+      R(4, 1, 1, 7, '#a4b4ff'); R(1, 4, 7, 1, '#a4b4ff');
+      R(3, 3, 3, 3, '#6e7ee8'); R(4, 4, 1, 1, '#ffffff');
+      R(4, 1, 1, 2, '#eef2ff'); R(6, 4, 2, 1, '#eef2ff');
+      break;
+    case 'gale':
+      // Jade-cyan soaring wing / wind crest (凌空)
+      R(1, 1, 7, 7, '#0a201c');
+      R(2, 1, 6, 2, '#76f0cc'); R(1, 3, 6, 2, '#48d4aa'); R(2, 5, 5, 2, '#2ca888');
+      R(3, 1, 4, 1, '#e0fff6'); R(2, 3, 3, 1, '#b8ffee');
+      R(1, 6, 3, 2, '#76f0cc');
+      break;
+    case 'meta':
+      // Twin meta currency emblem: iron ingot left + jade herb right (残铁药引)
+      R(0, 2, 5, 6, '#14141c'); R(1, 4, 3, 3, '#7a869c'); R(1, 3, 3, 1, '#cfd8ec'); R(3, 4, 1, 2, '#ff9842');
+      R(4, 1, 5, 7, '#0c2016'); R(5, 3, 3, 3, '#66e494'); R(6, 2, 2, 2, '#c8ffdc'); R(6, 6, 1, 2, '#2d7648');
+      break;
+    case 'fire':
+      // Warm campfire flame emblem (歇脚)
+      R(3, 0, 3, 3, '#1e0e06'); R(2, 2, 5, 6, '#1e0e06'); R(1, 5, 7, 4, '#1e0e06');
+      R(4, 1, 1, 2, '#ffe888'); R(3, 3, 3, 4, '#ff9638'); R(2, 5, 5, 2, '#e85820');
+      R(4, 4, 1, 3, '#fff6c4'); R(2, 7, 5, 1, '#7a4822');
+      break;
+    case 'boss':
+      // Crimson horned boss emblem (首领)
+      R(0, 0, 2, 3, '#1e0608'); R(7, 0, 2, 3, '#1e0608');
+      R(1, 2, 7, 6, '#1e0608'); R(2, 7, 5, 2, '#1e0608');
+      R(1, 1, 1, 2, '#ffd066'); R(7, 1, 1, 2, '#ffd066');
+      R(2, 3, 5, 4, '#d82a24'); R(3, 7, 3, 1, '#a81e1a');
+      R(3, 4, 1, 1, '#fff6cc'); R(5, 4, 1, 1, '#fff6cc');
+      R(4, 6, 1, 1, '#1e0608');
       break;
   }
 }
@@ -194,6 +243,8 @@ export interface TagSpec {
   color?: string;
   accent?: string;
   icon?: MiniIcon;
+  /** Hades-2 door reward mode: large high-contrast framed emblem medallion + crisp two-line reward & utility readout */
+  emblem?: boolean;
   price?: number;
   poor?: boolean;
   scale?: number;
@@ -361,57 +412,91 @@ export class UiPlatePool {
     const title = localize(spec.text);
     const sub = spec.sub ? localize(spec.sub) : '';
     const hasPrice = (spec.price ?? 0) > 0;
-    const pKey = `tag|${title}|${sub}|${spec.color ?? ''}|${spec.accent ?? ''}|${spec.icon ?? ''}|${spec.price ?? 0}|${spec.poor ? 1 : 0}|${kk.toFixed(2)}|${dpr}|${language}|${BODY_FONT.version}`;
+    const pKey = `tag|${title}|${sub}|${spec.color ?? ''}|${spec.accent ?? ''}|${spec.icon ?? ''}|${spec.emblem ? 1 : 0}|${spec.price ?? 0}|${spec.poor ? 1 : 0}|${kk.toFixed(2)}|${dpr}|${language}|${BODY_FONT.version}`;
     if (pKey !== s.key) {
       s.key = pKey;
       const u = Math.max(1, Math.round(1.5 * kk * dpr));
-      const pScale = Math.max(1, Math.round((15.5 * kk * dpr) / PIX_H));
+      const pScale = Math.max(1, Math.round(((spec.emblem ? 17 : 15.5) * kk * dpr) / PIX_H));
       const txtH = PIX_H * pScale;
-      const subPx = Math.round(13.5 * kk * dpr);
-      const icoSz = spec.icon ? Math.round(txtH * 0.92) : 0;
-      const padX = Math.round(9 * kk * dpr), padY = Math.round(5 * kk * dpr), gap = Math.round(6 * kk * dpr);
-      const tw = pixW(title) * pScale;
-      const sw = sub ? Math.ceil(bodyW(sub, subPx)) : 0;
-      const priceTxt = hasPrice ? `${spec.price}` : '';
-      const coinSz = hasPrice ? Math.round(txtH * 0.85) : 0;
-      const pw = hasPrice ? coinSz + Math.round(3 * kk * dpr) + pixW(priceTxt) * pScale : 0;
-      let W = padX * 2 + u * 2 + tw;
-      if (icoSz) W += icoSz + gap;
-      if (sw) W += gap + Math.round(4 * kk * dpr) + sw;
-      if (pw) W += gap + Math.round(4 * kk * dpr) + pw;
-      const H = Math.max(txtH, subPx, icoSz) + padY * 2 + u * 2;
-      const c = makeCanvas(Math.max(8, Math.ceil(W)), Math.max(8, Math.ceil(H))) as HTMLCanvasElement;
-      const g = c.getContext('2d')!; g.imageSmoothingEnabled = false;
+      const subPx = Math.round((spec.emblem ? 13 : 13.5) * kk * dpr);
       const rimCol = spec.poor ? '#9c362c' : (spec.accent ?? '#9a7a4a');
-      drawPixelPlaque(g, 0, 0, c.width, c.height, u, {
-        bg: '#15121c', hi: '#262132', border: '#08060b', inner: rimCol, accentBar: spec.accent ?? rimCol,
-      });
-      let cx = padX + u * 3;
-      const midY = c.height / 2;
-      if (spec.icon) {
-        drawMiniIcon(g, spec.icon, cx + icoSz / 2, midY, icoSz);
-        cx += icoSz + gap;
+      if (spec.emblem && spec.icon) {
+        // Hades-2 door reward plaque: large framed pixel emblem medallion on the left + 2-line reward & currency value on the right!
+        const medSz = Math.round(36 * kk * dpr);
+        const icoSz = Math.round(medSz * 0.76);
+        const padX = Math.round(10 * kk * dpr), padY = Math.round(6 * kk * dpr), gap = Math.round(9 * kk * dpr);
+        const tw = pixW(title) * pScale;
+        const sw = sub ? Math.ceil(bodyW(sub, subPx)) : 0;
+        const textW = Math.max(tw, sw);
+        const lineGap = Math.round(4 * kk * dpr);
+        const textH = sub ? txtH + lineGap + subPx : txtH;
+        const W = padX * 2 + u * 2 + medSz + gap + textW + u * 2;
+        const H = Math.max(medSz, textH) + padY * 2 + u * 2;
+        const c = makeCanvas(Math.max(8, Math.ceil(W)), Math.max(8, Math.ceil(H))) as HTMLCanvasElement;
+        const g = c.getContext('2d')!; g.imageSmoothingEnabled = false;
+        drawPixelPlaque(g, 0, 0, c.width, c.height, u, {
+          bg: '#13101a', hi: '#272034', border: '#07050a', inner: rimCol, accentBar: rimCol,
+        });
+        const midY = c.height / 2;
+        const mx = padX + u * 3;
+        const my = Math.round(midY - medSz / 2);
+        // Dark crisp emblem medallion frame with bright archetype-colored rim
+        g.fillStyle = '#08060c'; g.fillRect(mx - u, my - u, medSz + u * 2, medSz + u * 2);
+        g.fillStyle = rimCol; g.fillRect(mx, my, medSz, medSz);
+        g.fillStyle = '#1b1626'; g.fillRect(mx + u, my + u, medSz - u * 2, medSz - u * 2);
+        drawMiniIcon(g, spec.icon, mx + medSz / 2, midY, icoSz);
+        const tx = mx + medSz + gap;
+        const ty = Math.round(midY - textH / 2);
+        drawPix(g, title, tx, ty, { scale: pScale, color: spec.color ?? '#fff4d4', outline: '#08060c', align: 'left' });
+        if (sub) {
+          bodyText(g, sub, tx, ty + txtH + lineGap - Math.round(1 * dpr), subPx, '#dfd3be', 'left', '#08060c');
+        }
+        this.upload(s, c, dpr, BODY_FONT.current !== 'pixel' && !!sub);
+      } else {
+        const icoSz = spec.icon ? Math.round(txtH * 0.92) : 0;
+        const padX = Math.round(9 * kk * dpr), padY = Math.round(5 * kk * dpr), gap = Math.round(6 * kk * dpr);
+        const tw = pixW(title) * pScale;
+        const sw = sub ? Math.ceil(bodyW(sub, subPx)) : 0;
+        const priceTxt = hasPrice ? `${spec.price}` : '';
+        const coinSz = hasPrice ? Math.round(txtH * 0.85) : 0;
+        const pw = hasPrice ? coinSz + Math.round(3 * kk * dpr) + pixW(priceTxt) * pScale : 0;
+        let W = padX * 2 + u * 2 + tw;
+        if (icoSz) W += icoSz + gap;
+        if (sw) W += gap + Math.round(4 * kk * dpr) + sw;
+        if (pw) W += gap + Math.round(4 * kk * dpr) + pw;
+        const H = Math.max(txtH, subPx, icoSz) + padY * 2 + u * 2;
+        const c = makeCanvas(Math.max(8, Math.ceil(W)), Math.max(8, Math.ceil(H))) as HTMLCanvasElement;
+        const g = c.getContext('2d')!; g.imageSmoothingEnabled = false;
+        drawPixelPlaque(g, 0, 0, c.width, c.height, u, {
+          bg: '#15121c', hi: '#262132', border: '#08060b', inner: rimCol, accentBar: spec.accent ?? rimCol,
+        });
+        let cx = padX + u * 3;
+        const midY = c.height / 2;
+        if (spec.icon) {
+          drawMiniIcon(g, spec.icon, cx + icoSz / 2, midY, icoSz);
+          cx += icoSz + gap;
+        }
+        drawPix(g, title, cx, Math.round(midY - txtH / 2), { scale: pScale, color: spec.color ?? '#f4ecd8', outline: '#09070c', align: 'left' });
+        cx += tw;
+        if (sub) {
+          cx += gap;
+          g.fillStyle = '#5c5266';
+          g.fillRect(Math.round(cx), Math.round(midY - txtH * 0.34), Math.max(1, Math.round(1.5 * kk * dpr)), Math.round(txtH * 0.68));
+          cx += Math.round(5 * kk * dpr);
+          bodyText(g, sub, cx, Math.round(midY - subPx * 0.54), subPx, '#d4cab6', 'left', '#09070c');
+          cx += sw;
+        }
+        if (hasPrice) {
+          cx += gap;
+          g.fillStyle = '#5c5266';
+          g.fillRect(Math.round(cx), Math.round(midY - txtH * 0.34), Math.max(1, Math.round(1.5 * kk * dpr)), Math.round(txtH * 0.68));
+          cx += Math.round(5 * kk * dpr);
+          drawMiniIcon(g, 'coin', cx + coinSz / 2, midY, coinSz);
+          cx += coinSz + Math.round(3 * kk * dpr);
+          drawPix(g, priceTxt, cx, Math.round(midY - txtH / 2), { scale: pScale, color: spec.poor ? '#ff7c6a' : '#ffd872', outline: '#09070c', align: 'left' });
+        }
+        this.upload(s, c, dpr, BODY_FONT.current !== 'pixel' && !!sub);
       }
-      drawPix(g, title, cx, Math.round(midY - txtH / 2), { scale: pScale, color: spec.color ?? '#f4ecd8', outline: '#09070c', align: 'left' });
-      cx += tw;
-      if (sub) {
-        cx += gap;
-        g.fillStyle = '#5c5266';
-        g.fillRect(Math.round(cx), Math.round(midY - txtH * 0.34), Math.max(1, Math.round(1.5 * kk * dpr)), Math.round(txtH * 0.68));
-        cx += Math.round(5 * kk * dpr);
-        bodyText(g, sub, cx, Math.round(midY - subPx * 0.54), subPx, '#d4cab6', 'left', '#09070c');
-        cx += sw;
-      }
-      if (hasPrice) {
-        cx += gap;
-        g.fillStyle = '#5c5266';
-        g.fillRect(Math.round(cx), Math.round(midY - txtH * 0.34), Math.max(1, Math.round(1.5 * kk * dpr)), Math.round(txtH * 0.68));
-        cx += Math.round(5 * kk * dpr);
-        drawMiniIcon(g, 'coin', cx + coinSz / 2, midY, coinSz);
-        cx += coinSz + Math.round(3 * kk * dpr);
-        drawPix(g, priceTxt, cx, Math.round(midY - txtH / 2), { scale: pScale, color: spec.poor ? '#ff7c6a' : '#ffd872', outline: '#09070c', align: 'left' });
-      }
-      this.upload(s, c, dpr, BODY_FONT.current !== 'pixel' && !!sub);
     }
     const placeX = spec.align === 'left' ? spec.x + s.w / 2 : spec.x;
     this.place(s, placeX, spec.y, true, 1, true, spec.minY ?? 8, spec.maxY);

@@ -19,7 +19,7 @@ import { fxShock } from '../../fx/skillFx';
 import { addBlock } from '../../fx/blocks';
 import { TUNE } from '../tune';
 import { Tele, inside } from '../tele';
-import { EDEFS, addFoes, AI, Arrow, spawnFoe, LOW_CLEAR, dropTeles, applyAllySpread, type Foe, type FoeWorld } from '../enemy';
+import { EDEFS, addFoes, AI, Arrow, Shockwave, spawnFoe, LOW_CLEAR, dropTeles, applyAllySpread, bossBarrierFx, shatterBossBarrier, liveBossAdds, type Foe, type FoeWorld } from '../enemy';
 import { ROLE_AI, type RoleAI, type ThinkCtx } from './roles';
 
 // ------------------------------------------------------------------ the roster (names: agy)
@@ -32,7 +32,7 @@ addFoes({
   ly_xbow: { model: 'ly_xbow', hp: 30, r: 0.44, speed: 2.4, mass: 0.9, poise: 0, gold: 4, name: '摧坚强弩', role: 'ly_xbow', elite: 'ly_xbow_e', barks: BARK_LY },
   ly_torch: { model: 'ly_torch', hp: 32, r: 0.44, speed: 2.7, mass: 0.9, poise: 0, gold: 4, name: '泼油狂卒', role: 'ly_torch', elite: 'ly_torch_e', barks: BARK_LY },
   ly_looter: { model: 'ly_looter', hp: 22, r: 0.38, speed: 3.6, mass: 0.6, poise: 0, gold: 2, name: '搜骨乱卒', role: 'ly_looter', alt: ['ly_looter_b'], weight: 0.5, barks: BARK_LY },
-  ly_boss: { model: 'ly_boss', hp: 560, r: 0.95, speed: 2.1, mass: 4.2, poise: 80, gold: 50, name: '飞熊校尉 · 阎虎', role: 'ly_boss', boss: true, tag: '高炉火烈，大斧生嚼', intro: '哪来的瞎狗？投进炉里铸钱！' },
+  ly_boss: { model: 'ly_boss', hp: 740, r: 0.95, speed: 2.1, mass: 4.2, poise: 140, gold: 50, name: '飞熊校尉 · 阎虎', role: 'ly_boss', boss: true, tag: '高炉火烈，大斧生嚼', intro: '哪来的瞎狗？投进炉里铸钱！' },
 });
 
 // ------------------------------------------------------------------ shared bits
@@ -47,7 +47,7 @@ const angleTo = (f: Foe, p: THREE.Vector3) => { const d = p.clone().sub(f.pos).s
 function areaHit(f: Foe, w: FoeWorld, low = false) {
   const s = f.shape; if (!s || !w.heroAlive) return;
   if (inside(s, f.telePos.x, f.telePos.z, f.teleYaw, w.heroPos.x, w.heroPos.z, w.heroR)) { if (low && w.heroY >= LOW_CLEAR) w.dodged(f.pos.clone()); else w.hurtHero(f.dmg, f.pos.clone(), f); }
-  else if (w.heroDodge && inside(s, f.telePos.x, f.telePos.z, f.teleYaw, w.heroPos.x, w.heroPos.z, w.heroR + 1.1)) w.dodged(f.pos.clone());
+  else if (w.heroDodge && inside(s, f.telePos.x, f.telePos.z, f.teleYaw, w.heroPos.x, w.heroPos.z, w.heroR + 0.65)) w.dodged(f.pos.clone());
 }
 /** end the attack into its recover (the calm after a blow, as enemy.ts does) */
 const recover = (f: Foe, s: number) => { f.lunge = null; AI.calm(TUNE.atkCalm); AI.setSt(f, 'recover', s); };
@@ -173,7 +173,7 @@ const shield: RoleAI = {
   // 一闪 / 破势 go through; while it is knocked aside (stunT) nothing is held
   guard(f, dmg, from, kind) {
     if ((f.mem.stunT ?? 0) > 0) return undefined;
-    if (kind === 'plunge' || kind === 'school' || kind === 'rel' || kind === 'parry' || kind === 'ult' || kind === 'ultTick') return undefined;
+    if (kind === 'plunge' || kind === 'school' || kind === 'rel' || kind === 'parry' || kind === 'clash' || kind === 'ult' || kind === 'ultTick') return undefined;
     if (angleTo(f, from) > SHIELD_HALF) return undefined;   // from the side or behind: the blade gets in
     void dmg; return 0;
   },
@@ -376,6 +376,7 @@ function throwArmour(f: Foe) {
 const YAN = { sweepR: 3.6, sweepHalf: 1.22, chopLen: 5.0, chopW: 1.4, ramW: 1.8 };
 const yanhu: RoleAI = {
   think(f, w, k) {
+    if (f.mem.barrier > 0) return 'busy';
     const d = k.dist, p2 = f.phase > 1;
     if (f.mem.axeOut) { return { want: k.dir.clone().addScaledVector(k.side, 0.4), sp: 0.9 }; }   // empty-handed, walking at her (the moment)
     if (!k.can) return d > 2.6 ? { want: k.dir.clone().addScaledVector(k.side, 0.25) } : { want: side(k, 0.6), aim: true };
@@ -390,23 +391,76 @@ const yanhu: RoleAI = {
   },
   tick(f, w, dt) {
     for (const key of ['throwCd', 'ironCd', 'ramCd']) f.mem[key] = (f.mem[key] ?? 0) - dt;
-    // the turn at half life: 「烫煞老子，赤膊剁你！」 — he tears off the red-hot armour (it flies off in pieces), short invulnerable,
-    // less poise, faster; the two new blows; a call for men every 12 s
-    if (f.phase === 1 && f.hp <= f.maxHp * 0.5) {
-      dropTeles(f); f.attacking = false; f.lunge = null; f.phase = 2; f.inv = 1.4; f.mem.axeOut = false;
-      AI.setSt(f, 'roar', 1.6); f.a.play(new Action('rip', 1.6, 0.45)); cue('roar', 1); shake(0.45 * TUNE.shake);
-      after(0.7, () => { if (f.st !== 'dead') { throwArmour(f); fxShock(f.pos.clone().setY(0.08), 0xff8a40, 3.2, { life: 0.5 }); fxSparks(f.a.chest(), 0xffb060, 30, 7); cue('boom', 0.6); } });
-      w.say?.(f, '烫煞老子，赤膊剁你！');
-      f.d = { ...f.d, poise: Math.round(f.d.poise * 0.6) }; f.poise = Math.min(f.poise, f.d.poise);
-      f.summonT = 4; f.mem.ramCd = 1.5; f.mem.ironCd = 2.5; f.mem.throwCd = 4;
+    // act-138 Hades-2 Boss Impervious Phase Gates (60% 6.2s Furnace Rampage flee; 30% Flying Bear add-clear shield)
+    if (f.mem.barrier > 0) {
+      bossBarrierFx(f, dt, 0xff7a2a);
+      f.mem.barPulseT = (f.mem.barPulseT ?? 0.6) - dt;
+      f.mem.barMaxT = (f.mem.barMaxT ?? 24) - dt;
+      if (f.mem.barrier === 1) {
+        f.mem.fleeT = Math.max(0, (f.mem.fleeT ?? 0) - dt);
+        f.mem.barrierLabel = '无敌 · 躲避狂飙冲阵';
+        if (f.mem.barPulseT <= 0 && w.heroAlive) {
+          f.mem.barPulseT = 1.85;
+          const toH = w.heroPos.clone().sub(f.pos).setY(0), yaw = Math.atan2(toH.x, toH.z);
+          f.yaw = yaw;
+          w.arrows.push(new Shockwave(f.pos.clone(), Math.round(14 * TUNE.enemyDmg), 1.0, 12.0, 1.45));
+          w.arrows.push(new MoltenPool(f.pos.clone(), yaw, 4.6, 0.88, Math.round(8 * TUNE.enemyDmg), 6.5, f));
+          f.vel.copy(fwd(yaw)).multiplyScalar(11);
+          cue('foeCry', 1, 2); cue('fire', 0.9); shake(0.3 * TUNE.shake);
+        }
+        if (f.mem.fleeT <= 0) {
+          shatterBossBarrier(f, w, 0xff8a30, '呼……老子的甲都烧熔了！');
+          f.mem.ramCd = 1.8; f.mem.ironCd = 2.5; f.mem.throwCd = 3.5;
+        }
+      } else {
+        f.mem.barrierLabel = '无敌 · 清飞熊亲卫';
+        f.vel.multiplyScalar(Math.exp(-dt * 8));
+        if (f.mem.barPulseT <= 0 && w.heroAlive) {
+          f.mem.barPulseT = 2.8;
+          const toH = w.heroPos.clone().sub(f.pos).setY(0), yaw = Math.atan2(toH.x, toH.z);
+          f.yaw = yaw;
+          w.arrows.push(new Shockwave(f.pos.clone(), Math.round(13 * TUNE.enemyDmg), 1.0, 11.5, 1.5));
+          if (!f.mem.axeOut) { f.mem.axeOut = true; showAxe(f, false); w.arrows.push(new FlyingAxe(f, yaw, 10, f.dmg)); cue('whoosh', 1); }
+          cue('fire', 0.7);
+        }
+        if (liveBossAdds(f, w) === 0 || f.mem.barMaxT <= 0) {
+          shatterBossBarrier(f, w, 0xff8a30, '废柴！全死绝了！');
+        }
+      }
+      return;
+    }
+    // Gate 1 at 60% HP: tears off red-hot armor -> 6.2s Impervious Furnace Rampage!
+    if (f.phase === 1 && f.hp <= f.maxHp * 0.60) {
+      dropTeles(f); f.attacking = false; f.lunge = null; f.phase = 2; f.inv = 99; f.mem.axeOut = false;
+      f.mem.barrier = 1; f.mem.fleeT = 6.2; f.mem.barPulseT = 0.7; f.mem.barrierLabel = '无敌 · 躲避狂飙冲阵';
+      AI.setSt(f, 'roar', 99); f.a.play(new Action('rip', 1.6, 0.45)); cue('roar', 1); shake(0.45 * TUNE.shake);
+      after(0.6, () => { if (f.st !== 'dead') { throwArmour(f); fxShock(f.pos.clone().setY(0.08), 0xff8a40, 3.2, { life: 0.5 }); fxSparks(f.a.chest(), 0xffb060, 30, 7); cue('boom', 0.6); } });
+      w.say?.(f, '烫煞老子！炉火狂飙，给老子滚开！');
+      f.d = { ...f.d, poise: Math.max(100, Math.round(f.d.poise * 0.8)) }; f.poise = f.d.poise;
+      f.summonT = 8;
+      return;
+    }
+    // Gate 2 at 30% HP: Impervious Furnace Shield + Flying Bear squad clear!
+    if (f.phase === 2 && !f.mem.gate2 && f.hp <= f.maxHp * 0.30) {
+      f.mem.gate2 = true; dropTeles(f); f.attacking = false; f.lunge = null; f.inv = 99;
+      f.mem.barrier = 2; f.mem.barPulseT = 1.6; f.mem.barMaxT = 24; f.mem.barrierLabel = '无敌 · 清飞熊亲卫';
+      AI.setSt(f, 'roar', 99); f.a.roar(); cue('roar', 1); shake(0.45 * TUNE.shake);
+      w.say?.(f, '飞熊合围！看你先死还是先破阵！');
+      (['ly_shield', 'ly_torch', 'ly_xbow'] as const).forEach((kd, i) => {
+        const a = (i / 3) * Math.PI * 2 + 0.4, p = V3(f.pos.x + Math.cos(a) * 5.0, 0, f.pos.z + Math.sin(a) * 4.5);
+        w.clamp(p, 0.6); const m = spawnFoe(kd, p, w.heroPos.clone()); m.cd = R(0.6, 1.2); w.foes.push(m);
+        fxSmoke(p.clone().add(V3(0, 0.3, 0)), 0x5a524c, 8, { r: 0.6, spd: 1.2, up: 0.6, s: 0.4, life: 0.7 });
+      });
+      cue('summon', 0.75);
+      return;
     }
     if (f.phase > 1 && f.st !== 'dead') {
       f.auraT -= dt; if (f.auraT <= 0) { f.auraT = 0.1; fxEmbers(f.pos.clone().setY(0.5), 0xff8a3a, 2, { r: 0.6, up: 1.6, life: 0.7 }); }
       f.summonT -= dt;
       if (f.summonT <= 0 && w.heroAlive && f.st !== 'roar') {
-        f.summonT = 12;
+        f.summonT = 13;
         const n = w.foes.filter(o => o.st !== 'dead' && o !== f).length;
-        const kinds = n < 3 ? ['ly_looter', 'ly_looter', 'ly_xbow'] : ['ly_looter'];
+        const kinds = n < 3 ? ['ly_xbow', 'ly_torch'] : ['ly_looter'];
         kinds.forEach((kd, i) => {
           if (w.spawnReinforce) {
             w.spawnReinforce(kd, i);
@@ -440,7 +494,7 @@ const yanhu: RoleAI = {
     if (f.atk === 'axeThrow') { f.mem.axeOut = true; showAxe(f, false); w.arrows.push(new FlyingAxe(f, f.teleYaw, 9, f.dmg)); cue('whoosh', 1); AI.setSt(f, 'strike', 0.3); return true; }
     if (f.atk === 'iron') {
       areaHit(f, w); cue('foeHeavy', 1); cue('fire', 0.9);
-      w.arrows.push(new MoltenPool(f.pos.clone(), f.teleYaw, 4.0, 0.75, Math.round(6 * TUNE.enemyDmg), 4, f));
+      w.arrows.push(new MoltenPool(f.pos.clone(), f.teleYaw, 4.8, 0.92, Math.round(8 * TUNE.enemyDmg), 7.0, f));
       fxSmoke(f.pos.clone().add(fwd(f.teleYaw).multiplyScalar(1.8)).setY(0.4), 0x4a3a30, 10, { r: 1.2, spd: 1.6, up: 0.8, s: 0.5, life: 0.9 });
       AI.setSt(f, 'strike', 0.3); return true;
     }
@@ -458,7 +512,7 @@ const yanhu: RoleAI = {
       // contact: knocked back and down (her blood), once
       const dd = f.pos.distanceTo(w.heroPos);
       if (!f.hitHero && w.heroAlive && dd < f.d.r + w.heroR + 0.2) { f.hitHero = true; if (w.heroDodge) w.dodged(f.pos.clone()); else w.hurtHero(f.dmg, f.pos.clone(), f); }
-      else if (!f.hitHero && w.heroAlive && w.heroDodge && dd < f.d.r + w.heroR + 1.2) { f.hitHero = true; w.dodged(f.pos.clone()); }
+      else if (!f.hitHero && w.heroAlive && w.heroDodge && dd < f.d.r + w.heroR + 0.65) { f.hitHero = true; w.dodged(f.pos.clone()); }
     }
     if (f.t < f.dur) return;
     f.lunge = null;
@@ -473,6 +527,16 @@ const yanhu: RoleAI = {
     shake(0.5 * TUNE.shake); cue('wallSlam', 1); cue('foePain', 1, 2);
     fxSmoke(f.pos.clone().setY(0.6), 0x8a7a6a, 14, { r: 1.0, spd: 2, up: 1, s: 0.55, life: 0.9 });
     for (let i = 0; i < 3; i++) fxRing(f.a.head().add(V3(0, 0.3 + i * 0.12, 0)), 0xfff0b0, 0.4, { life: 0.5 } as never);
+  },
+  // act-138 Phase 1 灼热重甲: frontal light/dart attacks deal only 45% dmg & zero poise — flank behind, lure ram into wall, or parry chop!
+  guard(f, dmg, from, kind) {
+    f.mem.armoredHit = 0;
+    if (f.phase !== 1 || f.st === 'stagger' || f.brokenT > 0 || (f.mem.stuckT ?? 0) > 0) return undefined;
+    if (kind === 'parry' || kind === 'clash' || kind === 'plunge' || kind === 'rel' || kind === 'ult' || kind === 'ultTick' || kind === 'school' || kind === 'k5') return undefined;
+    if (angleTo(f, from) > 1.15) return undefined;
+    f.mem.armoredHit = 1;
+    fxSparks(f.a.chest(), 0xffd080, 8, 4); cue('parry', 0.45);
+    return Math.max(1, Math.round(dmg * 0.45));
   },
   // 破势 caught the chop: the axe bites the floor and stays there 1.5 s, he bent over it
   interrupted(f) { if (f.mem.intFrom === 'windup' && f.atk === 'chop') { f.mem.stuckT = 1.5; AI.setSt(f, 'stagger', 1.5); f.a.play(new Action('axeStuck', 1.5, 0.5)); cue('guardBreak', 1); } },

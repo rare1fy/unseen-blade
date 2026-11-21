@@ -6,15 +6,15 @@ export interface MetaUp { id: string; who: Who; cur: Cur; name: string; desc: [s
 
 import { UP_COPY } from './hideoutLines';
 export const META: MetaUp[] = [
-  { id: 'blade', who: 'forge', cur: 'iron', name: '刀身', desc: ['斩击增伤并提暴击', '每级+12%伤+4%暴'], costs: [10, 22, 40] },
-  { id: 'darts', who: 'forge', cur: 'iron', name: '镖匣', desc: ['飞镖扩容且快装', '每级+1枚-15%冷却'], costs: [14, 32] },
+  { id: 'blade', who: 'forge', cur: 'iron', name: '刀身', desc: ['斩击增伤并提暴击', '每级+8%伤+3%暴'], costs: [10, 22, 40] },
+  { id: 'darts', who: 'forge', cur: 'iron', name: '镖匣', desc: ['飞镖扩容且快装', '每级+1枚-12%冷却'], costs: [14, 32] },
   { id: 'reroll', who: 'forge', cur: 'iron', name: '重铸', desc: ['选牌可换一批', '每级每局+1次重随'], costs: [16, 36] },
   { id: 'manual', who: 'forge', cur: 'iron', name: '旧谱', desc: ['每局开局', '先挑一本刀谱'], costs: [35] },
-  { id: 'vigor', who: 'medic', cur: 'herb', name: '筋骨', desc: ['生命上限提高', '每级加二十'], costs: [10, 22, 38] },
-  { id: 'ear', who: 'medic', cur: 'herb', name: '听宫', desc: ['敌人起手更慢', '每级慢一成易识破'], costs: [14, 30] },
+  { id: 'vigor', who: 'medic', cur: 'herb', name: '筋骨', desc: ['生命上限提高', '每级加十二'], costs: [10, 22, 38] },
+  { id: 'ear', who: 'medic', cur: 'herb', name: '听宫', desc: ['敌人起手更慢', '每级慢六分易识破'], costs: [14, 30] },
   { id: 'intent', who: 'medic', cur: 'herb', name: '杀气', desc: ['每间开场带杀气', '自带一格杀气半格气'], costs: [20] },
-  { id: 'leech', who: 'medic', cur: 'herb', name: '养气', desc: ['破甲或完美闪避', '每级回复5点生命'], costs: [24, 48] },
-  { id: 'breath', who: 'medic', cur: 'herb', name: '闭息', desc: ['每局一次', '致命伤留四成血'], costs: [35] },
+  { id: 'leech', who: 'medic', cur: 'herb', name: '养气', desc: ['破甲或完美闪避', '每级回复3点生命'], costs: [24, 48] },
+  { id: 'breath', who: 'medic', cur: 'herb', name: '闭息', desc: ['每局一次', '致命伤留二成半血'], costs: [35] },
 ];
 
 export function level(p: Profile, id: string): number { return p.perks[id] ?? 0; }
@@ -48,20 +48,20 @@ export interface MirrorDef { id: string; group: string; cur: Cur; costs: [number
 /** act-118: 碑铭潜能 (Hades Mirror of Night-style dual-aspect permanent talents at 复仇碑) */
 export const MIRROR: MirrorDef[] = [
   { id: 'edge', group: '锋势', cur: 'iron', costs: [8, 18, 32], sides: [
-    { name: '破军', desc: '满血敌人首刀必暴且增伤', vals: [25, 45, 65], unit: '%' },
-    { name: '叠势', desc: '变招连击每档额外增伤', vals: [10, 18, 26], unit: '%' },
+    { name: '破军', desc: '满血敌人首刀必暴且增伤', vals: [20, 32, 45], unit: '%' },
+    { name: '叠势', desc: '变招连击每档额外增伤', vals: [5, 9, 13], unit: '%' },
   ] },
   { id: 'step', group: '身法', cur: 'herb', costs: [8, 18, 32], sides: [
-    { name: '追风', desc: '冲刺冷却缩短更灵动', vals: [12, 22, 30], unit: '%' },
-    { name: '铁骨', desc: '破势或完美闪避后反击增伤', vals: [25, 45, 65], unit: '%' },
+    { name: '追风', desc: '冲刺冷却缩短更灵动', vals: [8, 14, 20], unit: '%' },
+    { name: '铁骨', desc: '破势或完美闪避后反击增伤', vals: [15, 28, 40], unit: '%' },
   ] },
   { id: 'arms', group: '兵械', cur: 'iron', costs: [12, 26, 44], sides: [
-    { name: '暗影', desc: '对中镖敌人斩击额外增伤', vals: [18, 32, 46], unit: '%' },
-    { name: '崩岳', desc: '全招削减敌人架势加快', vals: [20, 38, 55], unit: '%' },
+    { name: '暗影', desc: '对中镖敌人斩击额外增伤', vals: [12, 22, 32], unit: '%' },
+    { name: '崩岳', desc: '全招削减敌人架势加快', vals: [15, 28, 40], unit: '%' },
   ] },
   { id: 'luck', group: '气运', cur: 'herb', costs: [12, 26, 44], sides: [
     { name: '绝品缘', desc: '秘传三选一珍绝品概率提高', vals: [15, 30, 45], unit: '%' },
-    { name: '聚财', desc: '进新屋按身上铜钱生息', vals: [12, 22, 32], unit: '%' },
+    { name: '聚财', desc: '进新屋按身上铜钱生息', vals: [10, 18, 25], unit: '%' },
   ] },
 ];
 
@@ -123,17 +123,17 @@ export const ARCANA_CAP_COSTS = [12, 20, 30, 44, 62, 84];
 export const ARCANA: ArcanaDef[] = [
   {
     id: 'vigor', name: '沸血筋骨', short: '筋骨', grasp: 1, unlockCost: 0, upgradeCosts: [14, 28],
-    vals: [20, 35, 55], unit: '', statLabel: '生命上限', desc: '运药活血，周身气血更盛', col: '#7ef0a8',
+    vals: [12, 24, 36], unit: '', statLabel: '生命上限', desc: '运药活血，周身气血更盛', col: '#7ef0a8',
     glyph: ['.##.##.', '#######', '#######', '.#####.', '..###..', '...#...', '.......'],
   },
   {
     id: 'ear', name: '贯耳听宫', short: '听宫', grasp: 2, unlockCost: 0, upgradeCosts: [16, 32],
-    vals: [10, 16, 24], unit: '%', statLabel: '起手放慢', desc: '凝神听风，敌人出招破绽更显', col: '#90e4ff',
+    vals: [6, 12, 18], unit: '%', statLabel: '起手放慢', desc: '凝神听风，敌人出招破绽更显', col: '#90e4ff',
     glyph: ['..###..', '.#...#.', '#..o..#', '#.ooo.#', '#..o..#', '.#...#.', '..###..'],
   },
   {
     id: 'wind', name: '踏风步', short: '踏风', grasp: 1, unlockCost: 10, upgradeCosts: [16, 32],
-    vals: [10, 18, 26], unit: '%', statLabel: '冲刺缩冷', desc: '吐纳轻身，闪避冲刺周转更快', col: '#8ceeff',
+    vals: [8, 14, 20], unit: '%', statLabel: '冲刺缩冷', desc: '吐纳轻身，闪避冲刺周转更快', col: '#8ceeff',
     glyph: ['.......', '....#..', '######.', '#######', '######.', '....#..', '.......'],
   },
   {
@@ -143,27 +143,27 @@ export const ARCANA: ArcanaDef[] = [
   },
   {
     id: 'center', name: '周天归元', short: '归元', grasp: 0, unlockCost: 16, upgradeCosts: [24, 44],
-    vals: [12, 20, 30], unit: '%', statLabel: '全招增伤', desc: '【零悟性唤醒】同启3张牌自动点亮', col: '#ffe278',
+    vals: [8, 14, 20], unit: '%', statLabel: '全招增伤', desc: '【零悟性唤醒】同启3张牌自动点亮', col: '#ffe278',
     glyph: ['...o...', '..ooo..', '.oo#oo.', 'oo###oo', '.oo#oo.', '..ooo..', '...o...'],
   },
   {
     id: 'leech', name: '破势养气', short: '养气', grasp: 2, unlockCost: 18, upgradeCosts: [22, 42],
-    vals: [5, 8, 12], unit: '点', statLabel: '破势回血', desc: '破势弹反或完美闪避立回气血', col: '#84f6b8',
+    vals: [3, 5, 7], unit: '点', statLabel: '破势回血', desc: '破势弹反或完美闪避立回气血', col: '#84f6b8',
     glyph: ['...#...', '..###..', '.##o##.', '##ooo##', '.##o##.', '..###..', '...#...'],
   },
   {
     id: 'keen', name: '藏锋心眼', short: '心眼', grasp: 2, unlockCost: 22, upgradeCosts: [24, 46],
-    vals: [6, 11, 16], unit: '%', statLabel: '暴击几率', desc: '静心观隙，刀锋更易斩中要害', col: '#ffd080',
+    vals: [4, 8, 12], unit: '%', statLabel: '暴击几率', desc: '静心观隙，刀锋更易斩中要害', col: '#ffd080',
     glyph: ['.......', '.#####.', '#..o..#', '#.ooo.#', '#..o..#', '.#####.', '.......'],
   },
   {
     id: 'poise', name: '崩岳断骨', short: '断骨', grasp: 3, unlockCost: 26, upgradeCosts: [26, 48],
-    vals: [18, 32, 48], unit: '%', statLabel: '削韧加快', desc: '沉肩坠肘，全招更易崩碎敌架势', col: '#f0b880',
+    vals: [12, 22, 32], unit: '%', statLabel: '削韧加快', desc: '沉肩坠肘，全招更易崩碎敌架势', col: '#f0b880',
     glyph: ['.#...#.', '..###..', '...#...', '..###..', '...#...', '..###..', '.#...#.'],
   },
   {
     id: 'breath', name: '绝处闭息', short: '闭息', grasp: 4, unlockCost: 32, upgradeCosts: [30, 56],
-    vals: [1, 1, 1], unit: '次', statLabel: '死境留命', desc: '致命伤闭息护心，留四成血续战', col: '#ff9690',
+    vals: [1, 1, 1], unit: '次', statLabel: '死境留命', desc: '致命伤闭息护心，留二成半血续战', col: '#ff9690',
     glyph: ['..###..', '.#####.', '##o#o##', '#######', '.#####.', '..#.#..', '.......'],
   },
 ];
@@ -319,16 +319,16 @@ export function runMods(p: Profile): RunMods {
   const aWind = arcanaVal(p, 'wind') / 100;
   const aPoise = arcanaVal(p, 'poise') / 100;
   return {
-    dmgMul: (1 + 0.12 * level(p, 'blade')) * (1 + aCenter),
-    critBonus: 0.04 * level(p, 'blade') + arcanaVal(p, 'keen') / 100,
+    dmgMul: (1 + 0.08 * level(p, 'blade')) * (1 + aCenter),
+    critBonus: 0.03 * level(p, 'blade') + arcanaVal(p, 'keen') / 100,
     dartBonus: level(p, 'darts'),
     rerolls: 1 + level(p, 'reroll') + (gBuff === 'lotus' ? 1 : 0),
-    hpBonus: 20 * level(p, 'vigor') + arcanaVal(p, 'vigor') + (gBuff === 'lotus' ? 25 : 0),
+    hpBonus: 12 * level(p, 'vigor') + arcanaVal(p, 'vigor') + (gBuff === 'lotus' ? 18 : 0),
     deathDefy: level(p, 'breath') + (arcanaVal(p, 'breath') > 0 ? 1 : 0),
     startIntent: level(p, 'intent') + arcanaVal(p, 'intent') + (gBuff === 'xuanzhi' ? 1 : 0),
-    windupMul: 1 + 0.1 * level(p, 'ear') + arcanaVal(p, 'ear') / 100,
+    windupMul: 1 + 0.06 * level(p, 'ear') + arcanaVal(p, 'ear') / 100,
     startManual: level(p, 'manual') >= 1,
-    poiseHeal: 5 * level(p, 'leech') + arcanaVal(p, 'leech'),
+    poiseHeal: 3 * level(p, 'leech') + arcanaVal(p, 'leech'),
     firstStrikeBonus: mirrorVal(p, 'edge', 0) / 100,
     styleBonus: mirrorVal(p, 'edge', 1) / 100,
     dashCdMul: (1 - mirrorVal(p, 'step', 0) / 100) * (1 - aWind),

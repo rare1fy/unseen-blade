@@ -43,7 +43,7 @@ import { Breakables } from './breakables';
 import { Gates, GateGlow } from './gates';
 import { UI_LOOK } from '../look/uiLook';
 import { sayMerchant, setHurtBreath, warmLines, warmVoicePacks, warmVoiceFile } from '../../audio/voice';
-import { ALL_MOVES, drawManuals, manualCard, SCROLL_GLYPH } from './manuals';
+import { ALL_MOVES, drawManuals, manualCard, manualsForWeapon, weaponMoves, SCROLL_GLYPH } from './manuals';
 import { Dialogue, type Line } from './dialogue';
 import { Stele } from './stele';
 import { openLab } from './lab';
@@ -152,7 +152,7 @@ import { dustBlocks, spawnClone, smokeBurst, cut as cloneCut } from '../kyoto/ni
 import { Dart, BladeWave } from './missiles';
 import { RUN_ROOMS, firstRoom, regionFirstRoom, roomOf, roomInfo, doorsFrom, kindOr, isBossKind, type RoomPlan, type RoomType } from './run';
 import { REGIONS } from './regions';
-import { isBossRoom, afterBoss, roomsWorth, regionScale, regionBanner } from './flow';
+import { isBossRoom, afterBoss, roomsWorth, regionScale, regionBanner, shopPriceMul } from './flow';
 import { Stations, type Station, type ShopSpecial } from './stations';
 import { Coins } from './coins';
 import { runBoard } from './runBoard';
@@ -544,7 +544,7 @@ export class ActShow {
     this.prologue = 1; this.proFalling = false; this.proFightT = 0; this.tut.reset();
     // act-140: pre-download voice subpackages & pre-decode opening sentry/boss dialogues during the 16s walk-in so the first line plays at 0ms!
     warmVoicePacks(); warmLines(PRO_AMBUSH); warmLines(PRO_CUIXUAN);
-    this.intent = 0; this.hud.intent = 0; this.perks = newPerks(); this.room = 0; this.kills = 0; this.recent = []; this.visited = []; this.coins = 0;
+    this.intent = 0; this.intentVal = 0; this.hud.intent = 0; this.perks = newPerks(); this.room = 0; this.kills = 0; this.recent = []; this.visited = []; this.coins = 0;
     this.mods = runMods(profile()); this.defy = 0; this.eliteKills = 0; this.bossKilled = false; this.wine = false;
     TUNE.heroHp = 100 + this.mods.hpBonus; TUNE.dartCharges = 3 + this.mods.dartBonus; TUNE.aggression = 0.85 / this.mods.windupMul;
     this.baseFoe.aggression = TUNE.aggression; this.scaleFoes(0);
@@ -770,7 +770,7 @@ export class ActShow {
   /** act-127 checkpoint resume: jump straight back to Cui Xuan's forecourt duel (skipping the already-cleared snowy village) */
   private async resumePrologueBoss() {
     this.prologue = 2; this.proFalling = false; this.proFightT = 0; this.tut.stop();
-    this.intent = 0; this.hud.intent = 0; this.perks = newPerks(); this.room = 1; this.kills = 0; this.recent = []; this.visited = []; this.coins = 0;
+    this.intent = 0; this.intentVal = 0; this.hud.intent = 0; this.perks = newPerks(); this.room = 1; this.kills = 0; this.recent = []; this.visited = []; this.coins = 0;
     this.mods = runMods(profile()); this.defy = 0; this.eliteKills = 0; this.bossKilled = false; this.wine = false;
     TUNE.heroHp = 100 + this.mods.hpBonus; TUNE.dartCharges = 3 + this.mods.dartBonus; TUNE.aggression = 0.85 / this.mods.windupMul;
     this.baseFoe.aggression = TUNE.aggression; this.scaleFoes(0);
@@ -870,7 +870,7 @@ export class ActShow {
   /** 11-18: the foes' strength for region ri from the run's starting TUNE (region one: as it was) */
   private scaleFoes(ri: number) {
     const k = regionScale(ri), b = this.baseFoe;
-    TUNE.enemyHp = b.hp * k.hp; TUNE.enemyDmg = b.dmg * k.dmg; TUNE.aggression = b.aggression * k.quick; TUNE.atkCalm = Math.max(0.5, b.calm + k.calm); TUNE.maxAttackers = Math.max(b.attackers, k.attackers);
+    TUNE.enemyHp = b.hp * k.hp; TUNE.enemyDmg = b.dmg * k.dmg; TUNE.aggression = b.aggression * k.quick; TUNE.atkCalm = Math.max(0.28, b.calm + k.calm); TUNE.maxAttackers = Math.max(b.attackers, k.attackers);
   }
   /** back home: the TUNE values the run started with (the tune panel's own numbers again) */
   private unscaleFoes() { const b = this.baseFoe; if (!this.region) return; TUNE.enemyHp = b.hp; TUNE.enemyDmg = b.dmg; TUNE.atkCalm = b.calm; TUNE.maxAttackers = b.attackers; this.region = 0; }
@@ -1534,7 +1534,7 @@ export class ActShow {
             stars: unl ? lv : 0,
             starsMax: 3,
             line1: unl ? w.summary : msg`${w.unlockHint} · ${w.summary}`,
-            line2: w.special,
+            line2: msg`${w.special} · 专属刀谱：${manualsForWeapon(wid).map(m => m.name).join('/')}`,
             action: !unl ? undefined : eq ? '当前佩刀' : '拔刀换武',
             accent: !unl ? '#666070' : eq ? '#ffd872' : w.col,
           };
@@ -1552,6 +1552,7 @@ export class ActShow {
       if (cur === wid) continue;
       equipWeapon(p, wid, this.dbgAllWeapons); saveProfile();
       this.hero?.applyWeapon(wid, weaponLevel(p, wid));
+      if (this.hero && this.phase === 'yard') this.hero.moves = weaponMoves(wid);
       this.refreshHideoutProps();
       cue('draw', 0.9); cue('bladeRing', 0.85);
     }
@@ -2195,6 +2196,7 @@ export class ActShow {
         if (lv != null) { if (!p.weaponLv) p.weaponLv = {}; p.weaponLv[id] = Math.max(0, Math.min(3, lv)); }
         p.weapon = id; saveProfile();
         this.hero?.applyWeapon(id, weaponLevel(p, id));
+        if (this.hero && this.phase === 'yard') this.hero.moves = weaponMoves(id);
         this.refreshHideoutProps();
         return { id, lv: weaponLevel(p, id) };
       },
@@ -2376,7 +2378,7 @@ export class ActShow {
       /** 11-18: the HUD's marks as if these were taken (ids: 'm:keep', 'b:quick:2') */ take: (ids: string[]) => { for (const s of ids) { const [k, id, t] = s.split(':'); if (k === 'm') this.perks.moves[id] = true; else applyBoon(this.perks, id, +(t ?? 0)); } this.syncMarks(); },
       boon: (id: string, tier = 0) => applyBoon(this.perks, id, tier), // wp/boons: browser effect checks
       /** 11-18 captures: exactly these boons at this tier (the old ones dropped); the hero reads this.perks */ boons: (ids: string[], tier = 0) => { this.perks.owned = {}; for (const id of ids) applyBoon(this.perks, id, tier); this.hero.perks = this.perks; return Object.keys(this.perks.owned); },
-      intent: (n = 3) => { this.intent = Math.max(0, Math.min(3, n)); this.hud.intent = this.intent; },
+      intent: (n = 3) => { this.intentVal = Math.max(0, Math.min(3, n)); this.intent = Math.floor(this.intentVal); this.hud.intent = this.intent; },
       ...(__DEBUG_UI__ ? { tutorial: (id?: LessonId | 'off' | 'on') => { if (id === 'off' || id === 'on') this.tut.setEnabled(id === 'on'); else if (id) this.tut.force(id); return { cur: this.tut.cur, k: this.tut.k, on: this.tut.enabled }; } } : {}),
       qi: (n?: number) => { if (n != null) this.hero.qi = Math.max(0, Math.min(Hero.QI_MAX, n)); return this.hero.qi; },
       untaught: () => { try { localStorage.removeItem('ub.taught'); } catch { /* */ } this.taught = null; },
@@ -2769,7 +2771,7 @@ export class ActShow {
     }
     this.musicHold = null;
     if (this.justDied) { this.justDied = false; this.pendingDeathTalk = true; after(0.3, () => cue('stingRevive', 1)); }
-    this.intent = 0; this.hud.intent = 0;
+    this.intent = 0; this.intentVal = 0; this.hud.intent = 0;
     this.perks = newPerks(); this.room = -1; this.kills = 0; this.locale = 'ninja_wilds'; this.recent = []; this.plan = null; this.demo.stop(); this.syncMarks();
     TUNE.heroHp = 100; return this.buildRoom(true);
   }
@@ -2835,11 +2837,11 @@ export class ActShow {
   startRun(build = true) {
     const fromYard = this.room < 0 && OPT.roomAhead;
     this.maps = [];
-    this.intent = 0; this.hud.intent = 0;
+    this.intent = 0; this.intentVal = 0; this.lastIntentAt = -9; this.poiseHealAt = -9; this.bloodHealAt = -9; this.roomDrinkHeal = 0; this.shadowEchoAt = -9; this.hud.intent = 0;
     this.perks = newPerks(); this.room = 0; this.kills = 0; this.recent = []; this.demo.stop(); this.syncMarks();
     this.plan = (build && fromYard ? this.ahead[0]?.plan : null) ?? firstRoom(Math.random); this.visited = []; this.coins = 0; this.locale = this.plan.locale;
     // 11-18 一局五关: the first region; the TUNE values the regions scale from (the tune panel's, as the run starts)
-    this.region = 0; this.bosses = 0; this.regionIn = false; this.baseFoe = { hp: TUNE.enemyHp, dmg: TUNE.enemyDmg, aggression: 0.85, calm: TUNE.atkCalm, attackers: TUNE.maxAttackers };
+    this.region = 0; this.bosses = 0; this.regionIn = false; this.baseFoe = { hp: TUNE.enemyHp, dmg: TUNE.enemyDmg, aggression: 0.95, calm: TUNE.atkCalm, attackers: TUNE.maxAttackers };
     // act-20 / act-118: the hideout's upgrades & 碑铭潜能 (meta.ts) for this run
     this.mods = runMods(profile()); this.defy = this.mods.deathDefy; this.rerollsLeft = this.mods.rerolls; this.eliteKills = 0; this.bossKilled = false; this.usedPoolBosses.clear();
     this.genBlessings.clear(); this.ksShield = 0; this.ksRevenge = false; this.intentBonusAcc = 0;
@@ -2848,9 +2850,9 @@ export class ActShow {
     // + 竹溪药圃 harvested elixir buff (温脉药汤 / 玄芝丹气, already baked into runMods above; consume once on departure!)
     { const p = profile(), meal = p.meal, gBuff = p.garden?.buff; p.meal = undefined; if (p.garden) p.garden.buff = null; saveProfile(); this.wine = meal === 'wine';
       if (meal === 'feast') this.mods.hpBonus += 15; if (meal === 'purse') this.coins = 40;
-      if (gBuff === 'lotus') this.feed.push('boon', () => '温脉药汤 · 血+25 重随+1', 0, 'gd:lotus');
+      if (gBuff === 'lotus') this.feed.push('boon', () => '温脉药汤 · 血+18 重随+1', 0, 'gd:lotus');
       else if (gBuff === 'xuanzhi') this.feed.push('boon', () => '玄芝丹气 · 绝品缘 满杀气', 0, 'gd:xuanzhi'); }
-    TUNE.heroHp = 100 + this.mods.hpBonus; TUNE.dartCharges = 3 + this.mods.dartBonus; TUNE.aggression = 0.85 / this.mods.windupMul;
+    TUNE.heroHp = 100 + this.mods.hpBonus; TUNE.dartCharges = 3 + this.mods.dartBonus; TUNE.aggression = 0.95 / this.mods.windupMul;
     this.baseFoe.aggression = TUNE.aggression; this.scaleFoes(0);
     const loading = build ? this.buildRoom(true) : undefined;   // (11-18: a jump to another region's room builds that one instead)
     const pick = () => { if (this.mods.startManual) after(1.4, () => { if (this.room === 0) void this.manualPick(); }); };
@@ -3044,8 +3046,12 @@ export class ActShow {
     const ent = this.arena?.shape?.enter[0] ?? 0;
     const entZ = this.arena?.shape?.fixed ? this.arena.shape.enter[1] : (this.prologue === 2 || spec.locale === 'cx_court') ? SZ(1.6) : SZ(5.0);
     yield;
-    this.hero = new Hero(isYard ? V3(HIDEOUT.spawn[0], 0, HIDEOUT.spawn[1]) : V3(ent, 0, entZ), this.wearing); this.hero.moves = isYard || this.dbgAllMoves ? ALL_MOVES : this.perks.moves; this.hero.perks = this.perks; this.hero.hp = Math.min(hp, maxHp); this.hero.maxHp = maxHp;   // (act-40 用户：「开局第一场战斗默认给主角解锁所有技能」) (11-18: this comment used to sit before the perks / hp assignments and swallowed them — the hero's own boons never applied and her HP reset each room)
-    { const p = profile(), wid = equippedWeapon(p, this.dbgAllWeapons); this.hero.applyWeapon(wid, weaponLevel(p, wid)); }
+    this.roomDrinkHeal = 0;
+    this.hero = new Hero(isYard ? V3(HIDEOUT.spawn[0], 0, HIDEOUT.spawn[1]) : V3(ent, 0, entZ), this.wearing);
+    { const p = profile(), wid = equippedWeapon(p, this.dbgAllWeapons);
+      this.hero.moves = isYard ? weaponMoves(wid) : this.dbgAllMoves ? ALL_MOVES : this.perks.moves;
+      this.hero.perks = this.perks; this.hero.hp = Math.min(hp, maxHp); this.hero.maxHp = maxHp;
+      this.hero.applyWeapon(wid, weaponLevel(p, wid)); }
     this.syncHeroHat();
     // (11-20: a new place starts still — a stick / key still held from the last one counts only once let go)
     this.inp.latch();
@@ -3078,7 +3084,7 @@ export class ActShow {
     if (isYard) { yield* this.openYard(); return; }
     if (this.viewSpec) { this.phase = 'yard'; this.log.push(`view ${spec.locale} ${spec.layout} ${spec.time}`); return; }
     this.phase = 'intro'; this.wave = 0;
-    if (this.mods.startIntent > 0 && this.intent < this.mods.startIntent) { this.intent = this.mods.startIntent; this.hud.intent = this.intent; }
+    if (this.mods.startIntent > 0 && this.intent < this.mods.startIntent) { this.intent = this.mods.startIntent; this.intentVal = Math.max(this.intentVal, this.intent); this.hud.intent = this.intent; }
     // act-118 聚财 (碑铭潜能): compound coin interest when stepping into a new room
     if (!this.prologue && this.room > 0 && this.mods.interestRate > 0 && this.coins > 0) {
       const gain = Math.max(1, Math.round(this.coins * this.mods.interestRate));
@@ -3101,7 +3107,12 @@ export class ActShow {
     if (this.plan && (this.plan.type === 'shop' || this.plan.type === 'rest' || this.plan.type === 'boon')) {
       this.stations = new Stations(this.stage!.root, this.arena?.shape?.fixed?.stations);
       if (this.plan.type === 'shop') {
-        this.stations.shop(PRICES, SHOP_SPECIALS[Math.floor(Math.random() * SHOP_SPECIALS.length)]);
+        const pm = shopPriceMul(this.region);
+        const scaledPrices = {
+          boon: Math.round(PRICES.boon * pm), heal: Math.round(PRICES.heal * pm), sharpen: Math.round(PRICES.sharpen * pm),
+          vigor: Math.round(PRICES.vigor * pm), reroll: Math.round(PRICES.reroll * pm), satchel: Math.round(PRICES.satchel * pm),
+        };
+        this.stations.shop(scaledPrices, SHOP_SPECIALS[Math.floor(Math.random() * SHOP_SPECIALS.length)]);
         const st = this.stations;
         after(0.65, () => {
           if (this.stations !== st || !st.merchant) return;
@@ -3766,7 +3777,7 @@ export class ActShow {
     airFoe: (p, y, r) => this.airFoe(p, y, r), airHold: (f, y) => this.airHold(f, y), airCut: o => this.airCut(o), airSlam: o => this.airSlam(o),
     swoop: o => this.swoopCut(o), reelTarget: (p, min) => this.reelTarget(p, min), reel: o => this.reelIn(o),
     stompable: (p, y) => this.stompable(p, y), stomp: o => this.stompOn(o),
-    dart: o => { this.dartsThrown++; const d = new Dart(o.from.clone(), o.dir.clone().multiplyScalar(TUNE.dartSpeed), TUNE.dartDmg, TUNE.dartRange); d.link = o.link ?? 0; d.back = hasBoon(this.perks, 'boomerang') ? v(this.perks, 'boomerang') / 100 : 0; this.darts.push(d); },
+    dart: o => { this.dartsThrown++; const dmg = Math.max(1, Math.round(TUNE.dartDmg * (o.dmgMul ?? 1))); const d = new Dart(o.from.clone(), o.dir.clone().multiplyScalar(TUNE.dartSpeed), dmg, TUNE.dartRange); d.link = o.link ?? 0; d.back = hasBoon(this.perks, 'boomerang') ? v(this.perks, 'boomerang') / 100 : 0; this.darts.push(d); },
     chaseTarget: () => this.chaseTarget(), chase: o => this.chaseFx(o),
     stickWorld: () => V3(this.inp.move.x, 0, -this.inp.move.y),
     // act-27: the dart's aim — the finger dragged off the dart button, else the stick (keys / pad)
@@ -3889,18 +3900,21 @@ export class ActShow {
     CAM.kick.copy(this.kick); CAM.zoom = Math.max(-0.1, Math.min(0.15, this.punch));
   }
   // ------------------------------------------------------------ act-19: 刀谱, 挑空斩, 飞踢
-  /** three manuals not learnt yet, one taken (none left: a boon instead) */
+  /** three manuals not learnt yet for the equipped weapon, one taken (none left: a boon instead) */
   private async manualPick() {
-    const list = drawManuals(this.perks.moves, 3, Math.random); if (!list.length) { await this.boonPick(); return; }
+    const wid = this.hero?.weaponId ?? equippedWeapon(profile(), this.dbgAllWeapons);
+    const list = drawManuals(this.perks.moves, 3, Math.random, wid); if (!list.length) { await this.boonPick(); return; }
     await this.pickManuals(list);
   }
   private async pickManuals(list: typeof MANUALS) {
     const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide();
+    const wid = this.hero?.weaponId ?? equippedWeapon(profile(), this.dbgAllWeapons);
+    const wName = weaponDef(wid).name;
     let cur = list;
     const i = await this.cards.open(cur.map(m => ({ boon: manualCard(m), tier: 0 })), {
-      header: { title: '习得新招 · 刀谱', sub: '解锁新连招派生 · 注意标注【新派生】与【变招】', col: '#ffe49a' },
+      header: { title: msg`${wName} · 武器刀谱`, sub: '每柄武器专属 4 招派生 · 挑一招精进连段', col: '#ffe49a' },
       reroll: this.rerollsLeft > 0 ? { left: this.rerollsLeft, onReroll: () => {
-        const next = drawManuals(this.perks.moves, 3, Math.random);
+        const next = drawManuals(this.perks.moves, 3, Math.random, wid);
         if (!next.length) return null;
         this.rerollsLeft--; cur = next;
         return cur.map(m => ({ boon: manualCard(m), tier: 0 }));
@@ -4047,7 +4061,7 @@ export class ActShow {
       slashArc.clashCross(c, side, 0.48, hasLuBuKs && !hasPass ? 'blunt_flash' : 'dcut', 0.22, 0.82);
       fxSparks(c, hasLuBuKs && !hasPass ? 0xffb088 : 0xdcf4ff, 6, 3.2);
       const dmg = hasPass ? Math.round(TUNE.atkDmg * v(this.perks, 'passCut') / 100) : Math.max(4, Math.round(TUNE.atkDmg * 0.45));
-      this.hitFoe(f, dmg, o.a, { knock: 0.5, heavy: false, kind: 'pass', stagger: 0.35, poiseMul: hasLuBuKs ? 3.2 : 1 });
+      this.hitFoe(f, dmg, o.a, { knock: 0, heavy: false, kind: 'pass', stagger: 0, poiseMul: hasLuBuKs ? 2.0 : 1 });
       this.feel('k2', false, 1, dir.clone());
     }
   }
@@ -4403,15 +4417,15 @@ export class ActShow {
   private comboStyle(): { dmgPct: number; critAdd: number; qiMul: number } {
     const uniq = new Set(this.comboKinds).size;
     const tier = Math.max(0, Math.min(3, uniq - 1));
-    const step = 15 + Math.round(this.mods.styleBonus * 100);
-    return { dmgPct: tier * step, critAdd: tier * 0.08, qiMul: 1 + tier * 0.2 };
+    const step = 10 + Math.round(this.mods.styleBonus * 100);
+    return { dmgPct: tier * step, critAdd: tier * 0.05, qiMul: 1 + tier * 0.15 };
   }
   private syncHeroMods() {
     if (!this.hero) return;
-    const gale2 = archTier(this.perks, 'gale') >= 2 ? 0.8 : 1;
-    const shad2 = archTier(this.perks, 'shadow') >= 2 ? 0.65 : 1;
-    this.hero.dashCdMul = this.mods.dashCdMul * gale2;
-    this.hero.dartReloadMul = Math.max(0.4, (1 - 0.15 * this.mods.dartBonus) * shad2);
+    const gale2 = archTier(this.perks, 'gale') >= 2 ? 0.85 : 1;
+    const shad2 = archTier(this.perks, 'shadow') >= 2 ? 0.78 : 1;
+    this.hero.dashCdMul = Math.max(0.72, this.mods.dashCdMul * gale2);
+    this.hero.dartReloadMul = Math.max(0.55, (1 - 0.12 * this.mods.dartBonus) * shad2);
   }
   private healHero(amount: number) {
     if (!this.hero?.alive || amount <= 0) return;
@@ -4421,6 +4435,17 @@ export class ActShow {
   }
   private hitFoe(f: Foe, dmg: number, from: THREE.Vector3, o: { knock: number; heavy: boolean; kind: string; stagger?: number; counter?: boolean; poiseMul?: number }) {
     if (f.st === 'dead') return;
+    // act-152 Hades-2 Impervious Boss Barrier: bounce blows cleanly with clang + voxel sparks + 「无敌」 pop (zero dmg/poise)
+    if (f.inv > 0) {
+      f.a.tint(0xfff6c8, 0.9);
+      fxSparks(f.a.chest(), 0xfff2a8, 12, 4.5);
+      cue('parry', 0.48);
+      if (clock.time - (f.mem.invPopAt ?? -9) >= 0.35) {
+        f.mem.invPopAt = clock.time;
+        popPix('无敌', f.a.head().add(V3(0, 0.58, 0)), { tier: 'highlight', color: '#fff8c8', accent: '#ffd258', h: 0.72, life: 0.75 });
+      }
+      return;
+    }
     const cut = bladeHit(o.kind);
     const knock = o.knock, stagger = o.stagger ?? (o.heavy ? 0.55 : 0.3);
     const wasBroken = f.brokenT > 0;
@@ -4434,32 +4459,42 @@ export class ActShow {
     const gale2 = archTier(this.perks, 'gale') >= 2 && isGaleMove;
     const shad2 = archTier(this.perks, 'shadow') >= 2 && o.kind === 'dart';
     const prof = profile(), kid = equippedKeepsake(prof, this.dbgAllWeapons), kStar = kid ? keepsakeStar(prof, kid) : 1;
-    const rollVar = o.kind === 'school' || o.kind === 'ultTick' ? 1 : (0.88 + Math.random() * 0.24);
-    let mul = this.mods.dmgMul * this.dmgMul(o.kind) * rollVar * (1 + style.dmgPct / 100);
+    const rollVar = o.kind === 'school' || o.kind === 'ultTick' || o.kind === 'ult' || o.kind === 'clash' ? 1 : (0.90 + Math.random() * 0.20);
+    const isFixedBurst = o.kind === 'ult' || o.kind === 'ultTick' || o.kind === 'clash';
+    // act-152 Hades-2 additive damage pool (prevents exponential multiplicative blowup across 5 regions!)
+    let addPct = (this.mods.dmgMul - 1) + style.dmgPct / 100;
     if (wasBroken) {
-      mul *= POISE_BREAK_MUL * (poise3 ? 1.25 : 1);
-      if (kid === 'fengtiebi') mul *= 1 + KEEPSAKES.fengtiebi.vals[kStar - 1] / 100;
-      if (this.genBlessings.has('lubu')) mul *= 1.25;
+      if (kid === 'fengtiebi') addPct += KEEPSAKES.fengtiebi.vals[kStar - 1] / 100;
+      if (this.genBlessings.has('lubu')) addPct += 0.20;
     }
-    if (isAirHit && o.kind !== 'launch') mul *= 1.35;
-    if (firstHit) mul *= 1 + this.mods.firstStrikeBonus;
-    if (cut && isMarked && this.mods.markedDmgBonus > 0) mul *= 1 + this.mods.markedDmgBonus;
-    if (gale2) mul *= 1.3;
-    if (kid === 'zhaoyun' && isGaleMove) mul *= 1 + KEEPSAKES.zhaoyun.vals[kStar - 1] / 100;
-    if (this.genBlessings.has('zhaoyun') && isGaleMove) mul *= 1.35;
-    if (shad2) mul *= 1.3;
-    if ((o.kind === 'parry' || o.counter) && this.mods.counterBonus > 0) mul *= 1 + this.mods.counterBonus;
-    if ((o.kind === 'parry' || o.kind === 'arrow' || o.counter) && kid === 'xiahoudun') mul *= 1 + KEEPSAKES.xiahoudun.vals[kStar - 1] / 100;
-    if ((o.kind === 'parry' || o.kind === 'arrow') && this.genBlessings.has('xiahoudun')) mul *= 1.65;
-    if ((o.kind === 'ult' || o.kind === 'ultTick') && this.hero?.weaponId === 'blunt' && this.hero.weaponLv >= 3) mul *= 1.4;
+    if (isAirHit && o.kind !== 'launch') addPct += 0.25;
+    if (firstHit) addPct += this.mods.firstStrikeBonus;
+    if (cut && isMarked && this.mods.markedDmgBonus > 0) addPct += this.mods.markedDmgBonus;
+    if (gale2) addPct += 0.25;
+    if (kid === 'zhaoyun' && isGaleMove && KEEPSAKES.zhaoyun) addPct += KEEPSAKES.zhaoyun.vals[kStar - 1] / 100;
+    if (this.genBlessings.has('zhaoyun') && isGaleMove) addPct += 0.25;
+    if (shad2) addPct += 0.25;
+    if ((o.kind === 'parry' || o.counter) && this.mods.counterBonus > 0) addPct += this.mods.counterBonus;
+    if ((o.kind === 'parry' || o.kind === 'arrow' || o.counter) && kid === 'xiahoudun' && KEEPSAKES.xiahoudun) addPct += KEEPSAKES.xiahoudun.vals[kStar - 1] / 100;
+    if ((o.kind === 'parry' || o.kind === 'arrow') && this.genBlessings.has('xiahoudun')) addPct += 0.45;
+    let mul = isFixedBurst
+      ? (1 + (this.mods.dmgMul - 1) * 0.5)
+      : this.dmgMul(o.kind) * (1 + addPct) * rollVar;
+    if (!isFixedBurst && wasBroken) mul *= poise3 ? 1.50 : POISE_BREAK_MUL;
+    if ((o.kind === 'ult' || o.kind === 'ultTick') && this.hero?.weaponId === 'blunt' && this.hero.weaponLv >= 3) mul *= 1.25;
     const exposed = cut && (f.exposeT ?? 0) > 0;
     const revengeCrit = cut && this.ksRevenge;
-    const guaranteedCrit = firstHit || exposed || revengeCrit || (wasBroken && poise3) || (o.kind === 'swoop' && (wasBroken || f.hp < f.maxHp * 0.5));
-    const critChance = 0.08 + this.mods.critBonus + style.critAdd + (this.hero?.galeBuffT > 0 ? 0.25 : 0);
-    const crit = o.kind !== 'school' && o.kind !== 'ultTick' && (guaranteedCrit || Math.random() < critChance);
-    if (crit) mul *= 1.45;
+    const guaranteedCrit = !isFixedBurst && (firstHit || exposed || revengeCrit || (wasBroken && poise3) || (o.kind === 'swoop' && (wasBroken || f.hp < f.maxHp * 0.5)));
+    const critChance = 0.08 + this.mods.critBonus + style.critAdd + (this.hero?.galeBuffT > 0 ? 0.18 : 0);
+    const crit = !isFixedBurst && o.kind !== 'school' && (guaranteedCrit || Math.random() < critChance);
+    if (crit) mul *= 1.35;
     if (exposed) f.exposeT = 0;
-    if (revengeCrit) { this.ksRevenge = false; this.healHero(8); }
+    if (revengeCrit) { this.ksRevenge = false; this.healHero(5); }
+    // act-152 Boss 1 (石雷) Thunder Flag Shield: while any Yellow Turban Thunder Flag stands, Stone Thunder takes 40% less damage!
+    if (f.kind === 'hj_boss' && this.foes.some(o2 => o2.kind === 'totem_flag' && o2.st !== 'dead')) {
+      mul *= 0.6;
+      if (Math.random() < 0.35) popPix('雷旗护阵', f.a.head().add(V3(0, 0.55, 0)), { color: '#ffe478', h: 0.46, life: 0.65 });
+    }
     // act-132: Lu Bu 1v1 trial heavy armor suppresses mindless light-attack spam (use parry / dodge / clash / poise-break!)
     if (this.generalEvent?.isDuelFoe(f) && o.kind !== 'parry' && o.kind !== 'counter' && o.kind !== 'chase' && o.kind !== 'clash') mul *= 0.25;
     let d = Math.max(1, Math.round(dmg * mul));
@@ -4479,9 +4514,24 @@ export class ActShow {
       if (f.hp - d <= Math.ceil(f.maxHp * 0.75)) { d = Math.max(0, f.hp - floor); duelDoneNow = true; }
     }
     { const g = f.inv <= 0 ? ROLE_AI[f.role]?.guard?.(f, d, from, o.kind) : undefined; if (g != null) { if (g < 0) return; if (g === 0) { this.glance(f, from, o.kind); return; } d = Math.round(g); } }
-    const basePoiseMul = o.kind === 'dart' ? 0.5 : o.kind === 'kick' ? 3.2 : o.kind === 'parry' ? 3.0 : o.kind === 'stomp' ? 2.8 : o.kind === 'launch' ? 2.4 : (o.kind === 'chase' || o.kind === 'burst') ? 2.2 : o.heavy ? 1.8 : 1;
-    const poiseMul = basePoiseMul * (o.poiseMul ?? 1) * this.mods.poiseDmgMul * (archTier(this.perks, 'poise') >= 2 ? 1.35 : 1) * (this.genBlessings.has('lubu') ? 1.45 : 1);
-    let died = damageFoe(f, d, from, { knock, stagger, poiseDmg: d * poiseMul });
+    if (f.mem.armoredHit) {
+      f.mem.armoredHit = 0;
+      if (Math.random() < 0.45) popPix('重甲', f.a.head().add(V3(0, 0.55, 0)), { color: '#ffc880', h: 0.48, life: 0.65 });
+    }
+    if (f.mem.needleBreak) {
+      f.mem.needleBreak = 0;
+      popPix('破遁', f.a.head().add(V3(0, 0.58, 0)), { tier: 'highlight', color: '#c8f6ff', accent: '#56ccf2', h: 0.8, life: 0.9 });
+    }
+    // act-152: Decoupled poise damage (based on move family instead of raw multiplied HP damage, preventing 2-hit Boss poise locks!)
+    const basePoise = o.kind === 'dart' ? 3 : o.kind === 'ultTick' ? 2 : o.kind === 'ult' ? 14
+      : o.kind === 'arrow' ? (f.kind === 'xp_boss' ? 40 : 22)
+      : (o.kind === 'kick' || o.kind === 'parry' || o.kind === 'clash' || o.kind === 'stomp') ? 28
+      : (o.kind === 'launch' || o.kind === 'chase' || o.kind === 'burst') ? 22
+      : (o.kind === 'rel' || o.kind === 'rel2' || o.kind === 'dcut' || o.kind === 'plunge' || o.kind === 'swoop') ? 18
+      : o.heavy ? 15 : 8;
+    const armored = f.kind === 'ly_boss' && f.phase === 1 && f.st !== 'stagger' && f.brokenT <= 0 && !o.heavy && o.kind !== 'parry' && o.kind !== 'clash';
+    const poiseDmg = armored ? 0 : Math.round(basePoise * (o.poiseMul ?? 1) * this.mods.poiseDmgMul * (archTier(this.perks, 'poise') >= 2 ? 1.25 : 1) * (this.genBlessings.has('lubu') ? 1.30 : 1));
+    let died = damageFoe(f, d, from, { knock, stagger, poiseDmg, heavy: o.heavy });
     const justBroke = !died && !wasBroken && f.brokenT > 0;
     if (justBroke) {
       fxChips(p, [0xf2c248, 0xffe896, 0x4b5262], 10, { dir, speed: 5.5, up: 3.6, size: 0.095, glow: 0.8 });
@@ -4489,9 +4539,9 @@ export class ActShow {
       popPix('破势', f.a.head().add(V3(0, 0.55, 0)), { tier: 'highlight', color: '#fff4c4', accent: '#ffd258', h: 0.92, life: 1.05 });
       hitstop(0.085 * TUNE.hitstop); shake(0.32 * TUNE.shake);
       this.splitScreen(0.55); this.impactScreen(0.75); this.camPunch(0.055); this.platform.vibrate('heavy');
-      this.hero?.gainQi(0.65 * style.qiMul);
-      if (this.mods.poiseHeal > 0) this.healHero(this.mods.poiseHeal);
-      if ((this.phase === 'fight' || this.phase === 'yard') && !this.duel.on) { if (this.intent >= 3) this.startQte(); else this.addIntent(); }
+      this.hero?.gainQi(0.55 * style.qiMul);
+      if (this.mods.poiseHeal > 0 && clock.time - this.poiseHealAt >= 6.0) { this.poiseHealAt = clock.time; this.healHero(this.mods.poiseHeal); }
+      if ((this.phase === 'fight' || this.phase === 'yard') && !this.duel.on) { if (this.intent >= 3) this.startQte(); else this.addIntent(0.50); }
       this.generalEvent?.onFoePoiseBreak(f);
     }
     this.generalEvent?.onFoeHit(f, o.counter ? 'counter' : o.kind);
@@ -4502,7 +4552,7 @@ export class ActShow {
     if (duelDoneNow) after(0.18, () => { void this.finishDuelGeneral(); });
     const bleedCap = 5 + (kid === 'luzhao' ? KEEPSAKES.luzhao.vals[kStar - 1] : 0);
     if (cut && !died && f.inv <= 0 && hasBoon(this.perks, 'bleed') && f.kind !== 'dummy') { f.bleed = Math.min(bleedCap, f.bleed + 1); f.bleedT = 0; }
-    // act-114 / act-118 见红 × 血刃成势: blood burst detonates on >=3 stacks; 血刃 2pc boosts damage +35%, 3pc heals 5 HP + empowers next cut
+    // act-114 / act-118 见红 × 血刃成势: blood burst detonates on >=3 stacks; 血刃 2pc boosts damage +35%, 3pc heals 3 HP (4s CD) + empowers next cut
     const heavyFinisher = o.kind === 'k5' || o.kind === 'rel' || o.kind === 'rel2' || o.kind === 'parry' || o.kind === 'plunge' || o.kind === 'acutS' || o.kind === 'chase';
     const bloodTier = archTier(this.perks, 'blood');
     if (!died && f.inv <= 0 && f.kind !== 'dummy' && hasBoon(this.perks, 'bleed') && f.bleed >= 3 && (justBroke || heavyFinisher || (bloodTier >= 2 && f.bleed >= 4))) {
@@ -4519,7 +4569,10 @@ export class ActShow {
         popPix('血爆', f.a.head().add(V3(0, 0.62, 0)), { tier: 'highlight', color: '#ff7064', accent: '#ff3a2c', h: 0.88, life: 1.02 });
         popPix(String(bDmg), f.a.head().add(V3(0.28, 0.36, 0)), { tier: 'crit', color: '#ff8a70', h: 0.68 });
         cue('bloodBurst', 1); hitstop(0.055 * TUNE.hitstop); shake(0.24 * TUNE.shake); this.splitScreen(0.45);
-        if (bloodTier >= 3) { this.healHero(5); if (this.hero) this.hero.counterT = Math.max(this.hero.counterT, 2.0); }
+        if (bloodTier >= 3) {
+          if (clock.time - this.bloodHealAt >= 4.0) { this.bloodHealAt = clock.time; this.healHero(3); }
+          if (this.hero) this.hero.counterT = Math.max(this.hero.counterT, 2.0);
+        }
       }
     }
     if (wasBroken && f.kind !== 'dummy' && o.kind !== 'school' && o.kind !== 'dart') cue('bladeRing', 0.46, 1.34 + (o.heavy ? 0.12 : 0));
@@ -4620,14 +4673,14 @@ export class ActShow {
       const t = Math.max(0, Math.min(1, f.pos.clone().sub(o.from).setY(0).dot(ab) / L2)), q = o.from.clone().addScaledVector(ab, t);
       if (Math.hypot(f.pos.x - q.x, f.pos.z - q.z) <= o.r + f.d.r) {
         const wasAlive = (f.st as string) !== 'dead';
-        this.hitFoe(f, o.dmg, q, { knock: 2.1, heavy: true, kind: 'parry', counter: true, poiseMul: 2.2 });
+        this.hitFoe(f, o.dmg, q, { knock: 2.1, heavy: true, kind: 'parry', poiseMul: 2.0 });
         if (wasAlive && (f.st as string) === 'dead') killed = true;
         n++;
       }
     }
     if (n > 0) {
       popPix('听声一闪', this.hero.a.head().add(V3(0, 0.55, 0)), { tier: 'highlight', color: '#ffe4c4', accent: '#c84a2a', h: 0.90, life: 0.95 });
-      if (this.intent >= 3) this.startQte(); else this.addIntent();
+      if (this.intent >= 3) this.startQte(); else this.addIntent(0.50);
       if (o.lv >= 2 && killed) this.hero.freeFlash = true;
     }
     if (this.props) this.applyProps(this.props.hitSeg(o.from, o.to, o.r, { src: 'hero', heavy: true }, this.targets()));
@@ -4684,13 +4737,16 @@ export class ActShow {
     if (this.props) this.applyProps(this.props.hitArc(o.from, o.yaw, o.range, o.half, { src: 'hero', heavy: o.heavy }, this.targets()));   // act-19
     if (this.generalEvent) {
       this.generalEvent.strike({ k: 'arc', x: o.from.x, z: o.from.z, yaw: o.yaw, range: o.range + 0.35, half: o.half + 0.15 });
-      this.generalEvent.deflectBolts(o.from, o.yaw, o.range + 0.5, false);
+      if (o.heavy || o.counter) this.generalEvent.deflectBolts(o.from, o.yaw, o.range + 0.5, false);
     }
     this.leaves?.cutArc(o.from.x, o.from.z, o.yaw, o.range, o.half);
-    const cut: Arrow[] = [];
-    for (const a of this.arrows) if (!a.dead && !a.friendly) { const dx = a.p.x - o.from.x, dz = a.p.z - o.from.z; if (Math.hypot(dx, dz) < o.range + 0.4 && Math.abs(Math.atan2(dx * fz - dz * fx, dx * fx + dz * fz)) < o.half + 0.3) cut.push(a); }
-    this.deflect(cut, o.yaw);
-    this.feel(o.kind, o.heavy, n, V3(fx, 0, fz)); if (o.counter && n) { hitstop(0.14 * TUNE.hitstop); shake(0.3 * TUNE.shake); this.addIntent(); }
+    // Only heavy finishers / counter-slashes deflect incoming arrows on their impact frame (basic light swings k1..k4 NEVER deflect arrows!)
+    if (o.heavy || o.counter) {
+      const cut: Arrow[] = [];
+      for (const a of this.arrows) if (!a.dead && !a.friendly) { const dx = a.p.x - o.from.x, dz = a.p.z - o.from.z; if (Math.hypot(dx, dz) < o.range + 0.4 && Math.abs(Math.atan2(dx * fz - dz * fx, dx * fx + dz * fz)) < o.half + 0.3) cut.push(a); }
+      this.deflect(cut, o.yaw);
+    }
+    this.feel(o.kind, o.heavy, n, V3(fx, 0, fz)); if (o.counter && n) { hitstop(0.14 * TUNE.hitstop); shake(0.3 * TUNE.shake); }
     // 刀芒 (or 寒山旧刀 1阶末刀自带窄月牙刀光!)
     const hasWave = (o.kind === 'k5' && tierOf(this.perks, 'bladeWind') >= 0) || (o.finalCut && o.weaponId === 'hanshan' && this.hero.weaponLv >= 1);
     if (hasWave) {
@@ -4768,7 +4824,7 @@ export class ActShow {
       a.deflect(dir);
     }
     hitstop(TUNE.deflectStop); slowmo(TUNE.deflectSlow, 0.3); shake(0.22 * TUNE.shake); this.splitScreen(0.42);
-    cue('swishHeavy', 0.7); cue('exitChime', 0.35); this.platform.vibrate('medium'); this.addIntent();
+    cue('swishHeavy', 0.7); cue('exitChime', 0.35); this.platform.vibrate('medium'); this.addIntent(0.25);
     this.hero.gainQi(Math.min(0.5, 0.25 * cut.length));   // (11-17 气: a batted arrow is a quarter of a bar)
   }
   /** the blade's guard window: arrows in the front half-circle within reach are batted away */
@@ -4843,12 +4899,12 @@ export class ActShow {
     fxSparks(h.a.chest(), 0xeeece4, 16, 4.8); h.a.tint(0xe6e4dc, 0.55);
     popPix('闪', h.a.head().add(V3(0, 0.45, 0)), { tier: 'highlight', color: '#f6f4ec', accent: '#dcdad0', h: 0.9, life: 0.95 });
     cue('dodgeOk', 1); this.platform.vibrate('medium');
-    h.counterT = TUNE.counterTime; h.dashCd = 0; h.gainQi(0.5);
+    h.counterT = TUNE.counterTime; h.dashCd = Math.max(0, h.dashCd * 0.55); h.gainQi(0.45);
     if (h.weaponId === 'blunt') { h.freeFlash = true; popPix('一闪就绪', h.a.head().add(V3(0, 0.78, 0)), { tier: 'highlight', color: '#ffe0b8', accent: '#ff522c', h: 0.72, life: 0.85 }); }
-    if (this.mods.poiseHeal > 0) this.healHero(this.mods.poiseHeal);
-    if (archTier(this.perks, 'gale') >= 3 || equippedKeepsake(profile(), this.dbgAllWeapons) === 'lubu') h.galeBuffT = 3.2;
+    if (this.mods.poiseHeal > 0 && clock.time - this.poiseHealAt >= 6.0) { this.poiseHealAt = clock.time; this.healHero(this.mods.poiseHeal); }
+    if (archTier(this.perks, 'gale') >= 3) h.galeBuffT = 2.5;
     this.generalEvent?.onHeroPerfectDodge();
-    if (this.intent >= 3) this.startQte(); else this.addIntent();
+    if (this.intent >= 3) this.startQte(); else this.addIntent(0.30);
   }
   /** the attacks that will land on the hero within `win` seconds: foes winding up with the hero inside their warning (a little slack),
    *  dogs already flying at the hero, arrows that will arrive in time */
@@ -4954,7 +5010,7 @@ export class ActShow {
     fxRing(h.pos.clone().setY(0.9), 0xfff2c8, 1.6, { life: 0.35 } as never); fxRing(h.pos.clone().setY(0.08), 0xffd890, 2.6, { life: 0.5 } as never); fxSparks(h.a.chest(), 0xfff2c8, 24, 7);
     popPix('识破', h.a.head().add(V3(0, 0.48, 0)), { tier: 'highlight', color: '#fff6cc', accent: '#ffd868', h: 0.96, life: 1.05 });
     cue('parry', 1); cue('cutHeavy', 0.9); this.platform.vibrate('heavy'); this.tut.parried();
-    if (this.intent >= 3) this.startQte(); else this.addIntent();
+    if (this.intent >= 3) this.startQte(); else this.addIntent(0.60);
   }
   /** 11-17 (用户选「新学的刀谱派生，前三次能接招时慢放」): the first three times (on this device) each 刀谱 link opens in a fight, time
    *  runs at half speed for a moment while the button turns over to it — so the player sees 「now this can follow」. Not in the yard */
@@ -4969,8 +5025,8 @@ export class ActShow {
       this.log.push(`teach ${k} ${t[k]}`);   // (11-19: no half-speed any more — the move is shown in full when it is learnt)
     }
   }
-  /** 杀意 +1 (perfect dodge, a batted arrow, a counter landing, 见切), up to 3; full intent enters a restrained golden blade-energy state */
-  intent = 0; private qiVolley = 0;
+  /** 杀意 (fractional 0..3.0 with 1.2s anti-spam ICD); full 3 bars enables QTE 不见刀 */
+  intent = 0; private intentVal = 0; private lastIntentAt = -9; private poiseHealAt = -9; private bloodHealAt = -9; private roomDrinkHeal = 0; private shadowEchoAt = -9; private qiVolley = 0;
   private lowBeatT = 0; private lowVigK = 0;
   private fullAuraT = 0; private fullRing: THREE.Mesh | null = null;
   private fullAuraStep(rdt: number, h: Hero) {
@@ -5000,15 +5056,16 @@ export class ActShow {
       this.fullRing.visible = false;
     }
   }
-  private addIntent() {
-    if (this.intent >= 3) return;
-    let add = 1;
-    if (this.hero?.weaponId === 'hanshan' && this.hero.weaponLv >= 3) {
-      this.intentBonusAcc += 0.25;
-      if (this.intentBonusAcc >= 1) { this.intentBonusAcc -= 1; add = 2; }
-    }
-    this.intent = Math.min(3, this.intent + add); this.hud.intent = this.intent;
-    if (this.intent >= 3) {
+  private addIntent(amount = 0.5, force = false) {
+    if (this.intentVal >= 3) return;
+    if (!force && clock.time - this.lastIntentAt < 1.2) return;
+    this.lastIntentAt = clock.time;
+    const wepMul = this.hero?.weaponId === 'hanshan' && this.hero.weaponLv >= 3 ? 1.2 : 1;
+    const prev = this.intent;
+    this.intentVal = Math.min(3, this.intentVal + amount * wepMul);
+    this.intent = Math.floor(this.intentVal);
+    this.hud.intent = this.intent;
+    if (this.intent >= 3 && prev < 3) {
       cue('bladeRing', 0.72);
       fxRing(this.hero.pos.clone().setY(0.08), 0xffe098, 1.55, { life: 0.4 } as never);
     }
@@ -5031,13 +5088,7 @@ export class ActShow {
   private qteFrame(rdt: number) {
     if (this.qteT < 0) {
       this.hud.qte(null); this.qteW.visible = false;
-      // act-149: players can press/tap 不见刀 anytime once 3 bars of 杀意 are full (not only during slowmo QTE!)
-      if (this.inp.b.ult.pressed) {
-        this.inp.b.ult.pressed = false;
-        if (this.intent >= 3 && !this.ultOn && !this.proFalling && !this.cards.on && !this.dialogue.on && !this.timeline.on && !PAUSE.on && this.hero?.alive && (this.phase === 'fight' || this.phase === 'yard')) {
-          void this.ult();
-        }
-      }
+      this.inp.b.ult.pressed = false;
       return;
     }
     if (this.ultOn || this.proFalling || this.cards.on || this.dialogue.on || this.timeline.on || !this.hero?.alive || (this.phase !== 'fight' && this.phase !== 'yard')) {
@@ -5056,25 +5107,21 @@ export class ActShow {
     if (pressed && this.qteWin) { this.qteT = -1; this.hud.qte(null); this.qteW.visible = false; void this.ult(); }
     else if (k > 1.25) { this.cancelQte(); cue('click', 0.5); }
   }
-  /** 一刀: the hero flashes between every foe nearby (up to seven, nearest first along the way), then sheathes — everyone cut at once */
+  /** 一刀: the hero flashes between nearby foes (7.5m / max 5 targets), then sheathes — everyone cut at once */
   private async ult() {
     if (this.ultOn || this.proFalling || !this.hero?.alive) { FX.slowmo = 0; return; }
-    const h = this.hero; this.ultOn = true; this.intent = 0; this.hud.intent = 0; FX.slowmo = 0; FX.hitstop = 0; FX.hold = 1;
+    const h = this.hero; this.ultOn = true; this.intent = 0; this.intentVal = 0; this.hud.intent = 0; FX.slowmo = 0; FX.hitstop = 0; FX.hold = 1;
     const G0 = { vig: GRADE.vig, desat: GRADE.desat, exp: GRADE.exposure };
     const restoreGrade = () => { GRADE.vig = G0.vig; GRADE.desat = G0.desat; GRADE.exposure = G0.exp; };
     const aborted = () => this.proFalling || this.hero !== h || !h.alive || this.phase === 'cine' || this.phase === 'talk' || this.phase === 'dead' || this.phase === 'leaving' || this.phase === 'title' || this.phase === 'opening';
     let finishedOk = false;
     try {
-    h.forceFree(); h.inv = 6;
-    const left = this.foes.filter(f => f.st !== 'dead' && f.pos.distanceTo(h.pos) < 11), targets: Foe[] = [];
+    h.forceFree(); h.inv = 4.2;
+    const left = this.foes.filter(f => f.st !== 'dead' && f.pos.distanceTo(h.pos) < 7.5), targets: Foe[] = [];
     let at = h.pos.clone();
-    while (left.length && targets.length < 7) { left.sort((a, b) => a.pos.distanceTo(at) - b.pos.distanceTo(at)); const f = left.shift()!; targets.push(f); at = f.pos.clone(); }
-    // 11-18 (act-43 反馈：「我说得终极技能是那个有影分身的招数，这个招数的表现力要再强一点才行」): one whole scene, not a few puffs —
-    // the world cut in two and pressed into ink, everyone near pinned where they stand; she vanishes; two shadows go through each of
-    // them from two sides and every pass leaves its streak hanging in the air (a web by the end); she stands up out of the smoke, a held
-    // breath, the click of the sheath; each of them bursts open cut by cut; one great cross through all of them; the ink lifts
+    while (left.length && targets.length < 5) { left.sort((a, b) => a.pos.distanceTo(at) - b.pos.distanceTo(at)); const f = left.shift()!; targets.push(f); at = f.pos.clone(); }
     const ink = (k: number) => { GRADE.vig = G0.vig + 0.75 * k; GRADE.desat = Math.max(G0.desat, 0.7 * k); GRADE.exposure = G0.exp * (1 - 0.3 * k); };
-    for (const f of this.foes) if (f.st !== 'dead' && f.pos.distanceTo(h.pos) < 14) interruptFoe(f, 4);
+    for (const f of this.foes) if (f.st !== 'dead' && f.pos.distanceTo(h.pos) < 10) interruptFoe(f, isBoss(f) ? 0.8 : 2.8);
     const feet = h.pos.clone().setY(0), side0 = V3(1, 0, 0);
     trailSeg(feet.clone().addScaledVector(side0, -9).setY(1.1), feet.clone().addScaledVector(side0, 9).setY(1.1), 0xffffff, 0.3, { life: 0.45, bright: 3.4, spark: 0.6 });
     this.flashScreen(0.4, 0xffffff); this.impactScreen(0.95); this.camPunch(0.08); shake(0.25 * TUNE.shake); cue('draw', 1); cue('timeSlow', 1); audio.stillness(2.2);
@@ -5115,17 +5162,24 @@ export class ActShow {
     // every one the clones cut bursts open — ULT_TICKS quick cuts across each of them (a streak of light, a spray, a small number and
     // a short slash sound each, a hair of hit-stop), then the last one crosses them all wide open
     cue('sheathe', 1); this.camPunch(0.04); this.flashScreen(0.15, 0xfff0d0);
-    const tickDmg = Math.max(1, Math.round(TUNE.ultDmg * ULT_TICK_SHARE));
+    const ultScale = 1 + 0.35 * this.region;
+    const budgetOf = (f: Foe) => {
+      const base = Math.round(TUNE.ultDmg * ultScale);
+      if (isBoss(f)) return Math.min(base * 2, Math.max(30, Math.round(f.maxHp * 0.13)));
+      if (f.elite) return Math.min(base * 1.4, Math.max(24, Math.round(f.maxHp * 0.40)));
+      return Math.min(base, Math.max(18, Math.round(f.maxHp * 0.80)));
+    };
+    const budgets = new Map<Foe, number>(targets.map(f => [f, budgetOf(f)]));
     for (let i = 0; i < ULT_TICKS; i++) {
       await waitReal(ULT_GAP * (1 - 0.35 * i / ULT_TICKS));   // a little faster as it goes
       if (aborted()) { restoreGrade(); return; }
       let any = 0;
       for (const f of targets) {
         if (f.st === 'dead') continue; any++;
+        const tickDmg = Math.max(1, Math.round((budgets.get(f) ?? TUNE.ultDmg) * ULT_TICK_SHARE));
         const c = f.a.chest(), a = Math.random() * Math.PI, v = V3(Math.cos(a) * 0.85, Math.sin(a) * 0.65, Math.sin(a) * 0.3);
         trailSeg(c.clone().sub(v), c.clone().add(v), i % 2 ? 0xffe2b0 : 0xff9a6a, 0.075, { life: 0.12, bright: 2.8, spark: 0.2 });
-        this.hitFoe(f, tickDmg, h.pos.clone(), { knock: 0.05, heavy: false, kind: 'ultTick', stagger: 0.5 });
-        // (each cut only a glint on the body — a full white flash every 65 ms washed the burst into one white blob)
+        this.hitFoe(f, tickDmg, h.pos.clone(), { knock: 0.05, heavy: false, kind: 'ultTick', stagger: isBoss(f) ? 0.15 : 0.45 });
         const fa = f.a as unknown as { flash: number; flashCol: THREE.Color }; fa.flash = 0.3; fa.flashCol.setRGB(1, 0.86, 0.66);
       }
       if (any) { cue('flurry', 0.7 + 0.3 * i / ULT_TICKS, this.fleshHit ? 1 : 0); this.fleshHit = false; hitstop(0.012); this.camKick(V3(Math.random() - 0.5, 0, Math.random() - 0.5), 0.05 * TUNE.shake / 2); this.flashScreen(0.05, 0xffe8c8); }
@@ -5141,8 +5195,12 @@ export class ActShow {
       trailSeg(C.clone().addScaledVector(d, -R).setY(1.0), C.clone().addScaledVector(d, R).setY(1.0), 0xffffff, 0.38, { life: 0.7, bright: 3.6, spark: 1 });
       trailSeg(C.clone().addScaledVector(d, -R).setY(1.04), C.clone().addScaledVector(d, R).setY(1.04), 0xffd890, 0.14, { life: 0.85, bright: 3, spark: 0.4 });
     }
-    const fin = Math.max(1, TUNE.ultDmg - tickDmg * ULT_TICKS);
-    for (const f of targets) if (f.st !== 'dead') { blood.spray(f.a.chest(), f.pos.clone().sub(C).setY(0).normalize(), 30, 1.5); this.hitFoe(f, fin, C.clone(), { knock: 1.8, heavy: true, kind: 'ult' }); }
+    for (const f of targets) if (f.st !== 'dead') {
+      const tot = budgets.get(f) ?? TUNE.ultDmg;
+      const fin = Math.max(1, tot - Math.max(1, Math.round(tot * ULT_TICK_SHARE)) * ULT_TICKS);
+      blood.spray(f.a.chest(), f.pos.clone().sub(C).setY(0).normalize(), 30, 1.5);
+      this.hitFoe(f, fin, C.clone(), { knock: 1.8, heavy: true, kind: 'ult' });
+    }
     hitstop(0.22); slowmo(0.6, 0.3); shake(0.8 * TUNE.shake); this.camPunch(0.1); this.flashScreen(0.42, 0xffffff); this.splitScreen(0.95);
     fxRing(C.clone().setY(0.08), 0xfff0c0, R + 1.5, { life: 0.7 } as never); fxRing(C.clone().setY(0.9), 0xffffff, R, { life: 0.4 } as never);
     cue('ultSlash', 1.2); cue('hitIai', 1, 1); cue('boom', 0.6); this.platform.vibrate('heavy');
@@ -5264,9 +5322,10 @@ export class ActShow {
         this.hitFoe(o, Math.round(TUNE.atkDmg * 1.15), f.pos, { knock: 1.0, heavy: false, kind: 'school' });
       }
     }
-    if (hasBoon(this.perks, 'drink') && this.hero.alive) {
-      // 11-18 秘传 饮血: a thread of blood flies from the body to her and she heals as it arrives (the number is the boon's)
-      const h = this.hero, from0 = f.a.chest(), heal = v(this.perks, 'drink');
+    if (hasBoon(this.perks, 'drink') && this.hero.alive && this.roomDrinkHeal < 20) {
+      // 11-18 秘传 饮血: a thread of blood flies from the body to her and she heals as it arrives (capped at 20 HP per room)
+      const h = this.hero, from0 = f.a.chest(), heal = Math.min(v(this.perks, 'drink'), 20 - this.roomDrinkHeal);
+      this.roomDrinkHeal += heal;
       for (let i = 0; i < 6; i++) addBlock(from0.clone().add(V3(R(-0.2, 0.2), R(-0.1, 0.3), R(-0.2, 0.2))), { size: 0.08, col: 0xb01818, glow: false, life: 0.32 + i * 0.03, shrink: 0.1, v: h.a.chest().sub(from0).multiplyScalar(1 / (0.3 + i * 0.03)) });
       after(0.32, () => { if (!h.alive) return; h.hp = Math.min(h.maxHp, h.hp + heal); this.hud.flask.heal({ hp: h.hp, maxHp: h.maxHp }); h.a.tint(0xff4a3a, 0.35); popPix(`+${heal}`, h.a.head().add(V3(0, 0.3, 0)), { color: '#ff8a7a', h: 0.42, life: 0.7 }); });
     }
@@ -5381,7 +5440,7 @@ export class ActShow {
         const out = f.pos.clone().sub(this.hero.pos).setY(0).normalize();
         f.vel.addScaledVector(out, isBoss(f) ? 2.5 : 8.5); if (!isBoss(f)) interruptFoe(f, 0.8);
       }
-      if (st >= 2) this.healHero(st === 3 ? 12 : 10);
+      if (st >= 2) this.healHero(st === 3 ? 8 : 5);
       fxRing(this.hero.pos.clone().setY(0.08), 0xffbe78, 2.8, { life: 0.5 } as never);
       popPix('护酒', this.hero.a.head().add(V3(0, 0.45, 0)), { tier: 'highlight', color: '#ffe0a8', accent: '#ff9640', h: 0.84, life: 0.9 });
       cue('parry', 0.85); hitstop(0.06); return;
@@ -5391,8 +5450,8 @@ export class ActShow {
       this.wine = false; this.hero.inv = Math.max(this.hero.inv, 0.8); fxRing(this.hero.pos.clone().setY(0.08), 0xffb060, 2.4, { life: 0.5 } as never); cue('parry', 0.8); hitstop(0.06); return;
     }
     if (this.defy > 0 && this.phase !== 'yard' && this.hero.alive && !this.hero.iframe && this.hero.hp - dmg <= 0) {
-      // act-20 / act-118 闭息: leaves 40% HP + blasts surrounding foes back so you never die immediately on wake-up
-      this.defy--; dmg = Math.max(0, this.hero.hp - Math.round(this.hero.maxHp * 0.4)); this.hero.inv = Math.max(this.hero.inv, 1.5);
+      // act-20 / act-152 闭息: leaves 25% HP + blasts surrounding foes back so you never die immediately on wake-up
+      this.defy--; dmg = Math.max(0, this.hero.hp - Math.round(this.hero.maxHp * 0.25)); this.hero.inv = Math.max(this.hero.inv, 1.5);
       for (const f of this.foes) if (f.st !== 'dead' && f.kind !== 'dummy' && f.pos.distanceTo(this.hero.pos) < 4.5) {
         const out = f.pos.clone().sub(this.hero.pos).setY(0).normalize();
         f.vel.addScaledVector(out, isBoss(f) ? 3 : 10); if (!isBoss(f)) interruptFoe(f, 0.9);
@@ -5501,14 +5560,28 @@ export class ActShow {
     const rw = this.plan?.reward ?? null;
     if (this.plan?.type === 'elite') this.coinsFx.drop(this.hero.pos.clone().add(V3(0, 0, -1.2)), 10, 4);
     if (rw?.k === 'coins') { this.coinsFx.drop(this.hero.pos.clone().add(V3(0, 0, -1.5)), 12, Math.round(rw.n / 12)); }
-    else if (rw?.k === 'heal') { const was = this.hero.hp; this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + Math.round(this.hero.maxHp * 0.35)); this.healFeed(was); this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp }); await new Promise(r => after(0.8, () => r(null))); }
-    else if (rw?.k === 'manual') await this.manualPick();
+    else if (rw?.k === 'maxHp') {
+      this.hero.maxHp += rw.n; const was = this.hero.hp; this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + rw.n);
+      this.feed.push('heal', () => msg`气血上限 +${rw.n}`, 0); this.healFeed(was);
+      this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp });
+      await new Promise(r => after(0.65, () => r(null)));
+    } else if (rw?.k === 'meta') {
+      const p = profile(); p.iron += rw.iron; p.herb += rw.herb; saveProfile();
+      this.hud.iron = p.iron; this.hud.herb = p.herb; cue('relic', 0.7);
+      this.feed.push('coins', () => msg`残铁 +${rw.iron}`, 0);
+      this.feed.push('heal', () => msg`药引 +${rw.herb}`, 0);
+      await new Promise(r => after(0.65, () => r(null)));
+    } else if (rw?.k === 'heal') {
+      const was = this.hero.hp; this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + Math.round(this.hero.maxHp * 0.20));
+      this.healFeed(was); this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp });
+      await new Promise(r => after(0.75, () => r(null)));
+    } else if (rw?.k === 'manual') await this.manualPick();
     else {
-      await this.boonPick();
+      await this.boonPick(undefined, rw?.k === 'boon' ? (rw.arch ?? null) : null);
     }
     this.openDoors();
   }
-  /** 11-20 解谜秘藏重赏：gold（稀世鎏金秘匣）与 mythic（传世赤金大秘藏）双档高价值奖励，绝不再“挠痒痒”！ */
+  /** act-152 哈迪斯2宝箱定位：场景秘藏不再乱发秘传/刀谱（防止打乱强化节奏），改为重赏高价值货币（铜钱/残铁/药引）、气血上限与重随，让玩家直观感知货币价值！ */
   private async reward(tier: 'gold' | 'mythic' = 'gold') {
     this.rewardsGot++;
     { const p = profile(); if (hideoutProgress(p, this.dbgAllWeapons).gardenBuilt) { const drop = rollSeedDrop('chest'); if (drop) { addSeed(p, drop, 1); saveProfile(); this.feed.push('boon', () => msg`秘藏药种 · ${SEEDS[drop].name}`, 0, 'gd:chest:' + drop); } } }
@@ -5522,54 +5595,61 @@ export class ActShow {
       this.healFeed(was);
       this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp });
     };
+    const grantMeta = (iron: number, herb: number) => {
+      const p = profile(); p.iron += iron; p.herb += herb; saveProfile();
+      this.hud.iron = p.iron; this.hud.herb = p.herb; cue('relic', 0.75);
+      this.feed.push('coins', () => msg`残铁 +${iron}`, 0);
+      this.feed.push('heal', () => msg`药引 +${herb}`, 0);
+    };
     cue('reveal', 0.85);
     if (tier === 'mythic') {
-      // 传世赤金大秘藏：必出双重大奖（新刀谱 / 高阶秘传 + 65铜钱喷泉 + 永久气血上限+10 & 大幅回血）！
-      this.banner.show('传世秘藏', '寻得绝世隐宝', 1.6);
-      this.coinsFx.drop(dropPos, 13, 5);
-      boostMaxHp(10, 0.35);
-      if (canPick) {
-        if (drawManuals(this.perks.moves, 1, Math.random).length) await this.manualPick();
-        else await this.boonPick([0.1, 0.45, 0.45]);
-      }
+      this.banner.show('传世秘藏', '铜钱百贯 · 残铁药引丰收', 1.6);
+      this.coinsFx.drop(dropPos, 20, 5);
+      grantMeta(18, 18);
+      boostMaxHp(15, 0.15);
+      this.rerollsLeft += 1;
+      this.feed.push('boon', () => msg`重随次数 +${1}`, 0);
+      if (canPick && this.sharpenable().length) await this.sharpen();
       return;
     }
-    // 稀世鎏金秘匣：高阶秘传 / 免费磨刀升阶 / 永久加血上限 / 75铜钱金库，每一种都诚意满满！
-    this.banner.show('秘藏入手', '破阵夺得重宝', 1.3);
     const r = Math.random();
-    if (r < 0.38 && canPick) {
-      this.coinsFx.drop(dropPos, 7, 5);
-      await this.boonPick([0.35, 0.45, 0.2]);
-    } else if (r < 0.62 && canPick) {
-      this.coinsFx.drop(dropPos, 7, 5);
-      if (this.sharpenable().length) await this.sharpen();
-      else await this.boonPick([0.35, 0.45, 0.2]);
-    } else if (r < 0.82) {
-      this.coinsFx.drop(dropPos, 6, 5);
-      boostMaxHp(15, 0.4);
-    } else {
+    if (r < 0.45) {
+      this.banner.show('铜钱宝库', '可在行商购秘传与升阶', 1.35);
       this.coinsFx.drop(dropPos, 15, 5);
       const was = this.hero.hp;
-      this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + Math.round(this.hero.maxHp * 0.35));
+      this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + Math.round(this.hero.maxHp * 0.15));
       this.healFeed(was);
       this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp });
+    } else if (r < 0.75) {
+      this.banner.show('锻材药囊', '回古窑可锻刀行针永久强化', 1.35);
+      this.coinsFx.drop(dropPos, 6, 5);
+      grantMeta(12, 12);
+    } else {
+      this.banner.show('秘藏入手', '气血上限提升并获铜钱', 1.35);
+      this.coinsFx.drop(dropPos, 5, 5);
+      boostMaxHp(12, 0.15);
     }
   }
-  /** three boons with rolled tiers — 死士 / 遗卷 / treasure coffer & 绝品缘 mirror roll higher rarities; supports reroll & archetype counts */
-  private async boonPick(customOdds?: [number, number, number]) {
+  /** three boons with rolled tiers — 死士 / 遗卷 & 绝品缘 mirror roll higher rarities; supports door archetype guarantee, reroll & archetype counts */
+  private async boonPick(customOdds?: [number, number, number], doorArch?: Archetype | null) {
     const base = customOdds ?? (this.plan?.type === 'elite' ? [0, 0.55, 0.45] : this.plan?.type === 'boon' ? [0.15, 0.60, 0.25] : [0.7, 0.25, 0.05]);
     const rb = this.mods.rareOddsBonus;
     const shift = Math.min(base[0], rb);
     const odds = [Math.max(0, base[0] - shift), base[1] + shift * 0.55, base[2] + shift * 0.45];
     const eqKs = keepsakeDef(equippedKeepsake(profile(), this.dbgAllWeapons));
     const archBias = eqKs?.arch ?? null;
-    let pick = drawBoons('any', 3, Math.random, this.perks, odds, archBias); if (!pick.length) return;
+    let pick = drawBoons('any', 3, Math.random, this.perks, odds, archBias, doorArch ?? null); if (!pick.length) return;
     const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide();
+    const ai = doorArch ? ARCH_INFO[doorArch] : null;
     const i = await this.cards.open(pick, {
-      header: { title: '淬炼秘传 · 流派强化', sub: '强化对应按键效果 · 同流派 2件/3件 触发成势', col: '#ffd27a' },
+      header: {
+        title: ai ? msg`${ai.name}秘传 · 流派强化` : '淬炼秘传 · 流派强化',
+        sub: ai ? msg`同流派 2件：${ai.b2} · 3件：${ai.b3}` : '强化对应按键效果 · 同流派 2件/3件 触发成势',
+        col: ai ? ai.col : '#ffd27a',
+      },
       archHave: archCounts(this.perks),
       reroll: this.rerollsLeft > 0 ? { left: this.rerollsLeft, onReroll: () => {
-        const next = drawBoons('any', 3, Math.random, this.perks, odds, archBias);
+        const next = drawBoons('any', 3, Math.random, this.perks, odds, archBias, doorArch ?? null);
         if (!next.length) return null;
         this.rerollsLeft--; pick = next; return pick;
       } } : undefined,
@@ -5602,11 +5682,11 @@ export class ActShow {
     }
     const heal = (k: number) => { const was = this.hero.hp; this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + Math.round(this.hero.maxHp * k)); this.healFeed(was); this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp }); };
     if (s.id === 'buy_boon') { this.stations.spend(s); await this.boonPick(); }
-    else if (s.id === 'buy_heal') { this.stations.spend(s); heal(0.45); }
+    else if (s.id === 'buy_heal') { this.stations.spend(s); heal(0.30); }
     else if (s.id === 'buy_sharpen') { this.stations.spend(s); await this.sharpen(); }
     else if (s.id === 'buy_vigor') {
       this.stations.spend(s);
-      this.hero.maxHp += 15; const was = this.hero.hp; this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + 25);
+      this.hero.maxHp += 15; const was = this.hero.hp; this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + 20);
       this.feed.push('heal', () => msg`气血上限 +${15}`, 0); this.healFeed(was);
       this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp });
     }
@@ -5621,11 +5701,11 @@ export class ActShow {
       this.feed.push('coins', () => msg`残铁 +${10}`, 0);
       this.feed.push('heal', () => msg`药引 +${10}`, 0);
     }
-    else if (s.id === 'rest_heal') { this.stations.spend(s, true); heal(0.45); }
+    else if (s.id === 'rest_heal') { this.stations.spend(s, true); heal(0.30); }
     else if (s.id === 'rest_meditate') {
       this.stations.spend(s, true);
       this.hero.qi = Hero.QI_MAX;
-      this.intent = Math.min(3, this.intent + 2); this.hud.intent = this.intent;
+      this.addIntent(1.2, true);
       const p = profile(); p.iron += 8; p.herb += 6; saveProfile();
       this.hud.iron = p.iron; this.hud.herb = p.herb; cue('relic', 0.8);
       this.feed.push('boon', () => '杀气充盈', 0);
@@ -5633,7 +5713,7 @@ export class ActShow {
       this.feed.push('heal', () => msg`药引 +${6}`, 0);
     }
     else if (s.id === 'rest_sharpen') { this.stations.spend(s, true); await this.sharpen(); }
-    else if (s.id === 'scroll' && drawManuals(this.perks.moves, 1, Math.random).length) { this.stations.spend(s); await this.manualPick(); }   // act-19: the 遗卷 altar gives a 刀谱 while any are left
+    else if (s.id === 'scroll' && this.region >= 1 && Object.keys(this.perks.moves).length < 3 && drawManuals(this.perks.moves, 1, Math.random, this.hero?.weaponId).length) { this.stations.spend(s); await this.manualPick(); }
     else if (s.id === 'scroll') { this.stations.spend(s); await this.boonPick(); }
   }
   /** act-136 / act-149: 行商总览面板 — 4 hanging wooden merchant tags (悬木货签) with big 3D wares + concise benefit + ONE bold gold coin bar */
@@ -5652,8 +5732,8 @@ export class ActShow {
           const noSharp = st.id.endsWith('sharpen') && !this.sharpenable().length;
           const poor = st.price > this.coins;
           const locked = poor || noSharp;
-          const shortEff = st.id === 'buy_heal' ? '当场恢复四成血'
-            : st.id === 'buy_vigor' ? '本局生命上限+25'
+          const shortEff = st.id === 'buy_heal' ? '当场恢复三成血'
+            : st.id === 'buy_vigor' ? '本局生命上限+15'
               : st.id === 'buy_boon' ? '三选一习得秘传'
                 : st.id === 'buy_sharpen' ? '已得秘传升一阶'
                   : st.desc;
@@ -6389,6 +6469,11 @@ export class ActShow {
           updateFoe(f, fw, dt);
           fw.heroPos.copy(hp); fw.heroY = hy; fw.heroDodge = hd; fw.hurtHero = hurt;
         } else updateFoe(f, fw, dt);
+        if (f.mem.justBrokeBarrier) {
+          f.mem.justBrokeBarrier = 0;
+          popPix('破阵', f.a.head().add(V3(0, 0.65, 0)), { tier: 'highlight', color: '#fff8cc', accent: '#ffd258', h: 0.96, life: 1.15 });
+          hitstop(0.09 * TUNE.hitstop); shake(0.32 * TUNE.shake); this.splitScreen(0.55);
+        }
       }
       f.a.update(dt);
     }
@@ -6445,8 +6530,9 @@ export class ActShow {
           this.hitFoe(f, d.dmg * (d.returning ? d.back : 1), p0, { knock: 0.12, heavy: false, kind: 'dart', stagger: 0 }); cue('dartHit', 0.7);
           if (d.link && d.link !== this.qiVolley) { this.qiVolley = d.link; this.hero.gainQi(QI_LINK); }
           if ((f.st as string) !== 'dead' && hasBoon(this.perks, 'pin')) this.pinFoe(f);
-          // act-118 影镖 3件: dart hits unleash a shadow-blade echo slash
-          if ((f.st as string) !== 'dead' && archTier(this.perks, 'shadow') >= 3) {
+          // act-118 / act-152 影镖 3件: dart hits unleash a shadow-blade echo slash (0.25s ICD so fan volleys don't burst 5x)
+          if ((f.st as string) !== 'dead' && archTier(this.perks, 'shadow') >= 3 && clock.time - this.shadowEchoAt >= 0.25) {
+            this.shadowEchoAt = clock.time;
             const c = f.a.chest();
             trailSeg(c.clone().add(V3(-0.45, 0.3, 0)), c.clone().add(V3(0.45, -0.3, 0)), 0xa4b4ff, 0.11, { life: 0.2, bright: 2.6, spark: 0.4 });
             this.hitFoe(f, d.dmg, p0, { knock: 0.1, heavy: false, kind: 'echo', stagger: 0 });
@@ -6574,14 +6660,45 @@ export class ActShow {
         if (worldUiClear && plan && d.lift > 0.35) {
           const info = roomInfo(plan.type, plan.region ?? this.region);
           const rw = plan.reward;
-          const sub = plan.type === 'elite' ? '刀谱·重赏' : plan.type === 'boss' ? '终战' : plan.type === 'event' ? '信物·加护'
-            : plan.type === 'boon' ? '珍品秘传' : plan.type === 'shop' ? '四摊百货' : plan.type === 'rest' ? '调息三选'
-              : rw?.k === 'boon' ? '秘传' : rw?.k === 'coins' ? msg`铜钱 ${rw.n}` : rw?.k === 'heal' ? '回血' : rw?.k === 'manual' ? '刀谱' : '';
-          const ico: MiniIcon = plan.type === 'shop' ? 'coin' : plan.type === 'rest' ? 'heal' : plan.type === 'boon' || plan.type === 'elite' ? 'scroll' : plan.type === 'event' ? 'star' : 'door';
-          const acc = plan.type === 'elite' || plan.type === 'boss' ? '#d84434' : plan.type === 'boon' ? '#58c8a0' : plan.type === 'event' ? '#e8b448' : plan.type === 'shop' ? '#e2a648' : plan.type === 'rest' ? '#e08448' : '#b89460';
-          const pt = worldToUi(V3(d.g.position.x, d.g.position.y + 2.85, d.g.position.z));
+          const archKey = rw?.k === 'boon' ? rw.arch : undefined;
+          const arch = archKey ? ARCH_INFO[archKey] : null;
+          // Hades-2 door reward emblem & currency value clarity — raised cleanly ABOVE the 3D route board so it never blocks the sign model!
+          let title = info.name;
+          let sub = '';
+          let ico: MiniIcon = 'door';
+          let acc = '#b89460';
+          if (plan.type === 'boss') {
+            title = info.name; sub = '决战关底首领'; ico = 'boss'; acc = '#e83c30';
+          } else if (plan.type === 'elite') {
+            title = arch ? msg`${arch.name}·珍绝` : '珍绝秘传';
+            sub = '死士恶战 · 高阶流派';
+            ico = archKey ?? 'scroll'; acc = arch ? arch.col : '#e84838';
+          } else if (plan.type === 'event') {
+            title = info.name; sub = '名将信物 · 常驻加护'; ico = 'star'; acc = '#f0bc48';
+          } else if (plan.type === 'boon') {
+            title = '珍品遗卷'; sub = '不战自得高阶秘传'; ico = 'scroll'; acc = '#58d8a8';
+          } else if (plan.type === 'shop') {
+            title = '行商'; sub = '花铜钱买秘传/升阶'; ico = 'coin'; acc = '#f0b848';
+          } else if (plan.type === 'rest') {
+            title = '歇脚'; sub = '免费回血 · 磨刀 · 蓄锐'; ico = 'fire'; acc = '#ff9848';
+          } else if (rw?.k === 'boon') {
+            title = arch ? msg`${arch.name}秘传` : '流派秘传';
+            sub = arch ? msg`${info.name} · 2件${arch.b2}` : info.name;
+            ico = archKey ?? 'scroll'; acc = arch ? arch.col : '#ffd27a';
+          } else if (rw?.k === 'coins') {
+            title = msg`铜钱 +${rw.n}`; sub = '行商买秘传与气血'; ico = 'coin'; acc = '#ffd258';
+          } else if (rw?.k === 'maxHp') {
+            title = msg`气血上限 +${rw.n}`; sub = '本局永久增血'; ico = 'heal'; acc = '#78f09c';
+          } else if (rw?.k === 'meta') {
+            title = msg`残铁+${rw.iron} 药引+${rw.herb}`; sub = '回古窑永久锻刀行针'; ico = 'meta'; acc = '#c8a8ff';
+          } else if (rw?.k === 'heal') {
+            title = '回血休整'; sub = '恢复两成气血'; ico = 'heal'; acc = '#68e498';
+          } else if (rw?.k === 'manual') {
+            title = '武器刀谱'; sub = '解锁本武器专属派生'; ico = 'blade'; acc = '#ffe488';
+          }
+          const pt = worldToUi(V3(d.g.position.x, d.g.position.y + 4.15, d.g.position.z));
           this.worldPlates.setTag('door.' + i, {
-            text: info.name, sub, icon: ico, color: '#fff2cc', accent: acc,
+            text: title, sub, icon: ico, emblem: true, color: '#fff6da', accent: acc,
             x: pt.x, y: pt.y, minY: minPlateY, visible: pt.z < 1,
           });
         } else {

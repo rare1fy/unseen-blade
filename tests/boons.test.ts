@@ -15,15 +15,15 @@ vi.mock('../src/present/asm/registry', () => ({ LOCALES: { hj_village: {}, hj_fi
 import { updateFoe, type Foe, type FoeWorld } from '../src/present/act/enemy';
 import { firstRoom, roomOf } from '../src/present/act/run';
 
-// 11-18 改招为主: the boon, its button, its three tiers (and the second number where it has one)
+// 11-18 / act-138 改招为主 (Hades II paced numbers): the boon, its button, its three tiers (and the second number where it has one)
 const values: Array<[string, string | null, number[], number[]?]> = [
-  ['bladeWind', 'attack', [100, 150, 200], [0, 20, 40]], ['extra', 'attack', [40, 60, 80]], ['bleed', 'attack', [1, 1.5, 2]],
-  ['behead', 'attack', [12, 18, 25]], ['spin', 'attack', [1.0, 1.4, 1.8], [120, 140, 160]], ['pierce', 'attack', [4, 5.5, 7], [100, 130, 160]],
-  ['passCut', 'dash', [70, 100, 130]], ['decoy', 'dash', [1, 1.3, 1.6], [4, 3, 2]],
-  ['darts3', 'dart', [3, 4, 5]], ['boomerang', 'dart', [100, 130, 160]], ['pin', 'dart', [0.8, 1.1, 1.4]],
-  ['twinDraw', 'stance', [60, 80, 100]], ['burst', 'stance', [3, 3.6, 4.2], [8, 12, 16]],
-  ['rift', 'jump', [5, 6.5, 8], [10, 14, 18]], ['vault', 'jump', [8, 11, 14]],
-  ['drink', null, [3, 5, 7]],
+  ['bladeWind', 'attack', [80, 115, 150], [0, 20, 40]], ['extra', 'attack', [30, 45, 60]], ['bleed', 'attack', [1, 1.5, 2]],
+  ['behead', 'attack', [8, 12, 16]], ['spin', 'attack', [1.0, 1.4, 1.8], [110, 125, 140]], ['pierce', 'attack', [4, 5.5, 7], [85, 110, 135]],
+  ['passCut', 'dash', [55, 75, 95]], ['decoy', 'dash', [1, 1.3, 1.6], [4, 3, 2]],
+  ['darts3', 'dart', [3, 4, 5]], ['boomerang', 'dart', [60, 80, 100]], ['pin', 'dart', [0.8, 1.1, 1.4]],
+  ['twinDraw', 'stance', [55, 70, 85]], ['burst', 'stance', [3, 3.6, 4.2], [8, 12, 16]],
+  ['rift', 'jump', [5, 6.5, 8], [10, 14, 18]], ['vault', 'jump', [7, 10, 13]],
+  ['drink', null, [1, 2, 3]],
 ];
 
 describe('秘传：改招为主', () => {
@@ -86,10 +86,17 @@ describe('秘传：改招为主', () => {
   });
   it('卡面数值一行按档填', () => {
     const b = (id: string) => BOONS.find(x => x.id === id)!;
-    expect(fillVals(b('bladeWind').note!, b('bladeWind'), 1)).toBe('刀光伤害 150% · 飞行距离 +20%');
+    expect(fillVals(b('bladeWind').note!, b('bladeWind'), 1)).toBe('刀光伤害 115% · 飞行距离 +20%');
     expect(fillVals(b('pin').note!, b('pin'), 2)).toBe('定住 1.4秒 · 头目除外');
     expect(fillVals(b('decoy').note!, b('decoy'), 0)).toBe('残影停 1秒 · 每 4秒 留一个');
     expect(fillVals(b('darts3').note!, b('darts3'), 1)).toBe('一次 4 枚');
+  });
+  it('哈迪斯2流派门保证：进入指定流派门时，三选一优先全给该流派秘传', () => {
+    for (const arch of ['blood', 'poise', 'shadow', 'gale'] as const) {
+      const picks = drawBoons('any', 3, () => 0.3, newPerks(), [0.7, 0.25, 0.05], null, arch);
+      expect(picks).toHaveLength(3);
+      expect(picks.every(p => p.boon.arch === arch), arch).toBe(true);
+    }
   });
   it('斩击类型含补刀、错身、掠顶、第二段箭步斩，不含飞镖、刀芒和环境伤害', () => {
     for (const kind of ['k1', 'k2', 'k3', 'k4', 'k5', 'rel', 'rel2', 'plunge', 'launch', 'parry', 'echo', 'pass', 'overhead']) expect(isBladeHit(kind)).toBe(true);
@@ -97,19 +104,26 @@ describe('秘传：改招为主', () => {
   });
 });
 
-describe('刀谱给得更勤', () => {
-  it('第一间固定刀谱，死士房必给刀谱', () => {
+describe('哈迪斯2强化节奏与可见门奖励', () => {
+  it('第一间固定刀谱，死士房给标明流派的珍绝秘传', () => {
     for (const x of [0, 0.3, 0.6, 0.99]) {
       expect(firstRoom(() => x).reward).toEqual({ k: 'manual' });
-      expect(roomOf('elite', 2, () => x).reward).toEqual({ k: 'manual' });
+      const er = roomOf('elite', 2, () => x).reward;
+      expect(er?.k).toBe('boon');
+      expect(er && er.k === 'boon' && er.arch).toBeTruthy();
     }
   });
-  it('乱兵房约三成刀谱，其余秘传 / 铜钱 / 回血；行商、歇脚、遗卷、渠帅没有清场奖励', () => {
+  it('乱兵房按哈迪斯2节奏穿插流派秘传 / 铜钱 / 气血上限 / 残铁药引 / 小回血；行商、歇脚、遗卷、渠帅没有清场奖励', () => {
     const n = 2000, seen: Record<string, number> = {};
-    for (let i = 0; i < n; i++) { const x = (i + 0.5) / n, rw = roomOf('fight', 2, () => x).reward!; seen[rw.k] = (seen[rw.k] ?? 0) + 1; }
-    expect(seen.manual / n).toBeGreaterThan(0.25); expect(seen.manual / n).toBeLessThan(0.35);
-    expect(seen.boon / n).toBeGreaterThan(0.35);
-    expect(seen.coins).toBeGreaterThan(0); expect(seen.heal).toBeGreaterThan(0);
+    for (let i = 0; i < n; i++) {
+      const x = (i + 0.5) / n, rw = roomOf('fight', 2, () => x).reward!;
+      seen[rw.k] = (seen[rw.k] ?? 0) + 1;
+      if (rw.k === 'boon') expect(rw.arch).toBeTruthy();
+    }
+    expect(seen.manual ?? 0).toBe(0); // manuals are controlled at fixed milestones, not spammed in random fight rooms
+    expect(seen.boon / n).toBeGreaterThan(0.30); expect(seen.boon / n).toBeLessThan(0.42);
+    expect(seen.coins).toBeGreaterThan(0); expect(seen.maxHp).toBeGreaterThan(0);
+    expect(seen.meta).toBeGreaterThan(0); expect(seen.heal).toBeGreaterThan(0);
     for (const t of ['shop', 'rest', 'boon', 'boss'] as const) expect(roomOf(t, 2, Math.random).reward).toBeNull();
   });
 });

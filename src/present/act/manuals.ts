@@ -8,6 +8,7 @@
 // 11-18 (用户：「把所有的技能描述都重新写一下，现在的纯看不懂，也没有图标配合」): the presses are not words any more — `how` / `air`
 // (the card draws them as buttons); desc[0] is only what comes out (agy, ≤ 20 characters), desc[1] the numbers (may be empty)
 import type { Boon } from './boons';
+import type { WeaponId } from './weapons';
 
 export type MoveId = 'chase' | 'backDart' | 'dbl' | 'launch' | 'cutDart' | 'keep' | 'pause' | 'kick' | 'acut' | 'swoop' | 'reel' | 'stomp';
 /** 11-18 (用户：「选了强化后根本看不到自己选的强化是啥，在哪儿、如何释放，如何释放的教学不能是纯文字」): how a move is done, for the
@@ -19,27 +20,47 @@ export type MoveKey = 'attack' | 'dash' | 'jump' | 'dart' | 'hold';
 export type LinkCue = 'dartHit' | 'nearFoe';
 /** act-118: explicit relation badge so the player always knows whether a manual adds a fresh combo branch or alters a button under a condition */
 export type MoveRel = 'new' | 'alt';
-export interface Manual { id: MoveId; name: string; rel: MoveRel; desc: [string, string]; how: [MoveKey, ...MoveKey[]]; air?: boolean; pauseAt?: number; needs?: MoveId; cue?: LinkCue }
+export interface Manual { id: MoveId; name: string; rel: MoveRel; weapons: WeaponId[]; desc: [string, string]; how: [MoveKey, ...MoveKey[]]; air?: boolean; pauseAt?: number; needs?: MoveId; cue?: LinkCue }
+/** act-138 (用户：「要把现在很多连招分配给其他几把武器才有，单一武器派生过多记忆负担重」):
+ *  类似《哈迪斯2》武器专属代达罗斯之锤——每把名刀只挂 4 本贴合自身定位的专属刀谱，单局拿 2~3 本，彻底消除记忆负担！
+ *  - 寒山旧刀 (hanshan): 游身斩 / 挑云 / 断云 / 二段跳 (剑道连段与浮空追击)
+ *  - 惊雷陌刀 (thunder): 扫八方 / 穿心腿 / 踏顶 / 掠地 (大开大合重劈、撞墙与砸地)
+ *  - 霜鳞短刃 (frost):   迎面镖 / 回身镖 / 牵红 / 寻声 (疾风影针与全套飞镖位移刺杀)
+ *  - 无锋断刃 (blunt):   游身斩 / 寻声 / 掠地 / 二段跳 (极简引招、听声闪反与灵动脱身) */
 export const MANUALS: Manual[] = [
-  { id: 'chase', name: '寻声', rel: 'alt', how: ['dart', 'attack'], cue: 'dartHit', desc: ['化烟闪到中镖人跟前，一记重斩', '伤害 200% · 高破势 · 敌中镖触发'] },
-  { id: 'backDart', name: '回身镖', rel: 'new', how: ['dash', 'dart'], desc: ['冲过人身旁，反手往背后甩三镖', '用一枚镖 · 冲后新派生'] },
-  { id: 'dbl', name: '二段跳', rel: 'new', how: ['jump'], air: true, desc: ['半空翻身，再往上蹿一截', '再高 1.8 米 · 空中新派生'] },
-  { id: 'launch', name: '挑云', rel: 'alt', how: ['attack', 'jump'], desc: ['一刀挑人上半空，跟着跃起', '伤害 150% · 浮空易伤 · 砍后变招'] },
-  { id: 'cutDart', name: '迎面镖', rel: 'new', how: ['attack', 'dart'], desc: ['贴脸甩出三枚柳叶镖', '用一枚镖 · 砍后新派生'] },
-  { id: 'keep', name: '游身斩', rel: 'alt', how: ['attack', 'dash', 'attack'], desc: ['闪开来招，转身接着砍连环刀', '连斩不断 · 冲后变招'] },
-  { id: 'pause', name: '扫八方', rel: 'new', how: ['attack', 'attack', 'attack'], pauseAt: 2, desc: ['原地转身挥两圈，扫退周围的人', '伤害 135%×2 · 停顿新派生'] },
-  { id: 'kick', name: '穿心腿', rel: 'new', how: ['dash', 'jump'], desc: ['贴地踹飞挡路人，撞墙伤得更重', '伤害 180% · 专破架势 · 冲后新派生'] },
-  { id: 'acut', name: '断云', rel: 'new', how: ['attack', 'jump', 'attack'], needs: 'launch', desc: ['半空追砍三刀，末刀砸人落地', '100%/100%/150% · 砸地 220%'] },
-  { id: 'swoop', name: '掠地', rel: 'alt', how: ['dash'], air: true, desc: ['俯冲斩到敌后，沿路每人挨一刀', '伤害 210% · 朝敌空冲触发'] },
-  { id: 'reel', name: '牵红', rel: 'alt', how: ['dart', 'dart'], cue: 'dartHit', desc: ['扯绳拉人到身前，拉不动就飞过去', '伤害 90% · 下刀必暴 · 敌中镖触发'] },
-  { id: 'stomp', name: '踏顶', rel: 'alt', how: ['jump'], air: true, cue: 'nearFoe', desc: ['踩趴脚下的人，借力再跳起', '伤害 130% · 高破势 · 敌旁空跳触发'] },
+  { id: 'chase', name: '寻声', rel: 'alt', weapons: ['frost', 'blunt'], how: ['dart', 'attack'], cue: 'dartHit', desc: ['化烟闪到中镖人跟前，一记重斩', '伤害 200% · 高破势 · 敌中镖触发'] },
+  { id: 'backDart', name: '回身镖', rel: 'new', weapons: ['frost'], how: ['dash', 'dart'], desc: ['冲过人身旁，反手往背后甩三镖', '用一枚镖 · 冲后新派生'] },
+  { id: 'dbl', name: '二段跳', rel: 'new', weapons: ['hanshan', 'blunt'], how: ['jump'], air: true, desc: ['半空翻身，再往上蹿一截', '再高 1.8 米 · 空中新派生'] },
+  { id: 'launch', name: '挑云', rel: 'alt', weapons: ['hanshan'], how: ['attack', 'jump'], desc: ['一刀挑人上半空，跟着跃起', '伤害 150% · 浮空易伤 · 砍后变招'] },
+  { id: 'cutDart', name: '迎面镖', rel: 'new', weapons: ['frost'], how: ['attack', 'dart'], desc: ['贴脸甩出三枚柳叶镖', '用一枚镖 · 砍后新派生'] },
+  { id: 'keep', name: '游身斩', rel: 'alt', weapons: ['hanshan', 'blunt'], how: ['attack', 'dash', 'attack'], desc: ['闪开来招，转身接着砍连环刀', '连斩不断 · 冲后变招'] },
+  { id: 'pause', name: '扫八方', rel: 'new', weapons: ['thunder'], how: ['attack', 'attack', 'attack'], pauseAt: 2, desc: ['原地转身挥两圈，扫退周围的人', '伤害 135%×2 · 停顿新派生'] },
+  { id: 'kick', name: '穿心腿', rel: 'new', weapons: ['thunder'], how: ['dash', 'jump'], desc: ['贴地踹飞挡路人，撞墙伤得更重', '伤害 180% · 专破架势 · 冲后新派生'] },
+  { id: 'acut', name: '断云', rel: 'new', weapons: ['hanshan'], how: ['attack', 'jump', 'attack'], needs: 'launch', desc: ['半空追砍三刀，末刀砸人落地', '100%/100%/150% · 砸地 220%'] },
+  { id: 'swoop', name: '掠地', rel: 'alt', weapons: ['thunder', 'blunt'], how: ['dash'], air: true, desc: ['俯冲斩到敌后，沿路每人挨一刀', '伤害 210% · 朝敌空冲触发'] },
+  { id: 'reel', name: '牵红', rel: 'alt', weapons: ['frost'], how: ['dart', 'dart'], cue: 'dartHit', desc: ['扯绳拉人到身前，拉不动就飞过去', '伤害 90% · 下刀必暴 · 敌中镖触发'] },
+  { id: 'stomp', name: '踏顶', rel: 'alt', weapons: ['thunder'], how: ['jump'], air: true, cue: 'nearFoe', desc: ['踩趴脚下的人，借力再跳起', '伤害 130% · 高破势 · 敌旁空跳触发'] },
 ];
 export const ALL_MOVES: Record<string, boolean> = Object.fromEntries(MANUALS.map(m => [m.id, true]));
+/** Moves unlocked for practicing a specific weapon in the hideout yard (focused 4-move pool). */
+export function weaponMoves(weaponId?: WeaponId | null): Record<string, boolean> {
+  if (!weaponId) return ALL_MOVES;
+  return Object.fromEntries(MANUALS.filter(m => m.weapons.includes(weaponId)).map(m => [m.id, true]));
+}
+/** List the exclusive manuals belonging to a weapon (for UI hints / forge overview). */
+export function manualsForWeapon(weaponId: WeaponId): Manual[] {
+  return MANUALS.filter(m => m.weapons.includes(weaponId));
+}
 /** the scroll glyph the manual cards show (12 × 12, axis-aligned: two rollers and the slips between) */
 export const SCROLL_GLYPH = ['............', '.##########.', '.#oooooooo#.', '..#d#d#d#d..', '..#d#d#d#d..', '..#d#d#d#d..', '..#d#d#d#d..', '..#d#d#d#d..', '..#d#d#d#d..', '.#oooooooo#.', '.##########.', '............'];
-/** up to n manuals not learnt yet (and whose `needs` is learnt), in a random order */
-export function drawManuals(known: Record<string, boolean>, n: number, rnd: () => number) {
-  return MANUALS.filter(m => !known[m.id] && (!m.needs || known[m.needs])).map(m => ({ m, k: rnd() })).sort((a, b) => a.k - b.k).slice(0, n).map(o => o.m);
+/** up to n manuals not learnt yet (filtered to `weaponId` when given, and whose `needs` is learnt), in a random order */
+export function drawManuals(known: Record<string, boolean>, n: number, rnd: () => number, weaponId?: WeaponId | null) {
+  return MANUALS
+    .filter(m => (!weaponId || m.weapons.includes(weaponId)) && !known[m.id] && (!m.needs || known[m.needs]))
+    .map(m => ({ m, k: rnd() }))
+    .sort((a, b) => a.k - b.k)
+    .slice(0, n)
+    .map(o => o.m);
 }
 /** a manual dressed as a card (the card face draws school 'ms' in the scroll style) */
 export function manualCard(m: Manual): Boon { return { id: 'ms_' + m.id, school: 'ms' as never, name: m.name, desc: [...m.desc], col: '#f0e0b0', glyph: SCROLL_GLYPH }; }
