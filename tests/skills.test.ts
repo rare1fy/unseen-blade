@@ -7,7 +7,7 @@ vi.mock('../src/present/ui3d/bodyFont', () => ({ bodyText: vi.fn(), bodyW: vi.fn
 import { MANUALS } from '../src/present/act/manuals';
 import { BOONS } from '../src/present/act/boons';
 import { fillVals } from '../src/present/act/cards';
-import { BASE_SKILLS, MANUAL_HINT, UI_WORDS, manualSteps, manualTarget, boonSteps, boonTarget, isPress } from '../src/present/act/skillInfo';
+import { BASE_SKILLS, baseSkillsForWeapon, MANUAL_HINT, UI_WORDS, manualSteps, manualTarget, boonSteps, boonTarget, isPress } from '../src/present/act/skillInfo';
 
 import { skillIcon3D } from '../src/present/act/skillIcons';
 
@@ -30,12 +30,16 @@ describe('技能说明数据', () => {
       if (s) expect(['attack', 'dash', 'jump', 'special']).toContain(tg); else expect(tg).toBe('hp');
     }
   });
-  it('本事：十招，名字、效果、数值都在字库里', () => {
-    expect(BASE_SKILLS.map(s => s.id)).toEqual(['lianhuan', 'dash', 'dcut', 'jump', 'plunge', 'dart', 'iai', 'parry', 'counter', 'ult']);
-    for (const s of BASE_SKILLS) {
-      expect([...s.effect].length, s.id).toBeLessThanOrEqual(20);
-      for (const t of [s.name, s.effect, s.num ?? '']) expect(missing(t), s.id).toEqual([]);
-      expect(s.steps.some(isPress)).toBe(true);
+  it('本事：十招，名字、效果、数值都在字库里（四把名刀各成体系）', () => {
+    expect(BASE_SKILLS.map(s => s.id)).toEqual(['lianhuan', 'iai', 'parry', 'dash', 'dcut', 'counter', 'jump', 'plunge', 'dart', 'ult']);
+    for (const wid of ['hanshan', 'thunder', 'frost', 'blunt'] as const) {
+      const list = baseSkillsForWeapon(wid, 3);
+      expect(list.map(s => s.id)).toEqual(['lianhuan', 'iai', 'parry', 'dash', 'dcut', 'counter', 'jump', 'plunge', 'dart', 'ult']);
+      for (const s of list) {
+        expect([...s.effect].length, `${wid}:${s.id}`).toBeLessThanOrEqual(20);
+        for (const t of [s.name, s.effect, s.num ?? '']) expect(missing(t), `${wid}:${s.id}`).toEqual([]);
+        expect(s.steps.some(isPress)).toBe(true);
+      }
     }
     for (const w of Object.values(UI_WORDS)) expect(missing(w)).toEqual([]);
   });

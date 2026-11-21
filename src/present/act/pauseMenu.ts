@@ -17,6 +17,7 @@ import { pixW, PIX_H } from '../v2/pix';
 import { ACTIONS, ACTION_WORD, BIND, PAD, padNav, paintGlyph, glyphArt, keyName, padName, rebind, resetBinds, activePad, pauseName, GLYPH_H, paintKeyCap, keyCapWidth, KEYCAP_H, type Nav } from './pad';
 import type { BtnName } from './input';
 import { SkillList, type Section } from './skillList';
+import { MoveStage } from './moveStage';
 import { UI_WORDS } from './skillInfo';
 import { backShield, type MiniShield } from './btnBadge';
 import { uiScale } from './uiScale';
@@ -35,17 +36,17 @@ export interface PauseHost {
   onRun?(): boolean;
   /** the menu closed (from the game: the world runs again) */
   closed(): void;
-  /** 11-18 (用户：「选了强化后根本看不到自己选的强化是啥，在哪儿、如何释放」): this run's 刀谱 and 秘传 (已得), and the moves she has from the
-   *  start with the 刀谱 she knows now (招式) */
+  /** act-151: unified 招式谱 (equipped weapon moveset + slotted boons + run manuals/boons + active arcana/keepsake) */
+  build?(): Section[];
+  /** legacy fallbacks */
   owned?(): Section[];
   skills?(): Section[];
-  /** 11-19 (用户：「暂停菜单『已得』里点某个招式也显示这一招的残影示意」): play a 刀谱's ghost beside her in the stopped world
-   *  (false = this entry has no demonstration); while it plays the menu steps aside */
+  /** 11-19: play a 刀谱's 3D ghost beside her in the stopped world */
   preview?(id: string): boolean;
   previewing?(): boolean;
   stopPreview?(): void;
 }
-type Page = 'main' | 'keys' | 'set' | 'ask' | 'askTitle' | 'owned' | 'skills';
+type Page = 'main' | 'keys' | 'set' | 'ask' | 'askTitle' | 'build' | 'owned' | 'skills';
 interface Row { id: string; label: () => string; act?: BtnName; run?: () => void }
 
 const TXT = { on: '#d9ccb2', sel: '#ffd88a', dim: '#8a7e70', line: '#0a0708', wait: '#ffe6b0' };
@@ -137,13 +138,13 @@ export class PauseMenu {
   private head: Sign; private foot: Sign; private marker: THREE.Mesh; private markerK = 0; private fade = 0;
   /** the key row waiting for a new key: which row, real seconds left, the pad's buttons when it started */
   private wait: { i: number; t: number; prev: boolean[] } | null = null;
-  /** 已得 / 招式: the list of skills beside the column (a column of slabs with only 返回 on the left) */
-  private list: SkillList; private listRel = 0;
+  /** act-151: unified 招式谱 — left scrollable SkillList + right live animated MoveStage inspector */
+  private list: SkillList; private stage: MoveStage; private listRel = 0;
   /** 11-19 (用户：「设置的返回按钮设计有问题」): the back button — a small iron shield with a turning-back arrow at the page's top left,
    *  beside its name; every page but the first has it (Esc / pad B / a tap on it). The column no longer ends in a 返回 slab */
   private backBtn: MiniShield; private backK = 0; private backHot = 0; private backAt = { x: 0, y: 0, r: 0 };
   constructor(private host: PauseHost) {
-    const L = host.L; this.head = new Sign(L); this.foot = new Sign(L); this.list = new SkillList(L);
+    const L = host.L; this.head = new Sign(L); this.foot = new Sign(L); this.list = new SkillList(L); this.stage = new MoveStage(L);
     this.backBtn = backShield(); this.backBtn.userData.noTilt = true; this.backBtn.traverse(o => { o.renderOrder = 62; }); this.backBtn.visible = false; L.scene.add(this.backBtn);
     this.marker = pommel(); this.marker.userData.noTilt = true; this.marker.renderOrder = 62; this.marker.visible = false; L.scene.add(this.marker);
     if (typeof window !== 'undefined') {
@@ -153,59 +154,64 @@ export class PauseMenu {
     onRealUpdate(rdt => this.update(rdt));
   }
   open(page: Page = 'main', o: { fromTitle?: boolean; quickClose?: boolean } = {}) {
+    const p: Page = page === 'owned' || page === 'skills' ? 'build' : page;
     this.fromTitle = !!o.fromTitle; this.quickClose = !!o.quickClose; this.on = true; PAUSE.menu = true; if (!this.fromTitle) PAUSE.on = true;
     this.openT = 0; this.wait = null; padNav.sync(); cue('scroll', 0.6);
-    this.go(page, true);
+    this.go(p, true);
   }
   close() {
     if (!this.on) return;
     this.host.stopPreview?.();
-    this.on = false; this.wait = null; PAUSE.menu = false; PAUSE.on = false; cue('deselect', 0.4); this.list.close();
+    this.on = false; this.wait = null; PAUSE.menu = false; PAUSE.on = false; cue('deselect', 0.4); this.list.close(); this.stage.hide();
     this.host.closed();
   }
   private build(): Row[] {
     const h = this.host;
     if (this.page === 'main') return [
       { id: 'resume', label: () => '继续' },
-      ...(h.owned ? [{ id: 'owned', label: () => UI_WORDS.owned }] : []), ...(h.skills ? [{ id: 'skills', label: () => UI_WORDS.skills }] : []),
+      ...(h.build || h.owned || h.skills ? [{ id: 'build', label: () => UI_WORDS.build }] : []),
       { id: 'keys', label: () => '键位' }, { id: 'set', label: () => '设置' },
       ...(h.canGiveUp() ? [{ id: 'quit', label: () => '回据点' }] : []),
       ...(h.toTitle ? [{ id: 'title', label: () => '回主画面' }] : []),
     ];
-    // 已得 / 招式: the list is its own thing (skillList.ts); no slabs — the back shield at the top left leaves
-    if (this.page === 'owned' || this.page === 'skills') return [];
+    // act-151: unified 招式谱 uses split SkillList + MoveStage; no slabs — top-left back shield leaves
+    if (this.page === 'build') return [];
     if (this.page === 'keys') return [...ACTIONS.map(a => ({ id: 'act', act: a, label: () => ACTION_WORD[a] })), { id: 'reset', label: () => '恢复默认' }];
     if (this.page === 'set') return h.settings.map((s, i) => ({ id: s.id ?? `s${i}`, label: s.label, run: s.run }));
     if (this.page === 'askTitle') return [{ id: 'yesTitle', label: () => '回主画面' }, { id: 'no', label: () => '再想想' }];
     return [{ id: 'yes', label: () => '回据点' }, { id: 'no', label: () => '再想想' }];
   }
   private go(page: Page, first = false) {
-    this.page = page; this.rows = this.build(); this.wait = null;
+    const p: Page = page === 'owned' || page === 'skills' ? 'build' : page;
+    this.page = p; this.rows = this.build(); this.wait = null;
     for (const s of this.slabs) s.dispose();
     this.slabs = this.rows.map(r => new Slab(this.host.L, r));
-    this.sel = page === 'ask' || page === 'askTitle' ? 1 : 0;
+    this.sel = p === 'ask' || p === 'askTitle' ? 1 : 0;
     this.slabs.forEach((s, i) => { s.inK = 0; s.delay = i * 0.05; });
     this.pageT = 0; if (!first) cue('tick', 0.35);
-    if (page === 'owned') this.list.open(this.host.owned?.() ?? []);
-    else if (page === 'skills') this.list.open(this.host.skills?.() ?? []);
-    else this.list.close();
+    if (p === 'build') {
+      const secs = this.host.build?.() ?? this.host.skills?.() ?? this.host.owned?.() ?? [];
+      this.list.open(secs);
+    } else {
+      this.list.close();
+      this.stage.hide();
+    }
   }
-  /** on the 已得 / 招式 pages the arrows move in the list, not in the column (its only slab is 返回) */
-  private get inList() { return (this.page === 'owned' || this.page === 'skills') && this.list.on; }
+  /** on the unified 招式谱 page the arrows move in the list */
+  private get inList() { return this.page === 'build' && this.list.on; }
   private pageT = 0;
-  /** 11-19: 已得 / 招式 — confirm on a 刀谱 row plays its ghost; anything else leaves the page */
+  /** act-151: confirm on a 刀谱 row plays its 3D in-world ghost; on other rows keeps previewing inside MoveStage */
   private listOk() {
     const e = this.list.entry;
     if (e && e.kind === 'manual' && this.host.preview?.(e.id)) { cue('select', 0.5); return; }
-    this.back();
   }
   private get previewing() { return !!this.host.previewing?.(); }
   private back() {
     if (this.previewing) { this.host.stopPreview?.(); cue('deselect', 0.4); return; }
     if (this.wait) { this.wait = null; cue('deselect', 0.4); return; }
-    if (this.page === 'main' || (this.page === 'set' && this.fromTitle) || (this.page === 'owned' && this.quickClose)) { this.close(); return; }
+    if (this.page === 'main' || (this.page === 'set' && this.fromTitle) || (this.page === 'build' && this.quickClose)) { this.close(); return; }
     const was = this.page; cue('deselect', 0.4); this.go('main');
-    this.sel = Math.max(0, this.rows.findIndex(r => r.id === (was === 'ask' ? 'quit' : was === 'askTitle' ? 'title' : was)));   // back on the row it came from
+    this.sel = Math.max(0, this.rows.findIndex(r => r.id === (was === 'ask' ? 'quit' : was === 'askTitle' ? 'title' : was)));
   }
   private ok() {
     const r = this.rows[this.sel], s = this.slabs[this.sel]; if (!r || !s) return;
@@ -214,20 +220,19 @@ export class PauseMenu {
       case 'resume': this.close(); return;
       case 'keys': cue('select', 0.5); this.go('keys'); return;
       case 'set': cue('select', 0.5); this.go('set'); return;
-      case 'owned': cue('select', 0.5); this.go('owned'); return;
-      case 'skills': cue('select', 0.5); this.go('skills'); return;
+      case 'build': case 'owned': case 'skills': cue('select', 0.5); this.go('build'); return;
       case 'quit': cue('select', 0.5); this.go('ask'); return;
       case 'title': cue('select', 0.5); if (this.host.onRun?.()) this.go('askTitle'); else this.leaveToTitle(); return;
       case 'yesTitle': this.leaveToTitle(); return;
       case 'back': this.back(); return;
       case 'no': this.back(); return;
-      case 'yes': this.on = false; this.wait = null; PAUSE.menu = false; PAUSE.on = false; this.list.close(); this.host.closed(); this.host.giveUp(); return;
+      case 'yes': this.on = false; this.wait = null; PAUSE.menu = false; PAUSE.on = false; this.list.close(); this.stage.hide(); this.host.closed(); this.host.giveUp(); return;
       case 'reset': resetBinds(); cue('select', 0.6); for (const x of this.slabs) x.flash = 0.6; return;
       case 'act': { const p = activePad(); this.wait = { i: this.sel, t: 5, prev: p ? p.buttons.map(b => !!b.pressed) : [] }; cue('select', 0.4); return; }
       default: if (r.run) { r.run(); if (r.id !== 'language') cue('click', 0.5); }
     }
   }
-  private leaveToTitle() { this.on = false; this.wait = null; PAUSE.menu = false; PAUSE.on = false; this.list.close(); this.host.closed(); this.host.toTitle?.(); }
+  private leaveToTitle() { this.on = false; this.wait = null; PAUSE.menu = false; PAUSE.on = false; this.list.close(); this.stage.hide(); this.host.closed(); this.host.toTitle?.(); }
   private moveSel(d: number) { if (this.inList) { this.list.move(d); cue('tick', 0.3); return; } const n = this.rows.length; if (!n) return; this.sel = (this.sel + d + n) % n; cue('tick', 0.3); }
   /** a key while the menu is up: the menu takes the keys it uses (nothing under it sees them); F-keys (reload, dev tools) pass */
   private key(e: KeyboardEvent) {
@@ -259,12 +264,16 @@ export class PauseMenu {
   pointer(type: string, x: number, y: number, touch = false): boolean {
     if (!this.on) return false;
     if (this.wait) return true;
-    // the list (已得 / 招式): a finger dragged up / down scrolls it; a tap on a row selects it
+    // the unified 招式谱 split view: drag scrolls the left list; click selects a row (updating MoveStage); click 「实景演武」 plays 3D ghost
     if (this.inList) {
-      if (this.previewing) { if (type === 'up') { this.host.stopPreview?.(); cue('deselect', 0.4); } return true; }   // a tap ends the demonstration
+      if (this.previewing) { if (type === 'up') { this.host.stopPreview?.(); cue('deselect', 0.4); } return true; }
+      const onDemo = this.stage.hitDemoBtn(x, y);
+      if (type === 'move') this.stage.demoBtnHot = onDemo;
+      if (type === 'down' && onDemo) { this.downDemo = true; return true; }
+      if (type === 'up' && this.downDemo) { this.downDemo = false; if (onDemo) { if (touch) PAD.device = 'touch'; this.listOk(); } return true; }
       if (type === 'down') { this.drag = { y, moved: 0 }; }
       else if (type === 'move' && this.drag) { const d = this.drag.y - y; this.drag.moved += Math.abs(d); this.drag.y = y; this.list.scrollBy(d); }
-      else if (type === 'up' && this.drag) { const tap = this.drag.moved < 8; this.drag = null; const li = this.list.hit(x, y); if (tap && li >= 0) { this.list.sel = li; cue('tick', 0.25); if (this.list.entry?.kind === 'manual') { if (touch) PAD.device = 'touch'; this.listOk(); } } }
+      else if (type === 'up' && this.drag) { const tap = this.drag.moved < 8; this.drag = null; const li = this.list.hit(x, y); if (tap && li >= 0) { this.list.sel = li; cue('tick', 0.25); } }
       else if (type === 'move') { const li = this.list.hit(x, y); if (li >= 0 && li !== this.list.sel) { this.list.sel = li; cue('tick', 0.25); } }
     }
     // the enlarged back shield + 返回 label at top left
@@ -281,6 +290,7 @@ export class PauseMenu {
   }
   private drag: { y: number; moved: number } | null = null;
   private downBack = false;
+  private downDemo = false;
   private downAt = -1;
   // ---------------------------------------------------------------- the frame (real time, paused or not)
   private update(rdt: number) {
@@ -290,6 +300,7 @@ export class PauseMenu {
       for (const s of this.slabs) { s.inK = Math.max(0, s.inK - rdt * 5); s.update(rdt, this.t, false, s.inK > 0.01); }
       if (this.fade < 0.02 && this.slabs.length) { for (const s of this.slabs) s.dispose(); this.slabs = []; }
       this.head.place(0, 0, 0); this.foot.place(0, 0, 0); this.marker.visible = false;
+      this.stage.hide();
       this.backK = Math.max(0, this.backK - rdt * 6); this.backBtn.visible = this.backK > 0.02; if (this.backBtn.visible) this.backBtn.setOpacity(this.backK);
       L.text.hide('pause.back'); return;
     }
@@ -313,13 +324,27 @@ export class PauseMenu {
     }
     if (!this.on) return;
     this.layout();
-    // 已得 / 招式: the list right of the 返回 column, from under the page's name to above the prompts
+    // act-151: unified 招式谱 split view — Left scrollable SkillList (43%) + Right sticky MoveStage live animated preview (51%)
     { const want = this.inList && !this.previewing ? 1 : 0; this.listRel += (want - this.listRel) * Math.min(1, rdt * 10);
       if (this.list.on) {
-        const W = L.w, H = L.h, kkL = uiScale(W, H, 0.75, 2.8);
-        const lx0 = this.lay.cx + this.lay.w / 2 + Math.max(40 * kkL, W * 0.05), lx1 = W - Math.max(40 * kkL, W * 0.05);
-        this.list.layout((lx0 + lx1) / 2, this.lay.top, H - Math.max(40 * kkL, H * 0.08), Math.min(lx1 - lx0, 760 * kkL));
+        const W = L.w, H = L.h, kkL = uiScale(W, H, 0.72, 2.8);
+        const padX = Math.max(24 * kkL, W * 0.035);
+        const gapX = Math.max(18 * kkL, W * 0.024);
+        const availW = W - padX * 2 - gapX;
+        const leftW = Math.min(500 * kkL, Math.max(220 * kkL, availW * 0.44));
+        const rightW = Math.min(620 * kkL, availW - leftW);
+        const totalW = leftW + gapX + rightW;
+        const xStart = (W - totalW) / 2;
+        const topY = this.lay.top;
+        const botY = H - Math.max(36 * kkL, H * 0.075);
+        this.list.layout(xStart + leftW / 2, topY, botY, leftW, true);
         this.list.update(rdt, this.listRel);
+        const selEntry = this.list.entry;
+        this.stage.setEntry(selEntry, !!selEntry && selEntry.kind === 'manual' && !!this.host.preview);
+        this.stage.layout(xStart + leftW + gapX + rightW / 2, (topY + botY) / 2, rightW, botY - topY);
+        this.stage.update(rdt, this.listRel);
+      } else {
+        this.stage.hide();
       } }
     this.slabs.forEach((s, i) => {
       s.inK = Math.min(1, Math.max(s.inK, (this.pageT - s.delay) / 0.28));
@@ -358,18 +383,21 @@ export class PauseMenu {
     const headH = Math.max(28 * kk, Math.min(56 * kk, H * 0.075)), footH = Math.max(18 * kk, Math.min(30 * kk, H * 0.04));
     const avail = H * 0.86 - headH * 1.4 - footH * 1.6;
     const h = Math.max((language === 'en' || this.page === 'set' ? 20 : 24) * kk, Math.min((wide ? 50 : 56) * kk, avail / (n * 1.32 - 0.32))), gap = h * 0.32;
-    const total = n * h + (n - 1) * gap, top = this.page === 'owned' || this.page === 'skills' ? headH * 1.5 + H * 0.05 : Math.max(headH * 1.5 + H * 0.05, (H - total) / 2 + headH * 0.4);
-    const cx = Math.max(w / 2 + h * 1.6 + 24 * kk, W * 0.27);
+    const total = n * h + (n - 1) * gap, top = this.page === 'build' ? Math.max(headH * 1.45 + H * 0.035, 68 * kk) : Math.max(headH * 1.5 + H * 0.05, (H - total) / 2 + headH * 0.4);
+    const cx = this.page === 'build' ? Math.max(w / 2 + 26 * kk, W * 0.14) : Math.max(w / 2 + h * 1.6 + 24 * kk, W * 0.27);
     const S = Math.max(1, Math.round(h * 0.45 * k / PIX_H)), hS = Math.max(1, Math.round(headH * 0.82 * k / PIX_H));
     Object.assign(this.lay, { cx, w, h, top, S, hS, gap });
     this.slabs.forEach((s, i) => { s.size(w, h); s.x = cx; s.y = top + h / 2 + i * (h + gap); });
     // the page's name over the column
-    const name = { main: '暂歇', keys: '键位', set: '设置', ask: '回据点？', askTitle: '回主画面？', owned: UI_WORDS.owned, skills: UI_WORDS.skills }[this.page], note = this.page === 'ask' || this.page === 'askTitle' ? '视同战死：途中所获尽失，残铁与药引照带回' : this.page === 'keys' ? this.keysNote() : '';
+    const name = { main: '暂歇', keys: '键位', set: '设置', ask: '回据点？', askTitle: '回主画面？', build: UI_WORDS.build, owned: UI_WORDS.build, skills: UI_WORDS.build }[this.page], note = this.page === 'ask' || this.page === 'askTitle' ? '视同战死：途中所获尽失，残铁与药引照带回' : this.page === 'keys' ? this.keysNote() : '';
     const nS = Math.max(1, Math.round(hS * 0.45)), hw = Math.max(textW(name, hS), textW(note, nS) + 8 * kk) / k + 8 * kk, hh = (PIX_H * hS + (note ? PIX_H * nS + 6 * k * kk : 0)) / k + 6 * kk;
     this.head.set(language + name + note + kk.toFixed(2), hw, hh, g => { text(g, name, 4 * k * kk, 3 * k * kk, hS, TXT.sel); if (note) text(g, note, 4 * k * kk, 3 * k * kk + PIX_H * hS + 6 * k * kk, nS, TXT.dim); });
-    const ent = Math.min(1, this.pageT / 0.25), br = Math.max(24 * kk, Math.min(36 * kk, headH * 0.64)), withBack = this.page !== 'main', nx = cx - w / 2 + (withBack ? br * 2 + 108 * kk : 0);
-    this.head.place(nx + hw / 2, top - hh / 2 - h * 0.45, ent * ent);
-    this.backAt = { x: cx - w / 2 + br, y: top - h * 0.45 - hh / 2, r: br };
+    const ent = Math.min(1, this.pageT / 0.25), br = Math.max(22 * kk, Math.min(32 * kk, headH * 0.60)), withBack = this.page !== 'main';
+    const leftEdge = this.page === 'build' ? Math.max(24 * kk, W * 0.035) : cx - w / 2;
+    const headY = this.page === 'build' ? Math.max(hh / 2 + 10 * kk, top - hh / 2 - 12 * kk) : top - hh / 2 - h * 0.45;
+    const nx = leftEdge + (withBack ? br * 2 + 108 * kk : 0);
+    this.head.place(nx + hw / 2, headY, ent * ent);
+    this.backAt = { x: leftEdge + br, y: headY, r: br };
     // the prompts at the foot: the device's own confirm / back (gamepad pixel glyphs or dark-iron pixel keycaps)
     const fS = Math.max(1, Math.round(footH * 0.52 * k / PIX_H)), parts = this.prompts();
     if (parts.length) {
@@ -392,7 +420,7 @@ export class PauseMenu {
   private prompts(): Array<{ pad?: number; key?: string; word: string }> {
     const okWord = this.wait ? '' : this.inList ? '返回' : this.page === 'keys' && this.rows[this.sel]?.id === 'act' ? '改键' : this.page === 'set' && this.rows[this.sel]?.run ? '切换' : '确认';
     if (this.wait) return [];
-    if (this.inList) { if (PAD.device === 'pad') return [{ pad: 1, word: '返回' }]; if (PAD.device === 'key') return [{ key: 'Esc', word: '返回' }]; return []; }
+    if (this.inList) return [];
     if (PAD.device === 'pad') return [{ pad: 0, word: okWord }, { pad: 1, word: '返回' }];
     if (PAD.device === 'key') return [{ key: '回车', word: okWord }, { key: 'Esc', word: '返回' }];
     return [];

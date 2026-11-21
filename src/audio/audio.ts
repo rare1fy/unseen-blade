@@ -58,6 +58,7 @@ class AudioEngine {
       try { await ctx.resume(); } catch { /* retry on next gesture */ }
     }
     if (this.wasInterrupted || this.musicEnded) this.recover();
+    if (this.weatherWant !== 'none') this.applyWeatherSound(0.5);
   }
   /** Recover WebAudio + BGM + voice pool cleanly after returning from long tab/app backgrounding or OS audio interruption */
   recover() {
@@ -103,6 +104,7 @@ class AudioEngine {
         this.musicWant = '';
         void this.playMusic(want, 0.6, off);
       }
+      if (this.weatherWant !== 'none') this.applyWeatherSound(0.35);
     };
     if (needResume) {
       this.wasInterrupted = true;
@@ -117,6 +119,10 @@ class AudioEngine {
     const onHide = () => {
       this.wasInterrupted = true;
       this.hum(0);
+      if (this.weatherG && this.ctx) {
+        const t = this.now();
+        try { this.weatherG.gain.cancelScheduledValues(t); this.weatherG.gain.setValueAtTime(0, t); } catch { /* mini-game param guard */ }
+      }
       if (this.ctx && this.master) {
         const t = this.now();
         try {
@@ -452,6 +458,89 @@ class AudioEngine {
   slowBand(k: number) {
     if (!this.ctx || !this.bandHi || !this.bandLo) return; k = Math.max(0, Math.min(1, k)); if (Math.abs(k - this.bandK) < 0.02) return; this.bandK = k;
     const t = this.now(); this.bandHi.frequency.setTargetAtTime(10 * Math.pow(35, k), t, 0.12); this.bandLo.frequency.setTargetAtTime(20000 * Math.pow(2400 / 20000, k), t, 0.12);
+  }
+  /** act-152: continuous pure-PCM rain / storm ambient bed (zero BiquadFilterNode, 100% WeChat / Android safe) */
+  private weatherWant: 'none' | 'rain' | 'storm' = 'none';
+  private weatherBuf: AudioBuffer | null = null;
+  private weatherSrc: AudioBufferSourceNode | null = null;
+  private weatherG: GainNode | null = null;
+  private makeRainBuffer(ctx: AudioContext): AudioBuffer {
+    if (this.weatherBuf && this.weatherBuf.sampleRate === ctx.sampleRate) return this.weatherBuf;
+    const sr = ctx.sampleRate, len = Math.floor(sr * 3.2), fade = Math.floor(sr * 0.25);
+    const buf = ctx.createBuffer(1, len, sr), out = buf.getChannelData(0);
+    // Deterministic PRNG + JS-baked soft pink rain wash + delicate raindrop patters (zero WebAudio filter dependency)
+    let s = 0x51a7c3d1, b0 = 0, b1 = 0, b2 = 0, lp = 0, hp = 0;
+    const raw = new Float32Array(len + fade);
+    for (let i = 0; i < raw.length; i++) {
+      s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+      const w = (s / 2147483648) - 1;
+      // gentle pink-ish shaping for rain rush
+      b0 = 0.996 * b0 + w * 0.042;
+      b1 = 0.962 * b1 + w * 0.085;
+      b2 = 0.780 * b2 + w * 0.145;
+      // soft high-pass to avoid sub-bass rumble + smooth low-pass to avoid harsh hiss
+      const mix = b0 + b1 + b2;
+      hp = 0.985 * (hp + mix - lp);
+      lp = mix;
+      // occasional crisp raindrop patter impulse
+      s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+      const drop = (s >>> 20) === 0 ? ((s & 1 ? 1 : -1) * 0.22) : 0;
+      raw[i] = Math.max(-0.95, Math.min(0.95, (hp * 0.58 + b2 * 0.45 + drop) * 0.62));
+    }
+    // seamless loop crossfade across tail -> head
+    for (let i = 0; i < len; i++) {
+      if (i < fade) {
+        const k = i / fade;
+        out[i] = raw[i] * k + raw[len + i] * (1 - k);
+      } else {
+        out[i] = raw[i];
+      }
+    }
+    this.weatherBuf = buf;
+    return buf;
+  }
+  private applyWeatherSound(fade = 0.65) {
+    const ctx = this.ctx;
+    if (!ctx || !this.hush) return;
+    const target = this.muted || this.weatherWant === 'none' ? 0 : this.weatherWant === 'storm' ? 0.24 : 0.15;
+    const t = this.now();
+    if (target <= 0) {
+      if (this.weatherG && this.weatherSrc) {
+        const g = this.weatherG, src = this.weatherSrc;
+        this.weatherG = null; this.weatherSrc = null;
+        try {
+          g.gain.cancelScheduledValues(t); g.gain.setValueAtTime(g.gain.value, t); g.gain.linearRampToValueAtTime(0, t + fade);
+          src.onended = () => { try { src.disconnect(); g.disconnect(); } catch { /* ended */ } };
+          src.stop(t + fade + 0.08);
+        } catch { /* ended */ }
+      }
+      return;
+    }
+    if (!this.weatherSrc || !this.weatherG) {
+      try {
+        const src = ctx.createBufferSource();
+        src.buffer = this.makeRainBuffer(ctx);
+        src.loop = true;
+        src.playbackRate.value = this.weatherWant === 'storm' ? 1.12 : 0.96;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0, t);
+        g.gain.linearRampToValueAtTime(target, t + fade);
+        src.connect(g); g.connect(this.hush);
+        src.start(t);
+        this.weatherSrc = src; this.weatherG = g;
+      } catch { /* mini-game audio guard */ }
+    } else {
+      try {
+        this.weatherSrc.playbackRate.value = this.weatherWant === 'storm' ? 1.12 : 0.96;
+        this.weatherG.gain.cancelScheduledValues(t);
+        this.weatherG.gain.setValueAtTime(this.weatherG.gain.value, t);
+        this.weatherG.gain.linearRampToValueAtTime(target, t + fade);
+      } catch { /* mini-game audio guard */ }
+    }
+  }
+  setWeatherSound(kind: 'none' | 'rain' | 'storm', fade = 0.65) {
+    this.weatherWant = kind;
+    this.applyWeatherSound(fade);
   }
   async speak(kind: string) {
     if (!this.ctx) return 0; const b = this.buf.get('vo_lich_' + kind); if (!b) return 0;

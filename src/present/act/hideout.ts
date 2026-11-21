@@ -713,8 +713,10 @@ function* build(c: Ctx, o: { time: HideoutTime; weather: HideoutWeather }) {
   c.ambient({ kind: 'embers', color: 0xff7a30, rate: 1.6, area: { x0: fire[0] - 0.45, z0: fire[2] - 0.35, x1: fire[0] + 0.45, z1: fire[2] + 0.35 }, y: [0.35, 0.9] });
   c.shaft(fire[0] + 0.9, fire[2] + 0.3, { w: 2.6, h: 7.5, tilt: 0.2, yaw: 0.25, a: o.time === 'day' ? 0.12 : wet ? 0.16 : 0.2 });
   c.shaft(vault.hole[0], vault.hole[1] + 0.3, { w: 1.6, h: 6, tilt: 0.12, yaw: 0.2, a: o.time === 'day' ? 0.12 : 0.18 });
-  if (wet) { c.ambient({ kind: 'rain', color: 0xb8c4d4, rate: 30, area: { x0: -4.2, z0: -12.5, x1: 2.2, z1: -10.2 } }); }
-  for (const a of weatherAmbient(o.weather, 'autumn', o.time, true)) c.ambient(a.kind === 'rain' ? { ...a, area: { x0: -18, z0: -16, x1: 18, z1: 13 } } : a);
+  if (wet) { c.ambient({ kind: 'rain', color: 0xc8dcf6, rate: 28, area: { x0: -4.2, z0: -12.5, x1: 2.2, z1: -10.2 }, follow: false }); }
+  for (const a of weatherAmbient(o.weather, o.weather === 'snow' ? 'winter' : 'autumn', o.time, true)) {
+    c.ambient(a.kind === 'rain' || a.kind === 'snow' ? { ...a, area: { x0: -20, z0: -18, x1: 24, z1: 20 } } : a);
+  }
   yield;
 }
 

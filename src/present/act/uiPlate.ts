@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import type { UiLayer } from '../ui3d/layer';
 import { makeCanvas } from '../../platform/index';
 import { drawPix, pixW, PIX_H } from '../v2/pix';
+import { icon as drawPixIcon } from '../v2/overlay';
 import { bodyText, bodyW, BODY_FONT } from '../ui3d/bodyFont';
 import { PAD, paintGlyph, glyphArt, GLYPH_H, paintKeyCap, keyCapWidth, KEYCAP_H, actKey, BIND } from './pad';
 import { language, t as localize } from './i18n';
@@ -12,7 +13,9 @@ import { uiScale } from './uiScale';
 export type MiniIcon =
   | 'coin' | 'iron' | 'herb' | 'chest' | 'mythic' | 'scroll' | 'heal'
   | 'forge' | 'stele' | 'star' | 'starOff' | 'door' | 'leaf' | 'blade' | 'talk'
-  | 'blood' | 'poise' | 'shadow' | 'gale' | 'meta' | 'fire' | 'boss';
+  | 'blood' | 'poise' | 'shadow' | 'gale' | 'meta' | 'boss'
+  | 'grasp' | 'hp' | 'atk' | 'parry' | 'ult' | 'dash' | 'shield' | 'lock'
+  | 'bolt' | 'frost' | 'fire' | 'dart' | 'crit';
 
 /** Draw crisp axis-aligned 9x9 pixel icon centered at (cx, cy) with block size u (device px). */
 export function drawMiniIcon(g: CanvasRenderingContext2D, kind: MiniIcon, cx: number, cy: number, sz: number) {
@@ -90,6 +93,7 @@ export function drawMiniIcon(g: CanvasRenderingContext2D, kind: MiniIcon, cx: nu
       R(4, 1, 2, 2, '#c8ffd8'); R(4, 6, 1, 2, '#3c7a4c');
       break;
     case 'blade':
+    case 'atk':
       R(4, 0, 1, 6, '#e8eef8'); R(3, 1, 1, 4, '#9aa6b8');
       R(2, 6, 5, 1, '#d8a248'); R(4, 7, 1, 2, '#b83228');
       break;
@@ -131,12 +135,6 @@ export function drawMiniIcon(g: CanvasRenderingContext2D, kind: MiniIcon, cx: nu
       R(0, 2, 5, 6, '#14141c'); R(1, 4, 3, 3, '#7a869c'); R(1, 3, 3, 1, '#cfd8ec'); R(3, 4, 1, 2, '#ff9842');
       R(4, 1, 5, 7, '#0c2016'); R(5, 3, 3, 3, '#66e494'); R(6, 2, 2, 2, '#c8ffdc'); R(6, 6, 1, 2, '#2d7648');
       break;
-    case 'fire':
-      // Warm campfire flame emblem (歇脚)
-      R(3, 0, 3, 3, '#1e0e06'); R(2, 2, 5, 6, '#1e0e06'); R(1, 5, 7, 4, '#1e0e06');
-      R(4, 1, 1, 2, '#ffe888'); R(3, 3, 3, 4, '#ff9638'); R(2, 5, 5, 2, '#e85820');
-      R(4, 4, 1, 3, '#fff6c4'); R(2, 7, 5, 1, '#7a4822');
-      break;
     case 'boss':
       // Crimson horned boss emblem (首领)
       R(0, 0, 2, 3, '#1e0608'); R(7, 0, 2, 3, '#1e0608');
@@ -146,7 +144,218 @@ export function drawMiniIcon(g: CanvasRenderingContext2D, kind: MiniIcon, cx: nu
       R(3, 4, 1, 1, '#fff6cc'); R(5, 4, 1, 1, '#fff6cc');
       R(4, 6, 1, 1, '#1e0608');
       break;
+    case 'grasp':
+      // Hades-2-style jade meditation diamond seal (悟性玉印)
+      R(3, 0, 3, 9, '#081812'); R(1, 2, 7, 5, '#081812'); R(0, 3, 9, 3, '#081812');
+      R(4, 1, 1, 7, '#64e6a4'); R(2, 3, 5, 3, '#64e6a4'); R(3, 2, 3, 5, '#8ef8c0');
+      R(4, 3, 1, 2, '#ffffff');
+      break;
+    case 'hp':
+      R(1, 1, 3, 3, '#1a080c'); R(5, 1, 3, 3, '#1a080c'); R(0, 2, 9, 3, '#1a080c');
+      R(1, 4, 7, 2, '#1a080c'); R(2, 6, 5, 2, '#1a080c'); R(3, 7, 3, 2, '#1a080c');
+      R(1, 2, 3, 3, '#e84852'); R(5, 2, 3, 3, '#e84852'); R(2, 3, 5, 3, '#e84852');
+      R(3, 6, 3, 1, '#e84852'); R(4, 7, 1, 1, '#e84852');
+      R(2, 2, 1, 1, '#ffc4c8');
+      break;
+    case 'parry':
+      R(2, 0, 5, 9, '#1a1408'); R(0, 2, 9, 5, '#1a1408');
+      R(3, 1, 3, 1, '#ffe484'); R(3, 7, 3, 1, '#ffe484');
+      R(1, 3, 1, 3, '#ffe484'); R(7, 3, 1, 3, '#ffe484');
+      R(4, 2, 1, 5, '#fff8dc'); R(2, 4, 5, 1, '#fff8dc');
+      break;
+    case 'ult':
+      R(1, 1, 7, 7, '#1a1206');
+      R(2, 1, 5, 1, '#ffd258'); R(6, 2, 2, 5, '#ffd258'); R(2, 7, 5, 1, '#ffd258');
+      R(5, 2, 1, 5, '#fff4b8'); R(3, 4, 3, 1, '#ff9838');
+      break;
+    case 'dash':
+      R(0, 3, 6, 3, '#0a1824'); R(4, 1, 4, 7, '#0a1824');
+      R(1, 4, 6, 1, '#82dcff'); R(5, 2, 1, 5, '#82dcff'); R(6, 3, 1, 3, '#d6f4ff'); R(7, 4, 1, 1, '#ffffff');
+      break;
+    case 'shield':
+      R(1, 0, 7, 6, '#12161e'); R(2, 6, 5, 2, '#12161e'); R(3, 8, 3, 1, '#12161e');
+      R(2, 1, 5, 5, '#7aa4d8'); R(3, 6, 3, 1, '#7aa4d8'); R(4, 7, 1, 1, '#7aa4d8');
+      R(2, 1, 5, 1, '#cde6ff'); R(4, 2, 1, 4, '#ffe088');
+      break;
+    case 'lock':
+      R(2, 0, 5, 4, '#0c0c10'); R(1, 3, 7, 6, '#0c0c10');
+      R(3, 1, 3, 1, '#9ca4b4'); R(3, 2, 1, 2, '#9ca4b4'); R(5, 2, 1, 2, '#9ca4b4');
+      R(2, 4, 5, 4, '#7a8090'); R(4, 5, 1, 2, '#1a1820');
+      break;
+    case 'bolt':
+      R(4, 0, 3, 3, '#1a1406'); R(2, 2, 5, 4, '#1a1406'); R(3, 5, 3, 4, '#1a1406');
+      R(5, 1, 1, 2, '#fff4a8'); R(3, 3, 4, 1, '#ffe058'); R(4, 4, 2, 2, '#ffc436'); R(3, 6, 2, 2, '#ffe058');
+      break;
+    case 'frost':
+      R(4, 0, 1, 9, '#a4f4ff'); R(0, 4, 9, 1, '#a4f4ff');
+      R(2, 2, 1, 1, '#68d4f4'); R(6, 2, 1, 1, '#68d4f4'); R(2, 6, 1, 1, '#68d4f4'); R(6, 6, 1, 1, '#68d4f4');
+      R(3, 3, 3, 3, '#68d4f4'); R(4, 4, 1, 1, '#ffffff');
+      break;
+    case 'fire':
+      R(3, 0, 3, 3, '#1c0c06'); R(1, 2, 7, 6, '#1c0c06'); R(2, 7, 5, 2, '#1c0c06');
+      R(4, 1, 1, 2, '#ff8636'); R(2, 3, 5, 4, '#ff6828'); R(3, 4, 3, 4, '#ffc444'); R(4, 5, 1, 2, '#fff8c8');
+      break;
+    case 'dart':
+      R(4, 0, 1, 9, '#d8ecff'); R(3, 2, 3, 2, '#ffffff'); R(3, 6, 3, 2, '#d85058');
+      break;
+    case 'crit':
+      R(4, 0, 1, 9, '#ff8844'); R(0, 4, 9, 1, '#ff8844');
+      R(3, 2, 3, 5, '#ffd058'); R(2, 3, 5, 3, '#ffd058'); R(4, 4, 1, 1, '#ffffff');
+      break;
   }
+}
+
+// ---------------------------------------------------------------- Hades-2-style inline pixel-icon rich text & cost chips
+/** Crisp 7×7 axis-aligned inline icons embedded right inside description text lines. */
+const INLINE_MINI: Record<string, string[]> = {
+  blade:  ['...#...', '...#...', '...#...', '...#...', '.#####.', '...#...', '..###..'],
+  blood:  ['...#...', '..###..', '..###..', '.#####.', '.#####.', '..###..', '.......'],
+  bone:   ['.#...#.', '..###..', '...#...', '...#...', '...#...', '..###..', '.#...#.'],
+  dart:   ['...#...', '..###..', '...#...', '...#...', '..###..', '..#.#..', '..###..'],
+  dash:   ['.......', '....#..', '######.', '#######', '######.', '....#..', '.......'],
+  heart:  ['.##.##.', '#######', '#######', '.#####.', '..###..', '...#...', '.......'],
+  draw:   ['#######', '...#...', '...#...', '...#...', '...#...', '..###..', '...#...'],
+  qi:     ['.......', '.#####.', '.#ooo#.', '.#ooo#.', '.#ooo#.', '.#####.', '.......'],
+  ingot:  ['.......', '.......', '.#####.', '#######', '#######', '.......', '.......'],
+  up:     ['...#...', '..###..', '.#####.', '...#...', '...#...', '...#...', '.......'],
+  stun:   ['.#...#.', '###.###', '.#...#.', '.......', '...#...', '..###..', '...#...'],
+  moon:   ['.......', '#.....#', '##...##', '.#####.', '..###..', '.......', '.......'],
+  // act-151: Hades 2 currencies, grasp, defense, elements, parry, crit
+  herb:   ['...#...', '..###..', '###.###', '.#####.', '...#...', '...#...', '..###..'],
+  iron:   ['.......', '..###..', '.#####.', '#######', '#######', '.......', '.......'],
+  coin:   ['..###..', '.#####.', '##...##', '##...##', '##...##', '.#####.', '..###..'],
+  grasp:  ['...#...', '..###..', '.##o##.', '###o###', '.##o##.', '..###..', '...#...'],
+  shield: ['.#####.', '#######', '###o###', '###o###', '.#####.', '..###..', '...#...'],
+  parry:  ['..###..', '.#.#.#.', '###o###', '.#.#.#.', '..###..', '.......', '.......'],
+  bolt:   ['....##.', '...##..', '..####.', '...##..', '..##...', '.##....', '.......'],
+  frost:  ['...#...', '.#.#.#.', '..###..', '###o###', '..###..', '.#.#.#.', '...#...'],
+  fire:   ['...#...', '..###..', '.##o##.', '###o###', '#######', '.#####.', '..###..'],
+  crit:   ['...#...', '...#...', '..###..', '###o###', '..###..', '...#...', '...#...'],
+};
+
+const KEYS: Array<[string, string, string]> = ([
+  // Currencies & meta resources
+  ['药引', 'herb', '#82f4ac'], ['残铁', 'iron', '#c4d2e8'], ['铜钱', 'coin', '#ffe074'], ['悟性', 'grasp', '#8ef8c0'],
+  // Core stats & survivability
+  ['气血上限', 'heart', '#ff7882'], ['气血', 'heart', '#ff7882'], ['回一口血', 'heart', '#8aff9a'], ['回血', 'heart', '#8aff9a'], ['生命', 'heart', '#8aff9a'],
+  ['减伤', 'shield', '#8ec4ff'], ['护盾', 'shield', '#8ec4ff'], ['霸体', 'shield', '#ffd27a'],
+  ['暴击', 'crit', '#ff9852'], ['听声一闪', 'crit', '#ff9852'], ['一闪', 'crit', '#ff9852'],
+  // Combat skills & blade terms
+  ['收尾一刀', 'blade', '#ffd27a'], ['连环刀', 'blade', '#ffd27a'], ['箭步斩', 'blade', '#ffd27a'], ['裂阵斩', 'bolt', '#ffe066'], ['追霜', 'frost', '#84ecff'],
+  ['劈山', 'blade', '#ffd27a'], ['挑云', 'up', '#ffe08a'], ['斩击', 'blade', '#ffd27a'], ['斩杀', 'crit', '#ff9a6a'],
+  ['重斩', 'blade', '#ffd27a'], ['连爆八刀', 'blade', '#ffd27a'], ['回锋斩', 'crit', '#ffd27a'], ['穿风斩', 'dash', '#9ad8ff'],
+  ['攻击', 'blade', '#ffd27a'], ['伤害', 'blade', '#ffd27a'], ['刀痕', 'blade', '#ffd27a'],
+  ['月牙刀光', 'moon', '#e8fff2'], ['刀光', 'moon', '#e8fff2'], ['刀芒', 'moon', '#e8fff2'],
+  ['破势', 'parry', '#ffe68c'], ['听势', 'parry', '#ffe68c'], ['藏锋', 'draw', '#ffd27a'],
+  ['不见刀', 'ingot', '#ffd468'], ['绝技', 'ingot', '#ffd468'], ['杀气', 'ingot', '#ffaa5a'],
+  ['回半格气', 'qi', '#9cf2e6'], ['一格气', 'qi', '#d6f4ec'],
+  // Debuffs & elements
+  ['出血', 'blood', '#ff6a5a'], ['放血', 'blood', '#ff6a5a'], ['流血', 'blood', '#ff6a5a'],
+  ['破甲', 'bone', '#e0d0b8'], ['硬直', 'bone', '#e0d0b8'], ['断骨', 'bone', '#e0d0b8'], ['破绽', 'bone', '#e0d0b8'],
+  ['体素雷柱', 'bolt', '#ffe468'], ['雷裂', 'bolt', '#ffe468'], ['落雷', 'bolt', '#ffe468'], ['惊雷', 'bolt', '#ffe468'], ['雷电', 'bolt', '#ffe468'],
+  ['寒气', 'frost', '#84ecff'], ['冻结', 'frost', '#84ecff'], ['霜', 'frost', '#84ecff'],
+  ['火油', 'fire', '#ff8c42'], ['灼烧', 'fire', '#ff8c42'],
+  ['柳叶镖', 'dart', '#e8eef4'], ['飞镖', 'dart', '#e8eef4'], ['影针', 'dart', '#8cf0ff'],
+  // Mobility & crowd control
+  ['完美闪避', 'dash', '#9ad8ff'], ['闪避', 'dash', '#9ad8ff'], ['冲刺', 'dash', '#9ad8ff'], ['无敌', 'dash', '#b8ecff'],
+  ['攻速', 'dash', '#9ad8ff'], ['移速', 'dash', '#9ad8ff'], ['冷却', 'dash', '#9ad8ff'],
+  ['挑上半空', 'up', '#ffe08a'], ['凌空', 'up', '#ffe08a'],
+  ['踹飞', 'dash', '#ffc890'], ['震开', 'dash', '#ffc890'], ['打得更远', 'dash', '#ffc890'],
+  ['震慑', 'stun', '#f0e0a0'], ['发蒙', 'stun', '#f0e0a0'], ['失衡', 'stun', '#f0e0a0'], ['身形一顿', 'stun', '#f0e0a0'],
+] as Array<[string, string, string]>).sort((a, b) => b[0].length - a[0].length);
+
+const RICH_NUM = /^([+\-−]?[0-9]+(?:\.[0-9]+)?(?:%|秒|点|枚|倍|层|阶|格|米)?|[一二三四五六七八九十百半两]+(?:秒|点|成|枚|倍|层|阶|格|米))/;
+
+/** Hades-2-style rich inline text with crisp 7×7 pixel icons before keywords and bright highlighted numbers. */
+export function richLine(
+  g: CanvasRenderingContext2D | null,
+  line: string,
+  x: number,
+  y: number,
+  px: number,
+  base: string,
+  numCol = '#ffffff',
+  keys = true,
+  showIcons = true,
+  align: 'left' | 'center' | 'right' = 'left',
+): number {
+  line = localize(line);
+  if (g && align !== 'left') {
+    const w = richLine(null, line, 0, 0, px, base, numCol, keys, showIcons, 'left');
+    const ox = align === 'center' ? x - w / 2 : x - w;
+    return richLine(g, line, ox, y, px, base, numCol, keys, showIcons, 'left');
+  }
+  let i = 0, cx = x, plain = '';
+  const flush = () => {
+    if (!plain) return;
+    if (g) bodyText(g, plain, cx, y, px, base, 'left', '#08060c');
+    cx += bodyW(plain, px);
+    plain = '';
+  };
+  while (i < line.length) {
+    const rest = line.slice(i);
+    const k = keys ? KEYS.find(([w]) => rest.startsWith(w)) : undefined;
+    if (k) {
+      flush();
+      if (showIcons) {
+        const c = Math.max(1, Math.round(px / 9.5)), iw = 7 * c;
+        if (g) drawPixIcon(g, INLINE_MINI[k[1]], Math.round(cx + 1), Math.round(y + (px * 0.94 - iw) / 2), c, { main: k[2], acc: '#ffffff' });
+        cx += iw + Math.round(px * 0.18);
+      }
+      if (g) bodyText(g, k[0], cx, y, px, k[2], 'left', '#08060c');
+      cx += bodyW(k[0], px);
+      i += k[0].length;
+      continue;
+    }
+    const n = rest.match(RICH_NUM);
+    if (n && (i === 0 || !/[一二三四五六七八九十]/.test(line[i - 1]))) {
+      flush();
+      if (g) bodyText(g, n[1], cx, y, px, numCol, 'left', '#08060c');
+      cx += bodyW(n[1], px);
+      i += n[1].length;
+      continue;
+    }
+    plain += line[i];
+    i++;
+  }
+  flush();
+  return cx - x;
+}
+
+/** Measure / draw Hades-2-style `[Icon] have/need` (red numerator when short) or `[Icon] need` chip. Returns width in device px. */
+export function drawCostChip(
+  g: CanvasRenderingContext2D | null,
+  cur: 'iron' | 'herb' | 'coin' | 'grasp',
+  amount: number,
+  have: number | undefined,
+  x: number,
+  midY: number,
+  scale: number,
+  dpr: number,
+): number {
+  const tH = PIX_H * scale;
+  const icoSz = Math.round(tH * 1.04);
+  const gap = Math.round(4 * dpr);
+  const short = have != null && have < amount;
+  const okCol = cur === 'herb' ? '#9efcc4' : cur === 'grasp' ? '#9cf8c8' : '#ffe278';
+  if (short && have != null) {
+    const a = String(have), b = `/${amount}`;
+    const wA = pixW(a) * scale, wB = pixW(b) * scale;
+    if (g) {
+      drawMiniIcon(g, cur, x + icoSz / 2, midY, icoSz);
+      const ty = Math.round(midY - tH / 2);
+      drawPix(g, a, x + icoSz + gap, ty, { scale, color: '#ff7a6c', outline: '#08060c', align: 'left' });
+      drawPix(g, b, x + icoSz + gap + wA, ty, { scale, color: '#c4b8b0', outline: '#08060c', align: 'left' });
+    }
+    return icoSz + gap + wA + wB;
+  }
+  const s = String(amount);
+  const wS = pixW(s) * scale;
+  if (g) {
+    drawMiniIcon(g, cur, x + icoSz / 2, midY, icoSz);
+    drawPix(g, s, x + icoSz + gap, Math.round(midY - tH / 2), { scale, color: okCol, outline: '#08060c', align: 'left' });
+  }
+  return icoSz + gap + wS;
 }
 
 /** Paint a hard-stepped pixel iron/lacquer plaque (zero smooth gradients, strictly axis-aligned). */
@@ -315,6 +524,13 @@ export interface WorkbenchStatRow {
   before: string;
   after?: string;
   highlight?: boolean;
+  icon?: MiniIcon;
+}
+
+export interface WorkbenchCost {
+  cur: 'iron' | 'herb' | 'coin' | 'grasp';
+  amount: number;
+  have?: number;
 }
 
 export interface WorkbenchSpec {
@@ -330,11 +546,11 @@ export interface WorkbenchSpec {
   stats: WorkbenchStatRow[];
   note?: string;
   btnLabel: string;
-  btnCost?: { cur: 'iron' | 'herb'; amount: number };
+  btnCost?: WorkbenchCost;
   btnEnabled: boolean;
   btnHot?: boolean;
   subBtnLabel?: string;
-  subBtnCost?: { cur: 'iron' | 'herb'; amount: number };
+  subBtnCost?: WorkbenchCost;
   subBtnEnabled?: boolean;
   subBtnHot?: boolean;
   accent?: string;
@@ -347,6 +563,7 @@ export interface GraspBarSpec {
   used: number;
   cap: number;
   nextCost: number | null;
+  have?: number;
   canExpand: boolean;
   btnHot?: boolean;
   visible?: boolean;
@@ -773,16 +990,21 @@ export class UiPlatePool {
           sx -= stSz + stGap;
         }
       }
-      // Row 2: Main Effect (auto-shrink if very long)
+      // Row 2: Main Effect with Hades-2 inline pixel icons (auto-shrink if very long)
       y += tH + Math.round(8 * kk * dpr);
       const maxTextW = c.width - (padX + u) * 2;
       let p1 = f1;
-      while (p1 > Math.round(11 * kk * dpr) && bodyW(l1, p1) > maxTextW) p1 -= 1;
-      bodyText(g, l1, x0, y, p1, '#f4ebd8', 'left', '#08060c');
-      // Row 3: Progress / Source (left) & clickable Action stamp (right)
+      while (p1 > Math.round(11 * kk * dpr) && richLine(null, l1, 0, 0, p1, '#f4ebd8', '#fff6cc', true, true) > maxTextW) p1 -= 1;
+      richLine(g, l1, x0, y, p1, '#f4ebd8', '#fff6cc', true, true);
+      // Row 3: Progress / Source with inline icons (left) & clickable Action stamp (right)
       if (l2 || act) {
         y += Math.ceil(f1 * 1.35) + Math.round(4 * kk * dpr);
-        if (l2) bodyText(g, l2, x0, y, f2, '#bcb4a4', 'left', '#08060c');
+        if (l2) {
+          let p2 = f2;
+          const actReserve = act ? Math.round(145 * kk * dpr) : 0;
+          while (p2 > Math.round(10 * kk * dpr) && richLine(null, l2, 0, 0, p2, '#bcb4a4', '#ffe8a8', true, true) > maxTextW - actReserve) p2 -= 1;
+          richLine(g, l2, x0, y, p2, '#bcb4a4', '#ffe8a8', true, true);
+        }
         if (act) {
           const as = Math.max(1, Math.round((14.5 * kk * dpr) / PIX_H));
           const aw = pixW(act) * as + Math.round(18 * kk * dpr), ah = PIX_H * as + Math.round(8 * kk * dpr);
@@ -822,9 +1044,9 @@ export class UiPlatePool {
     const note = spec.note ? localize(spec.note) : '';
     const btnLbl = localize(spec.btnLabel);
     const subBtnLbl = spec.subBtnLabel ? localize(spec.subBtnLabel) : '';
-    const statSig = spec.stats.map(r => `${localize(r.label)}:${localize(r.before)}>${r.after ? localize(r.after) : ''}:${r.highlight ? 1 : 0}`).join('|');
-    const costSig = spec.btnCost ? `${spec.btnCost.cur}:${spec.btnCost.amount}` : '';
-    const subCostSig = spec.subBtnCost ? `${spec.subBtnCost.cur}:${spec.subBtnCost.amount}` : '';
+    const statSig = spec.stats.map(r => `${r.icon ?? ''}:${localize(r.label)}:${localize(r.before)}>${r.after ? localize(r.after) : ''}:${r.highlight ? 1 : 0}`).join('|');
+    const costSig = spec.btnCost ? `${spec.btnCost.cur}:${spec.btnCost.have ?? ''}/${spec.btnCost.amount}` : '';
+    const subCostSig = spec.subBtnCost ? `${spec.subBtnCost.cur}:${spec.subBtnCost.have ?? ''}/${spec.subBtnCost.amount}` : '';
     const pKey = `wb|${Math.round(spec.w)}x${Math.round(spec.h)}|${spec.theme}|${title}|${sub}|${spec.lv}/${spec.maxLv}|${statSig}|${note}|${btnLbl}|${costSig}|${spec.btnEnabled ? 1 : 0}|${spec.btnHot ? 1 : 0}|${subBtnLbl}|${subCostSig}|${spec.subBtnEnabled ? 1 : 0}|${spec.subBtnHot ? 1 : 0}|${spec.accent ?? ''}|${kk.toFixed(2)}|${dpr}|${language}|${BODY_FONT.version}`;
     const u = Math.max(1, Math.round(2 * kk * dpr));
     const W = Math.max(40, Math.round(spec.w * dpr));
@@ -893,8 +1115,8 @@ export class UiPlatePool {
       curY += tH + Math.round(6 * kk * dpr);
       if (sub) {
         let spx = Math.round(14.5 * kk * dpr);
-        while (spx > Math.round(10 * kk * dpr) && bodyW(sub, spx) > boxW) spx -= 1;
-        bodyText(g, sub, boxX, curY, spx, '#c8bea8', 'left', '#08060c');
+        while (spx > Math.round(10 * kk * dpr) && richLine(null, sub, 0, 0, spx, '#d6ccb8', '#ffe8a8', true, true) > boxW) spx -= 1;
+        richLine(g, sub, boxX, curY, spx, '#d6ccb8', '#ffe8a8', true, true);
         curY += Math.ceil(spx * 1.32) + Math.round(6 * kk * dpr);
       } else {
         curY += Math.round(4 * kk * dpr);
@@ -905,10 +1127,24 @@ export class UiPlatePool {
       g.fillRect(boxX, curY, boxW, Math.max(1, Math.round(kk * dpr)));
       curY += Math.round(10 * kk * dpr);
 
-      // 3. Before ▶ After Stat Comparison Bars (large, unmistakable numbers!)
+      // 3. Before ▶ After Stat Comparison Bars (with leading pixel icons + unmistakable numbers!)
       const rowH = Math.round(30 * kk * dpr);
       const lblPx = Math.round(16 * kk * dpr);
       const valPx = Math.round(18 * kk * dpr);
+      const inferIcon = (lbl: string): MiniIcon => {
+        if (/血|命|愈|药|伤恢复/.test(lbl)) return 'hp';
+        if (/盾|减伤|霸体|韧/.test(lbl)) return 'shield';
+        if (/破势|听势|弹反/.test(lbl)) return 'parry';
+        if (/绝技|不见刀|杀气/.test(lbl)) return 'ult';
+        if (/闪避|冲刺|移速|攻速|冷却/.test(lbl)) return 'dash';
+        if (/暴击|一闪/.test(lbl)) return 'crit';
+        if (/铜钱|财/.test(lbl)) return 'coin';
+        if (/雷/.test(lbl)) return 'bolt';
+        if (/寒|霜/.test(lbl)) return 'frost';
+        if (/镖|针/.test(lbl)) return 'dart';
+        if (/悟性/.test(lbl)) return 'grasp';
+        return 'atk';
+      };
       for (const r of spec.stats.slice(0, 2)) {
         if (curY + rowH > btnY - Math.round(8 * kk * dpr)) break;
         // recessed stat row background
@@ -918,11 +1154,15 @@ export class UiPlatePool {
         const lTxt = localize(r.label);
         const bTxt = localize(r.before);
         const aTxt = r.after ? localize(r.after) : '';
-        bodyText(g, lTxt, boxX + Math.round(10 * kk * dpr), Math.round(mid - lblPx * 0.56), lblPx, '#d4cab6', 'left', '#08060c');
+        const stIcoSz = Math.round(lblPx * 1.05);
+        const icoX = boxX + Math.round(8 * kk * dpr);
+        drawMiniIcon(g, r.icon ?? inferIcon(r.label), icoX + stIcoSz / 2, mid, stIcoSz);
+        const lblX = icoX + stIcoSz + Math.round(6 * kk * dpr);
+        bodyText(g, lTxt, lblX, Math.round(mid - lblPx * 0.56), lblPx, '#e2d8c4', 'left', '#08060c');
         const rightEnd = boxX + boxW - Math.round(10 * kk * dpr);
+        const lW = (lblX - boxX) + bodyW(lTxt, lblPx) + Math.round(18 * kk * dpr);
         if (aTxt) {
           let vp = valPx;
-          const lW = bodyW(lTxt, lblPx) + Math.round(28 * kk * dpr);
           const arrowStr = ' ▶ ';
           while (vp > Math.round(11 * kk * dpr) && bodyW(bTxt + arrowStr + aTxt, vp) > boxW - lW) vp -= 1;
           const aW = bodyW(aTxt, vp);
@@ -932,22 +1172,22 @@ export class UiPlatePool {
           bodyText(g, bTxt, rightEnd - aW - arW, Math.round(mid - vp * 0.56), vp, '#e6dcc8', 'right', '#08060c');
         } else {
           let vp = valPx;
-          const lW = bodyW(lTxt, lblPx) + Math.round(24 * kk * dpr);
           while (vp > Math.round(11 * kk * dpr) && bodyW(bTxt, vp) > boxW - lW) vp -= 1;
           bodyText(g, bTxt, rightEnd, Math.round(mid - vp * 0.56), vp, r.highlight ? '#ffe27a' : '#f0e6d2', 'right', '#08060c');
         }
         curY += rowH + Math.round(6 * kk * dpr);
       }
 
-      // Optional single crisp effect note (e.g. next forge tier perk)
+      // Optional single crisp effect note with inline pixel icons (e.g. next forge tier perk or Arcana bonus)
       if (note && curY + Math.round(20 * kk * dpr) < btnY) {
         let npx = Math.round(15.5 * kk * dpr);
-        while (npx > Math.round(11 * kk * dpr) && bodyW(note, npx) > boxW) npx -= 1;
-        bodyText(g, note, boxX, curY + Math.round(2 * kk * dpr), npx, isMedic ? '#b8f2cc' : '#f2deb6', 'left', '#08060c');
+        const nCol = isMedic ? '#c8f6d8' : '#f2deb6';
+        while (npx > Math.round(11 * kk * dpr) && richLine(null, note, 0, 0, npx, nCol, '#fff4b4', true, true) > boxW) npx -= 1;
+        richLine(g, note, boxX, curY + Math.round(2 * kk * dpr), npx, nCol, '#fff4b4', true, true);
       }
 
-      // 4. Bottom large tactile Action Button(s)
-      const paintActionBtn = (bx0: number, bw0: number, lbl: string, cost: { cur: 'iron' | 'herb'; amount: number } | undefined, enabled: boolean, hot: boolean, warmGold = false) => {
+      // 4. Bottom large tactile Action Button(s) — ALWAYS display `[Icon] have/need` or `[Icon] cost`, NEVER dry text like 「差 1 药」!
+      const paintActionBtn = (bx0: number, bw0: number, lbl: string, cost: WorkbenchCost | undefined, enabled: boolean, hot: boolean, warmGold = false) => {
         drawPixelPlaque(g, bx0, btnY, bw0, btnH, Math.max(1, Math.round(1.8 * kk * dpr)), {
           bg: !enabled ? '#1c191e' : hot ? (warmGold ? '#4a3214' : isMedic ? '#1d4d32' : '#4a2e14') : (warmGold ? '#342412' : isMedic ? '#163a26' : '#362212'),
           hi: !enabled ? '#2a2630' : hot ? (warmGold ? '#6c481e' : isMedic ? '#327850' : '#6c4420') : (warmGold ? '#4c341a' : isMedic ? '#24583c' : '#52341b'),
@@ -956,22 +1196,18 @@ export class UiPlatePool {
           rivets: enabled,
         });
         let bScale = Math.max(1, Math.round((16.5 * kk * dpr) / PIX_H));
-        const costTxt = cost ? `${cost.amount}` : '';
         const hasCost = !!cost;
-        const icoSz = hasCost ? Math.round(PIX_H * bScale * 1.0) : 0;
-        const gapB = Math.round(6 * kk * dpr);
-        const totalBtnW = () => pixW(lbl) * bScale + (hasCost ? gapB + icoSz + Math.round(3 * kk * dpr) + pixW(costTxt) * bScale : 0);
-        while (bScale > 1 && totalBtnW() > bw0 - Math.round(16 * kk * dpr)) bScale--;
+        const gapB = Math.round(7 * kk * dpr);
+        const totalBtnW = () => pixW(lbl) * bScale + (hasCost && cost ? gapB + drawCostChip(null, cost.cur, cost.amount, cost.have, 0, 0, bScale, dpr) : 0);
+        while (bScale > 1 && totalBtnW() > bw0 - Math.round(14 * kk * dpr)) bScale--;
         const bH = PIX_H * bScale;
         const bMid = Math.round(btnY + btnH / 2);
         let bx = Math.round(bx0 + (bw0 - totalBtnW()) / 2);
-        const txtCol = !enabled ? '#a89a98' : hot ? '#fffbe0' : '#ffe8a8';
+        const txtCol = !enabled ? '#b0a6a4' : hot ? '#fffbe0' : '#ffe8a8';
         drawPix(g, lbl, bx, Math.round(bMid - bH / 2), { scale: bScale, color: txtCol, outline: '#08060c', align: 'left' });
         if (hasCost && cost) {
           bx += pixW(lbl) * bScale + gapB;
-          drawMiniIcon(g, cost.cur, bx + icoSz / 2, bMid, icoSz);
-          bx += icoSz + Math.round(3 * kk * dpr);
-          drawPix(g, costTxt, bx, Math.round(bMid - bH / 2), { scale: bScale, color: enabled ? (cost.cur === 'herb' ? '#a8ffd0' : '#ffe278') : '#ff8a7a', outline: '#08060c', align: 'left' });
+          drawCostChip(g, cost.cur, cost.amount, cost.have, bx, bMid, bScale, dpr);
         }
       };
       paintActionBtn(boxX, btn1W, btnLbl, spec.btnCost, spec.btnEnabled, spec.btnEnabled && !!spec.btnHot, false);
@@ -997,21 +1233,21 @@ export class UiPlatePool {
     const kk = uiScale(this.L.w, this.L.h, 0.8, 2.8);
     const lbl = localize('悟性');
     const expTxt = spec.nextCost == null ? localize('悟性圆满') : localize('拓悟性 +2');
-    const pKey = `grp|${spec.used}/${spec.cap}|${spec.nextCost ?? -1}|${spec.canExpand ? 1 : 0}|${spec.btnHot ? 1 : 0}|${kk.toFixed(2)}|${dpr}|${language}`;
+    const pKey = `grp|${spec.used}/${spec.cap}|${spec.nextCost ?? -1}|${spec.have ?? -1}|${spec.canExpand ? 1 : 0}|${spec.btnHot ? 1 : 0}|${kk.toFixed(2)}|${dpr}|${language}`;
     const u = Math.max(1, Math.round(1.8 * kk * dpr));
     const pScale = Math.max(1, Math.round((15.5 * kk * dpr) / PIX_H));
     const tH = PIX_H * pScale;
+    const grpIcoSz = Math.round(tH * 1.08);
     const pipSz = Math.round(10 * kk * dpr), pipGap = Math.round(4 * kk * dpr);
     const maxPips = Math.min(18, spec.cap);
     const pipsW = maxPips * pipSz + Math.max(0, maxPips - 1) * pipGap;
     const numTxt = `${spec.used}/${spec.cap}`;
-    const padX = Math.round(14 * kk * dpr), padY = Math.round(7 * kk * dpr), gap = Math.round(10 * kk * dpr);
-    const icoSz = spec.nextCost != null ? Math.round(tH * 0.96) : 0;
-    const costTxt = spec.nextCost != null ? `${spec.nextCost}` : '';
-    const expInnerW = pixW(expTxt) * pScale + (spec.nextCost != null ? Math.round(6 * kk * dpr) + icoSz + Math.round(3 * kk * dpr) + pixW(costTxt) * pScale : 0);
+    const padX = Math.round(14 * kk * dpr), padY = Math.round(7 * kk * dpr), gap = Math.round(9 * kk * dpr);
+    const costChipW = spec.nextCost != null ? drawCostChip(null, 'herb', spec.nextCost, spec.have, 0, 0, pScale, dpr) : 0;
+    const expInnerW = pixW(expTxt) * pScale + (spec.nextCost != null ? Math.round(7 * kk * dpr) + costChipW : 0);
     const expBtnW = expInnerW + Math.round(20 * kk * dpr);
     const expBtnH = tH + Math.round(10 * kk * dpr);
-    const leftW = pixW(lbl) * pScale + gap + pixW(numTxt) * pScale + gap + pipsW;
+    const leftW = grpIcoSz + Math.round(5 * kk * dpr) + pixW(lbl) * pScale + gap + pixW(numTxt) * pScale + gap + pipsW;
     const W = padX * 2 + u * 2 + leftW + Math.round(18 * kk * dpr) + expBtnW;
     const H = Math.max(tH, expBtnH) + padY * 2 + u * 2;
     const btnX = W - padX - u - expBtnW;
@@ -1025,6 +1261,8 @@ export class UiPlatePool {
       });
       const midY = c.height / 2;
       let cx = padX + u;
+      drawMiniIcon(g, 'grasp', cx + grpIcoSz / 2, midY, grpIcoSz);
+      cx += grpIcoSz + Math.round(5 * kk * dpr);
       drawPix(g, lbl, cx, Math.round(midY - tH / 2), { scale: pScale, color: '#9cf4bc', outline: '#08060c', align: 'left' });
       cx += pixW(lbl) * pScale + gap;
       drawPix(g, numTxt, cx, Math.round(midY - tH / 2), { scale: pScale, color: '#fff2c4', outline: '#08060c', align: 'left' });
@@ -1039,7 +1277,7 @@ export class UiPlatePool {
         if (lit) { g.fillStyle = '#e8fff0'; g.fillRect(cx + bdr, py + bdr, Math.max(1, Math.round(pipSz * 0.35)), Math.max(1, Math.round(pipSz * 0.35))); }
         cx += pipSz + pipGap;
       }
-      // Clickable 「拓悟性 +2」 button on the right
+      // Clickable 「拓悟性 +2」 button on the right with `[herb] have/need` chip
       const can = spec.nextCost != null && spec.canExpand;
       const hot = can && !!spec.btnHot;
       drawPixelPlaque(g, btnX, btnY, expBtnW, expBtnH, Math.max(1, Math.round(1.4 * kk * dpr)), {
@@ -1049,12 +1287,10 @@ export class UiPlatePool {
         inner: !can ? '#4c5852' : hot ? '#fff2a4' : '#80ecaa',
       });
       let ex = Math.round(btnX + (expBtnW - expInnerW) / 2);
-      drawPix(g, expTxt, ex, Math.round(midY - tH / 2), { scale: pScale, color: !can ? '#9aa49c' : hot ? '#fffce0' : '#d6ffe6', outline: '#08060c', align: 'left' });
+      drawPix(g, expTxt, ex, Math.round(midY - tH / 2), { scale: pScale, color: !can ? '#b2bab4' : hot ? '#fffce0' : '#d6ffe6', outline: '#08060c', align: 'left' });
       if (spec.nextCost != null) {
-        ex += pixW(expTxt) * pScale + Math.round(6 * kk * dpr);
-        drawMiniIcon(g, 'herb', ex + icoSz / 2, midY, icoSz);
-        ex += icoSz + Math.round(3 * kk * dpr);
-        drawPix(g, costTxt, ex, Math.round(midY - tH / 2), { scale: pScale, color: can ? '#a8ffd0' : '#ff8c7c', outline: '#08060c', align: 'left' });
+        ex += pixW(expTxt) * pScale + Math.round(7 * kk * dpr);
+        drawCostChip(g, 'herb', spec.nextCost, spec.have, ex, midY, pScale, dpr);
       }
       this.upload(s, c, dpr, false);
     }

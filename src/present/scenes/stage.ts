@@ -16,7 +16,8 @@ import { buildSky, noiseTex, runeTex } from '../look/env';
 import { AREA } from './props';
 import { GRADE } from '../look/post';
 import { attachCraftWater } from '../look/craft';
-import { Cards, ambientTick, shaft, type Ambient } from './cards';
+import { Cards, ambientTick, prewarmAmbient, shaft, type Ambient } from './cards';
+import { PALPHA } from '../engine/particles';
 import { quietBattleGlow } from './battleGlow';
 
 export interface Mood {
@@ -285,9 +286,12 @@ function* stageSteps(def: SceneDef, options: StageOptions, g: ReturnType<typeof 
       // mood: sky or void, fog, light colours
       applyMood(md);
       for (const l of lights) scene.add(l);
+      if (!STAGE_HOOK.hold) PALPHA?.clear();
+      let warmed = false;
       const unsubscribe = onUpdate((dt, rdt) => {
         updates.tick(dt, rdt);
         lighting.sync(); syncStatic(); const t = clock.rtime;
+        if (!warmed) { warmed = true; prewarmAmbient(amb); }
         ambientTick(amb, rdt);
         cutRoot.visible = CUT.mode === 'show' || (CUT.mode === 'auto' && (camera.position.y < eaves || camera.position.distanceTo(CUT.focus) > CUT.far));
         for (const f of flames) {

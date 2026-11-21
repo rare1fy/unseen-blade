@@ -172,6 +172,6 @@ export const wlDock: Locale = {
   id: 'wl_dock', name: '横江浮栈', theme: 'wulin',
   layouts: ['axis', 'offset', 'pair'],
   landmarks: LANDMARKS, groups: GROUPS, filler: FILLER,
-  seasons: ['spring'], times: ['night'], weathers: ['clear', 'mist'], mood: WL_MOOD,
+  seasons: ['spring'], times: ['night'], weathers: ['clear', 'mist', 'rain', 'storm'], mood: WL_MOOD,
   floor, far, dress, infill: wulinInfill('dock'),
 };

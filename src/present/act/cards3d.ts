@@ -34,9 +34,9 @@ export type CardBoon = Boon & {
   ksInfo?: { shortName: string; stars: number; unlocked: boolean; equipped: boolean };
   wepInfo?: { id: WeaponId; name: string; lv: number; unlocked: boolean; equipped: boolean };
   shopInfo?: { name: string; effect: string; price: number; poor: boolean; disabled?: boolean; note?: string };
-  workInfo?: { name: string; lv: number; maxLv: number; cost: number | null; cur: 'iron' | 'herb'; canAfford: boolean; unlocked?: boolean; theme: 'forge' | 'medic'; weaponId?: WeaponId };
+  workInfo?: { name: string; lv: number; maxLv: number; cost: number | null; have?: number; cur: 'iron' | 'herb'; canAfford: boolean; unlocked?: boolean; theme: 'forge' | 'medic'; weaponId?: WeaponId };
   steleInfo?: { name: string; yin: boolean; lv: number; effect: string; cost: number | null; have: number; cur: 'iron' | 'herb'; altName: string; altBadge: string };
-  arcanaInfo?: { short: string; grasp: number; rank: number; active: boolean; unlockCost: number; canUnlock: boolean; awakening?: boolean };
+  arcanaInfo?: { short: string; grasp: number; rank: number; active: boolean; unlockCost: number; have?: number; canUnlock: boolean; awakening?: boolean };
 };
 
 export interface CardOpenOpts {
@@ -816,6 +816,7 @@ export class CardPick3D {
         used: this.graspBarOpt.used,
         cap: this.graspBarOpt.cap,
         nextCost: this.graspBarOpt.nextCost,
+        have: this.graspBarOpt.have,
         canExpand: this.graspBarOpt.canExpand,
         btnHot: this.graspBtnHot,
         x: L.w / 2,

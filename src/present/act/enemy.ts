@@ -880,9 +880,8 @@ function unstick(f: Foe, dt: number, asked: number, got: number, nx: number, nz:
 function integrate(f: Foe, w: FoeWorld, dt: number) {
   const ax = f.pos.x, az = f.pos.z, asked = Math.hypot(f.vel.x, f.vel.z);
   f.pos.addScaledVector(f.vel, dt);
-  // keep apart from each other and out of the hero
+  // keep apart from each other (hero-vs-foe body contact is resolved hero-side in hero.ts/separate() so dashing & walking NEVER shove enemies!)
   for (const o of w.foes) if (o !== f && o.st !== 'dead') { const d = f.pos.clone().sub(o.pos).setY(0), l = d.length(), m = f.d.r + o.d.r; if (l < m && l > 1e-4) f.pos.addScaledVector(d, ((m - l) / l) * (o.d.mass / (o.d.mass + f.d.mass))); }
-  if (w.heroAlive && f.st !== 'strike' && w.heroY < 0.6) { const d = f.pos.clone().sub(w.heroPos).setY(0), l = d.length(), m = f.d.r + w.heroR; if (l < m && l > 1e-4) f.pos.addScaledVector(d, (m - l) / l); }
   const bx = f.pos.x, bz = f.pos.z; if (w.clampFoe) w.clampFoe(f); else w.clamp(f.pos, f.d.r);
   if (f.pos.x !== bx || f.pos.z !== bz) { w.pushed?.(f, f.pos.x - bx, f.pos.z - bz); ROLE_AI[f.role]?.bumped?.(f, w, f.pos.x - bx, f.pos.z - bz); }
   // (walking only: an attack's lunge, a stagger or a throw keeps its own motion)

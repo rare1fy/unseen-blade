@@ -17,6 +17,9 @@ const C = {
   BONE: 0xeae2ce, BONE_D: 0xb8ae98, YELLOW: 0xe0b030, YELLOW_D: 0xb08020, YELLOW_L: 0xf4d060,
   BLOOD: 0x8e1812, BLOOD_L: 0xc02a20, HOT: 0xff8a30, HOT_L: 0xffd070, STEAM: 0xe4e8ee, MED: 0x3a2214, MED_L: 0x5a3420,
   LACQ: 0x2a1a1a, LACQ_L: 0x4a2a24, LINEN: 0xd8cdb4, LINEN_D: 0xb4a888, GOLD: 0xe0b848,
+  JADE: 0x46b87a, JADE_L: 0x8ef8bc, JADE_D: 0x226846,
+  CYAN: 0x48c8f0, CYAN_L: 0xa4f4ff,
+  VIOLET: 0x7c58c8, VIOLET_L: 0xc8a8ff, VIOLET_D: 0x3c2868,
 };
 type Art = (set: Set3) => void;
 const box = (set: Set3, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, c: number | null, g = 0) => {
@@ -201,15 +204,130 @@ const ART: Record<string, Art> = {
     box(set, -5, 4, 0, 14, 5, 0, C.STEEL_L, 1); box(set, -3, 6, 0, 10, 6, 0, C.STEEL_L, 0.8); box(set, -3, 3, 0, 10, 3, 0, C.STEEL_L, 0.8);
     box(set, 15, 4, 0, 17, 5, 0, C.STEEL_L, 0.6); box(set, 1, 7, 0, 6, 7, 0, C.STEEL_L, 0.5); box(set, 1, 2, 0, 6, 2, 0, C.STEEL_L, 0.5);
   },
+  // ---------------------------------------------------------------- act-151: Distinct 3D voxel relics for Forge / Arcana / Stele / Shop
+  // 重铸炉火: 3-legged dark-iron brazier brimming with roaring ember flames
+  brazier: set => {
+    for (const x of [-5, 4]) box(set, x, -8, -1, x + 1, -4, 1, C.IRON_D);
+    box(set, -1, -8, -4, 0, -4, -2, C.IRON_D);
+    box(set, -7, -4, -3, 6, 0, 3, C.IRON); box(set, -8, 0, -4, 7, 1, 4, C.BRONZE);
+    box(set, -6, 1, -2, 5, 2, 2, C.RED_L, 0.5);
+    box(set, -5, 3, -1, 4, 5, 1, C.HOT, 0.85);
+    box(set, -3, 6, 0, 2, 9, 1, C.HOT_L, 1);
+    box(set, -1, 10, 0, 0, 12, 0, C.GOLD, 1);
+  },
+  // 磨刀石 (行商): wet slate whetstone with sparks flying off a gleaming blade edge
+  whetstone: set => {
+    box(set, -9, -5, -3, 8, -1, 3, C.IRON); box(set, -9, -1, -3, 8, 0, 3, C.STEEL);
+    box(set, -10, -7, -4, 9, -6, 4, C.WOOD_D);
+    box(set, -5, 1, 0, 6, 3, 1, C.STEEL_L, 0.45); box(set, 6, 1, 0, 9, 2, 1, C.BRONZE);
+    for (const [x, y] of [[-4, 5], [-1, 7], [2, 6], [5, 8], [-6, 4]]) set(x, y, 2, C.HOT_L, 1);
+  },
+  // 踏风步 (悟性): woven sandal flanked by luminous cyan wind wings
+  windSandal: set => {
+    sandal(set, 0, -1);
+    box(set, -9, 1, -1, -4, 4, 0, C.CYAN, 0.6); box(set, -11, 3, -1, -7, 6, 0, C.CYAN_L, 0.85);
+    box(set, 4, 1, -1, 9, 4, 0, C.CYAN, 0.6); box(set, 6, 3, -1, 10, 6, 0, C.CYAN_L, 0.85);
+  },
+  // 周天归元 (中宫觉醒悟性): ornate golden 3-legged bronze alchemy cauldron with glowing jade-gold core
+  cauldron: set => {
+    for (const x of [-5, 4]) box(set, x, -9, 0, x + 1, -5, 1, C.BRONZE_D);
+    box(set, -1, -9, -4, 0, -5, -3, C.BRONZE_D);
+    box(set, -7, -5, -3, 6, 2, 3, C.BRONZE); box(set, -6, -4, 3, 5, 1, 3, C.BRONZE_L);
+    box(set, -8, 2, -4, 7, 3, 4, C.GOLD);
+    for (const sx of [-9, 8]) box(set, sx, 0, -1, sx, 4, 1, C.GOLD);
+    box(set, -4, -3, 4, 3, 0, 4, C.JADE_L, 0.9);
+    box(set, -3, 4, -1, 2, 7, 1, C.JADE, 0.7); box(set, -1, 8, 0, 0, 11, 0, C.HOT_L, 1);
+  },
+  // 破势养气 (悟性): blooming jade spirit lotus cradling crimson vitality dew
+  jadeLotus: set => {
+    box(set, -7, -5, -2, 6, -3, 2, C.JADE_D);
+    box(set, -8, -2, -1, -3, 3, 1, C.JADE); box(set, 2, -2, -1, 7, 3, 1, C.JADE);
+    box(set, -5, -1, 1, -2, 5, 2, C.JADE_L, 0.45); box(set, 1, -1, 1, 4, 5, 2, C.JADE_L, 0.45);
+    box(set, -2, 0, 0, 1, 6, 1, C.JADE_L, 0.65);
+    box(set, -1, 6, 1, 0, 9, 2, C.RED_L, 0.9); set(0, 10, 2, C.HOT_L, 1);
+  },
+  // 藏锋心眼 (悟性): golden diamond third-eye talisman with sharp white-gold blade pupil
+  eyeSeal: set => {
+    box(set, -8, -1, -1, 7, 1, 1, C.BRONZE); box(set, -6, -3, -1, 5, 3, 1, C.BRONZE);
+    box(set, -4, -5, -1, 3, 5, 1, C.GOLD); box(set, -2, -6, -1, 1, 6, 1, C.GOLD);
+    box(set, -5, -2, 1, 4, 2, 1, C.LACQ); box(set, -3, -3, 1, 2, 3, 1, C.LACQ);
+    box(set, -1, -4, 2, 0, 4, 2, C.HOT_L, 1); box(set, -3, 0, 2, 2, 0, 2, C.STEAM, 0.9);
+  },
+  // 破军 · 阳 (复仇碑): gleaming crimson-tasseled golden war halberd
+  halberd: set => {
+    box(set, -1, -11, -1, 0, 10, 0, C.WOOD);
+    box(set, -1, 6, 0, 0, 12, 1, C.STEEL_L, 0.5);
+    box(set, 1, 2, 0, 6, 6, 1, C.GOLD, 0.4); box(set, 6, 0, 0, 7, 7, 1, C.HOT_L, 0.7);
+    box(set, -5, 3, 0, -2, 5, 1, C.BRONZE);
+    box(set, -3, -1, 1, 2, 1, 2, C.RED_L, 0.4); box(set, 2, -5, 1, 3, 0, 2, C.RED);
+  },
+  // 叠势 · 阴 (复仇碑): three stacked violet-gold crescent blade waves
+  tripleCrescent: set => {
+    for (const [oy, c1, c2] of [[-7, C.VIOLET_D, C.VIOLET], [-1, C.VIOLET, C.VIOLET_L], [5, C.VIOLET_L, C.HOT_L]] as const) {
+      box(set, -8, oy, -1, 7, oy + 1, 0, c1, 0.35);
+      box(set, -6, oy + 2, 0, 5, oy + 2, 1, c2, 0.75);
+      box(set, -9, oy - 1, -1, -7, oy, 0, c1); box(set, 6, oy - 1, -1, 8, oy, 0, c1);
+    }
+  },
+  // 铁骨 · 阴 (复仇碑): obsidian-violet armored gauntlet with golden knuckle plates
+  ironGauntlet: set => {
+    box(set, -5, -8, -2, 4, 1, 2, C.VIOLET_D); box(set, -4, -7, 2, 3, 0, 2, C.VIOLET);
+    box(set, -6, 1, -2, 5, 6, 2, C.IRON_L); box(set, -5, 6, -2, 4, 8, 2, C.VIOLET_L, 0.35);
+    for (const x of [-4, -1, 2]) box(set, x, 5, 3, x + 1, 7, 3, C.GOLD, 0.65);
+    box(set, -6, -1, -2, 5, 0, 3, C.BRONZE_L);
+  },
+  // 暗影 · 阳 (复仇碑): twin crossed glowing darts over dark shadow ring
+  crossDarts: set => {
+    box(set, -7, -7, -2, 6, 6, -2, C.VIOLET_D); box(set, -5, -5, -2, 4, 4, -2, null);
+    dart(set, -4, -1); dart(set, 4, -1);
+    box(set, -2, 3, 2, 2, 4, 2, C.CYAN_L, 0.9);
+  },
+  // 崩岳 · 阴 (复仇碑): heavy bronze-iron warhammer cracking stone
+  warHammer: set => {
+    box(set, -1, -10, -1, 1, 3, 1, C.WOOD_D);
+    box(set, -8, 2, -3, 8, 8, 3, C.IRON); box(set, -8, 8, -3, 8, 8, 3, C.STEEL);
+    box(set, -9, 3, -2, -8, 7, 2, C.GOLD); box(set, 8, 3, -2, 9, 7, 2, C.GOLD);
+    box(set, -2, 4, 3, 2, 6, 4, C.VIOLET_L, 0.7);
+  },
+  // 绝品缘 · 阳 (复仇碑): imperial golden jade seal with carved top knob
+  jadeSeal: set => {
+    box(set, -7, -7, -4, 6, -1, 4, C.JADE); box(set, -7, -1, -4, 6, 0, 4, C.JADE_L, 0.45);
+    box(set, -7, -7, 4, 6, -5, 4, C.RED_L);
+    box(set, -4, 0, -2, 3, 3, 2, C.GOLD, 0.4); box(set, -2, 3, -1, 1, 6, 1, C.HOT_L, 0.85);
+  },
+  // 聚财 · 阴 (复仇碑): red-corded cascade of glowing golden square-hole coins
+  coinString: set => {
+    box(set, -1, -9, 0, 0, 9, 0, C.RED_L);
+    for (const [cx, cy, cz] of [[0, 6, 1], [-4, 1, 2], [4, 1, 1], [0, -3, 2], [-3, -7, 1], [3, -7, 2]] as const) {
+      box(set, cx - 2, cy - 2, cz, cx + 2, cy + 2, cz, C.GOLD, 0.35);
+      set(cx, cy, cz, null);
+      box(set, cx - 2, cy + 2, cz, cx + 1, cy + 2, cz, C.HOT_L, 0.75);
+    }
+  },
 };
 /** a real model for an item / card key, or null if there is none (the caller keeps its old picture) */
 export function itemModel(key: string): Model3D | null { const art = ART[key]; return art ? customIcon3D('item:' + key, art) : null; }
-/** the item for a card id (a boon id, a 刀谱 card, a provision, a hideout upgrade, leave, the run's last card) */
+/** the item for a card id (a boon id, a 刀谱 card, a provision, a hideout upgrade, arcana, stele, shop, leave, the run's last card) */
 export function itemForCard(id: string): string | null {
   if (ART[id]) return id;
   if (id.startsWith('ms_')) return 'scroll';
-  const m: Record<string, string> = { meal_feast: 'cake', meal_purse: 'purse', meal_wine: 'wine', leave: 'signpost', again: 'sabre', retry: 'sabre',
-    mu_blade: 'anvil', mu_darts: 'dartCase', mu_manual: 'book', mu_vigor: 'medBowl', mu_breath: 'gourd', mu_intent: 'drawn', mu_ear: 'needles' };
+  const m: Record<string, string> = {
+    meal_feast: 'cake', meal_purse: 'purse', meal_wine: 'wine', leave: 'signpost', again: 'sabre', retry: 'sabre',
+    // 冯铁臂锻坊 (4 distinct forge relics)
+    mu_blade: 'anvil', mu_darts: 'dartCase', mu_reroll: 'brazier', mu_manual: 'book',
+    // 旧药棚兼容 + 孙媪 3×3 悟性阵 (9 distinct talisman relics)
+    mu_vigor: 'medBowl', mu_breath: 'gourd', mu_intent: 'drawn', mu_ear: 'needles',
+    arc_vigor: 'medBowl', arc_ear: 'needles', arc_wind: 'windSandal', arc_intent: 'drawn',
+    arc_center: 'cauldron', arc_leech: 'jadeLotus', arc_keen: 'eyeSeal', arc_poise: 'bone', arc_breath: 'gourd',
+    // 复仇碑 4 座双面石碑 (8 distinct Yang / Yin relics)
+    mr_edge: 'halberd', mr_edge_yang: 'halberd', mr_edge_yin: 'tripleCrescent',
+    mr_step: 'evade', mr_step_yang: 'evade', mr_step_yin: 'ironGauntlet',
+    mr_arms: 'crossDarts', mr_arms_yang: 'crossDarts', mr_arms_yin: 'warHammer',
+    mr_luck: 'jadeSeal', mr_luck_yang: 'jadeSeal', mr_luck_yin: 'coinString',
+    // 行商货摊 (6 distinct wares)
+    shop_buy_boon: 'scroll', shop_buy_heal: 'medBowl', shop_buy_sharpen: 'whetstone',
+    shop_buy_vigor: 'gourd', shop_buy_reroll: 'brazier', shop_buy_satchel: 'purse',
+  };
   return m[id] ?? null;
 }
 export const ITEM_KEYS = Object.keys(ART);

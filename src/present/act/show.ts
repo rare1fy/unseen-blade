@@ -43,7 +43,7 @@ import { Breakables } from './breakables';
 import { Gates, GateGlow } from './gates';
 import { UI_LOOK } from '../look/uiLook';
 import { sayMerchant, setHurtBreath, warmLines, warmVoicePacks, warmVoiceFile } from '../../audio/voice';
-import { ALL_MOVES, drawManuals, manualCard, manualsForWeapon, weaponMoves, SCROLL_GLYPH } from './manuals';
+import { ALL_MOVES, drawManuals, manualCard, manualsForWeapon, SCROLL_GLYPH } from './manuals';
 import { Dialogue, type Line } from './dialogue';
 import { Stele } from './stele';
 import { openLab } from './lab';
@@ -53,7 +53,7 @@ import { openMovesPreview, type StageSetup } from './movesPreview';
 import { IronHp, HP_FACE } from './ironUi';
 import { ROSTER } from '../bestiary/models';
 import { CODE_BUILD } from '../bestiary/voxEdit';
-import { rackBlades, hideoutScene, hideoutSolids, HIDEOUT, HIDEOUT_PEOPLE } from './hideout';
+import { rackBlades, hideoutScene, hideoutSolids, HIDEOUT, HIDEOUT_PEOPLE, type HideoutTime, type HideoutWeather } from './hideout';
 import { clampWithDoors } from './doorClamp';
 import { Timeline, type V } from './timeline';
 import { openingShots, bossIntroShots, generalIntroShots, steleStrikeShots, safeCam, type CineHost } from './cutscenes';
@@ -112,9 +112,9 @@ import { ActHud } from './hud';
 import { CardPick3D as CardPick, type CardBoon } from './cards3d';   // act-36 / act-143: the pick cards as iron boards
 import { UiPlatePool, type MiniIcon, type WorkbenchStatRow } from './uiPlate';
 import { MoveDemo } from './moveDemo';
-import { entryOfManual, entryOfBoon, entryOfBase } from './skillFace';
+import { entryOfManual, entryOfBoon, entryOfBase, type AttachedBoon, type SkillEntry } from './skillFace';
 import type { Section } from './skillList';
-import { BASE_SKILLS, UI_WORDS, boonEffect, manualOf } from './skillInfo';
+import { BASE_SKILLS, baseSkillsForWeapon, UI_WORDS, boonEffect, manualOf } from './skillInfo';
 import type { Mark } from './hud';
 import { MANUALS } from './manuals';
 import { fillVals } from './cards';
@@ -240,7 +240,17 @@ interface RoomIn { isYard: boolean; room: number; recent: Spec[]; locale: string
   shape?: ShapeId | null; shapes?: ShapeId[]; seed?: number | null;
   /** 11-18 定死的屋子: force this drawn room (asm/roomMaps.ts id); the drawn rooms used this run (not again while others are left) */
   map?: string | null; maps?: string[]; region?: number;
-  /** 11-18: the region's defaults for the pick (season …: 下邳 is winter); the place's own lists still apply */ regionSpec?: Partial<Spec> | null }
+  /** 11-18: the region's defaults for the pick (season …: 下邳 is winter); the place's own lists still apply */ regionSpec?: Partial<Spec> | null;
+  /** act-152: rotating hideout time & weather */ yardAtmo?: { time: HideoutTime; weather: HideoutWeather } }
+/** act-152: rotating mountain kiln moods across return visits (first visit stays warm dusk/clear) */
+export const HIDEOUT_ATMOS: ReadonlyArray<{ time: HideoutTime; weather: HideoutWeather }> = [
+  { time: 'dusk', weather: 'clear' },
+  { time: 'dusk', weather: 'rain' },
+  { time: 'night', weather: 'snow' },
+  { time: 'day', weather: 'clear' },
+  { time: 'night', weather: 'rain' },
+  { time: 'dawn', weather: 'clear' },
+];
 /** a room's place, built (off the live scene) and ready to put up */
 interface Fixtures { props: Breakables; solids: Solids; gates: Gates; grid: FloorGrid | null; pieces: RoomPieces | null }
 interface Room { fixtures?: Fixtures; spec: Spec; big: boolean; layout: Layout; arena: ArenaPlan | null; report: Report | null; prep: PreparedStage; k: { x: number; z: number } }
@@ -313,9 +323,10 @@ function onward(room: number, visited: RoomType[], region: number) {
 }
 export function roomDefinition(o: RoomIn) {
   const { isYard } = o;
+  const ya = o.yardAtmo ?? { time: 'dusk' as HideoutTime, weather: 'clear' as HideoutWeather };
   const seed = o.seed ?? (Date.now() % 100000) + o.room * 977;
   const base = pickSpec(seed, Object.values(REGISTRY.locales), REGISTRY.layouts, o.recent, { season: o.regionSpec?.season ?? 'autumn', locale: o.locale });
-  const spec: Spec = isYard ? { ...base, time: 'dusk', weather: 'clear', exits: ['back'] }
+  const spec: Spec = isYard ? { ...base, season: ya.weather === 'snow' ? 'winter' : 'autumn', time: ya.time, weather: ya.weather, exits: ['back'] }
     : { ...base, time: o.room === 0 ? 'dusk' : base.time, weather: o.plan?.type === 'boss' ? 'clear' : base.weather, exits: o.nextRooms.length > 1 ? ['left', 'right'] : o.nextRooms.length ? ['back'] : [] };
   if (o.viewSpec) Object.assign(spec, { exits: [] }, o.viewSpec);
   if (o.forceSpec) Object.assign(spec, o.forceSpec);   // act-29: the prologue's snowy night
@@ -342,7 +353,7 @@ export function roomDefinition(o: RoomIn) {
   const shape = drawn ?? (big && !o.noArena && shapeId !== 'square' ? makeShape(shapeId, spec.seed, { layout, pit: pitK }) : undefined);
   const arena = big && !o.noArena ? arenaPlan(layout, (spec.exits ?? []) as ExitId[], spec.seed, spec.locale, calm || isEvent ? 'calm' : ptype === 'boss' ? 'boss' : 'fight', shape) : null;
   spec.arena = arena ?? undefined;
-  if (isYard) return { spec, big, layout, arena, report: null, k, def: hideoutScene({ time: 'dusk', weather: 'clear' }) };
+  if (isYard) return { spec, big, layout, arena, report: null, k, def: hideoutScene(ya) };
   const { def, report } = assemble(spec, REGISTRY);
   def.report = report;
   if (dm?.kind === roomKind && !o.forceSpec && !o.viewSpec) def.pack = `map-${dm.id}-${spec.season}-${spec.exits?.length ?? 0}`;
@@ -518,7 +529,7 @@ export class ActShow {
   /** act-37 the cold open: 寒山坞 that night (coldopen.ts) — on the place the title built while it loaded; it ends in the dark */
   private async coldOpen(): Promise<BlindPOV | null> {
     if (COLD_AS_CARDS) {
-      const pov = new BlindPOV(this.L); pov.fill(0x000000, 1, true); this.hud.on = false; stopTitle();
+      const pov = new BlindPOV(this.L); pov.fill(0x000000, 1, true); this.hud.on = false; stopTitle(); audio.setWeatherSound('none', 0.3);
       this.musicHold = 'bgm_coldopen'; void audio.playMusic('bgm_coldopen', 0.6);   // (held through the walk; the ambush crossfades it out)
       await this.cine(coldCardShots(pov)); pov.fill(0x000000, 1, true);
       await frames(2); return pov;
@@ -792,7 +803,7 @@ export class ActShow {
     const wakeCamPos = V3(mx - 4.1, 4.15, mz + 4.9), wakeCamLook = V3(mx + 0.35, 0.72, mz - 0.15);
     let wakeCamFov = 42;
     await wipeTransit(async () => {
-      await this.enterYard(); this.noTalk = true; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels(); this.musicHold = 'bgm_kiln'; void audio.playMusic('bgm_kiln', 1.2);
+      await this.enterYard({ time: 'dusk', weather: 'clear' }); this.noTalk = true; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels(); this.musicHold = 'bgm_kiln'; void audio.playMusic('bgm_kiln', 1.2);
       const h = this.hero; h.pos.set(wakeMat[0], 0, wakeMat[1]); h.a.place(h.pos, 0); h.a.root.visible = true; h.a.body.visible = true; let gk = 0; h.scriptPose = () => getUpPose(h.a, gk);
       if (h.a.bones.hat) h.a.bones.hat.visible = false;
       // Bring Du Wu beside Sun Ao's straw mat in the expanded hideout so he is cleanly in frame during PRO_WAKE
@@ -1552,7 +1563,6 @@ export class ActShow {
       if (cur === wid) continue;
       equipWeapon(p, wid, this.dbgAllWeapons); saveProfile();
       this.hero?.applyWeapon(wid, weaponLevel(p, wid));
-      if (this.hero && this.phase === 'yard') this.hero.moves = weaponMoves(wid);
       this.refreshHideoutProps();
       cue('draw', 0.9); cue('bladeRing', 0.85);
     }
@@ -1797,7 +1807,7 @@ export class ActShow {
               id: 'mu_' + u.id, school: 'fg' as never, name: u.name,
               desc: [u.desc[0], u.desc[1]], col: canAfford ? '#ffd878' : '#989088', glyph: ANVIL,
               locked: cost != null && !canAfford,
-              workInfo: { name: u.name, lv, maxLv: max, cost, cur: 'iron', canAfford, theme: 'forge' },
+              workInfo: { name: u.name, lv, maxLv: max, cost, have: p.iron, cur: 'iron', canAfford, theme: 'forge' },
             } as CardBoon,
             tier: cost == null ? 2 : canAfford ? 1 : 0,
           };
@@ -1810,7 +1820,7 @@ export class ActShow {
               id: 'wf_' + id, school: 'fg' as never, name: w.name,
               desc: [w.summary, w.special], col: can ? w.col : '#989088', glyph: w.glyph,
               locked: !unl || (cost != null && !can),
-              workInfo: { name: w.name, lv, maxLv: 3, cost, cur: 'iron', canAfford: can, unlocked: unl, theme: 'forge', weaponId: id },
+              workInfo: { name: w.name, lv, maxLv: 3, cost, have: p.iron, cur: 'iron', canAfford: can, unlocked: unl, theme: 'forge', weaponId: id },
             } as CardBoon,
             tier: cost == null ? 2 : can ? 1 : 0,
           };
@@ -1833,8 +1843,8 @@ export class ActShow {
               lv,
               maxLv: max,
               stats: this.metaWorkbenchStats(u.id, lv, max),
-              btnLabel: cost == null ? '已臻圆满' : canAfford ? '开炉锻造' : msg`还差 ${cost - p.iron} 残铁`,
-              btnCost: cost != null && canAfford ? { cur: 'iron', amount: cost } : undefined,
+              btnLabel: cost == null ? '已臻圆满' : '开炉锻造',
+              btnCost: cost != null ? { cur: 'iron', amount: cost, have: p.iron } : undefined,
               btnEnabled: canAfford,
               accent: '#d49a4c',
             };
@@ -1848,10 +1858,10 @@ export class ActShow {
             sub: unl ? w.title : w.unlockHint,
             lv: unl ? lv : 0,
             maxLv: 3,
-            stats: [{ label: '淬炼等阶', before: msg`${lv}阶`, after: unl && lv < 3 ? msg`${lv + 1}阶` : undefined, highlight: unl && lv < 3 }],
+            stats: [{ label: '淬炼等阶', icon: 'blade', before: msg`${lv}阶`, after: unl && lv < 3 ? msg`${lv + 1}阶` : undefined, highlight: unl && lv < 3 }],
             note: !unl ? w.summary : lv >= 3 ? msg`圆满特技：${w.forgeDesc[2]}` : msg`${lv + 1}阶解锁：${w.forgeDesc[lv]}`,
-            btnLabel: !unl ? '尚未夺回' : cost == null ? '三阶圆满' : can ? '开炉淬炼' : msg`还差 ${cost - p.iron} 残铁`,
-            btnCost: unl && cost != null && can ? { cur: 'iron', amount: cost } : undefined,
+            btnLabel: !unl ? '尚未夺回' : cost == null ? '三阶圆满' : '开炉淬炼',
+            btnCost: unl && cost != null ? { cur: 'iron', amount: cost, have: p.iron } : undefined,
             btnEnabled: can,
             accent: unl ? w.col : '#6a6670',
           };
@@ -1898,7 +1908,7 @@ export class ActShow {
         const altBadge = PAD.device === 'pad' ? msg`${padName(3)}切${altLbl}` : msg`Q切${altLbl}`;
         return {
           boon: {
-            id: 'mr_' + m.id, school: 'mr' as never,
+            id: 'mr_' + m.id + (st.side === 1 ? '_yin' : '_yang'), school: 'mr' as never,
             name: curSide.name,
             desc: [effect, ''],
             col: st.side === 0 ? '#ffd888' : '#c0a0ff',
@@ -1978,7 +1988,7 @@ export class ActShow {
             locked: !unlocked,
             arcanaInfo: {
               short: def.short, grasp: def.grasp, rank: rk, active,
-              unlockCost: def.unlockCost, canUnlock, awakening: def.grasp === 0,
+              unlockCost: def.unlockCost, have: p.herb, canUnlock, awakening: def.grasp === 0,
             },
           } as CardBoon,
           tier: active ? 2 : unlocked ? 1 : 0,
@@ -1990,7 +2000,7 @@ export class ActShow {
         header: { title: '孙媪 · 药炉悟性阵', sub: '以悟性点亮经脉牌阵 · 随时免费启停 · 同启三牌唤醒中宫', col: '#90f6ba', accent: '#4eb47c' },
         wallet: { iron: p.iron, herb: p.herb, focus: 'herb' },
         graspBar: {
-          used, cap, nextCost: nextCap, canExpand: nextCap != null && p.herb >= nextCap,
+          used, cap, nextCost: nextCap, have: p.herb, canExpand: nextCap != null && p.herb >= nextCap,
           onExpand: () => {
             if (expandArcanaCap(p)) {
               saveProfile();
@@ -2025,21 +2035,25 @@ export class ActShow {
           const nextVal = unlocked && rk < 3 ? def.vals[rk] : def.vals[0];
           const upCost = arcanaUpgradeCost(p, def.id);
           const canUp = upCost != null && p.herb >= upCost;
-          const canEquip = unlocked && !active && !isAwk && used + def.grasp <= cap;
+          const availGrasp = Math.max(0, cap - used);
+          const canEquip = unlocked && !active && !isAwk && availGrasp >= def.grasp;
           const graspSub = isAwk
             ? msg`零悟性 · 已启 ${actCnt}/3 牌自动唤醒`
-            : msg`占 ${def.grasp} 悟性 · ${def.desc}`;
+            : msg`悟性 ${def.grasp} · ${def.desc}`;
           const fmt = (val: number) => def.unit ? `${val}${def.unit}` : `+${val}`;
           const stats: WorkbenchStatRow[] = unlocked
             ? [{ label: def.statLabel, before: fmt(curVal), after: rk < 3 ? fmt(nextVal) : undefined, highlight: rk < 3 }]
             : [{ label: def.statLabel, before: '未悟', after: fmt(def.vals[0]), highlight: true }];
           const btnLabel = !unlocked
-            ? (p.herb >= def.unlockCost ? '参悟此牌' : msg`还差 ${def.unlockCost - p.herb} 药引`)
+            ? '参悟此牌'
             : isAwk
-              ? (active ? '中宫已唤醒' : msg`需再启 ${Math.max(0, 3 - actCnt)} 牌`)
+              ? (active ? '中宫已唤醒' : msg`已启 ${actCnt}/3 牌`)
               : active
                 ? '卸下归位'
-                : canEquip ? msg`启用入阵（${def.grasp}悟）` : '悟性不足';
+                : '启用入阵';
+          const btnCost = !unlocked
+            ? { cur: 'herb' as const, amount: def.unlockCost, have: p.herb }
+            : (unlocked && !active && !isAwk ? { cur: 'grasp' as const, amount: def.grasp, have: availGrasp } : undefined);
           return {
             theme: 'medic',
             title: def.name,
@@ -2049,10 +2063,10 @@ export class ActShow {
             stats,
             note: isAwk ? def.desc : unlocked && active ? '入阵生效中 · 可随时免费卸下' : undefined,
             btnLabel,
-            btnCost: !unlocked && p.herb >= def.unlockCost ? { cur: 'herb', amount: def.unlockCost } : undefined,
+            btnCost,
             btnEnabled: !unlocked ? p.herb >= def.unlockCost : isAwk ? false : (active || canEquip),
-            subBtnLabel: unlocked ? (upCost == null ? '三阶圆满' : canUp ? '精进升阶' : msg`差 ${upCost - p.herb} 药`) : undefined,
-            subBtnCost: unlocked && upCost != null && canUp ? { cur: 'herb', amount: upCost } : undefined,
+            subBtnLabel: unlocked ? (upCost == null ? '三阶圆满' : '精进升阶') : undefined,
+            subBtnCost: unlocked && upCost != null ? { cur: 'herb', amount: upCost, have: p.herb } : undefined,
             subBtnEnabled: unlocked && canUp,
             accent: active ? (isAwk ? '#ffe078' : '#7ef0aa') : '#4e9670',
           };
@@ -2151,12 +2165,12 @@ export class ActShow {
       { label: () => (this.storySkip ? '跳过剧情：快进中…' : '跳过剧情（演出和对话快进到能操作）'), run: () => this.skipStory() },
       // 11-18 测关卡用: she can't die / every 刀谱 move on (the tune panel only, not the pause menu)
       { label: () => `打不死：${this.god ? '开' : '关'}`, run: () => { this.god = !this.god; } },
-      { label: () => `全部招式：${this.dbgAllMoves ? '开' : '关'}`, run: () => { this.dbgAllMoves = !this.dbgAllMoves; if (this.hero && !this.yard && !this.prologue) this.hero.moves = this.dbgAllMoves ? ALL_MOVES : this.perks.moves; } },
+      { label: () => `全部招式：${this.dbgAllMoves ? '开' : '关'}`, run: () => { this.dbgAllMoves = !this.dbgAllMoves; if (this.hero && !this.prologue) this.hero.moves = this.dbgAllMoves ? ALL_MOVES : this.perks.moves; } },
       { label: () => `全部名刀与信物：${this.dbgAllWeapons ? '开' : '关'}`, run: () => { this.dbgAllWeapons = !this.dbgAllWeapons; this.syncHideoutNpcs(); this.refreshHideoutProps(); } }],
       { regions: REGIONS.map(r => r.name), rooms: ri => REGIONS[ri].rooms, go: (ri, room, type) => { const r = this.jumpRegion(ri, room, type); return 'why' in r ? r.why : undefined; } });
     // the pause menu (act-30 之后, user: 「帮我把手柄的按键映射和手柄支持做了吧」): Start / Esc, a pad pulled out, the page hidden
     this.pause = new PauseMenu({ L: this.L, settings: [...SET.filter(x => __DEBUG_UI__ || !x.dbg).map(x => ({ label: x.short, run: x.run })), { id: 'language', label: () => '语言：简体中文', run: () => setLanguage(language === 'en' ? 'zh' : 'en') }], canGiveUp: () => this.canGiveUp(), giveUp: () => this.giveUp(), closed: () => this.unpaused(), toTitle: () => this.backToTitle(), onRun: () => this.canGiveUp(),
-      owned: () => this.ownedSections(), skills: () => this.skillSections(),
+      build: () => this.buildSections(),
       preview: id => this.previewMove(id), previewing: () => this.previewOn, stopPreview: () => { if (this.previewOn) this.demo.stop(true); } });
     // 11-18 (用户：「游戏里也没有一个可以呼出暂停窗口的按钮」): the iron button at the top right opens it too
     this.hud.onPause = () => this.pauseGame();
@@ -2196,7 +2210,6 @@ export class ActShow {
         if (lv != null) { if (!p.weaponLv) p.weaponLv = {}; p.weaponLv[id] = Math.max(0, Math.min(3, lv)); }
         p.weapon = id; saveProfile();
         this.hero?.applyWeapon(id, weaponLevel(p, id));
-        if (this.hero && this.phase === 'yard') this.hero.moves = weaponMoves(id);
         this.refreshHideoutProps();
         return { id, lv: weaponLevel(p, id) };
       },
@@ -2255,6 +2268,17 @@ export class ActShow {
       /** act-114: preview hideout stele carving cutscene for name index n (0..4) */
       steleCut: (n = 0) => { void this.debugSteleCut(Math.max(0, Math.min(4, n))); },
       newGame: () => this.startNewGame(), talkTest: (n = 0) => this.talk(n ? CHULEI_BEFORE : WAKE_DUWU), act: () => this, bot: (on = true) => { this.botOn = on; }, run: () => this.startRun(), yard: () => this.enterYard(), wear: (id: string) => { const d = HEROES.find(h => h.id === id); if (d) this.wear(d); },
+      weather: (w: Spec['weather'], t?: Spec['time']) => {
+        if (this.room < 0) {
+          const hw: HideoutWeather = w === 'snow' || w === 'rain' || w === 'mist' || w === 'clear' ? w : 'rain';
+          const ht: HideoutTime = t === 'day' || t === 'dawn' || t === 'night' || t === 'dusk' ? t : (hw === 'snow' ? 'night' : 'dusk');
+          void this.enterYard({ time: ht, weather: hw });
+          return { hideout: true, time: ht, weather: hw };
+        }
+        this.forceSpec = { ...(this.spec ?? {}), weather: w, ...(t ? { time: t } : {}) };
+        void Promise.resolve(this.buildRoom(false)).finally(() => { this.forceSpec = null; });
+        return { locale: this.spec?.locale, time: t ?? this.spec?.time, weather: w };
+      },
       skin: (id: SkinId) => this.cycleSkin(id),
       cardsDemo: () => { void this.cards.open([BOONS[0], BOONS[6], BOONS[12]].map((boon, tier) => ({ boon, tier }))); },
       /** captures: these boons as a pick, tiers 0 / 1 / 2 in turn */ cardsOf: (ids: string[]) => { void this.cards.open(ids.map((id, i) => ({ boon: BOONS.find(b => b.id === id) ?? BOONS[0], tier: i % 3 }))); },
@@ -2572,7 +2596,7 @@ export class ActShow {
     this.duel?.newRoom(); for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = []; this.entering.length = 0; this.clearBossDrops(); this.clearFleeing(); this.bossDefeated = false; this.poolBossRoom = false; this.kneelingBoss = null; this.wavePending = 0; this.waveGen++; this.bossIntroActive = false;
     this.yard?.dispose(); this.yard = null; this.props?.dispose(); this.props = null; this.gates?.dispose(); this.gates = null; this.pieces?.dispose(); this.pieces = null; this.leaves?.dispose(); this.leaves = null; this.stations?.dispose(); this.stations = null; this.hero?.a.dispose();
     this.clearNpcs();
-    this.phase = 'title'; this.hud.on = false; this.hud.update(0, this.inp, []); this.banner.hide(); this.blob.visible = false; this.ring.visible = false; for (const m of this.shadows) m.visible = false;
+    this.phase = 'title'; audio.setWeatherSound('none', 0.4); this.hud.on = false; this.hud.update(0, this.inp, []); this.banner.hide(); this.blob.visible = false; this.ring.visible = false; for (const m of this.shadows) m.visible = false;
     const titleReady = playTitle(n, { ov: this.ov, L: this.L, hasSave, settings: () => this.pause.open('set', { fromTitle: true }), enter: k => { this.hud.on = true; if (k === 'continue') return this.continueGame(); void this.startNewGame(); } });
     this.music();
     // (before the title's first frame: the page is still dark and loading then — a frozen first picture with the snow hanging in the
@@ -2756,8 +2780,18 @@ export class ActShow {
     this.phase = 'opening'; this.hud.on = false; this.hud.update(0, this.inp, []); this.banner.hide(); this.blob.visible = false; for (const m of this.shadows) m.visible = false;
     void playOpening({ actor: this.hero.a, stage: this.stage!, ov: this.ov, enter: () => { this.hud.on = true; return this.enterYard(); }, soundOn: () => this.audioOn });
   }
+  private yardVisit = 0;
+  private yardAtmo: { time: HideoutTime; weather: HideoutWeather } = { time: 'dusk', weather: 'clear' };
   /** the training yard: dummies, summon slabs, the costume rack, the way out to a run */
-  enterYard() {
+  enterYard(atmo?: { time: HideoutTime; weather: HideoutWeather }) {
+    if (atmo) {
+      this.yardAtmo = atmo;
+    } else {
+      const runs = profile().runs;
+      if (runs <= 0 && this.yardVisit === 0) this.yardAtmo = HIDEOUT_ATMOS[0];
+      else this.yardAtmo = HIDEOUT_ATMOS[(runs + this.yardVisit) % HIDEOUT_ATMOS.length];
+      this.yardVisit++;
+    }
     this.unscaleFoes();
     TUNE.dartCharges = 3; TUNE.aggression = 0.85;
     this.mods = { dmgMul: 1, critBonus: 0, dartBonus: 0, rerolls: 1, hpBonus: 0, deathDefy: 0, startIntent: 0, windupMul: 1, startManual: false, poiseHeal: 0, firstStrikeBonus: 0, styleBonus: 0, dashCdMul: 1, counterBonus: 0, markedDmgBonus: 0, poiseDmgMul: 1, rareOddsBonus: 0, interestRate: 0 };
@@ -2952,7 +2986,7 @@ export class ActShow {
     // act-34: the place itself — built ahead of time when it can be (the title builds a new game's first room while it loads), else now
     // (11-18: a region's own look — 下邳 is always winter — unless the prologue or a view asks otherwise)
     const rspec = !isYard && !this.prologue ? REGIONS[this.region]?.spec ?? null : null;
-    const want: RoomIn = { isYard, room: this.room, recent: this.recent, locale: this.locale, plan: this.plan, nextRooms: this.nextRooms, viewSpec: this.viewSpec, forceSpec: this.forceSpec, noArena: this.noArena, shape: this.forceShape, shapes: this.shapes, seed: this.forceSeed, map: this.forceMap, maps: this.maps, region: this.prologue ? undefined : this.region, regionSpec: rspec };
+    const want: RoomIn = { isYard, room: this.room, recent: this.recent, locale: this.locale, plan: this.plan, nextRooms: this.nextRooms, viewSpec: this.viewSpec, forceSpec: this.forceSpec, noArena: this.noArena, shape: this.forceShape, shapes: this.shapes, seed: this.forceSeed, map: this.forceMap, maps: this.maps, region: this.prologue ? undefined : this.region, regionSpec: rspec, yardAtmo: isYard ? this.yardAtmo : undefined };
     const ready = this.pre && !isYard && !this.viewSpec && this.prologue === 1 && this.room === 0 && this.pre.locale === this.locale ? this.pre : null;
     if (this.pre && this.pre !== ready) this.pre.prep.drop();
     this.pre = null;
@@ -2988,6 +3022,7 @@ export class ActShow {
     if (isYard) { this.shapes = []; this.maps = []; }
     const big = P.big;
     this.stage = P.prep.attach();
+    audio.setWeatherSound(spec.weather === 'storm' ? 'storm' : spec.weather === 'rain' ? 'rain' : 'none');
     yield;
     if (isYard) Object.assign(PLAY, HIDEOUT.floor);   // act-20: the hideout 断碑古窑 (hideout.ts) is the yard now — its own stage and floor
     this.solids.clear(); this.props?.dispose(); this.props = null; this.botWp = 0;
@@ -3047,11 +3082,9 @@ export class ActShow {
     const entZ = this.arena?.shape?.fixed ? this.arena.shape.enter[1] : (this.prologue === 2 || spec.locale === 'cx_court') ? SZ(1.6) : SZ(5.0);
     yield;
     this.roomDrinkHeal = 0;
-    this.hero = new Hero(isYard ? V3(HIDEOUT.spawn[0], 0, HIDEOUT.spawn[1]) : V3(ent, 0, entZ), this.wearing);
-    { const p = profile(), wid = equippedWeapon(p, this.dbgAllWeapons);
-      this.hero.moves = isYard ? weaponMoves(wid) : this.dbgAllMoves ? ALL_MOVES : this.perks.moves;
-      this.hero.perks = this.perks; this.hero.hp = Math.min(hp, maxHp); this.hero.maxHp = maxHp;
-      this.hero.applyWeapon(wid, weaponLevel(p, wid)); }
+    // act-152: hideout uses the equipped weapon's true base moveset (no longer auto-granting run-only 刀谱 manuals unless dbgAllMoves is on)
+    this.hero = new Hero(isYard ? V3(HIDEOUT.spawn[0], 0, HIDEOUT.spawn[1]) : V3(ent, 0, entZ), this.wearing); this.hero.moves = this.dbgAllMoves ? ALL_MOVES : this.perks.moves; this.hero.perks = this.perks; this.hero.hp = Math.min(hp, maxHp); this.hero.maxHp = maxHp;
+    { const p = profile(), wid = equippedWeapon(p, this.dbgAllWeapons); this.hero.applyWeapon(wid, weaponLevel(p, wid)); }
     this.syncHeroHat();
     // (11-20: a new place starts still — a stick / key still held from the last one counts only once let go)
     this.inp.latch();
@@ -3960,17 +3993,90 @@ export class ActShow {
     this.hud.buildInfo = { manuals, boonCount };
     this.hud.setMarks(list);
   }
-  /** 已得: this run's 刀谱 and 秘传 */
-  private ownedSections(): Section[] {
-    const ms = this.room >= 0 ? MANUALS.filter(m => this.perks.moves[m.id]).map(entryOfManual) : [];
-    const bs = BOONS.filter(b => tierOf(this.perks, b.id) >= 0).map(b => entryOfBoon(b, tierOf(this.perks, b.id)));
-    if (!ms.length && !bs.length) return [{ title: UI_WORDS.owned, list: [], empty: UI_WORDS.ownedEmpty }];
-    return [...(ms.length ? [{ title: UI_WORDS.manual, list: ms }] : []), ...(bs.length ? [{ title: UI_WORDS.boon, list: bs }] : [])];
-  }
-  /** 招式: the moves she has from the start, then the 刀谱 she knows now (all of them in the yard and the prologue) */
-  private skillSections(): Section[] {
-    const known = this.hero?.moves ?? {}, ms = MANUALS.filter(m => known[m.id]).map(entryOfManual);
-    return [{ title: UI_WORDS.base, list: BASE_SKILLS.map(entryOfBase) }, ...(ms.length ? [{ title: UI_WORDS.manual, list: ms }] : [])];
+  /** act-151: Unified 招式谱 (Hades-2 style):
+   *  1) Current equipped weapon's true moveset (with run Boons slotted inline onto their trigger button!);
+   *  2) 本局已得 (only manuals & boons genuinely learned — zero duplication);
+   *  3) 据点备战 (active Sun Ao Arcana meditation cards & equipped Keepsake). */
+  private buildSections(): Section[] {
+    const p = profile();
+    ensureArcana(p);
+    const wid = equippedWeapon(p, this.dbgAllWeapons), wlv = weaponLevel(p, wid), wdef = WEAPONS[wid];
+    // Gather owned boons by slot for inline attachment onto weapon base moves
+    const slotBoons: Record<string, AttachedBoon[]> = {};
+    const archCounts: Partial<Record<Archetype, number>> = {};
+    const ownedBoons: SkillEntry[] = [];
+    for (const b of BOONS) {
+      const tr = tierOf(this.perks, b.id);
+      if (tr < 0) continue;
+      archCounts[b.arch] = (archCounts[b.arch] ?? 0) + 1;
+      const ai = ARCH_INFO[b.arch];
+      if (b.slot) {
+        (slotBoons[b.slot] ??= []).push({
+          name: b.name,
+          col: ai?.col ?? '#ffd878',
+          tier: tr,
+          eff: b.eff,
+          num: fillVals(b.note, b, tr),
+        });
+      }
+      ownedBoons.push(entryOfBoon(b, tr));
+    }
+    const baseEntries = baseSkillsForWeapon(wid, wlv).map(s => entryOfBase(s, s.slot ? slotBoons[s.slot] : undefined));
+    const knownMoves = this.dbgAllMoves ? ALL_MOVES : (this.room >= 0 ? this.perks.moves : {});
+    const ms = MANUALS.filter(m => knownMoves[m.id]).map(entryOfManual);
+    const runList: SkillEntry[] = [...ms, ...ownedBoons];
+    // Active Sun Ao Arcana cards + equipped Keepsake
+    const metaList: SkillEntry[] = [];
+    const roman = ['Ⅰ', 'Ⅱ', 'Ⅲ'];
+    for (const def of ARCANA) {
+      if (!isArcanaActive(p, def.id)) continue;
+      const rk = Math.max(1, arcanaRank(p, def.id));
+      const val = def.vals[Math.min(2, rk - 1)];
+      const valStr = def.unit ? `${val}${def.unit}` : `+${val}`;
+      metaList.push({
+        id: 'arc_' + def.id,
+        kind: 'arcana',
+        name: def.name,
+        tag: `${roman[rk - 1]}阶`,
+        badge: { text: def.grasp === 0 ? '中宫觉醒' : `悟性 ${def.grasp}`, col: def.grasp === 0 ? '#ffe478' : '#88f8be', hot: def.grasp === 0 },
+        tier: rk - 1,
+        icon: 'stance',
+        customGlyph: def.glyph,
+        steps: null,
+        effect: def.desc,
+        num: `${def.statLabel} ${valStr}`,
+        col: def.grasp === 0 ? 0xffe074 : 0x7ef0a8,
+        target: 'hp',
+        lit: null,
+      });
+    }
+    const kid = equippedKeepsake(p, this.dbgAllWeapons);
+    if (kid) {
+      const ks = KEEPSAKES[kid], star = keepsakeStar(p, kid);
+      metaList.push({
+        id: 'ks_' + kid,
+        kind: 'keepsake',
+        name: ks.name,
+        tag: starLabel(star),
+        badge: { text: '随身信物', col: '#ffd878' },
+        tier: Math.max(0, star - 1),
+        icon: 'ult',
+        customGlyph: ks.glyph,
+        steps: null,
+        effect: ks.effect(star),
+        num: `${ks.owner} · ${starLabel(star)}`,
+        col: parseInt(ks.col.replace('#', ''), 16) || 0xffd878,
+        target: 'hp',
+        lit: null,
+      });
+    }
+    const wepTitle = wlv > 0 ? msg`${wdef.name}（${wlv}阶） · 招式` : msg`${wdef.name} · 招式`;
+    const sections: Section[] = [
+      { title: wepTitle, list: baseEntries },
+      { title: UI_WORDS.runOwned, list: runList, empty: UI_WORDS.ownedEmpty },
+    ];
+    if (metaList.length) sections.push({ title: UI_WORDS.meta, list: metaList });
+    return sections;
   }
   /** light foes can be thrown: not the 力士, not a 渠帅, not an elite, not a dummy */
   private launchable(f: Foe) { return f.kind !== 'dummy' && !isBoss(f) && f.d.role !== 'brute' && !f.elite; }
@@ -6918,13 +7024,12 @@ export class ActShow {
     this.banner.hide(); this.hideHideoutLabels(); this.hideWorldPlates();
     this.pause.open('main');
   }
-  /** act-146 / act-149: one-key [Tab] or top-left「招式谱」plaque opens 3D 招式 (when 0 acquired) or 已得 (once learned) */
+  /** act-146 / act-151: one-key [Tab] or top-left「招式谱」plaque opens the unified 招式谱 + live MoveStage inspector */
   openOwnedQuick() {
     if (!this.canPause() || this.botOn) return;
     this.pauseHud = this.hud.on; this.hud.on = false; this.hud.update(0, this.inp, []); this.aimLine.visible = false;
     this.banner.hide(); this.hideHideoutLabels(); this.hideWorldPlates();
-    const hasOwned = Object.values(this.perks.moves).some(Boolean) || Object.keys(this.perks.owned).length > 0;
-    this.pause.open(hasOwned ? 'owned' : 'skills', { quickClose: true });
+    this.pause.open('build', { quickClose: true });
   }
   private unpaused() {
     if (this.pauseHud == null) return;   // the menu was over the start screen

@@ -16,9 +16,18 @@ import { ARCH_INFO, BOONS, TIER_NAMES, boonTier, type Archetype, type Boon, type
 import { MANUALS, type Manual } from './manuals';
 import { KEY_BTN, LINK_COLORS, MANUAL_HINT, STANCE_COLORS, UI_WORDS, boonSteps, boonTarget, isPress, manualSteps, manualTarget, type BaseIcon, type BaseSkill, type MarkTarget, type Step } from './skillInfo';
 import type { BtnName } from './input';
+import type { WeaponId } from './weapons';
+
+export interface AttachedBoon {
+  name: string;
+  col: string;
+  tier: number;
+  eff: string;
+  num: string;
+}
 
 export interface SkillEntry {
-  id: string; kind: 'manual' | 'boon' | 'base'; name: string; tag: string; tier: number;
+  id: string; kind: 'manual' | 'boon' | 'base' | 'arcana' | 'keepsake'; name: string; tag: string; tier: number;
   /** act-118: second pill on the name row — e.g. 新派生/变招 (manuals) or 流派 label 血刃/破势/影镖/凌空 (boons) */
   badge?: { text: string; col: string; hot?: boolean };
   /** act-149: triggered synergy resonance callout when picking this boon activates 2-piece or 3-piece resonance */
@@ -26,6 +35,12 @@ export interface SkillEntry {
   /** act-118: archetype accent colour for 3D boon plaque inlay */
   accentHex?: number;
   /** the picture (skillIcons skillIcon3D id) */ icon: BaseIcon | BoonId;
+  /** optional 2D custom glyph for arcana/keepsake entries in the unified build screen */
+  customGlyph?: string[];
+  /** equipped weapon context for base moveset animated preview */
+  weaponId?: WeaponId;
+  /** Hades-2-style boons currently augmenting this base move slot */
+  attached?: AttachedBoon[];
   /** the presses (null = nothing to press: a passive) */ steps: Step[] | null;
   effect: string; num: string;
   /** the move's or tier's colour, used when the card lands on the HUD */ col: number;
@@ -53,11 +68,14 @@ export function entryOfBoon(b: SkillBoon, tier: number, archHave?: Partial<Recor
   const resNote = ai && hit3 ? `成势：${ai.b3}` : ai && hit2 ? `成势：${ai.b2}` : undefined;
   return { id: b.id, kind: 'boon', name: b.name, tag: `${TIER_NAMES[t]}`, badge, resNote, accentHex: ai?.hex, tier: t, icon: b.id, steps: boonSteps(b), effect: b.eff, num: fillVals(b.note, b, t), col: TIER_GLOW[t], target: boonTarget(b), lit: null };
 }
-export function entryOfBase(s: BaseSkill): SkillEntry {
+export function entryOfBase(s: BaseSkill, attached?: AttachedBoon[]): SkillEntry {
   const icon = s.icon;
   const lit = isLinkIcon(icon) ? LINK_COLORS[icon] : icon === 'ult' || icon === 'stance' || icon === 'parry' ? STANCE_COLORS[icon] : null;
   const target = KEY_BTN[s.steps.find(isPress) ?? 'attack'];
-  return { id: s.id, kind: 'base', name: s.name, tag: '', tier: 0, icon, steps: s.steps, effect: s.effect, num: s.num ?? '', col: lit ?? 0xb0c0d8, target, lit };
+  const badge = attached && attached.length
+    ? { text: attached.length === 1 ? `+${attached[0].name}` : `+${attached.length}秘传`, col: attached[0].col, hot: true }
+    : undefined;
+  return { id: s.id, kind: 'base', name: s.name, tag: '', badge, tier: 0, icon, weaponId: s.weaponId, attached, steps: s.steps, effect: s.effect, num: s.num ?? '', col: lit ?? 0xb0c0d8, target, lit };
 }
 /** The other cards (meals, upgrades, 再来一次) use the regular item face. */
 export function entryOfCard(b: Boon, tier: number, archHave?: Partial<Record<Archetype, number>>): SkillEntry | null {
