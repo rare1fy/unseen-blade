@@ -14,6 +14,13 @@ const C = {
   leather: 0x4a2523, leatherLight: 0x79503d, string: 0xaa3045, stringLight: 0xe2606a,
   linen: 0xd6c3a2, blood: 0xb62834, skin: 0xb47d55, straw: 0xcfaa52,
   slate: 0x55505a, earth: 0x8d6952, sand: 0xc49a66, ghost: 0x88a8d4, ghostDark: 0x4f678b,
+  // act-151: Strong 4-Archetype visual signatures (血刃 Crimson · 破势 Radiant Gold · 影镖 Cyan/Violet · 凌空 Emerald/Flame)
+  crimson: 0xe63638, crimsonLight: 0xff7068,
+  amber: 0xffb830, amberLight: 0xfff088,
+  cyan: 0x48d8ff, cyanLight: 0xb8f6ff,
+  violet: 0x9c72ff, violetLight: 0xd4beff,
+  jade: 0x44e090, jadeLight: 0xa6ffca,
+  lava: 0xff6e28, lavaLight: 0xffd068,
 };
 const { sabre, dart, boot, sandal } = ITEM_PROPS;
 
@@ -129,49 +136,69 @@ const ART: Record<Exclude<BaseIcon, `btn:${string}`> | BoonId, Art> = {
     box(set, -13, 3, 3, -2, 3, 3, C.stringLight);
   },
   stomp: set => { head(set, 2, -5); boot(at(set, -2, 1, 2)); trace(set, -9, -13, 19, LINK_COLORS.stomp); },
-  // 秘传
-  bladeWind: set => { sabre(at(set, -3, -4, 0, 1), 0, 0, 16); arc(set, 4, 1, C.edge); },
-  extra: set => { sabre(at(set, -5, -2), 0, 0, 14); sabre(at(set, 5, 2, 2), 0, 0, 14); },
+  // 秘传 (act-151: 4 Archetypes strongly differentiated in palette & motif!)
+  // —— 血刃 (Crimson Blood-Blade)
+  bladeWind: set => { sabre(at(set, -3, -4, 0, 1), 0, 0, 16); arc(set, 4, 1, C.crimsonLight); trace(set, -8, -9, 14, C.crimson); },
   bleed: set => {
     sabre(at(set, -3, 5, 1, 1), 0, 0, 16);
-    box(set, 4, 4, 2, 11, 5, 2, C.blood);
+    box(set, 3, 4, 2, 12, 5, 2, C.crimson, 0.5);
     blood(set, -5, -4); blood(set, 3, -8); blood(set, 10, -5);
   },
   behead: set => {
     head(set, -2, 3); sabre(at(set, 1, -5, 3, 1), 0, 0, 14);
-    box(set, -12, -11, -3, 12, -9, -1, C.blood);
-    box(set, -12, -9, -3, -10, -3, -1, C.stringLight);
-    box(set, 10, -9, -3, 12, -3, -1, C.stringLight);
+    box(set, -12, -11, -3, 12, -9, -1, C.crimson, 0.45);
+    box(set, -12, -9, -3, -10, -3, -1, C.crimsonLight, 0.65);
+    box(set, 10, -9, -3, 12, -3, -1, C.crimsonLight, 0.65);
   },
-  spin: set => { sabre(at(set, 0, -4, 1), 0, 0, 14); arc(set, 0, -2, C.steel); arc(at(set, 0, -2, -1, 2), 0, 0, C.edge); },
-  pierce: set => {
-    armour(set, 0, 2); armour(set, 11, 2, 1);
-    sabre(at(set, -8, 0, 4, 1), 0, 0, 20);
-    trace(set, 13, -1, 7, C.edge);
-  },
-  passCut: set => { boot(at(set, -5, -2, 0)); sabre(at(set, -2, -4, 3, 1), 0, 0, 15); trace(set, -13, 4, 8, C.ghost); },
-  decoy: set => { head(set, -6, -2, 0, true); head(set, 6, 3, 1); trace(set, -12, -11, 14, C.ghost); },
-  darts3: dartsFan,
-  boomerang: set => { dart(at(set, -1, 5, 1, 1)); dart(at(set, 1, -5, 1, 3)); trace(set, -11, 9, 17, C.ghost); trace(set, -5, -10, 17, C.ghost); },
-  pin: set => {
-    armour(set, 0, -4);
-    dart(at(set, 0, 4, 3, 2));
-    box(set, -7, -7, -3, -4, -3, -1, C.ghost); box(set, 4, -7, -3, 7, -3, -1, C.ghost);
-  },
-  twinDraw: set => { scabbard(at(set, -5, -4, -1), 1, 3); scabbard(at(set, 5, 3, 2), 1, 4); },
-  burst: set => { scabbard(at(set, 0, 2, 1), -3, 4); arc(set, 0, -3, C.goldLight); trace(set, -15, -8, 12, C.gold); trace(set, 4, -8, 12, C.gold); },
-  rift: set => { ground(set, true); sabre(at(set, 2, 5, 2, 2), 0, 0, 10); },
-  vault: set => { head(set, -2, -6); sandal(at(set, -4, 8, 0, 1)); sabre(at(set, 8, 4, 2, 2), 0, 0, 10); },
   drink: set => {
-    // Open bronze vessel; its red contents sit down inside the thick mouth.
+    // Open crimson-filled bronze ritual chalice
     box(set, -6, -1, -4, 6, 4, 3, C.gold);
     box(set, -7, 4, -5, 7, 5, 4, C.goldLight);
     box(set, -5, 4, -3, 5, 5, 2, null);
-    box(set, -5, 3, -3, 5, 3, 2, C.blood);
+    box(set, -5, 3, -3, 5, 3, 2, C.crimson, 0.55);
     box(set, -4, -2, -3, 4, -2, 2, C.goldLight);
     for (const x of [-4, 3]) box(set, x, -7, 1, x + 1, -3, 2, C.gold);
     box(set, -1, -7, -3, 0, -3, -2, C.gold);
     blood(set, 1, 9);
+  },
+  // —— 破势 (Radiant Amber-Gold Shatter)
+  spin: set => { sabre(at(set, 0, -4, 1), 0, 0, 14); arc(set, 0, -2, C.amber); arc(at(set, 0, -2, -1, 2), 0, 0, C.amberLight); },
+  pierce: set => {
+    armour(set, 0, 2); armour(set, 11, 2, 1);
+    sabre(at(set, -8, 0, 4, 1), 0, 0, 20);
+    trace(set, 11, -1, 9, C.amberLight);
+    box(set, 1, 1, 2, 4, 4, 3, C.amber, 0.7);
+  },
+  twinDraw: set => {
+    scabbard(at(set, -5, -4, -1), 1, 3); scabbard(at(set, 5, 3, 2), 1, 4);
+    trace(set, -13, 8, 12, C.amberLight); trace(set, 2, -10, 12, C.amber);
+  },
+  burst: set => {
+    scabbard(at(set, 0, 2, 1), -3, 4);
+    arc(set, 0, -3, C.amberLight);
+    trace(set, -15, -8, 12, C.amber); trace(set, 4, -8, 12, C.amber);
+    box(set, -2, 7, 2, 2, 10, 3, C.amberLight, 0.9);
+  },
+  // —— 影镖 (Luminous Cyan & Phantom Violet)
+  passCut: set => { boot(at(set, -5, -2, 0)); sabre(at(set, -2, -4, 3, 1), 0, 0, 15); trace(set, -14, 4, 12, C.cyanLight); trace(set, -12, -8, 10, C.violet); },
+  decoy: set => { head(set, -6, -2, 0, true); head(set, 6, 3, 1); trace(set, -13, -11, 16, C.violetLight); box(set, -10, 3, 1, -2, 5, 2, C.violet, 0.55); },
+  darts3: set => { dartsFan(set); trace(set, -12, -9, 24, C.cyan); },
+  boomerang: set => { dart(at(set, -1, 5, 1, 1)); dart(at(set, 1, -5, 1, 3)); trace(set, -11, 9, 17, C.cyanLight); trace(set, -5, -10, 17, C.cyan); },
+  pin: set => {
+    armour(set, 0, -4);
+    dart(at(set, 0, 4, 3, 2));
+    box(set, -8, -7, -3, -4, -2, 0, C.cyan, 0.6); box(set, 4, -7, -3, 8, -2, 0, C.cyan, 0.6);
+    box(set, -3, 1, 3, 3, 2, 3, C.cyanLight, 0.85);
+  },
+  // —— 凌空 (Emerald Wind & Molten Earth Quake)
+  extra: set => { sabre(at(set, -5, -2), 0, 0, 14); sabre(at(set, 5, 2, 2), 0, 0, 14); trace(set, -12, 8, 24, C.jadeLight); },
+  rift: set => {
+    ground(set, true); sabre(at(set, 2, 5, 2, 2), 0, 0, 10);
+    box(set, -2, -7, 1, 4, -4, 4, C.lava, 0.8); box(set, 0, -5, 2, 2, -2, 4, C.lavaLight, 1);
+  },
+  vault: set => {
+    head(set, -2, -6); sandal(at(set, -4, 8, 0, 1)); sabre(at(set, 8, 4, 2, 2), 0, 0, 10);
+    trace(set, -13, 3, 14, C.jadeLight); trace(set, -10, -2, 10, C.jade);
   },
 };
 

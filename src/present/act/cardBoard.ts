@@ -9,12 +9,12 @@ import { mergeBoxes, IRON_D, IRON, LACQ, LACQ_L } from './title';
 import { customIcon3D, type Model3D } from '../ui3d/models3d';
 import { Mask, pillow, box } from '../ui3d/models3dArt';
 import { drawPix, pixW, PIX_H } from '../v2/pix';
-import { icon } from '../v2/overlay';
 import { bodyText, bodyW } from '../ui3d/bodyFont';
 import { t } from './i18n';
 import { makeCanvas } from '../../platform/index';
-import { drawMiniIcon } from './uiPlate';
+import { drawMiniIcon, drawCostChip, richLine } from './uiPlate';
 import { buildHeroBladeMesh, type WeaponId } from './weapons';
+export { richLine };
 
 export type CardStyle = 'boon' | 'manual' | 'forge' | 'medic' | 'meal' | 'mirror' | 'keepsake' | 'weapon' | 'shop' | 'workRow' | 'arcana';
 /** the board's height in units of its width */
@@ -556,56 +556,6 @@ export function glyphIcon3D(key: string, rows: string[], col: number): Model3D {
 }
 
 // ---------------------------------------------------------------- the face: name, tier tag, two lines
-/** the little icons in front of key words (7 × 7, axis-aligned) */
-const MINI: Record<string, string[]> = {
-  blade: ['...#...', '...#...', '...#...', '...#...', '.#####.', '...#...', '..###..'],
-  blood: ['...#...', '..###..', '..###..', '.#####.', '.#####.', '..###..', '.......'],
-  bone: ['.#...#.', '..###..', '...#...', '...#...', '...#...', '..###..', '.#...#.'],
-  dart: ['...#...', '..###..', '...#...', '...#...', '..###..', '..#.#..', '..###..'],
-  dash: ['.......', '....#..', '######.', '#######', '######.', '....#..', '.......'],
-  heart: ['.##.##.', '#######', '#######', '.#####.', '..###..', '...#...', '.......'],
-  draw: ['#######', '...#...', '...#...', '...#...', '...#...', '..###..', '...#...'],
-  // 11-18 (技能说明配图标): 气 = the cut button's lamp, 杀气 = the copper ingot, up = thrown up, stun = knocked senseless, moon = the light
-  qi: ['.......', '.#####.', '.#ooo#.', '.#ooo#.', '.#ooo#.', '.#####.', '.......'],
-  ingot: ['.......', '.......', '.#####.', '#######', '#######', '.......', '.......'],
-  up: ['...#...', '..###..', '.#####.', '...#...', '...#...', '...#...', '.......'],
-  stun: ['.#...#.', '###.###', '.#...#.', '.......', '...#...', '..###..', '...#...'],
-  moon: ['.......', '#.....#', '##...##', '.#####.', '..###..', '.......', '.......'],
-};
-const KEYS: Array<[string, string, string]> = ([
-  ['收尾一刀', 'blade', '#ffd27a'], ['连环刀', 'blade', '#ffd27a'], ['箭步斩', 'blade', '#ffd27a'], ['破势', 'blade', '#ffd27a'], ['劈山', 'blade', '#ffd27a'], ['挑云', 'blade', '#ffd27a'],
-  ['斩击', 'blade', '#ffd27a'], ['斩杀', 'blade', '#ff9a6a'], ['刀光', 'moon', '#e8fff2'], ['刀芒', 'moon', '#e8fff2'], ['月牙刀光', 'moon', '#e8fff2'], ['刀痕', 'blade', '#ffd27a'],
-  ['重斩', 'blade', '#ffd27a'], ['连爆八刀', 'blade', '#ffd27a'], ['回锋斩', 'blade', '#ffd27a'], ['穿风斩', 'blade', '#9ad8ff'],
-  ['出血', 'blood', '#ff6a5a'], ['放血', 'blood', '#ff6a5a'], ['流血', 'blood', '#ff6a5a'], ['破甲', 'bone', '#e0d0b8'], ['硬直', 'bone', '#e0d0b8'], ['断骨', 'bone', '#e0d0b8'], ['破绽', 'bone', '#e0d0b8'],
-  ['藏锋', 'draw', '#ffd27a'], ['柳叶镖', 'dart', '#e8eef4'], ['飞镖', 'dart', '#e8eef4'], ['完美闪避', 'dash', '#9ad8ff'], ['冲刺', 'dash', '#9ad8ff'],
-  ['回血', 'heart', '#8aff9a'], ['回一口血', 'heart', '#8aff9a'], ['生命', 'heart', '#8aff9a'], ['杀气', 'ingot', '#ffaa5a'], ['一格气', 'qi', '#d6f4ec'],
-  ['挑上半空', 'up', '#ffe08a'], ['踹飞', 'dash', '#ffc890'], ['震开', 'dash', '#ffc890'], ['打得更远', 'dash', '#ffc890'], ['发蒙', 'stun', '#f0e0a0'], ['身形一顿', 'stun', '#f0e0a0'],
-] as Array<[string, string, string]>).sort((a, b) => b[0].length - a[0].length);
-const NUM = /^([+\-−]?[0-9]+(?:\.[0-9]+)?(?:%|秒|点|枚|倍|层)?|[一二三四五六七八九十百半两]+(?:秒|点|成|枚|倍|层))/;
-/** one line in the body font: the key words lit (optionally behind their icons), the numbers white; returns its width (draw = false only measures);
- *  keys = false: no key words (the small numbers line stays plain); showIcons = false: color highlight only (clean for meta/shop cards) */
-export function richLine(g: CanvasRenderingContext2D | null, line: string, x: number, y: number, px: number, base: string, numCol = '#ffffff', keys = true, showIcons = true) {
-  line = t(line);
-  let i = 0, cx = x, plain = '';
-  const flush = () => { if (!plain) return; if (g) bodyText(g, plain, cx, y, px, base, 'left'); cx += bodyW(plain, px); plain = ''; };
-  while (i < line.length) {
-    const rest = line.slice(i), k = keys ? KEYS.find(([w]) => rest.startsWith(w)) : undefined;
-    if (k) {
-      flush();
-      if (showIcons) {
-        const c = Math.max(1, Math.round(px / 10)), iw = 7 * c;
-        if (g) icon(g, MINI[k[1]], cx + 1, y + Math.round((px * 0.94 - iw) / 2), c, { main: k[2], acc: '#ffffff' });
-        cx += iw + Math.round(px * 0.16);
-      }
-      if (g) bodyText(g, k[0], cx, y, px, k[2], 'left'); cx += bodyW(k[0], px); i += k[0].length; continue;
-    }
-    const n = rest.match(NUM);
-    if (n && (i === 0 || !/[一二三四五六七八九十]/.test(line[i - 1]))) { flush(); if (g) bodyText(g, n[1], cx, y, px, numCol, 'left'); cx += bodyW(n[1], px); i += n[1].length; continue; }
-    plain += line[i]; i++;
-  }
-  flush();
-  return cx - x;
-}
 export interface FaceSpec { name: string; tag: string; desc: string[]; tier: number; style: CardStyle; locked?: boolean; altBadge?: string }
 /** paint the face for an on-screen size of w × h CSS px (the text area), at the screen's device pixels */
 export function paintFace(f: FaceSpec, w: number, h: number, dpr: number) {
@@ -732,7 +682,12 @@ export function paintWeaponStandFace(
   const row2Y = Math.round(yName + PIX_H * S + (Hh - (yName + PIX_H * S)) * 0.54);
   if (!spec.unlocked) {
     const s2 = Math.max(1, Math.floor((Hh * 0.28) / PIX_H));
-    drawPix(g, '未夺回', W / 2, Math.round(row2Y - (PIX_H * s2) / 2), { scale: s2, color: '#8e8490', outline: '#08060c', align: 'center' });
+    const tH2 = PIX_H * s2, icoSz = Math.round(tH2 * 1.02), gap = Math.round(4 * dpr);
+    const lbl = t('未夺回');
+    const tot = icoSz + gap + pixW(lbl) * s2;
+    const x0 = Math.round((W - tot) / 2);
+    drawMiniIcon(g, 'lock', x0 + icoSz / 2, row2Y, icoSz);
+    drawPix(g, lbl, x0 + icoSz + gap, Math.round(row2Y - tH2 / 2), { scale: s2, color: '#96909c', outline: '#08060c', align: 'left' });
   } else {
     const dSz = Math.max(Math.round(9 * dpr), Math.round(Hh * 0.28));
     const dGap = Math.round(6 * dpr);
@@ -785,12 +740,12 @@ export function paintShopTagFace(
     return [eff.slice(0, mid), eff.slice(mid)];
   })() : [eff];
   for (const ln of split) {
-    while (px > Math.round(10 * dpr) && bodyW(ln, px) > maxW) px -= 1;
+    while (px > Math.round(10 * dpr) && richLine(null, ln, 0, 0, px, '#f2e8d4', '#fff4b0', true, true) > maxW) px -= 1;
   }
-  const lineGap = Math.round(px * 1.26);
+  const lineGap = Math.round(px * 1.28);
   const startY = effY + Math.max(0, Math.round((effH - split.length * lineGap) / 2));
   split.forEach((ln, i) => {
-    bodyText(g, ln, W / 2, startY + i * lineGap, px, locked ? '#b2a89c' : '#f2e8d4', 'center', '#09070a');
+    richLine(g, ln, W / 2, startY + i * lineGap, px, locked ? '#b2a89c' : '#f2e8d4', locked ? '#d4c8b8' : '#fff4b0', true, true, 'center');
   });
   // 3. Recessed gold coin price trough at bottom (ZERO duplicate price text!)
   const barH = Math.round(Hh * 0.27);
@@ -822,9 +777,9 @@ export function paintShopTagFace(
   return tex;
 }
 
-/** act-149: compact left-column workbench strip face (锻坊 / 药棚) — large name + level pips + single cost pill, ZERO repetition */
+/** act-149 / act-151: compact left-column workbench strip face (锻坊 / 药棚) — large name + level pips + Hades-2 `[icon] have/need` chip */
 export function paintWorkRowFace(
-  spec: { name: string; lv: number; maxLv: number; cost: number | null; cur: 'iron' | 'herb'; canAfford: boolean; unlocked?: boolean },
+  spec: { name: string; lv: number; maxLv: number; cost: number | null; have?: number; cur: 'iron' | 'herb'; canAfford: boolean; unlocked?: boolean },
   w: number, h: number, dpr: number,
 ) {
   const W = Math.max(8, Math.round(w * dpr)), Hh = Math.max(8, Math.round(h * dpr)), c = makeCanvas(W, Hh), g = c.getContext('2d') as CanvasRenderingContext2D;
@@ -852,19 +807,21 @@ export function paintWorkRowFace(
       px -= pipSz + pipGap;
     }
   }
-  // Bottom row: ONE single clear status/cost pill
+  // Bottom row: Hades-2 icon + have/need chip (ZERO dry text)
   const botY = Math.round(Hh * 0.60);
   const s2 = Math.max(1, Math.floor((Hh * 0.26) / PIX_H));
   const tH2 = PIX_H * s2;
+  const botMid = Math.round(botY + tH2 / 2);
   if (!unlocked) {
-    drawPix(g, '未夺回', padX, botY, { scale: s2, color: '#8e8690', outline: '#08060c', align: 'left' });
+    const icoSz = Math.round(tH2 * 1.0);
+    drawMiniIcon(g, 'lock', padX + icoSz / 2, botMid, icoSz);
+    drawPix(g, '未夺回', padX + icoSz + Math.round(4 * dpr), botY, { scale: s2, color: '#948c98', outline: '#08060c', align: 'left' });
   } else if (isMax) {
-    drawPix(g, '已臻圆满', padX, botY, { scale: s2, color: '#ffe082', outline: '#08060c', align: 'left' });
+    const icoSz = Math.round(tH2 * 1.0);
+    drawMiniIcon(g, 'star', padX + icoSz / 2, botMid, icoSz);
+    drawPix(g, '已臻圆满', padX + icoSz + Math.round(4 * dpr), botY, { scale: s2, color: '#ffe082', outline: '#08060c', align: 'left' });
   } else if (spec.cost != null) {
-    const icoSz = Math.round(tH2 * 1.04);
-    drawMiniIcon(g, spec.cur, padX + icoSz / 2, Math.round(botY + tH2 / 2), icoSz);
-    const numTxt = `${spec.cost}`;
-    drawPix(g, numTxt, padX + icoSz + Math.round(5 * dpr), botY, { scale: s2, color: spec.canAfford ? (spec.cur === 'herb' ? '#98f6ba' : '#ffe082') : '#ff8a7a', outline: '#08060c', align: 'left' });
+    drawCostChip(g, spec.cur, spec.cost, spec.have, padX, botMid, s2, dpr);
     if (spec.canAfford) {
       drawPix(g, '可升', W - padX, botY, { scale: s2, color: spec.cur === 'herb' ? '#88f4b0' : '#ffd878', outline: '#08060c', align: 'right' });
     }
@@ -873,7 +830,7 @@ export function paintWorkRowFace(
   return tex;
 }
 
-/** act-149: clean carved stele face (复仇碑) — big name + 3 diamonds + clickable [Q 切阴/阳] pill + big clear stat + concise cost/alt */
+/** act-149 / act-151: clean carved stele face (复仇碑) — inline keyword icons + Hades-2 `[icon] have/need` chip */
 export function paintSteleFace(
   spec: {
     name: string; yin: boolean; lv: number; effect: string; cost: number | null; have: number;
@@ -919,23 +876,26 @@ export function paintSteleFace(
   g.fillStyle = spec.yin ? '#483a6c' : '#645238';
   g.fillRect(padX, divY, maxW, Math.max(1, Math.round(dpr)));
 
-  // Row 2: Big clear effect + stat line
+  // Row 2: Big clear effect + stat line WITH inline pixel icons
   const effY = divY + Math.round(Hh * 0.08);
   let px = Math.max(Math.round(12 * dpr), Math.round(Hh * 0.21));
-  while (px > Math.round(10 * dpr) && richLine(null, spec.effect, 0, 0, px, '#f4ecd8', '#fff4b0', false, false) > maxW) px -= 1;
-  richLine(g, spec.effect, padX, effY, px, '#f4ecd8', '#fff4b0', false, false);
+  while (px > Math.round(10 * dpr) && richLine(null, spec.effect, 0, 0, px, '#f4ecd8', '#fff4b0', true, true) > maxW) px -= 1;
+  richLine(g, spec.effect, padX, effY, px, '#f4ecd8', '#fff4b0', true, true);
 
-  // Row 3: Concise single cost line (left) + subtle alt-side name (right)
+  // Row 3: Hades-2 `[icon] have/need` chip (left) + subtle alt-side name (right)
   const botY = Math.round(Hh * 0.72);
   const s3 = Math.max(1, Math.floor((Hh * 0.175) / PIX_H));
   const tH3 = PIX_H * s3;
+  const botMid = Math.round(botY + tH3 / 2);
   if (isMax) {
-    drawPix(g, '已臻满级', padX, botY, { scale: s3, color: '#ffe082', outline: '#08060c', align: 'left' });
+    const icoSz = Math.round(tH3 * 1.0);
+    drawMiniIcon(g, 'star', padX + icoSz / 2, botMid, icoSz);
+    drawPix(g, '已臻满级', padX + icoSz + Math.round(4 * dpr), botY, { scale: s3, color: '#ffe082', outline: '#08060c', align: 'left' });
   } else if (spec.cost != null) {
-    const icoSz = Math.round(tH3 * 1.05);
-    drawMiniIcon(g, spec.cur, padX + icoSz / 2, Math.round(botY + tH3 / 2), icoSz);
-    const needTxt = canAfford ? `${spec.cost} 参悟` : `差 ${spec.cost - spec.have}`;
-    drawPix(g, needTxt, padX + icoSz + Math.round(5 * dpr), botY, { scale: s3, color: canAfford ? '#ffe694' : '#ff8a7a', outline: '#08060c', align: 'left' });
+    const cw = drawCostChip(g, spec.cur, spec.cost, spec.have, padX, botMid, s3, dpr);
+    if (canAfford) {
+      drawPix(g, '参悟', padX + cw + Math.round(6 * dpr), botY, { scale: s3, color: '#ffe694', outline: '#08060c', align: 'left' });
+    }
   }
   const altHint = `${spec.yin ? '阳' : '阴'}：${t(spec.altName)}`;
   const altPx = Math.max(Math.round(10 * dpr), Math.round(Hh * 0.145));
@@ -945,10 +905,10 @@ export function paintSteleFace(
   return tex;
 }
 
-/** act-149: paint a 3×3 Hades-2-style jade meditation card face — top-left Grasp orb, top-right rank pips, crisp bottom 2-char name + state/cost */
+/** act-149 / act-151: paint a 3×3 Hades-2-style jade meditation card face — top-left `[grasp] N` / `[star]`, top-right rank pips, bottom name + `[herb] have/need` */
 export function paintArcanaFace(
   spec: {
-    short: string; grasp: number; rank: number; active: boolean; unlockCost: number; canUnlock: boolean; awakening?: boolean;
+    short: string; grasp: number; rank: number; active: boolean; unlockCost: number; have?: number; canUnlock: boolean; awakening?: boolean;
   },
   w: number, h: number, dpr: number,
 ) {
@@ -956,22 +916,31 @@ export function paintArcanaFace(
   g.imageSmoothingEnabled = false;
   const unlocked = spec.rank > 0;
   const pad = Math.round(4 * dpr);
-  // 1. Top-left Grasp cost seal (number 1..4, or golden '醒' for 0-grasp center Awakening card!)
+  // 1. Top-left Grasp cost seal: `[grasp icon] N` (or golden `[star]` for 0-grasp Awakening)
   const gScale = Math.max(1, Math.floor((Hh * 0.13) / PIX_H));
-  const gTxt = spec.grasp === 0 ? '醒' : String(spec.grasp);
+  const gH = PIX_H * gScale;
+  const gIco = Math.round(gH * 0.98);
   const gPad = Math.max(2, Math.round(3 * dpr));
-  const gw = Math.max(PIX_H * gScale + gPad * 2, pixW(gTxt) * gScale + gPad * 2);
-  const gh = PIX_H * gScale + gPad * 2;
+  const gTxt = spec.grasp === 0 ? '' : String(spec.grasp);
+  const innerW = spec.grasp === 0 ? gIco : gIco + Math.round(2 * dpr) + pixW(gTxt) * gScale;
+  const gw = innerW + gPad * 2;
+  const gh = gH + gPad * 2;
   const bdr = Math.max(1, Math.round(1.5 * dpr));
   const rimCol = !unlocked ? '#5c6070' : spec.active ? (spec.awakening ? '#ffe478' : '#90f8bc') : '#6ea88c';
   g.fillStyle = rimCol; g.fillRect(pad, pad, gw, gh);
   g.fillStyle = spec.active ? (spec.awakening ? '#2c200c' : '#0f2b1e') : '#12161c';
   g.fillRect(pad + bdr, pad + bdr, gw - 2 * bdr, gh - 2 * bdr);
-  drawPix(g, gTxt, pad + gw / 2, Math.round(pad + (gh - PIX_H * gScale) / 2), {
-    scale: gScale, color: !unlocked ? '#9a9ea8' : spec.awakening ? '#ffe880' : spec.active ? '#b0ffd2' : '#d2e8dc', outline: null, align: 'center',
-  });
+  const gMid = Math.round(pad + gh / 2);
+  if (spec.grasp === 0) {
+    drawMiniIcon(g, spec.active ? 'star' : 'starOff', Math.round(pad + gw / 2), gMid, gIco);
+  } else {
+    drawMiniIcon(g, 'grasp', Math.round(pad + gPad + gIco / 2), gMid, gIco);
+    drawPix(g, gTxt, Math.round(pad + gPad + gIco + Math.round(2 * dpr)), Math.round(gMid - gH / 2), {
+      scale: gScale, color: !unlocked ? '#a0a6b0' : spec.active ? '#b8ffd6' : '#d6ece0', outline: null, align: 'left',
+    });
+  }
 
-  // 2. Top-right rank diamonds (1..3) when unlocked
+  // 2. Top-right rank diamonds (1..3) when unlocked, or small lock icon when locked
   if (unlocked) {
     const dSz = Math.max(Math.round(6 * dpr), Math.round(Hh * 0.085));
     const dGap = Math.round(2.5 * dpr);
@@ -981,9 +950,12 @@ export function paintArcanaFace(
       drawDiamond(g, dx, dy, dSz, i < spec.rank ? (spec.awakening ? '#ffe074' : '#88f4b2') : '#283430', '#0a0e0c', i < spec.rank);
       dx -= dSz + dGap;
     }
+  } else {
+    const lSz = Math.max(Math.round(8 * dpr), Math.round(Hh * 0.11));
+    drawMiniIcon(g, 'lock', Math.round(W - pad - lSz / 2), gMid, lSz);
   }
 
-  // 3. Bottom horizontal hairline + HUGE 2-char card name + crisp state/cost tag (guaranteed inside card height on compact phones!)
+  // 3. Bottom horizontal hairline + HUGE 2-char card name + crisp state / `[herb] have/need` chip
   const divY = Math.round(Hh * 0.60);
   g.fillStyle = !unlocked ? '#2c303a' : spec.active ? (spec.awakening ? '#d8a840' : '#4eb87e') : '#2a463c';
   g.fillRect(pad, divY, W - pad * 2, Math.max(1, Math.round(dpr)));
@@ -1001,13 +973,8 @@ export function paintArcanaFace(
 
   const yBot = Math.min(Hh - tH2 - Math.max(1, Math.round(1.5 * dpr)), Math.round(yName + tH1 + Math.max(1, gapY * 0.85)));
   if (!unlocked) {
-    const tH2 = PIX_H * s2;
-    const icoSz = Math.round(tH2 * 1.05);
-    const costTxt = String(spec.unlockCost);
-    const tot = icoSz + Math.round(3 * dpr) + pixW(costTxt) * s2;
-    const x0 = Math.round((W - tot) / 2);
-    drawMiniIcon(g, 'herb', x0 + icoSz / 2, Math.round(yBot + tH2 / 2), icoSz);
-    drawPix(g, costTxt, x0 + icoSz + Math.round(3 * dpr), yBot, { scale: s2, color: spec.canUnlock ? '#98f8ba' : '#ff8c7c', outline: '#07090c', align: 'left' });
+    const cw = drawCostChip(null, 'herb', spec.unlockCost, spec.have, 0, 0, s2, dpr);
+    drawCostChip(g, 'herb', spec.unlockCost, spec.have, Math.round((W - cw) / 2), Math.round(yBot + tH2 / 2), s2, dpr);
   } else if (spec.active) {
     drawPix(g, spec.awakening ? '已唤醒' : '入阵', W / 2, yBot, { scale: s2, color: spec.awakening ? '#ffe680' : '#88f8b8', outline: '#07090c', align: 'center' });
   } else {

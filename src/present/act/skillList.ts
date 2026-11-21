@@ -7,13 +7,15 @@ import * as THREE from 'three';
 import type { UiLayer } from '../ui3d/layer';
 import { mergeBoxes, IRON_D, IRON, LACQ, LACQ_L, BRONZE, BRONZE_D } from './title';
 import { paintTitle } from './opening';
-import { PIX_H } from '../v2/pix';
+import { pixW, PIX_H } from '../v2/pix';
 import { makeCanvas } from '../../platform/index';
 import type { Model3D } from '../ui3d/models3d';
 import type { MiniShield } from './btnBadge';
 import { layoutPresses, paintSeps, pressShields, paintName, paintEffect, paintNum, type SkillEntry, type PressItem } from './skillFace';
 import { language, t } from './i18n';
 import { skillIcon3D } from './skillIcons';
+import { glyphIcon3D } from './cardBoard';
+import { itemModel, itemForCard } from './itemModels';
 import { uiScale } from './uiScale';
 export type { SkillEntry } from './skillFace';
 
@@ -60,7 +62,7 @@ export class SkillList {
   private make(e: SkillEntry | null, title: string, i: number): Item {
     const root = new THREE.Group(); root.userData.noTilt = true; root.renderOrder = 60; this.L.scene.add(root);
     const face = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, toneMapped: false })); face.renderOrder = 62; root.add(face);
-    return { e, title, root, body: null, face, picture: null, presses: [], items: [], x: 0, y: 0, w: 0, h: 0, inK: 0, selK: 0, faceKey: '', t: 0, delay: Math.min(0.4, i * 0.04) };
+    return { e, title, root, body: null, face, picture: null, presses: [], items: [], x: 0, y: 0, w: 0, h: 0, inK: 0, selK: 0, faceKey: '', t: 0, delay: Math.min(0.14, i * 0.018) };
   }
   close() {
     for (const it of this.items) {
@@ -79,21 +81,30 @@ export class SkillList {
   scrollBy(px: number) { this.scrollT = Math.max(0, Math.min(this.maxScroll(), this.scrollT + px)); }
   private maxScroll() { const last = this.items[this.items.length - 1]; return last ? Math.max(0, last.y + last.h / 2 + this.scroll - this.lay.bottom) : 0; }
   hit(x: number, y: number) { return this.items.findIndex(it => !!it.e && it.inK > 0.6 && Math.abs(x - it.x) < it.w / 2 && Math.abs(y - it.y) < it.h / 2); }
-  /** place the column: x = its centre, from top to bottom (px) */
-  layout(x: number, top: number, bottom: number, w: number) {
+  /** place the column: x = its centre, from top to bottom (px); compact = narrower left list paired with right MoveStage inspector */
+  layout(x: number, top: number, bottom: number, w: number, compact = false) {
     const kk = uiScale(this.L.w, this.L.h, 0.75, 2.8);
-    const h = Math.max(52 * kk, Math.min(96 * kk, w * 0.16, (bottom - top) / 3.4)), headH = Math.max(26 * kk, h * 0.42), gap = Math.max(6 * kk, h * 0.12);
+    const h = compact
+      ? Math.max(44 * kk, Math.min(72 * kk, (bottom - top) / 4.8))
+      : Math.max(52 * kk, Math.min(96 * kk, w * 0.16, (bottom - top) / 3.4));
+    const headH = Math.max(22 * kk, h * 0.40), gap = Math.max(5 * kk, h * 0.11);
     Object.assign(this.lay, { x, top, bottom, w, h, gap, headH });
     let y = top - this.scroll;
     for (const it of this.items) {
       const ih = it.e ? h : headH; it.w = w; it.h = ih; it.x = x; it.y = y + ih / 2; y += ih + gap;
       if (it.e && !it.body) {
-        const s = h * 0.74, x = -w / 2 + h * 0.18 + s / 2;
-        it.body = slab(w, h, x, s); it.body.renderOrder = 60; it.root.add(it.body);
-        const p = it.picture = skillIcon3D(it.e.icon);
-        p.scale.setScalar(s * 0.94); p.position.set(x, 0, this.zf() + p.size[2] * p.scale.x / 2);
+        const s = h * 0.74, sx = -w / 2 + h * 0.16 + s / 2;
+        it.body = slab(w, h, sx, s); it.body.renderOrder = 60; it.root.add(it.body);
+        const realKey = it.e.customGlyph ? itemForCard(it.e.id) : null;
+        const p = it.picture = (realKey ? itemModel(realKey) : null)
+          ?? (it.e.customGlyph ? glyphIcon3D(`${it.e.kind}_${it.e.id}`, it.e.customGlyph, it.e.col) : skillIcon3D(it.e.icon));
+        p.scale.setScalar(s * 0.90); p.position.set(sx, 0, this.zf() + p.size[2] * p.scale.x / 2);
         p.traverse(o => { o.renderOrder = 61; }); it.root.add(p);
-        if (it.e.steps) { const ps = h * (language === 'en' ? 0.23 : 0.3), lp = layoutPresses(it.e.steps, ps, it.e.lit); it.items = lp.items; it.presses = pressShields(lp.items, ps, it.root, this.textX(), language === 'en' ? h * 0.07 : 0, this.zf() + ps * 0.07, 63); }
+        if (!compact && it.e.steps) {
+          const ps = h * (language === 'en' ? 0.23 : 0.3), lp = layoutPresses(it.e.steps, ps, it.e.lit);
+          it.items = lp.items;
+          it.presses = pressShields(lp.items, ps, it.root, this.textX(), language === 'en' ? h * 0.07 : 0, this.zf() + ps * 0.07, 63);
+        }
       }
     }
   }
@@ -113,8 +124,8 @@ export class SkillList {
     }
     this.scroll += (this.scrollT - this.scroll) * Math.min(1, dt * 14);
     for (const [i, it] of this.items.entries()) {
-      it.inK = Math.min(1, Math.max(it.inK, (this.openT - it.delay) / 0.28)); it.selK += ((i === this.sel ? 1 : 0) - it.selK) * Math.min(1, dt * 12);
-      const e = it.inK * it.inK * (3 - 2 * it.inK), off = (1 - e) * (it.w + 80);
+      it.inK = Math.min(1, Math.max(it.inK, (this.openT - it.delay) / 0.16)); it.selK += ((i === this.sel ? 1 : 0) - it.selK) * Math.min(1, dt * 12);
+      const e = it.inK * it.inK * (3 - 2 * it.inK), off = -(1 - e) * 140;
       // past the list's top / bottom a slab fades out over most of its height (the next one peeks in: there is more to scroll to)
       const over = Math.max(0, it.y + it.h / 2 - this.lay.bottom, this.lay.top - (it.y - it.h / 2)), edge = Math.max(0, 1 - over / (it.h * 0.85));
       const a = e * rel * edge;
@@ -146,16 +157,26 @@ export class SkillList {
       const m = it.face.material as THREE.MeshBasicMaterial; m.map?.dispose(); m.map = tex(c as HTMLCanvasElement); m.needsUpdate = true; it.face.scale.set(it.w, it.h, 1); it.face.position.z = 1;
       return;
     }
-    const tx = this.textX(), fw = it.w / 2 - tx - h * 0.12, fh = it.h * 0.9, key = `${Math.round(fw)}x${Math.round(fh)}@${dpr}`;
+    const tx = this.textX(), fw = it.w / 2 - tx - h * 0.12, fh = it.h * 0.9, compact = it.presses.length === 0;
+    const key = `${Math.round(fw)}x${Math.round(fh)}@${dpr}|${compact ? 1 : 0}|${language}`;
     if (key === it.faceKey) return; it.faceKey = key;
     const W = Math.max(8, Math.round(fw * dpr)), H = Math.max(8, Math.round(fh * dpr)), c = makeCanvas(W, H), g = c.getContext('2d') as CanvasRenderingContext2D; g.imageSmoothingEnabled = false;
-    // three rows as on the card: the name and tier (numbers at the right), the presses (marks between them), the effect
-    const e = it.e, S = Math.max(1, Math.round(H * 0.22 / PIX_H)), nameW = paintName(g, e, 0, Math.round(H * 0.05), S, dpr);
-    const english = language === 'en';
-    if (e.num && english) paintNum(g, e.num, 0, Math.round(H * 0.84), Math.round(H * 0.135), W - 4 * dpr);
-    else if (e.num) paintNum(g, e.num, W - Math.round(2 * dpr), Math.round(H * 0.05 + (PIX_H * S - H * 0.13) / 2), Math.round(H * 0.13), W - nameW - 16 * dpr, 'right');
-    paintSeps(g, it.items.map(x => ({ ...x, x: x.x * dpr, ...(x.kind === 'sep' ? { w: x.w * dpr } : {}) }) as PressItem), 0, Math.round((fh / 2 - (english ? h * 0.07 : 0)) * dpr), h * (english ? 0.23 : 0.3) * dpr);
-    paintEffect(g, e.effect, 0, Math.round(H * (english ? 0.68 : 0.76)), Math.round(H * (english ? 0.15 : 0.18)), W - 4 * dpr);
+    const e = it.e;
+    if (compact) {
+      // Compact 2-row slab paired with right MoveStage inspector: big Name + Badge on top, crisp icon-rich 1-line summary below!
+      let S = Math.max(1, Math.round(H * 0.34 / PIX_H));
+      while (S > 1 && pixW(e.name) * S > W * 0.62) S--;
+      paintName(g, e, 0, Math.round(H * 0.09), S, dpr);
+      paintEffect(g, e.effect, 0, Math.round(H * 0.58), Math.round(H * 0.24), W - 4 * dpr);
+    } else {
+      // three rows as on the card: the name and tier (numbers at the right), the presses (marks between them), the effect
+      const S = Math.max(1, Math.round(H * 0.22 / PIX_H)), nameW = paintName(g, e, 0, Math.round(H * 0.05), S, dpr);
+      const english = language === 'en';
+      if (e.num && english) paintNum(g, e.num, 0, Math.round(H * 0.84), Math.round(H * 0.135), W - 4 * dpr);
+      else if (e.num) paintNum(g, e.num, W - Math.round(2 * dpr), Math.round(H * 0.05 + (PIX_H * S - H * 0.13) / 2), Math.round(H * 0.13), W - nameW - 16 * dpr, 'right');
+      paintSeps(g, it.items.map(x => ({ ...x, x: x.x * dpr, ...(x.kind === 'sep' ? { w: x.w * dpr } : {}) }) as PressItem), 0, Math.round((fh / 2 - (english ? h * 0.07 : 0)) * dpr), h * (english ? 0.23 : 0.3) * dpr);
+      paintEffect(g, e.effect, 0, Math.round(H * (english ? 0.68 : 0.76)), Math.round(H * (english ? 0.15 : 0.18)), W - 4 * dpr);
+    }
     const m = it.face.material as THREE.MeshBasicMaterial; m.map?.dispose(); m.map = tex(c as HTMLCanvasElement); m.needsUpdate = true;
     it.face.scale.set(fw, fh, 1); it.face.position.set(tx + fw / 2, 0, this.zf());
   }

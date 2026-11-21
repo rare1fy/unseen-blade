@@ -112,9 +112,9 @@ import { ActHud } from './hud';
 import { CardPick3D as CardPick, type CardBoon } from './cards3d';   // act-36 / act-143: the pick cards as iron boards
 import { UiPlatePool, type MiniIcon, type WorkbenchStatRow } from './uiPlate';
 import { MoveDemo } from './moveDemo';
-import { entryOfManual, entryOfBoon, entryOfBase } from './skillFace';
+import { entryOfManual, entryOfBoon, entryOfBase, type AttachedBoon, type SkillEntry } from './skillFace';
 import type { Section } from './skillList';
-import { BASE_SKILLS, UI_WORDS, boonEffect, manualOf } from './skillInfo';
+import { BASE_SKILLS, baseSkillsForWeapon, UI_WORDS, boonEffect, manualOf } from './skillInfo';
 import type { Mark } from './hud';
 import { MANUALS } from './manuals';
 import { fillVals } from './cards';
@@ -1796,7 +1796,7 @@ export class ActShow {
               id: 'mu_' + u.id, school: 'fg' as never, name: u.name,
               desc: [u.desc[0], u.desc[1]], col: canAfford ? '#ffd878' : '#989088', glyph: ANVIL,
               locked: cost != null && !canAfford,
-              workInfo: { name: u.name, lv, maxLv: max, cost, cur: 'iron', canAfford, theme: 'forge' },
+              workInfo: { name: u.name, lv, maxLv: max, cost, have: p.iron, cur: 'iron', canAfford, theme: 'forge' },
             } as CardBoon,
             tier: cost == null ? 2 : canAfford ? 1 : 0,
           };
@@ -1809,7 +1809,7 @@ export class ActShow {
               id: 'wf_' + id, school: 'fg' as never, name: w.name,
               desc: [w.summary, w.special], col: can ? w.col : '#989088', glyph: w.glyph,
               locked: !unl || (cost != null && !can),
-              workInfo: { name: w.name, lv, maxLv: 3, cost, cur: 'iron', canAfford: can, unlocked: unl, theme: 'forge', weaponId: id },
+              workInfo: { name: w.name, lv, maxLv: 3, cost, have: p.iron, cur: 'iron', canAfford: can, unlocked: unl, theme: 'forge', weaponId: id },
             } as CardBoon,
             tier: cost == null ? 2 : can ? 1 : 0,
           };
@@ -1832,8 +1832,8 @@ export class ActShow {
               lv,
               maxLv: max,
               stats: this.metaWorkbenchStats(u.id, lv, max),
-              btnLabel: cost == null ? '已臻圆满' : canAfford ? '开炉锻造' : msg`还差 ${cost - p.iron} 残铁`,
-              btnCost: cost != null && canAfford ? { cur: 'iron', amount: cost } : undefined,
+              btnLabel: cost == null ? '已臻圆满' : '开炉锻造',
+              btnCost: cost != null ? { cur: 'iron', amount: cost, have: p.iron } : undefined,
               btnEnabled: canAfford,
               accent: '#d49a4c',
             };
@@ -1847,10 +1847,10 @@ export class ActShow {
             sub: unl ? w.title : w.unlockHint,
             lv: unl ? lv : 0,
             maxLv: 3,
-            stats: [{ label: '淬炼等阶', before: msg`${lv}阶`, after: unl && lv < 3 ? msg`${lv + 1}阶` : undefined, highlight: unl && lv < 3 }],
+            stats: [{ label: '淬炼等阶', icon: 'blade', before: msg`${lv}阶`, after: unl && lv < 3 ? msg`${lv + 1}阶` : undefined, highlight: unl && lv < 3 }],
             note: !unl ? w.summary : lv >= 3 ? msg`圆满特技：${w.forgeDesc[2]}` : msg`${lv + 1}阶解锁：${w.forgeDesc[lv]}`,
-            btnLabel: !unl ? '尚未夺回' : cost == null ? '三阶圆满' : can ? '开炉淬炼' : msg`还差 ${cost - p.iron} 残铁`,
-            btnCost: unl && cost != null && can ? { cur: 'iron', amount: cost } : undefined,
+            btnLabel: !unl ? '尚未夺回' : cost == null ? '三阶圆满' : '开炉淬炼',
+            btnCost: unl && cost != null ? { cur: 'iron', amount: cost, have: p.iron } : undefined,
             btnEnabled: can,
             accent: unl ? w.col : '#6a6670',
           };
@@ -1897,7 +1897,7 @@ export class ActShow {
         const altBadge = PAD.device === 'pad' ? msg`${padName(3)}切${altLbl}` : msg`Q切${altLbl}`;
         return {
           boon: {
-            id: 'mr_' + m.id, school: 'mr' as never,
+            id: 'mr_' + m.id + (st.side === 1 ? '_yin' : '_yang'), school: 'mr' as never,
             name: curSide.name,
             desc: [effect, ''],
             col: st.side === 0 ? '#ffd888' : '#c0a0ff',
@@ -1977,7 +1977,7 @@ export class ActShow {
             locked: !unlocked,
             arcanaInfo: {
               short: def.short, grasp: def.grasp, rank: rk, active,
-              unlockCost: def.unlockCost, canUnlock, awakening: def.grasp === 0,
+              unlockCost: def.unlockCost, have: p.herb, canUnlock, awakening: def.grasp === 0,
             },
           } as CardBoon,
           tier: active ? 2 : unlocked ? 1 : 0,
@@ -1989,7 +1989,7 @@ export class ActShow {
         header: { title: '孙媪 · 药炉悟性阵', sub: '以悟性点亮经脉牌阵 · 随时免费启停 · 同启三牌唤醒中宫', col: '#90f6ba', accent: '#4eb47c' },
         wallet: { iron: p.iron, herb: p.herb, focus: 'herb' },
         graspBar: {
-          used, cap, nextCost: nextCap, canExpand: nextCap != null && p.herb >= nextCap,
+          used, cap, nextCost: nextCap, have: p.herb, canExpand: nextCap != null && p.herb >= nextCap,
           onExpand: () => {
             if (expandArcanaCap(p)) {
               saveProfile();
@@ -2024,21 +2024,25 @@ export class ActShow {
           const nextVal = unlocked && rk < 3 ? def.vals[rk] : def.vals[0];
           const upCost = arcanaUpgradeCost(p, def.id);
           const canUp = upCost != null && p.herb >= upCost;
-          const canEquip = unlocked && !active && !isAwk && used + def.grasp <= cap;
+          const availGrasp = Math.max(0, cap - used);
+          const canEquip = unlocked && !active && !isAwk && availGrasp >= def.grasp;
           const graspSub = isAwk
             ? msg`零悟性 · 已启 ${actCnt}/3 牌自动唤醒`
-            : msg`占 ${def.grasp} 悟性 · ${def.desc}`;
+            : msg`悟性 ${def.grasp} · ${def.desc}`;
           const fmt = (val: number) => def.unit ? `${val}${def.unit}` : `+${val}`;
           const stats: WorkbenchStatRow[] = unlocked
             ? [{ label: def.statLabel, before: fmt(curVal), after: rk < 3 ? fmt(nextVal) : undefined, highlight: rk < 3 }]
             : [{ label: def.statLabel, before: '未悟', after: fmt(def.vals[0]), highlight: true }];
           const btnLabel = !unlocked
-            ? (p.herb >= def.unlockCost ? '参悟此牌' : msg`还差 ${def.unlockCost - p.herb} 药引`)
+            ? '参悟此牌'
             : isAwk
-              ? (active ? '中宫已唤醒' : msg`需再启 ${Math.max(0, 3 - actCnt)} 牌`)
+              ? (active ? '中宫已唤醒' : msg`已启 ${actCnt}/3 牌`)
               : active
                 ? '卸下归位'
-                : canEquip ? msg`启用入阵（${def.grasp}悟）` : '悟性不足';
+                : '启用入阵';
+          const btnCost = !unlocked
+            ? { cur: 'herb' as const, amount: def.unlockCost, have: p.herb }
+            : (unlocked && !active && !isAwk ? { cur: 'grasp' as const, amount: def.grasp, have: availGrasp } : undefined);
           return {
             theme: 'medic',
             title: def.name,
@@ -2048,10 +2052,10 @@ export class ActShow {
             stats,
             note: isAwk ? def.desc : unlocked && active ? '入阵生效中 · 可随时免费卸下' : undefined,
             btnLabel,
-            btnCost: !unlocked && p.herb >= def.unlockCost ? { cur: 'herb', amount: def.unlockCost } : undefined,
+            btnCost,
             btnEnabled: !unlocked ? p.herb >= def.unlockCost : isAwk ? false : (active || canEquip),
-            subBtnLabel: unlocked ? (upCost == null ? '三阶圆满' : canUp ? '精进升阶' : msg`差 ${upCost - p.herb} 药`) : undefined,
-            subBtnCost: unlocked && upCost != null && canUp ? { cur: 'herb', amount: upCost } : undefined,
+            subBtnLabel: unlocked ? (upCost == null ? '三阶圆满' : '精进升阶') : undefined,
+            subBtnCost: unlocked && upCost != null ? { cur: 'herb', amount: upCost, have: p.herb } : undefined,
             subBtnEnabled: unlocked && canUp,
             accent: active ? (isAwk ? '#ffe078' : '#7ef0aa') : '#4e9670',
           };
@@ -2150,12 +2154,12 @@ export class ActShow {
       { label: () => (this.storySkip ? '跳过剧情：快进中…' : '跳过剧情（演出和对话快进到能操作）'), run: () => this.skipStory() },
       // 11-18 测关卡用: she can't die / every 刀谱 move on (the tune panel only, not the pause menu)
       { label: () => `打不死：${this.god ? '开' : '关'}`, run: () => { this.god = !this.god; } },
-      { label: () => `全部招式：${this.dbgAllMoves ? '开' : '关'}`, run: () => { this.dbgAllMoves = !this.dbgAllMoves; if (this.hero && !this.yard && !this.prologue) this.hero.moves = this.dbgAllMoves ? ALL_MOVES : this.perks.moves; } },
+      { label: () => `全部招式：${this.dbgAllMoves ? '开' : '关'}`, run: () => { this.dbgAllMoves = !this.dbgAllMoves; if (this.hero && !this.prologue) this.hero.moves = this.dbgAllMoves ? ALL_MOVES : this.perks.moves; } },
       { label: () => `全部名刀与信物：${this.dbgAllWeapons ? '开' : '关'}`, run: () => { this.dbgAllWeapons = !this.dbgAllWeapons; this.syncHideoutNpcs(); this.refreshHideoutProps(); } }],
       { regions: REGIONS.map(r => r.name), rooms: ri => REGIONS[ri].rooms, go: (ri, room, type) => { const r = this.jumpRegion(ri, room, type); return 'why' in r ? r.why : undefined; } });
     // the pause menu (act-30 之后, user: 「帮我把手柄的按键映射和手柄支持做了吧」): Start / Esc, a pad pulled out, the page hidden
     this.pause = new PauseMenu({ L: this.L, settings: [...SET.filter(x => __DEBUG_UI__ || !x.dbg).map(x => ({ label: x.short, run: x.run })), { id: 'language', label: () => '语言：简体中文', run: () => setLanguage(language === 'en' ? 'zh' : 'en') }], canGiveUp: () => this.canGiveUp(), giveUp: () => this.giveUp(), closed: () => this.unpaused(), toTitle: () => this.backToTitle(), onRun: () => this.canGiveUp(),
-      owned: () => this.ownedSections(), skills: () => this.skillSections(),
+      build: () => this.buildSections(),
       preview: id => this.previewMove(id), previewing: () => this.previewOn, stopPreview: () => { if (this.previewOn) this.demo.stop(true); } });
     // 11-18 (用户：「游戏里也没有一个可以呼出暂停窗口的按钮」): the iron button at the top right opens it too
     this.hud.onPause = () => this.pauseGame();
@@ -3044,7 +3048,8 @@ export class ActShow {
     const ent = this.arena?.shape?.enter[0] ?? 0;
     const entZ = this.arena?.shape?.fixed ? this.arena.shape.enter[1] : (this.prologue === 2 || spec.locale === 'cx_court') ? SZ(1.6) : SZ(5.0);
     yield;
-    this.hero = new Hero(isYard ? V3(HIDEOUT.spawn[0], 0, HIDEOUT.spawn[1]) : V3(ent, 0, entZ), this.wearing); this.hero.moves = isYard || this.dbgAllMoves ? ALL_MOVES : this.perks.moves; this.hero.perks = this.perks; this.hero.hp = Math.min(hp, maxHp); this.hero.maxHp = maxHp;   // (act-40 用户：「开局第一场战斗默认给主角解锁所有技能」) (11-18: this comment used to sit before the perks / hp assignments and swallowed them — the hero's own boons never applied and her HP reset each room)
+    // act-151: hideout uses the equipped weapon's true base moveset (no longer auto-granting all 12 run-only 刀谱 manuals unless dbgAllMoves is on)
+    this.hero = new Hero(isYard ? V3(HIDEOUT.spawn[0], 0, HIDEOUT.spawn[1]) : V3(ent, 0, entZ), this.wearing); this.hero.moves = this.dbgAllMoves ? ALL_MOVES : this.perks.moves; this.hero.perks = this.perks; this.hero.hp = Math.min(hp, maxHp); this.hero.maxHp = maxHp;
     { const p = profile(), wid = equippedWeapon(p, this.dbgAllWeapons); this.hero.applyWeapon(wid, weaponLevel(p, wid)); }
     this.syncHeroHat();
     // (11-20: a new place starts still — a stick / key still held from the last one counts only once let go)
@@ -3946,17 +3951,90 @@ export class ActShow {
     this.hud.buildInfo = { manuals, boonCount };
     this.hud.setMarks(list);
   }
-  /** 已得: this run's 刀谱 and 秘传 */
-  private ownedSections(): Section[] {
-    const ms = this.room >= 0 ? MANUALS.filter(m => this.perks.moves[m.id]).map(entryOfManual) : [];
-    const bs = BOONS.filter(b => tierOf(this.perks, b.id) >= 0).map(b => entryOfBoon(b, tierOf(this.perks, b.id)));
-    if (!ms.length && !bs.length) return [{ title: UI_WORDS.owned, list: [], empty: UI_WORDS.ownedEmpty }];
-    return [...(ms.length ? [{ title: UI_WORDS.manual, list: ms }] : []), ...(bs.length ? [{ title: UI_WORDS.boon, list: bs }] : [])];
-  }
-  /** 招式: the moves she has from the start, then the 刀谱 she knows now (all of them in the yard and the prologue) */
-  private skillSections(): Section[] {
-    const known = this.hero?.moves ?? {}, ms = MANUALS.filter(m => known[m.id]).map(entryOfManual);
-    return [{ title: UI_WORDS.base, list: BASE_SKILLS.map(entryOfBase) }, ...(ms.length ? [{ title: UI_WORDS.manual, list: ms }] : [])];
+  /** act-151: Unified 招式谱 (Hades-2 style):
+   *  1) Current equipped weapon's true moveset (with run Boons slotted inline onto their trigger button!);
+   *  2) 本局已得 (only manuals & boons genuinely learned — zero duplication);
+   *  3) 据点备战 (active Sun Ao Arcana meditation cards & equipped Keepsake). */
+  private buildSections(): Section[] {
+    const p = profile();
+    ensureArcana(p);
+    const wid = equippedWeapon(p, this.dbgAllWeapons), wlv = weaponLevel(p, wid), wdef = WEAPONS[wid];
+    // Gather owned boons by slot for inline attachment onto weapon base moves
+    const slotBoons: Record<string, AttachedBoon[]> = {};
+    const archCounts: Partial<Record<Archetype, number>> = {};
+    const ownedBoons: SkillEntry[] = [];
+    for (const b of BOONS) {
+      const tr = tierOf(this.perks, b.id);
+      if (tr < 0) continue;
+      archCounts[b.arch] = (archCounts[b.arch] ?? 0) + 1;
+      const ai = ARCH_INFO[b.arch];
+      if (b.slot) {
+        (slotBoons[b.slot] ??= []).push({
+          name: b.name,
+          col: ai?.col ?? '#ffd878',
+          tier: tr,
+          eff: b.eff,
+          num: fillVals(b.note, b, tr),
+        });
+      }
+      ownedBoons.push(entryOfBoon(b, tr));
+    }
+    const baseEntries = baseSkillsForWeapon(wid, wlv).map(s => entryOfBase(s, s.slot ? slotBoons[s.slot] : undefined));
+    const knownMoves = this.dbgAllMoves ? ALL_MOVES : (this.room >= 0 ? this.perks.moves : {});
+    const ms = MANUALS.filter(m => knownMoves[m.id]).map(entryOfManual);
+    const runList: SkillEntry[] = [...ms, ...ownedBoons];
+    // Active Sun Ao Arcana cards + equipped Keepsake
+    const metaList: SkillEntry[] = [];
+    const roman = ['Ⅰ', 'Ⅱ', 'Ⅲ'];
+    for (const def of ARCANA) {
+      if (!isArcanaActive(p, def.id)) continue;
+      const rk = Math.max(1, arcanaRank(p, def.id));
+      const val = def.vals[Math.min(2, rk - 1)];
+      const valStr = def.unit ? `${val}${def.unit}` : `+${val}`;
+      metaList.push({
+        id: 'arc_' + def.id,
+        kind: 'arcana',
+        name: def.name,
+        tag: `${roman[rk - 1]}阶`,
+        badge: { text: def.grasp === 0 ? '中宫觉醒' : `悟性 ${def.grasp}`, col: def.grasp === 0 ? '#ffe478' : '#88f8be', hot: def.grasp === 0 },
+        tier: rk - 1,
+        icon: 'stance',
+        customGlyph: def.glyph,
+        steps: null,
+        effect: def.desc,
+        num: `${def.statLabel} ${valStr}`,
+        col: def.grasp === 0 ? 0xffe074 : 0x7ef0a8,
+        target: 'hp',
+        lit: null,
+      });
+    }
+    const kid = equippedKeepsake(p, this.dbgAllWeapons);
+    if (kid) {
+      const ks = KEEPSAKES[kid], star = keepsakeStar(p, kid);
+      metaList.push({
+        id: 'ks_' + kid,
+        kind: 'keepsake',
+        name: ks.name,
+        tag: starLabel(star),
+        badge: { text: '随身信物', col: '#ffd878' },
+        tier: Math.max(0, star - 1),
+        icon: 'ult',
+        customGlyph: ks.glyph,
+        steps: null,
+        effect: ks.effect(star),
+        num: `${ks.owner} · ${starLabel(star)}`,
+        col: parseInt(ks.col.replace('#', ''), 16) || 0xffd878,
+        target: 'hp',
+        lit: null,
+      });
+    }
+    const wepTitle = wlv > 0 ? msg`${wdef.name}（${wlv}阶） · 招式` : msg`${wdef.name} · 招式`;
+    const sections: Section[] = [
+      { title: wepTitle, list: baseEntries },
+      { title: UI_WORDS.runOwned, list: runList, empty: UI_WORDS.ownedEmpty },
+    ];
+    if (metaList.length) sections.push({ title: UI_WORDS.meta, list: metaList });
+    return sections;
   }
   /** light foes can be thrown: not the 力士, not a 渠帅, not an elite, not a dummy */
   private launchable(f: Foe) { return f.kind !== 'dummy' && !isBoss(f) && f.d.role !== 'brute' && !f.elite; }
@@ -6801,13 +6879,12 @@ export class ActShow {
     this.banner.hide(); this.hideHideoutLabels(); this.hideWorldPlates();
     this.pause.open('main');
   }
-  /** act-146 / act-149: one-key [Tab] or top-left「招式谱」plaque opens 3D 招式 (when 0 acquired) or 已得 (once learned) */
+  /** act-146 / act-151: one-key [Tab] or top-left「招式谱」plaque opens the unified 招式谱 + live MoveStage inspector */
   openOwnedQuick() {
     if (!this.canPause() || this.botOn) return;
     this.pauseHud = this.hud.on; this.hud.on = false; this.hud.update(0, this.inp, []); this.aimLine.visible = false;
     this.banner.hide(); this.hideHideoutLabels(); this.hideWorldPlates();
-    const hasOwned = Object.values(this.perks.moves).some(Boolean) || Object.keys(this.perks.owned).length > 0;
-    this.pause.open(hasOwned ? 'owned' : 'skills', { quickClose: true });
+    this.pause.open('build', { quickClose: true });
   }
   private unpaused() {
     if (this.pauseHud == null) return;   // the menu was over the start screen
