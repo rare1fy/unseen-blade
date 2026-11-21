@@ -65,6 +65,11 @@ const PAL: Record<string, SlashPalette> = {
   launch:  { edge: 0xf2fbff, body: 0x7ad4f8, tail: 0x366a98, hdr: 1.20 },
   air:     { edge: 0xfff0f6, body: 0xf27ea6, tail: 0x923056, hdr: 1.20 },
   swoop:   { edge: 0xf0fff3, body: 0x6cd898, tail: 0x2d704c, hdr: 1.20 },
+  // Famous Generals signature 3D voxel weapon-light palettes
+  zhaoyun:   { edge: 0xf6fcff, body: 0x7cc8ff, tail: 0x2d64a8, hdr: 1.24 },
+  lubu:      { edge: 0xfff5d6, body: 0xf24a2e, tail: 0x9c1618, hdr: 1.28 },
+  xiahoudun: { edge: 0xffece0, body: 0xc82628, tail: 0x5c1216, hdr: 1.24 },
+  luxun:     { edge: 0xf2fff8, body: 0x5ce0b0, tail: 0x28786a, hdr: 1.22 },
 };
 
 const MOVE_PAL: Record<string, keyof typeof PAL> = {
@@ -378,6 +383,81 @@ class SlashSystem {
           tip.x + _d.x * d, tip.y + _d.y * d, tip.z + _d.z * d,
           sz, k <= 2 ? pal.edge : pal.body, k <= 2 ? hdr : 1.0, k <= 2 ? 0.88 : 0.52,
           0.115, k <= 2 ? 0 : 1,
+        );
+      }
+    }
+  }
+
+  /**
+   * Real-time weapon-attached 3D voxel light trail for Famous Generals (same 1-draw-call ring buffer as the protagonist,
+   * independent of hero counter/bleed tint state so general & heroine trails never interfere with each other).
+   */
+  generalStep(
+    prevRoot: THREE.Vector3, prevTip: THREE.Vector3,
+    root: THREE.Vector3, tip: THREE.Vector3,
+    palKey: keyof typeof PAL,
+    heavy = false,
+    isThrust = false,
+  ) {
+    const dist = prevTip.distanceTo(tip);
+    if (dist < 0.02 || dist > 3.2) return;
+    const pal = PAL[palKey] ?? PAL.light;
+    const hdr = pal.hdr ?? 1.22;
+    const bladeLen = Math.max(0.5, root.distanceTo(tip));
+    const steps = Math.max(1, Math.min(12, Math.ceil(dist / 0.07)));
+
+    _dir.copy(tip).sub(prevTip);
+    const dl = _dir.length() || 1;
+    _dir.multiplyScalar(1 / dl);
+
+    const edgeSz = heavy ? 0.118 : 0.098;
+    const midSz = heavy ? 0.105 : 0.090;
+    const wakeSz = 0.078;
+    const edgeLife = heavy ? 0.175 : 0.135;
+    const midLife = heavy ? 0.14 : 0.105;
+    const wakeLife = heavy ? 0.11 : 0.082;
+
+    for (let i = 1; i <= steps; i++) {
+      const f = i / steps;
+      _a.lerpVectors(prevRoot, root, f);
+      _b.lerpVectors(prevTip, tip, f);
+      if (!isThrust) {
+        _c.copy(_b).sub(_a);
+        const cl = _c.length();
+        if (cl > 0.05) _b.copy(_a).addScaledVector(_c, bladeLen / cl);
+      }
+      _d.copy(_b).sub(_a);
+      const bl = _d.length() || 1;
+      _d.multiplyScalar(1 / bl);
+
+      this.stepCount++;
+      this.emitCube(_b.x + _d.x * 0.02, _b.y + _d.y * 0.02, _b.z + _d.z * 0.02, edgeSz, pal.edge, hdr, 0.88, edgeLife, 0);
+      _c.lerpVectors(_a, _b, 0.72);
+      this.emitCube(_c.x, _c.y, _c.z, midSz, pal.body, 1.0, 0.48, midLife, 1);
+      if (heavy || this.stepCount % 2 === 0) {
+        _c.lerpVectors(_a, _b, 0.48);
+        this.emitCube(_c.x, _c.y, _c.z, wakeSz, pal.tail, 1.0, heavy ? 0.36 : 0.28, wakeLife, 2);
+      }
+      if (this.stepCount % (heavy ? 3 : 5) === 0) {
+        const up = ((this.stepCount * 7) % 5 - 2) * 0.22;
+        this.emitCube(
+          _b.x, _b.y, _b.z,
+          0.064, pal.edge, hdr, 0.84, heavy ? 0.20 : 0.15, 3,
+          _dir.x * 0.7 + _d.x * 0.4, up + 0.28, _dir.z * 0.7 + _d.z * 0.4,
+          heavy ? 0.40 : 0.28, false,
+        );
+      }
+    }
+    if (isThrust && dist > 0.06) {
+      _d.copy(tip).sub(root);
+      const bl = _d.length() || 1;
+      _d.multiplyScalar(1 / bl);
+      for (let k = 1; k <= 5; k++) {
+        const d = k * 0.11;
+        this.emitCube(
+          tip.x + _d.x * d, tip.y + _d.y * d, tip.z + _d.z * d,
+          k <= 2 ? 0.10 : 0.076, k <= 2 ? pal.edge : pal.body, k <= 2 ? hdr : 1.0, k <= 2 ? 0.90 : 0.52,
+          0.125, k <= 2 ? 0 : 1,
         );
       }
     }

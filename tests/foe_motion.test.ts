@@ -13,6 +13,8 @@ import '../src/present/act/foes/xp_models';
 import '../src/present/act/foes/xp_poses';
 import '../src/present/act/foes/r45_models';
 import '../src/present/act/foes/r45_pose';
+import '../src/present/act/foes/generals_models';
+import '../src/present/act/foes/generals_pose';
 
 const DT = 1 / 60;
 const SPEEDS = [1.5, 2.5, 4];
@@ -327,4 +329,38 @@ it('gives hero Liu Bai 4-directional hurt reactions and a grounded kneel-to-side
   expect(hero.bones.shinL.rotation.x).toBeGreaterThan(0.35);
   expect(hero.bones.shinR.rotation.x).toBeGreaterThan(0.25);
   hero.dispose();
+});
+
+it('articulates all 4 Famous Generals with spring plumes/capes/ribbons and executes all signature moves without NaN', () => {
+  const specs: Array<{ id: string; bones: string[]; moves: string[] }> = [
+    { id: 'gen_zhaoyun', bones: ['clA1', 'clA2', 'zpA1', 'zpA2', 'spT1'], moves: ['thrust', 'sweep', 'flurry', 'dragonDive'] },
+    { id: 'gen_lubu', bones: ['clA1', 'clA2', 'plL1', 'plL2', 'plL3', 'plR1', 'plR2', 'plR3', 'spT1'], moves: ['sweep', 'reverseSweep', 'slam', 'thrust', 'whirl'] },
+    { id: 'gen_xiahoudun', bones: ['clA1', 'clA2', 'hbA1', 'hbA2'], moves: ['slash', 'upSlash', 'cleave', 'dashCut'] },
+    { id: 'gen_luxun', bones: ['clA1', 'clA2', 'crA1', 'crA2', 'robe1', 'robe2'], moves: ['sweep', 'fireWave', 'flurry'] },
+  ];
+  for (const s of specs) {
+    const g = new BattleActor(s.id);
+    g.place(new Vector3(), 0);
+    for (const bn of s.bones) expect(g.bones[bn], `${s.id} bone ${bn}`).toBeDefined();
+    g.setRunning(true, 3.2);
+    let clMax = 0;
+    for (let i = 0; i < 40; i++) {
+      g.home.z += 3.2 * DT;
+      g.update(DT);
+      clMax = Math.max(clMax, g.bones.clA1.rotation.x);
+    }
+    expect(clMax, `${s.id} cloak trails on sprint`).toBeGreaterThan(0.25);
+    g.setRunning(false);
+    for (const m of s.moves) {
+      g.play(new Action(m === 'fireWave' ? 'cast' : 'attack', 0.62, 0.5, { atk: m }));
+      for (let i = 0; i < 40; i++) {
+        g.update(DT);
+        for (const b of Object.values(g.bones)) {
+          expect(Number.isFinite(b.rotation.x) && Number.isFinite(b.rotation.y) && Number.isFinite(b.rotation.z), `${s.id} ${m}`).toBe(true);
+          expect(Number.isFinite(b.position.y), `${s.id} ${m} pos`).toBe(true);
+        }
+      }
+    }
+    g.dispose();
+  }
 });

@@ -200,6 +200,7 @@ const DOWN_JOINTS = new Set([
   'legFL', 'legFR', 'legBL', 'legBR', 'horseLegFL', 'horseLegFR', 'horseLegBL', 'horseLegBR',
   'horseShinFL', 'horseShinFR', 'horseShinBL', 'horseShinBR',
   'hrA2', 'hrA3', 'bfA2', 'bfA3', 'bfB2', 'bfB3', 'hipSlv2', 'hipSlv3', 'clA2', 'robe2',
+  'plL2', 'plL3', 'plR2', 'plR3', 'zpA2', 'hbA2', 'crA2',
 ]);
 const UP_JOINTS = new Set(['spine', 'chest', 'neck', 'head']);
 const SIDE_JOINTS = new Set(['armL', 'armR']);
