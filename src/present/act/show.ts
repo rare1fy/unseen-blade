@@ -49,6 +49,7 @@ import { Stele } from './stele';
 import { openLab } from './lab';
 import { HAS_DOM } from '../../platform';
 import { openAnimPreview } from './animPreview';
+import { openMovesPreview, type StageSetup } from './movesPreview';
 import { IronHp, HP_FACE } from './ironUi';
 import { ROSTER } from '../bestiary/models';
 import { CODE_BUILD } from '../bestiary/voxEdit';
@@ -2249,6 +2250,8 @@ export class ActShow {
     if (typeof window !== 'undefined' && ((window as unknown as { __LAB?: number }).__LAB || /[?&#]lab\b/.test(location.href))) { this.lab(); return; }
     // 11-18 ?anim, or the desktop page (window.__ANIM): every character's moves side by side (animPreview.ts)
     if (HAS_DOM && ((window as unknown as { __ANIM?: number }).__ANIM || /[?&#]anim\b/.test(location.href))) { this.animPreview(); return; }
+    // act-140 ?moves, or the desktop full moveset page (window.__MOVES): interactive 3D showcase of all base/weapon/manual/boon moves (movesPreview.ts)
+    if (HAS_DOM && ((window as unknown as { __MOVES?: number }).__MOVES || /[?&#]moves\b/.test(location.href))) { this.movesPreview(); return; }
     // ?model (vox/打开游戏看效果.bat): straight into the hideout, the camera close behind her — for checking a model edited in MagicaVoxel
     if (typeof location !== 'undefined' && /[?&#]model\b/.test(location.href)) { Object.assign(TUNE, { camH: 7.5, camD: 10.5, camFov: 34 }); return this.enterYard(); }
     const tn = wantTitle();
@@ -2290,7 +2293,7 @@ export class ActShow {
   /** 模型查看页 (lab.ts, act-21, user: 「建模个白发女给我看看，在一个页面里看，带技能动作的」): the hideout's 试剑坪, the fine white-haired
    *  heroine before a dummy, a panel of moves (real button presses), views, the 2x pixels, the 7 cm model to switch to or stand beside.
    *  The look chosen here is not remembered (the game's own costume stays as it was). */
-  private labOn = false; private labCmp: BattleActor | null = null; private labDummy: Foe | null = null; private labHome: () => void = () => {};
+  private labOn = false; private movesPreviewOn = false; private labCmp: BattleActor | null = null; private labDummy: Foe | null = null; private labHome: () => void = () => {};
   lab() {
     this.labOn = true;
     const fine = HEROES.find(d => d.id === DEFAULT_HERO); if (fine) this.wearing = fine;
@@ -2329,6 +2332,109 @@ export class ActShow {
     openAnimPreview({ home, make: def => new BattleActor(def), cam: (b, l, fov = 30) => { this.camOverride = b ? { base: V3(b[0], b[1], b[2]), look: V3(l![0], l![1], l![2]), fov } : null; } },
       [{ name: '据点的人', items: people }, { name: '第一关 · 黄巾', items: reg('hj_') }, { name: '第二关 · 洛阳', items: reg('ly_') }, { name: '第三关 · 下邳', items: reg('xp_') },
        { name: '第四关 · 乌林', items: reg('wl_') }, { name: '第五关 · 崔府', items: reg('cx_') }]);
+  }
+  /** act-140 全招式预览页 (movesPreview.ts, user: 「全招式的预览做一个页面放桌面上，我想看。」):
+   *  open sunlit courtyard, real hero combat engine & real sparring foes in clean formations, full 4-weapon / 12-manual / 16-boon interactive preview */
+  movesPreview() {
+    this.labOn = true; this.movesPreviewOn = true;
+    const fine = HEROES.find(d => d.id === DEFAULT_HERO); if (fine) this.wearing = fine;
+    this.enterYard(); this.banner.hide(); this.hud.on = false; this.noTalk = true;
+    const HOME = { x: -2.2, z: 2.2, yaw: Math.PI / 2 };
+    let curWeapon: WeaponId = 'hanshan';
+    let curLv = 3;
+
+    const clearEntities = () => {
+      this.cancelQte(); this.duel?.newRoom();
+      for (const f of this.foes) { f.tele?.dispose(); for (const e of f.extra) e.t.dispose(); f.a.dispose(); }
+      this.foes.length = 0;
+      for (const a of this.arrows) a.kill(); this.arrows.length = 0;
+      for (const w of this.waves) w.kill(); this.waves.length = 0;
+      for (const d of this.darts) d.kill(); this.darts.length = 0;
+      this.pinned.clear(); this.dropDecoy();
+      this.decoyCd = 0; this.parryCd = 0; this.dodgeCd = 0;
+    };
+
+    const spawnSpar = (x: number, z: number, opts: { hp?: number; maxHp?: number; immortal?: boolean; passive?: boolean } = {}) => {
+      const f = spawnFoe('hj_blade', V3(x, 0, z), V3(HOME.x, 0, HOME.z));
+      f.st = 'move'; f.t = 0; f.dur = 0;
+      const maxHp = opts.maxHp ?? 260;
+      f.maxHp = maxHp; f.hp = opts.hp ?? maxHp;
+      if (opts.passive !== false) {
+        f.d = { ...f.d, speed: 0 };
+        f.cd = 99;
+        f.mem.passive = true;
+      } else {
+        f.cd = 0.25;
+      }
+      if (opts.immortal !== false) f.mem.immortal = true;
+      this.foes.push(f);
+      return f;
+    };
+
+    const resetStage = (setup: StageSetup = {}) => {
+      const h = this.hero; if (!h) return;
+      clearEntities();
+      if (setup.weapon) curWeapon = setup.weapon;
+      if (setup.weaponLv != null) curLv = setup.weaponLv;
+      h.forceFree(); h.clearInput();
+      h.pos.set(HOME.x, 0, HOME.z); h.vel.set(0, 0, 0); h.y = 0; h.vy = 0;
+      h.a.place(h.pos.clone(), HOME.yaw); h.a.yaw = HOME.yaw;
+      h.maxHp = TUNE.heroHp; h.hp = setup.heroHp ?? TUNE.heroHp;
+      h.qi = setup.qi ?? 3; h.dashCd = 0; h.dartCd = 0; h.dartAmmo = TUNE.dartCharges; h.dartReload = 0;
+      h.inv = 0; h.counterT = 0; h.parryT = 0;
+      this.intent = setup.intent ?? 0; this.hud.intent = this.intent;
+      this.perks = { moves: { ...ALL_MOVES }, owned: {} };
+      if (setup.boons) {
+        for (const [id, tier] of Object.entries(setup.boons)) {
+          if (tier != null) this.perks.owned[id] = tier;
+        }
+      }
+      h.moves = this.perks.moves; h.perks = this.perks;
+      h.applyWeapon(curWeapon, curLv);
+      h.freeFlash = !!setup.freeFlash;
+      this.banner.hide(); this.hud.on = false;
+
+      const form = setup.formation ?? 'line';
+      if (form === 'line') {
+        spawnSpar(HOME.x + 1.80, HOME.z);
+        spawnSpar(HOME.x + 3.55, HOME.z);
+        spawnSpar(HOME.x + 5.30, HOME.z);
+      } else if (form === 'ring') {
+        spawnSpar(HOME.x + 2.15, HOME.z);
+        spawnSpar(HOME.x - 2.15, HOME.z);
+        spawnSpar(HOME.x, HOME.z - 2.15);
+        spawnSpar(HOME.x, HOME.z + 2.15);
+      } else if (form === 'close') {
+        spawnSpar(HOME.x + 1.25, HOME.z);
+        spawnSpar(HOME.x + 3.15, HOME.z);
+        spawnSpar(HOME.x + 1.75, HOME.z + 1.55);
+      } else if (form === 'far') {
+        spawnSpar(HOME.x + 3.9, HOME.z);
+        spawnSpar(HOME.x + 3.6, HOME.z - 1.5);
+        spawnSpar(HOME.x + 3.6, HOME.z + 1.5);
+      } else if (form === 'lowhp') {
+        spawnSpar(HOME.x + 1.75, HOME.z, { hp: 8, maxHp: 60, immortal: false });
+        spawnSpar(HOME.x + 3.55, HOME.z);
+        spawnSpar(HOME.x + 2.45, HOME.z + 1.55);
+      } else if (form === 'decoy') {
+        spawnSpar(HOME.x + 2.5, HOME.z - 0.75, { passive: false, immortal: true });
+        spawnSpar(HOME.x + 2.5, HOME.z + 0.75, { passive: false, immortal: true });
+      }
+    };
+
+    after(0.1, () => resetStage({ weapon: 'hanshan', weaponLv: 3, formation: 'line' }));
+    openMovesPreview({
+      resetStage,
+      weapon: () => curWeapon,
+      setWeapon: (id, lv = 3) => { curWeapon = id; curLv = lv; this.hero?.applyWeapon(id, lv); },
+      hold: (b, sec) => this.inp.hold(b, sec),
+      stick: (x, y, sec) => this.inp.push(x, y, sec),
+      arrow: d => { const h = this.hero, f = h.a.fwd(), p = h.pos.clone().addScaledVector(f, d).setY(1.25); this.arrows.push(new Arrow(p, Math.atan2(-f.x, -f.z), 8)); },
+      hero: () => ({ x: this.hero.pos.x, y: this.hero.y, z: this.hero.pos.z, yaw: this.hero.a.yaw }),
+      cam: (b, l, fov = 34) => { this.camOverride = b ? { base: V3(b[0], b[1], b[2]), look: V3(l![0], l![1], l![2]), fov } : null; },
+      setSpeed: s => { FX.speed = s; },
+      speed: () => FX.speed,
+    });
   }
   /** the other model standing beside her (not moving), for a side-by-side look */
   private labCompare(on: boolean) {
@@ -5810,6 +5916,13 @@ export class ActShow {
     this.decoyStep(dt); this.pinStep(dt); this.markStep(); this.dodgeGhostStep(rdt);   // 11-18 秘传 + act-118 完美闪避残影
     if (this.comboT > 0) { this.comboT = Math.max(0, this.comboT - dt); if (this.comboT <= 0) this.resetCombo(); else this.hud.combo = { hits: this.comboHits, bonus: this.comboStyle().dmgPct, frac: this.comboT / 3.2 }; }
     this.enterStep(dt); this.bossDropStep(dt); this.fleeStep(rdt);
+    if (this.movesPreviewOn) {
+      if (h.hp < 15) h.hp = 60;
+      for (const f of this.foes) {
+        if (f.mem.passive) f.cd = Math.max(f.cd, 99);
+        if (f.mem.immortal && f.st !== 'dead' && f.hp < f.maxHp * 0.35) f.hp = f.maxHp;
+      }
+    }
     for (const f of this.foes) {
       const ent = !this.ultOn ? this.entering.find(e => e.f === f) : undefined;
       if (!this.ultOn && (ent || this.bossDrops.some(d => d.f === f))) {

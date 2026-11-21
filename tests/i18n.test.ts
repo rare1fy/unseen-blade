@@ -7,7 +7,7 @@ import font from '../ui/font.js';
 
 const translations: Readonly<Record<string, string>> = EN;
 const han = /\p{Script=Han}/u;
-const skippedFiles = /(?:^|\/)(?:lab|tune|tunePanel|animPreview|hanshan_people|[^/]+_models)\.ts$/;   // (animPreview: the other window's animation tool page, not in the game)
+const skippedFiles = /(?:^|\/)(?:lab|tune|tunePanel|animPreview|movesPreview|hanshan_people|[^/]+_models)\.ts$/;   // (animPreview / movesPreview: desktop tool pages, not in the game)
 // These are search terms, scene metadata or developer-only controls, even when their files also contain player text.
 const internal: Record<string, RegExp> = {
   'show.ts': /^(?:界面风格：.*点这里换.*|震动：\{0\}（\{1\}）|这台设备支持|iPhone iOS .*|17 及以下|这个浏览器不支持|(?:开始画面|造型|像素)：.*点这里换.*|跳过剧情.*|打不死：.*|全部招式：.*|演出 \/ 对话还在放，放完再切|一二三四五六七八|·头目|·精英|据点的人|第[一二三四五]关 · .{2})$/,   // (the last few: the animation tool page's groups)
