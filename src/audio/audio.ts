@@ -231,6 +231,8 @@ class AudioEngine {
     }
     return p;
   }
+  /** act-140: pre-fetch & pre-decode a voice MP3 into RAM so dialogue / cutscene lines start with 0ms delay */
+  warmVoice(url: string) { if (this.ctx) void this.decodeVoice(url); }
   async voiceLine(url: string) {
     const ctx = this.ctx; if (!ctx || this.muted) return;
     const gen = ++this.voGen;

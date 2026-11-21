@@ -138,8 +138,7 @@ var atob = GameGlobal.atob || (typeof globalThis !== 'undefined' && globalThis.a
 })();
 
 var bundledAudio = new Map();
-function fetch(file) {
-  var name = String(file).split('/')[0];
+function loadBundledSubpack(name) {
   var downloaded = bundledAudio.get(name);
   if (!downloaded) {
     downloaded = new Promise(function (resolve, reject) {
@@ -148,6 +147,15 @@ function fetch(file) {
     bundledAudio.set(name, downloaded);
     downloaded.catch(function () { bundledAudio.delete(name); });
   }
+  return downloaded;
+}
+GameGlobal.__ubPreloadSubpack = function (name) {
+  if (!name || typeof wx === 'undefined' || !wx.loadSubpackage) return Promise.resolve();
+  return loadBundledSubpack(name).catch(function () { /* non-fatal: retried on demand */ });
+};
+function fetch(file) {
+  var name = String(file).split('/')[0];
+  var downloaded = loadBundledSubpack(name);
   return downloaded.then(function () {
     return {
       arrayBuffer: function () {

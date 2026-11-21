@@ -42,7 +42,7 @@ import { Solids, SLAM, slamSpeed, type Push } from './solids';
 import { Breakables } from './breakables';
 import { Gates, GateGlow } from './gates';
 import { UI_LOOK } from '../look/uiLook';
-import { sayMerchant, setHurtBreath } from '../../audio/voice';
+import { sayMerchant, setHurtBreath, warmLines, warmVoicePacks, warmVoiceFile } from '../../audio/voice';
 import { ALL_MOVES, drawManuals, manualCard, SCROLL_GLYPH } from './manuals';
 import { Dialogue, type Line } from './dialogue';
 import { Stele } from './stele';
@@ -529,6 +529,8 @@ export class ActShow {
   /** the prologue's first room: the snowy village at night, a few sentries; then the temple (leave() moves prologue to 2) */
   async startPrologue() {
     this.prologue = 1; this.proFalling = false; this.proFightT = 0; this.tut.reset();
+    // act-140: pre-download voice subpackages & pre-decode opening sentry/boss dialogues during the 16s walk-in so the first line plays at 0ms!
+    warmVoicePacks(); warmLines(PRO_AMBUSH); warmLines(PRO_CUIXUAN);
     this.intent = 0; this.hud.intent = 0; this.perks = newPerks(); this.room = 0; this.kills = 0; this.recent = []; this.visited = []; this.coins = 0;
     this.mods = runMods(profile()); this.defy = 0; this.eliteKills = 0; this.bossKilled = false; this.wine = false;
     TUNE.heroHp = 100 + this.mods.hpBonus; TUNE.dartCharges = 3 + this.mods.dartBonus; TUNE.aggression = 0.85 / this.mods.windupMul;
@@ -694,6 +696,7 @@ export class ActShow {
   /** the fight she cannot win: the blow, his word, the snow; dawn and the man with the donkey; the kiln */
   private async prologueFall() {
     if (this.proFalling || this.prologue !== 2) return; this.proFalling = true;
+    warmLines(PRO_FALL); warmLines(PRO_DAWN); warmLines(PRO_WAKE); warmVoiceFile('jiangjin/hurt_breath.mp3');
     this.cancelQte();
     this.foeWorld.dark?.(0);
     this.musicHold = 'bgm_fall'; void audio.playMusic('bgm_fall', 0.8);   // (act-37: struck down → the camera rises → the dawn)
@@ -2235,7 +2238,11 @@ export class ActShow {
     const ready = this.start();
     // start() selects the title, yard or fight synchronously, so preload its
     // music alongside the scenery even when preparing the scene takes frames.
-    if (!HAS_DOM) audio.prepare({ warm: [this.musicName()], prefetch: true });
+    if (!HAS_DOM) {
+      audio.prepare({ warm: [this.musicName()], prefetch: true });
+      // act-140: silently pre-download WeChat voice subpackages (audio5/6/7) right after boot so no dialogue ever stalls on wx.loadSubpackage
+      void audio.loading?.then(() => warmVoicePacks());
+    }
     // (11-19 用户：「每次开场的音乐都要我点一下屏幕才播，我希望是加载完了就开始播了」: start the sound as soon as the page is up,
     //  not on the first touch. A mini-game's WebAudio may play at once; a browser blocks sound until the first touch or key — there
     //  the context stays suspended and the first input resumes it (unlockAudio), the music then starts from where it would be)
@@ -2886,6 +2893,7 @@ export class ActShow {
       onSolved: (meta, outcome) => { void this.finishGeneralEvent(meta, outcome); },
     });
     this.generalEvent = runner;
+    warmLines(runner.meta.intro); warmLines(runner.meta.outro);
     return runner;
   }
   /** act-132: Launch the Three Kingdoms Famous General Trial (守 × 斗 × 猎 × 谋) */

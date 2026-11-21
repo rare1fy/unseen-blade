@@ -54,6 +54,40 @@ export function sayEventVoice(who: string, lid: string) {
   const url = FILES[`../assets/voice/${who}/${lid}.mp3`];
   if (url) { lastEventVoiceAt = now; void audio.voiceLine(url); }
 }
+let packsWarmed = false;
+/** act-140: silently pre-download all WeChat voice subpackages (audio5/6/7…) in background so the very first line never stalls on wx.loadSubpackage */
+export function warmVoicePacks() {
+  if (packsWarmed) return;
+  const fn = (globalThis as unknown as { __ubPreloadSubpack?: (name: string) => Promise<unknown> }).__ubPreloadSubpack;
+  if (!fn) return;
+  packsWarmed = true;
+  const packs = new Set<string>();
+  for (const url of Object.values(FILES)) {
+    if (typeof url === 'string' && !url.startsWith('data:') && !url.startsWith('/') && !url.startsWith('http')) {
+      const top = url.split('/')[0];
+      if (/^audio\d+$/.test(top)) packs.add(top);
+    }
+  }
+  for (const p of packs) void fn(p);
+}
+/** act-140: pre-decode upcoming dialogue lines into AudioBuffers so speech plays at 0ms when text appears */
+export function warmLines(lines: ReadonlyArray<{ who: string; text: string }>, limit = 6) {
+  warmVoicePacks();
+  let n = 0;
+  for (const l of lines) {
+    const url = BY_TEXT.get(l.who + '|' + l.text);
+    if (url) {
+      audio.warmVoice(url);
+      if (++n >= limit) break;
+    }
+  }
+}
+/** act-140: pre-decode a specific voice file (e.g. hurt_breath or combat callout) */
+export function warmVoiceFile(relPath: string) {
+  warmVoicePacks();
+  const url = FILES[`../assets/voice/${relPath}`];
+  if (url) audio.warmVoice(url);
+}
 /** say this line if there is a clip for it (stops the line before) */
 export function sayLine(who: string, text: string) { const url = BY_TEXT.get(who + '|' + text); if (url) void audio.voiceLine(url); else audio.stopVoice(); }
 /** act-128: traveling merchant shop barks (Breeze TTS 2) */

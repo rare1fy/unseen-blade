@@ -12,7 +12,7 @@ import { text, textW, type Overlay } from '../v2/overlay';
 import { bodyText, bodyW, BODY_FONT, NOTR } from '../ui3d/bodyFont';
 import { PIX_H } from '../v2/pix';
 import { cue } from '../../audio/cues';
-import { sayLine } from '../../audio/voice';
+import { sayLine, warmLines } from '../../audio/voice';
 import { audio } from '../../audio/audio';
 import { GL } from '../engine/world';
 import { GRADE } from '../look/post';
@@ -270,6 +270,7 @@ export class Dialogue {
       S.who = ''; S.id = ''; S.on = 0; S.k = 0; S.pop = 0; S.was = false; S.away = 0;
     }
     { const l = this.lines[0], sp = l && CAST[l.who]; if (sp && l.who !== 'act') this.setPortrait(sp.side, l.who, resolvePortrait(l.who, l.text, l.mood, this.heroHat)); }
+    warmLines(this.lines, 4);
     cue('scroll', 0.4); this.say();
     return new Promise(res => { this.done = res; });
   }
@@ -318,6 +319,7 @@ export class Dialogue {
   private say() {
     const l = this.lines[this.i]; if (!l) return;
     sayLine(l.who, l.text);
+    if (this.i + 1 < this.lines.length) warmLines(this.lines.slice(this.i + 1, this.i + 3), 2);
     // act-114: subtle emotional micro-effects on key beats
     if (EMPHASIS_SHAKE.test(l.text)) this.shakeT = 0.24;
     if (l.who === 'act' && EMPHASIS_FLASH.test(l.text)) { GRADE.flash = Math.max(GRADE.flash, 0.28); shake(0.14); }
