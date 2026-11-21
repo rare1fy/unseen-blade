@@ -1,5 +1,5 @@
 import { SEE_HOLES } from '../look/voxkit';
-import { setActorOcc } from '../look/occlude';
+import { setActorOcc, setPropOcc } from '../look/occlude';
 import { batchActor } from '../engine/rigidBatch';
 import { OPT } from '../engine/perfOpts';
 import { ContactBatch } from '../engine/contactBatch';
@@ -450,7 +450,7 @@ export class ActShow {
   async talk(lines: Line[], onLine?: (i: number, line: Line) => void) {
     if (!lines.length) return;
     if (this.hero) { this.hero.a.root.visible = true; this.hero.a.body.visible = true; }
-    const was = this.phase === 'talk' ? this.wasPhase : this.phase; this.wasPhase = was; this.phase = 'talk'; this.hud.on = false; this.banner.hide();
+    const was = this.phase === 'talk' ? this.wasPhase : this.phase; this.wasPhase = was; this.phase = 'talk'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
     this.syncHeroHat();
     await this.dialogue.play(lines, onLine);
     // (act-50 用户：「对话过后马上会蓄力」: the cut button that turned the last page was still down — read as a hold, 藏锋. It counts
@@ -460,7 +460,7 @@ export class ActShow {
   /** a timeline cutscene; the HUD hides, gameplay waits (phase 'cine'); optional onEnd guarantees skip-safe end state */
   async cine(shots: Parameters<Timeline['play']>[0], onEnd?: (skipped: boolean) => void) {
     if (this.hero) { this.hero.a.root.visible = true; this.hero.a.body.visible = true; }
-    const was = this.phase; this.phase = 'cine'; this.hud.on = false; this.banner.hide();
+    const was = this.phase; this.phase = 'cine'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
     const skipped = await this.timeline.play(shots, onEnd);
     this.cineHost.clearPuppets(); this.inp.latch(false);   // (a long press skipped it — the same held button)
     shot('act', () => this.camPose(), { cut: true, speed: 8 });
@@ -688,7 +688,7 @@ export class ActShow {
     const wakeCamPos = V3(wakeMat[0] - 4.8, 4.3, wakeMat[1] + 4.8), wakeCamLook = V3(wakeMat[0] - 0.5, 0.72, wakeMat[1]);
     let wakeCamFov = 42;
     await wipeTransit(async () => {
-      await this.enterYard(); this.musicHold = 'bgm_kiln'; void audio.playMusic('bgm_kiln', 1.2);
+      await this.enterYard(); this.noTalk = true; this.hideHideoutLabels(); this.musicHold = 'bgm_kiln'; void audio.playMusic('bgm_kiln', 1.2);
       const h = this.hero; h.pos.set(wakeMat[0], 0, wakeMat[1]); h.a.place(h.pos, 0); h.a.root.visible = true; h.a.body.visible = true; let gk = 0; h.scriptPose = () => getUpPose(h.a, gk);
       if (h.a.bones.hat) h.a.bones.hat.visible = false;
       // Bring Du Wu beside Sun Ao's straw mat in the expanded hideout so he is cleanly in frame during PRO_WAKE
@@ -749,7 +749,7 @@ export class ActShow {
       const dw = this.npcs.find(n => n.id === 'duwu');
       if (dw) { dw.x = dwOrig.x; dw.z = dwOrig.z; dw.yaw = dwOrig.yaw; dw.a.place(V3(dw.x, 0, dw.z), dw.yaw); dw.a.yaw = dw.yaw; dw.sh.position.set(dw.x, 0.025, dw.z); }
     }
-    talked = true; if (!this.hero.scriptPose) giveBlade();
+    talked = true; this.noTalk = false; if (!this.hero.scriptPose) giveBlade();
     this.camOverride = null; GRADE.bloomThreshold = bloomWas;   // (the battle camera eases back in)
     // Immediate guiding wind toward Du Wu as control returns (pure environmental guidance, no mobile banner spam)
     this.yardGustT = 0.55;
@@ -784,7 +784,13 @@ export class ActShow {
     this.L.text.hide('act.npc');
     this.L.text.hide('act.yard.guide');
     this.L.text.hide('act.yard.exit');
+    this.L.text.hide('act.station.hint');
     for (const id of ['fengtiebi', 'sunao', 'duwu', 'luzhao', 'huanyue', 'stele', 'weaponRack', 'keepsakeBox']) this.L.text.hide('act.beacon.' + id);
+    for (const m of this.marks.values()) {
+      m.exc.visible = false; m.bub.visible = false;
+      (m.ring.material as THREE.MeshBasicMaterial).opacity = 0;
+    }
+    if (this.steleExclaim) this.steleExclaim.visible = false;
   }
   private weaponRackMesh: THREE.Group | null = null;
   private keepsakeBoxMesh: THREE.Group | null = null;
@@ -885,7 +891,7 @@ export class ActShow {
       }
       m.ring.position.set(n.x, 0.04, n.z); const rs = 1 + 0.08 * Math.sin(t * 5); m.ring.scale.set(rs, 1, rs);
       const rm = m.ring.material as THREE.MeshBasicMaterial;
-      rm.color.setHex(bc ? bc.hex : 0xf2f4f8); rm.opacity = Math.max(0.7 * m.k, bc ? 0.26 + 0.18 * pulse : 0);
+      rm.color.setHex(bc ? bc.hex : 0xf2f4f8); rm.opacity = uiClear ? Math.max(0.7 * m.k, bc ? 0.26 + 0.18 * pulse : 0) : 0;
       const dHero = h ? Math.hypot(h.pos.x - n.x, h.pos.z - n.z) : 99;
       if (uiClear && near !== n.id && dHero < 6.4) {
         const p = worldToUi(V3(n.x, top + 1.05, n.z));
@@ -966,7 +972,7 @@ export class ActShow {
         this.exitGlow = new GateGlow(this.stage.root, V3(ex, 0, ez), 2.45, V3(0, 0, -1), { radius: 4.5, spillLen: 3.4, height: 2.3 });
       }
       this.exitGlow?.update(dt, obj.isExit ? 1.0 : 0.72);
-      const gp = worldToUi(V3(ex, 1.85, ez)), kk = Math.min(1.2, Math.max(0.75, this.L.h / 720));
+      const gp = worldToUi(V3(ex, 2.35, ez)), kk = Math.min(1.2, Math.max(0.75, this.L.h / 720));
       this.L.text.set('act.yard.exit', { text: '出发', x: gp.x, y: gp.y, bodyPx: Math.max(13, Math.round(15 * kk)), color: '#ffe898', outline: '#140c0a', align: 'center', visible: gp.z < 1 && (obj.isExit || dist < 6.5) });
     } else {
       this.L.text.hide('act.yard.exit');
@@ -3647,7 +3653,7 @@ export class ActShow {
       if (!locked && this.duel.offerClash(f, true)) { locked = f; continue; }
       if (!isBoss(f)) interruptFoe(f, 0.85);
     }
-    this.flashScreen(o.soft ? 0.08 : 0.32, 0xfff4dc);   // (11-18 追步: the second draw only glints — one full flash a draw is enough)
+    this.flashScreen(o.soft ? 0.05 : 0.16, 0xfff4dc);   // (act-130: restrained warm flash on 一闪 draw so it never blinds the screen)
   }
   /** she has arrived and stands: hold the dramatic stillness beat ONLY on elites / bosses / 见切 counter-draws — plain mobs slice straight through with zero pause! */
   private iaiCut(o: { a: THREE.Vector3; b: THREE.Vector3; r: number; dmg: number; knock: number }) {
@@ -3664,7 +3670,7 @@ export class ActShow {
     }
     const BEAT_S = TUNE.iaiBeat; this.iaiHeld = true;
     hitstop(BEAT_S + 0.02); audio.stillness(BEAT_S); this.camPunch(0.03);
-    after(BEAT_S, () => { this.iaiHeld = false; if (!this.hero?.alive) return; this.flashScreen(0.45, 0xffffff); this.splitScreen(0.78); this.sweep({ ...o, kind: 'rel' }); }, { real: true });
+    after(BEAT_S, () => { this.iaiHeld = false; if (!this.hero?.alive) return; this.flashScreen(0.22, 0xfff6e4); this.splitScreen(0.72); this.sweep({ ...o, kind: 'rel' }); }, { real: true });
   }
   /** 11-18: a full-screen flash (the grade's flash, fading over ~0.2 s) and the stance's dimming (vignette + a little desaturation);
    *  act-109: restrained pixel-snapped radial chromatic split (GRADE.split) on highlight impacts, decaying briskly */
@@ -3673,7 +3679,7 @@ export class ActShow {
   private splitScreen(k: number) { this.splitK = Math.max(this.splitK, Math.min(1, k)); }
   private impactScreen(k: number) { this.impactK = Math.max(this.impactK, Math.min(1, k)); GRADE.impact = this.impactK; }
   private flashStep(rdt: number) {
-    if (this.flashK > 0) { this.flashK = Math.max(0, this.flashK - rdt * 4); GRADE.flash = this.flashK * 0.75; }
+    if (this.flashK > 0) { this.flashK = Math.max(0, this.flashK - rdt * 4.8); GRADE.flash = this.flashK * 0.62; }
     if (this.splitK > 0) { this.splitK = Math.max(0, this.splitK - rdt * 6.5); GRADE.split = this.splitK * 0.9; }
     if (this.impactK > 0) { this.impactK = Math.max(0, this.impactK - rdt * 22); GRADE.impact = this.impactK; }
   }
@@ -4592,6 +4598,16 @@ export class ActShow {
     for (const f of this.foes) setActorOcc(f.a.root, on && f.st !== 'dead' && !f.mem.hidden ? 2 : 0);
     if (this.allyGen) setActorOcc(this.allyGen.a.root, on && this.allyGen.active ? 1 : 0);
     for (const n of this.npcs) setActorOcc(n.a.root, on ? 1 : 0);
+    // act-129: occluded interactive objects (复仇碑, 出发牌, 关卡出口牌, 行商/歇脚/遗卷设施与商人, 试剑坪换装架) also show silhouettes when hidden behind buildings
+    setPropOcc(this.stele?.g, on ? 1 : 0);
+    setPropOcc(this.exitSign, on ? 1 : 0);
+    for (const d of this.doors) setPropOcc(d.g, on ? 1 : 0);
+    if (this.yard) for (const p of this.yard.plinths) { setActorOcc(p.actor.root, on ? 1 : 0); setPropOcc(p.sign, on ? 1 : 0); }
+    if (this.stations) {
+      if (this.stations.merchant) setActorOcc(this.stations.merchant.root, on ? 1 : 0);
+      for (const s of this.stations.list) { const k = on && !s.done ? 1 : 0; setPropOcc(s.g, k); setPropOcc(s.sign, k); }
+      for (const f of this.stations.fires) setPropOcc(f, on ? 1 : 0);
+    }
   }
   private frame(dt: number, rdt: number) {
     // 11-19: cutscenes and conversations scale the art pixel with how near the shot is (director.ts CINE_PX)
@@ -4895,7 +4911,8 @@ export class ActShow {
     // enemies come from the back of the room: the view sits a little ahead of the hero
     // held inside the room: 2.7 m in from the side edges, 2 m from the back, 3.2 m from the front (on the 2x stage it roams much more)
     const nr = this.yard?.near ?? 0, xc = (PLAY.x0 + PLAY.x1) / 2, xr = (PLAY.x1 - PLAY.x0) / 2 - 2.7 + 1.0 * nr;
-    want.z -= 0.9 * (1 - nr); want.x = Math.max(xc - xr, Math.min(xc + xr, want.x)); want.z = Math.max(PLAY.z0 + 2.0, Math.min(PLAY.z1 - 3.2, want.z)); want.y = 0;
+    const yardOut = this.phase === 'yard' && h.pos.z > 6.2;
+    want.z -= yardOut ? 0.0 : 0.9 * (1 - nr); want.x = Math.max(xc - xr, Math.min(xc + xr, want.x)); want.z = Math.max(PLAY.z0 + 2.0, Math.min(PLAY.z1 - (yardOut ? 0.6 : 3.2), want.z)); want.y = 0;
     this.cam.lerp(want, 1 - Math.exp(-5 * rdt)); followShadow(this.cam.x, this.cam.z); this.camSprings(rdt);
     // the charge: the gold ring round the feet fills, sparks off the blade's point (faster as it fills), a flash when full
     const ch = h.charge; this.ring.visible = ch > 0.01;

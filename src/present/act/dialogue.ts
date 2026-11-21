@@ -39,24 +39,25 @@ const files = import.meta.glob('../../assets/portraits/*.png', { eager: true, qu
 const PORTRAIT: Record<string, string> = {};
 for (const [p, url] of Object.entries(files)) PORTRAIT[p.split('/').pop()!.replace('.png', '')] = url;
 
-/** Resolve the expressive portrait variant for a spoken line based on character, costume state (Liu Bai hat on/off), explicit mood, and dialogue emotion cues. */
+/** Resolve the expressive portrait variant for a spoken line based on character, costume state (Liu Bai hat on/off), explicit mood, and voice-matched emotion cues. */
 export function resolvePortrait(who: string, text: string, mood?: string, heroHat = true): string {
   let want = who;
   if (who === 'jiangjin') {
-    if (mood === 'hurt' || (!heroHat && /肋|血|痛|伤口|醒|……|刀呢|我的刀|银针|躺/.test(text))) want = 'jiangjin_hurt';
+    if (mood === 'hurt' || (!heroHat && /肋|血|痛|伤口|刀呢|我的刀|不喝外人|把刀给我|银针|躺|散架/.test(text))) want = 'jiangjin_hurt';
     else if (heroHat) {
-      if (mood === 'fierce' || /百辟刀|还文家|命|斩|杀|滚|拿稳|仇|死|销了|欠|债|闭嘴|放开|来|拔刀|谁/.test(text)) want = 'jiangjin_hat_fierce';
+      if (mood === 'fierce' || /还文家的命|归位|陪她|闭嘴|命|斩|杀|滚|拿稳|仇|死|销了|欠|债|放开|拔刀|来吧/.test(text)) want = 'jiangjin_hat_fierce';
       else want = 'jiangjin_hat';
     } else want = 'jiangjin';
   } else if (who === 'duwu') {
     if (mood === 'shock' || /娘哎|活、活的|诈尸|别乱动|不要命|吓|？！/.test(text)) want = 'duwu_shock';
-    else if (mood === 'worry' || /吐|血|麦饼|热米汤|歇|保重|小心|活着|白发|惨|缝|衣裳|肉饼|水囊|暖暖|吃饱/.test(text)) want = 'duwu_worry';
+    else if (mood === 'worry' || /吐|血|麦饼|保重|小心|活着|白发|惨|缝|衣裳|肉饼|水囊|吃饱|半死|干粮|歇/.test(text)) want = 'duwu_worry';
+    else if (mood === 'grin' || /捡了便宜|值钱货|火堆边烤着|拖回来的|叫你白哥|安心养着|热汤|暖暖|手艺|尝尝|热乎|好酒|挑一样|带些/.test(text)) want = 'duwu_grin';
   } else if (who === 'sunao') {
-    if (mood === 'stern' || /别乱挺|张嘴|闭嘴|瞪|忍着|咽下去|扎透|钉棺材|木棍|推回去|裹胸布|死丫头|唬老身|忍着点|不够/.test(text)) want = 'sunao_stern';
-    else if (mood === 'soft' || /好重的仇|可怜|烤烤手|热水|活着回来|苦|叹|留了|去吧|熬|药罐|接骨|铜钱/.test(text)) want = 'sunao_soft';
+    if (mood === 'stern' || /别乱挺|断肋|扎破肺|跨不进去|张嘴|闭嘴|瞪|忍着|咽下去|扎透|钉棺材|木棍|推回去|裹胸布|死丫头|唬老身|忍着点|不够|捻针|下针/.test(text)) want = 'sunao_stern';
+    else if (mood === 'soft' || /好重的仇|可怜|烤烤手|热水|活着回来|苦|叹|留了|去吧|熬|药罐|阿皎|闺女|暖/.test(text)) want = 'sunao_soft';
   } else if (who === 'cuixuan') {
-    if (mood === 'defeat' || /阿皎|亲爹|不全是为了|动手吧|来吧|够了|了结|名字是我起|认出/.test(text)) want = 'cuixuan_defeat';
-    else if (mood === 'blade' || /刀在我这|四个人|看看你的手|听好了|配|拔刀|杀|第几柄|灯灭/.test(text)) want = 'cuixuan_blade';
+    if (mood === 'defeat' || /阿皎|亲爹|不全是为了|动手吧|来吧|够了|了结|名字是我起|认出|像你娘/.test(text)) want = 'cuixuan_defeat';
+    else if (mood === 'blade' || /刀在我这|四个人|那四个|太早了|看看你的手|听好了|配|拔刀|杀|第几柄|灯灭|乱葬沟/.test(text)) want = 'cuixuan_blade';
   } else if (who === 'chulei') {
     if (mood === 'panic' || /饶|别杀|不是我|求|饶命|放过|我说|供|崔|洛阳|阎虎/.test(text)) want = 'chulei_panic';
   } else if (who === 'yanhu') {

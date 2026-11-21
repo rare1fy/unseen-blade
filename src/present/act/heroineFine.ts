@@ -39,18 +39,17 @@ function skeleton(v: VoxChar, ribbons: 'tie' | 'knot') {
     .bone('weapon', 'handR', -7, 19, 1).bone('offhand', 'handL', 8, 20, 0)
     .bone('legL', 'hips', 4, 22, 0).bone('shinL', 'legL', 4, 12, 0).bone('footL', 'shinL', 4, 4, 0)
     .bone('legR', 'hips', -4, 22, 0).bone('shinR', 'legR', -4, 12, 0).bone('footR', 'shinR', -4, 4, 0)
-    .bone('hrA1', 'head', 0, 55.5, -9.5).bone('hrA2', 'hrA1', 0, 46, -11).bone('hrA3', 'hrA2', 0, 35, -11)
+    .bone('hrA1', 'head', 0, ribbons === 'tie' ? 55.5 : 49, -9.5).bone('hrA2', 'hrA1', 0, 46, -11).bone('hrA3', 'hrA2', 0, 35, -11)
     .bone('blade', 'weapon', -7, 19, 6)
     .bone('swTassel', 'weapon', -7.5, 17, -5.5)
     .bone('sashT', 'hips', 2.5, 25, 4)
     .bone('hipSlv1', 'hips', -5, 25, -5.5).bone('hipSlv2', 'hipSlv1', -5, 21, -5.5).bone('hipSlv3', 'hipSlv2', -5, 17, -5.5)
     .bone('hairL', 'head', 6.5, 50, 4.5).bone('hairR', 'head', -7.5, 50, 4.5);
-  // the two long ribbons: from the hair tie's bow either side of the ponytail (白发), or from the blindfold's knot (斗笠) — act-23 (user:
-  // 「主角的长红飘带，怎么飞到头发后面去了，也没贴着头绳」: they hung from the blindfold a cell behind the ponytail, floating)
+  // the two long ribbons: from the hair tie's bow either side of the ponytail (白发), or flanking the under-brim ponytail (斗笠)
   if (ribbons === 'tie') v.bone('bfA1', 'head', 4, 54, -10.5).bone('bfA2', 'bfA1', 4, 44, -10.5).bone('bfA3', 'bfA2', 4, 33, -10.5)
     .bone('bfB1', 'head', -4, 54, -10.5).bone('bfB2', 'bfB1', -4, 45, -10.5);
-  else v.bone('bfA1', 'head', 1, 47, -8.5).bone('bfA2', 'bfA1', 1, 35, -8.5).bone('bfA3', 'bfA2', 1, 23, -8.5)
-    .bone('bfB1', 'head', -2, 47, -8.5).bone('bfB2', 'bfB1', -2, 35, -8.5);
+  else v.bone('bfA1', 'head', 3.5, 48, -10.5).bone('bfA2', 'bfA1', 3.5, 35, -10.5).bone('bfA3', 'bfA2', 3.5, 23, -10.5)
+    .bone('bfB1', 'head', -4.5, 48, -10.5).bone('bfB2', 'bfB1', -4.5, 35, -10.5);
 }
 /** legs (left x 2..5, right mirrored x −6..−3): boot with a sole one cell longer at the toe, shin, thigh, the robe's skirt panel */
 function legs(v: VoxChar, P: Pal, o: { sole?: number; shinTop?: number } = {}) {

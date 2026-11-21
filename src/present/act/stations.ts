@@ -138,7 +138,7 @@ function campfire() {
 }
 
 export class Stations {
-  list: Station[] = []; root = new THREE.Group(); private fires: THREE.Group[] = []; private t = 0;
+  list: Station[] = []; root = new THREE.Group(); fires: THREE.Group[] = []; private t = 0;
   /** act-128: visible 3D voxel traveling merchant behind the shop stalls */
   merchant: BattleActor | null = null;
   merchantPos = V3();

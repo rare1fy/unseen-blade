@@ -161,7 +161,8 @@ function solidsOf(): HideoutSolid[] {
   const pa = GATE.x0 - 3, pb = GATE.x1 + 1;
   out.push(cbox(GATE.w0, GATE.x0 - 4, GATE.Z - 3, GATE.Z + 2), cbox(GATE.x1 + 4, GATE.w1, GATE.Z - 3, GATE.Z + 2));
   out.push(cbox(pa - 1, pa + 3, GATE.Z - 2, GATE.Z + 2), cbox(pb - 1, pb + 3, GATE.Z - 2, GATE.Z + 2), cbox(pb - 1, pb, GATE.Z - 14, GATE.Z - 3));
-  out.push(cbox(GATE.x0 - 6, GATE.x0 - 2, GATE.Z + 3, C(14.4)), cbox(GATE.x1 + 2, GATE.x1 + 6, GATE.Z + 3, C(14.4)));
+  // act-129: outer exit corridor flanking rails & far-end departure piers
+  out.push(cbox(GATE.x0 - 6, GATE.x0 - 2, GATE.Z + 3, C(14.6)), cbox(GATE.x1 + 2, GATE.x1 + 6, GATE.Z + 3, C(14.6)));
   out.push(cbox(C(-14.6), C(-13.2), C(8.8), C(10.0)), cbox(C(-3.4), C(-2.2), C(9.0), C(10.0)), cbox(C(4.4), C(5.6), C(9.0), C(9.9)));
   return out;
 }
@@ -297,7 +298,7 @@ function ground(c: Ctx) {
   flagstones(-0.6, -10.0, 1.4, -9.2, 12, 10, 13);
   flagstones(-6.6, -1.6, -5.6, 0.4, 10, 10, 29);
 
-  // Outer departure mountain road past the south gate
+  // Outer departure mountain road past the south gate: worn earth with stone verges, stepping flagstones & wheel ruts
   fill(-1.1, 10.9, 1.9, 18.0, K.path);
   stepRunZ(0.4, 10.9, 13.8, 12, 10, 4, 23);
   for (const X of [C(-1.1), C(1.9)]) for (let Z = C(11.0); Z <= C(18.0); Z++) w.set(X, -1, Z, (Z % 12 < 2) ? K.stoneD : K.earthD);
@@ -359,18 +360,21 @@ function* build(c: Ctx, o: { time: HideoutTime; weather: HideoutWeather }) {
   feed(c, FEED.X, FEED.Z);
   const pot = cookFire(c, POT.X, POT.Z, true);
   frontGate(c, GATE.w0, GATE.x0, GATE.x1, GATE.w1, GATE.Z);
+  // act-129: outer departure corridor flanking low stone curbs, timber rails, and two weathered stone departure piers at the far end
   {
     const cz0 = GATE.Z + 4, cz1 = C(13.6);
     for (const [cx0, cx1] of [[GATE.x0 - 5, GATE.x0 - 3], [GATE.x1 + 3, GATE.x1 + 5]] as const) {
       w.box(cx0, 0, cz0, cx1, 2, cz1, K.stone);
       w.box(cx0, 3, cz0, cx1, 3, cz1, K.stoneL);
+      // wooden fence posts & two timber crossbars connecting the gate to the far-end outer piers
       const px = cx0 + 1;
-      for (let z = cz0 + 6; z <= cz1 - 6; z += 10) {
+      for (let z = cz0 + 6; z <= cz1 - 6; z += 12) {
         w.box(px - 1, 4, z, px, 12, z + 1, HV.post);
         w.box(px - 1, 13, z, px, 13, z + 1, HV.woodL);
       }
       w.box(px, 6, cz0, px, 7, cz1, HV.wood);
       w.box(px, 10, cz0, px, 11, cz1, HV.woodL);
+      // outer departure stone piers (门阙石墩) framing the exit light curtain at the far end of the corridor
       w.box(cx0 - 1, 0, cz1 - 2, cx1 + 1, 14, cz1 + 3, K.stone);
       w.box(cx0 - 1, 0, cz1 - 2, cx1 + 1, 3, cz1 + 3, K.stoneD);
       w.box(cx0 - 2, 15, cz1 - 3, cx1 + 2, 17, cz1 + 4, K.stoneL);

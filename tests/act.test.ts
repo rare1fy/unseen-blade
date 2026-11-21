@@ -411,4 +411,64 @@ describe('combat wave 2: poise break & staggered cadence (act-113)', () => {
       expect(hasVoiceAsset(rel), rel).toBe(true);
     }
   });
+
+  it('act-129 invariants: complete white-haired head under conical hat, cutscene hides NPC prompts, far-end exit corridor, voice-matched portraits, WeChat pop-free audio', async () => {
+    // 1. fine_hat.vox head is 100% complete and identical to fine_white.vox head (no flat y=49 cut-off)
+    const voxMap = import.meta.glob('../vox/fine_*.vox', { eager: true, import: 'default' }) as Record<string, string>;
+    const b64 = (s: string) => { const bin = atob(s), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; };
+    const { readVox } = await import('../src/present/look/vox');
+    const whiteVox = readVox(b64(voxMap['../vox/fine_white.vox']));
+    const hatVox = readVox(b64(voxMap['../vox/fine_hat.vox']));
+    const wHead = whiteVox.models.find(m => m.name === 'head');
+    const hHead = hatVox.models.find(m => m.name === 'head');
+    expect(wHead).toBeTruthy();
+    expect(hHead).toBeTruthy();
+    expect(hHead!.voxels.length).toBe(wHead!.voxels.length);
+    expect(hatVox.models.some(m => m.name === 'hrA1')).toBe(true);
+
+    // 2. Departure exit sits at the far end of the outer corridor (z >= 13.0)
+    const { HIDEOUT } = await import('../src/present/act/hideout');
+    expect(HIDEOUT.exit.z).toBeGreaterThanOrEqual(13.0);
+    expect(HIDEOUT.floor.z1).toBeGreaterThanOrEqual(14.0);
+
+    // 3. Cutscenes & dialogue suppress all hideout NPC prompts, 3D bubbles/!, and ground rings
+    const showSrc = SRC['src/present/act/show.ts'];
+    expect(showSrc).toMatch(/this\.phase = 'talk';[^\n]*this\.hideHideoutLabels\(\)/);
+    expect(showSrc).toMatch(/this\.phase = 'cine';[^\n]*this\.hideHideoutLabels\(\)/);
+    expect(showSrc).toContain('m.exc.visible = false; m.bub.visible = false;');
+    expect(showSrc).toContain('rm.opacity = uiClear ?');
+
+    // 4. Voice-matched emotion portraits (including new duwu_grin.png, fixed sentry2/jiangjin_hat)
+    const portraitFiles = import.meta.glob('../src/assets/portraits/*.png', { eager: true, query: '?inline', import: 'default' }) as Record<string, string>;
+    expect(portraitFiles['../src/assets/portraits/duwu_grin.png']).toBeTruthy();
+    expect(portraitFiles['../src/assets/portraits/sentry2.png']).toBeTruthy();
+    expect(portraitFiles['../src/assets/portraits/jiangjin_hat.png']).toBeTruthy();
+    expect(portraitFiles['../src/assets/portraits/jiangjin_hat_fierce.png']).toBeTruthy();
+    const dlgSrc = SRC['src/present/act/dialogue.ts'];
+    expect(dlgSrc).toContain("want = 'duwu_grin'");
+    expect(dlgSrc).toContain('捡了便宜|值钱货');
+    expect(dlgSrc).toContain('跨不进去');
+    expect(dlgSrc).not.toContain('醒|……|刀呢');
+
+    // 5. WeChat closing electrical-pop fix (native outGate ramp + softSuspend + noFilter compressor bypass)
+    const glueMap = import.meta.glob('../wechat/glue.js', { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
+    const glueSrc = glueMap['../wechat/glue.js'] ?? '';
+    expect(glueSrc).toContain('outGate');
+    expect(glueSrc).toContain('softSuspend');
+    expect(SRC['src/audio/audio.ts']).toContain('if (this.noFilter)');
+
+    // 6. Occluded interactive props receive silhouette outlines via setPropOcc
+    expect(showSrc).toContain('setPropOcc(this.stele?.g');
+    expect(showSrc).toContain('setPropOcc(this.exitSign');
+    expect(showSrc).toContain('setPropOcc(s.g, k); setPropOcc(s.sign, k)');
+    expect(showSrc).toContain('setActorOcc(this.stations.merchant.root');
+  });
+
+  it('act-130 invariants: gentler 一闪 full-screen flash & clean snowWind SFX', async () => {
+    const showSrc = SRC['src/present/act/show.ts'];
+    // 一闪 draw & delayed burst flash intensities lowered so they never blind the screen
+    expect(showSrc).toContain("this.flashScreen(o.soft ? 0.05 : 0.16, 0xfff4dc)");
+    expect(showSrc).toContain("this.flashScreen(0.22, 0xfff6e4)");
+    expect(showSrc).toContain("GRADE.flash = this.flashK * 0.62");
+  });
 });
