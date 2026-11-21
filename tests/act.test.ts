@@ -471,4 +471,65 @@ describe('combat wave 2: poise break & staggered cadence (act-113)', () => {
     expect(showSrc).toContain("this.flashScreen(0.22, 0xfff6e4)");
     expect(showSrc).toContain("GRADE.flash = this.flashK * 0.62");
   });
+
+  it('act-131 invariants: boss death routs surviving minions & slain story bosses are replaced by random Boss Pool', async () => {
+    // Load all foe models, AI, regions, and boss pool
+    await import('../src/present/act/foes/hj_models');
+    await import('../src/present/act/foes/ly_models');
+    await import('../src/present/act/foes/xp_models');
+    await import('../src/present/act/foes/r45_models');
+    await import('../src/present/act/regions');
+    const { BOSS_POOL_IDS, isPoolBoss, isStoryBossDead, pickPoolBoss, resolveBossRoomWaves } = await import('../src/present/act/bossPool');
+    const { ROSTER } = await import('../src/present/bestiary/models');
+    const rosterIds = new Set(ROSTER.map(m => m.id));
+
+    // 1. All 6 pool bosses registered in EDEFS as bosses with valid models
+    expect(BOSS_POOL_IDS.length).toBeGreaterThanOrEqual(6);
+    for (const id of BOSS_POOL_IDS) {
+      const def = EDEFS[id];
+      expect(def, id).toBeTruthy();
+      expect(def.boss, id).toBe(true);
+      expect(rosterIds.has(def.model), `model ${def.model} for ${id}`).toBe(true);
+      expect(isPoolBoss(id)).toBe(true);
+    }
+
+    // 2. Story boss alive -> keeps canonical story boss untouched
+    const used = new Set<string>();
+    const aliveRes = resolveBossRoomWaves([['hj_blade'], ['hj_boss', 'hj_mob']], 0, {}, used);
+    expect(aliveRes.replaced).toBe(false);
+    expect(aliveRes.waves[1][0]).toBe('hj_boss');
+
+    // 3. Story boss slain -> never resurrects; replaced by random non-repeating pool boss across regions
+    const seenAllDead = { ch1_boss_after: 1, ch2_boss_after: 1, ch3_boss_after: 1, ch4_boss_after: 1, cuixuan_dead: 1 };
+    const storyBosses = ['hj_boss', 'ly_boss', 'xp_boss', 'wl_boss', 'cx_boss'];
+    const picked = new Set<string>();
+    for (let ri = 0; ri < 5; ri++) {
+      expect(isStoryBossDead(ri, seenAllDead)).toBe(true);
+      const res = resolveBossRoomWaves([['hj_mob'], [storyBosses[ri], 'hj_mob']], ri, seenAllDead, used);
+      expect(res.replaced).toBe(true);
+      expect(res.bossKind).toBeTruthy();
+      expect(storyBosses).not.toContain(res.bossKind);
+      expect(isPoolBoss(res.waves[1][0])).toBe(true);
+      expect(res.waves[1][1]).toBe('hj_mob');
+      picked.add(res.waves[1][0]);
+    }
+    expect(picked.size).toBe(5); // zero repeats within a single run!
+
+    // Ending B spares Cui Xuan (cuixuan_dead absent) -> Cui Xuan stays alive for Ch5
+    expect(isStoryBossDead(4, { ch1_boss_after: 1, ch4_boss_after: 1, ending_b: 1 })).toBe(false);
+
+    // Exhausting all 6 pool entries recycles cleanly
+    const sixth = pickPoolBoss(used);
+    expect(isPoolBoss(sixth)).toBe(true);
+    expect(picked.has(sixth)).toBe(false);
+    const seventh = pickPoolBoss(used);
+    expect(isPoolBoss(seventh)).toBe(true);
+
+    // 4. Boss death immediately routs minions & prevents late spawns / dead-boss CH_AFTER replay
+    const showSrc = SRC['src/present/act/show.ts'];
+    expect(showSrc).toContain('this.routMinions(f.pos)');
+    expect(showSrc).toContain('this.bossDefeated = true');
+    expect(showSrc).toContain('if (this.phase !== \'fight\' || this.bossDefeated) return null;');
+    expect(showSrc).toContain('!this.poolBossRoom && CH_AFTER[ai]?.length');
+  });
 });

@@ -60,6 +60,7 @@ import { fallShots, snowShots, dawnShots, snapDawn, loadShots, brazier, getUpPos
 import { AllyGeneral, GENERAL_REGIONS, type AllyHost } from './foes/generals_ai';
 import { coldOpenShots, coldCardShots, BlindPOV } from './coldopen';
 import { Barks } from './barks';
+import { resolveBossRoomWaves, ROUT_BARKS } from './bossPool';
 import { installR45 } from './regions/r45_hook';
 import { revealFoe } from './foes/r45_ai';
 import { measureFight, meterLabel, toggleMeter } from '../engine/frameMeter';
@@ -377,6 +378,10 @@ export class ActShow {
   private npcs: Array<{ id: string; x: number; z: number; yaw: number; a: BattleActor; sh: THREE.Mesh }> = []; private npcNear: string | null = null;
   /** act-20 the stele of names in the hideout; talk is off while a scripted moment plays there */ private stele: Stele | null = null; private noTalk = false;
   private defy = 0; private wine = false; private eliteKills = 0; private bossKilled = false; private banked: { iron: number; herb: number } | null = null;
+  /** act-131: boss-death minion rout state + per-run replacement boss pool tracker (no resurrecting slain story bosses!) */
+  private bossDefeated = false; private poolBossRoom = false; private usedPoolBosses = new Set<string>();
+  private fleeing: Array<{ a: BattleActor; pos: THREE.Vector3; dir: THREE.Vector3; t: number; dur: number }> = [];
+  private clearFleeing() { for (const f of this.fleeing) f.a.dispose(); this.fleeing.length = 0; }
   /** a cutscene's place: the open land, no walls / gates / props */ private noArena = false;
   /** 11-18: the shallow water on this room's floor (下邳: the 水鬼 swim in it; LOCALES[…].pools) */ private pools: Array<{ x0: number; x1: number; z0: number; z1: number }> = [];
   /** act-34: a room built ahead of time (prepRoom), waiting to be put up; buildRoom uses it when it is the room asked for */
@@ -1683,7 +1688,7 @@ export class ActShow {
     // a room may be up (__dh.title from the yard): its actors go the way a room change sends them
     this.propContacts?.dispose(); this.propContacts = undefined;
     this.foeContacts?.dispose(); this.foeContacts = undefined;
-    this.duel?.newRoom(); for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = []; this.entering.length = 0; this.clearBossDrops();
+    this.duel?.newRoom(); for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = []; this.entering.length = 0; this.clearBossDrops(); this.clearFleeing(); this.bossDefeated = false; this.poolBossRoom = false;
     this.yard?.dispose(); this.yard = null; this.props?.dispose(); this.props = null; this.gates?.dispose(); this.gates = null; this.pieces?.dispose(); this.pieces = null; this.leaves?.dispose(); this.leaves = null; this.stations?.dispose(); this.stations = null; this.hero?.a.dispose();
     this.clearNpcs();
     this.phase = 'title'; this.hud.on = false; this.hud.update(0, this.inp, []); this.banner.hide(); this.blob.visible = false; this.ring.visible = false; for (const m of this.shadows) m.visible = false;
@@ -1854,7 +1859,7 @@ export class ActShow {
     // 11-18 一局五关: the first region; the TUNE values the regions scale from (the tune panel's, as the run starts)
     this.region = 0; this.bosses = 0; this.regionIn = false; this.baseFoe = { hp: TUNE.enemyHp, dmg: TUNE.enemyDmg, aggression: 0.85, calm: TUNE.atkCalm, attackers: TUNE.maxAttackers };
     // act-20 / act-118: the hideout's upgrades & 碑铭潜能 (meta.ts) for this run
-    this.mods = runMods(profile()); this.defy = this.mods.deathDefy; this.rerollsLeft = this.mods.rerolls; this.eliteKills = 0; this.bossKilled = false;
+    this.mods = runMods(profile()); this.defy = this.mods.deathDefy; this.rerollsLeft = this.mods.rerolls; this.eliteKills = 0; this.bossKilled = false; this.usedPoolBosses.clear();
     this.genBlessings.clear(); this.ksShield = 0; this.ksRevenge = false; this.intentBonusAcc = 0;
     this.resetCombo(); this.hud.synergies = [];
     // 杜五's provisions (one run): 炙肉胡饼 +15 血上限, 五铢钱囊 40 铜钱, 瓦壶烈酒 the first blow costs nothing
@@ -1935,7 +1940,7 @@ export class ActShow {
     if (this.generalEvent) { this.generalEvent.dispose(); this.generalEvent = null; }
     this.duelGen = null;
     if (this.endCui) { this.endCui.dispose(); this.endCui = null; }
-    this.duel?.newRoom(); for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = []; this.entering.length = 0; this.clearBossDrops();
+    this.duel?.newRoom(); for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = []; this.entering.length = 0; this.clearBossDrops(); this.clearFleeing(); this.bossDefeated = false; this.poolBossRoom = false;
     this.falling = [];
     this.gates?.dispose(); this.gates = null; this.pieces?.dispose(); this.pieces = null; this.leaves?.dispose(); this.leaves = null; this.clearNpcs();
     for (const d of this.doors) d.g.parent?.remove(d.g); this.doors = []; this.stations?.dispose(); this.stations = null; this.coinsFx.clear();
@@ -1943,10 +1948,18 @@ export class ActShow {
     const hp = first || !this.hero ? TUNE.heroHp : this.hero.hp, maxHp = TUNE.heroHp, qi = first || !this.hero ? 0 : this.hero.qi;
     this.hero?.a.dispose();
     const isYard = this.room < 0;
+    this.bossDefeated = false; this.poolBossRoom = false;
     if (!isYard && this.plan && !this.viewSpec) this.visited.push(this.plan.type);
     const job = OPT.roomAhead && !this.viewSpec && !this.forceSpec && !this.forceShape && !this.forceMap && !this.noArena
       && (!__WX__ || bladeWorking()) ? this.ahead.find(j => j.plan === this.plan && j.region === this.region && j.room === this.room) : undefined;
     this.dropAhead(job);
+    if (!isYard && !this.prologue && this.plan?.type === 'boss' && isBossRoom(this.region, this.room)) {
+      const resolved = resolveBossRoomWaves(this.plan.waves, this.region, profile().seen, this.usedPoolBosses);
+      if (resolved.replaced) {
+        this.plan = { ...this.plan, waves: resolved.waves };
+        this.poolBossRoom = true;
+      }
+    }
     this.nextRooms = job?.next ?? (!isYard && this.plan && !this.viewSpec ? onward(this.room, this.visited, this.region) : []);
     if (this.prologue === 1 && !this.viewSpec) this.nextRooms = [PRO_BOSS]; else if (this.prologue === 2) this.nextRooms = [];   // act-29
     // act-34: the place itself — built ahead of time when it can be (the title builds a new game's first room while it loads), else now
@@ -2301,7 +2314,7 @@ export class ActShow {
   }
   /** act-114 helper: spawn a single wave entry cleanly (used by spawnWave and deferred boss-wave escort spawns) */
   private spawnEntry(k: string, i: number, deferredBoss = false): Foe | null {
-    if (this.phase !== 'fight') return null;
+    if (this.phase !== 'fight' || this.bossDefeated) return null;
     const hp = this.hero.pos;
     let p = V3();
     const gd = this.grid, sz = this.stageZ.length ? this.stageZ[this.stageOf[this.wave] ?? 0] : -1, zb = sz >= 0 ? this.pieces?.zoneBox(sz) : null;
@@ -2340,8 +2353,9 @@ export class ActShow {
   /** Per-boss signature entrance audio (Cui Xuan gets howling snow wind + blade chorus, NEVER a beast roar!) */
   private bossEnterSound(kind: EKind) {
     if (kind === 'cx_boss') { cue('snowWind', 0.95); cue('bladeChorus', 0.72); }
-    else if (kind === 'xp_boss') { cue('freeze', 0.8); cue('needleZing', 0.78); }
-    else if (kind === 'wl_boss') { cue('warHorn', 0.82); cue('fire', 0.65); }
+    else if (kind === 'xp_boss' || kind === 'pb_yingge') { cue('freeze', 0.8); cue('needleZing', 0.78); }
+    else if (kind === 'wl_boss' || kind === 'pb_tiebi') { cue('warHorn', 0.82); cue('fire', 0.65); }
+    else if (kind === 'pb_daowei') { cue('bladeChorus', 0.82); cue('draw', 0.8); }
     else cue('roar', 0.88);
   }
   private bossEnterPose(f: Foe) {
@@ -4016,10 +4030,15 @@ export class ActShow {
       for (let i = 0; i < 6; i++) addBlock(from0.clone().add(V3(R(-0.2, 0.2), R(-0.1, 0.3), R(-0.2, 0.2))), { size: 0.08, col: 0xb01818, glow: false, life: 0.32 + i * 0.03, shrink: 0.1, v: h.a.chest().sub(from0).multiplyScalar(1 / (0.3 + i * 0.03)) });
       after(0.32, () => { if (!h.alive) return; h.hp = Math.min(h.maxHp, h.hp + heal); this.hud.flask.heal({ hp: h.hp, maxHp: h.maxHp }); h.a.tint(0xff4a3a, 0.35); popPix(`+${heal}`, h.a.head().add(V3(0, 0.3, 0)), { color: '#ff8a7a', h: 0.42, life: 0.7 }); });
     }
+    const bossClear = boss && this.phase === 'fight' && !this.prologue && !this.foes.some(x => x !== f && x.st !== 'dead' && isBoss(x));
+    if (bossClear) {
+      this.bossDefeated = true;
+      this.routMinions(f.pos);
+    }
     const left = this.foes.filter(x => x.st !== 'dead').length;
     if (boss) { slowmo(1.1, 0.25); shake(0.6 * TUNE.shake); this.splitScreen(0.85); cue('win', 0.9); }
-    if (!left && this.phase === 'fight') {
-      const lastWave = this.wave >= (this.plan?.waves.length ?? 1) - 1;
+    if ((!left || bossClear) && this.phase === 'fight') {
+      const lastWave = bossClear || this.wave >= (this.plan?.waves.length ?? 1) - 1;
       if (!boss) slowmo(lastWave ? 0.7 : 0.35, 0.3);
       if (lastWave) after(1.0, () => this.roomClear());
       else if (this.stageOf.length && this.stageOf[this.wave + 1] !== this.stageOf[this.wave]) {
@@ -4035,6 +4054,58 @@ export class ActShow {
           if (!isNextBoss) this.banner.show(msg`第 ${this.wave + 1} 波`, '', 0.9);
           this.spawnWave();
         });
+      }
+    }
+  }
+  /** act-131: when a room's boss falls, all surviving minions immediately rout & flee so combat ends cleanly into story/clear */
+  private routMinions(bossPos: THREE.Vector3) {
+    this.cancelQte();
+    for (const a of this.arrows) a.kill(); this.arrows.length = 0;
+    this.clearBossDrops();
+    // Cancel any minions still climbing over walls
+    for (let i = this.entering.length - 1; i >= 0; i--) {
+      const e = this.entering[i];
+      if (!isBoss(e.f)) {
+        dropTeles(e.f); e.f.st = 'dead'; e.f.hp = 0; e.f.a.dispose();
+        this.entering.splice(i, 1);
+      }
+    }
+    let barked = 0;
+    for (const m of this.foes) {
+      if (m.st === 'dead' || m.kind === 'dummy' || isBoss(m)) continue;
+      if (this.flats.has(m)) { m.a.body.rotation.x = 0; m.a.body.position.y = 0; this.flats.delete(m); }
+      dropTeles(m); unfade(m);
+      m.st = 'dead'; m.hp = 0; m.attacking = false; m.lunge = null; m.vel.set(0, 0, 0);
+      const dir = m.pos.clone().sub(this.hero?.pos ?? bossPos).setY(0);
+      if (dir.lengthSq() < 1e-4) dir.set(Math.random() - 0.5, 0, -1);
+      dir.normalize();
+      const fleeYaw = Math.atan2(dir.x, dir.z);
+      m.yaw = fleeYaw; m.a.yaw = fleeYaw;
+      m.a.setRunning(true, 6.2, fleeYaw);
+      fxSmoke(m.pos.clone().setY(0.25), 0x8a7e6e, 6, { r: 0.45, spd: 1.4, up: 0.5, s: 0.32, life: 0.48 });
+      if (barked < 2 && !String(m.kind).includes('hound')) {
+        const line = ROUT_BARKS[barked % ROUT_BARKS.length];
+        this.barks?.say(() => m.a.head(), line);
+        barked++;
+      }
+      this.fleeing.push({ a: m.a, pos: m.pos.clone(), dir, t: 0, dur: 0.78 });
+    }
+  }
+  private fleeStep(dt: number) {
+    for (let i = this.fleeing.length - 1; i >= 0; i--) {
+      const q = this.fleeing[i];
+      q.t += dt;
+      q.pos.addScaledVector(q.dir, 6.2 * dt);
+      const yaw = Math.atan2(q.dir.x, q.dir.z);
+      q.a.place(q.pos, yaw); q.a.yaw = yaw;
+      q.a.setRunning(true, 6.2, yaw);
+      q.a.update(dt);
+      const s = Math.max(0.05, 1 - Math.max(0, (q.t - q.dur * 0.55) / (q.dur * 0.45)));
+      q.a.root.scale.setScalar(s);
+      if (q.t >= q.dur) {
+        fxSmoke(q.pos.clone().setY(0.35), 0x8a7e6e, 8, { r: 0.5, spd: 1.5, up: 0.6, s: 0.36, life: 0.5 });
+        q.a.dispose();
+        this.fleeing.splice(i, 1);
       }
     }
   }
@@ -4130,9 +4201,9 @@ export class ActShow {
     // road opens into the next region (a boon first, as any cleared fight)
     if (this.plan?.type === 'boss' && isBossRoom(this.region, this.room)) {
       this.bosses++;
-      // (11-19 / act-114 剧情改版: every region's boss has its after-talk; Ch5 stages real 3D blade-at-throat confrontation before choice)
+      // (11-19 / act-114 / act-131: only canonical story bosses trigger CH_AFTER; slain story bosses are replaced by pool guardians and never resurrect)
       const ai = this.region, last = ai === BOSS_AFTER.length - 1;
-      if (CH_AFTER[ai]?.length && (last || seeOnce(BOSS_AFTER[ai]))) {
+      if (!this.poolBossRoom && CH_AFTER[ai]?.length && (last || seeOnce(BOSS_AFTER[ai]))) {
         this.musicHold = 'bgm_afterkill'; void audio.playMusic('bgm_afterkill', 1.0);
         if (last) {
           this.stageCh5ThroatScene();
@@ -4738,7 +4809,7 @@ export class ActShow {
     }
     this.decoyStep(dt); this.pinStep(dt); this.markStep(); this.dodgeGhostStep(rdt);   // 11-18 秘传 + act-118 完美闪避残影
     if (this.comboT > 0) { this.comboT = Math.max(0, this.comboT - dt); if (this.comboT <= 0) this.resetCombo(); else this.hud.combo = { hits: this.comboHits, bonus: this.comboStyle().dmgPct, frac: this.comboT / 3.2 }; }
-    this.enterStep(dt); this.bossDropStep(dt);
+    this.enterStep(dt); this.bossDropStep(dt); this.fleeStep(rdt);
     for (const f of this.foes) {
       if (!this.ultOn && (this.entering.some(e => e.f === f) || this.bossDrops.some(d => d.f === f))) { f.a.update(dt); continue; }
       if (this.duel.holds(f)) this.duel.holdFoe(f, dt);   // 11-18 QTE: the duel moves the foe it has (held in the bind / its string's beats)

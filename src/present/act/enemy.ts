@@ -332,7 +332,7 @@ export function updateFoe(f: Foe, w: FoeWorld, dt: number) {
   const toH = w.heroPos.clone().sub(f.pos).setY(0), dist = toH.length(), dir = dist > 1e-3 ? toH.clone().divideScalar(dist) : V3(0, 0, 1);
   const face = (y: number, k = 10) => { let dy = y - f.yaw; while (dy > Math.PI) dy -= Math.PI * 2; while (dy < -Math.PI) dy += Math.PI * 2; f.yaw += dy * Math.min(1, dt * k); };
   const yawTo = Math.atan2(dir.x, dir.z);
-  if (f.role === 'boss' || f.role === 'chief') bossTick(f, w, dt);
+  if (f.role === 'boss' || f.role === 'chief' || String(f.kind).startsWith('pb_')) bossTick(f, w, dt);
   const rai = ROLE_AI[f.role]; if (rai?.tick) rai.tick(f, w, dt);   // 11-18: a region-two / -three role
   if ((f.st as St) === 'dead') return;
   // wp/regB: a region-four / -five foe runs its own frame first (hiding under the planks, the boss's machinery, its phases)
@@ -569,6 +569,9 @@ function bossTick(f: Foe, w: FoeWorld, dt: number) {
       }
       cue('summon', 0.6);
     }
+  } else if (String(f.kind).startsWith('pb_') && f.phase > 1 && f.st !== 'dead') {
+    // Phase 2 ember aura for replacement pool bosses (no extra mob spam)
+    f.auraT -= dt; if (f.auraT <= 0) { f.auraT = 0.14; fxEmbers(f.pos.clone().setY(0.45), 0xffb858, 2, { r: 0.65, up: 1.3, life: 0.7 }); }
   }
 }
 
