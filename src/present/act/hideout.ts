@@ -47,33 +47,40 @@ export const HIDEOUT: {
   stele: { x: number; z: number; yaw: number };
   weaponRack: { x: number; z: number; yaw: number };
   keepsakeBox: { x: number; z: number; yaw: number };
+  gardenPlots: Array<{ x: number; z: number }>;
   list: { x: number; z: number };
   dummies: Array<[number, number]>;
   slabs: Array<[number, number]>;
   exit: { x0: number; x1: number; z: number };
   solids: HideoutSolid[];
 } = {
-  // act-125: spacious expanded courtyard (30 × 27 m) with dedicated zones and outer departure corridor
-  floor: { x0: -14.8, x1: 14.8, z0: -12.6, z1: 14.2 },
+  // act-125 / act-132: expanded courtyard + eastern Bamboo Stream Garden Terrace (38 × 29 m) + road-end departure pass
+  floor: { x0: -14.8, x1: 23.6, z0: -12.6, z1: 16.4 },
   // on 孙媪's straw mat in the northeast herb courtyard, where the heroine wakes
   spawn: [10.4, -9.2],
   people: {
     duwu: { x: 7.9, z: 7.4, yaw: -0.65 },            // southeast camp by cook-fire, cart and donkey
     sunao: { x: 12.25, z: -9.4, yaw: -1.15 },        // northeast herb shelter beside straw mat & stove
     fengtiebi: { x: 0.25, z: -10.8, yaw: 0.25 },     // north kiln bay at the anvil
-    luzhao: { x: 12.4, z: -0.6, yaw: -1.35 },        // east bamboo stream pavilion railing
+    luzhao: { x: 12.6, z: -2.4, yaw: -1.35 },        // east bamboo stream pavilion north of the garden bridge
     huanyue: { x: -11.2, z: -11.25, yaw: 0.3 },      // northwest stone steps by the wine jar
   },
   // 中庭北台三大枢纽：左·文家刀廊 / 中·复仇碑 / 右·信物匣（开阔青石礼台，走近即可交互）
   weaponRack: { x: -3.6, z: -5.2, yaw: 0 },
   stele: { x: 0.65, z: -5.3, yaw: 0 },
   keepsakeBox: { x: 4.55, z: -5.1, yaw: 0 },
+  // act-132 东翼跨溪「竹溪梯田药圃」6 块 3D 体素药畦（2 列 × 3 行，通道宽敞、独立交互）
+  gardenPlots: [
+    { x: 18.6, z: -4.8 }, { x: 21.6, z: -4.8 },
+    { x: 18.6, z: -1.2 }, { x: 21.6, z: -1.2 },
+    { x: 18.6, z: 2.4 },  { x: 21.6, z: 2.4 },
+  ],
   list: { x: 0.65, z: -5.3 },
   // 西翼大试剑坪：宽阔练招空间，三具木人桩拉开间距，四块召唤石板排在前缘
   dummies: [[-11.8, -1.6], [-8.8, -1.6], [-10.3, 1.5]],
   slabs: [[-13.0, 5.1], [-11.2, 5.1], [-9.4, 5.1], [-7.6, 5.1]],
-  // 南门外廊出发通道（z 10.6..13.8）
-  exit: { x0: -0.85, x1: 1.65, z: 13.2 },
+  // 南门出征山道真正尽头（石阙与金色光幕紧贴路端 z = 15.6..15.85）
+  exit: { x0: -0.85, x1: 1.65, z: 15.6 },
   solids: [],
 };
 
@@ -138,11 +145,12 @@ function solidsOf(): HideoutSolid[] {
   out.push(cbox(STOVE.X - 5, STOVE.X + 5, STOVE.Z - 4, STOVE.Z + 4), cbox(TABLE.X - 7, TABLE.X + 6, TABLE.Z - 4, TABLE.Z + 3));
   out.push(cbox(SIDE.X0, SIDE.X1, WALL.Z0, SIDE.Z1));
   for (const [bx, bz] of HERB_BEDS) out.push(cbox(bx - 12, bx + 12, bz - 6, bz + 6));
-  // 中庭北台三枢纽：文家刀廊、复仇碑+供台、信物匣
+  // 中庭北台三枢纽：文家刀廊、复仇碑+供台、信物匣 + 礼台双青铜暖炉
   out.push(mbox(HIDEOUT.weaponRack.x - 1.65, HIDEOUT.weaponRack.x + 1.65, HIDEOUT.weaponRack.z - 0.45, HIDEOUT.weaponRack.z + 0.45));
   out.push(mbox(HIDEOUT.stele.x - 0.67, HIDEOUT.stele.x + 0.67, HIDEOUT.stele.z - 0.38, HIDEOUT.stele.z + 0.38));
   out.push(cbox(OFFER.X - 3, OFFER.X + 3, OFFER.Z - 2, OFFER.Z + 2));
   out.push(mbox(HIDEOUT.keepsakeBox.x - 0.62, HIDEOUT.keepsakeBox.x + 0.62, HIDEOUT.keepsakeBox.z - 0.42, HIDEOUT.keepsakeBox.z + 0.42));
+  out.push(circ(-5.4, -3.5, 0.42), circ(6.0, -3.5, 0.42));
   // 西翼大试剑坪：bell posts, practice rack, stone locks, west fence
   for (const p of bellPosts()) out.push(circ(p.x + p.ax * 0.15, p.z + p.az * 0.15, 0.3));
   out.push(cbox(PRACTICE.X, PRACTICE.X + 2, PRACTICE.Z, PRACTICE.Z + 21));
@@ -151,18 +159,23 @@ function solidsOf(): HideoutSolid[] {
   // 西北石阶 & 北侧台地前沿
   out.push(cbox(STEP.X - STEP.hw - 3, STEP.X + STEP.hw + 2, STEP.Z - 3 * STEP.run + 1, STEP.Z));
   out.push(cbox(C(-22), K0.X - 55, T1.z - 2, T1.z));
-  // 东翼竹溪水榭：水渠、栏杆、水缸
-  out.push(cbox(CH.X0 - 2, CH.X1 + 2, T1.z + 2, CH.Z1), cbox(RAIL.X, RAIL.X + 1, RAIL.Z0, RAIL.Z1 + 1));
+  // 东翼竹溪水榭：水渠与栏杆在跨溪木桥口（z = -1.6..+0.8）留出宽敞通行通道，直通东侧竹溪药圃！
+  out.push(cbox(CH.X0 - 2, CH.X1 + 2, T1.z + 2, C(-1.75)), cbox(CH.X0 - 2, CH.X1 + 2, C(0.95), CH.Z1));
+  out.push(cbox(RAIL.X, RAIL.X + 1, RAIL.Z0, C(-1.75)), cbox(RAIL.X, RAIL.X + 1, C(0.95), RAIL.Z1 + 1));
   out.push(circ((VAT.X + 0.5) * CELL, (VAT.Z + 0.5) * CELL, 0.4), cbox(VAT.X - 9, VAT.X - 5, VAT.Z + 2, VAT.Z + 6));
-  // 东南杜五伙房：锅灶、黑篷车、灰驴、草料槽
+  // act-132 东翼外扩「竹溪梯田药圃」外围篱笆边界与 6 块药畦矮框碰撞（畦间留出 1.2m+ 宽过道）
+  out.push(mbox(16.2, 23.8, -7.8, -7.2), mbox(16.2, 23.8, 5.2, 5.8), mbox(23.4, 24.1, -7.8, 5.8));
+  for (const gp of HIDEOUT.gardenPlots) out.push(mbox(gp.x - 0.88, gp.x + 0.88, gp.z - 0.58, gp.z + 0.58));
+  // 东南杜五伙房：锅灶、黑篷车、灰驴、草料槽 + 中庭西南古井
   out.push(cbox(POT.X - 9, POT.X + 9, POT.Z - 7, POT.Z + 7), cbox(CART.X - 34, CART.X + 24, CART.Z - 11, CART.Z + 11));
   out.push(mbox(DONKEY.x - 0.8, DONKEY.x + 1.12, DONKEY.z - 0.24, DONKEY.z + 0.24), cbox(FEED.X - 10, FEED.X + 8, FEED.Z - 3, FEED.Z + 12));
-  // 南门围墙与外廊通道
+  out.push(circ(-4.8, 8.8, 0.62));
+  // 南门围墙与外廊出征山道（延伸至路尽头石阙 z = 15.8）
   const pa = GATE.x0 - 3, pb = GATE.x1 + 1;
   out.push(cbox(GATE.w0, GATE.x0 - 4, GATE.Z - 3, GATE.Z + 2), cbox(GATE.x1 + 4, GATE.w1, GATE.Z - 3, GATE.Z + 2));
   out.push(cbox(pa - 1, pa + 3, GATE.Z - 2, GATE.Z + 2), cbox(pb - 1, pb + 3, GATE.Z - 2, GATE.Z + 2), cbox(pb - 1, pb, GATE.Z - 14, GATE.Z - 3));
-  // act-129: outer exit corridor flanking rails & far-end departure piers
-  out.push(cbox(GATE.x0 - 6, GATE.x0 - 2, GATE.Z + 3, C(14.6)), cbox(GATE.x1 + 2, GATE.x1 + 6, GATE.Z + 3, C(14.6)));
+  // act-129 / act-132: outer departure road curbs & far-end stone piers at z = 15.8 (true end of the road!)
+  out.push(cbox(GATE.x0 - 6, GATE.x0 - 2, GATE.Z + 3, C(16.4)), cbox(GATE.x1 + 2, GATE.x1 + 6, GATE.Z + 3, C(16.4)));
   out.push(cbox(C(-14.6), C(-13.2), C(8.8), C(10.0)), cbox(C(-3.4), C(-2.2), C(9.0), C(10.0)), cbox(C(4.4), C(5.6), C(9.0), C(9.9)));
   return out;
 }
@@ -208,6 +221,116 @@ function streamDeck(c: Ctx, X0: number, Z0: number, Z1: number) {
   w.box(lx - 1, 18, lz - 1, lx + 1, 18, lz + 1, K.stoneL);
 }
 
+/** Ceremonial bronze tripod fire brazier flanking the central stone dais (pure 3D voxel) */
+function daisBrazier(c: Ctx, X: number, Z: number, lit: boolean) {
+  const w = c.w;
+  const BR = 0x5c5342, BRL = 0x7e7054, BRD = 0x3b352c;
+  w.box(X - 4, 0, Z - 4, X + 4, 1, Z + 4, K.stoneD);
+  w.box(X - 3, 2, Z - 3, X + 3, 2, Z + 3, K.stoneL);
+  for (const [dx, dz] of [[-2, -2], [2, -2], [-2, 2], [2, 2]] as const) w.box(X + dx, 3, Z + dz, X + dx, 6, Z + dz, BRD);
+  w.box(X - 3, 7, Z - 3, X + 3, 11, Z + 3, BR);
+  w.box(X - 4, 11, Z - 4, X + 4, 12, Z + 4, BRL);
+  w.box(X - 2, 11, Z - 2, X + 2, 12, Z + 2, lit ? 0xff7e2c : 0xd86024, 1);
+  w.box(X - 1, 13, Z - 1, X + 1, 13, Z + 1, lit ? 0xffc864 : 0xff9238, 1);
+  smoke(c, [X * CELL, 1.05, Z * CELL], { rate: 0.7, col: 0x9e9488 });
+}
+
+/** Weathered stone courtyard well with timber windlass & charcoal-tile cap (SW inner courtyard anchor) */
+function courtyardWell(c: Ctx, X: number, Z: number) {
+  const w = c.w;
+  w.box(X - 7, 0, Z - 7, X + 7, 1, Z + 7, K.stoneD);
+  w.box(X - 6, 2, Z - 6, X + 6, 8, Z + 6, K.stone);
+  w.box(X - 6, 9, Z - 6, X + 6, 9, Z + 6, K.stoneL);
+  w.box(X - 4, 4, Z - 4, X + 4, 9, Z + 4, null);
+  w.box(X - 4, 3, Z - 4, X + 4, 3, Z + 4, K.water);
+  for (const dx of [-6, 5]) w.box(X + dx, 10, Z - 1, X + dx + 1, 24, Z + 1, HV.post);
+  w.box(X - 6, 17, Z, X + 6, 18, Z, HV.woodL);
+  w.box(X - 8, 25, Z - 5, X + 8, 26, Z + 5, HV.tileD);
+  w.box(X - 7, 27, Z - 3, X + 7, 27, Z + 3, HV.tile);
+  w.box(X - 6, 28, Z - 1, X + 6, 28, Z + 1, HV.tileL);
+}
+
+/** Walkable timber footbridge spanning the east bamboo stream into the Bamboo Stream Garden Terrace */
+function streamBridge(c: Ctx, X0: number, X1: number, Z0: number, Z1: number) {
+  const w = c.w;
+  // Flush deck planks at y = -1 so hero walks seamlessly over the stream with zero step bump
+  for (let X = X0; X <= X1; X++) {
+    const joint = (X - X0) % 4 === 0;
+    w.box(X, -1, Z0, X, -1, Z1, joint ? HV.woodD : (X % 2 ? HV.wood : HV.woodL));
+  }
+  // North & south low bridge curb rails & corner lantern posts
+  for (const Z of [Z0 - 1, Z1 + 1]) {
+    w.box(X0, 0, Z, X1, 1, Z, HV.woodD);
+    for (const X of [X0 + 1, Math.round((X0 + X1) / 2), X1 - 1]) {
+      w.box(X, 0, Z, X + 1, 8, Z, HV.post);
+      w.box(X, 9, Z, X + 1, 9, Z, HV.woodL);
+    }
+    w.box(X0 + 1, 6, Z, X1, 7, Z, HV.wood);
+  }
+}
+
+/** Sleek timber & charcoal-tile waterside eave shelter over 卢昭's northern bamboo stream deck */
+function pavilionShelter(c: Ctx, railX: number, Z0: number, Z1: number, lit: boolean) {
+  const w = c.w;
+  // Support posts strictly on the existing railX column (zero new floor obstruction!)
+  for (const Z of [Z0 + 2, Z1 - 2]) {
+    w.box(railX, 0, Z, railX + 1, 29, Z + 1, HV.post);
+    w.box(railX - 10, 26, Z, railX + 3, 27, Z + 1, HV.woodD);
+  }
+  w.box(railX, 27, Z0, railX + 1, 28, Z1, HV.woodD);
+  // Overhanging waterside charcoal-tile eave
+  w.box(railX - 13, 29, Z0 - 2, railX + 5, 30, Z1 + 2, HV.tileD);
+  w.box(railX - 11, 31, Z0 - 1, railX + 4, 31, Z1 + 1, HV.tile);
+  w.box(railX - 8, 32, Z0, railX + 2, 32, Z1, HV.tileL);
+  lantern(c, railX - 10, 28, Math.round((Z0 + Z1) / 2), lit);
+}
+
+/** Eastern Bamboo Stream Garden Terrace dressing: archway, bamboo irrigation chute, timber perimeter fence & buckets */
+function gardenTerraceDressing(c: Ctx, lit: boolean) {
+  const w = c.w;
+  const x0 = C(16.6), x1 = C(23.5), z0 = C(-7.5), z1 = C(5.4);
+  // Timber garden entrance archway at the east bridgehead (strictly flanking the bridge mouth z = -1.7..+0.9)
+  for (const bz of [C(-1.85), C(1.05)]) {
+    w.box(x0 - 1, 0, bz - 1, x0 + 1, 2, bz + 1, K.stoneD);
+    w.box(x0, 3, bz, x0 + 1, 28, bz + 1, HV.post);
+  }
+  w.box(x0 - 1, 27, C(-2.2), x0 + 2, 28, C(1.4), HV.woodD);
+  w.box(x0 - 3, 29, C(-2.4), x0 + 4, 30, C(1.6), HV.tileD);
+  w.box(x0 - 2, 31, C(-2.1), x0 + 3, 31, C(1.3), HV.tileL);
+  lantern(c, x0 + 2, 26, C(-1.6), lit);
+  // Perimeter low bamboo-and-timber garden fence along north, east, and south terrace edges
+  for (let X = x0; X <= x1; X += 12) {
+    for (const Z of [z0, z1]) {
+      w.box(X, 0, Z, X + 1, 10, Z + 1, HV.post);
+      w.box(X, 11, Z, X + 1, 11, Z + 1, HV.woodL);
+    }
+  }
+  for (const Z of [z0, z1]) {
+    w.box(x0, 4, Z, x1, 5, Z, HV.wood);
+    w.box(x0, 8, Z, x1, 9, Z, HV.woodL);
+  }
+  for (let Z = z0; Z <= z1; Z += 12) {
+    w.box(x1, 0, Z, x1 + 1, 10, Z + 1, HV.post);
+    w.box(x1, 11, Z, x1 + 1, 11, Z + 1, HV.woodL);
+  }
+  w.box(x1, 4, z0, x1, 5, z1, HV.wood);
+  w.box(x1, 8, z0, x1, 9, z1, HV.woodL);
+  // Bamboo irrigation trough along the north edge feeding water into the garden terrace
+  const tw = 0x5c7c3e, twL = 0x789c52;
+  w.box(CH.X1, 7, z0 + 4, x1 - 4, 8, z0 + 6, tw);
+  w.box(CH.X1, 8, z0 + 5, x1 - 4, 8, z0 + 5, K.water);
+  for (let X = CH.X1 + 14; X < x1 - 4; X += 22) w.box(X, 0, z0 + 4, X + 1, 6, z0 + 6, twL);
+  // Watering barrels & seed basket near the terrace entry
+  const bx = C(17.2), bz = C(-6.4);
+  w.box(bx - 3, 0, bz - 3, bx + 2, 6, bz + 2, HV.wood);
+  w.box(bx - 3, 2, bz - 3, bx + 2, 2, bz + 2, K.iron);
+  w.box(bx - 3, 5, bz - 3, bx + 2, 5, bz + 2, K.iron);
+  w.box(bx - 2, 6, bz - 2, bx + 1, 6, bz + 1, K.water);
+  const bx2 = C(17.2), bz2 = C(4.3);
+  w.box(bx2 - 3, 0, bz2 - 2, bx2 + 2, 4, bz2 + 2, HV.straw);
+  w.box(bx2 - 2, 4, bz2 - 1, bx2 + 1, 5, bz2 + 1, 0x769a48);
+}
+
 // ------------------------------------------------------------------ the ground
 function ground(c: Ctx) {
   const w = c.w, r = (k: number) => hash(k, 71, 3);
@@ -237,22 +360,40 @@ function ground(c: Ctx) {
       }
     }
   };
+  const stepRunX = (zc: number, x0: number, x1: number, hd = 7, len = 12, gap = 4, seed = 15) => {
+    const Zc = C(zc), X0 = C(x0), X1 = C(x1), step = len + gap;
+    for (let X = X0; X <= X1; X++) {
+      const idx = Math.floor((X - X0) / step), lx = (X - X0) - idx * step;
+      if (lx >= len) continue;
+      for (let dz = -hd; dz <= hd; dz++) {
+        const border = lx === 0 || lx === len - 1 || dz === -hd || dz === hd;
+        const h = hash(idx, dz > 0 ? 1 : 0, seed);
+        w.set(X, -1, Zc + dz, border ? K.paveJ : h < 0.3 ? K.paveD : h < 0.8 ? K.pave : K.paveL);
+      }
+    }
+  };
 
-  // Broad mountain grass surround & generous unified packed-earth courtyard
-  fill(-23, -14.0, 23, 18.0, GRASS[0]);
-  for (let i = 0; i < 48; i++) {
-    const x = -23 + r(i) * 46, z = -13 + r(50 + i) * 30, hw = 1.2 + r(100 + i) * 2.4, hd = 1.0 + r(150 + i) * 2.0;
+  // Broad mountain grass surround (expanded east to x=30 for Bamboo Stream Garden Terrace & south to z=21 for departure pass)
+  fill(-23, -14.0, 30, 21.0, GRASS[0]);
+  for (let i = 0; i < 64; i++) {
+    const x = -23 + r(i) * 53, z = -13 + r(50 + i) * 33, hw = 1.2 + r(100 + i) * 2.4, hd = 1.0 + r(150 + i) * 2.0;
     fill(snap(x - hw), snap(z - hd), snap(x + hw), snap(z + hd), r(200 + i) < 0.6 ? GRASS[1] : GRASS[2]);
   }
   fill(-15.4, -13.2, 14.8, 10.9, K.earth);
+  // Natural subtle earth tonal patches across the big courtyard (eliminates flat single-color desert feel!)
+  for (let i = 0; i < 24; i++) {
+    const x = -13.5 + r(300 + i) * 26.5, z = -11.5 + r(350 + i) * 21.0;
+    const hw = 1.0 + r(400 + i) * 2.1, hd = 0.8 + r(450 + i) * 1.8;
+    fill(snap(x - hw), snap(z - hd), snap(x + hw), snap(z + hd), r(500 + i) < 0.5 ? K.earthD : K.earthL);
+  }
   // Grounded perimeter border
-  fill(-15.4, -13.2, 14.8, -11.6, K.earthD);
-  fill(-15.4, 9.8, 14.8, 10.9, K.earthD);
-  fill(-15.4, -13.2, -14.2, 10.9, K.earthD);
-  fill(13.8, -13.2, 14.8, 10.9, K.earthD);
-  // Warm trodden camp apron around Du Wu's southeast area
-  fill(4.8, 3.6, 13.6, 9.6, K.earthL);
-  fill(5.4, 4.4, 7.6, 6.4, K.earthD);
+  fill(-15.4, -13.2, 14.8, -11.8, K.earthD);
+  fill(-15.4, 9.9, 14.8, 10.9, K.earthD);
+  fill(-15.4, -13.2, -14.3, 10.9, K.earthD);
+  fill(13.9, -13.2, 14.8, 10.9, K.earthD);
+  // Warm trodden camp apron around Du Wu's southeast area + natural cobble hearth circle under cookfire
+  fill(5.2, 3.8, 13.6, 9.5, K.earthL);
+  flagstones(5.4, 4.4, 7.6, 6.4, 9, 9, 41);
 
   // 西翼 · 大试剑坪 (spacious 7.8 × 12.6 m timber-curbed arena)
   fill(-14.2, -5.8, -6.4, 6.8, K.yard);
@@ -277,32 +418,37 @@ function ground(c: Ctx) {
     w.box(X, 3, Z, X + 1, 3, Z + 1, K.stoneL);
   }
 
-  // 中庭北台 · 青石礼台 (hosting 文家刀廊 / 复仇碑 / 信物匣)
+  // 中庭北台 · 青石礼台 (hosting 文家刀廊 / 复仇碑 / 信物匣, framed by a clean stone apron!)
   flagstones(-5.6, -6.5, 6.2, -3.4, 14, 10, 5);
+  flagstones(-1.0, -3.4, 1.9, -2.5, 12, 8, 11); // broad front threshold step onto the dais
   // North wall 30-blade memorial apron
   flagstones(3.2, -12.2, 9.6, -10.4, 12, 10, 19);
 
-  // Clean trodden earth footpaths weaving every zone together
-  const dirtPath = (x0: number, z0: number, x1: number, z1: number) => {
-    fill(x0 - 0.16, z0 - 0.16, x1 + 0.16, z1 + 0.16, K.earthD);
-    fill(x0, z0, x1, z1, K.path);
-  };
-  dirtPath(-0.4, -3.4, 1.3, 10.4);       // south gate → central ceremonial dais
-  dirtPath(-0.6, -10.2, 1.2, -6.5);      // central dais → kiln forge bay
-  dirtPath(-6.4, -1.6, 12.2, 0.2);       // grand east-west promenade: training yard ↔ central yard ↔ Lu Zhao pavilion
-  dirtPath(6.2, -9.2, 10.2, -6.2);       // Sun Ao herb yard → central dais
-  dirtPath(1.2, 4.4, 7.6, 6.2);          // central road → Du Wu cook-fire & camp
-  dirtPath(-11.8, -10.6, -8.8, -5.8);    // Huan Yue stone steps → training yard
-  // Dressed stepping slabs at real thresholds
-  stepRunZ(0.4, 7.2, 10.2, 9, 12, 5, 7);
-  flagstones(-0.6, -10.0, 1.4, -9.2, 12, 10, 13);
+  // Organic trodden footpaths + weathered blue-stone stepping flagstones (NO harsh CAD-tape black borders!)
+  const softPath = (x0: number, z0: number, x1: number, z1: number) => fill(x0, z0, x1, z1, K.path);
+  softPath(-0.7, -2.5, 1.6, 10.6);        // south gate → central ceremonial dais
+  softPath(-0.6, -10.2, 1.4, -6.5);       // central dais → kiln forge bay
+  softPath(-6.4, -1.6, 14.3, 0.5);        // grand east-west promenade: training yard ↔ central yard ↔ bamboo stream bridge!
+  softPath(6.2, -9.2, 10.2, -6.2);        // Sun Ao herb yard → central dais
+  softPath(1.6, 4.7, 5.5, 6.0);           // central road → Du Wu hearth
+  softPath(-11.6, -10.6, -9.0, -5.8);     // Huan Yue stone steps → training yard
+  // Dressed stepping stones guiding the eye naturally across the expanded yard
+  stepRunZ(0.45, -2.2, 10.2, 10, 12, 5, 7);
+  stepRunZ(0.45, -9.8, -6.8, 9, 10, 4, 13);
+  stepRunX(-0.55, -5.8, 13.8, 7, 12, 5, 21);
   flagstones(-6.6, -1.6, -5.6, 0.4, 10, 10, 29);
 
-  // Outer departure mountain road past the south gate: worn earth with stone verges, stepping flagstones & wheel ruts
-  fill(-1.1, 10.9, 1.9, 18.0, K.path);
-  stepRunZ(0.4, 10.9, 13.8, 12, 10, 4, 23);
-  for (const X of [C(-1.1), C(1.9)]) for (let Z = C(11.0); Z <= C(18.0); Z++) w.set(X, -1, Z, (Z % 12 < 2) ? K.stoneD : K.earthD);
-  for (const X of [C(-0.4), C(1.2)]) for (let Z = C(14.0); Z <= C(18.0); Z++) { w.set(X, -1, Z, K.rut); w.set(X + 1, -1, Z, K.rut); }
+  // act-132 东翼外扩「竹溪梯田药圃」地面（温润耕作土台 + 青石中心步道 + 跨溪桥头石阶）
+  fill(16.4, -7.6, 23.6, 5.5, K.earth);
+  fill(16.6, -7.4, 23.4, 5.3, K.earthL);
+  flagstones(16.4, -1.5, 20.4, 0.6, 10, 10, 33);
+  stepRunZ(20.1, -6.2, 4.4, 6, 11, 4, 37);
+
+  // 南门出征山道：从南门 z=10.9 延伸至路的真正尽头 z=16.0（彻底去掉尽头之后的多余空路！）
+  fill(-1.15, 10.9, 1.95, 16.05, K.path);
+  stepRunZ(0.4, 10.9, 15.65, 12, 10, 4, 23);
+  flagstones(-1.05, 15.45, 1.85, 16.15, 10, 8, 43); // dressed stone threshold at the true end of the departure road!
+  for (const X of [C(-1.15), C(1.95)]) for (let Z = C(11.0); Z <= C(16.1); Z++) w.set(X, -1, Z, (Z % 12 < 3) ? K.stoneD : K.earthD);
 }
 
 // ------------------------------------------------------------------ the build
@@ -347,70 +493,98 @@ function* build(c: Ctx, o: { time: HideoutTime; weather: HideoutWeather }) {
   for (const p of bellPosts()) bellPost(c, C(p.x), C(p.z), p.ax, p.az);
   const L = loc(w, 0, 0, 0); for (const [a, b] of FENCE.runs) wattleZ(L, a, b, FENCE.X, 10);
   practiceRack(c, PRACTICE.X, PRACTICE.Z); for (const [x, z] of LOCKS) stoneLock(c, x, z);
-  // 东翼 · 竹溪水榭 (卢昭)
+  // 东翼 · 竹溪水榭 (卢昭) + 跨溪木桥 + 外扩竹溪梯田药圃
   yield;
   channel(c, CH.X0, CH.X1, T1.z + 2, CH.Z1);
   culvert(c, Math.round((CH.X0 + CH.X1) / 2), WALL.Z0 - 1);
-  railing(c, RAIL.X, RAIL.Z0, RAIL.Z1);
+  // Split waterside rail cleanly around the wooden bridge mouth (z = -1.6..+0.8)
+  railing(c, RAIL.X, RAIL.Z0, C(-1.75));
+  railing(c, RAIL.X, C(0.95), RAIL.Z1);
   streamDeck(c, RAIL.X, RAIL.Z0 + 2, RAIL.Z1 - 2);
+  pavilionShelter(c, RAIL.X, RAIL.Z0, C(-1.8), lit);
+  streamBridge(c, RAIL.X + 1, C(16.5), C(-1.6), C(0.8));
+  gardenTerraceDressing(c, lit);
   { const B = loc(w, VAT.X, VAT.Z, 0); jar(B, 0, 0, 1, true, { lid: true }); B(-9, 0, 2, -5, 4, 6, HV.wood); B(-9, 2, 2, -5, 2, 6, K.iron); B(-8, 4, 3, -6, 4, 5, K.water); B(-7, 5, 4, -7, 7, 4, HV.woodD); }
-  // 东南 · 杜五车马伙房 & 南门山道
+  // 中庭青石礼台双青铜暖炉 + 西南院井 + 西北古橡树灯柱
+  daisBrazier(c, C(-5.4), C(-3.5), lit);
+  daisBrazier(c, C(6.0), C(-3.5), lit);
+  courtyardWell(c, C(-4.8), C(8.8));
+  oak(w, -14.2, -11.4, 6.2, { seed: 73, bark: 0x4a3c30, dark: 0x30261e, leaf: 0x9c6e2c, leafTop: 0xc28e3c, low: 0.44, width: 0.95, vines: 0 });
+  // 东南 · 杜五车马伙房 & 南门出征山道
   yield;
   cart(c, CART.X, CART.Z);
   feed(c, FEED.X, FEED.Z);
   const pot = cookFire(c, POT.X, POT.Z, true);
   frontGate(c, GATE.w0, GATE.x0, GATE.x1, GATE.w1, GATE.Z);
-  // act-129: outer departure corridor flanking low stone curbs, timber rails, and two weathered stone departure piers at the far end
+  // act-129 / act-132: outer departure mountain road curbs, timber rails, lanterns & far-end stone piers right at z = 15.8 (true end of the road!)
   {
-    const cz0 = GATE.Z + 4, cz1 = C(13.6);
+    const cz0 = GATE.Z + 4, cz1 = C(15.85);
     for (const [cx0, cx1] of [[GATE.x0 - 5, GATE.x0 - 3], [GATE.x1 + 3, GATE.x1 + 5]] as const) {
       w.box(cx0, 0, cz0, cx1, 2, cz1, K.stone);
       w.box(cx0, 3, cz0, cx1, 3, cz1, K.stoneL);
-      // wooden fence posts & two timber crossbars connecting the gate to the far-end outer piers
+      // wooden fence posts & two timber crossbars guiding the player down to the road's end
       const px = cx0 + 1;
-      for (let z = cz0 + 6; z <= cz1 - 6; z += 12) {
+      for (let z = cz0 + 6; z <= cz1 - 6; z += 13) {
         w.box(px - 1, 4, z, px, 12, z + 1, HV.post);
         w.box(px - 1, 13, z, px, 13, z + 1, HV.woodL);
       }
       w.box(px, 6, cz0, px, 7, cz1, HV.wood);
       w.box(px, 10, cz0, px, 11, cz1, HV.woodL);
-      // outer departure stone piers (门阙石墩) framing the exit light curtain at the far end of the corridor
-      w.box(cx0 - 1, 0, cz1 - 2, cx1 + 1, 14, cz1 + 3, K.stone);
+      // grand weathered departure stone piers (出征山阙石墩) framing the golden exit light curtain at the road's true end!
+      w.box(cx0 - 1, 0, cz1 - 2, cx1 + 1, 16, cz1 + 3, K.stone);
       w.box(cx0 - 1, 0, cz1 - 2, cx1 + 1, 3, cz1 + 3, K.stoneD);
-      w.box(cx0 - 2, 15, cz1 - 3, cx1 + 2, 17, cz1 + 4, K.stoneL);
-      w.box(cx0 - 1, 18, cz1 - 2, cx1 + 1, 19, cz1 + 3, K.stone);
+      w.box(cx0 - 2, 17, cz1 - 3, cx1 + 2, 19, cz1 + 4, K.stoneL);
+      w.box(cx0 - 1, 20, cz1 - 2, cx1 + 1, 21, cz1 + 3, K.stone);
     }
-    w.box(GATE.x0 - 4, 20, cz1, GATE.x0 - 3, 27, cz1 + 1, HV.post);
-    w.box(GATE.x0 - 3, 26, cz1, GATE.x0 + 2, 27, cz1 + 1, HV.wood);
-    lantern(c, GATE.x0 + 1, 25, cz1, true);
+    // Mid-road lantern + far-end departure pier lantern
+    w.box(GATE.x0 - 4, 22, cz1, GATE.x0 - 3, 29, cz1 + 1, HV.post);
+    w.box(GATE.x0 - 3, 28, cz1, GATE.x0 + 2, 29, cz1 + 1, HV.wood);
+    lantern(c, GATE.x0 + 1, 27, cz1, true);
+    w.box(GATE.x1 + 4, 22, cz1, GATE.x1 + 5, 29, cz1 + 1, HV.post);
+    w.box(GATE.x1 - 1, 28, cz1, GATE.x1 + 4, 29, cz1 + 1, HV.wood);
+    lantern(c, GATE.x1, 27, cz1, true);
   }
   lantern(c, GATE.x0 - 6, 29, GATE.Z, lit);
   lantern(c, CORNER.X1 - 1, 25, CORNER.Zp - 1, lit);
-  // Lush layered bamboo valleys & oaks framing the expanded perimeter
+  // Lush layered bamboo valleys, oaks & mountain pass cliffs framing the expanded perimeter + eastern garden terrace + south departure pass!
   yield;
   grove(c, -22.0, -21.0, -8.5, -16.8, 34, 11, [6.8, 9.0]);
-  grove(c, 7.5, -21.0, 22.0, -16.8, 34, 12, [6.8, 9.0]);
-  grove(c, -23.0, -25.5, 23.0, -21.2, 52, 13, [8.6, 11.2]);
-  grove(c, 16.4, -12.5, 21.8, 7.5, 44, 14, [5.6, 8.0]);
-  grove(c, 18.0, -4.0, 23.5, 13.5, 34, 16, [5.2, 7.6]);
+  grove(c, 7.5, -21.0, 27.5, -16.8, 42, 12, [6.8, 9.0]);
+  grove(c, -23.0, -25.5, 28.0, -21.2, 58, 13, [8.6, 11.2]);
+  // East bamboo framing shifted cleanly behind the new Bamboo Stream Garden Terrace (x >= 24.4) + north/south wings clear of plot sightlines
+  grove(c, 16.4, -14.2, 27.5, -8.4, 34, 14, [5.6, 8.0]);
+  grove(c, 24.4, -8.2, 29.2, 11.5, 48, 16, [5.8, 8.6]);
+  grove(c, 17.2, 8.4, 25.5, 16.2, 30, 22, [4.6, 6.8]);
+  // West hillside bamboo
   grove(c, -21.5, -12.0, -16.2, 9.0, 42, 15, [5.2, 7.8]);
-  grove(c, -23.5, -16.0, -18.5, 13.5, 32, 17, [5.6, 8.0]);
+  grove(c, -23.5, -16.0, -18.5, 16.5, 36, 17, [5.6, 8.0]);
+  // South mountain pass bamboo framing BOTH outer flanks cleanly without poking in front of courtyard NPCs or south gate!
+  grove(c, -16.2, 13.8, -5.2, 19.2, 30, 23, [3.8, 5.4]);
+  grove(c, 5.6, 13.8, 15.8, 19.2, 30, 24, [3.8, 5.4]);
   deadTree(w, -16.8, -14.2, 6.0, HV.char, HV.charD, { seed: 9, crow: 0.6, moss: false });
   oak(w, -19.2, -14.8, 7.2, { seed: 33, bark: 0x4a3c30, dark: 0x30261e, leaf: 0x866c32, leafTop: 0xaa8a40, low: 0.42, width: 1.05, vines: 0 });
   oak(w, -18.8, 3.2, 6.4, { seed: 53, bark: 0x4a3c30, dark: 0x30261e, leaf: 0x6c7c3a, leafTop: 0x8ea04c, low: 0.40, width: 1.0, vines: 0 });
   oak(w, -17.5, 10.6, 5.8, { seed: 59, bark: 0x4a3c30, dark: 0x30261e, leaf: 0x8a6d32, leafTop: 0xb08d42, low: 0.42, width: 0.95, vines: 0 });
+  oak(w, -7.2, 13.8, 5.6, { seed: 83, bark: 0x4a3c30, dark: 0x30261e, leaf: 0x8a6c30, leafTop: 0xb08a3e, low: 0.44, width: 0.95, vines: 0 });
+  oak(w, 7.6, 14.2, 5.8, { seed: 89, bark: 0x4a3c30, dark: 0x30261e, leaf: 0x74823c, leafTop: 0x94a44c, low: 0.44, width: 0.95, vines: 0 });
   oak(w, 18.4, -14.0, 7.6, { seed: 21, bark: 0x4a3c30, dark: 0x30261e, leaf: 0x8a6a2c, leafTop: 0xb08a3a, low: 0.4, width: 1.1, vines: 0 });
-  oak(w, 19.6, -2.0, 6.6, { seed: 61, bark: 0x4a3c30, dark: 0x30261e, leaf: 0x62783a, leafTop: 0x829c4c, low: 0.40, width: 1.0, vines: 0 });
-  oak(w, 19.8, 8.2, 6.4, { seed: 47, bark: 0x4a3c30, dark: 0x30261e, leaf: 0x7c6834, leafTop: 0xa28842, low: 0.42, width: 0.95, vines: 0 });
+  oak(w, 25.4, -5.2, 6.6, { seed: 61, bark: 0x4a3c30, dark: 0x30261e, leaf: 0x62783a, leafTop: 0x829c4c, low: 0.40, width: 1.0, vines: 0 });
+  oak(w, 25.2, 4.8, 6.4, { seed: 47, bark: 0x4a3c30, dark: 0x30261e, leaf: 0x7c6834, leafTop: 0xa28842, low: 0.42, width: 0.95, vines: 0 });
   for (const [bx, bz, r2] of [
     [-16.8, -9.8, 7], [-17.4, -0.4, 8], [-16.8, 5.2, 7], [-18.0, 9.2, 9],
-    [16.8, -9.8, 7], [17.4, -4.6, 8], [17.2, 2.2, 8], [18.0, 7.8, 9],
+    [-4.2, 13.0, 7], [-11.5, 14.2, 8], [4.8, 13.2, 7], [11.2, 14.4, 8],
+    [17.6, -9.6, 7], [25.0, -1.8, 8], [24.8, 2.8, 8], [18.4, 7.8, 9],
   ] as const) {
     const X = C(bx), Z = C(bz);
     w.box(X - r2, 0, Z - r2, X + r2, 5, Z + r2, 0x4f6434);
     w.box(X - r2 + 2, 6, Z - r2 + 2, X + r2 - 2, 9, Z + r2 - 2, 0x647d40);
     w.box(X - r2 + 4, 10, Z - r2 + 4, X + r2 - 4, 11, Z + r2 - 4, 0x7a944c);
   }
+  // Mountain pass flanking boulders at the departure road's far end (natural cliff-mouth framing)
+  stoneCluster(c, C(-3.8), C(16.2));
+  stoneCluster(c, C(4.6), C(16.4));
+  stoneCluster(c, C(-9.2), C(12.2));
+  stoneCluster(c, C(9.6), C(12.4));
   // Mount Song limestone cliff outcrops
   cliffOutcrop(c, C(-13.8), T1.h + 1, C(-15.4), 24, 14, 24);
   cliffOutcrop(c, C(-20.0), T2.h + 1, C(-18.6), 28, 18, 30);
@@ -428,7 +602,7 @@ function* build(c: Ctx, o: { time: HideoutTime; weather: HideoutWeather }) {
   w.box(POT.X - 8, 0, POT.Z + 3, POT.X - 7, 3, POT.Z + 5, HV.post);
   w.box(POT.X - 16, 4, POT.Z + 2, POT.X - 6, 4, POT.Z + 6, HV.wood);
   w.box(POT.X - 16, 4, POT.Z + 6, POT.X - 6, 4, POT.Z + 6, HV.woodL);
-  for (const [rx, rz] of [[-5.2, 9.6], [-2.8, 9.7], [3.6, 9.6], [13.2, 3.6], [13.2, -4.1], [-14.2, 2.2], [-14.2, -4.8], [-1.4, 11.4], [2.4, 11.5]] as const) {
+  for (const [rx, rz] of [[-6.4, 9.6], [-2.8, 9.7], [3.6, 9.6], [13.2, 3.6], [13.2, -4.1], [-14.2, 2.2], [-14.2, -4.8], [-1.4, 11.4], [2.4, 11.5]] as const) {
     const X = C(rx), Z = C(rz);
     w.box(X - 2, 0, Z - 2, X + 2, 1, Z + 1, K.stoneD);
     w.box(X - 1, 2, Z - 1, X + 1, 2, Z, K.stoneL);
@@ -442,8 +616,8 @@ function* build(c: Ctx, o: { time: HideoutTime; weather: HideoutWeather }) {
   strawCluster(c, C(-16.8), C(5.2), 3);
   stoneCluster(c, C(-16.2), C(9.6));
   logStack(c, C(-16.0), C(-15.0), C(-7.8), C(-6.4), 7);
-  stoneCluster(c, C(16.6), C(-3.6));
-  stoneCluster(c, C(16.6), C(4.2));
+  stoneCluster(c, C(24.6), C(-3.6));
+  stoneCluster(c, C(24.6), C(4.2));
   strawCluster(c, C(17.4), C(9.8), 3);
   terraceRuin(c, C(-15.4), T1.h + 1, C(-14.2));
   terraceRuin(c, C(16.4), T2.h + 1, C(-17.8));
@@ -452,36 +626,41 @@ function* build(c: Ctx, o: { time: HideoutTime; weather: HideoutWeather }) {
   const card = (kind: string, x: number, z: number, s: number, tint?: number) => { const y = surface(c, x, z); if (y != null) c.cards.add(kind, x, z, { y, s, tint }); };
   for (let i = 0; i < 28; i++) { const x = -4.6 + hash(i, 1, 9) * 7.4, z = -16.0 + hash(i, 2, 9) * 3.3; card(i % 3 ? 'weeds' : 'grass', x, z, 0.55 + hash(i, 3, 9) * 0.3, 0xb0a078); }
   for (let i = 0; i < 110; i++) { const x = -22 + hash(i, 4, 9) * 44, z = -20 + hash(i, 5, 9) * 7.0; if (Math.abs(x + 1.0) < 4.0 && z > -16.2) continue; card(i % 4 ? 'grass' : 'weeds', x, z, 0.5 + hash(i, 6, 9) * 0.4, i % 2 ? 0xc8b890 : 0xb4a878); }
-  for (let i = 0; i < 56; i++) { const z = -12.0 + hash(i, 7, 9) * 28, x = hash(i, 8, 9) < 0.5 ? 16.0 + hash(i, 9, 9) * 0.6 : 14.4 + hash(i, 10, 9) * 0.2; if (x < 14.8 && z < 3.0 && z > -4.0) continue; card('reeds', x, z, 0.6 + hash(i, 11, 9) * 0.5, 0xb8b088); }
-  for (let i = 0; i < 380; i++) {
-    const x = -22 + hash(i, 15, 9) * 44, z = -13 + hash(i, 16, 9) * 30;
+  for (let i = 0; i < 56; i++) { const z = -12.0 + hash(i, 7, 9) * 28, x = hash(i, 8, 9) < 0.5 ? 16.0 + hash(i, 9, 9) * 0.6 : 14.4 + hash(i, 10, 9) * 0.2; if (z > -2.2 && z < 1.4) continue; if (x < 14.8 && z < 3.0 && z > -4.0) continue; card('reeds', x, z, 0.6 + hash(i, 11, 9) * 0.5, 0xb8b088); }
+  for (let i = 0; i < 420; i++) {
+    const x = -22 + hash(i, 15, 9) * 50, z = -13 + hash(i, 16, 9) * 33;
     if (x > -15.4 && x < 14.8 && z < 11.0) continue;
-    if (x > -1.3 && x < 2.1 && z > 10.6) continue;
-    const isFlank = x < -15.4 || x > 15.8;
+    if (x > 16.2 && x < 24.0 && z > -7.8 && z < 5.8) continue; // keep eastern Bamboo Stream Garden Terrace crisp & clean!
+    if (x > -1.4 && x < 2.2 && z > 10.6 && z < 16.4) continue; // keep south departure road clean!
+    const isFlank = x < -15.4 || x > 23.8 || z > 11.4;
     card(isFlank && i % 3 === 0 ? 'vtuft' : (i % 5 ? 'grass' : 'weeds'), x, z, 0.48 + hash(i, 17, 9) * 0.42, isFlank ? (i % 2 ? 0x9eb878 : 0xb8c488) : (i % 3 ? 0xc8b890 : 0xa8b080));
   }
   for (const [px, pz, s] of [
     [-0.8, 8.4, 1.05], [1.6, 8.1, 1.0], [-0.4, 3.2, 1.02], [2.6, -1.8, 0.96], [5.8, -3.5, 1.05],
     [-6.2, 6.6, 1.02], [-6.2, -5.8, 0.98], [-14.0, 8.2, 1.05], [9.8, -2.4, 0.96], [2.4, 11.6, 1.12],
     [-1.4, 12.2, 1.08], [4.8, 11.4, 1.05], [-5.8, 10.8, 1.12], [8.6, 8.8, 0.98], [0.6, 1.4, 0.95],
+    [17.4, -3.0, 0.95], [20.1, 1.0, 0.95], [22.6, -2.8, 0.92],
   ] as const) {
     c.cards.add('vpebble', px, pz, { y: 0.012, s, tint: 0xffffff });
   }
   for (const [lx, lz, s] of [
     [12.4, -3.2, 1.1], [12.0, 1.4, 1.05], [10.4, 8.2, 1.0], [-14.0, 2.5, 1.1], [-13.6, -6.6, 1.05],
     [-1.4, 8.9, 1.02], [6.8, 4.8, 0.96], [1.8, -6.5, 0.98], [-4.2, 11.4, 1.15], [5.2, 11.2, 1.1],
+    [17.6, 3.4, 1.05], [22.4, -6.2, 1.05], [0.4, 14.2, 1.02],
   ] as const) {
     c.cards.add('vleaf', lx, lz, { y: 0.010, s, tint: 0xffffff });
   }
   if (wet) {
     for (const [k, cell] of w.cells) if ((Math.floor(k / 1024) % 1024) - 512 === -1 && !cell.g) cell.c = mixC(cell.c, 0x2a2c34, 0.18);
-    for (const [x, z, s] of [[-9.6, 0.9, 0.9], [0.4, 12.4, 0.7], [4.6, -1.4, 0.8], [-0.6, -9.1, 0.65], [8.4, 1.9, 0.65], [-11.6, -3.6, 0.6], [1.2, 6.2, 0.55]] as Array<[number, number, number]>) c.cards.add('puddle', x, z, { y: 0.004, s, tint: o.time === 'night' ? 0x7a8698 : o.time === 'dusk' ? 0xa8b4c4 : 0xd0d8e4 });
+    for (const [x, z, s] of [[-9.6, 0.9, 0.9], [0.4, 13.8, 0.7], [4.6, -1.4, 0.8], [-0.6, -9.1, 0.65], [8.4, 1.9, 0.65], [-11.6, -3.6, 0.6], [1.2, 6.2, 0.55]] as Array<[number, number, number]>) c.cards.add('puddle', x, z, { y: 0.004, s, tint: o.time === 'night' ? 0x7a8698 : o.time === 'dusk' ? 0xa8b4c4 : 0xd0d8e4 });
   }
-  // Warm lights across every major wing of the expanded hideout
+  // Warm lights across every major wing of the expanded hideout (kiln, cookfire, twin dais braziers, east garden archway & road-end departure piers)
   c.light([fire[0], 0.7, fire[2]], 0xff5a24, 3.6 * Math.max(0.65, lamp), 7.5);
   c.light([pot.fire[0], 0.55, pot.fire[2]], 0xff8a40, 2.4 * Math.max(0.5, lamp), 5.0);
-  c.light([HIDEOUT.stele.x, 1.4, HIDEOUT.stele.z + 0.8], 0xffb868, (lit ? 1.5 : 0.7) * Math.max(0.6, lamp), 5.2);
-  c.light([12.8, 1.3, -2.5], 0xffcc7a, (lit ? 1.4 : 0.5) * Math.max(0.5, lamp), 4.6);
+  c.light([-5.4, 1.1, -3.5], 0xff9240, 1.6 * Math.max(0.55, lamp), 5.5);
+  c.light([6.0, 1.1, -3.5], 0xff9240, 1.6 * Math.max(0.55, lamp), 5.5);
+  c.light([17.2, 1.7, -1.2], 0xffc470, (lit ? 1.8 : 0.75) * Math.max(0.55, lamp), 6.2);
+  c.light([0.4, 1.9, 15.8], 0xffb858, (lit ? 2.2 : 0.9) * Math.max(0.6, lamp), 6.5);
   if (lit) c.light([flame[0] - 0.4, flame[1] + 0.3, flame[2] + 0.7], 0xffb060, 1.0 * lamp, 2.8);
   // Smoke, steam, embers & shafts
   smoke(c, [fire[0] + 0.1, 0.9, fire[2]], { rate: wet ? 1.6 : 1.1, col: 0x6e6862 });

@@ -106,14 +106,15 @@ export interface RunMods {
 }
 
 export function runMods(p: Profile): RunMods {
+  const gBuff = p.garden?.buff;
   return {
     dmgMul: 1 + 0.12 * level(p, 'blade'),
     critBonus: 0.04 * level(p, 'blade'),
     dartBonus: level(p, 'darts'),
-    rerolls: 1 + level(p, 'reroll'),
-    hpBonus: 20 * level(p, 'vigor'),
+    rerolls: 1 + level(p, 'reroll') + (gBuff === 'lotus' ? 1 : 0),
+    hpBonus: 20 * level(p, 'vigor') + (gBuff === 'lotus' ? 25 : 0),
     deathDefy: level(p, 'breath'),
-    startIntent: level(p, 'intent'),
+    startIntent: level(p, 'intent') + (gBuff === 'xuanzhi' ? 1 : 0),
     windupMul: 1 + 0.1 * level(p, 'ear'),
     startManual: level(p, 'manual') >= 1,
     poiseHeal: 5 * level(p, 'leech'),
@@ -123,7 +124,7 @@ export function runMods(p: Profile): RunMods {
     counterBonus: mirrorVal(p, 'step', 1) / 100,
     markedDmgBonus: mirrorVal(p, 'arms', 0) / 100,
     poiseDmgMul: 1 + mirrorVal(p, 'arms', 1) / 100,
-    rareOddsBonus: mirrorVal(p, 'luck', 0) / 100,
+    rareOddsBonus: mirrorVal(p, 'luck', 0) / 100 + (gBuff === 'xuanzhi' ? 0.25 : 0),
     interestRate: mirrorVal(p, 'luck', 1) / 100,
   };
 }

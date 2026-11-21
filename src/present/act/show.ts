@@ -71,6 +71,7 @@ import { newGame, profile, save as saveProfile, seeOnce, hasSave } from './profi
 import { runMods, bank, META, MIRROR, level, nextCost, buy, hasAffordable, mirrorState, mirrorNextCost, canBuyMirror, hasMirrorAffordable, buyMirror, flipMirror, type RunMods } from './meta';
 import { WEAPONS, WEAPON_ORDER, weaponDef, isWeaponUnlocked, weaponLevel, weaponNextCost, canForgeWeapon, hasAnyWeaponForgeable, forgeWeapon, equippedWeapon, equipWeapon, buildCourtyardWeaponRack, type WeaponId } from './weapons';
 import { KEEPSAKES, KEEPSAKE_ORDER, KEEPSAKE_STARS, keepsakeDef, isKeepsakeUnlocked, unlockKeepsake, keepsakeRooms, keepsakeStar, starLabel, equippedKeepsake, equipKeepsake, advanceKeepsake, buildKeepsakeBoxModel, type KeepsakeId } from './keepsakes';
+import { SEEDS, SEED_ORDER, PLOT_COSTS, ensureGarden, plotStatus, isPlotUnlocked, canUnlockPlot, unlockPlot, plantSeed, harvestPlot, advanceGardenRooms, totalSeeds, ripePlotIndices, hasPlantablePlot, rollSeedDrop, addSeed, buildGardenPlotMesh } from './garden';
 import { GeneralEventRunner, GENERAL_EVENTS, type GeneralBlessingId, type GeneralEventMeta } from './generalEvents';
 import { NPC_LINES, UP_LINES, POOR_LINES, HAUL, MEALS, MEAL_LINES, STELE_LINES } from './hideoutLines';
 import { Leaves } from './leaves';
@@ -196,6 +197,7 @@ function savedHero(): ModelDef {
 let SELF: ActShow | null = null;
 /** act-20 upgrade card glyphs (12 × 12, axis-aligned): an anvil under a hammer; a needle by a gourd; an open gate (leave) */
 const ANVIL = ['..######....', '..#oooo#....', '..######....', '....##......', '....##......', '............', '.##########.', '.#oooooooo#.', '..########..', '....####....', '...######...', '............'];
+const SPROUT = ['............', '..###..###..', '.#ooo##ooo#.', '.##oo##oo##.', '...######...', '.....##.....', '.....##.....', '....####....', '..########..', '.#oooooooo#.', '..########..', '............'];
 const NEEDLE = ['.........##.', '........#oo#', '.##.....#oo#', '.##......##.', '.##.....####', '.##....#oooo', '.##....#oooo', '.##....#oooo', '.##.....####', '.##.........', '.##.........', '............'];
 /** 杜五's provisions: a flatbread on a plate, a square-holed coin (the purse), a wine jug (12 × 12, axis-aligned) */
 const MEAL_GLYPH: Record<string, string[]> = {
@@ -791,14 +793,19 @@ export class ActShow {
     this.L.text.hide('act.yard.exit');
     this.L.text.hide('act.station.hint');
     for (const id of ['fengtiebi', 'sunao', 'duwu', 'luzhao', 'huanyue', 'stele', 'weaponRack', 'keepsakeBox']) this.L.text.hide('act.beacon.' + id);
+    for (let i = 0; i < HIDEOUT.gardenPlots.length; i++) this.L.text.hide('act.beacon.garden_' + i);
     for (const m of this.marks.values()) {
       m.exc.visible = false; m.bub.visible = false;
       (m.ring.material as THREE.MeshBasicMaterial).opacity = 0;
     }
     if (this.steleExclaim) this.steleExclaim.visible = false;
+    for (const ge of this.gardenExclaims) if (ge) ge.visible = false;
   }
   private weaponRackMesh: THREE.Group | null = null;
   private keepsakeBoxMesh: THREE.Group | null = null;
+  private gardenMeshes: THREE.Group[] = [];
+  private gardenExclaims: Array<THREE.Group | null> = [];
+  private gardenRefreshT = 0;
   private generalEvent: GeneralEventRunner | null = null;
   private genBlessings = new Set<GeneralBlessingId>();
   private dbgAllWeapons = false;
@@ -809,7 +816,10 @@ export class ActShow {
     if (!this.stage || this.phase !== 'yard') return;
     if (this.weaponRackMesh) { this.weaponRackMesh.parent?.remove(this.weaponRackMesh); this.weaponRackMesh = null; }
     if (this.keepsakeBoxMesh) { this.keepsakeBoxMesh.parent?.remove(this.keepsakeBoxMesh); this.keepsakeBoxMesh = null; }
+    for (const gm of this.gardenMeshes) gm.parent?.remove(gm);
+    this.gardenMeshes = [];
     const p = profile();
+    const { state: gState } = ensureGarden(p);
     const unl: Record<WeaponId, boolean> = {
       hanshan: isWeaponUnlocked(p, 'hanshan', this.dbgAllWeapons),
       thunder: isWeaponUnlocked(p, 'thunder', this.dbgAllWeapons),
@@ -827,12 +837,26 @@ export class ActShow {
     kbox.rotation.y = HIDEOUT.keepsakeBox.yaw;
     this.stage.root.add(kbox);
     this.keepsakeBoxMesh = kbox;
+
+    // act-132: 6 pure-3D voxel garden plots across the eastern Bamboo Stream Garden Terrace
+    const now = Date.now();
+    for (let i = 0; i < HIDEOUT.gardenPlots.length; i++) {
+      const gp = HIDEOUT.gardenPlots[i];
+      const m = buildGardenPlotMesh(i < gState.unlocked, gState.plots[i] ?? null, now);
+      m.position.set(gp.x, 0, gp.z);
+      this.stage.root.add(m);
+      this.gardenMeshes.push(m);
+    }
   }
   private clearNpcs() {
     for (const n of this.npcs) { n.a.dispose(); n.sh.parent?.remove(n.sh); }
     this.npcs = []; this.npcNear = null; this.stele?.dispose(); this.stele = null;
     if (this.weaponRackMesh) { this.weaponRackMesh.parent?.remove(this.weaponRackMesh); this.weaponRackMesh = null; }
     if (this.keepsakeBoxMesh) { this.keepsakeBoxMesh.parent?.remove(this.keepsakeBoxMesh); this.keepsakeBoxMesh = null; }
+    for (const gm of this.gardenMeshes) gm.parent?.remove(gm);
+    this.gardenMeshes = [];
+    for (const ge of this.gardenExclaims) ge?.parent?.remove(ge);
+    this.gardenExclaims = [];
     for (const m of this.marks.values()) { m.g.parent?.remove(m.g); m.ring.parent?.remove(m.ring); }
     this.marks.clear();
     this.steleExclaim?.parent?.remove(this.steleExclaim); this.steleExclaim = null;
@@ -846,11 +870,18 @@ export class ActShow {
   private hideoutObjective(): { x: number; z: number; isExit: boolean } {
     const prof = profile();
     const ex = (HIDEOUT.exit.x0 + HIDEOUT.exit.x1) / 2, ez = HIDEOUT.exit.z;
+    const ripe = ripePlotIndices(prof);
+    if (ripe.length) { const gp = HIDEOUT.gardenPlots[ripe[0]]; return { x: gp.x, z: gp.z + 0.8, isExit: false }; }
     if (!prof.meal && prof.runs === 0) return { x: HIDEOUT.people.duwu.x, z: HIDEOUT.people.duwu.z, isExit: false };
     if (hasAffordable(prof, 'forge') || hasAnyWeaponForgeable(prof, this.dbgAllWeapons)) return { x: HIDEOUT.people.fengtiebi.x, z: HIDEOUT.people.fengtiebi.z, isExit: false };
     if (hasAffordable(prof, 'medic')) return { x: HIDEOUT.people.sunao.x, z: HIDEOUT.people.sunao.z, isExit: false };
     if (hasMirrorAffordable(prof)) return { x: HIDEOUT.stele.x, z: HIDEOUT.stele.z + 0.6, isExit: false };
     if (!equippedKeepsake(prof, this.dbgAllWeapons) && KEEPSAKE_ORDER.some(id => isKeepsakeUnlocked(prof, id, this.dbgAllWeapons))) return { x: HIDEOUT.keepsakeBox.x, z: HIDEOUT.keepsakeBox.z + 0.6, isExit: false };
+    if (hasPlantablePlot(prof)) {
+      const { state } = ensureGarden(prof);
+      const emptyIdx = state.plots.findIndex((pl, i) => i < state.unlocked && !pl);
+      if (emptyIdx >= 0) { const gp = HIDEOUT.gardenPlots[emptyIdx]; return { x: gp.x, z: gp.z + 0.8, isExit: false }; }
+    }
     if (!prof.meal) return { x: HIDEOUT.people.duwu.x, z: HIDEOUT.people.duwu.z, isExit: false };
     return { x: ex, z: ez, isExit: true };
   }
@@ -941,8 +972,66 @@ export class ActShow {
       this.L.text.set('act.beacon.keepsakeBox', { text: eqKs ? msg`信物匣 · ${eqKs.name}` : '信物匣 · 选佩信物', x: p.x, y: p.y, bodyPx: Math.max(12, Math.round(13.5 * Math.min(1.2, this.L.h / 720))), color: eqKs ? eqKs.col : '#ffd898', outline: '#140c0a', align: 'center', visible: p.z < 1 });
     } else this.L.text.hide('act.beacon.keepsakeBox');
 
+    // act-132: Bamboo Stream Garden Terrace 3D voxel ! beacons (ripe / ready-to-plant) & proximity labels
+    const nowMs = Date.now();
+    const { state: gState } = ensureGarden(prof, nowMs);
+    const seedBag = totalSeeds(prof);
+    this.gardenRefreshT += dt;
+    if (this.gardenRefreshT >= 15) { this.gardenRefreshT = 0; this.refreshHideoutProps(); }
+    for (let i = 0; i < HIDEOUT.gardenPlots.length; i++) {
+      const gp = HIDEOUT.gardenPlots[i], unl = i < gState.unlocked, plot = unl ? gState.plots[i] : null;
+      const st = plotStatus(plot, nowMs), key = 'garden_' + i;
+      const showExc = uiClear && unl && (st.done || (!plot && seedBag > 0));
+      if (showExc) {
+        if (!this.gardenExclaims[i] && this.stage) {
+          const g = new THREE.Group(), exc = npcExclaim();
+          g.add(exc); this.stage.root.add(g); this.gardenExclaims[i] = g;
+        }
+        const ge = this.gardenExclaims[i];
+        if (ge) {
+          const pulse = 0.5 + 0.5 * Math.sin(t * 4.2 + i);
+          ge.visible = true;
+          ge.position.set(gp.x, (st.done ? 1.55 : 1.25) + 0.06 * pulse, gp.z);
+          ge.rotation.y = t * 1.4;
+          const em = (ge.children[0] as THREE.Mesh).material as THREE.MeshLambertMaterial;
+          em.emissive.setHex(st.done ? 0xffd258 : 0x72e894);
+          em.emissiveIntensity = 0.45 + 0.3 * pulse;
+          ge.children[0].scale.setScalar((st.done ? 0.56 : 0.44) * (1 + 0.1 * pulse));
+        }
+      } else if (this.gardenExclaims[i]) this.gardenExclaims[i]!.visible = false;
+
+      const dPlot = h ? Math.hypot(h.pos.x - gp.x, h.pos.z - gp.z) : 99;
+      if (uiClear && near !== key && dPlot < 6.2) {
+        const pt = worldToUi(V3(gp.x, 1.45, gp.z));
+        let txt = '药畦 · 待开垦', col = '#b8b0a0';
+        if (unl && plot) {
+          const def = SEEDS[plot.seed];
+          txt = st.done ? msg`${def.name} · 可收获` : msg`${def.name} · 差${st.leftSteps}屋/${st.leftMins}分`;
+          col = st.done ? '#ffe680' : def.hex;
+        } else if (unl) {
+          txt = seedBag > 0 ? msg`空药畦 · 可播种(${seedBag})` : '空药畦';
+          col = seedBag > 0 ? '#8effb0' : '#ccc4b2';
+        }
+        this.L.text.set('act.beacon.' + key, { text: txt, x: pt.x, y: pt.y, bodyPx: Math.max(11.5, Math.round(13 * Math.min(1.2, this.L.h / 720))), color: col, outline: '#140c0a', align: 'center', visible: pt.z < 1 });
+      } else this.L.text.hide('act.beacon.' + key);
+    }
+
     const nn = near ? this.npcs.find(x => x.id === near) : null;
-    if (near === 'weaponRack' && uiClear) {
+    if (near && near.startsWith('garden_') && uiClear) {
+      const idx = Number(near.slice(7)), gp = HIDEOUT.gardenPlots[idx];
+      const unl = idx < gState.unlocked, plot = unl ? gState.plots[idx] : null, st = plotStatus(plot, nowMs);
+      const pt = worldToUi(V3(gp.x, 1.65, gp.z));
+      let label = msg`开垦药畦 ${talkKey}`, col = '#ffe090';
+      if (unl && plot) {
+        const def = SEEDS[plot.seed];
+        label = st.done ? msg`收获 ${def.name} ${talkKey}` : msg`${def.name} · 差${st.leftSteps}屋或${st.leftMins}分`;
+        col = st.done ? '#ffe878' : def.hex;
+      } else if (unl) {
+        label = msg`药畦播种（库存${seedBag}种）${talkKey}`;
+        col = '#8effb0';
+      }
+      this.L.text.set('act.npc', { text: label, x: pt.x, y: pt.y, bodyPx: Math.max(13, Math.round(15 * Math.min(1.2, this.L.h / 720))), color: col, outline: '#140c0a', align: 'center' });
+    } else if (near === 'weaponRack' && uiClear) {
       const p = worldToUi(V3(HIDEOUT.weaponRack.x, 2.25, HIDEOUT.weaponRack.z + 0.35));
       this.L.text.set('act.npc', { text: msg`文家刀廊 · 拔刀换武 ${talkKey}`, x: p.x, y: p.y, bodyPx: Math.max(13, Math.round(15 * Math.min(1.2, this.L.h / 720))), color: '#ffe698', outline: '#140c0a', align: 'center' });
     } else if (near === 'keepsakeBox' && uiClear) {
@@ -971,14 +1060,14 @@ export class ActShow {
           cue('exitChime', 0.16);
         }
       }
-      // act-128: combat-gate golden light curtain, expanding ripples, and floor light spill at the outer departure corridor!
-      const ex = (HIDEOUT.exit.x0 + HIDEOUT.exit.x1) / 2, ez = HIDEOUT.exit.z + 0.15;
+      // act-128 / act-132: combat-gate golden light curtain, expanding ripples, and floor light spill right at the far end of the departure road!
+      const ex = (HIDEOUT.exit.x0 + HIDEOUT.exit.x1) / 2, ez = HIDEOUT.exit.z + 0.2;
       if (!this.exitGlow && this.stage) {
-        this.exitGlow = new GateGlow(this.stage.root, V3(ex, 0, ez), 2.45, V3(0, 0, -1), { radius: 4.5, spillLen: 3.4, height: 2.3 });
+        this.exitGlow = new GateGlow(this.stage.root, V3(ex, 0, ez), 2.55, V3(0, 0, -1), { radius: 4.8, spillLen: 3.8, height: 2.4 });
       }
       this.exitGlow?.update(dt, obj.isExit ? 1.0 : 0.72);
-      const gp = worldToUi(V3(ex, 2.35, ez)), kk = Math.min(1.2, Math.max(0.75, this.L.h / 720));
-      this.L.text.set('act.yard.exit', { text: '出发', x: gp.x, y: gp.y, bodyPx: Math.max(13, Math.round(15 * kk)), color: '#ffe898', outline: '#140c0a', align: 'center', visible: gp.z < 1 && (obj.isExit || dist < 6.5) });
+      const gp = worldToUi(V3(ex, 2.45, ez)), kk = Math.min(1.2, Math.max(0.75, this.L.h / 720));
+      this.L.text.set('act.yard.exit', { text: '出发', x: gp.x, y: gp.y, bodyPx: Math.max(13, Math.round(15 * kk)), color: '#ffe898', outline: '#140c0a', align: 'center', visible: gp.z < 1 && (obj.isExit || dist < 7.5) });
     } else {
       this.L.text.hide('act.yard.exit');
     }
@@ -995,8 +1084,9 @@ export class ActShow {
     this.refreshHideoutProps();
     return true;
   }
-  /** a word with someone at the hideout; 文家刀廊 swaps blades, 信物匣 equips keepsakes, 复仇碑 opens 碑铭潜能 */
+  /** a word with someone at the hideout; 文家刀廊 swaps blades, 信物匣 equips keepsakes, 复仇碑 opens 碑铭潜能, 竹溪药圃 plants/harvests */
   private async npcTalk(id: string) {
+    if (id.startsWith('garden_')) { await this.gardenInteract(Number(id.slice(7))); return; }
     if (id === 'weaponRack') { await this.weaponRackMenu(); return; }
     if (id === 'keepsakeBox') { await this.keepsakeMenu(); return; }
     if (id === 'stele') { await this.steleMenu(); return; }
@@ -1065,6 +1155,110 @@ export class ActShow {
       this.banner.show(msg`佩刀 · ${w.name}`, w.title, 1.6, w.col);
       return;
     }
+  }
+  /** act-132: 竹溪梯田药圃交互 — 成熟一键收获 / 空地选种播种 / 荒地开垦 / 生长中查看双轨进度 */
+  private async gardenInteract(idx: number) {
+    const p = profile(), now = Date.now(), { state } = ensureGarden(p, now);
+    const gp = HIDEOUT.gardenPlots[idx];
+    if (!gp) return;
+    if (!isPlotUnlocked(p, idx)) {
+      const cost = PLOT_COSTS[idx];
+      if (!cost || idx !== state.unlocked) {
+        cue('click', 0.5);
+        this.banner.show('荒地药畦', '请按顺序先开垦前一块药畦', 1.4, '#d8c8a8');
+        return;
+      }
+      const curName = cost.cur === 'herb' ? '药草' : '残铁';
+      const afford = canUnlockPlot(p, idx);
+      const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
+      const ch = await this.cards.open([
+        {
+          boon: {
+            id: 'gd_unlock', school: 'md' as never,
+            name: msg`开垦第 ${idx + 1} 块药畦`,
+            desc: [msg`需耗 ${curName} ${cost.n}`, afford ? '开垦后可多栽一茬灵植，双轨加速养成' : msg`${curName}不足，清房或收菜后再来`],
+            col: afford ? '#8effb0' : '#8a8278', glyph: SPROUT,
+            tag: afford ? msg`${cost.n}${curName}` : '不足',
+          } as Boon,
+          tier: afford ? 2 : 0,
+        },
+      ], {
+        leave: true,
+        header: { title: '竹溪药圃 · 开垦药畦', sub: '开垦更多田块，同时栽种多株灵植', col: '#90f0a8' },
+        wallet: { iron: p.iron, herb: p.herb, focus: cost.cur },
+        footer: '点选开垦 · 点左上返回离开',
+      });
+      this.phase = was; this.hud.on = true;
+      if (ch === 0 && unlockPlot(p, idx)) {
+        saveProfile();
+        this.refreshHideoutProps();
+        fxSmoke(V3(gp.x, 0.35, gp.z), 0x8a785c, 12, { r: 0.9, spd: 1.2, up: 0.7, s: 0.45, life: 0.8 });
+        cue('reveal', 0.85);
+        this.banner.show('药畦已开垦', '现可栽种新药种', 1.5, '#8effb0');
+      }
+      return;
+    }
+
+    const plot = state.plots[idx];
+    if (plot) {
+      const st = plotStatus(plot, now);
+      if (st.done) {
+        const res = harvestPlot(p, idx, now);
+        if (res) {
+          saveProfile();
+          this.refreshHideoutProps();
+          fxFlare(V3(gp.x, 0.85, gp.z), res.seed.col, 2.2, 0.55);
+          fxEmbers(V3(gp.x, 0.6, gp.z), res.seed.col, 16, { r: 0.9, up: 1.8, life: 0.95 });
+          fxRing(V3(gp.x, 0.08, gp.z), res.seed.col, 2.4, { life: 0.75, width: 0.07 });
+          cue('coin', 1);
+          const parts: string[] = [];
+          if (res.herb > 0) parts.push(msg`药草 +${res.herb}`);
+          if (res.iron > 0) parts.push(msg`残铁 +${res.iron}`);
+          if (res.buff && res.seed.buffName) parts.push(msg`下局「${res.seed.buffName}」`);
+          this.banner.show(msg`收获 · ${res.seed.name}`, parts.join(' · '), 2.2, res.seed.hex);
+        }
+        return;
+      }
+      const def = SEEDS[plot.seed];
+      cue('click', 0.5);
+      this.banner.show(msg`${def.name} · 生长中`, msg`还差 ${st.leftSteps} 间战斗屋，或静候 ${st.leftMins} 分钟成熟`, 1.8, def.hex);
+      return;
+    }
+
+    const cards: BoonPick[] = SEED_ORDER.map(sid => {
+      const def = SEEDS[sid], cnt = state.seeds[sid] ?? 0;
+      return {
+        boon: {
+          id: 'seed_' + sid, school: 'md' as never,
+          name: msg`${def.name}（库存 ${cnt}）`,
+          desc: [def.desc, def.buffDesc ?? '战斗清房、秘藏与孙媪每日赠种均可获种'],
+          col: cnt > 0 ? def.hex : '#7e7872', glyph: SPROUT,
+          tag: cnt > 0 ? msg`种下 · ${def.steps}屋` : '缺种',
+        } as Boon,
+        tier: cnt > 0 ? (def.buff ? 2 : 1) : 0,
+      };
+    });
+    const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
+    const sel = await this.cards.open(cards, {
+      leave: true,
+      header: { title: '竹溪药圃 · 播种灵植', sub: '双轨成熟：每通关 1 间战斗屋加速 1 格 · 离线按时间自然生长', col: '#90f0a8' },
+      wallet: { iron: p.iron, herb: p.herb, focus: 'herb' },
+      footer: '点选种子栽下 · 点左上返回离开',
+    });
+    this.phase = was; this.hud.on = true;
+    if (sel < 0 || sel >= SEED_ORDER.length) return;
+    const chosen = SEED_ORDER[sel];
+    if (!plantSeed(p, idx, chosen, Date.now())) {
+      cue('click', 0.5);
+      this.banner.show('暂无此药种', '战斗通关、开启秘藏或明日回营均可获种', 1.5, '#d0a890');
+      return;
+    }
+    saveProfile();
+    this.refreshHideoutProps();
+    fxSmoke(V3(gp.x, 0.3, gp.z), 0x6a8a4c, 10, { r: 0.7, spd: 1.0, up: 0.6, s: 0.4, life: 0.7 });
+    cue('reveal', 0.75);
+    const def = SEEDS[chosen];
+    this.banner.show(msg`已播下 · ${def.name}`, msg`${def.steps} 间战斗屋或离线 ${def.steps * def.minsPerStep} 分钟后可收`, 1.8, def.hex);
   }
   /** act-125: 乌漆铜扣信物匣 — equip 1 of 8 keepsakes, view star progression ★→★★★ */
   private async keepsakeMenu() {
@@ -1368,6 +1562,20 @@ export class ActShow {
         return { id, lv: weaponLevel(p, id) };
       },
       allWeapons: (on = true) => { this.dbgAllWeapons = on; this.refreshHideoutProps(); return on; },
+      gardenDemo: () => {
+        const p = profile(); const { state } = ensureGarden(p);
+        state.unlocked = 5;
+        state.plots = [
+          { seed: 'xuanzhi', plantedAt: Date.now() - 36000000, rooms: 9 },
+          { seed: 'frostlotus', plantedAt: Date.now() - 36000000, rooms: 6 },
+          { seed: 'ironorchid', plantedAt: Date.now(), rooms: 3 },
+          { seed: 'angelica', plantedAt: Date.now(), rooms: 0 },
+          null,
+          null,
+        ];
+        this.refreshHideoutProps();
+        return true;
+      },
       keepsake: (id: KeepsakeId | null = null) => {
         const p = profile();
         if (id) unlockKeepsake(p, id);
@@ -1863,8 +2071,11 @@ export class ActShow {
     this.genBlessings.clear(); this.ksShield = 0; this.ksRevenge = false; this.intentBonusAcc = 0;
     this.resetCombo(); this.hud.synergies = [];
     // 杜五's provisions (one run): 炙肉胡饼 +15 血上限, 五铢钱囊 40 铜钱, 瓦壶烈酒 the first blow costs nothing
-    { const p = profile(), meal = p.meal; p.meal = undefined; saveProfile(); this.wine = meal === 'wine';
-      if (meal === 'feast') this.mods.hpBonus += 15; if (meal === 'purse') this.coins = 40; }
+    // + 竹溪药圃 harvested elixir buff (温脉药汤 / 玄芝丹气, already baked into runMods above; consume once on departure!)
+    { const p = profile(), meal = p.meal, gBuff = p.garden?.buff; p.meal = undefined; if (p.garden) p.garden.buff = null; saveProfile(); this.wine = meal === 'wine';
+      if (meal === 'feast') this.mods.hpBonus += 15; if (meal === 'purse') this.coins = 40;
+      if (gBuff === 'lotus') this.feed.push('boon', () => '温脉药汤 · 血+25 重随+1', 0, 'gd:lotus');
+      else if (gBuff === 'xuanzhi') this.feed.push('boon', () => '玄芝丹气 · 绝品缘 满杀气', 0, 'gd:xuanzhi'); }
     TUNE.heroHp = 100 + this.mods.hpBonus; TUNE.dartCharges = 3 + this.mods.dartBonus; TUNE.aggression = 0.85 / this.mods.windupMul;
     this.baseFoe.aggression = TUNE.aggression; this.scaleFoes(0);
     const loading = build ? this.buildRoom(true) : undefined;   // (11-18: a jump to another region's room builds that one instead)
@@ -2292,7 +2503,8 @@ export class ActShow {
     for (const [x, z] of HIDEOUT.dummies) { yield; const p = V3(x, 0, z), f = spawnFoe('dummy', p, V3(x, 0, z + 4)); f.st = 'move'; this.foes.push(f); }
     // act-125: all 5 hideout companions now inhabit the expanded 断碑古窑 (杜五 / 孙媪 / 冯铁臂 / 卢昭 / 桓越)
     yield* this.placeNpcs((['duwu', 'sunao', 'fengtiebi', 'luzhao', 'huanyue'] as const).map(id => ({ id, ...HIDEOUT.people[id] })));
-    // act-125: interactive 3D voxel 文家刀廊 (4-slot blade rack) & 乌漆铜扣信物匣
+    // act-125 / act-132: interactive 3D voxel 文家刀廊, 信物匣 & 东翼竹溪药圃 6 块药畦 (+ 每日回流赠种)
+    { const { dailyGift } = ensureGarden(profile()); if (dailyGift.length) { saveProfile(); this.feed.push('boon', () => '孙媪每日赠种 · 东桥药圃可栽', 0, 'gd:daily'); } }
     this.refreshHideoutProps();
     // the stele of names: a cut down each name she has killed; unified hideout arrival queue handles fresh cuts & defeat talks cleanly
     { const p = profile(), down = bossesDown(p.seen), cut = struckOnStele(p.seen);
@@ -2300,12 +2512,12 @@ export class ActShow {
       if (cut < down || this.pendingDeathTalk) after(0.85, () => { void this.hideoutArrive(cut, down); }); }
     // act-37: the rack of thirty blades — one hangs for each taken back (a boss each; ending C hangs them all)
     { const p = profile(); this.stage!.root.add(rackBlades(p.seen['ending_c'] ? 30 : bossesDown(p.seen))); }
-    // the way out: outer departure corridor past the front gate, a sign beside the departure pier; the bot walks down the corridor
+    // the way out: outer departure mountain road past the front gate, sign standing beside the far-end stone pier
     const gx = (HIDEOUT.exit.x0 + HIDEOUT.exit.x1) / 2;
-    this.exitSign = makeSign('出发', { w: 1.3, h: 0.6, post: 0.9 }); this.exitSign.position.set(HIDEOUT.exit.x1 + 0.72, 0, HIDEOUT.exit.z - 0.55); this.stage!.root.add(this.exitSign);
+    this.exitSign = makeSign('出发', { w: 1.3, h: 0.6, post: 0.95 }); this.exitSign.position.set(HIDEOUT.exit.x1 + 1.38, 0, HIDEOUT.exit.z - 0.95); this.stage!.root.add(this.exitSign);
     // (a lane through the gate toward the camera: the clamp lets her walk on out there; the front wall either side is solid. The
     // id is a side road's, which the clamp treats as 'hold z to the lane, x to the solids' — the back road's rule would open the north)
-    const ex = { ...exitInfo(this.layout!, 'back'), id: 'left' as const, dir: [0, 1] as [number, number], lane: { x0: HIDEOUT.exit.x0, x1: HIDEOUT.exit.x1, z0: HIDEOUT.exit.z - 1.0, z1: PLAY.z1 + 2.5 }, walk: [[gx, HIDEOUT.exit.z - 1.6], [gx, HIDEOUT.exit.z + 1.0]] as Array<[number, number]> };
+    const ex = { ...exitInfo(this.layout!, 'back'), id: 'left' as const, dir: [0, 1] as [number, number], lane: { x0: HIDEOUT.exit.x0, x1: HIDEOUT.exit.x1, z0: 10.2, z1: PLAY.z1 + 2.5 }, walk: [[gx, HIDEOUT.exit.z - 1.6], [gx, HIDEOUT.exit.z + 1.0]] as Array<[number, number]> };
     this.doors = [{ ex, g: new THREE.Group(), lift: 1 }];
     const touch = this.inp.lastDevice === 'touch' && 'ontouchstart' in globalThis;
     this.banner.show('断碑古窑', touch ? '走近人点右下说话 · 踩石板叫陪练 · 出院门开打' : this.inp.lastDevice === 'pad' ? msg`走近人按 ${actPad('attack')} 说话 · 踩石板叫陪练 · 出院门开打` : !__DEBUG_UI__ ? msg`走近人按 ${actKey('attack')} 说话 · 踩石板叫陪练 · 出院门开打` : msg`走近人按 ${actKey('attack')} 说话 · 踩石板叫陪练 · 出院门开打 · \` 键调手感`, 4);
@@ -4197,6 +4409,19 @@ export class ActShow {
       this.banner.show(g.name, '并肩破阵 · 气血尽复', 1.5, '#ffe2a0');
     }
     if (this.prologue) { this.openDoors(); return; }   // act-29: the prologue's road just goes on
+    // act-132: dual-track garden growth (+1 step per combat room cleared) + seed drop
+    {
+      const p = profile();
+      const ripened = advanceGardenRooms(p, 1);
+      const isBoss = this.plan?.type === 'boss' && isBossRoom(this.region, this.room);
+      const drop = rollSeedDrop(isBoss ? 'boss' : 'room');
+      if (drop) addSeed(p, drop, 1);
+      if (ripened.length || drop) {
+        saveProfile();
+        for (const r of ripened) this.feed.push('boon', () => msg`药圃成熟 · ${r.name}`, 0, 'gd:ripe:' + r.id);
+        if (drop) this.feed.push('boon', () => msg`获药种 · ${SEEDS[drop].name}`, 0, 'gd:seed:' + drop);
+      }
+    }
     // 11-18 一局五关: a region's boss fell — region one's after-talk (褚雷) the first time; then the run is won (the last region) or the
     // road opens into the next region (a boon first, as any cleared fight)
     if (this.plan?.type === 'boss' && isBossRoom(this.region, this.room)) {
@@ -4229,6 +4454,7 @@ export class ActShow {
   /** 11-20 解谜秘藏重赏：gold（稀世鎏金秘匣）与 mythic（传世赤金大秘藏）双档高价值奖励，绝不再“挠痒痒”！ */
   private async reward(tier: 'gold' | 'mythic' = 'gold') {
     this.rewardsGot++;
+    { const p = profile(), drop = rollSeedDrop('chest'); if (drop) { addSeed(p, drop, 1); saveProfile(); this.feed.push('boon', () => msg`秘藏药种 · ${SEEDS[drop].name}`, 0, 'gd:chest:' + drop); } }
     const dropPos = this.hero.pos.clone().add(V3(0, 0, -0.6));
     const canPick = this.phase === 'fight' || this.phase === 'doors';
     const boostMaxHp = (addMax: number, healFrac: number) => {
@@ -4370,15 +4596,57 @@ export class ActShow {
     }
     this.hud.synergies = active;
   }
+  /** Find a clean open-floor spot near an exit gate so runBoard never clips into flanking # stalls/walls or foreground roofs */
+  private placeDoorSign(gt: NonNullable<ArenaPlan['gates']>[number]): [number, number] {
+    const solids = this.arena?.shape?.solid ?? [];
+    const hitsBlock = (x: number, z: number, pad = 0.72) =>
+      solids.some(r => x > r.x0 - pad && x < r.x1 + pad && z > r.z0 - pad && z < r.z1 + pad);
+    const openFloor = (x: number, z: number) =>
+      x > PLAY.x0 + 0.7 && x < PLAY.x1 - 0.7 && z > PLAY.z0 + 0.7 && z < PLAY.z1 - 0.7
+      && !hitsBlock(x, z, 0.72)
+      && (!this.grid || this.grid.clear(x, z, 0.52))
+      && this.solids.free(x, z, 0.45, 0.3);
+    const sightClear = (x: number, z: number) => !hitsBlock(x, z + 1.8, 0.4) && !hitsBlock(x, z + 3.2, 0.25);
+
+    const cands: Array<[number, number]> = [];
+    if (gt.along === 'x') {
+      const zIn = Math.max(PLAY.z0 + 1.05, gt.z + 1.15);
+      cands.push(
+        [gt.x + gt.w / 2 + 1.25, zIn],
+        [gt.x - gt.w / 2 - 1.25, zIn],
+        [gt.x + gt.w / 2 + 1.35, zIn + 1.2],
+        [gt.x - gt.w / 2 - 1.35, zIn + 1.2],
+        [gt.x, zIn + 1.6],
+      );
+    } else {
+      const inX = -gt.out[0];
+      cands.push(
+        [gt.x + inX * 1.45, gt.z - gt.w / 2 - 0.85],
+        [gt.x + inX * 2.15, gt.z - gt.w / 2 - 0.75],
+        [gt.x + inX * 1.55, gt.z + gt.w / 2 + 0.95],
+        [gt.x + inX * 2.35, gt.z + gt.w / 2 + 0.85],
+        [gt.x + inX * 2.85, gt.z - 1.15],
+        [gt.x + inX * 2.85, gt.z + 1.15],
+        [gt.x + inX * 3.5, gt.z],
+      );
+    }
+    const ideal = cands.find(([x, z]) => openFloor(x, z) && sightClear(x, z));
+    if (ideal) return ideal;
+    const valid = cands.find(([x, z]) => openFloor(x, z));
+    if (valid) return valid;
+    return gt.along === 'x'
+      ? [gt.x + gt.w / 2 + 1.3, PLAY.z0 + 1.15]
+      : [gt.x - gt.out[0] * 2.1, gt.z - gt.w / 2 - 0.75];
+  }
   private openDoors(quiet = false) {
     const ds = this.nextRooms, ids = (this.spec?.exits ?? []) as ExitId[];
     this.doors = ds.map((d, i) => {
       const ex = exitInfo(this.layout!, ids[i] ?? 'back');
       const { g } = runBoard(d, LOCALES[d.locale]?.name ?? ''); g.position.set(ex.sign.x, -2.4, ex.sign.z); g.scale.setScalar(1.25);
-      // act-19: on the 2x stage the board stands inside the room beside its gate
+      // act-19 / act-132: place the route board on verified open walkable floor beside the gate (never buried in # stalls/walls)
       const gt = this.arena?.gates.find(q => q.open && q.id === (ids[i] ?? 'back'));
-      if (gt) { if (gt.along === 'x') g.position.set(gt.x + gt.w / 2 + 1.3, -2.4, PLAY.z0 + 0.9); else g.position.set(gt.x - gt.out[0] * 1.2, -2.4, gt.z - gt.w / 2 - 0.8); }   // beside the gate, on its far side (never in front of the opening)
-      g.rotation.y = Math.atan2(-g.position.x * 0.4, 12); this.stage?.root.add(g);
+      if (gt) { const [sx, sz] = this.placeDoorSign(gt); g.position.set(sx, -2.4, sz); }
+      g.rotation.y = Math.atan2(-g.position.x * 0.35, 13); this.stage?.root.add(g);
       return { ex, g, lift: 0 };
     });
     this.phase = 'doors';
@@ -4669,10 +4937,9 @@ export class ActShow {
     for (const f of this.foes) setActorOcc(f.a.root, on && f.st !== 'dead' && !f.mem.hidden ? 2 : 0);
     if (this.allyGen) setActorOcc(this.allyGen.a.root, on && this.allyGen.active ? 1 : 0);
     for (const n of this.npcs) setActorOcc(n.a.root, on ? 1 : 0);
-    // act-129: occluded interactive objects (复仇碑, 出发牌, 关卡出口牌, 行商/歇脚/遗卷设施与商人, 试剑坪换装架) also show silhouettes when hidden behind buildings
+    // act-129 / act-132: route boards now use crisp GreaterDepth see-through plaque face (no messy wireframe silhouettes!)
     setPropOcc(this.stele?.g, on ? 1 : 0);
     setPropOcc(this.exitSign, on ? 1 : 0);
-    for (const d of this.doors) setPropOcc(d.g, on ? 1 : 0);
     if (this.yard) for (const p of this.yard.plinths) { setActorOcc(p.actor.root, on ? 1 : 0); setPropOcc(p.sign, on ? 1 : 0); }
     if (this.stations) {
       if (this.stations.merchant) setActorOcc(this.stations.merchant.root, on ? 1 : 0);
@@ -4784,6 +5051,10 @@ export class ActShow {
       if (this.stele && HIDEOUT.stele) { const d = Math.hypot(HIDEOUT.stele.x - h.pos.x, HIDEOUT.stele.z + 0.65 - h.pos.z); if (d < Math.min(nd, 1.65)) { nd = d; near = 'stele'; } }
       if (this.weaponRackMesh) { const d = Math.hypot(HIDEOUT.weaponRack.x - h.pos.x, HIDEOUT.weaponRack.z + 0.85 - h.pos.z); if (d < Math.min(nd, 2.0)) { nd = d; near = 'weaponRack'; } }
       if (this.keepsakeBoxMesh) { const d = Math.hypot(HIDEOUT.keepsakeBox.x - h.pos.x, HIDEOUT.keepsakeBox.z + 0.7 - h.pos.z); if (d < Math.min(nd, 1.65)) { nd = d; near = 'keepsakeBox'; } }
+      for (let gi = 0; gi < HIDEOUT.gardenPlots.length; gi++) {
+        const gp = HIDEOUT.gardenPlots[gi], d = Math.hypot(gp.x - h.pos.x, gp.z - h.pos.z);
+        if (d < Math.min(nd, 1.8)) { nd = d; near = 'garden_' + gi; }
+      }
       this.npcNear = near;
       this.npcMarks(dt, near);
       if (near && !this.noTalk && this.inp.b.attack.pressed && !this.dialogue.on) { this.inp.b.attack.pressed = false; void this.npcTalk(near); return; }
