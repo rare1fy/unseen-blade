@@ -57,18 +57,18 @@ export function resolvePortrait(who: string, text: string, mood?: string, heroHa
     if (mood === 'stern' || /别乱挺|断肋|扎破肺|跨不进去|张嘴|闭嘴|瞪|忍着|咽下去|扎透|钉棺材|木棍|推回去|裹胸布|死丫头|唬老身|忍着点|不够|捻针|下针/.test(text)) want = 'sunao_stern';
     else if (mood === 'soft' || /好重的仇|可怜|烤烤手|热水|活着回来|苦|叹|留了|去吧|熬|药罐|阿皎|闺女|暖/.test(text)) want = 'sunao_soft';
   } else if (who === 'cuixuan') {
-    if (mood === 'defeat' || /阿皎|亲爹|不全是为了|动手吧|来吧|够了|了结|名字是我起|认出|像你娘/.test(text)) want = 'cuixuan_defeat';
+    if (mood === 'defeat' || /阿皎|亲爹|不全是为了|动手吧|来吧|够了|了结|名字是我起|认出|像你娘|抵上喉咙|反倒抖|真不杀我|破了前门/.test(text)) want = 'cuixuan_defeat';
     else if (mood === 'blade' || /刀在我这|四个人|那四个|太早了|看看你的手|听好了|配|拔刀|杀|第几柄|灯灭|乱葬沟/.test(text)) want = 'cuixuan_blade';
   } else if (who === 'chulei') {
     if (mood === 'panic' || /饶|别杀|不是我|求|饶命|放过|我说|供|崔|洛阳|阎虎/.test(text)) want = 'chulei_panic';
   } else if (who === 'yanhu') {
-    if (mood === 'defeat' || /崔府|乐伎|逃出来|封寒|下邳|吐血|咳|不是铁匠/.test(text)) want = 'yanhu_defeat';
+    if (mood === 'defeat' || /崔府|乐伎|歌伎|逃出来|封寒|下邳|吐血|咳|不是铁匠|呃啊|真当那娘们/.test(text)) want = 'yanhu_defeat';
     else if (mood === 'rage' || /哈！|老子|野狗|烧得|砸|杀|滚|高炉|推进去/.test(text)) want = 'yanhu_rage';
   } else if (who === 'fengzhen') {
     if (mood === 'defeat' || /灭口|追杀|收账|周默|乌林|咳|替他|每一个/.test(text)) want = 'fengzhen_defeat';
     else if (mood === 'smirk' || /漆匣|拇指|药酒|脉象|故人|试我|新配/.test(text)) want = 'fengzhen_smirk';
   } else if (who === 'zhouan') {
-    if (mood === 'bitter' || /亲爹|烧|认出|愧|对不住|姜汤|感念|那夜|连那|贱婢|清掉/.test(text)) want = 'zhouan_bitter';
+    if (mood === 'bitter' || /亲爹|烧|认出|愧|对不住|姜汤|感念|那夜|连那|贱婢|清掉|腊月二十三|咳/.test(text)) want = 'zhouan_bitter';
   } else if (who === 'zhaoyun') {
     if (mood === 'fight' || /并肩|杀出去|枪|迎敌|贼兵|好刀法/.test(text)) want = 'zhaoyun_fight';
   } else if (who === 'lubu') {

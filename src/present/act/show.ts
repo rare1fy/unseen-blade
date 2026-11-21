@@ -771,13 +771,15 @@ export class ActShow {
     let wakeK: (k: number) => void = () => {};
     let bloomWas = GRADE.bloomThreshold;
     let duwuSaved: { x: number; z: number; yaw: number } | null = null;
-    // (act-40 / act-126: she wakes hatless on 孙媪's mat with wider framing & smooth cinematic dolly/pan motion across the kiln scene)
+    // (act-40 / act-126 / act-142: anchor ALL wake camera beats strictly to HIDEOUT.spawn [孙媪's straw mat in the expanded hideout]
+    //  so the camera never drifts back to the old pre-expansion (5.9, -6.2) courtyard coords, and hide HUD/banner during the establishing beat)
     const wakeMat = HIDEOUT.spawn;
+    const [mx, mz] = wakeMat;
     let wakeCamT = 0, wakeStage = 0;
-    const wakeCamPos = V3(wakeMat[0] - 4.8, 4.3, wakeMat[1] + 4.8), wakeCamLook = V3(wakeMat[0] - 0.5, 0.72, wakeMat[1]);
+    const wakeCamPos = V3(mx - 4.1, 4.15, mz + 4.9), wakeCamLook = V3(mx + 0.35, 0.72, mz - 0.15);
     let wakeCamFov = 42;
     await wipeTransit(async () => {
-      await this.enterYard(); this.noTalk = true; this.hideHideoutLabels(); this.musicHold = 'bgm_kiln'; void audio.playMusic('bgm_kiln', 1.2);
+      await this.enterYard(); this.noTalk = true; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels(); this.musicHold = 'bgm_kiln'; void audio.playMusic('bgm_kiln', 1.2);
       const h = this.hero; h.pos.set(wakeMat[0], 0, wakeMat[1]); h.a.place(h.pos, 0); h.a.root.visible = true; h.a.body.visible = true; let gk = 0; h.scriptPose = () => getUpPose(h.a, gk);
       if (h.a.bones.hat) h.a.bones.hat.visible = false;
       // Bring Du Wu beside Sun Ao's straw mat in the expanded hideout so he is cleanly in frame during PRO_WAKE
@@ -792,20 +794,20 @@ export class ActShow {
       bloomWas = GRADE.bloomThreshold; GRADE.bloomThreshold = Math.max(bloomWas, 1.6);
       wakeK = (k: number) => { gk = k; };
     });
-    // Smooth multi-beat camera movement during PRO_WAKE (wide kiln establishing drift -> gentle push-in -> slight rise as she stands)
+    // Smooth multi-beat camera movement during PRO_WAKE anchored to Sun Ao's straw mat (wide establishing -> gentle push-in -> slight rise as she stands)
     this.talkTick = (dt: number) => {
       wakeCamT += dt;
-      const sway = Math.sin(wakeCamT * 0.35) * 0.25;
+      const sway = Math.sin(wakeCamT * 0.35) * 0.22;
       const wantBase = wakeStage >= 2
-        ? V3(3.4 + sway, 3.65, -2.1)
+        ? V3(mx - 2.35 + sway, 3.55, mz + 4.35)
         : wakeStage === 1
-          ? V3(2.35 + sway, 3.35, -2.35)
-          : V3(1.65 + Math.min(0.6, wakeCamT * 0.14), 4.15 - Math.min(0.45, wakeCamT * 0.1), -1.55 - Math.min(0.5, wakeCamT * 0.12));
+          ? V3(mx - 3.15 + sway, 3.25, mz + 4.05)
+          : V3(mx - 4.1 + Math.min(0.6, wakeCamT * 0.14), 4.15 - Math.min(0.45, wakeCamT * 0.1), mz + 4.9 - Math.min(0.5, wakeCamT * 0.12));
       const wantLook = wakeStage >= 2
-        ? V3(6.15, 1.02, -5.85)
+        ? V3(mx + 0.45, 1.05, mz + 0.15)
         : wakeStage === 1
-          ? V3(5.85, 0.82, -6.2)
-          : V3(5.9, 0.72, -6.15);
+          ? V3(mx + 0.35, 0.85, mz - 0.15)
+          : V3(mx + 0.35, 0.72, mz - 0.15);
       const wantFov = wakeStage >= 2 ? 40 : wakeStage === 1 ? 39 : 42;
       const easeK = 1 - Math.exp(-dt * 1.4);
       wakeCamPos.lerp(wantBase, easeK);
@@ -5718,7 +5720,7 @@ export class ActShow {
         // Line idx 1 corresponds to ENDING.c[2] ("她在断碑底下划完最后一道，抬手解开蒙眼布")
         if (idx >= 1) unblind = true;
         if (idx >= 5) {
-          const closeCam = safeCam([1.1, 2.05, 3.65], [2.95, 0.78, 2.05], 32);
+          const closeCam = safeCam([pot.x - 1.9, 2.05, pot.z + 1.95], [pot.x - 0.1, 0.78, pot.z + 0.05], 32);
           this.camOverride = { base: V3(...closeCam.pos), look: V3(...closeCam.look), fov: closeCam.fov };
         }
       });
