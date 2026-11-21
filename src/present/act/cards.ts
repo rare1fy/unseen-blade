@@ -9,6 +9,7 @@ import { SCHOOL_NAMES, TIER_NAMES, type Boon, type BoonPick } from './boons';
 import { language, t as localize } from './i18n';
 import { SKIN, PALETTE } from './skin';
 import { bodyText, bodyW, onBodyFontChange } from '../ui3d/bodyFont';
+import { uiScale } from './uiScale';
 
 /** 把卡面数值按凡、珍、绝档填入；第二组数值供双效果秘传使用。 */
 export function fillVals(desc: string, boon: Boon, tier: number) {
@@ -119,12 +120,13 @@ export class CardPick {
     for (const c of this.cards) { const f = face(c.b, c.tier, c.u), mat = (c.m.material as THREE.MeshLambertMaterial[])[4]; mat.map?.dispose(); mat.map = f.t; mat.emissiveMap = f.t; mat.needsUpdate = true; }
   }); }
   open(boons: BoonPick[]): Promise<number> {
-    this.close(); const L = this.L, u = Math.max(1, Math.round(Math.max(0.78, Math.min(L.h / 720, 1.2)) * (L.dpr || 1)));
+    this.close(); const L = this.L, kk = uiScale(L.w, L.h, 0.78, 2.8);
+    const u = Math.max(1, Math.round(kk * (L.dpr || 1)));
     // phones (412 px tall): the cards keep a readable size and take more of the screen
     // rows: one wide card per row, centred; on a phone they take most of the width
     // rows: one wide card per row, centred; more rows than fit → smaller cards (the hideout's upgrade lists)
-    let w = Math.min(L.w * 0.7, 600 * Math.max(0.8, Math.min(1.25, L.h / 720))), h = w * CH / CW, gap = Math.max(8, h * 0.12);
-    const n = boons.length, room = L.h * 0.9; if (n * h + (n - 1) * gap > room) { h = (room - (n - 1) * 6) / n; w = h * CW / CH; gap = 6; }
+    let w = Math.min(L.w * 0.7, 600 * kk), h = w * CH / CW, gap = Math.max(8 * kk, h * 0.12);
+    const n = boons.length, room = L.h * 0.9; if (n * h + (n - 1) * gap > room) { gap = 6 * kk; h = (room - (n - 1) * gap) / n; w = h * CW / CH; }
     this.cards = boons.map(({ boon: b, tier }, i) => {
       const f = face(b, tier, u * 2), side = new THREE.MeshLambertMaterial({ color: tier === 0 ? PALETTE[SKIN.id].card.side : tierColor(tier), emissive: tier === 2 ? 0xffd060 : 0x000000, emissiveIntensity: 0.15 }), fm = new THREE.MeshLambertMaterial({ map: f.t, emissive: 0xffffff, emissiveMap: f.t, emissiveIntensity: 0.6 });
       const m = new THREE.Mesh(new THREE.BoxGeometry(L.px(w), L.px(h), L.px(16)), [side, side, side, side, fm, side]); m.renderOrder = 30; L.scene.add(m);

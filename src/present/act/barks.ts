@@ -7,6 +7,7 @@ import { worldToUi } from '../ui3d/layer';
 import { bodyText, bodyW, BODY_FONT } from '../ui3d/bodyFont';
 import { language, t as localize, wrapWords } from './i18n';
 import { makeCanvas } from '../../platform/index';
+import { uiScale } from './uiScale';
 
 /** the Yellow Turbans' shouts (short, rough, in their own voice) */
 export const BARK_LINES = ['苍天已死，黄天当立！', '瞎子？送死来了！', '围上去，砍了他！', '白毛的，留下刀！', '天公将军护着咱！', '一个瞎子，怕什么！',
@@ -56,11 +57,11 @@ export class Barks {
     let i = Math.floor(Math.random() * BARK_LINES.length); if (i === this.last) i = (i + 1) % BARK_LINES.length; this.last = i;
     const msg = line ?? BARK_LINES[i];
     const dpr = Math.max(1, Math.round(this.L.dpr || 1));
-    const kk = Math.max(0.84, Math.min(1.18, this.L.h / 720));
+    const kk = uiScale(this.L.w, this.L.h, 0.84, 2.6);
     const fpx = Math.round(16 * kk * dpr);
     const maxLineW = Math.round(Math.min(this.L.w * 0.28, 250 * kk) * dpr);
     const rows = wrapBark(msg, maxLineW, fpx);
-    const u = Math.max(1, Math.round(2 * dpr));
+    const u = Math.max(1, Math.round(2 * kk * dpr));
     const padX = Math.round(11 * kk * dpr), padY = Math.round(7 * kk * dpr), tail = Math.round(7 * kk * dpr);
     const lineH = Math.round(fpx * 1.32);
     const widest = Math.max(...rows.map(r => Math.ceil(bodyW(r, fpx))), Math.round(48 * dpr));

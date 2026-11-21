@@ -23,6 +23,7 @@ import { entryOfCard, layoutPresses, paintSeps, pressShields, paintName, paintEf
 import { skillIcon3D } from './skillIcons';
 import type { MarkTarget } from './skillInfo';
 import { PAD, padName } from './pad';
+import { uiScale } from './uiScale';
 
 export type CardBoon = Boon & {
   tag?: string;
@@ -151,7 +152,7 @@ export class CardPick3D {
 
     this.isKeepsakeMode = isKeepsake;
     this.isHorizontalRow = isScrollRow;
-    const kk = Math.max(0.8, Math.min(1.22, L.h / 720)), n = boons.length;
+    const kk = uiScale(L.w, L.h, 0.8, 2.8), n = boons.length;
 
     const headerH = this.header ? (this.header.sub ? 78 : 54) * kk : 0;
     const tabsH = this.tabsOpt ? 44 * kk : 0;
@@ -160,7 +161,7 @@ export class CardPick3D {
     const detailH = isKeepsake && this.keepsakeDetailOpt ? 126 * kk : 0;
     const footH = this.rerollOpt && this.rerollOpt.left > 0 ? 74 * kk : 42 * kk;
     const botPad = detailH + footH + 10 * kk;
-    const room = Math.max(160, L.h - topPad - botPad);
+    const room = Math.max(160 * kk, L.h - topPad - botPad);
     const centerY = topPad + room * 0.5;
 
     let w: number, h: number, gap: number, gapY = 0, Hh: number;
@@ -169,23 +170,23 @@ export class CardPick3D {
     if (isKeepsake) {
       cols = Math.min(4, Math.max(1, n));
       const rows = Math.ceil(n / cols);
-      gap = Math.max(16, Math.min(28, L.w * 0.02));
-      gapY = Math.max(14, Math.min(24, L.h * 0.025));
+      gap = Math.max(16 * kk, Math.min(28 * kk, L.w * 0.02));
+      gapY = Math.max(14 * kk, Math.min(24 * kk, L.h * 0.025));
       w = Math.min((L.w - 130 * kk - (cols - 1) * gap) / cols, 178 * kk);
       h = Math.min((room - (rows - 1) * gapY) / rows, w * 1.12);
       Hh = Math.max(0.86, Math.min(1.16, h / Math.max(1, w)));
       h = w * Hh;
     } else if (isScrollRow) {
       cols = Math.max(1, n);
-      gap = Math.max(18, Math.min(44, L.w * 0.032));
-      w = Math.min((L.w - 72 - (n - 1) * gap) / n, 268 * kk);
+      gap = Math.max(18 * kk, Math.min(44 * kk, L.w * 0.032));
+      w = Math.min((L.w - 72 * kk - (n - 1) * gap) / n, 268 * kk);
       h = Math.min(room * 0.94, w * 1.48);
       Hh = Math.max(1.18, Math.min(1.56, h / Math.max(1, w)));
       h = w * Hh;
     } else if (isMirrorGrid) {
       cols = 2;
-      gap = Math.max(24, Math.min(44, L.w * 0.032));
-      gapY = Math.max(44, Math.min(62, L.h * 0.072));
+      gap = Math.max(24 * kk, Math.min(44 * kk, L.w * 0.032));
+      gapY = Math.max(44 * kk, Math.min(62 * kk, L.h * 0.072));
       w = Math.min((L.w - 110 * kk - gap) / 2, 468 * kk);
       h = Math.min((room - gapY) / 2, w * 0.42);
       Hh = Math.max(0.35, Math.min(0.46, h / Math.max(1, w)));
@@ -193,16 +194,16 @@ export class CardPick3D {
     } else if (isGrid2) {
       cols = 2;
       const rows = Math.ceil(n / 2);
-      gap = Math.max(18, Math.min(34, L.w * 0.024));
-      gapY = Math.max(14, Math.min(24, L.h * 0.028));
+      gap = Math.max(18 * kk, Math.min(34 * kk, L.w * 0.024));
+      gapY = Math.max(14 * kk, Math.min(24 * kk, L.h * 0.028));
       w = Math.min((L.w - 104 * kk - gap) / 2, 476 * kk);
       h = Math.min(w * 0.285, (room - (rows - 1) * gapY) / rows);
       Hh = Math.max(0.22, Math.min(0.31, h / Math.max(1, w)));
       h = w * Hh;
     } else if (skill) {
       cols = 1;
-      w = Math.min(L.w * 0.72, 650 * kk, L.w - 40);
-      gap = Math.max(10, Math.min(24, L.h * 0.028));
+      w = Math.min(L.w * 0.72, 650 * kk, L.w - 40 * kk);
+      gap = Math.max(10 * kk, Math.min(24 * kk, L.h * 0.028));
       h = Math.min(w * SKILL_H, (room - (n - 1) * gap) / n);
       Hh = Math.max(0.18, Math.min(SKILL_H, h / Math.max(1, w)));
       h = w * Hh;
@@ -210,14 +211,14 @@ export class CardPick3D {
       cols = 1;
       w = Math.min(L.w * 0.68, 620 * kk);
       h = w * 0.255;
-      gap = Math.max(12, h * 0.16);
+      gap = Math.max(12 * kk, h * 0.16);
       Hh = 0.255;
       if (n * h + (n - 1) * gap > room) {
-        h = (room - (n - 1) * 10) / n;
+        gap = 10 * kk;
+        h = (room - (n - 1) * gap) / n;
         w = Math.min(L.w * 0.72, h / CARD_H);
         Hh = Math.max(0.2, Math.min(0.27, h / Math.max(1, w)));
         h = w * Hh;
-        gap = 10;
       }
     }
 
@@ -535,7 +536,7 @@ export class CardPick3D {
     }
 
     const showChrome = this.leaving < 0;
-    const dpr = L.dpr || 1, kk = Math.max(0.8, Math.min(1.22, L.h / 720));
+    const dpr = L.dpr || 1, kk = uiScale(L.w, L.h, 0.8, 2.8);
 
     // Top-left back shield + dark-iron tag plaque
     if (this.canLeave) {
@@ -546,7 +547,7 @@ export class CardPick3D {
         L.scene.add(this.back);
       }
       this.backK = this.leaving >= 0 ? Math.max(0, this.backK - dt * 6) : Math.min(1, this.backK + dt * 5);
-      const r = Math.max(26, Math.min(40, L.h * 0.056));
+      const r = Math.max(26 * kk, Math.min(40 * kk, L.h * 0.056));
       this.backAt = { x: Math.max(r + 20 * kk, L.w * 0.048), y: Math.max(r + 14 * kk, 40 * kk), r };
       const bb = this.back;
       bb.visible = this.backK > 0.02;

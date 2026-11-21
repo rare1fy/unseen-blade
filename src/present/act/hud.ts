@@ -23,6 +23,7 @@ import { PIX_H } from '../v2/pix';
 import { bodyW } from '../ui3d/bodyFont';
 import { ACTION_WORD, BIND, PAD, actKey, glyphTex, glyphArt, GLYPH_H, keyCapTex, isTouchLayout } from './pad';
 import type { MarkTarget } from './skillInfo';
+import { uiScale } from './uiScale';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 type AnyBtn = SkinBtn | IronBtn; type AnyHp = SkinHp | IronHp;
@@ -232,7 +233,7 @@ export class ActHud {
   layout(W: number, H: number) {
     this.W = W; this.H = H;
     setGrid(H, this.L.dpr || 1);
-    const k = Math.min(1.25, Math.max(0.62, H / 720)); this.k = k;
+    const k = uiScale(W, H, 0.62, 2.8); this.k = k;
     const fk = Math.max(0.68, 0.88 * k);
     this.flask.place(Math.max(38, 48 * k), Math.max(44, 54 * k), fk);
     this.feedAt = { x: Math.max(20, 48 * k - 16 * fk), y: Math.max(44, 54 * k) + 106 * fk };
@@ -383,21 +384,21 @@ export class ActHud {
     // the lost piece holds still a moment after each drop (a flurry piles into one piece), then closes in — the same as her own bar
     if (frac < b.shown - 1e-6) b.hold = HP_LAG_HOLD; b.hold = Math.max(0, b.hold - dt);
     const L = this.L; b.shown = frac; b.lagV = closeLag(b.lagV, frac, b.hold, dt);
-    L.at(x, y, 0, b.g.position); const u = L.px(1);
-    if (b.rim) b.rim.scale.set((w + 8) * u, (h + 8) * u, 1);
-    b.back.scale.set((w + 4) * u, (h + 4) * u, 1); b.lag.scale.set(Math.max(1e-4, w * b.lagV) * u, h * u, 1); b.fill.scale.set(Math.max(1e-4, w * frac) * u, h * u, 1);
+    L.at(x, y, 0, b.g.position); const u = L.px(1), bk = Math.max(1, this.k);
+    if (b.rim) b.rim.scale.set((w + 8 * bk) * u, (h + 8 * bk) * u, 1);
+    b.back.scale.set((w + 4 * bk) * u, (h + 4 * bk) * u, 1); b.lag.scale.set(Math.max(1e-4, w * b.lagV) * u, h * u, 1); b.fill.scale.set(Math.max(1e-4, w * frac) * u, h * u, 1);
     b.lag.position.x = (-w / 2 + (w * b.lagV) / 2) * u; b.fill.position.x = (-w / 2 + (w * frac) / 2) * u;
     if (b.sheen) {
-      const sh = Math.max(2, h * 0.24);
+      const sh = Math.max(2 * bk, h * 0.24);
       b.sheen.visible = frac > 0.005;
       b.sheen.scale.set(Math.max(1e-4, w * frac) * u, sh * u, 1);
       b.sheen.position.set((-w / 2 + (w * frac) / 2) * u, (h / 2 - sh / 2) * u, 0);
     }
     if (b.gemBg && b.gem && b.stud) {
-      const ds = (h + 5) * u, is = (h + 0.5) * u, ss = (h * 0.52) * u;
-      b.gemBg.position.set((-w / 2 - 4) * u, 0, 0); b.gemBg.scale.set(ds, ds, 1);
-      b.gem.position.set((-w / 2 - 4) * u, 0, 0); b.gem.scale.set(is, is, 1);
-      b.stud.position.set((w / 2 + 4) * u, 0, 0); b.stud.scale.set(ss, ss, 1);
+      const ds = (h + 5 * bk) * u, is = (h + 0.5 * bk) * u, ss = (h * 0.52) * u;
+      b.gemBg.position.set((-w / 2 - 4 * bk) * u, 0, 0); b.gemBg.scale.set(ds, ds, 1);
+      b.gem.position.set((-w / 2 - 4 * bk) * u, 0, 0); b.gem.scale.set(is, is, 1);
+      b.stud.position.set((w / 2 + 4 * bk) * u, 0, 0); b.stud.scale.set(ss, ss, 1);
     }
     if (poise) {
       const pf = Math.max(0, Math.min(1, poise.frac));
@@ -407,9 +408,9 @@ export class ActHud {
         b.pHold = Math.max(0, b.pHold - dt); b.pShown = pf;
         b.pLagV = pf > b.pLagV ? pf : closeLag(b.pLagV, pf, b.pHold, dt);
       }
-      const ph = poise.h, py = -(h / 2 + ph / 2 + (b.elite ? 6 : 4)) * u;
+      const ph = poise.h, py = -(h / 2 + ph / 2 + (b.elite ? 6 : 4) * bk) * u;
       b.pBack.visible = b.pLag.visible = b.pFill.visible = true;
-      b.pBack.position.set(0, py, 0); b.pBack.scale.set((w + 4) * u, (ph + 2) * u, 1);
+      b.pBack.position.set(0, py, 0); b.pBack.scale.set((w + 4 * bk) * u, (ph + 2 * bk) * u, 1);
       b.pLag.position.set((-w / 2 + (w * b.pLagV) / 2) * u, py, 0); b.pLag.scale.set(Math.max(1e-4, w * b.pLagV) * u, ph * u, 1);
       b.pFill.position.set((-w / 2 + (w * pf) / 2) * u, py, 0); b.pFill.scale.set(Math.max(1e-4, w * pf) * u, ph * u, 1);
       const pm = b.pFill.material as THREE.MeshBasicMaterial;
@@ -530,9 +531,9 @@ export class ActHud {
         bar(1, 0.36, 0, 0.32, m); bar(1, 0.36, 0, -0.32, m); bar(0.36, 0.3, -0.32, 0, m); bar(0.36, 0.3, 0.32, 0, m); bar(0.28, 0.28, 0, 0, d);
         this.L.scene.add(g); batchUi(g); this.coinIcon = g;
       }
-      const coinCell = 4, b = this.flask.barAt(), cx = b.x - this.flask.W * this.k / 2 + 12, cy = b.y + b.h / 2 + 22 * this.k;
-      this.coinIcon.visible = this.on; this.L.at(cx, cy - hop * 4, 2, this.coinIcon.position); this.coinIcon.scale.setScalar(this.L.px(18) * (1 + 0.25 * hop)); this.coinIcon.rotation.y = hop * 0.8;
-      this.L.text.set('act.coins', { text: `${shown}  ${this.iron}  ${this.herb}`, x: cx + 16, y: cy, cell: coinCell, color: this.coinHop > 0 ? '#fff0b0' : '#ffd27a', outline: '#21100e', align: 'left', visible: this.on });
+      const coinCell = Math.max(2, Math.round(4 * this.k)), b = this.flask.barAt(), cx = b.x - this.flask.W * this.k / 2 + 12 * this.k, cy = b.y + b.h / 2 + 22 * this.k;
+      this.coinIcon.visible = this.on; this.L.at(cx, cy - hop * 4 * this.k, 2, this.coinIcon.position); this.coinIcon.scale.setScalar(this.L.px(18 * this.k) * (1 + 0.25 * hop)); this.coinIcon.rotation.y = hop * 0.8;
+      this.L.text.set('act.coins', { text: `${shown}  ${this.iron}  ${this.herb}`, x: cx + 16 * this.k, y: cy, cell: coinCell, color: this.coinHop > 0 ? '#fff0b0' : '#ffd27a', outline: '#21100e', align: 'left', visible: this.on });
     }
     // act-118: live combo variety readout (right edge, shown only during active combos) & active synergy badges (under portrait)
     const dprH = this.L.dpr || 1, pkC = Math.max(1, Math.round(Math.max(18, 22 * this.k) * dprH / PIX_H));
@@ -612,7 +613,7 @@ export class ActHud {
     if (chief) {
       if (!this.boss) this.boss = this.newBar();
       const bPoise = chief.d.poise > 0 ? { frac: chief.brokenT > 0 ? chief.brokenT / POISE_BREAK_DUR : chief.poise / chief.d.poise, broken: chief.brokenT > 0, h: Math.max(4, 6 * this.k) } : null;
-      this.boss.g.visible = this.on; this.drawBar(this.boss, this.L.w / 2, 40 * this.k, Math.min(560, this.L.w * 0.44), 12 * this.k, chief.hp / chief.maxHp, dt, bPoise);
+      this.boss.g.visible = this.on; this.drawBar(this.boss, this.L.w / 2, 40 * this.k, Math.min(560 * this.k, this.L.w * 0.44), 12 * this.k, chief.hp / chief.maxHp, dt, bPoise);
       if (this.bossName !== chief.d.name) { this.bossName = chief.d.name; }
       this.L.text.set('act.boss', { text: chief.d.name, x: this.L.w / 2, y: 18 * this.k, ...(language === 'en' ? { bodyPx: Math.max(14, 18 * this.k) } : { cell: Math.max(1, Math.round(2 * this.k)) }), color: '#ffe6b0', align: 'center', visible: this.on });
     } else { if (this.boss) { this.boss.g.parent?.remove(this.boss.g); this.boss = null; } this.L.text.hide('act.boss'); }

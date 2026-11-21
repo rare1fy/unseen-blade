@@ -14,6 +14,7 @@ import type { MiniShield } from './btnBadge';
 import { layoutPresses, paintSeps, pressShields, paintName, paintEffect, paintNum, type SkillEntry, type PressItem } from './skillFace';
 import { language, t } from './i18n';
 import { skillIcon3D } from './skillIcons';
+import { uiScale } from './uiScale';
 export type { SkillEntry } from './skillFace';
 
 export interface Section { title: string; list: SkillEntry[]; empty?: string }
@@ -80,7 +81,8 @@ export class SkillList {
   hit(x: number, y: number) { return this.items.findIndex(it => !!it.e && it.inK > 0.6 && Math.abs(x - it.x) < it.w / 2 && Math.abs(y - it.y) < it.h / 2); }
   /** place the column: x = its centre, from top to bottom (px) */
   layout(x: number, top: number, bottom: number, w: number) {
-    const h = Math.max(52, Math.min(96, w * 0.16, (bottom - top) / 3.4)), headH = Math.max(26, h * 0.42), gap = Math.max(6, h * 0.12);
+    const kk = uiScale(this.L.w, this.L.h, 0.75, 2.8);
+    const h = Math.max(52 * kk, Math.min(96 * kk, w * 0.16, (bottom - top) / 3.4)), headH = Math.max(26 * kk, h * 0.42), gap = Math.max(6 * kk, h * 0.12);
     Object.assign(this.lay, { x, top, bottom, w, h, gap, headH });
     let y = top - this.scroll;
     for (const it of this.items) {

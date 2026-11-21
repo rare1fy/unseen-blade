@@ -15,6 +15,7 @@ import { language, t as localize } from './i18n';
 import { TUNE } from './tune';
 import { Hero } from './hero';
 import { isBoss, type Foe } from './enemy';
+import { uiScale } from './uiScale';
 
 export type LessonId = 'move' | 'attack' | 'dash' | 'jump' | 'stance' | 'parry';
 const BTN: Record<LessonId, BtnName | null> = { move: null, attack: 'attack', dash: 'dash', jump: 'jump', stance: 'attack', parry: 'attack' };
@@ -166,7 +167,7 @@ export class Tutorial {
     const id = this.cur, n = id ? BTN[id] : null;
     for (const m of ['dash', 'jump', 'special'] as BtnName[]) btns[m].hot = false;
     if (n) { btns[n].hot = true; if (this.k < 0.25) kick(n); }
-    const L = this.L, kHud = Math.min(1.25, Math.max(0.65, L.h / 720));
+    const L = this.L, kHud = uiScale(L.w, L.h, 0.65, 2.8);
     this.L.text.hide('act.tut.ok');
     // Subtle single confirm ripple on the button when executed
     if (this.doneBurst.t > 0 && !id && this.doneBurst.btn) {
@@ -208,7 +209,7 @@ export class Tutorial {
     void h;
   }
   private paint(id: LessonId) {
-    const dev = PAD.device, dpr = this.L.dpr || 1, k = Math.min(1.25, Math.max(0.66, this.L.h / 720));
+    const dev = PAD.device, dpr = this.L.dpr || 1, k = uiScale(this.L.w, this.L.h, 0.66, 2.8);
     const s = Math.max(1, Math.round(Math.max(19, 22 * k) * dpr / PIX_H)), n = BTN[id];
     const key = `${id}|${dev}|${PAD.family}|${n ? BIND.key[n][0] + BIND.pad[n][0] : ''}|${s}|${language}`;
     if (key === this.texKey) return; this.texKey = key;

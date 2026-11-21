@@ -45,20 +45,19 @@ export function createGfx(platform: Platform, canvas: any, o: { preserve?: boole
     if (!CAPS.instancing || !CAPS.boneTex || !CAPS.derivatives) console.warn('[gfx] WebGL1 without ' + [!CAPS.instancing && 'instancing (particles, blood, leaves, debris are not drawn)', !CAPS.boneTex && 'float vertex textures (no part batching)', !CAPS.derivatives && 'derivatives (no block bevel lines, no flat shading)'].filter(Boolean).join(', ') + ' — the WeChat devtools simulator; phones have them'); }
   const timer = frameTimer(renderer);
   const post = new Post(renderer);
-  if (__WX__ && renderer.extensions.has('KHR_parallel_shader_compile')) {
-    setLoadingWarmup(async () => {
-      // Match the target and light counts of the actual world pass. Restore
-      // the screen before awaiting the GPU so the blade can keep rendering.
-      padLights(); syncBatches();
-      const previous = renderer.getRenderTarget();
-      let ready;
-      try {
-        renderer.setRenderTarget(post.rt);
-        ready = renderer.compileAsync(scene, camera);
-      } finally { renderer.setRenderTarget(previous); restoreLights(); }
-      await ready;
-    });
-  }
+  setLoadingWarmup(async () => {
+    // Match the target and light counts of the actual world pass. Restore
+    // the screen before awaiting the GPU so the blade can keep rendering.
+    padLights(); syncBatches();
+    const previous = renderer.getRenderTarget();
+    let ready: Promise<unknown> | undefined;
+    try {
+      renderer.setRenderTarget(post.rt);
+      if (renderer.extensions.has('KHR_parallel_shader_compile')) ready = renderer.compileAsync(scene, camera);
+      else renderer.compile(scene, camera);
+    } finally { renderer.setRenderTarget(previous); restoreLights(); }
+    if (ready) await ready;
+  });
   const fit = () => {
     const s = platform.canvasSize(); view.w = s.w; view.h = s.h; view.dpr = Math.min(platform.dpr(), PX.on ? 3 : 2);   // the pixel look at native resolution (a 3× phone upscaled 2→3 by the browser blurred the pixels)
     renderer.setPixelRatio(view.dpr); renderer.setSize(s.w, s.h, false); post.setSize(s.w, s.h, view.dpr);

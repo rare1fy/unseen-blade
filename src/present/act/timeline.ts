@@ -10,6 +10,7 @@ import { V3 } from '../engine/world';
 import { text, textW } from '../v2/overlay';
 import { PIX_H } from '../v2/pix';
 import { makeCanvas } from '../../platform/index';
+import { uiScale } from './uiScale';
 
 export type V = [number, number, number];
 export interface CamKey { pos: V; look: V; fov: number }
@@ -118,7 +119,8 @@ export class Timeline {
   private paintCaption(c: Caption) {
     // (act-37: a long line steps the scale down until it fits 88% of the width)
     const dpr = Math.max(1, Math.round(this.L.dpr || 1));
-    let S = (c.big ? (this.L.h >= 600 ? 5 : 3) : (this.L.h >= 600 ? 3 : 2)) * dpr;
+    const kk = uiScale(this.L.w, this.L.h, 0.65, 2.8);
+    let S = Math.max(1, Math.round((c.big ? 5 : 3) * kk)) * dpr;
     while (S > dpr && textW(c.text, S) > this.L.w * dpr * 0.88) S -= dpr;
     const w = textW(c.text, S) + 8 * dpr, h = PIX_H * S + 8 * dpr;
     const cv = makeCanvas(w, h) as HTMLCanvasElement; cv.width = w; cv.height = h;

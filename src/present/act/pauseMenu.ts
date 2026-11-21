@@ -19,6 +19,7 @@ import type { BtnName } from './input';
 import { SkillList, type Section } from './skillList';
 import { UI_WORDS } from './skillInfo';
 import { backShield, type MiniShield } from './btnBadge';
+import { uiScale } from './uiScale';
 
 export interface MenuSetting { id?: string; label: () => string; run: () => void }
 export interface PauseHost {
@@ -313,8 +314,9 @@ export class PauseMenu {
     // 已得 / 招式: the list right of the 返回 column, from under the page's name to above the prompts
     { const want = this.inList && !this.previewing ? 1 : 0; this.listRel += (want - this.listRel) * Math.min(1, rdt * 10);
       if (this.list.on) {
-        const W = L.w, H = L.h, lx0 = this.lay.cx + this.lay.w / 2 + Math.max(40, W * 0.05), lx1 = W - Math.max(40, W * 0.05);
-        this.list.layout((lx0 + lx1) / 2, this.lay.top, H - Math.max(40, H * 0.08), Math.min(lx1 - lx0, 760));
+        const W = L.w, H = L.h, kkL = uiScale(W, H, 0.75, 2.8);
+        const lx0 = this.lay.cx + this.lay.w / 2 + Math.max(40 * kkL, W * 0.05), lx1 = W - Math.max(40 * kkL, W * 0.05);
+        this.list.layout((lx0 + lx1) / 2, this.lay.top, H - Math.max(40 * kkL, H * 0.08), Math.min(lx1 - lx0, 760 * kkL));
         this.list.update(rdt, this.listRel);
       } }
     this.slabs.forEach((s, i) => {
@@ -331,7 +333,7 @@ export class PauseMenu {
         L.at(p.x, p.y, bz, this.backBtn.position); this.backBtn.scale.setScalar(L.px(p.r * 2, bz) * press * (1 + 0.07 * hot) * (0.6 + 0.4 * this.backK));
         this.backBtn.rotation.set(0, 0.12 + Math.sin(this.t * 0.7) * 0.03, Math.sin(this.t * 1.3) * 0.02);
         this.backBtn.setOpacity(this.backK); this.backBtn.setRim(hot ? 0xffe498 : 0x9aa4b4, hot ? 0.65 : 0.25);
-        const dprB = L.dpr || 1, kkB = Math.max(0.8, Math.min(1.25, L.h / 720));
+        const dprB = L.dpr || 1, kkB = uiScale(L.w, L.h, 0.8, 2.8);
         const pkB = Math.max(1, Math.round(18 * kkB * dprB / PIX_H));
         const backLbl = PAD.device === 'key' ? '返回 Esc' : PAD.device === 'pad' ? msg`返回 ${padName(1)}` : '返回';
         L.text.set('pause.back', { text: backLbl, x: p.x + p.r + 8 * kkB, y: p.y, pix: pkB, color: hot ? '#fff8d4' : '#f2e8d2', outline: '#140c0a', align: 'left', visible: this.backK > 0.35 });
@@ -348,35 +350,36 @@ export class PauseMenu {
   private lay = { cx: 0, w: 0, h: 0, top: 0, S: 1, hS: 1, gap: 0 };
   private layout() {
     const L = this.host.L, W = L.w, H = L.h, n = this.rows.length, k = L.dpr || 1;
+    const kk = uiScale(W, H, 0.72, 2.8);
     const wide = this.page === 'keys' || this.page === 'set';
-    const w = wide ? Math.max(280, Math.min(480, W * 0.36)) : Math.max(170, Math.min(290, W * 0.2));
-    const headH = Math.max(28, Math.min(56, H * 0.075)), footH = Math.max(18, Math.min(30, H * 0.04));
+    const w = wide ? Math.max(280 * kk, Math.min(480 * kk, W * 0.36)) : Math.max(170 * kk, Math.min(290 * kk, W * 0.22));
+    const headH = Math.max(28 * kk, Math.min(56 * kk, H * 0.075)), footH = Math.max(18 * kk, Math.min(30 * kk, H * 0.04));
     const avail = H * 0.86 - headH * 1.4 - footH * 1.6;
-    const h = Math.max(language === 'en' || this.page === 'set' ? 20 : 24, Math.min(wide ? 50 : 56, avail / (n * 1.32 - 0.32))), gap = h * 0.32;
+    const h = Math.max((language === 'en' || this.page === 'set' ? 20 : 24) * kk, Math.min((wide ? 50 : 56) * kk, avail / (n * 1.32 - 0.32))), gap = h * 0.32;
     const total = n * h + (n - 1) * gap, top = this.page === 'owned' || this.page === 'skills' ? headH * 1.5 + H * 0.05 : Math.max(headH * 1.5 + H * 0.05, (H - total) / 2 + headH * 0.4);
-    const cx = Math.max(w / 2 + h * 1.6 + 24, W * 0.27);
+    const cx = Math.max(w / 2 + h * 1.6 + 24 * kk, W * 0.27);
     const S = Math.max(1, Math.round(h * 0.45 * k / PIX_H)), hS = Math.max(1, Math.round(headH * 0.82 * k / PIX_H));
     Object.assign(this.lay, { cx, w, h, top, S, hS, gap });
     this.slabs.forEach((s, i) => { s.size(w, h); s.x = cx; s.y = top + h / 2 + i * (h + gap); });
     // the page's name over the column
     const name = { main: '暂歇', keys: '键位', set: '设置', ask: '回据点？', askTitle: '回主画面？', owned: UI_WORDS.owned, skills: UI_WORDS.skills }[this.page], note = this.page === 'ask' || this.page === 'askTitle' ? '视同战死：途中所获尽失，残铁与药引照带回' : this.page === 'keys' ? this.keysNote() : '';
-    const nS = Math.max(1, Math.round(hS * 0.45)), hw = Math.max(textW(name, hS), textW(note, nS) + 8) / k + 8, hh = (PIX_H * hS + (note ? PIX_H * nS + 6 * k : 0)) / k + 6;
-    this.head.set(language + name + note, hw, hh, g => { text(g, name, 4 * k, 3 * k, hS, TXT.sel); if (note) text(g, note, 4 * k, 3 * k + PIX_H * hS + 6 * k, nS, TXT.dim); });
-    const ent = Math.min(1, this.pageT / 0.25), br = Math.max(24, Math.min(36, headH * 0.64)), withBack = this.page !== 'main', nx = cx - w / 2 + (withBack ? br * 2 + 62 : 0);
+    const nS = Math.max(1, Math.round(hS * 0.45)), hw = Math.max(textW(name, hS), textW(note, nS) + 8 * kk) / k + 8 * kk, hh = (PIX_H * hS + (note ? PIX_H * nS + 6 * k * kk : 0)) / k + 6 * kk;
+    this.head.set(language + name + note + kk.toFixed(2), hw, hh, g => { text(g, name, 4 * k * kk, 3 * k * kk, hS, TXT.sel); if (note) text(g, note, 4 * k * kk, 3 * k * kk + PIX_H * hS + 6 * k * kk, nS, TXT.dim); });
+    const ent = Math.min(1, this.pageT / 0.25), br = Math.max(24 * kk, Math.min(36 * kk, headH * 0.64)), withBack = this.page !== 'main', nx = cx - w / 2 + (withBack ? br * 2 + 62 * kk : 0);
     this.head.place(nx + hw / 2, top - hh / 2 - h * 0.45, ent * ent);
     this.backAt = { x: cx - w / 2 + br, y: top - h * 0.45 - hh / 2, r: br };
     // the prompts at the foot: the device's own confirm / back (gamepad pixel glyphs or dark-iron pixel keycaps)
     const fS = Math.max(1, Math.round(footH * 0.52 * k / PIX_H)), parts = this.prompts();
     if (parts.length) {
       const gs = fS * 2, ks = fS, gw = (i: number) => glyphArt(i).w * gs;
-      const width = parts.reduce((a, p) => a + (p.pad != null ? gw(p.pad) + 5 * k : keyCapWidth(p.key ?? '') * ks + 6 * k) + textW(p.word, fS) + 14 * k, 0) / k;
-      const fh = Math.max(PIX_H * fS, GLYPH_H * gs, KEYCAP_H * ks) / k + 4, keyStr = parts.map(p => `${p.pad ?? p.key}${p.word}`).join() + PAD.device + PAD.family + language;
+      const width = parts.reduce((a, p) => a + (p.pad != null ? gw(p.pad) + 5 * k * kk : keyCapWidth(p.key ?? '') * ks + 6 * k * kk) + textW(p.word, fS) + 14 * k * kk, 0) / k;
+      const fh = Math.max(PIX_H * fS, GLYPH_H * gs, KEYCAP_H * ks) / k + 4 * kk, keyStr = parts.map(p => `${p.pad ?? p.key}${p.word}`).join() + PAD.device + PAD.family + language + kk.toFixed(2);
       this.foot.set(keyStr, width, fh, g => {
         let x = 0; const mid = fh * k / 2;
         for (const p of parts) {
-          if (p.pad != null) { paintGlyph(g, p.pad, x, Math.round(mid - GLYPH_H * gs / 2), gs); x += gw(p.pad) + 5 * k; }
-          else { const kw = paintKeyCap(g, p.key!, Math.round(x), Math.round(mid - KEYCAP_H * ks / 2), ks); x += kw.w + 6 * k; }
-          x += text(g, p.word, x, Math.round(mid - PIX_H * fS / 2), fS, TXT.on) + 14 * k;
+          if (p.pad != null) { paintGlyph(g, p.pad, x, Math.round(mid - GLYPH_H * gs / 2), gs); x += gw(p.pad) + 5 * k * kk; }
+          else { const kw = paintKeyCap(g, p.key!, Math.round(x), Math.round(mid - KEYCAP_H * ks / 2), ks); x += kw.w + 6 * k * kk; }
+          x += text(g, p.word, x, Math.round(mid - PIX_H * fS / 2), fS, TXT.on) + 14 * k * kk;
         }
       });
       const last = this.slabs[this.slabs.length - 1], fy = last ? last.y + h / 2 + footH * 1.1 : H * 0.9;

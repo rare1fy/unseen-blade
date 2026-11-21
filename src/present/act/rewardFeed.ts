@@ -51,20 +51,21 @@ export class RewardFeed {
   }
   clear() { for (const e of [...this.list]) this.drop(e); }
   private drop(e: Entry) { e.mesh.parent?.remove(e.mesh); e.mesh.geometry.dispose(); e.mat.map?.dispose(); e.mat.dispose(); this.list.splice(this.list.indexOf(e), 1); }
-  private paint(e: Entry, fontPx: number, dpr: number) {
-    const text = e.label(e.n), key = `${text}|${fontPx}|${e.gold}|${e.kind}|${BODY_FONT.version}`;
+  private paint(e: Entry, fontPx: number, dpr: number, k: number) {
+    const kk = Math.max(0.72, k);
+    const text = e.label(e.n), key = `${text}|${fontPx}|${kk.toFixed(2)}|${e.gold}|${e.kind}|${BODY_FONT.version}`;
     if (key === e.texKey) return; e.texKey = key;
     const tw = Math.ceil(bodyW(text, fontPx));
-    const iconSz = Math.round(fontPx * 0.88), barW = Math.max(2, Math.round(3 * dpr));
-    const padL = barW + Math.round(8 * dpr), iconGap = Math.round(8 * dpr), padR = Math.round(34 * dpr);
-    const padY = Math.round(7 * dpr);
+    const iconSz = Math.round(fontPx * 0.88), barW = Math.max(2, Math.round(3 * kk * dpr));
+    const padL = barW + Math.round(8 * kk * dpr), iconGap = Math.round(8 * kk * dpr), padR = Math.round(34 * kk * dpr);
+    const padY = Math.round(7 * kk * dpr);
     const W = Math.max(8, padL + iconSz + iconGap + tw + padR);
     const textH = Math.ceil(fontPx * 1.22);
     const H = Math.max(10, textH + padY * 2);
     const { c, g } = canvasOf(W, H);
     // dark translucent ribbon fading cleanly to the right (console-grade readability without heavy box chrome)
     const grad = g.createLinearGradient(0, 0, W, 0);
-    const solid = Math.min(0.88, (padL + iconSz + iconGap + tw + 10 * dpr) / W);
+    const solid = Math.min(0.88, (padL + iconSz + iconGap + tw + 10 * kk * dpr) / W);
     grad.addColorStop(0, 'rgba(10,8,14,0.80)');
     grad.addColorStop(solid, 'rgba(10,8,14,0.62)');
     grad.addColorStop(1, 'rgba(10,8,14,0)');
@@ -72,7 +73,7 @@ export class RewardFeed {
     const accent = e.gold ? 'rgba(244,210,126,0.96)' : e.kind === 'coins' ? 'rgba(232,174,82,0.94)' : e.kind === 'heal' ? 'rgba(108,232,152,0.92)' : 'rgba(218,224,238,0.88)';
     g.fillStyle = accent; g.fillRect(0, 0, barW, H);
     if (e.gold) {
-      const edgeH = Math.max(1, Math.round(1.5 * dpr));
+      const edgeH = Math.max(1, Math.round(1.5 * kk * dpr));
       const gg = g.createLinearGradient(0, 0, W, 0);
       gg.addColorStop(0, 'rgba(236,196,114,0.92)'); gg.addColorStop(solid, 'rgba(236,196,114,0.52)'); gg.addColorStop(1, 'rgba(236,196,114,0)');
       g.fillStyle = gg; g.fillRect(0, 0, W, edgeH); g.fillRect(0, H - edgeH, W, edgeH);
@@ -91,7 +92,7 @@ export class RewardFeed {
     for (const e of [...this.list]) if ((e.t += dt) >= LIFE) this.drop(e);
     let y = at.y;
     for (const e of this.list) {
-      this.paint(e, fontPx, dpr);
+      this.paint(e, fontPx, dpr, k);
       // slides to its place (the ones under move up when one above leaves); a new one rises in from below
       if (e.y < 0) e.y = y + e.h * 0.7; e.y += (y - e.y) * Math.min(1, dt * 14);
       e.in = Math.min(1, e.in + dt / 0.18);

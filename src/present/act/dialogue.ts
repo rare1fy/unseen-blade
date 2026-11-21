@@ -21,6 +21,7 @@ import { loadImage, makeCanvas } from '../../platform/index';
 import { paintPixelSkipRing } from './timeline';
 import { PAD, paintGlyph, glyphArt, GLYPH_H, paintKeyCap, keyCapWidth, KEYCAP_H } from './pad';
 import { drawPixelPlaque } from './uiPlate';
+import { uiScale } from './uiScale';
 
 export interface Line { who: string; text: string; mood?: string }
 interface Speaker { name: string; side: 'L' | 'R'; mute?: boolean }
@@ -97,8 +98,8 @@ const BG = '#14121c', EDGE_G = '#c8963a', EDGE_R = '#a8302a', NAME = '#ffd27a', 
 const CPS = 34;   // base characters per second (with punctuation micro-pauses)
 interface Side { mesh: THREE.Mesh | null; who: string; id: string; k: number; on: number; aspect: number; ih: number; pop: number; was: boolean; away: number }
 
-/** the line's HD body font size (CSS px): 26 on tall screens, 19 on a phone held sideways */
-const fontPx = (scale: number) => (scale >= 2 ? 26 : 19);
+/** the line's HD body font size (CSS px), scaling proportionally from mobile (19px) -> 720p (26px) -> 1080p (39px) -> 2K (52px) */
+const fontPx = (uScale: number) => Math.round(26 * uScale);
 const tx = (s: string) => t(s);
 const rawText = (g: CanvasRenderingContext2D, s: string, x: number, y: number, px: number, col: string) => bodyText(g, NOTR + s, x, y, px, col);
 const rawW = (s: string, px: number) => (s ? bodyW(NOTR + s, px) : 0);
@@ -135,7 +136,8 @@ class InkLine {
   off() { /* faded out smoothly in fadeOut() */ }
   private paint(line: Line, shown: number, total: number) {
     const L = this.L, dpr = Math.max(1, Math.round(L.dpr || 1));
-    const fpx = Math.round((L.h >= 600 ? 30 : 22) * dpr);
+    const uScale = uiScale(L.w, L.h, 0.72, 2.8);
+    const fpx = Math.round(30 * uScale * dpr);
     const fullTr = tx(line.text), raw = fullTr.replace(/^（|）$/g, '');
     // map Dialogue's shown count (over fullTr, which may include leading/trailing brackets) onto raw
     const leadTrim = fullTr.startsWith('（') ? 1 : 0;
@@ -144,13 +146,13 @@ class InkLine {
     const key = `${raw}|${rawShown}|${L.w}x${L.h}|${dpr}|${BODY_FONT.version}`;
     if (key === this.key) return; this.key = key;
 
-    const maxW = Math.round(Math.min(L.w * 0.72, 860) * dpr);
+    const maxW = Math.round(Math.min(L.w * 0.72, 860 * uScale) * dpr);
     const rows: string[] = [];
     if (language === 'en') rows.push(...wrapWords(raw, maxW, s => rawW(s, fpx)));
     else { let r = ''; for (const ch of [...raw]) { if (rawW(r + ch, fpx) > maxW) { rows.push(r); r = ''; } r += ch; } if (r) rows.push(r); }
 
-    const lineH = Math.round(fpx * 1.5), rule = Math.round(Math.min(L.w * 0.055, 56) * dpr), gapX = Math.round(14 * dpr);
-    const padX = Math.round(18 * dpr), padY = Math.round(10 * dpr), p = Math.max(1, Math.round(2 * dpr));
+    const lineH = Math.round(fpx * 1.5), rule = Math.round(Math.min(L.w * 0.055, 56 * uScale) * dpr), gapX = Math.round(14 * uScale * dpr);
+    const padX = Math.round(18 * uScale * dpr), padY = Math.round(10 * uScale * dpr), p = Math.max(1, Math.round(2 * uScale * dpr));
     const widest = Math.max(...rows.map(r => rawW(r, fpx)), 1);
     const W = widest + 2 * (rule + gapX + padX), H = rows.length * lineH + padY * 2;
     const c = this.c;
@@ -165,14 +167,14 @@ class InkLine {
     });
 
     // two crisp pixel flanking rules (stepped thickness, solid color, no fog)
-    const sy = Math.round(H / 2);
+    const sy = Math.round(H / 2), ru = Math.max(1, Math.round(uScale * dpr));
     const leftX = padX, rightX = W - padX - rule;
     g.fillStyle = '#b99c68';
-    g.fillRect(leftX + Math.round(rule * 0.35), sy - Math.round(dpr), Math.round(rule * 0.65), Math.max(1, Math.round(2 * dpr)));
-    g.fillRect(rightX, sy - Math.round(dpr), Math.round(rule * 0.65), Math.max(1, Math.round(2 * dpr)));
+    g.fillRect(leftX + Math.round(rule * 0.35), sy - ru, Math.round(rule * 0.65), ru * 2);
+    g.fillRect(rightX, sy - ru, Math.round(rule * 0.65), ru * 2);
     g.fillStyle = '#6c5a3e';
-    g.fillRect(leftX, sy, Math.round(rule * 0.35), Math.max(1, Math.round(dpr)));
-    g.fillRect(rightX + Math.round(rule * 0.65), sy, Math.round(rule * 0.35), Math.max(1, Math.round(dpr)));
+    g.fillRect(leftX, sy, Math.round(rule * 0.35), ru);
+    g.fillRect(rightX + Math.round(rule * 0.65), sy, Math.round(rule * 0.35), ru);
 
     // characters revealed cleanly up to rawShown
     let left = rawShown;
@@ -181,7 +183,7 @@ class InkLine {
       const rw = rawW(r, fpx), x = Math.round((W - rw) / 2), y = Math.round(padY + ri * lineH + (lineH - fpx) / 2);
       const chars = [...r], take = Math.min(chars.length, left);
       const part = chars.slice(0, take).join('');
-      const o = Math.max(1, Math.round(dpr * 1.2));
+      const o = Math.max(1, Math.round(uScale * dpr * 1.2));
       for (const [ox, oy] of [[-o, 0], [o, 0], [0, -o], [0, o]]) rawText(g, part, x + ox, y + oy, fpx, '#06050b');
       rawText(g, part, x, y, fpx, '#f6efe0');
       left -= chars.length;
@@ -189,9 +191,9 @@ class InkLine {
 
     // subtle pixel "next" caret when complete
     if (rawShown >= rawTotal) {
-      const bx = W - Math.round(18 * dpr), by = H - Math.round(12 * dpr);
+      const bx = W - Math.round(18 * uScale * dpr), by = H - Math.round(12 * uScale * dpr);
       g.fillStyle = NAME;
-      for (let r = 0; r < 3; r++) g.fillRect(bx + r * dpr, by + r * dpr, (6 - r * 2) * dpr, dpr);
+      for (let r = 0; r < 3; r++) g.fillRect(bx + r * ru, by + r * ru, (6 - r * 2) * ru, ru);
     }
 
     const hd = BODY_FONT.current !== 'pixel';
@@ -332,17 +334,17 @@ export class Dialogue {
     this.box.visible = false; this.nameMesh.visible = false; this.outK = 1; this.ink.off();
     const d = this.done; this.done = null; d?.();
   }
-  /** act-136: independent raised bronze-iron name plaque seated on top-left or top-right rim of the box */
-  private paintNamePlaque(name: string, right: boolean, scale: number) {
+  /** act-136 / act-146: independent raised bronze-iron name plaque scaled cleanly across mobile, 720p, 1080p, 2K & 4K */
+  private paintNamePlaque(name: string, right: boolean, uScale: number) {
     const dpr = Math.max(1, Math.round(this.L.dpr || 1));
-    const key = `${name}|${right ? 1 : 0}|${scale}|${dpr}|${language}`;
+    const key = `${name}|${right ? 1 : 0}|${uScale.toFixed(2)}|${dpr}|${language}`;
     if (key === this.nameKey) return;
     this.nameKey = key;
-    const S = Math.max(1, Math.round(scale * dpr));
-    const u = Math.max(1, Math.round(2 * dpr));
+    const S = Math.max(1, Math.round(2 * uScale * dpr));
+    const u = Math.max(1, Math.round(2 * uScale * dpr));
     const tw = textW(name, S), th = PIX_H * S;
-    const padX = Math.round(16 * dpr), padY = Math.round(7 * dpr);
-    const cw = Math.max(Math.round(92 * dpr), tw + padX * 2 + u * 4);
+    const padX = Math.round(16 * uScale * dpr), padY = Math.round(7 * uScale * dpr);
+    const cw = Math.max(Math.round(92 * uScale * dpr), tw + padX * 2 + u * 4);
     const ch = th + padY * 2 + u * 2;
     const c = this.nameCanvas;
     const resized = c.width !== cw || c.height !== ch;
@@ -370,15 +372,15 @@ export class Dialogue {
     }
     this.nameW = cw / dpr; this.nameH = ch / dpr;
   }
-  /** act-136: forged iron-bronze lacquer dialogue box with stable 3-line height, clean margins, and recessed footer bar */
-  private paint(line: Line, n: number, wPx: number, hPx: number, scale: number) {
+  /** act-136 / act-146: forged iron-bronze lacquer dialogue box scaling cleanly across mobile, 720p, 1080p, 2K & 4K */
+  private paint(line: Line, n: number, wPx: number, hPx: number, uScale: number) {
     const sp = CAST[line.who], c = this.canvas, dpr = Math.max(1, Math.round(this.L.dpr || 1));
     const cw = Math.round(wPx * dpr), ch = Math.round(hPx * dpr);
     const resized = c.width !== cw || c.height !== ch;
     if (resized) { c.width = cw; c.height = ch; }
     const g = c.getContext('2d')!; g.imageSmoothingEnabled = false;
     g.clearRect(0, 0, cw, ch);
-    const u = Math.max(1, Math.round(2 * dpr));
+    const u = Math.max(1, Math.round(2 * uScale * dpr));
     const right = sp?.side === 'R';
     // Stepped forged-iron outer plate + bronze inner trim + deep ink lacquer body + corner rivets
     drawPixelPlaque(g, 0, 0, cw, ch, u, {
@@ -400,14 +402,14 @@ export class Dialogue {
     g.fillStyle = right ? '#a87d36' : EDGE_R;
     g.fillRect(right ? cw - inset - u * 3 : inset + u * 2, inset + u * 2, u * 2, ch - (inset + u * 2) * 2);
 
-    // Body text: ALWAYS left-aligned with clean compact margins
-    const fpx = Math.round(fontPx(scale) * dpr);
+    // Body text: ALWAYS left-aligned with clean proportional margins
+    const fpx = Math.round(fontPx(uScale) * dpr);
     const full = t(line.text), chars = [...full].slice(0, n);
-    const padH = Math.round((scale >= 2 ? 20 : 14) * dpr);
-    const padTop = Math.round((scale >= 2 ? 16 : 12) * dpr);
+    const padH = Math.round(20 * uScale * dpr);
+    const padTop = Math.round(16 * uScale * dpr);
     const maxW = cw - padH * 2;
     const lineH = Math.round(fpx * 1.38);
-    const footH = PAD.device === 'touch' ? Math.round(10 * dpr) : Math.round(28 * dpr);
+    const footH = PAD.device === 'touch' ? Math.round(10 * uScale * dpr) : Math.round(28 * uScale * dpr);
     let row = '', y = padTop;
     const col = sp?.mute ? MUTE : BODY;
     if (language === 'en') {
@@ -432,18 +434,19 @@ export class Dialogue {
     const dev = PAD.device;
     if (dev === 'touch') {
       if (n >= [...full].length) {
-        const bx = cw - Math.round(22 * dpr), by = ch - Math.round(16 * dpr);
+        const cu = Math.max(1, Math.round(uScale * dpr));
+        const bx = cw - Math.round(22 * uScale * dpr), by = ch - Math.round(16 * uScale * dpr);
         g.fillStyle = NAME;
-        for (let r = 0; r < 4; r++) g.fillRect(bx + r * dpr, by + r * dpr, (8 - r * 2) * dpr, dpr);
+        for (let r = 0; r < 4; r++) g.fillRect(bx + r * cu, by + r * cu, (8 - r * 2) * cu, cu);
       }
     } else {
       const fTop = ch - footH - inset - u;
       g.fillStyle = '#0f0d16';
       g.fillRect(inset + u, fTop, cw - (inset + u) * 2, footH);
       g.fillStyle = '#332c40';
-      g.fillRect(inset + u * 2, fTop, cw - (inset + u * 2) * 2, Math.max(1, Math.round(dpr)));
-      const hs = Math.max(1, Math.floor(0.62 * scale * dpr));
-      const padF = Math.round(14 * dpr), gap = Math.round(5 * dpr), segGap = Math.round(13 * dpr);
+      g.fillRect(inset + u * 2, fTop, cw - (inset + u * 2) * 2, Math.max(1, Math.round(uScale * dpr)));
+      const hs = Math.max(1, Math.round(1.18 * uScale * dpr));
+      const padF = Math.round(14 * uScale * dpr), gap = Math.round(5 * uScale * dpr), segGap = Math.round(13 * uScale * dpr);
       const footY = fTop + Math.round(footH / 2);
       let rx = cw - padF;
       const drawWord = (w: string, colW: string) => {
@@ -534,45 +537,47 @@ export class Dialogue {
     }
 
     // long-press skip entire conversation (0.65 s hold)
+    const uScale = uiScale(L.w, L.h, 0.72, 2.8);
     this.holdT = this.holding ? this.holdT + dt : Math.max(0, this.holdT - dt * 3.5);
     this.skipRing.visible = this.holdT > 0.14;
     if (this.skipRing.visible) {
       const step = Math.max(1, Math.min(16, Math.ceil((this.holdT / 0.65) * 16)));
       if (step !== this.skipStep) { this.skipStep = step; paintPixelSkipRing(this.skipCanvas, step); this.skipTex.needsUpdate = true; }
-      L.at(L.w - 34, L.h - 34, 0, this.skipRing.position); this.skipRing.scale.setScalar(L.px(32));
+      L.at(L.w - Math.round(34 * uScale), L.h - Math.round(34 * uScale), 0, this.skipRing.position); this.skipRing.scale.setScalar(L.px(Math.round(32 * uScale)));
     }
     if (this.holdT >= 0.65) { this.skipAll(); return; }
 
-    const scale = L.h >= 600 ? 2 : 1, fpx0 = fontPx(scale);
-    const padH = scale >= 2 ? 20 : 14, padTop = scale >= 2 ? 16 : 12;
-    const wPx = Math.round(Math.min(L.w * 0.41, Math.max(scale >= 2 ? 380 : 270, fpx0 * 16 + padH * 2), scale >= 2 ? 500 : 370));
+    const fpx0 = fontPx(uScale);
+    const padH = Math.round(20 * uScale), padTop = Math.round(16 * uScale);
+    const wPx = Math.round(Math.min(L.w * 0.46, Math.max(500 * uScale, fpx0 * 17 + padH * 2), 540 * uScale));
     const rowsFit = Math.max(1, Math.ceil(bodyW(t(line.text), fpx0) / Math.max(1, wPx - padH * 2)));
     const rows = Math.min(4, Math.max(2, rowsFit));
-    const footExtra = PAD.device === 'touch' ? 10 : 32;
-    const hPx = Math.round(padTop + rows * Math.round(fpx0 * 1.38) + 10 + footExtra);
+    const footExtra = PAD.device === 'touch' ? Math.round(10 * uScale) : Math.round(34 * uScale);
+    const hPx = Math.round(padTop + rows * Math.round(fpx0 * 1.38) + Math.round(12 * uScale) + footExtra);
     const narr = line.who === 'act';
     this.box.visible = !narr;
     this.ink.set(narr, line, this.shown, total, dt, sx, sy);
     const sp = CAST[line.who];
     if (!narr) {
-      const key = `${this.i}|${this.shown}|${this.shown >= total ? 1 : 0}|${wPx}|${hPx}|${BODY_FONT.version}|${PAD.device}|${PAD.family}|${this.autoPlay ? 1 : 0}|${language}`;
-      if (key !== this.drawn) { this.drawn = key; this.paint(line, this.shown, wPx, hPx, scale); }
+      const key = `${this.i}|${this.shown}|${this.shown >= total ? 1 : 0}|${wPx}|${hPx}|${uScale.toFixed(2)}|${BODY_FONT.version}|${PAD.device}|${PAD.family}|${this.autoPlay ? 1 : 0}|${language}`;
+      if (key !== this.drawn) { this.drawn = key; this.paint(line, this.shown, wPx, hPx, uScale); }
       // Gently bias box away from a solo portrait so it never covers the speaker; center cleanly when both sides are present
       const hasL = !!this.sides.L.who, hasR = !!this.sides.R.who;
       const sideShift = hasL && !hasR ? L.w * 0.08 : hasR && !hasL ? -L.w * 0.08 : 0;
       const boxCx = Math.round(L.w / 2 + sideShift);
-      const y = L.h - hPx / 2 - Math.max(10, L.h * 0.025) + (1 - this.openT) * 28 + sy;
-      L.at(boxCx + sx, y, 0, this.box.position); this.box.scale.set(L.px(wPx), L.px(hPx), L.px(8));
+      const y = L.h - hPx / 2 - Math.max(10 * uScale, L.h * 0.025) + (1 - this.openT) * 28 * uScale + sy;
+      L.at(boxCx + sx, y, 0, this.box.position); this.box.scale.set(L.px(wPx), L.px(hPx), L.px(Math.round(8 * uScale)));
       const speakerName = sp?.name ?? line.who;
       const right = sp?.side === 'R';
       if (speakerName) {
-        this.paintNamePlaque(speakerName, right, scale);
+        this.paintNamePlaque(speakerName, right, uScale);
+        const edgeInset = Math.round(12 * uScale);
         const nx = right
-          ? boxCx + wPx / 2 - this.nameW / 2 - 12 + sx
-          : boxCx - wPx / 2 + this.nameW / 2 + 12 + sx;
+          ? boxCx + wPx / 2 - this.nameW / 2 - edgeInset + sx
+          : boxCx - wPx / 2 + this.nameW / 2 + edgeInset + sx;
         const ny = y - hPx / 2 - this.nameH * 0.34;
-        L.at(nx, ny, L.px(6), this.nameMesh.position);
-        this.nameMesh.scale.set(L.px(this.nameW, L.px(6)), L.px(this.nameH, L.px(6)), 1);
+        L.at(nx, ny, L.px(6 * uScale), this.nameMesh.position);
+        this.nameMesh.scale.set(L.px(this.nameW, L.px(6 * uScale)), L.px(this.nameH, L.px(6 * uScale)), 1);
         this.nameMesh.visible = true;
       } else {
         this.nameMesh.visible = false;
@@ -594,7 +599,8 @@ export class Dialogue {
       S.k = Math.min(1, S.k + dt * 3.2); S.pop = Math.max(0, S.pop - dt / 0.22);
       const narr = this.on && this.lines[this.i]?.who === 'act'; S.away += ((narr ? 1 : 0) - S.away) * Math.min(1, dt * 9);
       const inK = 1 - Math.pow(1 - S.k, 3), outK = this.on ? 0 : 1 - this.outK * this.outK, dir = s === 'L' ? 1 : -1;
-      const pkDev = Math.max(2, Math.round((L.h * dpr) / S.ih)), pk = (pkDev - 1 + S.on) / dpr, hP = S.ih * pk, wP = Math.round(S.ih * S.aspect) * pk;
+      const pkDev = Math.max(2, Math.round((L.h * dpr) / S.ih));
+      const pk = (pkDev * (0.85 + 0.15 * S.on)) / dpr, hP = S.ih * pk, wP = Math.round(S.ih * S.aspect) * pk;
       const home = s === 'L' ? wP * 0.4 : L.w - wP * 0.4;
       const step = L.w * 0.018 * S.on - L.w * 0.035 * (1 - S.on);
       const cx = home + dir * step - dir * ((1 - inK) + outK + S.away) * wP * 0.95 + (speaking ? sx * 1.2 : 0);

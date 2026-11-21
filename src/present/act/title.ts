@@ -14,6 +14,7 @@ import * as THREE from 'three';
 import { V3, R, onUpdate, canvasTex, camera, scene, view, precompile } from '../engine/world';
 import { hitstop, shake, PAUSE } from '../engine/clock';
 import { activePad, PAD, padName } from './pad';
+import { uiScale } from './uiScale';
 import { shot } from '../director';
 import { applyMood, prepareStageSteps, skyMaterial, currentStage, type Ctx, type SceneDef, type Mood, type Stage } from '../scenes/stage';
 import { GRADE } from '../look/post';
@@ -855,12 +856,13 @@ class Title {
     const width = pixW(label) + track * ([...label].length - 1);
     const S = language === 'en' ? Math.max(1, Math.floor(Math.min(H * k / 70, W * k * 0.35 / width))) : Math.max(3, Math.round(Math.min(H * 0.15, W * 0.26 / 3.6) * k / PIX_H));
     const textW = width * S / k;
-    const colW = Math.max(textW, Math.min(300, W * 0.22)), cx = this.def.ui === 'left' ? Math.max(W * 0.21, colW / 2 + 28) : Math.min(W * 0.79, W - colW / 2 - 28);
+    const kk = uiScale(W, H, 0.75, 2.8);
+    const colW = Math.max(textW, Math.min(300 * kk, W * 0.22)), cx = this.def.ui === 'left' ? Math.max(W * 0.21, colW / 2 + 28 * kk) : Math.min(W * 0.79, W - colW / 2 - 28 * kk);
     const cy = Math.round(H * 0.21);
     const box = this.titleFx.layout(label, cx, cy, S, track, k, W, H);
     Object.assign(this.lay, { cx: box.cx, w: box.w, h: box.h, x: box.x, y: box.y, top: box.bladeBottom });
     // the plaques: under the title, a column
-    const pw = Math.max(150, Math.min(270, W * 0.17)), gap = Math.max(8, pw * PH * 0.34); this.gap = gap;
+    const pw = Math.max(150 * kk, Math.min(270 * kk, W * 0.18)), gap = Math.max(8 * kk, pw * PH * 0.34); this.gap = gap;
     const y0 = Math.max(this.lay.top + H * 0.09, H * 0.5) + pw * PH / 2;
     this.plaques.forEach((p, i) => { p.w = pw; p.x = cx; p.y = y0 + i * (pw * PH + gap); });
     this.noteKey = '\0';   // re-place the note (if any) on the next frame
@@ -887,10 +889,11 @@ class Title {
       this.noteKey = want; const ov = this.host.ov, k = ov.dpr;
       if (this.noteM) { ov.scene.remove(this.noteM); this.noteM.geometry.dispose(); (this.noteM.material as THREE.Material).dispose(); this.noteM = null; } this.noteTex?.dispose(); this.noteTex = null;
       if (want) {
-        const HS = Math.max(1, Math.round(Math.max(14, Math.min(20, ov.h * 0.032)) * k / PIX_H)), ho = Math.max(1, Math.round(HS * 0.5)), hw = pixW(want) * HS + ho * 4, hh = PIX_H * HS + ho * 4;
+        const kkN = uiScale(ov.w, ov.h, 0.75, 2.8);
+        const HS = Math.max(1, Math.round(Math.max(14 * kkN, Math.min(20 * kkN, ov.h * 0.032)) * k / PIX_H)), ho = Math.max(1, Math.round(HS * 0.5)), hw = pixW(want) * HS + ho * 4, hh = PIX_H * HS + ho * 4;
         this.noteTex = canvasTex(hw, hh, g => { g.imageSmoothingEnabled = false; paintTitle(g, want, ho * 2, ho * 2, HS, 0, '#c8c0b0', LINE, ho); }, { nearest: true }) as THREE.CanvasTexture;
         this.noteM = quad(this.noteTex, 0, 1, 90); ov.scene.add(this.noteM);
-        const p0 = this.plaques[0]; place(this.noteM, Math.round(L.cx - hw / k / 2), Math.round((p0 ? p0.y - p0.h / 2 : ov.h * 0.5) - hh / k - 10), hw / k, hh / k);
+        const p0 = this.plaques[0]; place(this.noteM, Math.round(L.cx - hw / k / 2), Math.round((p0 ? p0.y - p0.h / 2 : ov.h * 0.5) - hh / k - 10 * kkN), hw / k, hh / k);
       }
     }
     // the cut line: a white core in a pale glow, opening from the middle out to both edges through the chosen plaque
@@ -931,7 +934,7 @@ class Title {
     // Console/PC navigation hint tucked cleanly beneath the title menu column (hidden on touch)
     const lastP = this.plaques[this.plaques.length - 1];
     if (live && lastP && lastP.inK > 0.6 && PAD.device !== 'touch') {
-      const dpr = L.dpr || 1, kk = Math.max(0.75, Math.min(1.2, L.h / 720));
+      const dpr = L.dpr || 1, kk = uiScale(L.w, L.h, 0.75, 2.8);
       const pk = Math.max(1, Math.round(14 * kk * dpr / PIX_H));
       const hint = PAD.device === 'pad'
         ? (this.beat === 'confirm' ? `十字键 选择 · ${padName(0)} 确认 · ${padName(1)} 返回` : `十字键 选择 · ${padName(0)} 确认`)

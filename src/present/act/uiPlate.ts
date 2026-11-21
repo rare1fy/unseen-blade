@@ -7,6 +7,7 @@ import { drawPix, pixW, PIX_H } from '../v2/pix';
 import { bodyText, bodyW, BODY_FONT } from '../ui3d/bodyFont';
 import { PAD, paintGlyph, glyphArt, GLYPH_H, paintKeyCap, keyCapWidth, KEYCAP_H, actKey, BIND } from './pad';
 import { language, t as localize } from './i18n';
+import { uiScale } from './uiScale';
 
 export type MiniIcon =
   | 'coin' | 'iron' | 'herb' | 'chest' | 'mythic' | 'scroll' | 'heal'
@@ -312,14 +313,14 @@ export class UiPlatePool {
     const s = this.slot(key, spec.order ?? 46);
     if (spec.visible === false || !spec.text) { s.mesh.visible = false; return; }
     const dpr = Math.max(1, Math.round(this.L.dpr || 1));
-    const kk = Math.max(0.82, Math.min(1.18, this.L.h / 720)) * (spec.scale ?? 1);
+    const kk = uiScale(this.L.w, this.L.h, 0.82, 2.8) * (spec.scale ?? 1);
     const title = localize(spec.text);
     const sub = spec.sub ? localize(spec.sub) : '';
     const hasPrice = (spec.price ?? 0) > 0;
     const pKey = `tag|${title}|${sub}|${spec.color ?? ''}|${spec.accent ?? ''}|${spec.icon ?? ''}|${spec.price ?? 0}|${spec.poor ? 1 : 0}|${kk.toFixed(2)}|${dpr}|${language}|${BODY_FONT.version}`;
     if (pKey !== s.key) {
       s.key = pKey;
-      const u = Math.max(1, Math.round(1.5 * dpr));
+      const u = Math.max(1, Math.round(1.5 * kk * dpr));
       const pScale = Math.max(1, Math.round((15.5 * kk * dpr) / PIX_H));
       const txtH = PIX_H * pScale;
       const subPx = Math.round(13.5 * kk * dpr);
@@ -329,11 +330,11 @@ export class UiPlatePool {
       const sw = sub ? Math.ceil(bodyW(sub, subPx)) : 0;
       const priceTxt = hasPrice ? `${spec.price}` : '';
       const coinSz = hasPrice ? Math.round(txtH * 0.85) : 0;
-      const pw = hasPrice ? coinSz + Math.round(3 * dpr) + pixW(priceTxt) * pScale : 0;
+      const pw = hasPrice ? coinSz + Math.round(3 * kk * dpr) + pixW(priceTxt) * pScale : 0;
       let W = padX * 2 + u * 2 + tw;
       if (icoSz) W += icoSz + gap;
-      if (sw) W += gap + Math.round(4 * dpr) + sw;
-      if (pw) W += gap + Math.round(4 * dpr) + pw;
+      if (sw) W += gap + Math.round(4 * kk * dpr) + sw;
+      if (pw) W += gap + Math.round(4 * kk * dpr) + pw;
       const H = Math.max(txtH, subPx, icoSz) + padY * 2 + u * 2;
       const c = makeCanvas(Math.max(8, Math.ceil(W)), Math.max(8, Math.ceil(H))) as HTMLCanvasElement;
       const g = c.getContext('2d')!; g.imageSmoothingEnabled = false;
@@ -352,18 +353,18 @@ export class UiPlatePool {
       if (sub) {
         cx += gap;
         g.fillStyle = '#5c5266';
-        g.fillRect(Math.round(cx), Math.round(midY - txtH * 0.34), Math.max(1, Math.round(1.5 * dpr)), Math.round(txtH * 0.68));
-        cx += Math.round(5 * dpr);
+        g.fillRect(Math.round(cx), Math.round(midY - txtH * 0.34), Math.max(1, Math.round(1.5 * kk * dpr)), Math.round(txtH * 0.68));
+        cx += Math.round(5 * kk * dpr);
         bodyText(g, sub, cx, Math.round(midY - subPx * 0.54), subPx, '#d4cab6', 'left', '#09070c');
         cx += sw;
       }
       if (hasPrice) {
         cx += gap;
         g.fillStyle = '#5c5266';
-        g.fillRect(Math.round(cx), Math.round(midY - txtH * 0.34), Math.max(1, Math.round(1.5 * dpr)), Math.round(txtH * 0.68));
-        cx += Math.round(5 * dpr);
+        g.fillRect(Math.round(cx), Math.round(midY - txtH * 0.34), Math.max(1, Math.round(1.5 * kk * dpr)), Math.round(txtH * 0.68));
+        cx += Math.round(5 * kk * dpr);
         drawMiniIcon(g, 'coin', cx + coinSz / 2, midY, coinSz);
-        cx += coinSz + Math.round(3 * dpr);
+        cx += coinSz + Math.round(3 * kk * dpr);
         drawPix(g, priceTxt, cx, Math.round(midY - txtH / 2), { scale: pScale, color: spec.poor ? '#ff7c6a' : '#ffd872', outline: '#09070c', align: 'left' });
       }
       this.upload(s, c, dpr, BODY_FONT.current !== 'pixel' && !!sub);
@@ -376,7 +377,7 @@ export class UiPlatePool {
     const s = this.slot(key, spec.order ?? 49);
     if (spec.visible === false || !spec.title) { s.mesh.visible = false; return; }
     const dpr = Math.max(1, Math.round(this.L.dpr || 1));
-    const kk = Math.max(0.84, Math.min(1.2, this.L.h / 720));
+    const kk = uiScale(this.L.w, this.L.h, 0.84, 2.8);
     const title = localize(spec.title);
     const sub = spec.sub ? localize(spec.sub) : '';
     const action = spec.action ? localize(spec.action) : '';
@@ -385,7 +386,7 @@ export class UiPlatePool {
     const pKey = `int|${title}|${sub}|${action}|${spec.color ?? ''}|${spec.accent ?? ''}|${spec.icon ?? ''}|${spec.price ?? 0}|${spec.poor ? 1 : 0}|${spec.disabled ? 1 : 0}|${showKey ? 1 : 0}|${PAD.device}|${PAD.family}|${actKey('attack')}|${kk.toFixed(2)}|${dpr}|${language}|${BODY_FONT.version}`;
     if (pKey !== s.key) {
       s.key = pKey;
-      const u = Math.max(1, Math.round(2 * dpr));
+      const u = Math.max(1, Math.round(2 * kk * dpr));
       const tScale = Math.max(1, Math.round((18 * kk * dpr) / PIX_H));
       const tH = PIX_H * tScale;
       const subPx = Math.round(15 * kk * dpr);
@@ -396,17 +397,17 @@ export class UiPlatePool {
       const tw = pixW(title) * tScale;
       const priceTxt = hasPrice ? `${spec.price}` : '';
       const coinSz = hasPrice ? Math.round(tH * 0.9) : 0;
-      const priceW = hasPrice ? coinSz + Math.round(4 * dpr) + pixW(priceTxt) * tScale + Math.round(10 * dpr) : 0;
+      const priceW = hasPrice ? coinSz + Math.round(4 * kk * dpr) + pixW(priceTxt) * tScale + Math.round(10 * kk * dpr) : 0;
       const row1W = (icoSz ? icoSz + gap : 0) + tw + priceW;
       const row2W = sub ? Math.ceil(bodyW(sub, subPx)) : 0;
       const badgeH = Math.round(Math.max(actH * 1.15, 18 * kk * dpr));
       const keyW = showKey ? measureActionBadge('attack', badgeH) : 0;
-      const actW = action ? (keyW ? keyW + Math.round(6 * dpr) : 0) + pixW(action) * actScale : 0;
+      const actW = action ? (keyW ? keyW + Math.round(6 * kk * dpr) : 0) + pixW(action) * actScale : 0;
       const innerW = Math.max(row1W, row2W, actW, Math.round(130 * kk * dpr));
       const W = innerW + padX * 2 + u * 2;
       let H = padY * 2 + u * 2 + Math.max(tH, icoSz);
       if (sub) H += Math.round(6 * kk * dpr) + Math.ceil(subPx * 1.25);
-      if (action) H += Math.round(8 * kk * dpr) + Math.max(actH, badgeH) + Math.round(4 * dpr);
+      if (action) H += Math.round(8 * kk * dpr) + Math.max(actH, badgeH) + Math.round(4 * kk * dpr);
       const c = makeCanvas(Math.ceil(W), Math.ceil(H)) as HTMLCanvasElement;
       const g = c.getContext('2d')!; g.imageSmoothingEnabled = false;
       const rim = spec.poor ? '#c44032' : spec.disabled ? '#5c5a64' : (spec.accent ?? '#d8a64e');
@@ -426,7 +427,7 @@ export class UiPlatePool {
         const pxEnd = c.width - padX - u;
         const pTxtW = pixW(priceTxt) * tScale;
         drawPix(g, priceTxt, pxEnd, Math.round(cy + (r1H - tH) / 2), { scale: tScale, color: spec.poor ? '#ff7c6a' : '#ffd872', outline: '#08060c', align: 'right' });
-        drawMiniIcon(g, 'coin', pxEnd - pTxtW - Math.round(4 * dpr) - coinSz / 2, cy + r1H / 2, coinSz);
+        drawMiniIcon(g, 'coin', pxEnd - pTxtW - Math.round(4 * kk * dpr) - coinSz / 2, cy + r1H / 2, coinSz);
       }
       cy += r1H;
       // Row 2: Description / Effect
@@ -439,13 +440,13 @@ export class UiPlatePool {
       if (action) {
         cy += Math.round(5 * kk * dpr);
         g.fillStyle = '#383044';
-        g.fillRect(padX + u, cy, c.width - (padX + u) * 2, Math.max(1, Math.round(dpr)));
+        g.fillRect(padX + u, cy, c.width - (padX + u) * 2, Math.max(1, Math.round(kk * dpr)));
         cy += Math.round(5 * kk * dpr);
         const r3H = Math.max(actH, badgeH);
         const r3Mid = cy + r3H / 2;
         let ax = Math.round((c.width - actW) / 2);
         if (showKey && keyW > 0) {
-          ax += drawActionBadge(g, 'attack', ax, r3Mid, badgeH) + Math.round(6 * dpr);
+          ax += drawActionBadge(g, 'attack', ax, r3Mid, badgeH) + Math.round(6 * kk * dpr);
         }
         const actCol = spec.poor ? '#ff8272' : spec.disabled ? '#9c96a0' : '#ffe290';
         drawPix(g, action, ax, Math.round(r3Mid - actH / 2), { scale: actScale, color: actCol, outline: '#08060c', align: 'left' });
@@ -460,13 +461,13 @@ export class UiPlatePool {
     const s = this.slot(key, 52);
     if (spec.visible === false || !spec.title) { s.mesh.visible = false; return; }
     const dpr = Math.max(1, Math.round(this.L.dpr || 1));
-    const kk = Math.max(0.8, Math.min(1.2, this.L.h / 720));
+    const kk = uiScale(this.L.w, this.L.h, 0.8, 2.8);
     const title = localize(spec.title);
     const sub = spec.sub ? localize(spec.sub) : '';
     const pKey = `hdr|${title}|${sub}|${spec.color ?? ''}|${spec.accent ?? ''}|${kk.toFixed(2)}|${dpr}|${language}|${BODY_FONT.version}`;
     if (pKey !== s.key) {
       s.key = pKey;
-      const u = Math.max(1, Math.round(2 * dpr));
+      const u = Math.max(1, Math.round(2 * kk * dpr));
       const tScale = Math.max(1, Math.round((24 * kk * dpr) / PIX_H));
       const tH = PIX_H * tScale;
       const subPx = Math.round(14.5 * kk * dpr);
@@ -500,11 +501,11 @@ export class UiPlatePool {
     if (spec.herb != null) items.push({ icon: 'herb', label: '药引', val: spec.herb, col: '#98f4b8', hot: spec.focus === 'herb' });
     if (!items.length) { s.mesh.visible = false; return; }
     const dpr = Math.max(1, Math.round(this.L.dpr || 1));
-    const kk = Math.max(0.8, Math.min(1.2, this.L.h / 720));
+    const kk = uiScale(this.L.w, this.L.h, 0.8, 2.8);
     const pKey = `wal|${items.map(i => `${i.icon}:${i.val}:${i.hot ? 1 : 0}`).join(',')}|${kk.toFixed(2)}|${dpr}|${language}`;
     if (pKey !== s.key) {
       s.key = pKey;
-      const u = Math.max(1, Math.round(2 * dpr));
+      const u = Math.max(1, Math.round(2 * kk * dpr));
       const pScale = Math.max(1, Math.round((16.5 * kk * dpr) / PIX_H));
       const tH = PIX_H * pScale;
       const icoSz = Math.round(tH * 1.02);
@@ -526,7 +527,7 @@ export class UiPlatePool {
       segs.forEach((sg, idx) => {
         if (idx > 0) {
           g.fillStyle = '#40384e';
-          g.fillRect(Math.round(cx - segGap / 2), Math.round(padY + u), Math.max(1, Math.round(dpr)), Math.round(c.height - (padY + u) * 2));
+          g.fillRect(Math.round(cx - segGap / 2), Math.round(padY + u), Math.max(1, Math.round(kk * dpr)), Math.round(c.height - (padY + u) * 2));
         }
         drawMiniIcon(g, sg.icon, cx + icoSz / 2, midY, icoSz);
         drawPix(g, sg.txt, cx + icoSz + iGap, Math.round(midY - tH / 2), { scale: pScale, color: sg.hot ? '#fff6c8' : sg.col, outline: '#08060c', align: 'left' });
@@ -543,13 +544,13 @@ export class UiPlatePool {
     const s = this.slot(key, 52);
     if (!tabs.length) { s.mesh.visible = false; return []; }
     const dpr = Math.max(1, Math.round(this.L.dpr || 1));
-    const kk = Math.max(0.8, Math.min(1.2, this.L.h / 720));
+    const kk = uiScale(this.L.w, this.L.h, 0.8, 2.8);
     const pKey = `tabs|${tabs.map(t => `${t.id}:${localize(t.label)}:${t.badge ? 1 : 0}`).join('|')}|${activeIdx}|${PAD.device}|${kk.toFixed(2)}|${dpr}|${language}`;
-    const u = Math.max(1, Math.round(2 * dpr));
+    const u = Math.max(1, Math.round(2 * kk * dpr));
     const pScale = Math.max(1, Math.round((16.5 * kk * dpr) / PIX_H));
     const tH = PIX_H * pScale;
     const tabPadX = Math.round(18 * kk * dpr), tabGap = Math.round(10 * kk * dpr), padY = Math.round(7 * kk * dpr);
-    const widths = tabs.map(t => Math.max(Math.round(124 * kk * dpr), pixW(localize(t.label)) * pScale + tabPadX * 2 + (t.badge ? Math.round(12 * dpr) : 0)));
+    const widths = tabs.map(t => Math.max(Math.round(124 * kk * dpr), pixW(localize(t.label)) * pScale + tabPadX * 2 + (t.badge ? Math.round(12 * kk * dpr) : 0)));
     const totalW = widths.reduce((a, b, idx) => a + b + (idx ? tabGap : 0), 0);
     const H = tH + padY * 2 + u * 2;
     if (pKey !== s.key) {
@@ -570,8 +571,9 @@ export class UiPlatePool {
         const lbl = localize(tb.label);
         drawPix(g, lbl, tx + w / 2, Math.round((H - tH) / 2), { scale: pScale, color: on ? '#fff2c4' : '#b8b0a4', outline: '#08060c', align: 'center' });
         if (tb.badge) {
-          const bx = Math.round(tx + w - u * 4 - 4 * dpr), by = Math.round(u * 3 + 2 * dpr), bs = Math.max(4, Math.round(5 * dpr));
-          g.fillStyle = '#08060c'; g.fillRect(bx - dpr, by - dpr, bs + 2 * dpr, bs + 2 * dpr);
+          const bdr = Math.max(1, Math.round(kk * dpr));
+          const bx = Math.round(tx + w - u * 4 - 4 * kk * dpr), by = Math.round(u * 3 + 2 * kk * dpr), bs = Math.max(4, Math.round(5 * kk * dpr));
+          g.fillStyle = '#08060c'; g.fillRect(bx - bdr, by - bdr, bs + 2 * bdr, bs + 2 * bdr);
           g.fillStyle = '#ffd258'; g.fillRect(bx, by, bs, bs);
         }
         tx += w + tabGap;
@@ -595,7 +597,7 @@ export class UiPlatePool {
     const s = this.slot(key, 51);
     if (spec.visible === false || !spec.title) { s.mesh.visible = false; return; }
     const dpr = Math.max(1, Math.round(this.L.dpr || 1));
-    const kk = Math.max(0.8, Math.min(1.2, this.L.h / 720));
+    const kk = uiScale(this.L.w, this.L.h, 0.8, 2.8);
     const title = localize(spec.title);
     const badge = spec.badge ? localize(spec.badge) : '';
     const l1 = localize(spec.line1);
@@ -604,7 +606,7 @@ export class UiPlatePool {
     const pKey = `det|${Math.round(spec.w)}|${title}|${badge}|${spec.badgeCol ?? ''}|${spec.stars ?? 0}/${spec.starsMax ?? 0}|${l1}|${l2}|${act}|${spec.accent ?? ''}|${kk.toFixed(2)}|${dpr}|${language}|${BODY_FONT.version}`;
     if (pKey !== s.key) {
       s.key = pKey;
-      const u = Math.max(1, Math.round(2 * dpr));
+      const u = Math.max(1, Math.round(2 * kk * dpr));
       const W = Math.round(spec.w * dpr);
       const tScale = Math.max(1, Math.round((20 * kk * dpr) / PIX_H));
       const tH = PIX_H * tScale;
@@ -622,18 +624,19 @@ export class UiPlatePool {
       let y = padY + u;
       // Row 1: Title + Badge + Stars on right
       drawPix(g, title, x0, y, { scale: tScale, color: '#fff2cc', outline: '#08060c', align: 'left' });
-      let tx = x0 + pixW(title) * tScale + Math.round(12 * dpr);
+      let tx = x0 + pixW(title) * tScale + Math.round(12 * kk * dpr);
       if (badge) {
-        const bw = pixW(badge) * bScale + Math.round(12 * dpr), bh = bH + Math.round(6 * dpr);
+        const bdr = Math.max(1, Math.round(kk * dpr));
+        const bw = pixW(badge) * bScale + Math.round(12 * kk * dpr), bh = bH + Math.round(6 * kk * dpr);
         const by = Math.round(y + (tH - bh) / 2);
         const bc = spec.badgeCol ?? '#ffd878';
         g.fillStyle = bc; g.fillRect(tx, by, bw, bh);
-        g.fillStyle = '#120e16'; g.fillRect(tx + dpr, by + dpr, bw - 2 * dpr, bh - 2 * dpr);
-        drawPix(g, badge, tx + Math.round(6 * dpr), by + Math.round(3 * dpr), { scale: bScale, color: bc, outline: null, align: 'left' });
-        tx += bw + Math.round(10 * dpr);
+        g.fillStyle = '#120e16'; g.fillRect(tx + bdr, by + bdr, bw - 2 * bdr, bh - 2 * bdr);
+        drawPix(g, badge, tx + Math.round(6 * kk * dpr), by + Math.round(3 * kk * dpr), { scale: bScale, color: bc, outline: null, align: 'left' });
+        tx += bw + Math.round(10 * kk * dpr);
       }
       if ((spec.starsMax ?? 0) > 0) {
-        const stSz = Math.round(tH * 0.9), stGap = Math.round(4 * dpr);
+        const stSz = Math.round(tH * 0.9), stGap = Math.round(4 * kk * dpr);
         let sx = c.width - padX - u - stSz / 2;
         for (let i = (spec.starsMax ?? 3) - 1; i >= 0; i--) {
           drawMiniIcon(g, i < (spec.stars ?? 0) ? 'star' : 'starOff', sx, y + tH / 2, stSz);
@@ -644,7 +647,7 @@ export class UiPlatePool {
       y += tH + Math.round(8 * kk * dpr);
       const maxTextW = c.width - (padX + u) * 2;
       let p1 = f1;
-      while (p1 > Math.round(11 * dpr) && bodyW(l1, p1) > maxTextW) p1 -= 1;
+      while (p1 > Math.round(11 * kk * dpr) && bodyW(l1, p1) > maxTextW) p1 -= 1;
       bodyText(g, l1, x0, y, p1, '#f4ebd8', 'left', '#08060c');
       // Row 3: Progress / Source (left) & Action hint (right)
       if (l2 || act) {
@@ -662,12 +665,12 @@ export class UiPlatePool {
     const s = this.slot(key, 52);
     if (!visible || !text) { s.mesh.visible = false; return; }
     const dpr = Math.max(1, Math.round(this.L.dpr || 1));
-    const kk = Math.max(0.8, Math.min(1.2, this.L.h / 720));
+    const kk = uiScale(this.L.w, this.L.h, 0.8, 2.8);
     const txt = localize(text);
     const pKey = `ftr|${txt}|${kk.toFixed(2)}|${dpr}|${language}|${BODY_FONT.version}`;
     if (pKey !== s.key) {
       s.key = pKey;
-      const u = Math.max(1, Math.round(1.5 * dpr));
+      const u = Math.max(1, Math.round(1.5 * kk * dpr));
       const fpx = Math.round(14 * kk * dpr);
       const tw = Math.ceil(bodyW(txt, fpx));
       const padX = Math.round(14 * kk * dpr), padY = Math.round(5 * kk * dpr);
