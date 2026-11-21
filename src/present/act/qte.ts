@@ -22,7 +22,7 @@ import { fxSparks, fxRing, trailSeg } from '../fx/fx';
 import { dustBlocks } from '../kyoto/ninja_fx';
 import { PIX_H } from '../v2/pix';
 import { slashArc } from './slashArc';
-import { actKey } from './pad';
+import { actKey, actPad, isTouchLayout } from './pad';
 import { msg, t as localize } from './i18n';
 import { worldToUi, type UiLayer } from '../ui3d/layer';
 import { PLAY } from '../scenes/props';
@@ -223,7 +223,8 @@ class DuelUi {
     for (let i = 0; i < n; i++) paint(this.studM!.geometry, this.studR[i], this.c.setHex(res[i] > 0 ? 0xfff0b8 : res[i] < 0 ? 0x8a2a20 : i === cur ? 0x9ab0c4 : 0x30333b));
     if (callout) {
       const dpr = this.L.dpr || 1, pk = Math.max(1, Math.round(Math.max(18, 22 * kHud) * dpr / PIX_H));
-      this.L.text.set('qte.chain.tip', { text: callout, x: this.L.w * 0.5, y: Math.min(this.L.h - 86 * kHud, this.L.h * 0.78), pix: pk, color: hot ? '#ffffff' : '#ffe49e', outline: '#140c0a', align: 'center', visible: true });
+      const tipY = isTouchLayout() ? Math.min(this.L.h - 86 * kHud, this.L.h * 0.78) : Math.min(this.L.h - 156 * kHud, this.L.h * 0.72);
+      this.L.text.set('qte.chain.tip', { text: callout, x: this.L.w * 0.5, y: tipY, pix: pk, color: hot ? '#ffffff' : '#ffe49e', outline: '#140c0a', align: 'center', visible: true });
     }
   }
   hideChain() { if (this.ring) { this.ring.visible = false; this.tgt.visible = false; this.studs!.visible = false; } this.L.text.hide('qte.chain.tip'); }
@@ -426,12 +427,12 @@ export class Duel {
     shake(0.03 * TUNE.shake); void f;
   }
   private drawClashUi(h: Hero, f: Foe, rdt: number, k: number) {
-    const L = this.host.L, hud = this.host.hud(), b = hud.btns.attack;
-    // act-116 / act-117: prominent centered lower-third focus (clear of top Boss HP bar and mid-screen swordplay, right between thumbs/eyes)
+    const L = this.host.L, hud = this.host.hud(), b = hud.btns.attack, dev = this.host.inp.lastDevice;
+    // act-116 / act-117: prominent centered lower-third focus (clear of top Boss HP bar, mid-screen swordplay, and bottom-center console dock)
     const len = Math.min(L.w * 0.44, 370 * hud.k);
-    const x = L.w * 0.5, y = Math.min(L.h - 90 * hud.k, L.h * 0.77);
+    const x = L.w * 0.5, y = isTouchLayout(dev) ? Math.min(L.h - 90 * hud.k, L.h * 0.77) : Math.min(L.h - 168 * hud.k, L.h * 0.69);
     const herLeft = worldToUi(h.pos).x <= worldToUi(f.pos).x;
-    const btnHint = this.host.inp.lastDevice === 'key' ? msg`连按 ${localize(actKey('attack'))}` : '连按攻击';
+    const btnHint = dev === 'pad' ? msg`连按 ${actPad('attack')}` : dev === 'key' ? msg`连按 ${localize(actKey('attack'))}` : '连按攻击';
     this.ui.showBar(x, y, len, this.m, herLeft, k, rdt, '拼刀 · 连按', btnHint, b.x, b.y, b.size, hud.k);
     // always run a bright gold chase round the attack button plates during clash so the mash target is unmistakable
     this.ui.showPlates(b.x, b.y, b.size, this.presses === 0 ? 1 : 0.72, rdt);
@@ -508,7 +509,8 @@ export class Duel {
           if (!b.ok) { h.a.play(new Action('rel', 0.45, 0.3)); cue('swish', 0.5); }   // too early: she swings at nothing
         }
         const k = Math.min(1, Math.max(0, (this.ct - b.start) / Math.max(0.05, b.T - b.start))), hot = Math.abs(this.ct - b.T) <= this.win;
-        const hud = this.host.hud(), callout = this.host.inp.lastDevice === 'key' ? msg`连环破势 · 缩圈即按 ${localize(actKey('attack'))}` : '连环破势 · 缩圈即按';
+        const hud = this.host.hud(), dev = this.host.inp.lastDevice;
+        const callout = dev === 'pad' ? msg`连环破势 · 缩圈即按 ${actPad('attack')}` : dev === 'key' ? msg`连环破势 · 缩圈即按 ${localize(actKey('attack'))}` : '连环破势 · 缩圈即按';
         this.ui.showChain(hud.btns.attack.x, hud.btns.attack.y, hud.btns.attack.size, k, hot, this.beats.length, this.beats.map(x => x.res), this.bi, callout, hud.k);
         const rw = this.ringW!; rw.visible = true; rw.position.set(h.pos.x, 0.07, h.pos.z); rw.scale.setScalar((0.95 + 2.3 * (1 - k)) * (hot ? 1.08 : 1));
         (rw.material as THREE.MeshBasicMaterial).color.setHex(hot ? 0xfff8dc : 0x9aaebe); (rw.material as THREE.MeshBasicMaterial).opacity = hot ? 1 : 0.55 + 0.35 * k;

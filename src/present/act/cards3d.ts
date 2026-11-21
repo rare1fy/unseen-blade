@@ -299,9 +299,17 @@ export class CardPick3D {
       if (this.rerollBtn) this.rerollBtn.visible = false;
       this.rerollK = 0;
       L.text.hide('act.cards.reroll');
-      if (this.footer && showChrome && cLast) {
-        const fy = Math.min(L.h - 22 * kk, maxBot + 26 * kk);
-        L.text.set('act.cards.footer', { text: localize(this.footer), x: L.w / 2, y: fy, bodyPx: Math.max(12, Math.round(14 * kk)), color: '#dcd2be', outline: '#140c0a', align: 'center', visible: true });
+      if (showChrome && cLast) {
+        const navHint = PAD.device === 'pad'
+          ? (this.canLeave ? msg`十字键 选择  ·  ${padName(0)} 确认  ·  ${padName(1)} 返回` : msg`十字键 选择  ·  ${padName(0)} 确认`)
+          : PAD.device === 'key'
+            ? (this.canLeave ? '方向键 选择  ·  Enter 确认  ·  Esc 返回' : '方向键 选择  ·  Enter 确认')
+            : '';
+        const footTxt = this.footer ? localize(this.footer) : navHint;
+        if (footTxt) {
+          const fy = Math.min(L.h - 22 * kk, maxBot + 26 * kk);
+          L.text.set('act.cards.footer', { text: footTxt, x: L.w / 2, y: fy, bodyPx: Math.max(13, Math.round(14.5 * kk)), color: '#dcd2be', outline: '#140c0a', align: 'center', visible: true });
+        } else L.text.hide('act.cards.footer');
       } else L.text.hide('act.cards.footer');
     }
     const back = (k: number) => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * (k - 1) ** 3 + c1 * (k - 1) ** 2; };   // ease-out, a little past and back

@@ -14,7 +14,7 @@ import { cue } from '../../audio/cues';
 import { mergeBoxes, pommel, IRON_D, IRON, LACQ, LACQ_L, BRONZE, BRONZE_D } from './title';
 import { paintTitle } from './opening';
 import { pixW, PIX_H } from '../v2/pix';
-import { ACTIONS, ACTION_WORD, BIND, PAD, padNav, paintGlyph, glyphArt, keyName, rebind, resetBinds, activePad, pauseName, GLYPH_H, type Nav } from './pad';
+import { ACTIONS, ACTION_WORD, BIND, PAD, padNav, paintGlyph, glyphArt, keyName, padName, rebind, resetBinds, activePad, pauseName, GLYPH_H, paintKeyCap, keyCapWidth, KEYCAP_H, type Nav } from './pad';
 import type { BtnName } from './input';
 import { SkillList, type Section } from './skillList';
 import { UI_WORDS } from './skillInfo';
@@ -253,7 +253,7 @@ export class PauseMenu {
     this.wait = null; cue(res === 'ok' ? 'select' : 'click', 0.5); if (s) s.flash = 1;
     padNav.sync();
   }
-  pointer(type: string, x: number, y: number): boolean {
+  pointer(type: string, x: number, y: number, touch = false): boolean {
     if (!this.on) return false;
     if (this.wait) return true;
     // the list (已得 / 招式): a finger dragged up / down scrolls it; a tap on a row selects it
@@ -261,7 +261,7 @@ export class PauseMenu {
       if (this.previewing) { if (type === 'up') { this.host.stopPreview?.(); cue('deselect', 0.4); } return true; }   // a tap ends the demonstration
       if (type === 'down') { this.drag = { y, moved: 0 }; }
       else if (type === 'move' && this.drag) { const d = this.drag.y - y; this.drag.moved += Math.abs(d); this.drag.y = y; this.list.scrollBy(d); }
-      else if (type === 'up' && this.drag) { const tap = this.drag.moved < 8; this.drag = null; const li = this.list.hit(x, y); if (tap && li >= 0) { this.list.sel = li; cue('tick', 0.25); if (this.list.entry?.kind === 'manual') { PAD.device = 'touch'; this.listOk(); } } }
+      else if (type === 'up' && this.drag) { const tap = this.drag.moved < 8; this.drag = null; const li = this.list.hit(x, y); if (tap && li >= 0) { this.list.sel = li; cue('tick', 0.25); if (this.list.entry?.kind === 'manual') { if (touch) PAD.device = 'touch'; this.listOk(); } } }
       else if (type === 'move') { const li = this.list.hit(x, y); if (li >= 0 && li !== this.list.sel) { this.list.sel = li; cue('tick', 0.25); } }
     }
     // the enlarged back shield + 返回 label at top left
@@ -269,11 +269,11 @@ export class PauseMenu {
       || (x >= this.backAt.x - this.backAt.r && x <= this.backAt.x + this.backAt.r * 2.8 && Math.abs(y - this.backAt.y) < this.backAt.r * 1.1));
     if (type === 'move') this.backHot = onBack ? 1 : 0;
     if (type === 'down' && onBack) { this.downBack = true; return true; }
-    if (type === 'up' && this.downBack) { this.downBack = false; if (onBack) { PAD.device = 'touch'; this.back(); } return true; }
+    if (type === 'up' && this.downBack) { this.downBack = false; if (onBack) { if (touch) PAD.device = 'touch'; this.back(); } return true; }
     const i = this.slabs.findIndex(s => s.hit(x, y));
     if (type === 'move' && i >= 0 && i !== this.sel) { this.sel = i; cue('tick', 0.25); }
     if (type === 'down') this.downAt = i;
-    if (type === 'up') { const was = this.downAt; this.downAt = -1; if (i >= 0 && i === was) { this.sel = i; PAD.device = 'touch'; this.ok(); } }
+    if (type === 'up') { const was = this.downAt; this.downAt = -1; if (i >= 0 && i === was) { this.sel = i; if (touch) PAD.device = 'touch'; this.ok(); } }
     return true;
   }
   private drag: { y: number; moved: number } | null = null;
@@ -333,7 +333,8 @@ export class PauseMenu {
         this.backBtn.setOpacity(this.backK); this.backBtn.setRim(hot ? 0xffe498 : 0x9aa4b4, hot ? 0.65 : 0.25);
         const dprB = L.dpr || 1, kkB = Math.max(0.8, Math.min(1.25, L.h / 720));
         const pkB = Math.max(1, Math.round(18 * kkB * dprB / PIX_H));
-        L.text.set('pause.back', { text: '返回', x: p.x + p.r + 8 * kkB, y: p.y, pix: pkB, color: hot ? '#fff8d4' : '#f2e8d2', outline: '#140c0a', align: 'left', visible: this.backK > 0.35 });
+        const backLbl = PAD.device === 'key' ? '返回 Esc' : PAD.device === 'pad' ? msg`返回 ${padName(1)}` : '返回';
+        L.text.set('pause.back', { text: backLbl, x: p.x + p.r + 8 * kkB, y: p.y, pix: pkB, color: hot ? '#fff8d4' : '#f2e8d2', outline: '#140c0a', align: 'left', visible: this.backK > 0.35 });
       } else L.text.hide('pause.back'); }
     // the pommel points at the selected slab from the left, bobbing
     const s = this.slabs[this.sel];
@@ -364,17 +365,17 @@ export class PauseMenu {
     const ent = Math.min(1, this.pageT / 0.25), br = Math.max(24, Math.min(36, headH * 0.64)), withBack = this.page !== 'main', nx = cx - w / 2 + (withBack ? br * 2 + 62 : 0);
     this.head.place(nx + hw / 2, top - hh / 2 - h * 0.45, ent * ent);
     this.backAt = { x: cx - w / 2 + br, y: top - h * 0.45 - hh / 2, r: br };
-    // the prompts at the foot: the device's own confirm / back
+    // the prompts at the foot: the device's own confirm / back (gamepad pixel glyphs or dark-iron pixel keycaps)
     const fS = Math.max(1, Math.round(footH * 0.45 * k / PIX_H)), parts = this.prompts();
     if (parts.length) {
-      const gs = fS * 2, gw = (i: number) => glyphArt(i).w * gs;
-      const width = parts.reduce((a, p) => a + (p.pad != null ? gw(p.pad) + 4 * k : textW(p.key ?? '', fS) + 6 * k) + textW(p.word, fS) + 14 * k, 0) / k;
-      const fh = Math.max(PIX_H * fS, GLYPH_H * gs) / k + 4, keyStr = parts.map(p => `${p.pad ?? p.key}${p.word}`).join() + PAD.family + language;
+      const gs = fS * 2, ks = fS, gw = (i: number) => glyphArt(i).w * gs;
+      const width = parts.reduce((a, p) => a + (p.pad != null ? gw(p.pad) + 5 * k : keyCapWidth(p.key ?? '') * ks + 6 * k) + textW(p.word, fS) + 14 * k, 0) / k;
+      const fh = Math.max(PIX_H * fS, GLYPH_H * gs, KEYCAP_H * ks) / k + 4, keyStr = parts.map(p => `${p.pad ?? p.key}${p.word}`).join() + PAD.device + PAD.family + language;
       this.foot.set(keyStr, width, fh, g => {
         let x = 0; const mid = fh * k / 2;
         for (const p of parts) {
-          if (p.pad != null) { paintGlyph(g, p.pad, x, Math.round(mid - GLYPH_H * gs / 2), gs); x += gw(p.pad) + 4 * k; }
-          else x += text(g, p.key!, x, Math.round(mid - PIX_H * fS / 2), fS, TXT.sel) + 6 * k;
+          if (p.pad != null) { paintGlyph(g, p.pad, x, Math.round(mid - GLYPH_H * gs / 2), gs); x += gw(p.pad) + 5 * k; }
+          else { const kw = paintKeyCap(g, p.key!, Math.round(x), Math.round(mid - KEYCAP_H * ks / 2), ks); x += kw.w + 6 * k; }
           x += text(g, p.word, x, Math.round(mid - PIX_H * fS / 2), fS, TXT.on) + 14 * k;
         }
       });

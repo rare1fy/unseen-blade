@@ -5,10 +5,12 @@ export const FONT = '"Microsoft YaHei UI","Microsoft YaHei","PingFang SC","Hirag
 export interface Span { t: string; c?: string; s?: number; w?: number }
 export interface TextStyle { size?: number; color?: string; weight?: number; stroke?: string; strokeW?: number; shadow?: string; align?: 'left' | 'center' | 'right'; gradient?: [string, string] }
 
-const measureCv = makeCanvas(8, 8), mg = measureCv.getContext('2d') as CanvasRenderingContext2D;
+let _mg: CanvasRenderingContext2D | null = null;
+const getMg = () => _mg ?? (_mg = makeCanvas(8, 8).getContext('2d') as CanvasRenderingContext2D);
 export function fontOf(size: number, weight = 800) { return `${weight} ${size}px ${FONT}`; }
 export function measure(spans: Span[], st: TextStyle) {
   let w = 0, h = 0;
+  const mg = getMg();
   for (const s of spans) { const size = s.s ?? st.size ?? 16; mg.font = fontOf(size, s.w ?? st.weight); w += mg.measureText(s.t).width; h = Math.max(h, size); }
   return { w, h };
 }

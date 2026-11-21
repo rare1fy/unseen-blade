@@ -44,15 +44,21 @@ export class Input {
   push(x: number, y: number, s: number) { this.vm = { x, y, t: s }; }
   constructor() {
     if (typeof window === 'undefined') return;
-    window.addEventListener('keydown', e => { if (e.repeat) return; this.keys.add(e.key.toLowerCase()); this.lastDevice = 'key'; if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(e.key.toLowerCase())) e.preventDefault(); });
+    window.addEventListener('keydown', e => {
+      if (e.repeat) return;
+      const k = e.key.toLowerCase();
+      this.keys.add(k);
+      if (!/^f\d+$/.test(k) && !e.ctrlKey && !e.metaKey && !e.altKey) this.lastDevice = 'key';
+      if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) e.preventDefault();
+    });
     window.addEventListener('keyup', e => { this.keys.delete(e.key.toLowerCase()); });
     window.addEventListener('blur', () => this.keys.clear());
   }
   /** the HUD hands its button presses here */
-  press(n: BtnName, id: number) { this.touchBtn[n] = id; this.tapped[n] = true; this.lastDevice = 'touch'; }
+  press(n: BtnName, id: number, touch = true) { this.touchBtn[n] = id; this.tapped[n] = true; if (touch) this.lastDevice = 'touch'; }
   release(n: BtnName, id: number) { if (this.touchBtn[n] === id) this.touchBtn[n] = null; }
   releaseAll(id: number) { for (const n of Object.keys(this.touchBtn) as BtnName[]) this.release(n, id); if (this.stick.id === id) this.stick.id = null; if (this.aimDrag.id === id) this.aimDrag.id = null; }
-  stickDown(id: number, x: number, y: number) { this.stick.id = id; this.stick.ox = x; this.stick.oy = y; this.stick.x = x; this.stick.y = y; this.lastDevice = 'touch'; }
+  stickDown(id: number, x: number, y: number, touch = true) { this.stick.id = id; this.stick.ox = x; this.stick.oy = y; this.stick.x = x; this.stick.y = y; if (touch) this.lastDevice = 'touch'; }
   stickMove(id: number, x: number, y: number) { if (this.stick.id === id) { this.stick.x = x; this.stick.y = y; } }
   /** act-27 (user: 「按住可以通过技能按钮指定方向」): the finger that pressed the dart button, dragged off it, aims the throw */
   aimDrag = { id: null as number | null, ox: 0, oy: 0, x: 0, y: 0 };

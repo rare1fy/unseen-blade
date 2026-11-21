@@ -39,8 +39,14 @@ export function deathLine(who: keyof typeof DEATH_POOL, rnd = Math.random): Line
 /** the cold open's last line (寒山坞, that night), then the two cards over the snowy village */
 // 11-19 (neon 重写，用户挑过): the black cards and the two place captions are one section, cold_cards — the cards first, the last
 // two lines the place captions; the second-to-last card is her father's words (the slow heartbeat ring)
-const COLD = pick('cold_cards', [L('caption', '那年腊月，火比雪大。'), ...pick('pro_cold', [L('caption', '阿爹说，雪把血盖住，便没人能看见了。')]),
-  L('caption', '七年了。刀磨好了。'), L('caption', '七年后'), L('caption', '许都 · 冬')]).map(l => l.text);
+const COLD = pick('cold_cards', [
+  L('caption', '东汉末年，天下大乱，群雄争锋。'),
+  L('caption', '寒山坞文家铸成三十柄名刀，一夜惨遭灭门夺刃。'),
+  ...pick('pro_cold', [L('caption', '唯有铁匠之女被炉火烫瞎双眼，死里逃生。')]),
+  L('caption', '七年了，她蒙眼提刀走出山野，只为寻仇。'),
+  L('caption', '七年后'),
+  L('caption', '许都 · 冬'),
+]).map(l => l.text);
 export const COLD_CARDS = COLD.slice(0, -2);
 export const PRO_COLD = COLD_CARDS[COLD_CARDS.length - 2] ?? COLD_CARDS[0];
 export const PRO_CAPTIONS = COLD.slice(-2);   // (11-19: no year; history only the backdrop)

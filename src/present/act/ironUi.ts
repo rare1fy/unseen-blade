@@ -147,7 +147,7 @@ export class IronBtn {
    *  middle lamp's angle from straight up (clockwise) and the step between lamps; pipCol / pipGlow: the lit core; pipHold: one bar is
    *  staked (the stance) — the lamp it will take blinks */
   pipArc: [number, number] = [0, 0.32]; pipCol = 0xf0c070; pipGlow = 0x6a4010; pipSize = 0.1; pipR = 0.64; pipHold = false;
-  private pipCores: THREE.Mesh[] = []; private pipPrev = -1; private pipPopI = -1; private pipPopT = 0; private pipOutI = -1; private pipOutT = 0; private pipGainT = 0; private pipDenyT = 0;
+  private pipCores: THREE.Mesh[] = []; private pipArcKey = ''; private pipPrev = -1; private pipPopI = -1; private pipPopT = 0; private pipOutI = -1; private pipOutT = 0; private pipGainT = 0; private pipDenyT = 0;
   /** refused (11-17: a hold for the stance with less than a bar of 气): the shake and dull red of a press that cannot act, and the lamps go dull red */
   deny() { this.denyT = 0.32; this.pipDenyT = 0.45; }
   private ring: ReturnType<typeof plateRing>; private icon: Model3D; private linkT = 0; private shadow: THREE.Mesh; private tassel: THREE.Mesh | null = null;
@@ -195,8 +195,18 @@ export class IronBtn {
         // the core: grows up from the socket's floor with the lamp's share
         const c = new THREE.Mesh(new THREE.BoxGeometry(z * 0.78, z * 0.78, 0.07).translate(0, z * 0.39, 0), new THREE.MeshLambertMaterial({ color: this.pipCol })); c.position.set(0, -z * 0.39, 0.012); m.add(c); this.pipCores.push(c);
       }
+      this.pipArcKey = '';
     }
     if (this.pipMax > 0) {
+      const arcKey = `${this.pipArc[0].toFixed(3)}|${this.pipArc[1].toFixed(3)}|${this.pipR.toFixed(3)}`;
+      if (arcKey !== this.pipArcKey) {
+        this.pipArcKey = arcKey;
+        for (let i = 0; i < this.pipMeshes.length; i++) {
+          const d = this.pipArc[0] + (i - (this.pipMax - 1) / 2) * this.pipArc[1];
+          this.pipMeshes[i].position.set(Math.sin(d) * this.pipR, Math.cos(d) * this.pipR, 0.05);
+          this.pipMeshes[i].rotation.z = -d;
+        }
+      }
       const v = Math.max(0, Math.min(this.pipMax, this.pips)), prev = this.pipPrev < 0 ? v : this.pipPrev, full = Math.floor(v + 1e-6), pfull = Math.floor(prev + 1e-6);
       if (full > pfull) { this.pipPopI = full - 1; this.pipPopT = 0.32; }            // a lamp comes full: it swells, a touch of white
       else if (v < prev - 0.5) { this.pipOutI = pfull - 1; this.pipOutT = 0.35; }    // a bar spent: that lamp flares and goes out

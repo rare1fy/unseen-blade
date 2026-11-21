@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import type { UiLayer } from '../ui3d/layer';
 import type { Input, BtnName } from './input';
-import { BIND, PAD, keyName, glyphArt, paintGlyph, GLYPH_H } from './pad';
+import { BIND, PAD, keyName, glyphArt, paintGlyph, GLYPH_H, isTouchLayout } from './pad';
 import { drawPix, pixW, PIX_H } from '../v2/pix';
 import { canvasOf } from '../hud/paint';
 import { FX } from '../engine/clock';
@@ -198,9 +198,9 @@ export class Tutorial {
     } else {
       this.ringMain.visible = false; this.ringPulse.visible = false;
     }
-    // Understated lower-center console prompt plate: crisp keycap/glyph + concise action word only
+    // Understated lower-center console prompt plate: crisp keycap/glyph + concise action word only (lifted clear of console dock)
     this.paint(id);
-    const u = L.px(1), py = Math.min(L.h - 76 * kHud, L.h * 0.81);
+    const u = L.px(1), py = isTouchLayout() ? Math.min(L.h - 76 * kHud, L.h * 0.81) : Math.min(L.h - 146 * kHud, L.h * 0.74);
     L.at(Math.round(L.w * 0.5), Math.round(py), 4, this.plate.position);
     const sc = 0.94 + 0.06 * Math.min(1, this.k * 1.4);
     this.plate.scale.set(this.pw * u * sc, this.ph * u * sc, Math.max(4, this.ph * 0.12) * u);

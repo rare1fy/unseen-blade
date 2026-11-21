@@ -98,15 +98,42 @@ function face(p: RoomPlan, place: string) {
   const t = new THREE.CanvasTexture(c); t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter; t.colorSpace = THREE.SRGBColorSpace; t.generateMipmaps = false;
   return { t, paint };
 }
-/** a 高札 for one road */
+/** a 高札 for one road (with automatic GreaterDepth see-through rescue so foreground roofs/walls/actors NEVER hide the label) */
 export function runBoard(p: RoomPlan, place: string) {
   const g = new THREE.Group(), post = toon(0x4a3422), roof = toon(0x2e2a28), { t: tex, paint } = face(p, place);
-  const faceMat = toon(0xffffff, { map: tex }); faceMat.emissive.set(0xffffff); faceMat.emissiveMap = tex; faceMat.emissiveIntensity = 0.28;
+  const faceMat = toon(0xffffff, { map: tex }); faceMat.emissive.set(0xffffff); faceMat.emissiveMap = tex; faceMat.emissiveIntensity = 0.34;
   const back = toon(0x7a5636);
-  for (const s of [-1, 1]) { const m = new THREE.Mesh(new THREE.BoxGeometry(0.14, 2.3, 0.14), post); m.position.set(s * 0.82, 1.15, 0); m.castShadow = true; g.add(m); }
-  const board = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.04, 0.08), [back, back, back, back, faceMat, back]); board.position.set(0, 1.55, 0.08); board.castShadow = true; g.add(board);
-  const r1 = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.1, 0.5), roof); r1.position.set(0, 2.16, 0.05); g.add(r1);
-  const r2 = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.1, 0.3), roof); r2.position.set(0, 2.26, 0.05); g.add(r2);
+  for (const s of [-1, 1]) { const m = new THREE.Mesh(new THREE.BoxGeometry(0.14, 2.55, 0.14), post); m.position.set(s * 0.82, 1.275, 0); m.castShadow = true; g.add(m); }
+  const plaque = new THREE.Group();
+  plaque.position.set(0, 1.78, 0.08);
+  plaque.rotation.x = -0.18; // lean slightly upward toward the isometric camera for crisp legibility
+  const board = new THREE.Mesh(new THREE.BoxGeometry(1.64, 1.08, 0.08), [back, back, back, back, faceMat, back]);
+  board.castShadow = true;
+  plaque.add(board);
+  // Occlusion-proof pixel plaque overlay: draws ONLY on pixels occluded by foreground buildings/roofs/pillars/actors
+  // via standard WebGL1 THREE.GreaterDepth (0 pixels drawn when unobstructed; 100% readable when behind any model!)
+  const xrayBorder = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.74, 1.18),
+    new THREE.MeshBasicMaterial({
+      color: 0xffd27a, transparent: true, opacity: 0.78,
+      depthTest: true, depthFunc: THREE.GreaterDepth, depthWrite: false, toneMapped: false,
+    }),
+  );
+  xrayBorder.position.z = 0.045;
+  xrayBorder.renderOrder = 27;
+  const xrayFace = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.64, 1.08),
+    new THREE.MeshBasicMaterial({
+      map: tex, transparent: true, opacity: 0.94,
+      depthTest: true, depthFunc: THREE.GreaterDepth, depthWrite: false, toneMapped: false,
+    }),
+  );
+  xrayFace.position.z = 0.046;
+  xrayFace.renderOrder = 28;
+  plaque.add(xrayBorder, xrayFace);
+  g.add(plaque);
+  const r1 = new THREE.Mesh(new THREE.BoxGeometry(2.04, 0.1, 0.52), roof); r1.position.set(0, 2.42, 0.05); g.add(r1);
+  const r2 = new THREE.Mesh(new THREE.BoxGeometry(1.52, 0.1, 0.32), roof); r2.position.set(0, 2.52, 0.05); g.add(r2);
   let mounted = false; const unlisten = onBodyFontChange(() => { if (g.parent) mounted = true; else if (mounted) { unlisten(); return; } paint(); tex.needsUpdate = true; });
   return { g, board, faceMat };
 }

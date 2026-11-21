@@ -2,6 +2,7 @@
 // 只存局外进度——据点里的局外成长、货币、看过的剧情和对话、解锁的东西；一局之内不存（死了 / 打完回据点再存）。
 // 「开始游戏」= 新档（有旧档时要确认），「继续游戏」= 读档回据点。
 import { profileStorage } from '../../platform/crazygames';
+import type { GardenState } from './garden';
 
 export interface Profile {
   v: 1;
@@ -22,6 +23,8 @@ export interface Profile {
   keepsakes?: Record<string, number>;
   /** act-125: Three Kingdoms general encounter events solved (id → clear count) */
   genCleared?: Record<string, number>;
+  /** act-132: 营地竹溪药圃种田状态（6 块药畦、种子库存、单局丹药增益与每日赠种记录） */
+  garden?: GardenState;
   /** act-127 prologue checkpoint so quitting mid-prologue resumes at the right beat instead of restarting from the village */
   proStage?: 'village' | 'boss' | 'wake' | 'done';
   /** last saved (ms since epoch) */ at: number;

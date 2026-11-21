@@ -5,9 +5,13 @@
 import * as THREE from 'three';
 import type { BtnName } from './input';
 import { clock } from '../engine/clock';
+import { drawPix, pixW, PIX_H } from '../v2/pix';
+import { language, t as localize } from './i18n';
+import { makeCanvas } from '../../platform/index';
 
 export type PadFamily = 'xbox' | 'ps' | 'ns';
 export type Device = 'key' | 'touch' | 'pad';
+export type UiMode = 'auto' | 'desktop' | 'touch';
 export const ACTIONS: BtnName[] = ['attack', 'dash', 'jump', 'special', 'ult'];
 /** what each action is called on screen (the words under the buttons, act-28) */
 export const ACTION_WORD: Record<BtnName, string> = { attack: '攻击', dash: '闪避', jump: '跳跃', special: '远程', ult: '不见刀' };
@@ -66,13 +70,72 @@ export function rebind(kind: 'key' | 'pad', act: BtnName, code: string | number)
 }
 if (typeof window !== 'undefined') loadBinds();
 
-// ---------------------------------------------------------------- the pad in use
+// ---------------------------------------------------------------- the pad in use & device detection
+const UI_MODE_STORE = 'ub.uiMode';
+const UI_MODES: UiMode[] = ['auto', 'desktop', 'touch'];
+const UI_MODE_NAME: Record<UiMode, string> = { auto: '自动', desktop: '键鼠手柄', touch: '触屏' };
+
+function loadUiMode(): UiMode {
+  try {
+    const s = globalThis.localStorage?.getItem(UI_MODE_STORE);
+    if (s === 'auto' || s === 'desktop' || s === 'touch') return s;
+  } catch { /* storage blocked */ }
+  return 'auto';
+}
+export function setUiMode(m: UiMode) {
+  PAD.uiMode = m;
+  try { globalThis.localStorage?.setItem(UI_MODE_STORE, m); } catch { /* storage blocked */ }
+}
+export function cycleUiMode(): UiMode {
+  const next = UI_MODES[(UI_MODES.indexOf(PAD.uiMode) + 1) % UI_MODES.length];
+  setUiMode(next);
+  return next;
+}
+export function uiModeLabel(): string { return `操作界面：${UI_MODE_NAME[PAD.uiMode]}`; }
+
+/** best non-gamepad input device for the current host (mini-game / phone / tablet → 'touch', PC / console → 'key') */
+export function detectNonPadDevice(): 'key' | 'touch' {
+  if (typeof GameGlobal !== 'undefined') return 'touch';
+  const nav = globalThis.navigator as (Navigator & { maxTouchPoints?: number }) | undefined;
+  const win = typeof window !== 'undefined' ? window : undefined;
+  const ua = String(nav?.userAgent ?? '');
+  if (/Android|iPhone|iPad|iPod|Mobile|HarmonyOS|MicroMessenger/i.test(ua)) return 'touch';
+  const coarse = !!win?.matchMedia?.('(pointer: coarse)')?.matches;
+  const fine = !!win?.matchMedia?.('(pointer: fine)')?.matches;
+  if (coarse && !fine) return 'touch';
+  const touchPts = nav?.maxTouchPoints ?? 0;
+  if (touchPts > 0 && !fine) return 'touch';
+  return 'key';
+}
+/** initial device on boot: connected gamepad → 'pad', else mobile/mini-game → 'touch', else desktop/console → 'key' */
+export function detectInitialDevice(): Device {
+  if (activePad()) return 'pad';
+  return detectNonPadDevice();
+}
+/** whether the HUD should render mobile touch controls (virtual joystick + thumb-arc buttons) or the compact console/PC dock */
+export function isTouchLayout(dev: Device = PAD.device): boolean {
+  if (PAD.uiMode === 'touch') return true;
+  if (PAD.uiMode === 'desktop') return false;
+  return dev === 'touch';
+}
+/** true when a platform pointer event came from an actual finger / stylus (not a desktop mouse click) */
+export function isTouchPointer(ev: { raw?: unknown } | null | undefined): boolean {
+  if (typeof GameGlobal !== 'undefined') return true;
+  const raw = ev?.raw as { pointerType?: string; touches?: unknown; changedTouches?: unknown } | undefined;
+  if (!raw) return false;
+  if (typeof raw.pointerType === 'string') return raw.pointerType === 'touch' || raw.pointerType === 'pen';
+  if ('touches' in raw || 'changedTouches' in raw) return true;
+  return false;
+}
+
 export const PAD = {
   /** the gamepad index in use (the last one touched), -1 = none */
   idx: -1,
   family: 'xbox' as PadFamily,
   /** the last thing the player used (the button words, the hints and the rumble follow it) */
-  device: 'touch' as Device,
+  device: 'key' as Device,
+  /** layout mode: 'auto' switches live between mobile touch & console/PC HUD; 'desktop' or 'touch' locks it */
+  uiMode: 'auto' as UiMode,
 };
 export function familyOf(id: string): PadFamily {
   const s = id.toLowerCase();
@@ -96,6 +159,33 @@ export function activePad(): Gamepad | null {
   const p = all.find(q => q.index === PAD.idx) ?? null;
   if (p) PAD.family = familyOf(p.id);
   return p;
+}
+if (typeof window !== 'undefined') {
+  PAD.uiMode = loadUiMode();
+  PAD.device = detectInitialDevice();
+  if (__DEBUG_UI__ && typeof location !== 'undefined') {
+    const qDev = /[?&#]dev=(key|pad|touch)(?:[&#]|$)/.exec(location.href)?.[1] as Device | undefined;
+    const qFam = /[?&#]fam=(xbox|ps|ns)(?:[&#]|$)/.exec(location.href)?.[1] as PadFamily | undefined;
+    if (qFam) PAD.family = qFam;
+    if (qDev) { PAD.uiMode = 'auto'; PAD.device = qDev; }
+  }
+  window.addEventListener('gamepadconnected', (e: GamepadEvent) => {
+    const gp = e.gamepad;
+    if (!gp) return;
+    PAD.idx = gp.index;
+    PAD.family = familyOf(gp.id);
+    PAD.device = 'pad';
+  });
+  window.addEventListener('gamepaddisconnected', () => {
+    const all = pads();
+    if (!all.length) {
+      PAD.idx = -1;
+      if (PAD.device === 'pad') PAD.device = detectNonPadDevice();
+    } else if (!all.some(p => p.index === PAD.idx)) {
+      PAD.idx = all[0].index;
+      PAD.family = familyOf(all[0].id);
+    }
+  });
 }
 
 // ---------------------------------------------------------------- names
@@ -138,8 +228,9 @@ const XBOX_COL = ['#7ccc52', '#ec5a50', '#4c9cf0', '#f4c838'], PS_COL = ['#8cb2f
 export const GLYPH_H = 9;
 export interface GlyphArt { w: number; h: number; px: Array<[number, number, string]> }
 /** the button as a little grid of coloured pixels (w × h art pixels) */
+const MENU_ICON = ['#####', '.....', '#####', '.....', '#####']; // 5 × 5 three-line Menu / Options icon
 export function glyphArt(i: number, f: PadFamily = PAD.family): GlyphArt {
-  const face = i <= 3, w = face ? 9 : 13, h = GLYPH_H, px: Array<[number, number, string]> = [];
+  const face = i <= 3, menu = i === 9, w = face ? 9 : menu ? 11 : 13, h = GLYPH_H, px: Array<[number, number, string]> = [];
   const cap = '#221d24', rim = '#5a5058', lit = '#3c3440';
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     const cx = Math.min(x, w - 1 - x), cy = Math.min(y, h - 1 - y);
@@ -150,6 +241,7 @@ export function glyphArt(i: number, f: PadFamily = PAD.family): GlyphArt {
   const put = (rows: string[], ox: number, oy: number, c: string) => rows.forEach((r, y) => [...r].forEach((ch, x) => { if (ch === '#') px.push([ox + x, oy + y, c]); }));
   if (face && f === 'ps') put(PS_SHAPE[i], 2, 2, PS_COL[i]);
   else if (face) put(F5[NAMES[f][i]] ?? F5.A, 2, 2, f === 'xbox' ? XBOX_COL[i] : '#f2ece0');
+  else if (menu && f !== 'ns') put(MENU_ICON, 3, 2, '#f2ece0');
   else {
     const t = NAMES[f][i] === '−' ? '-' : NAMES[f][i];
     const chars = [...t].slice(0, 3).filter(c => F3[c]), tw = chars.length * 4 - 1;
@@ -172,6 +264,49 @@ export function glyphTex(i: number, f: PadFamily = PAD.family): THREE.CanvasText
   const g = c.getContext('2d')!; for (const [px, py, col] of a.px) { g.fillStyle = col; g.fillRect(px, py, 1, 1); }
   t = new THREE.CanvasTexture(c); t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter; t.generateMipmaps = false; t.colorSpace = THREE.SRGBColorSpace;
   texCache.set(k, t); return t;
+}
+
+// ---------------------------------------------------------------- pixel-art keyboard keycap (matches glyphArt's dark-iron bevel)
+export const KEYCAP_H = PIX_H + 7;
+export function keyCapWidth(label: string): number {
+  const txt = localize(label);
+  return Math.max(KEYCAP_H, pixW(txt) + 10);
+}
+/** paint a dark-iron pixel keycap at (x, y) (top-left), s device px per font pixel */
+export function paintKeyCap(g: CanvasRenderingContext2D, label: string, x: number, y: number, s: number, accent = false) {
+  const txt = localize(label), w = keyCapWidth(txt), h = KEYCAP_H;
+  const P = (px: number, py: number, pw: number, ph: number, col: string) => { g.fillStyle = col; g.fillRect(x + px * s, y + py * s, pw * s, ph * s); };
+  const rim = accent ? '#d8b468' : '#7a7068';
+  const rimBot = accent ? '#8c6b32' : '#433d46';
+  const face = accent ? '#2c241c' : '#1d1a22';
+  const topLip = accent ? '#4d3e2c' : '#3a3444';
+  const txtCol = accent ? '#fff4cf' : '#f6eedc';
+  // clipped 1px corners
+  P(1, 0, w - 2, 1, rim);
+  P(0, 1, w, h - 2, rim);
+  P(1, h - 1, w - 2, 1, rimBot);
+  // inner recessed key face + lit upper bevel + bottom key thickness
+  P(1, 1, w - 2, h - 2, face);
+  P(1, 1, w - 2, 1, topLip);
+  P(1, h - 2, w - 2, 1, '#110f16');
+  drawPix(g, txt, x + Math.floor((w - pixW(txt)) / 2) * s, y + 3 * s, { scale: s, color: txtCol, outline: null });
+  return { w: w * s, h: h * s };
+}
+const keyCapCache = new Map<string, { tex: THREE.CanvasTexture; w: number; h: number }>();
+/** a cached nearest-filtered texture for a keyboard keycap (art-pixel dims w × h) */
+export function keyCapTex(label: string, accent = false): { tex: THREE.CanvasTexture; w: number; h: number } | null {
+  const txt = localize(label), k = `${language}|${accent ? 1 : 0}|${txt}`;
+  const hit = keyCapCache.get(k); if (hit) return hit;
+  if (typeof document === 'undefined') return null;
+  const w = keyCapWidth(txt), h = KEYCAP_H;
+  const c = makeCanvas(w, h) as HTMLCanvasElement;
+  const g = c.getContext('2d')!; g.imageSmoothingEnabled = false;
+  paintKeyCap(g, txt, 0, 0, 1, accent);
+  const tex = new THREE.CanvasTexture(c);
+  tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter; tex.generateMipmaps = false; tex.colorSpace = THREE.SRGBColorSpace;
+  const out = { tex, w, h };
+  keyCapCache.set(k, out);
+  return out;
 }
 
 // ---------------------------------------------------------------- rumble

@@ -146,8 +146,9 @@ describe('act-125: 扩建断碑古窑与名将奇遇岔路', () => {
     }
   });
 
-  it('前四关名将奇遇数据完整，且第 2/3 间岔路必出 event 门、永不连出两间非战斗屋', () => {
+  it('前四关名将奇遇数据完整（守×斗×猎×谋），且第 2/3 间岔路必出 event 门、永不连出两间非战斗屋', () => {
     expect(GENERAL_EVENTS.length).toBe(4);
+    expect(GENERAL_EVENTS.map(e => e.eventTitle)).toEqual(['断后护民', '三合试锋', '雾巷听弦', '借风引火']);
     const ks = new Set(GENERAL_EVENTS.map(e => e.keepsake));
     const bs = new Set(GENERAL_EVENTS.map(e => e.id));
     expect(ks.size).toBe(4);

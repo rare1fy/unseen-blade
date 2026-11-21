@@ -1,6 +1,6 @@
 // 手柄（act-30 之后）：改键对调、死区重映射、手柄型号、键位表的读档。
 import { describe, it, expect, beforeEach } from 'vitest';
-import { BIND, DEFAULT_BINDS, rebind, resetBinds, familyOf, padName, keyName, glyphArt, loadBinds, padNav } from '../src/present/act/pad';
+import { BIND, DEFAULT_BINDS, rebind, resetBinds, familyOf, padName, keyName, glyphArt, loadBinds, padNav, PAD, detectInitialDevice, isTouchLayout, isTouchPointer, setUiMode, cycleUiMode, uiModeLabel } from '../src/present/act/pad';
 import { clock } from '../src/present/engine/clock';
 import { deadzone, Input } from '../src/present/act/input';
 
@@ -92,8 +92,8 @@ describe('pad makers', () => {
     expect([0, 1, 2, 3].map(i => padName(i, 'ns'))).toEqual(['B', 'A', 'Y', 'X']);
     expect(padName(7, 'ns')).toBe('ZR'); expect(keyName(' ')).toBe('空格'); expect(keyName('j')).toBe('J');
   });
-  it('every bindable button has a picture that stays inside its grid', () => {
-    for (const f of ['xbox', 'ps', 'ns'] as const) for (const i of [0, 1, 2, 3, 4, 5, 6, 7, 10, 11]) {
+  it('every bindable button (plus Start/Menu 9) has a picture that stays inside its grid', () => {
+    for (const f of ['xbox', 'ps', 'ns'] as const) for (const i of [0, 1, 2, 3, 4, 5, 6, 7, 9, 10, 11]) {
       const a = glyphArt(i, f); expect(a.px.length).toBeGreaterThan(40);
       for (const [x, y] of a.px) { expect(x).toBeGreaterThanOrEqual(0); expect(x).toBeLessThan(a.w); expect(y).toBeGreaterThanOrEqual(0); expect(y).toBeLessThan(a.h); }
     }
@@ -112,5 +112,67 @@ describe('pad makers', () => {
     } finally {
       Object.defineProperty(globalThis, 'navigator', { value: origNav, configurable: true });
     }
+  });
+});
+
+describe('device-adaptive UI switching', () => {
+  beforeEach(() => { setUiMode('auto'); PAD.device = 'key'; });
+
+  it('detectInitialDevice picks pad when a controller is connected, touch on mobile UA, key on desktop', () => {
+    const origNav = globalThis.navigator;
+    try {
+      const mockPad = { index: 0, connected: true, id: 'DualSense Wireless Controller', axes: [0, 0, 0, 0], buttons: [] };
+      Object.defineProperty(globalThis, 'navigator', { value: { userAgent: 'Mozilla/5.0 (Windows NT 10.0)', maxTouchPoints: 0, getGamepads: () => [mockPad] }, configurable: true });
+      clock.frame++;
+      expect(detectInitialDevice()).toBe('pad');
+      expect(PAD.family).toBe('ps');
+
+      Object.defineProperty(globalThis, 'navigator', { value: { userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0)', maxTouchPoints: 5, getGamepads: () => [] }, configurable: true });
+      clock.frame++;
+      expect(detectInitialDevice()).toBe('touch');
+
+      Object.defineProperty(globalThis, 'navigator', { value: { userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', maxTouchPoints: 0, getGamepads: () => [] }, configurable: true });
+      clock.frame++;
+      expect(detectInitialDevice()).toBe('key');
+    } finally {
+      Object.defineProperty(globalThis, 'navigator', { value: origNav, configurable: true });
+    }
+  });
+
+  it('isTouchLayout follows active device in auto mode and respects manual desktop/touch overrides', () => {
+    setUiMode('auto');
+    expect(isTouchLayout('key')).toBe(false);
+    expect(isTouchLayout('pad')).toBe(false);
+    expect(isTouchLayout('touch')).toBe(true);
+
+    expect(cycleUiMode()).toBe('desktop');
+    expect(uiModeLabel()).toBe('操作界面：键鼠手柄');
+    expect(isTouchLayout('touch')).toBe(false);
+
+    expect(cycleUiMode()).toBe('touch');
+    expect(uiModeLabel()).toBe('操作界面：触屏');
+    expect(isTouchLayout('key')).toBe(true);
+    expect(isTouchLayout('pad')).toBe(true);
+
+    expect(cycleUiMode()).toBe('auto');
+    expect(uiModeLabel()).toBe('操作界面：自动');
+  });
+
+  it('isTouchPointer distinguishes touch/pen from desktop mouse clicks', () => {
+    expect(isTouchPointer({ raw: { pointerType: 'touch' } })).toBe(true);
+    expect(isTouchPointer({ raw: { pointerType: 'pen' } })).toBe(true);
+    expect(isTouchPointer({ raw: { pointerType: 'mouse' } })).toBe(false);
+    expect(isTouchPointer({ raw: { touches: [] } })).toBe(true);
+    expect(isTouchPointer({ raw: {} })).toBe(false);
+    expect(isTouchPointer(null)).toBe(false);
+  });
+
+  it('mouse clicks on HUD buttons do not flip device to touch, while real touch taps do', () => {
+    const inp = new Input();
+    PAD.device = 'pad';
+    inp.press('attack', 1, false);
+    expect(PAD.device).toBe('pad');
+    inp.press('attack', 2, true);
+    expect(PAD.device).toBe('touch');
   });
 });

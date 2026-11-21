@@ -42,7 +42,7 @@ const packBudget = (rawBins) => {
     const prio = name === 'title-snow.bin' ? 0 : name === 'yard.bin' ? 1 : BOSS_IDS.has(id) ? 2 : 3;
     return { name, data, prio };
   }).sort((a, b) => a.prio - b.prio || b.data.length - a.data.length);
-  const MAX_SC_TOTAL = 11.6 * 1024 * 1024, MAX_SC_PKG = 3.6 * 1024 * 1024;
+  const MAX_SC_TOTAL = 10.8 * 1024 * 1024, MAX_SC_PKG = 3.6 * 1024 * 1024;
   let scTotal = 0, scIdx = 1, scBytes = 0, skipped = 0;
   for (const { name, data } of allBins) {
     if (name === 'title-snow.bin') {

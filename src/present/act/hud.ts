@@ -21,8 +21,9 @@ import { IronBtn, IronStick, IronHp, QteRing , type HintKey, HP_LAG, HP_LAG_HOLD
 import { textCells, pixTextW } from '../ui3d/pixfont';
 import { PIX_H } from '../v2/pix';
 import { bodyW } from '../ui3d/bodyFont';
-import { ACTION_WORD, BIND, actKey, glyphTex, glyphArt, GLYPH_H } from './pad';
+import { ACTION_WORD, BIND, PAD, actKey, glyphTex, glyphArt, GLYPH_H, keyCapTex, isTouchLayout } from './pad';
 import type { MarkTarget } from './skillInfo';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 type AnyBtn = SkinBtn | IronBtn; type AnyHp = SkinHp | IronHp;
 /** 11-18 (用户：「选了强化后根本看不到自己选的强化是啥，在哪儿」): one mark per 刀谱 / 秘传 taken, on the button it changes — a 刀谱 a jade
@@ -66,10 +67,56 @@ function arcHotTex() {
   const t = new THREE.CanvasTexture(c); t.magFilter = t.minFilter = THREE.NearestFilter; t.generateMipmaps = false; ARC_HOT_TEX = t; return t;
 }
 
+/** forged-iron horizontal dock rail behind the 4 compact console/PC skill medallions (unit width = 1, height = 1 in local coords) */
+function makeDockRail(): THREE.Group {
+  const g = new THREE.Group();
+  const col = new THREE.Color();
+  const specs: Array<[number, number, number, number, number, number, number]> = [
+    // main dark-iron backing bar
+    [1.0, 0.72, 0.14, 0, 0, 0, 0x1e2026],
+    // recessed inner trough
+    [0.92, 0.50, 0.16, 0, 0, 0.02, 0x15161c],
+    // lit upper iron lip
+    [0.98, 0.075, 0.17, 0, 0.34, 0.02, 0x626876],
+    // subtle lower bevel
+    [0.96, 0.055, 0.16, 0, -0.34, 0.01, 0x353944],
+    // left & right bronze end caps + rivets
+    [0.045, 0.86, 0.20, -0.50, 0, 0.03, 0x765126],
+    [0.045, 0.08, 0.21, -0.50, 0.39, 0.035, 0xb88442],
+    [0.022, 0.12, 0.23, -0.46, 0, 0.04, 0xc8924a],
+    [0.045, 0.86, 0.20, 0.50, 0, 0.03, 0x765126],
+    [0.045, 0.08, 0.21, 0.50, 0.39, 0.035, 0xb88442],
+    [0.022, 0.12, 0.23, 0.46, 0, 0.04, 0xc8924a],
+  ];
+  const geos: THREE.BufferGeometry[] = [];
+  for (const [w, h, d, x, y, z, hex] of specs) {
+    const b = new THREE.BoxGeometry(w, h, d);
+    b.translate(x, y, z);
+    const n = b.attributes.position.count, cs = new Float32Array(n * 3);
+    col.setHex(hex);
+    for (let i = 0; i < n; i++) { cs[i * 3] = col.r; cs[i * 3 + 1] = col.g; cs[i * 3 + 2] = col.b; }
+    b.setAttribute('color', new THREE.BufferAttribute(cs, 3));
+    geos.push(b);
+  }
+  const merged = mergeGeometries(geos)!;
+  for (const b of geos) b.dispose();
+  const mesh = new THREE.Mesh(merged, new THREE.MeshLambertMaterial({ vertexColors: true }));
+  g.add(mesh);
+  g.userData.noTilt = true;
+  g.rotation.set(-0.14, 0, 0);
+  return g;
+}
+
 export class ActHud {
   flask!: AnyHp; sparks: UiSparks; stick!: SkinStick | IronStick; btns!: Record<BtnName, AnyBtn>; skin: SkinId = SKIN.id;
   /** 杀意 (0..3): shown as the ingots under the iron health bar */
   intent = 0; private qteRing: QteRing;
+  /** console/PC horizontal iron dock backing rail (hidden in mobile touch mode) */
+  private dockRail: THREE.Group; private dockGeom = { x: 640, y: 658, w: 340, h: 48 };
+  /** tracks whether current button layout is touch (mobile thumb-arc + stick) or console/PC (compact dock, no stick) */
+  private layoutTouch: boolean | null = null;
+  /** console/PC top-right pause badge (clickable with mouse too) */
+  private pauseBadge: THREE.Mesh | null = null; private pausePillRect = { x: 0, y: 0, w: 0, h: 0 };
   private bars = new Map<number, Bar>(); private boss: Bar | null = null; private bossName = ''; private marks: THREE.Mesh[] = [];
   /** act-114: off-screen foes currently in high-danger state (fires spatialized dangerOff once per windup) */
   private offDanger = new Set<number>();
@@ -84,19 +131,32 @@ export class ActHud {
   stickHome = { x: 150, y: 600 }; stickSize = 150; k = 1; on = true; private W = 1280; private H = 720;
   /** 11-19 获得提示: the top-left of the reward column, under the portrait's purse */
   feedAt = { x: 18, y: 112 };
-  /** the pad buttons drawn after the words under the buttons (in the text layer: crisp, on top) */
+  /** crisp pixel button badges (gamepad glyph or keyboard keycap) drawn in the text layer */
   private glyphs: Partial<Record<BtnName, THREE.Mesh>> = {};
-  private glyph(n: BtnName, i: number | null, left: number, y: number, h: number) {
-    let m = this.glyphs[n];
-    if (i == null) { if (m) m.visible = false; return; }
-    const tex = glyphTex(i); if (!tex) return;
-    if (!m) { m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ transparent: true, depthTest: false, depthWrite: false, toneMapped: false })); this.L.text.scene.add(m); this.glyphs[n] = m; }
+  private ensureBadgeMesh(key: BtnName | 'pause'): THREE.Mesh {
+    let m = key === 'pause' ? this.pauseBadge : this.glyphs[key];
+    if (!m) {
+      m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ transparent: true, depthTest: false, depthWrite: false, toneMapped: false }));
+      this.L.text.scene.add(m);
+      if (key === 'pause') this.pauseBadge = m; else this.glyphs[key] = m;
+    }
+    return m;
+  }
+  private showTexBadge(key: BtnName | 'pause', tex: THREE.Texture | null, aw: number, ah: number, cx: number, cy: number, targetH: number) {
+    if (!tex) { const m = key === 'pause' ? this.pauseBadge : this.glyphs[key]; if (m) m.visible = false; return { w: 0, h: 0 }; }
+    const m = this.ensureBadgeMesh(key);
     const mat = m.material as THREE.MeshBasicMaterial; if (mat.map !== tex) { mat.map = tex; mat.needsUpdate = true; }
-    const dpr = this.L.dpr || 1, s = Math.max(1, Math.round(h / GLYPH_H * dpr)) / dpr, w = glyphArt(i).w * s, hh = GLYPH_H * s;
-    m.scale.set(w, hh, 1); m.position.set(Math.round(left * dpr) / dpr + w / 2, -Math.round(y * dpr) / dpr, 0); m.visible = true;
+    const dpr = this.L.dpr || 1, s = Math.max(1, Math.round(targetH / ah * dpr)) / dpr, w = aw * s, hh = ah * s;
+    m.scale.set(w, hh, 1); m.position.set(Math.round(cx * dpr) / dpr, -Math.round(cy * dpr) / dpr, 0); m.visible = true;
+    return { w, h: hh };
+  }
+  private hideBadge(key: BtnName | 'pause') {
+    const m = key === 'pause' ? this.pauseBadge : this.glyphs[key];
+    if (m) m.visible = false;
   }
   constructor(private L: UiLayer) {
     this.sparks = new UiSparks(L.scene, 80); this.qteRing = new QteRing(L);
+    this.dockRail = makeDockRail(); this.dockRail.visible = false; L.scene.add(this.dockRail);
     this.build();
   }
   // ---------------------------------------------------------------- the marks of what this run has taken
@@ -172,25 +232,43 @@ export class ActHud {
     this.flask.place(Math.max(38, 48 * k), Math.max(44, 54 * k), fk);
     this.feedAt = { x: Math.max(20, 48 * k - 16 * fk), y: Math.max(44, 54 * k) + 106 * fk };
     this.stickHome = { x: 160 * k, y: H - 140 * k }; this.stickSize = 170 * k;
-    // an arc of three round the big cut button: dash low left, jump up left, the special above
-    const b = this.btns; if (b.attack instanceof IronBtn) b.attack.badgeSide = 1; b.attack.size = 150 * k; b.dash.size = 100 * k; b.special.size = 100 * k; b.jump.size = 100 * k;
-    b.attack.x = W - 150 * k; b.attack.y = H - 140 * k;
-    b.dash.x = W - 300 * k; b.dash.y = H - 92 * k;
-    b.jump.x = W - 292 * k; b.jump.y = H - 238 * k;
-    b.special.x = W - 150 * k; b.special.y = H - 300 * k;
-    // 11-18 (用户：「大招可以触发的时候应该在右手拇指区域一个额外的地方出现一个按钮」): 不见刀's own button, over the jump button on the
-    // thumb's arc (clear of the dart button and its label); it shows only while the ring closes (the QTE)
-    // (11-18 用户：「按钮离太远了，其他按钮已经给它让路了就可以再往右下移一些了」: into the room the four leave between the jump and the dart
-    // buttons once they have gathered toward the corner — its label just clears the jump button's top)
-    b.ult.size = 124 * k; b.ult.x = W - 225 * k; b.ult.y = H - 335 * k;
+    const touch = isTouchLayout();
+    this.layoutTouch = touch;
+    const b = this.btns;
+    if (touch) {
+      // Mobile touch mode: bottom-right thumb arc round the big cut button + bottom-left virtual joystick
+      if (b.attack instanceof IronBtn) { b.attack.badgeSide = 1; b.attack.pipArc = [1.25, 0.38]; b.attack.pipR = 0.6; }
+      b.attack.size = 150 * k; b.dash.size = 100 * k; b.special.size = 100 * k; b.jump.size = 100 * k;
+      b.attack.x = W - 150 * k; b.attack.y = H - 140 * k;
+      b.dash.x = W - 300 * k; b.dash.y = H - 92 * k;
+      b.jump.x = W - 292 * k; b.jump.y = H - 238 * k;
+      b.special.x = W - 150 * k; b.special.y = H - 300 * k;
+      b.ult.size = 124 * k; b.ult.x = W - 225 * k; b.ult.y = H - 335 * k;
+    } else {
+      // Console / PC mode: NO virtual joystick, compact forged-iron horizontal skill dock centered at the bottom
+      const cx = W * 0.5, dockY = H - 68 * k, step = 96 * k;
+      if (b.attack instanceof IronBtn) { b.attack.badgeSide = 1; b.attack.pipArc = [0, 0.42]; b.attack.pipR = 0.66; }
+      b.attack.size = 70 * k; b.dash.size = 58 * k; b.jump.size = 58 * k; b.special.size = 58 * k;
+      b.attack.x = cx - 1.5 * step; b.attack.y = dockY - 3 * k;
+      b.dash.x = cx - 0.5 * step; b.dash.y = dockY;
+      b.jump.x = cx + 0.5 * step; b.jump.y = dockY;
+      b.special.x = cx + 1.5 * step; b.special.y = dockY;
+      b.ult.size = 84 * k; b.ult.x = cx; b.ult.y = dockY - 114 * k;
+      this.dockGeom = { x: cx, y: dockY + 2 * k, w: step * 3.85, h: 52 * k };
+    }
     // (the laid-out places: the 不见刀 button's coming in moves the others from here, see makeWay)
     for (const n of Object.keys(b) as BtnName[]) this.home[n] = { x: b[n].x, y: b[n].y, size: b[n].size };
   }
   private pausePid: number | null = null;
   /** the portrait was let go over (show.ts opens the menu) */
   onPause: (() => void) | null = null;
-  /** 11-18 (用户：「暂停按钮不要了，点头像暂停。」): the portrait medallion (and the purse hung under it) is the pause button now */
+  /** 11-18 (用户：「暂停按钮不要了，点头像暂停。」): the portrait medallion (and the purse hung under it) is the pause button now;
+   *  in console/PC mode the top-right Esc/Menu hint pill is clickable too */
   private hitBadge(x: number, y: number) {
+    if (!this.layoutTouch && this.pausePillRect.w > 0) {
+      const r = this.pausePillRect;
+      if (Math.abs(x - r.x) < r.w / 2 + 10 && Math.abs(y - r.y) < r.h / 2 + 10) return true;
+    }
     const f = this.flask; if (f instanceof IronHp) return f.hitBadge(x, y);
     const b = f.barAt(), x0 = b.x - f.W * this.k / 2; return x > x0 - 10 && x < x0 + 70 * this.k && y > b.y - 30 * this.k && y < b.y + 60 * this.k;
   }
@@ -201,11 +279,10 @@ export class ActHud {
     for (const b of Object.values(this.btns)) if (b.pid === id) { b.down = false; b.pid = null; }
     inp.releaseAll(id);
   }
-  /** touch / mouse: the portrait, the buttons, else the bottom-left area is the stick. Returns true if used */
-  pointer(type: string, id: number, x: number, y: number, inp: Input): boolean {
+  /** touch / mouse: the portrait, the buttons, else (on touch) the bottom-left area is the stick. Returns true if used */
+  pointer(type: string, id: number, x: number, y: number, inp: Input, touch = true): boolean {
     if (!this.on) return false;
-    // the portrait: pressed, it sinks; let go over it, the menu opens (a slip off it cancels). The press that lands on it is the
-    // portrait's alone (never a stick or a button press too); a finger already on the stick or a button is not touched by it
+    // the portrait (or console pause pill): pressed, it sinks; let go over it, the menu opens (a slip off it cancels)
     if (type === 'down' && this.pausePid === null && this.hitBadge(x, y)) { this.setBadgeDown(true); this.pausePid = id; return true; }
     if (this.pausePid === id && (type === 'up' || type === 'cancel')) { const fire = type === 'up' && this.hitBadge(x, y); this.setBadgeDown(false); this.pausePid = null; if (fire) this.onPause?.(); return true; }
     if (this.pausePid === id && type === 'move') { this.setBadgeDown(this.hitBadge(x, y)); return true; }
@@ -214,16 +291,16 @@ export class ActHud {
         if (b === this.btns.ult && !this.ultUp) continue;
         // act-115: 不见刀 button uses its full target hitbox from frame 0 so an instant thumb tap never misses while popping in
         const hit = b === this.btns.ult ? (Math.abs(x - b.x) < (this.home.ult?.size ?? b.size) * 0.65 && Math.abs(y - b.y) < (this.home.ult?.size ?? b.size) * 0.65) : b.hit(x, y);
-        if (hit) { b.down = true; b.pid = id; inp.press(b.name, id); if (b.name === 'special') inp.aimBegin(id, b.x, b.y, x, y); return true; }
+        if (hit) { b.down = true; b.pid = id; inp.press(b.name, id, touch); if (b.name === 'special') inp.aimBegin(id, b.x, b.y, x, y); return true; }
       }   // act-14 用户：「按操作的按钮不要有音效」
-      // the stick: only the bottom-left area answers; floating = the base appears under the thumb (kept clear of the screen's edges)
-      // and then stays put; fixed = the base sits at its home and only a press near it counts
+      // the virtual joystick only responds on actual touch input or when touch layout is explicitly active (never on desktop mouse clicks)
+      if (!touch && !this.layoutTouch) return false;
       inp.stick.r = this.stickSize * 0.42;
       if (TUNE.stickFixed >= 0.5) {
-        if (Math.hypot(x - this.stickHome.x, y - this.stickHome.y) < this.stickSize * 0.95) { inp.stickDown(id, this.stickHome.x, this.stickHome.y); inp.stickMove(id, x, y); return true; }
+        if (Math.hypot(x - this.stickHome.x, y - this.stickHome.y) < this.stickSize * 0.95) { inp.stickDown(id, this.stickHome.x, this.stickHome.y, touch); inp.stickMove(id, x, y); return true; }
       } else if (x < this.L.w * 0.42 && y > this.L.h * 0.38) {
         const m = this.stickSize * 0.55, bx = Math.max(m, Math.min(this.L.w * 0.42, x)), by = Math.max(this.L.h * 0.38, Math.min(this.L.h - m, y));
-        inp.stickDown(id, bx, by); inp.stickMove(id, x, y); return true;
+        inp.stickDown(id, bx, by, touch); inp.stickMove(id, x, y); return true;
       }
       return false;
     }
@@ -253,7 +330,11 @@ export class ActHud {
     for (const n of Object.keys(this.btns) as BtnName[]) {
       const h = this.home[n], b = this.btns[n]; if (!h) continue;
       if (n === 'ult') { b.size = h.size * (0.78 + 0.22 * e); continue; }
-      const g = 1 - 0.14 * e; b.x = W + (h.x - W) * g; b.y = H + (h.y - H) * g; b.size = h.size * (1 - 0.16 * e);
+      if (this.layoutTouch) {
+        const g = 1 - 0.14 * e; b.x = W + (h.x - W) * g; b.y = H + (h.y - H) * g; b.size = h.size * (1 - 0.16 * e);
+      } else {
+        b.x = h.x; b.y = h.y + 5 * this.k * e; b.size = h.size * (1 - 0.06 * e);
+      }
     }
   }
   /** act-29: a game moment on a button (a cut lands, a perfect dodge) */
@@ -307,25 +388,92 @@ export class ActHud {
     }
   }
   update(dt: number, inp: Input, foes: Foe[]) {
-    this.stick.root.visible = this.on; for (const b of Object.values(this.btns)) { const on = this.on && (b !== this.btns.ult || this.ultUp); b.root.visible = on; if (b instanceof IronBtn) b.iconG.visible = on; }
+    const dev = inp.lastDevice, wantTouch = isTouchLayout(dev);
+    if (wantTouch !== this.layoutTouch) this.layout(this.W, this.H);
+    this.stick.root.visible = this.on && wantTouch;
+    this.dockRail.visible = this.on && !wantTouch;
+    if (this.dockRail.visible) {
+      const dg = this.dockGeom, u = this.L.px(1, -12);
+      this.L.at(dg.x, dg.y, -12, this.dockRail.position);
+      this.dockRail.scale.set(dg.w * u, dg.h * u, dg.h * u);
+    }
+    for (const b of Object.values(this.btns)) { const on = this.on && (b !== this.btns.ult || this.ultUp); b.root.visible = on; if (b instanceof IronBtn) b.iconG.visible = on; }
     this.flask.root.visible = this.on;
     this.makeWay(dt);
-    if (this.on) { this.stick.update(inp.stick, this.stickHome, this.stickSize); for (const b of Object.values(this.btns)) b.update(dt); }
+    if (this.on) {
+      if (wantTouch) this.stick.update(inp.stick, this.stickHome, this.stickSize);
+      for (const b of Object.values(this.btns)) b.update(dt);
+    }
     this.markFrame(dt);
-    // act-28 (user: 「技能下面我看还是没有写按键什么意思：闪避、跳跃、远程、攻击」): what each button does, in small pixel type just under
-    // its rim (never on the button face); with a keyboard or a pad the key follows the word
+    // act-28 / device-adaptive HUD:
+    //   Touch mode: clean action words under the thumb-arc shields (plus optional key/glyph if touch layout is manually forced on desktop)
+    //   Console/PC mode: crisp pixel keycap (J/K/空格/L/I) or Xbox/PS/Switch button badge on the medallion's lower-right rim,
+    //                    and clean aligned action labels directly beneath the forged-iron dock rail
+    const dpr = this.L.dpr || 1;
+    const pk = Math.max(1, Math.round(Math.max(wantTouch ? 16 : 14, (wantTouch ? 18 : 15) * this.k) * dpr / PIX_H));
+    const lh = (PIX_H + 2) * pk / dpr;
     for (const n of Object.keys(this.btns) as BtnName[]) {
-      // act-30 之后: the keys follow the binding table (rebindable in the pause menu); on a pad the button is drawn, in its maker's look
-      // act-34 (用户：「下面的技能说明文字太小了，应该用像素带描边的文字」): the game's pixel font, outlined; whole device px per font pixel,
-      // the glyphs about 16–18 px tall (the 16 px 长坂点宋 at 1:1 on a 720p desktop, 3 device px per font pixel on a 3x phone)
-      const dpr = this.L.dpr || 1, pk = Math.max(1, Math.round(Math.max(16, 18 * this.k) * dpr / PIX_H)), lh = (PIX_H + 2) * pk / dpr;
-      const b = this.btns[n], word = n === 'attack' && b instanceof IronBtn && b.talk ? '交谈' : ACTION_WORD[n], dev = inp.lastDevice, px = lh * 0.8, y = b.y + b.size * 0.5 + lh * 0.5 + 2 * this.k;
-      const t = dev === 'key' ? `${localize(word)} ${localize(actKey(n))}` : word;
-      let x = b.x;
-      if (dev === 'pad' && this.on) { const gi = BIND.pad[n][0], gh = px * 1.3, gw = glyphArt(gi).w / GLYPH_H * gh, gap = px * 0.3, ww = pixTextW(word, pk, dpr); x = b.x - (gap + gw) / 2; this.glyph(n, gi, b.x - (ww + gap + gw) / 2 + ww + gap, y, gh); }
-      else this.glyph(n, null, 0, 0, 0);
+      const b = this.btns[n], word = n === 'attack' && b instanceof IronBtn && b.talk ? '交谈' : ACTION_WORD[n];
       const shown = this.on && (n !== 'ult' || this.ultUp);
-      this.L.text.set('act.btn.' + n, { text: t, x, y, pix: pk, color: n === 'ult' ? '#ffe6a0' : '#f4ecd8', outline: '#140c0a', align: 'center', visible: shown });
+      if (!shown) {
+        this.hideBadge(n);
+        this.L.text.hide('act.btn.' + n);
+        continue;
+      }
+      if (wantTouch) {
+        const px = lh * 0.8, y = b.y + b.size * 0.5 + lh * 0.5 + 2 * this.k;
+        const t = dev === 'key' ? `${localize(word)} ${localize(actKey(n))}` : word;
+        let x = b.x;
+        if (dev === 'pad') {
+          const gi = BIND.pad[n][0], a = glyphArt(gi), gh = px * 1.3, gw = a.w / GLYPH_H * gh, gap = px * 0.3, ww = pixTextW(word, pk, dpr);
+          x = b.x - (gap + gw) / 2;
+          this.showTexBadge(n, glyphTex(gi), a.w, GLYPH_H, b.x - (ww + gap + gw) / 2 + ww + gap + gw / 2, y, gh);
+        } else this.hideBadge(n);
+        this.L.text.set('act.btn.' + n, { text: t, x, y, pix: pk, color: n === 'ult' ? '#ffe6a0' : '#f4ecd8', outline: '#140c0a', align: 'center', visible: true });
+      } else {
+        const badgeH = n === 'ult' ? Math.max(20, 24 * this.k) : Math.max(17, 20 * this.k);
+        const by = b.y + b.size * 0.34;
+        if (dev === 'pad') {
+          const gi = BIND.pad[n][0], a = glyphArt(gi);
+          this.showTexBadge(n, glyphTex(gi), a.w, GLYPH_H, b.x + b.size * 0.38, by, badgeH);
+        } else {
+          const kc = keyCapTex(actKey(n), n === 'ult');
+          if (kc) {
+            // wider keycaps (e.g. 空格) anchor slightly right so the center skill emblem stays unobscured
+            const extraX = kc.w > kc.h ? Math.min(10 * this.k, ((kc.w - kc.h) / kc.h) * badgeH * 0.32) : 0;
+            this.showTexBadge(n, kc.tex, kc.w, kc.h, b.x + b.size * 0.38 + extraX, by, badgeH);
+          } else this.hideBadge(n);
+        }
+        const ly = n === 'ult'
+          ? b.y + b.size * 0.5 + lh * 0.55 + 4 * this.k
+          : this.dockGeom.y + this.dockGeom.h * 0.5 + lh * 0.55 + 6 * this.k;
+        this.L.text.set('act.btn.' + n, { text: word, x: b.x, y: ly, pix: pk, color: n === 'ult' ? '#ffe6a0' : '#f4ecd8', outline: '#140c0a', align: 'center', visible: true });
+      }
+    }
+    // Console/PC top-right pause hint ([ESC] 暂停 or [Menu/Options/+] 暂停) — clear of the dev '调' button when __DEBUG_UI__ is active
+    if (this.on && !wantTouch) {
+      const pPk = Math.max(1, Math.round(Math.max(14, 15 * this.k) * dpr / PIX_H));
+      const pWord = '暂停', ww = pixTextW(pWord, pPk, dpr), py = Math.max(24, 28 * this.k), rx = this.W - Math.max(__DEBUG_UI__ ? 56 : 18, (__DEBUG_UI__ ? 60 : 22) * this.k), gap = 6 * this.k;
+      const bh = Math.max(18, 21 * this.k);
+      let bw = 0;
+      if (dev === 'pad') {
+        const a = glyphArt(9), res = this.showTexBadge('pause', glyphTex(9), a.w, GLYPH_H, rx - ww - gap - (a.w / GLYPH_H * bh) / 2, py, bh);
+        bw = res.w;
+      } else {
+        const kc = keyCapTex('ESC');
+        if (kc) {
+          const estW = kc.w / kc.h * bh;
+          const res = this.showTexBadge('pause', kc.tex, kc.w, kc.h, rx - ww - gap - estW / 2, py, bh);
+          bw = res.w;
+        } else this.hideBadge('pause');
+      }
+      this.L.text.set('act.pauseHint', { text: pWord, x: rx, y: py, pix: pPk, color: '#dcd2be', outline: '#140c0a', align: 'right', visible: true });
+      const totalW = ww + gap + bw;
+      this.pausePillRect = { x: rx - totalW / 2, y: py, w: totalW, h: Math.max(bh, PIX_H * pPk / dpr) };
+    } else {
+      this.hideBadge('pause');
+      this.L.text.hide('act.pauseHint');
+      this.pausePillRect = { x: 0, y: 0, w: 0, h: 0 };
     }
     this.L.text.hide('act.lowhp');
     this.L.text.hide('act.ultReady');

@@ -13,7 +13,7 @@ import { instanceMatrix, finishInstances } from "../engine/uploads";
 import * as THREE from 'three';
 import { V3, R, onUpdate, canvasTex, camera, scene, view, precompile } from '../engine/world';
 import { hitstop, shake, PAUSE } from '../engine/clock';
-import { activePad } from './pad';
+import { activePad, PAD, padName } from './pad';
 import { shot } from '../director';
 import { applyMood, prepareStageSteps, skyMaterial, currentStage, type Ctx, type SceneDef, type Mood, type Stage } from '../scenes/stage';
 import { GRADE } from '../look/post';
@@ -928,6 +928,19 @@ class Title {
       L.at(mx, p.y, 6, this.marker.position); this.marker.scale.setScalar(L.px(p.h * 0.95) * this.markerK);
       this.marker.rotation.set(0, side > 0 ? 0 : Math.PI, Math.sin(this.t * 1.7) * 0.06);
     }
+    // Console/PC navigation hint tucked cleanly beneath the title menu column (hidden on touch)
+    const lastP = this.plaques[this.plaques.length - 1];
+    if (live && lastP && lastP.inK > 0.6 && PAD.device !== 'touch') {
+      const dpr = L.dpr || 1, kk = Math.max(0.75, Math.min(1.2, L.h / 720));
+      const pk = Math.max(1, Math.round(14 * kk * dpr / PIX_H));
+      const hint = PAD.device === 'pad'
+        ? (this.beat === 'confirm' ? `十字键 选择 · ${padName(0)} 确认 · ${padName(1)} 返回` : `十字键 选择 · ${padName(0)} 确认`)
+        : (this.beat === 'confirm' ? '↑↓ 选择 · Enter 确认 · Esc 返回' : '↑↓ 选择 · Enter 确认');
+      const hy = Math.min(L.h - 22 * kk, lastP.y + lastP.h / 2 + 28 * kk);
+      L.text.set('title.hint', { text: hint, x: lastP.x, y: hy, pix: pk, color: '#cfc4ae', outline: '#0e0b0d', align: 'center', visible: true });
+    } else {
+      L.text.hide('title.hint');
+    }
   }
   private move(d: number) {
     if (this.beat !== 'menu' && this.beat !== 'confirm') return;
@@ -974,10 +987,10 @@ class Title {
     if (bladeBusy()) return;
     if (e.ctrlKey || e.metaKey || e.altKey || e.repeat || PAUSE.menu) return;
     const k = e.key.toLowerCase();
-    if (k === 'arrowup' || k === 'w') { e.preventDefault(); this.move(-1); }
-    else if (k === 'arrowdown' || k === 's') { e.preventDefault(); this.move(1); }
-    else if (k === 'enter' || k === ' ' || k === 'j') { e.preventDefault(); this.confirm(); }
-    else if ((k === 'escape' || k === 'backspace') && this.beat === 'confirm') { e.preventDefault(); cue('deselect', 0.5); this.ask(false); }
+    if (k === 'arrowup' || k === 'w') { e.preventDefault(); PAD.device = 'key'; this.move(-1); }
+    else if (k === 'arrowdown' || k === 's') { e.preventDefault(); PAD.device = 'key'; this.move(1); }
+    else if (k === 'enter' || k === ' ' || k === 'j') { e.preventDefault(); PAD.device = 'key'; this.confirm(); }
+    else if ((k === 'escape' || k === 'backspace') && this.beat === 'confirm') { e.preventDefault(); PAD.device = 'key'; cue('deselect', 0.5); this.ask(false); }
     else if (__DEBUG_UI__ && /^[1-9]$/.test(k) && +k <= TITLES.length && +k !== this.n && this.beat === 'menu') { e.preventDefault(); dh.api.title && (dh.api.title as (n: number) => void)(+k); }
   }
   private pad(rdt: number) {
@@ -986,10 +999,10 @@ class Title {
     const ay = gp.axes[1] ?? 0, up = !!gp.buttons[12]?.pressed || ay < -0.5, down = !!gp.buttons[13]?.pressed || ay > 0.5, ok = !!gp.buttons[0]?.pressed || !!gp.buttons[9]?.pressed, back = !!gp.buttons[1]?.pressed;
     if (PAUSE.menu) { this.padPrev = { up, down, ok, back }; return; }   // the settings page is over the menu: it has the pad
     this.padRep -= rdt;
-    if ((up && (!this.padPrev.up || this.padRep <= 0))) { this.move(-1); this.padRep = this.padPrev.up ? 0.16 : 0.4; }
-    if ((down && (!this.padPrev.down || this.padRep <= 0))) { this.move(1); this.padRep = this.padPrev.down ? 0.16 : 0.4; }
-    if (ok && !this.padPrev.ok) this.confirm();
-    if (back && !this.padPrev.back && this.beat === 'confirm') { cue('deselect', 0.5); this.ask(false); }
+    if ((up && (!this.padPrev.up || this.padRep <= 0))) { PAD.device = 'pad'; this.move(-1); this.padRep = this.padPrev.up ? 0.16 : 0.4; }
+    if ((down && (!this.padPrev.down || this.padRep <= 0))) { PAD.device = 'pad'; this.move(1); this.padRep = this.padPrev.down ? 0.16 : 0.4; }
+    if (ok && !this.padPrev.ok) { PAD.device = 'pad'; this.confirm(); }
+    if (back && !this.padPrev.back && this.beat === 'confirm') { PAD.device = 'pad'; cue('deselect', 0.5); this.ask(false); }
     this.padPrev = { up, down, ok, back };
   }
   // ---------------------------------------------------------------- the way in: she draws, the cut runs through the choice, the picture splits
@@ -1058,7 +1071,7 @@ class Title {
     if (l0 && l1) { l0.visible = l1.visible = edgeA > 0.01; place(l0, 0, c - e * (c + 8) - 2, W, 2); place(l1, 0, c + e * (H - c + 8), W, 2); for (const l of [l0, l1]) (l.material as THREE.MeshBasicMaterial).opacity = edgeA; }
     if (k >= 1) this.finish();
   }
-  private hideOverlay() { this.titleFx.setVisible(false); for (const m of [this.noteM, ...this.line]) if (m) m.visible = false; for (const p of this.plaques) p.root.visible = false; this.marker.visible = false; }
+  private hideOverlay() { this.host.L.text.hide('title.hint'); this.titleFx.setVisible(false); for (const m of [this.noteM, ...this.line]) if (m) m.visible = false; for (const p of this.plaques) p.root.visible = false; this.marker.visible = false; }
   // ---------------------------------------------------------------- debug / captures
   /** the shadow-casting light from the mood's direction (moonPos), its shadow box centred on (x, z): the act's followShadow keeps
    *  one fixed direction for the fights, a title wants its own low sun */

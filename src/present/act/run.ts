@@ -21,14 +21,14 @@ export const ROOM_INFO: Record<RoomType, { name: string; line: string }> = {
   shop: { name: '行商', line: '铜钱换秘卷与奇货' },
   rest: { name: '歇脚', line: '回血·磨刀·焚香蓄锐' },
   boon: { name: '遗卷', line: '不战自得珍绝秘传' },
-  event: { name: '赵云奇遇', line: '听声辨井救乡民' },
+  event: { name: '赵云奇遇', line: '断后护民退贼兵' },
   boss: { name: '首领', line: '死战坐镇强敌首领' },
 };
 /** 11-18: the later regions' own words for their fights and their boss room (boss title stays generic 首领 so route boards never spoil who awaits) */
 const ROOM_INFO_BY: Record<string, Partial<Record<RoomType, { name: string; line: string }>>> = {
-  r2_luoyang: { fight: { name: '乱兵', line: '斩退焚城飞熊卒' }, event: { name: '吕布奇遇', line: '辕门断锁救赤兔' }, boss: { name: '首领', line: '铸钱炉前决生死' } },
-  r3_xiapi: { fight: { name: '乱兵', line: '扫除浸水吕布兵' }, event: { name: '夏侯惇奇遇', line: '雾巷听弦破暗弩' }, boss: { name: '首领', line: '白门楼下决生死' } },
-  r4_wulin: { fight: { name: '乱兵', line: '杀穿铁索连环船' }, event: { name: '陆逊奇遇', line: '借风断索连环火' }, boss: { name: '首领', line: '楼船烈火决生死' } },
+  r2_luoyang: { fight: { name: '乱兵', line: '斩退焚城飞熊卒' }, event: { name: '吕布奇遇', line: '三合试锋破画戟' }, boss: { name: '首领', line: '铸钱炉前决生死' } },
+  r3_xiapi: { fight: { name: '乱兵', line: '扫除浸水吕布兵' }, event: { name: '夏侯惇奇遇', line: '雾巷听弦追影战' }, boss: { name: '首领', line: '白门楼下决生死' } },
+  r4_wulin: { fight: { name: '乱兵', line: '杀穿铁索连环船' }, event: { name: '陆逊奇遇', line: '借风破盾连环火' }, boss: { name: '首领', line: '楼船烈火决生死' } },
   r5_cui: { fight: { name: '乱兵', line: '雪夜破袭崔府众' }, boss: { name: '首领', line: '深宅雪落决生死' } },
 };
 /** a room type's name and line in region `ri` (0 起; out of range = region one's) */

@@ -19,6 +19,7 @@ import { GRADE } from '../look/post';
 import { shake } from '../engine/clock';
 import { loadImage, makeCanvas } from '../../platform/index';
 import { paintPixelSkipRing } from './timeline';
+import { PAD, paintGlyph, glyphArt, GLYPH_H, paintKeyCap, keyCapWidth, KEYCAP_H } from './pad';
 
 export interface Line { who: string; text: string; mood?: string }
 interface Speaker { name: string; side: 'L' | 'R'; mute?: boolean }
@@ -241,7 +242,7 @@ export class Dialogue {
   private onLine: ((i: number, line: Line) => void) | null = null;
   private ink: InkLine;
   private lines: Line[] = []; private i = 0; private shown = 0; private charBudget = 0; private t = 0;
-  private done: (() => void) | null = null; private drawn = -1; private openT = 0;
+  private done: (() => void) | null = null; private drawn = ''; private openT = 0;
   private autoWait = 0; private shakeT = 0; private tickCount = 0;
   /** long-press skip for an entire dialogue conversation (0.65 s hold -> pixel square ring) */
   private holding = false; private holdT = 0;
@@ -261,7 +262,7 @@ export class Dialogue {
   play(lines: Line[], onLine?: (i: number, line: Line) => void): Promise<void> {
     this.onLine = onLine ?? null;
     this.lines = lines.filter(l => l.text).map(l => (/^（[^（）]*）$/.test(l.text.trim()) ? { ...l, who: 'act' } : l));
-    this.i = 0; this.shown = 0; this.charBudget = 0; this.t = 0; this.drawn = -1; this.on = true; this.openT = 0; this.box.visible = true;
+    this.i = 0; this.shown = 0; this.charBudget = 0; this.t = 0; this.drawn = ''; this.on = true; this.openT = 0; this.box.visible = true;
     this.outK = 0; this.autoWait = 0; this.shakeT = 0; this.tickCount = 0; this.holding = false; this.holdT = 0; this.skipStep = -1;
     for (const s of ['L', 'R'] as const) {
       const S = this.sides[s];
@@ -358,10 +359,48 @@ export class Dialogue {
       for (const ch of chars) { if (bodyW(row + ch, fpx) > maxW) { bodyText(g, row, Math.round(16 * dpr), y, fpx, col); row = ''; y += lineH; } row += ch; }
       if (row) bodyText(g, row, Math.round(16 * dpr), y, fpx, col);
     }
-    if (n >= [...full].length) {
-      const bx = cw - Math.round(26 * dpr), by = ch - Math.round(18 * dpr);
-      g.fillStyle = NAME;
-      for (let r = 0; r < 4; r++) g.fillRect(bx + r * dpr, by + r * dpr, (8 - r * 2) * dpr, dpr);
+    const dev = PAD.device;
+    if (dev === 'touch') {
+      if (n >= [...full].length) {
+        const bx = cw - Math.round(26 * dpr), by = ch - Math.round(18 * dpr);
+        g.fillStyle = NAME;
+        for (let r = 0; r < 4; r++) g.fillRect(bx + r * dpr, by + r * dpr, (8 - r * 2) * dpr, dpr);
+      }
+    } else {
+      // Console / PC prompt bar cleanly embedded in the bottom-right footer strip of the dialogue box
+      const hs = Math.max(1, Math.round(0.65 * scale * dpr));
+      const padR = Math.round(14 * dpr), gap = Math.round(5 * dpr), segGap = Math.round(12 * dpr);
+      const footY = ch - Math.round(18 * dpr);
+      let rx = cw - padR;
+      const drawWord = (w: string, col: string) => {
+        const ww = textW(w, hs);
+        rx -= ww;
+        text(g, w, rx, Math.round(footY - (PIX_H * hs) / 2), hs, col, 'left', '#05040a');
+        rx -= gap;
+      };
+      if (dev === 'pad') {
+        const gs = Math.max(1, Math.round((PIX_H * hs * 1.15) / GLYPH_H));
+        drawWord('长按跳过', '#a89f8f');
+        const g1 = glyphArt(1).w * gs; rx -= g1;
+        paintGlyph(g, 1, Math.round(rx), Math.round(footY - (GLYPH_H * gs) / 2), gs);
+        rx -= segGap;
+        drawWord(n >= [...full].length ? '继续' : '全显', NAME);
+        const g0 = glyphArt(0).w * gs; rx -= g0;
+        paintGlyph(g, 0, Math.round(rx), Math.round(footY - (GLYPH_H * gs) / 2), gs);
+      } else {
+        const ks = Math.max(1, Math.round(hs * 0.72));
+        drawWord('长按跳过', '#a89f8f');
+        const kwEsc = keyCapWidth('ESC') * ks; rx -= kwEsc;
+        paintKeyCap(g, 'ESC', Math.round(rx), Math.round(footY - (KEYCAP_H * ks) / 2), ks);
+        rx -= segGap;
+        drawWord(this.autoPlay ? '自动:开' : '自动', this.autoPlay ? '#a8f0c8' : '#a89f8f');
+        const kwTab = keyCapWidth('TAB') * ks; rx -= kwTab;
+        paintKeyCap(g, 'TAB', Math.round(rx), Math.round(footY - (KEYCAP_H * ks) / 2), ks);
+        rx -= segGap;
+        drawWord(n >= [...full].length ? '继续' : '全显', NAME);
+        const kwSpc = keyCapWidth('空格') * ks; rx -= kwSpc;
+        paintKeyCap(g, '空格', Math.round(rx), Math.round(footY - (KEYCAP_H * ks) / 2), ks, n >= [...full].length);
+      }
     }
     const hd = BODY_FONT.current !== 'pixel';
     if (!this.boxTex || resized || this.boxW !== cw || this.boxH !== ch) {
@@ -430,14 +469,15 @@ export class Dialogue {
     }
     if (this.holdT >= 0.65) { this.skipAll(); return; }
 
-    const scale = L.h >= 600 ? 2 : 1, fpx0 = fontPx(scale), wPx = Math.round(Math.min(L.w * 0.5, fpx0 * 22 + 40, 640));
+    const scale = L.h >= 600 ? 2 : 1, fpx0 = fontPx(scale), wPx = Math.round(Math.min(L.w * 0.56, Math.max(460, fpx0 * 22 + 40), 660));
     const rowsFit = Math.max(1, Math.ceil(bodyW(t(line.text), fpx0) / Math.max(1, wPx - 32))), rows = Math.min(4, Math.max(language === 'en' ? 2 : 1, rowsFit));
-    const hPx = Math.round(10 + PIX_H * scale + 12 + rows * Math.round(fpx0 * 1.4) + 12);
+    const footExtra = PAD.device === 'touch' ? 0 : 30;
+    const hPx = Math.round(10 + PIX_H * scale + 12 + rows * Math.round(fpx0 * 1.4) + 12 + footExtra);
     const narr = line.who === 'act';
     this.box.visible = !narr;
     this.ink.set(narr, line, this.shown, total, dt, sx, sy);
     if (!narr) {
-      const key = this.i * 10000 + this.shown * 2 + (this.shown >= total ? 1 : 0) + wPx * 1e7 + BODY_FONT.version * 1e11;
+      const key = `${this.i}|${this.shown}|${this.shown >= total ? 1 : 0}|${wPx}|${hPx}|${BODY_FONT.version}|${PAD.device}|${PAD.family}|${this.autoPlay ? 1 : 0}|${language}`;
       if (key !== this.drawn) { this.drawn = key; this.paint(line, this.shown, wPx, hPx, scale); }
       const y = L.h - hPx / 2 - Math.max(10, L.h * 0.03) + (1 - this.openT) * 30 + sy;
       L.at(L.w / 2 + sx, y, 0, this.box.position); this.box.scale.set(L.px(wPx), L.px(hPx), L.px(8));
