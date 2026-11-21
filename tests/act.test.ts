@@ -552,7 +552,8 @@ describe('combat wave 2: poise break & staggered cadence (act-113)', () => {
     expect(showSrc).toContain('this.entryFromGuaranteed(p, hp, i, zb ?? null, sz)');
     expect(showSrc).toContain('!this.entering.some(e => e.f === f)');
     // Opening 4 Yellow Turban ambushers start strictly outside the arena perimeter, hidden before j.t0, and climb+vault over walls
-    expect(showSrc).toContain('const distOut = Math.min(18, Math.max(4.5, sEdge)) + 1.4;');
+    expect(showSrc).toContain('const crest = V3(to.x + dx * edgeDist, 0, to.z + dz * edgeDist);');
+    expect(showSrc).toContain('const from = V3(crest.x + dx * 0.9, 0, crest.z + dz * 0.9);');
     expect(showSrc).toContain('f.a.root.visible = false;');
     expect(showSrc).toContain('if (el < 0) { f.a.root.visible = false; continue; }');
 
@@ -565,5 +566,38 @@ describe('combat wave 2: poise break & staggered cadence (act-113)', () => {
     expect(hudSrc).toContain("localize('精英')");
     expect(hudSrc).toContain("this.L.text.hide('act.el.' + uid)");
     expect(hudSrc).toContain('const vis = this.on && p.z < 1 && f.a.root.visible;');
+  });
+
+  it('act-137: boss first-kill kneel & mid-dialogue execution, articulated wall-vault, zero-shove dash pass-through, and restrained distinct weapon VFX', () => {
+    const showSrc = SRC['src/present/act/show.ts'];
+    const proSrc = SRC['src/present/act/prologue.ts'];
+    const heroSrc = SRC['src/present/act/hero.ts'];
+    const arcSrc = SRC['src/present/act/slashArc.ts'];
+
+    // 1. Boss first-kill kneel & mid-dialogue execution slash (never sinks underground before CH_AFTER!)
+    expect(proSrc).toContain('export function bossKneelDefeatPose(');
+    expect(showSrc).toContain('private isFirstStoryBossKill()');
+    expect(showSrc).toContain('const holdKneel = bossClear && !fell && this.isFirstStoryBossKill();');
+    expect(showSrc).toContain('private stageBossAfterScene(ai: number)');
+    expect(showSrc).toContain('/抹喉|断喉|划过颈侧/.test(l.text)');
+    expect(showSrc).toContain('heroHoldThroatPose(this.hero.a, throatStop, afterT)');
+
+    // 2. Articulated parkour wall-vault (climb -> perch -> leap -> land -> sprint-in)
+    expect(proSrc).toContain('export function poseWallVault(');
+    expect(showSrc).toContain('poseWallVault(f.a, ent.posePhase, ent.poseU)');
+    expect(showSrc).toContain('poseWallVault(f.a, pPhase, pU)');
+
+    // 3. Dash passes cleanly through enemies with ZERO body shoving
+    expect(heroSrc).toContain("const phasing = this.dodgeWin || this.st === 'dash'");
+    expect(showSrc).toContain("h.st === 'reel' || h.airborne || h.dodgeWin");
+    expect(showSrc).toContain('if (a.isHero && b.f) { wa = 1; wb = 0; }');
+
+    // 4. Restrained, distinct weapon & move VFX (no neon purple thunder or garish page-game bloom)
+    expect(arcSrc).not.toContain('0x7056a8');
+    expect(arcSrc).not.toContain('0x6244c0');
+    expect(arcSrc).toContain('const szMul = isThunder ? 1.14 : isFrost ? 0.80');
+    expect(arcSrc).toContain('const wScale = Math.max(0.62, Math.min(1.18, o.width));');
+    expect(showSrc).not.toContain('0x7a58d8');
+    expect(showSrc).not.toContain('0x8a64f0');
   });
 });

@@ -70,13 +70,13 @@ const PAL: Record<string, SlashPalette> = {
   lubu:      { edge: 0xfff5d6, body: 0xf24a2e, tail: 0x9c1618, hdr: 1.28 },
   xiahoudun: { edge: 0xffece0, body: 0xc82628, tail: 0x5c1216, hdr: 1.24 },
   luxun:     { edge: 0xf2fff8, body: 0x5ce0b0, tail: 0x28786a, hdr: 1.22 },
-  // act-125: Wen-family signature blades 3D voxel light palettes
-  thunder_light: { edge: 0xfff6d2, body: 0xf0b840, tail: 0x7056a8, hdr: 1.24 },
-  thunder_heavy: { edge: 0xfffbe0, body: 0xffc83c, tail: 0x6244c0, hdr: 1.30 },
-  frost_light:   { edge: 0xf2feff, body: 0x66dcf8, tail: 0x2a76a8, hdr: 1.22 },
-  frost_heavy:   { edge: 0xffffff, body: 0x8cecff, tail: 0x3088c4, hdr: 1.28 },
-  blunt_light:   { edge: 0xd8dce4, body: 0x6e7482, tail: 0x3c404a, hdr: 1.12 },
-  blunt_flash:   { edge: 0xfff4d6, body: 0xff5a30, tail: 0xa81c14, hdr: 1.32 },
+  // act-125 / act-137: Wen-family signature blades — restrained wuxia ink-and-steel palettes (distinct feel, zero flashy page-game neon)
+  thunder_light: { edge: 0xf6ebd2, body: 0xd8a84a, tail: 0x484e62, hdr: 1.14 },
+  thunder_heavy: { edge: 0xfff3d4, body: 0xe4b242, tail: 0x3b4258, hdr: 1.20 },
+  frost_light:   { edge: 0xf2fbff, body: 0x94cee2, tail: 0x44687d, hdr: 1.12 },
+  frost_heavy:   { edge: 0xf8feff, body: 0xaadced, tail: 0x3e6c88, hdr: 1.18 },
+  blunt_light:   { edge: 0xd2d6de, body: 0x6a707c, tail: 0x363a44, hdr: 1.06 },
+  blunt_flash:   { edge: 0xfff0d8, body: 0xd85232, tail: 0x6e2018, hdr: 1.22 },
 };
 
 const MOVE_PAL: Record<string, keyof typeof PAL> = {
@@ -321,16 +321,26 @@ class SlashSystem {
     const bleed = this.now <= this.styleBleedUntil && !counter;
     const baseMove = MOVE_PAL[moveKind] ?? 'light';
     const wp = this.weaponPal;
-    const wepPal: keyof typeof PAL = !wp ? baseMove : baseMove === 'iai' ? wp.iai : (baseMove === 'heavy' || moveKind === 'k5' || moveKind === 'plunge' || moveKind === 'chase') ? wp.heavy : wp.light;
+    const wepPal: keyof typeof PAL = !wp ? baseMove : baseMove === 'iai' ? wp.iai : (baseMove === 'heavy' || moveKind === 'k5' || moveKind === 'plunge' || moveKind === 'chase') ? wp.heavy : (moveKind === 'launch' || moveKind === 'acut' || moveKind === 'swoop' || moveKind === 'dcut') ? baseMove : wp.light;
     const palKey: keyof typeof PAL = counter
       ? 'counter'
       : (this.now <= this.stylePalUntil && this.stylePal)
         ? this.stylePal
         : wepPal;
     const pal = PAL[palKey] ?? PAL.light;
-    const hdr = pal.hdr ?? 1.18;
+    const hdr = pal.hdr ?? 1.15;
     const heavy = palKey === 'heavy' || palKey === 'counter' || palKey === 'iai' || palKey === 'thunder_heavy' || palKey === 'frost_heavy' || palKey === 'blunt_flash';
     const isThrust = moveKind === 'k4';
+    const isSpin = moveKind === 'k3';
+    const isAir = moveKind === 'acut';
+    const isLaunch = moveKind === 'launch';
+    // act-137: restrained per-weapon silhouette profile (broad storm-steel thunder, razor-thin frost, matte dark-iron blunt, crisp classic hanshan)
+    const isThunder = palKey === 'thunder_light' || palKey === 'thunder_heavy';
+    const isFrost = palKey === 'frost_light' || palKey === 'frost_heavy';
+    const isBluntLight = palKey === 'blunt_light';
+    const szMul = isThunder ? 1.14 : isFrost ? 0.80 : isAir ? 0.84 : isBluntLight ? 1.04 : 1.0;
+    const lifeMul = isThunder ? 1.12 : isFrost ? 0.82 : isAir ? 0.80 : 1.0;
+    const alphaMul = isBluntLight ? 0.78 : isFrost ? 0.90 : 1.0;
 
     // Keep blade length consistent during curved arc sub-stepping so fast 30fps swings stay cleanly rounded
     const bladeLen = Math.max(0.45, root.distanceTo(tip));
@@ -341,12 +351,12 @@ class SlashSystem {
     const dl = _dir.length() || 1;
     _dir.multiplyScalar(1 / dl);
 
-    const edgeSz = heavy ? 0.115 : 0.096;
-    const midSz = heavy ? 0.105 : 0.092;
-    const wakeSz = 0.078;
-    const edgeLife = heavy ? 0.17 : 0.125;
-    const midLife = heavy ? 0.14 : 0.10;
-    const wakeLife = heavy ? 0.11 : 0.078;
+    const edgeSz = (heavy ? 0.108 : isSpin ? 0.098 : 0.090) * szMul;
+    const midSz = (heavy ? 0.098 : 0.086) * szMul;
+    const wakeSz = 0.074 * szMul;
+    const edgeLife = (heavy ? 0.16 : 0.12) * lifeMul;
+    const midLife = (heavy ? 0.13 : 0.095) * lifeMul;
+    const wakeLife = (heavy ? 0.10 : 0.074) * lifeMul;
 
     for (let i = 1; i <= steps; i++) {
       const f = i / steps;
@@ -366,28 +376,29 @@ class SlashSystem {
 
       this.stepCount++;
 
-      // Tier 0: luminous white razor voxel cube glued flush to the blade tip!
-      this.emitCube(_b.x + _d.x * 0.02, _b.y + _d.y * 0.02, _b.z + _d.z * 0.02, edgeSz, pal.edge, hdr, 0.88, edgeLife, 0);
+      // Tier 0: luminous razor voxel cube glued flush to the blade tip
+      this.emitCube(_b.x + _d.x * 0.02, _b.y + _d.y * 0.02, _b.z + _d.z * 0.02, edgeSz, pal.edge, hdr, 0.86 * alphaMul, edgeLife, 0);
 
-      // Tier 1: translucent colored voxel cube along the outer-mid blade (70% of blade length)
-      _c.lerpVectors(_a, _b, 0.70);
-      this.emitCube(_c.x, _c.y, _c.z, midSz, pal.body, 1.0, 0.48, midLife, 1);
+      // Tier 1: translucent colored voxel cube along the outer-mid blade (70% of blade length; sleeker 76% on frost)
+      _c.lerpVectors(_a, _b, isFrost ? 0.76 : isSpin ? 0.66 : 0.70);
+      this.emitCube(_c.x, _c.y, _c.z, midSz, pal.body, 1.0, 0.44 * alphaMul, midLife, 1);
 
-      // On heavy moves or every 2nd step, add a second inner-blade voxel cube (46% of blade length)
-      if (heavy || this.stepCount % 2 === 0) {
-        _c.lerpVectors(_a, _b, 0.46);
-        this.emitCube(_c.x, _c.y, _c.z, wakeSz, bleed ? 0xa61e22 : (heavy ? pal.body : pal.tail), 1.0, heavy ? 0.36 : 0.28, wakeLife, 2);
+      // On heavy moves or every 2nd step, add a restrained inner-blade wake cube (skipped on ultra-sleek frost light cuts)
+      if (!isFrost && (heavy || this.stepCount % 2 === 0)) {
+        _c.lerpVectors(_a, _b, 0.48);
+        this.emitCube(_c.x, _c.y, _c.z, wakeSz, bleed ? 0xa61e22 : (heavy ? pal.body : pal.tail), 1.0, (heavy ? 0.32 : 0.24) * alphaMul, wakeLife, 2);
       }
 
-      // Sparse tiny glowing voxel spark cubes drifting slightly off the blade tip
-      if (this.stepCount % (heavy ? 3 : 5) === 0) {
-        const up = ((this.stepCount * 7) % 5 - 2) * 0.22;
+      // Sparse tiny voxel spark cubes drifting subtly off the blade tip (kept restrained — never noisy confetti)
+      const sparkMod = isBluntLight ? 8 : heavy ? 4 : isSpin ? 4 : 6;
+      if (this.stepCount % sparkMod === 0) {
+        const up = isLaunch ? 0.65 : ((this.stepCount * 7) % 5 - 2) * 0.18;
         this.emitCube(
           _b.x, _b.y, _b.z,
-          0.062, pal.edge, hdr, 0.84,
-          heavy ? 0.19 : 0.145, 3,
-          _dir.x * 0.7 + _d.x * 0.4, up + 0.25, _dir.z * 0.7 + _d.z * 0.4,
-          heavy ? 0.38 : 0.26, false,
+          (isFrost ? 0.048 : 0.058) * szMul, pal.edge, hdr, 0.78 * alphaMul,
+          (heavy ? 0.17 : 0.13) * lifeMul, 3,
+          _dir.x * 0.65 + _d.x * 0.35, up + 0.20, _dir.z * 0.65 + _d.z * 0.35,
+          heavy ? 0.34 : 0.24, false,
         );
       }
     }
@@ -510,28 +521,29 @@ class SlashSystem {
     const sx = -fz, sz = fx; // lateral perpendicular
     const steps = Math.max(6, Math.min(36, Math.ceil(len / 0.095)));
 
+    const wScale = Math.max(0.62, Math.min(1.18, o.width));
     for (let i = 0; i <= steps; i++) {
       const u = i / steps;
       const px = o.a.x + dx * u;
       const pz = o.a.z + dz * u;
-      // Central razor spine of chunky 9cm world-axis-aligned luminous voxel cubes
-      const coreSz = u > 0.08 && u < 0.92 ? 0.105 : 0.078;
-      this.emitCube(px, y, pz, coreSz, pal.edge, hdr, 0.90, life, 0);
+      // Central razor spine of world-axis-aligned luminous voxel cubes (scaled subtly by move width)
+      const coreSz = (u > 0.08 && u < 0.92 ? 0.098 : 0.072) * wScale;
+      this.emitCube(px, y, pz, coreSz, pal.edge, hdr, 0.88, life, 0);
 
       // Staggered translucent flanking voxel cubes (kinetic voxel silhouette, never dotted or solid-brick)
       if (u > 0.10 && u < 0.90 && i % 2 === 0) {
         const side = (i % 4 === 0) ? 1 : -1;
-        const off = 0.095 + (i % 3 === 0 ? 0.055 : 0);
-        this.emitCube(px + sx * side * off, y - 0.02, pz + sz * side * off, 0.092, pal.body, 1.0, 0.48, life * 0.84, 1);
+        const off = (0.088 + (i % 3 === 0 ? 0.045 : 0)) * wScale;
+        this.emitCube(px + sx * side * off, y - 0.02, pz + sz * side * off, 0.084 * wScale, pal.body, 1.0, 0.44, life * 0.82, 1);
       }
 
       // Sparse tiny glowing voxel sparks drifting sideways off the cleave
-      if (i > 1 && i < steps - 1 && i % 6 === 0) {
-        const side = (i % 12 === 0) ? 1 : -1;
+      if (i > 1 && i < steps - 1 && i % 7 === 0) {
+        const side = (i % 14 === 0) ? 1 : -1;
         this.emitCube(
-          px + sx * side * 0.09, y, pz + sz * side * 0.09,
-          0.064, pal.edge, hdr, 0.84, life * 1.05, 3,
-          sx * side * 0.85, 0.25, sz * side * 0.85, 0.36, false,
+          px + sx * side * 0.08 * wScale, y, pz + sz * side * 0.08 * wScale,
+          0.056 * wScale, pal.edge, hdr, 0.80, life * 1.0, 3,
+          sx * side * 0.78, 0.22, sz * side * 0.78, 0.30, false,
         );
       }
     }
@@ -559,25 +571,31 @@ class SlashSystem {
     if (bleed) this.styleBleedUntil = this.now + 0.16;
     if (o.kind === 'launch') { this.stylePal = 'launch'; this.stylePalUntil = this.now + 0.16; }
 
-    const palKey: keyof typeof PAL = counter ? 'counter' : (MOVE_PAL[o.kind] ?? 'light');
+    const baseMove = MOVE_PAL[o.kind] ?? 'light';
+    const wp = this.weaponPal;
+    const wepPal: keyof typeof PAL = !wp ? baseMove : baseMove === 'iai' ? wp.iai : (baseMove === 'heavy' || o.kind === 'k5' || o.kind === 'plunge' || o.kind === 'chase') ? wp.heavy : (o.kind === 'launch' || o.kind === 'acut' || o.kind === 'swoop' || o.kind === 'dcut') ? baseMove : wp.light;
+    const palKey: keyof typeof PAL = counter ? 'counter' : wepPal;
     const pal = PAL[palKey] ?? PAL.light;
     if (counter || bleed || o.kind === 'launch') {
       this.retintRecent(0.09, pal, bleed);
     }
 
-    // Pop 4 crisp tiny voxel hit-sparks right at the real live blade tip (never a disconnected floating ring)
+    // Pop 3–4 crisp restrained voxel hit-sparks right at the real live blade tip (shape tailored to move kind)
     if (this.now - this.lastTipAt < 0.09) {
-      const hdr = pal.hdr ?? 1.2;
+      const hdr = pal.hdr ?? 1.15;
       const fx = Math.sin(o.yaw), fz = Math.cos(o.yaw);
       const sx = fz, sz = -fx;
-      for (let i = 0; i < 4; i++) {
-        const s = (i % 2 === 0 ? 1 : -1) * (0.4 + 0.3 * (i >> 1));
+      const count = o.kind === 'k5' || counter ? 4 : 3;
+      const spread = o.kind === 'k4' ? 0.18 : o.kind === 'k3' ? 0.92 : 0.48;
+      const upBase = o.kind === 'launch' ? 0.85 : 0.30;
+      for (let i = 0; i < count; i++) {
+        const s = (i % 2 === 0 ? 1 : -1) * (spread + 0.25 * (i >> 1));
         this.emitCube(
           this.lastTip.x, this.lastTip.y, this.lastTip.z,
-          o.kind === 'k5' || counter ? 0.064 : 0.048,
-          pal.edge, hdr, 0.86, 0.15, 3,
-          fx * 0.7 + sx * s, 0.35 + (i % 3) * 0.2, fz * 0.7 + sz * s,
-          o.kind === 'k5' || counter ? 0.42 : 0.28, false,
+          o.kind === 'k5' || counter ? 0.058 : 0.044,
+          pal.edge, hdr, 0.82, 0.14, 3,
+          fx * (o.kind === 'k4' ? 1.1 : 0.65) + sx * s, upBase + (i % 3) * 0.16, fz * (o.kind === 'k4' ? 1.1 : 0.65) + sz * s,
+          o.kind === 'k5' || counter ? 0.38 : 0.24, false,
         );
       }
     }

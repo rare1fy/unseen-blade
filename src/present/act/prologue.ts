@@ -630,6 +630,126 @@ export function cuiKneelDefeatPose(a: BattleActor, t: number) {
   rot(b.armR, -0.38, 0.22, -0.12); rot(b.foreR, -0.52);
 }
 
+/** act-137 (Boss first-kill defeat): universal wounded-kneel pose for Ch1–Ch5 story bosses (石雷 / 阎虎 / 封寒 / 周默 / 崔玄).
+ *  Smoothly drops onto one knee over 0.42s after the finishing blow, disarmed, chest heaving with ragged breath, ready for the
+ *  CH_AFTER confrontation and mid-dialogue execution slash. */
+export function bossKneelDefeatPose(a: BattleActor, t: number) {
+  const b = a.bones; resetPose(b);
+  a.root.position.copy(a.home).setY(0); a.root.rotation.set(0, a.yaw, 0);
+  a.body.position.set(0, 0, 0); a.body.rotation.set(0, 0, 0); a.body.scale.set(1, 1, 1);
+  if (b.weapon) b.weapon.visible = false;
+  if (b.offhand) b.offhand.visible = false;
+  const s = smK(Math.min(1, t / 0.42)), br = Math.sin(t * 2.7);
+  if (b.robe1) {
+    // Robed bosses (封寒 / 周默 / 崔玄): fold knees cleanly inside silk robe tiers with zero boot poke-through
+    mov(b.hips, 0, (-0.30 + 0.006 * br) * s, 0);
+    rot(b.legL, -0.14 * s, 0, 0.08 * s); rot(b.shinL, 1.38 * s); rot(b.footL, 0.25 * s);
+    rot(b.legR, -0.14 * s, 0, -0.08 * s); rot(b.shinR, 1.38 * s); rot(b.footR, 0.25 * s);
+    mov(b.robe1, 0, 0.08 * s, 0); rot(b.robe1, 0.26 * s);
+    mov(b.robe2, 0, 0.11 * s, 0); rot(b.robe2, -0.52 * s);
+    mov(b.robe3, 0, 0.11 * s, 0); rot(b.robe3, -0.42 * s);
+    rot(b.spine, (0.20 + 0.03 * br) * s, 0, 0);
+    rot(b.chest, (0.10 - 0.02 * br) * s, 0, 0);
+    rot(b.neck, 0.08 * s); rot(b.head, (0.16 + 0.035 * br) * s, 0.05 * Math.sin(t * 0.95), 0);
+    rot(b.armL, -0.42 * s, -0.22 * s, 0.14 * s); rot(b.foreL, -0.56 * s);
+    rot(b.armR, -0.54 * s, 0.30 * s, -0.12 * s); rot(b.foreR, -0.82 * s);
+  } else {
+    // Armored / martial bosses (石雷 / 阎虎): authentic one-knee kneel — left knee planted, right foot bracing forward, right hand clutching wound
+    mov(b.hips, 0, (-0.34 + 0.008 * br) * s, 0);
+    rot(b.legL, 0.20 * s, 0, 0.06 * s); rot(b.shinL, 1.46 * s); rot(b.footL, 0.42 * s);
+    rot(b.legR, -1.14 * s, 0, -0.08 * s); rot(b.shinR, 1.36 * s); rot(b.footR, -0.22 * s);
+    rot(b.spine, (0.26 + 0.035 * br) * s, -0.06 * s, 0);
+    rot(b.chest, (0.14 - 0.025 * br) * s, 0.04 * s, 0);
+    rot(b.neck, 0.10 * s); rot(b.head, (0.20 + 0.04 * br) * s, 0.05 * Math.sin(t * 0.9), 0);
+    rot(b.armL, -0.44 * s, -0.16 * s, 0.14 * s); rot(b.foreL, -0.34 * s);
+    rot(b.armR, -0.58 * s, 0.34 * s, -0.10 * s); rot(b.foreR, -0.88 * s);
+  }
+}
+
+export type VaultPhase = 'climb' | 'perch' | 'leap' | 'land' | 'hurdle';
+
+/** act-137: articulated martial-arts parkour wall-vault pose applied after a.update(dt) — replaces stiff ghost-elevator hops with
+ *  alternating wall-climb, spring-coiled crest mantle, scissor-tucked ballistic leap, and shock-absorbing landing crouch. */
+export function poseWallVault(a: BattleActor, phase: VaultPhase, u: number) {
+  const b = a.bones;
+  const k = Math.max(0, Math.min(1, u));
+  resetPose(b);
+  a.body.rotation.set(0, 0, 0);
+  if (a.def.kind === 'quad') {
+    if (phase === 'climb') {
+      const s = Math.sin(k * Math.PI * 3);
+      a.body.rotation.x = -0.56;
+      rot(b.legL, -0.45 + 0.45 * s); rot(b.legR, -0.45 - 0.45 * s);
+      rot(b.armL, -0.55 - 0.45 * s); rot(b.armR, -0.55 + 0.45 * s);
+    } else if (phase === 'perch') {
+      mov(b.hips, 0, -0.10, 0); a.body.rotation.x = 0.06;
+    } else if (phase === 'leap' || phase === 'hurdle') {
+      a.body.rotation.x = -0.32 + 0.68 * k;
+      rot(b.armL, -0.65); rot(b.armR, -0.65);
+      rot(b.legL, 0.55); rot(b.legR, 0.55);
+    } else if (phase === 'land') {
+      const c = Math.sin(k * Math.PI);
+      mov(b.hips, 0, -0.14 * c, 0); a.body.rotation.x = 0.14 * c;
+    }
+    return;
+  }
+  const hasRobe = !!b.robe1;
+  if (phase === 'climb') {
+    const alt = Math.sin(k * Math.PI * 2.5);
+    mov(b.hips, 0, -0.06 + 0.04 * Math.abs(alt), 0);
+    rot(b.hips, 0, 0, 0.07 * alt);
+    rot(b.spine, 0.36, 0.08 * alt, 0); rot(b.chest, 0.16, -0.06 * alt, 0);
+    rot(b.neck, -0.14); rot(b.head, -0.22, 0, 0);
+    rot(b.armL, -1.78 + 0.42 * alt, -0.12, 0.16); rot(b.foreL, -0.68 - 0.24 * alt);
+    rot(b.armR, -1.78 - 0.42 * alt, 0.12, -0.16); rot(b.foreR, -0.68 + 0.24 * alt);
+    rot(b.legL, -0.76 - 0.34 * alt); rot(b.shinL, 1.12 + 0.34 * alt); rot(b.footL, -0.30);
+    rot(b.legR, -0.76 + 0.34 * alt); rot(b.shinR, 1.12 - 0.34 * alt); rot(b.footR, -0.30);
+    if (hasRobe) { mov(b.robe1, 0, 0.06, 0); rot(b.robe1, 0.18); rot(b.robe2, -0.26); rot(b.robe3, -0.22); }
+  } else if (phase === 'perch') {
+    const sq = smK(Math.min(1, k * 1.4));
+    mov(b.hips, 0, -0.22 * sq, 0);
+    rot(b.spine, 0.44 * sq, -0.06, 0); rot(b.chest, 0.18 * sq, 0, 0);
+    rot(b.neck, -0.14 * sq); rot(b.head, -0.18 * sq, 0, 0);
+    rot(b.legL, -0.92 * sq, 0, 0.08); rot(b.shinL, 1.40 * sq); rot(b.footL, -0.40 * sq);
+    rot(b.legR, -0.96 * sq, 0, -0.08); rot(b.shinR, 1.44 * sq); rot(b.footR, -0.42 * sq);
+    rot(b.armL, -0.88 * sq, -0.14, 0.20); rot(b.foreL, -0.44 * sq);
+    rot(b.armR, 0.32 * sq, 0.16, -0.18); rot(b.foreR, -0.58 * sq);
+    if (hasRobe) { mov(b.robe1, 0, 0.08 * sq, 0); rot(b.robe1, 0.24 * sq); rot(b.robe2, -0.42 * sq); rot(b.robe3, -0.34 * sq); }
+  } else if (phase === 'leap') {
+    const tuck = Math.sin(k * Math.PI);
+    a.body.rotation.x = 0.18 * tuck;
+    mov(b.hips, 0, 0.06 * tuck, 0);
+    rot(b.spine, 0.36 - 0.20 * k, -0.10 * tuck, 0); rot(b.chest, 0.14, 0.08 * tuck, 0);
+    rot(b.neck, -0.10); rot(b.head, -0.14, 0, 0);
+    // Scissor-tucked martial leap: right lead knee tucked high, left trail leg swept back, opening cleanly for touchdown
+    rot(b.legR, -0.96 * (1 - 0.42 * k), 0, -0.06); rot(b.shinR, 1.34 - 0.56 * k); rot(b.footR, -0.22);
+    rot(b.legL, 0.44 * (1 - k) - 0.32 * k, 0, 0.06); rot(b.shinL, 0.78 - 0.24 * k); rot(b.footL, 0.18 * (1 - k));
+    rot(b.armL, -0.56 + 0.36 * k, -0.18, 0.42 * tuck + 0.14); rot(b.foreL, -0.46);
+    rot(b.armR, 0.28 - 0.52 * k, 0.18, -0.26); rot(b.foreR, -0.62);
+    if (hasRobe) { mov(b.robe1, 0, 0.07 * tuck, 0); rot(b.robe1, -0.16 * tuck); rot(b.robe2, -0.28 * tuck); rot(b.robe3, -0.34 * tuck); }
+  } else if (phase === 'hurdle') {
+    const air = Math.sin(k * Math.PI);
+    a.body.rotation.x = 0.12 * air;
+    rot(b.spine, 0.30); rot(b.chest, 0.12); rot(b.head, -0.14);
+    rot(b.legR, -0.84 * air); rot(b.shinR, 1.14 * air); rot(b.footR, -0.24 * air);
+    rot(b.legL, 0.54 * air); rot(b.shinL, 0.66 * air);
+    rot(b.armL, -0.64 * air, 0, 0.24 * air); rot(b.foreL, -0.52 * air);
+    rot(b.armR, 0.42 * air, 0, -0.18 * air); rot(b.foreR, -0.58 * air);
+  } else if (phase === 'land') {
+    // Front-loaded shock-absorption landing crouch -> crisp spring back upright into combat stance
+    const raw = k < 0.30 ? k / 0.30 : Math.max(0, 1 - (k - 0.30) / 0.70);
+    const c = smK(raw);
+    mov(b.hips, 0, -0.26 * c, 0);
+    rot(b.spine, 0.42 * c, -0.06 * c, 0); rot(b.chest, 0.16 * c, 0, 0);
+    rot(b.neck, -0.12 * c); rot(b.head, -0.18 * c, 0, 0);
+    rot(b.legL, -0.78 * c, 0, 0.10 * c); rot(b.shinL, 1.34 * c); rot(b.footL, -0.52 * c);
+    rot(b.legR, -0.92 * c, 0, -0.10 * c); rot(b.shinR, 1.44 * c); rot(b.footR, -0.48 * c);
+    rot(b.armL, -0.62 * c, -0.18 * c, 0.24 * c); rot(b.foreL, -0.36 * c);
+    rot(b.armR, 0.44 * c, 0.16 * c, -0.20 * c); rot(b.foreR, -0.56 * c);
+    if (hasRobe) { mov(b.robe1, 0, 0.08 * c, 0); rot(b.robe1, 0.22 * c); rot(b.robe2, -0.42 * c); rot(b.robe3, -0.32 * c); }
+  }
+}
+
 /** act-114 (Ch5 ending choice): Liu Bai standing opposite kneeling Cui Xuan, extending her bright sabre level so its tip hovers
  *  just short of his throat with a subtle controlled tremble — world-space quaternion aim guarantees ZERO neck clipping. */
 export function heroHoldThroatPose(a: BattleActor, targetWorld: THREE.Vector3, t: number) {

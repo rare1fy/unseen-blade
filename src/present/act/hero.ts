@@ -582,7 +582,7 @@ export class Hero {
         if (canDash) { this.buf.dash = 0; this.startDash(w); break; }
         if (canJump) { this.buf.jump = 0; this.startJump(); break; }
         if (this.buf.atk > 0 && this.t > SWOOP_MOVE + 0.12) { this.buf.atk = 0; this.startCut('k1', w); break; }
-        if (this.t >= this.dur) this.set('free', 0);
+        if (this.t >= this.dur) { this.dashEndAt = this.age; this.set('free', 0); }
         break;
       }
       case 'reel': {
@@ -594,7 +594,7 @@ export class Hero {
         } else this.vel.multiplyScalar(Math.exp(-dt * 12));
         if (canDash && this.t > 0.1) { this.buf.dash = 0; this.startDash(w); break; }
         if (this.buf.atk > 0 && this.t > (this.reelSelf ? this.dur * 0.75 : 0.16)) { this.buf.atk = 0; this.pendT = 0; this.startCut('k1', w); break; }
-        if (this.t >= this.dur) this.set('free', 0);
+        if (this.t >= this.dur) { if (this.reelSelf) this.dashEndAt = this.age; this.set('free', 0); }
         break;
       }
       case 'stomp': {
@@ -765,8 +765,8 @@ export class Hero {
         // 11-18 一闪 + act-125 名刀藏锋变招 (dash / cleave / detonate / flash)
         const k = this.t / this.dur, u = Math.min(1, Math.max(0, (k - 0.08) / 0.22));
         const p = this.relFrom.clone().lerp(this.relTo, 1 - (1 - u) ** 3); this.vel.set(0, 0, 0); this.pos.x = p.x; this.pos.z = p.z;
-        const ghostCol = this.relMode === 'flash' ? 0xff6a3c : this.relMode === 'detonate' ? 0x76e8ff : this.relMode === 'cleave' ? 0xffcc48 : 0xfff0c8;
-        this.ghostT -= dt; if (k < 0.36 && this.ghostT <= 0) { this.ghostT = 0.025; fxAfterimage(this.pos.clone(), 1.9, ghostCol, { life: 0.3, glow: 0.7 }); }
+        const ghostCol = this.relMode === 'flash' ? 0xc85438 : this.relMode === 'detonate' ? 0x9ad2e4 : this.relMode === 'cleave' ? 0xdcb45c : 0xe8dec4;
+        this.ghostT -= dt; if (k < 0.36 && this.ghostT <= 0) { this.ghostT = 0.032; fxAfterimage(this.pos.clone(), 1.9, ghostCol, { life: 0.24, glow: 0.36 }); }
         if (!this.hitDone && k >= 0.36) {
           this.hitDone = true;
           const baseDmg = Math.round(TUNE.relDmg * (1 + this.chargeK) * (this.iaiBonus ? 2 : 1) * (this.relSecond ? v(this.perks, 'twinDraw') / 100 : 1));
@@ -789,9 +789,9 @@ export class Hero {
         if (this.hitDone && !held && canDash) { this.buf.dash = 0; this.startDash(w); break; }
         if (this.hitDone && !held && canJump) { this.buf.jump = 0; this.startJump(); break; }
         // act-109 一闪去黏手: once the slash has opened, chain straight into k1 or walk out (no forced 0.27s recovery freeze)
-        if (this.hitDone && !held && k >= 0.44 && this.buf.atk > 0) { this.buf.atk = 0; this.startCut('k1', w); break; }
-        if (this.hitDone && !held && k >= 0.48 && sl > 0.4 && (!hasBoon(this.perks, 'twinDraw') || this.relSecond)) { this.set('free', 0); break; }
-        if (k >= 1) { if (this.iaiBonus) this.startNoto(); else this.set('free', 0); }
+        if (this.hitDone && !held && k >= 0.44 && this.buf.atk > 0) { this.dashEndAt = this.age; this.buf.atk = 0; this.startCut('k1', w); break; }
+        if (this.hitDone && !held && k >= 0.48 && sl > 0.4 && (!hasBoon(this.perks, 'twinDraw') || this.relSecond)) { this.dashEndAt = this.age; this.set('free', 0); break; }
+        if (k >= 1) { this.dashEndAt = this.age; if (this.iaiBonus) this.startNoto(); else this.set('free', 0); }
         break;
       }
       case 'noto': {
@@ -834,9 +834,9 @@ export class Hero {
         if (this.dcutHit && canDash) { this.buf.dash = 0; this.startDash(w); break; }
         if (this.dcutHit && canJump) { this.buf.jump = 0; this.startJump(); break; }
         // act-109 去黏手: 穿风斩 can chain smoothly into k1 or move-cancel right after the slash lands
-        if (this.dcutHit && this.t >= DCUT_MOVE + 0.06 && this.buf.atk > 0) { this.buf.atk = 0; this.startCut('k1', w); break; }
-        if (this.dcutHit && this.t >= DCUT_MOVE + 0.11 && sl > 0.45) { this.set('free', 0); break; }
-        if (this.t >= this.dur) this.set('free', 0);
+        if (this.dcutHit && this.t >= DCUT_MOVE + 0.06 && this.buf.atk > 0) { this.dashEndAt = this.age; this.buf.atk = 0; this.startCut('k1', w); break; }
+        if (this.dcutHit && this.t >= DCUT_MOVE + 0.11 && sl > 0.45) { this.dashEndAt = this.age; this.set('free', 0); break; }
+        if (this.t >= this.dur) { this.dashEndAt = this.age; this.set('free', 0); }
         break;
       }
       case 'hurt': this.vel.multiplyScalar(Math.exp(-dt * 9)); if (this.t >= this.dur) this.set(this.airborne ? 'air' : 'free', this.airborne ? 99 : 0); break;
@@ -1085,8 +1085,9 @@ export class Hero {
   private handL() { const b = this.a.bones?.offhand ?? this.a.bones?.foreL; return b ? b.localToWorld(V3(0, 0, 0)) : this.pos.clone().add(V3(0, 1.25, 0)).addScaledVector(V3(Math.cos(this.a.yaw), 0, -Math.sin(this.a.yaw)), 0.3); }
   private move(dt: number, w: HeroWorld) {
     this.pos.addScaledVector(this.vel, dt);
-    // high in the air the hero passes over the foes; on the ground (and in a dash or the lunge) the usual push-out
-    if (this.y < 0.6) for (const f of w.foes) if (f.st !== 'dead') { const d = this.pos.clone().sub(f.pos).setY(0), l = d.length(), mm = this.r + f.d.r; if (l < mm && l > 1e-4 && this.st !== 'dash' && this.st !== 'rel' && this.st !== 'dcut' && this.st !== 'swoop' && !(this.st === 'reel' && this.reelSelf)) this.pos.addScaledVector(d, (mm - l) / l * 0.6); }
+    // act-137: clean dash/phase pass-through — NEVER bump off or push enemies during dash, dodgeWin, dcut, rel, swoop, or reelSelf!
+    const phasing = this.dodgeWin || this.st === 'dash' || this.st === 'rel' || this.st === 'dcut' || this.st === 'swoop' || (this.st === 'reel' && this.reelSelf);
+    if (this.y < 0.6 && !phasing) for (const f of w.foes) if (f.st !== 'dead') { const d = this.pos.clone().sub(f.pos).setY(0), l = d.length(), mm = this.r + f.d.r; if (l < mm && l > 1e-4) this.pos.addScaledVector(d, (mm - l) / l * 0.6); }
     w.clamp(this.pos, this.r);
   }
 }

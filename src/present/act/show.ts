@@ -56,7 +56,7 @@ import { rackBlades, hideoutScene, HIDEOUT, HIDEOUT_PEOPLE } from './hideout';
 import { Timeline, type V } from './timeline';
 import { openingShots, bossIntroShots, generalIntroShots, steleStrikeShots, safeCam, type CineHost } from './cutscenes';
 import { NPC_TALK, STELE_TALK, MEAL_TALK, UP_TALK, POOR_TALK, WAKE_DUWU, WAKE_SUNAO, CHULEI_BEFORE, CH_BEFORE, CH_AFTER, BOSS_AFTER, STRIKE_FLAG, bossesDown, struckOnStele, ENDING, ENDING_PICK, ENDING_DESC, GEN_BEFORE, GEN_AFTER, deathLine, PRO_CUIXUAN, PRO_FALL, PRO_DAWN, PRO_WAKE, PRO_CAPTIONS, PRO_AMBUSH } from './scripts';
-import { fallShots, snowShots, dawnShots, snapDawn, loadShots, brazier, getUpPose, drapeOver, GETUP_STEP, Kneel, KNEEL_ARMS, CuiInspect, cuiKneelDefeatPose, heroHoldThroatPose, heroSitFirePose, npcWarmPose, endingWalkShots, type PrologueHost } from './prologue';
+import { fallShots, snowShots, dawnShots, snapDawn, loadShots, brazier, getUpPose, drapeOver, GETUP_STEP, Kneel, KNEEL_ARMS, CuiInspect, cuiKneelDefeatPose, bossKneelDefeatPose, poseWallVault, heroHoldThroatPose, heroSitFirePose, npcWarmPose, endingWalkShots, type PrologueHost, type VaultPhase } from './prologue';
 import { AllyGeneral, GENERAL_REGIONS, type AllyHost } from './foes/generals_ai';
 import { coldOpenShots, coldCardShots, BlindPOV } from './coldopen';
 import { Barks } from './barks';
@@ -383,6 +383,8 @@ export class ActShow {
   private defy = 0; private wine = false; private eliteKills = 0; private bossKilled = false; private banked: { iron: number; herb: number } | null = null;
   /** act-131: boss-death minion rout state + per-run replacement boss pool tracker (no resurrecting slain story bosses!) */
   private bossDefeated = false; private poolBossRoom = false; private usedPoolBosses = new Set<string>();
+  /** act-137: canonical story boss held kneeling on-field during first-kill slowmo & CH_AFTER confrontation until executed on cue */
+  private kneelingBoss: { f: Foe; t: number; executed: boolean; region: number } | null = null;
   private fleeing: Array<{ a: BattleActor; pos: THREE.Vector3; dir: THREE.Vector3; t: number; dur: number }> = [];
   private clearFleeing() { for (const f of this.fleeing) f.a.dispose(); this.fleeing.length = 0; }
   /** a cutscene's place: the open land, no walls / gates / props */ private noArena = false;
@@ -546,7 +548,7 @@ export class ActShow {
     const stopZ = p0.z - WALK;
     this.proSpec0 = this.spec ?? null; this.proAt0 = { x: p0.x, z: stopZ };
     const ring = (this.plan?.waves[0] ?? []).map((k, i, all) => ({ k, a: Math.PI * 0.15 + (i / all.length) * Math.PI * 2 + 0.35, d: 3.4 + (i % 2) * 0.7 }));
-    const jumpers: Array<{ f: Foe; from: THREE.Vector3; to: THREE.Vector3; wall: number; t0: number; landed: boolean }> = [];
+    const jumpers: Array<{ f: Foe; from: THREE.Vector3; crest: THREE.Vector3; land: THREE.Vector3; to: THREE.Vector3; wall: number; t0: number; perched: boolean; landed: boolean }> = [];
     const snowRing = (x: number, z: number, r = 1.4) => fxRing(V3(x, 0.05, z), 0xdfe8ff, r, { life: 0.9 } as never);
     const stand = () => { h.pos.z = stopZ; motionOf(h.a).run = 0; };
     const cam = (dx: number, y: number, dz: number, lz: number, fov: number): { pos: V; look: V; fov: number } => ({ pos: [p0.x + dx, y, stopZ + dz] as V, look: [p0.x, 0.9, stopZ + lz] as V, fov });
@@ -560,20 +562,25 @@ export class ActShow {
         let a = r.a, dd = r.d; const ok = (x: number, z: number) => clearAt(x, z, 0.9) && jumpers.every(j => j.to.distanceTo(V3(x, 0, z)) > 1.3);
         for (let tt = 0; tt < 24 && !ok(p0.x + Math.sin(a) * dd, stopZ + Math.cos(a) * dd); tt++) { a += (tt % 2 ? -1 : 1) * 0.22 * (tt + 1); if (tt === 12) dd += 0.6; }
         const ko = kindOr(r.k), to = V3(p0.x + Math.sin(a) * dd, 0, stopZ + Math.cos(a) * dd);
-        // act-135: opening ambushers ALWAYS start strictly OUTSIDE the village perimeter walls and vault over the walls/eaves (never pop in mid-street!)
+        // act-135 / act-137: opening ambushers start just behind the village perimeter wall, vault cleanly onto a realistic landing spot
+        // 1.8–2.4m inside the wall, absorb the landing in a crouch, then sprint across the snow into encirclement around Liu Bai!
         const dx = Math.sin(a), dz = Math.cos(a);
         let sEdge = 1e9, hitFront = false;
         if (dx > 1e-4) { const s = (b.x1 - to.x) / dx; if (s > 0 && s < sEdge) { sEdge = s; hitFront = false; } }
         else if (dx < -1e-4) { const s = (b.x0 - to.x) / dx; if (s > 0 && s < sEdge) { sEdge = s; hitFront = false; } }
         if (dz > 1e-4) { const s = (b.z1 - to.z) / dz; if (s > 0 && s < sEdge) { sEdge = s; hitFront = true; } }
         else if (dz < -1e-4) { const s = (b.z0 - to.z) / dz; if (s > 0 && s < sEdge) { sEdge = s; hitFront = false; } }
-        const distOut = Math.min(18, Math.max(4.5, sEdge)) + 1.4;
-        const from = V3(to.x + dx * distOut, 0, to.z + dz * distOut);
-        const wall = hitFront ? 1.2 : 2.6;
+        const edgeDist = Math.min(12, Math.max(2.2, sEdge));
+        const crest = V3(to.x + dx * edgeDist, 0, to.z + dz * edgeDist);
+        const from = V3(crest.x + dx * 0.9, 0, crest.z + dz * 0.9);
+        const leapSpan = Math.min(2.2, edgeDist);
+        const land = edgeDist <= 2.4 ? to.clone() : V3(crest.x - dx * leapSpan, 0, crest.z - dz * leapSpan);
+        if (this.grid && this.grid.at(land.x, land.z) !== FLOOR) { const q = this.grid.nearestFloor(land.x, land.z); land.set(q[0], 0, q[1]); }
+        const wall = hitFront ? 0 : 2.45;
         const f = spawnFoe(ko.kind, from, h.pos.clone(), ko.elite); f.st = 'enter'; f.cd = 2.5;
         f.a.root.visible = false;
         this.foes.push(f);
-        jumpers.push({ f, from, to, wall, t0: 0.12 + i * 0.26, landed: false });
+        jumpers.push({ f, from, crest, land, to, wall, t0: 0.08 + i * 0.28, perched: false, landed: false });
       }
       cue('roar', 0.35); this.musicHold = null; void audio.playMusic(this.musicName(), 2.5);
     };
@@ -588,45 +595,94 @@ export class ActShow {
       { dur: 2.6, ease: 'inOut', from: cam(4.6, 2.9, 6.4, -0.8, 34), to: cam(4.0, 2.7, 5.6, -0.6, 33),
         at: [[0.3, () => snowRing(p0.x - 3.2, stopZ - 1.8)], [0.8, () => snowRing(p0.x + 3.6, stopZ + 0.6)], [1.3, () => snowRing(p0.x - 1.0, stopZ - 3.8)], [1.75, () => snowRing(p0.x + 1.8, stopZ + 3.2)], [1.0, () => cue('foeSwing', 0.25)]],
         tick: (t, dt) => { stand(); h.a.update(dt); const hd = h.a.bones.head; if (hd) hd.rotation.y += 0.35 * Math.sin(Math.min(1, t / 1.6) * Math.PI); } },
-      // they come out: climbing up outside the village walls and vaulting over the walls/eaves into the snow round her, one after another
-      { dur: 2.6, ease: 'out', from: cam(0.6, 7.2, 8.6, -0.8, 40), to: cam(0.4, 6.4, 7.6, -0.6, 40),
+      // they come out: scaling the perimeter walls with articulated parkour vaults, landing in a crouch, then sprinting across the snow to surround her
+      { dur: 3.1, ease: 'out', from: cam(0.6, 7.2, 8.6, -0.8, 40), to: cam(0.4, 6.4, 7.6, -0.6, 40),
         at: [[0, spawnAmbushers]],
         tick: (t, dt) => {
           stand(); h.a.update(dt);
-          const CLIMB = 0.22, LEAP = 0.64;
           for (const j of jumpers) {
             const f = j.f, el = t - j.t0;
             if (el < 0) { f.a.root.visible = false; continue; }
             f.a.root.visible = true;
-            if (el < CLIMB) {
-              const c = el / CLIMB;
-              f.pos.copy(j.from); f.pos.y = 0; f.a.home.copy(f.pos);
-              f.a.off.y = j.wall * (1 - (1 - c) * (1 - c));
+            const runDist = j.land.distanceTo(j.to), runDur = runDist > 0.3 ? Math.max(0.25, runDist / 4.8) : 0;
+            let pPhase: VaultPhase | null = null, pU = 0;
+            if (j.wall > 1.2) {
+              const CLIMB = 0.28, PERCH = 0.12, LEAP = 0.44, LAND = 0.18;
+              const tP = CLIMB, tL = tP + PERCH, tD = tL + LEAP, tR = tD + LAND;
+              if (el < tP) {
+                const u = el / CLIMB; pPhase = 'climb'; pU = u;
+                f.pos.lerpVectors(j.from, j.crest, u * 0.38); f.pos.y = 0; f.a.home.copy(f.pos);
+                f.a.off.y = (j.wall - 0.12) * (1 - (1 - u) * (1 - u));
+                f.yaw = Math.atan2(j.crest.x - j.from.x, j.crest.z - j.from.z); f.a.setRunning(false);
+              } else if (el < tL) {
+                const u = (el - tP) / PERCH; pPhase = 'perch'; pU = u;
+                if (!j.perched) { j.perched = true; fxSmoke(j.crest.clone().setY(j.wall), 0xdce4f0, 4, { r: 0.35, spd: 0.7, up: 0.25, s: 0.26, life: 0.42, alpha: 0.5 }); }
+                f.pos.lerpVectors(j.from, j.crest, 0.38 + 0.62 * u); f.pos.y = 0; f.a.home.copy(f.pos);
+                f.a.off.y = j.wall;
+                f.yaw = Math.atan2(j.land.x - j.crest.x, j.land.z - j.crest.z); f.a.setRunning(false);
+              } else if (el < tD) {
+                const u = (el - tL) / LEAP; pPhase = 'leap'; pU = u;
+                f.pos.lerpVectors(j.crest, j.land, u); f.pos.y = 0; f.a.home.copy(f.pos);
+                f.a.off.y = j.wall * (1 - u * u) + 0.62 * 4 * u * (1 - u);
+                f.yaw = Math.atan2(j.land.x - j.crest.x, j.land.z - j.crest.z); f.a.setRunning(false);
+              } else if (el < tR) {
+                const u = (el - tD) / LAND; pPhase = 'land'; pU = u;
+                if (!j.landed) { j.landed = true; cue('land', 0.42); fxSmoke(j.land.clone().setY(0.1), 0xe8eef8, 8, { r: 0.65, spd: 1.0, up: 0.45, s: 0.42, life: 0.65, alpha: 0.65 }); }
+                f.pos.copy(j.land); f.pos.y = 0; f.a.home.copy(f.pos); f.a.off.y = 0;
+                f.yaw = Math.atan2(h.pos.x - f.pos.x, h.pos.z - f.pos.z); f.a.setRunning(false);
+              } else if (runDur > 0 && el < tR + runDur) {
+                const u = (el - tR) / runDur;
+                f.pos.lerpVectors(j.land, j.to, u); f.pos.y = 0; f.a.home.copy(f.pos); f.a.off.y = 0; f.a.body.rotation.set(0, 0, 0);
+                f.yaw = Math.atan2(j.to.x - j.land.x, j.to.z - j.land.z); f.a.setRunning(true, 4.8, f.yaw);
+              } else {
+                if (!j.landed) { j.landed = true; cue('land', 0.42); }
+                f.pos.copy(j.to); f.pos.y = 0; f.a.home.copy(f.pos); f.a.off.y = 0; f.a.body.rotation.set(0, 0, 0);
+                f.yaw = Math.atan2(h.pos.x - f.pos.x, h.pos.z - f.pos.z); f.a.setRunning(false);
+              }
             } else {
-              const k = Math.min(1, (el - CLIMB) / LEAP);
-              f.pos.lerpVectors(j.from, j.to, k); f.pos.y = 0; f.a.home.copy(f.pos);
-              f.a.off.y = j.wall * (1 - k * k) + 1.1 * 4 * k * (1 - k);
-              if (k >= 1 && !j.landed) { j.landed = true; f.a.off.y = 0; cue('land', 0.4); fxSmoke(j.to.clone().setY(0.1), 0xe8eef8, 8, { r: 0.65, spd: 1.0, up: 0.45, s: 0.42, life: 0.65, alpha: 0.65 }); }
+              // Open front road: agile low hurdle + sprint straight in (zero invisible wall climb!)
+              const HURDLE = 0.36, LAND = 0.14;
+              const tD = HURDLE, tR = tD + LAND;
+              if (el < tD) {
+                const u = el / HURDLE; pPhase = 'hurdle'; pU = u;
+                f.pos.lerpVectors(j.from, j.land, u); f.pos.y = 0; f.a.home.copy(f.pos);
+                f.a.off.y = 0.55 * 4 * u * (1 - u);
+                f.yaw = Math.atan2(j.land.x - j.from.x, j.land.z - j.from.z); f.a.setRunning(false);
+              } else if (el < tR) {
+                const u = (el - tD) / LAND; pPhase = 'land'; pU = u;
+                if (!j.landed) { j.landed = true; cue('land', 0.36); fxSmoke(j.land.clone().setY(0.1), 0xe8eef8, 6, { r: 0.55, spd: 0.9, up: 0.35, s: 0.36, life: 0.55, alpha: 0.6 }); }
+                f.pos.copy(j.land); f.pos.y = 0; f.a.home.copy(f.pos); f.a.off.y = 0;
+                f.yaw = Math.atan2(h.pos.x - f.pos.x, h.pos.z - f.pos.z); f.a.setRunning(false);
+              } else if (runDur > 0 && el < tR + runDur) {
+                const u = (el - tR) / runDur;
+                f.pos.lerpVectors(j.land, j.to, u); f.pos.y = 0; f.a.home.copy(f.pos); f.a.off.y = 0; f.a.body.rotation.set(0, 0, 0);
+                f.yaw = Math.atan2(j.to.x - j.land.x, j.to.z - j.land.z); f.a.setRunning(true, 4.8, f.yaw);
+              } else {
+                if (!j.landed) { j.landed = true; cue('land', 0.36); }
+                f.pos.copy(j.to); f.pos.y = 0; f.a.home.copy(f.pos); f.a.off.y = 0; f.a.body.rotation.set(0, 0, 0);
+                f.yaw = Math.atan2(h.pos.x - f.pos.x, h.pos.z - f.pos.z); f.a.setRunning(false);
+              }
             }
-            f.yaw = Math.atan2(h.pos.x - f.pos.x, h.pos.z - f.pos.z); f.a.yaw = f.yaw;
+            f.a.yaw = f.yaw;
             f.a.update(dt);
+            if (pPhase) poseWallVault(f.a, pPhase, pU);
           }
         } },
       // the ring closed: low, from outside it, her in the middle
       { dur: 1.6, ease: 'inOut', from: cam(5.6, 4.4, 7.2, -0.4, 38), to: cam(5.0, 4.0, 6.6, -0.3, 36),
-        tick: (_t, dt) => { stand(); h.a.update(dt); for (const j of jumpers) { j.f.a.root.visible = true; j.f.a.off.y = 0; j.f.a.update(dt); } } },
+        tick: (_t, dt) => { stand(); h.a.update(dt); for (const j of jumpers) { j.f.a.root.visible = true; j.f.a.off.y = 0; j.f.a.body.rotation.set(0, 0, 0); j.f.a.setRunning(false); j.f.a.update(dt); } } },
     ], () => {
       // act-114 skip-safety: even if player skipped shot 0/1/2, hero is at stopZ and wave-0 ambushers are landed & music is live
       h.pos.set(p0.x, 0, stopZ); h.a.home.copy(h.pos); h.a.root.position.copy(h.pos); h.a.yaw = Math.PI; motionOf(h.a).run = 0;
       spawnAmbushers();
       for (const j of jumpers) {
-        j.landed = true; j.f.a.root.visible = true; j.f.pos.copy(j.to); j.f.pos.y = 0; j.f.a.home.copy(j.to); j.f.a.off.y = 0;
+        j.landed = true; j.f.a.root.visible = true; j.f.pos.copy(j.to); j.f.pos.y = 0; j.f.a.home.copy(j.to); j.f.a.off.y = 0; j.f.a.body.rotation.set(0, 0, 0); j.f.a.setRunning(false);
         j.f.yaw = Math.atan2(h.pos.x - j.f.pos.x, h.pos.z - j.f.pos.z); j.f.a.yaw = j.f.yaw; j.f.a.update(0.016);
       }
       if (this.musicHold) { this.musicHold = null; void audio.playMusic(this.musicName(), 2.0); }
     }).then(async () => {
       if (this.phase !== 'intro' || this.hero !== h) return;
-      for (const j of jumpers) { j.f.a.root.visible = true; j.f.pos.copy(j.to); j.f.a.home.copy(j.to); j.f.a.off.y = 0; }
+      for (const j of jumpers) { j.f.a.root.visible = true; j.f.pos.copy(j.to); j.f.a.home.copy(j.to); j.f.a.off.y = 0; j.f.a.body.rotation.set(0, 0, 0); j.f.a.setRunning(false); }
       await this.talk(PRO_AMBUSH);
       if (this.hero !== h) return;
       for (const j of jumpers) { j.f.st = 'move'; j.f.cd = 0.6 + Math.random() * 0.8; }
@@ -1893,6 +1949,8 @@ export class ActShow {
       },
       /** act-114: preview Ch5 blade-at-throat ending choice, or directly play ending 'a' | 'b' | 'c' */
       ending: (choice?: 'a' | 'b' | 'c') => { void this.debugEnding(choice); },
+      /** act-137: preview Ch1–Ch4 boss first-kill kneel + execution slash staging (ri = 0..3) */
+      bossAfter: (ri = 0, executeNow = false) => { void this.debugBossAfter(Math.max(0, Math.min(3, ri)), executeNow); },
       /** act-114: preview hideout stele carving cutscene for name index n (0..4) */
       steleCut: (n = 0) => { void this.debugSteleCut(Math.max(0, Math.min(4, n))); },
       newGame: () => this.startNewGame(), talkTest: (n = 0) => this.talk(n ? CHULEI_BEFORE : WAKE_DUWU), act: () => this, bot: (on = true) => { this.botOn = on; }, run: () => this.startRun(), yard: () => this.enterYard(), wear: (id: string) => { const d = HEROES.find(h => h.id === id); if (d) this.wear(d); },
@@ -2204,7 +2262,7 @@ export class ActShow {
     // a room may be up (__dh.title from the yard): its actors go the way a room change sends them
     this.propContacts?.dispose(); this.propContacts = undefined;
     this.foeContacts?.dispose(); this.foeContacts = undefined;
-    this.duel?.newRoom(); for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = []; this.entering.length = 0; this.clearBossDrops(); this.clearFleeing(); this.bossDefeated = false; this.poolBossRoom = false;
+    this.duel?.newRoom(); for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = []; this.entering.length = 0; this.clearBossDrops(); this.clearFleeing(); this.bossDefeated = false; this.poolBossRoom = false; this.kneelingBoss = null;
     this.yard?.dispose(); this.yard = null; this.props?.dispose(); this.props = null; this.gates?.dispose(); this.gates = null; this.pieces?.dispose(); this.pieces = null; this.leaves?.dispose(); this.leaves = null; this.stations?.dispose(); this.stations = null; this.hero?.a.dispose();
     this.clearNpcs();
     this.phase = 'title'; this.hud.on = false; this.hud.update(0, this.inp, []); this.banner.hide(); this.blob.visible = false; this.ring.visible = false; for (const m of this.shadows) m.visible = false;
@@ -2459,7 +2517,7 @@ export class ActShow {
     if (this.generalEvent) { this.generalEvent.dispose(); this.generalEvent = null; }
     this.duelGen = null;
     if (this.endCui) { this.endCui.dispose(); this.endCui = null; }
-    this.duel?.newRoom(); for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = []; this.entering.length = 0; this.clearBossDrops(); this.clearFleeing(); this.bossDefeated = false; this.poolBossRoom = false;
+    this.duel?.newRoom(); for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = []; this.entering.length = 0; this.clearBossDrops(); this.clearFleeing(); this.bossDefeated = false; this.poolBossRoom = false; this.kneelingBoss = null;
     this.falling = [];
     this.gates?.dispose(); this.gates = null; this.pieces?.dispose(); this.pieces = null; this.leaves?.dispose(); this.leaves = null; this.clearNpcs();
     for (const d of this.doors) d.g.parent?.remove(d.g); this.doors = []; this.stations?.dispose(); this.stations = null; this.coinsFx.clear();
@@ -2906,7 +2964,7 @@ export class ActShow {
       cue('whoosh', 0.85);
       return f;
     }
-    if (way) this.entering.push({ f, from: way.from, to: way.to, wall: way.wall, t: 0, dur: way.dur });
+    if (way) this.entering.push({ f, from: way.from, crest: way.crest, land: way.land, to: way.to, wall: way.wall, t: 0, perched: false, landed: false, posePhase: null, poseU: 0 });
     else { fxSmoke(p.clone().add(V3(0, 0.3, 0)), 0x6a6a74, bs ? 14 : 8, { r: 0.7, spd: 1.2, up: 0.6, s: 0.4, life: 0.7 }); fxRing(p.clone().setY(0.05), bs && ko.kind === 'cx_boss' ? 0xe0e8f4 : 0xff7a4a, 1.2, { life: 0.4 } as never); }
     if (bs) this.bossEnterSound(ko.kind);
     else cue(way ? 'foeCry' : 'summon', way ? 0.25 : 0.4);
@@ -3026,13 +3084,15 @@ export class ActShow {
       after(i * 0.34, () => { this.spawnEntry(k, i); });
     });
   }
-  /** 11-19 敌人入场: those still on their way in (out of reach until they are on the floor: no blow, no AI, no damage) */
-  private entering: Array<{ f: Foe; from: THREE.Vector3; to: THREE.Vector3; wall: number; t: number; dur: number }> = [];
+  /** 11-19 / act-137 敌人入场: articulated wall-vault (climb -> crest mantle -> parkour leap -> landing crouch -> sprint-in) */
+  private entering: Array<{
+    f: Foe; from: THREE.Vector3; crest: THREE.Vector3; land: THREE.Vector3; to: THREE.Vector3;
+    wall: number; t: number; perched: boolean; landed: boolean; posePhase: VaultPhase | null; poseU: number;
+  }> = [];
   /** where a foe comes in from: the room's edge level with its spot p (the back and the two sides first, the side away from her
-   *  first; the camera's side last), and where it lands — 1.4–3.6 m inside that edge, on clear floor, in the piece of the room being
-   *  fought over. It always comes over the edge: the back and side walls stand a man's height (it climbs up behind them and hops
-   *  down inside), the camera's side is low (a hop). Nothing walks through a wall or a barricaded door. null = no edge works */
-  private entryFrom(p: THREE.Vector3, hp: THREE.Vector3, i: number, zb: { x0: number; x1: number; z0: number; z1: number } | null, sz: number): { from: THREE.Vector3; to: THREE.Vector3; wall: number; dur: number } | null {
+   *  first; the camera's side last), vaulting over the wall onto a realistic landing spot 1.6–2.4 m inside the edge, then sprinting
+   *  to its target if further inside. Front open edge uses a crisp low hurdle + sprint-in (no invisible wall climb). */
+  private entryFrom(p: THREE.Vector3, hp: THREE.Vector3, i: number, zb: { x0: number; x1: number; z0: number; z1: number } | null, sz: number): { from: THREE.Vector3; crest: THREE.Vector3; land: THREE.Vector3; to: THREE.Vector3; wall: number } | null {
     const g = this.grid, b = zb ?? (g ? g.sp.box : { x0: PLAY.x0, x1: PLAY.x1, z0: PLAY.z0, z1: PLAY.z1 });
     const sides: Array<[number, number]> = [[0, -1], [-1, 0], [1, 0], [0, 1]];
     // act-118: rotate entry edges across wave indices so enemies arrive in multi-directional pincers instead of single-file clumping
@@ -3047,16 +3107,21 @@ export class ActShow {
       const ex = d[0] ? (d[0] < 0 ? b.x0 : b.x1) : p.x, ez = d[1] ? (d[1] < 0 ? b.z0 : b.z1) : p.z;
       const len = Math.hypot(p.x - ex, p.z - ez); if (len < 1.6) continue;
       const ux = (p.x - ex) / len, uz = (p.z - ez) / len;
-      let land = -1; for (let t = 1.4 + (i % 3) * 0.55; t < Math.min(len, 6); t += 0.3) if (okAt(ex + ux * t, ez + uz * t)) { land = t; break; }
-      if (land < 0) continue;
-      const front = k === 3, wall = front ? 1.0 : 2.5;
-      const from = V3(ex - ux * 1.15, 0, ez - uz * 1.15), to = V3(ex + ux * land, 0, ez + uz * land);
-      return { from, to, wall, dur: 0.3 + 0.32 + 0.12 * Math.min(3, land) };
+      let dist = -1; for (let t = 1.4 + (i % 3) * 0.55; t < Math.min(len, 6); t += 0.3) if (okAt(ex + ux * t, ez + uz * t)) { dist = t; break; }
+      if (dist < 0) continue;
+      const front = k === 3, wall = front ? 0 : 2.45;
+      const crest = V3(ex, 0, ez);
+      const from = V3(ex - ux * 0.9, 0, ez - uz * 0.9);
+      const to = V3(ex + ux * dist, 0, ez + uz * dist);
+      const landDist = Math.min(dist, 2.2);
+      const land = V3(ex + ux * landDist, 0, ez + uz * landDist);
+      if (g && g.at(land.x, land.z) !== FLOOR) land.copy(to);
+      return { from, crest, land, to, wall };
     }
     return null;
   }
-  /** act-135: guaranteed perimeter wall-vault / edge-rush entry so NO regular wave foe or boss reinforcement ever pops out of thin air */
-  private entryFromGuaranteed(p: THREE.Vector3, hp: THREE.Vector3, i: number, zb: { x0: number; x1: number; z0: number; z1: number } | null, sz: number): { from: THREE.Vector3; to: THREE.Vector3; wall: number; dur: number } {
+  /** act-135 / act-137: guaranteed perimeter wall-vault / edge-rush entry so NO regular wave foe or boss reinforcement ever pops out of thin air */
+  private entryFromGuaranteed(p: THREE.Vector3, hp: THREE.Vector3, i: number, zb: { x0: number; x1: number; z0: number; z1: number } | null, sz: number): { from: THREE.Vector3; crest: THREE.Vector3; land: THREE.Vector3; to: THREE.Vector3; wall: number } {
     const strict = this.entryFrom(p, hp, i, zb, sz);
     if (strict) return strict;
     const g = this.grid, b = zb ?? (g ? g.sp.box : { x0: PLAY.x0, x1: PLAY.x1, z0: PLAY.z0, z1: PLAY.z1 });
@@ -3072,11 +3137,14 @@ export class ActShow {
     const chosen = order[0];
     const [dx, dz] = chosen.d, front = chosen.k === 3;
     const ex = dx ? (dx < 0 ? b.x0 : b.x1) : to.x, ez = dz ? (dz < 0 ? b.z0 : b.z1) : to.z;
-    const from = V3(ex + dx * 1.25, 0, ez + dz * 1.25);
-    const dist = Math.hypot(to.x - ex, to.z - ez);
-    return { from, to, wall: front ? 1.1 : 2.5, dur: 0.3 + 0.32 + 0.12 * Math.min(3.5, Math.max(1.2, dist)) };
+    const crest = V3(ex, 0, ez);
+    const from = V3(ex + dx * 0.95, 0, ez + dz * 0.95);
+    const inDx = to.x - ex, inDz = to.z - ez, dist = Math.hypot(inDx, inDz);
+    const land = dist > 2.3 ? V3(ex + (inDx / dist) * 2.1, 0, ez + (inDz / dist) * 2.1) : to.clone();
+    if (g && g.at(land.x, land.z) !== FLOOR) land.copy(to);
+    return { from, crest, land, to, wall: front ? 0 : 2.45 };
   }
-  /** act-135: boss-summoned reinforcements climb over the arena perimeter walls / rush in from outside, staggered cleanly */
+  /** act-135 / act-137: boss-summoned reinforcements climb over the arena perimeter walls / rush in from outside, staggered cleanly */
   private spawnReinforce(kind: EKind, idx = 0): Foe | null {
     if (this.phase !== 'fight' || this.bossDefeated) return null;
     const hp = this.hero.pos, gd = this.grid;
@@ -3095,37 +3163,80 @@ export class ActShow {
     const delay = idx * 0.18;
     if (delay > 0) f.a.root.visible = false;
     this.foes.push(f);
-    this.entering.push({ f, from: way.from, to: way.to, wall: way.wall, t: -delay, dur: way.dur });
+    this.entering.push({ f, from: way.from, crest: way.crest, land: way.land, to: way.to, wall: way.wall, t: -delay, perched: false, landed: false, posePhase: null, poseU: 0 });
     cue('foeCry', 0.28);
     return f;
   }
-  /** per frame: the foes on their way in — up the outside of the wall (0.3 s, behind it, out of sight from the back), a crouch on its
-   *  top, one hop down inside landing in a crouch with a puff (the hop longer the further in it lands). Then the fight takes them */
+  /** act-137 per frame: 5-stage martial parkour entry — wall climb -> crest mantle crouch (with dust) -> scissor-tucked ballistic leap ->
+   *  shock-absorbing landing crouch -> articulated sprint-in to combat position (open front edges use an agile low hurdle + sprint). */
   private enterStep(dt: number) {
     for (let n = this.entering.length - 1; n >= 0; n--) {
       const e = this.entering[n], f = e.f;
-      if (f.st === 'dead') { this.entering.splice(n, 1); continue; }
+      if (f.st === 'dead') { f.a.body.rotation.set(0, 0, 0); this.entering.splice(n, 1); continue; }
       e.t += dt;
       if (e.t < 0) {
-        f.a.root.visible = false; f.pos.copy(e.from); f.vel.set(0, 0, 0);
+        f.a.root.visible = false; f.pos.copy(e.from); f.vel.set(0, 0, 0); e.posePhase = null;
         f.st = 'enter'; f.t = 0; f.dur = 0.35; f.inv = Math.max(f.inv, 0.25);
         continue;
       }
       f.a.root.visible = true;
-      const T = e.t, W = e.wall, CLIMB = 0.3, PERCH = 0.32;
-      f.vel.set(0, 0, 0); f.yaw = Math.atan2(e.to.x - e.from.x, e.to.z - e.from.z); f.a.yaw = f.yaw; f.a.setRunning(false);
-      if (T < CLIMB) { const c = T / CLIMB; f.pos.copy(e.from); f.pos.y = W * (1 - (1 - c) * (1 - c)); }
-      else if (T < PERCH) { f.pos.copy(e.from); f.pos.y = W; }
-      else {
-        const h = Math.min(1, (T - PERCH) / Math.max(0.05, e.dur - PERCH));
-        f.pos.lerpVectors(e.from, e.to, h); f.pos.y = W * (1 - h * h) + 0.6 * 4 * h * (1 - h);
+      const T = e.t, W = e.wall;
+      const runDist = e.land.distanceTo(e.to), runDur = runDist > 0.35 ? Math.min(0.85, runDist / 4.8) : 0;
+      f.vel.set(0, 0, 0);
+      f.st = 'enter'; f.t = 0; f.dur = 0.35; f.cd = Math.max(f.cd, 0.65); f.inv = Math.max(f.inv, 0.18);
+      if (W > 1.2) {
+        const CLIMB = 0.26, PERCH = 0.11, LEAP = 0.42 + 0.05 * Math.min(2.5, e.crest.distanceTo(e.land)), LAND = 0.18;
+        const tP = CLIMB, tL = tP + PERCH, tD = tL + LEAP, tR = tD + LAND, total = tR + runDur;
+        if (T < tP) {
+          const u = T / CLIMB; e.posePhase = 'climb'; e.poseU = u;
+          f.pos.lerpVectors(e.from, e.crest, u * 0.38); f.pos.y = (W - 0.12) * (1 - (1 - u) * (1 - u));
+          f.yaw = Math.atan2(e.crest.x - e.from.x, e.crest.z - e.from.z); f.a.setRunning(false);
+        } else if (T < tL) {
+          const u = (T - tP) / PERCH; e.posePhase = 'perch'; e.poseU = u;
+          if (!e.perched) { e.perched = true; fxSmoke(e.crest.clone().setY(W), 0x8a7d6d, 4, { r: 0.35, spd: 0.7, up: 0.25, s: 0.26, life: 0.4 }); }
+          f.pos.lerpVectors(e.from, e.crest, 0.38 + 0.62 * u); f.pos.y = W;
+          f.yaw = Math.atan2(e.land.x - e.crest.x, e.land.z - e.crest.z); f.a.setRunning(false);
+        } else if (T < tD) {
+          const u = (T - tL) / LEAP; e.posePhase = 'leap'; e.poseU = u;
+          f.pos.lerpVectors(e.crest, e.land, u); f.pos.y = W * (1 - u * u) + 0.58 * 4 * u * (1 - u);
+          f.yaw = Math.atan2(e.land.x - e.crest.x, e.land.z - e.crest.z); f.a.setRunning(false);
+        } else if (T < tR) {
+          const u = (T - tD) / LAND; e.posePhase = 'land'; e.poseU = u;
+          if (!e.landed) { e.landed = true; cue('land', 0.45); fxSmoke(e.land.clone().setY(0.1), 0x8a7a6a, 6, { r: 0.6, spd: 1.2, up: 0.4, s: 0.38, life: 0.55 }); shake(0.035 * TUNE.shake); }
+          f.pos.copy(e.land); f.pos.y = 0;
+          f.yaw = Math.atan2(this.hero.pos.x - f.pos.x, this.hero.pos.z - f.pos.z); f.a.setRunning(false);
+        } else if (T < total) {
+          const u = (T - tR) / Math.max(0.05, runDur); e.posePhase = null; f.a.body.rotation.set(0, 0, 0);
+          f.pos.lerpVectors(e.land, e.to, u); f.pos.y = 0;
+          f.yaw = Math.atan2(e.to.x - e.land.x, e.to.z - e.land.z); f.a.setRunning(true, 4.8, f.yaw);
+        } else {
+          if (!e.landed) { e.landed = true; cue('land', 0.45); }
+          f.pos.copy(e.to); f.pos.y = 0; f.inv = 0.12; f.a.body.rotation.set(0, 0, 0); f.a.setRunning(false);
+          this.entering.splice(n, 1); continue;
+        }
+      } else {
+        const HURDLE = 0.34, LAND = 0.14, tD = HURDLE, tR = tD + LAND, total = tR + runDur;
+        if (T < tD) {
+          const u = T / HURDLE; e.posePhase = 'hurdle'; e.poseU = u;
+          f.pos.lerpVectors(e.from, e.land, u); f.pos.y = 0.52 * 4 * u * (1 - u);
+          f.yaw = Math.atan2(e.land.x - e.from.x, e.land.z - e.from.z); f.a.setRunning(false);
+        } else if (T < tR) {
+          const u = (T - tD) / LAND; e.posePhase = 'land'; e.poseU = u;
+          if (!e.landed) { e.landed = true; cue('land', 0.35); fxSmoke(e.land.clone().setY(0.1), 0x8a7a6a, 5, { r: 0.5, spd: 1.0, up: 0.35, s: 0.32, life: 0.48 }); }
+          f.pos.copy(e.land); f.pos.y = 0;
+          f.yaw = Math.atan2(this.hero.pos.x - f.pos.x, this.hero.pos.z - f.pos.z); f.a.setRunning(false);
+        } else if (T < total) {
+          const u = (T - tR) / Math.max(0.05, runDur); e.posePhase = null; f.a.body.rotation.set(0, 0, 0);
+          f.pos.lerpVectors(e.land, e.to, u); f.pos.y = 0;
+          f.yaw = Math.atan2(e.to.x - e.land.x, e.to.z - e.land.z); f.a.setRunning(true, 4.8, f.yaw);
+        } else {
+          if (!e.landed) { e.landed = true; cue('land', 0.35); }
+          f.pos.copy(e.to); f.pos.y = 0; f.inv = 0.12; f.a.body.rotation.set(0, 0, 0); f.a.setRunning(false);
+          this.entering.splice(n, 1); continue;
+        }
       }
-      f.st = 'enter'; f.t = 0; f.dur = 0.35; f.cd = Math.max(f.cd, 0.7); f.inv = Math.max(f.inv, 0.2);
-      if (T >= e.dur) {
-        f.pos.copy(e.to); f.pos.y = 0; f.inv = 0.15;
-        cue('land', 0.5); fxSmoke(e.to.clone().setY(0.1), 0x8a7a6a, 6, { r: 0.6, spd: 1.2, up: 0.4, s: 0.38, life: 0.55 }); shake(0.04 * TUNE.shake);
-        this.entering.splice(n, 1);
-      }
+      f.a.yaw = f.yaw;
+      f.a.home.copy(f.pos);
     }
   }
   // ------------------------------------------------------------ the world the hero / foes see
@@ -3134,8 +3245,8 @@ export class ActShow {
    *  (the dash-cut goes through by design); whatever moved is held by the walls and the solids again */
   private separate() {
     const h = this.hero, B: Array<{ p: THREE.Vector3; r: number; m: number; moved: boolean; f?: Foe; isHero?: boolean }> = [];
-    // act-125 (Hades-style clean dash pass-through): hero NEVER collides during dash / dcut / swoop / rel / airborne
-    const heroPhasing = !h || h.hp <= 0 || h.st === 'dash' || h.st === 'dcut' || h.st === 'swoop' || h.st === 'rel' || h.airborne;
+    // act-125 / act-137 (Hades-style clean dash pass-through): hero NEVER collides with or shoves foes during dash / dodgeWin / dcut / swoop / rel / reel / airborne
+    const heroPhasing = !h || h.hp <= 0 || h.st === 'dash' || h.st === 'dcut' || h.st === 'swoop' || h.st === 'rel' || h.st === 'reel' || h.airborne || h.dodgeWin;
     if (!heroPhasing) B.push({ p: h.pos, r: h.r, m: 1, moved: false, isHero: true });
     for (const f of this.foes) if (f.st !== 'dead' && !this.bossDrops.some(d => d.f === f) && !this.entering.some(e => e.f === f)) B.push({ p: f.pos, r: f.d.r * 0.9, m: f.kind === 'dummy' ? 1e6 : isBoss(f) ? 8 : f.d.mass, moved: false, f });
     for (const n of this.npcs) B.push({ p: V3(n.x, 0, n.z), r: 0.42, m: 1e6, moved: false });
@@ -3144,15 +3255,9 @@ export class ActShow {
       if (d2 >= min * min || a.m >= 1e6 && b.m >= 1e6) continue;
       const d = Math.sqrt(d2) || 1e-3, nx = d2 > 1e-8 ? dx / d : 1, nz = d2 > 1e-8 ? dz / d : 0, over = min - d;
       let wa = b.m / (a.m + b.m), wb = a.m / (a.m + b.m);
-      // act-125: right after a dash finishes (dodgeWin), ONLY slide hero cleanly off the foe — NEVER shove enemies like bowling pins!
-      // Even during normal walking contact, cap hero's shove on foes so brushing past never knocks mobs out of attack reach.
-      if (a.isHero && b.f) {
-        if (h.dodgeWin) { wa = 1; wb = 0; }
-        else if (b.m < 1e6) { wb = Math.min(0.15, wb); wa = 1 - wb; }
-      } else if (b.isHero && a.f) {
-        if (h.dodgeWin) { wa = 0; wb = 1; }
-        else if (a.m < 1e6) { wa = Math.min(0.15, wa); wb = 1 - wa; }
-      }
+      // act-137: hero body contact NEVER shoves enemies away (ONLY blade hits/knock move enemies; hero slides cleanly round foes)
+      if (a.isHero && b.f) { wa = 1; wb = 0; }
+      else if (b.isHero && a.f) { wa = 0; wb = 1; }
       if (a.m < 1e6 && wa > 0) { a.p.x -= nx * over * wa; a.p.z -= nz * over * wa; a.moved = true; }
       if (b.m < 1e6 && wb > 0) { b.p.x += nx * over * wb; b.p.z += nz * over * wb; b.moved = true; }
     }
@@ -3975,15 +4080,15 @@ export class ActShow {
     else if (f.kind !== 'dummy' && o.kind !== 'school' && o.kind !== 'dart' && (o.heavy || Math.random() < 0.33)) cue('foePain', o.heavy ? 1 : 0.75, voiceOf(f));
     if (o.kind === 'k5' && !died && f.inv <= 0 && tierOf(this.perks, 'extra') >= 0) { const target = f, origin = from.clone(), echo = dmg * v(this.perks, 'extra') / 100; after(0.12, () => { if (target.st === 'dead' || !this.foes.includes(target)) return; const c = target.a.chest(); trailSeg(c.clone().add(V3(-0.45, 0.35, 0)), c.clone().add(V3(0.45, -0.35, 0)), 0xffe6c8, 0.13, { life: 0.18, bright: 2.5, spark: 0.5 }); fxSparks(c, 0xffc8a0, 9, 3); this.hitFoe(target, echo, origin, { knock: 0.2, heavy: false, kind: 'echo' }); }); }
   }
-  /** act-125: 惊雷陌刀 藏锋变招「裂阵斩」— 6.5m straight 3D voxel thunder shockwave shattering shields/poise & oil jars */
+  /** act-125 / act-137: 惊雷陌刀 藏锋变招「裂阵斩」— restrained storm-gold & forged-iron ground cleave shattering shields/poise */
   private thunderCleave(o: { from: THREE.Vector3; yaw: number; len: number; dmg: number; chargeK: number; lv: number }) {
     const dir = V3(Math.sin(o.yaw), 0, Math.cos(o.yaw)), to = o.from.clone().addScaledVector(dir, o.len);
-    slashArc.line({ a: o.from, b: to, width: 1.35, y: 0.72, palette: 'thunder_heavy', sweep: 0.025, fade: 0.36 });
-    for (let i = 0; i <= 8; i++) {
-      const p = o.from.clone().lerp(to, i / 8).setY(0.15 + (i % 2) * 0.25);
-      addBlock(p, { size: 0.14, v: V3((Math.random() - 0.5) * 2.2, 2.2 + Math.random() * 2.8, (Math.random() - 0.5) * 2.2), col: i % 2 ? 0xffe068 : 0x7a58d8, bright: 1.5, life: 0.42, shrink: 0.5, drag: 2.0, grav: 4 });
+    slashArc.line({ a: o.from, b: to, width: 1.02, y: 0.72, palette: 'thunder_heavy', sweep: 0.025, fade: 0.32 });
+    for (let i = 0; i <= 5; i++) {
+      const p = o.from.clone().lerp(to, i / 5).setY(0.14 + (i % 2) * 0.16);
+      addBlock(p, { size: 0.10, v: V3((Math.random() - 0.5) * 1.8, 1.8 + Math.random() * 2.0, (Math.random() - 0.5) * 1.8), col: i % 2 ? 0xf0ca68 : 0x565e74, bright: 1.18, life: 0.34, shrink: 0.5, drag: 2.4, grav: 4.5 });
     }
-    fxShock(o.from.clone().addScaledVector(dir, 1.5), 0xffcc48, 2.4, { life: 0.38 });
+    fxShock(o.from.clone().addScaledVector(dir, 1.4), 0xe6be5c, 1.65, { life: 0.30 });
     let n = 0;
     const ab = to.clone().sub(o.from).setY(0), L2 = Math.max(1e-4, ab.lengthSq());
     for (const f of this.foes.slice()) {
@@ -3992,9 +4097,9 @@ export class ActShow {
       if (Math.hypot(f.pos.x - q.x, f.pos.z - q.z) <= 1.25 + f.d.r) {
         this.hitFoe(f, o.dmg, q, { knock: 2.2, heavy: true, kind: 'rel', poiseMul: 2.6 });
         if (o.lv >= 2 && (f.st as string) !== 'dead') {
-          // lv2: 3D voxel lightning pillar drops on struck foes!
+          // lv2: restrained narrow vertical pale-gold thunder flash (zero garish neon pillar)
           const lp = f.pos.clone();
-          for (let y = 0; y < 5; y++) addBlock(lp.clone().setY(0.4 + y * 0.65), { size: 0.22, col: y % 2 ? 0xfff4b0 : 0x8a64f0, bright: 1.7, life: 0.28, shrink: 0.4, drag: 1, grav: 0 });
+          for (let y = 0; y < 3; y++) addBlock(lp.clone().setY(0.45 + y * 0.72), { size: 0.14, col: y % 2 ? 0xfff0be : 0xdcb452, bright: 1.28, life: 0.22, shrink: 0.45, drag: 1, grav: 0 });
           this.hitFoe(f, Math.round(o.dmg * 0.4), lp, { knock: 0.5, heavy: false, kind: 'school' });
         }
         n++;
@@ -4003,13 +4108,13 @@ export class ActShow {
     if (this.props) this.applyProps(this.props.hitSeg(o.from, to, 1.25, { src: 'hero', heavy: true }, this.targets()));
     this.generalEvent?.strike({ k: 'seg', ax: o.from.x, az: o.from.z, bx: to.x, bz: to.z, r: 1.25 });
     this.feel('rel', true, Math.max(1, n), dir);
-    cue('boom', 0.72); shake(0.32 * TUNE.shake);
+    cue('boom', 0.72); shake(0.28 * TUNE.shake);
     return n;
   }
-  /** act-125: 霜鳞短刃 藏锋变招「追霜」— dash through & detonate all stuck frost-pins/darts for crisp voxel ice bursts */
+  /** act-125 / act-137: 霜鳞短刃 藏锋变招「追霜」— razor-sleek hoarfrost thread detonating stuck pins/darts cleanly */
   private frostDetonate(o: { a: THREE.Vector3; b: THREE.Vector3; r: number; dmg: number; lv: number }) {
     const ab = o.b.clone().sub(o.a).setY(0), L2 = Math.max(1e-4, ab.lengthSq());
-    slashArc.line({ a: o.a, b: o.b, width: 0.92, y: 0.9, palette: 'frost_heavy', sweep: 0.02, fade: 0.3 });
+    slashArc.line({ a: o.a, b: o.b, width: 0.68, y: 0.9, palette: 'frost_heavy', sweep: 0.02, fade: 0.26 });
     let hits = 0, popped = 0;
     for (const f of this.foes.slice()) {
       if (f.st === 'dead') continue;
@@ -4025,11 +4130,11 @@ export class ActShow {
         popped += pins;
         const burstDmg = Math.round(o.dmg * 0.55 * pins);
         const cp = f.a.chest();
-        for (let i = 0; i < 10; i++) addBlock(cp.clone(), { size: 0.11, v: V3((Math.random() - 0.5) * 5, 1.5 + Math.random() * 3, (Math.random() - 0.5) * 5), col: i % 2 ? 0xebfcff : 0x56ccf2, bright: 1.5, life: 0.36, shrink: 0.45, drag: 2.2, grav: 3 });
-        fxRing(f.pos.clone().setY(0.1), 0x76e8ff, 1.8, { life: 0.35 } as never);
-        popPix('霜爆', f.a.head().add(V3(0, 0.52, 0)), { tier: 'highlight', color: '#c8f8ff', accent: '#56ccf2', h: 0.82, life: 0.9 });
+        for (let i = 0; i < 5; i++) addBlock(cp.clone(), { size: 0.08, v: V3((Math.random() - 0.5) * 3.6, 1.1 + Math.random() * 2.0, (Math.random() - 0.5) * 3.6), col: i % 2 ? 0xf2fbff : 0x8bcbe0, bright: 1.2, life: 0.30, shrink: 0.45, drag: 2.5, grav: 3.2 });
+        fxRing(f.pos.clone().setY(0.1), 0x9cd6ea, 1.25, { life: 0.28 } as never);
+        popPix('霜爆', f.a.head().add(V3(0, 0.52, 0)), { tier: 'highlight', color: '#dcf6ff', accent: '#6cb8d4', h: 0.78, life: 0.85 });
         this.hitFoe(f, burstDmg, cp, { knock: 1.1, heavy: true, kind: 'chase' });
-        if (o.lv >= 2 && (f.st as string) !== 'dead') { interruptFoe(f, 1.4); f.a.tint(0x66e0ff, 0.8); }
+        if (o.lv >= 2 && (f.st as string) !== 'dead') { interruptFoe(f, 1.4); f.a.tint(0x88cde4, 0.65); }
       }
     }
     if (this.props) this.applyProps(this.props.hitSeg(o.a, o.b, o.r, { src: 'hero', heavy: true }, this.targets()));
@@ -4038,12 +4143,12 @@ export class ActShow {
     if (popped > 0) cue('bladeRing', 0.9);
     return { hits, popped };
   }
-  /** act-125: 无锋断刃 极限「听声一闪」— free crimson-gold streak with true burst damage + full intent */
+  /** act-125 / act-137: 无锋断刃 极限「听声一闪」— single razor-sharp cinnabar-steel flash streak with restrained impact flash */
   private bluntFlash(o: { from: THREE.Vector3; to: THREE.Vector3; r: number; dmg: number; lv: number }) {
     const ab = o.to.clone().sub(o.from).setY(0), L2 = Math.max(1e-4, ab.lengthSq());
     const ext = ab.clone().setY(0).normalize().multiplyScalar(0.9), a0 = o.from.clone().sub(ext), b0 = o.to.clone().add(ext);
-    slashArc.line({ a: a0, b: b0, width: 1.15, y: 1.0, palette: 'blunt_flash', sweep: 0.02, fade: 0.38 });
-    this.flashScreen(0.38, 0xffd2b8); this.splitScreen(0.75);
+    slashArc.line({ a: a0, b: b0, width: 0.78, y: 1.0, palette: 'blunt_flash', sweep: 0.02, fade: 0.32 });
+    this.flashScreen(0.18, 0xffd2b8); this.splitScreen(0.62);
     let n = 0, killed = false;
     for (const f of this.foes.slice()) {
       if (f.st === 'dead') continue;
@@ -4056,7 +4161,7 @@ export class ActShow {
       }
     }
     if (n > 0) {
-      popPix('听声一闪', this.hero.a.head().add(V3(0, 0.55, 0)), { tier: 'highlight', color: '#ffe4c4', accent: '#ff522c', h: 0.95, life: 1.0 });
+      popPix('听声一闪', this.hero.a.head().add(V3(0, 0.55, 0)), { tier: 'highlight', color: '#ffe4c4', accent: '#c84a2a', h: 0.90, life: 0.95 });
       if (this.intent >= 3) this.startQte(); else this.addIntent();
       if (o.lv >= 2 && killed) this.hero.freeFlash = true;
     }
@@ -4094,10 +4199,10 @@ export class ActShow {
       // act-115: counter slash or heavy finisher colliding with an elite/boss heavy melee windup/lunge locks blades into Clash QTE
       if (clashHit && !clashed && this.duel.offerClash(f, true)) { clashed = true; continue; }
       this.hitFoe(f, o.dmg, o.from, o); n++;
-      // act-125: 霜鳞短刃 every 3rd/6th cut plants a glowing ice shadow-pin on struck targets
+      // act-125 / act-137: 霜鳞短刃 every 3rd/6th cut plants a restrained pale-frost pin glint on struck targets
       if (o.pin && (f.st as string) !== 'dead') {
         f.dartMarkT = Math.max(f.dartMarkT ?? 0, TUNE.chaseWin);
-        fxSparks(f.a.chest(), 0x76e8ff, 8, 3.5);
+        fxSparks(f.a.chest(), 0xb8ecf8, 4, 2.4);
       }
     }
     if (this.props) this.applyProps(this.props.hitArc(o.from, o.yaw, o.range, o.half, { src: 'hero', heavy: o.heavy }, this.targets()));   // act-19
@@ -4623,21 +4728,44 @@ export class ActShow {
       if (f.pos.y < floorY - (q.kind === 'water' ? 1.8 : 0.6) || q.t > 2.2) { f.a.dispose(); this.falling.splice(i, 1); }
     }
   }
+  /** act-137: true when killing the room's boss triggers a canonical first-time story confrontation (CH_AFTER), so the boss drops
+   *  to one knee on the battlefield instead of immediately sinking underground before the dialogue. */
+  private isFirstStoryBossKill(): boolean {
+    const ai = this.region;
+    return !this.poolBossRoom && !this.prologue && this.plan?.type === 'boss' && isBossRoom(ai, this.room)
+      && !!CH_AFTER[ai]?.length && (ai === BOSS_AFTER.length - 1 || !profile().seen[BOSS_AFTER[ai]]);
+  }
   private killFoe(f: Foe, from: THREE.Vector3) {
     if (this.flats.has(f)) { f.a.body.rotation.x = 0; f.a.body.position.y = 0; this.flats.delete(f); }   // (11-18 踏顶: up off his face before he falls)
     // (a foe gone down a pit is already out of sight: no body to topple, no pool of blood)
     const fell = this.falling.some(x => x.f === f);
-    if (f.elite) this.eliteKills++; if (isBoss(f)) this.bossKilled = true;
+    const boss = isBoss(f), elite = !!f.elite;
+    const bossClear = boss && this.phase === 'fight' && !this.prologue && !this.foes.some(x => x !== f && x.st !== 'dead' && isBoss(x));
+    const holdKneel = bossClear && !fell && this.isFirstStoryBossKill();
+    if (f.elite) this.eliteKills++; if (boss) this.bossKilled = true;
     // 11-18: the kill holds the blow a little longer (feel()); the cry and the gush now, the body on the ground a moment later
-    if (!fell) { this.killBeat = true; this.bigKill = this.bigKill || isBoss(f) || !!f.elite; after(0.32, () => cue('bodyFall', 0.7)); }
-    // act-23: a pool spreads under the body as it settles
-    if (f.kind !== 'dummy' && !fell) { const bx = f.pos.x, bz = f.pos.z, sz = isBoss(f) ? 2.0 : f.elite ? 1.4 : 1.05; after(0.45, () => blood.pool(bx, bz, sz)); cue('hitKill', isBoss(f) ? 1.3 : 1); cue('foeDeath', 1, voiceOf(f)); }
+    if (!fell) { this.killBeat = true; this.bigKill = this.bigKill || boss || elite; after(0.32, () => cue('bodyFall', holdKneel ? 0.65 : 0.7)); }
+    // act-23 / act-137: first-time story boss kneels wounded on the battlefield (death cry saved for the CH_AFTER execution slash!)
+    if (f.kind !== 'dummy' && !fell) {
+      const bx = f.pos.x, bz = f.pos.z, sz = boss ? 2.0 : elite ? 1.4 : 1.05;
+      after(0.45, () => blood.pool(bx, bz, sz));
+      cue('hitKill', boss ? 1.25 : 1);
+      if (!holdKneel) cue('foeDeath', 1, voiceOf(f));
+    }
     if (!fell) this.leaves?.blast(f.pos.x, f.pos.z, 1.3, 2.5);
     this.kills++;
-    const boss = isBoss(f), elite = !!f.elite;
     unfade(f);   // (11-18: a hidden 死士 / a 水鬼 under the water is seen as it dies)
-    // (11-18: killed up in the air — 断云 — the body falls the rest of the way first; death.ts topples from where the root stands)
-    if (fell) { /* gone down a pit: out of sight already */ }
+    // (11-18 / act-137: first-kill canonical story boss drops to one knee & stays on-field until executed during CH_AFTER!)
+    if (holdKneel) {
+      f.pos.y = 0; f.airV = undefined; f.vel.set(0, 0, 0);
+      f.yaw = Math.atan2(this.hero.pos.x - f.pos.x, this.hero.pos.z - f.pos.z); f.a.yaw = f.yaw;
+      f.a.home.copy(f.pos); f.a.root.position.copy(f.pos); f.a.dead = false; f.a.setRunning(false);
+      this.kneelingBoss = { f, t: 0, executed: false, region: this.region };
+      const away = f.pos.clone().sub(from).setY(0.2);
+      if (away.lengthSq() < 1e-4) away.set(0, 0.2, -1);
+      blood.spray(f.a.chest(), away.normalize(), 18, 1.05);
+      bossKneelDefeatPose(f.a, 0.01);
+    } else if (fell) { /* gone down a pit: out of sight already */ }
     else if (f.pos.y > 0.05) { this.drops.push({ f, from: from.clone(), boss, vy: Math.min(0, f.airV ?? 0) }); f.airV = undefined; }
     else void playDeath(f.a, { from, ratio: f.lastDmg / f.maxHp + (boss ? 0.5 : 0), boss }).then(() => { f.a.dispose(); });
     // copper coins: a few square-holed coins bounce out and fly to the hero (worth the foe's gold; elites ×3, the boss more); one gone
@@ -4658,7 +4786,6 @@ export class ActShow {
       for (let i = 0; i < 6; i++) addBlock(from0.clone().add(V3(R(-0.2, 0.2), R(-0.1, 0.3), R(-0.2, 0.2))), { size: 0.08, col: 0xb01818, glow: false, life: 0.32 + i * 0.03, shrink: 0.1, v: h.a.chest().sub(from0).multiplyScalar(1 / (0.3 + i * 0.03)) });
       after(0.32, () => { if (!h.alive) return; h.hp = Math.min(h.maxHp, h.hp + heal); this.hud.flask.heal({ hp: h.hp, maxHp: h.maxHp }); h.a.tint(0xff4a3a, 0.35); popPix(`+${heal}`, h.a.head().add(V3(0, 0.3, 0)), { color: '#ff8a7a', h: 0.42, life: 0.7 }); });
     }
-    const bossClear = boss && this.phase === 'fight' && !this.prologue && !this.foes.some(x => x !== f && x.st !== 'dead' && isBoss(x));
     if (bossClear) {
       this.bossDefeated = true;
       this.routMinions(f.pos);
@@ -4852,16 +4979,22 @@ export class ActShow {
     // road opens into the next region (a boon first, as any cleared fight)
     if (this.plan?.type === 'boss' && isBossRoom(this.region, this.room)) {
       this.bosses++;
-      // (11-19 / act-114 / act-131: only canonical story bosses trigger CH_AFTER; slain story bosses are replaced by pool guardians and never resurrect)
+      // (11-19 / act-114 / act-131 / act-137: canonical first-kill story boss kneels on-field with blade at throat until executed on cue in CH_AFTER!)
       const ai = this.region, last = ai === BOSS_AFTER.length - 1;
       if (!this.poolBossRoom && CH_AFTER[ai]?.length && (last || seeOnce(BOSS_AFTER[ai]))) {
         this.musicHold = 'bgm_afterkill'; void audio.playMusic('bgm_afterkill', 1.0);
         if (last) {
+          this.kneelingBoss = null;
           this.stageCh5ThroatScene();
           await this.talk(CH_AFTER[ai]); saveProfile();
           await this.ending(); return;
         }
-        await this.talk(CH_AFTER[ai]); saveProfile();
+        const exec = this.stageBossAfterScene(ai);
+        await this.talk(CH_AFTER[ai], (_i, l) => {
+          if (l.who === 'act' && /抹喉|断喉|划过颈侧/.test(l.text)) exec.execute();
+        });
+        exec.cleanup();
+        saveProfile();
         this.musicHold = null;
       }
       if (afterBoss(this.region) === 'won') { this.end(true); return; }
@@ -5116,6 +5249,109 @@ export class ActShow {
     });
   }
   /** act-114 第五关战后 3D 刀锋抵喉构图：崔玄卸兵跪地、刘白持刀平指喉前半寸（2.05m 安全间距让完整刀身清晰可见、零穿模） */
+  /** act-137: stage Ch1–Ch4 first-kill confrontation — wounded boss kneeling on the battlefield, Liu Bai's blade poised at his
+   *  throat, and a clean iai execution slash + physical collapse triggered at the exact throat-slit beat in CH_AFTER! */
+  private stageBossAfterScene(ai: number) {
+    const kb = this.kneelingBoss;
+    const bossFoe = kb && kb.f.a.root.parent ? kb.f : null;
+    for (const f of this.foes) {
+      if (f === bossFoe) continue;
+      dropTeles(f); f.a.dispose();
+    }
+    this.foes = bossFoe ? [bossFoe] : [];
+    const bossKind = bossFoe ? bossFoe.kind : (BOSS_ORDER[ai] ?? 'hj_boss');
+    const bossR = bossFoe ? bossFoe.d.r : (EDEFS[bossKind]?.r ?? 0.65);
+    const gap = Math.max(2.25, 1.65 + bossR * 1.15);
+    const bossPos = bossFoe ? bossFoe.pos.clone().setY(0) : V3(0, 0, -2.0);
+    if (bossPos.z > PLAY.z1 - (gap + 1.0)) bossPos.z = PLAY.z1 - (gap + 1.0);
+    if (bossPos.z < PLAY.z0 + 1.2) bossPos.z = PLAY.z0 + 1.2;
+    this.clamp(bossPos, 0.7);
+    const heroPos = V3(bossPos.x, 0, bossPos.z + gap);
+    this.clamp(heroPos, 0.5);
+
+    let actor: BattleActor;
+    let ownsActor = false;
+    if (bossFoe) {
+      actor = bossFoe.a;
+      bossFoe.pos.copy(bossPos);
+      actor.home.copy(bossPos); actor.root.position.copy(bossPos);
+      actor.yaw = Math.atan2(heroPos.x - bossPos.x, heroPos.z - bossPos.z);
+      bossFoe.yaw = actor.yaw;
+      actor.dead = false; actor.setRunning(false);
+    } else {
+      const def = ROSTER.find(d => d.id === bossKind) ?? ROSTER.find(d => d.id === 'hj_boss')!;
+      actor = new BattleActor(def);
+      actor.place(bossPos.clone(), Math.atan2(heroPos.x - bossPos.x, heroPos.z - bossPos.z));
+      actor.yaw = Math.atan2(heroPos.x - bossPos.x, heroPos.z - bossPos.z);
+      trimShadows(actor.root, 4);
+      ownsActor = true;
+    }
+
+    this.hero.pos.copy(heroPos); this.hero.vel.set(0, 0, 0);
+    this.hero.a.home.copy(heroPos); this.hero.a.root.position.copy(heroPos);
+    this.hero.a.yaw = Math.atan2(bossPos.x - heroPos.x, bossPos.z - heroPos.z);
+    motionOf(this.hero.a).run = 0;
+
+    const throatY = Math.max(0.94, Math.min(1.26, actor.height * 0.54));
+    const throatStop = V3(bossPos.x, throatY, bossPos.z + Math.max(0.28, bossR * 0.55));
+    let afterT = kb ? Math.max(0.45, kb.t) : 0.6;
+    let executed = false;
+    this.hero.scriptPose = () => heroHoldThroatPose(this.hero.a, throatStop, afterT);
+    bossKneelDefeatPose(actor, afterT);
+    this.talkTick = (dt: number) => {
+      afterT += dt;
+      if (ownsActor) actor.update(dt);
+      if (!executed) bossKneelDefeatPose(actor, afterT);
+    };
+
+    const cam = safeCam([bossPos.x + 4.8, 2.45, bossPos.z + gap * 1.15], [bossPos.x, throatY, bossPos.z + gap * 0.48], 37);
+    this.camOverride = { base: V3(...cam.pos), look: V3(...cam.look), fov: cam.fov };
+    shot('act', () => this.camPose(), { cut: true, speed: 8 });
+
+    const execute = () => {
+      if (executed) return;
+      executed = true;
+      if (this.kneelingBoss) this.kneelingBoss.executed = true;
+      this.hero.scriptPose = null;
+      this.hero.a.play(new Action('rel', 0.45, 0.30));
+      this.flashScreen(0.22, 0xffffff); hitstop(0.11); shake(0.34 * TUNE.shake); this.splitScreen(0.58);
+      cue('cutHeavy', 1.0); cue('hitKill', 1.15);
+      cue('foeDeath', 1.0, bossFoe ? voiceOf(bossFoe) : 1);
+      after(0.32, () => cue('bodyFall', 0.72));
+      blood.spray(actor.head().add(V3(0, -0.22, 0)), V3(0, 0.15, -1), 24, 1.25);
+      blood.pool(bossPos.x, bossPos.z, 1.9, 260);
+      fxSparks(actor.chest(), 0xffe4b8, 12, 4.2);
+      actor.fall(Math.atan2(heroPos.x - bossPos.x, heroPos.z - bossPos.z));
+    };
+
+    const cleanup = () => {
+      if (!executed) execute();
+      this.hero.scriptPose = null; this.talkTick = null; this.camOverride = null; this.kneelingBoss = null;
+      const disposeTarget = actor;
+      after(0.75, () => {
+        disposeTarget.dispose();
+        if (bossFoe) { const idx = this.foes.indexOf(bossFoe); if (idx >= 0) this.foes.splice(idx, 1); }
+      });
+    };
+
+    return { execute, cleanup, wasExecuted: () => executed };
+  }
+  /** act-137 debug preview for Ch1–Ch4 boss first-kill kneeling confrontation & execution slash */
+  private async debugBossAfter(ri: number, executeNow = false) {
+    if (this.phase === 'title') stopTitle();
+    if (this.cards.on) void this.cards.close?.();
+    this.prologue = 0; this.forceSpec = null; this.viewSpec = null; this.noArena = false;
+    this.region = ri; this.room = REGIONS[ri].rooms; this.locale = REGIONS[ri].bossLocale;
+    this.plan = { type: 'boss', locale: REGIONS[ri].bossLocale, reward: null, waves: [] };
+    await this.buildRoom(false);
+    const exec = this.stageBossAfterScene(ri);
+    await frames(2);
+    if (executeNow) { exec.execute(); return; }
+    await this.talk(CH_AFTER[ri], (_i, l) => {
+      if (l.who === 'act' && /抹喉|断喉|划过颈侧/.test(l.text)) exec.execute();
+    });
+    exec.cleanup();
+  }
   private stageCh5ThroatScene() {
     if (this.endCui) { this.endCui.dispose(); this.endCui = null; }
     for (const f of this.foes) { dropTeles(f); f.a.dispose(); }
@@ -5518,7 +5754,18 @@ export class ActShow {
     if (this.comboT > 0) { this.comboT = Math.max(0, this.comboT - dt); if (this.comboT <= 0) this.resetCombo(); else this.hud.combo = { hits: this.comboHits, bonus: this.comboStyle().dmgPct, frac: this.comboT / 3.2 }; }
     this.enterStep(dt); this.bossDropStep(dt); this.fleeStep(rdt);
     for (const f of this.foes) {
-      if (!this.ultOn && (this.entering.some(e => e.f === f) || this.bossDrops.some(d => d.f === f))) { f.a.update(dt); continue; }
+      const ent = !this.ultOn ? this.entering.find(e => e.f === f) : undefined;
+      if (!this.ultOn && (ent || this.bossDrops.some(d => d.f === f))) {
+        f.a.update(dt);
+        if (ent && ent.posePhase) poseWallVault(f.a, ent.posePhase, ent.poseU);
+        continue;
+      }
+      if (this.kneelingBoss && this.kneelingBoss.f === f && !this.kneelingBoss.executed) {
+        this.kneelingBoss.t += dt;
+        f.a.update(dt);
+        bossKneelDefeatPose(f.a, this.kneelingBoss.t);
+        continue;
+      }
       if (this.duel.holds(f)) this.duel.holdFoe(f, dt);   // 11-18 QTE: the duel moves the foe it has (held in the bind / its string's beats)
       else if (!this.ultOn) {
         // 11-18 留影: the foes the afterimage draws see it as her — they close on it and strike at it; a blow that lands bursts it
