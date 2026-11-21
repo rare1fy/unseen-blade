@@ -168,8 +168,9 @@ export class ActHud {
     this.W = W; this.H = H;
     setGrid(H, this.L.dpr || 1);
     const k = Math.min(1.25, Math.max(0.62, H / 720)); this.k = k;
-    this.flask.place(Math.max(30, 40 * k), Math.max(34, 46 * k), Math.max(0.62, 0.8 * k));
-    { const fk = Math.max(0.62, 0.8 * k); this.feedAt = { x: Math.max(18, 40 * k - 14 * fk), y: Math.max(34, 46 * k) + 96 * fk }; }
+    const fk = Math.max(0.68, 0.88 * k);
+    this.flask.place(Math.max(38, 48 * k), Math.max(44, 54 * k), fk);
+    this.feedAt = { x: Math.max(20, 48 * k - 16 * fk), y: Math.max(44, 54 * k) + 106 * fk };
     this.stickHome = { x: 160 * k, y: H - 140 * k }; this.stickSize = 170 * k;
     // an arc of three round the big cut button: dash low left, jump up left, the special above
     const b = this.btns; if (b.attack instanceof IronBtn) b.attack.badgeSide = 1; b.attack.size = 150 * k; b.dash.size = 100 * k; b.special.size = 100 * k; b.jump.size = 100 * k;
@@ -366,13 +367,14 @@ export class ActHud {
     } else {
       this.L.text.hide('act.combo'); this.L.text.hide('act.comboSub');
     }
+    const fk = Math.max(0.68, 0.88 * this.k), topBase = Math.max(44, 54 * this.k);
     if (this.on && this.synergies.length) {
       const synTxt = this.synergies.map(s => `${localize(s.name)}(${s.count})`).join(' · ');
-      this.L.text.set('act.syn', { text: synTxt, x: 18 * this.k, y: 126 * this.k, bodyPx: Math.max(16, Math.round(18 * this.k)), color: this.synergies[0].col, outline: '#140c0a', align: 'left', visible: true });
-      this.feedAt.y = 156 * this.k;
+      this.L.text.set('act.syn', { text: synTxt, x: Math.max(20, 48 * this.k - 16 * fk), y: topBase + 104 * fk, bodyPx: Math.max(16, Math.round(18 * this.k)), color: this.synergies[0].col, outline: '#140c0a', align: 'left', visible: true });
+      this.feedAt.y = topBase + 136 * fk;
     } else {
       this.L.text.hide('act.syn');
-      this.feedAt.y = 128 * this.k;
+      this.feedAt.y = topBase + 106 * fk;
     }
     // bars over the foes (the chief: the long bar at the top instead)
     const live = new Set<number>();

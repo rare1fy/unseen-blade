@@ -106,3 +106,44 @@ export function setActorOcc(root: THREE.Object3D, kind: OccKind) {
     }
   }
 }
+
+const propClones = new WeakMap<THREE.Object3D, THREE.Mesh[]>();
+const isOpaqueMat = (mat: THREE.Material | THREE.Material[] | undefined) =>
+  !!mat && (Array.isArray(mat) ? mat.every(x => !x.transparent) : !mat.transparent);
+
+/** Tag an interactive 3D prop (stele, merchant stall, campfire, scroll altar, signboards, etc.) for occluded-silhouette outlining
+ *  whenever buildings / walls / roofs / trees block it (works independently of RigidBatch). */
+export function setPropOcc(root: THREE.Object3D | null | undefined, kind: OccKind) {
+  if (!root) return;
+  const prev = (root.userData.propOcc as OccKind | undefined) ?? 0;
+  root.userData.propOcc = kind;
+  let list = propClones.get(root);
+  if (!list && kind !== 0) {
+    const k = kind;
+    list = [];
+    root.traverse(o => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh || (m as THREE.SkinnedMesh).isSkinnedMesh || m.userData.isOcc) return;
+      if (!isOpaqueMat(m.material)) return;
+      const c = new THREE.Mesh(m.geometry, occMaterial(k, false));
+      c.userData.noBatch = true; c.userData.isOcc = true; c.userData.noTilt = true;
+      c.castShadow = false; c.receiveShadow = false; c.frustumCulled = false;
+      c.renderOrder = k === 1 ? OCC_ORDER.hero : OCC_ORDER.foe;
+      m.renderOrder = OCC_ORDER.body;
+      m.add(c);
+      list!.push(c);
+    });
+    propClones.set(root, list);
+  }
+  if (list && (prev !== kind || kind !== 0)) {
+    const mat = kind !== 0 ? occMaterial(kind, false) : null;
+    const order = kind === 1 ? OCC_ORDER.hero : OCC_ORDER.foe;
+    for (const c of list) {
+      if (mat && c.material !== mat) c.material = mat;
+      c.renderOrder = order;
+      const p = c.parent as THREE.Mesh | null;
+      if (p) p.renderOrder = kind !== 0 ? OCC_ORDER.body : 0;
+      c.visible = kind !== 0 && !!p?.visible && isOpaqueMat(p?.material);
+    }
+  }
+}

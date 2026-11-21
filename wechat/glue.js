@@ -281,7 +281,9 @@ function __ubAutomate(ctx) {
     if (e.t <= ctx.currentTime && e.k === 'set') tick();
     return p;
   }
-  return function patch(node) {
+  function pauseAll() { if (timer) { clearInterval(timer); timer = 0; } }
+  function resumeAll() { if (live.length && !timer) timer = setInterval(tick, 16); }
+  function patch(node) {
     if (!node) return node;
     for (var k = 0; k < __ubParamNames.length; k++) {
       var p = node[__ubParamNames[k]];
@@ -310,24 +312,93 @@ function __ubAutomate(ctx) {
       } catch (e) { /* a frozen param: its fades are skipped */ }
     }
     return node;
-  };
+  }
+  patch.pause = pauseAll;
+  patch.resume = resumeAll;
+  return patch;
 }
 function __ubPromise(r) { return r && typeof r.then === 'function' ? r : Promise.resolve(r); }
 globalThis.__ubWxAudio = function () {
   if (!wx.createWebAudioContext) return null;
   var native = wx.createWebAudioContext();
   var patch = __ubAutomate(native);
+  // act-129: unpatched native output gate right before native.destination so closing/hiding the mini-game smoothly ramps
+  // digital output to exact zero before suspending the audio engine (eliminates the sharp closing electrical pop / crackle!).
+  var outGate = native.createGain ? native.createGain() : null;
+  if (outGate) {
+    try { outGate.gain.value = 1; outGate.connect(native.destination); } catch (e) { outGate = null; }
+  }
+  var hideTimers = [];
+  function clearHideTimers() {
+    while (hideTimers.length) clearTimeout(hideTimers.pop());
+  }
+  function setGate(v) {
+    if (!outGate) return;
+    try { outGate.gain.value = v; } catch (e) { /* ignore */ }
+  }
+  function softSuspend() {
+    clearHideTimers();
+    patch.pause();
+    if (outGate) {
+      var ramped = false;
+      try {
+        if (typeof outGate.gain.linearRampToValueAtTime === 'function' && typeof outGate.gain.setValueAtTime === 'function') {
+          var now = native.currentTime || 0;
+          if (typeof outGate.gain.cancelScheduledValues === 'function') outGate.gain.cancelScheduledValues(now);
+          outGate.gain.setValueAtTime(outGate.gain.value, now);
+          outGate.gain.linearRampToValueAtTime(0, now + 0.015);
+          ramped = true;
+        }
+      } catch (e) { ramped = false; }
+      if (!ramped) {
+        setGate(0.35);
+        hideTimers.push(setTimeout(function () { setGate(0.08); }, 6));
+        hideTimers.push(setTimeout(function () { setGate(0); }, 12));
+      }
+      hideTimers.push(setTimeout(function () {
+        setGate(0);
+        try { __ubPromise(native.suspend()).catch(function () {}); } catch (e) { /* ignore */ }
+      }, 24));
+    } else {
+      try { __ubPromise(native.suspend()).catch(function () {}); } catch (e) { /* ignore */ }
+    }
+  }
+  function softResume() {
+    clearHideTimers();
+    setGate(0);
+    patch.resume();
+    try {
+      __ubPromise(native.resume()).then(function () {
+        if (!outGate) return;
+        var ramped = false;
+        try {
+          if (typeof outGate.gain.linearRampToValueAtTime === 'function' && typeof outGate.gain.setValueAtTime === 'function') {
+            var now = native.currentTime || 0;
+            if (typeof outGate.gain.cancelScheduledValues === 'function') outGate.gain.cancelScheduledValues(now);
+            outGate.gain.setValueAtTime(0, now);
+            outGate.gain.linearRampToValueAtTime(1, now + 0.04);
+            ramped = true;
+          }
+        } catch (e) { ramped = false; }
+        if (!ramped) {
+          hideTimers.push(setTimeout(function () { setGate(0.35); }, 12));
+          hideTimers.push(setTimeout(function () { setGate(0.75); }, 24));
+          hideTimers.push(setTimeout(function () { setGate(1); }, 36));
+        }
+      }).catch(function () {});
+    } catch (e) { setGate(1); }
+  }
   var context = {
     get currentTime() { return native.currentTime; },
     get sampleRate() { return native.sampleRate || 44100; },
     get state() { return native.state; },
-    get destination() { return native.destination; },
+    get destination() { return outGate || native.destination; },
     noReverb: !native.createConvolver,
     // 11-19 (安卓真机：音乐和音效全无、只有配音): the voice bus is the only one that skips the BiquadFilters — Android WeChat's filter
     // node lets nothing through. No filters in the chain there (src/audio/audio.ts: no low-HP muffle, no tutorial band)
     noFilter: true,
-    resume: function () { try { return __ubPromise(native.resume()); } catch (e) { return Promise.reject(e); } },
-    suspend: function () { try { return __ubPromise(native.suspend()); } catch (e) { return Promise.reject(e); } },
+    resume: function () { clearHideTimers(); setGate(1); patch.resume(); try { return __ubPromise(native.resume()); } catch (e) { return Promise.reject(e); } },
+    suspend: function () { softSuspend(); return Promise.resolve(); },
     decodeAudioData: function (buffer) {
       return new Promise(function (resolve, reject) {
         try { var r = native.decodeAudioData(buffer, resolve, function (e) { reject(e || new Error('decodeAudioData failed')); }); if (r && typeof r.then === 'function') r.then(resolve, reject); }
@@ -347,8 +418,10 @@ globalThis.__ubWxAudio = function () {
     context[method] = method === 'createBuffer' ? make.bind(native) : function () { return patch(make.apply(native, arguments)); };
   });
   // (11-18: ES2015 only in this file — the upload's compiler refused `wx.onHide?.(` 「SyntaxError: Unexpected token .」)
-  if (wx.onHide) wx.onHide(function () { context.suspend().catch(function (e) { console.warn(e); }); });
-  if (wx.onShow) wx.onShow(function () { context.resume().catch(function (e) { console.warn(e); }); });
+  if (wx.onHide) wx.onHide(softSuspend);
+  if (wx.onAudioInterruptionBegin) wx.onAudioInterruptionBegin(softSuspend);
+  if (wx.onShow) wx.onShow(softResume);
+  if (wx.onAudioInterruptionEnd) wx.onAudioInterruptionEnd(softResume);
   return context;
 };
 

@@ -74,6 +74,12 @@ class AudioEngine {
       }
       // Restore any ducking / stillness / low-pass ramps that may have frozen mid-automation while suspended
       try {
+        const masterBase = this.muted ? 0 : (this.noFilter ? 0.85 : 0.9);
+        if (this.master) {
+          this.master.gain.cancelScheduledValues(t);
+          this.master.gain.setValueAtTime(this.master.gain.value, t);
+          this.master.gain.linearRampToValueAtTime(masterBase, t + 0.045);
+        }
         if (!this.voSrc) { this.duck.gain.cancelScheduledValues(t); this.duck.gain.setValueAtTime(1, t); }
         this.hush.gain.cancelScheduledValues(t); this.hush.gain.setValueAtTime(1, t);
         this.musicHush.gain.cancelScheduledValues(t); this.musicHush.gain.setValueAtTime(1, t);
@@ -108,7 +114,18 @@ class AudioEngine {
   private bindLifecycle() {
     if (this.lifecycleBound) return;
     this.lifecycleBound = true;
-    const onHide = () => { this.wasInterrupted = true; };
+    const onHide = () => {
+      this.wasInterrupted = true;
+      this.hum(0);
+      if (this.ctx && this.master) {
+        const t = this.now();
+        try {
+          this.master.gain.cancelScheduledValues(t);
+          this.master.gain.setValueAtTime(this.master.gain.value, t);
+          this.master.gain.linearRampToValueAtTime(0, t + 0.018);
+        } catch { /* mini-game param guard */ }
+      }
+    };
     const onShow = () => { this.recover(); };
     const onGesture = () => {
       const st = this.ctx?.state as string | undefined;
@@ -122,6 +139,7 @@ class AudioEngine {
       });
     }
     if (typeof window !== 'undefined') {
+      window.addEventListener('pagehide', onHide);
       window.addEventListener('pageshow', onShow);
       window.addEventListener('focus', onShow);
       window.addEventListener('pointerdown', onGesture, { passive: true });
@@ -148,14 +166,17 @@ class AudioEngine {
         else if (st === 'running' && (this.wasInterrupted || this.musicEnded)) this.recover();
       };
     }
-    // 11-18: only a limiter at the end (the old −10 dB 8:1 compressor flattened every blow the moment two sounds overlapped)
-    const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -2.5; comp.knee.value = 0; comp.ratio.value = 20; comp.attack.value = 0.001; comp.release.value = 0.12;
-    this.master = ctx.createGain(); this.master.gain.value = 0.9; this.master.connect(comp); comp.connect(ctx.destination);
-    // 11-19 新手引导的定格 / 慢放: the world's sound (not the voice) runs through a band that closes in toward the mids — slow motion
-    // that sounds slow (用户：「慢动作时声音切掉高频和低频」)
-    // (11-19 安卓微信: 音乐、音效全无、只有配音 — the voice is the one bus without a BiquadFilter on its way; that phone's filter node
-    //  passes nothing. A mini-game (wechat/glue.js noFilter) builds the chain without filters: no tutorial band, no low-HP muffle)
     const noFilter = !!(ctx as unknown as { noFilter?: boolean }).noFilter; this.noFilter = noFilter;
+    // act-129: on WeChat mini-game (noFilter), route master directly into glue.js's native outGate without DynamicsCompressorNode
+    // (whose lookahead buffer causes sharp electrical pops when closing the mini-game!)
+    this.master = ctx.createGain();
+    if (noFilter) {
+      this.master.gain.value = 0.85;
+      this.master.connect(ctx.destination);
+    } else {
+      const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -2.5; comp.knee.value = 0; comp.ratio.value = 20; comp.attack.value = 0.001; comp.release.value = 0.12;
+      this.master.gain.value = 0.9; this.master.connect(comp); comp.connect(ctx.destination);
+    }
     this.duck = ctx.createGain();
     if (noFilter) this.duck.connect(this.master);
     else {

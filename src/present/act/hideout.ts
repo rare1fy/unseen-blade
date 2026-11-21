@@ -49,8 +49,8 @@ export const HIDEOUT: {
   exit: { x0: number; x1: number; z: number };
   solids: HideoutSolid[];
 } = {
-  // the walkable floor: from the kiln's bay and the north wall at the back out through the front gate and down the outer departure corridor
-  floor: { x0: -8, x1: 8, z0: -8, z1: 10.2 },
+  // the walkable floor: from the kiln's bay and the north wall at the back out through the front gate and all the way down the outer departure corridor
+  floor: { x0: -8, x1: 8, z0: -8, z1: 14.2 },
   // on 孙媪's straw mat, where the heroine wakes
   spawn: [6.45, -6.1],
   people: {
@@ -68,8 +68,8 @@ export const HIDEOUT: {
   // 试剑坪: three wooden dummies inside the ring of bell posts, four summon slabs along its front edge (kept clear of everything)
   dummies: [[-5.6, -1.9], [-3.4, -1.9], [-4.5, 0.3]],
   slabs: [[-6.9, 4.0], [-5.5, 4.0], [-4.1, 4.0], [-2.7, 4.0]],
-  // act-128: outer departure corridor past the front gate (z 6.9..9.4) so walking inside the courtyard never accidentally triggers departure
-  exit: { x0: 0.75, x1: 2.9, z: 9.2 },
+  // act-129: departure trigger sits at the very far end of the outer corridor (z 6.9..13.4) so walking near the gate never accidentally triggers departure
+  exit: { x0: 0.75, x1: 2.9, z: 13.1 },
   // filled below from the plan (everything she must not walk through)
   solids: [],
 };
@@ -154,8 +154,8 @@ function solidsOf(): HideoutSolid[] {
   const pa = GATE.x0 - 3, pb = GATE.x1 + 1;
   out.push(cbox(GATE.w0, GATE.x0 - 4, GATE.Z - 3, GATE.Z + 2), cbox(GATE.x1 + 4, GATE.w1, GATE.Z - 3, GATE.Z + 2));
   out.push(cbox(pa - 1, pa + 3, GATE.Z - 2, GATE.Z + 2), cbox(pb - 1, pb + 3, GATE.Z - 2, GATE.Z + 2), cbox(pb - 1, pb, GATE.Z - 14, GATE.Z - 3));
-  // act-128: outer exit corridor flanking rails & departure piers (keeps player neatly inside the lane from gate z 6.9 out to exit z 9.4)
-  out.push(cbox(GATE.x0 - 6, GATE.x0 - 2, GATE.Z + 3, C(10.8)), cbox(GATE.x1 + 2, GATE.x1 + 6, GATE.Z + 3, C(10.8)));
+  // act-129: outer exit corridor flanking rails & far-end departure piers (keeps player neatly inside the corridor from gate z 6.9 all the way to exit z 13.4)
+  out.push(cbox(GATE.x0 - 6, GATE.x0 - 2, GATE.Z + 3, C(14.6)), cbox(GATE.x1 + 2, GATE.x1 + 6, GATE.Z + 3, C(14.6)));
   out.push(cbox(C(-8.8), C(-7.3), C(5.3), C(6.6)), cbox(C(-1.3), C(-0.1), C(5.5), C(6.6)), cbox(C(4.7), C(5.8), C(5.5), C(6.3)));
   return out;
 }
@@ -206,9 +206,9 @@ function ground(c: Ctx) {
   };
 
   // grass outside, in gentle broad patches; calm unified packed earth inside the courtyard (no harsh random linoleum rectangles)
-  fill(-18, -9.5, 18, 14, GRASS[0]);
-  for (let i = 0; i < 32; i++) {
-    const x = -18 + r(i) * 36, z = -9 + r(50 + i) * 23, hw = 1.0 + r(100 + i) * 2.0, hd = 0.8 + r(150 + i) * 1.6;
+  fill(-18, -9.5, 18, 17, GRASS[0]);
+  for (let i = 0; i < 36; i++) {
+    const x = -18 + r(i) * 36, z = -9 + r(50 + i) * 26, hw = 1.0 + r(100 + i) * 2.0, hd = 0.8 + r(150 + i) * 1.6;
     fill(snap(x - hw), snap(z - hd), snap(x + hw), snap(z + hd), r(200 + i) < 0.6 ? GRASS[1] : GRASS[2]);
   }
   fill(-9.3, -9.5, 8.6, 7.2, K.earth);
@@ -269,11 +269,11 @@ function ground(c: Ctx) {
   flagstones(-1.55, -1.45, -0.75, -0.35, 10, 10, 29);
   void stepRunX;
 
-  // the road outside the front gate: worn earth with stone verges, stepping flagstones through the outer departure corridor, and two wheel ruts
-  fill(0.45, 7.2, 3.15, 14, K.path);
-  stepRunZ(1.8, 7.15, 9.75, 11, 10, 4, 23);
-  for (const X of [C(0.45), C(3.15)]) for (let Z = C(7.3); Z <= C(14); Z++) w.set(X, -1, Z, (Z % 12 < 2) ? K.stoneD : K.earthD);
-  for (const X of [C(0.95), C(2.55)]) for (let Z = C(10.0); Z <= C(14); Z++) { w.set(X, -1, Z, K.rut); w.set(X + 1, -1, Z, K.rut); }
+  // the road outside the front gate: worn earth with stone verges, stepping flagstones all the way down the outer departure corridor, and wheel ruts past the piers
+  fill(0.45, 7.2, 3.15, 17, K.path);
+  stepRunZ(1.8, 7.15, 13.5, 11, 10, 4, 23);
+  for (const X of [C(0.45), C(3.15)]) for (let Z = C(7.3); Z <= C(17); Z++) w.set(X, -1, Z, (Z % 12 < 2) ? K.stoneD : K.earthD);
+  for (const X of [C(0.95), C(2.55)]) for (let Z = C(13.8); Z <= C(17); Z++) { w.set(X, -1, Z, K.rut); w.set(X + 1, -1, Z, K.rut); }
 }
 
 // ------------------------------------------------------------------ the build
@@ -329,22 +329,22 @@ function* build(c: Ctx, o: { time: HideoutTime; weather: HideoutWeather }) {
   feed(c, FEED.X, FEED.Z);
   const pot = cookFire(c, POT.X, POT.Z, true);
   frontGate(c, GATE.w0, GATE.x0, GATE.x1, GATE.w1, GATE.Z);
-  // act-128: outer departure corridor flanking low stone curbs, timber rails, and two weathered stone departure piers at z = 9.45
+  // act-129: outer departure corridor flanking low stone curbs, timber rails, and two weathered stone departure piers at the far end (z = 13.4)
   {
-    const cz0 = GATE.Z + 4, cz1 = C(9.55);
+    const cz0 = GATE.Z + 4, cz1 = C(13.4);
     for (const [cx0, cx1] of [[GATE.x0 - 5, GATE.x0 - 3], [GATE.x1 + 3, GATE.x1 + 5]] as const) {
       // low stone curb along the corridor
       w.box(cx0, 0, cz0, cx1, 2, cz1, K.stone);
       w.box(cx0, 3, cz0, cx1, 3, cz1, K.stoneL);
-      // wooden fence posts & two timber crossbars connecting the gate to the outer piers
+      // wooden fence posts & two timber crossbars connecting the gate to the far-end outer piers
       const px = cx0 + 1;
-      for (let z = cz0 + 6; z <= cz1 - 6; z += 10) {
+      for (let z = cz0 + 6; z <= cz1 - 6; z += 12) {
         w.box(px - 1, 4, z, px, 12, z + 1, HV.post);
         w.box(px - 1, 13, z, px, 13, z + 1, HV.woodL);
       }
       w.box(px, 6, cz0, px, 7, cz1, HV.wood);
       w.box(px, 10, cz0, px, 11, cz1, HV.woodL);
-      // outer departure stone piers (门阙石墩) framing the exit light curtain
+      // outer departure stone piers (门阙石墩) framing the exit light curtain at the far end of the corridor
       w.box(cx0 - 1, 0, cz1 - 2, cx1 + 1, 14, cz1 + 3, K.stone);
       w.box(cx0 - 1, 0, cz1 - 2, cx1 + 1, 3, cz1 + 3, K.stoneD);
       w.box(cx0 - 2, 15, cz1 - 3, cx1 + 2, 17, cz1 + 4, K.stoneL);
@@ -431,9 +431,9 @@ function* build(c: Ctx, o: { time: HideoutTime; weather: HideoutWeather }) {
   for (let i = 0; i < 90; i++) { const x = -18 + hash(i, 4, 9) * 36, z = -16 + hash(i, 5, 9) * 6.5; if (Math.abs(x + 0.8) < 3.8 && z > -12.6) continue; card(i % 4 ? 'grass' : 'weeds', x, z, 0.5 + hash(i, 6, 9) * 0.4, i % 2 ? 0xc8b890 : 0xb4a878); }
   for (let i = 0; i < 46; i++) { const z = -8.6 + hash(i, 7, 9) * 22, x = hash(i, 8, 9) < 0.5 ? 9.85 + hash(i, 9, 9) * 0.5 : 8.6 + hash(i, 10, 9) * 0.1; if (x < 9 && (z < 1.2 && z > -5.1)) continue; card('reeds', x, z, 0.6 + hash(i, 11, 9) * 0.5, 0xb8b088); }
   for (let i = 0; i < 26; i++) { const x = -10.5 + hash(i, 12, 9) * 3, z = 4.6 + hash(i, 13, 9) * 4; card('reeds', x, z, 0.6 + hash(i, 14, 9) * 0.4, 0xb8b088); }
-  for (let i = 0; i < 360; i++) {
-    const x = -18 + hash(i, 15, 9) * 36, z = -10 + hash(i, 16, 9) * 24;
-    if (x > -9.3 && x < 8.7 && z < 7.4) continue; if (x > 0.4 && x < 3.2 && z > 7) continue;
+  for (let i = 0; i < 380; i++) {
+    const x = -18 + hash(i, 15, 9) * 36, z = -10 + hash(i, 16, 9) * 26.5;
+    if (x > -9.3 && x < 8.7 && z < 7.4) continue; if (x > 0.1 && x < 3.5 && z > 7) continue;
     const isFlank = x < -9.3 || x > 9.5;
     card(isFlank && i % 3 === 0 ? 'vtuft' : (i % 5 ? 'grass' : 'weeds'), x, z, 0.48 + hash(i, 17, 9) * 0.42, isFlank ? (i % 2 ? 0x9eb878 : 0xb8c488) : (i % 3 ? 0xc8b890 : 0xa8b080));
   }
