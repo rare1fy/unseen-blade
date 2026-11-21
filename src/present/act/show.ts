@@ -53,7 +53,8 @@ import { openMovesPreview, type StageSetup } from './movesPreview';
 import { IronHp, HP_FACE } from './ironUi';
 import { ROSTER } from '../bestiary/models';
 import { CODE_BUILD } from '../bestiary/voxEdit';
-import { rackBlades, hideoutScene, HIDEOUT, HIDEOUT_PEOPLE } from './hideout';
+import { rackBlades, hideoutScene, hideoutSolids, HIDEOUT, HIDEOUT_PEOPLE } from './hideout';
+import { clampWithDoors } from './doorClamp';
 import { Timeline, type V } from './timeline';
 import { openingShots, bossIntroShots, generalIntroShots, steleStrikeShots, safeCam, type CineHost } from './cutscenes';
 import { NPC_TALK, STELE_TALK, MEAL_TALK, UP_TALK, POOR_TALK, WAKE_DUWU, WAKE_SUNAO, CHULEI_BEFORE, CH_BEFORE, CH_AFTER, BOSS_AFTER, STRIKE_FLAG, bossesDown, struckOnStele, ENDING, ENDING_PICK, ENDING_DESC, GEN_BEFORE, GEN_AFTER, deathLine, PRO_CUIXUAN, PRO_FALL, PRO_DAWN, PRO_WAKE, PRO_CAPTIONS, PRO_AMBUSH } from './scripts';
@@ -986,6 +987,12 @@ export class ActShow {
     }
     this.zoneMonuments.clear();
   }
+  private syncHideoutSolids(prog = hideoutProgress(profile(), this.dbgAllWeapons)) {
+    this.solids.clear();
+    for (const so of hideoutSolids({ rackBuilt: prog.rackBuilt, forgeBuilt: prog.forgeBuilt, gardenBuilt: prog.gardenBuilt })) {
+      this.solids.add({ kind: 'prop', ...so });
+    }
+  }
   private refreshHideoutProps() {
     if (!this.stage || this.phase !== 'yard') return;
     if (this.weaponRackMesh) { this.weaponRackMesh.parent?.remove(this.weaponRackMesh); this.weaponRackMesh = null; }
@@ -995,6 +1002,7 @@ export class ActShow {
     this.clearZoneMonuments();
     const p = profile();
     const prog = hideoutProgress(p, this.dbgAllWeapons);
+    this.syncHideoutSolids(prog);
 
     if (prog.rackBuilt) {
       const unl: Record<WeaponId, boolean> = {
@@ -2799,7 +2807,7 @@ export class ActShow {
     if (isYard) Object.assign(PLAY, HIDEOUT.floor);   // act-20: the hideout 断碑古窑 (hideout.ts) is the yard now — its own stage and floor
     this.solids.clear(); this.props?.dispose(); this.props = null; this.botWp = 0;
     if (P.fixtures) this.solids = P.fixtures.solids;
-    if (isYard) for (const so of HIDEOUT.solids) this.solids.add({ kind: 'prop', ...so });
+    if (isYard) this.syncHideoutSolids();
     if (this.arena && this.stage) {
       // act-20: the cover pieces are breakable (Breakables builds them and their solids)
       if (P.fixtures) { this.props = P.fixtures.props; this.stage.root.add(this.props.root); batchActor(this.props.root); }
@@ -3155,9 +3163,9 @@ export class ActShow {
     // the way out: outer departure mountain road past the front gate, sign standing beside the far-end stone pier
     const gx = (HIDEOUT.exit.x0 + HIDEOUT.exit.x1) / 2;
     this.exitSign = makeSign('出发', { w: 1.3, h: 0.6, post: 0.95 }); this.exitSign.position.set(HIDEOUT.exit.x1 + 1.38, 0, HIDEOUT.exit.z - 0.95); this.stage!.root.add(this.exitSign);
-    // (a lane through the gate toward the camera: the clamp lets her walk on out there; the front wall either side is solid. The
-    // id is a side road's, which the clamp treats as 'hold z to the lane, x to the solids' — the back road's rule would open the north)
-    const ex = { ...exitInfo(this.layout!, 'back'), id: 'left' as const, dir: [0, 1] as [number, number], lane: { x0: HIDEOUT.exit.x0, x1: HIDEOUT.exit.x1, z0: 10.2, z1: PLAY.z1 + 2.5 }, walk: [[gx, HIDEOUT.exit.z - 1.6], [gx, HIDEOUT.exit.z + 1.0]] as Array<[number, number]> };
+    // South departure road extends seamlessly to the piers (z = 15.6) inside HIDEOUT.floor (z1 = 16.4); the door lane opens south
+    // beyond the road end so walking out & back through the gate and mountain road is 100% two-way with zero one-way airwall!
+    const ex = { ...exitInfo(this.layout!, 'back'), id: 'left' as const, dir: [0, 1] as [number, number], lane: { x0: HIDEOUT.exit.x0, x1: HIDEOUT.exit.x1, z0: PLAY.z1 - 0.8, z1: PLAY.z1 + 3.0 }, walk: [[gx, HIDEOUT.exit.z - 1.6], [gx, HIDEOUT.exit.z + 1.0]] as Array<[number, number]> };
     this.doors = [{ ex, g: new THREE.Group(), lift: 1 }];
     const touch = isTouchLayout(this.inp.lastDevice);
     this.banner.show('断碑古窑', touch ? '走近人点右下说话 · 踩石板叫陪练 · 出院门开打' : this.inp.lastDevice === 'pad' ? msg`走近人按 ${actPad('attack')} 说话 · 踩石板叫陪练 · 出院门开打` : !__DEBUG_UI__ ? msg`走近人按 ${actKey('attack')} 说话 · 踩石板叫陪练 · 出院门开打` : msg`走近人按 ${actKey('attack')} 说话 · 踩石板叫陪练 · 出院门开打 · \` 键调手感`, 4);
@@ -3515,28 +3523,19 @@ export class ActShow {
     this.lastPush = keep;
   }
   private clamp = (p: THREE.Vector3, r: number) => {
-    const x0 = PLAY.x0 + r + 0.2, x1 = PLAY.x1 - r - 0.2, z0 = PLAY.z0 + r + 0.3, z1 = PLAY.z1 - r - 0.2;
-    if (this.phase === 'doors' || this.phase === 'leaving' || this.phase === 'yard') for (const d of this.doors) { const l = d.ex.lane, bk = d.ex.dir[1] < 0; if (p.x > l.x0 - 1.0 && p.x < l.x1 + 1.0 && p.z > l.z0 - (bk ? 1.0 : 0.1) && p.z < l.z1 + (bk ? 1.0 : 0.1)) {
-        // the back road: held to its width, free to walk on out (a short lane, shallower than the hero is wide, used to clamp him back
-        // inside the room so he could never reach the far end)
-        if (bk) { p.x = Math.max(l.x0 + r, Math.min(l.x1 - r, p.x)); p.z = Math.max(Math.min(l.z0, PLAY.z0) + r - 6, Math.min(PLAY.z1 - r, p.z)); }
-        else p.z = Math.max(l.z0 + r, Math.min(l.z1 - r, p.z));
-        this.lastPush = this.solids.pushOut(p, r); return; } }
-    const ox = p.x, oz = p.z;
-    // 11-18 屋子形态: a shaped room holds bodies on its floor grid (walls, the walled-off parts, the pits — the hero never falls in; a
-    // foe going over a pit is let through by the foes' own clamp, see foeClamp)
-    if (this.grid) {
-      const gp = this.grid.clamp(p, r, this.overPit);
-      const sp = this.solids.pushOut(p, r);
-      // (a pit's edge is no wall: nothing to slam into there)
-      this.lastPush = sp ?? (gp && !gp.pit ? { s: WALL_SOLID, nx: gp.nx, nz: gp.nz, depth: gp.depth } : null);
-      return;
-    }
-    p.x = Math.max(x0, Math.min(x1, p.x)); p.z = Math.max(z0, Math.min(z1, p.z));
-    // the floor's edge counts as the wall (a slam); the push normal points back into the room
-    const wx = p.x - ox, wz = p.z - oz; this.lastPush = null;
-    const sp = this.solids.pushOut(p, r);
-    this.lastPush = sp ?? (wx || wz ? { s: WALL_SOLID, nx: Math.sign(wx), nz: Math.sign(wz), depth: Math.hypot(wx, wz) } : null);
+    const yard = this.phase === 'yard' || (this.phase === 'leaving' && this.room < 0);
+    const activeDoors = (this.phase === 'doors' || this.phase === 'leaving' || this.phase === 'yard')
+      ? this.doors.map(d => d.ex)
+      : [];
+    this.lastPush = clampWithDoors(p, r, {
+      play: PLAY,
+      pad: yard ? { x: 0, z0: 0, z1: 0 } : { x: 0.02, z0: 0.02, z1: 0.1 },
+      doors: activeDoors,
+      grid: this.grid,
+      overPit: this.overPit,
+      solids: this.solids,
+      wallSolid: WALL_SOLID,
+    });
   };
   /** 11-18 屋子形态: the clamp lets this body over a pit (a foe knocked off its feet, a dart in flight); off again after each call */
   private overPit = false;
@@ -5721,7 +5720,7 @@ export class ActShow {
     this.stage = showStage(def, { combat: true });
     Object.assign(PLAY, HIDEOUT.floor);
     this.solids.clear();
-    for (const so of HIDEOUT.solids) this.solids.add({ kind: 'prop', ...so });
+    for (const so of hideoutSolids({ rackBuilt: false, forgeBuilt: false, gardenBuilt: false })) this.solids.add({ kind: 'prop', ...so });
     this.stele = new Stele(opts.cuts);
     this.stele.g.position.set(HIDEOUT.stele.x, 0, HIDEOUT.stele.z);
     this.stele.g.rotation.y = HIDEOUT.stele.yaw;
@@ -6337,7 +6336,7 @@ export class ActShow {
           this.worldPlates.hide('door.' + i);
         }
         if (this.phase !== 'doors') return;
-        const p = h.pos, l = d.ex.lane, bk = d.ex.dir[1] < 0, out = bk ? p.z < PLAY.z0 - 1.2 : d.ex.dir[0] < 0 ? p.x < l.x0 + 2.6 : p.x > l.x1 - 2.6;
+        const p = h.pos, l = d.ex.lane, bk = d.ex.dir[1] < 0, out = bk ? p.z < PLAY.z0 - 1.2 : d.ex.dir[0] < 0 ? p.x < PLAY.x0 - 1.2 : p.x > PLAY.x1 + 1.2;
         if (this.gates?.onGlow(p, d.ex.id) || (out && p.x > l.x0 - 0.4 && p.x < l.x1 + 0.4 && p.z > l.z0 - (bk ? 6 : 0.4) && p.z < l.z1 + 0.4)) this.leave(i);
       });
     } else {

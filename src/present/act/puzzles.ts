@@ -122,6 +122,8 @@ const mesh = (vw: VoxWorld) => { const g = new THREE.Group(); for (const m of vw
 type PieceKind = 'door' | 'gate' | 'hollow' | 'barricade';
 interface Piece {
   kind: PieceKind; rect: Rect; open: boolean;
+  /** true once grid.set(rect, FLOOR) has cleared collision (unlocked early while visual swing finishes so open doors never feel like airwalls) */
+  passable?: boolean;
   /** the way through runs along z (the piece spans x) or along x */
   run: 'x' | 'z';
   /** the floor's pieces on either end of the way through (zone labels at the start) */
@@ -131,11 +133,11 @@ interface Piece {
   /** the heap a hollow wall falls to */ rubble?: THREE.Group;
   /** luminous crack seam on a hollow wall that widens with each hit */ seam?: THREE.Mesh;
 }
-interface Drop { rect: Rect; post: [number, number]; pivot: THREE.Group; rope: THREE.Mesh; axis: 'x' | 'z'; sign: number; t: number; down: boolean; hintT: number }
+interface Drop { rect: Rect; post: [number, number]; pivot: THREE.Group; rope: THREE.Mesh; axis: 'x' | 'z'; sign: number; t: number; down: boolean; passable?: boolean; hintT: number }
 interface Bell { x: number; z: number; g: THREE.Group; bell: THREE.Group; note: number; swing: number; halo: THREE.Mesh }
 interface Reward { x: number; z: number; g: THREE.Group; beam: THREE.Mesh; halo: THREE.Mesh; gem: THREE.Mesh; tier: RewardTier; taken: boolean; t: number }
 interface Plate { x: number; z: number; slab: THREE.Group; seal: THREE.Mesh; timer: THREE.Mesh; gate: Piece; down: boolean; grace: number; hint: number }
-interface Causeway { rect: Rect; water: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshLambertMaterial>; deck: THREE.Group }
+interface Causeway { rect: Rect; water: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshLambertMaterial>; deck: THREE.Group; passable?: boolean }
 interface Wheel { x: number; z: number; rim: THREE.Mesh; pips: THREE.Mesh[]; paths: Causeway[]; blows: number[]; drain: number; bubbles: number; hint: number }
 type Body = { pos: THREE.Vector3; r: number };
 interface PuzzleFrame { foes?: readonly Body[]; heroRadius?: number; heroHeight?: number; waitZone?: number }
@@ -618,7 +620,8 @@ export class RoomPieces {
       w.drain = Math.min(1.5, w.drain + dt);
       w.rim.rotation.z = Math.PI / 2 + Math.PI * w.drain;
     }
-    for (const { water, deck, rect } of w.paths) {
+    for (const path of w.paths) {
+      const { water, deck, rect } = path;
       const k = Math.max(0, w.drain / 1.5);
       water.position.y = -0.2 - 0.32 * k; water.material.opacity = 0.9 * (1 - k);
       deck.position.y = -0.42 * (1 - k);
@@ -628,7 +631,7 @@ export class RoomPieces {
           v: V3(0, 0.45 + a, 0), tile: TILE.ring, c0: BUBBLE, s0: 0.08, s1: 0.17, life: 0.85,
         });
       }
-      if (k === 1) { water.visible = false; this.grid.set(rect, FLOOR); }
+      if (k === 1) { water.visible = false; if (!path.passable) { path.passable = true; this.grid.set(rect, FLOOR); } }
     }
     if (w.bubbles <= 0) w.bubbles = w.drain < 0 ? 2 : 0.24;
   }
@@ -671,7 +674,7 @@ export class RoomPieces {
         }
         if (g.open) g.leaves?.forEach((lv, i) => { lv.rotation.y = (i ? -1 : 1) * (1.75 + (g.hintT > 1.05 ? Math.sin(this.t * 67) * 0.035 : 0)); });
       } else if (g.open || g.t >= 0) {
-        g.open = false; g.t = -1; this.grid.set(g.rect, OUT);
+        g.open = false; g.passable = false; g.t = -1; this.grid.set(g.rect, OUT);
         g.leaves?.forEach(lv => { lv.rotation.y = 0; }); cue('plate', 0.7);
         this.pushOutside(g, hero);
         for (const f of foes) this.pushOutside(g, f);
@@ -772,7 +775,10 @@ export class RoomPieces {
         if (p.leaves) { const e = 1 - (1 - k) ** 3; p.leaves.forEach((lv, i) => { lv.rotation.y = (i ? -1 : 1) * e * 1.75; }); }
         if (p.kind === 'hollow' && p.t > 0.12) { p.g.children[0].visible = false; if (p.rubble) p.rubble.visible = true; }
         if (p.kind === 'barricade') { const bar = p.g.children[0]; bar.scale.y = Math.max(0.05, 1 - k); if (p.t % 0.25 < dt) fxEmbers(bar.getWorldPosition(V3()).setY(0.5), 0xff7a2a, 4, { r: 0.9, up: 1.2, life: 0.8 }); if (k >= 1) bar.visible = false; }
-        if (k >= 1 || (p.kind === 'hollow' && p.t > 0.15)) { p.open = true; this.grid.set(p.rect, FLOOR); ev.push({ k: 'opened', kind: p.kind, rect: p.rect }); }
+        // Clear collision as soon as the passage looks visually open (doors >85% swung, barricade burned low) so players never hit an invisible wall!
+        const readyPass = (p.kind === 'hollow' && p.t > 0.15) || (p.kind === 'barricade' ? k >= 0.65 : k >= 0.45);
+        if (readyPass && !p.passable) { p.passable = true; this.grid.set(p.rect, FLOOR); }
+        if (k >= 1 || (p.kind === 'hollow' && p.t > 0.15)) { p.open = true; if (!p.passable) { p.passable = true; this.grid.set(p.rect, FLOOR); } ev.push({ k: 'opened', kind: p.kind, rect: p.rect }); }
       }
       // Subtle luminous crack pulse on hollow wall so players spot the fissure even from across the courtyard
       if (!p.open && p.t < 0 && p.seam) {
@@ -789,8 +795,9 @@ export class RoomPieces {
       if (d.t >= 0 && !d.down) {
         d.t += dt; const k = Math.min(1, d.t / 0.42);
         d.pivot.rotation.x = 1.3 * (1 - k * k);
+        if (k >= 0.85 && !d.passable) { d.passable = true; this.grid.set(d.rect, FLOOR); }
         if (k >= 1) {
-          d.down = true; d.pivot.rotation.x = 0; this.grid.set(d.rect, FLOOR); cue('bridgeDrop', 1); shake(0.35);
+          d.down = true; d.pivot.rotation.x = 0; if (!d.passable) { d.passable = true; this.grid.set(d.rect, FLOOR); } cue('bridgeDrop', 1); shake(0.35);
           const c = V3((d.rect.x0 + d.rect.x1) / 2, 0.2, (d.rect.z0 + d.rect.z1) / 2); fxSmoke(c, 0x8a8a94, 12, { r: 1.4, spd: 1.2, up: 0.5, s: 0.45, life: 0.8 });
           ev.push({ k: 'bridge', rect: d.rect });
         }

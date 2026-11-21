@@ -344,8 +344,8 @@ export function channel(c: Ctx, X0: number, X1: number, Z0: number, Z1: number) 
       if ((z / 10) % 2 === 0) B(x, 0, z + 1, x + 1, 0, Math.min(Z1, z + 4), K.stoneL);
     }
   }
-  // small weathered plank footbridge outside the front gate (z ≈ 8.4..9.5 m) connecting the road to the bamboo bank
-  const bz0 = Math.min(Z1 - 24, Math.round(8.4 / CELL)), bz1 = bz0 + 14;
+  // small weathered plank footbridge outside the front gate wall (z ≈ 12.6..13.6 m) so it never tempts courtyard players into the blocked stream bank
+  const bz0 = Math.min(Z1 - 24, Math.round(12.6 / CELL)), bz1 = bz0 + 14;
   if (bz0 > Z0 + 20) {
     B(X0 - 3, 0, bz0, X1 + 3, 0, bz1, HV.woodD);
     B(X0 - 2, 1, bz0, X1 + 2, 1, bz1, HV.wood);
