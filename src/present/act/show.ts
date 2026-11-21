@@ -53,7 +53,7 @@ import { openMovesPreview, type StageSetup } from './movesPreview';
 import { IronHp, HP_FACE } from './ironUi';
 import { ROSTER } from '../bestiary/models';
 import { CODE_BUILD } from '../bestiary/voxEdit';
-import { rackBlades, hideoutScene, hideoutSolids, HIDEOUT, HIDEOUT_PEOPLE } from './hideout';
+import { rackBlades, hideoutScene, hideoutSolids, HIDEOUT, HIDEOUT_PEOPLE, type HideoutTime, type HideoutWeather } from './hideout';
 import { clampWithDoors } from './doorClamp';
 import { Timeline, type V } from './timeline';
 import { openingShots, bossIntroShots, generalIntroShots, steleStrikeShots, safeCam, type CineHost } from './cutscenes';
@@ -240,7 +240,17 @@ interface RoomIn { isYard: boolean; room: number; recent: Spec[]; locale: string
   shape?: ShapeId | null; shapes?: ShapeId[]; seed?: number | null;
   /** 11-18 定死的屋子: force this drawn room (asm/roomMaps.ts id); the drawn rooms used this run (not again while others are left) */
   map?: string | null; maps?: string[]; region?: number;
-  /** 11-18: the region's defaults for the pick (season …: 下邳 is winter); the place's own lists still apply */ regionSpec?: Partial<Spec> | null }
+  /** 11-18: the region's defaults for the pick (season …: 下邳 is winter); the place's own lists still apply */ regionSpec?: Partial<Spec> | null;
+  /** act-152: rotating hideout time & weather */ yardAtmo?: { time: HideoutTime; weather: HideoutWeather } }
+/** act-152: rotating mountain kiln moods across return visits (first visit stays warm dusk/clear) */
+export const HIDEOUT_ATMOS: ReadonlyArray<{ time: HideoutTime; weather: HideoutWeather }> = [
+  { time: 'dusk', weather: 'clear' },
+  { time: 'dusk', weather: 'rain' },
+  { time: 'night', weather: 'snow' },
+  { time: 'day', weather: 'clear' },
+  { time: 'night', weather: 'rain' },
+  { time: 'dawn', weather: 'clear' },
+];
 /** a room's place, built (off the live scene) and ready to put up */
 interface Fixtures { props: Breakables; solids: Solids; gates: Gates; grid: FloorGrid | null; pieces: RoomPieces | null }
 interface Room { fixtures?: Fixtures; spec: Spec; big: boolean; layout: Layout; arena: ArenaPlan | null; report: Report | null; prep: PreparedStage; k: { x: number; z: number } }
@@ -313,9 +323,10 @@ function onward(room: number, visited: RoomType[], region: number) {
 }
 export function roomDefinition(o: RoomIn) {
   const { isYard } = o;
+  const ya = o.yardAtmo ?? { time: 'dusk' as HideoutTime, weather: 'clear' as HideoutWeather };
   const seed = o.seed ?? (Date.now() % 100000) + o.room * 977;
   const base = pickSpec(seed, Object.values(REGISTRY.locales), REGISTRY.layouts, o.recent, { season: o.regionSpec?.season ?? 'autumn', locale: o.locale });
-  const spec: Spec = isYard ? { ...base, time: 'dusk', weather: 'clear', exits: ['back'] }
+  const spec: Spec = isYard ? { ...base, season: ya.weather === 'snow' ? 'winter' : 'autumn', time: ya.time, weather: ya.weather, exits: ['back'] }
     : { ...base, time: o.room === 0 ? 'dusk' : base.time, weather: o.plan?.type === 'boss' ? 'clear' : base.weather, exits: o.nextRooms.length > 1 ? ['left', 'right'] : o.nextRooms.length ? ['back'] : [] };
   if (o.viewSpec) Object.assign(spec, { exits: [] }, o.viewSpec);
   if (o.forceSpec) Object.assign(spec, o.forceSpec);   // act-29: the prologue's snowy night
@@ -342,7 +353,7 @@ export function roomDefinition(o: RoomIn) {
   const shape = drawn ?? (big && !o.noArena && shapeId !== 'square' ? makeShape(shapeId, spec.seed, { layout, pit: pitK }) : undefined);
   const arena = big && !o.noArena ? arenaPlan(layout, (spec.exits ?? []) as ExitId[], spec.seed, spec.locale, calm || isEvent ? 'calm' : ptype === 'boss' ? 'boss' : 'fight', shape) : null;
   spec.arena = arena ?? undefined;
-  if (isYard) return { spec, big, layout, arena, report: null, k, def: hideoutScene({ time: 'dusk', weather: 'clear' }) };
+  if (isYard) return { spec, big, layout, arena, report: null, k, def: hideoutScene(ya) };
   const { def, report } = assemble(spec, REGISTRY);
   def.report = report;
   if (dm?.kind === roomKind && !o.forceSpec && !o.viewSpec) def.pack = `map-${dm.id}-${spec.season}-${spec.exits?.length ?? 0}`;
@@ -518,7 +529,7 @@ export class ActShow {
   /** act-37 the cold open: 寒山坞 that night (coldopen.ts) — on the place the title built while it loaded; it ends in the dark */
   private async coldOpen(): Promise<BlindPOV | null> {
     if (COLD_AS_CARDS) {
-      const pov = new BlindPOV(this.L); pov.fill(0x000000, 1, true); this.hud.on = false; stopTitle();
+      const pov = new BlindPOV(this.L); pov.fill(0x000000, 1, true); this.hud.on = false; stopTitle(); audio.setWeatherSound('none', 0.3);
       this.musicHold = 'bgm_coldopen'; void audio.playMusic('bgm_coldopen', 0.6);   // (held through the walk; the ambush crossfades it out)
       await this.cine(coldCardShots(pov)); pov.fill(0x000000, 1, true);
       await frames(2); return pov;
@@ -792,7 +803,7 @@ export class ActShow {
     const wakeCamPos = V3(mx - 4.1, 4.15, mz + 4.9), wakeCamLook = V3(mx + 0.35, 0.72, mz - 0.15);
     let wakeCamFov = 42;
     await wipeTransit(async () => {
-      await this.enterYard(); this.noTalk = true; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels(); this.musicHold = 'bgm_kiln'; void audio.playMusic('bgm_kiln', 1.2);
+      await this.enterYard({ time: 'dusk', weather: 'clear' }); this.noTalk = true; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels(); this.musicHold = 'bgm_kiln'; void audio.playMusic('bgm_kiln', 1.2);
       const h = this.hero; h.pos.set(wakeMat[0], 0, wakeMat[1]); h.a.place(h.pos, 0); h.a.root.visible = true; h.a.body.visible = true; let gk = 0; h.scriptPose = () => getUpPose(h.a, gk);
       if (h.a.bones.hat) h.a.bones.hat.visible = false;
       // Bring Du Wu beside Sun Ao's straw mat in the expanded hideout so he is cleanly in frame during PRO_WAKE
@@ -2257,6 +2268,17 @@ export class ActShow {
       /** act-114: preview hideout stele carving cutscene for name index n (0..4) */
       steleCut: (n = 0) => { void this.debugSteleCut(Math.max(0, Math.min(4, n))); },
       newGame: () => this.startNewGame(), talkTest: (n = 0) => this.talk(n ? CHULEI_BEFORE : WAKE_DUWU), act: () => this, bot: (on = true) => { this.botOn = on; }, run: () => this.startRun(), yard: () => this.enterYard(), wear: (id: string) => { const d = HEROES.find(h => h.id === id); if (d) this.wear(d); },
+      weather: (w: Spec['weather'], t?: Spec['time']) => {
+        if (this.room < 0) {
+          const hw: HideoutWeather = w === 'snow' || w === 'rain' || w === 'mist' || w === 'clear' ? w : 'rain';
+          const ht: HideoutTime = t === 'day' || t === 'dawn' || t === 'night' || t === 'dusk' ? t : (hw === 'snow' ? 'night' : 'dusk');
+          void this.enterYard({ time: ht, weather: hw });
+          return { hideout: true, time: ht, weather: hw };
+        }
+        this.forceSpec = { ...(this.spec ?? {}), weather: w, ...(t ? { time: t } : {}) };
+        void Promise.resolve(this.buildRoom(false)).finally(() => { this.forceSpec = null; });
+        return { locale: this.spec?.locale, time: t ?? this.spec?.time, weather: w };
+      },
       skin: (id: SkinId) => this.cycleSkin(id),
       cardsDemo: () => { void this.cards.open([BOONS[0], BOONS[6], BOONS[12]].map((boon, tier) => ({ boon, tier }))); },
       /** captures: these boons as a pick, tiers 0 / 1 / 2 in turn */ cardsOf: (ids: string[]) => { void this.cards.open(ids.map((id, i) => ({ boon: BOONS.find(b => b.id === id) ?? BOONS[0], tier: i % 3 }))); },
@@ -2574,7 +2596,7 @@ export class ActShow {
     this.duel?.newRoom(); for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = []; this.entering.length = 0; this.clearBossDrops(); this.clearFleeing(); this.bossDefeated = false; this.poolBossRoom = false; this.kneelingBoss = null; this.wavePending = 0; this.waveGen++; this.bossIntroActive = false;
     this.yard?.dispose(); this.yard = null; this.props?.dispose(); this.props = null; this.gates?.dispose(); this.gates = null; this.pieces?.dispose(); this.pieces = null; this.leaves?.dispose(); this.leaves = null; this.stations?.dispose(); this.stations = null; this.hero?.a.dispose();
     this.clearNpcs();
-    this.phase = 'title'; this.hud.on = false; this.hud.update(0, this.inp, []); this.banner.hide(); this.blob.visible = false; this.ring.visible = false; for (const m of this.shadows) m.visible = false;
+    this.phase = 'title'; audio.setWeatherSound('none', 0.4); this.hud.on = false; this.hud.update(0, this.inp, []); this.banner.hide(); this.blob.visible = false; this.ring.visible = false; for (const m of this.shadows) m.visible = false;
     const titleReady = playTitle(n, { ov: this.ov, L: this.L, hasSave, settings: () => this.pause.open('set', { fromTitle: true }), enter: k => { this.hud.on = true; if (k === 'continue') return this.continueGame(); void this.startNewGame(); } });
     this.music();
     // (before the title's first frame: the page is still dark and loading then — a frozen first picture with the snow hanging in the
@@ -2758,8 +2780,18 @@ export class ActShow {
     this.phase = 'opening'; this.hud.on = false; this.hud.update(0, this.inp, []); this.banner.hide(); this.blob.visible = false; for (const m of this.shadows) m.visible = false;
     void playOpening({ actor: this.hero.a, stage: this.stage!, ov: this.ov, enter: () => { this.hud.on = true; return this.enterYard(); }, soundOn: () => this.audioOn });
   }
+  private yardVisit = 0;
+  private yardAtmo: { time: HideoutTime; weather: HideoutWeather } = { time: 'dusk', weather: 'clear' };
   /** the training yard: dummies, summon slabs, the costume rack, the way out to a run */
-  enterYard() {
+  enterYard(atmo?: { time: HideoutTime; weather: HideoutWeather }) {
+    if (atmo) {
+      this.yardAtmo = atmo;
+    } else {
+      const runs = profile().runs;
+      if (runs <= 0 && this.yardVisit === 0) this.yardAtmo = HIDEOUT_ATMOS[0];
+      else this.yardAtmo = HIDEOUT_ATMOS[(runs + this.yardVisit) % HIDEOUT_ATMOS.length];
+      this.yardVisit++;
+    }
     this.unscaleFoes();
     TUNE.dartCharges = 3; TUNE.aggression = 0.85;
     this.mods = { dmgMul: 1, critBonus: 0, dartBonus: 0, rerolls: 1, hpBonus: 0, deathDefy: 0, startIntent: 0, windupMul: 1, startManual: false, poiseHeal: 0, firstStrikeBonus: 0, styleBonus: 0, dashCdMul: 1, counterBonus: 0, markedDmgBonus: 0, poiseDmgMul: 1, rareOddsBonus: 0, interestRate: 0 };
@@ -2954,7 +2986,7 @@ export class ActShow {
     // act-34: the place itself — built ahead of time when it can be (the title builds a new game's first room while it loads), else now
     // (11-18: a region's own look — 下邳 is always winter — unless the prologue or a view asks otherwise)
     const rspec = !isYard && !this.prologue ? REGIONS[this.region]?.spec ?? null : null;
-    const want: RoomIn = { isYard, room: this.room, recent: this.recent, locale: this.locale, plan: this.plan, nextRooms: this.nextRooms, viewSpec: this.viewSpec, forceSpec: this.forceSpec, noArena: this.noArena, shape: this.forceShape, shapes: this.shapes, seed: this.forceSeed, map: this.forceMap, maps: this.maps, region: this.prologue ? undefined : this.region, regionSpec: rspec };
+    const want: RoomIn = { isYard, room: this.room, recent: this.recent, locale: this.locale, plan: this.plan, nextRooms: this.nextRooms, viewSpec: this.viewSpec, forceSpec: this.forceSpec, noArena: this.noArena, shape: this.forceShape, shapes: this.shapes, seed: this.forceSeed, map: this.forceMap, maps: this.maps, region: this.prologue ? undefined : this.region, regionSpec: rspec, yardAtmo: isYard ? this.yardAtmo : undefined };
     const ready = this.pre && !isYard && !this.viewSpec && this.prologue === 1 && this.room === 0 && this.pre.locale === this.locale ? this.pre : null;
     if (this.pre && this.pre !== ready) this.pre.prep.drop();
     this.pre = null;
@@ -2990,6 +3022,7 @@ export class ActShow {
     if (isYard) { this.shapes = []; this.maps = []; }
     const big = P.big;
     this.stage = P.prep.attach();
+    audio.setWeatherSound(spec.weather === 'storm' ? 'storm' : spec.weather === 'rain' ? 'rain' : 'none');
     yield;
     if (isYard) Object.assign(PLAY, HIDEOUT.floor);   // act-20: the hideout 断碑古窑 (hideout.ts) is the yard now — its own stage and floor
     this.solids.clear(); this.props?.dispose(); this.props = null; this.botWp = 0;

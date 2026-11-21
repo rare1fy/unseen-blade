@@ -3,7 +3,7 @@
 // (leaf litter, moss, cracks). They soften the block silhouettes and fill the edges of the stage with organic detail while the
 // battle floor stays readable. Plus the atmosphere layer: fireflies, falling leaves, spores, dust, and moonbeam shafts.
 import * as THREE from 'three';
-import { canvasTex, onUpdate, V3, R } from '../engine/world';
+import { camera, canvasTex, onUpdate, V3, R } from '../engine/world';
 import { clock } from '../engine/clock';
 import { PADD, PALPHA, TILE } from '../engine/particles';
 import { CELL } from '../bestiary/kit';
@@ -320,18 +320,78 @@ export class Cards {
 }
 
 // ------------------------------------------------------------------ atmosphere: drifting particles and light shafts
-export type Ambient = { kind: 'fireflies' | 'leaves' | 'spores' | 'dust' | 'embers' | 'rain' | 'storm' | 'snow' | 'petals'; color: number; rate: number; area?: { x0: number; z0: number; x1: number; z1: number }; y?: [number, number] };
-export function ambientTick(list: Ambient[], dt: number) {
+export type Ambient = { kind: 'fireflies' | 'leaves' | 'spores' | 'dust' | 'embers' | 'rain' | 'storm' | 'snow' | 'petals'; color: number; rate: number; area?: { x0: number; z0: number; x1: number; z1: number }; y?: [number, number]; follow?: boolean };
+const _camDir = new THREE.Vector3();
+function weatherBox(a: Ambient): { x0: number; z0: number; x1: number; z1: number } {
+  if (a.follow !== false && (a.kind === 'rain' || a.kind === 'storm' || a.kind === 'snow')) {
+    camera.getWorldDirection(_camDir);
+    if (_camDir.y < -0.12 && camera.position.y > 2) {
+      const t = Math.min(48, -camera.position.y / _camDir.y);
+      const fx = Math.max(-36, Math.min(36, camera.position.x + _camDir.x * t));
+      const fz = Math.max(-36, Math.min(36, camera.position.z + _camDir.z * t));
+      return { x0: fx - 12.5, z0: fz - 11, x1: fx + 12.5, z1: fz + 9.5 };
+    }
+  }
+  return a.area ?? { x0: -12, z0: -12, x1: 12, z1: 10 };
+}
+function emitWeatherOne(a: Ambient, ar: { x0: number; z0: number; x1: number; z1: number }, prewarm = false) {
+  const p = V3(R(ar.x0, ar.x1), R((a.y ?? [0.3, 2.4])[0], (a.y ?? [0.3, 2.4])[1]), R(ar.z0, ar.z1)), c = new THREE.Color(a.color);
+  if (a.kind === 'rain') {
+    // act-152: crisp hard-edged pixel rain streaks (TILE.pixel stretched along slanted velocity so zero sub-pixel culling) + ground pixel splashes
+    PALPHA.emit({ p: p.setY(prewarm ? R(0.6, 8.2) : R(3.2, 8.4)), v: V3(R(1.05, 1.55), R(-14.8, -11.8), R(0.12, 0.35)), s0: 0.038, s1: 0.038, life: prewarm ? R(0.18, 0.45) : R(0.32, 0.58), c0: c, alpha: 0.80, tile: TILE.pixel, stretch: 1.78, fadeIn: 0.015 });
+    if (Math.random() < 0.24) {
+      const sp = V3(R(ar.x0, ar.x1), 0.03, R(ar.z0, ar.z1));
+      PALPHA.emit({ p: sp, v: V3(0, 0.02, 0), s0: 0.04, s1: 0.20, life: R(0.16, 0.26), c0: c, alpha: 0.44, tile: TILE.ring, fadeIn: 0.02 });
+      if (Math.random() < 0.65) {
+        const vx = R(0.35, 0.78), vz = R(-0.45, 0.45);
+        PALPHA.emit({ p: sp.clone().setY(0.06), v: V3(vx, R(1.25, 2.05), vz), s0: 0.048, s1: 0.024, life: R(0.16, 0.26), grav: 12.5, c0: c, alpha: 0.78, tile: TILE.pixel, fadeIn: 0.01 });
+        PALPHA.emit({ p: sp.clone().setY(0.06), v: V3(-vx * 0.85, R(1.15, 1.85), -vz), s0: 0.044, s1: 0.022, life: R(0.15, 0.24), grav: 12.5, c0: c, alpha: 0.72, tile: TILE.pixel, fadeIn: 0.01 });
+      }
+    }
+    return true;
+  }
+  if (a.kind === 'storm') {
+    // act-152: fierce wind-driven diagonal pixel rain streaks + brisk ground spray
+    PALPHA.emit({ p: p.setY(prewarm ? R(0.6, 8.8) : R(3.2, 8.8)), v: V3(R(3.2, 4.6), R(-18.5, -15.0), R(0.28, 0.65)), s0: 0.042, s1: 0.042, life: prewarm ? R(0.15, 0.38) : R(0.26, 0.46), c0: c, alpha: 0.86, tile: TILE.pixel, stretch: 2.0, fadeIn: 0.015 });
+    if (Math.random() < 0.30) {
+      const sp = V3(R(ar.x0, ar.x1), 0.03, R(ar.z0, ar.z1));
+      PALPHA.emit({ p: sp, v: V3(0.3, 0.03, 0), s0: 0.05, s1: 0.24, life: R(0.15, 0.24), c0: c, alpha: 0.50, tile: TILE.ring, fadeIn: 0.02 });
+      if (Math.random() < 0.70) {
+        PALPHA.emit({ p: sp.clone().setY(0.07), v: V3(R(0.35, 1.55), R(1.5, 2.45), R(-0.55, 0.55)), s0: 0.054, s1: 0.026, life: R(0.16, 0.26), grav: 13, c0: c, alpha: 0.82, tile: TILE.pixel, fadeIn: 0.01 });
+        PALPHA.emit({ p: sp.clone().setY(0.07), v: V3(R(-0.6, 0.5), R(1.3, 2.1), R(-0.55, 0.55)), s0: 0.046, s1: 0.022, life: R(0.15, 0.23), grav: 13, c0: c, alpha: 0.74, tile: TILE.pixel, fadeIn: 0.01 });
+      }
+    }
+    return true;
+  }
+  if (a.kind === 'snow') {
+    // act-152: chunky crisp voxel snowflakes (3 depth tiers; TILE.pixel fills 62.5% of quad so 0.10..0.21m reads cleanly at 720p..4K)
+    const r = Math.random();
+    const sz = r < 0.36 ? R(0.155, 0.215) : r < 0.80 ? R(0.105, 0.148) : R(0.072, 0.098);
+    const al = r < 0.36 ? 0.96 : r < 0.80 ? 0.90 : 0.82;
+    PALPHA.emit({ p: p.setY(prewarm ? R(0.4, 7.8) : R(1.2, 8.2)), v: V3(R(0.45, 1.25), R(-1.65, -0.95), R(-0.25, 0.25)), s0: sz, s1: sz * 0.92, life: prewarm ? R(1.6, 4.2) : R(2.8, 4.8), c0: c, alpha: al, tile: TILE.pixel, spin: R(-2.2, 2.2), fadeIn: prewarm ? 0.02 : 0.04 });
+    return true;
+  }
+  return false;
+}
+/** act-152: seed weather particles across the visible camera frustum on room entry so rain/snow is unmistakable from frame 1 */
+export function prewarmAmbient(list: Ambient[]) {
   for (const a of list) {
-    const ar = a.area ?? { x0: -9, z0: -11, x1: 9, z1: 6 }, n = a.rate * dt + (Math.random() < (a.rate * dt) % 1 ? 1 : 0);
-    for (let i = 0; i < Math.floor(n); i++) {
+    if (a.kind !== 'rain' && a.kind !== 'storm' && a.kind !== 'snow') continue;
+    const ar = weatherBox(a);
+    const count = a.kind === 'snow' ? Math.min(200, Math.round(a.rate * 2.1)) : Math.min(100, Math.round(a.rate * 0.42));
+    for (let i = 0; i < count; i++) emitWeatherOne(a, ar, true);
+  }
+}
+export function ambientTick(list: Ambient[], dt: number) {
+  const stepDt = Math.min(0.05, Math.max(0, dt));
+  for (const a of list) {
+    const ar = weatherBox(a), exact = a.rate * stepDt, n = Math.floor(exact) + (Math.random() < exact % 1 ? 1 : 0);
+    for (let i = 0; i < n; i++) {
+      if (emitWeatherOne(a, ar, false)) continue;
       const p = V3(R(ar.x0, ar.x1), R((a.y ?? [0.3, 2.4])[0], (a.y ?? [0.3, 2.4])[1]), R(ar.z0, ar.z1)), c = new THREE.Color(a.color);
       if (a.kind === 'fireflies') PADD.emit({ p, v: V3(R(-0.25, 0.25), R(-0.1, 0.2), R(-0.25, 0.25)), s0: 0.14, s1: 0.1, life: R(2.5, 4.5), c0: c, bright: 4, tile: TILE.glow, fadeIn: 0.5 });
       else if (a.kind === 'leaves') PALPHA.emit({ p: p.setY(R(3.5, 6)), v: V3(R(0.2, 0.6), R(-0.55, -0.35), R(-0.2, 0.2)), s0: 0.09, s1: 0.09, life: R(6, 10), c0: c, alpha: 0.95, tile: TILE.pixel, spin: R(-3, 3), fadeIn: 0.3 });
       else if (a.kind === 'spores') PADD.emit({ p, v: V3(R(-0.06, 0.06), R(0.08, 0.25), R(-0.06, 0.06)), s0: 0.05, s1: 0.03, life: R(4, 7), c0: c, bright: 1.8, tile: TILE.pixel, fadeIn: 0.6 });
-      else if (a.kind === 'rain') PALPHA.emit({ p: p.setY(R(5, 8)), v: V3(R(0.3, 0.5), R(-9.5, -8), R(-0.1, 0.1)), s0: 0.03, s1: 0.03, life: R(0.6, 0.9), c0: c, alpha: 0.45, tile: TILE.streak, stretch: 0.06 });
-      else if (a.kind === 'storm') PALPHA.emit({ p: p.setY(R(5.5, 8.5)), v: V3(R(1.6, 2.5), R(-13.5, -11.2), R(-0.25, 0.25)), s0: 0.036, s1: 0.036, life: R(0.48, 0.72), c0: c, alpha: 0.62, tile: TILE.streak, stretch: 0.095 });
-      else if (a.kind === 'snow') PALPHA.emit({ p: p.setY(R(4, 7)), v: V3(R(0.1, 0.35), R(-0.7, -0.45), R(-0.12, 0.12)), s0: 0.06, s1: 0.06, life: R(8, 12), c0: c, alpha: 0.9, tile: TILE.pixel, fadeIn: 0.4 });
       else if (a.kind === 'petals') PALPHA.emit({ p: p.setY(R(3, 6)), v: V3(R(0.4, 0.9), R(-0.45, -0.25), R(-0.25, 0.25)), s0: 0.07, s1: 0.07, life: R(7, 11), c0: c, alpha: 0.95, tile: TILE.pixel, spin: R(-4, 4), fadeIn: 0.3 });
       else if (a.kind === 'dust') PALPHA.emit({ p, v: V3(R(-0.05, 0.05), R(-0.02, 0.05), R(-0.05, 0.05)), s0: 0.035, s1: 0.035, life: R(5, 8), c0: c, alpha: 0.5, tile: TILE.pixel, fadeIn: 0.8 });
       else PADD.emit({ p, v: V3(R(-0.25, 0.35), R(0.45, 1.05), R(-0.18, 0.18)), s0: 0.055, s1: 0.02, life: R(1.8, 3.6), c0: c, bright: 2.8, tile: TILE.pixel });

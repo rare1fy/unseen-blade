@@ -222,5 +222,5 @@ export function farTower(c: Ctx, x: number, z: number, hw: number, H: number, ca
 export function xpDress(c: Ctx, f: { p: Place }, scale = 1) {
   const mist = f.p.weather === 'mist';
   c.ambient({ kind: 'dust', color: 0xc8d4dc, rate: scale * (mist ? 3.2 : 1.4), y: [0.1, 1.2] });
-  if (f.p.weather !== 'snow') c.ambient({ kind: 'snow', color: 0xe8eef4, rate: mist ? 2 : 4 });
+  if (f.p.weather !== 'snow') c.ambient({ kind: 'snow', color: 0xe8f2fc, rate: mist ? 24 : 32 });
 }

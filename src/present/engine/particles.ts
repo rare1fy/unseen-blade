@@ -129,7 +129,7 @@ let tex: THREE.Texture | null = null;
 /** Create (or restyle) the two pools. Called by the look pack. */
 export function initParticles(style: 'pixel' | 'soft') {
   const t = canvasTex(512, 64, g => paintTiles(g, style), { nearest: style === 'pixel' });
-  if (!tex) { PADD = new ParticlePool(3200, true, 20, t); PALPHA = new ParticlePool(1200, false, 19, t); }
+  if (!tex) { PADD = new ParticlePool(3200, true, 20, t); PALPHA = new ParticlePool(1600, false, 19, t); }
   else { PADD.mat.uniforms.uTex.value = t; PALPHA.mat.uniforms.uTex.value = t; tex.dispose(); }
   tex = t;
 }

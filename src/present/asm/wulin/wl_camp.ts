@@ -171,6 +171,6 @@ export const wlCamp: Locale = {
   id: 'wl_camp', name: '乌林辕门', theme: 'wulin',
   layouts: ['axis', 'offset', 'garden', 'street'],
   landmarks: LANDMARKS, groups: GROUPS, filler: FILLER,
-  seasons: ['spring'], times: ['night'], weathers: ['clear', 'mist'], mood: WL_MOOD,
+  seasons: ['spring'], times: ['night'], weathers: ['clear', 'mist', 'rain', 'storm'], mood: WL_MOOD,
   floor, far, dress, infill: wulinInfill('camp'),
 };

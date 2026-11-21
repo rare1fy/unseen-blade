@@ -9,7 +9,7 @@ export const TIMES: TimeId[] = ['dawn', 'day', 'overcast', 'sunset', 'dusk', 'ni
 export const WEATHER_OF: Record<SeasonId, WeatherId[]> = {
   spring: ['clear', 'petals', 'rain', 'storm', 'mist'],
   summer: ['clear', 'rain', 'storm', 'mist', 'embers'],
-  autumn: ['clear', 'rain', 'storm', 'mist', 'embers'],
+  autumn: ['clear', 'rain', 'storm', 'mist', 'embers', 'snow'],
   winter: ['clear', 'snow', 'mist', 'storm'],
 };
 

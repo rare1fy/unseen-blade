@@ -295,6 +295,7 @@ export const hjField: Locale = {
   layouts: ['axis', 'offset', 'garden', 'pair', 'ridge'],
   landmarks: LANDMARKS, groups: GROUPS, filler: FILLER,
   seasons: ['summer', 'autumn'],
+  weathers: ['clear', 'rain', 'storm', 'mist', 'snow'],
   floor, far, dress,
   // 11-18 屋子形态: a corner of standing wheat (曲尺), a field to fight round (回廊), a path through the wheat (窄巷), an irrigation
   // channel or a dry gully with a bridge (过桥), a gully cut into the field (临水)
