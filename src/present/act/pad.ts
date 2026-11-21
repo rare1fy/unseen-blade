@@ -21,9 +21,10 @@ export interface Binds { key: Record<BtnName, string[]>; pad: Record<BtnName, nu
 /** the first of each list is the one shown and the one a rebind replaces; the rest are spares (Shift / RB / RT for the dash, E for darts) */
 export const DEFAULT_BINDS: Binds = {
   key: { attack: ['j'], dash: ['k', 'shift'], jump: [' '], special: ['l', 'e'], ult: ['i'] },
-  // (11-18 用户：「按键映射成I和R2」: R2 / RT, once the dash's third spare, is 不见刀's)
-  pad: { attack: [2], dash: [1, 5], jump: [0], special: [3], ult: [7] },
+  // act-149 (用户：「手柄的默认按键调整下，X攻击，A闪避，B跳跃，Y远程。」): 2=X 攻击, 0=A 闪避(+RB备用), 1=B 跳跃, 3=Y 远程, 7=RT 不见刀
+  pad: { attack: [2], dash: [0, 5], jump: [1], special: [3], ult: [7] },
 };
+const BIND_VER = 2;
 const copy = (b: Binds): Binds => ({ key: { ...mapVals(b.key, v => v.slice()) }, pad: { ...mapVals(b.pad, v => v.slice()) } });
 function mapVals<T, U>(o: Record<BtnName, T>, f: (v: T) => U): Record<BtnName, U> { const r = {} as Record<BtnName, U>; for (const k of ACTIONS) r[k] = f(o[k]); return r; }
 export const BIND: Binds = copy(DEFAULT_BINDS);
@@ -36,7 +37,7 @@ export const PAD_RESERVED = new Set([8, 9, 12, 13, 14, 15, 16]);
 export function loadBinds() {
   try {
     const s = globalThis.localStorage?.getItem(STORE); if (!s) return;
-    const o = JSON.parse(s) as Partial<Binds>;
+    const o = JSON.parse(s) as Partial<Binds> & { v?: number };
     for (const a of ACTIONS) {
       const k = o.key?.[a], p = o.pad?.[a];
       if (Array.isArray(k) && k.length && k.every(x => typeof x === 'string' && !KEY_RESERVED.has(x))) BIND.key[a] = k.slice();
@@ -50,9 +51,14 @@ export function loadBinds() {
       for (const a of ACTIONS) if (a !== 'ult') { T[a] = T[a].filter((c, i) => i === 0 || !T.ult.includes(c)); if (T.ult.includes(T[a][0])) T.ult = T.ult.filter(c => c !== T[a][0]); }
       if (!T.ult.length) T.ult = [kind === 'key' ? 'i' : 7].filter(c => !ACTIONS.some(a => a !== 'ult' && T[a].includes(c)));
     }
+    // act-149: migrate untouched pre-v2 default pad layout (B dash / A jump) to the new default (A dash / B jump) while preserving custom rebinds
+    if ((o.v ?? 1) < BIND_VER && BIND.pad.attack[0] === 2 && BIND.pad.dash[0] === 1 && BIND.pad.jump[0] === 0 && BIND.pad.special[0] === 3) {
+      BIND.pad.dash = [0, ...BIND.pad.dash.slice(1).filter(c => c !== 0 && c !== 1)];
+      BIND.pad.jump = [1, ...BIND.pad.jump.slice(1).filter(c => c !== 0 && c !== 1)];
+    }
   } catch { /* storage blocked or a bad record: the defaults stand */ }
 }
-function saveBinds() { try { globalThis.localStorage?.setItem(STORE, JSON.stringify(BIND)); } catch { /* storage blocked */ } }
+function saveBinds() { try { globalThis.localStorage?.setItem(STORE, JSON.stringify({ ...BIND, v: BIND_VER })); } catch { /* storage blocked */ } }
 export function resetBinds() { const d = copy(DEFAULT_BINDS); for (const a of ACTIONS) { BIND.key[a] = d.key[a]; BIND.pad[a] = d.pad[a]; } saveBinds(); }
 /** put `code` on `act`: whoever had it as its main key takes act's old one (a swap), a spare just gives it up */
 export function rebind(kind: 'key' | 'pad', act: BtnName, code: string | number): 'ok' | 'same' | 'reserved' {
