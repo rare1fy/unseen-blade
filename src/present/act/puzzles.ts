@@ -12,6 +12,7 @@ import type { ContactBatch } from '../engine/contactBatch';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { VoxWorld } from '../look/voxkit';
+import { setPropOcc } from '../look/occlude';
 import { CELL } from '../bestiary/kit';
 import { V3 } from '../engine/world';
 import { PALPHA, TILE } from '../engine/particles';
@@ -490,6 +491,8 @@ export class RoomPieces {
     for (let i = 0; i < 4; i++) vw.box(7, 0 + i, -1 + (i % 2), 8, 0 + i, 0 + (i % 2), COL.gold, i === 3 ? 1 : 0);
     if (mythic) for (let i = 0; i < 4; i++) vw.box(-9, 0 + i, -1 + (i % 2), -8, 0 + i, 0 + (i % 2), COL.gold, i === 3 ? 1 : 0);
     const g = mesh(vw); g.position.set(x, 0, z); this.root.add(g);
+    // act-136: occlusion-proof golden silhouette through foreground houses/walls/roofs so hidden coffers are always spotted
+    setPropOcc(g, 1);
     // Slender, tapered, alpha-feathered AAA Loot Beam:
     //  1) Razor-slender inner luminous spire (0.24m base → 0.028m needle tip, NormalBlending so it pops cleanly in bright daylight & night!)
     //  2) Short soft base-bloom aura hugging only the chest lid and vanishing smoothly halfway up
@@ -838,7 +841,7 @@ export class RoomPieces {
         PALPHA.emit({ p: V3(r.x + (Math.random() - 0.5) * 0.24, 0.75, r.z + (Math.random() - 0.5) * 0.24), v: V3(0, 0.65, 0), tile: TILE.ring, c0: new THREE.Color(mythic ? 0xffb25a : 0xffe484), s0: 0.08, s1: 0.02, life: 1.4 });
       }
       if (Math.hypot(r.x - hero.x, r.z - hero.z) < 0.95) {
-        r.taken = true; r.g.visible = r.beam.visible = r.halo.visible = r.gem.visible = false;
+        r.taken = true; setPropOcc(r.g, 0); r.g.visible = r.beam.visible = r.halo.visible = r.gem.visible = false;
         fxFlare(V3(r.x, 0.7, r.z), mythic ? MYTHIC_COL : GOOD, mythic ? 2.8 : 2.0, 0.65);
         fxEmbers(V3(r.x, 0.6, r.z), mythic ? MYTHIC_COL : GOOD, mythic ? 22 : 12, { r: 1.1, up: 2.2, life: 1.0 });
         fxRing(V3(r.x, 0.08, r.z), mythic ? MYTHIC_COL : GOOD, mythic ? 3.4 : 2.4, { life: 0.85, width: 0.09 });

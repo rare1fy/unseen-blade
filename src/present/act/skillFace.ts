@@ -160,8 +160,8 @@ export function paintEffect(g: CanvasRenderingContext2D, line: string, x: number
   richLine(g, line, x, y, p, col); return p;
 }
 export function paintNum(g: CanvasRenderingContext2D, line: string, x: number, y: number, px: number, maxW: number, align: 'left' | 'right' = 'left') {
-  if (!line) return; const w = (p: number) => richLine(null, line, 0, 0, p, '#a89c8a', '#f0e4c8', false);
+  if (!line) return; const w = (p: number) => richLine(null, line, 0, 0, p, '#d4c8b2', '#fff2cc', false);
   let p = px; while (p > 7 && w(p) > maxW) p -= 1;
-  richLine(g, line, align === 'left' ? x : x - w(p), y, p, '#a89c8a', '#f0e4c8', false);
+  richLine(g, line, align === 'left' ? x : x - w(p), y, p, '#d4c8b2', '#fff2cc', false);
 }
 export { bodyText };

@@ -13,15 +13,16 @@ import { CELL } from '../bestiary/kit';
 import { BattleActor } from '../bestiary/battle';
 import { HIDEOUT_MERCHANT } from './hideout_people';
 import { trimShadows } from './enemy';
-import { cue } from '../../audio/cues';
+import { setPropOcc } from '../look/occlude';
+import type { MiniIcon } from './uiPlate';
 
-export interface Station { id: string; label: string; sub: string; price: number; at: THREE.Vector3; fill: number; done: boolean; once: boolean;
+export interface Station { id: string; label: string; sub: string; desc: string; icon: MiniIcon; price: number; at: THREE.Vector3; fill: number; done: boolean; once: boolean;
   g: THREE.Group; ring: THREE.Mesh; track: THREE.Mesh; disc: THREE.Mesh; sign: THREE.Group; poor: boolean; onMat: boolean;
-  /** act-36 / act-128: glowing mat border + bold 3-layer ground progress ring (track + thick sweep + inner pulse disc) */
+  /** act-36 / act-128 / act-136: glowing mat border + clean interactive highlight when in reach */
   edge: THREE.Mesh; ware: THREE.Object3D | null; wareY: number; nearK: number; lastTick: number }
 
 const box = (w: number, h: number, d: number, c: number, x = 0, y = 0, z = 0) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), toon(c)); m.position.set(x, y + h / 2, z); m.castShadow = true; m.receiveShadow = true; return m; };
-const MAT_R = 0.94, FILL_T = 1.0, NEAR = 2.45, SIGN = { w: 1.85, h: 0.92, post: 1.25 };
+const MAT_R = 1.05, NEAR = 2.35, SIGN = { w: 1.85, h: 0.92, post: 1.25 };
 
 // ---------------------------------------------------------------- the stalls and their wares, voxel models in the scene's 7 cm cells
 // act-37 (用户：「商店里的选项……好丑，还过曝了」): the old ones were plain boxes under a bright red cloth with small white wares on
@@ -165,22 +166,23 @@ export class Stations {
     ring.position.set(at.x, 0.086, at.z); ring.renderOrder = 4; this.root.add(ring);
     return { ring, track, disc };
   }
-  private add(id: string, label: string, sub: string, price: number, at: THREE.Vector3, prop: THREE.Group, once: boolean, signSide: 1 | -1 = 1) {
+  private add(id: string, label: string, sub: string, desc: string, icon: MiniIcon, price: number, at: THREE.Vector3, prop: THREE.Group, once: boolean, signSide: 1 | -1 = 1) {
     at.x += this.centre[0]; at.z += this.centre[1];
     prop.position.set(at.x, 0, at.z - 1.1); this.root.add(prop);
-    // (act-36 / act-122: sign sits slightly behind the counter so the 3D voxel ware stays completely unobstructed)
+    // act-136: occlusion outline on stalls & scroll altar so foreground buildings never hide wares
+    setPropOcc(prop, 1);
     const sign = makeSign(label, { w: SIGN.w, h: SIGN.h, post: SIGN.post, sub, price }); sign.position.set(at.x + 1.15 * signSide, 0, at.z - 1.38); this.root.add(sign);
     const { ring, track, disc } = this.mat(at);
-    this.list.push({ id, label, sub, price, at, fill: 0, done: false, once, g: prop, ring, track, disc, sign, poor: false, onMat: false, edge: this.edge(at), ware: (prop.userData.ware as THREE.Object3D) ?? null, wareY: (prop.userData.wareY as number) ?? 0, nearK: 0, lastTick: 0 });
+    this.list.push({ id, label, sub, desc, icon, price, at, fill: 0, done: false, once, g: prop, ring, track, disc, sign, poor: false, onMat: false, edge: this.edge(at), ware: (prop.userData.ware as THREE.Object3D) ?? null, wareY: (prop.userData.wareY as number) ?? 0, nearK: 0, lastTick: 0 });
   }
   /** 行商: 4 stalls in a staggered chevron + visible 3D Traveling Merchant NPC behind the center gap */
   shop(prices: { boon: number; heal: number; sharpen: number; vigor?: number; reroll?: number; satchel?: number }, special: ShopSpecial = 'vigor') {
-    this.add('buy_boon', '秘卷', '秘传', prices.boon, V3(-3.5, 0, 0.45), stall('scroll'), true, -1);
-    this.add('buy_heal', '金疮药', '回血', prices.heal, V3(-1.35, 0, -1.95), stall('gourd'), true, -1);
-    this.add('buy_sharpen', '青砥石', '升阶', prices.sharpen, V3(1.65, 0, -1.95), stall('stone'), true, 1);
-    if (special === 'reroll') this.add('buy_reroll', '重铸骰', '重随+2', prices.reroll ?? 40, V3(3.6, 0, 0.45), stall('die'), true, 1);
-    else if (special === 'satchel') this.add('buy_satchel', '铁药囊', '残铁药引', prices.satchel ?? 45, V3(3.6, 0, 0.45), stall('satchel'), true, 1);
-    else this.add('buy_vigor', '虎骨酒', '血上限', prices.vigor ?? 55, V3(3.6, 0, 0.45), stall('jar'), true, 1);
+    this.add('buy_boon', '秘卷', '秘传', '三选一习得新秘传强化', 'scroll', prices.boon, V3(-3.5, 0, 0.45), stall('scroll'), true, -1);
+    this.add('buy_heal', '金疮药', '回血', '立刻恢复 45% 气血', 'heal', prices.heal, V3(-1.35, 0, -1.95), stall('gourd'), true, -1);
+    this.add('buy_sharpen', '青砥石', '升阶', '挑一张已得秘传提升品阶', 'forge', prices.sharpen, V3(1.65, 0, -1.95), stall('stone'), true, 1);
+    if (special === 'reroll') this.add('buy_reroll', '重铸骰', '重随+2', '本局选牌重随次数 +2', 'scroll', prices.reroll ?? 40, V3(3.6, 0, 0.45), stall('die'), true, 1);
+    else if (special === 'satchel') this.add('buy_satchel', '铁药囊', '残铁药引', '立刻获得 残铁+10 与 药引+10', 'iron', prices.satchel ?? 45, V3(3.6, 0, 0.45), stall('satchel'), true, 1);
+    else this.add('buy_vigor', '虎骨酒', '血上限', '气血上限 +15 并回血 25 点', 'heal', prices.vigor ?? 55, V3(3.6, 0, 0.45), stall('jar'), true, 1);
     // act-128: spawn the traveling merchant standing right in the unobstructed center gap behind the stalls, waving warmly to the player!
     const mx = this.centre[0] + 0.15, mz = this.centre[1] - 3.05;
     this.merchantPos.set(mx, 0, mz);
@@ -199,13 +201,13 @@ export class Stations {
   /** 歇脚: a campfire with 3 tactical choices — 裹伤调息 (heal), 焚香蓄锐 (qi+intent+meta), or 寒石砺刃 (sharpen) — taking one puts the rest out */
   rest() {
     const f = campfire(); f.position.set(this.centre[0], 0, this.centre[1] - 2.6); this.root.add(f); this.fires.push(f);
-    this.add('rest_heal', '裹伤调息', '回血', 0, V3(-3.0, 0, -0.4), new THREE.Group(), true);
+    this.add('rest_heal', '裹伤调息', '回血', '免费恢复 45% 气血（三选一）', 'heal', 0, V3(-3.0, 0, -0.4), new THREE.Group(), true);
     const cen = new THREE.Group(), cw = wareModel('censer'); cw.scale.setScalar(1.3); cen.add(cw); cen.userData.ware = cw; cen.userData.wareY = 0;
-    this.add('rest_meditate', '焚香蓄锐', '满气·残铁', 0, V3(0, 0, 0.35), cen, true);
-    this.add('rest_sharpen', '寒石砺刃', '升阶', 0, V3(3.0, 0, -0.4), stall('stone'), true);
+    this.add('rest_meditate', '焚香蓄锐', '满气·残铁', '满气 +2杀气，另得残铁+8 药引+6', 'iron', 0, V3(0, 0, 0.35), cen, true);
+    this.add('rest_sharpen', '寒石砺刃', '升阶', '免费挑一张已得秘传提升品阶', 'forge', 0, V3(3.0, 0, -0.4), stall('stone'), true);
   }
   /** 遗卷: one scroll on an altar */
-  scroll() { this.add('scroll', '遗卷', '秘传', 0, V3(0, 0, -1.0), altar(), true); }
+  scroll() { this.add('scroll', '遗卷', '秘传', '研读遗留刀谱或稀世秘传', 'scroll', 0, V3(0, 0, -1.0), altar(), true); }
   /** mark stalls the purse can't pay for (their sign is rebuilt with a red price) */
   setPurse(coins: number) {
     for (const s of this.list) {
@@ -217,12 +219,13 @@ export class Stations {
   /** one station is spent: its mat dims, its ring goes; `others` = put the rest out too (the rest room's either-or) */
   spend(s: Station, others = false) {
     s.done = true; s.ring.visible = false; s.track.visible = false; s.disc.visible = false; s.edge.visible = false;
+    setPropOcc(s.g, 0);
     fxRing(s.at.clone().setY(0.08), 0xffe0a0, 1.5, { life: 0.5 } as never); fxSparks(s.at.clone().setY(0.6), 0xffe0a0, 18, 4);
-    if (others) for (const o of this.list) if (o !== s && !o.done) { o.done = true; o.ring.visible = false; o.track.visible = false; o.disc.visible = false; o.g.visible = false; o.sign.visible = false; o.edge.visible = false; }
+    if (others) for (const o of this.list) if (o !== s && !o.done) { o.done = true; setPropOcc(o.g, 0); o.ring.visible = false; o.track.visible = false; o.disc.visible = false; o.g.visible = false; o.sign.visible = false; o.edge.visible = false; }
   }
-  /** the hero stands on a mat (still enough): fill its ring; returns the station whose ring just filled */
-  update(dt: number, hero: THREE.Vector3, moving: boolean, canPay: (s: Station) => boolean): Station | null {
-    this.t += dt; let fired: Station | null = null;
+  /** act-136 Scheme A: proximity visual affordance (instant purchase triggered by interact key in show.ts, no 1s standstill wait) */
+  update(dt: number, hero: THREE.Vector3, _moving = false, canPay: (s: Station) => boolean = () => true): Station | null {
+    this.t += dt;
     if (this.merchant) {
       const targetYaw = Math.max(-0.85, Math.min(0.85, Math.atan2(hero.x - this.merchantPos.x, hero.z - this.merchantPos.z)));
       this.merchant.yaw += (targetYaw - this.merchant.yaw) * Math.min(1, dt * 4);
@@ -232,44 +235,30 @@ export class Stations {
       if (s.done) continue;
       const dist = Math.hypot(hero.x - s.at.x, hero.z - s.at.z);
       s.onMat = dist < MAT_R;
-      const on = s.onMat && !moving && canPay(s);
-      const was = s.fill; s.fill = on ? Math.min(1, s.fill + dt / FILL_T) : Math.max(0, s.fill - dt * 2.2);
-      if (Math.abs(s.fill - was) > 1e-4) {
-        s.ring.geometry.dispose();
-        s.ring.geometry = new THREE.RingGeometry(MAT_R - 0.15, MAT_R + 0.03, 48, 1, Math.PI / 2, Math.max(0.001, s.fill * Math.PI * 2)).rotateX(-Math.PI / 2);
-      }
-      // crisp progress audio ticks at 25 / 50 / 75% and rising golden motes while charging!
-      const step = Math.floor(s.fill * 4);
-      if (on && step > s.lastTick && step < 4) { s.lastTick = step; cue('tick', 0.45); }
-      if (s.fill <= 0.02) s.lastTick = 0;
-      if (on && s.fill > 0.03 && Math.random() < dt * (10 + 18 * s.fill)) {
-        const ang = Math.PI / 2 + s.fill * Math.PI * 2;
-        addBlock(V3(s.at.x + Math.cos(ang) * (MAT_R - 0.05), 0.12, s.at.z - Math.sin(ang) * (MAT_R - 0.05)), {
-          size: 0.075, v: V3(0, 0.9 + Math.random() * 0.6, 0), col: s.id === 'rest_heal' ? 0x8effb4 : 0xffe488, bright: 1.8, life: 0.42, shrink: 0.4, drag: 0.8, grav: 0,
-        });
-      }
-      if (s.fill >= 1 && was < 1) fired = s;
-      // the affordance: bold ground circle + breathing golden border + inner glow disc + lifting ware
-      const near = dist < NEAR; s.nearK += ((near ? 1 : 0) - s.nearK) * Math.min(1, dt * 8);
-      const em = s.edge.material as THREE.MeshBasicMaterial; em.color.setHex(s.poor ? 0xff5a40 : 0xffd070);
-      em.opacity = (0.34 + 0.16 * Math.sin(this.t * 3 + s.at.x)) * (1 - s.nearK) + (0.82 + 0.16 * Math.sin(this.t * 6)) * s.nearK;
+      const ok = canPay(s);
+      s.fill = 0; s.ring.visible = false;
+      const near = dist < NEAR; s.nearK += ((near ? 1 : 0) - s.nearK) * Math.min(1, dt * 10);
+      const em = s.edge.material as THREE.MeshBasicMaterial; em.color.setHex(s.poor ? 0xff5a40 : ok ? 0xffd878 : 0x8a847c);
+      em.opacity = (0.30 + 0.14 * Math.sin(this.t * 3 + s.at.x)) * (1 - s.nearK) + (0.86 + 0.14 * Math.sin(this.t * 6)) * s.nearK;
       const tm = s.track.material as THREE.MeshBasicMaterial;
-      tm.opacity = 0.28 + 0.34 * s.nearK + 0.25 * (s.fill > 0.02 ? 1 : 0);
+      tm.opacity = 0.20 + 0.36 * s.nearK;
       const dm = s.disc.material as THREE.MeshBasicMaterial;
-      dm.color.setHex(s.poor ? 0xff4a38 : s.id === 'rest_heal' ? 0x7effa8 : 0xffdc78);
-      dm.opacity = s.fill > 0.01 ? 0.18 + 0.34 * s.fill : (0.06 + 0.05 * Math.sin(this.t * 3.5 + s.at.x)) * (0.6 + 0.8 * s.nearK);
-      const rm = s.ring.material as THREE.MeshBasicMaterial;
-      rm.color.setHex(s.id === 'rest_heal' ? 0xa0ffbe : 0xfff098);
-      s.ring.visible = s.fill > 0.005;
-      if (s.ware) { s.ware.position.y = s.wareY + s.nearK * (0.12 + 0.025 * Math.sin(this.t * 2.4)); s.ware.rotation.y = Math.sin(this.t * 0.9 + s.at.x) * 0.6 * s.nearK; }
+      dm.color.setHex(s.poor ? 0xff4a38 : s.id === 'rest_heal' ? 0x7effa8 : ok ? 0xffdc78 : 0x7a746c);
+      dm.opacity = (0.06 + 0.06 * Math.sin(this.t * 3.5 + s.at.x)) * (0.5 + 1.2 * s.nearK) + (s.onMat ? 0.14 : 0);
+      if (s.ware) { s.ware.position.y = s.wareY + s.nearK * (0.14 + 0.028 * Math.sin(this.t * 2.6)); s.ware.rotation.y = Math.sin(this.t * 0.9 + s.at.x) * 0.65 * s.nearK; }
     }
-    // the fire: a few flame blocks rising and shrinking
     for (const f of this.fires) if (Math.random() < dt * 22) addBlock(f.position.clone().add(V3((Math.random() - 0.5) * 0.4, 0.2, (Math.random() - 0.5) * 0.4)), { size: 0.14 + Math.random() * 0.1, v: V3(0, 1.2 + Math.random(), 0), col: Math.random() < 0.5 ? 0xffb040 : 0xff6a20, bright: 1.6, life: 0.5, shrink: 0.5, drag: 1, grav: 0 });
-    return fired;
+    return null;
   }
-  /** the station in reach (for the floating prompt), the nearest one */
+  /** the station in reach (for the floating prompt & J interact), the nearest one */
   near(hero: THREE.Vector3): Station | null { let b: Station | null = null, bd = NEAR; for (const s of this.list) { if (s.done) continue; const d = Math.hypot(hero.x - s.at.x, hero.z - s.at.z); if (d < bd) { bd = d; b = s; } } return b; }
+  /** true when hero is standing near the traveling merchant behind the stalls */
+  nearMerchant(hero: THREE.Vector3): boolean {
+    if (!this.merchant || !this.list.some(s => !s.done)) return false;
+    return Math.hypot(hero.x - this.merchantPos.x, hero.z - this.merchantPos.z) < 2.25;
+  }
   dispose() {
+    for (const s of this.list) setPropOcc(s.g, 0);
     this.merchant?.dispose(); this.merchant = null;
     if (this.merchantShadow) { this.merchantShadow.geometry.dispose(); (this.merchantShadow.material as THREE.Material).dispose(); this.merchantShadow = null; }
     this.root.parent?.remove(this.root); this.list = []; this.fires = [];

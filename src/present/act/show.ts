@@ -102,7 +102,8 @@ import type { Platform } from '../../platform/index';
 import { dh } from '../../debug/dh';
 import { Input } from './input';
 import { ActHud } from './hud';
-import { CardPick3D as CardPick } from './cards3d';   // act-36: the pick cards as iron boards
+import { CardPick3D as CardPick, type CardBoon } from './cards3d';   // act-36 / act-143: the pick cards as iron boards
+import { UiPlatePool, type MiniIcon } from './uiPlate';
 import { MoveDemo } from './moveDemo';
 import { entryOfManual, entryOfBoon, entryOfBase } from './skillFace';
 import type { Section } from './skillList';
@@ -157,7 +158,7 @@ import { PX, setPixel } from '../look/pixel';
 import { craftLabel, cycleCraft } from '../look/craft';
 import { VIBE, vibeSupport, iosMajor, RUMBLE } from '../../platform/index';
 import { PauseMenu } from './pauseMenu';
-import { padNav, padRumble, PAD, actKey, actPad, isTouchPointer, isTouchLayout, uiModeLabel, cycleUiMode, setUiMode, detectInitialDevice, type Device, type PadFamily } from './pad';
+import { padNav, padRumble, PAD, actKey, actPad, padName, isTouchPointer, isTouchLayout, uiModeLabel, cycleUiMode, setUiMode, detectInitialDevice, type Device, type PadFamily } from './pad';
 import { openingPadTap } from './opening';
 import { BattleActor } from '../bestiary/battle';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
@@ -380,6 +381,8 @@ export class ActShow {
   private comboHits = 0; private comboT = 0; private comboKinds: string[] = [];
   /** act-20 the hideout's people: where they stand, their bodies; the one in reach of a word */
   private npcs: Array<{ id: string; x: number; z: number; yaw: number; a: BattleActor; sh: THREE.Mesh }> = []; private npcNear: string | null = null;
+  private stationNear: Station | null = null; private merchantNear = false; private shopOpening = false;
+  private worldPlates!: UiPlatePool;
   /** act-20 the stele of names in the hideout; talk is off while a scripted moment plays there */ private stele: Stele | null = null; private noTalk = false;
   private defy = 0; private wine = false; private eliteKills = 0; private bossKilled = false; private banked: { iron: number; herb: number } | null = null;
   /** act-131: boss-death minion rout state + per-run replacement boss pool tracker (no resurrecting slain story bosses!) */
@@ -461,7 +464,7 @@ export class ActShow {
   async talk(lines: Line[], onLine?: (i: number, line: Line) => void) {
     if (!lines.length) return;
     if (this.hero) { this.hero.a.root.visible = true; this.hero.a.body.visible = true; }
-    const was = this.phase === 'talk' ? this.wasPhase : this.phase; this.wasPhase = was; this.phase = 'talk'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
+    const was = this.phase === 'talk' ? this.wasPhase : this.phase; this.wasPhase = was; this.phase = 'talk'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels(); this.hideWorldPlates();
     this.syncHeroHat();
     await this.dialogue.play(lines, onLine);
     // (act-50 用户：「对话过后马上会蓄力」: the cut button that turned the last page was still down — read as a hold, 藏锋. It counts
@@ -471,7 +474,7 @@ export class ActShow {
   /** a timeline cutscene; the HUD hides, gameplay waits (phase 'cine'); optional onEnd guarantees skip-safe end state */
   async cine(shots: Parameters<Timeline['play']>[0], onEnd?: (skipped: boolean) => void) {
     if (this.hero) { this.hero.a.root.visible = true; this.hero.a.body.visible = true; }
-    const was = this.phase; this.phase = 'cine'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
+    const was = this.phase; this.phase = 'cine'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels(); this.hideWorldPlates();
     const skipped = await this.timeline.play(shots, onEnd);
     this.cineHost.clearPuppets(); this.inp.latch(false);   // (a long press skipped it — the same held button)
     shot('act', () => this.camPose(), { cut: true, speed: 8 });
@@ -895,11 +898,16 @@ export class ActShow {
       this.npcs.push({ id: sp.id, x: sp.x, z: sp.z, yaw: sp.yaw, a, sh });
     }
   }
+  private hideWorldPlates() {
+    this.worldPlates?.hidePrefix('');
+    this.L.text.hide('act.station.hint');
+  }
   private hideHideoutLabels() {
     this.L.text.hide('act.npc');
     this.L.text.hide('act.yard.guide');
     this.L.text.hide('act.yard.exit');
     this.L.text.hide('act.station.hint');
+    this.worldPlates?.hidePrefix('ho.');
     for (const id of ['fengtiebi', 'sunao', 'duwu', 'luzhao', 'huanyue', 'stele', 'weaponRack', 'keepsakeBox']) this.L.text.hide('act.beacon.' + id);
     for (const zid of HIDEOUT_ZONE_ORDER) this.L.text.hide('act.beacon.zone_' + zid);
     for (let i = 0; i < HIDEOUT.gardenPlots.length; i++) this.L.text.hide('act.beacon.garden_' + i);
@@ -1135,17 +1143,22 @@ export class ActShow {
       const rm = m.ring.material as THREE.MeshBasicMaterial;
       rm.color.setHex(bc ? bc.hex : 0xf2f4f8); rm.opacity = uiClear ? Math.max(0.7 * m.k, bc ? 0.26 + 0.18 * pulse : 0) : 0;
       const dHero = h ? Math.hypot(h.pos.x - n.x, h.pos.z - n.z) : 99;
+      const minY = this.banner.bottomY > 0 ? this.banner.bottomY + 8 : 10;
+      const npcIcon = (id: string): MiniIcon => id === 'fengtiebi' ? 'forge' : id === 'sunao' ? 'herb' : 'talk';
       if (uiClear && near !== n.id && dHero < 6.4) {
-        const p = worldToUi(V3(n.x, top + 1.05, n.z));
+        const p = worldToUi(V3(n.x, top + 1.08, n.z));
         const baseName = HIDEOUT_PEOPLE[n.id as keyof typeof HIDEOUT_PEOPLE]?.name ?? '';
-        const txt = bc ? msg`${baseName} · ${bc.text}` : msg`${baseName} · ${roleOf[n.id] ?? ''}`;
-        this.L.text.set('act.beacon.' + n.id, { text: txt, x: p.x, y: p.y, bodyPx: Math.max(12, Math.round(13.5 * Math.min(1.2, this.L.h / 720))), color: bc ? bc.col : '#dcd2be', outline: '#140c0a', align: 'center', visible: p.z < 1 });
-      } else this.L.text.hide('act.beacon.' + n.id);
+        this.worldPlates.setTag('ho.npc.' + n.id, {
+          text: baseName, sub: bc ? bc.text : (roleOf[n.id] ?? ''), icon: npcIcon(n.id),
+          x: p.x, y: p.y, color: bc ? bc.col : '#f4ecd8', accent: bc ? bc.col : '#8c7248', minY, visible: p.z < 1,
+        });
+      } else this.worldPlates.hide('ho.npc.' + n.id);
     }
+    const minY = this.banner.bottomY > 0 ? this.banner.bottomY + 8 : 10;
     // act-135: 3D voxel 落成工碑 monuments (pulsing golden square frame + hovering 3D !)
     for (const zid of HIDEOUT_ZONE_ORDER) {
       const zm = this.zoneMonuments.get(zid);
-      if (!zm) { this.L.text.hide('act.beacon.zone_' + zid); continue; }
+      if (!zm) { this.worldPlates.hide('ho.zone_' + zid); continue; }
       const zdef = HIDEOUT_ZONES[zid], key = 'zone_' + zid;
       const pulse = 0.5 + 0.5 * Math.sin(t * 4.6 + zdef.monument.x);
       zm.exc.visible = uiClear;
@@ -1159,9 +1172,9 @@ export class ActShow {
       (zm.ring.material as THREE.MeshBasicMaterial).opacity = uiClear ? (near === key ? 0.85 : 0.34 + 0.24 * pulse) : 0;
       const dZone = h ? Math.hypot(h.pos.x - zdef.monument.x, h.pos.z - zdef.monument.z) : 99;
       if (uiClear && near !== key && dZone < 10.5) {
-        const pt = worldToUi(V3(zdef.monument.x, 2.38, zdef.monument.z));
-        this.L.text.set('act.beacon.' + key, { text: zdef.beaconLabel, x: pt.x, y: pt.y, bodyPx: Math.max(12.5, Math.round(14 * Math.min(1.2, this.L.h / 720))), color: zdef.color, outline: '#140c0a', align: 'center', visible: pt.z < 1 });
-      } else this.L.text.hide('act.beacon.' + key);
+        const pt = worldToUi(V3(zdef.monument.x, 2.42, zdef.monument.z));
+        this.worldPlates.setTag('ho.' + key, { text: zdef.beaconLabel, icon: 'forge', x: pt.x, y: pt.y, color: zdef.color, accent: zdef.color, minY, visible: pt.z < 1 });
+      } else this.worldPlates.hide('ho.' + key);
     }
     // 复仇碑 3D ! marker & proximity label
     if (this.stele && HIDEOUT.stele) {
@@ -1180,26 +1193,26 @@ export class ActShow {
         this.steleExclaim.children[0].scale.setScalar(0.56 * (1 + 0.1 * pulse));
       } else if (this.steleExclaim) this.steleExclaim.visible = false;
       if (uiClear && near !== 'stele' && dStele < 6.0) {
-        const p = worldToUi(V3(HIDEOUT.stele.x, 2.02, HIDEOUT.stele.z + 0.35));
-        this.L.text.set('act.beacon.stele', { text: bc ? msg`复仇碑 · ${bc.text}` : '复仇碑 · 潜能', x: p.x, y: p.y, bodyPx: Math.max(12, Math.round(13.5 * Math.min(1.2, this.L.h / 720))), color: bc ? bc.col : '#ccc2dc', outline: '#140c0a', align: 'center', visible: p.z < 1 });
-      } else this.L.text.hide('act.beacon.stele');
+        const p = worldToUi(V3(HIDEOUT.stele.x, 2.08, HIDEOUT.stele.z + 0.35));
+        this.worldPlates.setTag('ho.stele', { text: '复仇碑', sub: bc ? bc.text : '潜能', icon: 'stele', x: p.x, y: p.y, color: bc ? bc.col : '#dcd0f0', accent: '#9880d0', minY, visible: p.z < 1 });
+      } else this.worldPlates.hide('ho.stele');
     } else {
       if (this.steleExclaim) this.steleExclaim.visible = false;
-      this.L.text.hide('act.beacon.stele');
+      this.worldPlates.hide('ho.stele');
     }
     // 文家刀廊 & 信物匣 proximity beacons
     const eqWep = weaponDef(equippedWeapon(prof, this.dbgAllWeapons));
     const eqKs = keepsakeDef(equippedKeepsake(prof, this.dbgAllWeapons));
-    if (this.weaponRackMesh && uiClear && near !== 'weaponRack' && h && Math.hypot(h.pos.x - HIDEOUT.weaponRack.x, h.pos.z - HIDEOUT.weaponRack.z) < 7.5) {
-      const p = worldToUi(V3(HIDEOUT.weaponRack.x, 2.25, HIDEOUT.weaponRack.z + 0.35));
-      this.L.text.set('act.beacon.weaponRack', { text: msg`文家刀廊 · ${eqWep.name}`, x: p.x, y: p.y, bodyPx: Math.max(12, Math.round(13.5 * Math.min(1.2, this.L.h / 720))), color: eqWep.col, outline: '#140c0a', align: 'center', visible: p.z < 1 });
-    } else this.L.text.hide('act.beacon.weaponRack');
-    if (this.keepsakeBoxMesh && uiClear && near !== 'keepsakeBox' && h && Math.hypot(h.pos.x - HIDEOUT.keepsakeBox.x, h.pos.z - HIDEOUT.keepsakeBox.z) < 7.0) {
-      const p = worldToUi(V3(HIDEOUT.keepsakeBox.x, 1.85, HIDEOUT.keepsakeBox.z + 0.35));
-      this.L.text.set('act.beacon.keepsakeBox', { text: eqKs ? msg`信物匣 · ${eqKs.name}` : '信物匣 · 选佩信物', x: p.x, y: p.y, bodyPx: Math.max(12, Math.round(13.5 * Math.min(1.2, this.L.h / 720))), color: eqKs ? eqKs.col : '#ffd898', outline: '#140c0a', align: 'center', visible: p.z < 1 });
-    } else this.L.text.hide('act.beacon.keepsakeBox');
+    if (this.weaponRackMesh && uiClear && near !== 'weaponRack' && h && Math.hypot(h.pos.x - HIDEOUT.weaponRack.x, h.pos.z - HIDEOUT.weaponRack.z) < 7.2) {
+      const p = worldToUi(V3(HIDEOUT.weaponRack.x, 2.28, HIDEOUT.weaponRack.z + 0.35));
+      this.worldPlates.setTag('ho.weaponRack', { text: '文家刀廊', sub: eqWep.name, icon: 'blade', x: p.x, y: p.y, color: eqWep.col, accent: eqWep.col, minY, visible: p.z < 1 });
+    } else this.worldPlates.hide('ho.weaponRack');
+    if (this.keepsakeBoxMesh && uiClear && near !== 'keepsakeBox' && h && Math.hypot(h.pos.x - HIDEOUT.keepsakeBox.x, h.pos.z - HIDEOUT.keepsakeBox.z) < 6.8) {
+      const p = worldToUi(V3(HIDEOUT.keepsakeBox.x, 1.9, HIDEOUT.keepsakeBox.z + 0.35));
+      this.worldPlates.setTag('ho.keepsakeBox', { text: '信物匣', sub: eqKs ? eqKs.name : '选佩信物', icon: 'star', x: p.x, y: p.y, color: eqKs ? eqKs.col : '#ffd898', accent: '#c89e4e', minY, visible: p.z < 1 });
+    } else this.worldPlates.hide('ho.keepsakeBox');
 
-    // act-132 / act-135: Bamboo Stream Garden Terrace beacons only when garden is constructed!
+    // act-132 / act-135 / act-143: Bamboo Stream Garden Terrace — decluttered! Show tags only for ripe plots or immediate proximity.
     const nowMs = Date.now();
     let gState: ReturnType<typeof ensureGarden>['state'] | null = null;
     let seedBag = 0;
@@ -1231,66 +1244,84 @@ export class ActShow {
         } else if (this.gardenExclaims[i]) this.gardenExclaims[i]!.visible = false;
 
         const dPlot = h ? Math.hypot(h.pos.x - gp.x, h.pos.z - gp.z) : 99;
-        if (uiClear && near !== key && dPlot < 6.2) {
-          const pt = worldToUi(V3(gp.x, 1.45, gp.z));
-          let txt = '药畦 · 待开垦', col = '#b8b0a0';
+        const showGardenTag = uiClear && near !== key && ((unl && st.done && dPlot < 6.0) || dPlot < 3.4);
+        if (showGardenTag) {
+          const pt = worldToUi(V3(gp.x, 1.5, gp.z));
+          let txt = '荒畦', sub = '待开垦', col = '#c8c0b0';
           if (unl && plot) {
             const def = SEEDS[plot.seed];
-            txt = st.done ? msg`${def.name} · 可收获` : msg`${def.name} · 差${st.leftSteps}屋/${st.leftMins}分`;
+            txt = def.name;
+            sub = st.done ? '可收获' : msg`差${st.leftSteps}屋/${st.leftMins}分`;
             col = st.done ? '#ffe680' : def.hex;
           } else if (unl) {
-            txt = seedBag > 0 ? msg`空药畦 · 可播种(${seedBag})` : '空药畦';
+            txt = '药畦';
+            sub = seedBag > 0 ? msg`可种(${seedBag})` : '空地';
             col = seedBag > 0 ? '#8effb0' : '#ccc4b2';
           }
-          this.L.text.set('act.beacon.' + key, { text: txt, x: pt.x, y: pt.y, bodyPx: Math.max(11.5, Math.round(13 * Math.min(1.2, this.L.h / 720))), color: col, outline: '#140c0a', align: 'center', visible: pt.z < 1 });
-        } else this.L.text.hide('act.beacon.' + key);
+          this.worldPlates.setTag('ho.' + key, { text: txt, sub, icon: 'leaf', x: pt.x, y: pt.y, color: col, accent: st.done ? '#ffd258' : '#58a870', minY, scale: 0.92, visible: pt.z < 1 });
+        } else this.worldPlates.hide('ho.' + key);
       }
     } else {
       for (let i = 0; i < HIDEOUT.gardenPlots.length; i++) {
-        this.L.text.hide('act.beacon.garden_' + i);
+        this.worldPlates.hide('ho.garden_' + i);
         if (this.gardenExclaims[i]) this.gardenExclaims[i]!.visible = false;
       }
     }
 
+    // Active nearest interactive plaque (crisp dark-iron plaque + keycap/gamepad glyph)
     const nn = near ? this.npcs.find(x => x.id === near) : null;
     if (near && near.startsWith('zone_') && uiClear) {
       const zdef = HIDEOUT_ZONES[near.slice(5) as HideoutZoneId];
       if (zdef) {
-        const pt = worldToUi(V3(zdef.monument.x, 2.38, zdef.monument.z));
-        this.L.text.set('act.npc', { text: msg`${zdef.actionLabel} ${talkKey}`, x: pt.x, y: pt.y, bodyPx: Math.max(13.5, Math.round(15.5 * Math.min(1.2, this.L.h / 720))), color: zdef.color, outline: '#140c0a', align: 'center' });
+        const pt = worldToUi(V3(zdef.monument.x, 2.48, zdef.monument.z));
+        this.worldPlates.setInteract('ho.active', { title: zdef.beaconLabel, sub: zdef.actionLabel, action: '落成启建', icon: 'forge', color: zdef.color, accent: zdef.color, x: pt.x, y: pt.y, minY, visible: pt.z < 1 });
       }
     } else if (near && near.startsWith('garden_') && uiClear && gState) {
       const idx = Number(near.slice(7)), gp = HIDEOUT.gardenPlots[idx];
       const unl = idx < gState.unlocked, plot = unl ? gState.plots[idx] : null, st = plotStatus(plot, nowMs);
-      const pt = worldToUi(V3(gp.x, 1.65, gp.z));
-      let label = msg`开垦药畦 ${talkKey}`, col = '#ffe090';
-      if (unl && plot) {
+      const pt = worldToUi(V3(gp.x, 1.75, gp.z));
+      if (!unl) {
+        this.worldPlates.setInteract('ho.active', { title: msg`第 ${idx + 1} 块荒畦`, sub: '开垦后可多栽一茬灵植', action: '开垦药畦', icon: 'leaf', color: '#ffe090', accent: '#c8a050', x: pt.x, y: pt.y, minY, visible: pt.z < 1 });
+      } else if (plot) {
         const def = SEEDS[plot.seed];
-        label = st.done ? msg`收获 ${def.name} ${talkKey}` : msg`${def.name} · 差${st.leftSteps}屋或${st.leftMins}分`;
-        col = st.done ? '#ffe878' : def.hex;
-      } else if (unl) {
-        label = msg`药畦播种（库存${seedBag}种）${talkKey}`;
-        col = '#8effb0';
+        this.worldPlates.setInteract('ho.active', {
+          title: def.name,
+          sub: st.done ? '灵植已熟，即刻采收' : msg`还差 ${st.leftSteps} 屋或 ${st.leftMins} 分钟成熟`,
+          action: st.done ? '一键收获' : '查看进度',
+          icon: 'leaf', color: st.done ? '#ffe878' : def.hex, accent: st.done ? '#ffd258' : '#5ca874',
+          x: pt.x, y: pt.y, minY, visible: pt.z < 1,
+        });
+      } else {
+        this.worldPlates.setInteract('ho.active', {
+          title: '空药畦', sub: msg`行囊余种 ${seedBag} 枚`,
+          action: seedBag > 0 ? '选种播种' : '查看药种', icon: 'leaf', color: '#8effb0', accent: '#64c884',
+          x: pt.x, y: pt.y, minY, visible: pt.z < 1,
+        });
       }
-      this.L.text.set('act.npc', { text: label, x: pt.x, y: pt.y, bodyPx: Math.max(13, Math.round(15 * Math.min(1.2, this.L.h / 720))), color: col, outline: '#140c0a', align: 'center' });
     } else if (near === 'weaponRack' && uiClear) {
-      const p = worldToUi(V3(HIDEOUT.weaponRack.x, 2.25, HIDEOUT.weaponRack.z + 0.35));
-      this.L.text.set('act.npc', { text: msg`文家刀廊 · 拔刀换武 ${talkKey}`, x: p.x, y: p.y, bodyPx: Math.max(13, Math.round(15 * Math.min(1.2, this.L.h / 720))), color: '#ffe698', outline: '#140c0a', align: 'center' });
+      const p = worldToUi(V3(HIDEOUT.weaponRack.x, 2.38, HIDEOUT.weaponRack.z + 0.35));
+      this.worldPlates.setInteract('ho.active', { title: '文家刀廊', sub: msg`当前佩刀 · ${eqWep.name}`, action: '拔刀换武', icon: 'blade', color: '#ffe698', accent: eqWep.col, x: p.x, y: p.y, minY, visible: p.z < 1 });
     } else if (near === 'keepsakeBox' && uiClear) {
-      const p = worldToUi(V3(HIDEOUT.keepsakeBox.x, 1.85, HIDEOUT.keepsakeBox.z + 0.35));
-      this.L.text.set('act.npc', { text: msg`信物匣 · 随身信物 ${talkKey}`, x: p.x, y: p.y, bodyPx: Math.max(13, Math.round(15 * Math.min(1.2, this.L.h / 720))), color: '#8effd0', outline: '#140c0a', align: 'center' });
+      const p = worldToUi(V3(HIDEOUT.keepsakeBox.x, 2.02, HIDEOUT.keepsakeBox.z + 0.35));
+      this.worldPlates.setInteract('ho.active', { title: '信物匣', sub: eqKs ? msg`佩戴中 · ${eqKs.name}` : '挑一件随身信物上路', action: '开匣选佩', icon: 'star', color: '#8effd0', accent: '#d4a652', x: p.x, y: p.y, minY, visible: p.z < 1 });
     } else if (near === 'stele' && uiClear && HIDEOUT.stele) {
-      const p = worldToUi(V3(HIDEOUT.stele.x, 2.02, HIDEOUT.stele.z + 0.35));
-      this.L.text.set('act.npc', { text: msg`复仇碑 · 潜能 ${talkKey}`, x: p.x, y: p.y, bodyPx: Math.max(13, Math.round(15 * Math.min(1.2, this.L.h / 720))), color: '#e2d0ff', outline: '#140c0a', align: 'center' });
+      const p = worldToUi(V3(HIDEOUT.stele.x, 2.18, HIDEOUT.stele.z + 0.35));
+      this.worldPlates.setInteract('ho.active', { title: '复仇碑', sub: '永久潜能 · 阳阴双面自由切换', action: '参悟碑铭', icon: 'stele', color: '#e2d0ff', accent: '#a88cf0', x: p.x, y: p.y, minY, visible: p.z < 1 });
     } else if (nn && uiClear) {
-      const p = worldToUi(V3(nn.x, (nn.a.height ?? 1.8) + 1.05, nn.z));
+      const p = worldToUi(V3(nn.x, (nn.a.height ?? 1.8) + 1.18, nn.z));
       const bc = beaconOf(nn.id);
       const baseName = HIDEOUT_PEOPLE[nn.id as keyof typeof HIDEOUT_PEOPLE]?.name ?? '';
       const role = bc ? bc.text : (roleOf[nn.id] ?? '');
-      this.L.text.set('act.npc', { text: role ? msg`${baseName} · ${role} ${talkKey}` : msg`${baseName} ${talkKey}`, x: p.x, y: p.y, bodyPx: Math.max(13, Math.round(15 * Math.min(1.2, this.L.h / 720))), color: bc ? bc.col : '#ffe6b0', outline: '#140c0a', align: 'center' });
-    } else this.L.text.hide('act.npc');
+      const ico: MiniIcon = nn.id === 'fengtiebi' ? 'forge' : nn.id === 'sunao' ? 'herb' : 'talk';
+      this.worldPlates.setInteract('ho.active', {
+        title: baseName, sub: role || undefined, action: nn.id === 'fengtiebi' ? '锻造淬炼' : nn.id === 'sunao' ? '药石强化' : nn.id === 'duwu' ? '领取干粮' : '交谈',
+        icon: ico, color: bc ? bc.col : '#ffe6b0', accent: bc ? bc.col : '#c89a4c', x: p.x, y: p.y, minY, visible: p.z < 1,
+      });
+    } else this.worldPlates.hide('ho.active');
+    void talkKey;
     // Environmental Ghost-of-Tsushima guiding wind (leaves.gust) toward the active hideout objective — zero crude arrows or top bars!
     this.L.text.hide('act.yard.guide');
+    this.L.text.hide('act.yard.exit');
     if (this.phase === 'yard' && uiClear && h) {
       const obj = this.hideoutObjective();
       const dx = obj.x - h.pos.x, dz = obj.z - h.pos.z, dist = Math.hypot(dx, dz);
@@ -1308,10 +1339,10 @@ export class ActShow {
         this.exitGlow = new GateGlow(this.stage.root, V3(ex, 0, ez), 2.55, V3(0, 0, -1), { radius: 4.8, spillLen: 3.8, height: 2.4 });
       }
       this.exitGlow?.update(dt, obj.isExit ? 1.0 : 0.72);
-      const gp = worldToUi(V3(ex, 2.45, ez)), kk = Math.min(1.2, Math.max(0.75, this.L.h / 720));
-      this.L.text.set('act.yard.exit', { text: '出发', x: gp.x, y: gp.y, bodyPx: Math.max(13, Math.round(15 * kk)), color: '#ffe898', outline: '#140c0a', align: 'center', visible: gp.z < 1 && (obj.isExit || dist < 7.5) });
+      const gp = worldToUi(V3(ex, 2.48, ez));
+      this.worldPlates.setTag('ho.exit', { text: '出发', sub: '出院门开打', icon: 'door', x: gp.x, y: gp.y, color: '#ffe898', accent: '#d8a64e', minY, visible: gp.z < 1 && (obj.isExit || dist < 7.5) });
     } else {
-      this.L.text.hide('act.yard.exit');
+      this.worldPlates.hide('ho.exit');
     }
   }
   /** act-135: Hand-built new-zone construction ceremony (3D voxel pop-in + camera pan + debris/sparks + SFX + NPC greeting) */
@@ -1458,8 +1489,9 @@ export class ActShow {
       this.grantKeepsake('sunao');
     }
   }
-  /** act-125: 文家刀廊 — pick among the 4 Wen-family blades, swaps 3D voxel blade & combat moveset immediately */
+  /** act-125 / act-136: 文家刀廊 — 2×2 showcase grid for the 4 Wen-family blades */
   private async weaponRackMenu() {
+    let focusIdx = 0, instant = false;
     for (;;) {
       const p = profile(), cur = equippedWeapon(p, this.dbgAllWeapons);
       const cards: BoonPick[] = WEAPON_ORDER.map(id => {
@@ -1470,22 +1502,24 @@ export class ActShow {
           boon: {
             id: 'wep_' + id, school: 'fg' as never, name: eq ? msg`${w.name}（已佩）` : w.name,
             desc: [line1, line2], col: unl ? w.col : '#7e7872', glyph: w.glyph,
-            tag: !unl ? '未解锁' : eq ? msg`使用中 · ${lv}/3阶` : msg`点选拔刀 · ${lv}/3阶`,
-          } as Boon,
+            tag: !unl ? '未解锁' : eq ? msg`使用中 · ${lv}/3阶` : msg`拔刀 · ${lv}/3阶`,
+            locked: !unl,
+          } as CardBoon,
           tier: eq ? 2 : unl ? 1 : 0,
         };
       });
       const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
       const i = await this.cards.open(cards, {
-        leave: true,
-        header: { title: '文家刀廊 · 拔刀换武', sub: '四柄文家名刀各有独立连段与藏锋特技 · 换完可在西翼试剑坪试手', col: '#ffe290' },
-        footer: '点选已夺回的名刀立即拔换 · 找冯铁臂可淬炼升阶 · 点左上返回离开',
+        leave: true, layout: 'grid2', instant, initialFocus: focusIdx,
+        header: { title: '文家刀廊 · 拔刀换武', sub: '四柄文家名刀各有独立连段与藏锋特技', col: '#ffe290' },
+        footer: '点选名刀立即拔换 · 冯铁臂处可淬炼升阶 · Esc 返回',
       });
       this.phase = was; this.hud.on = true;
       if (i < 0 || i >= WEAPON_ORDER.length) return;
+      focusIdx = i; instant = true;
       const wid = WEAPON_ORDER[i], w = WEAPONS[wid];
       if (!isWeaponUnlocked(p, wid, this.dbgAllWeapons)) {
-        cue('click', 0.5);
+        cue('deny', 0.45);
         this.banner.show(w.name, w.unlockHint, 1.3, '#d0a890');
         continue;
       }
@@ -1509,7 +1543,7 @@ export class ActShow {
         this.banner.show('荒地药畦', '请按顺序先开垦前一块药畦', 1.4, '#d8c8a8');
         return;
       }
-      const curName = cost.cur === 'herb' ? '药草' : '残铁';
+      const curName = cost.cur === 'herb' ? '药引' : '残铁';
       const afford = canUnlockPlot(p, idx);
       const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
       const ch = await this.cards.open([
@@ -1520,14 +1554,15 @@ export class ActShow {
             desc: [msg`需耗 ${curName} ${cost.n}`, afford ? '开垦后可多栽一茬灵植，双轨加速养成' : msg`${curName}不足，清房或收菜后再来`],
             col: afford ? '#8effb0' : '#8a8278', glyph: SPROUT,
             tag: afford ? msg`${cost.n}${curName}` : '不足',
-          } as Boon,
+            locked: !afford,
+          } as CardBoon,
           tier: afford ? 2 : 0,
         },
       ], {
         leave: true,
         header: { title: '竹溪药圃 · 开垦药畦', sub: '开垦更多田块，同时栽种多株灵植', col: '#90f0a8' },
         wallet: { iron: p.iron, herb: p.herb, focus: cost.cur },
-        footer: '点选开垦 · 点左上返回离开',
+        footer: '点选开垦 · Esc 返回',
       });
       this.phase = was; this.hud.on = true;
       if (ch === 0 && unlockPlot(p, idx)) {
@@ -1553,7 +1588,7 @@ export class ActShow {
           fxRing(V3(gp.x, 0.08, gp.z), res.seed.col, 2.4, { life: 0.75, width: 0.07 });
           cue('coin', 1);
           const parts: string[] = [];
-          if (res.herb > 0) parts.push(msg`药草 +${res.herb}`);
+          if (res.herb > 0) parts.push(msg`药引 +${res.herb}`);
           if (res.iron > 0) parts.push(msg`残铁 +${res.iron}`);
           if (res.buff && res.seed.buffName) parts.push(msg`下局「${res.seed.buffName}」`);
           this.banner.show(msg`收获 · ${res.seed.name}`, parts.join(' · '), 2.2, res.seed.hex);
@@ -1566,32 +1601,33 @@ export class ActShow {
       return;
     }
 
-    // Empty unlocked plot: open 3D seed-planting card board!
+    // Empty unlocked plot: open 2×2 seed-planting card board!
     const cards: BoonPick[] = SEED_ORDER.map(sid => {
       const def = SEEDS[sid], cnt = state.seeds[sid] ?? 0;
       return {
         boon: {
           id: 'seed_' + sid, school: 'md' as never,
-          name: msg`${def.name}（库存 ${cnt}）`,
-          desc: [def.desc, def.buffDesc ?? '战斗清房、秘藏与孙媪每日赠种均可获种'],
+          name: msg`${def.name}（存 ${cnt}）`,
+          desc: [def.desc, def.buffDesc ?? '清房、秘藏与孙媪赠种均可获种'],
           col: cnt > 0 ? def.hex : '#7e7872', glyph: SPROUT,
-          tag: cnt > 0 ? msg`种下 · ${def.steps}屋` : '缺种',
-        } as Boon,
+          tag: cnt > 0 ? msg`${def.steps}屋熟` : '缺种',
+          locked: cnt <= 0,
+        } as CardBoon,
         tier: cnt > 0 ? (def.buff ? 2 : 1) : 0,
       };
     });
     const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
     const sel = await this.cards.open(cards, {
-      leave: true,
-      header: { title: '竹溪药圃 · 播种灵植', sub: '双轨成熟：每通关 1 间战斗屋加速 1 格 · 离线按时间自然生长', col: '#90f0a8' },
+      leave: true, layout: 'grid2',
+      header: { title: '竹溪药圃 · 播种灵植', sub: '每通关 1 间战斗屋加速 1 格 · 离线自然生长', col: '#90f0a8' },
       wallet: { iron: p.iron, herb: p.herb, focus: 'herb' },
-      footer: '点选种子栽下 · 点左上返回离开',
+      footer: '点选种子栽下 · Esc 返回',
     });
     this.phase = was; this.hud.on = true;
     if (sel < 0 || sel >= SEED_ORDER.length) return;
     const chosen = SEED_ORDER[sel];
     if (!plantSeed(p, idx, chosen, Date.now())) {
-      cue('click', 0.5);
+      cue('deny', 0.45);
       this.banner.show('暂无此药种', '战斗通关、开启秘藏或明日回营均可获种', 1.5, '#d0a890');
       return;
     }
@@ -1602,144 +1638,198 @@ export class ActShow {
     const def = SEEDS[chosen];
     this.banner.show(msg`已播下 · ${def.name}`, msg`${def.steps} 间战斗屋或离线 ${def.steps * def.minsPerStep} 分钟后可收`, 1.8, def.hex);
   }
-  /** act-125: 乌漆铜扣信物匣 — equip 1 of 8 keepsakes, view star progression ★→★★★ */
+  /** act-125 / act-136: 乌漆铜扣信物匣 — 4×2 Hades-style showcase grid + large bottom detail panel */
   private async keepsakeMenu() {
+    let focusIdx = Math.max(0, KEEPSAKE_ORDER.indexOf(equippedKeepsake(profile(), this.dbgAllWeapons) as KeepsakeId));
+    let instant = false;
     for (;;) {
       const p = profile(), cur = equippedKeepsake(p, this.dbgAllWeapons);
       const cards: BoonPick[] = KEEPSAKE_ORDER.map(id => {
         const ks = KEEPSAKES[id], unl = isKeepsakeUnlocked(p, id, this.dbgAllWeapons), eq = cur === id;
-        const st = keepsakeStar(p, id), rms = keepsakeRooms(p, id);
-        const nextNeed = st === 1 ? KEEPSAKE_STARS[0] : st === 2 ? KEEPSAKE_STARS[1] : null;
-        const prog = !unl ? ks.source : nextNeed != null ? msg`当前 ${starLabel(st)}（${rms}/${nextNeed} 间升星）` : '已达 ★★★ 圆满';
+        const st = keepsakeStar(p, id);
         return {
           boon: {
             id: 'ks_' + id, school: 'mr' as never,
-            name: eq ? msg`${ks.name}（佩戴中）` : msg`${ks.owner} · ${ks.name}`,
-            desc: [unl ? ks.effect(st) : msg`未获赠 · ${ks.source}`, prog],
+            name: ks.name,
+            desc: [unl ? ks.effect(st) : ks.source, ''],
             col: unl ? ks.col : '#7e7872', glyph: ks.glyph,
-            tag: !unl ? '未获赠' : eq ? starLabel(st) : msg`${starLabel(st)} · 佩戴`,
-          } as Boon,
+            locked: !unl,
+            ksInfo: { shortName: ks.name, stars: st, unlocked: unl, equipped: eq },
+          } as CardBoon,
           tier: eq ? 2 : unl ? 1 : 0,
         };
       });
       const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
       const i = await this.cards.open(cards, {
-        leave: true,
-        header: { title: '信物匣 · 随身信物', sub: '每局选带一件 · 通关战斗屋自动升星（★ → ★★ → ★★★）', col: '#8effd0' },
-        footer: '点选已获赠信物佩戴或卸下 · 点左上返回离开',
+        leave: true, layout: 'keepsake', instant, initialFocus: focusIdx,
+        header: { title: '信物匣 · 随身信物', sub: '每局选带一件 · 通关战斗屋自动升星（★ → ★★★）', col: '#8effd0', accent: '#62b898' },
+        keepsakeDetail: idx => {
+          const kid = KEEPSAKE_ORDER[idx], ks = KEEPSAKES[kid];
+          const unl = isKeepsakeUnlocked(p, kid, this.dbgAllWeapons), eq = cur === kid;
+          const st = keepsakeStar(p, kid), rms = keepsakeRooms(p, kid);
+          const nextNeed = st === 1 ? KEEPSAKE_STARS[0] : st === 2 ? KEEPSAKE_STARS[1] : null;
+          const prog = !unl ? msg`获赠途径：${ks.source}` : nextNeed != null ? msg`升星进度：已同行 ${rms} / ${nextNeed} 间战斗屋` : '已达 ★★★ 圆满';
+          return {
+            title: msg`${ks.owner} · ${ks.name}`,
+            badge: !unl ? '未获赠' : eq ? '佩戴中' : '已获赠',
+            badgeCol: !unl ? '#9a929c' : eq ? '#ffe278' : '#88e8b8',
+            stars: unl ? st : 0,
+            starsMax: 3,
+            line1: unl ? ks.effect(st) : msg`未获赠 · ${ks.effect(1)}`,
+            line2: prog,
+            action: !unl ? '尚未获赠' : eq ? '点击卸下' : '点击佩戴',
+            accent: !unl ? '#666070' : eq ? '#ffd872' : ks.col,
+          };
+        },
+        footer: '方向键浏览 · Enter / 点击佩戴或卸下 · Esc 返回',
       });
       this.phase = was; this.hud.on = true;
       if (i < 0 || i >= KEEPSAKE_ORDER.length) return;
+      focusIdx = i; instant = true;
       const kid = KEEPSAKE_ORDER[i], ks = KEEPSAKES[kid];
       if (!isKeepsakeUnlocked(p, kid, this.dbgAllWeapons)) {
-        cue('click', 0.5);
-        this.banner.show(ks.name, ks.source, 1.4, '#d0a890');
+        cue('deny', 0.45);
         continue;
       }
       const nextId = cur === kid ? null : kid;
       equipKeepsake(p, nextId, this.dbgAllWeapons); saveProfile();
       this.refreshHideoutProps();
       cue('reveal', 0.8);
-      this.banner.show(nextId ? msg`佩戴信物 · ${ks.name}` : '已卸下信物', nextId ? ks.effect(keepsakeStar(p, kid)) : '', 1.5, ks.col);
-      return;
     }
   }
-  /** act-125: 冯铁臂双入口 — 铁炉永久强化 / 文家名刀淬炼（1→3 阶机制） */
-  private async forgeHubMenu() {
+  /** act-125 / act-136: 冯铁臂窑口锻坊 — merged single-screen tabbed panel (铁炉强化 | 名刀淬炼) */
+  private async forgeHubMenu(initialTab = 0) {
+    let tab = initialTab, focusIdx = 0, instant = false;
     for (;;) {
       const p = profile();
-      const cards: BoonPick[] = [
-        { boon: { id: 'fh_meta', school: 'fg' as never, name: '铁炉锻造 · 永久强化', desc: ['刀身 / 镖匣 / 重铸 / 旧谱', hasAffordable(p, 'forge') ? '有可强化项' : '以残铁永久提升根骨'], col: '#ffd878', glyph: ANVIL, tag: '永久强化' } as Boon, tier: hasAffordable(p, 'forge') ? 2 : 1 },
-        { boon: { id: 'fh_wep', school: 'fg' as never, name: '名刀淬炼 · 武器升阶', desc: ['为四柄文家名刀淬出 1→3 阶专属机制', hasAnyWeaponForgeable(p, this.dbgAllWeapons) ? '有可淬炼名刀' : '解锁名刀后可用残铁淬炼'], col: '#ffae58', glyph: WEAPONS.thunder.glyph, tag: '名刀淬炼' } as Boon, tier: hasAnyWeaponForgeable(p, this.dbgAllWeapons) ? 2 : 1 },
-      ];
+      let switched = false;
+      const tabs = {
+        items: [
+          { id: 'meta', label: '铁炉强化', badge: hasAffordable(p, 'forge') },
+          { id: 'wep', label: '名刀淬炼', badge: hasAnyWeaponForgeable(p, this.dbgAllWeapons) },
+        ],
+        active: tab,
+        onSwitch: (next: number) => {
+          tab = next; focusIdx = 0; instant = true; switched = true;
+          this.cards.cancelSilent();
+        },
+      };
+      const ups = META.filter(u => u.who === 'forge');
+      const cards: BoonPick[] = tab === 0
+        ? ups.map(u => {
+          const lv = level(p, u.id), cost = nextCost(p, u.id), max = u.costs.length;
+          const canAfford = cost != null && p.iron >= cost;
+          const state = cost == null ? '已满级' : canAfford ? msg`点击升级 · 耗 ${cost} 残铁` : msg`残铁不足（需 ${cost}，存 ${p.iron}）`;
+          return {
+            boon: {
+              id: 'mu_' + u.id, school: 'fg' as never, name: u.name,
+              desc: [u.desc[1], state], col: canAfford ? '#ffd878' : '#989088', glyph: ANVIL,
+              tag: cost == null ? '满级' : msg`${lv}/${max}级 · ${cost}铁`,
+              locked: cost != null && !canAfford,
+            } as CardBoon,
+            tier: cost == null ? 2 : canAfford ? 1 : 0,
+          };
+        })
+        : WEAPON_ORDER.map(id => {
+          const w = WEAPONS[id], unl = isWeaponUnlocked(p, id, this.dbgAllWeapons), lv = weaponLevel(p, id), cost = weaponNextCost(p, id);
+          const can = canForgeWeapon(p, id, this.dbgAllWeapons);
+          const line1 = !unl ? msg`未夺回 · ${w.unlockHint}` : lv >= 3 ? msg`已满阶：${w.forgeDesc[2]}` : msg`下阶（${lv + 1}阶）：${w.forgeDesc[lv]}`;
+          const line2 = !unl ? w.title : cost == null ? '已臻三阶圆满' : can ? msg`点击淬炼 · 耗 ${cost} 残铁` : msg`残铁不足（需 ${cost}，存 ${p.iron}）`;
+          return {
+            boon: {
+              id: 'wf_' + id, school: 'fg' as never, name: msg`${w.name} · ${lv}/3阶`,
+              desc: [line1, line2], col: can ? w.col : '#989088', glyph: w.glyph,
+              tag: !unl ? '未解锁' : cost == null ? '满阶' : msg`${cost}残铁`,
+              locked: !unl || (cost != null && !can),
+            } as CardBoon,
+            tier: cost == null ? 2 : can ? 1 : 0,
+          };
+        });
       const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
       const i = await this.cards.open(cards, {
-        leave: true,
-        header: { title: '冯铁臂 · 窑口锻坊', sub: '选择永久强化，或淬炼文家名刀解锁专属机制', col: '#ffd888' },
+        leave: true, layout: 'grid2', instant, initialFocus: focusIdx,
+        header: { title: '冯铁臂 · 窑口锻坊', col: '#ffd888' },
         wallet: { iron: p.iron, herb: p.herb, focus: 'iron' },
-        footer: '点选进入 · 点左上返回离开',
+        tabs,
+        footer: PAD.device === 'pad' ? msg`LB/RB 切页 · ${padName(0)} 锻造 · ${padName(1)} 返回` : 'Tab / Q E 切页 · 点击直接锻造 · Esc 返回',
       });
       this.phase = was; this.hud.on = true;
-      if (i === 0) await this.upgradeMenu('forge');
-      else if (i === 1) await this.weaponForgeMenu();
-      else return;
+      if (switched) continue;
+      if (i < 0) return;
+      focusIdx = i; instant = true;
+      if (tab === 0) {
+        const u = ups[i];
+        if (!u || nextCost(p, u.id) == null) continue;
+        if (!buy(p, u.id)) { cue('deny', 0.45); continue; }
+        saveProfile(); cue('coin', 0.8);
+      } else {
+        const wid = WEAPON_ORDER[i], w = WEAPONS[wid];
+        if (!w || !forgeWeapon(p, wid, this.dbgAllWeapons)) { cue('deny', 0.45); continue; }
+        saveProfile();
+        const newLv = weaponLevel(p, wid);
+        if (this.hero && this.hero.weaponId === wid) this.hero.applyWeapon(wid, newLv);
+        cue('bladeRing', 0.95); cue('coin', 0.7);
+      }
     }
   }
-  /** act-125: 名刀淬炼 1→3 阶 */
+  /** act-125: 名刀淬炼直接入口（委托至合并锻坊页签） */
   private async weaponForgeMenu() {
-    for (;;) {
-      const p = profile();
-      const cards: BoonPick[] = WEAPON_ORDER.map(id => {
-        const w = WEAPONS[id], unl = isWeaponUnlocked(p, id, this.dbgAllWeapons), lv = weaponLevel(p, id), cost = weaponNextCost(p, id);
-        const can = canForgeWeapon(p, id, this.dbgAllWeapons);
-        const line1 = !unl ? msg`未夺回 · ${w.unlockHint}` : lv >= 3 ? msg`已满阶：${w.forgeDesc[2]}` : msg`下阶（${lv + 1}阶）：${w.forgeDesc[lv]}`;
-        const line2 = !unl ? w.title : cost == null ? '已臻三阶圆满' : can ? msg`点击淬炼 · 消耗 ${cost} 残铁（有 ${p.iron}）` : msg`残铁不足（需 ${cost}，当前 ${p.iron}）`;
-        return {
-          boon: { id: 'wf_' + id, school: 'fg' as never, name: msg`${w.name} · ${lv}/3阶`, desc: [line1, line2], col: can ? w.col : '#989088', glyph: w.glyph, tag: !unl ? '未解锁' : cost == null ? '满阶' : msg`${cost}残铁` } as Boon,
-          tier: cost == null ? 2 : can ? 1 : 0,
-        };
-      });
-      const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
-      const i = await this.cards.open(cards, {
-        leave: true,
-        header: { title: '名刀淬炼 · 1→3 阶机制', sub: '消耗百辟残铁激发文家名刀的隐藏刀势', col: '#ffd888' },
-        wallet: { iron: p.iron, herb: p.herb, focus: 'iron' },
-        footer: '点选名刀直接淬炼 · 点左上返回上一层',
-      });
-      this.phase = was; this.hud.on = true;
-      if (i < 0 || i >= WEAPON_ORDER.length) return;
-      const wid = WEAPON_ORDER[i], w = WEAPONS[wid];
-      if (!forgeWeapon(p, wid, this.dbgAllWeapons)) { cue('click', 0.5); continue; }
-      saveProfile();
-      const newLv = weaponLevel(p, wid);
-      if (this.hero && this.hero.weaponId === wid) this.hero.applyWeapon(wid, newLv);
-      cue('bladeRing', 0.95); cue('coin', 0.7);
-      this.banner.show(msg`淬炼成锋 · ${w.name}`, msg`${newLv}阶：${w.forgeDesc[newLv - 1]}`, 1.8, w.col);
-    }
+    await this.forgeHubMenu(1);
   }
-  /** act-118: 复仇碑 · 碑铭潜能 (Hades Mirror of Night-style dual-aspect permanent talents — upgrade with 残铁/药引, flip 阳/阴 freely anytime) */
+  /** act-118 / act-136: 复仇碑 · 碑铭潜能 — single-page 2×2 steles with direct upgrade + Q/Tab/pad Y live Yang/Yin flip! */
   private async steleMenu() {
+    let focusIdx = 0, instant = false;
     for (;;) {
       const p = profile();
+      let flipped = false;
       const cards: BoonPick[] = MIRROR.map(m => {
         const st = mirrorState(p, m.id), curSide = m.sides[st.side], altSide = m.sides[st.side === 0 ? 1 : 0];
         const cost = mirrorNextCost(p, m.id), curName = m.cur === 'iron' ? '残铁' : '药引', have = p[m.cur];
         const val = st.lv > 0 ? curSide.vals[Math.min(2, st.lv - 1)] : 0, nextVal = curSide.vals[Math.min(2, st.lv)];
         const sideLbl = st.side === 0 ? '阳' : '阴';
-        const line1 = st.lv > 0 ? msg`【${sideLbl}】${curSide.desc} +${val}${curSide.unit}` : msg`【${sideLbl}】${curSide.desc}（下级 +${nextVal}${curSide.unit}）`;
-        const line2 = cost == null ? msg`已满级 · 点此可切「${altSide.name}」` : have >= cost ? msg`升级要${curName} ${cost}（有 ${have}）· 可切「${altSide.name}」` : msg`${curName}不够（${have}/${cost}）· 可免费切「${altSide.name}」`;
-        return { boon: { id: 'mr_' + m.id, school: 'mr' as never, name: msg`${m.group} · ${curSide.name}`, desc: [line1, line2], col: st.side === 0 ? '#ffd888' : '#b8a0ff', glyph: m.cur === 'iron' ? ANVIL : NEEDLE, tag: msg`${st.lv}/3级` } as Boon, tier: cost == null ? 2 : st.lv > 0 ? 1 : 0 };
+        const altLbl = st.side === 0 ? '阴' : '阳';
+        const line1 = st.lv > 0 ? msg`【${sideLbl}】${curSide.desc} +${val}${curSide.unit}` : msg`【${sideLbl}】${curSide.desc}（1级 +${nextVal}${curSide.unit}）`;
+        const line2 = cost == null
+          ? msg`已满级 · 另一面【${altLbl}】${altSide.name}`
+          : have >= cost
+            ? msg`点此升级 · 耗 ${cost} ${curName} · 另一面「${altSide.name}」`
+            : msg`${curName}不足（${have}/${cost}）· 可免费切「${altSide.name}」`;
+        return {
+          boon: {
+            id: 'mr_' + m.id, school: 'mr' as never,
+            name: msg`${m.group} · ${curSide.name}`,
+            desc: [line1, line2],
+            col: st.side === 0 ? '#ffd888' : '#b8a0ff',
+            glyph: m.cur === 'iron' ? ANVIL : NEEDLE,
+            tag: msg`${st.lv}/3级`,
+            altBadge: PAD.device === 'pad' ? msg`${padName(3)}切${altLbl}` : msg`Q切${altLbl}`,
+            locked: cost != null && have < cost,
+          } as CardBoon,
+          tier: cost == null ? 2 : st.lv > 0 ? 1 : 0,
+        };
       });
       const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
       const i = await this.cards.open(cards, {
-        leave: true,
-        header: { title: '复仇碑 · 碑铭潜能', sub: '永久生效 · 点选潜能可升级或免费切换阳/阴两面', col: '#d8c4ff' },
+        leave: true, instant, initialFocus: focusIdx,
+        header: { title: '复仇碑 · 碑铭潜能', sub: '点选碑铭直接参悟升级 · 按 Q 或点右上徽标免费切换阳/阴面', col: '#d8c4ff', accent: '#9880d0' },
         wallet: { iron: p.iron, herb: p.herb },
-        footer: '点选潜能强化或切换 · 点左上返回离开',
+        onAlt: idx => {
+          const m = MIRROR[idx];
+          if (!m) return;
+          flipMirror(p, m.id); saveProfile();
+          cue('reveal', 0.8);
+          focusIdx = idx; instant = true; flipped = true;
+          this.cards.cancelSilent();
+        },
+        footer: PAD.device === 'pad' ? msg`${padName(0)} 升级 · ${padName(3)} 切换阴阳 · ${padName(1)} 返回` : '点击碑铭升级 · Q / Tab / 点徽标切换阴阳 · Esc 返回',
       });
       this.phase = was; this.hud.on = true;
+      if (flipped) continue;
       if (i < 0 || i >= MIRROR.length) return;
-      const m = MIRROR[i], st = mirrorState(p, m.id), curSide = m.sides[st.side], altSide = m.sides[st.side === 0 ? 1 : 0];
-      const cost = mirrorNextCost(p, m.id), curName = m.cur === 'iron' ? '残铁' : '药引', have = p[m.cur];
-      const altLbl = st.side === 0 ? '阴' : '阳', nextVal = curSide.vals[Math.min(2, st.lv)], altVal = altSide.vals[Math.min(2, Math.max(0, st.lv - 1))];
-      const actions: BoonPick[] = [
-        { boon: { id: 'mr_up_' + m.id, school: (m.cur === 'iron' ? 'fg' : 'md') as never, name: cost == null ? '已满级' : msg`参悟升级（${st.lv + 1}/3级）`, desc: [msg`${curSide.name}：${curSide.desc} +${nextVal}${curSide.unit}`, cost == null ? '已臻圆满' : have >= cost ? msg`消耗 ${curName} ${cost}（当前 ${have}）` : msg`${curName}不足：要 ${cost}，当前 ${have}`], col: '#ffd888', glyph: m.cur === 'iron' ? ANVIL : NEEDLE, tag: cost == null ? '满级' : msg`${cost}${curName}` } as Boon, tier: cost != null && have >= cost ? 2 : 0 },
-        { boon: { id: 'mr_flip_' + m.id, school: 'mr' as never, name: msg`切换为【${altLbl}】${altSide.name}`, desc: [msg`${altSide.desc}（+${altVal}${altSide.unit}）`, '随时免费切换 · 共享潜能等级'], col: '#c4b0ff', glyph: SCROLL_GLYPH, tag: '免费切换' } as Boon, tier: 1 },
-      ];
-      this.phase = 'pick'; this.hud.on = false;
-      const act = await this.cards.open(actions, {
-        leave: true,
-        header: { title: msg`${m.group} · 潜能抉择`, sub: '选择升级当前潜能，或免费切换另一面', col: '#d8c4ff' },
-        wallet: { iron: p.iron, herb: p.herb, focus: m.cur },
-        footer: '点选执行 · 点左上返回上一层',
-      });
-      this.phase = was; this.hud.on = true;
-      if (act === 0) {
-        if (buyMirror(p, m.id)) { saveProfile(); cue('coin', 0.85); this.banner.show(msg`${m.group} · ${curSide.name}`, msg`${mirrorState(p, m.id).lv} 级`, 1.1, '#d8c4ff'); }
-        else cue('click', 0.5);
-      } else if (act === 1) {
-        flipMirror(p, m.id); saveProfile(); cue('reveal', 0.8); this.banner.show(msg`切换 · ${altSide.name}`, msg`【${altLbl}】已启用`, 1.1, '#c4b0ff');
-      }
+      focusIdx = i; instant = true;
+      const m = MIRROR[i];
+      if (buyMirror(p, m.id)) { saveProfile(); cue('coin', 0.85); }
+      else cue('deny', 0.45);
     }
   }
   /** 杜五 packs provisions for the next trip: one of three, free, kept in the save until the run starts */
@@ -1752,35 +1842,47 @@ export class ActShow {
     const i = await this.cards.open(cards, {
       leave: true,
       header: { title: '杜五 · 行囊干粮', sub: '每次出发前免费挑一份带着上路', col: '#ffd27a' },
-      footer: '点选免费领取 · 点左上返回离开',
+      footer: '点选免费领取 · Esc 返回',
     }); this.phase = was; this.hud.on = true;
     const m = MEALS[i]; if (!m) return;
     p.meal = m.id; saveProfile(); cue('coin', 0.6);
     await this.talk([{ who: 'duwu', text: MEAL_TALK.after[m.id] }]);
   }
-  /** the upgrade list of the smith (百辟残铁) or the healer (沸血药引) as rows of cards; the last row leaves */
+  /** the upgrade list of the smith (百辟残铁) or the healer (沸血药引) as rows/grid of cards */
   private async upgradeMenu(who: 'forge' | 'medic') {
-    const id = who === 'forge' ? 'fengtiebi' : 'sunao';
+    if (who === 'forge') { await this.forgeHubMenu(0); return; }
+    const id = 'sunao';
     const up = UP_TALK[id]; if (up?.length) await this.talk([{ who: id, text: up[Math.floor(Math.random() * up.length)] }]);
+    let focusIdx = 0, instant = false;
     for (;;) {
-      const p = profile(), ups = META.filter(u => u.who === who), cur = who === 'forge' ? '残铁' : '药引', have = who === 'forge' ? p.iron : p.herb;
-      const glyph = who === 'forge' ? ANVIL : NEEDLE;
-      const cards = ups.map(u => { const lv = level(p, u.id), cost = nextCost(p, u.id), max = u.costs.length;
+      const p = profile(), ups = META.filter(u => u.who === who), cur = '药引', have = p.herb;
+      const cards = ups.map(u => {
+        const lv = level(p, u.id), cost = nextCost(p, u.id), max = u.costs.length;
         const canAfford = cost != null && have >= cost;
-        const state = cost == null ? '已满级' : canAfford ? msg`点击升级 · 消耗 ${cost} ${cur}` : msg`${cur}不足（需 ${cost}，当前 ${have}）`;
-        return { boon: { id: 'mu_' + u.id, school: (who === 'forge' ? 'fg' : 'md') as never, name: u.name, desc: [u.desc[1], state], col: canAfford ? '#ffd878' : '#a8a096', glyph, tag: cost == null ? '满级' : msg`${lv}/${max}级 · ${cost}${cur}` } as Boon, tier: cost == null ? 2 : canAfford ? 1 : 0 }; });
+        const state = cost == null ? '已满级' : canAfford ? msg`点击升级 · 耗 ${cost} ${cur}` : msg`${cur}不足（需 ${cost}，存 ${have}）`;
+        return {
+          boon: {
+            id: 'mu_' + u.id, school: 'md' as never, name: u.name,
+            desc: [u.desc[1], state], col: canAfford ? '#8effb8' : '#989088', glyph: NEEDLE,
+            tag: cost == null ? '满级' : msg`${lv}/${max}级 · ${cost}药`,
+            locked: cost != null && !canAfford,
+          } as CardBoon,
+          tier: cost == null ? 2 : canAfford ? 1 : 0,
+        };
+      });
       const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
       const i = await this.cards.open(cards, {
-        leave: true,
-        header: { title: who === 'forge' ? '铁炉锻造 · 永久强化' : '药棚行针 · 永久强化', col: who === 'forge' ? '#ffd888' : '#8effb8' },
-        wallet: { iron: p.iron, herb: p.herb, focus: who === 'forge' ? 'iron' : 'herb' },
-        footer: '点击卡片直接强化 · 点左上返回离开',
+        leave: true, layout: ups.length >= 4 ? 'grid2' : 'auto', instant, initialFocus: focusIdx,
+        header: { title: '孙媪 · 药棚行针', sub: '以沸血药引调理经脉，永久生效', col: '#8effb8', accent: '#4ea874' },
+        wallet: { iron: p.iron, herb: p.herb, focus: 'herb' },
+        footer: '点选直接行针强化 · Esc 返回',
       }); this.phase = was; this.hud.on = true;
       if (i < 0 || i >= ups.length) return;
+      focusIdx = i; instant = true;
       const u = ups[i];
       if (nextCost(p, u.id) == null) continue;
-      if (!buy(p, u.id)) { const poor = POOR_TALK[id]; if (poor) await this.talk([{ who: id, text: poor }]); continue; }
-      saveProfile(); cue('coin', 0.8); this.banner.show(u.name, msg`${level(p, u.id)} 级`, 1.0, '#ffd27a');
+      if (!buy(p, u.id)) { cue('deny', 0.45); continue; }
+      saveProfile(); cue('coin', 0.8);
     }
   }
   /** 继续游戏: resumes at the last prologue checkpoint (village / Cui Xuan forecourt / kiln wake-up) or directly in the hideout */
@@ -1817,7 +1919,7 @@ export class ActShow {
   constructor(private platform: Platform, deferStart = false) {
     SELF = this; this.dialogue = new Dialogue(this.L, this.ov); this.timeline = new Timeline(this.L);
     HP_FACE.id = this.wearing.id;   // the HP medallion shows the look she wears
-    this.hud = new ActHud(this.L); this.cards = new CardPick(this.L); this.banner = new SkinBanner(this.L, SKIN.id, () => this.hud.bossOn);
+    this.hud = new ActHud(this.L); this.cards = new CardPick(this.L); this.worldPlates = new UiPlatePool(this.L); this.banner = new SkinBanner(this.L, SKIN.id, () => this.hud.bossOn);
     this.tut = new Tutorial(this.L); this.feed = new RewardFeed(this.L); this.duel = new Duel(this.duelHost);   // 11-18 QTE 拼刀 / 连环破势 (act/qte.ts)
     platform.onPointer(ev => { if (ev.type === 'down') this.unlockAudio(); this.pointer(ev.type, (ev as { id?: number }).id ?? 0, ev.x, ev.y, isTouchPointer(ev)); });
     platform.onResize(() => this.layout2());
@@ -5311,6 +5413,55 @@ export class ActShow {
     else if (s.id === 'scroll' && drawManuals(this.perks.moves, 1, Math.random).length) { this.stations.spend(s); await this.manualPick(); }   // act-19: the 遗卷 altar gives a 刀谱 while any are left
     else if (s.id === 'scroll') { this.stations.spend(s); await this.boonPick(); }
   }
+  /** act-136: 行商总览面板 — walking up to the traveling merchant and pressing interact opens all remaining stalls in one 2×2 view */
+  private async shopOverviewMenu() {
+    if (!this.stations || this.shopOpening) return;
+    this.shopOpening = true;
+    try {
+      let instant = false;
+      for (;;) {
+        const avail = this.stations.list.filter(st => !st.done && st.id.startsWith('buy_'));
+        if (!avail.length) {
+          this.banner.show('行商', '今日货摊已清，江湖再会', 1.4, '#ffd890');
+          return;
+        }
+        const cards: BoonPick[] = avail.map(st => {
+          const noSharp = st.id.endsWith('sharpen') && !this.sharpenable().length;
+          const poor = st.price > this.coins;
+          const locked = poor || noSharp;
+          const line2 = noSharp ? '暂无可升阶的已得秘传' : poor ? msg`铜钱不足（需 ${st.price}，存 ${this.coins}）` : msg`点击购买 · 耗 ${st.price} 铜钱`;
+          return {
+            boon: {
+              id: 'shop_' + st.id, school: (st.id === 'buy_heal' || st.id === 'buy_vigor' ? 'md' : 'fg') as never,
+              name: st.label,
+              desc: [st.desc, line2],
+              col: locked ? '#989088' : '#ffd878',
+              glyph: st.id === 'buy_boon' ? SCROLL_GLYPH : st.id === 'buy_heal' || st.id === 'buy_vigor' ? NEEDLE : ANVIL,
+              tag: msg`${st.price}钱`,
+              locked,
+            } as CardBoon,
+            tier: locked ? 0 : 1,
+          };
+        });
+        const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideWorldPlates();
+        const i = await this.cards.open(cards, {
+          leave: true, layout: 'grid2', instant,
+          header: { title: '行商货摊 · 四摊百货', sub: '点选直接购入，也可到各摊前单买', col: '#ffe290' },
+          wallet: { coins: this.coins, focus: 'coins' },
+          footer: '点选购入 · Esc 返回',
+        });
+        this.phase = was; this.hud.on = true;
+        if (i < 0 || i >= avail.length) return;
+        const chosen = avail[i];
+        const noSharp = chosen.id.endsWith('sharpen') && !this.sharpenable().length;
+        if (chosen.price > this.coins || noSharp) { cue('deny', 0.45); instant = true; continue; }
+        await this.useStation(chosen);
+        instant = true;
+      }
+    } finally {
+      this.shopOpening = false;
+    }
+  }
   private take(b: Boon, tier = 0) { // wp/boons: ownership lives on Perks
     const before = archCounts(this.perks);
     applyBoon(this.perks, b.id, tier); this.log.push(`boon ${b.id} tier ${tier}`); // wp/boons: apply the selected tier
@@ -5804,24 +5955,29 @@ export class ActShow {
     if (PAUSE.on) {
       this.L.text.hide('act.npc');
       this.L.text.hide('act.station.hint');
+      this.hideWorldPlates();
+      this.banner.hide();
+      this.barks?.update(0, true, 0);
       if (this.previewOn && this.demo.on) { this.demo.update(PAUSE.rdt); this.hud.update(PAUSE.rdt, this.inp, []); }   // (11-19: 已得's ghost, on real time)
       return;
     }   // the pause menu runs on its own (real time); the world gets nothing (11-18: a hideout name over the menu's pages hidden)
     // act-109: freeze hold-timer accumulation during hitstop / 一闪 stillness so quick taps never get misread as a 藏锋 hold
     this.inp.frame(rdt, FX.hitstop > 0 || this.iaiHeld);
     this.padScreens(rdt);
-    if (this.phase === 'opening' || this.phase === 'title') return;   // opening.ts / title.ts run the start screen
+    if (this.phase === 'opening' || this.phase === 'title') { this.hideWorldPlates(); return; }   // opening.ts / title.ts run the start screen
     // act-20: a cutscene or a conversation — the timeline / the dialogue run, the people idle, nothing fights
     // (act-26: once a conversation ends the phase moves on at once — the portraits still have to slide out, so keep driving them)
     if (this.phase !== 'cine' && this.phase !== 'talk') { this.dialogue.update(rdt); this.timeline.update(rdt); }   // (act-36: the letterbox slides back out)
-    if (this.phase === 'cine' || this.phase === 'talk') {
+    if (this.phase === 'cine' || this.phase === 'talk' || this.dialogue.on) {
       this.cancelQte(); GRADE.bloodVig = 0; this.syncHeroHat();
+      this.hideWorldPlates();
+      this.banner.hide();
       if (this.fullRing) this.fullRing.visible = false;
-      this.timeline.update(rdt); this.dialogue.update(rdt);
+      if (this.phase === 'cine' || this.phase === 'talk') { this.timeline.update(rdt); this.dialogue.update(rdt); }
       // the bot reads fast: a line every 0.6 s (cutscenes play out)
       if (this.botOn && this.dialogue.on && (this.botTalkT += rdt) > 0.6) { this.botTalkT = 0; this.dialogue.advance(); }
-      if (this.phase === 'talk') {
-        this.hero.a.update(dt); this.hero.scriptPose?.();
+      if (this.phase === 'talk' || this.dialogue.on) {
+        this.hero?.a.update(dt); this.hero?.scriptPose?.();
         for (const f of this.foes) f.a.update(dt);
         for (const n of this.npcs) n.a.update(dt);
         this.allyGen?.a.update(dt);
@@ -5832,7 +5988,10 @@ export class ActShow {
       }
       for (const f of this.puppets) if (this.phase === 'talk' && !f.a.root.userData.still) f.a.update(dt);   // (act-30: the dead stay still)
       blood.update(dt);   // (11-18: the prologue's wound bleeds through the cutscene and the talk — the drops fall instead of hanging in the air)
-      this.hud.update(rdt, this.inp, []); this.feed.update(rdt, this.hud.feedAt, this.hud.k, false); this.L.on = true; return;
+      const prevHud = this.hud.on; this.hud.on = false;
+      this.hud.update(rdt, this.inp, []); this.feed.update(rdt, this.hud.feedAt, this.hud.k, false);
+      if (this.phase !== 'cine' && this.phase !== 'talk') this.hud.on = prevHud;
+      this.L.on = true; return;
     }
     // act-29: the prologue's temple — about half a minute in, his blow ends it whatever her blood
     if (this.prologue === 2 && this.phase === 'fight' && !this.proFalling && this.foes.some(f => isBoss(f))) { this.proFightT += dt; if (this.proFightT > 60) void this.prologueFall(); }   // (a fallback only: the fifth of his life is the cue)
@@ -5872,6 +6031,24 @@ export class ActShow {
     this.heroWorld.foes = this.foes.some(f => f.mem.hidden) || this.entering.length || this.bossDrops.length
       ? this.foes.filter(f => !f.mem.hidden && !this.entering.some(e => e.f === f) && !this.bossDrops.some(d => d.f === f))
       : this.foes;
+    // act-136: Scheme A shop / rest / scroll interact intercept BEFORE h.update so pressing J buys cleanly without swinging the blade!
+    if (this.stations && this.phase === 'doors' && !busy && !this.pause.on && !this.dialogue.on && !this.shopOpening && this.inp.b.attack.pressed) {
+      const ns = this.stations.near(h.pos);
+      const nearM = !ns && this.stations.nearMerchant(h.pos);
+      if (ns) {
+        this.inp.b.attack.pressed = false;
+        const noSharp = ns.id.endsWith('sharpen') && !this.sharpenable().length;
+        if (ns.price > this.coins || noSharp) {
+          cue('deny', 0.45);
+          this.banner.show(ns.label, noSharp ? '暂无可升阶的已得秘传' : msg`铜钱不足（需 ${ns.price} 钱）`, 1.2, '#ff9884');
+        } else {
+          void this.useStation(ns);
+        }
+      } else if (nearM) {
+        this.inp.b.attack.pressed = false;
+        void this.shopOverviewMenu();
+      }
+    }
     h.update(dt, this.inp, this.heroWorld);
     this.hud.setAim(h.aiming ? { x: h.aimDir.x, y: -h.aimDir.z } : null);   // act-29: the dart button leans to the aim
     if (h.aiming) { const pv = h.aimPreview(this.heroWorld), L = TUNE.dartRange, al = this.aimLine;
@@ -6034,7 +6211,7 @@ export class ActShow {
     }
     this.darts = this.darts.filter(d => !d.dead);
     this.hitArcs.update(rdt, h.pos);
-    (this.barks ??= new Barks(this.L)).update(rdt, (this.phase as string) === 'talk' || (this.phase as string) === 'cine' || this.dialogue.on, this.banner.bottomY);
+    (this.barks ??= new Barks(this.L)).update(rdt, (this.phase as string) === 'talk' || (this.phase as string) === 'cine' || this.dialogue.on || this.cards.on || this.pause.on, this.banner.bottomY);
     if (this.props && this.phase !== 'pick') this.applyProps(this.props.update(dt, this.targets()), true);   // act-19: fuses, fires, the falling pillars
     this.gates?.update(dt);
     if (this.pieces && this.hero) {
@@ -6066,45 +6243,106 @@ export class ActShow {
       // or a pit stands between, toward the way round instead — the leaves show which way to go)
       if (this.phase === 'doors' && this.gates) { this.gustT -= dt; if (this.gustT <= 0) { this.gustT = 3.2; for (const t of this.gates.targets()) { const wd = this.grid?.way(h.pos.x, h.pos.z, t.x, t.z, 0.4); if (wd) this.leaves.gust(h.pos.x, h.pos.z, h.pos.x + wd[0] * 5, h.pos.z + wd[1] * 5); else this.leaves.gust(h.pos.x, h.pos.z, t.x, t.z); } cue('exitChime', 0.25); } }
     }
-    // copper coins fly in; the stations of a shop / rest / scroll room fill their rings under a hero standing still on a mat
+    // copper coins fly in; act-136 Scheme A stations (clear overhead iron-wood price plaques + J interact + merchant overview)
     { const got = this.coinsFx.update(dt, h.pos); if (got) { this.coins += got; cue('coin', 0.3); this.feed.push('coins', n => msg`铜钱 +${n}`, got); } const prof = profile(); this.hud.coins = this.coins; this.hud.iron = prof.iron; this.hud.herb = prof.herb; }
-    if (this.stations && this.phase === 'doors' && !this.cards.on && !this.pause.on) {
+    const worldUiClear = !this.cards.on && !this.pause.on && !this.dialogue.on;
+    const minPlateY = this.banner.bottomY > 0 ? this.banner.bottomY + 8 : 10;
+    this.L.text.hide('act.station.hint');
+    if (this.stations && this.phase === 'doors' && worldUiClear) {
       const moving = Math.hypot(h.vel.x, h.vel.z) > 0.8;
       const canPay = (st: Station) => st.price <= this.coins && (!st.id.endsWith('sharpen') || this.sharpenable().length > 0);
-      const s = this.stations.update(dt, h.pos, moving, canPay);
+      this.stations.update(dt, h.pos, moving, canPay);
       this.stations.setPurse(this.coins);
       const ns = this.stations.near(h.pos);
-      if (ns) {
-        const p = worldToUi(V3(ns.at.x, 1.55, ns.at.z));
-        const kk = Math.min(1.2, Math.max(0.8, this.L.h / 720));
-        const noSharp = ns.id.endsWith('sharpen') && !this.sharpenable().length;
-        const txt = ns.fill > 0.02
-          ? msg`触发中 ${Math.round(ns.fill * 100)}% · ${ns.label}`
-          : ns.poor
-            ? msg`${ns.label} · 铜钱不足（需 ${ns.price} 钱）`
-            : noSharp
-              ? msg`${ns.label} · 暂无可升阶秘传`
-              : ns.onMat && moving
-                ? msg`停步站立即可触发 · ${ns.label}`
-                : msg`踩上草席站立片刻 · ${ns.label}（${ns.sub}）`;
-        const col = ns.fill > 0.02 ? '#fff6b0' : ns.poor ? '#ff907a' : noSharp ? '#c0b8ac' : '#ffe8a8';
-        this.L.text.set('act.station.hint', { text: txt, x: p.x, y: p.y, bodyPx: Math.max(15, Math.round(16.5 * kk)), color: col, outline: '#140c0a', align: 'center', visible: p.z < 1 });
-      } else {
-        this.L.text.hide('act.station.hint');
+      const nearMerch = !ns && this.stations.nearMerchant(h.pos);
+      this.stationNear = ns;
+      this.merchantNear = nearMerch;
+      // Overhead price/name tags for every idle stall; highlighted interactive plaque ONLY for the focused stall
+      for (const st of this.stations.list) {
+        if (st.done || st === ns) {
+          this.worldPlates.hide('st.tag.' + st.id);
+          continue;
+        }
+        const pt = worldToUi(V3(st.at.x, 1.9, st.at.z));
+        const poor = st.price > this.coins;
+        this.worldPlates.setTag('st.tag.' + st.id, {
+          text: st.label, price: st.price, poor, icon: st.icon,
+          color: poor ? '#ffb4a4' : '#f4ecd8', accent: poor ? '#b83c32' : '#c8984e',
+          x: pt.x, y: pt.y, minY: minPlateY, visible: pt.z < 1,
+        });
       }
-      if (s) void this.useStation(s);
+      if (ns) {
+        const pt = worldToUi(V3(ns.at.x, 2.2, ns.at.z));
+        const noSharp = ns.id.endsWith('sharpen') && !this.sharpenable().length;
+        const action = noSharp ? '暂无可升阶秘传' : ns.poor ? '铜钱不足' : ns.id.startsWith('buy_') ? '购买' : ns.id === 'scroll' ? '研读' : '择取';
+        const acc = ns.id.startsWith('rest_') ? '#ff9e4a' : ns.id === 'scroll' ? '#88e8c0' : '#e0b058';
+        this.worldPlates.setInteract('st.active', {
+          title: ns.label, sub: ns.desc, price: ns.price, poor: ns.poor, disabled: noSharp,
+          action, icon: ns.icon, accent: acc, x: pt.x, y: pt.y, minY: minPlateY, visible: pt.z < 1,
+        });
+        this.worldPlates.hide('st.merchant');
+      } else {
+        this.worldPlates.hide('st.active');
+        if (nearMerch && this.stations.merchant) {
+          const mp = this.stations.merchant.head();
+          const pt = worldToUi(V3(mp.x, mp.y + 0.65, mp.z));
+          this.worldPlates.setInteract('st.merchant', {
+            title: '行商', sub: '四摊百货 · 一览选购', action: '看货', icon: 'coin',
+            accent: '#ffd27a', x: pt.x, y: pt.y, minY: minPlateY, visible: pt.z < 1,
+          });
+        } else {
+          this.worldPlates.hide('st.merchant');
+        }
+      }
     } else {
-      this.L.text.hide('act.station.hint');
+      this.stationNear = null;
+      this.merchantNear = false;
+      this.worldPlates.hidePrefix('st.');
     }
-    // (act-36 floated the stall's name and price over it in reach; act-37 (用户：「商店里的选项……好丑」) took it out — it said what
-    //  the big board beside it says, and covered the next stall's board)
-    // doors: the boards rise; stepping onto a gate's gold (act-34), or walking into a road's far end, leaves
-    if (this.phase === 'doors') this.doors.forEach((d, i) => {
-      d.lift = Math.min(1, d.lift + dt * 2.2); d.g.position.y = -2.4 * (1 - d.lift) ** 2;
-      if (this.phase !== 'doors') return;
-      const p = h.pos, l = d.ex.lane, bk = d.ex.dir[1] < 0, out = bk ? p.z < PLAY.z0 - 1.2 : d.ex.dir[0] < 0 ? p.x < l.x0 + 2.6 : p.x > l.x1 - 2.6;
-      if (this.gates?.onGlow(p, d.ex.id) || (out && p.x > l.x0 - 0.4 && p.x < l.x1 + 0.4 && p.z > l.z0 - (bk ? 6 : 0.4) && p.z < l.z1 + 0.4)) this.leave(i);
-    });
+    // act-136: Occluded-treasure full-res UI marker badges (paired with puzzles.ts setPropOcc silhouette)
+    if (this.pieces && worldUiClear) {
+      this.pieces.rewards.forEach((r, idx) => {
+        if (r.taken) { this.worldPlates.hide('tr.' + idx); return; }
+        const pt = worldToUi(V3(r.x, r.tier === 'mythic' ? 1.85 : 1.65, r.z));
+        this.worldPlates.setTag('tr.' + idx, {
+          text: r.tier === 'mythic' ? '传世秘藏' : '秘藏',
+          icon: r.tier === 'mythic' ? 'mythic' : 'chest',
+          color: r.tier === 'mythic' ? '#ffcf88' : '#ffe890',
+          accent: r.tier === 'mythic' ? '#ff6e30' : '#d8a64e',
+          x: pt.x, y: pt.y, minY: minPlateY, visible: pt.z < 1,
+        });
+      });
+    } else {
+      this.worldPlates.hidePrefix('tr.');
+    }
+    // doors: the boards rise + full-res UI route plaques above open exit gates; stepping onto a gate's gold leaves
+    if (this.phase === 'doors') {
+      this.doors.forEach((d, i) => {
+        d.lift = Math.min(1, d.lift + dt * 2.2); d.g.position.y = -2.4 * (1 - d.lift) ** 2;
+        const plan = this.nextRooms[i];
+        if (worldUiClear && plan && d.lift > 0.35) {
+          const info = roomInfo(plan.type, plan.region ?? this.region);
+          const rw = plan.reward;
+          const sub = plan.type === 'elite' ? '刀谱·重赏' : plan.type === 'boss' ? '终战' : plan.type === 'event' ? '信物·加护'
+            : plan.type === 'boon' ? '珍品秘传' : plan.type === 'shop' ? '四摊百货' : plan.type === 'rest' ? '调息三选'
+              : rw?.k === 'boon' ? '秘传' : rw?.k === 'coins' ? msg`铜钱 ${rw.n}` : rw?.k === 'heal' ? '回血' : rw?.k === 'manual' ? '刀谱' : '';
+          const ico: MiniIcon = plan.type === 'shop' ? 'coin' : plan.type === 'rest' ? 'heal' : plan.type === 'boon' || plan.type === 'elite' ? 'scroll' : plan.type === 'event' ? 'star' : 'door';
+          const acc = plan.type === 'elite' || plan.type === 'boss' ? '#d84434' : plan.type === 'boon' ? '#58c8a0' : plan.type === 'event' ? '#e8b448' : plan.type === 'shop' ? '#e2a648' : plan.type === 'rest' ? '#e08448' : '#b89460';
+          const pt = worldToUi(V3(d.g.position.x, d.g.position.y + 2.85, d.g.position.z));
+          this.worldPlates.setTag('door.' + i, {
+            text: info.name, sub, icon: ico, color: '#fff2cc', accent: acc,
+            x: pt.x, y: pt.y, minY: minPlateY, visible: pt.z < 1,
+          });
+        } else {
+          this.worldPlates.hide('door.' + i);
+        }
+        if (this.phase !== 'doors') return;
+        const p = h.pos, l = d.ex.lane, bk = d.ex.dir[1] < 0, out = bk ? p.z < PLAY.z0 - 1.2 : d.ex.dir[0] < 0 ? p.x < l.x0 + 2.6 : p.x > l.x1 - 2.6;
+        if (this.gates?.onGlow(p, d.ex.id) || (out && p.x > l.x0 - 0.4 && p.x < l.x1 + 0.4 && p.z > l.z0 - (bk ? 6 : 0.4) && p.z < l.z1 + 0.4)) this.leave(i);
+      });
+    } else {
+      this.worldPlates.hidePrefix('door.');
+    }
     // the camera: follows the hero with a little lead, held inside the room
     // the lead follows the run, capped at running speed (a dash or a knock-back no longer throws the view forward)
     const vel = h.vel.clone().setY(0), vl = vel.length(); if (vl > TUNE.heroSpeed) vel.multiplyScalar(TUNE.heroSpeed / vl);
@@ -6201,7 +6439,7 @@ export class ActShow {
     if (h.exhaled) { h.exhaled = false; const at = h.a.head().add(h.a.fwd().multiplyScalar(0.25)); fxSmoke(at, 0xe6eef2, 12, { r: 0.12, spd: 1.7, up: 0.6, s: 0.24, life: 0.8 }); fxRing(h.pos.clone().setY(0.06), 0xb8a888, 0.9, { life: 0.3 } as never); }
     // the move links open right now, shown on the buttons (act-18): 追影 > 穿风斩 > 下劈 > 反击 on the cut button
     { const fighting = this.phase === 'fight' || this.phase === 'yard', chase = fighting && !!h.moves.chase && !!this.chaseTarget();
-      const atk = this.npcNear && !this.noTalk ? 'talk' : !fighting ? null : chase ? 'chase' : h.canDashCut ? 'dcut' : h.canKeep ? 'keep' : h.canPause ? 'pause' : h.canAirCut ? 'acut' : (h.st === 'air' && h.airborne) ? 'plunge' : h.counterT > 0 ? 'counter' : null;
+      const atk = (this.npcNear && !this.noTalk) || this.stationNear || this.merchantNear ? 'talk' : !fighting ? null : chase ? 'chase' : h.canDashCut ? 'dcut' : h.canKeep ? 'keep' : h.canPause ? 'pause' : h.canAirCut ? 'acut' : (h.st === 'air' && h.airborne) ? 'plunge' : h.counterT > 0 ? 'counter' : null;
       // (11-18 四本新刀谱: 断云 on the cut button, 牵红 on the dart button, 踏顶 on the jump button, 掠地 on the dash button)
       const hints = { attack: atk, special: !fighting ? null : h.canBackDart ? 'back' : h.canReel ? 'reel' : h.canCutDart ? 'cdart' : null, jump: !fighting ? null : h.canLaunch ? 'launch' : h.canKick ? 'kick' : h.canStomp ? 'stomp' : h.canDoubleJump ? 'dbl' : null,
         dash: fighting && h.canSwoop ? 'swoop' : null } as const;
@@ -6259,7 +6497,7 @@ export class ActShow {
     if (!this.cards.on) return;
     if ((e.key === 'Escape' || e.key === 'Backspace') && !e.repeat && this.cards.leave()) { e.preventDefault(); return; }   // (11-19: a shop page — Esc leaves)
     if ((e.key === 'r' || e.key === 'R') && !e.repeat && this.cards.reroll()) { e.preventDefault(); return; }
-    const k = ({ arrowleft: 'left', a: 'left', arrowup: 'left', w: 'left', arrowright: 'right', d: 'right', arrowdown: 'right', s: 'right', enter: 'ok', ' ': 'ok', j: 'ok' } as const)[e.key.toLowerCase() as 'a'];
+    const k = ({ arrowleft: 'left', a: 'left', arrowup: 'up', w: 'up', arrowright: 'right', d: 'right', arrowdown: 'down', s: 'down', enter: 'ok', ' ': 'ok', j: 'ok', q: 'alt', tab: 'alt', e: 'tabNext' } as const)[e.key.toLowerCase() as 'a'];
     if (k && !e.repeat) { e.preventDefault(); this.cards.key(k); }
   }
   private keyUp(e: KeyboardEvent) {
@@ -6281,7 +6519,16 @@ export class ActShow {
       else if (this.padSkip && !n.backHeld) { this.padSkip = false; this.dialogue.holdSkip(false); }
     } else this.padSkip = false;
     if (this.dialogue.on) { if (n.ok || n.x) this.dialogue.advance(); return; }
-    if (this.cards.on) { if (n.up || n.left) this.cards.key('left'); else if (n.down || n.right) this.cards.key('right'); else if (n.ok) this.cards.key('ok'); else if (n.y) this.cards.reroll(); else if (n.back) this.cards.leave(); return; }
+    if (this.cards.on) {
+      if (n.left) this.cards.key('left');
+      else if (n.right) this.cards.key('right');
+      else if (n.up) this.cards.key('up');
+      else if (n.down) this.cards.key('down');
+      else if (n.ok) this.cards.key('ok');
+      else if (n.y) { if (!this.cards.reroll()) this.cards.key('alt'); }
+      else if (n.back) this.cards.leave();
+      return;
+    }
     if (n.start && this.canPause()) this.pauseGame();
   }
   /** the world can stand still here: walking about or fighting (not the start screen, a cutscene, a conversation, the cards, a wipe) */
@@ -6291,6 +6538,7 @@ export class ActShow {
   pauseGame() {
     if (!this.canPause() || this.botOn) return;
     this.pauseHud = this.hud.on; this.hud.on = false; this.hud.update(0, this.inp, []); this.aimLine.visible = false;
+    this.banner.hide(); this.hideHideoutLabels(); this.hideWorldPlates();
     this.pause.open('main');
   }
   private unpaused() {

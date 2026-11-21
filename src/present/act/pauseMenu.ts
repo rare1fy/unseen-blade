@@ -355,7 +355,7 @@ export class PauseMenu {
     const h = Math.max(language === 'en' || this.page === 'set' ? 20 : 24, Math.min(wide ? 50 : 56, avail / (n * 1.32 - 0.32))), gap = h * 0.32;
     const total = n * h + (n - 1) * gap, top = this.page === 'owned' || this.page === 'skills' ? headH * 1.5 + H * 0.05 : Math.max(headH * 1.5 + H * 0.05, (H - total) / 2 + headH * 0.4);
     const cx = Math.max(w / 2 + h * 1.6 + 24, W * 0.27);
-    const S = Math.max(1, Math.round(h * 0.4 * k / PIX_H)), hS = Math.max(1, Math.round(headH * 0.8 * k / PIX_H));
+    const S = Math.max(1, Math.round(h * 0.45 * k / PIX_H)), hS = Math.max(1, Math.round(headH * 0.82 * k / PIX_H));
     Object.assign(this.lay, { cx, w, h, top, S, hS, gap });
     this.slabs.forEach((s, i) => { s.size(w, h); s.x = cx; s.y = top + h / 2 + i * (h + gap); });
     // the page's name over the column
@@ -366,7 +366,7 @@ export class PauseMenu {
     this.head.place(nx + hw / 2, top - hh / 2 - h * 0.45, ent * ent);
     this.backAt = { x: cx - w / 2 + br, y: top - h * 0.45 - hh / 2, r: br };
     // the prompts at the foot: the device's own confirm / back (gamepad pixel glyphs or dark-iron pixel keycaps)
-    const fS = Math.max(1, Math.round(footH * 0.45 * k / PIX_H)), parts = this.prompts();
+    const fS = Math.max(1, Math.round(footH * 0.52 * k / PIX_H)), parts = this.prompts();
     if (parts.length) {
       const gs = fS * 2, ks = fS, gw = (i: number) => glyphArt(i).w * gs;
       const width = parts.reduce((a, p) => a + (p.pad != null ? gw(p.pad) + 5 * k : keyCapWidth(p.key ?? '') * ks + 6 * k) + textW(p.word, fS) + 14 * k, 0) / k;

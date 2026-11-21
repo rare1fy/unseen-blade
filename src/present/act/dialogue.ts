@@ -20,6 +20,7 @@ import { shake } from '../engine/clock';
 import { loadImage, makeCanvas } from '../../platform/index';
 import { paintPixelSkipRing } from './timeline';
 import { PAD, paintGlyph, glyphArt, GLYPH_H, paintKeyCap, keyCapWidth, KEYCAP_H } from './pad';
+import { drawPixelPlaque } from './uiPlate';
 
 export interface Line { who: string; text: string; mood?: string }
 interface Speaker { name: string; side: 'L' | 'R'; mute?: boolean }
@@ -158,16 +159,10 @@ class InkLine {
     const g = c.getContext('2d')!; g.imageSmoothingEnabled = false;
     g.clearRect(0, 0, W, H);
 
-    // crisp hard-stepped pixel ink plaque (zero smooth gradients, zero full-screen vignette)
-    g.fillStyle = '#c8963a';
-    g.fillRect(p * 2, 0, W - p * 4, H);
-    g.fillRect(p, p, W - p * 2, H - p * 2);
-    g.fillStyle = '#12101a';
-    g.fillRect(p * 2, p, W - p * 4, H - p * 2);
-    g.fillRect(p, p * 2, W - p * 2, H - p * 4);
-    // stepped pixel corner rivets in muted gold
-    g.fillStyle = '#8b682a';
-    for (const [rx, ry] of [[p * 2, p * 2], [W - p * 3, p * 2], [p * 2, H - p * 3], [W - p * 3, H - p * 3]]) g.fillRect(rx, ry, p, p);
+    // act-136: forged iron-bronze pixel narration plaque (matches main dialogue box, zero smooth fog)
+    drawPixelPlaque(g, 0, 0, W, H, p, {
+      bg: '#13101a', hi: '#262034', border: '#06050a', inner: '#c49642', accent: '#e0b054', rivets: true,
+    });
 
     // two crisp pixel flanking rules (stepped thickness, solid color, no fog)
     const sy = Math.round(H / 2);
@@ -234,6 +229,10 @@ export class Dialogue {
   private box: THREE.Mesh; private boxTex: THREE.CanvasTexture | null = null;
   private boxW = 0; private boxH = 0;
   private canvas: HTMLCanvasElement = makeCanvas(64, 32) as HTMLCanvasElement;
+  /** act-136: independent raised bronze-iron name plaque seated on top-left or top-right rim of the dialogue box */
+  private nameMesh: THREE.Mesh; private nameTex: THREE.CanvasTexture | null = null;
+  private nameCanvas: HTMLCanvasElement = makeCanvas(64, 32) as HTMLCanvasElement;
+  private nameKey = ''; private nameW = 1; private nameH = 1;
   private sides: Record<'L' | 'R', Side> = {
     L: { mesh: null, who: '', id: '', k: 0, on: 0, aspect: 0.8, ih: 144, pop: 0, was: false, away: 0 },
     R: { mesh: null, who: '', id: '', k: 0, on: 0, aspect: 0.8, ih: 144, pop: 0, was: false, away: 0 },
@@ -249,8 +248,10 @@ export class Dialogue {
   private skipRing: THREE.Mesh; private skipCanvas: HTMLCanvasElement; private skipTex: THREE.CanvasTexture; private skipStep = -1;
 
   constructor(private L: UiLayer, ov: Overlay | null = null) {
-    this.box = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), [0, 0, 0, 0, 0, 0].map((_, i) => new THREE.MeshBasicMaterial({ color: i === 4 ? 0xffffff : 0x0d0b12, transparent: true, depthTest: false, depthWrite: false, toneMapped: false })));
+    this.box = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), [0, 0, 0, 0, 0, 0].map((_, i) => new THREE.MeshBasicMaterial({ color: i === 4 ? 0xffffff : 0x16141d, transparent: true, depthTest: false, depthWrite: false, toneMapped: false })));
     this.box.renderOrder = 60; this.box.visible = false; L.scene.add(this.box);
+    this.nameMesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ transparent: true, depthTest: false, depthWrite: false, toneMapped: false }));
+    this.nameMesh.renderOrder = 62; this.nameMesh.visible = false; L.scene.add(this.nameMesh);
     this.ink = new InkLine(L, ov);
     this.skipCanvas = makeCanvas(16, 16) as HTMLCanvasElement; this.skipCanvas.width = 16; this.skipCanvas.height = 16;
     this.skipTex = new THREE.CanvasTexture(this.skipCanvas);
@@ -328,61 +329,131 @@ export class Dialogue {
   private close() {
     audio.stopVoice();
     this.on = false; this.holding = false; this.holdT = 0; this.skipRing.visible = false;
-    this.box.visible = false; this.outK = 1; this.ink.off();
+    this.box.visible = false; this.nameMesh.visible = false; this.outK = 1; this.ink.off();
     const d = this.done; this.done = null; d?.();
   }
-  /** the box face: name plate + the visible part of the line, reusing CanvasTexture when size is unchanged */
+  /** act-136: independent raised bronze-iron name plaque seated on top-left or top-right rim of the box */
+  private paintNamePlaque(name: string, right: boolean, scale: number) {
+    const dpr = Math.max(1, Math.round(this.L.dpr || 1));
+    const key = `${name}|${right ? 1 : 0}|${scale}|${dpr}|${language}`;
+    if (key === this.nameKey) return;
+    this.nameKey = key;
+    const S = Math.max(1, Math.round(scale * dpr));
+    const u = Math.max(1, Math.round(2 * dpr));
+    const tw = textW(name, S), th = PIX_H * S;
+    const padX = Math.round(16 * dpr), padY = Math.round(7 * dpr);
+    const cw = Math.max(Math.round(92 * dpr), tw + padX * 2 + u * 4);
+    const ch = th + padY * 2 + u * 2;
+    const c = this.nameCanvas;
+    const resized = c.width !== cw || c.height !== ch;
+    if (resized) { c.width = cw; c.height = ch; }
+    const g = c.getContext('2d')!; g.imageSmoothingEnabled = false;
+    g.clearRect(0, 0, cw, ch);
+    drawPixelPlaque(g, 0, 0, cw, ch, u, {
+      bg: '#1c1622', hi: '#32293e', border: '#07050b', inner: '#d4a24a', accent: '#ffe08a', rivets: true,
+      accentBar: right ? undefined : EDGE_R,
+    });
+    if (right) {
+      g.fillStyle = EDGE_G;
+      g.fillRect(cw - u * 4, u * 2, u * 2, ch - u * 4);
+    }
+    text(g, name, Math.round((cw - tw) / 2), Math.round((ch - th) / 2), S, NAME, 'left', '#07050b');
+    if (!this.nameTex || resized) {
+      this.nameTex?.dispose();
+      this.nameTex = new THREE.CanvasTexture(c);
+      this.nameTex.generateMipmaps = false; this.nameTex.colorSpace = THREE.SRGBColorSpace;
+      this.nameTex.magFilter = this.nameTex.minFilter = THREE.NearestFilter;
+      const mat = this.nameMesh.material as THREE.MeshBasicMaterial;
+      mat.map = this.nameTex; mat.needsUpdate = true;
+    } else {
+      this.nameTex.needsUpdate = true;
+    }
+    this.nameW = cw / dpr; this.nameH = ch / dpr;
+  }
+  /** act-136: forged iron-bronze lacquer dialogue box with stable 3-line height, clean margins, and recessed footer bar */
   private paint(line: Line, n: number, wPx: number, hPx: number, scale: number) {
-    const sp = CAST[line.who], c = this.canvas, dpr = Math.max(1, Math.round(this.L.dpr || 1)), S = scale * dpr;
+    const sp = CAST[line.who], c = this.canvas, dpr = Math.max(1, Math.round(this.L.dpr || 1));
     const cw = Math.round(wPx * dpr), ch = Math.round(hPx * dpr);
     const resized = c.width !== cw || c.height !== ch;
     if (resized) { c.width = cw; c.height = ch; }
     const g = c.getContext('2d')!; g.imageSmoothingEnabled = false;
     g.clearRect(0, 0, cw, ch);
-    const P = (x: number, y: number, w: number, h: number, col: string) => { g.fillStyle = col; g.fillRect(Math.round(x * dpr), Math.round(y * dpr), Math.round(w * dpr), Math.round(h * dpr)); };
-    // the frame: a thin gold line inside a thin red one, notched corners (pixel steps, never diagonal runs)
-    P(0, 0, wPx, hPx, EDGE_R); P(2, 2, wPx - 4, hPx - 4, EDGE_G); P(4, 4, wPx - 8, hPx - 8, BG);
-    for (const [x, y] of [[0, 0], [wPx - 4, 0], [0, hPx - 4], [wPx - 4, hPx - 4]]) g.clearRect(Math.round(x * dpr), Math.round(y * dpr), Math.round(4 * dpr), Math.round(4 * dpr));
-    const nameS = S, name = sp?.name ?? line.who, right = sp?.side === 'R';
-    const nx = right ? cw - Math.round(16 * dpr) - textW(name, nameS) : Math.round(16 * dpr);
-    text(g, name, nx, Math.round(10 * dpr), nameS, NAME, 'left', '#05040a');
-    const fpx = Math.round(fontPx(scale) * dpr), full = t(line.text), chars = [...full].slice(0, n), maxW = cw - Math.round(32 * dpr), lineH = Math.round(fpx * 1.4);
-    let row = '', y = Math.round(10 * dpr) + PIX_H * nameS + Math.round(12 * dpr);
+    const u = Math.max(1, Math.round(2 * dpr));
+    const right = sp?.side === 'R';
+    // Stepped forged-iron outer plate + bronze inner trim + deep ink lacquer body + corner rivets
+    drawPixelPlaque(g, 0, 0, cw, ch, u, {
+      bg: BG, hi: '#282236', border: '#07050a', inner: '#3d424e', rivets: false,
+    });
+    // Warm bronze inner hairline frame + corner bracket rivets
+    const inset = u * 3;
+    g.fillStyle = EDGE_G;
+    g.fillRect(inset, inset, cw - inset * 2, u);
+    g.fillRect(inset, ch - inset - u, cw - inset * 2, u);
+    g.fillRect(inset, inset, u, ch - inset * 2);
+    g.fillRect(cw - inset - u, inset, u, ch - inset * 2);
+    // Corner bronze rivets
+    g.fillStyle = '#e2b25c';
+    for (const [rx, ry] of [
+      [u * 2, u * 2], [cw - u * 3, u * 2], [u * 2, ch - u * 3], [cw - u * 3, ch - u * 3],
+    ]) g.fillRect(rx, ry, u, u);
+    // Subtle crimson/gold speaker side accent bar inside frame
+    g.fillStyle = right ? '#a87d36' : EDGE_R;
+    g.fillRect(right ? cw - inset - u * 3 : inset + u * 2, inset + u * 2, u * 2, ch - (inset + u * 2) * 2);
+
+    // Body text: ALWAYS left-aligned with generous breathing room
+    const fpx = Math.round(fontPx(scale) * dpr);
+    const full = t(line.text), chars = [...full].slice(0, n);
+    const padL = Math.round(26 * dpr), padR = Math.round(26 * dpr);
+    const maxW = cw - padL - padR;
+    const lineH = Math.round(fpx * 1.46);
+    const footH = PAD.device === 'touch' ? Math.round(18 * dpr) : Math.round(32 * dpr);
+    let row = '', y = Math.round(22 * dpr);
     const col = sp?.mute ? MUTE : BODY;
     if (language === 'en') {
-      const x = Math.round(16 * dpr);
       let left = n;
       for (const fullRow of wrapWords(full, maxW, str => bodyW(str, fpx))) {
         if (left <= 0) break;
-        bodyText(g, fullRow.slice(0, left), x, y, fpx, col);
+        bodyText(g, fullRow.slice(0, left), padL, y, fpx, col, 'left', '#07050b');
         left -= fullRow.length + 1; y += lineH;
       }
     } else {
-      for (const ch of chars) { if (bodyW(row + ch, fpx) > maxW) { bodyText(g, row, Math.round(16 * dpr), y, fpx, col); row = ''; y += lineH; } row += ch; }
-      if (row) bodyText(g, row, Math.round(16 * dpr), y, fpx, col);
+      for (const ch of chars) {
+        if (bodyW(row + ch, fpx) > maxW) {
+          bodyText(g, row, padL, y, fpx, col, 'left', '#07050b');
+          row = ''; y += lineH;
+        }
+        row += ch;
+      }
+      if (row) bodyText(g, row, padL, y, fpx, col, 'left', '#07050b');
     }
+
+    // Dedicated recessed footer bar at bottom of dialogue box
     const dev = PAD.device;
     if (dev === 'touch') {
       if (n >= [...full].length) {
-        const bx = cw - Math.round(26 * dpr), by = ch - Math.round(18 * dpr);
+        const bx = cw - Math.round(28 * dpr), by = ch - Math.round(20 * dpr);
         g.fillStyle = NAME;
         for (let r = 0; r < 4; r++) g.fillRect(bx + r * dpr, by + r * dpr, (8 - r * 2) * dpr, dpr);
       }
     } else {
-      // Console / PC prompt bar cleanly embedded in the bottom-right footer strip of the dialogue box
-      const hs = Math.max(1, Math.round(0.65 * scale * dpr));
-      const padR = Math.round(14 * dpr), gap = Math.round(5 * dpr), segGap = Math.round(12 * dpr);
-      const footY = ch - Math.round(18 * dpr);
-      let rx = cw - padR;
-      const drawWord = (w: string, col: string) => {
+      const fTop = ch - footH - inset - u;
+      g.fillStyle = '#0f0d16';
+      g.fillRect(inset + u, fTop, cw - (inset + u) * 2, footH);
+      g.fillStyle = '#332c40';
+      g.fillRect(inset + u * 2, fTop, cw - (inset + u * 2) * 2, Math.max(1, Math.round(dpr)));
+      const hs = Math.max(1, Math.floor(0.62 * scale * dpr));
+      const padF = Math.round(18 * dpr), gap = Math.round(6 * dpr), segGap = Math.round(16 * dpr);
+      const footY = fTop + Math.round(footH / 2);
+      let rx = cw - padF;
+      const drawWord = (w: string, colW: string) => {
         const ww = textW(w, hs);
         rx -= ww;
-        text(g, w, rx, Math.round(footY - (PIX_H * hs) / 2), hs, col, 'left', '#05040a');
+        text(g, w, rx, Math.round(footY - (PIX_H * hs) / 2), hs, colW, 'left', '#05040a');
         rx -= gap;
       };
       if (dev === 'pad') {
         const gs = Math.max(1, Math.round((PIX_H * hs * 1.15) / GLYPH_H));
-        drawWord('长按跳过', '#a89f8f');
+        drawWord('长按跳过', '#b6ad9c');
         const g1 = glyphArt(1).w * gs; rx -= g1;
         paintGlyph(g, 1, Math.round(rx), Math.round(footY - (GLYPH_H * gs) / 2), gs);
         rx -= segGap;
@@ -390,12 +461,12 @@ export class Dialogue {
         const g0 = glyphArt(0).w * gs; rx -= g0;
         paintGlyph(g, 0, Math.round(rx), Math.round(footY - (GLYPH_H * gs) / 2), gs);
       } else {
-        const ks = Math.max(1, Math.round(hs * 0.72));
-        drawWord('长按跳过', '#a89f8f');
+        const ks = Math.max(1, Math.round(hs * 0.78));
+        drawWord('长按跳过', '#b6ad9c');
         const kwEsc = keyCapWidth('ESC') * ks; rx -= kwEsc;
         paintKeyCap(g, 'ESC', Math.round(rx), Math.round(footY - (KEYCAP_H * ks) / 2), ks);
         rx -= segGap;
-        drawWord(this.autoPlay ? '自动:开' : '自动', this.autoPlay ? '#a8f0c8' : '#a89f8f');
+        drawWord(this.autoPlay ? '自动:开' : '自动', this.autoPlay ? '#a8f0c8' : '#b6ad9c');
         const kwTab = keyCapWidth('TAB') * ks; rx -= kwTab;
         paintKeyCap(g, 'TAB', Math.round(rx), Math.round(footY - (KEYCAP_H * ks) / 2), ks);
         rx -= segGap;
@@ -471,20 +542,39 @@ export class Dialogue {
     }
     if (this.holdT >= 0.65) { this.skipAll(); return; }
 
-    const scale = L.h >= 600 ? 2 : 1, fpx0 = fontPx(scale), wPx = Math.round(Math.min(L.w * 0.56, Math.max(460, fpx0 * 22 + 40), 660));
-    const rowsFit = Math.max(1, Math.ceil(bodyW(t(line.text), fpx0) / Math.max(1, wPx - 32))), rows = Math.min(4, Math.max(language === 'en' ? 2 : 1, rowsFit));
-    const footExtra = PAD.device === 'touch' ? 0 : 30;
-    const hPx = Math.round(10 + PIX_H * scale + 12 + rows * Math.round(fpx0 * 1.4) + 12 + footExtra);
+    const scale = L.h >= 600 ? 2 : 1, fpx0 = fontPx(scale), wPx = Math.round(Math.min(L.w * 0.58, Math.max(480, fpx0 * 24 + 52), 700));
+    const rowsFit = Math.max(1, Math.ceil(bodyW(t(line.text), fpx0) / Math.max(1, wPx - 52)));
+    // act-136: stable fixed 3-line body height (expands to 4 only for rare very long lines) so box never jitters between pages
+    const rows = rowsFit >= 4 ? 4 : 3;
+    const footExtra = PAD.device === 'touch' ? 18 : 38;
+    const hPx = Math.round(22 + rows * Math.round(fpx0 * 1.46) + 12 + footExtra);
     const narr = line.who === 'act';
     this.box.visible = !narr;
     this.ink.set(narr, line, this.shown, total, dt, sx, sy);
+    const sp = CAST[line.who];
     if (!narr) {
       const key = `${this.i}|${this.shown}|${this.shown >= total ? 1 : 0}|${wPx}|${hPx}|${BODY_FONT.version}|${PAD.device}|${PAD.family}|${this.autoPlay ? 1 : 0}|${language}`;
       if (key !== this.drawn) { this.drawn = key; this.paint(line, this.shown, wPx, hPx, scale); }
-      const y = L.h - hPx / 2 - Math.max(10, L.h * 0.03) + (1 - this.openT) * 30 + sy;
+      const y = L.h - hPx / 2 - Math.max(12, L.h * 0.028) + (1 - this.openT) * 28 + sy;
       L.at(L.w / 2 + sx, y, 0, this.box.position); this.box.scale.set(L.px(wPx), L.px(hPx), L.px(8));
+      const speakerName = sp?.name ?? line.who;
+      const right = sp?.side === 'R';
+      if (speakerName) {
+        this.paintNamePlaque(speakerName, right, scale);
+        const nx = right
+          ? L.w / 2 + wPx / 2 - this.nameW / 2 - 14 + sx
+          : L.w / 2 - wPx / 2 + this.nameW / 2 + 14 + sx;
+        const ny = y - hPx / 2 - this.nameH * 0.36;
+        L.at(nx, ny, L.px(6), this.nameMesh.position);
+        this.nameMesh.scale.set(L.px(this.nameW, L.px(6)), L.px(this.nameH, L.px(6)), 1);
+        this.nameMesh.visible = true;
+      } else {
+        this.nameMesh.visible = false;
+      }
+    } else {
+      this.nameMesh.visible = false;
     }
-    const sp = CAST[line.who]; this.lastSpeaker = line.who === 'act' ? null : sp?.side ?? null;
+    this.lastSpeaker = line.who === 'act' ? null : sp?.side ?? null;
     this.portraits(dt, this.lastSpeaker, sx, sy);
   }
   private portraits(dt: number, speaker: 'L' | 'R' | null, sx: number, sy: number) {
