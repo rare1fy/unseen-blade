@@ -2748,6 +2748,18 @@ export class ActShow {
         this.foes.push(f);
         return f;
       },
+      spawnApproachFoe: (kind, fromX, fromZ, toX, toZ, elite = false) => {
+        const ko = kindOr(kind);
+        const from = V3(fromX, 0, fromZ), to = V3(toX, 0, toZ);
+        const f = spawnFoe(ko.kind, from, to, elite || ko.elite);
+        f.st = 'enter';
+        this.foes.push(f);
+        const dist = Math.max(1.2, from.distanceTo(to));
+        this.entering.push({ f, from, crest: from.clone(), land: to.clone(), to, wall: 0, t: 0, perched: true, landed: true, posePhase: null, poseU: 0, rush: true, rushDur: Math.max(0.75, Math.min(1.8, dist / 4.8)) });
+        return f;
+      },
+      addSolid: (x, z, hx, hz) => this.solids.add({ kind: 'cover', shape: 'box', x, z, hx, hz, slam: true }),
+      removeSolid: s => { s.on = false; },
       foes: () => this.foes,
       hitFoe: (f, dmg, from, col) => {
         this.hitFoe(f, dmg, from, { knock: 0.9, heavy: dmg >= 16, kind: 'ally' });
@@ -3088,6 +3100,7 @@ export class ActShow {
   private entering: Array<{
     f: Foe; from: THREE.Vector3; crest: THREE.Vector3; land: THREE.Vector3; to: THREE.Vector3;
     wall: number; t: number; perched: boolean; landed: boolean; posePhase: VaultPhase | null; poseU: number;
+    rush?: boolean; rushDur?: number;
   }> = [];
   /** where a foe comes in from: the room's edge level with its spot p (the back and the two sides first, the side away from her
    *  first; the camera's side last), vaulting over the wall onto a realistic landing spot 1.6–2.4 m inside the edge, then sprinting
@@ -3177,6 +3190,23 @@ export class ActShow {
       if (e.t < 0) {
         f.a.root.visible = false; f.pos.copy(e.from); f.vel.set(0, 0, 0); e.posePhase = null;
         f.st = 'enter'; f.t = 0; f.dur = 0.35; f.inv = Math.max(f.inv, 0.25);
+        continue;
+      }
+      if (e.rush) {
+        // act-138: ground sprint-in from distant off-stage approach roads (kicks up dust, never pops out of thin air!)
+        f.a.root.visible = true;
+        const dur = Math.max(0.05, e.rushDur ?? 1.2);
+        const h = Math.min(1, e.t / dur);
+        f.vel.set(0, 0, 0); f.yaw = Math.atan2(e.to.x - e.from.x, e.to.z - e.from.z); f.a.yaw = f.yaw;
+        f.pos.lerpVectors(e.from, e.to, h); f.pos.y = 0;
+        f.a.home.copy(f.pos);
+        f.a.setRunning(true, 5.0);
+        f.st = 'enter'; f.t = 0; f.dur = 0.25; f.cd = Math.max(f.cd, 0.35); f.inv = Math.max(f.inv, 0.12);
+        if (Math.random() < dt * 7) fxSmoke(f.pos.clone().setY(0.1), 0x9c8c72, 2, { r: 0.35, spd: 0.7, up: 0.35, s: 0.3, life: 0.45 });
+        if (e.t >= dur) {
+          f.pos.copy(e.to); f.pos.y = 0; f.a.home.copy(f.pos); f.st = 'move'; f.inv = 0;
+          this.entering.splice(n, 1);
+        }
         continue;
       }
       f.a.root.visible = true;
@@ -5768,10 +5798,16 @@ export class ActShow {
       }
       if (this.duel.holds(f)) this.duel.holdFoe(f, dt);   // 11-18 QTE: the duel moves the foe it has (held in the bind / its string's beats)
       else if (!this.ultOn) {
-        // 11-18 留影: the foes the afterimage draws see it as her — they close on it and strike at it; a blow that lands bursts it
+        // 11-18 留影 / act-138 守关劫民: foes redirected to afterimage decoy OR un-aggro'd raiders storming the village chokepoint!
+        const rTgt = !this.decoyFor(f) ? this.generalEvent?.raiderTarget(f) : null;
         if (this.decoyFor(f)) {
           const d = this.decoy!, hp = fw.heroPos.clone(), hy = fw.heroY, hd = fw.heroDodge, hurt = fw.hurtHero;
           fw.heroPos.copy(d.pos); fw.heroY = 0; fw.heroDodge = false; fw.hurtHero = () => this.dropDecoy();
+          updateFoe(f, fw, dt);
+          fw.heroPos.copy(hp); fw.heroY = hy; fw.heroDodge = hd; fw.hurtHero = hurt;
+        } else if (rTgt) {
+          const hp = fw.heroPos.clone(), hy = fw.heroY, hd = fw.heroDodge, hurt = fw.hurtHero;
+          fw.heroPos.copy(rTgt.pos); fw.heroY = 0; fw.heroDodge = false; fw.hurtHero = (dmg: number) => rTgt.onHit(dmg);
           updateFoe(f, fw, dt);
           fw.heroPos.copy(hp); fw.heroY = hy; fw.heroDodge = hd; fw.hurtHero = hurt;
         } else updateFoe(f, fw, dt);

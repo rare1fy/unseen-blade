@@ -18,6 +18,8 @@ import { cue } from '../../audio/cues';
 import { sayEventVoice } from '../../audio/voice';
 import { trimShadows, type Foe } from './enemy';
 import { AllyGeneral } from './foes/generals_ai';
+import { PLAY } from '../scenes/props';
+import type { Solid } from './solids';
 import type { Strike } from './puzzles';
 import type { KeepsakeId } from './keepsakes';
 import './foes/generals_models';
@@ -45,18 +47,18 @@ export const GENERAL_EVENTS: GeneralEventMeta[] = [
     id: 'zhaoyun',
     keepsake: 'zhaoyun',
     name: '常山 · 赵云',
-    eventTitle: '断后护民',
+    eventTitle: '死守村口',
     boardTitle: '赵云奇遇',
-    objective: '与赵云并肩护住 3 名乡民，截杀恶犬、弹开冷箭、击退三拍黄巾贼',
+    objective: '与赵云卡住村口隘口，拦截远处涌来的黄巾贼兵，掩护 4 名乡民全部撤离',
     blessingName: '常山枪意',
     blessingDesc: '本局穿风斩与凌空招式伤害 +35%，回气加快',
     intro: [
-      { who: 'zhaoyun', text: '常山赵子龙！贼兵四面围村，我正护着乡民退守井台！' },
-      { who: 'zhaoyun', text: '姑娘快替我断后——挡住冷箭与恶犬，莫让贼兵冲垮乡民防线！' },
+      { who: 'zhaoyun', text: '来得正好！村里老小还没撤完，帮我把这道口子死死掐住！' },
+      { who: 'zhaoyun', text: '外头贼兵正往这儿涌——漏进一个，后头就全完了！' },
     ],
     outro: [
-      { who: 'zhaoyun', text: '乡民安然无恙！姑娘身手敏捷，赵某代父老谢过！' },
-      { who: 'zhaoyun', text: '这枚龙胆银穗与一缕枪意赠予姑娘，乱世前路保重！' },
+      { who: 'zhaoyun', text: '都撤出去了……方才若非你顶在口上，我一人绝护不住这许多性命。' },
+      { who: 'zhaoyun', text: '这枚银穗你收着，往后路上保重。常山赵云，记你这一刀。' },
     ],
   },
   {
@@ -141,6 +143,10 @@ export interface EventHost {
   banner: (title: string, sub: string, dur?: number, col?: string) => void;
   pop: (text: string, at: THREE.Vector3, col?: string, accent?: string) => void;
   spawnFoe: (kind: string, x: number, z: number, elite?: boolean) => Foe;
+  /** Spawn a raider outside the stage perimeter sprinting in along an approach road (never pops out of thin air) */
+  spawnApproachFoe: (kind: string, fromX: number, fromZ: number, toX: number, toZ: number, elite?: boolean) => Foe;
+  addSolid: (x: number, z: number, hx: number, hz: number) => Solid;
+  removeSolid: (s: Solid) => void;
   foes: () => Foe[];
   hitFoe: (f: Foe, dmg: number, from: THREE.Vector3, col: number) => void;
   clamp: (p: THREE.Vector3, r: number) => void;
@@ -218,35 +224,104 @@ function burstVoxels(pos: THREE.Vector3, colA: number, colB: number, count = 14)
 
 function buildVillagerModel(variant: number): THREE.Group {
   return makeVoxGroup(w => {
-    const coat = variant === 0 ? 0x6b5a46 : variant === 1 ? 0x526470 : 0x745848;
+    const coat = variant === 0 ? 0x6b5a46 : variant === 1 ? 0x526470 : variant === 2 ? 0x745848 : 0x5c6852;
     const cloth = 0xdcd2be;
-    // Crouching / sheltered villager silhouette
-    w.box(-3, 0, -2, 3, 4, 2, 0x3b322a);
-    w.box(-3, 5, -2, 3, 10, 2, coat);
-    // White cloth shoulder bandage
-    w.box(-3, 8, -2, -1, 10, 2, cloth);
+    // Standing / evacuating villager with travel bundle slung on back
+    w.box(-2, 0, -1, -1, 4, 1, 0x3b322a);
+    w.box(1, 0, -1, 2, 4, 1, 0x3b322a);
+    w.box(-3, 5, -2, 3, 11, 2, coat);
+    // Bundle slung on back (clearly reads as fleeing villagers!)
+    w.box(-2, 6, -4, 2, 10, -3, variant % 2 === 0 ? 0x9c8664 : 0x7a6a54);
+    w.box(-2, 8, -4, 2, 8, -2, cloth);
     // Head + bamboo hat or kerchief
-    w.box(-2, 11, -2, 2, 14, 2, 0xe2b898);
+    w.box(-2, 12, -2, 2, 15, 2, 0xe2b898);
     if (variant === 1) {
-      w.box(-4, 15, -4, 4, 15, 4, 0xc8a45e);
-      w.box(-2, 16, -2, 2, 16, 2, 0xd8b66e);
+      w.box(-4, 16, -4, 4, 16, 4, 0xc8a45e);
+      w.box(-2, 17, -2, 2, 17, 2, 0xd8b66e);
     } else {
-      w.box(-2, 15, -2, 2, 15, 2, variant === 0 ? 0x484440 : 0x64483a);
+      w.box(-2, 16, -2, 2, 16, 2, variant === 0 ? 0x484440 : variant === 2 ? 0x64483a : 0x847e74);
     }
+  });
+}
+
+/** Pure 3D voxel village chokepoint palisade + sandbags + cheval-de-frise spikes (grounded at y = 0) */
+function buildBarricadeSegment(widthM: number): THREE.Group {
+  return makeVoxGroup(w => {
+    const WD = 0x462e1e, WM = 0x64442c, WL = 0x825c3c;
+    const BAG = 0x9a8868, BAG_D = 0x76664c;
+    const ST = 0x6e6a62;
+    const hw = Math.max(8, Math.round((widthM * 0.5) / CELL));
+    // Solid timber & earth curb footing
+    w.box(-hw, 0, -3, hw, 2, 3, ST);
+    // Palisade upright log posts spaced every 4 cells
+    for (let x = -hw + 1; x <= hw - 1; x += 4) {
+      const top = 15 + ((Math.abs(x) * 3) % 3);
+      w.box(x - 1, 2, -2, x, top, 1, (Math.abs(x) % 8 === 0) ? WD : WM);
+      w.box(x - 1, top, -1, x, top, 0, WL);
+    }
+    // Dual horizontal lashed cross-beams binding the barricade
+    w.box(-hw, 5, -3, hw, 6, 2, WD);
+    w.box(-hw, 11, -3, hw, 12, 2, WL);
+    // Stacked sandbags & crates bracing the front face
+    for (let x = -hw + 3; x <= hw - 4; x += 9) {
+      w.box(x - 2, 0, 2, x + 2, 3, 5, BAG_D);
+      w.box(x - 1, 4, 2, x + 1, 5, 4, BAG);
+      // Protruding cheval-de-frise defense stake
+      w.box(x, 6, 2, x, 7, 5, WD);
+      w.box(x, 7, 5, x, 8, 6, WL);
+    }
+  });
+}
+
+/** Tall village gate timber pillar + blazing brazier framing the 4.6m chokepoint gap */
+function buildGatePostModel(): THREE.Group {
+  return makeVoxGroup(w => {
+    w.box(-4, 0, -4, 4, 3, 4, 0x5c5852);
+    w.box(-3, 4, -3, 3, 5, 3, 0x78746c);
+    w.box(-2, 6, -2, 2, 24, 2, 0x483020);
+    w.box(-3, 18, -3, 3, 20, 3, 0x6a4830);
+    // Iron brazier basket + glowing flames
+    w.box(-4, 25, -4, 4, 27, 4, 0x343238);
+    w.box(-3, 28, -3, 3, 29, 3, 0xd87a24);
+    w.box(-2, 30, -2, 2, 32, 2, 0xffa030);
+    w.box(-1, 33, -1, 1, 33, 1, 0xffe880);
+  });
+}
+
+/** Laden refugee handcart parked inside the village refuge */
+function buildEvacCartModel(): THREE.Group {
+  return makeVoxGroup(w => {
+    const WD = 0x483020, WM = 0x6c4c32, WL = 0x8c6844;
+    // Wooden wheels
+    w.box(-10, 0, -4, -9, 6, 4, WD);
+    w.box(9, 0, -4, 10, 6, 4, WD);
+    w.box(-10, 2, -2, -9, 4, 2, WL);
+    w.box(9, 2, -2, 10, 4, 2, WL);
+    // Cart bed & side rails
+    w.box(-8, 3, -7, 8, 5, 7, WM);
+    w.box(-8, 6, -7, -7, 10, 7, WD);
+    w.box(7, 6, -7, 8, 10, 7, WD);
+    w.box(-8, 6, -7, 8, 10, -6, WD);
+    // Pulling shafts
+    w.box(-6, 4, 8, -5, 5, 16, WL);
+    w.box(5, 4, 8, 6, 5, 16, WL);
+    // Piled sacks & villager bundles
+    w.box(-6, 6, -5, 0, 12, 4, 0x9c8864);
+    w.box(1, 6, -4, 6, 11, 3, 0x7e6a50);
+    w.box(-3, 12, -3, 3, 14, 1, 0x5c6878);
   });
 }
 
 function buildRefugeWellModel(): THREE.Group {
   return makeVoxGroup(w => {
     const ST = 0x7a766e, STL = 0x98938a, STD = 0x58544e, WD = 0x4a301e;
-    // Low defensive stone wall + well behind the villagers
-    w.box(-28, 0, -4, 28, 6, 3, ST);
-    w.box(-28, 7, -4, 28, 7, 3, STL);
-    w.box(-8, 0, -10, 8, 9, 2, STD);
-    w.box(-8, 10, -10, 8, 10, 2, STL);
-    w.box(-6, 11, -8, 6, 11, 0, 0x1e2228);
-    for (const x of [-7, 6]) w.box(x, 10, -5, x + 1, 23, -4, WD);
-    w.box(-9, 24, -7, 9, 25, -2, 0x3a3e46);
+    // Village stone well inside the safe perimeter
+    w.box(-9, 0, -9, 9, 8, 9, STD);
+    w.box(-9, 9, -9, 9, 9, 9, STL);
+    w.box(-7, 10, -7, 7, 10, 7, ST);
+    w.box(-5, 10, -5, 5, 10, 5, 0x1e2228);
+    for (const x of [-7, 6]) w.box(x, 10, -1, x + 1, 22, 0, WD);
+    w.box(-9, 23, -3, 9, 24, 2, 0x3a3e46);
   });
 }
 
@@ -350,6 +425,48 @@ const FOG_SPOTS: Array<[number, number]> = [
   [-3.8, 2.0], [3.8, 2.0], [0, 2.4],
 ];
 
+// Act 0 · 赵云「死守村口」 chokepoint geometry & continuous far-edge raider schedule
+const ZHAO_BARRICADE_Z = -3.8;
+const ZHAO_GAP_HALF = 2.3;
+const ZHAO_SAFE_Z = -11.2;
+
+interface ZhaoSpawnBeat {
+  at: number;
+  lane: 'south' | 'southL' | 'southR' | 'west' | 'east';
+  kind: string;
+  elite?: boolean;
+  bark?: [string, string];
+  horn?: boolean;
+}
+
+const ZHAO_SCHEDULE: ZhaoSpawnBeat[] = [
+  // Vanguard charging up the south road right after dialogue ends
+  { at: 0.25, lane: 'south', kind: 'hj_peasant', horn: true },
+  { at: 0.65, lane: 'southL', kind: 'hj_hound' },
+  { at: 1.15, lane: 'southR', kind: 'hj_peasant' },
+  // Second pressure surge from flanks + south
+  { at: 3.8, lane: 'west', kind: 'hj_blade', bark: ['外头又压上来了，别放进缺口！', 'ev1_bark_rush'] },
+  { at: 4.3, lane: 'southR', kind: 'hj_hound' },
+  { at: 5.1, lane: 'east', kind: 'hj_peasant' },
+  // Distant archers arrive on the south ridge while foot raiders rush the gap
+  { at: 7.6, lane: 'southL', kind: 'hj_archer', bark: ['远坡有弓手，留神冷箭！', 'ev1_bark_arrow'] },
+  { at: 8.1, lane: 'southR', kind: 'hj_archer' },
+  { at: 8.6, lane: 'south', kind: 'hj_blade' },
+  { at: 9.2, lane: 'west', kind: 'hj_peasant' },
+  // Mid-assault pincer push
+  { at: 12.0, lane: 'east', kind: 'hj_blade' },
+  { at: 12.5, lane: 'southL', kind: 'hj_hound' },
+  { at: 13.1, lane: 'south', kind: 'hj_peasant' },
+  // Heavy breach attempt (brute + raiders)
+  { at: 15.8, lane: 'south', kind: 'hj_brute', horn: true },
+  { at: 16.4, lane: 'west', kind: 'hj_hound' },
+  { at: 17.0, lane: 'east', kind: 'hj_peasant' },
+  // Final desperate surge as the last two villagers dash to safety
+  { at: 19.6, lane: 'south', kind: 'hj_blade', elite: true, bark: ['最后几人快撤完了，顶住！', 'ev1_bark_final'] },
+  { at: 20.1, lane: 'southL', kind: 'hj_hound' },
+  { at: 20.6, lane: 'southR', kind: 'hj_blade' },
+];
+
 export class GeneralEventRunner {
   readonly meta: GeneralEventMeta;
   readonly root = new THREE.Group();
@@ -362,12 +479,21 @@ export class GeneralEventRunner {
   // Shared pulse rings
   private rings: Array<{ m: THREE.Mesh; base: number; speed: number; phase: number; on: boolean }> = [];
 
-  // Act 0 · 赵云「断后护民」 (Defense)
+  // Act 0 · 赵云「死守村口」 (Chokepoint Defense + Continuous Far-Edge Raider Assault + Villager Evacuation)
   private zhaoAlly: AllyGeneral | null = null;
-  private villagers: Array<{ x: number; z: number; hp: number; maxHp: number; alive: boolean; mesh: THREE.Group; bar: THREE.Mesh; hurtCd: number }> = [];
-  private defWave = 0;
-  private defWaveWait = 0;
+  private zhaoSolids: Solid[] = [];
+  private gapRing: THREE.Mesh | null = null;
+  private villagers: Array<{
+    x: number; z: number; hp: number; maxHp: number;
+    state: 'wait' | 'flee' | 'safe' | 'hurt_out';
+    evacAt: number; mesh: THREE.Group; bar: THREE.Mesh; hurtCd: number; cryCd: number;
+  }> = [];
+  private defElapsed = 0;
+  private defSpawnIdx = 0;
   private defFoes: Foe[] = [];
+  private raiderAggro = new WeakMap<Foe, number>();
+  private breachBarkCd = 0;
+  private evacuatedCount = 0;
 
   // Act 1 · 吕布「三合试锋」 (1v1 Parry/Dodge Duel)
   private lubuFoe: Foe | null = null;
@@ -409,8 +535,8 @@ export class GeneralEventRunner {
     if (!def) throw new Error('missing general model: ' + modelKey);
     this.actor = new BattleActor(def);
     trimShadows(this.actor.root, 4);
-    const gx = this.meta.id === 'luxun' ? 3.8 : 0;
-    const gz = this.meta.id === 'zhaoyun' ? -3.2 : this.meta.id === 'luxun' ? 2.6 : -4.6;
+    const gx = this.meta.id === 'luxun' ? 3.8 : this.meta.id === 'zhaoyun' ? 1.35 : 0;
+    const gz = this.meta.id === 'zhaoyun' ? ZHAO_BARRICADE_Z + 1.05 : this.meta.id === 'luxun' ? 2.6 : -4.6;
     this.actor.place(V3(gx, 0, gz), 0);
     this.root.add(this.actor.root);
 
@@ -435,24 +561,61 @@ export class GeneralEventRunner {
   }
 
   private buildZhaoYun() {
-    const refuge = buildRefugeWellModel();
-    refuge.position.set(0, 0, -6.2);
-    this.root.add(refuge);
-    // Defensive perimeter square around the 3 sheltered villagers
-    this.addRing(0x70e8c8, 0, -4.9, 3.3, 1.8, 0);
-    const xs = [-2.2, 0, 2.2];
-    xs.forEach((x, i) => {
-      const z = -5.1;
+    // 1) East & West 3D voxel timber barricades spanning the full stage width, leaving a clear 4.6m village chokepoint gap!
+    const xL0 = PLAY.x0, xL1 = -ZHAO_GAP_HALF;
+    const xR0 = ZHAO_GAP_HALF, xR1 = PLAY.x1;
+    const wL = Math.max(2.2, xL1 - xL0), wR = Math.max(2.2, xR1 - xR0);
+
+    const barL = buildBarricadeSegment(wL);
+    barL.position.set((xL0 + xL1) * 0.5, 0, ZHAO_BARRICADE_Z);
+    this.root.add(barL);
+    this.zhaoSolids.push(this.host.addSolid((xL0 + xL1) * 0.5, ZHAO_BARRICADE_Z, wL * 0.5, 0.52));
+
+    const barR = buildBarricadeSegment(wR);
+    barR.position.set((xR0 + xR1) * 0.5, 0, ZHAO_BARRICADE_Z);
+    this.root.add(barR);
+    this.zhaoSolids.push(this.host.addSolid((xR0 + xR1) * 0.5, ZHAO_BARRICADE_Z, wR * 0.5, 0.52));
+
+    // Twin flaming timber gate pillars framing the chokepoint gap
+    for (const gx of [-ZHAO_GAP_HALF, ZHAO_GAP_HALF]) {
+      const post = buildGatePostModel();
+      post.position.set(gx, 0, ZHAO_BARRICADE_Z);
+      this.root.add(post);
+    }
+
+    // Ground chokepoint alert ring: hidden in normal play (pure diegetic barricade!), pulses crimson ONLY when a raider breaches north!
+    this.gapRing = this.addRing(0xff4838, 0, ZHAO_BARRICADE_Z + 0.1, 2.05, 3.8, 0);
+    this.setRing(this.gapRing, false);
+
+    // 2) Inside the village refuge behind the barricade: refugee handcart, stone well & 4 evacuating villagers
+    const cart = buildEvacCartModel();
+    cart.position.set(-4.6, 0, ZHAO_BARRICADE_Z - 2.6);
+    cart.rotation.y = 0.25;
+    this.root.add(cart);
+
+    const well = buildRefugeWellModel();
+    well.position.set(4.5, 0, ZHAO_BARRICADE_Z - 2.6);
+    this.root.add(well);
+
+    const spots: Array<[number, number, number]> = [
+      [-1.5, ZHAO_BARRICADE_Z - 2.1, 6.2],
+      [1.4, ZHAO_BARRICADE_Z - 2.2, 12.6],
+      [-0.8, ZHAO_BARRICADE_Z - 3.3, 18.8],
+      [0.9, ZHAO_BARRICADE_Z - 3.4, 20.4],
+    ];
+    spots.forEach(([x, z, evacAt], i) => {
       const mesh = buildVillagerModel(i);
       mesh.position.set(x, 0, z);
+      mesh.rotation.y = Math.PI * 0.08 * (i % 2 ? -1 : 1);
       this.root.add(mesh);
       const bar = new THREE.Mesh(
-        new THREE.BoxGeometry(0.9, 0.11, 0.11),
+        new THREE.BoxGeometry(0.85, 0.1, 0.1),
         new THREE.MeshBasicMaterial({ color: 0x62e898 }),
       );
-      bar.position.set(x, 1.75, z);
+      bar.position.set(x, 1.78, z);
+      bar.visible = false; // only show overhead bar when injured/threatened so scene stays clean!
       this.root.add(bar);
-      this.villagers.push({ x, z, hp: 100, maxHp: 100, alive: true, mesh, bar, hurtCd: 0 });
+      this.villagers.push({ x, z, hp: 100, maxHp: 100, state: 'wait', evacAt, mesh, bar, hurtCd: 0, cryCd: 0 });
     });
   }
 
@@ -530,9 +693,12 @@ export class GeneralEventRunner {
 
     if (this.meta.id === 'zhaoyun') {
       this.actor.root.visible = false;
-      this.zhaoAlly = new AllyGeneral('zhaoyun', V3(0, 0, -3.2), 0);
-      this.defWave = 0;
-      this.spawnZhaoWave(1);
+      this.zhaoAlly = new AllyGeneral('zhaoyun', V3(1.35, 0, ZHAO_BARRICADE_Z + 1.05), 0);
+      this.defElapsed = 0;
+      this.defSpawnIdx = 0;
+      this.defFoes = [];
+      this.evacuatedCount = 0;
+      this.breachBarkCd = 0;
     } else if (this.meta.id === 'lubu') {
       this.actor.root.visible = false;
       this.lubuFoe = this.host.spawnFoe('gen_lubu', 0, -4.2, false);
@@ -555,34 +721,81 @@ export class GeneralEventRunner {
     }
   }
 
-  private spawnZhaoWave(n: number) {
-    this.defWave = n;
-    this.defFoes = [];
-    if (n === 1) {
-      this.defFoes.push(
-        this.host.spawnFoe('hj_hound', -5.4, 2.2, false),
-        this.host.spawnFoe('hj_hound', 5.4, 2.2, false),
-        this.host.spawnFoe('hj_blade', 0, 4.4, false),
-      );
-      this.zhaoBark('恶犬扑向乡民了，穿风截住！', 'ev1_bark_dog');
-    } else if (n === 2) {
-      this.defFoes.push(
-        this.host.spawnFoe('hj_archer', -5.8, -0.2, false),
-        this.host.spawnFoe('hj_archer', 5.8, -0.2, false),
-        this.host.spawnFoe('hj_blade', -2.4, 4.4, false),
-        this.host.spawnFoe('hj_blade', 2.4, 4.4, false),
-      );
-      this.zhaoBark('冷箭来了，挥刀弹开！', 'ev1_bark_arrow');
+  private spawnZhaoBeat(beat: ZhaoSpawnBeat) {
+    // Compute distant off-floor approach coordinates so raiders visibly sprint in from afar instead of popping in!
+    const zSouth = PLAY.z1 + 2.8;
+    let fromX = 0, fromZ = zSouth, toX = 0, toZ = PLAY.z1 - 1.6;
+    if (beat.lane === 'south') {
+      const jitter = (Math.random() - 0.5) * 2.4;
+      fromX = jitter; fromZ = zSouth;
+      toX = jitter * 0.8; toZ = PLAY.z1 - 1.5;
+    } else if (beat.lane === 'southL') {
+      fromX = Math.max(PLAY.x0 + 1.5, -5.2) + (Math.random() - 0.5) * 1.6; fromZ = zSouth;
+      toX = fromX * 0.9; toZ = beat.kind === 'hj_archer' ? Math.min(PLAY.z1 - 2.0, 6.2) : PLAY.z1 - 1.8;
+    } else if (beat.lane === 'southR') {
+      fromX = Math.min(PLAY.x1 - 1.5, 5.2) + (Math.random() - 0.5) * 1.6; fromZ = zSouth;
+      toX = fromX * 0.9; toZ = beat.kind === 'hj_archer' ? Math.min(PLAY.z1 - 2.0, 6.2) : PLAY.z1 - 1.8;
+    } else if (beat.lane === 'west') {
+      fromX = PLAY.x0 - 2.4; fromZ = 4.2 + Math.random() * 3.0;
+      toX = PLAY.x0 + 1.6; toZ = fromZ - 0.8;
     } else {
-      this.defFoes.push(
-        this.host.spawnFoe('hj_blade', 0, 4.6, true),
-        this.host.spawnFoe('hj_hound', -5.2, 1.6, false),
-        this.host.spawnFoe('hj_hound', 5.2, 1.6, false),
-        this.host.spawnFoe('hj_archer', 0, 5.8, false),
-      );
-      this.zhaoBark('贼兵压上来了，顶住！', 'ev1_bark_wave');
+      fromX = PLAY.x1 + 2.4; fromZ = 4.2 + Math.random() * 3.0;
+      toX = PLAY.x1 - 1.6; toZ = fromZ - 0.8;
     }
-    for (const f of this.defFoes) f.st = 'move';
+    fxSmoke(V3(fromX, 0.35, fromZ), 0x9c8c74, 8, { r: 0.9, spd: 1.4, up: 0.7, s: 0.45, life: 0.7 });
+    const f = this.host.spawnApproachFoe(beat.kind, fromX, fromZ, toX, toZ, !!beat.elite);
+    this.defFoes.push(f);
+    if (beat.horn) cue('warHorn', 0.48);
+    if (beat.bark) this.zhaoBark(beat.bark[0], beat.bark[1]);
+  }
+
+  private damageVillager(v: GeneralEventRunner['villagers'][number], dmg: number) {
+    if ((v.state !== 'wait' && v.state !== 'flee') || v.hurtCd > 0) return;
+    v.hurtCd = 1.2;
+    v.hp = Math.max(0, v.hp - dmg);
+    v.bar.visible = true;
+    fxSparks(V3(v.x, 0.95, v.z), 0xff4a3a, 9, 3.4);
+    const ratio = v.hp / v.maxHp;
+    v.bar.scale.x = Math.max(0.05, ratio);
+    (v.bar.material as THREE.MeshBasicMaterial).color.setHex(ratio > 0.5 ? 0x62e898 : ratio > 0.25 ? 0xffd054 : 0xff4a3a);
+    if (v.cryCd <= 0) {
+      v.cryCd = 4.5;
+      this.host.bark(() => V3(v.x, 1.55, v.z), v.hp <= 45 ? '快撑不住了！' : '贼兵冲进来了！');
+    }
+    if (v.hp <= 0) {
+      v.state = 'hurt_out';
+      v.mesh.visible = false;
+      v.bar.visible = false;
+      fxSmoke(V3(v.x, 0.7, v.z), 0xd8c8b0, 10, { r: 0.6, spd: 1.0, up: 0.8, s: 0.35, life: 0.5 });
+      this.host.pop('乡民负伤退避', V3(v.x, 1.5, v.z), '#ff8a7a', '#ff3a2a');
+    }
+  }
+
+  /** Provide chokepoint/villager target for un-aggro'd Zhao Yun raiders so they truly storm the gap & villagers! */
+  raiderTarget(f: Foe): { pos: THREE.Vector3; onHit: (dmg: number) => void } | null {
+    if (!this.active || this.solved || this.meta.id !== 'zhaoyun') return null;
+    if (!this.defFoes.includes(f) || f.kind === 'hj_archer') return null;
+    // If hero recently hit this raider or stands right in its path, it turns to fight hero!
+    const aggro = this.raiderAggro.get(f) ?? 0;
+    const hp = this.host.heroPos();
+    if (aggro > 0 || f.pos.distanceTo(hp) < 2.25) return null;
+    const activeV = this.villagers.filter(v => v.state === 'wait' || v.state === 'flee');
+    if (!activeV.length) return null;
+    // South of the barricade -> funnel straight toward the 4.6m village gap!
+    if (f.pos.z > ZHAO_BARRICADE_Z + 0.35) {
+      const gx = Math.max(-ZHAO_GAP_HALF + 0.85, Math.min(ZHAO_GAP_HALF - 0.85, f.pos.x * 0.45));
+      return { pos: V3(gx, 0, ZHAO_BARRICADE_Z - 0.55), onHit: () => { /* approaching gap */ } };
+    }
+    // Breached north of the barricade -> rush the nearest villager and actually strike them!
+    let near = activeV[0], best = Math.hypot(f.pos.x - near.x, f.pos.z - near.z);
+    for (let i = 1; i < activeV.length; i++) {
+      const d = Math.hypot(f.pos.x - activeV[i].x, f.pos.z - activeV[i].z);
+      if (d < best) { best = d; near = activeV[i]; }
+    }
+    return {
+      pos: V3(near.x, 0, near.z),
+      onHit: (dmg: number) => this.damageVillager(near, Math.max(14, Math.min(24, dmg))),
+    };
   }
 
   private zhaoBark(text: string, voiceId: string) {
@@ -693,6 +906,11 @@ export class GeneralEventRunner {
   /** Called when hero lands a normal melee hit on an event foe */
   onFoeHit(f: Foe, kind: string) {
     if (!this.active || this.solved) return;
+    if (this.meta.id === 'zhaoyun' && this.defFoes.includes(f)) {
+      // Striking a raider pulls its aggro off the villagers for 3.6s!
+      this.raiderAggro.set(f, 3.6);
+      return;
+    }
     if (this.isDuelFoe(f)) {
       if (kind !== 'parry' && kind !== 'counter' && kind !== 'chase') {
         this.duelArmorHits++;
@@ -774,23 +992,9 @@ export class GeneralEventRunner {
   }
 
   /** Called by show.ts when any foe dies inside an event room */
-  onFoeKilled(f: Foe) {
+  onFoeKilled(_f: Foe) {
     if (!this.active || this.solved) return;
-    if (this.meta.id === 'zhaoyun') {
-      const alive = this.defFoes.filter(x => x.st !== 'dead').length;
-      if (alive === 0) {
-        if (this.defWave < 3) {
-          this.defWaveWait = 1.05;
-        } else {
-          const saved = this.villagers.filter(v => v.alive).length;
-          this.complete({
-            won: saved > 0,
-            bonusCoins: saved === 3 ? 60 : 0,
-            customOutro: saved === 0 ? [{ who: 'zhaoyun', text: '乡民皆受重伤……所幸贼兵已退，前路还请多加小心。' }] : undefined,
-          });
-        }
-      }
-    }
+    // Zhao Yun defense completion is checked cleanly in update() once all raiders & evacuating villagers finish
   }
 
   /** Provide targetable world coordinates for darts / auto-aim */
@@ -1014,6 +1218,8 @@ export class GeneralEventRunner {
       this.fogFoe.a.root.visible = false;
       this.actor.root.visible = true;
     }
+    for (const s of this.zhaoSolids) this.host.removeSolid(s);
+    this.zhaoSolids.length = 0;
     for (const f of [...this.defFoes, ...this.luxunGuards]) {
       if (f.st !== 'dead') { f.st = 'dead'; f.a.root.visible = false; }
     }
@@ -1044,8 +1250,16 @@ export class GeneralEventRunner {
 
     if (!this.active || this.solved) return;
 
-    // Act 0 · 赵云「断后护民」
+    // Act 0 · 赵云「死守村口」: continuous far-edge raider assault + chokepoint guard + villager evacuation
     if (this.meta.id === 'zhaoyun') {
+      this.defElapsed += dt;
+      if (this.breachBarkCd > 0) this.breachBarkCd = Math.max(0, this.breachBarkCd - dt);
+      const liveFoes = this.defFoes.filter(f => f.st !== 'dead');
+      for (const f of liveFoes) {
+        const a = this.raiderAggro.get(f) ?? 0;
+        if (a > 0) this.raiderAggro.set(f, Math.max(0, a - dt));
+      }
+
       if (this.zhaoAlly) {
         this.zhaoAlly.update(dt, {
           foes: this.host.foes(),
@@ -1053,41 +1267,82 @@ export class GeneralEventRunner {
           clamp: (p, r) => this.host.clamp(p, r),
           hitFoe: (f, dmg, from, col) => this.host.hitFoe(f, dmg, from, col),
           say: (head, line) => this.host.bark(head, line),
+          guard: { x: 1.35, z: ZHAO_BARRICADE_Z + 1.05, maxDist: 6.4, breachZ: ZHAO_BARRICADE_Z + 0.6, silent: true },
         });
       }
-      if (this.defWaveWait > 0) {
-        this.defWaveWait -= dt;
-        if (this.defWaveWait <= 0) this.spawnZhaoWave(this.defWave + 1);
+
+      // Stream scheduled far-edge raiders continuously (capped at 6 live so combat stays readable & crisp)
+      while (this.defSpawnIdx < ZHAO_SCHEDULE.length) {
+        const next = ZHAO_SCHEDULE[this.defSpawnIdx];
+        if (this.defElapsed < next.at) break;
+        if (liveFoes.length >= 6 && this.defElapsed < next.at + 4.0) break;
+        this.defSpawnIdx++;
+        this.spawnZhaoBeat(next);
       }
-      // Check enemy threats to sheltered villagers
-      const liveFoes = this.defFoes.filter(f => f.st !== 'dead');
+
+      const allSpawned = this.defSpawnIdx >= ZHAO_SCHEDULE.length;
+      const breaching = liveFoes.some(f => f.pos.z <= ZHAO_BARRICADE_Z - 0.1);
+      if (this.gapRing) this.setRing(this.gapRing, breaching, 0xff4838);
+      if (breaching && this.breachBarkCd <= 0 && this.villagers.some(v => v.state === 'wait' || v.state === 'flee')) {
+        this.breachBarkCd = 6.8;
+        this.zhaoBark('缺口漏人了，截住他！', 'ev1_bark_breach');
+      }
+
+      // Animate & evacuate the 4 villagers in 3 real batches toward the safe north village exit
+      const hurry = allSpawned && liveFoes.length === 0;
       for (const v of this.villagers) {
-        if (!v.alive) continue;
+        if (v.state === 'safe' || v.state === 'hurt_out') continue;
         if (v.hurtCd > 0) v.hurtCd -= dt;
+        if (v.cryCd > 0) v.cryCd -= dt;
+
+        // Check close raider contact damage (fallback in case a hound lunges past gap without standard swing)
+        let dangerClose = false;
         for (const f of liveFoes) {
           const d = Math.hypot(f.pos.x - v.x, f.pos.z - v.z);
-          // Gently steer un-engaged hounds/blades toward the villagers if they're closer to villagers than hero
-          if (d < 4.5 && d < f.pos.distanceTo(hp) && f.st === 'move') {
-            const dx = v.x - f.pos.x, dz = v.z - f.pos.z, l = Math.max(0.01, Math.hypot(dx, dz));
-            f.pos.x += (dx / l) * 0.9 * dt;
-            f.pos.z += (dz / l) * 0.9 * dt;
-          }
-          if (d < 1.55 && v.hurtCd <= 0) {
-            v.hurtCd = 1.25;
-            v.hp = Math.max(0, v.hp - 18);
-            fxSparks(V3(v.x, 0.9, v.z), 0xff4a3a, 8, 3.2);
-            const ratio = v.hp / v.maxHp;
-            v.bar.scale.x = Math.max(0.05, ratio);
-            (v.bar.material as THREE.MeshBasicMaterial).color.setHex(ratio > 0.5 ? 0x62e898 : ratio > 0.25 ? 0xffd054 : 0xff4a3a);
-            if (v.hp <= 0) {
-              v.alive = false;
-              v.mesh.visible = false;
-              v.bar.visible = false;
-              fxSmoke(V3(v.x, 0.7, v.z), 0xd8c8b0, 10, { r: 0.6, spd: 1.0, up: 0.8, s: 0.35, life: 0.5 });
-              this.host.pop('乡民退避！', V3(v.x, 1.5, v.z), '#ff8a7a', '#ff3a2a');
-            }
-          }
+          if (d < 2.3) dangerClose = true;
+          if (d < 1.35 && v.hurtCd <= 0) this.damageVillager(v, 16);
         }
+        if (v.state !== 'wait' && v.state !== 'flee') continue;
+
+        if (v.state === 'wait' && (this.defElapsed >= v.evacAt || hurry)) {
+          v.state = 'flee';
+          v.mesh.rotation.y = Math.PI; // face north toward village exit
+        }
+        if (v.state === 'flee' && !dangerClose) {
+          const spd = hurry ? 4.4 : 2.15;
+          const dx = -v.x * 0.45;
+          v.x += Math.max(-1.2, Math.min(1.2, dx)) * dt;
+          v.z -= spd * dt;
+          const bob = Math.abs(Math.sin(this.t * 11 + v.evacAt)) * 0.14;
+          v.mesh.position.set(v.x, bob, v.z);
+          v.bar.position.set(v.x, 1.78 + bob, v.z);
+          if (v.z <= ZHAO_SAFE_Z) {
+            v.state = 'safe';
+            v.mesh.visible = false;
+            v.bar.visible = false;
+            this.evacuatedCount++;
+            fxRing(V3(v.x, 0.08, v.z), 0x70f0a8, 1.7, { life: 0.55 } as never);
+            fxSmoke(V3(v.x, 0.65, v.z), 0xd8f0d8, 8, { r: 0.6, spd: 1.0, up: 0.8, s: 0.35, life: 0.55 });
+            cue('exitChime', 0.6);
+            const txt = this.evacuatedCount >= this.villagers.length ? '全员脱险！' : `乡民脱险 ${this.evacuatedCount}/${this.villagers.length}`;
+            this.host.pop(txt, V3(v.x, 1.8, Math.max(v.z, PLAY.z0 + 1.4)), '#90ffb8', '#48c880');
+          }
+        } else {
+          // Slight anxious tremble while waiting or cornered
+          v.mesh.position.set(v.x + (dangerClose ? Math.sin(this.t * 28) * 0.05 : 0), 0, v.z);
+          v.bar.position.set(v.x, 1.78, v.z);
+        }
+      }
+
+      // Complete once all villagers have left the refuge AND all scheduled raiders are cleared
+      const villagersDone = this.villagers.every(v => v.state === 'safe' || v.state === 'hurt_out');
+      if (allSpawned && liveFoes.length === 0 && villagersDone) {
+        const saved = this.villagers.filter(v => v.state === 'safe').length;
+        this.complete({
+          won: saved > 0,
+          bonusCoins: saved === this.villagers.length ? 60 : 0,
+          customOutro: saved === 0 ? [{ who: 'zhaoyun', text: '乡民伤得不轻……所幸人还活着，你也辛苦了。' }] : undefined,
+        });
       }
     }
 
@@ -1170,6 +1425,8 @@ export class GeneralEventRunner {
   dispose() {
     this.clearBolts();
     this.clearFogDecoys();
+    for (const s of this.zhaoSolids) this.host.removeSolid(s);
+    this.zhaoSolids.length = 0;
     if (this.zhaoAlly) { this.zhaoAlly.dispose(); this.zhaoAlly = null; }
     if (this.meta.id === 'xiahoudun') this.host.grantChaseMove(false);
     this.actor.dispose();

@@ -216,6 +216,8 @@ export interface AllyHost {
   clamp(p: THREE.Vector3, r: number): void;
   hitFoe(f: Foe, dmg: number, from: THREE.Vector3, col: number): void;
   say(head: () => THREE.Vector3, line: string): void;
+  /** Optional chokepoint defense anchor: hold this post, prioritize breaching foes, and suppress generic slogans */
+  guard?: { x: number; z: number; maxDist: number; breachZ: number; silent?: boolean };
 }
 
 const ALLY_BARKS: Record<'zhaoyun' | 'luxun', string[]> = {
@@ -291,29 +293,41 @@ export class AllyGeneral {
       return;
     }
 
-    if (!live.length) {
-      // Escort near hero at respectful offset (2.2 m away, never blocking her)
-      const toHero = host.heroPos.clone().sub(this.pos).setY(0);
-      const d = toHero.length();
-      if (d > 2.8) {
-        toHero.normalize();
-        this.pos.addScaledVector(toHero, Math.min(d - 2.2, 3.6 * dt));
+    const g = host.guard;
+    const poolFoes = g
+      ? live.filter(f => f.pos.z <= g.breachZ + 1.5 || Math.hypot(f.pos.x - g.x, f.pos.z - g.z) <= g.maxDist)
+      : live;
+
+    if (!poolFoes.length) {
+      // If guarding a chokepoint, hold the gap facing south toward incoming raiders; otherwise escort near hero
+      const destX = g ? g.x : host.heroPos.x;
+      const destZ = g ? g.z : host.heroPos.z;
+      const stopR = g ? 0.65 : 2.8;
+      const toDest = V3(destX - this.pos.x, 0, destZ - this.pos.z);
+      const d = toDest.length();
+      if (d > stopR) {
+        toDest.normalize();
+        const step = g ? Math.min(d, 4.4 * dt) : Math.min(d - 2.2, 3.6 * dt);
+        this.pos.addScaledVector(toDest, step);
         host.clamp(this.pos, 0.5);
-        this.a.yaw = Math.atan2(toHero.x, toHero.z);
-        this.a.setRunning(true, 3.6);
+        this.a.yaw = Math.atan2(toDest.x, toDest.z);
+        this.a.setRunning(true, g ? 4.4 : 3.6);
       } else {
         this.a.setRunning(false);
+        if (g) this.a.yaw = 0; // face south toward the approaching raiders
       }
       this.a.home.copy(this.pos);
       this.a.update(dt);
       return;
     }
 
-    // Pick closest live foe
-    let target = live[0], best = this.pos.distanceToSquared(live[0].pos);
-    for (let i = 1; i < live.length; i++) {
-      const d2 = this.pos.distanceToSquared(live[i].pos);
-      if (d2 < best) { best = d2; target = live[i]; }
+    // Pick highest-priority foe: when guarding a chokepoint, intercept anyone breaching north first!
+    let target = poolFoes[0], best = Infinity;
+    for (const f of poolFoes) {
+      const score = g
+        ? (f.pos.z <= g.breachZ ? -100 + f.pos.z : Math.hypot(f.pos.x - g.x, f.pos.z - g.z))
+        : this.pos.distanceTo(f.pos);
+      if (score < best) { best = score; target = f; }
     }
     const dir = target.pos.clone().sub(this.pos).setY(0);
     const dist = dir.length() || 1;
@@ -350,7 +364,7 @@ export class AllyGeneral {
       this.a.setRunning(false);
       this.a.play(new Action(this.atkMode === 'fireWave' ? 'cast' : 'attack', this.atkDur, 0.48, { atk: this.atkMode }));
       cue(isZhao ? (this.atkMode === 'sweep' ? 'swishHeavy' : 'swingStab') : 'swishHeavy', 0.74);
-      if (this.barkCd <= 0) {
+      if (this.barkCd <= 0 && !host.guard?.silent) {
         this.barkCd = R(6.0, 9.0);
         const barks = ALLY_BARKS[this.kind];
         host.say(() => this.a.head(), barks[Math.floor(Math.random() * barks.length)]);

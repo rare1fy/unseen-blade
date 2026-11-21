@@ -13,11 +13,12 @@ for (const [sec, rows] of Object.entries(SCRIPT as Record<string, Array<{ who: s
 });
 /** act-132: Breeze TTS 2 voice lines for the 4 reworked General Trials & hideout newcomers (卢昭 / 桓越) */
 const EXTRA_VOICES: Array<[string, string, string]> = [
-  // Act 1: Zhao Yun — 断后护民
-  ['zhaoyun', 'ev1_intro_0', '常山赵子龙！贼兵四面围村，我正护着乡民退守井台！'],
-  ['zhaoyun', 'ev1_intro_1', '姑娘快替我断后——挡住冷箭与恶犬，莫让贼兵冲垮乡民防线！'],
-  ['zhaoyun', 'ev1_outro_0', '乡民安然无恙！姑娘身手敏捷，赵某代父老谢过！'],
-  ['zhaoyun', 'ev1_outro_1', '这枚龙胆银穗与一缕枪意赠予姑娘，乱世前路保重！'],
+  // Act 1: Zhao Yun — 死守村口 · 断后护民 (act-137 reworked urgent comrade tone, zero announcer / zero 姑娘)
+  ['zhaoyun', 'ev1_intro_0', '来得正好！村里老小还没撤完，帮我把这道口子死死掐住！'],
+  ['zhaoyun', 'ev1_intro_1', '外头贼兵正往这儿涌——漏进一个，后头就全完了！'],
+  ['zhaoyun', 'ev1_outro_0', '都撤出去了……方才若非你顶在口上，我一人绝护不住这许多性命。'],
+  ['zhaoyun', 'ev1_outro_1', '这枚银穗你收着，往后路上保重。常山赵云，记你这一刀。'],
+  ['zhaoyun', 'ev1_outro_hurt', '乡民伤得不轻……所幸人还活着，你也辛苦了。'],
   // Act 2: Lu Bu — 三合试锋
   ['lubu', 'ev2_intro_0', '哼，一个蒙眼盲女，也敢提刀闯本侯的地界？'],
   ['lubu', 'ev2_intro_1', '少废话！接住我三合戟势不退，本侯便认你这把刀！'],
