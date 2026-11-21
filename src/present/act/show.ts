@@ -72,6 +72,7 @@ import { runMods, bank, META, MIRROR, level, nextCost, buy, hasAffordable, mirro
 import { WEAPONS, WEAPON_ORDER, weaponDef, isWeaponUnlocked, weaponLevel, weaponNextCost, canForgeWeapon, hasAnyWeaponForgeable, forgeWeapon, equippedWeapon, equipWeapon, buildCourtyardWeaponRack, type WeaponId } from './weapons';
 import { KEEPSAKES, KEEPSAKE_ORDER, KEEPSAKE_STARS, keepsakeDef, isKeepsakeUnlocked, unlockKeepsake, keepsakeRooms, keepsakeStar, starLabel, equippedKeepsake, equipKeepsake, advanceKeepsake, buildKeepsakeBoxModel, type KeepsakeId } from './keepsakes';
 import { SEEDS, SEED_ORDER, PLOT_COSTS, ensureGarden, plotStatus, isPlotUnlocked, canUnlockPlot, unlockPlot, plantSeed, harvestPlot, advanceGardenRooms, totalSeeds, ripePlotIndices, hasPlantablePlot, rollSeedDrop, addSeed, buildGardenPlotMesh } from './garden';
+import { HIDEOUT_ZONES, HIDEOUT_ZONE_ORDER, hideoutProgress, buildZoneMonumentModel, type HideoutZoneId } from './hideoutProgress';
 import { GeneralEventRunner, GENERAL_EVENTS, type GeneralBlessingId, type GeneralEventMeta, type EventOutcome } from './generalEvents';
 import { NPC_LINES, UP_LINES, POOR_LINES, HAUL, MEALS, MEAL_LINES, STELE_LINES } from './hideoutLines';
 import { Leaves } from './leaves';
@@ -799,6 +800,30 @@ export class ActShow {
   /** back home: the TUNE values the run started with (the tune panel's own numbers again) */
   private unscaleFoes() { const b = this.baseFoe; if (!this.region) return; TUNE.enemyHp = b.hp; TUNE.enemyDmg = b.dmg; TUNE.atkCalm = b.calm; TUNE.maxAttackers = b.attackers; this.region = 0; }
   /** the hideout's people stand at their places (HIDEOUT anchors when the hideout scene is up; the yard's spots meanwhile) */
+  private addSingleNpc(id: keyof typeof HIDEOUT_PEOPLE) {
+    if (!this.stage || this.npcs.some(n => n.id === id)) return null;
+    const sp = HIDEOUT.people[id];
+    const a = new BattleActor(HIDEOUT_PEOPLE[id]); a.place(V3(sp.x, 0, sp.z), sp.yaw); a.yaw = sp.yaw; trimShadows(a.root, 4);
+    const sh = contactShadow(); sh.scale.setScalar(id === 'fengtiebi' ? 0.55 : 0.42); sh.position.set(sp.x, 0.025, sp.z); this.stage.root.add(sh);
+    const entry = { id, x: sp.x, z: sp.z, yaw: sp.yaw, a, sh };
+    this.npcs.push(entry);
+    return entry;
+  }
+  private syncHideoutNpcs() {
+    if (!this.stage || this.phase !== 'yard') return;
+    const want = new Set<string>(hideoutProgress(profile(), this.dbgAllWeapons).visibleNpcs);
+    for (let i = this.npcs.length - 1; i >= 0; i--) {
+      const n = this.npcs[i];
+      if (!want.has(n.id)) {
+        n.a.dispose(); n.sh.parent?.remove(n.sh);
+        const mk = this.marks.get(n.id);
+        if (mk) { mk.g.parent?.remove(mk.g); mk.ring.parent?.remove(mk.ring); this.marks.delete(n.id); }
+        this.L.text.hide('act.beacon.' + n.id);
+        this.npcs.splice(i, 1);
+      }
+    }
+    for (const id of want) this.addSingleNpc(id as keyof typeof HIDEOUT_PEOPLE);
+  }
   private *placeNpcs(spots: Array<{ id: keyof typeof HIDEOUT_PEOPLE; x: number; z: number; yaw: number }>) {
     this.clearNpcs();
     for (const sp of spots) {
@@ -814,10 +839,15 @@ export class ActShow {
     this.L.text.hide('act.yard.exit');
     this.L.text.hide('act.station.hint');
     for (const id of ['fengtiebi', 'sunao', 'duwu', 'luzhao', 'huanyue', 'stele', 'weaponRack', 'keepsakeBox']) this.L.text.hide('act.beacon.' + id);
+    for (const zid of HIDEOUT_ZONE_ORDER) this.L.text.hide('act.beacon.zone_' + zid);
     for (let i = 0; i < HIDEOUT.gardenPlots.length; i++) this.L.text.hide('act.beacon.garden_' + i);
     for (const m of this.marks.values()) {
       m.exc.visible = false; m.bub.visible = false;
       (m.ring.material as THREE.MeshBasicMaterial).opacity = 0;
+    }
+    for (const zm of this.zoneMonuments.values()) {
+      zm.exc.visible = false;
+      (zm.ring.material as THREE.MeshBasicMaterial).opacity = 0;
     }
     if (this.steleExclaim) this.steleExclaim.visible = false;
     for (const ge of this.gardenExclaims) if (ge) ge.visible = false;
@@ -826,6 +856,8 @@ export class ActShow {
   private keepsakeBoxMesh: THREE.Group | null = null;
   private gardenMeshes: THREE.Group[] = [];
   private gardenExclaims: Array<THREE.Group | null> = [];
+  private zoneMonuments = new Map<HideoutZoneId, { mesh: THREE.Group; exc: THREE.Group; ring: THREE.Mesh }>();
+  private springAnims: Array<{ obj: THREE.Object3D; t: number; dur: number; delay: number; onPop?: () => void; popped: boolean }> = [];
   private gardenRefreshT = 0;
   private generalEvent: GeneralEventRunner | null = null;
   private genBlessings = new Set<GeneralBlessingId>();
@@ -833,40 +865,121 @@ export class ActShow {
   private ksShield = 0;
   private ksRevenge = false;
   private intentBonusAcc = 0;
+  private queueSpringPop(obj: THREE.Object3D | null | undefined, delay: number, dur = 0.44, onPop?: () => void) {
+    if (!obj) return;
+    obj.visible = false;
+    obj.scale.set(0.01, 0.01, 0.01);
+    this.springAnims.push({ obj, t: 0, dur, delay, onPop, popped: false });
+  }
+  private tickSpringAnims(dt: number) {
+    for (let i = this.springAnims.length - 1; i >= 0; i--) {
+      const a = this.springAnims[i];
+      a.t += dt;
+      if (a.t < a.delay) continue;
+      if (!a.popped) {
+        a.popped = true;
+        a.obj.visible = true;
+        a.onPop?.();
+      }
+      const k = Math.min(1, (a.t - a.delay) / a.dur);
+      const sy = k < 0.68 ? (k / 0.68) * 1.15 : 1.15 - ((k - 0.68) / 0.32) * 0.15;
+      const sxz = 0.25 + 0.75 * Math.min(1, k * 1.35);
+      if (k >= 1) {
+        a.obj.scale.set(1, 1, 1);
+        this.springAnims.splice(i, 1);
+      } else {
+        a.obj.scale.set(sxz, Math.max(0.04, sy), sxz);
+      }
+    }
+  }
+  private burstBuildBlocks(x: number, z: number, cols: number[], count = 14) {
+    for (let i = 0; i < count; i++) {
+      const a = (i / count) * Math.PI * 2 + (Math.random() - 0.5) * 0.4;
+      const spd = 1.6 + Math.random() * 2.8;
+      addBlock(V3(x + (Math.random() - 0.5) * 0.6, 0.35 + Math.random() * 0.5, z + (Math.random() - 0.5) * 0.6), {
+        v: V3(Math.cos(a) * spd, 2.8 + Math.random() * 2.8, Math.sin(a) * spd),
+        size: 0.1 + Math.random() * 0.09,
+        col: cols[i % cols.length],
+        life: 0.55 + Math.random() * 0.35,
+        grav: 14,
+        floor: 0.05,
+        debris: true,
+        spin: 5,
+      });
+    }
+  }
+  private clearZoneMonuments() {
+    for (const zm of this.zoneMonuments.values()) {
+      zm.mesh.parent?.remove(zm.mesh);
+      zm.exc.parent?.remove(zm.exc);
+      zm.ring.parent?.remove(zm.ring);
+    }
+    this.zoneMonuments.clear();
+  }
   private refreshHideoutProps() {
     if (!this.stage || this.phase !== 'yard') return;
     if (this.weaponRackMesh) { this.weaponRackMesh.parent?.remove(this.weaponRackMesh); this.weaponRackMesh = null; }
     if (this.keepsakeBoxMesh) { this.keepsakeBoxMesh.parent?.remove(this.keepsakeBoxMesh); this.keepsakeBoxMesh = null; }
     for (const gm of this.gardenMeshes) gm.parent?.remove(gm);
     this.gardenMeshes = [];
+    this.clearZoneMonuments();
     const p = profile();
-    const { state: gState } = ensureGarden(p);
-    const unl: Record<WeaponId, boolean> = {
-      hanshan: isWeaponUnlocked(p, 'hanshan', this.dbgAllWeapons),
-      thunder: isWeaponUnlocked(p, 'thunder', this.dbgAllWeapons),
-      frost: isWeaponUnlocked(p, 'frost', this.dbgAllWeapons),
-      blunt: isWeaponUnlocked(p, 'blunt', this.dbgAllWeapons),
-    };
-    const rack = buildCourtyardWeaponRack(unl, equippedWeapon(p, this.dbgAllWeapons));
-    rack.position.set(HIDEOUT.weaponRack.x, 0, HIDEOUT.weaponRack.z);
-    rack.rotation.y = HIDEOUT.weaponRack.yaw;
-    this.stage.root.add(rack);
-    this.weaponRackMesh = rack;
+    const prog = hideoutProgress(p, this.dbgAllWeapons);
 
-    const kbox = buildKeepsakeBoxModel(!!equippedKeepsake(p, this.dbgAllWeapons));
-    kbox.position.set(HIDEOUT.keepsakeBox.x, 0, HIDEOUT.keepsakeBox.z);
-    kbox.rotation.y = HIDEOUT.keepsakeBox.yaw;
-    this.stage.root.add(kbox);
-    this.keepsakeBoxMesh = kbox;
+    if (prog.rackBuilt) {
+      const unl: Record<WeaponId, boolean> = {
+        hanshan: isWeaponUnlocked(p, 'hanshan', this.dbgAllWeapons),
+        thunder: isWeaponUnlocked(p, 'thunder', this.dbgAllWeapons),
+        frost: isWeaponUnlocked(p, 'frost', this.dbgAllWeapons),
+        blunt: isWeaponUnlocked(p, 'blunt', this.dbgAllWeapons),
+      };
+      const rack = buildCourtyardWeaponRack(unl, equippedWeapon(p, this.dbgAllWeapons));
+      rack.position.set(HIDEOUT.weaponRack.x, 0, HIDEOUT.weaponRack.z);
+      rack.rotation.y = HIDEOUT.weaponRack.yaw;
+      this.stage.root.add(rack);
+      this.weaponRackMesh = rack;
+    }
 
-    // act-132: 6 pure-3D voxel garden plots across the eastern Bamboo Stream Garden Terrace
-    const now = Date.now();
-    for (let i = 0; i < HIDEOUT.gardenPlots.length; i++) {
-      const gp = HIDEOUT.gardenPlots[i];
-      const m = buildGardenPlotMesh(i < gState.unlocked, gState.plots[i] ?? null, now);
-      m.position.set(gp.x, 0, gp.z);
-      this.stage.root.add(m);
-      this.gardenMeshes.push(m);
+    if (prog.forgeBuilt) {
+      const kbox = buildKeepsakeBoxModel(!!equippedKeepsake(p, this.dbgAllWeapons));
+      kbox.position.set(HIDEOUT.keepsakeBox.x, 0, HIDEOUT.keepsakeBox.z);
+      kbox.rotation.y = HIDEOUT.keepsakeBox.yaw;
+      this.stage.root.add(kbox);
+      this.keepsakeBoxMesh = kbox;
+    }
+
+    // act-132 / act-135: 6 pure-3D voxel garden plots appear only once 竹溪药圃 is constructed!
+    if (prog.gardenBuilt) {
+      const now = Date.now();
+      const { state: gState } = ensureGarden(p, now);
+      for (let i = 0; i < HIDEOUT.gardenPlots.length; i++) {
+        const gp = HIDEOUT.gardenPlots[i];
+        const m = buildGardenPlotMesh(i < gState.unlocked, gState.plots[i] ?? null, now);
+        m.position.set(gp.x, 0, gp.z);
+        this.stage.root.add(m);
+        this.gardenMeshes.push(m);
+      }
+    } else {
+      for (const ge of this.gardenExclaims) if (ge) ge.visible = false;
+    }
+
+    // act-135: mount 3D voxel 落成工碑 for each newly unlocked zone awaiting hand-built ceremony
+    for (const zid of prog.pendingZones) {
+      const zdef = HIDEOUT_ZONES[zid];
+      const mesh = buildZoneMonumentModel(zid);
+      mesh.position.set(zdef.monument.x, 0, zdef.monument.z);
+      this.stage.root.add(mesh);
+      const exc = new THREE.Group();
+      exc.add(npcExclaim());
+      this.stage.root.add(exc);
+      const ring = new THREE.Mesh(
+        new THREE.RingGeometry(0.76, 0.94, 4, 1, Math.PI / 4).rotateX(-Math.PI / 2),
+        new THREE.MeshBasicMaterial({ color: zdef.hex, transparent: true, opacity: 0.45, depthWrite: false }),
+      );
+      ring.position.set(zdef.monument.x, 0.05, zdef.monument.z);
+      ring.renderOrder = 3;
+      this.stage.root.add(ring);
+      this.zoneMonuments.set(zid, { mesh, exc, ring });
     }
   }
   private clearNpcs() {
@@ -878,6 +991,8 @@ export class ActShow {
     this.gardenMeshes = [];
     for (const ge of this.gardenExclaims) ge?.parent?.remove(ge);
     this.gardenExclaims = [];
+    this.clearZoneMonuments();
+    this.springAnims.length = 0;
     for (const m of this.marks.values()) { m.g.parent?.remove(m.g); m.ring.parent?.remove(m.ring); }
     this.marks.clear();
     this.steleExclaim?.parent?.remove(this.steleExclaim); this.steleExclaim = null;
@@ -890,15 +1005,22 @@ export class ActShow {
   private steleExclaim: THREE.Group | null = null;
   private hideoutObjective(): { x: number; z: number; isExit: boolean } {
     const prof = profile();
+    const prog = hideoutProgress(prof, this.dbgAllWeapons);
     const ex = (HIDEOUT.exit.x0 + HIDEOUT.exit.x1) / 2, ez = HIDEOUT.exit.z;
-    const ripe = ripePlotIndices(prof);
-    if (ripe.length) { const gp = HIDEOUT.gardenPlots[ripe[0]]; return { x: gp.x, z: gp.z + 0.8, isExit: false }; }
+    if (prog.pendingZones.length) {
+      const zdef = HIDEOUT_ZONES[prog.pendingZones[0]];
+      return { x: zdef.monument.x, z: zdef.monument.z + 0.8, isExit: false };
+    }
+    if (prog.gardenBuilt) {
+      const ripe = ripePlotIndices(prof);
+      if (ripe.length) { const gp = HIDEOUT.gardenPlots[ripe[0]]; return { x: gp.x, z: gp.z + 0.8, isExit: false }; }
+    }
     if (!prof.meal && prof.runs === 0) return { x: HIDEOUT.people.duwu.x, z: HIDEOUT.people.duwu.z, isExit: false };
-    if (hasAffordable(prof, 'forge') || hasAnyWeaponForgeable(prof, this.dbgAllWeapons)) return { x: HIDEOUT.people.fengtiebi.x, z: HIDEOUT.people.fengtiebi.z, isExit: false };
+    if (prog.forgeBuilt && (hasAffordable(prof, 'forge') || hasAnyWeaponForgeable(prof, this.dbgAllWeapons))) return { x: HIDEOUT.people.fengtiebi.x, z: HIDEOUT.people.fengtiebi.z, isExit: false };
     if (hasAffordable(prof, 'medic')) return { x: HIDEOUT.people.sunao.x, z: HIDEOUT.people.sunao.z, isExit: false };
     if (hasMirrorAffordable(prof)) return { x: HIDEOUT.stele.x, z: HIDEOUT.stele.z + 0.6, isExit: false };
-    if (!equippedKeepsake(prof, this.dbgAllWeapons) && KEEPSAKE_ORDER.some(id => isKeepsakeUnlocked(prof, id, this.dbgAllWeapons))) return { x: HIDEOUT.keepsakeBox.x, z: HIDEOUT.keepsakeBox.z + 0.6, isExit: false };
-    if (hasPlantablePlot(prof)) {
+    if (prog.forgeBuilt && !equippedKeepsake(prof, this.dbgAllWeapons) && KEEPSAKE_ORDER.some(id => isKeepsakeUnlocked(prof, id, this.dbgAllWeapons))) return { x: HIDEOUT.keepsakeBox.x, z: HIDEOUT.keepsakeBox.z + 0.6, isExit: false };
+    if (prog.gardenBuilt && hasPlantablePlot(prof)) {
       const { state } = ensureGarden(prof);
       const emptyIdx = state.plots.findIndex((pl, i) => i < state.unlocked && !pl);
       if (emptyIdx >= 0) { const gp = HIDEOUT.gardenPlots[emptyIdx]; return { x: gp.x, z: gp.z + 0.8, isExit: false }; }
@@ -910,6 +1032,7 @@ export class ActShow {
   private marks = new Map<string, { g: THREE.Group; bub: THREE.Mesh; exc: THREE.Mesh; ring: THREE.Mesh; k: number }>();
   private npcMarks(dt: number, near: string | null) {
     const t = clock.rtime, prof = profile(), h = this.hero;
+    const prog = hideoutProgress(prof, this.dbgAllWeapons);
     const uiClear = !this.noTalk && this.phase !== 'talk' && this.phase !== 'cine' && !this.dialogue.on && !this.cards.on && !this.demo.on && !this.pause.on;
     const dev = this.inp.lastDevice;
     const talkKey = dev === 'touch' ? '点右下交谈' : dev === 'pad' ? msg`[${actPad('attack')}]` : msg`[${actKey('attack')}]`;
@@ -957,6 +1080,27 @@ export class ActShow {
         this.L.text.set('act.beacon.' + n.id, { text: txt, x: p.x, y: p.y, bodyPx: Math.max(12, Math.round(13.5 * Math.min(1.2, this.L.h / 720))), color: bc ? bc.col : '#dcd2be', outline: '#140c0a', align: 'center', visible: p.z < 1 });
       } else this.L.text.hide('act.beacon.' + n.id);
     }
+    // act-135: 3D voxel 落成工碑 monuments (pulsing golden square frame + hovering 3D !)
+    for (const zid of HIDEOUT_ZONE_ORDER) {
+      const zm = this.zoneMonuments.get(zid);
+      if (!zm) { this.L.text.hide('act.beacon.zone_' + zid); continue; }
+      const zdef = HIDEOUT_ZONES[zid], key = 'zone_' + zid;
+      const pulse = 0.5 + 0.5 * Math.sin(t * 4.6 + zdef.monument.x);
+      zm.exc.visible = uiClear;
+      zm.exc.position.set(zdef.monument.x, 2.02 + 0.08 * pulse, zdef.monument.z);
+      zm.exc.rotation.y = t * 1.5;
+      const em = (zm.exc.children[0] as THREE.Mesh).material as THREE.MeshLambertMaterial;
+      em.emissive.setHex(zdef.hex); em.emissiveIntensity = 0.52 + 0.36 * pulse;
+      zm.exc.children[0].scale.setScalar(0.62 * (1 + 0.12 * pulse));
+      const rs = 1 + 0.09 * Math.sin(t * 4.8);
+      zm.ring.scale.set(rs, 1, rs);
+      (zm.ring.material as THREE.MeshBasicMaterial).opacity = uiClear ? (near === key ? 0.85 : 0.34 + 0.24 * pulse) : 0;
+      const dZone = h ? Math.hypot(h.pos.x - zdef.monument.x, h.pos.z - zdef.monument.z) : 99;
+      if (uiClear && near !== key && dZone < 10.5) {
+        const pt = worldToUi(V3(zdef.monument.x, 2.38, zdef.monument.z));
+        this.L.text.set('act.beacon.' + key, { text: zdef.beaconLabel, x: pt.x, y: pt.y, bodyPx: Math.max(12.5, Math.round(14 * Math.min(1.2, this.L.h / 720))), color: zdef.color, outline: '#140c0a', align: 'center', visible: pt.z < 1 });
+      } else this.L.text.hide('act.beacon.' + key);
+    }
     // 复仇碑 3D ! marker & proximity label
     if (this.stele && HIDEOUT.stele) {
       const bc = beaconOf('stele'), dStele = h ? Math.hypot(h.pos.x - HIDEOUT.stele.x, h.pos.z - HIDEOUT.stele.z) : 99;
@@ -993,52 +1137,67 @@ export class ActShow {
       this.L.text.set('act.beacon.keepsakeBox', { text: eqKs ? msg`信物匣 · ${eqKs.name}` : '信物匣 · 选佩信物', x: p.x, y: p.y, bodyPx: Math.max(12, Math.round(13.5 * Math.min(1.2, this.L.h / 720))), color: eqKs ? eqKs.col : '#ffd898', outline: '#140c0a', align: 'center', visible: p.z < 1 });
     } else this.L.text.hide('act.beacon.keepsakeBox');
 
-    // act-132: Bamboo Stream Garden Terrace 3D voxel ! beacons (ripe / ready-to-plant) & proximity labels
+    // act-132 / act-135: Bamboo Stream Garden Terrace beacons only when garden is constructed!
     const nowMs = Date.now();
-    const { state: gState } = ensureGarden(prof, nowMs);
-    const seedBag = totalSeeds(prof);
-    this.gardenRefreshT += dt;
-    if (this.gardenRefreshT >= 15) { this.gardenRefreshT = 0; this.refreshHideoutProps(); }
-    for (let i = 0; i < HIDEOUT.gardenPlots.length; i++) {
-      const gp = HIDEOUT.gardenPlots[i], unl = i < gState.unlocked, plot = unl ? gState.plots[i] : null;
-      const st = plotStatus(plot, nowMs), key = 'garden_' + i;
-      const showExc = uiClear && unl && (st.done || (!plot && seedBag > 0));
-      if (showExc) {
-        if (!this.gardenExclaims[i] && this.stage) {
-          const g = new THREE.Group(), exc = npcExclaim();
-          g.add(exc); this.stage.root.add(g); this.gardenExclaims[i] = g;
-        }
-        const ge = this.gardenExclaims[i];
-        if (ge) {
-          const pulse = 0.5 + 0.5 * Math.sin(t * 4.2 + i);
-          ge.visible = true;
-          ge.position.set(gp.x, (st.done ? 1.55 : 1.25) + 0.06 * pulse, gp.z);
-          ge.rotation.y = t * 1.4;
-          const em = (ge.children[0] as THREE.Mesh).material as THREE.MeshLambertMaterial;
-          em.emissive.setHex(st.done ? 0xffd258 : 0x72e894);
-          em.emissiveIntensity = 0.45 + 0.3 * pulse;
-          ge.children[0].scale.setScalar((st.done ? 0.56 : 0.44) * (1 + 0.1 * pulse));
-        }
-      } else if (this.gardenExclaims[i]) this.gardenExclaims[i]!.visible = false;
+    let gState: ReturnType<typeof ensureGarden>['state'] | null = null;
+    let seedBag = 0;
+    if (prog.gardenBuilt && this.gardenMeshes.length > 0) {
+      gState = ensureGarden(prof, nowMs).state;
+      seedBag = totalSeeds(prof);
+      this.gardenRefreshT += dt;
+      if (this.gardenRefreshT >= 15) { this.gardenRefreshT = 0; this.refreshHideoutProps(); }
+      for (let i = 0; i < HIDEOUT.gardenPlots.length; i++) {
+        const gp = HIDEOUT.gardenPlots[i], unl = i < gState.unlocked, plot = unl ? gState.plots[i] : null;
+        const st = plotStatus(plot, nowMs), key = 'garden_' + i;
+        const showExc = uiClear && unl && (st.done || (!plot && seedBag > 0));
+        if (showExc) {
+          if (!this.gardenExclaims[i] && this.stage) {
+            const g = new THREE.Group(), exc = npcExclaim();
+            g.add(exc); this.stage.root.add(g); this.gardenExclaims[i] = g;
+          }
+          const ge = this.gardenExclaims[i];
+          if (ge) {
+            const pulse = 0.5 + 0.5 * Math.sin(t * 4.2 + i);
+            ge.visible = true;
+            ge.position.set(gp.x, (st.done ? 1.55 : 1.25) + 0.06 * pulse, gp.z);
+            ge.rotation.y = t * 1.4;
+            const em = (ge.children[0] as THREE.Mesh).material as THREE.MeshLambertMaterial;
+            em.emissive.setHex(st.done ? 0xffd258 : 0x72e894);
+            em.emissiveIntensity = 0.45 + 0.3 * pulse;
+            ge.children[0].scale.setScalar((st.done ? 0.56 : 0.44) * (1 + 0.1 * pulse));
+          }
+        } else if (this.gardenExclaims[i]) this.gardenExclaims[i]!.visible = false;
 
-      const dPlot = h ? Math.hypot(h.pos.x - gp.x, h.pos.z - gp.z) : 99;
-      if (uiClear && near !== key && dPlot < 6.2) {
-        const pt = worldToUi(V3(gp.x, 1.45, gp.z));
-        let txt = '药畦 · 待开垦', col = '#b8b0a0';
-        if (unl && plot) {
-          const def = SEEDS[plot.seed];
-          txt = st.done ? msg`${def.name} · 可收获` : msg`${def.name} · 差${st.leftSteps}屋/${st.leftMins}分`;
-          col = st.done ? '#ffe680' : def.hex;
-        } else if (unl) {
-          txt = seedBag > 0 ? msg`空药畦 · 可播种(${seedBag})` : '空药畦';
-          col = seedBag > 0 ? '#8effb0' : '#ccc4b2';
-        }
-        this.L.text.set('act.beacon.' + key, { text: txt, x: pt.x, y: pt.y, bodyPx: Math.max(11.5, Math.round(13 * Math.min(1.2, this.L.h / 720))), color: col, outline: '#140c0a', align: 'center', visible: pt.z < 1 });
-      } else this.L.text.hide('act.beacon.' + key);
+        const dPlot = h ? Math.hypot(h.pos.x - gp.x, h.pos.z - gp.z) : 99;
+        if (uiClear && near !== key && dPlot < 6.2) {
+          const pt = worldToUi(V3(gp.x, 1.45, gp.z));
+          let txt = '药畦 · 待开垦', col = '#b8b0a0';
+          if (unl && plot) {
+            const def = SEEDS[plot.seed];
+            txt = st.done ? msg`${def.name} · 可收获` : msg`${def.name} · 差${st.leftSteps}屋/${st.leftMins}分`;
+            col = st.done ? '#ffe680' : def.hex;
+          } else if (unl) {
+            txt = seedBag > 0 ? msg`空药畦 · 可播种(${seedBag})` : '空药畦';
+            col = seedBag > 0 ? '#8effb0' : '#ccc4b2';
+          }
+          this.L.text.set('act.beacon.' + key, { text: txt, x: pt.x, y: pt.y, bodyPx: Math.max(11.5, Math.round(13 * Math.min(1.2, this.L.h / 720))), color: col, outline: '#140c0a', align: 'center', visible: pt.z < 1 });
+        } else this.L.text.hide('act.beacon.' + key);
+      }
+    } else {
+      for (let i = 0; i < HIDEOUT.gardenPlots.length; i++) {
+        this.L.text.hide('act.beacon.garden_' + i);
+        if (this.gardenExclaims[i]) this.gardenExclaims[i]!.visible = false;
+      }
     }
 
     const nn = near ? this.npcs.find(x => x.id === near) : null;
-    if (near && near.startsWith('garden_') && uiClear) {
+    if (near && near.startsWith('zone_') && uiClear) {
+      const zdef = HIDEOUT_ZONES[near.slice(5) as HideoutZoneId];
+      if (zdef) {
+        const pt = worldToUi(V3(zdef.monument.x, 2.38, zdef.monument.z));
+        this.L.text.set('act.npc', { text: msg`${zdef.actionLabel} ${talkKey}`, x: pt.x, y: pt.y, bodyPx: Math.max(13.5, Math.round(15.5 * Math.min(1.2, this.L.h / 720))), color: zdef.color, outline: '#140c0a', align: 'center' });
+      }
+    } else if (near && near.startsWith('garden_') && uiClear && gState) {
       const idx = Number(near.slice(7)), gp = HIDEOUT.gardenPlots[idx];
       const unl = idx < gState.unlocked, plot = unl ? gState.plots[idx] : null, st = plotStatus(plot, nowMs);
       const pt = worldToUi(V3(gp.x, 1.65, gp.z));
@@ -1093,6 +1252,104 @@ export class ActShow {
       this.L.text.hide('act.yard.exit');
     }
   }
+  /** act-135: Hand-built new-zone construction ceremony (3D voxel pop-in + camera pan + debris/sparks + SFX + NPC greeting) */
+  private async buildHideoutZone(zone: HideoutZoneId) {
+    if (this.phase !== 'yard' || this.noTalk) return;
+    const zdef = HIDEOUT_ZONES[zone];
+    this.noTalk = true;
+    this.hideHideoutLabels();
+    this.banner.hide();
+    // 1) Shatter the 3D 落成工碑 into voxel wood/stone/gold chunks with a crisp flare
+    const mx = zdef.monument.x, mz = zdef.monument.z;
+    this.burstBuildBlocks(mx, mz, [0x767168, 0x644832, 0xdca840, zdef.hex], 18);
+    fxFlare(V3(mx, 1.1, mz), zdef.hex, 2.4, 0.55);
+    fxRing(V3(mx, 0.08, mz), zdef.hex, 2.8, { life: 0.65, width: 0.09 });
+    fxSmoke(V3(mx, 0.45, mz), 0xb0a48e, 14, { r: 0.9, spd: 1.4, up: 1.0, s: 0.48, life: 0.75 });
+    cue('parry', 0.9);
+    shake(0.22 * TUNE.shake);
+
+    // 2) Persist construction state & pan camera smoothly to frame the newly built wing
+    seeOnce(zdef.flag);
+    const p = profile();
+    if (zone === 'garden') ensureGarden(p);
+    saveProfile();
+    this.camOverride = {
+      base: V3(...zdef.camBase),
+      look: V3(...zdef.camLook),
+      fov: zdef.camFov,
+    };
+
+    // 3) Spawn the newly constructed 3D structures & arriving NPC with elastic 3D voxel spring-rise!
+    this.refreshHideoutProps();
+    this.syncHideoutNpcs();
+
+    const arriving = this.npcs.find(n => n.id === zdef.npc);
+    if (zone === 'forge') {
+      this.queueSpringPop(arriving?.a.root, 0.16, 0.46, () => {
+        const sp = HIDEOUT.people.fengtiebi;
+        this.burstBuildBlocks(sp.x, sp.z, [0xff8c2c, 0x767168, 0xffd268], 16);
+        fxEmbers(V3(sp.x, 0.8, sp.z), 0xff8c2c, 22, { r: 1.1, up: 2.2, life: 1.0 });
+        fxSmoke(V3(sp.x, 0.4, sp.z), 0x686058, 16, { r: 1.0, spd: 1.3, up: 1.1, s: 0.5, life: 0.85 });
+        fxRing(V3(sp.x, 0.08, sp.z), 0xffb840, 2.6, { life: 0.7, width: 0.08 });
+        cue('bladeRing', 0.95);
+        shake(0.24 * TUNE.shake);
+      });
+      this.queueSpringPop(this.keepsakeBoxMesh, 0.52, 0.44, () => {
+        const kb = HIDEOUT.keepsakeBox;
+        this.burstBuildBlocks(kb.x, kb.z, [0x4a241c, 0xdca840, 0xffe278], 12);
+        fxFlare(V3(kb.x, 0.9, kb.z), 0xffd868, 2.0, 0.5);
+        fxRing(V3(kb.x, 0.08, kb.z), 0x8effd0, 2.2, { life: 0.65, width: 0.07 });
+        cue('reveal', 0.9);
+      });
+    } else if (zone === 'garden') {
+      for (let i = 0; i < this.gardenMeshes.length; i++) {
+        const gp = HIDEOUT.gardenPlots[i];
+        const isLast = i === this.gardenMeshes.length - 1;
+        this.queueSpringPop(this.gardenMeshes[i], 0.12 + i * 0.14, 0.36, () => {
+          this.burstBuildBlocks(gp.x, gp.z, [0x463526, 0x6a5038, 0x62b858], 10);
+          fxSmoke(V3(gp.x, 0.3, gp.z), 0x6a7852, 8, { r: 0.8, spd: 1.0, up: 0.75, s: 0.42, life: 0.65 });
+          fxRing(V3(gp.x, 0.08, gp.z), 0x72e894, 1.8, { life: 0.55, width: 0.06 });
+          cue(isLast ? 'reveal' : 'clack', isLast ? 0.95 : 0.78);
+          if (isLast) shake(0.18 * TUNE.shake);
+        });
+      }
+      this.queueSpringPop(arriving?.a.root, 1.02, 0.44, () => {
+        const sp = HIDEOUT.people.luzhao;
+        this.burstBuildBlocks(sp.x, sp.z, [0x72e894, 0xd8d0c0, 0x6a9054], 12);
+        fxFlare(V3(sp.x, 1.0, sp.z), 0x8effb0, 2.1, 0.55);
+        fxRing(V3(sp.x, 0.08, sp.z), 0x8effb0, 2.2, { life: 0.65, width: 0.07 });
+        cue('reveal', 0.85);
+      });
+      this.feed.push('boon', () => '孙媪赠予初种 · 东桥药圃可栽', 0, 'gd:starter');
+    } else {
+      this.queueSpringPop(this.weaponRackMesh, 0.16, 0.48, () => {
+        const wr = HIDEOUT.weaponRack;
+        this.burstBuildBlocks(wr.x, wr.z, [0x644832, 0xdca840, 0xe4ecf8], 18);
+        fxFlare(V3(wr.x, 1.1, wr.z), 0xffe698, 2.6, 0.6);
+        fxSparks(V3(wr.x, 1.1, wr.z), 0xffe890, 20, 5.5);
+        fxRing(V3(wr.x, 0.08, wr.z), 0xffd258, 3.0, { life: 0.75, width: 0.09 });
+        cue('draw', 0.95);
+        cue('bladeRing', 0.95);
+        shake(0.26 * TUNE.shake);
+      });
+      this.queueSpringPop(arriving?.a.root, 0.58, 0.46, () => {
+        const sp = HIDEOUT.people.huanyue;
+        this.burstBuildBlocks(sp.x, sp.z, [0x948e84, 0xdca840, 0xb87048], 12);
+        fxSmoke(V3(sp.x, 0.45, sp.z), 0xb8b0a0, 12, { r: 0.85, spd: 1.2, up: 0.9, s: 0.45, life: 0.75 });
+        fxRing(V3(sp.x, 0.08, sp.z), 0xffe698, 2.2, { life: 0.65, width: 0.07 });
+        cue('reveal', 0.88);
+      });
+    }
+
+    this.banner.show(zdef.bannerTitle, zdef.bannerSub, 2.9, zdef.color);
+    await new Promise(r => after(zone === 'garden' ? 2.15 : 1.75, () => r(null)));
+    this.camOverride = null;
+    await new Promise(r => after(0.45, () => r(null)));
+    this.noTalk = false;
+    if (this.phase === 'yard') {
+      await this.talk([{ who: zdef.npc, text: zdef.npcLine }]);
+    }
+  }
   /** Grant a hideout/general keepsake on first unlock with banner + toast */
   private grantKeepsake(id: KeepsakeId) {
     const p = profile();
@@ -1105,8 +1362,9 @@ export class ActShow {
     this.refreshHideoutProps();
     return true;
   }
-  /** a word with someone at the hideout; 文家刀廊 swaps blades, 信物匣 equips keepsakes, 复仇碑 opens 碑铭潜能, 竹溪药圃 plants/harvests */
+  /** a word with someone at the hideout; 落成工碑 builds a new wing, 文家刀廊 swaps blades, 信物匣 equips keepsakes, 复仇碑 opens 碑铭潜能, 竹溪药圃 plants/harvests */
   private async npcTalk(id: string) {
+    if (id.startsWith('zone_')) { await this.buildHideoutZone(id.slice(5) as HideoutZoneId); return; }
     if (id.startsWith('garden_')) { await this.gardenInteract(Number(id.slice(7))); return; }
     if (id === 'weaponRack') { await this.weaponRackMenu(); return; }
     if (id === 'keepsakeBox') { await this.keepsakeMenu(); return; }
@@ -1539,7 +1797,7 @@ export class ActShow {
       // 11-18 测关卡用: she can't die / every 刀谱 move on (the tune panel only, not the pause menu)
       { label: () => `打不死：${this.god ? '开' : '关'}`, run: () => { this.god = !this.god; } },
       { label: () => `全部招式：${this.dbgAllMoves ? '开' : '关'}`, run: () => { this.dbgAllMoves = !this.dbgAllMoves; if (this.hero && !this.yard && !this.prologue) this.hero.moves = this.dbgAllMoves ? ALL_MOVES : this.perks.moves; } },
-      { label: () => `全部名刀与信物：${this.dbgAllWeapons ? '开' : '关'}`, run: () => { this.dbgAllWeapons = !this.dbgAllWeapons; this.refreshHideoutProps(); } }],
+      { label: () => `全部名刀与信物：${this.dbgAllWeapons ? '开' : '关'}`, run: () => { this.dbgAllWeapons = !this.dbgAllWeapons; this.syncHideoutNpcs(); this.refreshHideoutProps(); } }],
       { regions: REGIONS.map(r => r.name), rooms: ri => REGIONS[ri].rooms, go: (ri, room, type) => { const r = this.jumpRegion(ri, room, type); return 'why' in r ? r.why : undefined; } });
     // the pause menu (act-30 之后, user: 「帮我把手柄的按键映射和手柄支持做了吧」): Start / Esc, a pad pulled out, the page hidden
     this.pause = new PauseMenu({ L: this.L, settings: [...SET.filter(x => __DEBUG_UI__ || !x.dbg).map(x => ({ label: x.short, run: x.run })), { id: 'language', label: () => '语言：简体中文', run: () => setLanguage(language === 'en' ? 'zh' : 'en') }], canGiveUp: () => this.canGiveUp(), giveUp: () => this.giveUp(), closed: () => this.unpaused(), toTitle: () => this.backToTitle(), onRun: () => this.canGiveUp(),
@@ -1585,9 +1843,25 @@ export class ActShow {
         this.refreshHideoutProps();
         return { id, lv: weaponLevel(p, id) };
       },
-      allWeapons: (on = true) => { this.dbgAllWeapons = on; this.refreshHideoutProps(); return on; },
+      allWeapons: (on = true) => { this.dbgAllWeapons = on; this.syncHideoutNpcs(); this.refreshHideoutProps(); return on; },
+      /** act-135: preview a hideout zone construction monument (run=false) or full 3D construction ceremony (run=true) */
+      revealZone: (zone: HideoutZoneId = 'forge', run = true) => {
+        const p = profile();
+        this.dbgAllWeapons = false;
+        delete p.seen[HIDEOUT_ZONES[zone].flag];
+        if (zone === 'forge') p.runs = Math.max(p.runs, 1);
+        else if (zone === 'garden') { p.runs = Math.max(p.runs, 2); delete p.garden; }
+        else { p.runs = Math.max(p.runs, 3); p.weapon = 'hanshan'; p.weaponLv = {}; }
+        saveProfile();
+        this.syncHideoutNpcs();
+        this.refreshHideoutProps();
+        if (run && this.phase === 'yard') void this.buildHideoutZone(zone);
+        return { zone, run, pending: hideoutProgress(p, this.dbgAllWeapons).pendingZones };
+      },
       gardenDemo: () => {
-        const p = profile(); const { state } = ensureGarden(p);
+        const p = profile();
+        seeOnce('build_garden');
+        const { state } = ensureGarden(p);
         state.unlocked = 5;
         state.plots = [
           { seed: 'xuanzhi', plantedAt: Date.now() - 36000000, rooms: 9 },
@@ -1597,6 +1871,8 @@ export class ActShow {
           null,
           null,
         ];
+        saveProfile();
+        this.syncHideoutNpcs();
         this.refreshHideoutProps();
         return true;
       },
@@ -2552,7 +2828,9 @@ export class ActShow {
     }
     if (this.pendingDeathTalk) {
       this.pendingDeathTalk = false;
-      const who = (['duwu', 'sunao', 'fengtiebi'] as const)[Math.floor(Math.random() * 3)];
+      const prog = hideoutProgress(profile(), this.dbgAllWeapons);
+      const speakers = prog.forgeBuilt ? (['duwu', 'sunao', 'fengtiebi'] as const) : (['duwu', 'sunao'] as const);
+      const who = speakers[Math.floor(Math.random() * speakers.length)];
       if (this.phase === 'yard') await this.talk(deathLine(who));
     }
   }
@@ -2571,10 +2849,14 @@ export class ActShow {
     const ring = HIDEOUT.dummies.reduce((a, d) => [a[0] + d[0] / HIDEOUT.dummies.length, a[1] + d[1] / HIDEOUT.dummies.length], [0, 0]);
     this.yard = new Yard(this.stage!.root, [], this.wearing, [0, 0], { pads: HIDEOUT.slabs.map(([x, z], i) => ({ x, z, kind: pk[i % pk.length][0], name: pk[i % pk.length][1] })), spawn: () => V3(ring[0] + (Math.random() - 0.5) * 2, 0, ring[1] - 1.2) });
     for (const [x, z] of HIDEOUT.dummies) { yield; const p = V3(x, 0, z), f = spawnFoe('dummy', p, V3(x, 0, z + 4)); f.st = 'move'; this.foes.push(f); }
-    // act-125: all 5 hideout companions now inhabit the expanded 断碑古窑 (杜五 / 孙媪 / 冯铁臂 / 卢昭 / 桓越)
-    yield* this.placeNpcs((['duwu', 'sunao', 'fengtiebi', 'luzhao', 'huanyue'] as const).map(id => ({ id, ...HIDEOUT.people[id] })));
-    // act-125 / act-132: interactive 3D voxel 文家刀廊, 信物匣 & 东翼竹溪药圃 6 块药畦 (+ 每日回流赠种)
-    { const { dailyGift } = ensureGarden(profile()); if (dailyGift.length) { saveProfile(); this.feed.push('boon', () => '孙媪每日赠种 · 东桥药圃可栽', 0, 'gd:daily'); } }
+    // act-135: progressive hideout companions & wings — runs=0 shows only 杜五 & 孙媪; 冯铁臂/卢昭/桓越 & new zones arrive via 落成工碑!
+    const prog = hideoutProgress(profile(), this.dbgAllWeapons);
+    yield* this.placeNpcs(prog.visibleNpcs.map(id => ({ id, ...HIDEOUT.people[id] })));
+    // act-132 / act-135: only grant daily garden seeds once 竹溪药圃 has been constructed
+    if (prog.gardenBuilt) {
+      const { dailyGift } = ensureGarden(profile());
+      if (dailyGift.length) { saveProfile(); this.feed.push('boon', () => '孙媪每日赠种 · 东桥药圃可栽', 0, 'gd:daily'); }
+    }
     this.refreshHideoutProps();
     // the stele of names: a cut down each name she has killed; unified hideout arrival queue handles fresh cuts & defeat talks cleanly
     { const p = profile(), down = bossesDown(p.seen), cut = struckOnStele(p.seen);
@@ -4551,17 +4833,19 @@ export class ActShow {
       this.banner.show(g.name, '并肩破阵 · 气血尽复', 1.5, '#ffe2a0');
     }
     if (this.prologue) { this.openDoors(); return; }   // act-29: the prologue's road just goes on
-    // act-132: dual-track garden growth (+1 step per combat room cleared) + seed drop
+    // act-132 / act-135: dual-track garden growth & seed drop only once 竹溪药圃 has been built
     {
       const p = profile();
-      const ripened = advanceGardenRooms(p, 1);
-      const isBoss = this.plan?.type === 'boss' && isBossRoom(this.region, this.room);
-      const drop = rollSeedDrop(isBoss ? 'boss' : 'room');
-      if (drop) addSeed(p, drop, 1);
-      if (ripened.length || drop) {
-        saveProfile();
-        for (const r of ripened) this.feed.push('boon', () => msg`药圃成熟 · ${r.name}`, 0, 'gd:ripe:' + r.id);
-        if (drop) this.feed.push('boon', () => msg`获药种 · ${SEEDS[drop].name}`, 0, 'gd:seed:' + drop);
+      if (hideoutProgress(p, this.dbgAllWeapons).gardenBuilt) {
+        const ripened = advanceGardenRooms(p, 1);
+        const isBoss = this.plan?.type === 'boss' && isBossRoom(this.region, this.room);
+        const drop = rollSeedDrop(isBoss ? 'boss' : 'room');
+        if (drop) addSeed(p, drop, 1);
+        if (ripened.length || drop) {
+          saveProfile();
+          for (const r of ripened) this.feed.push('boon', () => msg`药圃成熟 · ${r.name}`, 0, 'gd:ripe:' + r.id);
+          if (drop) this.feed.push('boon', () => msg`获药种 · ${SEEDS[drop].name}`, 0, 'gd:seed:' + drop);
+        }
       }
     }
     // 11-18 一局五关: a region's boss fell — region one's after-talk (褚雷) the first time; then the run is won (the last region) or the
@@ -4596,7 +4880,7 @@ export class ActShow {
   /** 11-20 解谜秘藏重赏：gold（稀世鎏金秘匣）与 mythic（传世赤金大秘藏）双档高价值奖励，绝不再“挠痒痒”！ */
   private async reward(tier: 'gold' | 'mythic' = 'gold') {
     this.rewardsGot++;
-    { const p = profile(), drop = rollSeedDrop('chest'); if (drop) { addSeed(p, drop, 1); saveProfile(); this.feed.push('boon', () => msg`秘藏药种 · ${SEEDS[drop].name}`, 0, 'gd:chest:' + drop); } }
+    { const p = profile(); if (hideoutProgress(p, this.dbgAllWeapons).gardenBuilt) { const drop = rollSeedDrop('chest'); if (drop) { addSeed(p, drop, 1); saveProfile(); this.feed.push('boon', () => msg`秘藏药种 · ${SEEDS[drop].name}`, 0, 'gd:chest:' + drop); } } }
     const dropPos = this.hero.pos.clone().add(V3(0, 0, -0.6));
     const canPick = this.phase === 'fight' || this.phase === 'doors';
     const boostMaxHp = (addMax: number, healFrac: number) => {
@@ -5188,16 +5472,24 @@ export class ActShow {
     h.a.update(dt); h.deathPose(); h.scriptPose?.(); for (const a of this.lineupActors) a.update(dt);
     if (this.labFn) { this.labT += dt; this.labFn(dt, this.labT); }
     const fw = this.foeWorld; fw.heroPos.copy(h.pos); fw.heroAlive = h.alive && (this.phase === 'fight' || this.phase === 'yard'); fw.heroY = h.y; fw.heroDodge = h.dodgeWin; fw.heroYaw = h.a.yaw; fw.pools = this.pools;
-    // act-20: the hideout's people — idle, and a word when the hero stands close and presses 斩
+    // act-20 / act-135: the hideout's people, 落成工碑 monuments & spring pop-in animations
     for (const n of this.npcs) n.a.update(dt);
+    this.tickSpringAnims(dt);
     if (this.phase === 'yard') {
       let near: string | null = null, nd = 1.9; for (const n of this.npcs) { const d = Math.hypot(n.x - h.pos.x, n.z - h.pos.z); if (d < nd) { nd = d; near = n.id; } }
+      for (const [zid] of this.zoneMonuments) {
+        const zm = HIDEOUT_ZONES[zid].monument;
+        const d = Math.hypot(zm.x - h.pos.x, zm.z + 0.55 - h.pos.z);
+        if (d < Math.min(nd, 2.2)) { nd = d; near = 'zone_' + zid; }
+      }
       if (this.stele && HIDEOUT.stele) { const d = Math.hypot(HIDEOUT.stele.x - h.pos.x, HIDEOUT.stele.z + 0.65 - h.pos.z); if (d < Math.min(nd, 1.65)) { nd = d; near = 'stele'; } }
       if (this.weaponRackMesh) { const d = Math.hypot(HIDEOUT.weaponRack.x - h.pos.x, HIDEOUT.weaponRack.z + 0.85 - h.pos.z); if (d < Math.min(nd, 2.0)) { nd = d; near = 'weaponRack'; } }
       if (this.keepsakeBoxMesh) { const d = Math.hypot(HIDEOUT.keepsakeBox.x - h.pos.x, HIDEOUT.keepsakeBox.z + 0.7 - h.pos.z); if (d < Math.min(nd, 1.65)) { nd = d; near = 'keepsakeBox'; } }
-      for (let gi = 0; gi < HIDEOUT.gardenPlots.length; gi++) {
-        const gp = HIDEOUT.gardenPlots[gi], d = Math.hypot(gp.x - h.pos.x, gp.z - h.pos.z);
-        if (d < Math.min(nd, 1.8)) { nd = d; near = 'garden_' + gi; }
+      if (this.gardenMeshes.length > 0) {
+        for (let gi = 0; gi < HIDEOUT.gardenPlots.length; gi++) {
+          const gp = HIDEOUT.gardenPlots[gi], d = Math.hypot(gp.x - h.pos.x, gp.z - h.pos.z);
+          if (d < Math.min(nd, 1.8)) { nd = d; near = 'garden_' + gi; }
+        }
       }
       this.npcNear = near;
       this.npcMarks(dt, near);

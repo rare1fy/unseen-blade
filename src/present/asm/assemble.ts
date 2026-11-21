@@ -4,7 +4,7 @@ import { finishBuild } from '../engine/buildSteps';
 // 不通过就记进 report.rejected，换下一个候选。所以组写错了尺寸、和别的东西撞了、悬空了、挡了战斗区，都不会进最终画面。
 import { VoxWorld } from '../look/voxkit';
 import { CELL } from '../bestiary/kit';
-import { AREA, PLAY, hash, SX, SZ, STAGE_BIG } from '../scenes/props';
+import { AREA, PLAY, M, hash, SX, SZ, STAGE_BIG } from '../scenes/props';
 import { plot, buildFlora } from '../scenes/flora';
 import type { Ctx, SceneDef } from '../scenes/stage';
 import type { Cards } from '../scenes/cards';
@@ -222,6 +222,7 @@ export function assemble(spec: Spec, reg: Registry): { def: SceneDef; report: Re
       }
       yield;
       loc.far?.(c, { layout, p: place(0, 0, 0, 3), arena: spec.arena });
+      southForegroundPass(c, spec);
       if (spec.season === 'winter' && !loc.noSnow) snowPass(c, walk);
       yield;
       buildFlora(c);
@@ -240,4 +241,180 @@ export function assemble(spec: Spec, reg: Registry): { def: SceneDef; report: Re
     },
   };
   return { def, report };
+}
+
+
+/**
+ * act-135 (用户：「出发的出口处景物要延申出去，所有的地图都要这样，不能一眼就是镜头背后的东西都没做，满足不遮挡的情况下适当补全」):
+ * Unified low-profile (y ≤ 8 cells ≈ 0.56 m, ZERO camera occlusion) 3D voxel foreground continuation
+ * extending south of PLAY.z1 across all 5 regions (黄巾 / 洛阳 / 下邳 / 乌林 / 崔府) so the camera-side edge
+ * always reads as a living, continuing world instead of a sharp void cut-off.
+ */
+function southForegroundPass(c: Ctx, spec: Spec) {
+  const loc = spec.locale;
+  const isHJ = loc.startsWith('hj_') || loc.startsWith('ninja_');
+  const isLY = loc.startsWith('ly_');
+  const isXP = loc.startsWith('xp_');
+  const isWL = loc.startsWith('wl_');
+  const isCX = loc.startsWith('cx_');
+  if (!isHJ && !isLY && !isXP && !isWL && !isCX) return;
+
+  const w = c.w, sd = spec.seed * 31 + 17;
+  const r = (k: number) => hash(sd, k, 521);
+  const zA = PLAY.z1 + 1.5, zB = AREA.z1 + 2.6;
+  const xMin = PLAY.x0 - 4.5, xMax = PLAY.x1 + 4.5;
+  if (zB <= zA + 1.0) return;
+
+  // Helper: check if ground voxel exists under footprint so nothing ever floats
+  const grounded = (X: number, Z: number, pad = 2) =>
+    w.has(X, -1, Z) && w.has(X - pad, -1, Z) && w.has(X + pad, -1, Z) && w.has(X, -1, Z - pad) && w.has(X, -1, Z + pad);
+  // Helper: ensure footprint isn't already occupied by an existing solid above floor
+  const emptyAbove = (X: number, Z: number, pad = 2) =>
+    !w.has(X, 0, Z) && !w.has(X - pad, 1, Z) && !w.has(X + pad, 1, Z) && !w.has(X, 1, Z - pad) && !w.has(X, 1, Z + pad);
+
+  // 1) Central southern approach road / avenue / jetty continuation (strictly flush y = -1..0, zero occlusion)
+  const cx = (PLAY.x0 + PLAY.x1) * 0.5;
+  const roadHW = isLY ? 2.4 : isCX ? 2.0 : isWL ? 1.8 : 1.7;
+  const Xr0 = M(cx - roadHW), Xr1 = M(cx + roadHW), Zr0 = M(PLAY.z1 + 0.6), Zr1 = M(zB + 0.8);
+  if (isHJ || isLY || isCX) {
+    const body = isLY ? 0x6c5e54 : isCX ? 0x707884 : 0x8a7558;
+    const edge = isLY ? 0x4e433c : isCX ? 0x525a66 : 0x6b5840;
+    const slab = isLY ? 0x84766a : isCX ? 0x8a929e : 0x9c8868;
+    for (let X = Xr0; X <= Xr1; X++) {
+      for (let Z = Zr0; Z <= Zr1; Z++) {
+        if (!w.has(X, -1, Z)) continue;
+        if (w.has(X, 0, Z)) continue;
+        const isEdge = X <= Xr0 + 1 || X >= Xr1 - 1;
+        const isSlab = !isEdge && Math.abs(X - M(cx)) <= 8 && ((Z % 14 + 14) % 14) <= 7;
+        w.set(X, -1, Z, isEdge ? edge : isSlab ? slab : body);
+      }
+    }
+  } else if (isWL) {
+    // Southern timber pier extension & flanking mooring posts rooted cleanly into river bed
+    const pX0 = M(cx - 1.3), pX1 = M(cx + 1.3), pZ0 = M(PLAY.z1 + 0.8), pZ1 = M(PLAY.z1 + 5.6);
+    for (let X = pX0; X <= pX1; X++) {
+      for (let Z = pZ0; Z <= pZ1; Z++) {
+        if (w.has(X, 0, Z)) continue;
+        const seam = ((Z % 6) + 6) % 6 === 0;
+        const rail = X === pX0 || X === pX1;
+        w.set(X, -1, Z, rail ? 0x3c281a : seam ? 0x4a3222 : 0x62442e);
+      }
+    }
+    for (const px of [pX0, pX1]) for (let pz = pZ0 + 6; pz <= pZ1; pz += 18) {
+      w.box(px, -4, pz, px + 1, 5, pz + 1, 0x382418);
+      w.box(px, 6, pz, px + 1, 6, pz + 1, 0x725036);
+    }
+  }
+
+  // 2) Region-themed low-profile foreground props scattered across both south flanks (strictly y <= 8!)
+  const count = isXP || isWL ? 16 : 20;
+  for (let i = 0; i < count; i++) {
+    const side = i % 2 === 0 ? -1 : 1;
+    const tx = cx + side * (roadHW + 1.1 + r(10 + i) * Math.max(2.0, (xMax - xMin) * 0.42 - roadHW));
+    const tz = zA + r(60 + i) * (zB - zA - 0.6);
+    if (tx < xMin || tx > xMax) continue;
+    const X = M(tx), Z = M(tz);
+
+    if (isXP) {
+      // Frozen Xiapi marshes: water-rooted timber mooring posts, low wet stone piers & drifting flat ice blocks
+      if (!emptyAbove(X, Z, 3)) continue;
+      if (!w.has(X, -1, Z)) {
+        if (i % 3 === 0) {
+          // Drifting low ice slab (rooted to -2 so zero floating voxel warnings)
+          w.box(X - 4, -2, Z - 3, X + 4, -1, Z + 3, 0x627c8e);
+          w.box(X - 3, 0, Z - 2, X + 3, 0, Z + 2, 0xb8d4e6);
+        } else {
+          // Wet dark-timber mooring piling cluster rooted down to y = -4
+          w.box(X - 1, -4, Z - 1, X + 1, 5, Z + 1, 0x3a2e28);
+          w.box(X - 1, 6, Z - 1, X + 1, 6, Z + 1, 0x5c4c42);
+          if (i % 2 === 0) w.box(X + 2, -4, Z, X + 3, 3, Z + 1, 0x2e2622);
+        }
+      } else if (grounded(X, Z, 3)) {
+        // Low wet limestone embankment boulder
+        w.box(X - 4, 0, Z - 3, X + 4, 3, Z + 3, 0x485058);
+        w.box(X - 3, 4, Z - 2, X + 3, 5, Z + 2, 0x646e78);
+        c.cards.add('reeds', tx + 0.5, tz, { y: 0, s: 0.7, tint: 0x9aa69a });
+      }
+      continue;
+    }
+
+    if (isWL) {
+      // Wulin Yangtze riverfront: rooted mooring bollards, floating supply rafts & low riverside barrels
+      if (!emptyAbove(X, Z, 3)) continue;
+      if (!w.has(X, -1, Z)) {
+        if (i % 3 === 0) {
+          // Floating lashed timber supply raft + low crate
+          w.box(X - 5, -2, Z - 4, X + 5, -1, Z + 4, 0x4a3220);
+          w.box(X - 5, 0, Z - 4, X + 5, 0, Z + 4, 0x68482e);
+          w.box(X - 2, 1, Z - 2, X + 2, 4, Z + 2, 0x825838);
+          w.box(X - 2, 5, Z - 2, X + 2, 5, Z + 2, 0xa2744a);
+        } else {
+          // Iron-capped mooring bollard pilings
+          w.box(X - 1, -4, Z - 1, X + 1, 5, Z + 1, 0x3a2618);
+          w.box(X - 1, 6, Z - 1, X + 1, 6, Z + 1, 0x4c525c);
+        }
+      } else if (grounded(X, Z, 2)) {
+        w.box(X - 2, 0, Z - 2, X + 2, 4, Z + 2, 0x72482c);
+        w.box(X - 2, 2, Z - 2, X + 2, 2, Z + 2, 0x383c44);
+      }
+      continue;
+    }
+
+    if (!grounded(X, Z, 3) || !emptyAbove(X, Z, 3)) continue;
+
+    if (isHJ) {
+      // Hanmo village / fields: low hay bundles, weathered boundary boulders, low wooden posts & autumn scrub
+      const kind = i % 4;
+      if (kind === 0) {
+        // Low hay bale / straw stack (y <= 6)
+        w.box(X - 4, 0, Z - 3, X + 4, 4, Z + 3, 0xb89648);
+        w.box(X - 3, 5, Z - 2, X + 3, 6, Z + 2, 0xd4b25c);
+      } else if (kind === 1) {
+        // Low weathered limestone boulder pair
+        w.box(X - 4, 0, Z - 3, X + 4, 3, Z + 3, 0x6e6a62);
+        w.box(X - 2, 4, Z - 2, X + 3, 5, Z + 2, 0x8a847a);
+      } else if (kind === 2) {
+        // Low broken timber fence stub (y <= 7)
+        w.box(X - 4, 0, Z, X - 3, 6, Z + 1, 0x4e3622);
+        w.box(X + 3, 0, Z, X + 4, 5, Z + 1, 0x4e3622);
+        w.box(X - 3, 3, Z, X + 3, 4, Z + 1, 0x6e4e32);
+      } else {
+        // Low autumn bush mound
+        w.box(X - 4, 0, Z - 4, X + 4, 3, Z + 4, 0x5c6836);
+        w.box(X - 3, 4, Z - 3, X + 3, 5, Z + 3, 0x7a8244);
+      }
+      c.cards.add(i % 2 ? 'grass' : 'weeds', tx + 0.6, tz + 0.3, { y: 0, s: 0.65, tint: 0xb8a878 });
+    } else if (isLY) {
+      // Luoyang scorched avenue: low broken column drums, charred timber stubs, scorched brick piles & extinguished iron braziers
+      const kind = i % 3;
+      if (kind === 0) {
+        w.box(X - 4, 0, Z - 4, X + 4, 3, Z + 4, 0x625a54);
+        w.box(X - 3, 4, Z - 3, X + 3, 6, Z + 3, 0x7c726a);
+      } else if (kind === 1) {
+        w.box(X - 5, 0, Z - 2, X + 5, 2, Z + 2, 0x2c2624);
+        w.box(X - 3, 3, Z - 1, X + 2, 3, Z + 1, 0x423632);
+      } else {
+        // Low iron brazier pedestal (unlit or faint coal bed, y <= 7)
+        w.box(X - 3, 0, Z - 3, X + 3, 3, Z + 3, 0x524c48);
+        w.box(X - 3, 4, Z - 3, X + 3, 6, Z + 3, 0x36343a);
+        w.box(X - 2, 7, Z - 2, X + 2, 7, Z + 2, 0xb84824);
+      }
+    } else if (isCX) {
+      // Cui Manor snowy courtyard: low carved stone balustrade piers, snow-capped Taihu rocks & trimmed low winter shrubs
+      const kind = i % 3;
+      if (kind === 0) {
+        // Low carved granite pier (y <= 7)
+        w.box(X - 3, 0, Z - 3, X + 3, 5, Z + 3, 0x666c78);
+        w.box(X - 4, 6, Z - 4, X + 4, 7, Z + 4, 0x868e9c);
+      } else if (kind === 1) {
+        // Snow-dusted Taihu garden rock
+        w.box(X - 4, 0, Z - 3, X + 4, 4, Z + 3, 0x545c66);
+        w.box(X - 3, 5, Z - 2, X + 2, 6, Z + 2, 0xdce4ee);
+      } else {
+        // Low snow-capped winter evergreen bush
+        w.box(X - 4, 0, Z - 4, X + 4, 4, Z + 4, 0x2e4638);
+        w.box(X - 3, 5, Z - 3, X + 3, 6, Z + 3, 0xd8e2ec);
+      }
+    }
+  }
 }

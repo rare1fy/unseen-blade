@@ -11,8 +11,8 @@ export const hash = (a: number, b: number, c = 0) => { let h = (a * 374761393 + 
 export type W = VoxWorld;
 export const pick = <T>(arr: T[], a: number, b = 0, c = 0) => arr[Math.floor(hash(a, b, c) * arr.length) % arr.length];
 
-/** the stage rectangle every scene floors (metres) and the clear battle area inside it */
-export const AREA = { x0: -11, x1: 11, z0: -13, z1: 8 };
+/** the stage rectangle every scene floors (metres) and the clear battle area inside it (act-135: extended south z1 8→13.5 so camera-side never clips into void) */
+export const AREA = { x0: -11, x1: 11, z0: -13, z1: 13.5 };
 export const PLAY = { x0: -5.2, x1: 5.4, z0: -6.4, z1: 5.6 };
 /** the original (act-01…18) stage; layouts and locales are written in these coordinates */
 const PLAY0 = { ...PLAY }, AREA0 = { ...AREA };

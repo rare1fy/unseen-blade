@@ -95,7 +95,7 @@ const CORNER = { X0: C(10.6), X1: C(13.8), Zp: C(-11.4), Zr: C(-11.0) }; // 孙�
 const SIDE = { X0: C(14.0), X1: C(14.6), Z1: C(-7.8) };
 const STOVE = { X: C(12.35), Z: C(-10.75) }, TABLE = { X: C(12.6), Z: C(-7.85) }, MAT = { X: C(9.8), Z: C(-10.2) };
 const HERB_BEDS: Array<[number, number]> = [[C(9.8), C(-5.8)], [C(12.2), C(-5.8)]];
-const CH = { X0: C(14.8), X1: C(15.8), Z1: C(17.5) };                    // east stone water channel
+const CH = { X0: C(14.8), X1: C(15.8), Z1: C(30.0) };                    // east stone water channel extending down the south valley
 const RAIL = { X: C(14.25), Z0: C(-3.6), Z1: C(2.8) };                   // 卢昭's waterside rail
 const STEP = { X: C(-11.2), Z: C(-11.2), hw: 18, rise: 5, run: 10 };     // 桓越's stone steps
 const LOGS = { x0: STEP.X + STEP.hw + 4, x1: KILN.X - 58, z0: C(-12.4), z1: C(-10.6) };
@@ -373,10 +373,10 @@ function ground(c: Ctx) {
     }
   };
 
-  // Broad mountain grass surround (expanded east to x=30 for Bamboo Stream Garden Terrace & south to z=21 for departure pass)
-  fill(-23, -14.0, 30, 21.0, GRASS[0]);
-  for (let i = 0; i < 64; i++) {
-    const x = -23 + r(i) * 53, z = -13 + r(50 + i) * 33, hw = 1.2 + r(100 + i) * 2.4, hd = 1.0 + r(150 + i) * 2.0;
+  // Broad mountain grass surround (expanded east to x=30 for Bamboo Stream Garden Terrace & south to z=31.0 so departure pass extends seamlessly past camera)
+  fill(-23, -14.0, 30, 31.0, GRASS[0]);
+  for (let i = 0; i < 84; i++) {
+    const x = -23 + r(i) * 53, z = -13 + r(50 + i) * 43, hw = 1.2 + r(100 + i) * 2.4, hd = 1.0 + r(150 + i) * 2.0;
     fill(snap(x - hw), snap(z - hd), snap(x + hw), snap(z + hd), r(200 + i) < 0.6 ? GRASS[1] : GRASS[2]);
   }
   fill(-15.4, -13.2, 14.8, 10.9, K.earth);
@@ -444,11 +444,16 @@ function ground(c: Ctx) {
   flagstones(16.4, -1.5, 20.4, 0.6, 10, 10, 33);
   stepRunZ(20.1, -6.2, 4.4, 6, 11, 4, 37);
 
-  // 南门出征山道：从南门 z=10.9 延伸至路的真正尽头 z=16.0（彻底去掉尽头之后的多余空路！）
+  // 南门出征山道：从南门 z=10.9 延伸至双石阙出发点 z=16.0，再自然延展为下山车辙土道直抵 z=30.5（绝不露空断崖，且中路完全低矮无遮挡！）
   fill(-1.15, 10.9, 1.95, 16.05, K.path);
   stepRunZ(0.4, 10.9, 15.65, 12, 10, 4, 23);
-  flagstones(-1.05, 15.45, 1.85, 16.15, 10, 8, 43); // dressed stone threshold at the true end of the departure road!
+  flagstones(-1.05, 15.45, 1.85, 16.15, 10, 8, 43); // dressed stone threshold at the departure piers
   for (const X of [C(-1.15), C(1.95)]) for (let Z = C(11.0); Z <= C(16.1); Z++) w.set(X, -1, Z, (Z % 12 < 3) ? K.stoneD : K.earthD);
+  // Continuing mountain pass road south of the departure piers (z = 16.2..30.5)
+  fill(-1.35, 16.15, 2.15, 30.5, K.path);
+  stepRunZ(0.4, 16.5, 22.5, 9, 8, 12, 53);
+  for (const X of [C(-1.35), C(2.15)]) for (let Z = C(16.2); Z <= C(30.5); Z++) w.set(X, -1, Z, (Z % 16 < 3) ? K.stoneD : K.earthD);
+  for (const X of [C(-0.55), C(1.25)]) for (let Z = C(16.6); Z <= C(30.5); Z++) { w.set(X, -1, Z, K.rut); w.set(X + 1, -1, Z, K.rut); }
 }
 
 // ------------------------------------------------------------------ the build
@@ -580,11 +585,40 @@ function* build(c: Ctx, o: { time: HideoutTime; weather: HideoutWeather }) {
     w.box(X - r2 + 2, 6, Z - r2 + 2, X + r2 - 2, 9, Z + r2 - 2, 0x647d40);
     w.box(X - r2 + 4, 10, Z - r2 + 4, X + r2 - 4, 11, Z + r2 - 4, 0x7a944c);
   }
-  // Mountain pass flanking boulders at the departure road's far end (natural cliff-mouth framing)
+  // Mountain pass flanking boulders & low-profile southern valley continuation (z = 16.2..28.5, low height so NEVER blocks camera sightline!)
   stoneCluster(c, C(-3.8), C(16.2));
   stoneCluster(c, C(4.6), C(16.4));
   stoneCluster(c, C(-9.2), C(12.2));
   stoneCluster(c, C(9.6), C(12.4));
+  for (const [bx, bz] of [
+    [-3.6, 19.6], [4.4, 20.2], [-4.8, 23.6], [5.2, 24.4], [-3.4, 27.2], [4.6, 27.6],
+    [-10.4, 19.8], [10.6, 20.5], [-12.2, 24.8], [11.8, 25.2], [13.8, 22.0], [16.8, 23.5],
+  ] as const) {
+    const X = C(bx), Z = C(bz);
+    w.box(X - 5, 0, Z - 4, X + 5, 3, Z + 4, K.stoneD);
+    w.box(X - 4, 4, Z - 3, X + 4, 6, Z + 3, K.stone);
+    w.box(X - 2, 7, Z - 2, X + 2, 7, Z + 2, K.stoneL);
+  }
+  // Low roadside timber guide posts along the downward pass (y <= 7, crisp trail readability, zero occlusion)
+  for (const pz of [18.4, 21.8, 25.2, 28.4]) {
+    for (const px of [-2.0, 2.75]) {
+      const X = C(px), Z = C(pz);
+      w.box(X, 0, Z, X + 1, 6, Z + 1, HV.post);
+      w.box(X, 7, Z, X + 1, 7, Z + 1, HV.woodL);
+    }
+  }
+  // Low autumn scrub mounds across the outer southern valley (y <= 8)
+  for (const [bx, bz, r2] of [
+    [-7.2, 18.8, 7], [7.8, 19.0, 7], [-8.6, 22.8, 8], [8.8, 23.4, 8],
+    [-6.2, 26.8, 7], [7.2, 27.2, 7], [-14.2, 21.4, 8], [18.6, 19.5, 8],
+  ] as const) {
+    const X = C(bx), Z = C(bz);
+    w.box(X - r2, 0, Z - r2, X + r2, 4, Z + r2, 0x4f6434);
+    w.box(X - r2 + 2, 5, Z - r2 + 2, X + r2 - 2, 7, Z + r2 - 2, 0x647d40);
+  }
+  // Outer-flank low bamboo far from the road center so the departure valley looks lush & infinite
+  grove(c, -18.5, 19.5, -7.8, 29.0, 28, 25, [3.2, 4.8]);
+  grove(c, 8.6, 19.5, 22.0, 29.0, 32, 26, [3.2, 4.8]);
   // Mount Song limestone cliff outcrops
   cliffOutcrop(c, C(-13.8), T1.h + 1, C(-15.4), 24, 14, 24);
   cliffOutcrop(c, C(-20.0), T2.h + 1, C(-18.6), 28, 18, 30);
@@ -626,12 +660,12 @@ function* build(c: Ctx, o: { time: HideoutTime; weather: HideoutWeather }) {
   const card = (kind: string, x: number, z: number, s: number, tint?: number) => { const y = surface(c, x, z); if (y != null) c.cards.add(kind, x, z, { y, s, tint }); };
   for (let i = 0; i < 28; i++) { const x = -4.6 + hash(i, 1, 9) * 7.4, z = -16.0 + hash(i, 2, 9) * 3.3; card(i % 3 ? 'weeds' : 'grass', x, z, 0.55 + hash(i, 3, 9) * 0.3, 0xb0a078); }
   for (let i = 0; i < 110; i++) { const x = -22 + hash(i, 4, 9) * 44, z = -20 + hash(i, 5, 9) * 7.0; if (Math.abs(x + 1.0) < 4.0 && z > -16.2) continue; card(i % 4 ? 'grass' : 'weeds', x, z, 0.5 + hash(i, 6, 9) * 0.4, i % 2 ? 0xc8b890 : 0xb4a878); }
-  for (let i = 0; i < 56; i++) { const z = -12.0 + hash(i, 7, 9) * 28, x = hash(i, 8, 9) < 0.5 ? 16.0 + hash(i, 9, 9) * 0.6 : 14.4 + hash(i, 10, 9) * 0.2; if (z > -2.2 && z < 1.4) continue; if (x < 14.8 && z < 3.0 && z > -4.0) continue; card('reeds', x, z, 0.6 + hash(i, 11, 9) * 0.5, 0xb8b088); }
-  for (let i = 0; i < 420; i++) {
-    const x = -22 + hash(i, 15, 9) * 50, z = -13 + hash(i, 16, 9) * 33;
+  for (let i = 0; i < 72; i++) { const z = -12.0 + hash(i, 7, 9) * 41, x = hash(i, 8, 9) < 0.5 ? 16.0 + hash(i, 9, 9) * 0.6 : 14.4 + hash(i, 10, 9) * 0.2; if (z > -2.2 && z < 1.4) continue; if (x < 14.8 && z < 3.0 && z > -4.0) continue; card('reeds', x, z, 0.6 + hash(i, 11, 9) * 0.5, 0xb8b088); }
+  for (let i = 0; i < 520; i++) {
+    const x = -22 + hash(i, 15, 9) * 50, z = -13 + hash(i, 16, 9) * 43;
     if (x > -15.4 && x < 14.8 && z < 11.0) continue;
     if (x > 16.2 && x < 24.0 && z > -7.8 && z < 5.8) continue; // keep eastern Bamboo Stream Garden Terrace crisp & clean!
-    if (x > -1.4 && x < 2.2 && z > 10.6 && z < 16.4) continue; // keep south departure road clean!
+    if (x > -1.5 && x < 2.3 && z > 10.6 && z < 30.2) continue; // keep south departure road & continuing mountain pass clean!
     const isFlank = x < -15.4 || x > 23.8 || z > 11.4;
     card(isFlank && i % 3 === 0 ? 'vtuft' : (i % 5 ? 'grass' : 'weeds'), x, z, 0.48 + hash(i, 17, 9) * 0.42, isFlank ? (i % 2 ? 0x9eb878 : 0xb8c488) : (i % 3 ? 0xc8b890 : 0xa8b080));
   }
