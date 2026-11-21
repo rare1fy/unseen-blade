@@ -9,13 +9,13 @@
 //   · 调试：__dh.regionFoe(kind, elite)；__dh.r45()（拼某关某间用 show.ts 的 __dh.region(n, room, type) / __dh.boss(n)，n 从 0 起）。
 import * as THREE from 'three';
 import { V3, R } from '../../engine/world';
-import { after, shake } from '../../engine/clock';
+import { shake } from '../../engine/clock';
 import { dh } from '../../../debug/dh';
 import { cue } from '../../../audio/cues';
 import { audio } from '../../../audio/audio';
-import { fxSmoke, fxRing, fxEmbers } from '../../fx/fx';
+import { fxEmbers } from '../../fx/fx';
 import { GRADE } from '../../look/post';
-import { PLAY, SZ } from '../../scenes/props';
+import { PLAY } from '../../scenes/props';
 import { addLocales } from '../../asm/registry';
 import { FOE_AI, FOE_X, EDEFS, hiddenFoe, spawnFoe, isBoss, type Foe, type FoeWorld, type EKind } from '../enemy';
 import { r45Frame, r45Clear, FirePatch, GroundBlow, deafAt } from '../foes/r45_ai';
@@ -78,24 +78,12 @@ export function installR45(show: unknown) {
   Object.defineProperty(S.heroWorld, 'foes', { get: () => given.filter(f => !hiddenFoe(f)), set: (v: Foe[]) => { given = v; }, configurable: true });
   const hudUp = S.hud.update.bind(S.hud);
   S.hud.update = (dt: number, inp: unknown, foes: Foe[]) => hudUp(dt, inp, foes.filter(f => !hiddenFoe(f) || isBoss(f)));
-  // ---- the boss of region four / five comes in its own way: the banner, a roar, its line over its head (no 褚雷 cutscene)
-  const spawn0 = S.spawnWave.bind(S);
-  S.spawnWave = () => {
-    const wave: string[] = S.plan?.waves?.[S.wave] ?? [], bi = wave.findIndex(k => { const id = k.replace('*', '') as EKind; return id === 'wl_boss' || id === 'cx_boss'; });
-    if (bi < 0) { spawn0(); return; }
-    const kind = wave[bi].replace('*', '') as EKind, rest = wave.filter((_, i) => i !== bi);
-    S.plan.waves[S.wave] = rest; spawn0(); S.plan.waves[S.wave] = wave;
-    after(rest.length * 0.28 + 0.2, () => {
-      if (S.phase !== 'fight' || (S as unknown as { bossDefeated?: boolean }).bossDefeated) return;
-      const p = V3(0, 0, SZ(-4.6)), f = spawnFoe(kind, p, S.hero.pos.clone()); all.push(f);
-      fxSmoke(p.clone().add(V3(0, 0.3, 0)), 0x6a6a74, 14, { r: 0.7, spd: 1.2, up: 0.6, s: 0.4, life: 0.7 }); fxRing(p.clone().setY(0.05), 0xff7a4a, 1.2, { life: 0.4 } as never);
-      cue('roar', 0.9); f.a.roar(); shake(0.3 * TUNE.shake); f.cd = 2.2;
-      // (11-19 剧情改版: the first time on this save, or the prologue's 崔玄 — the meeting cutscene and the talk; else the banner)
-      if ((S as unknown as { bossArrived?: (f: unknown) => boolean }).bossArrived?.(f)) return;
-      S.banner.show(EDEFS[kind].name, EDEFS[kind].tag ?? '', 2.2, '#ff8a6a');
-      const line = ARRIVAL[kind]; if (line) after(1.0, () => { if (f.st !== 'dead') S.barks?.say(() => f.a.head(), line); });
-    });
-  };
+  // ---- act-146: wire Region 4/5 boss arrival lines onto EDEFS so wl_boss & cx_boss use show.ts's unified boss spawn/drop/intro pipeline
+  // (removing the old delayed S.spawnWave monkey-patch that let fast late-game players clear escorts before the boss spawned, skipping the boss fight & stranding his model!)
+  for (const [k, line] of Object.entries(ARRIVAL)) {
+    const def = EDEFS[k as EKind];
+    if (def && !def.intro && line) def.intro = line;
+  }
   // ---- the hidden ones do not shove her (separate() pushes bodies apart): out of the list while it runs
   const sep0 = S.separate.bind(S);
   S.separate = () => { const hid = all.filter(f => hiddenFoe(f)); if (!hid.length) { sep0(); return; } for (const f of hid) all.splice(all.indexOf(f), 1); try { sep0(); } finally { all.push(...hid); } };

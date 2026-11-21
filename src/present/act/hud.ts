@@ -31,7 +31,6 @@ type AnyBtn = SkinBtn | IronBtn; type AnyHp = SkinHp | IronHp;
  *  tablet, a 秘传 a stud of its tier's metal (iron / bronze / gold); a passive one sits by the health bar. A new mark lands with a ring
  *  of light round its button (once, soft — act-35 「闪光太严重了」) */
 export interface Mark { id: string; target: MarkTarget; kind: 'manual' | 'boon'; tier: number; col: number }
-const MARK_COL = { manual: 0x6ad8b0, boon: [0x8a929e, 0xd29a4a, 0xffd86a] };
 
 interface Bar {
   g: THREE.Group; back: THREE.Mesh; lag: THREE.Mesh; fill: THREE.Mesh; shown: number; lagV: number; hold: number;
@@ -132,6 +131,11 @@ export class ActHud {
   /** act-118: live combo variety readout & active archetype synergy pills */
   combo = { hits: 0, bonus: 0, frac: 0 };
   synergies: Array<{ name: string; count: number; col: string }> = [];
+  /** act-146: clean readable learned-moves & boons build summary (replaces cluttered orbiting dots around buttons) */
+  buildInfo: { manuals: string[]; boonCount: number } = { manuals: [], boonCount: 0 };
+  onOpenOwned: (() => void) | null = null;
+  private buildStripRect = { x: 0, y: 0, w: 0, h: 0 };
+  private buildPid: number | null = null;
   stickHome = { x: 150, y: 600 }; stickSize = 150; k = 1; on = true; private W = 1280; private H = 720;
   /** 11-19 获得提示: the top-left of the reward column, under the portrait's purse */
   feedAt = { x: 18, y: 112 };
@@ -164,20 +168,12 @@ export class ActHud {
     this.build();
   }
   // ---------------------------------------------------------------- the marks of what this run has taken
-  private marks2: Mark[] = []; private markMesh = new Map<string, THREE.Mesh>(); private ringFx: Array<{ m: THREE.Mesh; t: number; target: MarkTarget }> = [];
-  /** the marks of this run (show.ts sets the whole list: a new run clears it) */
+  private marks2: Mark[] = []; private ringFx: Array<{ m: THREE.Mesh; t: number; target: MarkTarget }> = [];
+  /** the marks of this run (show.ts sets the whole list: a new run clears it).
+   *  act-146: never clutter the 4 skill buttons with orbiting dot rings that cover the Qi energy pips;
+   *  instead display learned manuals & boon count cleanly in the top-left build strip (with [Tab]/click quick-inspect). */
   setMarks(list: Mark[]) {
-    const keep = new Set(list.map(m => m.id));
-    for (const [id, m] of this.markMesh) if (!keep.has(id)) { m.parent?.remove(m); m.geometry.dispose(); (m.material as THREE.Material).dispose(); this.markMesh.delete(id); }
     this.marks2 = list.map(m => ({ ...m }));
-    for (const m of this.marks2) {
-      const col = m.kind === 'manual' ? MARK_COL.manual : MARK_COL.boon[m.tier] ?? MARK_COL.boon[0], old = this.markMesh.get(m.id);
-      if (old) { (old.material as THREE.MeshLambertMaterial).color.setHex(col); continue; }
-      // a jade tablet stands tall, a stud is square: you can count which is which
-      const geo = m.kind === 'manual' ? new THREE.BoxGeometry(0.7, 1.15, 0.45) : new THREE.BoxGeometry(0.85, 0.85, 0.5);
-      const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: col, emissive: col, emissiveIntensity: 0.18 })); mesh.userData.noTilt = true; mesh.renderOrder = 6;
-      this.L.scene.add(mesh); this.markMesh.set(m.id, mesh);
-    }
   }
   /** a card has landed on its button: a ring of light round it, once */
   markLanded(target: MarkTarget, col: number) {
@@ -188,22 +184,6 @@ export class ActHud {
   /** where a target sits on the screen and how big (the card flies there) */
   targetAt(t: MarkTarget) { if (t === 'hp') { const p = this.flask.barAt(); return { x: p.x - 120 * this.k, y: p.y, size: 60 * this.k }; } const b = this.btns[t]; return { x: b.x, y: b.y, size: b.size }; }
   private markFrame(dt: number) {
-    // the marks: in a short row on the button's outer side, under its rim (beside the lamps of 气 / the darts, not over them)
-    const by = new Map<MarkTarget, Mark[]>(); for (const m of this.marks2) { const a = by.get(m.target) ?? []; a.push(m); by.set(m.target, a); }
-    for (const [t, list] of by) {
-      const at = this.targetAt(t), cell = Math.max(7, 9 * this.k);
-      list.forEach((m, i) => {
-        const mesh = this.markMesh.get(m.id); if (!mesh) return;
-        let x: number, y: number;
-        if (t === 'hp') { x = at.x + 40 * this.k + i * cell * 1.25; y = at.y + 26 * this.k; }
-        else {
-          // round the lower-left of the button, along its rim (clockwise from 7 o'clock), so they read as studs set into it
-          const a = Math.PI * (0.68 + 0.11 * i), r = at.size * 0.56; x = at.x + Math.cos(a) * r; y = at.y + Math.sin(a) * r;
-        }
-        this.L.at(x, y, 4, mesh.position); mesh.scale.setScalar(this.L.px(cell)); mesh.visible = this.on;
-        mesh.rotation.set(0.25, -0.3, 0);
-      });
-    }
     for (let i = this.ringFx.length - 1; i >= 0; i--) {
       const r = this.ringFx[i]; r.t += dt; const k = r.t / 0.55, at = this.targetAt(r.target);
       if (k >= 1) { r.m.parent?.remove(r.m); r.m.geometry.dispose(); (r.m.material as THREE.Material).dispose(); this.ringFx.splice(i, 1); continue; }
@@ -279,9 +259,14 @@ export class ActHud {
     const b = f.barAt(), x0 = b.x - f.W * this.k / 2; return x > x0 - 10 && x < x0 + 70 * this.k && y > b.y - 30 * this.k && y < b.y + 60 * this.k;
   }
   private setBadgeDown(on: boolean) { if (this.flask instanceof IronHp) this.flask.down = on; }
+  private hitBuildStrip(x: number, y: number) {
+    const r = this.buildStripRect;
+    return r.w > 0 && x >= r.x - 6 && x <= r.x + r.w + 8 && y >= r.y - 6 && y <= r.y + r.h + 6;
+  }
   /** a finger let go (whatever screen took the touch): its button, the stick, the portrait are freed */
   lift(id: number, inp: Input) {
     if (this.pausePid === id) { this.setBadgeDown(false); this.pausePid = null; }
+    if (this.buildPid === id) this.buildPid = null;
     for (const b of Object.values(this.btns)) if (b.pid === id) { b.down = false; b.pid = null; }
     inp.releaseAll(id);
   }
@@ -292,6 +277,10 @@ export class ActHud {
     if (type === 'down' && this.pausePid === null && this.hitBadge(x, y)) { this.setBadgeDown(true); this.pausePid = id; return true; }
     if (this.pausePid === id && (type === 'up' || type === 'cancel')) { const fire = type === 'up' && this.hitBadge(x, y); this.setBadgeDown(false); this.pausePid = null; if (fire) this.onPause?.(); return true; }
     if (this.pausePid === id && type === 'move') { this.setBadgeDown(this.hitBadge(x, y)); return true; }
+    // act-146: clicking/tapping the top-left learned-moves build strip opens the full 3D 已得 skill sheet directly
+    if (type === 'down' && this.buildPid === null && this.onOpenOwned && this.hitBuildStrip(x, y)) { this.buildPid = id; return true; }
+    if (this.buildPid === id && (type === 'up' || type === 'cancel')) { const fire = type === 'up' && this.hitBuildStrip(x, y); this.buildPid = null; if (fire) this.onOpenOwned?.(); return true; }
+    if (this.buildPid === id && type === 'move') return true;
     if (type === 'down') {
       for (const b of Object.values(this.btns)) {
         if (b === this.btns.ult && !this.ultUp) continue;
@@ -548,14 +537,43 @@ export class ActHud {
       this.L.text.hide('act.combo'); this.L.text.hide('act.comboSub');
     }
     const fk = Math.max(0.68, 0.88 * this.k), topBase = Math.max(44, 54 * this.k);
+    const leftX = Math.max(20, 48 * this.k - 16 * fk);
+    let curY = topBase + 104 * fk;
+    const rowPx = Math.max(15, Math.round(16 * this.k));
     if (this.on && this.synergies.length) {
       const synTxt = this.synergies.map(s => `${localize(s.name)}(${s.count})`).join(' · ');
-      this.L.text.set('act.syn', { text: synTxt, x: Math.max(20, 48 * this.k - 16 * fk), y: topBase + 104 * fk, bodyPx: Math.max(16, Math.round(18 * this.k)), color: this.synergies[0].col, outline: '#140c0a', align: 'left', visible: true });
-      this.feedAt.y = topBase + 136 * fk;
+      this.L.text.set('act.syn', { text: synTxt, x: leftX, y: curY, bodyPx: Math.max(16, Math.round(18 * this.k)), color: this.synergies[0].col, outline: '#140c0a', align: 'left', visible: true });
+      curY += 26 * fk;
     } else {
       this.L.text.hide('act.syn');
-      this.feedAt.y = topBase + 106 * fk;
     }
+    // act-146: clean readable learned-moves & boons strip (zero orbiting button clutter; clickable / [Tab] to inspect full 3D skill sheet)
+    const ms = this.buildInfo.manuals, bc = this.buildInfo.boonCount;
+    if (this.on && (ms.length > 0 || bc > 0)) {
+      const stripTop = curY - rowPx * 0.5;
+      let maxW = 0;
+      if (ms.length > 0) {
+        const shown = ms.slice(0, 4).map(m => localize(m)).join(' · ');
+        const more = ms.length > 4 ? ` +${ms.length - 4}` : '';
+        const mTxt = `${localize('刀谱')}：${shown}${more}`;
+        this.L.text.set('act.buildM', { text: mTxt, x: leftX, y: curY, bodyPx: rowPx, color: '#8ce2c6', outline: '#140c0a', align: 'left', visible: true });
+        maxW = Math.max(maxW, bodyW(mTxt, rowPx));
+        curY += 22 * fk;
+      } else {
+        this.L.text.hide('act.buildM');
+      }
+      const cueTxt = wantTouch ? localize('点此详览') : dev === 'pad' ? localize('暂停详览') : `[Tab] ${localize('详览')}`;
+      const bTxt = bc > 0 ? `${localize('秘传')} ${bc} · ${cueTxt}` : `${localize('已习招式')} · ${cueTxt}`;
+      this.L.text.set('act.buildB', { text: bTxt, x: leftX, y: curY, bodyPx: Math.max(14, Math.round(15 * this.k)), color: '#e6cf9c', outline: '#140c0a', align: 'left', visible: true });
+      maxW = Math.max(maxW, bodyW(bTxt, Math.max(14, Math.round(15 * this.k))));
+      curY += 24 * fk;
+      this.buildStripRect = { x: leftX, y: stripTop, w: maxW, h: curY - stripTop };
+    } else {
+      this.L.text.hide('act.buildM');
+      this.L.text.hide('act.buildB');
+      this.buildStripRect = { x: 0, y: 0, w: 0, h: 0 };
+    }
+    this.feedAt.y = Math.max(topBase + 106 * fk, curY + 6 * fk);
     // bars over the foes (the chief: the long bar at the top instead; elites: larger forged-gold framed bar + '精英' tag)
     const live = new Set<number>(), liveElites = new Set<number>();
     const elPk = Math.max(1, Math.round(Math.max(11, 12 * this.k) * dprH / PIX_H));

@@ -132,6 +132,8 @@ export class PauseMenu {
   on = false; page: Page = 'main'; private sel = 0; private rows: Row[] = []; private slabs: Slab[] = []; private t = 0; private openT = 0;
   /** opened over the start screen: no world to pause, 返回 on the settings page closes it */
   private fromTitle = false;
+  /** act-146: opened directly to 已得 via [Tab] or HUD build strip — back / Tab / Esc closes straight to gameplay */
+  private quickClose = false;
   private head: Sign; private foot: Sign; private marker: THREE.Mesh; private markerK = 0; private fade = 0;
   /** the key row waiting for a new key: which row, real seconds left, the pad's buttons when it started */
   private wait: { i: number; t: number; prev: boolean[] } | null = null;
@@ -150,8 +152,8 @@ export class PauseMenu {
     }
     onRealUpdate(rdt => this.update(rdt));
   }
-  open(page: Page = 'main', o: { fromTitle?: boolean } = {}) {
-    this.fromTitle = !!o.fromTitle; this.on = true; PAUSE.menu = true; if (!this.fromTitle) PAUSE.on = true;
+  open(page: Page = 'main', o: { fromTitle?: boolean; quickClose?: boolean } = {}) {
+    this.fromTitle = !!o.fromTitle; this.quickClose = !!o.quickClose; this.on = true; PAUSE.menu = true; if (!this.fromTitle) PAUSE.on = true;
     this.openT = 0; this.wait = null; padNav.sync(); cue('scroll', 0.6);
     this.go(page, true);
   }
@@ -201,7 +203,7 @@ export class PauseMenu {
   private back() {
     if (this.previewing) { this.host.stopPreview?.(); cue('deselect', 0.4); return; }
     if (this.wait) { this.wait = null; cue('deselect', 0.4); return; }
-    if (this.page === 'main' || (this.page === 'set' && this.fromTitle)) { this.close(); return; }
+    if (this.page === 'main' || (this.page === 'set' && this.fromTitle) || (this.page === 'owned' && this.quickClose)) { this.close(); return; }
     const was = this.page; cue('deselect', 0.4); this.go('main');
     this.sel = Math.max(0, this.rows.findIndex(r => r.id === (was === 'ask' ? 'quit' : was === 'askTitle' ? 'title' : was)));   // back on the row it came from
   }
@@ -231,7 +233,7 @@ export class PauseMenu {
   private key(e: KeyboardEvent) {
     const k = e.key.toLowerCase();
     if (!this.on || e.ctrlKey || e.metaKey || e.altKey || /^f\d+$/.test(k)) return;
-    const nav = ['arrowup', 'w', 'arrowdown', 's', 'enter', ' ', 'j', 'escape', 'backspace'].includes(k) || (this.inList && (k === 'pageup' || k === 'pagedown'));
+    const nav = ['arrowup', 'w', 'arrowdown', 's', 'enter', ' ', 'j', 'escape', 'backspace'].includes(k) || (this.inList && (k === 'pageup' || k === 'pagedown' || k === 'tab'));
     if (!this.wait && !nav) return;
     e.preventDefault(); e.stopImmediatePropagation(); e.stopPropagation();
     if (e.repeat && !this.inList) return;

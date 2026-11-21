@@ -69,23 +69,36 @@ export function xpFloor(c: Ctx, f: { layout: Layout; p: Place }, pools: Rect[], 
   const PB = { x0: PLAY.x0 - band, x1: PLAY.x1 + band, z0: PLAY.z0 - band, z1: PLAY.z1 + 2 };
   for (let X = X0; X <= X1; X++) for (let Z = Z0; Z <= Z1; Z++) {
     const x = (X + 0.5) * CELL, z = (Z + 0.5) * CELL;
-    if (pools.some(q => inR(q, x, z))) continue;
+    // act-146: walkable shallow puddles (pools) keep visible wet sunken flagstones underneath instead of looking like bottomless deep canals!
+    if (pools.some(q => inR(q, x, z))) { w.set(X, -1, Z, slabs(X, Z, 10, 10, XP.shore, XP.dark)); continue; }
     const inP = inR(PB, x, z), path = f.layout.path.find(q => inR(q, x, z)) ?? null;
     // (the place's own structure on the battle floor — the lane's boardwalk — runs right up to the water, no stone rim)
-    // the pool's edge: one cell of dark wet stone at the water, then one of a pale kerb (frames the water in every light, night too)
-    if (!o.keep?.(x, z) && pools.some(q => inR(q, x, z, rim))) { w.set(X, -1, Z, pools.some(q => inR(q, x, z, CELL * 1.01)) ? XP.shore : XP.kerb); continue; }
+    // the pool's edge: one cell of dark wet stone at the water, then one of a pale kerb (frames the shallow puddle in every light)
+    if (!o.keep?.(x, z) && pools.some(q => inR(q, x, z, rim))) { w.set(X, -1, Z, pools.some(q => inR(q, x, z, CELL * 1.01)) ? XP.slabW : XP.kerb); continue; }
     const col = pave(X, Z, x, z, inP ? 'play' : path ? 'path' : 'rest', path);
     if (col != null) w.set(X, -1, Z, col);
   }
+  // Thin translucent ankle-deep puddle glaze over each walkable pool (stone slabs & joints remain clearly visible underneath!)
+  if (pools.length) {
+    const pMat = attachCraftWater(new THREE.MeshStandardMaterial({ color: 0x3a5462, roughness: 0.14, metalness: 0.28, transparent: true, opacity: 0.36, depthWrite: false, emissive: new THREE.Color(0x0c1820) }));
+    for (const q of pools) {
+      const pw = Math.max(0.2, q.x1 - q.x0 - CELL * 0.4), pd = Math.max(0.2, q.z1 - q.z0 - CELL * 0.4);
+      const pm = new THREE.Mesh(new THREE.PlaneGeometry(pw, pd), pMat);
+      pm.rotation.x = -Math.PI / 2;
+      pm.position.set((q.x0 + q.x1) / 2, 0.012, (q.z0 + q.z1) / 2);
+      pm.renderOrder = 2; pm.receiveShadow = true;
+      c.add(pm);
+    }
+  }
   waterPlanes(c);
 }
-/** the bed and the surface (once per stage). The surface is this region's own (not c.water's): dark teal-grey, glossy, a little
- *  metal, so the cold sky and the moon slide over it as a sheen and the pools read as deep wet holes in the paving, not as rugs */
+/** the deep flood bed and surface (once per stage). Recessed at y = -0.52 m so impassable deep canals (~ PIT) show their true
+ *  stone embankment drop-off and can never be confused with walkable shallow puddles on the paved street. */
 export function waterPlanes(c: Ctx) {
   const bed = new THREE.Mesh(new THREE.PlaneGeometry(150, 150), new THREE.MeshLambertMaterial({ color: XP.bed }));
-  bed.rotation.x = -Math.PI / 2; bed.position.y = -0.12; bed.receiveShadow = true; c.add(bed);
-  const top = new THREE.Mesh(new THREE.PlaneGeometry(150, 150), attachCraftWater(new THREE.MeshStandardMaterial({ color: XP.water, roughness: 0.18, metalness: 0.35, transparent: true, opacity: 0.86, emissive: new THREE.Color(0x0a1216) })));
-  top.rotation.x = -Math.PI / 2; top.position.y = -0.045; top.renderOrder = 2; top.receiveShadow = true; c.add(top);
+  bed.rotation.x = -Math.PI / 2; bed.position.y = -0.78; bed.receiveShadow = true; c.add(bed);
+  const top = new THREE.Mesh(new THREE.PlaneGeometry(150, 150), attachCraftWater(new THREE.MeshStandardMaterial({ color: XP.water, roughness: 0.22, metalness: 0.3, transparent: true, opacity: 0.88, emissive: new THREE.Color(0x081014) })));
+  top.rotation.x = -Math.PI / 2; top.position.y = -0.52; top.renderOrder = 2; top.receiveShadow = true; c.add(top);
 }
 /** dig out what the groups marked as water (XP_MARK at y = −1): no cell there, so the water shows. A mark that reached the battle
  *  floor or the wall's band round it becomes dark wet stone instead: the only water on the floor is the pools (the 水鬼 swim in
@@ -161,10 +174,10 @@ export function commonFiller(pre: string): Group[] {
       dry(c, p); const B = frame(c.w, p.x, p.z); B(-6, 0, -3, 1, 2, 3, XP.sackW); B(2, 0, -3, 6, 2, 2, XP.sack); B(-3, 3, -2, 3, 4, 2, XP.sackL); B(-3, 5, -2, 3, 5, 2, capCol(p));
     } },
     { id: `${pre}_f_plank`, name: '漂板', tags: ['low'], foot: { w: 1.2, d: 0.7 }, h: 0.1, kinds: ['wing'], size: 'S', max: 3, build(c, p) {
-      wet(c, p); const B = frame(c.w, p.x, p.z); B(-8, 0, -3, 8, 0, 3, XP.plank); B(-8, 0, 0, 8, 0, 0, XP.plankD); B(-8, 0, -3, -8, 0, 3, XP.woodD);
+      wet(c, p); const B = frame(c.w, p.x, p.z); B(-8, -7, -3, 8, -7, 3, XP.plank); B(-8, -7, 0, 8, -7, 0, XP.plankD); B(-8, -7, -3, -8, -7, 3, XP.woodD);
     } },
     { id: `${pre}_f_ice`, name: '浮冰', tags: ['low'], foot: { w: 1.0, d: 0.8 }, h: 0.1, kinds: ['wing'], size: 'S', max: 3, build(c, p) {
-      wet(c, p); const B = frame(c.w, p.x, p.z); B(-6, 0, -4, 5, 0, 4, XP.ice); B(-4, 0, -2, 2, 0, 2, XP.iceL); B(6, 0, -2, 8, 0, 1, XP.ice);
+      wet(c, p); const B = frame(c.w, p.x, p.z); B(-6, -7, -4, 5, -7, 4, XP.ice); B(-4, -7, -2, 2, -7, 2, XP.iceL); B(6, -7, -2, 8, -7, 1, XP.ice);
     } },
   ];
 }

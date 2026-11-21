@@ -1840,5 +1840,9 @@
   "铜钱不足（需 {0} 钱）": "Need {0} Coins",
   "铜钱不足（需 {0}，存 {1}）": "Need Coins ({1}/{0})",
   "锻造淬炼": "Forge & Temper",
-  "领取干粮": "Take Rations"
+  "领取干粮": "Take Rations",
+  "已习招式": "Moves Learned",
+  "暂停详览": "Pause for Details",
+  "点此详览": "Tap for Details",
+  "详览": "Details"
 }

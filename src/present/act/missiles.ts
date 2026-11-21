@@ -9,6 +9,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { V3, scene } from '../engine/world';
 import { toon } from '../look/toon';
 import { trailSeg, fxSparks } from '../fx/fx';
+import { addBlock } from '../fx/blocks';
 
 // ------------------------------------------------------------------ the dart
 const box = (w: number, h: number, d: number, z: number) => new THREE.BoxGeometry(w, h, d).translate(0, 0, z);
@@ -76,49 +77,99 @@ export class Dart {
   kill() { this.dead = true; this.g.parent?.remove(this.g); if (this.ring) { scene.remove(this.ring); (this.ring.material as THREE.Material).dispose(); this.ring = null; } }
 }
 
-// ------------------------------------------------------------------ the blade wave
-/** a flat crescent in the xz plane, bulging toward +z: outer arc radius R over ±A, the inner edge set back `thick` at the middle and
- *  meeting the outer one at the tips */
-function crescent(R: number, A: number, thick: number, n = 24) {
-  const s = new THREE.Shape();
-  for (let i = 0; i <= n; i++) { const a = -A + (2 * A * i) / n, x = R * Math.sin(a), y = R * Math.cos(a) - R; i ? s.lineTo(x, y) : s.moveTo(x, y); }
-  for (let i = n - 1; i > 0; i--) { const a = -A + (2 * A * i) / n, x = R * Math.sin(a), y = R * Math.cos(a) - R - thick * Math.cos((a / A) * Math.PI / 2); s.lineTo(x, y); }
-  return new THREE.ShapeGeometry(s).rotateX(Math.PI / 2);   // shape y → world z (forward)
+// ------------------------------------------------------------------ the blade wave (act-146: pure 3D stepped-voxel pixel crescent)
+export type WaveStyle = 'hanshan' | 'thunder' | 'frost' | 'blunt';
+const WAVE_PALS: Record<WaveStyle, { edge: number; mid: number; tail: number; chip: number }> = {
+  hanshan: { edge: 0xf4f8fc, mid: 0xbfcdda, tail: 0x4b5868, chip: 0xdce6f0 },
+  thunder: { edge: 0xfff6d4, mid: 0xe6b244, tail: 0x764e1c, chip: 0xf2c868 },
+  frost:   { edge: 0xecfcff, mid: 0x86d8ee, tail: 0x305e76, chip: 0xb6ecfa },
+  blunt:   { edge: 0xfff0d4, mid: 0xe26a3c, tail: 0x6a241a, chip: 0xf08c5c },
+};
+
+/** Build a crisp axis-aligned 3D voxel-stepped crescent in the XZ plane (bulging toward +Z) — zero smooth vector curves or neon fog. */
+function buildVoxelCrescent(pal: { edge: number; mid: number; tail: number }): THREE.BufferGeometry {
+  const S = 0.075; // crisp 7.5 cm pixel-voxel grid
+  const halfCols = 15; // 31 stepped columns across ~2.3m span
+  const geos: THREE.BufferGeometry[] = [];
+  const c = new THREE.Color();
+  const pushVox = (gx: number, gz: number, h: number, hex: number) => {
+    const g = new THREE.BoxGeometry(S * 1.02, h, S * 1.02);
+    g.translate(gx * S, 0, gz * S);
+    const n = g.attributes.position.count, cs = new Float32Array(n * 3);
+    c.setHex(hex);
+    for (let i = 0; i < n; i++) { cs[i * 3] = c.r; cs[i * 3 + 1] = c.g; cs[i * 3 + 2] = c.b; }
+    g.setAttribute('color', new THREE.BufferAttribute(cs, 3));
+    geos.push(g);
+  };
+  for (let gx = -halfCols; gx <= halfCols; gx++) {
+    const u = Math.abs(gx) / halfCols; // 0 at center, 1 at tips
+    const arch = Math.cos(u * Math.PI * 0.5);
+    const gzFront = Math.round(arch * 7.2);
+    // Razor bright front cutting-edge voxel
+    pushVox(gx, gzFront, 0.052, pal.edge);
+    // Stepped body thickness: 2 voxels deep across belly, 1 near tips
+    if (u < 0.92) pushVox(gx, gzFront - 1, 0.074, pal.mid);
+    if (u < 0.62) pushVox(gx, gzFront - 2, 0.064, pal.mid);
+    // Crisp dark steel-ink trailing voxel ridge for contrast against both bright & dark floors
+    const tailOffset = u < 0.62 ? 3 : 2;
+    if (u < 0.80) pushVox(gx, gzFront - tailOffset, 0.044, pal.tail);
+  }
+  const merged = mergeGeometries(geos)!;
+  for (const g of geos) g.dispose();
+  return merged;
 }
-// thin and sharp: a hairline-bright core and only a narrow rim of glow (the first try, thick and over-bright, bloomed into a white fog)
-const WAVE_CORE = crescent(1.3, 1.1, 0.15), WAVE_GLOW = crescent(1.38, 1.12, 0.3);
-const waveMat = (c: number, k: number, o: number) => { const m = new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: o, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }); m.color.multiplyScalar(k); return m; };
+
+const WAVE_GEOS: Record<WaveStyle, THREE.BufferGeometry> = {
+  hanshan: buildVoxelCrescent(WAVE_PALS.hanshan),
+  thunder: buildVoxelCrescent(WAVE_PALS.thunder),
+  frost:   buildVoxelCrescent(WAVE_PALS.frost),
+  blunt:   buildVoxelCrescent(WAVE_PALS.blunt),
+};
 
 export class BladeWave {
-  g = new THREE.Group(); dead = false; hit = new Set<number>(); private age = 0; private ghostT = 0;
-  private core: THREE.Mesh; private glow: THREE.Mesh; private ghosts: Array<{ m: THREE.Mesh; t: number }> = [];
+  g = new THREE.Group(); dead = false; hit = new Set<number>(); private age = 0; private chipT = 0;
+  private mesh: THREE.Mesh; private mat: THREE.MeshBasicMaterial; private chipCol: number;
   readonly fwd: THREE.Vector3;
-  constructor(public p: THREE.Vector3, dir: THREE.Vector3, public speed = 20, public life = 0.42) {
+  private right: THREE.Vector3;
+  constructor(public p: THREE.Vector3, dir: THREE.Vector3, public speed = 20, public life = 0.42, style: WaveStyle = 'hanshan') {
     this.fwd = dir.clone().setY(0).normalize();
-    this.core = new THREE.Mesh(WAVE_CORE, waveMat(0xffffff, 1.5, 1)); this.glow = new THREE.Mesh(WAVE_GLOW, waveMat(0x7affc0, 0.8, 0.25));
-    this.glow.position.z = 0.06; this.g.add(this.glow, this.core); this.core.renderOrder = this.glow.renderOrder = 4;
+    this.right = V3(this.fwd.z, 0, -this.fwd.x);
+    this.chipCol = WAVE_PALS[style].chip;
+    this.mat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 1 });
+    this.mesh = new THREE.Mesh(WAVE_GEOS[style], this.mat);
+    this.mesh.renderOrder = 4;
+    this.g.add(this.mesh);
     this.g.position.copy(p); this.g.rotation.y = Math.atan2(this.fwd.x, this.fwd.z); scene.add(this.g);
   }
   /** half width across the travel (the crescent's span) */
   get half() { return 1.2; }
-  /** still flying (hits count); after its run it lingers only while the last ghosts fade */
+  /** still flying (hits count) */
   get live() { return this.age < this.life; }
   step(dt: number) {
     const p0 = this.p.clone(); this.age += dt;
     if (this.live) { this.p.addScaledVector(this.fwd, this.speed * dt); this.g.position.copy(this.p); } else this.g.visible = false;
-    const k = Math.min(1, this.age / this.life), fade = k < 0.65 ? 1 : Math.max(0, 1 - (k - 0.65) / 0.35);
-    // it opens out a touch as it leaves the blade, and thins to a line at the end
-    this.g.scale.set(0.8 + 0.25 * Math.min(1, k * 4), 1, Math.max(0.15, fade));
-    (this.core.material as THREE.MeshBasicMaterial).opacity = fade; (this.glow.material as THREE.MeshBasicMaterial).opacity = 0.25 * fade;
-    // ghost copies left behind every few centimetres of flight, fading fast
-    this.ghostT -= dt;
-    if (this.live && this.ghostT <= 0 && fade > 0.2) {
-      this.ghostT = 0.035; const m = new THREE.Mesh(WAVE_CORE, waveMat(0xb8ffe0, 0.9, 0.18 * fade));
-      m.position.copy(this.p); m.rotation.y = this.g.rotation.y; m.scale.copy(this.g.scale); m.renderOrder = 3; scene.add(m); this.ghosts.push({ m, t: 0 });
+    const k = Math.min(1, this.age / this.life), fade = k < 0.72 ? 1 : Math.max(0, 1 - (k - 0.72) / 0.28);
+    // Crisp stepped expansion on launch, clean pixel-thin taper at end of flight
+    this.g.scale.set(0.84 + 0.22 * Math.min(1, k * 5), Math.max(0.25, fade), Math.max(0.22, fade));
+    this.mat.opacity = fade;
+    // Shed crisp square 3D pixel voxel chips behind the blade edge (replaces blurry smooth ghost crescents)
+    this.chipT -= dt;
+    if (this.live && this.chipT <= 0 && fade > 0.25) {
+      this.chipT = 0.028;
+      for (const s of [-0.95, 0, 0.95]) {
+        const off = s * (0.85 + Math.random() * 0.25);
+        const pos = this.p.clone().addScaledVector(this.right, off).addScaledVector(this.fwd, s === 0 ? 0.18 : -0.18);
+        addBlock(pos, {
+          size: s === 0 ? 0.08 : 0.065,
+          col: this.chipCol,
+          glow: false,
+          life: 0.13,
+          shrink: 0.08,
+          v: this.fwd.clone().multiplyScalar(-1.6).add(V3(0, (Math.random() - 0.4) * 0.5, 0)),
+        });
+      }
     }
-    for (const gh of this.ghosts) { gh.t += dt; const mt = gh.m.material as THREE.MeshBasicMaterial; mt.opacity = Math.max(0, 0.18 * (1 - gh.t / 0.09)); gh.m.scale.z *= 0.85; }
-    for (let i = this.ghosts.length - 1; i >= 0; i--) if (this.ghosts[i].t >= 0.09) { const gh = this.ghosts[i]; scene.remove(gh.m); (gh.m.material as THREE.Material).dispose(); this.ghosts.splice(i, 1); }
-    if (!this.live && !this.ghosts.length) this.kill();
+    if (!this.live) this.kill();
     return p0;
   }
   /** is a point (with radius r) inside the band the crescent swept from p0 to here? */
@@ -128,7 +179,6 @@ export class BladeWave {
   }
   kill() {
     if (this.dead) return; this.dead = true; scene.remove(this.g);
-    (this.core.material as THREE.Material).dispose(); (this.glow.material as THREE.Material).dispose();
-    for (const gh of this.ghosts) { scene.remove(gh.m); (gh.m.material as THREE.Material).dispose(); } this.ghosts = [];
+    this.mat.dispose();
   }
 }

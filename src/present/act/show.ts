@@ -388,12 +388,15 @@ export class ActShow {
   private defy = 0; private wine = false; private eliteKills = 0; private bossKilled = false; private banked: { iron: number; herb: number } | null = null;
   /** act-131: boss-death minion rout state + per-run replacement boss pool tracker (no resurrecting slain story bosses!) */
   private bossDefeated = false; private poolBossRoom = false; private usedPoolBosses = new Set<string>();
+  /** act-146: exact pending staggered-spawn counter & generation token so fast kills can never prematurely advance waves or skip a boss */
+  private wavePending = 0; private waveGen = 0; private bossIntroActive = false;
   /** act-137: canonical story boss held kneeling on-field during first-kill slowmo & CH_AFTER confrontation until executed on cue */
   private kneelingBoss: { f: Foe; t: number; executed: boolean; region: number } | null = null;
   private fleeing: Array<{ a: BattleActor; pos: THREE.Vector3; dir: THREE.Vector3; t: number; dur: number }> = [];
   private clearFleeing() { for (const f of this.fleeing) f.a.dispose(); this.fleeing.length = 0; }
   /** a cutscene's place: the open land, no walls / gates / props */ private noArena = false;
   /** 11-18: the shallow water on this room's floor (下邳: the 水鬼 swim in it; LOCALES[…].pools) */ private pools: Array<{ x0: number; x1: number; z0: number; z1: number }> = [];
+  private wetStepT = 0;
   /** act-34: a room built ahead of time (prepRoom), waiting to be put up; buildRoom uses it when it is the room asked for */
   private ahead: AheadRoom[] = [];
   private aheadTurn = 0;
@@ -1977,6 +1980,7 @@ export class ActShow {
       preview: id => this.previewMove(id), previewing: () => this.previewOn, stopPreview: () => { if (this.previewOn) this.demo.stop(true); } });
     // 11-18 (用户：「游戏里也没有一个可以呼出暂停窗口的按钮」): the iron button at the top right opens it too
     this.hud.onPause = () => this.pauseGame();
+    this.hud.onOpenOwned = () => this.openOwnedQuick();
     // 11-18 (用户：「选了强化后根本看不到自己选的强化是啥，在哪儿」): a taken 秘传 / 刀谱 flies onto the button it changes and leaves a mark
     this.cards.flight = {
       at: t => this.hud.targetAt(t),
@@ -2384,7 +2388,7 @@ export class ActShow {
     // a room may be up (__dh.title from the yard): its actors go the way a room change sends them
     this.propContacts?.dispose(); this.propContacts = undefined;
     this.foeContacts?.dispose(); this.foeContacts = undefined;
-    this.duel?.newRoom(); for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = []; this.entering.length = 0; this.clearBossDrops(); this.clearFleeing(); this.bossDefeated = false; this.poolBossRoom = false; this.kneelingBoss = null;
+    this.duel?.newRoom(); for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = []; this.entering.length = 0; this.clearBossDrops(); this.clearFleeing(); this.bossDefeated = false; this.poolBossRoom = false; this.kneelingBoss = null; this.wavePending = 0; this.waveGen++; this.bossIntroActive = false;
     this.yard?.dispose(); this.yard = null; this.props?.dispose(); this.props = null; this.gates?.dispose(); this.gates = null; this.pieces?.dispose(); this.pieces = null; this.leaves?.dispose(); this.leaves = null; this.stations?.dispose(); this.stations = null; this.hero?.a.dispose();
     this.clearNpcs();
     this.phase = 'title'; this.hud.on = false; this.hud.update(0, this.inp, []); this.banner.hide(); this.blob.visible = false; this.ring.visible = false; for (const m of this.shadows) m.visible = false;
@@ -2742,7 +2746,7 @@ export class ActShow {
     if (this.generalEvent) { this.generalEvent.dispose(); this.generalEvent = null; }
     this.duelGen = null;
     if (this.endCui) { this.endCui.dispose(); this.endCui = null; }
-    this.duel?.newRoom(); for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = []; this.entering.length = 0; this.clearBossDrops(); this.clearFleeing(); this.bossDefeated = false; this.poolBossRoom = false; this.kneelingBoss = null;
+    this.duel?.newRoom(); for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = []; this.entering.length = 0; this.clearBossDrops(); this.clearFleeing(); this.bossDefeated = false; this.poolBossRoom = false; this.kneelingBoss = null; this.wavePending = 0; this.waveGen++; this.bossIntroActive = false;
     this.falling = [];
     this.gates?.dispose(); this.gates = null; this.pieces?.dispose(); this.pieces = null; this.leaves?.dispose(); this.leaves = null; this.clearNpcs();
     for (const d of this.doors) d.g.parent?.remove(d.g); this.doors = []; this.stations?.dispose(); this.stations = null; this.coinsFx.clear();
@@ -3287,8 +3291,10 @@ export class ActShow {
   }
   private spawnWave() {
     const kinds = this.plan?.waves[this.wave] ?? [];
-    // act-114 P0 fix: if this wave contains a boss that has a first-time intro cutscene, spawn ONLY the boss right away and defer
-    // its escort minions until the cutscene + talk finish — zero dropped minions, zero foes frozen mid-wall-vault!
+    const gen = ++this.waveGen;
+    this.wavePending = 0;
+    // act-114 / act-146 P0 fix: if this wave contains a boss, spawn ONLY the boss right away (sky-drop -> intro cutscene -> escorts),
+    // and track every deferred/staggered spawn in wavePending so killing early enemies can NEVER skip the boss or clear the room early!
     const bossIdx = kinds.findIndex(k => !!EDEFS[kindOr(k).kind].boss);
     if (bossIdx >= 0) {
       const bk = kindOr(kinds[bossIdx]).kind;
@@ -3296,7 +3302,13 @@ export class ActShow {
       const willIntro = this.prologue === 2 || (bi >= 0 && CH_BEFORE[bi].length > 0 && !profile().seen[`ch${bi + 1}_boss`]);
       const rest = kinds.filter((_, idx) => idx !== bossIdx);
       const spawnEscorts = () => {
-        rest.forEach((k, i) => after(i * 0.28 + 0.35, () => { this.spawnEntry(k, i + 1); }));
+        if (gen !== this.waveGen || this.bossDefeated) return;
+        this.wavePending += rest.length;
+        rest.forEach((k, i) => after(i * 0.28 + 0.35, () => {
+          if (gen !== this.waveGen) return;
+          this.wavePending = Math.max(0, this.wavePending - 1);
+          this.spawnEntry(k, i + 1);
+        }));
         if (rest.length) this.scheduleWaveBarks(rest.length);
       };
       const f = this.spawnEntry(kinds[bossIdx], 0, willIntro);
@@ -3304,8 +3316,9 @@ export class ActShow {
         const drop = this.bossDrops.find(d => d.f === f);
         if (drop) {
           drop.onLand = () => {
+            if (gen !== this.waveGen || f.st === 'dead') return;
             if (willIntro && this.bossArrived(f, spawnEscorts)) return;
-            this.bossLookT = 2.6; f.a.roar();
+            this.bossLookT = 2.6; this.bossEnterPose(f);
             this.banner.show(EDEFS[f.kind].name, EDEFS[f.kind].tag ?? '', 2.2, '#ff8a6a');
             if (EDEFS[f.kind].intro) after(0.8, () => { if (f.st !== 'dead') this.barks?.say(() => f.a.head(), EDEFS[f.kind].intro!); });
             spawnEscorts();
@@ -3318,8 +3331,13 @@ export class ActShow {
       return;
     }
     this.scheduleWaveBarks(kinds.length);
+    this.wavePending += kinds.length;
     kinds.forEach((k, i) => {
-      after(i * 0.34, () => { this.spawnEntry(k, i); });
+      after(i * 0.34, () => {
+        if (gen !== this.waveGen) return;
+        this.wavePending = Math.max(0, this.wavePending - 1);
+        this.spawnEntry(k, i);
+      });
     });
   }
   /** 11-19 / act-137 敌人入场: articulated wall-vault (climb -> crest mantle -> parkour leap -> landing crouch -> sprint-in) */
@@ -3655,10 +3673,13 @@ export class ActShow {
     const name = EDEFS[f.kind]?.name ?? '';
     if (this.prologue === 2) {
       f.mem.noHide = true;   // prologue forecourt duel stays in Phase 1-2 (never vanishes into Phase 3 dark before the 20% prologue trigger)
+      this.bossIntroActive = true;
       void (async () => {
-        await this.cine(bossIntroShots(this.cineHost, f, name, { prologue: true }));
-        await this.talk(PRO_CUIXUAN);
-        this.bossEnterPose(f); this.proFightT = 0;
+        try {
+          await this.cine(bossIntroShots(this.cineHost, f, name, { prologue: true }));
+          await this.talk(PRO_CUIXUAN);
+          this.bossEnterPose(f); this.proFightT = 0;
+        } finally { this.bossIntroActive = false; }
         afterIntro?.();
       })();
       return true;
@@ -3666,13 +3687,16 @@ export class ActShow {
     const i = BOSS_ORDER.indexOf(f.kind);
     if (i < 0 || !CH_BEFORE[i].length || !seeOnce(`ch${i + 1}_boss`)) return false;
     saveProfile();
+    this.bossIntroActive = true;
     void (async () => {
-      if ((f.st as string) === 'dead') return;
-      await this.cine(bossIntroShots(this.cineHost, f, name, { prologue: false }));
-      if ((f.st as string) === 'dead') return;
-      await this.talk(CH_BEFORE[i]);
-      if ((f.st as string) === 'dead') return;
-      this.bossEnterPose(f);
+      try {
+        if ((f.st as string) === 'dead') return;
+        await this.cine(bossIntroShots(this.cineHost, f, name, { prologue: false }));
+        if ((f.st as string) === 'dead') return;
+        await this.talk(CH_BEFORE[i]);
+        if ((f.st as string) === 'dead') return;
+        this.bossEnterPose(f);
+      } finally { this.bossIntroActive = false; }
       afterIntro?.();
     })();
     return true;
@@ -3734,13 +3758,16 @@ export class ActShow {
     });
     return true;
   }
-  /** the marks on the HUD's buttons: every 刀谱 and 秘传 this run has taken (none in the yard, where they are all open) */
+  /** the marks on the HUD's buttons & top-left readable build strip: every 刀谱 and 秘传 this run has taken (none in the yard) */
   private syncMarks() {
     const list: Mark[] = [];
+    const manuals: string[] = [];
+    let boonCount = 0;
     if (this.room >= 0) {
-      for (const m of MANUALS) if (this.perks.moves[m.id]) { const e = entryOfManual(m); list.push({ id: 'm:' + m.id, target: e.target, kind: 'manual', tier: 0, col: e.col }); }
-      for (const b of BOONS) { const t = tierOf(this.perks, b.id); if (t >= 0) { const e = entryOfBoon(b, t); list.push({ id: 'b:' + b.id, target: e.target, kind: 'boon', tier: t, col: e.col }); } }
+      for (const m of MANUALS) if (this.perks.moves[m.id]) { const e = entryOfManual(m); list.push({ id: 'm:' + m.id, target: e.target, kind: 'manual', tier: 0, col: e.col }); manuals.push(m.name); }
+      for (const b of BOONS) { const t = tierOf(this.perks, b.id); if (t >= 0) { const e = entryOfBoon(b, t); list.push({ id: 'b:' + b.id, target: e.target, kind: 'boon', tier: t, col: e.col }); boonCount++; } }
     }
+    this.hud.buildInfo = { manuals, boonCount };
     this.hud.setMarks(list);
   }
   /** 已得: this run's 刀谱 and 秘传 */
@@ -4492,8 +4519,8 @@ export class ActShow {
     const hasWave = (o.kind === 'k5' && tierOf(this.perks, 'bladeWind') >= 0) || (o.finalCut && o.weaponId === 'hanshan' && this.hero.weaponLv >= 1);
     if (hasWave) {
       const distMul = tierOf(this.perks, 'bladeWind') >= 0 ? (1 + v2(this.perks, 'bladeWind') / 100) : 0.72;
-      this.waves.push(new BladeWave(o.from.clone().add(V3(fx * 0.9, 0.95, fz * 0.9)), V3(fx, 0, fz), 20, 0.42 * distMul));
-      cue('whoosh', 1); fxSparks(o.from.clone().add(V3(fx * 1.2, 1.0, fz * 1.2)), 0xe8fff2, 10, 4);
+      this.waves.push(new BladeWave(o.from.clone().add(V3(fx * 0.9, 0.95, fz * 0.9)), V3(fx, 0, fz), 20, 0.42 * distMul, o.weaponId ?? this.hero.weaponId));
+      cue('whoosh', 1); fxSparks(o.from.clone().add(V3(fx * 1.2, 1.0, fz * 1.2)), 0xe8edf4, 7, 3.6);
     }
     return n;
   }
@@ -5062,13 +5089,26 @@ export class ActShow {
     }
     if (bossClear) {
       this.bossDefeated = true;
+      this.wavePending = 0;
+      this.waveGen++;
       this.routMinions(f.pos);
     }
     const left = this.foes.filter(x => x.st !== 'dead').length;
     if (this.generalEvent) { this.generalEvent.onFoeKilled(f); return; }
     if (boss) { slowmo(1.1, 0.25); shake(0.6 * TUNE.shake); this.splitScreen(0.85); cue('win', 0.9); }
-    if ((!left || bossClear) && this.phase === 'fight') {
+    const waveEmpty = !left && this.wavePending <= 0 && !this.bossDrops.length && !this.bossIntroActive;
+    if ((waveEmpty || bossClear) && this.phase === 'fight') {
       const lastWave = bossClear || this.wave >= (this.plan?.waves.length ?? 1) - 1;
+      const bossRoomNeedKill = !this.prologue && this.plan?.type === 'boss' && isBossRoom(this.region, this.room) && !this.bossDefeated;
+      if (lastWave && bossRoomNeedKill) {
+        // Hard invariant: a boss room can NEVER clear before its boss has actually spawned and fallen!
+        const bossWaveIdx = (this.plan?.waves ?? []).findIndex(w => w.some(k => !!EDEFS[kindOr(k).kind].boss));
+        if (bossWaveIdx >= 0 && !this.foes.some(x => isBoss(x))) {
+          this.wave = bossWaveIdx;
+          after(0.4, () => { if (this.phase === 'fight' && !this.bossDefeated) this.spawnWave(); });
+        }
+        return;
+      }
       if (!boss) slowmo(lastWave ? 0.7 : 0.35, 0.3);
       if (lastWave) after(1.0, () => this.roomClear());
       else if (this.stageOf.length && this.stageOf[this.wave + 1] !== this.stageOf[this.wave]) {
@@ -5079,8 +5119,9 @@ export class ActShow {
         this.wave++;
         const nextWave = this.plan?.waves[this.wave] ?? [];
         const isNextBoss = nextWave.some(k => !!EDEFS[kindOr(k).kind].boss);
+        const gen = this.waveGen;
         after(isNextBoss ? 0.55 : 0.9, () => {
-          if (this.phase !== 'fight') return;
+          if (this.phase !== 'fight' || gen !== this.waveGen) return;
           if (!isNextBoss) this.banner.show(msg`第 ${this.wave + 1} 波`, '', 0.9);
           this.spawnWave();
         });
@@ -5523,6 +5564,13 @@ export class ActShow {
       : [gt.x - gt.out[0] * 2.1, gt.z - gt.w / 2 - 0.75];
   }
   private openDoors(quiet = false) {
+    // act-146 safety invariant: never leave stray living enemies/bosses standing in a cleared room once exit doors open
+    this.wavePending = 0; this.waveGen++; this.bossIntroActive = false; this.clearBossDrops(); this.kneelingBoss = null;
+    for (let i = this.foes.length - 1; i >= 0; i--) {
+      const f = this.foes[i];
+      if (f.kind === 'dummy') continue;
+      dropTeles(f); f.a.dispose(); this.foes.splice(i, 1);
+    }
     const ds = this.nextRooms, ids = (this.spec?.exits ?? []) as ExitId[];
     this.doors = ds.map((d, i) => {
       const ex = exitInfo(this.layout!, ids[i] ?? 'back');
@@ -6049,6 +6097,16 @@ export class ActShow {
       }
     }
     h.update(dt, this.inp, this.heroWorld);
+    // act-146: crisp subtle water-step splashes when Liu Bai runs/dashes across shallow flooded stone puddles (Xiapi pools)
+    if (this.pools.length && h.y < 0.08 && Math.hypot(h.vel.x, h.vel.z) > 0.65 && this.pools.some(r => h.pos.x > r.x0 && h.pos.x < r.x1 && h.pos.z > r.z0 && h.pos.z < r.z1)) {
+      this.wetStepT -= dt;
+      if (this.wetStepT <= 0) {
+        this.wetStepT = h.st === 'dash' ? 0.09 : 0.24;
+        const fp = h.pos.clone().setY(0.05);
+        fxRing(fp, 0x9ec4d4, 0.55, { life: 0.32 } as never);
+        for (let k = 0; k < 3; k++) addBlock(fp.clone().add(V3(R(-0.14, 0.14), 0.04, R(-0.14, 0.14))), { size: 0.045, col: 0xb8dce8, glow: false, life: 0.22, shrink: 0.1, v: V3(R(-0.8, 0.8), R(0.9, 1.7), R(-0.8, 0.8)) });
+      }
+    } else this.wetStepT = Math.max(0, this.wetStepT - dt);
     this.hud.setAim(h.aiming ? { x: h.aimDir.x, y: -h.aimDir.z } : null);   // act-29: the dart button leans to the aim
     if (h.aiming) { const pv = h.aimPreview(this.heroWorld), L = TUNE.dartRange, al = this.aimLine;
       al.visible = true; al.position.set(h.pos.x, 0.07, h.pos.z); al.rotation.y = Math.atan2(pv.dir.x, pv.dir.z); al.scale.set(1, 1, L);
@@ -6482,6 +6540,7 @@ export class ActShow {
     if (this.demo.on && !this.pause.on) return;   // (11-19: the demonstration plays to the end)
     if (this.timeline.on && e.key === 'Escape') { e.preventDefault(); this.timeline.key(true); return; }
     if (e.key === 'Escape' && !e.repeat && this.canPause()) { e.preventDefault(); this.pauseGame(); e.stopImmediatePropagation(); return; }   // (the menu must not take the same Esc as its 返回)
+    if (e.key === 'Tab' && !e.repeat && !this.dialogue.on && !this.cards.on && this.canPause() && this.room >= 0) { e.preventDefault(); this.openOwnedQuick(); e.stopImmediatePropagation(); return; }
     if (this.dialogue.on) {
       if (e.key === 'Escape') { e.preventDefault(); this.dialogue.holdSkip(true); return; }
       if (e.key === 'Tab' && !e.repeat) {
@@ -6539,6 +6598,13 @@ export class ActShow {
     this.pauseHud = this.hud.on; this.hud.on = false; this.hud.update(0, this.inp, []); this.aimLine.visible = false;
     this.banner.hide(); this.hideHideoutLabels(); this.hideWorldPlates();
     this.pause.open('main');
+  }
+  /** act-146: one-key [Tab] or top-left build-strip tap opens the 3D 已得 skill sheet directly */
+  openOwnedQuick() {
+    if (!this.canPause() || this.botOn) return;
+    this.pauseHud = this.hud.on; this.hud.on = false; this.hud.update(0, this.inp, []); this.aimLine.visible = false;
+    this.banner.hide(); this.hideHideoutLabels(); this.hideWorldPlates();
+    this.pause.open('owned', { quickClose: true });
   }
   private unpaused() {
     if (this.pauseHud == null) return;   // the menu was over the start screen
