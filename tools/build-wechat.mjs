@@ -33,7 +33,7 @@ const size = d => { let n = 0; for (const e of fs.readdirSync(d, { withFileTypes
 await build({ root: ROOT, configFile: path.join(ROOT, 'vite.config.ts'), mode: 'wechat', logLevel: 'warn' });
 const DW = path.join(ROOT, 'dist-wx'), bundle = fs.readFileSync(path.join(DW, 'game.js'), 'utf8'), assets = JSON.parse(fs.readFileSync(path.join(DW, 'wx-assets.json'), 'utf8'));
 // Bake static terrain with the same definitions used by procedural rooms.
-// Keep the default title in the main package so the first screen needs no second download.
+// Keep the title stage in its own tiny subpackage (`scenery0`, ~0.44 MB) so the main package stays safely under WeChat's 4 MB upload limit.
 const scenes = new Map();
 const BOSS_IDS = new Set(['mint', 'baimen', 'wl_flagship', 'cx_hall']);
 const packBudget = (rawBins) => {
@@ -46,7 +46,7 @@ const packBudget = (rawBins) => {
   let scTotal = 0, scIdx = 1, scBytes = 0, skipped = 0;
   for (const { name, data } of allBins) {
     if (name === 'title-snow.bin') {
-      scenes.set(name.slice(0, -4), { to: 'assets/scenes/' + name, data });
+      scenes.set(name.slice(0, -4), { to: 'scenery0/' + name, data });
       continue;
     }
     if (scTotal + data.length > MAX_SC_TOTAL) { skipped++; continue; }
@@ -58,7 +58,7 @@ const packBudget = (rawBins) => {
   if (skipped) console.log(`  （30 MB 总包预算内预烘焙 ${scenes.size} 张重场，其余 ${skipped} 张轻场走后台分帧生成）`);
 };
 let reusedScenes = false;
-if (REUSE_SCENES && fs.existsSync(path.join(OUT, 'assets', 'scenes', 'title-snow.bin'))) {
+if (REUSE_SCENES && (fs.existsSync(path.join(OUT, 'scenery0', 'title-snow.bin')) || fs.existsSync(path.join(OUT, 'assets', 'scenes', 'title-snow.bin')))) {
   const raw = [];
   const collect = (dir) => {
     if (!fs.existsSync(dir)) return;
