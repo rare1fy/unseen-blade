@@ -81,12 +81,12 @@ export function installR45(show: unknown) {
   // ---- the boss of region four / five comes in its own way: the banner, a roar, its line over its head (no 褚雷 cutscene)
   const spawn0 = S.spawnWave.bind(S);
   S.spawnWave = () => {
-    const wave: string[] = S.plan?.waves?.[S.wave] ?? [], bi = wave.findIndex(k => EDEFS[k.replace('*', '') as EKind]?.boss && EDEFS[k.replace('*', '') as EKind]?.role === 'ext');
+    const wave: string[] = S.plan?.waves?.[S.wave] ?? [], bi = wave.findIndex(k => { const id = k.replace('*', '') as EKind; return id === 'wl_boss' || id === 'cx_boss'; });
     if (bi < 0) { spawn0(); return; }
     const kind = wave[bi].replace('*', '') as EKind, rest = wave.filter((_, i) => i !== bi);
     S.plan.waves[S.wave] = rest; spawn0(); S.plan.waves[S.wave] = wave;
     after(rest.length * 0.28 + 0.2, () => {
-      if (S.phase !== 'fight') return;
+      if (S.phase !== 'fight' || (S as unknown as { bossDefeated?: boolean }).bossDefeated) return;
       const p = V3(0, 0, SZ(-4.6)), f = spawnFoe(kind, p, S.hero.pos.clone()); all.push(f);
       fxSmoke(p.clone().add(V3(0, 0.3, 0)), 0x6a6a74, 14, { r: 0.7, spd: 1.2, up: 0.6, s: 0.4, life: 0.7 }); fxRing(p.clone().setY(0.05), 0xff7a4a, 1.2, { life: 0.4 } as never);
       cue('roar', 0.9); f.a.roar(); shake(0.3 * TUNE.shake); f.cd = 2.2;

@@ -551,16 +551,16 @@ function* build(c: Ctx, o: { time: HideoutTime; weather: HideoutWeather }) {
   grove(c, -22.0, -21.0, -8.5, -16.8, 34, 11, [6.8, 9.0]);
   grove(c, 7.5, -21.0, 27.5, -16.8, 42, 12, [6.8, 9.0]);
   grove(c, -23.0, -25.5, 28.0, -21.2, 58, 13, [8.6, 11.2]);
-  // East bamboo framing shifted cleanly behind the new Bamboo Stream Garden Terrace (x >= 24.4) + north/south wings of terrace
+  // East bamboo framing shifted cleanly behind the new Bamboo Stream Garden Terrace (x >= 24.4) + north/south wings clear of plot sightlines
   grove(c, 16.4, -14.2, 27.5, -8.4, 34, 14, [5.6, 8.0]);
   grove(c, 24.4, -8.2, 29.2, 11.5, 48, 16, [5.8, 8.6]);
-  grove(c, 16.4, 6.4, 25.0, 15.5, 34, 22, [5.4, 7.8]);
+  grove(c, 17.2, 8.4, 25.5, 16.2, 30, 22, [4.6, 6.8]);
   // West hillside bamboo
   grove(c, -21.5, -12.0, -16.2, 9.0, 42, 15, [5.2, 7.8]);
   grove(c, -23.5, -16.0, -18.5, 16.5, 36, 17, [5.6, 8.0]);
-  // South mountain pass bamboo & oaks framing BOTH flanks of the outer departure road (eliminating bare green bottom wasteland!)
-  grove(c, -15.8, 12.2, -3.2, 18.8, 38, 23, [5.0, 7.4]);
-  grove(c, 3.8, 12.2, 15.5, 18.8, 38, 24, [5.0, 7.4]);
+  // South mountain pass bamboo framing BOTH outer flanks cleanly without poking in front of courtyard NPCs or south gate!
+  grove(c, -16.2, 13.8, -5.2, 19.2, 30, 23, [3.8, 5.4]);
+  grove(c, 5.6, 13.8, 15.8, 19.2, 30, 24, [3.8, 5.4]);
   deadTree(w, -16.8, -14.2, 6.0, HV.char, HV.charD, { seed: 9, crow: 0.6, moss: false });
   oak(w, -19.2, -14.8, 7.2, { seed: 33, bark: 0x4a3c30, dark: 0x30261e, leaf: 0x866c32, leafTop: 0xaa8a40, low: 0.42, width: 1.05, vines: 0 });
   oak(w, -18.8, 3.2, 6.4, { seed: 53, bark: 0x4a3c30, dark: 0x30261e, leaf: 0x6c7c3a, leafTop: 0x8ea04c, low: 0.40, width: 1.0, vines: 0 });
