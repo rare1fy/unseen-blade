@@ -136,8 +136,12 @@ void main(){
     float rq = length(q);
     col *= 1.0 - uVig * smoothstep(0.25, 0.85, rq);
     if (uBloodVig > 0.001) {
-      float bv = smoothstep(0.32, 0.92, rq) * uBloodVig;
-      col = mix(col, col * vec3(0.72, 0.20, 0.18) + vec3(0.28, 0.025, 0.02), clamp(bv * 0.85, 0.0, 0.78));
+      vec2 eb = abs(vUv - 0.5) * 2.0;
+      float ed = max(length(eb * vec2(0.86, 1.0)), max(eb.x, eb.y) * 0.94);
+      float bv = smoothstep(0.42, 1.04, ed) * uBloodVig;
+      float rim = smoothstep(0.74, 1.02, ed) * uBloodVig;
+      col = mix(col, col * vec3(0.66, 0.14, 0.12) + vec3(0.28, 0.009, 0.007), clamp(bv * 0.82, 0.0, 0.78));
+      col += vec3(0.26, 0.008, 0.006) * clamp(rim * 0.65, 0.0, 0.44);
     }
   }
   // flash
@@ -222,8 +226,12 @@ void main(){
     float rq = length(q);
     col *= 1.0 - uVig * smoothstep(0.28, 0.88, rq);
     if (uBloodVig > 0.001) {
-      float bv = smoothstep(0.32, 0.92, rq) * uBloodVig;
-      col = mix(col, col * vec3(0.70, 0.18, 0.16) + vec3(0.30, 0.03, 0.025), clamp(bv * 0.85, 0.0, 0.78));
+      vec2 eb = abs(uvCont - 0.5) * 2.0;
+      float ed = max(length(eb * vec2(0.86, 1.0)), max(eb.x, eb.y) * 0.94);
+      float bv = smoothstep(0.42, 1.04, ed) * uBloodVig;
+      float rim = smoothstep(0.74, 1.02, ed) * uBloodVig;
+      col = mix(col, col * vec3(0.76, 0.20, 0.18) + vec3(0.44, 0.032, 0.028), clamp(bv * 0.80, 0.0, 0.78));
+      col += vec3(0.46, 0.035, 0.025) * clamp(rim * 0.64, 0.0, 0.46);
     }
     col = separateUiBackground(col, uvCont);
     col += (hash2(gl_FragCoord.xy + uTime) - 0.5) / 255.0;

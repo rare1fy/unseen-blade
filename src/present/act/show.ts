@@ -6672,14 +6672,22 @@ export class ActShow {
     this.syncHeroHat();
     this.fullAuraStep(rdt, h);
     if (h.qiDenied) { h.qiDenied = false; this.hud.denyAttack(); }
-    // Cinema-grade soft radial crimson shader vignette (GRADE.bloodVig) + subtle heartbeat pulse at <= 30% HP
-    const lowNow = this.phase === 'fight' && h.alive && h.hp / Math.max(1, h.maxHp) <= 0.3 && !this.cards.on && !this.pause.on;
-    if (lowNow) {
-      this.lowBeatT -= rdt;
-      if (this.lowBeatT <= 0) { this.lowBeatT = 1.15; cue('land', 0.22); }
-      const beat = Math.pow(0.5 + 0.5 * Math.sin(clock.rtime * 6.2), 2);
-      const wantVig = 0.42 + 0.34 * beat;
-      this.lowVigK += (wantVig - this.lowVigK) * Math.min(1, rdt * 6);
+    // Cinema-grade edge-hugging arterial crimson low-HP heartbeat vignette (GRADE.bloodVig)
+    const hpFrac = h.hp / Math.max(1, h.maxHp);
+    const lowFight = this.phase === 'fight' && h.alive && hpFrac <= 0.35 && !this.cards.on && !this.pause.on;
+    const lowDoors = this.phase === 'doors' && h.alive && hpFrac <= 0.25 && !this.cards.on && !this.pause.on;
+    if (lowFight || lowDoors) {
+      const urg = Math.max(0, Math.min(1, (0.35 - hpFrac) / 0.25));
+      const sev = (lowFight ? 0.72 + 0.38 * urg : 0.48 + 0.24 * urg);
+      const hz = 1.0 + 0.38 * urg;
+      if (lowFight) {
+        this.lowBeatT -= rdt;
+        if (this.lowBeatT <= 0) { this.lowBeatT = 1 / hz; cue('land', 0.24 + 0.12 * urg); }
+      }
+      const ph = (clock.rtime * hz) % 1;
+      const beat = Math.min(1, Math.exp(-Math.pow((ph - 0.14) / 0.085, 2)) + 0.64 * Math.exp(-Math.pow((ph - 0.33) / 0.095, 2)));
+      const wantVig = (0.44 + 0.68 * beat) * sev;
+      this.lowVigK += (wantVig - this.lowVigK) * Math.min(1, rdt * 10);
     } else {
       this.lowBeatT = 0;
       this.lowVigK += (0 - this.lowVigK) * Math.min(1, rdt * 7);
