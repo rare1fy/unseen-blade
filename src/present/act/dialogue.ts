@@ -400,38 +400,39 @@ export class Dialogue {
     g.fillStyle = right ? '#a87d36' : EDGE_R;
     g.fillRect(right ? cw - inset - u * 3 : inset + u * 2, inset + u * 2, u * 2, ch - (inset + u * 2) * 2);
 
-    // Body text: ALWAYS left-aligned with generous breathing room
+    // Body text: ALWAYS left-aligned with clean compact margins
     const fpx = Math.round(fontPx(scale) * dpr);
     const full = t(line.text), chars = [...full].slice(0, n);
-    const padL = Math.round(26 * dpr), padR = Math.round(26 * dpr);
-    const maxW = cw - padL - padR;
-    const lineH = Math.round(fpx * 1.46);
-    const footH = PAD.device === 'touch' ? Math.round(18 * dpr) : Math.round(32 * dpr);
-    let row = '', y = Math.round(22 * dpr);
+    const padH = Math.round((scale >= 2 ? 20 : 14) * dpr);
+    const padTop = Math.round((scale >= 2 ? 16 : 12) * dpr);
+    const maxW = cw - padH * 2;
+    const lineH = Math.round(fpx * 1.38);
+    const footH = PAD.device === 'touch' ? Math.round(10 * dpr) : Math.round(28 * dpr);
+    let row = '', y = padTop;
     const col = sp?.mute ? MUTE : BODY;
     if (language === 'en') {
       let left = n;
       for (const fullRow of wrapWords(full, maxW, str => bodyW(str, fpx))) {
         if (left <= 0) break;
-        bodyText(g, fullRow.slice(0, left), padL, y, fpx, col, 'left', '#07050b');
+        bodyText(g, fullRow.slice(0, left), padH, y, fpx, col, 'left', '#07050b');
         left -= fullRow.length + 1; y += lineH;
       }
     } else {
       for (const ch of chars) {
         if (bodyW(row + ch, fpx) > maxW) {
-          bodyText(g, row, padL, y, fpx, col, 'left', '#07050b');
+          bodyText(g, row, padH, y, fpx, col, 'left', '#07050b');
           row = ''; y += lineH;
         }
         row += ch;
       }
-      if (row) bodyText(g, row, padL, y, fpx, col, 'left', '#07050b');
+      if (row) bodyText(g, row, padH, y, fpx, col, 'left', '#07050b');
     }
 
     // Dedicated recessed footer bar at bottom of dialogue box
     const dev = PAD.device;
     if (dev === 'touch') {
       if (n >= [...full].length) {
-        const bx = cw - Math.round(28 * dpr), by = ch - Math.round(20 * dpr);
+        const bx = cw - Math.round(22 * dpr), by = ch - Math.round(16 * dpr);
         g.fillStyle = NAME;
         for (let r = 0; r < 4; r++) g.fillRect(bx + r * dpr, by + r * dpr, (8 - r * 2) * dpr, dpr);
       }
@@ -442,7 +443,7 @@ export class Dialogue {
       g.fillStyle = '#332c40';
       g.fillRect(inset + u * 2, fTop, cw - (inset + u * 2) * 2, Math.max(1, Math.round(dpr)));
       const hs = Math.max(1, Math.floor(0.62 * scale * dpr));
-      const padF = Math.round(18 * dpr), gap = Math.round(6 * dpr), segGap = Math.round(16 * dpr);
+      const padF = Math.round(14 * dpr), gap = Math.round(5 * dpr), segGap = Math.round(13 * dpr);
       const footY = fTop + Math.round(footH / 2);
       let rx = cw - padF;
       const drawWord = (w: string, colW: string) => {
@@ -542,12 +543,13 @@ export class Dialogue {
     }
     if (this.holdT >= 0.65) { this.skipAll(); return; }
 
-    const scale = L.h >= 600 ? 2 : 1, fpx0 = fontPx(scale), wPx = Math.round(Math.min(L.w * 0.58, Math.max(480, fpx0 * 24 + 52), 700));
-    const rowsFit = Math.max(1, Math.ceil(bodyW(t(line.text), fpx0) / Math.max(1, wPx - 52)));
-    // act-136: stable fixed 3-line body height (expands to 4 only for rare very long lines) so box never jitters between pages
-    const rows = rowsFit >= 4 ? 4 : 3;
-    const footExtra = PAD.device === 'touch' ? 18 : 38;
-    const hPx = Math.round(22 + rows * Math.round(fpx0 * 1.46) + 12 + footExtra);
+    const scale = L.h >= 600 ? 2 : 1, fpx0 = fontPx(scale);
+    const padH = scale >= 2 ? 20 : 14, padTop = scale >= 2 ? 16 : 12;
+    const wPx = Math.round(Math.min(L.w * 0.41, Math.max(scale >= 2 ? 380 : 270, fpx0 * 16 + padH * 2), scale >= 2 ? 500 : 370));
+    const rowsFit = Math.max(1, Math.ceil(bodyW(t(line.text), fpx0) / Math.max(1, wPx - padH * 2)));
+    const rows = Math.min(4, Math.max(2, rowsFit));
+    const footExtra = PAD.device === 'touch' ? 10 : 32;
+    const hPx = Math.round(padTop + rows * Math.round(fpx0 * 1.38) + 10 + footExtra);
     const narr = line.who === 'act';
     this.box.visible = !narr;
     this.ink.set(narr, line, this.shown, total, dt, sx, sy);
@@ -555,16 +557,20 @@ export class Dialogue {
     if (!narr) {
       const key = `${this.i}|${this.shown}|${this.shown >= total ? 1 : 0}|${wPx}|${hPx}|${BODY_FONT.version}|${PAD.device}|${PAD.family}|${this.autoPlay ? 1 : 0}|${language}`;
       if (key !== this.drawn) { this.drawn = key; this.paint(line, this.shown, wPx, hPx, scale); }
-      const y = L.h - hPx / 2 - Math.max(12, L.h * 0.028) + (1 - this.openT) * 28 + sy;
-      L.at(L.w / 2 + sx, y, 0, this.box.position); this.box.scale.set(L.px(wPx), L.px(hPx), L.px(8));
+      // Gently bias box away from a solo portrait so it never covers the speaker; center cleanly when both sides are present
+      const hasL = !!this.sides.L.who, hasR = !!this.sides.R.who;
+      const sideShift = hasL && !hasR ? L.w * 0.08 : hasR && !hasL ? -L.w * 0.08 : 0;
+      const boxCx = Math.round(L.w / 2 + sideShift);
+      const y = L.h - hPx / 2 - Math.max(10, L.h * 0.025) + (1 - this.openT) * 28 + sy;
+      L.at(boxCx + sx, y, 0, this.box.position); this.box.scale.set(L.px(wPx), L.px(hPx), L.px(8));
       const speakerName = sp?.name ?? line.who;
       const right = sp?.side === 'R';
       if (speakerName) {
         this.paintNamePlaque(speakerName, right, scale);
         const nx = right
-          ? L.w / 2 + wPx / 2 - this.nameW / 2 - 14 + sx
-          : L.w / 2 - wPx / 2 + this.nameW / 2 + 14 + sx;
-        const ny = y - hPx / 2 - this.nameH * 0.36;
+          ? boxCx + wPx / 2 - this.nameW / 2 - 12 + sx
+          : boxCx - wPx / 2 + this.nameW / 2 + 12 + sx;
+        const ny = y - hPx / 2 - this.nameH * 0.34;
         L.at(nx, ny, L.px(6), this.nameMesh.position);
         this.nameMesh.scale.set(L.px(this.nameW, L.px(6)), L.px(this.nameH, L.px(6)), 1);
         this.nameMesh.visible = true;
