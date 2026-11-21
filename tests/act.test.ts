@@ -463,4 +463,12 @@ describe('combat wave 2: poise break & staggered cadence (act-113)', () => {
     expect(showSrc).toContain('setPropOcc(s.g, k); setPropOcc(s.sign, k)');
     expect(showSrc).toContain('setActorOcc(this.stations.merchant.root');
   });
+
+  it('act-130 invariants: gentler 一闪 full-screen flash & clean snowWind SFX', async () => {
+    const showSrc = SRC['src/present/act/show.ts'];
+    // 一闪 draw & delayed burst flash intensities lowered so they never blind the screen
+    expect(showSrc).toContain("this.flashScreen(o.soft ? 0.05 : 0.16, 0xfff4dc)");
+    expect(showSrc).toContain("this.flashScreen(0.22, 0xfff6e4)");
+    expect(showSrc).toContain("GRADE.flash = this.flashK * 0.62");
+  });
 });

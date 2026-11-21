@@ -3233,7 +3233,7 @@ export class ActShow {
       if (!locked && this.duel.offerClash(f, true)) { locked = f; continue; }
       if (!isBoss(f)) interruptFoe(f, 0.85);
     }
-    this.flashScreen(o.soft ? 0.08 : 0.32, 0xfff4dc);   // (11-18 追步: the second draw only glints — one full flash a draw is enough)
+    this.flashScreen(o.soft ? 0.05 : 0.16, 0xfff4dc);   // (act-130: restrained warm flash on 一闪 draw so it never blinds the screen)
   }
   /** she has arrived and stands: hold the dramatic stillness beat ONLY on elites / bosses / 见切 counter-draws — plain mobs slice straight through with zero pause! */
   private iaiCut(o: { a: THREE.Vector3; b: THREE.Vector3; r: number; dmg: number; knock: number }) {
@@ -3250,7 +3250,7 @@ export class ActShow {
     }
     const BEAT_S = TUNE.iaiBeat; this.iaiHeld = true;
     hitstop(BEAT_S + 0.02); audio.stillness(BEAT_S); this.camPunch(0.03);
-    after(BEAT_S, () => { this.iaiHeld = false; if (!this.hero?.alive) return; this.flashScreen(0.45, 0xffffff); this.splitScreen(0.78); this.sweep({ ...o, kind: 'rel' }); }, { real: true });
+    after(BEAT_S, () => { this.iaiHeld = false; if (!this.hero?.alive) return; this.flashScreen(0.22, 0xfff6e4); this.splitScreen(0.72); this.sweep({ ...o, kind: 'rel' }); }, { real: true });
   }
   /** 11-18: a full-screen flash (the grade's flash, fading over ~0.2 s) and the stance's dimming (vignette + a little desaturation);
    *  act-109: restrained pixel-snapped radial chromatic split (GRADE.split) on highlight impacts, decaying briskly */
@@ -3258,7 +3258,7 @@ export class ActShow {
   private flashScreen(k: number, col: number) { this.flashK = Math.max(this.flashK, k); GRADE.flashCol.setHex(col); }
   private splitScreen(k: number) { this.splitK = Math.max(this.splitK, Math.min(1, k)); }
   private flashStep(rdt: number) {
-    if (this.flashK > 0) { this.flashK = Math.max(0, this.flashK - rdt * 4); GRADE.flash = this.flashK * 0.75; }
+    if (this.flashK > 0) { this.flashK = Math.max(0, this.flashK - rdt * 4.8); GRADE.flash = this.flashK * 0.62; }
     if (this.splitK > 0) { this.splitK = Math.max(0, this.splitK - rdt * 6.5); GRADE.split = this.splitK * 0.9; }
   }
   private dimTo(want: number, rdt: number) {
