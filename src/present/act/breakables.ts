@@ -108,6 +108,15 @@ export class Breakables {
   private readonly fallAxis = new THREE.Vector3();
   logic = new BreakLogic(); root = new THREE.Group(); private vis = new Map<number, Vis>(); private fires: FireVis[] = [];
   constructor(parent: THREE.Object3D, private solids: Solids) { parent.add(this.root); }
+  /** act-125: spawn an extra breakable prop at runtime (e.g. 陆逊江东火折 extra oil jars) */
+  add(kind: 'oil' | 'pot' | 'hay', x: number, z: number) {
+    const p = this.logic.add(kind, x, z), tilt = new THREE.Group(), g = new THREE.Group();
+    tilt.add(model(kind, 0)); g.add(tilt); g.position.set(p.x, 0, p.z);
+    g.rotation.y = ((p.id * 2654435761) % 4) * (Math.PI / 2);
+    this.root.add(g);
+    const solid = this.solids.add({ kind: 'prop', shape: 'circle', x: p.x, z: p.z, r: p.r * 0.85, slam: false, tag: p });
+    this.vis.set(p.id, { p, g, tilt, solid, wob: { x: 0, z: 0, vx: 0, vz: 0 }, fall: -1, fuseT: 0 });
+  }
   /** the room's props (from asm/arena.ts arenaPlan) */
   *buildSteps(list: ArenaPlan['props'], covers: Cover[] = [], detached = false) {
     this.clear();

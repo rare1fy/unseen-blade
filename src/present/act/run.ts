@@ -7,7 +7,7 @@ import { LOCALES } from '../asm/registry';
 import { REGIONS } from './regions';
 import type { RegionDef } from './regionDef';
 
-export type RoomType = 'fight' | 'elite' | 'shop' | 'rest' | 'boon' | 'boss';
+export type RoomType = 'fight' | 'elite' | 'shop' | 'rest' | 'boon' | 'event' | 'boss';
 export type Reward = { k: 'boon' } | { k: 'coins'; n: number } | { k: 'heal' } | { k: 'manual' } | null;
 /** one room of the run: what it is, where, what clearing it gives, the waves ('kind*' = the elite of that kind); region = which 关 (0 起) */
 export interface RoomPlan { type: RoomType; locale: string; reward: Reward; waves: string[][]; region?: number }
@@ -21,13 +21,14 @@ export const ROOM_INFO: Record<RoomType, { name: string; line: string }> = {
   shop: { name: '行商', line: '铜钱换秘卷与奇货' },
   rest: { name: '歇脚', line: '回血·磨刀·焚香蓄锐' },
   boon: { name: '遗卷', line: '不战自得珍绝秘传' },
+  event: { name: '赵云奇遇', line: '听声辨井救乡民' },
   boss: { name: '首领', line: '死战坐镇强敌首领' },
 };
 /** 11-18: the later regions' own words for their fights and their boss room (boss title stays generic 首领 so route boards never spoil who awaits) */
 const ROOM_INFO_BY: Record<string, Partial<Record<RoomType, { name: string; line: string }>>> = {
-  r2_luoyang: { fight: { name: '乱兵', line: '斩退焚城飞熊卒' }, boss: { name: '首领', line: '铸钱炉前决生死' } },
-  r3_xiapi: { fight: { name: '乱兵', line: '扫除浸水吕布兵' }, boss: { name: '首领', line: '白门楼下决生死' } },
-  r4_wulin: { fight: { name: '乱兵', line: '杀穿铁索连环船' }, boss: { name: '首领', line: '楼船烈火决生死' } },
+  r2_luoyang: { fight: { name: '乱兵', line: '斩退焚城飞熊卒' }, event: { name: '吕布奇遇', line: '辕门断锁救赤兔' }, boss: { name: '首领', line: '铸钱炉前决生死' } },
+  r3_xiapi: { fight: { name: '乱兵', line: '扫除浸水吕布兵' }, event: { name: '夏侯惇奇遇', line: '雾巷听弦破暗弩' }, boss: { name: '首领', line: '白门楼下决生死' } },
+  r4_wulin: { fight: { name: '乱兵', line: '杀穿铁索连环船' }, event: { name: '陆逊奇遇', line: '借风断索连环火' }, boss: { name: '首领', line: '楼船烈火决生死' } },
   r5_cui: { fight: { name: '乱兵', line: '雪夜破袭崔府众' }, boss: { name: '首领', line: '深宅雪落决生死' } },
 };
 /** a room type's name and line in region `ri` (0 起; out of range = region one's) */
@@ -91,10 +92,15 @@ export function doorsFrom(from: number, visited: RoomType[], r: Rnd, ri = 0): Ro
   if (next >= N) return [];
   if (next === N - 1) return [roomOf('boss', next, r, ri)];
   const current = visited[visited.length - 1];
-  if (current === 'rest' || current === 'shop' || current === 'boon') {
+  if (current === 'rest' || current === 'shop' || current === 'boon' || current === 'event') {
     // Keep the usual 3:1.5 odds for which combat room appears on the left.
     const fightFirst = r() < 2 / 3;
     return [roomOf(fightFirst ? 'fight' : 'elite', next, r, ri), roomOf(fightFirst ? 'elite' : 'fight', next, r, ri)];
+  }
+  // act-125: in regions 0..3 (赵云/吕布/夏侯惇/陆逊), guarantee one fork offers the Famous General puzzle encounter on room 2 (or 3 if skipped)
+  if (ri >= 0 && ri <= 3 && !visited.includes('event') && (next === 2 || next === 3)) {
+    const other: RoomType = next >= 2 && r() < 0.4 ? 'elite' : 'fight';
+    return r() < 0.5 ? [roomOf('event', next, r, ri), roomOf(other, next, r, ri)] : [roomOf(other, next, r, ri), roomOf('event', next, r, ri)];
   }
   const w: Array<[RoomType, number]> = [['fight', 3], ['elite', next >= 2 ? 1.5 : 0], ['shop', next >= 2 && !visited.includes('shop') ? 1 : 0], ['rest', next >= 2 && !visited.includes('rest') ? 1 : 0], ['boon', 1]];
   const draw = (not?: RoomType) => { const ws = w.filter(([t]) => t !== not), tot = ws.reduce((s, [, n]) => s + n, 0); let x = r() * tot; for (const [t, n] of ws) { x -= n; if (x <= 0 && n > 0) return t; } return ws.find(([, n]) => n > 0)![0]; };

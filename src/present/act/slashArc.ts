@@ -70,6 +70,13 @@ const PAL: Record<string, SlashPalette> = {
   lubu:      { edge: 0xfff5d6, body: 0xf24a2e, tail: 0x9c1618, hdr: 1.28 },
   xiahoudun: { edge: 0xffece0, body: 0xc82628, tail: 0x5c1216, hdr: 1.24 },
   luxun:     { edge: 0xf2fff8, body: 0x5ce0b0, tail: 0x28786a, hdr: 1.22 },
+  // act-125: Wen-family signature blades 3D voxel light palettes
+  thunder_light: { edge: 0xfff6d2, body: 0xf0b840, tail: 0x7056a8, hdr: 1.24 },
+  thunder_heavy: { edge: 0xfffbe0, body: 0xffc83c, tail: 0x6244c0, hdr: 1.30 },
+  frost_light:   { edge: 0xf2feff, body: 0x66dcf8, tail: 0x2a76a8, hdr: 1.22 },
+  frost_heavy:   { edge: 0xffffff, body: 0x8cecff, tail: 0x3088c4, hdr: 1.28 },
+  blunt_light:   { edge: 0xd8dce4, body: 0x6e7482, tail: 0x3c404a, hdr: 1.12 },
+  blunt_flash:   { edge: 0xfff4d6, body: 0xff5a30, tail: 0xa81c14, hdr: 1.32 },
 };
 
 const MOVE_PAL: Record<string, keyof typeof PAL> = {
@@ -128,8 +135,19 @@ class SlashSystem {
   private styleBleedUntil = 0;
   private stylePal: keyof typeof PAL | null = null;
   private stylePalUntil = 0;
+  /** act-125: equipped Wen-family blade voxel palette override */
+  private weaponPal: { light: keyof typeof PAL; heavy: keyof typeof PAL; iai: keyof typeof PAL } | null = null;
   private lastTip = new THREE.Vector3();
   private lastTipAt = -99;
+
+  setWeaponPalette(p: { light: string; heavy: string; iai: string } | null) {
+    if (!p || (p.light === 'light' && p.heavy === 'heavy' && p.iai === 'iai')) { this.weaponPal = null; return; }
+    this.weaponPal = {
+      light: (p.light in PAL ? p.light : 'light') as keyof typeof PAL,
+      heavy: (p.heavy in PAL ? p.heavy : 'heavy') as keyof typeof PAL,
+      iai: (p.iai in PAL ? p.iai : 'iai') as keyof typeof PAL,
+    };
+  }
 
   private ensure() {
     if (this.mesh) {
@@ -301,14 +319,17 @@ class SlashSystem {
 
     const counter = this.now <= this.styleCounterUntil;
     const bleed = this.now <= this.styleBleedUntil && !counter;
+    const baseMove = MOVE_PAL[moveKind] ?? 'light';
+    const wp = this.weaponPal;
+    const wepPal: keyof typeof PAL = !wp ? baseMove : baseMove === 'iai' ? wp.iai : (baseMove === 'heavy' || moveKind === 'k5' || moveKind === 'plunge' || moveKind === 'chase') ? wp.heavy : wp.light;
     const palKey: keyof typeof PAL = counter
       ? 'counter'
       : (this.now <= this.stylePalUntil && this.stylePal)
         ? this.stylePal
-        : (MOVE_PAL[moveKind] ?? 'light');
+        : wepPal;
     const pal = PAL[palKey] ?? PAL.light;
     const hdr = pal.hdr ?? 1.18;
-    const heavy = palKey === 'heavy' || palKey === 'counter' || palKey === 'iai';
+    const heavy = palKey === 'heavy' || palKey === 'counter' || palKey === 'iai' || palKey === 'thunder_heavy' || palKey === 'frost_heavy' || palKey === 'blunt_flash';
     const isThrust = moveKind === 'k4';
 
     // Keep blade length consistent during curved arc sub-stepping so fast 30fps swings stay cleanly rounded

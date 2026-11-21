@@ -76,11 +76,19 @@ export function archTier(p: Perks, a: Archetype): 0 | 2 | 3 {
 }
 export function applyBoon(p: Perks, id: string, tier = 0) { if (BOONS.some(b => b.id === id)) p.owned[id] = Math.max(p.owned[id] ?? 0, boonTier(tier)); }
 export function upgradeBoon(p: Perks, id: string): boolean { if (tierOf(p, id) < 0 || tierOf(p, id) >= 2) return false; p.owned[id]++; return true; }
-export function drawBoons(pool: 'any', n: number, rnd: () => number, p: Perks, odds = [0.7, 0.25, 0.05]): BoonPick[] {
+export function drawBoons(pool: 'any', n: number, rnd: () => number, p: Perks, odds = [0.7, 0.25, 0.05], archBias?: Archetype | null): BoonPick[] {
   void pool; const fresh = BOONS.filter(b => tierOf(p, b.id) < 0), owned = BOONS.filter(b => tierOf(p, b.id) >= 0);
   const weights = [0, 1, 2].map(i => Number.isFinite(odds[i]) ? Math.max(0, odds[i]) : 0), total = weights.reduce((a, b) => a + b, 0), out: BoonPick[] = [];
   for (let i = 0; i < Math.min(Math.max(0, Math.floor(n)), BOONS.length); i++) {
-    const choices = fresh.length ? fresh : owned, ix = Math.max(0, Math.min(choices.length - 1, Math.floor(rnd() * choices.length)));
+    const choices = fresh.length ? fresh : owned;
+    let ix = 0;
+    if (archBias) {
+      const ws = choices.map(c => (c.arch === archBias ? 3.5 : 1)), tw = ws.reduce((a, b) => a + b, 0);
+      let r = rnd() * tw;
+      for (let k = 0; k < choices.length; k++) { r -= ws[k]; if (r <= 0) { ix = k; break; } }
+    } else {
+      ix = Math.max(0, Math.min(choices.length - 1, Math.floor(rnd() * choices.length)));
+    }
     const boon = choices.splice(ix, 1)[0], roll = rnd() * total, tier = total <= 0 || roll < weights[0] ? 0 : roll < weights[0] + weights[1] ? 1 : 2;
     out.push({ boon, tier });
   }

@@ -14,12 +14,20 @@ export interface Profile {
   /** relationships with the people at the hideout (id → points) */ bonds: Record<string, number>;
   /** the costume worn */ wear?: string;
   /** 杜五's provisions packed for the next run (feast / purse / wine), used up when the run starts */ meal?: string;
+  /** act-125: 文家名刀 equipped weapon id & forging levels (0..3) */
+  weapon?: string;
+  weaponLv?: Record<string, number>;
+  /** act-125: 信物匣 equipped keepsake id & unlocked map (id → combat rooms cleared for ★→★★★) */
+  keepsake?: string | null;
+  keepsakes?: Record<string, number>;
+  /** act-125: Three Kingdoms general encounter events solved (id → clear count) */
+  genCleared?: Record<string, number>;
   /** act-127 prologue checkpoint so quitting mid-prologue resumes at the right beat instead of restarting from the village */
   proStage?: 'village' | 'boss' | 'wake' | 'done';
   /** last saved (ms since epoch) */ at: number;
 }
 const KEY = 'ub.profile';
-export const fresh = (): Profile => ({ v: 1, runs: 0, wins: 0, deaths: 0, iron: 0, herb: 0, perks: {}, mirror: {}, seen: {}, bonds: {}, proStage: 'village', at: Date.now() });
+export const fresh = (): Profile => ({ v: 1, runs: 0, wins: 0, deaths: 0, iron: 0, herb: 0, perks: {}, mirror: {}, seen: {}, bonds: {}, weapon: 'hanshan', weaponLv: {}, keepsake: null, keepsakes: {}, genCleared: {}, proStage: 'village', at: Date.now() });
 let cur: Profile | null = null;
 /** is there a saved profile on this device? */
 export function hasSave(): boolean { try { return !!profileStorage.getItem(KEY); } catch { return false; } }

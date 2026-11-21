@@ -68,6 +68,9 @@ import { QUALITY, setQuality, type Tier, qualityLabel, cycleQuality } from '../l
 const COLD_AS_CARDS = true;
 import { newGame, profile, save as saveProfile, seeOnce, hasSave } from './profile';
 import { runMods, bank, META, MIRROR, level, nextCost, buy, hasAffordable, mirrorState, mirrorNextCost, canBuyMirror, hasMirrorAffordable, buyMirror, flipMirror, type RunMods } from './meta';
+import { WEAPONS, WEAPON_ORDER, weaponDef, isWeaponUnlocked, weaponLevel, weaponNextCost, canForgeWeapon, hasAnyWeaponForgeable, forgeWeapon, equippedWeapon, equipWeapon, buildCourtyardWeaponRack, type WeaponId } from './weapons';
+import { KEEPSAKES, KEEPSAKE_ORDER, KEEPSAKE_STARS, keepsakeDef, isKeepsakeUnlocked, unlockKeepsake, keepsakeRooms, keepsakeStar, starLabel, equippedKeepsake, equipKeepsake, advanceKeepsake, buildKeepsakeBoxModel, type KeepsakeId } from './keepsakes';
+import { GeneralEventRunner, GENERAL_EVENTS, type GeneralBlessingId, type GeneralEventMeta } from './generalEvents';
 import { NPC_LINES, UP_LINES, POOR_LINES, HAUL, MEALS, MEAL_LINES, STELE_LINES } from './hideoutLines';
 import { Leaves } from './leaves';
 import type { BTarget, BEvent, BDamage } from './breakLogic';
@@ -305,10 +308,10 @@ export function roomDefinition(o: RoomIn) {
   if (o.forceSpec) Object.assign(spec, o.forceSpec);   // act-29: the prologue's snowy night
   // act-19: the 黄巾 rooms stand on the 2x stage; the yard keeps the old one (wp/regB: and every place in asm/arena.ts ARENA_LOOK). 11-18 屋子形态 (用户：「场景再大些，形态多样一些」): a fight
   // room on a big stage takes one of its place's shapes (the boss's, the calm rooms, the prologue's and the cutscenes' stay square)
-  const ptype = o.plan?.type ?? 'fight', calm = ptype === 'shop' || ptype === 'rest' || ptype === 'boon';
+  const ptype = o.plan?.type ?? 'fight', calm = ptype === 'shop' || ptype === 'rest' || ptype === 'boon', isEvent = ptype === 'event';
   const roomKind = calm ? 'calm' : ptype === 'boss' ? 'boss' : 'fight';
   const region = o.region == null ? null : REGIONS[o.region];
-  const dm = region && !isYard && !o.noArena && !o.viewSpec && !o.forceSpec && !o.shape
+  const dm = region && !isYard && !isEvent && !o.noArena && !o.viewSpec && !o.forceSpec && !o.shape
     ? (o.map ? MAP_BY_ID[o.map] : pickMap(region, roomKind, o.maps ?? [], seed)) : null;
   if (dm) {
     const mb = pickSpec(dm.seed, Object.values(REGISTRY.locales), REGISTRY.layouts, [], { season: o.regionSpec?.season ?? 'autumn', locale: dm.locale });
@@ -317,14 +320,14 @@ export function roomDefinition(o: RoomIn) {
     Object.assign(spec, { ...mb, mirror: false, time: atmo.time, weather: atmo.weather, seed: dm.seed });
   }
   const loc = LOCALES[spec.locale], bigP = !isYard && bigStage(spec.locale);
-  const shapeId: ShapeId = dm ? 'map' : !bigP || o.noArena ? 'square' : o.shape ?? (o.viewSpec || o.forceSpec ? 'square' : pickShape(loc?.shapes, calm ? 'calm' : ptype === 'boss' ? 'boss' : 'fight', spec.seed, o.shapes ?? []));
+  const shapeId: ShapeId = dm ? 'map' : !bigP || o.noArena || isEvent ? 'square' : o.shape ?? (o.viewSpec || o.forceSpec ? 'square' : pickShape(loc?.shapes, calm ? 'calm' : ptype === 'boss' ? 'boss' : 'fight', spec.seed, o.shapes ?? []));
   const big = bigP, k = dm ? mapStage(dm) : SHAPE_K[shapeId]; setStage(big, k);
   const lb = REGISTRY.layouts[spec.layout] ?? Object.values(LOCALES).flatMap(l => l.extraLayouts ?? []).find(l => l.id === spec.layout)!;
   const drawn = dm ? mapShape(dm) : undefined;
   const layout = withExits(spec.mirror ? mirrorLayout(stageLayout(lb)) : stageLayout(lb), spec.exits ?? [], drawn?.fixed);
   const pits = loc?.pits ?? ['water'], pitK = pits[Math.floor(((spec.seed * 2654435761) >>> 0) / 4294967296 * pits.length) % pits.length];
   const shape = drawn ?? (big && !o.noArena && shapeId !== 'square' ? makeShape(shapeId, spec.seed, { layout, pit: pitK }) : undefined);
-  const arena = big && !o.noArena ? arenaPlan(layout, (spec.exits ?? []) as ExitId[], spec.seed, spec.locale, calm ? 'calm' : ptype === 'boss' ? 'boss' : 'fight', shape) : null;
+  const arena = big && !o.noArena ? arenaPlan(layout, (spec.exits ?? []) as ExitId[], spec.seed, spec.locale, calm || isEvent ? 'calm' : ptype === 'boss' ? 'boss' : 'fight', shape) : null;
   spec.arena = arena ?? undefined;
   if (isYard) return { spec, big, layout, arena, report: null, k, def: hideoutScene({ time: 'dusk', weather: 'clear' }) };
   const { def, report } = assemble(spec, REGISTRY);
@@ -680,18 +683,19 @@ export class ActShow {
     let bloomWas = GRADE.bloomThreshold;
     let duwuSaved: { x: number; z: number; yaw: number } | null = null;
     // (act-40 / act-126: she wakes hatless on 孙媪's mat with wider framing & smooth cinematic dolly/pan motion across the kiln scene)
+    const wakeMat = HIDEOUT.spawn;
     let wakeCamT = 0, wakeStage = 0;
-    const wakeCamPos = V3(1.5, 4.3, -1.3), wakeCamLook = V3(5.85, 0.72, -6.15);
+    const wakeCamPos = V3(wakeMat[0] - 4.8, 4.3, wakeMat[1] + 4.8), wakeCamLook = V3(wakeMat[0] - 0.5, 0.72, wakeMat[1]);
     let wakeCamFov = 42;
     await wipeTransit(async () => {
       await this.enterYard(); this.musicHold = 'bgm_kiln'; void audio.playMusic('bgm_kiln', 1.2);
-      const h = this.hero; h.pos.set(WAKE_MAT[0], 0, WAKE_MAT[1]); h.a.place(h.pos, 0); h.a.root.visible = true; h.a.body.visible = true; let gk = 0; h.scriptPose = () => getUpPose(h.a, gk);
+      const h = this.hero; h.pos.set(wakeMat[0], 0, wakeMat[1]); h.a.place(h.pos, 0); h.a.root.visible = true; h.a.body.visible = true; let gk = 0; h.scriptPose = () => getUpPose(h.a, gk);
       if (h.a.bones.hat) h.a.bones.hat.visible = false;
-      // Bring Du Wu beside Sun Ao's straw mat (5.45, -6.55 — completely clear of mat/stele/stove/table) so he is in frame during PRO_WAKE
+      // Bring Du Wu beside Sun Ao's straw mat in the expanded hideout so he is cleanly in frame during PRO_WAKE
       const dw = this.npcs.find(n => n.id === 'duwu');
       if (dw) {
         duwuSaved = { x: dw.x, z: dw.z, yaw: dw.yaw };
-        dw.x = 5.45; dw.z = -6.55; dw.yaw = Math.atan2(WAKE_MAT[0] - dw.x, WAKE_MAT[1] - dw.z);
+        dw.x = wakeMat[0] - 1.05; dw.z = wakeMat[1] - 0.35; dw.yaw = Math.atan2(wakeMat[0] - dw.x, wakeMat[1] - dw.z);
         dw.a.place(V3(dw.x, 0, dw.z), dw.yaw); dw.a.yaw = dw.yaw; dw.sh.position.set(dw.x, 0.025, dw.z);
       }
       this.camOverride = { base: wakeCamPos.clone(), look: wakeCamLook.clone(), fov: wakeCamFov };
@@ -780,11 +784,44 @@ export class ActShow {
     this.L.text.hide('act.npc');
     this.L.text.hide('act.yard.guide');
     this.L.text.hide('act.yard.exit');
-    for (const id of ['fengtiebi', 'sunao', 'duwu', 'stele']) this.L.text.hide('act.beacon.' + id);
+    for (const id of ['fengtiebi', 'sunao', 'duwu', 'luzhao', 'huanyue', 'stele', 'weaponRack', 'keepsakeBox']) this.L.text.hide('act.beacon.' + id);
+  }
+  private weaponRackMesh: THREE.Group | null = null;
+  private keepsakeBoxMesh: THREE.Group | null = null;
+  private generalEvent: GeneralEventRunner | null = null;
+  private genBlessings = new Set<GeneralBlessingId>();
+  private dbgAllWeapons = false;
+  private ksShield = 0;
+  private ksRevenge = false;
+  private intentBonusAcc = 0;
+  private refreshHideoutProps() {
+    if (!this.stage || this.phase !== 'yard') return;
+    if (this.weaponRackMesh) { this.weaponRackMesh.parent?.remove(this.weaponRackMesh); this.weaponRackMesh = null; }
+    if (this.keepsakeBoxMesh) { this.keepsakeBoxMesh.parent?.remove(this.keepsakeBoxMesh); this.keepsakeBoxMesh = null; }
+    const p = profile();
+    const unl: Record<WeaponId, boolean> = {
+      hanshan: isWeaponUnlocked(p, 'hanshan', this.dbgAllWeapons),
+      thunder: isWeaponUnlocked(p, 'thunder', this.dbgAllWeapons),
+      frost: isWeaponUnlocked(p, 'frost', this.dbgAllWeapons),
+      blunt: isWeaponUnlocked(p, 'blunt', this.dbgAllWeapons),
+    };
+    const rack = buildCourtyardWeaponRack(unl, equippedWeapon(p, this.dbgAllWeapons));
+    rack.position.set(HIDEOUT.weaponRack.x, 0, HIDEOUT.weaponRack.z);
+    rack.rotation.y = HIDEOUT.weaponRack.yaw;
+    this.stage.root.add(rack);
+    this.weaponRackMesh = rack;
+
+    const kbox = buildKeepsakeBoxModel(!!equippedKeepsake(p, this.dbgAllWeapons));
+    kbox.position.set(HIDEOUT.keepsakeBox.x, 0, HIDEOUT.keepsakeBox.z);
+    kbox.rotation.y = HIDEOUT.keepsakeBox.yaw;
+    this.stage.root.add(kbox);
+    this.keepsakeBoxMesh = kbox;
   }
   private clearNpcs() {
     for (const n of this.npcs) { n.a.dispose(); n.sh.parent?.remove(n.sh); }
     this.npcs = []; this.npcNear = null; this.stele?.dispose(); this.stele = null;
+    if (this.weaponRackMesh) { this.weaponRackMesh.parent?.remove(this.weaponRackMesh); this.weaponRackMesh = null; }
+    if (this.keepsakeBoxMesh) { this.keepsakeBoxMesh.parent?.remove(this.keepsakeBoxMesh); this.keepsakeBoxMesh = null; }
     for (const m of this.marks.values()) { m.g.parent?.remove(m.g); m.ring.parent?.remove(m.ring); }
     this.marks.clear();
     this.steleExclaim?.parent?.remove(this.steleExclaim); this.steleExclaim = null;
@@ -799,9 +836,10 @@ export class ActShow {
     const prof = profile();
     const ex = (HIDEOUT.exit.x0 + HIDEOUT.exit.x1) / 2, ez = HIDEOUT.exit.z;
     if (!prof.meal && prof.runs === 0) return { x: HIDEOUT.people.duwu.x, z: HIDEOUT.people.duwu.z, isExit: false };
-    if (hasAffordable(prof, 'forge')) return { x: HIDEOUT.people.fengtiebi.x, z: HIDEOUT.people.fengtiebi.z, isExit: false };
+    if (hasAffordable(prof, 'forge') || hasAnyWeaponForgeable(prof, this.dbgAllWeapons)) return { x: HIDEOUT.people.fengtiebi.x, z: HIDEOUT.people.fengtiebi.z, isExit: false };
     if (hasAffordable(prof, 'medic')) return { x: HIDEOUT.people.sunao.x, z: HIDEOUT.people.sunao.z, isExit: false };
     if (hasMirrorAffordable(prof)) return { x: HIDEOUT.stele.x, z: HIDEOUT.stele.z + 0.6, isExit: false };
+    if (!equippedKeepsake(prof, this.dbgAllWeapons) && KEEPSAKE_ORDER.some(id => isKeepsakeUnlocked(prof, id, this.dbgAllWeapons))) return { x: HIDEOUT.keepsakeBox.x, z: HIDEOUT.keepsakeBox.z + 0.6, isExit: false };
     if (!prof.meal) return { x: HIDEOUT.people.duwu.x, z: HIDEOUT.people.duwu.z, isExit: false };
     return { x: ex, z: ez, isExit: true };
   }
@@ -812,11 +850,12 @@ export class ActShow {
     const uiClear = !this.noTalk && this.phase !== 'talk' && this.phase !== 'cine' && !this.dialogue.on && !this.cards.on && !this.demo.on && !this.pause.on;
     const dev = this.inp.lastDevice;
     const talkKey = dev === 'touch' ? '点右下交谈' : dev === 'pad' ? msg`[${actPad('attack')}]` : msg`[${actKey('attack')}]`;
-    const roleOf: Record<string, string> = { fengtiebi: '锻刀', sunao: '药石', duwu: '干粮', stele: '潜能' };
+    const roleOf: Record<string, string> = { fengtiebi: '锻刀·淬炼', sunao: '药石', duwu: '干粮', luzhao: '江湖消息', huanyue: '论刀', stele: '潜能' };
     const beaconOf = (id: string): { text: string; col: string; hex: number } | null => {
-      if (id === 'fengtiebi' && hasAffordable(prof, 'forge')) return { text: '可锻造', col: '#ffd868', hex: 0xffc848 };
+      if (id === 'fengtiebi' && (hasAffordable(prof, 'forge') || hasAnyWeaponForgeable(prof, this.dbgAllWeapons))) return { text: '可锻造', col: '#ffd868', hex: 0xffc848 };
       if (id === 'sunao' && hasAffordable(prof, 'medic')) return { text: '可强化', col: '#8effb8', hex: 0x62e898 };
       if (id === 'duwu' && !prof.meal) return { text: '领干粮', col: '#ffbe78', hex: 0xffa858 };
+      if (id === 'luzhao' && !isKeepsakeUnlocked(prof, 'luzhao')) return { text: '赠信物', col: '#ff9688', hex: 0xff6e64 };
       if (id === 'stele' && hasMirrorAffordable(prof)) return { text: '参悟潜能', col: '#d8c4ff', hex: 0xb896ff };
       return null;
     };
@@ -879,8 +918,26 @@ export class ActShow {
       if (this.steleExclaim) this.steleExclaim.visible = false;
       this.L.text.hide('act.beacon.stele');
     }
+    // 文家刀廊 & 信物匣 proximity beacons
+    const eqWep = weaponDef(equippedWeapon(prof, this.dbgAllWeapons));
+    const eqKs = keepsakeDef(equippedKeepsake(prof, this.dbgAllWeapons));
+    if (this.weaponRackMesh && uiClear && near !== 'weaponRack' && h && Math.hypot(h.pos.x - HIDEOUT.weaponRack.x, h.pos.z - HIDEOUT.weaponRack.z) < 7.5) {
+      const p = worldToUi(V3(HIDEOUT.weaponRack.x, 2.25, HIDEOUT.weaponRack.z + 0.35));
+      this.L.text.set('act.beacon.weaponRack', { text: msg`文家刀廊 · ${eqWep.name}`, x: p.x, y: p.y, bodyPx: Math.max(12, Math.round(13.5 * Math.min(1.2, this.L.h / 720))), color: eqWep.col, outline: '#140c0a', align: 'center', visible: p.z < 1 });
+    } else this.L.text.hide('act.beacon.weaponRack');
+    if (this.keepsakeBoxMesh && uiClear && near !== 'keepsakeBox' && h && Math.hypot(h.pos.x - HIDEOUT.keepsakeBox.x, h.pos.z - HIDEOUT.keepsakeBox.z) < 7.0) {
+      const p = worldToUi(V3(HIDEOUT.keepsakeBox.x, 1.85, HIDEOUT.keepsakeBox.z + 0.35));
+      this.L.text.set('act.beacon.keepsakeBox', { text: eqKs ? msg`信物匣 · ${eqKs.name}` : '信物匣 · 选佩信物', x: p.x, y: p.y, bodyPx: Math.max(12, Math.round(13.5 * Math.min(1.2, this.L.h / 720))), color: eqKs ? eqKs.col : '#ffd898', outline: '#140c0a', align: 'center', visible: p.z < 1 });
+    } else this.L.text.hide('act.beacon.keepsakeBox');
+
     const nn = near ? this.npcs.find(x => x.id === near) : null;
-    if (near === 'stele' && uiClear && HIDEOUT.stele) {
+    if (near === 'weaponRack' && uiClear) {
+      const p = worldToUi(V3(HIDEOUT.weaponRack.x, 2.25, HIDEOUT.weaponRack.z + 0.35));
+      this.L.text.set('act.npc', { text: msg`文家刀廊 · 拔刀换武 ${talkKey}`, x: p.x, y: p.y, bodyPx: Math.max(13, Math.round(15 * Math.min(1.2, this.L.h / 720))), color: '#ffe698', outline: '#140c0a', align: 'center' });
+    } else if (near === 'keepsakeBox' && uiClear) {
+      const p = worldToUi(V3(HIDEOUT.keepsakeBox.x, 1.85, HIDEOUT.keepsakeBox.z + 0.35));
+      this.L.text.set('act.npc', { text: msg`信物匣 · 随身信物 ${talkKey}`, x: p.x, y: p.y, bodyPx: Math.max(13, Math.round(15 * Math.min(1.2, this.L.h / 720))), color: '#8effd0', outline: '#140c0a', align: 'center' });
+    } else if (near === 'stele' && uiClear && HIDEOUT.stele) {
       const p = worldToUi(V3(HIDEOUT.stele.x, 2.02, HIDEOUT.stele.z + 0.35));
       this.L.text.set('act.npc', { text: msg`复仇碑 · 潜能 ${talkKey}`, x: p.x, y: p.y, bodyPx: Math.max(13, Math.round(15 * Math.min(1.2, this.L.h / 720))), color: '#e2d0ff', outline: '#140c0a', align: 'center' });
     } else if (nn && uiClear) {
@@ -915,12 +972,183 @@ export class ActShow {
       this.L.text.hide('act.yard.exit');
     }
   }
-  /** a word with someone at the hideout; the smith and the healer then show their upgrades; 复仇碑 opens 碑铭潜能 (Mirror of Night) */
+  /** Grant a hideout/general keepsake on first unlock with banner + toast */
+  private grantKeepsake(id: KeepsakeId) {
+    const p = profile();
+    if (!unlockKeepsake(p, id)) return false;
+    saveProfile();
+    const ks = KEEPSAKES[id];
+    cue('reveal', 0.9);
+    this.banner.show(msg`获得信物 · ${ks.name}`, msg`可回古窑信物匣佩戴 · ${ks.owner}所赠`, 2.2, ks.col);
+    this.feed.push('boon', () => msg`信物 · ${ks.name}`, 0, 'ks:' + id);
+    this.refreshHideoutProps();
+    return true;
+  }
+  /** a word with someone at the hideout; 文家刀廊 swaps blades, 信物匣 equips keepsakes, 复仇碑 opens 碑铭潜能 */
   private async npcTalk(id: string) {
+    if (id === 'weaponRack') { await this.weaponRackMenu(); return; }
+    if (id === 'keepsakeBox') { await this.keepsakeMenu(); return; }
     if (id === 'stele') { await this.steleMenu(); return; }
-    if (id === 'duwu') { await this.mealMenu(); return; }
+    if (id === 'duwu') { await this.mealMenu(); this.grantKeepsake('duwu'); return; }
+    if (id === 'luzhao') {
+      const lines = [
+        '水渠边清净，我替你记着各路消息。每关岔路常有乱世名将受困，顺手帮他们一把，自有重礼。',
+        '文家三十柄刀散落五地，每夺回一柄，北台刀廊便多一分锋芒。',
+      ];
+      await this.talk([{ who: 'luzhao', text: lines[Math.floor(Math.random() * lines.length)] }]);
+      this.grantKeepsake('luzhao');
+      return;
+    }
+    if (id === 'huanyue') {
+      const lines = [
+        '石阶上喝一口山泉酿，倒比洛阳城里的酒痛快。刀换了手，就去西边大试剑坪先劈两下听听响。',
+        '快刀重势、重刀破阵、断刃听声——哪一柄顺手，全看你自己。',
+      ];
+      await this.talk([{ who: 'huanyue', text: lines[Math.floor(Math.random() * lines.length)] }]);
+      return;
+    }
     const pool = NPC_TALK[id] ?? []; if (pool.length) await this.talk([{ who: id, text: pool[Math.floor(Math.random() * pool.length)] }]);
-    if (id === 'fengtiebi' || id === 'sunao') await this.upgradeMenu(id === 'fengtiebi' ? 'forge' : 'medic');
+    if (id === 'fengtiebi') {
+      await this.forgeHubMenu();
+      this.grantKeepsake('fengtiebi');
+    } else if (id === 'sunao') {
+      await this.upgradeMenu('medic');
+      this.grantKeepsake('sunao');
+    }
+  }
+  /** act-125: 文家刀廊 — pick among the 4 Wen-family blades, swaps 3D voxel blade & combat moveset immediately */
+  private async weaponRackMenu() {
+    for (;;) {
+      const p = profile(), cur = equippedWeapon(p, this.dbgAllWeapons);
+      const cards: BoonPick[] = WEAPON_ORDER.map(id => {
+        const w = WEAPONS[id], unl = isWeaponUnlocked(p, id, this.dbgAllWeapons), lv = weaponLevel(p, id), eq = cur === id;
+        const line1 = unl ? w.summary : msg`未夺回 · ${w.unlockHint}`;
+        const line2 = unl ? msg`${w.special}${lv > 0 ? ` · 淬炼${lv}阶` : ''}` : w.special;
+        return {
+          boon: {
+            id: 'wep_' + id, school: 'fg' as never, name: eq ? msg`${w.name}（已佩）` : w.name,
+            desc: [line1, line2], col: unl ? w.col : '#7e7872', glyph: w.glyph,
+            tag: !unl ? '未解锁' : eq ? msg`使用中 · ${lv}/3阶` : msg`点选拔刀 · ${lv}/3阶`,
+          } as Boon,
+          tier: eq ? 2 : unl ? 1 : 0,
+        };
+      });
+      const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
+      const i = await this.cards.open(cards, {
+        leave: true,
+        header: { title: '文家刀廊 · 拔刀换武', sub: '四柄文家名刀各有独立连段与藏锋特技 · 换完可在西翼试剑坪试手', col: '#ffe290' },
+        footer: '点选已夺回的名刀立即拔换 · 找冯铁臂可淬炼升阶 · 点左上返回离开',
+      });
+      this.phase = was; this.hud.on = true;
+      if (i < 0 || i >= WEAPON_ORDER.length) return;
+      const wid = WEAPON_ORDER[i], w = WEAPONS[wid];
+      if (!isWeaponUnlocked(p, wid, this.dbgAllWeapons)) {
+        cue('click', 0.5);
+        this.banner.show(w.name, w.unlockHint, 1.3, '#d0a890');
+        continue;
+      }
+      equipWeapon(p, wid, this.dbgAllWeapons); saveProfile();
+      this.hero?.applyWeapon(wid, weaponLevel(p, wid));
+      this.refreshHideoutProps();
+      cue('draw', 0.9); cue('bladeRing', 0.85);
+      this.banner.show(msg`佩刀 · ${w.name}`, w.title, 1.6, w.col);
+      return;
+    }
+  }
+  /** act-125: 乌漆铜扣信物匣 — equip 1 of 8 keepsakes, view star progression ★→★★★ */
+  private async keepsakeMenu() {
+    for (;;) {
+      const p = profile(), cur = equippedKeepsake(p, this.dbgAllWeapons);
+      const cards: BoonPick[] = KEEPSAKE_ORDER.map(id => {
+        const ks = KEEPSAKES[id], unl = isKeepsakeUnlocked(p, id, this.dbgAllWeapons), eq = cur === id;
+        const st = keepsakeStar(p, id), rms = keepsakeRooms(p, id);
+        const nextNeed = st === 1 ? KEEPSAKE_STARS[0] : st === 2 ? KEEPSAKE_STARS[1] : null;
+        const prog = !unl ? ks.source : nextNeed != null ? msg`当前 ${starLabel(st)}（${rms}/${nextNeed} 间升星）` : '已达 ★★★ 圆满';
+        return {
+          boon: {
+            id: 'ks_' + id, school: 'mr' as never,
+            name: eq ? msg`${ks.name}（佩戴中）` : msg`${ks.owner} · ${ks.name}`,
+            desc: [unl ? ks.effect(st) : msg`未获赠 · ${ks.source}`, prog],
+            col: unl ? ks.col : '#7e7872', glyph: ks.glyph,
+            tag: !unl ? '未获赠' : eq ? starLabel(st) : msg`${starLabel(st)} · 佩戴`,
+          } as Boon,
+          tier: eq ? 2 : unl ? 1 : 0,
+        };
+      });
+      const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
+      const i = await this.cards.open(cards, {
+        leave: true,
+        header: { title: '信物匣 · 随身信物', sub: '每局选带一件 · 通关战斗屋自动升星（★ → ★★ → ★★★）', col: '#8effd0' },
+        footer: '点选已获赠信物佩戴或卸下 · 点左上返回离开',
+      });
+      this.phase = was; this.hud.on = true;
+      if (i < 0 || i >= KEEPSAKE_ORDER.length) return;
+      const kid = KEEPSAKE_ORDER[i], ks = KEEPSAKES[kid];
+      if (!isKeepsakeUnlocked(p, kid, this.dbgAllWeapons)) {
+        cue('click', 0.5);
+        this.banner.show(ks.name, ks.source, 1.4, '#d0a890');
+        continue;
+      }
+      const nextId = cur === kid ? null : kid;
+      equipKeepsake(p, nextId, this.dbgAllWeapons); saveProfile();
+      this.refreshHideoutProps();
+      cue('reveal', 0.8);
+      this.banner.show(nextId ? msg`佩戴信物 · ${ks.name}` : '已卸下信物', nextId ? ks.effect(keepsakeStar(p, kid)) : '', 1.5, ks.col);
+      return;
+    }
+  }
+  /** act-125: 冯铁臂双入口 — 铁炉永久强化 / 文家名刀淬炼（1→3 阶机制） */
+  private async forgeHubMenu() {
+    for (;;) {
+      const p = profile();
+      const cards: BoonPick[] = [
+        { boon: { id: 'fh_meta', school: 'fg' as never, name: '铁炉锻造 · 永久强化', desc: ['刀身 / 镖匣 / 重铸 / 旧谱', hasAffordable(p, 'forge') ? '有可强化项' : '以残铁永久提升根骨'], col: '#ffd878', glyph: ANVIL, tag: '永久强化' } as Boon, tier: hasAffordable(p, 'forge') ? 2 : 1 },
+        { boon: { id: 'fh_wep', school: 'fg' as never, name: '名刀淬炼 · 武器升阶', desc: ['为四柄文家名刀淬出 1→3 阶专属机制', hasAnyWeaponForgeable(p, this.dbgAllWeapons) ? '有可淬炼名刀' : '解锁名刀后可用残铁淬炼'], col: '#ffae58', glyph: WEAPONS.thunder.glyph, tag: '名刀淬炼' } as Boon, tier: hasAnyWeaponForgeable(p, this.dbgAllWeapons) ? 2 : 1 },
+      ];
+      const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
+      const i = await this.cards.open(cards, {
+        leave: true,
+        header: { title: '冯铁臂 · 窑口锻坊', sub: '选择永久强化，或淬炼文家名刀解锁专属机制', col: '#ffd888' },
+        wallet: { iron: p.iron, herb: p.herb, focus: 'iron' },
+        footer: '点选进入 · 点左上返回离开',
+      });
+      this.phase = was; this.hud.on = true;
+      if (i === 0) await this.upgradeMenu('forge');
+      else if (i === 1) await this.weaponForgeMenu();
+      else return;
+    }
+  }
+  /** act-125: 名刀淬炼 1→3 阶 */
+  private async weaponForgeMenu() {
+    for (;;) {
+      const p = profile();
+      const cards: BoonPick[] = WEAPON_ORDER.map(id => {
+        const w = WEAPONS[id], unl = isWeaponUnlocked(p, id, this.dbgAllWeapons), lv = weaponLevel(p, id), cost = weaponNextCost(p, id);
+        const can = canForgeWeapon(p, id, this.dbgAllWeapons);
+        const line1 = !unl ? msg`未夺回 · ${w.unlockHint}` : lv >= 3 ? msg`已满阶：${w.forgeDesc[2]}` : msg`下阶（${lv + 1}阶）：${w.forgeDesc[lv]}`;
+        const line2 = !unl ? w.title : cost == null ? '已臻三阶圆满' : can ? msg`点击淬炼 · 消耗 ${cost} 残铁（有 ${p.iron}）` : msg`残铁不足（需 ${cost}，当前 ${p.iron}）`;
+        return {
+          boon: { id: 'wf_' + id, school: 'fg' as never, name: msg`${w.name} · ${lv}/3阶`, desc: [line1, line2], col: can ? w.col : '#989088', glyph: w.glyph, tag: !unl ? '未解锁' : cost == null ? '满阶' : msg`${cost}残铁` } as Boon,
+          tier: cost == null ? 2 : can ? 1 : 0,
+        };
+      });
+      const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
+      const i = await this.cards.open(cards, {
+        leave: true,
+        header: { title: '名刀淬炼 · 1→3 阶机制', sub: '消耗百辟残铁激发文家名刀的隐藏刀势', col: '#ffd888' },
+        wallet: { iron: p.iron, herb: p.herb, focus: 'iron' },
+        footer: '点选名刀直接淬炼 · 点左上返回上一层',
+      });
+      this.phase = was; this.hud.on = true;
+      if (i < 0 || i >= WEAPON_ORDER.length) return;
+      const wid = WEAPON_ORDER[i], w = WEAPONS[wid];
+      if (!forgeWeapon(p, wid, this.dbgAllWeapons)) { cue('click', 0.5); continue; }
+      saveProfile();
+      const newLv = weaponLevel(p, wid);
+      if (this.hero && this.hero.weaponId === wid) this.hero.applyWeapon(wid, newLv);
+      cue('bladeRing', 0.95); cue('coin', 0.7);
+      this.banner.show(msg`淬炼成锋 · ${w.name}`, msg`${newLv}阶：${w.forgeDesc[newLv - 1]}`, 1.8, w.col);
+    }
   }
   /** act-118: 复仇碑 · 碑铭潜能 (Hades Mirror of Night-style dual-aspect permanent talents — upgrade with 残铁/药引, flip 阳/阴 freely anytime) */
   private async steleMenu() {
@@ -1081,7 +1309,8 @@ export class ActShow {
       { label: () => (this.storySkip ? '跳过剧情：快进中…' : '跳过剧情（演出和对话快进到能操作）'), run: () => this.skipStory() },
       // 11-18 测关卡用: she can't die / every 刀谱 move on (the tune panel only, not the pause menu)
       { label: () => `打不死：${this.god ? '开' : '关'}`, run: () => { this.god = !this.god; } },
-      { label: () => `全部招式：${this.dbgAllMoves ? '开' : '关'}`, run: () => { this.dbgAllMoves = !this.dbgAllMoves; if (this.hero && !this.yard && !this.prologue) this.hero.moves = this.dbgAllMoves ? ALL_MOVES : this.perks.moves; } }],
+      { label: () => `全部招式：${this.dbgAllMoves ? '开' : '关'}`, run: () => { this.dbgAllMoves = !this.dbgAllMoves; if (this.hero && !this.yard && !this.prologue) this.hero.moves = this.dbgAllMoves ? ALL_MOVES : this.perks.moves; } },
+      { label: () => `全部名刀与信物：${this.dbgAllWeapons ? '开' : '关'}`, run: () => { this.dbgAllWeapons = !this.dbgAllWeapons; this.refreshHideoutProps(); } }],
       { regions: REGIONS.map(r => r.name), rooms: ri => REGIONS[ri].rooms, go: (ri, room, type) => { const r = this.jumpRegion(ri, room, type); return 'why' in r ? r.why : undefined; } });
     // the pause menu (act-30 之后, user: 「帮我把手柄的按键映射和手柄支持做了吧」): Start / Esc, a pad pulled out, the page hidden
     this.pause = new PauseMenu({ L: this.L, settings: [...SET.filter(x => __DEBUG_UI__ || !x.dbg).map(x => ({ label: x.short, run: x.run })), { id: 'language', label: () => '语言：简体中文', run: () => setLanguage(language === 'en' ? 'zh' : 'en') }], canGiveUp: () => this.canGiveUp(), giveUp: () => this.giveUp(), closed: () => this.unpaused(), toTitle: () => this.backToTitle(), onRun: () => this.canGiveUp(),
@@ -1115,8 +1344,26 @@ export class ActShow {
       bench: (tiers?: Tier[]) => this.bench(tiers),
       region: (n = 1, room = 0, type: RoomType = 'fight') => this.jumpRegion(n, room, type),
       boss: (n = 0) => { this.jumpRegion(n, REGIONS[Math.max(0, Math.min(REGIONS.length - 1, n))].rooms, 'boss'); },
-      /** act-114: jump straight to Three Kingdoms general encounter (0=赵云, 1=吕布, 2=夏侯惇, 3=陆逊) */
-      general: (n = 0) => { const ri = Math.max(0, Math.min(GENERAL_REGIONS.length - 1, n)); this.forceGeneral = ri; return this.jumpRegion(ri, 2, 'fight'); },
+      /** act-125: jump straight to Three Kingdoms general puzzle encounter (0=赵云, 1=吕布, 2=夏侯惇, 3=陆逊) */
+      general: (n = 0) => { const ri = Math.max(0, Math.min(GENERAL_EVENTS.length - 1, n)); return this.jumpRegion(ri, 2, 'event'); },
+      /** act-125: debug solve current general puzzle event, swap weapon, toggle all weapons/keepsakes unlocked */
+      solveEvent: () => { this.generalEvent?.forceSolve(); return !!this.generalEvent; },
+      weapon: (id: WeaponId = 'hanshan', lv?: number) => {
+        const p = profile();
+        if (lv != null) { if (!p.weaponLv) p.weaponLv = {}; p.weaponLv[id] = Math.max(0, Math.min(3, lv)); }
+        p.weapon = id; saveProfile();
+        this.hero?.applyWeapon(id, weaponLevel(p, id));
+        this.refreshHideoutProps();
+        return { id, lv: weaponLevel(p, id) };
+      },
+      allWeapons: (on = true) => { this.dbgAllWeapons = on; this.refreshHideoutProps(); return on; },
+      keepsake: (id: KeepsakeId | null = null) => {
+        const p = profile();
+        if (id) unlockKeepsake(p, id);
+        p.keepsake = id; saveProfile();
+        this.refreshHideoutProps();
+        return id;
+      },
       /** act-114: preview Ch5 blade-at-throat ending choice, or directly play ending 'a' | 'b' | 'c' */
       ending: (choice?: 'a' | 'b' | 'c') => { void this.debugEnding(choice); },
       /** act-114: preview hideout stele carving cutscene for name index n (0..4) */
@@ -1602,6 +1849,7 @@ export class ActShow {
     this.region = 0; this.bosses = 0; this.regionIn = false; this.baseFoe = { hp: TUNE.enemyHp, dmg: TUNE.enemyDmg, aggression: 0.85, calm: TUNE.atkCalm, attackers: TUNE.maxAttackers };
     // act-20 / act-118: the hideout's upgrades & 碑铭潜能 (meta.ts) for this run
     this.mods = runMods(profile()); this.defy = this.mods.deathDefy; this.rerollsLeft = this.mods.rerolls; this.eliteKills = 0; this.bossKilled = false;
+    this.genBlessings.clear(); this.ksShield = 0; this.ksRevenge = false; this.intentBonusAcc = 0;
     this.resetCombo(); this.hud.synergies = [];
     // 杜五's provisions (one run): 炙肉胡饼 +15 血上限, 五铢钱囊 40 铜钱, 瓦壶烈酒 the first blow costs nothing
     { const p = profile(), meal = p.meal; p.meal = undefined; saveProfile(); this.wine = meal === 'wine';
@@ -1678,6 +1926,7 @@ export class ActShow {
     this.splitK = 0; this.impactK = 0; GRADE.split = 0; GRADE.impact = 0; GRADE.bloodVig = 0;
     this.cuiInspect.stop(); this.talkTick = null;
     if (this.allyGen) { this.allyGen.dispose(); this.allyGen = null; }
+    if (this.generalEvent) { this.generalEvent.dispose(); this.generalEvent = null; }
     this.duelGen = null;
     if (this.endCui) { this.endCui.dispose(); this.endCui = null; }
     this.duel?.newRoom(); for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = []; this.entering.length = 0; this.clearBossDrops();
@@ -1792,12 +2041,33 @@ export class ActShow {
     const entZ = this.arena?.shape?.fixed ? this.arena.shape.enter[1] : (this.prologue === 2 || spec.locale === 'cx_court') ? SZ(1.6) : SZ(5.0);
     yield;
     this.hero = new Hero(isYard ? V3(HIDEOUT.spawn[0], 0, HIDEOUT.spawn[1]) : V3(ent, 0, entZ), this.wearing); this.hero.moves = isYard || this.dbgAllMoves ? ALL_MOVES : this.perks.moves; this.hero.perks = this.perks; this.hero.hp = Math.min(hp, maxHp); this.hero.maxHp = maxHp;   // (act-40 用户：「开局第一场战斗默认给主角解锁所有技能」) (11-18: this comment used to sit before the perks / hp assignments and swallowed them — the hero's own boons never applied and her HP reset each room)
+    { const p = profile(), wid = equippedWeapon(p, this.dbgAllWeapons); this.hero.applyWeapon(wid, weaponLevel(p, wid)); }
     this.syncHeroHat();
     // (11-20: a new place starts still — a stick / key still held from the last one counts only once let go)
     this.inp.latch();
     this.hero.qi = isYard ? Hero.QI_MAX : Math.min(Hero.QI_MAX, Math.max(qi, TUNE.qiStart + (this.mods.startIntent > 0 ? 0.5 : 0)));   // (11-17 气: carried on; 出鞘杀气 also grants +0.5 starting qi)
     this.syncHeroMods(); this.resetCombo();
     this.hero.a.yaw = isYard ? -0.6 : Math.PI;
+    // act-125: Keepsake room-entry triggers (孙媪百草香囊回血 / 杜五瓦壶老酒首战护盾 / 陆逊江东火折加火油坛)
+    if (!isYard && !this.prologue) {
+      const p = profile(), kid = equippedKeepsake(p, this.dbgAllWeapons);
+      if (kid) {
+        const star = keepsakeStar(p, kid), ks = KEEPSAKES[kid];
+        if (kid === 'sunao' && this.room > 0) {
+          const heal = Math.round(this.hero.maxHp * ks.vals[star - 1] / 100);
+          const was = this.hero.hp; this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + heal);
+          this.healFeed(was);
+        }
+        if (kid === 'duwu' && this.room === 0) this.ksShield = ks.vals[star - 1];
+        if (kid === 'luxun' && (this.plan?.type === 'fight' || this.plan?.type === 'elite') && this.props) {
+          const count = ks.vals[star - 1];
+          for (let j = 0; j < count; j++) {
+            const ox = (j - (count - 1) / 2) * 3.8, oz = -1.5 + (j % 2) * 2.4;
+            if (this.solids.free(ox, oz, 0.7, 0.3) && (!this.grid || this.grid.clear(ox, oz, 0.7))) this.props.add('oil', ox, oz);
+          }
+        }
+      }
+    }
     this.hud.flask.set({ hp: this.hero.hp, maxHp });
     this.cam.set(this.hero.pos.x, 0, this.hero.pos.z); shot('act', () => this.camPose(), { cut: true, speed: 8 });
     after(0.05, () => this.music());
@@ -1841,10 +2111,22 @@ export class ActShow {
       this.log.push(`room ${this.room} ${this.plan.type} ${spec.locale}`);
       this.openDoors(true); return;
     }
+    // act-125: Three Kingdoms Famous General Puzzle Encounter room ('event')
+    if (this.plan && this.plan.type === 'event') {
+      const h = this.hero; this.introT = 0;
+      const runner = this.mountGeneralEvent(this.region);
+      after(0.85, () => {
+        if (!runner || this.hero !== h || this.phase !== 'intro' || this.generalEvent !== runner) return;
+        this.phase = 'fight';
+        void this.startGeneralEvent(runner);
+      });
+      this.log.push(`room ${this.room} event ${spec.locale}`);
+      return;
+    }
     if (!P.fixtures || !OPT.slicedRoom) yield* prepareFightModels(this.plan?.waves ?? []);
     yield;
     yield* prepareFight();
-    // walk in from the front of the room, then the first wave (or Three Kingdoms famous general encounter on room 2!)
+    // walk in from the front of the room, then the first wave
     const h = this.hero; this.introT = 0;
     after(1.1, () => {
       if (this.hero !== h || this.phase !== 'intro') return;
@@ -1853,60 +2135,68 @@ export class ActShow {
     });
     this.log.push(`room ${this.room} ${spec.locale} ${spec.layout} ${spec.time} ${this.arena?.shape?.id ?? 'square'}`);
   }
-  /** act-114 三国名将遭遇（第一关赵云 / 第二关吕布 / 第三关夏侯惇 / 第四关陆逊，出现在每关第 3 间，房间索引 2） */
+  private mountGeneralEvent(ri: number): GeneralEventRunner | null {
+    if (!this.stage) return null;
+    const idx = Math.max(0, Math.min(GENERAL_EVENTS.length - 1, ri));
+    const runner = new GeneralEventRunner(this.stage.root, idx, {
+      heroPos: () => this.hero.pos,
+      hurtHero: (dmg, from) => this.hurtHero(dmg, from),
+      bark: (at, text) => { (this.barks ??= new Barks(this.L)).say(at, text); },
+      banner: (title, sub, dur, col) => this.banner.show(title, sub, dur, col),
+      onSolved: meta => { void this.finishGeneralEvent(meta); },
+    });
+    this.generalEvent = runner;
+    return runner;
+  }
+  /** act-125: Launch the Three Kingdoms Famous General puzzle-rescue encounter (no filler combat waves!) */
+  private async startGeneralEvent(arg: number | GeneralEventRunner) {
+    const runner = typeof arg === 'number' ? this.mountGeneralEvent(arg) : arg;
+    if (!runner || !this.stage || this.generalEvent !== runner) return;
+    await this.cine(generalIntroShots(this.cineHost, runner.actor.home, runner.actor, runner.meta.eventTitle, runner.meta.id));
+    if (this.generalEvent !== runner) return;
+    await this.talk(runner.meta.intro);
+    if (this.generalEvent !== runner) return;
+    runner.begin();
+  }
+  private async finishGeneralEvent(meta: GeneralEventMeta) {
+    const runner = this.generalEvent; if (!runner) return;
+    this.phase = 'pick';
+    runner.actor.play(new Action('salute', 1.0, 0.5));
+    await this.talk(meta.outro);
+    if (this.generalEvent === runner) {
+      fxSmoke(runner.actor.home.clone().setY(0.7), 0xd8d0c0, 12, { r: 0.7, spd: 1.2, up: 0.9, s: 0.4, life: 0.6 });
+      runner.dispose();
+      this.generalEvent = null;
+    }
+    const p = profile();
+    if (!p.genCleared) p.genCleared = {};
+    p.genCleared[meta.id] = (p.genCleared[meta.id] ?? 0) + 1;
+    const newlyUnlocked = unlockKeepsake(p, meta.keepsake);
+    if (!newlyUnlocked && p.keepsakes) p.keepsakes[meta.keepsake] = (p.keepsakes[meta.keepsake] ?? 0) + 4;
+    saveProfile();
+    this.genBlessings.add(meta.id);
+    const was = this.hero.hp;
+    this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + Math.round(this.hero.maxHp * 0.28));
+    this.healFeed(was); this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp });
+    this.addIntent();
+    const ks = KEEPSAKES[meta.keepsake];
+    if (newlyUnlocked) {
+      this.banner.show(msg`获赠信物 · ${ks.name}`, msg`附得【${meta.blessingName}】：${meta.blessingDesc}`, 2.6, ks.col);
+      this.feed.push('boon', () => msg`信物 · ${ks.name}`, 0, 'ks:' + meta.keepsake);
+    } else {
+      this.banner.show(msg`名将加护 · ${meta.blessingName}`, msg`${meta.blessingDesc} · ${ks.name}历练+4`, 2.4, ks.col);
+    }
+    this.feed.push('boon', () => msg`加护 · ${meta.blessingName}`, 0, 'gb:' + meta.id);
+    await new Promise(r => after(0.9, () => r(null)));
+    await this.boonPick([0.15, 0.60, 0.25]);
+    this.openDoors();
+  }
+  /** Legacy helper disabled for normal fight rooms — generals now appear via dedicated 'event' puzzle rooms */
   private tryGeneralEncounter(): boolean {
     const forced = this.forceGeneral;
     this.forceGeneral = null;
-    if (this.prologue || this.plan?.type !== 'fight') return false;
-    const ri = forced != null ? forced : this.region;
-    if (ri < 0 || ri >= GENERAL_REGIONS.length) return false;
-    if (forced == null && (this.room !== 2 || !seeOnce(`gen_r${ri + 1}`))) return false;
-    saveProfile();
-    const g = GENERAL_REGIONS[ri];
-    const hp = this.hero.pos;
-    // Find a verified clear spot on the floor in front of Liu Bai (never inside props/walls/pits/bridges!)
-    const findSpot = (dist: number) => {
-      const p = V3(hp.x, 0, hp.z - dist);
-      for (let t = 0; t < 24; t++) {
-        const ang = (t === 0 ? 0 : (t % 2 ? 1 : -1) * Math.ceil(t / 2) * 0.28);
-        const tx = hp.x + Math.sin(ang) * dist, tz = hp.z - Math.cos(ang) * dist;
-        const onBridge = this.grid?.sp.bridges.some(b => tx > b.x0 - 0.9 && tx < b.x1 + 0.9 && tz > b.z0 - 0.9 && tz < b.z1 + 0.9);
-        if (!onBridge && this.solids.free(tx, tz, 0.85, 0.3) && (!this.grid || this.grid.clear(tx, tz, 0.85))) { p.set(tx, 0, tz); break; }
-      }
-      this.clamp(p, 0.72);
-      if (this.grid && this.grid.at(p.x, p.z) !== FLOOR) { const q = this.grid.nearestFloor(p.x, p.z); p.set(q[0], 0, q[1]); }
-      return p;
-    };
-
-    if (g.mode === 'ally') {
-      const sp = findSpot(2.8);
-      const ally = new AllyGeneral(g.id as 'zhaoyun' | 'luxun', sp, Math.atan2(hp.x - sp.x, hp.z - sp.z));
-      this.allyGen = ally;
-      void (async () => {
-        await this.cine(generalIntroShots(this.cineHost, ally.pos, ally.a, g.title, g.id));
-        if (this.allyGen !== ally) return;
-        await this.talk(GEN_BEFORE[ri]);
-        if (this.allyGen !== ally) return;
-        this.banner.show(g.name, g.title, 1.8, g.id === 'zhaoyun' ? '#c8e4ff' : '#90f0d8');
-        this.spawnWave();
-      })();
-      return true;
-    }
-
-    // Duel mode (Lu Bu / Xiahou Dun): 1-on-1 sparring trial — clears room once player lands 2 parries, trims HP to 75%, or survives 22s!
-    const sp = findSpot(4.6);
-    const kind: EKind = g.id === 'lubu' ? 'gen_lubu' : 'gen_xiahoudun';
-    const f = spawnFoe(kind, sp, hp.clone(), false);
-    this.foes.push(f);
-    this.duelGen = { f, region: ri, t: 0, parries: 0, done: false };
-    void (async () => {
-      await this.cine(generalIntroShots(this.cineHost, f.pos, f.a, g.title, g.id));
-      if (!this.duelGen || this.duelGen.f !== f) return;
-      await this.talk(GEN_BEFORE[ri]);
-      if (!this.duelGen || this.duelGen.f !== f) return;
-      this.banner.show(EDEFS[kind].name, EDEFS[kind].tag ?? g.title, 2.0, g.id === 'lubu' ? '#ff9a5a' : '#e07a7a');
-      f.a.roar();
-    })();
+    if (forced == null) return false;
+    void this.startGeneralEvent(forced);
     return true;
   }
   /** act-114 交锋名将（吕布 / 夏侯惇）收招结算：绝不强杀历史名将，弹反两次/削血 25%/满 22 秒即收招对话 + 馈赠 */
@@ -1981,8 +2271,10 @@ export class ActShow {
     const ring = HIDEOUT.dummies.reduce((a, d) => [a[0] + d[0] / HIDEOUT.dummies.length, a[1] + d[1] / HIDEOUT.dummies.length], [0, 0]);
     this.yard = new Yard(this.stage!.root, [], this.wearing, [0, 0], { pads: HIDEOUT.slabs.map(([x, z], i) => ({ x, z, kind: pk[i % pk.length][0], name: pk[i % pk.length][1] })), spawn: () => V3(ring[0] + (Math.random() - 0.5) * 2, 0, ring[1] - 1.2) });
     for (const [x, z] of HIDEOUT.dummies) { yield; const p = V3(x, 0, z), f = spawnFoe('dummy', p, V3(x, 0, z + 4)); f.st = 'move'; this.foes.push(f); }
-    // the people of chapter 1 at their places (卢昭 and 桓越 come later in the story)
-    yield* this.placeNpcs((['duwu', 'sunao', 'fengtiebi'] as const).map(id => ({ id, ...HIDEOUT.people[id] })));
+    // act-125: all 5 hideout companions now inhabit the expanded 断碑古窑 (杜五 / 孙媪 / 冯铁臂 / 卢昭 / 桓越)
+    yield* this.placeNpcs((['duwu', 'sunao', 'fengtiebi', 'luzhao', 'huanyue'] as const).map(id => ({ id, ...HIDEOUT.people[id] })));
+    // act-125: interactive 3D voxel 文家刀廊 (4-slot blade rack) & 乌漆铜扣信物匣
+    this.refreshHideoutProps();
     // the stele of names: a cut down each name she has killed; unified hideout arrival queue handles fresh cuts & defeat talks cleanly
     { const p = profile(), down = bossesDown(p.seen), cut = struckOnStele(p.seen);
       this.stele = new Stele(cut); this.stele.g.position.set(HIDEOUT.stele.x, 0, HIDEOUT.stele.z); this.stele.g.rotation.y = HIDEOUT.stele.yaw; this.stage!.root.add(this.stele.g);
@@ -2286,6 +2578,7 @@ export class ActShow {
   private heroWorld: HeroWorld = {
     foes: this.foes,
     swing: o => this.swing(o), sweep: o => this.sweep(o), slam: o => this.slam(o), clamp: this.clamp,
+    thunderCleave: o => this.thunderCleave(o), frostDetonate: o => this.frostDetonate(o), bluntFlash: o => this.bluntFlash(o),
     passing: o => this.passing(o), overhead: o => this.overhead(o), dashed: o => this.dashed(o),
     launch: o => this.launchCut(o), kick: o => this.kickHit(o),
     // 11-18 四本新刀谱
@@ -2540,7 +2833,9 @@ export class ActShow {
   /** 错身: each foe her dash goes through (on the ground) takes one cut as she passes — a short white slash across it */
   private passHit = new Map<number, number>();
   private passing(o: { a: THREE.Vector3; b: THREE.Vector3; n: number }) {
-    if (!hasBoon(this.perks, 'passCut')) return;
+    const hasPass = hasBoon(this.perks, 'passCut');
+    const hasLuBuKs = equippedKeepsake(profile(), this.dbgAllWeapons) === 'lubu';
+    if (!hasPass && !hasLuBuKs) return;
     const ab = o.b.clone().sub(o.a).setY(0), L2 = Math.max(1e-4, ab.lengthSq()), dir = ab.lengthSq() > 1e-6 ? ab.clone().normalize() : this.hero.a.fwd();
     for (const f of this.foes.slice()) {
       if (f.st === 'dead' || this.passHit.get(f.uid) === o.n) continue;
@@ -2548,8 +2843,9 @@ export class ActShow {
       if (Math.hypot(f.pos.x - q.x, f.pos.z - q.z) > f.d.r + 0.55) continue;
       this.passHit.set(f.uid, o.n);
       const c = f.a.chest(), side = V3(dir.z, 0, -dir.x);
-      trailSeg(c.clone().addScaledVector(side, -0.55).add(V3(0, 0.3, 0)), c.clone().addScaledVector(side, 0.55).add(V3(0, -0.25, 0)), 0xeaf8ff, 0.12, { life: 0.22, bright: 2.8, spark: 0.5 });
-      this.hitFoe(f, Math.round(TUNE.atkDmg * v(this.perks, 'passCut') / 100), o.a, { knock: 0.5, heavy: false, kind: 'pass', stagger: 0.35 });
+      trailSeg(c.clone().addScaledVector(side, -0.55).add(V3(0, 0.3, 0)), c.clone().addScaledVector(side, 0.55).add(V3(0, -0.25, 0)), hasLuBuKs && !hasPass ? 0xff7852 : 0xeaf8ff, 0.12, { life: 0.22, bright: 2.8, spark: 0.5 });
+      const dmg = hasPass ? Math.round(TUNE.atkDmg * v(this.perks, 'passCut') / 100) : Math.max(4, Math.round(TUNE.atkDmg * 0.45));
+      this.hitFoe(f, dmg, o.a, { knock: 0.5, heavy: false, kind: 'pass', stagger: 0.35, poiseMul: hasLuBuKs ? 3.2 : 1 });
       this.feel('k2', false, 1, dir.clone());
     }
   }
@@ -2829,16 +3125,18 @@ export class ActShow {
     if (!this.props) return;
     if (!shown) this.props.present(r.events);
     for (const e of r.events) if (e.k === 'boom') { this.leaves?.blast(e.x, e.z, 4.5, 8); this.pieces?.boom(e.x, e.z, e.r); }
+    const eqKid = equippedKeepsake(profile(), this.dbgAllWeapons);
     for (const e of r.events) if (e.k === 'break' && e.drop) {
       if (e.drop.kind === 'coins') this.coinsFx.drop(V3(e.p.x, 0.3, e.p.z), e.drop.n, 1);
-      else { const was = this.hero.hp; this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + e.drop.n); this.healFeed(was); this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp }); fxSparks(this.hero.a.chest(), 0x9aff9a, 10, 2); }
+      else { const mul = eqKid === 'sunao' ? 2 : 1; const was = this.hero.hp; this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + e.drop.n * mul); this.healFeed(was); this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp }); fxSparks(this.hero.a.chest(), 0x9aff9a, 10, 2); }
     }
+    const envMul = (eqKid === 'luxun' ? 1.5 : 1) * (this.genBlessings.has('luxun') ? 2 : 1);
     for (const d of r.damage) {
       const from = V3(d.fromX, 0.5, d.fromZ);
       if (d.target.hero) {
         if (d.cause === 'fire') { if (this.hero.iframe || !this.hero.alive) continue; this.hero.hp = Math.max(this.phase === 'yard' ? 1 : 0, this.hero.hp - d.dmg); this.hud.flask.hit(d.dmg, { hp: this.hero.hp, maxHp: this.hero.maxHp }); this.hero.a.tint(0xff7a2a, 0.5); if (this.hero.hp <= 0) this.hurtHero(1, from); }
         else this.hurtHero(d.dmg, from);
-      } else { const f = d.target.id as Foe; if (f.st === 'dead') continue; this.hitFoe(f, d.dmg, from, { knock: d.knock, heavy: d.cause !== 'fire', kind: 'school', stagger: d.down || (d.cause === 'fire' ? 0.1 : undefined) }); }
+      } else { const f = d.target.id as Foe; if (f.st === 'dead') continue; this.hitFoe(f, Math.round(d.dmg * envMul), from, { knock: d.knock, heavy: d.cause !== 'fire', kind: 'school', stagger: d.down || (d.cause === 'fire' ? 0.1 : undefined) }); }
     }
   }
   /** the wall slam (Hades): a foe knocked into the wall, a gate post, cover or a pillar fast enough takes SLAM.dmg and reels;
@@ -2854,7 +3152,8 @@ export class ActShow {
     const at = f.pos.clone().addScaledVector(V3(lp.nx, 0, lp.nz), -f.d.r);
     if (lp.s.kind === 'prop') { const r = this.props?.hitCircle(at.x, at.z, 0.35, { src: 'slam', heavy: true, dir: [-lp.nx, -lp.nz] }, this.targets()); if (r) this.applyProps(r); if (!lp.s.slam) return; }
     fxSmoke(at.clone().setY(0.6), 0x8a7a6a, 6, { r: 0.4, spd: 1.8, up: 0.6, s: 0.35, life: 0.6 }); dustBlocks(at.clone(), 6); shake(0.14 * TUNE.shake);
-    this.hitFoe(f, SLAM.dmg, at, { knock: 0, heavy: true, kind: 'school', stagger: isBoss(f) ? 0 : SLAM.stun }); cue('wallSlam', 0.9);
+    const slamMul = (this.hero?.weaponId === 'thunder' && this.hero.weaponLv >= 1 ? 2 : 1) * (equippedKeepsake(profile(), this.dbgAllWeapons) === 'luxun' ? 1.5 : 1) * (this.genBlessings.has('luxun') ? 2 : 1);
+    this.hitFoe(f, Math.round(SLAM.dmg * slamMul), at, { knock: 0, heavy: true, kind: 'school', stagger: isBoss(f) ? 0 : SLAM.stun }); cue('wallSlam', 0.9);
   }
   /** 11-18 (第三关 寒毒): her steps slowed (the stick read at chillK of its push, frost at her feet) / frozen still (no stick, no
    *  buttons, an ice shell). hero.ts stays as it is: the slow-down is the stick's, so a dash, a cut's step-in and a jump keep their reach */
@@ -2915,7 +3214,7 @@ export class ActShow {
     this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + Math.round(amount));
     if (this.hero.hp > was) { this.healFeed(was); this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp }); fxSparks(this.hero.a.chest(), 0x8effa8, 8, 2.5); }
   }
-  private hitFoe(f: Foe, dmg: number, from: THREE.Vector3, o: { knock: number; heavy: boolean; kind: string; stagger?: number; counter?: boolean }) {
+  private hitFoe(f: Foe, dmg: number, from: THREE.Vector3, o: { knock: number; heavy: boolean; kind: string; stagger?: number; counter?: boolean; poiseMul?: number }) {
     if (f.st === 'dead') return;
     const cut = bladeHit(o.kind);
     const knock = o.knock, stagger = o.stagger ?? (o.heavy ? 0.55 : 0.3);
@@ -2926,23 +3225,36 @@ export class ActShow {
     const isMarked = (f.dartMarkT ?? 0) > 0 || this.darts.some(dr => !dr.dead && dr.stuck === f);
     const firstHit = f.hp >= f.maxHp && this.mods.firstStrikeBonus > 0 && o.kind !== 'school';
     const poise3 = archTier(this.perks, 'poise') >= 3;
-    const gale2 = archTier(this.perks, 'gale') >= 2 && ['dcut', 'pass', 'plunge', 'launch', 'acut', 'acutS', 'swoop', 'stomp', 'overhead', 'rift'].includes(o.kind);
+    const isGaleMove = ['dcut', 'pass', 'plunge', 'launch', 'acut', 'acutS', 'swoop', 'stomp', 'overhead', 'rift'].includes(o.kind);
+    const gale2 = archTier(this.perks, 'gale') >= 2 && isGaleMove;
     const shad2 = archTier(this.perks, 'shadow') >= 2 && o.kind === 'dart';
+    const prof = profile(), kid = equippedKeepsake(prof, this.dbgAllWeapons), kStar = kid ? keepsakeStar(prof, kid) : 1;
     const rollVar = o.kind === 'school' || o.kind === 'ultTick' ? 1 : (0.88 + Math.random() * 0.24);
     let mul = this.mods.dmgMul * this.dmgMul(o.kind) * rollVar * (1 + style.dmgPct / 100);
-    if (wasBroken) mul *= POISE_BREAK_MUL * (poise3 ? 1.25 : 1);
+    if (wasBroken) {
+      mul *= POISE_BREAK_MUL * (poise3 ? 1.25 : 1);
+      if (kid === 'fengtiebi') mul *= 1 + KEEPSAKES.fengtiebi.vals[kStar - 1] / 100;
+      if (this.genBlessings.has('lubu')) mul *= 1.25;
+    }
     if (isAirHit && o.kind !== 'launch') mul *= 1.35;
     if (firstHit) mul *= 1 + this.mods.firstStrikeBonus;
     if (cut && isMarked && this.mods.markedDmgBonus > 0) mul *= 1 + this.mods.markedDmgBonus;
     if (gale2) mul *= 1.3;
+    if (kid === 'zhaoyun' && isGaleMove) mul *= 1 + KEEPSAKES.zhaoyun.vals[kStar - 1] / 100;
+    if (this.genBlessings.has('zhaoyun') && isGaleMove) mul *= 1.35;
     if (shad2) mul *= 1.3;
     if ((o.kind === 'parry' || o.counter) && this.mods.counterBonus > 0) mul *= 1 + this.mods.counterBonus;
+    if ((o.kind === 'parry' || o.kind === 'arrow' || o.counter) && kid === 'xiahoudun') mul *= 1 + KEEPSAKES.xiahoudun.vals[kStar - 1] / 100;
+    if ((o.kind === 'parry' || o.kind === 'arrow') && this.genBlessings.has('xiahoudun')) mul *= 1.65;
+    if ((o.kind === 'ult' || o.kind === 'ultTick') && this.hero?.weaponId === 'blunt' && this.hero.weaponLv >= 3) mul *= 1.4;
     const exposed = cut && (f.exposeT ?? 0) > 0;
-    const guaranteedCrit = firstHit || exposed || (wasBroken && poise3) || (o.kind === 'swoop' && (wasBroken || f.hp < f.maxHp * 0.5));
+    const revengeCrit = cut && this.ksRevenge;
+    const guaranteedCrit = firstHit || exposed || revengeCrit || (wasBroken && poise3) || (o.kind === 'swoop' && (wasBroken || f.hp < f.maxHp * 0.5));
     const critChance = 0.08 + this.mods.critBonus + style.critAdd + (this.hero?.galeBuffT > 0 ? 0.25 : 0);
     const crit = o.kind !== 'school' && o.kind !== 'ultTick' && (guaranteedCrit || Math.random() < critChance);
     if (crit) mul *= 1.45;
     if (exposed) f.exposeT = 0;
+    if (revengeCrit) { this.ksRevenge = false; this.healHero(8); }
     let d = Math.max(1, Math.round(dmg * mul));
     const executed = cut && this.beheadable(f);
     if (executed) d = f.hp + 1;
@@ -2957,7 +3269,7 @@ export class ActShow {
     }
     { const g = f.inv <= 0 ? ROLE_AI[f.role]?.guard?.(f, d, from, o.kind) : undefined; if (g != null) { if (g < 0) return; if (g === 0) { this.glance(f, from, o.kind); return; } d = Math.round(g); } }
     const basePoiseMul = o.kind === 'dart' ? 0.5 : o.kind === 'kick' ? 3.2 : o.kind === 'parry' ? 3.0 : o.kind === 'stomp' ? 2.8 : o.kind === 'launch' ? 2.4 : (o.kind === 'chase' || o.kind === 'burst') ? 2.2 : o.heavy ? 1.8 : 1;
-    const poiseMul = basePoiseMul * this.mods.poiseDmgMul * (archTier(this.perks, 'poise') >= 2 ? 1.35 : 1);
+    const poiseMul = basePoiseMul * (o.poiseMul ?? 1) * this.mods.poiseDmgMul * (archTier(this.perks, 'poise') >= 2 ? 1.35 : 1) * (this.genBlessings.has('lubu') ? 1.45 : 1);
     let died = damageFoe(f, d, from, { knock, stagger, poiseDmg: d * poiseMul });
     const justBroke = !died && !wasBroken && f.brokenT > 0;
     if (justBroke) {
@@ -2974,7 +3286,8 @@ export class ActShow {
     if (fallNow) { f.mem.noHide = true; revealFoe(f); this.foeWorld.dark?.(0); after(0.25, () => void this.prologueFall()); }
     if (this.duelGen && this.duelGen.f === f) f.hp = Math.max(f.hp, Math.ceil(f.maxHp * 0.72));
     if (duelDoneNow) after(0.18, () => { void this.finishDuelGeneral(); });
-    if (cut && !died && f.inv <= 0 && hasBoon(this.perks, 'bleed') && f.kind !== 'dummy') { f.bleed = Math.min(5, f.bleed + 1); f.bleedT = 0; }
+    const bleedCap = 5 + (kid === 'luzhao' ? KEEPSAKES.luzhao.vals[kStar - 1] : 0);
+    if (cut && !died && f.inv <= 0 && hasBoon(this.perks, 'bleed') && f.kind !== 'dummy') { f.bleed = Math.min(bleedCap, f.bleed + 1); f.bleedT = 0; }
     // act-114 / act-118 见红 × 血刃成势: blood burst detonates on >=3 stacks; 血刃 2pc boosts damage +35%, 3pc heals 5 HP + empowers next cut
     const heavyFinisher = o.kind === 'k5' || o.kind === 'rel' || o.kind === 'rel2' || o.kind === 'parry' || o.kind === 'plunge' || o.kind === 'acutS' || o.kind === 'chase';
     const bloodTier = archTier(this.perks, 'blood');
@@ -3017,7 +3330,97 @@ export class ActShow {
     else if (f.kind !== 'dummy' && o.kind !== 'school' && o.kind !== 'dart' && (o.heavy || Math.random() < 0.33)) cue('foePain', o.heavy ? 1 : 0.75, voiceOf(f));
     if (o.kind === 'k5' && !died && f.inv <= 0 && tierOf(this.perks, 'extra') >= 0) { const target = f, origin = from.clone(), echo = dmg * v(this.perks, 'extra') / 100; after(0.12, () => { if (target.st === 'dead' || !this.foes.includes(target)) return; const c = target.a.chest(); trailSeg(c.clone().add(V3(-0.45, 0.35, 0)), c.clone().add(V3(0.45, -0.35, 0)), 0xffe6c8, 0.13, { life: 0.18, bright: 2.5, spark: 0.5 }); fxSparks(c, 0xffc8a0, 9, 3); this.hitFoe(target, echo, origin, { knock: 0.2, heavy: false, kind: 'echo' }); }); }
   }
-  private swing(o: { from: THREE.Vector3; yaw: number; range: number; half: number; dmg: number; knock: number; heavy: boolean; kind: string; n?: number; counter?: boolean }) {
+  /** act-125: 惊雷陌刀 藏锋变招「裂阵斩」— 6.5m straight 3D voxel thunder shockwave shattering shields/poise & oil jars */
+  private thunderCleave(o: { from: THREE.Vector3; yaw: number; len: number; dmg: number; chargeK: number; lv: number }) {
+    const dir = V3(Math.sin(o.yaw), 0, Math.cos(o.yaw)), to = o.from.clone().addScaledVector(dir, o.len);
+    slashArc.line({ a: o.from, b: to, width: 1.35, y: 0.72, palette: 'thunder_heavy', sweep: 0.025, fade: 0.36 });
+    for (let i = 0; i <= 8; i++) {
+      const p = o.from.clone().lerp(to, i / 8).setY(0.15 + (i % 2) * 0.25);
+      addBlock(p, { size: 0.14, v: V3((Math.random() - 0.5) * 2.2, 2.2 + Math.random() * 2.8, (Math.random() - 0.5) * 2.2), col: i % 2 ? 0xffe068 : 0x7a58d8, bright: 1.5, life: 0.42, shrink: 0.5, drag: 2.0, grav: 4 });
+    }
+    fxShock(o.from.clone().addScaledVector(dir, 1.5), 0xffcc48, 2.4, { life: 0.38 });
+    let n = 0;
+    const ab = to.clone().sub(o.from).setY(0), L2 = Math.max(1e-4, ab.lengthSq());
+    for (const f of this.foes.slice()) {
+      if (f.st === 'dead') continue;
+      const t = Math.max(0, Math.min(1, f.pos.clone().sub(o.from).setY(0).dot(ab) / L2)), q = o.from.clone().addScaledVector(ab, t);
+      if (Math.hypot(f.pos.x - q.x, f.pos.z - q.z) <= 1.25 + f.d.r) {
+        this.hitFoe(f, o.dmg, q, { knock: 2.2, heavy: true, kind: 'rel', poiseMul: 2.6 });
+        if (o.lv >= 2 && (f.st as string) !== 'dead') {
+          // lv2: 3D voxel lightning pillar drops on struck foes!
+          const lp = f.pos.clone();
+          for (let y = 0; y < 5; y++) addBlock(lp.clone().setY(0.4 + y * 0.65), { size: 0.22, col: y % 2 ? 0xfff4b0 : 0x8a64f0, bright: 1.7, life: 0.28, shrink: 0.4, drag: 1, grav: 0 });
+          this.hitFoe(f, Math.round(o.dmg * 0.4), lp, { knock: 0.5, heavy: false, kind: 'school' });
+        }
+        n++;
+      }
+    }
+    if (this.props) this.applyProps(this.props.hitSeg(o.from, to, 1.25, { src: 'hero', heavy: true }, this.targets()));
+    this.generalEvent?.strike({ k: 'seg', ax: o.from.x, az: o.from.z, bx: to.x, bz: to.z, r: 1.25 });
+    this.feel('rel', true, Math.max(1, n), dir);
+    cue('boom', 0.72); shake(0.32 * TUNE.shake);
+    return n;
+  }
+  /** act-125: 霜鳞短刃 藏锋变招「追霜」— dash through & detonate all stuck frost-pins/darts for crisp voxel ice bursts */
+  private frostDetonate(o: { a: THREE.Vector3; b: THREE.Vector3; r: number; dmg: number; lv: number }) {
+    const ab = o.b.clone().sub(o.a).setY(0), L2 = Math.max(1e-4, ab.lengthSq());
+    slashArc.line({ a: o.a, b: o.b, width: 0.92, y: 0.9, palette: 'frost_heavy', sweep: 0.02, fade: 0.3 });
+    let hits = 0, popped = 0;
+    for (const f of this.foes.slice()) {
+      if (f.st === 'dead') continue;
+      const t = Math.max(0, Math.min(1, f.pos.clone().sub(o.a).setY(0).dot(ab) / L2)), q = o.a.clone().addScaledVector(ab, t);
+      const near = Math.hypot(f.pos.x - q.x, f.pos.z - q.z) <= o.r + f.d.r;
+      const stuckDarts = this.darts.filter(d => !d.dead && d.stuck === f);
+      const pins = stuckDarts.length + ((f.dartMarkT ?? 0) > 0 ? 1 : 0);
+      if (!near && pins <= 0) continue;
+      if (near) { this.hitFoe(f, o.dmg, q, { knock: 0.9, heavy: true, kind: 'rel' }); hits++; }
+      if (pins > 0 && (f.st as string) !== 'dead') {
+        for (const d of stuckDarts) d.stop(false);
+        f.dartMarkT = 0;
+        popped += pins;
+        const burstDmg = Math.round(o.dmg * 0.55 * pins);
+        const cp = f.a.chest();
+        for (let i = 0; i < 10; i++) addBlock(cp.clone(), { size: 0.11, v: V3((Math.random() - 0.5) * 5, 1.5 + Math.random() * 3, (Math.random() - 0.5) * 5), col: i % 2 ? 0xebfcff : 0x56ccf2, bright: 1.5, life: 0.36, shrink: 0.45, drag: 2.2, grav: 3 });
+        fxRing(f.pos.clone().setY(0.1), 0x76e8ff, 1.8, { life: 0.35 } as never);
+        popPix('霜爆', f.a.head().add(V3(0, 0.52, 0)), { tier: 'highlight', color: '#c8f8ff', accent: '#56ccf2', h: 0.82, life: 0.9 });
+        this.hitFoe(f, burstDmg, cp, { knock: 1.1, heavy: true, kind: 'chase' });
+        if (o.lv >= 2 && (f.st as string) !== 'dead') { interruptFoe(f, 1.4); f.a.tint(0x66e0ff, 0.8); }
+      }
+    }
+    if (this.props) this.applyProps(this.props.hitSeg(o.a, o.b, o.r, { src: 'hero', heavy: true }, this.targets()));
+    this.generalEvent?.strike({ k: 'seg', ax: o.a.x, az: o.a.z, bx: o.b.x, bz: o.b.z, r: o.r });
+    this.feel('rel', true, Math.max(1, hits + popped), ab.clone());
+    if (popped > 0) cue('bladeRing', 0.9);
+    return { hits, popped };
+  }
+  /** act-125: 无锋断刃 极限「听声一闪」— free crimson-gold streak with true burst damage + full intent */
+  private bluntFlash(o: { from: THREE.Vector3; to: THREE.Vector3; r: number; dmg: number; lv: number }) {
+    const ab = o.to.clone().sub(o.from).setY(0), L2 = Math.max(1e-4, ab.lengthSq());
+    const ext = ab.clone().setY(0).normalize().multiplyScalar(0.9), a0 = o.from.clone().sub(ext), b0 = o.to.clone().add(ext);
+    slashArc.line({ a: a0, b: b0, width: 1.15, y: 1.0, palette: 'blunt_flash', sweep: 0.02, fade: 0.38 });
+    this.flashScreen(0.38, 0xffd2b8); this.splitScreen(0.75);
+    let n = 0, killed = false;
+    for (const f of this.foes.slice()) {
+      if (f.st === 'dead') continue;
+      const t = Math.max(0, Math.min(1, f.pos.clone().sub(o.from).setY(0).dot(ab) / L2)), q = o.from.clone().addScaledVector(ab, t);
+      if (Math.hypot(f.pos.x - q.x, f.pos.z - q.z) <= o.r + f.d.r) {
+        const wasAlive = (f.st as string) !== 'dead';
+        this.hitFoe(f, o.dmg, q, { knock: 2.1, heavy: true, kind: 'parry', counter: true, poiseMul: 2.2 });
+        if (wasAlive && (f.st as string) === 'dead') killed = true;
+        n++;
+      }
+    }
+    if (n > 0) {
+      popPix('听声一闪', this.hero.a.head().add(V3(0, 0.55, 0)), { tier: 'highlight', color: '#ffe4c4', accent: '#ff522c', h: 0.95, life: 1.0 });
+      if (this.intent >= 3) this.startQte(); else this.addIntent();
+      if (o.lv >= 2 && killed) this.hero.freeFlash = true;
+    }
+    if (this.props) this.applyProps(this.props.hitSeg(o.from, o.to, o.r, { src: 'hero', heavy: true }, this.targets()));
+    this.generalEvent?.strike({ k: 'seg', ax: o.from.x, az: o.from.z, bx: o.to.x, bz: o.to.z, r: o.r });
+    this.feel('rel', true, Math.max(1, n), ab.clone());
+    return n;
+  }
+  private swing(o: { from: THREE.Vector3; yaw: number; range: number; half: number; dmg: number; knock: number; heavy: boolean; kind: string; n?: number; counter?: boolean; poiseMul?: number; pin?: boolean; finalCut?: boolean; weaponId?: WeaponId }) {
     const fx = Math.sin(o.yaw), fz = Math.cos(o.yaw); let n = 0;
     // the counter after a perfect dodge: double damage, a heavy (staggering) blow, a gold flash and a harder stop
     if (o.counter) {
@@ -3046,15 +3449,29 @@ export class ActShow {
       // act-115: counter slash or heavy finisher colliding with an elite/boss heavy melee windup/lunge locks blades into Clash QTE
       if (clashHit && !clashed && this.duel.offerClash(f, true)) { clashed = true; continue; }
       this.hitFoe(f, o.dmg, o.from, o); n++;
+      // act-125: 霜鳞短刃 every 3rd/6th cut plants a glowing ice shadow-pin on struck targets
+      if (o.pin && (f.st as string) !== 'dead') {
+        f.dartMarkT = Math.max(f.dartMarkT ?? 0, TUNE.chaseWin);
+        fxSparks(f.a.chest(), 0x76e8ff, 8, 3.5);
+      }
     }
     if (this.props) this.applyProps(this.props.hitArc(o.from, o.yaw, o.range, o.half, { src: 'hero', heavy: o.heavy }, this.targets()));   // act-19
+    if (this.generalEvent) {
+      this.generalEvent.strike({ k: 'arc', x: o.from.x, z: o.from.z, yaw: o.yaw, range: o.range + 0.35, half: o.half + 0.15 });
+      this.generalEvent.deflectBolts(o.from, o.yaw, o.range + 0.5, false);
+    }
     this.leaves?.cutArc(o.from.x, o.from.z, o.yaw, o.range, o.half);
     const cut: Arrow[] = [];
     for (const a of this.arrows) if (!a.dead && !a.friendly) { const dx = a.p.x - o.from.x, dz = a.p.z - o.from.z; if (Math.hypot(dx, dz) < o.range + 0.4 && Math.abs(Math.atan2(dx * fz - dz * fx, dx * fx + dz * fz)) < o.half + 0.3) cut.push(a); }
     this.deflect(cut, o.yaw);
     this.feel(o.kind, o.heavy, n, V3(fx, 0, fz)); if (o.counter && n) { hitstop(0.14 * TUNE.hitstop); shake(0.3 * TUNE.shake); this.addIntent(); }
-    // 刀芒沿用现有的薄月牙外观，只改变伤害和飞行时间。
-    if (o.kind === 'k5' && tierOf(this.perks, 'bladeWind') >= 0) { this.waves.push(new BladeWave(o.from.clone().add(V3(fx * 0.9, 0.95, fz * 0.9)), V3(fx, 0, fz), 20, 0.42 * (1 + v2(this.perks, 'bladeWind') / 100))); cue('whoosh', 1); fxSparks(o.from.clone().add(V3(fx * 1.2, 1.0, fz * 1.2)), 0xe8fff2, 10, 4); }
+    // 刀芒 (or 寒山旧刀 1阶末刀自带窄月牙刀光!)
+    const hasWave = (o.kind === 'k5' && tierOf(this.perks, 'bladeWind') >= 0) || (o.finalCut && o.weaponId === 'hanshan' && this.hero.weaponLv >= 1);
+    if (hasWave) {
+      const distMul = tierOf(this.perks, 'bladeWind') >= 0 ? (1 + v2(this.perks, 'bladeWind') / 100) : 0.72;
+      this.waves.push(new BladeWave(o.from.clone().add(V3(fx * 0.9, 0.95, fz * 0.9)), V3(fx, 0, fz), 20, 0.42 * distMul));
+      cue('whoosh', 1); fxSparks(o.from.clone().add(V3(fx * 1.2, 1.0, fz * 1.2)), 0xe8fff2, 10, 4);
+    }
     return n;
   }
   /** 追影: the foe with the freshest dart still in it (or boomerang mark — act-118), near enough */
@@ -3091,6 +3508,7 @@ export class ActShow {
       }
     }
     if (this.props) this.applyProps(this.props.hitSeg(o.a, o.b, o.r, { src: 'hero', heavy: true }, this.targets()));   // act-19
+    this.generalEvent?.strike({ k: 'seg', ax: o.a.x, az: o.a.z, bx: o.b.x, bz: o.b.z, r: o.r + 0.25 });
     if ((o.kind ?? 'rel') === 'rel' || o.kind === 'rel2') {
       // 11-18 一闪 → act-109: sculpted wide white-gold Iai cleave ribbon + sparks along her path
       const ext = ab.clone().setY(0).normalize().multiplyScalar(0.8), a0 = o.a.clone().sub(ext), b0 = o.b.clone().add(ext);
@@ -3130,6 +3548,7 @@ export class ActShow {
     const fx = Math.sin(o.yaw), fz = Math.cos(o.yaw);
     const cut = this.arrows.filter(a => { if (a.dead || a.friendly) return false; const dx = a.p.x - o.from.x, dz = a.p.z - o.from.z, l = Math.hypot(dx, dz); return l < o.range && (l < 0.9 || (dx * fx + dz * fz) / (l || 1) > -0.15); });
     this.deflect(cut, o.yaw);
+    this.generalEvent?.deflectBolts(o.from, o.yaw, o.range + 0.5, false);
   }
   /** the nearest enemy arrow flying at the hero within reach: the direction to it (flat), or null */
   private incoming(reach: number) {
@@ -3197,8 +3616,9 @@ export class ActShow {
     popPix('闪', h.a.head().add(V3(0, 0.45, 0)), { tier: 'highlight', color: '#f6f4ec', accent: '#dcdad0', h: 0.9, life: 0.95 });
     cue('dodgeOk', 1); this.platform.vibrate('medium');
     h.counterT = TUNE.counterTime; h.dashCd = 0; h.gainQi(0.5);
+    if (h.weaponId === 'blunt') { h.freeFlash = true; popPix('一闪就绪', h.a.head().add(V3(0, 0.78, 0)), { tier: 'highlight', color: '#ffe0b8', accent: '#ff522c', h: 0.72, life: 0.85 }); }
     if (this.mods.poiseHeal > 0) this.healHero(this.mods.poiseHeal);
-    if (archTier(this.perks, 'gale') >= 3) h.galeBuffT = 3.2;
+    if (archTier(this.perks, 'gale') >= 3 || equippedKeepsake(profile(), this.dbgAllWeapons) === 'lubu') h.galeBuffT = 3.2;
     if (this.intent >= 3) this.startQte(); else this.addIntent();
   }
   /** the attacks that will land on the hero within `win` seconds: foes winding up with the hero inside their warning (a little slack),
@@ -3291,6 +3711,14 @@ export class ActShow {
       }
     }
     for (const a of this.arrows) if (!a.dead && !a.friendly && a.p.distanceTo(h.pos.clone().setY(1.25)) < 1.8) a.deflect(a.v.clone().multiplyScalar(-1));
+    this.generalEvent?.deflectBolts(h.pos, h.a.yaw, 2.8, true);
+    if (h.weaponId === 'hanshan' && h.weaponLv >= 2) h.gainQi(0.5);
+    if (h.weaponId === 'blunt') {
+      h.freeFlash = true;
+      if (h.weaponLv >= 1) {
+        for (const f of this.foes) if (f.st !== 'dead' && !isBoss(f) && f.pos.distanceTo(h.pos) < 4.2) interruptFoe(f, 1.0);
+      }
+    }
     if (hasBoon(this.perks, 'burst')) this.burstOut(h.pos.clone());   // 11-18 秘传 崩劲
     hitstop(0.1 * TUNE.hitstop); slowmo(0.18, 0.3); shake(0.35 * TUNE.shake); this.splitScreen(0.72);
     fxRing(h.pos.clone().setY(0.9), 0xfff2c8, 1.6, { life: 0.35 } as never); fxRing(h.pos.clone().setY(0.08), 0xffd890, 2.6, { life: 0.5 } as never); fxSparks(h.a.chest(), 0xfff2c8, 24, 7);
@@ -3344,7 +3772,12 @@ export class ActShow {
   }
   private addIntent() {
     if (this.intent >= 3) return;
-    this.intent++; this.hud.intent = this.intent;
+    let add = 1;
+    if (this.hero?.weaponId === 'hanshan' && this.hero.weaponLv >= 3) {
+      this.intentBonusAcc += 0.25;
+      if (this.intentBonusAcc >= 1) { this.intentBonusAcc -= 1; add = 2; }
+    }
+    this.intent = Math.min(3, this.intent + add); this.hud.intent = this.intent;
     if (this.intent >= 3) {
       cue('bladeRing', 0.72);
       fxRing(this.hero.pos.clone().setY(0.08), 0xffe098, 1.55, { life: 0.4 } as never);
@@ -3563,6 +3996,14 @@ export class ActShow {
     // down a pit throws its coins up from the edge it went over
     const coinAt = fell && this.grid ? (([x, z]) => V3(x, 0, z))(this.grid.nearestFloor(f.pos.x, f.pos.z)) : f.pos.clone();
     if (this.room >= 0 && f.kind !== 'dummy') { const total = boss ? 60 : f.d.gold * (elite ? 3 : 1), n = Math.min(10, total); this.coinsFx.drop(coinAt, n, Math.max(1, Math.round(total / n))); }
+    if (this.genBlessings.has('luxun') && f.kind !== 'dummy' && !fell) {
+      // 陆逊加护「连营火势」：击杀敌人触发范围体素火爆
+      const ep = f.pos.clone().setY(0.7);
+      fxEmbers(ep, 14, 4.5); fxFlare(ep, 0xff842c, 1.6, 0.35); cue('boom', 0.55);
+      for (const o of this.foes.slice()) if (o !== f && o.st !== 'dead' && o.pos.distanceTo(f.pos) < 3.0) {
+        this.hitFoe(o, Math.round(TUNE.atkDmg * 1.15), f.pos, { knock: 1.0, heavy: false, kind: 'school' });
+      }
+    }
     if (hasBoon(this.perks, 'drink') && this.hero.alive) {
       // 11-18 秘传 饮血: a thread of blood flies from the body to her and she heals as it arrives (the number is the boon's)
       const h = this.hero, from0 = f.a.chest(), heal = v(this.perks, 'drink');
@@ -3601,6 +4042,19 @@ export class ActShow {
     // a blow that lands in the dash's invulnerable moment: a perfect dodge
     if (this.hero.parrying) { this.iaiParry(from); return; }
     if (this.hero.dodging) { this.perfectDodge(from); return; }
+    if (this.ksShield > 0 && dmg > 0 && this.phase !== 'yard' && this.hero.alive && !this.hero.iframe && this.hero.inv <= 0) {
+      // act-125 杜五信物「瓦壶老酒」护酒免伤：震退周围近敌，二三星附带回血
+      const p = profile(), st = keepsakeStar(p, 'duwu');
+      this.ksShield--; this.hero.inv = Math.max(this.hero.inv, 0.9);
+      for (const f of this.foes) if (f.st !== 'dead' && f.kind !== 'dummy' && f.pos.distanceTo(this.hero.pos) < 3.8) {
+        const out = f.pos.clone().sub(this.hero.pos).setY(0).normalize();
+        f.vel.addScaledVector(out, isBoss(f) ? 2.5 : 8.5); if (!isBoss(f)) interruptFoe(f, 0.8);
+      }
+      if (st >= 2) this.healHero(st === 3 ? 12 : 10);
+      fxRing(this.hero.pos.clone().setY(0.08), 0xffbe78, 2.8, { life: 0.5 } as never);
+      popPix('护酒', this.hero.a.head().add(V3(0, 0.45, 0)), { tier: 'highlight', color: '#ffe0a8', accent: '#ff9640', h: 0.84, life: 0.9 });
+      cue('parry', 0.85); hitstop(0.06); return;
+    }
     if (this.wine && dmg > 0 && this.phase !== 'yard' && this.hero.alive && !this.hero.iframe && this.hero.inv <= 0) {
       // 瓦壶烈酒 (杜五's wine): the first blow of the run lands without blood — she staggers, grins, goes on
       this.wine = false; this.hero.inv = Math.max(this.hero.inv, 0.8); fxRing(this.hero.pos.clone().setY(0.08), 0xffb060, 2.4, { life: 0.5 } as never); cue('parry', 0.8); hitstop(0.06); return;
@@ -3616,6 +4070,7 @@ export class ActShow {
     }
     if (this.prologue && this.hero.hp - dmg <= 0) { dmg = Math.max(0, this.hero.hp - 1); if (this.prologue === 2) { void this.prologueFall(); return; } }   // act-29
     if (!this.hero.hurt(dmg, from)) return;
+    if (this.genBlessings.has('xiahoudun')) this.ksRevenge = true;
     this.resetCombo();
     // where it came from: a red arc at the feet facing the attacker
     this.hitArcs.show(this.hero.pos, from);
@@ -3637,6 +4092,15 @@ export class ActShow {
     // (11-18: a bolt / talisman / mark still on its way when the last foe fell would hang mid-flash through the talks and cards that follow)
     for (const a of this.arrows) a.kill(); this.arrows.length = 0;
     this.banner.show('清场', '', 1.0, '#ffe6a0');
+    // act-125: combat room cleared → advance equipped keepsake star progress (★ → ★★ → ★★★)
+    if (!this.prologue) {
+      const p = profile(), leveled = advanceKeepsake(p, 1);
+      if (equippedKeepsake(p, this.dbgAllWeapons)) saveProfile();
+      if (leveled) {
+        const ks = KEEPSAKES[leveled.id];
+        this.feed.push('boon', () => msg`信物升星 · ${ks.name} ${starLabel(leveled.star)}`, 0, 'ksup:' + leveled.id);
+      }
+    }
     await new Promise(r => after(0.9, () => r(null)));
     // act-114 友军名将（赵云 / 陆逊）清场告别：抱拳致意、战后对白、赠气血杀意，再从容离场
     if (this.allyGen && this.allyGen.active) {
@@ -3737,13 +4201,15 @@ export class ActShow {
     const rb = this.mods.rareOddsBonus;
     const shift = Math.min(base[0], rb);
     const odds = [Math.max(0, base[0] - shift), base[1] + shift * 0.55, base[2] + shift * 0.45];
-    let pick = drawBoons('any', 3, Math.random, this.perks, odds); if (!pick.length) return;
+    const eqKs = keepsakeDef(equippedKeepsake(profile(), this.dbgAllWeapons));
+    const archBias = eqKs?.arch ?? null;
+    let pick = drawBoons('any', 3, Math.random, this.perks, odds, archBias); if (!pick.length) return;
     const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide();
     const i = await this.cards.open(pick, {
       header: { title: '淬炼秘传 · 流派强化', sub: '强化对应按键效果 · 同流派 2件/3件 触发成势', col: '#ffd27a' },
       archHave: archCounts(this.perks),
       reroll: this.rerollsLeft > 0 ? { left: this.rerollsLeft, onReroll: () => {
-        const next = drawBoons('any', 3, Math.random, this.perks, odds);
+        const next = drawBoons('any', 3, Math.random, this.perks, odds, archBias);
         if (!next.length) return null;
         this.rerollsLeft--; pick = next; return pick;
       } } : undefined,
@@ -4037,14 +4503,14 @@ export class ActShow {
       }
       await this.talk(toLines(ENDING.c.slice(0, 1)));
       await wipeTransit(() => this.buildEndingHideout({ time: 'dusk', weather: 'clear', blades: 30, cuts: 5 }));
-      // Seat Liu Bai squarely ON the hideout's real wooden bench (2.48, 2.23) facing POT(3.25, 1.95), zero air-squatting!
-      const pot = V3(3.25, 0.6, 1.95);
-      this.hero.pos.set(2.48, 0, 2.23); this.hero.a.home.copy(this.hero.pos);
-      this.hero.a.yaw = Math.atan2(pot.x - 2.48, pot.z - 2.23);
+      // Seat Liu Bai squarely ON Du Wu's wooden bench (5.63, 5.68) facing POT(6.4, 5.4) in the expanded hideout
+      const pot = V3(6.4, 0.6, 5.4);
+      this.hero.pos.set(5.63, 0, 5.68); this.hero.a.home.copy(this.hero.pos);
+      this.hero.a.yaw = Math.atan2(pot.x - 5.63, pot.z - 5.68);
       const dw = this.npcs.find(n => n.id === 'duwu');
       const sa = this.npcs.find(n => n.id === 'sunao');
-      if (dw) { dw.x = 4.15; dw.z = 2.95; dw.yaw = Math.atan2(pot.x - dw.x, pot.z - dw.z); dw.a.place(V3(dw.x, 0, dw.z), dw.yaw); dw.sh.position.set(dw.x, 0.025, dw.z); }
-      if (sa) { sa.x = 4.35; sa.z = 1.35; sa.yaw = Math.atan2(pot.x - sa.x, pot.z - sa.z); sa.a.place(V3(sa.x, 0, sa.z), sa.yaw); sa.sh.position.set(sa.x, 0.025, sa.z); }
+      if (dw) { dw.x = 7.3; dw.z = 6.4; dw.yaw = Math.atan2(pot.x - dw.x, pot.z - dw.z); dw.a.place(V3(dw.x, 0, dw.z), dw.yaw); dw.sh.position.set(dw.x, 0.025, dw.z); }
+      if (sa) { sa.x = 7.5; sa.z = 4.8; sa.yaw = Math.atan2(pot.x - sa.x, pot.z - sa.z); sa.a.place(V3(sa.x, 0, sa.z), sa.yaw); sa.sh.position.set(sa.x, 0.025, sa.z); }
       let fireT = 0, unblind = false;
       this.hero.scriptPose = () => heroSitFirePose(this.hero.a, fireT, unblind);
       this.talkTick = (dt: number) => {
@@ -4052,19 +4518,20 @@ export class ActShow {
         if (dw) npcWarmPose(dw.a, fireT, 0.72);
         if (sa) npcWarmPose(sa.a, fireT + 0.9, 0.56);
       };
-      // Smooth 4.0s camera glide: 30-blade rack (bladeChorus!) -> 5-cut stele -> warm fire circle
+      // Smooth 4.0s camera glide: blade rack (bladeChorus!) -> 5-cut stele -> warm fire circle
+      const steleCam = safeCam([HIDEOUT.stele.x - 0.5, 2.8, HIDEOUT.stele.z + 3.4], [HIDEOUT.stele.x, 1.1, HIDEOUT.stele.z], 36);
+      const fireCam = safeCam([3.8, 2.4, 7.9], [6.4, 0.8, 5.4], 34);
       await this.cine([
         { dur: 2.0, ease: 'inOut',
-          from: safeCam([0.8, 3.0, -4.4], [-2.5, 1.5, -7.8], 38),
-          to: safeCam([4.6, 2.8, -4.6], [HIDEOUT.stele.x, 1.1, HIDEOUT.stele.z], 36),
+          from: safeCam([HIDEOUT.weaponRack.x + 1.2, 3.0, HIDEOUT.weaponRack.z + 3.6], [HIDEOUT.weaponRack.x, 1.3, HIDEOUT.weaponRack.z], 38),
+          to: steleCam,
           at: [[0.2, () => cue('bladeChorus', 0.95)]],
           tick: (_t, dt) => { this.talkTick?.(dt); this.hero.a.update(dt); this.hero.scriptPose?.(); } },
         { dur: 2.0, ease: 'inOut',
-          from: safeCam([4.6, 2.8, -4.6], [HIDEOUT.stele.x, 1.1, HIDEOUT.stele.z], 36),
-          to: safeCam([0.65, 2.4, 4.45], [3.25, 0.8, 2.0], 34),
+          from: steleCam,
+          to: fireCam,
           tick: (_t, dt) => { this.talkTick?.(dt); this.hero.a.update(dt); this.hero.scriptPose?.(); } },
       ]);
-      const fireCam = safeCam([0.65, 2.4, 4.45], [3.25, 0.8, 2.0], 34);
       this.camOverride = { base: V3(...fireCam.pos), look: V3(...fireCam.look), fov: fireCam.fov };
       shot('act', () => this.camPose(), { cut: true, speed: 6 });
       await this.talk(toLines(ENDING.c.slice(1)), (idx) => {
@@ -4167,6 +4634,7 @@ export class ActShow {
         for (const f of this.foes) f.a.update(dt);
         for (const n of this.npcs) n.a.update(dt);
         this.allyGen?.a.update(dt);
+        this.generalEvent?.actor.update(dt);
         this.cuiInspect.frame(dt);
         this.talkTick?.(dt);
         this.leaves?.update(dt, this.cam.x, this.cam.z); this.gates?.update(dt);
@@ -4225,8 +4693,10 @@ export class ActShow {
     // act-20: the hideout's people — idle, and a word when the hero stands close and presses 斩
     for (const n of this.npcs) n.a.update(dt);
     if (this.phase === 'yard') {
-      let near: string | null = null, nd = 1.7; for (const n of this.npcs) { const d = Math.hypot(n.x - h.pos.x, n.z - h.pos.z); if (d < nd) { nd = d; near = n.id; } }
-      if (this.stele && HIDEOUT.stele) { const d = Math.hypot(HIDEOUT.stele.x - h.pos.x, HIDEOUT.stele.z + 0.6 - h.pos.z); if (d < Math.min(nd, 1.5)) near = 'stele'; }
+      let near: string | null = null, nd = 1.9; for (const n of this.npcs) { const d = Math.hypot(n.x - h.pos.x, n.z - h.pos.z); if (d < nd) { nd = d; near = n.id; } }
+      if (this.stele && HIDEOUT.stele) { const d = Math.hypot(HIDEOUT.stele.x - h.pos.x, HIDEOUT.stele.z + 0.65 - h.pos.z); if (d < Math.min(nd, 1.65)) { nd = d; near = 'stele'; } }
+      if (this.weaponRackMesh) { const d = Math.hypot(HIDEOUT.weaponRack.x - h.pos.x, HIDEOUT.weaponRack.z + 0.85 - h.pos.z); if (d < Math.min(nd, 2.0)) { nd = d; near = 'weaponRack'; } }
+      if (this.keepsakeBoxMesh) { const d = Math.hypot(HIDEOUT.keepsakeBox.x - h.pos.x, HIDEOUT.keepsakeBox.z + 0.7 - h.pos.z); if (d < Math.min(nd, 1.65)) { nd = d; near = 'keepsakeBox'; } }
       this.npcNear = near;
       this.npcMarks(dt, near);
       if (near && !this.noTalk && this.inp.b.attack.pressed && !this.dialogue.on) { this.inp.b.attack.pressed = false; void this.npcTalk(near); return; }
@@ -4281,6 +4751,7 @@ export class ActShow {
       this.duelGen.t += dt;
       if (this.duelGen.t >= 22) void this.finishDuelGeneral();
     }
+    if (this.generalEvent && this.phase === 'fight') this.generalEvent.update(dt);
     this.reelStep(dt); this.flatStep(dt); this.dropStep(dt);   // 11-18 牵红's cord, 踏顶's flattened, the dead coming down out of the air
     this.separate();   // act-37: bodies don't pass through each other
     this.pitFalls(dt);   // 11-18 打出界
@@ -4311,6 +4782,7 @@ export class ActShow {
       if (d.back > 0 && !d.returning && (d.life <= 0 || (() => { const q = d.p.clone(); this.clamp(q, 0); return q.distanceTo(d.p) > 0.3; })())) d.turnBack();
       if (d.returning && (d.p.distanceTo(hand) < 0.6 || d.life <= 0 || !h.alive)) { if (h.alive) { fxSparks(hand, 0xe8f0ff, 4, 1.5); cue('dartThrow', 0.25); } d.stop(false); continue; }
       if (this.props && !d.returning) { const q = d.p, hit = this.props.logic.near(q.x, q.z, 0.12).find(pp => pp.state === 'idle' || pp.kind === 'pillar'); if (hit && q.y < (hit.kind === 'pillar' ? 2.8 : 1.1)) { if (hit.state === 'idle') this.applyProps(this.props.logic.hit(hit, { src: 'dart', dir: [d.p.x - p0.x, d.p.z - p0.z] }, this.targets())); if (d.back > 0) d.turnBack(); else d.stop(); continue; } }
+      if (this.generalEvent && !d.returning && this.generalEvent.hitByDart(d.p.x, d.p.z)) { if (d.back > 0) d.turnBack(); else d.stop(); continue; }
       for (const f of this.foes) {
         if (f.st === 'dead' || d.p.y > 2.4 || d.passed.has(f.uid)) continue;
         const ab = d.p.clone().sub(p0).setY(0), L2 = Math.max(1e-6, ab.lengthSq()), t = Math.max(0, Math.min(1, f.pos.clone().sub(p0).setY(0).dot(ab) / L2)), q = p0.clone().addScaledVector(ab, t);

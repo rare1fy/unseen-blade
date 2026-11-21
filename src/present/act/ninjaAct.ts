@@ -1116,11 +1116,14 @@ export function tails(b: Record<string, Bone>, t: number, lift: number, flut: nu
 // ---- blade trails along each cut's swing, dust on the dash, the run and the landings
 /** the blade's real root (-z) and point (+z) on a model, measured once from its 'blade' part's mesh */
 const SPAN = new WeakMap<object, { mesh: THREE.Object3D; root: THREE.Vector3; tip: THREE.Vector3 } | null>();
+/** act-125: clear cached blade span when swapping Wen-family blades */
+export function resetBladeSpan(self: BActor) { SPAN.delete(self); }
 function measureBlade(self: BActor) {
   let t = SPAN.get(self);
   if (t === undefined) {
     t = null; const b = (self.bones as Record<string, THREE.Object3D | undefined>).blade;
     if (b) b.traverse(o => {
+      if (!o.visible) return;
       const m = o as THREE.Mesh;
       if (!t && m.isMesh && m.geometry) {
         m.geometry.computeBoundingBox(); const bb = m.geometry.boundingBox!;
