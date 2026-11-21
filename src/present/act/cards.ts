@@ -11,11 +11,12 @@ import { SKIN, PALETTE } from './skin';
 import { bodyText, bodyW, onBodyFontChange } from '../ui3d/bodyFont';
 import { uiScale } from './uiScale';
 
-/** 把卡面数值按凡、珍、绝档填入；第二组数值供双效果秘传使用。 */
+/** 把卡面数值按凡、珍、绝档填入；第二组数值供双效果秘传使用，并自动剔除 +0% 等无效零值段。 */
 export function fillVals(desc: string, boon: Boon, tier: number) {
   const t = Math.max(0, Math.min(2, Math.floor(tier) || 0));
   const unit = (source = '') => language === 'en' && source === '秒' ? ' ' + localize(source) : source;
-  return localize(desc).replace(/\{v2?\}/g, key => key === '{v2}' ? `${boon.vals2?.[t] ?? 0}${unit(boon.unit2)}` : `${boon.vals?.[t] ?? 0}${unit(boon.unit)}`);
+  const raw = localize(desc).replace(/\{v2?\}/g, key => key === '{v2}' ? `${boon.vals2?.[t] ?? 0}${unit(boon.unit2)}` : `${boon.vals?.[t] ?? 0}${unit(boon.unit)}`);
+  return raw.replace(/\s*·\s*[^·]*?\+0%(?:\s*|$)/g, '').trim();
 }
 
 // act-19 (user: 「强化的卡片要像哈迪斯那些经典动作rogue游戏学习，描述关键字要高亮，图标与文字相结合，卡片的样式要和普通面板区分开来」):

@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { bank, buy, buyMirror, canBuy, canBuyMirror, flipMirror, hasAffordable, hasMirrorAffordable, level, META, MIRROR, mirrorNextCost, mirrorState, nextCost, runMods, runReward } from '../src/present/act/meta';
+import {
+  ARCANA, arcanaCap, arcanaUsed, bank, buy, buyMirror, canBuy, canBuyMirror,
+  ensureArcana, expandArcanaCap, flipMirror, hasAffordable, hasMirrorAffordable,
+  isArcanaActive, level, META, MIRROR, mirrorNextCost, mirrorState, nextCost,
+  runMods, runReward, toggleArcana, unlockArcana, upgradeArcana,
+} from '../src/present/act/meta';
 import { fresh } from '../src/present/act/profile';
 
 afterEach(() => { vi.unstubAllGlobals(); vi.resetModules(); });
@@ -74,6 +79,32 @@ describe('hideout upgrades', () => {
     expect(runMods(p)).toMatchObject({ dmgMul: 1, critBonus: 0, dartBonus: 0, rerolls: 1, hpBonus: 0, deathDefy: 0, startIntent: 0, windupMul: 1, startManual: false, poiseHeal: 0 });
     p.perks = { blade: 2, darts: 1, reroll: 2, manual: 1, vigor: 3, breath: 1, intent: 1, leech: 2, ear: 2 };
     expect(runMods(p)).toMatchObject({ dmgMul: 1.24, critBonus: 0.08, dartBonus: 1, rerolls: 3, hpBonus: 60, deathDefy: 1, startIntent: 1, windupMul: 1.2, startManual: true, poiseHeal: 10 });
+  });
+
+  it('supports Hades-2-style 3×3 药炉悟性牌阵 (Grasp cap, free toggle, 0-grasp center Awakening, refine & expand)', () => {
+    const p = fresh(); p.herb = 60;
+    expect(ARCANA).toHaveLength(9);
+    ensureArcana(p);
+    expect(arcanaCap(p)).toBe(6);
+    expect(arcanaUsed(p)).toBe(0);
+    // Starter cards vigor(1) & ear(2) can toggle free even with 0 herb
+    expect(toggleArcana(p, 'vigor')).toBe('on');
+    expect(toggleArcana(p, 'ear')).toBe('on');
+    expect(arcanaUsed(p)).toBe(3);
+    expect(runMods(p).hpBonus).toBe(20);
+    expect(runMods(p).windupMul).toBeCloseTo(1.1, 5);
+    // Unlock center 0-grasp Awakening card + 3rd card wind(1) -> center auto-awakens!
+    expect(unlockArcana(p, 'center')).toBe(true);
+    expect(isArcanaActive(p, 'center')).toBe(false);
+    expect(unlockArcana(p, 'wind')).toBe(true);
+    expect(isArcanaActive(p, 'wind')).toBe(true);
+    expect(isArcanaActive(p, 'center')).toBe(true);
+    expect(runMods(p).dmgMul).toBeCloseTo(1.12, 5);
+    // Refine vigor rank 1 -> 2 and expand Grasp 6 -> 8
+    expect(upgradeArcana(p, 'vigor')).toBe(true);
+    expect(runMods(p).hpBonus).toBe(35);
+    expect(expandArcanaCap(p)).toBe(true);
+    expect(arcanaCap(p)).toBe(8);
   });
 });
 

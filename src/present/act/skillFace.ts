@@ -20,7 +20,9 @@ import type { BtnName } from './input';
 export interface SkillEntry {
   id: string; kind: 'manual' | 'boon' | 'base'; name: string; tag: string; tier: number;
   /** act-118: second pill on the name row — e.g. 新派生/变招 (manuals) or 流派 label 血刃/破势/影镖/凌空 (boons) */
-  badge?: { text: string; col: string };
+  badge?: { text: string; col: string; hot?: boolean };
+  /** act-149: triggered synergy resonance callout when picking this boon activates 2-piece or 3-piece resonance */
+  resNote?: string;
   /** act-118: archetype accent colour for 3D boon plaque inlay */
   accentHex?: number;
   /** the picture (skillIcons skillIcon3D id) */ icon: BaseIcon | BoonId;
@@ -39,8 +41,17 @@ export function entryOfManual(m: Manual): SkillEntry {
 export function entryOfBoon(b: SkillBoon, tier: number, archHave?: Partial<Record<Archetype, number>>): SkillEntry {
   const t = boonTier(tier), ai = ARCH_INFO[b.arch];
   const n = archHave?.[b.arch];
-  const badge = ai ? { text: n != null ? `${ai.name} ${n + 1}/2` : ai.name, col: ai.col } : undefined;
-  return { id: b.id, kind: 'boon', name: b.name, tag: `${UI_WORDS.boon}·${TIER_NAMES[t]}`, badge, accentHex: ai?.hex, tier: t, icon: b.id, steps: boonSteps(b), effect: b.eff, num: fillVals(b.note, b, t), col: TIER_GLOW[t], target: boonTarget(b), lit: null };
+  const nextN = n != null ? n + 1 : null;
+  const hit2 = nextN === 2, hit3 = nextN === 3;
+  const badge = ai
+    ? {
+        text: hit3 ? `${ai.name} 3/3·极势` : hit2 ? `${ai.name} 2/2·成势` : nextN != null ? `${ai.name} ${nextN}/2` : ai.name,
+        col: hit2 || hit3 ? '#ffe878' : ai.col,
+        hot: hit2 || hit3,
+      }
+    : undefined;
+  const resNote = ai && hit3 ? `成势：${ai.b3}` : ai && hit2 ? `成势：${ai.b2}` : undefined;
+  return { id: b.id, kind: 'boon', name: b.name, tag: `${TIER_NAMES[t]}`, badge, resNote, accentHex: ai?.hex, tier: t, icon: b.id, steps: boonSteps(b), effect: b.eff, num: fillVals(b.note, b, t), col: TIER_GLOW[t], target: boonTarget(b), lit: null };
 }
 export function entryOfBase(s: BaseSkill): SkillEntry {
   const icon = s.icon;
@@ -148,7 +159,7 @@ export function paintName(g: CanvasRenderingContext2D, e: SkillEntry, x: number,
     const s2 = Math.max(1, Math.round(S / 2)), tw = pixW(e.badge.text) * s2, tx = Math.round(x + w + 10 * dpr), ty = Math.round(y + (PIX_H * S - PIX_H * s2) / 2);
     const tc = e.badge.col, pad = Math.max(2, s2 * 3);
     g.fillStyle = tc; g.fillRect(tx - pad, ty - pad, tw + pad * 2, PIX_H * s2 + pad * 2);
-    g.fillStyle = '#120e10'; g.fillRect(tx - pad + s2, ty - pad + s2, tw + pad * 2 - 2 * s2, PIX_H * s2 + pad * 2 - 2 * s2);
+    g.fillStyle = e.badge.hot ? '#362310' : '#120e10'; g.fillRect(tx - pad + s2, ty - pad + s2, tw + pad * 2 - 2 * s2, PIX_H * s2 + pad * 2 - 2 * s2);
     drawPix(g, e.badge.text, tx, ty, { scale: s2, color: tc, outline: null, align: 'left' });
     w = tx - x + tw + pad;
   }
@@ -159,9 +170,15 @@ export function paintEffect(g: CanvasRenderingContext2D, line: string, x: number
   let p = px; while (p > 8 && richLine(null, line, 0, 0, p, col) > maxW) p -= 1;
   richLine(g, line, x, y, p, col); return p;
 }
-export function paintNum(g: CanvasRenderingContext2D, line: string, x: number, y: number, px: number, maxW: number, align: 'left' | 'right' = 'left') {
-  if (!line) return; const w = (p: number) => richLine(null, line, 0, 0, p, '#d4c8b2', '#fff2cc', false);
-  let p = px; while (p > 7 && w(p) > maxW) p -= 1;
-  richLine(g, line, align === 'left' ? x : x - w(p), y, p, '#d4c8b2', '#fff2cc', false);
+export function paintNum(g: CanvasRenderingContext2D, line: string, x: number, y: number, px: number, maxW: number, align: 'left' | 'right' = 'left', pill = false) {
+  if (!line) return; const w = (p: number) => richLine(null, line, 0, 0, p, '#e8dcc6', '#fff6cc', false);
+  let p = px; while (p > 8 && w(p) > maxW) p -= 1;
+  const tw = w(p), dx = align === 'left' ? x : x - tw;
+  if (pill) {
+    const padX = Math.max(4, Math.round(p * 0.45)), padY = Math.max(2, Math.round(p * 0.22));
+    g.fillStyle = '#2d241c'; g.fillRect(Math.round(dx - padX), Math.round(y - padY), Math.round(tw + padX * 2), Math.round(p * 1.18 + padY * 2));
+    g.fillStyle = '#8a6c3c'; g.fillRect(Math.round(dx - padX), Math.round(y - padY), Math.round(tw + padX * 2), Math.max(1, Math.round(p * 0.08)));
+  }
+  richLine(g, line, dx, y, p, '#e8dcc6', '#fff6cc', false);
 }
 export { bodyText };

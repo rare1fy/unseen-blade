@@ -20,10 +20,10 @@ import { SKIN, PALETTE, SkinBtn, SkinStick, SkinHp, type SkinId } from './skin';
 import { IronBtn, IronStick, IronHp, QteRing , type HintKey, HP_LAG, HP_LAG_HOLD, closeLag } from './ironUi';
 import { textCells, pixTextW } from '../ui3d/pixfont';
 import { PIX_H } from '../v2/pix';
-import { bodyW } from '../ui3d/bodyFont';
 import { ACTION_WORD, BIND, PAD, actKey, glyphTex, glyphArt, GLYPH_H, keyCapTex, isTouchLayout } from './pad';
 import type { MarkTarget } from './skillInfo';
 import { uiScale } from './uiScale';
+import { UiPlatePool } from './uiPlate';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 type AnyBtn = SkinBtn | IronBtn; type AnyHp = SkinHp | IronHp;
@@ -134,6 +134,7 @@ export class ActHud {
   /** act-146: clean readable learned-moves & boons build summary (replaces cluttered orbiting dots around buttons) */
   buildInfo: { manuals: string[]; boonCount: number } = { manuals: [], boonCount: 0 };
   onOpenOwned: (() => void) | null = null;
+  private hudPlates: UiPlatePool;
   private buildStripRect = { x: 0, y: 0, w: 0, h: 0 };
   private buildPid: number | null = null;
   stickHome = { x: 150, y: 600 }; stickSize = 150; k = 1; on = true; private W = 1280; private H = 720;
@@ -164,6 +165,7 @@ export class ActHud {
   }
   constructor(private L: UiLayer) {
     this.sparks = new UiSparks(L.scene, 80); this.qteRing = new QteRing(L);
+    this.hudPlates = new UiPlatePool(L);
     this.dockRail = makeDockRail(); this.dockRail.visible = false; L.scene.add(this.dockRail);
     this.build();
   }
@@ -222,25 +224,25 @@ export class ActHud {
     this.layoutTouch = touch;
     const b = this.btns;
     if (touch) {
-      // Mobile touch mode: bottom-right thumb arc round the big cut button + bottom-left virtual joystick
+      // Mobile touch mode: bottom-right thumb arc round the big cut button + permanent upper-arc ult slot + bottom-left virtual joystick
       if (b.attack instanceof IronBtn) { b.attack.badgeSide = 1; b.attack.pipArc = [1.25, 0.38]; b.attack.pipR = 0.6; }
       b.attack.size = 150 * k; b.dash.size = 100 * k; b.special.size = 100 * k; b.jump.size = 100 * k;
       b.attack.x = W - 150 * k; b.attack.y = H - 140 * k;
       b.dash.x = W - 300 * k; b.dash.y = H - 92 * k;
       b.jump.x = W - 292 * k; b.jump.y = H - 238 * k;
       b.special.x = W - 150 * k; b.special.y = H - 300 * k;
-      b.ult.size = 124 * k; b.ult.x = W - 225 * k; b.ult.y = H - 335 * k;
+      b.ult.size = 90 * k; b.ult.x = W - 274 * k; b.ult.y = H - 372 * k;
     } else {
-      // Console / PC mode: NO virtual joystick, compact forged-iron horizontal skill dock centered at the bottom
-      const cx = W * 0.5, dockY = H - 68 * k, step = 96 * k;
+      // Console / PC mode: NO virtual joystick, 5-medallion forged-iron horizontal skill dock centered at bottom (including permanent 不见刀 slot!)
+      const cx = W * 0.5, dockY = H - 80 * k, step = 96 * k;
       if (b.attack instanceof IronBtn) { b.attack.badgeSide = 1; b.attack.pipArc = [0, 0.42]; b.attack.pipR = 0.66; }
-      b.attack.size = 70 * k; b.dash.size = 58 * k; b.jump.size = 58 * k; b.special.size = 58 * k;
-      b.attack.x = cx - 1.5 * step; b.attack.y = dockY - 3 * k;
-      b.dash.x = cx - 0.5 * step; b.dash.y = dockY;
-      b.jump.x = cx + 0.5 * step; b.jump.y = dockY;
-      b.special.x = cx + 1.5 * step; b.special.y = dockY;
-      b.ult.size = 84 * k; b.ult.x = cx; b.ult.y = dockY - 114 * k;
-      this.dockGeom = { x: cx, y: dockY + 2 * k, w: step * 3.85, h: 52 * k };
+      b.attack.size = 68 * k; b.dash.size = 58 * k; b.jump.size = 58 * k; b.special.size = 58 * k; b.ult.size = 66 * k;
+      b.attack.x = cx - 2.0 * step; b.attack.y = dockY - 3 * k;
+      b.dash.x = cx - 1.0 * step; b.dash.y = dockY;
+      b.jump.x = cx + 0.0 * step; b.jump.y = dockY;
+      b.special.x = cx + 1.0 * step; b.special.y = dockY;
+      b.ult.x = cx + 2.0 * step; b.ult.y = dockY - 3 * k;
+      this.dockGeom = { x: cx, y: dockY + 2 * k, w: step * 4.85, h: 52 * k };
     }
     // (the laid-out places: the 不见刀 button's coming in moves the others from here, see makeWay)
     for (const n of Object.keys(b) as BtnName[]) this.home[n] = { x: b[n].x, y: b[n].y, size: b[n].size };
@@ -283,9 +285,10 @@ export class ActHud {
     if (this.buildPid === id && type === 'move') return true;
     if (type === 'down') {
       for (const b of Object.values(this.btns)) {
-        if (b === this.btns.ult && !this.ultUp) continue;
-        // act-115: 不见刀 button uses its full target hitbox from frame 0 so an instant thumb tap never misses while popping in
-        const hit = b === this.btns.ult ? (Math.abs(x - b.x) < (this.home.ult?.size ?? b.size) * 0.65 && Math.abs(y - b.y) < (this.home.ult?.size ?? b.size) * 0.65) : b.hit(x, y);
+        // act-149: 不见刀 medallion is always visible & responsive (tapping while charging gives tactile deny-shake; ready or QTE fires immediately!)
+        const hit = b === this.btns.ult
+          ? (Math.abs(x - b.x) < Math.max(b.size, this.home.ult?.size ?? b.size) * 0.65 && Math.abs(y - b.y) < Math.max(b.size, this.home.ult?.size ?? b.size) * 0.65)
+          : b.hit(x, y);
         if (hit) { b.down = true; b.pid = id; inp.press(b.name, id, touch); if (b.name === 'special') inp.aimBegin(id, b.x, b.y, x, y); return true; }
       }   // act-14 用户：「按操作的按钮不要有音效」
       // the virtual joystick only responds on actual touch input or when touch layout is explicitly active (never on desktop mouse clicks)
@@ -322,13 +325,25 @@ export class ActHud {
   private makeWay(dt: number) {
     const to = this.ultUp ? 1 : 0; this.wayK += (to - this.wayK) * Math.min(1, dt * 16); if (Math.abs(to - this.wayK) < 1e-3) this.wayK = to;
     const e = this.wayK * this.wayK * (3 - 2 * this.wayK), W = this.W, H = this.H;
+    const readyBoost = this.intent >= 3 && !this.ultUp ? 1.07 : 1;
     for (const n of Object.keys(this.btns) as BtnName[]) {
       const h = this.home[n], b = this.btns[n]; if (!h) continue;
-      if (n === 'ult') { b.size = h.size * (0.78 + 0.22 * e); continue; }
+      if (n === 'ult') {
+        if (this.layoutTouch) {
+          b.x = h.x + 42 * this.k * e;
+          b.y = h.y + 32 * this.k * e;
+          b.size = h.size * (readyBoost + 0.30 * e);
+        } else {
+          b.x = h.x;
+          b.y = h.y - 24 * this.k * e;
+          b.size = h.size * (readyBoost + 0.28 * e);
+        }
+        continue;
+      }
       if (this.layoutTouch) {
-        const g = 1 - 0.14 * e; b.x = W + (h.x - W) * g; b.y = H + (h.y - H) * g; b.size = h.size * (1 - 0.16 * e);
+        const g = 1 - 0.12 * e; b.x = W + (h.x - W) * g; b.y = H + (h.y - H) * g; b.size = h.size * (1 - 0.14 * e);
       } else {
-        b.x = h.x; b.y = h.y + 5 * this.k * e; b.size = h.size * (1 - 0.06 * e);
+        b.x = h.x; b.y = h.y + 4 * this.k * e; b.size = h.size * (1 - 0.05 * e);
       }
     }
   }
@@ -418,7 +433,14 @@ export class ActHud {
       this.L.at(dg.x, dg.y, -12, this.dockRail.position);
       this.dockRail.scale.set(dg.w * u, dg.h * u, dg.h * u);
     }
-    for (const b of Object.values(this.btns)) { const on = this.on && (b !== this.btns.ult || this.ultUp); b.root.visible = on; if (b instanceof IronBtn) b.iconG.visible = on; }
+    const ultReady = this.ultUp || this.intent >= 3;
+    const ultBtn = this.btns.ult;
+    ultBtn.cd = ultReady ? 0 : Math.max(0.06, (3 - Math.max(0, Math.min(3, this.intent))) / 3);
+    if (ultBtn instanceof IronBtn) {
+      ultBtn.hot = ultReady;
+      ultBtn.qteOn = this.ultUp;
+    }
+    for (const b of Object.values(this.btns)) { const on = this.on; b.root.visible = on; if (b instanceof IronBtn) b.iconG.visible = on; }
     this.flask.root.visible = this.on;
     this.makeWay(dt);
     if (this.on) {
@@ -426,21 +448,28 @@ export class ActHud {
       for (const b of Object.values(this.btns)) b.update(dt);
     }
     this.markFrame(dt);
-    // act-28 / device-adaptive HUD:
-    //   Touch mode: clean action words under the thumb-arc shields (plus optional key/glyph if touch layout is manually forced on desktop)
-    //   Console/PC mode: crisp pixel keycap (J/K/空格/L/I) or Xbox/PS/Switch button badge on the medallion's lower-right rim,
-    //                    and clean aligned action labels directly beneath the forged-iron dock rail
+    // act-28 / act-149 / device-adaptive HUD:
+    //   Touch mode: clean action words under the thumb-arc shields + permanent upper-arc ult slot + hold-stance cue
+    //   Console/PC mode: 5-medallion forged-iron skill dock with crisp pixel keycaps (J/K/空格/L/I), clear action labels,
+    //                    and permanent 不见刀 charging/ready slot so players immediately see their full moveset!
     const dpr = this.L.dpr || 1;
-    const pk = Math.max(1, Math.round(Math.max(wantTouch ? 16 : 14, (wantTouch ? 18 : 15) * this.k) * dpr / PIX_H));
+    const pk = Math.max(1, Math.round(Math.max(wantTouch ? 15 : 14, (wantTouch ? 17 : 15) * this.k) * dpr / PIX_H));
+    const subPk = Math.max(1, Math.round(Math.max(11, 11.5 * this.k) * dpr / PIX_H));
     const lh = (PIX_H + 2) * pk / dpr;
+    const subLh = (PIX_H + 2) * subPk / dpr;
     for (const n of Object.keys(this.btns) as BtnName[]) {
-      const b = this.btns[n], word = n === 'attack' && b instanceof IronBtn && b.talk ? '交谈' : ACTION_WORD[n];
-      const shown = this.on && (n !== 'ult' || this.ultUp);
-      if (!shown) {
+      const b = this.btns[n];
+      const isTalk = n === 'attack' && b instanceof IronBtn && b.talk;
+      const word = isTalk ? '交谈'
+        : n === 'ult' ? (ultReady ? '不见刀' : `${localize('绝技')} ${Math.floor(this.intent)}/3`)
+          : ACTION_WORD[n];
+      if (!this.on) {
         this.hideBadge(n);
         this.L.text.hide('act.btn.' + n);
+        if (n === 'attack') this.L.text.hide('act.btn.attackSub');
         continue;
       }
+      const lblCol = n === 'ult' ? (ultReady ? '#ffe892' : '#aba496') : '#f4ecd8';
       if (wantTouch) {
         const px = lh * 0.8, y = b.y + b.size * 0.5 + lh * 0.5 + 2 * this.k;
         const t = dev === 'key' ? `${localize(word)} ${localize(actKey(n))}` : word;
@@ -450,25 +479,31 @@ export class ActHud {
           x = b.x - (gap + gw) / 2;
           this.showTexBadge(n, glyphTex(gi), a.w, GLYPH_H, b.x - (ww + gap + gw) / 2 + ww + gap + gw / 2, y, gh);
         } else this.hideBadge(n);
-        this.L.text.set('act.btn.' + n, { text: t, x, y, pix: pk, color: n === 'ult' ? '#ffe6a0' : '#f4ecd8', outline: '#140c0a', align: 'center', visible: true });
+        this.L.text.set('act.btn.' + n, { text: t, x, y, pix: pk, color: lblCol, outline: '#140c0a', align: 'center', visible: true });
+        if (n === 'attack') {
+          if (!isTalk) this.L.text.set('act.btn.attackSub', { text: '长按藏锋', x: b.x, y: y + lh * 0.55 + subLh * 0.45, pix: subPk, color: '#d8be84', outline: '#140c0a', align: 'center', visible: true });
+          else this.L.text.hide('act.btn.attackSub');
+        }
       } else {
-        const badgeH = n === 'ult' ? Math.max(20, 24 * this.k) : Math.max(17, 20 * this.k);
+        const badgeH = n === 'ult' && ultReady ? Math.max(19, 22 * this.k) : Math.max(17, 20 * this.k);
         const by = b.y + b.size * 0.34;
         if (dev === 'pad') {
           const gi = BIND.pad[n][0], a = glyphArt(gi);
           this.showTexBadge(n, glyphTex(gi), a.w, GLYPH_H, b.x + b.size * 0.38, by, badgeH);
         } else {
-          const kc = keyCapTex(actKey(n), n === 'ult');
+          const kc = keyCapTex(actKey(n), n === 'ult' && ultReady);
           if (kc) {
             // wider keycaps (e.g. 空格) anchor slightly right so the center skill emblem stays unobscured
             const extraX = kc.w > kc.h ? Math.min(10 * this.k, ((kc.w - kc.h) / kc.h) * badgeH * 0.32) : 0;
             this.showTexBadge(n, kc.tex, kc.w, kc.h, b.x + b.size * 0.38 + extraX, by, badgeH);
           } else this.hideBadge(n);
         }
-        const ly = n === 'ult'
-          ? b.y + b.size * 0.5 + lh * 0.55 + 4 * this.k
-          : this.dockGeom.y + this.dockGeom.h * 0.5 + lh * 0.55 + 6 * this.k;
-        this.L.text.set('act.btn.' + n, { text: word, x: b.x, y: ly, pix: pk, color: n === 'ult' ? '#ffe6a0' : '#f4ecd8', outline: '#140c0a', align: 'center', visible: true });
+        const ly = this.dockGeom.y + this.dockGeom.h * 0.5 + lh * 0.55 + 6 * this.k;
+        this.L.text.set('act.btn.' + n, { text: word, x: b.x, y: ly, pix: pk, color: lblCol, outline: '#140c0a', align: 'center', visible: true });
+        if (n === 'attack') {
+          if (!isTalk) this.L.text.set('act.btn.attackSub', { text: '长按藏锋', x: b.x, y: ly + lh * 0.52 + subLh * 0.48, pix: subPk, color: '#d8be84', outline: '#140c0a', align: 'center', visible: true });
+          else this.L.text.hide('act.btn.attackSub');
+        }
       }
     }
     // Console/PC top-right pause hint ([ESC] 暂停 or [Menu/Options/+] 暂停) — clear of the dev '调' button when __DEBUG_UI__ is active
@@ -547,33 +582,44 @@ export class ActHud {
     } else {
       this.L.text.hide('act.syn');
     }
-    // act-146: clean readable learned-moves & boons strip (zero orbiting button clutter; clickable / [Tab] to inspect full 3D skill sheet)
+    // act-146 / act-149: ALWAYS-visible forged-iron 「招式谱」 plaque under the portrait so new players never ask "技能呢？"
+    // Opens the full 3D moveset ('skills') when 0 acquired, or 'owned' once manuals/boons are learned.
     const ms = this.buildInfo.manuals, bc = this.buildInfo.boonCount;
-    if (this.on && (ms.length > 0 || bc > 0)) {
-      const stripTop = curY - rowPx * 0.5;
-      let maxW = 0;
-      if (ms.length > 0) {
-        const shown = ms.slice(0, 4).map(m => localize(m)).join(' · ');
-        const more = ms.length > 4 ? ` +${ms.length - 4}` : '';
-        const mTxt = `${localize('刀谱')}：${shown}${more}`;
-        this.L.text.set('act.buildM', { text: mTxt, x: leftX, y: curY, bodyPx: rowPx, color: '#8ce2c6', outline: '#140c0a', align: 'left', visible: true });
-        maxW = Math.max(maxW, bodyW(mTxt, rowPx));
-        curY += 22 * fk;
+    this.L.text.hide('act.buildM');
+    this.L.text.hide('act.buildB');
+    if (this.on) {
+      const hasBuild = ms.length > 0 || bc > 0;
+      const titleTxt = wantTouch || dev === 'pad' ? '招式谱' : '[Tab] 招式谱';
+      let subTxt: string | undefined;
+      if (ms.length > 0 && bc > 0) subTxt = `${localize('刀谱')}${ms.length} · ${localize('秘传')}${bc}`;
+      else if (ms.length > 0) subTxt = ms.slice(0, 2).map(m => localize(m)).join(' · ');
+      else if (bc > 0) subTxt = `${localize('秘传')} ${bc}`;
+      this.hudPlates.setTag('hud.skills', {
+        text: titleTxt,
+        sub: subTxt,
+        icon: 'scroll',
+        x: leftX,
+        y: curY + 8 * fk,
+        align: 'left',
+        scale: 0.9,
+        color: hasBuild ? '#ffe698' : '#f2e4c2',
+        accent: hasBuild ? '#d8a64e' : '#9c7d48',
+        visible: true,
+        order: 47,
+      });
+      const r = this.hudPlates.getRect('hud.skills');
+      if (r) {
+        this.buildStripRect = r;
+        curY = r.y + r.h + 8 * fk;
       } else {
-        this.L.text.hide('act.buildM');
+        this.buildStripRect = { x: 0, y: 0, w: 0, h: 0 };
       }
-      const cueTxt = wantTouch ? localize('点此详览') : dev === 'pad' ? localize('暂停详览') : `[Tab] ${localize('详览')}`;
-      const bTxt = bc > 0 ? `${localize('秘传')} ${bc} · ${cueTxt}` : `${localize('已习招式')} · ${cueTxt}`;
-      this.L.text.set('act.buildB', { text: bTxt, x: leftX, y: curY, bodyPx: Math.max(14, Math.round(15 * this.k)), color: '#e6cf9c', outline: '#140c0a', align: 'left', visible: true });
-      maxW = Math.max(maxW, bodyW(bTxt, Math.max(14, Math.round(15 * this.k))));
-      curY += 24 * fk;
-      this.buildStripRect = { x: leftX, y: stripTop, w: maxW, h: curY - stripTop };
     } else {
-      this.L.text.hide('act.buildM');
-      this.L.text.hide('act.buildB');
+      this.hudPlates.hide('hud.skills');
       this.buildStripRect = { x: 0, y: 0, w: 0, h: 0 };
     }
-    this.feedAt.y = Math.max(topBase + 106 * fk, curY + 6 * fk);
+    void rowPx;
+    this.feedAt.y = Math.max(topBase + 106 * fk, curY + 4 * fk);
     // bars over the foes (the chief: the long bar at the top instead; elites: larger forged-gold framed bar + '精英' tag)
     const live = new Set<number>(), liveElites = new Set<number>();
     const elPk = Math.max(1, Math.round(Math.max(11, 12 * this.k) * dprH / PIX_H));

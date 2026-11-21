@@ -99,6 +99,214 @@ function mirrorVal(p: Profile, id: string, side: 0 | 1): number {
   return m.sides[side].vals[Math.min(2, st.lv - 1)] ?? 0;
 }
 
+export interface ArcanaDef {
+  id: string;
+  name: string;
+  short: string;
+  /** 0 = center Awakening card (auto-activates when >= 3 other cards are active) */
+  grasp: number;
+  unlockCost: number;
+  upgradeCosts: [number, number];
+  vals: [number, number, number];
+  unit: string;
+  statLabel: string;
+  desc: string;
+  col: string;
+  glyph: string[];
+}
+
+export const ARCANA_BASE_CAP = 6;
+export const ARCANA_CAP_STEP = 2;
+export const ARCANA_CAP_COSTS = [12, 20, 30, 44, 62, 84];
+
+/** act-149: 孙媪药炉冥想 · 3×3 周天悟性牌阵 (Hades 2 Altar of Ashes style: toggle cards within Grasp cap + center 0-grasp Awakening!) */
+export const ARCANA: ArcanaDef[] = [
+  {
+    id: 'vigor', name: '沸血筋骨', short: '筋骨', grasp: 1, unlockCost: 0, upgradeCosts: [14, 28],
+    vals: [20, 35, 55], unit: '', statLabel: '生命上限', desc: '运药活血，周身气血更盛', col: '#7ef0a8',
+    glyph: ['.##.##.', '#######', '#######', '.#####.', '..###..', '...#...', '.......'],
+  },
+  {
+    id: 'ear', name: '贯耳听宫', short: '听宫', grasp: 2, unlockCost: 0, upgradeCosts: [16, 32],
+    vals: [10, 16, 24], unit: '%', statLabel: '起手放慢', desc: '凝神听风，敌人出招破绽更显', col: '#90e4ff',
+    glyph: ['..###..', '.#...#.', '#..o..#', '#.ooo.#', '#..o..#', '.#...#.', '..###..'],
+  },
+  {
+    id: 'wind', name: '踏风步', short: '踏风', grasp: 1, unlockCost: 10, upgradeCosts: [16, 32],
+    vals: [10, 18, 26], unit: '%', statLabel: '冲刺缩冷', desc: '吐纳轻身，闪避冲刺周转更快', col: '#8ceeff',
+    glyph: ['.......', '....#..', '######.', '#######', '######.', '....#..', '.......'],
+  },
+  {
+    id: 'intent', name: '出鞘杀意', short: '杀意', grasp: 2, unlockCost: 14, upgradeCosts: [20, 38],
+    vals: [1, 2, 2], unit: '格', statLabel: '开场杀意', desc: '入阵先蓄杀意，更快斩出不见刀', col: '#ffb866',
+    glyph: ['...#...', '..###..', '..###..', '.#####.', '.##o##.', '..###..', '...#...'],
+  },
+  {
+    id: 'center', name: '周天归元', short: '归元', grasp: 0, unlockCost: 16, upgradeCosts: [24, 44],
+    vals: [12, 20, 30], unit: '%', statLabel: '全招增伤', desc: '【零悟性唤醒】同启3张牌自动点亮', col: '#ffe278',
+    glyph: ['...o...', '..ooo..', '.oo#oo.', 'oo###oo', '.oo#oo.', '..ooo..', '...o...'],
+  },
+  {
+    id: 'leech', name: '破势养气', short: '养气', grasp: 2, unlockCost: 18, upgradeCosts: [22, 42],
+    vals: [5, 8, 12], unit: '点', statLabel: '破势回血', desc: '破势弹反或完美闪避立回气血', col: '#84f6b8',
+    glyph: ['...#...', '..###..', '.##o##.', '##ooo##', '.##o##.', '..###..', '...#...'],
+  },
+  {
+    id: 'keen', name: '藏锋心眼', short: '心眼', grasp: 2, unlockCost: 22, upgradeCosts: [24, 46],
+    vals: [6, 11, 16], unit: '%', statLabel: '暴击几率', desc: '静心观隙，刀锋更易斩中要害', col: '#ffd080',
+    glyph: ['.......', '.#####.', '#..o..#', '#.ooo.#', '#..o..#', '.#####.', '.......'],
+  },
+  {
+    id: 'poise', name: '崩岳断骨', short: '断骨', grasp: 3, unlockCost: 26, upgradeCosts: [26, 48],
+    vals: [18, 32, 48], unit: '%', statLabel: '削韧加快', desc: '沉肩坠肘，全招更易崩碎敌架势', col: '#f0b880',
+    glyph: ['.#...#.', '..###..', '...#...', '..###..', '...#...', '..###..', '.#...#.'],
+  },
+  {
+    id: 'breath', name: '绝处闭息', short: '闭息', grasp: 4, unlockCost: 32, upgradeCosts: [30, 56],
+    vals: [1, 1, 1], unit: '次', statLabel: '死境留命', desc: '致命伤闭息护心，留四成血续战', col: '#ff9690',
+    glyph: ['..###..', '.#####.', '##o#o##', '#######', '.#####.', '..#.#..', '.......'],
+  },
+];
+
+export function ensureArcana(p: Profile) {
+  if (!p.arcana) {
+    p.arcana = { cap: ARCANA_BASE_CAP, rank: {}, active: {} };
+    // Migrate any legacy medic perks smoothly into unlocked & active arcana ranks
+    for (const def of ARCANA) {
+      const legacyLv = p.perks[def.id] ?? 0;
+      if (legacyLv > 0) {
+        p.arcana.rank[def.id] = Math.min(3, legacyLv);
+      } else if (def.unlockCost === 0) {
+        p.arcana.rank[def.id] = 1;
+      }
+    }
+  }
+  for (const def of ARCANA) {
+    if (def.unlockCost === 0 && !(p.arcana.rank[def.id] > 0)) p.arcana.rank[def.id] = 1;
+  }
+  return p.arcana;
+}
+
+export function arcanaRank(p: Profile, id: string): number {
+  const st = p.arcana;
+  if (st) return Math.max(0, Math.min(3, st.rank[id] ?? 0));
+  const def = ARCANA.find(a => a.id === id);
+  return def && def.unlockCost === 0 ? 1 : 0;
+}
+
+export function arcanaCap(p: Profile): number {
+  return p.arcana?.cap ?? ARCANA_BASE_CAP;
+}
+
+export function arcanaNextCapCost(p: Profile): number | null {
+  const cap = arcanaCap(p);
+  const idx = Math.floor((cap - ARCANA_BASE_CAP) / ARCANA_CAP_STEP);
+  return ARCANA_CAP_COSTS[idx] ?? null;
+}
+
+export function arcanaUsed(p: Profile): number {
+  const st = p.arcana;
+  if (!st) return 0;
+  let sum = 0;
+  for (const def of ARCANA) {
+    if (def.grasp > 0 && st.active[def.id] && (st.rank[def.id] ?? 0) > 0) sum += def.grasp;
+  }
+  return sum;
+}
+
+export function arcanaActiveCount(p: Profile): number {
+  const st = p.arcana;
+  if (!st) return 0;
+  let n = 0;
+  for (const def of ARCANA) {
+    if (def.grasp > 0 && st.active[def.id] && (st.rank[def.id] ?? 0) > 0) n++;
+  }
+  return n;
+}
+
+export function isArcanaActive(p: Profile, id: string): boolean {
+  const st = p.arcana;
+  if (!st || !(st.rank[id] > 0)) return false;
+  const def = ARCANA.find(a => a.id === id);
+  if (!def) return false;
+  if (def.grasp === 0) return arcanaActiveCount(p) >= 3;
+  return !!st.active[id];
+}
+
+export function arcanaUpgradeCost(p: Profile, id: string): number | null {
+  const def = ARCANA.find(a => a.id === id);
+  if (!def) return null;
+  const rk = arcanaRank(p, id);
+  if (rk <= 0 || rk >= 3) return null;
+  return def.upgradeCosts[rk - 1] ?? null;
+}
+
+export function unlockArcana(p: Profile, id: string): boolean {
+  const def = ARCANA.find(a => a.id === id);
+  if (!def) return false;
+  const st = ensureArcana(p);
+  if ((st.rank[id] ?? 0) > 0) return false;
+  if (p.herb < def.unlockCost) return false;
+  p.herb -= def.unlockCost;
+  st.rank[id] = 1;
+  // Auto-activate upon first comprehension if it fits within Grasp cap!
+  if (def.grasp > 0 && arcanaUsed(p) + def.grasp <= st.cap) {
+    st.active[id] = true;
+  }
+  return true;
+}
+
+export function toggleArcana(p: Profile, id: string): 'on' | 'off' | 'noCap' | 'locked' | 'auto' {
+  const def = ARCANA.find(a => a.id === id);
+  if (!def) return 'locked';
+  const st = ensureArcana(p);
+  if (!(st.rank[id] > 0)) return 'locked';
+  if (def.grasp === 0) return 'auto';
+  if (st.active[id]) {
+    st.active[id] = false;
+    return 'off';
+  }
+  if (arcanaUsed(p) + def.grasp > st.cap) return 'noCap';
+  st.active[id] = true;
+  return 'on';
+}
+
+export function upgradeArcana(p: Profile, id: string): boolean {
+  const cost = arcanaUpgradeCost(p, id);
+  if (cost == null || p.herb < cost) return false;
+  const st = ensureArcana(p);
+  p.herb -= cost;
+  st.rank[id] = Math.min(3, (st.rank[id] ?? 1) + 1);
+  return true;
+}
+
+export function expandArcanaCap(p: Profile): boolean {
+  const cost = arcanaNextCapCost(p);
+  if (cost == null || p.herb < cost) return false;
+  const st = ensureArcana(p);
+  p.herb -= cost;
+  st.cap += ARCANA_CAP_STEP;
+  return true;
+}
+
+export function hasArcanaActionable(p: Profile): boolean {
+  const capCost = arcanaNextCapCost(p);
+  if (capCost != null && p.herb >= capCost) return true;
+  return ARCANA.some(def => {
+    const rk = arcanaRank(p, def.id);
+    if (rk <= 0) return p.herb >= def.unlockCost;
+    const uc = arcanaUpgradeCost(p, def.id);
+    return uc != null && p.herb >= uc;
+  });
+}
+
+function arcanaVal(p: Profile, id: string): number {
+  if (!isArcanaActive(p, id)) return 0;
+  const def = ARCANA.find(a => a.id === id);
+  const rk = arcanaRank(p, id);
+  return def && rk > 0 ? def.vals[Math.min(2, rk - 1)] ?? 0 : 0;
+}
+
 export interface RunMods {
   dmgMul: number; critBonus: number; dartBonus: number; rerolls: number; hpBonus: number; deathDefy: number; startIntent: number; windupMul: number; startManual: boolean; poiseHeal: number;
   /** act-118: 碑铭潜能 modifiers */
@@ -107,23 +315,26 @@ export interface RunMods {
 
 export function runMods(p: Profile): RunMods {
   const gBuff = p.garden?.buff;
+  const aCenter = arcanaVal(p, 'center') / 100;
+  const aWind = arcanaVal(p, 'wind') / 100;
+  const aPoise = arcanaVal(p, 'poise') / 100;
   return {
-    dmgMul: 1 + 0.12 * level(p, 'blade'),
-    critBonus: 0.04 * level(p, 'blade'),
+    dmgMul: (1 + 0.12 * level(p, 'blade')) * (1 + aCenter),
+    critBonus: 0.04 * level(p, 'blade') + arcanaVal(p, 'keen') / 100,
     dartBonus: level(p, 'darts'),
     rerolls: 1 + level(p, 'reroll') + (gBuff === 'lotus' ? 1 : 0),
-    hpBonus: 20 * level(p, 'vigor') + (gBuff === 'lotus' ? 25 : 0),
-    deathDefy: level(p, 'breath'),
-    startIntent: level(p, 'intent') + (gBuff === 'xuanzhi' ? 1 : 0),
-    windupMul: 1 + 0.1 * level(p, 'ear'),
+    hpBonus: 20 * level(p, 'vigor') + arcanaVal(p, 'vigor') + (gBuff === 'lotus' ? 25 : 0),
+    deathDefy: level(p, 'breath') + (arcanaVal(p, 'breath') > 0 ? 1 : 0),
+    startIntent: level(p, 'intent') + arcanaVal(p, 'intent') + (gBuff === 'xuanzhi' ? 1 : 0),
+    windupMul: 1 + 0.1 * level(p, 'ear') + arcanaVal(p, 'ear') / 100,
     startManual: level(p, 'manual') >= 1,
-    poiseHeal: 5 * level(p, 'leech'),
+    poiseHeal: 5 * level(p, 'leech') + arcanaVal(p, 'leech'),
     firstStrikeBonus: mirrorVal(p, 'edge', 0) / 100,
     styleBonus: mirrorVal(p, 'edge', 1) / 100,
-    dashCdMul: 1 - mirrorVal(p, 'step', 0) / 100,
+    dashCdMul: (1 - mirrorVal(p, 'step', 0) / 100) * (1 - aWind),
     counterBonus: mirrorVal(p, 'step', 1) / 100,
     markedDmgBonus: mirrorVal(p, 'arms', 0) / 100,
-    poiseDmgMul: 1 + mirrorVal(p, 'arms', 1) / 100,
+    poiseDmgMul: (1 + mirrorVal(p, 'arms', 1) / 100) * (1 + aPoise),
     rareOddsBonus: mirrorVal(p, 'luck', 0) / 100 + (gBuff === 'xuanzhi' ? 0.25 : 0),
     interestRate: mirrorVal(p, 'luck', 1) / 100,
   };

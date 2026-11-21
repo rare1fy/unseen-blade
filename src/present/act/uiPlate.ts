@@ -197,6 +197,7 @@ export interface TagSpec {
   price?: number;
   poor?: boolean;
   scale?: number;
+  align?: 'center' | 'left';
   minY?: number;
   maxY?: number;
   visible?: boolean;
@@ -253,7 +254,50 @@ export interface DetailSpec {
   line1: string;
   line2?: string;
   action?: string;
+  actionHot?: boolean;
   accent?: string;
+  visible?: boolean;
+}
+
+export interface WorkbenchStatRow {
+  label: string;
+  before: string;
+  after?: string;
+  highlight?: boolean;
+}
+
+export interface WorkbenchSpec {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  theme: 'forge' | 'medic';
+  title: string;
+  sub?: string;
+  lv: number;
+  maxLv: number;
+  stats: WorkbenchStatRow[];
+  note?: string;
+  btnLabel: string;
+  btnCost?: { cur: 'iron' | 'herb'; amount: number };
+  btnEnabled: boolean;
+  btnHot?: boolean;
+  subBtnLabel?: string;
+  subBtnCost?: { cur: 'iron' | 'herb'; amount: number };
+  subBtnEnabled?: boolean;
+  subBtnHot?: boolean;
+  accent?: string;
+  visible?: boolean;
+}
+
+export interface GraspBarSpec {
+  x: number;
+  y: number;
+  used: number;
+  cap: number;
+  nextCost: number | null;
+  canExpand: boolean;
+  btnHot?: boolean;
   visible?: boolean;
 }
 
@@ -369,7 +413,8 @@ export class UiPlatePool {
       }
       this.upload(s, c, dpr, BODY_FONT.current !== 'pixel' && !!sub);
     }
-    this.place(s, spec.x, spec.y, true, 1, true, spec.minY ?? 8, spec.maxY);
+    const placeX = spec.align === 'left' ? spec.x + s.w / 2 : spec.x;
+    this.place(s, placeX, spec.y, true, 1, true, spec.minY ?? 8, spec.maxY);
   }
 
   /** Highlighted interactive plaque for the nearest NPC / shop stall / campfire / garden / monument. */
@@ -593,9 +638,9 @@ export class UiPlatePool {
   }
 
   /** Large bottom iron-bronze detail plaque (used for the 4x2 Keepsake showcase). */
-  setDetail(key: string, spec: DetailSpec) {
+  setDetail(key: string, spec: DetailSpec): { x: number; y: number; w: number; h: number } | null {
     const s = this.slot(key, 51);
-    if (spec.visible === false || !spec.title) { s.mesh.visible = false; return; }
+    if (spec.visible === false || !spec.title) { s.mesh.visible = false; return null; }
     const dpr = Math.max(1, Math.round(this.L.dpr || 1));
     const kk = uiScale(this.L.w, this.L.h, 0.8, 2.8);
     const title = localize(spec.title);
@@ -603,7 +648,7 @@ export class UiPlatePool {
     const l1 = localize(spec.line1);
     const l2 = spec.line2 ? localize(spec.line2) : '';
     const act = spec.action ? localize(spec.action) : '';
-    const pKey = `det|${Math.round(spec.w)}|${title}|${badge}|${spec.badgeCol ?? ''}|${spec.stars ?? 0}/${spec.starsMax ?? 0}|${l1}|${l2}|${act}|${spec.accent ?? ''}|${kk.toFixed(2)}|${dpr}|${language}|${BODY_FONT.version}`;
+    const pKey = `det|${Math.round(spec.w)}|${title}|${badge}|${spec.badgeCol ?? ''}|${spec.stars ?? 0}/${spec.starsMax ?? 0}|${l1}|${l2}|${act}|${spec.actionHot ? 1 : 0}|${spec.accent ?? ''}|${kk.toFixed(2)}|${dpr}|${language}|${BODY_FONT.version}`;
     if (pKey !== s.key) {
       s.key = pKey;
       const u = Math.max(1, Math.round(2 * kk * dpr));
@@ -612,7 +657,7 @@ export class UiPlatePool {
       const tH = PIX_H * tScale;
       const bScale = Math.max(1, Math.round((13.5 * kk * dpr) / PIX_H));
       const bH = PIX_H * bScale;
-      const f1 = Math.round(18 * kk * dpr), f2 = Math.round(14.5 * kk * dpr);
+      const f1 = Math.round(18 * kk * dpr), f2 = Math.round(16 * kk * dpr);
       const padX = Math.round(18 * kk * dpr), padY = Math.round(11 * kk * dpr);
       const H = padY * 2 + u * 2 + tH + Math.round(8 * kk * dpr) + Math.ceil(f1 * 1.35) + (l2 || act ? Math.round(4 * kk * dpr) + Math.ceil(f2 * 1.3) : 0);
       const c = makeCanvas(Math.max(16, W), Math.max(16, H)) as HTMLCanvasElement;
@@ -649,15 +694,295 @@ export class UiPlatePool {
       let p1 = f1;
       while (p1 > Math.round(11 * kk * dpr) && bodyW(l1, p1) > maxTextW) p1 -= 1;
       bodyText(g, l1, x0, y, p1, '#f4ebd8', 'left', '#08060c');
-      // Row 3: Progress / Source (left) & Action hint (right)
+      // Row 3: Progress / Source (left) & clickable Action stamp (right)
       if (l2 || act) {
         y += Math.ceil(f1 * 1.35) + Math.round(4 * kk * dpr);
         if (l2) bodyText(g, l2, x0, y, f2, '#bcb4a4', 'left', '#08060c');
-        if (act) bodyText(g, act, c.width - padX - u, y, f2, '#ffe08a', 'right', '#08060c');
+        if (act) {
+          const as = Math.max(1, Math.round((14.5 * kk * dpr) / PIX_H));
+          const aw = pixW(act) * as + Math.round(18 * kk * dpr), ah = PIX_H * as + Math.round(8 * kk * dpr);
+          const ax = c.width - padX - u - aw, ay = Math.round(y - Math.round(2 * kk * dpr));
+          const hot = !!spec.actionHot;
+          drawPixelPlaque(g, ax, ay, aw, ah, Math.max(1, Math.round(1.5 * kk * dpr)), {
+            bg: hot ? '#3a2414' : '#261b12', hi: hot ? '#58381e' : '#3a2a1c', border: '#08060c',
+            inner: hot ? '#ffe07a' : (spec.accent ?? '#d4a24e'),
+          });
+          drawPix(g, act, ax + aw / 2, Math.round(ay + (ah - PIX_H * as) / 2), { scale: as, color: hot ? '#fff8d4' : '#ffe69c', outline: '#08060c', align: 'center' });
+        }
       }
       this.upload(s, c, dpr, BODY_FONT.current !== 'pixel');
     }
     this.place(s, spec.x, spec.y, true, 1, true, 6);
+    if (!act) return null;
+    const bwCss = Math.max(110 * kk, (pixW(act) * Math.max(1, Math.round((14.5 * kk * dpr) / PIX_H)) / dpr) + 22 * kk);
+    const bhCss = 32 * kk;
+    return { x: s.cx + s.w / 2 - 18 * kk - bwCss, y: s.cy + s.h / 2 - 10 * kk - bhCss, w: bwCss, h: bhCss };
+  }
+
+  /** act-149: Right-side 3D Artifact Workbench panel (锻坊 / 孙媪悟性牌阵) — upper transparent showcase bay, middle Before ▶ After stats, bottom 1 or 2 clickable action buttons */
+  setWorkbench(key: string, spec: WorkbenchSpec): {
+    btnRect: { x: number; y: number; w: number; h: number } | null;
+    subBtnRect: { x: number; y: number; w: number; h: number } | null;
+    showcase: { x: number; y: number; w: number; h: number };
+  } {
+    const s = this.slot(key, 48);
+    if (spec.visible === false || !spec.title) {
+      s.mesh.visible = false;
+      return { btnRect: null, subBtnRect: null, showcase: { x: spec.x, y: spec.y, w: 120, h: 80 } };
+    }
+    const dpr = Math.max(1, Math.round(this.L.dpr || 1));
+    const kk = uiScale(this.L.w, this.L.h, 0.8, 2.8);
+    const title = localize(spec.title);
+    const sub = spec.sub ? localize(spec.sub) : '';
+    const note = spec.note ? localize(spec.note) : '';
+    const btnLbl = localize(spec.btnLabel);
+    const subBtnLbl = spec.subBtnLabel ? localize(spec.subBtnLabel) : '';
+    const statSig = spec.stats.map(r => `${localize(r.label)}:${localize(r.before)}>${r.after ? localize(r.after) : ''}:${r.highlight ? 1 : 0}`).join('|');
+    const costSig = spec.btnCost ? `${spec.btnCost.cur}:${spec.btnCost.amount}` : '';
+    const subCostSig = spec.subBtnCost ? `${spec.subBtnCost.cur}:${spec.subBtnCost.amount}` : '';
+    const pKey = `wb|${Math.round(spec.w)}x${Math.round(spec.h)}|${spec.theme}|${title}|${sub}|${spec.lv}/${spec.maxLv}|${statSig}|${note}|${btnLbl}|${costSig}|${spec.btnEnabled ? 1 : 0}|${spec.btnHot ? 1 : 0}|${subBtnLbl}|${subCostSig}|${spec.subBtnEnabled ? 1 : 0}|${spec.subBtnHot ? 1 : 0}|${spec.accent ?? ''}|${kk.toFixed(2)}|${dpr}|${language}|${BODY_FONT.version}`;
+    const u = Math.max(1, Math.round(2 * kk * dpr));
+    const W = Math.max(40, Math.round(spec.w * dpr));
+    const H = Math.max(80, Math.round(spec.h * dpr));
+    const padX = Math.round(18 * kk * dpr), padY = Math.round(12 * kk * dpr);
+    const boxX = padX + u, boxW = W - (padX + u) * 2;
+    const bayH = Math.round(H * (spec.h < 310 ? 0.28 : 0.33));
+    const bayY = padY + u;
+    const btnH = Math.round(Math.max(38 * kk * dpr, H * 0.135));
+    const btnY = H - padY - u - btnH;
+    const hasSubBtn = !!subBtnLbl;
+    const btnGap = Math.round(10 * kk * dpr);
+    const btn1W = hasSubBtn ? Math.round((boxW - btnGap) * 0.50) : boxW;
+    const btn2X = boxX + btn1W + btnGap;
+    const btn2W = boxW - btn1W - btnGap;
+    if (pKey !== s.key) {
+      s.key = pKey;
+      const c = makeCanvas(W, H) as HTMLCanvasElement;
+      const g = c.getContext('2d')!; g.imageSmoothingEnabled = false;
+      const isMedic = spec.theme === 'medic';
+      const innerCol = spec.accent ?? (isMedic ? '#58b47c' : '#c89248');
+      drawPixelPlaque(g, 0, 0, W, H, u, {
+        bg: isMedic ? '#121e18' : '#181414',
+        hi: isMedic ? '#1f3429' : '#2e2420',
+        border: '#07050a',
+        inner: innerCol,
+        accent: isMedic ? '#8ef0b4' : '#ffd878',
+        rivets: true,
+      });
+      // 1. Upper framed transparent viewport window (so the live 3D hearth & spinning blade/anvil/herb in L.scene shine right through!)
+      const bdr = Math.max(1, Math.round(1.5 * kk * dpr));
+      g.fillStyle = isMedic ? '#2c5a40' : '#5e4228';
+      g.fillRect(boxX, bayY, boxW, bayH);
+      g.clearRect(boxX + bdr, bayY + bdr, boxW - 2 * bdr, bayH - 2 * bdr);
+      // subtle forged corner brackets inside showcase viewport
+      const cr = Math.round(10 * kk * dpr);
+      g.fillStyle = isMedic ? '#6ad494' : '#dca450';
+      for (const [cx, cy, sx, sy] of [
+        [boxX + bdr * 2, bayY + bdr * 2, 1, 1],
+        [boxX + boxW - bdr * 2, bayY + bdr * 2, -1, 1],
+        [boxX + bdr * 2, bayY + bayH - bdr * 2, 1, -1],
+        [boxX + boxW - bdr * 2, bayY + bayH - bdr * 2, -1, -1],
+      ]) {
+        g.fillRect(sx > 0 ? cx : cx - cr, cy, cr, bdr);
+        g.fillRect(cx - (sx < 0 ? bdr : 0), sy > 0 ? cy : cy - cr, bdr, cr);
+      }
+
+      // 2. Title + Level Pips directly below showcase bay
+      let curY = bayY + bayH + Math.round(12 * kk * dpr);
+      let tScale = Math.max(1, Math.round((21 * kk * dpr) / PIX_H));
+      const pipSz = Math.round(10 * kk * dpr), pipGap = Math.round(4 * kk * dpr);
+      const pipsW = spec.maxLv > 0 ? spec.maxLv * pipSz + (spec.maxLv - 1) * pipGap : 0;
+      while (tScale > 1 && pixW(title) * tScale + pipsW + Math.round(16 * kk * dpr) > boxW) tScale--;
+      const tH = PIX_H * tScale;
+      drawPix(g, title, boxX, curY, { scale: tScale, color: '#fff2cc', outline: '#08060c', align: 'left' });
+      if (spec.maxLv > 0) {
+        let px = boxX + boxW - pipSz;
+        const py = Math.round(curY + (tH - pipSz) / 2);
+        for (let i = spec.maxLv - 1; i >= 0; i--) {
+          g.fillStyle = '#08060c'; g.fillRect(px - bdr, py - bdr, pipSz + 2 * bdr, pipSz + 2 * bdr);
+          g.fillStyle = i < spec.lv ? (isMedic ? '#7cf0a8' : '#ffd260') : '#34303a';
+          g.fillRect(px, py, pipSz, pipSz);
+          px -= pipSz + pipGap;
+        }
+      }
+      curY += tH + Math.round(6 * kk * dpr);
+      if (sub) {
+        let spx = Math.round(14.5 * kk * dpr);
+        while (spx > Math.round(10 * kk * dpr) && bodyW(sub, spx) > boxW) spx -= 1;
+        bodyText(g, sub, boxX, curY, spx, '#c8bea8', 'left', '#08060c');
+        curY += Math.ceil(spx * 1.32) + Math.round(6 * kk * dpr);
+      } else {
+        curY += Math.round(4 * kk * dpr);
+      }
+
+      // Horizontal divider
+      g.fillStyle = isMedic ? '#2c4c3a' : '#4a382c';
+      g.fillRect(boxX, curY, boxW, Math.max(1, Math.round(kk * dpr)));
+      curY += Math.round(10 * kk * dpr);
+
+      // 3. Before ▶ After Stat Comparison Bars (large, unmistakable numbers!)
+      const rowH = Math.round(30 * kk * dpr);
+      const lblPx = Math.round(16 * kk * dpr);
+      const valPx = Math.round(18 * kk * dpr);
+      for (const r of spec.stats.slice(0, 2)) {
+        if (curY + rowH > btnY - Math.round(8 * kk * dpr)) break;
+        // recessed stat row background
+        g.fillStyle = isMedic ? '#0d1812' : '#120e0e';
+        g.fillRect(boxX, curY, boxW, rowH);
+        const mid = Math.round(curY + rowH / 2);
+        const lTxt = localize(r.label);
+        const bTxt = localize(r.before);
+        const aTxt = r.after ? localize(r.after) : '';
+        bodyText(g, lTxt, boxX + Math.round(10 * kk * dpr), Math.round(mid - lblPx * 0.56), lblPx, '#d4cab6', 'left', '#08060c');
+        const rightEnd = boxX + boxW - Math.round(10 * kk * dpr);
+        if (aTxt) {
+          let vp = valPx;
+          const lW = bodyW(lTxt, lblPx) + Math.round(28 * kk * dpr);
+          const arrowStr = ' ▶ ';
+          while (vp > Math.round(11 * kk * dpr) && bodyW(bTxt + arrowStr + aTxt, vp) > boxW - lW) vp -= 1;
+          const aW = bodyW(aTxt, vp);
+          const arW = bodyW(arrowStr, vp);
+          bodyText(g, aTxt, rightEnd, Math.round(mid - vp * 0.56), vp, r.highlight ? '#8effb0' : '#ffe27a', 'right', '#08060c');
+          bodyText(g, arrowStr, rightEnd - aW, Math.round(mid - vp * 0.56), vp, '#9a8e7a', 'right', '#08060c');
+          bodyText(g, bTxt, rightEnd - aW - arW, Math.round(mid - vp * 0.56), vp, '#e6dcc8', 'right', '#08060c');
+        } else {
+          let vp = valPx;
+          const lW = bodyW(lTxt, lblPx) + Math.round(24 * kk * dpr);
+          while (vp > Math.round(11 * kk * dpr) && bodyW(bTxt, vp) > boxW - lW) vp -= 1;
+          bodyText(g, bTxt, rightEnd, Math.round(mid - vp * 0.56), vp, r.highlight ? '#ffe27a' : '#f0e6d2', 'right', '#08060c');
+        }
+        curY += rowH + Math.round(6 * kk * dpr);
+      }
+
+      // Optional single crisp effect note (e.g. next forge tier perk)
+      if (note && curY + Math.round(20 * kk * dpr) < btnY) {
+        let npx = Math.round(15.5 * kk * dpr);
+        while (npx > Math.round(11 * kk * dpr) && bodyW(note, npx) > boxW) npx -= 1;
+        bodyText(g, note, boxX, curY + Math.round(2 * kk * dpr), npx, isMedic ? '#b8f2cc' : '#f2deb6', 'left', '#08060c');
+      }
+
+      // 4. Bottom large tactile Action Button(s)
+      const paintActionBtn = (bx0: number, bw0: number, lbl: string, cost: { cur: 'iron' | 'herb'; amount: number } | undefined, enabled: boolean, hot: boolean, warmGold = false) => {
+        drawPixelPlaque(g, bx0, btnY, bw0, btnH, Math.max(1, Math.round(1.8 * kk * dpr)), {
+          bg: !enabled ? '#1c191e' : hot ? (warmGold ? '#4a3214' : isMedic ? '#1d4d32' : '#4a2e14') : (warmGold ? '#342412' : isMedic ? '#163a26' : '#362212'),
+          hi: !enabled ? '#2a2630' : hot ? (warmGold ? '#6c481e' : isMedic ? '#327850' : '#6c4420') : (warmGold ? '#4c341a' : isMedic ? '#24583c' : '#52341b'),
+          border: '#07050a',
+          inner: !enabled ? '#5a525c' : hot ? '#fff0a0' : (warmGold ? '#ecc060' : isMedic ? '#78e8a2' : '#f0be60'),
+          rivets: enabled,
+        });
+        let bScale = Math.max(1, Math.round((16.5 * kk * dpr) / PIX_H));
+        const costTxt = cost ? `${cost.amount}` : '';
+        const hasCost = !!cost;
+        const icoSz = hasCost ? Math.round(PIX_H * bScale * 1.0) : 0;
+        const gapB = Math.round(6 * kk * dpr);
+        const totalBtnW = () => pixW(lbl) * bScale + (hasCost ? gapB + icoSz + Math.round(3 * kk * dpr) + pixW(costTxt) * bScale : 0);
+        while (bScale > 1 && totalBtnW() > bw0 - Math.round(16 * kk * dpr)) bScale--;
+        const bH = PIX_H * bScale;
+        const bMid = Math.round(btnY + btnH / 2);
+        let bx = Math.round(bx0 + (bw0 - totalBtnW()) / 2);
+        const txtCol = !enabled ? '#a89a98' : hot ? '#fffbe0' : '#ffe8a8';
+        drawPix(g, lbl, bx, Math.round(bMid - bH / 2), { scale: bScale, color: txtCol, outline: '#08060c', align: 'left' });
+        if (hasCost && cost) {
+          bx += pixW(lbl) * bScale + gapB;
+          drawMiniIcon(g, cost.cur, bx + icoSz / 2, bMid, icoSz);
+          bx += icoSz + Math.round(3 * kk * dpr);
+          drawPix(g, costTxt, bx, Math.round(bMid - bH / 2), { scale: bScale, color: enabled ? (cost.cur === 'herb' ? '#a8ffd0' : '#ffe278') : '#ff8a7a', outline: '#08060c', align: 'left' });
+        }
+      };
+      paintActionBtn(boxX, btn1W, btnLbl, spec.btnCost, spec.btnEnabled, spec.btnEnabled && !!spec.btnHot, false);
+      if (hasSubBtn) {
+        paintActionBtn(btn2X, btn2W, subBtnLbl, spec.subBtnCost, !!spec.subBtnEnabled, !!spec.subBtnEnabled && !!spec.subBtnHot, true);
+      }
+      this.upload(s, c, dpr, BODY_FONT.current !== 'pixel');
+    }
+    this.place(s, spec.x, spec.y, true, 1, false);
+    const left0 = s.cx - s.w / 2, top0 = s.cy - s.h / 2;
+    return {
+      btnRect: { x: left0 + boxX / dpr, y: top0 + btnY / dpr, w: btn1W / dpr, h: btnH / dpr },
+      subBtnRect: hasSubBtn ? { x: left0 + btn2X / dpr, y: top0 + btnY / dpr, w: btn2W / dpr, h: btnH / dpr } : null,
+      showcase: { x: s.cx, y: top0 + (bayY + bayH / 2) / dpr, w: boxW / dpr, h: bayH / dpr },
+    };
+  }
+
+  /** act-149: Hades 2-style top 悟性上限 (Grasp) bar with glowing jade pips + clickable 「拓悟性 +2」 button */
+  setGraspBar(key: string, spec: GraspBarSpec): { btnRect: { x: number; y: number; w: number; h: number } | null } {
+    const s = this.slot(key, 52);
+    if (spec.visible === false) { s.mesh.visible = false; return { btnRect: null }; }
+    const dpr = Math.max(1, Math.round(this.L.dpr || 1));
+    const kk = uiScale(this.L.w, this.L.h, 0.8, 2.8);
+    const lbl = localize('悟性');
+    const expTxt = spec.nextCost == null ? localize('悟性圆满') : localize('拓悟性 +2');
+    const pKey = `grp|${spec.used}/${spec.cap}|${spec.nextCost ?? -1}|${spec.canExpand ? 1 : 0}|${spec.btnHot ? 1 : 0}|${kk.toFixed(2)}|${dpr}|${language}`;
+    const u = Math.max(1, Math.round(1.8 * kk * dpr));
+    const pScale = Math.max(1, Math.round((15.5 * kk * dpr) / PIX_H));
+    const tH = PIX_H * pScale;
+    const pipSz = Math.round(10 * kk * dpr), pipGap = Math.round(4 * kk * dpr);
+    const maxPips = Math.min(18, spec.cap);
+    const pipsW = maxPips * pipSz + Math.max(0, maxPips - 1) * pipGap;
+    const numTxt = `${spec.used}/${spec.cap}`;
+    const padX = Math.round(14 * kk * dpr), padY = Math.round(7 * kk * dpr), gap = Math.round(10 * kk * dpr);
+    const icoSz = spec.nextCost != null ? Math.round(tH * 0.96) : 0;
+    const costTxt = spec.nextCost != null ? `${spec.nextCost}` : '';
+    const expInnerW = pixW(expTxt) * pScale + (spec.nextCost != null ? Math.round(6 * kk * dpr) + icoSz + Math.round(3 * kk * dpr) + pixW(costTxt) * pScale : 0);
+    const expBtnW = expInnerW + Math.round(20 * kk * dpr);
+    const expBtnH = tH + Math.round(10 * kk * dpr);
+    const leftW = pixW(lbl) * pScale + gap + pixW(numTxt) * pScale + gap + pipsW;
+    const W = padX * 2 + u * 2 + leftW + Math.round(18 * kk * dpr) + expBtnW;
+    const H = Math.max(tH, expBtnH) + padY * 2 + u * 2;
+    const btnX = W - padX - u - expBtnW;
+    const btnY = Math.round((H - expBtnH) / 2);
+    if (pKey !== s.key) {
+      s.key = pKey;
+      const c = makeCanvas(Math.ceil(W), Math.ceil(H)) as HTMLCanvasElement;
+      const g = c.getContext('2d')!; g.imageSmoothingEnabled = false;
+      drawPixelPlaque(g, 0, 0, c.width, c.height, u, {
+        bg: '#101d17', hi: '#1e362a', border: '#07050a', inner: '#56b47e', accent: '#98f6ba', rivets: true,
+      });
+      const midY = c.height / 2;
+      let cx = padX + u;
+      drawPix(g, lbl, cx, Math.round(midY - tH / 2), { scale: pScale, color: '#9cf4bc', outline: '#08060c', align: 'left' });
+      cx += pixW(lbl) * pScale + gap;
+      drawPix(g, numTxt, cx, Math.round(midY - tH / 2), { scale: pScale, color: '#fff2c4', outline: '#08060c', align: 'left' });
+      cx += pixW(numTxt) * pScale + gap;
+      const bdr = Math.max(1, Math.round(kk * dpr));
+      for (let i = 0; i < maxPips; i++) {
+        const lit = i < spec.used;
+        const py = Math.round(midY - pipSz / 2);
+        g.fillStyle = '#080b0a'; g.fillRect(cx - bdr, py - bdr, pipSz + 2 * bdr, pipSz + 2 * bdr);
+        g.fillStyle = lit ? '#84f6b0' : '#263830';
+        g.fillRect(cx, py, pipSz, pipSz);
+        if (lit) { g.fillStyle = '#e8fff0'; g.fillRect(cx + bdr, py + bdr, Math.max(1, Math.round(pipSz * 0.35)), Math.max(1, Math.round(pipSz * 0.35))); }
+        cx += pipSz + pipGap;
+      }
+      // Clickable 「拓悟性 +2」 button on the right
+      const can = spec.nextCost != null && spec.canExpand;
+      const hot = can && !!spec.btnHot;
+      drawPixelPlaque(g, btnX, btnY, expBtnW, expBtnH, Math.max(1, Math.round(1.4 * kk * dpr)), {
+        bg: !can ? '#1a1e1c' : hot ? '#26583c' : '#183e28',
+        hi: !can ? '#262c29' : hot ? '#3a7e56' : '#265c3c',
+        border: '#07050a',
+        inner: !can ? '#4c5852' : hot ? '#fff2a4' : '#80ecaa',
+      });
+      let ex = Math.round(btnX + (expBtnW - expInnerW) / 2);
+      drawPix(g, expTxt, ex, Math.round(midY - tH / 2), { scale: pScale, color: !can ? '#9aa49c' : hot ? '#fffce0' : '#d6ffe6', outline: '#08060c', align: 'left' });
+      if (spec.nextCost != null) {
+        ex += pixW(expTxt) * pScale + Math.round(6 * kk * dpr);
+        drawMiniIcon(g, 'herb', ex + icoSz / 2, midY, icoSz);
+        ex += icoSz + Math.round(3 * kk * dpr);
+        drawPix(g, costTxt, ex, Math.round(midY - tH / 2), { scale: pScale, color: can ? '#a8ffd0' : '#ff8c7c', outline: '#08060c', align: 'left' });
+      }
+      this.upload(s, c, dpr, false);
+    }
+    this.place(s, spec.x, spec.y, true, 1, true, 6);
+    if (spec.nextCost == null) return { btnRect: null };
+    const left0 = s.cx - s.w / 2, top0 = s.cy - s.h / 2;
+    return { btnRect: { x: left0 + btnX / dpr, y: top0 + btnY / dpr, w: expBtnW / dpr, h: expBtnH / dpr } };
+  }
+
+  getRect(key: string): { x: number; y: number; w: number; h: number } | null {
+    const s = this.slots.get(key);
+    if (!s || !s.mesh.visible) return null;
+    return { x: s.cx - s.w / 2, y: s.cy - s.h / 2, w: s.w, h: s.h };
   }
 
   /** Compact dark-iron footer bar for navigation hints. */

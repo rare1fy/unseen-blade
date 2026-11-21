@@ -11,6 +11,8 @@ export interface Profile {
   iron: number; herb: number; perks: Record<string, number>;
   /** act-118: 碑铭潜能 (Hades Mirror of Night-style dual-aspect permanent talents, free to flip between 阳/阴) */
   mirror?: Record<string, { lv: number; side: 0 | 1 }>;
+  /** act-149: 孙媪药炉冥想 · 悟性牌阵 (Hades 2 Altar of Ashes-style 3×3 meditation card grid with Grasp cap) */
+  arcana?: { cap: number; rank: Record<string, number>; active: Record<string, boolean> };
   /** story beats and dialogue lines already seen (ids) */ seen: Record<string, number>;
   /** relationships with the people at the hideout (id → points) */ bonds: Record<string, number>;
   /** the costume worn */ wear?: string;

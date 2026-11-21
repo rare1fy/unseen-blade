@@ -367,7 +367,7 @@ export class PauseMenu {
     const name = { main: '暂歇', keys: '键位', set: '设置', ask: '回据点？', askTitle: '回主画面？', owned: UI_WORDS.owned, skills: UI_WORDS.skills }[this.page], note = this.page === 'ask' || this.page === 'askTitle' ? '视同战死：途中所获尽失，残铁与药引照带回' : this.page === 'keys' ? this.keysNote() : '';
     const nS = Math.max(1, Math.round(hS * 0.45)), hw = Math.max(textW(name, hS), textW(note, nS) + 8 * kk) / k + 8 * kk, hh = (PIX_H * hS + (note ? PIX_H * nS + 6 * k * kk : 0)) / k + 6 * kk;
     this.head.set(language + name + note + kk.toFixed(2), hw, hh, g => { text(g, name, 4 * k * kk, 3 * k * kk, hS, TXT.sel); if (note) text(g, note, 4 * k * kk, 3 * k * kk + PIX_H * hS + 6 * k * kk, nS, TXT.dim); });
-    const ent = Math.min(1, this.pageT / 0.25), br = Math.max(24 * kk, Math.min(36 * kk, headH * 0.64)), withBack = this.page !== 'main', nx = cx - w / 2 + (withBack ? br * 2 + 62 * kk : 0);
+    const ent = Math.min(1, this.pageT / 0.25), br = Math.max(24 * kk, Math.min(36 * kk, headH * 0.64)), withBack = this.page !== 'main', nx = cx - w / 2 + (withBack ? br * 2 + 108 * kk : 0);
     this.head.place(nx + hw / 2, top - hh / 2 - h * 0.45, ent * ent);
     this.backAt = { x: cx - w / 2 + br, y: top - h * 0.45 - hh / 2, r: br };
     // the prompts at the foot: the device's own confirm / back (gamepad pixel glyphs or dark-iron pixel keycaps)

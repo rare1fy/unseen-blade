@@ -70,7 +70,13 @@ import { QUALITY, setQuality, type Tier, qualityLabel, cycleQuality } from '../l
 /** act-40 (用户：「现在开场太墨迹了，把那段timeline先搞成黑幕快速交代背景吧」): the cold open as black cards for now (false = the 寒山坞 cutscene) */
 const COLD_AS_CARDS = true;
 import { newGame, profile, save as saveProfile, seeOnce, hasSave } from './profile';
-import { runMods, bank, META, MIRROR, level, nextCost, buy, hasAffordable, mirrorState, mirrorNextCost, canBuyMirror, hasMirrorAffordable, buyMirror, flipMirror, type RunMods } from './meta';
+import {
+  runMods, bank, META, MIRROR, level, nextCost, buy, hasAffordable,
+  mirrorState, mirrorNextCost, canBuyMirror, hasMirrorAffordable, buyMirror, flipMirror,
+  ARCANA, ensureArcana, arcanaRank, arcanaCap, arcanaNextCapCost, arcanaUsed, arcanaActiveCount,
+  isArcanaActive, arcanaUpgradeCost, unlockArcana, toggleArcana, upgradeArcana, expandArcanaCap, hasArcanaActionable,
+  type RunMods,
+} from './meta';
 import { WEAPONS, WEAPON_ORDER, weaponDef, isWeaponUnlocked, weaponLevel, weaponNextCost, canForgeWeapon, hasAnyWeaponForgeable, forgeWeapon, equippedWeapon, equipWeapon, buildCourtyardWeaponRack, type WeaponId } from './weapons';
 import { KEEPSAKES, KEEPSAKE_ORDER, KEEPSAKE_STARS, keepsakeDef, isKeepsakeUnlocked, unlockKeepsake, keepsakeRooms, keepsakeStar, starLabel, equippedKeepsake, equipKeepsake, advanceKeepsake, buildKeepsakeBoxModel, type KeepsakeId } from './keepsakes';
 import { SEEDS, SEED_ORDER, PLOT_COSTS, ensureGarden, plotStatus, isPlotUnlocked, canUnlockPlot, unlockPlot, plantSeed, harvestPlot, advanceGardenRooms, totalSeeds, ripePlotIndices, hasPlantablePlot, rollSeedDrop, addSeed, buildGardenPlotMesh } from './garden';
@@ -104,7 +110,7 @@ import { dh } from '../../debug/dh';
 import { Input } from './input';
 import { ActHud } from './hud';
 import { CardPick3D as CardPick, type CardBoon } from './cards3d';   // act-36 / act-143: the pick cards as iron boards
-import { UiPlatePool, type MiniIcon } from './uiPlate';
+import { UiPlatePool, type MiniIcon, type WorkbenchStatRow } from './uiPlate';
 import { MoveDemo } from './moveDemo';
 import { entryOfManual, entryOfBoon, entryOfBase } from './skillFace';
 import type { Section } from './skillList';
@@ -1117,10 +1123,10 @@ export class ActShow {
     const uiClear = !this.noTalk && this.phase !== 'talk' && this.phase !== 'cine' && !this.dialogue.on && !this.cards.on && !this.demo.on && !this.pause.on;
     const dev = this.inp.lastDevice;
     const talkKey = dev === 'touch' ? '点右下交谈' : dev === 'pad' ? msg`[${actPad('attack')}]` : msg`[${actKey('attack')}]`;
-    const roleOf: Record<string, string> = { fengtiebi: '锻刀·淬炼', sunao: '药石', duwu: '干粮', luzhao: '江湖消息', huanyue: '论刀', stele: '潜能' };
+    const roleOf: Record<string, string> = { fengtiebi: '锻刀·淬炼', sunao: '药炉悟性', duwu: '干粮', luzhao: '江湖消息', huanyue: '论刀', stele: '潜能' };
     const beaconOf = (id: string): { text: string; col: string; hex: number } | null => {
       if (id === 'fengtiebi' && (hasAffordable(prof, 'forge') || hasAnyWeaponForgeable(prof, this.dbgAllWeapons))) return { text: '可锻造', col: '#ffd868', hex: 0xffc848 };
-      if (id === 'sunao' && hasAffordable(prof, 'medic')) return { text: '可强化', col: '#8effb8', hex: 0x62e898 };
+      if (id === 'sunao' && hasArcanaActionable(prof)) return { text: '可参悟', col: '#8effb8', hex: 0x62e898 };
       if (id === 'duwu' && !prof.meal) return { text: '领干粮', col: '#ffbe78', hex: 0xffa858 };
       if (id === 'luzhao' && !isKeepsakeUnlocked(prof, 'luzhao')) return { text: '赠信物', col: '#ff9688', hex: 0xff6e64 };
       if (id === 'stele' && hasMirrorAffordable(prof)) return { text: '参悟潜能', col: '#d8c4ff', hex: 0xb896ff };
@@ -1325,7 +1331,7 @@ export class ActShow {
       const role = bc ? bc.text : (roleOf[nn.id] ?? '');
       const ico: MiniIcon = nn.id === 'fengtiebi' ? 'forge' : nn.id === 'sunao' ? 'herb' : 'talk';
       this.worldPlates.setInteract('ho.active', {
-        title: baseName, sub: role || undefined, action: nn.id === 'fengtiebi' ? '锻造淬炼' : nn.id === 'sunao' ? '药石强化' : nn.id === 'duwu' ? '领取干粮' : '交谈',
+        title: baseName, sub: role || undefined, action: nn.id === 'fengtiebi' ? '锻造淬炼' : nn.id === 'sunao' ? '冥想悟性' : nn.id === 'duwu' ? '领取干粮' : '交谈',
         icon: ico, color: bc ? bc.col : '#ffe6b0', accent: bc ? bc.col : '#c89a4c', x: p.x, y: p.y, minY, visible: p.z < 1,
       });
     } else this.worldPlates.hide('ho.active');
@@ -1496,30 +1502,44 @@ export class ActShow {
       this.grantKeepsake('sunao');
     }
   }
-  /** act-125 / act-136: 文家刀廊 — 2×2 showcase grid for the 4 Wen-family blades */
+  /** act-125 / act-149: 文家刀廊 — 4 upright lacquered blade stands with REAL spinning 3D blades + bottom「铭刀谱」detail bar */
   private async weaponRackMenu() {
-    let focusIdx = 0, instant = false;
+    let focusIdx = Math.max(0, WEAPON_ORDER.indexOf(equippedWeapon(profile(), this.dbgAllWeapons)));
+    let instant = false;
     for (;;) {
       const p = profile(), cur = equippedWeapon(p, this.dbgAllWeapons);
       const cards: BoonPick[] = WEAPON_ORDER.map(id => {
         const w = WEAPONS[id], unl = isWeaponUnlocked(p, id, this.dbgAllWeapons), lv = weaponLevel(p, id), eq = cur === id;
-        const line1 = unl ? w.summary : msg`未夺回 · ${w.unlockHint}`;
-        const line2 = unl ? msg`${w.special}${lv > 0 ? ` · 淬炼${lv}阶` : ''}` : w.special;
         return {
           boon: {
-            id: 'wep_' + id, school: 'fg' as never, name: eq ? msg`${w.name}（已佩）` : w.name,
-            desc: [line1, line2], col: unl ? w.col : '#7e7872', glyph: w.glyph,
-            tag: !unl ? '未解锁' : eq ? msg`使用中 · ${lv}/3阶` : msg`拔刀 · ${lv}/3阶`,
+            id: 'wep_' + id, school: 'fg' as never, name: w.name,
+            desc: [w.summary, w.special], col: unl ? w.col : '#7e7872', glyph: w.glyph,
             locked: !unl,
+            wepInfo: { id, name: w.name, lv, unlocked: unl, equipped: eq },
           } as CardBoon,
           tier: eq ? 2 : unl ? 1 : 0,
         };
       });
       const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
       const i = await this.cards.open(cards, {
-        leave: true, layout: 'grid2', instant, initialFocus: focusIdx,
-        header: { title: '文家刀廊 · 拔刀换武', sub: '四柄文家名刀各有独立连段与藏锋特技', col: '#ffe290' },
-        footer: '点选名刀立即拔换 · 冯铁臂处可淬炼升阶 · Esc 返回',
+        leave: true, layout: 'weapons', instant, initialFocus: focusIdx,
+        header: { title: '文家刀廊', sub: '四柄文家名刀 · 独立连段与藏锋特技', col: '#ffe290', accent: '#c89248' },
+        detail: idx => {
+          const wid = WEAPON_ORDER[idx], w = WEAPONS[wid];
+          const unl = isWeaponUnlocked(p, wid, this.dbgAllWeapons), lv = weaponLevel(p, wid), eq = cur === wid;
+          return {
+            title: msg`${w.name} · ${w.title}`,
+            badge: !unl ? '未夺回' : eq ? '佩带中' : '已入手',
+            badgeCol: !unl ? '#9a929c' : eq ? '#ffe278' : '#88e8b8',
+            stars: unl ? lv : 0,
+            starsMax: 3,
+            line1: unl ? w.summary : msg`${w.unlockHint} · ${w.summary}`,
+            line2: w.special,
+            action: !unl ? undefined : eq ? '当前佩刀' : '拔刀换武',
+            accent: !unl ? '#666070' : eq ? '#ffd872' : w.col,
+          };
+        },
+        footer: '点选名刀拔换 · 冯铁臂处可淬炼升阶 · Esc 返回',
       });
       this.phase = was; this.hud.on = true;
       if (i < 0 || i >= WEAPON_ORDER.length) return;
@@ -1527,15 +1547,13 @@ export class ActShow {
       const wid = WEAPON_ORDER[i], w = WEAPONS[wid];
       if (!isWeaponUnlocked(p, wid, this.dbgAllWeapons)) {
         cue('deny', 0.45);
-        this.banner.show(w.name, w.unlockHint, 1.3, '#d0a890');
         continue;
       }
+      if (cur === wid) continue;
       equipWeapon(p, wid, this.dbgAllWeapons); saveProfile();
       this.hero?.applyWeapon(wid, weaponLevel(p, wid));
       this.refreshHideoutProps();
       cue('draw', 0.9); cue('bladeRing', 0.85);
-      this.banner.show(msg`佩刀 · ${w.name}`, w.title, 1.6, w.col);
-      return;
     }
   }
   /** act-132: 竹溪梯田药圃交互 — 成熟一键收获 / 空地选种播种 / 荒地开垦 / 生长中查看双轨进度 */
@@ -1704,7 +1722,54 @@ export class ActShow {
       cue('reveal', 0.8);
     }
   }
-  /** act-125 / act-136: 冯铁臂窑口锻坊 — merged single-screen tabbed panel (铁炉强化 | 名刀淬炼) */
+  /** act-149: concise Before ▶ After stat rows for Forge & Medic workbench panels */
+  private metaWorkbenchStats(id: string, lv: number, maxLv: number): WorkbenchStatRow[] {
+    const next = Math.min(maxLv, lv + 1), isMax = lv >= maxLv;
+    switch (id) {
+      case 'blade':
+        return [
+          { label: '斩击增伤', before: `+${lv * 12}%`, after: isMax ? undefined : `+${next * 12}%`, highlight: !isMax },
+          { label: '暴击几率', before: `+${lv * 4}%`, after: isMax ? undefined : `+${next * 4}%`, highlight: !isMax },
+        ];
+      case 'darts':
+        return [
+          { label: '飞镖上限', before: msg`${3 + lv}枚`, after: isMax ? undefined : msg`${3 + next}枚`, highlight: !isMax },
+          { label: '装填冷却', before: `${100 - lv * 15}%`, after: isMax ? undefined : `${100 - next * 15}%`, highlight: !isMax },
+        ];
+      case 'reroll':
+        return [
+          { label: '每局换牌', before: msg`${1 + lv}次`, after: isMax ? undefined : msg`${1 + next}次`, highlight: !isMax },
+        ];
+      case 'manual':
+        return [
+          { label: '开局刀谱', before: lv > 0 ? '先选一本' : '未启', after: isMax ? undefined : '先选一本', highlight: !isMax },
+        ];
+      case 'vigor':
+        return [
+          { label: '生命上限', before: `+${lv * 20}`, after: isMax ? undefined : `+${next * 20}`, highlight: !isMax },
+        ];
+      case 'ear':
+        return [
+          { label: '敌人起手', before: lv > 0 ? msg`放慢${lv * 10}%` : '常速', after: isMax ? undefined : msg`放慢${next * 10}%`, highlight: !isMax },
+        ];
+      case 'intent':
+        return [
+          { label: '开场杀意', before: msg`${lv}格`, after: isMax ? undefined : msg`${next}格`, highlight: !isMax },
+          { label: '开场刀气', before: lv > 0 ? '半格' : '无', after: isMax ? undefined : '半格', highlight: !isMax },
+        ];
+      case 'leech':
+        return [
+          { label: '破势回血', before: msg`${lv * 5}点`, after: isMax ? undefined : msg`${next * 5}点`, highlight: !isMax },
+        ];
+      case 'breath':
+        return [
+          { label: '死境留命', before: lv > 0 ? '每局1次' : '无', after: isMax ? undefined : '每局1次', highlight: !isMax },
+        ];
+      default:
+        return [{ label: '当前等阶', before: `${lv}/${maxLv}`, after: isMax ? undefined : `${next}/${maxLv}`, highlight: !isMax }];
+    }
+  }
+  /** act-125 / act-149: 冯铁臂窑口锻坊 — Split Left-List + Right 3D Artifact Workbench (铁炉强化 | 名刀淬炼) */
   private async forgeHubMenu(initialTab = 0) {
     let tab = initialTab, focusIdx = 0, instant = false;
     for (;;) {
@@ -1726,13 +1791,12 @@ export class ActShow {
         ? ups.map(u => {
           const lv = level(p, u.id), cost = nextCost(p, u.id), max = u.costs.length;
           const canAfford = cost != null && p.iron >= cost;
-          const state = cost == null ? '已满级' : canAfford ? msg`点击升级 · 耗 ${cost} 残铁` : msg`残铁不足（需 ${cost}，存 ${p.iron}）`;
           return {
             boon: {
               id: 'mu_' + u.id, school: 'fg' as never, name: u.name,
-              desc: [u.desc[1], state], col: canAfford ? '#ffd878' : '#989088', glyph: ANVIL,
-              tag: cost == null ? '满级' : msg`${lv}/${max}级 · ${cost}铁`,
+              desc: [u.desc[0], u.desc[1]], col: canAfford ? '#ffd878' : '#989088', glyph: ANVIL,
               locked: cost != null && !canAfford,
+              workInfo: { name: u.name, lv, maxLv: max, cost, cur: 'iron', canAfford, theme: 'forge' },
             } as CardBoon,
             tier: cost == null ? 2 : canAfford ? 1 : 0,
           };
@@ -1740,25 +1804,58 @@ export class ActShow {
         : WEAPON_ORDER.map(id => {
           const w = WEAPONS[id], unl = isWeaponUnlocked(p, id, this.dbgAllWeapons), lv = weaponLevel(p, id), cost = weaponNextCost(p, id);
           const can = canForgeWeapon(p, id, this.dbgAllWeapons);
-          const line1 = !unl ? msg`未夺回 · ${w.unlockHint}` : lv >= 3 ? msg`已满阶：${w.forgeDesc[2]}` : msg`下阶（${lv + 1}阶）：${w.forgeDesc[lv]}`;
-          const line2 = !unl ? w.title : cost == null ? '已臻三阶圆满' : can ? msg`点击淬炼 · 耗 ${cost} 残铁` : msg`残铁不足（需 ${cost}，存 ${p.iron}）`;
           return {
             boon: {
-              id: 'wf_' + id, school: 'fg' as never, name: msg`${w.name} · ${lv}/3阶`,
-              desc: [line1, line2], col: can ? w.col : '#989088', glyph: w.glyph,
-              tag: !unl ? '未解锁' : cost == null ? '满阶' : msg`${cost}残铁`,
+              id: 'wf_' + id, school: 'fg' as never, name: w.name,
+              desc: [w.summary, w.special], col: can ? w.col : '#989088', glyph: w.glyph,
               locked: !unl || (cost != null && !can),
+              workInfo: { name: w.name, lv, maxLv: 3, cost, cur: 'iron', canAfford: can, unlocked: unl, theme: 'forge', weaponId: id },
             } as CardBoon,
             tier: cost == null ? 2 : can ? 1 : 0,
           };
         });
       const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
       const i = await this.cards.open(cards, {
-        leave: true, layout: 'grid2', instant, initialFocus: focusIdx,
-        header: { title: '冯铁臂 · 窑口锻坊', col: '#ffd888' },
+        leave: true, layout: 'workbench', instant, initialFocus: focusIdx,
+        header: { title: '冯铁臂 · 窑口锻坊', col: '#ffd888', accent: '#c89248' },
         wallet: { iron: p.iron, herb: p.herb, focus: 'iron' },
         tabs,
-        footer: PAD.device === 'pad' ? msg`LB/RB 切页 · ${padName(0)} 锻造 · ${padName(1)} 返回` : 'Tab / Q E 切页 · 点击直接锻造 · Esc 返回',
+        workbench: idx => {
+          if (tab === 0) {
+            const u = ups[idx];
+            const lv = level(p, u.id), cost = nextCost(p, u.id), max = u.costs.length;
+            const canAfford = cost != null && p.iron >= cost;
+            return {
+              theme: 'forge',
+              title: u.name,
+              sub: u.desc[0],
+              lv,
+              maxLv: max,
+              stats: this.metaWorkbenchStats(u.id, lv, max),
+              btnLabel: cost == null ? '已臻圆满' : canAfford ? '开炉锻造' : msg`还差 ${cost - p.iron} 残铁`,
+              btnCost: cost != null && canAfford ? { cur: 'iron', amount: cost } : undefined,
+              btnEnabled: canAfford,
+              accent: '#d49a4c',
+            };
+          }
+          const wid = WEAPON_ORDER[idx], w = WEAPONS[wid];
+          const unl = isWeaponUnlocked(p, wid, this.dbgAllWeapons), lv = weaponLevel(p, wid), cost = weaponNextCost(p, wid);
+          const can = canForgeWeapon(p, wid, this.dbgAllWeapons);
+          return {
+            theme: 'forge',
+            title: w.name,
+            sub: unl ? w.title : w.unlockHint,
+            lv: unl ? lv : 0,
+            maxLv: 3,
+            stats: [{ label: '淬炼等阶', before: msg`${lv}阶`, after: unl && lv < 3 ? msg`${lv + 1}阶` : undefined, highlight: unl && lv < 3 }],
+            note: !unl ? w.summary : lv >= 3 ? msg`圆满特技：${w.forgeDesc[2]}` : msg`${lv + 1}阶解锁：${w.forgeDesc[lv]}`,
+            btnLabel: !unl ? '尚未夺回' : cost == null ? '三阶圆满' : can ? '开炉淬炼' : msg`还差 ${cost - p.iron} 残铁`,
+            btnCost: unl && cost != null && can ? { cur: 'iron', amount: cost } : undefined,
+            btnEnabled: can,
+            accent: unl ? w.col : '#6a6670',
+          };
+        },
+        footer: PAD.device === 'pad' ? msg`LB/RB 切页 · ${padName(0)} 锻造 · ${padName(1)} 返回` : 'Tab / Q E 切页 · 点选右侧按钮或 Enter 锻造 · Esc 返回',
       });
       this.phase = was; this.hud.on = true;
       if (switched) continue;
@@ -1783,7 +1880,7 @@ export class ActShow {
   private async weaponForgeMenu() {
     await this.forgeHubMenu(1);
   }
-  /** act-118 / act-136: 复仇碑 · 碑铭潜能 — single-page 2×2 steles with direct upgrade + Q/Tab/pad Y live Yang/Yin flip! */
+  /** act-118 / act-149: 复仇碑 · 碑铭潜能 — distinct Yang sandstone vs Yin obsidian steles, zero duplicate walls of text */
   private async steleMenu() {
     let focusIdx = 0, instant = false;
     for (;;) {
@@ -1791,26 +1888,25 @@ export class ActShow {
       let flipped = false;
       const cards: BoonPick[] = MIRROR.map(m => {
         const st = mirrorState(p, m.id), curSide = m.sides[st.side], altSide = m.sides[st.side === 0 ? 1 : 0];
-        const cost = mirrorNextCost(p, m.id), curName = m.cur === 'iron' ? '残铁' : '药引', have = p[m.cur];
+        const cost = mirrorNextCost(p, m.id), have = p[m.cur];
         const val = st.lv > 0 ? curSide.vals[Math.min(2, st.lv - 1)] : 0, nextVal = curSide.vals[Math.min(2, st.lv)];
-        const sideLbl = st.side === 0 ? '阳' : '阴';
         const altLbl = st.side === 0 ? '阴' : '阳';
-        const line1 = st.lv > 0 ? msg`【${sideLbl}】${curSide.desc} +${val}${curSide.unit}` : msg`【${sideLbl}】${curSide.desc}（1级 +${nextVal}${curSide.unit}）`;
-        const line2 = cost == null
-          ? msg`已满级 · 另一面【${altLbl}】${altSide.name}`
-          : have >= cost
-            ? msg`点此升级 · 耗 ${cost} ${curName} · 另一面「${altSide.name}」`
-            : msg`${curName}不足（${have}/${cost}）· 可免费切「${altSide.name}」`;
+        const effect = st.lv > 0
+          ? (cost != null ? msg`${curSide.desc} +${val}${curSide.unit} → +${nextVal}${curSide.unit}` : msg`${curSide.desc} +${val}${curSide.unit}`)
+          : msg`${curSide.desc} +${nextVal}${curSide.unit}`;
+        const altBadge = PAD.device === 'pad' ? msg`${padName(3)}切${altLbl}` : msg`Q切${altLbl}`;
         return {
           boon: {
             id: 'mr_' + m.id, school: 'mr' as never,
-            name: msg`${m.group} · ${curSide.name}`,
-            desc: [line1, line2],
-            col: st.side === 0 ? '#ffd888' : '#b8a0ff',
+            name: curSide.name,
+            desc: [effect, ''],
+            col: st.side === 0 ? '#ffd888' : '#c0a0ff',
             glyph: m.cur === 'iron' ? ANVIL : NEEDLE,
-            tag: msg`${st.lv}/3级`,
-            altBadge: PAD.device === 'pad' ? msg`${padName(3)}切${altLbl}` : msg`Q切${altLbl}`,
+            altBadge,
             locked: cost != null && have < cost,
+            steleInfo: {
+              name: curSide.name, yin: st.side === 1, lv: st.lv, effect, cost, have, cur: m.cur, altName: altSide.name, altBadge,
+            },
           } as CardBoon,
           tier: cost == null ? 2 : st.lv > 0 ? 1 : 0,
         };
@@ -1818,7 +1914,7 @@ export class ActShow {
       const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
       const i = await this.cards.open(cards, {
         leave: true, instant, initialFocus: focusIdx,
-        header: { title: '复仇碑 · 碑铭潜能', sub: '点选碑铭直接参悟升级 · 按 Q 或点右上徽标免费切换阳/阴面', col: '#d8c4ff', accent: '#9880d0' },
+        header: { title: '复仇碑 · 碑铭潜能', sub: '阳面金碑 / 阴面紫碑自由切换 · 永久生效', col: '#d8c4ff', accent: '#9880d0' },
         wallet: { iron: p.iron, herb: p.herb },
         onAlt: idx => {
           const m = MIRROR[idx];
@@ -1828,7 +1924,7 @@ export class ActShow {
           focusIdx = idx; instant = true; flipped = true;
           this.cards.cancelSilent();
         },
-        footer: PAD.device === 'pad' ? msg`${padName(0)} 升级 · ${padName(3)} 切换阴阳 · ${padName(1)} 返回` : '点击碑铭升级 · Q / Tab / 点徽标切换阴阳 · Esc 返回',
+        footer: PAD.device === 'pad' ? msg`${padName(0)} 参悟 · ${padName(3)} 切阴阳 · ${padName(1)} 返回` : '点选碑铭参悟 · Q / 点右上角切换阴阳 · Esc 返回',
       });
       this.phase = was; this.hud.on = true;
       if (flipped) continue;
@@ -1855,41 +1951,128 @@ export class ActShow {
     p.meal = m.id; saveProfile(); cue('coin', 0.6);
     await this.talk([{ who: 'duwu', text: MEAL_TALK.after[m.id] }]);
   }
-  /** the upgrade list of the smith (百辟残铁) or the healer (沸血药引) as rows/grid of cards */
+  /** act-149: 孙媪 · 药炉冥想悟性牌阵 (Hades 2 Altar of Ashes style: 3×3 jade cards + 悟性上限 + 零悟性唤醒 + 精进升阶) */
   private async upgradeMenu(who: 'forge' | 'medic') {
     if (who === 'forge') { await this.forgeHubMenu(0); return; }
     const id = 'sunao';
     const up = UP_TALK[id]; if (up?.length) await this.talk([{ who: id, text: up[Math.floor(Math.random() * up.length)] }]);
+    await this.arcanaMenu();
+  }
+  private async arcanaMenu() {
     let focusIdx = 0, instant = false;
     for (;;) {
-      const p = profile(), ups = META.filter(u => u.who === who), cur = '药引', have = p.herb;
-      const cards = ups.map(u => {
-        const lv = level(p, u.id), cost = nextCost(p, u.id), max = u.costs.length;
-        const canAfford = cost != null && have >= cost;
-        const state = cost == null ? '已满级' : canAfford ? msg`点击升级 · 耗 ${cost} ${cur}` : msg`${cur}不足（需 ${cost}，存 ${have}）`;
+      const p = profile();
+      ensureArcana(p);
+      const used = arcanaUsed(p), cap = arcanaCap(p), nextCap = arcanaNextCapCost(p), actCnt = arcanaActiveCount(p);
+      let refreshAction = false;
+      const cards: BoonPick[] = ARCANA.map(def => {
+        const rk = arcanaRank(p, def.id);
+        const active = isArcanaActive(p, def.id);
+        const unlocked = rk > 0;
+        const canUnlock = !unlocked && p.herb >= def.unlockCost;
         return {
           boon: {
-            id: 'mu_' + u.id, school: 'md' as never, name: u.name,
-            desc: [u.desc[1], state], col: canAfford ? '#8effb8' : '#989088', glyph: NEEDLE,
-            tag: cost == null ? '满级' : msg`${lv}/${max}级 · ${cost}药`,
-            locked: cost != null && !canAfford,
+            id: 'arc_' + def.id, school: 'md' as never, name: def.name,
+            desc: [def.desc, ''], col: unlocked ? def.col : '#7c808a', glyph: def.glyph,
+            locked: !unlocked,
+            arcanaInfo: {
+              short: def.short, grasp: def.grasp, rank: rk, active,
+              unlockCost: def.unlockCost, canUnlock, awakening: def.grasp === 0,
+            },
           } as CardBoon,
-          tier: cost == null ? 2 : canAfford ? 1 : 0,
+          tier: active ? 2 : unlocked ? 1 : 0,
         };
       });
       const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
       const i = await this.cards.open(cards, {
-        leave: true, layout: ups.length >= 4 ? 'grid2' : 'auto', instant, initialFocus: focusIdx,
-        header: { title: '孙媪 · 药棚行针', sub: '以沸血药引调理经脉，永久生效', col: '#8effb8', accent: '#4ea874' },
+        leave: true, layout: 'arcana', instant, initialFocus: focusIdx,
+        header: { title: '孙媪 · 药炉悟性阵', sub: '以悟性点亮经脉牌阵 · 随时免费启停 · 同启三牌唤醒中宫', col: '#90f6ba', accent: '#4eb47c' },
         wallet: { iron: p.iron, herb: p.herb, focus: 'herb' },
-        footer: '点选直接行针强化 · Esc 返回',
-      }); this.phase = was; this.hud.on = true;
-      if (i < 0 || i >= ups.length) return;
+        graspBar: {
+          used, cap, nextCost: nextCap, canExpand: nextCap != null && p.herb >= nextCap,
+          onExpand: () => {
+            if (expandArcanaCap(p)) {
+              saveProfile();
+              cue('reveal', 0.85);
+              instant = true; refreshAction = true;
+              this.cards.cancelSilent();
+            } else {
+              cue('deny', 0.45);
+            }
+          },
+        },
+        onSub: idx => {
+          const def = ARCANA[idx];
+          if (!def) return;
+          focusIdx = idx;
+          if (upgradeArcana(p, def.id)) {
+            saveProfile();
+            cue('reveal', 0.85);
+            instant = true; refreshAction = true;
+            this.cards.cancelSilent();
+          } else {
+            cue('deny', 0.45);
+          }
+        },
+        workbench: idx => {
+          const def = ARCANA[idx];
+          const rk = arcanaRank(p, def.id);
+          const unlocked = rk > 0;
+          const active = isArcanaActive(p, def.id);
+          const isAwk = def.grasp === 0;
+          const curVal = unlocked ? def.vals[Math.min(2, rk - 1)] : 0;
+          const nextVal = unlocked && rk < 3 ? def.vals[rk] : def.vals[0];
+          const upCost = arcanaUpgradeCost(p, def.id);
+          const canUp = upCost != null && p.herb >= upCost;
+          const canEquip = unlocked && !active && !isAwk && used + def.grasp <= cap;
+          const graspSub = isAwk
+            ? msg`零悟性 · 已启 ${actCnt}/3 牌自动唤醒`
+            : msg`占 ${def.grasp} 悟性 · ${def.desc}`;
+          const fmt = (val: number) => def.unit ? `${val}${def.unit}` : `+${val}`;
+          const stats: WorkbenchStatRow[] = unlocked
+            ? [{ label: def.statLabel, before: fmt(curVal), after: rk < 3 ? fmt(nextVal) : undefined, highlight: rk < 3 }]
+            : [{ label: def.statLabel, before: '未悟', after: fmt(def.vals[0]), highlight: true }];
+          const btnLabel = !unlocked
+            ? (p.herb >= def.unlockCost ? '参悟此牌' : msg`还差 ${def.unlockCost - p.herb} 药引`)
+            : isAwk
+              ? (active ? '中宫已唤醒' : msg`需再启 ${Math.max(0, 3 - actCnt)} 牌`)
+              : active
+                ? '卸下归位'
+                : canEquip ? msg`启用入阵（${def.grasp}悟）` : '悟性不足';
+          return {
+            theme: 'medic',
+            title: def.name,
+            sub: graspSub,
+            lv: rk,
+            maxLv: 3,
+            stats,
+            note: isAwk ? def.desc : unlocked && active ? '入阵生效中 · 可随时免费卸下' : undefined,
+            btnLabel,
+            btnCost: !unlocked && p.herb >= def.unlockCost ? { cur: 'herb', amount: def.unlockCost } : undefined,
+            btnEnabled: !unlocked ? p.herb >= def.unlockCost : isAwk ? false : (active || canEquip),
+            subBtnLabel: unlocked ? (upCost == null ? '三阶圆满' : canUp ? '精进升阶' : msg`差 ${upCost - p.herb} 药`) : undefined,
+            subBtnCost: unlocked && upCost != null && canUp ? { cur: 'herb', amount: upCost } : undefined,
+            subBtnEnabled: unlocked && canUp,
+            accent: active ? (isAwk ? '#ffe078' : '#7ef0aa') : '#4e9670',
+          };
+        },
+        footer: '点选左阵启停悟性牌 · Q / 右下精进升阶 · 顶部拓悟性 · Esc 返回',
+      });
+      this.phase = was; this.hud.on = true;
+      if (refreshAction) continue;
+      if (i < 0 || i >= ARCANA.length) return;
       focusIdx = i; instant = true;
-      const u = ups[i];
-      if (nextCost(p, u.id) == null) continue;
-      if (!buy(p, u.id)) { cue('deny', 0.45); continue; }
-      saveProfile(); cue('coin', 0.8);
+      const def = ARCANA[i];
+      const rk = arcanaRank(p, def.id);
+      if (rk <= 0) {
+        if (unlockArcana(p, def.id)) { saveProfile(); cue('reveal', 0.85); }
+        else cue('deny', 0.45);
+      } else {
+        const res = toggleArcana(p, def.id);
+        if (res === 'on') { saveProfile(); cue('reveal', 0.72); }
+        else if (res === 'off') { saveProfile(); cue('click', 0.5); }
+        else cue('deny', 0.45);
+      }
     }
   }
   /** 继续游戏: resumes at the last prologue checkpoint (village / Cui Xuan forecourt / kiln wake-up) or directly in the hideout */
@@ -4848,6 +5031,13 @@ export class ActShow {
   private qteFrame(rdt: number) {
     if (this.qteT < 0) {
       this.hud.qte(null); this.qteW.visible = false;
+      // act-149: players can press/tap 不见刀 anytime once 3 bars of 杀意 are full (not only during slowmo QTE!)
+      if (this.inp.b.ult.pressed) {
+        this.inp.b.ult.pressed = false;
+        if (this.intent >= 3 && !this.ultOn && !this.proFalling && !this.cards.on && !this.dialogue.on && !this.timeline.on && !PAUSE.on && this.hero?.alive && (this.phase === 'fight' || this.phase === 'yard')) {
+          void this.ult();
+        }
+      }
       return;
     }
     if (this.ultOn || this.proFalling || this.cards.on || this.dialogue.on || this.timeline.on || !this.hero?.alive || (this.phase !== 'fight' && this.phase !== 'yard')) {
@@ -5446,7 +5636,7 @@ export class ActShow {
     else if (s.id === 'scroll' && drawManuals(this.perks.moves, 1, Math.random).length) { this.stations.spend(s); await this.manualPick(); }   // act-19: the 遗卷 altar gives a 刀谱 while any are left
     else if (s.id === 'scroll') { this.stations.spend(s); await this.boonPick(); }
   }
-  /** act-136: 行商总览面板 — walking up to the traveling merchant and pressing interact opens all remaining stalls in one 2×2 view */
+  /** act-136 / act-149: 行商总览面板 — 4 hanging wooden merchant tags (悬木货签) with big 3D wares + concise benefit + ONE bold gold coin bar */
   private async shopOverviewMenu() {
     if (!this.stations || this.shopOpening) return;
     this.shopOpening = true;
@@ -5462,26 +5652,37 @@ export class ActShow {
           const noSharp = st.id.endsWith('sharpen') && !this.sharpenable().length;
           const poor = st.price > this.coins;
           const locked = poor || noSharp;
-          const line2 = noSharp ? '暂无可升阶的已得秘传' : poor ? msg`铜钱不足（需 ${st.price}，存 ${this.coins}）` : msg`点击购买 · 耗 ${st.price} 铜钱`;
+          const shortEff = st.id === 'buy_heal' ? '当场恢复四成血'
+            : st.id === 'buy_vigor' ? '本局生命上限+25'
+              : st.id === 'buy_boon' ? '三选一习得秘传'
+                : st.id === 'buy_sharpen' ? '已得秘传升一阶'
+                  : st.desc;
           return {
             boon: {
               id: 'shop_' + st.id, school: (st.id === 'buy_heal' || st.id === 'buy_vigor' ? 'md' : 'fg') as never,
               name: st.label,
-              desc: [st.desc, line2],
+              desc: [shortEff, ''],
               col: locked ? '#989088' : '#ffd878',
               glyph: st.id === 'buy_boon' ? SCROLL_GLYPH : st.id === 'buy_heal' || st.id === 'buy_vigor' ? NEEDLE : ANVIL,
-              tag: msg`${st.price}钱`,
               locked,
+              shopInfo: {
+                name: st.label,
+                effect: shortEff,
+                price: st.price,
+                poor,
+                disabled: noSharp,
+                note: noSharp ? '暂无秘传' : undefined,
+              },
             } as CardBoon,
             tier: locked ? 0 : 1,
           };
         });
         const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideWorldPlates();
         const i = await this.cards.open(cards, {
-          leave: true, layout: 'grid2', instant,
-          header: { title: '行商货摊 · 四摊百货', sub: '点选直接购入，也可到各摊前单买', col: '#ffe290' },
+          leave: true, layout: 'shop', instant,
+          header: { title: '行商货摊', sub: '四摊百货 · 点选货签直接购入', col: '#ffe290', accent: '#c89248' },
           wallet: { coins: this.coins, focus: 'coins' },
-          footer: '点选购入 · Esc 返回',
+          footer: '点选木签购入 · Esc 返回',
         });
         this.phase = was; this.hud.on = true;
         if (i < 0 || i >= avail.length) return;
@@ -6533,7 +6734,7 @@ export class ActShow {
     if (this.demo.on && !this.pause.on) return;   // (11-19: the demonstration plays to the end)
     if (this.timeline.on && e.key === 'Escape') { e.preventDefault(); this.timeline.key(true); return; }
     if (e.key === 'Escape' && !e.repeat && this.canPause()) { e.preventDefault(); this.pauseGame(); e.stopImmediatePropagation(); return; }   // (the menu must not take the same Esc as its 返回)
-    if (e.key === 'Tab' && !e.repeat && !this.dialogue.on && !this.cards.on && this.canPause() && this.room >= 0) { e.preventDefault(); this.openOwnedQuick(); e.stopImmediatePropagation(); return; }
+    if (e.key === 'Tab' && !e.repeat && !this.dialogue.on && !this.cards.on && this.canPause() && this.room >= -1) { e.preventDefault(); this.openOwnedQuick(); e.stopImmediatePropagation(); return; }
     if (this.dialogue.on) {
       if (e.key === 'Escape') { e.preventDefault(); this.dialogue.holdSkip(true); return; }
       if (e.key === 'Tab' && !e.repeat) {
@@ -6592,12 +6793,13 @@ export class ActShow {
     this.banner.hide(); this.hideHideoutLabels(); this.hideWorldPlates();
     this.pause.open('main');
   }
-  /** act-146: one-key [Tab] or top-left build-strip tap opens the 3D 已得 skill sheet directly */
+  /** act-146 / act-149: one-key [Tab] or top-left「招式谱」plaque opens 3D 招式 (when 0 acquired) or 已得 (once learned) */
   openOwnedQuick() {
     if (!this.canPause() || this.botOn) return;
     this.pauseHud = this.hud.on; this.hud.on = false; this.hud.update(0, this.inp, []); this.aimLine.visible = false;
     this.banner.hide(); this.hideHideoutLabels(); this.hideWorldPlates();
-    this.pause.open('owned', { quickClose: true });
+    const hasOwned = Object.values(this.perks.moves).some(Boolean) || Object.keys(this.perks.owned).length > 0;
+    this.pause.open(hasOwned ? 'owned' : 'skills', { quickClose: true });
   }
   private unpaused() {
     if (this.pauseHud == null) return;   // the menu was over the start screen
