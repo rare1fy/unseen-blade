@@ -34,10 +34,13 @@ const MARK_COL = { manual: 0x6ad8b0, boon: [0x8a929e, 0xd29a4a, 0xffd86a] };
 
 interface Bar {
   g: THREE.Group; back: THREE.Mesh; lag: THREE.Mesh; fill: THREE.Mesh; shown: number; lagV: number; hold: number;
+  /** act-135: distinct forged-gold elite overhead HP bar ornaments (outer gold bezel, top sheen, left diamond emblem, right stud) */
+  elite: boolean; rim?: THREE.Mesh; sheen?: THREE.Mesh; gemBg?: THREE.Mesh; gem?: THREE.Mesh; stud?: THREE.Mesh;
   /** crisp white enemy poise bar tucked directly under HP bar for armored/boss foes (d.poise > 0) */
   pBack: THREE.Mesh; pLag: THREE.Mesh; pFill: THREE.Mesh; pShown: number; pLagV: number; pHold: number;
 }
 const POISE_COL = 0xf2f6fc, POISE_BRK_A = 0xffffff, POISE_BRK_B = 0xffe088;
+const ELITE_RIM = 0xe8b642, ELITE_BACK = 0x161114, ELITE_FILL = 0xea5624, ELITE_SHEEN = 0xffc864, ELITE_GEM = 0xffe27a;
 const box = (c: number, o = 1) => new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: c, transparent: o < 1, opacity: o, depthWrite: false }));
 /** act-19 (user: 「敌人的血条怎么也是3d的，都穿帮了，能看到垫后面的白色」): flat cards in one plane, stacked by draw order only */
 const flat = (c: number) => new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: c, depthWrite: false, depthTest: false }));
@@ -117,7 +120,7 @@ export class ActHud {
   private layoutTouch: boolean | null = null;
   /** console/PC top-right pause badge (clickable with mouse too) */
   private pauseBadge: THREE.Mesh | null = null; private pausePillRect = { x: 0, y: 0, w: 0, h: 0 };
-  private bars = new Map<number, Bar>(); private boss: Bar | null = null; private bossName = ''; private marks: THREE.Mesh[] = [];
+  private bars = new Map<number, Bar>(); private eliteTags = new Set<number>(); private boss: Bar | null = null; private bossName = ''; private marks: THREE.Mesh[] = [];
   /** act-114: off-screen foes currently in high-danger state (fires spatialized dangerOff once per windup) */
   private offDanger = new Set<number>();
   /** the hero's floor position (show sets it every frame; the off-screen markers read their distance from it) */
@@ -210,7 +213,9 @@ export class ActHud {
   private build() {
     const L = this.L, st = this.flask ? { ...this.flask.st } : null;
     this.flask?.dispose(); this.stick?.dispose(); if (this.btns) for (const b of Object.values(this.btns)) b.dispose();
-    for (const b of this.bars.values()) b.g.parent?.remove(b.g); this.bars.clear(); if (this.boss) { this.boss.g.parent?.remove(this.boss.g); this.boss = null; }
+    for (const b of this.bars.values()) b.g.parent?.remove(b.g); this.bars.clear();
+    for (const uid of this.eliteTags) this.L.text.hide('act.el.' + uid); this.eliteTags.clear();
+    if (this.boss) { this.boss.g.parent?.remove(this.boss.g); this.boss = null; }
     this.skin = SKIN.id;
     if (this.skin === 'iron') {
       this.flask = new IronHp(L, this.sparks); this.stick = new IronStick(L);
@@ -350,24 +355,50 @@ export class ActHud {
   setQi(qi: number, max: number, hold: boolean) { const b = this.btns.attack as { pips?: number; pipMax?: number; pipHold?: boolean }; if ('pipMax' in b) { b.pips = qi; b.pipMax = max; b.pipHold = hold; } }
   /** 11-17: the stance refused for want of 气 — the cut button shakes, dull red */
   denyAttack() { (this.btns.attack as { deny?: () => void }).deny?.(); }
-  private newBar(): Bar {
+  private newBar(elite = false): Bar {
     // act-73 反馈 (用户：「我要的是所有血条都符合这个逻辑……垫在后面的我感觉白色效果会更好点」): the lost piece is white on every bar
     // (it was a muted copper, too close to the red to read)
-    const p = PALETTE[this.skin], g = new THREE.Group(), back = flat(p.foeBack), lag = flat(HP_LAG), fill = flat(p.foeFill);
-    const pBack = flat(p.foeBack), pLag = flat(HP_LAG), pFill = flat(POISE_COL);
+    const p = PALETTE[this.skin], g = new THREE.Group();
+    g.userData.noTilt = true;
+    const back = flat(elite ? ELITE_BACK : p.foeBack), lag = flat(HP_LAG), fill = flat(elite ? ELITE_FILL : p.foeFill);
+    const pBack = flat(elite ? ELITE_BACK : p.foeBack), pLag = flat(HP_LAG), pFill = flat(POISE_COL);
     back.renderOrder = 40; lag.renderOrder = 41; fill.renderOrder = 42;
     pBack.renderOrder = 40; pLag.renderOrder = 41; pFill.renderOrder = 42;
     pBack.visible = pLag.visible = pFill.visible = false;
-    g.add(back, lag, fill, pBack, pLag, pFill); this.L.scene.add(g); batchUi(g, true);
-    return { g, back, lag, fill, shown: 1, lagV: 1, hold: 0, pBack, pLag, pFill, pShown: 1, pLagV: 1, pHold: 0 };
+    let rim: THREE.Mesh | undefined, sheen: THREE.Mesh | undefined, gemBg: THREE.Mesh | undefined, gem: THREE.Mesh | undefined, stud: THREE.Mesh | undefined;
+    if (elite) {
+      rim = flat(ELITE_RIM); rim.renderOrder = 39;
+      sheen = flat(ELITE_SHEEN); sheen.renderOrder = 43;
+      gemBg = flat(ELITE_BACK); gemBg.renderOrder = 44; gemBg.rotation.z = Math.PI / 4;
+      gem = flat(ELITE_GEM); gem.renderOrder = 45; gem.rotation.z = Math.PI / 4;
+      stud = flat(ELITE_RIM); stud.renderOrder = 44; stud.rotation.z = Math.PI / 4;
+      g.add(rim, back, lag, fill, sheen, gemBg, gem, stud, pBack, pLag, pFill);
+    } else {
+      g.add(back, lag, fill, pBack, pLag, pFill);
+    }
+    this.L.scene.add(g); batchUi(g, true);
+    return { g, back, lag, fill, shown: 1, lagV: 1, hold: 0, elite, rim, sheen, gemBg, gem, stud, pBack, pLag, pFill, pShown: 1, pLagV: 1, pHold: 0 };
   }
   private drawBar(b: Bar, x: number, y: number, w: number, h: number, frac: number, dt: number, poise?: { frac: number; broken: boolean; h: number } | null) {
     // the lost piece holds still a moment after each drop (a flurry piles into one piece), then closes in — the same as her own bar
     if (frac < b.shown - 1e-6) b.hold = HP_LAG_HOLD; b.hold = Math.max(0, b.hold - dt);
     const L = this.L; b.shown = frac; b.lagV = closeLag(b.lagV, frac, b.hold, dt);
     L.at(x, y, 0, b.g.position); const u = L.px(1);
+    if (b.rim) b.rim.scale.set((w + 8) * u, (h + 8) * u, 1);
     b.back.scale.set((w + 4) * u, (h + 4) * u, 1); b.lag.scale.set(Math.max(1e-4, w * b.lagV) * u, h * u, 1); b.fill.scale.set(Math.max(1e-4, w * frac) * u, h * u, 1);
     b.lag.position.x = (-w / 2 + (w * b.lagV) / 2) * u; b.fill.position.x = (-w / 2 + (w * frac) / 2) * u;
+    if (b.sheen) {
+      const sh = Math.max(2, h * 0.24);
+      b.sheen.visible = frac > 0.005;
+      b.sheen.scale.set(Math.max(1e-4, w * frac) * u, sh * u, 1);
+      b.sheen.position.set((-w / 2 + (w * frac) / 2) * u, (h / 2 - sh / 2) * u, 0);
+    }
+    if (b.gemBg && b.gem && b.stud) {
+      const ds = (h + 5) * u, is = (h + 0.5) * u, ss = (h * 0.52) * u;
+      b.gemBg.position.set((-w / 2 - 4) * u, 0, 0); b.gemBg.scale.set(ds, ds, 1);
+      b.gem.position.set((-w / 2 - 4) * u, 0, 0); b.gem.scale.set(is, is, 1);
+      b.stud.position.set((w / 2 + 4) * u, 0, 0); b.stud.scale.set(ss, ss, 1);
+    }
     if (poise) {
       const pf = Math.max(0, Math.min(1, poise.frac));
       if (poise.broken) { b.pShown = pf; b.pLagV = pf; b.pHold = 0; }
@@ -376,7 +407,7 @@ export class ActHud {
         b.pHold = Math.max(0, b.pHold - dt); b.pShown = pf;
         b.pLagV = pf > b.pLagV ? pf : closeLag(b.pLagV, pf, b.pHold, dt);
       }
-      const ph = poise.h, py = -(h / 2 + ph / 2 + 4) * u;
+      const ph = poise.h, py = -(h / 2 + ph / 2 + (b.elite ? 6 : 4)) * u;
       b.pBack.visible = b.pLag.visible = b.pFill.visible = true;
       b.pBack.position.set(0, py, 0); b.pBack.scale.set((w + 4) * u, (ph + 2) * u, 1);
       b.pLag.position.set((-w / 2 + (w * b.pLagV) / 2) * u, py, 0); b.pLag.scale.set(Math.max(1e-4, w * b.pLagV) * u, ph * u, 1);
@@ -524,19 +555,29 @@ export class ActHud {
       this.L.text.hide('act.syn');
       this.feedAt.y = topBase + 106 * fk;
     }
-    // bars over the foes (the chief: the long bar at the top instead)
-    const live = new Set<number>();
+    // bars over the foes (the chief: the long bar at the top instead; elites: larger forged-gold framed bar + '精英' tag)
+    const live = new Set<number>(), liveElites = new Set<number>();
+    const elPk = Math.max(1, Math.round(Math.max(11, 12 * this.k) * dprH / PIX_H));
     for (const f of foes) {
       if (isBoss(f) || f.kind === 'dummy') continue;   // wp/foes: isBoss
       let b = this.bars.get(f.uid);
       // a fresh kill keeps its bar over the falling body until the white piece of the last blow has closed
-      if (f.st === 'dead') { if (!b || b.lagV <= 0.002) continue; } else if (!b) { b = this.newBar(); this.bars.set(f.uid, b); }
+      if (f.st === 'dead') { if (!b || b.lagV <= 0.002) continue; }
+      else if (!b) { b = this.newBar(!!f.elite); this.bars.set(f.uid, b); }
       live.add(f.uid);
-      const p = worldToUi(f.a.head().add(V3(0, 0.45, 0))); b.g.visible = this.on && p.z < 1;
-      const poise = f.st !== 'dead' && f.d.poise > 0 ? { frac: f.brokenT > 0 ? f.brokenT / POISE_BREAK_DUR : f.poise / f.d.poise, broken: f.brokenT > 0, h: Math.max(3, 4 * this.k) } : null;
-      this.drawBar(b, p.x, p.y, 64 * this.k, 9 * this.k, f.st === 'dead' ? 0 : f.hp / f.maxHp, dt, poise);
+      const p = worldToUi(f.a.head().add(V3(0, f.elite ? 0.55 : 0.45, 0)));
+      const vis = this.on && p.z < 1 && f.a.root.visible;
+      b.g.visible = vis;
+      const bw = (f.elite ? 92 : 58) * this.k, bh = (f.elite ? 12 : 8) * this.k;
+      const poise = f.st !== 'dead' && f.d.poise > 0 ? { frac: f.brokenT > 0 ? f.brokenT / POISE_BREAK_DUR : f.poise / f.d.poise, broken: f.brokenT > 0, h: Math.max(3, (f.elite ? 4.5 : 3.5) * this.k) } : null;
+      this.drawBar(b, p.x, p.y, bw, bh, f.st === 'dead' ? 0 : f.hp / f.maxHp, dt, poise);
+      if (f.elite && vis && f.st !== 'dead') {
+        liveElites.add(f.uid); this.eliteTags.add(f.uid);
+        this.L.text.set('act.el.' + f.uid, { text: localize('精英'), x: p.x, y: p.y - (bh / 2 + 12 * this.k), pix: elPk, color: '#ffe27a', outline: '#140c0a', align: 'center', visible: true });
+      }
     }
     for (const [uid, b] of this.bars) if (!live.has(uid)) { b.g.parent?.remove(b.g); this.bars.delete(uid); }
+    for (const uid of [...this.eliteTags]) if (!liveElites.has(uid)) { this.L.text.hide('act.el.' + uid); this.eliteTags.delete(uid); }
     // act-19 / act-113 / act-114: off-screen foes show a red sound wave on the edge; foes winding up / lunging upgrade to an urgent gold-white high-danger wave + spatialized audio glint
     let nm = 0; const W = this.L.w, H = this.L.h, pad = 30 * this.k, nowMs = performance.now();
     const hotNow = new Set<number>();

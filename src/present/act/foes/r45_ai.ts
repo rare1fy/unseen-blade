@@ -554,8 +554,14 @@ function chainLines(f: Foe, w: FoeWorld) {
 }
 /** someone the boss calls in (from the stage's edge, a puff) */
 function callIn(w: FoeWorld, kinds: EKind[], boss: Foe) {
-  kinds.forEach((k, i) => { const s = i % 2 ? 1 : -1, p = V3(boss.pos.x + s * 5, 0, boss.pos.z + 2); w.clamp(p, 0.6); const m = spawnFoe(k, p, w.heroPos.clone()); m.cd = R(0.8, 1.4); w.foes.push(m);
-    fxSmoke(p.clone().add(V3(0, 0.3, 0)), 0x6a6a74, 8, { r: 0.6, spd: 1.2, up: 0.6, s: 0.4, life: 0.7 }); });
+  kinds.forEach((k, i) => {
+    if (w.spawnReinforce) {
+      w.spawnReinforce(k, i);
+    } else {
+      const s = i % 2 ? 1 : -1, p = V3(boss.pos.x + s * 5, 0, boss.pos.z + 2); w.clamp(p, 0.6); const m = spawnFoe(k, p, w.heroPos.clone()); m.cd = R(0.8, 1.4); w.foes.push(m);
+      fxSmoke(p.clone().add(V3(0, 0.3, 0)), 0x6a6a74, 8, { r: 0.6, spd: 1.2, up: 0.6, s: 0.4, life: 0.7 });
+    }
+  });
   cue('summon', 0.6);
 }
 

@@ -545,24 +545,34 @@ export class ActShow {
     const stopZ = p0.z - WALK;
     this.proSpec0 = this.spec ?? null; this.proAt0 = { x: p0.x, z: stopZ };
     const ring = (this.plan?.waves[0] ?? []).map((k, i, all) => ({ k, a: Math.PI * 0.15 + (i / all.length) * Math.PI * 2 + 0.35, d: 3.4 + (i % 2) * 0.7 }));
-    const jumpers: Array<{ f: Foe; from: THREE.Vector3; to: THREE.Vector3; t0: number; landed: boolean }> = [];
+    const jumpers: Array<{ f: Foe; from: THREE.Vector3; to: THREE.Vector3; wall: number; t0: number; landed: boolean }> = [];
     const snowRing = (x: number, z: number, r = 1.4) => fxRing(V3(x, 0.05, z), 0xdfe8ff, r, { life: 0.9 } as never);
     const stand = () => { h.pos.z = stopZ; motionOf(h.a).run = 0; };
     const cam = (dx: number, y: number, dz: number, lz: number, fov: number): { pos: V; look: V; fov: number } => ({ pos: [p0.x + dx, y, stopZ + dz] as V, look: [p0.x, 0.9, stopZ + lz] as V, fov });
     const spawnAmbushers = () => {
       if (jumpers.length) return;
+      const b = this.grid ? this.grid.sp.box : { x0: PLAY.x0, x1: PLAY.x1, z0: PLAY.z0, z1: PLAY.z1 };
       for (const [i, r] of ring.entries()) {
         // (where each lands: round her at its own angle, turned a little at a time until the spot is clear of the props, the cover
         //  and the walls — none lands in a post or a crate)
         const clearAt = (x: number, z: number, rr: number) => this.solids.free(x, z, rr, 0.3) && (!this.grid || this.grid.clear(x, z, rr));
-        const leapClear = (fx: number, fz: number, tx: number, tz: number) => { for (let q = 0; q <= 10; q++) { const u = q / 10; if (!clearAt(fx + (tx - fx) * u, fz + (tz - fz) * u, 0.45)) return false; } return true; };
         let a = r.a, dd = r.d; const ok = (x: number, z: number) => clearAt(x, z, 0.9) && jumpers.every(j => j.to.distanceTo(V3(x, 0, z)) > 1.3);
         for (let tt = 0; tt < 24 && !ok(p0.x + Math.sin(a) * dd, stopZ + Math.cos(a) * dd); tt++) { a += (tt % 2 ? -1 : 1) * 0.22 * (tt + 1); if (tt === 12) dd += 0.6; }
         const ko = kindOr(r.k), to = V3(p0.x + Math.sin(a) * dd, 0, stopZ + Math.cos(a) * dd);
-        let from = to.clone().add(V3(Math.sin(a) * 4.5, 0, Math.cos(a) * 4.5));
-        for (let back = 4.5; back > 0.6 && !leapClear(from.x, from.z, to.x, to.z); back -= 0.5) from = to.clone().add(V3(Math.sin(a) * back, 0, Math.cos(a) * back));
-        const f = spawnFoe(ko.kind, from, h.pos.clone(), ko.elite); f.st = 'enter'; f.cd = 2.5; this.foes.push(f);
-        jumpers.push({ f, from, to, t0: 0.12 + i * 0.22, landed: false });
+        // act-135: opening ambushers ALWAYS start strictly OUTSIDE the village perimeter walls and vault over the walls/eaves (never pop in mid-street!)
+        const dx = Math.sin(a), dz = Math.cos(a);
+        let sEdge = 1e9, hitFront = false;
+        if (dx > 1e-4) { const s = (b.x1 - to.x) / dx; if (s > 0 && s < sEdge) { sEdge = s; hitFront = false; } }
+        else if (dx < -1e-4) { const s = (b.x0 - to.x) / dx; if (s > 0 && s < sEdge) { sEdge = s; hitFront = false; } }
+        if (dz > 1e-4) { const s = (b.z1 - to.z) / dz; if (s > 0 && s < sEdge) { sEdge = s; hitFront = true; } }
+        else if (dz < -1e-4) { const s = (b.z0 - to.z) / dz; if (s > 0 && s < sEdge) { sEdge = s; hitFront = false; } }
+        const distOut = Math.min(18, Math.max(4.5, sEdge)) + 1.4;
+        const from = V3(to.x + dx * distOut, 0, to.z + dz * distOut);
+        const wall = hitFront ? 1.2 : 2.6;
+        const f = spawnFoe(ko.kind, from, h.pos.clone(), ko.elite); f.st = 'enter'; f.cd = 2.5;
+        f.a.root.visible = false;
+        this.foes.push(f);
+        jumpers.push({ f, from, to, wall, t0: 0.12 + i * 0.26, landed: false });
       }
       cue('roar', 0.35); this.musicHold = null; void audio.playMusic(this.musicName(), 2.5);
     };
@@ -577,34 +587,45 @@ export class ActShow {
       { dur: 2.6, ease: 'inOut', from: cam(4.6, 2.9, 6.4, -0.8, 34), to: cam(4.0, 2.7, 5.6, -0.6, 33),
         at: [[0.3, () => snowRing(p0.x - 3.2, stopZ - 1.8)], [0.8, () => snowRing(p0.x + 3.6, stopZ + 0.6)], [1.3, () => snowRing(p0.x - 1.0, stopZ - 3.8)], [1.75, () => snowRing(p0.x + 1.8, stopZ + 3.2)], [1.0, () => cue('foeSwing', 0.25)]],
         tick: (t, dt) => { stand(); h.a.update(dt); const hd = h.a.bones.head; if (hd) hd.rotation.y += 0.35 * Math.sin(Math.min(1, t / 1.6) * Math.PI); } },
-      // they come out: from behind the houses and over the walls, a jump each, landing round her in the snow, one after another
-      { dur: 2.4, ease: 'out', from: cam(0.6, 7.0, 8.4, -0.8, 40), to: cam(0.4, 6.4, 7.6, -0.6, 40),
+      // they come out: climbing up outside the village walls and vaulting over the walls/eaves into the snow round her, one after another
+      { dur: 2.6, ease: 'out', from: cam(0.6, 7.2, 8.6, -0.8, 40), to: cam(0.4, 6.4, 7.6, -0.6, 40),
         at: [[0, spawnAmbushers]],
         tick: (t, dt) => {
           stand(); h.a.update(dt);
+          const CLIMB = 0.22, LEAP = 0.64;
           for (const j of jumpers) {
-            const k = Math.max(0, Math.min(1, (t - j.t0) / 0.55)), f = j.f;
-            f.pos.lerpVectors(j.from, j.to, k); f.pos.y = 0; f.a.home.copy(f.pos); f.a.off.y = 1.6 * 4 * k * (1 - k);
+            const f = j.f, el = t - j.t0;
+            if (el < 0) { f.a.root.visible = false; continue; }
+            f.a.root.visible = true;
+            if (el < CLIMB) {
+              const c = el / CLIMB;
+              f.pos.copy(j.from); f.pos.y = 0; f.a.home.copy(f.pos);
+              f.a.off.y = j.wall * (1 - (1 - c) * (1 - c));
+            } else {
+              const k = Math.min(1, (el - CLIMB) / LEAP);
+              f.pos.lerpVectors(j.from, j.to, k); f.pos.y = 0; f.a.home.copy(f.pos);
+              f.a.off.y = j.wall * (1 - k * k) + 1.1 * 4 * k * (1 - k);
+              if (k >= 1 && !j.landed) { j.landed = true; f.a.off.y = 0; cue('land', 0.4); fxSmoke(j.to.clone().setY(0.1), 0xe8eef8, 8, { r: 0.65, spd: 1.0, up: 0.45, s: 0.42, life: 0.65, alpha: 0.65 }); }
+            }
             f.yaw = Math.atan2(h.pos.x - f.pos.x, h.pos.z - f.pos.z); f.a.yaw = f.yaw;
-            if (k >= 1 && !j.landed) { j.landed = true; f.a.off.y = 0; cue('land', 0.35); fxSmoke(j.to.clone().setY(0.1), 0xe8eef8, 6, { r: 0.6, spd: 0.8, up: 0.4, s: 0.4, life: 0.6, alpha: 0.6 }); }
             f.a.update(dt);
           }
         } },
       // the ring closed: low, from outside it, her in the middle
       { dur: 1.6, ease: 'inOut', from: cam(5.6, 4.4, 7.2, -0.4, 38), to: cam(5.0, 4.0, 6.6, -0.3, 36),
-        tick: (_t, dt) => { stand(); h.a.update(dt); for (const j of jumpers) { j.f.a.off.y = 0; j.f.a.update(dt); } } },
+        tick: (_t, dt) => { stand(); h.a.update(dt); for (const j of jumpers) { j.f.a.root.visible = true; j.f.a.off.y = 0; j.f.a.update(dt); } } },
     ], () => {
       // act-114 skip-safety: even if player skipped shot 0/1/2, hero is at stopZ and wave-0 ambushers are landed & music is live
       h.pos.set(p0.x, 0, stopZ); h.a.home.copy(h.pos); h.a.root.position.copy(h.pos); h.a.yaw = Math.PI; motionOf(h.a).run = 0;
       spawnAmbushers();
       for (const j of jumpers) {
-        j.landed = true; j.f.pos.copy(j.to); j.f.pos.y = 0; j.f.a.home.copy(j.to); j.f.a.off.y = 0;
+        j.landed = true; j.f.a.root.visible = true; j.f.pos.copy(j.to); j.f.pos.y = 0; j.f.a.home.copy(j.to); j.f.a.off.y = 0;
         j.f.yaw = Math.atan2(h.pos.x - j.f.pos.x, h.pos.z - j.f.pos.z); j.f.a.yaw = j.f.yaw; j.f.a.update(0.016);
       }
       if (this.musicHold) { this.musicHold = null; void audio.playMusic(this.musicName(), 2.0); }
     }).then(async () => {
       if (this.phase !== 'intro' || this.hero !== h) return;
-      for (const j of jumpers) { j.f.pos.copy(j.to); j.f.a.home.copy(j.to); j.f.a.off.y = 0; }
+      for (const j of jumpers) { j.f.a.root.visible = true; j.f.pos.copy(j.to); j.f.a.home.copy(j.to); j.f.a.off.y = 0; }
       await this.talk(PRO_AMBUSH);
       if (this.hero !== h) return;
       for (const j of jumpers) { j.f.st = 'move'; j.f.cd = 0.6 + Math.random() * 0.8; }
@@ -2590,7 +2611,7 @@ export class ActShow {
       const [x, z] = this.pieces.spawnInZone(sz, p.x, p.z); p.set(x, 0, z);
     } else if (gd && gd.at(p.x, p.z) !== FLOOR) { const q = gd.nearestFloor(p.x, p.z); p.set(q[0], 0, q[1]); }
     const ko = kindOr(k), bs = !!EDEFS[ko.kind].boss;
-    const way = bs || kindOr(k).kind === 'xp_diver' ? null : this.entryFrom(p, hp, i, zb ?? null, sz);
+    const way = bs || kindOr(k).kind === 'xp_diver' ? null : this.entryFromGuaranteed(p, hp, i, zb ?? null, sz);
     const f = spawnFoe(ko.kind, way ? way.from : p, hp.clone(), ko.elite); this.foes.push(f);
     // act-125: Bosses NEVER pop out of thin air mid-room — they descend with a ground-warning vortex & heavy landing shockwave!
     if (bs && this.prologue !== 2) {
@@ -2747,10 +2768,54 @@ export class ActShow {
       let land = -1; for (let t = 1.4 + (i % 3) * 0.55; t < Math.min(len, 6); t += 0.3) if (okAt(ex + ux * t, ez + uz * t)) { land = t; break; }
       if (land < 0) continue;
       const front = k === 3, wall = front ? 1.0 : 2.5;
-      const from = V3(ex - ux * 0.75, 0, ez - uz * 0.75), to = V3(ex + ux * land, 0, ez + uz * land);
+      const from = V3(ex - ux * 1.15, 0, ez - uz * 1.15), to = V3(ex + ux * land, 0, ez + uz * land);
       return { from, to, wall, dur: 0.3 + 0.32 + 0.12 * Math.min(3, land) };
     }
     return null;
+  }
+  /** act-135: guaranteed perimeter wall-vault / edge-rush entry so NO regular wave foe or boss reinforcement ever pops out of thin air */
+  private entryFromGuaranteed(p: THREE.Vector3, hp: THREE.Vector3, i: number, zb: { x0: number; x1: number; z0: number; z1: number } | null, sz: number): { from: THREE.Vector3; to: THREE.Vector3; wall: number; dur: number } {
+    const strict = this.entryFrom(p, hp, i, zb, sz);
+    if (strict) return strict;
+    const g = this.grid, b = zb ?? (g ? g.sp.box : { x0: PLAY.x0, x1: PLAY.x1, z0: PLAY.z0, z1: PLAY.z1 });
+    const sides: Array<[number, number]> = [[0, -1], [-1, 0], [1, 0], [0, 1]];
+    const pref = (i + this.wave) % 3;
+    const order = sides.map((d, k) => ({
+      d, k,
+      score: (k === 3 ? -50 : k === pref ? 40 : 0) + (d[0] ? (d[0] < 0 ? hp.x - b.x0 : b.x1 - hp.x) : (d[1] < 0 ? hp.z - b.z0 : b.z1 - hp.z)) * 0.35 + ((i * 5 + k * 7) % 5),
+    })).sort((x, y) => y.score - x.score);
+    const to = p.clone().setY(0);
+    if (g && g.at(to.x, to.z) !== FLOOR) { const q = g.nearestFloor(to.x, to.z); to.set(q[0], 0, q[1]); }
+    this.clamp(to, 0.55);
+    const chosen = order[0];
+    const [dx, dz] = chosen.d, front = chosen.k === 3;
+    const ex = dx ? (dx < 0 ? b.x0 : b.x1) : to.x, ez = dz ? (dz < 0 ? b.z0 : b.z1) : to.z;
+    const from = V3(ex + dx * 1.25, 0, ez + dz * 1.25);
+    const dist = Math.hypot(to.x - ex, to.z - ez);
+    return { from, to, wall: front ? 1.1 : 2.5, dur: 0.3 + 0.32 + 0.12 * Math.min(3.5, Math.max(1.2, dist)) };
+  }
+  /** act-135: boss-summoned reinforcements climb over the arena perimeter walls / rush in from outside, staggered cleanly */
+  private spawnReinforce(kind: EKind, idx = 0): Foe | null {
+    if (this.phase !== 'fight' || this.bossDefeated) return null;
+    const hp = this.hero.pos, gd = this.grid;
+    const sz = this.stageZ.length ? this.stageZ[this.stageOf[this.wave] ?? 0] : -1;
+    const zb = sz >= 0 ? (this.pieces?.zoneBox(sz) ?? null) : null;
+    let p = V3();
+    for (let t = 0; t < 24; t++) {
+      p = zb ? V3(R(zb.x0 + 0.9, zb.x1 - 0.9), 0, R(zb.z0 + 0.9, zb.z1 - 0.9)) : V3(R(PLAY.x0 + 1.4, PLAY.x1 - 1.4), 0, R(PLAY.z0 + 1.4, PLAY.z1 - 2.2));
+      const d = p.distanceTo(hp), onFloor = !gd || gd.clear(p.x, p.z, 0.65);
+      if (d > 3.5 && onFloor && this.solids.free(p.x, p.z, 0.55, 0.3) && this.foes.every(f => f.pos.distanceTo(p) > 1.3)) break;
+    }
+    if (gd && gd.at(p.x, p.z) !== FLOOR) { const q = gd.nearestFloor(p.x, p.z); p.set(q[0], 0, q[1]); }
+    const way = this.entryFromGuaranteed(p, hp, idx + this.entering.length, zb, sz);
+    const f = spawnFoe(kind, way.from, hp.clone());
+    f.st = 'enter'; f.cd = R(0.7, 1.3); f.inv = 0.35;
+    const delay = idx * 0.18;
+    if (delay > 0) f.a.root.visible = false;
+    this.foes.push(f);
+    this.entering.push({ f, from: way.from, to: way.to, wall: way.wall, t: -delay, dur: way.dur });
+    cue('foeCry', 0.28);
+    return f;
   }
   /** per frame: the foes on their way in — up the outside of the wall (0.3 s, behind it, out of sight from the back), a crouch on its
    *  top, one hop down inside landing in a crouch with a puff (the hop longer the further in it lands). Then the fight takes them */
@@ -2758,7 +2823,14 @@ export class ActShow {
     for (let n = this.entering.length - 1; n >= 0; n--) {
       const e = this.entering[n], f = e.f;
       if (f.st === 'dead') { this.entering.splice(n, 1); continue; }
-      e.t += dt; const T = e.t, W = e.wall, CLIMB = 0.3, PERCH = 0.32;
+      e.t += dt;
+      if (e.t < 0) {
+        f.a.root.visible = false; f.pos.copy(e.from); f.vel.set(0, 0, 0);
+        f.st = 'enter'; f.t = 0; f.dur = 0.35; f.inv = Math.max(f.inv, 0.25);
+        continue;
+      }
+      f.a.root.visible = true;
+      const T = e.t, W = e.wall, CLIMB = 0.3, PERCH = 0.32;
       f.vel.set(0, 0, 0); f.yaw = Math.atan2(e.to.x - e.from.x, e.to.z - e.from.z); f.a.yaw = f.yaw; f.a.setRunning(false);
       if (T < CLIMB) { const c = T / CLIMB; f.pos.copy(e.from); f.pos.y = W * (1 - (1 - c) * (1 - c)); }
       else if (T < PERCH) { f.pos.copy(e.from); f.pos.y = W; }
@@ -2783,7 +2855,7 @@ export class ActShow {
     // act-125 (Hades-style clean dash pass-through): hero NEVER collides during dash / dcut / swoop / rel / airborne
     const heroPhasing = !h || h.hp <= 0 || h.st === 'dash' || h.st === 'dcut' || h.st === 'swoop' || h.st === 'rel' || h.airborne;
     if (!heroPhasing) B.push({ p: h.pos, r: h.r, m: 1, moved: false, isHero: true });
-    for (const f of this.foes) if (f.st !== 'dead' && !this.bossDrops.some(d => d.f === f)) B.push({ p: f.pos, r: f.d.r * 0.9, m: f.kind === 'dummy' ? 1e6 : isBoss(f) ? 8 : f.d.mass, moved: false, f });
+    for (const f of this.foes) if (f.st !== 'dead' && !this.bossDrops.some(d => d.f === f) && !this.entering.some(e => e.f === f)) B.push({ p: f.pos, r: f.d.r * 0.9, m: f.kind === 'dummy' ? 1e6 : isBoss(f) ? 8 : f.d.mass, moved: false, f });
     for (const n of this.npcs) B.push({ p: V3(n.x, 0, n.z), r: 0.42, m: 1e6, moved: false });
     for (let i = 0; i < B.length; i++) for (let j = i + 1; j < B.length; j++) {
       const a = B[i], b = B[j], dx = b.p.x - a.p.x, dz = b.p.z - a.p.z, min = a.r + b.r, d2 = dx * dx + dz * dz;
@@ -2918,6 +2990,7 @@ export class ActShow {
     chill: (t, k) => { this.chillK = this.chillT > 0 ? Math.min(this.chillK, k) : k; this.chillT = Math.max(this.chillT, t); },
     freeze: t => { this.frozenT = Math.max(this.frozenT, t); this.hero?.vel.set(0, 0, 0); cue('parry', 0.5); },
     wet: (x, z) => this.pools.some(r => x > r.x0 && x < r.x1 && z > r.z0 && z < r.z1),
+    spawnReinforce: (kind, idx) => this.spawnReinforce(kind, idx),
   };
   /** act-23: did the swing being felt cut flesh (not only the wooden dummies)? picks the hit sound's flesh layers */
   private fleshHit = false;

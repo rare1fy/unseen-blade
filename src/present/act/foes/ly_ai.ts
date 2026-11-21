@@ -407,7 +407,15 @@ const yanhu: RoleAI = {
         f.summonT = 12;
         const n = w.foes.filter(o => o.st !== 'dead' && o !== f).length;
         const kinds = n < 3 ? ['ly_looter', 'ly_looter', 'ly_xbow'] : ['ly_looter'];
-        for (const kd of kinds) { const s = Math.random() < 0.5 ? -1 : 1, p = V3(s * 30, 0, R(-6, 2)); w.clamp(p, 0.5); const m = spawnFoe(kd, p, w.heroPos.clone()); m.cd = R(0.6, 1.4); w.foes.push(m); fxSmoke(p.clone().add(V3(0, 0.3, 0)), 0x5a524c, 8, { r: 0.6, spd: 1.2, up: 0.6, s: 0.4, life: 0.7 }); }
+        kinds.forEach((kd, i) => {
+          if (w.spawnReinforce) {
+            w.spawnReinforce(kd, i);
+          } else {
+            const s = Math.random() < 0.5 ? -1 : 1, p = V3(s * 30, 0, R(-6, 2)); w.clamp(p, 0.5);
+            const m = spawnFoe(kd, p, w.heroPos.clone()); m.cd = R(0.6, 1.4); w.foes.push(m);
+            fxSmoke(p.clone().add(V3(0, 0.3, 0)), 0x5a524c, 8, { r: 0.6, spd: 1.2, up: 0.6, s: 0.4, life: 0.7 });
+          }
+        });
         cue('summon', 0.6);
       }
     }

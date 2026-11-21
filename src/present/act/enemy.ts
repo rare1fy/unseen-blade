@@ -173,6 +173,8 @@ export interface FoeWorld {
   /** the stage's floor is water here (下邳's pools) */ wet?(x: number, z: number): boolean;
   /** which way she faces (rad; the 死士 go round to her back) */ heroYaw?: number;
   /** the room's shallow water (下邳: the 水鬼 make for it) */ pools?: Array<{ x0: number; x1: number; z0: number; z1: number }>;
+  /** act-135: boss-summoned reinforcement enters from outside the arena perimeter (wall vault / edge rush, never popping out of thin air) */
+  spawnReinforce?(kind: EKind, idx?: number): Foe | null;
 }
 /** how high the hero must be to clear a low attack (m) */
 export const LOW_CLEAR = 0.45;
@@ -563,9 +565,13 @@ function bossTick(f: Foe, w: FoeWorld, dt: number) {
       f.summonT = 8;
       const mobs = w.foes.filter(o => o.role === 'mob' && o.st !== 'dead').length;
       for (let i = 0; i < Math.min(2, 4 - mobs); i++) {
-        const side = Math.random() < 0.5 ? -1 : 1, p = V3(side * 30, 0, R(-5, 2)); w.clamp(p, 0.5);
-        const m = spawnFoe('hj_mob', p, w.heroPos.clone()); m.cd = R(0.6, 1.2); w.foes.push(m);
-        fxSmoke(p.clone().add(V3(0, 0.3, 0)), 0x6a6a74, 8, { r: 0.6, spd: 1.2, up: 0.6, s: 0.4, life: 0.7 }); fxRing(p.clone().setY(0.05), 0xffc040, 1.0, { life: 0.4 } as never);
+        if (w.spawnReinforce) {
+          w.spawnReinforce('hj_mob', i);
+        } else {
+          const side = Math.random() < 0.5 ? -1 : 1, p = V3(side * 30, 0, R(-5, 2)); w.clamp(p, 0.5);
+          const m = spawnFoe('hj_mob', p, w.heroPos.clone()); m.cd = R(0.6, 1.2); w.foes.push(m);
+          fxSmoke(p.clone().add(V3(0, 0.3, 0)), 0x6a6a74, 8, { r: 0.6, spd: 1.2, up: 0.6, s: 0.4, life: 0.7 }); fxRing(p.clone().setY(0.05), 0xffc040, 1.0, { life: 0.4 } as never);
+        }
       }
       cue('summon', 0.6);
     }

@@ -532,4 +532,38 @@ describe('combat wave 2: poise break & staggered cadence (act-113)', () => {
     expect(showSrc).toContain('if (this.phase !== \'fight\' || this.bossDefeated) return null;');
     expect(showSrc).toContain('!this.poolBossRoom && CH_AFTER[ai]?.length');
   });
+
+  it('act-135: boss summons & prologue ambushers enter over outer walls (never pop out of thin air) and elite HP bars are visually distinct', () => {
+    // 1. All 4 boss summon call sites route through w.spawnReinforce
+    for (const file of [
+      'src/present/act/enemy.ts',
+      'src/present/act/foes/ly_ai.ts',
+      'src/present/act/foes/xp_ai.ts',
+      'src/present/act/foes/r45_ai.ts',
+    ]) {
+      expect(SRC[file], `${file} must route boss summons through w.spawnReinforce`).toContain('w.spawnReinforce');
+    }
+
+    // 2. show.ts provides guaranteed perimeter wall-vault entry for both wave spawns and boss reinforcements, plus prologue perimeter vaulting
+    const showSrc = SRC['src/present/act/show.ts'];
+    expect(showSrc).toContain('private entryFromGuaranteed(');
+    expect(showSrc).toContain('private spawnReinforce(');
+    expect(showSrc).toContain('spawnReinforce: (kind, idx) => this.spawnReinforce(kind, idx)');
+    expect(showSrc).toContain('this.entryFromGuaranteed(p, hp, i, zb ?? null, sz)');
+    expect(showSrc).toContain('!this.entering.some(e => e.f === f)');
+    // Opening 4 Yellow Turban ambushers start strictly outside the arena perimeter, hidden before j.t0, and climb+vault over walls
+    expect(showSrc).toContain('const distOut = Math.min(18, Math.max(4.5, sEdge)) + 1.4;');
+    expect(showSrc).toContain('f.a.root.visible = false;');
+    expect(showSrc).toContain('if (el < 0) { f.a.root.visible = false; continue; }');
+
+    // 3. hud.ts renders larger forged-gold framed elite HP bars with diamond emblem, sheen, '精英' tag, and leak-free cleanup
+    const hudSrc = SRC['src/present/act/hud.ts'];
+    expect(hudSrc).toContain('ELITE_RIM');
+    expect(hudSrc).toContain('ELITE_FILL');
+    expect(hudSrc).toContain('this.newBar(!!f.elite)');
+    expect(hudSrc).toContain('const bw = (f.elite ? 92 : 58) * this.k, bh = (f.elite ? 12 : 8) * this.k;');
+    expect(hudSrc).toContain("localize('精英')");
+    expect(hudSrc).toContain("this.L.text.hide('act.el.' + uid)");
+    expect(hudSrc).toContain('const vis = this.on && p.z < 1 && f.a.root.visible;');
+  });
 });

@@ -370,8 +370,12 @@ const fengzhen: RoleAI = {
       if (f.summonT <= 0 && w.heroAlive && f.st !== 'roar') {
         f.summonT = 14;
         if (w.foes.filter(o => o.role === 'xp_assassin' && o.st !== 'dead').length < 3) for (let i = 0; i < 2; i++) {
-          const p = spotNear(w.heroPos, 5, 8, w), m = spawnFoe('xp_assassin', p, w.heroPos.clone()); m.cd = R(1.0, 2.0); w.foes.push(m);
-          fxSmoke(p.clone().setY(0.3), 0x8a98a4, 8, { r: 0.6, spd: 1.2, up: 0.6, s: 0.4, life: 0.7 }); fxRing(p.clone().setY(0.05), 0x9ab8c8, 1.0, { life: 0.4 } as never);
+          if (w.spawnReinforce) {
+            w.spawnReinforce('xp_assassin', i);
+          } else {
+            const p = spotNear(w.heroPos, 5, 8, w), m = spawnFoe('xp_assassin', p, w.heroPos.clone()); m.cd = R(1.0, 2.0); w.foes.push(m);
+            fxSmoke(p.clone().setY(0.3), 0x8a98a4, 8, { r: 0.6, spd: 1.2, up: 0.6, s: 0.4, life: 0.7 }); fxRing(p.clone().setY(0.05), 0x9ab8c8, 1.0, { life: 0.4 } as never);
+          }
         }
         cue('summon', 0.5);
       }
