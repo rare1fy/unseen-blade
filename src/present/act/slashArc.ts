@@ -403,18 +403,18 @@ class SlashSystem {
       }
     }
 
-    // For k4 thrust: shoot a short razor-sharp needle of 4 chunky voxel cubes directly ahead of the real blade tip!
-    if (isThrust && dist > 0.06) {
+    // For k4 thrust: shoot a crisp razor needle of 5 chunky voxel cubes directly ahead of the real blade tip
+    if (isThrust && dist > 0.05) {
       _d.copy(tip).sub(root);
       const bl = _d.length() || 1;
       _d.multiplyScalar(1 / bl);
-      for (let k = 1; k <= 4; k++) {
-        const d = k * 0.10;
-        const sz = k <= 2 ? 0.095 : 0.072;
+      for (let k = 1; k <= 5; k++) {
+        const d = k * 0.11;
+        const sz = k <= 3 ? 0.098 : 0.074;
         this.emitCube(
           tip.x + _d.x * d, tip.y + _d.y * d, tip.z + _d.z * d,
-          sz, k <= 2 ? pal.edge : pal.body, k <= 2 ? hdr : 1.0, k <= 2 ? 0.88 : 0.52,
-          0.115, k <= 2 ? 0 : 1,
+          sz, k <= 3 ? pal.edge : pal.body, k <= 3 ? hdr : 1.0, k <= 3 ? 0.90 : 0.54,
+          0.14, k <= 3 ? 0 : 1,
         );
       }
     }
@@ -622,6 +622,35 @@ class SlashSystem {
         const s = (i % 4 === 0) ? 1 : -1;
         this.emitCube(px, py + s * 0.065, pz, 0.072, pal.body, 1.0, 0.48, life * 0.85, 1, 0, 0, 0, 0, false);
       }
+    }
+    this.activeUntil = Math.max(this.activeUntil, this.now + life + 0.05);
+    this.dirty = true;
+    if (this.mesh) this.mesh.visible = true;
+  }
+
+  /**
+   * act-138: crisp 360° 3D voxel sweep ring (used by upgraded spin moves like 扫八方 & 荡刃 so the expanded/double whirlwind reads
+   * immediately in high-speed combat while staying restrained & 1-draw-call WebGL1).
+   */
+  ringArc(center: THREE.Vector3, r: number, y = 0.92, palette: keyof typeof PAL = 'spin', life = 0.22, count = 20) {
+    const pal = PAL[palette] ?? PAL.spin;
+    const hdr = pal.hdr ?? 1.18;
+    const n = Math.max(12, Math.min(28, count));
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2;
+      const sx = Math.sin(a), cz = Math.cos(a);
+      const px = center.x + sx * r, pz = center.z + cz * r;
+      const tx = cz, tz = -sx; // tangent along spin
+      const edge = i % 2 === 0;
+      this.emitCube(
+        px, y, pz,
+        edge ? 0.090 : 0.076,
+        edge ? pal.edge : pal.body,
+        edge ? hdr : 1.0,
+        edge ? 0.86 : 0.46,
+        life, edge ? 0 : 1,
+        tx * 0.75 + sx * 0.25, 0.08, tz * 0.75 + cz * 0.25, 0.24, false,
+      );
     }
     this.activeUntil = Math.max(this.activeUntil, this.now + life + 0.05);
     this.dirty = true;

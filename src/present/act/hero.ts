@@ -97,7 +97,7 @@ export interface HeroWorld {
   /** act-19 飞踢: the kick lands — the first foe in front is sent flying along dir */
   kick?(o: { from: THREE.Vector3; dir: THREE.Vector3; dmg: number }): number;
   /** a blade swing lands: the world applies damage, FX and the arrows it cuts. Returns how many it hit */
-  swing(o: { from: THREE.Vector3; yaw: number; range: number; half: number; dmg: number; knock: number; heavy: boolean; kind: string; n?: number; counter?: boolean; poiseMul?: number; pin?: boolean; finalCut?: boolean; weaponId?: WeaponId }): number;
+  swing(o: { from: THREE.Vector3; yaw: number; range: number; half: number; dmg: number; knock: number; heavy: boolean; kind: string; n?: number; counter?: boolean; poiseMul?: number; pin?: boolean; finalCut?: boolean; weaponId?: WeaponId; bigSpin?: boolean; keepCut?: boolean }): number;
   /** a path cut (the charge release): everything within r of the segment */
   sweep(o: { a: THREE.Vector3; b: THREE.Vector3; r: number; dmg: number; knock: number; col?: number; kind?: string }): number;
   /** act-125: 惊雷陌刀 藏锋变招「裂阵斩」— anchored 6.5m straight thunder shockwave */
@@ -457,9 +457,10 @@ export class Hero {
       if (!this.dartGone && this.dartT >= DART_REL) {
         this.dartGone = true;
         const hand = this.handL(), count = v(this.perks, 'darts3'), dirs = count > 1 ? fanOf(count, count >= 5 ? 0.18 : 0.24) : this.fanNext ? [-0.24, 0, 0.24] : [0];
-        const link = this.fanNext ? ++this.volley : 0; this.fanNext = false;   // (11-17: 迎面镖's volley fills 气 once, on its first dart that strikes)
+        const link = this.fanNext ? ++this.volley : 0; const wasFan = this.fanNext || count > 1; this.fanNext = false;   // (11-17: 迎面镖's volley fills 气 once, on its first dart that strikes)
         for (const a of dirs) { const d = this.dartDir.clone().applyAxisAngle(V3(0, 1, 0), a); w.dart({ from: hand, dir: d, link }); }
-        cue('dartThrow', 0.6);
+        if (wasFan) { fxSparks(hand, 0xe8f2fa, 6, 3.2, { dir: this.dartDir.clone(), dirK: 0.7 }); cue('swish', 0.42); }
+        cue('dartThrow', wasFan ? 0.78 : 0.6);
       }
       if (this.dartT >= DART_T || (this.st !== 'free' && this.st !== 'air' && this.st !== 'dash')) this.dartT = -1;
     }
@@ -675,6 +676,8 @@ export class Hero {
             pin: !!spec.pin && this.hits === 1,
             finalCut: isFinal && this.hits === sw.imps.length,
             weaponId: this.weaponId,
+            bigSpin: this.bigSpin,
+            keepCut: this.keepCut && this.hits === 1,
           });
           if (got > 0) this.gainQi((link ? QI_LINK : QI_CUT[cut]) * spec.qiMul);
         }
@@ -932,7 +935,8 @@ export class Hero {
     const dir = best ? best.a.chest().sub(from).normalize() : back.clone().setY(-0.03).normalize();
     const hand = this.handL(), n = v(this.perks, 'darts3'), spread = n >= 5 ? fanOf(5, 0.18) : [-0.18, 0, 0.18];
     const link = ++this.volley; for (const a of spread) w.dart({ from: hand.clone(), dir: dir.clone().applyAxisAngle(V3(0, 1, 0), a), link });
-    this.dartT = 0; this.dartGone = true; this.dartBack = true; this.dartCd = TUNE.dartCd; this.useDart(); cue('dartThrow', 0.8);
+    fxSparks(hand, 0xe8f2fa, 7, 3.6, { dir: dir.clone(), dirK: 0.75 }); dustBlocks(this.pos.clone(), 4, back);
+    this.dartT = 0; this.dartGone = true; this.dartBack = true; this.dartCd = TUNE.dartCd; this.useDart(); cue('dartThrow', 0.85); cue('swish', 0.45);
   }
   /** 追影: smoke here, the hero at the marked foe's near side facing it, a heavy first cut */
   private startChase(f: Foe, w: HeroWorld) {
@@ -1029,9 +1033,9 @@ export class Hero {
   get canSwoop() { return this.st === 'air' && this.airborne && this.has('swoop') && this.dashCd <= 0; }
   get canReel() { return !!this.reelTgt; }
   get canStomp() { return this.st === 'air' && !!this.stompTgt; }
-  /** act-19 游身不断招: the cut out of the dodge comes from the side — a pale streak along the step, the cut aimed at the nearest foe */
+  /** act-19 / act-138 游身斩: the cut out of the dodge comes from the side — restrained ink-silver sidestep silhouette aimed at the nearest foe */
   private sideCut(w: HeroWorld) {
-    const f = this.aim(w); fxAfterimage(this.pos.clone(), 1.9, 0x9ad8ff, { life: 0.3, glow: 0.45 }); cue('swish', 0.5);
+    const f = this.aim(w); fxAfterimage(this.pos.clone(), 1.9, 0xd8e6e2, { life: 0.28, glow: 0.34 }); cue('draw', 0.48); cue('swish', 0.55);
     if (f) { const d = f.pos.clone().sub(this.pos).setY(0); if (d.lengthSq() > 1e-4) this.a.yaw = Math.atan2(d.x, d.z); }
   }
   private get cutting() { return this.st === 'k1' || this.st === 'k2' || this.st === 'k3' || this.st === 'k4' || this.st === 'k5'; }

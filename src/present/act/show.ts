@@ -3553,9 +3553,12 @@ export class ActShow {
     if (this.props) this.applyProps(this.props.hitArc(o.from, o.yaw, o.range, o.half, { src: 'hero', heavy: true }, this.targets()));
     this.leaves?.blast(o.from.x + fx, o.from.z + fz, 1.6, 4);
     slashArc.swing({ kind: 'launch', from: o.from, follow: this.hero.pos, yaw: o.yaw, range: o.range, half: o.half });
+    // act-138 挑云 signature: crisp rising vertical 3D voxel crescent + updraft wind ring so players instantly read the launcher
+    slashArc.clashCross(o.from.clone().add(V3(fx * 1.05, 1.15, fz * 1.05)), V3(fx, 0, fz), Math.PI * 0.42, 'launch', 0.22, 0.88);
+    fxRing(o.from.clone().setY(0.08), 0xd4eaf6, 1.35, { life: 0.26, width: 0.12 } as never);
     this.feel('launch', true, n, V3(fx, 0, fz)); return n;
   }
-  /** 飞踢: the first foe in front takes the kick and is sent flying the way the hero was dashing (into walls, jars, others) */
+  /** 飞踢 (穿心腿): the first foe in front takes the kick and is sent flying the way the hero was dashing (into walls, jars, others) */
   private kickHit(o: { from: THREE.Vector3; dir: THREE.Vector3; dmg: number }) {
     let best: Foe | null = null, bd = 1e9;
     for (const f of this.foes) {
@@ -3564,6 +3567,9 @@ export class ActShow {
       if (dx * o.dir.x + dz * o.dir.z < -0.2) continue; if (l < bd) { bd = l; best = f; }
     }
     const at = o.from.clone().addScaledVector(o.dir, 0.9).setY(0.9);
+    // act-138 穿心腿 signature: dry kinetic wind-ring & ground dust kick (even on whiff so the martial kick reads distinctly from a blade swing!)
+    fxRing(at.clone().setY(0.85), 0xeadcc4, 0.95, { life: 0.20, width: 0.12 } as never);
+    dustBlocks(o.from.clone().addScaledVector(o.dir, 0.6), 6, o.dir.clone());
     if (this.props) this.applyProps(this.props.hitCircle(at.x, at.z, 0.7, { src: 'hero', heavy: true, dir: [o.dir.x, o.dir.z] }, this.targets()));
     if (!best) return 0;
     this.hitFoe(best, o.dmg, o.from, { knock: 0, heavy: true, kind: 'kick', stagger: 1.4 });
@@ -3571,18 +3577,21 @@ export class ActShow {
       const fly = this.launchable(best), sp = fly ? 15 : 5 / Math.max(1, best.d.mass * 0.6);
       best.vel.copy(o.dir).setY(0).normalize().multiplyScalar(sp); if (fly) { best.airV = 4.2; best.pos.y = Math.max(best.pos.y, 0.05); }
     }
-    fxImpact(best.a.chest(), 0xfff0d0, 1.2, { dir: o.dir.clone(), ground: false, stop: false, shake: false }); this.feel('kick', true, 1, o.dir.clone());
+    fxShock(best.pos.clone().setY(0.12), 0xeadcc4, 1.35, { life: 0.26 });
+    fxImpact(best.a.chest(), 0xfff0d0, 1.25, { dir: o.dir.clone(), ground: false, stop: false, shake: false }); cue('wallSlam', 0.55); this.feel('kick', true, 1, o.dir.clone());
     this.leaves?.blast(best.pos.x, best.pos.z, 1.5, 6);
     return 1;
   }
   // ------------------------------------------------------------ 11-18 秘传：改招为主
   // (用户：「我打了半天了还没个新招，一直在给我加数值。强化卡片也难以辨认都是干嘛的」) every boon changes how one button plays — each of
   // these is the boon's own picture and blow; the boons.ts table is the list, its `slot` the button
-  /** 透骨: past the 2nd thrust's point a long white line opens straight on, through a row of foes (each once), sparks at its end */
+  /** 透骨 (act-138 强化): past the 2nd thrust's point a crisp 3D voxel lance-pierce beam shoots straight through a row of foes + muzzle air-ring */
   private pierceLine(from: THREE.Vector3, dir: THREE.Vector3, dmg: number) {
-    const L = v(this.perks, 'pierce'), a = from.clone().addScaledVector(dir, 0.6).setY(1.0), b = from.clone().addScaledVector(dir, L).setY(1.0);
-    trailSeg(a, b, 0xffffff, 0.16, { life: 0.32, bright: 3.2, spark: 0.5 }); trailSeg(a.clone().setY(1.03), b.clone().setY(1.03), 0x9ad8ff, 0.06, { life: 0.4, bright: 2.6 });
-    fxSparks(b, 0xffffff, 12, 5, { dir, dirK: 0.9 });
+    const L = v(this.perks, 'pierce'), a = from.clone().addScaledVector(dir, 0.55).setY(1.0), b = from.clone().addScaledVector(dir, L).setY(1.0);
+    slashArc.line({ a, b, width: 0.96, y: 1.0, palette: 'stab', sweep: 0.018, fade: 0.36 });
+    fxRing(a.clone().setY(1.0), 0xdcf4ff, 0.9, { life: 0.22, width: 0.14 } as never);
+    for (let i = 1; i <= 4; i++) fxSparks(a.clone().lerp(b, i / 4), 0xeef8ff, 4, 3.6, { dir, dirK: 0.9 });
+    cue('bladeRing', 0.55);
     const ab = b.clone().sub(a).setY(0), L2 = Math.max(1e-4, ab.lengthSq()); let n = 0;
     for (const f of this.foes.slice()) {
       if (f.st === 'dead') continue;
@@ -3594,14 +3603,15 @@ export class ActShow {
     if (this.props) this.applyProps(this.props.hitSeg(a, b, 0.35, { src: 'hero', heavy: false }, this.targets()));
     if (n) this.feel('k4', false, n, dir.clone());
   }
-  /** 荡刃: the turning cut throws a ring of pale wind out to its reach (a flat ring + streaks round the circle) */
+  /** 荡刃 (act-138 强化): expanded 3rd-cut sweep throws a crisp 3D voxel outer wind-steel ring + flat ground draft */
   private spinRing(at: THREE.Vector3, r: number) {
-    fxRing(at.clone().setY(0.9), 0xe8f4ff, r, { life: 0.28, width: 0.16, fill: 0.04, bright: 1.6 } as never);
-    fxRing(at.clone().setY(0.08), 0xc8d8e8, r * 0.95, { life: 0.35, width: 0.1, fill: 0.03 } as never);
-    for (let i = 0; i < 12; i++) { const a = (i / 12) * Math.PI * 2; fxSparks(at.clone().add(V3(Math.sin(a) * r, 0.9, Math.cos(a) * r)), 0xeaf4ff, 2, 3, { dir: V3(Math.cos(a), 0, -Math.sin(a)), dirK: 0.9, life: 0.25 }); }
+    slashArc.ringArc(at, r, 0.92, 'spin', 0.24, 22);
+    fxRing(at.clone().setY(0.9), 0xe8f4ff, r, { life: 0.26, width: 0.14, fill: 0.03, bright: 1.25 } as never);
+    fxRing(at.clone().setY(0.08), 0xc8d8e8, r * 0.95, { life: 0.32, width: 0.09, fill: 0.02 } as never);
+    for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2; fxSparks(at.clone().add(V3(Math.sin(a) * r, 0.9, Math.cos(a) * r)), 0xeaf4ff, 2, 2.8, { dir: V3(Math.cos(a), 0, -Math.sin(a)), dirK: 0.9, life: 0.22 }); }
     this.leaves?.blast(at.x, at.z, r + 0.5, 4);
   }
-  /** 错身: each foe her dash goes through (on the ground) takes one cut as she passes — a short white slash across it */
+  /** 错身 (act-138 强化): each foe her dash goes through takes a crisp 3D voxel diagonal pass-slash across the chest */
   private passHit = new Map<number, number>();
   private passing(o: { a: THREE.Vector3; b: THREE.Vector3; n: number }) {
     const hasPass = hasBoon(this.perks, 'passCut');
@@ -3614,23 +3624,26 @@ export class ActShow {
       if (Math.hypot(f.pos.x - q.x, f.pos.z - q.z) > f.d.r + 0.55) continue;
       this.passHit.set(f.uid, o.n);
       const c = f.a.chest(), side = V3(dir.z, 0, -dir.x);
-      trailSeg(c.clone().addScaledVector(side, -0.55).add(V3(0, 0.3, 0)), c.clone().addScaledVector(side, 0.55).add(V3(0, -0.25, 0)), hasLuBuKs && !hasPass ? 0xff7852 : 0xeaf8ff, 0.12, { life: 0.22, bright: 2.8, spark: 0.5 });
+      slashArc.clashCross(c, side, 0.48, hasLuBuKs && !hasPass ? 'blunt_flash' : 'dcut', 0.22, 0.82);
+      fxSparks(c, hasLuBuKs && !hasPass ? 0xffb088 : 0xdcf4ff, 6, 3.2);
       const dmg = hasPass ? Math.round(TUNE.atkDmg * v(this.perks, 'passCut') / 100) : Math.max(4, Math.round(TUNE.atkDmg * 0.45));
       this.hitFoe(f, dmg, o.a, { knock: 0.5, heavy: false, kind: 'pass', stagger: 0.35, poiseMul: hasLuBuKs ? 3.2 : 1 });
       this.feel('k2', false, 1, dir.clone());
     }
   }
-  /** 掠顶: high over a foe (she is above its head, within its width), a quick downward cut — a short vertical streak, once a foe a jump */
+  /** 掠顶 (act-138 强化): high over a foe, a crisp vertical 3D voxel downward crescent chop onto its crown */
   private overHit = new Map<number, number>();
   private overhead(o: { at: THREE.Vector3; y: number; n: number }) {
     if (!hasBoon(this.perks, 'vault')) return 0;
     let n = 0;
+    const fwd = this.hero.a.fwd().setY(0).normalize();
     for (const f of this.foes.slice()) {
       if (f.st === 'dead' || this.overHit.get(f.uid) === o.n) continue;
       if (Math.hypot(f.pos.x - o.at.x, f.pos.z - o.at.z) > f.d.r + 0.5) continue;
       this.overHit.set(f.uid, o.n); n++;
-      const head = f.a.head(); trailSeg(o.at.clone().setY(o.y + 0.8), head.clone().add(V3(0, -0.2, 0)), 0xfff0d0, 0.12, { life: 0.22, bright: 2.8, spark: 0.5 });
-      fxSparks(head, 0xffffff, 8, 3); cue('swingLight', 0.7);
+      const head = f.a.head();
+      slashArc.clashCross(head.clone().add(V3(0, 0.15, 0)), fwd, Math.PI * 0.46, 'iai', 0.22, 0.78);
+      fxSparks(head, 0xfff4d8, 8, 3.2); cue('swingLight', 0.75);
       this.hitFoe(f, v(this.perks, 'vault'), o.at.clone().setY(0), { knock: 0.2, heavy: false, kind: 'overhead', stagger: 0.45 });
     }
     if (n) this.feel('k1', false, n, V3(0, 0, 0));
@@ -3754,11 +3767,12 @@ export class ActShow {
     f.pos.y += (Math.max(0.5, y - 0.1) - f.pos.y) * 0.5; f.airV = 0; f.vel.multiplyScalar(0.5); this.lofted.set(f, clock.time);
     if (f.st !== 'stagger' || f.dur - f.t < 0.3) interruptFoe(f, 0.5);
   }
-  /** 断云: a cut in the air (n 1, 2) — small and quick; n 3, the third: heavy, and he is sent straight down ahead of her */
+  /** 断云 (act-138 强化): alternating mid-air X-slash voxels (n=1,2) followed by a vertical downward cleave (n=3) */
   private airCut(o: { foe: Foe | null; from: THREE.Vector3; yaw: number; dmg: number; n: number }) {
     const fx = Math.sin(o.yaw), fz = Math.cos(o.yaw), f = o.foe, last = o.n >= 3;
     const at = f ? f.a.chest() : o.from.clone().add(V3(fx * 1.0, 0.9, fz * 1.0)), side = V3(fz, 0, -fx);
     slashArc.swing({ kind: last ? 'acutF' : 'acut', from: o.from, follow: this.hero.pos, yaw: o.yaw, range: 1.75, half: 1.15, n: o.n });
+    slashArc.clashCross(at, last ? V3(fx, 0, fz) : side, last ? Math.PI * 0.44 : (o.n === 1 ? 0.54 : -0.54), last ? 'heavy' : 'air', 0.22, last ? 0.96 : 0.76);
     if (!f || f.st === 'dead') { cue('whoosh', 0.5); return 0; }
     this.hitFoe(f, o.dmg, o.from.clone().setY(0), { knock: 0, heavy: last, kind: last ? 'acutF' : 'acut', stagger: 0.6 });
     if ((f.st as string) !== 'dead') { if (last) { f.airV = -16; this.lofted.delete(f); } else f.airV = 0; }
@@ -4108,7 +4122,8 @@ export class ActShow {
     if (!died && o.heavy && knock >= 1.2 && this.launchable(f) && f.pos.y < 0.05) f.airV = Math.max(f.airV ?? 0, 2.2 + knock * 1.3);
     if (died) this.killFoe(f, from);
     else if (f.kind !== 'dummy' && o.kind !== 'school' && o.kind !== 'dart' && (o.heavy || Math.random() < 0.33)) cue('foePain', o.heavy ? 1 : 0.75, voiceOf(f));
-    if (o.kind === 'k5' && !died && f.inv <= 0 && tierOf(this.perks, 'extra') >= 0) { const target = f, origin = from.clone(), echo = dmg * v(this.perks, 'extra') / 100; after(0.12, () => { if (target.st === 'dead' || !this.foes.includes(target)) return; const c = target.a.chest(); trailSeg(c.clone().add(V3(-0.45, 0.35, 0)), c.clone().add(V3(0.45, -0.35, 0)), 0xffe6c8, 0.13, { life: 0.18, bright: 2.5, spark: 0.5 }); fxSparks(c, 0xffc8a0, 9, 3); this.hitFoe(target, echo, origin, { knock: 0.2, heavy: false, kind: 'echo' }); }); }
+    // 叠刃 (act-138 强化): crisp delayed 3D voxel diagonal phantom cross-slash cleaving through the target 0.12s after k5!
+    if (o.kind === 'k5' && !died && f.inv <= 0 && tierOf(this.perks, 'extra') >= 0) { const target = f, origin = from.clone(), echo = dmg * v(this.perks, 'extra') / 100; after(0.12, () => { if (target.st === 'dead' || !this.foes.includes(target)) return; const c = target.a.chest(), side = V3(Math.cos(this.hero.a.yaw), 0, -Math.sin(this.hero.a.yaw)); slashArc.clashCross(c, side, -0.58, 'heavy', 0.24, 0.92); fxSparks(c, 0xffd6b0, 8, 3.2); cue('swingLight', 0.75); this.hitFoe(target, echo, origin, { knock: 0.2, heavy: false, kind: 'echo' }); }); }
   }
   /** act-125 / act-137: 惊雷陌刀 藏锋变招「裂阵斩」— restrained storm-gold & forged-iron ground cleave shattering shields/poise */
   private thunderCleave(o: { from: THREE.Vector3; yaw: number; len: number; dmg: number; chargeK: number; lv: number }) {
@@ -4200,7 +4215,7 @@ export class ActShow {
     this.feel('rel', true, Math.max(1, n), ab.clone());
     return n;
   }
-  private swing(o: { from: THREE.Vector3; yaw: number; range: number; half: number; dmg: number; knock: number; heavy: boolean; kind: string; n?: number; counter?: boolean; poiseMul?: number; pin?: boolean; finalCut?: boolean; weaponId?: WeaponId }) {
+  private swing(o: { from: THREE.Vector3; yaw: number; range: number; half: number; dmg: number; knock: number; heavy: boolean; kind: string; n?: number; counter?: boolean; poiseMul?: number; pin?: boolean; finalCut?: boolean; weaponId?: WeaponId; bigSpin?: boolean; keepCut?: boolean }) {
     const fx = Math.sin(o.yaw), fz = Math.cos(o.yaw); let n = 0;
     // the counter after a perfect dodge: double damage, a heavy (staggering) blow, a gold flash and a harder stop
     if (o.counter) {
@@ -4209,7 +4224,18 @@ export class ActShow {
       fxImpact(tip, 0xffd060, 1.25, { dir: V3(fx, 0, fz), ground: false, stop: false, shake: false }); fxRing(tip, 0xffe090, 1.4, { life: 0.3 } as never); cue('crit', 1.0);
     }
     // act-109 体素硬边刀弧面片: exact-reach blade crescent/lance synced to every swing, frozen crisply during hitstop
-    slashArc.swing({ kind: o.kind, from: o.from, follow: this.hero.pos, yaw: o.yaw, range: o.range, half: o.half, n: o.n, counter: o.counter, bleed: hasBoon(this.perks, 'bleed'), wide: o.kind === 'k3' && hasBoon(this.perks, 'spin') });
+    slashArc.swing({ kind: o.kind, from: o.from, follow: this.hero.pos, yaw: o.yaw, range: o.range, half: o.half, n: o.n, counter: o.counter, bleed: hasBoon(this.perks, 'bleed'), wide: (o.kind === 'k3' && hasBoon(this.perks, 'spin')) || !!o.bigSpin });
+    // act-138 扫八方 (pause combo): unmistakable 360° dual-tier silver-gold 3D voxel whirlwind sweep ring on both spins!
+    if (o.bigSpin) {
+      slashArc.ringArc(o.from, o.range * 0.92, 0.92, 'iai', 0.25, 24);
+      fxRing(o.from.clone().setY(0.08), 0xe8ddc2, o.range * 0.95, { life: 0.30, width: 0.12 } as never);
+      this.leaves?.blast(o.from.x, o.from.z, o.range + 0.6, 5);
+    }
+    // act-138 游身斩 (dodge-chain combo): crisp silver-jade sidestep cross-glint bridging the evasion into the cut!
+    if (o.keepCut) {
+      slashArc.clashCross(o.from.clone().add(V3(fx * 1.15, 0.98, fz * 1.15)), V3(fz, 0, -fx), 0.26, 'swoop', 0.20, 0.78);
+      fxSparks(o.from.clone().add(V3(fx * 0.9, 0.95, fz * 0.9)), 0xd8f0e6, 5, 2.8, { dir: V3(fx, 0, fz), dirK: 0.7 });
+    }
     // a thrust: a straight burst at the point (the lance itself is now drawn by slashArc)
     if (o.kind === 'k4') {
       const second = (o.n ?? 1) > 1, b = o.from.clone().add(V3(fx * (o.range + (second ? 0.8 : 0.4)), 1.0, fz * (o.range + (second ? 0.8 : 0.4))));
@@ -4219,7 +4245,7 @@ export class ActShow {
       if (second && hasBoon(this.perks, 'pierce')) this.pierceLine(o.from.clone(), V3(fx, 0, fz), o.dmg);
     }
     // 11-18 秘传 荡刃: the 3rd cut throws a ring of wind as far as its reach (hero.ts widens the reach)
-    if (o.kind === 'k3' && hasBoon(this.perks, 'spin')) this.spinRing(o.from.clone(), o.range);
+    if (o.kind === 'k3' && hasBoon(this.perks, 'spin') && !o.bigSpin) this.spinRing(o.from.clone(), o.range);
     const clashHit = !!(o.counter || o.kind === 'k5');
     let clashed = false;
     for (const f of this.foes.slice()) {
@@ -4291,9 +4317,10 @@ export class ActShow {
     if (this.props) this.applyProps(this.props.hitSeg(o.a, o.b, o.r, { src: 'hero', heavy: true }, this.targets()));   // act-19
     this.generalEvent?.strike({ k: 'seg', ax: o.a.x, az: o.a.z, bx: o.b.x, bz: o.b.z, r: o.r + 0.25 });
     if ((o.kind ?? 'rel') === 'rel' || o.kind === 'rel2') {
-      // 11-18 一闪 → act-109: sculpted wide white-gold Iai cleave ribbon + sparks along her path
+      // 11-18 一闪 → act-109 / act-138: sculpted wide white-gold Iai cleave ribbon; 追步 (rel2) adds crisp pivot chime & steel-gold ring
       const ext = ab.clone().setY(0).normalize().multiplyScalar(0.8), a0 = o.a.clone().sub(ext), b0 = o.b.clone().add(ext);
-      slashArc.line({ a: a0, b: b0, width: 1.05, y: 1.0, palette: 'iai', sweep: 0.025, fade: 0.34 });
+      slashArc.line({ a: a0, b: b0, width: o.kind === 'rel2' ? 0.92 : 1.05, y: 1.0, palette: 'iai', sweep: 0.025, fade: 0.34 });
+      if (o.kind === 'rel2') { fxRing(o.a.clone().setY(0.1), 0xf4dca0, 1.25, { life: 0.24, width: 0.12 } as never); cue('bladeRing', 0.65); }
       for (let i = 0; i <= 6; i++) fxSparks(a0.clone().lerp(b0, i / 6).setY(1.0), 0xfff4d8, 5, 3);
     } else if (o.kind === 'dcut' || o.kind === 'swoop') {
       slashArc.line({ a: o.a, b: o.b, width: o.kind === 'dcut' ? 0.78 : 0.85, y: o.kind === 'dcut' ? 0.72 : 0.86, palette: o.kind === 'dcut' ? 'dcut' : 'swoop', sweep: 0.03, fade: 0.24 });

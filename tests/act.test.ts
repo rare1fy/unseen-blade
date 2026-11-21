@@ -599,5 +599,15 @@ describe('combat wave 2: poise break & staggered cadence (act-113)', () => {
     expect(arcSrc).toContain('const wScale = Math.max(0.62, Math.min(1.18, o.width));');
     expect(showSrc).not.toContain('0x7a58d8');
     expect(showSrc).not.toContain('0x8a64f0');
+
+    // 5. act-138: every upgraded combo / manual / boon move emits crisp, unmistakable 3D voxel signature VFX (透骨 / 扫八方 / 游身斩 / 叠刃 / 错身 / 掠顶 / 挑云 / 断云 / 穿心腿 / 追步)
+    expect(arcSrc).toContain('ringArc(');
+    expect(showSrc).toContain("slashArc.line({ a, b, width: 0.96, y: 1.0, palette: 'stab'");
+    expect(showSrc).toContain("slashArc.ringArc(o.from, o.range * 0.92, 0.92, 'iai'");
+    expect(showSrc).toContain('if (o.keepCut)');
+    expect(showSrc).toContain("slashArc.clashCross(c, side, -0.58, 'heavy'");
+    expect(showSrc).toContain("slashArc.clashCross(at, last ? V3(fx, 0, fz) : side");
+    expect(heroSrc).toContain('bigSpin: this.bigSpin');
+    expect(heroSrc).toContain('keepCut: this.keepCut && this.hits === 1');
   });
 });
