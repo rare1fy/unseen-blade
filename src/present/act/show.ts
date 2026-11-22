@@ -58,7 +58,7 @@ import { clampWithDoors } from './doorClamp';
 import { Timeline, type V } from './timeline';
 import { openingShots, bossIntroShots, generalIntroShots, steleStrikeShots, safeCam, type CineHost } from './cutscenes';
 import { NPC_TALK, STELE_TALK, MEAL_TALK, UP_TALK, POOR_TALK, WAKE_DUWU, WAKE_SUNAO, CHULEI_BEFORE, CH_BEFORE, CH_AFTER, BOSS_AFTER, STRIKE_FLAG, bossesDown, struckOnStele, ENDING, ENDING_A_NO_DUWU, ENDING_C_NO_DUWU, ENDING_PICK, ENDING_DESC, DUWU_ROAD_1, DUWU_ROAD_2, DUWU_DIE, DUWU_MEMORIAL_INTRO, DEATH_SUNAO_AFTER_DUWU, GEN_BEFORE, GEN_AFTER, deathLine, PRO_CUIXUAN, PRO_FALL, PRO_DAWN, PRO_WAKE, PRO_CAPTIONS, PRO_AMBUSH } from './scripts';
-import { fallShots, snowShots, dawnShots, snapDawn, loadShots, brazier, getUpPose, drapeOver, GETUP_STEP, Kneel, KNEEL_ARMS, CuiInspect, cuiKneelDefeatPose, bossKneelDefeatPose, poseWallVault, heroHoldThroatPose, heroSitFirePose, heroHandOnHiltPose, heroPutHatPose, heroKneelBesidePose, duwuRecoilPose, npcWarmPose, duwuPoisonPose, duwuDieShots, endingWalkShots, type PrologueHost, type VaultPhase } from './prologue';
+import { fallShots, snowShots, dawnShots, snapDawn, loadShots, brazier, getUpPose, drapeOver, GETUP_STEP, Kneel, KNEEL_ARMS, CuiInspect, cuiKneelDefeatPose, bossKneelDefeatPose, bossDefiantPose, poseWallVault, heroHoldThroatPose, heroSitFirePose, heroHandOnHiltPose, heroPutHatPose, heroKneelBesidePose, duwuRecoilPose, npcWarmPose, duwuPoisonPose, duwuDieShots, endingWalkShots, type PrologueHost, type VaultPhase } from './prologue';
 import { AllyGeneral, GENERAL_REGIONS, type AllyHost } from './foes/generals_ai';
 import { coldOpenShots, coldCardShots, BlindPOV } from './coldopen';
 import { Barks } from './barks';
@@ -259,8 +259,11 @@ interface Room { fixtures?: Fixtures; spec: Spec; big: boolean; layout: Layout; 
 /** act-44: where her hips lie on 孙媪's mat when she first wakes (the mat runs along z; her head toward the wall, a metre clear) */
 const WAKE_MAT: [number, number] = [6.42, -6.2];   // (her neck on the headrest at the wall end, her heels short of the folded quilt)
 const PRO_ROOM = { locale: 'hj_village', waves: [['hj_mob', 'hj_blade', 'hj_mob', 'hj_mob'], ['hj_blade', 'hj_mob', 'hj_mob']] as EKind[][],   // (11-19: the first wave is the ambush that closes round her — four, from every side)
-  spec: { season: 'winter', weather: 'snow', time: 'night' } as Partial<Spec> };
+  // act-169: deterministic canonical village architecture (axis street + village elder tree, mirror: false, fixed seed 107) — zero random building/gate shifts!
+  spec: { layout: 'axis', mirror: false, landmark: 'huaishu', season: 'winter', weather: 'snow', time: 'night', seed: 107 } as Partial<Spec> };
 const PRO_BOSS: RoomPlan = { type: 'boss', locale: 'cx_court', reward: null, waves: [['cx_boss']] };   // (11-19 剧情改版: 崔府's forecourt, 崔玄)
+// act-169: deterministic canonical Cui Manor snowy forecourt architecture — west vault wall, north hall & lanterns stay 100% consistent!
+const PRO_BOSS_SPEC: Partial<Spec> = { layout: 'axis', mirror: false, landmark: null, season: 'winter', weather: 'snow', time: 'night', seed: 209 };
 /** 11-19 剧情改版: the five bosses in order (region 0 … 4), the meeting cutscene's name for each */
 const BOSS_ORDER: EKind[] = ['hj_boss', 'ly_boss', 'xp_boss', 'wl_boss', 'cx_boss'];
 /** act-37 the cold open's place: 寒山坞 on that snowy night (its own layout and light) */
@@ -345,6 +348,17 @@ export function roomDefinition(o: RoomIn) {
     Object.assign(spec, { ...mb, mirror: false, time: atmo.time, weather: atmo.weather, seed: dm.seed });
   }
   const loc = LOCALES[spec.locale], bigP = !isYard && bigStage(spec.locale);
+  // act-169: lock architectural layout, mirror: false & deterministic building seed for non-drawn rooms so buildings & doorways
+  // NEVER randomly jump/flip across runs — ONLY breakable props (propSeed passed to arenaPlan) randomize per run!
+  if (!dm && !isYard && !o.viewSpec) {
+    spec.mirror = false;
+    if (!o.forceSpec?.layout && loc?.layouts?.length) spec.layout = loc.layouts[0];
+    if (!o.forceSpec?.seed) {
+      let ah = 2166136261;
+      for (const ch of `${spec.locale}:${spec.layout}`) ah = Math.imul(ah ^ ch.charCodeAt(0), 16777619);
+      spec.seed = (ah >>> 0) % 90000 + 1000;
+    }
+  }
   const shapeId: ShapeId = dm ? 'map' : !bigP || o.noArena || isEvent ? 'square' : o.shape ?? (o.viewSpec || o.forceSpec ? 'square' : pickShape(loc?.shapes, calm ? 'calm' : ptype === 'boss' ? 'boss' : 'fight', spec.seed, o.shapes ?? []));
   const big = bigP, k = dm ? mapStage(dm) : SHAPE_K[shapeId]; setStage(big, k);
   const lb = REGISTRY.layouts[spec.layout] ?? Object.values(LOCALES).flatMap(l => l.extraLayouts ?? []).find(l => l.id === spec.layout)!;
@@ -352,7 +366,8 @@ export function roomDefinition(o: RoomIn) {
   const layout = withExits(spec.mirror ? mirrorLayout(stageLayout(lb)) : stageLayout(lb), spec.exits ?? [], drawn?.fixed);
   const pits = loc?.pits ?? ['water'], pitK = pits[Math.floor(((spec.seed * 2654435761) >>> 0) / 4294967296 * pits.length) % pits.length];
   const shape = drawn ?? (big && !o.noArena && shapeId !== 'square' ? makeShape(shapeId, spec.seed, { layout, pit: pitK }) : undefined);
-  const arena = big && !o.noArena ? arenaPlan(layout, (spec.exits ?? []) as ExitId[], spec.seed, spec.locale, calm || isEvent ? 'calm' : ptype === 'boss' ? 'boss' : 'fight', shape) : null;
+  const propSeed = dm ? spec.seed : seed;
+  const arena = big && !o.noArena ? arenaPlan(layout, (spec.exits ?? []) as ExitId[], propSeed, spec.locale, calm || isEvent ? 'calm' : ptype === 'boss' ? 'boss' : 'fight', shape) : null;
   spec.arena = arena ?? undefined;
   if (isYard) return { spec, big, layout, arena, report: null, k, def: hideoutScene(ya) };
   const { def, report } = assemble(spec, REGISTRY);
@@ -462,7 +477,7 @@ export class ActShow {
     if (!OPT.roomAhead) return;
     const base = { recent: this.recent.slice(), shapes: this.shapes.slice(), maps: this.maps.slice(), shape: this.forceShape, seed: this.forceSeed, map: this.forceMap, regionSpec: null };
     const want: RoomIn = tag === 'boss'
-      ? { ...base, isYard: false, room: this.room + 1, locale: PRO_BOSS.locale, plan: PRO_BOSS, nextRooms: [], viewSpec: null, forceSpec: { ...PRO_ROOM.spec }, noArena: false, region: undefined }
+      ? { ...base, isYard: false, room: this.room + 1, locale: PRO_BOSS.locale, plan: PRO_BOSS, nextRooms: [], viewSpec: null, forceSpec: { ...PRO_BOSS_SPEC }, noArena: false, region: undefined }
       : tag === 'dawn'
       ? { ...base, isYard: false, room: this.room, locale: this.locale, plan: this.plan, nextRooms: [], viewSpec: this.dawnView() as Spec, forceSpec: null, noArena: true, region: undefined }
       : { ...base, recent: [], isYard: true, room: -1, locale: 'ninja_wilds', plan: null, nextRooms: [], viewSpec: null, forceSpec: null, noArena: false, region: this.region };
@@ -630,18 +645,21 @@ export class ActShow {
       cue('roar', 0.35); this.musicHold = null; void audio.playMusic(this.musicName(), 2.5);
     };
     void this.cine([
-      // the year and the place, high over the village (act-37: the cold open's last card says 七年了)
-      { dur: 3.6, ease: 'inOut', caption: { text: PRO_CAPTIONS[1], big: true, at: 0.6, hold: 2.3 }, from: { pos: [p0.x + 4, 17, p0.z + 15], look: [p0.x, 0, p0.z - 5], fov: 40 }, to: { pos: [p0.x + 3, 14, p0.z + 13], look: [p0.x, 0, p0.z - 5], fov: 40 },
+      // Shot 1: Aerial snow establishing over the silent village rooftops
+      { dur: 2.8, ease: 'out', caption: { text: PRO_CAPTIONS[1], big: true, at: 0.45, hold: 2.0 }, from: { pos: [p0.x + 4.2, 16.5, p0.z + 14.5], look: [p0.x, 0, p0.z - 5], fov: 40 }, to: { pos: [p0.x + 3.4, 14.2, p0.z + 12.8], look: [p0.x, 0, p0.z - 5], fov: 39 },
         tick: (_t, dt) => h.a.update(dt) },
-      // she comes up the lane alone — from behind and to the side, the camera keeping pace, low enough to see her steps in the snow
-      { dur: 5.4, ease: 'linear', from: () => ({ pos: [p0.x + 4.2, 3.0, h.pos.z + 5.8] as V, look: [p0.x, 0.9, h.pos.z - 1.5] as V, fov: 36 }), to: () => ({ pos: [p0.x + 3.8, 2.8, h.pos.z + 5.2] as V, look: [p0.x, 0.9, h.pos.z - 1.8] as V, fov: 36 }),
-        tick: (t, dt) => { const m = motionOf(h.a); h.a.yaw = Math.PI; h.pos.z = p0.z - Math.min(WALK, t * 1.2); m.run = h.pos.z > stopZ + 0.05 ? 0.22 : Math.max(0, m.run - dt * 4); h.a.update(dt); } },
-      // she stops; her head turns; one ring after another in the snow round her — they are there, and she hears them
-      { dur: 2.6, ease: 'inOut', from: cam(4.6, 2.9, 6.4, -0.8, 34), to: cam(4.0, 2.7, 5.6, -0.6, 33),
-        at: [[0.3, () => snowRing(p0.x - 3.2, stopZ - 1.8)], [0.8, () => snowRing(p0.x + 3.6, stopZ + 0.6)], [1.3, () => snowRing(p0.x - 1.0, stopZ - 3.8)], [1.75, () => snowRing(p0.x + 1.8, stopZ + 3.2)], [1.0, () => cue('foeSwing', 0.25)]],
-        tick: (t, dt) => { stand(); h.a.update(dt); const hd = h.a.bones.head; if (hd) hd.rotation.y += 0.35 * Math.sin(Math.min(1, t / 1.6) * Math.PI); } },
-      // they come out: scaling the perimeter walls with articulated parkour vaults, landing in a crouch, then sprinting across the snow to surround her
-      { dur: 3.1, ease: 'out', from: cam(0.6, 7.2, 8.6, -0.8, 40), to: cam(0.4, 6.4, 7.6, -0.6, 40),
+      // Shot 2A: HARD CUT to low side-tracking shot on her boots crunching snow & crimson tassels swaying
+      { dur: 2.6, ease: 'linear', from: () => ({ pos: [p0.x + 3.6, 2.35, h.pos.z + 3.8] as V, look: [p0.x, 0.85, h.pos.z - 1.2] as V, fov: 35 }), to: () => ({ pos: [p0.x + 3.3, 2.25, h.pos.z + 3.4] as V, look: [p0.x, 0.85, h.pos.z - 1.4] as V, fov: 34 }),
+        tick: (t, dt) => { const m = motionOf(h.a); h.a.yaw = Math.PI; h.pos.z = p0.z - Math.min(WALK * 0.55, t * 1.38); m.run = 0.24; h.a.update(dt); } },
+      // Shot 2B: HARD CUT to reverse front-3/4 angle as she walks straight toward camera & halts sharply!
+      { dur: 2.2, ease: 'out', from: () => ({ pos: [p0.x - 2.6, 2.45, stopZ - 4.4] as V, look: [p0.x, 1.0, h.pos.z] as V, fov: 35 }), to: () => ({ pos: [p0.x - 2.3, 2.35, stopZ - 3.9] as V, look: [p0.x, 1.05, stopZ] as V, fov: 34 }),
+        tick: (t, dt) => { const m = motionOf(h.a); h.a.yaw = Math.PI; h.pos.z = Math.max(stopZ, p0.z - WALK * 0.55 - t * 1.45); m.run = h.pos.z > stopZ + 0.05 ? 0.24 : Math.max(0, m.run - dt * 5); h.a.update(dt); } },
+      // Shot 3: HARD CUT tight listening beat — head turns, concentric snow sound rings ripple out around her
+      { dur: 2.3, ease: 'out', from: cam(3.6, 2.45, 4.6, -0.5, 34), to: cam(3.2, 2.35, 4.1, -0.4, 33),
+        at: [[0.25, () => snowRing(p0.x - 3.2, stopZ - 1.8)], [0.7, () => snowRing(p0.x + 3.6, stopZ + 0.6)], [1.15, () => snowRing(p0.x - 1.0, stopZ - 3.8)], [1.6, () => snowRing(p0.x + 1.8, stopZ + 3.2)], [0.9, () => cue('foeSwing', 0.25)]],
+        tick: (t, dt) => { stand(); h.a.update(dt); const hd = h.a.bones.head; if (hd) hd.rotation.y += 0.35 * Math.sin(Math.min(1, t / 1.4) * Math.PI); } },
+      // Shot 4A: HARD CUT high-wide ambush cut as sentries vault cleanly over the snowy village walls
+      { dur: 2.35, ease: 'out', from: cam(0.6, 7.2, 8.6, -0.8, 40), to: cam(0.4, 6.4, 7.6, -0.6, 40),
         at: [[0, spawnAmbushers]],
         tick: (t, dt) => {
           stand(); h.a.update(dt);
@@ -713,9 +731,15 @@ export class ActShow {
             if (pPhase) poseWallVault(f.a, pPhase, pU);
           }
         } },
-      // the ring closed: low, from outside it, her in the middle
-      { dur: 1.6, ease: 'inOut', from: cam(5.6, 4.4, 7.2, -0.4, 38), to: cam(5.0, 4.0, 6.6, -0.3, 36),
-        tick: (_t, dt) => { stand(); h.a.update(dt); for (const j of jumpers) { j.f.a.root.visible = true; j.f.a.off.y = 0; j.f.a.body.rotation.set(0, 0, 0); j.f.a.setRunning(false); j.f.a.update(dt); } } },
+      // Shot 4B: HARD CUT dramatic low angle inside the closing ring — Liu Bai heroic center framed by the 4 ambushers!
+      { dur: 1.55, ease: 'out', from: cam(4.4, 2.75, 5.4, -0.4, 37), to: cam(3.9, 2.55, 4.9, -0.3, 35),
+        at: [[0, () => {
+          for (const j of jumpers) {
+            j.landed = true; j.f.a.root.visible = true; j.f.pos.copy(j.to); j.f.pos.y = 0; j.f.a.home.copy(j.to); j.f.a.off.y = 0; j.f.a.body.rotation.set(0, 0, 0); j.f.a.setRunning(false);
+            j.f.yaw = Math.atan2(h.pos.x - j.f.pos.x, h.pos.z - j.f.pos.z); j.f.a.yaw = j.f.yaw;
+          }
+        }]],
+        tick: (_t, dt) => { stand(); h.a.update(dt); for (const j of jumpers) j.f.a.update(dt); } },
     ], () => {
       // act-114 skip-safety: even if player skipped shot 0/1/2, hero is at stopZ and wave-0 ambushers are landed & music is live
       h.pos.set(p0.x, 0, stopZ); h.a.home.copy(h.pos); h.a.root.position.copy(h.pos); h.a.yaw = Math.PI; motionOf(h.a).run = 0;
@@ -761,6 +785,81 @@ export class ActShow {
       this.phase = 'fight'; this.wave = 0;
     });
   }
+  /** act-169: Re-stage a hero/boss cutscene pair onto guaranteed open interior floor (>= margin from all walls, solids & pits)
+   *  so knockbacks, thrown weapons, kneeling, and prone collapses NEVER clip into courtyard walls or pillars. */
+  private stageSafePair(heroPos: THREE.Vector3, bossPos: THREE.Vector3, gap: number, margin = 3.0, mode: 'inward' | 'ns' = 'inward') {
+    const b = this.grid ? this.grid.sp.box : { x0: PLAY.x0, x1: PLAY.x1, z0: PLAY.z0, z1: PLAY.z1 };
+    const cx = (b.x0 + b.x1) * 0.5, cz = (b.z0 + b.z1) * 0.5;
+    const minX = Math.min(cx, b.x0 + margin), maxX = Math.max(cx, b.x1 - margin);
+    const minZ = Math.min(cz, b.z0 + margin), maxZ = Math.max(cz, b.z1 - margin);
+    const inBox = (x: number, z: number, m: number) => x >= b.x0 + m && x <= b.x1 - m && z >= b.z0 + m && z <= b.z1 - m;
+    const freePt = (x: number, z: number, r: number, m: number) =>
+      inBox(x, z, m) && this.solids.free(x, z, r, 0.3) && (!this.grid || this.grid.clear(x, z, r));
+    const checkPair = (hx: number, hz: number, bx: number, bz: number): boolean => {
+      if (!freePt(hx, hz, 1.05, margin) || !freePt(bx, bz, 1.05, margin)) return false;
+      const dx = bx - hx, dz = bz - hz, l = Math.hypot(dx, dz) || 1;
+      const fx = dx / l, fz = dz / l, rx = -fz, rz = fx;
+      // Verify knockback/prone & thrown-blade footprint stays well inside walls and clear of solids
+      if (mode === 'inward') {
+        if (!freePt(hx - fx * 1.65, hz - fz * 1.65, 0.85, 1.45)) return false;
+        if (!freePt(hx + fx * 0.95 + rx * 0.95, hz + fz * 0.95 + rz * 0.95, 0.55, 1.2)) return false;
+      } else {
+        if (!freePt(bx - fx * 1.45, bz - fz * 1.45, 0.75, 1.35)) return false;
+      }
+      return true;
+    };
+
+    const seedMx = Math.max(minX, Math.min(maxX, (heroPos.x + bossPos.x) * 0.5));
+    const seedMz = Math.max(minZ, Math.min(maxZ, (heroPos.z + bossPos.z) * 0.5));
+    const half = gap * 0.5;
+    const tryCenter = (mx: number, mz: number): [number, number, number, number] | null => {
+      if (mode === 'ns') {
+        const hx = mx, hz = mz + half, bx = mx, bz = mz - half;
+        return checkPair(hx, hz, bx, bz) ? [hx, hz, bx, bz] : null;
+      }
+      // Prefer existing hero->boss axis if clean, else canonical N-S facing inward, else cardinal rotations
+      const ox = bossPos.x - heroPos.x, oz = bossPos.z - heroPos.z, ol = Math.hypot(ox, oz);
+      const dirs: Array<[number, number]> = [[0, -1], [0, 1], [1, 0], [-1, 0]];
+      if (ol > 0.2) dirs.unshift([ox / ol, oz / ol]);
+      for (const [fx, fz] of dirs) {
+        const hx = mx - fx * half, hz = mz - fz * half;
+        const bx = mx + fx * half, bz = mz + fz * half;
+        if (checkPair(hx, hz, bx, bz)) return [hx, hz, bx, bz];
+      }
+      return null;
+    };
+
+    let picked = tryCenter(seedMx, seedMz);
+    if (!picked) {
+      // Spiral from clamped midpoint toward room center (cx, cz), then outward from center
+      const anchors: Array<[number, number]> = [
+        [seedMx * 0.5 + cx * 0.5, seedMz * 0.5 + cz * 0.5],
+        [cx, cz],
+      ];
+      for (const [ax, az] of anchors) {
+        picked = tryCenter(ax, az);
+        if (picked) break;
+        for (const rad of [1.2, 2.4, 3.6, 5.0]) {
+          for (let k = 0; k < 12; k++) {
+            const ang = (k / 12) * Math.PI * 2;
+            picked = tryCenter(ax + Math.cos(ang) * rad, az + Math.sin(ang) * rad);
+            if (picked) break;
+          }
+          if (picked) break;
+        }
+        if (picked) break;
+      }
+    }
+    if (picked) {
+      heroPos.set(picked[0], 0, picked[1]);
+      bossPos.set(picked[2], 0, picked[3]);
+    } else {
+      heroPos.set(cx, 0, cz + half);
+      bossPos.set(cx, 0, cz - half);
+    }
+    this.clamp(heroPos, 0.65);
+    this.clamp(bossPos, 0.75);
+  }
   /** the fight she cannot win: the blow, his word, the snow; dawn and the man with the donkey; the kiln */
   private async prologueFall() {
     if (this.proFalling || this.prologue !== 2) return; this.proFalling = true;
@@ -771,16 +870,26 @@ export class ActShow {
     const boss = this.foes.find(f => isBoss(f) && f.st !== 'dead') ?? null;
     this.hero.inv = 99;
     this.hero.a.root.visible = true; this.hero.a.body.visible = true;
-    this.hero.a.home.copy(this.hero.pos);
     for (const f of this.foes) { dropTeles(f); f.attacking = false; f.lunge = null; }   // nothing left half-swung on the snow
     for (const a of this.arrows) a.kill(); this.arrows.length = 0; this.hitArcs.clear();
     if (boss) {
+      // act-169: Re-stage hero & Cui Xuan onto clear interior courtyard floor (>= 3.0m from walls) so disarm, sword stab & prone collapse never clip walls!
+      const hSafe = this.hero.pos.clone().setY(0), bSafe = boss.pos.clone().setY(0);
+      this.stageSafePair(hSafe, bSafe, 2.75, 3.0, 'inward');
+      this.hero.pos.copy(hSafe); this.hero.vel.set(0, 0, 0);
+      this.hero.a.home.copy(hSafe); this.hero.a.root.position.copy(hSafe);
+      this.hero.a.yaw = Math.atan2(bSafe.x - hSafe.x, bSafe.z - hSafe.z);
       boss.mem.noHide = true;
       revealFoe(boss);
       boss.st = 'move'; boss.inv = 99; boss.vel.set(0, 0, 0);
       if (boss.a.bones.blade) boss.a.bones.blade.visible = true;
       if (boss.a.bones.fan) boss.a.bones.fan.visible = false;
-      boss.a.home.copy(boss.pos); boss.a.root.position.copy(boss.pos);
+      boss.pos.copy(bSafe);
+      boss.a.home.copy(bSafe); boss.a.root.position.copy(bSafe);
+      boss.yaw = Math.atan2(hSafe.x - bSafe.x, hSafe.z - bSafe.z);
+      boss.a.yaw = boss.yaw;
+    } else {
+      this.hero.a.home.copy(this.hero.pos);
     }
     const kneelPose = () => this.proKneel.frame(this.hero.a);
     if (boss) {
@@ -882,7 +991,7 @@ export class ActShow {
     this.mods = runMods(profile()); this.defy = 0; this.eliteKills = 0; this.bossKilled = false; this.wine = false;
     TUNE.heroHp = 100 + this.mods.hpBonus; TUNE.dartCharges = 3 + this.mods.dartBonus; TUNE.aggression = 0.85 / this.mods.windupMul;
     this.baseFoe.aggression = TUNE.aggression; this.scaleFoes(0);
-    this.plan = PRO_BOSS; this.locale = PRO_BOSS.locale; this.forceSpec = { ...PRO_ROOM.spec };
+    this.plan = PRO_BOSS; this.locale = PRO_BOSS.locale; this.forceSpec = { ...PRO_BOSS_SPEC };
     const loading = this.buildRoom(true); if (loading) await loading;
     this.queuePro('dawn');
   }
@@ -2446,24 +2555,26 @@ export class ActShow {
       },
       /** act-114: preview Ch5 blade-at-throat ending choice, or directly play ending 'a' | 'b' | 'c' */
       ending: (choice?: 'a' | 'b' | 'c') => { void this.debugEnding(choice); },
-      /** act-156: preview prologue Cui Xuan disarm (spinning blade stabs upright into snow) + PRO_FALL */
-      proFall: () => {
+      /** act-156 / act-169: preview prologue Cui Xuan disarm (pass wallEdge=true to test wall-hugging anti-clip re-staging) */
+      proFall: (wallEdge = false) => {
         void (async () => {
           if (this.phase === 'title') { stopTitle(); this.hud.on = true; }
           this.prologue = 2; this.proFalling = false; this.proFightT = 0; this.tut.stop();
           this.room = 1; this.region = 0;
-          this.plan = { ...PRO_BOSS, waves: [] }; this.locale = PRO_BOSS.locale; this.forceSpec = { ...PRO_ROOM.spec };
+          this.plan = { ...PRO_BOSS, waves: [] }; this.locale = PRO_BOSS.locale; this.forceSpec = { ...PRO_BOSS_SPEC };
           await this.buildRoom(false);
           this.forceSpec = null;
           this.phase = 'fight';
           this.waveGen++;
-          const cx = spawnFoe('cx_boss', V3(0, 0, -2.2), this.hero.pos.clone());
+          const bStart = wallEdge ? V3(PLAY.x0 + 1.4, 0, PLAY.z1 - 1.5) : V3(0, 0, -2.2);
+          const hStart = wallEdge ? V3(PLAY.x0 + 0.55, 0, PLAY.z1 - 0.65) : V3(0, 0, 2.2);
+          const cx = spawnFoe('cx_boss', bStart, hStart.clone());
           this.foes.push(cx);
-          this.hero.pos.set(0, 0, 2.2); this.hero.a.place(this.hero.pos, Math.PI);
+          this.hero.pos.copy(hStart); this.hero.a.place(this.hero.pos, Math.atan2(bStart.x - hStart.x, bStart.z - hStart.z));
           await frames(2);
           await this.prologueFall();
         })();
-        return { stage: 'proFall' };
+        return { stage: 'proFall', wallEdge };
       },
       /** act-157 / act-165: preview prologue Cui Xuan immediate frame-0 wall-vault + hard-cut PRO_CUIXUAN confrontation */
       proCuixuan: () => {
@@ -2471,7 +2582,7 @@ export class ActShow {
           if (this.phase === 'title') { stopTitle(); this.hud.on = true; }
           this.prologue = 2; this.proFalling = false; this.proFightT = 0; this.tut.stop();
           this.room = 1; this.region = 0;
-          this.plan = PRO_BOSS; this.locale = PRO_BOSS.locale; this.forceSpec = { ...PRO_ROOM.spec };
+          this.plan = PRO_BOSS; this.locale = PRO_BOSS.locale; this.forceSpec = { ...PRO_BOSS_SPEC };
           await this.buildRoom(false);
           this.forceSpec = null;
         })();
@@ -4441,7 +4552,7 @@ export class ActShow {
               fxSmoke(this.hero.pos.clone().setY(0.12), 0xe8eef8, 6, { r: 0.45, spd: 0.8, up: 0.35, s: 0.32, life: 0.55, alpha: 0.6 });
               this.cutCam([dPos.x + 2.75, 2.35, dPos.z + 3.45], [dPos.x + 0.35, 0.52, dPos.z + 0.12], 34, { drift: [-0.18, -0.04, -0.22], fovDrift: -1.4 });
             }
-            if (idx >= 7 && !deadPose) {
+            if (idx >= 6 && !deadPose) {
               // Beat: "他攥着里衣的手松开了，半块粗布裹着的温热胡饼滚落进雪里" -> flatbread rolls onto snow!
               deadPose = true; cue('bodyFall', 0.55);
               if (this.stage) {
@@ -4451,11 +4562,11 @@ export class ActShow {
                 this.roadExtras.push(bread);
               }
             }
-            if (idx === 8) {
+            if (idx === 7) {
               // Cold sneer hard-cut back to Feng Han ("啧，可惜了半副好药引...")
               this.cutCam([f.pos.x - 2.6, 2.45, f.pos.z + 3.6], [f.pos.x, 1.15, f.pos.z], 33, { drift: [0.20, -0.04, -0.22], fovDrift: -1.2 });
             }
-            if (idx >= 9 && !hiltReady) {
+            if (idx >= 8 && !hiltReady) {
               // Beat: "刘白慢慢松开怀里渐冷的身子，起身，缓缓按上刀柄" -> rises & locks onto Feng Han from heroic low angle!
               kneelWant = 0; hiltReady = true;
               this.hero.a.yaw = Math.atan2(f.pos.x - this.hero.pos.x, f.pos.z - this.hero.pos.z);
@@ -6036,7 +6147,7 @@ export class ActShow {
       const away = f.pos.clone().sub(from).setY(0.2);
       if (away.lengthSq() < 1e-4) away.set(0, 0.2, -1);
       blood.spray(f.a.chest(), away.normalize(), 18, 1.05);
-      bossKneelDefeatPose(f.a, 0.01);
+      if (f.kind === 'ly_boss') bossDefiantPose(f.a, 0.01); else bossKneelDefeatPose(f.a, 0.01);
     } else if (fell) { /* gone down a pit: out of sight already */ }
     else if (f.pos.y > 0.05) { this.drops.push({ f, from: from.clone(), boss, vy: Math.min(0, f.airV ?? 0) }); f.airV = undefined; }
     else void playDeath(f.a, { from, ratio: f.lastDmg / f.maxHp + (boss ? 0.5 : 0), boss }).then(() => { f.a.dispose(); });
@@ -6636,7 +6747,7 @@ export class ActShow {
     const chosen = this.ahead.find(job => job.plan === next);
     this.dropAhead(chosen);
     if (chosen) this.ahead.push(chosen);
-    this.plan = next; const fromLocale = this.locale; this.locale = next.locale; if (this.prologue === 1) { this.prologue = 2; this.proFightT = 0; profile().proStage = 'boss'; saveProfile(); }
+    this.plan = next; const fromLocale = this.locale; this.locale = next.locale; if (this.prologue === 1) { this.prologue = 2; this.proFightT = 0; this.forceSpec = { ...PRO_BOSS_SPEC }; profile().proStage = 'boss'; saveProfile(); }
     // 11-18 一局五关: the road out of a boss room goes into the next region — its rooms count from one again, its own kinds of room,
     // its foes stronger (the run's TUNE scaled by flow.ts regionScale)
     const nextRegion = !this.prologue && next.region != null && next.region !== this.region;
@@ -6675,14 +6786,13 @@ export class ActShow {
     }
     this.foes = bossFoe ? [bossFoe] : [];
     const bossKind = bossFoe ? bossFoe.kind : (BOSS_ORDER[ai] ?? 'hj_boss');
+    const defiant = ai === 1 || bossKind === 'ly_boss';
     const bossR = bossFoe ? bossFoe.d.r : (EDEFS[bossKind]?.r ?? 0.65);
     const gap = Math.max(2.35, 1.74 + bossR * 1.15);
     const bossPos = bossFoe ? bossFoe.pos.clone().setY(0) : V3(0, 0, -2.0);
-    if (bossPos.z > PLAY.z1 - (gap + 1.0)) bossPos.z = PLAY.z1 - (gap + 1.0);
-    if (bossPos.z < PLAY.z0 + 1.2) bossPos.z = PLAY.z0 + 1.2;
-    this.clamp(bossPos, 0.7);
     const heroPos = V3(bossPos.x, 0, bossPos.z + gap);
-    this.clamp(heroPos, 0.5);
+    // act-169: Re-stage boss execution pair onto guaranteed clear interior floor (>= 2.8m from walls) so falling corpse never clips walls
+    this.stageSafePair(heroPos, bossPos, gap, 2.8, 'ns');
 
     let actor: BattleActor;
     let ownsActor = false;
@@ -6707,16 +6817,19 @@ export class ActShow {
     this.hero.a.yaw = Math.atan2(bossPos.x - heroPos.x, bossPos.z - heroPos.z);
     motionOf(this.hero.a).run = 0;
 
-    const throatY = Math.max(0.94, Math.min(1.26, actor.height * 0.54));
+    const throatY = defiant
+      ? Math.max(1.24, Math.min(1.52, actor.height * 0.72))
+      : Math.max(0.94, Math.min(1.26, actor.height * 0.54));
     const throatStop = V3(bossPos.x, throatY, bossPos.z + Math.max(0.34, bossR * 0.62));
     let afterT = kb ? Math.max(0.45, kb.t) : 0.6;
     let executed = false;
+    const bossPose = (t: number) => defiant ? bossDefiantPose(actor, t) : bossKneelDefeatPose(actor, t);
     this.hero.scriptPose = () => heroHoldThroatPose(this.hero.a, throatStop, afterT);
-    bossKneelDefeatPose(actor, afterT);
+    bossPose(afterT);
     this.talkTick = (dt: number) => {
       afterT += dt;
       if (ownsActor) actor.update(dt);
-      if (!executed) bossKneelDefeatPose(actor, afterT);
+      if (!executed) bossPose(afterT);
     };
 
     const setAfterCam = (pos: V, look: V, fov: number) => {
@@ -7466,7 +7579,8 @@ export class ActShow {
       if (this.kneelingBoss && this.kneelingBoss.f === f && !this.kneelingBoss.executed) {
         this.kneelingBoss.t += dt;
         f.a.update(dt);
-        bossKneelDefeatPose(f.a, this.kneelingBoss.t);
+        if (f.kind === 'ly_boss') bossDefiantPose(f.a, this.kneelingBoss.t);
+        else bossKneelDefeatPose(f.a, this.kneelingBoss.t);
         continue;
       }
       if (this.duel.holds(f)) this.duel.holdFoe(f, dt);   // 11-18 QTE: the duel moves the foe it has (held in the bind / its string's beats)

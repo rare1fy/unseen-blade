@@ -420,16 +420,27 @@ export function bossIntroShots(h: CineHost, boss: Foe, name: string, o: { prolog
     ];
   }
 
+  // ---- Shot 2: HARD CUT to dramatic low reverse medium close-up on the Boss's signature reveal + name card
+  const bossClose = (distOut: number, y: number, fov: number) =>
+    safeCam([b.x - dir.x * distOut + nx * 2.2, y, b.z - dir.z * distOut + nz * 2.2], [b.x, 1.25, b.z], fov);
   const shot2: CineShot = {
-    dur: dur2, ease: 'inOut',
-    from: () => sideShot(8.6, 4.6, 36),
-    to: () => sideShot(7.8, 4.1, 34),
-    caption: { text: name, at: 0.95, hold: 1.85 },
+    dur: Math.max(1.85, dur2 - 0.95), ease: 'out',
+    from: () => bossClose(4.6, 2.55, 35),
+    to: () => bossClose(4.0, 2.38, 33),
+    caption: { text: name, at: 0.55, hold: 1.55 },
     at: at2,
     tick: tick2,
   };
 
-  return [shot1, shot2];
+  // ---- Shot 3: HARD CUT to wide martial showdown two-shot framing both fighters facing off across the arena
+  const shot3: CineShot = {
+    dur: 1.05, ease: 'out',
+    from: () => sideShot(8.6, 3.8, 36),
+    to: () => sideShot(8.0, 3.55, 35),
+    tick: tick2,
+  };
+
+  return [shot1, shot2, shot3];
 }
 
 /** act-114 三国名将登场短过场（赵云 / 吕布 / 夏侯惇 / 陆逊，约 2.9 秒，安全机位不穿墙） */

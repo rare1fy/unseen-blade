@@ -470,24 +470,26 @@ export function layDead(a: BattleActor, how: 0 | 1 | 2, r: () => number) {
   if (b.head) { b.head.rotation.y = (r() - 0.5) * 1.2; b.head.rotation.z = (r() - 0.5) * 0.5; }
 }
 
-/** the blow that ends the first fight: Cui Xuan slashes her blade skyward (spinning 2.5 turns to stab point-first into the snow),
- *  then drives the hilt into her chest knocking her to one knee bleeding */
+/** the blow that ends the first fight (act-169 cinema montage): 3 crisp hard-cut shots —
+ *  1) tense clash & skyward disarm launch -> 2) low-angle hard-cut tracking spinning blade stabbing snow + chest blow -> 3) intimate low kneel & blood spurt */
 export function fallShots(h: PrologueHost, boss: Foe): CineShot[] {
   const hp = () => h.hero.pos, b = () => boss.pos;
-  // from the side of the line between them, far enough to see both whole + the spinning blade arc above them
-  const side = (dist: number, up: number): { pos: V; look: V; fov: number } => {
-    const mx = (hp().x + b().x) / 2, mz = (hp().z + b().z) / 2; let dx = b().x - hp().x, dz = b().z - hp().z; const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
+  const basis = () => {
+    const mx = (hp().x + b().x) / 2, mz = (hp().z + b().z) / 2;
+    let dx = b().x - hp().x, dz = b().z - hp().z; const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
     let nx = -dz, nz = dx; if (nz < 0) { nx = -nx; nz = -nz; }
-    return camKey({ pos: [mx + nx * dist, up, mz + nz * dist] as V, look: [mx, 1.15, mz] as V, fov: 38 });
+    return { mx, mz, dx, dz, nx, nz };
   };
   let down = false;
   return [
-    { dur: 2.75, ease: 'out', from: () => side(10.5, 5.2), to: () => side(9.2, 4.4),
+    // Shot 1: Medium-tight clash angle — Cui Xuan steps in and hooks her sabre skyward spinning into the air!
+    { dur: 0.82, ease: 'out',
+      from: () => { const { mx, mz, nx, nz } = basis(); return camKey({ pos: [mx + nx * 5.8, 3.0, mz + nz * 5.8] as V, look: [mx, 1.25, mz] as V, fov: 36 }); },
+      to: () => { const { mx, mz, nx, nz } = basis(); return camKey({ pos: [mx + nx * 5.2, 2.85, mz + nz * 5.2] as V, look: [mx, 1.35, mz] as V, fov: 35 }); },
       at: [
-        [0, () => { boss.a.root.visible = true; boss.a.body.visible = true; }],
-        [0.12, () => { boss.a.root.visible = true; boss.a.body.visible = true; boss.a.yaw = Math.atan2(hp().x - b().x, hp().z - b().z); boss.a.roar(); cue(boss.kind === 'hj_boss' ? 'roar' : 'draw', 0.85); }],
-        // Beat 1 (0.72s): Disarm clash — Cui Xuan steps in, hooks her blade skyward spinning 2.5 rotations to stab into the snow!
-        [0.72, () => {
+        [0, () => { boss.a.root.visible = true; boss.a.body.visible = true; boss.a.yaw = Math.atan2(hp().x - b().x, hp().z - b().z); h.hero.a.yaw = Math.atan2(b().x - hp().x, b().z - hp().z); }],
+        [0.10, () => { boss.a.roar(); cue(boss.kind === 'hj_boss' ? 'roar' : 'draw', 0.85); }],
+        [0.48, () => {
           if (boss.kind === 'hj_boss') {
             flashSky(1); fxBolt(V3(b().x, 24, b().z), V3(b().x, 3.4, b().z), 0xd8c8ff, { width: 0.5, life: 0.4, bright: 0.7 }); cue('thunder', 1);
           } else {
@@ -502,38 +504,57 @@ export function fallShots(h: PrologueHost, boss: Foe): CineShot[] {
             h.hero.a.play(new Action('hurt', 0.35, 0.12, { power: 1.2 }));
           }
         }],
-        // Beat 2 (1.32s): Heavy hilt-strike to the chest — blood sprays, she drops onto one knee while her blade stabs & quivers in the snow!
-        [1.32, () => {
+      ],
+      tick: (_t, dt) => { h.hero.a.update(dt); h.kneel.tickSword(dt); boss.a.update(dt); } },
+    // Shot 2: HARD CUT to wide dramatic low angle — spinning blade arcs down & stabs snow while Cui Xuan delivers chest blow!
+    { dur: 0.78, ease: 'out',
+      from: () => { const { mx, mz, dx, dz, nx, nz } = basis(); return camKey({ pos: [mx + nx * 7.8 - dx * 1.4, 3.2, mz + nz * 7.8 - dz * 1.4] as V, look: [mx, 1.15, mz] as V, fov: 40 }); },
+      to: () => { const { mx, mz, dx, dz, nx, nz } = basis(); return camKey({ pos: [mx + nx * 7.0 - dx * 1.0, 2.8, mz + nz * 7.0 - dz * 1.0] as V, look: [mx, 0.95, mz] as V, fov: 38 }); },
+      at: [
+        [0.36, () => {
           slowmo(0.8, 0.24); shake(0.58); fxImpact(h.hero.a.chest(), 0xfff0d0, 2.2, { stop: false }); fxRing(hp().clone().setY(0.06), 0xffffff, 3, { life: 0.6 } as never);
           h.hero.a.play(new Action('hurt', 0.6, 0.1, { power: 2 })); cue('cutHeavy', 1); cue('hurt', 1);
           down = true; h.kneel.start(true); setHurtBreath(true);
         }],
-        // Beat 3 (1.95s): Knee meets the snow, wound spurts onto snow
-        [1.95, () => { cue('land', 0.45); snowPuff(hp().clone().setY(0.05)); blood.spray(h.hero.a.chest(), V3(Math.sin(h.hero.a.yaw), -0.3, Math.cos(h.hero.a.yaw)).normalize(), 18, 0.8); }],
+      ],
+      tick: (_t, dt) => { h.hero.a.update(dt); if (down) h.kneel.frame(h.hero.a); else h.kneel.tickSword(dt); boss.a.update(dt); } },
+    // Shot 3: HARD CUT to intimate low angle on kneeling Liu Bai — knee hits snow, chest spurts blood, quivering blade beside her!
+    { dur: 1.15, ease: 'out',
+      from: () => { const { dx, dz, nx, nz } = basis(); return camKey({ pos: [hp().x + nx * 3.6 + dx * 1.6, 2.35, hp().z + nz * 3.6 + dz * 1.6] as V, look: [hp().x + dx * 0.3, 0.72, hp().z + dz * 0.3] as V, fov: 34 }); },
+      to: () => { const { dx, dz, nx, nz } = basis(); return camKey({ pos: [hp().x + nx * 3.3 + dx * 1.4, 2.25, hp().z + nz * 3.3 + dz * 1.4] as V, look: [hp().x + dx * 0.3, 0.68, hp().z + dz * 0.3] as V, fov: 33 }); },
+      at: [
+        [0.24, () => { cue('land', 0.45); snowPuff(hp().clone().setY(0.05)); blood.spray(h.hero.a.chest(), V3(Math.sin(h.hero.a.yaw), -0.3, Math.cos(h.hero.a.yaw)).normalize(), 18, 0.8); }],
       ],
       tick: (_t, dt) => { h.hero.a.update(dt); if (down) h.kneel.frame(h.hero.a); else h.kneel.tickSword(dt); boss.a.update(dt); } },
   ];
 }
-/** after his line: she lies in the snow, the camera rises slowly away, the snow keeps falling */
+/** after his line (act-169 3-cut montage): collapse into snow -> low over-body cut as Cui Xuan walks coldly away -> soaring crane-up isolation */
 export function snowShots(h: PrologueHost, boss: Foe): CineShot[] {
   const p = h.hero.pos.clone();
-  // (11-19 用户：「如果在墙边，他会直接穿墙离开？」: he walked straight back whatever stood there — the temple's back wall is close
-  //  behind the court. Now he turns away from her toward the open front of the yard and walks off round whatever is in the way,
-  //  held off the walls and the props by the game's clamp, the steps by the ground he covers)
   const away = (() => { const dx = boss.pos.x - p.x, dz = boss.pos.z - p.z, l = Math.hypot(dx, dz) || 1; const ax = dx / l * 0.5, az = dz / l * 0.5 + 1; const m = Math.hypot(ax, az) || 1; return { x: ax / m, z: az / m }; })();
+  const stepBoss = (dt: number) => {
+    const was = boss.pos.clone(); boss.pos.x += away.x * dt * 1.3; boss.pos.z += away.z * dt * 1.3; h.hold?.(boss.pos, boss.d.r);
+    const mx = boss.pos.x - was.x, mz = boss.pos.z - was.z, v = Math.hypot(mx, mz) / Math.max(1e-4, dt);
+    if (v > 0.05) boss.a.yaw = Math.atan2(mx, mz); boss.a.setRunning(v > 0.4, v);
+  };
   return [
-    // (11-19: after his words she gives way — the kneel pitches forward and she lies face down in the snow; the camera holds on it)
-    { dur: 2.0, ease: 'inOut', from: camKey({ pos: [p.x + 2.8, 2.2, p.z + 3.8], look: [p.x, 0.4, p.z], fov: 34 }), to: camKey({ pos: [p.x + 2.6, 2.6, p.z + 4.0], look: [p.x, 0.25, p.z + 0.3], fov: 34 }),
+    // Shot 1: Intimate low cut as her strength fails and she pitches face-down into the snow
+    { dur: 1.85, ease: 'inOut',
+      from: camKey({ pos: [p.x + 2.8, 2.25, p.z + 3.6], look: [p.x, 0.42, p.z], fov: 34 }),
+      to: camKey({ pos: [p.x + 2.5, 2.35, p.z + 3.8], look: [p.x, 0.22, p.z + 0.25], fov: 33 }),
       at: [[0.15, () => { h.kneel.slumpWant = 1; }]],
       tick: (_t, dt) => { h.hero.a.update(dt); h.kneel.frame(h.hero.a); boss.a.update(dt); } },
-    { dur: 6.5, ease: 'inOut', from: camKey({ pos: [p.x + 2.5, 3.2, p.z + 4.0], look: [p.x, 0.3, p.z], fov: 34 }), to: camKey({ pos: [p.x + 1.0, 13, p.z + 7], look: [p.x, 0, p.z - 1], fov: 38 }),
-      at: [[0.4, () => { boss.a.yaw = Math.atan2(away.x, away.z); }]],
-      tick: (t, dt) => {
-        h.hero.a.update(dt); h.kneel.frame(h.hero.a);
-        if (t > 0.8) { const was = boss.pos.clone(); boss.pos.x += away.x * dt * 1.3; boss.pos.z += away.z * dt * 1.3; h.hold?.(boss.pos, boss.d.r);
-          const mx = boss.pos.x - was.x, mz = boss.pos.z - was.z, v = Math.hypot(mx, mz) / Math.max(1e-4, dt); if (v > 0.05) boss.a.yaw = Math.atan2(mx, mz); boss.a.setRunning(v > 0.4, v); }
-        boss.a.update(dt);
-      } },
+    // Shot 2: HARD CUT to low over-her-body reverse angle watching Cui Xuan turn & walk coldly off into the dark court
+    { dur: 2.25, ease: 'out',
+      from: camKey({ pos: [p.x - away.x * 3.0 + 1.4, 2.25, p.z - away.z * 3.0 + 1.4], look: [boss.pos.x, 1.05, boss.pos.z], fov: 35 }),
+      to: camKey({ pos: [p.x - away.x * 3.4 + 1.2, 2.45, p.z - away.z * 3.4 + 1.6], look: [boss.pos.x + away.x * 1.6, 1.0, boss.pos.z + away.z * 1.6], fov: 36 }),
+      at: [[0.12, () => { boss.a.yaw = Math.atan2(away.x, away.z); }]],
+      tick: (t, dt) => { h.hero.a.update(dt); h.kneel.frame(h.hero.a); if (t > 0.25) stepBoss(dt); boss.a.update(dt); } },
+    // Shot 3: HARD CUT to soaring high isolation crane-out as snow buries the silent courtyard
+    { dur: 3.35, ease: 'inOut',
+      from: camKey({ pos: [p.x + 1.8, 6.8, p.z + 5.8], look: [p.x, 0.2, p.z - 0.5], fov: 38 }),
+      to: camKey({ pos: [p.x + 1.0, 13.0, p.z + 7.2], look: [p.x, 0, p.z - 1.0], fov: 40 }),
+      tick: (_t, dt) => { h.hero.a.update(dt); h.kneel.frame(h.hero.a); stepBoss(dt); boss.a.update(dt); } },
   ];
 }
 /** act-30 (用户：「人物的动画、穿模那些问题必须好好解决一下了，不然看起来太滑稽了」): the people really walk (legs, arms, bob — the
@@ -572,12 +593,9 @@ export function dawnShots(h: PrologueHost, at: { x: number; z: number }, dead: A
     duwu.update(dt); donkey.update(dt);
   };
   return [
-    // the yard at dawn, wide: the dead in the snow, her among them; far off a man and a donkey come in
-    { dur: 3.5, ease: 'inOut', from: camKey({ pos: [ox + 9.5, 9.0, oz + 13], look: [ox - 2, 0.2, oz + 1], fov: 40 }), to: camKey({ pos: [ox + 6.8, 7.0, oz + 10.2], look: [ox - 2, 0.2, oz + 1.5], fov: 38 }),
+    // Shot 1: Wide dawn establishing — frozen corpses across the snowy ditch; Du Wu & grey donkey enter far-left
+    { dur: 2.7, ease: 'out', from: camKey({ pos: [ox + 9.2, 8.6, oz + 12.6], look: [ox - 2.0, 0.25, oz + 1.0], fov: 40 }), to: camKey({ pos: [ox + 7.6, 7.6, oz + 11.2], look: [ox - 2.0, 0.25, oz + 1.2], fov: 38 }),
       at: [[0, () => {
-        // the dead: laid down once, never updated again (no breathing corpses)
-        // act-36 (用户：「死人堆，就那么几个，算啥死人堆」): the two he stops at, then the rest of the night's dead — heaps of two and three
-        // (bodies thrown across each other), a few alone, all around the yard and up the steps; posed once and baked into a few meshes
         const roots: THREE.Object3D[] = [];
         for (const d of deadField(ox, oz, dead)) {
           const f = h.puppet(d.k, d.x, d.z, d.x + Math.sin(d.yaw), d.z + Math.cos(d.yaw)); f.a.update(0.016); layDead(f.a, d.how, d.r);
@@ -587,9 +605,15 @@ export function dawnShots(h: PrologueHost, at: { x: number; z: number }, dead: A
         duwu = h.person('duwu', way[0][0], way[0][1], 0) as Walker; donkey = h.person('donkey', way[0][0] - 1.9, way[0][1], 0) as Walker; out.duwu = duwu; out.donkey = donkey;
       }]],
       tick: (_t, dt) => { step(dt); h.hero.a.update(dt); h.kneel.frame(h.hero.a); } },
-    // closer (medium): he stops, crouches over the bodies, then comes to her
-    // (the camera keeps him in frame: it follows a smoothed point between him and her)
-    { dur: 5.5, ease: 'linear', from: () => cam(), to: () => cam(),
+    // Shot 2: HARD CUT to low ground-level medium following Du Wu looting the fallen soldiers
+    { dur: 2.9, ease: 'linear',
+      from: () => camKey({ pos: [dead[0][1] + 4.4, 2.85, dead[0][2] + 4.6] as V, look: [dead[0][1] + 0.5, 0.65, dead[0][2] + 0.3] as V, fov: 36 }),
+      to: () => camKey({ pos: [dead[1][1] + 4.2, 2.75, dead[1][2] + 4.4] as V, look: [dead[1][1] + 0.4, 0.65, dead[1][2] + 0.2] as V, fov: 35 }),
+      tick: (_t, dt) => { step(dt); h.hero.a.update(dt); h.kneel.frame(h.hero.a); } },
+    // Shot 3: HARD CUT to low over-Liu-Bai-in-foreground shot as Du Wu & donkey approach and halt beside her bright sabre!
+    { dur: 3.1, ease: 'out',
+      from: () => camKey({ pos: [ox + 4.2, 2.55, oz + 4.6] as V, look: [ox - 0.6, 0.55, oz + 0.3] as V, fov: 36 }),
+      to: () => camKey({ pos: [ox + 3.8, 2.45, oz + 4.2] as V, look: [ox - 0.2, 0.50, oz + 0.2] as V, fov: 35 }),
       tick: (_t, dt) => { step(dt); h.hero.a.update(dt); h.kneel.frame(h.hero.a); } },
   ];
 }
@@ -760,6 +784,28 @@ export function bossKneelDefeatPose(a: BattleActor, t: number) {
     rot(b.armL, -0.44 * s, -0.16 * s, 0.14 * s); rot(b.foreL, -0.34 * s);
     rot(b.armR, -0.58 * s, 0.34 * s, -0.10 * s); rot(b.foreR, -0.88 * s);
   }
+}
+
+/** act-169 (Ch2 Yan Hu defiant defeat): refuses to kneel begging — wide wounded stagger bracing left hand on bent thigh,
+ *  severed right arm hung low, chin tilted UP glaring straight into Liu Bai's blade! */
+export function bossDefiantPose(a: BattleActor, t: number) {
+  const b = a.bones; resetPose(b);
+  a.root.position.copy(a.home).setY(0); a.root.rotation.set(0, a.yaw, 0);
+  a.body.position.set(0, 0, 0); a.body.rotation.set(0, 0, 0); a.body.scale.set(1, 1, 1);
+  if (b.weapon) b.weapon.visible = false;
+  if (b.offhand) b.offhand.visible = false;
+  const s = smK(Math.min(1, t / 0.38)), br = Math.sin(t * 3.1);
+  // Staggered upright brace (only slight -0.14 hip drop, NEVER kneeling!)
+  mov(b.hips, 0, (-0.14 + 0.01 * br) * s, 0);
+  rot(b.legL, -0.42 * s, 0, 0.14 * s); rot(b.shinL, 0.64 * s); rot(b.footL, -0.22 * s);
+  rot(b.legR, 0.28 * s, 0, -0.16 * s); rot(b.shinR, 0.32 * s); rot(b.footR, -0.45 * s);
+  rot(b.spine, (0.14 + 0.03 * br) * s, -0.16 * s, 0);
+  rot(b.chest, (0.06 - 0.02 * br) * s, -0.08 * s, 0);
+  // Chin lifted defiantly glaring straight at her!
+  rot(b.neck, -0.12 * s); rot(b.head, (-0.18 + 0.03 * br) * s, 0.14 * s, 0.05 * Math.sin(t * 1.2));
+  // Left hand braced firmly on bent front knee; right arm slumped wounded at side
+  rot(b.armL, -0.58 * s, -0.12 * s, 0.22 * s); rot(b.foreL, -0.32 * s);
+  rot(b.armR, 0.24 * s, 0.10 * s, -0.26 * s); rot(b.foreR, -0.28 * s);
 }
 
 export type VaultPhase = 'climb' | 'perch' | 'leap' | 'land' | 'hurdle';
