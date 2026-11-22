@@ -5,7 +5,8 @@
 //   - 消散按 3 档离散缩块降透（1.0 -> 0.72 -> 0.44 -> 0），尾屑按体素节拍步进微漂；
 //   - 全局单 RingBuffer Mesh（1 draw call，纯 WebGL1，无 InstancedMesh / dFdx，顿帧自动定格，零 GC）。
 import * as THREE from 'three';
-import { scene, onUpdate, V3 } from '../engine/world';
+import { scene, onUpdate, onRealUpdate, V3 } from '../engine/world';
+import { PAUSE } from '../engine/clock';
 
 const VOX_VS = `
 attribute vec3 aOffset;
@@ -708,3 +709,4 @@ class SlashSystem {
 
 export const slashArc = new SlashSystem();
 onUpdate(dt => slashArc.update(dt));
+onRealUpdate(rdt => { if (PAUSE.on && PAUSE.fx) slashArc.update(rdt); });

@@ -23,6 +23,8 @@ import { backShield, type MiniShield } from './btnBadge';
 import { uiScale } from './uiScale';
 import { SKIN } from './skin';
 import { makeCanvas } from '../../platform/index';
+import type { ModelDef } from '../bestiary/models';
+import type { WeaponId } from './weapons';
 
 export interface MenuSetting { id?: string; label: () => string; run: () => void }
 export interface PauseHost {
@@ -47,6 +49,8 @@ export interface PauseHost {
   preview?(id: string): boolean;
   previewing?(): boolean;
   stopPreview?(): void;
+  /** act-165: current heroine costume & equipped weapon for MoveStage's live 3D Mini-World */
+  miniContext?(): { def: ModelDef; weaponId: WeaponId; weaponLv: number };
 }
 type Page = 'main' | 'keys' | 'set' | 'ask' | 'askTitle' | 'build' | 'owned' | 'skills';
 interface Row { id: string; label: () => string; act?: BtnName; run?: () => void }
@@ -297,6 +301,10 @@ export class PauseMenu {
     if (type === 'up') { const was = this.downAt; this.downAt = -1; if (i >= 0 && i === was) { this.sel = i; if (touch) PAD.device = 'touch'; this.ok(); } }
     return true;
   }
+  /** act-165: render MoveStage's live 3D Mini-World inside its scissor bay (called before L.renderText) */
+  renderMiniWorld(renderer: THREE.WebGLRenderer) {
+    if (this.on && this.inList && !this.previewing) this.stage.renderMiniWorld(renderer);
+  }
   private drag: { y: number; moved: number } | null = null;
   private downBack = false;
   private downDemo = false;
@@ -349,9 +357,15 @@ export class PauseMenu {
         this.list.layout(xStart + leftW / 2, topY, botY, leftW, true);
         this.list.update(rdt, this.listRel);
         const selEntry = this.list.entry;
-        this.stage.setEntry(selEntry, !!selEntry && selEntry.kind === 'manual' && !!this.host.preview);
-        this.stage.layout(xStart + leftW + gapX + rightW / 2, (topY + botY) / 2, rightW, botY - topY);
-        this.stage.update(rdt, this.listRel);
+        if (this.previewing) {
+          this.stage.hide(true);
+        } else {
+          const mc = this.host.miniContext?.();
+          if (mc) this.stage.setContext(mc.def, mc.weaponId, mc.weaponLv);
+          this.stage.setEntry(selEntry, !!selEntry && selEntry.kind === 'manual' && !!this.host.preview);
+          this.stage.layout(xStart + leftW + gapX + rightW / 2, (topY + botY) / 2, rightW, botY - topY);
+          this.stage.update(rdt, this.listRel);
+        }
       } else {
         this.stage.hide();
       } }

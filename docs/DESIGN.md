@@ -2109,7 +2109,29 @@
 - 没动的：满九张且全绝品时遗卷仍是 60 铜钱加回一成血（一局要升 18 次才会碰到）。
 
 
-## 独游典藏式激励广告体系、古窑长明灯、收菜翻倍、去重随与三套 3D 界面精修（act-169，11-23）
+---
+
+## 据点 UI 输入零泄漏 + 战斗态禁用交互 + 招式谱真 3D Mini-World 残影示意窗（act-169，11-23）
+
+**用户反馈**：
+> 「据点里的交互界面按按键的时候不要触发操作角色，现在点确认老是会冲刺。然后在战斗状态的时候不要可以操作交互，据点里面打boss练习老是会打开ui界面」
+> 「招式谱里面的动作示意要是个mini world啊，不要只是摆个抽象的动作示意，我想要的是刚学会某个招式的时候在战斗场景里面那样的残影示意。」
+
+**实现方案**：
+1. **UI 与角色输入彻底隔离（`input.ts` + `cards3d.ts` + `show.ts`）**：
+   - `Input.latch()` 同步清空 `tapped`、`raw` 与 `b.last`，锁住当前按下的所有按键/手柄钮/摇杆直至物理松手；
+   - `CardPick3D` 新增 `onOpen` / `onClose` 回调，在 `show.ts` 中绑定 `inp.latch(true)` 与 `padNav.sync()`；
+   - `show.ts:frame()` 在调用 `padScreens()` 之前先快照 `uiBefore = this.isUiModalOpen()`，凡界面开着或本帧刚关（含 `phase === 'pick'`），当帧零化 `inp.b` / `inp.move` 并 `latch(true)`，彻底根治手柄 `A`（确认兼冲刺）与键盘 `Space/J/K` 穿透到主角的问题。
+2. **战斗状态全面禁用交互（`show.ts`）**：
+   - 新增 `inCombat()`（存在存活非木桩敌兵或进场/空降敌兵，覆盖正式战房与据点试剑坪 Boss 练习）；
+   - `inCombat()` 为真时，隐藏所有据点 NPC/设施/药圃/碑铭头顶浮标与交互牌，彻底屏蔽 `npcTalk`、换装木台与摊位交互，按斩纯粹出刀不误弹界面；和平态下据点 `npcNear` 交互前置到 `h.update()` 之前，避免开界面时先空挥一刀。
+3. **招式谱真 3D Mini-World 实时残影示意窗（`moveStage.ts` + `slashArc.ts` + `cues.ts` + `pauseMenu.ts` + `show.ts` + `main.ts`）**：
+   - 废弃抽象 2D 简笔画，改为在安全偏移坐标 `(220, 0, 0)` 搭建纯 3D 体素小演武场，运行真实的蓝/红半透明 `Hero`（装配当前佩刀模型与对应流派秘传）+ `BattleActor('hj_blade')` 残影对抗，以及真实的 3D `slashArc`、`Dart`、`fxRing`、`fxSparks`、`trailSeg`、`smokeBurst`；
+   - 通过 `main.ts` 的 `afterRender` 调用 `A.renderMiniWorld(gfx.renderer)`，利用 `setViewport + setScissor` 直接把独立 `PerspectiveCamera` 渲染进招式谱右侧铁框视口内（不分配额外 `WebGLRenderTarget`，全端 60fps 且 WebGL1/微信小游戏零兼容风险），`slashArc.ts` 接入 `PAUSE.fx` 实景更新，`cues.ts` 新增 `withCueMuted` 防止循环演示刷音效。
+
+---
+
+## 独游典藏式激励广告体系、古窑长明灯、收菜翻倍、去重随与三套 3D 界面精修（act-170，11-23）
 
 **设计原则**：零强制插屏、零弹窗打断、零破坏付费公平；全部广告点均为「独游典藏 DLC 内容免费看广告解锁」或「低打断体验便利」，并统一汇入据点「古窑长明灯」累计添油保底进度（`3 / 6 / 10 / 15 / 20` 盏自动永久送齐全部典藏）。
 

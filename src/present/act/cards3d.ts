@@ -108,6 +108,9 @@ export class CardPick3D {
   on = false; focus = 0; private openedAt = 0; private instantOpen = false;
   /** set by show.ts: a taken 秘传 / 刀谱 flies to its HUD button */
   flight: CardFlight | null = null;
+  /** act-165: input isolation hooks so opening / closing any card UI latches all held keys & gamepad buttons */
+  onOpen: (() => void) | null = null;
+  onClose: (() => void) | null = null;
   private get settling() { return !this.instantOpen && clock.rtime - this.openedAt < 0.32; }
   private cards: Card[] = [];
   private done: ((i: number) => void) | null = null;
@@ -455,9 +458,11 @@ export class CardPick3D {
     this.flyStarted = false;
     if (!o.instant) cue('scroll', 0.8);
     this.openedAt = clock.rtime;
+    this.onOpen?.();
   }
 
   close() {
+    const wasOn = this.on;
     for (const c of this.cards) {
       c.root.parent?.remove(c.root);
       c.board.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh) { m.geometry.dispose(); (m.material as THREE.Material).dispose(); } });
@@ -482,6 +487,7 @@ export class CardPick3D {
     this.L.text.hide('act.cards.footer');
     if (this.back) this.back.visible = false;
     this.backDown = false; this.backHot = 0;
+    if (wasOn) this.onClose?.();
   }
 
   /** leave without a card (the back shield, Esc, pad B) — only where the page allows it */

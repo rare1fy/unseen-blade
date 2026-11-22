@@ -181,4 +181,31 @@ describe('device-adaptive UI switching', () => {
     inp.press('attack', 2, true);
     expect(PAD.device).toBe('touch');
   });
+
+  it('act-165: latch(true) suppresses held Pad A (dash) and buffered touch taps until released', () => {
+    resetBinds();
+    let padA = true;
+    const mockPad = { index: 0, connected: true, id: 'Xbox Wireless Controller', axes: [0, 0, 0, 0], buttons: Array.from({ length: 17 }, (_, i) => ({ get pressed() { return i === 0 && padA; } })) };
+    const origNav = globalThis.navigator;
+    Object.defineProperty(globalThis, 'navigator', { value: { getGamepads: () => [mockPad] }, configurable: true });
+    try {
+      const inp = new Input();
+      inp.press('attack', 7, true);
+      inp.latch(true);
+      // Still holding Pad A right after closing a menu: dash must NOT trigger, and buffered attack tap must be cleared
+      inp.frame(0.016);
+      expect(inp.b.dash.pressed).toBe(false);
+      expect(inp.b.dash.down).toBe(false);
+      expect(inp.b.attack.pressed).toBe(false);
+      // Release Pad A, then press again: dash triggers cleanly on the fresh press
+      padA = false;
+      inp.frame(0.016);
+      expect(inp.b.dash.pressed).toBe(false);
+      padA = true;
+      inp.frame(0.016);
+      expect(inp.b.dash.pressed).toBe(true);
+    } finally {
+      Object.defineProperty(globalThis, 'navigator', { value: origNav, configurable: true });
+    }
+  });
 });

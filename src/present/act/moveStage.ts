@@ -1,29 +1,72 @@
-// act-151: 统一「招式谱」右侧实时像素演武示意窗（MoveStage）
-// 严格遵循像素/体素硬边风（零平滑渐变、零模糊），以 30fps 驱动离屏像素画布贴于 3D 铁框展龛：
-//   · 上半：实时循环演示当前选中招式 / 4柄名刀独门技 / 12本刀谱 / 秘传特效 / 悟性与信物，底部按键提示与动作帧精准同步亮灭；
-//   · 下半：哈迪斯 2 式图标化图文详析（含该按键槽当前挂载的本局秘传一览；刀谱保留一键触发 3D 实景残影演武）。
+// act-151 / act-165: 统一「招式谱」右侧真 3D Mini-World 实时残影示意窗（MoveStage）
+// 响应用户：「招式谱里面的动作示意要是个mini world啊，不要只是摆个抽象的动作示意，我想要的是刚学会某个招式的时候在战斗场景里面那样的残影示意。」
+// 实现方式：
+//   · 在世界安全偏移坐标 (220, 0, 0) 搭建一座独立纯 3D 体素小演武场（青石砖地 + 木栏柱 + 双灯笼），主镜头不可见；
+//   · 运行与 MoveDemo 完全同款的真 3D 蓝/红半透明残影 Hero（装佩当前真 3.5cm 武器模型与秘传）+ BattleActor('hj_blade')，
+//     及真实的 3D slashArc 刀光、Dart 飞镖、fxRing / fxSparks / trailSeg / smokeBurst 特效（静默防刷音效）；
+//   · 在 main.ts 中于 L.renderText 之前通过 renderer.setViewport + setScissor 直接渲染进右侧铁框镂空视口（0 额外 RenderTarget，WebGL1/2 与微信小游戏全兼容）；
+//   · 镂空铁框下方配与残影按键精准同步亮灭的键帽/手柄节拍条与哈迪斯 2 式图标化详析。
 import * as THREE from 'three';
 import type { UiLayer } from '../ui3d/layer';
+import { scene, V3, padLights, restoreLights } from '../engine/world';
+import { PAUSE } from '../engine/clock';
+import { BattleActor } from '../bestiary/battle';
+import { modelDef, type ModelDef } from '../bestiary/models';
+import { fxRing, fxSparks, trailSeg } from '../fx/fx';
+import { smokeBurst } from '../kyoto/ninja_fx';
+import { withCueMuted } from '../../audio/cues';
+import { Hero, type HeroWorld } from './hero';
+import { Dart } from './missiles';
+import { TUNE } from './tune';
+import { slashArc } from './slashArc';
+import { applyBoon, newPerks } from './boons';
+import type { Btn, BtnName, Input } from './input';
+import type { Foe } from './enemy';
+import { manualOf, manualSteps, KEY_BTN, isPress } from './skillInfo';
+import type { MoveId } from './manuals';
+import type { WeaponId } from './weapons';
 import { makeCanvas } from '../../platform/index';
 import { drawPix, pixW, PIX_H } from '../v2/pix';
-import { BODY_FONT } from '../ui3d/bodyFont';
 import { drawPixelPlaque, drawMiniIcon, richLine } from './uiPlate';
 import { PAD, actKey, BIND, paintGlyph, glyphArt, GLYPH_H, paintKeyCap, keyCapWidth, KEYCAP_H } from './pad';
-import { language, t as localize } from './i18n';
+import { t as localize, msg } from './i18n';
 import { uiScale } from './uiScale';
 import type { SkillEntry } from './skillFace';
-import type { BtnName } from './input';
-import type { WeaponId } from './weapons';
 
-const WEAPON_BLADE_COL: Record<WeaponId, { main: string; hi: string; fx: string }> = {
-  hanshan: { main: '#cfdbe8', hi: '#ffffff', fx: '#ffe498' },
-  thunder: { main: '#4c5266', hi: '#ffe066', fx: '#ffd048' },
-  frost:   { main: '#7ce4ff', hi: '#f0feff', fx: '#74e8ff' },
-  blunt:   { main: '#585260', hi: '#ff9668', fx: '#ff7848' },
-};
+const MINI_X = 220;
+const MINI_Z = 0;
 
 const ACTION_BTN_KEY: Record<BtnName, string> = {
   attack: 'attack', dash: 'dash', jump: 'jump', special: 'special', ult: 'attack',
+};
+
+const wrap = (a: number) => { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a; };
+const newBtn = (): Btn => ({ down: false, pressed: false, released: false, held: 0, last: 0 });
+const ghostMat = (col: number) => new THREE.MeshBasicMaterial({ vertexColors: true, color: col, transparent: true, opacity: 0 });
+function ghostOf(root: THREE.Object3D, mat: THREE.Material) {
+  root.traverse(o => {
+    const m = o as THREE.Mesh;
+    if (m.isMesh) { m.material = mat; m.castShadow = false; m.receiveShadow = false; }
+  });
+}
+
+type StickDir = 'toFoe' | 'away' | 'side' | null;
+interface ManualTiming { when?: (g: Hero, st: MiniGhostSim) => boolean; after?: number; stick?: StickDir }
+interface ManualScript { dist: number; steps: ManualTiming[]; tail: number }
+const TAP = 0.085;
+const MANUAL_SCRIPTS: Record<MoveId, ManualScript> = {
+  chase:    { dist: 4.1, tail: 0.95, steps: [{}, { when: (_g, s) => s.stuck }] },
+  backDart: { dist: 3.1, tail: 0.95, steps: [{ stick: 'away' }, { when: g => g.canBackDart, after: 0.06 }] },
+  dbl:      { dist: 3.1, tail: 1.0,  steps: [{}, { when: g => g.canDoubleJump, after: 0.18 }] },
+  launch:   { dist: 2.2, tail: 1.15, steps: [{}, { when: g => g.canLaunch }] },
+  cutDart:  { dist: 2.2, tail: 0.95, steps: [{}, { when: g => g.canCutDart }] },
+  keep:     { dist: 2.2, tail: 1.0,  steps: [{}, { stick: 'side', when: g => g.st === 'k1' && g.t / g.dur > 0.4 }, { when: g => g.canKeep && g.st === 'free' }] },
+  pause:    { dist: 2.2, tail: 1.25, steps: [{}, { when: g => g.st === 'k1' && g.t / g.dur > 0.35 }, { when: g => g.canPause && g.t > 0.28 }] },
+  kick:     { dist: 3.6, tail: 1.0,  steps: [{ stick: 'toFoe' }, { when: g => g.canKick, after: 0.08 }] },
+  acut:     { dist: 2.2, tail: 1.2,  steps: [{}, { when: g => g.canLaunch }, { when: g => g.canAirCut }] },
+  swoop:    { dist: 3.3, tail: 1.0,  steps: [{}, { when: g => g.canSwoop, stick: 'toFoe' }] },
+  reel:     { dist: 4.0, tail: 1.05, steps: [{}, { when: g => g.canReel }] },
+  stomp:    { dist: 1.12, tail: 1.15, steps: [{}, { when: g => g.canStomp }] },
 };
 
 interface BeatState {
@@ -33,22 +76,580 @@ interface BeatState {
   holdFill?: number;
 }
 
+/** Isolated 3D ghost combat simulator running real Hero + BattleActor + slashArc + Dart at (MINI_X, 0, MINI_Z). */
+class MiniGhostSim {
+  stuck = false;
+  private dojo: THREE.Group | null = null;
+  private g: Hero | null = null;
+  private foe: BattleActor | null = null;
+  private F: Foe | null = null;
+  private hShad: THREE.Mesh | null = null;
+  private fShad: THREE.Mesh | null = null;
+  private gm = ghostMat(0x9ed8ff);
+  private fm = ghostMat(0xff9280);
+  private inp = { b: { attack: newBtn(), dash: newBtn(), special: newBtn(), jump: newBtn(), ult: newBtn() } as Record<BtnName, Btn> };
+  private hold: Record<BtnName, number> = { attack: 0, dash: 0, special: 0, jump: 0, ult: 0 };
+  private stick: { v: THREE.Vector3; t: number } = { v: V3(), t: 0 };
+  private darts: Dart[] = [];
+  private fvy = 0;
+  private fvel = V3();
+  private prone = 0;
+  private w: HeroWorld | null = null;
+  private entry: SkillEntry | null = null;
+  private heroDef: ModelDef = modelDef('fine_hat');
+  private weaponId: WeaponId = 'hanshan';
+  private weaponLv = 0;
+  private t = 0;
+  private lastT = 0;
+  private readyAt = 0;
+  private si = 0;
+  private fade = 0;
+  private ending = -1;
+  private phase = '';
+  private holdBtn?: BtnName;
+  private holdFill?: number;
+  private flags = new Set<string>();
+  private auraT = 0;
+  private keys: ReturnType<typeof manualSteps> = [];
+  private manualScript: ManualScript | null = null;
+
+  ensureDojo() {
+    if (this.dojo) { this.dojo.visible = true; return; }
+    const grp = new THREE.Group();
+    grp.position.set(MINI_X, 0, MINI_Z);
+    const addBox = (w: number, h: number, d: number, x: number, y: number, z: number, col: number, emissive = 0, ei = 0) => {
+      const m = new THREE.Mesh(
+        new THREE.BoxGeometry(w, h, d),
+        new THREE.MeshLambertMaterial({ color: col, emissive, emissiveIntensity: ei }),
+      );
+      m.position.set(x, y, z);
+      grp.add(m);
+      return m;
+    };
+    // Dark stone courtyard floor + crisp raised flagstone grid
+    addBox(16, 0.16, 12, 0, -0.08, 0, 0x1c1a26);
+    for (let ix = -5; ix <= 5; ix += 2) {
+      for (let iz = -3; iz <= 3; iz += 2) {
+        addBox(1.88, 0.03, 1.88, ix, 0.005, iz, ((ix + iz) & 2) ? 0x262334 : 0x221f2e);
+      }
+    }
+    // Center sparring ring trim
+    addBox(7.2, 0.04, 0.08, 0, 0.015, -2.0, 0x5c4a38);
+    addBox(7.2, 0.04, 0.08, 0, 0.015, 2.0, 0x5c4a38);
+    // Low timber-brick dojo rear wall + eaves
+    addBox(14, 1.5, 0.45, 0, 0.75, -3.2, 0x241f2c);
+    addBox(14.4, 0.18, 0.72, 0, 1.56, -3.15, 0x3b2c24);
+    addBox(14.2, 0.12, 0.56, 0, 1.70, -3.15, 0x523c2e);
+    // 4 timber pillars & 2 glowing warm voxel lanterns
+    for (const px of [-4.6, -1.8, 1.8, 4.6]) {
+      addBox(0.24, 2.8, 0.24, px, 1.4, -2.95, 0x3e2a20);
+    }
+    for (const lx of [-2.8, 2.8]) {
+      addBox(0.08, 0.35, 0.08, lx, 2.45, -2.6, 0x584030);
+      addBox(0.32, 0.42, 0.32, lx, 2.1, -2.6, 0xc8462c, 0xff9a38, 0.75);
+      addBox(0.18, 0.24, 0.34, lx, 2.1, -2.6, 0xffe084, 0xffd060, 0.9);
+    }
+    // Soft ground contact shadow discs under ghost Hero & ghost Foe
+    const sGeo = new THREE.CircleGeometry(0.46, 12).rotateX(-Math.PI / 2);
+    const sMat = new THREE.MeshBasicMaterial({ color: 0x08060e, transparent: true, opacity: 0.52, depthWrite: false });
+    this.hShad = new THREE.Mesh(sGeo, sMat); this.hShad.position.set(0, 0.03, 0);
+    this.fShad = new THREE.Mesh(sGeo, sMat); this.fShad.position.set(0, 0.03, 0);
+    grp.add(this.hShad, this.fShad);
+    scene.add(grp);
+    this.dojo = grp;
+  }
+
+  start(entry: SkillEntry, heroDef: ModelDef, weaponId: WeaponId, weaponLv: number) {
+    this.entry = entry;
+    this.heroDef = heroDef;
+    this.weaponId = entry.weaponId ?? weaponId;
+    this.weaponLv = weaponLv;
+    this.ensureDojo();
+    this.spawnCycle(false);
+  }
+
+  private clearActors(puff: boolean) {
+    withCueMuted(() => {
+      if (this.g) {
+        if (puff) smokeBurst(this.g.pos.clone(), 0.45, 5, { size: 0.2, life: 0.32 });
+        this.g.a.dispose(); this.g = null;
+      }
+      if (this.foe) {
+        if (puff) smokeBurst(this.foe.home.clone(), 0.45, 5, { size: 0.2, life: 0.32 });
+        this.foe.dispose(); this.foe = null;
+      }
+      for (const d of this.darts) d.kill();
+      this.darts = [];
+      this.F = null; this.w = null;
+    });
+  }
+
+  private spawnCycle(puff: boolean) {
+    this.clearActors(puff);
+    const e = this.entry;
+    if (!e) return;
+    withCueMuted(() => {
+      const m = e.kind === 'manual' ? manualOf(e.id) : null;
+      this.manualScript = m ? MANUAL_SCRIPTS[m.id] : null;
+      this.keys = m ? manualSteps(m).filter(isPress) : [];
+      const isMeta = e.kind === 'arcana' || e.kind === 'keepsake';
+      const dist = this.manualScript ? this.manualScript.dist
+        : e.id === 'dart' || e.id === 'darts3' || e.id === 'boomerang' || e.id === 'pin' ? 4.0
+        : e.id === 'iai' || e.id === 'dcut' || e.id === 'passCut' || e.id === 'ult' ? 3.4
+        : e.id === 'dash' || e.id === 'counter' || e.id === 'parry' ? 2.5
+        : 2.3;
+      const gAt = V3(isMeta ? MINI_X : MINI_X - dist / 2, 0, MINI_Z);
+      const fAt = V3(MINI_X + dist / 2, 0, MINI_Z);
+
+      const g = this.g = new Hero(gAt, this.heroDef);
+      g.applyWeapon(this.weaponId, this.weaponLv);
+      g.qi = Hero.QI_MAX;
+      g.perks = newPerks();
+      if (m) g.moves = m.needs ? { [m.id]: true, [m.needs]: true } : { [m.id]: true };
+      if (e.kind === 'boon') applyBoon(g.perks, e.id, e.tier);
+      g.a.yaw = isMeta ? 0.35 : Math.PI / 2;
+      ghostOf(g.a.root, this.gm);
+
+      if (!isMeta) {
+        const foe = this.foe = new BattleActor('hj_blade');
+        foe.place(fAt);
+        foe.yaw = -Math.PI / 2;
+        ghostOf(foe.root, this.fm);
+        this.F = { st: 'idle', pos: foe.home, d: { r: 0.44 }, a: foe, vel: V3(), kind: 'hj_blade' } as unknown as Foe;
+      }
+      smokeBurst(gAt, 0.4, 5, { size: 0.2, life: 0.3 });
+      if (this.foe) smokeBurst(fAt, 0.4, 5, { size: 0.2, life: 0.3 });
+
+      this.t = 0; this.lastT = 0; this.readyAt = 0; this.si = 0;
+      this.stuck = false; this.fvy = 0; this.fvel.set(0, 0, 0); this.prone = 0;
+      this.fade = 0; this.ending = -1; this.phase = ''; this.holdBtn = undefined; this.holdFill = undefined;
+      this.flags.clear(); this.auraT = 0;
+      this.stick.v.set(0, 0, 0); this.stick.t = 0;
+      for (const k of Object.keys(this.hold) as BtnName[]) { this.hold[k] = 0; Object.assign(this.inp.b[k], newBtn()); }
+    });
+  }
+
+  private world(): HeroWorld {
+    const F = this.F, foe = this.foe, me = this;
+    const hit = (k: number, sparkCol = 0xffe8c8) => {
+      if (!foe) return 0;
+      foe.hurt(k);
+      fxSparks(foe.chest(), sparkCol, 9, 3.2);
+      return 1;
+    };
+    const inArc = (from: THREE.Vector3, yaw: number, range: number, half: number) => {
+      if (!F) return false;
+      const d = F.pos.clone().sub(from).setY(0), l = d.length();
+      if (l > range + F.d.r + 0.45) return false;
+      if (half >= Math.PI) return true;
+      return Math.abs(wrap(Math.atan2(d.x, d.z) - yaw)) <= half + Math.atan2(F.d.r + 0.2, Math.max(0.05, l));
+    };
+    return {
+      foes: F ? [F] : [],
+      swing: o => {
+        if (!inArc(o.from, o.yaw, o.range, o.half)) return 0;
+        const sc = me.entry?.kind === 'boon' && me.entry.accentHex ? me.entry.accentHex : 0xffe8c8;
+        if (o.heavy && F) me.fvel.set(3.2, 0, 0);
+        return hit(o.heavy ? 1.3 : 0.9, sc);
+      },
+      sweep: o => {
+        if (!F) return 0;
+        const ab = o.b.clone().sub(o.a).setY(0), L2 = Math.max(1e-6, ab.lengthSq());
+        const t = Math.max(0, Math.min(1, F.pos.clone().sub(o.a).setY(0).dot(ab) / L2));
+        const q = o.a.clone().addScaledVector(ab, t);
+        return Math.hypot(F.pos.x - q.x, F.pos.z - q.z) < o.r + F.d.r + 0.4 ? hit(1.25, 0xffe488) : 0;
+      },
+      slam: o => {
+        fxRing(o.at.clone().setY(0.08), me.entry?.id === 'rift' ? 0xff7832 : 0xffaa52, o.r * 0.9, { life: 0.34 } as never);
+        if (!F || Math.hypot(F.pos.x - o.at.x, F.pos.z - o.at.z) > o.r + F.d.r + 0.6) return 0;
+        me.fvy = 4.2;
+        return hit(1.3, 0xffb868);
+      },
+      launch: o => {
+        if (!inArc(o.from, o.yaw, o.range, o.half)) return 0;
+        me.fvy = 7.6;
+        fxRing(o.from.clone().setY(0.08), 0xd4eaf6, 1.3, { life: 0.28 } as never);
+        return hit(1.15, 0xffe488);
+      },
+      kick: o => {
+        if (!F) return 0;
+        const d = F.pos.clone().sub(o.from).setY(0);
+        if (d.length() > 2.1 || d.dot(o.dir) < -0.1) return 0;
+        me.fvel.copy(o.dir).setY(0).normalize().multiplyScalar(8.5);
+        fxRing(F.pos.clone().setY(0.85), 0xeadcc4, 1.0, { life: 0.24 } as never);
+        return hit(1.4, 0xffd088);
+      },
+      dart: o => {
+        me.darts.push(new Dart(o.from.clone(), o.dir.clone().multiplyScalar(TUNE.dartSpeed), 0, TUNE.dartRange));
+      },
+      chaseTarget: () => (me.stuck && F ? F : null),
+      chase: o => {
+        smokeBurst(o.from, 0.45, 7, { size: 0.24, life: 0.4 });
+        smokeBurst(o.to, 0.45, 7, { size: 0.24, life: 0.4 });
+        trailSeg(o.from.clone().setY(0.9), o.to.clone().setY(0.9), 0xa884ff, 0.11, { life: 0.26 });
+        for (const d of me.darts) if (d.stuck) d.stop();
+        me.stuck = false;
+      },
+      airFoe: () => (F && F.pos.y > 0.15 ? F : null),
+      airHold: (_f, y) => { if (F) F.pos.y = Math.max(0.5, y - 0.1); me.fvy = 0; },
+      airCut: o => { if (o.n === 3) me.fvy = -16; return hit(o.n === 3 ? 1.3 : 0.9, 0xff70d0); },
+      airSlam: o => { if (F) F.pos.y = 0; me.fvy = 0; fxRing(o.at.clone().setY(0.06), 0xe1b5a9, 1.5); return hit(1.3); },
+      swoop: o => {
+        trailSeg(o.a.clone().setY(0.65), o.b.clone().setY(0.65), 0x9ad8a8, 0.12, { life: 0.28 });
+        return hit(1.2, 0x88f4b0);
+      },
+      reelTarget: (from, min) => (me.stuck && F && from.distanceTo(F.pos) >= min ? { foe: F, heavy: false } : null),
+      reel: o => {
+        for (const d of me.darts) if (d.stuck === F) d.stop();
+        me.stuck = false;
+        if (me.g && foe && F) {
+          trailSeg(me.g.a.chest(), foe.chest(), 0xd8283a, 0.06, { life: o.dur });
+          me.fvel.copy(o.to).sub(F.pos).multiplyScalar(7);
+          hit(0.85, 0xff7080);
+        }
+      },
+      stompable: (from, y) => (F && y >= 0.5 && Math.hypot(from.x - F.pos.x, from.z - F.pos.z) <= 1.45 ? F : null),
+      stomp: o => { me.prone = 1.15; fxRing(o.foe.pos.clone().setY(0.06), 0xb8f048, 0.95); return hit(1.2, 0xc8ff68); },
+      guard: () => {},
+      incoming: () => null,
+      iaiCatch: () => (me.entry?.id === 'parry' && me.flags.has('parryWin') && F ? F.pos.clone() : null),
+      clamp: (p, r) => {
+        p.x = Math.max(MINI_X - 5.2 + r, Math.min(MINI_X + 5.2 - r, p.x));
+        p.z = Math.max(MINI_Z - 2.6 + r, Math.min(MINI_Z + 2.6 - r, p.z));
+      },
+      stickWorld: () => (me.stick.t > 0 ? me.stick.v.clone() : V3()),
+      aimWorld: () => null,
+    };
+  }
+
+  private pressBtn(btn: BtnName, dur = TAP, stick?: StickDir) {
+    this.hold[btn] = Math.max(this.hold[btn], dur);
+    if (stick && this.g && this.foe) {
+      const toF = this.foe.home.clone().sub(this.g.pos).setY(0);
+      if (toF.lengthSq() > 1e-4) toF.normalize(); else toF.set(1, 0, 0);
+      this.stick.v.copy(stick === 'toFoe' ? toF : stick === 'away' ? toF.multiplyScalar(-1) : V3(-toF.z, 0, toF.x));
+      this.stick.t = Math.max(dur + 0.06, 0.14);
+    }
+  }
+
+  update(dt: number): BeatState {
+    if (!this.entry || !this.g) return { phase: '', activeBtns: [] };
+    const g = this.g, foe = this.foe, e = this.entry, w = (this.w ??= this.world());
+    this.t += dt;
+    this.stick.t = Math.max(0, this.stick.t - dt);
+    this.holdBtn = undefined; this.holdFill = undefined;
+
+    withCueMuted(() => {
+      if (this.ending < 0) {
+        if (this.manualScript) {
+          // Exact MoveDemo script playback for all 12 manuals!
+          const sc = this.manualScript;
+          if (this.si < sc.steps.length) {
+            const p = sc.steps[this.si], key = this.keys[this.si];
+            const ready = this.t - this.lastT >= (p.after ?? (this.si ? 0.12 : 0.35)) && (!p.when || p.when(g, this));
+            this.readyAt = ready ? this.readyAt + dt : 0;
+            const last = this.si === sc.steps.length - 1;
+            if (isPress(key) && ready && (!last || this.readyAt >= 0.12)) {
+              const btn = KEY_BTN[key];
+              this.pressBtn(btn, TAP, p.stick);
+              this.lastT = this.t; this.si++; this.readyAt = 0;
+            }
+          } else if (this.t - this.lastT > sc.tail) {
+            this.ending = 0;
+          }
+          if (this.t > 4.6) this.ending = 0;
+          this.phase = this.si >= sc.steps.length ? '连招触发！' : msg`第 ${this.si + 1}/${sc.steps.length} 步`;
+        } else if (e.kind === 'arcana' || e.kind === 'keepsake') {
+          this.auraT += dt;
+          if (this.auraT > 0.72) {
+            this.auraT = 0;
+            const col = e.kind === 'arcana' ? 0x7ef0aa : 0xffd868;
+            fxRing(g.pos.clone().setY(0.08), col, 1.35, { life: 0.65 } as never);
+            fxSparks(g.pos.clone().setY(1.0), col, 5, 1.6);
+          }
+          g.a.yaw = 0.35 + Math.sin(this.t * 1.1) * 0.25;
+          this.phase = e.kind === 'arcana' ? '悟性牌入阵常驻生效' : '随身信物全程生效';
+        } else {
+          this.driveScript(e, g, foe);
+        }
+      }
+
+      // Advance scripted buttons just like Input.frame
+      for (const n of Object.keys(this.hold) as BtnName[]) {
+        const b = this.inp.b[n], d = this.hold[n] > 0;
+        this.hold[n] = Math.max(0, this.hold[n] - dt);
+        const was = b.held;
+        b.pressed = d && !b.down; b.released = !d && b.down; b.down = d;
+        b.held = d ? b.held + dt : 0;
+        if (b.released) b.last = was;
+      }
+
+      g.qi = Hero.QI_MAX;
+      g.update(dt, this.inp as unknown as Input, w);
+      g.a.update(dt);
+      if (this.hShad) {
+        this.hShad.position.set(g.pos.x - MINI_X, 0.03, g.pos.z - MINI_Z);
+        this.hShad.scale.setScalar(Math.max(0.45, 1 - g.y * 0.22));
+      }
+
+      if (foe && this.F) {
+        foe.update(dt);
+        if (this.fvy !== 0 || foe.home.y > 0) {
+          foe.home.y += this.fvy * dt; this.fvy -= 20 * dt;
+          if (foe.home.y <= 0) { foe.home.y = 0; this.fvy = 0; }
+        }
+        if (this.fvel.lengthSq() > 1e-3) {
+          foe.home.addScaledVector(this.fvel, dt);
+          foe.home.x = Math.max(MINI_X - 4.8, Math.min(MINI_X + 4.8, foe.home.x));
+          this.fvel.multiplyScalar(Math.exp(-5 * dt));
+        }
+        foe.place(foe.home);
+        if (this.fShad) {
+          this.fShad.visible = true;
+          this.fShad.position.set(foe.home.x - MINI_X, 0.03, foe.home.z - MINI_Z);
+          this.fShad.scale.setScalar(Math.max(0.45, 1 - foe.home.y * 0.22));
+        }
+        if (this.prone > 0) {
+          const down = Math.min(1, (1.15 - this.prone) / 0.1, this.prone / 0.25);
+          foe.body.rotation.x = Math.PI / 2 * down;
+          foe.body.position.y = 0.24 * down;
+          this.prone = Math.max(0, this.prone - dt);
+          if (!this.prone) { foe.body.rotation.x = 0; foe.body.position.y = 0; }
+        }
+      } else if (this.fShad) {
+        this.fShad.visible = false;
+      }
+
+      // Advance flying 3D darts
+      for (const d of this.darts) {
+        if (d.dead) continue;
+        if (d.stuck) { d.ride(dt); continue; }
+        const p0 = d.step(dt);
+        if (foe && this.F) {
+          const ab = d.p.clone().sub(p0).setY(0), L2 = Math.max(1e-6, ab.lengthSq());
+          const t = Math.max(0, Math.min(1, foe.home.clone().sub(p0).setY(0).dot(ab) / L2));
+          const q = p0.clone().addScaledVector(ab, t);
+          if (Math.hypot(foe.home.x - q.x, foe.home.z - q.z) < 0.68 && d.p.y < 2.4) {
+            foe.hurt(0.45);
+            fxSparks(foe.chest(), 0x9cf0ff, 6, 2.5);
+            d.stickIn(this.F, 3);
+            this.stuck = true;
+          } else if (d.life <= 0) d.stop(false);
+        } else if (d.life <= 0) d.stop(false);
+      }
+
+      this.fade = Math.min(1, this.fade + dt / 0.22);
+      if (this.ending >= 0) {
+        this.ending += dt;
+        if (this.ending >= 0.34) { this.spawnCycle(true); return; }
+      }
+      const a = this.ending >= 0 ? Math.max(0, 1 - this.ending / 0.34) : this.fade;
+      this.gm.opacity = 0.62 * a;
+      this.fm.opacity = 0.54 * a;
+    });
+
+    const activeBtns: BtnName[] = [];
+    for (const n of ['attack', 'dash', 'jump', 'special', 'ult'] as BtnName[]) {
+      if (this.inp.b[n].down) activeBtns.push(n);
+    }
+    return { phase: this.phase, activeBtns, holdBtn: this.holdBtn, holdFill: this.holdFill };
+  }
+
+  /** Real 3D Hero choreography for all 10 base/weapon moves & all Boons. */
+  private driveScript(e: SkillEntry, g: Hero, foe: BattleActor | null) {
+    const id = e.id;
+    const t = this.t;
+    const once = (k: string, cond: boolean, fn: () => void) => {
+      if (cond && !this.flags.has(k)) { this.flags.add(k); fn(); }
+    };
+
+    if (id === 'lianhuan' || (e.kind === 'boon' && e.target === 'attack')) {
+      const hits = this.weaponId === 'thunder' ? 3 : this.weaponId === 'frost' ? 6 : this.weaponId === 'blunt' ? 2 : 5;
+      const stepT = this.weaponId === 'frost' ? 0.28 : this.weaponId === 'thunder' ? 0.50 : 0.36;
+      const start = 0.12;
+      if (this.si < hits && t >= start + this.si * stepT) {
+        this.pressBtn('attack', TAP, 'toFoe');
+        this.si++;
+      }
+      this.phase = e.kind === 'boon' ? '出刀触发秘传！' : this.si > 0 ? `第 ${Math.min(this.si, hits)}/${hits} 段` : '准备连斩';
+      if (t > start + hits * stepT + 0.85) this.ending = 0;
+      return;
+    }
+
+    if (id === 'iai' || (e.kind === 'boon' && (e.steps?.includes('hold') ?? false))) {
+      const holdDur = 0.72;
+      if (t >= 0.22 && t < 0.22 + holdDur) {
+        this.hold.attack = 0.08;
+        this.holdBtn = 'attack';
+        this.holdFill = Math.min(1, (t - 0.22) / holdDur);
+        if (Math.floor(t * 7) !== Math.floor((t - 0.03) * 7)) {
+          fxRing(g.pos.clone().setY(0.08), this.holdFill > 0.8 ? 0xfff088 : 0xff9a38, 0.7 + this.holdFill * 0.6, { life: 0.2 } as never);
+        }
+        this.phase = this.holdFill > 0.85 ? '蓄满！松手斩' : '长按蓄力…';
+      } else if (t >= 0.22 + holdDur) {
+        once('relFx', true, () => {
+          if (this.weaponId === 'thunder' && foe) {
+            fxRing(foe.home.clone().setY(0.1), 0xffe060, 2.2, { life: 0.4 } as never);
+            trailSeg(g.pos.clone().setY(0.9), foe.home.clone().setY(0.9), 0xffe060, 0.26, { life: 0.32 });
+            foe.hurt(1.6); fxSparks(foe.chest(), 0xffe468, 14, 4);
+          } else if (this.weaponId === 'frost' && foe) {
+            fxRing(foe.home.clone().setY(0.1), 0x74e8ff, 1.8, { life: 0.36 } as never);
+            fxSparks(foe.chest(), 0x9cf4ff, 14, 4);
+          } else if (this.weaponId === 'blunt' && foe) {
+            slashArc.clashCross(foe.chest(), V3(1, 0, 0), 0.12, 'heavy', 0.28, 1.35);
+            fxSparks(foe.chest(), 0xff8c52, 16, 4.5);
+          }
+        });
+        this.phase = this.weaponId === 'thunder' ? '裂阵斩 · 雷柱破盾！' : this.weaponId === 'frost' ? '追霜 · 引爆影针！' : this.weaponId === 'blunt' ? '听声一闪！' : '松手！箭步穿斩';
+      } else {
+        this.phase = '准备藏锋';
+      }
+      if (t > 2.2) this.ending = 0;
+      return;
+    }
+
+    if (id === 'parry') {
+      if (t >= 0.2 && t < 0.88) {
+        this.hold.attack = 0.08;
+        this.holdBtn = 'attack';
+        this.holdFill = Math.min(1, (t - 0.2) / 0.68);
+        this.phase = t > 0.62 ? '红光来袭 · 准备松手！' : '长按蓄势听招';
+      }
+      once('foeAtk', t >= 0.58 && !!foe, () => {
+        foe!.attack(1.4);
+        fxRing(foe!.chest(), 0xff5242, 1.15, { life: 0.28 } as never);
+      });
+      once('parryHit', t >= 0.88 && !!foe, () => {
+        this.flags.add('parryWin');
+        fxRing(g.pos.clone().add(V3(0.7, 0.9, 0)), 0xfff6c8, 1.7, { life: 0.32 } as never);
+        fxSparks(g.pos.clone().add(V3(0.7, 1.0, 0)), 0xffe488, 16, 4.5);
+        foe!.hurt(1.5);
+        this.fvel.set(7.5, 0, 0);
+      });
+      if (t >= 0.88) this.phase = '破势成功！震退弹反';
+      if (t > 2.15) this.ending = 0;
+      return;
+    }
+
+    if (id === 'dash' || id === 'dcut' || id === 'counter' || (e.kind === 'boon' && e.target === 'dash')) {
+      const isCounter = id === 'counter', isDcut = id === 'dcut' || id === 'passCut';
+      once('foeSw', t >= 0.35 && !!foe, () => {
+        foe!.attack(1.4);
+        if (isCounter) fxRing(foe!.chest(), 0xff5242, 1.1, { life: 0.26 } as never);
+      });
+      once('doDash', t >= 0.52, () => {
+        this.pressBtn('dash', TAP, isCounter ? 'side' : 'toFoe');
+        if (isCounter) fxRing(g.pos.clone().setY(0.12), 0x82dcff, 1.6, { life: 0.35 } as never);
+      });
+      once('doCut', (isDcut && t >= 0.60) || (isCounter && t >= 0.96), () => {
+        this.pressBtn('attack', TAP, 'toFoe');
+        if (isCounter && foe) {
+          fxSparks(foe.chest(), 0xffd858, 14, 4.2);
+          slashArc.clashCross(foe.chest(), V3(1, 0, 0), 0.3, 'heavy', 0.26, 1.2);
+        }
+      });
+      this.phase = t < 0.52 ? (isCounter ? '敌招临身 · 闪避！' : '准备冲刺')
+        : isDcut ? '冲刺接斩 · 穿风！'
+        : isCounter ? (t >= 0.96 ? '回锋斩 · 伤害翻倍！' : '完美闪避！')
+        : '无敌疾冲';
+      if (t > 2.1) this.ending = 0;
+      return;
+    }
+
+    if (id === 'jump' || id === 'plunge' || (e.kind === 'boon' && e.target === 'jump')) {
+      const doPlunge = id === 'plunge' || id === 'rift' || id === 'vault';
+      once('j1', t >= 0.3, () => this.pressBtn('jump', TAP, 'toFoe'));
+      once('jCut', doPlunge && t >= 0.56, () => this.pressBtn('attack', TAP, 'toFoe'));
+      this.phase = doPlunge ? (t >= 0.56 ? '空中下劈 · 震地！' : '起跳滞空') : '跃过贴地横扫';
+      if (t > 1.95) this.ending = 0;
+      return;
+    }
+
+    if (id === 'dart' || (e.kind === 'boon' && e.target === 'special')) {
+      for (let k = 0; k < 3; k++) {
+        once(`d${k}`, t >= 0.3 + k * 0.32, () => this.pressBtn('special', TAP, 'toFoe'));
+      }
+      this.phase = e.kind === 'boon' ? '掷镖触发秘传！' : '掷出柳叶镖钉住敌人';
+      if (t > 2.1) this.ending = 0;
+      return;
+    }
+
+    if (id === 'ult') {
+      once('u0', t >= 0.25, () => {
+        this.pressBtn('ult', 0.14, 'toFoe');
+        fxRing(g.pos.clone().setY(0.1), 0xffd258, 1.9, { life: 0.45 } as never);
+      });
+      once('u1', t >= 0.55 && !!foe, () => {
+        this.pressBtn('dash', TAP, 'toFoe');
+        slashArc.clashCross(foe!.chest(), V3(1, 0, 0), 0.45, 'heavy', 0.3, 1.5);
+        slashArc.clashCross(foe!.chest(), V3(0, 0, 1), -0.45, 'heavy', 0.3, 1.5);
+        foe!.hurt(1.2); fxSparks(foe!.chest(), 0xffe488, 14, 4);
+      });
+      once('u2', t >= 1.15 && !!foe, () => {
+        for (let k = 0; k < 3; k++) {
+          slashArc.clashCross(foe!.chest().add(V3((k - 1) * 0.4, (k - 1) * 0.25, 0)), V3(1, 0, 0.3), k * 0.6, 'heavy', 0.32, 1.4);
+        }
+        fxRing(foe!.home.clone().setY(0.12), 0xffd860, 2.4, { life: 0.45 } as never);
+        fxSparks(foe!.chest(), 0xfff098, 22, 5.2);
+        foe!.hurt(1.8);
+      });
+      this.phase = t < 0.55 ? '三格杀气蓄满！' : t < 1.15 ? '不见刀 · 分身齐斩！' : '归鞘连爆八刀！';
+      if (t > 2.35) this.ending = 0;
+      return;
+    }
+
+    // Fallback passive boon demonstration: strike + glowing proc ring
+    once('p1', t >= 0.4, () => {
+      this.pressBtn('attack', TAP, 'toFoe');
+      fxRing(g.pos.clone().setY(0.1), e.accentHex ?? 0xffd27a, 1.5, { life: 0.4 } as never);
+    });
+    this.phase = '出招触发秘传';
+    if (t > 1.9) this.ending = 0;
+  }
+
+  hide() {
+    this.clearActors(false);
+    if (this.dojo) this.dojo.visible = false;
+    this.entry = null;
+  }
+
+  dispose() {
+    this.hide();
+    if (this.dojo) {
+      this.dojo.traverse(o => {
+        const m = o as THREE.Mesh;
+        if (m.isMesh) { m.geometry.dispose(); (m.material as THREE.Material).dispose(); }
+      });
+      this.dojo.parent?.remove(this.dojo);
+      this.dojo = null;
+    }
+    this.gm.dispose();
+    this.fm.dispose();
+  }
+}
+
 export class MoveStage {
   private mesh: THREE.Mesh;
   private mat: THREE.MeshBasicMaterial;
   private tex: THREE.CanvasTexture | null = null;
   private canvas: HTMLCanvasElement | null = null;
   private ctx: CanvasRenderingContext2D | null = null;
-  private stageCv: HTMLCanvasElement;
-  private stageG: CanvasRenderingContext2D;
+  private sim = new MiniGhostSim();
+  private cam = new THREE.PerspectiveCamera(34, 2, 0.1, 40);
   private entry: SkillEntry | null = null;
-  private t = 0;
-  private accum = 0;
+  private heroDef: ModelDef = modelDef('fine_hat');
+  private weaponId: WeaponId = 'hanshan';
+  private weaponLv = 0;
+  private beat: BeatState = { phase: '', activeBtns: [] };
+  private uiAccum = 0;
   private lastW = 0;
   private lastH = 0;
   private lastEntryKey = '';
   private rect = { cx: 0, cy: 0, w: 0, h: 0 };
+  /** Exact CSS-px viewport rectangle of the live 3D mini-world cutout (top half of MoveStage, above beat bar). */
+  private vpCss = { x: 0, y: 0, w: 0, h: 0 };
   private demoBtnRect: { x: number; y: number; w: number; h: number } | null = null;
+  private visibleAlpha = 0;
   demoBtnHot = false;
   canPlay3d = false;
 
@@ -58,19 +659,23 @@ export class MoveStage {
     this.mesh.renderOrder = 62;
     this.mesh.visible = false;
     L.text.scene.add(this.mesh);
-    this.stageCv = makeCanvas(184, 92) as HTMLCanvasElement;
-    this.stageG = this.stageCv.getContext('2d')!;
-    this.stageG.imageSmoothingEnabled = false;
+  }
+
+  setContext(heroDef: ModelDef, weaponId: WeaponId, weaponLv: number) {
+    this.heroDef = heroDef;
+    this.weaponId = weaponId;
+    this.weaponLv = weaponLv;
   }
 
   setEntry(e: SkillEntry | null, canPlay3d = false) {
-    const key = e ? `${e.kind}:${e.id}:${e.weaponId ?? ''}:${e.attached?.length ?? 0}:${canPlay3d ? 1 : 0}` : '';
+    const key = e ? `${e.kind}:${e.id}:${e.weaponId ?? this.weaponId}:${this.weaponLv}:${e.attached?.length ?? 0}:${canPlay3d ? 1 : 0}` : '';
     if (key !== this.lastEntryKey) {
       this.lastEntryKey = key;
       this.entry = e;
       this.canPlay3d = canPlay3d;
-      this.t = 0;
-      this.accum = 1; // force immediate repaint
+      if (e) this.sim.start(e, this.heroDef, this.weaponId, this.weaponLv);
+      else this.sim.hide();
+      this.uiAccum = 1;
     }
   }
 
@@ -84,13 +689,16 @@ export class MoveStage {
   }
 
   update(dt: number, alpha: number) {
+    this.visibleAlpha = alpha;
     if (!this.entry || alpha <= 0.02 || this.rect.w < 40 || this.rect.h < 40) {
       this.mesh.visible = false;
       this.demoBtnRect = null;
+      this.vpCss.w = 0;
       return;
     }
-    this.t += dt;
-    this.accum += dt;
+    PAUSE.fx = true;
+    this.beat = this.sim.update(dt);
+    this.uiAccum += dt;
     const dpr = Math.max(1, Math.round(this.L.dpr || 1));
     const W = Math.max(64, Math.round(this.rect.w * dpr));
     const H = Math.max(64, Math.round(this.rect.h * dpr));
@@ -107,10 +715,10 @@ export class MoveStage {
       this.tex.colorSpace = THREE.SRGBColorSpace;
       this.mat.map = this.tex;
       this.mat.needsUpdate = true;
-      this.accum = 1;
+      this.uiAccum = 1;
     }
-    if (this.accum >= 1 / 30) {
-      this.accum = 0;
+    if (this.uiAccum >= 1 / 24) {
+      this.uiAccum = 0;
       this.paint(this.ctx!, W, H, dpr);
       if (this.tex) this.tex.needsUpdate = true;
     }
@@ -120,12 +728,71 @@ export class MoveStage {
     this.mesh.position.set(Math.round(this.rect.cx), -Math.round(this.rect.cy), 0);
   }
 
-  hide() {
+  /** Direct scissor-viewport 3D render of the live Mini-World into MoveStage's transparent upper showcase bay. */
+  renderMiniWorld(renderer: THREE.WebGLRenderer) {
+    if (!this.mesh.visible || this.visibleAlpha <= 0.08 || this.vpCss.w < 16 || this.vpCss.h < 16) return;
+    // Three.js setViewport / setScissor expect logical CSS pixels (they multiply by renderer.getPixelRatio() internally).
+    const W = Math.max(1, this.L.w), H = Math.max(1, this.L.h);
+    const vx = Math.max(0, Math.floor(this.vpCss.x));
+    const vw = Math.min(W - vx, Math.max(1, Math.ceil(this.vpCss.w)));
+    const vh = Math.max(1, Math.ceil(this.vpCss.h));
+    const vy = Math.max(0, Math.floor(H - (this.vpCss.y + this.vpCss.h)));
+    if (vw < 8 || vh < 8) return;
+
+    this.cam.aspect = vw / vh;
+    this.cam.position.set(MINI_X, 3.65, 6.45);
+    this.cam.lookAt(MINI_X, 0.85, 0);
+    this.cam.updateProjectionMatrix();
+
+    const prevVp = new THREE.Vector4();
+    const prevSc = new THREE.Vector4();
+    const prevCc = new THREE.Color();
+    renderer.getViewport(prevVp);
+    renderer.getScissor(prevSc);
+    renderer.getClearColor(prevCc);
+    const prevScTest = renderer.getScissorTest();
+    const prevAc = renderer.autoClear;
+    const prevCa = renderer.getClearAlpha();
+    const prevShad = renderer.shadowMap.enabled;
+    const prevFog = scene.fog;
+
+    padLights();
+    try {
+      renderer.setRenderTarget(null);
+      renderer.autoClear = false;
+      renderer.shadowMap.enabled = false;
+      scene.fog = null;
+      renderer.setScissorTest(true);
+      renderer.setScissor(vx, vy, vw, vh);
+      renderer.setViewport(vx, vy, vw, vh);
+      renderer.setClearColor(0x13111c, 1);
+      renderer.clear(true, true, false);
+      renderer.render(scene, this.cam);
+    } finally {
+      restoreLights();
+      scene.fog = prevFog;
+      renderer.shadowMap.enabled = prevShad;
+      renderer.setClearColor(prevCc, prevCa);
+      renderer.setViewport(prevVp);
+      renderer.setScissor(prevSc);
+      renderer.setScissorTest(prevScTest);
+      renderer.autoClear = prevAc;
+    }
+  }
+
+  hide(keepFx = false) {
     this.mesh.visible = false;
     this.demoBtnRect = null;
+    this.vpCss.w = 0;
+    this.lastEntryKey = '';
+    this.entry = null;
+    this.sim.hide();
+    if (!keepFx) PAUSE.fx = false;
   }
 
   dispose() {
+    this.hide();
+    this.sim.dispose();
     this.mesh.parent?.remove(this.mesh);
     this.mesh.geometry.dispose();
     this.tex?.dispose();
@@ -147,21 +814,40 @@ export class MoveStage {
 
     const boxX = padX + u, boxW = W - (padX + u) * 2;
     const compact = this.rect.h < 320;
-    const stageH = Math.round(H * (compact ? 0.44 : 0.48));
+    const stageH = Math.round(H * (compact ? 0.45 : 0.49));
     const stageY = padY + u;
     const bdr = Math.max(1, Math.round(1.5 * kk * dpr));
 
-    // 1. Live Animated Pixel Dojo Stage
-    const beat = this.paintPixelStage(e, this.t);
+    // 1. Framed transparent viewport bay for the live 3D Mini-World (punched via clearRect!)
     g.fillStyle = '#09070c';
     g.fillRect(boxX - bdr, stageY - bdr, boxW + 2 * bdr, stageH + 2 * bdr);
     g.fillStyle = innerCol;
     g.fillRect(boxX, stageY, boxW, stageH);
     const ix = boxX + bdr, iy = stageY + bdr, iw = boxW - 2 * bdr, ih = stageH - 2 * bdr;
-    g.imageSmoothingEnabled = false;
-    g.drawImage(this.stageCv, 0, 0, this.stageCv.width, this.stageCv.height, ix, iy, iw, ih);
+    const barH = Math.max(Math.round(24 * kk * dpr), Math.round(ih * 0.22));
+    const barY = iy + ih - barH;
+    const vpH = Math.max(8, barY - iy);
+    // Clear the 3D window so the live 3D Mini-World rendered beneath shines cleanly through!
+    g.clearRect(ix, iy, iw, vpH);
 
-    // Subtle "示意演武" corner stamp at top-left of viewport
+    // Record exact CSS-px viewport rect for renderMiniWorld()
+    const left0 = this.rect.cx - this.rect.w / 2, top0 = this.rect.cy - this.rect.h / 2;
+    this.vpCss = { x: left0 + ix / dpr, y: top0 + iy / dpr, w: iw / dpr, h: vpH / dpr };
+
+    // Crisp forged corner brackets framing the 3D mini-world
+    const cr = Math.round(10 * kk * dpr);
+    g.fillStyle = innerCol;
+    for (const [cx, cy, sx, sy] of [
+      [ix + bdr, iy + bdr, 1, 1],
+      [ix + iw - bdr, iy + bdr, -1, 1],
+      [ix + bdr, iy + vpH - bdr, 1, -1],
+      [ix + iw - bdr, iy + vpH - bdr, -1, -1],
+    ]) {
+      g.fillRect(sx > 0 ? cx : cx - cr, cy, cr, bdr);
+      g.fillRect(cx - (sx < 0 ? bdr : 0), sy > 0 ? cy : cy - cr, bdr, cr);
+    }
+
+    // Corner stamp at top-left of 3D mini-world viewport
     const lblS = Math.max(1, Math.round((11 * kk * dpr) / PIX_H));
     const stampTxt = localize('动作示意');
     const stW = pixW(stampTxt) * lblS + Math.round(10 * kk * dpr);
@@ -174,14 +860,12 @@ export class MoveStage {
       scale: lblS, color: '#e6d6b0', outline: null, align: 'left',
     });
 
-    // Bottom HUD strip inside stage viewport: synchronized keycap beat + live phase label
-    const barH = Math.max(Math.round(24 * kk * dpr), Math.round(ih * 0.24));
-    const barY = iy + ih - barH;
-    g.fillStyle = 'rgba(9,8,14,0.88)';
+    // Bottom HUD strip inside stage frame: synchronized keycap beat + live phase label
+    g.fillStyle = '#0e0c14';
     g.fillRect(ix, barY, iw, barH);
     g.fillStyle = '#3a3242';
     g.fillRect(ix, barY, iw, Math.max(1, Math.round(dpr)));
-    this.paintBeatBar(g, e, beat, ix + Math.round(8 * kk * dpr), barY, iw - Math.round(16 * kk * dpr), barH, kk, dpr);
+    this.paintBeatBar(g, e, this.beat, ix + Math.round(8 * kk * dpr), barY, iw - Math.round(16 * kk * dpr), barH, kk, dpr);
 
     // 2. Lower Inspector Section: Title + Badge + Icon-Rich Effect + Stat Pill + Attached Boons
     let curY = stageY + stageH + Math.round((compact ? 8 : 11) * kk * dpr);
@@ -192,7 +876,6 @@ export class MoveStage {
     const titleCol = e.kind === 'arcana' ? '#a4ffd0' : e.kind === 'keepsake' ? '#ffe68c' : e.kind === 'manual' ? '#fff0c0' : '#fff4dc';
     drawPix(g, title, boxX, curY, { scale: tScale, color: titleCol, outline: '#08060c', align: 'left' });
 
-    // Kind / Tier / School tag pills right of title
     let tx = boxX + pixW(title) * tScale + Math.round(10 * kk * dpr);
     const pScale = Math.max(1, Math.round((12.5 * kk * dpr) / PIX_H));
     const drawPill = (txt: string, col: string, fill: string) => {
@@ -245,7 +928,7 @@ export class MoveStage {
       curY += pillH + Math.round(6 * kk * dpr);
     }
 
-    // Hades-2 Integration: Attached Boons currently augmenting this base move slot!
+    // Attached Boons currently augmenting this base move slot!
     const bottomLimit = H - padY - u;
     if (e.attached && e.attached.length && curY + Math.round(24 * kk * dpr) < bottomLimit) {
       const hdrS = Math.max(1, Math.round((11.5 * kk * dpr) / PIX_H));
@@ -265,7 +948,7 @@ export class MoveStage {
       }
     }
 
-    // Optional clickable 「实景演武」 button at bottom-right for learned manuals (triggers 3D ghost demo)
+    // Optional clickable 「实景演武」 button at bottom-right for learned manuals
     if (e.kind === 'manual' && this.canPlay3d) {
       const btnTxt = localize('实景演武');
       const bs = Math.max(1, Math.round((13.5 * kk * dpr) / PIX_H));
@@ -281,7 +964,6 @@ export class MoveStage {
       drawPix(g, btnTxt, bx + bw / 2, Math.round(by + (bh - PIX_H * bs) / 2), {
         scale: bs, color: hot ? '#fffce0' : '#ffe6a0', outline: '#08060c', align: 'center',
       });
-      const left0 = this.rect.cx - this.rect.w / 2, top0 = this.rect.cy - this.rect.h / 2;
       this.demoBtnRect = { x: left0 + bx / dpr, y: top0 + by / dpr, w: bw / dpr, h: bh / dpr };
     } else {
       this.demoBtnRect = null;
@@ -291,9 +973,7 @@ export class MoveStage {
   private wrapRich(txt: string, px: number, maxW: number): string[] {
     if (richLine(null, txt, 0, 0, px, '#fff', '#fff', true, true) <= maxW) return [txt];
     const sep = txt.search(/[，。；、·]/);
-    if (sep > 2 && sep < txt.length - 2) {
-      return [txt.slice(0, sep + 1), txt.slice(sep + 1).trim()];
-    }
+    if (sep > 2 && sep < txt.length - 2) return [txt.slice(0, sep + 1), txt.slice(sep + 1).trim()];
     const mid = Math.ceil(txt.length / 2);
     return [txt.slice(0, mid), txt.slice(mid)];
   }
@@ -335,7 +1015,6 @@ export class MoveStage {
       }
     };
 
-    // Derive which button chip(s) to display for this entry
     if (e.kind === 'arcana') {
       const ico = Math.round(h * 0.62);
       drawMiniIcon(g, 'grasp', cx + ico / 2, mid, ico);
@@ -364,483 +1043,11 @@ export class MoveStage {
       }
     }
 
-    // Right-aligned live animated phase caption
     if (beat.phase) {
       const ps = Math.max(1, Math.round((13 * kk * dpr) / PIX_H));
       const pTxt = localize(beat.phase);
       const pCol = beat.activeBtns.length ? '#ffe688' : '#cfc6b6';
       drawPix(g, pTxt, x + w, Math.round(mid - (PIX_H * ps) / 2), { scale: ps, color: pCol, outline: '#08060c', align: 'right' });
     }
-  }
-
-  // ---------------------------------------------------------------- Live 184×92 Hard-Edge Pixel Martial-Arts Animator
-  private paintPixelStage(e: SkillEntry, time: number): BeatState {
-    const g = this.stageG;
-    const W = this.stageCv.width, H = this.stageCv.height;
-    const groundY = 64;
-    const wid: WeaponId = e.weaponId ?? 'hanshan';
-    const bPal = WEAPON_BLADE_COL[wid];
-
-    const R = (x: number, y: number, w: number, h: number, c: string) => {
-      g.fillStyle = c; g.fillRect(Math.round(x), Math.round(y), Math.max(1, Math.round(w)), Math.max(1, Math.round(h)));
-    };
-
-    // 1. Crisp Pixel Dojo Backdrop (ink night sky, wooden roof beams, two swaying warm lanterns, plank floor)
-    R(0, 0, W, H, '#12101a');
-    R(0, 0, W, 16, '#1a1524');
-    // Roof beam & eaves
-    R(0, 14, W, 4, '#2d221c');
-    R(0, 17, W, 1, '#543c2c');
-    // Pillars
-    for (const px of [12, W - 18]) {
-      R(px, 18, 6, groundY - 18, '#281e1a');
-      R(px + 1, 18, 1, groundY - 18, '#46342a');
-    }
-    // Distant lattice window in center
-    R(56, 22, 72, 26, '#191624');
-    for (let x = 64; x < 128; x += 12) R(x, 22, 1, 26, '#2b2438');
-    for (let y = 30; y < 48; y += 9) R(56, y, 72, 1, '#2b2438');
-    // Two warm lanterns
-    const glow = Math.sin(time * 4) > 0 ? '#ffd878' : '#f0b854';
-    for (const lx of [34, W - 40]) {
-      R(lx + 2, 18, 1, 4, '#6e5034');
-      R(lx, 22, 5, 7, '#a83628');
-      R(lx + 1, 23, 3, 5, glow);
-    }
-    // Courtyard flagstone floor
-    R(0, groundY, W, H - groundY, '#221e28');
-    R(0, groundY, W, 2, '#4a4052');
-    for (let fx = 16; fx < W; fx += 24) R(fx, groundY + 2, 1, H - groundY - 2, '#181520');
-    R(0, groundY + 12, W, 1, '#181520');
-
-    // Helper: draw our blindfolded straw-hat heroine (16×24 px footprint anchored at bottom-center (x, y))
-    const drawHero = (
-      x: number, y: number,
-      o: { dir?: 1 | -1; crouch?: boolean; sheath?: boolean; swing?: number; bladeLen?: number; ghost?: boolean; alpha?: number; aura?: string } = {},
-    ) => {
-      const dir = o.dir ?? 1;
-      const prevA = g.globalAlpha;
-      if (o.alpha != null) g.globalAlpha = o.alpha;
-      const cy = o.crouch ? y + 2 : y;
-      // Ground shadow
-      if (!o.ghost) R(x - 7, groundY - 1, 14, 3, '#0b0910');
-      if (o.aura) {
-        R(x - 10, cy - 22, 20, 2, o.aura); R(x - 10, cy - 2, 20, 2, o.aura);
-        R(x - 10, cy - 20, 2, 18, o.aura); R(x + 8, cy - 20, 2, 18, o.aura);
-      }
-      const coat = o.ghost ? '#5cb4e6' : '#262838';
-      const trim = o.ghost ? '#a8e4ff' : '#4a4e68';
-      const sash = o.ghost ? '#7ce0ff' : '#c83a32';
-      const hat  = o.ghost ? '#98dcff' : '#c49c5c';
-      const rib  = o.ghost ? '#e0f8ff' : '#f2eee4';
-      // Legs
-      R(x - 4, cy - 6, 3, 6, o.ghost ? '#4288b8' : '#1c1a24');
-      R(x + 1, cy - 6, 3, 6, o.ghost ? '#4288b8' : '#1c1a24');
-      // Torso & crimson sash
-      R(x - 5, cy - 15, 10, 9, coat);
-      R(x - 4, cy - 14, 8, 2, trim);
-      R(x - 5, cy - 9, 10, 2, sash);
-      // Fluttering scarf tail
-      const wave = Math.round(Math.sin(time * 10) * 1.5);
-      R(x - dir * 8, cy - 10 + wave, 4, 2, sash);
-      R(x - dir * 11, cy - 9 + wave, 3, 2, sash);
-      // Head + white blindfold + fluttering ribbon
-      R(x - 3, cy - 20, 6, 5, o.ghost ? '#c0ecff' : '#e6ccb0');
-      R(x - 3, cy - 19, 6, 2, rib);
-      R(x - dir * 7, cy - 19 - wave, 4, 1, rib);
-      // Wide straw hat (斗笠)
-      R(x - 9, cy - 22, 18, 2, hat);
-      R(x - 6, cy - 24, 12, 2, hat);
-      R(x - 3, cy - 25, 6, 1, '#e4c280');
-      // Blade
-      const len = o.bladeLen ?? (wid === 'thunder' ? 18 : wid === 'frost' ? 11 : wid === 'blunt' ? 13 : 14);
-      if (o.sheath) {
-        R(x - dir * 7, cy - 9, 10, 2, '#3c3028');
-        R(x + dir * 2, cy - 10, 3, 3, '#ffe478');
-      } else {
-        const ang = o.swing ?? 0; // 0 = ready low, 1 = high raised, 2 = forward horizontal slash, 3 = thrust
-        if (ang === 1) {
-          R(x + dir * 4, cy - 26, 2, len, bPal.main);
-          R(x + dir * 4, cy - 26, 1, len - 2, bPal.hi);
-        } else if (ang === 2) {
-          R(x + (dir > 0 ? 4 : -4 - len), cy - 13, len, 2, bPal.main);
-          R(x + (dir > 0 ? 4 : -4 - len), cy - 13, len, 1, bPal.hi);
-        } else if (ang === 3) {
-          R(x + (dir > 0 ? 5 : -5 - len - 3), cy - 12, len + 3, 2, bPal.hi);
-        } else {
-          R(x + (dir > 0 ? 4 : -4 - Math.round(len * 0.7)), cy - 10, Math.round(len * 0.7), 2, bPal.main);
-        }
-      }
-      g.globalAlpha = prevA;
-    };
-
-    // Helper: draw sparring bandit / dummy on right
-    const drawFoe = (
-      x: number, y: number,
-      o: { hurt?: boolean; flash?: boolean; atk?: boolean; pins?: number; frost?: boolean; bleed?: boolean; stun?: boolean } = {},
-    ) => {
-      R(x - 6, groundY - 1, 12, 3, '#0b0910');
-      const body = o.hurt ? '#ffffff' : o.frost ? '#68c8ee' : '#5e3630';
-      const armor = o.hurt ? '#ffe8d8' : o.frost ? '#9ee8ff' : '#3a2c32';
-      // Legs & torso
-      R(x - 4, y - 6, 3, 6, '#241c20'); R(x + 1, y - 6, 3, 6, '#241c20');
-      R(x - 5, y - 16, 10, 10, body);
-      R(x - 5, y - 15, 10, 4, armor);
-      // Head + yellow turban
-      R(x - 3, y - 21, 6, 5, o.hurt ? '#ffffff' : '#d8b494');
-      R(x - 4, y - 22, 8, 2, '#d8a642');
-      // Enemy weapon
-      if (o.atk) {
-        R(x - 16, y - 14, 12, 2, '#e6d8c8');
-        R(x - 18, y - 16, 10, 6, 'rgba(255,68,56,0.55)');
-      } else {
-        R(x - 8, y - 18, 2, 12, '#8c8894');
-      }
-      // Telegraph flash (!)
-      if (o.flash) {
-        R(x - 2, y - 33, 4, 4, '#ff4c3c');
-        R(x - 1, y - 32, 2, 2, '#fff4a8');
-        R(x - 10, y - 15, 4, 2, '#ff5442');
-      }
-      // Stuck willow darts / ice pins
-      for (let i = 0; i < (o.pins ?? 0); i++) {
-        R(x - 8 + i * 2, y - 15 + i * 3, 6, 1, '#8ef0ff');
-        R(x - 9 + i * 2, y - 15 + i * 3, 2, 1, '#e84852');
-      }
-      // Bleed drops
-      if (o.bleed) {
-        const dy = Math.floor((time * 18) % 8);
-        R(x - 3, y - 10 + dy, 2, 3, '#ff4848');
-        R(x + 3, y - 13 + ((dy + 4) % 8), 2, 3, '#ff4848');
-      }
-      // Stun stars
-      if (o.stun) {
-        const sx = Math.round(Math.sin(time * 12) * 5);
-        R(x + sx - 1, y - 27, 2, 2, '#ffe878');
-        R(x - sx - 1, y - 26, 2, 2, '#fff8d0');
-      }
-    };
-
-    // Helper: hard-edge pixel slash arc
-    const drawSlash = (cx: number, cy: number, r: number, col: string, hi = '#ffffff', vert = false) => {
-      if (vert) {
-        R(cx - 2, cy - r, 4, r * 2, col);
-        R(cx - 1, cy - r + 2, 2, r * 2 - 4, hi);
-        R(cx + 2, cy - Math.round(r * 0.7), 2, Math.round(r * 1.4), col);
-      } else {
-        R(cx - r, cy - 3, r * 2, 6, col);
-        R(cx - r + 2, cy - 1, r * 2 - 4, 2, hi);
-        R(cx - Math.round(r * 0.6), cy - 5, Math.round(r * 1.2), 2, col);
-      }
-    };
-
-    const drawSparks = (cx: number, cy: number, col: string, spread: number) => {
-      const s = Math.max(2, Math.round(spread));
-      R(cx - s, cy - 1, 2, 2, col); R(cx + s - 2, cy - 1, 2, 2, col);
-      R(cx - 1, cy - s, 2, 2, col); R(cx - 1, cy + s - 2, 2, 2, col);
-      R(cx - Math.round(s * 0.7), cy - Math.round(s * 0.7), 2, 2, '#ffffff');
-      R(cx + Math.round(s * 0.6), cy + Math.round(s * 0.6), 2, 2, '#ffffff');
-    };
-
-    const id = e.id;
-    const cyc = 2.6;
-    const u = (time % cyc) / cyc; // 0..1
-
-    // ------------------------------------------------------------ Specific Move / Boon / Meta Animations
-    if (id === 'lianhuan') {
-      const hits = wid === 'thunder' ? 3 : wid === 'frost' ? 6 : wid === 'blunt' ? 2 : 5;
-      const seg = Math.min(hits - 1, Math.floor(u * (hits + 1)));
-      const inHit = u < hits / (hits + 1);
-      const local = (u * (hits + 1)) % 1;
-      const fx = 122 + (inHit && local < 0.4 ? (seg === hits - 1 ? 6 : 2) : 0);
-      const hx = 68 + seg * (wid === 'blunt' ? 12 : 7);
-      const jumpY = wid === 'hanshan' && seg === 4 && inHit ? Math.round(Math.sin(local * Math.PI) * 14) : 0;
-      drawFoe(fx, groundY, { hurt: inHit && local > 0.15 && local < 0.45, pins: wid === 'frost' ? Math.min(3, Math.floor((seg + 1) / 2)) : 0 });
-      drawHero(hx, groundY - jumpY, {
-        swing: !inHit ? 0 : local < 0.25 ? 1 : 2,
-        sheath: wid === 'blunt' && !inHit,
-        aura: wid === 'thunder' && seg === 2 && inHit ? '#ffd860' : undefined,
-      });
-      if (inHit && local > 0.15 && local < 0.52) {
-        drawSlash(hx + 22, groundY - 12 - jumpY, seg === hits - 1 ? 18 : 13, bPal.fx, '#ffffff', seg === hits - 1 && wid !== 'frost');
-        drawSparks(fx - 2, groundY - 12, bPal.fx, 8 + local * 10);
-      }
-      return {
-        phase: inHit ? `第 ${seg + 1}/${hits} 段` : wid === 'blunt' ? '零帧接藏锋' : '收刀回势',
-        activeBtns: inHit && local < 0.35 ? ['attack'] : [],
-      };
-    }
-
-    if (id === 'iai') {
-      if (u < 0.46) {
-        const fill = u / 0.46;
-        drawFoe(128, groundY, { pins: wid === 'frost' ? 3 : 0 });
-        drawHero(52, groundY, { sheath: true, crouch: true });
-        // Expanding golden charge ring under feet
-        const rw = Math.round(8 + fill * 18);
-        R(52 - rw, groundY + 1, rw * 2, 2, fill > 0.85 ? '#fff288' : '#ff9a38');
-        if (fill > 0.85) drawSparks(54, groundY - 10, '#fff288', 9);
-        return { phase: fill > 0.85 ? '蓄满！松手斩' : '长按蓄力…', activeBtns: ['attack'], holdBtn: 'attack', holdFill: fill };
-      }
-      const p = (u - 0.46) / 0.54;
-      if (wid === 'thunder') {
-        // 裂阵斩: huge 6m golden lightning shockwave + vertical thunder pillars
-        drawFoe(134 + (p < 0.4 ? 6 : 0), groundY, { hurt: p < 0.45, stun: p >= 0.3 });
-        drawHero(58, groundY, { swing: 2, aura: '#ffd860' });
-        if (p < 0.65) {
-          const waveX = 68 + Math.round(p * 95);
-          R(64, groundY - 10, Math.min(96, waveX - 64), 6, '#ffd248');
-          R(64, groundY - 8, Math.min(96, waveX - 64), 2, '#fffbe0');
-          // Voxel thunder pillar
-          if (p > 0.22 && p < 0.58) {
-            R(130, 12, 8, groundY - 12, '#ffe468');
-            R(132, 12, 4, groundY - 12, '#ffffff');
-          }
-        }
-        return { phase: '裂阵斩 · 雷柱破盾！', activeBtns: [] };
-      }
-      if (wid === 'frost') {
-        // 追霜: flash-dash detonating stuck ice pins
-        const hx = Math.round(52 + Math.min(1, p * 2.5) * 102);
-        drawFoe(118, groundY, { hurt: p > 0.25 && p < 0.65, frost: p > 0.3, pins: p < 0.3 ? 3 : 0 });
-        if (p < 0.4) R(52, groundY - 12, hx - 52, 3, '#7ce8ff');
-        drawHero(hx, groundY, { swing: 2 });
-        if (p > 0.28 && p < 0.72) {
-          drawSparks(118, groundY - 12, '#84f0ff', 10 + (p - 0.28) * 18);
-          R(106, groundY - 22, 24, 2, '#b8f8ff'); R(106, groundY - 4, 24, 2, '#b8f8ff');
-        }
-        return { phase: '追霜 · 引爆影针！', activeBtns: [] };
-      }
-      if (wid === 'blunt') {
-        // 听声一闪: crimson-gold bisecting slash
-        drawFoe(126, groundY, { hurt: p < 0.55 });
-        drawHero(146, groundY, { dir: -1, sheath: p > 0.5, swing: 2 });
-        if (p < 0.55) {
-          R(30, groundY - 13, 134, 4, '#ff7842');
-          R(30, groundY - 12, 134, 2, '#fff4cc');
-          drawSparks(126, groundY - 12, '#ff9852', 14);
-        }
-        return { phase: '听声一闪！', activeBtns: [] };
-      }
-      // 寒山 箭步斩: dash through + delayed cuts
-      const hx = Math.round(52 + Math.min(1, p * 3) * 98);
-      drawFoe(114, groundY, { hurt: p > 0.35 && p < 0.72 });
-      if (p < 0.35) R(52, groundY - 12, hx - 52, 2, '#ffe89c');
-      drawHero(hx, groundY, { sheath: p > 0.45, swing: 2 });
-      if (p > 0.32 && p < 0.78) {
-        drawSlash(114, groundY - 13, 18, '#ffe078', '#ffffff');
-        drawSparks(114, groundY - 13, '#ffe078', 12);
-      }
-      return { phase: '松手！箭步穿斩', activeBtns: [] };
-    }
-
-    if (id === 'parry') {
-      if (u < 0.42) {
-        drawHero(64, groundY, { sheath: true, crouch: true });
-        drawFoe(114 - Math.round(u * 26), groundY, { flash: u > 0.24, atk: u > 0.34 });
-        return { phase: u > 0.24 ? '红光来袭 · 准备松手！' : '长按蓄势听招', activeBtns: ['attack'], holdBtn: 'attack', holdFill: u / 0.42 };
-      }
-      const p = (u - 0.42) / 0.58;
-      const knock = Math.min(34, Math.round(p * 70));
-      drawFoe(104 + knock, groundY, { hurt: p < 0.4, stun: p > 0.2 });
-      drawHero(64, groundY, { swing: 2, aura: p < 0.35 ? '#fff4b8' : undefined });
-      if (p < 0.45) {
-        const rr = Math.round(8 + p * 36);
-        R(80 - rr, groundY - 13 - rr, rr * 2, 2, '#fff4b8');
-        R(80 - rr, groundY - 13 + rr, rr * 2, 2, '#fff4b8');
-        R(80 - rr, groundY - 13 - rr, 2, rr * 2, '#ffe078');
-        R(80 + rr, groundY - 13 - rr, 2, rr * 2, '#ffe078');
-        drawSparks(82, groundY - 13, '#ffe478', 12 + p * 14);
-      }
-      return { phase: '破势成功！震退弹反', activeBtns: [] };
-    }
-
-    if (id === 'dash' || id === 'dcut' || id === 'counter') {
-      const isCounter = id === 'counter', isDcut = id === 'dcut';
-      if (u < 0.38) {
-        drawHero(56, groundY, {});
-        drawFoe(112, groundY, { flash: isCounter && u > 0.18, atk: u > 0.26 });
-        return { phase: isCounter ? '敌招临身 · 闪避！' : '准备冲刺', activeBtns: [] };
-      }
-      if (u < 0.68) {
-        const p = (u - 0.38) / 0.30;
-        const hx = Math.round(56 + p * (isDcut ? 86 : 64));
-        drawHero(56 + Math.round(p * 26), groundY, { ghost: true, alpha: 0.35 });
-        drawHero(56 + Math.round(p * 48), groundY, { ghost: true, alpha: 0.6 });
-        drawFoe(112, groundY, { atk: p < 0.45, hurt: isDcut && p > 0.45 });
-        drawHero(hx, groundY, { swing: isDcut ? 2 : 0 });
-        if (isDcut) R(56, groundY - 12, hx - 56, 3, '#68d4ff');
-        if (isCounter && p < 0.5) {
-          R(hx - 14, groundY - 26, 28, 2, '#82dcff'); R(hx - 14, groundY - 2, 28, 2, '#82dcff');
-        }
-        return { phase: isDcut ? '冲刺接斩 · 穿风！' : isCounter ? '完美闪避！' : '无敌疾冲', activeBtns: isDcut ? ['dash', 'attack'] : ['dash'] };
-      }
-      const p = (u - 0.68) / 0.32;
-      drawFoe(112 + (isCounter && p > 0.2 ? 12 : 0), groundY, { hurt: isCounter && p > 0.18 && p < 0.7 });
-      drawHero(isDcut ? 142 : 120, groundY, { dir: isCounter ? -1 : 1, swing: isCounter ? 2 : 0 });
-      if (isCounter && p > 0.15 && p < 0.75) {
-        drawSlash(112, groundY - 13, 20, '#ffd858', '#ffffff');
-        drawSparks(112, groundY - 13, '#ffd858', 13);
-      }
-      return { phase: isCounter ? '回锋斩 · 伤害翻倍！' : isDcut ? '穿敌收刀' : '闪避脱身', activeBtns: isCounter && p < 0.45 ? ['attack'] : [] };
-    }
-
-    if (id === 'jump' || id === 'plunge' || id === 'dbl' || id === 'swoop' || id === 'stomp') {
-      const isPlunge = id === 'plunge', isDbl = id === 'dbl', isSwoop = id === 'swoop', isStomp = id === 'stomp';
-      const arc = isDbl
-        ? (u < 0.42 ? Math.sin((u / 0.42) * Math.PI) * 20 : u < 0.85 ? 12 + Math.sin(((u - 0.42) / 0.43) * Math.PI) * 24 : 0)
-        : (u < 0.72 ? Math.sin((u / 0.72) * Math.PI) * 30 : 0);
-      const hx = isSwoop && u > 0.45 ? Math.round(62 + Math.min(1, (u - 0.45) / 0.3) * 56) : isStomp ? Math.round(64 + u * 64) : 64 + Math.round(u * 46);
-      const hy = groundY - Math.round(arc);
-      drawFoe(112, groundY, {
-        atk: id === 'jump' && u > 0.25 && u < 0.55,
-        hurt: ((isPlunge || isSwoop) && u > 0.65 && u < 0.88) || (isStomp && u > 0.42 && u < 0.65),
-      });
-      if (id === 'jump' && u > 0.25 && u < 0.6) R(48, groundY - 4, 66, 3, '#ff5442');
-      drawHero(hx, hy, { swing: (isPlunge || isSwoop) && u > 0.48 ? 1 : 0 });
-      if (isDbl && u > 0.4 && u < 0.6) R(hx - 12, hy + 1, 24, 2, '#78c8ff');
-      if (isStomp && u > 0.42 && u < 0.62) { R(100, groundY - 22, 24, 3, '#b8f048'); drawSparks(112, groundY - 20, '#b8f048', 10); }
-      if ((isPlunge || isSwoop) && u > 0.66 && u < 0.92) {
-        const sw = Math.round((u - 0.66) * 110);
-        R(hx - sw, groundY - 3, sw * 2, 4, isSwoop ? '#58e898' : '#ff7842');
-        drawSparks(hx, groundY - 6, '#ffd878', 12);
-      }
-      return {
-        phase: isPlunge ? (u > 0.48 ? '空中下劈 · 震地！' : '起跳滞空')
-          : isDbl ? (u > 0.42 ? '空中二段跳！' : '一段起跳')
-          : isSwoop ? (u > 0.45 ? '空中冲刺掠地！' : '起跳滞空')
-          : isStomp ? (u > 0.42 ? '凌空踏顶弹起！' : '跃向敌顶')
-          : '跃过贴地横扫',
-        activeBtns: u < 0.25 ? ['jump'] : (isDbl || isStomp) && u > 0.4 && u < 0.58 ? ['jump'] : (isPlunge && u > 0.48 && u < 0.7) ? ['attack'] : (isSwoop && u > 0.44 && u < 0.66) ? ['dash'] : [],
-      };
-    }
-
-    if (id === 'dart' || id === 'backDart' || id === 'cutDart' || id === 'chase' || id === 'reel') {
-      const p1 = u < 0.45;
-      const hx = id === 'backDart' && !p1 ? Math.round(78 - ((u - 0.45) / 0.55) * 32)
-        : id === 'chase' && !p1 ? Math.round(52 + Math.min(1, (u - 0.45) / 0.22) * 70)
-        : 52;
-      const fx = id === 'reel' && !p1 ? Math.round(134 - Math.min(1, (u - 0.45) / 0.35) * 60) : 134;
-      drawFoe(fx, groundY, {
-        pins: !p1 ? (id === 'dart' ? 3 : 1) : (u > 0.28 ? 1 : 0),
-        hurt: (u > 0.32 && u < 0.48) || (!p1 && (id === 'chase' || id === 'reel' || id === 'cutDart') && u < 0.78),
-      });
-      drawHero(hx, groundY, { swing: (id === 'chase' || id === 'cutDart') && !p1 ? 2 : 0 });
-      if (p1 && u > 0.14) {
-        const dx = Math.round(58 + ((u - 0.14) / 0.31) * 72);
-        R(dx, groundY - 14, 7, 2, '#eef6ff'); R(dx - 2, groundY - 14, 2, 2, '#e84852');
-      }
-      if (id === 'reel' && !p1 && u < 0.8) {
-        R(hx + 6, groundY - 13, Math.max(4, fx - hx - 10), 2, '#e83848');
-      }
-      if (id === 'chase' && !p1 && u < 0.75) {
-        R(52, groundY - 14, hx - 52, 2, '#a884ff');
-        drawSlash(fx, groundY - 13, 15, '#b494ff', '#ffffff');
-      }
-      if (id === 'backDart' && !p1) {
-        const dx = Math.round(hx + 12 + ((u - 0.45) / 0.55) * 64);
-        for (const dy of [-4, 0, 4]) R(dx, groundY - 13 + dy, 6, 1, '#ffe082');
-      }
-      return {
-        phase: id === 'chase' ? (p1 ? '先掷镖钉住' : '按斩瞬移追影！')
-          : id === 'reel' ? (p1 ? '先掷镖钉住' : '再按镖拉回身前！')
-          : id === 'backDart' ? (p1 ? '后撤冲刺' : '反手连掷三镖！')
-          : id === 'cutDart' ? (p1 ? '出刀命中' : '瞬接断影镖！')
-          : '掷出柳叶镖钉住敌人',
-        activeBtns: p1 ? (id === 'backDart' ? ['dash'] : ['special']) : (id === 'chase' ? ['attack'] : ['special']),
-      };
-    }
-
-    if (id === 'launch' || id === 'acut' || id === 'kick' || id === 'keep' || id === 'pause') {
-      if (id === 'launch' || id === 'acut') {
-        const loft = u > 0.3 ? Math.round(Math.sin(Math.min(1, (u - 0.3) / 0.62) * Math.PI) * 32) : 0;
-        const hy = id === 'acut' && u > 0.42 ? groundY - Math.round(loft * 0.9) : groundY;
-        drawFoe(116, groundY - loft, { hurt: u > 0.28 && u < 0.82 });
-        drawHero(84, hy, { swing: u > 0.26 ? 2 : 0 });
-        if (u > 0.28 && u < 0.48) drawSlash(112, groundY - 16, 18, '#ffe066', '#ffffff', true);
-        if (id === 'acut' && u > 0.48 && u < 0.85) drawSlash(116, hy - 12, 16, '#ff68cc', '#ffffff');
-        return { phase: id === 'acut' ? (u > 0.45 ? '空中连斩接劈落！' : '挑云挑空') : '斩后按跳 · 挑上半空！', activeBtns: u < 0.3 ? ['attack'] : u < 0.5 ? ['jump'] : id === 'acut' ? ['attack'] : [] };
-      }
-      if (id === 'kick') {
-        const fly = u > 0.45 ? Math.min(48, Math.round(((u - 0.45) / 0.4) * 56)) : 0;
-        drawFoe(108 + fly, groundY - (fly > 4 && fly < 42 ? 8 : 0), { hurt: u > 0.44 && u < 0.85 });
-        drawHero(u < 0.45 ? Math.round(52 + (u / 0.45) * 44) : 96, groundY, { swing: 0 });
-        if (u > 0.44 && u < 0.68) drawSparks(108, groundY - 12, '#ffaa60', 12);
-        return { phase: u > 0.44 ? '穿心飞踢 · 踹飞撞墙！' : '贴身冲刺', activeBtns: u < 0.4 ? ['dash'] : u < 0.6 ? ['jump'] : [] };
-      }
-      // keep / pause
-      const isPause = id === 'pause';
-      drawFoe(116, groundY, { hurt: (u > 0.12 && u < 0.28) || (u > 0.62 && u < 0.88) });
-      drawHero(isPause ? 82 : (u > 0.3 && u < 0.55 ? 74 : 84), groundY, { swing: u > 0.62 ? 2 : u < 0.28 ? 2 : 0 });
-      if (isPause && u >= 0.3 && u <= 0.6) {
-        for (let i = 0; i < 3; i++) if (u > 0.3 + i * 0.09) R(74 + i * 8, groundY - 30, 4, 4, '#ffb248');
-      }
-      if (u > 0.62 && u < 0.88) drawSlash(112, groundY - 13, 20, isPause ? '#ff9a38' : '#48e8b8', '#ffffff');
-      return { phase: isPause ? (u < 0.3 ? '先斩一刀' : u < 0.6 ? '稍停半拍…' : '爆发重顿斩！') : (u < 0.55 ? '斩中侧闪不破连段' : '续接重收尾！'), activeBtns: u < 0.25 || u > 0.62 ? ['attack'] : isPause ? [] : ['dash'] };
-    }
-
-    if (id === 'ult') {
-      // 不见刀: 3 ingots -> dark domain -> 3 crisscross phantom slashes -> sheath glint -> 8 gold bursts!
-      const dark = u > 0.22 && u < 0.85;
-      if (dark) R(0, 0, W, H, 'rgba(6,5,12,0.72)');
-      for (let i = 0; i < 3; i++) {
-        R(74 + i * 14, 10, 10, 5, (u > i * 0.07 || dark) ? '#ffd858' : '#3a3438');
-        R(75 + i * 14, 11, 8, 2, (u > i * 0.07 || dark) ? '#fff8c8' : '#4a4448');
-      }
-      drawFoe(114, groundY, { hurt: u > 0.32 && u < 0.9 });
-      if (u < 0.25) {
-        drawHero(58, groundY, { sheath: true });
-        return { phase: '三格杀气蓄满！', activeBtns: ['ult'] };
-      }
-      if (u < 0.66) {
-        drawHero(82, groundY, { ghost: true, alpha: 0.65, swing: 2 });
-        drawHero(138, groundY, { dir: -1, ghost: true, alpha: 0.65, swing: 2 });
-        drawHero(146, groundY, { dir: -1, swing: 2 });
-        drawSlash(114, groundY - 16, 26, '#ffd248', '#ffffff');
-        drawSlash(114, groundY - 10, 22, '#fff098', '#ffffff', true);
-        return { phase: '不见刀 · 分身齐斩！', activeBtns: ['ult'] };
-      }
-      drawHero(146, groundY, { dir: -1, sheath: true });
-      if (u < 0.92) {
-        for (let k = 0; k < 4; k++) {
-          const sx = 98 + ((k * 13) % 32), sy = groundY - 6 - ((k * 9) % 18);
-          drawSlash(sx, sy, 10, '#ffd858', '#ffffff', k % 2 === 1);
-          drawSparks(sx, sy, '#fff4a8', 8);
-        }
-      }
-      return { phase: '归鞘连爆八刀！', activeBtns: [] };
-    }
-
-    // Boons, Arcana, Keepsakes — stylized trigger / elemental / altar demonstration!
-    if (e.kind === 'boon') {
-      const colHex = `#${(e.accentHex ?? 0xffc864).toString(16).padStart(6, '0')}`;
-      const isBlood = /血|出血|流血/.test(e.effect + e.name);
-      const isFrost = /寒|霜|冻/.test(e.effect + e.name);
-      const isBolt = /雷|电/.test(e.effect + e.name);
-      const isDart = e.target === 'special' || /镖|针/.test(e.effect);
-      const hit = u > 0.36 && u < 0.82;
-      drawFoe(124, groundY, { hurt: hit, bleed: isBlood && hit, frost: isFrost && hit, pins: isDart && hit ? 2 : 0 });
-      drawHero(isDart ? 58 : 88, groundY, { swing: hit ? 2 : 0, aura: hit ? colHex : undefined });
-      if (hit) {
-        if (isBolt) { R(122, 8, 5, groundY - 8, '#ffe458'); R(123, 8, 3, groundY - 8, '#ffffff'); }
-        else if (isDart) { R(68 + Math.round((u - 0.36) * 110), groundY - 14, 8, 2, colHex); }
-        else drawSlash(116, groundY - 13, 18, colHex, '#ffffff');
-        drawSparks(124, groundY - 13, colHex, 11);
-      }
-      return { phase: hit ? '秘传效果触发！' : '出招触发秘传', activeBtns: hit ? [e.target === 'hp' ? 'attack' : e.target] : [] };
-    }
-
-    // Arcana & Keepsakes: mystical jade/gold circle swirling around heroine
-    const isArc = e.kind === 'arcana';
-    const auraCol = isArc ? '#7cf0aa' : '#ffd868';
-    const pulse = Math.round(Math.sin(time * 5) * 4);
-    R(92 - 22 - pulse, groundY - 2, (22 + pulse) * 2, 3, auraCol);
-    drawHero(92, groundY, { sheath: true, aura: auraCol });
-    for (let i = 0; i < 4; i++) {
-      const a = time * 2.4 + i * Math.PI * 0.5;
-      const px = Math.round(92 + Math.cos(a) * 24), py = Math.round(groundY - 14 + Math.sin(a) * 10);
-      R(px, py, 3, 3, i % 2 === 0 ? auraCol : '#ffffff');
-    }
-    return { phase: isArc ? '悟性牌入阵常驻生效' : '随身信物全程生效', activeBtns: [] };
   }
 }
