@@ -8,7 +8,7 @@ import { LAYOUTS } from '../src/present/asm/layouts';
 
 const SRC = Object.fromEntries(
   Object.entries(
-    import.meta.glob(['../src/present/scenes/cards.ts', '../src/present/scenes/stage.ts', '../src/present/act/show.ts', '../src/audio/audio.ts'], {
+    import.meta.glob(['../src/present/scenes/cards.ts', '../src/present/scenes/weatherFx.ts', '../src/present/scenes/stage.ts', '../src/present/act/show.ts', '../src/audio/audio.ts'], {
       query: '?raw',
       import: 'default',
       eager: true,
@@ -57,16 +57,24 @@ describe('act-153 weather visibility, variety, and audio', () => {
     expect(snowDay[0].rate).toBeGreaterThanOrEqual(60);
   });
 
-  it('uses solid pixel rain streaks with ground splashes, camera follow, rotating hideout moods, and pure-PCM rain audio', () => {
+  it('uses pure 3D axis-aligned voxel rain/storm/snow with square pixel splashes, camera follow, rotating hideout moods, and pure-PCM rain audio', () => {
     const cards = SRC['src/present/scenes/cards.ts'];
     expect(cards).toContain('weatherBox');
     expect(cards).toContain('prewarmAmbient');
-    expect(cards).toMatch(/TILE\.pixel,\s*stretch:\s*1\.\d+/);
-    expect(cards).toContain('TILE.ring');
+    expect(cards).toContain('VOXEL_WEATHER.emitRain');
+    expect(cards).toContain('VOXEL_WEATHER.emitSnow');
+
+    const wfx = SRC['src/present/scenes/weatherFx.ts'];
+    expect(wfx).toContain('Uint16Array');
+    expect(wfx).toContain("kind: 'snowCross'");
+    expect(wfx).toContain("kind: 'splash'");
+    expect(wfx).toContain('effectLimit');
 
     const stage = SRC['src/present/scenes/stage.ts'];
     expect(stage).toContain('PALPHA?.clear()');
+    expect(stage).toContain('clearVoxelWeather()');
     expect(stage).toContain('prewarmAmbient(amb)');
+    expect(stage).toContain('updateVoxelWeather(rdt)');
 
     const show = SRC['src/present/act/show.ts'];
     expect(show).toContain('HIDEOUT_ATMOS');

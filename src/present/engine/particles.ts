@@ -30,7 +30,7 @@ function paintTiles(g: CanvasRenderingContext2D, style: 'pixel' | 'soft') {
     (x, y) => { let a = 0; for (const [bx, by, r] of blobs) a = Math.max(a, Math.max(0, 1 - Math.hypot(x - bx, y - by) / (r + 1)) * 0.5); return a; },
     (x, y) => { const r = Math.hypot(x, y); return Math.max(0, 1 - Math.abs(r - 6) / 1.6); },
     (x, y) => { const ax = Math.abs(x), ay = Math.abs(y); return Math.max(Math.max(0, 1 - ay / 1.2) * Math.max(0, 1 - ax / 8), Math.max(0, 1 - ax / 1.2) * Math.max(0, 1 - ay / 8), Math.max(0, 1 - Math.hypot(x, y) / 3)); },
-    (x, y) => (Math.hypot(x, y) < 5 ? 1 : 0),
+    (x, y) => (cheb(x, y) < 5 ? 1 : 0),
     (x, y) => (Math.abs(y) < 1.6 ? Math.max(0, (x + 8) / 16) * (1 - Math.abs(y) / 1.6) : 0),
     (x, y) => Math.max(0, Math.min(1, (7.2 - Math.hypot(x, y)) * 1.5)),
   ];

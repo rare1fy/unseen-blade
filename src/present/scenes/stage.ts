@@ -17,6 +17,7 @@ import { AREA } from './props';
 import { GRADE } from '../look/post';
 import { attachCraftWater } from '../look/craft';
 import { Cards, ambientTick, prewarmAmbient, shaft, type Ambient } from './cards';
+import { clearVoxelWeather, updateVoxelWeather } from './weatherFx';
 import { PALPHA } from '../engine/particles';
 import { quietBattleGlow } from './battleGlow';
 
@@ -286,13 +287,14 @@ function* stageSteps(def: SceneDef, options: StageOptions, g: ReturnType<typeof 
       // mood: sky or void, fog, light colours
       applyMood(md);
       for (const l of lights) scene.add(l);
-      if (!STAGE_HOOK.hold) PALPHA?.clear();
+      if (!STAGE_HOOK.hold) { PALPHA?.clear(); clearVoxelWeather(); }
       let warmed = false;
       const unsubscribe = onUpdate((dt, rdt) => {
         updates.tick(dt, rdt);
         lighting.sync(); syncStatic(); const t = clock.rtime;
         if (!warmed) { warmed = true; prewarmAmbient(amb); }
         ambientTick(amb, rdt);
+        updateVoxelWeather(rdt);
         cutRoot.visible = CUT.mode === 'show' || (CUT.mode === 'auto' && (camera.position.y < eaves || camera.position.distanceTo(CUT.focus) > CUT.far));
         for (const f of flames) {
           if (f.base < 0) { f.m.rotation.z += rdt * 0.08; ((f.m.material as THREE.MeshBasicMaterial).opacity = 0.45 + Math.sin(t * 1.6) * 0.12); continue; }
