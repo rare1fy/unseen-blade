@@ -652,7 +652,7 @@ export class CuiInspect {
     this.on = true; this.boss = boss; this.heroPos.copy(heroPos); this.hold = hold;
     this.crouch = this.crouchWant = 0; this.reach = this.reachWant = 0;
     const dx = boss.pos.x - heroPos.x, dz = boss.pos.z - heroPos.z, l = Math.hypot(dx, dz) || 1;
-    this.target.set(heroPos.x + (dx / l) * 1.46, 0, heroPos.z + (dz / l) * 1.46);
+    this.target.set(heroPos.x + (dx / l) * 1.98, 0, heroPos.z + (dz / l) * 1.98);
     this.hold?.(this.target, boss.d.r);
   }
   setStage(stage: 'approach' | 'reach' | 'stand') {
@@ -693,13 +693,13 @@ export class CuiInspect {
     mov(b.robe1, 0, 0.05 * c, 0); rot(b.robe1, 0.18 * c);
     mov(b.robe2, 0, 0.07 * c, 0); rot(b.robe2, -0.36 * c);
     mov(b.robe3, 0, 0.07 * c, 0); rot(b.robe3, -0.28 * c);
-    rot(b.spine, 0.28 * c + 0.08 * r, -0.06 * r, 0);
-    rot(b.chest, 0.14 * c + 0.06 * r, -0.04 * r, 0);
-    rot(b.neck, 0.12 * c); rot(b.head, 0.22 * c, 0.04 * Math.sin(a.t * 1.4), 0);
-    // Left hand tucked calmly behind back / holding folded fan; right hand gently reaches out toward her white blindfold
+    rot(b.spine, 0.16 * c + 0.05 * r, -0.05 * r, 0);
+    rot(b.chest, 0.08 * c + 0.04 * r, -0.04 * r, 0);
+    rot(b.neck, 0.06 * c); rot(b.head, 0.12 * c, 0.04 * Math.sin(a.t * 1.4), 0);
+    // Left hand tucked calmly behind back / holding folded fan; right hand gently reaches out toward her white blindfold (clear of her hat brim!)
     rot(b.armL, 0.25 * c, 0, 0.12 * c); rot(b.foreL, -0.45 * c);
-    rot(b.armR, -0.35 * c - 0.72 * r, 0.14 * r, -0.08 * r);
-    rot(b.foreR, -0.32 * c - 0.16 * r, 0, 0);
+    rot(b.armR, -0.30 * c - 0.82 * r, 0.12 * r, -0.06 * r);
+    rot(b.foreR, -0.22 * c - 0.12 * r, 0, 0);
   }
 }
 
@@ -1027,22 +1027,35 @@ export function duwuDieShots(
   ];
 }
 
-/** act-156 (pro_ambush / duwu_die): coiled blind-swordsman ready stance — chin tilted slightly to listen, right hand gripping hilt, left thumb pressing guard */
+/** act-156 / act-157 (pro_ambush / pro_cuixuan / duwu_die): coiled blind-swordsman ready stance — chin tilted slightly to listen,
+ *  right hand gripping hilt low beside hip with blade angled cleanly downward-forward (ZERO conical-hat clipping!), left hand poised near guard */
 export function heroHandOnHiltPose(a: BattleActor, t: number) {
   const b = a.bones; resetPose(b);
   a.root.position.copy(a.home).setY(0); a.root.rotation.set(0, a.yaw, 0);
   a.body.position.set(0, 0, 0); a.body.rotation.set(0, 0, 0); a.body.scale.set(1, 1, 1);
   if (b.weapon) b.weapon.visible = true;
   const br = Math.sin(t * 2.2);
-  rot(b.legL, -0.10, 0, 0.08); rot(b.shinL, 0.12); rot(b.footL, -0.02);
-  rot(b.legR, 0.12, 0, -0.08); rot(b.shinR, 0.10); rot(b.footR, -0.22);
-  rot(b.spine, 0.06 + 0.015 * br, -0.18, 0);
-  rot(b.chest, 0.04 - 0.01 * br, -0.10, 0);
+  rot(b.legL, -0.14, 0, 0.08); rot(b.shinL, 0.18); rot(b.footL, -0.04);
+  rot(b.legR, 0.16, 0, -0.08); rot(b.shinR, 0.14); rot(b.footR, -0.30);
+  rot(b.spine, 0.08 + 0.015 * br, -0.20, 0);
+  rot(b.chest, 0.05 - 0.01 * br, -0.12, 0);
   // Subtle listening head tilt ("微偏下颌")
-  rot(b.neck, 0.06, 0.16); rot(b.head, 0.08, 0.18 + 0.03 * Math.sin(t * 1.1), -0.12);
-  // Left hand thumb-pressing guard; right hand coiled on hilt
-  rot(b.armL, -0.45, -0.48, 0.18); rot(b.foreL, -1.05);
-  rot(b.armR, -0.28, 0.34, -0.14); rot(b.foreR, -1.18);
+  rot(b.neck, 0.05, 0.18); rot(b.head, 0.06, 0.18 + 0.03 * Math.sin(t * 1.1), -0.11);
+  // Left hand poised forward-low in martial guard; right hand coiled at right hip holding blade low & clear of hat brim!
+  rot(b.armL, -0.34, -0.32, 0.18); rot(b.foreL, -0.78);
+  rot(b.armR, 0.16, 0.10, -0.22); rot(b.foreR, -0.28);
+  const w = b.weapon;
+  if (w && w.parent) {
+    a.root.updateMatrixWorld(true);
+    const f = V3(Math.sin(a.yaw), 0, Math.cos(a.yaw)), right = V3(-f.z, 0, f.x);
+    // Low angled martial readiness: blade points cleanly forward-right-downward (~38° below horizontal, 100% clear of body & hat brim!)
+    const dir = f.clone().multiplyScalar(0.68).addScaledVector(right, 0.24).add(V3(0, -0.69, 0)).normalize();
+    const side = V3(0, 1, 0).cross(dir);
+    if (side.lengthSq() < 1e-4) side.copy(right); else side.normalize();
+    const qw = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(side, dir.clone().cross(side), dir));
+    const qp = new THREE.Quaternion(); w.parent.getWorldQuaternion(qp);
+    w.quaternion.copy(qp.invert().multiply(qw)); w.updateMatrixWorld(true);
+  }
 }
 
 /** act-156 (duwu_die): Liu Bai drops onto one knee in the snow leaning tenderly down beside dying Du Wu, both hands reaching to steady his sleeve */

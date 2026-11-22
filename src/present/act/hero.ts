@@ -394,9 +394,9 @@ export class Hero {
     const fromAngle = Math.atan2(Math.sin(rawFrom), Math.cos(rawFrom));
     if (this.hp <= 0) { this.vel.copy(away).multiplyScalar(7); motionOf(this.a).charge = 0; if (this.vy > 0) this.vy = 0; this.set('dead', 99); this.deathSide = Math.random() < 0.5 ? 1 : -1; this.a.fall(fromAngle); return true; }
     if (armored) { this.a.hit(0.7); return true; }
-    this.vel.copy(away).multiplyScalar(7); motionOf(this.a).charge = 0;
+    this.vel.copy(away).multiplyScalar(5.2); motionOf(this.a).charge = 0;
     if (this.vy > 0) this.vy = 0;
-    this.set('hurt', 0.26); this.a.play(new Action('hurt', 0.42, 0.1, { power: 1.2, fromAngle })); this.a.hit(1);
+    this.set('hurt', 0.24); this.a.play(new Action('hurt', 0.32, 0.09, { power: 0.95, fromAngle })); this.a.hit(1);
     return true;
   }
   update(dt: number, inp: Input, w: HeroWorld) {

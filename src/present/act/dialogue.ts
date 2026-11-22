@@ -47,7 +47,7 @@ export function resolvePortrait(who: string, text: string, mood?: string, heroHa
   let want = who;
   if (who === 'jiangjin') {
     if (mood === 'calm') want = heroHat ? 'jiangjin_hat' : 'jiangjin';
-    else if (mood === 'hurt' || (!heroHat && /肋|血|痛|伤口|刀呢|我的刀|不喝外人|把刀给我|银针|躺|散架/.test(text))) want = 'jiangjin_hurt';
+    else if (mood === 'hurt' || (!heroHat && /肋|血|痛|伤口|刀呢|我的刀|把刀给我|银针|躺|散架/.test(text))) want = 'jiangjin_hurt';
     else if (heroHat) {
       if (mood === 'fierce' || /还文家的命|归位|陪她|闭嘴|命|斩|滚|拿稳|仇|销了|欠|债|放开|拔刀|来吧|碎尸万段/.test(text)) want = 'jiangjin_hat_fierce';
       else want = 'jiangjin_hat';
@@ -64,7 +64,7 @@ export function resolvePortrait(who: string, text: string, mood?: string, heroHa
     else if (mood === 'soft' || /好重的仇|可怜|烤烤手|热水|活着回来|苦|叹|留了|去吧|熬|药罐|阿皎|闺女|暖|傻小子|挖出来|白养|温着汤|摆了一只碗|摘了布|破布摘了|汤还烫着/.test(text)) want = 'sunao_soft';
   } else if (who === 'cuixuan') {
     if (mood === 'defeat' || /亲爹|动手吧|够了|了结|认出|像你娘|抵上喉咙|反倒抖|真不杀我|破了前门/.test(text)) want = 'cuixuan_defeat';
-    else if (mood === 'blade' || /刀在我这|四个人|那四个|太早了|看看你的手|听好了|配|拔刀|出刀吧|杀|第几柄|灯灭|乱葬沟/.test(text)) want = 'cuixuan_blade';
+    else if (mood === 'blade' || /刀在我这|四个人|那四个|太早了|见识见识你的刀|听好了|配|拔刀|出刀吧|杀|第几柄|灯灭|乱葬沟/.test(text)) want = 'cuixuan_blade';
   } else if (who === 'chulei') {
     if (mood === 'panic' || /饶|别杀|不是我|求|饶命|放过|我说|供|崔|洛阳|阎虎/.test(text)) want = 'chulei_panic';
   } else if (who === 'yanhu') {

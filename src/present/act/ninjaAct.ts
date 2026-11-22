@@ -1243,65 +1243,62 @@ function listen(b: Record<string, Bone>, t: number) {
   if (b.head) { b.head.rotation.z += 0.21 * side * k; b.head.rotation.y += 0.24 * side * k; }
 }
 
-/** 4-directional (360-deg continuous) martial hurt reaction for Liu Bai:
- *  fromAngle = direction blow arrived FROM in hero local frame (0 = front/+Z, PI = back/-Z, +PI/2 = left/+X, -PI/2 = right/-X).
- *  Features crisp 2-frame torso impact snap, ~32ms delayed neck/head/arm whiplash, grounded recoil footwork, and damped guard recovery. */
+/** 4-directional (360-deg continuous) martial hurt reaction for Liu Bai (act-157: tightened, restrained martial recoil —
+ *  grounded stance brace with crisp chest-jolt instead of exaggerated cartoon knockback, especially on frontal blows).
+ *  fromAngle = direction blow arrived FROM in hero local frame (0 = front/+Z, PI = back/-Z, +PI/2 = left/+X, -PI/2 = right/-X). */
 function heroHurt(P: Pose, k: number, power = 1, fromAngle = 0, off: THREE.Vector3): Pose {
-  const amp = clamp(power || 1, 0.35, 1.55);
-  const wMul = 0.35 + 0.65 * MOTION_TUNE.hurtWhip;
-  // Core torso snaps rapidly into impact, holds briefly, rebounds subtly past neutral before settling
-  const core = amp * curve(k, [[0, 0], [0.11, 1.0], [0.24, 0.96], [0.68, -0.14], [1, 0]]);
-  // Delayed whiplash for neck/head & outer limbs (~32ms lag behind torso core)
-  const kLag = clamp01(k - 0.08 * MOTION_TUNE.hurtWhip);
-  const whip = amp * curve(kLag, [[0, 0], [0.13, 1.12], [0.28, 1.02], [0.74, -0.18], [1, 0]]) * wMul;
+  const amp = clamp(power || 1, 0.35, 1.25);
+  const wMul = 0.32 + 0.48 * MOTION_TUNE.hurtWhip;
+  // Core torso snaps rapidly into impact, holds briefly, settles cleanly back into guard
+  const core = amp * curve(k, [[0, 0], [0.11, 1.0], [0.24, 0.90], [0.68, -0.06], [1, 0]]);
+  // Subtle delayed follow-through for neck/head & arms (~24ms lag behind torso core)
+  const kLag = clamp01(k - 0.06 * MOTION_TUNE.hurtWhip);
+  const whip = amp * curve(kLag, [[0, 0], [0.13, 1.02], [0.28, 0.88], [0.74, -0.08], [1, 0]]) * wMul;
   // Recoil vector in hero local frame (+Z forward, +X hero's left): blow fromAngle pushes hero along (-sin, -cos)
   const rx = -Math.sin(fromAngle), rz = -Math.cos(fromAngle);
-  const frontW = Math.max(0, -rz); // hit from front -> knocked backward (-Z)
-  const backW  = Math.max(0, rz);  // hit from back  -> knocked forward  (+Z)
-  const leftHit = Math.max(0, -rx); // hit from left (+X) -> knocked right (-X)
-  const rightHit = Math.max(0, rx); // hit from right (-X) -> knocked left (+X)
+  const frontW = Math.max(0, -rz); // hit from front -> braced compact recoil (-Z)
+  const backW  = Math.max(0, rz);  // hit from back  -> compact forward jolt (+Z)
+  const leftHit = Math.max(0, -rx); // hit from left (+X) -> shoulder yield right (-X)
+  const rightHit = Math.max(0, rx); // hit from right (-X) -> shoulder yield left (+X)
 
-  off.x += rx * 0.22 * core;
-  off.z += rz * 0.25 * core;
+  off.x += rx * 0.08 * core;
+  off.z += rz * 0.09 * core;
 
-  // Torso pitch/roll/twist driven directly by impact direction
-  const hy = P.hy + (-0.16 * frontW + 0.14 * backW - 0.30 * leftHit + 0.30 * rightHit) * core;
-  const hz = P.hz + (-0.14 * leftHit + 0.14 * rightHit) * core;
-  const sx = P.sx + (-0.46 * frontW + 0.58 * backW + 0.10 * (leftHit + rightHit)) * core;
-  const sy = P.sy + (-0.24 * frontW + 0.16 * backW - 0.44 * leftHit + 0.44 * rightHit) * core;
-  const sz = P.sz + (-0.32 * leftHit + 0.32 * rightHit) * core;
-  const cx = P.cx + (-0.22 * frontW + 0.24 * backW) * core;
-  // Delayed head whiplash: snaps backward on frontal/rear impact, counter-turns toward attacker on side blows
-  const nx = P.nx + (-0.34 * frontW - 0.46 * backW * (1 - smooth(0.32, 0.72, k)) + 0.22 * backW * smooth(0.24, 0.65, k)) * whip;
-  const ny = P.ny + (0.20 * frontW + 0.34 * leftHit - 0.34 * rightHit) * whip;
+  // Compact martial torso absorption (frontal hit: crisp ~9° chest-brace + off-axis shoulder yield, zero 70° back-arch!)
+  const hy = P.hy + (-0.09 * frontW + 0.08 * backW - 0.16 * leftHit + 0.16 * rightHit) * core;
+  const hz = P.hz + (-0.07 * leftHit + 0.07 * rightHit) * core;
+  const sx = P.sx + (-0.16 * frontW + 0.26 * backW + 0.05 * (leftHit + rightHit)) * core;
+  const sy = P.sy + (-0.14 * frontW + 0.10 * backW - 0.22 * leftHit + 0.22 * rightHit) * core;
+  const sz = P.sz + (-0.16 * leftHit + 0.16 * rightHit) * core;
+  const cx = P.cx + (-0.08 * frontW + 0.10 * backW) * core;
+  // Taut chin-tuck recoil (no exaggerated neck snapping)
+  const nx = P.nx + (-0.14 * frontW - 0.20 * backW * (1 - smooth(0.32, 0.72, k)) + 0.10 * backW * smooth(0.24, 0.65, k)) * whip;
+  const ny = P.ny + (0.10 * frontW + 0.18 * leftHit - 0.18 * rightHit) * whip;
 
-  // Arms react authentically without ever clipping through chest or locking left elbow straight:
-  // Front hit: left guard hand snaps reflexively up-across chest, sword arm recoils back-outward guarding blade.
-  // Back hit: both arms fling forward-outward catching balance.
-  // Side hit: struck-side arm guards ribs/shoulder while far arm whips outward as counterweight.
-  const aLx = P.aLx + (-0.68 * frontW - 0.42 * backW - 0.56 * leftHit - 0.28 * rightHit) * whip;
-  const aLz = P.aLz + (0.14 * frontW + 0.54 * backW - 0.18 * leftHit + 0.64 * rightHit) * whip;
-  const fL  = clamp(P.fL + (-0.62 * frontW - 0.25 * backW - 0.65 * leftHit - 0.18 * rightHit) * whip, -1.85, -0.24);
-  const aRx = P.aRx + (0.34 * frontW - 0.28 * backW + 0.18 * leftHit + 0.38 * rightHit) * whip;
-  const aRz = P.aRz + (-0.42 * frontW - 0.48 * backW - 0.58 * leftHit - 0.62 * rightHit) * whip;
-  const fR  = clamp(P.fR + (-0.25 * frontW + 0.32 * backW + 0.20 * leftHit + 0.28 * rightHit) * whip, -1.75, -0.18);
-  const eR  = P.eR + (0.35 * frontW - 0.48 * backW - 0.18 * leftHit + 0.36 * rightHit) * whip;
-  const yR  = P.yR + (-0.45 * frontW + 0.25 * backW - 0.62 * leftHit - 0.85 * rightHit) * whip;
+  // Disciplined martial guard arms: reflexive compact rib-check, sword stays controlled with zero wild flailing
+  const aLx = P.aLx + (-0.26 * frontW - 0.18 * backW - 0.26 * leftHit - 0.14 * rightHit) * whip;
+  const aLz = P.aLz + (0.06 * frontW + 0.24 * backW - 0.08 * leftHit + 0.28 * rightHit) * whip;
+  const fL  = clamp(P.fL + (-0.28 * frontW - 0.12 * backW - 0.30 * leftHit - 0.10 * rightHit) * whip, -1.65, -0.24);
+  const aRx = P.aRx + (0.14 * frontW - 0.14 * backW + 0.10 * leftHit + 0.18 * rightHit) * whip;
+  const aRz = P.aRz + (-0.16 * frontW - 0.20 * backW - 0.24 * leftHit - 0.26 * rightHit) * whip;
+  const fR  = clamp(P.fR + (-0.10 * frontW + 0.14 * backW + 0.10 * leftHit + 0.14 * rightHit) * whip, -1.60, -0.18);
+  const eR  = P.eR + (0.14 * frontW - 0.20 * backW - 0.08 * leftHit + 0.16 * rightHit) * whip;
+  const yR  = P.yR + (-0.18 * frontW + 0.12 * backW - 0.26 * leftHit - 0.34 * rightHit) * whip;
 
-  // Legs brace into the stagger direction (absorbing weight into bent knees)
-  const tL = P.tL + (0.18 * frontW - 0.48 * backW - 0.20 * rightHit + 0.12 * leftHit) * core;
-  const kL = clamp(P.kL + (0.28 * frontW + 0.56 * backW + 0.36 * rightHit + 0.18 * leftHit) * core, 0.12, 1.85);
-  const tR = P.tR + (0.24 * frontW + 0.34 * backW - 0.22 * leftHit + 0.12 * rightHit) * core;
-  const kR = clamp(P.kR + (0.36 * frontW + 0.24 * backW + 0.40 * leftHit + 0.18 * rightHit) * core, 0.12, 1.85);
-  const pL = P.pL + (0.18 * rightHit - 0.08 * leftHit) * core;
-  const pR = P.pR + (-0.18 * leftHit + 0.08 * rightHit) * core;
+  // Grounded martial stance knees absorbing impact cleanly
+  const tL = P.tL + (0.08 * frontW - 0.20 * backW - 0.10 * rightHit + 0.06 * leftHit) * core;
+  const kL = clamp(P.kL + (0.14 * frontW + 0.26 * backW + 0.18 * rightHit + 0.10 * leftHit) * core, 0.12, 1.65);
+  const tR = P.tR + (0.10 * frontW + 0.16 * backW - 0.10 * leftHit + 0.06 * rightHit) * core;
+  const kR = clamp(P.kR + (0.16 * frontW + 0.14 * backW + 0.18 * leftHit + 0.10 * rightHit) * core, 0.12, 1.65);
+  const pL = P.pL + (0.08 * rightHit - 0.04 * leftHit) * core;
+  const pR = P.pR + (-0.08 * leftHit + 0.04 * rightHit) * core;
 
   return {
     ...P, hy, hz, sx, sy, sz, cx, nx, ny,
     aLx, aLz, fL, aRx, aRz, fR, eR, yR,
     tL, kL, pL, tR, kR, pR,
-    lift: P.lift + 0.55 * Math.abs(core),
-    flut: Math.min(1, P.flut + 0.85 * Math.abs(whip)),
+    lift: P.lift + 0.28 * Math.abs(core),
+    flut: Math.min(1, P.flut + 0.45 * Math.abs(whip)),
   };
 }
 

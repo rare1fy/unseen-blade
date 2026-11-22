@@ -711,21 +711,37 @@ export class ActShow {
       if (this.phase !== 'intro' || this.hero !== h) return;
       for (const j of jumpers) { j.f.a.root.visible = true; j.f.pos.copy(j.to); j.f.a.home.copy(j.to); j.f.a.off.y = 0; j.f.a.body.rotation.set(0, 0, 0); j.f.a.setRunning(false); }
       let ambT = 0, hiltPose = false;
+      const setAmbCam = (pos: V, look: V, fov: number) => {
+        const c = safeCam(pos, look, fov);
+        this.camOverride = { base: V3(...c.pos), look: V3(...c.look), fov: c.fov };
+      };
+      // Shot 0: low over-hero-shoulder framing the roaring sentries ahead
+      setAmbCam([h.pos.x + 2.8, 2.55, h.pos.z + 4.2], [h.pos.x, 1.05, h.pos.z - 2.6], 38);
+      shot('act', () => this.camPose(), { cut: true, speed: 6 });
       this.talkTick = (dt: number) => {
         ambT += dt;
         for (const j of jumpers) j.f.a.update(dt);
       };
       await this.talk(PRO_AMBUSH, (i) => {
         if (i === 0 && jumpers[0]) jumpers[0].f.a.roar();
-        if (i === 1 && jumpers[1]) jumpers[1].f.a.roar();
+        if (i === 1 && jumpers[1]) {
+          jumpers[1].f.a.roar();
+          setAmbCam([h.pos.x - 3.0, 2.55, h.pos.z + 4.0], [jumpers[1].f.pos.x, 1.05, jumpers[1].f.pos.z], 37);
+        }
         if (i === 2 && !hiltPose) {
           hiltPose = true;
           h.scriptPose = () => heroHandOnHiltPose(h.a, ambT);
           cue('parry', 0.25); cue('snowWind', 0.45);
           fxRing(h.pos.clone().setY(0.06), 0xeef4ff, 2.2, { life: 0.85, width: 0.08, bright: 1.4 } as never);
+          // Shot 2: tight front-side close-up on Liu Bai tilting chin & gripping hilt
+          setAmbCam([h.pos.x + 2.35, 2.25, h.pos.z - 2.6], [h.pos.x, 1.08, h.pos.z], 33);
+        }
+        if (i === 3) {
+          // Shot 3: dramatic low wide confrontation showing her ringed by the 4 sentries
+          setAmbCam([h.pos.x + 4.4, 3.3, h.pos.z + 5.8], [h.pos.x, 1.0, h.pos.z - 0.6], 40);
         }
       });
-      this.talkTick = null; h.scriptPose = null;
+      this.talkTick = null; h.scriptPose = null; this.camOverride = null;
       if (this.hero !== h) return;
       for (const j of jumpers) { j.f.st = 'move'; j.f.cd = 0.6 + Math.random() * 0.8; }
       // (the ambushers ARE the first wave: the fight starts with them on the floor; cutting them down brings the second as usual)
@@ -757,24 +773,28 @@ export class ActShow {
     if (boss) {
       await this.cine(fallShots(this.proHost, boss));
       if (!this.proKneel.active) { this.proKneel.start(true); setHurtBreath(true); }   // (the shot skipped before the blow landed: she still goes down on her knee)
-      // act-114 / act-156: Cui Xuan approaches & half-crouches right on line 1 ("指尖探向她的蒙眼布"), then stands on line 4
-      // Keep a tight cinematic framing showing kneeling Liu Bai, crouching Cui Xuan, and the planted sabre in the snow!
+      // act-114 / act-157: Multi-angle PRO_FALL (wide planted-blade two-shot -> intimate side angle on Cui Xuan crouch/reach -> low rising dismissal angle)
       this.cuiInspect.start(boss, this.hero.pos, (p, r) => this.clamp(p, r));
       this.hero.scriptPose = kneelPose;
-      {
+      const setFallCam = (mode: 'wide' | 'reach' | 'stand') => {
         const hp = this.hero.pos, bp = boss.pos;
         const mx = (hp.x + bp.x) * 0.5, mz = (hp.z + bp.z) * 0.5;
         let dx = bp.x - hp.x, dz = bp.z - hp.z; const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
         let nx = -dz, nz = dx; if (nz < 0) { nx = -nx; nz = -nz; }
-        const fallCam = safeCam([mx + nx * 4.6, 2.85, mz + nz * 4.6 + 1.2], [mx, 0.72, mz], 36);
-        this.camOverride = { base: V3(...fallCam.pos), look: V3(...fallCam.look), fov: fallCam.fov };
-        shot('act', () => this.camPose(), { cut: true, speed: 6 });
-      }
+        const c = mode === 'reach'
+          ? safeCam([mx + nx * 4.35 - dx * 0.25, 2.38, mz + nz * 4.35 + 0.9], [mx, 0.82, mz], 36)
+          : mode === 'stand'
+            ? safeCam([hp.x - dx * 3.2 + nx * 2.4, 2.35, hp.z - dz * 3.2 + nz * 2.4], [bp.x, 1.15, bp.z], 36)
+            : safeCam([mx + nx * 5.0, 2.95, mz + nz * 5.0 + 1.2], [mx, 0.78, mz], 37);
+        this.camOverride = { base: V3(...c.pos), look: V3(...c.look), fov: c.fov };
+      };
+      setFallCam('wide');
+      shot('act', () => this.camPose(), { cut: true, speed: 5.5 });
       await this.talk(PRO_FALL, (i, l) => {
         this.proKneel.reachWant = l.who === 'act' && /刀柄|长刀脱手|挑飞/.test(l.text) ? 1 : 0;
-        if (i === 0) this.cuiInspect.setStage('approach');
-        else if (i === 1) this.cuiInspect.setStage('reach');
-        else if (i >= 4) this.cuiInspect.setStage('stand');
+        if (i === 0) { this.cuiInspect.setStage('approach'); setFallCam('wide'); }
+        else if (i === 1) { this.cuiInspect.setStage('reach'); setFallCam('reach'); }
+        else if (i >= 4) { this.cuiInspect.setStage('stand'); setFallCam('stand'); }
       });
       this.cuiInspect.stop();
       this.camOverride = null;
@@ -796,9 +816,15 @@ export class ActShow {
     const dead: Array<[EKind, number, number]> = [['hj_mob', at.x - 3.2, at.z + 2.6], ['hj_blade', at.x - 1.4, at.z + 3.6], ['hj_mob', at.x + 2.4, at.z - 1.8]];
     const who: { duwu: BattleActor | null; donkey: BattleActor | null } = { duwu: null, donkey: null };
     await this.cine(dawnShots(this.proHost, at, dead, who), () => snapDawn(this.proHost, at, who));
-    // act-156: sync Du Wu's 3D acting with PRO_DAWN (crouch to pry hilt -> recoil backward in shock on "活、活的？！")
+    // act-156 / act-157: sync Du Wu's 3D acting & 3-angle camera cuts with PRO_DAWN
     let dawnKneel = 0, dawnRecoil = 0, dawnRecoilWant = 0;
     const dwOrig = who.duwu ? who.duwu.home.clone() : null;
+    const setDawnCam = (pos: V, look: V, fov: number) => {
+      const c = safeCam(pos, look, fov);
+      this.camOverride = { base: V3(...c.pos), look: V3(...c.look), fov: c.fov };
+    };
+    setDawnCam([at.x + 4.4, 3.6, at.z + 5.2], [at.x - 0.3, 0.55, at.z + 0.3], 37);
+    shot('act', () => this.camPose(), { cut: true, speed: 5.5 });
     this.talkTick = (dt: number) => {
       const dw = who.duwu as (BattleActor & { kneel?: number }) | null;
       if (!dw) return;
@@ -815,15 +841,22 @@ export class ActShow {
       who.donkey?.update(dt);
     };
     await this.talk(PRO_DAWN, (i) => {
-      if (i === 2) dawnKneel = 0.78;
-      if (i === 3) { dawnKneel = 0.92; cue('click', 0.55); shake(0.08); }
+      if (i === 2) {
+        dawnKneel = 0.78;
+        setDawnCam([at.x + 2.8, 2.35, at.z + 3.2], [at.x + 0.2, 0.45, at.z + 0.25], 34);
+      }
+      if (i === 3) {
+        dawnKneel = 0.92; cue('click', 0.55); shake(0.08);
+        setDawnCam([at.x + 2.3, 2.2, at.z + 2.6], [at.x + 0.15, 0.35, at.z + 0.2], 32);
+      }
       if (i === 4) {
         dawnRecoilWant = 1;
         cue('land', 0.35); shake(0.14);
         if (who.duwu) fxSmoke(who.duwu.home.clone().setY(0.15), 0xe8eef8, 5, { r: 0.45, spd: 0.9, up: 0.4, s: 0.3, life: 0.5, alpha: 0.6 });
+        setDawnCam([at.x - 3.6, 2.65, at.z + 4.2], [at.x, 0.65, at.z + 0.2], 36);
       }
     });
-    this.talkTick = null; this.hero.scriptPose = null;
+    this.talkTick = null; this.hero.scriptPose = null; this.camOverride = null;
     await this.cine(loadShots(this.proHost, who));
     this.proKneel.stop();
     for (const a of this.proPeople) a.dispose(); this.proPeople = [];
@@ -859,11 +892,11 @@ export class ActShow {
       await this.enterYard({ time: 'dusk', weather: 'clear' }); this.noTalk = true; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels(); this.musicHold = 'bgm_kiln'; void audio.playMusic('bgm_kiln', 1.2);
       const h = this.hero; h.pos.set(wakeMat[0], 0, wakeMat[1]); h.a.place(h.pos, 0); h.a.root.visible = true; h.a.body.visible = true; let gk = 0; h.scriptPose = () => getUpPose(h.a, gk, wakeJolt, wakeTurn);
       if (h.a.bones.hat) h.a.bones.hat.visible = false;
-      // Bring Du Wu beside Sun Ao's straw mat in the expanded hideout so he is cleanly in frame during PRO_WAKE
+      // Bring Du Wu beside Sun Ao's straw mat in the expanded hideout (clear of mat & stove) so he is cleanly in frame during PRO_WAKE
       const dw = this.npcs.find(n => n.id === 'duwu');
       if (dw) {
         duwuSaved = { x: dw.x, z: dw.z, yaw: dw.yaw };
-        dw.x = wakeMat[0] - 1.05; dw.z = wakeMat[1] - 0.35; dw.yaw = Math.atan2(wakeMat[0] - dw.x, wakeMat[1] - dw.z);
+        dw.x = wakeMat[0] - 1.25; dw.z = wakeMat[1] - 0.15; dw.yaw = Math.atan2(wakeMat[0] - dw.x, wakeMat[1] - dw.z);
         dw.a.place(V3(dw.x, 0, dw.z), dw.yaw); dw.a.yaw = dw.yaw; dw.sh.position.set(dw.x, 0.025, dw.z);
       }
       this.camOverride = { base: wakeCamPos.clone(), look: wakeCamLook.clone(), fov: wakeCamFov };
@@ -871,24 +904,32 @@ export class ActShow {
       bloomWas = GRADE.bloomThreshold; GRADE.bloomThreshold = Math.max(bloomWas, 1.6);
       wakeK = (k: number) => { gk = k; };
     });
-    // Smooth multi-beat camera movement during PRO_WAKE anchored to Sun Ao's straw mat (wide establishing -> gentle push-in -> slight rise as she stands)
+    // Smooth multi-angle camera choreography during PRO_WAKE anchored to Sun Ao's straw mat
     this.talkTick = (dt: number) => {
       wakeCamT += dt;
       if (wakeJolt > 0) wakeJolt = Math.max(0, wakeJolt - dt * 1.35);
       wakeTurn += (wakeTurnWant - wakeTurn) * Math.min(1, dt * 6);
-      const sway = Math.sin(wakeCamT * 0.35) * 0.22;
-      const wantBase = wakeStage >= 2
+      const sway = Math.sin(wakeCamT * 0.35) * 0.18;
+      const wantBase = wakeStage === 2
         ? V3(mx - 2.35 + sway, 3.55, mz + 4.35)
-        : wakeStage === 1
-          ? V3(mx - 3.15 + sway, 3.25, mz + 4.05)
-          : V3(mx - 4.1 + Math.min(0.6, wakeCamT * 0.14), 4.15 - Math.min(0.45, wakeCamT * 0.1), mz + 4.9 - Math.min(0.5, wakeCamT * 0.12));
-      const wantLook = wakeStage >= 2
+        : wakeStage === 4
+          ? V3(mx - 2.2 + sway, 2.75, mz + 3.15)
+          : wakeStage === 3
+            ? V3(mx - 3.6 + sway, 3.15, mz + 3.6)
+            : wakeStage === 1
+              ? V3(mx - 3.15 + sway, 3.25, mz + 4.05)
+              : V3(mx - 4.1 + Math.min(0.6, wakeCamT * 0.14), 4.15 - Math.min(0.45, wakeCamT * 0.1), mz + 4.9 - Math.min(0.5, wakeCamT * 0.12));
+      const wantLook = wakeStage === 2
         ? V3(mx + 0.45, 1.05, mz + 0.15)
-        : wakeStage === 1
-          ? V3(mx + 0.35, 0.85, mz - 0.15)
-          : V3(mx + 0.35, 0.72, mz - 0.15);
-      const wantFov = wakeStage >= 2 ? 40 : wakeStage === 1 ? 39 : 42;
-      const easeK = 1 - Math.exp(-dt * 1.4);
+        : wakeStage === 4
+          ? V3(mx + 0.1, 0.70, mz - 0.1)
+          : wakeStage === 3
+            ? V3(mx + 0.55, 0.95, mz - 0.25)
+            : wakeStage === 1
+              ? V3(mx + 0.35, 0.85, mz - 0.15)
+              : V3(mx + 0.35, 0.72, mz - 0.15);
+      const wantFov = wakeStage === 4 ? 35 : wakeStage === 3 ? 38 : wakeStage === 2 ? 40 : wakeStage === 1 ? 39 : 42;
+      const easeK = 1 - Math.exp(-dt * 1.8);
       wakeCamPos.lerp(wantBase, easeK);
       wakeCamLook.lerp(wantLook, easeK);
       wakeCamFov += (wantFov - wakeCamFov) * easeK;
@@ -907,8 +948,10 @@ export class ActShow {
       step(); };
     await this.talk(PRO_WAKE, (i, l) => {
       if (i === 0) { wakeJolt = 1; cue('whoosh', 0.35); }
-      if (i >= 2 && wakeStage < 1) wakeStage = 1;
-      if (l.who === 'act' && /偏脸避开/.test(l.text)) wakeTurnWant = 1;
+      if (i >= 2 && wakeStage === 0) wakeStage = 1;
+      if (i >= 3 && i <= 6 && !up) wakeStage = 3;
+      if (l.who === 'act' && /偏脸避开/.test(l.text)) { wakeTurnWant = 1; wakeStage = 4; }
+      if (i >= 9 && !up) wakeStage = 1;
       if (l.who === 'act' && /撑起|站起|起身/.test(l.text)) {
         wakeTurnWant = 0; getUp();
         blood.drip(this.hero.a.chest());
@@ -2419,6 +2462,41 @@ export class ActShow {
           await this.prologueFall();
         })();
         return { stage: 'proFall' };
+      },
+      /** act-157: preview prologue Cui Xuan real 3D wall-vault + multi-angle PRO_CUIXUAN confrontation */
+      proCuixuan: () => {
+        void (async () => {
+          if (this.phase === 'title') { stopTitle(); this.hud.on = true; }
+          this.prologue = 2; this.proFalling = false; this.proFightT = 0; this.tut.stop();
+          this.room = 1; this.region = 0;
+          this.plan = { ...PRO_BOSS, waves: [] }; this.locale = PRO_BOSS.locale; this.forceSpec = { ...PRO_ROOM.spec };
+          await this.buildRoom(false);
+          this.forceSpec = null;
+          this.phase = 'fight';
+          this.waveGen++;
+          const cx = spawnFoe('cx_boss', V3(0, 0, -2.4), this.hero.pos.clone());
+          this.foes.push(cx);
+          await frames(2);
+          this.bossArrived(cx);
+        })();
+        return { stage: 'proCuixuan' };
+      },
+      /** act-157: preview kiln wake-up cutscene directly (for visual verification of jiangjin_hurt & camera angles) */
+      proWake: () => {
+        void (async () => {
+          if (this.phase === 'title') { stopTitle(); this.hud.on = true; }
+          await this.playKilnWake();
+        })();
+        return { stage: 'proWake' };
+      },
+      /** act-157: trigger hero directional hit-react pose (0 = front, PI = back, PI/2 = left) for visual verification */
+      heroHurt: (fromAngle = 0, freezeK?: number) => {
+        const h = this.hero;
+        if (!h) return null;
+        const a = new Action('hurt', freezeK != null ? 99 : 0.32, 0.09, { power: 0.95, fromAngle });
+        if (freezeK != null) a.t = freezeK * a.dur;
+        h.a.play(a);
+        return { fromAngle, freezeK };
       },
       /** act-154: preview Du Wu arc stage ('road1' | 'road2' | 'die' | 'memorial' | 'endingA' | 'endingC') */
       duwuArc: (stage: 'road1' | 'road2' | 'die' | 'memorial' | 'endingA' | 'endingC' = 'die') => {
@@ -4180,8 +4258,72 @@ export class ActShow {
       this.bossIntroActive = true;
       void (async () => {
         try {
-          await this.cine(bossIntroShots(this.cineHost, f, name, { prologue: true }));
-          await this.talk(PRO_CUIXUAN);
+          const b = f.pos.clone();
+          const landX = Math.max(PLAY.x0 + 3.2, Math.min(b.x - 2.6, PLAY.x0 + 4.4));
+          const standPos = V3(Math.max(landX + 1.5, Math.min(b.x - 2.6, b.x - 3.6)), 0, Math.max(PLAY.z0 + 4.0, Math.min(PLAY.z1 - 2.2, b.z + 3.6)));
+          this.clamp(standPos, 0.42);
+          await this.cine(bossIntroShots(this.cineHost, f, name, { prologue: true }), () => {
+            // Skip-safety: ensure Liu Bai is cleanly grounded facing Cui Xuan and Cui Xuan faces her unarmed until draw cue
+            this.hero.pos.copy(standPos);
+            this.hero.a.home.copy(standPos);
+            this.hero.a.off.set(0, 0, 0);
+            this.hero.a.body.rotation.set(0, 0, 0);
+            this.hero.a.root.position.copy(standPos);
+            this.hero.a.yaw = Math.atan2(b.x - standPos.x, b.z - standPos.z);
+            motionOf(this.hero.a).run = 0;
+            f.a.yaw = Math.atan2(standPos.x - b.x, standPos.z - b.z);
+            if (f.a.bones.blade) f.a.bones.blade.visible = false;
+            if (f.a.bones.fan) f.a.bones.fan.visible = false;
+          });
+          // act-157: Multi-angle PRO_CUIXUAN choreography (2-shot -> reverse Cui Xuan -> tight Liu Bai hand-on-hilt & blade reveal -> draw clash)
+          const hp = this.hero.pos, bp = f.pos;
+          const mx = (hp.x + bp.x) * 0.5, mz = (hp.z + bp.z) * 0.5;
+          const setProCam = (pos: V, look: V, fov: number) => {
+            const c = safeCam(pos, look, fov);
+            this.camOverride = { base: V3(...c.pos), look: V3(...c.look), fov: c.fov };
+          };
+          setProCam([hp.x - 2.2, 2.55, hp.z + 4.2], [mx + 0.4, 1.1, mz - 0.3], 37);
+          shot('act', () => this.camPose(), { cut: true, speed: 6 });
+          let proT = 0, hiltReady = false;
+          this.talkTick = (dt: number) => {
+            proT += dt;
+            f.a.update(dt);
+          };
+          await this.talk(PRO_CUIXUAN, (idx) => {
+            if (idx === 3) {
+              // Reverse 3/4 medium on Cui Xuan studying her blindfold (framed cleanly in center between portraits)
+              setProCam([bp.x + 3.4, 2.45, bp.z + 4.4], [bp.x - 0.1, 1.15, bp.z + 0.1], 36);
+            } else if (idx === 5) {
+              // Cui Xuan reveals bright-steel blade at waist + tight low angle on Liu Bai coiling hand-on-hilt
+              if (f.a.bones.blade) f.a.bones.blade.visible = true;
+              if (!hiltReady) {
+                hiltReady = true;
+                this.hero.scriptPose = () => heroHandOnHiltPose(this.hero.a, proT);
+              }
+              cue('parry', 0.35); cue('snowWind', 0.45);
+              fxRing(hp.clone().setY(0.06), 0xeef4ff, 2.0, { life: 0.75, width: 0.08, bright: 1.4 } as never);
+              setProCam([hp.x + 3.2, 2.35, hp.z + 3.8], [hp.x + 0.15, 1.05, hp.z - 0.1], 36);
+            } else if (idx === 7) {
+              // Reverse medium push-in on Cui Xuan issuing his challenge ("好灵的耳朵。让我见识见识你的刀。")
+              setProCam([bp.x + 3.1, 2.35, bp.z + 4.1], [bp.x - 0.1, 1.12, bp.z + 0.15], 35);
+            } else if (idx === 8) {
+              // Dramatic clash two-shot as Cui Xuan draws bright steel — sparks, blade ring, falling snow from eaves!
+              if (f.a.bones.blade) f.a.bones.blade.visible = true;
+              f.a.play(new Action('atk1', 0.55, 0.25));
+              cue('draw', 0.95); cue('bladeRing', 0.8); shake(0.14);
+              fxSparks(bp.clone().setY(1.32), 0xfff2c4, 16, 4.2);
+              fxRing(bp.clone().setY(0.08), 0xffe4a0, 2.8, { life: 0.85, width: 0.1, bright: 1.5 } as never);
+              for (let k = 0; k < 10; k++) {
+                addBlock(V3(mx + (Math.random() - 0.5) * 6, 3.8 + Math.random() * 1.4, mz + (Math.random() - 0.5) * 4), {
+                  size: 0.08 + Math.random() * 0.05, col: 0xf0f6ff, bright: 1.1, life: 1.1, shrink: 0.3, grav: 3.4, floor: 0.04,
+                  v: V3((Math.random() - 0.5) * 0.6, -0.4, (Math.random() - 0.5) * 0.6),
+                });
+              }
+              setProCam([mx + 4.4, 2.65, mz + 4.8], [mx, 1.1, mz], 36);
+            }
+          });
+          this.hero.scriptPose = null; this.talkTick = null; this.camOverride = null;
+          if (f.a.bones.blade) f.a.bones.blade.visible = true;
           this.bossEnterPose(f); this.proFightT = 0;
         } finally { this.bossIntroActive = false; }
         afterIntro?.();
@@ -4259,11 +4401,18 @@ export class ActShow {
             }
           };
           await this.talk(DUWU_DIE, (idx) => {
+            if (idx === 1) {
+              // Cold reverse shot on Feng Han standing aloof across the snow
+              const fCam = safeCam([f.pos.x + 2.8, 2.55, f.pos.z + 3.8], [f.pos.x, 1.12, f.pos.z], 34);
+              this.camOverride = { base: V3(...fCam.pos), look: V3(...fCam.look), fov: fCam.fov };
+            }
             if (idx === 2) {
-              // Beat: "刘白脚步猛地一顿，扑进雪堆，一把摸到他冰冷僵硬的粗布袖子" -> drops onto one knee beside Du Wu!
+              // Beat: "刘白脚步猛地一顿，扑进雪堆，一把摸到他冰冷僵硬的粗布袖子" -> intimate low two-shot kneeling beside Du Wu!
               kneelWant = 1;
               cue('land', 0.38);
               fxSmoke(this.hero.pos.clone().setY(0.12), 0xe8eef8, 6, { r: 0.45, spd: 0.8, up: 0.35, s: 0.32, life: 0.55, alpha: 0.6 });
+              const closeTwo = safeCam([dPos.x + 2.75, 2.35, dPos.z + 3.45], [dPos.x + 0.35, 0.52, dPos.z + 0.12], 34);
+              this.camOverride = { base: V3(...closeTwo.pos), look: V3(...closeTwo.look), fov: closeTwo.fov };
             }
             if (idx >= 7 && !deadPose) {
               // Beat: "他攥着里衣的手松开了，半块粗布裹着的温热胡饼滚落进雪里" -> flatbread rolls onto snow!
@@ -4275,14 +4424,21 @@ export class ActShow {
                 this.roadExtras.push(bread);
               }
             }
+            if (idx === 8) {
+              // Cold sneer snap back to Feng Han ("啧，可惜了半副好药引...")
+              const fCam = safeCam([f.pos.x - 2.6, 2.45, f.pos.z + 3.6], [f.pos.x, 1.15, f.pos.z], 33);
+              this.camOverride = { base: V3(...fCam.pos), look: V3(...fCam.look), fov: fCam.fov };
+            }
             if (idx >= 9 && !hiltReady) {
-              // Beat: "刘白慢慢松开怀里渐冷的身子，起身，缓缓按上刀柄" -> rises and faces Feng Han in hand-on-hilt stance!
+              // Beat: "刘白慢慢松开怀里渐冷的身子，起身，缓缓按上刀柄" -> rises & locks onto Feng Han from heroic low angle!
               kneelWant = 0; hiltReady = true;
               this.hero.a.yaw = Math.atan2(f.pos.x - this.hero.pos.x, f.pos.z - this.hero.pos.z);
               cue('draw', 0.78);
               fxRing(this.hero.pos.clone().setY(0.06), 0xffe4a0, 2.2, { life: 0.75, width: 0.08, bright: 1.5 } as never);
-              const fCam = safeCam([f.pos.x + 2.8, 3.2, f.pos.z + 4.4], [f.pos.x, 1.0, f.pos.z], 36);
-              this.camOverride = { base: V3(...fCam.pos), look: V3(...fCam.look), fov: fCam.fov };
+              const hp = this.hero.pos;
+              const dx = f.pos.x - hp.x, dz = f.pos.z - hp.z, l = Math.hypot(dx, dz) || 1;
+              const oCam = safeCam([hp.x - (dx / l) * 2.8 + 1.4, 2.35, hp.z - (dz / l) * 2.8 + 1.2], [f.pos.x, 1.05, f.pos.z], 35);
+              this.camOverride = { base: V3(...oCam.pos), look: V3(...oCam.look), fov: oCam.fov };
             }
           });
           this.hero.scriptPose = null; this.talkTick = null; this.camOverride = null;
@@ -4293,13 +4449,13 @@ export class ActShow {
           // Persist death immediately (even if player loses to Feng Han, Du Wu stays dead and memorial handover activates!)
           const p = profile(); p.seen['duwu_die'] = 1; p.seen['duwu_dead'] = 1; saveProfile();
           if ((f.st as string) === 'dead') return;
-          if (CH_BEFORE[i].length) await this.talk(CH_BEFORE[i]);
+          if (CH_BEFORE[i].length) await this.playBossBeforeTalk(f, i);
           if ((f.st as string) === 'dead') return;
           this.bossEnterPose(f);
         } else {
           await this.cine(bossIntroShots(this.cineHost, f, name, { prologue: false }));
           if ((f.st as string) === 'dead') return;
-          await this.talk(CH_BEFORE[i]);
+          await this.playBossBeforeTalk(f, i);
           if ((f.st as string) === 'dead') return;
           this.bossEnterPose(f);
         }
@@ -4307,6 +4463,57 @@ export class ActShow {
       afterIntro?.();
     })();
     return true;
+  }
+  /** act-157: multi-angle shot-reverse-shot + 3D acting during Ch1–Ch5 boss-before confrontations (replaces static top-down camera) */
+  private async playBossBeforeTalk(f: Foe, i: number) {
+    const lines = CH_BEFORE[i];
+    if (!lines || !lines.length) return;
+    const hp = this.hero.pos, bp = f.pos;
+    const dx = bp.x - hp.x, dz = bp.z - hp.z, len = Math.hypot(dx, dz) || 1;
+    const dirX = dx / len, dirZ = dz / len;
+    let nx = -dirZ, nz = dirX; if (nz < 0) { nx = -nx; nz = -nz; }
+    const mx = (hp.x + bp.x) * 0.5, mz = (hp.z + bp.z) * 0.5;
+    this.hero.a.yaw = Math.atan2(dx, dz);
+    f.a.yaw = Math.atan2(-dx, -dz);
+    if (i === 4 && f.a.bones.blade) f.a.bones.blade.visible = false;
+    const setCam = (pos: V, look: V, fov: number) => {
+      const c = safeCam(pos, look, fov);
+      this.camOverride = { base: V3(...c.pos), look: V3(...c.look), fov: c.fov };
+    };
+    setCam([mx + nx * 5.2, 2.7, mz + nz * 5.2 + 1.0], [mx, 1.15, mz], 37);
+    shot('act', () => this.camPose(), { cut: true, speed: 6 });
+    let bt = 0, hiltOn = false;
+    this.talkTick = (dt: number) => {
+      bt += dt;
+      f.a.update(dt);
+    };
+    await this.talk(lines, (_idx, l) => {
+      if (l.who === 'act') {
+        if (/刀镡|刀背|侧耳|按住/.test(l.text)) {
+          if (!hiltOn) { hiltOn = true; this.hero.scriptPose = () => heroHandOnHiltPose(this.hero.a, bt); }
+          cue('parry', 0.35);
+          fxRing(hp.clone().setY(0.06), 0xeef4ff, 2.0, { life: 0.75, width: 0.08, bright: 1.4 } as never);
+          setCam([hp.x + nx * 2.5 + dirX * 1.4, 2.25, hp.z + nz * 2.5 + dirZ * 1.4], [hp.x, 1.08, hp.z], 33);
+        } else if (/朱漆匣/.test(l.text)) {
+          cue('click', 0.55);
+          fxSparks(bp.clone().setY(1.2), 0xffc868, 12, 3.0);
+          setCam([bp.x - nx * 2.6 - dirX * 1.8, 2.35, bp.z - nz * 2.6 - dirZ * 1.8], [bp.x, 1.15, bp.z], 33);
+        } else if (/取下一柄亮钢刀/.test(l.text)) {
+          if (f.a.bones.blade) f.a.bones.blade.visible = true;
+          cue('draw', 0.9); cue('bladeRing', 0.75);
+          fxSparks(bp.clone().setY(1.25), 0xfff0c0, 14, 3.8);
+          setCam([bp.x + nx * 2.6 - dirX * 1.6, 2.3, bp.z + nz * 2.6 - dirZ * 1.6], [bp.x, 1.15, bp.z], 33);
+        } else {
+          setCam([mx + nx * 5.0, 2.65, mz + nz * 5.0 + 0.8], [mx, 1.15, mz], 36);
+        }
+      } else if (l.who === 'jiangjin') {
+        setCam([hp.x + nx * 2.8 + dirX * 1.2, 2.35, hp.z + nz * 2.8 + dirZ * 1.2], [hp.x + dirX * 0.4, 1.08, hp.z + dirZ * 0.4], 34);
+      } else {
+        setCam([bp.x + nx * 2.9 - dirX * 1.6, 2.45, bp.z + nz * 2.9 - dirZ * 1.6], [bp.x, 1.2, bp.z], 34);
+      }
+    });
+    if (i === 4 && f.a.bones.blade) f.a.bones.blade.visible = true;
+    this.hero.scriptPose = null; this.talkTick = null; this.camOverride = null;
   }
   camKick(dir: THREE.Vector3, m: number) { const d = dir.clone().setY(0); if (d.lengthSq() < 1e-6) return; this.kickV.addScaledVector(d.normalize(), m * CAM_W * Math.E * FX.shakeScale); }
   camPunch(m: number) { this.punchV += m * CAM_W * Math.E * FX.shakeScale; }
@@ -6040,8 +6247,8 @@ export class ActShow {
           await this.ending(); return;
         }
         const exec = this.stageBossAfterScene(ai);
-        await this.talk(CH_AFTER[ai], (_i, l) => {
-          if (l.who === 'act') exec.onAct(l.text);
+        await this.talk(CH_AFTER[ai], (idx, l) => {
+          exec.onLine(idx, l);
         });
         exec.cleanup();
         saveProfile();
@@ -6399,7 +6606,7 @@ export class ActShow {
     this.foes = bossFoe ? [bossFoe] : [];
     const bossKind = bossFoe ? bossFoe.kind : (BOSS_ORDER[ai] ?? 'hj_boss');
     const bossR = bossFoe ? bossFoe.d.r : (EDEFS[bossKind]?.r ?? 0.65);
-    const gap = Math.max(2.25, 1.65 + bossR * 1.15);
+    const gap = Math.max(2.35, 1.74 + bossR * 1.15);
     const bossPos = bossFoe ? bossFoe.pos.clone().setY(0) : V3(0, 0, -2.0);
     if (bossPos.z > PLAY.z1 - (gap + 1.0)) bossPos.z = PLAY.z1 - (gap + 1.0);
     if (bossPos.z < PLAY.z0 + 1.2) bossPos.z = PLAY.z0 + 1.2;
@@ -6431,7 +6638,7 @@ export class ActShow {
     motionOf(this.hero.a).run = 0;
 
     const throatY = Math.max(0.94, Math.min(1.26, actor.height * 0.54));
-    const throatStop = V3(bossPos.x, throatY, bossPos.z + Math.max(0.28, bossR * 0.55));
+    const throatStop = V3(bossPos.x, throatY, bossPos.z + Math.max(0.34, bossR * 0.62));
     let afterT = kb ? Math.max(0.45, kb.t) : 0.6;
     let executed = false;
     this.hero.scriptPose = () => heroHoldThroatPose(this.hero.a, throatStop, afterT);
@@ -6442,9 +6649,12 @@ export class ActShow {
       if (!executed) bossKneelDefeatPose(actor, afterT);
     };
 
-    const cam = safeCam([bossPos.x + 4.8, 2.45, bossPos.z + gap * 1.15], [bossPos.x, throatY, bossPos.z + gap * 0.48], 37);
-    this.camOverride = { base: V3(...cam.pos), look: V3(...cam.look), fov: cam.fov };
-    shot('act', () => this.camPose(), { cut: true, speed: 8 });
+    const setAfterCam = (pos: V, look: V, fov: number) => {
+      const c = safeCam(pos, look, fov);
+      this.camOverride = { base: V3(...c.pos), look: V3(...c.look), fov: c.fov };
+    };
+    setAfterCam([bossPos.x + 4.4, 2.38, bossPos.z + gap * 1.12], [bossPos.x, throatY, bossPos.z + gap * 0.48], 36);
+    shot('act', () => this.camPose(), { cut: true, speed: 7 });
 
     let lacquerBox: THREE.Group | null = null;
     if (ai === 2 && this.stage) {
@@ -6459,6 +6669,7 @@ export class ActShow {
       if (this.kneelingBoss) this.kneelingBoss.executed = true;
       this.hero.scriptPose = null;
       this.hero.a.play(new Action('rel', 0.45, 0.30));
+      setAfterCam([bossPos.x + 3.6, 2.25, bossPos.z + gap * 0.55], [bossPos.x, throatY, bossPos.z + gap * 0.35], 35);
       this.flashScreen(0.22, 0xffffff); hitstop(0.11); shake(0.34 * TUNE.shake); this.splitScreen(0.58);
       cue('cutHeavy', 1.0); cue('hitKill', 1.15);
       cue('foeDeath', 1.0, bossFoe ? voiceOf(bossFoe) : 1);
@@ -6482,9 +6693,26 @@ export class ActShow {
         fxSparks(lacquerBox.position.clone().setY(0.25), 0xffd27a, 10, 2.8);
         lacquerBox.parent?.remove(lacquerBox); lacquerBox = null;
       }
-      if (/解下|拾起|拔出/.test(txt)) {
+      if (/解下|拾起|拔出|拔起/.test(txt)) {
         cue('bladeRing', 0.78);
         fxRing(this.hero.pos.clone().setY(0.08), 0xffe4a0, 2.2, { life: 0.75, width: 0.08, bright: 1.5 } as never);
+        setAfterCam([heroPos.x - 2.6, 2.3, heroPos.z + 3.0], [heroPos.x, 1.05, heroPos.z], 34);
+      }
+    };
+
+    const onLine = (idx: number, l: Line) => {
+      if (l.who === 'act') {
+        onAct(l.text);
+      } else if (!executed) {
+        if (l.who === 'jiangjin') {
+          setAfterCam([heroPos.x + 3.4, 2.35, heroPos.z - 2.6], [heroPos.x, 1.08, heroPos.z], 36);
+        } else {
+          // Over-hero-shoulder reverse angle keeping kneeling boss cleanly centered between left & right portraits
+          setAfterCam([bossPos.x - 3.6, 2.45, bossPos.z + gap + 2.3], [bossPos.x, throatY, bossPos.z + 0.2], 36);
+        }
+      } else if (l.who === 'jiangjin' && idx > 0) {
+        // Solemn post-execution hero angle
+        setAfterCam([heroPos.x - 2.4, 2.25, heroPos.z + 2.85], [heroPos.x, 1.08, heroPos.z], 33);
       }
     };
 
@@ -6499,7 +6727,7 @@ export class ActShow {
       });
     };
 
-    return { execute, onAct, cleanup, wasExecuted: () => executed };
+    return { execute, onAct, onLine, cleanup, wasExecuted: () => executed };
   }
   /** act-137 debug preview for Ch1–Ch4 boss first-kill kneeling confrontation & execution slash */
   private async debugBossAfter(ri: number, executeNow = false) {
@@ -6512,8 +6740,8 @@ export class ActShow {
     const exec = this.stageBossAfterScene(ri);
     await frames(2);
     if (executeNow) { exec.execute(); return; }
-    await this.talk(CH_AFTER[ri], (_i, l) => {
-      if (l.who === 'act') exec.onAct(l.text);
+    await this.talk(CH_AFTER[ri], (idx, l) => {
+      exec.onLine(idx, l);
     });
     exec.cleanup();
   }
@@ -6523,7 +6751,7 @@ export class ActShow {
     this.foes.length = 0;
     const cx = 0, cz = -2.4;
     const cuiPos = V3(cx, 0, cz); this.clamp(cuiPos, 0.7);
-    const heroPos = V3(cuiPos.x, 0, cuiPos.z + 2.05); this.clamp(heroPos, 0.5);
+    const heroPos = V3(cuiPos.x, 0, cuiPos.z + 2.25); this.clamp(heroPos, 0.5);
     const def = ROSTER.find(d => d.id === 'cx_boss');
     if (def) {
       const a = new BattleActor(def);
@@ -6536,15 +6764,15 @@ export class ActShow {
     this.hero.a.home.copy(heroPos); this.hero.a.root.position.copy(heroPos);
     this.hero.a.yaw = Math.atan2(cuiPos.x - heroPos.x, cuiPos.z - heroPos.z);
     motionOf(this.hero.a).run = 0;
-    // Target point strictly 0.22m in front of Cui Xuan's neck so the gleaming steel blade spans the gap cleanly without clipping!
-    const throatStop = V3(cuiPos.x, 0.96, cuiPos.z + 0.22);
+    // Target point strictly 0.30m in front of Cui Xuan's neck so the gleaming steel blade spans the gap cleanly without clipping!
+    const throatStop = V3(cuiPos.x, 0.96, cuiPos.z + 0.30);
     let endT = 0;
     this.hero.scriptPose = () => heroHoldThroatPose(this.hero.a, throatStop, endT);
     this.talkTick = (dt: number) => {
       endT += dt;
       if (this.endCui) { this.endCui.update(dt); cuiKneelDefeatPose(this.endCui, endT); }
     };
-    const cam = safeCam([cuiPos.x + 4.5, 2.35, cuiPos.z + 2.45], [cuiPos.x, 0.96, cuiPos.z + 1.02], 36);
+    const cam = safeCam([cuiPos.x + 4.4, 2.35, cuiPos.z + 2.55], [cuiPos.x, 0.96, cuiPos.z + 1.08], 36);
     this.camOverride = { base: V3(...cam.pos), look: V3(...cam.look), fov: cam.fov };
     shot('act', () => this.camPose(), { cut: true, speed: 8 });
   }

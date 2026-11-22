@@ -15,6 +15,7 @@ import { flashSky } from '../scenes/stage';
 import { PLAY } from '../scenes/props';
 import { playDeath } from '../v2/death';
 import { motionOf } from './ninjaAct';
+import { poseWallVault, snowPuff } from './prologue';
 import type { Foe, EKind } from './enemy';
 import type { Timeline, CineShot, V } from './timeline';
 import type { BattleActor } from '../bestiary/battle';
@@ -128,6 +129,135 @@ export function openingShots(h: CineHost): CineShot[] {
 export function bossIntroShots(h: CineHost, boss: Foe, name: string, o: { prologue?: boolean } = {}): CineShot[] {
   const b = boss.pos.clone();
   const p0 = h.hero.pos.clone();
+
+  // ---- act-157: Prologue Cui Xuan REAL 3D wall-vault over the snowy west courtyard wall + back-turned aristocratic reveal!
+  if (o.prologue && boss.kind === 'cx_boss') {
+    const wallX = PLAY.x0 - 0.44;
+    const wallY = 2.66;
+    const landZ = Math.max(2.6, Math.min(PLAY.z1 - 2.6, b.z + 5.2));
+    const landX = Math.max(PLAY.x0 + 3.2, Math.min(b.x - 2.6, PLAY.x0 + 4.4));
+    const standPos = V3(Math.max(landX + 1.5, Math.min(b.x - 2.6, b.x - 3.6)), 0, Math.max(PLAY.z0 + 4.0, Math.min(PLAY.z1 - 2.2, b.z + 3.6)));
+    h.hold?.(standPos, 0.42);
+    const vaultYaw = Math.atan2(landX - wallX, 0);
+    const faceBossYaw = Math.atan2(b.x - standPos.x, b.z - standPos.z);
+    const faceHeroYaw = Math.atan2(standPos.x - b.x, standPos.z - b.z);
+    let landed = false, leaped = false;
+
+    const shotVault: CineShot = {
+      dur: 2.55, ease: 'inOut',
+      from: safeCam([PLAY.x0 + 8.6, 3.8, landZ + 5.6], [PLAY.x0 + 0.5, 3.25, landZ], 42),
+      to: safeCam([landX + 5.4, 2.9, landZ + 5.4], [standPos.x + 0.3, 1.15, standPos.z], 38),
+      at: [
+        [0, () => {
+          cue('snowWind', 0.65);
+          // Cui Xuan starts back-turned gazing at the snowy hall, unarmed until PRO_CUIXUAN draw beat!
+          boss.a.yaw = Math.PI;
+          if (boss.a.bones.blade) boss.a.bones.blade.visible = false;
+          if (boss.a.bones.fan) boss.a.bones.fan.visible = false;
+          motionOf(h.hero.a).run = 0;
+          h.hero.pos.set(wallX, 0, landZ);
+          h.hero.a.home.set(wallX, 0, landZ);
+          h.hero.a.off.set(0, wallY, 0);
+          h.hero.a.yaw = vaultYaw;
+          h.hero.a.root.position.set(wallX, wallY, landZ);
+        }],
+      ],
+      tick: (t, dt) => {
+        const m = motionOf(h.hero.a);
+        if (t < 0.46) {
+          const u = t / 0.46;
+          m.run = 0;
+          h.hero.pos.set(wallX, 0, landZ);
+          h.hero.a.home.set(wallX, 0, landZ);
+          h.hero.a.off.set(0, wallY, 0);
+          h.hero.a.yaw = vaultYaw;
+          h.hero.a.update(dt);
+          poseWallVault(h.hero.a, 'perch', u);
+          h.hero.a.root.position.set(wallX, wallY, landZ);
+        } else if (t < 1.18) {
+          if (!leaped) {
+            leaped = true;
+            cue('whoosh', 0.72);
+            snowPuff(V3(wallX + 0.25, wallY, landZ));
+          }
+          const u = (t - 0.46) / 0.72;
+          const x = wallX + (landX - wallX) * u;
+          const y = wallY * (1 - u) * (1 - 0.14 * u) + 1.05 * 4 * u * (1 - u);
+          m.run = 0;
+          h.hero.pos.set(x, 0, landZ);
+          h.hero.a.home.set(x, 0, landZ);
+          h.hero.a.off.set(0, y, 0);
+          h.hero.a.yaw = vaultYaw;
+          h.hero.a.update(dt);
+          poseWallVault(h.hero.a, 'leap', u);
+          h.hero.a.root.position.set(x, y, landZ);
+        } else if (t < 1.68) {
+          if (!landed) {
+            landed = true;
+            cue('land', 0.65); shake(0.10);
+            snowPuff(V3(landX, 0.05, landZ));
+            fxRing(V3(landX, 0.06, landZ), 0xeef4ff, 2.2, { life: 0.9, width: 0.09, bright: 1.4 } as never);
+          }
+          const u = (t - 1.18) / 0.50;
+          m.run = 0;
+          h.hero.pos.set(landX, 0, landZ);
+          h.hero.a.home.set(landX, 0, landZ);
+          h.hero.a.off.set(0, 0, 0);
+          h.hero.a.yaw = vaultYaw + (faceBossYaw - vaultYaw) * Math.min(1, u * 1.4);
+          h.hero.a.update(dt);
+          poseWallVault(h.hero.a, 'land', u);
+          h.hero.a.root.position.set(landX, 0, landZ);
+        } else {
+          const u = Math.min(1, (t - 1.68) / 0.82);
+          const x = landX + (standPos.x - landX) * u;
+          const z = landZ + (standPos.z - landZ) * u;
+          h.hero.pos.set(x, 0, z);
+          h.hold?.(h.hero.pos, 0.42);
+          h.hero.a.home.copy(h.hero.pos);
+          h.hero.a.off.set(0, 0, 0);
+          h.hero.a.yaw = faceBossYaw;
+          m.run = u < 0.94 ? 0.34 : 0;
+          h.hero.a.update(dt);
+        }
+        boss.a.yaw = Math.PI;
+        boss.a.update(dt);
+      },
+    };
+
+    // Shot 2: Reverse-angle aristocratic reveal — Cui Xuan hears her landing and slowly turns around (blade still sheathed/hidden)
+    const turnDiff = Math.atan2(Math.sin(faceHeroYaw - Math.PI), Math.cos(faceHeroYaw - Math.PI));
+    const shotTurn: CineShot = {
+      dur: 2.35, ease: 'inOut',
+      from: safeCam([b.x + 3.5, 2.55, b.z + 4.4], [b.x - 0.35, 1.15, b.z + 0.35], 35),
+      to: safeCam([b.x + 2.8, 2.30, b.z + 3.6], [b.x - 0.25, 1.15, b.z + 0.2], 33),
+      caption: { text: name, at: 0.85, hold: 1.45 },
+      at: [
+        [0, () => {
+          h.hero.pos.copy(standPos);
+          h.hero.a.home.copy(standPos);
+          h.hero.a.off.set(0, 0, 0);
+          h.hero.a.root.position.copy(standPos);
+          h.hero.a.yaw = faceBossYaw;
+          motionOf(h.hero.a).run = 0;
+        }],
+        [0.35, () => {
+          cue('snowWind', 0.52);
+          fxRing(b.clone().setY(0.06), 0xf6d88a, 2.4, { life: 1.0, width: 0.1, bright: 1.4 } as never);
+        }],
+      ],
+      tick: (t, dt) => {
+        const u = Math.max(0, Math.min(1, (t - 0.30) / 0.95));
+        const ease = u * u * (3 - 2 * u);
+        boss.a.yaw = Math.PI + turnDiff * ease;
+        motionOf(h.hero.a).run = 0;
+        h.hero.a.update(dt);
+        boss.a.update(dt);
+      },
+    };
+
+    return [shotVault, shotTurn];
+  }
+
   const toBoss = V3(b.x - p0.x, 0, b.z - p0.z);
   const dist = toBoss.length() || 1;
   const dir = toBoss.clone().divideScalar(dist);
