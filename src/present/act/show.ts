@@ -7615,61 +7615,62 @@ export class ActShow {
         });
       });
     }
-    // doors: the boards rise + plain-language UI route plaques cleanly above open exit gates; stepping onto a gate's gold leaves
+    // doors: the boards rise + wuxia-flavored title + plain-language payoff subtitle cleanly above open exit gates
     this.worldPlates.hidePrefix('door.');
     if (this.phase === 'doors') {
-      const doorArch = (a: Archetype): { name: string; sub: string } => (
-        a === 'blood' ? { name: '流血吸血', sub: '清怪三选一：流血叠伤与击杀回血' } :
-        a === 'poise' ? { name: '重击破防', sub: '清怪三选一：更快破盾与重斩增伤' } :
-        a === 'shadow' ? { name: '飞镖暗器', sub: '清怪三选一：多镖齐射与定身控制' } :
-        { name: '闪避连招', sub: '清怪三选一：穿身斩与空中连击' }
+      const archPlain = (a: Archetype) => (
+        a === 'blood' ? '流血/吸血类' :
+        a === 'poise' ? '破盾/重砍类' :
+        a === 'shadow' ? '多镖/定身类' :
+        '闪避/空战类'
       );
       this.doors.forEach((d, i) => {
         d.lift = Math.min(1, d.lift + dt * 2.2); d.g.position.y = -2.4 * (1 - d.lift) ** 2;
         const plan = this.nextRooms[i];
         if (worldUiClear && plan && d.lift > 0.35) {
+          const info = roomInfo(plan.type, plan.region ?? this.region);
           const rw = plan.reward;
           const archKey = rw?.k === 'boon' ? rw.arch : undefined;
           const arch = archKey ? ARCH_INFO[archKey] : null;
-          const da = archKey ? doorArch(archKey) : null;
-          // Plain-language route plaque raised cleanly ABOVE the 3D wooden board so room type & payoff read in 1 second!
-          let title = '普通战斗';
+          const ap = archKey ? archPlain(archKey) : '';
+          // Top line keeps wuxia flavor; bottom line explains in plain 1-second Chinese what room & tangible reward await!
+          let title = info.name;
           let sub = '';
           let ico: MiniIcon = 'door';
           let acc = '#b89460';
           if (plan.type === 'boss') {
-            title = '关底BOSS'; sub = '击败首领后进入下一关'; ico = 'boss'; acc = '#e83c30';
+            title = '关底首领'; sub = '击败本关BOSS，进入下一章'; ico = 'boss'; acc = '#e83c30';
           } else if (plan.type === 'elite') {
-            title = da ? msg`精英战 · 高阶${da.name}` : '精英战 · 高阶技能';
-            sub = da ? msg`强敌战斗，胜利必得高阶${da.name}技能` : '强敌战斗，胜利必得高阶技能三选一';
+            title = arch ? msg`死士 · ${arch.name}珍绝` : '死士 · 珍绝秘传';
+            sub = ap ? msg`精英强敌战 · 必出高阶${ap}技能三选一` : '精英强敌战 · 必出高阶技能三选一';
             ico = archKey ?? 'scroll'; acc = arch ? arch.col : '#e84838';
-            if (rw?.k === 'up') { title = '精英战 · 升级技能'; sub = '强敌战斗，胜利后把已学技能升阶变强'; ico = 'scroll'; acc = '#ffe08a'; }
-            else if (rw?.k === 'coins') { title = msg`精英战 · 铜钱 +${rw.n}`; sub = '强敌战斗，赢取大量铜钱去商店买强化'; ico = 'coin'; acc = '#ffd258'; }
+            if (rw?.k === 'up') { title = '死士 · 秘传升阶'; sub = '精英强敌战 · 胜后把已学技能升阶变强'; ico = 'scroll'; acc = '#ffe08a'; }
+            else if (rw?.k === 'coins') { title = msg`死士 · 铜钱 +${rw.n}`; sub = '精英强敌战 · 赢取大量铜钱去商店买强化'; ico = 'coin'; acc = '#ffd258'; }
           } else if (plan.type === 'event') {
-            title = '名将奇遇'; sub = '完成试炼，获得强力常驻加成'; ico = 'star'; acc = '#f0bc48';
+            title = info.name; sub = '完成试炼，获得强力常驻加成'; ico = 'star'; acc = '#f0bc48';
           } else if (plan.type === 'boon') {
             const isUp = this.scrollGives(plan.region ?? this.region) === 'up';
-            title = isUp ? '免费升级技能' : '免费领高阶技能';
-            sub = isUp ? '不用打怪，直接把已有技能升阶' : '不用打怪，直接三选一高阶技能';
+            title = isUp ? '遗卷 · 秘传升阶' : '稀世遗卷';
+            sub = isUp ? '不用打怪 · 免费把已学技能升一阶' : '不用打怪 · 免费三选一高阶技能';
             ico = 'scroll'; acc = '#58d8a8';
           } else if (plan.type === 'shop') {
-            title = '商店'; sub = '花铜钱买新技能、升阶或回血'; ico = 'coin'; acc = '#f0b848';
+            title = '行商'; sub = '商店 · 花铜钱买新技能、升阶或回血'; ico = 'coin'; acc = '#f0b848';
           } else if (plan.type === 'rest') {
-            title = '营火休整'; sub = '免费选一项：回血 / 升级技能 / 加攻'; ico = 'fire'; acc = '#ff9848';
+            title = '歇脚'; sub = '营火休整 · 免费选：回血 / 升级技能 / 加攻'; ico = 'fire'; acc = '#ff9848';
           } else if (rw?.k === 'boon') {
-            title = da ? msg`战斗 · ${da.name}` : '战斗 · 选新技能';
-            sub = da ? da.sub : '清怪后三选一新技能强化';
+            title = arch ? msg`${arch.name}秘传` : '流派秘传';
+            sub = ap ? msg`普通战斗 · 胜后选${ap}新技能` : '普通战斗 · 胜后三选一新技能';
             ico = archKey ?? 'scroll'; acc = arch ? arch.col : '#ffd27a';
           } else if (rw?.k === 'coins') {
-            title = msg`战斗 · 铜钱 +${rw.n}`; sub = '清怪得铜钱，用于商店买技能与回血'; ico = 'coin'; acc = '#ffd258';
+            title = msg`铜钱 +${rw.n}`; sub = '普通战斗 · 胜后得铜钱，去商店买强化'; ico = 'coin'; acc = '#ffd258';
           } else if (rw?.k === 'maxHp') {
-            title = msg`战斗 · 血量上限 +${rw.n}`; sub = '清怪后本局永久加血量并回血'; ico = 'heal'; acc = '#78f09c';
+            title = msg`气血上限 +${rw.n}`; sub = '普通战斗 · 本局永久加血量上限并回血'; ico = 'heal'; acc = '#78f09c';
           } else if (rw?.k === 'meta') {
-            title = msg`战斗 · 铁料+${rw.iron} 药草+${rw.herb}`; sub = '局外材料，回营地永久升刀与强化'; ico = 'meta'; acc = '#c8a8ff';
+            title = msg`残铁+${rw.iron} 药引+${rw.herb}`; sub = '普通战斗 · 局外材料，回营地永久升刀加血'; ico = 'meta'; acc = '#c8a8ff';
           } else if (rw?.k === 'heal') {
-            title = '战斗 · 恢复血量'; sub = '清怪后回复两成生命值'; ico = 'heal'; acc = '#68e498';
+            title = '回气疗伤'; sub = '普通战斗 · 胜后回复两成生命值'; ico = 'heal'; acc = '#68e498';
           } else if (rw?.k === 'manual') {
-            title = '战斗 · 学新招式'; sub = '清怪后解锁新的武器连招动作'; ico = 'blade'; acc = '#ffe488';
+            title = '武器刀谱'; sub = '普通战斗 · 胜后解锁新的武器连招动作'; ico = 'blade'; acc = '#ffe488';
           }
           const pt = worldToUi(V3(d.g.position.x, d.g.position.y + 4.35, d.g.position.z));
           this.worldPlates.setTag('door.' + i, {
