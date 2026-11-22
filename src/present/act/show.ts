@@ -2311,7 +2311,7 @@ export class ActShow {
   private coinsFx = new Coins(); private stations: Stations | null = null; private hitArcs = new HitArcs();
   /** __dh.scene: the spec overrides for a fight-less view of one place; the last assembler report */
   private viewSpec: Partial<Spec> | null = null; private lastReport: Report | null = null;
-  private spec: Spec | null = null; private layout: Layout | null = null; private doors: Array<{ ex: ExitInfo; g: THREE.Group; lift: number }> = []; private locale = 'ninja_wilds';
+  private spec: Spec | null = null; private layout: Layout | null = null; private doors: Array<{ ex: ExitInfo; g: THREE.Group; lift: number; scrollUp?: boolean }> = []; private locale = 'ninja_wilds';
   private cam = V3(0, 0, 0); private recent: Spec[] = [];
   private botWp = 0; private botTalkT = 0; botOn = false; kills = 0; log: string[] = []; private introT = 0; private audioOn = false; private hinted = false; tut!: Tutorial; feed!: RewardFeed;
   /** the training yard (room −1) and the costume on the hero */
@@ -4572,7 +4572,7 @@ export class ActShow {
         return cur.map(m => ({ boon: manualCard(m), tier: 0 }));
       } } : undefined,
     });
-    const m = cur[i]; this.perks.moves[m.id] = true; this.log.push(`manual ${m.id}`); this.syncMarks();
+    const m = cur[i]; this.perks.moves[m.id] = true; this.log.push(`manual ${m.id}`); this.syncMarks(); this.settleDoors();
     this.hud.on = true; this.feed.push('manual', () => msg`刀谱 · ${m.name}`, 0, 'manual:' + m.id);
     // 11-18 (用户：「如何释放的教学不能是纯文字哈」): a ghost of her does the move once beside her, the HUD's buttons pressed in step
     await this.demoMove(m.id);
@@ -6404,17 +6404,20 @@ export class ActShow {
     if (region >= 1 && Object.keys(this.perks.moves).length < 3 && drawManuals(this.perks.moves, 1, Math.random, this.hero?.weaponId).length) return 'manual';
     return freshBoons(this.perks, this.hero?.weaponId).length ? 'boon' : 'up';
   }
-  private boardFor(p: RoomPlan) { return runBoard(p, LOCALES[p.locale]?.name ?? '', p.type === 'boon' && this.scrollGives(p.region ?? this.region) === 'up'); }
-  /** act-161: the exits were drawn up before this room's reward reached her hand — a door that promised a boon she has no room for
-   *  (or an upgrade with nothing left to upgrade) now gives what a full hand gets, and a board already standing is put up again */
+  private isScrollUp(p: RoomPlan) { return p.type === 'boon' && this.scrollGives(p.region ?? this.region) === 'up'; }
+  private boardFor(p: RoomPlan) { return runBoard(p, LOCALES[p.locale]?.name ?? '', this.isScrollUp(p)); }
+  /** act-161 / act-164: the exits were drawn up before this room's reward reached her hand — a door that promised a boon she has no room for
+   *  (or an upgrade with nothing left to upgrade, or a scroll room whose gift just flipped to upgrade) is re-settled and its board put up again */
   private settleDoors() {
     const ctx = this.runCtx();
     this.nextRooms.forEach((p, i) => {
-      const rw = settleReward(p, ctx); if (rw === p.reward) return;
+      const rw = settleReward(p, ctx), d = this.doors[i], scrollUp = this.isScrollUp(p);
+      const rewardChanged = rw !== p.reward, scrollChanged = !!d && scrollUp !== !!d.scrollUp;
+      if (!rewardChanged && !scrollChanged) return;
       p.reward = rw;
-      const d = this.doors[i]; if (!d) return;
+      if (!d) return;
       const { g } = this.boardFor(p); g.position.copy(d.g.position); g.scale.copy(d.g.scale); g.rotation.copy(d.g.rotation);
-      d.g.parent?.add(g); d.g.parent?.remove(d.g); d.g = g;
+      d.g.parent?.add(g); d.g.parent?.remove(d.g); d.g = g; d.scrollUp = scrollUp;
     });
   }
   /** act-161 升阶: one of the boons in hand goes up a tier (her pick of three); a hand already all 绝品 takes a purse and a breath instead */
@@ -6453,7 +6456,7 @@ export class ActShow {
     else if (s.id === 'buy_sharpen') { this.stations.spend(s); await this.sharpen(); }
     else if (s.id === 'buy_vigor') {
       this.stations.spend(s);
-      this.hero.maxHp += 15; const was = this.hero.hp; this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + 20);
+      this.hero.maxHp += 15; const was = this.hero.hp; this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + 25);
       this.feed.push('heal', () => msg`气血上限 +${15}`, 0); this.healFeed(was);
       this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp });
     }
@@ -6621,7 +6624,7 @@ export class ActShow {
       const gt = this.arena?.gates.find(q => q.open && q.id === (ids[i] ?? 'back'));
       if (gt) { const [sx, sz] = this.placeDoorSign(gt); g.position.set(sx, -2.4, sz); }
       g.rotation.y = Math.atan2(-g.position.x * 0.35, 13); this.stage?.root.add(g);
-      return { ex, g, lift: 0 };
+      return { ex, g, lift: 0, scrollUp: this.isScrollUp(d) };
     });
     this.phase = 'doors';
     if (!this.ahead.length) this.queueAhead(false);
