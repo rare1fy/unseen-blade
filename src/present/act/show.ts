@@ -2592,7 +2592,7 @@ export class ActShow {
         boon: {
           id: 'lz_archive', school: 'md' as never,
           name: '听风阁 · 江湖名录',
-          desc: [unl ? '浏览角色立绘、试听角色配音与五首领破阵志' : '长明灯满 20 盏或直接观影 4 次永久开启', '内含全人物配音试听与 Boss 机制指南'],
+          desc: [unl ? '浏览角色立绘、试听角色配音与五首领破阵志' : '长明灯满 20 盏或直接观影 4 次永久开启', '内含全人物配音试听与首领机制指南'],
           col: '#a8e8ff', glyph: SPROUT, tag: unl ? '已开启' : '典藏解锁',
         } as CardBoon,
         tier: unl ? 2 : 0,
@@ -3949,7 +3949,8 @@ export class ActShow {
     return { region: REGIONS[ri].id, room: this.room, locale: this.locale, waves: this.plan.waves };
   }
   startRun(build = true) {
-    this.donningHat = false; this.departAnim = null; this.camOverride = null;
+    this.donningHat = false; this.departAnim = null; this.departZoom = 0; this.releaseCutCam(true);
+    this.hud.on = true;
     if (this.hero) this.hero.scriptPose = null;
     const fromYard = this.room < 0 && OPT.roomAhead;
     this.maps = [];
@@ -5105,9 +5106,15 @@ export class ActShow {
       void (async () => {
         try {
           const b = f.pos.clone();
-          const landX = Math.max(PLAY.x0 + 3.2, Math.min(b.x - 2.6, PLAY.x0 + 4.4));
-          const standPos = V3(Math.max(landX + 1.5, Math.min(b.x - 2.6, b.x - 3.6)), 0, Math.max(PLAY.z0 + 4.0, Math.min(PLAY.z1 - 2.2, b.z + 3.6)));
-          this.clamp(standPos, 0.42);
+          const landZ = Math.max(PLAY.z0 + 5.6, Math.min(PLAY.z1 - 3.0, b.z + 6.0));
+          const landPos = V3(Math.max(PLAY.x0 + 2.4, Math.min(b.x - 5.2, PLAY.x0 + 2.85)), 0, landZ);
+          this.clamp(landPos, 0.72);
+          const standPos = V3(
+            Math.min(b.x - 3.6, landPos.x + 2.55),
+            0,
+            Math.max(PLAY.z0 + 3.6, Math.min(PLAY.z1 - 2.6, landPos.z - 0.75)),
+          );
+          this.clamp(standPos, 0.55);
           await this.cine(bossIntroShots(this.cineHost, f, name, { prologue: true }), () => {
             // Skip-safety: ensure Liu Bai is cleanly grounded facing Cui Xuan and Cui Xuan faces her unarmed until draw cue
             this.hero.pos.copy(standPos);
@@ -8010,8 +8017,9 @@ export class ActShow {
     this.camOverride = null;
     shot('act', () => this.camPose(), { cut, speed });
   }
-  /** act-165: Hideout departure 3D put-on-hat ceremony — completes full hat-donning animation BEFORE triggering run loading wipe */
+  /** act-165 / act-174: Hideout departure 3D put-on-hat ceremony — smooth in-place camera zoom (NO hard cut), completes full hat-donning BEFORE loading wipe, and restores HUD cleanly for combat */
   private departAnim: { t: number; dur: number; hold: number; lifted: boolean; seated: boolean; freezeK: number | null; resolve: () => void } | null = null;
+  private departZoom = 0;
   private async playDepartHatCeremony(opts?: { preview?: boolean; freezeK?: number }) {
     if (this.phase === 'leaving' && !opts?.preview) return;
     const h = this.hero;
@@ -8031,14 +8039,15 @@ export class ActShow {
     this.hideWorldPlates();
     this.exitGlow?.dispose(); this.exitGlow = null;
     this.inp.latch(false);
+    // Keep Liu Bai right where she stopped at the exit (no jarring lateral teleport; just gently keep inside gate piers)
     const gx = Math.max(E.x0 + 0.25, Math.min(E.x1 - 0.25, opts?.preview ? (E.x0 + E.x1) * 0.5 : h.pos.x));
-    const gz = E.z - 0.12;
+    const gz = opts?.preview ? E.z - 0.12 : Math.min(h.pos.z, E.z - 0.04);
     h.pos.set(gx, 0, gz); h.vel.set(0, 0, 0);
     h.a.home.copy(h.pos); h.a.root.position.copy(h.pos);
-    h.a.yaw = 0.22;
+    h.a.yaw = 0.12;
     motionOf(h.a).run = 0;
-    // Hard cut to crisp front-3/4 departure portrait centered cleanly between the south stone piers (generous headroom for lifted hat!)
-    this.cutCam([gx + 1.15, 2.08, gz + 4.35], [gx, 1.48, gz], 35, { drift: [-0.16, -0.05, -0.26], fovDrift: -1.4, raw: true });
+    // NO hard camera cut — smoothly zoom the existing yard camera closer in-place via camPose() departZoom!
+    this.camOverride = null;
     const dur = 1.05, hold = 0.22;
     const initK = opts?.freezeK != null ? Math.max(0, Math.min(1, opts.freezeK)) : 0;
     h.scriptPose = () => {
@@ -8048,6 +8057,7 @@ export class ActShow {
     };
     heroPutHatPose(h.a, initK);
     if (opts?.freezeK != null) {
+      this.departZoom = 1;
       this.departAnim = { t: initK * dur, dur, hold, lifted: true, seated: true, freezeK: initK, resolve: () => {} };
       return;
     }
@@ -8055,7 +8065,7 @@ export class ActShow {
       this.departAnim = { t: 0, dur, hold, lifted: false, seated: false, freezeK: null, resolve };
     });
     if (opts?.preview) return;
-    // Hat is now 100% seated cleanly on her crown — NOW trigger the bamboo loading wipe!
+    // Hat is now 100% seated cleanly on her crown — NOW trigger the bamboo loading wipe and restore HUD for combat!
     this.departAnim = null;
     if (h.a.bones.hat) {
       h.a.bones.hat.visible = true;
@@ -8064,7 +8074,7 @@ export class ActShow {
     if (h.a.bones.weapon) h.a.bones.weapon.visible = true;
     h.scriptPose = null;
     WIPE.look = 'bamboo';
-    void wipeTransit(() => this.startRun());
+    void wipeTransit(() => { this.departZoom = 0; this.hud.on = true; return this.startRun(); });
   }
   /** debug / captures: a fixed camera (__dh.cam([x,y,z],[lx,ly,lz],fov) / __dh.cam(null)) */
   camOverride: { base: THREE.Vector3; look: THREE.Vector3; fov: number } | null = null;
@@ -8072,8 +8082,16 @@ export class ActShow {
     if (this.camOverride) return { base: this.camOverride.base.clone(), look: this.camOverride.look.clone(), fov: this.camOverride.fov };
     // the yard's costume rack: the camera leans in (half the distance) so the models can be looked at
     // (11-18: a later region's boss coming in — the camera draws back a while so he and the back of his room are in the frame together)
-    const n = this.yard?.near ?? 0, k = (1 - 0.55 * n) * (1 + 0.08 * this.crowd) * (1 + 0.32 * this.bossLook) * (1 - 0.38 * this.tutCam);
+    // (act-174: smooth in-place zoom-in while Liu Bai puts on her conical hat before departing — NO hard camera cut!)
+    const dz = this.departZoom;
+    const n = this.yard?.near ?? 0, k = (1 - 0.55 * n) * (1 + 0.08 * this.crowd) * (1 + 0.32 * this.bossLook) * (1 - 0.38 * this.tutCam) * (1 - 0.48 * dz);
     const base = this.cam.clone().add(V3(0, TUNE.camH * k, TUNE.camD * k)), look = this.cam.clone().add(V3(0, 0.6 + 0.5 * n, 0));
+    if (dz > 0.001 && this.hero) {
+      const hp = this.hero.pos;
+      const dx = (hp.x - this.cam.x) * dz, dzOff = (hp.z - this.cam.z) * dz;
+      base.x += dx; base.z += dzOff;
+      look.x += dx; look.z += dzOff; look.y += 0.68 * dz;
+    }
     // (11-19 用户：「镜头要拉近一下」: a lesson pulls the camera in on her, eased in and back out)
     if (this.tutCam > 0.001 && this.hero) { const hp = this.hero.pos, d = V3(hp.x - this.cam.x, 0, hp.z - this.cam.z).multiplyScalar(this.tutCam); base.add(d); look.add(d).setY(look.y + 0.4 * this.tutCam); }
     // 11-18 QTE (用户：「QTE的时候要带镜头表现噢」): the duel's own framing blended over this one while it runs
@@ -8301,6 +8319,7 @@ export class ActShow {
     else this.aimLine.visible = false;
     if (this.departAnim) {
       const da = this.departAnim;
+      this.departZoom += (1 - this.departZoom) * Math.min(1, rdt * 4.5);
       if (da.freezeK == null) {
         da.t += dt;
         const k = Math.min(1, da.t / da.dur);
@@ -8317,6 +8336,8 @@ export class ActShow {
         }
       }
       h.vel.set(0, 0, 0); motionOf(h.a).run = 0;
+    } else if (this.departZoom > 0.001 && this.phase !== 'leaving') {
+      this.departZoom = Math.max(0, this.departZoom - rdt * 4.5);
     }
     h.a.update(dt); h.deathPose(); h.scriptPose?.(); for (const a of this.lineupActors) a.update(dt);
     if (this.labFn) { this.labT += dt; this.labFn(dt, this.labT); }
@@ -8603,7 +8624,7 @@ export class ActShow {
           let ico: MiniIcon = 'door';
           let acc = '#b89460';
           if (plan.type === 'boss') {
-            title = '关底首领'; sub = '击败本关BOSS，进入下一章'; ico = 'boss'; acc = '#e83c30';
+            title = '关底首领'; sub = '击败本关首领，进入下一章'; ico = 'boss'; acc = '#e83c30';
           } else if (plan.type === 'elite') {
             title = arch ? msg`死士 · ${arch.name}珍绝` : '死士 · 珍绝秘传';
             sub = ap ? msg`精英强敌战 · 必出高阶${ap}技能三选一` : '精英强敌战 · 必出高阶技能三选一';

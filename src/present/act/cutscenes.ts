@@ -130,14 +130,24 @@ export function bossIntroShots(h: CineHost, boss: Foe, name: string, o: { prolog
   const b = boss.pos.clone();
   const p0 = h.hero.pos.clone();
 
-  // ---- act-157 / act-165: Prologue Cui Xuan IMMEDIATE 3D wall-vault on frame 0 (3 crisp cinema hard-cuts: wall perch/leap -> low courtyard landing -> reverse Cui Xuan turn)
+  // ---- act-157 / act-165 / act-174: Prologue Cui Xuan IMMEDIATE 3D wall-vault on frame 0
+  // Land realistically ~2.6m inside the west wall aligned with the north courtyard, then take a few crisp planted footsteps
+  // into a ~5.8m snowy standoff (ZERO 8m sliding/teleporting straight up to Cui Xuan's face!)
   if (o.prologue && boss.kind === 'cx_boss') {
     const wallX = PLAY.x0 - 0.44;
     const wallY = 2.66;
-    const landZ = Math.max(2.6, Math.min(PLAY.z1 - 2.6, b.z + 5.2));
-    const landX = Math.max(PLAY.x0 + 3.2, Math.min(b.x - 2.6, PLAY.x0 + 4.4));
-    const standPos = V3(Math.max(landX + 1.5, Math.min(b.x - 2.6, b.x - 3.6)), 0, Math.max(PLAY.z0 + 4.0, Math.min(PLAY.z1 - 2.2, b.z + 3.6)));
-    h.hold?.(standPos, 0.42);
+    // Choose a clean open courtyard landing Z clear of the west-wall stone plinths (around z = -5.4), ~6.5m south-west of Cui Xuan
+    const landZ = Math.max(PLAY.z0 + 5.6, Math.min(PLAY.z1 - 3.0, b.z + 6.0));
+    const landPos = V3(Math.max(PLAY.x0 + 2.4, Math.min(b.x - 5.2, PLAY.x0 + 2.85)), 0, landZ);
+    h.hold?.(landPos, 0.72);
+    const landX = landPos.x;
+    const lz = landPos.z;
+    const standPos = V3(
+      Math.min(b.x - 3.6, landX + 2.55),
+      0,
+      Math.max(PLAY.z0 + 3.6, Math.min(PLAY.z1 - 2.6, lz - 0.75)),
+    );
+    h.hold?.(standPos, 0.55);
     const vaultYaw = Math.atan2(landX - wallX, 0);
     const faceBossYaw = Math.atan2(b.x - standPos.x, b.z - standPos.z);
     const faceHeroYaw = Math.atan2(standPos.x - b.x, standPos.z - b.z);
@@ -146,8 +156,8 @@ export function bossIntroShots(h: CineHost, boss: Foe, name: string, o: { prolog
     // Shot 1A: Heroic angle on the snowy west wall crest — already crouched poised on frame 0, then springs cleanly into the yard
     const shotWallPerch: CineShot = {
       dur: 1.05, ease: 'out',
-      from: safeCam([PLAY.x0 + 8.2, 3.65, landZ + 5.4], [PLAY.x0 + 0.9, 2.85, landZ], 42),
-      to: safeCam([PLAY.x0 + 7.5, 3.55, landZ + 4.9], [PLAY.x0 + 2.0, 2.60, landZ], 41),
+      from: safeCam([PLAY.x0 + 6.4, 3.45, lz + 4.8], [PLAY.x0 + 0.6, 2.75, lz], 41),
+      to: safeCam([PLAY.x0 + 5.9, 3.35, lz + 4.4], [PLAY.x0 + 1.5, 2.45, lz], 40),
       at: [
         [0, () => {
           cue('snowWind', 0.65);
@@ -156,13 +166,13 @@ export function bossIntroShots(h: CineHost, boss: Foe, name: string, o: { prolog
           if (boss.a.bones.blade) boss.a.bones.blade.visible = false;
           if (boss.a.bones.fan) boss.a.bones.fan.visible = false;
           motionOf(h.hero.a).run = 0;
-          h.hero.pos.set(wallX, 0, landZ);
-          h.hero.a.home.set(wallX, 0, landZ);
+          h.hero.pos.set(wallX, 0, lz);
+          h.hero.a.home.set(wallX, 0, lz);
           h.hero.a.off.set(0, wallY, 0);
           h.hero.a.yaw = vaultYaw;
-          h.hero.a.root.position.set(wallX, wallY, landZ);
+          h.hero.a.root.position.set(wallX, wallY, lz);
           poseWallVault(h.hero.a, 'perch', 0.35);
-          h.hero.a.root.position.set(wallX, wallY, landZ);
+          h.hero.a.root.position.set(wallX, wallY, lz);
         }],
       ],
       tick: (t, dt) => {
@@ -170,82 +180,82 @@ export function bossIntroShots(h: CineHost, boss: Foe, name: string, o: { prolog
         if (t < 0.48) {
           const u = t / 0.48;
           m.run = 0;
-          h.hero.pos.set(wallX, 0, landZ);
-          h.hero.a.home.set(wallX, 0, landZ);
+          h.hero.pos.set(wallX, 0, lz);
+          h.hero.a.home.set(wallX, 0, lz);
           h.hero.a.off.set(0, wallY, 0);
           h.hero.a.yaw = vaultYaw;
           h.hero.a.update(dt);
           poseWallVault(h.hero.a, 'perch', 0.35 + 0.65 * u);
-          h.hero.a.root.position.set(wallX, wallY, landZ);
+          h.hero.a.root.position.set(wallX, wallY, lz);
         } else {
           if (!leaped) {
             leaped = true;
             cue('whoosh', 0.72);
-            snowPuff(V3(wallX + 0.25, wallY, landZ));
+            snowPuff(V3(wallX + 0.25, wallY, lz));
           }
-          // First 75% of the ballistic arc plays in Shot 1A; final 25% cuts cleanly to low ground-level impact in Shot 1B!
+          // First 74% of the ballistic arc plays in Shot 1A; final 26% cuts cleanly to low ground-level impact in Shot 1B!
           const u = ((t - 0.48) / 0.57) * 0.74;
           const x = wallX + (landX - wallX) * u;
-          const y = wallY * (1 - u) * (1 - 0.14 * u) + 1.05 * 4 * u * (1 - u);
+          const y = wallY * (1 - u) * (1 - 0.14 * u) + 0.95 * 4 * u * (1 - u);
           m.run = 0;
-          h.hero.pos.set(x, 0, landZ);
-          h.hero.a.home.set(x, 0, landZ);
+          h.hero.pos.set(x, 0, lz);
+          h.hero.a.home.set(x, 0, lz);
           h.hero.a.off.set(0, y, 0);
           h.hero.a.yaw = vaultYaw;
           h.hero.a.update(dt);
           poseWallVault(h.hero.a, 'leap', u);
-          h.hero.a.root.position.set(x, y, landZ);
+          h.hero.a.root.position.set(x, y, lz);
         }
         boss.a.yaw = Math.PI;
         boss.a.update(dt);
       },
     };
 
-    // Shot 1B: HARD CUT to low courtyard ground-level angle — drops into the snow crouch, springs up & glides toward Cui Xuan
+    // Shot 1B: HARD CUT to low courtyard ground-level angle — drops into snow crouch near wall, rises & walks 4-5 planted steps into standoff
     const shotWallLand: CineShot = {
-      dur: 1.30, ease: 'out',
-      from: safeCam([landX + 4.2, 2.65, landZ + 6.2], [landX + 1.0, 1.05, landZ - 0.6], 39),
-      to: safeCam([landX + 3.8, 2.55, landZ + 5.6], [standPos.x + 0.8, 1.10, standPos.z - 0.5], 38),
+      dur: 1.82, ease: 'out',
+      from: safeCam([landX + 3.8, 2.50, lz + 5.4], [landX + 0.8, 1.0, lz - 0.3], 39),
+      to: safeCam([standPos.x + 3.2, 2.45, standPos.z + 5.2], [standPos.x + 1.0, 1.08, standPos.z - 0.5], 38),
       tick: (t, dt) => {
         const m = motionOf(h.hero.a);
         if (t < 0.22) {
           const u = 0.74 + (t / 0.22) * 0.26;
           const x = wallX + (landX - wallX) * u;
-          const y = wallY * (1 - u) * (1 - 0.14 * u) + 1.05 * 4 * u * (1 - u);
+          const y = wallY * (1 - u) * (1 - 0.14 * u) + 0.95 * 4 * u * (1 - u);
           m.run = 0;
-          h.hero.pos.set(x, 0, landZ);
-          h.hero.a.home.set(x, 0, landZ);
+          h.hero.pos.set(x, 0, lz);
+          h.hero.a.home.set(x, 0, lz);
           h.hero.a.off.set(0, y, 0);
           h.hero.a.yaw = vaultYaw;
           h.hero.a.update(dt);
           poseWallVault(h.hero.a, 'leap', u);
-          h.hero.a.root.position.set(x, y, landZ);
+          h.hero.a.root.position.set(x, y, lz);
         } else if (t < 0.68) {
           if (!landed) {
             landed = true;
             cue('land', 0.65); shake(0.10);
-            snowPuff(V3(landX, 0.05, landZ));
-            fxRing(V3(landX, 0.06, landZ), 0xeef4ff, 2.2, { life: 0.9, width: 0.09, bright: 1.4 } as never);
+            snowPuff(V3(landX, 0.05, lz));
+            fxRing(V3(landX, 0.06, lz), 0xeef4ff, 2.2, { life: 0.9, width: 0.09, bright: 1.4 } as never);
           }
           const u = (t - 0.22) / 0.46;
           m.run = 0;
-          h.hero.pos.set(landX, 0, landZ);
-          h.hero.a.home.set(landX, 0, landZ);
+          h.hero.pos.set(landX, 0, lz);
+          h.hero.a.home.set(landX, 0, lz);
           h.hero.a.off.set(0, 0, 0);
           h.hero.a.yaw = vaultYaw + (faceBossYaw - vaultYaw) * Math.min(1, u * 1.4);
           h.hero.a.update(dt);
           poseWallVault(h.hero.a, 'land', u);
-          h.hero.a.root.position.set(landX, 0, landZ);
+          h.hero.a.root.position.set(landX, 0, lz);
         } else {
-          const u = Math.min(1, (t - 0.68) / 0.58);
+          const u = Math.min(1, (t - 0.68) / 1.08);
           const x = landX + (standPos.x - landX) * u;
-          const z = landZ + (standPos.z - landZ) * u;
+          const z = lz + (standPos.z - lz) * u;
           h.hero.pos.set(x, 0, z);
           h.hold?.(h.hero.pos, 0.42);
           h.hero.a.home.copy(h.hero.pos);
           h.hero.a.off.set(0, 0, 0);
           h.hero.a.yaw = faceBossYaw;
-          m.run = u < 0.94 ? 0.34 : 0;
+          m.run = u < 0.94 ? 0.50 : 0;
           h.hero.a.update(dt);
         }
         boss.a.yaw = Math.PI;
