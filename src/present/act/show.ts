@@ -3435,7 +3435,7 @@ export class ActShow {
           boon: Math.round(PRICES.boon * pm), heal: Math.round(PRICES.heal * pm), sharpen: Math.round(PRICES.sharpen * pm),
           vigor: Math.round(PRICES.vigor * pm), reroll: Math.round(PRICES.reroll * pm), satchel: Math.round(PRICES.satchel * pm),
         };
-        this.stations.shop(scaledPrices, SHOP_SPECIALS[Math.floor(Math.random() * SHOP_SPECIALS.length)]);
+        this.stations.shop(scaledPrices, SHOP_SPECIALS[Math.floor(Math.random() * SHOP_SPECIALS.length)], !freshBoons(this.perks, this.hero?.weaponId).length);   // (act-163: no scroll stall for a full hand)
         const st = this.stations;
         after(0.65, () => {
           if (this.stations !== st || !st.merchant) return;
@@ -3452,7 +3452,7 @@ export class ActShow {
           this.mountDuwuRoad(this.region as 0 | 1);
         }
       }
-      else this.stations.scroll();
+      else this.stations.scroll(this.scrollGives() === 'up');
       this.log.push(`room ${this.room} ${this.plan.type} ${spec.locale}`);
       this.openDoors(true); return;
     }
@@ -6398,6 +6398,13 @@ export class ActShow {
   }
   /** act-161: what the route planner may know of her hand (run.ts rewardFor) */
   private runCtx(): RunCtx { return { boons: boonCount(this.perks), ups: upgradableBoons(this.perks).length }; }
+  /** act-163: what a scroll room's altar gives her — a manual (from the second region on, while she has fewer than three and one is left
+   *  to learn), a boon while her hand has room, else an upgrade of one she holds (boonPick's own fallback); the door and the altar say which */
+  private scrollGives(region = this.region): 'manual' | 'boon' | 'up' {
+    if (region >= 1 && Object.keys(this.perks.moves).length < 3 && drawManuals(this.perks.moves, 1, Math.random, this.hero?.weaponId).length) return 'manual';
+    return freshBoons(this.perks, this.hero?.weaponId).length ? 'boon' : 'up';
+  }
+  private boardFor(p: RoomPlan) { return runBoard(p, LOCALES[p.locale]?.name ?? '', p.type === 'boon' && this.scrollGives(p.region ?? this.region) === 'up'); }
   /** act-161: the exits were drawn up before this room's reward reached her hand — a door that promised a boon she has no room for
    *  (or an upgrade with nothing left to upgrade) now gives what a full hand gets, and a board already standing is put up again */
   private settleDoors() {
@@ -6406,7 +6413,7 @@ export class ActShow {
       const rw = settleReward(p, ctx); if (rw === p.reward) return;
       p.reward = rw;
       const d = this.doors[i]; if (!d) return;
-      const { g } = runBoard(p, LOCALES[p.locale]?.name ?? ''); g.position.copy(d.g.position); g.scale.copy(d.g.scale); g.rotation.copy(d.g.rotation);
+      const { g } = this.boardFor(p); g.position.copy(d.g.position); g.scale.copy(d.g.scale); g.rotation.copy(d.g.rotation);
       d.g.parent?.add(g); d.g.parent?.remove(d.g); d.g = g;
     });
   }
@@ -6473,7 +6480,7 @@ export class ActShow {
       this.feed.push('heal', () => msg`药引 +${6}`, 0);
     }
     else if (s.id === 'rest_sharpen') { this.stations.spend(s, true); await this.sharpen(); }
-    else if (s.id === 'scroll' && this.region >= 1 && Object.keys(this.perks.moves).length < 3 && drawManuals(this.perks.moves, 1, Math.random, this.hero?.weaponId).length) { this.stations.spend(s); await this.manualPick(); }
+    else if (s.id === 'scroll' && this.scrollGives() === 'manual') { this.stations.spend(s); await this.manualPick(); }
     else if (s.id === 'scroll') { this.stations.spend(s); await this.boonPick(); }
   }
   /** act-136 / act-149: 行商总览面板 — 4 hanging wooden merchant tags (悬木货签) with big 3D wares + concise benefit + ONE bold gold coin bar */
@@ -6609,7 +6616,7 @@ export class ActShow {
     const ds = this.nextRooms, ids = (this.spec?.exits ?? []) as ExitId[];
     this.doors = ds.map((d, i) => {
       const ex = exitInfo(this.layout!, ids[i] ?? 'back');
-      const { g } = runBoard(d, LOCALES[d.locale]?.name ?? ''); g.position.set(ex.sign.x, -2.4, ex.sign.z); g.scale.setScalar(1.25);
+      const { g } = this.boardFor(d); g.position.set(ex.sign.x, -2.4, ex.sign.z); g.scale.setScalar(1.25);
       // act-19 / act-132: place the route board on verified open walkable floor beside the gate (never buried in # stalls/walls)
       const gt = this.arena?.gates.find(q => q.open && q.id === (ids[i] ?? 'back'));
       if (gt) { const [sx, sz] = this.placeDoorSign(gt); g.position.set(sx, -2.4, sz); }
@@ -7530,7 +7537,7 @@ export class ActShow {
           } else if (plan.type === 'event') {
             title = info.name; sub = '名将信物 · 常驻加护'; ico = 'star'; acc = '#f0bc48';
           } else if (plan.type === 'boon') {
-            title = '珍品遗卷'; sub = '不战自得高阶秘传'; ico = 'scroll'; acc = '#58d8a8';
+            title = '珍品遗卷'; sub = this.scrollGives(plan.region ?? this.region) === 'up' ? '已得秘传升一阶' : '不战自得高阶秘传'; ico = 'scroll'; acc = '#58d8a8';   // (act-163: a full hand)
           } else if (plan.type === 'shop') {
             title = '行商'; sub = '花铜钱买秘传/升阶'; ico = 'coin'; acc = '#f0b848';
           } else if (plan.type === 'rest') {

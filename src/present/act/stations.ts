@@ -176,13 +176,17 @@ export class Stations {
     this.list.push({ id, label, sub, desc, icon, price, at, fill: 0, done: false, once, g: prop, ring, track, disc, sign, poor: false, onMat: false, edge: this.edge(at), ware: (prop.userData.ware as THREE.Object3D) ?? null, wareY: (prop.userData.wareY as number) ?? 0, nearK: 0, lastTick: 0 });
   }
   /** 行商: 4 stalls in a staggered chevron + visible 3D Traveling Merchant NPC behind the center gap */
-  shop(prices: { boon: number; heal: number; sharpen: number; vigor?: number; reroll?: number; satchel?: number }, special: ShopSpecial = 'vigor') {
-    this.add('buy_boon', '秘卷', '秘传', '三选一习得新秘传强化', 'scroll', prices.boon, V3(-3.5, 0, 0.45), stall('scroll'), true, -1);
+  /** noBoon (act-163): her hand has no room for a new boon — the scroll stall would only sell her what the whetstone does (dearer), and
+   *  the reroll die rerolls nothing, so the first stall is the tiger-bone wine and the fourth the satchel */
+  shop(prices: { boon: number; heal: number; sharpen: number; vigor?: number; reroll?: number; satchel?: number }, special: ShopSpecial = 'vigor', noBoon = false) {
+    const vigor = (at: THREE.Vector3, side: 1 | -1) => this.add('buy_vigor', '虎骨酒', '血上限', '气血上限 +15 并回血 25 点', 'heal', prices.vigor ?? 55, at, stall('jar'), true, side);
+    if (noBoon) { vigor(V3(-3.5, 0, 0.45), -1); special = 'satchel'; }
+    else this.add('buy_boon', '秘卷', '秘传', '三选一习得新秘传强化', 'scroll', prices.boon, V3(-3.5, 0, 0.45), stall('scroll'), true, -1);
     this.add('buy_heal', '金疮药', '回血', '立刻恢复 30% 气血', 'heal', prices.heal, V3(-1.35, 0, -1.95), stall('gourd'), true, -1);
     this.add('buy_sharpen', '青砥石', '升阶', '挑一张已得秘传提升品阶', 'forge', prices.sharpen, V3(1.65, 0, -1.95), stall('stone'), true, 1);
     if (special === 'reroll') this.add('buy_reroll', '重铸骰', '重随+2', '本局选牌重随次数 +2', 'scroll', prices.reroll ?? 40, V3(3.6, 0, 0.45), stall('die'), true, 1);
     else if (special === 'satchel') this.add('buy_satchel', '铁药囊', '残铁药引', '立刻获得 残铁+10 与 药引+10', 'iron', prices.satchel ?? 45, V3(3.6, 0, 0.45), stall('satchel'), true, 1);
-    else this.add('buy_vigor', '虎骨酒', '血上限', '气血上限 +15 并回血 25 点', 'heal', prices.vigor ?? 55, V3(3.6, 0, 0.45), stall('jar'), true, 1);
+    else vigor(V3(3.6, 0, 0.45), 1);
     // act-128: spawn the traveling merchant standing right in the unobstructed center gap behind the stalls, waving warmly to the player!
     const mx = this.centre[0] + 0.15, mz = this.centre[1] - 3.05;
     this.merchantPos.set(mx, 0, mz);
@@ -207,7 +211,8 @@ export class Stations {
     this.add('rest_sharpen', '寒石砺刃', '升阶', '免费挑一张已得秘传提升品阶', 'forge', 0, V3(3.0, 0, -0.4), stall('stone'), true);
   }
   /** 遗卷: one scroll on an altar */
-  scroll() { this.add('scroll', '遗卷', '秘传', '研读遗留刀谱或稀世秘传', 'scroll', 0, V3(0, 0, -1.0), altar(), true); }
+  /** up (act-163): her hand is full and no manual is due — the scroll raises one of the boons she holds */
+  scroll(up = false) { this.add('scroll', '遗卷', up ? '升阶' : '秘传', up ? '挑一张已得秘传提升品阶' : '研读遗留刀谱或稀世秘传', 'scroll', 0, V3(0, 0, -1.0), altar(), true); }
   /** mark stalls the purse can't pay for (their sign is rebuilt with a red price) */
   setPurse(coins: number) {
     for (const s of this.list) {

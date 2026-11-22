@@ -35,19 +35,19 @@ const BOARD_THEME: Record<string, { band: string; title: string; acc: string }> 
   fight: { band: '#a87d50', title: INK, acc: ACC },
 };
 
-function boardSub(p: RoomPlan, place: string): string {
+function boardSub(p: RoomPlan, place: string, scrollUp = false): string {
   const r = p.reward;
   if (p.type === 'elite') return r?.k === 'up' ? '秘传升阶' : r?.k === 'coins' ? msg`铜钱 ${r.n}` : r?.k === 'boon' && r.arch ? msg`${ARCH_INFO[r.arch].name}·珍绝` : '珍绝秘传';
   if (p.type === 'boss') return '终战';
   if (p.type === 'event') return '信物·加护';
-  if (p.type === 'boon') return '稀世遗卷';
+  if (p.type === 'boon') return scrollUp ? '秘传升阶' : '稀世遗卷';   // act-163: a full hand reads the scroll as an upgrade
   if (p.type === 'shop') return '四摊百货';
   if (p.type === 'rest') return '调息三选';
   if (r?.k === 'boon') return r.arch ? msg`${ARCH_INFO[r.arch].name}秘传` : '秘传';
   return r?.k === 'coins' ? msg`铜钱 ${r.n}` : r?.k === 'maxHp' ? msg`气血+${r.n}` : r?.k === 'meta' ? '残铁药引' : r?.k === 'heal' ? '回血' : r?.k === 'manual' ? '刀谱' : place;
 }
 
-function face(p: RoomPlan, place: string) {
+function face(p: RoomPlan, place: string, scrollUp = false) {
   const W = 160, H = 104, S = 3, c = document.createElement('canvas'); c.width = W * S; c.height = H * S; const g = c.getContext('2d')!;
   g.imageSmoothingEnabled = false;
   const theme = BOARD_THEME[p.type] ?? BOARD_THEME.fight;
@@ -66,7 +66,7 @@ function face(p: RoomPlan, place: string) {
     else if (r?.k === 'manual') icon(g, SCROLL_GLYPH, 10, 71, 3, { main: INK, acc: theme.acc, dark: INK });
     else if (r) icon(g, GLYPH[r.k === 'coins' ? 'coins' : r.k === 'meta' ? 'meta' : 'heal'], 10, 71, 3, { main: INK, acc: theme.acc, dark: INK });
     else icon(g, GLYPH[p.type], 10, 71, 3, { main: INK, acc: theme.acc, dark: INK });
-    const sub = boardSub(p, place);
+    const sub = boardSub(p, place, scrollUp);
     g.setTransform(1, 0, 0, 1, 0, 0);
     // Top band: chunky pixel font for Chinese (bold & legible at 3D pixel resolution), bodyText for English
     if (language === 'en') {
@@ -103,8 +103,9 @@ function face(p: RoomPlan, place: string) {
   return { t, paint };
 }
 /** a 高札 for one road (with automatic GreaterDepth see-through rescue so foreground roofs/walls/actors NEVER hide the label) */
-export function runBoard(p: RoomPlan, place: string) {
-  const g = new THREE.Group(), post = toon(0x4a3422), roof = toon(0x2e2a28), { t: tex, paint } = face(p, place);
+/** scrollUp (act-163): the scroll room behind this door gives an upgrade, not a new boon (her hand is full) */
+export function runBoard(p: RoomPlan, place: string, scrollUp = false) {
+  const g = new THREE.Group(), post = toon(0x4a3422), roof = toon(0x2e2a28), { t: tex, paint } = face(p, place, scrollUp);
   const faceMat = toon(0xffffff, { map: tex }); faceMat.emissive.set(0xffffff); faceMat.emissiveMap = tex; faceMat.emissiveIntensity = 0.34;
   const back = toon(0x7a5636);
   for (const s of [-1, 1]) { const m = new THREE.Mesh(new THREE.BoxGeometry(0.14, 2.55, 0.14), post); m.position.set(s * 0.82, 1.275, 0); m.castShadow = true; g.add(m); }
