@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { V3 } from '../engine/world';
 import { Action, resetPose, rot, mov } from '../actors/rig';
 import { fxRing, fxSparks, fxImpact, fxGlow, fxSmoke } from '../fx/fx';
+import { addBlock } from '../fx/blocks';
 import { fxBolt } from '../fx/skillFx';
 import { shake, slowmo } from '../engine/clock';
 import { cue } from '../../audio/cues';
@@ -58,12 +59,20 @@ export class Kneel {
    *  1 face down in the snow (slumpWant is where it is headed; the fall takes ~0.9 s); at dawn she is found lying so */
   slump = 0; slumpWant = 0;
   private beat = 0; private jerk = 0; private dripT = 0; private pooled = false;
-  private sword: { g: THREE.Object3D; p0: THREE.Vector3; q0: THREE.Quaternion; p1: THREE.Vector3; q1: THREE.Quaternion; t: number } | null = null;
+  private sword: {
+    g: THREE.Object3D; p0: THREE.Vector3; q0: THREE.Quaternion; p1: THREE.Vector3; q1: THREE.Quaternion;
+    t: number; dur: number; arc: number; spins: number; stab: boolean; vibT: number; sparkT: number; spinAxis: THREE.Vector3;
+  } | null = null;
   private bladeLen = 0;
   private snap: Array<[THREE.Object3D, THREE.Vector3, THREE.Euler]> = [];
-  /** the blow lands: from here she sinks onto the knee (over ~0.6 s, out of the hit she is playing) */
-  start() { this.on = true; this.lying = false; this.slump = this.slumpWant = 0; this.t = 0; this.reach = this.reachWant = 0; this.fresh = true; this.grip = false; this.pooled = false; this.beat = 0.9; this.jerk = 0; this.a = null; this.dropSword(); }
-  /** the next morning (a new hero actor, the same place): kneeling still, the blood stopped, the sabre in her hand */
+  /** the blow lands: from here she sinks onto the knee (over ~0.6 s, out of the hit she is playing). Keep already-launched spinning sword if present! */
+  start(keepSword = false) {
+    this.on = true; this.lying = false; this.slump = this.slumpWant = 0; this.t = 0;
+    this.reach = this.reachWant = 0; this.fresh = true; this.grip = false; this.pooled = false;
+    this.beat = 0.9; this.jerk = 0; this.a = null;
+    if (!keepSword) this.dropSword();
+  }
+  /** the next morning (a new hero actor, the same place): lying still, the blood stopped, the sabre by her hand */
   dawn() { this.on = true; this.t = 99; this.fresh = false; this.grip = false; this.lying = true; this.reach = this.reachWant = 0; this.slump = this.slumpWant = 1; this.pooled = false; this.jerk = 0; this.a = null; this.dropSword(); }
   /** dawn: she has lain there all night — the sabre lies in the snow by her hand (laid there, not thrown), nothing moves */
   private lying = false;
@@ -71,6 +80,31 @@ export class Kneel {
   /** done with it (she is lifted onto the donkey): the loose sabre goes */
   stop() { this.on = false; this.dropSword(); }
   private dropSword() { if (this.sword) { this.sword.g.removeFromParent(); this.sword = null; } }
+  /** act-156: disarm launch — knocks her sabre high into the air, spinning 2.5 full rotations end-over-end before stabbing point-first into the snow and quivering! */
+  launchSword(a: BattleActor, hold?: (p: THREE.Vector3, r: number) => void) {
+    this.dropSword();
+    const w = a.bones.weapon, parent = currentStage()?.root ?? a.root.parent; if (!w || !parent) return;
+    a.root.updateMatrixWorld(true);
+    const p0 = new THREE.Vector3(), q0 = new THREE.Quaternion(), s0 = new THREE.Vector3(); w.matrixWorld.decompose(p0, q0, s0);
+    w.visible = false;
+    const g = w.clone(true); g.visible = true; g.traverse(o => { o.visible = true; });
+    const f = V3(Math.sin(a.yaw), 0, Math.cos(a.yaw)), right = V3(-f.z, 0, f.x);
+    const p1 = a.home.clone().addScaledVector(f, 0.95).addScaledVector(right, 0.95).setY(0);
+    hold?.(p1, 0.35);
+    // Point-first steep diagonal stab (~74° downward into the snow, hilt & crimson tassel angled clearly above snow)
+    const dir = f.clone().multiplyScalar(0.24).addScaledVector(right, 0.14).add(V3(0, -0.96, 0)).normalize();
+    const side = V3(0, 1, 0).cross(dir);
+    if (side.lengthSq() < 1e-4) side.copy(right); else side.normalize();
+    const up = dir.clone().cross(side).normalize();
+    const q1 = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(side, up, dir));
+    g.position.copy(p1); g.quaternion.copy(q1); g.scale.copy(s0); parent.add(g); g.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(g);
+    p1.y += -0.10 - box.min.y;
+    g.position.copy(p0); g.quaternion.copy(q0);
+    this.sword = { g, p0, q0, p1, q1, t: 0, dur: 0.76, arc: 2.45, spins: 2.5, stab: true, vibT: 0, sparkT: 0, spinAxis: side.clone() };
+  }
+  /** advance the spinning/quivering sword even before kneel starts (during the disarm shot) */
+  tickSword(dt: number) { this.flySword(dt); }
   frame(a: BattleActor) {
     if (!this.on) return;
     if (a !== this.a) { this.a = a; this.lastT = a.t; }
@@ -87,7 +121,10 @@ export class Kneel {
     const f = V3(Math.sin(a.yaw), 0, Math.cos(a.yaw)), side = V3(Math.cos(a.yaw), 0, -Math.sin(a.yaw));
     hangChains(a, (n) => V3(0, -1, 0).addScaledVector(f, n.startsWith('hr') ? -0.45 : -0.3).addScaledVector(side, n.startsWith('bfA') ? 0.18 : n.startsWith('bfB') ? -0.18 : 0), e);
     if (this.grip) this.plant(a);
-    if (this.t > 0.15 && !this.sword && !this.grip) { this.knockSword(a); const sw = this.sword as { t: number } | null; if (this.lying && sw) sw.t = 1; }
+    if (this.t > 0.15 && !this.sword && !this.grip) {
+      if (this.lying) { this.knockSword(a); const sw = this.sword as { t: number } | null; if (sw) sw.t = 1; }
+      else this.launchSword(a);
+    }
     this.flySword(dt);
     this.bleed(a, dt);
   }
@@ -164,13 +201,49 @@ export class Kneel {
     g.position.copy(p1); g.quaternion.copy(q1); g.scale.copy(s0); parent.add(g); g.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(g); p1.y += 0.006 - box.min.y;
     g.position.copy(p0); g.quaternion.copy(q0);
-    this.sword = { g, p0, q0, p1, q1, t: 0 };
+    this.sword = { g, p0, q0, p1, q1, t: 0, dur: 0.42, arc: 0.45, spins: 0, stab: false, vibT: 0, sparkT: 0, spinAxis: right.clone() };
   }
   private flySword(dt: number) {
-    const s = this.sword; if (!s || s.t >= 1) return;
-    s.t = Math.min(1, s.t + dt / 0.42); const u = s.t;
-    s.g.position.lerpVectors(s.p0, s.p1, u).add(V3(0, 0.45 * 4 * u * (1 - u), 0)); s.g.quaternion.slerpQuaternions(s.q0, s.q1, Math.min(1, u * 1.3));
-    if (u >= 1) { cue('parry', 0.22); snowPuff(s.p1.clone().setY(0.05)); }
+    const s = this.sword; if (!s) return;
+    if (s.t < 1) {
+      s.t = Math.min(1, s.t + dt / Math.max(0.1, s.dur)); const u = s.t;
+      s.g.position.lerpVectors(s.p0, s.p1, u).add(V3(0, s.arc * 4 * u * (1 - u), 0));
+      if (s.spins > 0) {
+        // Spin 2.5 full rotations end-over-end around the blade's side axis, landing cleanly on q1 at u = 1
+        const qBase = new THREE.Quaternion().slerpQuaternions(s.q0, s.q1, Math.min(1, u * 1.15));
+        const qSpin = new THREE.Quaternion().setFromAxisAngle(s.spinAxis, (1 - u) * Math.PI * 2 * s.spins);
+        s.g.quaternion.copy(qSpin).multiply(qBase);
+        s.sparkT -= dt;
+        if (s.sparkT <= 0 && u < 0.94) {
+          s.sparkT = 0.045;
+          addBlock(s.g.position.clone(), { size: 0.06, col: 0xfff6dc, bright: 1.9, life: 0.22, shrink: 0.15, grav: 1.5, v: V3((Math.random() - 0.5) * 1.2, 0.4, (Math.random() - 0.5) * 1.2) });
+        }
+      } else {
+        s.g.quaternion.slerpQuaternions(s.q0, s.q1, Math.min(1, u * 1.3));
+      }
+      if (u >= 1) {
+        s.g.position.copy(s.p1); s.g.quaternion.copy(s.q1);
+        cue(s.stab ? 'bladeRing' : 'parry', s.stab ? 0.9 : 0.22);
+        if (s.stab) {
+          cue('land', 0.52); s.vibT = 0.72;
+          const impactAt = V3(s.p1.x, 0.06, s.p1.z);
+          snowPuff(impactAt);
+          for (let k = 0; k < 8; k++) {
+            const ang = (k / 8) * Math.PI * 2 + Math.random() * 0.4;
+            addBlock(impactAt.clone(), { size: 0.075, col: 0xeef4fc, bright: 1.1, life: 0.45, shrink: 0.2, grav: 9.5, floor: 0.04, v: V3(Math.cos(ang) * 1.6, 1.8 + Math.random() * 1.1, Math.sin(ang) * 1.6) });
+          }
+        } else {
+          snowPuff(s.p1.clone().setY(0.05));
+        }
+      }
+    } else if (s.stab && s.vibT > 0) {
+      // Quiver/twang cleanly after stabbing point-first into the snow
+      s.vibT = Math.max(0, s.vibT - dt);
+      const el = 0.72 - s.vibT;
+      const amp = Math.sin(el * 46) * Math.exp(-el * 4.8) * 0.13;
+      const qVib = new THREE.Quaternion().setFromAxisAngle(s.spinAxis, amp);
+      s.g.quaternion.copy(qVib).multiply(s.q1);
+    }
   }
   /** dawn: the sabre held to her — from her fist before the chest the blade runs down past her right hip to the snow behind her */
   private plant(a: BattleActor) {
@@ -246,7 +319,7 @@ export function drapeOver(a: BattleActor, x: number, y: number, z: number, yaw: 
 export const GETUP_STEP = 0.45;
 /** her hips' height lying and sitting on 孙媪's mat (the mat is one 7 cm cell of straw; the pelvis rests on it) */
 const MAT_HIP = 0.18, MAT_TOP = 0.07;
-export function getUpPose(a: BattleActor, k: number) {
+export function getUpPose(a: BattleActor, k: number, jolt = 0, turnAway = 0) {
   const b = a.bones; resetPose(b);
   if (b.weapon) b.weapon.visible = false;
   if (HIP_H < 0 && b.hips) { const r = a.root.position.clone(), ry = a.root.rotation.y; a.body.rotation.set(0, 0, 0); a.body.position.set(0, 0, 0); a.root.position.set(0, 0, 0); a.root.rotation.set(0, 0, 0); a.root.updateMatrixWorld(true); const hp = new THREE.Vector3(); b.hips.getWorldPosition(hp); HIP_H = Math.max(0.4, hp.y); a.root.position.copy(r); a.root.rotation.y = ry; }
@@ -272,14 +345,17 @@ export function getUpPose(a: BattleActor, k: number) {
   }
   const spread = 0.05 * (1 - u4);
   rot(b.legL, thigh, 0, spread); rot(b.legR, thigh, 0, -spread); rot(b.shinL, shin); rot(b.shinR, shin); rot(b.footL, foot); rot(b.footR, foot);
-  // the trunk and head: the head rolled aside on the headrest while she lies, chin up on the elbows, a lean forward to rise
-  rot(b.spine, 0.2 * u2 * (1 - u3) + 0.55 * u3 * (1 - u4)); rot(b.chest, 0.1 * u3 * (1 - u4));
-  rot(b.head, -0.15 * u1 * (1 - u2), 0.4 * (1 - u1), 0.1 * (1 - u1));
+  // the trunk and head: the head rolled aside on the headrest while she lies, chin up on the elbows, a lean forward to rise;
+  // wake jolt lifts head/chest sharply & reaches right hand to empty hip; turnAway averts face sharply toward kiln wall
+  const j = jolt * (1 - u1);
+  rot(b.spine, 0.2 * u2 * (1 - u3) + 0.55 * u3 * (1 - u4) + 0.26 * j); rot(b.chest, 0.1 * u3 * (1 - u4) + 0.14 * j);
+  rot(b.head, -0.15 * u1 * (1 - u2) - 0.18 * j, 0.4 * (1 - u1) + 0.72 * turnAway * (1 - u2), 0.1 * (1 - u1) - 0.14 * turnAway * (1 - u2));
   // the arms: limp at her sides; back as props on the elbows; hands down beside the hips sitting; reaching forward to rise
   const prop = u1 * (1 - u2), sit = u2 * (1 - u3), rise = u3 * (1 - u4);
   for (const [arm, fore, sx] of [[b.armL, b.foreL, 1], [b.armR, b.foreR, -1]] as const) {
-    rot(arm, 0.75 * prop + 0.35 * sit - 0.7 * rise, 0, sx * (0.18 * (1 - u1) + 0.12 * sit));
-    rot(fore, -1.3 * prop - 0.15 * sit - 0.5 * rise);
+    const grabHip = sx < 0 ? j : 0;
+    rot(arm, 0.75 * prop + 0.35 * sit - 0.7 * rise - 0.52 * grabHip, 0.35 * grabHip, sx * (0.18 * (1 - u1) + 0.12 * sit - 0.1 * grabHip));
+    rot(fore, -1.3 * prop - 0.15 * sit - 0.5 * rise - 0.85 * grabHip);
   }
   // the ponytail and the blindfold's tails: fanned out sideways on the mat by her head while she lies (not out past the mat's end),
   // falling back down her back as she sits up
@@ -394,28 +470,48 @@ export function layDead(a: BattleActor, how: 0 | 1 | 2, r: () => number) {
   if (b.head) { b.head.rotation.y = (r() - 0.5) * 1.2; b.head.rotation.z = (r() - 0.5) * 0.5; }
 }
 
-/** the blow that ends the first fight: he winds up the ringed staff, lightning, she is struck down; then the camera rises */
+/** the blow that ends the first fight: Cui Xuan slashes her blade skyward (spinning 2.5 turns to stab point-first into the snow),
+ *  then drives the hilt into her chest knocking her to one knee bleeding */
 export function fallShots(h: PrologueHost, boss: Foe): CineShot[] {
   const hp = () => h.hero.pos, b = () => boss.pos;
-  // from the side of the line between them, far enough to see both whole (a medium-wide, never over his shoulder)
+  // from the side of the line between them, far enough to see both whole + the spinning blade arc above them
   const side = (dist: number, up: number): { pos: V; look: V; fov: number } => {
     const mx = (hp().x + b().x) / 2, mz = (hp().z + b().z) / 2; let dx = b().x - hp().x, dz = b().z - hp().z; const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
     let nx = -dz, nz = dx; if (nz < 0) { nx = -nx; nz = -nz; }
-    return camKey({ pos: [mx + nx * dist, up, mz + nz * dist] as V, look: [mx, 1.0, mz] as V, fov: 36 });
+    return camKey({ pos: [mx + nx * dist, up, mz + nz * dist] as V, look: [mx, 1.15, mz] as V, fov: 38 });
   };
   let down = false;
   return [
-    { dur: 2.2, ease: 'out', from: () => side(11, 5.5), to: () => side(10, 5.0),
-      at: [[0, () => { boss.a.root.visible = true; boss.a.body.visible = true; }],
-        [0.1, () => { boss.a.root.visible = true; boss.a.body.visible = true; boss.a.yaw = Math.atan2(hp().x - b().x, hp().z - b().z); boss.a.roar(); cue(boss.kind === 'hj_boss' ? 'roar' : 'draw', 0.8); }],
-        // (11-19 剧情改版: 崔玄 in the forecourt — no thunder: one cut, the blade off her hands, the hilt into her chest)
-        [0.9, () => { if (boss.kind === 'hj_boss') { flashSky(1); fxBolt(V3(b().x, 24, b().z), V3(b().x, 3.4, b().z), 0xd8c8ff, { width: 0.5, life: 0.4, bright: 0.7 }); cue('thunder', 1); }
-          else { const d = hp().clone().sub(b()).setY(0); const l = d.length() || 1; boss.pos.addScaledVector(d, Math.max(0, l - 1.3) / l); boss.a.home.copy(boss.pos); boss.a.root.position.copy(boss.pos); fxSparks(h.hero.a.chest(), 0xffffff, 12, 3); cue('parry', 1); } }],
-        [1.25, () => { slowmo(0.9, 0.2); shake(0.6); fxImpact(h.hero.a.chest(), 0xfff0d0, 2.2, { stop: false }); fxRing(hp().clone().setY(0.06), 0xffffff, 3, { life: 0.6 } as never);
-          h.hero.a.play(new Action('hurt', 0.6, 0.1, { power: 2 })); cue('cutHeavy', 1); cue('hurt', 1); down = true; h.kneel.start(); setHurtBreath(true); }],
-        // (11-18: down on one knee — the knee meets the snow; the blood starts)
-        [1.85, () => { cue('land', 0.45); snowPuff(hp().clone().setY(0.05)); blood.spray(h.hero.a.chest(), V3(Math.sin(h.hero.a.yaw), -0.3, Math.cos(h.hero.a.yaw)).normalize(), 18, 0.8); }]],
-      tick: (_t, dt) => { h.hero.a.update(dt); if (down) h.kneel.frame(h.hero.a); boss.a.update(dt); } },
+    { dur: 2.75, ease: 'out', from: () => side(10.5, 5.2), to: () => side(9.2, 4.4),
+      at: [
+        [0, () => { boss.a.root.visible = true; boss.a.body.visible = true; }],
+        [0.12, () => { boss.a.root.visible = true; boss.a.body.visible = true; boss.a.yaw = Math.atan2(hp().x - b().x, hp().z - b().z); boss.a.roar(); cue(boss.kind === 'hj_boss' ? 'roar' : 'draw', 0.85); }],
+        // Beat 1 (0.72s): Disarm clash — Cui Xuan steps in, hooks her blade skyward spinning 2.5 rotations to stab into the snow!
+        [0.72, () => {
+          if (boss.kind === 'hj_boss') {
+            flashSky(1); fxBolt(V3(b().x, 24, b().z), V3(b().x, 3.4, b().z), 0xd8c8ff, { width: 0.5, life: 0.4, bright: 0.7 }); cue('thunder', 1);
+          } else {
+            const d = hp().clone().sub(b()).setY(0); const l = d.length() || 1;
+            boss.pos.addScaledVector(d, Math.max(0, l - 1.35) / l);
+            boss.a.home.copy(boss.pos); boss.a.root.position.copy(boss.pos);
+            boss.a.play(new Action('atk2', 0.44, 0.22));
+            fxSparks(h.hero.a.chest().add(V3(0, 0.25, 0)), 0xfff6d0, 22, 5.2);
+            fxRing(h.hero.a.chest().add(V3(0, 0.15, 0)), 0xffe4a0, 2.0, { life: 0.4 } as never);
+            cue('parry', 1); cue('bladeRing', 0.85); shake(0.28);
+            h.kneel.launchSword(h.hero.a, h.hold);
+            h.hero.a.play(new Action('hurt', 0.35, 0.12, { power: 1.2 }));
+          }
+        }],
+        // Beat 2 (1.32s): Heavy hilt-strike to the chest — blood sprays, she drops onto one knee while her blade stabs & quivers in the snow!
+        [1.32, () => {
+          slowmo(0.8, 0.24); shake(0.58); fxImpact(h.hero.a.chest(), 0xfff0d0, 2.2, { stop: false }); fxRing(hp().clone().setY(0.06), 0xffffff, 3, { life: 0.6 } as never);
+          h.hero.a.play(new Action('hurt', 0.6, 0.1, { power: 2 })); cue('cutHeavy', 1); cue('hurt', 1);
+          down = true; h.kneel.start(true); setHurtBreath(true);
+        }],
+        // Beat 3 (1.95s): Knee meets the snow, wound spurts onto snow
+        [1.95, () => { cue('land', 0.45); snowPuff(hp().clone().setY(0.05)); blood.spray(h.hero.a.chest(), V3(Math.sin(h.hero.a.yaw), -0.3, Math.cos(h.hero.a.yaw)).normalize(), 18, 0.8); }],
+      ],
+      tick: (_t, dt) => { h.hero.a.update(dt); if (down) h.kneel.frame(h.hero.a); else h.kneel.tickSword(dt); boss.a.update(dt); } },
   ];
 }
 /** after his line: she lies in the snow, the camera rises slowly away, the snow keeps falling */
@@ -556,7 +652,7 @@ export class CuiInspect {
     this.on = true; this.boss = boss; this.heroPos.copy(heroPos); this.hold = hold;
     this.crouch = this.crouchWant = 0; this.reach = this.reachWant = 0;
     const dx = boss.pos.x - heroPos.x, dz = boss.pos.z - heroPos.z, l = Math.hypot(dx, dz) || 1;
-    this.target.set(heroPos.x + (dx / l) * 1.18, 0, heroPos.z + (dz / l) * 1.18);
+    this.target.set(heroPos.x + (dx / l) * 1.46, 0, heroPos.z + (dz / l) * 1.46);
     this.hold?.(this.target, boss.d.r);
   }
   setStage(stage: 'approach' | 'reach' | 'stand') {
@@ -929,6 +1025,68 @@ export function duwuDieShots(
       },
     },
   ];
+}
+
+/** act-156 (pro_ambush / duwu_die): coiled blind-swordsman ready stance — chin tilted slightly to listen, right hand gripping hilt, left thumb pressing guard */
+export function heroHandOnHiltPose(a: BattleActor, t: number) {
+  const b = a.bones; resetPose(b);
+  a.root.position.copy(a.home).setY(0); a.root.rotation.set(0, a.yaw, 0);
+  a.body.position.set(0, 0, 0); a.body.rotation.set(0, 0, 0); a.body.scale.set(1, 1, 1);
+  if (b.weapon) b.weapon.visible = true;
+  const br = Math.sin(t * 2.2);
+  rot(b.legL, -0.10, 0, 0.08); rot(b.shinL, 0.12); rot(b.footL, -0.02);
+  rot(b.legR, 0.12, 0, -0.08); rot(b.shinR, 0.10); rot(b.footR, -0.22);
+  rot(b.spine, 0.06 + 0.015 * br, -0.18, 0);
+  rot(b.chest, 0.04 - 0.01 * br, -0.10, 0);
+  // Subtle listening head tilt ("微偏下颌")
+  rot(b.neck, 0.06, 0.16); rot(b.head, 0.08, 0.18 + 0.03 * Math.sin(t * 1.1), -0.12);
+  // Left hand thumb-pressing guard; right hand coiled on hilt
+  rot(b.armL, -0.45, -0.48, 0.18); rot(b.foreL, -1.05);
+  rot(b.armR, -0.28, 0.34, -0.14); rot(b.foreR, -1.18);
+}
+
+/** act-156 (duwu_die): Liu Bai drops onto one knee in the snow leaning tenderly down beside dying Du Wu, both hands reaching to steady his sleeve */
+export function heroKneelBesidePose(a: BattleActor, t: number, blend = 1) {
+  const b = a.bones; resetPose(b);
+  a.root.position.copy(a.home).setY(0); a.root.rotation.set(0, a.yaw, 0);
+  a.body.position.set(0, 0, 0); a.body.rotation.set(0, 0, 0); a.body.scale.set(1, 1, 1);
+  if (b.weapon) b.weapon.visible = false;
+  const k = smK(Math.max(0, Math.min(1, blend)));
+  const H = hipHeight(a), T = b.shinL ? b.shinL.position.length() : 0.35, S = b.footL ? b.footL.position.length() : 0.28, ANK = H - T - S;
+  const br = Math.sin(t * 2.8);
+  const tR = -0.10, hipY = KNEE_Y + T * Math.cos(tR), hz = -0.04;
+  mov(b.hips, 0, (hipY - H + 0.005 * br) * k, hz * k);
+  rot(b.legR, tR * k, 0, -0.06 * k); rot(b.shinR, (Math.PI / 2 + 0.28 - tR) * k); rot(b.footR, 0);
+  {
+    const dz = FOOT_AHEAD - hz, dy = ANK - hipY, L = Math.min(T + S - 1e-4, Math.hypot(dz, dy));
+    const al = Math.acos(Math.max(-1, Math.min(1, (T * T + L * L - S * S) / (2 * T * L)))), be = Math.atan2(dz, -dy);
+    const tL = -(be + al), sL = Math.PI - Math.acos(Math.max(-1, Math.min(1, (T * T + S * S - L * L) / (2 * T * S))));
+    rot(b.legL, tL * k, 0, 0.1 * k); rot(b.shinL, sL * k); rot(b.footL, -(tL + sL) * k);
+  }
+  rot(b.spine, (0.42 + 0.025 * br) * k, 0, 0);
+  rot(b.chest, (0.18 - 0.02 * br) * k, 0, 0);
+  rot(b.neck, 0.16 * k); rot(b.head, (0.28 + 0.02 * br) * k, 0, 0);
+  // Both hands reaching forward & downward gently holding Du Wu's sleeve
+  rot(b.armL, -0.92 * k, -0.22 * k, 0.14 * k); rot(b.foreL, -0.42 * k);
+  rot(b.armR, -0.96 * k, 0.22 * k, -0.14 * k); rot(b.foreR, -0.46 * k);
+  const f = V3(Math.sin(a.yaw), 0, Math.cos(a.yaw));
+  hangChains(a, () => V3(0, -1, 0).addScaledVector(f, -0.35), k);
+}
+
+/** act-156 (pro_dawn): Du Wu reaches down to pry the hilt, then recoils sharply backward in shock when her freezing hand grabs his wrist */
+export function duwuRecoilPose(a: BattleActor, recoil: number) {
+  const b = a.bones;
+  const k = smK(Math.max(0, Math.min(1, recoil)));
+  if (k <= 0.01) return;
+  resetPose(b);
+  a.body.rotation.set(-0.24 * k, 0, 0.06 * k);
+  a.body.position.set(0, -0.04 * k, 0);
+  rot(b.spine, -0.22 * k, 0, 0);
+  rot(b.head, -0.18 * k, 0, 0);
+  rot(b.armL, -1.25 * k, -0.25 * k, 0.45 * k); rot(b.foreL, -0.65 * k);
+  rot(b.armR, -1.35 * k, 0.25 * k, -0.45 * k); rot(b.foreR, -0.75 * k);
+  rot(b.legL, -0.32 * k, 0, 0.12 * k); rot(b.shinL, 0.45 * k);
+  rot(b.legR, 0.28 * k, 0, -0.12 * k); rot(b.shinR, 0.35 * k);
 }
 
 /** act-114 (Endings A & B): reusable smooth exit walk shot — heroine walks steadily away from `from` to `to` (clamped inside room),

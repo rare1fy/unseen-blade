@@ -814,6 +814,56 @@ export function buildExtraBowl(): THREE.Group {
   return g;
 }
 
+/** act-156: half cloth-wrapped warm flatbread that rolls onto the snow when Du Wu's fingers slip open (duwu_die line 7) */
+export function buildFlatbreadProp(): THREE.Group {
+  const vw = new VoxWorld(CELL * 0.90);
+  vw.box(-2, 0, -2, 2, 1, 2, 0xc2b090); // coarse hemp cloth wrap
+  vw.box(-1, 1, -1, 2, 2, 1, 0xdfa84e); // golden flatbread peeking out
+  vw.box(0, 2, 0, 1, 2, 1, 0xf2ca78);
+  const g = new THREE.Group();
+  for (const m of vw.build({ rim: 0.22, edge: 0.14 })) { m.castShadow = true; m.receiveShadow = true; g.add(m); }
+  return g;
+}
+
+/** act-156: warm steaming clay bowl cupped in Liu Bai's hands during Ending C ("两只手捧住温热的陶碗") */
+export function buildHeldBowl(): THREE.Group {
+  const vw = new VoxWorld(CELL * 0.62);
+  vw.box(-2, 0, -2, 2, 1, 2, 0x8a8274);
+  vw.box(-2, 2, -2, 2, 2, 2, 0xb2aa9a);
+  vw.box(-1, 2, -1, 1, 2, 1, 0xe8ba6a); // warm golden soup
+  const g = new THREE.Group();
+  for (const m of vw.build({ rim: 0.2, edge: 0.12 })) { m.castShadow = true; g.add(m); }
+  return g;
+}
+
+/** act-156: small crimson-lacquered wooden box (朱漆匣) holding Father Wen's thumb in ch3_after */
+export function buildLacquerBox(): THREE.Group {
+  const vw = new VoxWorld(CELL * 0.65);
+  vw.box(-2, 0, -2, 2, 2, 2, 0x8e1e1a);
+  vw.box(-2, 2, -2, 2, 2, 2, 0xb02822);
+  vw.box(-1, 1, 2, 1, 1, 2, 0xdca840); // bronze clasp
+  const g = new THREE.Group();
+  for (const m of vw.build({ rim: 0.22, edge: 0.12 })) { m.castShadow = true; m.receiveShadow = true; g.add(m); }
+  return g;
+}
+
+/** act-156: four gleaming Wen-family blades laid neatly on the hall flagstones in Ending B ("解下背后的四柄刀放在地上") */
+export function buildLaidBlades(): THREE.Group {
+  const vw = new VoxWorld(CELL * 0.72);
+  const STEEL = 0xd4dde8, EDGE = 0xf4f8ff, GUARD = 0x2e2a30, GRIP = 0x8e241e, RING = 0xdca840;
+  for (let i = 0; i < 4; i++) {
+    const z = -6 + i * 4;
+    vw.box(-9, 0, z, 3, 0, z, STEEL);
+    vw.box(-9, 0, z + 1, 2, 0, z + 1, EDGE);
+    vw.box(4, 0, z - 1, 4, 1, z + 1, GUARD);
+    vw.box(5, 0, z, 8, 0, z, GRIP);
+    vw.box(9, 0, z, 10, 0, z + 1, RING);
+  }
+  const g = new THREE.Group();
+  for (const m of vw.build({ rim: 0.25, edge: 0.14 })) { m.castShadow = true; m.receiveShadow = true; g.add(m); }
+  return g;
+}
+
 // ================================================================== debug: __dh.hideout(time?, weather?, view?), __dh.hideoutSolids(on?)
 let SHADOW_TEX: THREE.Texture | null = null;
 function contactShadow(r = 0.7) {

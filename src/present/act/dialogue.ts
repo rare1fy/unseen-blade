@@ -46,32 +46,35 @@ for (const [p, url] of Object.entries(files)) PORTRAIT[p.split('/').pop()!.repla
 export function resolvePortrait(who: string, text: string, mood?: string, heroHat = true): string {
   let want = who;
   if (who === 'jiangjin') {
-    if (mood === 'hurt' || (!heroHat && /肋|血|痛|伤口|刀呢|我的刀|不喝外人|把刀给我|银针|躺|散架/.test(text))) want = 'jiangjin_hurt';
+    if (mood === 'calm') want = heroHat ? 'jiangjin_hat' : 'jiangjin';
+    else if (mood === 'hurt' || (!heroHat && /肋|血|痛|伤口|刀呢|我的刀|不喝外人|把刀给我|银针|躺|散架/.test(text))) want = 'jiangjin_hurt';
     else if (heroHat) {
-      if (mood === 'fierce' || /还文家的命|归位|陪她|闭嘴|命|斩|杀|滚|拿稳|仇|死|销了|欠|债|放开|拔刀|来吧|碎尸万段/.test(text)) want = 'jiangjin_hat_fierce';
+      if (mood === 'fierce' || /还文家的命|归位|陪她|闭嘴|命|斩|滚|拿稳|仇|销了|欠|债|放开|拔刀|来吧|碎尸万段/.test(text)) want = 'jiangjin_hat_fierce';
       else want = 'jiangjin_hat';
     } else want = 'jiangjin';
+  } else if (mood === 'calm') {
+    want = who;
   } else if (who === 'duwu') {
     if (mood === 'shock' || /娘哎|活、活的|诈尸|别乱动|不要命|吓|？！/.test(text)) want = 'duwu_shock';
-    else if (mood === 'grin' || /撵上|兔子快|搭两间|头一回/.test(text)) want = 'duwu_grin';
+    else if (mood === 'grin' || /撵上|兔子快|搭两间|头一回|锅里温着肉汤|快烤火|手冻红了/.test(text)) want = 'duwu_grin';
     else if (mood === 'worry' || /吐|血|麦饼|保重|小心|活着|白发|惨|缝|衣裳|肉饼|水囊|吃饱|半死|干粮|歇|火堆里|这毒脏|僵了|喝不着/.test(text)) want = 'duwu_worry';
     else if (/捡了便宜|值钱货|火堆边烤着|拖回来的|叫你白哥|安心养着|热汤|暖暖|手艺|尝尝|热乎|好酒|挑一样|带些/.test(text)) want = 'duwu_grin';
   } else if (who === 'sunao') {
     if (mood === 'stern' || /别乱挺|断肋|扎破肺|跨不进去|张嘴|闭嘴|瞪|忍着|咽下去|扎透|钉棺材|木棍|推回去|裹胸布|死丫头|唬老身|忍着点|不够|捻针|下针/.test(text)) want = 'sunao_stern';
-    else if (mood === 'soft' || /好重的仇|可怜|烤烤手|热水|活着回来|苦|叹|留了|去吧|熬|药罐|阿皎|闺女|暖|傻小子|挖出来|白养|温着汤|摆了一只碗|摘了布/.test(text)) want = 'sunao_soft';
+    else if (mood === 'soft' || /好重的仇|可怜|烤烤手|热水|活着回来|苦|叹|留了|去吧|熬|药罐|阿皎|闺女|暖|傻小子|挖出来|白养|温着汤|摆了一只碗|摘了布|破布摘了|汤还烫着/.test(text)) want = 'sunao_soft';
   } else if (who === 'cuixuan') {
-    if (mood === 'defeat' || /阿皎|亲爹|不全是为了|动手吧|来吧|够了|了结|名字是我起|认出|像你娘|抵上喉咙|反倒抖|真不杀我|破了前门/.test(text)) want = 'cuixuan_defeat';
-    else if (mood === 'blade' || /刀在我这|四个人|那四个|太早了|看看你的手|听好了|配|拔刀|杀|第几柄|灯灭|乱葬沟/.test(text)) want = 'cuixuan_blade';
+    if (mood === 'defeat' || /亲爹|动手吧|够了|了结|认出|像你娘|抵上喉咙|反倒抖|真不杀我|破了前门/.test(text)) want = 'cuixuan_defeat';
+    else if (mood === 'blade' || /刀在我这|四个人|那四个|太早了|看看你的手|听好了|配|拔刀|出刀吧|杀|第几柄|灯灭|乱葬沟/.test(text)) want = 'cuixuan_blade';
   } else if (who === 'chulei') {
     if (mood === 'panic' || /饶|别杀|不是我|求|饶命|放过|我说|供|崔|洛阳|阎虎/.test(text)) want = 'chulei_panic';
   } else if (who === 'yanhu') {
     if (mood === 'defeat' || /崔府|乐伎|歌伎|逃出来|封寒|下邳|吐血|咳|不是铁匠|呃啊|真当那娘们/.test(text)) want = 'yanhu_defeat';
-    else if (mood === 'rage' || /哈！|老子|野狗|烧得|砸|杀|滚|高炉|推进去/.test(text)) want = 'yanhu_rage';
+    else if (mood === 'rage' || /哈！|老子|烧得|砸|杀|滚|高炉|推进去/.test(text)) want = 'yanhu_rage';
   } else if (who === 'fengzhen') {
     if (mood === 'defeat' || /灭口|追杀|收账|周默|乌林|咳|替他|每一个/.test(text)) want = 'fengzhen_defeat';
     else if (mood === 'smirk' || /漆匣|拇指|药酒|脉象|故人|试我|新配|废药渣|药引/.test(text)) want = 'fengzhen_smirk';
   } else if (who === 'zhouan') {
-    if (mood === 'bitter' || /亲爹|烧|认出|愧|对不住|姜汤|感念|那夜|连那|贱婢|清掉|腊月二十三|咳/.test(text)) want = 'zhouan_bitter';
+    if (mood === 'bitter' || /亲爹|烧干净|认出|愧|对不住|姜汤|感念|那夜|连那|贱婢|清掉|腊月二十三|咳/.test(text)) want = 'zhouan_bitter';
   } else if (who === 'zhaoyun') {
     if (mood === 'fight' || /并肩|杀出去|枪|迎敌|贼兵|好刀法/.test(text)) want = 'zhaoyun_fight';
   } else if (who === 'lubu') {
@@ -97,7 +100,7 @@ function portraitTex(id: string, ready: (t: THREE.Texture) => void) {
 
 const BG = '#14121c', EDGE_G = '#c8963a', EDGE_R = '#a8302a', NAME = '#ffd27a', BODY = '#f2e8d6', MUTE = '#a8a2a8';
 const CPS = 34;   // base characters per second (with punctuation micro-pauses)
-interface Side { mesh: THREE.Mesh | null; who: string; id: string; k: number; on: number; aspect: number; ih: number; pop: number; was: boolean; away: number }
+interface Side { mesh: THREE.Mesh | null; who: string; id: string; k: number; on: number; aspect: number; ih: number; pop: number; jolt: number; was: boolean; away: number }
 
 /** the line's HD body font size (CSS px), scaling proportionally from mobile (19px) -> 720p (26px) -> 1080p (39px) -> 2K (52px) */
 const fontPx = (uScale: number) => Math.round(26 * uScale);
@@ -237,8 +240,8 @@ export class Dialogue {
   private nameCanvas: HTMLCanvasElement = makeCanvas(64, 32) as HTMLCanvasElement;
   private nameKey = ''; private nameW = 1; private nameH = 1;
   private sides: Record<'L' | 'R', Side> = {
-    L: { mesh: null, who: '', id: '', k: 0, on: 0, aspect: 0.8, ih: 144, pop: 0, was: false, away: 0 },
-    R: { mesh: null, who: '', id: '', k: 0, on: 0, aspect: 0.8, ih: 144, pop: 0, was: false, away: 0 },
+    L: { mesh: null, who: '', id: '', k: 0, on: 0, aspect: 0.8, ih: 144, pop: 0, jolt: 0, was: false, away: 0 },
+    R: { mesh: null, who: '', id: '', k: 0, on: 0, aspect: 0.8, ih: 144, pop: 0, jolt: 0, was: false, away: 0 },
   };
   private outK = 0; private lastSpeaker: 'L' | 'R' | null = null;
   private onLine: ((i: number, line: Line) => void) | null = null;
@@ -271,7 +274,7 @@ export class Dialogue {
     for (const s of ['L', 'R'] as const) {
       const S = this.sides[s];
       if (S.mesh) { this.L.scene.remove(S.mesh); (S.mesh.material as THREE.Material).dispose(); S.mesh.geometry.dispose(); S.mesh = null; }
-      S.who = ''; S.id = ''; S.on = 0; S.k = 0; S.pop = 0; S.was = false; S.away = 0;
+      S.who = ''; S.id = ''; S.on = 0; S.k = 0; S.pop = 0; S.jolt = 0; S.was = false; S.away = 0;
     }
     { const l = this.lines[0], sp = l && CAST[l.who]; if (sp && l.who !== 'act') this.setPortrait(sp.side, l.who, resolvePortrait(l.who, l.text, l.mood, this.heroHat)); }
     warmLines(this.lines, 4);
@@ -289,7 +292,8 @@ export class Dialogue {
     if (sameChar) {
       // Same character changing expression/pose: instant crisp swap + subtle pop (no awkward off-screen slide!)
       const m = S.mesh!, mat = m.material as THREE.MeshBasicMaterial;
-      S.pop = Math.max(S.pop, 0.72);
+      S.pop = Math.max(S.pop, 0.78);
+      if (/_(shock|rage|fierce|panic|hurt|defeat)$/.test(id)) S.jolt = 1;
       const tex = portraitTex(id, tt => { if (S.id !== id) return; mat.map = tt; mat.needsUpdate = true; const img = tt.image as { width: number; height: number }; S.aspect = img.width / img.height; S.ih = img.height; m.visible = this.on; });
       if (tex) { mat.map = tex; mat.needsUpdate = true; if (tex.image) { const img = tex.image as { width: number; height: number }; S.aspect = img.width / img.height; S.ih = img.height; m.visible = this.on; } }
       return;
@@ -595,17 +599,32 @@ export class Dialogue {
     for (const s of ['L', 'R'] as const) {
       const S = this.sides[s]; if (!S.mesh) continue;
       const speaking = speaker === s;
-      if (speaking && !S.was) S.pop = 1; S.was = speaking;
+      if (speaking && !S.was) {
+        S.pop = 1;
+        if (/_(shock|rage|fierce|panic)$/.test(S.id)) S.jolt = 1;
+      }
+      S.was = speaking;
       S.on += ((speaking ? 1 : 0) - S.on) * Math.min(1, dt * (speaking ? 14 : 7));
-      S.k = Math.min(1, S.k + dt * 3.2); S.pop = Math.max(0, S.pop - dt / 0.22);
+      S.k = Math.min(1, S.k + dt * 3.2);
+      S.pop = Math.max(0, S.pop - dt / 0.24);
+      S.jolt = Math.max(0, S.jolt - dt / 0.34);
       const narr = this.on && this.lines[this.i]?.who === 'act'; S.away += ((narr ? 1 : 0) - S.away) * Math.min(1, dt * 9);
       const inK = 1 - Math.pow(1 - S.k, 3), outK = this.on ? 0 : 1 - this.outK * this.outK, dir = s === 'L' ? 1 : -1;
       const pkDev = Math.max(2, Math.round((L.h * dpr) / S.ih));
       const pk = (pkDev * (0.85 + 0.15 * S.on)) / dpr, hP = S.ih * pk, wP = Math.round(S.ih * S.aspect) * pk;
       const home = s === 'L' ? wP * 0.4 : L.w - wP * 0.4;
       const step = L.w * 0.018 * S.on - L.w * 0.035 * (1 - S.on);
-      const cx = home + dir * step - dir * ((1 - inK) + outK + S.away) * wP * 0.95 + (speaking ? sx * 1.2 : 0);
-      const top = Math.max(L.h * 0.05, L.h * 1.04 - hP) + (1 - S.on) * L.h * 0.03 - Math.sin(S.pop * Math.PI) * Math.max(6, L.h * 0.014) + (speaking ? sy : 0);
+      // Expressive emotion-driven micro-motion (100% integer-pixel snapped so pixel art stays razor sharp)
+      const isIntense = /_(shock|rage|fierce|panic)$/.test(S.id);
+      const isPain = /_(hurt|worry|defeat|bitter)$/.test(S.id);
+      const isUpbeat = /_(grin|smile)$/.test(S.id);
+      const joltX = speaking && S.jolt > 0 ? Math.sin(S.jolt * 38) * (isIntense ? 7.5 : 4.2) * S.jolt : 0;
+      const painTremor = speaking && isPain ? Math.sin(this.t * 26) * 0.9 : 0;
+      const breathY = speaking ? Math.sin(this.t * (isPain ? 2.1 : 3.0)) * (isPain ? 2.8 : 1.8) : 0;
+      const popAmp = Math.max(6, L.h * (isUpbeat ? 0.022 : isIntense ? 0.019 : 0.014));
+      const painDrop = isPain && speaking ? L.h * 0.012 : 0;
+      const cx = home + dir * step - dir * ((1 - inK) + outK + S.away) * wP * 0.95 + (speaking ? sx * 1.2 + joltX + painTremor : 0);
+      const top = Math.max(L.h * 0.05, L.h * 1.04 - hP) + (1 - S.on) * L.h * 0.03 + painDrop - Math.sin(S.pop * Math.PI) * popAmp + breathY + (speaking ? sy : 0);
       const left = snap(cx - wP / 2), y0 = snap(top);
       L.at(left + wP / 2, y0 + hP / 2, Z, S.mesh.position); S.mesh.scale.set(L.px(wP, Z), L.px(hP, Z), 1);
       const k = S.on, mat = S.mesh.material as THREE.MeshBasicMaterial;
