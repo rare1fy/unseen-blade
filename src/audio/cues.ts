@@ -29,9 +29,16 @@ export type Cue =
 
 type Handler = (name: Cue, intensity: number, extra?: number) => void;
 let handler: Handler | null = null;
+let muteDepth = 0;
 export const cueLog: Array<{ name: Cue; intensity: number }> = [];
 export function setCueHandler(h: Handler) { handler = h; }
+/** Run a callback with all audio cues silenced (used by the looping 3D mini-world move preview in 招式谱). */
+export function withCueMuted<T>(fn: () => T): T {
+  muteDepth++;
+  try { return fn(); } finally { muteDepth--; }
+}
 export function cue(name: Cue, intensity = 1, extra?: number) {
+  if (muteDepth > 0) return;
   if (cueLog.length > 200) cueLog.shift();
   cueLog.push({ name, intensity });
   handler?.(name, intensity, extra);

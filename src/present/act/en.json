@@ -2314,5 +2314,11 @@
   "Tab / Q E 切页 · 点击直接锻造 · Esc 返回": "Tab / Q E Switch Tab · Click to Forge · Esc Back",
   "Tab / Q E 切页 · 点选右侧按钮或 Enter 锻造 · Esc 返回": "Tab / Q E Switch · Click Forge or Enter · Esc Back",
   "WASD": "WASD",
-  "WASD 走 · {0} 斩（按住蓄力）· {1} 跳 · {2} 冲刺 · {3} 飞镖": "WASD Move / {0} Slash (hold to charge) / {1} Jump / {2} Dash / {3} Dart"
+  "WASD 走 · {0} 斩（按住蓄力）· {1} 跳 · {2} 冲刺 · {3} 飞镖": "WASD Move / {0} Slash (hold to charge) / {1} Jump / {2} Dash / {3} Dart",
+  "准备藏锋": "Ready Iaido",
+  "准备连斩": "Ready Combo",
+  "出刀触发秘传！": "Strike Triggers Boon!",
+  "掷镖触发秘传！": "Dart Triggers Boon!",
+  "第 {0}/{1} 步": "Step {0}/{1}",
+  "连招触发！": "Combo Triggered!"
 }

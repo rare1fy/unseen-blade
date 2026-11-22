@@ -88,6 +88,7 @@ dh.install();
     gfx.start(() => {}, () => {
       if (!A) return;
       paintMeter(A.L, gfx.stats, platform.now());
+      A.renderMiniWorld(gfx.renderer);
       A.L.renderText(gfx.renderer); A.ov.render(gfx.renderer); frames++;
       if (CRAZYGAMES) {
         if (frames === 1) finishLoading();

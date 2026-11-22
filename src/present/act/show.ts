@@ -1259,7 +1259,7 @@ export class ActShow {
   private npcMarks(dt: number, near: string | null) {
     const t = clock.rtime, prof = profile(), h = this.hero;
     const prog = hideoutProgress(prof, this.dbgAllWeapons);
-    const uiClear = !this.noTalk && this.phase !== 'talk' && this.phase !== 'cine' && !this.dialogue.on && !this.cards.on && !this.demo.on && !this.pause.on;
+    const uiClear = !this.noTalk && !this.inCombat() && this.phase !== 'talk' && this.phase !== 'cine' && !this.dialogue.on && !this.cards.on && !this.demo.on && !this.pause.on;
     const dev = this.inp.lastDevice;
     const talkKey = dev === 'touch' ? '点右下交谈' : dev === 'pad' ? msg`[${actPad('attack')}]` : msg`[${actKey('attack')}]`;
     const roleOf: Record<string, string> = { fengtiebi: '锻刀·淬炼', sunao: '药炉悟性', duwu: '干粮', luzhao: '江湖消息', huanyue: '论刀', stele: '潜能' };
@@ -2302,6 +2302,9 @@ export class ActShow {
     SELF = this; this.dialogue = new Dialogue(this.L, this.ov); this.timeline = new Timeline(this.L);
     HP_FACE.id = this.wearing.id;   // the HP medallion shows the look she wears
     this.hud = new ActHud(this.L); this.cards = new CardPick(this.L); this.worldPlates = new UiPlatePool(this.L); this.banner = new SkinBanner(this.L, SKIN.id, () => this.hud.bossOn);
+    // act-165: latch all inputs whenever a modal card/hideout UI opens or closes so confirm/back presses (e.g. Pad A = dash, Space, J) never leak to the hero
+    this.cards.onOpen = () => { this.inp.latch(true); padNav.sync(); };
+    this.cards.onClose = () => { this.inp.latch(true); };
     this.tut = new Tutorial(this.L); this.feed = new RewardFeed(this.L); this.duel = new Duel(this.duelHost);   // 11-18 QTE 拼刀 / 连环破势 (act/qte.ts)
     platform.onPointer(ev => { if (ev.type === 'down') this.unlockAudio(); this.pointer(ev.type, (ev as { id?: number }).id ?? 0, ev.x, ev.y, isTouchPointer(ev)); });
     platform.onResize(() => this.layout2());
@@ -2348,6 +2351,7 @@ export class ActShow {
     // the pause menu (act-30 之后, user: 「帮我把手柄的按键映射和手柄支持做了吧」): Start / Esc, a pad pulled out, the page hidden
     this.pause = new PauseMenu({ L: this.L, settings: [...SET.filter(x => __DEBUG_UI__ || !x.dbg).map(x => ({ label: x.short, run: x.run })), { id: 'language', label: () => '语言：简体中文', run: () => setLanguage(language === 'en' ? 'zh' : 'en') }], canGiveUp: () => this.canGiveUp(), giveUp: () => this.giveUp(), closed: () => this.unpaused(), toTitle: () => this.backToTitle(), onRun: () => this.canGiveUp(),
       build: () => this.buildSections(),
+      miniContext: () => { const p = profile(), wid = equippedWeapon(p, this.dbgAllWeapons); return { def: this.wearing, weaponId: wid, weaponLv: weaponLevel(p, wid) }; },
       preview: id => this.previewMove(id), previewing: () => this.previewOn, stopPreview: () => { if (this.previewOn) this.demo.stop(true); } });
     // 11-18 (用户：「游戏里也没有一个可以呼出暂停窗口的按钮」): the iron button at the top right opens it too
     this.hud.onPause = () => this.pauseGame();
@@ -7199,6 +7203,37 @@ export class ActShow {
       for (const f of this.stations.fires) setPropOcc(f, on ? 1 : 0);
     }
   }
+  /** act-165: render MoveStage's live 3D Mini-World inside its scissor bay before L.renderText */
+  renderMiniWorld(renderer: THREE.WebGLRenderer) { this.pause.renderMiniWorld(renderer); }
+  /** act-165: true whenever any interactive modal/cutscene/menu is open and must capture all player input */
+  private isUiModalOpen(): boolean {
+    return this.cards.on || this.phase === 'pick' || this.dialogue.on || this.phase === 'talk' || this.phase === 'cine' || this.timeline.on || this.pause.on;
+  }
+  /** act-165: true whenever live combat enemies (excluding wooden training dummies) are active — blocks NPC/facility interactions */
+  private inCombat(): boolean {
+    return this.entering.length > 0 || this.bossDrops.length > 0 || this.foes.some(f => f.st !== 'dead' && f.kind !== 'dummy');
+  }
+  private findHideoutNear(h: Hero): string | null {
+    let near: string | null = null, nd = 1.9;
+    for (const n of this.npcs) { const d = Math.hypot(n.x - h.pos.x, n.z - h.pos.z); if (d < nd) { nd = d; near = n.id; } }
+    if (this.duwuMemorialMesh) { const d = Math.hypot(HIDEOUT.people.duwu.x - h.pos.x, HIDEOUT.people.duwu.z - h.pos.z); if (d < Math.min(nd, 2.0)) { nd = d; near = 'duwu_memorial'; } }
+    for (const [zid] of this.zoneMonuments) {
+      const zm = HIDEOUT_ZONES[zid].monument;
+      const d = Math.hypot(zm.x - h.pos.x, zm.z + 0.55 - h.pos.z);
+      if (d < Math.min(nd, 2.2)) { nd = d; near = 'zone_' + zid; }
+    }
+    if (this.stele && HIDEOUT.stele) { const d = Math.hypot(HIDEOUT.stele.x - h.pos.x, HIDEOUT.stele.z + 0.65 - h.pos.z); if (d < Math.min(nd, 1.65)) { nd = d; near = 'stele'; } }
+    if (this.weaponRackMesh) { const d = Math.hypot(HIDEOUT.weaponRack.x - h.pos.x, HIDEOUT.weaponRack.z + 0.85 - h.pos.z); if (d < Math.min(nd, 2.0)) { nd = d; near = 'weaponRack'; } }
+    if (this.keepsakeBoxMesh) { const d = Math.hypot(HIDEOUT.keepsakeBox.x - h.pos.x, HIDEOUT.keepsakeBox.z + 0.7 - h.pos.z); if (d < Math.min(nd, 1.65)) { nd = d; near = 'keepsakeBox'; } }
+    if (this.gardenMeshes.length > 0) {
+      for (let gi = 0; gi < HIDEOUT.gardenPlots.length; gi++) {
+        const gp = HIDEOUT.gardenPlots[gi], d = Math.hypot(gp.x - h.pos.x, gp.z - h.pos.z);
+        if (d < Math.min(nd, 1.8)) { nd = d; near = 'garden_' + gi; }
+      }
+    }
+    return near;
+  }
+  private wasUiModal = false;
   private frame(dt: number, rdt: number) {
     // 11-19: cutscenes and conversations scale the art pixel with how near the shot is (director.ts CINE_PX)
     CINE_PX.on = this.phase === 'cine' || this.phase === 'talk' || this.donningHat; CINE_PX.ref.d = Math.hypot(TUNE.camH, TUNE.camD); CINE_PX.ref.fov = TUNE.camFov;
@@ -7226,8 +7261,20 @@ export class ActShow {
       return;
     }   // the pause menu runs on its own (real time); the world gets nothing (11-18: a hideout name over the menu's pages hidden)
     // act-109: freeze hold-timer accumulation during hitstop / 一闪 stillness so quick taps never get misread as a 藏锋 hold
+    // act-165: snapshot modal UI state BEFORE padScreens so a same-frame UI confirm/close (e.g. Pad A = dash, Space, J) NEVER leaks into hero combat input!
+    const uiBefore = this.isUiModalOpen();
     this.inp.frame(rdt, FX.hitstop > 0 || this.iaiHeld);
     this.padScreens(rdt);
+    const uiAfter = this.isUiModalOpen();
+    const uiLocked = uiBefore || uiAfter;
+    if (uiLocked || this.wasUiModal) {
+      if (uiBefore !== uiAfter || (this.wasUiModal && !uiAfter)) this.inp.latch(true);
+      if (uiLocked) {
+        for (const b of Object.values(this.inp.b)) { b.pressed = false; b.down = false; b.released = false; b.held = 0; b.last = 0; }
+        this.inp.move.x = this.inp.move.y = 0;
+      }
+    }
+    this.wasUiModal = uiAfter;
     if (this.phase === 'opening' || this.phase === 'title') { this.hideWorldPlates(); return; }   // opening.ts / title.ts run the start screen
     // act-20: a cutscene or a conversation — the timeline / the dialogue run, the people idle, nothing fights
     // (act-26: once a conversation ends the phase moves on at once — the portraits still have to slide out, so keep driving them)
@@ -7267,7 +7314,7 @@ export class ActShow {
     if (this.demo.on) {
       this.demo.update(rdt);
     }
-    const busy = this.cards.on || this.phase === 'leaving' || this.ultOn || !!h.scriptPose || this.demo.on || this.duel.locks;   // (act-46: lying on the mat / getting up — no sliding off it) (11-18 QTE: held in a 拼刀 / a 连环)
+    const busy = uiLocked || this.cards.on || this.phase === 'pick' || this.phase === 'leaving' || this.ultOn || !!h.scriptPose || this.demo.on || this.duel.locks;   // (act-46: lying on the mat / getting up — no sliding off it) (11-18 QTE: held in a 拼刀 / a 连环) (act-165: uiLocked prevents same-frame close leak)
     this.qteFrame(rdt); this.parryCd -= rdt;
     this.tut.frame(rdt, {
       phase: this.phase, prologue: this.prologue, hero: h, inp: this.inp, foes: this.foes,
@@ -7295,12 +7342,14 @@ export class ActShow {
     this.heroWorld.foes = this.foes.some(f => f.mem.hidden) || this.entering.length || this.bossDrops.length
       ? this.foes.filter(f => !f.mem.hidden && !this.entering.some(e => e.f === f) && !this.bossDrops.some(d => d.f === f))
       : this.foes;
-    // act-136: Scheme A shop / rest / scroll interact intercept BEFORE h.update so pressing J buys cleanly without swinging the blade!
-    if (this.stations && this.phase === 'doors' && !busy && !this.pause.on && !this.dialogue.on && !this.shopOpening && this.inp.b.attack.pressed) {
+    // act-136 / act-165: shop / rest / scroll interact intercept BEFORE h.update (blocked during active combat)
+    const combatNow = this.inCombat();
+    if (this.stations && this.phase === 'doors' && !combatNow && !busy && !this.pause.on && !this.dialogue.on && !this.shopOpening && this.inp.b.attack.pressed) {
       const ns = this.stations.near(h.pos);
       const nearM = !ns && this.stations.nearMerchant(h.pos);
       if (ns) {
         this.inp.b.attack.pressed = false;
+        this.inp.latch(true);
         const noSharp = ns.id.endsWith('sharpen') && !this.sharpenable().length;
         if (ns.price > this.coins || noSharp) {
           cue('deny', 0.45);
@@ -7310,7 +7359,19 @@ export class ActShow {
         }
       } else if (nearM) {
         this.inp.b.attack.pressed = false;
+        this.inp.latch(true);
         void this.shopOverviewMenu();
+      }
+    }
+    // act-165: peaceful hideout NPC/facility interact intercept BEFORE h.update so pressing J/X opens cleanly without swinging, and is completely disabled while sparring live foes!
+    if (this.phase === 'yard' && !combatNow && !busy && !this.pause.on && !this.dialogue.on && !this.noTalk && this.inp.b.attack.pressed) {
+      const near = this.findHideoutNear(h);
+      if (near) {
+        this.inp.b.attack.pressed = false;
+        this.inp.latch(true);
+        this.npcNear = near;
+        void this.npcTalk(near);
+        return;
       }
     }
     h.update(dt, this.inp, this.heroWorld);
@@ -7356,25 +7417,15 @@ export class ActShow {
     for (const a of this.roadActors) if (!this.roadStill.has(a)) a.update(dt);
     this.tickSpringAnims(dt);
     if (this.phase === 'yard') {
-      let near: string | null = null, nd = 1.9; for (const n of this.npcs) { const d = Math.hypot(n.x - h.pos.x, n.z - h.pos.z); if (d < nd) { nd = d; near = n.id; } }
-      if (this.duwuMemorialMesh) { const d = Math.hypot(HIDEOUT.people.duwu.x - h.pos.x, HIDEOUT.people.duwu.z - h.pos.z); if (d < Math.min(nd, 2.0)) { nd = d; near = 'duwu_memorial'; } }
-      for (const [zid] of this.zoneMonuments) {
-        const zm = HIDEOUT_ZONES[zid].monument;
-        const d = Math.hypot(zm.x - h.pos.x, zm.z + 0.55 - h.pos.z);
-        if (d < Math.min(nd, 2.2)) { nd = d; near = 'zone_' + zid; }
+      if (combatNow) {
+        this.npcNear = null;
+        this.hideHideoutLabels();
+        this.npcMarks(dt, null);
+      } else {
+        const near = this.findHideoutNear(h);
+        this.npcNear = near;
+        this.npcMarks(dt, near);
       }
-      if (this.stele && HIDEOUT.stele) { const d = Math.hypot(HIDEOUT.stele.x - h.pos.x, HIDEOUT.stele.z + 0.65 - h.pos.z); if (d < Math.min(nd, 1.65)) { nd = d; near = 'stele'; } }
-      if (this.weaponRackMesh) { const d = Math.hypot(HIDEOUT.weaponRack.x - h.pos.x, HIDEOUT.weaponRack.z + 0.85 - h.pos.z); if (d < Math.min(nd, 2.0)) { nd = d; near = 'weaponRack'; } }
-      if (this.keepsakeBoxMesh) { const d = Math.hypot(HIDEOUT.keepsakeBox.x - h.pos.x, HIDEOUT.keepsakeBox.z + 0.7 - h.pos.z); if (d < Math.min(nd, 1.65)) { nd = d; near = 'keepsakeBox'; } }
-      if (this.gardenMeshes.length > 0) {
-        for (let gi = 0; gi < HIDEOUT.gardenPlots.length; gi++) {
-          const gp = HIDEOUT.gardenPlots[gi], d = Math.hypot(gp.x - h.pos.x, gp.z - h.pos.z);
-          if (d < Math.min(nd, 1.8)) { nd = d; near = 'garden_' + gi; }
-        }
-      }
-      this.npcNear = near;
-      this.npcMarks(dt, near);
-      if (near && !this.noTalk && this.inp.b.attack.pressed && !this.dialogue.on) { this.inp.b.attack.pressed = false; void this.npcTalk(near); return; }
     } else { this.npcNear = null; this.hideHideoutLabels(); }
     // the yard: slabs summon sparring partners, the rack swaps the costume, the back road starts a run
     if (this.phase === 'yard' && this.yard) {
@@ -7384,7 +7435,7 @@ export class ActShow {
         fxSmoke(at.clone().add(V3(0, 0.3, 0)), 0x6a6a74, 10, { r: 0.7, spd: 1.2, up: 0.6, s: 0.4, life: 0.7 }); cue(isBoss(f) ? 'roar' : 'summon', 0.6);   // wp/foes: isBoss
         if (isBoss(f)) f.a.roar();
       }
-      if (ev.wear && ev.plinth) {
+      if (!combatNow && ev.wear && ev.plinth) {
         const old = this.wearing; this.wear(ev.wear); this.yard.swap(ev.plinth, old);
         h.pos.z = ev.plinth.z + 1.1; h.a.yaw = 0; fxSmoke(h.pos.clone().setY(0.6), 0x8a8a94, 10, { r: 0.6, spd: 1.2, up: 0.8, s: 0.4, life: 0.6 });
         this.banner.show(ev.wear.name, ev.wear.role || '', 1.2);
@@ -7546,7 +7597,7 @@ export class ActShow {
     }
     // copper coins fly in; act-136 Scheme A stations (clear overhead iron-wood price plaques + J interact + merchant overview)
     { const got = this.coinsFx.update(dt, h.pos); if (got) { this.coins += got; cue('coin', 0.3); this.feed.push('coins', n => msg`铜钱 +${n}`, got); } const prof = profile(); this.hud.coins = this.coins; this.hud.iron = prof.iron; this.hud.herb = prof.herb; }
-    const worldUiClear = !this.cards.on && !this.pause.on && !this.dialogue.on;
+    const worldUiClear = !this.cards.on && !this.pause.on && !this.dialogue.on && !combatNow;
     const minPlateY = this.banner.bottomY > 0 ? this.banner.bottomY + 8 : 10;
     this.L.text.hide('act.station.hint');
     if (this.stations && this.phase === 'doors' && worldUiClear) {
@@ -7840,14 +7891,14 @@ export class ActShow {
         this.banner.show('自动对话', on ? '已开启' : '已关闭', 1.1);
         return;
       }
-      if (!e.repeat && ['Enter', ' ', 'j', 'J'].includes(e.key)) { e.preventDefault(); this.dialogue.advance(); }
+      if (!e.repeat && ['Enter', ' ', 'j', 'J'].includes(e.key)) { e.preventDefault(); this.dialogue.advance(); if (!this.dialogue.on) this.inp.latch(true); }
       return;
     }
     if (!this.cards.on) return;
-    if ((e.key === 'Escape' || e.key === 'Backspace') && !e.repeat && this.cards.leave()) { e.preventDefault(); return; }   // (11-19: a shop page — Esc leaves)
+    if ((e.key === 'Escape' || e.key === 'Backspace') && !e.repeat && this.cards.leave()) { e.preventDefault(); this.inp.latch(true); return; }   // (11-19: a shop page — Esc leaves)
     if ((e.key === 'r' || e.key === 'R') && !e.repeat && this.cards.reroll()) { e.preventDefault(); return; }
     const k = ({ arrowleft: 'left', a: 'left', arrowup: 'up', w: 'up', arrowright: 'right', d: 'right', arrowdown: 'down', s: 'down', enter: 'ok', ' ': 'ok', j: 'ok', q: 'alt', tab: 'alt', e: 'tabNext' } as const)[e.key.toLowerCase() as 'a'];
-    if (k && !e.repeat) { e.preventDefault(); this.cards.key(k); }
+    if (k && !e.repeat) { e.preventDefault(); this.cards.key(k); if (!this.cards.on) this.inp.latch(true); }
   }
   private keyUp(e: KeyboardEvent) {
     if (e.key === 'Escape') {
