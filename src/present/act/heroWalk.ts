@@ -51,7 +51,7 @@ const GAIT = new WeakMap<object, Gait>();
 /** after the pose: re-place the legs for a walk. pos = where she is (the actor's home), yaw her facing, t her clock, run = 0..1 of top
  *  speed she is moving at (the controller's / the cutscene's), allow = 0..1 how far the walk may take over (0 in an action, the air…),
  *  treadmill = optional virtual forward speed (m/s) used by the ?anim treadmill preview where pos stays fixed */
-export function stepWalk(self: object, b: Bones, pos: THREE.Vector3, yaw: number, t: number, run: number, allow: number, treadmill = 0): { w: number; ph: number } {
+export function stepWalk(self: object, b: Bones, pos: THREE.Vector3, yaw: number, t: number, run: number, allow: number, treadmill = 0, sprintPhase?: number): { w: number; ph: number } {
   let g = GAIT.get(self);
   if (!g) { g = { ph: 0, x: pos.x, z: pos.z, sp: 0, w: 0, t }; GAIT.set(self, g); }
   const dt = Math.max(0, Math.min(0.1, t - g.t)); g.t = t;
@@ -63,13 +63,19 @@ export function stepWalk(self: object, b: Bones, pos: THREE.Vector3, yaw: number
   g.sp += ((dt > 0 ? v : g.sp) - g.sp) * (1 - Math.exp(-dt / 0.08));
   const hips = b.hips, shin = b.shinL, ft = b.footL; if (!hips?.rest || !shin || !ft) return { w: 0, ph: g.ph };
   const stand = hips.rest.p.y, T = Math.abs(shin.rest?.p.y ?? 0.35), S = Math.abs(ft.rest?.p.y ?? 0.28), LEG = T + S;
-  // how much of the legs the walk takes: moving, not yet running, nothing else on — eased in and out
-  const want = allow * smooth(g.sp / 0.12) * (1 - smooth((run - 0.56) / 0.18));
-  g.w += (want - g.w) * (1 - Math.exp(-dt / 0.07));
-  if (g.w < 0.002) return { w: 0, ph: g.ph };
-  // one stride cycle (two steps) in metres: poised natural stride (not an over-wide crouched limp)
+  // Only engage slow-walk IK during genuine slow walking (≤ ~2.4 m/s & run < 0.52), NEVER during sprint ramp-up!
+  const walkSpeedOk = 1 - smooth((Math.max(g.sp, v) - 2.2) / 0.7);
+  const want = allow * smooth(g.sp / 0.14) * walkSpeedOk * (1 - smooth((run - 0.48) / 0.14));
+  g.w += (want - g.w) * (1 - Math.exp(-dt / (want < g.w ? 0.035 : 0.07)));
+  if (g.w < 0.01) {
+    g.w = 0;
+    if (sprintPhase != null) g.ph = wrap((sprintPhase - Math.PI / 2) / (Math.PI * 2));
+    return { w: 0, ph: g.ph };
+  }
+  // one stride cycle (two steps) in metres: poised natural stride (cap step-rate so walk IK can never frantic-stomp)
   const q = clamp(g.sp / 2.2), stride = stand * mix(1.05, 1.38, q);
-  g.ph = wrap(g.ph + d / stride);
+  const maxStep = dt * 2.4;
+  g.ph = wrap(g.ph + Math.min(d / stride, maxStep));
   const duty = mix(0.58, 0.54, q), lift = stand * mix(0.065, 0.105, q);
   const fL = foot(g.ph, duty, stride, lift), fR = foot(wrap(g.ph + 0.5), duty, stride, lift);
   // where the movement points relative to her facing (she can walk a little sideways in a cutscene)

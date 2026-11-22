@@ -44,31 +44,49 @@ const ELITE_RIM = 0xe8b642, ELITE_BACK = 0x161114, ELITE_FILL = 0xea5624, ELITE_
 const box = (c: number, o = 1) => new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: c, transparent: o < 1, opacity: o, depthWrite: false }));
 /** act-19 (user: 「敌人的血条怎么也是3d的，都穿帮了，能看到垫后面的白色」): flat cards in one plane, stacked by draw order only */
 const flat = (c: number) => new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: c, depthWrite: false, depthTest: false }));
-/** the off-screen marker: three nested arcs (a sound wave) opening toward +x, red, pixel-drawn */
+/** Crisp pixel-art directional triangle arrow pointing toward +x (rotated inward toward the player on screen edges). */
 let ARC_TEX: THREE.Texture | null = null;
 let ARC_HOT_TEX: THREE.Texture | null = null;
-function arcTex() {
-  if (ARC_TEX) return ARC_TEX;
+function paintTriArrow(hot: boolean) {
   const c = document.createElement('canvas'); c.width = c.height = 32; const g = c.getContext('2d')!;
-  for (const [r, a] of [[5, 1], [9, 0.75], [13, 0.5]] as const) for (let y = 0; y < 32; y++) for (let x = 0; x < 32; x++) {
-    const dx = x + 0.5 - 8, dy = y + 0.5 - 16, d = Math.hypot(dx, dy), ang = Math.abs(Math.atan2(dy, dx));
-    if (Math.abs(d - r) < 1.1 && ang < 0.75) { g.fillStyle = `rgba(255,86,58,${a})`; g.fillRect(x, y, 1, 1); } }
-  const t = new THREE.CanvasTexture(c); t.magFilter = t.minFilter = THREE.NearestFilter; t.generateMipmaps = false; ARC_TEX = t; return t;
-}
-/** act-113: high-danger off-screen sound wave (off-screen foe winding up / lunging): pixel-drawn bright white-gold + amber arcs + alert diamond */
-function arcHotTex() {
-  if (ARC_HOT_TEX) return ARC_HOT_TEX;
-  const c = document.createElement('canvas'); c.width = c.height = 32; const g = c.getContext('2d')!;
-  const rings: Array<[number, string]> = [[5, 'rgba(255,252,224,1)'], [9, 'rgba(255,214,88,0.95)'], [13, 'rgba(255,134,42,0.85)']];
-  for (const [r, col] of rings) for (let y = 0; y < 32; y++) for (let x = 0; x < 32; x++) {
-    const dx = x + 0.5 - 8, dy = y + 0.5 - 16, d = Math.hypot(dx, dy), ang = Math.abs(Math.atan2(dy, dx));
-    if (Math.abs(d - r) < 1.25 && ang < 0.82) { g.fillStyle = col; g.fillRect(x, y, 1, 1); }
+  g.imageSmoothingEnabled = false;
+  // Crisp symmetric pixel triangle (notched base at x=4..8, sharp tip at x=29, half-height up to 12.5px)
+  const outline = hot ? '#260a06' : '#180808';
+  const fill = hot ? '#ffbe38' : '#ee3a2c';
+  const hi = hot ? '#fff8d0' : '#ff9a82';
+  const shade = hot ? '#d47418' : '#a41c18';
+  const inside = (x: number, y: number, pad = 0) => {
+    const dy = Math.abs(y - 15.5);
+    const tipX = 29 + pad;
+    const baseX = 4 - pad;
+    if (x > tipX || x < baseX) return false;
+    const u = (tipX - x) / Math.max(1, tipX - baseX); // 0 at tip, 1 at base
+    const halfH = (12.5 + pad * 1.15) * u;
+    if (dy > halfH) return false;
+    // Slight inward chevron notch at the back so direction is unmistakable at any rotation
+    const notch = Math.max(0, 4.2 - dy * 0.45);
+    return x >= baseX + notch - pad * 0.5;
+  };
+  for (let y = 0; y < 32; y++) for (let x = 0; x < 32; x++) {
+    if (inside(x, y, 0)) {
+      const dy = y - 15.5;
+      const isCore = hot && x >= 13 && x <= 23 && Math.abs(dy) <= (24 - x) * 0.36;
+      g.fillStyle = isCore ? '#ffffff' : dy < -2 ? hi : dy > 3 ? shade : fill;
+      g.fillRect(x, y, 1, 1);
+    } else if (inside(x, y, 2)) {
+      g.fillStyle = outline;
+      g.fillRect(x, y, 1, 1);
+    }
   }
-  // crisp 3x3 pixel diamond focus at the wave's source
-  g.fillStyle = '#ffffff';
-  g.fillRect(4, 15, 3, 2); g.fillRect(5, 14, 1, 4);
-  const t = new THREE.CanvasTexture(c); t.magFilter = t.minFilter = THREE.NearestFilter; t.generateMipmaps = false; ARC_HOT_TEX = t; return t;
+  const t = new THREE.CanvasTexture(c);
+  t.magFilter = t.minFilter = THREE.NearestFilter;
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.generateMipmaps = false;
+  return t;
 }
+function arcTex() { return ARC_TEX ?? (ARC_TEX = paintTriArrow(false)); }
+/** High-danger off-screen arrow (foe winding up / lunging): bright gold-white pulsing pixel triangle. */
+function arcHotTex() { return ARC_HOT_TEX ?? (ARC_HOT_TEX = paintTriArrow(true)); }
 
 /** forged-iron horizontal dock rail behind the 4 compact console/PC skill medallions (unit width = 1, height = 1 in local coords) */
 function makeDockRail(): THREE.Group {
@@ -613,18 +631,28 @@ export class ActHud {
     }
     for (const [uid, b] of this.bars) if (!live.has(uid)) { b.g.parent?.remove(b.g); this.bars.delete(uid); }
     for (const uid of [...this.eliteTags]) if (!liveElites.has(uid)) { this.L.text.hide('act.el.' + uid); this.eliteTags.delete(uid); }
-    // act-19 / act-113 / act-114: off-screen foes show a red sound wave on the edge; foes winding up / lunging upgrade to an urgent gold-white high-danger wave + spatialized audio glint
-    let nm = 0; const W = this.L.w, H = this.L.h, pad = 30 * this.k, nowMs = performance.now();
+    // Off-screen foes: crisp pixel triangle arrow on the screen edge pointing INWARD toward the player (gold-white pulse when attacking)
+    let nm = 0; const W = this.L.w, H = this.L.h, pad = 26 * this.k, nowMs = performance.now();
+    const hpUi = worldToUi(this.heroAt.clone().setY(1));
+    const hx = hpUi.z < 1 ? Math.max(pad * 2, Math.min(W - pad * 2, hpUi.x)) : W / 2;
+    const hy = hpUi.z < 1 ? Math.max(pad * 2, Math.min(H - pad * 2, hpUi.y)) : H / 2;
     const hotNow = new Set<number>();
     for (const f of foes) {
       if (f.st === 'dead' || f.kind === 'dummy' || nm >= 10) continue;
       const q = worldToUi(f.pos.clone().setY(1)); if (q.z < 1 && q.x > 0 && q.x < W && q.y > 0 && q.y < H) continue;
-      let dx = q.x - W / 2, dy = q.y - H / 2; if (q.z >= 1) { dx = -dx; dy = -dy; }
-      const s = Math.min((W / 2 - pad) / Math.max(1e-3, Math.abs(dx)), (H / 2 - pad) / Math.max(1e-3, Math.abs(dy))), x = W / 2 + dx * s, y = H / 2 + dy * s;
-      let m = this.marks[nm]; if (!m) { m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: arcTex(), transparent: true, depthWrite: false, depthTest: false })); m.renderOrder = 43; this.L.scene.add(m); this.marks.push(m); }
+      let dx = q.x - hx, dy = q.y - hy; if (q.z >= 1) { dx = -dx; dy = -dy; }
+      const sX = dx > 1e-3 ? (W - pad - hx) / dx : dx < -1e-3 ? (pad - hx) / dx : 1e9;
+      const sY = dy > 1e-3 ? (H - pad - hy) / dy : dy < -1e-3 ? (pad - hy) / dy : 1e9;
+      const s = Math.min(sX, sY);
+      const len = Math.max(1e-3, Math.hypot(dx, dy));
+      const inX = -dx / len, inY = -dy / len;
       const dist = Math.hypot(f.pos.x - this.heroAt.x, f.pos.z - this.heroAt.z), near = Math.max(0, Math.min(1, 1 - (dist - 6) / 14));
       const danger = f.st === 'windup' || (f.st === 'strike' && !!f.lunge);
       const imminent = f.st === 'windup' && (f.dur - f.t) < 0.38;
+      // Subtle inward lunge pulse toward the player so approaching foes read immediately
+      const nudge = (danger ? 4.5 : 2.5 * (0.4 + 0.6 * near)) * this.k * (0.5 + 0.5 * Math.sin(nowMs / (danger ? 65 : 150)));
+      const x = hx + dx * s + inX * nudge, y = hy + dy * s + inY * nudge;
+      let m = this.marks[nm]; if (!m) { m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: arcTex(), transparent: true, depthWrite: false, depthTest: false })); m.renderOrder = 43; this.L.scene.add(m); this.marks.push(m); }
       if (danger && this.on) {
         hotNow.add(f.uid);
         if (!this.offDanger.has(f.uid)) {
@@ -636,9 +664,11 @@ export class ActHud {
       const wantTex = danger ? arcHotTex() : arcTex();
       if (mat.map !== wantTex) { mat.map = wantTex; mat.needsUpdate = true; }
       this.L.at(x, y, 0, m.position);
-      const sz = danger ? (34 + 10 * near + (imminent ? 5 : 0)) : (26 + 10 * near);
-      m.scale.setScalar(this.L.px(sz * this.k)); m.rotation.z = -Math.atan2(dy, dx);
-      mat.opacity = danger ? (0.72 + 0.28 * Math.sin(nowMs / (imminent ? 38 : 65))) : (0.45 + 0.5 * near * (0.8 + 0.2 * Math.sin(nowMs / 160)));
+      const sz = danger ? (40 + 10 * near + (imminent ? 6 : 0)) : (32 + 10 * near);
+      m.scale.setScalar(this.L.px(sz * this.k));
+      // Three.js UI +Y is up while screen +y is down: inward vector (inX, -inY) -> atan2(-inY, inX) = atan2(dy, -dx)
+      m.rotation.z = Math.atan2(dy, -dx);
+      mat.opacity = danger ? (0.82 + 0.18 * Math.sin(nowMs / (imminent ? 38 : 65))) : (0.68 + 0.30 * near);
       m.visible = this.on; nm++;
     }
     this.offDanger = hotNow;

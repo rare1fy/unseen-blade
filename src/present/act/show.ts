@@ -3239,6 +3239,7 @@ export class ActShow {
   }
   private buildRoom(first: boolean) { return runRoomBuild(this.roomSteps(first)); }
   private *roomSteps(first: boolean): Generator<void | Promise<void>, void> {
+    this.hideWorldPlates();
     blood.clear();
     slashArc.clear();
     this.cancelQte();
@@ -6633,6 +6634,7 @@ export class ActShow {
   }
   private leave(i: number) {
     if (this.phase !== 'doors') return;
+    this.hideWorldPlates();
     this.phase = 'leaving'; audio.stopSting(1.2); const d = this.doors[i], next = this.nextRooms[i];
     const chosen = this.ahead.find(job => job.plan === next);
     this.dropAhead(chosen);
@@ -7498,10 +7500,11 @@ export class ActShow {
       this.merchantNear = false;
       this.worldPlates.hidePrefix('st.');
     }
-    // act-136: Occluded-treasure full-res UI marker badges (paired with puzzles.ts setPropOcc silhouette)
+    // act-136: Occluded-treasure full-res UI marker badges (always clear stale indices from prior rooms first!)
+    this.worldPlates.hidePrefix('tr.');
     if (this.pieces && worldUiClear) {
       this.pieces.rewards.forEach((r, idx) => {
-        if (r.taken) { this.worldPlates.hide('tr.' + idx); return; }
+        if (r.taken) return;
         const pt = worldToUi(V3(r.x, r.tier === 'mythic' ? 1.85 : 1.65, r.z));
         this.worldPlates.setTag('tr.' + idx, {
           text: r.tier === 'mythic' ? '传世秘藏' : '秘藏',
@@ -7511,69 +7514,73 @@ export class ActShow {
           x: pt.x, y: pt.y, minY: minPlateY, visible: pt.z < 1,
         });
       });
-    } else {
-      this.worldPlates.hidePrefix('tr.');
     }
-    // doors: the boards rise + full-res UI route plaques above open exit gates; stepping onto a gate's gold leaves
+    // doors: the boards rise + plain-language UI route plaques cleanly above open exit gates; stepping onto a gate's gold leaves
+    this.worldPlates.hidePrefix('door.');
     if (this.phase === 'doors') {
+      const doorArch = (a: Archetype): { name: string; sub: string } => (
+        a === 'blood' ? { name: '流血吸血', sub: '清怪三选一：流血叠伤与击杀回血' } :
+        a === 'poise' ? { name: '重击破防', sub: '清怪三选一：更快破盾与重斩增伤' } :
+        a === 'shadow' ? { name: '飞镖暗器', sub: '清怪三选一：多镖齐射与定身控制' } :
+        { name: '闪避连招', sub: '清怪三选一：穿身斩与空中连击' }
+      );
       this.doors.forEach((d, i) => {
         d.lift = Math.min(1, d.lift + dt * 2.2); d.g.position.y = -2.4 * (1 - d.lift) ** 2;
         const plan = this.nextRooms[i];
         if (worldUiClear && plan && d.lift > 0.35) {
-          const info = roomInfo(plan.type, plan.region ?? this.region);
           const rw = plan.reward;
           const archKey = rw?.k === 'boon' ? rw.arch : undefined;
           const arch = archKey ? ARCH_INFO[archKey] : null;
-          // Hades-2 door reward emblem & currency value clarity — raised cleanly ABOVE the 3D route board so it never blocks the sign model!
-          let title = info.name;
+          const da = archKey ? doorArch(archKey) : null;
+          // Plain-language route plaque raised cleanly ABOVE the 3D wooden board so room type & payoff read in 1 second!
+          let title = '普通战斗';
           let sub = '';
           let ico: MiniIcon = 'door';
           let acc = '#b89460';
           if (plan.type === 'boss') {
-            title = info.name; sub = '决战关底首领'; ico = 'boss'; acc = '#e83c30';
+            title = '关底BOSS'; sub = '击败首领后进入下一关'; ico = 'boss'; acc = '#e83c30';
           } else if (plan.type === 'elite') {
-            title = arch ? msg`${arch.name}·珍绝` : '珍绝秘传';
-            sub = '死士恶战 · 高阶流派';
+            title = da ? msg`精英战 · 高阶${da.name}` : '精英战 · 高阶技能';
+            sub = da ? msg`强敌战斗，胜利必得高阶${da.name}技能` : '强敌战斗，胜利必得高阶技能三选一';
             ico = archKey ?? 'scroll'; acc = arch ? arch.col : '#e84838';
-            if (rw?.k === 'up') { title = '秘传升阶'; sub = '死士恶战 · 已得秘传升一阶'; ico = 'scroll'; acc = '#ffe08a'; }
-            else if (rw?.k === 'coins') { title = msg`铜钱 +${rw.n}`; sub = '死士恶战 · 重赏铜钱'; ico = 'coin'; acc = '#ffd258'; }
+            if (rw?.k === 'up') { title = '精英战 · 升级技能'; sub = '强敌战斗，胜利后把已学技能升阶变强'; ico = 'scroll'; acc = '#ffe08a'; }
+            else if (rw?.k === 'coins') { title = msg`精英战 · 铜钱 +${rw.n}`; sub = '强敌战斗，赢取大量铜钱去商店买强化'; ico = 'coin'; acc = '#ffd258'; }
           } else if (plan.type === 'event') {
-            title = info.name; sub = '名将信物 · 常驻加护'; ico = 'star'; acc = '#f0bc48';
+            title = '名将奇遇'; sub = '完成试炼，获得强力常驻加成'; ico = 'star'; acc = '#f0bc48';
           } else if (plan.type === 'boon') {
-            title = '珍品遗卷'; sub = this.scrollGives(plan.region ?? this.region) === 'up' ? '已得秘传升一阶' : '不战自得高阶秘传'; ico = 'scroll'; acc = '#58d8a8';   // (act-163: a full hand)
+            const isUp = this.scrollGives(plan.region ?? this.region) === 'up';
+            title = isUp ? '免费升级技能' : '免费领高阶技能';
+            sub = isUp ? '不用打怪，直接把已有技能升阶' : '不用打怪，直接三选一高阶技能';
+            ico = 'scroll'; acc = '#58d8a8';
           } else if (plan.type === 'shop') {
-            title = '行商'; sub = '花铜钱买秘传/升阶'; ico = 'coin'; acc = '#f0b848';
+            title = '商店'; sub = '花铜钱买新技能、升阶或回血'; ico = 'coin'; acc = '#f0b848';
           } else if (plan.type === 'rest') {
-            title = '歇脚'; sub = '免费回血 · 磨刀 · 蓄锐'; ico = 'fire'; acc = '#ff9848';
+            title = '营火休整'; sub = '免费选一项：回血 / 升级技能 / 加攻'; ico = 'fire'; acc = '#ff9848';
           } else if (rw?.k === 'boon') {
-            title = arch ? msg`${arch.name}秘传` : '流派秘传';
-            sub = arch ? msg`${info.name} · 2件${arch.b2}` : info.name;
+            title = da ? msg`战斗 · ${da.name}` : '战斗 · 选新技能';
+            sub = da ? da.sub : '清怪后三选一新技能强化';
             ico = archKey ?? 'scroll'; acc = arch ? arch.col : '#ffd27a';
           } else if (rw?.k === 'coins') {
-            title = msg`铜钱 +${rw.n}`; sub = '行商买秘传与气血'; ico = 'coin'; acc = '#ffd258';
+            title = msg`战斗 · 铜钱 +${rw.n}`; sub = '清怪得铜钱，用于商店买技能与回血'; ico = 'coin'; acc = '#ffd258';
           } else if (rw?.k === 'maxHp') {
-            title = msg`气血上限 +${rw.n}`; sub = '本局永久增血'; ico = 'heal'; acc = '#78f09c';
+            title = msg`战斗 · 血量上限 +${rw.n}`; sub = '清怪后本局永久加血量并回血'; ico = 'heal'; acc = '#78f09c';
           } else if (rw?.k === 'meta') {
-            title = msg`残铁+${rw.iron} 药引+${rw.herb}`; sub = '回古窑永久锻刀行针'; ico = 'meta'; acc = '#c8a8ff';
+            title = msg`战斗 · 铁料+${rw.iron} 药草+${rw.herb}`; sub = '局外材料，回营地永久升刀与强化'; ico = 'meta'; acc = '#c8a8ff';
           } else if (rw?.k === 'heal') {
-            title = '回血休整'; sub = '恢复两成气血'; ico = 'heal'; acc = '#68e498';
+            title = '战斗 · 恢复血量'; sub = '清怪后回复两成生命值'; ico = 'heal'; acc = '#68e498';
           } else if (rw?.k === 'manual') {
-            title = '武器刀谱'; sub = '解锁本武器专属派生'; ico = 'blade'; acc = '#ffe488';
+            title = '战斗 · 学新招式'; sub = '清怪后解锁新的武器连招动作'; ico = 'blade'; acc = '#ffe488';
           }
-          const pt = worldToUi(V3(d.g.position.x, d.g.position.y + 4.15, d.g.position.z));
+          const pt = worldToUi(V3(d.g.position.x, d.g.position.y + 4.35, d.g.position.z));
           this.worldPlates.setTag('door.' + i, {
             text: title, sub, icon: ico, emblem: true, color: '#fff6da', accent: acc,
             x: pt.x, y: pt.y, minY: minPlateY, visible: pt.z < 1,
           });
-        } else {
-          this.worldPlates.hide('door.' + i);
         }
         if (this.phase !== 'doors') return;
         const p = h.pos, l = d.ex.lane, bk = d.ex.dir[1] < 0, out = bk ? p.z < PLAY.z0 - 1.2 : d.ex.dir[0] < 0 ? p.x < PLAY.x0 - 1.2 : p.x > PLAY.x1 + 1.2;
         if (this.gates?.onGlow(p, d.ex.id) || (out && p.x > l.x0 - 0.4 && p.x < l.x1 + 0.4 && p.z > l.z0 - (bk ? 6 : 0.4) && p.z < l.z1 + 0.4)) this.leave(i);
       });
-    } else {
-      this.worldPlates.hidePrefix('door.');
     }
     // the camera: follows the hero with a little lead, held inside the room
     // the lead follows the run, capped at running speed (a dash or a knock-back no longer throws the view forward)

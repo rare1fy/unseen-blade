@@ -72,7 +72,7 @@ const DART_T = 0.2, DART_REL = 0.06;
 /** act-27: holding the dart button this long turns the throw into an aimed one */
 const AIM_T = 0.2;
 /** 穿风斩: the whole move and its dash part (s) */
-const DCUT_T = 0.42, DCUT_MOVE = 0.17;
+const DCUT_T = 0.38, DCUT_MOVE = 0.13;
 /** 11-18: the crouch before a jump leaves the ground (s) — act-109: 0.1 → 0.04 so jumping feels instant while keeping the visual dip */
 const JUMP_SQUAT = 0.04;
 /** the sheathing after 见切 (s), and the moment the blade clicks home (fraction of it) */
@@ -296,7 +296,7 @@ export class Hero {
   tutFullCharge() { this.heldFull = 0; if (this.st === 'charge') this.chargeK = 1; }
   tutReadyDash() { this.dashCd = 0; }
   get airborne() { return this.y > 0.01; }
-  get iframe() { return this.inv > 0 || (this.st === 'dash' && this.t < TUNE.dashIframe) || (this.st === 'rel' && this.t < this.dur * 0.55) || (this.st === 'dcut' && this.t < DCUT_MOVE + 0.05)
+  get iframe() { return this.inv > 0 || (this.st === 'dash' && this.t < TUNE.dashIframe) || (this.st === 'rel' && this.t < this.dur * 0.55) || (this.st === 'dcut' && this.t < DCUT_MOVE)
     // 11-18: 掠地's dive and 牵红 pulling her to a big one pass through blows like a dash (no blinking inv for them)
     || (this.st === 'swoop' && this.t < SWOOP_MOVE + 0.05) || (this.st === 'reel' && this.reelSelf); }
   private set(st: HSt, dur: number) { this.st = st; this.t = 0; this.dur = dur; this.hitDone = false; this.hit2Done = false; this.hits = 0; }

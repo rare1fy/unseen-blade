@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { toon } from '../look/toon';
 import { icon, text as pixText, textW as pixTextW, PIX_H } from '../v2/overlay';
 import { bodyText, bodyW, onBodyFontChange } from '../ui3d/bodyFont';
-import { roomInfo, type RoomPlan } from './run';
+import { type RoomPlan } from './run';
 import { ARCH_INFO } from './boons';
 import { SCROLL_GLYPH } from './manuals';
 
@@ -35,16 +35,33 @@ const BOARD_THEME: Record<string, { band: string; title: string; acc: string }> 
   fight: { band: '#a87d50', title: INK, acc: ACC },
 };
 
+const BOARD_ARCH: Record<string, string> = {
+  blood: '流血吸血',
+  poise: '重击破防',
+  shadow: '飞镖暗器',
+  gale: '闪避连招',
+};
+
+function boardTitle(p: RoomPlan): string {
+  if (p.type === 'boss') return 'BOSS';
+  if (p.type === 'elite') return '精英战';
+  if (p.type === 'shop') return '商店';
+  if (p.type === 'rest') return '营火';
+  if (p.type === 'boon') return '免费领';
+  if (p.type === 'event') return '奇遇';
+  return '战斗';
+}
+
 function boardSub(p: RoomPlan, place: string, scrollUp = false): string {
   const r = p.reward;
-  if (p.type === 'elite') return r?.k === 'up' ? '秘传升阶' : r?.k === 'coins' ? msg`铜钱 ${r.n}` : r?.k === 'boon' && r.arch ? msg`${ARCH_INFO[r.arch].name}·珍绝` : '珍绝秘传';
-  if (p.type === 'boss') return '终战';
-  if (p.type === 'event') return '信物·加护';
-  if (p.type === 'boon') return scrollUp ? '秘传升阶' : '稀世遗卷';   // act-163: a full hand reads the scroll as an upgrade
-  if (p.type === 'shop') return '四摊百货';
-  if (p.type === 'rest') return '调息三选';
-  if (r?.k === 'boon') return r.arch ? msg`${ARCH_INFO[r.arch].name}秘传` : '秘传';
-  return r?.k === 'coins' ? msg`铜钱 ${r.n}` : r?.k === 'maxHp' ? msg`气血+${r.n}` : r?.k === 'meta' ? '残铁药引' : r?.k === 'heal' ? '回血' : r?.k === 'manual' ? '刀谱' : place;
+  if (p.type === 'elite') return r?.k === 'up' ? '升级技能' : r?.k === 'coins' ? msg`铜钱 ${r.n}` : r?.k === 'boon' && r.arch ? (BOARD_ARCH[r.arch] ?? '高阶技能') : '高阶技能';
+  if (p.type === 'boss') return '关底首领';
+  if (p.type === 'event') return '常驻加成';
+  if (p.type === 'boon') return scrollUp ? '升级技能' : '高阶技能';
+  if (p.type === 'shop') return '买技能回血';
+  if (p.type === 'rest') return '免费休整';
+  if (r?.k === 'boon') return r.arch ? (BOARD_ARCH[r.arch] ?? '选新技能') : '选新技能';
+  return r?.k === 'coins' ? msg`铜钱 ${r.n}` : r?.k === 'maxHp' ? msg`血量+${r.n}` : r?.k === 'meta' ? '营地材料' : r?.k === 'heal' ? '恢复血量' : r?.k === 'manual' ? '学新招式' : place;
 }
 
 function face(p: RoomPlan, place: string, scrollUp = false) {
@@ -54,11 +71,11 @@ function face(p: RoomPlan, place: string, scrollUp = false) {
   const paint = () => {
     g.setTransform(S, 0, 0, S, 0, 0);
     g.fillStyle = WOOD; g.fillRect(0, 0, W, H);
-    // act-122: colored top header band differentiates high-risk/high-reward forks (死士/遗卷/行商/歇脚/渠帅)
+    // act-122: colored top header band differentiates high-risk/high-reward forks
     g.fillStyle = theme.band; g.fillRect(4, 4, W - 8, 30);
     g.fillStyle = WOOD_D; g.fillRect(0, 34, W, 2); g.fillRect(0, 68, W, 2); g.fillRect(0, 0, W, 4); g.fillRect(0, H - 4, W, 4); g.fillRect(0, 0, 4, H); g.fillRect(W - 4, 0, 4, H);
     icon(g, GLYPH[p.type], 10, 8, 5, { main: p.type === 'fight' ? INK : theme.title, acc: theme.acc, dark: INK });
-    const rawTitle = roomInfo(p.type, p.region ?? 0).name;
+    const rawTitle = boardTitle(p);
     const title = language === 'en' ? localize(rawTitle) : rawTitle;
     const r = p.reward;
     const archCol = r?.k === 'boon' && r.arch ? ARCH_INFO[r.arch].col : null;

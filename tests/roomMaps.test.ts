@@ -351,17 +351,29 @@ describe('drawn rooms', () => {
     expect(prize.beam.visible).toBe(true);
     expect(prize.gem.visible).toBe(true);
     g.dispose();
-    // Verify per-visit random treasure roll varies spawn presence & rolls both gold and mythic tiers
+    // Verify per-visit random treasure roll varies spawn presence, couples puzzle mechanisms to rewards, and rolls both gold and mythic tiers
     const m = MAP_BY_ID.hj_granary; mapStage(m);
     const sp = mapShape(m);
-    let empties = 0, golds = 0, mythics = 0;
+    let empties = 0, golds = 0, mythics = 0, zeroRew = 0;
     for (let roll = 1; roll <= 40; roll++) {
       const rp = new RoomPieces(new THREE.Group(), sp, new FloorGrid(sp), 'wattle', m.seed, false, roll * 7919);
       if (rp.rewards.length < 2) empties++;
-      for (const r of rp.rewards) { if (r.tier === 'mythic') mythics++; else golds++; }
+      // Whenever a secret alcove has no reward, its puzzle mechanisms must NOT spawn!
+      const puzBarriers = rp.pieces.filter(p => p.kind !== 'door').length;
+      expect(puzBarriers).toBe(rp.rewards.length);
+      if (rp.rewards.length === 0) {
+        zeroRew++;
+        expect(rp.plates.length).toBe(0);
+        expect(rp.bells.length).toBe(0);
+      }
+      for (const r of rp.rewards) {
+        expect(r.beam.visible && r.xrayBeam.visible && r.gem.visible).toBe(true);
+        if (r.tier === 'mythic') mythics++; else golds++;
+      }
       rp.dispose();
     }
     expect(empties).toBeGreaterThan(0);
+    expect(zeroRew).toBeGreaterThan(0);
     expect(golds).toBeGreaterThan(0);
     expect(mythics).toBeGreaterThan(0);
   });

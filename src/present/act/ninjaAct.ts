@@ -1502,10 +1502,14 @@ const heroHook = (b: Record<string, Bone>, t: number, a: Action | null, off: THR
     }
   }
   // 11-19 (用户：「开场雪地剧情走路像在走滑步」): below a run the legs step by the ground she covers, the planted foot fixed (heroWalk.ts)
+  // Exclude sprint startup (m.start) and ONLY sync m.phase back from walk IK while walk IK actually dominates (prevents 3x rapid-stomp on sprint launch!)
   if (!falling && m && self0) {
-    const allow = !a && !inAir ? 1 - Math.min(1, Math.max(m.squat, m.land, m.brake, m.skid, m.flip, m.creep, m.charge > 0 ? 1 : 0)) : 0;
-    const g = stepWalk(self0, b, self0.home, self0.yaw, t, m.run, allow, m.treadmill ?? 0);
-    if (g.w > 0) { off.y -= bounce * g.w; m.phase = g.ph * TAU + Math.PI / 2; }   // (the hip sway and the arms of the old pose keep in step)
+    const allow = !a && !inAir ? 1 - Math.min(1, Math.max(m.squat, m.land, m.brake, m.skid, m.start, m.flip, m.creep, m.charge > 0 ? 1 : 0)) : 0;
+    const g = stepWalk(self0, b, self0.home, self0.yaw, t, m.run, allow, m.treadmill ?? 0, m.phase);
+    if (g.w > 0) {
+      off.y -= bounce * g.w;
+      if (g.w > 0.5 && m.run < 0.52) m.phase = g.ph * TAU + Math.PI / 2;
+    }
   }
   // act-21 (user: 「人物为啥手掌是这样的，往下吊着的」): apply() aims the left hand in world space (the ninja's kunai) — for an empty
   // hand that left it pointing down off a folded forearm like a limp wrist. The blind swordsmen's left hand follows its forearm,

@@ -135,7 +135,7 @@ interface Piece {
 }
 interface Drop { rect: Rect; post: [number, number]; pivot: THREE.Group; rope: THREE.Mesh; axis: 'x' | 'z'; sign: number; t: number; down: boolean; passable?: boolean; hintT: number }
 interface Bell { x: number; z: number; g: THREE.Group; bell: THREE.Group; note: number; swing: number; halo: THREE.Mesh }
-interface Reward { x: number; z: number; g: THREE.Group; beam: THREE.Mesh; halo: THREE.Mesh; gem: THREE.Mesh; tier: RewardTier; taken: boolean; t: number }
+interface Reward { x: number; z: number; g: THREE.Group; beam: THREE.Mesh; xrayBeam: THREE.Mesh; halo: THREE.Mesh; gem: THREE.Mesh; tier: RewardTier; taken: boolean; t: number }
 interface Plate { x: number; z: number; slab: THREE.Group; seal: THREE.Mesh; timer: THREE.Mesh; gate: Piece; down: boolean; grace: number; hint: number }
 interface Causeway { rect: Rect; water: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshLambertMaterial>; deck: THREE.Group; passable?: boolean }
 interface Wheel { x: number; z: number; rim: THREE.Mesh; pips: THREE.Mesh[]; paths: Causeway[]; blows: number[]; drain: number; bubbles: number; hint: number }
@@ -224,37 +224,102 @@ export class RoomPieces {
     const fx = sp.fixed!;
     const zoneAt = (x: number, z: number) => { const i = grid.ix(x), j = grid.iz(z); return i < 0 || j < 0 || i >= grid.nx || j >= grid.nz ? -1 : this.zone0[j * grid.nx + i]; };
     const size = new Map<number, number>(); for (const v of this.zone0) if (v >= 0) size.set(v, (size.get(v) ?? 0) + 1);
-    for (const q of fx.closed) {
-      yield;
+    const closedSides = (q: Rect): { run: 'x' | 'z'; sides: [number, number] } => {
       const cx = (q.x0 + q.x1) / 2, cz = (q.z0 + q.z1) / 2;
       const zA = zoneAt(cx, q.z0 - 0.25), zB = zoneAt(cx, q.z1 + 0.25), xA = zoneAt(q.x0 - 0.25, cz), xB = zoneAt(q.x1 + 0.25, cz);
-      const run: 'x' | 'z' = zA >= 0 && zB >= 0 ? 'z' : 'x', sides: [number, number] = run === 'z' ? [zA, zB] : [xA, xB];
-      // (a wall / a barricade stands flush with the bigger side's wall line, so from there it reads as the wall going on)
+      const run: 'x' | 'z' = zA >= 0 && zB >= 0 ? 'z' : 'x';
+      return { run, sides: run === 'z' ? [zA, zB] : [xA, xB] };
+    };
+    const sunkZones = (s: Rect): number[] => {
+      const zs = new Set<number>();
+      const add = (x: number, z: number) => { const v = zoneAt(x, z); if (v >= 0) zs.add(v); };
+      const cx = (s.x0 + s.x1) / 2, cz = (s.z0 + s.z1) / 2;
+      for (const x of [s.x0 + 0.25, cx, s.x1 - 0.25]) { add(x, s.z0 - 0.3); add(x, s.z1 + 0.3); }
+      for (const z of [s.z0 + 0.25, cz, s.z1 - 0.25]) { add(s.x0 - 0.3, z); add(s.x1 + 0.3, z); }
+      return [...zs];
+    };
+    // Main progression zones (entry + exits + zones linked by normal progression doors): never treated as empty secret alcoves
+    const mainZones = new Set<number>();
+    {
+      const ez = zoneAt(sp.enter[0], sp.enter[1]); if (ez >= 0) mainZones.add(ez);
+      for (const ex of fx.exits) {
+        const dx = ex.side === 'left' ? 1 : ex.side === 'right' ? -1 : 0;
+        const dz = ex.side === 'back' ? 1 : 0;
+        for (const step of [0, 0.4, 0.8, 1.2]) {
+          const v = zoneAt(ex.x + dx * step, ex.z + dz * step);
+          if (v >= 0) { mainZones.add(v); break; }
+        }
+      }
+      let grew = true;
+      while (grew) {
+        grew = false;
+        for (const q of fx.closed) if (q.kind === 'door') {
+          const { sides: [a, b] } = closedSides(q);
+          if (a >= 0 && b >= 0 && (mainZones.has(a) !== mainZones.has(b))) {
+            mainZones.add(a); mainZones.add(b); grew = true;
+          }
+        }
+      }
+    }
+    // Roll per-visit treasure spawning & rarity FIRST so puzzle mechanisms strictly couple to live rewards:
+    //  - If a secret alcove's reward did NOT spawn, DO NOT spawn its puzzle mechanism (hollow wall / barricade / gate / plates / bells / wheel / drawbridge)!
+    //  - Whenever a puzzle mechanism DOES spawn, its reward is 100% present and visibly gleaming through walls!
+    const allRewardZones = new Set<number>(), liveRewardZones = new Set<number>();
+    let rewardIdx = 0;
+    for (const m of fx.marks) if (m.kind === 'reward') {
+      const rz = zoneAt(m.x, m.z);
+      if (rz >= 0) allRewardZones.add(rz);
+      const idx = rewardIdx++;
+      if (this.treasureRoll != null) {
+        const h = Math.imul((this.treasureRoll ^ (idx * 2246822519)) >>> 0, 2654435761) >>> 0;
+        if (h % 100 >= 62) continue;
+        const tier: RewardTier = ((h >>> 8) % 100) < 30 ? 'mythic' : 'gold';
+        this.rewards.push(this.reward(m.x, m.z, tier));
+      } else {
+        const tier: RewardTier = (seed + idx) % 3 === 0 ? 'mythic' : 'gold';
+        this.rewards.push(this.reward(m.x, m.z, tier));
+      }
+      if (rz >= 0) liveRewardZones.add(rz);
+    }
+    const deadSecretZones = new Set<number>();
+    for (const z of allRewardZones) if (!liveRewardZones.has(z) && !mainZones.has(z)) deadSecretZones.add(z);
+
+    type GateSlot = { rect: Rect; sides: [number, number]; piece: Piece | null };
+    const allGates: GateSlot[] = [];
+    for (const q of fx.closed) {
+      yield;
+      const { run, sides } = closedSides(q);
       const big = (size.get(sides[1]) ?? 0) > (size.get(sides[0]) ?? 0) ? 1 : 0;
+      const deadSecret = q.kind !== 'door' && (deadSecretZones.has(sides[0]) || deadSecretZones.has(sides[1]));
+      if (deadSecret) {
+        // Secret room has no reward on this visit: seal cleanly as normal wall with zero puzzle props or cues
+        this.buildPlainWall(q, run, big, style, seed);
+        if (q.kind === 'gate') allGates.push({ rect: q, sides, piece: null });
+        continue;
+      }
       const p: Piece = { kind: q.kind, rect: { x0: q.x0, x1: q.x1, z0: q.z0, z1: q.z1 }, open: false, run, sides, g: new THREE.Group(), t: -1, hits: 0, hintT: 1 + (this.pieces.length * 0.7) };
       this.build(p, style, big, seed);
       this.pieces.push(p); this.root.add(p.g);
+      if (q.kind === 'gate') allGates.push({ rect: q, sides, piece: p });
     }
-    // the drop-bridges: each hangs from the bank by the nearest rope post
+    // the drop-bridges: each hangs from the bank by the nearest rope post (skipped if leading only to an empty secret island)
     for (const s of fx.sunk) if (s.kind === 'drop') {
+      if (sunkZones(s).some(z => deadSecretZones.has(z))) continue;
       yield;
       const ropes = fx.marks.filter(m => m.kind === 'rope'); if (!ropes.length) continue;
       const cx = (s.x0 + s.x1) / 2, cz = (s.z0 + s.z1) / 2, post = ropes.sort((a, b) => Math.hypot(a.x - cx, a.z - cz) - Math.hypot(b.x - cx, b.z - cz))[0];
       this.drops.push(this.dropBridge(s, [post.x, post.z]));
     }
-    // the bells, in the order they ring (from the room's seed), each its own note by its place in the order
-    const bm = fx.marks.filter(m => m.kind === 'bell');
-    this.order = bm.map((_, i) => i).sort((a, b) => ((a * 7 + seed) % 5) - ((b * 7 + seed) % 5) || a - b);
-    for (const [i, m] of bm.entries()) { yield; this.bells.push(this.bell(m.x, m.z, this.order.indexOf(i))); }
-    const gates = this.pieces.filter(p => p.kind === 'gate');
+    // Pressure plates: pair against all gates first, and skip plates whose paired gate was omitted due to no reward
     for (const m of fx.marks) {
-      yield;
-      if (m.kind === 'wheel') this.wheels.push(this.wheel(m.x, m.z));
       if (m.kind !== 'plate') continue;
-      const local = gates.filter(g => g.sides.includes(zoneAt(m.x, m.z)));
-      const distance = (g: Piece) => g.g.position.distanceToSquared(V3(m.x, 0, m.z));
-      const gate = (local.length ? local : gates).slice().sort((a, b) => distance(a) - distance(b))[0];
-      if (!gate) throw new Error('Unpaired plate in ' + fx.id);
+      yield;
+      const local = allGates.filter(g => g.sides.includes(zoneAt(m.x, m.z)));
+      const distance = (g: GateSlot) => Math.hypot((g.rect.x0 + g.rect.x1) / 2 - m.x, (g.rect.z0 + g.rect.z1) / 2 - m.z);
+      const slot = (local.length ? local : allGates).slice().sort((a, b) => distance(a) - distance(b))[0];
+      if (!slot) throw new Error('Unpaired plate in ' + fx.id);
+      if (!slot.piece) continue;
+      const gate = slot.piece;
       const stone = new VoxWorld(CELL);
       stone.box(-11, 0, -11, 10, 0, 10, COL.tileD);
       stone.box(-9, 1, -9, 8, 1, 8, COL.stone);
@@ -269,27 +334,34 @@ export class RoomPieces {
       this.plates.push({ x: m.x, z: m.z, slab, seal, timer, gate, down: false, grace: 0, hint: 2.5 });
       if (!this.plateGates.includes(gate)) this.plateGates.push(gate);
     }
+    // Bronze bells: only spawn when at least one live bell-gate exists (never chime for an empty secret room!)
+    const hasBellGate = this.pieces.some(p => p.kind === 'gate' && !this.plateGates.includes(p));
+    const bm = hasBellGate ? fx.marks.filter(m => m.kind === 'bell') : [];
+    this.order = bm.map((_, i) => i).sort((a, b) => ((a * 7 + seed) % 5) - ((b * 7 + seed) % 5) || a - b);
+    for (const [i, m] of bm.entries()) { yield; this.bells.push(this.bell(m.x, m.z, this.order.indexOf(i))); }
+    // Sluice wheels & flooded causeways: only spawn wheels that actually drain an active causeway
+    const wheelMarks = fx.marks.filter(m => m.kind === 'wheel');
+    const floodByWheel = new Map<number, Rect[]>();
     for (const s of fx.sunk) if (s.kind === 'flood') {
-      const x = (s.x0 + s.x1) / 2, z = (s.z0 + s.z1) / 2;
-      const w = this.wheels.slice().sort((a, b) => Math.hypot(a.x - x, a.z - z) - Math.hypot(b.x - x, b.z - z))[0];
-      if (!w) throw new Error('Flooded causeway without a wheel in ' + fx.id);
-      w.paths.push(this.causeway(s));
-    }
-    // Random per-visit treasure spawning & rarity roll (when treasureRoll is provided by live gameplay):
-    // ~62% spawn rate per chest spot (so finding a blazing Treasure Pillar feels like real discovery!),
-    // ~30% of spawned chests upgrade into a Mythic Crimson-Gold Grand Coffer (传世赤金大秘藏)!
-    let rewardIdx = 0;
-    for (const m of fx.marks) if (m.kind === 'reward') {
-      const idx = rewardIdx++;
-      if (this.treasureRoll != null) {
-        const h = Math.imul((this.treasureRoll ^ (idx * 2246822519)) >>> 0, 2654435761) >>> 0;
-        if (h % 100 >= 62) continue;
-        const tier: RewardTier = ((h >>> 8) % 100) < 30 ? 'mythic' : 'gold';
-        this.rewards.push(this.reward(m.x, m.z, tier));
-      } else {
-        const tier: RewardTier = (seed + idx) % 3 === 0 ? 'mythic' : 'gold';
-        this.rewards.push(this.reward(m.x, m.z, tier));
+      if (sunkZones(s).some(z => deadSecretZones.has(z))) {
+        // Keep calm water surface visually intact over the pit, with no puzzle wheel or drainable causeway
+        const w = s.x1 - s.x0, d = s.z1 - s.z0;
+        const calmW = new THREE.Mesh(new THREE.PlaneGeometry(w, d), new THREE.MeshLambertMaterial({ color: 0x385668, emissive: 0x0b202c, transparent: true, opacity: 0.9, depthWrite: false }));
+        calmW.rotation.x = -Math.PI / 2; calmW.position.set(s.x0 + w / 2, -0.2, s.z0 + d / 2); calmW.renderOrder = 2; this.root.add(calmW);
+        continue;
       }
+      const x = (s.x0 + s.x1) / 2, z = (s.z0 + s.z1) / 2;
+      let bi = -1, bd = Infinity;
+      wheelMarks.forEach((wm, wi) => { const dist = Math.hypot(wm.x - x, wm.z - z); if (dist < bd) { bd = dist; bi = wi; } });
+      if (bi < 0) throw new Error('Flooded causeway without a wheel in ' + fx.id);
+      const list = floodByWheel.get(bi) ?? []; list.push(s); floodByWheel.set(bi, list);
+    }
+    for (const [wi, paths] of floodByWheel) {
+      yield;
+      const wm = wheelMarks[wi];
+      const w = this.wheel(wm.x, wm.z);
+      for (const s of paths) w.paths.push(this.causeway(s));
+      this.wheels.push(w);
     }
     // Visual oil-trail hint between a barricade and its nearest nearby oil jar (makes bomb→barricade causal link unmistakable!)
     const oils = fx.props.filter(q => q.kind === 'oil');
@@ -321,6 +393,20 @@ export class RoomPieces {
   }
 
   // ------------------------------------------------------------ the models
+  /** Plain uncracked wall used to cleanly seal an optional secret alcove when its reward did not spawn on this visit. */
+  private buildPlainWall(r: Rect, run: 'x' | 'z', big: number, style: WallStyle, seed: number) {
+    const w = run === 'z' ? r.x1 - r.x0 : r.z1 - r.z0, d = run === 'z' ? r.z1 - r.z0 : r.x1 - r.x0, half = Math.round(w / CELL / 2);
+    const g = new THREE.Group();
+    g.position.set((r.x0 + r.x1) / 2, 0, (r.z0 + r.z1) / 2);
+    g.rotation.y = run === 'z' ? 0 : Math.PI / 2;
+    const edge = (big ? 1 : -1) * (d / 2 - WALL.thick / 2);
+    const vw = new VoxWorld(CELL), T = M(WALL.thick), H = M(wallHOf(style)) - 1;
+    const rr = (k: number) => ((Math.sin((seed + k) * 12.9898) * 43758.5453) % 1 + 1) % 1;
+    const zLo = -Math.floor(T / 2), zHi = T - Math.floor(T / 2) - 1;
+    wallPiece((x0, y0, z0, x1, y1, z1, c) => vw.box(Math.min(x0, x1), y0, Math.min(z0, z1), Math.max(x0, x1), y1, Math.max(z0, z1), c), style, 'x', -half - 1, half, zLo, zHi, H, rr, 3);
+    const wall = mesh(vw); wall.position.z = edge; g.add(wall);
+    this.root.add(g);
+  }
   private build(p: Piece, style: WallStyle, big: number, seed: number) {
     const r = p.rect, w = p.run === 'z' ? r.x1 - r.x0 : r.z1 - r.z0, d = p.run === 'z' ? r.z1 - r.z0 : r.x1 - r.x0, half = Math.round(w / CELL / 2);
     // the piece's own frame: across the way along local x, the way along local z (+z = the 'big' side when it stands at an edge)
@@ -510,6 +596,19 @@ export class RoomPieces {
     beam.position.set(x, 0.42, z);
     beam.scale.set(mythic ? 1.15 : 0.95, mythic ? 3.5 : 2.75, mythic ? 1.15 : 0.95);
     beam.renderOrder = 4; this.root.add(beam);
+    // Through-wall GreaterDepth beacon spire: gleams softly whenever a closed puzzle wall/gate/roof hides the chest
+    const xrayBeam = new THREE.Mesh(
+      BEAM_GEO,
+      new THREE.MeshBasicMaterial({
+        color: mythic ? 0xff8a3c : 0xffd664,
+        map: BEAM_TEX,
+        transparent: true, opacity: mythic ? 0.54 : 0.46,
+        side: THREE.DoubleSide, depthTest: true, depthFunc: THREE.GreaterDepth, depthWrite: false, toneMapped: false,
+      }),
+    );
+    xrayBeam.position.set(x, 0.42, z);
+    xrayBeam.scale.set(mythic ? 1.15 : 0.95, mythic ? 3.5 : 2.75, mythic ? 1.15 : 0.95);
+    xrayBeam.renderOrder = 26; this.root.add(xrayBeam);
     const halo = new THREE.Mesh(
       BEAM_HALO_GEO,
       new THREE.MeshBasicMaterial({
@@ -530,7 +629,7 @@ export class RoomPieces {
     gem.position.set(x, mythic ? 1.32 : 1.18, z);
     gem.scale.setScalar(mythic ? 1.1 : 0.88);
     gem.renderOrder = 5; this.root.add(gem);
-    return { x, z, g, beam, halo, gem, tier, taken: false, t: 0 };
+    return { x, z, g, beam, xrayBeam, halo, gem, tier, taken: false, t: 0 };
   }
 
   // ------------------------------------------------------------ what the game does to them
@@ -836,8 +935,10 @@ export class RoomPieces {
       // Gently breathe the slender tapered light spire & base aura + float the delicate star-glint + slow rising motes
       const pulse = 0.5 + 0.5 * Math.sin(this.t * (mythic ? 3.4 : 2.4) + i * 1.3);
       (r.beam.material as THREE.MeshBasicMaterial).opacity = (mythic ? 0.84 : 0.76) + pulse * 0.14;
+      (r.xrayBeam.material as THREE.MeshBasicMaterial).opacity = (mythic ? 0.44 : 0.36) + pulse * 0.14;
       (r.halo.material as THREE.MeshBasicMaterial).opacity = (mythic ? 0.38 : 0.30) + pulse * 0.16;
       r.beam.rotation.y = this.t * (mythic ? 0.5 : 0.32);
+      r.xrayBeam.rotation.y = r.beam.rotation.y;
       r.halo.rotation.y = -this.t * (mythic ? 0.35 : 0.22);
       r.gem.position.y = (mythic ? 1.32 : 1.18) + Math.sin(this.t * 3.0 + i) * 0.09;
       r.gem.rotation.y = this.t * (mythic ? 2.4 : 1.6);
@@ -848,7 +949,7 @@ export class RoomPieces {
         PALPHA.emit({ p: V3(r.x + (Math.random() - 0.5) * 0.24, 0.75, r.z + (Math.random() - 0.5) * 0.24), v: V3(0, 0.65, 0), tile: TILE.ring, c0: new THREE.Color(mythic ? 0xffb25a : 0xffe484), s0: 0.08, s1: 0.02, life: 1.4 });
       }
       if (Math.hypot(r.x - hero.x, r.z - hero.z) < 0.95) {
-        r.taken = true; setPropOcc(r.g, 0); r.g.visible = r.beam.visible = r.halo.visible = r.gem.visible = false;
+        r.taken = true; setPropOcc(r.g, 0); r.g.visible = r.beam.visible = r.xrayBeam.visible = r.halo.visible = r.gem.visible = false;
         fxFlare(V3(r.x, 0.7, r.z), mythic ? MYTHIC_COL : GOOD, mythic ? 2.8 : 2.0, 0.65);
         fxEmbers(V3(r.x, 0.6, r.z), mythic ? MYTHIC_COL : GOOD, mythic ? 22 : 12, { r: 1.1, up: 2.2, life: 1.0 });
         fxRing(V3(r.x, 0.08, r.z), mythic ? MYTHIC_COL : GOOD, mythic ? 3.4 : 2.4, { life: 0.85, width: 0.09 });
@@ -871,7 +972,7 @@ export class RoomPieces {
     }
     for (const p of this.plates) { (p.seal.material as THREE.Material).dispose(); (p.timer.material as THREE.Material).dispose(); }
     for (const b of this.bells) (b.halo.material as THREE.Material).dispose();
-    for (const r of this.rewards) { (r.beam.material as THREE.Material).dispose(); (r.halo.material as THREE.Material).dispose(); (r.gem.material as THREE.Material).dispose(); }
+    for (const r of this.rewards) { (r.beam.material as THREE.Material).dispose(); (r.xrayBeam.material as THREE.Material).dispose(); (r.halo.material as THREE.Material).dispose(); (r.gem.material as THREE.Material).dispose(); }
     for (const c of this.cues) { (c.m.material as THREE.Material).dispose(); (c.wave.material as THREE.Material).dispose(); }
     for (const tr of this.trails) for (const m of tr.meshes) (m.material as THREE.Material).dispose();
     for (const q of this.pieces) {
