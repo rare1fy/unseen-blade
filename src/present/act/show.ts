@@ -1509,21 +1509,14 @@ export class ActShow {
         } else if (this.gardenExclaims[i]) this.gardenExclaims[i]!.visible = false;
 
         const dPlot = h ? Math.hypot(h.pos.x - gp.x, h.pos.z - gp.z) : 99;
-        const showGardenTag = uiClear && near !== key && ((unl && st.done && dPlot < 6.0) || dPlot < 3.4);
+        // act-170: 种田头顶仅留「图标 + 倒计时 / 可收」，空地荒畦不刷文字，走近才出交互牌
+        const showGardenTag = uiClear && near !== key && unl && !!plot && (st.done ? dPlot < 7.2 : dPlot < 5.6);
         if (showGardenTag) {
           const pt = worldToUi(V3(gp.x, 1.5, gp.z));
-          let txt = '荒畦', sub = '待开垦', col = '#c8c0b0';
-          if (unl && plot) {
-            const def = SEEDS[plot.seed];
-            txt = def.name;
-            sub = st.done ? '可收获' : msg`差${st.leftSteps}屋/${st.leftMins}分`;
-            col = st.done ? '#ffe680' : def.hex;
-          } else if (unl) {
-            txt = '药畦';
-            sub = seedBag > 0 ? msg`可种(${seedBag})` : '空地';
-            col = seedBag > 0 ? '#8effb0' : '#ccc4b2';
-          }
-          this.worldPlates.setTag('ho.' + key, { text: txt, sub, icon: 'leaf', x: pt.x, y: pt.y, color: col, accent: st.done ? '#ffd258' : '#58a870', minY, scale: 0.92, visible: pt.z < 1 });
+          const def = SEEDS[plot!.seed];
+          const txt = st.done ? '可收' : msg`${st.leftSteps}屋·${st.leftMins}分`;
+          const col = st.done ? '#ffe680' : def.hex;
+          this.worldPlates.setTag('ho.' + key, { text: txt, icon: 'leaf', x: pt.x, y: pt.y, color: col, accent: st.done ? '#ffd258' : def.hex, minY, scale: 0.9, visible: pt.z < 1 });
         } else this.worldPlates.hide('ho.' + key);
       }
     } else {
@@ -1575,38 +1568,40 @@ export class ActShow {
       const unl = idx < gState.unlocked, plot = unl ? gState.plots[idx] : null, st = plotStatus(plot, nowMs);
       const pt = worldToUi(V3(gp.x, 1.75, gp.z));
       if (!unl) {
-        this.worldPlates.setInteract('ho.active', { title: msg`第 ${idx + 1} 块荒畦`, sub: '开垦后可多栽一茬灵植', action: '开垦药畦', icon: 'leaf', color: '#ffe090', accent: '#c8a050', x: pt.x, y: pt.y, minY, visible: pt.z < 1 });
+        const c = PLOT_COSTS[idx];
+        const costSub = c ? (c.cur === 'herb' ? msg`药引 ${c.n}` : msg`残铁 ${c.n}`) : undefined;
+        this.worldPlates.setInteract('ho.active', { title: msg`荒畦 ${idx + 1}`, sub: costSub, action: '开垦', icon: 'leaf', color: '#ffe090', accent: '#c8a050', x: pt.x, y: pt.y, minY, visible: pt.z < 1 });
       } else if (plot) {
         const def = SEEDS[plot.seed];
         this.worldPlates.setInteract('ho.active', {
           title: def.name,
-          sub: st.done ? '灵植已熟，即刻采收' : msg`还差 ${st.leftSteps} 屋或 ${st.leftMins} 分钟成熟`,
-          action: st.done ? '一键收获' : '查看进度',
+          sub: st.done ? undefined : msg`${st.leftSteps}屋 · ${st.leftMins}分`,
+          action: st.done ? '采收' : '查看',
           icon: 'leaf', color: st.done ? '#ffe878' : def.hex, accent: st.done ? '#ffd258' : '#5ca874',
           x: pt.x, y: pt.y, minY, visible: pt.z < 1,
         });
       } else {
         this.worldPlates.setInteract('ho.active', {
-          title: '空药畦', sub: msg`行囊余种 ${seedBag} 枚`,
-          action: seedBag > 0 ? '选种播种' : '查看药种', icon: 'leaf', color: '#8effb0', accent: '#64c884',
+          title: '药畦', sub: msg`余种 ${seedBag}`,
+          action: seedBag > 0 ? '播种' : '查看', icon: 'leaf', color: '#8effb0', accent: '#64c884',
           x: pt.x, y: pt.y, minY, visible: pt.z < 1,
         });
       }
     } else if (near === 'weaponRack' && uiClear) {
       const p = worldToUi(V3(HIDEOUT.weaponRack.x, 2.38, HIDEOUT.weaponRack.z + 0.35));
-      this.worldPlates.setInteract('ho.active', { title: '文家刀廊', sub: msg`当前佩刀 · ${eqWep.name}`, action: '拔刀换武', icon: 'blade', color: '#ffe698', accent: eqWep.col, x: p.x, y: p.y, minY, visible: p.z < 1 });
+      this.worldPlates.setInteract('ho.active', { title: '文家刀廊', sub: eqWep.name, action: '换刀', icon: 'blade', color: '#ffe698', accent: eqWep.col, x: p.x, y: p.y, minY, visible: p.z < 1 });
     } else if (near === 'keepsakeBox' && uiClear) {
       const p = worldToUi(V3(HIDEOUT.keepsakeBox.x, 2.02, HIDEOUT.keepsakeBox.z + 0.35));
-      this.worldPlates.setInteract('ho.active', { title: '信物匣', sub: eqKs ? msg`佩戴中 · ${eqKs.name}` : '挑一件随身信物上路', action: '开匣选佩', icon: 'star', color: '#8effd0', accent: '#d4a652', x: p.x, y: p.y, minY, visible: p.z < 1 });
+      this.worldPlates.setInteract('ho.active', { title: '信物匣', sub: eqKs ? eqKs.name : '未佩', action: '选佩', icon: 'star', color: '#8effd0', accent: '#d4a652', x: p.x, y: p.y, minY, visible: p.z < 1 });
     } else if (near === 'duwu_memorial' && uiClear) {
       const p = worldToUi(V3(HIDEOUT.people.duwu.x, 2.05, HIDEOUT.people.duwu.z));
       this.worldPlates.setInteract('ho.active', {
-        title: '杜五的遗灶', sub: !prof.meal ? '孙婆婆每日替他温着干粮' : '行囊干粮已备齐', action: '领取干粮',
+        title: '杜五的遗灶', sub: !prof.meal ? '可领干粮' : '已备齐', action: '领干粮',
         icon: 'herb', color: '#ffbe78', accent: '#d4964c', x: p.x, y: p.y, minY, visible: p.z < 1,
       });
     } else if (near === 'stele' && uiClear && HIDEOUT.stele) {
       const p = worldToUi(V3(HIDEOUT.stele.x, 2.18, HIDEOUT.stele.z + 0.35));
-      this.worldPlates.setInteract('ho.active', { title: '复仇碑', sub: '永久潜能 · 阳阴双面自由切换', action: '参悟碑铭', icon: 'stele', color: '#e2d0ff', accent: '#a88cf0', x: p.x, y: p.y, minY, visible: p.z < 1 });
+      this.worldPlates.setInteract('ho.active', { title: '复仇碑', sub: '阳 / 阴潜能', action: '参悟', icon: 'stele', color: '#e2d0ff', accent: '#a88cf0', x: p.x, y: p.y, minY, visible: p.z < 1 });
     } else if (nn && uiClear) {
       const p = worldToUi(V3(nn.x, (nn.a.height ?? 1.8) + 1.18, nn.z));
       const bc = beaconOf(nn.id);
@@ -1806,7 +1801,7 @@ export class ActShow {
       const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
       const i = await this.cards.open(cards, {
         leave: true, layout: 'weapons', instant, initialFocus: focusIdx,
-        header: { title: '文家刀廊', sub: '四柄文家名刀 · 独立连段与藏锋特技', col: '#ffe290', accent: '#c89248' },
+        header: { title: '文家刀廊', col: '#ffe290', accent: '#c89248' },
         detail: idx => {
           const wid = WEAPON_ORDER[idx], w = WEAPONS[wid];
           const unl = isWeaponUnlocked(p, wid, this.dbgAllWeapons), lv = weaponLevel(p, wid), eq = cur === wid;
@@ -1818,11 +1813,11 @@ export class ActShow {
             starsMax: 3,
             line1: unl ? w.summary : msg`${w.unlockHint} · ${w.summary}`,
             line2: msg`${w.special} · 专属刀谱：${manualsForWeapon(wid).map(m => m.name).join('/')}`,
-            action: !unl ? undefined : eq ? '当前佩刀' : '拔刀换武',
+            action: !unl ? undefined : eq ? '当前佩刀' : '换刀',
             accent: !unl ? '#666070' : eq ? '#ffd872' : w.col,
           };
         },
-        footer: '点选名刀拔换 · 冯铁臂处可淬炼升阶 · Esc 返回',
+        footer: '确认换刀 · Esc 返回',
       });
       this.phase = was; this.hud.on = true;
       if (i < 0 || i >= WEAPON_ORDER.length) return;
@@ -1858,8 +1853,8 @@ export class ActShow {
         {
           boon: {
             id: 'gd_unlock', school: 'md' as never,
-            name: msg`开垦第 ${idx + 1} 块药畦`,
-            desc: [msg`需耗 ${curName} ${cost.n}`, afford ? '开垦后可多栽一茬灵植，双轨加速养成' : msg`${curName}不足，清房或收菜后再来`],
+            name: msg`荒畦 ${idx + 1}`,
+            desc: [msg`${curName} ${cost.n}`, afford ? '解锁药畦 +1' : msg`${curName}不足`],
             col: afford ? '#8effb0' : '#8a8278', glyph: SPROUT,
             tag: afford ? msg`${cost.n}${curName}` : '不足',
             locked: !afford,
@@ -1868,9 +1863,9 @@ export class ActShow {
         },
       ], {
         leave: true,
-        header: { title: '竹溪药圃 · 开垦药畦', sub: '开垦更多田块，同时栽种多株灵植', col: '#90f0a8' },
+        header: { title: '开垦药畦', col: '#90f0a8' },
         wallet: { iron: p.iron, herb: p.herb, focus: cost.cur },
-        footer: '点选开垦 · Esc 返回',
+        footer: '确认开垦 · Esc 返回',
       });
       this.phase = was; this.hud.on = true;
       if (ch === 0 && unlockPlot(p, idx)) {
@@ -1878,7 +1873,7 @@ export class ActShow {
         this.refreshHideoutProps();
         fxSmoke(V3(gp.x, 0.35, gp.z), 0x8a785c, 12, { r: 0.9, spd: 1.2, up: 0.7, s: 0.45, life: 0.8 });
         cue('reveal', 0.85);
-        this.banner.show('药畦已开垦', '现可栽种新药种', 1.5, '#8effb0');
+        this.banner.show('药畦已开垦', '', 1.2, '#8effb0');
       }
       return;
     }
@@ -1905,7 +1900,7 @@ export class ActShow {
       }
       const def = SEEDS[plot.seed];
       cue('click', 0.5);
-      this.banner.show(msg`${def.name} · 生长中`, msg`还差 ${st.leftSteps} 间战斗屋，或静候 ${st.leftMins} 分钟成熟`, 1.8, def.hex);
+      this.banner.show(def.name, msg`${st.leftSteps}屋 · ${st.leftMins}分`, 1.4, def.hex);
       return;
     }
 
@@ -1915,10 +1910,10 @@ export class ActShow {
       return {
         boon: {
           id: 'seed_' + sid, school: 'md' as never,
-          name: msg`${def.name}（存 ${cnt}）`,
-          desc: [def.desc, def.buffDesc ?? '清房、秘藏与孙媪赠种均可获种'],
+          name: msg`${def.name} ×${cnt}`,
+          desc: [def.desc, def.buffDesc ?? ''],
           col: cnt > 0 ? def.hex : '#7e7872', glyph: SPROUT,
-          tag: cnt > 0 ? msg`${def.steps}屋熟` : '缺种',
+          tag: cnt > 0 ? msg`${def.steps}屋/${def.steps * def.minsPerStep}分` : '缺种',
           locked: cnt <= 0,
         } as CardBoon,
         tier: cnt > 0 ? (def.buff ? 2 : 1) : 0,
@@ -1927,16 +1922,16 @@ export class ActShow {
     const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
     const sel = await this.cards.open(cards, {
       leave: true, layout: 'grid2',
-      header: { title: '竹溪药圃 · 播种灵植', sub: '每通关 1 间战斗屋加速 1 格 · 离线自然生长', col: '#90f0a8' },
+      header: { title: '竹溪药圃 · 播种', sub: '通屋 / 离线双轨成熟', col: '#90f0a8' },
       wallet: { iron: p.iron, herb: p.herb, focus: 'herb' },
-      footer: '点选种子栽下 · Esc 返回',
+      footer: '确认播种 · Esc 返回',
     });
     this.phase = was; this.hud.on = true;
     if (sel < 0 || sel >= SEED_ORDER.length) return;
     const chosen = SEED_ORDER[sel];
     if (!plantSeed(p, idx, chosen, Date.now())) {
       cue('deny', 0.45);
-      this.banner.show('暂无此药种', '战斗通关、开启秘藏或明日回营均可获种', 1.5, '#d0a890');
+      this.banner.show('缺种', '清房 / 秘藏获种', 1.3, '#d0a890');
       return;
     }
     saveProfile();
@@ -1944,7 +1939,7 @@ export class ActShow {
     fxSmoke(V3(gp.x, 0.3, gp.z), 0x6a8a4c, 10, { r: 0.7, spd: 1.0, up: 0.6, s: 0.4, life: 0.7 });
     cue('reveal', 0.75);
     const def = SEEDS[chosen];
-    this.banner.show(msg`已播下 · ${def.name}`, msg`${def.steps} 间战斗屋或离线 ${def.steps * def.minsPerStep} 分钟后可收`, 1.8, def.hex);
+    this.banner.show(def.name, msg`${def.steps}屋 · ${def.steps * def.minsPerStep}分`, 1.4, def.hex);
   }
   /** act-125 / act-136: 乌漆铜扣信物匣 — 4×2 Hades-style showcase grid + large bottom detail panel */
   private async keepsakeMenu() {
@@ -1970,26 +1965,26 @@ export class ActShow {
       const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
       const i = await this.cards.open(cards, {
         leave: true, layout: 'keepsake', instant, initialFocus: focusIdx,
-        header: { title: '信物匣 · 随身信物', sub: '每局选带一件 · 通关战斗屋自动升星（★ → ★★★）', col: '#8effd0', accent: '#62b898' },
+        header: { title: '信物匣', sub: '限佩一件 · 通屋升星', col: '#8effd0', accent: '#62b898' },
         keepsakeDetail: idx => {
           const kid = KEEPSAKE_ORDER[idx], ks = KEEPSAKES[kid];
           const unl = isKeepsakeUnlocked(p, kid, this.dbgAllWeapons), eq = cur === kid;
           const st = keepsakeStar(p, kid), rms = keepsakeRooms(p, kid);
           const nextNeed = st === 1 ? KEEPSAKE_STARS[0] : st === 2 ? KEEPSAKE_STARS[1] : null;
-          const prog = !unl ? msg`获赠途径：${ks.source}` : nextNeed != null ? msg`升星进度：已同行 ${rms} / ${nextNeed} 间战斗屋` : '已达 ★★★ 圆满';
+          const prog = !unl ? ks.source : nextNeed != null ? msg`升星 ${rms}/${nextNeed} 屋` : '★★★ 圆满';
           return {
             title: msg`${ks.owner} · ${ks.name}`,
             badge: !unl ? '未获赠' : eq ? '佩戴中' : '已获赠',
             badgeCol: !unl ? '#9a929c' : eq ? '#ffe278' : '#88e8b8',
             stars: unl ? st : 0,
             starsMax: 3,
-            line1: unl ? ks.effect(st) : msg`未获赠 · ${ks.effect(1)}`,
+            line1: ks.effect(unl ? st : 1),
             line2: prog,
-            action: !unl ? '尚未获赠' : eq ? '点击卸下' : '点击佩戴',
+            action: !unl ? '未解锁' : eq ? '卸下' : '佩戴',
             accent: !unl ? '#666070' : eq ? '#ffd872' : ks.col,
           };
         },
-        footer: '方向键浏览 · Enter / 点击佩戴或卸下 · Esc 返回',
+        footer: '确认佩卸 · Esc 返回',
       });
       this.phase = was; this.hud.on = true;
       if (i < 0 || i >= KEEPSAKE_ORDER.length) return;
@@ -2138,7 +2133,7 @@ export class ActShow {
             accent: unl ? w.col : '#6a6670',
           };
         },
-        footer: PAD.device === 'pad' ? msg`LB/RB 切页 · ${padName(0)} 锻造 · ${padName(1)} 返回` : 'Tab / Q E 切页 · 点选右侧按钮或 Enter 锻造 · Esc 返回',
+        footer: PAD.device === 'pad' ? msg`LB/RB 切页 · ${padName(0)} 锻造 · ${padName(1)} 返回` : 'Q/E 切页 · 确认锻造 · Esc 返回',
       });
       this.phase = was; this.hud.on = true;
       if (switched) continue;
@@ -2197,7 +2192,7 @@ export class ActShow {
       const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
       const i = await this.cards.open(cards, {
         leave: true, instant, initialFocus: focusIdx,
-        header: { title: '复仇碑 · 碑铭潜能', sub: '阳面金碑 / 阴面紫碑自由切换 · 永久生效', col: '#d8c4ff', accent: '#9880d0' },
+        header: { title: '复仇碑', sub: '阳 / 阴双面随时切换', col: '#d8c4ff', accent: '#9880d0' },
         wallet: { iron: p.iron, herb: p.herb },
         onAlt: idx => {
           const m = MIRROR[idx];
@@ -2207,7 +2202,7 @@ export class ActShow {
           focusIdx = idx; instant = true; flipped = true;
           this.cards.cancelSilent();
         },
-        footer: PAD.device === 'pad' ? msg`${padName(0)} 参悟 · ${padName(3)} 切阴阳 · ${padName(1)} 返回` : '点选碑铭参悟 · Q / 点右上角切换阴阳 · Esc 返回',
+        footer: PAD.device === 'pad' ? msg`${padName(0)} 参悟 · ${padName(3)} 切阴阳 · ${padName(1)} 返回` : '确认参悟 · Q 切阴阳 · Esc 返回',
       });
       this.phase = was; this.hud.on = true;
       if (flipped) continue;
@@ -2226,14 +2221,14 @@ export class ActShow {
       return;
     }
     await this.talk([dead ? { who: 'act', text: '（东南遗灶旁温着胡饼、五铢钱与灶底老酒，白灯在晚风里轻晃）' } : { who: 'duwu', text: pick(MEAL_TALK.offer) }]);
-    const cards = MEALS.map(m => ({ boon: { id: 'meal_' + m.id, school: 'ms' as never, name: m.name, desc: [m.desc, '免费携带 · 下一局生效'], col: '#ffd27a', glyph: MEAL_GLYPH[m.id], tag: '免费' } as Boon, tier: 0 }));
+    const cards = MEALS.map(m => ({ boon: { id: 'meal_' + m.id, school: 'ms' as never, name: m.name, desc: [m.desc, ''], col: '#ffd27a', glyph: MEAL_GLYPH[m.id], tag: '免费' } as Boon, tier: 0 }));
     const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
     const i = await this.cards.open(cards, {
       leave: true,
       header: dead
-        ? { title: '杜五的遗灶 · 行囊干粮', sub: '孙婆婆每日替他温在灶边，出发前免费取用', col: '#ffd27a' }
-        : { title: '杜五 · 行囊干粮', sub: '每次出发前免费挑一份带着上路', col: '#ffd27a' },
-      footer: '点选免费领取 · Esc 返回',
+        ? { title: '杜五的遗灶 · 干粮', sub: '免费任选 · 本局生效', col: '#ffd27a' }
+        : { title: '行囊干粮', sub: '免费任选 · 本局生效', col: '#ffd27a' },
+      footer: '确认领取 · Esc 返回',
     }); this.phase = was; this.hud.on = true;
     const m = MEALS[i]; if (!m) return;
     p.meal = m.id; saveProfile(); cue('coin', 0.6);
@@ -2283,7 +2278,7 @@ export class ActShow {
       const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
       const i = await this.cards.open(cards, {
         leave: true, layout: 'arcana', instant, initialFocus: focusIdx,
-        header: { title: '孙媪 · 药炉悟性阵', sub: '以悟性点亮经脉牌阵 · 随时免费启停 · 同启三牌唤醒中宫', col: '#90f6ba', accent: '#4eb47c' },
+        header: { title: '孙婆婆 · 悟性牌阵', sub: '启停免费 · 启 3 牌唤中宫', col: '#90f6ba', accent: '#4eb47c' },
         wallet: { iron: p.iron, herb: p.herb, focus: 'herb' },
         graspBar: {
           used, cap, nextCost: nextCap, have: p.herb, canExpand: nextCap != null && p.herb >= nextCap,
@@ -2347,7 +2342,7 @@ export class ActShow {
             lv: rk,
             maxLv: 3,
             stats,
-            note: isAwk ? def.desc : unlocked && active ? '入阵生效中 · 可随时免费卸下' : undefined,
+            note: isAwk ? def.desc : undefined,
             btnLabel,
             btnCost,
             btnEnabled: !unlocked ? p.herb >= def.unlockCost : isAwk ? false : (active || canEquip),
@@ -2357,7 +2352,7 @@ export class ActShow {
             accent: active ? (isAwk ? '#ffe078' : '#7ef0aa') : '#4e9670',
           };
         },
-        footer: '点选左阵启停悟性牌 · Q / 右下精进升阶 · 顶部拓悟性 · Esc 返回',
+        footer: '确认启停 · Q 升阶 · Esc 返回',
       });
       this.phase = was; this.hud.on = true;
       if (refreshAction) continue;
@@ -3888,8 +3883,7 @@ export class ActShow {
     // beyond the road end so walking out & back through the gate and mountain road is 100% two-way with zero one-way airwall!
     const ex = { ...exitInfo(this.layout!, 'back'), id: 'left' as const, dir: [0, 1] as [number, number], lane: { x0: HIDEOUT.exit.x0, x1: HIDEOUT.exit.x1, z0: PLAY.z1 - 0.8, z1: PLAY.z1 + 3.0 }, walk: [[gx, HIDEOUT.exit.z - 1.6], [gx, HIDEOUT.exit.z + 1.0]] as Array<[number, number]> };
     this.doors = [{ ex, g: new THREE.Group(), lift: 1 }];
-    const touch = isTouchLayout(this.inp.lastDevice);
-    this.banner.show('断碑古窑', touch ? '走近人点右下说话 · 踩石板叫陪练 · 出院门开打' : this.inp.lastDevice === 'pad' ? msg`走近人按 ${actPad('attack')} 说话 · 踩石板叫陪练 · 出院门开打` : !__DEBUG_UI__ ? msg`走近人按 ${actKey('attack')} 说话 · 踩石板叫陪练 · 出院门开打` : msg`走近人按 ${actKey('attack')} 说话 · 踩石板叫陪练 · 出院门开打 · \` 键调手感`, 4);
+    this.banner.show('断碑古窑', '', 1.6);
     this.log.push('yard');
     this.queueAhead(true);
   }
@@ -4673,7 +4667,7 @@ export class ActShow {
     const wName = weaponDef(wid).name;
     let cur = list;
     const i = await this.cards.open(cur.map(m => ({ boon: manualCard(m), tier: 0 })), {
-      header: { title: msg`${wName} · 武器刀谱`, sub: '每柄武器专属 4 招派生 · 挑一招精进连段', col: '#ffe49a' },
+      header: { title: msg`${wName} · 刀谱`, sub: '武器专属派生 · 三选一', col: '#ffe49a' },
       reroll: this.rerollsLeft > 0 ? { left: this.rerollsLeft, onReroll: () => {
         const next = drawManuals(this.perks.moves, 3, Math.random, wid);
         if (!next.length) return null;
@@ -6491,8 +6485,8 @@ export class ActShow {
     const ai = doorArch ? ARCH_INFO[doorArch] : null;
     const i = await this.cards.open(pick, {
       header: {
-        title: ai ? msg`${ai.name}秘传 · 流派强化` : '淬炼秘传 · 流派强化',
-        sub: ai ? msg`同流派 2件：${ai.b2} · 3件：${ai.b3}` : '强化对应按键效果 · 同流派 2件/3件 触发成势',
+        title: ai ? msg`${ai.name}秘传` : '淬炼秘传',
+        sub: ai ? msg`2件 ${ai.b2} · 3件 ${ai.b3}` : '同流派 2/3 件成势',
         col: ai ? ai.col : '#ffd27a',
       },
       archHave: archCounts(this.perks),
@@ -6545,7 +6539,7 @@ export class ActShow {
     const own = this.sharpenable().sort(() => Math.random() - 0.5).slice(0, 3); if (!own.length) return;
     const cards: BoonPick[] = own.map(b => ({ boon: b, tier: this.perks.owned[b.id] + 1 }));
     const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide();
-    const i = await this.cards.open(cards, { header: { title: '磨刀淬锋 · 秘传升阶', sub: full ? '秘传已满九张 · 挑一张提升品阶' : '挑一张已得秘传提升品阶', col: '#ffe08a' }, archHave: archCounts(this.perks) });
+    const i = await this.cards.open(cards, { header: { title: '秘传升阶', sub: full ? '秘传已满 · 选一升阶' : '选一秘传升阶', col: '#ffe08a' }, archHave: archCounts(this.perks) });
     const b = own[i]; upgradeBoon(this.perks, b.id); this.log.push(`sharpen ${b.id} ${this.perks.owned[b.id]}`); this.syncMarks(); this.settleDoors();
     this.hud.on = true; this.phase = was; this.feed.push('boon', () => msg`${b.name} · ${TIER_NAMES[this.perks.owned[b.id]]}`, 0, 'sharpen:' + b.id);
   }
@@ -6639,9 +6633,9 @@ export class ActShow {
         const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideWorldPlates();
         const i = await this.cards.open(cards, {
           leave: true, layout: 'shop', instant,
-          header: { title: '行商货摊', sub: '四摊百货 · 点选货签直接购入', col: '#ffe290', accent: '#c89248' },
+          header: { title: '行商货摊', col: '#ffe290', accent: '#c89248' },
           wallet: { coins: this.coins, focus: 'coins' },
-          footer: '点选木签购入 · Esc 返回',
+          footer: '确认购入 · Esc 返回',
         });
         this.phase = was; this.hud.on = true;
         if (i < 0 || i >= avail.length) return;

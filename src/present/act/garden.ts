@@ -52,26 +52,26 @@ export const SEEDS: Record<SeedId, SeedDef> = {
   angelica: {
     id: 'angelica', name: '白芷草', col: 0x7de08e, hex: '#86e898',
     steps: 3, minsPerStep: 12, herb: 16, iron: 0,
-    desc: '收获药草 +16 · 3间屋或36分钟成熟',
+    desc: '药引 +16',
   },
   ironorchid: {
     id: 'ironorchid', name: '赤铁兰', col: 0xf08c54, hex: '#f49a62',
     steps: 5, minsPerStep: 15, herb: 0, iron: 18,
-    desc: '收获残铁 +18 · 5间屋或75分钟成熟',
+    desc: '残铁 +18',
   },
   frostlotus: {
     id: 'frostlotus', name: '霜魂莲', col: 0x74d8f2, hex: '#80e2ff',
     steps: 6, minsPerStep: 18, herb: 12, iron: 12,
     buff: 'lotus', buffName: '温脉药汤',
-    desc: '双产药草+12 残铁+12 · 赠下局「温脉药汤」',
-    buffDesc: '下局生命上限+18、秘传重随+1',
+    desc: '药引 +12 · 残铁 +12',
+    buffDesc: '下局气血 +18 · 重随 +1',
   },
   xuanzhi: {
     id: 'xuanzhi', name: '九叶玄芝', col: 0xd696ff, hex: '#e0a8ff',
     steps: 9, minsPerStep: 20, herb: 24, iron: 24,
     buff: 'xuanzhi', buffName: '玄芝丹气',
-    desc: '大丰收药草+24 残铁+24 · 赠下局「玄芝丹气」',
-    buffDesc: '下局珍绝品秘传+25%、开局满1格杀气',
+    desc: '药引 +24 · 残铁 +24',
+    buffDesc: '下局珍绝 +25% · 杀气 +1',
   },
 };
 
