@@ -58,7 +58,7 @@ import { clampWithDoors } from './doorClamp';
 import { Timeline, type V } from './timeline';
 import { openingShots, bossIntroShots, generalIntroShots, steleStrikeShots, safeCam, type CineHost } from './cutscenes';
 import { NPC_TALK, STELE_TALK, MEAL_TALK, UP_TALK, POOR_TALK, WAKE_DUWU, WAKE_SUNAO, CHULEI_BEFORE, CH_BEFORE, CH_AFTER, BOSS_AFTER, STRIKE_FLAG, bossesDown, struckOnStele, ENDING, ENDING_A_NO_DUWU, ENDING_C_NO_DUWU, ENDING_PICK, ENDING_DESC, DUWU_ROAD_1, DUWU_ROAD_2, DUWU_DIE, DUWU_MEMORIAL_INTRO, DEATH_SUNAO_AFTER_DUWU, GEN_BEFORE, GEN_AFTER, deathLine, PRO_CUIXUAN, PRO_FALL, PRO_DAWN, PRO_WAKE, PRO_CAPTIONS, PRO_AMBUSH } from './scripts';
-import { fallShots, snowShots, dawnShots, snapDawn, loadShots, brazier, getUpPose, drapeOver, GETUP_STEP, Kneel, KNEEL_ARMS, CuiInspect, cuiKneelDefeatPose, bossKneelDefeatPose, poseWallVault, heroHoldThroatPose, heroSitFirePose, heroHandOnHiltPose, heroPutHatPose, heroKneelBesidePose, duwuRecoilPose, npcWarmPose, duwuPoisonPose, duwuDieShots, endingWalkShots, type PrologueHost, type VaultPhase } from './prologue';
+import { fallShots, snowShots, dawnShots, snapDawn, loadShots, brazier, getUpPose, drapeOver, GETUP_STEP, Kneel, KNEEL_ARMS, CuiInspect, cuiKneelDefeatPose, bossKneelDefeatPose, bossDefiantPose, poseWallVault, heroHoldThroatPose, heroSitFirePose, heroHandOnHiltPose, heroPutHatPose, heroKneelBesidePose, duwuRecoilPose, npcWarmPose, duwuPoisonPose, duwuDieShots, endingWalkShots, type PrologueHost, type VaultPhase } from './prologue';
 import { AllyGeneral, GENERAL_REGIONS, type AllyHost } from './foes/generals_ai';
 import { coldOpenShots, coldCardShots, BlindPOV } from './coldopen';
 import { Barks } from './barks';
@@ -270,8 +270,11 @@ interface Room { fixtures?: Fixtures; spec: Spec; big: boolean; layout: Layout; 
 /** act-44: where her hips lie on 孙媪's mat when she first wakes (the mat runs along z; her head toward the wall, a metre clear) */
 const WAKE_MAT: [number, number] = [6.42, -6.2];   // (her neck on the headrest at the wall end, her heels short of the folded quilt)
 const PRO_ROOM = { locale: 'hj_village', waves: [['hj_mob', 'hj_blade', 'hj_mob', 'hj_mob'], ['hj_blade', 'hj_mob', 'hj_mob']] as EKind[][],   // (11-19: the first wave is the ambush that closes round her — four, from every side)
-  spec: { season: 'winter', weather: 'snow', time: 'night' } as Partial<Spec> };
+  // act-169: deterministic canonical village architecture (axis street + village elder tree, mirror: false, fixed seed 107) — zero random building/gate shifts!
+  spec: { layout: 'axis', mirror: false, landmark: 'huaishu', season: 'winter', weather: 'snow', time: 'night', seed: 107 } as Partial<Spec> };
 const PRO_BOSS: RoomPlan = { type: 'boss', locale: 'cx_court', reward: null, waves: [['cx_boss']] };   // (11-19 剧情改版: 崔府's forecourt, 崔玄)
+// act-169: deterministic canonical Cui Manor snowy forecourt architecture — west vault wall, north hall & lanterns stay 100% consistent!
+const PRO_BOSS_SPEC: Partial<Spec> = { layout: 'axis', mirror: false, landmark: null, season: 'winter', weather: 'snow', time: 'night', seed: 209 };
 /** 11-19 剧情改版: the five bosses in order (region 0 … 4), the meeting cutscene's name for each */
 const BOSS_ORDER: EKind[] = ['hj_boss', 'ly_boss', 'xp_boss', 'wl_boss', 'cx_boss'];
 /** act-37 the cold open's place: 寒山坞 on that snowy night (its own layout and light) */
@@ -359,6 +362,17 @@ export function roomDefinition(o: RoomIn) {
     Object.assign(spec, { ...mb, mirror: false, time: atmo.time, weather: atmo.weather, seed: dm.seed });
   }
   const loc = LOCALES[spec.locale], bigP = !isYard && bigStage(spec.locale);
+  // act-169: lock architectural layout, mirror: false & deterministic building seed for non-drawn rooms so buildings & doorways
+  // NEVER randomly jump/flip across runs — ONLY breakable props (propSeed passed to arenaPlan) randomize per run!
+  if (!dm && !isYard && !o.viewSpec) {
+    spec.mirror = false;
+    if (!o.forceSpec?.layout && loc?.layouts?.length) spec.layout = loc.layouts[0];
+    if (!o.forceSpec?.seed) {
+      let ah = 2166136261;
+      for (const ch of `${spec.locale}:${spec.layout}`) ah = Math.imul(ah ^ ch.charCodeAt(0), 16777619);
+      spec.seed = (ah >>> 0) % 90000 + 1000;
+    }
+  }
   const shapeId: ShapeId = dm ? 'map' : !bigP || o.noArena || isEvent ? 'square' : o.shape ?? (o.viewSpec || o.forceSpec ? 'square' : pickShape(loc?.shapes, calm ? 'calm' : ptype === 'boss' ? 'boss' : 'fight', spec.seed, o.shapes ?? []));
   const big = bigP, k = dm ? mapStage(dm) : SHAPE_K[shapeId]; setStage(big, k);
   const lb = REGISTRY.layouts[spec.layout] ?? Object.values(LOCALES).flatMap(l => l.extraLayouts ?? []).find(l => l.id === spec.layout)!;
@@ -366,7 +380,8 @@ export function roomDefinition(o: RoomIn) {
   const layout = withExits(spec.mirror ? mirrorLayout(stageLayout(lb)) : stageLayout(lb), spec.exits ?? [], drawn?.fixed);
   const pits = loc?.pits ?? ['water'], pitK = pits[Math.floor(((spec.seed * 2654435761) >>> 0) / 4294967296 * pits.length) % pits.length];
   const shape = drawn ?? (big && !o.noArena && shapeId !== 'square' ? makeShape(shapeId, spec.seed, { layout, pit: pitK }) : undefined);
-  const arena = big && !o.noArena ? arenaPlan(layout, (spec.exits ?? []) as ExitId[], spec.seed, spec.locale, calm || isEvent ? 'calm' : ptype === 'boss' ? 'boss' : 'fight', shape) : null;
+  const propSeed = dm ? spec.seed : seed;
+  const arena = big && !o.noArena ? arenaPlan(layout, (spec.exits ?? []) as ExitId[], propSeed, spec.locale, calm || isEvent ? 'calm' : ptype === 'boss' ? 'boss' : 'fight', shape) : null;
   spec.arena = arena ?? undefined;
   if (isYard) return { spec, big, layout, arena, report: null, k, def: hideoutScene(ya) };
   const { def, report } = assemble(spec, REGISTRY);
@@ -483,7 +498,7 @@ export class ActShow {
     if (!OPT.roomAhead) return;
     const base = { recent: this.recent.slice(), shapes: this.shapes.slice(), maps: this.maps.slice(), shape: this.forceShape, seed: this.forceSeed, map: this.forceMap, regionSpec: null };
     const want: RoomIn = tag === 'boss'
-      ? { ...base, isYard: false, room: this.room + 1, locale: PRO_BOSS.locale, plan: PRO_BOSS, nextRooms: [], viewSpec: null, forceSpec: { ...PRO_ROOM.spec }, noArena: false, region: undefined }
+      ? { ...base, isYard: false, room: this.room + 1, locale: PRO_BOSS.locale, plan: PRO_BOSS, nextRooms: [], viewSpec: null, forceSpec: { ...PRO_BOSS_SPEC }, noArena: false, region: undefined }
       : tag === 'dawn'
       ? { ...base, isYard: false, room: this.room, locale: this.locale, plan: this.plan, nextRooms: [], viewSpec: this.dawnView() as Spec, forceSpec: null, noArena: true, region: undefined }
       : { ...base, recent: [], isYard: true, room: -1, locale: 'ninja_wilds', plan: null, nextRooms: [], viewSpec: null, forceSpec: null, noArena: false, region: this.region };
@@ -651,18 +666,21 @@ export class ActShow {
       cue('roar', 0.35); this.musicHold = null; void audio.playMusic(this.musicName(), 2.5);
     };
     void this.cine([
-      // the year and the place, high over the village (act-37: the cold open's last card says 七年了)
-      { dur: 3.6, ease: 'inOut', caption: { text: PRO_CAPTIONS[1], big: true, at: 0.6, hold: 2.3 }, from: { pos: [p0.x + 4, 17, p0.z + 15], look: [p0.x, 0, p0.z - 5], fov: 40 }, to: { pos: [p0.x + 3, 14, p0.z + 13], look: [p0.x, 0, p0.z - 5], fov: 40 },
+      // Shot 1: Aerial snow establishing over the silent village rooftops
+      { dur: 2.8, ease: 'out', caption: { text: PRO_CAPTIONS[1], big: true, at: 0.45, hold: 2.0 }, from: { pos: [p0.x + 4.2, 16.5, p0.z + 14.5], look: [p0.x, 0, p0.z - 5], fov: 40 }, to: { pos: [p0.x + 3.4, 14.2, p0.z + 12.8], look: [p0.x, 0, p0.z - 5], fov: 39 },
         tick: (_t, dt) => h.a.update(dt) },
-      // she comes up the lane alone — from behind and to the side, the camera keeping pace, low enough to see her steps in the snow
-      { dur: 5.4, ease: 'linear', from: () => ({ pos: [p0.x + 4.2, 3.0, h.pos.z + 5.8] as V, look: [p0.x, 0.9, h.pos.z - 1.5] as V, fov: 36 }), to: () => ({ pos: [p0.x + 3.8, 2.8, h.pos.z + 5.2] as V, look: [p0.x, 0.9, h.pos.z - 1.8] as V, fov: 36 }),
-        tick: (t, dt) => { const m = motionOf(h.a); h.a.yaw = Math.PI; h.pos.z = p0.z - Math.min(WALK, t * 1.2); m.run = h.pos.z > stopZ + 0.05 ? 0.22 : Math.max(0, m.run - dt * 4); h.a.update(dt); } },
-      // she stops; her head turns; one ring after another in the snow round her — they are there, and she hears them
-      { dur: 2.6, ease: 'inOut', from: cam(4.6, 2.9, 6.4, -0.8, 34), to: cam(4.0, 2.7, 5.6, -0.6, 33),
-        at: [[0.3, () => snowRing(p0.x - 3.2, stopZ - 1.8)], [0.8, () => snowRing(p0.x + 3.6, stopZ + 0.6)], [1.3, () => snowRing(p0.x - 1.0, stopZ - 3.8)], [1.75, () => snowRing(p0.x + 1.8, stopZ + 3.2)], [1.0, () => cue('foeSwing', 0.25)]],
-        tick: (t, dt) => { stand(); h.a.update(dt); const hd = h.a.bones.head; if (hd) hd.rotation.y += 0.35 * Math.sin(Math.min(1, t / 1.6) * Math.PI); } },
-      // they come out: scaling the perimeter walls with articulated parkour vaults, landing in a crouch, then sprinting across the snow to surround her
-      { dur: 3.1, ease: 'out', from: cam(0.6, 7.2, 8.6, -0.8, 40), to: cam(0.4, 6.4, 7.6, -0.6, 40),
+      // Shot 2A: HARD CUT to low side-tracking shot on her boots crunching snow & crimson tassels swaying
+      { dur: 2.6, ease: 'linear', from: () => ({ pos: [p0.x + 3.6, 2.35, h.pos.z + 3.8] as V, look: [p0.x, 0.85, h.pos.z - 1.2] as V, fov: 35 }), to: () => ({ pos: [p0.x + 3.3, 2.25, h.pos.z + 3.4] as V, look: [p0.x, 0.85, h.pos.z - 1.4] as V, fov: 34 }),
+        tick: (t, dt) => { const m = motionOf(h.a); h.a.yaw = Math.PI; h.pos.z = p0.z - Math.min(WALK * 0.55, t * 1.38); m.run = 0.24; h.a.update(dt); } },
+      // Shot 2B: HARD CUT to reverse front-3/4 angle as she walks straight toward camera & halts sharply!
+      { dur: 2.2, ease: 'out', from: () => ({ pos: [p0.x - 2.6, 2.45, stopZ - 4.4] as V, look: [p0.x, 1.0, h.pos.z] as V, fov: 35 }), to: () => ({ pos: [p0.x - 2.3, 2.35, stopZ - 3.9] as V, look: [p0.x, 1.05, stopZ] as V, fov: 34 }),
+        tick: (t, dt) => { const m = motionOf(h.a); h.a.yaw = Math.PI; h.pos.z = Math.max(stopZ, p0.z - WALK * 0.55 - t * 1.45); m.run = h.pos.z > stopZ + 0.05 ? 0.24 : Math.max(0, m.run - dt * 5); h.a.update(dt); } },
+      // Shot 3: HARD CUT tight listening beat — head turns, concentric snow sound rings ripple out around her
+      { dur: 2.3, ease: 'out', from: cam(3.6, 2.45, 4.6, -0.5, 34), to: cam(3.2, 2.35, 4.1, -0.4, 33),
+        at: [[0.25, () => snowRing(p0.x - 3.2, stopZ - 1.8)], [0.7, () => snowRing(p0.x + 3.6, stopZ + 0.6)], [1.15, () => snowRing(p0.x - 1.0, stopZ - 3.8)], [1.6, () => snowRing(p0.x + 1.8, stopZ + 3.2)], [0.9, () => cue('foeSwing', 0.25)]],
+        tick: (t, dt) => { stand(); h.a.update(dt); const hd = h.a.bones.head; if (hd) hd.rotation.y += 0.35 * Math.sin(Math.min(1, t / 1.4) * Math.PI); } },
+      // Shot 4A: HARD CUT high-wide ambush cut as sentries vault cleanly over the snowy village walls
+      { dur: 2.35, ease: 'out', from: cam(0.6, 7.2, 8.6, -0.8, 40), to: cam(0.4, 6.4, 7.6, -0.6, 40),
         at: [[0, spawnAmbushers]],
         tick: (t, dt) => {
           stand(); h.a.update(dt);
@@ -734,9 +752,15 @@ export class ActShow {
             if (pPhase) poseWallVault(f.a, pPhase, pU);
           }
         } },
-      // the ring closed: low, from outside it, her in the middle
-      { dur: 1.6, ease: 'inOut', from: cam(5.6, 4.4, 7.2, -0.4, 38), to: cam(5.0, 4.0, 6.6, -0.3, 36),
-        tick: (_t, dt) => { stand(); h.a.update(dt); for (const j of jumpers) { j.f.a.root.visible = true; j.f.a.off.y = 0; j.f.a.body.rotation.set(0, 0, 0); j.f.a.setRunning(false); j.f.a.update(dt); } } },
+      // Shot 4B: HARD CUT dramatic low angle inside the closing ring — Liu Bai heroic center framed by the 4 ambushers!
+      { dur: 1.55, ease: 'out', from: cam(4.4, 2.75, 5.4, -0.4, 37), to: cam(3.9, 2.55, 4.9, -0.3, 35),
+        at: [[0, () => {
+          for (const j of jumpers) {
+            j.landed = true; j.f.a.root.visible = true; j.f.pos.copy(j.to); j.f.pos.y = 0; j.f.a.home.copy(j.to); j.f.a.off.y = 0; j.f.a.body.rotation.set(0, 0, 0); j.f.a.setRunning(false);
+            j.f.yaw = Math.atan2(h.pos.x - j.f.pos.x, h.pos.z - j.f.pos.z); j.f.a.yaw = j.f.yaw;
+          }
+        }]],
+        tick: (_t, dt) => { stand(); h.a.update(dt); for (const j of jumpers) j.f.a.update(dt); } },
     ], () => {
       // act-114 skip-safety: even if player skipped shot 0/1/2, hero is at stopZ and wave-0 ambushers are landed & music is live
       h.pos.set(p0.x, 0, stopZ); h.a.home.copy(h.pos); h.a.root.position.copy(h.pos); h.a.yaw = Math.PI; motionOf(h.a).run = 0;
@@ -782,6 +806,81 @@ export class ActShow {
       this.phase = 'fight'; this.wave = 0;
     });
   }
+  /** act-169: Re-stage a hero/boss cutscene pair onto guaranteed open interior floor (>= margin from all walls, solids & pits)
+   *  so knockbacks, thrown weapons, kneeling, and prone collapses NEVER clip into courtyard walls or pillars. */
+  private stageSafePair(heroPos: THREE.Vector3, bossPos: THREE.Vector3, gap: number, margin = 3.0, mode: 'inward' | 'ns' = 'inward') {
+    const b = this.grid ? this.grid.sp.box : { x0: PLAY.x0, x1: PLAY.x1, z0: PLAY.z0, z1: PLAY.z1 };
+    const cx = (b.x0 + b.x1) * 0.5, cz = (b.z0 + b.z1) * 0.5;
+    const minX = Math.min(cx, b.x0 + margin), maxX = Math.max(cx, b.x1 - margin);
+    const minZ = Math.min(cz, b.z0 + margin), maxZ = Math.max(cz, b.z1 - margin);
+    const inBox = (x: number, z: number, m: number) => x >= b.x0 + m && x <= b.x1 - m && z >= b.z0 + m && z <= b.z1 - m;
+    const freePt = (x: number, z: number, r: number, m: number) =>
+      inBox(x, z, m) && this.solids.free(x, z, r, 0.3) && (!this.grid || this.grid.clear(x, z, r));
+    const checkPair = (hx: number, hz: number, bx: number, bz: number): boolean => {
+      if (!freePt(hx, hz, 1.05, margin) || !freePt(bx, bz, 1.05, margin)) return false;
+      const dx = bx - hx, dz = bz - hz, l = Math.hypot(dx, dz) || 1;
+      const fx = dx / l, fz = dz / l, rx = -fz, rz = fx;
+      // Verify knockback/prone & thrown-blade footprint stays well inside walls and clear of solids
+      if (mode === 'inward') {
+        if (!freePt(hx - fx * 1.65, hz - fz * 1.65, 0.85, 1.45)) return false;
+        if (!freePt(hx + fx * 0.95 + rx * 0.95, hz + fz * 0.95 + rz * 0.95, 0.55, 1.2)) return false;
+      } else {
+        if (!freePt(bx - fx * 1.45, bz - fz * 1.45, 0.75, 1.35)) return false;
+      }
+      return true;
+    };
+
+    const seedMx = Math.max(minX, Math.min(maxX, (heroPos.x + bossPos.x) * 0.5));
+    const seedMz = Math.max(minZ, Math.min(maxZ, (heroPos.z + bossPos.z) * 0.5));
+    const half = gap * 0.5;
+    const tryCenter = (mx: number, mz: number): [number, number, number, number] | null => {
+      if (mode === 'ns') {
+        const hx = mx, hz = mz + half, bx = mx, bz = mz - half;
+        return checkPair(hx, hz, bx, bz) ? [hx, hz, bx, bz] : null;
+      }
+      // Prefer existing hero->boss axis if clean, else canonical N-S facing inward, else cardinal rotations
+      const ox = bossPos.x - heroPos.x, oz = bossPos.z - heroPos.z, ol = Math.hypot(ox, oz);
+      const dirs: Array<[number, number]> = [[0, -1], [0, 1], [1, 0], [-1, 0]];
+      if (ol > 0.2) dirs.unshift([ox / ol, oz / ol]);
+      for (const [fx, fz] of dirs) {
+        const hx = mx - fx * half, hz = mz - fz * half;
+        const bx = mx + fx * half, bz = mz + fz * half;
+        if (checkPair(hx, hz, bx, bz)) return [hx, hz, bx, bz];
+      }
+      return null;
+    };
+
+    let picked = tryCenter(seedMx, seedMz);
+    if (!picked) {
+      // Spiral from clamped midpoint toward room center (cx, cz), then outward from center
+      const anchors: Array<[number, number]> = [
+        [seedMx * 0.5 + cx * 0.5, seedMz * 0.5 + cz * 0.5],
+        [cx, cz],
+      ];
+      for (const [ax, az] of anchors) {
+        picked = tryCenter(ax, az);
+        if (picked) break;
+        for (const rad of [1.2, 2.4, 3.6, 5.0]) {
+          for (let k = 0; k < 12; k++) {
+            const ang = (k / 12) * Math.PI * 2;
+            picked = tryCenter(ax + Math.cos(ang) * rad, az + Math.sin(ang) * rad);
+            if (picked) break;
+          }
+          if (picked) break;
+        }
+        if (picked) break;
+      }
+    }
+    if (picked) {
+      heroPos.set(picked[0], 0, picked[1]);
+      bossPos.set(picked[2], 0, picked[3]);
+    } else {
+      heroPos.set(cx, 0, cz + half);
+      bossPos.set(cx, 0, cz - half);
+    }
+    this.clamp(heroPos, 0.65);
+    this.clamp(bossPos, 0.75);
+  }
   /** the fight she cannot win: the blow, his word, the snow; dawn and the man with the donkey; the kiln */
   private async prologueFall() {
     if (this.proFalling || this.prologue !== 2) return; this.proFalling = true;
@@ -792,16 +891,26 @@ export class ActShow {
     const boss = this.foes.find(f => isBoss(f) && f.st !== 'dead') ?? null;
     this.hero.inv = 99;
     this.hero.a.root.visible = true; this.hero.a.body.visible = true;
-    this.hero.a.home.copy(this.hero.pos);
     for (const f of this.foes) { dropTeles(f); f.attacking = false; f.lunge = null; }   // nothing left half-swung on the snow
     for (const a of this.arrows) a.kill(); this.arrows.length = 0; this.hitArcs.clear();
     if (boss) {
+      // act-169: Re-stage hero & Cui Xuan onto clear interior courtyard floor (>= 3.0m from walls) so disarm, sword stab & prone collapse never clip walls!
+      const hSafe = this.hero.pos.clone().setY(0), bSafe = boss.pos.clone().setY(0);
+      this.stageSafePair(hSafe, bSafe, 2.75, 3.0, 'inward');
+      this.hero.pos.copy(hSafe); this.hero.vel.set(0, 0, 0);
+      this.hero.a.home.copy(hSafe); this.hero.a.root.position.copy(hSafe);
+      this.hero.a.yaw = Math.atan2(bSafe.x - hSafe.x, bSafe.z - hSafe.z);
       boss.mem.noHide = true;
       revealFoe(boss);
       boss.st = 'move'; boss.inv = 99; boss.vel.set(0, 0, 0);
       if (boss.a.bones.blade) boss.a.bones.blade.visible = true;
       if (boss.a.bones.fan) boss.a.bones.fan.visible = false;
-      boss.a.home.copy(boss.pos); boss.a.root.position.copy(boss.pos);
+      boss.pos.copy(bSafe);
+      boss.a.home.copy(bSafe); boss.a.root.position.copy(bSafe);
+      boss.yaw = Math.atan2(hSafe.x - bSafe.x, hSafe.z - bSafe.z);
+      boss.a.yaw = boss.yaw;
+    } else {
+      this.hero.a.home.copy(this.hero.pos);
     }
     const kneelPose = () => this.proKneel.frame(this.hero.a);
     if (boss) {
@@ -903,7 +1012,7 @@ export class ActShow {
     this.mods = runMods(profile()); this.defy = 0; this.eliteKills = 0; this.bossKilled = false; this.wine = false;
     TUNE.heroHp = 100 + this.mods.hpBonus; TUNE.dartCharges = 3 + this.mods.dartBonus; TUNE.aggression = 0.85 / this.mods.windupMul;
     this.baseFoe.aggression = TUNE.aggression; this.scaleFoes(0);
-    this.plan = PRO_BOSS; this.locale = PRO_BOSS.locale; this.forceSpec = { ...PRO_ROOM.spec };
+    this.plan = PRO_BOSS; this.locale = PRO_BOSS.locale; this.forceSpec = { ...PRO_BOSS_SPEC };
     const loading = this.buildRoom(true); if (loading) await loading;
     this.queuePro('dawn');
   }
@@ -1501,21 +1610,14 @@ export class ActShow {
         } else if (this.gardenExclaims[i]) this.gardenExclaims[i]!.visible = false;
 
         const dPlot = h ? Math.hypot(h.pos.x - gp.x, h.pos.z - gp.z) : 99;
-        const showGardenTag = uiClear && near !== key && ((unl && st.done && dPlot < 6.0) || dPlot < 3.4);
+        // act-170: 种田头顶仅留「图标 + 倒计时 / 可收」，空地荒畦不刷文字，走近才出交互牌
+        const showGardenTag = uiClear && near !== key && unl && !!plot && (st.done ? dPlot < 7.2 : dPlot < 5.6);
         if (showGardenTag) {
           const pt = worldToUi(V3(gp.x, 1.5, gp.z));
-          let txt = '荒畦', sub = '待开垦', col = '#c8c0b0';
-          if (unl && plot) {
-            const def = SEEDS[plot.seed];
-            txt = def.name;
-            sub = st.done ? '可收获' : msg`差${st.leftSteps}屋/${st.leftMins}分`;
-            col = st.done ? '#ffe680' : def.hex;
-          } else if (unl) {
-            txt = '药畦';
-            sub = seedBag > 0 ? msg`可种(${seedBag})` : '空地';
-            col = seedBag > 0 ? '#8effb0' : '#ccc4b2';
-          }
-          this.worldPlates.setTag('ho.' + key, { text: txt, sub, icon: 'leaf', x: pt.x, y: pt.y, color: col, accent: st.done ? '#ffd258' : '#58a870', minY, scale: 0.92, visible: pt.z < 1 });
+          const def = SEEDS[plot!.seed];
+          const txt = st.done ? '可收' : msg`${st.leftSteps}屋·${st.leftMins}分`;
+          const col = st.done ? '#ffe680' : def.hex;
+          this.worldPlates.setTag('ho.' + key, { text: txt, icon: 'leaf', x: pt.x, y: pt.y, color: col, accent: st.done ? '#ffd258' : def.hex, minY, scale: 0.9, visible: pt.z < 1 });
         } else this.worldPlates.hide('ho.' + key);
       }
     } else {
@@ -1567,29 +1669,31 @@ export class ActShow {
       const unl = idx < gState.unlocked, plot = unl ? gState.plots[idx] : null, st = plotStatus(plot, nowMs);
       const pt = worldToUi(V3(gp.x, 1.75, gp.z));
       if (!unl) {
-        this.worldPlates.setInteract('ho.active', { title: msg`第 ${idx + 1} 块荒畦`, sub: '开垦后可多栽一茬灵植', action: '开垦药畦', icon: 'leaf', color: '#ffe090', accent: '#c8a050', x: pt.x, y: pt.y, minY, visible: pt.z < 1 });
+        const c = PLOT_COSTS[idx];
+        const costSub = c ? (c.cur === 'herb' ? msg`药引 ${c.n}` : msg`残铁 ${c.n}`) : undefined;
+        this.worldPlates.setInteract('ho.active', { title: msg`荒畦 ${idx + 1}`, sub: costSub, action: '开垦', icon: 'leaf', color: '#ffe090', accent: '#c8a050', x: pt.x, y: pt.y, minY, visible: pt.z < 1 });
       } else if (plot) {
         const def = SEEDS[plot.seed];
         this.worldPlates.setInteract('ho.active', {
           title: def.name,
-          sub: st.done ? '灵植已熟，即刻采收' : msg`还差 ${st.leftSteps} 屋或 ${st.leftMins} 分钟成熟`,
-          action: st.done ? '一键收获' : '查看进度',
+          sub: st.done ? undefined : msg`${st.leftSteps}屋 · ${st.leftMins}分`,
+          action: st.done ? '采收' : '查看',
           icon: 'leaf', color: st.done ? '#ffe878' : def.hex, accent: st.done ? '#ffd258' : '#5ca874',
           x: pt.x, y: pt.y, minY, visible: pt.z < 1,
         });
       } else {
         this.worldPlates.setInteract('ho.active', {
-          title: '空药畦', sub: msg`行囊余种 ${seedBag} 枚`,
-          action: seedBag > 0 ? '选种播种' : '查看药种', icon: 'leaf', color: '#8effb0', accent: '#64c884',
+          title: '药畦', sub: msg`余种 ${seedBag}`,
+          action: seedBag > 0 ? '播种' : '查看', icon: 'leaf', color: '#8effb0', accent: '#64c884',
           x: pt.x, y: pt.y, minY, visible: pt.z < 1,
         });
       }
     } else if (near === 'weaponRack' && uiClear) {
       const p = worldToUi(V3(HIDEOUT.weaponRack.x, 2.38, HIDEOUT.weaponRack.z + 0.35));
-      this.worldPlates.setInteract('ho.active', { title: '文家刀廊', sub: msg`当前佩刀 · ${eqWep.name}`, action: '拔刀换武', icon: 'blade', color: '#ffe698', accent: eqWep.col, x: p.x, y: p.y, minY, visible: p.z < 1 });
+      this.worldPlates.setInteract('ho.active', { title: '文家刀廊', sub: eqWep.name, action: '换刀', icon: 'blade', color: '#ffe698', accent: eqWep.col, x: p.x, y: p.y, minY, visible: p.z < 1 });
     } else if (near === 'keepsakeBox' && uiClear) {
       const p = worldToUi(V3(HIDEOUT.keepsakeBox.x, 2.02, HIDEOUT.keepsakeBox.z + 0.35));
-      this.worldPlates.setInteract('ho.active', { title: '信物匣', sub: eqKs ? msg`佩戴中 · ${eqKs.name}` : '挑一件随身信物上路', action: '开匣选佩', icon: 'star', color: '#8effd0', accent: '#d4a652', x: p.x, y: p.y, minY, visible: p.z < 1 });
+      this.worldPlates.setInteract('ho.active', { title: '信物匣', sub: eqKs ? eqKs.name : '未佩', action: '选佩', icon: 'star', color: '#8effd0', accent: '#d4a652', x: p.x, y: p.y, minY, visible: p.z < 1 });
     } else if (near === 'lantern' && uiClear) {
       const p = worldToUi(V3(HIDEOUT.lantern.x, 2.02, HIDEOUT.lantern.z));
       const oil = ensureAds(prof).total;
@@ -1601,12 +1705,12 @@ export class ActShow {
     } else if (near === 'duwu_memorial' && uiClear) {
       const p = worldToUi(V3(HIDEOUT.people.duwu.x, 2.05, HIDEOUT.people.duwu.z));
       this.worldPlates.setInteract('ho.active', {
-        title: '杜五的遗灶', sub: !prof.meal ? '孙婆婆每日替他温着干粮' : '行囊干粮已备齐', action: '领取干粮',
+        title: '杜五的遗灶', sub: !prof.meal ? '可领干粮' : '已备齐', action: '领干粮',
         icon: 'herb', color: '#ffbe78', accent: '#d4964c', x: p.x, y: p.y, minY, visible: p.z < 1,
       });
     } else if (near === 'stele' && uiClear && HIDEOUT.stele) {
       const p = worldToUi(V3(HIDEOUT.stele.x, 2.18, HIDEOUT.stele.z + 0.35));
-      this.worldPlates.setInteract('ho.active', { title: '复仇碑', sub: '永久潜能 · 阳阴双面自由切换', action: '参悟碑铭', icon: 'stele', color: '#e2d0ff', accent: '#a88cf0', x: p.x, y: p.y, minY, visible: p.z < 1 });
+      this.worldPlates.setInteract('ho.active', { title: '复仇碑', sub: '阳 / 阴潜能', action: '参悟', icon: 'stele', color: '#e2d0ff', accent: '#a88cf0', x: p.x, y: p.y, minY, visible: p.z < 1 });
     } else if (nn && uiClear) {
       const p = worldToUi(V3(nn.x, (nn.a.height ?? 1.8) + 1.18, nn.z));
       const bc = beaconOf(nn.id);
@@ -1811,7 +1915,7 @@ export class ActShow {
       const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
       const i = await this.cards.open(cards, {
         leave: true, layout: 'weapons', instant, initialFocus: focusIdx,
-        header: { title: '文家刀廊', sub: '四柄文家名刀各有独立连段与藏锋特技 · 未夺回之刃可观影借试一局', col: '#ffe290', accent: '#c89248' },
+        header: { title: '文家刀廊', col: '#ffe290', accent: '#c89248' },
         detail: idx => {
           const wid = WEAPON_ORDER[idx], w = WEAPONS[wid];
           const unl = isWeaponUnlocked(p, wid, this.dbgAllWeapons), lv = weaponLevel(p, wid);
@@ -1824,11 +1928,11 @@ export class ActShow {
             starsMax: 3,
             line1: unl ? w.summary : isRent ? msg`已借试一局 · ${w.summary}` : msg`${w.unlockHint} · 观影可借试下一局`,
             line2: msg`${w.special} · 专属刀谱：${manualsForWeapon(wid).map(m => m.name).join('/')}`,
-            action: isRent ? '借试中' : !unl ? '借刃一试（观影）' : eq ? '当前佩刀' : '拔刀换武',
+            action: isRent ? '借试中' : !unl ? '借刃一试（观影）' : eq ? '当前佩刀' : '换刀',
             accent: isRent ? '#ffd872' : !unl ? '#c8a25e' : eq ? '#ffd872' : w.col,
           };
         },
-        footer: '点选名刀拔换或观影借试 · 冯铁臂处可淬炼升阶 · Esc 返回',
+        footer: '确认换刀或观影借试 · Esc 返回',
       });
       this.phase = was; this.hud.on = true;
       if (i < 0 || i >= WEAPON_ORDER.length) return;
@@ -1876,8 +1980,8 @@ export class ActShow {
         {
           boon: {
             id: 'gd_unlock', school: 'md' as never,
-            name: msg`开垦第 ${idx + 1} 块药畦`,
-            desc: [msg`需耗 ${curName} ${cost.n}`, afford ? '开垦后可多栽一茬灵植，双轨加速养成' : msg`${curName}不足，清房或收菜后再来`],
+            name: msg`荒畦 ${idx + 1}`,
+            desc: [msg`${curName} ${cost.n}`, afford ? '解锁药畦 +1' : msg`${curName}不足`],
             col: afford ? '#8effb0' : '#8a8278', glyph: SPROUT,
             tag: afford ? msg`${cost.n}${curName}` : '不足',
             locked: !afford,
@@ -1886,9 +1990,9 @@ export class ActShow {
         },
       ], {
         leave: true,
-        header: { title: '竹溪药圃 · 开垦药畦', sub: '开垦更多田块，同时栽种多株灵植', col: '#90f0a8' },
+        header: { title: '开垦药畦', col: '#90f0a8' },
         wallet: { iron: p.iron, herb: p.herb, focus: cost.cur },
-        footer: '点选开垦 · Esc 返回',
+        footer: '确认开垦 · Esc 返回',
       });
       this.phase = was; this.hud.on = true;
       if (ch === 0 && unlockPlot(p, idx)) {
@@ -1896,7 +2000,7 @@ export class ActShow {
         this.refreshHideoutProps();
         fxSmoke(V3(gp.x, 0.35, gp.z), 0x8a785c, 12, { r: 0.9, spd: 1.2, up: 0.7, s: 0.45, life: 0.8 });
         cue('reveal', 0.85);
-        this.banner.show('药畦已开垦', '现可栽种新药种', 1.5, '#8effb0');
+        this.banner.show('药畦已开垦', '', 1.2, '#8effb0');
       }
       return;
     }
@@ -2011,10 +2115,10 @@ export class ActShow {
       return {
         boon: {
           id: 'seed_' + sid, school: 'md' as never,
-          name: msg`${def.name}（存 ${cnt}）`,
-          desc: [def.desc, def.buffDesc ?? '清房、秘藏与孙媪赠种均可获种'],
+          name: msg`${def.name} ×${cnt}`,
+          desc: [def.desc, def.buffDesc ?? ''],
           col: cnt > 0 ? def.hex : '#7e7872', glyph: SPROUT,
-          tag: cnt > 0 ? msg`${def.steps}屋熟` : '缺种',
+          tag: cnt > 0 ? msg`${def.steps}屋/${def.steps * def.minsPerStep}分` : '缺种',
           locked: cnt <= 0,
         } as CardBoon,
         tier: cnt > 0 ? (def.buff ? 2 : 1) : 0,
@@ -2034,9 +2138,9 @@ export class ActShow {
     const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
     const sel = await this.cards.open(cards, {
       leave: true, layout: 'grid2',
-      header: { title: '竹溪药圃 · 播种灵植', sub: '每通关 1 间战斗屋加速 1 格 · 离线自然生长', col: '#90f0a8' },
+      header: { title: '竹溪药圃 · 播种', sub: '通屋 / 离线双轨成熟', col: '#90f0a8' },
       wallet: { iron: p.iron, herb: p.herb, focus: 'herb' },
-      footer: '点选种子栽下 · Esc 返回',
+      footer: '确认播种 · Esc 返回',
     });
     this.phase = was; this.hud.on = true;
     if (sel < 0) return;
@@ -2055,7 +2159,7 @@ export class ActShow {
     const chosen = SEED_ORDER[sel];
     if (!plantSeed(p, idx, chosen, Date.now())) {
       cue('deny', 0.45);
-      this.banner.show('暂无此药种', '战斗通关、开启秘藏或明日回营均可获种', 1.5, '#d0a890');
+      this.banner.show('缺种', '清房 / 秘藏获种', 1.3, '#d0a890');
       return;
     }
     saveProfile();
@@ -2063,7 +2167,7 @@ export class ActShow {
     fxSmoke(V3(gp.x, 0.3, gp.z), 0x6a8a4c, 10, { r: 0.7, spd: 1.0, up: 0.6, s: 0.4, life: 0.7 });
     cue('reveal', 0.75);
     const def = SEEDS[chosen];
-    this.banner.show(msg`已播下 · ${def.name}`, msg`${def.steps} 间战斗屋或离线 ${def.steps * def.minsPerStep} 分钟后可收`, 1.8, def.hex);
+    this.banner.show(def.name, msg`${def.steps}屋 · ${def.steps * def.minsPerStep}分`, 1.4, def.hex);
   }
   /** act-125 / act-136: 乌漆铜扣信物匣 — 4×2 Hades-style showcase grid + large bottom detail panel */
   private async keepsakeMenu() {
@@ -2089,26 +2193,26 @@ export class ActShow {
       const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
       const i = await this.cards.open(cards, {
         leave: true, layout: 'keepsake', instant, initialFocus: focusIdx,
-        header: { title: '信物匣 · 随身信物', sub: '每局选带一件 · 通关战斗屋自动升星（★ → ★★★）', col: '#8effd0', accent: '#62b898' },
+        header: { title: '信物匣', sub: '限佩一件 · 通屋升星', col: '#8effd0', accent: '#62b898' },
         keepsakeDetail: idx => {
           const kid = KEEPSAKE_ORDER[idx], ks = KEEPSAKES[kid];
           const unl = isKeepsakeUnlocked(p, kid, this.dbgAllWeapons), eq = cur === kid;
           const st = keepsakeStar(p, kid), rms = keepsakeRooms(p, kid);
           const nextNeed = st === 1 ? KEEPSAKE_STARS[0] : st === 2 ? KEEPSAKE_STARS[1] : null;
-          const prog = !unl ? msg`获赠途径：${ks.source}` : nextNeed != null ? msg`升星进度：已同行 ${rms} / ${nextNeed} 间战斗屋` : '已达 ★★★ 圆满';
+          const prog = !unl ? ks.source : nextNeed != null ? msg`升星 ${rms}/${nextNeed} 屋` : '★★★ 圆满';
           return {
             title: msg`${ks.owner} · ${ks.name}`,
             badge: !unl ? '未获赠' : eq ? '佩戴中' : '已获赠',
             badgeCol: !unl ? '#9a929c' : eq ? '#ffe278' : '#88e8b8',
             stars: unl ? st : 0,
             starsMax: 3,
-            line1: unl ? ks.effect(st) : msg`未获赠 · ${ks.effect(1)}`,
+            line1: ks.effect(unl ? st : 1),
             line2: prog,
-            action: !unl ? '尚未获赠' : eq ? '点击卸下' : '点击佩戴',
+            action: !unl ? '未解锁' : eq ? '卸下' : '佩戴',
             accent: !unl ? '#666070' : eq ? '#ffd872' : ks.col,
           };
         },
-        footer: '方向键浏览 · Enter / 点击佩戴或卸下 · Esc 返回',
+        footer: '确认佩卸 · Esc 返回',
       });
       this.phase = was; this.hud.on = true;
       if (i < 0 || i >= KEEPSAKE_ORDER.length) return;
@@ -2253,7 +2357,7 @@ export class ActShow {
             accent: unl ? w.col : '#6a6670',
           };
         },
-        footer: PAD.device === 'pad' ? msg`LB/RB 切页 · ${padName(0)} 锻造 · ${padName(1)} 返回` : 'Tab / Q E 切页 · 点选右侧按钮或 Enter 锻造 · Esc 返回',
+        footer: PAD.device === 'pad' ? msg`LB/RB 切页 · ${padName(0)} 锻造 · ${padName(1)} 返回` : 'Q/E 切页 · 确认锻造 · Esc 返回',
       });
       this.phase = was; this.hud.on = true;
       if (switched) continue;
@@ -2312,7 +2416,7 @@ export class ActShow {
       const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
       const i = await this.cards.open(cards, {
         leave: true, instant, initialFocus: focusIdx,
-        header: { title: '复仇碑 · 碑铭潜能', sub: '阳面金碑 / 阴面紫碑自由切换 · 永久生效', col: '#d8c4ff', accent: '#9880d0' },
+        header: { title: '复仇碑', sub: '阳 / 阴双面随时切换', col: '#d8c4ff', accent: '#9880d0' },
         wallet: { iron: p.iron, herb: p.herb },
         onAlt: idx => {
           const m = MIRROR[idx];
@@ -2322,7 +2426,7 @@ export class ActShow {
           focusIdx = idx; instant = true; flipped = true;
           this.cards.cancelSilent();
         },
-        footer: PAD.device === 'pad' ? msg`${padName(0)} 参悟 · ${padName(3)} 切阴阳 · ${padName(1)} 返回` : '点选碑铭参悟 · Q / 点右上角切换阴阳 · Esc 返回',
+        footer: PAD.device === 'pad' ? msg`${padName(0)} 参悟 · ${padName(3)} 切阴阳 · ${padName(1)} 返回` : '确认参悟 · Q 切阴阳 · Esc 返回',
       });
       this.phase = was; this.hud.on = true;
       if (flipped) continue;
@@ -2381,14 +2485,14 @@ export class ActShow {
       return;
     }
     await this.talk([dead ? { who: 'act', text: '（东南遗灶旁温着胡饼、五铢钱与灶底老酒，白灯在晚风里轻晃）' } : { who: 'duwu', text: pick(MEAL_TALK.offer) }]);
-    const cards: BoonPick[] = MEALS.map(m => ({ boon: { id: 'meal_' + m.id, school: 'ms' as never, name: m.name, desc: [m.desc, '免费携带 · 下一局生效'], col: '#ffd27a', glyph: MEAL_GLYPH[m.id], tag: '免费' } as CardBoon, tier: 0 }));
+    const cards: BoonPick[] = MEALS.map(m => ({ boon: { id: 'meal_' + m.id, school: 'md' as never, name: m.name, desc: [m.desc, ''], col: '#ffd27a', glyph: MEAL_GLYPH[m.id], tag: '免费' } as CardBoon, tier: 0 }));
     const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
     const i = await this.cards.open(cards, {
       leave: true,
       header: dead
-        ? { title: '杜五的遗灶 · 行囊干粮', sub: '孙婆婆每日替他温在灶边，领完还可再温老酒升级', col: '#ffd27a' }
-        : { title: '杜五 · 行囊干粮', sub: '每次出发前免费挑一份带着上路（领完还可再温老酒升级）', col: '#ffd27a' },
-      footer: '点选免费领取 · Esc 返回',
+        ? { title: '杜五的遗灶 · 干粮', sub: '免费任选 · 领完还可再温老酒升级', col: '#ffd27a' }
+        : { title: '行囊干粮', sub: '免费任选 · 领完还可再温老酒升级', col: '#ffd27a' },
+      footer: '确认领取 · Esc 返回',
     }); this.phase = was; this.hud.on = true;
     const m = MEALS[i]; if (!m) return;
     p.meal = m.id; saveProfile(); cue('coin', 0.6);
@@ -2849,7 +2953,7 @@ export class ActShow {
       const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
       const i = await this.cards.open(cards, {
         leave: true, layout: 'arcana', instant, initialFocus: focusIdx,
-        header: { title: '孙媪 · 药炉悟性阵', sub: '以悟性点亮经脉牌阵 · 随时免费启停 · 同启三牌唤醒中宫', col: '#90f6ba', accent: '#4eb47c' },
+        header: { title: '孙婆婆 · 悟性牌阵', sub: '启停免费 · 启 3 牌唤中宫', col: '#90f6ba', accent: '#4eb47c' },
         wallet: { iron: p.iron, herb: p.herb, focus: 'herb' },
         graspBar: {
           used, cap, nextCost: nextCap, have: p.herb, canExpand: nextCap != null && p.herb >= nextCap,
@@ -2913,7 +3017,7 @@ export class ActShow {
             lv: rk,
             maxLv: 3,
             stats,
-            note: isAwk ? def.desc : unlocked && active ? '入阵生效中 · 可随时免费卸下' : undefined,
+            note: isAwk ? def.desc : undefined,
             btnLabel,
             btnCost,
             btnEnabled: !unlocked ? p.herb >= def.unlockCost : isAwk ? false : (active || canEquip),
@@ -2923,7 +3027,7 @@ export class ActShow {
             accent: active ? (isAwk ? '#ffe078' : '#7ef0aa') : '#4e9670',
           };
         },
-        footer: '点选左阵启停悟性牌 · Q / 右下精进升阶 · 顶部拓悟性 · Esc 返回',
+        footer: '确认启停 · Q 升阶 · Esc 返回',
       });
       this.phase = was; this.hud.on = true;
       if (refreshAction) continue;
@@ -3139,24 +3243,26 @@ export class ActShow {
       },
       /** act-114: preview Ch5 blade-at-throat ending choice, or directly play ending 'a' | 'b' | 'c' */
       ending: (choice?: 'a' | 'b' | 'c') => { void this.debugEnding(choice); },
-      /** act-156: preview prologue Cui Xuan disarm (spinning blade stabs upright into snow) + PRO_FALL */
-      proFall: () => {
+      /** act-156 / act-169: preview prologue Cui Xuan disarm (pass wallEdge=true to test wall-hugging anti-clip re-staging) */
+      proFall: (wallEdge = false) => {
         void (async () => {
           if (this.phase === 'title') { stopTitle(); this.hud.on = true; }
           this.prologue = 2; this.proFalling = false; this.proFightT = 0; this.tut.stop();
           this.room = 1; this.region = 0;
-          this.plan = { ...PRO_BOSS, waves: [] }; this.locale = PRO_BOSS.locale; this.forceSpec = { ...PRO_ROOM.spec };
+          this.plan = { ...PRO_BOSS, waves: [] }; this.locale = PRO_BOSS.locale; this.forceSpec = { ...PRO_BOSS_SPEC };
           await this.buildRoom(false);
           this.forceSpec = null;
           this.phase = 'fight';
           this.waveGen++;
-          const cx = spawnFoe('cx_boss', V3(0, 0, -2.2), this.hero.pos.clone());
+          const bStart = wallEdge ? V3(PLAY.x0 + 1.4, 0, PLAY.z1 - 1.5) : V3(0, 0, -2.2);
+          const hStart = wallEdge ? V3(PLAY.x0 + 0.55, 0, PLAY.z1 - 0.65) : V3(0, 0, 2.2);
+          const cx = spawnFoe('cx_boss', bStart, hStart.clone());
           this.foes.push(cx);
-          this.hero.pos.set(0, 0, 2.2); this.hero.a.place(this.hero.pos, Math.PI);
+          this.hero.pos.copy(hStart); this.hero.a.place(this.hero.pos, Math.atan2(bStart.x - hStart.x, bStart.z - hStart.z));
           await frames(2);
           await this.prologueFall();
         })();
-        return { stage: 'proFall' };
+        return { stage: 'proFall', wallEdge };
       },
       /** act-157 / act-165: preview prologue Cui Xuan immediate frame-0 wall-vault + hard-cut PRO_CUIXUAN confrontation */
       proCuixuan: () => {
@@ -3164,7 +3270,7 @@ export class ActShow {
           if (this.phase === 'title') { stopTitle(); this.hud.on = true; }
           this.prologue = 2; this.proFalling = false; this.proFightT = 0; this.tut.stop();
           this.room = 1; this.region = 0;
-          this.plan = PRO_BOSS; this.locale = PRO_BOSS.locale; this.forceSpec = { ...PRO_ROOM.spec };
+          this.plan = PRO_BOSS; this.locale = PRO_BOSS.locale; this.forceSpec = { ...PRO_BOSS_SPEC };
           await this.buildRoom(false);
           this.forceSpec = null;
         })();
@@ -4488,8 +4594,7 @@ export class ActShow {
     // beyond the road end so walking out & back through the gate and mountain road is 100% two-way with zero one-way airwall!
     const ex = { ...exitInfo(this.layout!, 'back'), id: 'left' as const, dir: [0, 1] as [number, number], lane: { x0: HIDEOUT.exit.x0, x1: HIDEOUT.exit.x1, z0: PLAY.z1 - 0.8, z1: PLAY.z1 + 3.0 }, walk: [[gx, HIDEOUT.exit.z - 1.6], [gx, HIDEOUT.exit.z + 1.0]] as Array<[number, number]> };
     this.doors = [{ ex, g: new THREE.Group(), lift: 1 }];
-    const touch = isTouchLayout(this.inp.lastDevice);
-    this.banner.show('断碑古窑', touch ? '走近人点右下说话 · 踩石板叫陪练 · 出院门开打' : this.inp.lastDevice === 'pad' ? msg`走近人按 ${actPad('attack')} 说话 · 踩石板叫陪练 · 出院门开打` : !__DEBUG_UI__ ? msg`走近人按 ${actKey('attack')} 说话 · 踩石板叫陪练 · 出院门开打` : msg`走近人按 ${actKey('attack')} 说话 · 踩石板叫陪练 · 出院门开打 · \` 键调手感`, 4);
+    this.banner.show('断碑古窑', '', 1.6);
     this.log.push('yard');
     this.queueAhead(true);
   }
@@ -5152,7 +5257,7 @@ export class ActShow {
               fxSmoke(this.hero.pos.clone().setY(0.12), 0xe8eef8, 6, { r: 0.45, spd: 0.8, up: 0.35, s: 0.32, life: 0.55, alpha: 0.6 });
               this.cutCam([dPos.x + 2.75, 2.35, dPos.z + 3.45], [dPos.x + 0.35, 0.52, dPos.z + 0.12], 34, { drift: [-0.18, -0.04, -0.22], fovDrift: -1.4 });
             }
-            if (idx >= 7 && !deadPose) {
+            if (idx >= 6 && !deadPose) {
               // Beat: "他攥着里衣的手松开了，半块粗布裹着的温热胡饼滚落进雪里" -> flatbread rolls onto snow!
               deadPose = true; cue('bodyFall', 0.55);
               if (this.stage) {
@@ -5162,11 +5267,11 @@ export class ActShow {
                 this.roadExtras.push(bread);
               }
             }
-            if (idx === 8) {
+            if (idx === 7) {
               // Cold sneer hard-cut back to Feng Han ("啧，可惜了半副好药引...")
               this.cutCam([f.pos.x - 2.6, 2.45, f.pos.z + 3.6], [f.pos.x, 1.15, f.pos.z], 33, { drift: [0.20, -0.04, -0.22], fovDrift: -1.2 });
             }
-            if (idx >= 9 && !hiltReady) {
+            if (idx >= 8 && !hiltReady) {
               // Beat: "刘白慢慢松开怀里渐冷的身子，起身，缓缓按上刀柄" -> rises & locks onto Feng Han from heroic low angle!
               kneelWant = 0; hiltReady = true;
               this.hero.a.yaw = Math.atan2(f.pos.x - this.hero.pos.x, f.pos.z - this.hero.pos.z);
@@ -5273,7 +5378,7 @@ export class ActShow {
     const wName = weaponDef(wid).name;
     const cur = list;
     const i = await this.cards.open(cur.map(m => ({ boon: manualCard(m), tier: 0 })), {
-      header: { title: msg`${wName} · 武器刀谱`, sub: '每柄武器专属 4 招派生 · 挑一招精进连段', col: '#ffe49a' },
+      header: { title: msg`${wName} · 刀谱`, sub: '武器专属派生 · 三选一', col: '#ffe49a' },
     });
     const m = cur[i]; this.perks.moves[m.id] = true; this.log.push(`manual ${m.id}`); this.syncMarks(); this.settleDoors();
     this.hud.on = true; this.feed.push('manual', () => msg`刀谱 · ${m.name}`, 0, 'manual:' + m.id);
@@ -6741,7 +6846,7 @@ export class ActShow {
       const away = f.pos.clone().sub(from).setY(0.2);
       if (away.lengthSq() < 1e-4) away.set(0, 0.2, -1);
       blood.spray(f.a.chest(), away.normalize(), 18, 1.05);
-      bossKneelDefeatPose(f.a, 0.01);
+      if (f.kind === 'ly_boss') bossDefiantPose(f.a, 0.01); else bossKneelDefeatPose(f.a, 0.01);
     } else if (fell) { /* gone down a pit: out of sight already */ }
     else if (f.pos.y > 0.05) { this.drops.push({ f, from: from.clone(), boss, vy: Math.min(0, f.airV ?? 0) }); f.airV = undefined; }
     else void playDeath(f.a, { from, ratio: f.lastDmg / f.maxHp + (boss ? 0.5 : 0), boss }).then(() => { f.a.dispose(); });
@@ -7090,8 +7195,8 @@ export class ActShow {
     const ai = effArch ? ARCH_INFO[effArch] : null;
     const i = await this.cards.open(pick, {
       header: {
-        title: ai ? msg`${ai.name}秘传 · 流派强化` : '淬炼秘传 · 流派强化',
-        sub: ai ? msg`同流派 2件：${ai.b2} · 3件：${ai.b3}` : '强化对应按键效果 · 同流派 2件/3件 触发成势',
+        title: ai ? msg`${ai.name}秘传` : '淬炼秘传',
+        sub: ai ? msg`2件 ${ai.b2} · 3件 ${ai.b3}` : '同流派 2/3 件成势',
         col: ai ? ai.col : '#ffd27a',
       },
       archHave: archCounts(this.perks),
@@ -7139,7 +7244,7 @@ export class ActShow {
     const own = this.sharpenable().sort(() => Math.random() - 0.5).slice(0, 3); if (!own.length) return;
     const cards: BoonPick[] = own.map(b => ({ boon: b, tier: this.perks.owned[b.id] + 1 }));
     const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide();
-    const i = await this.cards.open(cards, { header: { title: '磨刀淬锋 · 秘传升阶', sub: full ? '秘传已满九张 · 挑一张提升品阶' : '挑一张已得秘传提升品阶', col: '#ffe08a' }, archHave: archCounts(this.perks) });
+    const i = await this.cards.open(cards, { header: { title: '秘传升阶', sub: full ? '秘传已满 · 选一升阶' : '选一秘传升阶', col: '#ffe08a' }, archHave: archCounts(this.perks) });
     const b = own[i]; upgradeBoon(this.perks, b.id); this.log.push(`sharpen ${b.id} ${this.perks.owned[b.id]}`); this.syncMarks(); this.settleDoors();
     this.hud.on = true; this.phase = was; this.feed.push('boon', () => msg`${b.name} · ${TIER_NAMES[this.perks.owned[b.id]]}`, 0, 'sharpen:' + b.id);
   }
@@ -7229,9 +7334,9 @@ export class ActShow {
         const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideWorldPlates();
         const i = await this.cards.open(cards, {
           leave: true, layout: 'shop', instant,
-          header: { title: '行商货摊', sub: '四摊百货 · 点选货签直接购入', col: '#ffe290', accent: '#c89248' },
+          header: { title: '行商货摊', col: '#ffe290', accent: '#c89248' },
           wallet: { coins: this.coins, focus: 'coins' },
-          footer: '点选木签购入 · Esc 返回',
+          footer: '确认购入 · Esc 返回',
         });
         this.phase = was; this.hud.on = true;
         if (i < 0 || i >= avail.length) return;
@@ -7337,7 +7442,7 @@ export class ActShow {
     const chosen = this.ahead.find(job => job.plan === next);
     this.dropAhead(chosen);
     if (chosen) this.ahead.push(chosen);
-    this.plan = next; const fromLocale = this.locale; this.locale = next.locale; if (this.prologue === 1) { this.prologue = 2; this.proFightT = 0; profile().proStage = 'boss'; saveProfile(); }
+    this.plan = next; const fromLocale = this.locale; this.locale = next.locale; if (this.prologue === 1) { this.prologue = 2; this.proFightT = 0; this.forceSpec = { ...PRO_BOSS_SPEC }; profile().proStage = 'boss'; saveProfile(); }
     // 11-18 一局五关: the road out of a boss room goes into the next region — its rooms count from one again, its own kinds of room,
     // its foes stronger (the run's TUNE scaled by flow.ts regionScale)
     const nextRegion = !this.prologue && next.region != null && next.region !== this.region;
@@ -7476,14 +7581,13 @@ export class ActShow {
     }
     this.foes = bossFoe ? [bossFoe] : [];
     const bossKind = bossFoe ? bossFoe.kind : (BOSS_ORDER[ai] ?? 'hj_boss');
+    const defiant = ai === 1 || bossKind === 'ly_boss';
     const bossR = bossFoe ? bossFoe.d.r : (EDEFS[bossKind]?.r ?? 0.65);
     const gap = Math.max(2.35, 1.74 + bossR * 1.15);
     const bossPos = bossFoe ? bossFoe.pos.clone().setY(0) : V3(0, 0, -2.0);
-    if (bossPos.z > PLAY.z1 - (gap + 1.0)) bossPos.z = PLAY.z1 - (gap + 1.0);
-    if (bossPos.z < PLAY.z0 + 1.2) bossPos.z = PLAY.z0 + 1.2;
-    this.clamp(bossPos, 0.7);
     const heroPos = V3(bossPos.x, 0, bossPos.z + gap);
-    this.clamp(heroPos, 0.5);
+    // act-169: Re-stage boss execution pair onto guaranteed clear interior floor (>= 2.8m from walls) so falling corpse never clips walls
+    this.stageSafePair(heroPos, bossPos, gap, 2.8, 'ns');
 
     let actor: BattleActor;
     let ownsActor = false;
@@ -7508,16 +7612,19 @@ export class ActShow {
     this.hero.a.yaw = Math.atan2(bossPos.x - heroPos.x, bossPos.z - heroPos.z);
     motionOf(this.hero.a).run = 0;
 
-    const throatY = Math.max(0.94, Math.min(1.26, actor.height * 0.54));
+    const throatY = defiant
+      ? Math.max(1.24, Math.min(1.52, actor.height * 0.72))
+      : Math.max(0.94, Math.min(1.26, actor.height * 0.54));
     const throatStop = V3(bossPos.x, throatY, bossPos.z + Math.max(0.34, bossR * 0.62));
     let afterT = kb ? Math.max(0.45, kb.t) : 0.6;
     let executed = false;
+    const bossPose = (t: number) => defiant ? bossDefiantPose(actor, t) : bossKneelDefeatPose(actor, t);
     this.hero.scriptPose = () => heroHoldThroatPose(this.hero.a, throatStop, afterT);
-    bossKneelDefeatPose(actor, afterT);
+    bossPose(afterT);
     this.talkTick = (dt: number) => {
       afterT += dt;
       if (ownsActor) actor.update(dt);
-      if (!executed) bossKneelDefeatPose(actor, afterT);
+      if (!executed) bossPose(afterT);
     };
 
     const setAfterCam = (pos: V, look: V, fov: number) => {
@@ -8271,7 +8378,8 @@ export class ActShow {
       if (this.kneelingBoss && this.kneelingBoss.f === f && !this.kneelingBoss.executed) {
         this.kneelingBoss.t += dt;
         f.a.update(dt);
-        bossKneelDefeatPose(f.a, this.kneelingBoss.t);
+        if (f.kind === 'ly_boss') bossDefiantPose(f.a, this.kneelingBoss.t);
+        else bossKneelDefeatPose(f.a, this.kneelingBoss.t);
         continue;
       }
       if (this.duel.holds(f)) this.duel.holdFoe(f, dt);   // 11-18 QTE: the duel moves the foe it has (held in the bind / its string's beats)

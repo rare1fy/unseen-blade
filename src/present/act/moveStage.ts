@@ -28,8 +28,8 @@ import type { WeaponId } from './weapons';
 import { makeCanvas } from '../../platform/index';
 import { drawPix, pixW, PIX_H } from '../v2/pix';
 import { drawPixelPlaque, drawMiniIcon, richLine } from './uiPlate';
-import { PAD, actKey, BIND, paintGlyph, glyphArt, GLYPH_H, paintKeyCap, keyCapWidth, KEYCAP_H } from './pad';
-import { t as localize, msg } from './i18n';
+import { PAD, actKey, BIND, paintGlyph, glyphArt, GLYPH_H } from './pad';
+import { t as localize } from './i18n';
 import { uiScale } from './uiScale';
 import type { SkillEntry } from './skillFace';
 
@@ -69,11 +69,24 @@ const MANUAL_SCRIPTS: Record<MoveId, ManualScript> = {
   stomp:    { dist: 1.12, tail: 1.15, steps: [{}, { when: g => g.canStomp }] },
 };
 
+interface BeatNode {
+  kind: 'btn' | 'pause' | 'danger' | 'air' | 'pin' | 'qte' | 'burst' | 'aura';
+  btn?: BtnName;
+  gesture?: 'tap' | 'hold' | 'release';
+  dir?: StickDir;
+  /** 0 = upcoming, 1 = active right now, 2 = completed */
+  state: 0 | 1 | 2;
+  /** 0..1 continuous fill (hold ring, timing track, pause beat, QTE ring) */
+  fill?: number;
+  /** optional multi-hit combo pips drawn beside the medallion */
+  pips?: { total: number; done: number; heavyLast?: boolean };
+  col?: string;
+}
+
 interface BeatState {
-  phase: string;
-  activeBtns: BtnName[];
-  holdBtn?: BtnName;
-  holdFill?: number;
+  nodes: BeatNode[];
+  pulseT: number;
+  accent: string;
 }
 
 /** Isolated 3D ghost combat simulator running real Hero + BattleActor + slashArc + Dart at (MINI_X, 0, MINI_Z). */
@@ -105,9 +118,9 @@ class MiniGhostSim {
   private si = 0;
   private fade = 0;
   private ending = -1;
-  private phase = '';
-  private holdBtn?: BtnName;
-  private holdFill?: number;
+  private btnFlash: Record<BtnName, number> = { attack: 0, dash: 0, special: 0, jump: 0, ult: 0 };
+  private stepTimes: number[] = [];
+  private beatNodes: BeatNode[] = [];
   private flags = new Set<string>();
   private auraT = 0;
   private keys: ReturnType<typeof manualSteps> = [];
@@ -222,10 +235,12 @@ class MiniGhostSim {
 
       this.t = 0; this.lastT = 0; this.readyAt = 0; this.si = 0;
       this.stuck = false; this.fvy = 0; this.fvel.set(0, 0, 0); this.prone = 0;
-      this.fade = 0; this.ending = -1; this.phase = ''; this.holdBtn = undefined; this.holdFill = undefined;
+      this.fade = 0; this.ending = -1; this.stepTimes = []; this.beatNodes = [];
       this.flags.clear(); this.auraT = 0;
       this.stick.v.set(0, 0, 0); this.stick.t = 0;
-      for (const k of Object.keys(this.hold) as BtnName[]) { this.hold[k] = 0; Object.assign(this.inp.b[k], newBtn()); }
+      for (const k of Object.keys(this.hold) as BtnName[]) {
+        this.hold[k] = 0; this.btnFlash[k] = 0; Object.assign(this.inp.b[k], newBtn());
+      }
     });
   }
 
@@ -324,6 +339,7 @@ class MiniGhostSim {
 
   private pressBtn(btn: BtnName, dur = TAP, stick?: StickDir) {
     this.hold[btn] = Math.max(this.hold[btn], dur);
+    this.btnFlash[btn] = Math.max(this.btnFlash[btn], 0.24);
     if (stick && this.g && this.foe) {
       const toF = this.foe.home.clone().sub(this.g.pos).setY(0);
       if (toF.lengthSq() > 1e-4) toF.normalize(); else toF.set(1, 0, 0);
@@ -332,12 +348,61 @@ class MiniGhostSim {
     }
   }
 
+  private accentOf(e: SkillEntry): string {
+    if (e.accentHex != null) return '#' + e.accentHex.toString(16).padStart(6, '0');
+    return e.kind === 'arcana' ? '#6ae6a4' : e.kind === 'keepsake' ? '#ffd868' : e.kind === 'manual' ? '#ffcf66' : '#f2c872';
+  }
+
+  private buildManualNodes(e: SkillEntry, g: Hero, sc: ManualScript): BeatNode[] {
+    const id = e.id as MoveId;
+    const accent = this.accentOf(e);
+    const nodes: BeatNode[] = [];
+    const stepState = (idx: number): 0 | 1 | 2 => {
+      if (this.si <= idx) return 0;
+      const st = this.stepTimes[idx] ?? -9;
+      return this.t - st < 0.28 ? 1 : 2;
+    };
+    for (let i = 0; i < sc.steps.length; i++) {
+      const key = this.keys[i];
+      const btn: BtnName = isPress(key) ? KEY_BTN[key] : 'attack';
+      const dir = sc.steps[i].stick;
+      // Insert graphical condition/rhythm pictograms between key steps!
+      if (i === 1 && (id === 'chase' || id === 'reel')) {
+        nodes.push({ kind: 'pin', state: this.stuck ? 1 : this.si > 1 ? 2 : 0, col: '#a884ff' });
+      }
+      if (i === 1 && (id === 'dbl' || id === 'swoop' || id === 'stomp')) {
+        nodes.push({ kind: 'air', state: this.si >= 1 && g.y > 0.12 ? 1 : this.si > 1 ? 2 : 0, col: '#84e4ff' });
+      }
+      if (i === 2 && id === 'acut') {
+        nodes.push({ kind: 'air', state: this.si >= 2 && g.y > 0.12 ? 1 : this.si > 2 ? 2 : 0, col: '#ff8ad8' });
+      }
+      if (i === 2 && id === 'pause') {
+        const waitFill = this.si < 2 ? 0 : this.si === 2 ? Math.min(1, Math.max(0, (this.t - this.lastT) / 0.34)) : 1;
+        nodes.push({ kind: 'pause', state: this.si === 2 ? 1 : this.si > 2 ? 2 : 0, fill: waitFill, col: '#ffd26a' });
+      }
+      nodes.push({
+        kind: 'btn', btn, gesture: 'tap', dir,
+        state: stepState(i),
+        col: i === sc.steps.length - 1 ? accent : undefined,
+      });
+    }
+    const lastT = this.stepTimes[sc.steps.length - 1] ?? -9;
+    nodes.push({
+      kind: 'burst',
+      state: this.si >= sc.steps.length ? (this.t - lastT < 0.45 ? 1 : 2) : 0,
+      col: accent,
+    });
+    return nodes;
+  }
+
   update(dt: number): BeatState {
-    if (!this.entry || !this.g) return { phase: '', activeBtns: [] };
+    if (!this.entry || !this.g) return { nodes: [], pulseT: 0, accent: '#ffd868' };
     const g = this.g, foe = this.foe, e = this.entry, w = (this.w ??= this.world());
     this.t += dt;
     this.stick.t = Math.max(0, this.stick.t - dt);
-    this.holdBtn = undefined; this.holdFill = undefined;
+    for (const n of Object.keys(this.btnFlash) as BtnName[]) {
+      this.btnFlash[n] = Math.max(0, this.btnFlash[n] - dt);
+    }
 
     withCueMuted(() => {
       if (this.ending < 0) {
@@ -352,13 +417,14 @@ class MiniGhostSim {
             if (isPress(key) && ready && (!last || this.readyAt >= 0.12)) {
               const btn = KEY_BTN[key];
               this.pressBtn(btn, TAP, p.stick);
+              this.stepTimes[this.si] = this.t;
               this.lastT = this.t; this.si++; this.readyAt = 0;
             }
           } else if (this.t - this.lastT > sc.tail) {
             this.ending = 0;
           }
           if (this.t > 4.6) this.ending = 0;
-          this.phase = this.si >= sc.steps.length ? '连招触发！' : msg`第 ${this.si + 1}/${sc.steps.length} 步`;
+          this.beatNodes = this.buildManualNodes(e, g, sc);
         } else if (e.kind === 'arcana' || e.kind === 'keepsake') {
           this.auraT += dt;
           if (this.auraT > 0.72) {
@@ -368,7 +434,12 @@ class MiniGhostSim {
             fxSparks(g.pos.clone().setY(1.0), col, 5, 1.6);
           }
           g.a.yaw = 0.35 + Math.sin(this.t * 1.1) * 0.25;
-          this.phase = e.kind === 'arcana' ? '悟性牌入阵常驻生效' : '随身信物全程生效';
+          this.beatNodes = [{
+            kind: 'aura',
+            state: 1,
+            fill: (this.t % 1.4) / 1.4,
+            col: e.kind === 'arcana' ? '#70eda8' : '#ffd868',
+          }];
         } else {
           this.driveScript(e, g, foe);
         }
@@ -448,20 +519,18 @@ class MiniGhostSim {
       this.fm.opacity = 0.54 * a;
     });
 
-    const activeBtns: BtnName[] = [];
-    for (const n of ['attack', 'dash', 'jump', 'special', 'ult'] as BtnName[]) {
-      if (this.inp.b[n].down) activeBtns.push(n);
-    }
-    return { phase: this.phase, activeBtns, holdBtn: this.holdBtn, holdFill: this.holdFill };
+    return { nodes: this.beatNodes, pulseT: this.t, accent: this.accentOf(e) };
   }
 
-  /** Real 3D Hero choreography for all 10 base/weapon moves & all Boons. */
+  /** Real 3D Hero choreography for all 10 base/weapon moves & all Boons (outputs purely graphical BeatNodes). */
   private driveScript(e: SkillEntry, g: Hero, foe: BattleActor | null) {
     const id = e.id;
     const t = this.t;
+    const accent = this.accentOf(e);
     const once = (k: string, cond: boolean, fn: () => void) => {
       if (cond && !this.flags.has(k)) { this.flags.add(k); fn(); }
     };
+    const isLit = (b: BtnName) => this.inp.b[b].down || this.btnFlash[b] > 0;
 
     if (id === 'lianhuan' || (e.kind === 'boon' && e.target === 'attack')) {
       const hits = this.weaponId === 'thunder' ? 3 : this.weaponId === 'frost' ? 6 : this.weaponId === 'blunt' ? 2 : 5;
@@ -471,22 +540,30 @@ class MiniGhostSim {
         this.pressBtn('attack', TAP, 'toFoe');
         this.si++;
       }
-      this.phase = e.kind === 'boon' ? '出刀触发秘传！' : this.si > 0 ? `第 ${Math.min(this.si, hits)}/${hits} 段` : '准备连斩';
+      this.beatNodes = [
+        {
+          kind: 'btn', btn: 'attack', gesture: 'tap',
+          state: isLit('attack') ? 1 : this.si > 0 ? 2 : 0,
+          pips: { total: hits, done: Math.min(this.si, hits), heavyLast: true },
+          col: accent,
+        },
+        ...(e.kind === 'boon' ? [{ kind: 'burst' as const, state: (this.si > 0 ? (isLit('attack') ? 1 : 2) : 0) as 0 | 1 | 2, col: accent }] : []),
+      ];
       if (t > start + hits * stepT + 0.85) this.ending = 0;
       return;
     }
 
     if (id === 'iai' || (e.kind === 'boon' && (e.steps?.includes('hold') ?? false))) {
-      const holdDur = 0.72;
-      if (t >= 0.22 && t < 0.22 + holdDur) {
+      const holdStart = 0.16, holdDur = 0.72, relAt = holdStart + holdDur;
+      let fill = 0;
+      if (t >= holdStart && t < relAt) {
         this.hold.attack = 0.08;
-        this.holdBtn = 'attack';
-        this.holdFill = Math.min(1, (t - 0.22) / holdDur);
+        fill = Math.min(1, (t - holdStart) / holdDur);
         if (Math.floor(t * 7) !== Math.floor((t - 0.03) * 7)) {
-          fxRing(g.pos.clone().setY(0.08), this.holdFill > 0.8 ? 0xfff088 : 0xff9a38, 0.7 + this.holdFill * 0.6, { life: 0.2 } as never);
+          fxRing(g.pos.clone().setY(0.08), fill > 0.8 ? 0xfff088 : 0xff9a38, 0.7 + fill * 0.6, { life: 0.2 } as never);
         }
-        this.phase = this.holdFill > 0.85 ? '蓄满！松手斩' : '长按蓄力…';
-      } else if (t >= 0.22 + holdDur) {
+      } else if (t >= relAt) {
+        fill = 1;
         once('relFx', true, () => {
           if (this.weaponId === 'thunder' && foe) {
             fxRing(foe.home.clone().setY(0.1), 0xffe060, 2.2, { life: 0.4 } as never);
@@ -500,86 +577,138 @@ class MiniGhostSim {
             fxSparks(foe.chest(), 0xff8c52, 16, 4.5);
           }
         });
-        this.phase = this.weaponId === 'thunder' ? '裂阵斩 · 雷柱破盾！' : this.weaponId === 'frost' ? '追霜 · 引爆影针！' : this.weaponId === 'blunt' ? '听声一闪！' : '松手！箭步穿斩';
-      } else {
-        this.phase = '准备藏锋';
       }
+      const holding = t >= holdStart && t < relAt;
+      const released = t >= relAt;
+      const relFlash = released && t < relAt + 0.42;
+      this.beatNodes = [
+        { kind: 'btn', btn: 'attack', gesture: 'hold', state: holding ? 1 : released ? 2 : 0, fill, col: fill > 0.85 ? '#fff088' : '#ff9a3c' },
+        { kind: 'btn', btn: 'attack', gesture: 'release', state: relFlash ? 1 : released ? 2 : 0, col: '#ffe878' },
+        { kind: 'burst', state: relFlash ? 1 : released ? 2 : 0, col: this.weaponId === 'frost' ? '#7cecff' : this.weaponId === 'thunder' ? '#ffe060' : '#ffaa58' },
+      ];
       if (t > 2.2) this.ending = 0;
       return;
     }
 
     if (id === 'parry') {
-      if (t >= 0.2 && t < 0.88) {
-        this.hold.attack = 0.08;
-        this.holdBtn = 'attack';
-        this.holdFill = Math.min(1, (t - 0.2) / 0.68);
-        this.phase = t > 0.62 ? '红光来袭 · 准备松手！' : '长按蓄势听招';
-      }
-      once('foeAtk', t >= 0.58 && !!foe, () => {
+      const holdStart = 0.16, dangerStart = 0.34, hitAt = 0.88;
+      const holding = t >= holdStart && t < hitAt;
+      const parried = t >= hitAt;
+      const parryFlash = parried && t < hitAt + 0.45;
+      const holdFill = holding ? Math.min(1, (t - holdStart) / (hitAt - holdStart)) : parried ? 1 : 0;
+      const dangerFill = t < dangerStart ? 0 : Math.min(1, (t - dangerStart) / (hitAt - dangerStart));
+      if (holding) this.hold.attack = 0.08;
+      once('foeAtk', t >= 0.56 && !!foe, () => {
         foe!.attack(1.4);
         fxRing(foe!.chest(), 0xff5242, 1.15, { life: 0.28 } as never);
       });
-      once('parryHit', t >= 0.88 && !!foe, () => {
+      once('parryHit', parried && !!foe, () => {
         this.flags.add('parryWin');
         fxRing(g.pos.clone().add(V3(0.7, 0.9, 0)), 0xfff6c8, 1.7, { life: 0.32 } as never);
         fxSparks(g.pos.clone().add(V3(0.7, 1.0, 0)), 0xffe488, 16, 4.5);
         foe!.hurt(1.5);
         this.fvel.set(7.5, 0, 0);
       });
-      if (t >= 0.88) this.phase = '破势成功！震退弹反';
+      this.beatNodes = [
+        { kind: 'btn', btn: 'attack', gesture: 'hold', state: holding ? 1 : parried ? 2 : 0, fill: holdFill, col: '#ffae48' },
+        { kind: 'danger', state: t >= dangerStart && !parried ? 1 : parried ? 2 : 0, fill: dangerFill, col: '#ff5242' },
+        { kind: 'btn', btn: 'attack', gesture: 'release', state: parryFlash ? 1 : parried ? 2 : 0, col: '#fff088' },
+        { kind: 'burst', state: parryFlash ? 1 : parried ? 2 : 0, col: '#ffe878' },
+      ];
       if (t > 2.15) this.ending = 0;
       return;
     }
 
     if (id === 'dash' || id === 'dcut' || id === 'counter' || (e.kind === 'boon' && e.target === 'dash')) {
       const isCounter = id === 'counter', isDcut = id === 'dcut' || id === 'passCut';
-      once('foeSw', t >= 0.35 && !!foe, () => {
+      const dangerStart = 0.14, dashAt = 0.52, cutAt = isCounter ? 0.96 : 0.62;
+      once('foeSw', t >= 0.34 && !!foe, () => {
         foe!.attack(1.4);
         if (isCounter) fxRing(foe!.chest(), 0xff5242, 1.1, { life: 0.26 } as never);
       });
-      once('doDash', t >= 0.52, () => {
+      once('doDash', t >= dashAt, () => {
         this.pressBtn('dash', TAP, isCounter ? 'side' : 'toFoe');
         if (isCounter) fxRing(g.pos.clone().setY(0.12), 0x82dcff, 1.6, { life: 0.35 } as never);
       });
-      once('doCut', (isDcut && t >= 0.60) || (isCounter && t >= 0.96), () => {
+      once('doCut', (isDcut && t >= cutAt) || (isCounter && t >= cutAt), () => {
         this.pressBtn('attack', TAP, 'toFoe');
         if (isCounter && foe) {
           fxSparks(foe.chest(), 0xffd858, 14, 4.2);
           slashArc.clashCross(foe.chest(), V3(1, 0, 0), 0.3, 'heavy', 0.26, 1.2);
         }
       });
-      this.phase = t < 0.52 ? (isCounter ? '敌招临身 · 闪避！' : '准备冲刺')
-        : isDcut ? '冲刺接斩 · 穿风！'
-        : isCounter ? (t >= 0.96 ? '回锋斩 · 伤害翻倍！' : '完美闪避！')
-        : '无敌疾冲';
+      const dashed = t >= dashAt, cutDone = (isDcut || isCounter) && t >= cutAt;
+      const dangerFill = t < dangerStart ? 0 : Math.min(1, (t - dangerStart) / (dashAt - dangerStart));
+      if (isCounter) {
+        this.beatNodes = [
+          { kind: 'danger', state: t >= dangerStart && !dashed ? 1 : dashed ? 2 : 0, fill: dangerFill, col: '#ff5242' },
+          { kind: 'btn', btn: 'dash', gesture: 'tap', dir: 'side', state: isLit('dash') ? 1 : dashed ? 2 : 0, col: '#7ce8ff' },
+          { kind: 'btn', btn: 'attack', gesture: 'tap', state: isLit('attack') ? 1 : cutDone ? 2 : 0, col: '#ffe068' },
+          { kind: 'burst', state: cutDone && t < cutAt + 0.4 ? 1 : cutDone ? 2 : 0, col: '#ffe068' },
+        ];
+      } else if (isDcut) {
+        this.beatNodes = [
+          { kind: 'btn', btn: 'dash', gesture: 'tap', dir: 'toFoe', state: isLit('dash') ? 1 : dashed ? 2 : 0, col: '#7ce8ff' },
+          { kind: 'btn', btn: 'attack', gesture: 'tap', state: isLit('attack') ? 1 : cutDone ? 2 : 0, col: '#ffe068' },
+          { kind: 'burst', state: cutDone && t < cutAt + 0.4 ? 1 : cutDone ? 2 : 0, col: '#84e8ff' },
+        ];
+      } else {
+        this.beatNodes = [
+          { kind: 'btn', btn: 'dash', gesture: 'tap', dir: 'toFoe', state: isLit('dash') ? 1 : dashed ? 2 : 0, col: '#7ce8ff' },
+          { kind: 'burst', state: dashed && t < dashAt + 0.42 ? 1 : dashed ? 2 : 0, col: e.kind === 'boon' ? accent : '#7ce8ff' },
+        ];
+      }
       if (t > 2.1) this.ending = 0;
       return;
     }
 
     if (id === 'jump' || id === 'plunge' || (e.kind === 'boon' && e.target === 'jump')) {
       const doPlunge = id === 'plunge' || id === 'rift' || id === 'vault';
-      once('j1', t >= 0.3, () => this.pressBtn('jump', TAP, 'toFoe'));
-      once('jCut', doPlunge && t >= 0.56, () => this.pressBtn('attack', TAP, 'toFoe'));
-      this.phase = doPlunge ? (t >= 0.56 ? '空中下劈 · 震地！' : '起跳滞空') : '跃过贴地横扫';
+      const jAt = 0.26, cutAt = 0.56;
+      once('j1', t >= jAt, () => this.pressBtn('jump', TAP, 'toFoe'));
+      once('jCut', doPlunge && t >= cutAt, () => this.pressBtn('attack', TAP, 'toFoe'));
+      const jumped = t >= jAt, cutDone = doPlunge && t >= cutAt;
+      if (doPlunge) {
+        this.beatNodes = [
+          { kind: 'btn', btn: 'jump', gesture: 'tap', state: isLit('jump') ? 1 : jumped ? 2 : 0, col: '#84e4ff' },
+          { kind: 'air', state: jumped && !cutDone ? 1 : cutDone ? 2 : 0, col: '#84e4ff' },
+          { kind: 'btn', btn: 'attack', gesture: 'tap', state: isLit('attack') ? 1 : cutDone ? 2 : 0, col: '#ffaa58' },
+          { kind: 'burst', state: cutDone && t < cutAt + 0.4 ? 1 : cutDone ? 2 : 0, col: e.kind === 'boon' ? accent : '#ffaa58' },
+        ];
+      } else {
+        this.beatNodes = [
+          { kind: 'btn', btn: 'jump', gesture: 'tap', state: isLit('jump') ? 1 : jumped ? 2 : 0, col: '#84e4ff' },
+          { kind: 'air', state: jumped && g.y > 0.1 ? 1 : jumped ? 2 : 0, col: '#84e4ff' },
+        ];
+      }
       if (t > 1.95) this.ending = 0;
       return;
     }
 
     if (id === 'dart' || (e.kind === 'boon' && e.target === 'special')) {
       for (let k = 0; k < 3; k++) {
-        once(`d${k}`, t >= 0.3 + k * 0.32, () => this.pressBtn('special', TAP, 'toFoe'));
+        once(`d${k}`, t >= 0.22 + k * 0.30, () => { this.pressBtn('special', TAP, 'toFoe'); this.si = k + 1; });
       }
-      this.phase = e.kind === 'boon' ? '掷镖触发秘传！' : '掷出柳叶镖钉住敌人';
+      this.beatNodes = [
+        {
+          kind: 'btn', btn: 'special', gesture: 'tap',
+          state: isLit('special') ? 1 : this.si > 0 ? 2 : 0,
+          pips: { total: 3, done: this.si },
+          col: '#96b4ff',
+        },
+        { kind: 'pin', state: this.stuck ? 1 : this.si >= 3 ? 2 : 0, col: e.kind === 'boon' ? accent : '#a884ff' },
+      ];
       if (t > 2.1) this.ending = 0;
       return;
     }
 
     if (id === 'ult') {
-      once('u0', t >= 0.25, () => {
-        this.pressBtn('ult', 0.14, 'toFoe');
+      const qteEnd = 0.55;
+      once('u0', t >= 0.22, () => {
+        this.pressBtn('ult', 0.26, 'toFoe');
         fxRing(g.pos.clone().setY(0.1), 0xffd258, 1.9, { life: 0.45 } as never);
       });
-      once('u1', t >= 0.55 && !!foe, () => {
+      once('u1', t >= qteEnd && !!foe, () => {
         this.pressBtn('dash', TAP, 'toFoe');
         slashArc.clashCross(foe!.chest(), V3(1, 0, 0), 0.45, 'heavy', 0.3, 1.5);
         slashArc.clashCross(foe!.chest(), V3(0, 0, 1), -0.45, 'heavy', 0.3, 1.5);
@@ -593,17 +722,25 @@ class MiniGhostSim {
         fxSparks(foe!.chest(), 0xfff098, 22, 5.2);
         foe!.hurt(1.8);
       });
-      this.phase = t < 0.55 ? '三格杀气蓄满！' : t < 1.15 ? '不见刀 · 分身齐斩！' : '归鞘连爆八刀！';
+      this.beatNodes = [
+        { kind: 'qte', state: t < qteEnd ? 1 : 2, fill: Math.min(1, t / qteEnd), col: '#ffd860' },
+        { kind: 'btn', btn: 'ult', gesture: 'tap', state: isLit('ult') ? 1 : t >= 0.22 ? 2 : 0, col: '#ffe678' },
+        { kind: 'burst', state: t >= qteEnd && t < 1.55 ? 1 : t >= 1.55 ? 2 : 0, col: '#ffe878' },
+      ];
       if (t > 2.35) this.ending = 0;
       return;
     }
 
     // Fallback passive boon demonstration: strike + glowing proc ring
-    once('p1', t >= 0.4, () => {
+    once('p1', t >= 0.36, () => {
       this.pressBtn('attack', TAP, 'toFoe');
       fxRing(g.pos.clone().setY(0.1), e.accentHex ?? 0xffd27a, 1.5, { life: 0.4 } as never);
     });
-    this.phase = '出招触发秘传';
+    const fired = t >= 0.36;
+    this.beatNodes = [
+      { kind: 'btn', btn: 'attack', gesture: 'tap', state: isLit('attack') ? 1 : fired ? 2 : 0, col: accent },
+      { kind: 'burst', state: fired && t < 0.9 ? 1 : fired ? 2 : 0, col: accent },
+    ];
     if (t > 1.9) this.ending = 0;
   }
 
@@ -640,7 +777,7 @@ export class MoveStage {
   private heroDef: ModelDef = modelDef('fine_hat');
   private weaponId: WeaponId = 'hanshan';
   private weaponLv = 0;
-  private beat: BeatState = { phase: '', activeBtns: [] };
+  private beat: BeatState = { nodes: [], pulseT: 0, accent: '#ffd868' };
   private uiAccum = 0;
   private lastW = 0;
   private lastH = 0;
@@ -814,7 +951,7 @@ export class MoveStage {
 
     const boxX = padX + u, boxW = W - (padX + u) * 2;
     const compact = this.rect.h < 320;
-    const stageH = Math.round(H * (compact ? 0.45 : 0.49));
+    const stageH = Math.round(H * (compact ? 0.54 : 0.57));
     const stageY = padY + u;
     const bdr = Math.max(1, Math.round(1.5 * kk * dpr));
 
@@ -824,7 +961,7 @@ export class MoveStage {
     g.fillStyle = innerCol;
     g.fillRect(boxX, stageY, boxW, stageH);
     const ix = boxX + bdr, iy = stageY + bdr, iw = boxW - 2 * bdr, ih = stageH - 2 * bdr;
-    const barH = Math.max(Math.round(24 * kk * dpr), Math.round(ih * 0.22));
+    const barH = Math.max(Math.round((compact ? 48 : 66) * kk * dpr), Math.round(ih * 0.30));
     const barY = iy + ih - barH;
     const vpH = Math.max(8, barY - iy);
     // Clear the 3D window so the live 3D Mini-World rendered beneath shines cleanly through!
@@ -847,23 +984,12 @@ export class MoveStage {
       g.fillRect(cx - (sx < 0 ? bdr : 0), sy > 0 ? cy : cy - cr, bdr, cr);
     }
 
-    // Corner stamp at top-left of 3D mini-world viewport
-    const lblS = Math.max(1, Math.round((11 * kk * dpr) / PIX_H));
-    const stampTxt = localize('动作示意');
-    const stW = pixW(stampTxt) * lblS + Math.round(10 * kk * dpr);
-    const stH = PIX_H * lblS + Math.round(5 * kk * dpr);
-    g.fillStyle = 'rgba(10,8,14,0.84)';
-    g.fillRect(ix + bdr, iy + bdr, stW, stH);
-    g.fillStyle = innerCol;
-    g.fillRect(ix + bdr, iy + bdr, Math.max(1, Math.round(2 * dpr)), stH);
-    drawPix(g, stampTxt, ix + bdr + Math.round(6 * kk * dpr), iy + bdr + Math.round(2.5 * kk * dpr), {
-      scale: lblS, color: '#e6d6b0', outline: null, align: 'left',
-    });
-
-    // Bottom HUD strip inside stage frame: synchronized keycap beat + live phase label
-    g.fillStyle = '#0e0c14';
+    // Bottom graphical input teaching bay inside stage frame (100% visual icons, zero prose clutter!)
+    g.fillStyle = '#0c0a12';
     g.fillRect(ix, barY, iw, barH);
-    g.fillStyle = '#3a3242';
+    g.fillStyle = '#181422';
+    g.fillRect(ix, barY + Math.max(1, Math.round(dpr)), iw, Math.max(1, Math.round(2 * dpr)));
+    g.fillStyle = innerCol;
     g.fillRect(ix, barY, iw, Math.max(1, Math.round(dpr)));
     this.paintBeatBar(g, e, this.beat, ix + Math.round(8 * kk * dpr), barY, iw - Math.round(16 * kk * dpr), barH, kk, dpr);
 
@@ -978,76 +1104,554 @@ export class MoveStage {
     return [txt.slice(0, mid), txt.slice(mid)];
   }
 
+  /** 100% Graphical Pixel-Craft Input Teaching Bar — synchronized frame-for-frame with the 3D Mini-World above. */
   private paintBeatBar(
-    g: CanvasRenderingContext2D, e: SkillEntry, beat: BeatState,
+    g: CanvasRenderingContext2D, _e: SkillEntry, beat: BeatState,
     x: number, y: number, w: number, h: number, kk: number, dpr: number,
   ) {
-    const mid = Math.round(y + h / 2);
-    const dev = PAD.device;
-    let cx = x;
-    const drawBtnChip = (btn: BtnName, lit: boolean, isHold: boolean) => {
-      const aKey = ACTION_BTN_KEY[btn] as 'attack' | 'dash' | 'jump' | 'special';
-      if (dev === 'pad') {
-        const idx = btn === 'ult' ? 3 : BIND.pad[aKey][0];
-        const gs = Math.max(1, Math.round((h * 0.66) / GLYPH_H));
-        const gw = glyphArt(idx).w * gs;
-        if (lit) {
-          g.fillStyle = '#ffe078';
-          g.fillRect(Math.round(cx - 2 * dpr), Math.round(mid - (GLYPH_H * gs) / 2 - 2 * dpr), gw + Math.round(4 * dpr), GLYPH_H * gs + Math.round(4 * dpr));
-        }
-        paintGlyph(g, idx, Math.round(cx), Math.round(mid - (GLYPH_H * gs) / 2), gs);
-        cx += gw + Math.round(6 * kk * dpr);
-      } else {
-        const keyTxt = btn === 'ult' ? 'F' : dev === 'touch' ? ({ attack: '斩', dash: '闪', jump: '跳', special: '镖', ult: '绝' }[btn]) : actKey(aKey);
-        const label = isHold ? `${localize('长按')} ${keyTxt}` : keyTxt;
-        const ks = Math.max(1, Math.round((h * 0.64) / KEYCAP_H));
-        const kw = keyCapWidth(label) * ks;
-        paintKeyCap(g, label, Math.round(cx), Math.round(mid - (KEYCAP_H * ks) / 2), ks, lit);
-        cx += kw + Math.round(6 * kk * dpr);
+    const nodes = beat.nodes;
+    if (!nodes.length) return;
+    const p = Math.max(1, Math.round(2 * kk * dpr));
+    const medSz = Math.min(Math.round(h * 0.62), Math.round(44 * kk * dpr));
+    const midY = Math.round(y + h * 0.56);
+    const gap = Math.round(10 * kk * dpr);
+    const arrowW = Math.round(12 * kk * dpr);
+
+    // Measure every node's pixel width so the entire sequence sits cleanly centered!
+    const widthOf = (nd: BeatNode): number => {
+      if (nd.kind === 'btn') {
+        let nw = medSz;
+        if (nd.dir) nw += Math.round(20 * kk * dpr);
+        if (nd.pips) nw += Math.round(8 * kk * dpr) + nd.pips.total * Math.round(13 * kk * dpr) + (nd.pips.heavyLast ? Math.round(5 * kk * dpr) : 0);
+        return nw;
       }
-      if (isHold && beat.holdFill != null) {
-        const bw = Math.round(28 * kk * dpr), bh = Math.round(6 * kk * dpr);
-        const by = Math.round(mid - bh / 2);
-        g.fillStyle = '#18141c'; g.fillRect(Math.round(cx), by, bw, bh);
-        g.fillStyle = beat.holdFill >= 0.95 ? '#fff088' : '#ff9a3c';
-        g.fillRect(Math.round(cx + dpr), by + Math.round(dpr), Math.round((bw - 2 * dpr) * Math.min(1, beat.holdFill)), bh - Math.round(2 * dpr));
-        cx += bw + Math.round(6 * kk * dpr);
-      }
+      if (nd.kind === 'danger') return Math.round(76 * kk * dpr);
+      if (nd.kind === 'pause') return Math.round(40 * kk * dpr);
+      if (nd.kind === 'air' || nd.kind === 'pin') return Math.round(36 * kk * dpr);
+      if (nd.kind === 'qte') return Math.round(46 * kk * dpr);
+      if (nd.kind === 'aura') return Math.round(54 * kk * dpr);
+      return Math.round(30 * kk * dpr); // burst
     };
 
-    if (e.kind === 'arcana') {
-      const ico = Math.round(h * 0.62);
-      drawMiniIcon(g, 'grasp', cx + ico / 2, mid, ico);
-      cx += ico + Math.round(6 * kk * dpr);
-    } else if (e.kind === 'keepsake') {
-      const ico = Math.round(h * 0.62);
-      drawMiniIcon(g, 'star', cx + ico / 2, mid, ico);
-      cx += ico + Math.round(6 * kk * dpr);
-    } else if (beat.holdBtn) {
-      drawBtnChip(beat.holdBtn, beat.activeBtns.includes(beat.holdBtn), true);
-    } else {
-      const unique: BtnName[] = [];
-      for (const st of e.steps ?? []) {
-        const b: BtnName | null = st === 'attack' || st === 'hold' || st === 'release' ? 'attack'
-          : st === 'dash' ? 'dash' : st === 'jump' ? 'jump' : st === 'dart' ? 'special' : st === 'intent' ? 'ult' : null;
-        if (b && !unique.includes(b)) unique.push(b);
+    const widths = nodes.map(widthOf);
+    const totalW = widths.reduce((a, b) => a + b, 0) + Math.max(0, nodes.length - 1) * (arrowW + gap);
+    const scaleX = totalW > w ? w / totalW : 1;
+    let cx = Math.round(x + Math.max(0, (w - totalW * scaleX) / 2));
+
+    for (let i = 0; i < nodes.length; i++) {
+      if (i > 0) {
+        const prevDone = nodes[i - 1].state > 0;
+        const ax = Math.round(cx + (gap * 0.5) * scaleX);
+        this.drawFlowArrow(g, ax, midY, Math.max(1, Math.round(p * scaleX)), prevDone, beat.accent);
+        cx += Math.round((arrowW + gap) * scaleX);
       }
-      if (!unique.length) unique.push('attack');
-      for (let i = 0; i < Math.min(3, unique.length); i++) {
-        if (i > 0) {
-          const ps = Math.max(1, Math.round((11 * kk * dpr) / PIX_H));
-          drawPix(g, '>', Math.round(cx), Math.round(mid - (PIX_H * ps) / 2), { scale: ps, color: '#a89c88', outline: null, align: 'left' });
-          cx += pixW('>') * ps + Math.round(5 * kk * dpr);
-        }
-        drawBtnChip(unique[i], beat.activeBtns.includes(unique[i]), false);
+      const nd = nodes[i];
+      const nw = Math.round(widths[i] * scaleX);
+      const sz = Math.round(medSz * scaleX);
+      const u = Math.max(1, Math.round(p * scaleX));
+      if (nd.kind === 'btn') {
+        this.drawActionNode(g, nd, cx, midY, sz, u, kk * scaleX, dpr, beat.pulseT);
+      } else if (nd.kind === 'danger') {
+        this.drawDangerTrack(g, nd, cx, midY, nw, Math.round(sz * 0.62), u, beat.pulseT);
+      } else if (nd.kind === 'pause') {
+        this.drawPauseNode(g, nd, cx + Math.round(nw / 2), midY, u);
+      } else if (nd.kind === 'air') {
+        this.drawAirNode(g, nd, cx + Math.round(nw / 2), midY, u);
+      } else if (nd.kind === 'pin') {
+        this.drawPinNode(g, nd, cx + Math.round(nw / 2), midY, u, beat.pulseT);
+      } else if (nd.kind === 'qte') {
+        this.drawQteNode(g, nd, cx + Math.round(nw / 2), midY, u);
+      } else if (nd.kind === 'aura') {
+        this.drawAuraNode(g, nd, cx + Math.round(nw / 2), midY, sz, u, beat.pulseT);
+      } else {
+        this.drawBurstNode(g, nd, cx + Math.round(nw / 2), midY, u, beat.pulseT);
+      }
+      cx += nw;
+    }
+  }
+
+  private drawFlowArrow(g: CanvasRenderingContext2D, x: number, cy: number, u: number, lit: boolean, col: string) {
+    g.fillStyle = lit ? col : '#4a4256';
+    const px = Math.max(1, u);
+    g.fillRect(x, cy - 3 * px, px, 6 * px);
+    g.fillRect(x + px, cy - 2 * px, px, 4 * px);
+    g.fillRect(x + 2 * px, cy - px, px, 2 * px);
+  }
+
+  private drawDirCross(g: CanvasRenderingContext2D, cx: number, cy: number, dir: StickDir, lit: boolean, u: number) {
+    const px = Math.max(1, u);
+    const arm = 3 * px;
+    g.fillStyle = '#252030';
+    g.fillRect(cx - arm - px, cy - px, arm * 2 + 2 * px, 2 * px);
+    g.fillRect(cx - px, cy - arm - px, 2 * px, arm * 2 + 2 * px);
+    g.fillStyle = lit ? '#7cf0ff' : '#5898b0';
+    if (dir === 'toFoe') {
+      g.fillRect(cx + px, cy - px, arm, 2 * px);
+      g.fillRect(cx + arm + px, cy - 2 * px, px, 4 * px);
+      g.fillRect(cx + arm + 2 * px, cy - px, px, 2 * px);
+    } else if (dir === 'away') {
+      g.fillRect(cx - arm - px, cy - px, arm, 2 * px);
+      g.fillRect(cx - arm - 2 * px, cy - 2 * px, px, 4 * px);
+      g.fillRect(cx - arm - 3 * px, cy - px, px, 2 * px);
+    } else if (dir === 'side') {
+      g.fillRect(cx - px, cy - arm - px, 2 * px, arm);
+      g.fillRect(cx - 2 * px, cy - arm - 2 * px, 4 * px, px);
+      g.fillRect(cx - px, cy + px, 2 * px, arm);
+      g.fillRect(cx - 2 * px, cy + arm + px, 4 * px, px);
+    }
+    g.fillStyle = '#d8e4f0';
+    g.fillRect(cx - Math.ceil(px / 2), cy - Math.ceil(px / 2), px, px);
+  }
+
+  /** Draws an octagonal forged-iron action medallion + gesture indicator (tap/hold-ring/release) + device key badge + optional combo pips. */
+  private drawActionNode(
+    g: CanvasRenderingContext2D, nd: BeatNode,
+    x: number, midY: number, sz: number, u: number, kk: number, dpr: number, pulseT: number,
+  ) {
+    const px = Math.max(1, u);
+    let curX = x;
+    const active = nd.state === 1;
+    const done = nd.state === 2;
+    const accent = nd.col ?? '#ffd872';
+
+    // Optional directional stick graphic to the left
+    if (nd.dir) {
+      const dirW = Math.round(18 * kk * dpr);
+      this.drawDirCross(g, curX + Math.round(dirW / 2), midY, nd.dir, active || done, Math.max(1, Math.round(px * 0.85)));
+      curX += dirW + Math.round(2 * kk * dpr);
+    }
+
+    const sinkY = active && nd.gesture !== 'release' ? Math.round(2.5 * kk * dpr) : 0;
+    const mx = curX;
+    const my = Math.round(midY - sz / 2) + sinkY;
+    const cut = Math.max(2, Math.round(sz * 0.18));
+
+    // Octagonal drop shadow (shrinks when pressed down!)
+    if (!sinkY) {
+      g.fillStyle = '#050408';
+      this.fillOct(g, mx, my + Math.round(3 * kk * dpr), sz, cut);
+    }
+
+    // Octagonal forged-iron medallion outer rim
+    const rimCol = active ? accent : done ? '#b89452' : '#524b5e';
+    g.fillStyle = '#09070d';
+    this.fillOct(g, mx - px, my - px, sz + 2 * px, cut + px);
+    g.fillStyle = rimCol;
+    this.fillOct(g, mx, my, sz, cut);
+    // Inner recessed dark steel plate
+    const inset = Math.max(2, Math.round(sz * 0.11));
+    g.fillStyle = active ? '#2e241c' : done ? '#1f1a24' : '#14111c';
+    this.fillOct(g, mx + inset, my + inset, sz - 2 * inset, Math.max(1, cut - Math.round(inset * 0.6)));
+    // Top specular highlight edge on medallion
+    g.fillStyle = active ? '#fff4b8' : done ? '#e4c278' : '#7a7288';
+    g.fillRect(mx + cut, my, sz - 2 * cut, Math.max(1, Math.round(dpr)));
+
+    // Hold gesture: wrap a live filling pixel charge-ring perimeter around the medallion!
+    if (nd.gesture === 'hold') {
+      const fill = Math.max(0, Math.min(1, nd.fill ?? 0));
+      const segs = 20;
+      const litSegs = Math.round(fill * segs);
+      const ringR = sz / 2 + px * 1.4;
+      const mcx = mx + sz / 2, mcy = my + sz / 2;
+      for (let s = 0; s < segs; s++) {
+        const ang = -Math.PI / 2 + (s / segs) * Math.PI * 2;
+        const sx = Math.round(mcx + Math.cos(ang) * ringR - px / 2);
+        const sy = Math.round(mcy + Math.sin(ang) * ringR - px / 2);
+        g.fillStyle = s < litSegs ? (fill >= 0.88 ? '#fff6a8' : '#ff9a38') : '#2c2536';
+        g.fillRect(sx, sy, Math.max(2, px + 1), Math.max(2, px + 1));
       }
     }
 
-    if (beat.phase) {
-      const ps = Math.max(1, Math.round((13 * kk * dpr) / PIX_H));
-      const pTxt = localize(beat.phase);
-      const pCol = beat.activeBtns.length ? '#ffe688' : '#cfc6b6';
-      drawPix(g, pTxt, x + w, Math.round(mid - (PIX_H * ps) / 2), { scale: ps, color: pCol, outline: '#08060c', align: 'right' });
+    // Crisp 11×11 hand-crafted pixel Action Icon inside the medallion
+    const icoP = Math.max(1, Math.floor((sz - 2 * inset) / 13));
+    this.drawActionIcon(g, nd.btn ?? 'attack', mx + Math.round(sz / 2), my + Math.round(sz / 2) - Math.round(icoP * 0.4), icoP, active, done);
+
+    // Top animated Gesture Indicator (ZERO text — pure visual arrows!)
+    const topY = my - Math.round(4 * kk * dpr);
+    const mcx = mx + Math.round(sz / 2);
+    if (nd.gesture === 'hold') {
+      // Double downward clamp arrow ⟱ while holding
+      const col = active ? '#ffbe48' : done ? '#c89a48' : '#7a7088';
+      g.fillStyle = col;
+      const ay = topY - 4 * px + (active ? px : 0);
+      g.fillRect(mcx - 3 * px, ay - 2 * px, 6 * px, px);
+      g.fillRect(mcx - 3 * px, ay, 6 * px, px);
+      g.fillRect(mcx - 2 * px, ay + px, 4 * px, px);
+      g.fillRect(mcx - px, ay + 2 * px, 2 * px, px);
+    } else if (nd.gesture === 'release') {
+      // Upward spring release arrow ▲ + pixel sparks on release
+      const lift = active ? -2 * px : 0;
+      const col = active ? '#fff498' : done ? '#d8b25c' : '#7a7088';
+      g.fillStyle = col;
+      const ay = topY - px + lift;
+      g.fillRect(mcx - px, ay - 3 * px, 2 * px, px);
+      g.fillRect(mcx - 2 * px, ay - 2 * px, 4 * px, px);
+      g.fillRect(mcx - 3 * px, ay - px, 6 * px, px);
+      if (active) {
+        g.fillStyle = '#ffe068';
+        g.fillRect(mcx - 5 * px, ay - 2 * px, px, px);
+        g.fillRect(mcx + 4 * px, ay - 2 * px, px, px);
+        g.fillRect(mcx - 4 * px, ay - 4 * px, px, px);
+        g.fillRect(mcx + 3 * px, ay - 4 * px, px, px);
+      }
+    } else {
+      // Tap downward chevron ▼ slamming into medallion when pressed
+      const slam = active ? 2 * px : 0;
+      g.fillStyle = active ? '#fff098' : done ? '#c8a660' : '#6c647c';
+      const ay = topY - 3 * px + slam;
+      g.fillRect(mcx - 2 * px, ay, 4 * px, px);
+      g.fillRect(mcx - px, ay + px, 2 * px, px);
+    }
+
+    // 4-corner impact sparks around medallion on active press
+    if (active) {
+      g.fillStyle = '#fff4a8';
+      const sp = Math.round(2 * kk * dpr);
+      g.fillRect(mx - sp * 2, my - sp, sp, sp);
+      g.fillRect(mx + sz + sp, my - sp, sp, sp);
+      g.fillRect(mx - sp * 2, my + sz, sp, sp);
+      g.fillRect(mx + sz + sp, my + sz, sp, sp);
+    }
+
+    // Compact device key / gamepad glyph tucked neatly into bottom-right corner
+    this.drawCornerKeyBadge(g, nd.btn ?? 'attack', mx + sz, my + sz, active, kk, dpr, pulseT);
+
+    curX += sz;
+
+    // Optional multi-hit combo pips (e.g. 连环刀 5-hit ■ ■ ■ ■ ◆, 柳叶镖 3-dart ■ ■ ■)
+    if (nd.pips) {
+      curX += Math.round(8 * kk * dpr);
+      const { total, done: hitDone, heavyLast } = nd.pips;
+      const pipSz = Math.round(9 * kk * dpr);
+      const pipGap = Math.round(4 * kk * dpr);
+      for (let k = 0; k < total; k++) {
+        const isLastHeavy = !!heavyLast && k === total - 1;
+        const lit = k < hitDone;
+        const justHit = k === hitDone - 1 && active;
+        const py = Math.round(midY - pipSz / 2);
+        if (isLastHeavy) {
+          // Larger golden diamond for final heavy chop!
+          const cxD = curX + Math.round(pipSz * 0.7), cyD = midY;
+          const r = Math.round(pipSz * 0.72);
+          g.fillStyle = '#09070d';
+          this.fillDiamond(g, cxD, cyD, r + px);
+          g.fillStyle = justHit ? '#fff8c0' : lit ? '#ffae44' : '#3a3246';
+          this.fillDiamond(g, cxD, cyD, r);
+          if (lit) {
+            g.fillStyle = '#fff4a0';
+            this.fillDiamond(g, cxD, cyD, Math.max(1, Math.round(r * 0.45)));
+          }
+          curX += Math.round(pipSz * 1.4) + pipGap;
+        } else {
+          g.fillStyle = '#09070d';
+          g.fillRect(curX - 1, py - 1, pipSz + 2, pipSz + 2);
+          g.fillStyle = justHit ? '#fff6a8' : lit ? accent : '#2e283a';
+          g.fillRect(curX, py, pipSz, pipSz);
+          if (lit) {
+            g.fillStyle = '#ffffff';
+            g.fillRect(curX + 1, py + 1, Math.max(1, pipSz - 2), Math.max(1, Math.round(dpr)));
+          }
+          curX += pipSz + pipGap;
+        }
+      }
+    }
+  }
+
+  /** Compact keyboard keycap (with pure pixel spacebar glyph ␣ instead of Chinese text!), gamepad face button glyph, or touch ripple. */
+  private drawCornerKeyBadge(
+    g: CanvasRenderingContext2D, btn: BtnName, rx: number, by: number, lit: boolean, kk: number, dpr: number, pulseT: number,
+  ) {
+    const aKey = ACTION_BTN_KEY[btn] as 'attack' | 'dash' | 'jump' | 'special';
+    const dev = PAD.device;
+    if (dev === 'pad') {
+      const idx = btn === 'ult' ? 7 : BIND.pad[aKey][0];
+      const gs = Math.max(1, Math.round((13 * kk * dpr) / GLYPH_H));
+      const gw = glyphArt(idx).w * gs, gh = GLYPH_H * gs;
+      const bx = rx - Math.round(gw * 0.65), yy = by - Math.round(gh * 0.72);
+      g.fillStyle = '#09070d';
+      g.fillRect(bx - Math.round(dpr), yy - Math.round(dpr), gw + Math.round(2 * dpr), gh + Math.round(2 * dpr));
+      paintGlyph(g, idx, bx, yy, gs);
+      return;
+    }
+    if (dev === 'touch') {
+      const r = Math.round(6 * kk * dpr);
+      const cx = rx - Math.round(r * 0.4), cy = by - Math.round(r * 0.4);
+      g.fillStyle = '#09070d';
+      g.fillRect(cx - r - 1, cy - r - 1, r * 2 + 2, r * 2 + 2);
+      g.fillStyle = lit ? '#fff088' : '#80c8e8';
+      g.fillRect(cx - r, cy - r, r * 2, r * 2);
+      g.fillStyle = '#14111c';
+      g.fillRect(cx - r + 2, cy - r + 2, Math.max(2, r * 2 - 4), Math.max(2, r * 2 - 4));
+      const dot = Math.max(2, Math.round((lit ? 3.5 : 2 + Math.sin(pulseT * 6) * 0.6) * kk * dpr));
+      g.fillStyle = lit ? '#ffffff' : '#a8e8ff';
+      g.fillRect(cx - Math.round(dot / 2), cy - Math.round(dot / 2), dot, dot);
+      return;
+    }
+    // Keyboard badge: pure spacebar bracket icon for Space, crisp single-letter keycap for J/K/L/I
+    const rawKey = btn === 'ult' ? 'i' : BIND.key[aKey][0];
+    const isSpace = rawKey === ' ';
+    const bh = Math.round(14 * kk * dpr);
+    const bw = isSpace ? Math.round(22 * kk * dpr) : Math.round(15 * kk * dpr);
+    const bx = rx - Math.round(bw * 0.62);
+    const yy = by - Math.round(bh * 0.72);
+    const b = Math.max(1, Math.round(dpr));
+    g.fillStyle = '#07050b';
+    g.fillRect(bx - b, yy - b, bw + 2 * b, bh + 2 * b);
+    g.fillStyle = lit ? '#ffd868' : '#9c8c74';
+    g.fillRect(bx, yy, bw, bh);
+    g.fillStyle = lit ? '#3c2a12' : '#1b1724';
+    g.fillRect(bx + b, yy + b, bw - 2 * b, bh - 2 * b);
+    if (isSpace) {
+      // Pure pixel spacebar symbol ╰───╯ (zero Chinese text!)
+      const u = Math.max(1, Math.round(1.4 * kk * dpr));
+      const sx = bx + Math.round(bw * 0.2), sw = Math.round(bw * 0.6), sy = yy + Math.round(bh * 0.64);
+      g.fillStyle = lit ? '#fff8c8' : '#e8dcc6';
+      g.fillRect(sx, sy, sw, u);
+      g.fillRect(sx, sy - 2 * u, u, 2 * u);
+      g.fillRect(sx + sw - u, sy - 2 * u, u, 2 * u);
+    } else {
+      const ch = btn === 'ult' ? 'I' : actKey(aKey).slice(0, 2);
+      const ks = Math.max(1, Math.round((10 * kk * dpr) / PIX_H));
+      drawPix(g, ch, bx + Math.round(bw / 2), yy + Math.round((bh - PIX_H * ks) / 2), {
+        scale: ks, color: lit ? '#fff8c8' : '#f2e8d4', outline: null, align: 'center',
+      });
+    }
+  }
+
+  /** Crisp 11×11 pixel art action icons inside the iron medallion (Blade, Boot, Crane-Jump, Willow Dart, Unseen-Blade Crest). */
+  private drawActionIcon(g: CanvasRenderingContext2D, btn: BtnName, cx: number, cy: number, p: number, active: boolean, done: boolean) {
+    const hi = active ? '#ffffff' : done ? '#f4ecd8' : '#c4bcc8';
+    const mid = active ? '#ffe898' : done ? '#c8d6e4' : '#8a92a4';
+    const px = (dx: number, dy: number, col: string, w = 1, h = 1) => {
+      g.fillStyle = col;
+      g.fillRect(cx + dx * p, cy + dy * p, w * p, h * p);
+    };
+    if (btn === 'attack') {
+      // Slanted Han-Dao blade with brass guard and red pommel tassel
+      for (let i = -4; i <= 2; i++) {
+        px(i + 1, -i - 1, hi);
+        px(i, -i - 1, mid);
+      }
+      px(4, -5, '#ffffff');
+      px(-2, 1, '#e8b048', 3, 1); px(-1, 2, '#e8b048');
+      px(-3, 3, '#7a5038'); px(-4, 4, '#d84848');
+    } else if (btn === 'dash') {
+      // Speeding iron boot + cyan wind streaks
+      const wind = active ? '#88f4ff' : '#58a8c4';
+      px(-5, -2, wind, 3, 1); px(-6, 0, wind, 4, 1); px(-4, 2, wind, 2, 1);
+      px(-1, -3, mid, 3, 4);
+      px(-1, 1, hi, 6, 2);
+      px(3, 0, hi, 2, 1);
+      px(0, -3, '#e8b048', 2, 1);
+    } else if (btn === 'jump') {
+      // Soaring upward crane arrow
+      const col = active ? '#98f4ff' : hi;
+      px(0, -5, col, 1, 8);
+      px(-1, -4, col, 3, 1);
+      px(-2, -3, col, 5, 1);
+      px(-3, -2, col, 2, 1); px(2, -2, col, 2, 1);
+      px(-2, 1, mid, 5, 1); px(-3, 2, mid, 2, 1); px(2, 2, mid, 2, 1);
+    } else if (btn === 'special') {
+      // Diagonal willow-leaf dart with indigo glint
+      const tip = active ? '#a4d8ff' : hi;
+      px(3, -4, '#ffffff', 2, 2);
+      px(2, -3, tip, 2, 2);
+      px(1, -2, tip, 2, 2);
+      px(0, -1, '#7898e8', 2, 2);
+      px(-1, 0, '#7898e8', 2, 2);
+      px(-2, 1, mid); px(-3, 2, '#e8b048', 2, 1); px(-4, 3, '#d84848');
+    } else {
+      // Golden Unseen-Blade cross-slash crest
+      const gold = active ? '#fff8a0' : '#f2c44e';
+      for (let i = -4; i <= 4; i++) { px(i, -i, gold); px(i, i, '#ff9838'); }
+      px(-1, -1, '#ffffff', 3, 3);
+    }
+  }
+
+  /** Horizontal crimson danger timing track into a glowing gold sweet-spot gate (Parry & Perfect Dodge Counter). */
+  private drawDangerTrack(
+    g: CanvasRenderingContext2D, nd: BeatNode, x: number, midY: number, w: number, h: number, u: number, _pulseT: number,
+  ) {
+    const px = Math.max(1, u);
+    const ty = Math.round(midY - h / 2);
+    const fill = Math.max(0, Math.min(1, nd.fill ?? 0));
+    const hit = nd.state === 2;
+
+    // Recessed track trough
+    g.fillStyle = '#07050c';
+    g.fillRect(x - px, ty - px, w + 2 * px, h + 2 * px);
+    g.fillStyle = '#1b1524';
+    g.fillRect(x, ty, w, h);
+    // Center hairline
+    g.fillStyle = '#382e46';
+    g.fillRect(x + 2 * px, midY - Math.ceil(px / 2), w - 4 * px, px);
+
+    // Gold sweet-spot parry/dodge gate on right end
+    const gateW = Math.max(Math.round(w * 0.24), 6 * px);
+    const gateX = x + w - gateW - px;
+    g.fillStyle = hit ? '#fff6a8' : '#5e461e';
+    g.fillRect(gateX, ty + px, gateW, h - 2 * px);
+    g.fillStyle = hit ? '#ffffff' : '#ffd868';
+    g.fillRect(gateX, ty, gateW, px);
+    g.fillRect(gateX, ty + h - px, gateW, px);
+    g.fillRect(gateX, ty, px, h);
+    g.fillRect(gateX + gateW - px, ty, px, h);
+    // Sweet-spot diamond inside gate
+    this.fillDiamond(g, gateX + Math.round(gateW / 2), midY, Math.max(2, Math.round(h * 0.22)));
+
+    // Traveling crimson enemy slash projectile approaching the gold gate!
+    const travel = Math.max(4, gateX + Math.round(gateW / 2) - (x + 3 * px));
+    const bx = Math.round(x + 3 * px + travel * fill);
+    if (nd.state >= 1) {
+      // Red motion trail
+      const trailW = Math.min(bx - x - px, 7 * px);
+      if (trailW > 0) {
+        g.fillStyle = hit ? '#ffaa58' : '#962428';
+        g.fillRect(bx - trailW, midY - px, trailW, 2 * px);
+      }
+      // Sharp crimson incoming wave chevron
+      g.fillStyle = hit ? '#ffffff' : '#ff4c3c';
+      this.fillDiamond(g, bx, midY, Math.max(2, Math.round(h * 0.28)));
+      if (hit) {
+        g.fillStyle = '#ffe878';
+        g.fillRect(gateX - 2 * px, ty - 2 * px, px, px);
+        g.fillRect(gateX + gateW + px, ty - 2 * px, px, px);
+        g.fillRect(gateX - 2 * px, ty + h + px, px, px);
+        g.fillRect(gateX + gateW + px, ty + h + px, px, px);
+      }
+    }
+  }
+
+  /** Pause-beat graphical node: pixel hourglass + 3 rhythm dots lighting 1-2-3. */
+  private drawPauseNode(g: CanvasRenderingContext2D, nd: BeatNode, cx: number, midY: number, u: number) {
+    const px = Math.max(1, u);
+    const fill = Math.max(0, Math.min(1, nd.fill ?? 0));
+    const lit = nd.state > 0;
+    const hy = midY - 4 * px;
+    // Pixel hourglass above
+    g.fillStyle = lit ? '#ffd872' : '#6c647c';
+    g.fillRect(cx - 3 * px, hy - 3 * px, 6 * px, px);
+    g.fillRect(cx - 2 * px, hy - 2 * px, 4 * px, px);
+    g.fillRect(cx - px, hy - px, 2 * px, 2 * px);
+    g.fillRect(cx - 2 * px, hy + px, 4 * px, px);
+    g.fillRect(cx - 3 * px, hy + 2 * px, 6 * px, px);
+    // 3 chunky rhythm dots below
+    for (let k = 0; k < 3; k++) {
+      const on = nd.state === 2 || (nd.state === 1 && fill >= (k + 0.3) / 3);
+      g.fillStyle = on ? '#fff088' : '#3a3248';
+      g.fillRect(cx + (k - 1) * 4 * px - px, midY + 2 * px, 2 * px, 2 * px);
+    }
+  }
+
+  /** Airborne arc graphical node: ground line + parabolic jump arc + glowing peak dot. */
+  private drawAirNode(g: CanvasRenderingContext2D, nd: BeatNode, cx: number, midY: number, u: number) {
+    const px = Math.max(1, u);
+    const lit = nd.state > 0;
+    const col = lit ? (nd.col ?? '#84e4ff') : '#5e5870';
+    // Ground baseline
+    g.fillStyle = '#504860';
+    g.fillRect(cx - 6 * px, midY + 4 * px, 12 * px, px);
+    // Parabolic dotted arc
+    g.fillStyle = col;
+    const pts: Array<[number, number]> = [[-5, 2], [-3, -1], [-1, -3], [1, -3], [3, -1], [5, 2]];
+    for (const [dx, dy] of pts) g.fillRect(cx + dx * px, midY + dy * px, px, px);
+    // Peak airborne marker
+    g.fillStyle = nd.state === 1 ? '#ffffff' : col;
+    g.fillRect(cx - px, midY - 5 * px, 2 * px, 2 * px);
+  }
+
+  /** Pinned dart graphical node: foe core + stuck dart + indigo pulse ring. */
+  private drawPinNode(g: CanvasRenderingContext2D, nd: BeatNode, cx: number, midY: number, u: number, pulseT: number) {
+    const px = Math.max(1, u);
+    const lit = nd.state > 0;
+    const col = lit ? (nd.col ?? '#a884ff') : '#5e5870';
+    // Expanding square indigo pulse ring
+    const r = 4 * px + (nd.state === 1 ? Math.round(((pulseT * 3) % 1) * 3 * px) : 0);
+    g.fillStyle = col;
+    g.fillRect(cx - r, midY - r, r * 2, px);
+    g.fillRect(cx - r, midY + r - px, r * 2, px);
+    g.fillRect(cx - r, midY - r, px, r * 2);
+    g.fillRect(cx + r - px, midY - r, px, r * 2);
+    // Crimson foe core + diagonal cyan stuck dart
+    g.fillStyle = lit ? '#ff7868' : '#784848';
+    g.fillRect(cx - 2 * px, midY - 2 * px, 4 * px, 4 * px);
+    g.fillStyle = lit ? '#a8f4ff' : '#8094a8';
+    g.fillRect(cx + px, midY - 3 * px, 2 * px, px);
+    g.fillRect(cx + 2 * px, midY - 4 * px, 2 * px, px);
+  }
+
+  /** Unseen-Blade QTE node: 3 glowing golden resolve diamonds + contracting golden QTE ring. */
+  private drawQteNode(g: CanvasRenderingContext2D, nd: BeatNode, cx: number, midY: number, u: number) {
+    const px = Math.max(1, u);
+    const fill = Math.max(0, Math.min(1, nd.fill ?? 0));
+    const r = Math.max(3 * px, Math.round((8 - fill * 4.5) * px));
+    g.fillStyle = nd.state === 1 ? '#fff088' : '#9c7c38';
+    g.fillRect(cx - r, midY - r, r * 2, px);
+    g.fillRect(cx - r, midY + r - px, r * 2, px);
+    g.fillRect(cx - r, midY - r, px, r * 2);
+    g.fillRect(cx + r - px, midY - r, px, r * 2);
+    // 3 golden resolve ingots inside
+    for (let k = -1; k <= 1; k++) {
+      g.fillStyle = '#ffe068';
+      this.fillDiamond(g, cx + k * 4 * px, midY, Math.max(2, Math.round(1.6 * px)));
+    }
+  }
+
+  /** Passive Resonance Aura node for Arcana & Keepsakes (pulsing concentric octagonal rings, zero button press). */
+  private drawAuraNode(g: CanvasRenderingContext2D, nd: BeatNode, cx: number, midY: number, sz: number, u: number, pulseT: number) {
+    const px = Math.max(1, u);
+    const col = nd.col ?? '#70eda8';
+    const w1 = ((pulseT * 0.9) % 1);
+    const w2 = (((pulseT * 0.9) + 0.5) % 1);
+    for (const wv of [w1, w2]) {
+      const r = Math.round(sz * (0.28 + wv * 0.34));
+      g.fillStyle = col;
+      g.globalAlpha = Math.max(0.12, 0.85 * (1 - wv));
+      g.fillRect(cx - r, midY - r, r * 2, px);
+      g.fillRect(cx - r, midY + r - px, r * 2, px);
+      g.fillRect(cx - r, midY - r, px, r * 2);
+      g.fillRect(cx + r - px, midY - r, px, r * 2);
+    }
+    g.globalAlpha = 1;
+    const core = Math.round(sz * 0.28);
+    g.fillStyle = '#09070d';
+    this.fillDiamond(g, cx, midY, core + px);
+    g.fillStyle = col;
+    this.fillDiamond(g, cx, midY, core);
+    g.fillStyle = '#ffffff';
+    this.fillDiamond(g, cx, midY, Math.max(2, Math.round(core * 0.4)));
+  }
+
+  /** Impact / Boon activation starburst crest flashing in the move's accent color. */
+  private drawBurstNode(g: CanvasRenderingContext2D, nd: BeatNode, cx: number, midY: number, u: number, _pulseT: number) {
+    const px = Math.max(1, u);
+    const active = nd.state === 1;
+    const lit = nd.state > 0;
+    const col = active ? '#fff8b8' : lit ? (nd.col ?? '#ffd868') : '#3f384e';
+    const r = active ? 6 * px : 4 * px;
+    g.fillStyle = col;
+    g.fillRect(cx - r, midY - Math.ceil(px / 2), r * 2, px);
+    g.fillRect(cx - Math.ceil(px / 2), midY - r, px, r * 2);
+    const d = Math.round(r * 0.65);
+    g.fillRect(cx - d, midY - d, px, px);
+    g.fillRect(cx + d - px, midY - d, px, px);
+    g.fillRect(cx - d, midY + d - px, px, px);
+    g.fillRect(cx + d - px, midY + d - px, px, px);
+    this.fillDiamond(g, cx, midY, active ? 3 * px : 2 * px);
+  }
+
+  private fillOct(g: CanvasRenderingContext2D, x: number, y: number, sz: number, cut: number) {
+    g.fillRect(x + cut, y, sz - 2 * cut, sz);
+    g.fillRect(x, y + cut, sz, sz - 2 * cut);
+    for (let i = 1; i < cut; i++) {
+      g.fillRect(x + cut - i, y + i, sz - 2 * (cut - i), sz - 2 * i);
+    }
+  }
+
+  private fillDiamond(g: CanvasRenderingContext2D, cx: number, cy: number, r: number) {
+    for (let dy = -r; dy <= r; dy++) {
+      const span = r - Math.abs(dy);
+      g.fillRect(cx - span, cy + dy, span * 2 + 1, 1);
     }
   }
 }
