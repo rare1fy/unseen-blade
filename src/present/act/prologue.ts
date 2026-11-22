@@ -1058,6 +1058,84 @@ export function heroHandOnHiltPose(a: BattleActor, t: number) {
   }
 }
 
+/** act-165 (hideout departure): crisp 3D put-on-hat ceremony (k: 0 -> 1) before triggering run loading —
+ *  both hands lift the conical bamboo hat cleanly from chest-front up above her white hair dome, lower & seat it squarely onto
+ *  her crown (exact rest transform), press the front-right brim with a subtle resolute nod, then settle smoothly into ready stance.
+ *  Zero head/hair/arm/weapon clipping. */
+export function heroPutHatPose(a: BattleActor, k: number) {
+  const b = a.bones; resetPose(b);
+  a.root.position.copy(a.home).setY(0); a.root.rotation.set(0, a.yaw, 0);
+  a.body.position.set(0, 0, 0); a.body.rotation.set(0, 0, 0); a.body.scale.set(1, 1, 1);
+  const t = Math.max(0, Math.min(1, k));
+  const lerp = (x0: number, x1: number, u: number) => x0 + (x1 - x0) * u;
+  // Blade stays sheathed at hip during the two-handed hat donning so the sword never clips the brim
+  if (b.weapon) b.weapon.visible = t >= 0.96;
+  if (b.hat) b.hat.visible = true;
+
+  // 4-beat piecewise weights:
+  //  0.00..0.38: lift conical hat from in front of chest up clear above hair crown
+  //  0.38..0.70: lower & seat conical hat squarely onto crown (exact rest 0,0,0)
+  //  0.70..0.86: left arm drops to side; right hand presses front-right brim with a crisp nod
+  //  0.86..1.00: right hand drops cleanly to ready stance; chin lifts resolutely toward the pass
+  const u1 = smK(t / 0.38);
+  const u2 = smK((t - 0.38) / 0.32);
+  const u3 = smK((t - 0.70) / 0.16);
+  const u4 = smK((t - 0.86) / 0.14);
+
+  let hatY = 0, hatZ = 0, hatRx = 0, hatRz = 0;
+  let headX = 0, headY = 0, spineX = 0, chestX = 0;
+  let armLx = 0, armLy = 0, armLz = 0, foreLx = 0;
+  let armRx = 0, armRy = 0, armRz = 0, foreRx = 0;
+
+  if (t < 0.38) {
+    hatY = lerp(-0.62, 0.22, u1);
+    hatZ = lerp(0.42, 0.16, u1);
+    hatRx = lerp(0.34, 0.10, u1);
+    hatRz = lerp(-0.04, 0, u1);
+    spineX = lerp(0.06, -0.03, u1);
+    chestX = lerp(0.04, -0.02, u1);
+    headX = lerp(0.12, -0.06, u1);
+    // Wide outer-brim grip: palms hold the left & right brim edges cleanly with zero forearm poke-through
+    armLx = lerp(-0.66, -2.26, u1); armLy = lerp(-0.08, -0.08, u1); armLz = lerp(0.56, 0.48, u1); foreLx = lerp(-0.42, -0.44, u1);
+    armRx = lerp(-0.66, -2.26, u1); armRy = lerp(0.08, 0.08, u1); armRz = lerp(-0.56, -0.48, u1); foreRx = lerp(-0.42, -0.44, u1);
+  } else if (t < 0.70) {
+    hatY = lerp(0.22, 0, u2);
+    hatZ = lerp(0.16, 0, u2);
+    hatRx = lerp(0.10, 0, u2);
+    spineX = lerp(-0.03, 0.04, u2);
+    chestX = lerp(-0.02, 0.03, u2);
+    headX = lerp(-0.06, 0.10, u2);
+    armLx = lerp(-2.26, -1.70, u2); armLy = lerp(-0.08, -0.10, u2); armLz = lerp(0.48, 0.50, u2); foreLx = lerp(-0.44, -0.74, u2);
+    armRx = lerp(-2.26, -1.70, u2); armRy = lerp(0.08, 0.10, u2); armRz = lerp(-0.48, -0.50, u2); foreRx = lerp(-0.44, -0.74, u2);
+  } else if (t < 0.86) {
+    spineX = lerp(0.04, 0.05, u3);
+    chestX = lerp(0.03, 0.03, u3);
+    headX = lerp(0.10, 0.12, u3);
+    headY = lerp(0, -0.06, u3);
+    // Left arm lowers naturally to side while right hand lingers cleanly on the outer right brim edge
+    armLx = lerp(-1.70, -0.06, u3); armLy = lerp(-0.10, 0, u3); armLz = lerp(0.50, 0.08, u3); foreLx = lerp(-0.74, -0.16, u3);
+    armRx = lerp(-1.70, -1.48, u3); armRy = lerp(0.10, 0.14, u3); armRz = lerp(-0.50, -0.38, u3); foreRx = lerp(-0.74, -0.80, u3);
+  } else {
+    spineX = lerp(0.05, 0.02, u4);
+    chestX = lerp(0.03, 0.01, u4);
+    headX = lerp(0.12, 0.02, u4);
+    headY = lerp(-0.06, 0, u4);
+    armLx = lerp(-0.06, -0.04, u4); armLz = 0.08; foreLx = -0.16;
+    armRx = lerp(-1.48, 0.06, u4); armRy = lerp(0.14, 0, u4); armRz = lerp(-0.38, -0.08, u4); foreRx = lerp(-0.80, -0.18, u4);
+  }
+
+  rot(b.legL, -0.08, 0, 0.06); rot(b.shinL, 0.10); rot(b.footL, -0.02);
+  rot(b.legR, 0.10, 0, -0.06); rot(b.shinR, 0.08); rot(b.footR, -0.18);
+  rot(b.spine, spineX); rot(b.chest, chestX);
+  rot(b.neck, headX * 0.35); rot(b.head, headX, headY, 0);
+  rot(b.armL, armLx, armLy, armLz); rot(b.foreL, foreLx);
+  rot(b.armR, armRx, armRy, armRz); rot(b.foreR, foreRx);
+  if (b.hat) {
+    mov(b.hat, 0, hatY, hatZ);
+    rot(b.hat, hatRx, 0, hatRz);
+  }
+}
+
 /** act-156 (duwu_die): Liu Bai drops onto one knee in the snow leaning tenderly down beside dying Du Wu, both hands reaching to steady his sleeve */
 export function heroKneelBesidePose(a: BattleActor, t: number, blend = 1) {
   const b = a.bones; resetPose(b);

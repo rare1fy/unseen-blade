@@ -130,7 +130,7 @@ export function bossIntroShots(h: CineHost, boss: Foe, name: string, o: { prolog
   const b = boss.pos.clone();
   const p0 = h.hero.pos.clone();
 
-  // ---- act-157: Prologue Cui Xuan REAL 3D wall-vault over the snowy west courtyard wall + back-turned aristocratic reveal!
+  // ---- act-157 / act-165: Prologue Cui Xuan IMMEDIATE 3D wall-vault on frame 0 (3 crisp cinema hard-cuts: wall perch/leap -> low courtyard landing -> reverse Cui Xuan turn)
   if (o.prologue && boss.kind === 'cx_boss') {
     const wallX = PLAY.x0 - 0.44;
     const wallY = 2.66;
@@ -143,10 +143,11 @@ export function bossIntroShots(h: CineHost, boss: Foe, name: string, o: { prolog
     const faceHeroYaw = Math.atan2(standPos.x - b.x, standPos.z - b.z);
     let landed = false, leaped = false;
 
-    const shotVault: CineShot = {
-      dur: 2.55, ease: 'inOut',
-      from: safeCam([PLAY.x0 + 8.6, 3.8, landZ + 5.6], [PLAY.x0 + 0.5, 3.25, landZ], 42),
-      to: safeCam([landX + 5.4, 2.9, landZ + 5.4], [standPos.x + 0.3, 1.15, standPos.z], 38),
+    // Shot 1A: Heroic angle on the snowy west wall crest — already crouched poised on frame 0, then springs cleanly into the yard
+    const shotWallPerch: CineShot = {
+      dur: 1.05, ease: 'out',
+      from: safeCam([PLAY.x0 + 8.2, 3.65, landZ + 5.4], [PLAY.x0 + 0.9, 2.85, landZ], 42),
+      to: safeCam([PLAY.x0 + 7.5, 3.55, landZ + 4.9], [PLAY.x0 + 2.0, 2.60, landZ], 41),
       at: [
         [0, () => {
           cue('snowWind', 0.65);
@@ -160,27 +161,30 @@ export function bossIntroShots(h: CineHost, boss: Foe, name: string, o: { prolog
           h.hero.a.off.set(0, wallY, 0);
           h.hero.a.yaw = vaultYaw;
           h.hero.a.root.position.set(wallX, wallY, landZ);
+          poseWallVault(h.hero.a, 'perch', 0.35);
+          h.hero.a.root.position.set(wallX, wallY, landZ);
         }],
       ],
       tick: (t, dt) => {
         const m = motionOf(h.hero.a);
-        if (t < 0.46) {
-          const u = t / 0.46;
+        if (t < 0.48) {
+          const u = t / 0.48;
           m.run = 0;
           h.hero.pos.set(wallX, 0, landZ);
           h.hero.a.home.set(wallX, 0, landZ);
           h.hero.a.off.set(0, wallY, 0);
           h.hero.a.yaw = vaultYaw;
           h.hero.a.update(dt);
-          poseWallVault(h.hero.a, 'perch', u);
+          poseWallVault(h.hero.a, 'perch', 0.35 + 0.65 * u);
           h.hero.a.root.position.set(wallX, wallY, landZ);
-        } else if (t < 1.18) {
+        } else {
           if (!leaped) {
             leaped = true;
             cue('whoosh', 0.72);
             snowPuff(V3(wallX + 0.25, wallY, landZ));
           }
-          const u = (t - 0.46) / 0.72;
+          // First 75% of the ballistic arc plays in Shot 1A; final 25% cuts cleanly to low ground-level impact in Shot 1B!
+          const u = ((t - 0.48) / 0.57) * 0.74;
           const x = wallX + (landX - wallX) * u;
           const y = wallY * (1 - u) * (1 - 0.14 * u) + 1.05 * 4 * u * (1 - u);
           m.run = 0;
@@ -191,14 +195,39 @@ export function bossIntroShots(h: CineHost, boss: Foe, name: string, o: { prolog
           h.hero.a.update(dt);
           poseWallVault(h.hero.a, 'leap', u);
           h.hero.a.root.position.set(x, y, landZ);
-        } else if (t < 1.68) {
+        }
+        boss.a.yaw = Math.PI;
+        boss.a.update(dt);
+      },
+    };
+
+    // Shot 1B: HARD CUT to low courtyard ground-level angle — drops into the snow crouch, springs up & glides toward Cui Xuan
+    const shotWallLand: CineShot = {
+      dur: 1.30, ease: 'out',
+      from: safeCam([landX + 4.2, 2.65, landZ + 6.2], [landX + 1.0, 1.05, landZ - 0.6], 39),
+      to: safeCam([landX + 3.8, 2.55, landZ + 5.6], [standPos.x + 0.8, 1.10, standPos.z - 0.5], 38),
+      tick: (t, dt) => {
+        const m = motionOf(h.hero.a);
+        if (t < 0.22) {
+          const u = 0.74 + (t / 0.22) * 0.26;
+          const x = wallX + (landX - wallX) * u;
+          const y = wallY * (1 - u) * (1 - 0.14 * u) + 1.05 * 4 * u * (1 - u);
+          m.run = 0;
+          h.hero.pos.set(x, 0, landZ);
+          h.hero.a.home.set(x, 0, landZ);
+          h.hero.a.off.set(0, y, 0);
+          h.hero.a.yaw = vaultYaw;
+          h.hero.a.update(dt);
+          poseWallVault(h.hero.a, 'leap', u);
+          h.hero.a.root.position.set(x, y, landZ);
+        } else if (t < 0.68) {
           if (!landed) {
             landed = true;
             cue('land', 0.65); shake(0.10);
             snowPuff(V3(landX, 0.05, landZ));
             fxRing(V3(landX, 0.06, landZ), 0xeef4ff, 2.2, { life: 0.9, width: 0.09, bright: 1.4 } as never);
           }
-          const u = (t - 1.18) / 0.50;
+          const u = (t - 0.22) / 0.46;
           m.run = 0;
           h.hero.pos.set(landX, 0, landZ);
           h.hero.a.home.set(landX, 0, landZ);
@@ -208,7 +237,7 @@ export function bossIntroShots(h: CineHost, boss: Foe, name: string, o: { prolog
           poseWallVault(h.hero.a, 'land', u);
           h.hero.a.root.position.set(landX, 0, landZ);
         } else {
-          const u = Math.min(1, (t - 1.68) / 0.82);
+          const u = Math.min(1, (t - 0.68) / 0.58);
           const x = landX + (standPos.x - landX) * u;
           const z = landZ + (standPos.z - landZ) * u;
           h.hero.pos.set(x, 0, z);
@@ -224,13 +253,13 @@ export function bossIntroShots(h: CineHost, boss: Foe, name: string, o: { prolog
       },
     };
 
-    // Shot 2: Reverse-angle aristocratic reveal — Cui Xuan hears her landing and slowly turns around (blade still sheathed/hidden)
+    // Shot 2: HARD CUT to reverse-angle aristocratic reveal — Cui Xuan hears her landing and slowly turns around (blade still hidden)
     const turnDiff = Math.atan2(Math.sin(faceHeroYaw - Math.PI), Math.cos(faceHeroYaw - Math.PI));
     const shotTurn: CineShot = {
-      dur: 2.35, ease: 'inOut',
+      dur: 2.05, ease: 'inOut',
       from: safeCam([b.x + 3.5, 2.55, b.z + 4.4], [b.x - 0.35, 1.15, b.z + 0.35], 35),
-      to: safeCam([b.x + 2.8, 2.30, b.z + 3.6], [b.x - 0.25, 1.15, b.z + 0.2], 33),
-      caption: { text: name, at: 0.85, hold: 1.45 },
+      to: safeCam([b.x + 2.9, 2.35, b.z + 3.7], [b.x - 0.25, 1.15, b.z + 0.2], 33),
+      caption: { text: name, at: 0.72, hold: 1.30 },
       at: [
         [0, () => {
           h.hero.pos.copy(standPos);
@@ -240,13 +269,13 @@ export function bossIntroShots(h: CineHost, boss: Foe, name: string, o: { prolog
           h.hero.a.yaw = faceBossYaw;
           motionOf(h.hero.a).run = 0;
         }],
-        [0.35, () => {
+        [0.28, () => {
           cue('snowWind', 0.52);
           fxRing(b.clone().setY(0.06), 0xf6d88a, 2.4, { life: 1.0, width: 0.1, bright: 1.4 } as never);
         }],
       ],
       tick: (t, dt) => {
-        const u = Math.max(0, Math.min(1, (t - 0.30) / 0.95));
+        const u = Math.max(0, Math.min(1, (t - 0.24) / 0.88));
         const ease = u * u * (3 - 2 * u);
         boss.a.yaw = Math.PI + turnDiff * ease;
         motionOf(h.hero.a).run = 0;
@@ -255,7 +284,7 @@ export function bossIntroShots(h: CineHost, boss: Foe, name: string, o: { prolog
       },
     };
 
-    return [shotVault, shotTurn];
+    return [shotWallPerch, shotWallLand, shotTurn];
   }
 
   const toBoss = V3(b.x - p0.x, 0, b.z - p0.z);

@@ -58,7 +58,7 @@ import { clampWithDoors } from './doorClamp';
 import { Timeline, type V } from './timeline';
 import { openingShots, bossIntroShots, generalIntroShots, steleStrikeShots, safeCam, type CineHost } from './cutscenes';
 import { NPC_TALK, STELE_TALK, MEAL_TALK, UP_TALK, POOR_TALK, WAKE_DUWU, WAKE_SUNAO, CHULEI_BEFORE, CH_BEFORE, CH_AFTER, BOSS_AFTER, STRIKE_FLAG, bossesDown, struckOnStele, ENDING, ENDING_A_NO_DUWU, ENDING_C_NO_DUWU, ENDING_PICK, ENDING_DESC, DUWU_ROAD_1, DUWU_ROAD_2, DUWU_DIE, DUWU_MEMORIAL_INTRO, DEATH_SUNAO_AFTER_DUWU, GEN_BEFORE, GEN_AFTER, deathLine, PRO_CUIXUAN, PRO_FALL, PRO_DAWN, PRO_WAKE, PRO_CAPTIONS, PRO_AMBUSH } from './scripts';
-import { fallShots, snowShots, dawnShots, snapDawn, loadShots, brazier, getUpPose, drapeOver, GETUP_STEP, Kneel, KNEEL_ARMS, CuiInspect, cuiKneelDefeatPose, bossKneelDefeatPose, poseWallVault, heroHoldThroatPose, heroSitFirePose, heroHandOnHiltPose, heroKneelBesidePose, duwuRecoilPose, npcWarmPose, duwuPoisonPose, duwuDieShots, endingWalkShots, type PrologueHost, type VaultPhase } from './prologue';
+import { fallShots, snowShots, dawnShots, snapDawn, loadShots, brazier, getUpPose, drapeOver, GETUP_STEP, Kneel, KNEEL_ARMS, CuiInspect, cuiKneelDefeatPose, bossKneelDefeatPose, poseWallVault, heroHoldThroatPose, heroSitFirePose, heroHandOnHiltPose, heroPutHatPose, heroKneelBesidePose, duwuRecoilPose, npcWarmPose, duwuPoisonPose, duwuDieShots, endingWalkShots, type PrologueHost, type VaultPhase } from './prologue';
 import { AllyGeneral, GENERAL_REGIONS, type AllyHost } from './foes/generals_ai';
 import { coldOpenShots, coldCardShots, BlindPOV } from './coldopen';
 import { Barks } from './barks';
@@ -729,13 +729,8 @@ export class ActShow {
       if (this.phase !== 'intro' || this.hero !== h) return;
       for (const j of jumpers) { j.f.a.root.visible = true; j.f.pos.copy(j.to); j.f.a.home.copy(j.to); j.f.a.off.y = 0; j.f.a.body.rotation.set(0, 0, 0); j.f.a.setRunning(false); }
       let ambT = 0, hiltPose = false;
-      const setAmbCam = (pos: V, look: V, fov: number) => {
-        const c = safeCam(pos, look, fov);
-        this.camOverride = { base: V3(...c.pos), look: V3(...c.look), fov: c.fov };
-      };
-      // Shot 0: low over-hero-shoulder framing the roaring sentries ahead
-      setAmbCam([h.pos.x + 2.8, 2.55, h.pos.z + 4.2], [h.pos.x, 1.05, h.pos.z - 2.6], 38);
-      shot('act', () => this.camPose(), { cut: true, speed: 6 });
+      // Shot 0: CRISP HARD CUT low over-hero-shoulder framing the roaring sentries ahead
+      this.cutCam([h.pos.x + 2.8, 2.55, h.pos.z + 4.2], [h.pos.x, 1.05, h.pos.z - 2.6], 38, { drift: [-0.28, -0.05, -0.35], fovDrift: -1.2 });
       this.talkTick = (dt: number) => {
         ambT += dt;
         for (const j of jumpers) j.f.a.update(dt);
@@ -744,22 +739,22 @@ export class ActShow {
         if (i === 0 && jumpers[0]) jumpers[0].f.a.roar();
         if (i === 1 && jumpers[1]) {
           jumpers[1].f.a.roar();
-          setAmbCam([h.pos.x - 3.0, 2.55, h.pos.z + 4.0], [jumpers[1].f.pos.x, 1.05, jumpers[1].f.pos.z], 37);
+          this.cutCam([h.pos.x - 3.0, 2.55, h.pos.z + 4.0], [jumpers[1].f.pos.x, 1.05, jumpers[1].f.pos.z], 37, { drift: [0.30, -0.04, -0.30], fovDrift: -1.2 });
         }
         if (i === 2 && !hiltPose) {
           hiltPose = true;
           h.scriptPose = () => heroHandOnHiltPose(h.a, ambT);
           cue('parry', 0.25); cue('snowWind', 0.45);
           fxRing(h.pos.clone().setY(0.06), 0xeef4ff, 2.2, { life: 0.85, width: 0.08, bright: 1.4 } as never);
-          // Shot 2: tight front-side close-up on Liu Bai tilting chin & gripping hilt
-          setAmbCam([h.pos.x + 2.35, 2.25, h.pos.z - 2.6], [h.pos.x, 1.08, h.pos.z], 33);
+          // Shot 2: HARD CUT to tight front-side close-up on Liu Bai tilting chin & gripping hilt
+          this.cutCam([h.pos.x + 2.55, 2.28, h.pos.z - 2.8], [h.pos.x, 1.08, h.pos.z], 34, { drift: [-0.20, -0.04, 0.20], fovDrift: -1.4 });
         }
         if (i === 3) {
-          // Shot 3: dramatic low wide confrontation showing her ringed by the 4 sentries
-          setAmbCam([h.pos.x + 4.4, 3.3, h.pos.z + 5.8], [h.pos.x, 1.0, h.pos.z - 0.6], 40);
+          // Shot 3: HARD CUT to dramatic low wide confrontation showing her ringed by the 4 sentries
+          this.cutCam([h.pos.x + 4.4, 3.3, h.pos.z + 5.8], [h.pos.x, 1.0, h.pos.z - 0.6], 40, { drift: [-0.35, -0.08, -0.40], fovDrift: -1.0 });
         }
       });
-      this.talkTick = null; h.scriptPose = null; this.camOverride = null;
+      this.talkTick = null; h.scriptPose = null; this.releaseCutCam();
       if (this.hero !== h) return;
       for (const j of jumpers) { j.f.st = 'move'; j.f.cd = 0.6 + Math.random() * 0.8; }
       // (the ambushers ARE the first wave: the fight starts with them on the floor; cutting them down brings the second as usual)
@@ -791,31 +786,34 @@ export class ActShow {
     if (boss) {
       await this.cine(fallShots(this.proHost, boss));
       if (!this.proKneel.active) { this.proKneel.start(true); setHurtBreath(true); }   // (the shot skipped before the blow landed: she still goes down on her knee)
-      // act-114 / act-157: Multi-angle PRO_FALL (wide planted-blade two-shot -> intimate side angle on Cui Xuan crouch/reach -> low rising dismissal angle)
+      // act-114 / act-157 / act-165: Crisp hard-cut cinema coverage for PRO_FALL
       this.cuiInspect.start(boss, this.hero.pos, (p, r) => this.clamp(p, r));
       this.hero.scriptPose = kneelPose;
-      const setFallCam = (mode: 'wide' | 'reach' | 'stand') => {
+      const cutFallCam = (mode: 'wide' | 'reach' | 'cui' | 'stand') => {
         const hp = this.hero.pos, bp = boss.pos;
         const mx = (hp.x + bp.x) * 0.5, mz = (hp.z + bp.z) * 0.5;
         let dx = bp.x - hp.x, dz = bp.z - hp.z; const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
         let nx = -dz, nz = dx; if (nz < 0) { nx = -nx; nz = -nz; }
-        const c = mode === 'reach'
-          ? safeCam([mx + nx * 4.35 - dx * 0.25, 2.38, mz + nz * 4.35 + 0.9], [mx, 0.82, mz], 36)
-          : mode === 'stand'
-            ? safeCam([hp.x - dx * 3.2 + nx * 2.4, 2.35, hp.z - dz * 3.2 + nz * 2.4], [bp.x, 1.15, bp.z], 36)
-            : safeCam([mx + nx * 5.0, 2.95, mz + nz * 5.0 + 1.2], [mx, 0.78, mz], 37);
-        this.camOverride = { base: V3(...c.pos), look: V3(...c.look), fov: c.fov };
+        if (mode === 'reach') {
+          this.cutCam([mx + nx * 4.35 - dx * 0.25, 2.38, mz + nz * 4.35 + 0.9], [mx, 0.82, mz], 36, { drift: [-nx * 0.30, -0.05, -nz * 0.30], fovDrift: -1.4 });
+        } else if (mode === 'cui') {
+          this.cutCam([bp.x - nx * 2.9 - dx * 1.4, 2.32, bp.z - nz * 2.9 - dz * 1.4], [bp.x, 0.98, bp.z], 35, { drift: [nx * 0.22, -0.04, nz * 0.22], fovDrift: -1.2 });
+        } else if (mode === 'stand') {
+          this.cutCam([hp.x - dx * 3.2 + nx * 2.4, 2.35, hp.z - dz * 3.2 + nz * 2.4], [bp.x, 1.15, bp.z], 36, { drift: [dx * 0.28, 0.06, dz * 0.28], fovDrift: -1.0 });
+        } else {
+          this.cutCam([mx + nx * 5.0, 2.95, mz + nz * 5.0 + 1.2], [mx, 0.78, mz], 37, { drift: [-nx * 0.32, -0.06, -nz * 0.32], fovDrift: -1.0 });
+        }
       };
-      setFallCam('wide');
-      shot('act', () => this.camPose(), { cut: true, speed: 5.5 });
+      cutFallCam('wide');
       await this.talk(PRO_FALL, (i, l) => {
         this.proKneel.reachWant = l.who === 'act' && /刀柄|长刀脱手|挑飞/.test(l.text) ? 1 : 0;
-        if (i === 0) { this.cuiInspect.setStage('approach'); setFallCam('wide'); }
-        else if (i === 1) { this.cuiInspect.setStage('reach'); setFallCam('reach'); }
-        else if (i >= 4) { this.cuiInspect.setStage('stand'); setFallCam('stand'); }
+        if (i === 0) { this.cuiInspect.setStage('approach'); cutFallCam('wide'); }
+        else if (i === 1) { this.cuiInspect.setStage('reach'); cutFallCam('reach'); }
+        else if (i === 2) { cutFallCam('cui'); }
+        else if (i >= 4) { this.cuiInspect.setStage('stand'); cutFallCam('stand'); }
       });
       this.cuiInspect.stop();
-      this.camOverride = null;
+      this.releaseCutCam();
       this.proKneel.reachWant = 0; this.hero.scriptPose = null;
       this.phase = 'cine'; await this.cine(snowShots(this.proHost, boss));
       setHurtBreath(false);
@@ -834,15 +832,10 @@ export class ActShow {
     const dead: Array<[EKind, number, number]> = [['hj_mob', at.x - 3.2, at.z + 2.6], ['hj_blade', at.x - 1.4, at.z + 3.6], ['hj_mob', at.x + 2.4, at.z - 1.8]];
     const who: { duwu: BattleActor | null; donkey: BattleActor | null } = { duwu: null, donkey: null };
     await this.cine(dawnShots(this.proHost, at, dead, who), () => snapDawn(this.proHost, at, who));
-    // act-156 / act-157: sync Du Wu's 3D acting & 3-angle camera cuts with PRO_DAWN
+    // act-156 / act-157 / act-165: sync Du Wu's 3D acting & crisp hard-cut camera coverage with PRO_DAWN
     let dawnKneel = 0, dawnRecoil = 0, dawnRecoilWant = 0;
     const dwOrig = who.duwu ? who.duwu.home.clone() : null;
-    const setDawnCam = (pos: V, look: V, fov: number) => {
-      const c = safeCam(pos, look, fov);
-      this.camOverride = { base: V3(...c.pos), look: V3(...c.look), fov: c.fov };
-    };
-    setDawnCam([at.x + 4.4, 3.6, at.z + 5.2], [at.x - 0.3, 0.55, at.z + 0.3], 37);
-    shot('act', () => this.camPose(), { cut: true, speed: 5.5 });
+    this.cutCam([at.x + 4.4, 3.6, at.z + 5.2], [at.x - 0.3, 0.55, at.z + 0.3], 37, { drift: [-0.30, -0.06, -0.35], fovDrift: -1.0 });
     this.talkTick = (dt: number) => {
       const dw = who.duwu as (BattleActor & { kneel?: number }) | null;
       if (!dw) return;
@@ -861,20 +854,20 @@ export class ActShow {
     await this.talk(PRO_DAWN, (i) => {
       if (i === 2) {
         dawnKneel = 0.78;
-        setDawnCam([at.x + 2.8, 2.35, at.z + 3.2], [at.x + 0.2, 0.45, at.z + 0.25], 34);
+        this.cutCam([at.x + 3.0, 2.38, at.z + 3.4], [at.x + 0.2, 0.45, at.z + 0.25], 34, { drift: [-0.22, -0.04, -0.25], fovDrift: -1.2 });
       }
       if (i === 3) {
         dawnKneel = 0.92; cue('click', 0.55); shake(0.08);
-        setDawnCam([at.x + 2.3, 2.2, at.z + 2.6], [at.x + 0.15, 0.35, at.z + 0.2], 32);
+        this.cutCam([at.x + 2.45, 2.22, at.z + 2.75], [at.x + 0.15, 0.35, at.z + 0.2], 32, { drift: [-0.16, -0.03, -0.18], fovDrift: -1.2 });
       }
       if (i === 4) {
         dawnRecoilWant = 1;
         cue('land', 0.35); shake(0.14);
         if (who.duwu) fxSmoke(who.duwu.home.clone().setY(0.15), 0xe8eef8, 5, { r: 0.45, spd: 0.9, up: 0.4, s: 0.3, life: 0.5, alpha: 0.6 });
-        setDawnCam([at.x - 3.6, 2.65, at.z + 4.2], [at.x, 0.65, at.z + 0.2], 36);
+        this.cutCam([at.x - 3.6, 2.65, at.z + 4.2], [at.x, 0.65, at.z + 0.2], 36, { drift: [0.24, -0.05, -0.28], fovDrift: -1.0 });
       }
     });
-    this.talkTick = null; this.hero.scriptPose = null; this.camOverride = null;
+    this.talkTick = null; this.hero.scriptPose = null; this.releaseCutCam();
     await this.cine(loadShots(this.proHost, who));
     this.proKneel.stop();
     for (const a of this.proPeople) a.dispose(); this.proPeople = [];
@@ -903,9 +896,23 @@ export class ActShow {
     //  so the camera never drifts back to the old pre-expansion (5.9, -6.2) courtyard coords, and hide HUD/banner during the establishing beat)
     const wakeMat = HIDEOUT.spawn;
     const [mx, mz] = wakeMat;
-    let wakeCamT = 0, wakeStage = 0, wakeJolt = 0, wakeTurn = 0, wakeTurnWant = 0;
-    const wakeCamPos = V3(mx - 4.1, 4.15, mz + 4.9), wakeCamLook = V3(mx + 0.35, 0.72, mz - 0.15);
-    let wakeCamFov = 42;
+    let wakeJolt = 0, wakeTurn = 0, wakeTurnWant = 0;
+    const cutWakeCam = (stage: 'est' | 'hero' | 'banter' | 'avert' | 'rise') => {
+      if (stage === 'est') {
+        this.cutCam([mx - 4.0, 3.95, mz + 4.7], [mx + 0.25, 0.72, mz - 0.15], 40, { drift: [0.32, -0.10, -0.36], fovDrift: -1.2, raw: true });
+      } else if (stage === 'hero') {
+        this.cutCam([mx - 2.65, 2.55, mz + 3.45], [mx + 0.05, 0.72, mz - 0.05], 35, { drift: [0.22, -0.04, -0.22], fovDrift: -1.4, raw: true });
+      } else if (stage === 'banter') {
+        // Reverse 3/4 framing Du Wu & Sun Ao beside the straw mat
+        this.cutCam([mx - 3.45, 2.85, mz + 3.75], [mx + 0.45, 0.95, mz - 0.25], 37, { drift: [0.26, -0.05, -0.24], fovDrift: -1.0, raw: true });
+      } else if (stage === 'avert') {
+        // Tight close-medium cut on Liu Bai averting her face toward the cold kiln wall
+        this.cutCam([mx - 2.15, 2.25, mz + 2.95], [mx + 0.05, 0.68, mz - 0.10], 33, { drift: [0.16, -0.03, -0.18], fovDrift: -1.4, raw: true });
+      } else {
+        // Rising two-shot as Liu Bai pushes herself up off the straw mat
+        this.cutCam([mx - 2.45, 3.35, mz + 4.35], [mx + 0.35, 1.05, mz + 0.15], 38, { drift: [0.24, 0.08, -0.26], fovDrift: -1.0, raw: true });
+      }
+    };
     await wipeTransit(async () => {
       await this.enterYard({ time: 'dusk', weather: 'clear' }); this.noTalk = true; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels(); this.musicHold = 'bgm_kiln'; void audio.playMusic('bgm_kiln', 1.2);
       const h = this.hero; h.pos.set(wakeMat[0], 0, wakeMat[1]); h.a.place(h.pos, 0); h.a.root.visible = true; h.a.body.visible = true; let gk = 0; h.scriptPose = () => getUpPose(h.a, gk, wakeJolt, wakeTurn);
@@ -917,60 +924,31 @@ export class ActShow {
         dw.x = wakeMat[0] - 1.25; dw.z = wakeMat[1] - 0.15; dw.yaw = Math.atan2(wakeMat[0] - dw.x, wakeMat[1] - dw.z);
         dw.a.place(V3(dw.x, 0, dw.z), dw.yaw); dw.a.yaw = dw.yaw; dw.sh.position.set(dw.x, 0.025, dw.z);
       }
-      this.camOverride = { base: wakeCamPos.clone(), look: wakeCamLook.clone(), fov: wakeCamFov };
-      shot('act', () => this.camPose(), { cut: true, speed: 5 });
+      cutWakeCam('est');
       bloomWas = GRADE.bloomThreshold; GRADE.bloomThreshold = Math.max(bloomWas, 1.6);
       wakeK = (k: number) => { gk = k; };
     });
-    // Smooth multi-angle camera choreography during PRO_WAKE anchored to Sun Ao's straw mat
+    // Crisp 3D wake-up acting tick (no sluggish continuous camera lerp — angles switch via 0-frame cinema hard cuts!)
     this.talkTick = (dt: number) => {
-      wakeCamT += dt;
       if (wakeJolt > 0) wakeJolt = Math.max(0, wakeJolt - dt * 1.35);
       wakeTurn += (wakeTurnWant - wakeTurn) * Math.min(1, dt * 6);
-      const sway = Math.sin(wakeCamT * 0.35) * 0.18;
-      const wantBase = wakeStage === 2
-        ? V3(mx - 2.35 + sway, 3.55, mz + 4.35)
-        : wakeStage === 4
-          ? V3(mx - 2.2 + sway, 2.75, mz + 3.15)
-          : wakeStage === 3
-            ? V3(mx - 3.6 + sway, 3.15, mz + 3.6)
-            : wakeStage === 1
-              ? V3(mx - 3.15 + sway, 3.25, mz + 4.05)
-              : V3(mx - 4.1 + Math.min(0.6, wakeCamT * 0.14), 4.15 - Math.min(0.45, wakeCamT * 0.1), mz + 4.9 - Math.min(0.5, wakeCamT * 0.12));
-      const wantLook = wakeStage === 2
-        ? V3(mx + 0.45, 1.05, mz + 0.15)
-        : wakeStage === 4
-          ? V3(mx + 0.1, 0.70, mz - 0.1)
-          : wakeStage === 3
-            ? V3(mx + 0.55, 0.95, mz - 0.25)
-            : wakeStage === 1
-              ? V3(mx + 0.35, 0.85, mz - 0.15)
-              : V3(mx + 0.35, 0.72, mz - 0.15);
-      const wantFov = wakeStage === 4 ? 35 : wakeStage === 3 ? 38 : wakeStage === 2 ? 40 : wakeStage === 1 ? 39 : 42;
-      const easeK = 1 - Math.exp(-dt * 1.8);
-      wakeCamPos.lerp(wantBase, easeK);
-      wakeCamLook.lerp(wantLook, easeK);
-      wakeCamFov += (wantFov - wakeCamFov) * easeK;
-      if (this.camOverride) {
-        this.camOverride.base.copy(wakeCamPos);
-        this.camOverride.look.copy(wakeCamLook);
-        this.camOverride.fov = wakeCamFov;
-      }
     };
-    await new Promise(r => after(0.8, () => r(null)));
+    await new Promise(r => after(0.65, () => r(null)));
     seeOnce('wake1'); let up = false, talked = false;
     const giveBlade = () => { const w = this.hero.a.bones.weapon; if (w) w.visible = true; };
-    const getUp = () => { if (up) return; up = true; wakeStage = 2; const h = this.hero; let k = 0; const step = () => { k = Math.min(1, k + 1 / (30 * 3.2)); wakeK(k);
+    const getUp = () => { if (up) return; up = true; cutWakeCam('rise'); const h = this.hero; let k = 0; const step = () => { k = Math.min(1, k + 1 / (30 * 3.2)); wakeK(k);
       if (k < 1) { after(1 / 30, step); return; }
       h.pos.x += Math.sin(h.a.yaw) * GETUP_STEP; h.pos.z += Math.cos(h.a.yaw) * GETUP_STEP; h.a.root.position.copy(h.pos); h.a.body.position.set(0, 0, 0); h.a.body.rotation.set(0, 0, 0); h.scriptPose = null; if (talked) giveBlade(); };
       step(); };
     await this.talk(PRO_WAKE, (i, l) => {
-      if (i === 0) { wakeJolt = 1; cue('whoosh', 0.35); }
-      if (i >= 2 && wakeStage === 0) wakeStage = 1;
-      if (i >= 3 && i <= 6 && !up) wakeStage = 3;
-      if (l.who === 'act' && /偏脸避开/.test(l.text)) { wakeTurnWant = 1; wakeStage = 4; }
-      if (i >= 9 && !up) wakeStage = 1;
-      if (l.who === 'act' && /撑起|站起|起身/.test(l.text)) {
+      if (i === 0) { wakeJolt = 1; cue('whoosh', 0.35); cutWakeCam('hero'); }
+      else if (i === 1) { cutWakeCam('banter'); }
+      else if (i === 2) { cutWakeCam('hero'); }
+      else if (i === 3) { cutWakeCam('banter'); }
+      else if (l.who === 'act' && /偏脸避开/.test(l.text)) { wakeTurnWant = 1; cutWakeCam('avert'); }
+      else if (i === 9 && !up) { cutWakeCam('banter'); }
+      else if (l.who === 'jiangjin' && i >= 10 && !up) { cutWakeCam('hero'); }
+      else if (l.who === 'act' && /撑起|站起|起身/.test(l.text)) {
         wakeTurnWant = 0; getUp();
         blood.drip(this.hero.a.chest());
       }
@@ -986,7 +964,7 @@ export class ActShow {
       if (dw) { dw.x = dwOrig.x; dw.z = dwOrig.z; dw.yaw = dwOrig.yaw; dw.a.place(V3(dw.x, 0, dw.z), dw.yaw); dw.a.yaw = dw.yaw; dw.sh.position.set(dw.x, 0.025, dw.z); }
     }
     talked = true; this.noTalk = false; if (!this.hero.scriptPose) giveBlade();
-    this.camOverride = null; GRADE.bloomThreshold = bloomWas;   // (the battle camera eases back in)
+    this.releaseCutCam(); GRADE.bloomThreshold = bloomWas;   // (the battle camera eases back in)
     // Immediate guiding wind toward Du Wu as control returns (pure environmental guidance, no mobile banner spam)
     this.yardGustT = 0.55;
   }
@@ -2483,23 +2461,29 @@ export class ActShow {
         })();
         return { stage: 'proFall' };
       },
-      /** act-157: preview prologue Cui Xuan real 3D wall-vault + multi-angle PRO_CUIXUAN confrontation */
+      /** act-157 / act-165: preview prologue Cui Xuan immediate frame-0 wall-vault + hard-cut PRO_CUIXUAN confrontation */
       proCuixuan: () => {
         void (async () => {
           if (this.phase === 'title') { stopTitle(); this.hud.on = true; }
           this.prologue = 2; this.proFalling = false; this.proFightT = 0; this.tut.stop();
           this.room = 1; this.region = 0;
-          this.plan = { ...PRO_BOSS, waves: [] }; this.locale = PRO_BOSS.locale; this.forceSpec = { ...PRO_ROOM.spec };
+          this.plan = PRO_BOSS; this.locale = PRO_BOSS.locale; this.forceSpec = { ...PRO_ROOM.spec };
           await this.buildRoom(false);
           this.forceSpec = null;
-          this.phase = 'fight';
-          this.waveGen++;
-          const cx = spawnFoe('cx_boss', V3(0, 0, -2.4), this.hero.pos.clone());
-          this.foes.push(cx);
-          await frames(2);
-          this.bossArrived(cx);
         })();
         return { stage: 'proCuixuan' };
+      },
+      /** act-165: preview hideout departure 3D put-on-hat ceremony (pass freezeK in [0..1] to hold a specific pose frame) */
+      departHat: (freezeK?: number) => {
+        void (async () => {
+          if (this.phase === 'title') { stopTitle(); this.hud.on = true; }
+          if (this.room >= 0 || this.phase !== 'yard') {
+            await this.enterYard({ time: 'dusk', weather: 'clear' });
+            await frames(2);
+          }
+          await this.playDepartHatCeremony({ preview: freezeK != null, freezeK });
+        })();
+        return { stage: 'departHat', freezeK: freezeK ?? null };
       },
       /** act-157: preview kiln wake-up cutscene directly (for visual verification of jiangjin_hurt & camera angles) */
       proWake: () => {
@@ -3069,6 +3053,7 @@ export class ActShow {
   private yardAtmo: { time: HideoutTime; weather: HideoutWeather } = { time: 'dusk', weather: 'clear' };
   /** the training yard: dummies, summon slabs, the costume rack, the way out to a run */
   enterYard(atmo?: { time: HideoutTime; weather: HideoutWeather }) {
+    this.donningHat = false; this.departAnim = null; this.camOverride = null;
     if (atmo) {
       this.yardAtmo = atmo;
     } else {
@@ -3154,6 +3139,8 @@ export class ActShow {
     return { region: REGIONS[ri].id, room: this.room, locale: this.locale, waves: this.plan.waves };
   }
   startRun(build = true) {
+    this.donningHat = false; this.departAnim = null; this.camOverride = null;
+    if (this.hero) this.hero.scriptPose = null;
     const fromYard = this.room < 0 && OPT.roomAhead;
     this.maps = [];
     this.intent = 0; this.intentVal = 0; this.lastIntentAt = -9; this.poiseHealAt = -9; this.bloodHealAt = -9; this.roomDrinkHeal = 0; this.shadowEchoAt = -9; this.hud.intent = 0;
@@ -3187,7 +3174,9 @@ export class ActShow {
   }
   /** Conical bamboo hat comes OFF while healing/resting in the kiln (PRO_WAKE, hideout yard & Ending C), and goes cleanly BACK ON when departing or fighting */
   private hatForcedOff = false;
+  private donningHat = false;
   private syncHeroHat() {
+    if (this.donningHat) return;
     const hat = this.hero?.a?.bones?.hat;
     const resting = this.hatForcedOff || (!this.labOn && (this.phase === 'yard' || (this.room < 0 && (this.phase === 'talk' || this.phase === 'pick'))));
     if (hat) hat.visible = !resting;
@@ -3472,6 +3461,14 @@ export class ActShow {
     if (!P.fixtures || !OPT.slicedRoom) yield* prepareFightModels(this.plan?.waves ?? []);
     yield;
     yield* prepareFight();
+    // act-165: Prologue Cui Xuan forecourt (prologue === 2) opens DIRECTLY with the snowy west-wall vault on frame 0
+    // — ZERO front-gate walk-in, ZERO 1.1s delay, ZERO teleport from floor to wall!
+    if (this.prologue === 2 && this.plan?.waves?.[0]?.some(k => kindOr(k).kind === 'cx_boss')) {
+      this.phase = 'fight';
+      this.spawnWave();
+      this.log.push(`room ${this.room} ${spec.locale} ${spec.layout} ${spec.time} ${this.arena?.shape?.id ?? 'square'}`);
+      return;
+    }
     // walk in from the front of the room, then the first wave
     const h = this.hero; this.introT = 0;
     after(1.1, () => {
@@ -3812,9 +3809,12 @@ export class ActShow {
       return f;
     }
     if (way) this.entering.push({ f, from: way.from, crest: way.crest, land: way.land, to: way.to, wall: way.wall, t: 0, perched: false, landed: false, posePhase: null, poseU: 0 });
-    else { fxSmoke(p.clone().add(V3(0, 0.3, 0)), 0x6a6a74, bs ? 14 : 8, { r: 0.7, spd: 1.2, up: 0.6, s: 0.4, life: 0.7 }); fxRing(p.clone().setY(0.05), bs && ko.kind === 'cx_boss' ? 0xe0e8f4 : 0xff7a4a, 1.2, { life: 0.4 } as never); }
-    if (bs) this.bossEnterSound(ko.kind);
-    else cue(way ? 'foeCry' : 'summon', way ? 0.25 : 0.4);
+    else if (!(bs && this.prologue === 2 && deferredBoss)) {
+      fxSmoke(p.clone().add(V3(0, 0.3, 0)), 0x6a6a74, bs ? 14 : 8, { r: 0.7, spd: 1.2, up: 0.6, s: 0.4, life: 0.7 });
+      fxRing(p.clone().setY(0.05), bs && ko.kind === 'cx_boss' ? 0xe0e8f4 : 0xff7a4a, 1.2, { life: 0.4 } as never);
+    }
+    if (bs && !(this.prologue === 2 && deferredBoss)) this.bossEnterSound(ko.kind);
+    else if (!bs) cue(way ? 'foeCry' : 'summon', way ? 0.25 : 0.4);
     if (bs && !deferredBoss && EDEFS[ko.kind].intro) { this.bossLookT = 3.2; this.bossEnterPose(f); shake(0.24 * TUNE.shake); this.banner.show(EDEFS[ko.kind].name, EDEFS[ko.kind].tag ?? '', 2.2, '#ff8a6a'); after(0.9, () => { if (f.st !== 'dead') this.barks?.say(() => f.a.head(), EDEFS[ko.kind].intro!); }); }
     else if (bs && !deferredBoss) { this.bossEnterPose(f); shake(0.24 * TUNE.shake); this.banner.show(EDEFS[ko.kind].name, EDEFS[ko.kind].tag ?? '', 1.6, '#ff8a6a'); }
     return f;
@@ -4301,26 +4301,27 @@ export class ActShow {
             if (f.a.bones.blade) f.a.bones.blade.visible = false;
             if (f.a.bones.fan) f.a.bones.fan.visible = false;
           });
-          // act-157: Multi-angle PRO_CUIXUAN choreography (2-shot -> reverse Cui Xuan -> tight Liu Bai hand-on-hilt & blade reveal -> draw clash)
+          // act-157 / act-165: Crisp 0-frame hard-cut cinema coverage for PRO_CUIXUAN (no slow gliding between angles!)
           const hp = this.hero.pos, bp = f.pos;
           const mx = (hp.x + bp.x) * 0.5, mz = (hp.z + bp.z) * 0.5;
-          const setProCam = (pos: V, look: V, fov: number) => {
-            const c = safeCam(pos, look, fov);
-            this.camOverride = { base: V3(...c.pos), look: V3(...c.look), fov: c.fov };
-          };
-          setProCam([hp.x - 2.2, 2.55, hp.z + 4.2], [mx + 0.4, 1.1, mz - 0.3], 37);
-          shot('act', () => this.camPose(), { cut: true, speed: 6 });
+          this.cutCam([hp.x - 2.2, 2.55, hp.z + 4.2], [mx + 0.4, 1.1, mz - 0.3], 37, { drift: [0.32, -0.05, -0.30], fovDrift: -1.2 });
           let proT = 0, hiltReady = false;
           this.talkTick = (dt: number) => {
             proT += dt;
             f.a.update(dt);
           };
           await this.talk(PRO_CUIXUAN, (idx) => {
-            if (idx === 3) {
-              // Reverse 3/4 medium on Cui Xuan studying her blindfold (framed cleanly in center between portraits)
-              setProCam([bp.x + 3.4, 2.45, bp.z + 4.4], [bp.x - 0.1, 1.15, bp.z + 0.1], 36);
+            if (idx === 1) {
+              // Reverse 3/4 medium on Cui Xuan ("前门早下钥了，阁下翻错了墙。")
+              this.cutCam([bp.x + 3.6, 2.50, bp.z + 4.6], [bp.x - 0.1, 1.15, bp.z + 0.1], 36, { drift: [-0.24, -0.04, -0.28], fovDrift: -1.2 });
+            } else if (idx === 2) {
+              // Reverse 3/4 medium on Liu Bai ("寒山坞文家，三十柄百辟刀。")
+              this.cutCam([hp.x + 3.4, 2.40, hp.z + 4.1], [hp.x + 0.1, 1.10, hp.z - 0.1], 36, { drift: [-0.22, -0.04, -0.26], fovDrift: -1.2 });
+            } else if (idx === 3) {
+              // Tighter reverse angle on Cui Xuan studying her blindfold
+              this.cutCam([bp.x + 3.2, 2.42, bp.z + 4.2], [bp.x - 0.1, 1.15, bp.z + 0.1], 35, { drift: [-0.22, -0.03, -0.26], fovDrift: -1.3 });
             } else if (idx === 5) {
-              // Cui Xuan reveals bright-steel blade at waist + tight low angle on Liu Bai coiling hand-on-hilt
+              // Cui Xuan reveals bright-steel blade at waist + tight low hard-cut on Liu Bai coiling hand-on-hilt
               if (f.a.bones.blade) f.a.bones.blade.visible = true;
               if (!hiltReady) {
                 hiltReady = true;
@@ -4328,10 +4329,10 @@ export class ActShow {
               }
               cue('parry', 0.35); cue('snowWind', 0.45);
               fxRing(hp.clone().setY(0.06), 0xeef4ff, 2.0, { life: 0.75, width: 0.08, bright: 1.4 } as never);
-              setProCam([hp.x + 3.2, 2.35, hp.z + 3.8], [hp.x + 0.15, 1.05, hp.z - 0.1], 36);
+              this.cutCam([hp.x + 3.1, 2.32, hp.z + 3.7], [hp.x + 0.15, 1.05, hp.z - 0.1], 35, { drift: [-0.20, -0.04, -0.24], fovDrift: -1.4 });
             } else if (idx === 7) {
-              // Reverse medium push-in on Cui Xuan issuing his challenge ("好灵的耳朵。让我见识见识你的刀。")
-              setProCam([bp.x + 3.1, 2.35, bp.z + 4.1], [bp.x - 0.1, 1.12, bp.z + 0.15], 35);
+              // Tight reverse cut on Cui Xuan issuing his challenge ("好灵的耳朵。让我见识见识你的刀。")
+              this.cutCam([bp.x + 3.0, 2.34, bp.z + 3.9], [bp.x - 0.1, 1.14, bp.z + 0.12], 34, { drift: [-0.22, -0.03, -0.26], fovDrift: -1.5 });
             } else if (idx === 8) {
               // Dramatic clash two-shot as Cui Xuan draws bright steel — sparks, blade ring, falling snow from eaves!
               if (f.a.bones.blade) f.a.bones.blade.visible = true;
@@ -4345,10 +4346,10 @@ export class ActShow {
                   v: V3((Math.random() - 0.5) * 0.6, -0.4, (Math.random() - 0.5) * 0.6),
                 });
               }
-              setProCam([mx + 4.4, 2.65, mz + 4.8], [mx, 1.1, mz], 36);
+              this.cutCam([mx + 4.4, 2.65, mz + 4.8], [mx, 1.1, mz], 36, { drift: [-0.30, -0.05, -0.32], fovDrift: -1.2 });
             }
           });
-          this.hero.scriptPose = null; this.talkTick = null; this.camOverride = null;
+          this.hero.scriptPose = null; this.talkTick = null; this.releaseCutCam();
           if (f.a.bones.blade) f.a.bones.blade.visible = true;
           this.bossEnterPose(f); this.proFightT = 0;
         } finally { this.bossIntroActive = false; }
@@ -4405,9 +4406,7 @@ export class ActShow {
           let bread: THREE.Group | null = null, breadT = 0;
           const breadStart = V3(dPos.x + 0.16, 0.26, dPos.z + 0.18);
           const breadEnd = V3(dPos.x + 0.36, 0.02, dPos.z + 0.62);
-          const twoCam = safeCam([dPos.x + 3.3, 3.15, dPos.z + 4.5], [dPos.x + 0.35, 0.55, dPos.z + 0.05], 36);
-          this.camOverride = { base: V3(...twoCam.pos), look: V3(...twoCam.look), fov: twoCam.fov };
-          shot('act', () => this.camPose(), { cut: true, speed: 6 });
+          this.cutCam([dPos.x + 3.3, 3.15, dPos.z + 4.5], [dPos.x + 0.35, 0.55, dPos.z + 0.05], 36, { drift: [-0.24, -0.05, -0.28], fovDrift: -1.0 });
           this.hero.scriptPose = () => {
             if (hiltReady) heroHandOnHiltPose(this.hero.a, dieT);
             else if (kneelBlend > 0.01) heroKneelBesidePose(this.hero.a, dieT, kneelBlend);
@@ -4428,17 +4427,15 @@ export class ActShow {
           };
           await this.talk(DUWU_DIE, (idx) => {
             if (idx === 1) {
-              // Cold reverse shot on Feng Han standing aloof across the snow
-              const fCam = safeCam([f.pos.x + 2.8, 2.55, f.pos.z + 3.8], [f.pos.x, 1.12, f.pos.z], 34);
-              this.camOverride = { base: V3(...fCam.pos), look: V3(...fCam.look), fov: fCam.fov };
+              // Cold reverse hard-cut on Feng Han standing aloof across the snow
+              this.cutCam([f.pos.x + 2.8, 2.55, f.pos.z + 3.8], [f.pos.x, 1.12, f.pos.z], 34, { drift: [-0.20, -0.04, -0.24], fovDrift: -1.2 });
             }
             if (idx === 2) {
               // Beat: "刘白脚步猛地一顿，扑进雪堆，一把摸到他冰冷僵硬的粗布袖子" -> intimate low two-shot kneeling beside Du Wu!
               kneelWant = 1;
               cue('land', 0.38);
               fxSmoke(this.hero.pos.clone().setY(0.12), 0xe8eef8, 6, { r: 0.45, spd: 0.8, up: 0.35, s: 0.32, life: 0.55, alpha: 0.6 });
-              const closeTwo = safeCam([dPos.x + 2.75, 2.35, dPos.z + 3.45], [dPos.x + 0.35, 0.52, dPos.z + 0.12], 34);
-              this.camOverride = { base: V3(...closeTwo.pos), look: V3(...closeTwo.look), fov: closeTwo.fov };
+              this.cutCam([dPos.x + 2.75, 2.35, dPos.z + 3.45], [dPos.x + 0.35, 0.52, dPos.z + 0.12], 34, { drift: [-0.18, -0.04, -0.22], fovDrift: -1.4 });
             }
             if (idx >= 7 && !deadPose) {
               // Beat: "他攥着里衣的手松开了，半块粗布裹着的温热胡饼滚落进雪里" -> flatbread rolls onto snow!
@@ -4451,9 +4448,8 @@ export class ActShow {
               }
             }
             if (idx === 8) {
-              // Cold sneer snap back to Feng Han ("啧，可惜了半副好药引...")
-              const fCam = safeCam([f.pos.x - 2.6, 2.45, f.pos.z + 3.6], [f.pos.x, 1.15, f.pos.z], 33);
-              this.camOverride = { base: V3(...fCam.pos), look: V3(...fCam.look), fov: fCam.fov };
+              // Cold sneer hard-cut back to Feng Han ("啧，可惜了半副好药引...")
+              this.cutCam([f.pos.x - 2.6, 2.45, f.pos.z + 3.6], [f.pos.x, 1.15, f.pos.z], 33, { drift: [0.20, -0.04, -0.22], fovDrift: -1.2 });
             }
             if (idx >= 9 && !hiltReady) {
               // Beat: "刘白慢慢松开怀里渐冷的身子，起身，缓缓按上刀柄" -> rises & locks onto Feng Han from heroic low angle!
@@ -4463,11 +4459,10 @@ export class ActShow {
               fxRing(this.hero.pos.clone().setY(0.06), 0xffe4a0, 2.2, { life: 0.75, width: 0.08, bright: 1.5 } as never);
               const hp = this.hero.pos;
               const dx = f.pos.x - hp.x, dz = f.pos.z - hp.z, l = Math.hypot(dx, dz) || 1;
-              const oCam = safeCam([hp.x - (dx / l) * 2.8 + 1.4, 2.35, hp.z - (dz / l) * 2.8 + 1.2], [f.pos.x, 1.05, f.pos.z], 35);
-              this.camOverride = { base: V3(...oCam.pos), look: V3(...oCam.look), fov: oCam.fov };
+              this.cutCam([hp.x - (dx / l) * 2.8 + 1.4, 2.35, hp.z - (dz / l) * 2.8 + 1.2], [f.pos.x, 1.05, f.pos.z], 35, { drift: [(dx / l) * 0.25, -0.04, (dz / l) * 0.25], fovDrift: -1.4 });
             }
           });
-          this.hero.scriptPose = null; this.talkTick = null; this.camOverride = null;
+          this.hero.scriptPose = null; this.talkTick = null; this.releaseCutCam();
           // Freeze Du Wu completely still on the snow edge during the revenge duel; donkey flees offstage
           duwuPoisonPose(duwu, 99, true);
           this.roadStill.add(duwu);
@@ -4503,11 +4498,9 @@ export class ActShow {
     f.a.yaw = Math.atan2(-dx, -dz);
     if (i === 4 && f.a.bones.blade) f.a.bones.blade.visible = false;
     const setCam = (pos: V, look: V, fov: number) => {
-      const c = safeCam(pos, look, fov);
-      this.camOverride = { base: V3(...c.pos), look: V3(...c.look), fov: c.fov };
+      this.cutCam(pos, look, fov, { drift: [-nx * 0.24, -0.04, -nz * 0.24], fovDrift: -1.2 });
     };
     setCam([mx + nx * 5.2, 2.7, mz + nz * 5.2 + 1.0], [mx, 1.15, mz], 37);
-    shot('act', () => this.camPose(), { cut: true, speed: 6 });
     let bt = 0, hiltOn = false;
     this.talkTick = (dt: number) => {
       bt += dt;
@@ -4519,27 +4512,27 @@ export class ActShow {
           if (!hiltOn) { hiltOn = true; this.hero.scriptPose = () => heroHandOnHiltPose(this.hero.a, bt); }
           cue('parry', 0.35);
           fxRing(hp.clone().setY(0.06), 0xeef4ff, 2.0, { life: 0.75, width: 0.08, bright: 1.4 } as never);
-          setCam([hp.x + nx * 2.5 + dirX * 1.4, 2.25, hp.z + nz * 2.5 + dirZ * 1.4], [hp.x, 1.08, hp.z], 33);
+          setCam([hp.x + nx * 2.8 + dirX * 1.4, 2.30, hp.z + nz * 2.8 + dirZ * 1.4], [hp.x, 1.08, hp.z], 35);
         } else if (/朱漆匣/.test(l.text)) {
           cue('click', 0.55);
           fxSparks(bp.clone().setY(1.2), 0xffc868, 12, 3.0);
-          setCam([bp.x - nx * 2.6 - dirX * 1.8, 2.35, bp.z - nz * 2.6 - dirZ * 1.8], [bp.x, 1.15, bp.z], 33);
+          setCam([bp.x - nx * 2.9 - dirX * 1.8, 2.38, bp.z - nz * 2.9 - dirZ * 1.8], [bp.x, 1.15, bp.z], 35);
         } else if (/取下一柄亮钢刀/.test(l.text)) {
           if (f.a.bones.blade) f.a.bones.blade.visible = true;
           cue('draw', 0.9); cue('bladeRing', 0.75);
           fxSparks(bp.clone().setY(1.25), 0xfff0c0, 14, 3.8);
-          setCam([bp.x + nx * 2.6 - dirX * 1.6, 2.3, bp.z + nz * 2.6 - dirZ * 1.6], [bp.x, 1.15, bp.z], 33);
+          setCam([bp.x + nx * 2.9 - dirX * 1.6, 2.34, bp.z + nz * 2.9 - dirZ * 1.6], [bp.x, 1.15, bp.z], 35);
         } else {
           setCam([mx + nx * 5.0, 2.65, mz + nz * 5.0 + 0.8], [mx, 1.15, mz], 36);
         }
       } else if (l.who === 'jiangjin') {
-        setCam([hp.x + nx * 2.8 + dirX * 1.2, 2.35, hp.z + nz * 2.8 + dirZ * 1.2], [hp.x + dirX * 0.4, 1.08, hp.z + dirZ * 0.4], 34);
+        setCam([hp.x + nx * 3.1 + dirX * 1.2, 2.38, hp.z + nz * 3.1 + dirZ * 1.2], [hp.x + dirX * 0.4, 1.08, hp.z + dirZ * 0.4], 35);
       } else {
-        setCam([bp.x + nx * 2.9 - dirX * 1.6, 2.45, bp.z + nz * 2.9 - dirZ * 1.6], [bp.x, 1.2, bp.z], 34);
+        setCam([bp.x + nx * 3.2 - dirX * 1.6, 2.45, bp.z + nz * 3.2 - dirZ * 1.6], [bp.x, 1.2, bp.z], 35);
       }
     });
     if (i === 4 && f.a.bones.blade) f.a.bones.blade.visible = true;
-    this.hero.scriptPose = null; this.talkTick = null; this.camOverride = null;
+    this.hero.scriptPose = null; this.talkTick = null; this.releaseCutCam();
   }
   camKick(dir: THREE.Vector3, m: number) { const d = dir.clone().setY(0); if (d.lengthSq() < 1e-6) return; this.kickV.addScaledVector(d.normalize(), m * CAM_W * Math.E * FX.shakeScale); }
   camPunch(m: number) { this.punchV += m * CAM_W * Math.E * FX.shakeScale; }
@@ -6276,8 +6269,8 @@ export class ActShow {
         this.musicHold = 'bgm_afterkill'; void audio.playMusic('bgm_afterkill', 1.0);
         if (last) {
           this.kneelingBoss = null;
-          this.stageCh5ThroatScene();
-          await this.talk(CH_AFTER[ai]); saveProfile();
+          const ch5Cut = this.stageCh5ThroatScene();
+          await this.talk(CH_AFTER[ai], (_idx, l) => ch5Cut(l)); saveProfile();
           await this.ending(); return;
         }
         const exec = this.stageBossAfterScene(ai);
@@ -6723,11 +6716,9 @@ export class ActShow {
     };
 
     const setAfterCam = (pos: V, look: V, fov: number) => {
-      const c = safeCam(pos, look, fov);
-      this.camOverride = { base: V3(...c.pos), look: V3(...c.look), fov: c.fov };
+      this.cutCam(pos, look, fov, { drift: [-0.22, -0.04, -0.22], fovDrift: -1.2 });
     };
     setAfterCam([bossPos.x + 4.4, 2.38, bossPos.z + gap * 1.12], [bossPos.x, throatY, bossPos.z + gap * 0.48], 36);
-    shot('act', () => this.camPose(), { cut: true, speed: 7 });
 
     let lacquerBox: THREE.Group | null = null;
     if (ai === 2 && this.stage) {
@@ -6792,7 +6783,7 @@ export class ActShow {
     const cleanup = () => {
       if (!executed) execute();
       if (lacquerBox) { lacquerBox.parent?.remove(lacquerBox); lacquerBox = null; }
-      this.hero.scriptPose = null; this.talkTick = null; this.camOverride = null; this.kneelingBoss = null;
+      this.hero.scriptPose = null; this.talkTick = null; this.releaseCutCam(); this.kneelingBoss = null;
       const disposeTarget = actor;
       after(0.75, () => {
         disposeTarget.dispose();
@@ -6845,9 +6836,17 @@ export class ActShow {
       endT += dt;
       if (this.endCui) { this.endCui.update(dt); cuiKneelDefeatPose(this.endCui, endT); }
     };
-    const cam = safeCam([cuiPos.x + 4.4, 2.35, cuiPos.z + 2.55], [cuiPos.x, 0.96, cuiPos.z + 1.08], 36);
-    this.camOverride = { base: V3(...cam.pos), look: V3(...cam.look), fov: cam.fov };
-    shot('act', () => this.camPose(), { cut: true, speed: 8 });
+    const cutCh5 = (l?: Line) => {
+      if (!l || l.who === 'act') {
+        this.cutCam([cuiPos.x + 4.4, 2.35, cuiPos.z + 2.55], [cuiPos.x, 0.96, cuiPos.z + 1.08], 36, { drift: [-0.24, -0.04, -0.20], fovDrift: -1.2 });
+      } else if (l.who === 'jiangjin') {
+        this.cutCam([heroPos.x + 3.4, 2.32, heroPos.z - 2.6], [heroPos.x, 1.08, heroPos.z], 35, { drift: [-0.20, -0.03, 0.18], fovDrift: -1.2 });
+      } else {
+        this.cutCam([cuiPos.x - 3.6, 2.40, cuiPos.z + 4.55], [cuiPos.x, 0.92, cuiPos.z + 0.15], 35, { drift: [0.22, -0.04, -0.22], fovDrift: -1.2 });
+      }
+    };
+    cutCh5();
+    return cutCh5;
   }
   /** act-114 结局实景切换至据点（雪夜断碑 / 黄昏暖窑），附带对应数量刀架、断碑刻痕与众人站位 */
   private async buildEndingHideout(opts: { time: 'night' | 'dusk'; weather: 'snow' | 'clear'; blades: number; cuts: number }) {
@@ -6904,10 +6903,10 @@ export class ActShow {
     this.region = 4; this.room = REGIONS[4].rooms; this.locale = 'cx_vault';
     this.plan = { type: 'boss', locale: 'cx_vault', reward: null, waves: [] };
     await this.buildRoom(false);
-    this.stageCh5ThroatScene();
+    const ch5Cut = this.stageCh5ThroatScene();
     await frames(2);
     if (choice) { await this.ending(choice); return; }
-    await this.talk(CH_AFTER[4]);
+    await this.talk(CH_AFTER[4], (_idx, l) => ch5Cut(l));
     await this.ending();
   }
   /** 11-19 / act-114 剧情改版 (用户：「结局让玩家选」): 刀锋抵喉抉择 + A/B/C 三大实景 3D 结局演出 */
@@ -7024,22 +7023,24 @@ export class ActShow {
         if (dw) npcWarmPose(dw.a, fireT, 0.72);
         if (sa) npcWarmPose(sa.a, fireT + 0.9, 0.56);
       };
-      // Smooth 4.0s camera glide: blade rack (bladeChorus!) -> 5-cut stele -> warm fire circle
-      const steleCam = safeCam([HIDEOUT.stele.x - 0.5, 2.8, HIDEOUT.stele.z + 3.4], [HIDEOUT.stele.x, 1.1, HIDEOUT.stele.z], 36);
+      // 3 crisp cinema cuts: 30-blade rack (bladeChorus!) -> 5-cut stele -> warm dusk hearth circle
       const fireCam = safeCam([3.8, 2.4, 7.9], [6.4, 0.8, 5.4], 34);
       await this.cine([
-        { dur: 2.0, ease: 'inOut',
-          from: safeCam([HIDEOUT.weaponRack.x + 1.2, 3.0, HIDEOUT.weaponRack.z + 3.6], [HIDEOUT.weaponRack.x, 1.3, HIDEOUT.weaponRack.z], 38),
-          to: steleCam,
-          at: [[0.2, () => cue('bladeChorus', 0.95)]],
+        { dur: 1.45, ease: 'out',
+          from: safeCam([HIDEOUT.weaponRack.x + 1.4, 3.0, HIDEOUT.weaponRack.z + 3.8], [HIDEOUT.weaponRack.x, 1.3, HIDEOUT.weaponRack.z], 38),
+          to: safeCam([HIDEOUT.weaponRack.x + 1.0, 2.9, HIDEOUT.weaponRack.z + 3.4], [HIDEOUT.weaponRack.x, 1.3, HIDEOUT.weaponRack.z], 36),
+          at: [[0.15, () => cue('bladeChorus', 0.95)]],
           tick: (_t, dt) => { this.talkTick?.(dt); this.hero.a.update(dt); this.hero.scriptPose?.(); } },
-        { dur: 2.0, ease: 'inOut',
-          from: steleCam,
+        { dur: 1.35, ease: 'out',
+          from: safeCam([HIDEOUT.stele.x - 0.6, 2.8, HIDEOUT.stele.z + 3.5], [HIDEOUT.stele.x, 1.1, HIDEOUT.stele.z], 36),
+          to: safeCam([HIDEOUT.stele.x - 0.4, 2.7, HIDEOUT.stele.z + 3.1], [HIDEOUT.stele.x, 1.1, HIDEOUT.stele.z], 34),
+          tick: (_t, dt) => { this.talkTick?.(dt); this.hero.a.update(dt); this.hero.scriptPose?.(); } },
+        { dur: 1.25, ease: 'out',
+          from: safeCam([3.6, 2.55, 8.2], [6.4, 0.8, 5.4], 36),
           to: fireCam,
           tick: (_t, dt) => { this.talkTick?.(dt); this.hero.a.update(dt); this.hero.scriptPose?.(); } },
       ]);
-      this.camOverride = { base: V3(...fireCam.pos), look: V3(...fireCam.look), fov: fireCam.fov };
-      shot('act', () => this.camPose(), { cut: true, speed: 6 });
+      this.cutCam(fireCam.pos, fireCam.look, fireCam.fov, { drift: [0.22, -0.04, -0.22], fovDrift: -1.0 });
       await this.talk(toLines(endC.slice(1)), (idx) => {
         // Line idx 1 corresponds to ENDING.c[2] ("她在断碑底下划完最后一道，抬手解开蒙眼布")
         if (idx >= 1) unblind = true;
@@ -7052,14 +7053,13 @@ export class ActShow {
             this.stage.root.add(heldBowl);
             this.roadExtras.push(heldBowl);
           }
-          const closeCam = safeCam([pot.x - 1.9, 2.05, pot.z + 1.95], [pot.x - 0.1, 0.78, pot.z + 0.05], 32);
-          this.camOverride = { base: V3(...closeCam.pos), look: V3(...closeCam.look), fov: closeCam.fov };
+          this.cutCam([pot.x - 1.9, 2.05, pot.z + 1.95], [pot.x - 0.1, 0.78, pot.z + 0.05], 32, { drift: [0.16, -0.03, -0.16], fovDrift: -1.2 });
         }
       });
     }
 
     this.hatForcedOff = false;
-    this.talkTick = null; this.hero.scriptPose = null; this.camOverride = null;
+    this.talkTick = null; this.hero.scriptPose = null; this.releaseCutCam();
     if (this.endCui) { this.endCui.dispose(); this.endCui = null; }
     this.musicHold = null; this.hud.on = true; this.end(true, id === 'b');
   }
@@ -7073,6 +7073,88 @@ export class ActShow {
     });
   }
   // ------------------------------------------------------------ frame
+  /** act-165: Crisp 0-frame cinema hard-cut with subtle live camera breathing/push (never sluggish cross-room glides or frozen stop-motion) */
+  private cutCam(
+    pos: V,
+    look: V,
+    fov: number,
+    opts?: { drift?: V; lookDrift?: V; fovDrift?: number; raw?: boolean },
+  ) {
+    const c = opts?.raw ? { pos, look, fov } : safeCam(pos, look, fov);
+    const base0 = V3(...c.pos), look0 = V3(...c.look);
+    const dPos = opts?.drift ? V3(...opts.drift) : V3(0, 0, 0);
+    const dLook = opts?.lookDrift ? V3(...opts.lookDrift) : V3(0, 0, 0);
+    const dFov = opts?.fovDrift ?? 0;
+    this.camOverride = { base: base0.clone(), look: look0.clone(), fov: c.fov };
+    shot('talkCut', (t) => {
+      const k = 1 - Math.exp(-t * 0.32);
+      return {
+        base: V3(base0.x + dPos.x * k, base0.y + dPos.y * k, base0.z + dPos.z * k),
+        look: V3(look0.x + dLook.x * k, look0.y + dLook.y * k, look0.z + dLook.z * k),
+        fov: c.fov + dFov * k,
+      };
+    }, { cut: true, speed: 40 });
+  }
+  private releaseCutCam(cut = false, speed = 8) {
+    this.camOverride = null;
+    shot('act', () => this.camPose(), { cut, speed });
+  }
+  /** act-165: Hideout departure 3D put-on-hat ceremony — completes full hat-donning animation BEFORE triggering run loading wipe */
+  private departAnim: { t: number; dur: number; hold: number; lifted: boolean; seated: boolean; freezeK: number | null; resolve: () => void } | null = null;
+  private async playDepartHatCeremony(opts?: { preview?: boolean; freezeK?: number }) {
+    if (this.phase === 'leaving' && !opts?.preview) return;
+    const h = this.hero;
+    if (!h) return;
+    const E = HIDEOUT.exit;
+    const hasConicalHat = !!h.a.bones.hat && (this.wearing.id === 'fine_hat' || this.wearing.id === 'slim_hat' || this.wearing.id === 'slim_veil');
+    if (!hasConicalHat && !opts?.preview) {
+      this.phase = 'leaving'; this.syncHeroHat(); WIPE.look = 'bamboo'; h.vel.set(0, 0, TUNE.heroSpeed * 0.8);
+      after(0.35, () => { void wipeTransit(() => this.startRun()); });
+      return;
+    }
+    this.phase = 'leaving';
+    this.donningHat = true;
+    this.hud.on = false;
+    this.banner.hide();
+    this.hideHideoutLabels();
+    this.hideWorldPlates();
+    this.exitGlow?.dispose(); this.exitGlow = null;
+    this.inp.latch(false);
+    const gx = Math.max(E.x0 + 0.25, Math.min(E.x1 - 0.25, opts?.preview ? (E.x0 + E.x1) * 0.5 : h.pos.x));
+    const gz = E.z - 0.12;
+    h.pos.set(gx, 0, gz); h.vel.set(0, 0, 0);
+    h.a.home.copy(h.pos); h.a.root.position.copy(h.pos);
+    h.a.yaw = 0.22;
+    motionOf(h.a).run = 0;
+    // Hard cut to crisp front-3/4 departure portrait centered cleanly between the south stone piers (generous headroom for lifted hat!)
+    this.cutCam([gx + 1.15, 2.08, gz + 4.35], [gx, 1.48, gz], 35, { drift: [-0.16, -0.05, -0.26], fovDrift: -1.4, raw: true });
+    const dur = 1.05, hold = 0.22;
+    const initK = opts?.freezeK != null ? Math.max(0, Math.min(1, opts.freezeK)) : 0;
+    h.scriptPose = () => {
+      const da = this.departAnim;
+      const k = da ? (da.freezeK != null ? da.freezeK : Math.min(1, da.t / da.dur)) : 1;
+      heroPutHatPose(h.a, k);
+    };
+    heroPutHatPose(h.a, initK);
+    if (opts?.freezeK != null) {
+      this.departAnim = { t: initK * dur, dur, hold, lifted: true, seated: true, freezeK: initK, resolve: () => {} };
+      return;
+    }
+    await new Promise<void>(resolve => {
+      this.departAnim = { t: 0, dur, hold, lifted: false, seated: false, freezeK: null, resolve };
+    });
+    if (opts?.preview) return;
+    // Hat is now 100% seated cleanly on her crown — NOW trigger the bamboo loading wipe!
+    this.departAnim = null;
+    if (h.a.bones.hat) {
+      h.a.bones.hat.visible = true;
+      if (h.a.bones.hat.rest) { h.a.bones.hat.position.copy(h.a.bones.hat.rest.p); h.a.bones.hat.rotation.copy(h.a.bones.hat.rest.r); }
+    }
+    if (h.a.bones.weapon) h.a.bones.weapon.visible = true;
+    h.scriptPose = null;
+    WIPE.look = 'bamboo';
+    void wipeTransit(() => this.startRun());
+  }
   /** debug / captures: a fixed camera (__dh.cam([x,y,z],[lx,ly,lz],fov) / __dh.cam(null)) */
   camOverride: { base: THREE.Vector3; look: THREE.Vector3; fov: number } | null = null;
   private camPose() {
@@ -7119,7 +7201,7 @@ export class ActShow {
   }
   private frame(dt: number, rdt: number) {
     // 11-19: cutscenes and conversations scale the art pixel with how near the shot is (director.ts CINE_PX)
-    CINE_PX.on = this.phase === 'cine' || this.phase === 'talk'; CINE_PX.ref.d = Math.hypot(TUNE.camH, TUNE.camD); CINE_PX.ref.fov = TUNE.camFov;
+    CINE_PX.on = this.phase === 'cine' || this.phase === 'talk' || this.donningHat; CINE_PX.ref.d = Math.hypot(TUNE.camH, TUNE.camD); CINE_PX.ref.fov = TUNE.camFov;
     // Keep using the walk through the gate and the blade's arrival. roomSteps takes ownership before foreground work.
     if (this.ahead.length && (this.phase === 'doors' || this.phase === 'leaving' || this.phase === 'pick' ||
       (this.phase === 'yard' && !this.foes.some(f => f.kind !== 'dummy' && f.st !== 'dead')))) this.workAhead();
@@ -7247,6 +7329,25 @@ export class ActShow {
       al.visible = true; al.position.set(h.pos.x, 0.07, h.pos.z); al.rotation.y = Math.atan2(pv.dir.x, pv.dir.z); al.scale.set(1, 1, L);
       const cap = al.getObjectByName('cap')!; cap.scale.set(1, 1, 1 / L); (al.material as THREE.MeshBasicMaterial).color.set(pv.onFoe ? 0xffd27a : 0xe8eeff); }
     else this.aimLine.visible = false;
+    if (this.departAnim) {
+      const da = this.departAnim;
+      if (da.freezeK == null) {
+        da.t += dt;
+        const k = Math.min(1, da.t / da.dur);
+        if (!da.lifted && k >= 0.14) { da.lifted = true; cue('whoosh', 0.45); }
+        if (!da.seated && k >= 0.68) {
+          da.seated = true;
+          cue('click', 0.48); cue('snowWind', 0.35);
+          this.leaves?.blast(h.pos.x, h.pos.z, 1.8, 3.2);
+        }
+        if (da.t >= da.dur + da.hold) {
+          const done = da.resolve;
+          this.departAnim = null;
+          done();
+        }
+      }
+      h.vel.set(0, 0, 0); motionOf(h.a).run = 0;
+    }
     h.a.update(dt); h.deathPose(); h.scriptPose?.(); for (const a of this.lineupActors) a.update(dt);
     if (this.labFn) { this.labT += dt; this.labFn(dt, this.labT); }
     const fw = this.foeWorld; fw.heroPos.copy(h.pos); fw.heroAlive = h.alive && (this.phase === 'fight' || this.phase === 'yard'); fw.heroY = h.y; fw.heroDodge = h.dodgeWin; fw.heroYaw = h.a.yaw; fw.pools = this.pools;
@@ -7290,8 +7391,7 @@ export class ActShow {
       }
       const E = HIDEOUT.exit;
       if (h.pos.z > E.z && h.pos.x > E.x0 - 0.2 && h.pos.x < E.x1 + 0.2) {
-        this.phase = 'leaving'; this.syncHeroHat(); WIPE.look = 'bamboo'; h.vel.set(0, 0, TUNE.heroSpeed * 0.8);
-        after(0.35, () => { void wipeTransit(() => this.startRun()); });
+        void this.playDepartHatCeremony();
       }
     }
     this.decoyStep(dt); this.pinStep(dt); this.markStep(); this.dodgeGhostStep(rdt);   // 11-18 秘传 + act-118 完美闪避残影
