@@ -31,7 +31,7 @@ const MAT_R = 1.05, NEAR = 2.35, SIGN = { w: 1.85, h: 0.92, post: 1.25 };
 // and act-122's rotating specialty wares: 虎骨酒 (jar), 重铸骰 (die), 铁药囊 (satchel), plus 焚香蓄锐 (censer) at the campfire.
 // Big axis-aligned masses, two or three tones a material, lit like everything else (nothing glows).
 type Ware = 'scroll' | 'gourd' | 'stone' | 'jar' | 'die' | 'satchel' | 'censer';
-export type ShopSpecial = 'vigor' | 'reroll' | 'satchel';
+export type ShopSpecial = 'vigor' | 'satchel';
 const WD = 0x3e2a1a, WM = 0x5a3c24, WL = 0x74503a;                     // dark wood: shade, body, lit top
 const HEMP = 0x8c7656, HEMP_D = 0x6e5c44;
 const BAM = 0xc4a058, BAM_D = 0xa8873e, BAM_E = 0xdcc282, CORD = 0x34261a, TAG = 0x9a3024;
@@ -178,14 +178,13 @@ export class Stations {
   /** 行商: 4 stalls in a staggered chevron + visible 3D Traveling Merchant NPC behind the center gap */
   /** noBoon (act-163): her hand has no room for a new boon — the scroll stall would only sell her what the whetstone does (dearer), and
    *  the reroll die rerolls nothing, so the first stall is the tiger-bone wine and the fourth the satchel */
-  shop(prices: { boon: number; heal: number; sharpen: number; vigor?: number; reroll?: number; satchel?: number }, special: ShopSpecial = 'vigor', noBoon = false) {
+  shop(prices: { boon: number; heal: number; sharpen: number; vigor?: number; satchel?: number }, special: ShopSpecial = 'vigor', noBoon = false) {
     const vigor = (at: THREE.Vector3, side: 1 | -1) => this.add('buy_vigor', '虎骨酒', '血上限', '气血上限 +15 并回血 25 点', 'heal', prices.vigor ?? 55, at, stall('jar'), true, side);
     if (noBoon) { vigor(V3(-3.5, 0, 0.45), -1); special = 'satchel'; }
     else this.add('buy_boon', '秘卷', '秘传', '三选一习得新秘传强化', 'scroll', prices.boon, V3(-3.5, 0, 0.45), stall('scroll'), true, -1);
     this.add('buy_heal', '金疮药', '回血', '立刻恢复 30% 气血', 'heal', prices.heal, V3(-1.35, 0, -1.95), stall('gourd'), true, -1);
     this.add('buy_sharpen', '青砥石', '升阶', '挑一张已得秘传提升品阶', 'forge', prices.sharpen, V3(1.65, 0, -1.95), stall('stone'), true, 1);
-    if (special === 'reroll') this.add('buy_reroll', '重铸骰', '重随+2', '本局选牌重随次数 +2', 'scroll', prices.reroll ?? 40, V3(3.6, 0, 0.45), stall('die'), true, 1);
-    else if (special === 'satchel') this.add('buy_satchel', '铁药囊', '残铁药引', '立刻获得 残铁+10 与 药引+10', 'iron', prices.satchel ?? 45, V3(3.6, 0, 0.45), stall('satchel'), true, 1);
+    if (special === 'satchel') this.add('buy_satchel', '铁药囊', '残铁药引', '立刻获得 残铁+10 与 药引+10', 'iron', prices.satchel ?? 45, V3(3.6, 0, 0.45), stall('satchel'), true, 1);
     else vigor(V3(3.6, 0, 0.45), 1);
     // act-128: spawn the traveling merchant standing right in the unobstructed center gap behind the stalls, waving warmly to the player!
     const mx = this.centre[0] + 0.15, mz = this.centre[1] - 3.05;

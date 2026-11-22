@@ -387,11 +387,10 @@ describe('combat wave 2: poise break & staggered cadence (act-113)', () => {
     updateUiSceneUniforms(u, true);
     expect(u.uUiModalDim.value).toBe(0);
 
-    // Bamboo scroll unroll & 3D iron reroll plaque invariants
+    // Bamboo scroll unroll invariant (3-pick reroll removed in act-169)
     expect(SRC['src/present/act/cardBoard.ts']).toContain('scrollAnim = { body, topRoller, botRoller, halfH }');
-    expect(SRC['src/present/act/cardBoard.ts']).toContain('export function rerollPlaque()');
     expect(SRC['src/present/act/cards3d.ts']).toContain('sa.topRoller.rotation.x');
-    expect(SRC['src/present/act/cards3d.ts']).toContain('rerollPlaque()');
+    expect(SRC['src/present/act/cards3d.ts']).not.toContain('rerollPlaque()');
     expect(SRC['src/present/act/show.ts']).toContain('UI_LOOK.modalDim');
     expect(SRC['src/present/act/show.ts']).toContain('new GateGlow(');
     expect(SRC['src/present/act/show.ts']).toContain("sayMerchant('greet')");

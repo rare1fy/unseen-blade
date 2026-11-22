@@ -8,7 +8,6 @@ import { UP_COPY } from './hideoutLines';
 export const META: MetaUp[] = [
   { id: 'blade', who: 'forge', cur: 'iron', name: '刀身', desc: ['斩击增伤并提暴击', '每级+8%伤+3%暴'], costs: [10, 22, 40] },
   { id: 'darts', who: 'forge', cur: 'iron', name: '镖匣', desc: ['飞镖扩容且快装', '每级+1枚-12%冷却'], costs: [14, 32] },
-  { id: 'reroll', who: 'forge', cur: 'iron', name: '重铸', desc: ['选牌可换一批', '每级每局+1次重随'], costs: [16, 36] },
   { id: 'manual', who: 'forge', cur: 'iron', name: '旧谱', desc: ['每局开局', '先挑一本刀谱'], costs: [35] },
   { id: 'vigor', who: 'medic', cur: 'herb', name: '筋骨', desc: ['生命上限提高', '每级加十二'], costs: [10, 22, 38] },
   { id: 'ear', who: 'medic', cur: 'herb', name: '听宫', desc: ['敌人起手更慢', '每级慢六分易识破'], costs: [14, 30] },
@@ -326,7 +325,7 @@ function arcanaVal(p: Profile, id: string): number {
 }
 
 export interface RunMods {
-  dmgMul: number; critBonus: number; dartBonus: number; rerolls: number; hpBonus: number; deathDefy: number; startIntent: number; windupMul: number; startManual: boolean; poiseHeal: number;
+  dmgMul: number; critBonus: number; dartBonus: number; startCoins: number; hpBonus: number; deathDefy: number; startIntent: number; windupMul: number; startManual: boolean; poiseHeal: number;
   /** act-118: 碑铭潜能 modifiers */
   firstStrikeBonus: number; styleBonus: number; dashCdMul: number; counterBonus: number; markedDmgBonus: number; poiseDmgMul: number; rareOddsBonus: number; interestRate: number;
 }
@@ -341,7 +340,7 @@ export function runMods(p: Profile): RunMods {
     dmgMul: (1 + 0.08 * level(p, 'blade')) * (1 + aCenter),
     critBonus: 0.03 * level(p, 'blade') + arcanaVal(p, 'keen') / 100,
     dartBonus: level(p, 'darts'),
-    rerolls: 1 + level(p, 'reroll') + (gBuff === 'lotus' ? 1 : 0),
+    startCoins: gBuff === 'lotus' ? 35 : 0,
     hpBonus: arcanaVal(p, 'vigor') + (gBuff === 'lotus' ? 18 : 0),
     deathDefy: arcanaVal(p, 'breath') > 0 ? 1 : 0,
     startIntent: arcanaVal(p, 'intent') + (gBuff === 'xuanzhi' ? 1 : 0),

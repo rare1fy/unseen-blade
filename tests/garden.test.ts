@@ -51,7 +51,7 @@ describe('act-132: 营地竹溪药圃种田系统与据点路尽头光圈', () =
     expect(res1?.buff).toBe('lotus');
     const mods = runMods(p);
     expect(mods.hpBonus).toBe(18);
-    expect(mods.rerolls).toBe(2); // base 1 + lotus 1
+    expect(mods.startCoins).toBe(35); // lotus grants +35 starting coins (reroll removed)
 
     // Reclaim plot 2 with harvested herbs
     expect(canUnlockPlot(p, 2)).toBe(true);

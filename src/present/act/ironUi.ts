@@ -18,9 +18,61 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import type { UiLayer } from '../ui3d/layer';
 import { UiSparks } from '../ui3d/vox';
 import { cue } from '../../audio/cues';
-import type { BtnKey } from './skin';
+import type { BtnKey, SkinId } from './skin';
+import { makeCanvas } from '../../platform/index';
 
 const IRON = 0x4a4f5a, IRON_D = 0x1e2026, IRON_L = 0x6c7380, BRONZE = 0xb07a3a, EMBER = 0xff7a2a;
+interface Ui3DTheme {
+  body: number;
+  bodyD: number;
+  bodyL: number;
+  rim: number;
+  sock: number;
+  plate: number;
+  plateLip: number;
+  plateDark: number;
+  rivet: number;
+  ember: number;
+  tasselTop: number;
+  tasselA: number;
+  tasselB: number;
+  hpTrack: number;
+  hpFill: number;
+  hpTop: number;
+  medBg: string;
+  purseInner: number;
+  ingotOff: number;
+  ingotOn: number;
+  knobRing: number;
+  knobCap: number;
+  square: boolean;
+}
+const UI_THEME: Record<SkinId, Ui3DTheme> = {
+  iron: {
+    body: IRON, bodyD: IRON_D, bodyL: IRON_L, rim: 0x30333b, sock: 0x24272e,
+    plate: IRON, plateLip: IRON_L, plateDark: 0x24262c, rivet: BRONZE, ember: EMBER,
+    tasselTop: BRONZE, tasselA: 0xb8302a, tasselB: 0xa02820,
+    hpTrack: 0x2a0e0c, hpFill: 0xc8302a, hpTop: 0xe8644a, medBg: '#5a1a16',
+    purseInner: 0x1a1412, ingotOff: 0x2a2c32, ingotOn: 0xd09a50,
+    knobRing: BRONZE, knobCap: 0xd09a50, square: false,
+  },
+  lacquer: {
+    body: 0x261214, bodyD: 0x14090b, bodyL: 0xd8a238, rim: 0x6e1814, sock: 0x441010,
+    plate: 0x341618, plateLip: 0xe8ba52, plateDark: 0x180b0d, rivet: 0xd8a238, ember: 0xffb848,
+    tasselTop: 0xe2b046, tasselA: 0xd8a238, tasselB: 0xb62820,
+    hpTrack: 0x1e090a, hpFill: 0xcc2c24, hpTop: 0xf47a58, medBg: '#3e0e10',
+    purseInner: 0x180b0d, ingotOff: 0x2a1416, ingotOn: 0xf2c860,
+    knobRing: 0xd8a238, knobCap: 0xb82820, square: false,
+  },
+  bamboo: {
+    body: 0xa88a4e, bodyD: 0x4c341a, bodyL: 0xdcc482, rim: 0x765a30, sock: 0x3c1412,
+    plate: 0xb89c5e, plateLip: 0xe6cf8e, plateDark: 0x5c4424, rivet: 0xb82c24, ember: 0xffa042,
+    tasselTop: 0x5cc494, tasselA: 0xb82c24, tasselB: 0x8c1e18,
+    hpTrack: 0x2c1610, hpFill: 0xc22e24, hpTop: 0xee6b4e, medBg: '#521814',
+    purseInner: 0x281c10, ingotOff: 0x4a361e, ingotOn: 0xe8c468,
+    knobRing: 0x6e4824, knobCap: 0xb82c24, square: true,
+  },
+};
 const lam = (c: number, t?: THREE.Texture) => new THREE.MeshLambertMaterial({ color: c, map: t ?? null, emissive: t ? 0xffffff : 0x000000, emissiveMap: t ?? null, emissiveIntensity: t ? 0.5 : 0 });
 const octCyl = (r: number, d: number) => new THREE.CylinderGeometry(r, r, d, 8, 1, false, (5 * Math.PI) / 8).rotateX(Math.PI / 2);
 function disposeTree(o: THREE.Object3D) {
@@ -30,8 +82,8 @@ function disposeTree(o: THREE.Object3D) {
 /** a square art-pixel canvas (just bigger than the picture) from rows of chars: '#' outline, 'o' bronze, 'h' highlight, 'd' dark bronze, 'r' red, 'w' white, 's' skin, 'y' straw, 'Y' straw light */
 function pixTex(rows: string[], bg: string, S = 6) {
   // the canvas just a little larger than the picture, so it fills the face
-  const N = Math.max(16, Math.max(rows.length, ...rows.map(r => r.length)) + 3), c = document.createElement('canvas'); c.width = c.height = N * S; const g = c.getContext('2d')!; g.imageSmoothingEnabled = false;
-  const COL: Record<string, string> = { '#': '#121318', o: '#c08a44', h: '#f0c070', d: '#7a5428', r: '#b8302a', R: '#7a1814', w: '#eee8da', s: '#d9a883', y: '#c9a457', Y: '#e2c078', k: '#1e1c22', b: '#3c4654' };
+  const N = Math.max(16, Math.max(rows.length, ...rows.map(r => r.length)) + 3), c = makeCanvas(N * S, N * S) as HTMLCanvasElement; const g = c.getContext('2d')!; g.imageSmoothingEnabled = false;
+  const COL: Record<string, string> = { '#': '#121318', o: '#c08a44', h: '#f0c070', d: '#7a5428', r: '#b8302a', R: '#7a1814', w: '#eee8da', s: '#d9a883', y: '#c9a457', Y: '#e2c078', k: '#1e1c22', b: '#3c4654', c: '#d8e4f2', C: '#f4f8ff', g: '#e6b858', m: '#9e2420' };
   g.fillStyle = bg; g.fillRect(0, 0, N * S, N * S);
   // a soft bevel: the upper-left lighter, the lower-right darker (two flat bands, no gradient speckle)
   g.fillStyle = 'rgba(255,255,255,0.06)'; g.fillRect(0, 0, N * S, Math.round(N * 0.3) * S); g.fillStyle = 'rgba(0,0,0,0.12)'; g.fillRect(0, Math.round(N * 0.75) * S, N * S, N * S);
@@ -98,17 +150,17 @@ function paintRange(geo: THREE.BufferGeometry, r: [number, number], c: THREE.Col
   a.needsUpdate = true;
 }
 const vcMat = () => new THREE.MeshLambertMaterial({ vertexColors: true });
-/** the ring of eight raised lamellar plates (each with a lit upper lip) and eight bronze rivets between them, as two meshes */
-function plateRing(r: number, z: number, plateW: number) {
+/** the ring of eight raised plates (each with a lit upper lip) and eight rivets/studs between them, as two meshes */
+function plateRing(r: number, z: number, plateW: number, th: Ui3DTheme = UI_THEME.iron) {
   const plates: BoxSpec[] = [], rivets: BoxSpec[] = [];
   for (let i = 0; i < 8; i++) {
     const a = Math.PI / 2 - (i / 8) * Math.PI * 2, rz = a - Math.PI / 2, cx = Math.cos(a) * r, cy = Math.sin(a) * r;
-    plates.push({ w: plateW, h: 0.13, d: 0.07, x: 0, y: 0, z: 0, rz, c: IRON });
+    plates.push({ w: plateW, h: 0.13, d: 0.07, x: 0, y: 0, z: 0, rz, c: th.plate });
     plates[plates.length - 1].x = cx; plates[plates.length - 1].y = cy; plates[plates.length - 1].z = z;
     // the lip: on the plate's outer edge (local +y, turned by rz)
-    plates.push({ w: plateW, h: 0.03, d: 0.075, x: cx + Math.cos(a) * 0.05, y: cy + Math.sin(a) * 0.05, z: z + 0.002, rz, c: IRON_L });
+    plates.push({ w: plateW, h: 0.03, d: 0.075, x: cx + Math.cos(a) * 0.05, y: cy + Math.sin(a) * 0.05, z: z + 0.002, rz, c: th.plateLip });
     const ab = Math.PI / 2 - ((i + 0.5) / 8) * Math.PI * 2;
-    rivets.push({ w: 0.06, h: 0.06, d: 0.06, x: Math.cos(ab) * r, y: Math.sin(ab) * r, z: z + 0.01, c: BRONZE });
+    rivets.push({ w: 0.06, h: 0.06, d: 0.06, x: Math.cos(ab) * r, y: Math.sin(ab) * r, z: z + 0.01, c: th.rivet });
   }
   const P = mergeBoxes(plates), R = mergeBoxes(rivets);
   return { plates: new THREE.Mesh(P.geo, vcMat()), ranges: P.ranges, rivets: new THREE.Mesh(R.geo, vcMat()) };
@@ -164,17 +216,38 @@ export class IronBtn {
   qteOn = false; private alts = new Map<FaceKey, Model3D>(); private altKey: FaceKey | null = null; private altK = 0;
   kick(k: number, col = 0xfff2d0) { this.scV += 1.6 * k; this.kickT = 0.18 + 0.1 * k; this.kickCol.setHex(col); }
   private col = new THREE.Color(); private ember = new THREE.Color(EMBER); private dark = new THREE.Color(0x24262c); private base = new THREE.Color(IRON);
-  constructor(private L: UiLayer, public name: BtnKey, private sparks: UiSparks) {
-    const back = new THREE.Mesh(octCyl(0.5, 0.12), lam(IRON_D)); this.root.add(back);
-    const rim = new THREE.Mesh(octCyl(0.47, 0.14), lam(0x30333b)); rim.position.z = 0.01; this.root.add(rim);
-    // the socket the picture floats over: a darker recessed octagon
-    const sock = new THREE.Mesh(new THREE.CircleGeometry(0.3, 8, Math.PI / 8), lam(0x24272e)); sock.position.z = 0.085; this.root.add(sock);
+  constructor(private L: UiLayer, public name: BtnKey, private sparks: UiSparks, skin: SkinId = 'iron') {
+    const th = UI_THEME[skin];
+    this.ember.setHex(th.ember); this.dark.setHex(th.plateDark); this.base.setHex(th.plate);
+    if (th.square) {
+      // 竹简木牌: handcrafted 3D vertical bamboo slats bound by twin dark hemp cords + carved cinnabar seal socket
+      const slats: BoxSpec[] = [{ w: 0.98, h: 0.98, d: 0.10, x: 0, y: 0, z: -0.01, c: th.bodyD }];
+      for (let i = 0; i < 5; i++) {
+        slats.push({ w: 0.175, h: 0.94, d: 0.125, x: -0.37 + i * 0.185, y: 0, z: 0.005, c: i % 2 === 0 ? 0xc8ac6c : 0xb29252 });
+        slats.push({ w: 0.175, h: 0.04, d: 0.13, x: -0.37 + i * 0.185, y: 0.45, z: 0.008, c: th.bodyL });
+      }
+      // twin dark hemp binding cords across top and bottom
+      slats.push({ w: 1.0, h: 0.065, d: 0.145, x: 0, y: 0.34, z: 0.012, c: 0x3e2412 });
+      slats.push({ w: 1.0, h: 0.065, d: 0.145, x: 0, y: -0.34, z: 0.012, c: 0x3e2412 });
+      // central recessed cinnabar seal socket
+      slats.push({ w: 0.56, h: 0.56, d: 0.03, x: 0, y: 0, z: 0.072, c: 0x8e1e18 });
+      slats.push({ w: 0.50, h: 0.50, d: 0.035, x: 0, y: 0, z: 0.076, c: th.sock });
+      this.root.add(new THREE.Mesh(mergeBoxes(slats).geo, vcMat()));
+    } else {
+      const back = new THREE.Mesh(octCyl(0.5, 0.12), lam(th.bodyD)); this.root.add(back);
+      const rim = new THREE.Mesh(octCyl(0.47, 0.14), lam(th.rim)); rim.position.z = 0.01; this.root.add(rim);
+      if (skin === 'lacquer') {
+        // 汉代漆器: inlaid gold outer bezel ring framing the deep cinnabar centre
+        const goldRing = new THREE.Mesh(octCyl(0.49, 0.04), lam(th.bodyL)); goldRing.position.z = 0.045; this.root.add(goldRing);
+      }
+      const sock = new THREE.Mesh(new THREE.CircleGeometry(0.3, 8, Math.PI / 8), lam(th.sock)); sock.position.z = 0.085; this.root.add(sock);
+    }
     this.shadow = new THREE.Mesh(new THREE.CircleGeometry(0.2, 8, Math.PI / 8), new THREE.MeshBasicMaterial({ color: 0x07080a, transparent: true, opacity: 0.5, depthWrite: false }));
-    this.shadow.position.z = 0.088; this.root.add(this.shadow);
-    this.ring = plateRing(0.39, 0.09, 0.27); this.root.add(this.ring.plates, this.ring.rivets);
+    this.shadow.position.z = 0.098; this.root.add(this.shadow);
+    this.ring = plateRing(0.39, 0.095, 0.27, th); this.root.add(this.ring.plates, this.ring.rivets);
     if (name === 'attack') { this.pipArc = [1.25, 0.38]; this.pipCol = 0xd6f4ec; this.pipGlow = 0x48a892; this.pipSize = 0.115; this.pipR = 0.6; }
     if (name === 'attack') {
-      const t = mergeBoxes([{ w: 0.08, h: 0.08, d: 0.08, x: 0, y: 0, z: 0, c: BRONZE }, { w: 0.045, h: 0.3, d: 0.03, x: -0.03, y: -0.18, z: 0, c: 0xb8302a }, { w: 0.045, h: 0.3, d: 0.03, x: 0.03, y: -0.18, z: 0, c: 0xa02820 }]);
+      const t = mergeBoxes([{ w: 0.08, h: 0.08, d: 0.08, x: 0, y: 0, z: 0, c: th.tasselTop }, { w: 0.045, h: 0.3, d: 0.03, x: -0.03, y: -0.18, z: 0, c: th.tasselA }, { w: 0.045, h: 0.3, d: 0.03, x: 0.03, y: -0.18, z: 0, c: th.tasselB }]);
       this.tassel = new THREE.Mesh(t.geo, vcMat()); this.tassel.position.set(0, -0.5, 0.04); this.root.add(this.tassel);
     }
     // act-29 (用户：「对齐一下我dicehero3D那版的UI品质，特别是3D icon的品质」): the thick voxel badges of dicehero3d's models3d
@@ -332,16 +405,24 @@ export class IronBtn {
 const WHITE = new THREE.Color(0xfff6e0), DENY = new THREE.Color(0x8a2a20);
 const FACE_COLS = Object.fromEntries(Object.entries({ ...LINK_COLORS, ...STANCE_COLORS, talk: 0xf2e8d6 }).map(([k, col]) => [k, new THREE.Color(col)])) as Record<FaceKey, THREE.Color>;
 
-// ---------------------------------------------------------------- the stick: an iron ring of plates, a bronze ring-pommel for the knob
+// ---------------------------------------------------------------- the stick: skinned 3D ring of plates & pommel knob
 export class IronStick {
   root = new THREE.Group(); private knobG = new THREE.Group(); private ring: ReturnType<typeof plateRing>; private lastIdx = -2;
-  private col = new THREE.Color();
-  constructor(private L: UiLayer) {
-    const back = new THREE.Mesh(octCyl(0.5, 0.06), lam(IRON_D)); this.root.add(back);
-    const face = new THREE.Mesh(octCyl(0.33, 0.07), lam(0x34373f)); face.position.z = 0.01; this.root.add(face);
-    this.ring = plateRing(0.41, 0.05, 0.28); this.root.add(this.ring.plates, this.ring.rivets);
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.045, 6, 8), lam(BRONZE)); ring.rotation.z = Math.PI / 8; this.knobG.add(ring);
-    const cap = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.12), lam(0xd09a50)); cap.position.z = 0.02; this.knobG.add(cap);
+  private col = new THREE.Color(); private th: Ui3DTheme;
+  constructor(private L: UiLayer, skin: SkinId = 'iron') {
+    const th = UI_THEME[skin]; this.th = th;
+    if (th.square) {
+      const slats: BoxSpec[] = [{ w: 0.96, h: 0.96, d: 0.06, x: 0, y: 0, z: 0, c: th.bodyD }];
+      for (let i = 0; i < 5; i++) slats.push({ w: 0.165, h: 0.90, d: 0.072, x: -0.36 + i * 0.18, y: 0, z: 0.005, c: i % 2 ? 0xb49658 : 0xc6aa6a });
+      slats.push({ w: 0.96, h: 0.055, d: 0.085, x: 0, y: 0.35, z: 0.01, c: 0x3e2412 }, { w: 0.96, h: 0.055, d: 0.085, x: 0, y: -0.35, z: 0.01, c: 0x3e2412 });
+      this.root.add(new THREE.Mesh(mergeBoxes(slats).geo, vcMat()));
+    } else {
+      const back = new THREE.Mesh(octCyl(0.5, 0.06), lam(th.bodyD)); this.root.add(back);
+      const face = new THREE.Mesh(octCyl(0.33, 0.07), lam(th.rim)); face.position.z = 0.01; this.root.add(face);
+    }
+    this.ring = plateRing(0.41, 0.055, 0.28, th); this.root.add(this.ring.plates, this.ring.rivets);
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.045, 6, 8), lam(th.knobRing)); ring.rotation.z = Math.PI / 8; this.knobG.add(ring);
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.12), lam(th.knobCap)); cap.position.z = 0.02; this.knobG.add(cap);
     this.knobG.position.z = 0.14; this.root.add(this.knobG);
     L.scene.add(this.root); batchUi(this.root);
   }
@@ -355,7 +436,7 @@ export class IronStick {
     const key = idx + (on ? 10 : 0);
     if (key !== this.lastIdx) {
       this.lastIdx = key;
-      for (let i = 0; i < 8; i++) { this.col.setHex(on ? IRON : 0x3c4049); if (i === idx) this.col.lerp(new THREE.Color(EMBER), 0.55); paintRange(this.ring.plates.geometry, this.ring.ranges[i * 2], this.col); }
+      for (let i = 0; i < 8; i++) { this.col.setHex(on ? this.th.plate : this.th.plateDark); if (i === idx) this.col.lerp(new THREE.Color(this.th.ember), 0.55); paintRange(this.ring.plates.geometry, this.ring.ranges[i * 2], this.col); }
     }
   }
   dispose() { disposeTree(this.root); }
@@ -372,7 +453,23 @@ const PORTRAIT_WHITE = [
   '.......rr.......', '.....wwwwww.....', '...wwwwwwwwww...', '..wwwwwwwwwwww..', '..wwwwwwwwwwww..', '..wRrrrrrrrrRw..', '..wrrrrrrrrrrw..',
   '..wwssssssssww..', '..wwsss..sssww..', '..ww.ssssss.ww..', '..ww..ssss..ww..', '..wwbbrrrrbbww..', '..bbbbbrrbbbbb..', '.bbbbbbbbbbbbbb.',
 ];
-const PORTRAITS: Record<string, string[]> = { slim_hat: PORTRAIT_HAT, slim_white: PORTRAIT_WHITE, fine_hat: PORTRAIT_HAT, fine_white: PORTRAIT_WHITE };
+/** act-139 A1 collector outfit portraits: 雪夜白蓑 / 玄铁短氅 / 朱缨赤客 */
+const PORTRAIT_SNOW = [
+  '.......rr.......', '.....cCCCCc.....', '...cccccccccc...', '.cccccccccccccc.', 'cccccccccccccccc', '...wRrrrrrrRw...', '...wrrrrrrrrw...', '...wwssssssww...',
+  '...wwss..ssww...', '...ww.ssss.ww...', '...ww..ss..ww...', '...wwccbbccww...', '..cccccccccccc..', '.cccccccccccccc.',
+];
+const PORTRAIT_OBSIDIAN = [
+  '.......gg.......', '.....kggggk.....', '...kkkkkkkkkk...', '.kkkkkkkkkkkkkk.', 'kkkkkkkkkkkkkkkk', '...woggggggow...', '...wggggggggw...', '...wwssssssww...',
+  '...wwss..ssww...', '...ww.ssss.ww...', '...ww..ss..ww...', '...wwkkggkkww...', '..kkkkkkkkkkkk..', '.kkkkkkkkkkkkkk.',
+];
+const PORTRAIT_CRIMSON = [
+  '.......gg.......', '.....wwwwww.....', '...wwwwwwwwww...', '..wwwwwwwwwwww..', '..wwwwwwwwwwww..', '..woggggggggow..', '..wggggggggggw..',
+  '..wwssssssssww..', '..wwsss..sssww..', '..ww.ssssss.ww..', '..ww..ssss..ww..', '..wwmmkkkkmmww..', '..mmmmmkkmmmmm..', '.mmmmmmmmmmmmmm.',
+];
+const PORTRAITS: Record<string, string[]> = {
+  slim_hat: PORTRAIT_HAT, slim_white: PORTRAIT_WHITE, fine_hat: PORTRAIT_HAT, fine_white: PORTRAIT_WHITE,
+  fine_snow: PORTRAIT_SNOW, fine_obsidian: PORTRAIT_OBSIDIAN, fine_crimson: PORTRAIT_CRIMSON,
+};
 /** which look the HP medallion shows (show.ts sets it from the costume worn; default is 斗笠) */
 export const HP_FACE = { id: 'fine_hat' };
 /** every HP bar's lost piece (hers, the foes' over their heads, the chief's long bar): flat white, far from the red in lightness.
@@ -404,31 +501,51 @@ export class IronHp {
   /** the purse's counts (coins + meta iron + meta herb) and coin hop (hud.ts sets these every frame) */
   coins = 0; iron = 0; herb = 0; coinHop = 0;
   /** the finger / mouse is down on the badge */
-  down = false; private sc = 1; private scV = 0; private wasDown = false; private pressK = 0; private medRimMat!: THREE.MeshLambertMaterial;
-  constructor(private L: UiLayer, private sparks: UiSparks) {
+  down = false; private sc = 1; private scV = 0; private wasDown = false; private pressK = 0; private medRimMat!: THREE.MeshLambertMaterial; private th: Ui3DTheme;
+  constructor(private L: UiLayer, private sparks: UiSparks, skin: SkinId = 'iron') {
+    const th = UI_THEME[skin]; this.th = th;
     const box = (w: number, h: number, d: number, c: number) => new THREE.Mesh(new THREE.BoxGeometry(w, h, d), lam(c));
-    // act-129: harmoniously scaled HP trough (height 34, blood fill 20) balanced with enlarged portrait medallion (r=42) & matching 34-unit currency bar
-    const frame = box(this.W + 16, 34, 12, IRON_D); frame.position.set(this.X0 + this.W / 2, 0, 0); this.root.add(frame);
-    const lipT = box(this.W + 16, 3.5, 13, IRON_L); lipT.position.set(this.X0 + this.W / 2, 15.2, 0.5); this.root.add(lipT);
-    const track = box(this.W, 20, 2, 0x2a0e0c); track.position.set(this.X0 + this.W / 2, 0, 6.2); this.root.add(track);
+    // act-129 / act-139: harmoniously scaled HP trough (height 34, blood fill 20) themed for iron / lacquer / bamboo
+    const frame = box(this.W + 16, 34, 12, th.bodyD); frame.position.set(this.X0 + this.W / 2, 0, 0); this.root.add(frame);
+    const lipT = box(this.W + 16, 3.5, 13, th.bodyL); lipT.position.set(this.X0 + this.W / 2, 15.2, 0.5); this.root.add(lipT);
+    if (skin === 'lacquer') {
+      const lipB = box(this.W + 16, 2.5, 13, 0x8e1e18); lipB.position.set(this.X0 + this.W / 2, -15.4, 0.5); this.root.add(lipB);
+    } else if (skin === 'bamboo') {
+      // twin dark hemp binding straps vertically across the bamboo trough
+      for (let i = 0; i < 4; i++) {
+        const cord = box(4.5, 36, 13.5, 0x3e2412); cord.position.set(this.X0 + 48 + i * 68, 0, 0.5); this.root.add(cord);
+      }
+    }
+    const track = box(this.W, 20, 2, th.hpTrack); track.position.set(this.X0 + this.W / 2, 0, 6.2); this.root.add(track);
     // the lost piece: a flat colour the UI lights do not warm (the lit cream read as orange against the red)
     this.lag = new THREE.Mesh(new THREE.BoxGeometry(1, 20, 2), new THREE.MeshBasicMaterial({ color: HP_LAG, toneMapped: false })); this.lag.position.z = 6.6; this.root.add(this.lag);
-    this.fill = box(1, 20, 2, 0xc8302a); this.fill.position.z = 7.0; this.root.add(this.fill);
-    this.fillTop = box(1, 4, 2, 0xe8644a); this.fillTop.position.set(0, 7, 7.3); this.root.add(this.fillTop);
-    this.root.add(new THREE.Mesh(mergeBoxes(Array.from({ length: 9 }, (_, i) => ({ w: 2, h: 20, d: 2, x: this.X0 + ((i + 1) * this.W) / 10, y: 0, z: 7.6, c: 0x14151a }))).geo, vcMat()));
-    const end = box(14, 42, 16, IRON); end.position.set(this.X0 + this.W + 9, 0, 1); this.root.add(end);
-    const endR = box(7, 7, 7, BRONZE); endR.position.set(this.X0 + this.W + 9, 0, 9); this.root.add(endR);
+    this.fill = box(1, 20, 2, th.hpFill); this.fill.position.z = 7.0; this.root.add(this.fill);
+    this.fillTop = box(1, 4, 2, th.hpTop); this.fillTop.position.set(0, 7, 7.3); this.root.add(this.fillTop);
+    this.root.add(new THREE.Mesh(mergeBoxes(Array.from({ length: 9 }, (_, i) => ({ w: 2, h: 20, d: 2, x: this.X0 + ((i + 1) * this.W) / 10, y: 0, z: 7.6, c: th.bodyD }))).geo, vcMat()));
+    const end = box(14, 42, 16, skin === 'lacquer' ? th.bodyL : th.body); end.position.set(this.X0 + this.W + 9, 0, 1); this.root.add(end);
+    const endR = box(7, 7, 7, th.rivet); endR.position.set(this.X0 + this.W + 9, 0, 9); this.root.add(endR);
     // enlarged portrait medallion (r = 42, face r = 32): bold primary focal anchor of the top-left cluster
     this.badge.position.set(16, 0, 0); this.root.add(this.badge);
-    const med = new THREE.Mesh(octCyl(42, 14), lam(IRON_D)); med.position.set(0, 0, 2); this.badge.add(med);
-    const medRim = new THREE.Mesh(octCyl(38.5, 15), lam(IRON)); medRim.position.set(0, 0, 3); this.badge.add(medRim); this.medRimMat = medRim.material as THREE.MeshLambertMaterial;
-    const face = new THREE.Mesh(new THREE.CircleGeometry(32, 8, Math.PI / 8), lam(0xffffff, pixTex(PORTRAITS[HP_FACE.id] ?? PORTRAIT_WHITE, '#5a1a16'))); face.position.set(0, 0, 10.6); this.badge.add(face); this.face = face;
-    this.badge.add(new THREE.Mesh(mergeBoxes(Array.from({ length: 8 }, (_, i) => { const a = (i / 8) * Math.PI * 2 + Math.PI / 8; return { w: 4.8, h: 4.8, d: 4.8, x: Math.cos(a) * 35.5, y: Math.sin(a) * 35.5, z: 11, c: BRONZE }; })).geo, vcMat()));
+    if (th.square) {
+      // 竹简木牌: carved bevel square bamboo frame with hemp corner ties
+      const med = box(80, 80, 14, th.bodyD); med.position.set(0, 0, 2); this.badge.add(med);
+      const medRim = box(73, 73, 15, th.body); medRim.position.set(0, 0, 3); this.badge.add(medRim); this.medRimMat = medRim.material as THREE.MeshLambertMaterial;
+      const face = new THREE.Mesh(new THREE.PlaneGeometry(58, 58), lam(0xffffff, pixTex(PORTRAITS[HP_FACE.id] ?? PORTRAIT_WHITE, th.medBg))); face.position.set(0, 0, 10.7); this.badge.add(face); this.face = face;
+      this.badge.add(new THREE.Mesh(mergeBoxes([
+        { w: 9, h: 9, d: 5, x: -33, y: 33, z: 11, c: th.rivet }, { w: 9, h: 9, d: 5, x: 33, y: 33, z: 11, c: th.rivet },
+        { w: 9, h: 9, d: 5, x: -33, y: -33, z: 11, c: th.rivet }, { w: 9, h: 9, d: 5, x: 33, y: -33, z: 11, c: th.rivet },
+      ]).geo, vcMat()));
+    } else {
+      const med = new THREE.Mesh(octCyl(42, 14), lam(th.bodyD)); med.position.set(0, 0, 2); this.badge.add(med);
+      const medRim = new THREE.Mesh(octCyl(38.5, 15), lam(skin === 'lacquer' ? th.bodyL : th.body)); medRim.position.set(0, 0, 3); this.badge.add(medRim); this.medRimMat = medRim.material as THREE.MeshLambertMaterial;
+      const face = new THREE.Mesh(new THREE.CircleGeometry(32, 8, Math.PI / 8), lam(0xffffff, pixTex(PORTRAITS[HP_FACE.id] ?? PORTRAIT_WHITE, th.medBg))); face.position.set(0, 0, 10.6); this.badge.add(face); this.face = face;
+      this.badge.add(new THREE.Mesh(mergeBoxes(Array.from({ length: 8 }, (_, i) => { const a = (i / 8) * Math.PI * 2 + Math.PI / 8; return { w: 4.8, h: 4.8, d: 4.8, x: Math.cos(a) * 35.5, y: Math.sin(a) * 35.5, z: 11, c: skin === 'lacquer' ? 0xc83024 : th.rivet }; })).geo, vcMat()));
+    }
     // unified currency bar hung directly under the medallion, matching the 34-unit vertical rhythm of the HP trough above
     this.badge.add(this.purse);
-    const link = box(16, 12, 6, IRON); link.position.set(0, -44, 1); this.purse.add(link);
-    for (const [h, d, y, z, c] of [[34, 8, -65, 0, IRON_D], [3.5, 9, -49.5, 0.5, IRON_L], [25, 2, -65.5, 4.2, 0x1a1412]] as const) { const m = box(1, h, d, c); m.position.set(0, y, z); this.purse.add(m); this.tab.push(m); }
-    const cap = box(8, 38, 10, IRON); cap.position.set(0, -65, 1); this.purse.add(cap); this.tab.push(cap);
+    const link = box(16, 12, 6, skin === 'lacquer' ? th.bodyL : th.body); link.position.set(0, -44, 1); this.purse.add(link);
+    for (const [h, d, y, z, c] of [[34, 8, -65, 0, th.bodyD], [3.5, 9, -49.5, 0.5, th.bodyL], [25, 2, -65.5, 4.2, th.purseInner]] as const) { const m = box(1, h, d, c); m.position.set(0, y, z); this.purse.add(m); this.tab.push(m); }
+    const cap = box(8, 38, 10, skin === 'lacquer' ? th.bodyL : th.body); cap.position.set(0, -65, 1); this.purse.add(cap); this.tab.push(cap);
     const cm = lam(0xe2a246), cd = lam(0x5a3a18);
     for (const [w, h, x, y] of [[19, 6, 0, 6.5], [19, 6, 0, -6.5], [6, 7, -6.5, 0], [6, 7, 6.5, 0]] as const) { const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, 4.5), cm); b.position.set(x, y, 0); this.coin.add(b); }
     const hole = new THREE.Mesh(new THREE.BoxGeometry(7, 7, 2.5), cd); hole.position.z = -0.5; this.coin.add(hole);
@@ -452,7 +569,7 @@ export class IronHp {
     this.herbNum = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ transparent: true, depthTest: false, depthWrite: false, toneMapped: false }));
     this.herbNum.position.set(104, -65, 7); this.herbNum.renderOrder = 31; this.purse.add(this.herbNum);
     // three 杀意 ingots tucked cleanly right under the HP trough (clear 14-unit breathing space above the currency bar!)
-    for (let i = 0; i < 3; i++) { const m = new THREE.Mesh(new THREE.BoxGeometry(24, 11, 8), lam(0x2a2c32)); m.position.set(this.X0 + 22 + i * 32, -27.5, 2); this.root.add(m); this.ingots.push(m.material as THREE.MeshLambertMaterial); this.ingotMesh.push(m); }
+    for (let i = 0; i < 3; i++) { const m = new THREE.Mesh(new THREE.BoxGeometry(24, 11, 8), lam(th.ingotOff)); m.position.set(this.X0 + 22 + i * 32, -27.5, 2); this.root.add(m); this.ingots.push(m.material as THREE.MeshLambertMaterial); this.ingotMesh.push(m); }
     this.num = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ transparent: true, depthTest: false, depthWrite: false, toneMapped: false }));
     this.num.position.set(this.X0 + this.W / 2, 0.5, 10.2); this.num.renderOrder = 31; this.root.add(this.num);
     this.root.userData.noTilt = true; this.root.rotation.set(-0.20, 0.16, 0);
@@ -460,7 +577,7 @@ export class IronHp {
   }
   private face!: THREE.Mesh;
   /** the medallion's picture for a costume (the white-haired one when there is none for it) */
-  setFace(id: string) { HP_FACE.id = id; const m = this.face.material as THREE.MeshLambertMaterial; m.map?.dispose(); m.map = pixTex(PORTRAITS[id] ?? PORTRAIT_WHITE, '#5a1a16'); m.needsUpdate = true; }
+  setFace(id: string) { HP_FACE.id = id; const m = this.face.material as THREE.MeshLambertMaterial; m.map?.dispose(); const tex = pixTex(PORTRAITS[id] ?? PORTRAIT_WHITE, this.th.medBg); m.map = tex; m.emissiveMap = tex; m.needsUpdate = true; }
   place(x: number, y: number, k: number) { this.x = x; this.y = y; this.k = k; }
   set(s: Partial<HpState>) { Object.assign(this.st, s); }
   hit(dmg: number, s?: Partial<HpState>) { if (s) this.set(s); this.shakeT = 0.3; this.flashT = 0.15; this.lagHold = HP_LAG_HOLD; void dmg; }
@@ -557,8 +674,8 @@ export class IronHp {
     const fullBreathe = this.intent >= 3 ? 0.5 + 0.5 * Math.sin(this.tt * 4.2) : 0;
     this.ingots.forEach((m, i) => {
       const on = i < this.intent;
-      m.color.setHex(on ? (this.intent >= 3 ? 0xf6de98 : 0xd09a50) : 0x2a2c32);
-      m.emissive.setHex(this.intent >= 3 ? 0xffe8a8 : EMBER);
+      m.color.setHex(on ? (this.intent >= 3 ? 0xf6de98 : this.th.ingotOn) : this.th.ingotOff);
+      m.emissive.setHex(this.intent >= 3 ? 0xffe8a8 : this.th.ember);
       m.emissiveIntensity = on ? (this.fullT > 0 ? 1.05 : this.intent >= 3 ? 0.62 + 0.28 * fullBreathe : 0.42) : 0;
       this.ingotMesh[i].scale.setScalar(i === this.popIdx ? 1 + 0.32 * Math.sin(this.ingotPop * Math.PI) : this.fullT > 0 ? 1 + 0.12 * Math.sin(this.fullT * 10) : this.intent >= 3 ? 1.04 + 0.04 * fullBreathe : 1);
     });

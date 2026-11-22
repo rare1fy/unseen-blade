@@ -4,9 +4,28 @@
 import { profileStorage } from '../../platform/crazygames';
 import type { GardenState } from './garden';
 
+export interface AdProfileState {
+  /** Total rewarded ads watched across ALL placements (powers 古窑长明灯 milestones) */
+  total: number;
+  /** Permanently unlocked collector IDs (early direct unlock via ads) */
+  unlocks: Record<string, boolean>;
+  /** Per-item ad watch progress toward early unlock */
+  progress: Record<string, number>;
+  /** Local YYYY-MM-DD for daily cap on Bamboo Stream Garden instant-ripen / rare-seed ads */
+  gardenSpeedDay?: string;
+  gardenSpeedCount?: number;
+  /** Single-run trials / blessings (auto-cleared when the run finishes) */
+  trialOutfit?: string | null;
+  trialBladeFx?: string | null;
+  rentWeapon?: string | null;
+  mealUpgraded?: boolean;
+  divineSchool?: string | null;
+}
+
 export interface Profile {
   v: 1;
   /** runs completed / won, deaths */ runs: number; wins: number; deaths: number;
+  /** act-139 C2: runs cleared without using ad-revive (「孤刃独行」) */ soloWins?: number;
   /** the two currencies carried home from runs and purchased upgrade levels */
   iron: number; herb: number; perks: Record<string, number>;
   /** act-118: 碑铭潜能 (Hades Mirror of Night-style dual-aspect permanent talents, free to flip between 阳/阴) */
@@ -16,6 +35,12 @@ export interface Profile {
   /** story beats and dialogue lines already seen (ids) */ seen: Record<string, number>;
   /** relationships with the people at the hideout (id → points) */ bonds: Record<string, number>;
   /** the costume worn */ wear?: string;
+  /** act-139 A1: equipped voxel blade slash FX skin ('default' | 'ink' | 'ember' | 'frostmoon') */ bladeFx?: string;
+  /** act-139 A2: equipped UI material skin ('iron' | 'lacquer' | 'bamboo') */ uiSkin?: 'iron' | 'lacquer' | 'bamboo';
+  /** act-139 A3: cinema monochrome sumi-ink filter toggle */ inkFilter?: boolean;
+  /** act-139 A4: hideout atmosphere preset ('default' | 'snow_night' | 'autumn_rain' | 'sunset') */ hideoutMood?: string;
+  /** act-139 A4: enabled 3D voxel hideout decorations */ hideoutDecors?: Record<string, boolean>;
+  /** act-139 D1: opt-in rewarded ad progress, lantern oil total, and single-run trials */ ads?: AdProfileState;
   /** 杜五's provisions packed for the next run (feast / purse / wine), used up when the run starts */ meal?: string;
   /** act-125: 文家名刀 equipped weapon id & forging levels (0..3) */
   weapon?: string;

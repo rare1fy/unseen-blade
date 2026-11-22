@@ -12,6 +12,7 @@ import { text, textW, PIX_H } from '../v2/overlay';
 import { UiSparks } from '../ui3d/vox';
 import { cue } from '../../audio/cues';
 import { bodyText, bodyW, onBodyFontChange } from '../ui3d/bodyFont';
+import { makeCanvas } from '../../platform/index';
 
 export type SkinId = 'lacquer' | 'bamboo' | 'iron';
 export const SKINS: SkinId[] = ['lacquer', 'bamboo', 'iron'];
@@ -38,7 +39,7 @@ export const PALETTE: Record<SkinId, { body: number; side: number; bar: number; 
 // ---------------------------------------------------------------- painting
 /** an art-pixel canvas: N × M art pixels, each S device pixels */
 function art(N: number, M: number, S: number) {
-  const c = document.createElement('canvas'); c.width = N * S; c.height = M * S; const g = c.getContext('2d')!; g.imageSmoothingEnabled = false;
+  const c = makeCanvas(N * S, M * S) as HTMLCanvasElement; const g = c.getContext('2d')!; g.imageSmoothingEnabled = false;
   const P = (x: number, y: number, w: number, h: number, col: string) => { g.fillStyle = col; g.fillRect(x * S, y * S, w * S, h * S); };
   return { c, g, P, S };
 }
@@ -141,7 +142,7 @@ export function bannerFace(skin: SkinId, title: string, sub: string, titleCol?: 
 }
 
 // ---------------------------------------------------------------- shapes
-const lam = (t: THREE.Texture | null, color = 0xffffff, emissive = 0.5) => new THREE.MeshLambertMaterial({ color, map: t ?? undefined, emissive: t ? 0xffffff : 0x000000, emissiveMap: t ?? undefined, emissiveIntensity: t ? emissive : 0 });
+const lam = (t: THREE.Texture | null, color = 0xffffff, emissive = 0.5) => new THREE.MeshLambertMaterial({ color, map: t ?? null, emissive: t ? 0xffffff : 0x000000, emissiveMap: t ?? null, emissiveIntensity: t ? emissive : 0 });
 /** a disc (octagonal) or a square plaque of unit width, its face toward the camera at z = d / 2 */
 function slab(skin: SkinId, d: number, faceTex: THREE.Texture, round = skin !== 'bamboo', rope = true) {
   const g = new THREE.Group(), pal = PALETTE[skin];

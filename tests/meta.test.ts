@@ -11,7 +11,7 @@ afterEach(() => { vi.unstubAllGlobals(); vi.resetModules(); });
 
 describe('hideout upgrades', () => {
   it('lists the forge and medic upgrades in order with short descriptions', () => {
-    expect(META.map(x => x.id)).toEqual(['blade', 'darts', 'reroll', 'manual', 'vigor', 'ear', 'intent', 'leech', 'breath']);
+    expect(META.map(x => x.id)).toEqual(['blade', 'darts', 'manual', 'vigor', 'ear', 'intent', 'leech', 'breath']);
     expect(META.every(x => x.desc.every(line => [...line].length <= 14))).toBe(true);
   });
 
@@ -76,12 +76,12 @@ describe('hideout upgrades', () => {
 
   it('turns a mixed set of purchases into run modifiers', () => {
     const p = fresh();
-    expect(runMods(p)).toMatchObject({ dmgMul: 1, critBonus: 0, dartBonus: 0, rerolls: 1, hpBonus: 0, deathDefy: 0, startIntent: 0, windupMul: 1, startManual: false, poiseHeal: 0 });
-    p.perks = { blade: 2, darts: 1, reroll: 2, manual: 1, vigor: 3, breath: 1, intent: 1, leech: 2, ear: 2 };
+    expect(runMods(p)).toMatchObject({ dmgMul: 1, critBonus: 0, dartBonus: 0, startCoins: 0, hpBonus: 0, deathDefy: 0, startIntent: 0, windupMul: 1, startManual: false, poiseHeal: 0 });
+    p.perks = { blade: 2, darts: 1, manual: 1, vigor: 3, breath: 1, intent: 1, leech: 2, ear: 2 };
     // act-161: the medic's old levels fold into the altar once (they used to stay in p.perks and count twice); what fits the 6 grasp switches on,
     // cheapest first: 筋骨 (1) + 听宫 (2) + 杀意 (2) — 养气 and 闭息 wait for her to make room
-    expect(runMods(p)).toMatchObject({ dmgMul: 1.16, critBonus: 0.06, dartBonus: 1, rerolls: 3, hpBonus: 36, deathDefy: 0, startIntent: 1, windupMul: 1.12, startManual: true, poiseHeal: 0 });
-    expect(p.perks).toEqual({ blade: 2, darts: 1, reroll: 2, manual: 1 });
+    expect(runMods(p)).toMatchObject({ dmgMul: 1.16, critBonus: 0.06, dartBonus: 1, startCoins: 0, hpBonus: 36, deathDefy: 0, startIntent: 1, windupMul: 1.12, startManual: true, poiseHeal: 0 });
+    expect(p.perks).toEqual({ blade: 2, darts: 1, manual: 1 });
     expect(p.arcana!.rank).toMatchObject({ vigor: 3, breath: 1, intent: 1, leech: 2, ear: 2 });
     expect(runMods(p).hpBonus).toBe(36);   // (again: nothing left to count twice)
     // a save that widened its grasp past the new top of 12 gets that herb back and keeps what fits

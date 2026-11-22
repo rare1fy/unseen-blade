@@ -64,7 +64,7 @@ export const SEEDS: Record<SeedId, SeedDef> = {
     steps: 6, minsPerStep: 18, herb: 12, iron: 12,
     buff: 'lotus', buffName: '温脉药汤',
     desc: '双产药草+12 残铁+12 · 赠下局「温脉药汤」',
-    buffDesc: '下局生命上限+18、秘传重随+1',
+    buffDesc: '下局生命上限+18、开局铜钱+35',
   },
   xuanzhi: {
     id: 'xuanzhi', name: '九叶玄芝', col: 0xd696ff, hex: '#e0a8ff',
@@ -176,18 +176,42 @@ export function plantSeed(p: Profile, idx: number, seed: SeedId, now = Date.now(
   return true;
 }
 
-export function harvestPlot(p: Profile, idx: number, now = Date.now()): { seed: SeedDef; herb: number; iron: number; buff?: GardenBuffId } | null {
+export function harvestPlot(
+  p: Profile,
+  idx: number,
+  now = Date.now(),
+  double = false,
+): { seed: SeedDef; herb: number; iron: number; buff?: GardenBuffId; bonusSeed?: SeedId } | null {
   const { state } = ensureGarden(p, now);
   const plot = state.plots[idx];
   if (!plot) return null;
   const st = plotStatus(plot, now);
   if (!st.done) return null;
   const def = SEEDS[plot.seed];
-  p.herb += def.herb;
-  p.iron += def.iron;
+  const mul = double ? 2 : 1;
+  const herb = def.herb * mul;
+  const iron = def.iron * mul;
+  p.herb += herb;
+  p.iron += iron;
+  let bonusSeed: SeedId | undefined;
+  if (double) {
+    state.seeds[plot.seed] = (state.seeds[plot.seed] ?? 0) + 1;
+    bonusSeed = plot.seed;
+  }
   if (def.buff) state.buff = def.buff;
   state.plots[idx] = null;
-  return { seed: def, herb: def.herb, iron: def.iron, buff: def.buff };
+  return { seed: def, herb, iron, buff: def.buff, bonusSeed };
+}
+
+/** act-139 B2: Instantly ripen a growing plot via Bamboo Stream watering (rewarded ad). */
+export function ripenPlotNow(p: Profile, idx: number, now = Date.now()): SeedDef | null {
+  const { state } = ensureGarden(p, now);
+  const plot = state.plots[idx];
+  if (!plot) return null;
+  const def = SEEDS[plot.seed];
+  if (!def || plotStatus(plot, now).done) return null;
+  plot.rooms = Math.max(plot.rooms, def.steps);
+  return def;
 }
 
 /** Advance all planted plots when the hero clears a combat room; returns names of plots that just ripened */

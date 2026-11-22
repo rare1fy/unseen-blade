@@ -88,26 +88,28 @@ function arcTex() { return ARC_TEX ?? (ARC_TEX = paintTriArrow(false)); }
 /** High-danger off-screen arrow (foe winding up / lunging): bright gold-white pulsing pixel triangle. */
 function arcHotTex() { return ARC_HOT_TEX ?? (ARC_HOT_TEX = paintTriArrow(true)); }
 
-/** forged-iron horizontal dock rail behind the 4 compact console/PC skill medallions (unit width = 1, height = 1 in local coords) */
-function makeDockRail(): THREE.Group {
+/** themed horizontal dock rail behind the 4 compact console/PC skill medallions (unit width = 1, height = 1 in local coords) */
+function makeDockRail(skin: SkinId = 'iron'): THREE.Group {
   const g = new THREE.Group();
   const col = new THREE.Color();
+  const body = skin === 'lacquer' ? 0x1c0b0e : skin === 'bamboo' ? 0x624822 : 0x1e2026;
+  const inner = skin === 'lacquer' ? 0x120608 : skin === 'bamboo' ? 0x3b2a14 : 0x15161c;
+  const lip = skin === 'lacquer' ? 0xd8a238 : skin === 'bamboo' ? 0xdcc482 : 0x626876;
+  const bot = skin === 'lacquer' ? 0x7c1c18 : skin === 'bamboo' ? 0x483218 : 0x353944;
+  const cap = skin === 'lacquer' ? 0x8e1e18 : skin === 'bamboo' ? 0x76582c : 0x765126;
+  const capHi = skin === 'lacquer' ? 0xf2c860 : skin === 'bamboo' ? 0xe8d08e : 0xb88442;
+  const riv = skin === 'lacquer' ? 0xffe07a : skin === 'bamboo' ? 0xb82c24 : 0xc8924a;
   const specs: Array<[number, number, number, number, number, number, number]> = [
-    // main dark-iron backing bar
-    [1.0, 0.72, 0.14, 0, 0, 0, 0x1e2026],
-    // recessed inner trough
-    [0.92, 0.50, 0.16, 0, 0, 0.02, 0x15161c],
-    // lit upper iron lip
-    [0.98, 0.075, 0.17, 0, 0.34, 0.02, 0x626876],
-    // subtle lower bevel
-    [0.96, 0.055, 0.16, 0, -0.34, 0.01, 0x353944],
-    // left & right bronze end caps + rivets
-    [0.045, 0.86, 0.20, -0.50, 0, 0.03, 0x765126],
-    [0.045, 0.08, 0.21, -0.50, 0.39, 0.035, 0xb88442],
-    [0.022, 0.12, 0.23, -0.46, 0, 0.04, 0xc8924a],
-    [0.045, 0.86, 0.20, 0.50, 0, 0.03, 0x765126],
-    [0.045, 0.08, 0.21, 0.50, 0.39, 0.035, 0xb88442],
-    [0.022, 0.12, 0.23, 0.46, 0, 0.04, 0xc8924a],
+    [1.0, 0.72, 0.14, 0, 0, 0, body],
+    [0.92, 0.50, 0.16, 0, 0, 0.02, inner],
+    [0.98, 0.075, 0.17, 0, 0.34, 0.02, lip],
+    [0.96, 0.055, 0.16, 0, -0.34, 0.01, bot],
+    [0.045, 0.86, 0.20, -0.50, 0, 0.03, cap],
+    [0.045, 0.08, 0.21, -0.50, 0.39, 0.035, capHi],
+    [0.022, 0.12, 0.23, -0.46, 0, 0.04, riv],
+    [0.045, 0.86, 0.20, 0.50, 0, 0.03, cap],
+    [0.045, 0.08, 0.21, 0.50, 0.39, 0.035, capHi],
+    [0.022, 0.12, 0.23, 0.46, 0, 0.04, riv],
   ];
   const geos: THREE.BufferGeometry[] = [];
   for (const [w, h, d, x, y, z, hex] of specs) {
@@ -218,13 +220,20 @@ export class ActHud {
     for (const uid of this.eliteTags) this.L.text.hide('act.el.' + uid); this.eliteTags.clear();
     if (this.boss) { this.boss.g.parent?.remove(this.boss.g); this.boss = null; }
     this.skin = SKIN.id;
-    if (this.skin === 'iron') {
-      this.flask = new IronHp(L, this.sparks); this.stick = new IronStick(L);
-      this.btns = { attack: new IronBtn(L, 'attack', this.sparks), dash: new IronBtn(L, 'dash', this.sparks), special: new IronBtn(L, 'special', this.sparks), jump: new IronBtn(L, 'jump', this.sparks), ult: new IronBtn(L, 'ult', this.sparks) };
-    } else {
-      this.flask = new SkinHp(L, this.skin, this.sparks); this.stick = new SkinStick(L, this.skin);
-      this.btns = { attack: new SkinBtn(L, 'attack', this.sparks, this.skin), dash: new SkinBtn(L, 'dash', this.sparks, this.skin), special: new SkinBtn(L, 'special', this.sparks, this.skin), jump: new SkinBtn(L, 'jump', this.sparks, this.skin), ult: new SkinBtn(L, 'ult', this.sparks, this.skin) };
+    // act-139 A2: rebuild themed horizontal dock rail & unified high-craft 3D IronHp/IronStick/IronBtn across ALL 3 skins!
+    if (this.dockRail) {
+      this.dockRail.parent?.remove(this.dockRail);
+      this.dockRail.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh) { m.geometry.dispose(); (m.material as THREE.Material).dispose(); } });
     }
+    this.dockRail = makeDockRail(this.skin); this.dockRail.visible = false; L.scene.add(this.dockRail);
+    this.flask = new IronHp(L, this.sparks, this.skin); this.stick = new IronStick(L, this.skin);
+    this.btns = {
+      attack: new IronBtn(L, 'attack', this.sparks, this.skin),
+      dash: new IronBtn(L, 'dash', this.sparks, this.skin),
+      special: new IronBtn(L, 'special', this.sparks, this.skin),
+      jump: new IronBtn(L, 'jump', this.sparks, this.skin),
+      ult: new IronBtn(L, 'ult', this.sparks, this.skin),
+    };
     if (st) this.flask.set(st);
     this.layout(this.W, this.H);
   }

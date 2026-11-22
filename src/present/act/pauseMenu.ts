@@ -21,6 +21,8 @@ import { MoveStage } from './moveStage';
 import { UI_WORDS } from './skillInfo';
 import { backShield, type MiniShield } from './btnBadge';
 import { uiScale } from './uiScale';
+import { SKIN } from './skin';
+import { makeCanvas } from '../../platform/index';
 
 export interface MenuSetting { id?: string; label: () => string; run: () => void }
 export interface PauseHost {
@@ -50,23 +52,30 @@ type Page = 'main' | 'keys' | 'set' | 'ask' | 'askTitle' | 'build' | 'owned' | '
 interface Row { id: string; label: () => string; act?: BtnName; run?: () => void }
 
 const TXT = { on: '#d9ccb2', sel: '#ffd88a', dim: '#8a7e70', line: '#0a0708', wait: '#ffe6b0' };
-/** the slab in CSS px (w × h, depth d), front toward +z: an iron frame, the lacquer panel with a lit top band, bronze end caps with a rivet */
+/** the slab in CSS px (w × h, depth d), front toward +z: themed for iron / lacquer / bamboo */
 function slab(w: number, h: number) {
+  const sk = SKIN.id;
+  const frameD = sk === 'lacquer' ? 0x160a0c : sk === 'bamboo' ? 0x4c341a : IRON_D;
+  const frameL = sk === 'lacquer' ? 0xd8a238 : sk === 'bamboo' ? 0xdcc482 : IRON;
+  const panel = sk === 'lacquer' ? 0x241012 : sk === 'bamboo' ? 0x382816 : LACQ;
+  const panelL = sk === 'lacquer' ? 0x5c1816 : sk === 'bamboo' ? 0x5c4424 : LACQ_L;
+  const capD = sk === 'lacquer' ? 0x8e1e18 : sk === 'bamboo' ? 0x765a30 : BRONZE_D;
+  const capL = sk === 'lacquer' ? 0xe8ba52 : sk === 'bamboo' ? 0xb82c24 : BRONZE;
   const d = Math.max(8, h * 0.2), cap = Math.max(6, Math.round(h * 0.2)), b: Parameters<typeof mergeBoxes>[0] = [];
-  b.push({ w, h, d, x: 0, y: 0, z: 0, c: IRON_D });
-  b.push({ w: w - 4, h: Math.max(2, h * 0.08), d: d + 1, x: 0, y: h / 2 - Math.max(1, h * 0.05), z: 0.4, c: IRON });
-  b.push({ w: w - cap * 1.6, h: h - Math.max(5, h * 0.2), d: d + 1.2, x: 0, y: 0, z: 0.6, c: LACQ });
-  b.push({ w: w - cap * 1.6, h: Math.max(2, h * 0.07), d: d + 1.3, x: 0, y: h / 2 - Math.max(4, h * 0.16), z: 0.6, c: LACQ_L });
+  b.push({ w, h, d, x: 0, y: 0, z: 0, c: frameD });
+  b.push({ w: w - 4, h: Math.max(2, h * 0.08), d: d + 1, x: 0, y: h / 2 - Math.max(1, h * 0.05), z: 0.4, c: frameL });
+  b.push({ w: w - cap * 1.6, h: h - Math.max(5, h * 0.2), d: d + 1.2, x: 0, y: 0, z: 0.6, c: panel });
+  b.push({ w: w - cap * 1.6, h: Math.max(2, h * 0.07), d: d + 1.3, x: 0, y: h / 2 - Math.max(4, h * 0.16), z: 0.6, c: panelL });
   for (const s of [-1, 1]) {
-    b.push({ w: cap, h: h + 4, d: d + 2, x: s * (w / 2 + 0.5), y: 0, z: 0.4, c: BRONZE_D });
-    b.push({ w: cap, h: 2, d: d + 2.2, x: s * (w / 2 + 0.5), y: (h + 4) / 2 - 1, z: 0.4, c: BRONZE });
-    b.push({ w: Math.max(3, cap * 0.55), h: Math.max(3, cap * 0.55), d: d + 3, x: s * (w / 2 - cap * 0.55), y: 0, z: 1, c: BRONZE });
+    b.push({ w: cap, h: h + 4, d: d + 2, x: s * (w / 2 + 0.5), y: 0, z: 0.4, c: capD });
+    b.push({ w: cap, h: 2, d: d + 2.2, x: s * (w / 2 + 0.5), y: (h + 4) / 2 - 1, z: 0.4, c: capL });
+    b.push({ w: Math.max(3, cap * 0.55), h: Math.max(3, cap * 0.55), d: d + 3, x: s * (w / 2 - cap * 0.55), y: 0, z: 1, c: capL });
   }
   return new THREE.Mesh(mergeBoxes(b), new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0xff7a2a, emissiveIntensity: 0 }));
 }
 /** a face texture painted on a canvas at device resolution */
 function faceTex(w: number, h: number, draw: (g: CanvasRenderingContext2D) => void) {
-  const c = document.createElement('canvas'); c.width = Math.max(1, Math.round(w)); c.height = Math.max(1, Math.round(h));
+  const c = makeCanvas(Math.max(1, Math.round(w)), Math.max(1, Math.round(h))) as HTMLCanvasElement;
   const g = c.getContext('2d')!; g.imageSmoothingEnabled = false; draw(g);
   const t = new THREE.CanvasTexture(c); t.magFilter = THREE.NearestFilter; t.minFilter = THREE.LinearFilter; t.generateMipmaps = false; t.colorSpace = THREE.SRGBColorSpace;
   return t;
@@ -87,7 +96,7 @@ class Slab {
     this.root.add(this.face); this.root.userData.noTilt = true; this.root.renderOrder = 60; L.scene.add(this.root);
   }
   size(w: number, h: number) {
-    this.w = w; this.h = h; const k = `${w.toFixed(1)}x${h.toFixed(1)}`; if (k === this.bodyKey) return; this.bodyKey = k;
+    this.w = w; this.h = h; const k = `${SKIN.id}|${w.toFixed(1)}x${h.toFixed(1)}`; if (k === this.bodyKey) return; this.bodyKey = k;
     if (this.body) { this.root.remove(this.body); this.body.geometry.dispose(); (this.body.material as THREE.Material).dispose(); }
     this.body = slab(w, h); this.root.add(this.body); this.faceKey = '';
   }

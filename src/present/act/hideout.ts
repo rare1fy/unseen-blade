@@ -47,6 +47,10 @@ export const HIDEOUT: {
   stele: { x: number; z: number; yaw: number };
   weaponRack: { x: number; z: number; yaw: number };
   keepsakeBox: { x: number; z: number; yaw: number };
+  /** act-139 D1: 古窑长明灯（中庭西侧，典藏阁总入口） */
+  lantern: { x: number; z: number };
+  /** act-139 A5: 西翼试剑坪「试锋碑」（自由约战五首领与试配秘传） */
+  trialStele: { x: number; z: number };
   gardenPlots: Array<{ x: number; z: number }>;
   list: { x: number; z: number };
   dummies: Array<[number, number]>;
@@ -69,6 +73,8 @@ export const HIDEOUT: {
   weaponRack: { x: -3.6, z: -5.2, yaw: 0 },
   stele: { x: 0.65, z: -5.3, yaw: 0 },
   keepsakeBox: { x: 4.55, z: -5.1, yaw: 0 },
+  lantern: { x: -4.4, z: -0.9 },
+  trialStele: { x: -6.0, z: 2.8 },
   // act-132 东翼跨溪「竹溪梯田药圃」6 块 3D 体素药畦（2 列 × 3 行，通道宽敞、独立交互）
   gardenPlots: [
     { x: 18.6, z: -4.8 }, { x: 21.6, z: -4.8 },

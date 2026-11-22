@@ -14,6 +14,7 @@ import { t } from './i18n';
 import { makeCanvas } from '../../platform/index';
 import { drawMiniIcon, drawCostChip, richLine } from './uiPlate';
 import { buildHeroBladeMesh, type WeaponId } from './weapons';
+import { SKIN } from './skin';
 export { richLine };
 
 export type CardStyle = 'boon' | 'manual' | 'forge' | 'medic' | 'meal' | 'mirror' | 'keepsake' | 'weapon' | 'shop' | 'workRow' | 'arcana';
@@ -157,34 +158,6 @@ export function scrollBoard(Hh: number) {
   mesh.add(topRoller, botRoller);
   mesh.userData.scrollAnim = { body, topRoller, botRoller, halfH };
   return { mesh, metal: M };
-}
-
-/** act-128: 3D wrought-iron & bronze-riveted plaque button for 「换一批」 (matching title plaques & iron cards) */
-export function rerollPlaque() {
-  const M: Metal = { d: 0x2c2216, m: 0x7a5628, l: 0xe6b868, glow: 0xffd27a };
-  const H = 0.175, fr = 0.022;
-  const p: Parameters<typeof mergeBoxes>[0] = [], b: Parameters<typeof mergeBoxes>[0] = [];
-  p.push({ w: 1.0, h: H, d: 0.048, x: 0, y: 0, z: 0, c: IRON_D });
-  p.push({ w: 1.0 - 2 * fr, h: H - 2 * fr, d: 0.056, x: 0, y: 0, z: 0.002, c: 0x1b1614 });
-  p.push({ w: 1.0 - 2 * fr, h: 0.011, d: 0.058, x: 0, y: H / 2 - fr - 0.006, z: 0.003, c: 0x2f251e });
-  // beveled bronze-iron frame with warm lit top ridge
-  b.push({ w: 1.0, h: fr, d: 0.066, x: 0, y: H / 2 - fr / 2, z: 0.004, c: M.m });
-  b.push({ w: 0.99, h: 0.008, d: 0.070, x: 0, y: H / 2 - 0.004, z: 0.005, c: M.l });
-  b.push({ w: 1.0, h: fr, d: 0.066, x: 0, y: -H / 2 + fr / 2, z: 0.004, c: M.d });
-  for (const sx of [-1, 1]) {
-    b.push({ w: fr, h: H, d: 0.068, x: sx * (0.5 - fr / 2), y: 0, z: 0.004, c: sx < 0 ? M.m : M.d });
-    // stepped end lugs
-    b.push({ w: 0.022, h: H * 0.52, d: 0.076, x: sx * 0.508, y: 0, z: 0.006, c: M.m });
-    b.push({ w: 0.014, h: H * 0.28, d: 0.082, x: sx * 0.518, y: 0, z: 0.008, c: M.l });
-  }
-  // four corner bronze rivets
-  for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
-    b.push({ w: 0.018, h: 0.018, d: 0.022, x: sx * (0.5 - fr * 0.65), y: sy * (H / 2 - fr * 0.65), z: 0.036, c: sy > 0 ? M.l : RIVET });
-  }
-  const mesh = new THREE.Mesh(mergeBoxes(b), new THREE.MeshLambertMaterial({ vertexColors: true, emissive: M.glow, emissiveIntensity: 0.08 }));
-  const panel = new THREE.Mesh(mergeBoxes(p), new THREE.MeshLambertMaterial({ vertexColors: true })); panel.renderOrder = 32; mesh.add(panel);
-  mesh.renderOrder = 32;
-  return { mesh, metal: M, ratio: H };
 }
 
 /** act-118 / act-149: 3D voxel carved stone stele (复仇碑 · 碑铭潜能) — 3-tier Han stone arch crown, distinct Yang (warm golden sandstone) vs Yin (obsidian violet) granite */
@@ -491,23 +464,46 @@ export function cardBoard(style: CardStyle, tier: number, Hh = CARD_H, skill = f
   if (style === 'shop') return shopBoard(Hh, locked, accentHex);
   if (style === 'workRow') return workRowBoard(Hh, extra?.theme ?? 'forge', tier, locked);
   if (style === 'arcana') return arcanaBoard(Hh, !!extra?.active, !locked, !!extra?.awakening, accentHex);
-  const M = locked ? LOCKED_METAL : (style === 'boon' ? METAL[Math.max(0, Math.min(2, tier))] : tier >= 2 ? METAL[2] : STYLE_METAL[style]);
-  const [pc, pl] = locked ? [0x15141a, 0x201e28] : PANEL[style];
+  const skin = SKIN.id;
+  const baseM = locked ? LOCKED_METAL : (style === 'boon' ? METAL[Math.max(0, Math.min(2, tier))] : tier >= 2 ? METAL[2] : STYLE_METAL[style]);
+  const M: Metal = locked ? LOCKED_METAL
+    : skin === 'lacquer'
+      ? (tier >= 2 ? { d: 0x5c1814, m: 0xd0982a, l: 0xffe27a, glow: 0xffd268 } : tier === 1 ? { d: 0x5a1a16, m: 0xb87e28, l: 0xf4cc68, glow: 0xffb858 } : { d: 0x481210, m: 0x9e7026, l: 0xe2b658, glow: 0xf0be5c })
+      : skin === 'bamboo'
+        ? (tier >= 2 ? { d: 0x5a3e1c, m: 0xc8a44c, l: 0xfbe296, glow: 0xffe490 } : tier === 1 ? { d: 0x563c20, m: 0xb49250, l: 0xebd088, glow: 0xf0cf78 } : { d: 0x4e361c, m: 0x9e8048, l: 0xd8bc78, glow: 0xdcc07a })
+        : baseM;
+  const [pc, pl] = locked
+    ? [0x15141a, 0x201e28]
+    : skin === 'lacquer'
+      ? [0x1c0d10, 0x441618]
+      : skin === 'bamboo'
+        ? [0x342614, 0x543e22]
+        : PANEL[style];
+  const backCol = skin === 'lacquer' ? 0x12090b : skin === 'bamboo' ? 0x3a2814 : IRON_D;
+  const rivetCol = skin === 'lacquer' ? 0xd2342a : skin === 'bamboo' ? 0xb42a22 : RIVET;
+  const rivetDark = skin === 'lacquer' ? 0x7c1c16 : skin === 'bamboo' ? 0x6e1a14 : RIVET_D;
   const { H, SOCK, SX, DIV } = boardLayout(Hh);
   // (two meshes: the panel never glows — only the metal warms in focus; act-36 first try tinted the whole lacquer orange)
   const p: Parameters<typeof mergeBoxes>[0] = [], b: Parameters<typeof mergeBoxes>[0] = [];
-  p.push({ w: 1, h: H, d: 0.05, x: 0, y: 0, z: 0, c: IRON_D });                                                // the iron back
-  p.push({ w: 1 - 2 * FR, h: H - 2 * FR, d: 0.056, x: 0, y: 0, z: 0.002, c: pc });                            // the lacquer panel
+  p.push({ w: 1, h: H, d: 0.05, x: 0, y: 0, z: 0, c: backCol });                                                // the back
+  p.push({ w: 1 - 2 * FR, h: H - 2 * FR, d: 0.056, x: 0, y: 0, z: 0.002, c: pc });                            // the panel
   p.push({ w: 1 - 2 * FR, h: 0.012, d: 0.058, x: 0, y: H / 2 - FR - 0.006, z: 0.002, c: pl });                 // its lit top band
+  if (skin === 'lacquer' && !locked) {
+    p.push({ w: 1 - 2 * FR - 0.012, h: 0.006, d: 0.059, x: 0, y: -H / 2 + FR + 0.008, z: 0.003, c: 0x8e221c });
+  } else if (skin === 'bamboo' && !locked) {
+    for (let sx = -0.44; sx <= 0.44; sx += 0.11) {
+      p.push({ w: 0.085, h: 0.01, d: 0.059, x: sx, y: -H / 2 + FR + 0.008, z: 0.003, c: 0x5c4424 });
+    }
+  }
   // the frame: top (with a lit lip) and bottom bars, the two ends
   b.push({ w: 1, h: FR, d: 0.064, x: 0, y: H / 2 - FR / 2, z: 0.004, c: M.m }, { w: 1 - 0.01, h: 0.007, d: 0.066, x: 0, y: H / 2 - 0.0035, z: 0.004, c: M.l });
   b.push({ w: 1, h: FR, d: 0.064, x: 0, y: -H / 2 + FR / 2, z: 0.004, c: M.d });
   for (const s of [-1, 1]) b.push({ w: FR, h: H, d: 0.066, x: s * (0.5 - FR / 2), y: 0, z: 0.004, c: s < 0 ? M.m : M.d });
   // The skill picture sits over a dark insert. Its front clears the lacquer but stays below the narrow iron walls.
-  const r = skill ? 0.01 : 0.016, sd = 0.07, dark = skill ? IRON_D : M.d;
-  b.push({ w: SOCK + 2 * r, h: r, d: sd, x: SX, y: SOCK / 2 + r / 2, z: 0.006, c: skill ? IRON : M.l }, { w: SOCK + 2 * r, h: r, d: sd, x: SX, y: -SOCK / 2 - r / 2, z: 0.006, c: dark });
-  b.push({ w: r, h: SOCK, d: sd, x: SX - SOCK / 2 - r / 2, y: 0, z: 0.006, c: skill ? 0x26282e : M.m }, { w: r, h: SOCK, d: sd, x: SX + SOCK / 2 + r / 2, y: 0, z: 0.006, c: dark });
-  p.push({ w: SOCK, h: SOCK, d: 0.03, x: SX, y: 0, z: skill ? 0.019 : -0.006, c: skill ? 0x111217 : 0x0b090a });
+  const r = skill ? 0.01 : 0.016, sd = 0.07, dark = skill ? backCol : M.d;
+  b.push({ w: SOCK + 2 * r, h: r, d: sd, x: SX, y: SOCK / 2 + r / 2, z: 0.006, c: skill ? (skin === 'iron' ? IRON : M.m) : M.l }, { w: SOCK + 2 * r, h: r, d: sd, x: SX, y: -SOCK / 2 - r / 2, z: 0.006, c: dark });
+  b.push({ w: r, h: SOCK, d: sd, x: SX - SOCK / 2 - r / 2, y: 0, z: 0.006, c: skill ? (skin === 'iron' ? 0x26282e : M.d) : M.m }, { w: r, h: SOCK, d: sd, x: SX + SOCK / 2 + r / 2, y: 0, z: 0.006, c: dark });
+  p.push({ w: SOCK, h: SOCK, d: 0.03, x: SX, y: 0, z: skill ? 0.019 : -0.006, c: skill ? (skin === 'lacquer' ? 0x300e0e : 0x111217) : 0x0b090a });
   b.push({ w: 0.01, h: H - 2 * FR, d: 0.06, x: DIV, y: 0, z: 0.003, c: M.d });
   // act-118: 秘传 iron plaques wear stepped armor lugs + a glowing archetype-colored voxel inlay strip on the divider so they read as forged talisman armor
   if (style === 'boon') {
@@ -520,10 +516,10 @@ export function cardBoard(style: CardStyle, tier: number, Hh = CARD_H, skill = f
       b.push({ w: 0.022, h: 0.022, d: 0.082, x: -0.506, y: 0, z: 0.01, c: accentHex });
     }
   }
-  // rivets: the four corners of the frame, then along the top and bottom bars
+  // rivets / corner seals: the four corners of the frame, then along the top and bottom bars
   const rv = 0.016, rz = 0.04;
-  for (const [x, y] of [[-0.5 + FR / 2, H / 2 - FR / 2], [0.5 - FR / 2, H / 2 - FR / 2], [-0.5 + FR / 2, -H / 2 + FR / 2], [0.5 - FR / 2, -H / 2 + FR / 2]]) b.push({ w: rv, h: rv, d: 0.02, x, y, z: rz, c: RIVET });
-  for (let x = DIV + 0.1; x < 0.5 - 0.06; x += 0.13) for (const y of [H / 2 - FR / 2, -H / 2 + FR / 2]) b.push({ w: rv * 0.8, h: rv * 0.8, d: 0.018, x, y, z: rz, c: y > 0 ? RIVET : RIVET_D });
+  for (const [x, y] of [[-0.5 + FR / 2, H / 2 - FR / 2], [0.5 - FR / 2, H / 2 - FR / 2], [-0.5 + FR / 2, -H / 2 + FR / 2], [0.5 - FR / 2, -H / 2 + FR / 2]]) b.push({ w: rv, h: rv, d: 0.02, x, y, z: rz, c: rivetCol });
+  for (let x = DIV + 0.1; x < 0.5 - 0.06; x += 0.13) for (const y of [H / 2 - FR / 2, -H / 2 + FR / 2]) b.push({ w: rv * 0.8, h: rv * 0.8, d: 0.018, x, y, z: rz, c: y > 0 ? rivetCol : rivetDark });
   // the tier: corner brackets from 珍品, a crest on top for 绝品
   if (style === 'boon' && tier >= 1) for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
     const cx = sx * (0.5 - 0.004), cy = sy * (H / 2 - 0.004), L = 0.06, T = 0.012;

@@ -121,8 +121,8 @@ function tails(v: VoxChar, band: number, bandD: number, at: 'tie' | 'knot') {
 }
 
 // ================================================================== 白发 (the default look)
-export function buildWhiteFine(): VoxChar {
-  const v = new VoxChar(CELL / 2), P = C as unknown as Pal;
+export function buildWhiteFine(palOverride?: Partial<Pal>): VoxChar {
+  const v = new VoxChar(CELL / 2), P = { ...C, ...palOverride } as unknown as Pal;
   skeleton(v, 'tie'); legs(v, P); torso(v, P);
   // the empty right sleeve tied at the waist, hanging behind the right hip (3-segment articulated cloth chain hipSlv1 -> hipSlv2 -> hipSlv3)
   B(v, 'hipSlv1', -6, 21, -6, -4, 25, -5, P.ROBE);
@@ -166,9 +166,14 @@ export function buildWhiteFine(): VoxChar {
 const HAT = { ...C, ROBE: 0x364254, ROBE_L: 0x52647c, ROBE_D: 0x222a36, INNER: 0xebe4d4, SASH: 0x1b191e, SASH_L: 0x32303c, WRAP: 0xa49b8a, WRAP_D: 0x6e665a,
   SKIN: 0xe4bca0, SKIN_D: 0xbe9274, HAIR: 0xeeeef6, HAIR_L: 0xfafaff, HAIR_D: 0xbac0d6, TROU: 0x202430, BOOT: 0x543826, BOOT_L: 0x6e4c36, RED: 0xc43028, RED_D: 0x7e1c20 };
 const STRAW = 0xcfa85a, STRAW_D = 0x8e6b30, STRAW_DD = 0x63481e, STRAW_L = 0xe8c87e, RED_L = 0xde4a3a, LEATH = 0x523624, LACQ = 0x1a181e, BRONZE = 0xb8893a, BRONZE_L = 0xe2ba64;
-export function buildHatFine(): VoxChar {
-  const v = new VoxChar(CELL / 2), P = HAT as unknown as Pal;
-  skeleton(v, 'knot'); legs(v, P, { sole: STRAW_D, shinTop: 11 }); torso(v, P);
+export function buildHatFine(opts?: { pal?: Partial<Pal>; straw?: [number, number, number, number]; crown?: number }): VoxChar {
+  const v = new VoxChar(CELL / 2), P = { ...HAT, ...(opts?.pal ?? {}) } as unknown as Pal;
+  const sMain = opts?.straw?.[0] ?? STRAW;
+  const sDark = opts?.straw?.[1] ?? STRAW_D;
+  const sDeep = opts?.straw?.[2] ?? STRAW_DD;
+  const sLite = opts?.straw?.[3] ?? STRAW_L;
+  const sCrown = opts?.crown ?? 0x3e3228;
+  skeleton(v, 'knot'); legs(v, P, { sole: sDark, shinTop: 11 }); torso(v, P);
   // Form-First body upgrades matching 白发: sloped shoulders, A-line flared skirt hem, sleek 3-row neck, restrained martial finish
   B(v, 'chest', -7, 37, -4, -7, 37, 3, null); B(v, 'chest', 6, 37, -4, 6, 37, 3, null);
   B(v, 'chest', -6, 37, -4, -6, 37, -4, null); B(v, 'chest', 5, 37, -4, 5, 37, -4, null);
@@ -242,17 +247,56 @@ export function buildHatFine(): VoxChar {
     }
   };
   const brim = (y0: number, y1: number, c: number) => { hatBox(-18, y0, -12, 17, y1, 11, c); hatBox(-15, y0, -15, 14, y1, 14, c); hatBox(-12, y0, -18, 11, y1, 17, c); };
-  hatBox(-14, 50, -10, 13, 50, 9, STRAW_DD); hatBox(-10, 50, -14, 9, 50, 13, STRAW_DD);
-  brim(51, 52, STRAW);
-  v.paint(c => (c.part === 'hat' && c.y === 51 && (!v.get(c.x + 1, 51, c.z) || !v.get(c.x - 1, 51, c.z) || !v.get(c.x, 51, c.z + 1) || !v.get(c.x, 51, c.z - 1)) ? STRAW_D : null));
-  hatBox(-11, 53, -8, 10, 54, 7, STRAW); hatBox(-8, 53, -11, 7, 54, 10, STRAW);
-  v.paint(c => (c.part === 'hat' && c.y === 53 && c.x >= -11 && c.x <= 10 && c.z >= -8 && c.z <= 7 ? STRAW_D : null));
-  hatBox(-8, 55, -7, 7, 56, 6, STRAW_L); hatBox(-7, 55, -8, 6, 56, 7, STRAW_L);
-  hatBox(-5, 57, -5, 4, 58, 4, STRAW_L); hatBox(-3, 59, -3, 2, 59, 2, STRAW_L); hatBox(-1, 60, -1, 0, 60, 0, 0x3e3228);
+  hatBox(-14, 50, -10, 13, 50, 9, sDeep); hatBox(-10, 50, -14, 9, 50, 13, sDeep);
+  brim(51, 52, sMain);
+  v.paint(c => (c.part === 'hat' && c.y === 51 && (!v.get(c.x + 1, 51, c.z) || !v.get(c.x - 1, 51, c.z) || !v.get(c.x, 51, c.z + 1) || !v.get(c.x, 51, c.z - 1)) ? sDark : null));
+  hatBox(-11, 53, -8, 10, 54, 7, sMain); hatBox(-8, 53, -11, 7, 54, 10, sMain);
+  v.paint(c => (c.part === 'hat' && c.y === 53 && c.x >= -11 && c.x <= 10 && c.z >= -8 && c.z <= 7 ? sDark : null));
+  hatBox(-8, 55, -7, 7, 56, 6, sLite); hatBox(-7, 55, -8, 6, 56, 7, sLite);
+  hatBox(-5, 57, -5, 4, 58, 4, sLite); hatBox(-3, 59, -3, 2, 59, 2, sLite); hatBox(-1, 60, -1, 0, 60, 0, sCrown);
   return v;
 }
 
+// ================================================================== act-139 典藏行头（A1）：雪夜白蓑 / 玄铁短氅 / 朱缨赤客
+export function buildSnowFine(): VoxChar {
+  return buildHatFine({
+    pal: {
+      ROBE: 0xdce4ee, ROBE_L: 0xf4f8ff, ROBE_D: 0x9aa8bc,
+      INNER: 0x2a3444, SASH: 0x263248, SASH_L: 0x485e7e,
+      WRAP: 0xc2ccd8, WRAP_D: 0x8694a8, TROU: 0x222a38,
+      BOOT: 0x242834, BOOT_L: 0x3c4456, RED: 0xc82c26, RED_D: 0x821818,
+    },
+    straw: [0xe6eef6, 0xa8b8cc, 0x76889e, 0xf8fcff],
+    crown: 0xb8302a,
+  });
+}
+
+export function buildObsidianFine(): VoxChar {
+  return buildHatFine({
+    pal: {
+      ROBE: 0x1d1e24, ROBE_L: 0x383b46, ROBE_D: 0x101116,
+      INNER: 0x8c6830, SASH: 0x6e4e22, SASH_L: 0xd8a852,
+      WRAP: 0x3a3634, WRAP_D: 0x221f1e, TROU: 0x14151a,
+      BOOT: 0x161418, BOOT_L: 0x343038, RED: 0xd09a40, RED_D: 0x82581c,
+    },
+    straw: [0x262830, 0x16171d, 0x0e0f14, 0xc89642],
+    crown: 0xe6b860,
+  });
+}
+
+export function buildCrimsonFine(): VoxChar {
+  return buildWhiteFine({
+    ROBE: 0x8e2220, ROBE_L: 0xb83630, ROBE_D: 0x561212,
+    INNER: 0x1c1a20, SASH: 0x141318, SASH_L: 0xd29c46,
+    WRAP: 0xd8d0c0, WRAP_D: 0x988e7e, TROU: 0x18161e,
+    BOOT: 0x16141a, BOOT_L: 0x342c30, RED: 0xe6be68, RED_D: 0x9c7428,
+  });
+}
+
 /** the fine white-haired heroine: same joints as slim_white, so every move plays; tip = the blade's length in her cells */
-export const FINE_WHITE: ModelDef = { id: 'fine_white', name: '白发', group: '职业', role: '蒙眼女刀客', line: '', kind: 'biped', attack: 'dual', tip: 38, build: buildWhiteFine };
+export const FINE_WHITE: ModelDef = { id: 'fine_white', name: '白发', group: '职业', role: '蒙眼女刀客', line: '', kind: 'biped', attack: 'dual', tip: 38, build: () => buildWhiteFine() };
 /** the 斗笠 look at 3.5 cm (the other choice in 设置) */
-export const FINE_HAT: ModelDef = { id: 'fine_hat', name: '斗笠', group: '职业', role: '蒙眼女刀客', line: '', kind: 'biped', attack: 'dual', tip: 38, build: buildHatFine };
+export const FINE_HAT: ModelDef = { id: 'fine_hat', name: '斗笠', group: '职业', role: '蒙眼女刀客', line: '', kind: 'biped', attack: 'dual', tip: 38, build: () => buildHatFine() };
+export const FINE_SNOW: ModelDef = { id: 'fine_snow', name: '雪夜白蓑', group: '职业', role: '蒙眼女刀客', line: '', kind: 'biped', attack: 'dual', tip: 38, build: buildSnowFine };
+export const FINE_OBSIDIAN: ModelDef = { id: 'fine_obsidian', name: '玄铁短氅', group: '职业', role: '蒙眼女刀客', line: '', kind: 'biped', attack: 'dual', tip: 38, build: buildObsidianFine };
+export const FINE_CRIMSON: ModelDef = { id: 'fine_crimson', name: '朱缨赤客', group: '职业', role: '蒙眼女刀客', line: '', kind: 'biped', attack: 'dual', tip: 38, build: buildCrimsonFine };

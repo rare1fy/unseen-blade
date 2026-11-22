@@ -79,8 +79,19 @@ import {
 } from './meta';
 import { WEAPONS, WEAPON_ORDER, weaponDef, isWeaponUnlocked, weaponLevel, weaponNextCost, canForgeWeapon, hasAnyWeaponForgeable, forgeWeapon, equippedWeapon, equipWeapon, buildCourtyardWeaponRack, type WeaponId } from './weapons';
 import { KEEPSAKES, KEEPSAKE_ORDER, KEEPSAKE_STARS, keepsakeDef, isKeepsakeUnlocked, unlockKeepsake, keepsakeRooms, keepsakeStar, starLabel, equippedKeepsake, equipKeepsake, advanceKeepsake, buildKeepsakeBoxModel, type KeepsakeId } from './keepsakes';
-import { SEEDS, SEED_ORDER, PLOT_COSTS, ensureGarden, plotStatus, isPlotUnlocked, canUnlockPlot, unlockPlot, plantSeed, harvestPlot, advanceGardenRooms, totalSeeds, ripePlotIndices, hasPlantablePlot, rollSeedDrop, addSeed, buildGardenPlotMesh } from './garden';
+import { SEEDS, SEED_ORDER, PLOT_COSTS, ensureGarden, plotStatus, isPlotUnlocked, canUnlockPlot, unlockPlot, plantSeed, harvestPlot, ripenPlotNow, advanceGardenRooms, totalSeeds, ripePlotIndices, hasPlantablePlot, rollSeedDrop, addSeed, buildGardenPlotMesh } from './garden';
 import { HIDEOUT_ZONES, HIDEOUT_ZONE_ORDER, hideoutProgress, isDuwuDead, buildZoneMonumentModel, type HideoutZoneId } from './hideoutProgress';
+import { showRewardedAd, setAdSimHost, type AdPlacement } from '../../platform/ads';
+import { AdSimModal } from './adModal';
+import {
+  COLLECTORS, LANTERN_MILESTONES, ARCHIVE_PEOPLE, SANDBOX_BOSSES, GARDEN_SPEED_DAILY_MAX,
+  ensureAds, isCollectorUnlocked, collectorProgress, recordAdWatched, nextLanternMilestone,
+  gardenSpeedLeft, consumeGardenSpeed, activeUiSkin, activeBladeFx, activeOutfitId,
+  activeHideoutMood, activeHideoutDecors, clearRunAdBuffs,
+  type HideoutMoodId, type HideoutDecorId,
+} from './collectors';
+import { buildLanternStand, buildTrialStele, buildHideoutDecor } from './hideoutExtras';
+import { sayLine } from '../../audio/voice';
 import { GeneralEventRunner, GENERAL_EVENTS, type GeneralBlessingId, type GeneralEventMeta, type EventOutcome } from './generalEvents';
 import { NPC_LINES, UP_LINES, POOR_LINES, HAUL, MEALS, MEAL_LINES, STELE_LINES } from './hideoutLines';
 import { Leaves } from './leaves';
@@ -177,9 +188,9 @@ import { Action } from '../actors/rig';
 addLocales(NINJA_LOCALES); addLocales(HANMO_LOCALES); addLocales(HANSHAN_LOCALES); addLocales(LUOYANG_LOCALES); addLocales(XIAPI_LOCALES);   // (11-18: regions two and three)
 
 /** prices at the 行商 (copper coins) */
-/** act-161: every ware ×1.6 (a run earns about 2600 coins once elites pay once; at the old prices a stall a region left 1700+ unspent) */
-const PRICES = { boon: 96, heal: 48, sharpen: 80, vigor: 88, reroll: 64, satchel: 72 };
-const SHOP_SPECIALS: ShopSpecial[] = ['vigor', 'reroll', 'satchel'];
+/** act-161 / act-169: every ware ×1.6; reroll removed */
+const PRICES = { boon: 96, heal: 48, sharpen: 80, vigor: 88, satchel: 72 };
+const SHOP_SPECIALS: ShopSpecial[] = ['vigor', 'satchel'];
 /** a soft dark spot for under the feet: a radial fade drawn once, shared by every spot */
 let SHADOW_TEX: THREE.Texture | null = null;
 function contactMaterial() {
@@ -324,7 +335,10 @@ function onward(room: number, visited: RoomType[], region: number, ctx?: RunCtx)
 }
 export function roomDefinition(o: RoomIn) {
   const { isYard } = o;
-  const ya = o.yardAtmo ?? { time: 'dusk' as HideoutTime, weather: 'clear' as HideoutWeather };
+  const ya = o.yardAtmo ?? (() => {
+    const mood = activeHideoutMood(profile());
+    return { time: mood.time as HideoutTime, weather: mood.weather as HideoutWeather };
+  })();
   const seed = o.seed ?? (Date.now() % 100000) + o.room * 977;
   const base = pickSpec(seed, Object.values(REGISTRY.locales), REGISTRY.layouts, o.recent, { season: o.regionSpec?.season ?? 'autumn', locale: o.locale });
   const spec: Spec = isYard ? { ...base, season: ya.weather === 'snow' ? 'winter' : 'autumn', time: ya.time, weather: ya.weather, exits: ['back'] }
@@ -394,8 +408,15 @@ export class ActShow {
   /** act-19: the floor's cover and props (collision), the breakable props, the room's walls / gates / cover plan */
   private lightningT = 6;
   /** act-20 meta: what the hideout's upgrades give this run; the run's tally for the trip home */
-  private mods: RunMods = { dmgMul: 1, critBonus: 0, dartBonus: 0, rerolls: 1, hpBonus: 0, deathDefy: 0, startIntent: 0, windupMul: 1, startManual: false, poiseHeal: 0, firstStrikeBonus: 0, styleBonus: 0, dashCdMul: 1, counterBonus: 0, markedDmgBonus: 0, poiseDmgMul: 1, rareOddsBonus: 0, interestRate: 0 };
-  private rerollsLeft = 1;
+  private mods: RunMods = { dmgMul: 1, critBonus: 0, dartBonus: 0, startCoins: 0, hpBonus: 0, deathDefy: 0, startIntent: 0, windupMul: 1, startManual: false, poiseHeal: 0, firstStrikeBonus: 0, styleBonus: 0, dashCdMul: 1, counterBonus: 0, markedDmgBonus: 0, poiseDmgMul: 1, rareOddsBonus: 0, interestRate: 0 };
+  /** act-169: rewarded ad modal, per-run revive & divination trackers, and hideout 3D extras */
+  private adModal!: AdSimModal;
+  private usedRevive = false;
+  private divineSchoolRun: Archetype | null = null;
+  private lanternMesh: THREE.Group | null = null; private lanternTick: ((t: number) => void) | null = null;
+  private decorMesh: THREE.Group | null = null; private decorTick: ((t: number) => void) | null = null;
+  private trialSteleMesh: THREE.Group | null = null;
+  private extraAnimT = 0;
   /** act-161 调试版战斗统计（__dh.fight()）: this run's damage by source, each boss's time (its body, its barrier phases), blows taken, health given
    *  back — the numbers the balance model could only guess at. Filled only under __DEBUG_UI__ (the desktop / Pages build) */
   private fightLog = { t0: 0, dmg: {} as Record<string, { n: number; sum: number }>, bosses: [] as Array<{ uid: number; kind: string; region: number; hp: number; t0: number; t1: number; gate: number }>, taken: { n: 0, sum: 0, byBoss: 0 }, healed: 0 };
@@ -972,10 +993,55 @@ export class ActShow {
   private lastWon = false;
   private bankRun(won: boolean) {
     this.lastWon = won;
+    const p = profile();
+    if (won && !this.usedRevive) { p.soloWins = (p.soloWins ?? 0) + 1; }
     // 11-18: a room in region n counts n rooms; every boss killed counts (runReward's boss share is a boolean: the bosses past the first
     // go in as 5 rooms each — act-161: was 15, which alone was 60 rooms on a clear)
     const rooms = roomsWorth(this.region, this.room, won) + Math.max(0, this.bosses - 1) * 5;
-    this.banked = bank(profile(), { rooms, elites: this.eliteKills, boss: this.bossKilled, won, kills: this.kills }); saveProfile();
+    this.banked = bank(p, { rooms, elites: this.eliteKills, boss: this.bossKilled, won, kills: this.kills });
+    clearRunAdBuffs(p);
+    saveProfile();
+    this.syncCollectorVisuals();
+  }
+  /** Current active weapon id, honoring B1 借刃一试 single-run rental before permanent equipped weapon */
+  private currentWeaponId(p = profile()): WeaponId {
+    const rent = p.ads?.rentWeapon as WeaponId | null | undefined;
+    if (rent && rent in WEAPONS) return rent;
+    return equippedWeapon(p, this.dbgAllWeapons);
+  }
+  /** Unified rewarded-ad runner: watches ad, records D1 长明灯 oil, auto-unlocks milestones & syncs visuals */
+  private async watchAd(placement: AdPlacement, title: string, rewardText: string, directItemId?: string): Promise<boolean> {
+    const res = await showRewardedAd({ placement, title, rewardText });
+    if (!res.watched) return false;
+    const p = profile();
+    const { total, newlyUnlocked } = recordAdWatched(p, directItemId);
+    saveProfile();
+    this.syncCollectorVisuals();
+    if (newlyUnlocked.length > 0) {
+      const names = newlyUnlocked.map(x => x.name).join('、');
+      after(0.45, () => {
+        cue('reveal', 0.9);
+        this.banner.show(msg`长明灯添油（${total}盏）`, msg`永久解锁：${names}`, 2.6, '#ffe278');
+      });
+    }
+    return true;
+  }
+  /** Sync all A1/A2/A3 collector visuals (outfit, blade FX skin, UI skin, Cinema Ink filter) from profile */
+  private syncCollectorVisuals() {
+    const p = profile(), allFree = this.dbgAllWeapons;
+    const wantSkin = activeUiSkin(p, allFree);
+    if (SKIN.id !== wantSkin) {
+      setSkin(wantSkin);
+      this.hud?.reskin();
+      if (this.banner) { this.banner.dispose(); this.banner = new SkinBanner(this.L, wantSkin, () => this.hud.bossOn); }
+    }
+    slashArc.setSkin(activeBladeFx(p, allFree));
+    GRADE.cinemaInk = p.inkFilter && isCollectorUnlocked(p, 'filter_ink', allFree) ? 1 : 0;
+    const wantOutfit = activeOutfitId(p, allFree);
+    if (this.wearing && this.wearing.id !== wantOutfit) {
+      const def = HEROES.find(d => d.id === wantOutfit);
+      if (def) this.wear(def);
+    }
   }
   /** 11-18: the foes' strength for region ri from the run's starting TUNE (region one: as it was) */
   private scaleFoes(ri: number) {
@@ -1028,7 +1094,7 @@ export class ActShow {
     this.L.text.hide('act.yard.exit');
     this.L.text.hide('act.station.hint');
     this.worldPlates?.hidePrefix('ho.');
-    for (const id of ['fengtiebi', 'sunao', 'duwu', 'luzhao', 'huanyue', 'stele', 'weaponRack', 'keepsakeBox']) this.L.text.hide('act.beacon.' + id);
+    for (const id of ['fengtiebi', 'sunao', 'duwu', 'luzhao', 'huanyue', 'stele', 'weaponRack', 'keepsakeBox', 'lantern', 'trialStele']) this.L.text.hide('act.beacon.' + id);
     for (const zid of HIDEOUT_ZONE_ORDER) this.L.text.hide('act.beacon.zone_' + zid);
     for (let i = 0; i < HIDEOUT.gardenPlots.length; i++) this.L.text.hide('act.beacon.garden_' + i);
     for (const m of this.marks.values()) {
@@ -1134,12 +1200,35 @@ export class ActShow {
     if (this.keepsakeBoxMesh) { this.keepsakeBoxMesh.parent?.remove(this.keepsakeBoxMesh); this.keepsakeBoxMesh = null; }
     if (this.duwuMemorialMesh) { this.duwuMemorialMesh.parent?.remove(this.duwuMemorialMesh); this.duwuMemorialMesh = null; }
     if (this.duwuMemorialExclaim) { this.duwuMemorialExclaim.parent?.remove(this.duwuMemorialExclaim); this.duwuMemorialExclaim = null; }
+    if (this.lanternMesh) { this.lanternMesh.parent?.remove(this.lanternMesh); this.lanternMesh = null; this.lanternTick = null; }
+    if (this.decorMesh) { this.decorMesh.parent?.remove(this.decorMesh); this.decorMesh = null; this.decorTick = null; }
+    if (this.trialSteleMesh) { this.trialSteleMesh.parent?.remove(this.trialSteleMesh); this.trialSteleMesh = null; }
     for (const gm of this.gardenMeshes) gm.parent?.remove(gm);
     this.gardenMeshes = [];
     this.clearZoneMonuments();
     const p = profile();
     const prog = hideoutProgress(p, this.dbgAllWeapons);
     this.syncHideoutSolids(prog);
+
+    // act-169 D1: 古窑长明灯（中庭典藏阁入口）& A4 四件古窑 3D 装潢 & A5 西翼试锋碑
+    {
+      const oil = ensureAds(p).total;
+      const lt = buildLanternStand(oil);
+      lt.g.position.set(HIDEOUT.lantern.x, 0, HIDEOUT.lantern.z);
+      this.stage.root.add(lt.g);
+      this.lanternMesh = lt.g;
+      this.lanternTick = lt.tick;
+
+      const dec = buildHideoutDecor(activeHideoutDecors(p, this.dbgAllWeapons));
+      this.stage.root.add(dec.g);
+      this.decorMesh = dec.g;
+      this.decorTick = dec.tick;
+
+      const ts = buildTrialStele();
+      ts.position.set(HIDEOUT.trialStele.x, 0, HIDEOUT.trialStele.z);
+      this.stage.root.add(ts);
+      this.trialSteleMesh = ts;
+    }
 
     // act-154: when Du Wu has perished at Xiapi White Gate, his SE hearth becomes a warm memorial tended by Sun Ao (zero extra airwalls!)
     if (isDuwuDead(p)) {
@@ -1157,7 +1246,7 @@ export class ActShow {
         frost: isWeaponUnlocked(p, 'frost', this.dbgAllWeapons),
         blunt: isWeaponUnlocked(p, 'blunt', this.dbgAllWeapons),
       };
-      const rack = buildCourtyardWeaponRack(unl, equippedWeapon(p, this.dbgAllWeapons));
+      const rack = buildCourtyardWeaponRack(unl, this.currentWeaponId(p));
       rack.position.set(HIDEOUT.weaponRack.x, 0, HIDEOUT.weaponRack.z);
       rack.rotation.y = HIDEOUT.weaponRack.yaw;
       this.stage.root.add(rack);
@@ -1213,6 +1302,9 @@ export class ActShow {
     if (this.keepsakeBoxMesh) { this.keepsakeBoxMesh.parent?.remove(this.keepsakeBoxMesh); this.keepsakeBoxMesh = null; }
     if (this.duwuMemorialMesh) { this.duwuMemorialMesh.parent?.remove(this.duwuMemorialMesh); this.duwuMemorialMesh = null; }
     if (this.duwuMemorialExclaim) { this.duwuMemorialExclaim.parent?.remove(this.duwuMemorialExclaim); this.duwuMemorialExclaim = null; }
+    if (this.lanternMesh) { this.lanternMesh.parent?.remove(this.lanternMesh); this.lanternMesh = null; this.lanternTick = null; }
+    if (this.decorMesh) { this.decorMesh.parent?.remove(this.decorMesh); this.decorMesh = null; this.decorTick = null; }
+    if (this.trialSteleMesh) { this.trialSteleMesh.parent?.remove(this.trialSteleMesh); this.trialSteleMesh = null; }
     for (const gm of this.gardenMeshes) gm.parent?.remove(gm);
     this.gardenMeshes = [];
     for (const ge of this.gardenExclaims) ge?.parent?.remove(ge);
@@ -1356,8 +1448,8 @@ export class ActShow {
       if (this.steleExclaim) this.steleExclaim.visible = false;
       this.worldPlates.hide('ho.stele');
     }
-    // 文家刀廊 & 信物匣 proximity beacons
-    const eqWep = weaponDef(equippedWeapon(prof, this.dbgAllWeapons));
+    // 文家刀廊、信物匣、古窑长明灯 & 试锋碑 proximity beacons
+    const eqWep = weaponDef(this.currentWeaponId(prof));
     const eqKs = keepsakeDef(equippedKeepsake(prof, this.dbgAllWeapons));
     if (this.weaponRackMesh && uiClear && near !== 'weaponRack' && h && Math.hypot(h.pos.x - HIDEOUT.weaponRack.x, h.pos.z - HIDEOUT.weaponRack.z) < 7.2) {
       const p = worldToUi(V3(HIDEOUT.weaponRack.x, 2.28, HIDEOUT.weaponRack.z + 0.35));
@@ -1367,6 +1459,15 @@ export class ActShow {
       const p = worldToUi(V3(HIDEOUT.keepsakeBox.x, 1.9, HIDEOUT.keepsakeBox.z + 0.35));
       this.worldPlates.setTag('ho.keepsakeBox', { text: '信物匣', sub: eqKs ? eqKs.name : '选佩信物', icon: 'star', x: p.x, y: p.y, color: eqKs ? eqKs.col : '#ffd898', accent: '#c89e4e', minY, visible: p.z < 1 });
     } else this.worldPlates.hide('ho.keepsakeBox');
+    if (this.lanternMesh && uiClear && near !== 'lantern' && h && Math.hypot(h.pos.x - HIDEOUT.lantern.x, h.pos.z - HIDEOUT.lantern.z) < 6.6) {
+      const p = worldToUi(V3(HIDEOUT.lantern.x, 1.85, HIDEOUT.lantern.z));
+      const oil = ensureAds(prof).total;
+      this.worldPlates.setTag('ho.lantern', { text: '长明灯', sub: msg`典藏 · ${oil}盏`, icon: 'fire', x: p.x, y: p.y, color: '#ffe48c', accent: '#e0a448', minY, visible: p.z < 1 });
+    } else this.worldPlates.hide('ho.lantern');
+    if (this.trialSteleMesh && uiClear && near !== 'trialStele' && h && Math.hypot(h.pos.x - HIDEOUT.trialStele.x, h.pos.z - HIDEOUT.trialStele.z) < 6.4) {
+      const p = worldToUi(V3(HIDEOUT.trialStele.x, 1.85, HIDEOUT.trialStele.z));
+      this.worldPlates.setTag('ho.trialStele', { text: '试锋碑', sub: '约战与配招', icon: 'boss', x: p.x, y: p.y, color: '#a8e8ff', accent: '#6cb8dc', minY, visible: p.z < 1 });
+    } else this.worldPlates.hide('ho.trialStele');
 
     // act-132 / act-135 / act-143: Bamboo Stream Garden Terrace — decluttered! Show tags only for ripe plots or immediate proximity.
     const nowMs = Date.now();
@@ -1489,6 +1590,14 @@ export class ActShow {
     } else if (near === 'keepsakeBox' && uiClear) {
       const p = worldToUi(V3(HIDEOUT.keepsakeBox.x, 2.02, HIDEOUT.keepsakeBox.z + 0.35));
       this.worldPlates.setInteract('ho.active', { title: '信物匣', sub: eqKs ? msg`佩戴中 · ${eqKs.name}` : '挑一件随身信物上路', action: '开匣选佩', icon: 'star', color: '#8effd0', accent: '#d4a652', x: p.x, y: p.y, minY, visible: p.z < 1 });
+    } else if (near === 'lantern' && uiClear) {
+      const p = worldToUi(V3(HIDEOUT.lantern.x, 2.02, HIDEOUT.lantern.z));
+      const oil = ensureAds(prof).total;
+      this.worldPlates.setInteract('ho.active', { title: '古窑长明灯', sub: msg`已添灯油 ${oil} 盏 · 典藏外观与名录`, action: '打开典藏阁', icon: 'fire', color: '#ffe48c', accent: '#e0a448', x: p.x, y: p.y, minY, visible: p.z < 1 });
+    } else if (near === 'trialStele' && uiClear) {
+      const p = worldToUi(V3(HIDEOUT.trialStele.x, 2.02, HIDEOUT.trialStele.z));
+      const unl = isCollectorUnlocked(prof, 'archive_sandbox', this.dbgAllWeapons);
+      this.worldPlates.setInteract('ho.active', { title: '试锋碑', sub: unl ? '约战五关首领 · 自由配招练剑' : '典藏解锁 · 首领约战与自由配招', action: unl ? '开启试剑' : '查看解锁', icon: 'boss', color: '#a8e8ff', accent: '#6cb8dc', x: p.x, y: p.y, minY, visible: p.z < 1 });
     } else if (near === 'duwu_memorial' && uiClear) {
       const p = worldToUi(V3(HIDEOUT.people.duwu.x, 2.05, HIDEOUT.people.duwu.z));
       this.worldPlates.setInteract('ho.active', {
@@ -1653,10 +1762,13 @@ export class ActShow {
     if (id === 'weaponRack') { await this.weaponRackMenu(); return; }
     if (id === 'keepsakeBox') { await this.keepsakeMenu(); return; }
     if (id === 'stele') { await this.steleMenu(); return; }
+    if (id === 'lantern') { await this.lanternMenu(); return; }
+    if (id === 'trialStele') { await this.trialSandboxMenu(); return; }
     if (id === 'duwu' || id === 'duwu_memorial') { await this.mealMenu(); this.grantKeepsake('duwu'); return; }
     if (id === 'luzhao') {
       await this.talk([{ who: 'luzhao', text: '文家三十柄刀散落五地，每夺回一柄，北台刀廊便多一分锋芒。' }]);
       this.grantKeepsake('luzhao');
+      await this.divineOrArchiveMenu('luzhao');
       return;
     }
     if (id === 'huanyue') {
@@ -1665,6 +1777,7 @@ export class ActShow {
         '快刀重势、重刀破阵、断刃听声——哪一柄顺手，全看你自己。',
       ];
       await this.talk([{ who: 'huanyue', text: lines[Math.floor(Math.random() * lines.length)] }]);
+      await this.divineMenu('huanyue');
       return;
     }
     const pool = NPC_TALK[id] ?? []; if (pool.length) await this.talk([{ who: id, text: pool[Math.floor(Math.random() * pool.length)] }]);
@@ -1676,54 +1789,68 @@ export class ActShow {
       this.grantKeepsake('sunao');
     }
   }
-  /** act-125 / act-149: 文家刀廊 — 4 upright lacquered blade stands with REAL spinning 3D blades + bottom「铭刀谱」detail bar */
+  /** act-125 / act-149 / act-169 B1: 文家刀廊 — 4 upright lacquered blade stands with REAL spinning 3D blades + 借刃一试 */
   private async weaponRackMenu() {
-    let focusIdx = Math.max(0, WEAPON_ORDER.indexOf(equippedWeapon(profile(), this.dbgAllWeapons)));
+    let focusIdx = Math.max(0, WEAPON_ORDER.indexOf(this.currentWeaponId(profile())));
     let instant = false;
     for (;;) {
-      const p = profile(), cur = equippedWeapon(p, this.dbgAllWeapons);
+      const p = profile(), cur = this.currentWeaponId(p), rented = p.ads?.rentWeapon as WeaponId | null | undefined;
       const cards: BoonPick[] = WEAPON_ORDER.map(id => {
-        const w = WEAPONS[id], unl = isWeaponUnlocked(p, id, this.dbgAllWeapons), lv = weaponLevel(p, id), eq = cur === id;
+        const w = WEAPONS[id], unl = isWeaponUnlocked(p, id, this.dbgAllWeapons), lv = weaponLevel(p, id);
+        const eq = cur === id, isRent = !unl && rented === id;
         return {
           boon: {
             id: 'wep_' + id, school: 'fg' as never, name: w.name,
-            desc: [w.summary, w.special], col: unl ? w.col : '#7e7872', glyph: w.glyph,
-            locked: !unl,
-            wepInfo: { id, name: w.name, lv, unlocked: unl, equipped: eq },
+            desc: [w.summary, w.special], col: unl || isRent ? w.col : '#c8b48a', glyph: w.glyph,
+            locked: false,
+            wepInfo: { id, name: w.name, lv: isRent ? 0 : lv, unlocked: unl || isRent, equipped: eq },
           } as CardBoon,
-          tier: eq ? 2 : unl ? 1 : 0,
+          tier: eq ? 2 : unl || isRent ? 1 : 0,
         };
       });
       const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
       const i = await this.cards.open(cards, {
         leave: true, layout: 'weapons', instant, initialFocus: focusIdx,
-        header: { title: '文家刀廊', sub: '四柄文家名刀 · 独立连段与藏锋特技', col: '#ffe290', accent: '#c89248' },
+        header: { title: '文家刀廊', sub: '四柄文家名刀各有独立连段与藏锋特技 · 未夺回之刃可观影借试一局', col: '#ffe290', accent: '#c89248' },
         detail: idx => {
           const wid = WEAPON_ORDER[idx], w = WEAPONS[wid];
-          const unl = isWeaponUnlocked(p, wid, this.dbgAllWeapons), lv = weaponLevel(p, wid), eq = cur === wid;
+          const unl = isWeaponUnlocked(p, wid, this.dbgAllWeapons), lv = weaponLevel(p, wid);
+          const eq = cur === wid, isRent = !unl && rented === wid;
           return {
             title: msg`${w.name} · ${w.title}`,
-            badge: !unl ? '未夺回' : eq ? '佩带中' : '已入手',
-            badgeCol: !unl ? '#9a929c' : eq ? '#ffe278' : '#88e8b8',
+            badge: isRent ? '借试中' : !unl ? '观影借试' : eq ? '佩带中' : '已入手',
+            badgeCol: isRent ? '#ffe278' : !unl ? '#e6c88a' : eq ? '#ffe278' : '#88e8b8',
             stars: unl ? lv : 0,
             starsMax: 3,
-            line1: unl ? w.summary : msg`${w.unlockHint} · ${w.summary}`,
+            line1: unl ? w.summary : isRent ? msg`已借试一局 · ${w.summary}` : msg`${w.unlockHint} · 观影可借试下一局`,
             line2: msg`${w.special} · 专属刀谱：${manualsForWeapon(wid).map(m => m.name).join('/')}`,
-            action: !unl ? undefined : eq ? '当前佩刀' : '拔刀换武',
-            accent: !unl ? '#666070' : eq ? '#ffd872' : w.col,
+            action: isRent ? '借试中' : !unl ? '借刃一试（观影）' : eq ? '当前佩刀' : '拔刀换武',
+            accent: isRent ? '#ffd872' : !unl ? '#c8a25e' : eq ? '#ffd872' : w.col,
           };
         },
-        footer: '点选名刀拔换 · 冯铁臂处可淬炼升阶 · Esc 返回',
+        footer: '点选名刀拔换或观影借试 · 冯铁臂处可淬炼升阶 · Esc 返回',
       });
       this.phase = was; this.hud.on = true;
       if (i < 0 || i >= WEAPON_ORDER.length) return;
       focusIdx = i; instant = true;
       const wid = WEAPON_ORDER[i], w = WEAPONS[wid];
       if (!isWeaponUnlocked(p, wid, this.dbgAllWeapons)) {
-        cue('deny', 0.45);
-        continue;
+        if (rented === wid) {
+          this.banner.show(msg`借试中 · ${w.name}`, '本局出征即携此刃上路', 1.4, w.col);
+          return;
+        }
+        const ok = await this.watchAd('weapon_rent', msg`文家刀廊 · 借试${w.name}`, msg`向冯铁臂借试「${w.name}」征战下一局（不替代永久夺回）`);
+        if (!ok) continue;
+        ensureAds(p).rentWeapon = wid;
+        saveProfile();
+        this.hero?.applyWeapon(wid, 0);
+        this.refreshHideoutProps();
+        cue('draw', 0.9); cue('bladeRing', 0.85);
+        this.banner.show(msg`借刃一试 · ${w.name}`, '已暂佩一局，去试剑坪或出征试试锋芒', 2.0, w.col);
+        return;
       }
-      if (cur === wid) continue;
+      if (p.ads) p.ads.rentWeapon = null;
+      if (cur === wid && !rented) continue;
       equipWeapon(p, wid, this.dbgAllWeapons); saveProfile();
       this.hero?.applyWeapon(wid, weaponLevel(p, wid));
       this.refreshHideoutProps();
@@ -1777,30 +1904,108 @@ export class ActShow {
     const plot = state.plots[idx];
     if (plot) {
       const st = plotStatus(plot, now);
+      const def = SEEDS[plot.seed];
       if (st.done) {
-        const res = harvestPlot(p, idx, now);
+        // act-169: 成熟采收提供「直接采收」与「添油丰收 · 观影双倍收成」
+        const baseDesc = [def.herb > 0 ? msg`药引 +${def.herb}` : '', def.iron > 0 ? msg`残铁 +${def.iron}` : '', def.buffName ? msg`赠「${def.buffName}」` : ''].filter(Boolean).join(' · ');
+        const dblDesc = [def.herb > 0 ? msg`药引 +${def.herb * 2}` : '', def.iron > 0 ? msg`残铁 +${def.iron * 2}` : '', msg`另回赠${def.name}种×1`].filter(Boolean).join(' · ');
+        const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
+        const pick = await this.cards.open([
+          {
+            boon: {
+              id: 'gd_harv_1', school: 'md' as never,
+              name: msg`直接采收 · ${def.name}`,
+              desc: [baseDesc, '不观影直接收入行囊'],
+              col: def.hex, glyph: SPROUT, tag: '直接采收',
+            } as CardBoon,
+            tier: 1,
+          },
+          {
+            boon: {
+              id: 'gd_harv_2', school: 'fg' as never,
+              name: msg`添油丰收 · 双倍${def.name}`,
+              desc: [dblDesc, '观影一则即享双倍收成，并计入长明灯灯油'],
+              col: '#ffe478', glyph: SPROUT, tag: '观影双倍',
+            } as CardBoon,
+            tier: 2,
+          },
+        ], {
+          leave: true,
+          header: { title: msg`竹溪药圃 · ${def.name}已熟`, sub: '可直接采收，或观影添油享双倍丰收', col: '#ffe478' },
+          wallet: { iron: p.iron, herb: p.herb },
+          footer: '点选采收方式 · Esc 返回',
+        });
+        this.phase = was; this.hud.on = true;
+        if (pick < 0) return;
+        let dbl = false;
+        if (pick === 1) {
+          const ok = await this.watchAd('garden_double', msg`竹溪药圃 · 丰收翻倍`, msg`${def.name} 双倍收成并回赠 1 枚同种灵种`);
+          if (!ok) return;
+          dbl = true;
+        }
+        const res = harvestPlot(p, idx, now, dbl);
         if (res) {
           saveProfile();
           this.refreshHideoutProps();
-          fxFlare(V3(gp.x, 0.85, gp.z), res.seed.col, 2.2, 0.55);
-          fxEmbers(V3(gp.x, 0.6, gp.z), res.seed.col, 16, { r: 0.9, up: 1.8, life: 0.95 });
-          fxRing(V3(gp.x, 0.08, gp.z), res.seed.col, 2.4, { life: 0.75, width: 0.07 });
+          fxFlare(V3(gp.x, 0.85, gp.z), res.seed.col, dbl ? 2.8 : 2.2, 0.6);
+          fxEmbers(V3(gp.x, 0.6, gp.z), res.seed.col, dbl ? 24 : 16, { r: 0.9, up: 1.9, life: 0.95 });
+          fxRing(V3(gp.x, 0.08, gp.z), res.seed.col, 2.5, { life: 0.75, width: 0.07 });
           cue('coin', 1);
           const parts: string[] = [];
           if (res.herb > 0) parts.push(msg`药引 +${res.herb}`);
           if (res.iron > 0) parts.push(msg`残铁 +${res.iron}`);
+          if (res.bonusSeed) parts.push(msg`赠种×1`);
           if (res.buff && res.seed.buffName) parts.push(msg`下局「${res.seed.buffName}」`);
-          this.banner.show(msg`收获 · ${res.seed.name}`, parts.join(' · '), 2.2, res.seed.hex);
+          this.banner.show(msg`${dbl ? '双倍丰收' : '收获'} · ${res.seed.name}`, parts.join(' · '), 2.4, dbl ? '#ffe478' : res.seed.hex);
         }
         return;
       }
-      const def = SEEDS[plot.seed];
-      cue('click', 0.5);
-      this.banner.show(msg`${def.name} · 生长中`, msg`还差 ${st.leftSteps} 间战斗屋，或静候 ${st.leftMins} 分钟成熟`, 1.8, def.hex);
+      // B2: 生长中作物提供「引溪活水 · 观影立刻催熟」（每日限 3 次）
+      const leftDaily = gardenSpeedLeft(p, now);
+      const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
+      const ch = await this.cards.open([
+        {
+          boon: {
+            id: 'gd_wait', school: 'md' as never,
+            name: msg`${def.name} · 生长中`,
+            desc: [msg`还差 ${st.leftSteps} 间战斗屋，或静候 ${st.leftMins} 分钟自然成熟`, '离开继续历练'],
+            col: def.hex, glyph: SPROUT, tag: msg`${st.stepsDone}/${st.stepsTotal}`,
+          } as CardBoon,
+          tier: 0,
+        },
+        {
+          boon: {
+            id: 'gd_speed', school: 'fg' as never,
+            name: '引溪活水 · 立刻催熟',
+            desc: [leftDaily > 0 ? msg`观影一则引竹溪活水浇灌，立刻催熟此畦（今日剩 ${leftDaily}/${GARDEN_SPEED_DAILY_MAX} 次）` : '今日引溪次数已用尽，明日再来', '催熟后即可立刻采收'],
+            col: leftDaily > 0 ? '#8effd8' : '#7e7872', glyph: SPROUT,
+            tag: leftDaily > 0 ? msg`观影 · 剩${leftDaily}次` : '今日已满',
+            locked: leftDaily <= 0,
+          } as CardBoon,
+          tier: leftDaily > 0 ? 2 : 0,
+        },
+      ], {
+        leave: true,
+        header: { title: msg`竹溪药圃 · ${def.name}`, sub: '战斗通关与离线皆可自然生长，亦可引溪活水催熟', col: def.hex },
+        footer: '点选引溪催熟或静候 · Esc 返回',
+      });
+      this.phase = was; this.hud.on = true;
+      if (ch === 1 && leftDaily > 0) {
+        const ok = await this.watchAd('garden_speed', '竹溪药圃 · 引溪催熟', msg`引竹溪活水立刻催熟「${def.name}」`);
+        if (ok && consumeGardenSpeed(p, now) && ripenPlotNow(p, idx, now)) {
+          saveProfile();
+          this.refreshHideoutProps();
+          fxFlare(V3(gp.x, 0.7, gp.z), 0x7effd8, 2.2, 0.5);
+          fxRing(V3(gp.x, 0.08, gp.z), 0x7effd8, 2.3, { life: 0.7, width: 0.07 });
+          cue('reveal', 0.9);
+          this.banner.show(msg`引溪催熟 · ${def.name}`, '灵植已熟，可立刻采收', 2.0, '#8effd8');
+        }
+      }
       return;
     }
 
-    // Empty unlocked plot: open 2×2 seed-planting card board!
+    // Empty unlocked plot: open 2×2 seed-planting card board + optional B2 rare seed card!
+    const leftSeedDaily = gardenSpeedLeft(p, now);
     const cards: BoonPick[] = SEED_ORDER.map(sid => {
       const def = SEEDS[sid], cnt = state.seeds[sid] ?? 0;
       return {
@@ -1815,6 +2020,17 @@ export class ActShow {
         tier: cnt > 0 ? (def.buff ? 2 : 1) : 0,
       };
     });
+    if (leftSeedDaily > 0) {
+      cards.push({
+        boon: {
+          id: 'seed_ad_rare', school: 'fg' as never,
+          name: '引溪求奇种（观影）',
+          desc: [msg`观影获赠 霜魂莲 或 九叶玄芝 稀有灵种 ×1`, msg`与引溪催熟共享次数 · 今日剩 ${leftSeedDaily}/${GARDEN_SPEED_DAILY_MAX} 次`],
+          col: '#e0a8ff', glyph: SPROUT, tag: '观影赠种',
+        } as CardBoon,
+        tier: 2,
+      });
+    }
     const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
     const sel = await this.cards.open(cards, {
       leave: true, layout: 'grid2',
@@ -1823,7 +2039,19 @@ export class ActShow {
       footer: '点选种子栽下 · Esc 返回',
     });
     this.phase = was; this.hud.on = true;
-    if (sel < 0 || sel >= SEED_ORDER.length) return;
+    if (sel < 0) return;
+    if (sel === SEED_ORDER.length && leftSeedDaily > 0) {
+      const ok = await this.watchAd('garden_seed', '竹溪药圃 · 引溪求奇种', '获赠稀有灵种（霜魂莲或九叶玄芝）×1');
+      if (ok && consumeGardenSpeed(p, now)) {
+        const rare: 'frostlotus' | 'xuanzhi' = Math.random() < 0.55 ? 'frostlotus' : 'xuanzhi';
+        addSeed(p, rare, 1);
+        saveProfile();
+        cue('reveal', 0.85);
+        this.banner.show(msg`获赠奇种 · ${SEEDS[rare].name}`, '已放入药囊，可立即播下', 2.0, SEEDS[rare].hex);
+      }
+      return;
+    }
+    if (sel >= SEED_ORDER.length) return;
     const chosen = SEED_ORDER[sel];
     if (!plantSeed(p, idx, chosen, Date.now())) {
       cue('deny', 0.45);
@@ -1909,10 +2137,6 @@ export class ActShow {
         return [
           { label: '飞镖上限', before: msg`${3 + lv}枚`, after: isMax ? undefined : msg`${3 + next}枚`, highlight: !isMax },
           { label: '装填冷却', before: `${100 - lv * 15}%`, after: isMax ? undefined : `${100 - next * 15}%`, highlight: !isMax },
-        ];
-      case 'reroll':
-        return [
-          { label: '每局换牌', before: msg`${1 + lv}次`, after: isMax ? undefined : msg`${1 + next}次`, highlight: !isMax },
         ];
       case 'manual':
         return [
@@ -2109,21 +2333,61 @@ export class ActShow {
       else cue('deny', 0.45);
     }
   }
-  /** 杜五 (or 杜五的遗灶 after Xiapi) packs provisions for the next trip: one of three, free, kept in the save until the run starts */
+  /** 杜五 (or 杜五的遗灶 after Xiapi) packs provisions + B3 再温一壶老酒 (1 rewarded ad upgrades to deluxe: +40 coins & wine guard) */
   private async mealMenu() {
-    const p = profile(), dead = isDuwuDead(p), pick = (a: string[]) => a[Math.floor(Math.random() * a.length)];
+    const p = profile(), dead = isDuwuDead(p), pick = (a: string[]) => a[Math.floor(Math.random() * a.length)], ads = ensureAds(p);
     if (p.meal) {
-      await this.talk([dead ? { who: 'act', text: '（行囊里已装好灶边温着的干粮，火塘余烬微红）' } : { who: 'duwu', text: pick(MEAL_TALK.packed) }]);
+      if (ads.mealUpgraded) {
+        await this.talk([dead ? { who: 'act', text: '（行囊里已备齐热酒与干粮，灶边余烬微红）' } : { who: 'duwu', text: pick(MEAL_TALK.packed) }]);
+        return;
+      }
+      const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
+      const ch = await this.cards.open([
+        {
+          boon: {
+            id: 'meal_keep', school: 'ms' as never,
+            name: '行囊已备妥',
+            desc: ['已领免费干粮，直接出征即可', '每局仅领一份'],
+            col: '#d8ccb4', glyph: MEAL_GLYPH[p.meal] ?? MEAL_GLYPH.feast, tag: '已备',
+          } as CardBoon,
+          tier: 0,
+        },
+        {
+          boon: {
+            id: 'meal_ad_wine', school: 'fg' as never,
+            name: '再温一壶老酒（观影升级）',
+            desc: ['在原有干粮外，额外携带 40 铜钱 + 1 层护酒减伤', '每局出发前限一次 · 计入长明灯灯油'],
+            col: '#ffe280', glyph: MEAL_GLYPH.wine, tag: '观影升级',
+          } as CardBoon,
+          tier: 2,
+        },
+      ], {
+        leave: true,
+        header: dead
+          ? { title: '杜五的遗灶 · 伙房行囊', sub: '灶底老酒犹温，出征前可升级为豪华行囊', col: '#ffd27a' }
+          : { title: '杜五 · 伙房行囊', sub: '老酒温在灶上，出征前可升级为豪华行囊', col: '#ffd27a' },
+        footer: '点选升级或离开 · Esc 返回',
+      });
+      this.phase = was; this.hud.on = true;
+      if (ch === 1) {
+        const ok = await this.watchAd('meal_upgrade', '杜五 · 再温一壶老酒', '下一局额外带 40 铜钱与 1 层护酒免伤');
+        if (ok) {
+          ads.mealUpgraded = true;
+          saveProfile();
+          cue('coin', 0.85);
+          this.banner.show('豪华行囊已备', '下局额外携带 40 铜钱 + 护酒免伤', 2.0, '#ffe280');
+        }
+      }
       return;
     }
     await this.talk([dead ? { who: 'act', text: '（东南遗灶旁温着胡饼、五铢钱与灶底老酒，白灯在晚风里轻晃）' } : { who: 'duwu', text: pick(MEAL_TALK.offer) }]);
-    const cards = MEALS.map(m => ({ boon: { id: 'meal_' + m.id, school: 'ms' as never, name: m.name, desc: [m.desc, '免费携带 · 下一局生效'], col: '#ffd27a', glyph: MEAL_GLYPH[m.id], tag: '免费' } as Boon, tier: 0 }));
+    const cards: BoonPick[] = MEALS.map(m => ({ boon: { id: 'meal_' + m.id, school: 'ms' as never, name: m.name, desc: [m.desc, '免费携带 · 下一局生效'], col: '#ffd27a', glyph: MEAL_GLYPH[m.id], tag: '免费' } as CardBoon, tier: 0 }));
     const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
     const i = await this.cards.open(cards, {
       leave: true,
       header: dead
-        ? { title: '杜五的遗灶 · 行囊干粮', sub: '孙婆婆每日替他温在灶边，出发前免费取用', col: '#ffd27a' }
-        : { title: '杜五 · 行囊干粮', sub: '每次出发前免费挑一份带着上路', col: '#ffd27a' },
+        ? { title: '杜五的遗灶 · 行囊干粮', sub: '孙婆婆每日替他温在灶边，领完还可再温老酒升级', col: '#ffd27a' }
+        : { title: '杜五 · 行囊干粮', sub: '每次出发前免费挑一份带着上路（领完还可再温老酒升级）', col: '#ffd27a' },
       footer: '点选免费领取 · Esc 返回',
     }); this.phase = was; this.hud.on = true;
     const m = MEALS[i]; if (!m) return;
@@ -2137,6 +2401,417 @@ export class ActShow {
       await this.talk([{ who: 'act', text: memAfter[m.id] ?? memAfter.feast }]);
     } else {
       await this.talk([{ who: 'duwu', text: MEAL_TALK.after[m.id] }]);
+    }
+  }
+  /** Settings helper: cycle through unlocked UI skins (iron + unlocked lacquer / bamboo) */
+  private cycleUnlockedSkin() {
+    const p = profile(), allFree = this.dbgAllWeapons || __DEBUG_UI__;
+    const avail = SKINS.filter(id => id === 'iron' || isCollectorUnlocked(p, id === 'lacquer' ? 'skin_lacquer' : 'skin_bamboo', allFree));
+    if (avail.length <= 1) {
+      cue('deny', 0.45);
+      this.banner.show('兵戈铁器', '于古窑长明灯添油即可解锁「汉代漆器」「竹简木牌」', 1.8, '#ffe08a');
+      return;
+    }
+    const next = avail[(avail.indexOf(SKIN.id) + 1) % avail.length];
+    p.uiSkin = next; saveProfile();
+    this.cycleSkin(next);
+  }
+  /** Settings helper: toggle A3 剑戟片水墨滤镜 */
+  private toggleInkFilterSetting() {
+    const p = profile(), allFree = this.dbgAllWeapons || __DEBUG_UI__;
+    if (!isCollectorUnlocked(p, 'filter_ink', allFree)) {
+      cue('deny', 0.45);
+      this.banner.show('剑戟水墨滤镜', '于古窑长明灯添油解锁后可随时开关', 1.8, '#f0eadc');
+      return;
+    }
+    p.inkFilter = !p.inkFilter; saveProfile();
+    this.syncCollectorVisuals();
+    this.banner.show('剑戟水墨滤镜', p.inkFilter ? '已开启 · 黑白水墨留血金' : '已关闭', 1.4, '#f0eadc');
+  }
+  /** B4: 韩越 / 卢昭 · 酒前问一卦（观影定向本局首间秘传流派并保底珍品） */
+  private async divineMenu(who: 'huanyue' | 'luzhao') {
+    const p = profile(), ads = ensureAds(p);
+    const cur = ads.divineSchool as Archetype | null | undefined;
+    const archs: Archetype[] = ['blood', 'poise', 'shadow', 'gale'];
+    const cards: BoonPick[] = archs.map(a => {
+      const ai = ARCH_INFO[a], picked = cur === a;
+      return {
+        boon: {
+          id: 'div_' + a, school: 'fg' as never,
+          name: picked ? msg`${ai.name}卦（已定）` : msg`问卦 · ${ai.name}`,
+          desc: [msg`本局首间秘传必出「${ai.name}」且保底珍品`, msg`2件：${ai.b2}`],
+          col: ai.col, glyph: NEEDLE,
+          tag: picked ? '已定向' : '观影问卦',
+        } as CardBoon,
+        tier: picked ? 2 : 1,
+      };
+    });
+    const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
+    const sel = await this.cards.open(cards, {
+      leave: true, layout: 'grid2',
+      header: {
+        title: who === 'huanyue' ? '韩越 · 酒前问一卦' : '卢昭 · 听风问一卦',
+        sub: '观影定向本局首间秘传流派与保底珍品，免去重开刷局',
+        col: '#ffd888',
+      },
+      footer: '点选流派观影定卦 · Esc 返回',
+    });
+    this.phase = was; this.hud.on = true;
+    if (sel < 0 || sel >= archs.length) return;
+    const chosen = archs[sel], ai = ARCH_INFO[chosen];
+    if (cur === chosen) {
+      this.banner.show(msg`已定卦 · ${ai.name}`, '出征首间秘传房必出该流派珍品', 1.5, ai.col);
+      return;
+    }
+    const ok = await this.watchAd('divine_school', msg`酒前问卦 · ${ai.name}`, msg`本局首间秘传必出「${ai.name}」且保底珍品`);
+    if (!ok) return;
+    ads.divineSchool = chosen;
+    saveProfile();
+    cue('reveal', 0.85);
+    this.banner.show(msg`卦象已定 · ${ai.name}`, '下一局首间秘传必出此流派且保底珍品', 2.0, ai.col);
+  }
+  /** 卢昭快捷分支：听风阁名录 或 听风问卦 */
+  private async divineOrArchiveMenu(who: 'luzhao') {
+    const p = profile(), unl = isCollectorUnlocked(p, 'archive_sandbox', this.dbgAllWeapons);
+    const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
+    const ch = await this.cards.open([
+      {
+        boon: {
+          id: 'lz_divine', school: 'fg' as never,
+          name: '听风问一卦（定向流派）',
+          desc: ['观影定向本局首间秘传流派并保底珍品', '每局出发前可择一流派'],
+          col: '#ffd888', glyph: NEEDLE, tag: '观影问卦',
+        } as CardBoon,
+        tier: 1,
+      },
+      {
+        boon: {
+          id: 'lz_archive', school: 'md' as never,
+          name: '听风阁 · 江湖名录',
+          desc: [unl ? '浏览角色立绘、试听角色配音与五首领破阵志' : '长明灯满 20 盏或直接观影 4 次永久开启', '内含全人物配音试听与 Boss 机制指南'],
+          col: '#a8e8ff', glyph: SPROUT, tag: unl ? '已开启' : '典藏解锁',
+        } as CardBoon,
+        tier: unl ? 2 : 0,
+      },
+    ], {
+      leave: true,
+      header: { title: '卢昭 · 竹溪水榭', sub: '可问卦定向开局流派，或翻阅听风阁江湖名录', col: '#98dcff' },
+      footer: '点选一项 · Esc 返回',
+    });
+    this.phase = was; this.hud.on = true;
+    if (ch === 0) await this.divineMenu(who);
+    else if (ch === 1) await this.archiveMenu();
+  }
+  /** D1 + A1/A2/A3/A4/A5: 古窑长明灯 · 典藏阁（六页签：长明灯油 / 典藏行头 / 刀光皮肤 / 界面滤镜 / 古窑时辰 / 古窑挂件） */
+  private async lanternMenu(initialTab = 0) {
+    let tab = initialTab, focusIdx = 0, instant = false;
+    for (;;) {
+      const p = profile(), ads = ensureAds(p), allFree = this.dbgAllWeapons;
+      const oil = ads.total, nextMs = nextLanternMilestone(p);
+      let switched = false;
+      const tabs = {
+        items: [
+          { id: 'oil', label: '长明灯油' },
+          { id: 'outfit', label: '典藏行头' },
+          { id: 'fx', label: '刀光皮肤' },
+          { id: 'ui', label: '界面滤镜' },
+          { id: 'mood', label: '古窑时辰' },
+          { id: 'decor', label: '古窑挂件' },
+        ],
+        active: tab,
+        onSwitch: (next: number) => { tab = next; focusIdx = 0; instant = true; switched = true; this.cards.cancelSilent(); },
+      };
+
+      const cards: BoonPick[] = [];
+      const actions: Array<() => Promise<void>> = [];
+
+      if (tab === 0) {
+        for (const ms of LANTERN_MILESTONES) {
+          const done = oil >= ms.at;
+          cards.push({
+            boon: {
+              id: 'ms_' + ms.at, school: 'fg' as never,
+              name: msg`${ms.title}（${Math.min(oil, ms.at)}/${ms.at}）`,
+              desc: [ms.summary, done ? '已达成 · 典藏已永久解锁' : '任意激励点观影皆自动计入，亦可点此直接添油'],
+              col: done ? '#ffe480' : '#d8ccb4', glyph: ANVIL,
+              tag: done ? '已解锁' : msg`差${ms.at - oil}盏`,
+            } as CardBoon,
+            tier: done ? 2 : 0,
+          });
+          actions.push(async () => {
+            if (done) { cue('click', 0.4); return; }
+            await this.watchAd('collector_unlock', '古窑长明灯 · 观影添油', '灯油 +1，推进全套典藏包永久解锁进度');
+            this.refreshHideoutProps();
+          });
+        }
+        const archUnl = isCollectorUnlocked(p, 'archive_sandbox', allFree);
+        cards.push({
+          boon: {
+            id: 'go_archive', school: 'md' as never,
+            name: '听风阁 · 名录与配音',
+            desc: [archUnl ? '点击进入翻阅人物立绘语音与五首领破阵志' : msg`观影 ${collectorProgress(p, 'archive_sandbox')}/4 次提前解锁，或长明灯满 20 盏自动送`, '同时开启西翼试剑坪「试锋碑」自由约战'],
+            col: '#a8e8ff', glyph: SPROUT, tag: archUnl ? '进入' : '观影解锁',
+          } as CardBoon,
+          tier: archUnl ? 2 : 1,
+        });
+        actions.push(async () => { await this.archiveMenu(); });
+      } else if (tab === 1 || tab === 2) {
+        const cat = tab === 1 ? 'outfit' : 'bladefx';
+        const items = COLLECTORS.filter(c => c.cat === cat);
+        const curOutfit = activeOutfitId(p, allFree), curFx = activeBladeFx(p, allFree);
+        for (const item of items) {
+          const unl = isCollectorUnlocked(p, item.id, allFree);
+          const prog = collectorProgress(p, item.id);
+          const eq = item.cat === 'outfit' ? curOutfit === item.value : curFx === item.value;
+          const isTrial = item.cat === 'outfit' ? ads.trialOutfit === item.value : ads.trialBladeFx === item.value;
+          cards.push({
+            boon: {
+              id: 'col_' + item.id, school: 'fg' as never,
+              name: eq ? msg`${item.name}（${isTrial ? '试穿中' : '已配'}）` : item.name,
+              desc: [item.desc, unl ? '已永久拥有 · 点击立即换上' : msg`观影进度 ${prog}/${item.adCost}（满 ${item.lanternAt} 盏灯油亦自动送）`],
+              col: unl || eq ? item.col : '#c8bca6', glyph: item.cat === 'outfit' ? MEAL_GLYPH.feast : WEAPONS.hanshan.glyph,
+              tag: eq ? '使用中' : unl ? '换上' : msg`观影 ${prog}/${item.adCost}`,
+            } as CardBoon,
+            tier: eq ? 2 : unl ? 1 : 0,
+          });
+          actions.push(async () => {
+            if (unl) {
+              if (item.cat === 'outfit') { p.wear = item.value; ads.trialOutfit = null; }
+              else { p.bladeFx = item.value; ads.trialBladeFx = null; }
+              saveProfile(); this.syncCollectorVisuals(); cue('reveal', 0.8);
+              this.banner.show(msg`已切换 · ${item.name}`, item.desc, 1.5, item.col);
+            } else {
+              const ok = await this.watchAd('collector_unlock', msg`典藏解锁 · ${item.name}`, msg`推进永久解锁（${prog + 1}/${item.adCost}）并立刻试穿下一局`, item.id);
+              if (!ok) return;
+              if (isCollectorUnlocked(p, item.id, allFree)) {
+                if (item.cat === 'outfit') { p.wear = item.value; ads.trialOutfit = null; }
+                else { p.bladeFx = item.value; ads.trialBladeFx = null; }
+              } else {
+                if (item.cat === 'outfit') ads.trialOutfit = item.value;
+                else ads.trialBladeFx = item.value;
+              }
+              saveProfile(); this.syncCollectorVisuals(); cue('reveal', 0.85);
+            }
+          });
+        }
+      } else if (tab === 3) {
+        const items = COLLECTORS.filter(c => c.cat === 'skin' || c.cat === 'filter');
+        for (const item of items) {
+          const unl = isCollectorUnlocked(p, item.id, allFree);
+          const prog = collectorProgress(p, item.id);
+          const on = item.cat === 'skin' ? SKIN.id === item.value : !!(p.inkFilter && unl);
+          cards.push({
+            boon: {
+              id: 'col_' + item.id, school: 'fg' as never,
+              name: on ? msg`${item.name}（开启中）` : item.name,
+              desc: [item.desc, unl ? (item.cat === 'filter' ? '已永久解锁 · 点击随时开关' : '已永久解锁 · 点击立即切换') : msg`观影进度 ${prog}/${item.adCost}（满 ${item.lanternAt} 盏灯油自动送）`],
+              col: unl ? item.col : '#c8bca6', glyph: ANVIL,
+              tag: on ? '已启用' : unl ? '启用' : msg`观影 ${prog}/${item.adCost}`,
+            } as CardBoon,
+            tier: on ? 2 : unl ? 1 : 0,
+          });
+          actions.push(async () => {
+            if (unl) {
+              if (item.cat === 'skin') { p.uiSkin = item.value as SkinId; saveProfile(); this.cycleSkin(item.value as SkinId); }
+              else { p.inkFilter = !p.inkFilter; saveProfile(); this.syncCollectorVisuals(); this.banner.show(item.name, p.inkFilter ? '已开启 · 黑白水墨留血金' : '已关闭', 1.4, item.col); }
+              cue('reveal', 0.8);
+            } else {
+              const ok = await this.watchAd('collector_unlock', msg`典藏解锁 · ${item.name}`, msg`永久解锁进度 ${prog + 1}/${item.adCost}，并计入长明灯灯油`, item.id);
+              if (ok && isCollectorUnlocked(p, item.id, allFree)) {
+                if (item.cat === 'skin') { p.uiSkin = item.value as SkinId; saveProfile(); this.cycleSkin(item.value as SkinId); }
+                else { p.inkFilter = true; saveProfile(); this.syncCollectorVisuals(); }
+              }
+            }
+          });
+        }
+      } else {
+        const cat = tab === 4 ? 'mood' : 'decor';
+        const items = COLLECTORS.filter(c => c.cat === cat);
+        const curMood = activeHideoutMood(p, allFree).id;
+        const curDec = activeHideoutDecors(p, allFree);
+        for (const item of items) {
+          const unl = isCollectorUnlocked(p, item.id, allFree);
+          const prog = collectorProgress(p, item.id);
+          const on = item.cat === 'mood' ? curMood === item.value : !!curDec[item.value as HideoutDecorId];
+          cards.push({
+            boon: {
+              id: 'col_' + item.id, school: 'md' as never,
+              name: on ? msg`${item.name}（布置中）` : item.name,
+              desc: [item.desc, unl ? (item.cat === 'mood' ? '点击切换古窑时辰天气' : '点击摆出或收起此装潢') : msg`观影进度 ${prog}/${item.adCost}（满 ${item.lanternAt} 盏灯油自动送）`],
+              col: unl ? item.col : '#c8bca6', glyph: SPROUT,
+              tag: on ? '已布置' : unl ? '布置' : msg`观影 ${prog}/${item.adCost}`,
+            } as CardBoon,
+            tier: on ? 2 : unl ? 1 : 0,
+          });
+          actions.push(async () => {
+            if (!unl) {
+              const ok = await this.watchAd('collector_unlock', msg`典藏解锁 · ${item.name}`, msg`永久解锁进度 ${prog + 1}/${item.adCost}，并计入长明灯灯油`, item.id);
+              if (!ok || !isCollectorUnlocked(p, item.id, allFree)) return;
+            }
+            if (item.cat === 'mood') {
+              p.hideoutMood = item.value as HideoutMoodId;
+              saveProfile(); cue('reveal', 0.85);
+              this.banner.show(msg`古窑氛围 · ${item.name}`, '正在切换天色与气候', 1.4, item.col);
+              const mood = activeHideoutMood(p, allFree);
+              void wipeTransit(() => this.enterYard({ time: mood.time as HideoutTime, weather: mood.weather as HideoutWeather }));
+              return;
+            } else {
+              if (!p.hideoutDecors) p.hideoutDecors = {};
+              const key = item.value as HideoutDecorId;
+              p.hideoutDecors[key] = !p.hideoutDecors[key];
+              saveProfile(); this.refreshHideoutProps(); cue('reveal', 0.8);
+              this.banner.show(item.name, p.hideoutDecors[key] ? '已在古窑中摆出' : '已暂时收起', 1.4, item.col);
+            }
+          });
+        }
+      }
+
+      const subHdr = nextMs
+        ? msg`小作无内购 · 已添灯油 ${oil} 盏，再观 ${nextMs.at - oil} 次自动赠「${nextMs.title}」典藏`
+        : msg`已添灯油 ${oil} 盏 · 全部长明灯典藏已圆满解锁，多谢江湖同道支持`;
+      const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
+      const i = await this.cards.open(cards, {
+        leave: true, layout: 'grid2', instant, initialFocus: focusIdx,
+        header: { title: '古窑长明灯 · 典藏阁', sub: subHdr, col: '#ffe48c' },
+        tabs,
+        footer: PAD.device === 'pad' ? msg`LB/RB 切页 · ${padName(0)} 确认 · ${padName(1)} 返回` : 'Tab / Q E 切页 · 点击解锁或切换 · Esc 返回',
+      });
+      this.phase = was; this.hud.on = true;
+      if (switched) continue;
+      if (i < 0 || i >= actions.length) return;
+      focusIdx = i; instant = true;
+      await actions[i]();
+      if (tab === 4 && COLLECTORS.filter(c => c.cat === 'mood')[i] && isCollectorUnlocked(profile(), COLLECTORS.filter(c => c.cat === 'mood')[i].id, allFree)) return;
+    }
+  }
+  /** A5: 「听风阁」人物语音名录与五首领破阵志 */
+  private async archiveMenu() {
+    const p = profile(), allFree = this.dbgAllWeapons;
+    if (!isCollectorUnlocked(p, 'archive_sandbox', allFree)) {
+      const prog = collectorProgress(p, 'archive_sandbox');
+      const ok = await this.watchAd('collector_unlock', '开启听风阁与自由试剑', msg`观影进度 ${prog + 1}/4（或长明灯满 20 盏自动开启）`, 'archive_sandbox');
+      if (!ok || !isCollectorUnlocked(p, 'archive_sandbox', allFree)) return;
+    }
+    let tab = 0, focusIdx = 0, instant = false;
+    for (;;) {
+      let switched = false;
+      const tabs = {
+        items: [{ id: 'cast', label: '江湖名录·试听' }, { id: 'boss', label: '五首领破阵志' }],
+        active: tab,
+        onSwitch: (next: number) => { tab = next; focusIdx = 0; instant = true; switched = true; this.cards.cancelSilent(); },
+      };
+      const list = tab === 0 ? ARCHIVE_PEOPLE.slice(0, 5) : ARCHIVE_PEOPLE.slice(5);
+      const cards: BoonPick[] = list.map(person => ({
+        boon: {
+          id: 'arc_' + person.id, school: 'md' as never,
+          name: msg`${person.name} · ${person.title}`,
+          desc: [person.lore, msg`点击试听语音：「${person.voiceText}」`],
+          col: person.col, glyph: SPROUT, tag: '听声',
+        } as CardBoon,
+        tier: 1,
+      }));
+      const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
+      const i = await this.cards.open(cards, {
+        leave: true, layout: 'grid2', instant, initialFocus: focusIdx,
+        header: { title: '听风阁 · 江湖名录与破阵志', sub: '点选人物立听原声配音并查战法要诀', col: '#a8e8ff' },
+        tabs,
+        footer: 'Tab / Q E 切页 · 点击试听人物原声 · Esc 返回',
+      });
+      this.phase = was; this.hud.on = true;
+      if (switched) continue;
+      if (i < 0 || i >= list.length) return;
+      focusIdx = i; instant = true;
+      const person = list[i];
+      cue('scroll', 0.4);
+      sayLine(person.id, person.voiceText);
+      this.banner.show(msg`${person.name} · ${person.title}`, msg`「${person.voiceText}」`, 2.2, person.col);
+    }
+  }
+  /** A5: 西翼试剑坪「试锋碑」自由沙盒（单挑五关首领 + 自由配招试手，不污染正式出征） */
+  private async trialSandboxMenu() {
+    const p = profile(), allFree = this.dbgAllWeapons;
+    if (!isCollectorUnlocked(p, 'archive_sandbox', allFree)) {
+      const prog = collectorProgress(p, 'archive_sandbox');
+      const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
+      const ch = await this.cards.open([
+        {
+          boon: {
+            id: 'sb_unlock', school: 'fg' as never,
+            name: msg`解锁自由试剑与听风阁（${prog}/4）`,
+            desc: ['解锁后可在试剑坪自由约战五关首领、任配流派秘传练招', '观影 4 次直接解锁，或长明灯满 20 盏自动开启'],
+            col: '#a8e8ff', glyph: WEAPONS.hanshan.glyph, tag: '观影解锁',
+          } as CardBoon,
+          tier: 2,
+        },
+      ], {
+        leave: true,
+        header: { title: '试锋碑 · 自由试剑沙盒', sub: '典藏功能 · 解锁后可随时约战五首领并自由配招', col: '#a8e8ff' },
+        footer: '点击观影推进解锁 · Esc 返回',
+      });
+      this.phase = was; this.hud.on = true;
+      if (ch === 0) await this.watchAd('collector_unlock', '解锁自由试剑与听风阁', msg`推进永久解锁（${prog + 1}/4）并计入长明灯灯油`, 'archive_sandbox');
+      return;
+    }
+
+    let tab = 0, focusIdx = 0, instant = false;
+    for (;;) {
+      let switched = false;
+      const tabs = {
+        items: [{ id: 'boss', label: '首领约战' }, { id: 'build', label: '自由配招' }],
+        active: tab,
+        onSwitch: (next: number) => { tab = next; focusIdx = 0; instant = true; switched = true; this.cards.cancelSilent(); },
+      };
+      let cards: BoonPick[] = [];
+      if (tab === 0) {
+        cards = SANDBOX_BOSSES.map(b => ({
+          boon: {
+            id: 'sb_' + b.kind, school: 'fg' as never,
+            name: b.name,
+            desc: [b.regionName, b.tip],
+            col: b.col, glyph: WEAPONS.thunder.glyph, tag: '约战',
+          } as CardBoon,
+          tier: 2,
+        }));
+      } else {
+        cards = BOONS.slice(0, 8).map(b => {
+          const lv = this.perks.owned[b.id];
+          return {
+            boon: {
+              ...b,
+              tag: lv != null ? msg`已配·${TIER_NAMES[lv]}` : '试配',
+            } as CardBoon,
+            tier: lv != null ? Math.min(2, lv) : 1,
+          };
+        });
+      }
+      const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
+      const i = await this.cards.open(cards, {
+        leave: true, layout: 'grid2', instant, initialFocus: focusIdx,
+        header: { title: '试锋碑 · 自由试剑', sub: '试剑坪内不死不计败绩，出征时自动清空试配秘传', col: '#a8e8ff' },
+        tabs,
+        footer: 'Tab / Q E 切页 · 点击召首领或试配秘传 · Esc 返回',
+      });
+      this.phase = was; this.hud.on = true;
+      if (switched) continue;
+      if (i < 0) return;
+      focusIdx = i; instant = true;
+      if (tab === 0) {
+        const sb = SANDBOX_BOSSES[i];
+        if (!sb) return;
+        for (let fi = this.foes.length - 1; fi >= 0; fi--) {
+          if (this.foes[fi].kind !== 'dummy') { dropTeles(this.foes[fi]); this.foes[fi].a.dispose(); this.foes.splice(fi, 1); }
+        }
+        const at = V3(-10.3, 0, -2.8);
+        const f = spawnFoe(sb.kind as EKind, at, this.hero.pos.clone());
+        this.foes.push(f);
+        fxSmoke(at.clone().add(V3(0, 0.3, 0)), 0x8a8278, 14, { r: 0.9, spd: 1.4, up: 0.8, s: 0.48, life: 0.8 });
+        cue('roar', 0.8); f.a.roar();
+        this.banner.show(msg`试锋约战 · ${sb.name}`, sb.tip, 2.0, sb.col);
+        return;
+      } else {
+        const b = BOONS[i];
+        if (b) { this.take(b, 2); cue('relic', 0.7); }
+      }
     }
   }
   /** act-149: 孙媪 · 药炉冥想悟性牌阵 (Hades 2 Altar of Ashes style: 3×3 jade cards + 悟性上限 + 零悟性唤醒 + 精进升阶) */
@@ -2302,6 +2977,8 @@ export class ActShow {
     SELF = this; this.dialogue = new Dialogue(this.L, this.ov); this.timeline = new Timeline(this.L);
     HP_FACE.id = this.wearing.id;   // the HP medallion shows the look she wears
     this.hud = new ActHud(this.L); this.cards = new CardPick(this.L); this.worldPlates = new UiPlatePool(this.L); this.banner = new SkinBanner(this.L, SKIN.id, () => this.hud.bossOn);
+    this.adModal = new AdSimModal(this.L); setAdSimHost(info => this.adModal.open(info));
+    this.syncCollectorVisuals();
     this.tut = new Tutorial(this.L); this.feed = new RewardFeed(this.L); this.duel = new Duel(this.duelHost);   // 11-18 QTE 拼刀 / 连环破势 (act/qte.ts)
     platform.onPointer(ev => { if (ev.type === 'down') this.unlockAudio(); this.pointer(ev.type, (ev as { id?: number }).id ?? 0, ev.x, ev.y, isTouchPointer(ev)); });
     platform.onResize(() => this.layout2());
@@ -2315,7 +2992,8 @@ export class ActShow {
     // (11-18 用户：「调试只在我们本地打的桌面包里面存在就行了，比如换角色、换开场场景啥的」: dbg = a test switch — the WeChat and
     //  CrazyGames packages leave it out of 设置; they keep 震动, 试一下震动, 画质 and 语言)
     const SET: Array<{ label: () => string; short: () => string; run: () => void; dbg?: true }> = [
-      { dbg: true, label: () => `界面风格：${SKIN_NAME[SKIN.id]}（点这里换）`, short: () => msg`界面：${SKIN_NAME[SKIN.id]}`, run: () => this.cycleSkin() },
+      { label: () => `界面风格：${SKIN_NAME[SKIN.id]}（点这里换）`, short: () => msg`界面：${SKIN_NAME[SKIN.id]}`, run: () => this.cycleUnlockedSkin() },
+      { label: () => msg`水墨滤镜：${profile().inkFilter && isCollectorUnlocked(profile(), 'filter_ink', this.dbgAllWeapons) ? '开' : isCollectorUnlocked(profile(), 'filter_ink', this.dbgAllWeapons) ? '关' : '长明灯解锁'}`, short: () => msg`水墨滤镜：${profile().inkFilter && isCollectorUnlocked(profile(), 'filter_ink', this.dbgAllWeapons) ? '开' : '关'}`, run: () => this.toggleInkFilterSetting() },
       { dbg: true, label: () => msg`正文字体：${BODY_FONT_NAME[BODY_FONT.current]}`, short: () => msg`正文字体：${BODY_FONT_NAME[BODY_FONT.current]}`, run: () => { const order: BodyFont[] = ['wenkai', 'serif', 'sans', 'pixel']; setBodyFont(order[(order.indexOf(BODY_FONT.current) + 1) % order.length]); } },
       // act-15 用户：「我浏览器玩没有震动诶」 — a switch, a test, and what this device supports
       { label: () => `震动：${VIBE.on ? '开' : '关'}（${({ api: '这台设备支持', ios: `iPhone iOS ${iosMajor()}：系统触感，点屏幕时最灵`, 'ios-old': `iPhone iOS ${iosMajor() || '17 及以下'}：网页没法震，要 iOS 18`, none: '这个浏览器不支持', mini: '微信：手机震动' } as const)[vibeSupport()]}）`, short: () => msg`震动：${VIBE.on ? '开' : '关'}`, run: () => { VIBE.on = !VIBE.on; try { localStorage.setItem('ub.vibe', VIBE.on ? '1' : '0'); } catch { /* private mode */ } } },
@@ -2392,6 +3070,21 @@ export class ActShow {
         this.refreshHideoutProps();
         return { id, lv: weaponLevel(p, id) };
       },
+      /** act-169: add lantern oil & unlock collectors / toggle ink filter / preview menus for instant testing */
+      ads: (n = 20) => {
+        const p = profile();
+        for (let i = 0; i < n; i++) recordAdWatched(p);
+        saveProfile(); this.syncCollectorVisuals(); this.refreshHideoutProps();
+        return { total: ensureAds(p).total };
+      },
+      inkFilter: (on = true) => {
+        const p = profile();
+        ensureAds(p).unlocks.filter_ink = true;
+        p.inkFilter = on; saveProfile(); this.syncCollectorVisuals();
+        return { inkFilter: GRADE.cinemaInk };
+      },
+      lantern: (tab = 0) => { void this.lanternMenu(tab); return { tab }; },
+      testDead: () => { this.usedRevive = false; this.dead(); return true; },
       allWeapons: (on = true) => { this.dbgAllWeapons = on; this.syncHideoutNpcs(); this.refreshHideoutProps(); return on; },
       /** act-135: preview a hideout zone construction monument (run=false) or full 3D construction ceremony (run=true) */
       revealZone: (zone: HideoutZoneId = 'forge', run = true) => {
@@ -3057,14 +3750,21 @@ export class ActShow {
     if (atmo) {
       this.yardAtmo = atmo;
     } else {
-      const runs = profile().runs;
-      if (runs <= 0 && this.yardVisit === 0) this.yardAtmo = HIDEOUT_ATMOS[0];
-      else this.yardAtmo = HIDEOUT_ATMOS[(runs + this.yardVisit) % HIDEOUT_ATMOS.length];
+      const p = profile();
+      const mood = activeHideoutMood(p, this.dbgAllWeapons);
+      if (p.hideoutMood && mood.id !== 'default') {
+        this.yardAtmo = { time: mood.time as HideoutTime, weather: mood.weather as HideoutWeather };
+      } else {
+        const runs = p.runs;
+        if (runs <= 0 && this.yardVisit === 0) this.yardAtmo = HIDEOUT_ATMOS[0];
+        else this.yardAtmo = HIDEOUT_ATMOS[(runs + this.yardVisit) % HIDEOUT_ATMOS.length];
+      }
       this.yardVisit++;
     }
+    this.syncCollectorVisuals();
     this.unscaleFoes();
     TUNE.dartCharges = 3; TUNE.aggression = 0.85;
-    this.mods = { dmgMul: 1, critBonus: 0, dartBonus: 0, rerolls: 1, hpBonus: 0, deathDefy: 0, startIntent: 0, windupMul: 1, startManual: false, poiseHeal: 0, firstStrikeBonus: 0, styleBonus: 0, dashCdMul: 1, counterBonus: 0, markedDmgBonus: 0, poiseDmgMul: 1, rareOddsBonus: 0, interestRate: 0 };
+    this.mods = { dmgMul: 1, critBonus: 0, dartBonus: 0, startCoins: 0, hpBonus: 0, deathDefy: 0, startIntent: 0, windupMul: 1, startManual: false, poiseHeal: 0, firstStrikeBonus: 0, styleBonus: 0, dashCdMul: 1, counterBonus: 0, markedDmgBonus: 0, poiseDmgMul: 1, rareOddsBonus: 0, interestRate: 0 };
     this.resetCombo(); this.hud.synergies = [];
     if (this.banked) {
       const b = this.banked, alive = this.lastWon; this.banked = null;
@@ -3150,14 +3850,25 @@ export class ActShow {
     this.region = 0; this.bosses = 0; this.regionIn = false; this.baseFoe = { hp: TUNE.enemyHp, dmg: TUNE.enemyDmg, aggression: 0.95, calm: TUNE.atkCalm, attackers: TUNE.maxAttackers };
     // act-20 / act-118: the hideout's upgrades & 碑铭潜能 (meta.ts) for this run
     this.fightLog = { t0: clock.time, dmg: {}, bosses: [], taken: { n: 0, sum: 0, byBoss: 0 }, healed: 0 };
-    this.mods = runMods(profile()); this.defy = this.mods.deathDefy; this.rerollsLeft = this.mods.rerolls; this.eliteKills = 0; this.bossKilled = false; this.usedPoolBosses.clear();
+    this.mods = runMods(profile()); this.defy = this.mods.deathDefy; this.usedRevive = false; this.eliteKills = 0; this.bossKilled = false; this.usedPoolBosses.clear();
     this.genBlessings.clear(); this.ksShield = 0; this.ksRevenge = false; this.intentBonusAcc = 0;
     this.resetCombo(); this.hud.synergies = [];
     // 杜五's provisions (one run): 炙肉胡饼 +15 血上限, 五铢钱囊 40 铜钱, 瓦壶烈酒 the first blow costs nothing
-    // + 竹溪药圃 harvested elixir buff (温脉药汤 / 玄芝丹气, already baked into runMods above; consume once on departure!)
-    { const p = profile(), meal = p.meal, gBuff = p.garden?.buff; p.meal = undefined; if (p.garden) p.garden.buff = null; saveProfile(); this.wine = meal === 'wine';
-      if (meal === 'feast') this.mods.hpBonus += 15; if (meal === 'purse') this.coins = 40;
-      if (gBuff === 'lotus') this.feed.push('boon', () => '温脉药汤 · 血+18 重随+1', 0, 'gd:lotus');
+    // + 竹溪药圃 harvested elixir buff (温脉药汤 / 玄芝丹气) + B3 杜五再温老酒 + B4 问卦定向流派
+    { const p = profile(), meal = p.meal, gBuff = p.garden?.buff, a = ensureAds(p);
+      const mealUp = !!a.mealUpgraded;
+      this.divineSchoolRun = (a.divineSchool as Archetype | null) ?? null;
+      p.meal = undefined; if (p.garden) p.garden.buff = null; a.mealUpgraded = false; a.divineSchool = null;
+      saveProfile();
+      this.wine = meal === 'wine' || mealUp;
+      this.coins = this.mods.startCoins + (meal === 'purse' ? 40 : 0) + (mealUp ? 40 : 0);
+      if (meal === 'feast') this.mods.hpBonus += 15;
+      if (mealUp) this.feed.push('boon', () => '老酒豪华行囊 · 钱+40 护酒', 0, 'ad:meal');
+      if (this.divineSchoolRun) {
+        const ai = ARCH_INFO[this.divineSchoolRun];
+        if (ai) this.feed.push('boon', () => msg`卦象定向 · 首战必出${ai.name}珍品`, 0, 'ad:divine');
+      }
+      if (gBuff === 'lotus') this.feed.push('boon', () => '温脉药汤 · 血+18 铜钱+35', 0, 'gd:lotus');
       else if (gBuff === 'xuanzhi') this.feed.push('boon', () => '玄芝丹气 · 绝品缘 满杀气', 0, 'gd:xuanzhi'); }
     TUNE.heroHp = 100 + this.mods.hpBonus; TUNE.dartCharges = 3 + this.mods.dartBonus; TUNE.aggression = 0.95 / this.mods.windupMul;
     this.baseFoe.aggression = TUNE.aggression; this.scaleFoes(0);
@@ -3362,7 +4073,7 @@ export class ActShow {
     this.roomDrinkHeal = 0;
     // act-152: hideout uses the equipped weapon's true base moveset (no longer auto-granting run-only 刀谱 manuals unless dbgAllMoves is on)
     this.hero = new Hero(isYard ? V3(HIDEOUT.spawn[0], 0, HIDEOUT.spawn[1]) : V3(ent, 0, entZ), this.wearing); this.hero.moves = this.dbgAllMoves ? ALL_MOVES : this.perks.moves; this.hero.perks = this.perks; this.hero.hp = Math.min(hp, maxHp); this.hero.maxHp = maxHp;
-    { const p = profile(), wid = equippedWeapon(p, this.dbgAllWeapons); this.hero.applyWeapon(wid, weaponLevel(p, wid)); }
+    { const p = profile(), wid = this.currentWeaponId(p); this.hero.applyWeapon(wid, weaponLevel(p, wid)); }
     this.syncHeroHat();
     // (11-20: a new place starts still — a stick / key still held from the last one counts only once let go)
     this.inp.latch();
@@ -3423,7 +4134,7 @@ export class ActShow {
         const pm = shopPriceMul(this.region);
         const scaledPrices = {
           boon: Math.round(PRICES.boon * pm), heal: Math.round(PRICES.heal * pm), sharpen: Math.round(PRICES.sharpen * pm),
-          vigor: Math.round(PRICES.vigor * pm), reroll: Math.round(PRICES.reroll * pm), satchel: Math.round(PRICES.satchel * pm),
+          vigor: Math.round(PRICES.vigor * pm), satchel: Math.round(PRICES.satchel * pm),
         };
         this.stations.shop(scaledPrices, SHOP_SPECIALS[Math.floor(Math.random() * SHOP_SPECIALS.length)], !freshBoons(this.perks, this.hero?.weaponId).length);   // (act-163: no scroll stall for a full hand)
         const st = this.stations;
@@ -4554,17 +5265,11 @@ export class ActShow {
   }
   private async pickManuals(list: typeof MANUALS) {
     const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide();
-    const wid = this.hero?.weaponId ?? equippedWeapon(profile(), this.dbgAllWeapons);
+    const wid = this.hero?.weaponId ?? this.currentWeaponId(profile());
     const wName = weaponDef(wid).name;
-    let cur = list;
+    const cur = list;
     const i = await this.cards.open(cur.map(m => ({ boon: manualCard(m), tier: 0 })), {
       header: { title: msg`${wName} · 武器刀谱`, sub: '每柄武器专属 4 招派生 · 挑一招精进连段', col: '#ffe49a' },
-      reroll: this.rerollsLeft > 0 ? { left: this.rerollsLeft, onReroll: () => {
-        const next = drawManuals(this.perks.moves, 3, Math.random, wid);
-        if (!next.length) return null;
-        this.rerollsLeft--; cur = next;
-        return cur.map(m => ({ boon: manualCard(m), tier: 0 }));
-      } } : undefined,
     });
     const m = cur[i]; this.perks.moves[m.id] = true; this.log.push(`manual ${m.id}`); this.syncMarks(); this.settleDoors();
     this.hud.on = true; this.feed.push('manual', () => msg`刀谱 · ${m.name}`, 0, 'manual:' + m.id);
@@ -6338,8 +7043,6 @@ export class ActShow {
       this.coinsFx.drop(dropPos, 20, 5);
       grantMeta(18, 18);
       boostMaxHp(15, 0.15);
-      this.rerollsLeft += 1;
-      this.feed.push('boon', () => msg`重随次数 +${1}`, 0);
       if (canPick && this.sharpenable().length) await this.sharpen();
       return;
     }
@@ -6361,19 +7064,26 @@ export class ActShow {
       boostMaxHp(12, 0.15);
     }
   }
-  /** three boons with rolled tiers — 死士 / 遗卷 & 绝品缘 mirror roll higher rarities; supports door archetype guarantee, reroll & archetype counts */
+  /** three boons with rolled tiers — 死士 / 遗卷 & 绝品缘 mirror roll higher rarities; supports door archetype guarantee & B4 divination */
   private async boonPick(customOdds?: [number, number, number], doorArch?: Archetype | null) {
     // act-161: a full hand (BOON_CAP), or nothing new left that her blade can use: the reward is an upgrade of one she holds
     if (!freshBoons(this.perks, this.hero?.weaponId).length) { await this.upPick(boonCount(this.perks) >= BOON_CAP); return; }
-    const base = customOdds ?? (this.plan?.type === 'elite' ? [0, 0.55, 0.45] : this.plan?.type === 'boon' ? [0.15, 0.60, 0.25] : [0.7, 0.25, 0.05]);
+    let effArch = doorArch ?? null;
+    let base = customOdds ?? (this.plan?.type === 'elite' ? [0, 0.55, 0.45] : this.plan?.type === 'boon' ? [0.15, 0.60, 0.25] : [0.7, 0.25, 0.05]);
+    // B4 酒前问一卦: guarantee chosen school + at least 珍品 rarity on the run's first boon pick!
+    if (this.divineSchoolRun) {
+      effArch = this.divineSchoolRun;
+      this.divineSchoolRun = null;
+      base = [0, 0.72, 0.28];
+    }
     const rb = this.mods.rareOddsBonus;
     const shift = Math.min(base[0], rb);
     const odds = [Math.max(0, base[0] - shift), base[1] + shift * 0.55, base[2] + shift * 0.45];
     const eqKs = keepsakeDef(equippedKeepsake(profile(), this.dbgAllWeapons));
     const archBias = eqKs?.arch ?? null;
-    let pick = drawBoons('any', 3, Math.random, this.perks, odds, archBias, doorArch ?? null, this.hero?.weaponId); if (!pick.length) return;
+    const pick = drawBoons('any', 3, Math.random, this.perks, odds, archBias, effArch, this.hero?.weaponId); if (!pick.length) return;
     const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide();
-    const ai = doorArch ? ARCH_INFO[doorArch] : null;
+    const ai = effArch ? ARCH_INFO[effArch] : null;
     const i = await this.cards.open(pick, {
       header: {
         title: ai ? msg`${ai.name}秘传 · 流派强化` : '淬炼秘传 · 流派强化',
@@ -6381,11 +7091,6 @@ export class ActShow {
         col: ai ? ai.col : '#ffd27a',
       },
       archHave: archCounts(this.perks),
-      reroll: this.rerollsLeft > 0 ? { left: this.rerollsLeft, onReroll: () => {
-        const next = drawBoons('any', 3, Math.random, this.perks, odds, archBias, doorArch ?? null, this.hero?.weaponId);
-        if (!next.length) return null;
-        this.rerollsLeft--; pick = next; return pick;
-      } } : undefined,
     });
     const b = pick[i]; this.take(b.boon, b.tier);
     this.hud.on = true; this.phase = was === 'pick' ? 'pick' : was;
@@ -6453,10 +7158,6 @@ export class ActShow {
       this.hero.maxHp += 15; const was = this.hero.hp; this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + 25);
       this.feed.push('heal', () => msg`气血上限 +${15}`, 0); this.healFeed(was);
       this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp });
-    }
-    else if (s.id === 'buy_reroll') {
-      this.stations.spend(s); this.rerollsLeft += 2; cue('relic', 0.7);
-      this.feed.push('boon', () => msg`重随次数 +${2}`, 0);
     }
     else if (s.id === 'buy_satchel') {
       this.stations.spend(s);
@@ -6650,14 +7351,114 @@ export class ActShow {
   }
   private dead() {
     this.cancelQte(); GRADE.bloodVig = 0;
-    this.phase = 'dead'; this.justDied = true; this.bankRun(false); audio.stopMusic(1.4); cue('stingLose', 1); slowmo(1.2, 0.3); this.banner.show('败北', '', 1.6, '#ff6a5a');
+    this.phase = 'dead'; audio.stopMusic(1.4); cue('stingLose', 1); slowmo(1.2, 0.3); this.banner.show('败北', '', 1.6, '#ff6a5a');
     // (act-50: the user's lose sound opens on a second of near silence and lands its heavy blow at 2–3 s — the card waits for it)
     after(2.8, async () => {
       this.hud.on = false;
-      const prof = profile(), haul = this.banked ? { iron: this.banked.iron, herb: this.banked.herb, canUp: hasAffordable(prof) || hasMirrorAffordable(prof) } : undefined;
-      await this.cards.open([returnCard(this.kills, false, haul)]);
+      // C2: 阵亡结算平静并列「回断碑古窑」与「残息未绝 · 观影半血再战」（无倒计时、每局严格限 1 次）
+      if (!this.usedRevive && !this.prologue && !this.botOn) {
+        const ch = await this.cards.open([
+          {
+            boon: {
+              id: 'dead_home', school: 'ms' as never,
+              name: '回断碑古窑',
+              desc: [msg`本趟已斩 ${this.kills} 敌，结算带回残铁与药引`, '不借真气 · 保持硬核独行'],
+              col: '#d8ccb4', glyph: LEAVE, tag: '归窑',
+            } as CardBoon,
+            tier: 0,
+          },
+          {
+            boon: {
+              id: 'dead_revive', school: 'fg' as never,
+              name: '残息未绝 · 借真气再战',
+              desc: ['观影一则原地恢复半数气血并震开周身敌兵', '每局严格限一次（计入长明灯灯油）'],
+              col: '#ffe278', glyph: NEEDLE, tag: '观影续命',
+            } as CardBoon,
+            tier: 2,
+          },
+        ], {
+          header: { title: '气绝倒地 · 抉择', sub: '可径直回古窑结算，或借一口真气再战一次', col: '#ff9080' },
+          footer: '平静抉择 · 无倒计时催促',
+        });
+        if (ch === 1) {
+          const ok = await this.watchAd('revive', '残息未绝 · 借真气再战', '原地半血起身并短暂无敌震退周身敌兵');
+          if (ok && this.hero) {
+            this.usedRevive = true;
+            this.phase = 'fight';
+            this.hero.revive(Math.max(1, Math.round(this.hero.maxHp * 0.5)), 2.2);
+            this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp });
+            this.hud.on = true;
+            fxFlare(this.hero.pos.clone().setY(0.9), 0xffe278, 3.2, 0.65);
+            fxRing(this.hero.pos.clone().setY(0.1), 0xffe278, 4.5, { life: 0.6, width: 0.14 });
+            for (const f of this.foes) {
+              if (f.st === 'dead') continue;
+              const dx = f.pos.x - this.hero.pos.x, dz = f.pos.z - this.hero.pos.z, d = Math.hypot(dx, dz) || 1;
+              if (d < 4.5) { f.vel.set((dx / d) * 8, 0, (dz / d) * 8); }
+            }
+            cue('parry', 0.9); cue('stingRevive', 0.9);
+            void audio.playMusic(this.plan?.type === 'boss' ? 'bgm_boss' : this.plan?.type === 'elite' ? 'bgm_elite' : 'bgm_battle');
+            this.banner.show('残息未绝', '借真气起身再战', 1.6, '#ffe278');
+            return;
+          }
+        }
+      }
+      this.justDied = true;
+      this.bankRun(false);
+      await this.openHaulSummary(false);
       this.hud.on = true; void wipeTransit(() => this.enterYard());
     });
+  }
+  /** C3: 归窑结算（含「杜五拾遗 · 观影带回残铁药引 +50%」） */
+  private async openHaulSummary(won: boolean, spared = false) {
+    const prof = profile();
+    const b = this.banked;
+    const haul = b ? { iron: b.iron, herb: b.herb, canUp: hasAffordable(prof) || hasMirrorAffordable(prof) } : undefined;
+    const baseCard = won
+      ? {
+          boon: {
+            id: 'again', school: 'sr' as never,
+            name: !this.usedRevive ? msg`${REGIONS[REGIONS.length - 1].name} · 孤刃独行` : REGIONS[REGIONS.length - 1].name,
+            desc: [
+              spared ? msg`${EDEFS[REGIONS[REGIONS.length - 1].boss as EKind]?.name ?? ''}未死` : msg`${EDEFS[REGIONS[REGIONS.length - 1].boss as EKind]?.name ?? ''}伏诛`,
+              !this.usedRevive ? msg`未借真气通关（孤刃独行 ${prof.soloWins ?? 1} 次）· 斩 ${this.kills} 敌` : msg`斩了 ${this.kills} 个 · 点此回古窑`,
+            ],
+            col: '#ffd070', glyph: BOONS.find(x => x.id === 'behead')!.glyph,
+            tag: !this.usedRevive ? '孤刃独行' : '通关',
+          } as CardBoon,
+          tier: !this.usedRevive ? 2 : 1,
+        }
+      : returnCard(this.kills, false, haul);
+
+    const canBonus = !this.botOn && !!b && (b.iron > 0 || b.herb > 0);
+    if (!canBonus) {
+      await this.cards.open([baseCard]);
+      return;
+    }
+    const exIron = Math.ceil(b!.iron * 0.5), exHerb = Math.ceil(b!.herb * 0.5);
+    const ch = await this.cards.open([
+      baseCard,
+      {
+        boon: {
+          id: 'haul_bonus', school: 'fg' as never,
+          name: '杜五拾遗 · 收获加半',
+          desc: [msg`观影让杜五沿路再收拢一趟：额外得 残铁+${exIron} 药引+${exHerb}`, '每局结算限一次 · 计入长明灯灯油'],
+          col: '#ffe278', glyph: MEAL_GLYPH.purse, tag: '观影+50%',
+        } as CardBoon,
+        tier: 2,
+      },
+    ], {
+      header: { title: won ? '此行功成 · 满载归窑' : '整备行囊 · 折返古窑', sub: msg`本趟带回 残铁 ${b!.iron} · 药引 ${b!.herb}`, col: '#ffd27a' },
+      footer: '点选直接归窑，或观影让杜五拾遗增收五成',
+    });
+    if (ch === 1) {
+      const ok = await this.watchAd('haul_bonus', '归窑结算 · 杜五拾遗', msg`本趟带回残铁 +${exIron}、药引 +${exHerb}`);
+      if (ok) {
+        prof.iron += exIron; prof.herb += exHerb;
+        b!.iron += exIron; b!.herb += exHerb;
+        saveProfile();
+        cue('coin', 1);
+      }
+    }
   }
   /** act-114 第五关战后 3D 刀锋抵喉构图：崔玄卸兵跪地、刘白持刀平指喉前半寸（2.05m 安全间距让完整刀身清晰可见、零穿模） */
   /** act-137: stage Ch1–Ch4 first-kill confrontation — wounded boss kneeling on the battlefield, Liu Bai's blade poised at his
@@ -7067,8 +7868,7 @@ export class ActShow {
     this.phase = 'end'; this.bankRun(win); audio.stopMusic(2.0); cue(win ? 'stingWin' : 'stingLose', 1);
     after(0.4, async () => {
       this.hud.on = false;
-      const bossName = EDEFS[REGIONS[REGIONS.length - 1].boss as EKind]?.name ?? '';
-      await this.cards.open([{ boon: { id: win ? 'again' : 'retry', school: 'sr', name: win ? REGIONS[REGIONS.length - 1].name : '再来一次', desc: [win ? (spared ? msg`${bossName}未死` : msg`${bossName}伏诛`) : '回练武场再出发', msg`斩了 ${this.kills} 个 · 点这里回练武场`], col: '#ffd070', glyph: BOONS.find(b => b.id === 'behead')!.glyph }, tier: 0 }]);
+      await this.openHaulSummary(win, spared);
       this.hud.on = true; void wipeTransit(() => this.enterYard());
     });
   }
@@ -7212,7 +8012,7 @@ export class ActShow {
     // act-128: smoothly dim the 3D world behind all selection UIs (Cards3D) and PauseMenu while keeping the 3D UI layer full brightness
     {
       const uiDt = PAUSE.on ? PAUSE.rdt : rdt;
-      const wantDim = (this.cards.on || this.pause.on) ? 1 : 0;
+      const wantDim = (this.cards.on || this.pause.on || this.adModal?.on) ? 1 : 0;
       UI_LOOK.modalDim += (wantDim - UI_LOOK.modalDim) * Math.min(1, uiDt * 12);
       if (Math.abs(wantDim - UI_LOOK.modalDim) < 0.004) UI_LOOK.modalDim = wantDim;
     }
@@ -7356,6 +8156,9 @@ export class ActShow {
     for (const a of this.roadActors) if (!this.roadStill.has(a)) a.update(dt);
     this.tickSpringAnims(dt);
     if (this.phase === 'yard') {
+      this.extraAnimT += dt;
+      this.lanternTick?.(this.extraAnimT);
+      this.decorTick?.(this.extraAnimT);
       let near: string | null = null, nd = 1.9; for (const n of this.npcs) { const d = Math.hypot(n.x - h.pos.x, n.z - h.pos.z); if (d < nd) { nd = d; near = n.id; } }
       if (this.duwuMemorialMesh) { const d = Math.hypot(HIDEOUT.people.duwu.x - h.pos.x, HIDEOUT.people.duwu.z - h.pos.z); if (d < Math.min(nd, 2.0)) { nd = d; near = 'duwu_memorial'; } }
       for (const [zid] of this.zoneMonuments) {
@@ -7366,6 +8169,8 @@ export class ActShow {
       if (this.stele && HIDEOUT.stele) { const d = Math.hypot(HIDEOUT.stele.x - h.pos.x, HIDEOUT.stele.z + 0.65 - h.pos.z); if (d < Math.min(nd, 1.65)) { nd = d; near = 'stele'; } }
       if (this.weaponRackMesh) { const d = Math.hypot(HIDEOUT.weaponRack.x - h.pos.x, HIDEOUT.weaponRack.z + 0.85 - h.pos.z); if (d < Math.min(nd, 2.0)) { nd = d; near = 'weaponRack'; } }
       if (this.keepsakeBoxMesh) { const d = Math.hypot(HIDEOUT.keepsakeBox.x - h.pos.x, HIDEOUT.keepsakeBox.z + 0.7 - h.pos.z); if (d < Math.min(nd, 1.65)) { nd = d; near = 'keepsakeBox'; } }
+      if (this.lanternMesh) { const d = Math.hypot(HIDEOUT.lantern.x - h.pos.x, HIDEOUT.lantern.z - h.pos.z); if (d < Math.min(nd, 1.75)) { nd = d; near = 'lantern'; } }
+      if (this.trialSteleMesh) { const d = Math.hypot(HIDEOUT.trialStele.x - h.pos.x, HIDEOUT.trialStele.z - h.pos.z); if (d < Math.min(nd, 1.8)) { nd = d; near = 'trialStele'; } }
       if (this.gardenMeshes.length > 0) {
         for (let gi = 0; gi < HIDEOUT.gardenPlots.length; gi++) {
           const gp = HIDEOUT.gardenPlots[gi], d = Math.hypot(gp.x - h.pos.x, gp.z - h.pos.z);
@@ -7803,6 +8608,7 @@ export class ActShow {
     //  never reached the HUD, so the stick stayed held into the next room — free it on any intercepting branch, while letting normal
     //  HUD up events reach hud.pointer() first so portrait tap → onPause still fires!)
     const lift = () => { if (type === 'up' || type === 'cancel') this.hud.lift(id, this.inp); };
+    if (this.adModal?.on) { lift(); this.adModal.pointer(type, x, y); return; }
     if (bladeBusy()) { lift(); return; }
     if (this.pause.on) { lift(); this.pause.pointer(type, x, y, touch); return; }
     if (this.phase === 'title') { lift(); if (touch && type === 'down') PAD.device = 'touch'; titlePointer(type, x, y); return; }
@@ -7827,6 +8633,7 @@ export class ActShow {
     this.banner.show(SKIN_NAME[next], '界面风格 · U 键或调参面板切换', 1.4);
   }
   private key(e: KeyboardEvent) {
+    if (this.adModal?.on) { this.adModal.key(e); return; }
     if (bladeBusy()) return;
     if (this.demo.on && !this.pause.on) return;   // (11-19: the demonstration plays to the end)
     if (this.timeline.on && e.key === 'Escape') { e.preventDefault(); this.timeline.key(true); return; }
@@ -7845,7 +8652,6 @@ export class ActShow {
     }
     if (!this.cards.on) return;
     if ((e.key === 'Escape' || e.key === 'Backspace') && !e.repeat && this.cards.leave()) { e.preventDefault(); return; }   // (11-19: a shop page — Esc leaves)
-    if ((e.key === 'r' || e.key === 'R') && !e.repeat && this.cards.reroll()) { e.preventDefault(); return; }
     const k = ({ arrowleft: 'left', a: 'left', arrowup: 'up', w: 'up', arrowright: 'right', d: 'right', arrowdown: 'down', s: 'down', enter: 'ok', ' ': 'ok', j: 'ok', q: 'alt', tab: 'alt', e: 'tabNext' } as const)[e.key.toLowerCase() as 'a'];
     if (k && !e.repeat) { e.preventDefault(); this.cards.key(k); }
   }
@@ -7874,7 +8680,7 @@ export class ActShow {
       else if (n.up) this.cards.key('up');
       else if (n.down) this.cards.key('down');
       else if (n.ok) this.cards.key('ok');
-      else if (n.y) { if (!this.cards.reroll()) this.cards.key('alt'); }
+      else if (n.y) this.cards.key('alt');
       else if (n.back) this.cards.leave();
       return;
     }
@@ -7882,7 +8688,7 @@ export class ActShow {
   }
   /** the world can stand still here: walking about or fighting (not the start screen, a cutscene, a conversation, the cards, a wipe) */
   canPause() {
-    return !this.pause.on && !this.labOn && !this.cards.on && !this.ultOn && !this.duel.locks && !this.dialogue.on && !this.timeline.on && (['yard', 'intro', 'fight', 'doors'] as Phase[]).includes(this.phase);
+    return !this.adModal?.on && !this.pause.on && !this.labOn && !this.cards.on && !this.ultOn && !this.duel.locks && !this.dialogue.on && !this.timeline.on && (['yard', 'intro', 'fight', 'doors'] as Phase[]).includes(this.phase);
   }
   pauseGame() {
     if (!this.canPause() || this.botOn) return;

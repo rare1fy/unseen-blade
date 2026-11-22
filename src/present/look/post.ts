@@ -21,7 +21,7 @@ const FS = (pixel: boolean) => `
 precision highp float;
 ${pixel ? '#define PIXEL' : ''}
 uniform sampler2D tColor; uniform sampler2D tDepth; uniform sampler2D tBloom; uniform vec2 uRes; uniform float uNear, uFar, uBloomCap;
-uniform vec3 uFog; uniform float uBands; uniform float uInk, uInkT, uInkStep, uExposure, uSat, uVig, uBloodVig, uFlash, uSplit, uImpact, uTime, uDesat, uCurve, uCraft, uPxPolish, uCraftDof; uniform vec3 uFlashCol, uLift, uGain, uInkCol;
+uniform vec3 uFog; uniform float uBands; uniform float uInk, uInkT, uInkStep, uExposure, uSat, uVig, uBloodVig, uFlash, uSplit, uImpact, uTime, uDesat, uCurve, uCraft, uPxPolish, uCraftDof, uCinemaInk; uniform vec3 uFlashCol, uLift, uGain, uInkCol;
 varying vec2 vUv;
 ${UI_SCENE_GLSL}
 float lin(float d){ float z = d * 2.0 - 1.0; return (2.0 * uNear * uFar) / (uFar + uNear - z * (uFar - uNear)); }
@@ -129,6 +129,17 @@ void main(){
     float il = dot(col, vec3(0.299, 0.587, 0.114));
     vec3 imp = mix(vec3(0.05, 0.04, 0.09), vec3(1.0, 0.96, 0.86), step(0.38, il));
     col = mix(col, imp, uImpact * 0.76);
+  }
+  // act-139 A3: 剑戟片水墨滤镜 (Kurosawa / woodblock monochrome preserving vivid blood red & golden parry/lantern cues)
+  if (uCinemaInk > 0.01) {
+    float lum = dot(col, vec3(0.299, 0.587, 0.114));
+    float hiLum = smoothstep(0.06, 0.88, lum);
+    vec3 sumi = mix(vec3(0.06, 0.07, 0.09), vec3(0.95, 0.92, 0.86), hiLum);
+    float redKeep = smoothstep(0.16, 0.34, col.r - max(col.g, col.b)) * smoothstep(0.18, 0.42, col.r);
+    float goldKeep = smoothstep(0.18, 0.36, min(col.r, col.g * 1.1) - col.b) * smoothstep(0.34, 0.68, col.r);
+    float keep = clamp(max(redKeep * 1.15, goldKeep * 0.92), 0.0, 1.0);
+    vec3 vivid = mix(sumi, col * vec3(1.08, 1.02, 0.96), keep);
+    col = mix(col, vivid, uCinemaInk);
   }
   // vignette + cinema-grade organic radial crimson low-HP pulse (in HD-2D, smooth native pass runs in BLIT_FS)
   if (!hd2d) {
@@ -240,7 +251,7 @@ void main(){
 }`;
 
 export const GRADE = {
-  ink: 0.85, exposure: 1.05, sat: 1.12, vig: 0.55, bloodVig: 0, desat: 0,
+  ink: 0.85, exposure: 1.05, sat: 1.12, vig: 0.55, bloodVig: 0, desat: 0, cinemaInk: 0,
   lift: new THREE.Color(0.02, 0.015, 0.05), gain: new THREE.Color(1.0, 0.98, 1.02), inkCol: new THREE.Color(0.05, 0.03, 0.08),
   flash: 0, flashCol: new THREE.Color(1, 1, 1), split: 0, impact: 0,
   bloomStrength: 0.85, bloomRadius: 0.55, bloomThreshold: 1.05,   // 2026-11-13: only real glows bloom, not white cloth
@@ -249,7 +260,7 @@ export const GRADE = {
 const uniforms = () => ({
   ...uiSceneUniforms(),
   tColor: { value: null as THREE.Texture | null }, tDepth: { value: null as THREE.Texture | null }, tBloom: { value: null as THREE.Texture | null }, uBloomCap: { value: 0.7 }, uBands: { value: 6 }, uRes: { value: new THREE.Vector2(4, 4) }, uNear: { value: 0.1 }, uFar: { value: 400 },
-  uInk: { value: 1 }, uInkT: { value: 0.05 }, uInkStep: { value: 1 }, uFog: { value: new THREE.Vector3() }, uExposure: { value: 1 }, uSat: { value: 1 }, uVig: { value: 0.5 }, uBloodVig: { value: 0 }, uFlash: { value: 0 }, uSplit: { value: 0 }, uImpact: { value: 0 }, uTime: { value: 0 }, uDesat: { value: 0 }, uCurve: { value: 0 }, uCraft: CRAFTU.uCraft, uPxPolish: CRAFTU.uPxPolish, uCraftDof: CRAFTU.uCraftDof,
+  uInk: { value: 1 }, uInkT: { value: 0.05 }, uInkStep: { value: 1 }, uFog: { value: new THREE.Vector3() }, uExposure: { value: 1 }, uSat: { value: 1 }, uVig: { value: 0.5 }, uBloodVig: { value: 0 }, uFlash: { value: 0 }, uSplit: { value: 0 }, uImpact: { value: 0 }, uTime: { value: 0 }, uDesat: { value: 0 }, uCurve: { value: 0 }, uCraft: CRAFTU.uCraft, uPxPolish: CRAFTU.uPxPolish, uCraftDof: CRAFTU.uCraftDof, uCinemaInk: { value: 0 },
   uFlashCol: { value: new THREE.Color() }, uLift: { value: new THREE.Color() }, uGain: { value: new THREE.Color(1, 1, 1) }, uInkCol: { value: new THREE.Color() },
 });
 
@@ -371,7 +382,7 @@ export class Post {
     const cCur = cMode === 'ink' ? 0.16 : cMode === 'hd2d' ? 0.18 : cMode === 'diorama' ? 0.13 : (pix ? PX.curve : 0);
     u.uNear.value = camera.near; u.uFar.value = camera.far; u.uInk.value = cInk; u.uInkT.value = cInkT; u.uInkStep.value = inkStep;
     u.uExposure.value = GRADE.exposure * cExp; u.uSat.value = GRADE.sat * cSat; u.uVig.value = GRADE.vig * cVig; u.uBloodVig.value = GRADE.bloodVig; u.uCurve.value = cCur;
-    u.uFlash.value = GRADE.flash; u.uSplit.value = GRADE.split; u.uImpact.value = GRADE.impact; u.uTime.value = time % 100; u.uDesat.value = GRADE.desat;
+    u.uFlash.value = GRADE.flash; u.uSplit.value = GRADE.split; u.uImpact.value = GRADE.impact; u.uTime.value = time % 100; u.uDesat.value = GRADE.desat; u.uCinemaInk.value = GRADE.cinemaInk;
     (u.uFlashCol.value as THREE.Color).copy(GRADE.flashCol); (u.uLift.value as THREE.Color).copy(GRADE.lift); (u.uGain.value as THREE.Color).copy(GRADE.gain); (u.uInkCol.value as THREE.Color).copy(GRADE.inkCol);
     const bu = this.blit.uniforms;
     bu.uHd2d.value = isHd2d ? 1 : 0;

@@ -56,6 +56,14 @@ export class BattleActor extends BActor {
     const isHeroHook = !this.foe && !!POSE_HOOKS[this.hid];
     return this.play(new Action('fall', isHeroHook ? 1.65 : 1.2, 0.6, fromAngle === undefined ? {} : { fromAngle }));
   }
+  /** act-139 C2: stand cleanly back up after 残息未绝 revive */
+  revive() {
+    this.dead = false;
+    this.deathAction = undefined;
+    this.act = null;
+    this.body.rotation.set(0, 0, 0);
+    this.body.position.copy(this.off);
+  }
   setRunning(on: boolean, speed?: number, lookYaw?: number, velocity?: { readonly x: number; readonly z: number }) {
     this.running = on;
     this.moveSpeed = speed;

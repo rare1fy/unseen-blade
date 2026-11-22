@@ -80,7 +80,7 @@ export const HIDEOUT_ZONES: Record<HideoutZoneId, HideoutZoneDef> = {
   },
 };
 
-const FORGE_PERK_KEYS = ['blade', 'darts', 'reroll', 'manual'];
+const FORGE_PERK_KEYS = ['blade', 'darts', 'manual'];
 
 export interface HideoutProgressState {
   forgeReady: boolean;

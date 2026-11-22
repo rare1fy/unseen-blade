@@ -9,6 +9,7 @@ import { bodyText, bodyW, BODY_FONT } from '../ui3d/bodyFont';
 import { PAD, paintGlyph, glyphArt, GLYPH_H, paintKeyCap, keyCapWidth, KEYCAP_H, actKey, BIND } from './pad';
 import { language, t as localize } from './i18n';
 import { uiScale } from './uiScale';
+import { SKIN } from './skin';
 
 export type MiniIcon =
   | 'coin' | 'iron' | 'herb' | 'chest' | 'mythic' | 'scroll' | 'heal'
@@ -363,37 +364,55 @@ export function drawPixelPlaque(
   g: CanvasRenderingContext2D,
   x: number, y: number, w: number, h: number,
   p: number,
-  o: { bg?: string; hi?: string; border?: string; inner?: string; accent?: string; rivets?: boolean; accentBar?: string } = {},
+  o: { bg?: string; hi?: string; border?: string; inner?: string; accent?: string; rivets?: boolean; accentBar?: string; active?: boolean } = {},
 ) {
   const X = Math.round(x), Y = Math.round(y), W = Math.round(w), H = Math.round(h), u = Math.max(1, Math.round(p));
-  const outer = o.border ?? '#0a080d';
-  const inner = o.inner ?? '#8c7248';
-  const bg = o.bg ?? '#15121b';
-  const hi = o.hi ?? '#252030';
+  const sk = SKIN.id;
+  const act = !!o.active;
+  const outer = o.border ?? (sk === 'lacquer' ? '#0d0507' : sk === 'bamboo' ? '#22150a' : '#0a080d');
+  const inner = o.inner ?? (sk === 'lacquer' ? (act ? '#ffdc78' : '#d8a238') : sk === 'bamboo' ? (act ? '#f2d98c' : '#c8ab68') : (act ? '#f0be64' : '#8c7248'));
+  const bg = o.bg ?? (sk === 'lacquer' ? (act ? '#3a1214' : '#1b0b0e') : sk === 'bamboo' ? (act ? '#523d20' : '#382a16') : (act ? '#2c2116' : '#15121b'));
+  const hi = o.hi ?? (sk === 'lacquer' ? (act ? '#741e1a' : '#4e1618') : sk === 'bamboo' ? (act ? '#7c5f32' : '#5e4726') : (act ? '#4a3620' : '#252030'));
+  const rivetDefault = sk === 'lacquer' ? '#d8342a' : sk === 'bamboo' ? '#c23026' : '#d29e4c';
   // outer silhouette with 1-step notched corners
   g.fillStyle = outer;
   g.fillRect(X + u, Y, W - 2 * u, H);
   g.fillRect(X, Y + u, W, H - 2 * u);
-  // metal inner rim
+  // metal / gold / bamboo inner rim
   g.fillStyle = inner;
   g.fillRect(X + u * 2, Y + u, W - 4 * u, H - 2 * u);
   g.fillRect(X + u, Y + u * 2, W - 2 * u, H - 4 * u);
-  // dark lacquer core
+  // core body
   g.fillStyle = bg;
   g.fillRect(X + u * 2, Y + u * 2, W - 4 * u, H - 4 * u);
+  // Bamboo skin: crisp vertical bamboo-slat seam texture + hemp cord top/bottom binding strips
+  if (sk === 'bamboo' && W > u * 10 && H > u * 6) {
+    const slatStep = Math.max(u * 6, Math.round(14 * (u / 2)));
+    g.fillStyle = act ? '#433118' : '#2c2010';
+    for (let sx = X + u * 2 + slatStep; sx < X + W - u * 3; sx += slatStep) {
+      g.fillRect(sx, Y + u * 2, u, H - u * 4);
+    }
+    g.fillStyle = '#24160a';
+    g.fillRect(X + u * 2, Y + u * 3, W - 4 * u, u);
+    g.fillRect(X + u * 2, Y + H - u * 4, W - 4 * u, u);
+  }
   // crisp top highlight band (1 unit)
   if (H > u * 7) {
     g.fillStyle = hi;
     g.fillRect(X + u * 2, Y + u * 2, W - 4 * u, u);
+    if (sk === 'lacquer') {
+      g.fillStyle = '#a4241c';
+      g.fillRect(X + u * 2, Y + H - u * 3, W - 4 * u, u);
+    }
   }
   // optional left vertical accent stripe
   if (o.accentBar) {
     g.fillStyle = o.accentBar;
     g.fillRect(X + u * 2, Y + u * 2, u * 2, H - 4 * u);
   }
-  // optional 4 corner bronze rivets
+  // optional 4 corner rivets / lacquer seals
   if (o.rivets && W > u * 12 && H > u * 10) {
-    g.fillStyle = o.accent ?? '#d29e4c';
+    g.fillStyle = sk === 'iron' ? (o.accent ?? rivetDefault) : rivetDefault;
     for (const [rx, ry] of [
       [X + u * 3, Y + u * 3],
       [X + W - u * 4, Y + u * 3],
@@ -629,7 +648,7 @@ export class UiPlatePool {
     const title = localize(spec.text);
     const sub = spec.sub ? localize(spec.sub) : '';
     const hasPrice = (spec.price ?? 0) > 0;
-    const pKey = `tag|${title}|${sub}|${spec.color ?? ''}|${spec.accent ?? ''}|${spec.icon ?? ''}|${spec.emblem ? 1 : 0}|${spec.price ?? 0}|${spec.poor ? 1 : 0}|${kk.toFixed(2)}|${dpr}|${language}|${BODY_FONT.version}`;
+    const pKey = `tag|${SKIN.id}|${title}|${sub}|${spec.color ?? ''}|${spec.accent ?? ''}|${spec.icon ?? ''}|${spec.emblem ? 1 : 0}|${spec.price ?? 0}|${spec.poor ? 1 : 0}|${kk.toFixed(2)}|${dpr}|${language}|${BODY_FONT.version}`;
     if (pKey !== s.key) {
       s.key = pKey;
       const u = Math.max(1, Math.round(1.5 * kk * dpr));
@@ -652,7 +671,7 @@ export class UiPlatePool {
         const c = makeCanvas(Math.max(8, Math.ceil(W)), Math.max(8, Math.ceil(H))) as HTMLCanvasElement;
         const g = c.getContext('2d')!; g.imageSmoothingEnabled = false;
         drawPixelPlaque(g, 0, 0, c.width, c.height, u, {
-          bg: '#13101a', hi: '#272034', border: '#07050a', inner: rimCol, accentBar: rimCol,
+          inner: rimCol, accentBar: rimCol,
         });
         const midY = c.height / 2;
         const mx = padX + u * 3;
@@ -685,7 +704,7 @@ export class UiPlatePool {
         const c = makeCanvas(Math.max(8, Math.ceil(W)), Math.max(8, Math.ceil(H))) as HTMLCanvasElement;
         const g = c.getContext('2d')!; g.imageSmoothingEnabled = false;
         drawPixelPlaque(g, 0, 0, c.width, c.height, u, {
-          bg: '#15121c', hi: '#262132', border: '#08060b', inner: rimCol, accentBar: spec.accent ?? rimCol,
+          inner: rimCol, accentBar: spec.accent ?? rimCol,
         });
         let cx = padX + u * 3;
         const midY = c.height / 2;
@@ -730,7 +749,7 @@ export class UiPlatePool {
     const action = spec.action ? localize(spec.action) : '';
     const hasPrice = (spec.price ?? 0) > 0;
     const showKey = spec.showKey !== false && !spec.poor && !spec.disabled;
-    const pKey = `int|${title}|${sub}|${action}|${spec.color ?? ''}|${spec.accent ?? ''}|${spec.icon ?? ''}|${spec.price ?? 0}|${spec.poor ? 1 : 0}|${spec.disabled ? 1 : 0}|${showKey ? 1 : 0}|${PAD.device}|${PAD.family}|${actKey('attack')}|${kk.toFixed(2)}|${dpr}|${language}|${BODY_FONT.version}`;
+    const pKey = `int|${SKIN.id}|${title}|${sub}|${action}|${spec.color ?? ''}|${spec.accent ?? ''}|${spec.icon ?? ''}|${spec.price ?? 0}|${spec.poor ? 1 : 0}|${spec.disabled ? 1 : 0}|${showKey ? 1 : 0}|${PAD.device}|${PAD.family}|${actKey('attack')}|${kk.toFixed(2)}|${dpr}|${language}|${BODY_FONT.version}`;
     if (pKey !== s.key) {
       s.key = pKey;
       const u = Math.max(1, Math.round(2 * kk * dpr));
@@ -759,7 +778,7 @@ export class UiPlatePool {
       const g = c.getContext('2d')!; g.imageSmoothingEnabled = false;
       const rim = spec.poor ? '#c44032' : spec.disabled ? '#5c5a64' : (spec.accent ?? '#d8a64e');
       drawPixelPlaque(g, 0, 0, c.width, c.height, u, {
-        bg: '#14111a', hi: '#2a2436', border: '#07050a', inner: rim, accent: rim, rivets: true,
+        inner: rim, accent: rim, rivets: true,
       });
       // Row 1: Icon + Title (left) & Price (right)
       let cy = padY + u;
@@ -811,7 +830,7 @@ export class UiPlatePool {
     const kk = uiScale(this.L.w, this.L.h, 0.8, 2.8);
     const title = localize(spec.title);
     const sub = spec.sub ? localize(spec.sub) : '';
-    const pKey = `hdr|${title}|${sub}|${spec.color ?? ''}|${spec.accent ?? ''}|${kk.toFixed(2)}|${dpr}|${language}|${BODY_FONT.version}`;
+    const pKey = `hdr|${SKIN.id}|${title}|${sub}|${spec.color ?? ''}|${spec.accent ?? ''}|${kk.toFixed(2)}|${dpr}|${language}|${BODY_FONT.version}`;
     if (pKey !== s.key) {
       s.key = pKey;
       const u = Math.max(1, Math.round(2 * kk * dpr));
@@ -826,7 +845,7 @@ export class UiPlatePool {
       const c = makeCanvas(Math.ceil(W), Math.ceil(H)) as HTMLCanvasElement;
       const g = c.getContext('2d')!; g.imageSmoothingEnabled = false;
       drawPixelPlaque(g, 0, 0, c.width, c.height, u, {
-        bg: '#16131c', hi: '#2a2436', border: '#07050a', inner: spec.accent ?? '#b88e4a', accent: spec.color ?? '#ffd888', rivets: true,
+        inner: spec.accent, accent: spec.color ?? '#ffd888', rivets: true,
       });
       const topY = padY + u;
       drawPix(g, title, c.width / 2, topY, { scale: tScale, color: spec.color ?? '#ffe6b0', outline: '#08060c', align: 'center' });
@@ -849,7 +868,7 @@ export class UiPlatePool {
     if (!items.length) { s.mesh.visible = false; return; }
     const dpr = Math.max(1, Math.round(this.L.dpr || 1));
     const kk = uiScale(this.L.w, this.L.h, 0.8, 2.8);
-    const pKey = `wal|${items.map(i => `${i.icon}:${i.val}:${i.hot ? 1 : 0}`).join(',')}|${kk.toFixed(2)}|${dpr}|${language}`;
+    const pKey = `wal|${SKIN.id}|${items.map(i => `${i.icon}:${i.val}:${i.hot ? 1 : 0}`).join(',')}|${kk.toFixed(2)}|${dpr}|${language}`;
     if (pKey !== s.key) {
       s.key = pKey;
       const u = Math.max(1, Math.round(2 * kk * dpr));
@@ -867,7 +886,7 @@ export class UiPlatePool {
       const c = makeCanvas(Math.ceil(W), Math.ceil(H)) as HTMLCanvasElement;
       const g = c.getContext('2d')!; g.imageSmoothingEnabled = false;
       drawPixelPlaque(g, 0, 0, c.width, c.height, u, {
-        bg: '#15121b', hi: '#272233', border: '#07050a', inner: '#a48248', accent: '#ffd888', rivets: true,
+        accent: '#ffd888', rivets: true,
       });
       let cx = padX + u;
       const midY = c.height / 2;
@@ -892,7 +911,7 @@ export class UiPlatePool {
     if (!tabs.length) { s.mesh.visible = false; return []; }
     const dpr = Math.max(1, Math.round(this.L.dpr || 1));
     const kk = uiScale(this.L.w, this.L.h, 0.8, 2.8);
-    const pKey = `tabs|${tabs.map(t => `${t.id}:${localize(t.label)}:${t.badge ? 1 : 0}`).join('|')}|${activeIdx}|${PAD.device}|${kk.toFixed(2)}|${dpr}|${language}`;
+    const pKey = `tabs|${SKIN.id}|${tabs.map(t => `${t.id}:${localize(t.label)}:${t.badge ? 1 : 0}`).join('|')}|${activeIdx}|${PAD.device}|${kk.toFixed(2)}|${dpr}|${language}`;
     const u = Math.max(1, Math.round(2 * kk * dpr));
     const pScale = Math.max(1, Math.round((16.5 * kk * dpr) / PIX_H));
     const tH = PIX_H * pScale;
@@ -908,10 +927,8 @@ export class UiPlatePool {
       tabs.forEach((tb, i) => {
         const w = widths[i], on = i === activeIdx;
         drawPixelPlaque(g, tx, 0, w, H, u, {
-          bg: on ? '#2c2116' : '#15121b',
-          hi: on ? '#4a3620' : '#221d2b',
-          border: '#07050a',
-          inner: on ? '#f0be64' : '#585262',
+          active: on,
+          inner: on ? undefined : (SKIN.id === 'bamboo' ? '#7a633c' : SKIN.id === 'lacquer' ? '#6a4024' : '#585262'),
           accent: on ? '#ffe28a' : '#7a7284',
           rivets: on,
         });
@@ -950,7 +967,7 @@ export class UiPlatePool {
     const l1 = localize(spec.line1);
     const l2 = spec.line2 ? localize(spec.line2) : '';
     const act = spec.action ? localize(spec.action) : '';
-    const pKey = `det|${Math.round(spec.w)}|${title}|${badge}|${spec.badgeCol ?? ''}|${spec.stars ?? 0}/${spec.starsMax ?? 0}|${l1}|${l2}|${act}|${spec.actionHot ? 1 : 0}|${spec.accent ?? ''}|${kk.toFixed(2)}|${dpr}|${language}|${BODY_FONT.version}`;
+    const pKey = `det|${SKIN.id}|${Math.round(spec.w)}|${title}|${badge}|${spec.badgeCol ?? ''}|${spec.stars ?? 0}/${spec.starsMax ?? 0}|${l1}|${l2}|${act}|${spec.actionHot ? 1 : 0}|${spec.accent ?? ''}|${kk.toFixed(2)}|${dpr}|${language}|${BODY_FONT.version}`;
     if (pKey !== s.key) {
       s.key = pKey;
       const u = Math.max(1, Math.round(2 * kk * dpr));
@@ -965,7 +982,7 @@ export class UiPlatePool {
       const c = makeCanvas(Math.max(16, W), Math.max(16, H)) as HTMLCanvasElement;
       const g = c.getContext('2d')!; g.imageSmoothingEnabled = false;
       drawPixelPlaque(g, 0, 0, c.width, c.height, u, {
-        bg: '#15121c', hi: '#2a2438', border: '#07050a', inner: spec.accent ?? '#c4984e', accent: spec.accent ?? '#ffd888', rivets: true,
+        inner: spec.accent ?? undefined, accent: spec.accent ?? undefined, rivets: true,
       });
       const x0 = padX + u;
       let y = padY + u;
@@ -1313,7 +1330,7 @@ export class UiPlatePool {
     const dpr = Math.max(1, Math.round(this.L.dpr || 1));
     const kk = uiScale(this.L.w, this.L.h, 0.8, 2.8);
     const txt = localize(text);
-    const pKey = `ftr|${txt}|${kk.toFixed(2)}|${dpr}|${language}|${BODY_FONT.version}`;
+    const pKey = `ftr|${SKIN.id}|${txt}|${kk.toFixed(2)}|${dpr}|${language}|${BODY_FONT.version}`;
     if (pKey !== s.key) {
       s.key = pKey;
       const u = Math.max(1, Math.round(1.5 * kk * dpr));
@@ -1324,9 +1341,7 @@ export class UiPlatePool {
       const H = Math.ceil(fpx * 1.3) + padY * 2 + u * 2;
       const c = makeCanvas(Math.max(8, W), Math.max(8, H)) as HTMLCanvasElement;
       const g = c.getContext('2d')!; g.imageSmoothingEnabled = false;
-      drawPixelPlaque(g, 0, 0, c.width, c.height, u, {
-        bg: '#131018', hi: '#221d2c', border: '#07050a', inner: '#6e5c40',
-      });
+      drawPixelPlaque(g, 0, 0, c.width, c.height, u, {});
       bodyText(g, txt, c.width / 2, Math.round((c.height - fpx * 1.15) / 2), fpx, '#ded4c0', 'center', '#08060c');
       this.upload(s, c, dpr, BODY_FONT.current !== 'pixel');
     }

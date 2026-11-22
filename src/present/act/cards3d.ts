@@ -6,7 +6,7 @@ import { clock } from '../engine/clock';
 import { cue } from '../../audio/cues';
 import { TIER_NAMES, type Archetype, type Boon, type BoonPick } from './boons';
 import {
-  cardBoard, rerollPlaque, glyphIcon3D, weaponUiModel,
+  cardBoard, glyphIcon3D, weaponUiModel,
   paintFace, paintKeepsakeFace, paintWeaponStandFace, paintShopTagFace, paintWorkRowFace, paintSteleFace, paintArcanaFace,
   boardLayout, scrollLayout, steleLayout, keepsakeLayout, weaponLayout, shopLayout, workRowLayout, arcanaLayout,
   CARD_H, SKILL_H, type CardStyle,
@@ -50,7 +50,6 @@ export interface CardOpenOpts {
   graspBar?: Omit<GraspBarSpec, 'x' | 'y' | 'btnHot' | 'visible'> & { onExpand: () => void };
   footer?: string;
   archHave?: Partial<Record<Archetype, number>>;
-  reroll?: { left: number; onReroll: () => BoonPick[] | null };
   onAlt?: (idx: number) => void;
   onSub?: (idx: number) => void;
   keepsakeDetail?: (idx: number) => Omit<DetailSpec, 'x' | 'y' | 'w'>;
@@ -127,7 +126,6 @@ export class CardPick3D {
   private graspBtnRect: { x: number; y: number; w: number; h: number } | null = null;
   private graspBtnHot = false;
   private footer: string | null = null;
-  private rerollOpt: CardOpenOpts['reroll'] | null = null;
   private onAltOpt: CardOpenOpts['onAlt'] | null = null;
   private onSubOpt: CardOpenOpts['onSub'] | null = null;
   private detailOpt: CardOpenOpts['detail'] | null = null;
@@ -140,8 +138,6 @@ export class CardPick3D {
   private workbenchSubBtnRect: { x: number; y: number; w: number; h: number } | null = null;
   private workbenchSubBtnHot = false;
   private workbenchPreview: { key: string; model: Model3D; root: THREE.Group; back: THREE.Mesh } | null = null;
-  private rerollAt = { x: 0, y: 0, w: 0, h: 0 }; private rerollHot = false; private rerollDown = false; private rerollK = 0;
-  private rerollBtn: THREE.Mesh | null = null;
   private lastOpenOpts: CardOpenOpts = {};
 
   constructor(private L: UiLayer) {
@@ -180,7 +176,6 @@ export class CardPick3D {
     this.graspBarOpt = o.graspBar ?? null;
     this.graspBtnRect = null; this.graspBtnHot = false;
     this.footer = o.footer ?? null;
-    this.rerollOpt = o.reroll ?? null;
     this.onAltOpt = o.onAlt ?? null;
     this.onSubOpt = o.onSub ?? null;
     this.detailOpt = o.detail ?? o.keepsakeDetail ?? null;
@@ -188,7 +183,6 @@ export class CardPick3D {
     this.workbenchOpt = o.workbench ?? null;
     this.workbenchBtnRect = null; this.workbenchBtnHot = false;
     this.workbenchSubBtnRect = null; this.workbenchSubBtnHot = false;
-    this.rerollHot = false; this.rerollDown = false; this.rerollK = o.instant ? 1 : 0;
 
     const L = this.L;
     const mode = o.layout ?? 'auto';
@@ -213,7 +207,7 @@ export class CardPick3D {
     const crownPad = isMirrorGrid ? 34 * kk : isShop ? 26 * kk : (isWeapons && L.h < 460 ? 14 * kk : 0);
     const topPad = (this.header || this.wallet ? Math.max(headerH, 52 * kk) : 16 * kk) + tabsH + crownPad + 14 * kk;
     const detailH = (isKeepsake || isWeapons) && this.detailOpt ? 128 * kk : 0;
-    const footH = this.rerollOpt && this.rerollOpt.left > 0 ? 74 * kk : 42 * kk;
+    const footH = 42 * kk;
     const botPad = detailH + footH + 10 * kk;
     const room = Math.max(160 * kk, L.h - topPad - botPad);
     const centerY = topPad + room * 0.5;
@@ -299,11 +293,16 @@ export class CardPick3D {
       cols = 2;
       const rows = Math.ceil(n / 2);
       gap = Math.max(18 * kk, Math.min(34 * kk, L.w * 0.024));
-      gapY = Math.max(14 * kk, Math.min(24 * kk, L.h * 0.028));
+      gapY = Math.max(10 * kk, Math.min(22 * kk, L.h * (rows >= 4 ? 0.016 : 0.026)));
       w = Math.min((L.w - 104 * kk - gap) / 2, 476 * kk);
-      h = Math.min(w * 0.285, (room - (rows - 1) * gapY) / rows);
+      const maxH = Math.max(44 * kk, (room - (rows - 1) * gapY) / rows);
+      h = Math.min(w * 0.285, maxH);
       Hh = Math.max(0.22, Math.min(0.31, h / Math.max(1, w)));
       h = w * Hh;
+      if (h > maxH) {
+        h = maxH;
+        w = Math.min(w, h / Hh);
+      }
     } else if (skill) {
       cols = 1;
       w = Math.min(L.w * 0.72, 650 * kk, L.w - 40 * kk);
@@ -458,16 +457,6 @@ export class CardPick3D {
     this.openedAt = clock.rtime;
   }
 
-  /** act-118: reroll the current 3-choice offer in place (triggered by button click or R key) */
-  reroll(): boolean {
-    if (!this.on || this.leaving >= 0 || this.settling || !this.rerollOpt || this.rerollOpt.left <= 0) return false;
-    const next = this.rerollOpt.onReroll();
-    if (!next || !next.length) return false;
-    this.rerollOpt.left--;
-    this.buildCards(next, { ...this.lastOpenOpts, instant: false, reroll: this.rerollOpt });
-    return true;
-  }
-
   close() {
     for (const c of this.cards) {
       c.root.parent?.remove(c.root);
@@ -483,18 +472,16 @@ export class CardPick3D {
     this.cards = []; this.on = false;
     this.header = null; this.wallet = null; this.tabsOpt = null; this.tabRects = [];
     this.graspBarOpt = null; this.graspBtnRect = null; this.graspBtnHot = false;
-    this.footer = null; this.rerollOpt = null; this.onAltOpt = null; this.onSubOpt = null;
+    this.footer = null; this.onAltOpt = null; this.onSubOpt = null;
     this.detailOpt = null; this.detailBtnRect = null; this.detailBtnHot = false;
     this.workbenchOpt = null; this.workbenchBtnRect = null; this.workbenchBtnHot = false;
     this.workbenchSubBtnRect = null; this.workbenchSubBtnHot = false;
     this.plates.hidePrefix('cards.');
     this.L.text.hide('act.cards.title'); this.L.text.hide('act.cards.sub');
     this.L.text.hide('act.cards.wallet'); this.L.text.hide('act.cards.back');
-    this.L.text.hide('act.cards.footer'); this.L.text.hide('act.cards.reroll');
+    this.L.text.hide('act.cards.footer');
     if (this.back) this.back.visible = false;
     this.backDown = false; this.backHot = 0;
-    if (this.rerollBtn) this.rerollBtn.visible = false;
-    this.rerollDown = false; this.rerollHot = false; this.rerollK = 0;
   }
 
   /** leave without a card (the back shield, Esc, pad B) — only where the page allows it */
@@ -567,12 +554,6 @@ export class CardPick3D {
       if (type === 'down' && onDet) { this.pick(); return true; }
     } else {
       this.detailBtnHot = false;
-    }
-    if (this.rerollOpt && this.rerollOpt.left > 0) {
-      const onRr = Math.abs(x - this.rerollAt.x) < this.rerollAt.w / 2 && Math.abs(y - this.rerollAt.y) < this.rerollAt.h / 2;
-      if (type === 'move') { if (onRr && !this.rerollHot) cue('click', 0.2); this.rerollHot = onRr; }
-      if (type === 'down' && onRr) { this.rerollDown = true; cue('click', 0.35); return true; }
-      if (type === 'up' && this.rerollDown) { this.rerollDown = false; if (onRr) this.reroll(); return true; }
     }
     const i = this.hit(x, y);
     if (type === 'move' && i >= 0 && i !== this.focus) { this.focus = i; cue('click', 0.25); }
@@ -907,55 +888,21 @@ export class CardPick3D {
       if (this.workbenchPreview) this.workbenchPreview.root.visible = false;
     }
 
-    // Reroll button OR clean dark-iron footer bar
-    if (this.rerollOpt && this.rerollOpt.left > 0 && showChrome && cLast) {
-      if (!this.rerollBtn) {
-        const rp = rerollPlaque();
-        this.rerollBtn = rp.mesh;
-        this.rerollBtn.userData.noTilt = true;
-        L.scene.add(this.rerollBtn);
-      }
-      this.rerollK = Math.min(1, this.rerollK + dt * 5.5);
-      const rw = Math.round(296 * kk), rh = Math.round(rw * 0.175);
-      const ry = Math.min(L.h - rh * 0.62 - 10 * kk, maxBot + rh * 0.62 + 14 * kk);
-      this.rerollAt = { x: L.w / 2, y: ry, w: rw + 14 * kk, h: rh + 12 * kk };
-      const rb = this.rerollBtn;
-      rb.visible = this.rerollK > 0.02;
-      const bz = 0.55 + (this.rerollHot ? 0.14 : 0) - (this.rerollDown ? 0.08 : 0);
-      L.at(this.rerollAt.x, ry + (1 - this.rerollK) * 16 * kk, bz, rb.position);
-      const scR = L.px(rw, bz) * (this.rerollDown ? 0.94 : 1) * (this.rerollHot ? 1.05 : 1) * (0.78 + 0.22 * this.rerollK);
-      rb.scale.setScalar(scR);
-      rb.rotation.set(this.rerollHot ? 0.02 : 0.06, 0, 0);
-      const rbm = rb.material as THREE.MeshLambertMaterial;
-      rbm.emissiveIntensity = this.rerollDown ? 0.48 : this.rerollHot ? 0.34 : 0.08 + 0.04 * Math.sin(t * 2.8);
-      const pkR = Math.max(1, Math.round(16 * kk * dpr / PIX_H));
-      const rrText = PAD.device === 'pad' ? msg`换一批（剩 ${this.rerollOpt.left} 次 · ${padName(3)}）`
-        : PAD.device === 'key' ? msg`换一批（剩 ${this.rerollOpt.left} 次 · R）`
-          : msg`换一批（剩 ${this.rerollOpt.left} 次）`;
-      L.text.set('act.cards.reroll', {
-        text: rrText, x: L.w / 2, y: ry + (this.rerollDown ? 1.5 * kk : 0),
-        pix: pkR, color: this.rerollHot ? '#fff8d4' : '#ffe29c', outline: '#140c0a', align: 'center', visible: this.rerollK > 0.35,
-      });
-      this.plates.hide('cards.footer');
-    } else {
-      if (this.rerollBtn) this.rerollBtn.visible = false;
-      this.rerollK = 0;
-      L.text.hide('act.cards.reroll');
-      if (showChrome && cLast) {
-        const navHint = PAD.device === 'pad'
-          ? (this.canLeave ? msg`十字键 选择  ·  ${padName(0)} 确认  ·  ${padName(1)} 返回` : msg`十字键 选择  ·  ${padName(0)} 确认`)
-          : PAD.device === 'key'
-            ? (this.canLeave ? '方向键 选择  ·  Enter 确认  ·  Esc 返回' : '方向键 选择  ·  Enter 确认')
-            : '';
-        const footTxt = this.footer ? localize(this.footer) : navHint;
-        if (footTxt) {
-          this.plates.setFooter('cards.footer', footTxt, L.w / 2, L.h - 22 * kk, true);
-        } else {
-          this.plates.hide('cards.footer');
-        }
+    // Clean footer bar
+    if (showChrome && cLast) {
+      const navHint = PAD.device === 'pad'
+        ? (this.canLeave ? msg`十字键 选择  ·  ${padName(0)} 确认  ·  ${padName(1)} 返回` : msg`十字键 选择  ·  ${padName(0)} 确认`)
+        : PAD.device === 'key'
+          ? (this.canLeave ? '方向键 选择  ·  Enter 确认  ·  Esc 返回' : '方向键 选择  ·  Enter 确认')
+          : '';
+      const footTxt = this.footer ? localize(this.footer) : navHint;
+      if (footTxt) {
+        this.plates.setFooter('cards.footer', footTxt, L.w / 2, L.h - 22 * kk, true);
       } else {
         this.plates.hide('cards.footer');
       }
+    } else {
+      this.plates.hide('cards.footer');
     }
 
     const backEase = (k: number) => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * (k - 1) ** 3 + c1 * (k - 1) ** 2; };

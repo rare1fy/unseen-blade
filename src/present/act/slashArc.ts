@@ -77,6 +77,13 @@ const PAL: Record<string, SlashPalette> = {
   frost_heavy:   { edge: 0xf8feff, body: 0xaadced, tail: 0x3e6c88, hdr: 1.18 },
   blunt_light:   { edge: 0xd2d6de, body: 0x6a707c, tail: 0x363a44, hdr: 1.06 },
   blunt_flash:   { edge: 0xfff0d8, body: 0xd85232, tail: 0x6e2018, hdr: 1.22 },
+  // act-139: Collector Blade FX Skins (A1)
+  skin_ink_light:     { edge: 0xf4f0e6, body: 0x2c303a, tail: 0x101218, hdr: 1.18 },
+  skin_ink_heavy:     { edge: 0xfff4ea, body: 0xc82622, tail: 0x18141a, hdr: 1.28 },
+  skin_ember_light:   { edge: 0xfff4c8, body: 0xf2762c, tail: 0x942416, hdr: 1.24 },
+  skin_ember_heavy:   { edge: 0xfffbe0, body: 0xff9e2c, tail: 0xb82214, hdr: 1.32 },
+  skin_frost_light:   { edge: 0xf2ffff, body: 0x6ce8e0, tail: 0x226a86, hdr: 1.24 },
+  skin_frost_heavy:   { edge: 0xffffff, body: 0x9ef6ff, tail: 0x2a76a8, hdr: 1.30 },
 };
 
 const MOVE_PAL: Record<string, keyof typeof PAL> = {
@@ -137,8 +144,14 @@ class SlashSystem {
   private stylePalUntil = 0;
   /** act-125: equipped Wen-family blade voxel palette override */
   private weaponPal: { light: keyof typeof PAL; heavy: keyof typeof PAL; iai: keyof typeof PAL } | null = null;
+  /** act-139: collector blade FX skin override (default / ink / ember / frostmoon) */
+  private fxSkin: 'default' | 'ink' | 'ember' | 'frostmoon' = 'default';
   private lastTip = new THREE.Vector3();
   private lastTipAt = -99;
+
+  setSkin(id: 'default' | 'ink' | 'ember' | 'frostmoon') {
+    this.fxSkin = id;
+  }
 
   setWeaponPalette(p: { light: string; heavy: string; iai: string } | null) {
     if (!p || (p.light === 'light' && p.heavy === 'heavy' && p.iai === 'iai')) { this.weaponPal = null; return; }
@@ -320,13 +333,19 @@ class SlashSystem {
     const counter = this.now <= this.styleCounterUntil;
     const bleed = this.now <= this.styleBleedUntil && !counter;
     const baseMove = MOVE_PAL[moveKind] ?? 'light';
+    const isHeavy = baseMove === 'heavy' || baseMove === 'iai' || moveKind === 'k5' || moveKind === 'plunge' || moveKind === 'chase';
     const wp = this.weaponPal;
     const wepPal: keyof typeof PAL = !wp ? baseMove : baseMove === 'iai' ? wp.iai : (baseMove === 'heavy' || moveKind === 'k5' || moveKind === 'plunge' || moveKind === 'chase') ? wp.heavy : (moveKind === 'launch' || moveKind === 'acut' || moveKind === 'swoop' || moveKind === 'dcut') ? baseMove : wp.light;
+    const skinPal: keyof typeof PAL | null =
+      this.fxSkin === 'ink' ? (isHeavy ? 'skin_ink_heavy' : 'skin_ink_light')
+        : this.fxSkin === 'ember' ? (isHeavy ? 'skin_ember_heavy' : 'skin_ember_light')
+          : this.fxSkin === 'frostmoon' ? (isHeavy ? 'skin_frost_heavy' : 'skin_frost_light')
+            : null;
     const palKey: keyof typeof PAL = counter
       ? 'counter'
       : (this.now <= this.stylePalUntil && this.stylePal)
         ? this.stylePal
-        : wepPal;
+        : (skinPal ?? wepPal);
     const pal = PAL[palKey] ?? PAL.light;
     const hdr = pal.hdr ?? 1.15;
     const heavy = palKey === 'heavy' || palKey === 'counter' || palKey === 'iai' || palKey === 'thunder_heavy' || palKey === 'frost_heavy' || palKey === 'blunt_flash';

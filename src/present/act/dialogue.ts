@@ -21,6 +21,7 @@ import { loadImage, makeCanvas } from '../../platform/index';
 import { paintPixelSkipRing } from './timeline';
 import { PAD, paintGlyph, glyphArt, GLYPH_H, paintKeyCap, keyCapWidth, KEYCAP_H } from './pad';
 import { drawPixelPlaque } from './uiPlate';
+import { SKIN } from './skin';
 import { uiScale } from './uiScale';
 
 export interface Line { who: string; text: string; mood?: string }
@@ -342,7 +343,7 @@ export class Dialogue {
   /** act-136 / act-146: independent raised bronze-iron name plaque scaled cleanly across mobile, 720p, 1080p, 2K & 4K */
   private paintNamePlaque(name: string, right: boolean, uScale: number) {
     const dpr = Math.max(1, Math.round(this.L.dpr || 1));
-    const key = `${name}|${right ? 1 : 0}|${uScale.toFixed(2)}|${dpr}|${language}`;
+    const key = `${SKIN.id}|${name}|${right ? 1 : 0}|${uScale.toFixed(2)}|${dpr}|${language}`;
     if (key === this.nameKey) return;
     this.nameKey = key;
     const S = Math.max(1, Math.round(2 * uScale * dpr));
@@ -357,7 +358,7 @@ export class Dialogue {
     const g = c.getContext('2d')!; g.imageSmoothingEnabled = false;
     g.clearRect(0, 0, cw, ch);
     drawPixelPlaque(g, 0, 0, cw, ch, u, {
-      bg: '#1c1622', hi: '#32293e', border: '#07050b', inner: '#d4a24a', accent: '#ffe08a', rivets: true,
+      active: true, accent: '#ffe08a', rivets: true,
       accentBar: right ? undefined : EDGE_R,
     });
     if (right) {
@@ -389,7 +390,7 @@ export class Dialogue {
     const right = sp?.side === 'R';
     // Stepped forged-iron outer plate + bronze inner trim + deep ink lacquer body + corner rivets
     drawPixelPlaque(g, 0, 0, cw, ch, u, {
-      bg: BG, hi: '#282236', border: '#07050a', inner: '#3d424e', rivets: false,
+      rivets: false,
     });
     // Warm bronze inner hairline frame + corner bracket rivets
     const inset = u * 3;
@@ -564,7 +565,7 @@ export class Dialogue {
     this.ink.set(narr, line, this.shown, total, dt, sx, sy);
     const sp = CAST[line.who];
     if (!narr) {
-      const key = `${this.i}|${this.shown}|${this.shown >= total ? 1 : 0}|${wPx}|${hPx}|${uScale.toFixed(2)}|${BODY_FONT.version}|${PAD.device}|${PAD.family}|${this.autoPlay ? 1 : 0}|${language}`;
+      const key = `${SKIN.id}|${this.i}|${this.shown}|${this.shown >= total ? 1 : 0}|${wPx}|${hPx}|${uScale.toFixed(2)}|${BODY_FONT.version}|${PAD.device}|${PAD.family}|${this.autoPlay ? 1 : 0}|${language}`;
       if (key !== this.drawn) { this.drawn = key; this.paint(line, this.shown, wPx, hPx, uScale); }
       // Gently bias box away from a solo portrait so it never covers the speaker; center cleanly when both sides are present
       const hasL = !!this.sides.L.who, hasR = !!this.sides.R.who;

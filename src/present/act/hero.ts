@@ -381,6 +381,14 @@ export class Hero {
   private airT = 9;
   /** 回据点 from the pause menu: she falls where she stands (the run ends as a death) */
   giveUp() { this.hp = 0; this.set('dead', 99); this.a.fall(0); }
+  /** act-139 C2: 残息未绝 — revive cleanly in-place with half HP and brief invulnerability */
+  revive(hp: number, invSec = 2.2) {
+    this.hp = Math.max(1, Math.min(this.maxHp, Math.round(hp)));
+    this.set('free', 0);
+    this.inv = invSec;
+    this.vel.set(0, 0, 0);
+    this.a.revive();
+  }
   hurt(dmg: number, from: THREE.Vector3): boolean {
     if (!this.alive || this.iframe) return false;
     // act-125: 惊雷陌刀 lv3 reduces damage by 40% while in 藏锋 stance; hyper-armor finisher cuts damage in half & refuses stagger!
