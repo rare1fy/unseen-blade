@@ -63,8 +63,8 @@ export function weatherAmbient(w: WeatherId, s: SeasonId, t: TimeId, cn = false)
   if (w === 'storm') out.push({ kind: 'storm', color: 0xe2f0ff, rate: 240, area: A }, { kind: 'dust', color: 0x7e8a9c, rate: 5, area: A });
   if (w === 'snow') {
     const brightDay = t === 'day' || t === 'dawn';
-    out.push({ kind: 'snow', color: brightDay ? 0xffffff : 0xf4f9ff, rate: 95, area: A });
-    if (brightDay) out.push({ kind: 'snow', color: 0x6c8db8, rate: 36, area: A });
+    out.push({ kind: 'snow', color: brightDay ? 0xffffff : 0xf4f9ff, rate: 82, area: A });
+    if (brightDay) out.push({ kind: 'snow', color: 0x6c8db8, rate: 28, area: A });
   }
   if (w === 'petals') out.push({ kind: 'petals', color: 0xf4b8c8, rate: 8, area: A }, { kind: 'petals', color: 0xfcdce4, rate: 4, area: A });
   if (w === 'embers') out.push({ kind: 'embers', color: 0xff7e30, rate: 9.5, area: A, y: [0.2, 2.2] }, { kind: 'embers', color: 0xffc058, rate: 3.5, area: A, y: [0.4, 2.8] }, { kind: 'dust', color: 0x7a6c66, rate: 4.5, area: A });

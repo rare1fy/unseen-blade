@@ -171,26 +171,26 @@ class VoxelWeatherPool {
     if (this.items.length >= this.limitItems()) return;
     const c = new THREE.Color(color);
     const roll = Math.random();
-    if (roll < 0.25) {
-      // Crisp 3D pixel '+' cross snowflake (2 orthogonal voxel bars)
+    if (roll < 0.16) {
+      // Delicate 3D pixel '+' cross snowflake (2 orthogonal fine voxel bars)
       this.items.push({
         kind: 'snowCross',
         x, y, z,
         vx: R(0.32, 0.88),
         vy: R(-1.35, -0.82),
         vz: R(-0.18, 0.18),
-        sx: R(0.155, 0.195),
-        sy: R(0.052, 0.064),
+        sx: R(0.084, 0.108),
+        sy: R(0.028, 0.036),
         r: c.r, g: c.g, b: c.b,
-        a: 0.95,
+        a: 0.86,
         age: 0,
         life: prewarm ? R(1.6, 4.2) : R(2.9, 4.8),
         phase: Math.random() * 6.28,
       });
     } else {
-      // Chunky 3D voxel snow cube (two depth tiers)
-      const mid = roll < 0.72;
-      const sz = mid ? R(0.092, 0.126) : R(0.060, 0.080);
+      // Fine 3D voxel snow cube (two crisp depth tiers, ~0.5..0.95 of a 7cm world voxel)
+      const mid = roll < 0.66;
+      const sz = mid ? R(0.048, 0.066) : R(0.032, 0.046);
       this.items.push({
         kind: 'snowCube',
         x, y, z,
@@ -200,7 +200,7 @@ class VoxelWeatherPool {
         sx: sz,
         sy: sz,
         r: c.r, g: c.g, b: c.b,
-        a: mid ? 0.92 : 0.84,
+        a: mid ? 0.84 : 0.76,
         age: 0,
         life: prewarm ? R(1.6, 4.2) : R(2.8, 4.8),
         phase: Math.random() * 6.28,
