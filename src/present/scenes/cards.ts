@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { camera, canvasTex, onUpdate, V3, R } from '../engine/world';
 import { clock } from '../engine/clock';
 import { PADD, PALPHA, TILE } from '../engine/particles';
+import { QUALITY } from '../look/quality';
 import { VOXEL_WEATHER } from './weatherFx';
 import { CELL } from '../bestiary/kit';
 import { hash, inPlay } from './props';
@@ -323,6 +324,14 @@ export class Cards {
 // ------------------------------------------------------------------ atmosphere: drifting particles and light shafts
 export type Ambient = { kind: 'fireflies' | 'leaves' | 'spores' | 'dust' | 'embers' | 'rain' | 'storm' | 'snow' | 'petals'; color: number; rate: number; area?: { x0: number; z0: number; x1: number; z1: number }; y?: [number, number]; follow?: boolean };
 const _camDir = new THREE.Vector3();
+const _ambBox = { x0: -12, z0: -12, x1: 12, z1: 10 };
+const _ambPos = new THREE.Vector3();
+const _ambVel = new THREE.Vector3();
+const _ambCol = new THREE.Color();
+const _defaultArea = { x0: -12, z0: -12, x1: 12, z1: 10 };
+function weatherScale() {
+  return QUALITY.tier === 'high' ? 1 : QUALITY.tier === 'mid' ? 0.68 : 0.45;
+}
 function weatherBox(a: Ambient): { x0: number; z0: number; x1: number; z1: number } {
   if (a.follow !== false && (a.kind === 'rain' || a.kind === 'storm' || a.kind === 'snow')) {
     camera.getWorldDirection(_camDir);
@@ -330,52 +339,68 @@ function weatherBox(a: Ambient): { x0: number; z0: number; x1: number; z1: numbe
       const t = Math.min(48, -camera.position.y / _camDir.y);
       const fx = Math.max(-36, Math.min(36, camera.position.x + _camDir.x * t));
       const fz = Math.max(-36, Math.min(36, camera.position.z + _camDir.z * t));
-      return { x0: fx - 12.5, z0: fz - 11, x1: fx + 12.5, z1: fz + 9.5 };
+      _ambBox.x0 = fx - 10.6; _ambBox.z0 = fz - 8.6;
+      _ambBox.x1 = fx + 10.6; _ambBox.z1 = fz + 7.8;
+      return _ambBox;
     }
   }
-  return a.area ?? { x0: -12, z0: -12, x1: 12, z1: 10 };
+  return a.area ?? _defaultArea;
 }
 function emitWeatherOne(a: Ambient, ar: { x0: number; z0: number; x1: number; z1: number }, prewarm = false) {
   if (a.kind === 'rain' || a.kind === 'storm') {
     const storm = a.kind === 'storm';
     const x = R(ar.x0, ar.x1), z = R(ar.z0, ar.z1);
-    const y = prewarm ? R(0.6, 8.4) : R(5.4, 8.8);
+    const y = prewarm ? R(0.6, 8.2) : R(5.4, 8.6);
     VOXEL_WEATHER.emitRain(x, y, z, a.color, storm, prewarm);
-    if (prewarm && Math.random() < (storm ? 0.24 : 0.18)) {
+    if (prewarm && Math.random() < (storm ? 0.20 : 0.15)) {
       VOXEL_WEATHER.emitSplash(R(ar.x0, ar.x1), R(ar.z0, ar.z1), a.color, storm);
     }
     return true;
   }
   if (a.kind === 'snow') {
     const x = R(ar.x0, ar.x1), z = R(ar.z0, ar.z1);
-    const y = prewarm ? R(0.4, 7.8) : R(4.8, 8.4);
+    const y = prewarm ? R(0.4, 7.6) : R(4.8, 8.2);
     VOXEL_WEATHER.emitSnow(x, y, z, a.color, prewarm);
     return true;
   }
   return false;
 }
-/** act-157: seed pure 3D voxel weather across the visible camera frustum on room entry so rain/snow is unmistakable from frame 1 */
+/** act-175: seed pure 3D voxel weather across the visible viewport on room entry (quality-scaled, zero alloc) */
 export function prewarmAmbient(list: Ambient[]) {
+  if (PALPHA?.mesh && !PALPHA.mesh.visible) return;
+  const qk = weatherScale();
   for (const a of list) {
     if (a.kind !== 'rain' && a.kind !== 'storm' && a.kind !== 'snow') continue;
     const ar = weatherBox(a);
-    const count = a.kind === 'snow' ? Math.min(220, Math.round(a.rate * 2.2)) : Math.min(110, Math.round(a.rate * 0.45));
+    const base = a.kind === 'snow' ? Math.min(150, Math.round(a.rate * 2.1)) : Math.min(82, Math.round(a.rate * 0.45));
+    const count = Math.max(8, Math.round(base * qk));
     for (let i = 0; i < count; i++) emitWeatherOne(a, ar, true);
   }
 }
 export function ambientTick(list: Ambient[], dt: number) {
   const stepDt = Math.min(0.05, Math.max(0, dt));
+  if (stepDt <= 0) return;
+  const hideWeather = !!(PALPHA?.mesh && !PALPHA.mesh.visible);
+  const qk = weatherScale();
   for (const a of list) {
-    const ar = weatherBox(a), exact = a.rate * stepDt, n = Math.floor(exact) + (Math.random() < exact % 1 ? 1 : 0);
+    const isWeather = a.kind === 'rain' || a.kind === 'storm' || a.kind === 'snow';
+    if (isWeather && hideWeather) continue;
+    const ar = weatherBox(a), exact = a.rate * (isWeather ? qk : 1) * stepDt, n = Math.floor(exact) + (Math.random() < exact % 1 ? 1 : 0);
+    if (!n) continue;
+    if (isWeather) {
+      for (let i = 0; i < n; i++) emitWeatherOne(a, ar, false);
+      continue;
+    }
+    _ambCol.setHex(a.color);
+    const y0 = a.y ? a.y[0] : 0.3, y1 = a.y ? a.y[1] : 2.4;
     for (let i = 0; i < n; i++) {
-      if (emitWeatherOne(a, ar, false)) continue;
-      const p = V3(R(ar.x0, ar.x1), R((a.y ?? [0.3, 2.4])[0], (a.y ?? [0.3, 2.4])[1]), R(ar.z0, ar.z1)), c = new THREE.Color(a.color);
-      if (a.kind === 'fireflies') PADD.emit({ p, v: V3(R(-0.25, 0.25), R(-0.1, 0.2), R(-0.25, 0.25)), s0: 0.14, s1: 0.1, life: R(2.5, 4.5), c0: c, bright: 4, tile: TILE.glow, fadeIn: 0.5 });
-      else if (a.kind === 'leaves') PALPHA.emit({ p: p.setY(R(3.5, 6)), v: V3(R(0.2, 0.6), R(-0.55, -0.35), R(-0.2, 0.2)), s0: 0.09, s1: 0.09, life: R(6, 10), c0: c, alpha: 0.95, tile: TILE.pixel, spin: R(-3, 3), fadeIn: 0.3 });
-      else if (a.kind === 'spores') PADD.emit({ p, v: V3(R(-0.06, 0.06), R(0.08, 0.25), R(-0.06, 0.06)), s0: 0.05, s1: 0.03, life: R(4, 7), c0: c, bright: 1.8, tile: TILE.pixel, fadeIn: 0.6 });
-      else if (a.kind === 'petals') PALPHA.emit({ p: p.setY(R(3, 6)), v: V3(R(0.4, 0.9), R(-0.45, -0.25), R(-0.25, 0.25)), s0: 0.07, s1: 0.07, life: R(7, 11), c0: c, alpha: 0.95, tile: TILE.pixel, spin: R(-4, 4), fadeIn: 0.3 });
-      else if (a.kind === 'dust') PALPHA.emit({ p, v: V3(R(-0.05, 0.05), R(-0.02, 0.05), R(-0.05, 0.05)), s0: 0.035, s1: 0.035, life: R(5, 8), c0: c, alpha: 0.5, tile: TILE.pixel, fadeIn: 0.8 });
-      else PADD.emit({ p, v: V3(R(-0.25, 0.35), R(0.45, 1.05), R(-0.18, 0.18)), s0: 0.055, s1: 0.02, life: R(1.8, 3.6), c0: c, bright: 2.8, tile: TILE.pixel });
+      const p = _ambPos.set(R(ar.x0, ar.x1), R(y0, y1), R(ar.z0, ar.z1));
+      if (a.kind === 'fireflies') PADD.emit({ p, v: _ambVel.set(R(-0.25, 0.25), R(-0.1, 0.2), R(-0.25, 0.25)), s0: 0.14, s1: 0.1, life: R(2.5, 4.5), c0: _ambCol, bright: 4, tile: TILE.glow, fadeIn: 0.5 });
+      else if (a.kind === 'leaves') PALPHA.emit({ p: p.setY(R(3.5, 6)), v: _ambVel.set(R(0.2, 0.6), R(-0.55, -0.35), R(-0.2, 0.2)), s0: 0.09, s1: 0.09, life: R(6, 10), c0: _ambCol, alpha: 0.95, tile: TILE.pixel, spin: R(-3, 3), fadeIn: 0.3 });
+      else if (a.kind === 'spores') PADD.emit({ p, v: _ambVel.set(R(-0.06, 0.06), R(0.08, 0.25), R(-0.06, 0.06)), s0: 0.05, s1: 0.03, life: R(4, 7), c0: _ambCol, bright: 1.8, tile: TILE.pixel, fadeIn: 0.6 });
+      else if (a.kind === 'petals') PALPHA.emit({ p: p.setY(R(3, 6)), v: _ambVel.set(R(0.4, 0.9), R(-0.45, -0.25), R(-0.25, 0.25)), s0: 0.07, s1: 0.07, life: R(7, 11), c0: _ambCol, alpha: 0.95, tile: TILE.pixel, spin: R(-4, 4), fadeIn: 0.3 });
+      else if (a.kind === 'dust') PALPHA.emit({ p, v: _ambVel.set(R(-0.05, 0.05), R(-0.02, 0.05), R(-0.05, 0.05)), s0: 0.035, s1: 0.035, life: R(5, 8), c0: _ambCol, alpha: 0.5, tile: TILE.pixel, fadeIn: 0.8 });
+      else PADD.emit({ p, v: _ambVel.set(R(-0.25, 0.35), R(0.45, 1.05), R(-0.18, 0.18)), s0: 0.055, s1: 0.02, life: R(1.8, 3.6), c0: _ambCol, bright: 2.8, tile: TILE.pixel });
     }
   }
 }

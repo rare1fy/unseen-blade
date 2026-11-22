@@ -45,30 +45,32 @@ describe('act-153 weather visibility, variety, and audio', () => {
   it('produces full-arena high-visibility rain, storm, and daytime/nighttime snow ambient configs', () => {
     const rain = weatherAmbient('rain', 'autumn', 'dusk', true).find(a => a.kind === 'rain');
     expect(rain).toBeTruthy();
-    expect(rain!.rate).toBeGreaterThanOrEqual(140);
+    expect(rain!.rate).toBeGreaterThanOrEqual(110);
     expect(rain!.area!.z1).toBeGreaterThanOrEqual(14);
 
     const storm = weatherAmbient('storm', 'autumn', 'night', true).find(a => a.kind === 'storm');
     expect(storm).toBeTruthy();
-    expect(storm!.rate).toBeGreaterThanOrEqual(200);
+    expect(storm!.rate).toBeGreaterThanOrEqual(155);
 
     const snowDay = weatherAmbient('snow', 'winter', 'day', true).filter(a => a.kind === 'snow');
     expect(snowDay.length).toBeGreaterThanOrEqual(2);
-    expect(snowDay[0].rate).toBeGreaterThanOrEqual(60);
+    expect(snowDay[0].rate).toBeGreaterThanOrEqual(50);
   });
 
-  it('uses pure 3D axis-aligned voxel rain/storm/snow with square pixel splashes, camera follow, rotating hideout moods, and pure-PCM rain audio', () => {
+  it('uses instanced zero-alloc 3D voxel rain/storm/snow with square pixel splashes, quality scaling, rotating hideout moods, and pure-PCM rain audio', () => {
     const cards = SRC['src/present/scenes/cards.ts'];
     expect(cards).toContain('weatherBox');
     expect(cards).toContain('prewarmAmbient');
+    expect(cards).toContain('weatherScale');
     expect(cards).toContain('VOXEL_WEATHER.emitRain');
     expect(cards).toContain('VOXEL_WEATHER.emitSnow');
 
     const wfx = SRC['src/present/scenes/weatherFx.ts'];
-    expect(wfx).toContain('Uint16Array');
-    expect(wfx).toContain("kind: 'snowCross'");
-    expect(wfx).toContain("kind: 'splash'");
+    expect(wfx).toContain('InstancedBufferGeometry');
+    expect(wfx).toContain('K_SNOW_CROSS');
+    expect(wfx).toContain('K_SPLASH');
     expect(wfx).toContain('effectLimit');
+    expect(wfx).not.toContain('new THREE.Color(');
 
     const stage = SRC['src/present/scenes/stage.ts'];
     expect(stage).toContain('PALPHA?.clear()');
