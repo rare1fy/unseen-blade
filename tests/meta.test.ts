@@ -78,7 +78,16 @@ describe('hideout upgrades', () => {
     const p = fresh();
     expect(runMods(p)).toMatchObject({ dmgMul: 1, critBonus: 0, dartBonus: 0, rerolls: 1, hpBonus: 0, deathDefy: 0, startIntent: 0, windupMul: 1, startManual: false, poiseHeal: 0 });
     p.perks = { blade: 2, darts: 1, reroll: 2, manual: 1, vigor: 3, breath: 1, intent: 1, leech: 2, ear: 2 };
-    expect(runMods(p)).toMatchObject({ dmgMul: 1.16, critBonus: 0.06, dartBonus: 1, rerolls: 3, hpBonus: 36, deathDefy: 1, startIntent: 1, windupMul: 1.12, startManual: true, poiseHeal: 6 });
+    // act-161: the medic's old levels fold into the altar once (they used to stay in p.perks and count twice); what fits the 6 grasp switches on,
+    // cheapest first: 筋骨 (1) + 听宫 (2) + 杀意 (2) — 养气 and 闭息 wait for her to make room
+    expect(runMods(p)).toMatchObject({ dmgMul: 1.16, critBonus: 0.06, dartBonus: 1, rerolls: 3, hpBonus: 36, deathDefy: 0, startIntent: 1, windupMul: 1.12, startManual: true, poiseHeal: 0 });
+    expect(p.perks).toEqual({ blade: 2, darts: 1, reroll: 2, manual: 1 });
+    expect(p.arcana!.rank).toMatchObject({ vigor: 3, breath: 1, intent: 1, leech: 2, ear: 2 });
+    expect(runMods(p).hpBonus).toBe(36);   // (again: nothing left to count twice)
+    // a save that widened its grasp past the new top of 12 gets that herb back and keeps what fits
+    const q = fresh(); q.herb = 0; ensureArcana(q); q.arcana!.cap = 18; ensureArcana(q);
+    expect(arcanaCap(q)).toBe(12); expect(q.herb).toBe(44 + 62 + 84);
+    expect(hasAffordable(q, 'medic')).toBe(true);   // (the altar's, not the retired list's)
   });
 
   it('supports Hades-2-style 3×3 药炉悟性牌阵 (Grasp cap, free toggle, 0-grasp center Awakening, refine & expand)', () => {
@@ -118,12 +127,12 @@ describe('run rewards', () => {
 
     const death = { rooms: 4, elites: 2, boss: false, won: false, kills: 19 };
     const win = { rooms: 6, elites: 1, boss: true, won: true, kills: 20 };
-    expect(runReward(death)).toEqual({ iron: 42, herb: 38 });
-    expect(bank(p, death)).toEqual({ iron: 42, herb: 38 });
-    expect(p).toMatchObject({ iron: 42, herb: 38, runs: 1, wins: 0, deaths: 1 });
-    expect(runReward(win)).toEqual({ iron: 89, herb: 68 });
-    expect(bank(p, win)).toEqual({ iron: 89, herb: 68 });
-    expect(p).toMatchObject({ iron: 131, herb: 106, runs: 2, wins: 1, deaths: 1 });
+    expect(runReward(death)).toEqual({ iron: 28, herb: 32 });
+    expect(bank(p, death)).toEqual({ iron: 28, herb: 32 });
+    expect(p).toMatchObject({ iron: 28, herb: 32, runs: 1, wins: 0, deaths: 1 });
+    expect(runReward(win)).toEqual({ iron: 60, herb: 53 });
+    expect(bank(p, win)).toEqual({ iron: 60, herb: 53 });
+    expect(p).toMatchObject({ iron: 88, herb: 85, runs: 2, wins: 1, deaths: 1 });
   });
 });
 

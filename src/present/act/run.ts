@@ -6,13 +6,15 @@ import { EDEFS, type EKind } from './enemy';
 import { LOCALES } from '../asm/registry';
 import { REGIONS } from './regions';
 import type { RegionDef } from './regionDef';
-import type { Archetype } from './boons';
+import { BOON_CAP, type Archetype } from './boons';
 
 const ARCHS: readonly Archetype[] = ['blood', 'poise', 'shadow', 'gale'];
 
 export type RoomType = 'fight' | 'elite' | 'shop' | 'rest' | 'boon' | 'event' | 'boss';
-export type Reward = { k: 'boon'; arch?: Archetype } | { k: 'coins'; n: number } | { k: 'heal' } | { k: 'manual' } | { k: 'maxHp'; n: number } | { k: 'meta'; iron: number; herb: number } | null;
+export type Reward = { k: 'boon'; arch?: Archetype } | { k: 'up' } | { k: 'coins'; n: number } | { k: 'heal' } | { k: 'manual' } | { k: 'maxHp'; n: number } | { k: 'meta'; iron: number; herb: number } | null;
 /** one room of the run: what it is, where, what clearing it gives, the waves ('kind*' = the elite of that kind); region = which 关 (0 起) */
+/** act-161: what the route planner knows of her hand — boons carried, and how many of them can still go up a tier */
+export interface RunCtx { boons: number; ups: number }
 export interface RoomPlan { type: RoomType; locale: string; reward: Reward; waves: string[][]; region?: number }
 
 /** the rooms of region one, the boss room included (act-152: 7 pre-boss + 1 boss = 8 rooms per region) */
@@ -66,29 +68,46 @@ function pickArch(r: Rnd, exclude?: Archetype): Archetype {
   const pool = exclude ? ARCHS.filter(a => a !== exclude) : ARCHS;
   return pool[Math.floor(r() * pool.length) % pool.length];
 }
-function rewardFor(type: RoomType, r: Rnd, ri = 0): Reward {
+/** act-161 秘传节奏（一局原来 20～34 次选牌、16 张必拿空；目标 9 张）: a fight room's boon door 36% -> 22% (the freed share is the heal door's);
+ *  an elite room is half a boon, half an upgrade ('up') of one she holds; once her hand is full (BOON_CAP) fights offer no boon door and an
+ *  elite room is an upgrade or a purse */
+function rewardFor(type: RoomType, r: Rnd, ri = 0, ctx?: RunCtx): Reward {
   if (type !== 'fight' && type !== 'elite') return null;
-  if (type === 'elite') return { k: 'boon', arch: pickArch(r) };
-  const x = r();
-  if (x < 0.36) return { k: 'boon', arch: pickArch(r) };
-  if (x < 0.62) return { k: 'coins', n: 45 + ri * 10 };
-  if (x < 0.80) return { k: 'maxHp', n: 12 };
-  if (x < 0.92) return { k: 'meta', iron: 8 + ri * 3, herb: 8 + ri * 3 };
+  const full = !!ctx && ctx.boons >= BOON_CAP, canUp = !!ctx && ctx.ups > 0;
+  if (type === 'elite') {
+    if (canUp && r() < 0.5) return { k: 'up' };
+    return full ? { k: 'coins', n: 60 + ri * 12 } : { k: 'boon', arch: pickArch(r) };
+  }
+  const x = r(), pb = full ? 0 : 0.22;
+  if (x < pb) return { k: 'boon', arch: pickArch(r) };
+  if (x < pb + 0.26) return { k: 'coins', n: 45 + ri * 10 };
+  if (x < pb + 0.44) return { k: 'maxHp', n: 12 };
+  if (x < pb + 0.56) return { k: 'meta', iron: 8 + ri * 3, herb: 8 + ri * 3 };
   return { k: 'heal' };
+}
+/** act-161: a room's doors are drawn up before its own reward is in her hand (the next room is built ahead of time), so a door can
+ *  promise a boon her hand has no room left for, or an upgrade when nothing she holds can still go up — what such a door gives by the
+ *  time it opens (what rewardFor would have said had it known; every other reward stands) */
+export function settleReward(p: RoomPlan, ctx: RunCtx): Reward {
+  const rw = p.reward, ri = p.region ?? 0, full = ctx.boons >= BOON_CAP;
+  if (p.type !== 'fight' && p.type !== 'elite') return rw;
+  if (rw?.k === 'boon' && full) return p.type === 'elite' ? (ctx.ups > 0 ? { k: 'up' } : { k: 'coins', n: 60 + ri * 12 }) : { k: 'coins', n: 45 + ri * 10 };
+  if (rw?.k === 'up' && ctx.ups <= 0) return full ? { k: 'coins', n: 60 + ri * 12 } : { k: 'boon' };
+  return rw;
 }
 function placeFor(type: RoomType, r: Rnd, ri = 0) {
   const R = regionAt(ri);
   return type === 'boss' ? R.bossLocale : type === 'fight' || type === 'elite' ? pick(R.locales, r) : R.locales[0];
 }
-export function roomOf(type: RoomType, depth: number, r: Rnd, ri = 0): RoomPlan {
-  return { type, locale: placeOr(placeFor(type, r, ri)), reward: rewardFor(type, r, ri), waves: wavesFor(type, depth, r, ri), region: ri };
+export function roomOf(type: RoomType, depth: number, r: Rnd, ri = 0, ctx?: RunCtx): RoomPlan {
+  return { type, locale: placeOr(placeFor(type, r, ri)), reward: rewardFor(type, r, ri, ctx), waves: wavesFor(type, depth, r, ri), region: ri };
 }
 /** the first room of a run: a fight in the village, then Weapon Manual #1 */
 export function firstRoom(r: Rnd): RoomPlan { const p = roomOf('fight', 0, r); p.locale = placeOr('hj_village'); p.reward = { k: 'manual' }; return p; }
-/** 11-18 / act-152: the first room of region `ri` — Region 3 (mid-run) grants Manual #2; others grant an archetype boon */
+/** 11-18 / act-152 / act-161: the first room of region `ri` — region 3 grants Manual #2, region 2 an archetype boon, regions 4 and 5 a purse */
 export function regionFirstRoom(ri: number, r: Rnd): RoomPlan {
   if (ri <= 0) return firstRoom(r);
-  const p = roomOf('fight', 0, r, ri); p.locale = placeOr(regionAt(ri).locales[0]); p.reward = ri === 2 ? { k: 'manual' } : { k: 'boon', arch: pickArch(r) }; return p;
+  const p = roomOf('fight', 0, r, ri); p.locale = placeOr(regionAt(ri).locales[0]); p.reward = ri === 2 ? { k: 'manual' } : ri === 1 ? { k: 'boon', arch: pickArch(r) } : { k: 'coins', n: 45 + ri * 10 }; return p;
 }
 
 /** Ensure two combat doors at a fork offer visibly distinct rewards/archetypes (like Hades 2 route planning). */
@@ -101,14 +120,14 @@ function distinctFork(pair: RoomPlan[], r: Rnd): RoomPlan[] {
   return pair;
 }
 
-export function doorsFrom(from: number, visited: RoomType[], r: Rnd, ri = 0): RoomPlan[] {
+export function doorsFrom(from: number, visited: RoomType[], r: Rnd, ri = 0, ctx?: RunCtx): RoomPlan[] {
   const next = from + 1, N = regionRooms(ri);
   if (next >= N) return [];
   if (next === N - 1) return [roomOf('boss', next, r, ri)];
   const current = visited[visited.length - 1];
   if (current === 'rest' || current === 'shop' || current === 'boon' || current === 'event') {
     const fightFirst = r() < 2 / 3;
-    return distinctFork([roomOf(fightFirst ? 'fight' : 'elite', next, r, ri), roomOf(fightFirst ? 'elite' : 'fight', next, r, ri)], r);
+    return distinctFork([roomOf(fightFirst ? 'fight' : 'elite', next, r, ri, ctx), roomOf(fightFirst ? 'elite' : 'fight', next, r, ri, ctx)], r);
   }
   // act-147: Four Generals ('event') encounters removed from runs (user: 玩法走过场、先拿掉)
   const w: Array<[RoomType, number]> = [
@@ -121,5 +140,7 @@ export function doorsFrom(from: number, visited: RoomType[], r: Rnd, ri = 0): Ro
   const draw = (not?: RoomType): RoomType => { const ws = w.filter(([t]) => t !== not), tot = ws.reduce((s, [, n]) => s + n, 0); let x = r() * tot; for (const [t, n] of ws) { x -= n; if (x <= 0 && n > 0) return t; } return ws.find(([, n]) => n > 0)?.[0] ?? 'fight'; };
   const a = draw(); let b = draw(a);
   if (next === N - 2 && !visited.includes('shop') && !visited.includes('rest') && a !== 'shop' && a !== 'rest') b = r() < 0.5 ? 'rest' : 'shop';
-  return distinctFork([roomOf(a, next, r, ri), roomOf(b, next, r, ri)], r);
+  // act-161: every region shows a merchant's door at least once — at one of its last two forks if none has come up
+  if (next >= N - 3 && !visited.includes('shop') && a !== 'shop' && b !== 'shop') b = 'shop';
+  return distinctFork([roomOf(a, next, r, ri, ctx), roomOf(b, next, r, ri, ctx)], r);
 }

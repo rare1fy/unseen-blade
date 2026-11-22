@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Object3D, Vector3 } from 'three';
-import { BOONS, SLOT_NAMES, TIER_NAMES, applyBoon, boonTag, drawBoons, hasBoon, isBladeHit, newPerks, tierOf, upgradeBoon, v, v2 } from '../src/present/act/boons';
+import { BOONS, BOON_CAP, SLOT_NAMES, TIER_NAMES, applyBoon, boonTag, drawBoons, hasBoon, isBladeHit, newPerks, tierOf, upgradeBoon, v, v2 } from '../src/present/act/boons';
 import { fillVals } from '../src/present/act/cards';
 import FONT from '../ui/font.js';
 
@@ -13,7 +13,7 @@ vi.mock('../src/present/ronin/models', () => ({}));
 vi.mock('../src/audio/cues', () => ({ cue: vi.fn() }));
 vi.mock('../src/present/asm/registry', () => ({ LOCALES: { hj_village: {}, hj_field: {}, hj_temple: {} } }));
 import { updateFoe, type Foe, type FoeWorld } from '../src/present/act/enemy';
-import { firstRoom, roomOf } from '../src/present/act/run';
+import { firstRoom, roomOf, regionFirstRoom, doorsFrom, settleReward } from '../src/present/act/run';
 
 // 11-18 / act-138 改招为主 (Hades II paced numbers): the boon, its button, its three tiers (and the second number where it has one)
 const values: Array<[string, string | null, number[], number[]?]> = [
@@ -59,10 +59,17 @@ describe('秘传：改招为主', () => {
     }
   });
   it('抽卡不重复，先抽未拥有的卡，档位在 0 到 2', () => {
-    const p = newPerks(); BOONS.slice(0, BOONS.length - 1).forEach(b => applyBoon(p, b.id));
+    // act-161: only boons she does not hold (held ones are never re-offered at a rolled tier), none once her hand is full (BOON_CAP),
+    // and never one her blade's chain cannot trigger
+    const p = newPerks(); BOONS.slice(0, 8).forEach(b => applyBoon(p, b.id));
     const picks = drawBoons('any', 30, () => 0, p);
-    expect(picks).toHaveLength(BOONS.length); expect(picks[0].boon.id).toBe(BOONS[BOONS.length - 1].id);
-    expect(new Set(picks.map(x => x.boon.id)).size).toBe(BOONS.length);
+    expect(picks).toHaveLength(BOONS.length - 8); expect(picks.every(x => !hasBoon(p, x.boon.id))).toBe(true);
+    expect(new Set(picks.map(x => x.boon.id)).size).toBe(picks.length);
+    applyBoon(p, BOONS[8].id); expect(BOON_CAP).toBe(9); expect(drawBoons('any', 3, () => 0, p)).toEqual([]);
+    const blunt = drawBoons('any', 30, () => 0, newPerks(), undefined, null, null, 'blunt').map(x => x.boon.id);
+    expect(blunt).toHaveLength(BOONS.length - 4); for (const id of ['bladeWind', 'extra', 'spin', 'pierce']) expect(blunt).not.toContain(id);
+    const thunder = drawBoons('any', 30, () => 0, newPerks(), undefined, null, null, 'thunder').map(x => x.boon.id);
+    expect(thunder).toContain('bladeWind'); expect(thunder).not.toContain('spin'); expect(thunder).not.toContain('pierce');
     for (const [roll, tier] of [[0.69, 0], [0.7, 1], [0.949, 1], [0.95, 2], [0.999, 2]]) expect(drawBoons('any', 1, () => roll, newPerks())[0].tier).toBe(tier);
     expect(drawBoons('any', 2, () => 0.5, newPerks(), [0, 0, 1]).every(x => x.tier === 2)).toBe(true);
     expect(drawBoons('any', 0, Math.random, p)).toEqual([]);
@@ -113,6 +120,21 @@ describe('哈迪斯2强化节奏与可见门奖励', () => {
       expect(er && er.k === 'boon' && er.arch).toBeTruthy();
     }
   });
+  it('act-161 携带上限：手里有能升的牌时死士房一半是升阶；满 9 张后乱兵房不出秘传门、死士房是升阶或铜钱', () => {
+    const some = { boons: 3, ups: 2 }, full = { boons: 9, ups: 4 }, maxed = { boons: 9, ups: 0 };
+    expect(roomOf('elite', 2, () => 0.2, 0, some).reward).toEqual({ k: 'up' });
+    expect(roomOf('elite', 2, () => 0.7, 0, some).reward?.k).toBe('boon');
+    expect(roomOf('elite', 2, () => 0.2, 1, full).reward).toEqual({ k: 'up' });
+    expect(roomOf('elite', 2, () => 0.7, 1, full).reward).toEqual({ k: 'coins', n: 72 });
+    expect(roomOf('elite', 2, () => 0.2, 0, maxed).reward).toEqual({ k: 'coins', n: 60 });
+    for (let i = 0; i < 200; i++) expect(roomOf('fight', 2, () => (i + 0.5) / 200, 0, full).reward?.k).not.toBe('boon');
+    // the first room of a region: a manual in 1 and 3, a boon in 2, a purse in 4 and 5
+    expect(regionFirstRoom(1, () => 0.3).reward?.k).toBe('boon'); expect(regionFirstRoom(2, () => 0.3).reward).toEqual({ k: 'manual' });
+    expect(regionFirstRoom(3, () => 0.3).reward?.k).toBe('coins'); expect(regionFirstRoom(4, () => 0.3).reward?.k).toBe('coins');
+    // every region shows a merchant's door by its last two forks
+    for (let s = 0; s < 40; s++) { let k = s * 7 + 1; const rnd = () => { k = (k * 1103515245 + 12345) % 2147483648; return k / 2147483648; };
+      expect(doorsFrom(4, ['fight', 'fight', 'elite', 'fight', 'fight'], rnd, 0).some(d => d.type === 'shop')).toBe(true); }
+  });
   it('乱兵房按哈迪斯2节奏穿插流派秘传 / 铜钱 / 气血上限 / 残铁药引 / 小回血；行商、歇脚、遗卷、渠帅没有清场奖励', () => {
     const n = 2000, seen: Record<string, number> = {};
     for (let i = 0; i < n; i++) {
@@ -121,10 +143,30 @@ describe('哈迪斯2强化节奏与可见门奖励', () => {
       if (rw.k === 'boon') expect(rw.arch).toBeTruthy();
     }
     expect(seen.manual ?? 0).toBe(0); // manuals are controlled at fixed milestones, not spammed in random fight rooms
-    expect(seen.boon / n).toBeGreaterThan(0.30); expect(seen.boon / n).toBeLessThan(0.42);
+    expect(seen.boon / n).toBeGreaterThan(0.17); expect(seen.boon / n).toBeLessThan(0.27);   // act-161: 36% -> 22%
+    expect(seen.heal / n).toBeGreaterThan(0.17);   // (the freed share is the heal door's)
     expect(seen.coins).toBeGreaterThan(0); expect(seen.maxHp).toBeGreaterThan(0);
     expect(seen.meta).toBeGreaterThan(0); expect(seen.heal).toBeGreaterThan(0);
     for (const t of ['shop', 'rest', 'boon', 'boss'] as const) expect(roomOf(t, 2, Math.random).reward).toBeNull();
+  });
+  it('act-161 门是提前一间画好的：手牌后来满了，写着新秘传的门开门时改成满手牌该给的', () => {
+    const door = (type: 'fight' | 'elite' | 'shop', reward: ReturnType<typeof roomOf>['reward'], region = 2) => ({ type, locale: 'x', reward, waves: [], region });
+    const boon = { k: 'boon' as const, arch: 'blood' as const };
+    // a hand with room left: nothing changes (the same object comes back)
+    expect(settleReward(door('elite', boon), { boons: BOON_CAP - 1, ups: 3 })).toBe(boon);
+    expect(settleReward(door('fight', boon), { boons: 0, ups: 0 })).toBe(boon);
+    // a full hand: the elite door is an upgrade (a purse when nothing can go up), the fight door a purse
+    expect(settleReward(door('elite', boon), { boons: BOON_CAP, ups: 2 })).toEqual({ k: 'up' });
+    expect(settleReward(door('elite', boon), { boons: BOON_CAP, ups: 0 })).toEqual({ k: 'coins', n: 84 });
+    expect(settleReward(door('fight', boon), { boons: BOON_CAP, ups: 2 })).toEqual({ k: 'coins', n: 65 });
+    // an upgrade door with nothing left to upgrade: a boon while there is room, a purse when there is not
+    expect(settleReward(door('elite', { k: 'up' }), { boons: 4, ups: 0 })).toEqual({ k: 'boon' });
+    expect(settleReward(door('elite', { k: 'up' }), { boons: BOON_CAP, ups: 0 })).toEqual({ k: 'coins', n: 84 });
+    expect(settleReward(door('elite', { k: 'up' }), { boons: 4, ups: 1 })).toEqual({ k: 'up' });
+    // every other reward, and rooms that are not fights, stand
+    const heal = { k: 'heal' as const };
+    expect(settleReward(door('fight', heal), { boons: BOON_CAP, ups: 0 })).toBe(heal);
+    expect(settleReward(door('shop', null), { boons: BOON_CAP, ups: 0 })).toBeNull();
   });
 });
 

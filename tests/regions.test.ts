@@ -77,13 +77,13 @@ describe('一局五关', () => {
     expect(bosses).toEqual(REGIONS.map(r => r.boss));
     expect(regionBanner(1)).toEqual({ title: '洛阳余烬', sub: '焦柱生烟，烈火铸钱' });
   });
-  it('局外货币：第 n 关的一间算 n 间', () => {
-    const r0 = roomsIn(0), r1 = roomsIn(1);
+  it('局外货币：越往后的关一间算得越多（act-161：1 / 1.2 / 1.4 / 1.7 / 2）', () => {
+    const r0 = roomsIn(0), r1 = roomsIn(1), W = [1, 1.2, 1.4, 1.7, 2.0];
     expect(roomsWorth(0, 0)).toBe(0); expect(roomsWorth(0, 3)).toBe(3);
-    expect(roomsWorth(1, 2)).toBe(r0 + 2 * 2);
-    expect(roomsWorth(2, 2)).toBe(r0 + r1 * 2 + 2 * 3);
-    const last = REGIONS.length - 1, all = REGIONS.reduce((n, _r, i) => n + roomsIn(i) * (i + 1), 0);
-    expect(roomsWorth(last, roomsIn(last) - 1, true)).toBe(all);
+    expect(roomsWorth(1, 2)).toBeCloseTo(r0 + 2 * 1.2, 6);
+    expect(roomsWorth(2, 2)).toBeCloseTo(r0 + r1 * 1.2 + 2 * 1.4, 6);
+    const last = REGIONS.length - 1, all = REGIONS.reduce((n, _r, i) => n + roomsIn(i) * W[i], 0);
+    expect(roomsWorth(last, roomsIn(last) - 1, true)).toBeCloseTo(all, 6);
   });
   it('难度：按哈迪斯2曲线逐关加码', () => {
     expect(regionScale(0)).toEqual({ hp: 1.15, dmg: 1.25, quick: 1, calm: 0, attackers: 2 });

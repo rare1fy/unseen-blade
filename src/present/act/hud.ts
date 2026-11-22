@@ -13,7 +13,7 @@ import { setGrid } from '../ui3d/pixelGrid';
 import { UiSparks } from '../ui3d/vox';
 import { cue } from '../../audio/cues';
 import type { Input, BtnName } from './input';
-import { isBoss, POISE_BREAK_DUR, type Foe } from './enemy';   // wp/foes: isBoss (the boss bar for hj_boss too)
+import { isBoss, POISE_BREAK_DUR, poiseCap, type Foe } from './enemy';   // wp/foes: isBoss (the boss bar for hj_boss too)
 import { V3 } from '../engine/world';
 import { TUNE } from './tune';
 import { SKIN, PALETTE, SkinBtn, SkinStick, SkinHp, type SkinId } from './skin';
@@ -604,7 +604,7 @@ export class ActHud {
       const vis = this.on && p.z < 1 && f.a.root.visible;
       b.g.visible = vis;
       const bw = (f.elite ? 92 : 58) * this.k, bh = (f.elite ? 12 : 8) * this.k;
-      const poise = f.st !== 'dead' && f.d.poise > 0 ? { frac: f.brokenT > 0 ? f.brokenT / POISE_BREAK_DUR : f.poise / f.d.poise, broken: f.brokenT > 0, h: Math.max(3, (f.elite ? 4.5 : 3.5) * this.k) } : null;
+      const poise = f.st !== 'dead' && f.d.poise > 0 ? { frac: f.brokenT > 0 ? f.brokenT / POISE_BREAK_DUR : f.poise / Math.max(1, poiseCap(f)), broken: f.brokenT > 0, h: Math.max(3, (f.elite ? 4.5 : 3.5) * this.k) } : null;
       this.drawBar(b, p.x, p.y, bw, bh, f.st === 'dead' ? 0 : f.hp / f.maxHp, dt, poise);
       if (f.elite && vis && f.st !== 'dead') {
         liveElites.add(f.uid); this.eliteTags.add(f.uid);
@@ -646,7 +646,7 @@ export class ActHud {
     const chief = foes.find(f => isBoss(f) && f.st !== 'dead');   // wp/foes: isBoss
     if (chief) {
       if (!this.boss) this.boss = this.newBar();
-      const bPoise = chief.d.poise > 0 ? { frac: chief.brokenT > 0 ? chief.brokenT / POISE_BREAK_DUR : chief.poise / chief.d.poise, broken: chief.brokenT > 0, h: Math.max(4, 6 * this.k) } : null;
+      const bPoise = chief.d.poise > 0 ? { frac: chief.brokenT > 0 ? chief.brokenT / POISE_BREAK_DUR : chief.poise / Math.max(1, poiseCap(chief)), broken: chief.brokenT > 0, h: Math.max(4, 6 * this.k) } : null;
       this.boss.g.visible = this.on; this.drawBar(this.boss, this.L.w / 2, 40 * this.k, Math.min(560 * this.k, this.L.w * 0.44), 12 * this.k, chief.hp / chief.maxHp, dt, bPoise);
       if (this.bossName !== chief.d.name) { this.bossName = chief.d.name; }
       const bLbl = chief.inv > 0 && typeof chief.mem?.barrierLabel === 'string' && chief.mem.barrierLabel

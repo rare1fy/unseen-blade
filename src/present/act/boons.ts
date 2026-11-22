@@ -65,6 +65,16 @@ const DEFS: BoonDef[] = [
   { id: 'drink', school: 'sr', slot: null, arch: 'blood', name: '饮血', eff: '斩杀一人，吸回一口血', note: '每人回 {v} 点血', vals: [1, 2, 3], col: '#9d3b40', glyph: ['..........', '#oooooooo#', '##########', '.########.', '.########.', '..######..', '....##....', '....##....', '..######..', '..........'] },
 ];
 export const BOONS: SkillBoon[] = DEFS.map(d => ({ ...d, desc: [d.eff, d.note] }));
+/** act-161: a hand holds this many boons; past it a boon reward is an upgrade of one she holds (show.ts boonPick) */
+export const BOON_CAP = 9;
+/** boons a blade's chain can never trigger (they hang on a cut pose): 无锋 has no k3 / k4 / k5 cut, 惊雷 no k3 / k4 — not offered to that blade */
+const DEAD_ON: Record<string, readonly string[]> = { blunt: ['bladeWind', 'extra', 'spin', 'pierce'], thunder: ['spin', 'pierce'] };
+export const boonFits = (id: string, weaponId?: string | null) => !(weaponId && DEAD_ON[weaponId]?.includes(id));
+export const boonCount = (p: Perks) => BOONS.reduce((n, b) => n + (tierOf(p, b.id) >= 0 ? 1 : 0), 0);
+/** the boons in hand that can still go up a tier */
+export const upgradableBoons = (p: Perks) => BOONS.filter(b => { const t = tierOf(p, b.id); return t >= 0 && t < 2; });
+/** the new boons she can still be offered: not held, usable with her blade — none once the hand is full */
+export const freshBoons = (p: Perks, weaponId?: string | null) => boonCount(p) >= BOON_CAP ? [] : BOONS.filter(b => tierOf(p, b.id) < 0 && boonFits(b.id, weaponId));
 export function archCounts(p: Perks): Record<Archetype, number> {
   const c: Record<Archetype, number> = { blood: 0, poise: 0, shadow: 0, gale: 0 };
   for (const b of BOONS) if (tierOf(p, b.id) >= 0) c[b.arch]++;
@@ -76,11 +86,13 @@ export function archTier(p: Perks, a: Archetype): 0 | 2 | 3 {
 }
 export function applyBoon(p: Perks, id: string, tier = 0) { if (BOONS.some(b => b.id === id)) p.owned[id] = Math.max(p.owned[id] ?? 0, boonTier(tier)); }
 export function upgradeBoon(p: Perks, id: string): boolean { if (tierOf(p, id) < 0 || tierOf(p, id) >= 2) return false; p.owned[id]++; return true; }
-export function drawBoons(pool: 'any', n: number, rnd: () => number, p: Perks, odds = [0.7, 0.25, 0.05], archBias?: Archetype | null, doorArch?: Archetype | null): BoonPick[] {
-  void pool; const fresh = BOONS.filter(b => tierOf(p, b.id) < 0), owned = BOONS.filter(b => tierOf(p, b.id) >= 0);
+export function drawBoons(pool: 'any', n: number, rnd: () => number, p: Perks, odds = [0.7, 0.25, 0.05], archBias?: Archetype | null, doorArch?: Archetype | null, weaponId?: string | null): BoonPick[] {
+  // act-161: only boons she does not hold (it used to fall back to held ones at a rolled tier — a pick at or below her own was a dud); an empty
+  // list means 'nothing new': the caller upgrades one in hand instead
+  void pool; const fresh = freshBoons(p, weaponId), want = Math.min(Math.max(0, Math.floor(n)), fresh.length);
   const weights = [0, 1, 2].map(i => Number.isFinite(odds[i]) ? Math.max(0, odds[i]) : 0), total = weights.reduce((a, b) => a + b, 0), out: BoonPick[] = [];
-  for (let i = 0; i < Math.min(Math.max(0, Math.floor(n)), BOONS.length); i++) {
-    const baseChoices = fresh.length ? fresh : owned;
+  for (let i = 0; i < want; i++) {
+    const baseChoices = fresh;
     // act-138 Hades-2 door guarantee: entering a door marked with a specific archetype offers that archetype's boons first!
     const doorMatches = doorArch ? baseChoices.filter(c => c.arch === doorArch) : [];
     const choices = doorMatches.length ? doorMatches : baseChoices;

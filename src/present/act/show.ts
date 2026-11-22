@@ -141,7 +141,7 @@ import './foes/xp_ai';
 import { inside } from './tele';
 import { spawnFoe, updateFoe, damageFoe, type Foe, type FoeWorld, type EKind, Arrow } from './enemy';
 import { EDEFS, isBoss, lowAttack, trimShadows, dropTeles, UNSTICK } from './enemy';   // wp/foes: the boss bar / banner / death and the bot's jump read these
-import { BOONS, ARCH_INFO, archCounts, archTier, applyBoon, drawBoons, upgradeBoon, returnCard, TIER_NAMES, newPerks, tierOf, hasBoon, v, v2, isBladeHit, type Archetype, type Perks, type Boon, type BoonPick } from './boons';
+import { BOONS, ARCH_INFO, archCounts, archTier, applyBoon, drawBoons, upgradeBoon, boonCount, upgradableBoons, freshBoons, BOON_CAP, returnCard, TIER_NAMES, newPerks, tierOf, hasBoon, v, v2, isBladeHit, type Archetype, type Perks, type Boon, type BoonPick } from './boons';
 import { TUNE } from './tune';
 import { installActTune } from './tunePanel';
 import { BODY_FONT, BODY_FONT_NAME, setBodyFont, type BodyFont } from '../ui3d/bodyFont';
@@ -150,7 +150,7 @@ import { Yard, makeSign, SPAWN_AT } from './yard';
 import type { ModelDef } from '../bestiary/models';
 import { dustBlocks, spawnClone, smokeBurst, cut as cloneCut } from '../kyoto/ninja_fx';
 import { Dart, BladeWave } from './missiles';
-import { RUN_ROOMS, firstRoom, regionFirstRoom, roomOf, roomInfo, doorsFrom, kindOr, isBossKind, type RoomPlan, type RoomType } from './run';
+import { RUN_ROOMS, firstRoom, regionFirstRoom, roomOf, roomInfo, doorsFrom, settleReward, kindOr, isBossKind, type RoomPlan, type RoomType, type RunCtx } from './run';
 import { REGIONS } from './regions';
 import { isBossRoom, afterBoss, roomsWorth, regionScale, regionBanner, shopPriceMul } from './flow';
 import { Stations, type Station, type ShopSpecial } from './stations';
@@ -177,7 +177,8 @@ import { Action } from '../actors/rig';
 addLocales(NINJA_LOCALES); addLocales(HANMO_LOCALES); addLocales(HANSHAN_LOCALES); addLocales(LUOYANG_LOCALES); addLocales(XIAPI_LOCALES);   // (11-18: regions two and three)
 
 /** prices at the 行商 (copper coins) */
-const PRICES = { boon: 60, heal: 30, sharpen: 50, vigor: 55, reroll: 40, satchel: 45 };
+/** act-161: every ware ×1.6 (a run earns about 2600 coins once elites pay once; at the old prices a stall a region left 1700+ unspent) */
+const PRICES = { boon: 96, heal: 48, sharpen: 80, vigor: 88, reroll: 64, satchel: 72 };
 const SHOP_SPECIALS: ShopSpecial[] = ['vigor', 'reroll', 'satchel'];
 /** a soft dark spot for under the feet: a radial fade drawn once, shared by every spot */
 let SHADOW_TEX: THREE.Texture | null = null;
@@ -316,8 +317,8 @@ function advanceAhead(job: Pick<AheadRoom, 'steps' | 'size' | 'ready' | 'wait'>,
     setStage(live.big, live.k); Object.assign(PLAY, floor);
   }
 }
-function onward(room: number, visited: RoomType[], region: number) {
-  if (!isBossRoom(region, room)) return doorsFrom(room, visited, Math.random, region);
+function onward(room: number, visited: RoomType[], region: number, ctx?: RunCtx) {
+  if (!isBossRoom(region, room)) return doorsFrom(room, visited, Math.random, region, ctx);
   const next = afterBoss(region);
   return next === 'won' ? [] : [regionFirstRoom(next, Math.random)];
 }
@@ -395,6 +396,23 @@ export class ActShow {
   /** act-20 meta: what the hideout's upgrades give this run; the run's tally for the trip home */
   private mods: RunMods = { dmgMul: 1, critBonus: 0, dartBonus: 0, rerolls: 1, hpBonus: 0, deathDefy: 0, startIntent: 0, windupMul: 1, startManual: false, poiseHeal: 0, firstStrikeBonus: 0, styleBonus: 0, dashCdMul: 1, counterBonus: 0, markedDmgBonus: 0, poiseDmgMul: 1, rareOddsBonus: 0, interestRate: 0 };
   private rerollsLeft = 1;
+  /** act-161 调试版战斗统计（__dh.fight()）: this run's damage by source, each boss's time (its body, its barrier phases), blows taken, health given
+   *  back — the numbers the balance model could only guess at. Filled only under __DEBUG_UI__ (the desktop / Pages build) */
+  private fightLog = { t0: 0, dmg: {} as Record<string, { n: number; sum: number }>, bosses: [] as Array<{ uid: number; kind: string; region: number; hp: number; t0: number; t1: number; gate: number }>, taken: { n: 0, sum: 0, byBoss: 0 }, healed: 0 };
+  private tally(kind: string, d: number, f: Foe) {
+    if (f.kind === 'dummy' || d <= 0) return;
+    const e = (this.fightLog.dmg[kind] ??= { n: 0, sum: 0 }); e.n++; e.sum += d;
+    if (isBoss(f) && !this.fightLog.bosses.some(b => b.uid === f.uid)) this.fightLog.bosses.push({ uid: f.uid, kind: f.kind, region: this.region, hp: f.maxHp, t0: clock.time, t1: 0, gate: 0 });
+  }
+  private fightReport() {
+    const L = this.fightLog, total = Object.values(L.dmg).reduce((s, e) => s + e.sum, 0), r1 = (x: number) => Math.round(x * 10) / 10;
+    return {
+      seconds: r1(clock.time - L.t0), total,
+      bySource: Object.entries(L.dmg).sort((a, b) => b[1].sum - a[1].sum).map(([kind, e]) => ({ kind, hits: e.n, dmg: e.sum, share: total ? r1(e.sum / total * 100) : 0 })),
+      bosses: L.bosses.map(b => ({ kind: b.kind, region: b.region + 1, hp: b.hp, down: b.t1 > 0, bodySec: r1((b.t1 || clock.time) - b.t0 - b.gate), gateSec: r1(b.gate) })),
+      taken: { ...L.taken }, healed: L.healed,
+    };
+  }
   /** act-118: live combo & move-variety tracker (变招连段奖励) */
   private comboHits = 0; private comboT = 0; private comboKinds: string[] = [];
   /** act-20 the hideout's people: where they stand, their bodies; the one in reach of a word */
@@ -977,8 +995,8 @@ export class ActShow {
   private bankRun(won: boolean) {
     this.lastWon = won;
     // 11-18: a room in region n counts n rooms; every boss killed counts (runReward's boss share is a boolean: the bosses past the first
-    // go in as rooms worth the same 15 iron)
-    const rooms = roomsWorth(this.region, this.room, won) + Math.max(0, this.bosses - 1) * 15;
+    // go in as 5 rooms each — act-161: was 15, which alone was 60 rooms on a clear)
+    const rooms = roomsWorth(this.region, this.room, won) + Math.max(0, this.bosses - 1) * 5;
     this.banked = bank(profile(), { rooms, elites: this.eliteKills, boss: this.bossKilled, won, kills: this.kills }); saveProfile();
   }
   /** 11-18: the foes' strength for region ri from the run's starting TUNE (region one: as it was) */
@@ -2386,6 +2404,8 @@ export class ActShow {
       general: (n = 0) => { const ri = Math.max(0, Math.min(GENERAL_EVENTS.length - 1, n)); return this.jumpRegion(ri, 2, 'event'); },
       /** act-125: debug solve current general puzzle event, swap weapon, toggle all weapons/keepsakes unlocked */
       solveEvent: () => { this.generalEvent?.forceSolve(); return !!this.generalEvent; },
+      /** act-161: this run's fight numbers — damage by source, each boss's body / barrier seconds, blows taken, health given back */
+      fight: () => this.fightReport(),
       weapon: (id: WeaponId = 'hanshan', lv?: number) => {
         const p = profile();
         if (lv != null) { if (!p.weaponLv) p.weaponLv = {}; p.weaponLv[id] = Math.max(0, Math.min(3, lv)); }
@@ -3142,6 +3162,7 @@ export class ActShow {
     // 11-18 一局五关: the first region; the TUNE values the regions scale from (the tune panel's, as the run starts)
     this.region = 0; this.bosses = 0; this.regionIn = false; this.baseFoe = { hp: TUNE.enemyHp, dmg: TUNE.enemyDmg, aggression: 0.95, calm: TUNE.atkCalm, attackers: TUNE.maxAttackers };
     // act-20 / act-118: the hideout's upgrades & 碑铭潜能 (meta.ts) for this run
+    this.fightLog = { t0: clock.time, dmg: {}, bosses: [], taken: { n: 0, sum: 0, byBoss: 0 }, healed: 0 };
     this.mods = runMods(profile()); this.defy = this.mods.deathDefy; this.rerollsLeft = this.mods.rerolls; this.eliteKills = 0; this.bossKilled = false; this.usedPoolBosses.clear();
     this.genBlessings.clear(); this.ksShield = 0; this.ksRevenge = false; this.intentBonusAcc = 0;
     this.resetCombo(); this.hud.synergies = [];
@@ -3185,7 +3206,7 @@ export class ActShow {
     for (const plan of yard ? [firstRoom(Math.random)] : this.nextRooms) {
       const region = yard ? 0 : plan.region ?? this.region;
       const first = yard || region !== this.region, room = first ? 0 : this.room + 1;
-      const next = onward(room, [...(first ? [] : this.visited), plan.type], region);
+      const next = onward(room, [...(first ? [] : this.visited), plan.type], region, this.runCtx());
       const steps = prepRoomSteps({ isYard: false, locale: plan.locale, plan, room, region, regionSpec: REGIONS[region].spec,
         recent: yard ? [] : this.recent.slice(), shapes: yard ? [] : this.shapes.slice(), maps: yard ? [] : this.maps.slice(),
         seed: Date.now() % 100000 + room * 977, nextRooms: next, noArena: false, forceSpec: null, viewSpec: null }, true);
@@ -3232,7 +3253,8 @@ export class ActShow {
     this.gates?.dispose(); this.gates = null; this.pieces?.dispose(); this.pieces = null; this.leaves?.dispose(); this.leaves = null; this.clearNpcs(); this.clearRoadActors();
     for (const d of this.doors) d.g.parent?.remove(d.g); this.doors = []; this.stations?.dispose(); this.stations = null; this.coinsFx.clear();
     this.yard?.dispose(); this.yard = null; this.exitSign?.parent?.remove(this.exitSign); this.exitSign = null; this.barks?.clear();
-    const hp = first || !this.hero ? TUNE.heroHp : this.hero.hp, maxHp = TUNE.heroHp, qi = first || !this.hero ? 0 : this.hero.qi;
+    // act-161: her max health carries from room to room like her health does (it was reset to the run's start here, so a +12 door, a chest, the wine were one small heal)
+    const hp = first || !this.hero ? TUNE.heroHp : this.hero.hp, maxHp = first || !this.hero ? TUNE.heroHp : Math.max(TUNE.heroHp, this.hero.maxHp), qi = first || !this.hero ? 0 : this.hero.qi;
     this.hero?.a.dispose();
     const isYard = this.room < 0;
     this.bossDefeated = false; this.poolBossRoom = false;
@@ -3247,7 +3269,7 @@ export class ActShow {
         this.poolBossRoom = true;
       }
     }
-    this.nextRooms = job?.next ?? (!isYard && this.plan && !this.viewSpec ? onward(this.room, this.visited, this.region) : []);
+    this.nextRooms = job?.next ?? (!isYard && this.plan && !this.viewSpec ? onward(this.room, this.visited, this.region, this.runCtx()) : []);
     if (this.prologue === 1 && !this.viewSpec) this.nextRooms = [PRO_BOSS]; else if (this.prologue === 2) this.nextRooms = [];   // act-29
     // act-34: the place itself — built ahead of time when it can be (the title builds a new game's first room while it loads), else now
     // (11-18: a region's own look — 下邳 is always winter — unless the prologue or a view asks otherwise)
@@ -3384,9 +3406,11 @@ export class ActShow {
     if (this.viewSpec) { this.phase = 'yard'; this.log.push(`view ${spec.locale} ${spec.layout} ${spec.time}`); return; }
     this.phase = 'intro'; this.wave = 0;
     if (this.mods.startIntent > 0 && this.intent < this.mods.startIntent) { this.intent = this.mods.startIntent; this.intentVal = Math.max(this.intentVal, this.intent); this.hud.intent = this.intent; }
-    // act-118 聚财 (碑铭潜能): compound coin interest when stepping into a new room
-    if (!this.prologue && this.room > 0 && this.mods.interestRate > 0 && this.coins > 0) {
-      const gain = Math.max(1, Math.round(this.coins * this.mods.interestRate));
+    // act-118 聚财 (碑铭潜能) — act-161: paid once on stepping into a new region (10 / 18 / 25% of her purse, 80 / 140 / 200 at most);
+    // it used to compound every room with no cap (25%: hundreds of thousands by the last region)
+    if (!this.prologue && this.room === 0 && this.region > 0 && this.mods.interestRate > 0 && this.coins > 0) {
+      const top = this.mods.interestRate >= 0.24 ? 200 : this.mods.interestRate >= 0.17 ? 140 : 80;
+      const gain = Math.max(1, Math.min(top, Math.round(this.coins * this.mods.interestRate)));
       this.coins += gain; this.feed.push('coins', n => msg`聚财 +${n}`, gain);
     }
     const name = LOCALES[this.locale]?.name ?? '';
@@ -4213,6 +4237,7 @@ export class ActShow {
         const floor = Math.ceil(f.maxHp * 0.72);
         dmg = Math.min(dmg, Math.max(0, f.hp - floor));
       }
+      if (__DEBUG_UI__) this.tally('bleed', dmg, f);
       return dmg;
     },
     bleedSpill: f => this.bleedDrip(f),
@@ -4760,7 +4785,7 @@ export class ActShow {
       const c = f.a.chest(), side = V3(dir.z, 0, -dir.x);
       slashArc.clashCross(c, side, 0.48, hasLuBuKs && !hasPass ? 'blunt_flash' : 'dcut', 0.22, 0.82);
       fxSparks(c, hasLuBuKs && !hasPass ? 0xffb088 : 0xdcf4ff, 6, 3.2);
-      const dmg = hasPass ? Math.round(TUNE.atkDmg * v(this.perks, 'passCut') / 100) : Math.max(4, Math.round(TUNE.atkDmg * 0.45));
+      const dmg = hasPass ? Math.max(4, Math.round(TUNE.atkDmg * v(this.perks, 'passCut') / 100)) : Math.max(4, Math.round(TUNE.atkDmg * 0.45));
       this.hitFoe(f, dmg, o.a, { knock: 0, heavy: false, kind: 'pass', stagger: 0, poiseMul: hasLuBuKs ? 2.0 : 1 });
       this.feel('k2', false, 1, dir.clone());
     }
@@ -5213,7 +5238,8 @@ export class ActShow {
       const floor = Math.ceil(f.maxHp * 0.72);
       if (f.hp - d <= Math.ceil(f.maxHp * 0.75)) { d = Math.max(0, f.hp - floor); duelDoneNow = true; }
     }
-    { const g = f.inv <= 0 ? ROLE_AI[f.role]?.guard?.(f, d, from, o.kind) : undefined; if (g != null) { if (g < 0) return; if (g === 0) { this.glance(f, from, o.kind); return; } d = Math.round(g); } }
+    let guardK = 1;   // (act-161: what the guard let through of this blow — the blood burst it sets off is cut the same)
+    { const g = f.inv <= 0 ? ROLE_AI[f.role]?.guard?.(f, d, from, o.kind) : undefined; if (g != null) { if (g < 0) return; if (g === 0) { this.glance(f, from, o.kind); return; } guardK = d > 0 ? Math.min(1, g / d) : 1; d = Math.round(g); } }
     if (f.mem.armoredHit) {
       f.mem.armoredHit = 0;
       if (Math.random() < 0.45) popPix('重甲', f.a.head().add(V3(0, 0.55, 0)), { color: '#ffc880', h: 0.48, life: 0.65 });
@@ -5232,6 +5258,7 @@ export class ActShow {
     const armored = f.kind === 'ly_boss' && f.phase === 1 && f.st !== 'stagger' && f.brokenT <= 0 && !o.heavy && o.kind !== 'parry' && o.kind !== 'clash';
     const poiseDmg = armored ? 0 : Math.round(basePoise * (o.poiseMul ?? 1) * this.mods.poiseDmgMul * (archTier(this.perks, 'poise') >= 2 ? 1.25 : 1) * (this.genBlessings.has('lubu') ? 1.30 : 1));
     let died = damageFoe(f, d, from, { knock, stagger, poiseDmg, heavy: o.heavy });
+    if (__DEBUG_UI__) this.tally(o.counter ? o.kind + '+counter' : o.kind, d, f);
     const justBroke = !died && !wasBroken && f.brokenT > 0;
     if (justBroke) {
       fxChips(p, [0xf2c248, 0xffe896, 0x4b5262], 10, { dir, speed: 5.5, up: 3.6, size: 0.095, glow: 0.8 });
@@ -5261,7 +5288,11 @@ export class ActShow {
       if (this.duelGen && this.duelGen.f === f) bDmg = Math.min(bDmg, Math.max(0, f.hp - Math.ceil(f.maxHp * 0.72)));
       f.bleed = 1; f.bleedT = 0;
       if (bDmg > 0) {
-        died = damageFoe(f, bDmg, from, { knock: 0.6, stagger: 0.45, poiseDmg: bDmg * 0.6 });
+        // act-161: the burst's poise damage is a flat 10 (it was 0.6 × its damage — the one blow whose poise still followed its damage), none through
+        // 阎虎's phase-one plate, and the burst is cut by the guard / the thunder flags like the blow that set it off
+        bDmg = Math.max(1, Math.round(bDmg * guardK * (f.kind === 'hj_boss' && this.foes.some(o2 => o2.kind === 'totem_flag' && o2.st !== 'dead') ? 0.6 : 1)));
+        died = damageFoe(f, bDmg, from, { knock: 0.6, stagger: 0.45, poiseDmg: armored ? 0 : 10 });
+        if (__DEBUG_UI__) this.tally('bleedBurst', bDmg, f);
         if (this.prologue === 2 && isBoss(f)) f.hp = Math.max(f.hp, Math.ceil(f.maxHp * 0.2));
         if (this.duelGen && this.duelGen.f === f) f.hp = Math.max(f.hp, Math.ceil(f.maxHp * 0.72));
         blood.spray(p, dir, 36, 1.45);
@@ -5985,6 +6016,7 @@ export class ActShow {
     const bossClear = boss && this.phase === 'fight' && !this.prologue && !this.foes.some(x => x !== f && x.st !== 'dead' && isBoss(x));
     const holdKneel = bossClear && !fell && this.isFirstStoryBossKill();
     if (f.elite) this.eliteKills++; if (boss) this.bossKilled = true;
+    if (__DEBUG_UI__ && boss) { const b = this.fightLog.bosses.find(x => x.uid === f.uid); if (b && !b.t1) b.t1 = clock.time; }
     // 11-18: the kill holds the blow a little longer (feel()); the cry and the gush now, the body on the ground a moment later
     if (!fell) { this.killBeat = true; this.bigKill = this.bigKill || boss || elite; after(0.32, () => cue('bodyFall', holdKneel ? 0.65 : 0.7)); }
     // act-23 / act-137: first-time story boss kneels wounded on the battlefield (death cry saved for the CH_AFTER execution slash!)
@@ -6167,6 +6199,7 @@ export class ActShow {
       return;
     }
     if (!this.hero.hurt(dmg, from)) return;
+    if (__DEBUG_UI__ && this.phase !== 'yard') { const t = this.fightLog.taken; t.n++; t.sum += dmg; if (attacker && isBoss(attacker)) t.byBoss++; }
     if (this.genBlessings.has('xiahoudun')) this.ksRevenge = true;
     this.resetCombo();
     // where it came from: a red arc at the feet facing the attacker
@@ -6255,7 +6288,10 @@ export class ActShow {
         this.musicHold = null;
       }
       if (afterBoss(this.region) === 'won') { this.end(true); return; }
-      await this.boonPick(); this.openDoors(); return;
+      // act-161: a boss down is a breath back (30% of her health); regions 1 and 3 hand a boon, 2 and 4 an upgrade of one in hand
+      { const was = this.hero.hp; this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + Math.round(this.hero.maxHp * 0.30)); this.healFeed(was); this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp }); }
+      if (this.region % 2 === 0) await this.boonPick(); else await this.upPick();
+      this.openDoors(); return;
     }
     const rw = this.plan?.reward ?? null;
     if (this.plan?.type === 'elite') this.coinsFx.drop(this.hero.pos.clone().add(V3(0, 0, -1.2)), 10, 4);
@@ -6276,6 +6312,7 @@ export class ActShow {
       this.healFeed(was); this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp });
       await new Promise(r => after(0.75, () => r(null)));
     } else if (rw?.k === 'manual') await this.manualPick();
+    else if (rw?.k === 'up') await this.upPick();
     else {
       await this.boonPick(undefined, rw?.k === 'boon' ? (rw.arch ?? null) : null);
     }
@@ -6332,13 +6369,15 @@ export class ActShow {
   }
   /** three boons with rolled tiers — 死士 / 遗卷 & 绝品缘 mirror roll higher rarities; supports door archetype guarantee, reroll & archetype counts */
   private async boonPick(customOdds?: [number, number, number], doorArch?: Archetype | null) {
+    // act-161: a full hand (BOON_CAP), or nothing new left that her blade can use: the reward is an upgrade of one she holds
+    if (!freshBoons(this.perks, this.hero?.weaponId).length) { await this.upPick(boonCount(this.perks) >= BOON_CAP); return; }
     const base = customOdds ?? (this.plan?.type === 'elite' ? [0, 0.55, 0.45] : this.plan?.type === 'boon' ? [0.15, 0.60, 0.25] : [0.7, 0.25, 0.05]);
     const rb = this.mods.rareOddsBonus;
     const shift = Math.min(base[0], rb);
     const odds = [Math.max(0, base[0] - shift), base[1] + shift * 0.55, base[2] + shift * 0.45];
     const eqKs = keepsakeDef(equippedKeepsake(profile(), this.dbgAllWeapons));
     const archBias = eqKs?.arch ?? null;
-    let pick = drawBoons('any', 3, Math.random, this.perks, odds, archBias, doorArch ?? null); if (!pick.length) return;
+    let pick = drawBoons('any', 3, Math.random, this.perks, odds, archBias, doorArch ?? null, this.hero?.weaponId); if (!pick.length) return;
     const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide();
     const ai = doorArch ? ARCH_INFO[doorArch] : null;
     const i = await this.cards.open(pick, {
@@ -6349,7 +6388,7 @@ export class ActShow {
       },
       archHave: archCounts(this.perks),
       reroll: this.rerollsLeft > 0 ? { left: this.rerollsLeft, onReroll: () => {
-        const next = drawBoons('any', 3, Math.random, this.perks, odds, archBias, doorArch ?? null);
+        const next = drawBoons('any', 3, Math.random, this.perks, odds, archBias, doorArch ?? null, this.hero?.weaponId);
         if (!next.length) return null;
         this.rerollsLeft--; pick = next; return pick;
       } } : undefined,
@@ -6357,17 +6396,38 @@ export class ActShow {
     const b = pick[i]; this.take(b.boon, b.tier);
     this.hud.on = true; this.phase = was === 'pick' ? 'pick' : was;
   }
+  /** act-161: what the route planner may know of her hand (run.ts rewardFor) */
+  private runCtx(): RunCtx { return { boons: boonCount(this.perks), ups: upgradableBoons(this.perks).length }; }
+  /** act-161: the exits were drawn up before this room's reward reached her hand — a door that promised a boon she has no room for
+   *  (or an upgrade with nothing left to upgrade) now gives what a full hand gets, and a board already standing is put up again */
+  private settleDoors() {
+    const ctx = this.runCtx();
+    this.nextRooms.forEach((p, i) => {
+      const rw = settleReward(p, ctx); if (rw === p.reward) return;
+      p.reward = rw;
+      const d = this.doors[i]; if (!d) return;
+      const { g } = runBoard(p, LOCALES[p.locale]?.name ?? ''); g.position.copy(d.g.position); g.scale.copy(d.g.scale); g.rotation.copy(d.g.rotation);
+      d.g.parent?.add(g); d.g.parent?.remove(d.g); d.g = g;
+    });
+  }
+  /** act-161 升阶: one of the boons in hand goes up a tier (her pick of three); a hand already all 绝品 takes a purse and a breath instead */
+  private async upPick(full = false) {
+    if (this.sharpenable().length) { await this.sharpen(full); return; }
+    this.coinsFx.drop(this.hero.pos.clone().add(V3(0, 0, -1.2)), 12, 5);
+    const was = this.hero.hp; this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + Math.round(this.hero.maxHp * 0.10));
+    this.healFeed(was); this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp });
+  }
   /** 11-19 获得提示: a heal into the column (what it really gave back) */
-  private healFeed(was: number) { const n = Math.round(this.hero.hp - was); if (n > 0) this.feed.push('heal', v => msg`生命 +${v}`, n); }
+  private healFeed(was: number) { const n = Math.round(this.hero.hp - was); if (n > 0) { this.feed.push('heal', v => msg`生命 +${v}`, n); if (__DEBUG_UI__) this.fightLog.healed += n; } }
   /** the boons in hand that can still go up a tier */
   private sharpenable() { return BOONS.filter(b => this.perks.owned[b.id] != null && this.perks.owned[b.id] < 2); }
   /** 磨刀: pick one of the boons in hand (shown at its next tier); it goes up a tier */
-  private async sharpen() {
+  private async sharpen(full = false) {
     const own = this.sharpenable().sort(() => Math.random() - 0.5).slice(0, 3); if (!own.length) return;
     const cards: BoonPick[] = own.map(b => ({ boon: b, tier: this.perks.owned[b.id] + 1 }));
     const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide();
-    const i = await this.cards.open(cards, { header: { title: '磨刀淬锋 · 秘传升阶', sub: '挑一张已得秘传提升品阶', col: '#ffe08a' }, archHave: archCounts(this.perks) });
-    const b = own[i]; upgradeBoon(this.perks, b.id); this.log.push(`sharpen ${b.id} ${this.perks.owned[b.id]}`); this.syncMarks();
+    const i = await this.cards.open(cards, { header: { title: '磨刀淬锋 · 秘传升阶', sub: full ? '秘传已满九张 · 挑一张提升品阶' : '挑一张已得秘传提升品阶', col: '#ffe08a' }, archHave: archCounts(this.perks) });
+    const b = own[i]; upgradeBoon(this.perks, b.id); this.log.push(`sharpen ${b.id} ${this.perks.owned[b.id]}`); this.syncMarks(); this.settleDoors();
     this.hud.on = true; this.phase = was; this.feed.push('boon', () => msg`${b.name} · ${TIER_NAMES[this.perks.owned[b.id]]}`, 0, 'sharpen:' + b.id);
   }
   /** a station's ring filled: pay, then do its thing */
@@ -6479,7 +6539,7 @@ export class ActShow {
   private take(b: Boon, tier = 0) { // wp/boons: ownership lives on Perks
     const before = archCounts(this.perks);
     applyBoon(this.perks, b.id, tier); this.log.push(`boon ${b.id} tier ${tier}`); // wp/boons: apply the selected tier
-    this.syncMarks(); this.syncHeroMods();
+    this.syncMarks(); this.syncHeroMods(); this.settleDoors();
     this.feed.push('boon', () => msg`秘传 · ${b.name}`, 0, 'boon:' + b.id);
     const afterC = archCounts(this.perks);
     const active: Array<{ name: string; count: number; col: string }> = [];
@@ -6545,6 +6605,7 @@ export class ActShow {
       if (f.kind === 'dummy') continue;
       dropTeles(f); f.a.dispose(); this.foes.splice(i, 1);
     }
+    this.settleDoors();
     const ds = this.nextRooms, ids = (this.spec?.exits ?? []) as ExitId[];
     this.doors = ds.map((d, i) => {
       const ex = exitInfo(this.layout!, ids[i] ?? 'back');
@@ -7232,6 +7293,7 @@ export class ActShow {
       }
     }
     for (const f of this.foes) {
+      if (__DEBUG_UI__ && (f.mem.barrier ?? 0) > 0) { const b = this.fightLog.bosses.find(x => x.uid === f.uid); if (b) b.gate += dt; }
       const ent = !this.ultOn ? this.entering.find(e => e.f === f) : undefined;
       if (!this.ultOn && (ent || this.bossDrops.some(d => d.f === f))) {
         f.a.update(dt);
@@ -7292,7 +7354,7 @@ export class ActShow {
       // the light flies on real time: the hit-stop of the blow that sent it freezes the world, not the light leaving it
       const live = w.live, p0 = w.step(rdt); if (!live) continue;
       for (const f of this.foes) if (f.st !== 'dead' && !w.hit.has(f.uid) && w.sweeps(p0, f.pos, f.d.r)) {
-        w.hit.add(f.uid); this.hitFoe(f, Math.round(TUNE.finDmg * 0.7 * v(this.perks, 'bladeWind') / 100), p0, { knock: 0.8, heavy: false, kind: 'wind' });   // (11-18: 刀芒 100 / 150 / 200 % of 0.7 × the finisher — it was a flat 12 × share)
+        w.hit.add(f.uid); this.hitFoe(f, Math.round(TUNE.finDmg * 0.7 * (v(this.perks, 'bladeWind') || 50) / 100), p0, { knock: 0.8, heavy: false, kind: 'wind' });   // (11-18: 刀芒 100 / 150 / 200 % of 0.7 × the finisher — it was a flat 12 × share)
         // the light cuts through: a short white bar across the body and a spray of jade sparks
         const c = f.a.chest(), side = V3(w.fwd.z, 0, -w.fwd.x);
         trailSeg(c.clone().addScaledVector(side, -0.6).add(V3(0, 0.25, 0)), c.clone().addScaledVector(side, 0.6).add(V3(0, -0.15, 0)), 0xe8fff2, 0.12, { life: 0.16, bright: 3, spark: 0.6 });
@@ -7463,6 +7525,8 @@ export class ActShow {
             title = arch ? msg`${arch.name}·珍绝` : '珍绝秘传';
             sub = '死士恶战 · 高阶流派';
             ico = archKey ?? 'scroll'; acc = arch ? arch.col : '#e84838';
+            if (rw?.k === 'up') { title = '秘传升阶'; sub = '死士恶战 · 已得秘传升一阶'; ico = 'scroll'; acc = '#ffe08a'; }
+            else if (rw?.k === 'coins') { title = msg`铜钱 +${rw.n}`; sub = '死士恶战 · 重赏铜钱'; ico = 'coin'; acc = '#ffd258'; }
           } else if (plan.type === 'event') {
             title = info.name; sub = '名将信物 · 常驻加护'; ico = 'star'; acc = '#f0bc48';
           } else if (plan.type === 'boon') {

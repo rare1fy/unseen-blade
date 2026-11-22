@@ -37,7 +37,7 @@ const BOARD_THEME: Record<string, { band: string; title: string; acc: string }> 
 
 function boardSub(p: RoomPlan, place: string): string {
   const r = p.reward;
-  if (p.type === 'elite') return r?.k === 'boon' && r.arch ? msg`${ARCH_INFO[r.arch].name}·珍绝` : '珍绝秘传';
+  if (p.type === 'elite') return r?.k === 'up' ? '秘传升阶' : r?.k === 'coins' ? msg`铜钱 ${r.n}` : r?.k === 'boon' && r.arch ? msg`${ARCH_INFO[r.arch].name}·珍绝` : '珍绝秘传';
   if (p.type === 'boss') return '终战';
   if (p.type === 'event') return '信物·加护';
   if (p.type === 'boon') return '稀世遗卷';

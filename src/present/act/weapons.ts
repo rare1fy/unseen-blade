@@ -165,7 +165,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     summary: '两段简练平斩，任意出刀零帧瞬接藏锋',
     special: '破势窗口宽四成，破势或闪避免费赋予赤金「听声一闪」',
     forgeCosts: [20, 40, 66],
-    forgeDesc: ['破势成功震慑周围小怪失衡', '一闪斩杀立刻刷新免费一闪', '不见刀绝技伤害提高四成'],
+    forgeDesc: ['破势成功震慑周围小怪失衡', '一闪斩杀立刻刷新免费一闪', '不见刀绝技伤害提高两成五'],
     col: '#ff9668',
     hex: 0xf2683c,
     glyph: [

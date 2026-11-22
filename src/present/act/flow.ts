@@ -1,6 +1,6 @@
 // 一局五关的流程（11-18）：纯逻辑、不碰画面，单测直接测这里。一局里的位置 = (关 region, 这一关的第几间 room)，两个都从 0 起。
 // 规则：每关 rooms + 1 间（最后一间是头目间）；打完一关的头目，进下一关的第一间；最后一关的头目打完 = 通关。
-// 局外货币按「打过的间」算，第 n 关（1 起）的一间算 n 间；难度从第二关起逐关加码（第一关不变）。
+// 局外货币按「打过的间」算，越往后的关一间算得越多（act-161：1 / 1.2 / 1.4 / 1.7 / 2 间，原来是 1 / 2 / 3 / 4 / 5，通关一次就买穿全树）；难度从第二关起逐关加码（第一关不变）。
 import { REGIONS } from './regions';
 
 /** how many rooms region ri has, its boss room included */
@@ -12,10 +12,12 @@ export function afterBoss(ri: number): number | 'won' { return ri + 1 < REGIONS.
 
 /** what the haul home counts as rooms: every room cleared in region n (1 起) counts n — a room deeper in the run is worth more.
  *  region / room = where she fell (or the last boss room, on a win); won = the last boss fell (that room counts too) */
+const ROOM_WORTH = [1, 1.2, 1.4, 1.7, 2.0];
+const worthOf = (ri: number) => ROOM_WORTH[Math.max(0, Math.min(ROOM_WORTH.length - 1, ri))];
 export function roomsWorth(region: number, room: number, won = false): number {
   let n = 0;
-  for (let i = 0; i < region; i++) n += roomsIn(i) * (i + 1);
-  return n + (won ? roomsIn(region) : Math.max(0, room)) * (region + 1);
+  for (let i = 0; i < region; i++) n += roomsIn(i) * worthOf(i);
+  return n + (won ? roomsIn(region) : Math.max(0, room)) * worthOf(region);
 }
 
 /** the foes' strength in region ri (act-138 Hades-A curve: genuine 5-region escalation so even a fresh save feels tense by Act 1-2 and late acts demand real builds + dodging) */

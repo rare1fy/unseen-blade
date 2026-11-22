@@ -197,7 +197,7 @@ export const elitePoise = (base: EDef, kind: string) =>
 
 export function spawnFoe(kind: EKind, at: THREE.Vector3, face: THREE.Vector3, elite = false): Foe {
   const base = EDEFS[kind], el = elite && !!base.elite;
-  const d: EDef = el ? { ...base, r: base.r * 1.18, mass: base.mass * 1.45, poise: elitePoise(base, kind), gold: base.gold * 2 + 4 } : base;
+  const d: EDef = el ? { ...base, r: base.r * 1.18, mass: base.mass * 1.45, poise: elitePoise(base, kind) } : base;   // act-161: an elite's coins are tripled once, when it falls (killFoe) — they used to be doubled here as well
   const model = el ? base.elite! : base.alt ? [base.model, ...base.alt][Math.floor(Math.random() * (base.alt.length + 1))] : base.model;
   const a = new BattleActor(model); a.place(at.clone()); a.faceToward(face); trimShadows(a.root, d.boss ? 6 : base.role === 'brute' ? 5 : 3);
   if (el) a.root.scale.setScalar(1.18);
@@ -1085,3 +1085,5 @@ export class Shockwave extends Arrow {
     if (k >= 1) this.kill();
   }
 }
+/** act-161: the full length of a foe's poise bar — the cap grows 25% with every break (four at most), so the bar is drawn against this, not d.poise */
+export const poiseCap = (f: Foe) => Math.round((f.d?.poise ?? 0) * (1 + 0.25 * Math.min(4, f.poiseBreaks ?? 0)));

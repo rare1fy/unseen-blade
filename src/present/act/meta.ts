@@ -30,8 +30,10 @@ export function canBuy(p: Profile, id: string): boolean {
   return !!up && cost !== null && p[up.cur] >= cost;
 }
 
+/** act-161: the medic's old list (vigor / ear / intent / leech / breath) retired into the altar's cards — her 'something to buy' is the altar's */
 export function hasAffordable(p: Profile, who?: Who): boolean {
-  return META.some(u => (!who || u.who === who) && canBuy(p, u.id));
+  if (who === 'medic') return hasArcanaActionable(p);
+  return META.some(u => u.who !== 'medic' && (!who || u.who === who) && canBuy(p, u.id)) || (!who && hasArcanaActionable(p));
 }
 
 export function buy(p: Profile, id: string): boolean {
@@ -61,7 +63,7 @@ export const MIRROR: MirrorDef[] = [
   ] },
   { id: 'luck', group: '气运', cur: 'herb', costs: [12, 26, 44], sides: [
     { name: '绝品缘', desc: '秘传三选一珍绝品概率提高', vals: [15, 30, 45], unit: '%' },
-    { name: '聚财', desc: '进新屋按身上铜钱生息', vals: [10, 18, 25], unit: '%' },
+    { name: '聚财', desc: '每过一关按身上铜钱生息，单次有封顶', vals: [10, 18, 25], unit: '%' },
   ] },
 ];
 
@@ -117,7 +119,10 @@ export interface ArcanaDef {
 
 export const ARCANA_BASE_CAP = 6;
 export const ARCANA_CAP_STEP = 2;
-export const ARCANA_CAP_COSTS = [12, 20, 30, 44, 62, 84];
+/** act-161: three widenings, 6 -> 12 (was six, to 18 — one more than every card together costs, so nothing was ever left out) */
+export const ARCANA_CAP_COSTS = [12, 20, 30];
+/** what the three widenings past 12 used to cost: paid back to a save that bought them */
+const ARCANA_CAP_REFUND = [44, 62, 84];
 
 /** act-149: 孙媪药炉冥想 · 3×3 周天悟性牌阵 (Hades 2 Altar of Ashes style: toggle cards within Grasp cap + center 0-grasp Awakening!) */
 export const ARCANA: ArcanaDef[] = [
@@ -168,23 +173,36 @@ export const ARCANA: ArcanaDef[] = [
   },
 ];
 
+/** the medic's old list: its levels live on only as altar ranks (act-161) */
+const LEGACY_MEDIC = ['vigor', 'ear', 'intent', 'leech', 'breath'];
 export function ensureArcana(p: Profile) {
-  if (!p.arcana) {
-    p.arcana = { cap: ARCANA_BASE_CAP, rank: {}, active: {} };
-    // Migrate any legacy medic perks smoothly into unlocked & active arcana ranks
-    for (const def of ARCANA) {
-      const legacyLv = p.perks[def.id] ?? 0;
-      if (legacyLv > 0) {
-        p.arcana.rank[def.id] = Math.min(3, legacyLv);
-      } else if (def.unlockCost === 0) {
-        p.arcana.rank[def.id] = 1;
-      }
-    }
+  if (!p.arcana) p.arcana = { cap: ARCANA_BASE_CAP, rank: {}, active: {} };
+  const st = p.arcana;
+  // act-161: fold each old medic level into its card once, then drop it — it used to stay in p.perks and runMods() counted both
+  // (a maxed old save: +72 health for +36, three starting intent, two death-defies)
+  let folded = false;
+  for (const id of LEGACY_MEDIC) {
+    const lv = p.perks?.[id] ?? 0;
+    if (lv > 0) { st.rank[id] = Math.max(st.rank[id] ?? 0, Math.min(3, lv)); folded = true; }
+    if (p.perks && id in p.perks) delete p.perks[id];
   }
   for (const def of ARCANA) {
-    if (def.unlockCost === 0 && !(p.arcana.rank[def.id] > 0)) p.arcana.rank[def.id] = 1;
+    if (def.unlockCost === 0 && !(st.rank[def.id] > 0)) st.rank[def.id] = 1;
   }
-  return p.arcana;
+  // act-161: the cap tops out at 12 now; a save that widened past it gets that herb back, and its dearest cards switch off until the rest fit
+  const maxCap = ARCANA_BASE_CAP + ARCANA_CAP_STEP * ARCANA_CAP_COSTS.length;
+  if (st.cap > maxCap) {
+    const over = Math.round((st.cap - maxCap) / ARCANA_CAP_STEP);
+    for (let i = 0; i < over; i++) p.herb += ARCANA_CAP_REFUND[i] ?? 0;
+    st.cap = maxCap;
+    const dear = [...ARCANA].sort((a, b) => b.grasp - a.grasp);
+    for (const def of dear) { if (arcanaUsed(p) <= st.cap) break; if (def.grasp > 0 && st.active[def.id]) st.active[def.id] = false; }
+  }
+  // an old save just folded in: switch on what fits (cheapest first) so nothing she paid for goes dark on its own
+  if (folded) for (const def of [...ARCANA].sort((a, b) => a.grasp - b.grasp)) {
+    if (def.grasp > 0 && (st.rank[def.id] ?? 0) > 0 && !st.active[def.id] && arcanaUsed(p) + def.grasp <= st.cap) st.active[def.id] = true;
+  }
+  return st;
 }
 
 export function arcanaRank(p: Profile, id: string): number {
@@ -314,6 +332,7 @@ export interface RunMods {
 }
 
 export function runMods(p: Profile): RunMods {
+  ensureArcana(p);   // act-161: old medic levels are folded into the altar here, so they count once
   const gBuff = p.garden?.buff;
   const aCenter = arcanaVal(p, 'center') / 100;
   const aWind = arcanaVal(p, 'wind') / 100;
@@ -323,12 +342,12 @@ export function runMods(p: Profile): RunMods {
     critBonus: 0.03 * level(p, 'blade') + arcanaVal(p, 'keen') / 100,
     dartBonus: level(p, 'darts'),
     rerolls: 1 + level(p, 'reroll') + (gBuff === 'lotus' ? 1 : 0),
-    hpBonus: 12 * level(p, 'vigor') + arcanaVal(p, 'vigor') + (gBuff === 'lotus' ? 18 : 0),
-    deathDefy: level(p, 'breath') + (arcanaVal(p, 'breath') > 0 ? 1 : 0),
-    startIntent: level(p, 'intent') + arcanaVal(p, 'intent') + (gBuff === 'xuanzhi' ? 1 : 0),
-    windupMul: 1 + 0.06 * level(p, 'ear') + arcanaVal(p, 'ear') / 100,
+    hpBonus: arcanaVal(p, 'vigor') + (gBuff === 'lotus' ? 18 : 0),
+    deathDefy: arcanaVal(p, 'breath') > 0 ? 1 : 0,
+    startIntent: arcanaVal(p, 'intent') + (gBuff === 'xuanzhi' ? 1 : 0),
+    windupMul: 1 + arcanaVal(p, 'ear') / 100,
     startManual: level(p, 'manual') >= 1,
-    poiseHeal: 3 * level(p, 'leech') + arcanaVal(p, 'leech'),
+    poiseHeal: arcanaVal(p, 'leech'),
     firstStrikeBonus: mirrorVal(p, 'edge', 0) / 100,
     styleBonus: mirrorVal(p, 'edge', 1) / 100,
     dashCdMul: (1 - mirrorVal(p, 'step', 0) / 100) * (1 - aWind),
@@ -344,8 +363,10 @@ export interface RunStats { rooms: number; elites: number; boss: boolean; won: b
 
 export function runReward(s: RunStats): { iron: number; herb: number } {
   return {
-    iron: 6 + 5 * s.rooms + 8 * s.elites + (s.boss ? 25 : 0) + (s.won ? 20 : 0),
-    herb: 6 + 5 * s.rooms + Math.floor(s.kills / 3) * 2 + (s.won ? 20 : 0),
+    // act-161: a room 5 -> 3, an elite 8 -> 4, the boss 25 -> 15, the win 20 -> 15 (with flow.ts's flatter room worth: one clear is about 45% of the tree, not 141%)
+    // (the base 6 -> 8: a run that ends in its first room still buys the cheapest forge level)
+    iron: Math.round(8 + 3 * s.rooms + 4 * s.elites + (s.boss ? 15 : 0) + (s.won ? 15 : 0)),
+    herb: Math.round(8 + 3 * s.rooms + Math.floor(s.kills / 3) * 2 + (s.won ? 15 : 0)),
   };
 }
 
