@@ -304,6 +304,118 @@ const ART: Record<string, Art> = {
       box(set, cx - 2, cy + 2, cz, cx + 1, cy + 2, cz, C.HOT_L, 0.75);
     }
   },
+  // act-185: 古窑长明灯 · 专属体素展品微缩模型 (行头 / 刀光 / 界面 / 时辰 / 摆件)
+  outfitHat: set => {
+    box(set, -9, 1, -3, 8, 2, 3, C.STRAW_D); box(set, -7, 3, -3, 6, 4, 3, C.STRAW);
+    box(set, -4, 5, -2, 3, 6, 2, C.STRAW_L); box(set, -2, 7, -1, 1, 8, 1, C.STRAW_L);
+    box(set, -5, -7, -2, 4, 0, 2, C.CLOTH); box(set, -4, -6, 2, 3, -1, 2, C.CLOTH_L);
+    box(set, -2, -3, 3, 1, 0, 3, C.LINEN);
+  },
+  outfitWhite: set => {
+    box(set, -4, 4, -2, 3, 9, 2, C.STEAM, 0.25); box(set, 3, 2, -2, 6, 7, 1, C.BONE);
+    box(set, 5, -3, -2, 7, 3, 0, C.BONE_D);
+    box(set, -6, 1, -2, 5, 3, 3, C.RED_L, 0.35); box(set, 5, -2, 1, 7, 2, 2, C.RED);
+    box(set, -5, -7, -2, 4, 0, 2, C.IRON); box(set, -4, -6, 2, 3, -1, 2, C.CLOTH_L);
+  },
+  outfitSnow: set => {
+    box(set, -9, 1, -3, 8, 2, 3, C.BONE_D); box(set, -7, 3, -3, 6, 4, 3, C.STEAM, 0.2);
+    box(set, -4, 5, -2, 3, 6, 2, C.STEAM, 0.35); box(set, -2, 7, -1, 1, 8, 1, C.CYAN_L, 0.45);
+    box(set, -6, -7, -2, 5, 0, 2, C.BONE); box(set, -5, -6, 2, 4, -1, 2, C.STEAM, 0.2);
+  },
+  outfitObsidian: set => {
+    box(set, -9, 1, -3, 8, 2, 3, C.IRON_D); box(set, -7, 3, -3, 6, 4, 3, C.IRON);
+    box(set, -4, 5, -2, 3, 6, 2, C.IRON_L); box(set, -2, 7, -1, 1, 8, 1, C.GOLD, 0.45);
+    box(set, -6, -7, -2, 5, 0, 2, C.IRON_D); box(set, -5, -5, 2, 4, -4, 2, C.GOLD, 0.5);
+  },
+  outfitCrimson: set => {
+    box(set, -5, 5, -2, 4, 9, 2, C.RED_L, 0.25); box(set, -2, 9, -1, 1, 11, 1, C.GOLD, 0.65);
+    box(set, 4, 2, -2, 7, 7, 1, C.RED_D);
+    box(set, -6, -7, -2, 5, 4, 2, C.RED); box(set, -5, -6, 2, 4, 2, 2, C.RED_L);
+    box(set, -4, -1, 3, 3, 0, 3, C.GOLD, 0.55);
+  },
+  fxInk: set => {
+    sabre(set, -3, -1, 13);
+    // Sweeping sumi-ink crescent slash arc with crimson splatter drops
+    box(set, -1, 10, 1, 5, 11, 1, C.STEAM, 0.45);
+    box(set, 3, 6, 1, 7, 10, 1, C.IRON); box(set, 5, 1, 1, 8, 6, 1, C.IRON_D);
+    box(set, 3, -4, 1, 7, 1, 1, C.IRON); box(set, -1, -7, 1, 4, -4, 1, C.STEAM, 0.35);
+    for (const [x, y] of [[6, 8], [7, 2], [4, -4], [0, 8]]) box(set, x, y, 2, x + 1, y + 1, 2, C.RED_L, 0.85);
+  },
+  fxEmber: set => {
+    sabre(set, -3, -1, 13);
+    // Blazing molten gold-orange crescent slash trail + floating embers
+    box(set, -1, 10, 1, 5, 11, 1, C.HOT_L, 0.95);
+    box(set, 3, 6, 1, 7, 10, 1, C.HOT, 0.8); box(set, 5, 1, 1, 8, 6, 1, C.RED_L, 0.7);
+    box(set, 3, -4, 1, 7, 1, 1, C.HOT, 0.8); box(set, -1, -7, 1, 4, -4, 1, C.HOT_L, 0.9);
+    for (const [x, y] of [[7, 10], [9, 4], [7, -4], [1, 7]]) set(x, y, 2, C.YELLOW_L, 1);
+  },
+  fxFrost: set => {
+    sabre(set, -3, -1, 13);
+    // Crisp frostmoon cyan crescent arc + luminous ice-petal glints
+    box(set, -1, 10, 1, 5, 11, 1, C.STEAM, 0.95);
+    box(set, 3, 6, 1, 7, 10, 1, C.CYAN_L, 0.9); box(set, 5, 1, 1, 8, 6, 1, C.CYAN, 0.75);
+    box(set, 3, -4, 1, 7, 1, 1, C.CYAN_L, 0.85); box(set, -1, -7, 1, 4, -4, 1, C.STEAM, 0.9);
+    for (const [x, y] of [[7, 9], [9, 3], [6, -5], [2, 5]]) set(x, y, 2, C.STEAM, 1);
+  },
+  skinIron: set => {
+    box(set, -7, -5, -1, 6, 5, 1, C.IRON); box(set, -5, -7, -1, 4, 7, 1, C.IRON);
+    box(set, -5, -5, 1, 4, 5, 2, C.IRON_L); box(set, -3, -3, 2, 2, 3, 2, C.STEEL);
+    for (const [x, y] of [[-5, 4], [4, 4], [-5, -4], [4, -4]]) set(x, y, 2, C.BRONZE_L, 0.5);
+  },
+  skinLacquer: set => {
+    box(set, -7, -5, -1, 6, 5, 1, C.LACQ); box(set, -5, -7, -1, 4, 7, 1, C.LACQ);
+    box(set, -6, -4, 1, 5, 4, 2, C.GOLD, 0.45); box(set, -4, -3, 2, 3, 3, 2, C.RED_L, 0.35);
+    box(set, -1, -10, 0, 0, -7, 1, C.GOLD, 0.6);
+  },
+  filterInk: set => {
+    box(set, -8, -7, -1, -1, 7, 1, C.IRON_D); box(set, 0, -7, -1, 7, 7, 1, C.STEAM, 0.25);
+    box(set, -3, -2, 2, 2, 3, 2, C.RED_L, 0.65); box(set, -2, -1, 2, 1, 2, 2, C.RED);
+  },
+  moodDusk: set => {
+    box(set, -5, 1, -1, 4, 8, 1, C.HOT, 0.7); box(set, -3, 3, 1, 2, 6, 1, C.HOT_L, 0.95);
+    box(set, -9, -3, -2, 8, -1, 2, C.CLAY_D); box(set, -7, -7, -1, 6, -3, 1, C.IRON);
+  },
+  moodSnow: set => {
+    box(set, -6, 2, -1, -1, 8, 1, C.YELLOW_L, 0.85); box(set, -4, 4, 0, 0, 7, 1, null);
+    box(set, -8, -7, -2, 7, -4, 2, C.STEAM, 0.3);
+    for (const [x, y] of [[3, 6], [6, 2], [-2, -1], [4, -2], [-6, 0]]) set(x, y, 2, C.CYAN_L, 0.9);
+  },
+  moodRain: set => {
+    for (const bx of [-5, 3]) {
+      box(set, bx, -8, -1, bx + 1, 8, 1, C.JADE_D);
+      box(set, bx, -7, 1, bx, 7, 1, C.JADE);
+    }
+    for (const [x, y] of [[-1, 5], [0, -1], [-7, 2], [6, 4], [1, -6]]) box(set, x, y, 2, x, y + 2, 2, C.CYAN_L, 0.8);
+  },
+  moodSunset: set => {
+    box(set, -6, 0, -1, 5, 8, 1, C.RED_L, 0.65); box(set, -4, 2, 1, 3, 6, 1, C.HOT_L, 0.9);
+    box(set, -9, -2, 2, 8, -1, 2, C.BREAD_L, 0.45); box(set, -8, -6, 1, 7, -4, 1, C.VIOLET_D);
+  },
+  decorCat: set => {
+    box(set, -6, -6, -3, 5, 0, 3, C.BREAD); box(set, -5, -5, 3, 4, -1, 3, C.BREAD_L);
+    box(set, -5, 1, -2, 1, 6, 2, C.BREAD_L);
+    box(set, -5, 7, -1, -4, 8, 1, C.BREAD_D); box(set, 0, 7, -1, 1, 8, 1, C.BREAD_D);
+    set(-4, 4, 3, C.IRON_D); set(-1, 4, 3, C.IRON_D);
+    box(set, 5, -4, -1, 8, 2, 1, C.BREAD_D);
+  },
+  decorLamp: set => {
+    box(set, -5, -8, -3, 4, -6, 3, C.STEEL_D); box(set, -2, -6, -2, 1, -1, 2, C.IRON_L);
+    box(set, -4, -1, -3, 3, 4, 3, C.IRON); box(set, -2, 0, 3, 1, 3, 3, C.HOT_L, 1);
+    box(set, -6, 5, -4, 5, 6, 4, C.STEEL_D); box(set, -3, 7, -2, 2, 8, 2, C.STEEL);
+  },
+  decorChime: set => {
+    box(set, -7, 7, -1, 6, 8, 1, C.WOOD);
+    for (const [bx, h] of [[-5, 9], [-1, 12], [4, 8]] as const) {
+      box(set, bx, 6 - h, 0, bx, 6, 0, C.CORD);
+      box(set, bx - 1, 4 - h, -1, bx + 1, 6 - h, 1, C.JADE, 0.35);
+      box(set, bx - 1, 3 - h, 0, bx + 1, 3 - h, 1, C.GOLD, 0.55);
+    }
+  },
+  decorBoat: set => {
+    box(set, -8, -5, -2, 7, -3, 2, C.WOOD); box(set, -6, -7, -2, 5, -5, 2, C.WOOD_D);
+    box(set, -3, -2, -2, 2, 4, 2, C.HOT, 0.7); box(set, -2, -1, 2, 1, 3, 2, C.HOT_L, 1);
+    box(set, -4, 5, -2, 3, 6, 2, C.RED_L);
+  },
 };
 /** a real model for an item / card key, or null if there is none (the caller keeps its old picture) */
 export function itemModel(key: string): Model3D | null { const art = ART[key]; return art ? customIcon3D('item:' + key, art) : null; }
@@ -327,6 +439,13 @@ export function itemForCard(id: string): string | null {
     // 行商货摊 (6 distinct wares)
     shop_buy_boon: 'scroll', shop_buy_heal: 'medBowl', shop_buy_sharpen: 'whetstone',
     shop_buy_vigor: 'gourd', shop_buy_reroll: 'brazier', shop_buy_satchel: 'purse',
+    // 古窑长明灯 21 件典藏展品 (行头 / 刀光 / 界面 / 时辰 / 摆件)
+    col_outfit_hat: 'outfitHat', col_outfit_white: 'outfitWhite', col_outfit_snow: 'outfitSnow',
+    col_outfit_obsidian: 'outfitObsidian', col_outfit_crimson: 'outfitCrimson',
+    col_fx_default: 'sabre', col_fx_ink: 'fxInk', col_fx_ember: 'fxEmber', col_fx_frostmoon: 'fxFrost',
+    col_skin_iron: 'skinIron', col_skin_lacquer: 'skinLacquer', col_skin_bamboo: 'book', col_filter_ink: 'filterInk',
+    col_mood_default: 'moodDusk', col_mood_snow_night: 'moodSnow', col_mood_autumn_rain: 'moodRain', col_mood_sunset: 'moodSunset',
+    col_decor_cat: 'decorCat', col_decor_lamp: 'decorLamp', col_decor_chime: 'decorChime', col_decor_boat: 'decorBoat',
   };
   return m[id] ?? null;
 }

@@ -7,8 +7,8 @@ import { cue } from '../../audio/cues';
 import { TIER_NAMES, type Archetype, type Boon, type BoonPick } from './boons';
 import {
   cardBoard, glyphIcon3D, weaponUiModel,
-  paintFace, paintKeepsakeFace, paintWeaponStandFace, paintShopTagFace, paintWorkRowFace, paintSteleFace, paintArcanaFace,
-  boardLayout, scrollLayout, steleLayout, keepsakeLayout, weaponLayout, shopLayout, workRowLayout, arcanaLayout,
+  paintFace, paintKeepsakeFace, paintWeaponStandFace, paintShopTagFace, paintWorkRowFace, paintSteleFace, paintArcanaFace, paintLanternFace,
+  boardLayout, scrollLayout, steleLayout, keepsakeLayout, weaponLayout, shopLayout, workRowLayout, arcanaLayout, lanternLayout,
   CARD_H, SKILL_H, type CardStyle,
 } from './cardBoard';
 import { UiPlatePool, type DetailSpec, type WorkbenchSpec, type GraspBarSpec, type TabRect } from './uiPlate';
@@ -37,17 +37,19 @@ export type CardBoon = Boon & {
   workInfo?: { name: string; lv: number; maxLv: number; cost: number | null; have?: number; cur: 'iron' | 'herb'; canAfford: boolean; unlocked?: boolean; theme: 'forge' | 'medic'; weaponId?: WeaponId };
   steleInfo?: { name: string; yin: boolean; lv: number; effect: string; cost: number | null; have: number; cur: 'iron' | 'herb'; altName: string; altBadge: string };
   arcanaInfo?: { short: string; grasp: number; rank: number; active: boolean; unlockCost: number; have?: number; canUnlock: boolean; awakening?: boolean };
+  lanternInfo?: { name: string; unlocked: boolean; active: boolean; trial?: boolean; lanternAt: number; col: string };
 };
 
 export interface CardOpenOpts {
   leave?: boolean;
-  layout?: 'auto' | 'grid2' | 'keepsake' | 'weapons' | 'workbench' | 'shop' | 'arcana';
+  layout?: 'auto' | 'grid2' | 'keepsake' | 'weapons' | 'workbench' | 'shop' | 'arcana' | 'lantern';
   instant?: boolean;
   initialFocus?: number;
   header?: { title: string; sub?: string; col?: string; accent?: string };
   wallet?: { coins?: number; iron?: number; herb?: number; focus?: 'coins' | 'iron' | 'herb' };
   tabs?: { items: Array<{ id: string; label: string; badge?: boolean }>; active: number; onSwitch: (idx: number) => void };
   graspBar?: Omit<GraspBarSpec, 'x' | 'y' | 'btnHot' | 'visible'> & { onExpand: () => void };
+  oilTrack?: { oil: number; milestones: number[]; onAddOil: () => void };
   footer?: string;
   archHave?: Partial<Record<Archetype, number>>;
   onAlt?: (idx: number) => void;
@@ -63,6 +65,7 @@ const styleOf = (b: Boon, layout?: CardOpenOpts['layout']): CardStyle => {
   if (layout === 'shop') return 'shop';
   if (layout === 'workbench') return 'workRow';
   if (layout === 'arcana') return 'arcana';
+  if (layout === 'lantern') return 'lantern';
   const s = b.school as string;
   if (s === 'fg') return 'forge';
   if (s === 'md') return 'medic';
@@ -95,7 +98,8 @@ type AnyLayout =
   | ReturnType<typeof weaponLayout>
   | ReturnType<typeof shopLayout>
   | ReturnType<typeof workRowLayout>
-  | ReturnType<typeof arcanaLayout>;
+  | ReturnType<typeof arcanaLayout>
+  | ReturnType<typeof lanternLayout>;
 
 interface Card {
   b: CardBoon; tier: number; st: CardStyle; locked: boolean; e: SkillEntry | null;
@@ -128,6 +132,9 @@ export class CardPick3D {
   private graspBarOpt: CardOpenOpts['graspBar'] | null = null;
   private graspBtnRect: { x: number; y: number; w: number; h: number } | null = null;
   private graspBtnHot = false;
+  private oilTrackOpt: CardOpenOpts['oilTrack'] | null = null;
+  private oilBtnRect: { x: number; y: number; w: number; h: number } | null = null;
+  private oilBtnHot = false;
   private footer: string | null = null;
   private onAltOpt: CardOpenOpts['onAlt'] | null = null;
   private onSubOpt: CardOpenOpts['onSub'] | null = null;
@@ -180,6 +187,8 @@ export class CardPick3D {
     this.tabRects = [];
     this.graspBarOpt = o.graspBar ?? null;
     this.graspBtnRect = null; this.graspBtnHot = false;
+    this.oilTrackOpt = o.oilTrack ?? null;
+    this.oilBtnRect = null; this.oilBtnHot = false;
     this.footer = o.footer ?? null;
     this.onAltOpt = o.onAlt ?? null;
     this.onSubOpt = o.onSub ?? null;
@@ -197,21 +206,23 @@ export class CardPick3D {
     const isWorkbench = mode === 'workbench';
     const isShop = mode === 'shop';
     const isArcana = mode === 'arcana';
-    const isSpecial = isKeepsake || isWeapons || isWorkbench || isShop || isArcana;
+    const isLantern = mode === 'lantern';
+    const isSpecial = isKeepsake || isWeapons || isWorkbench || isShop || isArcana || isLantern;
     const entries = isSpecial ? boons.map(() => null) : boons.map(({ boon, tier }) => entryOfCard(boon, tier, o.archHave));
     const skill = entries.some(e => !!e);
     const isScrollRow = !isSpecial && boons.length > 0 && boons.every(({ boon }) => styleOf(boon) === 'manual');
     const isMirrorGrid = !isSpecial && boons.length === 4 && boons.every(({ boon }) => styleOf(boon) === 'mirror');
     const isGrid2 = !isSpecial && !isScrollRow && !isMirrorGrid && !skill && (mode === 'grid2' || boons.length >= 4);
 
-    this.isHorizontalRow = isScrollRow || isWeapons || isShop;
+    this.isHorizontalRow = isScrollRow || isWeapons || isShop || isLantern;
     const kk = uiScale(L.w, L.h, 0.8, 2.8), n = boons.length;
 
     const headerH = this.header ? (this.header.sub ? (L.h < 460 && isArcana ? 64 : 78) : 54) * kk : 0;
+    const oilH = this.oilTrackOpt ? (L.h < 460 ? 44 : 52) * kk : 0;
     const tabsH = this.tabsOpt ? 44 * kk : this.graspBarOpt ? (L.h < 460 ? 38 : 46) * kk : 0;
-    const crownPad = isMirrorGrid ? 34 * kk : isShop ? 26 * kk : (isWeapons && L.h < 460 ? 14 * kk : 0);
-    const topPad = (this.header || this.wallet ? Math.max(headerH, 52 * kk) : 16 * kk) + tabsH + crownPad + 14 * kk;
-    const detailH = (isKeepsake || isWeapons) && this.detailOpt ? 128 * kk : 0;
+    const crownPad = isMirrorGrid ? 34 * kk : isShop ? 26 * kk : isLantern ? 18 * kk : (isWeapons && L.h < 460 ? 14 * kk : 0);
+    const topPad = (this.header || this.wallet ? Math.max(headerH, 52 * kk) : 16 * kk) + oilH + tabsH + crownPad + 14 * kk;
+    const detailH = (isKeepsake || isWeapons || isLantern) && this.detailOpt ? (isLantern ? 90 : 128) * kk : 0;
     const footH = 42 * kk;
     const botPad = detailH + footH + 10 * kk;
     const room = Math.max(160 * kk, L.h - topPad - botPad);
@@ -265,6 +276,13 @@ export class CardPick3D {
       w = Math.min((L.w - 96 * kk - (n - 1) * gap) / n, 232 * kk);
       h = Math.min(room * 0.92, w * 1.50);
       Hh = Math.max(1.22, Math.min(1.58, h / Math.max(1, w)));
+      h = w * Hh;
+    } else if (isLantern) {
+      cols = Math.max(1, n);
+      gap = Math.max(12 * kk, Math.min(26 * kk, L.w * 0.02));
+      w = Math.min((L.w - 88 * kk - (n - 1) * gap) / n, 186 * kk);
+      h = Math.min(room * 0.88, w * 1.46);
+      Hh = Math.max(1.16, Math.min(1.52, h / Math.max(1, w)));
       h = w * Hh;
     } else if (isWorkbench) {
       cols = 1;
@@ -340,13 +358,15 @@ export class CardPick3D {
           ? weaponLayout(Hh)
           : isShop
             ? shopLayout(Hh)
-            : isWorkbench
-              ? workRowLayout(Hh)
-              : isScrollRow
-                ? scrollLayout(Hh)
-                : isMirrorGrid
-                  ? steleLayout(Hh)
-                  : boardLayout(Hh);
+            : isLantern
+              ? lanternLayout(Hh)
+              : isWorkbench
+                ? workRowLayout(Hh)
+                : isScrollRow
+                  ? scrollLayout(Hh)
+                  : isMirrorGrid
+                    ? steleLayout(Hh)
+                    : boardLayout(Hh);
 
     const rows = Math.ceil(n / cols);
 
@@ -357,11 +377,11 @@ export class CardPick3D {
       const locked = !!b.locked;
       const root = new THREE.Group();
       root.userData.noTilt = true;
-      const accent = e?.accentHex ?? (st === 'mirror' || st === 'keepsake' || st === 'weapon' || st === 'shop' || st === 'arcana' ? hexOf(b.col) : undefined);
+      const accent = e?.accentHex ?? (st === 'mirror' || st === 'keepsake' || st === 'weapon' || st === 'shop' || st === 'arcana' || st === 'lantern' ? hexOf(b.col) : undefined);
       const { mesh: board, metal } = cardBoard(st, tier, Hh, !!e, accent, locked, {
         yin: b.steleInfo?.yin,
         theme: b.workInfo?.theme,
-        active: b.arcanaInfo?.active,
+        active: b.arcanaInfo?.active ?? b.lanternInfo?.active,
         awakening: b.arcanaInfo?.awakening,
       });
       board.renderOrder = 30;
@@ -372,7 +392,7 @@ export class CardPick3D {
         new THREE.PlaneGeometry(1, 1),
         new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, toneMapped: false }),
       );
-      face.position.set((F.x0 + F.x1) / 2, F.cy, st === 'mirror' || st === 'keepsake' || st === 'weapon' || st === 'shop' || st === 'arcana' ? 0.044 : 0.038);
+      face.position.set((F.x0 + F.x1) / 2, F.cy, st === 'mirror' || st === 'keepsake' || st === 'weapon' || st === 'shop' || st === 'arcana' || st === 'lantern' ? 0.044 : 0.038);
       face.scale.set(F.x1 - F.x0, F.h, 1);
       face.renderOrder = 31;
       root.add(face);
@@ -409,14 +429,14 @@ export class CardPick3D {
       } else {
         const real = itemForCard(b.id);
         badge = (real ? itemModel(real) : null) ?? glyphIcon3D(b.id, b.glyph, locked ? 0x626674 : hexOf(b.col));
-        badge.position.set(lay.SOCKET.x, lay.SOCKET.y, isArcana ? 0.095 : 0.075);
-        badge.scale.setScalar(lay.SOCKET.size * (isKeepsake || isShop ? 0.86 : isArcana ? 0.88 : 0.78));
+        badge.position.set(lay.SOCKET.x, lay.SOCKET.y, isArcana || isLantern ? 0.095 : 0.075);
+        badge.scale.setScalar(lay.SOCKET.size * (isKeepsake || isShop || isLantern ? 0.86 : isArcana ? 0.88 : 0.78));
         badge.renderOrder = 32;
         root.add(badge);
       }
 
       const rim = new THREE.Mesh(
-        new THREE.PlaneGeometry(lay.vertical ? 1.1 : 1.06, Hh + (st === 'mirror' ? 0.14 : st === 'shop' ? 0.10 : 0.05)),
+        new THREE.PlaneGeometry(lay.vertical ? 1.1 : 1.06, Hh + (st === 'mirror' ? 0.14 : st === 'shop' || st === 'lantern' ? 0.10 : 0.05)),
         new THREE.MeshBasicMaterial({ color: new THREE.Color(0xfff6dc), transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }),
       );
       rim.position.z = -0.03;
@@ -425,7 +445,7 @@ export class CardPick3D {
       L.scene.add(root);
 
       let cx: number, cy: number;
-      if (isScrollRow || isWeapons || isShop) {
+      if (isScrollRow || isWeapons || isShop || isLantern) {
         cx = L.w / 2 + (i - (n - 1) / 2) * (w + gap);
         cy = centerY;
       } else if (isArcana) {
@@ -447,7 +467,7 @@ export class CardPick3D {
         cy = centerY + (i - (n - 1) / 2) * (h + gap);
       }
 
-      const t0 = o.instant ? clock.rtime - 2 : clock.rtime + 0.04 + i * (cols > 1 || isWorkbench ? 0.04 : 0.09);
+      const t0 = o.instant ? clock.rtime - 2 : clock.rtime + 0.03 + i * (isLantern ? 0.02 : cols > 1 || isWorkbench ? 0.04 : 0.09);
       return {
         b, tier, st, locked, e, root, board, face, rim, badge, picture, presses, items, L: lay,
         x: cx, y: cy, w, h, lift: 0, t0, landed: !!o.instant, unfurled: !!o.instant, faceKey: '', focusT: 0,
@@ -481,6 +501,7 @@ export class CardPick3D {
     this.cards = []; this.on = false;
     this.header = null; this.wallet = null; this.tabsOpt = null; this.tabRects = [];
     this.graspBarOpt = null; this.graspBtnRect = null; this.graspBtnHot = false;
+    this.oilTrackOpt = null; this.oilBtnRect = null; this.oilBtnHot = false;
     this.footer = null; this.onAltOpt = null; this.onSubOpt = null;
     this.detailOpt = null; this.detailBtnRect = null; this.detailBtnHot = false;
     this.workbenchOpt = null; this.workbenchBtnRect = null; this.workbenchBtnHot = false;
@@ -541,6 +562,14 @@ export class CardPick3D {
     } else {
       this.graspBtnHot = false;
     }
+    if (this.oilTrackOpt && this.oilBtnRect) {
+      const r = this.oilBtnRect;
+      const onO = x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+      if (type === 'move') { if (onO && !this.oilBtnHot) cue('click', 0.2); this.oilBtnHot = onO; }
+      if (type === 'down' && onO) { this.oilTrackOpt.onAddOil(); return true; }
+    } else {
+      this.oilBtnHot = false;
+    }
     if (this.workbenchBtnRect) {
       const r = this.workbenchBtnRect;
       const onWb = x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
@@ -583,6 +612,11 @@ export class CardPick3D {
       }
       // In 3×3 Arcana meditation mode, clicking an unlocked card toggles it immediately (Hades 2 feel!); clicking a locked card previews it first.
       if (this.layoutMode === 'arcana' && c.b.arcanaInfo && c.b.arcanaInfo.rank <= 0 && !wasFocused) {
+        cue('click', 0.3);
+        return true;
+      }
+      // In Ancient Lantern gallery, clicking a locked plaque previews it in the bottom detail bar first (prevents accidental ad triggers).
+      if (this.layoutMode === 'lantern' && c.b.lanternInfo && !c.b.lanternInfo.unlocked && !wasFocused) {
         cue('click', 0.3);
         return true;
       }
@@ -640,11 +674,11 @@ export class CardPick3D {
 
   private pick() {
     const c = this.cards[this.focus];
-    const snappy = this.layoutMode === 'keepsake' || this.layoutMode === 'weapons' || this.layoutMode === 'workbench' || this.layoutMode === 'shop' || this.layoutMode === 'arcana' || !!this.onAltOpt;
+    const snappy = this.layoutMode === 'keepsake' || this.layoutMode === 'weapons' || this.layoutMode === 'workbench' || this.layoutMode === 'shop' || this.layoutMode === 'arcana' || this.layoutMode === 'lantern' || !!this.onAltOpt;
     if (snappy) {
       // Snappy pick for interactive hideout & shop screens (no slow 0.75s fly-away delay!)
       const i = this.focus, d = this.done;
-      if (c?.locked && this.layoutMode !== 'arcana') {
+      if (c?.locked && this.layoutMode !== 'arcana' && this.layoutMode !== 'lantern') {
         cue('deny', 0.45);
         return;
       }
@@ -663,7 +697,7 @@ export class CardPick3D {
   /** the face texture for the card's size on screen (repainted when that or the body font changes) */
   private paint(c: Card) {
     const dpr = this.L.dpr || 1, F = c.L.FACE, fw = c.w * (F.x1 - F.x0), fh = c.w * F.h;
-    const key = `${Math.round(fw)}x${Math.round(fh)}@${dpr}|${language}|${c.b.altBadge ?? ''}|${c.locked ? 1 : 0}`;
+    const key = `${Math.round(fw)}x${Math.round(fh)}@${dpr}|${language}|${c.b.altBadge ?? ''}|${c.locked ? 1 : 0}|${c.b.lanternInfo?.active ? 1 : 0}|${c.b.lanternInfo?.trial ? 1 : 0}`;
     if (key === c.faceKey) return;
     c.faceKey = key;
     const m = c.face.material as THREE.MeshBasicMaterial;
@@ -678,6 +712,8 @@ export class CardPick3D {
       }, fw, fh, dpr);
     } else if (c.L.shape === 'arcana' && c.b.arcanaInfo) {
       m.map = paintArcanaFace(c.b.arcanaInfo, fw, fh, dpr);
+    } else if (c.L.shape === 'lantern' && c.b.lanternInfo) {
+      m.map = paintLanternFace(c.b.lanternInfo, fw, fh, dpr);
     } else if (c.L.shape === 'weapon' && c.b.wepInfo) {
       m.map = paintWeaponStandFace({
         name: c.b.wepInfo.name,
@@ -793,9 +829,25 @@ export class CardPick3D {
       this.plates.hide('cards.wallet');
     }
 
+    const oilY = (this.header?.sub ? 96 : 82) * kk;
+    if (this.oilTrackOpt && showChrome) {
+      const oRes = this.plates.setOilTrack('cards.oil', {
+        oil: this.oilTrackOpt.oil,
+        milestones: this.oilTrackOpt.milestones,
+        btnHot: this.oilBtnHot,
+        x: L.w / 2,
+        y: oilY,
+        visible: true,
+      });
+      this.oilBtnRect = oRes.btnRect;
+    } else {
+      this.oilBtnRect = null;
+      this.plates.hide('cards.oil');
+    }
+
     const bothTabsAndGrasp = !!(this.tabsOpt && this.graspBarOpt && this.layoutMode === 'arcana');
     if (this.tabsOpt && showChrome) {
-      const tabY = (this.header?.sub ? 102 : 82) * kk;
+      const tabY = this.oilTrackOpt ? oilY + (L.h < 460 ? 40 : 48) * kk : (this.header?.sub ? 102 : 82) * kk;
       const tabX = bothTabsAndGrasp ? this.arcGridX : L.w / 2;
       this.tabRects = this.plates.setTabs('cards.tabs', this.tabsOpt.items, this.tabsOpt.active, tabX, tabY);
     } else {
@@ -823,11 +875,11 @@ export class CardPick3D {
       this.plates.hide('cards.grasp');
     }
 
-    // Bottom detail panel for Keepsake & Weapon Gallery showcases
-    if ((this.layoutMode === 'keepsake' || this.layoutMode === 'weapons') && this.detailOpt && showChrome && this.cards[this.focus]) {
+    // Bottom detail panel for Keepsake, Weapon Gallery & Ancient Lantern showcases
+    if ((this.layoutMode === 'keepsake' || this.layoutMode === 'weapons' || this.layoutMode === 'lantern') && this.detailOpt && showChrome && this.cards[this.focus]) {
       const det = this.detailOpt(this.focus);
-      const detW = Math.min(L.w - 84 * kk, 820 * kk);
-      const detY = L.h - 92 * kk;
+      const detW = Math.min(L.w - 84 * kk, this.layoutMode === 'lantern' ? 760 * kk : 820 * kk);
+      const detY = L.h - (this.layoutMode === 'lantern' ? 76 : 92) * kk;
       this.detailBtnRect = this.plates.setDetail('cards.detail', {
         ...det,
         actionHot: this.detailBtnHot,
@@ -929,7 +981,8 @@ export class CardPick3D {
       const isShop = c.L.shape === 'shop';
       const isWork = c.L.shape === 'workRow';
       const isArc = c.L.shape === 'arcana';
-      const isUpright = isStele || isKs || isWep || isShop || isArc;
+      const isLan = c.L.shape === 'lantern';
+      const isUpright = isStele || isKs || isWep || isShop || isArc || isLan;
       const r = this.instantOpen ? 1 : Math.min(1, Math.max(0, (t - c.t0) / (isScroll ? 0.56 : 0.38)));
       const e = backEase(r);
       if (isScroll && r > 0.14 && !c.unfurled) { c.unfurled = true; cue('scroll', 0.45); }
@@ -945,17 +998,17 @@ export class CardPick3D {
       let x = isScroll || isUpright || this.gridCols > 1 ? c.x : isWork ? c.x - (1 - e) * L.w * 0.28 : c.x + (1 - e) * L.w * 0.72;
       let y = isScroll
         ? c.y - (1 - dropE) * L.h * 0.16 - 10 * c.lift
-        : isShop
-          ? c.y - (1 - e) * L.h * 0.18 - 8 * c.lift
+        : isShop || isLan
+          ? c.y - (1 - e) * L.h * 0.16 - 8 * c.lift
           : isUpright || this.gridCols > 1
             ? c.y + (1 - e) * L.h * 0.24 - 7 * c.lift
             : c.y;
-      let sc = 1 + (isKs || isWep || isShop ? 0.06 : isWork ? 0.032 : 0.045) * c.lift;
-      let rz = isShop ? Math.sin(t * 1.45 + i * 1.3) * (0.018 - 0.012 * c.lift) : 0;
+      let sc = 1 + (isKs || isWep || isShop || isLan ? 0.06 : isWork ? 0.032 : 0.045) * c.lift;
+      let rz = isShop || isLan ? Math.sin(t * 1.35 + i * 1.2) * (0.017 - 0.012 * c.lift) : 0;
       let rx = isScroll
         ? (1 - dropE) * -0.24 + 0.05 * (1 - c.lift)
-        : isShop
-          ? (1 - e) * -0.22 + 0.04 * (1 - c.lift)
+        : isShop || isLan
+          ? (1 - e) * -0.20 + 0.04 * (1 - c.lift)
           : isUpright || this.gridCols > 1
             ? (1 - Math.min(1, r * 1.15)) * 0.35 + 0.04 * (1 - c.lift)
             : 0.09 * (1 - c.lift);
@@ -963,7 +1016,8 @@ export class CardPick3D {
       let z = L.px(22) * c.lift;
       let dx = isScroll || isUpright || this.gridCols > 1 ? 0 : L.px(isWork ? 12 : 14) * c.lift;
       const arcActive = isArc && !!c.b.arcanaInfo?.active;
-      let warm = c.locked ? 0.01 + 0.06 * c.lift : arcActive ? 0.16 + 0.08 * c.lift : 0.03 + 0.14 * c.lift;
+      const lanActive = isLan && !!c.b.lanternInfo?.active;
+      let warm = c.locked ? 0.01 + 0.06 * c.lift : (arcActive || lanActive) ? 0.16 + 0.08 * c.lift : 0.03 + 0.14 * c.lift;
       // act-176: rim glow belongs strictly to FOCUS (never conflated with Active state)
       let rimA = c.lift * (c.locked ? 0.16 : 0.28) * unroll;
       let alpha = r > 0 ? 1 : 0;

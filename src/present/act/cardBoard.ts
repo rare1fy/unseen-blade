@@ -17,7 +17,7 @@ import { buildHeroBladeMesh, type WeaponId } from './weapons';
 import { SKIN } from './skin';
 export { richLine };
 
-export type CardStyle = 'boon' | 'manual' | 'forge' | 'medic' | 'meal' | 'mirror' | 'keepsake' | 'weapon' | 'shop' | 'workRow' | 'arcana';
+export type CardStyle = 'boon' | 'manual' | 'forge' | 'medic' | 'meal' | 'mirror' | 'keepsake' | 'weapon' | 'shop' | 'workRow' | 'arcana' | 'lantern';
 /** the board's height in units of its width */
 export const CARD_H = 0.24;
 interface Metal { d: number; m: number; l: number; glow: number }
@@ -39,12 +39,13 @@ const STYLE_METAL: Record<Exclude<CardStyle, 'boon'>, Metal> = {
   shop: { d: 0x422a18, m: 0x865a34, l: 0xdca45c, glow: 0xffd27a },
   workRow: { d: 0x2e2218, m: 0x76502c, l: 0xd4964c, glow: 0xffae52 },
   arcana: { d: 0x1e3c2e, m: 0x468864, l: 0x98f2ba, glow: 0xa4ffd0 },
+  lantern: { d: 0x4a2c14, m: 0xb67a2e, l: 0xffda78, glow: 0xffca60 },
 };
 const PANEL: Record<CardStyle, [number, number]> = {
   boon: [LACQ, LACQ_L], manual: [0x3b2d1a, 0x544024], meal: [0x2c2216, 0x3a2c1c],
   forge: [0x221d1b, 0x302724], medic: [0x15221c, 0x1f3128], mirror: [0x1b1628, 0x2a223e],
   keepsake: [0x18151f, 0x272234], weapon: [0x1b1412, 0x2a1f1c], shop: [0x362417, 0x4a3320],
-  workRow: [0x201a18, 0x2e2521], arcana: [0x111f1a, 0x1c322a],
+  workRow: [0x201a18, 0x2e2521], arcana: [0x111f1a, 0x1c322a], lantern: [0x1b1410, 0x2c1f16],
 };
 const RIVET = 0xb07a3a, RIVET_D = 0x6a4622;
 export const TIER_TXT = ['#d8d2c6', '#f0b870', '#ffe08a'];
@@ -108,6 +109,14 @@ export function arcanaLayout(H: number) {
   const SY = H * 0.09;
   const DIV = SY - SOCK / 2 - 0.02;
   return { H, SOCK, SX: 0, SY, DIV, shape: 'arcana' as const, vertical: true as const, FACE: { x0: -0.45, x1: 0.45, y0: -H / 2 + 0.04, y1: H / 2 - 0.04, h: H - 0.08, cy: 0 }, SOCKET: { x: 0, y: SY, size: SOCK } };
+}
+/** act-185: Hanging Han-style paper-lantern showcase plaque (古窑长明灯) — bronze roof eaves + big 3D display bay + minimal bottom nameplate */
+export function lanternLayout(H: number) {
+  const SOCK = Math.min(0.68, H * 0.50);
+  const SY = H / 2 - 0.14 - SOCK / 2;
+  const DIV = SY - SOCK / 2 - 0.026;
+  const y0 = -H / 2 + 0.075, y1 = DIV - 0.014;
+  return { H, SOCK, SX: 0, SY, DIV, shape: 'lantern' as const, vertical: true as const, FACE: { x0: -0.42, x1: 0.42, y0, y1, h: Math.max(0.22, y1 - y0), cy: (y0 + y1) / 2 }, SOCKET: { x: 0, y: SY, size: SOCK } };
 }
 const FR = 0.024;
 const H = CARD_H, SOCK = H - 0.072, SX = -0.5 + FR + 0.018 + SOCK / 2, DIV = SX + SOCK / 2 + 0.02;
@@ -453,6 +462,39 @@ export function arcanaBoard(Hh: number, active: boolean, unlocked: boolean, awak
   return { mesh, metal: M };
 }
 
+/** act-185: 3D voxel Han hanging lantern showcase card (古窑长明灯) — tiered bronze roof eaves, hanging loop, warm candle bay, crimson bottom tassel. */
+export function lanternBoard(Hh: number, active: boolean, unlocked: boolean, accentHex?: number) {
+  const lay = lanternLayout(Hh), H = lay.H, SOCK = lay.SOCK, SY = lay.SY, DIV = lay.DIV;
+  const M: Metal = !unlocked
+    ? LOCKED_METAL
+    : active
+      ? { d: 0x744614, m: 0xd89834, l: 0xffe88c, glow: 0xffd868 }
+      : { d: 0x3a2a1e, m: 0x7c5a38, l: 0xd2a462, glow: 0xffc668 };
+  const pc = !unlocked ? 0x111015 : active ? 0x281a10 : 0x181416;
+  const bayBg = !unlocked ? 0x0a090e : active ? 0x1d1208 : 0x100e14;
+  const p: Parameters<typeof mergeBoxes>[0] = [], b: Parameters<typeof mergeBoxes>[0] = [];
+  p.push({ w: 0.88, h: H - 0.14, d: 0.048, x: 0, y: -0.01, z: 0, c: pc });
+  for (const sx of [-1, 1]) {
+    b.push({ w: 0.032, h: H - 0.14, d: 0.068, x: sx * 0.44, y: -0.01, z: 0.005, c: sx < 0 ? M.m : M.d });
+  }
+  b.push({ w: 1.02, h: 0.038, d: 0.088, x: 0, y: H / 2 - 0.072, z: 0.008, c: M.m });
+  b.push({ w: 1.00, h: 0.012, d: 0.092, x: 0, y: H / 2 - 0.052, z: 0.01, c: M.l });
+  b.push({ w: 0.72, h: 0.036, d: 0.082, x: 0, y: H / 2 - 0.036, z: 0.007, c: M.d });
+  b.push({ w: 0.22, h: 0.036, d: 0.072, x: 0, y: H / 2 - 0.004, z: 0.007, c: M.l });
+  b.push({ w: 0.055, h: 0.055, d: 0.052, x: 0, y: H / 2 + 0.032, z: 0.006, c: M.m });
+  b.push({ w: 0.96, h: 0.036, d: 0.084, x: 0, y: -H / 2 + 0.058, z: 0.008, c: M.d });
+  b.push({ w: 0.66, h: 0.026, d: 0.076, x: 0, y: -H / 2 + 0.03, z: 0.006, c: M.m });
+  b.push({ w: 0.044, h: 0.07, d: 0.044, x: 0, y: -H / 2 - 0.018, z: 0.008, c: !unlocked ? 0x463236 : active ? 0xe04234 : 0x982a24 });
+  const r = 0.015, sd = 0.072;
+  b.push({ w: SOCK + 2 * r, h: r, d: sd, x: 0, y: SY + SOCK / 2 + r / 2, z: 0.008, c: M.l }, { w: SOCK + 2 * r, h: r, d: sd, x: 0, y: SY - SOCK / 2 - r / 2, z: 0.008, c: M.d });
+  b.push({ w: r, h: SOCK, d: sd, x: -SOCK / 2 - r / 2, y: SY, z: 0.008, c: M.m }, { w: r, h: SOCK, d: sd, x: SOCK / 2 + r / 2, y: SY, z: 0.008, c: M.d });
+  p.push({ w: SOCK, h: SOCK, d: 0.028, x: 0, y: SY, z: 0.02, c: bayBg });
+  b.push({ w: 0.78, h: 0.014, d: 0.072, x: 0, y: DIV, z: 0.008, c: !unlocked ? 0x2c2e38 : (accentHex ?? M.l) });
+  const mesh = new THREE.Mesh(mergeBoxes(b), new THREE.MeshLambertMaterial({ vertexColors: true, emissive: M.glow, emissiveIntensity: active ? 0.14 : 0 }));
+  const panel = new THREE.Mesh(mergeBoxes(p), new THREE.MeshLambertMaterial({ vertexColors: true })); panel.renderOrder = 30; mesh.add(panel);
+  return { mesh, metal: M };
+}
+
 /** the board itself: one merged mesh (vertex colours), its emissive used for the focus glow; Hh = the board's height (CARD_H / SKILL_H) */
 export function cardBoard(style: CardStyle, tier: number, Hh = CARD_H, skill = false, accentHex?: number, locked = false, extra?: { yin?: boolean; theme?: 'forge' | 'medic'; active?: boolean; awakening?: boolean }) {
   if (style === 'manual') return scrollBoard(Hh);
@@ -462,6 +504,7 @@ export function cardBoard(style: CardStyle, tier: number, Hh = CARD_H, skill = f
   if (style === 'shop') return shopBoard(Hh, locked, accentHex);
   if (style === 'workRow') return workRowBoard(Hh, extra?.theme ?? 'forge', tier, locked);
   if (style === 'arcana') return arcanaBoard(Hh, !!extra?.active, !locked, !!extra?.awakening, accentHex);
+  if (style === 'lantern') return lanternBoard(Hh, !!extra?.active, !locked, accentHex);
   const skin = SKIN.id;
   const baseM = locked ? LOCKED_METAL : (style === 'boon' ? METAL[Math.max(0, Math.min(2, tier))] : tier >= 2 ? METAL[2] : STYLE_METAL[style]);
   const M: Metal = locked ? LOCKED_METAL
@@ -988,6 +1031,53 @@ export function paintArcanaFace(
     drawPix(g, spec.awakening ? '待唤醒' : '未启', W / 2, yBot, { scale: s2, color: '#6e7c8a', outline: '#07090c', align: 'center' });
   }
 
+  const tex = new THREE.CanvasTexture(c as HTMLCanvasElement); tex.magFilter = THREE.LinearFilter; tex.minFilter = THREE.LinearFilter; tex.generateMipmaps = false; tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/** act-185: Ultra-clean Ancient Lantern showcase plaque face — ONLY item name + minimal status badge (已用 / 试穿 / dot / 🔥N). Zero prose clutter! */
+export function paintLanternFace(
+  spec: { name: string; unlocked: boolean; active: boolean; trial?: boolean; lanternAt: number; col: string },
+  w: number, h: number, dpr: number,
+) {
+  const W = Math.max(8, Math.round(w * dpr)), Hh = Math.max(8, Math.round(h * dpr)), c = makeCanvas(W, Hh), g = c.getContext('2d') as CanvasRenderingContext2D;
+  g.imageSmoothingEnabled = false;
+  const maxW = W - Math.round(10 * dpr);
+  const nm = t(spec.name);
+  let S = Math.max(1, Math.floor((Hh * 0.42) / PIX_H));
+  while (S > 1 && pixW(nm) * S > maxW) S--;
+  const yName = Math.round(Hh * 0.14);
+  const nameCol = !spec.unlocked && !spec.trial ? '#8c848c' : spec.active ? '#fff2b0' : '#f4e8d2';
+  drawPix(g, nm, W / 2, yName, { scale: S, color: nameCol, outline: '#08060c', align: 'center' });
+
+  const row2Y = Math.round(yName + PIX_H * S + (Hh - (yName + PIX_H * S)) * 0.54);
+  const s2 = Math.max(1, Math.floor((Hh * 0.28) / PIX_H));
+  const tH2 = PIX_H * s2;
+  const bdr = Math.max(1, Math.round(dpr));
+
+  if (spec.active) {
+    const lbl = t(spec.trial ? '试穿' : '已用');
+    const pw = pixW(lbl) * s2 + Math.round(12 * dpr);
+    const ph = tH2 + Math.round(5 * dpr);
+    const px = Math.round((W - pw) / 2), py = Math.round(row2Y - ph / 2);
+    g.fillStyle = spec.trial ? '#ffd868' : '#e4523c';
+    g.fillRect(px, py, pw, ph);
+    g.fillStyle = spec.trial ? '#32220c' : '#2a0d0a';
+    g.fillRect(px + bdr, py + bdr, pw - 2 * bdr, ph - 2 * bdr);
+    drawPix(g, lbl, W / 2, Math.round(row2Y - tH2 / 2), { scale: s2, color: spec.trial ? '#fff2a8' : '#ffe0a8', outline: null, align: 'center' });
+  } else if (spec.unlocked) {
+    const dot = Math.max(4, Math.round(6 * dpr));
+    g.fillStyle = '#08060c'; g.fillRect(Math.round(W / 2 - dot / 2) - 1, Math.round(row2Y - dot / 2) - 1, dot + 2, dot + 2);
+    g.fillStyle = '#78e8a8'; g.fillRect(Math.round(W / 2 - dot / 2), Math.round(row2Y - dot / 2), dot, dot);
+  } else {
+    const num = String(spec.lanternAt);
+    const fSz = Math.round(tH2 * 1.05);
+    const gap = Math.round(4 * dpr);
+    const tot = fSz + gap + pixW(num) * s2;
+    const x0 = Math.round((W - tot) / 2);
+    drawMiniIcon(g, 'fire', x0 + fSz / 2, row2Y, fSz);
+    drawPix(g, num, x0 + fSz + gap, Math.round(row2Y - tH2 / 2), { scale: s2, color: '#d8b478', outline: '#08060c', align: 'left' });
+  }
   const tex = new THREE.CanvasTexture(c as HTMLCanvasElement); tex.magFilter = THREE.LinearFilter; tex.minFilter = THREE.LinearFilter; tex.generateMipmaps = false; tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }

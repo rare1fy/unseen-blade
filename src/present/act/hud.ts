@@ -579,13 +579,13 @@ export class ActHud {
     } else {
       this.L.text.hide('act.syn');
     }
-    // act-182: ALWAYS-visible forged-iron 「英雄信息」 plaque under the portrait (opens 3-tab Hero Info Mini-World)
+    // act-185: ALWAYS-visible forged-iron 「刀客」 plaque under the portrait (opens 3-tab Mini-World)
     const ms = this.buildInfo.manuals, bc = this.buildInfo.boonCount;
     this.L.text.hide('act.buildM');
     this.L.text.hide('act.buildB');
     if (this.on) {
       const hasBuild = ms.length > 0 || bc > 0;
-      const titleTxt = wantTouch || dev === 'pad' ? '英雄信息' : '[Tab] 英雄信息';
+      const titleTxt = wantTouch || dev === 'pad' ? '刀客' : '[Tab] 刀客';
       let subTxt: string | undefined;
       if (ms.length > 0 && bc > 0) subTxt = `${localize('刀谱')}${ms.length} · ${localize('秘传')}${bc}`;
       else if (ms.length > 0) subTxt = ms.slice(0, 2).map(m => localize(m)).join(' · ');

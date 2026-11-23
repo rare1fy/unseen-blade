@@ -537,12 +537,12 @@ export class PauseMenu {
     const nx = leftEdge + (withBack ? br * 2 + 108 * kk : 0);
     this.head.place(nx + hw / 2, headY, ent * ent);
     this.backAt = { x: leftEdge + br, y: headY, r: br };
-    // act-182: Top 3 pixel tabs on the Hero Info Mini-World page (英雄总览 | 武器招式 | 局内秘传)
+    // act-185: Top 3 crisp martial-arts pixel tabs on the 刀客 Mini-World page (总览 | 刀法 | 秘传)
     if (this.page === 'build' && this.host.buildTabs && !this.previewing) {
       const tabs = [
-        { id: 'overview', label: '英雄总览' },
-        { id: 'weapon', label: '武器招式' },
-        { id: 'boons', label: '局内秘传' },
+        { id: 'overview', label: '总览' },
+        { id: 'weapon', label: '刀法' },
+        { id: 'boons', label: '秘传' },
       ];
       const rightEdge = W - Math.max(24 * kk, W * 0.035);
       const minLeft = nx + hw + 22 * kk;

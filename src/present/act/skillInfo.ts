@@ -79,7 +79,7 @@ export function baseSkillsForWeapon(wid: WeaponId = 'hanshan', lv = 0): BaseSkil
 export const BASE_SKILLS: BaseSkill[] = baseSkillsForWeapon('hanshan', 0);
 
 export const UI_WORDS = {
-  owned: '英雄信息', skills: '英雄信息', build: '英雄信息',
+  owned: '刀客', skills: '刀客', build: '刀客',
   ownedEmpty: '出征斩敌即可习得刀谱与秘传',
   demoSkip: '点按跳过', base: '佩刀招式', manual: '刀谱', boon: '秘传',
   runOwned: '本局已得', meta: '据点备战',

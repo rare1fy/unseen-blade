@@ -611,6 +611,15 @@ export interface GraspBarSpec {
   visible?: boolean;
 }
 
+export interface OilTrackSpec {
+  oil: number;
+  milestones: number[];
+  x: number;
+  y: number;
+  btnHot?: boolean;
+  visible?: boolean;
+}
+
 export interface TabRect { id: string; x: number; y: number; w: number; h: number }
 
 export class UiPlatePool {
@@ -1008,7 +1017,8 @@ export class UiPlatePool {
       const bH = PIX_H * bScale;
       const f1 = Math.round(14.5 * kk * dpr), f2 = Math.round(13 * kk * dpr);
       const padX = Math.round(16 * kk * dpr), padY = Math.round(9 * kk * dpr);
-      const H = padY * 2 + u * 2 + tH + Math.round(8 * kk * dpr) + Math.ceil(f1 * 1.35) + (l2 || act ? Math.round(4 * kk * dpr) + Math.ceil(f2 * 1.3) : 0);
+      const compactAct = !l2 && !!act;
+      const H = padY * 2 + u * 2 + tH + Math.round(8 * kk * dpr) + Math.ceil(f1 * 1.35) + (l2 ? Math.round(4 * kk * dpr) + Math.ceil(f2 * 1.3) : 0);
       const c = makeCanvas(Math.max(16, W), Math.max(16, H)) as HTMLCanvasElement;
       const g = c.getContext('2d')!; g.imageSmoothingEnabled = false;
       drawPixelPlaque(g, 0, 0, c.width, c.height, u, {
@@ -1016,6 +1026,9 @@ export class UiPlatePool {
       });
       const x0 = padX + u;
       let y = padY + u;
+      const actScale = Math.max(1, Math.floor((13.5 * kk * dpr) / PIX_H));
+      const actW = act ? pixW(act) * actScale + Math.round(20 * kk * dpr) : 0;
+      const actH = act ? PIX_H * actScale + Math.round(10 * kk * dpr) : 0;
       // Row 1: Title + Badge + Stars on right
       drawPix(g, title, x0, y, { scale: tScale, color: '#fff2cc', outline: '#08060c', align: 'left' });
       let tx = x0 + pixW(title) * tScale + Math.round(12 * kk * dpr);
@@ -1037,41 +1050,49 @@ export class UiPlatePool {
           sx -= stSz + stGap;
         }
       }
-      // Row 2: Main Effect with Hades-2 inline pixel icons (auto-shrink if very long)
+      // Row 2: Main Effect (compact single-line mode reserves space for right-centered action button & skips noisy inline icons)
       y += tH + Math.round(8 * kk * dpr);
-      const maxTextW = c.width - (padX + u) * 2;
+      const maxTextW = c.width - (padX + u) * 2 - (compactAct ? actW + Math.round(16 * kk * dpr) : 0);
       let p1 = f1;
-      while (p1 > Math.round(11 * kk * dpr) && richLine(null, l1, 0, 0, p1, '#f4ebd8', '#fff6cc', true, true) > maxTextW) p1 -= 1;
-      richLine(g, l1, x0, y, p1, '#f4ebd8', '#fff6cc', true, true);
-      // Row 3: Progress / Source with inline icons (left) & clickable Action stamp (right)
-      if (l2 || act) {
+      if (compactAct) {
+        while (p1 > Math.round(11 * kk * dpr) && bodyW(l1, p1) > maxTextW) p1 -= 1;
+        bodyText(g, l1, x0, y, p1, '#efe5d0', 'left', '#08060c');
+      } else {
+        while (p1 > Math.round(11 * kk * dpr) && richLine(null, l1, 0, 0, p1, '#f4ebd8', '#fff6cc', true, true) > maxTextW) p1 -= 1;
+        richLine(g, l1, x0, y, p1, '#f4ebd8', '#fff6cc', true, true);
+      }
+      // Row 3 (when l2 present) & Action stamp (vertically centered on right when compactAct)
+      if (l2) {
         y += Math.ceil(f1 * 1.35) + Math.round(4 * kk * dpr);
-        if (l2) {
-          let p2 = f2;
-          const actReserve = act ? Math.round(145 * kk * dpr) : 0;
-          while (p2 > Math.round(10 * kk * dpr) && richLine(null, l2, 0, 0, p2, '#bcb4a4', '#ffe8a8', true, true) > maxTextW - actReserve) p2 -= 1;
-          richLine(g, l2, x0, y, p2, '#bcb4a4', '#ffe8a8', true, true);
-        }
-        if (act) {
-          const as = Math.max(1, Math.floor((13.5 * kk * dpr) / PIX_H));
-          const aw = pixW(act) * as + Math.round(16 * kk * dpr), ah = PIX_H * as + Math.round(7 * kk * dpr);
-          const ax = c.width - padX - u - aw, ay = Math.round(y - Math.round(2 * kk * dpr));
-          const hot = !!spec.actionHot;
-          drawPixelPlaque(g, ax, ay, aw, ah, Math.max(1, Math.round(1.5 * kk * dpr)), {
-            bg: hot ? '#3a2414' : '#261b12', hi: hot ? '#58381e' : '#3a2a1c', border: '#08060c',
-            inner: hot ? '#fffef2' : (spec.accent ?? '#d4a24e'),
-          });
-          drawPix(g, act, ax + aw / 2, Math.round(ay + (ah - PIX_H * as) / 2), { scale: as, color: hot ? '#fffef2' : '#ffe69c', outline: '#08060c', align: 'center' });
-          if (hot) drawFocusBrackets(g, ax, ay, aw, ah, Math.max(1, Math.round(1.5 * kk * dpr)));
-        }
+        let p2 = f2;
+        const actReserve = act ? Math.round(145 * kk * dpr) : 0;
+        while (p2 > Math.round(10 * kk * dpr) && richLine(null, l2, 0, 0, p2, '#bcb4a4', '#ffe8a8', true, true) > maxTextW - actReserve) p2 -= 1;
+        richLine(g, l2, x0, y, p2, '#bcb4a4', '#ffe8a8', true, true);
+      }
+      if (act) {
+        const ax = c.width - padX - u - actW;
+        const ay = compactAct ? Math.round((c.height - actH) / 2) : Math.round(y - Math.round(2 * kk * dpr));
+        const hot = !!spec.actionHot;
+        drawPixelPlaque(g, ax, ay, actW, actH, Math.max(1, Math.round(1.5 * kk * dpr)), {
+          bg: hot ? '#4c2c12' : '#2e1d10', hi: hot ? '#72441c' : '#4a301a', border: '#08060c',
+          inner: hot ? '#fffef2' : (spec.accent ?? '#d4a24e'),
+          rivets: compactAct,
+        });
+        drawPix(g, act, ax + actW / 2, Math.round(ay + (actH - PIX_H * actScale) / 2), { scale: actScale, color: hot ? '#fffef2' : '#ffe69c', outline: '#08060c', align: 'center' });
+        if (hot) drawFocusBrackets(g, ax, ay, actW, actH, Math.max(1, Math.round(1.5 * kk * dpr)));
       }
       this.upload(s, c, dpr, BODY_FONT.current !== 'pixel');
     }
     this.place(s, spec.x, spec.y, true, 1, true, 6);
     if (!act) return null;
-    const bwCss = Math.max(110 * kk, (pixW(act) * Math.max(1, Math.round((14.5 * kk * dpr) / PIX_H)) / dpr) + 22 * kk);
-    const bhCss = 32 * kk;
-    return { x: s.cx + s.w / 2 - 18 * kk - bwCss, y: s.cy + s.h / 2 - 10 * kk - bhCss, w: bwCss, h: bhCss };
+    const bwCss = Math.max(106 * kk, (pixW(act) * Math.max(1, Math.floor((13.5 * kk * dpr) / PIX_H)) / dpr) + 22 * kk);
+    const bhCss = 34 * kk;
+    return {
+      x: s.cx + s.w / 2 - 18 * kk - bwCss,
+      y: !l2 ? s.cy - bhCss / 2 : s.cy + s.h / 2 - 10 * kk - bhCss,
+      w: bwCss,
+      h: bhCss,
+    };
   }
 
   /** act-149: Right-side 3D Artifact Workbench panel (锻坊 / 孙媪悟性牌阵) — upper transparent showcase bay, middle Before ▶ After stats, bottom 1 or 2 clickable action buttons */
@@ -1425,6 +1446,126 @@ export class UiPlatePool {
       this.upload(s, c, dpr, false);
     }
     this.place(s, cx, cy - 4 * kk, true, 1, false);
+  }
+
+  /** act-185: Bespoke 古窑长明灯 5-Lamp Oil Progress Track + standalone [+ 添油] button (replaces wall-of-text milestone cards). */
+  setOilTrack(key: string, spec: OilTrackSpec): { btnRect: { x: number; y: number; w: number; h: number } | null } {
+    const s = this.slot(key, 52);
+    if (spec.visible === false) { s.mesh.visible = false; return { btnRect: null }; }
+    const dpr = Math.max(1, Math.round(this.L.dpr || 1));
+    const kk = uiScale(this.L.w, this.L.h, 0.78, 2.8);
+    const maxAt = spec.milestones[spec.milestones.length - 1] ?? 20;
+    const maxed = spec.oil >= maxAt;
+    const btnTxt = maxed ? localize('已圆满') : localize('+ 添油');
+    const pKey = `oil|${spec.oil}|${spec.milestones.join(',')}|${spec.btnHot ? 1 : 0}|${kk.toFixed(2)}|${dpr}|${language}`;
+    const u = Math.max(1, Math.round(1.6 * kk * dpr));
+    const pScale = Math.max(1, Math.floor((12.5 * kk * dpr) / PIX_H));
+    const nScale = Math.max(1, Math.floor((11 * kk * dpr) / PIX_H));
+    const tH = PIX_H * pScale;
+    const fireSz = Math.round(tH * 1.05);
+    const numTxt = `${Math.min(spec.oil, maxAt)}/${maxAt}`;
+    const padX = Math.round(14 * kk * dpr);
+    const padY = Math.round(6 * kk * dpr);
+    const leftW = fireSz + Math.round(5 * kk * dpr) + pixW(numTxt) * pScale;
+    const nodeGap = Math.round((this.L.w < 960 ? 34 : 52) * kk * dpr);
+    const nodeSpan = Math.max(1, spec.milestones.length - 1) * nodeGap + Math.round(28 * kk * dpr);
+    const btnW = pixW(btnTxt) * pScale + Math.round(22 * kk * dpr);
+    const btnH = tH + Math.round(9 * kk * dpr);
+    const W = padX * 2 + u * 2 + leftW + Math.round(20 * kk * dpr) + nodeSpan + Math.round(20 * kk * dpr) + btnW;
+    const H = Math.max(btnH + Math.round(6 * kk * dpr), Math.round(36 * kk * dpr)) + padY * 2 + u * 2;
+    const btnX = W - padX - u - btnW;
+    const btnY = Math.round((H - btnH) / 2);
+
+    if (pKey !== s.key) {
+      s.key = pKey;
+      const c = makeCanvas(Math.ceil(W), Math.ceil(H)) as HTMLCanvasElement;
+      const g = c.getContext('2d')!; g.imageSmoothingEnabled = false;
+      drawPixelPlaque(g, 0, 0, c.width, c.height, u, {
+        bg: '#161110', hi: '#2c1e16', border: '#07050a', inner: '#c88e3e', accent: '#ffe078', rivets: true,
+      });
+      const midY = Math.round(c.height / 2);
+
+      // Left: pixel flame + total oil counter (e.g. 4/20)
+      let cx = padX + u;
+      drawMiniIcon(g, 'fire', cx + fireSz / 2, midY, fireSz);
+      cx += fireSz + Math.round(5 * kk * dpr);
+      drawPix(g, numTxt, cx, Math.round(midY - tH / 2), { scale: pScale, color: '#ffe48c', outline: '#08060c', align: 'left' });
+
+      // Center: 5 pixel oil-lamp milestone nodes connected by a golden progress bar
+      const trackX0 = cx + pixW(numTxt) * pScale + Math.round(34 * kk * dpr);
+      const trackY = Math.round(midY - 3 * kk * dpr);
+      const barH = Math.max(2, Math.round(3 * kk * dpr));
+      const nodes = spec.milestones;
+      const nodeXs = nodes.map((_, idx) => trackX0 + idx * nodeGap);
+      if (nodeXs.length >= 2) {
+        const xA = nodeXs[0], xB = nodeXs[nodeXs.length - 1];
+        g.fillStyle = '#09070a';
+        g.fillRect(xA, trackY - Math.round(barH / 2) - 1, xB - xA, barH + 2);
+        g.fillStyle = '#332824';
+        g.fillRect(xA, trackY - Math.round(barH / 2), xB - xA, barH);
+        // Piecewise continuous golden fill across milestones
+        let fillX = xA;
+        for (let i = 0; i < nodes.length - 1; i++) {
+          const a = i === 0 ? 0 : nodes[i], b = nodes[i + 1];
+          if (spec.oil >= nodes[i]) {
+            const frac = Math.max(0, Math.min(1, (spec.oil - nodes[i]) / Math.max(1, b - nodes[i])));
+            fillX = nodeXs[i] + (nodeXs[i + 1] - nodeXs[i]) * frac;
+          }
+          void a;
+        }
+        if (spec.oil >= nodes[nodes.length - 1]) fillX = xB;
+        if (fillX > xA) {
+          g.fillStyle = '#f2b848';
+          g.fillRect(xA, trackY - Math.round(barH / 2), Math.round(fillX - xA), barH);
+          g.fillStyle = '#fff0a8';
+          g.fillRect(xA, trackY - Math.round(barH / 2), Math.round(fillX - xA), Math.max(1, Math.round(dpr)));
+        }
+      }
+      // Draw each of the 5 pixel lamps + numeric threshold underneath
+      const lp = Math.max(1, Math.round(1.6 * kk * dpr));
+      for (let i = 0; i < nodes.length; i++) {
+        const nx = nodeXs[i], at = nodes[i], lit = spec.oil >= at;
+        // Bronze lamp bowl
+        g.fillStyle = '#07050a';
+        g.fillRect(nx - 4 * lp, trackY - 1 * lp, 8 * lp, 5 * lp);
+        g.fillStyle = lit ? '#e0a240' : '#4a424c';
+        g.fillRect(nx - 3 * lp, trackY, 6 * lp, 3 * lp);
+        g.fillStyle = lit ? '#ffe694' : '#645a68';
+        g.fillRect(nx - 2 * lp, trackY, 4 * lp, lp);
+        // Pixel flame dancing above lit lamp
+        if (lit) {
+          g.fillStyle = '#ff7e28';
+          g.fillRect(nx - 2 * lp, trackY - 3 * lp, 4 * lp, 3 * lp);
+          g.fillStyle = '#ffe05c';
+          g.fillRect(nx - lp, trackY - 5 * lp, 2 * lp, 4 * lp);
+          g.fillStyle = '#fffef0';
+          g.fillRect(nx - lp, trackY - 3 * lp, 2 * lp, 2 * lp);
+        }
+        drawPix(g, String(at), nx, trackY + Math.round(5.5 * kk * dpr), {
+          scale: nScale, color: lit ? '#ffe896' : '#80767e', outline: '#08060c', align: 'center',
+        });
+      }
+
+      // Right: standalone clickable [+ 添油] button
+      const hot = !maxed && !!spec.btnHot;
+      drawPixelPlaque(g, btnX, btnY, btnW, btnH, Math.max(1, Math.round(1.3 * kk * dpr)), {
+        bg: maxed ? '#221c18' : hot ? '#583412' : '#3a220e',
+        hi: maxed ? '#322922' : hot ? '#824c1a' : '#583416',
+        border: '#07050a',
+        inner: maxed ? '#6c5a44' : hot ? '#fffef2' : '#f2b84c',
+        rivets: !maxed,
+      });
+      if (hot) drawFocusBrackets(g, btnX, btnY, btnW, btnH, Math.max(1, Math.round(1.5 * kk * dpr)));
+      drawPix(g, btnTxt, btnX + Math.round(btnW / 2), Math.round(midY - tH / 2), {
+        scale: pScale, color: maxed ? '#a89a84' : hot ? '#fffef2' : '#ffe696', outline: '#08060c', align: 'center',
+      });
+      this.upload(s, c, dpr, false);
+    }
+    this.place(s, spec.x, spec.y, true, 1, false);
+    const left0 = s.cx - s.w / 2, top0 = s.cy - s.h / 2;
+    return {
+      btnRect: maxed ? null : { x: left0 + btnX / dpr, y: top0 + btnY / dpr, w: btnW / dpr, h: btnH / dpr },
+    };
   }
 
   hide(key: string) {

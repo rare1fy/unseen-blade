@@ -88,7 +88,7 @@ import {
   ensureAds, isCollectorUnlocked, collectorProgress, recordAdWatched, nextLanternMilestone,
   gardenSpeedLeft, consumeGardenSpeed, activeUiSkin, activeBladeFx, activeOutfitId,
   activeHideoutMood, activeHideoutDecors, clearRunAdBuffs,
-  type HideoutMoodId, type HideoutDecorId,
+  type HideoutMoodId, type HideoutDecorId, type CollectorItem,
 } from './collectors';
 import { buildLanternStand, buildTrialStele, buildHideoutDecor } from './hideoutExtras';
 import { sayLine } from '../../audio/voice';
@@ -1208,7 +1208,7 @@ export class ActShow {
     this.L.text.hide('act.yard.exit');
     this.L.text.hide('act.station.hint');
     this.worldPlates?.hidePrefix('ho.');
-    for (const id of ['fengtiebi', 'sunao', 'duwu', 'luzhao', 'huanyue', 'stele', 'weaponRack', 'keepsakeBox', 'lantern', 'trialStele']) this.L.text.hide('act.beacon.' + id);
+    for (const id of ['fengtiebi', 'sunao', 'duwu', 'luzhao', 'huanyue', 'weaponRack', 'keepsakeBox', 'lantern', 'trialStele']) this.L.text.hide('act.beacon.' + id);
     for (const zid of HIDEOUT_ZONE_ORDER) this.L.text.hide('act.beacon.zone_' + zid);
     for (let i = 0; i < HIDEOUT.gardenPlots.length; i++) this.L.text.hide('act.beacon.garden_' + i);
     for (const m of this.marks.values()) {
@@ -1556,30 +1556,9 @@ export class ActShow {
         pushTag('ho.' + key, dZone, 4, pt.z < 1 ? { text: zdef.beaconLabel, icon: 'forge', x: pt.x, y: pt.y, color: zdef.color, accent: zdef.color, minY, visible: true } : null);
       } else pushTag('ho.' + key, dZone, 0, null);
     }
-    // 复仇碑 3D ! marker & proximity label
-    if (this.stele && HIDEOUT.stele) {
-      const bc = beaconOf('stele'), dStele = h ? Math.hypot(h.pos.x - HIDEOUT.stele.x, h.pos.z - HIDEOUT.stele.z) : 99;
-      if (bc && uiClear) {
-        if (!this.steleExclaim) {
-          const g = new THREE.Group(), exc = npcExclaim();
-          g.add(exc); this.stage?.root.add(g); this.steleExclaim = g;
-        }
-        const pulse = 0.5 + 0.5 * Math.sin(t * 4.5);
-        this.steleExclaim.visible = true;
-        this.steleExclaim.position.set(HIDEOUT.stele.x, 2.28 + 0.06 * pulse, HIDEOUT.stele.z + 0.35);
-        this.steleExclaim.rotation.y = t * 1.3;
-        const em = (this.steleExclaim.children[0] as THREE.Mesh).material as THREE.MeshLambertMaterial;
-        em.emissive.setHex(bc.hex); em.emissiveIntensity = 0.45 + 0.3 * pulse;
-        this.steleExclaim.children[0].scale.setScalar(0.56 * (1 + 0.1 * pulse));
-      } else if (this.steleExclaim) this.steleExclaim.visible = false;
-      if (uiClear && near !== 'stele' && dStele < (bc ? 6.0 : 4.2)) {
-        const p = worldToUi(V3(HIDEOUT.stele.x, 2.08, HIDEOUT.stele.z + 0.35));
-        pushTag('ho.stele', dStele, bc ? 3 : 1, p.z < 1 ? { text: '复仇碑', icon: 'stele', x: p.x, y: p.y, color: bc ? bc.col : '#dcd0f0', accent: '#9880d0', minY, visible: true } : null);
-      } else pushTag('ho.stele', dStele, 0, null);
-    } else {
-      if (this.steleExclaim) this.steleExclaim.visible = false;
-      pushTag('ho.stele', 99, 0, null);
-    }
+    // act-185: 复仇碑 is purely an in-world 3D story monument (no popup menu / no interaction prompt)
+    if (this.steleExclaim) this.steleExclaim.visible = false;
+    pushTag('ho.stele', 99, 0, null);
     // 文家刀廊、信物匣、古窑长明灯 & 试锋碑 proximity beacons (minimal single-line tags)
     const eqWep = weaponDef(this.currentWeaponId(prof));
     const eqKs = keepsakeDef(equippedKeepsake(prof, this.dbgAllWeapons));
@@ -1745,10 +1724,6 @@ export class ActShow {
         title: '杜五的遗灶', sub: mealSub, action: !prof.meal ? '领干粮' : '查行囊',
         icon: 'herb', color: '#ffbe78', accent: '#d4964c', x: p.x, y: p.y, minY, visible: p.z < 1,
       });
-    } else if (near === 'stele' && uiClear && HIDEOUT.stele) {
-      const p = worldToUi(V3(HIDEOUT.stele.x, 2.18, HIDEOUT.stele.z + 0.35));
-      const down = bossesDown(prof.seen);
-      this.worldPlates.setInteract('ho.active', { title: '复仇碑', sub: msg`已斩仇家 ${down}/5`, action: '瞻碑', icon: 'stele', color: '#e2d0ff', accent: '#a88cf0', x: p.x, y: p.y, minY, visible: p.z < 1 });
     } else if (nn && uiClear) {
       const p = worldToUi(V3(nn.x, (nn.a.height ?? 1.8) + 1.18, nn.z));
       const bc = beaconOf(nn.id);
@@ -1940,7 +1915,6 @@ export class ActShow {
     if (id.startsWith('garden_')) { await this.gardenInteract(Number(id.slice(7))); return; }
     if (id === 'weaponRack') { await this.forgeHubMenu(0); return; }
     if (id === 'keepsakeBox') { await this.keepsakeMenu(); return; }
-    if (id === 'stele') { await this.steleMenu(); return; }
     if (id === 'lantern') { await this.lanternMenu(); return; }
     if (id === 'trialStele') { await this.trialSandboxMenu(); return; }
     if (id === 'duwu' || id === 'duwu_memorial') { await this.mealMenu(); this.grantKeepsake('duwu'); return; }
@@ -2461,40 +2435,6 @@ export class ActShow {
   private async weaponForgeMenu() {
     await this.forgeHubMenu(1);
   }
-  /** act-182: 复仇碑回归纯剧情刻名碑（查看五名仇家划名进展，不再塞入与孙婆婆冲突的阴阳潜能数值） */
-  private async steleMenu() {
-    const p = profile();
-    const targets: Array<{ flag: string; name: string; title: string; where: string; col: string }> = [
-      { flag: 'ch1_boss', name: '石雷', title: '黄巾渠帅', where: '第一关 · 残村破庙', col: '#ffd278' },
-      { flag: 'ch2_boss', name: '阎虎', title: '飞熊校尉', where: '第二关 · 洛阳铸钱场', col: '#ff9668' },
-      { flag: 'ch3_boss', name: '封寒', title: '寒毒药吏', where: '第三关 · 下邳白门楼', col: '#86dcff' },
-      { flag: 'ch4_boss', name: '周默', title: '水寨主簿', where: '第四关 · 乌林连营', col: '#b8b0ff' },
-      { flag: 'ch5_boss', name: '崔玄', title: '司空长史', where: '第五关 · 崔府雪庭', col: '#ff7878' },
-    ];
-    const down = bossesDown(p.seen);
-    const cards: BoonPick[] = targets.map(tg => {
-      const dead = !!p.seen[tg.flag];
-      return {
-        boon: {
-          id: 'st_' + tg.flag, school: 'sr' as never,
-          name: msg`${tg.name} · ${tg.title}`,
-          desc: [tg.where, dead ? '血债已销' : ''],
-          col: dead ? '#8a8288' : tg.col,
-          glyph: WEAPONS.hanshan.glyph,
-          tag: dead ? '已划名' : '未斩',
-          locked: dead,
-        } as CardBoon,
-        tier: dead ? 0 : 2,
-      };
-    });
-    const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
-    await this.cards.open(cards, {
-      leave: true, layout: 'grid2',
-      header: { title: '复仇碑 · 仇家名录', sub: msg`寒山坞灭门五仇 · 已斩 ${down}/5`, col: '#e2d0ff', accent: '#9880d0' },
-      footer: 'Esc 返回',
-    });
-    this.phase = was; this.hud.on = true;
-  }
   /** 杜五 (or 杜五的遗灶 after Xiapi) packs provisions + B3 再温一壶老酒 (1 rewarded ad upgrades to deluxe: +40 coins & wine guard) */
   private async mealMenu() {
     const p = profile(), dead = isDuwuDead(p), pick = (a: string[]) => a[Math.floor(Math.random() * a.length)], ads = ensureAds(p);
@@ -2663,182 +2603,157 @@ export class ActShow {
     if (ch === 0) await this.archiveMenu();
     else if (ch === 1) await this.divineMenu(who);
   }
-  /** act-182: 古窑长明灯 · 典藏阁（精简为清爽 4 页签 + 单一总灯油里程碑解锁，告别双套算术） */
+  /** act-185: 古窑长明灯 · 专属灯笼展柜（顶部五盏灯油进度轨 + 5个2字分类页签 + 单排悬灯体素展品 + 底部精简说明栏） */
   private async lanternMenu(initialTab = 0) {
-    let tab = Math.max(0, Math.min(3, initialTab)), focusIdx = 0, instant = false;
+    const TAB_DEFS: Array<{ id: string; label: string; cats: CollectorItem['cat'][] }> = [
+      { id: 'outfit', label: '行头', cats: ['outfit'] },
+      { id: 'bladefx', label: '刀光', cats: ['bladefx'] },
+      { id: 'ui', label: '界面', cats: ['skin', 'filter'] },
+      { id: 'mood', label: '时辰', cats: ['mood'] },
+      { id: 'decor', label: '摆件', cats: ['decor'] },
+    ];
+    let tab = Math.max(0, Math.min(TAB_DEFS.length - 1, initialTab)), focusIdx = 0, instant = false;
     for (;;) {
       const p = profile(), ads = ensureAds(p), allFree = this.dbgAllWeapons;
-      const oil = ads.total, nextMs = nextLanternMilestone(p);
-      let switched = false;
+      const oil = ads.total;
+      let switched = false, addOilRequested = false;
       const tabs = {
-        items: [
-          { id: 'oil', label: '长明灯油' },
-          { id: 'look', label: '行头刀光' },
-          { id: 'ui', label: '界面滤镜' },
-          { id: 'yard', label: '古窑装潢' },
-        ],
+        items: TAB_DEFS.map(td => ({ id: td.id, label: td.label })),
         active: tab,
         onSwitch: (next: number) => { tab = next; focusIdx = 0; instant = true; switched = true; this.cards.cancelSilent(); },
       };
 
-      const cards: BoonPick[] = [];
-      const actions: Array<() => Promise<void>> = [];
+      const curTab = TAB_DEFS[tab];
+      const items = COLLECTORS.filter(c => curTab.cats.includes(c.cat));
+      const curOutfit = activeOutfitId(p, allFree);
+      const curFx = activeBladeFx(p, allFree);
+      const curMood = activeHideoutMood(p, allFree).id;
+      const curDec = activeHideoutDecors(p, allFree);
 
-      if (tab === 0) {
-        for (const ms of LANTERN_MILESTONES) {
-          const done = oil >= ms.at;
-          cards.push({
-            boon: {
-              id: 'ms_' + ms.at, school: 'fg' as never,
-              name: msg`${ms.title}（${Math.min(oil, ms.at)}/${ms.at}）`,
-              desc: [ms.summary, done ? '已达成 · 典藏已永久解锁' : '任意观影自动累计灯油，点此亦可直接添油 +1'],
-              col: done ? '#ffe480' : '#d8ccb4', glyph: ANVIL,
-              tag: done ? '已解锁' : msg`差${ms.at - oil}盏`,
-            } as CardBoon,
-            tier: done ? 2 : 0,
-          });
-          actions.push(async () => {
-            if (done) { cue('click', 0.4); return; }
-            await this.watchAd('collector_unlock', '古窑长明灯 · 观影添油', '灯油 +1，推进全套典藏包永久解锁进度');
-            this.refreshHideoutProps();
-          });
-        }
-        cards.push({
-          boon: {
-            id: 'go_archive', school: 'md' as never,
-            name: '听风阁 · 名录与配音',
-            desc: ['免费翻阅人物立绘语音与五首领破阵志', '亦可去东翼竹溪水榭找卢昭查阅'],
-            col: '#a8e8ff', glyph: SPROUT, tag: '免费进入',
-          } as CardBoon,
-          tier: 2,
-        });
-        actions.push(async () => { await this.archiveMenu(); });
-      } else if (tab === 1) {
-        const items = COLLECTORS.filter(c => c.cat === 'outfit' || c.cat === 'bladefx');
-        const curOutfit = activeOutfitId(p, allFree), curFx = activeBladeFx(p, allFree);
-        for (const item of items) {
-          const unl = isCollectorUnlocked(p, item.id, allFree);
-          const eq = item.cat === 'outfit' ? curOutfit === item.value : curFx === item.value;
-          const isTrial = item.cat === 'outfit' ? ads.trialOutfit === item.value : ads.trialBladeFx === item.value;
-          const needOil = Math.max(0, item.lanternAt - oil);
-          cards.push({
-            boon: {
-              id: 'col_' + item.id, school: 'fg' as never,
-              name: eq ? msg`${item.name}（${isTrial ? '试穿中' : '已配'}）` : item.name,
-              desc: [item.desc, unl ? '已永久拥有 · 点击立即换上' : msg`灯油 ${Math.min(oil, item.lanternAt)}/${item.lanternAt} 盏解锁 · 点击添油并试穿一局`],
-              col: unl || eq ? item.col : '#c8bca6', glyph: item.cat === 'outfit' ? MEAL_GLYPH.feast : WEAPONS.hanshan.glyph,
-              tag: eq ? '使用中' : unl ? '换上' : msg`差${needOil}盏`,
-            } as CardBoon,
-            tier: eq ? 2 : unl ? 1 : 0,
-          });
-          actions.push(async () => {
-            if (unl) {
-              if (item.cat === 'outfit') { p.wear = item.value; ads.trialOutfit = null; }
-              else { p.bladeFx = item.value; ads.trialBladeFx = null; }
-              saveProfile(); this.syncCollectorVisuals(); cue('reveal', 0.8);
-              this.banner.show(msg`已切换 · ${item.name}`, item.desc, 1.5, item.col);
-            } else {
-              const ok = await this.watchAd('collector_unlock', msg`长明灯添油 · ${item.name}`, msg`总灯油 +1（${oil + 1}/${item.lanternAt}）并立刻试穿下一局`);
-              if (!ok) return;
-              if (isCollectorUnlocked(p, item.id, allFree)) {
-                if (item.cat === 'outfit') { p.wear = item.value; ads.trialOutfit = null; }
-                else { p.bladeFx = item.value; ads.trialBladeFx = null; }
-              } else {
-                if (item.cat === 'outfit') ads.trialOutfit = item.value;
-                else ads.trialBladeFx = item.value;
-              }
-              saveProfile(); this.syncCollectorVisuals(); cue('reveal', 0.85);
-            }
-          });
-        }
-      } else if (tab === 2) {
-        const items = COLLECTORS.filter(c => c.cat === 'skin' || c.cat === 'filter');
-        for (const item of items) {
-          const unl = isCollectorUnlocked(p, item.id, allFree);
-          const on = item.cat === 'skin' ? SKIN.id === item.value : !!(p.inkFilter && unl);
-          const needOil = Math.max(0, item.lanternAt - oil);
-          cards.push({
-            boon: {
-              id: 'col_' + item.id, school: 'fg' as never,
-              name: on ? msg`${item.name}（开启中）` : item.name,
-              desc: [item.desc, unl ? '已永久解锁 · 点击立即切换' : msg`灯油 ${Math.min(oil, item.lanternAt)}/${item.lanternAt} 盏自动解锁 · 点此添油 +1`],
-              col: unl ? item.col : '#c8bca6', glyph: ANVIL,
-              tag: on ? '已启用' : unl ? '启用' : msg`差${needOil}盏`,
-            } as CardBoon,
-            tier: on ? 2 : unl ? 1 : 0,
-          });
-          actions.push(async () => {
-            if (unl) {
-              if (item.cat === 'skin') { p.uiSkin = item.value as SkinId; saveProfile(); this.cycleSkin(item.value as SkinId); }
-              else { p.inkFilter = !p.inkFilter; saveProfile(); this.syncCollectorVisuals(); this.banner.show(item.name, p.inkFilter ? '已开启 · 黑白水墨留血金' : '已关闭', 1.4, item.col); }
-              cue('reveal', 0.8);
-            } else {
-              const ok = await this.watchAd('collector_unlock', msg`长明灯添油 · ${item.name}`, msg`总灯油 +1（${oil + 1}/${item.lanternAt}）`);
-              if (ok && isCollectorUnlocked(p, item.id, allFree)) {
-                if (item.cat === 'skin') { p.uiSkin = item.value as SkinId; saveProfile(); this.cycleSkin(item.value as SkinId); }
-                else { p.inkFilter = true; saveProfile(); this.syncCollectorVisuals(); }
-              }
-            }
-          });
-        }
-      } else {
-        const items = COLLECTORS.filter(c => c.cat === 'mood' || c.cat === 'decor');
-        const curMood = activeHideoutMood(p, allFree).id;
-        const curDec = activeHideoutDecors(p, allFree);
-        for (const item of items) {
-          const unl = isCollectorUnlocked(p, item.id, allFree);
-          const on = item.cat === 'mood' ? curMood === item.value : !!curDec[item.value as HideoutDecorId];
-          const needOil = Math.max(0, item.lanternAt - oil);
-          cards.push({
-            boon: {
-              id: 'col_' + item.id, school: 'md' as never,
-              name: on ? msg`${item.name}（布置中）` : item.name,
-              desc: [item.desc, unl ? (item.cat === 'mood' ? '点击切换古窑时辰天气' : '点击摆出或收起此装潢') : msg`灯油 ${Math.min(oil, item.lanternAt)}/${item.lanternAt} 盏自动解锁 · 点此添油 +1`],
-              col: unl ? item.col : '#c8bca6', glyph: SPROUT,
-              tag: on ? '已布置' : unl ? '布置' : msg`差${needOil}盏`,
-            } as CardBoon,
-            tier: on ? 2 : unl ? 1 : 0,
-          });
-          actions.push(async () => {
-            if (!unl) {
-              const ok = await this.watchAd('collector_unlock', msg`长明灯添油 · ${item.name}`, msg`总灯油 +1（${oil + 1}/${item.lanternAt}）`);
-              if (!ok || !isCollectorUnlocked(p, item.id, allFree)) return;
-            }
-            if (item.cat === 'mood') {
-              p.hideoutMood = item.value as HideoutMoodId;
-              saveProfile(); cue('reveal', 0.85);
-              this.banner.show(msg`古窑氛围 · ${item.name}`, '正在切换天色与气候', 1.4, item.col);
-              const mood = activeHideoutMood(p, allFree);
-              void wipeTransit(() => this.enterYard({ time: mood.time as HideoutTime, weather: mood.weather as HideoutWeather }));
-              return;
-            } else {
-              if (!p.hideoutDecors) p.hideoutDecors = {};
-              const key = item.value as HideoutDecorId;
-              p.hideoutDecors[key] = !p.hideoutDecors[key];
-              saveProfile(); this.refreshHideoutProps(); cue('reveal', 0.8);
-              this.banner.show(item.name, p.hideoutDecors[key] ? '已在古窑中摆出' : '已暂时收起', 1.4, item.col);
-            }
-          });
-        }
-      }
+      const states = items.map(item => {
+        const unl = isCollectorUnlocked(p, item.id, allFree);
+        let on = false, isTrial = false;
+        if (item.cat === 'outfit') { on = curOutfit === item.value; isTrial = !unl && ads.trialOutfit === item.value; }
+        else if (item.cat === 'bladefx') { on = curFx === item.value; isTrial = !unl && ads.trialBladeFx === item.value; }
+        else if (item.cat === 'skin') { on = SKIN.id === item.value; }
+        else if (item.cat === 'filter') { on = !!(p.inkFilter && unl); }
+        else if (item.cat === 'mood') { on = curMood === item.value; }
+        else if (item.cat === 'decor') { on = !!curDec[item.value as HideoutDecorId]; }
+        return { item, unl, on, isTrial };
+      });
 
-      const subHdr = nextMs
-        ? msg`已添灯油 ${oil} 盏 · 再添 ${nextMs.at - oil} 盏解锁「${nextMs.title}」`
-        : msg`已添灯油 ${oil} 盏 · 全部长明灯典藏已圆满解锁`;
+      const cards: BoonPick[] = states.map(({ item, unl, on, isTrial }) => ({
+        boon: {
+          id: 'col_' + item.id, school: 'fg' as never,
+          name: item.name, desc: [item.desc, ''],
+          col: item.col, glyph: ANVIL,
+          locked: !unl && !isTrial,
+          lanternInfo: {
+            name: item.name,
+            unlocked: unl,
+            active: on,
+            trial: isTrial,
+            lanternAt: item.lanternAt,
+            col: item.col,
+          },
+        } as CardBoon,
+        tier: on ? 2 : unl ? 1 : 0,
+      }));
+
       const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels();
       const i = await this.cards.open(cards, {
-        leave: true, layout: 'grid2', instant, initialFocus: focusIdx,
-        header: { title: '古窑长明灯 · 典藏阁', sub: subHdr, col: '#ffe48c' },
+        leave: true, layout: 'lantern', instant, initialFocus: Math.min(focusIdx, Math.max(0, cards.length - 1)),
+        header: { title: '古窑长明灯', col: '#ffe48c', accent: '#d89e48' },
+        oilTrack: {
+          oil,
+          milestones: LANTERN_MILESTONES.map(m => m.at),
+          onAddOil: () => { addOilRequested = true; instant = true; this.cards.cancelSilent(); },
+        },
         tabs,
+        detail: idx => {
+          const st = states[idx] ?? states[0];
+          const { item, unl, on, isTrial } = st;
+          const toggleable = item.cat === 'filter' || item.cat === 'decor';
+          const badge = on ? (isTrial ? '试穿中' : '已用') : unl ? '已拥有' : msg`${item.lanternAt}盏灯油`;
+          const badgeCol = on ? '#ffd868' : unl ? '#86efa8' : '#d8b478';
+          const action = on
+            ? (toggleable ? '收起' : '已用')
+            : unl
+              ? '使用'
+              : item.trial ? '添油试穿' : '添油 +1';
+          return {
+            title: item.name,
+            badge,
+            badgeCol,
+            line1: item.desc,
+            action,
+            accent: item.col,
+          };
+        },
         footer: PAD.device === 'pad' ? msg`LB/RB 切页 · ${padName(0)} 确认 · ${padName(1)} 返回` : 'Q/E 切页 · Esc 返回',
       });
       this.phase = was; this.hud.on = true;
+
+      if (addOilRequested) {
+        const ok = await this.watchAd('collector_unlock', '古窑长明灯 · 添油', '总灯油 +1，点亮长明灯典藏');
+        if (ok) this.refreshHideoutProps();
+        continue;
+      }
       if (switched) continue;
-      if (i < 0 || i >= actions.length) return;
+      if (i < 0 || i >= states.length) return;
       focusIdx = i; instant = true;
-      const pickedItem = tab === 3 ? COLLECTORS.filter(c => c.cat === 'mood' || c.cat === 'decor')[i] : null;
-      await actions[i]();
-      if (pickedItem?.cat === 'mood' && isCollectorUnlocked(profile(), pickedItem.id, allFree)) return;
+
+      const { item, unl } = states[i];
+      if (item.cat === 'outfit' || item.cat === 'bladefx') {
+        if (unl) {
+          if (item.cat === 'outfit') { p.wear = item.value; ads.trialOutfit = null; }
+          else { p.bladeFx = item.value; ads.trialBladeFx = null; }
+          saveProfile(); this.syncCollectorVisuals(); cue('reveal', 0.8);
+          this.banner.show(msg`已切换 · ${item.name}`, item.desc, 1.5, item.col);
+        } else {
+          const ok = await this.watchAd('collector_unlock', msg`长明灯添油 · ${item.name}`, msg`总灯油 +1（${oil + 1}/${item.lanternAt}）并试穿一局`);
+          if (!ok) continue;
+          if (isCollectorUnlocked(p, item.id, allFree)) {
+            if (item.cat === 'outfit') { p.wear = item.value; ads.trialOutfit = null; }
+            else { p.bladeFx = item.value; ads.trialBladeFx = null; }
+          } else {
+            if (item.cat === 'outfit') ads.trialOutfit = item.value;
+            else ads.trialBladeFx = item.value;
+          }
+          saveProfile(); this.syncCollectorVisuals(); cue('reveal', 0.85);
+        }
+      } else if (item.cat === 'skin' || item.cat === 'filter') {
+        if (unl) {
+          if (item.cat === 'skin') { p.uiSkin = item.value as SkinId; saveProfile(); this.cycleSkin(item.value as SkinId); }
+          else { p.inkFilter = !p.inkFilter; saveProfile(); this.syncCollectorVisuals(); this.banner.show(item.name, p.inkFilter ? '已开启 · 黑白水墨留血金' : '已关闭', 1.4, item.col); }
+          cue('reveal', 0.8);
+        } else {
+          const ok = await this.watchAd('collector_unlock', msg`长明灯添油 · ${item.name}`, msg`总灯油 +1（${oil + 1}/${item.lanternAt}）`);
+          if (ok && isCollectorUnlocked(p, item.id, allFree)) {
+            if (item.cat === 'skin') { p.uiSkin = item.value as SkinId; saveProfile(); this.cycleSkin(item.value as SkinId); }
+            else { p.inkFilter = true; saveProfile(); this.syncCollectorVisuals(); }
+          }
+        }
+      } else if (item.cat === 'mood' || item.cat === 'decor') {
+        if (!unl) {
+          const ok = await this.watchAd('collector_unlock', msg`长明灯添油 · ${item.name}`, msg`总灯油 +1（${oil + 1}/${item.lanternAt}）`);
+          if (!ok || !isCollectorUnlocked(p, item.id, allFree)) continue;
+        }
+        if (item.cat === 'mood') {
+          p.hideoutMood = item.value as HideoutMoodId;
+          saveProfile(); cue('reveal', 0.85);
+          this.banner.show(msg`古窑氛围 · ${item.name}`, '正在切换天色与气候', 1.4, item.col);
+          const mood = activeHideoutMood(p, allFree);
+          void wipeTransit(() => this.enterYard({ time: mood.time as HideoutTime, weather: mood.weather as HideoutWeather }));
+          return;
+        } else {
+          if (!p.hideoutDecors) p.hideoutDecors = {};
+          const key = item.value as HideoutDecorId;
+          p.hideoutDecors[key] = !p.hideoutDecors[key];
+          saveProfile(); this.refreshHideoutProps(); cue('reveal', 0.8);
+          this.banner.show(item.name, p.hideoutDecors[key] ? '已在古窑中摆出' : '已暂时收起', 1.4, item.col);
+        }
+      }
     }
   }
   /** A5 / act-182: 「听风阁」人物语音名录与五首领破阵志（免费向全体玩家开放） */
@@ -8430,7 +8345,6 @@ export class ActShow {
       const d = Math.hypot(zm.x - h.pos.x, zm.z + 0.55 - h.pos.z);
       if (d < Math.min(nd, 2.2)) { nd = d; near = 'zone_' + zid; }
     }
-    if (this.stele && HIDEOUT.stele) { const d = Math.hypot(HIDEOUT.stele.x - h.pos.x, HIDEOUT.stele.z + 0.65 - h.pos.z); if (d < Math.min(nd, 1.65)) { nd = d; near = 'stele'; } }
     if (this.weaponRackMesh) { const d = Math.hypot(HIDEOUT.weaponRack.x - h.pos.x, HIDEOUT.weaponRack.z + 0.85 - h.pos.z); if (d < Math.min(nd, 2.0)) { nd = d; near = 'weaponRack'; } }
     if (this.keepsakeBoxMesh) { const d = Math.hypot(HIDEOUT.keepsakeBox.x - h.pos.x, HIDEOUT.keepsakeBox.z + 0.7 - h.pos.z); if (d < Math.min(nd, 1.65)) { nd = d; near = 'keepsakeBox'; } }
     if (this.lanternMesh) { const d = Math.hypot(HIDEOUT.lantern.x - h.pos.x, HIDEOUT.lantern.z - h.pos.z); if (d < Math.min(nd, 1.75)) { nd = d; near = 'lantern'; } }
