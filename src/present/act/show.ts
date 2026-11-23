@@ -8052,7 +8052,7 @@ export class ActShow {
     this.camOverride = null;
     shot('act', () => this.camPose(), { cut, speed });
   }
-  /** act-165 / act-174: Hideout departure 3D put-on-hat ceremony — smooth in-place camera zoom (NO hard cut), completes full hat-donning BEFORE loading wipe, and restores HUD cleanly for combat */
+  /** act-165 / act-174 / act-177: Hideout departure 3D put-on-hat ceremony — smooth in-place pitch-down & zoom-in (NO hard cut), completes full hat-donning BEFORE loading wipe, and restores HUD cleanly for combat */
   private departAnim: { t: number; dur: number; hold: number; lifted: boolean; seated: boolean; freezeK: number | null; resolve: () => void } | null = null;
   private departZoom = 0;
   private async playDepartHatCeremony(opts?: { preview?: boolean; freezeK?: number }) {
@@ -8060,7 +8060,10 @@ export class ActShow {
     const h = this.hero;
     if (!h) return;
     const E = HIDEOUT.exit;
-    const hasConicalHat = !!h.a.bones.hat && (this.wearing.id === 'fine_hat' || this.wearing.id === 'slim_hat' || this.wearing.id === 'slim_veil');
+    const hasConicalHat = !!h.a.bones.hat && (
+      this.wearing.id === 'fine_hat' || this.wearing.id === 'fine_snow' || this.wearing.id === 'fine_obsidian' ||
+      this.wearing.id === 'slim_hat' || this.wearing.id === 'slim_veil'
+    );
     if (!hasConicalHat && !opts?.preview) {
       this.phase = 'leaving'; this.syncHeroHat(); WIPE.look = 'bamboo'; h.vel.set(0, 0, TUNE.heroSpeed * 0.8);
       after(0.35, () => { void wipeTransit(() => this.startRun()); });
@@ -8079,11 +8082,11 @@ export class ActShow {
     const gz = opts?.preview ? E.z - 0.12 : Math.min(h.pos.z, E.z - 0.04);
     h.pos.set(gx, 0, gz); h.vel.set(0, 0, 0);
     h.a.home.copy(h.pos); h.a.root.position.copy(h.pos);
-    h.a.yaw = 0.12;
+    h.a.yaw = 0.14;
     motionOf(h.a).run = 0;
-    // NO hard camera cut — smoothly zoom the existing yard camera closer in-place via camPose() departZoom!
+    // NO hard camera cut — smoothly glide & lower the yard camera into a low 3/4 front view via camPose() departZoom!
     this.camOverride = null;
-    const dur = 1.05, hold = 0.22;
+    const dur = 1.25, hold = 0.28;
     const initK = opts?.freezeK != null ? Math.max(0, Math.min(1, opts.freezeK)) : 0;
     h.scriptPose = () => {
       const da = this.departAnim;
@@ -8117,20 +8120,24 @@ export class ActShow {
     if (this.camOverride) return { base: this.camOverride.base.clone(), look: this.camOverride.look.clone(), fov: this.camOverride.fov };
     // the yard's costume rack: the camera leans in (half the distance) so the models can be looked at
     // (11-18: a later region's boss coming in — the camera draws back a while so he and the back of his room are in the frame together)
-    // (act-174: smooth in-place zoom-in while Liu Bai puts on her conical hat before departing — NO hard camera cut!)
+    // (act-174 / act-177: smooth in-place glide & pitch-down to low 3/4 portrait while Liu Bai puts on her conical hat — NO hard cut, full visibility of hands & face!)
     const dz = this.departZoom;
-    const n = this.yard?.near ?? 0, k = (1 - 0.55 * n) * (1 + 0.08 * this.crowd) * (1 + 0.32 * this.bossLook) * (1 - 0.38 * this.tutCam) * (1 - 0.48 * dz);
+    const n = this.yard?.near ?? 0, k = (1 - 0.55 * n) * (1 + 0.08 * this.crowd) * (1 + 0.32 * this.bossLook) * (1 - 0.38 * this.tutCam);
     const base = this.cam.clone().add(V3(0, TUNE.camH * k, TUNE.camD * k)), look = this.cam.clone().add(V3(0, 0.6 + 0.5 * n, 0));
+    let fov = TUNE.camFov;
     if (dz > 0.001 && this.hero) {
       const hp = this.hero.pos;
-      const dx = (hp.x - this.cam.x) * dz, dzOff = (hp.z - this.cam.z) * dz;
-      base.x += dx; base.z += dzOff;
-      look.x += dx; look.z += dzOff; look.y += 0.68 * dz;
+      const e = dz * dz * (3 - 2 * dz);
+      const portBase = V3(hp.x + 1.05, 2.35, hp.z + 4.45);
+      const portLook = V3(hp.x, 1.38, hp.z);
+      base.lerp(portBase, e);
+      look.lerp(portLook, e);
+      fov = TUNE.camFov + (34 - TUNE.camFov) * e;
     }
     // (11-19 用户：「镜头要拉近一下」: a lesson pulls the camera in on her, eased in and back out)
     if (this.tutCam > 0.001 && this.hero) { const hp = this.hero.pos, d = V3(hp.x - this.cam.x, 0, hp.z - this.cam.z).multiplyScalar(this.tutCam); base.add(d); look.add(d).setY(look.y + 0.4 * this.tutCam); }
     // 11-18 QTE (用户：「QTE的时候要带镜头表现噢」): the duel's own framing blended over this one while it runs
-    return this.duel.cam({ base, look, fov: TUNE.camFov });
+    return this.duel.cam({ base, look, fov });
   }
   /** act-50 debug: fast-forward the story (FX.speed up, every line advanced at once, voices hushed) until play resumes */
   private storySkip = false; private storyIdle = 0; private storyWas = 1; private storyT = 0;
@@ -8354,7 +8361,7 @@ export class ActShow {
     else this.aimLine.visible = false;
     if (this.departAnim) {
       const da = this.departAnim;
-      this.departZoom += (1 - this.departZoom) * Math.min(1, rdt * 4.5);
+      this.departZoom += (1 - this.departZoom) * Math.min(1, rdt * 6.0);
       if (da.freezeK == null) {
         da.t += dt;
         const k = Math.min(1, da.t / da.dur);
@@ -8730,7 +8737,7 @@ export class ActShow {
     // enemies come from the back of the room: the view sits a little ahead of the hero
     // held inside the room: 2.7 m in from the side edges, 2 m from the back, 3.2 m from the front (on the 2x stage it roams much more)
     const nr = this.yard?.near ?? 0, xc = (PLAY.x0 + PLAY.x1) / 2, xr = (PLAY.x1 - PLAY.x0) / 2 - 2.7 + 1.0 * nr;
-    const yardOut = this.phase === 'yard' && h.pos.z > 6.2;
+    const yardOut = (this.phase === 'yard' || (this.phase === 'leaving' && this.room < 0)) && h.pos.z > 6.2;
     want.z -= yardOut ? 0.0 : 0.9 * (1 - nr); want.x = Math.max(xc - xr, Math.min(xc + xr, want.x)); want.z = Math.max(PLAY.z0 + 2.0, Math.min(PLAY.z1 - (yardOut ? 0.6 : 3.2), want.z)); want.y = 0;
     this.cam.lerp(want, 1 - Math.exp(-5 * rdt)); followShadow(this.cam.x, this.cam.z); this.camSprings(rdt);
     // the charge: the gold ring round the feet fills, sparks off the blade's point (faster as it fills), a flash when full
