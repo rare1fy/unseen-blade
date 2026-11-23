@@ -1,8 +1,9 @@
-// 据点渐进解锁与新区域亲手落成交互（act-135）：
-//   初醒（runs === 0）：只呈现 杜五（干粮）+ 孙媪（药石）+ 复仇碑 + 西翼试剑坪，清爽不杂乱；
-//   阶段 1（第 1 局归来 / 获残铁）：古窑「开炉建坊」工碑 → 冯铁臂与乌漆信物匣落成；
-//   阶段 2（第 2 局归来 / 获胜）：东桥「开垦竹溪药圃」工碑 → 6 块 3D 体素药畦依次弹起 + 卢昭入驻 + 孙媪赠予初种；
-//   阶段 3（击倒首名 Boss / 第 3 局归来）：北台「立文家刀廊」工碑 → 文家刀廊落成 + 桓越入驻西北石阶。
+// 据点按「关卡推进进度」逐项渐进解锁（act-135 / act-188）：
+//   初醒（未推进关卡）：仅 杜五（干粮）+ 孙婆婆（悟性牌阵），清爽零过载；
+//   阶段 1（第 1 关推进过 2 间）：古窑「开炉建坊」工碑 → 冯铁臂与乌漆信物匣落成，同步点亮古窑长明灯；
+//   阶段 2（斩第 1 关首领石雷 / 踏入第 2 关）：北台「立文家刀廊」工碑 → 名刀廊落成 + 桓越与试锋碑入驻；
+//   阶段 3（推进第 2 关洛阳 3 间 / 斩第 2 关首领阎虎）：东桥「开垦竹溪药圃」工碑 → 6 块药畦 + 卢昭入驻。
+//   且每次回据点最多只放出 1 座待建工碑（按 forge → rack → garden 顺序排队），杜绝多设施同时堆叠信息过载。
 import * as THREE from 'three';
 import { VoxWorld } from '../look/voxkit';
 import { CELL } from '../bestiary/kit';
@@ -89,6 +90,7 @@ export interface HideoutProgressState {
   gardenBuilt: boolean;
   rackReady: boolean;
   rackBuilt: boolean;
+  lanternReady: boolean;
   visibleNpcs: Array<'duwu' | 'sunao' | 'fengtiebi' | 'luzhao' | 'huanyue'>;
   pendingZones: HideoutZoneId[];
 }
@@ -98,7 +100,19 @@ export function isDuwuDead(p: Profile): boolean {
   return !!p.seen?.['duwu_dead'];
 }
 
-/** Pure query for hideout progressive unlock state (also backward-compatible with veteran saves) */
+/** Record furthest stage progress reached (monotonic watermark in region/room order) */
+export function recordStageProgress(p: Profile, region: number, roomCleared: number) {
+  const prevReg = p.bestRegion ?? 0;
+  const prevRoom = p.bestRoom ?? 0;
+  if (region > prevReg) {
+    p.bestRegion = region;
+    p.bestRoom = Math.max(0, roomCleared);
+  } else if (region === prevReg && roomCleared > prevRoom) {
+    p.bestRoom = roomCleared;
+  }
+}
+
+/** Pure query for hideout stage-driven progressive unlock state (strictly 1 pending zone at a time; backward-compatible with veteran saves) */
 export function hideoutProgress(p: Profile, allWeapons = false): HideoutProgressState {
   const forgeVeteran = FORGE_PERK_KEYS.some(k => (p.perks?.[k] ?? 0) > 0) || p.keepsake != null;
   const gardenVeteran = !!p.garden && (p.garden.plots.some(Boolean) || p.garden.unlocked > 2);
@@ -108,21 +122,31 @@ export function hideoutProgress(p: Profile, allWeapons = false): HideoutProgress
   const gardenBuilt = allWeapons || !!p.seen?.['build_garden'] || gardenVeteran;
   const rackBuilt = allWeapons || !!p.seen?.['build_rack'] || rackVeteran;
 
-  const forgeReady = forgeBuilt || p.runs >= 1 || p.iron > 0 || p.wins > 0;
-  const gardenReady = gardenBuilt || p.runs >= 2 || p.wins > 0;
-  const rackReady = rackBuilt || bossesDown(p.seen ?? {}) >= 1 || p.runs >= 3 || p.wins > 0;
+  const down = bossesDown(p.seen ?? {});
+  const bestReg = p.bestRegion ?? 0;
+  const bestRoom = p.bestRoom ?? 0;
+
+  // Stage-progress unlocks (NOT run-count):
+  //   1. Forge (冯铁臂 + 信物匣): clear 2 rooms in Act 1 (or deeper / any boss)
+  //   2. Rack  (名刀廊 + 桓越): beat Act 1 Boss Shi Lei / enter Act 2
+  //   3. Garden (竹溪药圃 + 卢昭): reach Act 2 Room 3+ / beat Act 2 Boss Yan Hu
+  const forgeReady = forgeBuilt || bestRoom >= 2 || bestReg >= 1 || down >= 1 || p.wins > 0;
+  const rackReady = rackBuilt || down >= 1 || bestReg >= 1 || p.wins > 0;
+  const gardenReady = gardenBuilt || (bestReg >= 1 && bestRoom >= 3) || bestReg >= 2 || down >= 2 || p.wins > 0;
+  const lanternReady = allWeapons || forgeBuilt || (p.ads?.total ?? 0) > 0;
 
   const visibleNpcs: HideoutProgressState['visibleNpcs'] = isDuwuDead(p) ? ['sunao'] : ['duwu', 'sunao'];
   if (forgeBuilt) visibleNpcs.push('fengtiebi');
   if (gardenBuilt) visibleNpcs.push('luzhao');
   if (rackBuilt) visibleNpcs.push('huanyue');
 
+  // Strict single-zone queue: reveal at most ONE construction monument at a time so players are never bombarded with multiple systems at once
   const pendingZones: HideoutZoneId[] = [];
   if (forgeReady && !forgeBuilt) pendingZones.push('forge');
-  if (gardenReady && !gardenBuilt) pendingZones.push('garden');
-  if (rackReady && !rackBuilt) pendingZones.push('rack');
+  else if (rackReady && !rackBuilt) pendingZones.push('rack');
+  else if (gardenReady && !gardenBuilt) pendingZones.push('garden');
 
-  return { forgeReady, forgeBuilt, gardenReady, gardenBuilt, rackReady, rackBuilt, visibleNpcs, pendingZones };
+  return { forgeReady, forgeBuilt, gardenReady, gardenBuilt, rackReady, rackBuilt, lanternReady, visibleNpcs, pendingZones };
 }
 
 /** Pure 3D voxel construction monument (落成工碑, 100% axis-aligned 7cm voxel blocks, grounded at y = 0) */

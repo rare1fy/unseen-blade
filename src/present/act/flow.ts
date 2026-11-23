@@ -20,13 +20,13 @@ export function roomsWorth(region: number, room: number, won = false): number {
   return n + (won ? roomsIn(region) : Math.max(0, room)) * worthOf(region);
 }
 
-/** the foes' strength in region ri (act-138 Hades-A curve: genuine 5-region escalation so even a fresh save feels tense by Act 1-2 and late acts demand real builds + dodging) */
+/** the foes' strength in region ri (act-188: readable Act 1 entry with fair 1→3 concurrent melee cap and progressive late-act ramp) */
 export interface RegionScale { hp: number; dmg: number; quick: number; calm: number; attackers: number }
-const HP_CURVE  = [1.15, 1.65, 2.25, 3.00, 3.90];
-const DMG_CURVE = [1.25, 1.55, 1.85, 2.15, 2.50];
-const SPD_CURVE = [1.00, 1.08, 1.16, 1.24, 1.32];
-const CALM_OFF  = [0, -0.10, -0.18, -0.26, -0.34];
-const ATK_CAP   = [2, 3, 3, 4, 4];
+const HP_CURVE  = [1.00, 1.45, 2.00, 2.70, 3.50];
+const DMG_CURVE = [1.00, 1.30, 1.60, 1.90, 2.25];
+const SPD_CURVE = [0.95, 1.03, 1.11, 1.19, 1.27];
+const CALM_OFF  = [0, -0.08, -0.16, -0.24, -0.32];
+const ATK_CAP   = [1, 2, 2, 3, 3];
 const SHOP_MUL  = [1.0, 1.25, 1.55, 1.9, 2.3];
 export function regionScale(ri: number): RegionScale {
   const n = Math.max(0, Math.floor(ri));

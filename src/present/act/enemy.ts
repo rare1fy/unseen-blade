@@ -225,8 +225,8 @@ export function startAttack(f: Foe, w: FoeWorld, shape: TeleShape | null, windup
   f.a.tint(0x8a1a10, 0.7);
   for (const e of o.extra ?? []) { const t = new Tele(e.s, { low: e.low }); t.set(f.telePos.x, f.telePos.z, yaw + e.dy, 0); f.extra.push({ t, dy: e.dy }); }
   const wu = windup / TUNE.aggression * (f.elite ? 0.82 : 1) * (f.phase > 1 ? 0.78 : 1); setSt(f, 'windup', wu);
-  // act-113: staggered cross-beat between melee and ranged so arrows and slashes alternate cleanly instead of landing on the same frame
-  crossBeatUntil = Math.max(crossBeatUntil, clock.time + 0.30);
+  // act-113 / act-188: wider staggered cross-beat between melee and ranged so arrows and slashes alternate cleanly
+  crossBeatUntil = Math.max(crossBeatUntil, clock.time + 0.55);
   // the body's own wind-up: the attack action timed so its impact frame lands at the end of the wind-up
   const imp = o.act?.imp ?? (f.role === 'hound' ? 0.42 : 0.5), total = Math.max(wu / imp, wu + (o.act?.tail ?? 0));
   if (o.act) f.a.play(new Action(o.act.name, total, wu / total, o.act.data ?? {}));
@@ -242,7 +242,8 @@ export const lowAttack = (f: Foe) => f.st === 'windup' && !!f.shape && isLow(f, 
 let meleeCalmUntil = 0;
 let rangedCalmUntil = 0;
 let crossBeatUntil = 0;
-const meleeAttackers = (w: FoeWorld) => w.foes.reduce((n, o) => n + (o.attacking && o.st !== 'dead' && !isRangedFoe(o) ? (o.d.weight ?? (o.role === 'mob' || o.d.half ? 0.5 : 1)) : 0), 0);
+// act-188: every attacking melee foe counts as 1 full slot (no 0.5 half-weight mob pile-on!)
+const meleeAttackers = (w: FoeWorld) => w.foes.reduce((n, o) => n + (o.attacking && o.st !== 'dead' && !isRangedFoe(o) ? 1 : 0), 0);
 const rangedAttackers = (w: FoeWorld) => w.foes.reduce((n, o) => n + (o.attacking && o.st !== 'dead' && isRangedFoe(o) ? 1 : 0), 0);
 const attackers = (w: FoeWorld) => meleeAttackers(w);
 // ---- wp/regB: what the 'ext' AIs (foes/r45_ai.ts) share with the old ones
@@ -257,7 +258,7 @@ export const canStrike = (f: Foe, w: FoeWorld, o: { calm?: boolean; slots?: numb
 };
 /** the calm after a blow starts now (an AI that recovers in its own way) */
 export const markCalm = (f?: Foe) => {
-  if (f && isRangedFoe(f)) rangedCalmUntil = Math.max(rangedCalmUntil, clock.time + Math.max(0.55, TUNE.atkCalm * 0.9));
+  if (f && isRangedFoe(f)) rangedCalmUntil = Math.max(rangedCalmUntil, clock.time + Math.max(0.75, TUNE.atkCalm));
   else meleeCalmUntil = Math.max(meleeCalmUntil, clock.time + TUNE.atkCalm);
 };
 /** act-122: soft ally-spread steering shared across ALL 5 regions so melee/ranged foes fan out into flanking arcs / crossfire instead of clumping */

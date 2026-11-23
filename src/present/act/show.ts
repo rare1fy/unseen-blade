@@ -80,7 +80,7 @@ import {
 import { WEAPONS, WEAPON_ORDER, weaponDef, isWeaponUnlocked, weaponLevel, weaponNextCost, canForgeWeapon, hasAnyWeaponForgeable, forgeWeapon, equippedWeapon, equipWeapon, buildCourtyardWeaponRack, type WeaponId } from './weapons';
 import { KEEPSAKES, KEEPSAKE_ORDER, KEEPSAKE_STARS, keepsakeDef, isKeepsakeUnlocked, unlockKeepsake, keepsakeRooms, keepsakeStar, starLabel, equippedKeepsake, equipKeepsake, advanceKeepsake, buildKeepsakeBoxModel, type KeepsakeId } from './keepsakes';
 import { SEEDS, SEED_ORDER, PLOT_COSTS, ensureGarden, plotStatus, isPlotUnlocked, canUnlockPlot, unlockPlot, plantSeed, harvestPlot, ripenPlotNow, advanceGardenRooms, totalSeeds, ripePlotIndices, hasPlantablePlot, rollSeedDrop, addSeed, buildGardenPlotMesh } from './garden';
-import { HIDEOUT_ZONES, HIDEOUT_ZONE_ORDER, hideoutProgress, isDuwuDead, buildZoneMonumentModel, type HideoutZoneId } from './hideoutProgress';
+import { HIDEOUT_ZONES, HIDEOUT_ZONE_ORDER, hideoutProgress, isDuwuDead, recordStageProgress, buildZoneMonumentModel, type HideoutZoneId } from './hideoutProgress';
 import { showRewardedAd, setAdSimHost, type AdPlacement } from '../../platform/ads';
 import { AdSimModal } from './adModal';
 import {
@@ -163,7 +163,7 @@ import { dustBlocks, spawnClone, smokeBurst, cut as cloneCut } from '../kyoto/ni
 import { Dart, BladeWave } from './missiles';
 import { RUN_ROOMS, firstRoom, regionFirstRoom, roomOf, roomInfo, doorsFrom, settleReward, kindOr, isBossKind, type RoomPlan, type RoomType, type RunCtx } from './run';
 import { REGIONS } from './regions';
-import { isBossRoom, afterBoss, roomsWorth, regionScale, regionBanner, shopPriceMul } from './flow';
+import { isBossRoom, afterBoss, roomsIn, roomsWorth, regionScale, regionBanner, shopPriceMul } from './flow';
 import { Stations, type Station, type ShopSpecial } from './stations';
 import { Coins } from './coins';
 import { runBoard } from './runBoard';
@@ -334,7 +334,10 @@ function advanceAhead(job: Pick<AheadRoom, 'steps' | 'size' | 'ready' | 'wait'>,
   }
 }
 function onward(room: number, visited: RoomType[], region: number, ctx?: RunCtx) {
-  if (!isBossRoom(region, room)) return doorsFrom(room, visited, Math.random, region, ctx);
+  const p = profile();
+  const mustRest = (region === 0 && !isDuwuDead(p) && !p.seen['duwu_road_1'])
+    || (region === 1 && !isDuwuDead(p) && !p.seen['duwu_road_2']);
+  if (!isBossRoom(region, room)) return doorsFrom(room, visited, Math.random, region, ctx, mustRest);
   const next = afterBoss(region);
   return next === 'won' ? [] : [regionFirstRoom(next, Math.random)];
 }
@@ -1113,6 +1116,7 @@ export class ActShow {
     // 11-18: a room in region n counts n rooms; every boss killed counts (runReward's boss share is a boolean: the bosses past the first
     // go in as 5 rooms each — act-161: was 15, which alone was 60 rooms on a clear)
     const rooms = roomsWorth(this.region, this.room, won) + Math.max(0, this.bosses - 1) * 5;
+    recordStageProgress(p, this.region, won ? roomsIn(this.region) : this.room);
     this.banked = bank(p, { rooms, elites: this.eliteKills, boss: this.bossKilled, won, kills: this.kills });
     clearRunAdBuffs(p);
     saveProfile();
@@ -1332,24 +1336,28 @@ export class ActShow {
     const prog = hideoutProgress(p, this.dbgAllWeapons);
     this.syncHideoutSolids(prog);
 
-    // act-169 D1: 古窑长明灯（中庭典藏阁入口）& A4 四件古窑 3D 装潢 & A5 西翼试锋碑
+    // act-169 / act-188: stage-gated 古窑长明灯 (unlocks after Forge built or oil > 0) & 西翼试锋碑 (unlocks with 刀廊/桓越)
     {
-      const oil = ensureAds(p).total;
-      const lt = buildLanternStand(oil);
-      lt.g.position.set(HIDEOUT.lantern.x, 0, HIDEOUT.lantern.z);
-      this.stage.root.add(lt.g);
-      this.lanternMesh = lt.g;
-      this.lanternTick = lt.tick;
+      if (prog.lanternReady) {
+        const oil = ensureAds(p).total;
+        const lt = buildLanternStand(oil);
+        lt.g.position.set(HIDEOUT.lantern.x, 0, HIDEOUT.lantern.z);
+        this.stage.root.add(lt.g);
+        this.lanternMesh = lt.g;
+        this.lanternTick = lt.tick;
+      }
 
       const dec = buildHideoutDecor(activeHideoutDecors(p, this.dbgAllWeapons));
       this.stage.root.add(dec.g);
       this.decorMesh = dec.g;
       this.decorTick = dec.tick;
 
-      const ts = buildTrialStele();
-      ts.position.set(HIDEOUT.trialStele.x, 0, HIDEOUT.trialStele.z);
-      this.stage.root.add(ts);
-      this.trialSteleMesh = ts;
+      if (prog.rackBuilt) {
+        const ts = buildTrialStele();
+        ts.position.set(HIDEOUT.trialStele.x, 0, HIDEOUT.trialStele.z);
+        this.stage.root.add(ts);
+        this.trialSteleMesh = ts;
+      }
     }
 
     // act-154: when Du Wu has perished at Xiapi White Gate, his SE hearth becomes a warm memorial tended by Sun Ao (zero extra airwalls!)
@@ -2886,34 +2894,19 @@ export class ActShow {
     if (who === 'forge') { await this.forgeHubMenu(0); return; }
     await this.arcanaMenu();
   }
-  private async arcanaMenu(initialTab = 0) {
-    let tab = initialTab, focusIdx = 0, instant = false;
+  /** act-188: 孙婆婆悟性牌阵回归单屏直觉交互（去掉冗余「配牌｜精进」页签；点卡片仅选中，右侧直接给出「参悟」或「入阵/卸下 + 精进升阶」双钮） */
+  private async arcanaMenu() {
+    let focusIdx = 0, instant = false;
     for (;;) {
       const p = profile();
       ensureArcana(p);
       const used = arcanaUsed(p), cap = arcanaCap(p), nextCap = arcanaNextCapCost(p), actCnt = arcanaActiveCount(p);
       let refreshAction = false;
-      const canAnyUpgrade = ARCANA.some(def => {
-        const rk = arcanaRank(p, def.id), uc = arcanaUpgradeCost(p, def.id);
-        return rk > 0 && uc != null && p.herb >= uc;
-      });
-      const canAnyUnlock = ARCANA.some(def => arcanaRank(p, def.id) <= 0 && p.herb >= def.unlockCost);
-      const tabs = {
-        items: [
-          { id: 'equip', label: '配牌', badge: canAnyUnlock || (nextCap != null && p.herb >= nextCap) },
-          { id: 'insight', label: '精进', badge: canAnyUpgrade },
-        ],
-        active: tab,
-        onSwitch: (next: number) => { tab = next; instant = true; refreshAction = true; this.cards.cancelSilent(); },
-      };
       const cards: BoonPick[] = ARCANA.map(def => {
         const rk = arcanaRank(p, def.id);
         const active = isArcanaActive(p, def.id);
         const unlocked = rk > 0;
-        const upCost = arcanaUpgradeCost(p, def.id);
-        const canAct = tab === 0
-          ? (!unlocked && p.herb >= def.unlockCost)
-          : (unlocked && upCost != null && p.herb >= upCost);
+        const canAct = !unlocked && p.herb >= def.unlockCost;
         return {
           boon: {
             id: 'arc_' + def.id, school: 'md' as never, name: def.name,
@@ -2921,7 +2914,7 @@ export class ActShow {
             locked: !unlocked,
             arcanaInfo: {
               short: def.short, grasp: def.grasp, rank: rk, active,
-              unlockCost: tab === 0 ? def.unlockCost : (upCost ?? 0), have: p.herb, canUnlock: canAct, awakening: def.grasp === 0,
+              unlockCost: def.unlockCost, have: p.herb, canUnlock: canAct, awakening: def.grasp === 0,
             },
           } as CardBoon,
           tier: active ? 2 : unlocked ? 1 : 0,
@@ -2932,11 +2925,10 @@ export class ActShow {
         leave: true, layout: 'arcana', instant, initialFocus: focusIdx,
         header: {
           title: '孙婆婆 · 悟性牌阵',
-          sub: tab === 0 ? '启满 3 牌自动唤醒中宫' : '消耗药引升阶（1→3 阶）',
+          sub: '点选左侧悟性牌 · 右侧入阵或精进升阶 · 启满 3 牌唤醒中宫',
           col: '#90f6ba', accent: '#4eb47c',
         },
         wallet: { iron: p.iron, herb: p.herb, focus: 'herb' },
-        tabs,
         graspBar: {
           used, cap, nextCost: nextCap, have: p.herb, canExpand: nextCap != null && p.herb >= nextCap,
           onExpand: () => {
@@ -2949,6 +2941,19 @@ export class ActShow {
               cue('deny', 0.45);
             }
           },
+        },
+        onSub: idx => {
+          const def = ARCANA[idx];
+          if (!def) return;
+          focusIdx = idx;
+          if (arcanaRank(p, def.id) > 0 && upgradeArcana(p, def.id)) {
+            saveProfile();
+            cue('reveal', 0.85);
+            instant = true; refreshAction = true;
+            this.cards.cancelSilent();
+          } else {
+            cue('deny', 0.45);
+          }
         },
         workbench: idx => {
           const def = ARCANA[idx];
@@ -2967,22 +2972,8 @@ export class ActShow {
             : msg`占用悟性 ${def.grasp} · ${def.desc}`;
           const fmt = (val: number) => def.unit ? `${val}${def.unit}` : `+${val}`;
           const stats: WorkbenchStatRow[] = unlocked
-            ? [{ label: def.statLabel, before: fmt(curVal), after: tab === 1 && rk < 3 ? fmt(nextVal) : undefined, highlight: tab === 1 && rk < 3 }]
+            ? [{ label: def.statLabel, before: fmt(curVal), after: rk < 3 ? fmt(nextVal) : undefined, highlight: rk < 3 }]
             : [{ label: def.statLabel, before: '未参悟', after: fmt(def.vals[0]), highlight: true }];
-          if (tab === 1) {
-            return {
-              theme: 'medic',
-              title: def.name,
-              sub: unlocked ? msg`当前 ${rk} 阶 · ${def.desc}` : '请先在「配牌」页花药引参悟此牌',
-              lv: rk,
-              maxLv: 3,
-              stats,
-              btnLabel: !unlocked ? '尚未参悟' : upCost == null ? '三阶圆满' : '精进升阶',
-              btnCost: unlocked && upCost != null ? { cur: 'herb', amount: upCost, have: p.herb } : undefined,
-              btnEnabled: unlocked && canUp,
-              accent: active ? (isAwk ? '#ffe078' : '#7ef0aa') : '#4e9670',
-            };
-          }
           const btnLabel = !unlocked
             ? '参悟此牌'
             : isAwk
@@ -3002,16 +2993,19 @@ export class ActShow {
             lv: rk,
             maxLv: 3,
             stats,
-            note: isAwk ? '无需点击，任意启用 3 张牌后自动生效' : (!canEquip && unlocked && !active ? '点右上「拓悟性」或先卸下一张已启之牌' : undefined),
+            note: isAwk ? '无需点击，任意启用 3 张牌后自动生效' : (!canEquip && unlocked && !active ? '点上方「拓悟性」或先卸下一张已启之牌' : undefined),
             btnLabel,
             btnCost,
             btnEnabled: !unlocked ? p.herb >= def.unlockCost : isAwk ? false : (active || canEquip),
+            subBtnLabel: unlocked ? (upCost == null ? '三阶圆满' : '精进升阶') : undefined,
+            subBtnCost: unlocked && upCost != null ? { cur: 'herb', amount: upCost, have: p.herb } : undefined,
+            subBtnEnabled: unlocked && canUp,
             accent: active ? (isAwk ? '#ffe078' : '#7ef0aa') : '#4e9670',
           };
         },
         footer: PAD.device === 'pad'
-          ? msg`LB/RB 切模式 · ${padName(0)} ${tab === 0 ? '参悟/启停' : '精进升阶'} · ${padName(1)} 返回`
-          : 'Q/E 切模式 · Esc 返回',
+          ? msg`${padName(0)} 参悟/启停 · ${padName(3)} 精进升阶 · ${padName(1)} 返回`
+          : '点卡片选中 · 右侧操作 · Esc 返回',
       });
       this.phase = was; this.hud.on = true;
       if (refreshAction) continue;
@@ -3019,11 +3013,6 @@ export class ActShow {
       focusIdx = i; instant = true;
       const def = ARCANA[i];
       const rk = arcanaRank(p, def.id);
-      if (tab === 1) {
-        if (rk > 0 && upgradeArcana(p, def.id)) { saveProfile(); cue('reveal', 0.85); }
-        else cue('deny', 0.45);
-        continue;
-      }
       if (rk <= 0) {
         if (unlockArcana(p, def.id)) { saveProfile(); cue('reveal', 0.85); }
         else cue('deny', 0.45);
@@ -3193,9 +3182,9 @@ export class ActShow {
         const p = profile();
         this.dbgAllWeapons = false;
         delete p.seen[HIDEOUT_ZONES[zone].flag];
-        if (zone === 'forge') p.runs = Math.max(p.runs, 1);
-        else if (zone === 'garden') { p.runs = Math.max(p.runs, 2); delete p.garden; }
-        else { p.runs = Math.max(p.runs, 3); p.weapon = 'hanshan'; p.weaponLv = {}; }
+        if (zone === 'forge') { recordStageProgress(p, 0, 2); }
+        else if (zone === 'rack') { p.seen['build_forge'] = 1; recordStageProgress(p, 1, 0); p.weapon = 'hanshan'; p.weaponLv = {}; }
+        else { p.seen['build_forge'] = 1; p.seen['build_rack'] = 1; recordStageProgress(p, 1, 3); delete p.garden; }
         saveProfile();
         this.syncHideoutNpcs();
         this.refreshHideoutProps();
@@ -4476,13 +4465,19 @@ export class ActShow {
     const rd = { ri, rKey, actor: dw, pos: dp.clone(), talked: false, talking: false, exclaim };
     this.roadDuwu = rd;
     const h = this.hero;
-    // Gentle non-blocking greeting bark beside the campfire (same pattern as Traveling Merchant in shop rooms)
-    after(0.65, () => {
-      if (this.hero !== h || this.roadDuwu !== rd || rd.talked || rd.talking) return;
-      if (this.phase !== 'doors' || this.isUiModalOpen() || bladeBusy()) return;
-      const greet = ri === 0 ? '白哥，锅里温着热汤呢！' : '白哥，胡饼刚烤热乎！';
-      (this.barks ??= new Barks(this.L)).say(() => dw.head(), greet);
-    });
+    // act-188: rest rooms have zero enemies — auto-play Du Wu's roadside story cleanly once the room wipe settles (no manual click required!)
+    const tryAutoTalk = (tries: number) => {
+      after(tries === 0 ? 0.85 : 0.35, () => {
+        if (this.hero !== h || this.roadDuwu !== rd || rd.talked || rd.talking) return;
+        if (this.phase !== 'doors' || this.inCombat()) return;
+        if (bladeBusy() || this.isUiModalOpen()) {
+          if (tries < 14) tryAutoTalk(tries + 1);
+          return;
+        }
+        void this.talkRoadDuwu();
+      });
+    };
+    tryAutoTalk(0);
   }
   /** act-181: player-initiated roadside campfire talk with Du Wu (zero forced blocking, zero race with doors/stations/pause) */
   private async talkRoadDuwu() {
@@ -7257,9 +7252,11 @@ export class ActShow {
       this.banner.show(g.name, '并肩破阵 · 气血尽复', 1.5, '#ffe2a0');
     }
     if (this.prologue) { this.openDoors(); return; }   // act-29: the prologue's road just goes on
-    // act-132 / act-135: dual-track garden growth & seed drop only once 竹溪药圃 has been built
+    // act-132 / act-135 / act-188: record stage progress watermark & advance garden growth once 竹溪药圃 is built
     {
       const p = profile();
+      recordStageProgress(p, this.region, this.room + 1);
+      saveProfile();
       if (hideoutProgress(p, this.dbgAllWeapons).gardenBuilt) {
         const ripened = advanceGardenRooms(p, 1);
         const isBoss = this.plan?.type === 'boss' && isBossRoom(this.region, this.room);

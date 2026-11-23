@@ -951,11 +951,13 @@ export class UiPlatePool {
     const dpr = Math.max(1, Math.round(this.L.dpr || 1));
     const kk = uiScale(this.L.w, this.L.h, 0.8, 2.8);
     const pKey = `tabs|${SKIN.id}|${tabs.map(t => `${t.id}:${localize(t.label)}:${t.badge ? 1 : 0}`).join('|')}|${activeIdx}|${PAD.device}|${kk.toFixed(2)}|${dpr}|${language}`;
-    const u = Math.max(1, Math.round(1.8 * kk * dpr));
-    const pScale = Math.max(1, Math.floor((14.5 * kk * dpr) / PIX_H));
+    const u = Math.max(1, Math.round(2.0 * kk * dpr));
+    const compactRow = tabs.length >= 5 && this.L.w < 960;
+    const pScale = Math.max(1, Math.floor(((compactRow ? 15.5 : 18) * kk * dpr) / PIX_H));
     const tH = PIX_H * pScale;
-    const tabPadX = Math.round(15 * kk * dpr), tabGap = Math.round(9 * kk * dpr), padY = Math.round(5 * kk * dpr);
-    const widths = tabs.map(t => Math.max(Math.round(108 * kk * dpr), pixW(localize(t.label)) * pScale + tabPadX * 2 + (t.badge ? Math.round(12 * kk * dpr) : 0)));
+    const tabPadX = Math.round((compactRow ? 14 : 22) * kk * dpr), tabGap = Math.round((compactRow ? 8 : 12) * kk * dpr), padY = Math.round((compactRow ? 7 : 9) * kk * dpr);
+    const minW = Math.round((tabs.length >= 5 ? (compactRow ? 84 : 108) : 128) * kk * dpr);
+    const widths = tabs.map(t => Math.max(minW, pixW(localize(t.label)) * pScale + tabPadX * 2 + (t.badge ? Math.round(14 * kk * dpr) : 0)));
     const totalW = widths.reduce((a, b, idx) => a + b + (idx ? tabGap : 0), 0);
     const H = tH + padY * 2 + u * 2;
     if (pKey !== s.key) {

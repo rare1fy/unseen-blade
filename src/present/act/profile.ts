@@ -25,6 +25,9 @@ export interface AdProfileState {
 export interface Profile {
   v: 1;
   /** runs completed / won, deaths */ runs: number; wins: number; deaths: number;
+  /** act-188: furthest stage progress reached (region 0..4, rooms cleared in that region) — drives hideout facility unlocks */
+  bestRegion?: number;
+  bestRoom?: number;
   /** act-139 C2: runs cleared without using ad-revive (「孤刃独行」) */ soloWins?: number;
   /** the two currencies carried home from runs and purchased upgrade levels */
   iron: number; herb: number; perks: Record<string, number>;

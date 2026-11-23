@@ -172,7 +172,7 @@ export class SkinBtn {
     this.cover = plane(0x07050a, 0.6); this.fill = plane(0xffc848, 0.45);
     L.scene.add(this.root);
   }
-  hit(x: number, y: number) { const r = this.size * 0.6; return Math.abs(x - this.x) < r && Math.abs(y - this.y) < r; }
+  hit(x: number, y: number) { const r = this.size * 0.70; return Math.abs(x - this.x) < r && Math.abs(y - this.y) < r; }
   update(dt: number) {
     const L = this.L; this.tt += dt;
     this.pressK += ((this.down ? 1 : 0) - this.pressK) * Math.min(1, dt * 30);

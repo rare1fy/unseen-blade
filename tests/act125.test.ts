@@ -10,7 +10,7 @@ import {
 } from '../src/present/act/keepsakes';
 import { drawBoons, newPerks } from '../src/present/act/boons';
 import { HIDEOUT } from '../src/present/act/hideout';
-import { hideoutProgress, HIDEOUT_ZONE_ORDER, buildZoneMonumentModel } from '../src/present/act/hideoutProgress';
+import { hideoutProgress, recordStageProgress, HIDEOUT_ZONE_ORDER, buildZoneMonumentModel } from '../src/present/act/hideoutProgress';
 import { AREA } from '../src/present/scenes/props';
 import { doorsFrom, roomInfo } from '../src/present/act/run';
 import { GENERAL_EVENTS } from '../src/present/act/generalEvents';
@@ -178,35 +178,54 @@ describe('act-135: 据点渐进解锁、落成工碑与全图南侧延展', () =
     expect(s0.pendingZones).toEqual([]);
   });
 
-  it('按出征进度依次亮起三座落成工碑，建成后解锁对应同伴与设施', () => {
+  it('act-188: 按关卡进度依次逐项排队解锁三座落成工碑（不看出发次数，单次最多亮 1 座防过载）', () => {
     const p = fresh();
-    p.runs = 1;
+    // Even after many failed runs at room 1, forge does NOT unlock until clearing 2 rooms in Act 1
+    p.runs = 5;
     let s = hideoutProgress(p, false);
+    expect(s.pendingZones).toEqual([]);
+    expect(s.lanternReady).toBe(false);
+    expect(s.visibleNpcs).toEqual(['duwu', 'sunao']);
+
+    // Clearing Act 1 room 2 unlocks Forge monument ONLY
+    recordStageProgress(p, 0, 2);
+    s = hideoutProgress(p, false);
     expect(s.pendingZones).toEqual(['forge']);
     expect(s.visibleNpcs).toEqual(['duwu', 'sunao']);
 
+    // Even if player jumped straight to Act 2 Room 4 before building Forge, queue still shows ONLY 1 monument at a time
+    recordStageProgress(p, 1, 4);
+    p.seen['ch1_boss_after'] = 1;
+    s = hideoutProgress(p, false);
+    expect(s.pendingZones).toEqual(['forge']);
+
+    // Build Forge -> Feng Tiebi + Lantern unlock, next queued monument becomes Rack (Act 1 Boss beaten)
     p.seen['build_forge'] = 1;
     s = hideoutProgress(p, false);
     expect(s.forgeBuilt).toBe(true);
+    expect(s.lanternReady).toBe(true);
     expect(s.visibleNpcs).toEqual(['duwu', 'sunao', 'fengtiebi']);
-    expect(s.pendingZones).toEqual([]);
-
-    p.runs = 2;
-    s = hideoutProgress(p, false);
-    expect(s.pendingZones).toEqual(['garden']);
-    p.seen['build_garden'] = 1;
-    s = hideoutProgress(p, false);
-    expect(s.gardenBuilt).toBe(true);
-    expect(s.visibleNpcs).toEqual(['duwu', 'sunao', 'fengtiebi', 'luzhao']);
-
-    p.seen['ch1_boss_after'] = 1;
-    s = hideoutProgress(p, false);
     expect(s.pendingZones).toEqual(['rack']);
+
+    // Build Rack -> Huan Yue unlocks, next queued monument becomes Garden (Act 2 Room 3+ reached)
     p.seen['build_rack'] = 1;
     s = hideoutProgress(p, false);
     expect(s.rackBuilt).toBe(true);
+    expect(s.visibleNpcs).toEqual(['duwu', 'sunao', 'fengtiebi', 'huanyue']);
+    expect(s.pendingZones).toEqual(['garden']);
+
+    // Build Garden -> Lu Zhao + 6 plots unlock, queue empties
+    p.seen['build_garden'] = 1;
+    s = hideoutProgress(p, false);
+    expect(s.gardenBuilt).toBe(true);
     expect(s.visibleNpcs).toEqual(['duwu', 'sunao', 'fengtiebi', 'luzhao', 'huanyue']);
     expect(s.pendingZones).toEqual([]);
+
+    // act-188: Du Wu pre-boss rest room guarantee when player skipped earlier rests
+    const rnd = makeRng(42);
+    const forced = doorsFrom(5, ['fight', 'fight', 'elite', 'shop', 'fight', 'fight'], rnd, 0, undefined, true);
+    expect(forced).toHaveLength(1);
+    expect(forced[0].type).toBe('rest');
   });
 
   it('调试全开开关立即呈现全部五位同伴与全部据点设施', () => {

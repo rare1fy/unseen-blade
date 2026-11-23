@@ -246,19 +246,21 @@ export class ActHud {
     const fk = Math.max(0.68, 0.88 * k);
     this.flask.place(Math.max(38, 48 * k), Math.max(44, 54 * k), fk);
     this.feedAt = { x: Math.max(20, 48 * k - 16 * fk), y: Math.max(44, 54 * k) + 106 * fk };
-    this.stickHome = { x: 160 * k, y: H - 140 * k }; this.stickSize = 170 * k;
     const touch = isTouchLayout();
     this.layoutTouch = touch;
+    // act-188: keep mobile touch thumb-arc comfortably sized on 360~412px-tall landscape phones (tk >= 0.76)
+    const tk = touch ? Math.max(0.76, Math.min(k * 1.12, H / 480)) : k;
+    this.stickHome = { x: 146 * tk, y: H - 122 * tk }; this.stickSize = 180 * tk;
     const b = this.btns;
     if (touch) {
       // Mobile touch mode: bottom-right thumb arc round the big cut button + QTE-only ult pop-in + bottom-left virtual joystick
       if (b.attack instanceof IronBtn) { b.attack.badgeSide = 1; b.attack.pipArc = [1.25, 0.38]; b.attack.pipR = 0.6; }
-      b.attack.size = 150 * k; b.dash.size = 100 * k; b.special.size = 100 * k; b.jump.size = 100 * k;
-      b.attack.x = W - 150 * k; b.attack.y = H - 140 * k;
-      b.dash.x = W - 300 * k; b.dash.y = H - 92 * k;
-      b.jump.x = W - 292 * k; b.jump.y = H - 238 * k;
-      b.special.x = W - 150 * k; b.special.y = H - 300 * k;
-      b.ult.size = 136 * k; b.ult.x = W - 252 * k; b.ult.y = H - 246 * k;
+      b.attack.size = 160 * tk; b.dash.size = 108 * tk; b.special.size = 108 * tk; b.jump.size = 108 * tk;
+      b.attack.x = W - 140 * tk; b.attack.y = H - 120 * tk;
+      b.dash.x = W - 284 * tk; b.dash.y = H - 82 * tk;
+      b.jump.x = W - 274 * tk; b.jump.y = H - 214 * tk;
+      b.special.x = W - 140 * tk; b.special.y = H - 268 * tk;
+      b.ult.size = 140 * tk; b.ult.x = W - 242 * tk; b.ult.y = H - 222 * tk;
     } else {
       // Console / PC mode: NO virtual joystick, 4-medallion forged-iron horizontal skill dock centered at bottom; 不见刀 pops above ONLY during QTE!
       const cx = W * 0.5, dockY = H - 80 * k, step = 96 * k;
@@ -306,12 +308,21 @@ export class ActHud {
     if (this.buildPid === id && (type === 'up' || type === 'cancel')) { const fire = type === 'up' && this.hitBuildStrip(x, y); this.buildPid = null; if (fire) this.onOpenOwned?.(); return true; }
     if (this.buildPid === id && type === 'move') return true;
     if (type === 'down') {
+      // act-188: pick the closest matching button (with generous touch hitboxes) so thumbs never fall into dead gaps or hit a neighbor
+      let best: AnyBtn | null = null, bestD = 1e9;
       for (const b of Object.values(this.btns)) {
         if (b === this.btns.ult && !this.ultUp) continue;
         const hit = b === this.btns.ult
-          ? (Math.abs(x - b.x) < Math.max(b.size, this.home.ult?.size ?? b.size) * 0.7 && Math.abs(y - b.y) < Math.max(b.size, this.home.ult?.size ?? b.size) * 0.7)
+          ? (Math.abs(x - b.x) < Math.max(b.size, this.home.ult?.size ?? b.size) * 0.72 && Math.abs(y - b.y) < Math.max(b.size, this.home.ult?.size ?? b.size) * 0.72)
           : b.hit(x, y);
-        if (hit) { b.down = true; b.pid = id; inp.press(b.name, id, touch); if (b.name === 'special') inp.aimBegin(id, b.x, b.y, x, y); return true; }
+        if (!hit) continue;
+        const d = Math.hypot(x - b.x, y - b.y) / Math.max(1, b.size);
+        if (d < bestD) { best = b; bestD = d; }
+      }
+      if (best) {
+        best.down = true; best.pid = id; inp.press(best.name, id, touch);
+        if (best.name === 'special') inp.aimBegin(id, best.x, best.y, x, y);
+        return true;
       }   // act-14 用户：「按操作的按钮不要有音效」
       // the virtual joystick only responds on actual touch input or when touch layout is explicitly active (never on desktop mouse clicks)
       if (!touch && !this.layoutTouch) return false;
@@ -356,7 +367,7 @@ export class ActHud {
         continue;
       }
       if (this.layoutTouch) {
-        const g = 1 - 0.16 * e; b.x = W + (h.x - W) * g; b.y = H + (h.y - H) * g; b.size = h.size * (1 - 0.18 * e);
+        const g = 1 - 0.10 * e; b.x = W + (h.x - W) * g; b.y = H + (h.y - H) * g; b.size = h.size * (1 - 0.10 * e);
       } else {
         b.x = h.x; b.y = h.y + 4 * this.k * e; b.size = h.size * (1 - 0.06 * e);
       }

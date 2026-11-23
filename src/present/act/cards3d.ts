@@ -219,7 +219,7 @@ export class CardPick3D {
 
     const headerH = this.header ? (this.header.sub ? (L.h < 460 && isArcana ? 64 : 78) : 54) * kk : 0;
     const oilH = this.oilTrackOpt ? (L.h < 460 ? 44 : 52) * kk : 0;
-    const tabsH = this.tabsOpt ? 44 * kk : this.graspBarOpt ? (L.h < 460 ? 38 : 46) * kk : 0;
+    const tabsH = this.tabsOpt ? (L.h < 460 ? 46 : 56) * kk : this.graspBarOpt ? (L.h < 460 ? 40 : 48) * kk : 0;
     const crownPad = isMirrorGrid ? 34 * kk : isShop ? 26 * kk : isLantern ? 18 * kk : (isWeapons && L.h < 460 ? 14 * kk : 0);
     const topPad = (this.header || this.wallet ? Math.max(headerH, 52 * kk) : 16 * kk) + oilH + tabsH + crownPad + 14 * kk;
     const detailH = (isKeepsake || isWeapons || isLantern) && this.detailOpt ? (isLantern ? 90 : 128) * kk : 0;
@@ -847,7 +847,7 @@ export class CardPick3D {
 
     const bothTabsAndGrasp = !!(this.tabsOpt && this.graspBarOpt && this.layoutMode === 'arcana');
     if (this.tabsOpt && showChrome) {
-      const tabY = this.oilTrackOpt ? oilY + (L.h < 460 ? 40 : 48) * kk : (this.header?.sub ? 102 : 82) * kk;
+      const tabY = this.oilTrackOpt ? oilY + (L.h < 460 ? 44 : 54) * kk : (this.header?.sub ? 106 : 86) * kk;
       const tabX = bothTabsAndGrasp ? this.arcGridX : L.w / 2;
       this.tabRects = this.plates.setTabs('cards.tabs', this.tabsOpt.items, this.tabsOpt.active, tabX, tabY);
     } else {

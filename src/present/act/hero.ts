@@ -505,16 +505,19 @@ export class Hero {
         }
         if (canDash) { this.coilT = 0; this.buf.dash = 0; this.startDash(w); break; }
         if (canJump) { this.coilT = 0; this.buf.jump = 0; this.startJump(); break; }
-        // act-109 (普攻起手去延迟): pressing 斩 in free state snaps aim & coils on frame 0; releasing within holdToCharge fast-forwards
-        // the cut's wind-up by the time already coiled; holding past holdToCharge flows straight into 藏锋 with no unwanted cut
-        if (A.down && !this.atkEaten && !holding) {
+        // act-188: when Qi is below 1 bar (cannot enter 藏锋 anyway), fire the opening slash immediately on PRESS — zero release lag and zero swallowed taps!
+        const canChargeNow = this.qi >= QI_COST - 1e-6 || (this.weaponId === 'blunt' && this.freeFlash);
+        if (canChargeNow && A.down && !this.atkEaten && !holding) {
           if (this.coilT <= 0) { this.aim(w); this.readyT = 2.2; }
           this.coilT += dt;
           this.vel.multiplyScalar(Math.exp(-dt * 5));
         }
-        // a tap cuts (at the release; a press begun in the last cut carries the combo on); a hold goes straight into the stance, no cut
-        if (this.buf.atk > 0) {
-          const skip = this.coilT; this.coilT = 0; this.buf.atk = 0;
+        // a tap cuts (immediately on press when no Qi for 藏锋, or at release when Qi is ready); a hold with Qi goes straight into 藏锋
+        const instantNoQiCut = !canChargeNow && this.buf.press > 0 && !this.atkEaten;
+        if (this.buf.atk > 0 || instantNoQiCut) {
+          const skip = instantNoQiCut ? 0 : this.coilT;
+          this.coilT = 0; this.buf.atk = 0;
+          if (instantNoQiCut) { this.buf.press = 0; this.atkEaten = true; }
           // 游身不断招: out of a dash that broke off the combo, the combo goes on from the side
           if (this.keepOpen) { const n = this.keepNext!; const ks = this.keepStep ?? undefined; this.keepNext = null; this.keepStep = null; this.keepT = 0; this.pendT = 0; this.pendStep = null; this.startCut(n, w, false, false, true, skip, ks); this.sideCut(w); break; }
           // 停顿变招: a beat's pause after the 2nd cut, then a press = the 3rd as a double spin that sweeps everyone outward

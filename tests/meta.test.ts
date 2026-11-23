@@ -118,21 +118,23 @@ describe('hideout upgrades', () => {
 });
 
 describe('run rewards', () => {
-  it('calculates death and win rewards so even an early failed run affords upgrades', () => {
+  it('calculates death and win rewards so the first trip home affords ~1–2 upgrades without flooding', () => {
     const p = fresh(); p.iron = 0; p.herb = 0;
-    const earlyFail = { rooms: 1, elites: 0, boss: false, won: false, kills: 9 };
+    const earlyFail = { rooms: 2, elites: 0, boss: false, won: false, kills: 10 };
     const r0 = runReward(earlyFail);
-    expect(r0.iron).toBeGreaterThanOrEqual(10);
+    expect(r0.iron).toBeGreaterThanOrEqual(9);
     expect(r0.herb).toBeGreaterThanOrEqual(10);
+    expect(r0.iron).toBeLessThanOrEqual(14);
+    expect(r0.herb).toBeLessThanOrEqual(16);
 
     const death = { rooms: 4, elites: 2, boss: false, won: false, kills: 19 };
     const win = { rooms: 6, elites: 1, boss: true, won: true, kills: 20 };
-    expect(runReward(death)).toEqual({ iron: 28, herb: 32 });
-    expect(bank(p, death)).toEqual({ iron: 28, herb: 32 });
-    expect(p).toMatchObject({ iron: 28, herb: 32, runs: 1, wins: 0, deaths: 1 });
-    expect(runReward(win)).toEqual({ iron: 60, herb: 53 });
-    expect(bank(p, win)).toEqual({ iron: 60, herb: 53 });
-    expect(p).toMatchObject({ iron: 88, herb: 85, runs: 2, wins: 1, deaths: 1 });
+    expect(runReward(death)).toEqual({ iron: 20, herb: 22 });
+    expect(bank(p, death)).toEqual({ iron: 20, herb: 22 });
+    expect(p).toMatchObject({ iron: 20, herb: 22, runs: 1, wins: 0, deaths: 1 });
+    expect(runReward(win)).toEqual({ iron: 46, herb: 41 });
+    expect(bank(p, win)).toEqual({ iron: 46, herb: 41 });
+    expect(p).toMatchObject({ iron: 66, herb: 63, runs: 2, wins: 1, deaths: 1 });
   });
 });
 

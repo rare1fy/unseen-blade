@@ -371,10 +371,9 @@ export interface RunStats { rooms: number; elites: number; boss: boolean; won: b
 
 export function runReward(s: RunStats): { iron: number; herb: number } {
   return {
-    // act-161: a room 5 -> 3, an elite 8 -> 4, the boss 25 -> 15, the win 20 -> 15 (with flow.ts's flatter room worth: one clear is about 45% of the tree, not 141%)
-    // (the base 6 -> 8: a run that ends in its first room still buys the cheapest forge level)
-    iron: Math.round(8 + 3 * s.rooms + 4 * s.elites + (s.boss ? 15 : 0) + (s.won ? 15 : 0)),
-    herb: Math.round(8 + 3 * s.rooms + Math.floor(s.kills / 3) * 2 + (s.won ? 15 : 0)),
+    // act-188: tightened early-run income so the first trip home affords ~1–2 upgrades instead of flooding 4–5 at once
+    iron: Math.round(4 + 2.5 * s.rooms + 3 * s.elites + (s.boss ? 12 : 0) + (s.won ? 12 : 0)),
+    herb: Math.round(4 + 2.5 * s.rooms + Math.floor(s.kills / 4) * 2 + (s.won ? 12 : 0)),
   };
 }
 

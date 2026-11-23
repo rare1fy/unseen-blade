@@ -254,7 +254,7 @@ export class IronBtn {
     this.icon = name === 'ult' ? skillIcon3D('ult') : btnIcon3D(name); this.iconG.add(this.icon);   // (11-18: 不见刀's own button)
     L.scene.add(this.root); L.scene.add(this.iconG); batchUi(this.root); batchUi(this.iconG);
   }
-  hit(x: number, y: number) { const r = this.size * 0.6; return Math.abs(x - this.x) < r && Math.abs(y - this.y) < r; }
+  hit(x: number, y: number) { const r = this.size * 0.70; return Math.abs(x - this.x) < r && Math.abs(y - this.y) < r; }
   update(dt: number) {
     const L = this.L; this.tt += dt;
     // the charge lamps: built once the button is told how many there are; lit bronze = a dart in hand, dark = spent

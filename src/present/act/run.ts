@@ -120,10 +120,14 @@ function distinctFork(pair: RoomPlan[], r: Rnd): RoomPlan[] {
   return pair;
 }
 
-export function doorsFrom(from: number, visited: RoomType[], r: Rnd, ri = 0, ctx?: RunCtx): RoomPlan[] {
+export function doorsFrom(from: number, visited: RoomType[], r: Rnd, ri = 0, ctx?: RunCtx, mustRest = false): RoomPlan[] {
   const next = from + 1, N = regionRooms(ri);
   if (next >= N) return [];
   if (next === N - 1) return [roomOf('boss', next, r, ri)];
+  // act-188: guarantee a single pre-boss campfire rest room in Acts 1 & 2 if the player skipped earlier rests and hasn't seen Du Wu's roadside story yet
+  if (mustRest && next === N - 2 && !visited.includes('rest')) {
+    return [roomOf('rest', next, r, ri, ctx)];
+  }
   const current = visited[visited.length - 1];
   if (current === 'rest' || current === 'shop' || current === 'boon' || current === 'event') {
     const fightFirst = r() < 2 / 3;
