@@ -13,7 +13,7 @@ import { format, language, msg, setLanguage } from './i18n';
 // 打开游戏先到练武场（yard.ts：木人桩、召唤石板、换装木台），走进后面的「出发」路口开始一局；死了或打完回练武场。
 // 砍飞的箭：方向在出刀朝向左右 75° 里随机、附近有敌人就偏过去；砍中那一下顿帧 + 闪光 + 短慢放（用户：「这种属于高光操作，应该要有顿帧」）。
 import * as THREE from 'three';
-import { V3, onUpdate, R, scene, warm, frames, precompile } from '../engine/world';
+import { V3, onUpdate, onRealUpdate, R, scene, warm, frames, precompile } from '../engine/world';
 import { hitstop, shake, slowmo, after, anim, clock, FX, waitReal, PAUSE } from '../engine/clock';
 import { shot, CINE_PX } from '../director';
 import { fxImpact, fxSparks, fxSmoke, fxRing, fxEmbers, fxFlare, fxGlow, fxChips, trailSeg } from '../fx/fx';
@@ -170,7 +170,9 @@ import { runBoard } from './runBoard';
 import { HitArcs } from './hitArc';
 import { playOpening, OPENING_SPEC } from './opening';
 import { wantOpening } from './openingFlag';
-import { stopTitle, playTitle, titlePointer } from './title';
+import { stopTitle, playTitle, titlePointer, titleClubAnchor } from './title';
+import { GameClubBadge, type GameClubPlacement } from './gameClubBadge';
+import { getGameClubState } from '../../platform/gameClub';
 import { wantTitle, savedTitle, TITLE_COUNT } from './titleFlag';
 import { PX, setPixel } from '../look/pixel';
 import { craftLabel, cycleCraft } from '../look/craft';
@@ -426,6 +428,7 @@ export class ActShow {
   private mods: RunMods = { dmgMul: 1, critBonus: 0, dartBonus: 0, startCoins: 0, hpBonus: 0, deathDefy: 0, startIntent: 0, windupMul: 1, startManual: false, poiseHeal: 0, firstStrikeBonus: 0, styleBonus: 0, dashCdMul: 1, counterBonus: 0, markedDmgBonus: 0, poiseDmgMul: 1, rareOddsBonus: 0, interestRate: 0 };
   /** act-169: rewarded ad modal, per-run revive & divination trackers, and hideout 3D extras */
   private adModal!: AdSimModal;
+  private gameClub!: GameClubBadge;
   private usedRevive = false;
   private divineSchoolRun: Archetype | null = null;
   private lanternMesh: THREE.Group | null = null; private lanternTick: ((t: number) => void) | null = null;
@@ -3117,6 +3120,7 @@ export class ActShow {
     HP_FACE.id = this.wearing.id;   // the HP medallion shows the look she wears
     this.hud = new ActHud(this.L); this.cards = new CardPick(this.L); this.worldPlates = new UiPlatePool(this.L); this.banner = new SkinBanner(this.L, SKIN.id, () => this.hud.bossOn);
     this.adModal = new AdSimModal(this.L); setAdSimHost(info => this.adModal.open(info));
+    this.gameClub = new GameClubBadge(this.L);
     this.syncCollectorVisuals();
     // act-165: latch all inputs whenever a modal card/hideout UI opens or closes so confirm/back presses (e.g. Pad A = dash, Space, J) never leak to the hero
     this.cards.onOpen = () => { this.inp.latch(true); padNav.sync(); };
@@ -3129,6 +3133,7 @@ export class ActShow {
       window.addEventListener('keyup', e => this.keyUp(e));
     }
     onUpdate((dt, rdt) => this.frame(dt, rdt));
+    onRealUpdate(() => this.syncGameClub());
     this.layout2();
     // the player's settings: the tuning panel shows the long labels, the pause menu's 设置 page the short ones (act-30 之后)
     // (11-18 用户：「调试只在我们本地打的桌面包里面存在就行了，比如换角色、换开场场景啥的」: dbg = a test switch — the WeChat and
@@ -3228,6 +3233,7 @@ export class ActShow {
       },
       lantern: (tab = 0) => { void this.lanternMenu(tab); return { tab }; },
       testDead: () => { this.usedRevive = false; this.dead(); return true; },
+      gameClub: () => getGameClubState(),
       allWeapons: (on = true) => { this.dbgAllWeapons = on; this.syncHideoutNpcs(); this.refreshHideoutProps(); return on; },
       /** act-135: preview a hideout zone construction monument (run=false) or full 3D construction ceremony (run=true) */
       revealZone: (zone: HideoutZoneId = 'forge', run = true) => {
@@ -8201,6 +8207,23 @@ export class ActShow {
       }
     }
     return near;
+  }
+  /** act-180: single-source-of-truth WeChat Game Club visibility & placement (title corner / peaceful hideout top-right / pause main) */
+  private syncGameClub() {
+    if (!this.gameClub) return;
+    let placement: GameClubPlacement = { kind: 'none' };
+    const blocked = bladeBusy() || bladeWorking() || !!this.adModal?.on || this.cards.on || this.dialogue.on || this.timeline.on || this.labOn || this.demo.on;
+    if (!blocked) {
+      if (this.pause.on) {
+        if (this.pause.page === 'main') placement = { kind: 'pause' };
+      } else if (this.phase === 'title') {
+        const tc = titleClubAnchor();
+        if (tc.active) placement = { kind: 'title', menuSide: tc.side };
+      } else if (this.phase === 'yard' && !this.inCombat() && !this.donningHat && !this.departAnim && !this.noTalk) {
+        placement = { kind: 'yard' };
+      }
+    }
+    this.gameClub.sync(placement);
   }
   private wasUiModal = false;
   private frame(dt: number, rdt: number) {

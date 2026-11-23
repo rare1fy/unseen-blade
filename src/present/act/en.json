@@ -403,6 +403,7 @@
   "典藏解锁 · 首领约战与自由配招": "Collector Unlock · Boss Sparring & Build Sandbox",
   "养气": "Vitality",
   "内含全人物配音试听与 Boss 机制指南": "Includes full character voice gallery & Boss tactical guide",
+  "内含全人物配音试听与首领机制指南": "Includes full voice auditions and boss mechanics guide",
   "再偏半寸，喉管就断了。阎王都嫌你命苦。": "Half an inch more and your throat was gone. Even death takes pity on you.",
   "再想想": "Stay Here",
   "再按镖拉回身前！": "Press Dart again to yank foe in!",
@@ -459,6 +460,7 @@
   "击筑起音，乱她耳力！": "Strike the zhu, confound her ears!",
   "击筑！乱这瞎子的耳！": "Play the zhu! Drown out her ears!",
   "击败本关BOSS，进入下一章": "Defeat the stage boss to advance",
+  "击败本关首领，进入下一章": "Defeat this chapter's boss to advance",
   "击败首领后进入下一关": "Defeat the boss to reach next act",
   "刀……在哪。": "My blade... Where?",
   "刀一到手，崔长史便派人来灭口。": "Once the blades were his, the Chief Clerk sent men to silence us.",
@@ -922,6 +924,7 @@
   "已佩": "Eq",
   "已借试一局 · {0}": "Trial Active (1 Run) · {0}",
   "已入手": "Owned",
+  "已入阵": "Active",
   "已关闭": "Off",
   "已切换 · {0}": "Switched · {0}",
   "已卸下信物": "Keepsake unequipped",
@@ -957,7 +960,6 @@
   "已获赠": "Unlocked",
   "已解锁": "Unlocked",
   "已达 ★★★ 圆满": "Max Rank ★★★",
-  "已入阵": "Active",
   "已达成 · 典藏已永久解锁": "Completed · Permanently unlocked",
   "已配": "Equipped",
   "已配·{0}": "On · {0}",
@@ -1615,6 +1617,7 @@
   "温脉药汤 · 血+18 重随+1": "Warming Brew · +18 HP & +1 Reroll",
   "温脉药汤 · 血+18 铜钱+35": "Warming Brew · HP +18, Coins +35",
   "温脉药汤 · 血+25 重随+1": "Warming Brew · HP +25, Reroll +1",
+  "游戏圈": "Club",
   "游身斩": "Flowing Blade",
   "湿马道": "Flooded Ramp",
   "满 · {0}级": "Max Lv. {0}",
@@ -2737,7 +2740,5 @@
   "（风雪灌入破庙，刘白停在石阶下，侧耳听着殿内）": "(Snow blows into the ruined temple. Liu Bai stops below the steps and listens.)",
   "（风雪自破碎的阁门呼啸灌入，霜刃悬在毫厘之间）": "(Snow howls through the broken door. The frosted edge hangs a hair away.)",
   "（风雪骤急，刘白微偏下颌，按住刀镡）": "(The snow thickens. Liu Bai tilts her chin, a hand on the guard.)",
-  "（默默指了指刀刃上崩出的三个缺口，一锤砸扁烧红的铁块）": "(He points out three nicks in the blade, then flattens a red-hot billet.)",
-  "击败本关首领，进入下一章": "Defeat this chapter's boss to advance",
-  "内含全人物配音试听与首领机制指南": "Includes full voice auditions and boss mechanics guide"
+  "（默默指了指刀刃上崩出的三个缺口，一锤砸扁烧红的铁块）": "(He points out three nicks in the blade, then flattens a red-hot billet.)"
 }

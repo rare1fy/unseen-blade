@@ -649,6 +649,10 @@ export function playTitle(n: number, host: TitleHost) {
 /** show.ts pointer(): the title takes the pointer while it is up */
 export function titlePointer(type: string, x: number, y: number) { return running ? running.pointer(type, x, y) : false; }
 export const titleRunning = () => !!running;
+/** act-179: whether the title main menu is settled and which side the title menu column occupies (for WeChat Game Club placement) */
+export function titleClubAnchor(): { active: boolean; side: 'left' | 'right' } {
+  return running ? running.clubAnchor() : { active: false, side: 'right' };
+}
 /** act-40: put the title away now (a new game that opens on black cards changes no stage, which used to take the title down) */
 export function stopTitle() { running?.stop(); }
 onUpdate((dt, rdt) => running?.update(dt, rdt));
@@ -1090,6 +1094,12 @@ class Title {
     if (this.sword) { this.sword.root.position.copy(this.heroAt); if (yaw != null) this.sword.root.rotation.y = yaw; }
   }
   skip(s: number) { for (let i = 0; i < Math.round(s * 30); i++) this.update(1 / 30, 1 / 30); }
+  clubAnchor(): { active: boolean; side: 'left' | 'right' } {
+    return {
+      active: this.alive && this.beat === 'menu' && !PAUSE.menu && this.t >= 1.65,
+      side: this.def.ui,
+    };
+  }
   info() { const pt = this.hero ? this.hero.home : this.heroAt; return { n: this.n, id: this.def.id, beat: this.beat, t: +this.t.toFixed(2), sel: this.items[this.sel]?.id, items: this.items.map(i => `${i.label}${i.enabled ? '' : '(off)'}`), hero: pt.toArray().map(v => +v.toFixed(2)), cam: camera.position.toArray().map(v => +v.toFixed(2)) }; }
   // ---------------------------------------------------------------- the end
   /** the act's world takes over: give back the pose hook, the grade, the shadows and the motes; the place's effects go */

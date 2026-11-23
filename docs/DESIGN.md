@@ -2178,3 +2178,17 @@
   3. **场景提示小标显示逻辑与样式双向精简（[show.ts](src/present/act/show.ts)、[uiPlate.ts](src/present/act/uiPlate.ts)）**：
      - 样式：`setTag` 普通世界标改为轻透暗墨细框单行微签（去掉厚双框、粗色块与冗余副标），视觉体积缩减约 55%；
      - 逻辑：据点走近任意目标弹出 `ho.active` 交互牌时自动压暗隐藏其余旁标；平时按 `4.4m` 半径（成熟药畦/未建工碑 `6.0m`）+ 优先级/距离 **Top-3 上限** + **屏幕间距 `<105px` 防叠剔除**，彻底清净。
+
+
+---
+
+## 微信小游戏「游戏圈」能力接入（act-180，11-23）
+
+- **依据文档**：微信小游戏官方开放能力「游戏圈」（`wx.createGameClubButton` / `wx.getMenuButtonBoundingClientRect` / `wx.getGameClubData`）。
+- **核心设计**：
+  1. **防黑块透明覆盖（`src/platform/gameClub.ts` + `tools/build-wechat.mjs`）**：由于微信原生组件在部分 Android 机型上对 `type:'text'` + `rgba(0,0,0,0)` 会出现黑/白底块，构建时自动写入 67 字节 1×1 全透明 PNG `assets/px_blank.png`，采用 `type:'image'` 严丝合缝覆盖在游戏自绘的硬边像素「游戏圈」铁木牌匾上（`>= 44×40` 逻辑像素），同时保留 `GAME_CLUB_CONFIG.openlink`（可配直达活动/攻略帖）、`hasRedDot` 与 `useNativeIcon` 开关。
+  2. **三场景单源状态机（`src/present/act/gameClubBadge.ts` + `show.ts:syncGameClub`）**：
+     - **开始画面主菜单**：自动避让菜单列置左下角（雪夜破庙 `ui:'right'`）或右下角（`ui:'left'`），严守 `safeArea`；
+     - **据点和平态**：优先放在微信右上角官方胶囊正左方垂直居中，窄屏则自动落至胶囊正下方，零重叠；
+     - **暂停主界面**：居右下角，方便玩家战斗途中随时切入社区看攻略或反馈；
+     - **零打断保护**：战斗、对话、选牌、典藏阁、暂停二级页、戴斗笠演出与竹帘转场期间当帧隐藏原生按钮，绝不遮挡任何游戏 UI 或触控。

@@ -121,6 +121,9 @@ for (const e of fs.readdirSync(OUT)) { if (e === 'project.config.json' || e === 
 fs.writeFileSync(path.join(OUT, 'game.js'), bootGameJs);
 fs.mkdirSync(path.join(OUT, 'engine'), { recursive: true });
 fs.writeFileSync(path.join(OUT, 'engine', 'game.js'), engineGameJs);
+// act-179: 1x1 transparent PNG (67 bytes) for WeChat wx.createGameClubButton transparent hitbox overlay (avoids Android rgba black-box bug)
+fs.mkdirSync(path.join(OUT, 'assets'), { recursive: true });
+fs.writeFileSync(path.join(OUT, 'assets', 'px_blank.png'), Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVQI12NgAAIAAAUAAeImBZsAAAAASUVORK5CYII=', 'base64'));
 const subs = new Set(['engine']);
 for (const { to, data } of scenes.values()) {
   const dst = path.join(OUT, to);

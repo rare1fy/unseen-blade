@@ -37,6 +37,21 @@
   window.wx = {
     createCanvas() { if (!first) { first = document.createElement('canvas'); first.width = Math.round(W * dpr); first.height = Math.round(H * dpr); first.style.cssText = `width:${W}px;height:${H}px;display:block`; document.body.appendChild(first); return first; } return document.createElement('canvas'); },
     getSystemInfoSync: () => ({ windowWidth: W, windowHeight: H, screenWidth: W, screenHeight: H, pixelRatio: dpr, platform: 'devtools', system: 'sim', safeArea: { left: 0, right: W, top: 0, bottom: H, width: W, height: H } }),
+    getWindowInfo: () => ({ windowWidth: W, windowHeight: H, screenWidth: W, screenHeight: H, pixelRatio: dpr, safeArea: { left: 0, right: W, top: 0, bottom: H, width: W, height: H } }),
+    getMenuButtonBoundingClientRect: () => ({ left: Math.max(0, W - 102), top: 12, width: 87, height: 32, right: Math.max(87, W - 15), bottom: 44 }),
+    createGameClubButton(opts) {
+      const S = window.__simGameClub = window.__simGameClub || { mounted: false, visible: false, rect: null, creates: 0, destroys: 0, taps: 0, opts: null };
+      S.creates++; S.mounted = true; S.visible = true; S.opts = opts; S.rect = opts && opts.style ? { ...opts.style } : null;
+      const cbs = [];
+      return {
+        show() { S.visible = true; },
+        hide() { S.visible = false; },
+        destroy() { S.destroys++; S.mounted = false; S.visible = false; },
+        onTap(cb) { if (typeof cb === 'function') cbs.push(cb); },
+        offTap(cb) { const i = cbs.indexOf(cb); if (i >= 0) cbs.splice(i, 1); },
+        __fireTap() { S.taps++; cbs.slice().forEach(fn => fn()); },
+      };
+    },
     onTouchStart: f => touch.start.push(f), onTouchMove: f => touch.move.push(f), onTouchEnd: f => touch.end.push(f), onTouchCancel: f => touch.cancel.push(f),
     onWindowResize() {}, getLaunchOptionsSync: () => ({ query: {} }),
     createImage() { const im = new Image(); const set = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src').set; Object.defineProperty(im, 'src', { set(v) { set.call(im, new URL(v, location.origin + base).href); }, get() { return im.getAttribute('src'); } }); return im; },
