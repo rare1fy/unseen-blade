@@ -418,39 +418,37 @@ export function keepsakeBoard(Hh: number, tier: number, locked = false, accentHe
   return { mesh, metal: M };
 }
 
-/** act-149: 3D voxel Hades-2-style jade meditation talisman card (孙媪 · 周天悟性牌阵) — glowing emerald-gold when active, dark jade when unlocked, carved stone when locked */
+/** act-149 / act-176: 3D voxel Hades-2-style jade meditation talisman card (孙婆婆 · 悟性牌阵) — clear 3-tier contrast:
+ *  Active = warm gold frame + glowing emerald face; Unlocked-Off = cool dark slate-iron (zero green collision!); Locked = deep charcoal stone. */
 export function arcanaBoard(Hh: number, active: boolean, unlocked: boolean, awakening = false, accentHex?: number) {
   const lay = arcanaLayout(Hh), H = lay.H;
   const M: Metal = !unlocked
     ? LOCKED_METAL
     : active
-      ? (awakening ? { d: 0x6e4e14, m: 0xc89830, l: 0xffe47a, glow: 0xffe066 } : { d: 0x1e5c3e, m: 0x44a672, l: 0x9efac2, glow: 0x98ffd0 })
-      : { d: 0x1a2c26, m: 0x325648, l: 0x5c8c78, glow: 0x80d8a8 };
-  const pc = !unlocked ? 0x14151b : active ? (awakening ? 0x241c10 : 0x10281e) : 0x111a18;
-  const pl = !unlocked ? 0x20222c : active ? (awakening ? 0x3c2e16 : 0x1c4634) : 0x1c2a26;
+      ? (awakening ? { d: 0x7a5414, m: 0xd8a432, l: 0xffea88, glow: 0xffe470 } : { d: 0x5c4218, m: 0xc29238, l: 0xffe280, glow: 0xffe078 })
+      : { d: 0x202630, m: 0x3c4856, l: 0x627284, glow: 0x90a4b8 };
+  const pc = !unlocked ? 0x111218 : active ? (awakening ? 0x2c200e : 0x133828) : 0x141820;
+  const pl = !unlocked ? 0x1c1e26 : active ? (awakening ? 0x463418 : 0x245c42) : 0x222934;
   const fr = 0.036;
   const p: Parameters<typeof mergeBoxes>[0] = [], b: Parameters<typeof mergeBoxes>[0] = [];
   p.push({ w: 1, h: H, d: 0.05, x: 0, y: 0, z: 0, c: IRON_D });
   p.push({ w: 1 - 2 * fr, h: H - 2 * fr, d: 0.056, x: 0, y: 0, z: 0.002, c: pc });
   p.push({ w: 1 - 2 * fr, h: 0.018, d: 0.058, x: 0, y: H / 2 - fr - 0.009, z: 0.003, c: pl });
-  // outer jade / stone frame rails
+  // outer frame rails (warm gold when Active, cool slate when Inactive, dark iron when Locked)
   b.push({ w: 1, h: fr, d: 0.068, x: 0, y: H / 2 - fr / 2, z: 0.004, c: M.m });
   b.push({ w: 0.99, h: 0.011, d: 0.072, x: 0, y: H / 2 - 0.0055, z: 0.005, c: M.l });
   b.push({ w: 1, h: fr, d: 0.068, x: 0, y: -H / 2 + fr / 2, z: 0.004, c: M.d });
   for (const s of [-1, 1]) b.push({ w: fr, h: H, d: 0.07, x: s * (0.5 - fr / 2), y: 0, z: 0.004, c: s < 0 ? M.m : M.d });
-  // inner subtle meridian frame + active corner gold brackets & top crest jewel!
+  // Active seal: warm gold corner studs + glowing top-center jade/gold jewel (leaving corners free for universal white Focus cursor!)
   if (active) {
-    for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
-      const cx = sx * (0.5 - 0.005), cy = sy * (H / 2 - 0.005), L = 0.14, T = 0.022;
-      b.push({ w: L, h: T, d: 0.08, x: cx - sx * L / 2, y: cy, z: 0.008, c: awakening ? 0xffe478 : 0xffe082 });
-      b.push({ w: T, h: L, d: 0.08, x: cx, y: cy - sy * L / 2, z: 0.008, c: awakening ? 0xffe478 : 0xffe082 });
-    }
-    b.push({ w: 0.24, h: 0.024, d: 0.082, x: 0, y: H / 2 + 0.012, z: 0.008, c: M.l });
-    b.push({ w: 0.065, h: 0.036, d: 0.09, x: 0, y: H / 2 + 0.016, z: 0.012, c: accentHex ?? M.l });
+    b.push({ w: 0.30, h: 0.026, d: 0.082, x: 0, y: H / 2 + 0.012, z: 0.008, c: M.l });
+    b.push({ w: 0.085, h: 0.042, d: 0.094, x: 0, y: H / 2 + 0.018, z: 0.014, c: awakening ? 0xfff088 : (accentHex ?? 0x70f8b4) });
+    // inner bright emerald-gold lit trim bar along bottom edge
+    b.push({ w: 0.72, h: 0.016, d: 0.076, x: 0, y: -H / 2 + fr + 0.008, z: 0.008, c: awakening ? 0xffe478 : 0x72f4b0 });
   } else if (awakening) {
-    b.push({ w: 0.20, h: 0.02, d: 0.078, x: 0, y: H / 2 + 0.01, z: 0.007, c: 0x8a7440 });
+    b.push({ w: 0.20, h: 0.02, d: 0.078, x: 0, y: H / 2 + 0.01, z: 0.007, c: 0x6c5e3a });
   }
-  const mesh = new THREE.Mesh(mergeBoxes(b), new THREE.MeshLambertMaterial({ vertexColors: true, emissive: M.glow, emissiveIntensity: active ? 0.14 : 0 }));
+  const mesh = new THREE.Mesh(mergeBoxes(b), new THREE.MeshLambertMaterial({ vertexColors: true, emissive: M.glow, emissiveIntensity: active ? 0.16 : 0 }));
   const panel = new THREE.Mesh(mergeBoxes(p), new THREE.MeshLambertMaterial({ vertexColors: true })); panel.renderOrder = 30; mesh.add(panel);
   return { mesh, metal: M };
 }
@@ -718,17 +716,17 @@ export function paintShopTagFace(
   g.imageSmoothingEnabled = false;
   const padX = Math.round(10 * dpr), maxW = W - padX * 2;
   const locked = spec.poor || !!spec.disabled;
-  // 1. Huge item name centered at top
+  // 1. Crisp item name centered at top
   const nm = t(spec.name);
-  let S = Math.max(1, Math.floor((Hh * 0.25) / PIX_H));
+  let S = Math.max(1, Math.floor((Hh * 0.21) / PIX_H));
   while (S > 1 && pixW(nm) * S > maxW) S--;
-  const y1 = Math.round(Hh * 0.06);
+  const y1 = Math.round(Hh * 0.07);
   drawPix(g, nm, W / 2, y1, { scale: S, color: locked ? '#aaa098' : '#fff2cc', outline: '#0a0708', align: 'center' });
-  // 2. Crisp short benefit line(s) in large readable font
+  // 2. Crisp short benefit line(s)
   const eff = t(spec.effect);
   const effY = Math.round(y1 + PIX_H * S + Hh * 0.09);
   const effH = Math.round(Hh * 0.34);
-  let px = Math.max(Math.round(12 * dpr), Math.round(Hh * 0.165));
+  let px = Math.max(Math.round(11 * dpr), Math.round(Hh * 0.145));
   const split = eff.length > 8 ? (() => {
     const idx = eff.search(/[，·、 ]/);
     if (idx > 1 && idx < eff.length - 1) return [eff.slice(0, idx), eff.slice(idx + 1)];
@@ -783,14 +781,14 @@ export function paintWorkRowFace(
   const padX = Math.round(8 * dpr), unlocked = spec.unlocked !== false;
   const isMax = spec.cost == null && unlocked;
   const locked = !unlocked || (!isMax && !spec.canAfford);
-  // Top row: LARGE name (left) + level pips (right)
+  // Top row: Crisp balanced name (left) + level pips (right)
   const nm = t(spec.name);
-  let S = Math.max(1, Math.floor((Hh * 0.38) / PIX_H));
-  const pipSz = Math.max(Math.round(7 * dpr), Math.round(Hh * 0.17));
+  let S = Math.max(1, Math.floor((Hh * 0.25) / PIX_H));
+  const pipSz = Math.max(Math.round(6 * dpr), Math.round(Hh * 0.14));
   const pipGap = Math.round(3 * dpr);
   const pipsW = spec.maxLv > 0 ? spec.maxLv * pipSz + (spec.maxLv - 1) * pipGap : 0;
   while (S > 1 && pixW(nm) * S + pipsW + Math.round(16 * dpr) > W - padX * 2) S--;
-  const topY = Math.round(Hh * 0.12);
+  const topY = Math.round(Hh * 0.16);
   drawPix(g, nm, padX, topY, { scale: S, color: !unlocked ? '#8a8690' : isMax ? '#fff0b0' : locked ? '#cfc6ba' : '#fff4d8', outline: '#08060c', align: 'left' });
   if (spec.maxLv > 0 && unlocked) {
     let px = W - padX - pipSz;
@@ -805,7 +803,7 @@ export function paintWorkRowFace(
   }
   // Bottom row: Hades-2 icon + have/need chip (ZERO dry text)
   const botY = Math.round(Hh * 0.60);
-  const s2 = Math.max(1, Math.floor((Hh * 0.26) / PIX_H));
+  const s2 = Math.max(1, Math.floor((Hh * 0.21) / PIX_H));
   const tH2 = PIX_H * s2;
   const botMid = Math.round(botY + tH2 / 2);
   if (!unlocked) {
@@ -841,9 +839,9 @@ export function paintSteleFace(
   const isMax = spec.cost == null;
   const sideCol = spec.yin ? '#c6a8ff' : '#ffd87a';
 
-  // Row 1: Huge talent name + 3 diamonds + top-right [Q 切阴/阳] pill
+  // Row 1: Crisp talent name + 3 diamonds + top-right [Q 切阴/阳] pill
   const nm = t(spec.name);
-  let S = Math.max(1, Math.floor((Hh * 0.27) / PIX_H));
+  let S = Math.max(1, Math.floor((Hh * 0.23) / PIX_H));
   const sPill = Math.max(1, Math.round(S * 0.56));
   const padP = Math.max(2, sPill * 3);
   const altPillW = pixW(spec.altBadge) * sPill + padP * 2;
@@ -922,9 +920,9 @@ export function paintArcanaFace(
   const gw = innerW + gPad * 2;
   const gh = gH + gPad * 2;
   const bdr = Math.max(1, Math.round(1.5 * dpr));
-  const rimCol = !unlocked ? '#5c6070' : spec.active ? (spec.awakening ? '#ffe478' : '#90f8bc') : '#6ea88c';
+  const rimCol = !unlocked ? '#484c58' : spec.active ? (spec.awakening ? '#ffe478' : '#ffd868') : '#566474';
   g.fillStyle = rimCol; g.fillRect(pad, pad, gw, gh);
-  g.fillStyle = spec.active ? (spec.awakening ? '#2c200c' : '#0f2b1e') : '#12161c';
+  g.fillStyle = spec.active ? (spec.awakening ? '#30220c' : '#123826') : '#141820';
   g.fillRect(pad + bdr, pad + bdr, gw - 2 * bdr, gh - 2 * bdr);
   const gMid = Math.round(pad + gh / 2);
   if (spec.grasp === 0) {
@@ -932,18 +930,18 @@ export function paintArcanaFace(
   } else {
     drawMiniIcon(g, 'grasp', Math.round(pad + gPad + gIco / 2), gMid, gIco);
     drawPix(g, gTxt, Math.round(pad + gPad + gIco + Math.round(2 * dpr)), Math.round(gMid - gH / 2), {
-      scale: gScale, color: !unlocked ? '#a0a6b0' : spec.active ? '#b8ffd6' : '#d6ece0', outline: null, align: 'left',
+      scale: gScale, color: !unlocked ? '#8a909c' : spec.active ? '#fff2b0' : '#c0ccd6', outline: null, align: 'left',
     });
   }
 
   // 2. Top-right rank diamonds (1..3) when unlocked, or small lock icon when locked
   if (unlocked) {
-    const dSz = Math.max(Math.round(6 * dpr), Math.round(Hh * 0.085));
+    const dSz = Math.max(Math.round(6 * dpr), Math.round(Hh * 0.08));
     const dGap = Math.round(2.5 * dpr);
     let dx = W - pad - Math.round(dSz / 2);
     const dy = Math.round(pad + gh / 2);
     for (let i = 2; i >= 0; i--) {
-      drawDiamond(g, dx, dy, dSz, i < spec.rank ? (spec.awakening ? '#ffe074' : '#88f4b2') : '#283430', '#0a0e0c', i < spec.rank);
+      drawDiamond(g, dx, dy, dSz, i < spec.rank ? (spec.active ? '#ffe074' : '#7a94a8') : '#242a32', '#0a0e0c', i < spec.rank);
       dx -= dSz + dGap;
     }
   } else {
@@ -951,30 +949,39 @@ export function paintArcanaFace(
     drawMiniIcon(g, 'lock', Math.round(W - pad - lSz / 2), gMid, lSz);
   }
 
-  // 3. Bottom horizontal hairline + HUGE 2-char card name + crisp state / `[herb] have/need` chip
+  // 3. Bottom horizontal hairline + clean card name + unmistakable solid Active pill vs quiet Inactive label
   const divY = Math.round(Hh * 0.60);
-  g.fillStyle = !unlocked ? '#2c303a' : spec.active ? (spec.awakening ? '#d8a840' : '#4eb87e') : '#2a463c';
+  g.fillStyle = !unlocked ? '#262a34' : spec.active ? (spec.awakening ? '#e8b848' : '#70e8a4') : '#2e3844';
   g.fillRect(pad, divY, W - pad * 2, Math.max(1, Math.round(dpr)));
 
   const nm = t(spec.short);
-  let S = Math.max(1, Math.floor((Hh * 0.16) / PIX_H));
+  let S = Math.max(1, Math.floor((Hh * 0.14) / PIX_H));
   while (S > 1 && pixW(nm) * S > W - pad * 2) S--;
-  const s2 = Math.max(1, Math.floor((Hh * 0.10) / PIX_H));
+  const s2 = Math.max(1, Math.floor((Hh * 0.095) / PIX_H));
   const tH1 = PIX_H * S, tH2 = PIX_H * s2;
   const availBot = Hh - divY - Math.round(3 * dpr);
-  const gapY = Math.max(1, Math.round((availBot - tH1 - tH2) * 0.45));
+  const gapY = Math.max(1, Math.round((availBot - tH1 - tH2) * 0.42));
   const yName = Math.round(divY + Math.max(2, gapY));
-  const nameCol = !unlocked ? '#8a8c96' : spec.active ? (spec.awakening ? '#fff2a8' : '#d6ffe6') : '#dce6e0';
+  const nameCol = !unlocked ? '#7c808c' : spec.active ? '#fff8cc' : '#c6d0d8';
   drawPix(g, nm, W / 2, yName, { scale: S, color: nameCol, outline: '#07090c', align: 'center' });
 
-  const yBot = Math.min(Hh - tH2 - Math.max(1, Math.round(1.5 * dpr)), Math.round(yName + tH1 + Math.max(1, gapY * 0.85)));
+  const yBot = Math.min(Hh - tH2 - Math.max(2, Math.round(2 * dpr)), Math.round(yName + tH1 + Math.max(2, gapY * 0.8)));
   if (!unlocked) {
     const cw = drawCostChip(null, 'herb', spec.unlockCost, spec.have, 0, 0, s2, dpr);
     drawCostChip(g, 'herb', spec.unlockCost, spec.have, Math.round((W - cw) / 2), Math.round(yBot + tH2 / 2), s2, dpr);
   } else if (spec.active) {
-    drawPix(g, spec.awakening ? '已唤醒' : '入阵', W / 2, yBot, { scale: s2, color: spec.awakening ? '#ffe680' : '#88f8b8', outline: '#07090c', align: 'center' });
+    // Solid unmistakable active pill badge (amber-gold border + luminous green-gold fill)
+    const lbl = t(spec.awakening ? '已唤醒' : '已入阵');
+    const pw = pixW(lbl) * s2 + Math.round(12 * dpr);
+    const ph = tH2 + Math.round(4 * dpr);
+    const px0 = Math.round((W - pw) / 2), py0 = Math.round(yBot - Math.round(2 * dpr));
+    g.fillStyle = spec.awakening ? '#ffe074' : '#7ef8b4';
+    g.fillRect(px0, py0, pw, ph);
+    g.fillStyle = spec.awakening ? '#3a280a' : '#123d28';
+    g.fillRect(px0 + bdr, py0 + bdr, pw - 2 * bdr, ph - 2 * bdr);
+    drawPix(g, lbl, W / 2, yBot, { scale: s2, color: spec.awakening ? '#fff4b0' : '#c4ffe0', outline: null, align: 'center' });
   } else {
-    drawPix(g, spec.awakening ? '待唤醒' : '未启', W / 2, yBot, { scale: s2, color: '#869c92', outline: '#07090c', align: 'center' });
+    drawPix(g, spec.awakening ? '待唤醒' : '未启', W / 2, yBot, { scale: s2, color: '#6e7c8a', outline: '#07090c', align: 'center' });
   }
 
   const tex = new THREE.CanvasTexture(c as HTMLCanvasElement); tex.magFilter = THREE.LinearFilter; tex.minFilter = THREE.LinearFilter; tex.generateMipmaps = false; tex.colorSpace = THREE.SRGBColorSpace;

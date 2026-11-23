@@ -2164,3 +2164,17 @@
    - C2 阵亡结算无倒计时平静并列「回断碑古窑 / 残息未绝（半血再战，1 次/局；不借真气通关记 `soloWins` 孤刃独行）」；
    - C3 归窑结算「杜五拾遗（本趟残铁药引 +50%）」。
 4. **跨平台激励广告适配（`platform/ads.ts` / `act/adModal.ts`）**：自动走 `wx.createRewardedVideoAd` / `tt` / CrazyGames SDK；未配置广告位 ID 时平滑落回纯 `UiLayer` 3 秒硬边像素观影弹板 `AdSimModal`，确保微信开发者工具、真机体验版与网页端零配置立即可测。
+
+
+## 全界面字号收紧、通用无撞色三态交互语言与场景浮标减负（act-176，11-23）
+
+- **用户原话**：「有些字还是有点大，交互上面高亮、选中、激活的效果不通用和明显，很容易和你本来给功能做的底色撞一起，比如孙婆婆那个功能。然后就是现在在场景中UI层的那些提示小标，内容多了的时候有点杂乱，满屏幕都是那个提示小标，这个要想办法解决一下，从显示逻辑到样式精简度上都要解决一下。」
+- **三大改造**：
+  1. **字号校准（[uiPlate.ts](src/present/act/uiPlate.ts)、[cardBoard.ts](src/present/act/cardBoard.ts)、[moveStage.ts](src/present/act/moveStage.ts)）**：消除 `PIX_H=12` 向上取整跳档，全量收紧页头、货币栏、页签、工作台、详情栏、悟性条、卡面与场景浮标字号。
+  2. **正交零撞色交互三态（[cards3d.ts](src/present/act/cards3d.ts)、[cardBoard.ts](src/present/act/cardBoard.ts)、[uiPlate.ts](src/present/act/uiPlate.ts)）**：
+     - **当前选中（Focus）**：全局通用 3D 象牙白+暗描边四角 L 框与顶部脉动金三角游标（`focusCursor`）平滑跟手，覆盖全部 9 种卡片布局，零底色冲突；
+     - **已激活（Active/Equipped）**：孙婆婆 3×3 悟性牌阵明确区分「暗炭未解锁 / 冷灰铁未启 / 亮翡翠金框+实心入阵标已激活」，彻底解决绿底撞绿高亮；
+     - **按钮悬停（Hover）**：工作台/拓悟性/详情钮统一绘制象牙白四角 L 框。
+  3. **场景提示小标显示逻辑与样式双向精简（[show.ts](src/present/act/show.ts)、[uiPlate.ts](src/present/act/uiPlate.ts)）**：
+     - 样式：`setTag` 普通世界标改为轻透暗墨细框单行微签（去掉厚双框、粗色块与冗余副标），视觉体积缩减约 55%；
+     - 逻辑：据点走近任意目标弹出 `ho.active` 交互牌时自动压暗隐藏其余旁标；平时按 `4.4m` 半径（成熟药畦/未建工碑 `6.0m`）+ 优先级/距离 **Top-3 上限** + **屏幕间距 `<105px` 防叠剔除**，彻底清净。

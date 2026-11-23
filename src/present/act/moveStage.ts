@@ -27,7 +27,7 @@ import type { MoveId } from './manuals';
 import type { WeaponId } from './weapons';
 import { makeCanvas } from '../../platform/index';
 import { drawPix, pixW, PIX_H } from '../v2/pix';
-import { drawPixelPlaque, drawMiniIcon, richLine } from './uiPlate';
+import { drawPixelPlaque, drawMiniIcon, drawFocusBrackets, richLine } from './uiPlate';
 import { PAD, actKey, BIND, paintGlyph, glyphArt, GLYPH_H } from './pad';
 import { t as localize } from './i18n';
 import { uiScale } from './uiScale';
@@ -996,14 +996,14 @@ export class MoveStage {
     // 2. Lower Inspector Section: Title + Badge + Icon-Rich Effect + Stat Pill + Attached Boons
     let curY = stageY + stageH + Math.round((compact ? 8 : 11) * kk * dpr);
     const title = localize(e.name);
-    let tScale = Math.max(1, Math.round(((compact ? 18 : 21) * kk * dpr) / PIX_H));
+    let tScale = Math.max(1, Math.floor(((compact ? 15.5 : 17.5) * kk * dpr) / PIX_H));
     while (tScale > 1 && pixW(title) * tScale > boxW * 0.65) tScale--;
     const tH = PIX_H * tScale;
     const titleCol = e.kind === 'arcana' ? '#a4ffd0' : e.kind === 'keepsake' ? '#ffe68c' : e.kind === 'manual' ? '#fff0c0' : '#fff4dc';
     drawPix(g, title, boxX, curY, { scale: tScale, color: titleCol, outline: '#08060c', align: 'left' });
 
     let tx = boxX + pixW(title) * tScale + Math.round(10 * kk * dpr);
-    const pScale = Math.max(1, Math.round((12.5 * kk * dpr) / PIX_H));
+    const pScale = Math.max(1, Math.floor((12 * kk * dpr) / PIX_H));
     const drawPill = (txt: string, col: string, fill: string) => {
       if (!txt) return;
       const loc = localize(txt);
@@ -1026,7 +1026,7 @@ export class MoveStage {
     curY += Math.round(8 * kk * dpr);
 
     // Effect description (wrapped up to 2 lines) with full Hades-2 inline pixel icons!
-    const effPx = Math.round((compact ? 14.5 : 16.5) * kk * dpr);
+    const effPx = Math.round((compact ? 13 : 14) * kk * dpr);
     const effStr = localize(e.effect);
     const lines = this.wrapRich(effStr, effPx, boxW);
     for (const ln of lines.slice(0, 2)) {
@@ -1039,7 +1039,7 @@ export class MoveStage {
     // Stat / Cost / Timing pill (icon-rich!)
     if (e.num) {
       curY += Math.round(3 * kk * dpr);
-      const numPx = Math.round((compact ? 13 : 14.5) * kk * dpr);
+      const numPx = Math.round((compact ? 12 : 13) * kk * dpr);
       const numStr = localize(e.num);
       let np = numPx;
       const maxNumW = boxW - Math.round(16 * kk * dpr);
@@ -1057,10 +1057,10 @@ export class MoveStage {
     // Attached Boons currently augmenting this base move slot!
     const bottomLimit = H - padY - u;
     if (e.attached && e.attached.length && curY + Math.round(24 * kk * dpr) < bottomLimit) {
-      const hdrS = Math.max(1, Math.round((11.5 * kk * dpr) / PIX_H));
+      const hdrS = Math.max(1, Math.floor((11.5 * kk * dpr) / PIX_H));
       drawPix(g, localize('本局已挂载秘传'), boxX, curY, { scale: hdrS, color: '#ffd878', outline: '#08060c', align: 'left' });
       curY += PIX_H * hdrS + Math.round(5 * kk * dpr);
-      const bPx = Math.round((compact ? 12.5 : 14) * kk * dpr);
+      const bPx = Math.round((compact ? 11.5 : 12.5) * kk * dpr);
       for (const ab of e.attached.slice(0, 2)) {
         if (curY + Math.ceil(bPx * 1.35) > bottomLimit) break;
         const rowH = Math.ceil(bPx * 1.32) + Math.round(4 * kk * dpr);
@@ -1077,16 +1077,17 @@ export class MoveStage {
     // Optional clickable 「实景演武」 button at bottom-right for learned manuals
     if (e.kind === 'manual' && this.canPlay3d) {
       const btnTxt = localize('实景演武');
-      const bs = Math.max(1, Math.round((13.5 * kk * dpr) / PIX_H));
-      const bw = pixW(btnTxt) * bs + Math.round(24 * kk * dpr);
-      const bh = PIX_H * bs + Math.round(12 * kk * dpr);
+      const bs = Math.max(1, Math.floor((12.5 * kk * dpr) / PIX_H));
+      const bw = pixW(btnTxt) * bs + Math.round(22 * kk * dpr);
+      const bh = PIX_H * bs + Math.round(10 * kk * dpr);
       const bx = boxX + boxW - bw;
       const by = bottomLimit - bh;
       const hot = this.demoBtnHot;
       drawPixelPlaque(g, bx, by, bw, bh, Math.max(1, Math.round(1.5 * kk * dpr)), {
         bg: hot ? '#483016' : '#2e2012', hi: hot ? '#6a4822' : '#46321c', border: '#07050a',
-        inner: hot ? '#fff098' : '#e0aa4e', rivets: true,
+        inner: hot ? '#fffef0' : '#e0aa4e', rivets: true,
       });
+      if (hot) drawFocusBrackets(g, bx, by, bw, bh, Math.max(1, Math.round(1.5 * kk * dpr)));
       drawPix(g, btnTxt, bx + bw / 2, Math.round(by + (bh - PIX_H * bs) / 2), {
         scale: bs, color: hot ? '#fffce0' : '#ffe6a0', outline: '#08060c', align: 'center',
       });

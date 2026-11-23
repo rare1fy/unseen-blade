@@ -422,6 +422,29 @@ export function drawPixelPlaque(
   }
 }
 
+/** act-176: Universal high-contrast ivory-white + dark-outline 4-corner L-brackets for hover/focus (never collides with green/gold/purple themes!). */
+export function drawFocusBrackets(g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, p: number) {
+  const X = Math.round(x), Y = Math.round(y), W = Math.round(w), H = Math.round(h);
+  const u = Math.max(1, Math.round(p));
+  const len = Math.max(u * 4, Math.min(Math.round(Math.min(W, H) * 0.28), u * 7));
+  const drawL = (cx: number, cy: number, sx: number, sy: number, pad: number, col: string) => {
+    g.fillStyle = col;
+    const t = u + pad * 2;
+    const L = len + pad * 2;
+    const hx = sx > 0 ? cx - pad : cx - L + pad;
+    const hy = sy > 0 ? cy - pad : cy - t + pad;
+    const vx = sx > 0 ? cx - pad : cx - t + pad;
+    const vy = sy > 0 ? cy - pad : cy - L + pad;
+    g.fillRect(hx, hy, L, t);
+    g.fillRect(vx, vy, t, L);
+  };
+  const corners: Array<[number, number, number, number]> = [
+    [X, Y, 1, 1], [X + W, Y, -1, 1], [X, Y + H, 1, -1], [X + W, Y + H, -1, -1],
+  ];
+  for (const [cx, cy, sx, sy] of corners) drawL(cx, cy, sx, sy, Math.max(1, Math.round(u * 0.6)), '#08060c');
+  for (const [cx, cy, sx, sy] of corners) drawL(cx, cy, sx, sy, 0, '#fffef2');
+}
+
 /** Paint either a gamepad button glyph or a crisp keyboard keycap for an action, returning drawn width in device px. */
 export function drawActionBadge(g: CanvasRenderingContext2D, kind: 'attack' | 'alt' | 'tab' | 'esc', x: number, cy: number, targetH: number): number {
   const dev = PAD.device;
@@ -652,19 +675,19 @@ export class UiPlatePool {
     if (pKey !== s.key) {
       s.key = pKey;
       const u = Math.max(1, Math.round(1.5 * kk * dpr));
-      const pScale = Math.max(1, Math.round(((spec.emblem ? 17 : 15.5) * kk * dpr) / PIX_H));
+      const pScale = Math.max(1, Math.floor(((spec.emblem ? 15 : 13) * kk * dpr) / PIX_H));
       const txtH = PIX_H * pScale;
-      const subPx = Math.round((spec.emblem ? 13 : 13.5) * kk * dpr);
+      const subPx = Math.round((spec.emblem ? 12 : 11.5) * kk * dpr);
       const rimCol = spec.poor ? '#9c362c' : (spec.accent ?? '#9a7a4a');
       if (spec.emblem && spec.icon) {
         // Hades-2 door reward plaque: large framed pixel emblem medallion on the left + 2-line reward & currency value on the right!
-        const medSz = Math.round(36 * kk * dpr);
+        const medSz = Math.round(32 * kk * dpr);
         const icoSz = Math.round(medSz * 0.76);
-        const padX = Math.round(10 * kk * dpr), padY = Math.round(6 * kk * dpr), gap = Math.round(9 * kk * dpr);
+        const padX = Math.round(9 * kk * dpr), padY = Math.round(5 * kk * dpr), gap = Math.round(8 * kk * dpr);
         const tw = pixW(title) * pScale;
         const sw = sub ? Math.ceil(bodyW(sub, subPx)) : 0;
         const textW = Math.max(tw, sw);
-        const lineGap = Math.round(4 * kk * dpr);
+        const lineGap = Math.round(3 * kk * dpr);
         const textH = sub ? txtH + lineGap + subPx : txtH;
         const W = padX * 2 + u * 2 + medSz + gap + textW + u * 2;
         const H = Math.max(medSz, textH) + padY * 2 + u * 2;
@@ -689,24 +712,31 @@ export class UiPlatePool {
         }
         this.upload(s, c, dpr, BODY_FONT.current !== 'pixel' && !!sub);
       } else {
-        const icoSz = spec.icon ? Math.round(txtH * 0.92) : 0;
-        const padX = Math.round(9 * kk * dpr), padY = Math.round(5 * kk * dpr), gap = Math.round(6 * kk * dpr);
+        // act-176: Whisper-light minimal floating world chip (single thin hairline border, translucent ink fill, zero chunky dark slab!)
+        const b = Math.max(1, Math.round(dpr));
+        const icoSz = spec.icon ? Math.round(txtH * 0.90) : 0;
+        const padX = Math.round(6 * kk * dpr), padY = Math.round(3.5 * kk * dpr), gap = Math.round(4.5 * kk * dpr);
         const tw = pixW(title) * pScale;
         const sw = sub ? Math.ceil(bodyW(sub, subPx)) : 0;
         const priceTxt = hasPrice ? `${spec.price}` : '';
         const coinSz = hasPrice ? Math.round(txtH * 0.85) : 0;
-        const pw = hasPrice ? coinSz + Math.round(3 * kk * dpr) + pixW(priceTxt) * pScale : 0;
-        let W = padX * 2 + u * 2 + tw;
+        const pw = hasPrice ? coinSz + Math.round(2.5 * kk * dpr) + pixW(priceTxt) * pScale : 0;
+        let W = padX * 2 + b * 2 + tw;
         if (icoSz) W += icoSz + gap;
-        if (sw) W += gap + Math.round(4 * kk * dpr) + sw;
-        if (pw) W += gap + Math.round(4 * kk * dpr) + pw;
-        const H = Math.max(txtH, subPx, icoSz) + padY * 2 + u * 2;
+        if (sw) W += gap + Math.round(3 * kk * dpr) + sw;
+        if (pw) W += gap + Math.round(3 * kk * dpr) + pw;
+        const H = Math.max(txtH, subPx, icoSz) + padY * 2 + b * 2;
         const c = makeCanvas(Math.max(8, Math.ceil(W)), Math.max(8, Math.ceil(H))) as HTMLCanvasElement;
         const g = c.getContext('2d')!; g.imageSmoothingEnabled = false;
-        drawPixelPlaque(g, 0, 0, c.width, c.height, u, {
-          inner: rimCol, accentBar: spec.accent ?? rimCol,
-        });
-        let cx = padX + u * 3;
+        // Notched 1px minimal translucent ink pill
+        g.fillStyle = 'rgba(11, 9, 17, 0.82)';
+        g.fillRect(b, b, c.width - b * 2, c.height - b * 2);
+        g.fillStyle = rimCol;
+        g.fillRect(b, 0, c.width - b * 2, b);
+        g.fillRect(b, c.height - b, c.width - b * 2, b);
+        g.fillRect(0, b, b, c.height - b * 2);
+        g.fillRect(c.width - b, b, b, c.height - b * 2);
+        let cx = padX + b;
         const midY = c.height / 2;
         if (spec.icon) {
           drawMiniIcon(g, spec.icon, cx + icoSz / 2, midY, icoSz);
@@ -717,18 +747,18 @@ export class UiPlatePool {
         if (sub) {
           cx += gap;
           g.fillStyle = '#5c5266';
-          g.fillRect(Math.round(cx), Math.round(midY - txtH * 0.34), Math.max(1, Math.round(1.5 * kk * dpr)), Math.round(txtH * 0.68));
-          cx += Math.round(5 * kk * dpr);
+          g.fillRect(Math.round(cx), Math.round(midY - txtH * 0.32), b, Math.round(txtH * 0.64));
+          cx += Math.round(4 * kk * dpr);
           bodyText(g, sub, cx, Math.round(midY - subPx * 0.54), subPx, '#d4cab6', 'left', '#09070c');
           cx += sw;
         }
         if (hasPrice) {
           cx += gap;
           g.fillStyle = '#5c5266';
-          g.fillRect(Math.round(cx), Math.round(midY - txtH * 0.34), Math.max(1, Math.round(1.5 * kk * dpr)), Math.round(txtH * 0.68));
-          cx += Math.round(5 * kk * dpr);
+          g.fillRect(Math.round(cx), Math.round(midY - txtH * 0.32), b, Math.round(txtH * 0.64));
+          cx += Math.round(4 * kk * dpr);
           drawMiniIcon(g, 'coin', cx + coinSz / 2, midY, coinSz);
-          cx += coinSz + Math.round(3 * kk * dpr);
+          cx += coinSz + Math.round(2.5 * kk * dpr);
           drawPix(g, priceTxt, cx, Math.round(midY - txtH / 2), { scale: pScale, color: spec.poor ? '#ff7c6a' : '#ffd872', outline: '#09070c', align: 'left' });
         }
         this.upload(s, c, dpr, BODY_FONT.current !== 'pixel' && !!sub);
@@ -752,24 +782,24 @@ export class UiPlatePool {
     const pKey = `int|${SKIN.id}|${title}|${sub}|${action}|${spec.color ?? ''}|${spec.accent ?? ''}|${spec.icon ?? ''}|${spec.price ?? 0}|${spec.poor ? 1 : 0}|${spec.disabled ? 1 : 0}|${showKey ? 1 : 0}|${PAD.device}|${PAD.family}|${actKey('attack')}|${kk.toFixed(2)}|${dpr}|${language}|${BODY_FONT.version}`;
     if (pKey !== s.key) {
       s.key = pKey;
-      const u = Math.max(1, Math.round(2 * kk * dpr));
-      const tScale = Math.max(1, Math.round((18 * kk * dpr) / PIX_H));
+      const u = Math.max(1, Math.round(1.6 * kk * dpr));
+      const tScale = Math.max(1, Math.floor((15.5 * kk * dpr) / PIX_H));
       const tH = PIX_H * tScale;
-      const subPx = Math.round(15 * kk * dpr);
-      const actScale = Math.max(1, Math.round((14.5 * kk * dpr) / PIX_H));
+      const subPx = Math.round(12.5 * kk * dpr);
+      const actScale = Math.max(1, Math.floor((13 * kk * dpr) / PIX_H));
       const actH = PIX_H * actScale;
-      const padX = Math.round(12 * kk * dpr), padY = Math.round(8 * kk * dpr), gap = Math.round(7 * kk * dpr);
+      const padX = Math.round(10 * kk * dpr), padY = Math.round(6 * kk * dpr), gap = Math.round(6 * kk * dpr);
       const icoSz = spec.icon ? Math.round(tH * 1.0) : 0;
       const tw = pixW(title) * tScale;
       const priceTxt = hasPrice ? `${spec.price}` : '';
       const coinSz = hasPrice ? Math.round(tH * 0.9) : 0;
-      const priceW = hasPrice ? coinSz + Math.round(4 * kk * dpr) + pixW(priceTxt) * tScale + Math.round(10 * kk * dpr) : 0;
+      const priceW = hasPrice ? coinSz + Math.round(4 * kk * dpr) + pixW(priceTxt) * tScale + Math.round(8 * kk * dpr) : 0;
       const row1W = (icoSz ? icoSz + gap : 0) + tw + priceW;
       const row2W = sub ? Math.ceil(bodyW(sub, subPx)) : 0;
-      const badgeH = Math.round(Math.max(actH * 1.15, 18 * kk * dpr));
+      const badgeH = Math.round(Math.max(actH * 1.15, 16 * kk * dpr));
       const keyW = showKey ? measureActionBadge('attack', badgeH) : 0;
-      const actW = action ? (keyW ? keyW + Math.round(6 * kk * dpr) : 0) + pixW(action) * actScale : 0;
-      const innerW = Math.max(row1W, row2W, actW, Math.round(130 * kk * dpr));
+      const actW = action ? (keyW ? keyW + Math.round(5 * kk * dpr) : 0) + pixW(action) * actScale : 0;
+      const innerW = Math.max(row1W, row2W, actW, Math.round(108 * kk * dpr));
       const W = innerW + padX * 2 + u * 2;
       let H = padY * 2 + u * 2 + Math.max(tH, icoSz);
       if (sub) H += Math.round(6 * kk * dpr) + Math.ceil(subPx * 1.25);
@@ -833,15 +863,15 @@ export class UiPlatePool {
     const pKey = `hdr|${SKIN.id}|${title}|${sub}|${spec.color ?? ''}|${spec.accent ?? ''}|${kk.toFixed(2)}|${dpr}|${language}|${BODY_FONT.version}`;
     if (pKey !== s.key) {
       s.key = pKey;
-      const u = Math.max(1, Math.round(2 * kk * dpr));
-      const tScale = Math.max(1, Math.round((24 * kk * dpr) / PIX_H));
+      const u = Math.max(1, Math.round(1.8 * kk * dpr));
+      const tScale = Math.max(1, Math.floor((19 * kk * dpr) / PIX_H));
       const tH = PIX_H * tScale;
-      const subPx = Math.round(14.5 * kk * dpr);
+      const subPx = Math.round(12.5 * kk * dpr);
       const tw = pixW(title) * tScale;
       const sw = sub ? Math.ceil(bodyW(sub, subPx)) : 0;
-      const padX = Math.round(22 * kk * dpr), padY = Math.round(9 * kk * dpr);
-      const W = Math.max(tw, sw, Math.round(240 * kk * dpr)) + padX * 2 + u * 2;
-      const H = padY * 2 + u * 2 + tH + (sub ? Math.round(6 * kk * dpr) + Math.ceil(subPx * 1.25) : 0);
+      const padX = Math.round(18 * kk * dpr), padY = Math.round(6 * kk * dpr);
+      const W = Math.max(tw, sw, Math.round(190 * kk * dpr)) + padX * 2 + u * 2;
+      const H = padY * 2 + u * 2 + tH + (sub ? Math.round(4 * kk * dpr) + Math.ceil(subPx * 1.25) : 0);
       const c = makeCanvas(Math.ceil(W), Math.ceil(H)) as HTMLCanvasElement;
       const g = c.getContext('2d')!; g.imageSmoothingEnabled = false;
       drawPixelPlaque(g, 0, 0, c.width, c.height, u, {
@@ -850,7 +880,7 @@ export class UiPlatePool {
       const topY = padY + u;
       drawPix(g, title, c.width / 2, topY, { scale: tScale, color: spec.color ?? '#ffe6b0', outline: '#08060c', align: 'center' });
       if (sub) {
-        bodyText(g, sub, c.width / 2, topY + tH + Math.round(6 * kk * dpr), subPx, '#d8ceb8', 'center', '#08060c');
+        bodyText(g, sub, c.width / 2, topY + tH + Math.round(4 * kk * dpr), subPx, '#d8ceb8', 'center', '#08060c');
       }
       this.upload(s, c, dpr, BODY_FONT.current !== 'pixel' && !!sub);
     }
@@ -871,11 +901,11 @@ export class UiPlatePool {
     const pKey = `wal|${SKIN.id}|${items.map(i => `${i.icon}:${i.val}:${i.hot ? 1 : 0}`).join(',')}|${kk.toFixed(2)}|${dpr}|${language}`;
     if (pKey !== s.key) {
       s.key = pKey;
-      const u = Math.max(1, Math.round(2 * kk * dpr));
-      const pScale = Math.max(1, Math.round((16.5 * kk * dpr) / PIX_H));
+      const u = Math.max(1, Math.round(1.6 * kk * dpr));
+      const pScale = Math.max(1, Math.floor((14 * kk * dpr) / PIX_H));
       const tH = PIX_H * pScale;
       const icoSz = Math.round(tH * 1.02);
-      const padX = Math.round(12 * kk * dpr), padY = Math.round(7 * kk * dpr), segGap = Math.round(16 * kk * dpr), iGap = Math.round(5 * kk * dpr);
+      const padX = Math.round(10 * kk * dpr), padY = Math.round(5 * kk * dpr), segGap = Math.round(14 * kk * dpr), iGap = Math.round(4 * kk * dpr);
       const segs = items.map(it => {
         const txt = `${localize(it.label)} ${it.val}`;
         return { ...it, txt, w: icoSz + iGap + pixW(txt) * pScale };
@@ -912,11 +942,11 @@ export class UiPlatePool {
     const dpr = Math.max(1, Math.round(this.L.dpr || 1));
     const kk = uiScale(this.L.w, this.L.h, 0.8, 2.8);
     const pKey = `tabs|${SKIN.id}|${tabs.map(t => `${t.id}:${localize(t.label)}:${t.badge ? 1 : 0}`).join('|')}|${activeIdx}|${PAD.device}|${kk.toFixed(2)}|${dpr}|${language}`;
-    const u = Math.max(1, Math.round(2 * kk * dpr));
-    const pScale = Math.max(1, Math.round((16.5 * kk * dpr) / PIX_H));
+    const u = Math.max(1, Math.round(1.8 * kk * dpr));
+    const pScale = Math.max(1, Math.floor((14.5 * kk * dpr) / PIX_H));
     const tH = PIX_H * pScale;
-    const tabPadX = Math.round(18 * kk * dpr), tabGap = Math.round(10 * kk * dpr), padY = Math.round(7 * kk * dpr);
-    const widths = tabs.map(t => Math.max(Math.round(124 * kk * dpr), pixW(localize(t.label)) * pScale + tabPadX * 2 + (t.badge ? Math.round(12 * kk * dpr) : 0)));
+    const tabPadX = Math.round(15 * kk * dpr), tabGap = Math.round(9 * kk * dpr), padY = Math.round(5 * kk * dpr);
+    const widths = tabs.map(t => Math.max(Math.round(108 * kk * dpr), pixW(localize(t.label)) * pScale + tabPadX * 2 + (t.badge ? Math.round(12 * kk * dpr) : 0)));
     const totalW = widths.reduce((a, b, idx) => a + b + (idx ? tabGap : 0), 0);
     const H = tH + padY * 2 + u * 2;
     if (pKey !== s.key) {
@@ -970,14 +1000,14 @@ export class UiPlatePool {
     const pKey = `det|${SKIN.id}|${Math.round(spec.w)}|${title}|${badge}|${spec.badgeCol ?? ''}|${spec.stars ?? 0}/${spec.starsMax ?? 0}|${l1}|${l2}|${act}|${spec.actionHot ? 1 : 0}|${spec.accent ?? ''}|${kk.toFixed(2)}|${dpr}|${language}|${BODY_FONT.version}`;
     if (pKey !== s.key) {
       s.key = pKey;
-      const u = Math.max(1, Math.round(2 * kk * dpr));
+      const u = Math.max(1, Math.round(1.8 * kk * dpr));
       const W = Math.round(spec.w * dpr);
-      const tScale = Math.max(1, Math.round((20 * kk * dpr) / PIX_H));
+      const tScale = Math.max(1, Math.floor((17 * kk * dpr) / PIX_H));
       const tH = PIX_H * tScale;
-      const bScale = Math.max(1, Math.round((13.5 * kk * dpr) / PIX_H));
+      const bScale = Math.max(1, Math.floor((12.5 * kk * dpr) / PIX_H));
       const bH = PIX_H * bScale;
-      const f1 = Math.round(18 * kk * dpr), f2 = Math.round(16 * kk * dpr);
-      const padX = Math.round(18 * kk * dpr), padY = Math.round(11 * kk * dpr);
+      const f1 = Math.round(14.5 * kk * dpr), f2 = Math.round(13 * kk * dpr);
+      const padX = Math.round(16 * kk * dpr), padY = Math.round(9 * kk * dpr);
       const H = padY * 2 + u * 2 + tH + Math.round(8 * kk * dpr) + Math.ceil(f1 * 1.35) + (l2 || act ? Math.round(4 * kk * dpr) + Math.ceil(f2 * 1.3) : 0);
       const c = makeCanvas(Math.max(16, W), Math.max(16, H)) as HTMLCanvasElement;
       const g = c.getContext('2d')!; g.imageSmoothingEnabled = false;
@@ -1023,15 +1053,16 @@ export class UiPlatePool {
           richLine(g, l2, x0, y, p2, '#bcb4a4', '#ffe8a8', true, true);
         }
         if (act) {
-          const as = Math.max(1, Math.round((14.5 * kk * dpr) / PIX_H));
-          const aw = pixW(act) * as + Math.round(18 * kk * dpr), ah = PIX_H * as + Math.round(8 * kk * dpr);
+          const as = Math.max(1, Math.floor((13.5 * kk * dpr) / PIX_H));
+          const aw = pixW(act) * as + Math.round(16 * kk * dpr), ah = PIX_H * as + Math.round(7 * kk * dpr);
           const ax = c.width - padX - u - aw, ay = Math.round(y - Math.round(2 * kk * dpr));
           const hot = !!spec.actionHot;
           drawPixelPlaque(g, ax, ay, aw, ah, Math.max(1, Math.round(1.5 * kk * dpr)), {
             bg: hot ? '#3a2414' : '#261b12', hi: hot ? '#58381e' : '#3a2a1c', border: '#08060c',
-            inner: hot ? '#ffe07a' : (spec.accent ?? '#d4a24e'),
+            inner: hot ? '#fffef2' : (spec.accent ?? '#d4a24e'),
           });
-          drawPix(g, act, ax + aw / 2, Math.round(ay + (ah - PIX_H * as) / 2), { scale: as, color: hot ? '#fff8d4' : '#ffe69c', outline: '#08060c', align: 'center' });
+          drawPix(g, act, ax + aw / 2, Math.round(ay + (ah - PIX_H * as) / 2), { scale: as, color: hot ? '#fffef2' : '#ffe69c', outline: '#08060c', align: 'center' });
+          if (hot) drawFocusBrackets(g, ax, ay, aw, ah, Math.max(1, Math.round(1.5 * kk * dpr)));
         }
       }
       this.upload(s, c, dpr, BODY_FONT.current !== 'pixel');
@@ -1072,7 +1103,7 @@ export class UiPlatePool {
     const boxX = padX + u, boxW = W - (padX + u) * 2;
     const bayH = Math.round(H * (spec.h < 310 ? 0.28 : 0.33));
     const bayY = padY + u;
-    const btnH = Math.round(Math.max(38 * kk * dpr, H * 0.135));
+    const btnH = Math.round(Math.max(34 * kk * dpr, H * 0.115));
     const btnY = H - padY - u - btnH;
     const hasSubBtn = !!subBtnLbl;
     const btnGap = Math.round(10 * kk * dpr);
@@ -1112,9 +1143,9 @@ export class UiPlatePool {
       }
 
       // 2. Title + Level Pips directly below showcase bay
-      let curY = bayY + bayH + Math.round(12 * kk * dpr);
-      let tScale = Math.max(1, Math.round((21 * kk * dpr) / PIX_H));
-      const pipSz = Math.round(10 * kk * dpr), pipGap = Math.round(4 * kk * dpr);
+      let curY = bayY + bayH + Math.round(10 * kk * dpr);
+      let tScale = Math.max(1, Math.floor((17.5 * kk * dpr) / PIX_H));
+      const pipSz = Math.round(9 * kk * dpr), pipGap = Math.round(4 * kk * dpr);
       const pipsW = spec.maxLv > 0 ? spec.maxLv * pipSz + (spec.maxLv - 1) * pipGap : 0;
       while (tScale > 1 && pixW(title) * tScale + pipsW + Math.round(16 * kk * dpr) > boxW) tScale--;
       const tH = PIX_H * tScale;
@@ -1129,12 +1160,12 @@ export class UiPlatePool {
           px -= pipSz + pipGap;
         }
       }
-      curY += tH + Math.round(6 * kk * dpr);
+      curY += tH + Math.round(5 * kk * dpr);
       if (sub) {
-        let spx = Math.round(14.5 * kk * dpr);
+        let spx = Math.round(13 * kk * dpr);
         while (spx > Math.round(10 * kk * dpr) && richLine(null, sub, 0, 0, spx, '#d6ccb8', '#ffe8a8', true, true) > boxW) spx -= 1;
         richLine(g, sub, boxX, curY, spx, '#d6ccb8', '#ffe8a8', true, true);
-        curY += Math.ceil(spx * 1.32) + Math.round(6 * kk * dpr);
+        curY += Math.ceil(spx * 1.32) + Math.round(5 * kk * dpr);
       } else {
         curY += Math.round(4 * kk * dpr);
       }
@@ -1142,12 +1173,12 @@ export class UiPlatePool {
       // Horizontal divider
       g.fillStyle = isMedic ? '#2c4c3a' : '#4a382c';
       g.fillRect(boxX, curY, boxW, Math.max(1, Math.round(kk * dpr)));
-      curY += Math.round(10 * kk * dpr);
+      curY += Math.round(8 * kk * dpr);
 
-      // 3. Before ▶ After Stat Comparison Bars (with leading pixel icons + unmistakable numbers!)
-      const rowH = Math.round(30 * kk * dpr);
-      const lblPx = Math.round(16 * kk * dpr);
-      const valPx = Math.round(18 * kk * dpr);
+      // 3. Before ▶ After Stat Comparison Bars (with leading pixel icons + crisp balanced numbers!)
+      const rowH = Math.round(26 * kk * dpr);
+      const lblPx = Math.round(13.5 * kk * dpr);
+      const valPx = Math.round(15 * kk * dpr);
       const inferIcon = (lbl: string): MiniIcon => {
         if (/血|命|愈|药|伤恢复/.test(lbl)) return 'hp';
         if (/盾|减伤|霸体|韧/.test(lbl)) return 'shield';
@@ -1196,36 +1227,37 @@ export class UiPlatePool {
       }
 
       // Optional single crisp effect note with inline pixel icons (e.g. next forge tier perk or Arcana bonus)
-      if (note && curY + Math.round(20 * kk * dpr) < btnY) {
-        let npx = Math.round(15.5 * kk * dpr);
+      if (note && curY + Math.round(18 * kk * dpr) < btnY) {
+        let npx = Math.round(13.5 * kk * dpr);
         const nCol = isMedic ? '#c8f6d8' : '#f2deb6';
-        while (npx > Math.round(11 * kk * dpr) && richLine(null, note, 0, 0, npx, nCol, '#fff4b4', true, true) > boxW) npx -= 1;
+        while (npx > Math.round(10.5 * kk * dpr) && richLine(null, note, 0, 0, npx, nCol, '#fff4b4', true, true) > boxW) npx -= 1;
         richLine(g, note, boxX, curY + Math.round(2 * kk * dpr), npx, nCol, '#fff4b4', true, true);
       }
 
-      // 4. Bottom large tactile Action Button(s) — ALWAYS display `[Icon] have/need` or `[Icon] cost`, NEVER dry text like 「差 1 药」!
+      // 4. Bottom large tactile Action Button(s) — universal ivory-white corner focus brackets on hover!
       const paintActionBtn = (bx0: number, bw0: number, lbl: string, cost: WorkbenchCost | undefined, enabled: boolean, hot: boolean, warmGold = false) => {
-        drawPixelPlaque(g, bx0, btnY, bw0, btnH, Math.max(1, Math.round(1.8 * kk * dpr)), {
+        drawPixelPlaque(g, bx0, btnY, bw0, btnH, Math.max(1, Math.round(1.6 * kk * dpr)), {
           bg: !enabled ? '#1c191e' : hot ? (warmGold ? '#4a3214' : isMedic ? '#1d4d32' : '#4a2e14') : (warmGold ? '#342412' : isMedic ? '#163a26' : '#362212'),
           hi: !enabled ? '#2a2630' : hot ? (warmGold ? '#6c481e' : isMedic ? '#327850' : '#6c4420') : (warmGold ? '#4c341a' : isMedic ? '#24583c' : '#52341b'),
           border: '#07050a',
-          inner: !enabled ? '#5a525c' : hot ? '#fff0a0' : (warmGold ? '#ecc060' : isMedic ? '#78e8a2' : '#f0be60'),
+          inner: !enabled ? '#5a525c' : hot ? '#fffef2' : (warmGold ? '#ecc060' : isMedic ? '#78e8a2' : '#f0be60'),
           rivets: enabled,
         });
-        let bScale = Math.max(1, Math.round((16.5 * kk * dpr) / PIX_H));
+        let bScale = Math.max(1, Math.round((15.5 * kk * dpr) / PIX_H));
         const hasCost = !!cost;
-        const gapB = Math.round(7 * kk * dpr);
+        const gapB = Math.round(6 * kk * dpr);
         const totalBtnW = () => pixW(lbl) * bScale + (hasCost && cost ? gapB + drawCostChip(null, cost.cur, cost.amount, cost.have, 0, 0, bScale, dpr) : 0);
         while (bScale > 1 && totalBtnW() > bw0 - Math.round(14 * kk * dpr)) bScale--;
         const bH = PIX_H * bScale;
         const bMid = Math.round(btnY + btnH / 2);
         let bx = Math.round(bx0 + (bw0 - totalBtnW()) / 2);
-        const txtCol = !enabled ? '#b0a6a4' : hot ? '#fffbe0' : '#ffe8a8';
+        const txtCol = !enabled ? '#b0a6a4' : hot ? '#fffef4' : '#ffe8a8';
         drawPix(g, lbl, bx, Math.round(bMid - bH / 2), { scale: bScale, color: txtCol, outline: '#08060c', align: 'left' });
         if (hasCost && cost) {
           bx += pixW(lbl) * bScale + gapB;
           drawCostChip(g, cost.cur, cost.amount, cost.have, bx, bMid, bScale, dpr);
         }
+        if (hot) drawFocusBrackets(g, bx0, btnY, bw0, btnH, Math.max(1, Math.round(1.6 * kk * dpr)));
       };
       paintActionBtn(boxX, btn1W, btnLbl, spec.btnCost, spec.btnEnabled, spec.btnEnabled && !!spec.btnHot, false);
       if (hasSubBtn) {
@@ -1251,11 +1283,11 @@ export class UiPlatePool {
     const lbl = localize('悟性');
     const expTxt = spec.nextCost == null ? localize('悟性圆满') : localize('拓悟性 +2');
     const pKey = `grp|${spec.used}/${spec.cap}|${spec.nextCost ?? -1}|${spec.have ?? -1}|${spec.canExpand ? 1 : 0}|${spec.btnHot ? 1 : 0}|${kk.toFixed(2)}|${dpr}|${language}`;
-    const u = Math.max(1, Math.round(1.8 * kk * dpr));
-    const pScale = Math.max(1, Math.round((15.5 * kk * dpr) / PIX_H));
+    const u = Math.max(1, Math.round(1.6 * kk * dpr));
+    const pScale = Math.max(1, Math.floor((13.5 * kk * dpr) / PIX_H));
     const tH = PIX_H * pScale;
     const grpIcoSz = Math.round(tH * 1.08);
-    const pipSz = Math.round(10 * kk * dpr), pipGap = Math.round(4 * kk * dpr);
+    const pipSz = Math.round(9 * kk * dpr), pipGap = Math.round(3.5 * kk * dpr);
     const maxPips = Math.min(18, spec.cap);
     const pipsW = maxPips * pipSz + Math.max(0, maxPips - 1) * pipGap;
     const numTxt = `${spec.used}/${spec.cap}`;
@@ -1301,14 +1333,15 @@ export class UiPlatePool {
         bg: !can ? '#1a1e1c' : hot ? '#26583c' : '#183e28',
         hi: !can ? '#262c29' : hot ? '#3a7e56' : '#265c3c',
         border: '#07050a',
-        inner: !can ? '#4c5852' : hot ? '#fff2a4' : '#80ecaa',
+        inner: !can ? '#4c5852' : hot ? '#fffef2' : '#80ecaa',
       });
       let ex = Math.round(btnX + (expBtnW - expInnerW) / 2);
-      drawPix(g, expTxt, ex, Math.round(midY - tH / 2), { scale: pScale, color: !can ? '#b2bab4' : hot ? '#fffce0' : '#d6ffe6', outline: '#08060c', align: 'left' });
+      drawPix(g, expTxt, ex, Math.round(midY - tH / 2), { scale: pScale, color: !can ? '#b2bab4' : hot ? '#fffef4' : '#d6ffe6', outline: '#08060c', align: 'left' });
       if (spec.nextCost != null) {
         ex += pixW(expTxt) * pScale + Math.round(7 * kk * dpr);
         drawCostChip(g, 'herb', spec.nextCost, spec.have, ex, midY, pScale, dpr);
       }
+      if (hot) drawFocusBrackets(g, btnX, btnY, expBtnW, expBtnH, Math.max(1, Math.round(1.4 * kk * dpr)));
       this.upload(s, c, dpr, false);
     }
     this.place(s, spec.x, spec.y, true, 1, true, 6);
@@ -1333,10 +1366,10 @@ export class UiPlatePool {
     const pKey = `ftr|${SKIN.id}|${txt}|${kk.toFixed(2)}|${dpr}|${language}|${BODY_FONT.version}`;
     if (pKey !== s.key) {
       s.key = pKey;
-      const u = Math.max(1, Math.round(1.5 * kk * dpr));
-      const fpx = Math.round(14 * kk * dpr);
+      const u = Math.max(1, Math.round(1.4 * kk * dpr));
+      const fpx = Math.round(12 * kk * dpr);
       const tw = Math.ceil(bodyW(txt, fpx));
-      const padX = Math.round(14 * kk * dpr), padY = Math.round(5 * kk * dpr);
+      const padX = Math.round(12 * kk * dpr), padY = Math.round(4 * kk * dpr);
       const W = tw + padX * 2 + u * 2;
       const H = Math.ceil(fpx * 1.3) + padY * 2 + u * 2;
       const c = makeCanvas(Math.max(8, W), Math.max(8, H)) as HTMLCanvasElement;
@@ -1346,6 +1379,52 @@ export class UiPlatePool {
       this.upload(s, c, dpr, BODY_FONT.current !== 'pixel');
     }
     this.place(s, cx, cy, true, 1, true, 6);
+  }
+
+  /** act-176: Universal zero-collision Focus Reticle — crisp ivory-white + dark-outline 4-corner L-brackets + top golden pointer chevron. */
+  setFocusFrame(key: string, cx: number, cy: number, w: number, h: number, visible = true, breathe = 0) {
+    const s = this.slot(key, 54);
+    if (!visible || w < 16 || h < 16) { s.mesh.visible = false; return; }
+    const dpr = Math.max(1, Math.round(this.L.dpr || 1));
+    const kk = uiScale(this.L.w, this.L.h, 0.8, 2.8);
+    const pad = Math.round((8 + breathe) * kk);
+    const Wcss = Math.round(w + pad * 2);
+    const Hcss = Math.round(h + pad * 2 + 8 * kk);
+    const pKey = `foc|${Wcss}x${Hcss}|${kk.toFixed(2)}|${dpr}`;
+    if (pKey !== s.key) {
+      s.key = pKey;
+      const W = Math.max(24, Math.round(Wcss * dpr));
+      const H = Math.max(24, Math.round(Hcss * dpr));
+      const c = makeCanvas(W, H) as HTMLCanvasElement;
+      const g = c.getContext('2d')!; g.imageSmoothingEnabled = false;
+      const u = Math.max(2, Math.round(2.6 * kk * dpr));
+      const topExtra = Math.round(8 * kk * dpr);
+      const bx = Math.round(3 * kk * dpr);
+      const by = topExtra + Math.round(2 * kk * dpr);
+      const bw = W - bx * 2;
+      const bh = H - by - Math.round(3 * kk * dpr);
+      // 4 crisp high-contrast ivory-white L-brackets with solid dark shadow outline
+      drawFocusBrackets(g, bx, by, bw, bh, u);
+      // Subtle 1px pure white hairline connecting corners so focus bounds read instantly on any card shape
+      const b = Math.max(1, Math.round(dpr));
+      g.fillStyle = 'rgba(255, 254, 242, 0.32)';
+      g.fillRect(bx + u * 2, by, bw - u * 4, b);
+      g.fillRect(bx + u * 2, by + bh - b, bw - u * 4, b);
+      g.fillRect(bx, by + u * 2, b, bh - u * 4);
+      g.fillRect(bx + bw - b, by + u * 2, b, bh - u * 4);
+      // Top-center warm-gold + ivory downward pointer chevron ▼
+      const mx = Math.round(W / 2);
+      const py = Math.max(b, by - u * 2 - b);
+      const tri = (oy: number, half: number, col: string) => { g.fillStyle = col; g.fillRect(mx - half, oy, half * 2, u); };
+      tri(py - b, u * 3 + b, '#08060c');
+      tri(py + u - b, u * 2 + b, '#08060c');
+      tri(py + u * 2 - b, u + b, '#08060c');
+      tri(py, u * 3, '#fffef2');
+      tri(py + u, u * 2, '#ffe074');
+      tri(py + u * 2, u, '#ffd048');
+      this.upload(s, c, dpr, false);
+    }
+    this.place(s, cx, cy - 4 * kk, true, 1, false);
   }
 
   hide(key: string) {

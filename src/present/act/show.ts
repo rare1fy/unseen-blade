@@ -121,7 +121,7 @@ import { dh } from '../../debug/dh';
 import { Input } from './input';
 import { ActHud } from './hud';
 import { CardPick3D as CardPick, type CardBoon } from './cards3d';   // act-36 / act-143: the pick cards as iron boards
-import { UiPlatePool, type MiniIcon, type WorkbenchStatRow } from './uiPlate';
+import { UiPlatePool, type MiniIcon, type TagSpec, type WorkbenchStatRow } from './uiPlate';
 import { MoveDemo } from './moveDemo';
 import { entryOfManual, entryOfBoon, entryOfBase, type AttachedBoon, type SkillEntry } from './skillFace';
 import type { Section } from './skillList';
@@ -1472,6 +1472,15 @@ export class ActShow {
       if (id === 'stele' && hasMirrorAffordable(prof)) return { text: '参悟潜能', col: '#d8c4ff', hex: 0xb896ff };
       return null;
     };
+    const minY = this.banner.bottomY > 0 ? this.banner.bottomY + 8 : 10;
+    // act-176: 场景悬停小标统一预算管理——走近任一可交互目标（near !== null）时自动隐藏其余环境小标；
+    // 漫步时去掉冗余副标题、缩短显示半径，按优先级+距离仅展示最多 3 个，并做屏幕空间防重叠剔除！
+    const ambientTags: Array<{ key: string; dist: number; prio: number; spec: TagSpec }> = [];
+    const allTagKeys: string[] = [];
+    const pushTag = (key: string, dist: number, prio: number, spec: TagSpec | null) => {
+      allTagKeys.push(key);
+      if (spec && spec.visible !== false) ambientTags.push({ key, dist, prio, spec });
+    };
     for (const n of this.npcs) {
       let m = this.marks.get(n.id);
       if (!m) {
@@ -1485,7 +1494,7 @@ export class ActShow {
       m.g.rotation.y = bc ? t * 1.4 : Math.sin(t * 0.9 + n.z) * 0.35;
       // Distinct 3D voxel ! when NPC has an active quest/meal/upgrade; subtle white speech bubble only when idle/approached
       m.exc.visible = !!bc && uiClear;
-      m.bub.visible = !bc && uiClear && (m.k > 0.05 || (h ? Math.hypot(h.pos.x - n.x, h.pos.z - n.z) < 5.5 : false));
+      m.bub.visible = !bc && uiClear && (m.k > 0.05 || (h ? Math.hypot(h.pos.x - n.x, h.pos.z - n.z) < 4.5 : false));
       if (m.exc.visible) {
         m.exc.scale.setScalar(0.56 * (1 + 0.2 * m.k + 0.1 * pulse));
         const em = m.exc.material as THREE.MeshLambertMaterial;
@@ -1500,22 +1509,21 @@ export class ActShow {
       const rm = m.ring.material as THREE.MeshBasicMaterial;
       rm.color.setHex(bc ? bc.hex : 0xf2f4f8); rm.opacity = uiClear ? Math.max(0.7 * m.k, bc ? 0.26 + 0.18 * pulse : 0) : 0;
       const dHero = h ? Math.hypot(h.pos.x - n.x, h.pos.z - n.z) : 99;
-      const minY = this.banner.bottomY > 0 ? this.banner.bottomY + 8 : 10;
       const npcIcon = (id: string): MiniIcon => id === 'fengtiebi' ? 'forge' : id === 'sunao' ? 'herb' : 'talk';
-      if (uiClear && near !== n.id && dHero < 6.4) {
-        const p = worldToUi(V3(n.x, top + 1.08, n.z));
+      const maxD = bc ? 6.2 : 4.4;
+      if (uiClear && near !== n.id && dHero < maxD) {
+        const p = worldToUi(V3(n.x, top + 1.04, n.z));
         const baseName = HIDEOUT_PEOPLE[n.id as keyof typeof HIDEOUT_PEOPLE]?.name ?? '';
-        this.worldPlates.setTag('ho.npc.' + n.id, {
-          text: baseName, sub: bc ? bc.text : (roleOf[n.id] ?? ''), icon: npcIcon(n.id),
-          x: p.x, y: p.y, color: bc ? bc.col : '#f4ecd8', accent: bc ? bc.col : '#8c7248', minY, visible: p.z < 1,
-        });
-      } else this.worldPlates.hide('ho.npc.' + n.id);
+        pushTag('ho.npc.' + n.id, dHero, bc ? 3 : 1, p.z < 1 ? {
+          text: baseName, icon: npcIcon(n.id),
+          x: p.x, y: p.y, color: bc ? bc.col : '#f0e6d2', accent: bc ? bc.col : '#7e6a46', minY, visible: true,
+        } : null);
+      } else pushTag('ho.npc.' + n.id, dHero, 0, null);
     }
-    const minY = this.banner.bottomY > 0 ? this.banner.bottomY + 8 : 10;
     // act-135: 3D voxel 落成工碑 monuments (pulsing golden square frame + hovering 3D !)
     for (const zid of HIDEOUT_ZONE_ORDER) {
       const zm = this.zoneMonuments.get(zid);
-      if (!zm) { this.worldPlates.hide('ho.zone_' + zid); continue; }
+      if (!zm) { pushTag('ho.zone_' + zid, 99, 0, null); continue; }
       const zdef = HIDEOUT_ZONES[zid], key = 'zone_' + zid;
       const pulse = 0.5 + 0.5 * Math.sin(t * 4.6 + zdef.monument.x);
       zm.exc.visible = uiClear;
@@ -1528,10 +1536,10 @@ export class ActShow {
       zm.ring.scale.set(rs, 1, rs);
       (zm.ring.material as THREE.MeshBasicMaterial).opacity = uiClear ? (near === key ? 0.85 : 0.34 + 0.24 * pulse) : 0;
       const dZone = h ? Math.hypot(h.pos.x - zdef.monument.x, h.pos.z - zdef.monument.z) : 99;
-      if (uiClear && near !== key && dZone < 10.5) {
+      if (uiClear && near !== key && dZone < 8.5) {
         const pt = worldToUi(V3(zdef.monument.x, 2.42, zdef.monument.z));
-        this.worldPlates.setTag('ho.' + key, { text: zdef.beaconLabel, icon: 'forge', x: pt.x, y: pt.y, color: zdef.color, accent: zdef.color, minY, visible: pt.z < 1 });
-      } else this.worldPlates.hide('ho.' + key);
+        pushTag('ho.' + key, dZone, 4, pt.z < 1 ? { text: zdef.beaconLabel, icon: 'forge', x: pt.x, y: pt.y, color: zdef.color, accent: zdef.color, minY, visible: true } : null);
+      } else pushTag('ho.' + key, dZone, 0, null);
     }
     // 复仇碑 3D ! marker & proximity label
     if (this.stele && HIDEOUT.stele) {
@@ -1549,36 +1557,39 @@ export class ActShow {
         em.emissive.setHex(bc.hex); em.emissiveIntensity = 0.45 + 0.3 * pulse;
         this.steleExclaim.children[0].scale.setScalar(0.56 * (1 + 0.1 * pulse));
       } else if (this.steleExclaim) this.steleExclaim.visible = false;
-      if (uiClear && near !== 'stele' && dStele < 6.0) {
+      if (uiClear && near !== 'stele' && dStele < (bc ? 6.0 : 4.2)) {
         const p = worldToUi(V3(HIDEOUT.stele.x, 2.08, HIDEOUT.stele.z + 0.35));
-        this.worldPlates.setTag('ho.stele', { text: '复仇碑', sub: bc ? bc.text : '潜能', icon: 'stele', x: p.x, y: p.y, color: bc ? bc.col : '#dcd0f0', accent: '#9880d0', minY, visible: p.z < 1 });
-      } else this.worldPlates.hide('ho.stele');
+        pushTag('ho.stele', dStele, bc ? 3 : 1, p.z < 1 ? { text: '复仇碑', icon: 'stele', x: p.x, y: p.y, color: bc ? bc.col : '#dcd0f0', accent: '#9880d0', minY, visible: true } : null);
+      } else pushTag('ho.stele', dStele, 0, null);
     } else {
       if (this.steleExclaim) this.steleExclaim.visible = false;
-      this.worldPlates.hide('ho.stele');
+      pushTag('ho.stele', 99, 0, null);
     }
-    // 文家刀廊、信物匣、古窑长明灯 & 试锋碑 proximity beacons
+    // 文家刀廊、信物匣、古窑长明灯 & 试锋碑 proximity beacons (minimal single-line tags)
     const eqWep = weaponDef(this.currentWeaponId(prof));
     const eqKs = keepsakeDef(equippedKeepsake(prof, this.dbgAllWeapons));
-    if (this.weaponRackMesh && uiClear && near !== 'weaponRack' && h && Math.hypot(h.pos.x - HIDEOUT.weaponRack.x, h.pos.z - HIDEOUT.weaponRack.z) < 7.2) {
-      const p = worldToUi(V3(HIDEOUT.weaponRack.x, 2.28, HIDEOUT.weaponRack.z + 0.35));
-      this.worldPlates.setTag('ho.weaponRack', { text: '文家刀廊', sub: eqWep.name, icon: 'blade', x: p.x, y: p.y, color: eqWep.col, accent: eqWep.col, minY, visible: p.z < 1 });
-    } else this.worldPlates.hide('ho.weaponRack');
-    if (this.keepsakeBoxMesh && uiClear && near !== 'keepsakeBox' && h && Math.hypot(h.pos.x - HIDEOUT.keepsakeBox.x, h.pos.z - HIDEOUT.keepsakeBox.z) < 6.8) {
-      const p = worldToUi(V3(HIDEOUT.keepsakeBox.x, 1.9, HIDEOUT.keepsakeBox.z + 0.35));
-      this.worldPlates.setTag('ho.keepsakeBox', { text: '信物匣', sub: eqKs ? eqKs.name : '选佩信物', icon: 'star', x: p.x, y: p.y, color: eqKs ? eqKs.col : '#ffd898', accent: '#c89e4e', minY, visible: p.z < 1 });
-    } else this.worldPlates.hide('ho.keepsakeBox');
-    if (this.lanternMesh && uiClear && near !== 'lantern' && h && Math.hypot(h.pos.x - HIDEOUT.lantern.x, h.pos.z - HIDEOUT.lantern.z) < 6.6) {
-      const p = worldToUi(V3(HIDEOUT.lantern.x, 1.85, HIDEOUT.lantern.z));
-      const oil = ensureAds(prof).total;
-      this.worldPlates.setTag('ho.lantern', { text: '长明灯', sub: msg`典藏 · ${oil}盏`, icon: 'fire', x: p.x, y: p.y, color: '#ffe48c', accent: '#e0a448', minY, visible: p.z < 1 });
-    } else this.worldPlates.hide('ho.lantern');
-    if (this.trialSteleMesh && uiClear && near !== 'trialStele' && h && Math.hypot(h.pos.x - HIDEOUT.trialStele.x, h.pos.z - HIDEOUT.trialStele.z) < 6.4) {
-      const p = worldToUi(V3(HIDEOUT.trialStele.x, 1.85, HIDEOUT.trialStele.z));
-      this.worldPlates.setTag('ho.trialStele', { text: '试锋碑', sub: '约战与配招', icon: 'boss', x: p.x, y: p.y, color: '#a8e8ff', accent: '#6cb8dc', minY, visible: p.z < 1 });
-    } else this.worldPlates.hide('ho.trialStele');
+    const dRack = h ? Math.hypot(h.pos.x - HIDEOUT.weaponRack.x, h.pos.z - HIDEOUT.weaponRack.z) : 99;
+    if (this.weaponRackMesh && uiClear && near !== 'weaponRack' && dRack < 4.4) {
+      const p = worldToUi(V3(HIDEOUT.weaponRack.x, 2.24, HIDEOUT.weaponRack.z + 0.35));
+      pushTag('ho.weaponRack', dRack, 1, p.z < 1 ? { text: '文家刀廊', icon: 'blade', x: p.x, y: p.y, color: eqWep.col, accent: eqWep.col, minY, visible: true } : null);
+    } else pushTag('ho.weaponRack', dRack, 0, null);
+    const dBox = h ? Math.hypot(h.pos.x - HIDEOUT.keepsakeBox.x, h.pos.z - HIDEOUT.keepsakeBox.z) : 99;
+    if (this.keepsakeBoxMesh && uiClear && near !== 'keepsakeBox' && dBox < 4.4) {
+      const p = worldToUi(V3(HIDEOUT.keepsakeBox.x, 1.88, HIDEOUT.keepsakeBox.z + 0.35));
+      pushTag('ho.keepsakeBox', dBox, 1, p.z < 1 ? { text: '信物匣', icon: 'star', x: p.x, y: p.y, color: eqKs ? eqKs.col : '#ffd898', accent: '#c89e4e', minY, visible: true } : null);
+    } else pushTag('ho.keepsakeBox', dBox, 0, null);
+    const dLantern = h ? Math.hypot(h.pos.x - HIDEOUT.lantern.x, h.pos.z - HIDEOUT.lantern.z) : 99;
+    if (this.lanternMesh && uiClear && near !== 'lantern' && dLantern < 4.2) {
+      const p = worldToUi(V3(HIDEOUT.lantern.x, 1.82, HIDEOUT.lantern.z));
+      pushTag('ho.lantern', dLantern, 1, p.z < 1 ? { text: '长明灯', icon: 'fire', x: p.x, y: p.y, color: '#ffe48c', accent: '#e0a448', minY, visible: true } : null);
+    } else pushTag('ho.lantern', dLantern, 0, null);
+    const dTrial = h ? Math.hypot(h.pos.x - HIDEOUT.trialStele.x, h.pos.z - HIDEOUT.trialStele.z) : 99;
+    if (this.trialSteleMesh && uiClear && near !== 'trialStele' && dTrial < 4.2) {
+      const p = worldToUi(V3(HIDEOUT.trialStele.x, 1.82, HIDEOUT.trialStele.z));
+      pushTag('ho.trialStele', dTrial, 1, p.z < 1 ? { text: '试锋碑', icon: 'boss', x: p.x, y: p.y, color: '#a8e8ff', accent: '#6cb8dc', minY, visible: true } : null);
+    } else pushTag('ho.trialStele', dTrial, 0, null);
 
-    // act-132 / act-135 / act-143: Bamboo Stream Garden Terrace — decluttered! Show tags only for ripe plots or immediate proximity.
+    // act-132 / act-135 / act-143 / act-176: Bamboo Stream Garden Terrace — icon + countdown / 可收 only, budgeted & de-overlapped
     const nowMs = Date.now();
     let gState: ReturnType<typeof ensureGarden>['state'] | null = null;
     let seedBag = 0;
@@ -1610,19 +1621,19 @@ export class ActShow {
         } else if (this.gardenExclaims[i]) this.gardenExclaims[i]!.visible = false;
 
         const dPlot = h ? Math.hypot(h.pos.x - gp.x, h.pos.z - gp.z) : 99;
-        // act-170: 种田头顶仅留「图标 + 倒计时 / 可收」，空地荒畦不刷文字，走近才出交互牌
-        const showGardenTag = uiClear && near !== key && unl && !!plot && (st.done ? dPlot < 7.2 : dPlot < 5.6);
+        // act-170 / act-176: 种田头顶仅留「图标 + 倒计时 / 可收」，空地荒畦不刷文字，走近才出交互牌
+        const showGardenTag = uiClear && near !== key && unl && !!plot && (st.done ? dPlot < 6.2 : dPlot < 4.4);
         if (showGardenTag) {
-          const pt = worldToUi(V3(gp.x, 1.5, gp.z));
+          const pt = worldToUi(V3(gp.x, 1.48, gp.z));
           const def = SEEDS[plot!.seed];
           const txt = st.done ? '可收' : msg`${st.leftSteps}屋·${st.leftMins}分`;
           const col = st.done ? '#ffe680' : def.hex;
-          this.worldPlates.setTag('ho.' + key, { text: txt, icon: 'leaf', x: pt.x, y: pt.y, color: col, accent: st.done ? '#ffd258' : def.hex, minY, scale: 0.9, visible: pt.z < 1 });
-        } else this.worldPlates.hide('ho.' + key);
+          pushTag('ho.' + key, dPlot, st.done ? 3 : 1, pt.z < 1 ? { text: txt, icon: 'leaf', x: pt.x, y: pt.y, color: col, accent: st.done ? '#ffd258' : def.hex, minY, scale: 0.92, visible: true } : null);
+        } else pushTag('ho.' + key, dPlot, 0, null);
       }
     } else {
       for (let i = 0; i < HIDEOUT.gardenPlots.length; i++) {
-        this.worldPlates.hide('ho.garden_' + i);
+        pushTag('ho.garden_' + i, 99, 0, null);
         if (this.gardenExclaims[i]) this.gardenExclaims[i]!.visible = false;
       }
     }
@@ -1630,6 +1641,7 @@ export class ActShow {
     // act-154: Du Wu's hearthside memorial beacon & floating tag (100% seamless handover of meal rations)
     if (this.duwuMemorialMesh) {
       const mx = HIDEOUT.people.duwu.x, mz = HIDEOUT.people.duwu.z;
+      const dMem = h ? Math.hypot(h.pos.x - mx, h.pos.z - mz) : 99;
       const showExc = uiClear && !prof.meal;
       if (showExc) {
         if (!this.duwuMemorialExclaim && this.stage) {
@@ -1647,12 +1659,12 @@ export class ActShow {
           de.children[0].scale.setScalar(0.56 * (1 + 0.1 * pulse));
         }
       } else if (this.duwuMemorialExclaim) this.duwuMemorialExclaim.visible = false;
-      if (uiClear && near !== 'duwu_memorial') {
-        const pt = worldToUi(V3(mx, 1.92, mz));
-        this.worldPlates.setTag('ho.duwuMemorial', { text: '杜五的遗灶', sub: !prof.meal ? '领干粮' : '灶火犹温', icon: 'herb', x: pt.x, y: pt.y, color: !prof.meal ? '#ffbe78' : '#dfd4be', accent: '#c8964e', minY, visible: pt.z < 1 });
-      } else this.worldPlates.hide('ho.duwuMemorial');
+      if (uiClear && near !== 'duwu_memorial' && dMem < (!prof.meal ? 6.2 : 4.4)) {
+        const pt = worldToUi(V3(mx, 1.9, mz));
+        pushTag('ho.duwuMemorial', dMem, !prof.meal ? 3 : 1, pt.z < 1 ? { text: '杜五的遗灶', icon: 'herb', x: pt.x, y: pt.y, color: !prof.meal ? '#ffbe78' : '#dfd4be', accent: '#c8964e', minY, visible: true } : null);
+      } else pushTag('ho.duwuMemorial', dMem, 0, null);
     } else {
-      this.worldPlates.hide('ho.duwuMemorial');
+      pushTag('ho.duwuMemorial', 99, 0, null);
       if (this.duwuMemorialExclaim) this.duwuMemorialExclaim.visible = false;
     }
 
@@ -1743,10 +1755,33 @@ export class ActShow {
         this.exitGlow = new GateGlow(this.stage.root, V3(ex, 0, ez), 2.55, V3(0, 0, -1), { radius: 4.8, spillLen: 3.8, height: 2.4 });
       }
       this.exitGlow?.update(dt, obj.isExit ? 1.0 : 0.72);
+      const dExit = Math.hypot(ex - h.pos.x, ez - h.pos.z);
       const gp = worldToUi(V3(ex, 2.48, ez));
-      this.worldPlates.setTag('ho.exit', { text: '出发', sub: '出院门开打', icon: 'door', x: gp.x, y: gp.y, color: '#ffe898', accent: '#d8a64e', minY, visible: gp.z < 1 && (obj.isExit || dist < 7.5) });
+      pushTag('ho.exit', dExit, obj.isExit ? 2 : 1, (gp.z < 1 && (obj.isExit || dExit < 6.2))
+        ? { text: '出发', icon: 'door', x: gp.x, y: gp.y, color: '#ffe898', accent: '#d8a64e', minY, visible: true }
+        : null);
     } else {
-      this.worldPlates.hide('ho.exit');
+      pushTag('ho.exit', 99, 0, null);
+    }
+
+    // act-176: Apply ambient tag budget (Focus Suppression + Top-3 + Screen-space De-overlap)
+    const shownKeys = new Set<string>();
+    if (uiClear && !near && ambientTags.length > 0) {
+      const kk = Math.max(0.75, Math.min(2.2, Math.min(this.L.w / 1280, this.L.h / 720)));
+      const padX = 108 * kk, padY = 38 * kk;
+      ambientTags.sort((a, b) => (b.prio - a.prio) || (a.dist - b.dist));
+      const placed: Array<{ x: number; y: number }> = [];
+      for (const item of ambientTags) {
+        if (placed.length >= 3) break;
+        const { x, y } = item.spec;
+        if (placed.some(p => Math.abs(x - p.x) < padX && Math.abs(y - p.y) < padY)) continue;
+        this.worldPlates.setTag(item.key, item.spec);
+        placed.push({ x, y });
+        shownKeys.add(item.key);
+      }
+    }
+    for (const k of allTagKeys) {
+      if (!shownKeys.has(k)) this.worldPlates.hide(k);
     }
   }
   /** act-135: Hand-built new-zone construction ceremony (3D voxel pop-in + camera pan + debris/sparks + SFX + NPC greeting) */
@@ -8543,19 +8578,29 @@ export class ActShow {
       const nearMerch = !ns && this.stations.nearMerchant(h.pos);
       this.stationNear = ns;
       this.merchantNear = nearMerch;
-      // Overhead price/name tags for every idle stall; highlighted interactive plaque ONLY for the focused stall
-      for (const st of this.stations.list) {
-        if (st.done || st === ns) {
+      // act-176: 走近任意摊位或行商时隐去其余空闲摊签；漫步时按距离排序并做屏幕防重叠剔除
+      const stPlaced: Array<{ x: number; y: number }> = [];
+      const stKk = Math.max(0.75, Math.min(2.2, Math.min(this.L.w / 1280, this.L.h / 720)));
+      const stList = [...this.stations.list].sort((a, b) =>
+        Math.hypot(a.at.x - h.pos.x, a.at.z - h.pos.z) - Math.hypot(b.at.x - h.pos.x, b.at.z - h.pos.z)
+      );
+      for (const st of stList) {
+        if (st.done || st === ns || !!ns || nearMerch) {
           this.worldPlates.hide('st.tag.' + st.id);
           continue;
         }
         const pt = worldToUi(V3(st.at.x, 1.9, st.at.z));
+        if (pt.z >= 1 || stPlaced.length >= 4 || stPlaced.some(p => Math.abs(pt.x - p.x) < 104 * stKk && Math.abs(pt.y - p.y) < 38 * stKk)) {
+          this.worldPlates.hide('st.tag.' + st.id);
+          continue;
+        }
         const poor = st.price > this.coins;
         this.worldPlates.setTag('st.tag.' + st.id, {
           text: st.label, price: st.price, poor, icon: st.icon,
           color: poor ? '#ffb4a4' : '#f4ecd8', accent: poor ? '#b83c32' : '#c8984e',
-          x: pt.x, y: pt.y, minY: minPlateY, visible: pt.z < 1,
+          x: pt.x, y: pt.y, minY: minPlateY, visible: true,
         });
+        stPlaced.push({ x: pt.x, y: pt.y });
       }
       if (ns) {
         const pt = worldToUi(V3(ns.at.x, 2.2, ns.at.z));

@@ -141,6 +141,7 @@ export class CardPick3D {
   private workbenchSubBtnRect: { x: number; y: number; w: number; h: number } | null = null;
   private workbenchSubBtnHot = false;
   private workbenchPreview: { key: string; model: Model3D; root: THREE.Group; back: THREE.Mesh } | null = null;
+  private focusBox = { x: 0, y: 0, w: 0, h: 0, init: false };
   private lastOpenOpts: CardOpenOpts = {};
 
   constructor(private L: UiLayer) {
@@ -414,7 +415,7 @@ export class CardPick3D {
 
       const rim = new THREE.Mesh(
         new THREE.PlaneGeometry(lay.vertical ? 1.1 : 1.06, Hh + (st === 'mirror' ? 0.14 : st === 'shop' ? 0.10 : 0.05)),
-        new THREE.MeshBasicMaterial({ color: new THREE.Color(metal.glow), transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }),
+        new THREE.MeshBasicMaterial({ color: new THREE.Color(0xfff6dc), transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }),
       );
       rim.position.z = -0.03;
       rim.renderOrder = 29;
@@ -454,6 +455,7 @@ export class CardPick3D {
     this.on = true;
     const initF = o.initialFocus != null ? Math.max(0, Math.min(this.cards.length - 1, o.initialFocus)) : (cols === 1 && !isWorkbench ? Math.min(1, this.cards.length - 1) : 0);
     this.focus = Math.max(0, initF);
+    this.focusBox.init = false;
     this.leaving = -1;
     this.flyStarted = false;
     if (!o.instant) cue('scroll', 0.8);
@@ -956,8 +958,9 @@ export class CardPick3D {
       let z = L.px(22) * c.lift;
       let dx = isScroll || isUpright || this.gridCols > 1 ? 0 : L.px(isWork ? 12 : 14) * c.lift;
       const arcActive = isArc && !!c.b.arcanaInfo?.active;
-      let warm = c.locked ? 0.01 + 0.06 * c.lift : arcActive ? 0.14 + 0.14 * c.lift : 0.04 + 0.16 * c.lift;
-      let rimA = (arcActive ? 0.12 + 0.18 * c.lift : c.lift * (c.locked ? 0.12 : 0.24)) * unroll;
+      let warm = c.locked ? 0.01 + 0.06 * c.lift : arcActive ? 0.16 + 0.08 * c.lift : 0.03 + 0.14 * c.lift;
+      // act-176: rim glow belongs strictly to FOCUS (never conflated with Active state)
+      let rimA = c.lift * (c.locked ? 0.16 : 0.28) * unroll;
       let alpha = r > 0 ? 1 : 0;
       let scale = L.px(c.w);
 
@@ -1053,6 +1056,31 @@ export class CardPick3D {
       c.root.rotation.set(rx, ry, rz);
       c.root.position.x += dx;
       c.root.visible = r > 0;
+    }
+
+    // act-176: Universal high-contrast ivory-white + gold Focus Reticle gliding smoothly around the currently focused card!
+    const fc = this.cards[this.focus];
+    if (showChrome && fc && (this.instantOpen || clock.rtime - fc.t0 > 0.26)) {
+      const isScrollF = fc.L.shape === 'scroll';
+      const isShopF = fc.L.shape === 'shop';
+      const isUpF = fc.L.shape === 'stele' || fc.L.shape === 'keepsake' || fc.L.shape === 'weapon' || fc.L.shape === 'shop' || fc.L.shape === 'arcana';
+      const liftY = isScrollF ? -10 * fc.lift : isShopF ? -8 * fc.lift : (isUpF || this.gridCols > 1) ? -7 * fc.lift : 0;
+      const liftX = isScrollF || isUpF || this.gridCols > 1 ? 0 : (fc.L.shape === 'workRow' ? 12 : 14) * fc.lift;
+      const scF = 1 + (fc.L.shape === 'keepsake' || fc.L.shape === 'weapon' || isShopF ? 0.06 : fc.L.shape === 'workRow' ? 0.032 : 0.045) * fc.lift;
+      const tx = fc.x + liftX, ty = fc.y + liftY, tw = fc.w * scF, th = fc.h * scF;
+      if (!this.focusBox.init) {
+        this.focusBox = { x: tx, y: ty, w: tw, h: th, init: true };
+      } else {
+        const k = Math.min(1, dt * 24);
+        this.focusBox.x += (tx - this.focusBox.x) * k;
+        this.focusBox.y += (ty - this.focusBox.y) * k;
+        this.focusBox.w += (tw - this.focusBox.w) * k;
+        this.focusBox.h += (th - this.focusBox.h) * k;
+      }
+      const breathe = Math.round(Math.sin(t * 4.2) * 1.2);
+      this.plates.setFocusFrame('cards.focus', this.focusBox.x, this.focusBox.y, this.focusBox.w, this.focusBox.h, true, breathe);
+    } else {
+      this.plates.hide('cards.focus');
     }
   }
 }

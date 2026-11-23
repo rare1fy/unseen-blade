@@ -37,12 +37,25 @@ function slab(w: number, h: number, slotX: number, slot: number) {
     b.push({ w: cap, h: h + 4, d: d + 2, x: s * (w / 2 + 0.5), y: 0, z: 0.4, c: BRONZE_D });
     b.push({ w: cap, h: 2, d: d + 2.2, x: s * (w / 2 + 0.5), y: (h + 4) / 2 - 1, z: 0.4, c: BRONZE });
   }
-  return new THREE.Mesh(mergeBoxes(b), new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0xff7a2a, emissiveIntensity: 0 }));
+  return new THREE.Mesh(mergeBoxes(b), new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0x8a6838, emissiveIntensity: 0 }));
+}
+/** act-176: universal ivory-white 4-corner focus bracket mesh for selected skill row */
+function focusRim(w: number, h: number, z: number) {
+  const b: Parameters<typeof mergeBoxes>[0] = [];
+  const t = 2.6, cr = Math.min(14, h * 0.28), ox = w / 2 + 2.5, oy = h / 2 + 2.5;
+  for (const sx of [-1, 1]) {
+    for (const sy of [-1, 1]) {
+      b.push({ w: cr, h: t, d: 2, x: sx * (ox - cr / 2), y: sy * (oy - t / 2), z, c: 0xfffef2 });
+      b.push({ w: t, h: cr, d: 2, x: sx * (ox - t / 2), y: sy * (oy - cr / 2), z, c: 0xfffef2 });
+    }
+  }
+  b.push({ w: 4, h: h * 0.72, d: 2.2, x: -ox + 1, y: 0, z, c: 0xffe078 });
+  return new THREE.Mesh(mergeBoxes(b), new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0, depthWrite: false, toneMapped: false }));
 }
 const tex = (c: HTMLCanvasElement) => { const t = new THREE.CanvasTexture(c); t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearFilter; t.generateMipmaps = false; t.colorSpace = THREE.SRGBColorSpace; return t; };
 
 interface Item {
-  e: SkillEntry | null; title: string; root: THREE.Group; body: THREE.Mesh | null; face: THREE.Mesh; picture: Model3D | null; presses: MiniShield[]; items: PressItem[];
+  e: SkillEntry | null; title: string; root: THREE.Group; body: THREE.Mesh | null; rim: THREE.Mesh | null; face: THREE.Mesh; picture: Model3D | null; presses: MiniShield[]; items: PressItem[];
   x: number; y: number; w: number; h: number; inK: number; selK: number; faceKey: string; t: number; delay: number;
 }
 export class SkillList {
@@ -62,12 +75,13 @@ export class SkillList {
   private make(e: SkillEntry | null, title: string, i: number): Item {
     const root = new THREE.Group(); root.userData.noTilt = true; root.renderOrder = 60; this.L.scene.add(root);
     const face = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, toneMapped: false })); face.renderOrder = 62; root.add(face);
-    return { e, title, root, body: null, face, picture: null, presses: [], items: [], x: 0, y: 0, w: 0, h: 0, inK: 0, selK: 0, faceKey: '', t: 0, delay: Math.min(0.14, i * 0.018) };
+    return { e, title, root, body: null, rim: null, face, picture: null, presses: [], items: [], x: 0, y: 0, w: 0, h: 0, inK: 0, selK: 0, faceKey: '', t: 0, delay: Math.min(0.14, i * 0.018) };
   }
   close() {
     for (const it of this.items) {
       it.root.parent?.remove(it.root); it.face.geometry.dispose(); const fm = it.face.material as THREE.MeshBasicMaterial; fm.map?.dispose(); fm.dispose();
       if (it.body) { it.body.geometry.dispose(); (it.body.material as THREE.Material).dispose(); }
+      if (it.rim) { it.rim.geometry.dispose(); (it.rim.material as THREE.Material).dispose(); }
       it.picture?.dispose(); for (const p of it.presses) p.dispose();
     }
     this.items = []; this.on = false;
@@ -95,6 +109,7 @@ export class SkillList {
       if (it.e && !it.body) {
         const s = h * 0.74, sx = -w / 2 + h * 0.16 + s / 2;
         it.body = slab(w, h, sx, s); it.body.renderOrder = 60; it.root.add(it.body);
+        it.rim = focusRim(w, h, this.zf() + 1.4); it.rim.renderOrder = 64; it.root.add(it.rim);
         const realKey = it.e.customGlyph ? itemForCard(it.e.id) : null;
         const p = it.picture = (realKey ? itemModel(realKey) : null)
           ?? (it.e.customGlyph ? glyphIcon3D(`${it.e.kind}_${it.e.id}`, it.e.customGlyph, it.e.col) : skillIcon3D(it.e.icon));
@@ -133,7 +148,8 @@ export class SkillList {
       // (the column's slabs come forward 3 units when selected; these are twice as wide — a third of that, or they grow off the screen)
       L.at(it.x + off, it.y, it.selK * 1, it.root.position); it.root.scale.setScalar(L.px(1));
       it.root.rotation.set(-0.04 + Math.sin(this.t * 0.8 + it.y * 0.02) * 0.01, -0.08 * (1 - 0.7 * it.selK), 0);
-      if (it.body) { const bm = it.body.material as THREE.MeshLambertMaterial; bm.emissiveIntensity = it.selK * 0.05; bm.transparent = a < 0.999; bm.opacity = a; bm.depthWrite = a >= 0.999; }
+      if (it.body) { const bm = it.body.material as THREE.MeshLambertMaterial; bm.emissiveIntensity = it.selK * 0.08; bm.transparent = a < 0.999; bm.opacity = a; bm.depthWrite = a >= 0.999; }
+      if (it.rim) { const rm = it.rim.material as THREE.MeshBasicMaterial; rm.opacity = it.selK * a * (0.86 + 0.14 * Math.sin(this.t * 5)); it.rim.visible = rm.opacity > 0.02; }
       (it.face.material as THREE.MeshBasicMaterial).opacity = a;
       it.picture?.setOpacity(a); for (const p of it.presses) p.setOpacity(a);
       this.paint(it);
@@ -150,7 +166,7 @@ export class SkillList {
     const dpr = this.L.dpr || 1, { h } = this.lay;
     if (!it.e) {
       // a section's title (or the line for an empty one): pixel type on nothing, at the column's left
-      const empty = it.title.startsWith('\u0000'), txt = t(empty ? it.title.slice(1) : it.title), S = Math.max(1, Math.round(it.h * (empty ? 0.6 : 0.8) * dpr / PIX_H)), key = `${txt}|${S}|${dpr}`;
+      const empty = it.title.startsWith('\u0000'), txt = t(empty ? it.title.slice(1) : it.title), S = Math.max(1, Math.floor(it.h * (empty ? 0.56 : 0.68) * dpr / PIX_H)), key = `${txt}|${S}|${dpr}`;
       if (key === it.faceKey) return; it.faceKey = key;
       const W = Math.round(it.w * dpr), H = Math.round(it.h * dpr), c = makeCanvas(W, H), g = c.getContext('2d') as CanvasRenderingContext2D; g.imageSmoothingEnabled = false;
       paintTitle(g, txt, empty ? Math.round(h * 0.2 * dpr) : 0, Math.round((H - PIX_H * S) / 2), S, 1, empty ? '#a89c8a' : '#e0c890', '#0a0708', Math.max(1, Math.round(S * 0.25)));
@@ -163,11 +179,11 @@ export class SkillList {
     const W = Math.max(8, Math.round(fw * dpr)), H = Math.max(8, Math.round(fh * dpr)), c = makeCanvas(W, H), g = c.getContext('2d') as CanvasRenderingContext2D; g.imageSmoothingEnabled = false;
     const e = it.e;
     if (compact) {
-      // Compact 2-row slab paired with right MoveStage inspector: big Name + Badge on top, crisp icon-rich 1-line summary below!
-      let S = Math.max(1, Math.round(H * 0.34 / PIX_H));
+      // Compact 2-row slab paired with right MoveStage inspector: crisp Name + Badge on top, icon-rich 1-line summary below!
+      let S = Math.max(1, Math.floor(H * 0.29 / PIX_H));
       while (S > 1 && pixW(e.name) * S > W * 0.62) S--;
-      paintName(g, e, 0, Math.round(H * 0.09), S, dpr);
-      paintEffect(g, e.effect, 0, Math.round(H * 0.58), Math.round(H * 0.24), W - 4 * dpr);
+      paintName(g, e, 0, Math.round(H * 0.11), S, dpr);
+      paintEffect(g, e.effect, 0, Math.round(H * 0.59), Math.round(H * 0.21), W - 4 * dpr);
     } else {
       // three rows as on the card: the name and tier (numbers at the right), the presses (marks between them), the effect
       const S = Math.max(1, Math.round(H * 0.22 / PIX_H)), nameW = paintName(g, e, 0, Math.round(H * 0.05), S, dpr);
