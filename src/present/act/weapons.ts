@@ -250,12 +250,15 @@ export function buildHeroBladeMesh(id: WeaponId): THREE.Group {
   if (!ms) {
     const w = new VoxWorld(CELL / 2);
     if (id === 'hanshan') {
-      // Standard ring-pommel Han dao (matches heroineFine default proportions)
-      w.box(-1, -2, -1, 0, 0, -1, 0x9c7438);
-      w.box(-1, -2, 0, -1, -2, 31, 0xf6faff);
-      w.box(-1, -1, 0, -1, -1, 31, 0xbecad8);
-      w.box(-1, -1, 29, -1, -1, 31, 0xf6faff);
-      w.box(-1, 0, 0, -1, 0, 29, 0x525c6e);
+      // Refined ring-pommel Han dao (exact match to fine_white.vox blade: 3×5 beveled iron guard + 3-tone cold steel chisel blade)
+      w.box(-2, -3, -1, 0, -3, -1, 0x2a2e38);
+      w.box(-2, -2, -1, 0, 0, -1, 0x464c5a);
+      w.box(-2, 1, -1, 0, 1, -1, 0x6c7486);
+      w.box(-1, -2, 0, -1, -2, 26, 0xf4f8ff);
+      w.box(-1, -1, 0, -1, -1, 26, 0xbecad8);
+      w.box(-1, 0, 0, -1, 0, 26, 0x525c6e);
+      w.box(-1, -1, 27, -1, 0, 28, 0xf4f8ff);
+      w.box(-1, 0, 29, -1, 0, 29, 0xf4f8ff);
     } else if (id === 'thunder') {
       // 惊雷陌刀: noticeably longer (42 cells = 1.47m) & wider heavy dark-iron blade with golden lightning spine & bronze guard
       w.box(-2, -3, -1, 1, 1, -1, 0xc89234);

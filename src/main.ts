@@ -77,8 +77,9 @@ dh.install();
   { const href = typeof location !== 'undefined' ? location.href : '';
     // (11-18: the WeChat / CrazyGames packages have no pixel switch — always 2x, whatever a test build left on the device)
     let saved: string | null = null; try { if (__DEBUG_UI__) saved = localStorage.getItem('ub.px'); } catch { /* private mode */ }
-    if (!__DEBUG_UI__ || !/[#&?]px/.test(href)) { if (saved === 'off') setPixel(false); else setPixel(true, saved && /^[123]$/.test(saved) ? +saved : 2); }
-    if (__DEBUG_UI__) initCraft(platform, readCraftFlag(k => platform.query(k))); }
+    const hasPxUrl = __DEBUG_UI__ && /[#&?]px/.test(href);
+    if (!hasPxUrl) { if (saved === 'off') setPixel(false); else setPixel(true, saved && /^[123]$/.test(saved) ? +saved : 2); }
+    initCraft(platform, __DEBUG_UI__ ? readCraftFlag(k => platform.query(k)) : null, hasPxUrl); }
   try {
     let A: ActShow;
     const start = () => {
