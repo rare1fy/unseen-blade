@@ -2883,5 +2883,10 @@
   "淬炼": "Tier",
   "招式教学": "Move Guide",
   "详情": "Details",
-  "{0} {1}阶 · {2} →": "{0} T{1} · {2} ->"
+  "{0} {1}阶 · {2} →": "{0} T{1} · {2} ->",
+  "血债已销": "Blood debt paid",
+  "启满 3 牌自动唤醒中宫": "Activate 3 cards to wake Center",
+  "消耗药引升阶（1→3 阶）": "Spend Herbs to refine (Rank 1->3)",
+  "Q/E 切模式 · Esc 返回": "Q/E Mode · Esc Back",
+  "Q/E 切页 · Esc 返回": "Q/E Tab · Esc Back"
 }

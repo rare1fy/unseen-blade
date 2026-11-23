@@ -1102,22 +1102,20 @@ export class MoveStage {
 
     const boxX = padX + u, boxW = W - (padX + u) * 2;
     const compact = this.rect.h < 330;
-    const stageH = Math.round(H * (compact ? 0.41 : 0.52));
+    const stageH = Math.round(H * (compact ? 0.50 : 0.58));
     const stageY = padY + u;
     const bdr = Math.max(1, Math.round(1.5 * kk * dpr));
 
-    // 1. Framed transparent 3D Hero Portrait bay (punched via clearRect so full-color 3D Hero renders cleanly beneath!)
+    // 1. Framed transparent 3D Hero Portrait bay (full height — zero bottom text bar!)
     g.fillStyle = '#09070c';
     g.fillRect(boxX - bdr, stageY - bdr, boxW + 2 * bdr, stageH + 2 * bdr);
     g.fillStyle = innerCol;
     g.fillRect(boxX, stageY, boxW, stageH);
     const ix = boxX + bdr, iy = stageY + bdr, iw = boxW - 2 * bdr, ih = stageH - 2 * bdr;
-    const hintH = Math.round((compact ? 16 : 20) * kk * dpr);
-    const vpH = Math.max(16, ih - hintH);
-    g.clearRect(ix, iy, iw, vpH);
+    g.clearRect(ix, iy, iw, ih);
 
     const left0 = this.rect.cx - this.rect.w / 2, top0 = this.rect.cy - this.rect.h / 2;
-    this.vpCss = { x: left0 + ix / dpr, y: top0 + iy / dpr, w: iw / dpr, h: vpH / dpr };
+    this.vpCss = { x: left0 + ix / dpr, y: top0 + iy / dpr, w: iw / dpr, h: ih / dpr };
     this.demoBtnRect = null;
 
     // Corner brackets framing the 3D Hero viewport
@@ -1126,59 +1124,68 @@ export class MoveStage {
     for (const [cx, cy, sx, sy] of [
       [ix + bdr, iy + bdr, 1, 1],
       [ix + iw - bdr, iy + bdr, -1, 1],
-      [ix + bdr, iy + vpH - bdr, 1, -1],
-      [ix + iw - bdr, iy + vpH - bdr, -1, -1],
+      [ix + bdr, iy + ih - bdr, 1, -1],
+      [ix + iw - bdr, iy + ih - bdr, -1, -1],
     ]) {
       g.fillRect(sx > 0 ? cx : cx - cr, cy, cr, bdr);
       g.fillRect(cx - (sx < 0 ? bdr : 0), sy > 0 ? cy : cy - cr, bdr, cr);
     }
 
-    // Compact bottom strip inside viewport bay: drag-to-rotate hint
-    const barY = iy + vpH;
-    g.fillStyle = '#0c0a12';
-    g.fillRect(ix, barY, iw, hintH);
-    g.fillStyle = '#5a4830';
-    g.fillRect(ix, barY, iw, Math.max(1, Math.round(dpr)));
-    const hScale = Math.max(1, Math.floor(((compact ? 10 : 11) * kk * dpr) / PIX_H));
-    drawPix(g, localize('左右拖动查看造型'), ix + Math.round(iw / 2), barY + Math.round((hintH - PIX_H * hScale) / 2), {
-      scale: hScale, color: '#bba98c', outline: '#08060c', align: 'center',
-    });
+    // Minimal pure-pixel drag-rotate glyph (◄ ● ►) tucked quietly at bottom-center of viewport (ZERO prose!)
+    {
+      const ru = Math.max(1, Math.round(1.5 * kk * dpr));
+      const rcx = ix + Math.round(iw / 2), rcy = iy + ih - Math.round(10 * kk * dpr);
+      const pillW = 24 * ru, pillH = 7 * ru;
+      g.fillStyle = 'rgba(11,9,17,0.72)';
+      g.fillRect(rcx - Math.round(pillW / 2), rcy - Math.round(pillH / 2), pillW, pillH);
+      g.fillStyle = '#c8b48e';
+      // Left chevron ◄
+      g.fillRect(rcx - 9 * ru, rcy, ru, ru);
+      g.fillRect(rcx - 8 * ru, rcy - ru, ru, 3 * ru);
+      g.fillRect(rcx - 7 * ru, rcy - 2 * ru, ru, 5 * ru);
+      // Center orbit dots
+      g.fillStyle = '#ffd878';
+      g.fillRect(rcx - 3 * ru, rcy, 2 * ru, ru);
+      g.fillRect(rcx + ru, rcy, 2 * ru, ru);
+      g.fillStyle = '#c8b48e';
+      // Right chevron ►
+      g.fillRect(rcx + 6 * ru, rcy - 2 * ru, ru, 5 * ru);
+      g.fillRect(rcx + 7 * ru, rcy - ru, ru, 3 * ru);
+      g.fillRect(rcx + 8 * ru, rcy, ru, ru);
+    }
 
-    // 2. Hero Name + Outfit Badge + Location Pill + Right-aligned Grasp Chip
+    // 2. Clean Identity Row: Hero Name + Location Tag + Right Pure-Icon Grasp Chip ([◆] X/Y)
     let curY = stageY + stageH + Math.round((compact ? 6 : 9) * kk * dpr);
     const nameTxt = localize(p.heroName);
     const tScale = Math.max(1, Math.floor(((compact ? 15 : 17) * kk * dpr) / PIX_H));
     const tH = PIX_H * tScale;
     drawPix(g, nameTxt, boxX, curY, { scale: tScale, color: '#fff2cc', outline: '#08060c', align: 'left' });
 
-    let pxX = boxX + pixW(nameTxt) * tScale + Math.round(7 * kk * dpr);
-    const pScale = Math.max(1, Math.floor(((compact ? 10 : 11) * kk * dpr) / PIX_H));
-    const graspTxt = `${localize('悟性')} ${p.arcanaUsed}/${p.arcanaCap}`;
-    const graspW = pixW(graspTxt) * pScale + Math.round(16 * kk * dpr);
-    const rightGuard = boxX + boxW - graspW - Math.round(4 * kk * dpr);
-    const drawBadge = (txt: string, col: string, fill: string) => {
-      if (!txt) return;
-      const loc = localize(txt);
-      const pw = pixW(loc) * pScale + Math.round(8 * kk * dpr);
-      if (pxX + pw > rightGuard) return;
-      const ph = PIX_H * pScale + Math.round(4 * kk * dpr);
-      const py = Math.round(curY + (tH - ph) / 2);
-      g.fillStyle = col; g.fillRect(pxX, py, pw, ph);
-      g.fillStyle = fill; g.fillRect(pxX + bdr, py + bdr, pw - 2 * bdr, ph - 2 * bdr);
-      drawPix(g, loc, pxX + Math.round(4 * kk * dpr), py + Math.round(2 * kk * dpr), { scale: pScale, color: col, outline: null, align: 'left' });
-      pxX += pw + Math.round(5 * kk * dpr);
-    };
-    drawBadge(p.outfitName, '#d8b46c', '#1c1722');
-    drawBadge(p.roomLabel, '#82d8c8', '#141c20');
-    // Right-aligned Grasp badge (悟性 X/Y)
+    const pxX = boxX + pixW(nameTxt) * tScale + Math.round(8 * kk * dpr);
+    const pScale = Math.max(1, Math.floor(((compact ? 10 : 11.5) * kk * dpr) / PIX_H));
+    const graspNum = `${p.arcanaUsed}/${p.arcanaCap}`;
+    const graspW = pixW(graspNum) * pScale + Math.round(20 * kk * dpr);
+    const rightGuard = boxX + boxW - graspW - Math.round(6 * kk * dpr);
+    {
+      const loc = localize(p.roomLabel);
+      const pw = pixW(loc) * pScale + Math.round(9 * kk * dpr);
+      if (pxX + pw <= rightGuard) {
+        const ph = PIX_H * pScale + Math.round(4 * kk * dpr);
+        const py = Math.round(curY + (tH - ph) / 2);
+        g.fillStyle = '#6ec6b8'; g.fillRect(pxX, py, pw, ph);
+        g.fillStyle = '#141c20'; g.fillRect(pxX + bdr, py + bdr, pw - 2 * bdr, ph - 2 * bdr);
+        drawPix(g, loc, pxX + Math.round(4.5 * kk * dpr), py + Math.round(2 * kk * dpr), { scale: pScale, color: '#8ae4d4', outline: null, align: 'left' });
+      }
+    }
+    // Right-aligned icon-only Grasp chip ([◆] 0/6)
     {
       const gph = PIX_H * pScale + Math.round(4 * kk * dpr);
       const gpy = Math.round(curY + (tH - gph) / 2);
       const gpx = boxX + boxW - graspW;
       g.fillStyle = '#4eb47c'; g.fillRect(gpx, gpy, graspW, gph);
       g.fillStyle = '#12221a'; g.fillRect(gpx + bdr, gpy + bdr, graspW - 2 * bdr, gph - 2 * bdr);
-      drawMiniIcon(g, 'grasp', gpx + Math.round(7 * kk * dpr), gpy + Math.round(gph / 2), Math.round(gph * 0.65));
-      drawPix(g, graspTxt, gpx + Math.round(13 * kk * dpr), gpy + Math.round(2 * kk * dpr), { scale: pScale, color: '#9cf8c4', outline: null, align: 'left' });
+      drawMiniIcon(g, 'grasp', gpx + Math.round(8 * kk * dpr), gpy + Math.round(gph / 2), Math.round(gph * 0.72));
+      drawPix(g, graspNum, gpx + Math.round(16 * kk * dpr), gpy + Math.round(2 * kk * dpr), { scale: pScale, color: '#a8ffd0', outline: null, align: 'left' });
     }
 
     curY += tH + Math.round((compact ? 5 : 7) * kk * dpr);
@@ -1186,36 +1193,43 @@ export class MoveStage {
     g.fillRect(boxX, curY, boxW, Math.max(1, Math.round(dpr)));
     curY += Math.round((compact ? 5 : 8) * kk * dpr);
 
-    // 3. Dedicated Paper-Doll Equipment Slots (Side-by-side: [佩刀] | [随身信物]) — visually distinct from right-hand learned skills!
+    // 3. Dedicated Paper-Doll Equipment Slots (Side-by-side: Weapon | Keepsake — Icon + Name + Pips/Stars, zero redundant label clutter!)
     const gap = Math.round((compact ? 6 : 8) * kk * dpr);
     const colW = Math.floor((boxW - gap) / 2);
     const eqH = compact
-      ? Math.max(Math.round(46 * kk * dpr), PIX_H * 2 + Math.round(14 * dpr))
-      : Math.max(Math.round(68 * kk * dpr), PIX_H * 3 + Math.round(24 * kk * dpr));
+      ? Math.max(Math.round(36 * kk * dpr), PIX_H + Math.round(18 * dpr))
+      : Math.max(Math.round(52 * kk * dpr), PIX_H * 2 + Math.round(18 * kk * dpr));
+    const drawPixelChevron = (cx: number, cy: number, ru: number, col: string) => {
+      g.fillStyle = col;
+      g.fillRect(cx, cy - 2 * ru, ru, ru);
+      g.fillRect(cx + ru, cy - ru, ru, ru);
+      g.fillRect(cx + 2 * ru, cy, ru, ru);
+      g.fillRect(cx + ru, cy + ru, ru, ru);
+      g.fillRect(cx, cy + 2 * ru, ru, ru);
+    };
     const drawEquipSlot = (
       kind: 'weapon' | 'keepsake',
       sx: number, sy: number, sw: number, sh: number,
-      tag: string, title: string, sub: string,
-      accent: string, equipped: boolean, hot: boolean, tierDots?: number,
+      title: string, accent: string, equipped: boolean, hot: boolean,
+      pips?: { count: number; total: number; style: 'diamond' | 'star' },
     ) => {
       const eu = Math.max(1, Math.round(1.5 * kk * dpr));
       drawPixelPlaque(g, sx, sy, sw, sh, eu, {
         bg: hot ? '#2a2118' : equipped ? '#1f1a19' : '#16131c',
         hi: hot ? '#423322' : equipped ? '#322922' : '#221e2b',
         border: '#07050a',
-        inner: hot ? '#fff6c8' : equipped ? accent : '#564e62',
+        inner: hot ? '#fff6c8' : equipped ? accent : '#4e465a',
         accent: hot ? '#fff6c8' : accent,
         rivets: false,
       });
       if (hot) drawFocusBrackets(g, sx, sy, sw, sh, eu);
 
-      // Left recessed icon bay
       const pad = Math.round((compact ? 4 : 6) * kk * dpr);
       const icoBox = sh - pad * 2;
       const ibx = sx + pad, iby = sy + pad;
       g.fillStyle = '#0c0a12';
       g.fillRect(ibx, iby, icoBox, icoBox);
-      g.fillStyle = equipped ? accent : '#423b4e';
+      g.fillStyle = equipped ? accent : '#3e384a';
       g.fillRect(ibx, iby, icoBox, Math.max(1, Math.round(dpr)));
       g.fillRect(ibx, iby + icoBox - Math.max(1, Math.round(dpr)), icoBox, Math.max(1, Math.round(dpr)));
       const icx = ibx + Math.round(icoBox / 2), icy = iby + Math.round(icoBox / 2);
@@ -1223,91 +1237,92 @@ export class MoveStage {
         const icoP = Math.max(1, Math.floor((icoBox - 4 * dpr) / 11));
         this.drawActionIcon(g, 'attack', icx, icy, icoP, hot, true);
       } else {
-        // Crisp 9x9 pixel keepsake jade pendant icon (lit gold/emerald when equipped, dim iron outline when empty)
         const kp = Math.max(1, Math.floor((icoBox - 4 * dpr) / 10));
         const px = (dx: number, dy: number, col: string, ww = 1, hh = 1) => {
           g.fillStyle = col; g.fillRect(icx + dx * kp, icy + dy * kp, ww * kp, hh * kp);
         };
-        const cMain = equipped ? accent : '#5a5266';
-        const cHi = equipped ? '#fff6cc' : '#787088';
-        const cRed = equipped ? '#e04842' : '#4a3d46';
-        px(-1, -4, cHi, 3, 1);
-        px(-2, -3, cMain, 5, 1);
-        px(-3, -2, cMain, 7, 3);
-        px(-2, 1, cMain, 5, 1);
-        px(-1, -1, '#121018', 3, 2);
-        px(0, -1, cHi, 1, 1);
-        px(0, 2, cRed, 1, 2);
-        px(-1, 3, cRed, 3, 1);
+        const cMain = equipped ? accent : '#564e62';
+        const cHi = equipped ? '#fff6cc' : '#706880';
+        const cRed = equipped ? '#e04842' : '#423842';
+        px(-1, -4, cHi, 3, 1); px(-2, -3, cMain, 5, 1); px(-3, -2, cMain, 7, 3);
+        px(-2, 1, cMain, 5, 1); px(-1, -1, '#121018', 3, 2); px(0, -1, cHi, 1, 1);
+        px(0, 2, cRed, 1, 2); px(-1, 3, cRed, 3, 1);
       }
 
-      // Right text column: micro slot label + item name + interactive hint/star
-      const tx = ibx + icoBox + Math.round((compact ? 5 : 7) * kk * dpr);
-      const tw = sx + sw - tx - pad;
-      const lblS = Math.max(1, Math.floor(((compact ? 9 : 10) * kk * dpr) / PIX_H));
-      const nmS = Math.max(1, Math.floor(((compact ? 11.5 : 13.5) * kk * dpr) / PIX_H));
-      const locTag = localize(tag);
-      const locTitle = localize(title);
-      const locSub = localize(sub);
-      let rowY = sy + Math.round((compact ? 4 : 6) * kk * dpr);
-      drawPix(g, locTag, tx, rowY, { scale: lblS, color: equipped ? '#c8b288' : '#7a7086', outline: '#08060c', align: 'left' });
-      // Optional 3-pip weapon forge level indicator at top-right of weapon slot
-      if (tierDots != null) {
-        const dp = Math.max(2, Math.round((compact ? 3 : 4) * kk * dpr));
-        const dg = Math.round(2.5 * kk * dpr);
-        let dx = sx + sw - pad - (dp * 3 + dg * 2);
-        const dy = rowY + Math.round((PIX_H * lblS - dp) / 2);
-        for (let k = 0; k < 3; k++) {
-          g.fillStyle = k < tierDots ? '#ffd868' : '#322b3e';
-          g.fillRect(dx, dy, dp, dp);
-          dx += dp + dg;
-        }
-      }
-      rowY += PIX_H * lblS + Math.round((compact ? 2 : 4) * kk * dpr);
+      const tx = ibx + icoBox + Math.round((compact ? 6 : 8) * kk * dpr);
+      const chevW = Math.round(10 * kk * dpr);
+      const tw = sx + sw - tx - pad - chevW;
+      const nmS = Math.max(1, Math.floor(((compact ? 11.5 : 14) * kk * dpr) / PIX_H));
+      const locTitle = equipped ? localize(title) : '—';
       let ts = nmS;
       while (ts > 1 && pixW(locTitle) * ts > tw) ts--;
-      drawPix(g, locTitle, tx, rowY, { scale: ts, color: hot ? '#fffce0' : equipped ? '#fff0cc' : '#8c8498', outline: '#08060c', align: 'left' });
-      rowY += PIX_H * ts + Math.round((compact ? 2 : 3) * kk * dpr);
-      if (rowY + PIX_H * lblS <= sy + sh - Math.round(2 * kk * dpr)) {
-        drawPix(g, locSub, tx, rowY, { scale: lblS, color: hot ? '#ffe688' : equipped ? accent : '#6e667a', outline: '#08060c', align: 'left' });
+      const nameH = PIX_H * ts;
+      const hasPips = !!pips && equipped;
+      const pipH = hasPips ? Math.round((compact ? 7 : 10) * kk * dpr) : 0;
+      const gapV = hasPips ? Math.round((compact ? 3 : 5) * kk * dpr) : 0;
+      const y0 = sy + Math.round((sh - (nameH + gapV + pipH)) / 2);
+      drawPix(g, locTitle, tx, y0, { scale: ts, color: hot ? '#fffce0' : equipped ? '#fff2d2' : '#6c6478', outline: '#08060c', align: 'left' });
+
+      if (hasPips && pips) {
+        const py = y0 + nameH + gapV + Math.round(pipH / 2);
+        if (pips.style === 'star') {
+          const sSz = Math.round((compact ? 8 : 10) * kk * dpr);
+          for (let k = 0; k < pips.total; k++) {
+            drawMiniIcon(g, k < pips.count ? 'star' : 'starOff', tx + Math.round(sSz / 2) + k * (sSz + Math.round(3 * kk * dpr)), py, sSz);
+          }
+        } else {
+          const dp = Math.max(3, Math.round((compact ? 4 : 5) * kk * dpr));
+          const dg = Math.round(3.5 * kk * dpr);
+          for (let k = 0; k < pips.total; k++) {
+            const dx = tx + k * (dp + dg);
+            g.fillStyle = '#08060c'; g.fillRect(dx - 1, py - Math.round(dp / 2) - 1, dp + 2, dp + 2);
+            g.fillStyle = k < pips.count ? '#ffd868' : '#322b3e';
+            g.fillRect(dx, py - Math.round(dp / 2), dp, dp);
+          }
+        }
       }
+
+      // Subtle pixel right-chevron showing clickability
+      drawPixelChevron(sx + sw - pad - Math.round(5 * kk * dpr), sy + Math.round(sh / 2), Math.max(1, Math.round(1.3 * kk * dpr)), hot ? '#fff4b0' : equipped ? '#a8946e' : '#4a4356');
       this.equipRects[kind] = { x: left0 + sx / dpr, y: top0 + sy / dpr, w: sw / dpr, h: sh / dpr };
     };
 
-    const wepSub = p.weaponLv > 0 ? `${localize('淬炼')} ${p.weaponLv}阶 · ${localize('招式')} →` : `${localize('招式教学')} →`;
     const ksEquipped = !!p.keepsakeId;
-    const ksSub = ksEquipped ? `${p.keepsakeStar} · ${localize('详情')} →` : localize('据点信物架');
-    drawEquipSlot('weapon', boxX, curY, colW, eqH, '当前佩刀', p.weaponName, wepSub, p.weaponCol ?? '#ffd078', true, this.equipHot === 'weapon', p.weaponLv);
-    drawEquipSlot('keepsake', boxX + colW + gap, curY, colW, eqH, '随身信物', p.keepsakeName, ksSub, p.keepsakeCol ?? '#ffd878', ksEquipped, this.equipHot === 'keepsake');
+    const ksStars = (p.keepsakeStar.match(/★/g) ?? []).length;
+    drawEquipSlot('weapon', boxX, curY, colW, eqH, p.weaponName, p.weaponCol ?? '#ffd078', true, this.equipHot === 'weapon', { count: p.weaponLv, total: 3, style: 'diamond' });
+    drawEquipSlot('keepsake', boxX + colW + gap, curY, colW, eqH, p.keepsakeName, p.keepsakeCol ?? '#ffd878', ksEquipped, this.equipHot === 'keepsake', { count: ksStars, total: 3, style: 'star' });
     curY += eqH + Math.round((compact ? 6 : 9) * kk * dpr);
 
-    // 4. 2x2 Crisp Core Combat Stats Grid (fits cleanly to the bottom edge)
+    // 4. Icon-First 2x2 Core Combat Stats Grid (Pure crisp pixel icons + big bright numbers — ZERO redundant word prefixes!)
     const botLim = H - padY - u;
     const statGap = Math.round((compact ? 4 : 7) * kk * dpr);
     const maxCellH = Math.floor((botLim - curY - statGap) / 2);
     const cellH = Math.max(Math.round(18 * kk * dpr), Math.min(Math.round((compact ? 23 : 34) * kk * dpr), maxCellH));
-    const statPx = Math.round((compact ? 11 : 13) * kk * dpr);
-    const cells: Array<{ txt: string; bar: string }> = [
-      { txt: `气血 ${p.hp}/${p.maxHp}`, bar: '#e85a64' },
-      { txt: `攻击 ${p.dmgPct}%`, bar: '#f0b858' },
-      { txt: `暴击 ${p.critPct}%`, bar: '#ff9652' },
-      { txt: `飞镖 ${p.maxDarts}枚 · 杀气 ${p.intent}/3`, bar: '#8ed8ff' },
-    ];
-    for (let i = 0; i < 4; i++) {
-      const cx = boxX + (i % 2) * (colW + gap);
-      const cy = curY + Math.floor(i / 2) * (cellH + statGap);
-      g.fillStyle = '#1b1724';
-      g.fillRect(cx, cy, colW, cellH);
-      g.fillStyle = '#383044';
-      g.fillRect(cx, cy, colW, Math.max(1, Math.round(dpr)));
-      g.fillStyle = cells[i].bar;
-      g.fillRect(cx, cy, Math.max(2, Math.round(2.5 * dpr)), cellH);
-      let sp = statPx;
-      const padL = Math.round(8 * kk * dpr);
-      const maxTw = colW - padL - Math.round(4 * kk * dpr);
-      while (sp > Math.round(9 * kk * dpr) && richLine(null, cells[i].txt, 0, 0, sp, '#f0e6d2', '#fff8c0', true, true) > maxTw) sp -= 1;
-      richLine(g, cells[i].txt, cx + padL, cy + Math.round((cellH - sp * 1.05) / 2), sp, '#f0e6d2', '#fff8c0', true, true);
-    }
+    const numS = Math.max(1, Math.floor(((compact ? 11.5 : 14) * kk * dpr) / PIX_H));
+    const icoSz = Math.round((compact ? 12 : 16) * kk * dpr);
+    const drawStatCell = (
+      cx: number, cy: number, cw: number, ch: number, bar: string,
+      items: Array<{ ico: Parameters<typeof drawMiniIcon>[1]; val: string; col: string }>,
+    ) => {
+      g.fillStyle = '#1b1724'; g.fillRect(cx, cy, cw, ch);
+      g.fillStyle = '#383044'; g.fillRect(cx, cy, cw, Math.max(1, Math.round(dpr)));
+      g.fillStyle = bar; g.fillRect(cx, cy, Math.max(2, Math.round(2.5 * dpr)), ch);
+      let x = cx + Math.round(10 * kk * dpr);
+      const midY = cy + Math.round(ch / 2);
+      for (const it of items) {
+        drawMiniIcon(g, it.ico, x + Math.round(icoSz / 2), midY, icoSz);
+        x += icoSz + Math.round(6 * kk * dpr);
+        drawPix(g, it.val, x, midY - Math.round((PIX_H * numS) / 2), { scale: numS, color: it.col, outline: '#08060c', align: 'left' });
+        x += pixW(it.val) * numS + Math.round(14 * kk * dpr);
+      }
+    };
+    drawStatCell(boxX, curY, colW, cellH, '#e85a64', [{ ico: 'hp', val: `${p.hp}/${p.maxHp}`, col: '#ffccd2' }]);
+    drawStatCell(boxX + colW + gap, curY, colW, cellH, '#f0b858', [{ ico: 'atk', val: `${p.dmgPct}%`, col: '#fff2c4' }]);
+    drawStatCell(boxX, curY + cellH + statGap, colW, cellH, '#ff9652', [{ ico: 'crit', val: `${p.critPct}%`, col: '#ffd4a4' }]);
+    drawStatCell(boxX + colW + gap, curY + cellH + statGap, colW, cellH, '#8ed8ff', [
+      { ico: 'dart', val: `${p.maxDarts}`, col: '#d8f0ff' },
+      { ico: 'ult', val: `${p.intent}/3`, col: '#ffe48a' },
+    ]);
   }
 
   private paint(g: CanvasRenderingContext2D, W: number, H: number, dpr: number) {

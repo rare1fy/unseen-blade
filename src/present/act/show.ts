@@ -2341,7 +2341,7 @@ export class ActShow {
               accent: isRent ? '#ffd872' : !unl ? '#c8a25e' : eq ? '#ffd872' : w.col,
             };
           },
-          footer: PAD.device === 'pad' ? msg`LB/RB 切页 · ${padName(0)} 换刀 · ${padName(1)} 返回` : 'Q/E 切页 · 确认换刀或借试 · Esc 返回',
+          footer: PAD.device === 'pad' ? msg`LB/RB 切页 · ${padName(0)} 换刀 · ${padName(1)} 返回` : 'Q/E 切页 · Esc 返回',
         });
       } else {
         const cards: BoonPick[] = tab === 2
@@ -2478,7 +2478,7 @@ export class ActShow {
         boon: {
           id: 'st_' + tg.flag, school: 'sr' as never,
           name: msg`${tg.name} · ${tg.title}`,
-          desc: [tg.where, dead ? '已挥刃划名 · 血债已销' : '尚在人世 · 候刃索命'],
+          desc: [tg.where, dead ? '血债已销' : ''],
           col: dead ? '#8a8288' : tg.col,
           glyph: WEAPONS.hanshan.glyph,
           tag: dead ? '已划名' : '未斩',
@@ -2830,7 +2830,7 @@ export class ActShow {
         leave: true, layout: 'grid2', instant, initialFocus: focusIdx,
         header: { title: '古窑长明灯 · 典藏阁', sub: subHdr, col: '#ffe48c' },
         tabs,
-        footer: PAD.device === 'pad' ? msg`LB/RB 切页 · ${padName(0)} 确认 · ${padName(1)} 返回` : 'Q/E 切页 · 点击切换或添油 · Esc 返回',
+        footer: PAD.device === 'pad' ? msg`LB/RB 切页 · ${padName(0)} 确认 · ${padName(1)} 返回` : 'Q/E 切页 · Esc 返回',
       });
       this.phase = was; this.hud.on = true;
       if (switched) continue;
@@ -3016,7 +3016,7 @@ export class ActShow {
         leave: true, layout: 'arcana', instant, initialFocus: focusIdx,
         header: {
           title: '孙婆婆 · 悟性牌阵',
-          sub: tab === 0 ? '点牌参悟或免费启停 · 启满 3 牌自动唤醒中宫' : '消耗药引将已参悟之牌精进升阶（1→3 阶）',
+          sub: tab === 0 ? '启满 3 牌自动唤醒中宫' : '消耗药引升阶（1→3 阶）',
           col: '#90f6ba', accent: '#4eb47c',
         },
         wallet: { iron: p.iron, herb: p.herb, focus: 'herb' },
@@ -3095,7 +3095,7 @@ export class ActShow {
         },
         footer: PAD.device === 'pad'
           ? msg`LB/RB 切模式 · ${padName(0)} ${tab === 0 ? '参悟/启停' : '精进升阶'} · ${padName(1)} 返回`
-          : (tab === 0 ? 'Q/E 切模式 · 点击参悟或启停 · Esc 返回' : 'Q/E 切模式 · 点击精进升阶 · Esc 返回'),
+          : 'Q/E 切模式 · Esc 返回',
       });
       this.phase = was; this.hud.on = true;
       if (refreshAction) continue;
@@ -5708,9 +5708,9 @@ export class ActShow {
       metaList.push(ksEntry);
     }
 
-    // ---- Tab 0: 英雄总览 (Right panel: PURE Run Build + Outer Progression; Weapon & Keepsake live in dedicated left Hero Equip Slots!)
+    // ---- Tab 0: 英雄总览 (Right panel: clean Run Build + Outer Progression — zero repeated 「演武教学 →」 badge spam!)
     const runOverview: SkillEntry[] = [
-      ...ms.map(m => ({ ...m, badge: { text: '演武教学 →', col: '#7ef0c0' }, jumpTab: 1 as const, jumpId: m.id })),
+      ...ms.map(m => ({ ...m, tag: '', badge: undefined, jumpTab: 1 as const, jumpId: m.id })),
       ...ownedBoons.map(b => ({ ...b, jumpTab: 2 as const, jumpId: b.id })),
     ];
     // Add active synergy callouts on top of runOverview when ≥2 of a school are held
