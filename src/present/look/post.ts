@@ -102,17 +102,17 @@ void main(){
   if (uCraft > 0.5) {
     float lm = dot(col, vec3(0.299, 0.587, 0.114));
     if (uCraft < 1.5) {
-      // A · 国风版画: warm parchment highlight, deep ink-indigo shadow, resolution-normalized Xuan-paper tooth
-      col *= mix(vec3(0.93, 0.97, 1.07), vec3(1.05, 1.02, 0.95), smoothstep(0.12, 0.76, lm));
+      // A · 国风版画: warm parchment highlight (no >1.0 boost), deep ink-indigo shadow, resolution-normalized Xuan-paper tooth
+      col *= mix(vec3(0.93, 0.97, 1.06), vec3(1.00, 0.98, 0.93), smoothstep(0.12, 0.76, lm));
       vec2 pp = gl_FragCoord.xy * (720.0 / max(uRes.y, 1.0));
       float paper = sin(pp.x * 1.7 + sin(pp.y * 0.42) * 1.1) * cos(pp.y * 1.9);
       col *= 1.0 + paper * 0.017 * (1.0 - smoothstep(0.55, 0.95, lm));
     } else if (uCraft < 2.5) {
       // B · HD-2D 像素: Octopath-style rich indigo shadows + golden lantern highlights
-      col *= mix(vec3(0.94, 0.98, 1.08), vec3(1.05, 1.01, 0.95), smoothstep(0.15, 0.78, lm));
+      col *= mix(vec3(0.94, 0.98, 1.07), vec3(1.01, 0.98, 0.93), smoothstep(0.15, 0.78, lm));
     } else {
       // C · 精致微缩: crisp, airy, clean miniature color grade
-      col *= mix(vec3(0.97, 1.00, 1.05), vec3(1.03, 1.02, 0.98), smoothstep(0.18, 0.80, lm));
+      col *= mix(vec3(0.97, 1.00, 1.04), vec3(1.00, 0.99, 0.96), smoothstep(0.18, 0.80, lm));
     }
   }
 #ifdef PIXEL
@@ -376,10 +376,10 @@ export class Post {
     const inkSmallFade = normRes ? Math.min(1, Math.max(0.65, resScale)) : 1;
     const cInk = (cMode === 'ink' ? 0.68 * CRAFT.ink : cMode === 'hd2d' ? 0.50 * CRAFT.ink : cMode === 'diorama' ? 0.08 * CRAFT.ink : (pix ? (this.pixel >= 2 ? PX.ink : PX.ink1) : GRADE.ink)) * inkSmallFade;
     const cInkT = cMode === 'ink' ? 0.045 : cMode === 'diorama' ? 0.08 : PX.inkT;
-    const cExp = cMode === 'ink' ? 0.96 : cMode === 'hd2d' ? 0.96 : cMode === 'diorama' ? 1.00 : (pix ? (this.pixel >= 2 ? PX.exposure : PX.exposure1) : 1);
+    const cExp = cMode === 'ink' ? 0.95 : cMode === 'hd2d' ? 0.95 : cMode === 'diorama' ? 0.97 : (pix ? (this.pixel >= 2 ? PX.exposure : PX.exposure1) : 1);
     const cSat = cMode === 'ink' ? 1.10 : cMode === 'hd2d' ? 1.14 : cMode === 'diorama' ? 1.16 : (pix ? PX.sat : 1);
     const cVig = cMode === 'ink' ? 0.92 : cMode === 'hd2d' ? 0.92 : cMode === 'diorama' ? 0.72 : (pix ? PX.vig : 1);
-    const cCur = cMode === 'ink' ? 0.16 : cMode === 'hd2d' ? 0.18 : cMode === 'diorama' ? 0.13 : (pix ? PX.curve : 0);
+    const cCur = cMode === 'ink' ? 0.11 : cMode === 'hd2d' ? 0.14 : cMode === 'diorama' ? 0.10 : (pix ? PX.curve : 0);
     u.uNear.value = camera.near; u.uFar.value = camera.far; u.uInk.value = cInk; u.uInkT.value = cInkT; u.uInkStep.value = inkStep;
     u.uExposure.value = GRADE.exposure * cExp; u.uSat.value = GRADE.sat * cSat; u.uVig.value = GRADE.vig * cVig; u.uBloodVig.value = GRADE.bloodVig; u.uCurve.value = cCur;
     u.uFlash.value = GRADE.flash; u.uSplit.value = GRADE.split; u.uImpact.value = GRADE.impact; u.uTime.value = time % 100; u.uDesat.value = GRADE.desat; u.uCinemaInk.value = GRADE.cinemaInk;

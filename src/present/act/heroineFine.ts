@@ -87,25 +87,87 @@ function arms(v: VoxChar, P: Pal, o: { armR: number; foreL: number; cuffL: numbe
   B(v, 'armR', -10, 30, -2, -7, 36, 1, o.armR);
   B(v, 'handR', -9, 16, -2, -7, 21, 1, P.SKIN); B(v, 'handR', -9, 17, -2, -9, 20, 1, P.SKIN_D);
 }
-/** 環首刀: grip through the fist, the ring pommel (a square outline one cell thick), a tassel under it, a small guard, the blade one
- *  cell thick (two edge rows, the spine above, a chisel tip) */
-function sword(v: VoxChar, P: Pal, ring: number, grip: number, gripL: number) {
+/** 環首刀 (refined to match fine_white.vox): sleek 1-voxel forged dark-iron ring pommel + wrapped grip, 1-voxel 3-tone crimson tassel,
+ *  sculpted 3×5 beveled iron tsuba guard, and 3-tone cold forged steel blade tapering to a sharp chisel point */
+function sword(v: VoxChar, P: Pal, _ring?: number, _grip?: number, _gripL?: number) {
+  const IR_D = 0x2a2e38, IR = 0x464c5a, IR_L = 0x6c7486, GR_D = 0x181922, GR_L = 0x2c2f3f;
+  const BL_E = 0xf4f8ff, BL_M = 0xbecad8, BL_S = 0x525c6e;
   B(v, 'handR', -8, 18, -2, -7, 19, 1, null);
-  B(v, 'weapon', -8, 18, -3, -7, 19, 3, grip); B(v, 'weapon', -8, 18, -1, -7, 19, -1, gripL);
-  B(v, 'weapon', -8, 17, -7, -7, 20, -4, ring); B(v, 'weapon', -8, 18, -6, -7, 19, -5, null);
-  B(v, 'swTassel', -8, 12, -6, -7, 16, -5, P.RED); B(v, 'swTassel', -8, 12, -6, -7, 12, -5, P.RED_D);
-  B(v, 'weapon', -8, 17, 4, -7, 20, 4, ring);
-  B(v, 'blade', -8, 17, 6, -8, 18, 37, P.EDGE); B(v, 'blade', -8, 19, 6, -8, 19, 35, P.STEEL); B(v, 'blade', -8, 17, 5, -7, 19, 5, ring);
+  // 1-voxel wrapped hilt (z=-3..3) with alternating grip bands at z=-1, +1
+  B(v, 'weapon', -8, 18, -3, -8, 19, 3, GR_D);
+  B(v, 'weapon', -8, 18, -1, -8, 19, -1, GR_L);
+  B(v, 'weapon', -8, 18, 1, -8, 19, 1, GR_L);
+  // 1-voxel 3-tone ring pommel (z=-7..-4)
+  B(v, 'weapon', -8, 17, -7, -8, 17, -4, IR_D);
+  B(v, 'weapon', -8, 20, -7, -8, 20, -4, IR_L);
+  B(v, 'weapon', -8, 18, -7, -8, 19, -7, IR);
+  B(v, 'weapon', -8, 18, -4, -8, 19, -4, IR);
+  // collar behind guard (z=4)
+  B(v, 'weapon', -8, 17, 4, -8, 17, 4, IR_D);
+  B(v, 'weapon', -8, 18, 4, -8, 19, 4, IR);
+  B(v, 'weapon', -8, 20, 4, -8, 20, 4, IR_L);
+  // sleek 1-voxel 3-tone crimson tassel
+  B(v, 'swTassel', -8, 12, -6, -8, 12, -5, P.RED_D);
+  B(v, 'swTassel', -8, 13, -6, -8, 14, -5, P.RED);
+  B(v, 'swTassel', -8, 15, -6, -8, 16, -5, 0xde4a3a);
+  // 3-wide × 5-tall beveled dark-iron tsuba guard (z=5)
+  B(v, 'blade', -9, 16, 5, -7, 16, 5, IR_D);
+  B(v, 'blade', -9, 17, 5, -7, 19, 5, IR);
+  B(v, 'blade', -9, 20, 5, -7, 20, 5, IR_L);
+  // 3-tone cold forged steel blade tapering to a sharp chisel point (z=6..35)
+  B(v, 'blade', -8, 17, 6, -8, 17, 32, BL_E);
+  B(v, 'blade', -8, 18, 6, -8, 18, 32, BL_M);
+  B(v, 'blade', -8, 19, 6, -8, 19, 32, BL_S);
+  B(v, 'blade', -8, 18, 33, -8, 19, 34, BL_E);
+  B(v, 'blade', -8, 19, 35, -8, 19, 35, BL_E);
+  void _ring; void _grip; void _gripL;
 }
-/** the head (12 wide, 14 tall, a flat face, the chin one step narrower) and the blindfold band one cell proud all round, its knot behind */
-function skull(v: VoxChar, P: Pal, band: number, bandD: number, wide: boolean) {
-  B(v, 'head', -6, 42, -6, 5, 55, 5, P.SKIN);
-  for (const [x, z] of [[-6, -6], [5, -6], [-6, 5], [5, 5]]) B(v, 'head', x, 42, z, x, 55, z, null);
-  B(v, 'head', -6, 42, -6, 5, 42, 5, null); B(v, 'head', -4, 42, -4, 3, 42, 4, P.SKIN);
-  const y0 = wide ? 46 : 48;
-  B(v, 'head', -6, y0, 6, 5, 51, 6, band); B(v, 'head', -6, y0, 6, 5, y0, 6, bandD);
-  B(v, 'head', -6, 47, -7, 5, 51, -7, band); B(v, 'head', -7, 47, -5, -7, 51, 4, band); B(v, 'head', 6, 47, -5, 6, 51, 4, band);
-  B(v, 'head', -2, 47, -8, 1, 52, -8, band);
+/** Sculpted Form-First head shared across all fine heroine outfits (matches vox/fine_white.vox):
+ *  rounded jawline (y=41..45), 3-tone beveled crimson blindfold (y=46..49), parted white bangs, rounded hair crown, slender side locks */
+function sculptedHead(v: VoxChar, P: Pal, o: { knotY?: number; crownTip?: boolean; underBrimTail?: boolean } = {}) {
+  const redL = P.RED === C.RED || P.RED === HAT.RED ? RED_L : P.RED;
+  // Short slender feminine neck (y=38..40)
+  B(v, 'neck', -2, 41, -2, 1, 41, 1, null);
+  CBox(v, 'head', -4, 41, -3, 3, 41, 4, P.SKIN, 1);
+  CBox(v, 'head', -5, 42, -4, 4, 42, 5, P.SKIN, 2);
+  CBox(v, 'head', -6, 43, -5, 5, 45, 5, P.SKIN, 2);
+  for (const y of [43, 44, 45]) CBox(v, 'head', -6, y, -6, 5, y, -3, P.HAIR, 2);
+  B(v, 'head', -4, 42, -5, 3, 42, -4, P.HAIR_D);
+  CBox(v, 'head', -6, 46, -6, 5, 51, 5, P.SKIN, 2);
+  CBox(v, 'head', -6, 46, -6, 5, 51, -3, P.HAIR, 2);
+  // 3D beveled wrap-around blindfold (y=46..49) + back knot
+  v.part('head');
+  for (const y of [46, 47, 48, 49]) {
+    for (let x = -7; x <= 6; x++) for (let z = -7; z <= 6; z++) {
+      const ex = Math.min(x - (-7), 6 - x), ez = Math.min(z - (-7), 6 - z);
+      if (ex + ez < 3) continue;
+      const inX = Math.min(x - (-6), 5 - x), inZ = Math.min(z - (-6), 5 - z);
+      if (x >= -6 && x <= 5 && z >= -6 && z <= 5 && (inX + inZ >= 2)) continue;
+      v.set(x, y, z, y === 49 && z >= 2 ? redL : y === 46 ? P.RED_D : P.RED);
+    }
+  }
+  const ky = o.knotY ?? 46;
+  B(v, 'head', -2, ky, -8, 1, ky + 4, -8, P.RED); B(v, 'head', -2, ky + 4, -8, 1, ky + 4, -8, redL);
+  // Full rounded hair crown (y=50..56, + optional y=57 peak)
+  CBox(v, 'head', -7, 50, -7, 6, 52, 6, P.HAIR, 3);
+  CBox(v, 'head', -6, 53, -6, 5, 53, 5, P.HAIR, 2);
+  CBox(v, 'head', -5, 54, -5, 4, 55, 4, P.HAIR, 2);
+  CBox(v, 'head', -4, 56, -4, 3, 56, 3, P.HAIR_L, 2);
+  if (o.crownTip) B(v, 'head', -2, 57, -2, 1, 57, 1, P.HAIR_L);
+  B(v, 'head', -5, 44, -7, 4, 52, -7, P.HAIR); B(v, 'head', -2, 44, -7, -2, 52, -7, P.HAIR_D); B(v, 'head', 1, 44, -7, 1, 52, -7, P.HAIR_D);
+  B(v, 'head', -2, 53, 5, 1, 53, 5, P.HAIR_L);
+  B(v, 'head', -2, 50, 6, 1, 50, 6, null);
+  for (const s of [-1, 1] as const) {
+    const rx = (n: number) => (s > 0 ? n : -1 - n);
+    const ox = s > 0 ? 6 : -7, hp = s > 0 ? 'hairL' : 'hairR';
+    v.part('head').set(rx(3), 50, 6, P.HAIR_L).set(rx(3), 49, 6, P.HAIR).set(rx(4), 49, 5, P.HAIR).set(rx(4), 48, 5, P.HAIR);
+    B(v, 'head', ox, 50, 4, ox, 51, 4, P.HAIR);
+    B(v, hp, ox, 40, 4, ox, 49, 4, P.HAIR);
+    B(v, hp, ox, 38, 4, ox, 39, 4, P.HAIR_D);
+  }
+  if (o.underBrimTail) {
+    CBox(v, 'head', -3, 40, -9, 2, 45, -7, P.HAIR, 1); B(v, 'head', -2, 40, -9, 1, 41, -9, P.HAIR_D); B(v, 'head', -2, 45, -8, 1, 45, -7, P.RED);
+  }
 }
 /** the blindfold's two tails (three and two joints), behind the head */
 function tails(v: VoxChar, band: number, bandD: number, at: 'tie' | 'knot') {
@@ -136,19 +198,8 @@ export function buildWhiteFine(palOverride?: Partial<Pal>): VoxChar {
   B(v, 'foreR', -9, 22, -2, -7, 29, 0, P.WRAP); B(v, 'foreR', -9, 24, -2, -7, 24, 0, P.WRAP_D); B(v, 'foreR', -9, 27, -2, -7, 27, 0, P.WRAP_D);
   B(v, 'foreR', -10, 28, -2, -7, 29, 1, P.INNER);
   sword(v, P, P.IRON, P.SASH, P.SASH_L);
-  // the red blindfold widened down over the bridge of the nose (the user's edit)
-  skull(v, P, P.RED, P.RED_D, true);
-  // the hair: the scalp white above the band and at the back; a shell one cell out over crown, back and sides; layered bangs
-  v.paint(c => (c.part === 'head' && c.c === P.SKIN && (c.y >= 52 || (c.z <= -4 && c.y >= 44)) ? P.HAIR : null));
-  B(v, 'head', -5, 56, -5, 4, 56, 4, P.HAIR_L); B(v, 'head', -3, 57, -3, 2, 57, 2, P.HAIR_L);
-  B(v, 'head', -5, 44, -7, 4, 55, -7, P.HAIR); B(v, 'head', -2, 44, -7, -2, 55, -7, P.HAIR_D); B(v, 'head', 1, 44, -7, 1, 55, -7, P.HAIR_D); B(v, 'head', -6, 47, -7, 5, 51, -7, P.RED);
-  B(v, 'head', -7, 52, -5, -7, 55, 4, P.HAIR); B(v, 'head', 6, 52, -5, 6, 55, 4, P.HAIR);
-  B(v, 'head', -5, 52, 6, 4, 55, 6, P.HAIR); B(v, 'head', -3, 52, 6, -3, 53, 6, P.HAIR_D); B(v, 'head', 2, 52, 6, 2, 53, 6, P.HAIR_D);
-  B(v, 'head', -4, 51, 6, -3, 51, 6, P.HAIR); B(v, 'head', 1, 51, 6, 2, 51, 6, P.HAIR); // subtle layered bangs over the crimson blindfold
-  // slender 1-voxel-thick face-framing locks draped cleanly OUTSIDE the red blindfold from the temple down past the jaw (articulated on hairL / hairR)
-  for (const s of [1, -1]) { const ox = s > 0 ? 6 : -7, hp = s > 0 ? 'hairL' : 'hairR';
-    B(v, 'head', ox, 50, 4, ox, 51, 4, P.HAIR);
-    B(v, hp, ox, 40, 4, ox, 49, 4, P.HAIR); B(v, hp, ox, 38, 4, ox, 39, 4, P.HAIR_D); }
+  // Sculpted Form-First head (matches vox/fine_white.vox)
+  sculptedHead(v, P, { knotY: 48 });
   // the high ponytail (three joints), the red cord wound round its root, a bow behind with the two long ribbons
   B(v, 'hrA1', -3, 46, -11, 2, 58, -10, P.HAIR); B(v, 'hrA1', -3, 46, -11, -3, 58, -10, P.HAIR_D);
   B(v, 'hrA2', -2, 35, -11, 1, 45, -10, P.HAIR); B(v, 'hrA2', -2, 35, -11, -2, 45, -10, P.HAIR_D);
@@ -196,47 +247,8 @@ export function buildHatFine(opts?: { pal?: Partial<Pal>; straw?: [number, numbe
   B(v, 'foreL', 6, 22, -2, 9, 23, 1, null); B(v, 'foreL', 6, 27, -2, 8, 27, 0, P.WRAP_D);
   B(v, 'foreL', 6, 22, -2, 8, 25, 0, LEATH); B(v, 'foreL', 6, 24, -2, 8, 24, 0, 0x362216); B(v, 'foreL', 6, 25, -2, 8, 25, 0, 0x6c4a32);
   sword(v, P, BRONZE, LEATH, 0x4a3020);
-  // 3-tone cold forged steel blade upgrade
-  B(v, 'blade', -8, 17, 6, -8, 17, 37, 0xf6faff); B(v, 'blade', -8, 18, 6, -8, 18, 37, 0xbecad8); B(v, 'blade', -8, 18, 35, -8, 18, 37, 0xf6faff); B(v, 'blade', -8, 19, 6, -8, 19, 35, 0x525c6e);
-  // Sculpted Form-First head: white hair + cinnabar red blindfold & ribbons (unified protagonist identity with 白发!)
-  CBox(v, 'head', -4, 41, -3, 3, 41, 4, P.SKIN, 1);
-  CBox(v, 'head', -5, 42, -4, 4, 42, 5, P.SKIN, 2);
-  CBox(v, 'head', -6, 43, -5, 5, 45, 5, P.SKIN, 2);
-  for (const y of [43, 44, 45]) CBox(v, 'head', -6, y, -6, 5, y, -3, P.HAIR, 2);
-  B(v, 'head', -4, 42, -5, 3, 42, -4, P.HAIR_D);
-  CBox(v, 'head', -6, 46, -6, 5, 51, 5, P.SKIN, 2);
-  CBox(v, 'head', -6, 46, -6, 5, 51, -3, P.HAIR, 2);
-  // 3D beveled wrap-around cinnabar red blindfold (y=46..49) + back knot
-  v.part('head');
-  for (const y of [46, 47, 48, 49]) {
-    for (let x = -7; x <= 6; x++) for (let z = -7; z <= 6; z++) {
-      const ex = Math.min(x - (-7), 6 - x), ez = Math.min(z - (-7), 6 - z);
-      if (ex + ez < 3) continue;
-      const inX = Math.min(x - (-6), 5 - x), inZ = Math.min(z - (-6), 5 - z);
-      if (x >= -6 && x <= 5 && z >= -6 && z <= 5 && (inX + inZ >= 2)) continue;
-      v.set(x, y, z, y === 49 && z >= 2 ? RED_L : y === 46 ? P.RED_D : P.RED);
-    }
-  }
-  B(v, 'head', -2, 46, -8, 1, 50, -8, P.RED); B(v, 'head', -2, 50, -8, 1, 50, -8, RED_L);
-  // White hair under the bamboo hat: full sculpted rounded crown (y=50..57, matching buildWhiteFine's full dome)
-  // so taking the hat off while healing/resting in the kiln shows a complete, natural white-haired head with zero flat cut-off!
-  CBox(v, 'head', -7, 50, -7, 6, 52, 6, P.HAIR, 3);
-  CBox(v, 'head', -6, 53, -6, 5, 53, 5, P.HAIR, 2);
-  CBox(v, 'head', -5, 54, -5, 4, 55, 4, P.HAIR, 2);
-  CBox(v, 'head', -4, 56, -4, 3, 56, 3, P.HAIR_L, 2);
-  B(v, 'head', -2, 57, -2, 1, 57, 1, P.HAIR_L);
-  B(v, 'head', -5, 44, -7, 4, 52, -7, P.HAIR); B(v, 'head', -2, 44, -7, -2, 52, -7, P.HAIR_D); B(v, 'head', 1, 44, -7, 1, 52, -7, P.HAIR_D);
-  B(v, 'head', -2, 53, 5, 1, 53, 5, P.HAIR_L);
-  B(v, 'head', -2, 50, 6, 1, 50, 6, null);
-  for (const s of [-1, 1] as const) {
-    const rx = (n: number) => (s > 0 ? n : -1 - n);
-    const ox = s > 0 ? 6 : -7, hp = s > 0 ? 'hairL' : 'hairR';
-    v.part('head').set(rx(3), 50, 6, P.HAIR_L).set(rx(3), 49, 6, P.HAIR).set(rx(4), 49, 5, P.HAIR).set(rx(4), 48, 5, P.HAIR);
-    B(v, 'head', ox, 50, 4, ox, 51, 4, P.HAIR);
-    B(v, hp, ox, 40, 4, ox, 49, 4, P.HAIR);
-    B(v, hp, ox, 38, 4, ox, 39, 4, P.HAIR_D);
-  }
-  CBox(v, 'head', -3, 40, -9, 2, 45, -7, P.HAIR, 1); B(v, 'head', -2, 40, -9, 1, 41, -9, P.HAIR_D); B(v, 'head', -2, 45, -8, 1, 45, -7, P.RED);
+  // Sculpted Form-First head shared with 白发 (with full y=50..57 rounded crown under conical hat)
+  sculptedHead(v, P, { knotY: 46, crownTip: true, underBrimTail: true });
   tails(v, P.RED, P.RED_D, 'knot');
   // the 斗笠: hollow conical shell built strictly outside the full white hair dome (y=50..60, never overwrites 'head' hair cells!),
   // so hiding bones.hat while healing in the kiln reveals a complete, sculpted white-haired head with zero gap or flat cut!
@@ -247,13 +259,13 @@ export function buildHatFine(opts?: { pal?: Partial<Pal>; straw?: [number, numbe
     }
   };
   const brim = (y0: number, y1: number, c: number) => { hatBox(-18, y0, -12, 17, y1, 11, c); hatBox(-15, y0, -15, 14, y1, 14, c); hatBox(-12, y0, -18, 11, y1, 17, c); };
-  hatBox(-14, 50, -10, 13, 50, 9, sDeep); hatBox(-10, 50, -14, 9, 50, 13, sDeep);
-  brim(51, 52, sMain);
-  v.paint(c => (c.part === 'hat' && c.y === 51 && (!v.get(c.x + 1, 51, c.z) || !v.get(c.x - 1, 51, c.z) || !v.get(c.x, 51, c.z + 1) || !v.get(c.x, 51, c.z - 1)) ? sDark : null));
-  hatBox(-11, 53, -8, 10, 54, 7, sMain); hatBox(-8, 53, -11, 7, 54, 10, sMain);
-  v.paint(c => (c.part === 'hat' && c.y === 53 && c.x >= -11 && c.x <= 10 && c.z >= -8 && c.z <= 7 ? sDark : null));
-  hatBox(-8, 55, -7, 7, 56, 6, sLite); hatBox(-7, 55, -8, 6, 56, 7, sLite);
-  hatBox(-5, 57, -5, 4, 58, 4, sLite); hatBox(-3, 59, -3, 2, 59, 2, sLite); hatBox(-1, 60, -1, 0, 60, 0, sCrown);
+  hatBox(-14, 51, -10, 13, 51, 9, sDeep); hatBox(-10, 51, -14, 9, 51, 13, sDeep);
+  brim(52, 53, sMain);
+  v.paint(c => (c.part === 'hat' && c.y === 52 && (!v.get(c.x + 1, 52, c.z) || !v.get(c.x - 1, 52, c.z) || !v.get(c.x, 52, c.z + 1) || !v.get(c.x, 52, c.z - 1)) ? sDark : null));
+  hatBox(-11, 54, -8, 10, 55, 7, sMain); hatBox(-8, 54, -11, 7, 55, 10, sMain);
+  v.paint(c => (c.part === 'hat' && c.y === 54 && c.x >= -11 && c.x <= 10 && c.z >= -8 && c.z <= 7 ? sDark : null));
+  hatBox(-8, 56, -7, 7, 57, 6, sLite); hatBox(-7, 56, -8, 6, 57, 7, sLite);
+  hatBox(-5, 58, -5, 4, 59, 4, sLite); hatBox(-3, 60, -3, 2, 60, 2, sLite); hatBox(-1, 61, -1, 0, 61, 0, sCrown);
   return v;
 }
 

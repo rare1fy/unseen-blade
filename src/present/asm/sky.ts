@@ -5,9 +5,9 @@ import type { Ambient } from '../scenes/cards';
 import type { SeasonId, TimeId, WeatherId } from './types';
 
 const BASE: Record<TimeId, Mood> = {
-  dawn: { sky: true, bg: 0x7a8494, fog: 0x8c96a2, fogD: 0.019, hemiSky: 0xb4c0cc, hemiGround: 0x3e4038, hemiI: 1.6, moon: 0xfff0dc, moonI: 2.2, key: 0xffe8cc, keyI: 0.7,
+  dawn: { sky: true, bg: 0x7a8494, fog: 0x8c96a2, fogD: 0.019, hemiSky: 0xaab8c8, hemiGround: 0x3a3d38, hemiI: 1.35, moon: 0xffeed6, moonI: 1.95, key: 0xffe4c6, keyI: 0.56,
     earth: [0x3a4632, 0x3c4834, 0x384430], mist: 0xc0c8d0, mistA: 0.09, skyTop: 0x7a8ca8, skyMid: 0xa8b4c4, skyHor: 0xe0d8cc, skyDisc: [0.6, 0.18, -1], skyDiscCol: [1.1, 1.0, 0.85], moonPos: [9, 13, -8] },
-  day: { sky: true, bg: 0x6a8cb4, fog: 0x8aa4c0, fogD: 0.011, hemiSky: 0xc8dcf0, hemiGround: 0x4a4636, hemiI: 1.55, moon: 0xfff2dc, moonI: 3.0, key: 0xfff0d8, keyI: 0.6,
+  day: { sky: true, bg: 0x6a8cb4, fog: 0x8aa4c0, fogD: 0.011, hemiSky: 0xbcd2ea, hemiGround: 0x464236, hemiI: 1.38, moon: 0xfff0d8, moonI: 2.45, key: 0xffecd2, keyI: 0.48,
     earth: [0x48583a, 0x4a5a3c, 0x465638], mist: 0xd0dce8, mistA: 0.04, skyTop: 0x3a68a8, skyMid: 0x7aa0cc, skyHor: 0xd8e4ec, skyDisc: [0.45, 0.6, -1], skyDiscCol: [1.4, 1.35, 1.2], moonPos: [8, 16, -6] },
   overcast: { sky: true, bg: 0x46505e, fog: 0x566270, fogD: 0.018, hemiSky: 0x90a0b0, hemiGround: 0x323638, hemiI: 1.65, moon: 0xc8d4e0, moonI: 1.9, key: 0xd6dce4, keyI: 0.45,
     earth: [0x323d30, 0x343f32, 0x303b2e], mist: 0x8a96a4, mistA: 0.10, skyTop: 0x343d4c, skyMid: 0x546070, skyHor: 0x8c96a0, skyDisc: [0.2, 0.5, -1], skyDiscCol: [0.55, 0.58, 0.62], moonPos: [4, 15, -7] },
@@ -26,7 +26,7 @@ export function moodFor(t: TimeId, s: SeasonId, w: WeatherId): Mood {
   const m: Mood = {
     ...BASE[t],
     earth: [...BASE[t].earth],
-    exposure: ({ dawn: 1.3, day: 1.2, overcast: 1.32, sunset: 1.46, dusk: 1.55, night: 1.6 } as const)[t],
+    exposure: ({ dawn: 1.12, day: 1.06, overcast: 1.24, sunset: 1.42, dusk: 1.52, night: 1.6 } as const)[t],
     bloomT: ({ dawn: 1.35, day: 1.6, overcast: 1.35, sunset: 1.15, dusk: 1.05, night: 1.05 } as const)[t],
     glowK: ({ dawn: 1.3, day: 1.1, overcast: 1.35, sunset: 1.55, dusk: 1.6, night: 1.8 } as const)[t],
   };
@@ -34,7 +34,18 @@ export function moodFor(t: TimeId, s: SeasonId, w: WeatherId): Mood {
   if (s === 'spring') { m.skyHor = mix(m.skyHor!, 0xe8a0b0, 0.25); m.hemiSky = mix(m.hemiSky, 0xe0c0d0, 0.12); }
   if (s === 'summer') { m.earth = m.earth.map(e => mix(e, 0x3e5a2e, 0.4)); m.key = mix(m.key, 0xffe0a0, 0.3); }
   if (s === 'autumn') { m.skyHor = mix(m.skyHor!, 0xd08040, 0.25); m.earth = m.earth.map(e => mix(e, 0x4a3a28, 0.35)); }
-  if (s === 'winter') { m.exposure = m.exposure! * (t === 'day' ? 0.8 : t === 'dawn' || t === 'overcast' ? 0.84 : 0.94); m.bloomT = Math.max(m.bloomT!, t === 'day' || t === 'dawn' ? 2.2 : 1.3); m.hemiI *= 0.8; m.moonI *= 0.85; m.earth = m.earth.map(e => mix(e, 0xb8c0cc, 0.75)); m.hemiSky = mix(m.hemiSky, 0xc8d4e8, 0.3); m.hemiGround = mix(m.hemiGround, 0x8890a0, 0.5); m.fog = mix(m.fog, 0x9aa4b8, 0.3); }
+  if (s === 'winter') {
+    const bright = t === 'day' || t === 'dawn';
+    m.exposure = m.exposure! * (t === 'day' ? 0.72 : t === 'dawn' ? 0.72 : t === 'overcast' ? 0.78 : 0.90);
+    m.bloomT = Math.max(m.bloomT!, bright ? 2.2 : 1.3);
+    m.hemiI *= bright ? 0.64 : 0.78;
+    m.moonI *= bright ? 0.72 : 0.85;
+    m.keyI *= bright ? 0.45 : 0.75;
+    m.earth = m.earth.map(e => mix(e, 0x9aa6b8, 0.72));
+    m.hemiSky = mix(m.hemiSky, bright ? 0x94a8c4 : 0xb4c2d8, 0.35);
+    m.hemiGround = mix(m.hemiGround, bright ? 0x505c70 : 0x707a8c, 0.5);
+    m.fog = mix(m.fog, bright ? 0x8694aa : 0x9aa4b8, 0.32);
+  }
   // weather: rain darkens and fogs, storm broods deeply, snow brightens bounce, mist thickens haze, embers cast smoky warmth
   if (w === 'rain') { m.fogD *= 1.5; m.fog = mix(m.fog, 0x3a404c, 0.4); m.moonI *= 0.75; m.mistA = (m.mistA ?? 0.08) + 0.04; m.skyTop = mix(m.skyTop!, 0x2a2e38, 0.6); m.skyMid = mix(m.skyMid!, 0x3a3e48, 0.6); m.skyHor = mix(m.skyHor!, 0x50525a, 0.6); m.skyDiscCol = [0.4, 0.4, 0.42]; }
   if (w === 'storm') { m.fogD *= 1.85; m.fog = mix(m.fog, 0x222a38, 0.62); m.moonI *= 0.6; m.hemiI *= 0.86; m.mistA = (m.mistA ?? 0.08) + 0.07; m.skyTop = mix(m.skyTop!, 0x161c28, 0.78); m.skyMid = mix(m.skyMid!, 0x262e3e, 0.75); m.skyHor = mix(m.skyHor!, 0x3c4454, 0.7); m.skyDiscCol = [0.24, 0.28, 0.34]; }

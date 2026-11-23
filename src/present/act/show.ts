@@ -3158,7 +3158,7 @@ export class ActShow {
       // 11-18 微信帧率: the quality tier (自动 → 高 → 中 → 低), kept on the device
       { label: () => qualityLabel(), short: () => qualityLabel(), run: () => cycleQuality() },
       // 11-21: experimental visual style presets stay in desktop/dev builds only; classic 2x pixel craft is the unified main look
-      { dbg: true, label: () => craftLabel(), short: () => craftLabel(), run: () => cycleCraft() },
+      { label: () => craftLabel(), short: () => craftLabel(), run: () => cycleCraft() },
       // (11-19 用户：「github页面上的版本就是开发版……微信和crazygames都必须要做成面向用户的版本」: the frame meter is a debug item)
       { dbg: true, label: meterLabel, short: meterLabel, run: toggleMeter }];
     if (__DEBUG_UI__) installActTune([...SET.map(x => ({ label: x.label, run: x.run })),

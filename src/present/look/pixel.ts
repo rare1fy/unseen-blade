@@ -18,7 +18,7 @@ export const PX = {
    *  (「这种清晰度的UI+3x效果还不错」) → 3 */
   size: 1,   // user 2026-11-13: 「我们默认就1x」 (2× / 3× stay in the settings menu)
   /** render-time light balance (multipliers on the scene's own lights, restored after the frame) */
-  warmK: 1.5, coolK: 1.0, hemiK: 1.2, pointK: 1.0,
+  warmK: 1.24, coolK: 1.0, hemiK: 1.08, pointK: 1.0,
   /** bloom ceiling (per-pixel cap on the added glow, which is then stepped into 6 bands) and how much it backs off on busy screens */
   bloomCap: 1.1, busyDim: 0.4,
   /** bloom bands at ≥ 2× art pixels (1× keeps a smooth halo) */
@@ -26,7 +26,7 @@ export const PX = {
   /** silhouette outline: relative depth jump that counts as an edge, strength (≥ 2× art pixels / 1×) */
   inkT: 0.05, ink: 0.85, ink1: 0.6,
   /** grade */
-  curve: 0.1, sat: 1.06, vig: 0.8, exposure: 1.08,
+  curve: 0.08, sat: 1.06, vig: 0.8, exposure: 1.02,
   /** exposure at 1× art pixels (R5: TARGET_MOCKUP is ~15% brighter in the middle of the frame than the 2× tuning) */
   exposure1: 0.95,   // 2026-11-13: 1.2 × the arena lift 1.6 read overexposed to the user
 };
@@ -81,20 +81,20 @@ export function pxLightsBegin(scene: THREE.Scene) {
     let k = 1;
     if (CRAFT.on) {
       if (CRAFT.mode === 'ink') {
-        // A · 国风版画: bold directional key for crisp graphic shadow shapes, restrained fill
-        if ((L as THREE.DirectionalLight).isDirectionalLight) k = L.castShadow ? 1.30 : 0.62;
-        else if ((L as THREE.HemisphereLight).isHemisphereLight) k = 0.92;
-        else if ((L as THREE.PointLight).isPointLight) k = 1.32;
+        // A · 国风版画: bold directional key for crisp graphic shadow shapes, restrained fill (balanced against snow/daylight overexposure)
+        if ((L as THREE.DirectionalLight).isDirectionalLight) k = L.castShadow ? 1.20 : 0.56;
+        else if ((L as THREE.HemisphereLight).isHemisphereLight) k = 0.88;
+        else if ((L as THREE.PointLight).isPointLight) k = 1.30;
       } else if (CRAFT.mode === 'hd2d') {
         // B · HD-2D 像素: dramatic Octopath lighting + glowing lantern pools
-        if ((L as THREE.DirectionalLight).isDirectionalLight) k = L.castShadow ? 1.28 : 0.68;
-        else if ((L as THREE.HemisphereLight).isHemisphereLight) k = 0.90;
-        else if ((L as THREE.PointLight).isPointLight) k = 1.48;
+        if ((L as THREE.DirectionalLight).isDirectionalLight) k = L.castShadow ? 1.20 : 0.62;
+        else if ((L as THREE.HemisphereLight).isHemisphereLight) k = 0.86;
+        else if ((L as THREE.PointLight).isPointLight) k = 1.44;
       } else {
-        // C · 精致微缩: airy luminous tabletop sun + bright sky bounce
-        if ((L as THREE.DirectionalLight).isDirectionalLight) k = L.castShadow ? 1.20 : 0.84;
-        else if ((L as THREE.HemisphereLight).isHemisphereLight) k = 1.14;
-        else if ((L as THREE.PointLight).isPointLight) k = 1.22;
+        // C · 精致微缩: airy luminous tabletop sun + clean sky bounce
+        if ((L as THREE.DirectionalLight).isDirectionalLight) k = L.castShadow ? 1.14 : 0.78;
+        else if ((L as THREE.HemisphereLight).isHemisphereLight) k = 1.04;
+        else if ((L as THREE.PointLight).isPointLight) k = 1.20;
       }
     } else {
       if ((L as THREE.DirectionalLight).isDirectionalLight) { const c = L.color; k = c.r > c.b * 1.08 ? PX.warmK : c.b > c.r * 1.08 ? PX.coolK : 1; }

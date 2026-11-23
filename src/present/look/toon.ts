@@ -42,37 +42,38 @@ void RE_Direct_Toon( const in IncidentLight directLight, const in vec3 geometryP
     float cMax = max( dc.r, max( dc.g, dc.b ) );
     float cMin = min( dc.r, min( dc.g, dc.b ) );
     float sat = (cMax - cMin) / max( cMax, 0.001 );
-    // mid-tone cool steel/iron only (exclude pure white hair/cloth/snow where cMax > 0.70)
-    float isSteel = step( sat, 0.18 ) * smoothstep( 0.22, 0.36, cMax ) * (1.0 - smoothstep( 0.64, 0.74, cMax ));
-    float isBronze = smoothstep( 0.22, 0.36, sat ) * step( sat, 0.68 ) * smoothstep( 0.32, 0.50, cMax ) * (1.0 - smoothstep( 0.70, 0.82, cMax )) * step( dc.g * 1.08, dc.r ) * step( dc.b * 1.25, dc.g );
+    // mid-tone cool steel/iron & bronze ONLY on characters/weapons (uSelf > 0.04) so flat stone floors & trodden snow NEVER flash like mirrors
+    float isActor = step( 0.04, uSelf );
+    float isSteel = isActor * step( sat, 0.18 ) * smoothstep( 0.22, 0.36, cMax ) * (1.0 - smoothstep( 0.64, 0.74, cMax ));
+    float isBronze = isActor * smoothstep( 0.22, 0.36, sat ) * step( sat, 0.68 ) * smoothstep( 0.32, 0.50, cMax ) * (1.0 - smoothstep( 0.70, 0.82, cMax )) * step( dc.g * 1.08, dc.r ) * step( dc.b * 1.25, dc.g );
     vec3 halfDir = normalize( directLight.direction + geometryViewDir );
     float ndh = max( dot( geometryNormal, halfDir ), 0.0 );
     if (uCraft < 1.5) {
-      // A · 国风版画: crisp graphic 2-step cel + deep indigo shadow + saturated warm terminator band + sliced anime specular
+      // A · 国风版画: crisp graphic 2-step cel + deep indigo shadow + saturated warm terminator band + sliced anime specular (actors only)
       float cel = smoothstep( 0.06, 0.17, ndl );
-      vec3 celIrr = mix( vec3(0.22, 0.26, 0.42), vec3(1.06, 1.03, 0.98), cel );
+      vec3 celIrr = mix( vec3(0.24, 0.28, 0.44), vec3(1.02, 1.00, 0.96), cel );
       float term = exp( -pow( (ndl - 0.115) * 7.5, 2.0 ) );
-      celIrr += vec3(0.26, 0.11, 0.03) * term * smoothstep( 0.08, 0.45, cMax );
+      celIrr += vec3(0.24, 0.10, 0.03) * term * smoothstep( 0.08, 0.45, cMax ) * (1.0 - smoothstep( 0.62, 0.84, cMax ));
       float slice = smoothstep( 0.85, 0.90, ndh ) * step( 0.05, ndl );
-      float specAmt = (0.04 + 0.55 * isSteel + 0.36 * isBronze) * uCraftSpec;
+      float specAmt = (0.04 * isActor + 0.55 * isSteel + 0.36 * isBronze) * uCraftSpec;
       vec3 specCol = mix( vec3(1.0, 0.98, 0.94), mix( vec3(1.0, 0.86, 0.54), vec3(0.96, 1.0, 1.08), isSteel ), max( isSteel, isBronze ) );
       reflectedLight.directDiffuse += celIrr * directLight.color * BRDF_Lambert( dc ) + specCol * slice * specAmt * directLight.color;
     } else if (uCraft < 2.5) {
       // B · HD-2D 像素: rich Octopath-style dramatic lighting inside the 2x pixel grid
       float wrap = smoothstep( -0.14, 0.84, ndl );
-      vec3 hdIrr = mix( vec3(0.18, 0.22, 0.36), vec3(1.08, 1.03, 0.95), wrap );
+      vec3 hdIrr = mix( vec3(0.20, 0.24, 0.38), vec3(1.03, 0.99, 0.93), wrap );
       float litMask = smoothstep( -0.02, 0.24, ndl );
       float specPow = mix( 22.0, mix( 32.0, 50.0, isSteel ), max( isSteel, isBronze ) );
-      float specAmt = (0.05 + 0.60 * isSteel + 0.38 * isBronze) * uCraftSpec;
+      float specAmt = (0.05 * isActor + 0.60 * isSteel + 0.38 * isBronze) * uCraftSpec;
       vec3 specCol = mix( vec3(0.95, 0.96, 1.0), mix( vec3(1.0, 0.86, 0.56), vec3(0.96, 0.99, 1.08), isSteel ), max( isSteel, isBronze ) );
       reflectedLight.directDiffuse += hdIrr * directLight.color * BRDF_Lambert( dc ) + specCol * pow( ndh, specPow ) * specAmt * litMask * directLight.color;
     } else {
       // C · 精致微缩: The Touryst / Tunic airy translucent sky shadows + satin lacquer clearcoat sheen
       float wrap = smoothstep( -0.28, 0.82, ndl );
-      vec3 dioIrr = mix( vec3(0.32, 0.39, 0.54), vec3(1.06, 1.03, 0.98), wrap );
+      vec3 dioIrr = mix( vec3(0.32, 0.39, 0.54), vec3(1.02, 1.00, 0.96), wrap );
       float litMask = smoothstep( -0.06, 0.22, ndl );
       float specPow = mix( 28.0, mix( 36.0, 56.0, isSteel ), max( isSteel, isBronze ) );
-      float specAmt = (0.14 + 0.48 * isSteel + 0.32 * isBronze) * uCraftSpec;
+      float specAmt = (0.06 + 0.08 * isActor + 0.48 * isSteel + 0.32 * isBronze) * uCraftSpec;
       vec3 specCol = mix( vec3(1.0, 0.99, 0.96), mix( vec3(1.0, 0.88, 0.62), vec3(0.98, 1.0, 1.06), isSteel ), max( isSteel, isBronze ) );
       reflectedLight.directDiffuse += dioIrr * directLight.color * BRDF_Lambert( dc ) + specCol * pow( ndh, specPow ) * specAmt * litMask * directLight.color;
     }
@@ -82,7 +83,7 @@ void RE_Direct_Toon( const in IncidentLight directLight, const in vec3 geometryP
     if (uPxPolish > 0.5) {
       // Classic 2x Hue-Shifted 4-step hard cel ramp (zero softness, cool indigo shadow -> warm sunlit peak)
       float t = dot( geometryNormal, directLight.direction ) * 0.5 + 0.5;
-      irr = t < 0.22 ? vec3(0.27, 0.31, 0.45) : t < 0.45 ? vec3(0.47, 0.51, 0.62) : t < 0.75 ? vec3(0.79, 0.78, 0.76) : vec3(1.04, 1.01, 0.95);
+      irr = t < 0.22 ? vec3(0.27, 0.31, 0.45) : t < 0.45 ? vec3(0.47, 0.51, 0.62) : t < 0.75 ? vec3(0.79, 0.78, 0.76) : vec3(0.99, 0.97, 0.93);
     }
     vec3 diff = irr * directLight.color * BRDF_Lambert( dc );
     // Subtle metallic specular glint for characters' steel blades & bronze/gold fittings (exclude white hair cMax > 0.72)
@@ -121,11 +122,11 @@ void RE_IndirectDiffuse_Toon( const in vec3 irradiance, const in vec3 geometryPo
         float rimBand = uCraft > 0.5 ? (uCraft < 1.5 ? smoothstep(0.42, 0.54, rim) * 1.05 : smoothstep(0.18, 0.84, rim) * 0.78) : smoothstep(0.35, 0.6, rim);
         float actorBoost = (uCraft < 0.5 && uPxPolish > 0.5 && uSelf > 0.04) ? 1.15 : 1.0;
         outgoingLight += uRimColor * rimBand * uRimStrength * uRimK * actorBoost * (0.5 + 0.5 * diffuseColor.rgb) + diffuseColor.rgb * uSelf;
-        // non-emissive surfaces soft-compress strictly under the bloom threshold (asymptote 1.02 < 1.12),
-        // so white hair, snow, cloth and sunlit stone NEVER glow like lightbulbs; only true glow/emissive objects bloom
+        // non-emissive surfaces roll off smoothly under the bloom threshold (knee 0.76, asymptote 1.07 < 1.12),
+        // keeping midtones punchy while preserving snow/stone highlight gradation and preventing white-hair bloom
         if ((uCraft > 0.5 || uPxPolish > 0.5) && dot(totalEmissiveRadiance, vec3(1.0)) < 0.05) {
-          vec3 over = max(outgoingLight - vec3(0.82), vec3(0.0));
-          outgoingLight = min(outgoingLight, vec3(0.82)) + over / (vec3(1.0) + over * 5.0);
+          vec3 over = max(outgoingLight - vec3(0.76), vec3(0.0));
+          outgoingLight = min(outgoingLight, vec3(0.76)) + over / (vec3(1.0) + over * 3.2);
         } }
 #include <opaque_fragment>`);
   };

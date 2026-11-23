@@ -101,16 +101,36 @@ export function readCraftFlag(query: (k: string) => string | null): CraftMode | 
   return parseMode(q);
 }
 
-/** Restore the player's saved visual style (all platforms: web, WeChat Mini-Game, CrazyGames) or apply ?craft= in debug builds. */
-export function initCraft(platform: Platform, urlOverride: CraftMode | null = null) {
+/** Detect whether the current host is a phone / mini-game (default: classic 2x) vs desktop PC (default: ink woodblock). */
+export function defaultCraftMode(platform: Platform): CraftMode {
+  if (platform.name === 'wx' || platform.name === 'tt') return 'off';
+  try {
+    const nav = globalThis.navigator as (Navigator & { maxTouchPoints?: number }) | undefined;
+    const ua = String(nav?.userAgent ?? '');
+    if (/Android|iPhone|iPad|iPod|Mobile|HarmonyOS|MicroMessenger/i.test(ua)) return 'off';
+    const win = typeof window !== 'undefined' ? window : undefined;
+    const coarse = !!win?.matchMedia?.('(pointer: coarse)')?.matches;
+    const fine = !!win?.matchMedia?.('(pointer: fine)')?.matches;
+    // Only treat as mobile/touch-only when there is no fine mouse pointer (Windows touchscreen laptops report maxTouchPoints > 0 AND fine: true)
+    if ((coarse || (nav?.maxTouchPoints ?? 0) > 0) && !fine) return 'off';
+  } catch { /* desktop fallback */ }
+  return 'ink';
+}
+
+/** Restore the player's saved visual style (all platforms: web, WeChat Mini-Game, CrazyGames), or apply platform default (PC: 国风版画, mobile: 经典). */
+export function initCraft(platform: Platform, urlOverride: CraftMode | null = null, keepPixel = false) {
   P = platform;
   if (urlOverride != null) {
-    setCraft(urlOverride, false, false);
+    setCraft(urlOverride, keepPixel, false);
     return;
   }
   let saved: string | null = null;
   try { saved = platform.storage?.get('ub.craft') ?? null; } catch { /* storage blocked */ }
-  if (saved && saved !== '0' && saved !== 'off') setCraft(saved, false, false);
+  if (saved != null && saved !== '') {
+    setCraft(saved, keepPixel, false);
+    return;
+  }
+  setCraft(defaultCraftMode(platform), keepPixel, false);
 }
 
 export const craftLabel = () => msg`画面风格：${STYLE_NAME[CRAFT.mode]}`;
