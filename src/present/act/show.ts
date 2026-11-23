@@ -71,7 +71,7 @@ import { QUALITY, setQuality, type Tier, qualityLabel, cycleQuality } from '../l
 const COLD_AS_CARDS = true;
 import { newGame, profile, save as saveProfile, seeOnce, hasSave } from './profile';
 import {
-  runMods, bank, META, MIRROR, level, nextCost, buy, hasAffordable,
+  runMods, runReward, bank, META, MIRROR, level, nextCost, buy, hasAffordable,
   mirrorState, mirrorNextCost, canBuyMirror, hasMirrorAffordable, buyMirror, flipMirror,
   ARCANA, ensureArcana, arcanaRank, arcanaCap, arcanaNextCapCost, arcanaUsed, arcanaActiveCount,
   isArcanaActive, arcanaUpgradeCost, unlockArcana, toggleArcana, upgradeArcana, expandArcanaCap, hasArcanaActionable,
@@ -430,6 +430,7 @@ export class ActShow {
   private adModal!: AdSimModal;
   private gameClub!: GameClubBadge;
   private usedRevive = false;
+  private deadSeq = 0;
   private divineSchoolRun: Archetype | null = null;
   private lanternMesh: THREE.Group | null = null; private lanternTick: ((t: number) => void) | null = null;
   private decorMesh: THREE.Group | null = null; private decorTick: ((t: number) => void) | null = null;
@@ -7657,24 +7658,51 @@ export class ActShow {
     }); });
   }
   private dead() {
+    if (this.phase === 'dead') return;
+    const seq = ++this.deadSeq;
     this.cancelQte(); GRADE.bloodVig = 0;
     this.phase = 'dead'; audio.stopMusic(1.4); cue('stingLose', 1); slowmo(1.2, 0.3); this.banner.show('败北', '', 1.6, '#ff6a5a');
     // (act-50: the user's lose sound opens on a second of near silence and lands its heavy blow at 2–3 s — the card waits for it)
     after(2.8, async () => {
+      if (this.phase !== 'dead' || this.deadSeq !== seq) return;
       this.hud.on = false;
-      // C2: 阵亡结算平静并列「回断碑古窑」与「残息未绝 · 观影半血再战」（无倒计时、每局严格限 1 次）
-      if (!this.usedRevive && !this.prologue && !this.botOn) {
-        const ch = await this.cards.open([
-          {
+      // act-187: Single unified death choice popup (回古窑 / 残息再战 / 杜五拾遗) — NEVER pops a second summary card after picking!
+      if (this.prologue || this.botOn) {
+        this.justDied = true;
+        this.bankRun(false);
+        const prof = profile(), b = this.banked;
+        const haul = b ? { iron: b.iron, herb: b.herb, canUp: hasAffordable(prof) || hasMirrorAffordable(prof) } : undefined;
+        await this.cards.open([returnCard(this.kills, false, haul)]);
+        this.hud.on = true; void wipeTransit(() => this.enterYard());
+        return;
+      }
+
+      const rooms = roomsWorth(this.region, this.room, false) + Math.max(0, this.bosses - 1) * 5;
+      const preview = runReward({ rooms, elites: this.eliteKills, boss: this.bossKilled, won: false, kills: this.kills });
+      const hasHaul = preview.iron > 0 || preview.herb > 0;
+      const exIron = Math.ceil(preview.iron * 0.5), exHerb = Math.ceil(preview.herb * 0.5);
+
+      const choices: Array<{ kind: 'home' | 'revive' | 'bonus'; card: BoonPick }> = [
+        {
+          kind: 'home',
+          card: {
             boon: {
               id: 'dead_home', school: 'md' as never,
               name: '回断碑古窑',
-              desc: [msg`本趟已斩 ${this.kills} 敌，结算带回残铁与药引`, '不借真气 · 保持硬核独行'],
+              desc: [
+                hasHaul ? msg`本趟带回 残铁 ${preview.iron} · 药引 ${preview.herb}` : msg`本趟已斩 ${this.kills} 敌，结算带回残铁与药引`,
+                '不借真气 · 保持硬核独行',
+              ],
               col: '#d8ccb4', glyph: LEAVE, tag: '归窑',
             } as CardBoon,
             tier: 0,
           },
-          {
+        },
+      ];
+      if (!this.usedRevive) {
+        choices.push({
+          kind: 'revive',
+          card: {
             boon: {
               id: 'dead_revive', school: 'fg' as never,
               name: '残息未绝 · 借真气再战',
@@ -7683,35 +7711,67 @@ export class ActShow {
             } as CardBoon,
             tier: 2,
           },
-        ], {
-          header: { title: '气绝倒地 · 抉择', sub: '可径直回古窑结算，或借一口真气再战一次', col: '#ff9080' },
-          footer: '平静抉择 · 无倒计时催促',
         });
-        if (ch === 1) {
-          const ok = await this.watchAd('revive', '残息未绝 · 借真气再战', '原地半血起身并短暂无敌震退周身敌兵');
-          if (ok && this.hero) {
-            this.usedRevive = true;
-            this.phase = 'fight';
-            this.hero.revive(Math.max(1, Math.round(this.hero.maxHp * 0.5)), 2.2);
-            this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp });
-            this.hud.on = true;
-            fxFlare(this.hero.pos.clone().setY(0.9), 0xffe278, 3.2, 0.65);
-            fxRing(this.hero.pos.clone().setY(0.1), 0xffe278, 4.5, { life: 0.6, width: 0.14 });
-            for (const f of this.foes) {
-              if (f.st === 'dead') continue;
-              const dx = f.pos.x - this.hero.pos.x, dz = f.pos.z - this.hero.pos.z, d = Math.hypot(dx, dz) || 1;
-              if (d < 4.5) { f.vel.set((dx / d) * 8, 0, (dz / d) * 8); }
-            }
-            cue('parry', 0.9); cue('stingRevive', 0.9);
-            void audio.playMusic(this.plan?.type === 'boss' ? 'bgm_boss' : this.plan?.type === 'elite' ? 'bgm_elite' : 'bgm_battle');
-            this.banner.show('残息未绝', '借真气起身再战', 1.6, '#ffe278');
-            return;
+      }
+      if (hasHaul) {
+        choices.push({
+          kind: 'bonus',
+          card: {
+            boon: {
+              id: 'haul_bonus', school: 'fg' as never,
+              name: '杜五拾遗 · 收获加半',
+              desc: [msg`观影让杜五沿路再收拢一趟：额外得 残铁+${exIron} 药引+${exHerb}`, '每局结算限一次 · 计入长明灯灯油'],
+              col: '#ffe278', glyph: MEAL_GLYPH.purse, tag: '观影+50%',
+            } as CardBoon,
+            tier: 2,
+          },
+        });
+      }
+
+      const ch = await this.cards.open(choices.map(c => c.card), {
+        header: {
+          title: '气绝倒地 · 抉择',
+          sub: hasHaul ? msg`本趟带回 残铁 ${preview.iron} · 药引 ${preview.herb}` : '可径直回古窑结算，或借一口真气再战一次',
+          col: '#ff9080',
+        },
+        footer: '平静抉择 · 无倒计时催促',
+      });
+      const picked = choices[ch]?.kind ?? 'home';
+
+      if (picked === 'revive') {
+        const ok = await this.watchAd('revive', '残息未绝 · 借真气再战', '原地半血起身并短暂无敌震退周身敌兵');
+        if (ok && this.hero) {
+          this.usedRevive = true;
+          this.phase = 'fight';
+          this.hero.revive(Math.max(1, Math.round(this.hero.maxHp * 0.5)), 2.2);
+          this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp });
+          this.hud.on = true;
+          fxFlare(this.hero.pos.clone().setY(0.9), 0xffe278, 3.2, 0.65);
+          fxRing(this.hero.pos.clone().setY(0.1), 0xffe278, 4.5, { life: 0.6, width: 0.14 });
+          for (const f of this.foes) {
+            if (f.st === 'dead') continue;
+            const dx = f.pos.x - this.hero.pos.x, dz = f.pos.z - this.hero.pos.z, d = Math.hypot(dx, dz) || 1;
+            if (d < 4.5) { f.vel.set((dx / d) * 8, 0, (dz / d) * 8); }
           }
+          cue('parry', 0.9); cue('stingRevive', 0.9);
+          void audio.playMusic(this.plan?.type === 'boss' ? 'bgm_boss' : this.plan?.type === 'elite' ? 'bgm_elite' : 'bgm_battle');
+          this.banner.show('残息未绝', '借真气起身再战', 1.6, '#ffe278');
+          return;
         }
       }
+
       this.justDied = true;
       this.bankRun(false);
-      await this.openHaulSummary(false);
+      if (picked === 'bonus' && this.banked) {
+        const ok = await this.watchAd('haul_bonus', '归窑结算 · 杜五拾遗', msg`本趟带回残铁 +${exIron}、药引 +${exHerb}`);
+        if (ok) {
+          const prof = profile();
+          prof.iron += exIron; prof.herb += exHerb;
+          this.banked.iron += exIron; this.banked.herb += exHerb;
+          saveProfile();
+          cue('coin', 1);
+        }
+      }
       this.hud.on = true; void wipeTransit(() => this.enterYard());
     });
   }
