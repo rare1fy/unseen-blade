@@ -78,7 +78,7 @@ export function canBuyMirror(p: Profile, id: string): boolean {
   const m = MIRROR.find(x => x.id === id), cost = mirrorNextCost(p, id);
   return !!m && cost !== null && p[m.cur] >= cost;
 }
-export function hasMirrorAffordable(p: Profile): boolean { return MIRROR.some(m => canBuyMirror(p, m.id)); }
+export function hasMirrorAffordable(_p: Profile): boolean { return false; }
 export function buyMirror(p: Profile, id: string): boolean {
   const m = MIRROR.find(x => x.id === id);
   if (!m || !canBuyMirror(p, id)) return false;
@@ -177,6 +177,15 @@ const LEGACY_MEDIC = ['vigor', 'ear', 'intent', 'leech', 'breath'];
 export function ensureArcana(p: Profile) {
   if (!p.arcana) p.arcana = { cap: ARCANA_BASE_CAP, rank: {}, active: {} };
   const st = p.arcana;
+  // act-182: Mirror of Night (复仇碑阴阳潜能) retired to eliminate confusion with Sun Ao's Altar — refund 100% of spent iron/herb cleanly once
+  if (p.mirror && Object.keys(p.mirror).length > 0) {
+    for (const m of MIRROR) {
+      const ms = p.mirror[m.id];
+      const lv = Math.max(0, Math.min(m.costs.length, ms?.lv ?? 0));
+      for (let k = 0; k < lv; k++) p[m.cur] += m.costs[k];
+    }
+    p.mirror = {};
+  }
   // act-161: fold each old medic level into its card once, then drop it — it used to stay in p.perks and runMods() counted both
   // (a maxed old save: +72 health for +36, three starting intent, two death-defies)
   let folded = false;
@@ -347,14 +356,14 @@ export function runMods(p: Profile): RunMods {
     windupMul: 1 + arcanaVal(p, 'ear') / 100,
     startManual: level(p, 'manual') >= 1,
     poiseHeal: arcanaVal(p, 'leech'),
-    firstStrikeBonus: mirrorVal(p, 'edge', 0) / 100,
-    styleBonus: mirrorVal(p, 'edge', 1) / 100,
-    dashCdMul: (1 - mirrorVal(p, 'step', 0) / 100) * (1 - aWind),
-    counterBonus: mirrorVal(p, 'step', 1) / 100,
-    markedDmgBonus: mirrorVal(p, 'arms', 0) / 100,
-    poiseDmgMul: (1 + mirrorVal(p, 'arms', 1) / 100) * (1 + aPoise),
-    rareOddsBonus: mirrorVal(p, 'luck', 0) / 100 + (gBuff === 'xuanzhi' ? 0.25 : 0),
-    interestRate: mirrorVal(p, 'luck', 1) / 100,
+    firstStrikeBonus: 0,
+    styleBonus: 0,
+    dashCdMul: 1 - aWind,
+    counterBonus: 0,
+    markedDmgBonus: 0,
+    poiseDmgMul: 1 + aPoise,
+    rareOddsBonus: gBuff === 'xuanzhi' ? 0.25 : 0,
+    interestRate: 0,
   };
 }
 

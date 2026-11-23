@@ -136,6 +136,7 @@ export class CardPick3D {
   private detailBtnHot = false;
   private workbenchOpt: CardOpenOpts['workbench'] | null = null;
   private workbenchBox = { x: 0, y: 0, w: 0, h: 0 };
+  private arcGridX = 0;
   private workbenchBtnRect: { x: number; y: number; w: number; h: number } | null = null;
   private workbenchBtnHot = false;
   private workbenchSubBtnRect: { x: number; y: number; w: number; h: number } | null = null;
@@ -248,6 +249,7 @@ export class CardPick3D {
       const actualLeftW = cols * w + (cols - 1) * gap;
       const startX = L.w / 2 - (actualLeftW + midGap + rightW) / 2;
       arcGridLeftX = startX + actualLeftW / 2;
+      this.arcGridX = arcGridLeftX;
       const panelH = Math.min(room * 0.98, Math.max(rows * h + (rows - 1) * gapY, 310 * kk));
       this.workbenchBox = { x: startX + actualLeftW + midGap + rightW / 2, y: centerY, w: rightW, h: panelH };
     } else if (isWeapons) {
@@ -791,9 +793,11 @@ export class CardPick3D {
       this.plates.hide('cards.wallet');
     }
 
+    const bothTabsAndGrasp = !!(this.tabsOpt && this.graspBarOpt && this.layoutMode === 'arcana');
     if (this.tabsOpt && showChrome) {
-      const tabY = (this.header?.sub ? 104 : 84) * kk;
-      this.tabRects = this.plates.setTabs('cards.tabs', this.tabsOpt.items, this.tabsOpt.active, L.w / 2, tabY);
+      const tabY = (this.header?.sub ? 102 : 82) * kk;
+      const tabX = bothTabsAndGrasp ? this.arcGridX : L.w / 2;
+      this.tabRects = this.plates.setTabs('cards.tabs', this.tabsOpt.items, this.tabsOpt.active, tabX, tabY);
     } else {
       this.tabRects = [];
       this.plates.hide('cards.tabs');
@@ -801,6 +805,7 @@ export class CardPick3D {
 
     if (this.graspBarOpt && showChrome) {
       const gY = (this.header?.sub ? 102 : 82) * kk;
+      const gX = bothTabsAndGrasp ? this.workbenchBox.x : L.w / 2;
       const gRes = this.plates.setGraspBar('cards.grasp', {
         used: this.graspBarOpt.used,
         cap: this.graspBarOpt.cap,
@@ -808,7 +813,7 @@ export class CardPick3D {
         have: this.graspBarOpt.have,
         canExpand: this.graspBarOpt.canExpand,
         btnHot: this.graspBtnHot,
-        x: L.w / 2,
+        x: gX,
         y: gY,
         visible: true,
       });

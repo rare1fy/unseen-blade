@@ -75,7 +75,7 @@ export class SkillList {
   private make(e: SkillEntry | null, title: string, i: number): Item {
     const root = new THREE.Group(); root.userData.noTilt = true; root.renderOrder = 60; this.L.scene.add(root);
     const face = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, toneMapped: false })); face.renderOrder = 62; root.add(face);
-    return { e, title, root, body: null, rim: null, face, picture: null, presses: [], items: [], x: 0, y: 0, w: 0, h: 0, inK: 0, selK: 0, faceKey: '', t: 0, delay: Math.min(0.14, i * 0.018) };
+    return { e, title, root, body: null, rim: null, face, picture: null, presses: [], items: [], x: 0, y: 0, w: 0, h: 0, inK: 0, selK: 0, faceKey: '', t: 0, delay: Math.min(0.05, i * 0.008) };
   }
   close() {
     for (const it of this.items) {
@@ -90,6 +90,14 @@ export class SkillList {
   private picks() { return this.items.map((it, i) => (it.e ? i : -1)).filter(i => i >= 0); }
   /** the selected row's entry */
   get entry(): SkillEntry | null { return this.items[this.sel]?.e ?? null; }
+  /** act-182: jump selection directly to an entry by id (used by cross-tab navigation from Hero Overview) */
+  selectById(id: string): boolean {
+    const idx = this.items.findIndex(it => it.e?.id === id);
+    if (idx < 0) return false;
+    this.sel = idx;
+    this.seen = -1;
+    return true;
+  }
   move(d: number) { const p = this.picks(); if (!p.length) return; const k = p.indexOf(this.sel); this.sel = p[(Math.max(0, k) + d + p.length) % p.length]; }
   /** a drag / a wheel: scroll by px */
   scrollBy(px: number) { this.scrollT = Math.max(0, Math.min(this.maxScroll(), this.scrollT + px)); }
@@ -139,8 +147,8 @@ export class SkillList {
     }
     this.scroll += (this.scrollT - this.scroll) * Math.min(1, dt * 14);
     for (const [i, it] of this.items.entries()) {
-      it.inK = Math.min(1, Math.max(it.inK, (this.openT - it.delay) / 0.16)); it.selK += ((i === this.sel ? 1 : 0) - it.selK) * Math.min(1, dt * 12);
-      const e = it.inK * it.inK * (3 - 2 * it.inK), off = -(1 - e) * 140;
+      it.inK = Math.min(1, Math.max(it.inK, (this.openT - it.delay) / 0.10)); it.selK += ((i === this.sel ? 1 : 0) - it.selK) * Math.min(1, dt * 14);
+      const e = it.inK * it.inK * (3 - 2 * it.inK), off = -(1 - e) * 28;
       // past the list's top / bottom a slab fades out over most of its height (the next one peeks in: there is more to scroll to)
       const over = Math.max(0, it.y + it.h / 2 - this.lay.bottom, this.lay.top - (it.y - it.h / 2)), edge = Math.max(0, 1 - over / (it.h * 0.85));
       const a = e * rel * edge;

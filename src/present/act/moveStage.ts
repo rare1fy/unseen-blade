@@ -89,6 +89,25 @@ interface BeatState {
   accent: string;
 }
 
+/** act-182: Live Hero Info Mini-World snapshot (rendered in Tab 0 英雄总览 left showcase). */
+export interface HeroShowcaseData {
+  heroName: string;
+  outfitName: string;
+  weaponName: string;
+  weaponLv: number;
+  keepsakeName: string;
+  keepsakeStar: string;
+  hp: number;
+  maxHp: number;
+  dmgPct: number;
+  critPct: number;
+  maxDarts: number;
+  intent: number;
+  arcanaUsed: number;
+  arcanaCap: number;
+  roomLabel: string;
+}
+
 /** Isolated 3D ghost combat simulator running real Hero + BattleActor + slashArc + Dart at (MINI_X, 0, MINI_Z). */
 class MiniGhostSim {
   stuck = false;
@@ -125,6 +144,10 @@ class MiniGhostSim {
   private auraT = 0;
   private keys: ReturnType<typeof manualSteps> = [];
   private manualScript: ManualScript | null = null;
+  private heroMode = false;
+  private heroYaw = 0.28;
+  private heroYawVel = 0;
+  private daisRing: THREE.Mesh | null = null;
 
   ensureDojo() {
     if (this.dojo) { this.dojo.visible = true; return; }
@@ -167,18 +190,72 @@ class MiniGhostSim {
     const sMat = new THREE.MeshBasicMaterial({ color: 0x08060e, transparent: true, opacity: 0.52, depthWrite: false });
     this.hShad = new THREE.Mesh(sGeo, sMat); this.hShad.position.set(0, 0.03, 0);
     this.fShad = new THREE.Mesh(sGeo, sMat); this.fShad.position.set(0, 0.03, 0);
-    grp.add(this.hShad, this.fShad);
+    // Subtle warm bronze octagonal dais ring shown only in Hero Showcase mode
+    const ringGeo = new THREE.RingGeometry(0.72, 0.86, 8).rotateX(-Math.PI / 2);
+    const ringMat = new THREE.MeshBasicMaterial({ color: 0xd8a852, transparent: true, opacity: 0.72, depthWrite: false, side: THREE.DoubleSide });
+    this.daisRing = new THREE.Mesh(ringGeo, ringMat);
+    this.daisRing.position.set(0, 0.025, 0);
+    this.daisRing.visible = false;
+    grp.add(this.hShad, this.fShad, this.daisRing);
     scene.add(grp);
     this.dojo = grp;
   }
 
   start(entry: SkillEntry, heroDef: ModelDef, weaponId: WeaponId, weaponLv: number) {
+    this.heroMode = false;
     this.entry = entry;
     this.heroDef = heroDef;
     this.weaponId = entry.weaponId ?? weaponId;
     this.weaponLv = weaponLv;
     this.ensureDojo();
+    if (this.daisRing) this.daisRing.visible = false;
     this.spawnCycle(false);
+  }
+
+  /** act-182: Full-color rotatable 3D Hero showcase on the stone dais (no ghost tint, live outfit + weapon). */
+  startHero(heroDef: ModelDef, weaponId: WeaponId, weaponLv: number) {
+    this.heroMode = true;
+    this.entry = null;
+    this.heroDef = heroDef;
+    this.weaponId = weaponId;
+    this.weaponLv = weaponLv;
+    this.ensureDojo();
+    this.clearActors(false);
+    if (this.daisRing) this.daisRing.visible = true;
+    withCueMuted(() => {
+      const g = this.g = new Hero(V3(MINI_X, 0, MINI_Z), this.heroDef);
+      g.applyWeapon(this.weaponId, this.weaponLv);
+      g.qi = Hero.QI_MAX;
+      g.perks = newPerks();
+      this.heroYaw = 0.28;
+      this.heroYawVel = 0;
+      g.a.yaw = this.heroYaw;
+      g.a.place(V3(MINI_X, 0, MINI_Z));
+      this.t = 0;
+    });
+    if (this.hShad) { this.hShad.visible = true; this.hShad.position.set(0, 0.03, 0); this.hShad.scale.setScalar(1.08); }
+    if (this.fShad) this.fShad.visible = false;
+  }
+
+  dragHeroYaw(dxRad: number) {
+    if (!this.heroMode) return;
+    this.heroYaw += dxRad;
+    this.heroYawVel = Math.max(-6, Math.min(6, dxRad * 18));
+  }
+
+  updateHero(dt: number) {
+    if (!this.heroMode || !this.g) return;
+    this.t += dt;
+    if (Math.abs(this.heroYawVel) > 0.01) {
+      this.heroYaw += this.heroYawVel * dt;
+      this.heroYawVel *= Math.exp(-7 * dt);
+    }
+    withCueMuted(() => {
+      const g = this.g!;
+      g.a.yaw = this.heroYaw + Math.sin(this.t * 1.05) * 0.045;
+      g.a.update(dt);
+    });
+    if (this.daisRing) this.daisRing.rotation.y = this.t * 0.22;
   }
 
   private clearActors(puff: boolean) {
@@ -747,6 +824,8 @@ class MiniGhostSim {
   hide() {
     this.clearActors(false);
     if (this.dojo) this.dojo.visible = false;
+    if (this.daisRing) this.daisRing.visible = false;
+    this.heroMode = false;
     this.entry = null;
   }
 
@@ -774,6 +853,8 @@ export class MoveStage {
   private sim = new MiniGhostSim();
   private cam = new THREE.PerspectiveCamera(34, 2, 0.1, 40);
   private entry: SkillEntry | null = null;
+  private heroProfile: HeroShowcaseData | null = null;
+  private lastHeroKey = '';
   private heroDef: ModelDef = modelDef('fine_hat');
   private weaponId: WeaponId = 'hanshan';
   private weaponLv = 0;
@@ -805,6 +886,7 @@ export class MoveStage {
   }
 
   setEntry(e: SkillEntry | null, canPlay3d = false) {
+    if (this.heroProfile) { this.heroProfile = null; this.lastHeroKey = ''; }
     const key = e ? `${e.kind}:${e.id}:${e.weaponId ?? this.weaponId}:${this.weaponLv}:${e.attached?.length ?? 0}:${canPlay3d ? 1 : 0}` : '';
     if (key !== this.lastEntryKey) {
       this.lastEntryKey = key;
@@ -812,6 +894,28 @@ export class MoveStage {
       this.canPlay3d = canPlay3d;
       if (e) this.sim.start(e, this.heroDef, this.weaponId, this.weaponLv);
       else this.sim.hide();
+      this.uiAccum = 1;
+    }
+  }
+
+  /** act-182: Switch MoveStage into full-color rotatable 3D Hero Showcase + core stats panel. */
+  setHeroShowcase(profile: HeroShowcaseData | null) {
+    if (!profile) {
+      if (this.heroProfile) { this.heroProfile = null; this.lastHeroKey = ''; this.sim.hide(); }
+      return;
+    }
+    this.entry = null;
+    this.lastEntryKey = '';
+    this.canPlay3d = false;
+    const modelKey = `${this.heroDef.id}:${this.weaponId}:${this.weaponLv}`;
+    const fullKey = `${modelKey}|${profile.hp}/${profile.maxHp}|${profile.dmgPct}|${profile.critPct}|${profile.maxDarts}|${profile.intent}|${profile.arcanaUsed}/${profile.arcanaCap}|${profile.keepsakeName}|${profile.keepsakeStar}|${profile.outfitName}|${profile.roomLabel}`;
+    const prevModelKey = this.lastHeroKey.split('|')[0];
+    this.heroProfile = profile;
+    if (modelKey !== prevModelKey) {
+      this.sim.startHero(this.heroDef, this.weaponId, this.weaponLv);
+    }
+    if (fullKey !== this.lastHeroKey) {
+      this.lastHeroKey = fullKey;
       this.uiAccum = 1;
     }
   }
@@ -825,16 +929,29 @@ export class MoveStage {
     return !!r && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
   }
 
+  hitViewport(x: number, y: number): boolean {
+    const v = this.vpCss;
+    return v.w > 8 && x >= v.x && x <= v.x + v.w && y >= v.y && y <= v.y + v.h;
+  }
+
+  dragYaw(dxPx: number) {
+    if (this.heroProfile) this.sim.dragHeroYaw(dxPx * 0.013);
+  }
+
   update(dt: number, alpha: number) {
     this.visibleAlpha = alpha;
-    if (!this.entry || alpha <= 0.02 || this.rect.w < 40 || this.rect.h < 40) {
+    if ((!this.entry && !this.heroProfile) || alpha <= 0.02 || this.rect.w < 40 || this.rect.h < 40) {
       this.mesh.visible = false;
       this.demoBtnRect = null;
       this.vpCss.w = 0;
       return;
     }
     PAUSE.fx = true;
-    this.beat = this.sim.update(dt);
+    if (this.heroProfile) {
+      this.sim.updateHero(dt);
+    } else {
+      this.beat = this.sim.update(dt);
+    }
     this.uiAccum += dt;
     const dpr = Math.max(1, Math.round(this.L.dpr || 1));
     const W = Math.max(64, Math.round(this.rect.w * dpr));
@@ -856,7 +973,8 @@ export class MoveStage {
     }
     if (this.uiAccum >= 1 / 24) {
       this.uiAccum = 0;
-      this.paint(this.ctx!, W, H, dpr);
+      if (this.heroProfile) this.paintHeroShowcase(this.ctx!, W, H, dpr);
+      else this.paint(this.ctx!, W, H, dpr);
       if (this.tex) this.tex.needsUpdate = true;
     }
     this.mat.opacity = alpha;
@@ -877,8 +995,15 @@ export class MoveStage {
     if (vw < 8 || vh < 8) return;
 
     this.cam.aspect = vw / vh;
-    this.cam.position.set(MINI_X, 3.65, 6.45);
-    this.cam.lookAt(MINI_X, 0.85, 0);
+    if (this.heroProfile) {
+      this.cam.fov = 30;
+      this.cam.position.set(MINI_X, 2.05, 4.45);
+      this.cam.lookAt(MINI_X, 0.92, 0);
+    } else {
+      this.cam.fov = 34;
+      this.cam.position.set(MINI_X, 3.65, 6.45);
+      this.cam.lookAt(MINI_X, 0.85, 0);
+    }
     this.cam.updateProjectionMatrix();
 
     const prevVp = new THREE.Vector4();
@@ -922,7 +1047,9 @@ export class MoveStage {
     this.demoBtnRect = null;
     this.vpCss.w = 0;
     this.lastEntryKey = '';
+    this.lastHeroKey = '';
     this.entry = null;
+    this.heroProfile = null;
     this.sim.hide();
     if (!keepFx) PAUSE.fx = false;
   }
@@ -934,6 +1061,142 @@ export class MoveStage {
     this.mesh.geometry.dispose();
     this.tex?.dispose();
     this.mat.dispose();
+  }
+
+  /** act-182: Paint the Hero Info Mini-World showcase frame (3D rotatable heroine + core combat stats + equipment bar). */
+  private paintHeroShowcase(g: CanvasRenderingContext2D, W: number, H: number, dpr: number) {
+    const p = this.heroProfile!;
+    const kk = uiScale(this.L.w, this.L.h, 0.78, 2.8);
+    const u = Math.max(1, Math.round(2 * kk * dpr));
+    const padX = Math.round(13 * kk * dpr);
+    const padY = Math.round(10 * kk * dpr);
+    const innerCol = '#d8a852';
+
+    g.clearRect(0, 0, W, H);
+    drawPixelPlaque(g, 0, 0, W, H, u, {
+      bg: '#131018', hi: '#261f30', border: '#07050a', inner: innerCol, accent: '#ffd884', rivets: true,
+    });
+
+    const boxX = padX + u, boxW = W - (padX + u) * 2;
+    const compact = this.rect.h < 330;
+    const stageH = Math.round(H * (compact ? 0.56 : 0.62));
+    const stageY = padY + u;
+    const bdr = Math.max(1, Math.round(1.5 * kk * dpr));
+
+    // 1. Framed transparent 3D Hero Portrait bay (punched via clearRect so full-color 3D Hero renders cleanly beneath!)
+    g.fillStyle = '#09070c';
+    g.fillRect(boxX - bdr, stageY - bdr, boxW + 2 * bdr, stageH + 2 * bdr);
+    g.fillStyle = innerCol;
+    g.fillRect(boxX, stageY, boxW, stageH);
+    const ix = boxX + bdr, iy = stageY + bdr, iw = boxW - 2 * bdr, ih = stageH - 2 * bdr;
+    const hintH = Math.round((compact ? 18 : 22) * kk * dpr);
+    const vpH = Math.max(16, ih - hintH);
+    g.clearRect(ix, iy, iw, vpH);
+
+    const left0 = this.rect.cx - this.rect.w / 2, top0 = this.rect.cy - this.rect.h / 2;
+    this.vpCss = { x: left0 + ix / dpr, y: top0 + iy / dpr, w: iw / dpr, h: vpH / dpr };
+    this.demoBtnRect = null;
+
+    // Corner brackets framing the 3D Hero viewport
+    const cr = Math.round(10 * kk * dpr);
+    g.fillStyle = innerCol;
+    for (const [cx, cy, sx, sy] of [
+      [ix + bdr, iy + bdr, 1, 1],
+      [ix + iw - bdr, iy + bdr, -1, 1],
+      [ix + bdr, iy + vpH - bdr, 1, -1],
+      [ix + iw - bdr, iy + vpH - bdr, -1, -1],
+    ]) {
+      g.fillRect(sx > 0 ? cx : cx - cr, cy, cr, bdr);
+      g.fillRect(cx - (sx < 0 ? bdr : 0), sy > 0 ? cy : cy - cr, bdr, cr);
+    }
+
+    // Compact bottom strip inside viewport bay: drag-to-rotate hint + current location pill
+    const barY = iy + vpH;
+    g.fillStyle = '#0c0a12';
+    g.fillRect(ix, barY, iw, hintH);
+    g.fillStyle = '#5a4830';
+    g.fillRect(ix, barY, iw, Math.max(1, Math.round(dpr)));
+    const hScale = Math.max(1, Math.floor(((compact ? 10.5 : 11.5) * kk * dpr) / PIX_H));
+    const rotTxt = localize('左右拖动查看造型');
+    drawPix(g, rotTxt, ix + Math.round(iw / 2), barY + Math.round((hintH - PIX_H * hScale) / 2), {
+      scale: hScale, color: '#bba98c', outline: '#08060c', align: 'center',
+    });
+
+    // 2. Hero Name + Outfit Badge + Location Pill
+    let curY = stageY + stageH + Math.round((compact ? 7 : 10) * kk * dpr);
+    const nameTxt = localize(p.heroName);
+    const tScale = Math.max(1, Math.floor(((compact ? 16 : 18) * kk * dpr) / PIX_H));
+    const tH = PIX_H * tScale;
+    drawPix(g, nameTxt, boxX, curY, { scale: tScale, color: '#fff2cc', outline: '#08060c', align: 'left' });
+
+    let pxX = boxX + pixW(nameTxt) * tScale + Math.round(8 * kk * dpr);
+    const pScale = Math.max(1, Math.floor(((compact ? 10.5 : 11.5) * kk * dpr) / PIX_H));
+    const drawBadge = (txt: string, col: string, fill: string) => {
+      if (!txt) return;
+      const loc = localize(txt);
+      const pw = pixW(loc) * pScale + Math.round(9 * kk * dpr);
+      if (pxX + pw > boxX + boxW) return;
+      const ph = PIX_H * pScale + Math.round(4 * kk * dpr);
+      const py = Math.round(curY + (tH - ph) / 2);
+      g.fillStyle = col; g.fillRect(pxX, py, pw, ph);
+      g.fillStyle = fill; g.fillRect(pxX + bdr, py + bdr, pw - 2 * bdr, ph - 2 * bdr);
+      drawPix(g, loc, pxX + Math.round(4.5 * kk * dpr), py + Math.round(2 * kk * dpr), { scale: pScale, color: col, outline: null, align: 'left' });
+      pxX += pw + Math.round(6 * kk * dpr);
+    };
+    drawBadge(p.outfitName, '#d8b46c', '#1c1722');
+    drawBadge(p.roomLabel, '#82d8c8', '#141c20');
+
+    curY += tH + Math.round((compact ? 5 : 7) * kk * dpr);
+    g.fillStyle = '#3c3246';
+    g.fillRect(boxX, curY, boxW, Math.max(1, Math.round(dpr)));
+    curY += Math.round((compact ? 6 : 8) * kk * dpr);
+
+    // 3. 2x2 Crisp Core Combat Stats Grid (icon-rich via richLine)
+    const gap = Math.round(7 * kk * dpr);
+    const colW = Math.floor((boxW - gap) / 2);
+    const cellH = Math.round((compact ? 25 : 34) * kk * dpr);
+    const statPx = Math.round((compact ? 12 : 14) * kk * dpr);
+    const cells: Array<{ txt: string; bar: string }> = [
+      { txt: `气血 ${p.hp}/${p.maxHp}`, bar: '#e85a64' },
+      { txt: `攻击 ${p.dmgPct}%`, bar: '#f0b858' },
+      { txt: `暴击 ${p.critPct}%`, bar: '#ff9652' },
+      { txt: `飞镖 ${p.maxDarts}枚 · 杀气 ${p.intent}/3`, bar: '#8ed8ff' },
+    ];
+    for (let i = 0; i < 4; i++) {
+      const cx = boxX + (i % 2) * (colW + gap);
+      const cy = curY + Math.floor(i / 2) * (cellH + gap);
+      g.fillStyle = '#1b1724';
+      g.fillRect(cx, cy, colW, cellH);
+      g.fillStyle = '#383044';
+      g.fillRect(cx, cy, colW, Math.max(1, Math.round(dpr)));
+      g.fillStyle = cells[i].bar;
+      g.fillRect(cx, cy, Math.max(2, Math.round(2.5 * dpr)), cellH);
+      let sp = statPx;
+      const padL = Math.round(8 * kk * dpr);
+      const maxTw = colW - padL - Math.round(4 * kk * dpr);
+      while (sp > Math.round(9 * kk * dpr) && richLine(null, cells[i].txt, 0, 0, sp, '#f0e6d2', '#fff8c0', true, true) > maxTw) sp -= 1;
+      richLine(g, cells[i].txt, cx + padL, cy + Math.round((cellH - sp * 1.05) / 2), sp, '#f0e6d2', '#fff8c0', true, true);
+    }
+    curY += (cellH + gap) * 2 + Math.round(2 * kk * dpr);
+
+    // 4. Bottom Equipment & Arcana Strip (佩刀 / 信物 / 悟性)
+    const botLim = H - padY - u;
+    const stripH = Math.min(Math.round((compact ? 26 : 34) * kk * dpr), Math.max(0, botLim - curY));
+    if (stripH >= Math.round(18 * kk * dpr)) {
+      const wepStr = p.weaponLv > 0 ? `${localize(p.weaponName)}+${p.weaponLv}` : localize(p.weaponName);
+      const ksStr = p.keepsakeStar ? `${localize(p.keepsakeName)} ${p.keepsakeStar}` : localize(p.keepsakeName);
+      const line = `${localize('佩刀')} ${wepStr}  ·  ${localize('信物')} ${ksStr}  ·  ${localize('悟性')} ${p.arcanaUsed}/${p.arcanaCap}`;
+      g.fillStyle = '#201a16';
+      g.fillRect(boxX, curY, boxW, stripH);
+      g.fillStyle = '#9e7c44';
+      g.fillRect(boxX, curY, boxW, Math.max(1, Math.round(dpr)));
+      g.fillStyle = '#d8a852';
+      g.fillRect(boxX, curY, Math.max(2, Math.round(2.5 * dpr)), stripH);
+      let lp = Math.round((compact ? 11 : 13) * kk * dpr);
+      const maxLw = boxW - Math.round(14 * kk * dpr);
+      while (lp > Math.round(8.5 * kk * dpr) && richLine(null, line, 0, 0, lp, '#e8dcc4', '#ffe892', true, true) > maxLw) lp -= 1;
+      richLine(g, line, boxX + Math.round(8 * kk * dpr), curY + Math.round((stripH - lp * 1.05) / 2), lp, '#e8dcc4', '#ffe892', true, true);
+    }
   }
 
   private paint(g: CanvasRenderingContext2D, W: number, H: number, dpr: number) {

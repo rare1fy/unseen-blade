@@ -17,8 +17,9 @@ import { pixW, PIX_H } from '../v2/pix';
 import { ACTIONS, ACTION_WORD, BIND, PAD, padNav, paintGlyph, glyphArt, keyName, padName, rebind, resetBinds, activePad, pauseName, GLYPH_H, paintKeyCap, keyCapWidth, KEYCAP_H, type Nav } from './pad';
 import type { BtnName } from './input';
 import { SkillList, type Section } from './skillList';
-import { MoveStage } from './moveStage';
+import { MoveStage, type HeroShowcaseData } from './moveStage';
 import { UI_WORDS } from './skillInfo';
+import { UiPlatePool, type TabRect } from './uiPlate';
 import { backShield, type MiniShield } from './btnBadge';
 import { uiScale } from './uiScale';
 import { SKIN } from './skin';
@@ -26,7 +27,7 @@ import { makeCanvas } from '../../platform/index';
 import type { ModelDef } from '../bestiary/models';
 import type { WeaponId } from './weapons';
 
-export interface MenuSetting { id?: string; label: () => string; run: () => void }
+export interface MenuSetting { id?: string; label: () => string; run: () => void; show?: () => boolean }
 export interface PauseHost {
   L: UiLayer;
   /** the player's settings (a label naming the current value; run = the next value) */
@@ -40,7 +41,11 @@ export interface PauseHost {
   onRun?(): boolean;
   /** the menu closed (from the game: the world runs again) */
   closed(): void;
-  /** act-151: unified 招式谱 (equipped weapon moveset + slotted boons + run manuals/boons + active arcana/keepsake) */
+  /** act-182: 3-tab Hero Info Mini-World (0 = 英雄总览, 1 = 武器招式, 2 = 局内秘传) */
+  buildTabs?(): { overview: Section[]; weapon: Section[]; boons: Section[] };
+  /** act-182: live hero portrait & core stats snapshot for Tab 0 英雄总览 */
+  heroStats?(): HeroShowcaseData;
+  /** act-151: fallback single-list build */
   build?(): Section[];
   /** legacy fallbacks */
   owned?(): Section[];
@@ -151,13 +156,18 @@ export class PauseMenu {
   private head: Sign; private foot: Sign; private marker: THREE.Mesh; private markerK = 0; private fade = 0;
   /** the key row waiting for a new key: which row, real seconds left, the pad's buttons when it started */
   private wait: { i: number; t: number; prev: boolean[] } | null = null;
-  /** act-151: unified 招式谱 — left scrollable SkillList + right live animated MoveStage inspector */
+  /** act-151 / act-182: 3-tab Hero Info Mini-World — SkillList + MoveStage + top pixel tabs */
   private list: SkillList; private stage: MoveStage; private listRel = 0;
+  private heroTab: 0 | 1 | 2 = 0;
+  private tabPlates: UiPlatePool;
+  private tabRects: TabRect[] = [];
+  private heroDrag: { x: number; moved: number } | null = null;
   /** 11-19 (用户：「设置的返回按钮设计有问题」): the back button — a small iron shield with a turning-back arrow at the page's top left,
    *  beside its name; every page but the first has it (Esc / pad B / a tap on it). The column no longer ends in a 返回 slab */
   private backBtn: MiniShield; private backK = 0; private backHot = 0; private backAt = { x: 0, y: 0, r: 0 };
   constructor(private host: PauseHost) {
     const L = host.L; this.head = new Sign(L); this.foot = new Sign(L); this.list = new SkillList(L); this.stage = new MoveStage(L);
+    this.tabPlates = new UiPlatePool(L);
     this.backBtn = backShield(); this.backBtn.userData.noTilt = true; this.backBtn.traverse(o => { o.renderOrder = 62; }); this.backBtn.visible = false; L.scene.add(this.backBtn);
     this.marker = pommel(); this.marker.userData.noTilt = true; this.marker.renderOrder = 62; this.marker.visible = false; L.scene.add(this.marker);
     if (typeof window !== 'undefined') {
@@ -166,9 +176,9 @@ export class PauseMenu {
     }
     onRealUpdate(rdt => this.update(rdt));
   }
-  open(page: Page = 'main', o: { fromTitle?: boolean; quickClose?: boolean } = {}) {
+  open(page: Page = 'main', o: { fromTitle?: boolean; quickClose?: boolean; tab?: 0 | 1 | 2 } = {}) {
     const p: Page = page === 'owned' || page === 'skills' ? 'build' : page;
-    this.fromTitle = !!o.fromTitle; this.quickClose = !!o.quickClose; this.on = true; PAUSE.menu = true; if (!this.fromTitle) PAUSE.on = true;
+    this.fromTitle = !!o.fromTitle; this.quickClose = !!o.quickClose; this.heroTab = o.tab ?? 0; this.on = true; PAUSE.menu = true; if (!this.fromTitle) PAUSE.on = true;
     this.openT = 0; this.wait = null; padNav.sync(); cue('scroll', 0.6);
     this.go(p, true);
   }
@@ -176,23 +186,38 @@ export class PauseMenu {
     if (!this.on) return;
     this.host.stopPreview?.();
     this.on = false; this.wait = null; PAUSE.menu = false; PAUSE.on = false; cue('deselect', 0.4); this.list.close(); this.stage.hide();
+    this.tabPlates.hide('pause.heroTabs'); this.tabRects = [];
     this.host.closed();
   }
   private build(): Row[] {
     const h = this.host;
     if (this.page === 'main') return [
       { id: 'resume', label: () => '继续' },
-      ...(h.build || h.owned || h.skills ? [{ id: 'build', label: () => UI_WORDS.build }] : []),
+      ...(h.buildTabs || h.build || h.owned || h.skills ? [{ id: 'build', label: () => UI_WORDS.build }] : []),
       { id: 'keys', label: () => '键位' }, { id: 'set', label: () => '设置' },
       ...(h.canGiveUp() ? [{ id: 'quit', label: () => '回据点' }] : []),
       ...(h.toTitle ? [{ id: 'title', label: () => '回主画面' }] : []),
     ];
-    // act-151: unified 招式谱 uses split SkillList + MoveStage; no slabs — top-left back shield leaves
+    // act-182: 3-tab Hero Info Mini-World uses split SkillList + MoveStage; no slabs — top-left back shield leaves
     if (this.page === 'build') return [];
     if (this.page === 'keys') return [...ACTIONS.map(a => ({ id: 'act', act: a, label: () => ACTION_WORD[a] })), { id: 'reset', label: () => '恢复默认' }];
-    if (this.page === 'set') return h.settings.map((s, i) => ({ id: s.id ?? `s${i}`, label: s.label, run: s.run }));
+    if (this.page === 'set') return h.settings.filter(s => !s.show || s.show()).map((s, i) => ({ id: s.id ?? `s${i}`, label: s.label, run: s.run }));
     if (this.page === 'askTitle') return [{ id: 'yesTitle', label: () => '回主画面' }, { id: 'no', label: () => '再想想' }];
     return [{ id: 'yes', label: () => '回据点' }, { id: 'no', label: () => '再想想' }];
+  }
+  private openHeroTab(tab: 0 | 1 | 2, focusId?: string, silent = false) {
+    this.heroTab = tab;
+    const tabs = this.host.buildTabs?.();
+    const secs = tabs
+      ? (tab === 0 ? tabs.overview : tab === 1 ? tabs.weapon : tabs.boons)
+      : (this.host.build?.() ?? this.host.skills?.() ?? this.host.owned?.() ?? []);
+    this.list.open(secs);
+    if (focusId) this.list.selectById(focusId);
+    if (!silent) cue('tick', 0.35);
+  }
+  /** Expose active hero tab switching for captures / testing */
+  setHeroTab(tab: 0 | 1 | 2) {
+    if (this.on && this.page === 'build') this.openHeroTab(tab);
   }
   private go(page: Page, first = false) {
     const p: Page = page === 'owned' || page === 'skills' ? 'build' : page;
@@ -203,20 +228,27 @@ export class PauseMenu {
     this.slabs.forEach((s, i) => { s.inK = 0; s.delay = i * 0.05; });
     this.pageT = 0; if (!first) cue('tick', 0.35);
     if (p === 'build') {
-      const secs = this.host.build?.() ?? this.host.skills?.() ?? this.host.owned?.() ?? [];
-      this.list.open(secs);
+      this.openHeroTab(this.heroTab, undefined, true);
     } else {
       this.list.close();
       this.stage.hide();
+      this.tabPlates.hide('pause.heroTabs');
+      this.tabRects = [];
     }
   }
-  /** on the unified 招式谱 page the arrows move in the list */
+  /** on the 3-tab Hero Info page the arrows move in the list */
   private get inList() { return this.page === 'build' && this.list.on; }
   private pageT = 0;
-  /** act-151: confirm on a 刀谱 row plays its 3D in-world ghost; on other rows keeps previewing inside MoveStage */
+  /** act-182: in Tab 0 (英雄总览), confirming a row jumps to its target sub-tab; in Tab 1/2, confirming a learned manual plays its 3D in-world ghost */
   private listOk() {
     const e = this.list.entry;
-    if (e && e.kind === 'manual' && this.host.preview?.(e.id)) { cue('select', 0.5); return; }
+    if (!e) return;
+    if (this.heroTab === 0 && e.jumpTab != null) {
+      this.openHeroTab(e.jumpTab, e.jumpId);
+      cue('select', 0.45);
+      return;
+    }
+    if (e.kind === 'manual' && this.host.preview?.(e.id)) { cue('select', 0.5); return; }
   }
   private get previewing() { return !!this.host.previewing?.(); }
   private back() {
@@ -233,25 +265,31 @@ export class PauseMenu {
       case 'resume': this.close(); return;
       case 'keys': cue('select', 0.5); this.go('keys'); return;
       case 'set': cue('select', 0.5); this.go('set'); return;
-      case 'build': case 'owned': case 'skills': cue('select', 0.5); this.go('build'); return;
+      case 'build': case 'owned': case 'skills': cue('select', 0.5); this.heroTab = 0; this.go('build'); return;
       case 'quit': cue('select', 0.5); this.go('ask'); return;
       case 'title': cue('select', 0.5); if (this.host.onRun?.()) this.go('askTitle'); else this.leaveToTitle(); return;
       case 'yesTitle': this.leaveToTitle(); return;
       case 'back': this.back(); return;
       case 'no': this.back(); return;
-      case 'yes': this.on = false; this.wait = null; PAUSE.menu = false; PAUSE.on = false; this.list.close(); this.stage.hide(); this.host.closed(); this.host.giveUp(); return;
+      case 'yes': this.on = false; this.wait = null; PAUSE.menu = false; PAUSE.on = false; this.list.close(); this.stage.hide(); this.tabPlates.hide('pause.heroTabs'); this.tabRects = []; this.host.closed(); this.host.giveUp(); return;
       case 'reset': resetBinds(); cue('select', 0.6); for (const x of this.slabs) x.flash = 0.6; return;
       case 'act': { const p = activePad(); this.wait = { i: this.sel, t: 5, prev: p ? p.buttons.map(b => !!b.pressed) : [] }; cue('select', 0.4); return; }
       default: if (r.run) { r.run(); if (r.id !== 'language') cue('click', 0.5); }
     }
   }
-  private leaveToTitle() { this.on = false; this.wait = null; PAUSE.menu = false; PAUSE.on = false; this.list.close(); this.stage.hide(); this.host.closed(); this.host.toTitle?.(); }
+  private leaveToTitle() { this.on = false; this.wait = null; PAUSE.menu = false; PAUSE.on = false; this.list.close(); this.stage.hide(); this.tabPlates.hide('pause.heroTabs'); this.tabRects = []; this.host.closed(); this.host.toTitle?.(); }
   private moveSel(d: number) { if (this.inList) { this.list.move(d); cue('tick', 0.3); return; } const n = this.rows.length; if (!n) return; this.sel = (this.sel + d + n) % n; cue('tick', 0.3); }
+  private stepHeroTab(d: number) {
+    if (!this.inList || !this.host.buildTabs) return;
+    const next = ((this.heroTab + d + 3) % 3) as 0 | 1 | 2;
+    this.openHeroTab(next);
+  }
   /** a key while the menu is up: the menu takes the keys it uses (nothing under it sees them); F-keys (reload, dev tools) pass */
   private key(e: KeyboardEvent) {
     const k = e.key.toLowerCase();
     if (!this.on || e.ctrlKey || e.metaKey || e.altKey || /^f\d+$/.test(k)) return;
-    const nav = ['arrowup', 'w', 'arrowdown', 's', 'enter', ' ', 'j', 'escape', 'backspace'].includes(k) || (this.inList && (k === 'pageup' || k === 'pagedown' || k === 'tab'));
+    const heroTabKey = this.inList && !!this.host.buildTabs && ['q', 'e', 'arrowleft', 'arrowright', 'a', 'd'].includes(k);
+    const nav = ['arrowup', 'w', 'arrowdown', 's', 'enter', ' ', 'j', 'escape', 'backspace'].includes(k) || (this.inList && (k === 'pageup' || k === 'pagedown' || k === 'tab')) || heroTabKey;
     if (!this.wait && !nav) return;
     e.preventDefault(); e.stopImmediatePropagation(); e.stopPropagation();
     if (e.repeat && !this.inList) return;
@@ -264,6 +302,7 @@ export class PauseMenu {
     else if (k === 'arrowdown' || k === 's') this.moveSel(1);
     else if (k === 'pageup') this.list.scrollBy(-this.host.L.h * 0.5); else if (k === 'pagedown') this.list.scrollBy(this.host.L.h * 0.5);
     else if (e.repeat) return;
+    else if (heroTabKey) this.stepHeroTab(k === 'q' || k === 'arrowleft' || k === 'a' ? -1 : 1);
     else if (k === 'enter' || k === ' ' || k === 'j') { if (this.inList) this.listOk(); else this.ok(); }
     else this.back();
   }
@@ -277,16 +316,54 @@ export class PauseMenu {
   pointer(type: string, x: number, y: number, touch = false): boolean {
     if (!this.on) return false;
     if (this.wait) return true;
-    // the unified 招式谱 split view: drag scrolls the left list; click selects a row (updating MoveStage); click 「实景演武」 plays 3D ghost
+    // act-182: 3-tab Hero Info Mini-World interactions
     if (this.inList) {
       if (this.previewing) { if (type === 'up') { this.host.stopPreview?.(); cue('deselect', 0.4); } return true; }
+      // 1. Top 3 pixel tabs (英雄总览 | 武器招式 | 局内秘传)
+      if (type === 'down' || type === 'up') {
+        const hitTab = this.tabRects.findIndex(r => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h);
+        if (hitTab >= 0) {
+          if (type === 'up') {
+            if (touch) PAD.device = 'touch';
+            if (hitTab !== this.heroTab) this.openHeroTab(hitTab as 0 | 1 | 2);
+          }
+          return true;
+        }
+      }
+      // 2. Tab 0 (英雄总览): horizontal drag on left 3D Hero viewport spins Liu Bai 360°!
+      if (this.heroTab === 0) {
+        if (type === 'down' && this.stage.hitViewport(x, y)) { this.heroDrag = { x, moved: 0 }; return true; }
+        if (type === 'move' && this.heroDrag) {
+          const dx = x - this.heroDrag.x;
+          this.heroDrag.x = x; this.heroDrag.moved += Math.abs(dx);
+          this.stage.dragYaw(dx);
+          return true;
+        }
+        if (type === 'up' && this.heroDrag) { this.heroDrag = null; return true; }
+      }
+      // 3. Tab 1/2 「实景演武」 button on MoveStage
       const onDemo = this.stage.hitDemoBtn(x, y);
       if (type === 'move') this.stage.demoBtnHot = onDemo;
       if (type === 'down' && onDemo) { this.downDemo = true; return true; }
       if (type === 'up' && this.downDemo) { this.downDemo = false; if (onDemo) { if (touch) PAD.device = 'touch'; this.listOk(); } return true; }
+      // 4. SkillList scroll & row click (in Tab 0, clicking a jumpable row jumps straight to Tab 1 or Tab 2!)
       if (type === 'down') { this.drag = { y, moved: 0 }; }
       else if (type === 'move' && this.drag) { const d = this.drag.y - y; this.drag.moved += Math.abs(d); this.drag.y = y; this.list.scrollBy(d); }
-      else if (type === 'up' && this.drag) { const tap = this.drag.moved < 8; this.drag = null; const li = this.list.hit(x, y); if (tap && li >= 0) { this.list.sel = li; cue('tick', 0.25); } }
+      else if (type === 'up' && this.drag) {
+        const tap = this.drag.moved < 8; this.drag = null;
+        const li = this.list.hit(x, y);
+        if (tap && li >= 0) {
+          this.list.sel = li;
+          const ent = this.list.entry;
+          if (this.heroTab === 0 && ent?.jumpTab != null) {
+            if (touch) PAD.device = 'touch';
+            this.openHeroTab(ent.jumpTab, ent.jumpId);
+            cue('select', 0.45);
+          } else {
+            cue('tick', 0.25);
+          }
+        }
+      }
       else if (type === 'move') { const li = this.list.hit(x, y); if (li >= 0 && li !== this.list.sel) { this.list.sel = li; cue('tick', 0.25); } }
     }
     // the enlarged back shield + 返回 label at top left
@@ -318,6 +395,7 @@ export class PauseMenu {
       if (this.fade < 0.02 && this.slabs.length) { for (const s of this.slabs) s.dispose(); this.slabs = []; }
       this.head.place(0, 0, 0); this.foot.place(0, 0, 0); this.marker.visible = false;
       this.stage.hide();
+      this.tabPlates.hide('pause.heroTabs'); this.tabRects = [];
       this.backK = Math.max(0, this.backK - rdt * 6); this.backBtn.visible = this.backK > 0.02; if (this.backBtn.visible) this.backBtn.setOpacity(this.backK);
       L.text.hide('pause.back'); return;
     }
@@ -335,13 +413,16 @@ export class PauseMenu {
       const n: Nav = padNav.poll(rdt);
       if (this.openT > 0.12) {
         if (n.up) this.moveSel(-1); else if (n.down) this.moveSel(1);
+        else if (this.inList && this.host.buildTabs && (n.left || n.right)) this.stepHeroTab(n.left ? -1 : 1);
         else if (n.right && this.page === 'set') this.ok();
         if (n.ok) { if (this.inList) this.listOk(); else this.ok(); } else if (n.back) this.back(); else if (n.start) { this.host.stopPreview?.(); this.close(); }
       }
     }
     if (!this.on) return;
     this.layout();
-    // act-151: unified 招式谱 split view — Left scrollable SkillList (43%) + Right sticky MoveStage live animated preview (51%)
+    // act-182: 3-tab Hero Info Mini-World split view
+    //   Tab 0 (英雄总览): Left = Live rotatable full-color 3D Hero Mini-World + core stats; Right = Meta & Run build summary
+    //   Tab 1 (武器招式) & Tab 2 (局内秘传): Left = Scrollable SkillList; Right = Live 3D ghost MoveStage tutorial
     { const want = this.inList && !this.previewing ? 1 : 0; this.listRel += (want - this.listRel) * Math.min(1, rdt * 10);
       if (this.list.on) {
         const W = L.w, H = L.h, kkL = uiScale(W, H, 0.72, 2.8);
@@ -353,8 +434,13 @@ export class PauseMenu {
         const totalW = leftW + gapX + rightW;
         const xStart = (W - totalW) / 2;
         const topY = this.lay.top;
-        const botY = H - Math.max(36 * kkL, H * 0.075);
-        this.list.layout(xStart + leftW / 2, topY, botY, leftW, true);
+        const botY = H - Math.max(26 * kkL, H * 0.052);
+        const isOverview = this.heroTab === 0 && !!this.host.heroStats;
+        const listCx = isOverview ? xStart + leftW + gapX + rightW / 2 : xStart + leftW / 2;
+        const listW = isOverview ? rightW : leftW;
+        const stageCx = isOverview ? xStart + leftW / 2 : xStart + leftW + gapX + rightW / 2;
+        const stageW = isOverview ? leftW : rightW;
+        this.list.layout(listCx, topY, botY, listW, true);
         this.list.update(rdt, this.listRel);
         const selEntry = this.list.entry;
         if (this.previewing) {
@@ -362,8 +448,12 @@ export class PauseMenu {
         } else {
           const mc = this.host.miniContext?.();
           if (mc) this.stage.setContext(mc.def, mc.weaponId, mc.weaponLv);
-          this.stage.setEntry(selEntry, !!selEntry && selEntry.kind === 'manual' && !!this.host.preview);
-          this.stage.layout(xStart + leftW + gapX + rightW / 2, (topY + botY) / 2, rightW, botY - topY);
+          if (isOverview) {
+            this.stage.setHeroShowcase(this.host.heroStats!());
+          } else {
+            this.stage.setEntry(selEntry, !!selEntry && selEntry.kind === 'manual' && !!this.host.preview);
+          }
+          this.stage.layout(stageCx, (topY + botY) / 2, stageW, botY - topY);
           this.stage.update(rdt, this.listRel);
         }
       } else {
@@ -421,6 +511,21 @@ export class PauseMenu {
     const nx = leftEdge + (withBack ? br * 2 + 108 * kk : 0);
     this.head.place(nx + hw / 2, headY, ent * ent);
     this.backAt = { x: leftEdge + br, y: headY, r: br };
+    // act-182: Top 3 pixel tabs on the Hero Info Mini-World page (英雄总览 | 武器招式 | 局内秘传)
+    if (this.page === 'build' && this.host.buildTabs && !this.previewing) {
+      const tabs = [
+        { id: 'overview', label: '英雄总览' },
+        { id: 'weapon', label: '武器招式' },
+        { id: 'boons', label: '局内秘传' },
+      ];
+      const rightEdge = W - Math.max(24 * kk, W * 0.035);
+      const minLeft = nx + hw + 22 * kk;
+      const tabsCx = Math.max(minLeft + (rightEdge - minLeft) * 0.5, W * 0.58);
+      this.tabRects = this.tabPlates.setTabs('pause.heroTabs', tabs, this.heroTab, Math.min(tabsCx, rightEdge - 190 * kk), headY);
+    } else {
+      this.tabPlates.hide('pause.heroTabs');
+      this.tabRects = [];
+    }
     // the prompts at the foot: the device's own confirm / back (gamepad pixel glyphs or dark-iron pixel keycaps)
     const fS = Math.max(1, Math.round(footH * 0.52 * k / PIX_H)), parts = this.prompts();
     if (parts.length) {

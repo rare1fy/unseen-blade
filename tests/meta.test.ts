@@ -52,26 +52,26 @@ describe('hideout upgrades', () => {
     expect(p.perks).toEqual({ manual: 1 });
   });
 
-  it('supports Hades-style dual-aspect 碑铭潜能 (upgrade + free Yang/Yin flip)', () => {
-    const p = fresh(); p.iron = 26; p.herb = 8;
-    expect(MIRROR).toHaveLength(4);
-    expect(hasMirrorAffordable(p)).toBe(true);
-    expect(mirrorNextCost(p, 'edge')).toBe(8);
-    expect(canBuyMirror(p, 'edge')).toBe(true);
-    expect(buyMirror(p, 'edge')).toBe(true);
-    expect(p.iron).toBe(18);
-    expect(mirrorState(p, 'edge')).toEqual({ lv: 1, side: 0 });
-    expect(runMods(p).firstStrikeBonus).toBeCloseTo(0.20, 5);
-    expect(runMods(p).styleBonus).toBe(0);
-    // free flip to Yin side shares the upgraded rank immediately
-    expect(flipMirror(p, 'edge')).toBe(1);
-    expect(p.iron).toBe(18);
-    expect(runMods(p).firstStrikeBonus).toBe(0);
-    expect(runMods(p).styleBonus).toBeCloseTo(0.05, 5);
-    // upgrade Lv2 while on Yin side
-    expect(buyMirror(p, 'edge')).toBe(true);
-    expect(p.iron).toBe(0);
-    expect(runMods(p).styleBonus).toBeCloseTo(0.09, 5);
+  it('retires 碑铭潜能 (act-182): refunds 100% legacy mirror iron/herb on ensureArcana and gives zero mirror bonuses', () => {
+    const p = fresh(); p.iron = 5; p.herb = 3;
+    // Simulate legacy save that upgraded edge (iron 8+18=26) and step (herb 8)
+    p.mirror = { edge: { lv: 2, side: 1 }, step: { lv: 1, side: 0 } };
+    expect(hasMirrorAffordable(p)).toBe(false);
+    ensureArcana(p);
+    // 100% lossless refund of spent iron & herb, mirror cleared
+    expect(p.iron).toBe(5 + 8 + 18);
+    expect(p.herb).toBe(3 + 8);
+    expect(p.mirror).toEqual({});
+    // Idempotent: calling ensureArcana again does not double-refund
+    ensureArcana(p);
+    expect(p.iron).toBe(5 + 8 + 18);
+    expect(p.herb).toBe(3 + 8);
+    const m = runMods(p);
+    expect(m.firstStrikeBonus).toBe(0);
+    expect(m.styleBonus).toBe(0);
+    expect(m.dashCdMul).toBe(1);
+    expect(m.counterBonus).toBe(0);
+    expect(m.poiseDmgMul).toBe(1);
   });
 
   it('turns a mixed set of purchases into run modifiers', () => {

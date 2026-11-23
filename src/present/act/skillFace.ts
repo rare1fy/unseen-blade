@@ -46,6 +46,9 @@ export interface SkillEntry {
   /** the move's or tier's colour, used when the card lands on the HUD */ col: number;
   /** where the card flies when taken, where its mark sits */ target: MarkTarget;
   /** the link light on the last press (a 刀谱 / a link move), or none */ lit: number | null;
+  /** act-182: optional cross-tab jump from Hero Overview to 武器招式(1) or 局内秘传(2) */
+  jumpTab?: 0 | 1 | 2;
+  jumpId?: string;
 }
 const TIER_GLOW = [0xb0c0d8, 0xffb060, 0xffd060];
 export function entryOfManual(m: Manual): SkillEntry {

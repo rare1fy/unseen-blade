@@ -967,8 +967,12 @@ export function paintArcanaFace(
 
   const yBot = Math.min(Hh - tH2 - Math.max(2, Math.round(2 * dpr)), Math.round(yName + tH1 + Math.max(2, gapY * 0.8)));
   if (!unlocked) {
-    const cw = drawCostChip(null, 'herb', spec.unlockCost, spec.have, 0, 0, s2, dpr);
-    drawCostChip(g, 'herb', spec.unlockCost, spec.have, Math.round((W - cw) / 2), Math.round(yBot + tH2 / 2), s2, dpr);
+    if (spec.unlockCost <= 0) {
+      drawPix(g, t('未参悟'), W / 2, yBot, { scale: s2, color: '#8a8078', outline: '#08060c', align: 'center' });
+    } else {
+      const cw = drawCostChip(null, 'herb', spec.unlockCost, spec.have, 0, 0, s2, dpr);
+      drawCostChip(g, 'herb', spec.unlockCost, spec.have, Math.round((W - cw) / 2), Math.round(yBot + tH2 / 2), s2, dpr);
+    }
   } else if (spec.active) {
     // Solid unmistakable active pill badge (amber-gold border + luminous green-gold fill)
     const lbl = t(spec.awakening ? '已唤醒' : '已入阵');

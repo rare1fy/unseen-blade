@@ -281,8 +281,13 @@ const GCOL = {
   brush: 0x6e6244, brushD: 0x4e4430,
 };
 
-/** Build a pure 3D voxel garden plot (1.82 × 1.38 m) depicting locked / empty / sprout / growing / ripe states */
-export function buildGardenPlotMesh(unlocked: boolean, plot: GardenPlot | null, now = Date.now()): THREE.Group {
+/** Build a pure 3D voxel garden plot (1.82 × 1.38 m) depicting locked / empty-plantable / growing / ripe states clearly at a glance */
+export function buildGardenPlotMesh(
+  unlocked: boolean,
+  plot: GardenPlot | null,
+  now = Date.now(),
+  opts: { nextUnlockable?: boolean; canPlant?: boolean } = {},
+): THREE.Group {
   const vw = new VoxWorld(CELL);
   const hw = 13, hd = 9; // 27 × 19 cells = 1.89 × 1.33 m
 
@@ -290,8 +295,29 @@ export function buildGardenPlotMesh(unlocked: boolean, plot: GardenPlot | null, 
   vw.box(-hw, 0, -hd, hw, 2, hd, unlocked ? GCOL.wood : GCOL.stoneD);
   vw.box(-hw, 0, -hd, hw, 0, hd, unlocked ? GCOL.woodD : 0x46423c);
   vw.box(-hw, 2, -hd, hw, 2, hd, unlocked ? GCOL.woodL : GCOL.stone);
-  // Corner timber / stone pegs
-  for (const cx of [-hw, hw]) for (const cz of [-hd, hd]) vw.box(cx, 0, cz, cx, 3, cz, unlocked ? GCOL.woodD : GCOL.stoneL);
+  const st = unlocked ? plotStatus(plot, now) : null;
+  const cornerGlow = unlocked && (st?.done || (!plot && !!opts.canPlant));
+  const cornerCol = !unlocked
+    ? GCOL.stoneL
+    : st?.done
+      ? 0xffe272
+      : (!plot && opts.canPlant)
+        ? 0x72f0a0
+        : plot
+          ? 0x8cc898
+          : GCOL.woodD;
+  // Corner timber / stone pegs (softly lit in emerald when plantable, warm gold when ripe!)
+  for (const cx of [-hw, hw]) {
+    for (const cz of [-hd, hd]) {
+      vw.box(cx, 0, cz, cx, 3, cz, unlocked ? GCOL.woodD : GCOL.stoneL);
+      if (cornerGlow) vw.box(cx, 4, cz, cx, 4, cz, cornerCol, 1);
+      else if (unlocked && plot) vw.box(cx, 3, cz, cx, 3, cz, cornerCol);
+    }
+  }
+  // Ripe golden perimeter rim blocks along mid-edges for unmistakable "ready to harvest" read
+  if (unlocked && st?.done) {
+    for (const mx of [-5, 0, 5]) { vw.box(mx, 3, -hd, mx, 3, -hd, 0xffd860, 1); vw.box(mx, 3, hd, mx, 3, hd, 0xffd860, 1); }
+  }
 
   if (!unlocked) {
     // Untamed wild rocky plot awaiting reclamation
@@ -300,27 +326,28 @@ export function buildGardenPlotMesh(unlocked: boolean, plot: GardenPlot | null, 
     vw.box(3, 3, 1, 7, 5, 4, GCOL.stoneD);
     vw.box(4, 5, 2, 6, 5, 3, GCOL.stoneL);
     vw.box(-1, 3, -2, 2, 4, 2, GCOL.brush);
-    // Small wooden reclamation stake in the center
-    vw.box(0, 3, 0, 0, 9, 0, GCOL.woodD);
-    vw.box(-2, 7, 0, 2, 8, 0, GCOL.woodL);
+    // Only the NEXT sequential unlockable plot gets the reclamation wooden signpost
+    if (opts.nextUnlockable) {
+      vw.box(0, 3, 0, 0, 9, 0, GCOL.woodD);
+      vw.box(-2, 7, 0, 2, 8, 0, GCOL.woodL);
+    }
   } else {
     // Rich dark tilled soil with neat irrigation furrows
-    const st = plotStatus(plot, now);
-    const soilC = st.stage > 0 ? GCOL.soilWet : GCOL.soil;
+    const soilC = st!.stage > 0 ? GCOL.soilWet : GCOL.soil;
     vw.box(-hw + 2, 1, -hd + 2, hw - 2, 2, hd - 2, soilC);
     for (const fz of [-4, 0, 4]) vw.box(-hw + 3, 2, fz, hw - 3, 2, fz, GCOL.soilD);
 
-    if (plot && st.stage > 0) {
+    if (plot && st!.stage > 0) {
       const def = SEEDS[plot.seed];
       const spots: Array<[number, number]> = [[-7, -3], [0, -3], [7, -3], [-7, 3], [0, 3], [7, 3]];
       for (let i = 0; i < spots.length; i++) {
         const [sx, sz] = spots[i];
         const hOff = (i % 2);
-        if (st.stage === 1) {
+        if (st!.stage === 1) {
           // Stage 1: tender twin voxel sprouts
           vw.box(sx, 3, sz, sx, 4 + hOff, sz, GCOL.stem);
           vw.box(sx - 1, 4 + hOff, sz, sx + 1, 4 + hOff, sz, GCOL.stemL);
-        } else if (st.stage === 2) {
+        } else if (st!.stage === 2) {
           // Stage 2: leafy branching stems + colored emerging buds
           vw.box(sx, 3, sz, sx, 7 + hOff, sz, GCOL.stemD);
           vw.box(sx - 2, 5, sz - 1, sx + 2, 6, sz + 1, GCOL.stem);
