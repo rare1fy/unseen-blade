@@ -330,8 +330,31 @@ export class PauseMenu {
           return true;
         }
       }
-      // 2. Tab 0 (英雄总览): horizontal drag on left 3D Hero viewport spins Liu Bai 360°!
+      // 2. Tab 0 (英雄总览): horizontal drag on left 3D Hero viewport spins Liu Bai 360°; clicking Weapon/Keepsake equip slots jumps straight to Tab 1/2!
       if (this.heroTab === 0) {
+        const hitSlot = this.stage.hitEquipSlot(x, y);
+        if (type === 'move') this.stage.setEquipHot(hitSlot);
+        if (type === 'down' && hitSlot) { this.downEquip = hitSlot; return true; }
+        if (type === 'up' && this.downEquip) {
+          const picked = this.downEquip; this.downEquip = null;
+          if (picked === hitSlot) {
+            if (touch) PAD.device = 'touch';
+            if (picked === 'weapon') {
+              this.openHeroTab(1, 'lianhuan');
+              cue('select', 0.45);
+            } else {
+              const hs = this.host.heroStats?.();
+              if (hs?.keepsakeId) {
+                this.openHeroTab(2, 'ks_' + hs.keepsakeId);
+                cue('select', 0.45);
+              } else {
+                this.openHeroTab(2);
+                cue('tick', 0.3);
+              }
+            }
+          }
+          return true;
+        }
         if (type === 'down' && this.stage.hitViewport(x, y)) { this.heroDrag = { x, moved: 0 }; return true; }
         if (type === 'move' && this.heroDrag) {
           const dx = x - this.heroDrag.x;
@@ -340,6 +363,8 @@ export class PauseMenu {
           return true;
         }
         if (type === 'up' && this.heroDrag) { this.heroDrag = null; return true; }
+      } else {
+        this.downEquip = null;
       }
       // 3. Tab 1/2 「实景演武」 button on MoveStage
       const onDemo = this.stage.hitDemoBtn(x, y);
@@ -385,6 +410,7 @@ export class PauseMenu {
   private drag: { y: number; moved: number } | null = null;
   private downBack = false;
   private downDemo = false;
+  private downEquip: 'weapon' | 'keepsake' | null = null;
   private downAt = -1;
   // ---------------------------------------------------------------- the frame (real time, paused or not)
   private update(rdt: number) {

@@ -95,8 +95,11 @@ export interface HeroShowcaseData {
   outfitName: string;
   weaponName: string;
   weaponLv: number;
+  weaponCol?: string;
+  keepsakeId?: string | null;
   keepsakeName: string;
   keepsakeStar: string;
+  keepsakeCol?: string;
   hp: number;
   maxHp: number;
   dmgPct: number;
@@ -867,8 +870,10 @@ export class MoveStage {
   /** Exact CSS-px viewport rectangle of the live 3D mini-world cutout (top half of MoveStage, above beat bar). */
   private vpCss = { x: 0, y: 0, w: 0, h: 0 };
   private demoBtnRect: { x: number; y: number; w: number; h: number } | null = null;
+  private equipRects: { weapon: { x: number; y: number; w: number; h: number } | null; keepsake: { x: number; y: number; w: number; h: number } | null } = { weapon: null, keepsake: null };
   private visibleAlpha = 0;
   demoBtnHot = false;
+  equipHot: 'weapon' | 'keepsake' | null = null;
   canPlay3d = false;
 
   constructor(private L: UiLayer) {
@@ -927,6 +932,22 @@ export class MoveStage {
   hitDemoBtn(x: number, y: number): boolean {
     const r = this.demoBtnRect;
     return !!r && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+  }
+
+  /** act-183: Hit-test the dedicated Weapon / Keepsake equip slots inside Tab 0 Hero Showcase. */
+  hitEquipSlot(x: number, y: number): 'weapon' | 'keepsake' | null {
+    const inRect = (r: { x: number; y: number; w: number; h: number } | null) =>
+      !!r && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+    if (inRect(this.equipRects.weapon)) return 'weapon';
+    if (inRect(this.equipRects.keepsake)) return 'keepsake';
+    return null;
+  }
+
+  setEquipHot(slot: 'weapon' | 'keepsake' | null) {
+    if (this.equipHot !== slot) {
+      this.equipHot = slot;
+      this.uiAccum = 1;
+    }
   }
 
   hitViewport(x: number, y: number): boolean {
@@ -1045,6 +1066,8 @@ export class MoveStage {
   hide(keepFx = false) {
     this.mesh.visible = false;
     this.demoBtnRect = null;
+    this.equipRects = { weapon: null, keepsake: null };
+    this.equipHot = null;
     this.vpCss.w = 0;
     this.lastEntryKey = '';
     this.lastHeroKey = '';
@@ -1063,7 +1086,7 @@ export class MoveStage {
     this.mat.dispose();
   }
 
-  /** act-182: Paint the Hero Info Mini-World showcase frame (3D rotatable heroine + core combat stats + equipment bar). */
+  /** act-182 / act-183: Paint the Hero Info Mini-World showcase frame (3D rotatable heroine + dedicated Weapon/Keepsake equip slots + 2x2 core stats). */
   private paintHeroShowcase(g: CanvasRenderingContext2D, W: number, H: number, dpr: number) {
     const p = this.heroProfile!;
     const kk = uiScale(this.L.w, this.L.h, 0.78, 2.8);
@@ -1079,7 +1102,7 @@ export class MoveStage {
 
     const boxX = padX + u, boxW = W - (padX + u) * 2;
     const compact = this.rect.h < 330;
-    const stageH = Math.round(H * (compact ? 0.56 : 0.62));
+    const stageH = Math.round(H * (compact ? 0.41 : 0.52));
     const stageY = padY + u;
     const bdr = Math.max(1, Math.round(1.5 * kk * dpr));
 
@@ -1089,7 +1112,7 @@ export class MoveStage {
     g.fillStyle = innerCol;
     g.fillRect(boxX, stageY, boxW, stageH);
     const ix = boxX + bdr, iy = stageY + bdr, iw = boxW - 2 * bdr, ih = stageH - 2 * bdr;
-    const hintH = Math.round((compact ? 18 : 22) * kk * dpr);
+    const hintH = Math.round((compact ? 16 : 20) * kk * dpr);
     const vpH = Math.max(16, ih - hintH);
     g.clearRect(ix, iy, iw, vpH);
 
@@ -1110,52 +1133,160 @@ export class MoveStage {
       g.fillRect(cx - (sx < 0 ? bdr : 0), sy > 0 ? cy : cy - cr, bdr, cr);
     }
 
-    // Compact bottom strip inside viewport bay: drag-to-rotate hint + current location pill
+    // Compact bottom strip inside viewport bay: drag-to-rotate hint
     const barY = iy + vpH;
     g.fillStyle = '#0c0a12';
     g.fillRect(ix, barY, iw, hintH);
     g.fillStyle = '#5a4830';
     g.fillRect(ix, barY, iw, Math.max(1, Math.round(dpr)));
-    const hScale = Math.max(1, Math.floor(((compact ? 10.5 : 11.5) * kk * dpr) / PIX_H));
-    const rotTxt = localize('左右拖动查看造型');
-    drawPix(g, rotTxt, ix + Math.round(iw / 2), barY + Math.round((hintH - PIX_H * hScale) / 2), {
+    const hScale = Math.max(1, Math.floor(((compact ? 10 : 11) * kk * dpr) / PIX_H));
+    drawPix(g, localize('左右拖动查看造型'), ix + Math.round(iw / 2), barY + Math.round((hintH - PIX_H * hScale) / 2), {
       scale: hScale, color: '#bba98c', outline: '#08060c', align: 'center',
     });
 
-    // 2. Hero Name + Outfit Badge + Location Pill
-    let curY = stageY + stageH + Math.round((compact ? 7 : 10) * kk * dpr);
+    // 2. Hero Name + Outfit Badge + Location Pill + Right-aligned Grasp Chip
+    let curY = stageY + stageH + Math.round((compact ? 6 : 9) * kk * dpr);
     const nameTxt = localize(p.heroName);
-    const tScale = Math.max(1, Math.floor(((compact ? 16 : 18) * kk * dpr) / PIX_H));
+    const tScale = Math.max(1, Math.floor(((compact ? 15 : 17) * kk * dpr) / PIX_H));
     const tH = PIX_H * tScale;
     drawPix(g, nameTxt, boxX, curY, { scale: tScale, color: '#fff2cc', outline: '#08060c', align: 'left' });
 
-    let pxX = boxX + pixW(nameTxt) * tScale + Math.round(8 * kk * dpr);
-    const pScale = Math.max(1, Math.floor(((compact ? 10.5 : 11.5) * kk * dpr) / PIX_H));
+    let pxX = boxX + pixW(nameTxt) * tScale + Math.round(7 * kk * dpr);
+    const pScale = Math.max(1, Math.floor(((compact ? 10 : 11) * kk * dpr) / PIX_H));
+    const graspTxt = `${localize('悟性')} ${p.arcanaUsed}/${p.arcanaCap}`;
+    const graspW = pixW(graspTxt) * pScale + Math.round(16 * kk * dpr);
+    const rightGuard = boxX + boxW - graspW - Math.round(4 * kk * dpr);
     const drawBadge = (txt: string, col: string, fill: string) => {
       if (!txt) return;
       const loc = localize(txt);
-      const pw = pixW(loc) * pScale + Math.round(9 * kk * dpr);
-      if (pxX + pw > boxX + boxW) return;
+      const pw = pixW(loc) * pScale + Math.round(8 * kk * dpr);
+      if (pxX + pw > rightGuard) return;
       const ph = PIX_H * pScale + Math.round(4 * kk * dpr);
       const py = Math.round(curY + (tH - ph) / 2);
       g.fillStyle = col; g.fillRect(pxX, py, pw, ph);
       g.fillStyle = fill; g.fillRect(pxX + bdr, py + bdr, pw - 2 * bdr, ph - 2 * bdr);
-      drawPix(g, loc, pxX + Math.round(4.5 * kk * dpr), py + Math.round(2 * kk * dpr), { scale: pScale, color: col, outline: null, align: 'left' });
-      pxX += pw + Math.round(6 * kk * dpr);
+      drawPix(g, loc, pxX + Math.round(4 * kk * dpr), py + Math.round(2 * kk * dpr), { scale: pScale, color: col, outline: null, align: 'left' });
+      pxX += pw + Math.round(5 * kk * dpr);
     };
     drawBadge(p.outfitName, '#d8b46c', '#1c1722');
     drawBadge(p.roomLabel, '#82d8c8', '#141c20');
+    // Right-aligned Grasp badge (悟性 X/Y)
+    {
+      const gph = PIX_H * pScale + Math.round(4 * kk * dpr);
+      const gpy = Math.round(curY + (tH - gph) / 2);
+      const gpx = boxX + boxW - graspW;
+      g.fillStyle = '#4eb47c'; g.fillRect(gpx, gpy, graspW, gph);
+      g.fillStyle = '#12221a'; g.fillRect(gpx + bdr, gpy + bdr, graspW - 2 * bdr, gph - 2 * bdr);
+      drawMiniIcon(g, 'grasp', gpx + Math.round(7 * kk * dpr), gpy + Math.round(gph / 2), Math.round(gph * 0.65));
+      drawPix(g, graspTxt, gpx + Math.round(13 * kk * dpr), gpy + Math.round(2 * kk * dpr), { scale: pScale, color: '#9cf8c4', outline: null, align: 'left' });
+    }
 
     curY += tH + Math.round((compact ? 5 : 7) * kk * dpr);
     g.fillStyle = '#3c3246';
     g.fillRect(boxX, curY, boxW, Math.max(1, Math.round(dpr)));
-    curY += Math.round((compact ? 6 : 8) * kk * dpr);
+    curY += Math.round((compact ? 5 : 8) * kk * dpr);
 
-    // 3. 2x2 Crisp Core Combat Stats Grid (icon-rich via richLine)
-    const gap = Math.round(7 * kk * dpr);
+    // 3. Dedicated Paper-Doll Equipment Slots (Side-by-side: [佩刀] | [随身信物]) — visually distinct from right-hand learned skills!
+    const gap = Math.round((compact ? 6 : 8) * kk * dpr);
     const colW = Math.floor((boxW - gap) / 2);
-    const cellH = Math.round((compact ? 25 : 34) * kk * dpr);
-    const statPx = Math.round((compact ? 12 : 14) * kk * dpr);
+    const eqH = compact
+      ? Math.max(Math.round(46 * kk * dpr), PIX_H * 2 + Math.round(14 * dpr))
+      : Math.max(Math.round(68 * kk * dpr), PIX_H * 3 + Math.round(24 * kk * dpr));
+    const drawEquipSlot = (
+      kind: 'weapon' | 'keepsake',
+      sx: number, sy: number, sw: number, sh: number,
+      tag: string, title: string, sub: string,
+      accent: string, equipped: boolean, hot: boolean, tierDots?: number,
+    ) => {
+      const eu = Math.max(1, Math.round(1.5 * kk * dpr));
+      drawPixelPlaque(g, sx, sy, sw, sh, eu, {
+        bg: hot ? '#2a2118' : equipped ? '#1f1a19' : '#16131c',
+        hi: hot ? '#423322' : equipped ? '#322922' : '#221e2b',
+        border: '#07050a',
+        inner: hot ? '#fff6c8' : equipped ? accent : '#564e62',
+        accent: hot ? '#fff6c8' : accent,
+        rivets: false,
+      });
+      if (hot) drawFocusBrackets(g, sx, sy, sw, sh, eu);
+
+      // Left recessed icon bay
+      const pad = Math.round((compact ? 4 : 6) * kk * dpr);
+      const icoBox = sh - pad * 2;
+      const ibx = sx + pad, iby = sy + pad;
+      g.fillStyle = '#0c0a12';
+      g.fillRect(ibx, iby, icoBox, icoBox);
+      g.fillStyle = equipped ? accent : '#423b4e';
+      g.fillRect(ibx, iby, icoBox, Math.max(1, Math.round(dpr)));
+      g.fillRect(ibx, iby + icoBox - Math.max(1, Math.round(dpr)), icoBox, Math.max(1, Math.round(dpr)));
+      const icx = ibx + Math.round(icoBox / 2), icy = iby + Math.round(icoBox / 2);
+      if (kind === 'weapon') {
+        const icoP = Math.max(1, Math.floor((icoBox - 4 * dpr) / 11));
+        this.drawActionIcon(g, 'attack', icx, icy, icoP, hot, true);
+      } else {
+        // Crisp 9x9 pixel keepsake jade pendant icon (lit gold/emerald when equipped, dim iron outline when empty)
+        const kp = Math.max(1, Math.floor((icoBox - 4 * dpr) / 10));
+        const px = (dx: number, dy: number, col: string, ww = 1, hh = 1) => {
+          g.fillStyle = col; g.fillRect(icx + dx * kp, icy + dy * kp, ww * kp, hh * kp);
+        };
+        const cMain = equipped ? accent : '#5a5266';
+        const cHi = equipped ? '#fff6cc' : '#787088';
+        const cRed = equipped ? '#e04842' : '#4a3d46';
+        px(-1, -4, cHi, 3, 1);
+        px(-2, -3, cMain, 5, 1);
+        px(-3, -2, cMain, 7, 3);
+        px(-2, 1, cMain, 5, 1);
+        px(-1, -1, '#121018', 3, 2);
+        px(0, -1, cHi, 1, 1);
+        px(0, 2, cRed, 1, 2);
+        px(-1, 3, cRed, 3, 1);
+      }
+
+      // Right text column: micro slot label + item name + interactive hint/star
+      const tx = ibx + icoBox + Math.round((compact ? 5 : 7) * kk * dpr);
+      const tw = sx + sw - tx - pad;
+      const lblS = Math.max(1, Math.floor(((compact ? 9 : 10) * kk * dpr) / PIX_H));
+      const nmS = Math.max(1, Math.floor(((compact ? 11.5 : 13.5) * kk * dpr) / PIX_H));
+      const locTag = localize(tag);
+      const locTitle = localize(title);
+      const locSub = localize(sub);
+      let rowY = sy + Math.round((compact ? 4 : 6) * kk * dpr);
+      drawPix(g, locTag, tx, rowY, { scale: lblS, color: equipped ? '#c8b288' : '#7a7086', outline: '#08060c', align: 'left' });
+      // Optional 3-pip weapon forge level indicator at top-right of weapon slot
+      if (tierDots != null) {
+        const dp = Math.max(2, Math.round((compact ? 3 : 4) * kk * dpr));
+        const dg = Math.round(2.5 * kk * dpr);
+        let dx = sx + sw - pad - (dp * 3 + dg * 2);
+        const dy = rowY + Math.round((PIX_H * lblS - dp) / 2);
+        for (let k = 0; k < 3; k++) {
+          g.fillStyle = k < tierDots ? '#ffd868' : '#322b3e';
+          g.fillRect(dx, dy, dp, dp);
+          dx += dp + dg;
+        }
+      }
+      rowY += PIX_H * lblS + Math.round((compact ? 2 : 4) * kk * dpr);
+      let ts = nmS;
+      while (ts > 1 && pixW(locTitle) * ts > tw) ts--;
+      drawPix(g, locTitle, tx, rowY, { scale: ts, color: hot ? '#fffce0' : equipped ? '#fff0cc' : '#8c8498', outline: '#08060c', align: 'left' });
+      rowY += PIX_H * ts + Math.round((compact ? 2 : 3) * kk * dpr);
+      if (rowY + PIX_H * lblS <= sy + sh - Math.round(2 * kk * dpr)) {
+        drawPix(g, locSub, tx, rowY, { scale: lblS, color: hot ? '#ffe688' : equipped ? accent : '#6e667a', outline: '#08060c', align: 'left' });
+      }
+      this.equipRects[kind] = { x: left0 + sx / dpr, y: top0 + sy / dpr, w: sw / dpr, h: sh / dpr };
+    };
+
+    const wepSub = p.weaponLv > 0 ? `${localize('淬炼')} ${p.weaponLv}阶 · ${localize('招式')} →` : `${localize('招式教学')} →`;
+    const ksEquipped = !!p.keepsakeId;
+    const ksSub = ksEquipped ? `${p.keepsakeStar} · ${localize('详情')} →` : localize('据点信物架');
+    drawEquipSlot('weapon', boxX, curY, colW, eqH, '当前佩刀', p.weaponName, wepSub, p.weaponCol ?? '#ffd078', true, this.equipHot === 'weapon', p.weaponLv);
+    drawEquipSlot('keepsake', boxX + colW + gap, curY, colW, eqH, '随身信物', p.keepsakeName, ksSub, p.keepsakeCol ?? '#ffd878', ksEquipped, this.equipHot === 'keepsake');
+    curY += eqH + Math.round((compact ? 6 : 9) * kk * dpr);
+
+    // 4. 2x2 Crisp Core Combat Stats Grid (fits cleanly to the bottom edge)
+    const botLim = H - padY - u;
+    const statGap = Math.round((compact ? 4 : 7) * kk * dpr);
+    const maxCellH = Math.floor((botLim - curY - statGap) / 2);
+    const cellH = Math.max(Math.round(18 * kk * dpr), Math.min(Math.round((compact ? 23 : 34) * kk * dpr), maxCellH));
+    const statPx = Math.round((compact ? 11 : 13) * kk * dpr);
     const cells: Array<{ txt: string; bar: string }> = [
       { txt: `气血 ${p.hp}/${p.maxHp}`, bar: '#e85a64' },
       { txt: `攻击 ${p.dmgPct}%`, bar: '#f0b858' },
@@ -1164,7 +1295,7 @@ export class MoveStage {
     ];
     for (let i = 0; i < 4; i++) {
       const cx = boxX + (i % 2) * (colW + gap);
-      const cy = curY + Math.floor(i / 2) * (cellH + gap);
+      const cy = curY + Math.floor(i / 2) * (cellH + statGap);
       g.fillStyle = '#1b1724';
       g.fillRect(cx, cy, colW, cellH);
       g.fillStyle = '#383044';
@@ -1177,29 +1308,10 @@ export class MoveStage {
       while (sp > Math.round(9 * kk * dpr) && richLine(null, cells[i].txt, 0, 0, sp, '#f0e6d2', '#fff8c0', true, true) > maxTw) sp -= 1;
       richLine(g, cells[i].txt, cx + padL, cy + Math.round((cellH - sp * 1.05) / 2), sp, '#f0e6d2', '#fff8c0', true, true);
     }
-    curY += (cellH + gap) * 2 + Math.round(2 * kk * dpr);
-
-    // 4. Bottom Equipment & Arcana Strip (佩刀 / 信物 / 悟性)
-    const botLim = H - padY - u;
-    const stripH = Math.min(Math.round((compact ? 26 : 34) * kk * dpr), Math.max(0, botLim - curY));
-    if (stripH >= Math.round(18 * kk * dpr)) {
-      const wepStr = p.weaponLv > 0 ? `${localize(p.weaponName)}+${p.weaponLv}` : localize(p.weaponName);
-      const ksStr = p.keepsakeStar ? `${localize(p.keepsakeName)} ${p.keepsakeStar}` : localize(p.keepsakeName);
-      const line = `${localize('佩刀')} ${wepStr}  ·  ${localize('信物')} ${ksStr}  ·  ${localize('悟性')} ${p.arcanaUsed}/${p.arcanaCap}`;
-      g.fillStyle = '#201a16';
-      g.fillRect(boxX, curY, boxW, stripH);
-      g.fillStyle = '#9e7c44';
-      g.fillRect(boxX, curY, boxW, Math.max(1, Math.round(dpr)));
-      g.fillStyle = '#d8a852';
-      g.fillRect(boxX, curY, Math.max(2, Math.round(2.5 * dpr)), stripH);
-      let lp = Math.round((compact ? 11 : 13) * kk * dpr);
-      const maxLw = boxW - Math.round(14 * kk * dpr);
-      while (lp > Math.round(8.5 * kk * dpr) && richLine(null, line, 0, 0, lp, '#e8dcc4', '#ffe892', true, true) > maxLw) lp -= 1;
-      richLine(g, line, boxX + Math.round(8 * kk * dpr), curY + Math.round((stripH - lp * 1.05) / 2), lp, '#e8dcc4', '#ffe892', true, true);
-    }
   }
 
   private paint(g: CanvasRenderingContext2D, W: number, H: number, dpr: number) {
+    this.equipRects = { weapon: null, keepsake: null };
     const e = this.entry!;
     const kk = uiScale(this.L.w, this.L.h, 0.78, 2.8);
     const u = Math.max(1, Math.round(2 * kk * dpr));

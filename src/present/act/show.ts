@@ -5643,8 +5643,11 @@ export class ActShow {
       outfitName,
       weaponName: wdef.name,
       weaponLv: wlv,
+      weaponCol: wdef.col,
+      keepsakeId: kid ?? null,
       keepsakeName: ks ? ks.name : '未佩带',
       keepsakeStar: ks && ksStar ? starLabel(ksStar) : '',
+      keepsakeCol: ks?.col ?? '#8a7e70',
       hp, maxHp, dmgPct, critPct, maxDarts, intent,
       arcanaUsed: arcanaUsed(p),
       arcanaCap: arcanaCap(p),
@@ -5705,23 +5708,7 @@ export class ActShow {
       metaList.push(ksEntry);
     }
 
-    // ---- Tab 0: 英雄总览 (Right panel: Equipment + Run Build + Outer Progression; clicking jumps to sub-tab!)
-    const equipOverview: SkillEntry[] = [
-      {
-        id: 'ov_wep_' + wid, kind: 'base', name: wlv > 0 ? `${wdef.name}（${wlv}阶）` : wdef.name, tag: '当前佩刀',
-        badge: { text: '查看招式 →', col: '#ffe078', hot: true }, tier: wlv, icon: 'btn:attack',
-        weaponId: wid, steps: null, effect: wdef.summary, num: wlv > 0 ? wdef.forgeDesc[wlv - 1] : '铁匠处可淬炼至3阶',
-        col: wdef.hex, target: 'attack', lit: null, jumpTab: 1, jumpId: 'lianhuan',
-      },
-      ksEntry
-        ? { ...ksEntry, badge: { text: '详情 →', col: '#ffd878' }, jumpTab: 2, jumpId: ksEntry.id }
-        : {
-            id: 'ov_ks_none', kind: 'keepsake', name: '随身信物 · 未佩带', tag: '据点信物架',
-            tier: 0, icon: 'ult', steps: null, effect: '与据点同伴深交可得专属信物，出门常伴护身', num: '暂未佩带',
-            col: 0x8a7e70, target: 'hp', lit: null,
-          },
-    ];
-
+    // ---- Tab 0: 英雄总览 (Right panel: PURE Run Build + Outer Progression; Weapon & Keepsake live in dedicated left Hero Equip Slots!)
     const runOverview: SkillEntry[] = [
       ...ms.map(m => ({ ...m, badge: { text: '演武教学 →', col: '#7ef0c0' }, jumpTab: 1 as const, jumpId: m.id })),
       ...ownedBoons.map(b => ({ ...b, jumpTab: 2 as const, jumpId: b.id })),
@@ -5781,7 +5768,6 @@ export class ActShow {
     }
 
     const overview: Section[] = [
-      { title: '佩刀与信物', list: equipOverview },
       { title: '本局习得', list: runOverview, empty: UI_WORDS.ownedEmpty },
       { title: '局外养成', list: outerOverview, empty: '据点孙婆婆配牌与铁匠锻造可强化出征底子' },
     ];
