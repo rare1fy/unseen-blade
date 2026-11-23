@@ -456,7 +456,7 @@ export class ActShow {
   private comboHits = 0; private comboT = 0; private comboKinds: string[] = [];
   /** act-20 the hideout's people: where they stand, their bodies; the one in reach of a word */
   private npcs: Array<{ id: string; x: number; z: number; yaw: number; a: BattleActor; sh: THREE.Mesh }> = []; private npcNear: string | null = null;
-  private stationNear: Station | null = null; private merchantNear = false; private shopOpening = false;
+  private stationNear: Station | null = null; private merchantNear = false; private roadDuwuNear = false; private shopOpening = false;
   private worldPlates!: UiPlatePool;
   /** act-20 the stele of names in the hideout; talk is off while a scripted moment plays there */ private stele: Stele | null = null; private noTalk = false;
   private defy = 0; private wine = false; private eliteKills = 0; private bossKilled = false; private banked: { iron: number; herb: number } | null = null;
@@ -541,13 +541,15 @@ export class ActShow {
   /** portrait lines; the fight / the hideout wait (phase 'talk') and resume */
   async talk(lines: Line[], onLine?: (i: number, line: Line) => void) {
     if (!lines.length) return;
-    if (this.hero) { this.hero.a.root.visible = true; this.hero.a.body.visible = true; }
-    const was = this.phase === 'talk' ? this.wasPhase : this.phase; this.wasPhase = was; this.phase = 'talk'; this.hud.on = false; this.banner.hide(); this.hideHideoutLabels(); this.hideWorldPlates();
+    const h0 = this.hero;
+    if (h0) { h0.a.root.visible = true; h0.a.body.visible = true; }
+    const was = this.phase === 'talk' ? this.wasPhase : this.phase; this.wasPhase = was; this.phase = 'talk'; this.hud.on = false; this.banner.hide(); this.barks?.clear(); this.hideHideoutLabels(); this.hideWorldPlates();
     this.syncHeroHat();
     await this.dialogue.play(lines, onLine);
     // (act-50 用户：「对话过后马上会蓄力」: the cut button that turned the last page was still down — read as a hold, 藏锋. It counts
-    //  again once let go; the stick is left alone)
-    this.phase = was; this.hud.on = true; this.inp.latch(false);
+    //  again once let go; the stick is left alone; guard hero identity so a room change never restores a stale phase like 'leaving')
+    if (this.hero === h0 && this.phase === 'talk') { this.phase = was; this.hud.on = true; }
+    this.inp.latch(false);
   }
   /** a timeline cutscene; the HUD hides, gameplay waits (phase 'cine'); optional onEnd guarantees skip-safe end state */
   async cine(shots: Parameters<Timeline['play']>[0], onEnd?: (skipped: boolean) => void) {
@@ -1229,6 +1231,10 @@ export class ActShow {
   private roadShadows: THREE.Mesh[] = [];
   private roadExtras: THREE.Object3D[] = [];
   private roadStill = new Set<BattleActor>();
+  private roadDuwu: {
+    ri: 0 | 1; rKey: string; actor: BattleActor; pos: THREE.Vector3;
+    talked: boolean; talking: boolean; exclaim: THREE.Group | null;
+  } | null = null;
   private clearRoadActors() {
     for (const a of this.roadActors) a.dispose();
     this.roadActors.length = 0;
@@ -1237,6 +1243,9 @@ export class ActShow {
     this.roadShadows.length = 0;
     for (const ex of this.roadExtras) ex.parent?.remove(ex);
     this.roadExtras.length = 0;
+    if (this.roadDuwu?.exclaim) this.roadDuwu.exclaim.parent?.remove(this.roadDuwu.exclaim);
+    this.roadDuwu = null;
+    this.roadDuwuNear = false;
   }
   private gardenMeshes: THREE.Group[] = [];
   private gardenExclaims: Array<THREE.Group | null> = [];
@@ -4091,6 +4100,8 @@ export class ActShow {
   }
   private buildRoom(first: boolean) { return runRoomBuild(this.roomSteps(first)); }
   private *roomSteps(first: boolean): Generator<void | Promise<void>, void> {
+    if (this.dialogue.on) this.dialogue.skipAll();
+    this.camOverride = null;
     this.hideWorldPlates();
     blood.clear();
     slashArc.clear();
@@ -4484,13 +4495,15 @@ export class ActShow {
     await this.boonPick();
     this.openDoors();
   }
-  /** act-154: spawn Du Wu & his grey donkey beside the Act 1/2 rest-room campfire and play the roadside companionship encounter */
+  /** act-154 / act-181: spawn Du Wu & his grey donkey beside the Act 1/2 rest-room campfire as a non-blocking interactive companion
+   *  (no forced 0.85s modal hijack that can collide with stations/doors/pause or interrupt the run's camp flow) */
   private mountDuwuRoad(ri: 0 | 1) {
     if (!this.stage) return;
     const c = this.arena?.shape?.fixed?.stations ?? [0, 0];
-    const dp = V3(c[0] - 0.95, 0, c[1] - 2.35);
-    const ap = V3(c[0] - 2.05, 0, c[1] - 2.85);
-    this.clamp(dp, 0.45); this.clamp(ap, 0.55);
+    // Stand clearly to the left of the campfire & clear of 裹伤调息's mat and wooden sign
+    const dp = V3(c[0] - 2.95, 0, c[1] - 3.05);
+    const ap = V3(c[0] - 4.15, 0, c[1] - 3.25);
+    this.clamp(dp, 0.55); this.clamp(ap, 0.65);
     const dwYaw = Math.atan2(c[0] - dp.x, c[1] - dp.z);
     const dw = new BattleActor(HIDEOUT_PEOPLE.duwu);
     dw.place(dp, dwYaw); dw.yaw = dwYaw; trimShadows(dw.root, 4);
@@ -4505,39 +4518,62 @@ export class ActShow {
     const ash = contactShadow(); ash.scale.set(0.95, 1, 0.55); ash.position.set(ap.x, 0.025, ap.z);
     this.stage.root.add(ash);
 
+    const exclaim = new THREE.Group();
+    exclaim.add(npcExclaim());
+    exclaim.position.set(dp.x, 2.25, dp.z);
+    this.stage.root.add(exclaim);
+
     this.roadActors.push(dw, dk);
     this.roadShadows.push(dsh, ash);
 
     const rKey = ri === 0 ? 'duwu_road_1' : 'duwu_road_2';
     const lines = ri === 0 ? DUWU_ROAD_1 : DUWU_ROAD_2;
     warmLines(lines, 4);
+    const rd = { ri, rKey, actor: dw, pos: dp.clone(), talked: false, talking: false, exclaim };
+    this.roadDuwu = rd;
     const h = this.hero;
-    after(0.85, () => {
-      if (this.hero !== h || this.plan?.type !== 'rest' || this.region !== ri || this.dialogue.on || this.timeline.on) return;
-      if (!seeOnce(rKey)) return;
-      saveProfile();
-      void (async () => {
-        dw.yaw = Math.atan2(this.hero.pos.x - dp.x, this.hero.pos.z - dp.z);
-        await this.talk(lines);
-        if (this.hero !== h) return;
-        const was = this.hero.hp;
-        this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + Math.round(this.hero.maxHp * 0.25));
-        this.healFeed(was); this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp });
-        cue('reveal', 0.65);
-        if (ri === 0) {
-          this.coins += 25;
-          this.feed.push('coins', n => msg`杜五的热汤 +${n}`, 25);
-          this.banner.show('杜五的热汤', '恢复气血 · 另塞来 25 枚五铢钱', 2.2, '#ffd27a');
-        } else {
-          this.addIntent();
-          this.banner.show('杜五的热胡饼', '恢复气血 · 杀气 +1', 2.2, '#ffd27a');
-        }
-      })();
+    // Gentle non-blocking greeting bark beside the campfire (same pattern as Traveling Merchant in shop rooms)
+    after(0.65, () => {
+      if (this.hero !== h || this.roadDuwu !== rd || rd.talked || rd.talking) return;
+      if (this.phase !== 'doors' || this.isUiModalOpen() || bladeBusy()) return;
+      const greet = ri === 0 ? '白哥，锅里温着热汤呢！' : '白哥，胡饼刚烤热乎！';
+      (this.barks ??= new Barks(this.L)).say(() => dw.head(), greet);
     });
+  }
+  /** act-181: player-initiated roadside campfire talk with Du Wu (zero forced blocking, zero race with doors/stations/pause) */
+  private async talkRoadDuwu() {
+    const rd = this.roadDuwu, h = this.hero;
+    if (!rd || !h || rd.talked || rd.talking) return;
+    if (this.phase !== 'doors' || this.isUiModalOpen() || this.inCombat() || bladeBusy()) return;
+    rd.talking = true;
+    try {
+      const lines = rd.ri === 0 ? DUWU_ROAD_1 : DUWU_ROAD_2;
+      rd.actor.yaw = Math.atan2(h.pos.x - rd.pos.x, h.pos.z - rd.pos.z);
+      await this.talk(lines);
+      if (this.hero !== h || this.roadDuwu !== rd) return;
+      rd.talked = true;
+      if (rd.exclaim) rd.exclaim.visible = false;
+      seeOnce(rd.rKey);
+      saveProfile();
+      const was = h.hp;
+      h.hp = Math.min(h.maxHp, h.hp + Math.round(h.maxHp * 0.25));
+      this.healFeed(was); this.hud.flask.heal({ hp: h.hp, maxHp: h.maxHp });
+      cue('reveal', 0.65);
+      if (rd.ri === 0) {
+        this.coins += 25;
+        this.feed.push('coins', n => msg`杜五的热汤 +${n}`, 25);
+        this.banner.show('杜五的热汤', '恢复气血 · 另塞来 25 枚五铢钱', 2.2, '#ffd27a');
+      } else {
+        this.addIntent(1, true);
+        this.banner.show('杜五的热胡饼', '恢复气血 · 杀气 +1', 2.2, '#ffd27a');
+      }
+    } finally {
+      rd.talking = false;
+    }
   }
   /** act-114 据点归来统一事件队列（断碑划名过场优先，其次杜五遗灶移交，再次战败安慰对白，绝不并发冲突） */
   private async hideoutArrive(cut: number, down: number) {
-    if (this.phase !== 'yard' || this.dialogue.on || this.timeline.on || this.prologue) return;
+    if (this.phase !== 'yard' || this.inCombat() || this.isUiModalOpen() || this.donningHat || this.departAnim || bladeBusy() || this.prologue) return;
     const st = this.stele, h = this.hero, prof = profile();
     if (cut < down && st && h) {
       this.pendingDeathTalk = false;
@@ -4550,13 +4586,13 @@ export class ActShow {
         for (let i = cut; i < down; i++) st.strike(i);
       });
       this.noTalk = false;
-      if (this.phase === 'yard') {
+      if (this.hero === h && this.phase === 'yard' && !this.inCombat()) {
         await this.talk([{ who: 'jiangjin', text: STELE_TALK.strike[down - 1] ?? STELE_TALK.strike[0] }]);
       }
       if (!isDuwuDead(prof) || prof.seen['duwu_memorial_intro']) return;
     }
     // act-154: First kiln return after Du Wu dies at Xiapi — Sun Ao gently hands over his SE ration hearth
-    if (isDuwuDead(prof) && !prof.seen['duwu_memorial_intro'] && this.phase === 'yard') {
+    if (isDuwuDead(prof) && !prof.seen['duwu_memorial_intro'] && this.hero === h && this.phase === 'yard' && !this.inCombat()) {
       this.pendingDeathTalk = false;
       seeOnce('duwu_memorial_intro'); saveProfile();
       this.noTalk = true;
@@ -4570,7 +4606,7 @@ export class ActShow {
       this.camOverride = { base: V3(...memCam.pos), look: V3(...memCam.look), fov: memCam.fov };
       shot('act', () => this.camPose(), { cut: false, speed: 4.5 });
       await new Promise(r => after(0.65, () => r(null)));
-      if (this.phase === 'yard') await this.talk(DUWU_MEMORIAL_INTRO);
+      if (this.hero === h && this.phase === 'yard' && !this.inCombat()) await this.talk(DUWU_MEMORIAL_INTRO);
       this.camOverride = null;
       if (sa && saOrig) {
         sa.x = saOrig.x; sa.z = saOrig.z; sa.yaw = saOrig.yaw;
@@ -4579,7 +4615,7 @@ export class ActShow {
       this.noTalk = false;
       return;
     }
-    if (this.pendingDeathTalk) {
+    if (this.pendingDeathTalk && this.hero === h && this.phase === 'yard' && !this.inCombat()) {
       this.pendingDeathTalk = false;
       const prog = hideoutProgress(prof, this.dbgAllWeapons);
       if (isDuwuDead(prof)) {
@@ -8334,11 +8370,16 @@ export class ActShow {
     this.heroWorld.foes = this.foes.some(f => f.mem.hidden) || this.entering.length || this.bossDrops.length
       ? this.foes.filter(f => !f.mem.hidden && !this.entering.some(e => e.f === f) && !this.bossDrops.some(d => d.f === f))
       : this.foes;
-    // act-136 / act-165: shop / rest / scroll interact intercept BEFORE h.update (blocked during active combat)
+    // act-136 / act-165 / act-181: shop / rest / scroll / roadside Du Wu interact intercept BEFORE h.update (blocked during active combat)
     const combatNow = this.inCombat();
     if (this.stations && this.phase === 'doors' && !combatNow && !busy && !this.pause.on && !this.dialogue.on && !this.shopOpening && this.inp.b.attack.pressed) {
-      const ns = this.stations.near(h.pos);
+      let ns = this.stations.near(h.pos);
       const nearM = !ns && this.stations.nearMerchant(h.pos);
+      const rd = this.roadDuwu;
+      const rdDist = rd && !rd.talked && !rd.talking ? Math.hypot(rd.pos.x - h.pos.x, rd.pos.z - h.pos.z) : 99;
+      const nsDist = ns ? Math.hypot(ns.at.x - h.pos.x, ns.at.z - h.pos.z) : 99;
+      const nearRd = !nearM && rdDist < 2.25 && rdDist < nsDist;
+      if (nearRd) ns = null;
       if (ns) {
         this.inp.b.attack.pressed = false;
         this.inp.latch(true);
@@ -8353,6 +8394,10 @@ export class ActShow {
         this.inp.b.attack.pressed = false;
         this.inp.latch(true);
         void this.shopOverviewMenu();
+      } else if (nearRd) {
+        this.inp.b.attack.pressed = false;
+        this.inp.latch(true);
+        void this.talkRoadDuwu();
       }
     }
     // act-165: peaceful hideout NPC/facility interact intercept BEFORE h.update so pressing J/X opens cleanly without swinging, and is completely disabled while sparring live foes!
@@ -8583,7 +8628,7 @@ export class ActShow {
         flashSky(storm ? 1.25 : 1);
         after(0.14, () => flashSky(storm ? 0.9 : 0.7));
         const d = storm ? 0.2 + Math.random() * 0.45 : 0.35 + Math.random() * 0.8;
-        after(d, () => cue('thunder', storm ? 0.72 : 0.45));
+        after(d, () => cue('thunder', storm ? 0.52 : 0.32));
       }
     }
     if (this.leaves) {
@@ -8604,18 +8649,40 @@ export class ActShow {
       const canPay = (st: Station) => st.price <= this.coins && (!st.id.endsWith('sharpen') || this.sharpenable().length > 0);
       this.stations.update(dt, h.pos, moving, canPay);
       this.stations.setPurse(this.coins);
-      const ns = this.stations.near(h.pos);
+      let ns = this.stations.near(h.pos);
       const nearMerch = !ns && this.stations.nearMerchant(h.pos);
+      const rd = this.roadDuwu;
+      const rdAvail = !!rd && !rd.talked && !rd.talking;
+      const rdDist = rdAvail ? Math.hypot(rd.pos.x - h.pos.x, rd.pos.z - h.pos.z) : 99;
+      const nsDist = ns ? Math.hypot(ns.at.x - h.pos.x, ns.at.z - h.pos.z) : 99;
+      const nearRd = !nearMerch && rdAvail && rdDist < 2.25 && rdDist < nsDist;
+      if (nearRd) ns = null;
       this.stationNear = ns;
       this.merchantNear = nearMerch;
-      // act-176: 走近任意摊位或行商时隐去其余空闲摊签；漫步时按距离排序并做屏幕防重叠剔除
+      this.roadDuwuNear = nearRd;
+      if (rd) {
+        const wantYaw = Math.atan2(h.pos.x - rd.pos.x, h.pos.z - rd.pos.z);
+        let dy = wantYaw - rd.actor.yaw;
+        while (dy > Math.PI) dy -= Math.PI * 2;
+        while (dy < -Math.PI) dy += Math.PI * 2;
+        rd.actor.yaw += dy * Math.min(1, dt * 4);
+        if (rd.exclaim) {
+          rd.exclaim.visible = rdAvail;
+          if (rdAvail) {
+            const pulse = 0.5 + 0.5 * Math.sin(clock.rtime * 4.4);
+            rd.exclaim.position.set(rd.pos.x, 2.25 + 0.06 * pulse, rd.pos.z);
+            rd.exclaim.rotation.y = clock.rtime * 1.4;
+          }
+        }
+      }
+      // act-176: 走近任意摊位、行商或杜五时隐去其余空闲摊签；漫步时按距离排序并做屏幕防重叠剔除
       const stPlaced: Array<{ x: number; y: number }> = [];
       const stKk = Math.max(0.75, Math.min(2.2, Math.min(this.L.w / 1280, this.L.h / 720)));
       const stList = [...this.stations.list].sort((a, b) =>
         Math.hypot(a.at.x - h.pos.x, a.at.z - h.pos.z) - Math.hypot(b.at.x - h.pos.x, b.at.z - h.pos.z)
       );
       for (const st of stList) {
-        if (st.done || st === ns || !!ns || nearMerch) {
+        if (st.done || st === ns || !!ns || nearMerch || nearRd) {
           this.worldPlates.hide('st.tag.' + st.id);
           continue;
         }
@@ -8632,6 +8699,21 @@ export class ActShow {
         });
         stPlaced.push({ x: pt.x, y: pt.y });
       }
+      if (rdAvail && !ns && !nearMerch && !nearRd && rdDist < 8.5) {
+        const dp = rd.actor.head();
+        const pt = worldToUi(V3(dp.x, dp.y + 0.52, dp.z));
+        if (pt.z < 1 && !stPlaced.some(p => Math.abs(pt.x - p.x) < 104 * stKk && Math.abs(pt.y - p.y) < 38 * stKk)) {
+          this.worldPlates.setTag('st.duwu.tag', {
+            text: rd.ri === 0 ? '杜五 · 热汤' : '杜五 · 胡饼', icon: 'talk',
+            color: '#ffe29c', accent: '#d89a44',
+            x: pt.x, y: pt.y, minY: minPlateY, visible: true,
+          });
+        } else {
+          this.worldPlates.hide('st.duwu.tag');
+        }
+      } else {
+        this.worldPlates.hide('st.duwu.tag');
+      }
       if (ns) {
         const pt = worldToUi(V3(ns.at.x, 2.2, ns.at.z));
         const noSharp = ns.id.endsWith('sharpen') && !this.sharpenable().length;
@@ -8642,6 +8724,7 @@ export class ActShow {
           action, icon: ns.icon, accent: acc, x: pt.x, y: pt.y, minY: minPlateY, visible: pt.z < 1,
         });
         this.worldPlates.hide('st.merchant');
+        this.worldPlates.hide('st.duwu');
       } else {
         this.worldPlates.hide('st.active');
         if (nearMerch && this.stations.merchant) {
@@ -8651,13 +8734,26 @@ export class ActShow {
             title: '行商', sub: '四摊百货 · 一览选购', action: '看货', icon: 'coin',
             accent: '#ffd27a', x: pt.x, y: pt.y, minY: minPlateY, visible: pt.z < 1,
           });
+          this.worldPlates.hide('st.duwu');
+        } else if (nearRd && rd) {
+          const dp = rd.actor.head();
+          const pt = worldToUi(V3(dp.x, dp.y + 0.65, dp.z));
+          this.worldPlates.setInteract('st.duwu', {
+            title: '杜五', sub: rd.ri === 0 ? '热汤回血 · 另赠 25 铜钱' : '热胡饼回血 · 杀气 +1',
+            action: '叙旧', icon: 'talk',
+            accent: '#ffd27a', x: pt.x, y: pt.y, minY: minPlateY, visible: pt.z < 1,
+          });
+          this.worldPlates.hide('st.merchant');
         } else {
           this.worldPlates.hide('st.merchant');
+          this.worldPlates.hide('st.duwu');
         }
       }
     } else {
       this.stationNear = null;
       this.merchantNear = false;
+      this.roadDuwuNear = false;
+      if (this.roadDuwu?.exclaim) this.roadDuwu.exclaim.visible = false;
       this.worldPlates.hidePrefix('st.');
     }
     // act-136: Occluded-treasure full-res UI marker badges (always clear stale indices from prior rooms first!)
@@ -8847,7 +8943,7 @@ export class ActShow {
     if (h.exhaled) { h.exhaled = false; const at = h.a.head().add(h.a.fwd().multiplyScalar(0.25)); fxSmoke(at, 0xe6eef2, 12, { r: 0.12, spd: 1.7, up: 0.6, s: 0.24, life: 0.8 }); fxRing(h.pos.clone().setY(0.06), 0xb8a888, 0.9, { life: 0.3 } as never); }
     // the move links open right now, shown on the buttons (act-18): 追影 > 穿风斩 > 下劈 > 反击 on the cut button
     { const fighting = this.phase === 'fight' || this.phase === 'yard', chase = fighting && !!h.moves.chase && !!this.chaseTarget();
-      const atk = (this.npcNear && !this.noTalk) || this.stationNear || this.merchantNear ? 'talk' : !fighting ? null : chase ? 'chase' : h.canDashCut ? 'dcut' : h.canKeep ? 'keep' : h.canPause ? 'pause' : h.canAirCut ? 'acut' : (h.st === 'air' && h.airborne) ? 'plunge' : h.counterT > 0 ? 'counter' : null;
+      const atk = (this.npcNear && !this.noTalk) || this.stationNear || this.merchantNear || this.roadDuwuNear ? 'talk' : !fighting ? null : chase ? 'chase' : h.canDashCut ? 'dcut' : h.canKeep ? 'keep' : h.canPause ? 'pause' : h.canAirCut ? 'acut' : (h.st === 'air' && h.airborne) ? 'plunge' : h.counterT > 0 ? 'counter' : null;
       // (11-18 四本新刀谱: 断云 on the cut button, 牵红 on the dart button, 踏顶 on the jump button, 掠地 on the dash button)
       const hints = { attack: atk, special: !fighting ? null : h.canBackDart ? 'back' : h.canReel ? 'reel' : h.canCutDart ? 'cdart' : null, jump: !fighting ? null : h.canLaunch ? 'launch' : h.canKick ? 'kick' : h.canStomp ? 'stomp' : h.canDoubleJump ? 'dbl' : null,
         dash: fighting && h.canSwoop ? 'swoop' : null } as const;

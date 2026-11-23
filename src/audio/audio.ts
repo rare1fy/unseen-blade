@@ -469,7 +469,7 @@ class AudioEngine {
     const sr = ctx.sampleRate, len = Math.floor(sr * 3.2), fade = Math.floor(sr * 0.25);
     const buf = ctx.createBuffer(1, len, sr), out = buf.getChannelData(0);
     // Deterministic PRNG + JS-baked soft pink rain wash + delicate raindrop patters (zero WebAudio filter dependency)
-    let s = 0x51a7c3d1, b0 = 0, b1 = 0, b2 = 0, lp = 0, hp = 0;
+    let s = 0x51a7c3d1, b0 = 0, b1 = 0, b2 = 0, lp = 0, hp = 0, sm = 0;
     const raw = new Float32Array(len + fade);
     for (let i = 0; i < raw.length; i++) {
       s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
@@ -482,10 +482,12 @@ class AudioEngine {
       const mix = b0 + b1 + b2;
       hp = 0.985 * (hp + mix - lp);
       lp = mix;
-      // occasional crisp raindrop patter impulse
+      // occasional delicate raindrop patter impulse
       s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
-      const drop = (s >>> 20) === 0 ? ((s & 1 ? 1 : -1) * 0.22) : 0;
-      raw[i] = Math.max(-0.95, Math.min(0.95, (hp * 0.58 + b2 * 0.45 + drop) * 0.62));
+      const drop = (s >>> 20) === 0 ? ((s & 1 ? 1 : -1) * 0.11) : 0;
+      const sample = (hp * 0.52 + b2 * 0.28 + drop) * 0.56;
+      sm = 0.68 * sm + 0.32 * sample;
+      raw[i] = Math.max(-0.95, Math.min(0.95, sm));
     }
     // seamless loop crossfade across tail -> head
     for (let i = 0; i < len; i++) {
@@ -502,7 +504,8 @@ class AudioEngine {
   private applyWeatherSound(fade = 0.65) {
     const ctx = this.ctx;
     if (!ctx || !this.hush) return;
-    const target = this.muted || this.weatherWant === 'none' ? 0 : this.weatherWant === 'storm' ? 0.24 : 0.15;
+    // act-181 (用户：「雨声有点太大了」): keep rain / storm bed atmospheric (~-10 dB) so BGM, blades & voice stay crisp
+    const target = this.muted || this.weatherWant === 'none' ? 0 : this.weatherWant === 'storm' ? 0.082 : 0.048;
     const t = this.now();
     if (target <= 0) {
       if (this.weatherG && this.weatherSrc) {
