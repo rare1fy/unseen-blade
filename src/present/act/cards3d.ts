@@ -595,7 +595,7 @@ export class CardPick3D {
       this.detailBtnHot = false;
     }
     const i = this.hit(x, y);
-    if (type === 'move' && i >= 0 && i !== this.focus) { this.focus = i; cue('click', 0.25); }
+    if (type === 'move' && i >= 0 && i !== this.focus && this.layoutMode !== 'arcana') { this.focus = i; cue('click', 0.25); }
     if (type === 'down' && i >= 0) {
       const wasFocused = this.focus === i;
       this.focus = i;
@@ -610,8 +610,8 @@ export class CardPick3D {
         cue('click', 0.3);
         return true;
       }
-      // In 3×3 Arcana meditation mode, clicking an unlocked card toggles it immediately (Hades 2 feel!); clicking a locked card previews it first.
-      if (this.layoutMode === 'arcana' && c.b.arcanaInfo && c.b.arcanaInfo.rank <= 0 && !wasFocused) {
+      // act-186: In 3×3 Arcana meditation mode, clicking any card ONLY selects it; equip/unequip/unlock/upgrade is done exclusively via the right-side button (or Enter / pad A).
+      if (this.layoutMode === 'arcana') {
         cue('click', 0.3);
         return true;
       }
