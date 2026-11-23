@@ -112,9 +112,9 @@ const TILES = new Set<Tile>();
 
 export interface ShadowLayout {
   tiles: { ends: number[]; box: number[]; sphere: number[] }[];
-  groups: number[][];
-  order: Uint32Array;
-  groupOf: Uint32Array;
+  groups?: number[][];
+  order?: Uint32Array;
+  groupOf?: Uint32Array;
   partner: Int32Array;
 }
 // Only the offline baker requests a copy of the face order.
@@ -131,16 +131,23 @@ function installView(src: THREE.Mesh, tiles: Tile[], membership: Uint32Array, gr
 }
 
 export function* restoreShadowTiles(src: THREE.Mesh, layout: ShadowLayout) {
-  const index = src.geometry.index!.array, members = new Uint32Array(layout.order.length), tiles: Tile[] = [];
+  const index = src.geometry.index!.array, nq = layout.order ? layout.order.length : index.length / 6;
+  const members = new Uint32Array(nq), tiles: Tile[] = [];
   let offset = 0;
   for (const t of layout.tiles) {
     const length = t.ends[5], count = length / 6;
     const indices = index instanceof Uint32Array ? new Uint32Array(length) : new Uint16Array(length);
-    for (let j = 0; j < count; j++) {
-      const q = layout.order[offset + j];
-      members[q] = tiles.length;
-      for (let k = 0; k < 6; k++) indices[j * 6 + k] = index[q * 6 + k];
-      if ((j & 2047) === 2047) yield;
+    if (layout.order) {
+      for (let j = 0; j < count; j++) {
+        const q = layout.order[offset + j];
+        members[q] = tiles.length;
+        for (let k = 0; k < 6; k++) indices[j * 6 + k] = index[q * 6 + k];
+        if ((j & 2047) === 2047) yield;
+      }
+    } else {
+      // v2 packs pre-sort quads contiguously by (tile, ORDER_SLOT[dir]), so order is the identity [0..nq-1]
+      members.fill(tiles.length, offset, offset + count);
+      indices.set(index.subarray(offset * 6, (offset + count) * 6));
     }
     offset += count;
     const g = new THREE.BufferGeometry();
@@ -154,12 +161,45 @@ export function* restoreShadowTiles(src: THREE.Mesh, layout: ShadowLayout) {
     tiles.push(tile);
     yield;
   }
+  let groups: THREE.Box3[], groupOf: Uint32Array;
+  if (layout.groups && layout.groupOf) {
+    groups = layout.groups.map(readBox);
+    groupOf = layout.groupOf;
+  } else {
+    // Reconstruct the 3 m visibility groups directly from vertex positions (~3 ms, saves ~550 KB across baked packs)
+    const P = src.geometry.attributes.position.array;
+    groupOf = new Uint32Array(nq);
+    groups = [];
+    const groupIds = new Map<number, number>(), mins: number[] = [], maxs: number[] = [];
+    for (let q = 0; q < nq; q++) {
+      if ((q & 4095) === 4095) yield;
+      const v = q * 12, x = (P[v] + P[v + 6]) * 0.5, z = (P[v + 2] + P[v + 8]) * 0.5;
+      const id = Math.floor(x / 3) * 65536 + Math.floor(z / 3);
+      let i = groupIds.get(id);
+      if (i === undefined) {
+        i = groupIds.size; groupIds.set(id, i);
+        mins.push(1e9, 1e9, 1e9); maxs.push(-1e9, -1e9, -1e9);
+      }
+      groupOf[q] = i;
+      const b = i * 3;
+      for (let k = v; k < v + 12; k += 3) {
+        const px = P[k], py = P[k + 1], pz = P[k + 2];
+        if (px < mins[b]) mins[b] = px; if (px > maxs[b]) maxs[b] = px;
+        if (py < mins[b + 1]) mins[b + 1] = py; if (py > maxs[b + 1]) maxs[b + 1] = py;
+        if (pz < mins[b + 2]) mins[b + 2] = pz; if (pz > maxs[b + 2]) maxs[b + 2] = pz;
+      }
+    }
+    for (let i = 0; i < groupIds.size; i++) {
+      const b = i * 3;
+      groups.push(new THREE.Box3(new THREE.Vector3(mins[b], mins[b + 1], mins[b + 2]), new THREE.Vector3(maxs[b], maxs[b + 1], maxs[b + 2])));
+    }
+  }
   // Register together, after the final yield, so an abandoned decoder leaves no global references.
   for (const t of tiles) {
     TILES.add(t);
     t.mesh.geometry.addEventListener('dispose', () => TILES.delete(t));
   }
-  installView(src, tiles, members, layout.groups.map(readBox), layout.groupOf, layout.partner);
+  installView(src, tiles, members, groups, groupOf, layout.partner);
   return tiles.map(t => t.mesh);
 }
 

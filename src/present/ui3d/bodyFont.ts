@@ -8,7 +8,9 @@ import { firstSounds } from '../../audio/firstSounds';
 export type BodyFont = 'wenkai' | 'serif' | 'sans' | 'pixel';
 export const BODY_FONT_NAME: Record<BodyFont, string> = { wenkai: '文楷', serif: '宋体', sans: '黑体', pixel: '像素' };
 const families: Record<Exclude<BodyFont, 'pixel'>, string> = { wenkai: 'UBWenKai', serif: 'UBSerif', sans: 'UBSans' };
-const urls = { wenkai: wenkaiUrl, serif: serifUrl, sans: sansUrl };
+const allUrls: Record<Exclude<BodyFont, 'pixel'>, string> = { wenkai: wenkaiUrl, serif: serifUrl, sans: sansUrl };
+const activeKeys = (Object.keys(allUrls) as Array<Exclude<BodyFont, 'pixel'>>).filter(k => !!allUrls[k]);
+const urls = allUrls;
 const listeners = new Set<() => void>();
 function savedFont(): BodyFont {
   if (!__DEBUG_UI__) return 'wenkai';   // (11-18: the packages have no font switch)
@@ -34,16 +36,32 @@ const wxFont = typeof wx !== 'undefined' ? (wx as { loadFont?: (path: string) =>
 // starts at once in the device's font and switches when they're in; 11-18: the download starts after the first sounds', at most 3 s
 // after the sound starts — audio/firstSounds.ts. fontsReady itself never waits for it: main.ts boots the game on it, and the game
 // is what starts the sound)
-const wxLoadFonts = () => { for (const k of Object.keys(urls) as Array<Exclude<BodyFont, 'pixel'>>) { try { loaded[k] = wxFont!(urls[k]) || ''; } catch { loaded[k] = ''; } } changed(); };
+const wxLoadFonts = () => {
+  let ok = false;
+  for (const k of activeKeys) {
+    try {
+      const fam = wxFont!(urls[k]) || '';
+      loaded[k] = fam;
+      if (fam) ok = true;
+      else console.warn('[font] wx.loadFont returned empty for', urls[k]);
+    } catch (e) {
+      loaded[k] = '';
+      console.warn('[font] wx.loadFont failed for', urls[k], e);
+    }
+  }
+  changed();
+  // iOS high-performance+ registers loaded TTFs asynchronously with CoreText; trigger one follow-up repaint once ready.
+  if (ok && typeof setTimeout === 'function') setTimeout(() => changed(), 120);
+};
 export const fontsReady: Promise<void> = wxFont
   ? Promise.resolve().then(() => {
       const sub = (wx as { loadSubpackage?: (o: { name: string; success: () => void; fail: () => void }) => void }).loadSubpackage;
-      if (sub && /^fonts\//.test(urls.wenkai)) { for (const k of Object.keys(loaded) as Array<Exclude<BodyFont, 'pixel'>>) loaded[k] = ''; void firstSounds.then(() => sub({ name: 'fonts', success: wxLoadFonts, fail: () => changed() })); }
+      if (sub && /^fonts\//.test(urls.wenkai)) { for (const k of activeKeys) loaded[k] = ''; void firstSounds.then(() => sub({ name: 'fonts', success: wxLoadFonts, fail: () => changed() })); }
       else wxLoadFonts();
     })
   : typeof document === 'undefined' || typeof FontFace === 'undefined'
   ? Promise.resolve()
-  : Promise.all((Object.keys(urls) as Array<Exclude<BodyFont, 'pixel'>>).map(async key => {
+  : Promise.all(activeKeys.map(async key => {
       try {
         const face = new FontFace(families[key], `url(${urls[key]})`);
         document.fonts.add(face);
@@ -54,8 +72,8 @@ export const fontsReady: Promise<void> = wxFont
 
 function useFont(g: CanvasRenderingContext2D, px: number) {
   const family = BODY_FONT.current === 'pixel' ? '' : loaded[BODY_FONT.current];
-  // (11-18 微信小游戏: a font that didn't load leaves no family — 「24px , sans-serif」 is not a valid font and the canvas kept its 10 px default)
-  g.font = family ? `${px}px ${family}, sans-serif` : `${px}px sans-serif`;
+  // Quote family name so multi-word names returned by wx.loadFont (e.g. "LXGW WenKai GB Screen") parse reliably on iOS/Android Canvas2D.
+  g.font = family ? `${px}px "${family.replace(/"/g, '\\"')}", sans-serif` : `${px}px sans-serif`;
   g.textBaseline = 'top';
 }
 /** 11-19: a string starting with this is drawn / measured as it is (no translation): text already in the reader's language, cut up */

@@ -40,13 +40,18 @@
     onTouchStart: f => touch.start.push(f), onTouchMove: f => touch.move.push(f), onTouchEnd: f => touch.end.push(f), onTouchCancel: f => touch.cancel.push(f),
     onWindowResize() {}, getLaunchOptionsSync: () => ({ query: {} }),
     createImage() { const im = new Image(); const set = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src').set; Object.defineProperty(im, 'src', { set(v) { set.call(im, new URL(v, location.origin + base).href); }, get() { return im.getAttribute('src'); } }); return im; },
-    getFileSystemManager: () => ({ readFileSync: (p, enc) => { const b = sync(p); return enc ? new TextDecoder().decode(b) : b; }, readFile: o => { try { o.success({ data: sync(o.filePath) }); } catch (e) { o.fail && o.fail(e); } } }),
+    getFileSystemManager: () => ({ readFileSync: (p, enc) => { const b = sync(p); return enc ? new TextDecoder().decode(b) : b; }, readFile: o => { try { const b = sync(o.filePath); o.success({ data: o.encoding ? new TextDecoder().decode(b) : b }); } catch (e) { o.fail && o.fail(e); } } }),
     // (a phone downloads a subpackage the first time it is loaded: ?subms=N makes each take N ms, ?mbps=X as long as X MB/s takes for
     // its size — one download at a time; window.__simSubs has when each finished)
     loadSubpackage: o => { const S = window.__simSubs = window.__simSubs || { done: {}, chain: Promise.resolve() };
       const ms = () => q.get('mbps') ? fetch('/__size/' + o.name).then(r => r.text()).then(n => +n / 1048576 / +q.get('mbps') * 1000) : Promise.resolve(+(q.get('subms') || 10));
-      if (!S.done[o.name]) S.done[o.name] = S.chain = S.chain.then(ms).then(t => new Promise(r => setTimeout(r, t))).then(() => { S[o.name] = Math.round(performance.now()); });
-      S.done[o.name].then(() => o.success && o.success({})); return { onProgressUpdate() {} }; },
+      if (!S.done[o.name]) S.done[o.name] = S.chain = S.chain.then(ms).then(t => new Promise(r => setTimeout(r, t))).then(() =>
+        fetch(base + o.name + '/game.js').then(r => r.ok ? r.text() : '').then(code => {
+          if (code && code.trim() && code.trim() !== "'use strict';") runScript(code, o.name + '/game.js');
+          S[o.name] = Math.round(performance.now());
+        })
+      );
+      S.done[o.name].then(() => o.success && o.success({}), e => { window.__simErrors.push(String(e && e.stack || e)); o.fail && o.fail(e); }); return { onProgressUpdate() {} }; },
     getStorageSync: k => store[k] ?? '', setStorageSync: (k, v) => { store[k] = v; }, removeStorageSync: k => { delete store[k]; },
     createInnerAudioContext: () => ({ play() {}, stop() {}, pause() {}, destroy() {} }),
     loadFont: () => null, vibrateShort() {}, onHide() {}, onShow() {},
@@ -104,13 +109,14 @@
       return prop in window;
     }
   }) : window;
+  function runScript(code, url) {
+    try {
+      if (HPP) new Function('HTMLDocument', 'Document', 'window', 'GameGlobal', 'document', code + String.fromCharCode(10) + '//# sourceURL=' + url)(undefined, undefined, bareWindow, bareGlobal, bareDoc);
+      else new Function('HTMLDocument', 'Document', code + String.fromCharCode(10) + '//# sourceURL=' + url)(undefined, undefined);
+    } catch (e) { window.__simErrors.push(String(e && e.stack || e)); throw e; }
+  }
   addEventListener('DOMContentLoaded', () => {
-    fetch(base + 'game.js').then(r => r.text()).then(t => {
-      try {
-        if (HPP) new Function('HTMLDocument', 'Document', 'window', 'GameGlobal', 'document', t + String.fromCharCode(10) + '//# sourceURL=game.js')(undefined, undefined, bareWindow, bareGlobal, bareDoc);
-        else new Function('HTMLDocument', 'Document', t + String.fromCharCode(10) + '//# sourceURL=game.js')(undefined, undefined);
-      } catch (e) { window.__simErrors.push(String(e && e.stack || e)); throw e; }
-    });
+    fetch(base + 'game.js').then(r => r.text()).then(t => runScript(t, 'game.js'));
   });
 })();
 </script>

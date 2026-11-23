@@ -93,18 +93,22 @@ if (!reusedScenes) {
 const stageFiles = Object.fromEntries([...scenes].map(([key, file]) => [key, file.to]));
 const rd = f => fs.readFileSync(path.join(ROOT, 'wechat', f), 'utf8');
 // (--no-diag: no native error dialog — wechat/glue.js shows the first error in one while the mini-game is still being brought up)
-const gameJs = `'use strict';\n${A.includes('--no-diag') ? 'var __UB_NO_DIAG = true;\n' : ''}${rd('adapter.js')}\n${rd('glue.js')}\nGameGlobal.__ubStageFiles = ${JSON.stringify(stageFiles)};\n${bundle}`;
-// 11-18: the upload refused game.js for a `?.` (「invalid file: game.js, 122:12 SyntaxError: Unexpected token .」): the whole file must be
-// ES2015 (vite's wechat target is es2015; wechat/*.js are written by hand) — parse it as such and stop before touching the project
-// folder if it isn't (--no-syntax-check to skip)
+// Split the main bundle into the `engine` code subpackage so the root main package stays tiny (< 0.3 MB, well under WeChat's 4 MB cap).
+const bootGameJs = `'use strict';\n${A.includes('--no-diag') ? 'var __UB_NO_DIAG = true;\n' : ''}${rd('adapter.js')}\n${rd('glue.js')}\nGameGlobal.__ubStageFiles = ${JSON.stringify(stageFiles)};\nwx.loadSubpackage({\n  name: 'engine',\n  fail: function (e) {\n    console.error('[boot] loadSubpackage engine failed', e);\n    if (wx.showModal) wx.showModal({ title: '加载失败', content: '主程序分包加载失败，请重启小游戏：' + String(e && (e.errMsg || e.message) || e), showCancel: false });\n  }\n});\n`;
+const engineGameJs = `'use strict';\nvar __e = GameGlobal.__ubEnv || {};\nvar document = __e.document || GameGlobal.document;\nvar WebGL2RenderingContext = __e.WebGL2RenderingContext || GameGlobal.WebGL2RenderingContext;\nvar self = __e.self || GameGlobal.self || GameGlobal;\nvar navigator = __e.navigator || GameGlobal.navigator;\nvar performance = __e.performance || GameGlobal.performance;\nvar localStorage = __e.localStorage || GameGlobal.localStorage;\nvar atob = __e.atob || GameGlobal.atob;\nvar fetch = __e.fetch || GameGlobal.fetch;\n${bundle}`;
+// 11-18: the upload refused game.js for a `?.` (「invalid file: game.js, 122:12 SyntaxError: Unexpected token .」): every JS file must be
+// ES2015 (vite's wechat target is es2015; wechat/*.js are written by hand) — parse both scripts and stop before touching the project
+// folder if either isn't (--no-syntax-check to skip)
 if (!A.includes('--no-syntax-check')) {
   const { parse } = await import('acorn');
-  try { parse(gameJs, { ecmaVersion: 2015, sourceType: 'script', allowReturnOutsideFunction: true }); }
-  catch (e) {
-    const ln = gameJs.split('\n')[(e.loc ? e.loc.line : 1) - 1] || '', c = e.loc ? e.loc.column : 0;
-    console.error(`game.js 不是 ES2015（微信上传会拒）：${e.message}\n  …${ln.slice(Math.max(0, c - 80), c + 80)}…`); process.exit(1);
+  for (const [label, src] of [['game.js', bootGameJs], ['engine/game.js', engineGameJs]]) {
+    try { parse(src, { ecmaVersion: 2015, sourceType: 'script', allowReturnOutsideFunction: true }); }
+    catch (e) {
+      const ln = src.split('\n')[(e.loc ? e.loc.line : 1) - 1] || '', c = e.loc ? e.loc.column : 0;
+      console.error(`${label} 不是 ES2015（微信上传会拒）：${e.message}\n  …${ln.slice(Math.max(0, c - 80), c + 80)}…`); process.exit(1);
+    }
   }
-  console.log('  game.js 按 ES2015 解析通过');
+  console.log('  game.js + engine/game.js 按 ES2015 解析通过');
 }
 
 // 2. the project folder (the old appid survives)
@@ -114,26 +118,61 @@ try { appid = JSON.parse(fs.readFileSync(path.join(OUT, 'project.config.json'), 
 // best effort, and write over it; the devtools pick the new files up)
 fs.mkdirSync(OUT, { recursive: true });
 for (const e of fs.readdirSync(OUT)) { if (e === 'project.config.json' || e === 'project.private.config.json') continue; try { fs.rmSync(path.join(OUT, e), { recursive: true, force: true }); } catch (err) { console.log(`  （没删掉 ${e}：${err.code}，直接覆盖）`); } }
-fs.writeFileSync(path.join(OUT, 'game.js'), gameJs);
-const subs = new Set();
+fs.writeFileSync(path.join(OUT, 'game.js'), bootGameJs);
+fs.mkdirSync(path.join(OUT, 'engine'), { recursive: true });
+fs.writeFileSync(path.join(OUT, 'engine', 'game.js'), engineGameJs);
+const subs = new Set(['engine']);
 for (const { to, data } of scenes.values()) {
   const dst = path.join(OUT, to);
   fs.mkdirSync(path.dirname(dst), { recursive: true });
   fs.writeFileSync(dst, data);
   if (!to.startsWith('assets/')) subs.add(to.split('/')[0]);
 }
+const subsetFontPy = `
+import json, pathlib, re, sys
+from fontTools import subset
+from fontTools.ttLib import TTFont
+root, src, dst = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+f = TTFont(src)
+try:
+    chars = set(''.join(chr(c) for c in range(32, 127)) + '，。、；：？！“”‘’（）《》【】「」『』…—～·％＋－×÷＝＜＞０１２３４５６７８９　←↑→↓★☆●○■□▲△◆◇✓✕一二三四五六七八九十百千万亿零年月日时分秒')
+    en = json.loads((root / 'src/present/act/en.json').read_text(encoding='utf-8'))
+    for k, v in en.items(): chars.update(k); chars.update(v)
+    sc = json.loads((root / 'src/present/act/scriptData.json').read_text(encoding='utf-8'))
+    for lines in sc.values():
+        for l in lines: chars.update(l.get('text', '')); chars.update(l.get('speaker', ''))
+    for p in (root / 'src').rglob('*.ts'):
+        txt = p.read_text(encoding='utf-8', errors='ignore')
+        txt = re.sub(r'//.*', '', txt)
+        txt = re.sub(r'/\\*[\\s\\S]*?\\*/', '', txt)
+        for ch in txt:
+            if ord(ch) > 0x7e: chars.add(ch)
+    cmap = f.getBestCmap() or {}
+    keep = [cp for cp in cmap if chr(cp) in chars]
+    opt = subset.Options(); opt.hinting = True; opt.layout_features = ['*']; opt.name_IDs = ['*']; opt.notdef_outline = True
+    s = subset.Subsetter(opt); s.populate(unicodes=keep); s.subset(f)
+    # Give the TTF a clean single-word ASCII family name ("UBWenKai") so wx.loadFont & Canvas2D match identically on iOS/Android/DevTools
+    for rec in f['name'].names:
+        if rec.nameID in (1, 4, 6):
+            rec.string = 'UBWenKai'.encode(rec.getEncoding())
+except Exception as e:
+    print('subset fallback:', e, file=sys.stderr)
+f.flavor = None
+f.save(dst)
+`;
 for (const [to, from] of Object.entries(assets)) {
   const dst = path.join(OUT, to); fs.mkdirSync(path.dirname(dst), { recursive: true });
-  // (11-18: wx.loadFont takes TrueType, not woff2 — the body fonts are unpacked with fontTools; without it they're copied as they are
-  // and the game draws the body text in the device's font)
+  // (11-18: wx.loadFont takes TrueType, not woff2 — unpack + subset to player-facing glyphs without hinting to save ~240 KB)
   if (/\.ttf$/i.test(to) && /\.woff2$/i.test(from)) {
-    try { execFileSync('python', ['-c', 'import sys; from fontTools.ttLib import TTFont; f = TTFont(sys.argv[1]); f.flavor = None; f.save(sys.argv[2])', from, dst], { stdio: 'pipe' }); }
+    try { execFileSync('python', ['-c', subsetFontPy, ROOT, from, dst], { stdio: 'pipe' }); }
     catch (e) { console.log(`  （${path.basename(from)} 没转成 ttf：${String(e.stderr || e.message).trim().split(/\r?\n/).pop()}，原样放进去）`); fs.copyFileSync(from, dst); }
+  } else if (/\.json$/i.test(to)) {
+    fs.writeFileSync(dst, JSON.stringify(JSON.parse(fs.readFileSync(from, 'utf8'))));
   } else fs.copyFileSync(from, dst);
-  const top = to.split('/')[0]; if (/^audio\d+$/.test(top) || top === 'fonts') subs.add(top);   // (everything but assets/ is a subpackage)
+  const top = to.split('/')[0]; if (/^audio\d+$/.test(top) || top === 'fonts' || top === 'i18n' || top === 'engine') subs.add(top);   // (everything but assets/ is a subpackage)
 }
 const subpackages = [...subs].sort().map(n => ({ name: n, root: n + '/' }));
-for (const s of subpackages) fs.writeFileSync(path.join(OUT, s.name, 'game.js'), `'use strict';\n`);
+for (const s of subpackages) if (s.name !== 'engine') fs.writeFileSync(path.join(OUT, s.name, 'game.js'), `'use strict';\n`);
 fs.writeFileSync(path.join(OUT, 'game.json'), JSON.stringify({ deviceOrientation: 'landscape', showStatusBar: false, ...(HP ? { iOSHighPerformance: true } : {}), ...(HP_PLUS ? { 'iOSHighPerformance+': true } : {}), subpackages }, null, 2) + '\n');
 fs.writeFileSync(path.join(OUT, 'project.config.json'), JSON.stringify({
   description: `不见刀 · ${TAG} 微信小游戏试玩`, projectname: 'unseen-blade-wechat', compileType: 'game', appid, libVersion: '3.9.0',

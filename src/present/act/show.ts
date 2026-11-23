@@ -3156,7 +3156,7 @@ export class ActShow {
       { dbg: true, label: () => craftLabel(), short: () => craftLabel(), run: () => cycleCraft() },
       // (11-19 用户：「github页面上的版本就是开发版……微信和crazygames都必须要做成面向用户的版本」: the frame meter is a debug item)
       { dbg: true, label: meterLabel, short: meterLabel, run: toggleMeter }];
-    installActTune([...SET.map(x => ({ label: x.label, run: x.run })),
+    if (__DEBUG_UI__) installActTune([...SET.map(x => ({ label: x.label, run: x.run })),
       // act-50 (用户：「加入一个跳过当前剧情的调试按钮」): the cutscene / the talk running now and the ones chained after it, fast-forwarded
       //  until she can be played again (fast-forward, not a cut: every shot's own events — 杜五 and the donkey coming in, her getting up — still happen)
       { label: () => (this.storySkip ? '跳过剧情：快进中…' : '跳过剧情（演出和对话快进到能操作）'), run: () => this.skipStory() },

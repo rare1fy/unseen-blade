@@ -47,13 +47,34 @@ export function wxAssets(root: string): Plugin {
     where.set(f, `audio${bin}/${rel}`);
   }
   const used = new Map<string, string>();   // package path → source file
+  const EN_SRC = norm(path.join(root, 'src/present/act/en.json'));
+  const EN_VIRT = '\0wx-i18n-en';
   return {
     name: 'wx-assets', enforce: 'pre',
+    resolveId(source, importer) {
+      if (source === './en.json' && importer && norm(importer).endsWith('/src/present/act/i18n.ts')) return EN_VIRT;
+      return null;
+    },
     load(id) {
-      const [file, q = ''] = id.split('?'); if (!/(^|&)inline(&|$)/.test(q)) return null;
-      const f = norm(file); let out: string | null = null;
+      if (id === EN_VIRT) {
+        const out = 'i18n/en.json';
+        used.set(out, EN_SRC);
+        return `export default ${JSON.stringify(out)};`;
+      }
+      const [file, q = ''] = id.split('?');
+      const f = norm(file);
+      // MagicaVoxel overrides: ship raw binary files inside `engine/vox/` instead of base64 strings inside JS
+      if (/\/vox\/[^/]+\.vox$/.test(f)) {
+        const out = `engine/vox/${path.basename(f)}`;
+        used.set(out, f);
+        return `export default ${JSON.stringify(out)};`;
+      }
+      if (!/(^|&)inline(&|$)/.test(q)) return null;
+      let out: string | null = null;
       if (where.has(f)) out = where.get(f)!;
-      else if (/\/fonts\/body\/[^/]+\.woff2$/.test(f)) out = `fonts/body/${path.basename(f).replace(/\.woff2$/, '.ttf')}`;
+      // Put wenkai.ttf in the main package (`assets/fonts/`) now that main package is only ~0.2 MB:
+      // wx.loadFont loads it synchronously on boot with zero subpackage path issues or first-frame fallback flash.
+      else if (/\/fonts\/body\/wenkai\.woff2$/.test(f)) out = `assets/fonts/${path.basename(f).replace(/\.woff2$/, '.ttf')}`;
       else if (/\/src\/assets\/portraits\/[^/]+\.png$/.test(f)) out = `assets/portraits/${path.basename(f)}`;
       if (!out) return null;
       used.set(out, f);

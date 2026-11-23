@@ -29,6 +29,32 @@ const out = process.env.UB_STAGE_OUT!;
 if (!out) throw Error('No scenery output directory');
 fs.mkdirSync(out, { recursive: true });
 ASM_QA.floating = false;
+const V_DIRS: ReadonlyArray<readonly [number, number, number]> = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
+const V_ORDER_SLOT = [2, 3, 4, 0, 1, 5];
+const V_AO = [0.52, 0.7, 0.86, 1];
+const vDirIndex = (nx: number, ny: number, nz: number) => (nx > 0.5 ? 0 : nx < -0.5 ? 1 : ny > 0.5 ? 2 : ny < -0.5 ? 3 : nz > 0.5 ? 4 : 5);
+
+function byteSplitDeltaU16(arr: Uint16Array): Buffer {
+  const n = arr.length, raw = Buffer.alloc(n * 2);
+  let prev = 0;
+  for (let i = 0; i < n; i++) {
+    const v = arr[i], d = (v - prev) & 0xffff;
+    raw[i] = d & 0xff;
+    raw[n + i] = d >>> 8;
+    prev = v;
+  }
+  return raw;
+}
+function byteSplitRawU16(arr: Uint16Array): Buffer {
+  const n = arr.length, raw = Buffer.alloc(n * 2);
+  for (let i = 0; i < n; i++) {
+    const v = arr[i];
+    raw[i] = v & 0xff;
+    raw[n + i] = v >>> 8;
+  }
+  return raw;
+}
+
 function bake(def: SceneDef, combat: boolean, report?: any) {
   const chunks: Buffer[] = [],
     ops: unknown[][] = [],
@@ -37,6 +63,13 @@ function bake(def: SceneDef, combat: boolean, report?: any) {
   const terrain: THREE.Mesh[] = [];
   const shadows = new WeakMap<THREE.Mesh, ShadowLayout>();
   shadowBake.capture = (mesh, layout) => shadows.set(mesh, layout);
+  function pushSpan(raw: Buffer | Uint8Array) {
+    const packed = deflateRawSync(raw, { level: 9 });
+    const span = { start: size, size: packed.length };
+    chunks.push(packed);
+    size += packed.length;
+    return span;
+  }
   function attribute(name: string, a: THREE.BufferAttribute) {
     const array = a.array,
       bytes = array.BYTES_PER_ELEMENT;
@@ -47,13 +80,13 @@ function bake(def: SceneDef, combat: boolean, report?: any) {
         : new Uint32Array(array.buffer, array.byteOffset, array.length);
     const parts = [];
     for (let offset = 0; offset < words.length;) {
-      const n = Math.min(32768, words.length - offset),
+      const n = Math.min(131072, words.length - offset),
         raw = Buffer.alloc(n * bytes);
       for (let j = 0; j < n; j++) {
         const delta = words[offset + j] - (j >= a.itemSize ? words[offset + j - a.itemSize] : 0);
         for (let b = 0; b < bytes; b++) raw[b * n + j] = delta >>> (8 * b);
       }
-      const packed = deflateRawSync(raw, { level: 6 });
+      const packed = deflateRawSync(raw, { level: 9 });
       parts.push({ start: size, size: packed.length, raw: raw.length });
       chunks.push(packed);
       size += packed.length;
@@ -61,39 +94,204 @@ function bake(def: SceneDef, combat: boolean, report?: any) {
     }
     return { name, type: array.constructor.name, itemSize: a.itemSize, count: array.length, parts };
   }
-  // The four vertices of a voxel face repeat a small vocabulary of colours, edges and normals.
-  // Store one dictionary index per face. Coordinates use the exact 7 cm grid, indices the local quad.
-  function faceAttribute(name: string, a: THREE.BufferAttribute) {
-    const index = name === 'index', grid = name === 'position', width = index ? 6 : 4 * a.itemSize;
-    const rows = a.array.length / width;
-    if (!Number.isInteger(rows)) return attribute(name, a);
-    const dictionary: number[] = [], ids = new Map<string, number>(), codes = new Uint16Array(rows);
-    const origins = grid ? new Uint16Array(rows * 3) : undefined;
-    for (let q = 0; q < rows; q++) {
-      const row: number[] = [];
-      for (let j = 0; j < width; j++) {
-        const value = a.array[q * width + j];
-        if (grid) {
-          const cell = Math.round(value / CELL);
-          if (Math.fround(cell * CELL) !== value || Math.abs(cell) > 32767) return attribute(name, a);
-          if (j < 3) origins![q * 3 + j] = cell + 32768;
-          row.push(cell - (origins![q * 3 + j % 3] - 32768));
-        } else row.push(value - (index ? 4 * q : 0));
+  /** Exact lossless v2 voxel-quad encoder for VoxWorld meshes (terrain & glow):
+   *  stores only (plane, w0, u0, su, sw, palIdx, ao, open) sorted by (tile, ORDER_SLOT[dir], plane, w0, u0),
+   *  deriving normal, aVox, aSize, index, shadowTiles.order and shadowTiles.groupOf at decode time (~66% smaller). */
+  function encodeVoxelMesh(geo: THREE.BufferGeometry, layout?: ShadowLayout) {
+    const attrNames = Object.keys(geo.attributes);
+    if (attrNames.length !== 6 || !geo.index) return null;
+    const pA = geo.attributes.position, nA = geo.attributes.normal, cA = geo.attributes.color;
+    const uA = geo.attributes.aVox, sA = geo.attributes.aSize, eA = geo.attributes.aOpen;
+    if (!pA || !nA || !cA || !uA || !sA || !eA) return null;
+    const I = geo.index.array, nq = I.length / 6;
+    if (!Number.isInteger(nq) || nq <= 0 || pA.count !== nq * 4) return null;
+    const P = pA.array, N = nA.array, C = cA.array, U = uA.array, S = sA.array, E = eA.array;
+
+    const tileOf = new Uint16Array(nq);
+    if (layout) {
+      if (!layout.order || layout.order.length !== nq) return null;
+      let off = 0;
+      for (let ti = 0; ti < layout.tiles.length; ti++) {
+        const cnt = layout.tiles[ti].ends[5] / 6;
+        for (let j = 0; j < cnt; j++) tileOf[layout.order[off + j]] = ti;
+        off += cnt;
       }
-      const key = row.join(',');
-      let id = ids.get(key);
-      if (id === undefined) {
-        id = ids.size;
-        if (id > 65535) return attribute(name, a);
-        ids.set(key, id); dictionary.push(...row);
-      }
-      codes[q] = id;
+      if (off !== nq) return null;
     }
-    return { ...attribute(name, new THREE.BufferAttribute(codes, 1)), faces: {
-      width, itemSize: a.itemSize, type: a.array.constructor.name,
-      table: attribute('table', new THREE.Float32BufferAttribute(dictionary, width)),
-      origins: origins && attribute('origins', new THREE.BufferAttribute(origins, 3)),
-    } };
+
+    const dirs = new Uint8Array(nq);
+    const plane = new Int16Array(nq), w0 = new Int16Array(nq), u0 = new Int16Array(nq);
+    const su = new Uint16Array(nq), sw = new Uint16Array(nq);
+    const openMask = new Uint8Array(nq), aoMask = new Uint8Array(nq);
+    const palIdx = new Uint16Array(nq);
+    const palMap = new Map<string, number>(), palRgb: number[] = [];
+    let maxSu = 0, maxSw = 0;
+
+    for (let q = 0; q < nq; q++) {
+      const vp = q * 12;
+      const d = vDirIndex(N[vp], N[vp + 1], N[vp + 2]);
+      const [dx, dy, dz] = V_DIRS[d];
+      for (let k = 0; k < 4; k++) {
+        if (N[vp + k * 3] !== dx || N[vp + k * 3 + 1] !== dy || N[vp + k * 3 + 2] !== dz) return null;
+      }
+      dirs[q] = d;
+      const x = Math.round(P[vp] / CELL), y = Math.round(P[vp + 1] / CELL), z = Math.round(P[vp + 2] / CELL);
+      const pl = dx ? x : dy ? y : z, uu = dx ? y : dy ? z : x, ww = dx ? z : dy ? x : y;
+      if (Math.abs(pl) > 32767 || Math.abs(uu) > 32767 || Math.abs(ww) > 32767) return null;
+      const vu = q * 8;
+      const dsu = Math.round(S[vu]), dsw = Math.round(S[vu + 1]);
+      if (dsu <= 0 || dsw <= 0 || dsu > 65535 || dsw > 65535) return null;
+      // Verify exact corner positions, aVox and aSize
+      const u1 = uu + dsu, w1 = ww + dsw;
+      const exp = dx
+        ? [pl, uu, ww, pl, u1, ww, pl, u1, w1, pl, uu, w1]
+        : dy
+          ? [ww, pl, uu, ww, pl, u1, w1, pl, u1, w1, pl, uu]
+          : [uu, ww, pl, u1, ww, pl, u1, w1, pl, uu, w1, pl];
+      for (let k = 0; k < 12; k++) if (Math.abs(P[vp + k] - exp[k] * CELL) > 1e-4) return null;
+      if (U[vu] !== 0 || U[vu + 1] !== 0 || U[vu + 2] !== dsu || U[vu + 3] !== 0 || U[vu + 4] !== dsu || U[vu + 5] !== dsw || U[vu + 6] !== 0 || U[vu + 7] !== dsw) return null;
+      for (let k = 0; k < 8; k += 2) if (S[vu + k] !== dsu || S[vu + k + 1] !== dsw) return null;
+
+      plane[q] = pl; u0[q] = uu; w0[q] = ww;
+      su[q] = dsu; sw[q] = dsw;
+      if (dsu > maxSu) maxSu = dsu;
+      if (dsw > maxSw) maxSw = dsw;
+
+      const ve = q * 16;
+      const o0 = E[ve], o1 = E[ve + 1], o2 = E[ve + 2], o3 = E[ve + 3];
+      if ((o0 !== 0 && o0 !== 1) || (o1 !== 0 && o1 !== 1) || (o2 !== 0 && o2 !== 1) || (o3 !== 0 && o3 !== 1)) return null;
+      for (let k = 4; k < 16; k += 4) if (E[ve + k] !== o0 || E[ve + k + 1] !== o1 || E[ve + k + 2] !== o2 || E[ve + k + 3] !== o3) return null;
+      openMask[q] = o0 | (o1 << 1) | (o2 << 2) | (o3 << 3);
+
+      // Recover exact base RGB + 4 corner AO levels
+      let bestM = 0, bestSum = -1;
+      for (let k = 0; k < 4; k++) {
+        const s = C[vp + k * 3] + C[vp + k * 3 + 1] + C[vp + k * 3 + 2];
+        if (s > bestSum) { bestSum = s; bestM = k; }
+      }
+      let br = 0, bg = 0, bb = 0, aos = [3, 3, 3, 3];
+      if (bestSum > 1e-6) {
+        let found = false;
+        for (let am = 3; am >= 0; am--) {
+          const inv = 1 / V_AO[am];
+          const tr = C[vp + bestM * 3] * inv, tg = C[vp + bestM * 3 + 1] * inv, tb = C[vp + bestM * 3 + 2] * inv;
+          if (tr > 1.001 || tg > 1.001 || tb > 1.001) continue;
+          let err = 0;
+          const taos = [0, 0, 0, 0];
+          for (let k = 0; k < 4; k++) {
+            const cr = C[vp + k * 3], cg = C[vp + k * 3 + 1], cb = C[vp + k * 3 + 2];
+            let bk = 3, berr = 1e9;
+            for (let a = 0; a < 4; a++) {
+              const e = Math.abs(tr * V_AO[a] - cr) + Math.abs(tg * V_AO[a] - cg) + Math.abs(tb * V_AO[a] - cb);
+              if (e < berr) { berr = e; bk = a; }
+            }
+            taos[k] = bk;
+            if (berr > err) err = berr;
+          }
+          if (err < 2e-4) { br = Math.fround(tr); bg = Math.fround(tg); bb = Math.fround(tb); aos = taos; found = true; break; }
+        }
+        if (!found) return null;
+      }
+      aoMask[q] = aos[0] | (aos[1] << 2) | (aos[2] << 4) | (aos[3] << 6);
+      // Verify index matches exact quad winding + AO diagonal flip
+      const flip = aos[0] + aos[2] < aos[1] + aos[3], pos = dx + dy + dz > 0, vb = q * 4;
+      const iq = flip ? [1, 2, 3, 1, 3, 0] : [0, 1, 2, 0, 2, 3];
+      const expI = pos ? iq : [iq[0], iq[2], iq[1], iq[3], iq[5], iq[4]];
+      for (let k = 0; k < 6; k++) if (I[q * 6 + k] !== vb + expI[k]) return null;
+
+      const ck = `${Math.round(br * 100000)},${Math.round(bg * 100000)},${Math.round(bb * 100000)}`;
+      let pi = palMap.get(ck);
+      if (pi === undefined) {
+        pi = palMap.size;
+        if (pi > 65535) return null;
+        palMap.set(ck, pi);
+        palRgb.push(br, bg, bb);
+      }
+      palIdx[q] = pi;
+    }
+
+    const perm = new Uint32Array(nq);
+    for (let q = 0; q < nq; q++) perm[q] = q;
+    perm.sort((a, b) =>
+      (tileOf[a] - tileOf[b]) ||
+      (V_ORDER_SLOT[dirs[a]] - V_ORDER_SLOT[dirs[b]]) ||
+      (plane[a] - plane[b]) ||
+      (w0[a] - w0[b]) ||
+      (u0[a] - u0[b])
+    );
+
+    const sPlane = new Uint16Array(nq), sW = new Uint16Array(nq), sU = new Uint16Array(nq);
+    const suBytes: 1 | 2 = maxSu <= 255 ? 1 : 2, swBytes: 1 | 2 = maxSw <= 255 ? 1 : 2;
+    const sSu = suBytes === 1 ? new Uint8Array(nq) : new Uint16Array(nq);
+    const sSw = swBytes === 1 ? new Uint8Array(nq) : new Uint16Array(nq);
+    const palBytes: 1 | 2 = palMap.size <= 256 ? 1 : 2;
+    const sPal = palBytes === 1 ? new Uint8Array(nq) : new Uint16Array(nq);
+    const sAo = new Uint8Array(nq), sOpen = new Uint8Array(nq);
+    const dirCounts = [0, 0, 0, 0, 0, 0];
+
+    for (let i = 0; i < nq; i++) {
+      const q = perm[i];
+      sPlane[i] = (plane[q] + 32768) & 0xffff;
+      sW[i] = (w0[q] + 32768) & 0xffff;
+      sU[i] = (u0[q] + 32768) & 0xffff;
+      sSu[i] = su[q]; sSw[i] = sw[q];
+      sPal[i] = palIdx[q];
+      sAo[i] = aoMask[q];
+      sOpen[i] = openMask[q];
+      dirCounts[V_ORDER_SLOT[dirs[q]]]++;
+    }
+
+    let tilesOut;
+    if (layout) {
+      // Sanity check that per-tile direction endpoints match after sorting
+      let off = 0;
+      for (let ti = 0; ti < layout.tiles.length; ti++) {
+        const ends = layout.tiles[ti].ends;
+        let prev = 0;
+        for (let s = 0; s < 6; s++) {
+          const end = ends[s] / 6;
+          for (let j = prev; j < end; j++) {
+            const q = perm[off + j];
+            if (tileOf[q] !== ti || V_ORDER_SLOT[dirs[q]] !== s) return null;
+          }
+          prev = end;
+        }
+        off += prev;
+      }
+      const oldToNew = new Uint32Array(nq);
+      for (let i = 0; i < nq; i++) oldToNew[perm[i]] = i;
+      const pCode = new Uint8Array(nq), pExtra: number[] = [];
+      for (let i = 0; i < nq; i++) {
+        const oldP = layout.partner[perm[i]];
+        if (oldP === 0) pCode[i] = 0;
+        else if (oldP === -1) pCode[i] = 1;
+        else {
+          const delta = oldToNew[oldP - 1] - i;
+          if (delta >= 1 && delta <= 253) pCode[i] = delta + 1;
+          else { pCode[i] = 255; pExtra.push(delta); }
+        }
+      }
+      tilesOut = {
+        tiles: layout.tiles,
+        pCode: pushSpan(pCode),
+        pExtra: pExtra.length ? pushSpan(Buffer.from(new Int32Array(pExtra).buffer)) : undefined,
+      };
+    }
+
+    const voxel = {
+      nq,
+      dirCounts: layout ? undefined : dirCounts,
+      plane: pushSpan(byteSplitDeltaU16(sPlane)),
+      w0: pushSpan(byteSplitDeltaU16(sW)),
+      u0: pushSpan(byteSplitDeltaU16(sU)),
+      su: { ...pushSpan(sSu instanceof Uint8Array ? sSu : byteSplitRawU16(sSu)), bytes: suBytes },
+      sw: { ...pushSpan(sSw instanceof Uint8Array ? sSw : byteSplitRawU16(sSw)), bytes: swBytes },
+      palRgb: pushSpan(Buffer.from(new Float32Array(palRgb).buffer)),
+      palIdx: { ...pushSpan(sPal instanceof Uint8Array ? sPal : byteSplitDeltaU16(sPal)), bytes: palBytes },
+      ao: pushSpan(sAo),
+      open: pushSpan(sOpen),
+    };
+    return { voxel, tiles: tilesOut };
   }
   function add(obj: THREE.Object3D, source = 'plain', cut = false) {
     if (obj.userData.stageEffect) {
@@ -114,29 +312,44 @@ function bake(def: SceneDef, combat: boolean, report?: any) {
     if (material === 'plain' && !['MeshLambertMaterial', 'MeshStandardMaterial', 'MeshBasicMaterial'].includes(mat.type))
       throw Error('Unregistered scenery material ' + mat.type);
     mesh.updateMatrix();
-    const encode = source === 'terrain' || source === 'glow' ? faceAttribute : attribute;
-    const attributes = Object.entries(geo.attributes).map(([k, v]) => encode(k, v as THREE.BufferAttribute));
-    if (geo.index) attributes.push(encode('index', geo.index));
     const layout = shadows.get(mesh);
-    const tiles = layout && {
-      tiles: layout.tiles, groups: layout.groups,
-      order: attribute('order', new THREE.BufferAttribute(layout.order, 1)),
-      groupOf: attribute('groupOf', new THREE.BufferAttribute(layout.groupOf, 1)),
-      partner: attribute('partner', new THREE.BufferAttribute(new Uint32Array(layout.partner.buffer), 1)),
-    };
-    meshes.push({
-      tiles,
-      material,
-      plain: material === 'plain' ? mat.toJSON() : undefined,
-      glow: cut ? 2.6 : combat ? 1.35 : (def.mood.glowK ?? 2.6),
-      cut,
-      shadow: mesh.castShadow || !!mesh.userData.shadowTiled,
-      receive: mesh.receiveShadow,
-      order: mesh.renderOrder,
-      name: mesh.name,
-      matrix: mesh.matrix.toArray(),
-      attributes,
-    });
+    const vox = (source === 'terrain' || source === 'glow') ? encodeVoxelMesh(geo, layout) : null;
+    if (vox) {
+      meshes.push({
+        tiles: vox.tiles,
+        material,
+        glow: cut ? 2.6 : combat ? 1.35 : (def.mood.glowK ?? 2.6),
+        cut,
+        shadow: mesh.castShadow || !!mesh.userData.shadowTiled,
+        receive: mesh.receiveShadow,
+        order: mesh.renderOrder,
+        name: mesh.name,
+        matrix: mesh.matrix.toArray(),
+        voxel: vox.voxel,
+      });
+    } else {
+      const attributes = Object.entries(geo.attributes).map(([k, v]) => attribute(k, v as THREE.BufferAttribute));
+      if (geo.index) attributes.push(attribute('index', geo.index));
+      const tiles = layout && layout.order && layout.groupOf && layout.groups ? {
+        tiles: layout.tiles, groups: layout.groups,
+        order: attribute('order', new THREE.BufferAttribute(layout.order, 1)),
+        groupOf: attribute('groupOf', new THREE.BufferAttribute(layout.groupOf, 1)),
+        partner: attribute('partner', new THREE.BufferAttribute(new Uint32Array(layout.partner.buffer), 1)),
+      } : undefined;
+      meshes.push({
+        tiles,
+        material,
+        plain: material === 'plain' ? mat.toJSON() : undefined,
+        glow: cut ? 2.6 : combat ? 1.35 : (def.mood.glowK ?? 2.6),
+        cut,
+        shadow: mesh.castShadow || !!mesh.userData.shadowTiled,
+        receive: mesh.receiveShadow,
+        order: mesh.renderOrder,
+        name: mesh.name,
+        matrix: mesh.matrix.toArray(),
+        attributes,
+      });
+    }
     if (!terrain.includes(mesh)) geo.dispose();
   }
   const w = new VoxWorld(CELL, true),
@@ -190,11 +403,11 @@ function bake(def: SceneDef, combat: boolean, report?: any) {
   let light;
   if (field) {
     const { depth, ...projection } = field;
-    const packed = deflateRawSync(depth);
+    const packed = deflateRawSync(depth, { level: 9 });
     light = { ...projection, start: size, length: packed.length };
     chunks.push(packed); size += packed.length;
   }
-  const meta = deflateRawSync(Buffer.from(JSON.stringify({ version: 1, ops, meshes, light, report: details })));
+  const meta = deflateRawSync(Buffer.from(JSON.stringify({ version: 2, ops, meshes, light, report: details })), { level: 9 });
   const header = Buffer.alloc(8);
   header.writeUInt32LE(0x314b4255);
   header.writeUInt32LE(meta.length, 4);

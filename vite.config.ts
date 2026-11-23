@@ -17,6 +17,20 @@ const PXUI = path.resolve(ROOT, 'src/vendor/pxui');   // pxui's platform layer, 
  *  the build and the tests (Vite's own ?inline only inlines at build time); the dev server reloads when one is saved */
 const voxBytes = (): Plugin => ({ name: 'vox-bytes', enforce: 'pre', load(id) { const f = id.split('?')[0]; if (!f.endsWith('.vox')) return null; this.addWatchFile(f); return `export default ${JSON.stringify(readFileSync(f).toString('base64'))};`; } });
 
+/** Strip debug-only tools (animPreview / lab / tunePanel) and unused alternate body fonts (serif / sans) from release packages (!__DEBUG_UI__). */
+const stripReleaseDead = (): Plugin => ({
+  name: 'strip-release-dead',
+  enforce: 'pre',
+  load(id) {
+    const f = id.split('?')[0].replace(/\\/g, '/');
+    if (/\/fonts\/body\/(?:serif|sans)\.woff2$/.test(f)) return 'export default "";';
+    if (/\/src\/present\/act\/animPreview\.ts$/.test(f)) return 'export function openAnimPreview() {}';
+    if (/\/src\/present\/act\/lab\.ts$/.test(f)) return 'export function openLab() {}';
+    if (/\/src\/present\/act\/tunePanel\.ts$/.test(f)) return 'export function installActTune() {}';
+    return null;
+  },
+});
+
 const englishHtml = (crazy: boolean): Plugin => ({
   name: 'unseen-blade-english-html',
   transformIndexHtml: {
@@ -52,7 +66,9 @@ export default defineConfig(({ command, mode }) => { const WX = command === 'bui
     hmr: { overlay: false },   // errors go to the console / cap.mjs log.txt, not over the screenshots
     watch: { ignored: ['**/docs/**', '**/out/**', '**/dist/**'] },
   },
-  plugins: WX ? [voxBytes(), wxAssets(ROOT)] : [voxBytes(), ...(EN ? [englishHtml(CG)] : []), ...(command === 'build' ? [viteSingleFile()] : [])],
+  plugins: WX
+    ? [stripReleaseDead(), wxAssets(ROOT)]
+    : [voxBytes(), ...(CG ? [stripReleaseDead()] : []), ...(EN ? [englishHtml(CG)] : []), ...(command === 'build' ? [viteSingleFile()] : [])],
   build: WX ? {
     // the mini-game: one script (no HTML), the sounds / portraits / fonts as files
     // (11-18: ES2015 — WeChat's upload compiler doesn't take ?. / ?? and the like: 「invalid file: game.js … SyntaxError: Unexpected token .」;

@@ -433,4 +433,17 @@ globalThis.__ubWxAudio = function () {
   return context;
 };
 
+// Expose file-scoped shims to the `engine` code subpackage (which runs in its own module scope on WeChat).
+GameGlobal.__ubEnv = {
+  document: document,
+  WebGL2RenderingContext: WebGL2RenderingContext,
+  self: self,
+  navigator: navigator,
+  performance: performance,
+  localStorage: localStorage,
+  atob: atob,
+  fetch: fetch
+};
+
+
 
