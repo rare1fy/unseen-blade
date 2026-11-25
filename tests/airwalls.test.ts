@@ -6,8 +6,12 @@ import { VoxWorld } from '../src/present/look/voxkit';
 import { CELL } from '../src/present/bestiary/kit';
 import { ROOM_MAPS, mapStage, mapShape, drawnExits } from '../src/present/asm/roomMaps';
 import { FloorGrid, FLOOR } from '../src/present/asm/roomShape';
+import { outline } from '../src/present/asm/shapeBuild';
+import { arenaPlan, buildArena } from '../src/present/asm/arena';
+import { LAYOUTS } from '../src/present/asm/layouts';
+import { stageLayout } from '../src/present/asm/assemble';
 import { exitInfo } from '../src/present/asm/exits';
-import { PLAY } from '../src/present/scenes/props';
+import { PLAY, M, setStage } from '../src/present/scenes/props';
 
 const WALL_SOLID: Solid = { id: 0, kind: 'wall', shape: 'box', x: 0, z: 0, hx: 0, hz: 0, r: 0, on: true, slam: true };
 const HERO_R = 0.38;
@@ -199,5 +203,51 @@ describe('Airwall elimination & two-way exit corridors', () => {
         expect(Math.hypot(back.x - inside.x, back.z - inside.z), `${m.id} ${e.side} walk back`).toBeLessThan(0.25);
       }
     }
+  });
+
+  it('act-189: every drawn ROOM_MAP and rectangular arena builds real 3D physical south walls (zero camera-side airwalls)', () => {
+    for (const m of ROOM_MAPS) {
+      mapStage(m);
+      const sp = mapShape(m);
+      const g = new FloorGrid({ ...sp, fixed: { ...sp.fixed!, closed: [] } }, 4);
+      const frontJ = g.iz(sp.box.z1 - 0.01);
+      const hasFrontFloor = Array.from({ length: g.nx }, (_, i) => g.kind(i, frontJ) === FLOOR).some(Boolean);
+      const runs = outline(g);
+      const frontRuns = runs.filter(r => r.front);
+      if (hasFrontFloor) {
+        expect(frontRuns.length, `${m.id} must have physical front south wall runs`).toBeGreaterThan(0);
+      }
+    }
+
+    // Spot-check real 3D voxels along PLAY.z1 across drawn maps & rectangular arena (plus openFront title opt-out)
+    const sampleIds = ['crossroads', 'palace_road', 'islands', 'wl_chains', 'cx_study'].filter(id => ROOM_MAPS.some(m => m.id === id));
+    for (const id of sampleIds) {
+      const m = ROOM_MAPS.find(q => q.id === id)!;
+      mapStage(m);
+      const sp = mapShape(m);
+      const layout = { ...stageLayout(LAYOUTS.axis), drawn: drawnExits(sp.fixed!, ['back']) };
+      const plan = arenaPlan(layout, ['back'], m.seed, m.locale, m.kind, sp);
+      const w = new VoxWorld(CELL);
+      buildArena({ w, cards: { add() {} }, light() {}, ambient() {}, shaft() {}, water() {}, add() {} } as never, plan, m.seed);
+      const zFront = M(PLAY.z1) + 2;
+      let solidCols = 0;
+      for (let x = PLAY.x0 + 0.5; x < PLAY.x1 - 0.5; x += 0.35) {
+        if (w.has(M(x), 8, zFront)) solidCols++;
+      }
+      expect(solidCols, `${id} south boundary must have solid chest-high voxels`).toBeGreaterThan(4);
+    }
+
+    // Rectangular arena (PRO_ROOM / PRO_BOSS) builds real south wall & closed gate unless openFront=true (title screen)
+    setStage(true);
+    const rectPlan = arenaPlan(stageLayout(LAYOUTS.axis), ['back'], 101, 'hj_village', 'fight');
+    const wClosed = new VoxWorld(CELL);
+    buildArena({ w: wClosed, cards: { add() {} }, light() {}, ambient() {}, shaft() {}, water() {}, add() {} } as never, rectPlan, 101);
+    expect(wClosed.has(M(0), 8, M(PLAY.z1) + 3), 'rect south closed entry gate voxels').toBe(true);
+    expect(wClosed.has(M(-5), 8, M(PLAY.z1) + 3), 'rect south wall voxels').toBe(true);
+
+    rectPlan.openFront = true;
+    const wOpen = new VoxWorld(CELL);
+    buildArena({ w: wOpen, cards: { add() {} }, light() {}, ambient() {}, shaft() {}, water() {}, add() {} } as never, rectPlan, 101);
+    expect(wOpen.has(M(0), 8, M(PLAY.z1) + 3), 'title openFront leaves south open').toBe(false);
   });
 });

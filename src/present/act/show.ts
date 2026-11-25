@@ -666,7 +666,7 @@ export class ActShow {
         const leapSpan = Math.min(2.2, edgeDist);
         const land = edgeDist <= 2.4 ? to.clone() : V3(crest.x - dx * leapSpan, 0, crest.z - dz * leapSpan);
         if (this.grid && this.grid.at(land.x, land.z) !== FLOOR) { const q = this.grid.nearestFloor(land.x, land.z); land.set(q[0], 0, q[1]); }
-        const wall = hitFront ? 0 : 2.45;
+        const wall = hitFront ? 1.25 : 2.45;
         const f = spawnFoe(ko.kind, from, h.pos.clone(), ko.elite); f.st = 'enter'; f.cd = 2.5;
         f.a.root.visible = false;
         this.foes.push(f);
@@ -4810,7 +4810,7 @@ export class ActShow {
       const ux = (p.x - ex) / len, uz = (p.z - ez) / len;
       let dist = -1; for (let t = 1.4 + (i % 3) * 0.55; t < Math.min(len, 6); t += 0.3) if (okAt(ex + ux * t, ez + uz * t)) { dist = t; break; }
       if (dist < 0) continue;
-      const front = k === 3, wall = front ? 0 : 2.45;
+      const front = k === 3, wall = front ? 1.25 : 2.45;
       const crest = V3(ex, 0, ez);
       const from = V3(ex - ux * 0.9, 0, ez - uz * 0.9);
       const to = V3(ex + ux * dist, 0, ez + uz * dist);
@@ -4843,7 +4843,7 @@ export class ActShow {
     const inDx = to.x - ex, inDz = to.z - ez, dist = Math.hypot(inDx, inDz);
     const land = dist > 2.3 ? V3(ex + (inDx / dist) * 2.1, 0, ez + (inDz / dist) * 2.1) : to.clone();
     if (g && g.at(land.x, land.z) !== FLOOR) land.copy(to);
-    return { from, crest, land, to, wall: front ? 0 : 2.45 };
+    return { from, crest, land, to, wall: front ? 1.25 : 2.45 };
   }
   /** act-135 / act-137: boss-summoned reinforcements climb over the arena perimeter walls / rush in from outside, staggered cleanly */
   private spawnReinforce(kind: EKind, idx = 0): Foe | null {
@@ -4991,7 +4991,7 @@ export class ActShow {
       : [];
     this.lastPush = clampWithDoors(p, r, {
       play: PLAY,
-      pad: yard ? { x: 0, z0: 0, z1: 0 } : { x: 0.02, z0: 0.02, z1: 0.1 },
+      pad: yard ? { x: 0, z0: 0, z1: 0 } : { x: 0.02, z0: 0.02, z1: 0.02 },
       doors: activeDoors,
       grid: this.grid,
       overPit: this.overPit,

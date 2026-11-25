@@ -40,9 +40,13 @@ export interface ArenaPlan { style: WallStyle; gates: Gate[]; covers: Cover[]; p
   /** the wall's inner face sits this far outside PLAY (m) and it is this thick / tall */ wall: { gap: number; thick: number; h: number };
   /** 11-18 屋子形态: the room's shape (asm/roomShape.ts) — its walls follow the floor's outline, its pits and bridges; absent = the
    *  act-19 rectangle (the title screens) */
-  shape?: ShapePlan }
+  shape?: ShapePlan;
+  /** act-189: leave the camera-side (+z) wall open (used only by low eye-level title screens) */
+  openFront?: boolean }
 
 export const WALL = { gap: 0.1, thick: 0.49, h: 1.19 };
+/** act-189: chest-high physical south (camera-side) perimeter wall height (1.19 m = 17 cells) — clearly blocks the player while keeping torso/head/telegraphs legible */
+export const SOUTH_WALL_H = WALL.h;
 /** 11-18 (用户：「我觉得怎么那么多矮墙啊……感觉墙都没人高，很不自然」): a wall stands taller than a person (she is ≈ 1.7 m); a field's
  *  wattle fence, a ship's rail and a sandbag breastwork are low by nature and keep the old height */
 export const WALL_TALL = 2.45;
@@ -301,22 +305,84 @@ export function buildArena(c: Ctx, plan: ArenaPlan, seed: number) {
   if (plan.shape) { buildShape(c, plan.shape, plan, seed); return; }
   const box: B = (x0, y0, z0, x1, y1, z1, col) => { c.w.box(Math.min(x0, x1), y0, Math.min(z0, z1), Math.max(x0, x1), y1, Math.max(z0, z1), col); };
   const r = (k: number) => hash(seed * 3 + 5, k, 919);
-  const H = M(wallHOf(plan.style)) - 1, T = M(plan.wall.thick), G = M(plan.wall.gap);
-  // the three runs, in cells: left (x fixed, along z), right, back (z fixed, along x); the front stays open
+  const H = M(wallHOf(plan.style)) - 1, Hfront = M(SOUTH_WALL_H) - 1, T = M(plan.wall.thick), G = M(plan.wall.gap);
+  // act-189: enclose ALL four sides with real walls — left, right, back at full height, and south (camera side) at chest height + closed entry gate (unless openFront for title screens)
   const xl0 = M(PLAY.x0) - G - T, xl1 = M(PLAY.x0) - G - 1, xr0 = M(PLAY.x1) + G, xr1 = M(PLAY.x1) + G + T - 1;
-  const zb0 = M(PLAY.z0) - G - T, zb1 = M(PLAY.z0) - G - 1, zf = M(PLAY.z1) + 2;
+  const zb0 = M(PLAY.z0) - G - T, zb1 = M(PLAY.z0) - G - 1;
+  const zf0 = M(PLAY.z1) + G, zf1 = zf0 + T - 1;
+  const zSideEnd = plan.openFront ? M(PLAY.z1) + 2 : zf1;
   const holes = (along: 'x' | 'z', side: number) => plan.gates.filter(g => g.along === along && (along === 'x' || Math.sign(g.out[0]) === side)).map(g => along === 'x' ? [M(g.x - g.w / 2), M(g.x + g.w / 2)] : [M(g.z - g.w / 2), M(g.z + g.w / 2)]);
-  const run = (along: 'x' | 'z', a0: number, a1: number, b0: number, b1: number, gaps: number[][], salt: number) => {
+  const run = (along: 'x' | 'z', a0: number, a1: number, b0: number, b1: number, gaps: number[][], salt: number, hWall = H) => {
     // split the run at the gaps; each piece is built by the style, with a broken-down stretch now and then (lower, axis-aligned)
     const cuts = [a0, ...gaps.flat().sort((p, q) => p - q), a1]; let k = salt;
     for (let i = 0; i < cuts.length; i += 2) {
       const s0 = cuts[i] + (i ? 1 : 0), s1 = cuts[i + 1] - (i + 1 < cuts.length - 1 ? 1 : 0); if (s1 - s0 < 2) continue;
-      wallPiece(box, plan.style, along, s0, s1, b0, b1, H, r, k++);
+      wallPiece(box, plan.style, along, s0, s1, b0, b1, hWall, r, k++);
     }
   };
-  run('z', zb0, zf, xl0, xl1, holes('z', -1), 10); run('z', zb0, zf, xr0, xr1, holes('z', 1), 40); run('x', xl0, xr1, zb0, zb1, holes('x', 0), 70);
+  run('z', zb0, zSideEnd, xl0, xl1, holes('z', -1), 10); run('z', zb0, zSideEnd, xr0, xr1, holes('z', 1), 40); run('x', xl0, xr1, zb0, zb1, holes('x', 0), 70);
+  if (!plan.openFront) {
+    const gw = 2.6, gx = 0;
+    const g0 = M(gx - gw / 2), g1 = M(gx + gw / 2);
+    run('x', xl0, xr1, zf0, zf1, [[g0, g1]], 100, Hfront);
+    southGateFrame(box, plan.style, gx, zf0, zf1, gw);
+  }
   for (const g of plan.gates) gateFrame(box, plan.style, g, T, G);
   void r;   // act-20: the cover pieces are breakable now — built by act/breakables.ts from coverVox()
+}
+
+/** act-189: closed chest-high south entry gate (twin open-top stone-plinth gate piers + shut double doors with cross lock-bar).
+ *  Open-top design keeps the hero & camera sightline 100% clear while physically sealing the entry road behind the player. */
+export function southGateFrame(box: B, st: WallStyle, cx: number, z0: number, z1: number, w = 2.6) {
+  const half = Math.round(M(w) / 2), cA = M(cx);
+  const ext = ARENA_STYLES[st]?.post;
+  const post = ext?.[0] ?? (st === 'brick' ? PAL.red : st === 'plaster' ? 0x2a2a30 : PAL.wood);
+  const postD = ext?.[1] ?? (st === 'brick' ? PAL.redD : st === 'plaster' ? 0x1a1a20 : PAL.woodD);
+  const postL = ext?.[2] ?? (st === 'brick' ? PAL.redL : st === 'plaster' ? 0x3e3e46 : PAL.woodL);
+  const warmGate = st === 'earth' || st === 'wattle';
+  const stC = warmGate ? PAL.earth.base : PAL.stone, stD = warmGate ? PAL.earth.baseD : PAL.stoneD, stL = warmGate ? PAL.earth.baseL : PAL.stoneL;
+  const m0 = Math.floor((z0 + z1) / 2) - 2, m1 = m0 + 4;
+  const pierH = st === 'wattle' || st === 'rail' || st === 'sandbag' ? 20 : 23;
+  const doorH = 15;
+  // Stone/timber threshold across the entry doorway
+  box(cA - half - 2, -1, z0 - 1, cA + half + 2, -1, z1 + 1, stC);
+  box(cA - half - 2, -1, z0 - 1, cA + half + 2, -1, z0 - 1, stL);
+  // Twin open-top flanking gate piers (双阙门柱)
+  for (const s of [-1, 1]) {
+    const a = cA + s * (half + 2), a0 = a - 2, a1 = a + 2;
+    box(a0 - 1, 0, m0 - 1, a1 + 1, 2, m1 + 1, stD);
+    box(a0 - 1, 3, m0 - 1, a1 + 1, 4, m1 + 1, stC);
+    box(a0, 4, m0, a1, 4, m1, stL);
+    box(a0, 5, m0, a1, pierH, m1, post);
+    box(a0, 5, m0, a0, pierH, m0, postD);
+    box(a1, 5, m1, a1, pierH, m1, postL);
+    box(a0, 6, m0, a1, 7, m1, PAL.ironD);
+    // Stepped stone/tile pier cap (no overhead roof beam blocking camera)
+    const capC = st === 'plaster' || st === 'palace' ? PAL.tile : warmGate ? PAL.earth.cap : stC;
+    const capL = st === 'plaster' || st === 'palace' ? PAL.tileL : warmGate ? PAL.earth.capL : stL;
+    box(a0 - 1, pierH + 1, m0 - 1, a1 + 1, pierH + 2, m1 + 1, capC);
+    box(a0, pierH + 3, m0, a1, pierH + 3, m1, capL);
+  }
+  // Closed double doors / heavy timber gate (紧闭双扉门) with horizontal bands & inner cross lock-bar (门闩)
+  const dm0 = Math.floor((z0 + z1) / 2) - 1, dm1 = dm0 + 2;
+  const doorC = st === 'brick' || st === 'palace' ? PAL.redD : st === 'rail' ? PAL.rail.board : st === 'plaster' ? 0x343236 : PAL.wood;
+  const doorD = st === 'brick' || st === 'palace' ? 0x3c1814 : st === 'rail' ? PAL.rail.boardD : st === 'plaster' ? 0x222024 : PAL.woodD;
+  const doorL = st === 'brick' || st === 'palace' ? PAL.red : st === 'rail' ? PAL.rail.railL : st === 'plaster' ? 0x4c4850 : PAL.woodL;
+  // Low stone/wood sill
+  box(cA - half, 0, dm0, cA + half, 1, dm1, stD);
+  // Left & right closed door leaves
+  box(cA - half, 2, dm0, cA - 1, doorH, dm1, doorC);
+  box(cA + 1, 2, dm0, cA + half, doorH, dm1, doorC);
+  box(cA, 2, dm0, cA, doorH, dm1, doorD); // center door seam
+  // Vertical plank grooves
+  for (let x = cA - half + 4; x < cA + half - 2; x += 5) if (Math.abs(x - cA) > 1) box(x, 2, dm0, x, doorH, dm0, doorD);
+  // Top timber rail & iron strap bands
+  box(cA - half, doorH, dm0, cA + half, doorH, dm1, doorL);
+  for (const y of [4, 11]) box(cA - half, y, dm0 - 1, cA + half, y + 1, dm1 + 1, PAL.ironD);
+  // Heavy wooden lock-bar across the inner (north) face + twin bronze ring studs
+  box(cA - half + 2, 7, dm0 - 1, cA + half - 2, 9, dm0 - 1, PAL.woodL);
+  box(cA - 4, 8, dm0 - 1, cA - 3, 9, dm0 - 1, PAL.bronzeL);
+  box(cA + 3, 8, dm0 - 1, cA + 4, 9, dm0 - 1, PAL.bronzeL);
 }
 
 /** one straight stretch of wall between a0..a1 (cells along the run), b0..b1 across it (shapeBuild.ts builds a shape's walls with it) */
