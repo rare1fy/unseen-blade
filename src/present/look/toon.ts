@@ -35,7 +35,6 @@ export function toon(color: THREE.ColorRepresentation, o: ToonOpts = {}): THREE.
       .replace('#include <lights_toon_pars_fragment>', `varying vec3 vViewPosition;
 struct ToonMaterial { vec3 diffuseColor; };
 void RE_Direct_Toon( const in IncidentLight directLight, const in vec3 geometryPosition, const in vec3 geometryNormal, const in vec3 geometryViewDir, const in vec3 geometryClearcoatNormal, const in ToonMaterial material, inout ReflectedLight reflectedLight ) {
-  vec3 toonIrr = getGradientIrradiance( geometryNormal, directLight.direction );
   if (uCraft > 0.5) {
     float ndl = dot( geometryNormal, directLight.direction );
     vec3 dc = material.diffuseColor;
@@ -79,11 +78,13 @@ void RE_Direct_Toon( const in IncidentLight directLight, const in vec3 geometryP
     }
   } else {
     vec3 dc = material.diffuseColor;
-    vec3 irr = toonIrr;
+    vec3 irr;
     if (uPxPolish > 0.5) {
-      // Classic 2x Hue-Shifted 4-step hard cel ramp (zero softness, cool indigo shadow -> warm sunlit peak)
+      // Classic 2x Hue-Shifted 4-step hard cel ramp (zero softness, skips gradientMap texture read)
       float t = dot( geometryNormal, directLight.direction ) * 0.5 + 0.5;
       irr = t < 0.22 ? vec3(0.27, 0.31, 0.45) : t < 0.45 ? vec3(0.47, 0.51, 0.62) : t < 0.75 ? vec3(0.79, 0.78, 0.76) : vec3(0.99, 0.97, 0.93);
+    } else {
+      irr = getGradientIrradiance( geometryNormal, directLight.direction );
     }
     vec3 diff = irr * directLight.color * BRDF_Lambert( dc );
     // Subtle metallic specular glint for characters' steel blades & bronze/gold fittings (exclude white hair cMax > 0.72)
@@ -118,10 +119,14 @@ void RE_IndirectDiffuse_Toon( const in vec3 irradiance, const in vec3 geometryPo
 #define RE_Direct RE_Direct_Toon
 #define RE_IndirectDiffuse RE_IndirectDiffuse_Toon`)
       .replace('#include <opaque_fragment>',
-      `{ float rim = pow(1.0 - clamp(dot(normalize(normal), normalize(vViewPosition)), 0.0, 1.0), uRimPow);
-        float rimBand = uCraft > 0.5 ? (uCraft < 1.5 ? smoothstep(0.42, 0.54, rim) * 1.05 : smoothstep(0.18, 0.84, rim) * 0.78) : smoothstep(0.35, 0.6, rim);
-        float actorBoost = (uCraft < 0.5 && uPxPolish > 0.5 && uSelf > 0.04) ? 1.15 : 1.0;
-        outgoingLight += uRimColor * rimBand * uRimStrength * uRimK * actorBoost * (0.5 + 0.5 * diffuseColor.rgb) + diffuseColor.rgb * uSelf;
+      `{ float rimK = uRimStrength * uRimK;
+        if (rimK > 0.001) {
+          float rim = pow(1.0 - clamp(dot(normalize(normal), normalize(vViewPosition)), 0.0, 1.0), uRimPow);
+          float rimBand = uCraft > 0.5 ? (uCraft < 1.5 ? smoothstep(0.42, 0.54, rim) * 1.05 : smoothstep(0.18, 0.84, rim) * 0.78) : smoothstep(0.35, 0.6, rim);
+          float actorBoost = (uCraft < 0.5 && uPxPolish > 0.5 && uSelf > 0.04) ? 1.15 : 1.0;
+          outgoingLight += uRimColor * rimBand * rimK * actorBoost * (0.5 + 0.5 * diffuseColor.rgb);
+        }
+        outgoingLight += diffuseColor.rgb * uSelf;
         // non-emissive surfaces roll off smoothly under the bloom threshold (knee 0.76, asymptote 1.07 < 1.12),
         // keeping midtones punchy while preserving snow/stone highlight gradation and preventing white-hair bloom
         if ((uCraft > 0.5 || uPxPolish > 0.5) && dot(totalEmissiveRadiance, vec3(1.0)) < 0.05) {

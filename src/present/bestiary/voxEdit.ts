@@ -71,7 +71,7 @@ export function applyVox(v: VoxChar, f: VoxFile, warn: (msg: string) => void = (
 const FILES = import.meta.glob('../../../vox/*.vox', { eager: true, import: 'default' }) as Record<string, string>;
 const b64 = (s64: string) => { const s = atob(s64), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return u; };
 const voxBytes = (src: string): Uint8Array => {
-  if (__WX__ && /\.vox$/i.test(src)) {
+  if (__WX__ && /\.(?:vox|bin)$/i.test(src)) {
     const data = wx.getFileSystemManager().readFileSync(src);
     return data instanceof Uint8Array ? data : new Uint8Array(data);
   }
@@ -84,8 +84,15 @@ export function installVoxEdits(defs: ModelDef[] = ROSTER) {
   const done: string[] = [];
   for (const [path, url] of Object.entries(FILES)) {
     const id = path.slice(path.lastIndexOf('/') + 1, -4), def = defs.find(d => d.id === id); if (!def) { console.warn(`vox: no model "${id}" for ${path}`); continue; }
-    let f: VoxFile; try { f = readVox(voxBytes(url)); } catch (e) { console.error(`vox: can't read ${path}`, e); continue; }
-    const code = def.build; CODE_BUILD.set(id, code); def.build = () => applyVox(code(), f, m => console.warn(m));
+    const code = def.build; CODE_BUILD.set(id, code);
+    let parsed: VoxFile | null | undefined;
+    def.build = () => {
+      if (parsed === undefined) {
+        try { parsed = readVox(voxBytes(url)); } catch (e) { console.error(`vox: can't read ${path}`, e); parsed = null; }
+      }
+      const v = code();
+      return parsed ? applyVox(v, parsed, m => console.warn(m)) : v;
+    };
     done.push(id);
   }
   return done;

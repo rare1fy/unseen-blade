@@ -12,7 +12,7 @@ Object.assign(globalThis, {
     }
   },
 });
-const { roomDefinition } = await import('../src/present/act/show');
+const { roomDefinition, PRO_ROOM_IN, PRO_BOSS_IN } = await import('../src/present/act/show');
 const { titleDefinition } = await import('../src/present/act/title');
 import { ROOM_MAPS } from '../src/present/asm/roomMaps';
 import { REGIONS } from '../src/present/act/regions';
@@ -390,7 +390,7 @@ function bake(def: SceneDef, combat: boolean, report?: any) {
     [cut, true],
   ] as const) {
     if (!world.cells.size) continue;
-    for (const m of world.build({ glow: isCut ? 2.6 : combat ? 1.35 : (def.mood.glowK ?? 2.6) }))
+    for (const m of world.build({ glow: isCut ? 2.6 : combat ? 1.35 : (def.mood.glowK ?? 2.6), cullNorth: combat && !isCut }))
       add(m, (m.material as THREE.MeshBasicMaterial).isMeshBasicMaterial ? 'glow' : 'terrain', isCut);
     world.cells.clear();
   }
@@ -415,22 +415,39 @@ function bake(def: SceneDef, combat: boolean, report?: any) {
   fs.writeFileSync(path.join(out, def.pack + '.bin'), bytes);
   console.log('  ' + def.pack + ' ' + (bytes.length / 1048576).toFixed(2) + ' MB');
 }
-bake(titleDefinition(3), false);
+const onlySet = process.env.UB_STAGE_ONLY
+  ? new Set(process.env.UB_STAGE_ONLY.split(',').map(s => s.trim()).filter(Boolean))
+  : null;
+const wantPack = (key: string) => !onlySet || onlySet.has(key);
+
+if (wantPack('title-snow')) bake(titleDefinition(3), false);
 const args = { isYard: false, room: 0, recent: [], nextRooms: [], viewSpec: null, forceSpec: null, noArena: false } as const;
-const yard = roomDefinition({ ...args, isYard: true, recent: [], nextRooms: [], locale: 'ninja_wilds', plan: null });
-bake(yard.def, true);
+if (wantPack('yard')) {
+  const yard = roomDefinition({ ...args, isYard: true, recent: [], nextRooms: [], locale: 'ninja_wilds', plan: null });
+  bake(yard.def, true);
+}
+if (onlySet?.has('pro-village')) {
+  const proVillage = roomDefinition(PRO_ROOM_IN);
+  bake(proVillage.def, true, proVillage.report);
+}
+if (onlySet?.has('pro-boss')) {
+  const proBoss = roomDefinition(PRO_BOSS_IN);
+  bake(proBoss.def, true, proBoss.report);
+}
 const written = new Set<string>();
-for (const [region, rg] of REGIONS.entries()) {
-  for (const m of ROOM_MAPS.filter(map => map.kind === 'boss' ? rg.bossLocale === map.locale : rg.locales.includes(map.locale))) {
-    const plan = { type: m.kind === 'calm' ? 'rest' : m.kind, locale: m.locale, reward: null, waves: [] } as const;
-    // Bake the primary exit layout per room (2 exits for fight/calm, 0/1 for boss) to keep all 49 rooms within WeChat's 30 MB total limit;
-    // rare 1-exit pre-boss rooms fall back cleanly to sliced procedural building via readStagePack().
-    for (const count of m.kind === 'boss' ? [region === REGIONS.length - 1 ? 0 : 1] : [2]) {
-      const r = roomDefinition({ ...args, recent: [], nextRooms: Array(count).fill(plan), locale: m.locale,
-        map: m.id, region, plan: { ...plan, waves: [] }, regionSpec: rg.spec });
-      if (!r.def.pack) throw Error('Missing stage key for ' + m.id);
-      if (!written.has(r.def.pack)) bake(r.def, true, r.report);
-      written.add(r.def.pack);
+if (!onlySet || [...onlySet].some(k => k.startsWith('map-'))) {
+  for (const [region, rg] of REGIONS.entries()) {
+    for (const m of ROOM_MAPS.filter(map => map.kind === 'boss' ? rg.bossLocale === map.locale : rg.locales.includes(map.locale))) {
+      const plan = { type: m.kind === 'calm' ? 'rest' : m.kind, locale: m.locale, reward: null, waves: [] } as const;
+      // Bake the primary exit layout per room (2 exits for fight/calm, 0/1 for boss) to keep all 49 rooms within WeChat's 30 MB total limit;
+      // rare 1-exit pre-boss rooms fall back cleanly to sliced procedural building via readStagePack().
+      for (const count of m.kind === 'boss' ? [region === REGIONS.length - 1 ? 0 : 1] : [2]) {
+        const r = roomDefinition({ ...args, recent: [], nextRooms: Array(count).fill(plan), locale: m.locale,
+          map: m.id, region, plan: { ...plan, waves: [] }, regionSpec: rg.spec });
+        if (!r.def.pack) throw Error('Missing stage key for ' + m.id);
+        if (wantPack(r.def.pack) && !written.has(r.def.pack)) bake(r.def, true, r.report);
+        written.add(r.def.pack);
+      }
     }
   }
 }

@@ -245,7 +245,7 @@ function* stageSteps(def: SceneDef, options: StageOptions, g: ReturnType<typeof 
   }
   const staticStart = root.children.length;
   if (!packed && options.combat) quietBattleGlow(w);
-  if (!packed) for (const m of yield* w.buildSteps({ glow: options.combat ? 1.35 : md.glowK ?? 2.6, chunk: STAGE_OPTS.chunk })) { if (m.name !== 'shadowTile' && (m.material as THREE.MeshToonMaterial).isMeshToonMaterial) m.userData.stageTerrain = true; root.add(m); }
+  if (!packed) for (const m of yield* w.buildSteps({ glow: options.combat ? 1.35 : md.glowK ?? 2.6, chunk: STAGE_OPTS.chunk, cullNorth: !!options.combat })) { if (m.name !== 'shadowTile' && (m.material as THREE.MeshToonMaterial).isMeshToonMaterial) m.userData.stageTerrain = true; root.add(m); }
   w.cells.clear();   // (the cells are meshed; a prepared place can wait a while, it should not hold two million of them)
   cards.build(root);
   if (cut.cells.size) for (const m of yield* cut.buildSteps({ glow: 2.6, chunk: STAGE_OPTS.chunk })) cutRoot.add(m);

@@ -12,7 +12,7 @@ import { QUALITY } from '../look/quality';
 
 export const TILE_M = 12;
 /** how far (m, on any axis) the camera may wander from where the face list was made before it is made again */
-const CAM_SLACK = 2;
+const CAM_SLACK = 4;
 // blocks in this order: −y, +z, +x, −x, +y, −z (DIRS indices 3, 4, 0, 1, 2, 5)
 const ORDER = [3, 4, 0, 1, 2, 5];
 const dirIndex = (nx: number, ny: number, nz: number) => (nx > 0.5 ? 0 : nx < -0.5 ? 1 : ny > 0.5 ? 2 : ny < -0.5 ? 3 : nz > 0.5 ? 4 : 5);
@@ -68,20 +68,26 @@ function stageTilesPass(camera: THREE.Camera) {
     if (moved) { (view.camAt ??= new THREE.Vector3()).copy(localCamera); view.camTier = QUALITY.tier; }
     const cx = view.camAt!.x, cy = view.camAt!.y, cz = view.camAt!.z;
     let changed = !view.clipped || moved; if (changed) TILE_STATS.byCam++; TILE_STATS.groups = view.groups.length; TILE_STATS.tiles = tiles.length;
+    const e = src.matrixWorld.elements;
+    const isIdentity = e[0] === 1 && e[5] === 1 && e[10] === 1 && e[15] === 1
+      && e[1] === 0 && e[2] === 0 && e[3] === 0 && e[4] === 0 && e[6] === 0 && e[7] === 0
+      && e[8] === 0 && e[9] === 0 && e[11] === 0 && e[12] === 0 && e[13] === 0 && e[14] === 0;
     for (let i = 0; i < tiles.length; i++) {
-      // (the same band for the 12 m tiles: on 1.5 m out, off 3 m out)
-      box.copy(tiles[i].box).applyMatrix4(src.matrixWorld).expandByScalar(visible[i] ? 3 : 1.5);
+      // Widened hysteresis band (on 2 m out, off 5 m out) avoids thrashing tile boundaries during combat dashes
+      box.copy(tiles[i].box);
+      if (!isIdentity) box.applyMatrix4(src.matrixWorld);
+      box.expandByScalar(visible[i] ? 5 : 2);
       const on = frustum.intersectsBox(box);
       // Choose the exterior mesh before it enters the padded view. A visible tile keeps its mesh as the camera tracks.
       if (!visible[i] || !view.clipped || QUALITY.tier === 'high') view.coarse[i] = QUALITY.tier !== 'high' && box.distanceToPoint(camera.position) > 26;
       if (visible[i] !== on) { visible[i] = on; if (!changed) TILE_STATS.byTile++; changed = true; }
     }
-    // (11-19: 377 small groups in a room, each tested against the view every frame. As the camera follows her, one group's edge or
-    //  another crossed the view's edge almost every frame — 51 of 64 rebuilds in 106 frames. Now a group comes on as it nears the
-    //  view (2 m out) and goes off only once it is well clear (4 m out); within that band it keeps whatever it had)
-    for (let i=0; i<view.groups.length; i++) {
+    // Widened group hysteresis band (on 2.5 m out, off 7 m out) prevents index rebuild spikes during fast combat movement
+    for (let i = 0; i < view.groups.length; i++) {
       const was = view.groupsOn[i];
-      box.copy(view.groups[i]).applyMatrix4(src.matrixWorld).expandByScalar(was ? 4 : 2);
+      box.copy(view.groups[i]);
+      if (!isIdentity) box.applyMatrix4(src.matrixWorld);
+      box.expandByScalar(was ? 7 : 2.5);
       const on = frustum.intersectsBox(box);
       if (was !== on) { view.groupsOn[i] = on; if (!changed) TILE_STATS.byGroup++; changed = true; }
     }

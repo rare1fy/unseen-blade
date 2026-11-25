@@ -5,6 +5,8 @@ out/
 .vite/
 dist-wx/
 dist-cg/
+dist-taptap/
+dist-tap-minigame/
 
 __pycache__/
 dist-model/

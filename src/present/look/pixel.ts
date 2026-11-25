@@ -40,7 +40,9 @@ export function onPixelChange(fn: Sub) { subs.push(fn); }
 function changed() { PXU.uPx.value = PX.on ? 1 : 0; for (const f of subs) f(); }
 
 export function setPixel(on: boolean, size?: number) {
-  PX.on = on; if (size != null && size >= 1 && size <= 6) PX.size = Math.round(size);
+  const nextSize = size != null && size >= 1 && size <= 6 ? Math.round(size) : PX.size;
+  if (PX.on === on && PX.size === nextSize && PXU.uPx.value === (on ? 1 : 0)) return PX.on ? PX.size : 0;
+  PX.on = on; PX.size = nextSize;
   changed(); return PX.on ? PX.size : 0;
 }
 export const togglePixel = () => setPixel(!PX.on);

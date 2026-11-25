@@ -30,7 +30,8 @@ export function createGfx(platform: Platform, canvas: any, o: { preserve?: boole
   // (11-18 微信帧率: no MSAA on the canvas itself — the world and the UI layer are drawn in their own targets and only copied onto it)
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false, powerPreference: 'high-performance', preserveDrawingBuffer: !!o.preserve });
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFShadowMap;
+  // Phones use 1-tap crisp BasicShadowMap (matches 2x voxel pixels & avoids 9-tap PCF per lit fragment)
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = QUALITY.phone ? THREE.BasicShadowMap : THREE.PCFShadowMap;
   renderer.info.autoReset = false;
   GL.renderer = renderer; installShadowTiles(renderer); gpuTimeInit(renderer);
   { const cap = renderer.capabilities, ext = renderer.extensions;
@@ -59,13 +60,14 @@ export function createGfx(platform: Platform, canvas: any, o: { preserve?: boole
     if (ready) await ready;
   });
   const fit = () => {
-    const s = platform.canvasSize(); view.w = s.w; view.h = s.h; view.dpr = Math.min(platform.dpr(), PX.on ? 3 : 2);   // the pixel look at native resolution (a 3× phone upscaled 2→3 by the browser blurred the pixels)
+    // Cap phone canvas DPR at 2 (saves ~55% full-screen fragment fill rate on 3x phones while keeping crisp pixel grid)
+    const s = platform.canvasSize(); view.w = s.w; view.h = s.h; view.dpr = Math.min(platform.dpr(), QUALITY.phone ? 2 : (PX.on ? 3 : 2));
     renderer.setPixelRatio(view.dpr); renderer.setSize(s.w, s.h, false); post.setSize(s.w, s.h, view.dpr);
   };
-  fit(); platform.onResize(fit);
+  platform.onResize(fit);
   // the pixel look (look/pixel.ts): the post pipeline swaps to the low-res art buffer; the canvas and the HUD keep full resolution
-  const px = () => { fit(); post.setPixel(PX.on ? PX.size : 0); }; px(); onPixelChange(px);
-  onQualityChange(() => { fit(); post.setSize(view.w, view.h, view.dpr); });
+  const px = () => { post.pixel = PX.on ? PX.size : 0; fit(); }; px(); onPixelChange(px);
+  onQualityChange(() => { fit(); });
   /** ms: the real frame interval; logic / render: CPU time spent in the game update and in issuing the render (smoothed) */
   const stats = { calls: 0, tris: 0, ms: 16, logic: 0, render: 0 };
   const shk = V3(), lk = V3();
@@ -75,9 +77,9 @@ export function createGfx(platform: Platform, canvas: any, o: { preserve?: boole
     start(onFrame, afterRender) {
       const frame = () => {
         platform.raf(frame);
-        // 11-19 (用户：「手机发烫比较严重」): at most the tier's frame rate — on a 90 / 120 Hz screen the extra vsyncs are skipped (a
-        // small slack so a 60 Hz screen's own beat, a hair early, still draws every one)
-        { const now = platform.now(), gap = 1000 / tierNow().fps; if (now - drawnAt < gap - 2.5) return; drawnAt = now - Math.min(gap, Math.max(0, now - drawnAt - gap)); }
+        // 11-19 (用户：「手机发烫比较严重」): at most the tier's frame rate — on mini-games native setPreferredFramesPerSecond(60)
+        // already paces 60 fps (and 90 Hz screens deliver alternating 11.1/22.2 ms intervals that software skipping would turn into 33 ms jank).
+        { const now = platform.now(), fps = tierNow().fps; if (!(__WX__ && fps >= 60)) { const gap = 1000 / fps, minGap = fps >= 60 ? 10 : gap - 2.5; if (now - drawnAt < minGap) return; } drawnAt = now; }
         if (bladeWorking()) {
           last = platform.now();
           drawLoadingBlade(renderer, view.w / Math.max(1, view.h));

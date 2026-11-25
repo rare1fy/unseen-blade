@@ -798,7 +798,7 @@ export function buildDuwuMemorial(): THREE.Group {
   vw.box(-3, 14, -4, -1, 14, -2, CAP);
 
   const g = new THREE.Group();
-  for (const m of vw.build({ rim: 0.25, edge: 0.14 })) {
+  for (const m of vw.build({ rim: 0.25, edge: 0.14, ground: true })) {
     m.castShadow = true;
     m.receiveShadow = true;
     g.add(m);
@@ -816,7 +816,7 @@ export function buildExtraBowl(): THREE.Group {
   vw.box(-2, 1, -2, 2, 2, 2, 0x9c9486); // clay bowl body
   vw.box(-1, 3, -1, 1, 3, 1, 0xe8b868); // warm broth
   const g = new THREE.Group();
-  for (const m of vw.build({ rim: 0.2, edge: 0.12 })) { m.castShadow = true; m.receiveShadow = true; g.add(m); }
+  for (const m of vw.build({ rim: 0.2, edge: 0.12, ground: true })) { m.castShadow = true; m.receiveShadow = true; g.add(m); }
   return g;
 }
 
@@ -866,7 +866,7 @@ export function buildLaidBlades(): THREE.Group {
     vw.box(9, 0, z, 10, 0, z + 1, RING);
   }
   const g = new THREE.Group();
-  for (const m of vw.build({ rim: 0.25, edge: 0.14 })) { m.castShadow = true; m.receiveShadow = true; g.add(m); }
+  for (const m of vw.build({ rim: 0.25, edge: 0.14, ground: true })) { m.castShadow = true; m.receiveShadow = true; g.add(m); }
   return g;
 }
 

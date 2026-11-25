@@ -204,18 +204,47 @@ class AudioEngine {
     this.setRoom(this.room);
     this.voice = ctx.createGain(); this.voice.gain.value = 1.0; this.voice.connect(this.master);
     void Promise.all((o.warm ?? []).map(n => this.warm(n))).then(() => firstSoundsIn());
-    this.loading = this.loadSamples().then(() => (o.prefetch ? this.prefetch() : undefined));
+    // Defer bulk SFX decoding on mini-games until after the title screen is rendered and steady,
+    // and trickle 1 at a time so Android CPUs never register frame-time jank during launch.
+    const isMini = typeof GameGlobal !== 'undefined';
+    const isSinglePkg = isMini && !!(GameGlobal as { __ubSinglePkg?: boolean }).__ubSinglePkg;
+    const runBg = () => this.loadSamples(isMini).then(() => (o.prefetch && !isSinglePkg ? this.prefetch() : undefined));
+    if (isMini) {
+      this.loading = new Promise<void>(res => setTimeout(() => void runBg().then(res), 2500));
+    } else {
+      this.loading = runBg();
+    }
   }
   /** the effects (music is decoded on demand — playMusic / warm: six decoded tracks would hold ~250 MB on a phone) */
-  private async loadSamples() {
+  private async loadSamples(throttled = false) {
     const ctx = this.ctx; if (!ctx) return;
     // (11-18 微信小游戏: a sample that won't load is skipped as before, but none loading at all is reported — the phone stayed silent
     // without a word, act-65)
     let failed: unknown = null, tried = 0;
-    await Promise.all(Object.entries(byName).filter(([n]) => !n.startsWith('bgm_')).map(async ([n, url]) => {
+    const entries = Object.entries(byName).filter(([n]) => !n.startsWith('bgm_') && (!throttled || !n.startsWith('ub_sting_')));
+    const decodeOne = async ([n, url]: [string, string]) => {
+      if (this.buf.has(n)) return;
       // (the build inlines each sample as a data: URL; the dev server hands back a plain file URL — fetch that one)
-      tried++; try { let ab: ArrayBuffer; if (!url.startsWith('data:')) ab = await (await fetch(url)).arrayBuffer(); else { const b64 = url.slice(url.indexOf(',') + 1), bin = atob(b64), arr = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i); ab = arr.buffer; } this.buf.set(n, await ctx.decodeAudioData(ab)); } catch (e) { failed = failed ?? e; /* skip broken sample */ }
-    }));
+      tried++;
+      try {
+        let ab: ArrayBuffer;
+        if (!url.startsWith('data:')) ab = await (await fetch(url)).arrayBuffer();
+        else { const b64 = url.slice(url.indexOf(',') + 1), bin = atob(b64), arr = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i); ab = arr.buffer; }
+        this.buf.set(n, await ctx.decodeAudioData(ab));
+      } catch (e) { failed = failed ?? e; /* skip broken sample */ }
+    };
+    if (throttled) {
+      // Decode UI & draw sounds first, then trickle 1 at a time with 110ms breathing room so Android
+      // devices never register decode/GC frame-time jank (卡顿率); 13s stings decode lazily on demand.
+      const priority = (n: string) => /draw|stab|tick|select|click|swish|hit/.test(n) ? 0 : 1;
+      entries.sort((a, b) => priority(a[0]) - priority(b[0]));
+      for (let i = 0; i < entries.length; i++) {
+        await decodeOne(entries[i]);
+        await new Promise(r => setTimeout(r, 110));
+      }
+    } else {
+      await Promise.all(entries.map(decodeOne));
+    }
     if (tried && !this.buf.size) console.error('[audio] no sound could be loaded:', failed);
     this.ready = true;
   }
@@ -291,7 +320,9 @@ class AudioEngine {
   private live: Array<{ src: AudioBufferSourceNode; pri: number; t: number; endAt: number }> = [];
   /** play one sample: rate / gain jittered; pri = how much it matters (3 her blows, 2 her moves, 1 the foes, 0 the rest) */
   play(name: string, o: { gain?: number; rate?: number; jitter?: number; delay?: number; bus?: 'sfx' | 'voice' | 'hero' | 'sting'; pri?: number; pan?: number } = {}) {
-    const ctx = this.ctx, b = this.buf.get(name); if (!ctx || !b || this.muted) return null;
+    const ctx = this.ctx, b = this.buf.get(name);
+    if (!ctx || this.muted) return null;
+    if (!b) { if (byName[name]) void this.warm(name); return null; }
     const st = ctx.state as string;
     if (st === 'suspended' || st === 'interrupted') { this.wasInterrupted = true; void Promise.resolve(ctx.resume()).catch(() => {}); }
     const pri = o.pri ?? (o.bus === 'hero' ? 2 : 1), now = this.now();
@@ -328,10 +359,17 @@ class AudioEngine {
     const ctx = this.ctx; if (!ctx) return; const v = variants(prefix); if (!v.length) return;
     if (this.stingLast.prefix === prefix && this.now() - this.stingLast.t < 4 && this.stingSrc.length) return;   // still ringing: don't start it over
     this.stingLast = { prefix, t: this.now() };
-    const t = this.now(); this.sting.gain.cancelScheduledValues(t); this.sting.gain.setValueAtTime(1, t);
-    const src = this.play(v[Math.floor(Math.random() * v.length)], { gain, jitter: 0, bus: 'sting', pri: 9 }); if (src) this.stingSrc.push(src);
+    const pick = v[Math.floor(Math.random() * v.length)];
+    const fire = () => {
+      if (!this.ctx || this.stingLast.prefix !== prefix) return;
+      const t = this.now(); this.sting.gain.cancelScheduledValues(t); this.sting.gain.setValueAtTime(1, t);
+      const src = this.play(pick, { gain, jitter: 0, bus: 'sting', pri: 9 }); if (src) this.stingSrc.push(src);
+    };
+    if (this.buf.has(pick)) fire();
+    else void this.warm(pick).then(b => { if (b) fire(); });
   }
   stopSting(fade = 1.0) {
+    this.stingLast = { prefix: '', t: -9 };
     const ctx = this.ctx; if (!ctx || !this.stingSrc.length) return; const t = this.now(), list = this.stingSrc; this.stingSrc = [];
     this.sting.gain.cancelScheduledValues(t); this.sting.gain.setValueAtTime(this.sting.gain.value, t); this.sting.gain.linearRampToValueAtTime(0, t + fade);
     for (const s of list) { try { s.stop(t + fade + 0.05); } catch { /* ended */ } }

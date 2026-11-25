@@ -70,6 +70,7 @@ import { QUALITY, setQuality, type Tier, qualityLabel, cycleQuality } from '../l
 /** act-40 (用户：「现在开场太墨迹了，把那段timeline先搞成黑幕快速交代背景吧」): the cold open as black cards for now (false = the 寒山坞 cutscene) */
 const COLD_AS_CARDS = true;
 import { newGame, profile, save as saveProfile, seeOnce, hasSave } from './profile';
+import { loadRunSave, saveRunState, clearRunSave, runSaveLabel, type RunSave } from './runSave';
 import {
   runMods, runReward, bank, META, MIRROR, level, nextCost, buy, hasAffordable,
   mirrorState, mirrorNextCost, canBuyMirror, hasMirrorAffordable, buyMirror, flipMirror,
@@ -255,7 +256,8 @@ interface RoomIn { isYard: boolean; room: number; recent: Spec[]; locale: string
   /** 11-18 定死的屋子: force this drawn room (asm/roomMaps.ts id); the drawn rooms used this run (not again while others are left) */
   map?: string | null; maps?: string[]; region?: number;
   /** 11-18: the region's defaults for the pick (season …: 下邳 is winter); the place's own lists still apply */ regionSpec?: Partial<Spec> | null;
-  /** act-152: rotating hideout time & weather */ yardAtmo?: { time: HideoutTime; weather: HideoutWeather } }
+  /** act-152: rotating hideout time & weather */ yardAtmo?: { time: HideoutTime; weather: HideoutWeather };
+  /** optional pre-baked stage pack key (e.g. 'pro-village', 'pro-boss') */ pack?: string }
 /** act-152: rotating mountain kiln moods across return visits (first visit stays warm dusk/clear) */
 export const HIDEOUT_ATMOS: ReadonlyArray<{ time: HideoutTime; weather: HideoutWeather }> = [
   { time: 'dusk', weather: 'clear' },
@@ -277,6 +279,15 @@ const PRO_ROOM = { locale: 'hj_village', waves: [['hj_mob', 'hj_blade', 'hj_mob'
 const PRO_BOSS: RoomPlan = { type: 'boss', locale: 'cx_court', reward: null, waves: [['cx_boss']] };   // (11-19 剧情改版: 崔府's forecourt, 崔玄)
 // act-169: deterministic canonical Cui Manor snowy forecourt architecture — west vault wall, north hall & lanterns stay 100% consistent!
 const PRO_BOSS_SPEC: Partial<Spec> = { layout: 'axis', mirror: false, landmark: null, season: 'winter', weather: 'snow', time: 'night', seed: 209 };
+export const PRO_ROOM_IN: RoomIn = {
+  isYard: false, room: 0, recent: [], locale: PRO_ROOM.locale,
+  plan: { type: 'fight', locale: PRO_ROOM.locale, reward: null, waves: PRO_ROOM.waves },
+  nextRooms: [PRO_BOSS], viewSpec: null, forceSpec: { ...PRO_ROOM.spec }, noArena: false, pack: 'pro-village',
+};
+export const PRO_BOSS_IN: RoomIn = {
+  isYard: false, room: 1, recent: [], locale: PRO_BOSS.locale,
+  plan: PRO_BOSS, nextRooms: [], viewSpec: null, forceSpec: { ...PRO_BOSS_SPEC }, noArena: false, pack: 'pro-boss',
+};
 /** 11-19 剧情改版: the five bosses in order (region 0 … 4), the meeting cutscene's name for each */
 const BOSS_ORDER: EKind[] = ['hj_boss', 'ly_boss', 'xp_boss', 'wl_boss', 'cx_boss'];
 /** act-37 the cold open's place: 寒山坞 on that snowy night (its own layout and light) */
@@ -391,7 +402,8 @@ export function roomDefinition(o: RoomIn) {
   if (isYard) return { spec, big, layout, arena, report: null, k, def: hideoutScene(ya) };
   const { def, report } = assemble(spec, REGISTRY);
   def.report = report;
-  if (dm?.kind === roomKind && !o.forceSpec && !o.viewSpec) def.pack = `map-${dm.id}-${spec.season}-${spec.exits?.length ?? 0}`;
+  if (o.pack) def.pack = o.pack;
+  else if (dm?.kind === roomKind && !o.forceSpec && !o.viewSpec) def.pack = `map-${dm.id}-${spec.season}-${spec.exits?.length ?? 0}`;
   return { spec, big, layout, arena, report, k, def };
 }
 
@@ -505,7 +517,7 @@ export class ActShow {
     if (!OPT.roomAhead) return;
     const base = { recent: this.recent.slice(), shapes: this.shapes.slice(), maps: this.maps.slice(), shape: this.forceShape, seed: this.forceSeed, map: this.forceMap, regionSpec: null };
     const want: RoomIn = tag === 'boss'
-      ? { ...base, isYard: false, room: this.room + 1, locale: PRO_BOSS.locale, plan: PRO_BOSS, nextRooms: [], viewSpec: null, forceSpec: { ...PRO_BOSS_SPEC }, noArena: false, region: undefined }
+      ? { ...base, ...PRO_BOSS_IN, room: this.room + 1, forceSpec: { ...PRO_BOSS_SPEC }, region: undefined }
       : tag === 'dawn'
       ? { ...base, isYard: false, room: this.room, locale: this.locale, plan: this.plan, nextRooms: [], viewSpec: this.dawnView() as Spec, forceSpec: null, noArena: true, region: undefined }
       : { ...base, recent: [], isYard: true, room: -1, locale: 'ninja_wilds', plan: null, nextRooms: [], viewSpec: null, forceSpec: null, noArena: false, region: this.region };
@@ -515,7 +527,7 @@ export class ActShow {
   private workPro() {
     const j = this.proAhead;
     if (!j || j.ready || j.wait || bladeBusy()) return;
-    const ms = this.phase === 'cine' || this.phase === 'talk' || this.phase === 'doors' || this.phase === 'leaving' ? 8 : 3;
+    const ms = this.phase === 'cine' || this.phase === 'talk' || this.phase === 'doors' || this.phase === 'leaving' ? 4 : 2;
     try { advanceAhead(j, performance.now() + ms); }
     catch (error) { console.warn('[stage] prologue background build failed', error); this.dropPro(); }
   }
@@ -574,20 +586,26 @@ export class ActShow {
     // Once the player chooses New Game the first village is known. Build it
     // during the story cards, preserving the randomly drawn layout and seed.
     const village = __WX__ && COLD_AS_CARDS
-      ? loadInFrames(prepRoomSteps(this.prologueRoomIn())).catch(error => {
+      ? loadInFrames(prepRoomSteps(this.prologueRoomIn(), true), 16).catch(error => {
         console.warn('[act] village preparation failed', error); return null;
       }) : null;
     const pov = await narrative;
     // 11-18 (用户：「开场黑幕到第一个走在雪地的场景之间用渐黑转场，不要用竹子飞刀」): from the black cards straight into the snow
     // walk through the dark — no blade, no bamboo, on every platform. The village is built (in frames on WeChat, where the
     // title already started it) behind the black veil, the shaders warmed, then the black fades off
-    if (__WX__) {
-      while (bladeBusy()) await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
-      const ready = await village;
-      if (ready) this.pre = { ...ready, locale: PRO_ROOM.locale };
+    try {
+      if (__WX__) {
+        while (bladeBusy()) await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+        const ready = await village;
+        if (ready) this.pre = { ...ready, locale: PRO_ROOM.locale };
+      }
+      await this.startPrologue();
+    } catch (e) {
+      console.error('[act] startNewGame failed, falling back to hideout', e);
+      try { await this.enterYard(); } catch (e2) { console.error('[act] hideout fallback failed', e2); }
+    } finally {
+      if (pov) { precompile(); await frames(3); pov.fill(0x000000, 0); after(1.6, () => pov.dispose(), { real: true }); }
     }
-    await this.startPrologue();
-    if (pov) { precompile(); await frames(3); pov.fill(0x000000, 0); after(1.6, () => pov.dispose(), { real: true }); }
   }
   /** act-37 the cold open: 寒山坞 that night (coldopen.ts) — on the place the title built while it loaded; it ends in the dark */
   private async coldOpen(): Promise<BlindPOV | null> {
@@ -611,7 +629,7 @@ export class ActShow {
   }
   /** the prologue's first room as buildRoom will ask for it (so the title can build it ahead) */
   private prologueRoomIn(): RoomIn {
-    return { isYard: false, room: 0, recent: [], locale: PRO_ROOM.locale, plan: { type: 'fight', locale: PRO_ROOM.locale, reward: null, waves: PRO_ROOM.waves }, nextRooms: [PRO_BOSS], viewSpec: null, forceSpec: { ...PRO_ROOM.spec }, noArena: false };
+    return { ...PRO_ROOM_IN, forceSpec: { ...PRO_ROOM.spec } };
   }
   /** the prologue's first room: the snowy village at night, a few sentries; then the temple (leave() moves prologue to 2) */
   async startPrologue() {
@@ -1110,6 +1128,7 @@ export class ActShow {
   /** the run's haul goes home (meta.ts bank: currencies, runs / wins / deaths), saved */
   private lastWon = false;
   private bankRun(won: boolean) {
+    clearRunSave(); this.runEntrySave = null;
     this.lastWon = won;
     const p = profile();
     if (won && !this.usedRevive) { p.soloWins = (p.soloWins ?? 0) + 1; }
@@ -3024,12 +3043,133 @@ export class ActShow {
       }
     }
   }
-  /** 继续游戏: resumes at the last prologue checkpoint (village / Cui Xuan forecourt / kiln wake-up) or directly in the hideout */
+  private runEntrySave: RunSave | null = null;
+  private currentShopSpecial: ShopSpecial | null = null;
+  private startManualDone = false;
+  private pendingResume: RunSave | null = null;
+  private snapshotRun(cleared: boolean): RunSave | null {
+    if (this.prologue || this.botOn || this.labOn || this.viewSpec || this.room < 0 || !this.plan || !this.hero) return null;
+    if (this.phase === 'dead' || this.phase === 'end') return null;
+    return {
+      v: 1,
+      at: Date.now(),
+      region: this.region,
+      room: this.room,
+      locale: this.locale,
+      plan: this.plan,
+      nextRooms: this.nextRooms,
+      cleared,
+      shopSpecial: this.currentShopSpecial,
+      spentStations: this.stations ? this.stations.list.filter(s => s.done).map(s => s.id) : [],
+      mapId: this.arena?.shape?.fixed?.id ?? null,
+      roomSeed: this.spec?.seed ?? null,
+      hp: Math.max(1, Math.round(this.hero.hp)),
+      maxHp: Math.max(1, Math.round(this.hero.maxHp)),
+      qi: this.hero.qi,
+      intent: this.intent,
+      intentVal: this.intentVal,
+      coins: this.coins,
+      perks: { moves: { ...this.perks.moves }, owned: { ...this.perks.owned } },
+      kills: this.kills,
+      eliteKills: this.eliteKills,
+      bosses: this.bosses,
+      bossKilled: this.bossKilled,
+      defy: this.defy,
+      usedRevive: this.usedRevive,
+      wine: this.wine,
+      ksShield: this.ksShield,
+      ksRevenge: this.ksRevenge,
+      divineSchoolRun: this.divineSchoolRun,
+      visited: [...this.visited],
+      maps: [...this.maps],
+      shapes: [...this.shapes],
+      usedPoolBosses: [...this.usedPoolBosses],
+      genBlessings: [...this.genBlessings],
+      baseFoe: { ...this.baseFoe },
+      mods: { ...this.mods },
+      startManualDone: this.startManualDone,
+    };
+  }
+  private saveRunCheckpoint(cleared: boolean, updateEntry = false) {
+    const snap = this.snapshotRun(cleared);
+    if (!snap) return;
+    if (updateEntry) this.runEntrySave = snap;
+    else if (cleared) this.runEntrySave = null;
+    saveRunState(snap);
+  }
+  private flushRunSave() {
+    if (this.prologue || this.botOn || this.labOn || this.viewSpec || this.room < 0 || !this.plan || !this.hero) return;
+    if (this.phase === 'dead' || this.phase === 'end') return;
+    if (this.phase === 'doors') {
+      this.saveRunCheckpoint(true);
+    } else if (this.runEntrySave) {
+      this.runEntrySave.usedRevive = this.runEntrySave.usedRevive || this.usedRevive;
+      this.runEntrySave.defy = Math.min(this.runEntrySave.defy, this.defy);
+      saveRunState(this.runEntrySave);
+    } else {
+      this.saveRunCheckpoint(false, true);
+    }
+  }
+  private syncSynergies() {
+    const c = archCounts(this.perks);
+    const active: Array<{ name: string; count: number; col: string }> = [];
+    for (const a of ['blood', 'poise', 'shadow', 'gale'] as Archetype[]) {
+      const n = c[a], ai = ARCH_INFO[a];
+      if (n >= 2) active.push({ name: ai.name, count: n, col: ai.col });
+    }
+    this.hud.synergies = active;
+  }
+  /** 断点续战: restore an in-progress run checkpoint (room-entry or cleared-room state) */
+  private resumeRun(saved: RunSave) {
+    this.donningHat = false; this.departAnim = null; this.departZoom = 0; this.releaseCutCam(true);
+    this.prologue = 0; this.forceSpec = null; this.viewSpec = null; this.noArena = false;
+    this.forceShape = null; this.forceSeed = null; this.forceMap = null;
+    this.hud.on = true;
+    if (this.hero) this.hero.scriptPose = null;
+    this.region = saved.region; this.room = saved.room; this.locale = saved.locale; this.plan = saved.plan;
+    this.perks = { moves: { ...saved.perks.moves }, owned: { ...saved.perks.owned } };
+    this.coins = saved.coins; this.kills = saved.kills; this.eliteKills = saved.eliteKills;
+    this.bosses = saved.bosses; this.bossKilled = saved.bossKilled;
+    this.intent = saved.intent; this.intentVal = saved.intentVal; this.hud.intent = saved.intent;
+    this.lastIntentAt = -9; this.poiseHealAt = -9; this.bloodHealAt = -9; this.roomDrinkHeal = 0; this.shadowEchoAt = -9;
+    this.defy = saved.defy; this.usedRevive = saved.usedRevive; this.wine = saved.wine;
+    this.ksShield = saved.ksShield; this.ksRevenge = saved.ksRevenge; this.divineSchoolRun = saved.divineSchoolRun;
+    this.intentBonusAcc = 0; this.regionIn = false;
+    this.visited = [...saved.visited]; this.maps = [...saved.maps]; this.shapes = [...saved.shapes]; this.recent = [];
+    this.usedPoolBosses = new Set(saved.usedPoolBosses);
+    this.genBlessings = new Set(saved.genBlessings);
+    this.baseFoe = { ...saved.baseFoe };
+    this.mods = { ...saved.mods };
+    this.startManualDone = !!saved.startManualDone;
+    this.currentShopSpecial = saved.shopSpecial ?? null;
+    this.runEntrySave = saved.cleared ? null : saved;
+    this.fightLog = { t0: clock.time, dmg: {}, bosses: [], taken: { n: 0, sum: 0, byBoss: 0 }, healed: 0 };
+    TUNE.heroHp = 100 + this.mods.hpBonus; TUNE.dartCharges = 3 + this.mods.dartBonus; TUNE.aggression = this.baseFoe.aggression;
+    this.scaleFoes(this.region);
+    this.demo.stop(); this.resetCombo(); this.syncMarks(); this.syncSynergies();
+    this.pendingResume = saved;
+    const loading = this.buildRoom(false);
+    const pick = () => {
+      if (this.mods.startManual && !this.startManualDone && this.room === 0 && !saved.cleared) {
+        after(1.4, () => {
+          if (this.room === 0 && !this.startManualDone) {
+            this.startManualDone = true;
+            void this.manualPick().then(() => this.saveRunCheckpoint(this.phase === 'doors', this.phase !== 'doors'));
+          }
+        });
+      }
+    };
+    if (loading) return loading.then(pick);
+    pick();
+  }
+  /** 继续游戏: resumes at the last prologue checkpoint, mid-run checkpoint, or directly in the hideout */
   continueGame() {
     const p = profile();
     if (p.proStage === 'village') return this.startPrologue();
     if (p.proStage === 'boss') return this.resumePrologueBoss();
     if (p.proStage === 'wake') return this.playKilnWake();
+    const saved = loadRunSave();
+    if (saved) return this.resumeRun(saved);
     return this.enterYard();
   }
   solids = new Solids(); props: Breakables | null = null; gates: Gates | null = null; leaves: Leaves | null = null; private gustT = 0; arena: ArenaPlan | null = null; private lastPush: Push | null = null; private slamAt = new WeakMap<Foe, number>();
@@ -3129,8 +3269,10 @@ export class ActShow {
     RUMBLE.fn = padRumble;
     if (typeof window !== 'undefined') {
       window.addEventListener('gamepaddisconnected', () => { if (PAD.device === 'pad') this.pauseGame(); });
-      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') this.pauseGame(); });
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') { this.flushRunSave(); this.pauseGame(); } });
     }
+    const wxg = (globalThis as unknown as { wx?: { onHide?: (cb: () => void) => void } }).wx;
+    wxg?.onHide?.(() => { this.flushRunSave(); });
     if (__DEBUG_UI__ && typeof window !== 'undefined') window.addEventListener('keydown', e => { if ((e.key === 'u' || e.key === 'U') && !this.cards.on) this.cycleSkin(); });
     dh.add({ voxCompare: (id: string, only = -1, x?: number, z?: number) => {
         // before (the code model) on the left, the edited file on the right, beside the hero (captures of a model edit);
@@ -3612,6 +3754,18 @@ export class ActShow {
   // ------------------------------------------------------------ rooms
   startWithAudio() {
     const ready = this.start();
+    const isTap = typeof GameGlobal !== 'undefined' && !!(GameGlobal as { __ubTapMiniGame?: boolean }).__ubTapMiniGame;
+    if (isTap) {
+      // On TapTap single-package builds, defer bgm_opening decode until just after the first title frame renders
+      // so audio I/O & decode never contend with cold-start scene unpack / shader compile on low-end Android CPUs.
+      void Promise.resolve(ready).then(() => {
+        setTimeout(() => {
+          audio.prepare({ warm: [this.musicName()], prefetch: false });
+          this.unlockAudio();
+        }, 250);
+      });
+      return ready;
+    }
     // start() selects the title, yard or fight synchronously, so preload its
     // music alongside the scenery even when preparing the scene takes frames.
     if (!HAS_DOM) {
@@ -3628,7 +3782,7 @@ export class ActShow {
   start() {
     dh.add({ opening: () => this.opening(), title: (n = 1) => this.title(n) });
     dh.add({ rack: (n = 30) => { if (this.stage) this.stage.root.add(rackBlades(n)); return n; } });   // captures: the hideout's rack with n blades   // captures: the old opening / a title variant again
-    if (!__DEBUG_UI__) { this.title(savedTitle()); return; }   // (the packages: no URL switches — the title the player gets)
+    if (!__DEBUG_UI__) return this.title(savedTitle());   // (the packages: no URL switches — the title the player gets)
     // ?lab, or the desktop model page (window.__LAB): the model viewer (lab.ts, act-21)
     if (typeof window !== 'undefined' && ((window as unknown as { __LAB?: number }).__LAB || /[?&#]lab\b/.test(location.href))) { this.lab(); return; }
     // 11-18 ?anim, or the desktop page (window.__ANIM): every character's moves side by side (animPreview.ts)
@@ -3652,7 +3806,7 @@ export class ActShow {
     this.yard?.dispose(); this.yard = null; this.props?.dispose(); this.props = null; this.gates?.dispose(); this.gates = null; this.pieces?.dispose(); this.pieces = null; this.leaves?.dispose(); this.leaves = null; this.stations?.dispose(); this.stations = null; this.hero?.a.dispose();
     this.clearNpcs();
     this.phase = 'title'; audio.setWeatherSound('none', 0.4); this.hud.on = false; this.hud.update(0, this.inp, []); this.banner.hide(); this.blob.visible = false; this.ring.visible = false; for (const m of this.shadows) m.visible = false;
-    const titleReady = playTitle(n, { ov: this.ov, L: this.L, hasSave, settings: () => this.pause.open('set', { fromTitle: true }), enter: k => { this.hud.on = true; if (k === 'continue') return this.continueGame(); void this.startNewGame(); } });
+    const titleReady = playTitle(n, { ov: this.ov, L: this.L, hasSave, settings: () => this.pause.open('set', { fromTitle: true }), resumeNote: () => { const s = loadRunSave(); return s ? msg`续战 · ${runSaveLabel(s)}` : ''; }, enter: k => { this.hud.on = true; if (k === 'continue') return this.continueGame(); void this.startNewGame(); } });
     this.music();
     // (before the title's first frame: the page is still dark and loading then — a frozen first picture with the snow hanging in the
     //  air would read as a hang)
@@ -3839,6 +3993,7 @@ export class ActShow {
   private yardAtmo: { time: HideoutTime; weather: HideoutWeather } = { time: 'dusk', weather: 'clear' };
   /** the training yard: dummies, summon slabs, the costume rack, the way out to a run */
   enterYard(atmo?: { time: HideoutTime; weather: HideoutWeather }) {
+    clearRunSave(); this.runEntrySave = null; this.currentShopSpecial = null; this.startManualDone = false;
     this.donningHat = false; this.departAnim = null; this.camOverride = null;
     if (atmo) {
       this.yardAtmo = atmo;
@@ -3933,6 +4088,7 @@ export class ActShow {
   }
   startRun(build = true) {
     this.donningHat = false; this.departAnim = null; this.departZoom = 0; this.releaseCutCam(true);
+    this.runEntrySave = null; this.currentShopSpecial = null; this.startManualDone = false; this.pendingResume = null;
     this.hud.on = true;
     if (this.hero) this.hero.scriptPose = null;
     const fromYard = this.room < 0 && OPT.roomAhead;
@@ -3967,7 +4123,7 @@ export class ActShow {
     TUNE.heroHp = 100 + this.mods.hpBonus; TUNE.dartCharges = 3 + this.mods.dartBonus; TUNE.aggression = 0.95 / this.mods.windupMul;
     this.baseFoe.aggression = TUNE.aggression; this.scaleFoes(0);
     const loading = build ? this.buildRoom(true) : undefined;   // (11-18: a jump to another region's room builds that one instead)
-    const pick = () => { if (this.mods.startManual) after(1.4, () => { if (this.room === 0) void this.manualPick(); }); };
+    const pick = () => { if (this.mods.startManual) after(1.4, () => { if (this.room === 0 && !this.startManualDone) { this.startManualDone = true; void this.manualPick().then(() => this.saveRunCheckpoint(this.phase === 'doors', this.phase !== 'doors')); } }); };
     if (loading) return loading.then(pick);
     pick();
   }
@@ -4051,27 +4207,31 @@ export class ActShow {
     for (const d of this.doors) d.g.parent?.remove(d.g); this.doors = []; this.stations?.dispose(); this.stations = null; this.coinsFx.clear();
     this.yard?.dispose(); this.yard = null; this.exitSign?.parent?.remove(this.exitSign); this.exitSign = null; this.barks?.clear();
     // act-161: her max health carries from room to room like her health does (it was reset to the run's start here, so a +12 door, a chest, the wine were one small heal)
-    const hp = first || !this.hero ? TUNE.heroHp : this.hero.hp, maxHp = first || !this.hero ? TUNE.heroHp : Math.max(TUNE.heroHp, this.hero.maxHp), qi = first || !this.hero ? 0 : this.hero.qi;
+    const res = this.pendingResume; this.pendingResume = null;
+    const hp = res ? res.hp : (first || !this.hero ? TUNE.heroHp : this.hero.hp);
+    const maxHp = res ? res.maxHp : (first || !this.hero ? TUNE.heroHp : Math.max(TUNE.heroHp, this.hero.maxHp));
+    const qi = res ? res.qi : (first || !this.hero ? 0 : this.hero.qi);
     this.hero?.a.dispose();
     const isYard = this.room < 0;
     this.bossDefeated = false; this.poolBossRoom = false;
-    if (!isYard && this.plan && !this.viewSpec) this.visited.push(this.plan.type);
-    const job = OPT.roomAhead && !this.viewSpec && !this.forceSpec && !this.forceShape && !this.forceMap && !this.noArena
+    if (!isYard && this.plan && !this.viewSpec && !res) this.visited.push(this.plan.type);
+    const job = !res && OPT.roomAhead && !this.viewSpec && !this.forceSpec && !this.forceShape && !this.forceMap && !this.noArena
       && (!__WX__ || bladeWorking()) ? this.ahead.find(j => j.plan === this.plan && j.region === this.region && j.room === this.room) : undefined;
     this.dropAhead(job);
-    if (!isYard && !this.prologue && this.plan?.type === 'boss' && isBossRoom(this.region, this.room)) {
+    if (!res && !isYard && !this.prologue && this.plan?.type === 'boss' && isBossRoom(this.region, this.room)) {
       const resolved = resolveBossRoomWaves(this.plan.waves, this.region, profile().seen, this.usedPoolBosses);
       if (resolved.replaced) {
         this.plan = { ...this.plan, waves: resolved.waves };
         this.poolBossRoom = true;
       }
     }
-    this.nextRooms = job?.next ?? (!isYard && this.plan && !this.viewSpec ? onward(this.room, this.visited, this.region, this.runCtx()) : []);
+    this.nextRooms = (res && res.nextRooms.length ? res.nextRooms : null) ?? job?.next ?? (!isYard && this.plan && !this.viewSpec ? onward(this.room, this.visited, this.region, this.runCtx()) : []);
     if (this.prologue === 1 && !this.viewSpec) this.nextRooms = [PRO_BOSS]; else if (this.prologue === 2) this.nextRooms = [];   // act-29
     // act-34: the place itself — built ahead of time when it can be (the title builds a new game's first room while it loads), else now
     // (11-18: a region's own look — 下邳 is always winter — unless the prologue or a view asks otherwise)
     const rspec = !isYard && !this.prologue ? REGIONS[this.region]?.spec ?? null : null;
-    const want: RoomIn = { isYard, room: this.room, recent: this.recent, locale: this.locale, plan: this.plan, nextRooms: this.nextRooms, viewSpec: this.viewSpec, forceSpec: this.forceSpec, noArena: this.noArena, shape: this.forceShape, shapes: this.shapes, seed: this.forceSeed, map: this.forceMap, maps: this.maps, region: this.prologue ? undefined : this.region, regionSpec: rspec, yardAtmo: isYard ? this.yardAtmo : undefined };
+    const proPack = !isYard && !this.viewSpec ? (this.prologue === 1 ? 'pro-village' : this.prologue === 2 ? 'pro-boss' : undefined) : undefined;
+    const want: RoomIn = { isYard, room: this.room, recent: this.recent, locale: this.locale, plan: this.plan, nextRooms: this.nextRooms, viewSpec: this.viewSpec, forceSpec: this.forceSpec, noArena: this.noArena, shape: this.forceShape, shapes: this.shapes, seed: res?.roomSeed ?? this.forceSeed, map: res?.mapId ?? this.forceMap, maps: this.maps, region: this.prologue ? undefined : this.region, regionSpec: rspec, yardAtmo: isYard ? this.yardAtmo : undefined, pack: proPack };
     const ready = this.pre && !isYard && !this.viewSpec && this.prologue === 1 && this.room === 0 && this.pre.locale === this.locale ? this.pre : null;
     if (this.pre && this.pre !== ready) this.pre.prep.drop();
     this.pre = null;
@@ -4102,8 +4262,8 @@ export class ActShow {
     // 11-18 屋子形态: the floor as a grid (the clamp, the foes' way round, the pits); the rectangle rooms have none
     this.grid = P.fixtures ? P.fixtures.grid : P.arena?.shape ? new FloorGrid(P.arena.shape) : null;
     { const g = this.grid; blood.skip = g ? (x, z) => g.at(x, z) === PIT : null; }
-    if (P.arena?.shape && !this.viewSpec) this.shapes.push(P.arena.shape.id);
-    if (P.arena?.shape?.fixed && !this.viewSpec) this.maps.push(P.arena.shape.fixed.id);
+    if (P.arena?.shape && !this.viewSpec && !res) this.shapes.push(P.arena.shape.id);
+    if (P.arena?.shape?.fixed && !this.viewSpec && !res) this.maps.push(P.arena.shape.fixed.id);
     if (isYard) { this.shapes = []; this.maps = []; }
     const big = P.big;
     this.stage = P.prep.attach();
@@ -4181,13 +4341,13 @@ export class ActShow {
       const p = profile(), kid = equippedKeepsake(p, this.dbgAllWeapons);
       if (kid) {
         const star = keepsakeStar(p, kid), ks = KEEPSAKES[kid];
-        if (kid === 'sunao' && this.room > 0) {
+        if (!res && kid === 'sunao' && this.room > 0) {
           const heal = Math.round(this.hero.maxHp * ks.vals[star - 1] / 100);
           const was = this.hero.hp; this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + heal);
           this.healFeed(was);
         }
-        if (kid === 'duwu' && this.room === 0) this.ksShield = ks.vals[star - 1];
-        if (kid === 'luxun' && (this.plan?.type === 'fight' || this.plan?.type === 'elite') && this.props) {
+        if (!res && kid === 'duwu' && this.room === 0) this.ksShield = ks.vals[star - 1];
+        if (kid === 'luxun' && !res?.cleared && (this.plan?.type === 'fight' || this.plan?.type === 'elite') && this.props) {
           const count = ks.vals[star - 1];
           for (let j = 0; j < count; j++) {
             const ox = (j - (count - 1) / 2) * 3.8, oz = -1.5 + (j % 2) * 2.4;
@@ -4205,7 +4365,7 @@ export class ActShow {
     if (this.mods.startIntent > 0 && this.intent < this.mods.startIntent) { this.intent = this.mods.startIntent; this.intentVal = Math.max(this.intentVal, this.intent); this.hud.intent = this.intent; }
     // act-118 聚财 (碑铭潜能) — act-161: paid once on stepping into a new region (10 / 18 / 25% of her purse, 80 / 140 / 200 at most);
     // it used to compound every room with no cap (25%: hundreds of thousands by the last region)
-    if (!this.prologue && this.room === 0 && this.region > 0 && this.mods.interestRate > 0 && this.coins > 0) {
+    if (!res && !this.prologue && this.room === 0 && this.region > 0 && this.mods.interestRate > 0 && this.coins > 0) {
       const top = this.mods.interestRate >= 0.24 ? 200 : this.mods.interestRate >= 0.17 ? 140 : 80;
       const gain = Math.max(1, Math.min(top, Math.round(this.coins * this.mods.interestRate)));
       this.coins += gain; this.feed.push('coins', n => msg`聚财 +${n}`, gain);
@@ -4218,7 +4378,9 @@ export class ActShow {
     this.hinted = true; void hint;   // (11-19 新手引导: the controls are taught in the prologue's fights, not in a banner)
     const info = roomInfo(this.plan?.type ?? 'fight', this.region);
     // 11-18 一局五关: walking into a later region's first room, its name and line first (2.6 s), then the room's own banner
-    if (!this.prologue && (this.regionIn || (language === 'en' && this.region === 0 && this.room === 0))) {
+    if (res) {
+      this.banner.show('续战', runSaveLabel(res), 1.8, '#ffe2a8');
+    } else if (!this.prologue && (this.regionIn || (language === 'en' && this.region === 0 && this.room === 0))) {
       this.regionIn = false; const rb = regionBanner(this.region);
       this.banner.show(rb.title, rb.sub, 2.6, '#ffe2b0');   // (act-50 用户：「获胜的时候会放一个短乐段，我不想要那个声音」: the old jingle is gone everywhere)
       after(2.7, () => { if (this.phase === 'intro' || this.phase === 'fight') this.banner.show(msg`第一间 · ${info.name}`, '', 1.4); });
@@ -4232,7 +4394,9 @@ export class ActShow {
           boon: Math.round(PRICES.boon * pm), heal: Math.round(PRICES.heal * pm), sharpen: Math.round(PRICES.sharpen * pm),
           vigor: Math.round(PRICES.vigor * pm), satchel: Math.round(PRICES.satchel * pm),
         };
-        this.stations.shop(scaledPrices, SHOP_SPECIALS[Math.floor(Math.random() * SHOP_SPECIALS.length)], !freshBoons(this.perks, this.hero?.weaponId).length);   // (act-163: no scroll stall for a full hand)
+        const sp = res?.shopSpecial ?? SHOP_SPECIALS[Math.floor(Math.random() * SHOP_SPECIALS.length)];
+        this.currentShopSpecial = sp;
+        this.stations.shop(scaledPrices, sp, !freshBoons(this.perks, this.hero?.weaponId).length);   // (act-163: no scroll stall for a full hand)
         const st = this.stations;
         after(0.65, () => {
           if (this.stations !== st || !st.merchant) return;
@@ -4242,6 +4406,7 @@ export class ActShow {
         });
       }
       else if (this.plan.type === 'rest') {
+        this.currentShopSpecial = null;
         this.stations.rest();
         // act-154: Du Wu roadside campfire companionship in Acts 1 & 2 (once each, before he perishes in Act 3)
         const rKey = this.region === 0 ? 'duwu_road_1' : this.region === 1 ? 'duwu_road_2' : '';
@@ -4249,10 +4414,26 @@ export class ActShow {
           this.mountDuwuRoad(this.region as 0 | 1);
         }
       }
-      else this.stations.scroll(this.scrollGives() === 'up');
+      else { this.currentShopSpecial = null; this.stations.scroll(this.scrollGives() === 'up'); }
+      if (res?.spentStations?.length) {
+        const spent = new Set(res.spentStations);
+        for (const s of this.stations.list) {
+          if (spent.has(s.id) && !s.done) this.stations.spend(s, false, true);
+        }
+      }
       this.log.push(`room ${this.room} ${this.plan.type} ${spec.locale}`);
       this.openDoors(true); return;
     }
+    this.currentShopSpecial = null;
+    // Resuming an already-cleared combat / elite / boss / event room: open exits directly without re-fighting or re-granting rewards
+    if (res?.cleared) {
+      if (this.pieces) for (const q of this.pieces.pieces) if (q.kind === 'door') this.pieces.openPiece(q);
+      this.openDoors(true);
+      this.log.push(`room ${this.room} resumed-cleared ${spec.locale}`);
+      return;
+    }
+    // Mid-run room-entry checkpoint: guarantees crash/backgrounding/save-quit resumes cleanly at the start of this room
+    if (!this.prologue && !this.viewSpec) this.saveRunCheckpoint(false, true);
     // act-125: Three Kingdoms Famous General Puzzle Encounter room ('event')
     if (this.plan && this.plan.type === 'event') {
       const h = this.hero; this.introT = 0;
@@ -7485,6 +7666,7 @@ export class ActShow {
     else if (s.id === 'rest_sharpen') { this.stations.spend(s, true); await this.sharpen(); }
     else if (s.id === 'scroll' && this.scrollGives() === 'manual') { this.stations.spend(s); await this.manualPick(); }
     else if (s.id === 'scroll') { this.stations.spend(s); await this.boonPick(); }
+    this.saveRunCheckpoint(true);
   }
   /** act-136 / act-149: 行商总览面板 — 4 hanging wooden merchant tags (悬木货签) with big 3D wares + concise benefit + ONE bold gold coin bar */
   private async shopOverviewMenu() {
@@ -7627,6 +7809,7 @@ export class ActShow {
       return { ex, g, lift: 0, scrollUp: this.isScrollUp(d) };
     });
     this.phase = 'doors';
+    this.saveRunCheckpoint(true);
     if (!this.ahead.length) this.queueAhead(false);
     cue(this.gates ? 'gateOpen' : 'reveal', 0.8); if (this.gates) after(0.6, () => cue('exitChime', 0.7)); this.gates?.open(); this.gustT = 0.9;
     if (!quiet) this.banner.show('去路', ds.length > 1 ? '走进一条路口' : '往前走', 1.2);
@@ -7739,6 +7922,7 @@ export class ActShow {
         const ok = await this.watchAd('revive', '残息未绝 · 借真气再战', '原地半血起身并短暂无敌震退周身敌兵');
         if (ok && this.hero) {
           this.usedRevive = true;
+          if (this.runEntrySave) { this.runEntrySave.usedRevive = true; saveRunState(this.runEntrySave); }
           this.phase = 'fight';
           this.hero.revive(Math.max(1, Math.round(this.hero.maxHp * 0.5)), 2.2);
           this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp });
@@ -9231,12 +9415,10 @@ export class ActShow {
   /** 回据点 from the pause menu: out on a run (not the yard, not the prologue's scripted fights) */
   private canGiveUp() { return !this.prologue && (['intro', 'fight', 'doors'] as Phase[]).includes(this.phase); }
   private giveUp() { if (!this.hero.alive) return; this.hero.giveUp(); this.dead(); }
-  /** 11-19 (用户：「暂停没有回到主画面的选项」): 回主画面 from the pause menu — out on a run the trip ends as a death would (the haul home,
-   *  the run's gains lost), then the start screen; anywhere else straight to it. (Not during a cutscene or a talk: the pause has no 回主画面
-   *  row then — the menu only opens where play stops) */
+  /** 存盘回主画面 from the pause menu — mid-run saves the room checkpoint so 继续游戏 resumes seamlessly; hideout returns straight to title */
   private backToTitle() {
     this.cancelQte(); GRADE.bloodVig = 0;
-    if (this.canGiveUp() && this.hero?.alive) { this.hero.giveUp(); this.bankRun(false); this.justDied = true; }
+    if (this.canGiveUp() && this.hero?.alive) this.flushRunSave();
     audio.stopMusic(0.8); this.hud.on = false;
     void wipeTransit(() => { this.title(savedTitle()); });
   }

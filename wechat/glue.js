@@ -138,11 +138,22 @@ var atob = GameGlobal.atob || (typeof globalThis !== 'undefined' && globalThis.a
 })();
 
 var bundledAudio = new Map();
+function needSubpack(name, pathStr) {
+  var subSet = GameGlobal.__ubSubpackages;
+  if (subSet) return !!subSet[name];
+  if (GameGlobal.__ubSinglePkg) return false;
+  return pathStr ? pathStr.indexOf('assets/') !== 0 : true;
+}
 function loadBundledSubpack(name) {
+  if (!needSubpack(name, '') || typeof wx === 'undefined' || !wx || typeof wx.loadSubpackage !== 'function') {
+    return Promise.resolve();
+  }
   var downloaded = bundledAudio.get(name);
   if (!downloaded) {
     downloaded = new Promise(function (resolve, reject) {
-      wx.loadSubpackage({ name: name, success: resolve, fail: reject });
+      try {
+        wx.loadSubpackage({ name: name, success: resolve, fail: reject });
+      } catch (e) { reject(e); }
     });
     bundledAudio.set(name, downloaded);
     downloaded.catch(function () { bundledAudio.delete(name); });
@@ -150,25 +161,27 @@ function loadBundledSubpack(name) {
   return downloaded;
 }
 GameGlobal.__ubPreloadSubpack = function (name) {
-  if (!name || typeof wx === 'undefined' || !wx.loadSubpackage) return Promise.resolve();
+  if (!name || !needSubpack(name, '') || typeof wx === 'undefined' || !wx.loadSubpackage) return Promise.resolve();
   return loadBundledSubpack(name).catch(function () { /* non-fatal: retried on demand */ });
 };
 function fetch(file) {
-  var name = String(file).split('/')[0];
-  var downloaded = loadBundledSubpack(name);
-  return downloaded.then(function () {
+  var pathStr = String(file);
+  var name = pathStr.split('/')[0];
+  var readNow = function () {
     return {
       arrayBuffer: function () {
         return new Promise(function (resolve, reject) {
           wx.getFileSystemManager().readFile({
-            filePath: file,
+            filePath: pathStr,
             success: function (result) { resolve(result.data); },
             fail: reject
           });
         });
       }
     };
-  });
+  };
+  if (!needSubpack(name, pathStr)) return Promise.resolve(readNow());
+  return loadBundledSubpack(name).catch(function () { /* fall back to direct readFile */ }).then(readNow);
 }
 
 // 11-19 (iOS 高性能+ black screen:「undefined is not an object (evaluating 'createElement.call')」): under 高性能+ the runtime can

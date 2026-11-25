@@ -2,7 +2,7 @@
 // The UI scene renders into its own full-resolution target (MSAA when the GPU can, HDR, transparent background), gets a light bloom of
 // its own (lamp / glow materials with values > 1 shine: gold rims, cyan rings, crystal icons), a scaled warm-black contour and a soft
 // offset shadow over the world (premultiplied alpha). Floating text (UiText) is still drawn after this.
-import { mobileTargets } from './quality';
+import { QUALITY, mobileTargets } from './quality';
 import * as THREE from 'three';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import type { Ui3DLayer } from './pixel';
@@ -15,7 +15,7 @@ export { UI_LOOK } from './uiLook';
 const VS = `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
 const FS = `precision highp float;
 uniform sampler2D tColor; uniform sampler2D tDepth; uniform sampler2D tBloom; uniform vec2 uRes; uniform float uExposure, uInk, uInkW, uBloom; uniform vec3 uInkCol; varying vec2 vUv;
-uniform vec2 uShadowOffset; uniform float uShadowBlur, uShadowStrength, uSeparate;
+uniform vec2 uShadowOffset; uniform float uShadowBlur, uShadowStrength, uSeparate, uFastUi;
 // 超出屏幕的 alpha 为零，避免边缘 clamp 把裁切的 UI 拉成长条阴影。
 float coverage(vec2 uv) {
   if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
@@ -23,6 +23,13 @@ float coverage(vec2 uv) {
 }
 float shadowMask() {
   vec2 p = vUv - uShadowOffset / uRes, d = uShadowBlur / uRes;
+  if (uFastUi > 1.5) return coverage(p);
+  if (uFastUi > 0.5) {
+    float a = coverage(p) * 4.0;
+    a += (coverage(p + d) + coverage(p - d)
+        + coverage(p + vec2(d.x, -d.y)) + coverage(p + vec2(-d.x, d.y))) * 1.5;
+    return a / 10.0;
+  }
   float a = coverage(p) * 4.0;
   a += (coverage(p + vec2(d.x, 0.0)) + coverage(p - vec2(d.x, 0.0))
       + coverage(p + vec2(0.0, d.y)) + coverage(p - vec2(0.0, d.y))) * 2.0;
@@ -43,7 +50,7 @@ void main(){
     vec2 px = uInkW / uRes; float cov = 0.0;
     cov = max(cov, step(texture2D(tDepth, vUv + vec2(px.x, 0.0)).r, 0.99999)); cov = max(cov, step(texture2D(tDepth, vUv - vec2(px.x, 0.0)).r, 0.99999));
     cov = max(cov, step(texture2D(tDepth, vUv + vec2(0.0, px.y)).r, 0.99999)); cov = max(cov, step(texture2D(tDepth, vUv - vec2(0.0, px.y)).r, 0.99999));
-    if (uSeparate > 0.5) {
+    if (uSeparate > 0.5 && uFastUi < 0.5) {
       vec2 dg = px * 0.70710678;
       cov = max(cov, step(texture2D(tDepth, vUv + dg).r, 0.99999)); cov = max(cov, step(texture2D(tDepth, vUv - dg).r, 0.99999));
       cov = max(cov, step(texture2D(tDepth, vUv + vec2(dg.x, -dg.y)).r, 0.99999)); cov = max(cov, step(texture2D(tDepth, vUv + vec2(-dg.x, dg.y)).r, 0.99999));
@@ -54,10 +61,14 @@ void main(){
     // 描边放在 UI 后面，半透明边缘也保留原有前景颜色。
     col += uInkCol * ink * (1.0 - a); a += ink * (1.0 - a);
   } else { col = col * (1.0 - ink) + uInkCol * ink; a = max(a, ink); }
-  // the UI's own glow spills over the world (added light, no coverage)
-  vec4 bt = texture2D(tBloom, vUv); vec3 bl = toSRGB(clamp(bt.rgb * bt.a * uBloom, 0.0, 1.0));
-  // 预乘合成：背景系数 = (1 - UI alpha) × (1 - 投影)，前景 RGB 完全不乘投影。
-  float shade = uShadowStrength > 0.0 ? shadowMask() * uShadowStrength : 0.0;
+  // the UI's own glow spills over the world (added light, no coverage; skipped when bloom is off)
+  vec3 bl = vec3(0.0);
+  if (uBloom > 0.001) {
+    vec4 bt = texture2D(tBloom, vUv);
+    bl = toSRGB(clamp(bt.rgb * bt.a * uBloom, 0.0, 1.0));
+  }
+  // 预乘合成：背景系数 = (1 - UI alpha) × (1 - 投影)，前景不透明像素直接跳过投影采样。
+  float shade = (uShadowStrength > 0.0 && a < 0.99) ? shadowMask() * uShadowStrength : 0.0;
   gl_FragColor = vec4(col + bl, a + (1.0 - a) * shade);
 }`;
 
@@ -65,28 +76,39 @@ void main(){
 const RMAX = 48;
 export class UiPass {
   calls = 0;
-  rt: THREE.WebGLRenderTarget; bloom: UnrealBloomPass; mat: THREE.ShaderMaterial; qs = new THREE.Scene(); cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  rt: THREE.WebGLRenderTarget; bloom: UnrealBloomPass | null = null; mat: THREE.ShaderMaterial; qs = new THREE.Scene(); cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
   private cc = new THREE.Color(); private W = 4; private H = 4; private hdr: boolean;
+  private bloomSize = { w: 128, h: 128 };
+  private ensureBloom(): UnrealBloomPass {
+    if (this.bloom) return this.bloom;
+    const b = new UnrealBloomPass(new THREE.Vector2(this.bloomSize.w, this.bloomSize.h), 1, UI_LOOK.bloomRadius, UI_LOOK.bloomThreshold);
+    if (!this.hdr) bloom8bit(b);
+    this.bloom = b;
+    return b;
+  }
   constructor(private renderer: THREE.WebGLRenderer, msaa: number, hdr = true) {
     this.hdr = hdr;
-    this.rt = new THREE.WebGLRenderTarget(4, 4, { type: hdr ? THREE.HalfFloatType : THREE.UnsignedByteType, depthTexture: new THREE.DepthTexture(4, 4), samples: msaa });
+    const rtType = hdr && !mobileTargets() ? THREE.HalfFloatType : THREE.UnsignedByteType;
+    this.rt = new THREE.WebGLRenderTarget(4, 4, { type: rtType, depthTexture: new THREE.DepthTexture(4, 4), samples: msaa });
     this.rt.depthTexture.type = THREE.UnsignedIntType;
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(128, 128), 1, UI_LOOK.bloomRadius, UI_LOOK.bloomThreshold);
-    if (!hdr) bloom8bit(this.bloom);
     this.mat = new THREE.ShaderMaterial({ vertexShader: VS, fragmentShader: FS, depthTest: false, depthWrite: false, transparent: true,
       blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.OneFactor, blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
       uniforms: { tColor: { value: this.rt.texture }, tDepth: { value: this.rt.depthTexture }, tBloom: { value: null as THREE.Texture | null }, uRes: { value: new THREE.Vector2(4, 4) },
         uExposure: { value: 1 }, uInk: { value: 0 }, uInkW: { value: 1 }, uBloom: { value: 1 }, uInkCol: { value: new THREE.Color(0.03, 0.02, 0.05) },
-        uShadowOffset: { value: new THREE.Vector2() }, uShadowBlur: { value: 0 }, uShadowStrength: { value: 0 }, uSeparate: { value: 1 } } });
+        uShadowOffset: { value: new THREE.Vector2() }, uShadowBlur: { value: 0 }, uShadowStrength: { value: 0 }, uSeparate: { value: 1 }, uFastUi: { value: 0 } } });
     const q = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.mat); q.frustumCulled = false; this.qs.add(q);
   }
   setSize(W: number, H: number, samples = this.rt.samples) {
-    if (this.rt.samples !== samples) { this.rt.samples = samples; this.rt.dispose(); }
-    this.W = W; this.H = H; this.rt.setSize(W, H); this.bloom.setSize(mobileTargets() || !this.hdr ? 1 : Math.max(1, Math.round(W / 2)), mobileTargets() || !this.hdr ? 1 : Math.max(1, Math.round(H / 2)));
+    const wantType = this.hdr && !mobileTargets() ? THREE.HalfFloatType : THREE.UnsignedByteType;
+    if (this.rt.samples !== samples || this.rt.texture.type !== wantType) { this.rt.samples = samples; this.rt.texture.type = wantType; this.rt.dispose(); }
+    this.W = W; this.H = H; this.rt.setSize(W, H);
+    this.bloomSize = { w: mobileTargets() || !this.hdr ? 1 : Math.max(1, Math.round(W / 2)), h: mobileTargets() || !this.hdr ? 1 : Math.max(1, Math.round(H / 2)) };
+    this.bloom?.setSize(this.bloomSize.w, this.bloomSize.h);
     (this.mat.uniforms.uRes.value as THREE.Vector2).set(W, H);
   }
   /** draw the UI layer over whatever is on screen now */
   render(L: Ui3DLayer) {
+    if (OPT.uiScissor && L.scene.children.every(c => !c.visible)) { this.calls = 0; return; }
     const r = this.renderer, u = this.mat.uniforms, ca = r.getClearAlpha(), before = r.info.render.calls; r.getClearColor(this.cc);
     r.setRenderTarget(this.rt); r.setClearColor(0x000000, 0); r.clear();
     // isolate the 3D UI layer completely from world craft/polish shaders (zero impact on buttons, HUD or 3D icons)
@@ -95,10 +117,11 @@ export class UiPass {
     r.setClearColor(this.cc, ca);
     const bOn = !mobileTargets() && this.hdr && UI_LOOK.bloom > 0;
     if (bOn) {
-      this.bloom.strength = 1; this.bloom.radius = UI_LOOK.bloomRadius; this.bloom.threshold = UI_LOOK.bloomThreshold;
+      const bloom = this.ensureBloom();
+      bloom.strength = 1; bloom.radius = UI_LOOK.bloomRadius; bloom.threshold = UI_LOOK.bloomThreshold;
       // the bloom is not blended back into the UI target: the composite reads the blurred mips and adds them over the world
       // (11-18 微信帧率: so the bloom stops at the mips; the blend it used to end with, at opacity 0, drew the whole screen for nothing)
-      u.tBloom.value = bloomMips(this.bloom, r, this.rt);
+      u.tBloom.value = bloomMips(bloom, r, this.rt);
     }
     u.uBloom.value = bOn ? UI_LOOK.bloom : 0; if (!bOn) u.tBloom.value = this.rt.texture;
     const p = UI_LOOK, scale = this.H / 720, on = p.enabled;
@@ -111,6 +134,7 @@ export class UiPass {
     u.uShadowBlur.value = Math.max(0, p.shadowBlur) * scale;
     u.uShadowStrength.value = on ? THREE.MathUtils.clamp(p.shadowStrength, 0, 1) : 0;
     u.uSeparate.value = on ? 1 : 0;
+    u.uFastUi.value = mobileTargets() ? (QUALITY.tier === 'low' ? 2 : 1) : 0;
     const ac = r.autoClear; r.autoClear = false; r.setRenderTarget(null);
     // 11-18 微信帧率: the composite (≈17 texture reads a pixel) only where the UI is: the screen bounds of each top-level UI group,
     // grown by a margin for its contour, drop shadow and glow, drawn as one mesh of quads; where quads overlap the depth test lets

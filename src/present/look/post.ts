@@ -21,7 +21,7 @@ const FS = (pixel: boolean) => `
 precision highp float;
 ${pixel ? '#define PIXEL' : ''}
 uniform sampler2D tColor; uniform sampler2D tDepth; uniform sampler2D tBloom; uniform vec2 uRes; uniform float uNear, uFar, uBloomCap;
-uniform vec3 uFog; uniform float uBands; uniform float uInk, uInkT, uInkStep, uExposure, uSat, uVig, uBloodVig, uFlash, uSplit, uImpact, uTime, uDesat, uCurve, uCraft, uPxPolish, uCraftDof, uCinemaInk; uniform vec3 uFlashCol, uLift, uGain, uInkCol;
+uniform vec3 uFog; uniform float uBands; uniform float uInk, uInkT, uInkStep, uExposure, uSat, uVig, uBloodVig, uFlash, uSplit, uImpact, uTime, uDesat, uCurve, uCraft, uPxPolish, uCraftDof, uCinemaInk, uFastPost; uniform vec3 uFlashCol, uLift, uGain, uInkCol;
 varying vec2 vUv;
 ${UI_SCENE_GLSL}
 float lin(float d){ float z = d * 2.0 - 1.0; return (2.0 * uNear * uFar) / (uFar + uNear - z * (uFar - uNear)); }
@@ -30,12 +30,17 @@ vec3 toSRGB(vec3 c){ return mix(c * 12.92, 1.055 * pow(c, vec3(1.0/2.4)) - 0.055
 float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
 void main(){
   vec2 px = 1.0 / uRes;
-  // chromatic split on big impacts (radial)
-  vec2 dir = (vUv - 0.5) * uSplit * 0.012;
+  vec4 c0 = texture2D(tColor, vUv);
+  vec3 col = c0.rgb;
+  // chromatic split on big impacts (radial; skipped on normal frames to save 2 full-screen color taps)
+  if (uSplit > 0.001) {
+    vec2 dir = (vUv - 0.5) * uSplit * 0.012;
 #ifdef PIXEL
-  dir = floor(dir * uRes + 0.5) * px;   // whole art pixels
+    dir = floor(dir * uRes + 0.5) * px;   // whole art pixels
 #endif
-  vec3 col = vec3(texture2D(tColor, vUv + dir).r, texture2D(tColor, vUv).g, texture2D(tColor, vUv - dir).b);
+    col.r = texture2D(tColor, vUv + dir).r;
+    col.b = texture2D(tColor, vUv - dir).b;
+  }
   bool hd2d = uCraft > 1.5 && uCraft < 2.5;
   // subtle diorama tilt-shift DOF in 1x craft modes (radius scaled by uRes.y / 720 for resolution independence)
   if (!hd2d && uCraft > 0.5 && uCraftDof > 0.01) {
@@ -56,7 +61,7 @@ void main(){
   }
 #ifdef PIXEL
   // in HD-2D mode, smooth HDR bloom is composited at native screen resolution in BLIT_FS (Octopath Traveler style)
-  if (!hd2d) {
+  if (!hd2d && uBloomCap > 0.001) {
     vec4 bt = texture2D(tBloom, vUv);   // UnrealBloom blends rgb × alpha (alpha = strength × mip weights), same here
     vec3 bl = min(bt.rgb * bt.a, vec3(uBloomCap)); float bm = max(bl.r, max(bl.g, bl.b));
     if (uBands > 0.5) {
@@ -78,8 +83,8 @@ void main(){
     vec2 o = i == 0 ? vec2(-st.x, 0.0) : i == 1 ? vec2(st.x, 0.0) : i == 2 ? vec2(0.0, st.y) : vec2(0.0, -st.y);
     float d1 = i == 0 ? dl : i == 1 ? dr : i == 2 ? du : dd;
     if ((d0 - d1) / max(d1, 0.001) < uInkT) continue;
-    float d2 = lin(texture2D(tDepth, vUv + 2.0 * o).r), d3 = lin(texture2D(tDepth, vUv + 3.0 * o).r);
-    if (abs(d2 - d1) < d1 * 0.06 && abs(d3 - d1) < d1 * 0.1) {
+    float d2 = lin(texture2D(tDepth, vUv + 2.0 * o).r);
+    if (abs(d2 - d1) < d1 * 0.06 && (uFastPost > 0.5 || abs(lin(texture2D(tDepth, vUv + 3.0 * o).r) - d1) < d1 * 0.1)) {
       ink = 1.0;
       if (d1 < dn) { dn = d1; nearUv = vUv + o; }
     }
@@ -159,7 +164,7 @@ void main(){
   col = mix(col, uFlashCol, uFlash);
   col = toSRGB(clamp(col, 0.0, 1.0));
   // occluded character silhouette outline (hero/ally: warm ivory-gold, foe: vermilion; zero cost on unoccluded pixels)
-  float occA = texture2D(tColor, vUv).a;
+  float occA = c0.a;
   if (occA < 0.88) {
     vec2 os = px * max(1.0, floor(uRes.y / 420.0 + 0.5));
     float aL = texture2D(tColor, vUv - vec2(os.x, 0.0)).a;
@@ -260,14 +265,14 @@ export const GRADE = {
 const uniforms = () => ({
   ...uiSceneUniforms(),
   tColor: { value: null as THREE.Texture | null }, tDepth: { value: null as THREE.Texture | null }, tBloom: { value: null as THREE.Texture | null }, uBloomCap: { value: 0.7 }, uBands: { value: 6 }, uRes: { value: new THREE.Vector2(4, 4) }, uNear: { value: 0.1 }, uFar: { value: 400 },
-  uInk: { value: 1 }, uInkT: { value: 0.05 }, uInkStep: { value: 1 }, uFog: { value: new THREE.Vector3() }, uExposure: { value: 1 }, uSat: { value: 1 }, uVig: { value: 0.5 }, uBloodVig: { value: 0 }, uFlash: { value: 0 }, uSplit: { value: 0 }, uImpact: { value: 0 }, uTime: { value: 0 }, uDesat: { value: 0 }, uCurve: { value: 0 }, uCraft: CRAFTU.uCraft, uPxPolish: CRAFTU.uPxPolish, uCraftDof: CRAFTU.uCraftDof, uCinemaInk: { value: 0 },
+  uInk: { value: 1 }, uInkT: { value: 0.05 }, uInkStep: { value: 1 }, uFog: { value: new THREE.Vector3() }, uExposure: { value: 1 }, uSat: { value: 1 }, uVig: { value: 0.5 }, uBloodVig: { value: 0 }, uFlash: { value: 0 }, uSplit: { value: 0 }, uImpact: { value: 0 }, uTime: { value: 0 }, uDesat: { value: 0 }, uCurve: { value: 0 }, uCraft: CRAFTU.uCraft, uPxPolish: CRAFTU.uPxPolish, uCraftDof: CRAFTU.uCraftDof, uCinemaInk: { value: 0 }, uFastPost: { value: 0 },
   uFlashCol: { value: new THREE.Color() }, uLift: { value: new THREE.Color() }, uGain: { value: new THREE.Color(1, 1, 1) }, uInkCol: { value: new THREE.Color() },
 });
 
 /** the art rows at pixel size 1 on a high-density screen (2× ≈ 450 rows, 3× ≈ 300): a 1080p desktop window's look */
 export const PX_ROWS = 900;
 export class Post {
-  rt: THREE.WebGLRenderTarget; bloom: UnrealBloomPass; mat: THREE.ShaderMaterial; quad: THREE.Mesh; cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1); qs = new THREE.Scene();
+  rt: THREE.WebGLRenderTarget; bloom: UnrealBloomPass | null = null; mat: THREE.ShaderMaterial; quad: THREE.Mesh; cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1); qs = new THREE.Scene();
   /** pixel look: the final pass of the standard look and of the pixel look, the low-res LDR target and the upscale */
   matStd: THREE.ShaderMaterial; matPx: THREE.ShaderMaterial; lo: THREE.WebGLRenderTarget; blit: THREE.ShaderMaterial; bs = new THREE.Scene();
   /** art pixel size in CSS px (0 = standard look) */
@@ -279,22 +284,34 @@ export class Post {
   /** the UI-layer 3D scene at native resolution (look/uiPass.ts) */
   ui: UiPass;
   private size = { w: 4, h: 4, dpr: 1 };
-  constructor(private renderer: THREE.WebGLRenderer) {
-    const cap = renderer.capabilities, ext = renderer.extensions;
-    // 11-18 微信帧率: a GPU that can't draw into half floats gets 8-bit targets (no HDR bloom) instead of a black/flickering screen
-    this.hdr = halfFloatOk(renderer);
-    this.msaa = cap.isWebGL2 && this.hdr && ext.has('EXT_color_buffer_float') ? Math.min(4, cap.maxSamples || 0) : 0;
-    this.rt = new THREE.WebGLRenderTarget(4, 4, { type: this.hdr ? THREE.HalfFloatType : THREE.UnsignedByteType, depthTexture: new THREE.DepthTexture(4, 4), samples: 0 });
-    this.rt.depthTexture.type = THREE.UnsignedIntType;
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), GRADE.bloomStrength, GRADE.bloomRadius, GRADE.bloomThreshold);
-    if (!this.hdr) bloom8bit(this.bloom);
+  private bloomSize = { w: 256, h: 256 };
+  private ensureBloom(): UnrealBloomPass {
+    if (this.bloom) return this.bloom;
+    const b = new UnrealBloomPass(new THREE.Vector2(this.bloomSize.w, this.bloomSize.h), GRADE.bloomStrength, GRADE.bloomRadius, GRADE.bloomThreshold);
+    if (!this.hdr) bloom8bit(b);
     // Preserve rt alpha (occluded character silhouette mask) when standard-mode bloom blends onto this.rt
-    const bCopy = (this.bloom as unknown as { materialCopy?: THREE.Material }).materialCopy;
+    const bCopy = (b as unknown as { materialCopy?: THREE.Material }).materialCopy;
     if (bCopy) {
       bCopy.blending = THREE.CustomBlending;
       bCopy.blendEquation = THREE.AddEquation; bCopy.blendSrc = THREE.SrcAlphaFactor; bCopy.blendDst = THREE.OneFactor;
       bCopy.blendEquationAlpha = THREE.AddEquation; bCopy.blendSrcAlpha = THREE.ZeroFactor; bCopy.blendDstAlpha = THREE.OneFactor;
     }
+    this.bloom = b;
+    return b;
+  }
+  constructor(private renderer: THREE.WebGLRenderer) {
+    const cap = renderer.capabilities, ext = renderer.extensions;
+    // Mini-games (__WX__: WeChat / TapTap) stay strictly on 8-bit RGBA8 targets with no UnrealBloomPass:
+    // avoids boot-time HalfFloat FBO probing, prevents 22× RGBA16F VRAM spikes if the player toggles 高画质 in Settings,
+    // and eliminates TapTap Android libwebglhost.so SIGSEGV when reallocating HalfFloat FBOs at runtime.
+    this.hdr = !__WX__ && halfFloatOk(renderer);
+    // Disable offscreen WebGL2 MSAA FBOs on mini-games (__WX__): combining samples > 0 with RGBA16F + DepthTexture
+    // triggers native Adreno/Mali glBlitFramebuffer driver crashes (闪退) on Redmi/HyperOS WeChat clients.
+    this.msaa = !__WX__ && cap.isWebGL2 && this.hdr && ext.has('EXT_color_buffer_float') ? Math.min(4, cap.maxSamples || 0) : 0;
+    // Use 8-bit RGBA8 when bloom is disabled on mobile tiers (halves framebuffer memory & tile GPU bandwidth).
+    const rtType = this.hdr && !mobileTargets() ? THREE.HalfFloatType : THREE.UnsignedByteType;
+    this.rt = new THREE.WebGLRenderTarget(4, 4, { type: rtType, depthTexture: new THREE.DepthTexture(4, 4), samples: 0 });
+    this.rt.depthTexture.type = THREE.UnsignedIntType;
     const mk = (pixel: boolean) => {
       const u = uniforms(); u.tColor.value = this.rt.texture; u.tDepth.value = this.rt.depthTexture;
       return new THREE.ShaderMaterial({ vertexShader: VS, fragmentShader: FS(pixel), depthTest: false, depthWrite: false, uniforms: u });
@@ -314,7 +331,8 @@ export class Post {
     // (high-DPI screens alias less and pay more per sample: ×2 there)
     // (11-18 微信帧率: the 中 / 低 tiers draw the world without MSAA)
     const T = tierNow(), msx = dpr >= 1.75 ? Math.min(2, this.msaa) : this.msaa, ms = this.pixel <= 1 && T.worldMsaa ? msx : 0;
-    if (this.rt.samples !== ms) { this.rt.samples = ms; this.rt.dispose(); }
+    const wantType = this.hdr && !mobileTargets() ? THREE.HalfFloatType : THREE.UnsignedByteType;
+    if (this.rt.samples !== ms || this.rt.texture.type !== wantType) { this.rt.samples = ms; this.rt.texture.type = wantType; this.rt.dispose(); }
     if (this.pixel > 0) {
       // art buffer: PX.size CSS px per art pixel (device px per art px = size × dpr), a little larger than the screen, centred
       // device px per art pixel. A plain screen (dpr < 1.5): whole multiples of the CSS pixel, as always. A high-density screen
@@ -323,18 +341,23 @@ export class Post {
       // a phone is only ~390 CSS px tall, so 2 CSS px a pixel left it with ~195 rows)
       const pixel = lowTargets() && QUALITY.choice === 'auto' && QUALITY.reducedWorld ? this.pixel + 1 : this.pixel;
       const k = dpr < 1.5 ? ((CRAFT.on || PX_POLISH.on) && pixel >= 2 ? Math.max(1, Math.round(H * pixel / PX_ROWS)) : pixel * dpr) : Math.max(1, H * pixel / PX_ROWS), Wa = Math.max(1, Math.ceil(W / k)), Ha = Math.max(1, Math.ceil(H / k));
-      this.rt.setSize(Wa, Ha); this.lo.setSize(Wa, Ha); this.bloom.setSize(mobileTargets() || !this.hdr ? 32 : Wa, mobileTargets() || !this.hdr ? 32 : Ha);
+      this.rt.setSize(Wa, Ha); this.lo.setSize(Wa, Ha);
+      this.bloomSize = { w: mobileTargets() || !this.hdr ? 32 : Wa, h: mobileTargets() || !this.hdr ? 32 : Ha };
+      this.bloom?.setSize(this.bloomSize.w, this.bloomSize.h);
       (this.matPx.uniforms.uRes.value as THREE.Vector2).set(Wa, Ha);
       const bu = this.blit.uniforms; (bu.uLoRes.value as THREE.Vector2).set(Wa, Ha); bu.uK.value = k; (bu.uOff.value as THREE.Vector2).set((W - Wa * k) / 2, (H - Ha * k) / 2); (bu.uScreenRes.value as THREE.Vector2).set(W, H);
       PXU.uArtH.value = Ha;
     } else {
-      this.rt.setSize(W, H); this.bloom.setSize(Math.round(W / 2), Math.round(H / 2));
+      this.rt.setSize(W, H);
+      this.bloomSize = { w: Math.max(1, Math.round(W / 2)), h: Math.max(1, Math.round(H / 2)) };
+      this.bloom?.setSize(this.bloomSize.w, this.bloomSize.h);
       PXU.uArtH.value = H;
     }
     (this.matStd.uniforms.uRes.value as THREE.Vector2).set(W, H);
     // the UI layer at no more than the tier's device px per CSS px (高 3 = native on any phone; 中 2; 低 1.5), drawn back over the
     // full-resolution frame with linear filtering
-    const uiDpr = !mobileTargets() && QUALITY.tier !== 'high' ? (QUALITY.tier === 'low' ? 1.5 : 2) : T.uiDpr;
+    const rawUiDpr = !mobileTargets() && QUALITY.tier !== 'high' ? (QUALITY.tier === 'low' ? 1.5 : 2) : T.uiDpr;
+    const uiDpr = QUALITY.phone ? Math.min(2, rawUiDpr) : rawUiDpr;
     const uk = Math.min(1, uiDpr / Math.max(1, dpr));
     this.ui.setSize(Math.max(1, Math.round(W * uk)), Math.max(1, Math.round(H * uk)), mobileTargets() ? 0 : msx);
   }
@@ -352,7 +375,6 @@ export class Post {
     if (pix) { pxLightsBegin(scene); liftOverlays(scene); }
     r.render(scene, camera);
     if (pix) pxLightsEnd();
-    this.bloom.strength = GRADE.bloomStrength * (1 - PX.busyDim * busy); this.bloom.radius = GRADE.bloomRadius; this.bloom.threshold = CRAFT.on ? Math.max(GRADE.bloomThreshold, 1.16) : PX_POLISH.on ? Math.max(GRADE.bloomThreshold, 1.12) : GRADE.bloomThreshold;
     // pixel look: the bloom is not blended in place; the final pass reads the composite, caps it and (at ≥ 2× art pixels) steps it into bands
     // (11-18 微信帧率: the pixel look stops at the mips — its blend back over the frame had opacity 0)
     gpuMark('bloom');
@@ -363,8 +385,12 @@ export class Post {
     const cBloomCap = cMode === 'hd2d' ? 1.25 : cMode === 'diorama' ? 1.15 : cMode === 'ink' ? 1.05 : PX.bloomCap;
     const skipBloom = mobileTargets() || !this.hdr;
     if (skipBloom) { u.tBloom.value = this.rt.texture; u.uBloomCap.value = 0; u.uBands.value = 0; }
-    else if (pix) { u.tBloom.value = bloomMips(this.bloom, r, this.rt); u.uBloomCap.value = cBloomCap; u.uBands.value = !CRAFT.on && this.pixel >= 2 ? PX.bands : 0; }
-    else { (this.bloom as unknown as { copyUniforms: Record<string, THREE.IUniform> }).copyUniforms.opacity.value = 1; this.bloom.render(r, null as unknown as THREE.WebGLRenderTarget, this.rt, 0, false); }
+    else {
+      const bloom = this.ensureBloom();
+      bloom.strength = GRADE.bloomStrength * (1 - PX.busyDim * busy); bloom.radius = GRADE.bloomRadius; bloom.threshold = CRAFT.on ? Math.max(GRADE.bloomThreshold, 1.16) : PX_POLISH.on ? Math.max(GRADE.bloomThreshold, 1.12) : GRADE.bloomThreshold;
+      if (pix) { u.tBloom.value = bloomMips(bloom, r, this.rt); u.uBloomCap.value = cBloomCap; u.uBands.value = !CRAFT.on && this.pixel >= 2 ? PX.bands : 0; }
+      else { (bloom as unknown as { copyUniforms: Record<string, THREE.IUniform> }).copyUniforms.opacity.value = 1; bloom.render(r, null as unknown as THREE.WebGLRenderTarget, this.rt, 0, false); }
+    }
     const fog = scene.fog as (THREE.Fog & THREE.FogExp2) | null;   // x: exp2 density, y/z: linear near / far
     (u.uFog.value as THREE.Vector3).set(fog && (fog as THREE.FogExp2).isFogExp2 ? fog.density : 0, fog && (fog as THREE.Fog).isFog ? fog.near : 0, fog && (fog as THREE.Fog).isFog ? fog.far : 0);
     // resolution-normalized outline thickness (matches UiPass's H / 720 scaling so small windows, 1080p, 2K & 4K look identical)
@@ -382,7 +408,7 @@ export class Post {
     const cCur = cMode === 'ink' ? 0.11 : cMode === 'hd2d' ? 0.14 : cMode === 'diorama' ? 0.10 : (pix ? PX.curve : 0);
     u.uNear.value = camera.near; u.uFar.value = camera.far; u.uInk.value = cInk; u.uInkT.value = cInkT; u.uInkStep.value = inkStep;
     u.uExposure.value = GRADE.exposure * cExp; u.uSat.value = GRADE.sat * cSat; u.uVig.value = GRADE.vig * cVig; u.uBloodVig.value = GRADE.bloodVig; u.uCurve.value = cCur;
-    u.uFlash.value = GRADE.flash; u.uSplit.value = GRADE.split; u.uImpact.value = GRADE.impact; u.uTime.value = time % 100; u.uDesat.value = GRADE.desat; u.uCinemaInk.value = GRADE.cinemaInk;
+    u.uFlash.value = GRADE.flash; u.uSplit.value = GRADE.split; u.uImpact.value = GRADE.impact; u.uTime.value = time % 100; u.uDesat.value = GRADE.desat; u.uCinemaInk.value = GRADE.cinemaInk; u.uFastPost.value = mobileTargets() ? 1 : 0;
     (u.uFlashCol.value as THREE.Color).copy(GRADE.flashCol); (u.uLift.value as THREE.Color).copy(GRADE.lift); (u.uGain.value as THREE.Color).copy(GRADE.gain); (u.uInkCol.value as THREE.Color).copy(GRADE.inkCol);
     const bu = this.blit.uniforms;
     bu.uHd2d.value = isHd2d ? 1 : 0;

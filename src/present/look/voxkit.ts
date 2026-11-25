@@ -517,7 +517,7 @@ export class VoxChar {
  * floors and walls cost a handful of quads; faces next to other blocks keep per-cell AO. Every face gets the same bevel as the
  * characters (edges that stick out), measured in cells so a merged slab is bevelled only along its border.
  */
-type WorldMeshOptions = { glow?: number; rim?: number; self?: number; edge?: number; chunk?: number; tile?: number; ground?: boolean };
+type WorldMeshOptions = { glow?: number; rim?: number; self?: number; edge?: number; chunk?: number; tile?: number; ground?: boolean; cullNorth?: boolean };
 export class VoxWorld {
   readonly cells: Map<number, { c: number; g: number }> | WorldGrid;
   constructor(readonly s: number, terrain = false) { this.cells = terrain ? new WorldGrid() : new Map(); }
@@ -543,6 +543,7 @@ export class VoxWorld {
     const s = this.s, CH = o.chunk ?? 0, bits = this.cells instanceof WorldGrid ? this.cells.occupancy() : occupancy(this.cells);
     // (a whole place, not a prop that may topple or fly: those keep every face)
     const GROUND = o.ground ?? this.cells.size > 200000;
+    const CULL_NORTH = !!o.cullNorth;
     const occ = bits ? bits.occ : (x: number, y: number, z: number) => this.cells.has(key(x, y, z));
     const chk = (x: number, z: number) => (CH ? Math.floor(x / CH) * 4096 + Math.floor(z / CH) : 0);
     const out = { solid: [[], [], [], [], [], [], [], []] as number[][], glow: [[], [], [], [], [], [], [], []] as number[][] };
@@ -570,6 +571,7 @@ export class VoxWorld {
       const ci = bits ? bits.at(x, y, z) : 0;
       for (let d = 0; d < 6; d++) {
         if (d === 3 && y <= 0 && GROUND) continue;   // 11-18 微信帧率: in a whole place, the underside of what lies on (or under) the ground is never seen, nor needed for a shadow
+        if (d === 5 && CULL_NORTH) continue;         // top-down combat rooms: north-facing (-z) backs are never seen by the south camera nor drawn by the shadow pass
         const [dx, dy, dz] = DIRS[d], [t1, t2] = TAN[d], ox = x + dx, oy = y + dy, oz = z + dz;
         if (B) {
           const oi = ci + DD[d]; if ((B[oi >>> 5] >>> (oi & 31)) & 1) continue;
@@ -589,9 +591,12 @@ export class VoxWorld {
           }
         }
         const a = dx ? x : dy ? y : z, u = dx ? y : dy ? z : x, w = dx ? z : dy ? x : y;
-        if (v.g === 0 && aos[0] === 3 && aos[1] === 3 && aos[2] === 3 && aos[3] === 3) {
+        const canW = aos[0] === aos[3] && aos[1] === aos[2];
+        const canU = aos[0] === aos[1] && aos[3] === aos[2];
+        if (v.g === 0 && (canW || canU)) {
           const sk = d * 2048 + a + 1024; let sl = slices.get(sk); if (!sl) slices.set(sk, (sl = new Map()));
-          sl.set(uvKey(u, w), v.c); continue;
+          const aoMask = aos[0] | (aos[1] << 2) | (aos[2] << 4) | (aos[3] << 6);
+          sl.set(uvKey(u, w), v.c * 256 + aoMask); continue;
         }
         const cx = x + 0.5 + dx * 0.5, cy = y + 0.5 + dy * 0.5, cz = z + 0.5 + dz * 0.5;
         const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([s1, s2]) => [cx + (t1[0] * s1 + t2[0] * s2) * 0.5, cy + (t1[1] * s1 + t2[1] * s2) * 0.5, cz + (t1[2] * s1 + t2[2] * s2) * 0.5]);
@@ -599,7 +604,7 @@ export class VoxWorld {
         col.set(v.c); quad(v.g > 0 ? out.glow : out.solid, corners, [dx, dy, dz], col, aos.slice(), [1, 1], open, dx + dy + dz > 0, [x, z]);
       }
     }
-    // greedy rectangles per slice
+    // greedy rectangles / constant-AO strips per slice (exact bilinear AO preservation)
     for (const [sk, sl] of slices) {
       const d = Math.floor(sk / 2048), a = (sk % 2048) - 1024, [dx, dy, dz] = DIRS[d], pos = dx + dy + dz > 0, plane = pos ? a + 1 : a;
       const keys = [...sl.keys()].sort((p, q) => p - q), done = new Set<number>();
@@ -608,10 +613,14 @@ export class VoxWorld {
         if ((++visited & 1023) === 0) yield;
         if (done.has(k0)) continue;
         const ck = sl.get(k0)!, u0 = Math.floor(k0 / 1024) - 512, w0 = (k0 % 1024) - 512;
+        const aoMask = ck & 255, colHex = Math.floor(ck / 256);
+        const a0 = aoMask & 3, a1 = (aoMask >> 2) & 3, a2 = (aoMask >> 4) & 3, a3 = (aoMask >> 6) & 3;
+        const canW = a0 === a3 && a1 === a2, canU = a0 === a1 && a3 === a2;
         const c0 = cellAt(u0, w0), ch0 = chk(c0[0], c0[2]), same = (u: number, w: number) => { if (!CH) return true; const c = cellAt(u, w); return chk(c[0], c[2]) === ch0; };
-        let w1 = w0; while (sl.get(uvKey(u0, w1 + 1)) === ck && !done.has(uvKey(u0, w1 + 1)) && same(u0, w1 + 1)) w1++;
+        let w1 = w0;
+        if (canW) while (sl.get(uvKey(u0, w1 + 1)) === ck && !done.has(uvKey(u0, w1 + 1)) && same(u0, w1 + 1)) w1++;
         let u1 = u0;
-        grow: for (;;) { for (let ww = w0; ww <= w1; ww++) { const kk = uvKey(u1 + 1, ww); if (sl.get(kk) !== ck || done.has(kk) || !same(u1 + 1, ww)) break grow; } u1++; }
+        if (canU) grow: for (;;) { for (let ww = w0; ww <= w1; ww++) { const kk = uvKey(u1 + 1, ww); if (sl.get(kk) !== ck || done.has(kk) || !same(u1 + 1, ww)) break grow; } u1++; }
         for (let uu = u0; uu <= u1; uu++) for (let ww = w0; ww <= w1; ww++) done.add(uvKey(uu, ww));
         // an edge of the rectangle is bevelled where the surface does not continue in-plane beyond it
         const t1 = TAN[d][0], t2 = TAN[d][1];
@@ -620,7 +629,7 @@ export class VoxWorld {
         const rowW = (ww: number) => { const r: Array<[number, number, number]> = []; for (let uu = u0; uu <= u1; uu++) r.push(cellAt(uu, ww)); return r; };
         const open = [edgeOpen(colU(u0), t1, -1), edgeOpen(colU(u1), t1, 1), edgeOpen(rowW(w0), t2, -1), edgeOpen(rowW(w1), t2, 1)];
         const corners = [[u0, w0], [u1 + 1, w0], [u1 + 1, w1 + 1], [u0, w1 + 1]].map(([uu, ww]) => (dx ? [plane, uu, ww] : dy ? [ww, plane, uu] : [uu, ww, plane]));
-        col.set(ck); quad(out.solid, corners, [dx, dy, dz], col, [3, 3, 3, 3], [u1 - u0 + 1, w1 - w0 + 1], open, pos, [c0[0], c0[2]]);
+        col.set(colHex); quad(out.solid, corners, [dx, dy, dz], col, [a0, a1, a2, a3], [u1 - u0 + 1, w1 - w0 + 1], open, pos, [c0[0], c0[2]]);
       }
     }
     const meshes: THREE.Mesh[] = [];

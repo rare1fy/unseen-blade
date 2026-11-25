@@ -70,11 +70,17 @@ export function bootDemo(on = true) { if (on) bootShow(); else bootDone(); }
 /** up at once, before anything else draws */
 export function bootShow() { state = 'on'; alpha = 1; fadeT = 0; last = 0; clock = 0; }
 /** the scene behind is ready (built, its shaders compiled, a few frames drawn): fade out */
-export function bootDone() { if (state === 'on') { state = 'fading'; fadeT = 0; } }
+export function bootDone() { if (state === 'on') { if (__WX__) { state = 'off'; alpha = 0; } else { state = 'fading'; fadeT = 0; } } }
 export function drawBoot(renderer: THREE.WebGLRenderer, w: number, h: number, now: number) {
   if (state === 'off') return;
+  if (__WX__) {
+    // On mini-games, skip per-frame Canvas2D snowflake rasterization & texture upload during the ~150 ms boot unpack.
+    const ac = renderer.autoClear; renderer.autoClear = true; renderer.setRenderTarget(null);
+    renderer.setClearColor(0x000000, 1); renderer.clear(); renderer.autoClear = ac;
+    return;
+  }
   const dt = last ? Math.min(0.05, (now - last) / 1000) : 0; last = now; clock += dt;
-  if (state === 'fading') { fadeT += dt; alpha = Math.max(0, 1 - fadeT / 0.6); if (alpha <= 0) { state = 'off'; return; } }
+  if (state === 'fading') { fadeT += dt; alpha = Math.max(0, 1 - fadeT / (__WX__ ? 0.06 : 0.6)); if (alpha <= 0) { state = 'off'; return; } }
   ensure(w, h, renderer.getPixelRatio());
   paint(dt); tex!.needsUpdate = true;
   (quad!.material as THREE.MeshBasicMaterial).opacity = alpha;

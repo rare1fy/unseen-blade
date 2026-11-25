@@ -67,8 +67,10 @@ function getWx(): any {
   return typeof wx !== 'undefined' && wx ? wx : null;
 }
 
-/** 是否具备微信小游戏原生游戏圈按钮能力 */
+/** 是否具备微信小游戏原生游戏圈按钮能力（TapTap 小游戏端不展示微信游戏圈） */
 export function gameClubSupported(): boolean {
+  const g = typeof GameGlobal !== 'undefined' ? GameGlobal : globalThis;
+  if ((g as { __ubTapMiniGame?: boolean }).__ubTapMiniGame) return false;
   const w = getWx();
   return !!(w && typeof w.createGameClubButton === 'function');
 }

@@ -36,6 +36,7 @@ const flags = readFlags(k => __DEBUG_UI__ ? platform.query(k) : null);
 const canvas = platform.createCanvas();
 // the 3D-pixel render style (look/pixel.ts): #px1 / #px2 / #px3 or ?px=1|2|3; P toggles, [ ] pixel size
 if (__DEBUG_UI__) readPixelFlag(typeof location !== 'undefined' ? location.hash.slice(1) : '', k => platform.query(k));
+else { PX.on = true; PX.size = 2; PXU.uPx.value = 1; }
 initQuality(platform);   // (11-18 微信帧率: the quality tier, before the renderer sizes its targets)
 const gfx = createGfx(platform, canvas, { preserve: !!TEST.preserve });
 if (__DEBUG_UI__) installPixelKeys();
@@ -100,7 +101,7 @@ dh.install();
     //  the plain black screen with the turning blade on every platform; it fades only after the title is built, its shaders compiled
     //  and a few of its frames drawn behind the black)
     bootShow();
-    try { await start(); precompileAll(); await waitFrames(6); } finally { bootDone(); }
+    try { await start(); if (!__WX__) { precompileAll(); await waitFrames(6); } } finally { bootDone(); }
     void withLoadingBlade;
     dh.ready();
   } catch (e) { const err = e as Error | null; console.error('[act]', err && err.stack ? String(err) + '\n' + err.stack : err); dh.fail(e); }

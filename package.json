@@ -14,7 +14,10 @@
     "check": "npm run typecheck && npm test && npm run build",
     "script": "node tools/import-script.mjs",
     "wx": "node tools/build-wechat.mjs",
-    "cg": "node tools/build-crazygames.mjs"
+    "cg": "node tools/build-crazygames.mjs",
+    "taptap": "node tools/build-taptap.mjs",
+    "tap-minigame": "node tools/build-tap-minigame.mjs",
+    "tap-minigame:split": "node tools/build-tap-minigame.mjs --split"
   },
   "dependencies": {
     "three": "0.162.0"

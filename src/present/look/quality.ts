@@ -14,10 +14,10 @@ export const TIER_CN: Record<Choice, string> = { auto: '自动', high: '高', mi
 export const TIERS: Record<Tier, { uiDpr: number; worldMsaa: boolean; shadowMap: number; shadowEvery: number; fps: number; pointLights: number }> = {
   /** the UI layer at up to 3 device px per CSS px (native on every phone), MSAA on the 1× world, the shadow map 2048 (1024 on phones) */
   high: { uiDpr: 3, worldMsaa: true, shadowMap: 2048, shadowEvery: 1, fps: 60, pointLights: 18 },
-  /** 1.5× interface, baked scenery and a 1024 shadow map for moving objects. */
-  mid: { uiDpr: 1.5, worldMsaa: false, shadowMap: 1024, shadowEvery: 1, fps: 60, pointLights: 4 },
-  /** 1× interface, contact shadows. The old 512 map is only used for A/B comparisons. */
-  low: { uiDpr: 1, worldMsaa: false, shadowMap: 512, shadowEvery: 2, fps: 30, pointLights: 2 },
+  /** 1.5× interface, baked scenery and a 512 shadow map refreshed every other frame for moving objects. */
+  mid: { uiDpr: 1.5, worldMsaa: false, shadowMap: 512, shadowEvery: 2, fps: 60, pointLights: 2 },
+  /** 1× interface, contact shadows. Keeps 60 fps target so action combat stays responsive even on low quality. */
+  low: { uiDpr: 1, worldMsaa: false, shadowMap: 512, shadowEvery: 2, fps: 60, pointLights: 1 },
 };
 
 export const QUALITY = {
@@ -40,8 +40,10 @@ export function refreshQuality() {
   for (const f of subs) f();
 }
 function platformFps() {
-  if (P?.name === 'wx') try {
-    (globalThis as { wx?: { setPreferredFramesPerSecond?(fps: number): void } }).wx?.setPreferredFramesPerSecond?.(tierNow().fps);
+  if (P?.name === 'wx' || P?.name === 'tt') try {
+    const g = globalThis as { wx?: { setPreferredFramesPerSecond?(fps: number): void }; tap?: { setPreferredFramesPerSecond?(fps: number): void } };
+    const fn = g.wx?.setPreferredFramesPerSecond ?? g.tap?.setPreferredFramesPerSecond;
+    fn?.(tierNow().fps);
   } catch { /* older base library; gfx still paces drawing */ }
 }
 const subs: Array<() => void> = [];
@@ -66,20 +68,23 @@ export function initQuality(p: Platform) {
   try { const n = globalThis.navigator as Navigator | undefined, s = globalThis.screen as Screen | undefined; if (n && (n.maxTouchPoints ?? 0) > 0 && s && Math.min(s.width, s.height) < 900) phone = true; } catch { /* no screen info: a computer */ }
   QUALITY.phone = phone; QUALITY.auto = phone ? 'mid' : 'high';
   try { const v = p.storage?.get('ub.quality'); if (v === 'auto' || v === 'high' || v === 'mid' || v === 'low') QUALITY.choice = v; } catch { /* storage blocked */ }
-  // WeChat (base library 3.4.5+): modelLevel 1 = high-end, 2 = mid, 3 = low-end, 0 = unknown
+  // WeChat (base library 3.4.5+): modelLevel 1 = high-end, 2 = mid, 3 = low-end, 0 = unknown.
+  // Keep auto capped at 'mid' on WeChat phones (players can still choose 高 manually) so 1.5K/2K Android phones
+  // (e.g. Redmi) never auto-escalate into 22× RGBA16F bloom FBOs & full-DPR VRAM spikes right at boot.
   const wxApi = p.name === 'wx' ? (globalThis as unknown as { wx?: { getDeviceBenchmarkInfo?: (o: { success: (r: { modelLevel?: number }) => void }) => void } }).wx : undefined;
-  try { wxApi?.getDeviceBenchmarkInfo?.({ success: r => { const m = r?.modelLevel; QUALITY.auto = m === 1 ? 'high' : m === 3 ? 'low' : 'mid'; QUALITY.drops = 0; apply(); } }); } catch { /* old base library */ }
+  try { wxApi?.getDeviceBenchmarkInfo?.({ success: r => { const m = r?.modelLevel; QUALITY.auto = m === 3 ? 'low' : 'mid'; QUALITY.drops = 0; apply(); } }); } catch { /* old base library */ }
   QUALITY.tier = QUALITY.choice === 'auto' ? QUALITY.auto : QUALITY.choice; platformFps(); refreshQuality();
 }
 
-// Four seconds of drawn frames. At the 30 Hz cap, 33 ms is healthy.
+// Three seconds of drawn frames. Wait 6 s after boot so initial warm-up doesn't trigger false drops,
+// then step mid→low whenever sustained FPS dips under ~50 fps (>20 ms/frame) while keeping the 60 fps cap.
 let elapsed = 0, frames = 0, cool = 6000;
 export function qualityFrame(ms: number) {
   if (QUALITY.choice !== 'auto' || !QUALITY.phone || ms <= 0 || ms > 500) return;
   if (cool > 0) { cool -= ms; return; }
   elapsed += ms; frames++;
-  if (elapsed < 4000) return;
-  const slow = elapsed / frames > (QUALITY.auto === 'low' ? 37 : 20);
+  if (elapsed < 3000) return;
+  const slow = elapsed / frames > (QUALITY.auto === 'low' ? 24 : 20);
   frames = elapsed = 0;
   if (!slow) return;
   if (QUALITY.auto === 'low') {

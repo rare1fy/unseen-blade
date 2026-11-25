@@ -42,7 +42,7 @@ const BONE = 0xdcd2be, BONE_D = 0xb6aa94, IRON_B = 0x6a7482, IRON_L = 0x9aa4b2;
 const built = new Map<string, THREE.Mesh[]>();
 function voxModel(key: string, draw: (w: VoxWorld) => void) {
   let ms = built.get(key);
-  if (!ms) { const w = new VoxWorld(CELL); draw(w); ms = w.build({ rim: 0.25, edge: 0.14 }); built.set(key, ms); }
+  if (!ms) { const w = new VoxWorld(CELL); draw(w); ms = w.build({ rim: 0.25, edge: 0.14, ground: true }); built.set(key, ms); }
   const g = new THREE.Group(); for (const m of ms) { const c = new THREE.Mesh(m.geometry, m.material); c.castShadow = true; c.receiveShadow = true; g.add(c); } return g;
 }
 /** the counter: two slab trestles, a thick plank top (y 7..8), a lower shelf, the hemp runner over the middle and down the front */
@@ -220,11 +220,11 @@ export class Stations {
       s.sign = makeSign(s.label, { w: SIGN.w, h: SIGN.h, post: SIGN.post, sub: s.sub, price: s.price, ink: poor ? '#8a2018' : undefined }); s.sign.position.copy(at); this.root.add(s.sign);
     }
   }
-  /** one station is spent: its mat dims, its ring goes; `others` = put the rest out too (the rest room's either-or) */
-  spend(s: Station, others = false) {
+  /** one station is spent: its mat dims, its ring goes; `others` = put the rest out too (the rest room's either-or); `silent` skips burst FX when restoring a mid-run save */
+  spend(s: Station, others = false, silent = false) {
     s.done = true; s.ring.visible = false; s.track.visible = false; s.disc.visible = false; s.edge.visible = false;
     setPropOcc(s.g, 0);
-    fxRing(s.at.clone().setY(0.08), 0xffe0a0, 1.5, { life: 0.5 } as never); fxSparks(s.at.clone().setY(0.6), 0xffe0a0, 18, 4);
+    if (!silent) { fxRing(s.at.clone().setY(0.08), 0xffe0a0, 1.5, { life: 0.5 } as never); fxSparks(s.at.clone().setY(0.6), 0xffe0a0, 18, 4); }
     if (others) for (const o of this.list) if (o !== s && !o.done) { o.done = true; setPropOcc(o.g, 0); o.ring.visible = false; o.track.visible = false; o.disc.visible = false; o.g.visible = false; o.sign.visible = false; o.edge.visible = false; }
   }
   /** act-136 Scheme A: proximity visual affordance (instant purchase triggered by interact key in show.ts, no 1s standstill wait) */

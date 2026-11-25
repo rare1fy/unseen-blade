@@ -32,8 +32,10 @@ function ensureEnglish() {
       },
       fail: reject,
     });
-    if (api.loadSubpackage && subName && subName !== 'assets') {
-      api.loadSubpackage({ name: subName, success: read, fail: reject });
+    const g = (typeof GameGlobal !== 'undefined' ? GameGlobal : globalThis) as { __ubSinglePkg?: boolean; __ubSubpackages?: Record<string, boolean> | null };
+    const needSub = g.__ubSubpackages ? !!g.__ubSubpackages[subName] : (!g.__ubSinglePkg && !!subName && subName !== 'assets');
+    if (api.loadSubpackage && needSub) {
+      api.loadSubpackage({ name: subName, success: read, fail: () => read() });
     } else read();
   }).then(() => {
     if (language === 'en') for (const notify of listeners) notify();

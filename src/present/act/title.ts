@@ -1,4 +1,5 @@
 import { bladeBusy, runRoomBuild, withLoadingBlade } from '../scenes/loadingBlade';
+import { loadInFrames } from '../engine/buildSteps';
 import { language, t } from './i18n';
 import { instanceMatrix, finishInstances } from "../engine/uploads";
 // 开始画面（docs/DESIGN.md 第二十轮 6；用户 11-17：「最后就是开始画面，再做一版吧，带、继续游戏那些的。氛围上多尝试几版，明早我来选，
@@ -616,6 +617,8 @@ export interface TitleHost {
   enter(kind: 'new' | 'continue'): void | Promise<void>;
   /** 设置: the tuning panel */
   settings(): void;
+  /** optional mid-run checkpoint label shown when 继续游戏 is focused (e.g. "续战 · 洛阳 第四间") */
+  resumeNote?(): string;
 }
 let running: Title | null = null;
 export function titleDefinition(index: number): SceneDef {
@@ -638,11 +641,22 @@ export function titleDefinition(index: number): SceneDef {
   };
 }
 /** Resolves once the selected menu and its backdrop can be rendered. */
+let titleGen = 0;
 export function playTitle(n: number, host: TitleHost) {
   stopOpening(); running?.stop();
+  const gen = ++titleGen;
   const index = Math.max(1, Math.min(TITLES.length, Math.round(n) || 1));
-  const prepared = runRoomBuild(prepareStageSteps(titleDefinition(index)));
-  const show = (p: import('../scenes/stage').PreparedStage) => { running = new Title(index, host, p.attach()); };
+  const def = titleDefinition(index);
+  const show = (p: import('../scenes/stage').PreparedStage) => {
+    if (gen !== titleGen) { p.drop(); return; }
+    running = new Title(index, host, p.attach());
+  };
+  // On mini-games, pass `background: true` so pre-baked `title-snow.bin` actually unpacks (~100 ms vs 4.1 s procedural),
+  // using a 160 ms slice budget during initial boot so title-snow unpacks in 1-2 ticks with zero wasted empty WebGL frames.
+  if (__WX__) {
+    return loadInFrames(prepareStageSteps(def, { background: true }), 160).then(show);
+  }
+  const prepared = runRoomBuild(prepareStageSteps(def));
   if (prepared instanceof Promise) return prepared.then(show);
   show(prepared);
 }
@@ -887,8 +901,10 @@ class Title {
       pointerX: this.ptr.x,
       pointerY: this.ptr.y,
     });
-    // the note over the confirm (small, under the title)
-    const want = this.beat === 'confirm' ? t(ASK_NOTE) : '';
+    // the note over the confirm (small, under the title), or the mid-run resume badge when 继续游戏 is selected
+    const want = this.beat === 'confirm'
+      ? t(ASK_NOTE)
+      : (this.beat === 'menu' && this.items[this.sel]?.id === 'cont' && this.items[this.sel]?.enabled && this.host.resumeNote ? this.host.resumeNote() : '');
     if (want !== this.noteKey) {
       this.noteKey = want; const ov = this.host.ov, k = ov.dpr;
       if (this.noteM) { ov.scene.remove(this.noteM); this.noteM.geometry.dispose(); (this.noteM.material as THREE.Material).dispose(); this.noteM = null; } this.noteTex?.dispose(); this.noteTex = null;
@@ -1031,12 +1047,21 @@ class Title {
     if (!this.grab || this.frame) return;
     this.grab = false;
     if (__WX__) {
-      // the screen as it stands, copied into a texture on the GPU (the default framebuffer, read before it is presented)
+      // the screen as it stands, copied into a texture on the GPU (the default framebuffer, read before it is presented).
+      // Use NoColorSpace (RGBA8) — GLES 3.0 rejects copyTexSubImage2D into SRGB8_ALPHA8 (GL_INVALID_OPERATION) on Android GPUs!
       try {
-        const sz = r.getDrawingBufferSize(new THREE.Vector2()), t = new THREE.FramebufferTexture(sz.x, sz.y);
-        t.minFilter = t.magFilter = THREE.LinearFilter; t.generateMipmaps = false; t.colorSpace = THREE.SRGBColorSpace;
+        const gl = r.getContext();
+        while (gl.getError() !== gl.NO_ERROR) { /* clear prior errors */ }
+        const sz = r.getDrawingBufferSize(new THREE.Vector2());
+        if (sz.x < 16 || sz.y < 16) { this.grabbed = false; this.frame = new THREE.Texture(); return; }
+        const t = new THREE.FramebufferTexture(sz.x, sz.y);
+        t.minFilter = t.magFilter = THREE.LinearFilter; t.generateMipmaps = false; t.colorSpace = THREE.NoColorSpace;
         r.setRenderTarget(null); r.copyFramebufferToTexture(new THREE.Vector2(0, 0), t);   // (three r162: position first)
-        this.frame = t; this.grabbed = !T_QA.noGrab;
+        if (gl.getError() !== gl.NO_ERROR) {
+          t.dispose(); this.grabbed = false; this.frame = new THREE.Texture();
+        } else {
+          this.frame = t; this.grabbed = !T_QA.noGrab;
+        }
       } catch (e) { console.error('[title] frame copy failed', e); this.grabbed = false; this.frame = new THREE.Texture(); }
       return;
     }
@@ -1059,7 +1084,21 @@ class Title {
       void wipeTransit(() => { this.hideOverlay(); this.restore(); try { this.host.enter(this.choice); } catch (e) { console.error('[title] enter failed', e); } }).then(() => this.finish());
       return;
     }
-    const up = quad(this.frame!, v, 1, 95), dn = quad(this.frame!, 0, v, 95);
+    const makeSlab = (v0: number, v1: number) => {
+      if ((this.frame as THREE.FramebufferTexture)?.isFramebufferTexture) {
+        const geo = new THREE.PlaneGeometry(1, 1), uv = geo.attributes.uv as THREE.BufferAttribute;
+        for (let i = 0; i < uv.count; i++) uv.setY(i, uv.getY(i) > 0.5 ? v1 : v0);
+        const mat = new THREE.ShaderMaterial({
+          uniforms: { tFrame: { value: this.frame } },
+          vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+          fragmentShader: 'uniform sampler2D tFrame; varying vec2 vUv; void main(){ gl_FragColor = vec4(texture2D(tFrame, vUv).rgb, 1.0); }',
+          depthTest: false, depthWrite: false, toneMapped: false,
+        });
+        const m = new THREE.Mesh(geo, mat); m.renderOrder = 95; return m;
+      }
+      return quad(this.frame!, v0, v1, 95);
+    };
+    const up = makeSlab(v, 1), dn = makeSlab(0, v);
     place(up, 0, 0, W, c); place(dn, 0, c, W, H - c); ov.scene.add(up, dn); this.slabs = [up, dn];
     this.hideOverlay(); this.restore();
     try { this.host.enter(this.choice); } catch (e) { console.error('[title] enter failed', e); }

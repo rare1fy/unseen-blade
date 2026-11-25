@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { padLights, restoreLights, scene } from '../src/present/engine/world';
 import { QUALITY } from '../src/present/look/quality';
 import { OPT } from '../src/present/engine/perfOpts';
-import { VoxChar } from '../src/present/look/voxkit';
+import { VoxChar, VoxWorld } from '../src/present/look/voxkit';
 import { bakeTerrainLight } from '../src/present/scenes/terrainLight';
 
 function surface(meshes: THREE.Mesh[]) {
@@ -40,7 +40,7 @@ describe('mobile room rendering', () => {
       QUALITY.tier = 'high'; padLights();
       expect(lights.filter(l => l.visible)).toHaveLength(21);
       restoreLights(); QUALITY.tier = 'mid'; padLights();
-      expect(lights.filter(l => l.visible)).toHaveLength(4);
+      expect(lights.filter(l => l.visible)).toHaveLength(2);
       restoreLights(); expect(lights.every(l => l.visible)).toBe(true);
     } finally { restoreLights(); QUALITY.tier = oldTier; scene.remove(...lights); }
   });
@@ -56,5 +56,19 @@ describe('mobile room rendering', () => {
     expect(empty.depth[at(2)]).toBe(empty.depth[at(0)]);
     expect(withCrate.depth[at(2)]).toBeGreaterThan(empty.depth[at(2)]);
     expect(bakeTerrainLight([])).toBeNull();
+  });
+
+  it('merges constant-AO wall-base strips in VoxWorld and culls unseen north/ground faces', () => {
+    const w = new VoxWorld(0.07);
+    // 12-cell-long floor + 12-cell-long wall creating a 12-cell AO strip along the base
+    w.box(0, 0, 0, 11, 0, 3, 0x808080);
+    w.box(0, 1, 0, 11, 3, 0, 0x606060);
+    const full = w.build({ ground: false, cullNorth: false });
+    const culled = w.build({ ground: true, cullNorth: true });
+    const fullStats = surface(full), culledStats = surface(culled);
+    // Without constant-AO merging, the 12-cell wall-base floor & wall seams would emit 24 separate quads (48+ tris) alone.
+    // With constant-AO strip merging, the entire L-wall builds in well under 40 triangles!
+    expect(fullStats.triangles).toBeLessThan(40);
+    expect(culledStats.triangles).toBeLessThan(fullStats.triangles);
   });
 });

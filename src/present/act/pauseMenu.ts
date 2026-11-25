@@ -196,13 +196,13 @@ export class PauseMenu {
       ...(h.buildTabs || h.build || h.owned || h.skills ? [{ id: 'build', label: () => UI_WORDS.build }] : []),
       { id: 'keys', label: () => '键位' }, { id: 'set', label: () => '设置' },
       ...(h.canGiveUp() ? [{ id: 'quit', label: () => '回据点' }] : []),
-      ...(h.toTitle ? [{ id: 'title', label: () => '回主画面' }] : []),
+      ...(h.toTitle ? [{ id: 'title', label: () => h.onRun?.() ? '存盘回主画面' : '回主画面' }] : []),
     ];
     // act-182: 3-tab Hero Info Mini-World uses split SkillList + MoveStage; no slabs — top-left back shield leaves
     if (this.page === 'build') return [];
     if (this.page === 'keys') return [...ACTIONS.map(a => ({ id: 'act', act: a, label: () => ACTION_WORD[a] })), { id: 'reset', label: () => '恢复默认' }];
     if (this.page === 'set') return h.settings.filter(s => !s.show || s.show()).map((s, i) => ({ id: s.id ?? `s${i}`, label: s.label, run: s.run }));
-    if (this.page === 'askTitle') return [{ id: 'yesTitle', label: () => '回主画面' }, { id: 'no', label: () => '再想想' }];
+    if (this.page === 'askTitle') return [{ id: 'yesTitle', label: () => '存盘返回' }, { id: 'no', label: () => '再想想' }];
     return [{ id: 'yes', label: () => '回据点' }, { id: 'no', label: () => '再想想' }];
   }
   private openHeroTab(tab: 0 | 1 | 2, focusId?: string, silent = false) {
@@ -528,7 +528,7 @@ export class PauseMenu {
     Object.assign(this.lay, { cx, w, h, top, S, hS, gap });
     this.slabs.forEach((s, i) => { s.size(w, h); s.x = cx; s.y = top + h / 2 + i * (h + gap); });
     // the page's name over the column
-    const name = { main: '暂歇', keys: '键位', set: '设置', ask: '回据点？', askTitle: '回主画面？', build: UI_WORDS.build, owned: UI_WORDS.build, skills: UI_WORDS.build }[this.page], note = this.page === 'ask' || this.page === 'askTitle' ? '视同战死：途中所获尽失，残铁与药引照带回' : this.page === 'keys' ? this.keysNote() : '';
+    const name = { main: '暂歇', keys: '键位', set: '设置', ask: '回据点？', askTitle: '存盘回主画面？', build: UI_WORDS.build, owned: UI_WORDS.build, skills: UI_WORDS.build }[this.page], note = this.page === 'ask' ? '视同战死：途中所获尽失，残铁与药引照带回' : this.page === 'askTitle' ? '保留本局关卡与强化进度，下次点「继续游戏」接着打' : this.page === 'keys' ? this.keysNote() : '';
     const nS = Math.max(1, Math.round(hS * 0.45)), hw = Math.max(textW(name, hS), textW(note, nS) + 8 * kk) / k + 8 * kk, hh = (PIX_H * hS + (note ? PIX_H * nS + 6 * k * kk : 0)) / k + 6 * kk;
     this.head.set(language + name + note + kk.toFixed(2), hw, hh, g => { text(g, name, 4 * k * kk, 3 * k * kk, hS, TXT.sel); if (note) text(g, note, 4 * k * kk, 3 * k * kk + PIX_H * hS + 6 * k * kk, nS, TXT.dim); });
     const ent = Math.min(1, this.pageT / 0.25), br = Math.max(22 * kk, Math.min(32 * kk, headH * 0.60)), withBack = this.page !== 'main';

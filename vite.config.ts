@@ -25,6 +25,7 @@ const stripReleaseDead = (): Plugin => ({
     const f = id.split('?')[0].replace(/\\/g, '/');
     if (/\/fonts\/body\/(?:serif|sans)\.woff2$/.test(f)) return 'export default "";';
     if (/\/src\/present\/act\/animPreview\.ts$/.test(f)) return 'export function openAnimPreview() {}';
+    if (/\/src\/present\/act\/movesPreview\.ts$/.test(f)) return 'export function openMovesPreview() {}';
     if (/\/src\/present\/act\/lab\.ts$/.test(f)) return 'export function openLab() {}';
     if (/\/src\/present\/act\/tunePanel\.ts$/.test(f)) return 'export function installActTune() {}';
     return null;

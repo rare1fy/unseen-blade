@@ -3,6 +3,7 @@
 // 「开始游戏」= 新档（有旧档时要确认），「继续游戏」= 读档回据点。
 import { profileStorage } from '../../platform/crazygames';
 import type { GardenState } from './garden';
+import { RUN_SAVE_KEY } from './runSave';
 
 export interface AdProfileState {
   /** Total rewarded ads watched across ALL placements (powers 古窑长明灯 milestones) */
@@ -72,7 +73,7 @@ export function profile(): Profile {
 }
 /** write the current profile to the device */
 export function save() { const p = profile(); p.at = Date.now(); try { profileStorage.setItem(KEY, JSON.stringify(p)); } catch { /* private mode: keep it in memory */ } }
-/** a new game: a fresh profile, saved at once */
-export function newGame() { cur = fresh(); save(); return cur; }
+/** a new game: a fresh profile, saved at once (also clears any in-progress run checkpoint) */
+export function newGame() { cur = fresh(); try { profileStorage.removeItem(RUN_SAVE_KEY); } catch { /* ignore */ } save(); return cur; }
 /** mark a story beat / line as seen; true the first time */
 export function seeOnce(id: string) { const p = profile(); const first = !p.seen[id]; p.seen[id] = (p.seen[id] ?? 0) + 1; return first; }

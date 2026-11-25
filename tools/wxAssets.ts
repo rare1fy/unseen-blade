@@ -63,9 +63,10 @@ export function wxAssets(root: string): Plugin {
       }
       const [file, q = ''] = id.split('?');
       const f = norm(file);
-      // MagicaVoxel overrides: ship raw binary files inside `engine/vox/` instead of base64 strings inside JS
+      // MagicaVoxel overrides: ship as whitelisted `.bin` inside main package `assets/vox/` (~115 KB total) so
+      // WeChat uploader never strips `.vox` and wx.getFileSystemManager().readFileSync works on all Android/iOS builds.
       if (/\/vox\/[^/]+\.vox$/.test(f)) {
-        const out = `engine/vox/${path.basename(f)}`;
+        const out = `assets/vox/${path.basename(f, '.vox')}.bin`;
         used.set(out, f);
         return `export default ${JSON.stringify(out)};`;
       }

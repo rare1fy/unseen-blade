@@ -93,7 +93,7 @@ function model(kind: keyof typeof BUILD, rot: 0 | 1 = 0) {
 const COVER_GEO = new Map<string, THREE.Mesh[]>();
 function coverModel(kind: CoverKind, rot: 0 | 1, rubble: boolean) {
   const key = kind + rot + (rubble ? 'r' : '');
-  if (!COVER_GEO.has(key)) { const w = new VoxWorld(CELL); coverVox(w, kind, rot, rubble); COVER_GEO.set(key, w.build({ rim: 0.3, edge: 0.16 })); }
+  if (!COVER_GEO.has(key)) { const w = new VoxWorld(CELL); coverVox(w, kind, rot, rubble); COVER_GEO.set(key, w.build({ rim: 0.3, edge: 0.16, ground: true })); }
   const g = new THREE.Group(); for (const m of COVER_GEO.get(key)!) { const c = new THREE.Mesh(m.geometry, m.material); c.updateMatrix(); c.matrixAutoUpdate = !OPT.staticMatrices; c.castShadow = m.castShadow; c.receiveShadow = true; g.add(c); } return g;
 }
 /** shard colours per kind */

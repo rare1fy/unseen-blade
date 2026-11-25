@@ -56,7 +56,14 @@ const wxLoadFonts = () => {
 export const fontsReady: Promise<void> = wxFont
   ? Promise.resolve().then(() => {
       const sub = (wx as { loadSubpackage?: (o: { name: string; success: () => void; fail: () => void }) => void }).loadSubpackage;
-      if (sub && /^fonts\//.test(urls.wenkai)) { for (const k of activeKeys) loaded[k] = ''; void firstSounds.then(() => sub({ name: 'fonts', success: wxLoadFonts, fail: () => changed() })); }
+      const isSinglePkg = typeof GameGlobal !== 'undefined' && !!(GameGlobal as { __ubSinglePkg?: boolean }).__ubSinglePkg;
+      if (sub && !isSinglePkg && /^fonts\//.test(urls.wenkai)) { for (const k of activeKeys) loaded[k] = ''; void firstSounds.then(() => sub({ name: 'fonts', success: wxLoadFonts, fail: () => changed() })); }
+      else if (typeof setTimeout === 'function') {
+        // The title screen uses pixel bitmap glyphs, not wenkai.ttf — defer synchronous wx.loadFont
+        // until after first frame so cold start never stalls parsing a ~1 MB TTF on the main thread.
+        for (const k of activeKeys) loaded[k] = '';
+        setTimeout(wxLoadFonts, 1200);
+      }
       else wxLoadFonts();
     })
   : typeof document === 'undefined' || typeof FontFace === 'undefined'

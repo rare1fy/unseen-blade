@@ -37,7 +37,7 @@ function stoneModel() {
     w.box(-7, 4, -2, -7, 17, 2, STONE_D); w.box(7, 4, -2, 7, 16, 2, STONE_D);
     // the slab's front a hair proud of the frame (the carving plane): one cell deep border band
     w.box(-6, 5, 3, 6, 17, 3, STONE);
-    GEO = w.build({ rim: 0.3, edge: 0.16 });
+    GEO = w.build({ rim: 0.3, edge: 0.16, ground: true });
   }
   const g = new THREE.Group(); for (const m of GEO) { const c = new THREE.Mesh(m.geometry, m.material); c.castShadow = true; c.receiveShadow = true; g.add(c); } return g;
 }
