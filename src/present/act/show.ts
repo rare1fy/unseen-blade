@@ -75,6 +75,7 @@ import {
   mirrorState, mirrorNextCost, canBuyMirror, hasMirrorAffordable, buyMirror, flipMirror,
   ARCANA, ensureArcana, arcanaRank, arcanaCap, arcanaNextCapCost, arcanaUsed, arcanaActiveCount,
   isArcanaActive, arcanaUpgradeCost, unlockArcana, toggleArcana, upgradeArcana, expandArcanaCap, hasArcanaActionable,
+  firstAffordableHint,
   type RunMods,
 } from './meta';
 import { WEAPONS, WEAPON_ORDER, weaponDef, isWeaponUnlocked, weaponLevel, weaponNextCost, canForgeWeapon, hasAnyWeaponForgeable, forgeWeapon, equippedWeapon, equipWeapon, buildCourtyardWeaponRack, type WeaponId } from './weapons';
@@ -161,7 +162,7 @@ import { Yard, makeSign, SPAWN_AT } from './yard';
 import type { ModelDef } from '../bestiary/models';
 import { dustBlocks, spawnClone, smokeBurst, cut as cloneCut } from '../kyoto/ninja_fx';
 import { Dart, BladeWave } from './missiles';
-import { RUN_ROOMS, firstRoom, regionFirstRoom, roomOf, roomInfo, doorsFrom, settleReward, kindOr, isBossKind, type RoomPlan, type RoomType, type RunCtx } from './run';
+import { RUN_ROOMS, firstRoom, regionFirstRoom, roomOf, roomInfo, doorsFrom, settleReward, kindOr, isBossKind, freshRewardBag, type BagRewardKind, type RoomPlan, type RoomType, type RunCtx } from './run';
 import { REGIONS } from './regions';
 import { isBossRoom, afterBoss, roomsIn, roomsWorth, regionScale, regionBanner, shopPriceMul } from './flow';
 import { Stations, type Station, type ShopSpecial } from './stations';
@@ -3648,7 +3649,7 @@ export class ActShow {
     // a room may be up (__dh.title from the yard): its actors go the way a room change sends them
     this.propContacts?.dispose(); this.propContacts = undefined;
     this.foeContacts?.dispose(); this.foeContacts = undefined;
-    this.duel?.newRoom(); for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = []; this.entering.length = 0; this.clearBossDrops(); this.clearFleeing(); this.bossDefeated = false; this.poolBossRoom = false; this.kneelingBoss = null; this.wavePending = 0; this.waveGen++; this.bossIntroActive = false;
+    this.duel?.newRoom(); for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = []; this.entering.length = 0; this.clearBossDrops(); this.clearFleeing(); this.bossDefeated = false; this.poolBossRoom = false; this.kneelingBoss = null; this.waveQueue = []; this.wavePending = 0; this.waveGen++; this.bossIntroActive = false;
     this.yard?.dispose(); this.yard = null; this.props?.dispose(); this.props = null; this.gates?.dispose(); this.gates = null; this.pieces?.dispose(); this.pieces = null; this.leaves?.dispose(); this.leaves = null; this.stations?.dispose(); this.stations = null; this.hero?.a.dispose();
     this.clearNpcs();
     this.phase = 'title'; audio.setWeatherSound('none', 0.4); this.hud.on = false; this.hud.update(0, this.inp, []); this.banner.hide(); this.blob.visible = false; this.ring.visible = false; for (const m of this.shadows) m.visible = false;
@@ -3862,13 +3863,13 @@ export class ActShow {
     if (this.banked) {
       const b = this.banked, alive = this.lastWon; this.banked = null;
       const [title, sub] = HAUL[alive ? 0 : 1], prof = profile();
-      const canUp = hasAffordable(prof) || hasMirrorAffordable(prof);
-      const line = canUp ? msg`${format(sub, { iron: b.iron, herb: b.herb })} · 古窑可强化` : format(sub, { iron: b.iron, herb: b.herb });
-      after(0.6, () => this.banner.show(title, line, 3.0, '#ffd27a'));
+      const hint = this.campNextHint(prof);
+      const line = hint ? msg`${format(sub, { iron: b.iron, herb: b.herb })} · ${hint}` : format(sub, { iron: b.iron, herb: b.herb });
+      after(0.6, () => this.banner.show(title, line, 3.4, '#ffd27a'));
     }
     this.musicHold = null;
     if (this.justDied) { this.justDied = false; this.pendingDeathTalk = true; after(0.3, () => cue('stingRevive', 1)); }
-    this.intent = 0; this.intentVal = 0; this.hud.intent = 0;
+    this.intent = 0; this.intentVal = 0; this.hud.intent = 0; this.fragileShield = 0; this.burstDmg = 0; this.waveQueue = [];
     this.perks = newPerks(); this.room = -1; this.kills = 0; this.locale = 'ninja_wilds'; this.recent = []; this.plan = null; this.demo.stop(); this.syncMarks();
     TUNE.heroHp = 100; return this.buildRoom(true);
   }
@@ -3946,6 +3947,8 @@ export class ActShow {
     this.fightLog = { t0: clock.time, dmg: {}, bosses: [], taken: { n: 0, sum: 0, byBoss: 0 }, healed: 0 };
     this.mods = runMods(profile()); this.defy = this.mods.deathDefy; this.usedRevive = false; this.eliteKills = 0; this.bossKilled = false; this.usedPoolBosses.clear();
     this.genBlessings.clear(); this.ksShield = 0; this.ksRevenge = false; this.intentBonusAcc = 0;
+    this.fragileShield = 0; this.burstDmg = 0; this.burstLastAt = -9; this.lastHitstopAt = -9; this.poisePopAt = -9;
+    this.rewardBag = freshRewardBag(); this.waveQueue = []; this.waveDrainT = 0;
     this.resetCombo(); this.hud.synergies = [];
     // 杜五's provisions (one run): 炙肉胡饼 +15 血上限, 五铢钱囊 40 铜钱, 瓦壶烈酒 the first blow costs nothing
     // + 竹溪药圃 harvested elixir buff (温脉药汤 / 玄芝丹气) + B3 杜五再温老酒 + B4 问卦定向流派
@@ -4045,7 +4048,7 @@ export class ActShow {
     if (this.generalEvent) { this.generalEvent.dispose(); this.generalEvent = null; }
     this.duelGen = null;
     if (this.endCui) { this.endCui.dispose(); this.endCui = null; }
-    this.duel?.newRoom(); for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = []; this.entering.length = 0; this.clearBossDrops(); this.clearFleeing(); this.bossDefeated = false; this.poolBossRoom = false; this.kneelingBoss = null; this.wavePending = 0; this.waveGen++; this.bossIntroActive = false;
+    this.duel?.newRoom(); for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = []; this.entering.length = 0; this.clearBossDrops(); this.clearFleeing(); this.bossDefeated = false; this.poolBossRoom = false; this.kneelingBoss = null; this.waveQueue = []; this.wavePending = 0; this.waveGen++; this.bossIntroActive = false;
     this.falling = [];
     this.gates?.dispose(); this.gates = null; this.pieces?.dispose(); this.pieces = null; this.leaves?.dispose(); this.leaves = null; this.clearNpcs(); this.clearRoadActors();
     for (const d of this.doors) d.g.parent?.remove(d.g); this.doors = []; this.stations?.dispose(); this.stations = null; this.coinsFx.clear();
@@ -4731,9 +4734,55 @@ export class ActShow {
       }
     });
   }
+  /** Hades-2 camp payoff: surface the single clearest thing the player can do immediately upon returning to 断碑古窑. */
+  private campNextHint(p: ReturnType<typeof profile>): string | null {
+    const ripe = hideoutProgress(p, this.dbgAllWeapons).gardenBuilt ? ripePlotIndices(p) : [];
+    if (ripe.length > 0) return '药圃灵植已熟可采';
+    return firstAffordableHint(p);
+  }
+  /** Hades-2 concurrent enemy weight cap & staggered spawn queue (keeps room totals rich while preventing 3s entrance dogpiles). */
+  private waveQueue: Array<{ k: string; idx: number; gen: number }> = [];
+  private waveDrainT = 0;
+  private rewardBag: BagRewardKind[] = freshRewardBag();
+  private fragileShield = 0;
+  private burstDmg = 0;
+  private burstLastAt = -9;
+  private lastHitstopAt = -9;
+  private poisePopAt = -9;
+  private foeWeight(kind: EKind, elite: boolean): number {
+    if (EDEFS[kind]?.boss) return 3.0;
+    if (elite) return 1.5;
+    if (kind === 'hj_brute' || kind === 'ly_shield' || kind === 'ly_rider' || kind === 'xp_chain' || kind === 'wl_shield' || kind === 'cx_guard') return 1.15;
+    if (kind === 'hj_mob' || kind === 'hj_hound' || kind === 'ly_looter' || kind === 'xp_conscript' || kind === 'wl_spear' || kind === 'cx_club' || kind === 'dog') return 0.65;
+    return 0.95;
+  }
+  private concCap(): number {
+    return 3.8 + this.region * 0.45 + Math.min(1.0, Math.max(0, this.room) * 0.18);
+  }
+  private drainWaveQueue(dt: number) {
+    if (!this.waveQueue.length || this.phase !== 'fight' || this.bossDefeated) return;
+    this.waveDrainT -= dt;
+    if (this.waveDrainT > 0) return;
+    const next = this.waveQueue[0];
+    if (next.gen !== this.waveGen) { this.waveQueue.length = 0; this.wavePending = 0; return; }
+    let liveWeight = 0, liveCount = 0;
+    for (const f of this.foes) if (f.st !== 'dead' && f.kind !== 'dummy') { liveCount++; liveWeight += this.foeWeight(f.kind, !!f.elite); }
+    const ko = kindOr(next.k);
+    const nextW = this.foeWeight(ko.kind, ko.elite);
+    if (this.benchmarking || liveCount <= 1 || liveWeight + nextW <= this.concCap()) {
+      this.waveQueue.shift();
+      this.wavePending = Math.max(0, this.wavePending - 1);
+      this.spawnEntry(next.k, next.idx);
+      this.waveDrainT = this.benchmarking ? 0 : 0.36;
+    } else {
+      this.waveDrainT = 0.22;
+    }
+  }
   private spawnWave() {
     const kinds = this.plan?.waves[this.wave] ?? [];
     const gen = ++this.waveGen;
+    this.waveQueue = [];
+    this.waveDrainT = 0;
     this.wavePending = 0;
     // act-114 / act-146 P0 fix: if this wave contains a boss, spawn ONLY the boss right away (sky-drop -> intro cutscene -> escorts),
     // and track every deferred/staggered spawn in wavePending so killing early enemies can NEVER skip the boss or clear the room early!
@@ -4776,13 +4825,8 @@ export class ActShow {
     }
     this.scheduleWaveBarks(kinds.length);
     this.wavePending += kinds.length;
-    kinds.forEach((k, i) => {
-      after(i * 0.34, () => {
-        if (gen !== this.waveGen) return;
-        this.wavePending = Math.max(0, this.wavePending - 1);
-        this.spawnEntry(k, i);
-      });
-    });
+    kinds.forEach((k, i) => this.waveQueue.push({ k, idx: i, gen }));
+    this.drainWaveQueue(0);
   }
   /** 11-19 / act-137 敌人入场: articulated wall-vault (climb -> crest mantle -> parkour leap -> landing crouch -> sprint-in) */
   private entering: Array<{
@@ -5041,6 +5085,7 @@ export class ActShow {
     aimWorld: () => { const a = this.inp.aimScreen(); if (a) return V3(a.x, 0, -a.y); const r = this.inp.rstick; if (Math.hypot(r.x, r.y) > 0.3) return V3(r.x, 0, -r.y); const m = this.inp.move; return Math.hypot(m.x, m.y) > 0.2 ? V3(m.x, 0, -m.y) : null; },
     guard: o => this.guard(o), incoming: r => this.incoming(r), iaiCatch: win => this.iaiCatch(win),
     iaiGo: o => this.iaiGo(o), iaiCut: o => this.iaiCut(o), iaiBusy: () => this.iaiHeld,
+    spentQi: bars => { if ((this.phase === 'fight' || this.phase === 'yard') && !this.ultOn && bars > 0) this.addIntent(0.35 * bars, true); },
   };
   /** 11-18 QTE（用户：「QTE我还希望再多几种情况，打起来刺激一下肾上腺素」）: 拼刀 and 连环破势, act/qte.ts — what it reaches here */
   duel!: Duel;
@@ -5094,13 +5139,30 @@ export class ActShow {
   private dmgMul(kind: string) { void kind; return 1; }   // (11-18: 搏命 — a number you never saw — went with the other plain-number boons)
   /** 11-18 打击感分档 (用户：「一招一式节奏都差不多」「3C总之都要再加强」): a blow's hit-stop (× TUNE.hitstop), the camera pushed along it,
    *  the rumble, the push-in, its sound; a kill in it holds a little longer and slows a moment */
+  /** Hades-2 distance-gated camera shake: skips minor shakes from far-off impacts (>5.5m) so close-range dodging stays razor clear. */
+  private shakeAt(amount: number, at?: THREE.Vector3, maxDist = 5.5) {
+    if (amount <= 0) return;
+    if (at && this.hero) {
+      const dist = Math.hypot(at.x - this.hero.pos.x, at.z - this.hero.pos.z);
+      if (dist > maxDist) return;
+      const att = dist <= 2.4 ? 1 : 1 - (dist - 2.4) / Math.max(0.5, maxDist - 2.4) * 0.65;
+      shake(amount * att);
+      return;
+    }
+    shake(amount);
+  }
   private killBeat = false; private bigKill = false;
-  private feel(kind: string, heavy: boolean, n: number, dir?: THREE.Vector3) {
+  private feel(kind: string, heavy: boolean, n: number, dir?: THREE.Vector3, at?: THREE.Vector3) {
     if (!n) { this.killBeat = false; this.bigKill = false; return; }
     const b = BEAT[heavy && /^k[1-4]$/.test(kind) ? 'heavy' : kind] ?? (heavy ? BEAT.heavy : BEAT.k1), more = Math.min(3, n - 1), sh = TUNE.shake / 2;
-    hitstop((b[0] * (1 + 0.14 * more) + (this.killBeat ? 0.028 : 0)) * TUNE.hitstop);
+    // Hades-2 hitstop cooldown (0.24s) on ordinary multi-hits prevents AOE slideshow stutter while preserving kill & finisher peaks!
+    const peak = this.killBeat || this.bigKill || heavy || kind === 'k5' || kind === 'rel' || kind === 'parry' || kind === 'plunge';
+    if (peak || clock.rtime - this.lastHitstopAt >= 0.24) {
+      this.lastHitstopAt = clock.rtime;
+      hitstop((b[0] * (1 + 0.10 * more) + (this.killBeat ? 0.028 : 0)) * TUNE.hitstop);
+    }
     if (dir) this.camKick(dir, b[1] * (1 + 0.1 * more) * sh);
-    if (b[2]) shake(b[2] * (1 + 0.12 * more) * TUNE.shake);
+    if (b[2]) this.shakeAt(b[2] * (1 + 0.12 * more) * TUNE.shake, at);
     if (b[3]) this.camPunch(b[3] * sh);
     // act-109 去黏手: plain mob kills stay snappy (hitstop + split, no 0.14s molasses slowmo); slowmo reserved for elites/bosses/heavy finishers
     if (this.killBeat) { if (this.bigKill || heavy) slowmo(0.14, 0.4); this.splitScreen(0.32); }
@@ -6070,19 +6132,32 @@ export class ActShow {
   private applyProps(r: { events: BEvent[]; damage: BDamage[] }, shown = false) {
     if (!this.props) return;
     if (!shown) this.props.present(r.events);
-    for (const e of r.events) if (e.k === 'boom') { this.leaves?.blast(e.x, e.z, 4.5, 8); this.pieces?.boom(e.x, e.z, e.r); }
+    for (const e of r.events) if (e.k === 'boom') {
+      this.leaves?.blast(e.x, e.z, 4.5, 8);
+      this.pieces?.boom(e.x, e.z, e.r);
+      this.shakeAt(0.45 * TUNE.shake, V3(e.x, 0, e.z), 8.5);
+    }
     const eqKid = equippedKeepsake(profile(), this.dbgAllWeapons);
     for (const e of r.events) if (e.k === 'break' && e.drop) {
       if (e.drop.kind === 'coins') this.coinsFx.drop(V3(e.p.x, 0.3, e.p.z), e.drop.n, 1);
       else { const mul = eqKid === 'sunao' ? 2 : 1; const was = this.hero.hp; this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + e.drop.n * mul); this.healFeed(was); this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp }); fxSparks(this.hero.a.chest(), 0x9aff9a, 10, 2); }
     }
+    // Hades-2 Steam-Cube tactical trap rule: oil blasts punish lured enemies (2.2x dmg + heavy poise shatter) while keeping self-damage mild (0.5x)!
     const envMul = (eqKid === 'luxun' ? 1.5 : 1) * (this.genBlessings.has('luxun') ? 2 : 1);
     for (const d of r.damage) {
       const from = V3(d.fromX, 0.5, d.fromZ);
       if (d.target.hero) {
         if (d.cause === 'fire') { if (this.hero.iframe || !this.hero.alive) continue; this.hero.hp = Math.max(this.phase === 'yard' ? 1 : 0, this.hero.hp - d.dmg); this.hud.flask.hit(d.dmg, { hp: this.hero.hp, maxHp: this.hero.maxHp }); this.hero.a.tint(0xff7a2a, 0.5); if (this.hero.hp <= 0) this.hurtHero(1, from); }
-        else this.hurtHero(d.dmg, from);
-      } else { const f = d.target.id as Foe; if (f.st === 'dead') continue; this.hitFoe(f, Math.round(d.dmg * envMul), from, { knock: d.knock, heavy: d.cause !== 'fire', kind: 'school', stagger: d.down || (d.cause === 'fire' ? 0.1 : undefined) }); }
+        else this.hurtHero(d.cause === 'boom' ? Math.max(1, Math.round(d.dmg * 0.5)) : d.dmg, from);
+      } else {
+        const f = d.target.id as Foe; if (f.st === 'dead') continue;
+        const foeBoomMul = d.cause === 'boom' ? 2.2 : 1;
+        this.hitFoe(f, Math.round(d.dmg * envMul * foeBoomMul), from, {
+          knock: d.knock, heavy: d.cause !== 'fire', kind: 'school',
+          poiseMul: d.cause === 'boom' ? 2.6 : 1,
+          stagger: d.down || (d.cause === 'boom' ? 0.65 : d.cause === 'fire' ? 0.1 : undefined),
+        });
+      }
     }
   }
   /** the wall slam (Hades): a foe knocked into the wall, a gate post, cover or a pillar fast enough takes SLAM.dmg and reels;
@@ -6153,6 +6228,7 @@ export class ActShow {
     const shad2 = archTier(this.perks, 'shadow') >= 2 ? 0.78 : 1;
     this.hero.dashCdMul = Math.max(0.72, this.mods.dashCdMul * gale2);
     this.hero.dartReloadMul = Math.max(0.55, (1 - 0.12 * this.mods.dartBonus) * shad2);
+    this.hero.speedMul = this.fragileShield > 0 ? 1.10 : 1;
   }
   private healHero(amount: number) {
     if (!this.hero?.alive || amount <= 0) return;
@@ -6189,7 +6265,7 @@ export class ActShow {
     const rollVar = o.kind === 'school' || o.kind === 'ultTick' || o.kind === 'ult' || o.kind === 'clash' ? 1 : (0.90 + Math.random() * 0.20);
     const isFixedBurst = o.kind === 'ult' || o.kind === 'ultTick' || o.kind === 'clash';
     // act-152 Hades-2 additive damage pool (prevents exponential multiplicative blowup across 5 regions!)
-    let addPct = (this.mods.dmgMul - 1) + style.dmgPct / 100;
+    let addPct = (this.mods.dmgMul - 1) + style.dmgPct / 100 + (this.fragileShield > 0 ? 0.30 : 0);
     if (wasBroken) {
       if (kid === 'fengtiebi') addPct += KEEPSAKES.fengtiebi.vals[kStar - 1] / 100;
       if (this.genBlessings.has('lubu')) addPct += 0.20;
@@ -6265,8 +6341,13 @@ export class ActShow {
     if (justBroke) {
       fxChips(p, [0xf2c248, 0xffe896, 0x4b5262], 10, { dir, speed: 5.5, up: 3.6, size: 0.095, glow: 0.8 });
       fxSparks(p, 0xffe48a, 16, 6.2, { hot: true, dir, dirK: 0.7, life: 0.42 });
-      popPix('破势', f.a.head().add(V3(0, 0.55, 0)), { tier: 'highlight', color: '#fff4c4', accent: '#ffd258', h: 0.92, life: 1.05 });
-      hitstop(0.085 * TUNE.hitstop); shake(0.32 * TUNE.shake);
+      // Hades-2 presentation queue: stagger simultaneous 破势 popups by 0.14s so multi-breaks read crisply instead of overlapping
+      const popDelay = Math.max(0, this.poisePopAt - clock.rtime);
+      this.poisePopAt = clock.rtime + popDelay + 0.14;
+      const popAt = f.a.head().add(V3(0, 0.55, 0));
+      if (popDelay > 0.01) after(popDelay, () => popPix('破势', f.st !== 'dead' ? f.a.head().add(V3(0, 0.55, 0)) : popAt, { tier: 'highlight', color: '#fff4c4', accent: '#ffd258', h: 0.92, life: 1.05 }));
+      else popPix('破势', popAt, { tier: 'highlight', color: '#fff4c4', accent: '#ffd258', h: 0.92, life: 1.05 });
+      hitstop(0.085 * TUNE.hitstop); this.shakeAt(0.32 * TUNE.shake, f.pos, 7.5);
       this.splitScreen(0.55); this.impactScreen(0.75); this.camPunch(0.055); this.platform.vibrate('heavy');
       this.hero?.gainQi(0.55 * style.qiMul);
       if (this.mods.poiseHeal > 0 && clock.time - this.poiseHealAt >= 6.0) { this.poiseHealAt = clock.time; this.healHero(this.mods.poiseHeal); }
@@ -6301,7 +6382,7 @@ export class ActShow {
         fxChips(p, [0xc82428, 0xff5a4a, 0xffd060], 10, { dir, speed: 5.0, up: 3.2, size: 0.09, glow: 0.85 });
         popPix('血爆', f.a.head().add(V3(0, 0.62, 0)), { tier: 'highlight', color: '#ff7064', accent: '#ff3a2c', h: 0.88, life: 1.02 });
         popPix(String(bDmg), f.a.head().add(V3(0.28, 0.36, 0)), { tier: 'crit', color: '#ff8a70', h: 0.68 });
-        cue('bloodBurst', 1); hitstop(0.055 * TUNE.hitstop); shake(0.24 * TUNE.shake); this.splitScreen(0.45);
+        cue('bloodBurst', 1); hitstop(0.055 * TUNE.hitstop); this.shakeAt(0.24 * TUNE.shake, f.pos, 6.5); this.splitScreen(0.45);
         if (bloodTier >= 3) {
           if (clock.time - this.bloodHealAt >= 4.0) { this.bloodHealAt = clock.time; this.healHero(3); }
           if (this.hero) this.hero.counterT = Math.max(this.hero.counterT, 2.0);
@@ -6950,7 +7031,7 @@ export class ActShow {
   private arrowHit(f: Foe, a: Arrow) {
     const from = a.p.clone().addScaledVector(a.v.clone().normalize(), -1);
     this.hitFoe(f, TUNE.deflectDmg, from, { knock: 1.2, heavy: true, kind: 'arrow' });
-    fxSparks(a.p.clone(), 0xffd070, 16, 6); this.feel('arrow', true, 1, a.v.clone());
+    fxSparks(a.p.clone(), 0xffd070, 16, 6); this.feel('arrow', true, 1, a.v.clone(), a.p);
   }
   /** the plunge lands: everything round the hero is hit and thrown outward; dust and a ring even on a miss */
   private slam(o: { at: THREE.Vector3; r: number; dmg: number; yaw: number }) {
@@ -7183,6 +7264,24 @@ export class ActShow {
       // 瓦壶烈酒 (杜五's wine): the first blow of the run lands without blood — she staggers, grins, goes on
       this.wine = false; this.hero.inv = Math.max(this.hero.inv, 0.8); fxRing(this.hero.pos.clone().setY(0.08), 0xffb060, 2.4, { life: 0.5 } as never); cue('parry', 0.8); hitstop(0.06); return;
     }
+    if (this.fragileShield > 0 && dmg > 0 && this.phase !== 'yard' && this.hero.alive && !this.hero.iframe && this.hero.inv <= 0) {
+      // Hades-2 Arachne-style fragile ward (素衣护锋): absorbs damage first; if shield hits 0, the +30% dmg / +10% speed buff shatters!
+      const absorbed = Math.min(this.fragileShield, dmg);
+      this.fragileShield -= absorbed;
+      dmg -= absorbed;
+      if (this.fragileShield <= 0) {
+        this.hero.speedMul = 1;
+        fxChips(this.hero.a.chest(), [0xc8fff0, 0x84e8cc, 0xffffff], 14, { speed: 4.2, up: 2.5, size: 0.08 });
+        fxRing(this.hero.pos.clone().setY(0.1), 0x9cf0d8, 2.4, { life: 0.45 } as never);
+        popPix('护锋碎', this.hero.a.head().add(V3(0, 0.48, 0)), { tier: 'highlight', color: '#d8fff4', accent: '#58c8a8', h: 0.82, life: 0.9 });
+        cue('parry', 0.7);
+      } else {
+        fxRing(this.hero.pos.clone().setY(0.1), 0xa8f8e0, 1.8, { life: 0.35 } as never);
+        popPix(msg`护盾-${absorbed}`, this.hero.a.head().add(V3(0, 0.42, 0)), { tier: 'dot', color: '#a8f8e0', h: 0.52, life: 0.7 });
+        cue('parry', 0.55);
+      }
+      if (dmg <= 0) { this.hero.inv = Math.max(this.hero.inv, 0.45); hitstop(0.045); return; }
+    }
     if (this.defy > 0 && this.phase !== 'yard' && this.hero.alive && !this.hero.iframe && this.hero.hp - dmg <= 0) {
       // act-20 / act-152 闭息: leaves 25% HP + blasts surrounding foes back so you never die immediately on wake-up
       this.defy--; dmg = Math.max(0, this.hero.hp - Math.round(this.hero.maxHp * 0.25)); this.hero.inv = Math.max(this.hero.inv, 1.5);
@@ -7201,6 +7300,18 @@ export class ActShow {
       return;
     }
     if (!this.hero.hurt(dmg, from)) return;
+    // Hades-2 Short-Window Burst Protection: if cumulative HP lost within 0.6s reaches max(25% maxHp, 15), grant 1.2s i-frames to prevent same-frame melt!
+    if (dmg > 0 && this.hero.alive && this.phase !== 'yard') {
+      if (clock.rtime - this.burstLastAt > 0.6) this.burstDmg = 0;
+      this.burstDmg += dmg;
+      this.burstLastAt = clock.rtime;
+      const burstCap = Math.max(15, Math.round(this.hero.maxHp * 0.25));
+      if (this.burstDmg >= burstCap) {
+        this.burstDmg = 0;
+        this.hero.inv = Math.max(this.hero.inv, 1.2);
+        fxRing(this.hero.pos.clone().setY(0.1), 0x9ef0d8, 2.2, { life: 0.45 } as never);
+      }
+    }
     if (__DEBUG_UI__ && this.phase !== 'yard') { const t = this.fightLog.taken; t.n++; t.sum += dmg; if (attacker && isBoss(attacker)) t.byBoss++; }
     if (this.genBlessings.has('xiahoudun')) this.ksRevenge = true;
     this.resetCombo();
@@ -7210,7 +7321,15 @@ export class ActShow {
     popPix(`-${dmg}`, this.hero.a.head().add(V3(0, 0.3, 0)), { tier: 'dot', color: '#ff5a4a', h: 0.48, life: 0.8 });
     fxSparks(this.hero.a.chest(), 0xff4a3a, 12, 4); this.hero.a.tint(0xff3020, 0.9);
     { const away = this.hero.pos.clone().sub(from).setY(0); if (away.lengthSq() < 1e-4) away.set(0, 0, 1); blood.spray(this.hero.a.chest(), away.normalize(), 7, 0.8); }
-    hitstop(0.07 * TUNE.hitstop); shake(0.42 * TUNE.shake); this.splitScreen(0.5); cue('hurt', 0.9); this.platform.vibrate('heavy');
+    // Hades-2 HP-proportion hit feedback: blows > 15% maxHp trigger heavy screen feedback; smaller scratches stay crisp & restrained
+    const heavyHurt = dmg > this.hero.maxHp * 0.15;
+    if (heavyHurt) {
+      hitstop(0.075 * TUNE.hitstop); shake(0.45 * TUNE.shake); this.splitScreen(0.56); this.flashScreen(0.15, 0xa81616);
+      cue('hurt', 1.0); this.platform.vibrate('heavy');
+    } else {
+      hitstop(0.04 * TUNE.hitstop); shake(0.22 * TUNE.shake); this.splitScreen(0.26);
+      cue('hurt', 0.74); this.platform.vibrate('medium');
+    }
     if (!this.hero.alive) this.dead();
   }
   // ------------------------------------------------------------ clear → pick → doors → leave
@@ -7400,8 +7519,8 @@ export class ActShow {
     const b = pick[i]; this.take(b.boon, b.tier);
     this.hud.on = true; this.phase = was === 'pick' ? 'pick' : was;
   }
-  /** act-161: what the route planner may know of her hand (run.ts rewardFor) */
-  private runCtx(): RunCtx { return { boons: boonCount(this.perks), ups: upgradableBoons(this.perks).length }; }
+  /** act-161 / Hades-2 bag: what the route planner knows of her hand and reward bag */
+  private runCtx(): RunCtx { return { boons: boonCount(this.perks), ups: upgradableBoons(this.perks).length, bag: this.rewardBag }; }
   /** act-163: what a scroll room's altar gives her — a manual (from the second region on, while she has fewer than three and one is left
    *  to learn), a boon while her hand has room, else an upgrade of one she holds (boonPick's own fallback); the door and the altar say which */
   private scrollGives(region = this.region): 'manual' | 'boon' | 'up' {
@@ -7475,12 +7594,15 @@ export class ActShow {
     else if (s.id === 'rest_meditate') {
       this.stations.spend(s, true);
       this.hero.qi = Hero.QI_MAX;
-      this.addIntent(1.2, true);
-      const p = profile(); p.iron += 8; p.herb += 6; saveProfile();
+      this.fragileShield = 20;
+      this.syncHeroMods();
+      this.addIntent(1.0, true);
+      const p = profile(); p.iron += 6; p.herb += 4; saveProfile();
       this.hud.iron = p.iron; this.hud.herb = p.herb; cue('relic', 0.8);
-      this.feed.push('boon', () => '杀气充盈', 0);
-      this.feed.push('coins', () => msg`残铁 +${8}`, 0);
-      this.feed.push('heal', () => msg`药引 +${6}`, 0);
+      fxRing(this.hero.pos.clone().setY(0.1), 0x9cf0d8, 2.4, { life: 0.6 } as never);
+      this.feed.push('boon', () => '素衣护锋 · 20盾（未破全伤+30%）', 0);
+      this.feed.push('coins', () => msg`残铁 +${6}`, 0);
+      this.feed.push('heal', () => msg`药引 +${4}`, 0);
     }
     else if (s.id === 'rest_sharpen') { this.stations.spend(s, true); await this.sharpen(); }
     else if (s.id === 'scroll' && this.scrollGives() === 'manual') { this.stations.spend(s); await this.manualPick(); }
@@ -7609,7 +7731,7 @@ export class ActShow {
   }
   private openDoors(quiet = false) {
     // act-146 safety invariant: never leave stray living enemies/bosses standing in a cleared room once exit doors open
-    this.wavePending = 0; this.waveGen++; this.bossIntroActive = false; this.clearBossDrops(); this.kneelingBoss = null;
+    this.waveQueue = []; this.wavePending = 0; this.waveGen++; this.bossIntroActive = false; this.clearBossDrops(); this.kneelingBoss = null;
     for (let i = this.foes.length - 1; i >= 0; i--) {
       const f = this.foes[i];
       if (f.kind === 'dummy') continue;
@@ -7668,7 +7790,7 @@ export class ActShow {
         this.justDied = true;
         this.bankRun(false);
         const prof = profile(), b = this.banked;
-        const haul = b ? { iron: b.iron, herb: b.herb, canUp: hasAffordable(prof) || hasMirrorAffordable(prof) } : undefined;
+        const haul = b ? { iron: b.iron, herb: b.herb, canUp: hasAffordable(prof) || hasMirrorAffordable(prof), nextHint: this.campNextHint(prof) } : undefined;
         await this.cards.open([returnCard(this.kills, false, haul)]);
         this.hud.on = true; void wipeTransit(() => this.enterYard());
         return;
@@ -7678,6 +7800,8 @@ export class ActShow {
       const preview = runReward({ rooms, elites: this.eliteKills, boss: this.bossKilled, won: false, kills: this.kills });
       const hasHaul = preview.iron > 0 || preview.herb > 0;
       const exIron = Math.ceil(preview.iron * 0.5), exHerb = Math.ceil(preview.herb * 0.5);
+      const pAfter = { ...profile(), iron: profile().iron + preview.iron, herb: profile().herb + preview.herb };
+      const homeNext = this.campNextHint(pAfter);
 
       const choices: Array<{ kind: 'home' | 'revive' | 'bonus'; card: BoonPick }> = [
         {
@@ -7688,7 +7812,7 @@ export class ActShow {
               name: '回断碑古窑',
               desc: [
                 hasHaul ? msg`本趟带回 残铁 ${preview.iron} · 药引 ${preview.herb}` : msg`本趟已斩 ${this.kills} 敌，结算带回残铁与药引`,
-                '不借真气 · 保持硬核独行',
+                homeNext ?? '不借真气 · 保持硬核独行',
               ],
               col: '#d8ccb4', glyph: LEAVE, tag: '归窑',
             } as CardBoon,
@@ -8660,7 +8784,7 @@ export class ActShow {
     }
     this.decoyStep(dt); this.pinStep(dt); this.markStep(); this.dodgeGhostStep(rdt);   // 11-18 秘传 + act-118 完美闪避残影
     if (this.comboT > 0) { this.comboT = Math.max(0, this.comboT - dt); if (this.comboT <= 0) this.resetCombo(); else this.hud.combo = { hits: this.comboHits, bonus: this.comboStyle().dmgPct, frac: this.comboT / 3.2 }; }
-    this.enterStep(dt); this.bossDropStep(dt); this.fleeStep(rdt);
+    this.drainWaveQueue(dt); this.enterStep(dt); this.bossDropStep(dt); this.fleeStep(rdt);
     if (this.movesPreviewOn) {
       if (h.hp < 15) h.hp = 60;
       for (const f of this.foes) {
@@ -8735,7 +8859,7 @@ export class ActShow {
         // the light cuts through: a short white bar across the body and a spray of jade sparks
         const c = f.a.chest(), side = V3(w.fwd.z, 0, -w.fwd.x);
         trailSeg(c.clone().addScaledVector(side, -0.6).add(V3(0, 0.25, 0)), c.clone().addScaledVector(side, 0.6).add(V3(0, -0.15, 0)), 0xe8fff2, 0.12, { life: 0.16, bright: 3, spark: 0.6 });
-        fxSparks(c, 0xc8ffe0, 12, 5); this.feel('wind', false, 1, w.fwd.clone());
+        fxSparks(c, 0xc8ffe0, 12, 5); this.feel('wind', false, 1, w.fwd.clone(), c);
       }
       // arrows in its way are cut out of the air
       for (const a of this.arrows) if (!a.dead && !a.friendly && w.sweeps(p0, a.p, 0.2)) { fxSparks(a.p.clone(), 0xe8fff2, 8, 4); a.kill(); }

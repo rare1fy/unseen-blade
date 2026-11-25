@@ -101,7 +101,7 @@ const SHARDS: Record<string, number[]> = { pot: [COL.clay, COL.clayD, COL.clayL]
   fence: [COL.wood, COL.woodD, COL.postD], rack: [COL.wood, COL.postD, 0x6a6e78], banner: [0xd8b030, 0xa8841c, 0xa8302a], basket: [0xa07a44, 0x7a5a30, 0xc8b48a], sack: [0xc8b48a, 0x9a8662, 0xe0d0a0], lamp: [0xa8302a, 0xffc070, COL.postD],
   cover: [COL.stone, COL.stoneL, COL.woodD] };
 
-interface Vis { p: BProp; g: THREE.Group; tilt: THREE.Group; solid: Solid; wob: { x: number; z: number; vx: number; vz: number }; fall: number; fuseT: number; cover?: Cover; drop?: number; model?: 'palaceColumn' }
+interface Vis { p: BProp; g: THREE.Group; tilt: THREE.Group; solid: Solid; wob: { x: number; z: number; vx: number; vz: number }; fall: number; fuseT: number; fuseRing?: THREE.Mesh; fuseDisc?: THREE.Mesh; cover?: Cover; drop?: number; model?: 'palaceColumn' }
 interface FireVis { id: number; x: number; z: number; r: number; t: number; disc: THREE.Mesh; emit: number }
 
 export class Breakables {
@@ -151,8 +151,12 @@ export class Breakables {
       } else batch.add(x, z, (s.hx || s.r) * 1.15, (s.hz || s.r) * 1.15);
     }
   }
+  private clearFuseVis(v: Vis) {
+    if (v.fuseRing) { this.root.remove(v.fuseRing); v.fuseRing.geometry.dispose(); (v.fuseRing.material as THREE.Material).dispose(); v.fuseRing = undefined; }
+    if (v.fuseDisc) { this.root.remove(v.fuseDisc); v.fuseDisc.geometry.dispose(); (v.fuseDisc.material as THREE.Material).dispose(); v.fuseDisc = undefined; }
+  }
   clear() {
-    for (const v of this.vis.values()) this.root.remove(v.g); this.vis.clear();
+    for (const v of this.vis.values()) { this.clearFuseVis(v); this.root.remove(v.g); } this.vis.clear();
     for (const f of this.fires) { this.root.remove(f.disc); (f.disc.material as THREE.Material).dispose(); } this.fires = [];
     this.logic.clear();
   }
@@ -198,12 +202,22 @@ export class Breakables {
       // the wobble: a stiff damped spring
       const o = v.wob; o.vx += (-180 * o.x - 10 * o.vx) * dt; o.vz += (-180 * o.z - 10 * o.vz) * dt; o.x += o.vx * dt; o.z += o.vz * dt;
       if (v.fall < 0) { v.tilt.rotation.x = o.x; v.tilt.rotation.z = o.z; }
-      // a lit jar: sparks spit from the seal, it shivers, its glow quickens
+      // a lit jar: sparks spit from the seal, it shivers, its glow quickens + Hades-2 style ground blast telegraph ring!
       if (v.p.state === 'fuse') {
         v.fuseT += dt; const top = V3(v.p.x, 1.15, v.p.z);
         if (Math.random() < dt * 40) fxSparks(top, 0xffb040, 2, 2.4, { life: 0.3 } as never);
         if (Math.random() < dt * 8) fxSmoke(top, 0x3a3634, 1, { s: 0.16, up: 1.2, life: 0.6 });
         v.tilt.rotation.z = Math.sin(v.fuseT * 60) * 0.04; fxGlow(top, 0xff7a20, 0.5 + 0.3 * Math.sin(v.fuseT * 30), 0.06, 2);
+        const prog = Math.min(1, v.fuseT / Math.max(0.15, BTUNE.fuse));
+        if (v.fuseRing) {
+          const rm = v.fuseRing.material as THREE.MeshBasicMaterial;
+          rm.opacity = 0.55 + 0.35 * Math.sin(v.fuseT * 28);
+          rm.color.setHex(prog > 0.72 ? 0xffe066 : 0xff6e28);
+        }
+        if (v.fuseDisc) {
+          v.fuseDisc.scale.setScalar(Math.max(0.08, prog));
+          (v.fuseDisc.material as THREE.MeshBasicMaterial).opacity = 0.14 + 0.22 * prog;
+        }
       }
       // a falling pillar: rotates about its foot toward its fall direction, slow then fast, with a bounce
       if (v.fall >= 0 && v.p.fallDir) {
@@ -252,14 +266,31 @@ export class Breakables {
         else fxSmoke(at, 0x7a6a5a, 3, { r: 0.3, spd: 1.2, up: 0.5, s: 0.3, life: 0.5 });
         cue(e.p.kind === 'pot' ? 'potBreak' : e.p.kind === 'crate' ? 'crateBreak' : 'hayBurst', 0.8);
       }
-      else if (e.k === 'fuse') { const v = this.vis.get(e.p.id); if (v) v.fuseT = 0; cue('fuse', 0.8); }
+      else if (e.k === 'fuse') {
+        const v = this.vis.get(e.p.id);
+        if (v) {
+          v.fuseT = 0;
+          this.clearFuseVis(v);
+          const ring = new THREE.Mesh(
+            new THREE.RingGeometry(BTUNE.boomR - 0.11, BTUNE.boomR, 32).rotateX(-Math.PI / 2),
+            new THREE.MeshBasicMaterial({ color: 0xff6e28, transparent: true, opacity: 0.75, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }),
+          );
+          ring.position.set(e.p.x, 0.055, e.p.z); ring.renderOrder = 3; this.root.add(ring); v.fuseRing = ring;
+          const disc = new THREE.Mesh(
+            new THREE.CircleGeometry(BTUNE.boomR, 28).rotateX(-Math.PI / 2),
+            new THREE.MeshBasicMaterial({ color: 0xff5a1a, transparent: true, opacity: 0.16, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }),
+          );
+          disc.position.set(e.p.x, 0.05, e.p.z); disc.scale.setScalar(0.1); disc.renderOrder = 2; this.root.add(disc); v.fuseDisc = disc;
+        }
+        cue('fuse', 0.8);
+      }
       else if (e.k === 'boom') {
-        const v = this.vis.get(e.p.id); if (v) { this.root.remove(v.g); v.solid.on = false; }
+        const v = this.vis.get(e.p.id); if (v) { this.clearFuseVis(v); this.root.remove(v.g); v.solid.on = false; }
         const at = V3(e.x, 0.6, e.z);
         fxImpact(at, 0xff7a2a, 2.6, { chips: SHARDS.oil, stop: false });
         fxRing(V3(e.x, 0.05, e.z), 0xffb060, e.r, { life: 0.45, width: 0.4, bright: 2.2 } as never);
         fxSmoke(at, 0x2e2a28, 10, { r: 1.0, spd: 2.6, up: 1.6, s: 0.6, life: 1.2, alpha: 0.5 });
-        fxEmbers(at, 0xff9a3a, 18, { r: 1.2, up: 3, life: 1.2 }); shake(0.45); cue('boom', 1); cue('fire', 0.8);
+        fxEmbers(at, 0xff9a3a, 18, { r: 1.2, up: 3, life: 1.2 }); cue('boom', 1); cue('fire', 0.8);
       }
       else if (e.k === 'fire') {
         const disc = new THREE.Mesh(new THREE.CircleGeometry(e.f.r, 8, Math.PI / 8).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xff6a1a, transparent: true, opacity: 0.35, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));

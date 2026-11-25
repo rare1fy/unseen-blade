@@ -125,6 +125,8 @@ export interface HeroWorld {
   iaiCut?(o: { a: THREE.Vector3; b: THREE.Vector3; r: number; dmg: number; knock: number }): void;
   /** that beat is still being held (no cancelling out of it) */
   iaiBusy?(): boolean;
+  /** Hades-2 Selene loop: spending Qi on 藏锋 skills feeds 杀意 toward 不见刀 ultimate */
+  spentQi?(bars: number): void;
   /** the plunge lands: a ring of impact round the hero */
   slam(o: { at: THREE.Vector3; r: number; dmg: number; yaw: number }): number;
   /** 11-18 秘传 错身: a dash on its way — the path so far (each foe on it is cut once per dash `n`) */
@@ -199,8 +201,8 @@ export class Hero {
   /** 11-18 秘传: which dash / jump this is (错身 cuts each foe once a dash, 掠顶 once a jump; show.ts keys its sets on these), where the dash
    *  began (错身's path, 留影's afterimage, act-118 完美闪避残影); 追步: the draw going on now is the second one */
   dashN = 0; jumpN = 0; readonly dashFrom = V3(); dashStartYaw = 0; private relSecond = false;
-  /** act-118: run modifiers from 碑铭潜能 & 流派成势 (dash cooldown, dart reload, 凌空 3pc haste/crit buff) */
-  dashCdMul = 1; dartReloadMul = 1; galeBuffT = 0;
+  /** act-118: run modifiers from 碑铭潜能 & 流派成势 (dash cooldown, dart reload, 凌空 3pc haste/crit buff, 素衣护锋 speed) */
+  dashCdMul = 1; dartReloadMul = 1; galeBuffT = 0; speedMul = 1;
   /** act-125: equipped Wen-family blade & forging level (0..3), combo step index, free 听声一闪 charge for 无锋断刃 */
   weaponId: WeaponId = 'hanshan'; weaponLv = 0; comboIdx = 0; freeFlash = false;
   private pendStep: number | null = null; private nextStep: number | null = null; private keepStep: number | null = null;
@@ -433,7 +435,7 @@ export class Hero {
     const stick = w.stickWorld(), sl = Math.min(1, stick.length());
     const canDash = this.dashCd <= 0 && this.buf.dash > 0, canJump = this.buf.jump > 0 && !this.airborne;
     const steer = (accel: number) => {
-      const want = stick.clone().multiplyScalar(TUNE.heroSpeed * (this.galeBuffT > 0 ? 1.10 : 1));
+      const want = stick.clone().multiplyScalar(TUNE.heroSpeed * (this.galeBuffT > 0 ? 1.10 : 1) * this.speedMul);
       this.vel.lerp(want, 1 - Math.exp(-accel * dt));
       if (sl > 0.1) { const y = Math.atan2(stick.x, stick.z); let dy = y - this.a.yaw; while (dy > Math.PI) dy -= Math.PI * 2; while (dy < -Math.PI) dy += Math.PI * 2; this.a.yaw += dy * Math.min(1, dt * 20); }
     };
@@ -753,7 +755,7 @@ export class Hero {
           const usingFreeFlash = this.weaponId === 'blunt' && this.freeFlash;
           m.charge = 0; this.iaiBonus = false;
           if (usingFreeFlash) this.freeFlash = false;
-          else this.qi = Math.max(0, this.qi - QI_COST);
+          else { this.qi = Math.max(0, this.qi - QI_COST); w.spentQi?.(QI_COST); }
           const parryWin = TUNE.iaiWin * wdef.parryWinMul;
           const caught = w.iaiCatch(parryWin);
           let len = TUNE.relDist * (0.6 + 0.4 * this.chargeK);

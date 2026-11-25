@@ -1,4 +1,5 @@
 import type { Profile } from './profile';
+import { msg } from './i18n';
 
 export type Cur = 'iron' | 'herb';
 export type Who = 'forge' | 'medic';
@@ -324,6 +325,24 @@ export function hasArcanaActionable(p: Profile): boolean {
     const uc = arcanaUpgradeCost(p, def.id);
     return uc != null && p.herb >= uc;
   });
+}
+
+/** Hades-2 camp payoff hook: returns the single clearest next upgrade the player can afford right now on returning home. */
+export function firstAffordableHint(p: Profile): string | null {
+  for (const u of META) {
+    if (u.who !== 'medic' && canBuy(p, u.id)) {
+      return msg`回古窑可强化「${u.name}」`;
+    }
+  }
+  const capCost = arcanaNextCapCost(p);
+  if (capCost != null && p.herb >= capCost) return '药炉可扩「悟性容量」';
+  for (const def of ARCANA) {
+    const rk = arcanaRank(p, def.id);
+    if (rk <= 0 && p.herb >= def.unlockCost) return msg`药炉可领悟「${def.name}」`;
+    const uc = arcanaUpgradeCost(p, def.id);
+    if (rk > 0 && uc != null && p.herb >= uc) return msg`药炉可升阶「${def.name}」`;
+  }
+  return null;
 }
 
 function arcanaVal(p: Profile, id: string): number {

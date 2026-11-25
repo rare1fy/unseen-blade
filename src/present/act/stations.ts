@@ -206,7 +206,7 @@ export class Stations {
     const f = campfire(); f.position.set(this.centre[0], 0, this.centre[1] - 2.6); this.root.add(f); this.fires.push(f);
     this.add('rest_heal', '裹伤调息', '回血', '免费恢复 30% 气血（三选一）', 'heal', 0, V3(-3.0, 0, -0.4), new THREE.Group(), true);
     const cen = new THREE.Group(), cw = wareModel('censer'); cw.scale.setScalar(1.3); cen.add(cw); cen.userData.ware = cw; cen.userData.wareY = 0;
-    this.add('rest_meditate', '焚香蓄锐', '满气·残铁', '满气 +2杀气，另得残铁+8 药引+6', 'iron', 0, V3(0, 0, 0.35), cen, true);
+    this.add('rest_meditate', '焚香护锋', '护盾·增伤', '获20点素衣护盾（未破前全伤+30%移速+10%）并满气', 'shield', 0, V3(0, 0, 0.35), cen, true);
     this.add('rest_sharpen', '寒石砺刃', '升阶', '免费挑一张已得秘传提升品阶', 'forge', 0, V3(3.0, 0, -0.4), stall('stone'), true);
   }
   /** 遗卷: one scroll on an altar */

@@ -29,12 +29,15 @@ export const REGION_4: RegionDef = {
       ['wl_shield', 'wl_xbow', 'wl_oil', 'wl_spear', 'wl_spear'],
       ['wl_diver', 'wl_chain', 'wl_xbow', 'wl_shield', 'wl_spear'],
     ];
-    const w1 = ['wl_shield', pick(MID, r), pick(MID, r), 'wl_spear', 'wl_spear'];
-    const w2 = [pick(MID, r) + '*', 'wl_shield', 'wl_xbow', pick(['wl_oil', 'wl_diver', 'wl_chain'], r), ...(depth >= 3 ? ['wl_xbow'] : ['wl_spear'])];
-    if (depth >= 5) {
-      const w3 = ['wl_shield*', pick(MID, r), 'wl_xbow', 'wl_oil'];
+    // Hades-2 V-curve 3-wave pacing (probe 4 -> quick breather 3 -> elite climax 6) from depth >= 3
+    if (depth >= 3) {
+      const w1 = ['wl_shield', 'wl_chain', pick(['wl_xbow', 'wl_oil'], r), 'wl_spear'];
+      const w2 = ['wl_diver', 'wl_oil', 'wl_spear'];
+      const w3 = [pick(['wl_shield', 'wl_chain', 'wl_xbow'], r) + '*', 'wl_shield', 'wl_chain', 'wl_xbow', 'wl_oil', 'wl_diver'];
       return [w1, w2, w3];
     }
+    const w1 = ['wl_shield', pick(MID, r), pick(MID, r), 'wl_spear'];
+    const w2 = [pick(MID, r) + '*', 'wl_shield', 'wl_xbow', pick(['wl_oil', 'wl_diver', 'wl_chain'], r), 'wl_spear'];
     return [w1, w2];
   },
   // the deck's guard first, then 周黯 with his crew (he calls his shield-bearers in himself)
