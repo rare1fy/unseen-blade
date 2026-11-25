@@ -28,12 +28,15 @@ export const REGION_5: RegionDef = {
       ['cx_guard', 'cx_zhu', 'cx_sword', 'cx_club', 'cx_club'],
       ['cx_shade', 'cx_guard', 'cx_sword', 'cx_zhu', 'cx_club'],
     ];
-    const w1 = ['cx_guard', 'cx_sword', pick(MID, r), 'cx_club', 'cx_club'];
-    const w2 = [pick(MID, r) + '*', 'cx_zhu', 'cx_guard', 'cx_shade', ...(depth >= 3 ? ['cx_sword*'] : ['cx_sword'])];
-    if (depth >= 5) {
-      const w3 = ['cx_guard*', 'cx_sword*', 'cx_zhu', 'cx_shade'];
+    // Hades-2 V-curve 3-wave pacing (probe 4 -> shade breather 3 -> twin-elite climax 6) from depth >= 3
+    if (depth >= 3) {
+      const w1 = ['cx_guard', 'cx_sword', 'cx_zhu', 'cx_club'];
+      const w2 = ['cx_shade', 'cx_zhu', 'cx_club'];
+      const w3 = ['cx_guard*', depth >= 5 ? 'cx_sword*' : 'cx_sword', 'cx_zhu', 'cx_shade', 'cx_sword', 'cx_club'];
       return [w1, w2, w3];
     }
+    const w1 = ['cx_guard', 'cx_sword', pick(MID, r), 'cx_club'];
+    const w2 = [pick(MID, r) + '*', 'cx_zhu', 'cx_guard', 'cx_shade', 'cx_sword'];
     return [w1, w2];
   },
   // his household first (the guard, swordsmen and zither player), then 崔玄 alone (he calls the rest himself)

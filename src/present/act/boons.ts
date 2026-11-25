@@ -87,24 +87,36 @@ export function archTier(p: Perks, a: Archetype): 0 | 2 | 3 {
 export function applyBoon(p: Perks, id: string, tier = 0) { if (BOONS.some(b => b.id === id)) p.owned[id] = Math.max(p.owned[id] ?? 0, boonTier(tier)); }
 export function upgradeBoon(p: Perks, id: string): boolean { if (tierOf(p, id) < 0 || tierOf(p, id) >= 2) return false; p.owned[id]++; return true; }
 export function drawBoons(pool: 'any', n: number, rnd: () => number, p: Perks, odds = [0.7, 0.25, 0.05], archBias?: Archetype | null, doorArch?: Archetype | null, weaponId?: string | null): BoonPick[] {
-  // act-161: only boons she does not hold (it used to fall back to held ones at a rolled tier — a pick at or below her own was a dud); an empty
-  // list means 'nothing new': the caller upgrades one in hand instead
+  // act-161 + Hades-2 slot & pool discipline:
+  //  1) Only fresh boons not held (empty => caller upgrades one in hand).
+  //  2) Entering an archetype-marked door guarantees that archetype first.
+  //  3) On neutral draws, favor unfilled button slots (2.4x) so every button gains a signature move early,
+  //     and gently favor already-started archetypes (1.6x) once 2+ archetypes are in hand so builds converge cleanly!
   void pool; const fresh = freshBoons(p, weaponId), want = Math.min(Math.max(0, Math.floor(n)), fresh.length);
   const weights = [0, 1, 2].map(i => Number.isFinite(odds[i]) ? Math.max(0, odds[i]) : 0), total = weights.reduce((a, b) => a + b, 0), out: BoonPick[] = [];
+  const filledSlots = new Set<BoonSlot>();
+  for (const b of BOONS) if (tierOf(p, b.id) >= 0 && b.slot) filledSlots.add(b.slot);
+  const ownedCounts = archCounts(p);
+  const ownedArches = (Object.keys(ownedCounts) as Archetype[]).filter(a => ownedCounts[a] > 0);
+  const convergeArches = ownedArches.length >= 2 ? new Set(ownedArches) : null;
   for (let i = 0; i < want; i++) {
     const baseChoices = fresh;
-    // act-138 Hades-2 door guarantee: entering a door marked with a specific archetype offers that archetype's boons first!
     const doorMatches = doorArch ? baseChoices.filter(c => c.arch === doorArch) : [];
     const choices = doorMatches.length ? doorMatches : baseChoices;
     let ix = 0;
-    if (archBias && !doorMatches.length) {
-      const ws = choices.map(c => (c.arch === archBias ? 3.5 : 1)), tw = ws.reduce((a, b) => a + b, 0);
-      let r = rnd() * tw;
-      for (let k = 0; k < choices.length; k++) { r -= ws[k]; if (r <= 0) { ix = k; break; } }
-    } else {
-      ix = Math.max(0, Math.min(choices.length - 1, Math.floor(rnd() * choices.length)));
-    }
+    const ws = choices.map(c => {
+      let w = 1;
+      if (archBias && !doorMatches.length && c.arch === archBias) w *= 3.5;
+      if (!doorMatches.length && convergeArches && convergeArches.has(c.arch)) w *= 1.6;
+      if (c.slot && !filledSlots.has(c.slot)) w *= 2.4;
+      return w;
+    });
+    const tw = ws.reduce((a, b) => a + b, 0);
+    let r = rnd() * tw;
+    ix = choices.length - 1;
+    for (let k = 0; k < choices.length; k++) { r -= ws[k]; if (r <= 0) { ix = k; break; } }
     const boon = choices[ix];
+    if (boon.slot) filledSlots.add(boon.slot);
     const rmIdx = baseChoices.indexOf(boon);
     if (rmIdx >= 0) baseChoices.splice(rmIdx, 1);
     const roll = rnd() * total, tier = total <= 0 || roll < weights[0] ? 0 : roll < weights[0] + weights[1] ? 1 : 2;
@@ -113,8 +125,8 @@ export function drawBoons(pool: 'any', n: number, rnd: () => number, p: Perks, o
   return out;
 }
 /** Non-boon cards share CardPick; their copy also lives here. */
-export function returnCard(kills: number, win = false, haul?: { iron: number; herb: number; canUp?: boolean }): BoonPick {
-  const line1 = win ? '三间都清了' : haul ? (haul.canUp ? '回古窑可锻刀或行针强化' : '回古窑休整再出发') : '回练武场再出发';
+export function returnCard(kills: number, win = false, haul?: { iron: number; herb: number; canUp?: boolean; nextHint?: string | null }): BoonPick {
+  const line1 = win ? '三间都清了' : haul ? (haul.nextHint ? haul.nextHint : haul.canUp ? '回古窑可锻刀或行针强化' : '回古窑休整再出发') : '回练武场再出发';
   const line2 = haul ? msg`斩了${kills}个 · 残铁+${haul.iron} · 药引+${haul.herb}` : msg`这一局斩了${kills}个`;
   return { boon: { id: win ? 'again' : 'retry', school: 'sr', name: win ? '原型到此' : '回古窑重整', desc: [line1, line2], col: '#b88b6c', glyph: BOONS.find(b => b.id === 'behead')!.glyph, vals: [0, 0, 0] }, tier: 0 };
 }

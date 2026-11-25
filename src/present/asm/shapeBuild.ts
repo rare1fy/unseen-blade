@@ -7,7 +7,7 @@ import { M, GRID } from '../scenes/props';
 import type { Ctx } from '../scenes/stage';
 import type { Rect } from './types';
 import { FloorGrid, FLOOR, OUT, PIT, type PitKind, type ShapePlan } from './roomShape';
-import { wallPiece, gateFrame, WALL, wallHOf, type ArenaPlan, type WallStyle } from './arena';
+import { wallPiece, gateFrame, southGateFrame, WALL, SOUTH_WALL_H, wallHOf, type ArenaPlan, type WallStyle } from './arena';
 import { castPit } from './luoyang/molten';
 import { LY, palaceWall, frame } from './luoyang/ly_kit';
 
@@ -24,18 +24,24 @@ const PAL = {
 /** a wall run along the floor's outline: along axis, the border line (cells of the floor grid), the floor cells it runs along (a0..a1),
  *  which side the wall stands on (out), and whether each end turns a corner round the outside of the floor (grows by the wall's thickness
  *  there so the corner closes; an end where the floor wraps round the wall's end stays flush — it would poke into the floor) */
-interface Run { along: 'x' | 'z'; line: number; a0: number; a1: number; out: 1 | -1; e0: boolean; e1: boolean }
-/** the floor's outline as wall runs: every floor / not-floor border, except the front (+z) border of the box (the camera side) and the
- *  pits' edges (a pit is not walled: you see the water / the drop) */
+interface Run { along: 'x' | 'z'; line: number; a0: number; a1: number; out: 1 | -1; e0: boolean; e1: boolean; front?: boolean }
+/** the floor's outline as wall runs: every floor / not-floor border, INCLUDING the camera-side (+z) front border on FLOOR cells
+ *  (act-189: real physical chest-high south walls replace the old invisible airwall; PIT water/ditch cells along +z stay open) */
 export function outline(g: FloorGrid): Run[] {
   const runs: Run[] = [], fl = (i: number, j: number) => g.kind(i, j) === FLOOR || g.kind(i, j) === PIT, frontJ = g.iz(g.sp.box.z1 - 0.01);
   // rows: a border between cell (i, j) and (i, j ± 1)
   for (let j = 0; j < g.nz; j++) for (const out of [-1, 1] as const) {
+    const isFront = out > 0 && j >= frontJ;
     let s = -1;
     for (let i = 0; i <= g.nx; i++) {
-      const edge = i < g.nx && fl(i, j) && g.kind(i, j + out) === OUT && !(out > 0 && j >= frontJ);
+      const cellOk = isFront ? g.kind(i, j) === FLOOR : fl(i, j);
+      const edge = i < g.nx && cellOk && g.kind(i, j + out) === OUT;
       if (edge && s < 0) s = i;
-      if (!edge && s >= 0) { runs.push({ along: 'x', line: out < 0 ? j : j + 1, a0: s, a1: i - 1, out, e0: !fl(s - 1, j), e1: !fl(i, j) }); s = -1; }
+      if (!edge && s >= 0) {
+        const endOk = (idx: number) => isFront ? g.kind(idx, j) !== FLOOR : !fl(idx, j);
+        runs.push({ along: 'x', line: out < 0 ? j : j + 1, a0: s, a1: i - 1, out, e0: endOk(s - 1), e1: endOk(i), ...(isFront ? { front: true } : {}) });
+        s = -1;
+      }
     }
   }
   for (let i = 0; i < g.nx; i++) for (const out of [-1, 1] as const) {
@@ -53,7 +59,7 @@ export function outline(g: FloorGrid): Run[] {
 export function buildShape(c: Ctx, sp: ShapePlan, plan: ArenaPlan, seed: number) {
   const box: B = (x0, y0, z0, x1, y1, z1, col) => { c.w.box(Math.min(x0, x1), y0, Math.min(z0, z1), Math.max(x0, x1), y1, Math.max(z0, z1), col); };
   // (a drawn room's doors, hollow walls and barricades are moving pieces (act/puzzles.ts): the walls are built round them as if open)
-  const g = new FloorGrid(sp.fixed ? { ...sp, fixed: { ...sp.fixed, closed: [] } } : sp, 4), T = M(WALL.thick), H = M(wallHOf(plan.style)) - 1;
+  const g = new FloorGrid(sp.fixed ? { ...sp, fixed: { ...sp.fixed, closed: [] } } : sp, 4), T = M(WALL.thick), H = M(wallHOf(plan.style)) - 1, Hfront = M(SOUTH_WALL_H) - 1;
   const cX = (i: number) => M(g.x0) + i * S, cZ = (j: number) => M(g.z0) + j * S;
   const r = (k: number) => { let h = (seed * 374761393 + k * 668265263) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
   // gates cut their gap in the run they sit on (the run's line, and only where the gap overlaps the run)
@@ -63,24 +69,46 @@ export function buildShape(c: Ctx, sp: ShapePlan, plan: ArenaPlan, seed: number)
       .map(q => run.along === 'x' ? [M(q.x - q.w / 2), M(q.x + q.w / 2)] : [M(q.z - q.w / 2), M(q.z + q.w / 2)]).filter(([a, b]) => b > lo + 2 && a < hi - 2);
   };
   let salt = 10;
-  // the knee-high runs first: where one meets a full-height wall at a corner, the full one is built over it
-  const runs = outline(g).map(run => ({ run, low: run.along === 'x' && run.out > 0 })).sort((a, b) => Number(b.low) - Number(a.low));
+  let placedSouthGate = false;
+  const entX = sp.enter[0], entGateW = 2.6, entHalf = Math.round(M(entGateW) / 2);
+  // Build front (camera-side) chest-high runs first so full-height side walls cleanly lock over their corners
+  const runs = outline(g).map(run => ({ run, low: !!run.front || (run.along === 'x' && run.out > 0) })).sort((a, b) => Number(b.low) - Number(a.low));
   for (const { run, low } of runs) {
+    if (run.front && plan.openFront) continue;
     // the wall stands just outside the floor: its inner face on the border line, T cells thick outward
     const L = run.along === 'x' ? cZ(run.line) : cX(run.line), b0 = run.out < 0 ? L - T : L, b1 = b0 + T - 1;
     const a0 = (run.along === 'x' ? cX(run.a0) : cZ(run.a0)) - (run.e0 ? T : 0), a1 = (run.along === 'x' ? cX(run.a1 + 1) : cZ(run.a1 + 1)) - 1 + (run.e1 ? T : 0);
-    // 11-18 (用户：「墙都没人高，很不自然」): every wall stands at full height, the camera side too — where one stands between the
-    // camera and someone fighting behind it, the scenery's shader opens it round them (look/voxkit.ts SEE_HOLES); it was knee-high
-    // (LOW) so as not to hide the floor behind it
-    const h = H; void low; void LOW;
-    const cuts = [a0, ...gaps(run).flat().sort((p, q) => p - q), a1];
+    // act-189: camera-side outer south border stands chest-high (Hfront = 1.19 m) to physically block the player without hiding combat;
+    // interior & north/east/west walls stand at full height (H = 2.45 m, or low-by-nature styles)
+    const h = run.front ? Hfront : H; void low; void LOW;
+    const runGaps = gaps(run);
+    let southGateX: number | null = null;
+    if (run.front && !placedSouthGate && a1 - a0 >= entHalf * 2 + 10) {
+      const wantC = M(entX);
+      if (wantC >= a0 + 4 && wantC <= a1 - 4) {
+        const clampedC = Math.max(a0 + entHalf + 5, Math.min(a1 - entHalf - 5, wantC));
+        if (clampedC - entHalf > a0 + 3 && clampedC + entHalf < a1 - 3) {
+          runGaps.push([clampedC - entHalf, clampedC + entHalf]);
+          southGateX = clampedC * CELL;
+          placedSouthGate = true;
+        }
+      }
+    }
+    const cuts = [a0, ...runGaps.flat().sort((p, q) => p - q), a1];
     for (let i = 0; i < cuts.length; i += 2) {
       const s0 = cuts[i] + (i ? 1 : 0), s1 = cuts[i + 1] - (i + 1 < cuts.length - 1 ? 1 : 0); if (s1 - s0 < 2) continue;
+      if (run.front) {
+        // Ensure solid foundation cells at y = -1 under south wall segments so coastal/flooded rooms never float
+        for (let X = s0; X <= s1; X++) for (let Z = b0; Z <= b1; Z++) if (!c.w.has(X, -1, Z)) c.w.set(X, -1, Z, PAL.stoneD);
+      }
       if (sp.fixed?.id === 'fallen_hall' && run.along === 'x' && run.out < 0 && Math.abs(L - M(sp.box.z0)) <= 1) {
         const brokenEnd = Math.floor((s0 + s1) / 2);
         palaceWall(frame(c.w, 0, 0), s0, s1, b0, b1, 46,
           { drops: [[s0, brokenEnd, 24]], seed, plaster: 0.95 });
       } else wallPiece(box, plan.style, run.along, s0, s1, b0, b1, h, r, salt++);
+    }
+    if (southGateX != null) {
+      southGateFrame(box, plan.style, southGateX, b0, b1, entGateW);
     }
   }
   // (the gates sit on the walls' line: a shaped room's walls stand right on the floor's edge, no gap)

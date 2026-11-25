@@ -207,7 +207,12 @@ export function assemble(spec: Spec, reg: Registry): { def: SceneDef; report: Re
         buildArena(c, spec.arena, spec.seed);
         for (const cv of spec.arena.covers) arenaClear.push({ x0: cv.x - cv.hx - 0.3, x1: cv.x + cv.hx + 0.3, z0: cv.z - cv.hz - 0.3, z1: cv.z + cv.hz + 0.3 });
         const w = spec.arena.wall, t = w.gap + w.thick + 0.2;
-        arenaClear.push({ x0: PLAY.x0 - t, x1: PLAY.x0, z0: PLAY.z0 - t, z1: PLAY.z1 }, { x0: PLAY.x1, x1: PLAY.x1 + t, z0: PLAY.z0 - t, z1: PLAY.z1 }, { x0: PLAY.x0 - t, x1: PLAY.x1 + t, z0: PLAY.z0 - t, z1: PLAY.z0 });
+        arenaClear.push(
+          { x0: PLAY.x0 - t, x1: PLAY.x0, z0: PLAY.z0 - t, z1: PLAY.z1 + t },
+          { x0: PLAY.x1, x1: PLAY.x1 + t, z0: PLAY.z0 - t, z1: PLAY.z1 + t },
+          { x0: PLAY.x0 - t, x1: PLAY.x1 + t, z0: PLAY.z0 - t, z1: PLAY.z0 },
+          ...(spec.arena.openFront ? [] : [{ x0: PLAY.x0 - t, x1: PLAY.x1 + t, z0: PLAY.z1, z1: PLAY.z1 + t }]),
+        );
         // 11-18 屋子形态: what stands on the walled-off parts (the place's infill), and no grass in the water / on a bridge
         const sh = spec.arena.shape;
         if (sh) {
@@ -303,6 +308,76 @@ function southForegroundPass(c: Ctx, spec: Spec) {
     for (const px of [pX0, pX1]) for (let pz = pZ0 + 6; pz <= pZ1; pz += 18) {
       w.box(px, -4, pz, px + 1, 5, pz + 1, 0x382418);
       w.box(px, 6, pz, px + 1, 6, pz + 1, 0x725036);
+    }
+  }
+
+  // 1b) act-189: Camera-side flanking architecture outside the south wall corners (outer flanks |x| near PLAY.x0/x1, z ∈ [PLAY.z1+1.2..PLAY.z1+5.6])
+  // Gives real built structures on both sides of the camera foreground without ever obstructing the central battle sightline!
+  if (spec.arena && !spec.arena.openFront) {
+    for (const side of [-1, 1] as const) {
+      const fx = side < 0 ? PLAY.x0 - 2.4 : PLAY.x1 + 2.4;
+      const fz = PLAY.z1 + 2.4;
+      const FX = M(fx), FZ = M(fz);
+      if (isHJ) {
+        // Flanking village low courtyard return wall + timber woodpile / cart outside the SW/SE gate corners
+        if (grounded(FX, FZ, 6) && emptyAbove(FX, FZ, 5)) {
+          w.box(FX - 12, 0, FZ - 3, FX + 12, 2, FZ + 3, 0x7e6848);
+          w.box(FX - 11, 3, FZ - 2, FX + 11, 11, FZ + 2, 0xa88a60);
+          w.box(FX - 12, 12, FZ - 3, FX + 12, 13, FZ + 3, 0x56585e);
+          w.box(FX - 11, 14, FZ - 2, FX + 11, 14, FZ + 2, 0x72747a);
+          // Adjacent stacked supply crates & hay bale
+          const sx = FX - side * 14, sz = FZ + 6;
+          if (grounded(sx, sz, 4) && emptyAbove(sx, sz, 3)) {
+            w.box(sx - 4, 0, sz - 3, sx + 4, 5, sz + 3, 0x6e5238);
+            w.box(sx - 4, 6, sz - 3, sx + 4, 6, sz + 3, 0x8e6e4c);
+            w.box(sx + 5, 0, sz - 3, sx + 11, 4, sz + 3, 0xb89648);
+          }
+        }
+      } else if (isLY) {
+        // Scorched palace colonnade wing plinths + snapped charred red pillars & tile rubble
+        if (grounded(FX, FZ, 6) && emptyAbove(FX, FZ, 5)) {
+          w.box(FX - 10, 0, FZ - 5, FX + 10, 3, FZ + 5, 0x5e5854);
+          w.box(FX - 9, 4, FZ - 4, FX + 9, 5, FZ + 4, 0x76706a);
+          w.box(FX - 4, 6, FZ - 3, FX + 4, 15, FZ + 3, 0x6a2c22);
+          w.box(FX - 4, 14, FZ - 3, FX + 4, 16, FZ + 3, 0x26211e);
+          w.box(FX + side * 7, 0, FZ + 4, FX + side * 13, 5, FZ + 8, 0x45474c);
+        }
+      } else if (isXP) {
+        // Flooded Xiapi stone quay bastion / timber flood-gate abutment rooted into canal bed
+        if (emptyAbove(FX, FZ, 5)) {
+          w.box(FX - 8, -4, FZ - 5, FX + 8, 4, FZ + 5, 0x485058);
+          w.box(FX - 7, 5, FZ - 4, FX + 7, 8, FZ + 4, 0x646e78);
+          w.box(FX - 6, 9, FZ - 3, FX + 6, 10, FZ + 3, 0x9aa6ae);
+          // Heavy dark mooring timber posts flanking the bastion
+          w.box(FX - 9, -4, FZ + 5, FX - 7, 12, FZ + 7, 0x332f29);
+          w.box(FX + 7, -4, FZ + 5, FX + 9, 12, FZ + 7, 0x332f29);
+        }
+      } else if (isWL) {
+        // Yangtze camp/dock timber crib tower base + lashed palisade wing & iron-banded supply barrels
+        if (emptyAbove(FX, FZ, 5)) {
+          w.box(FX - 9, -4, FZ - 4, FX + 9, 5, FZ + 4, 0x4a3220);
+          w.box(FX - 8, 6, FZ - 3, FX + 8, 12, FZ + 3, 0x68482e);
+          w.box(FX - 9, 8, FZ - 4, FX + 9, 9, FZ + 4, 0x9a8058);
+          w.box(FX - 8, 13, FZ - 3, FX + 8, 13, FZ + 3, 0x4a4f5a);
+        }
+      } else if (isCX) {
+        // Cui Manor whitewashed snow-capped garden wing wall + carved granite courtyard lantern
+        if (grounded(FX, FZ, 6) && emptyAbove(FX, FZ, 5)) {
+          w.box(FX - 11, 0, FZ - 3, FX + 11, 3, FZ + 3, 0x4a4848);
+          w.box(FX - 10, 4, FZ - 2, FX + 10, 12, FZ + 2, 0xdcd8cc);
+          w.box(FX - 12, 13, FZ - 4, FX + 12, 14, FZ + 4, 0x34363c);
+          w.box(FX - 10, 15, FZ - 2, FX + 10, 15, FZ + 2, 0xdce4ee);
+          // Carved stone garden lantern beside the wing wall
+          const lx = FX - side * 13, lz = FZ + 5;
+          if (grounded(lx, lz, 3) && emptyAbove(lx, lz, 2)) {
+            w.box(lx - 2, 0, lz - 2, lx + 2, 2, lz + 2, 0x666c78);
+            w.box(lx - 1, 3, lz - 1, lx + 1, 9, lz + 1, 0x7c8492);
+            w.box(lx - 2, 10, lz - 2, lx + 2, 12, lz + 2, 0x525a66);
+            w.box(lx - 1, 10, lz - 1, lx + 1, 11, lz + 1, 0xd8a862);
+            w.box(lx - 3, 13, lz - 3, lx + 3, 14, lz + 3, 0xdce4ee);
+          }
+        }
+      }
     }
   }
 

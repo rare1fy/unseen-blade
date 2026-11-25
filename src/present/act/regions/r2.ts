@@ -29,12 +29,15 @@ export function waves2(type: RoomType, depth: number, r: Rnd): string[][] {
     ['ly_shield', 'ly_xbow', 'ly_torch', 'ly_looter'],
     ['ly_rider', 'ly_halberd', 'ly_xbow', 'ly_looter'],
   ];
-  const w1 = [pick(FRONT, r), pick(FRONT, r), pick(BACK, r), 'ly_rider', 'ly_looter'];
-  const w2 = [depth >= 3 ? pick(['ly_halberd', 'ly_shield', 'ly_rider'], r) + '*' : pick(FRONT, r), pick(BACK, r), 'ly_rider', pick(['ly_torch', 'ly_xbow'], r), 'ly_looter'];
-  if (depth >= 5) {
-    const w3 = [pick(['ly_shield', 'ly_halberd'], r) + '*', 'ly_rider', 'ly_xbow', 'ly_torch'];
+  // Hades-2 V-curve 3-wave pacing (probe 4 -> fast light breather 3 -> elite climax 6) from depth >= 3
+  if (depth >= 3) {
+    const w1 = ['ly_halberd', 'ly_shield', pick(BACK, r), 'ly_looter'];
+    const w2 = ['ly_rider', pick(['ly_torch', 'ly_xbow'], r), 'ly_looter'];
+    const w3 = [pick(['ly_halberd', 'ly_shield', 'ly_rider'], r) + '*', 'ly_shield', 'ly_halberd', 'ly_rider', 'ly_xbow', 'ly_torch'];
     return [w1, w2, w3];
   }
+  const w1 = [pick(FRONT, r), pick(FRONT, r), pick(BACK, r), 'ly_looter'];
+  const w2 = [pick(FRONT, r), pick(BACK, r), 'ly_rider', pick(['ly_torch', 'ly_xbow'], r), 'ly_looter'];
   return [w1, w2];
 }
 /** 铸钱场: his guard first (a wall of shields, the crossbows & torch behind), then 阎虎 with two looters */

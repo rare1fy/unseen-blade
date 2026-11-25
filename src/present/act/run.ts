@@ -13,8 +13,12 @@ const ARCHS: readonly Archetype[] = ['blood', 'poise', 'shadow', 'gale'];
 export type RoomType = 'fight' | 'elite' | 'shop' | 'rest' | 'boon' | 'event' | 'boss';
 export type Reward = { k: 'boon'; arch?: Archetype } | { k: 'up' } | { k: 'coins'; n: number } | { k: 'heal' } | { k: 'manual' } | { k: 'maxHp'; n: number } | { k: 'meta'; iron: number; herb: number } | null;
 /** one room of the run: what it is, where, what clearing it gives, the waves ('kind*' = the elite of that kind); region = which 关 (0 起) */
-/** act-161: what the route planner knows of her hand — boons carried, and how many of them can still go up a tier */
-export interface RunCtx { boons: number; ups: number }
+/** act-161 / Hades-2 bag: what the route planner knows of her hand and optional per-run combat reward bag */
+export type BagRewardKind = 'boon' | 'coins' | 'maxHp' | 'meta' | 'heal';
+export interface RunCtx { boons: number; ups: number; bag?: BagRewardKind[] }
+export function freshRewardBag(): BagRewardKind[] {
+  return ['boon', 'boon', 'coins', 'coins', 'coins', 'maxHp', 'maxHp', 'meta', 'heal', 'heal'];
+}
 export interface RoomPlan { type: RoomType; locale: string; reward: Reward; waves: string[][]; region?: number }
 
 /** the rooms of region one, the boss room included (act-152: 7 pre-boss + 1 boss = 8 rooms per region) */
@@ -77,6 +81,18 @@ function rewardFor(type: RoomType, r: Rnd, ri = 0, ctx?: RunCtx): Reward {
   if (type === 'elite') {
     if (canUp && r() < 0.5) return { k: 'up' };
     return full ? { k: 'coins', n: 60 + ri * 12 } : { k: 'boon', arch: pickArch(r) };
+  }
+  // Hades-2 Bag Random when a run reward bag is supplied: eliminates streaky 5-room droughts while preserving exact ratios
+  if (ctx?.bag) {
+    if (!ctx.bag.length) ctx.bag.push(...freshRewardBag());
+    const ix = Math.floor(r() * ctx.bag.length) % ctx.bag.length;
+    let k = ctx.bag.splice(ix, 1)[0];
+    if (k === 'boon' && full) k = 'coins';
+    if (k === 'boon') return { k: 'boon', arch: pickArch(r) };
+    if (k === 'coins') return { k: 'coins', n: 45 + ri * 10 };
+    if (k === 'maxHp') return { k: 'maxHp', n: 12 };
+    if (k === 'meta') return { k: 'meta', iron: 8 + ri * 3, herb: 8 + ri * 3 };
+    return { k: 'heal' };
   }
   const x = r(), pb = full ? 0 : 0.22;
   if (x < pb) return { k: 'boon', arch: pickArch(r) };

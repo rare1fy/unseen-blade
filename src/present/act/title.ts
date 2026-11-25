@@ -630,6 +630,7 @@ export function titleDefinition(index: number): SceneDef {
     const layout = withExits(spec.mirror ? mirrorLayout(stageLayout(lb)) : stageLayout(lb), spec.exits ?? []);
     const plan = arenaPlan(layout, (spec.exits ?? []) as ExitId[], spec.seed, spec.locale, 'calm');
     plan.props = []; if (!d.cover) plan.covers = [];
+    plan.openFront = true;
     spec.arena = plan;
   }
   const { def } = assemble(spec, REGISTRY);

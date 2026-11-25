@@ -28,12 +28,15 @@ export function waves3(type: RoomType, depth: number, r: Rnd): string[][] {
     ['xp_chain', 'xp_needle', 'xp_conscript', 'xp_conscript'],
     ['xp_assassin', 'xp_diver', 'xp_frost', 'xp_needle'],
   ];
-  const w1 = [pick(NEAR, r), 'xp_chain', pick(FAR, r), 'xp_conscript', 'xp_conscript'];
-  const w2 = [depth >= 3 ? pick(['xp_assassin', 'xp_chain', 'xp_diver'], r) + '*' : pick(NEAR, r), pick(NEAR, r), pick(FAR, r), pick(FAR, r), 'xp_conscript'];
-  if (depth >= 5) {
-    const w3 = [pick(['xp_chain', 'xp_assassin'], r) + '*', 'xp_diver', 'xp_frost', 'xp_needle'];
+  // Hades-2 V-curve 3-wave pacing (probe 4 -> fast ambush breather 3 -> elite climax 6) from depth >= 3
+  if (depth >= 3) {
+    const w1 = ['xp_chain', 'xp_diver', pick(FAR, r), 'xp_conscript'];
+    const w2 = ['xp_assassin', 'xp_needle', 'xp_conscript'];
+    const w3 = [pick(['xp_chain', 'xp_assassin', 'xp_diver'], r) + '*', 'xp_chain', 'xp_diver', 'xp_frost', 'xp_needle', 'xp_conscript'];
     return [w1, w2, w3];
   }
+  const w1 = [pick(NEAR, r), 'xp_chain', pick(FAR, r), 'xp_conscript'];
+  const w2 = [pick(NEAR, r), pick(NEAR, r), pick(FAR, r), pick(FAR, r), 'xp_conscript'];
   return [w1, w2];
 }
 /** 白门楼: the jailers and the needles first, then 封鸩 with an assassin & conscript */
