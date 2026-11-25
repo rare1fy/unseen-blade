@@ -2925,5 +2925,14 @@
   "Tab / Q E 切页 · 点击直接锻造 · Esc 返回": "Tab / Q E Switch Tab · Click to Forge · Esc Back",
   "Tab / Q E 切页 · 点选右侧按钮或 Enter 锻造 · Esc 返回": "Tab / Q E Switch · Click Forge or Enter · Esc Back",
   "WASD": "WASD",
-  "WASD 走 · {0} 斩（按住蓄力）· {1} 跳 · {2} 冲刺 · {3} 飞镖": "WASD Move / {0} Slash (hold to charge) / {1} Jump / {2} Dash / {3} Dart"
+  "WASD 走 · {0} 斩（按住蓄力）· {1} 跳 · {2} 冲刺 · {3} 飞镖": "WASD Move / {0} Slash (hold to charge) / {1} Jump / {2} Dash / {3} Dart",
+  "保留本局关卡与强化进度，下次点「继续游戏」接着打": "Keep this run's room and upgrades, then press Continue to resume",
+  "存盘回主画面": "Save & Title",
+  "存盘回主画面？": "Save & Return to Title?",
+  "存盘返回": "Save & Quit",
+  "江湖": "Jianghu",
+  "第{0}间": "Room {0}",
+  "续战": "Resume",
+  "续战 · {0}": "Resume · {0}",
+  "首领间": "Boss Room"
 }

@@ -9,7 +9,7 @@ import type { RunMods } from './meta';
 import type { RoomPlan, RoomType } from './run';
 import type { ShopSpecial } from './stations';
 import { REGIONS } from './regions';
-import { msg } from './i18n';
+import { language, msg, t } from './i18n';
 
 export const RUN_SAVE_KEY = 'ub.run.v1';
 
@@ -143,11 +143,13 @@ export function clearRunSave(): void {
   } catch { /* storage blocked */ }
 }
 
-const CN_NUM = '一二三四五六七八九十';
+const CN_CODES = [0x4e00, 0x4e8c, 0x4e09, 0x56db, 0x4e94, 0x516d, 0x4e03, 0x516b, 0x4e5d, 0x5341];
 
 /** Compact progress label for title screen / resume banner (e.g. "黄巾残村 · 第四间"). */
 export function runSaveLabel(s: RunSave): string {
-  const rName = REGIONS[s.region]?.name ?? '江湖';
-  const roomTxt = s.plan.type === 'boss' ? '首领间' : `第${CN_NUM[s.room] ?? (s.room + 1)}间`;
-  return msg`${rName} · ${roomTxt}`;
+  const rName = t(REGIONS[s.region]?.name ?? '江湖');
+  const code = CN_CODES[s.room];
+  const num = language === 'en' || code === undefined ? String(s.room + 1) : String.fromCharCode(code);
+  const roomTxt = s.plan.type === 'boss' ? t('首领间') : msg`第${num}间`;
+  return `${rName} · ${roomTxt}`;
 }
