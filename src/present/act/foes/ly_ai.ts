@@ -91,14 +91,17 @@ const rideLane = (d: number) => Math.min(RIDE_LEN, d + 4);
 const rider: RoleAI = {
   think(f, w, k) {
     const d = k.dist;
-    if (k.can && d > 6.5 && (f.mem.rideCd ?? 0) <= 0) {
+    const clear = !w.canCharge || w.canCharge(f);
+    if (k.can && clear && d > 5.8 && (f.mem.rideCd ?? 0) <= 0) {
       // the run up: pawing the ground, the lance down; a long lane from him past her (jumpable: white bars)
       f.combo = f.elite ? 1 : 0; f.mem.rideCd = 3.0;
       AI.startAttack(f, w, { k: 'rect', len: rideLane(d), w: 1.6 }, 1.1, 16, k.yawTo, { atk: 'ride', act: { name: 'paw', imp: 0.92 } });
       return 'busy';
     }
-    // circling wide: out to 8 m and round
-    if (d < 7.5) return { want: away(k, 0.8).addScaledVector(k.side, 1.0), sp: 1.0, aim: false };
+    // when a building / canal / heavy cover blocks the charge lane, route around it via FloorGrid.way instead of backing into walls!
+    if (!clear) return { want: k.dir.clone().addScaledVector(k.side, 0.35), sp: 1.0, aim: false };
+    // circling wide: out to ~7.5 m and round
+    if (d < 7.2) return { want: away(k, 0.8).addScaledVector(k.side, 1.0), sp: 1.0, aim: false };
     return { want: side(k, 1.0).addScaledVector(k.dir, 0.15), sp: 0.8 };
   },
   tick(f, _w, dt) { f.mem.rideCd = (f.mem.rideCd ?? 0) - dt; },
@@ -115,16 +118,19 @@ const rider: RoleAI = {
     if (Math.random() < dt * 30) fxSmoke(f.pos.clone().setY(0.15), 0x6a6058, 1, { r: 0.4, spd: 0.8, up: 0.3, s: 0.3, life: 0.5 });
     if (f.t < f.dur || f.mem.thrown) return;
     f.lunge = null; f.vel.multiplyScalar(0.25);
-    if (f.combo > 0 && w.heroAlive) { f.combo--; const y = Math.atan2(w.heroPos.x - f.pos.x, w.heroPos.z - f.pos.z); AI.startAttack(f, w, { k: 'rect', len: rideLane(f.pos.distanceTo(w.heroPos)), w: 1.6 }, 0.8, 16, y, { atk: 'ride', act: { name: 'paw', imp: 0.92 } }); return; }
+    if (f.combo > 0 && w.heroAlive && (!w.canCharge || w.canCharge(f))) { f.combo--; const y = Math.atan2(w.heroPos.x - f.pos.x, w.heroPos.z - f.pos.z); AI.startAttack(f, w, { k: 'rect', len: rideLane(f.pos.distanceTo(w.heroPos)), w: 1.6 }, 0.8, 16, y, { atk: 'ride', act: { name: 'paw', imp: 0.92 } }); return; }
+    f.combo = 0;
     // at the end of the run: 1.2 s to rein in and turn — the time to cut him
     recover(f, 1.2);
     // Only the rig turns during this recovery; the next attack still locks its own direction.
     const turn = Math.atan2(w.heroPos.x - f.pos.x, w.heroPos.z - f.pos.z) - f.yaw;
     f.a.play(new Action('rein', 1.2, 0.5, { turn: Math.atan2(Math.sin(turn), Math.cos(turn)) }));
   },
-  // into a wall / cover at speed: thrown from the saddle, down 2 s
+  // head-on crash into a real wall / heavy cover at speed: thrown from the saddle, down 2 s (shallow wall grazes slide on)
   bumped(f, _w, dx, dz) {
-    if (f.st !== 'strike' || !f.lunge || f.mem.thrown || Math.hypot(dx, dz) < 0.02) return;
+    if (f.st !== 'strike' || !f.lunge || f.mem.thrown) return;
+    const pushLen = Math.hypot(dx, dz), lungeLen = Math.hypot(f.lunge.x, f.lunge.z);
+    if (pushLen < 0.025 || lungeLen < 1e-3 || (dx * f.lunge.x + dz * f.lunge.z) / (pushLen * lungeLen) > -0.55) return;
     f.mem.thrown = true; f.lunge = null; f.vel.set(0, 0, 0); f.attacking = false; dropTeles(f);
     // The fall rolls off the free side of the saddle, away from the surface that stopped the horse.
     const fallSide = Math.sign(dx * Math.cos(f.yaw) - dz * Math.sin(f.yaw)) || -1;
@@ -381,10 +387,10 @@ const yanhu: RoleAI = {
     if (f.mem.axeOut) { return { want: k.dir.clone().addScaledVector(k.side, 0.4), sp: 0.9 }; }   // empty-handed, walking at her (the moment)
     if (!k.can) return d > 2.6 ? { want: k.dir.clone().addScaledVector(k.side, 0.25) } : { want: side(k, 0.6), aim: true };
     // the second phase's two: the thrown axe from range, the kicked trough when she is in front at middle range
-    if (p2 && d > 4.5 && d < 10 && (f.mem.throwCd ?? 0) <= 0) { f.mem.throwCd = R(6, 8); AI.startAttack(f, w, { k: 'rect', len: 9, w: 1.0 }, 0.8, 14, k.yawTo, { atk: 'axeThrow', act: { name: 'axeThrow', imp: 0.7 } }); return 'busy'; }
+    if (p2 && d > 4.5 && d < 10 && (f.mem.throwCd ?? 0) <= 0 && (!w.sees || w.sees(f))) { f.mem.throwCd = R(6, 8); AI.startAttack(f, w, { k: 'rect', len: 9, w: 1.0 }, 0.8, 14, k.yawTo, { atk: 'axeThrow', act: { name: 'axeThrow', imp: 0.7 } }); return 'busy'; }
     if (p2 && d > 2.0 && d < 5.5 && (f.mem.ironCd ?? 0) <= 0) { f.mem.ironCd = R(7, 9); AI.startAttack(f, w, { k: 'cone', r: 4.0, half: 0.75 }, 1.2, 12, k.yawTo, { atk: 'iron', act: { name: 'kick', imp: 0.7 } }); return 'busy'; }
-    // the charge: from 5 m out, a lane past her (lure him into a wall)
-    if (d > 4.8 && d < 11 && (f.mem.ramCd ?? 0) <= 0) { f.mem.ramCd = R(5, 7); AI.startAttack(f, w, { k: 'rect', len: Math.min(12, d + 3), w: YAN.ramW }, 1.0, 18, k.yawTo, { atk: 'ram', act: { name: 'ram', imp: 0.9 } }); return 'busy'; }
+    // the charge: from 5 m out along a clear lane past her (player can still dodge behind a wall/pillar during windup to bait crash!)
+    if (d > 4.8 && d < 11 && (f.mem.ramCd ?? 0) <= 0 && (!w.canCharge || w.canCharge(f))) { f.mem.ramCd = R(5, 7); AI.startAttack(f, w, { k: 'rect', len: Math.min(12, d + 3), w: YAN.ramW }, 1.0, 18, k.yawTo, { atk: 'ram', act: { name: 'ram', imp: 0.9 } }); return 'busy'; }
     if (d < 3.4) { AI.startAttack(f, w, { k: 'cone', r: YAN.sweepR, half: YAN.sweepHalf }, 0.9, 16, k.yawTo, { atk: 'sweep', act: { name: 'axeSweep', imp: 0.62, data: { dist: 0.4 } } }); f.cd = p2 ? 0.2 : 0.5; return 'busy'; }
     if (d < 5.6 && Math.random() < k.dt * 1.8) { AI.startAttack(f, w, { k: 'rect', len: YAN.chopLen, w: YAN.chopW }, 1.0, 20, k.yawTo, { atk: 'chop', act: { name: 'axeChop', imp: 0.55 } }); f.cd = p2 ? 0.25 : 0.5; return 'busy'; }
     return { want: k.dir.clone().addScaledVector(k.side, 0.2), sp: p2 ? 1.2 : 1 };
@@ -519,9 +525,11 @@ const yanhu: RoleAI = {
     if (f.atk === 'chop') { recover(f, f.mem.chopStuck ?? 0.9); f.a.play(new Action('axeStuck', f.mem.chopStuck ?? 0.9, 0.5)); return; }
     recover(f, f.atk === 'sweep' ? (f.phase > 1 ? 0.5 : 0.8) : f.atk === 'ram' ? 0.6 : 0.5);
   },
-  // the charge into a wall / cover / a pillar: dazed 2.2 s — the best opening of the fight
+  // head-on charge into a wall / cover / pillar: dazed 2.2 s — the best opening of the fight
   bumped(f, _w, dx, dz) {
-    if (f.atk !== 'ram' || !f.lunge || f.mem.rammed || Math.hypot(dx, dz) < 0.02) return;
+    if (f.atk !== 'ram' || !f.lunge || f.mem.rammed) return;
+    const pushLen = Math.hypot(dx, dz), lungeLen = Math.hypot(f.lunge.x, f.lunge.z);
+    if (pushLen < 0.025 || lungeLen < 1e-3 || (dx * f.lunge.x + dz * f.lunge.z) / (pushLen * lungeLen) > -0.55) return;
     f.mem.rammed = true; f.lunge = null; f.vel.set(0, 0, 0); f.attacking = false; dropTeles(f);
     AI.setSt(f, 'stagger', 2.2); f.a.play(new Action('dazed', 2.2, 0.3)); f.poise = Math.max(1, Math.round(f.poise * 0.5));
     shake(0.5 * TUNE.shake); cue('wallSlam', 1); cue('foePain', 1, 2);

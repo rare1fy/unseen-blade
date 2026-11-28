@@ -5247,14 +5247,26 @@ export class ActShow {
   private heroSafePos = V3();
   private clampFootY = 0;
   private clampFromY = 0;
+  private clampStepUp = 0;
   private clampHoldHigh = false;
-  private clamp = (p: THREE.Vector3, r: number, o?: { overPit?: boolean; footY?: number; fromY?: number }) => {
+  private refreshGridBlocks() {
+    if (!this.grid) return;
+    this.grid.reblock(this.solids.list.filter(s => s.on).map(s => ({ x0: s.x - s.hx - 0.3, x1: s.x + s.hx + 0.3, z0: s.z - s.hz - 0.3, z1: s.z + s.hz + 0.3 })));
+  }
+  private heroGroundAt = (x: number, z: number, curY?: number): number => {
+    const base = this.grid ? this.grid.groundAt(x, z) : 0;
+    const refY = curY ?? (this.hero ? this.hero.pos.y + this.hero.y : base);
+    const top = this.solids.topAt(x, z, 0.16, refY + 0.38);
+    return top != null && top > base ? top : base;
+  };
+  private clamp = (p: THREE.Vector3, r: number, o?: { overPit?: boolean; footY?: number; fromY?: number; stepUp?: number }) => {
     const yard = this.phase === 'yard' || (this.phase === 'leaving' && this.room < 0);
     const activeDoors = (this.phase === 'doors' || this.phase === 'leaving' || this.phase === 'yard')
       ? this.doors.map(d => d.ex)
       : [];
     const footY = o?.footY ?? this.clampFootY;
     const fromY = o?.fromY ?? this.clampFromY;
+    const stepUp = o?.stepUp ?? this.clampStepUp;
     this.lastPush = clampWithDoors(p, r, {
       play: PLAY,
       pad: yard ? { x: 0, z0: 0, z1: 0 } : { x: 0.02, z0: 0.02, z1: 0.02 },
@@ -5264,6 +5276,7 @@ export class ActShow {
       footY,
       fromY,
       holdHigh: this.clampHoldHigh,
+      stepUp,
       solids: this.solids,
       wallSolid: WALL_SOLID,
     });
@@ -5275,8 +5288,16 @@ export class ActShow {
     this.overPit = true; this.clampFootY = Math.max(p.y, 1.5); this.clampFromY = this.clampFootY;
     try { this.clamp(p, r); } finally { this.overPit = false; this.clampFootY = 0; this.clampFromY = 0; }
   };
-  /** a foe's own clamp (enemy.ts integrate): knocked back hard or thrown into the air it can go over a pit's edge or off a platform */
+  /** a foe's own clamp (enemy.ts integrate): knocked back hard or thrown into the air it can go over a pit's edge or off a platform;
+   *  charging foes smash right through small breakable props (pots, crates, hay, baskets, sacks, fences, racks, banners, lamps) without getting stuck! */
   private foeClamp = (f: Foe) => {
+    if (f.st === 'strike' && f.lunge && this.props) {
+      const lx = f.lunge.x, lz = f.lunge.z, ll = Math.hypot(lx, lz) || 1;
+      const smashed = this.props.hitCircle(f.pos.x, f.pos.z, f.d.r + 0.28, {
+        src: 'slam', heavy: true, crush: true, skipHeavy: true, dir: [lx / ll, lz / ll],
+      }, this.targets());
+      if (smashed.events.length || smashed.damage.length) this.applyProps(smashed);
+    }
     const g = this.grid, sp = Math.hypot(f.vel.x, f.vel.z), can = !!g && !isBoss(f) && f.kind !== 'dummy';
     const loose = can && ((f.st === 'stagger' && sp > PIT_SPEED) || (f.airV != null && f.pos.y > (g ? g.groundAt(f.pos.x, f.pos.z) : 0) + 0.08) || !!g!.pitAt(f.pos.x, f.pos.z));
     const wasY = f.pos.y;
@@ -5285,21 +5306,31 @@ export class ActShow {
     this.clampFromY = wasY;
     this.clampHoldHigh = !!g && isRangedFoe(f) && f.st !== 'stagger' && f.airV == null && wasY >= PLAT_H - 0.15;
     try { this.clamp(f.pos, f.d.r); } finally { this.overPit = false; this.clampFootY = 0; this.clampFromY = 0; this.clampHoldHigh = false; }
+    // Heavy chargers (warhorse / Yan Hu / Chu Lei) colliding into a standing wooden pillar crack or topple it on impact!
+    if (f.st === 'strike' && f.lunge && f.d.mass >= 2.0 && this.lastPush?.s.kind === 'prop' && this.props) {
+      const tag = this.lastPush.s.tag as { kind?: string; state?: string } | undefined;
+      if (tag?.kind === 'pillar' && tag.state === 'idle') {
+        const lx = f.lunge.x, lz = f.lunge.z, ll = Math.hypot(lx, lz) || 1;
+        const hit = this.props.hitCircle(this.lastPush.s.x, this.lastPush.s.z, 0.45, { src: 'blast', heavy: true, dir: [lx / ll, lz / ll] }, this.targets());
+        if (hit.events.length || hit.damage.length) this.applyProps(hit);
+      }
+    }
     if (g && f.airV == null && !g.pitAt(f.pos.x, f.pos.z)) {
       const gy = g.groundAt(f.pos.x, f.pos.z);
       if (wasY > gy + 0.25) f.airV = -0.6;
       else f.pos.y = gy;
     }
   };
-  /** Resolve hero landing: slide off vaulted low props, generously grab nearby shore edges (<= 0.58 m), or splash & recover from deep pits! */
+  /** Resolve hero landing: stand cleanly atop steppable small platforms/crates/covers, slide off thin non-steppable props, grab nearby shores, or splash & recover from deep pits! */
   private onHeroLand = (p: THREE.Vector3, r: number) => {
     const g = this.grid;
-    if (g) p.y = g.groundAt(p.x, p.z);
-    this.solids.pushOut(p, r, p.y);
+    p.y = this.heroGroundAt(p.x, p.z, p.y);
+    this.solids.pushOut(p, r, p.y, 0.38);
+    p.y = this.heroGroundAt(p.x, p.z, p.y);
     if (!g) return;
-    const pitKind = g.pitAt(p.x, p.z);
+    const baseY = g.groundAt(p.x, p.z);
+    const pitKind = p.y > baseY + 0.2 ? null : g.pitAt(p.x, p.z);
     if (!pitKind) {
-      p.y = g.groundAt(p.x, p.z);
       this.heroSafePos.copy(p);
       return;
     }
@@ -5309,8 +5340,8 @@ export class ActShow {
       // Generous ledge-grab onto shore / stepping-stone pier: zero damage!
       p.x = fx; p.z = fz;
       const fy = g.groundAt(fx, fz);
-      this.clamp(p, r, { overPit: false, footY: fy, fromY: fy });
-      p.y = g.groundAt(p.x, p.z);
+      this.clamp(p, r, { overPit: false, footY: fy, fromY: fy, stepUp: 0.38 });
+      p.y = this.heroGroundAt(p.x, p.z, fy);
       this.heroSafePos.copy(p);
       dustBlocks(p.clone(), 4);
       return;
@@ -5359,10 +5390,24 @@ export class ActShow {
   };
   /** can this foe see her over the floor (no wall, no walled-off block between)? the water and the gullies are low: they see across */
   private foeSees = (f: Foe) => { const g = this.grid, h = this.hero; if (!g || !h) return true; return g.sightOpen(f.pos.x, f.pos.z, h.pos.x, h.pos.z); };
+  /** can a charging foe / warhorse gallop straight at the hero without running into a building, pit, sheer cliff, or heavy cover? */
+  private foeCanCharge = (f: Foe) => {
+    const g = this.grid, h = this.hero;
+    if (!h) return true;
+    const heroDeckY = g ? g.groundAt(h.pos.x, h.pos.z) : 0;
+    if (Math.abs(f.pos.y - heroDeckY) > 0.45) return false;
+    const laneR = Math.min(0.42, f.d.r * 0.65);
+    if (g && !g.chargeOpen(f.pos.x, f.pos.z, h.pos.x, h.pos.z, laneR)) return false;
+    const hit = this.solids.sweep(
+      f.pos.x, f.pos.z, h.pos.x, h.pos.z, Math.min(0.4, f.d.r * 0.6), f.pos.y,
+      s => !(s.kind === 'prop' && !!s.tag && (s.tag as { kind?: string }).kind !== 'pillar'),
+    );
+    return !hit;
+  };
   private heroWorld: HeroWorld = {
     foes: this.foes,
     swing: o => this.swing(o), sweep: o => this.sweep(o), slam: o => this.slam(o), clamp: this.clamp,
-    groundAt: (x, z) => this.grid ? this.grid.groundAt(x, z) : 0,
+    groundAt: (x, z, curY) => this.heroGroundAt(x, z, curY),
     onLand: (p, r) => this.onHeroLand(p, r),
     thunderCleave: o => this.thunderCleave(o), frostDetonate: o => this.frostDetonate(o), bluntFlash: o => this.bluntFlash(o),
     passing: o => this.passing(o), overhead: o => this.overhead(o), dashed: o => this.dashed(o),
@@ -5401,7 +5446,7 @@ export class ActShow {
     pushed: (f, dx, dz) => this.pushed(f, dx, dz),
     heroPos: V3(), heroR: 0.38, heroAlive: true, heroY: 0, heroBaseY: 0, heroDodge: false, foes: this.foes, arrows: this.arrows, clamp: this.clamp,
     groundAt: (x, z) => this.grid ? this.grid.groundAt(x, z) : 0,
-    clampAir: this.clampAir, clampFoe: this.foeClamp, way: this.foeWay, sees: this.foeSees,
+    clampAir: this.clampAir, clampFoe: this.foeClamp, way: this.foeWay, sees: this.foeSees, canCharge: this.foeCanCharge,
     hurtHero: (dmg, from, attacker) => this.hurtHero(dmg, from, attacker), // wp/boons: exact melee attacker; arrows omit it
     killFoe: (f, from) => this.killFoe(f, from), // wp/boons: lethal burn ticks use the death hook too
     bleedDamage: f => {
@@ -6430,6 +6475,7 @@ export class ActShow {
   private applyProps(r: { events: BEvent[]; damage: BDamage[] }, shown = false) {
     if (!this.props) return;
     if (!shown) this.props.present(r.events);
+    if (r.events.some(e => e.k === 'break' || e.k === 'boom')) this.refreshGridBlocks();
     for (const e of r.events) if (e.k === 'boom') {
       this.leaves?.blast(e.x, e.z, 4.5, 8);
       this.pieces?.boom(e.x, e.z, e.r);
@@ -9045,7 +9091,7 @@ export class ActShow {
     } else this.wetStepT = Math.max(0, this.wetStepT - dt);
     this.hud.setAim(h.aiming ? { x: h.aimDir.x, y: -h.aimDir.z } : null);   // act-29: the dart button leans to the aim
     if (h.aiming) { const pv = h.aimPreview(this.heroWorld), L = TUNE.dartRange, al = this.aimLine;
-      al.visible = true; al.position.set(h.pos.x, 0.07, h.pos.z); al.rotation.y = Math.atan2(pv.dir.x, pv.dir.z); al.scale.set(1, 1, L);
+      al.visible = true; al.position.set(h.pos.x, h.pos.y + 0.07, h.pos.z); al.rotation.y = Math.atan2(pv.dir.x, pv.dir.z); al.scale.set(1, 1, L);
       const cap = al.getObjectByName('cap')!; cap.scale.set(1, 1, 1 / L); (al.material as THREE.MeshBasicMaterial).color.set(pv.onFoe ? 0xffd27a : 0xe8eeff); }
     else this.aimLine.visible = false;
     if (this.departAnim) {

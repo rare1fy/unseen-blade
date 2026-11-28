@@ -20,6 +20,8 @@ export interface ClampOpts {
   fromY?: number;
   /** Keep a non-staggered walking foe from casually stepping off a high platform cliff. */
   holdHigh?: boolean;
+  /** Allow stepping directly up onto low steppable surfaces (<= stepUp m above footY). */
+  stepUp?: number;
   solids: Solids;
   wallSolid: Solid;
 }
@@ -83,7 +85,7 @@ function pushFromCorner(p: { x: number; z: number }, r: number, cx: number, cz: 
  */
 export function clampWithDoors(p: { x: number; z: number }, r: number, opts: ClampOpts): Push | null {
   const { play, pad, doors, grid, overPit, solids, wallSolid } = opts;
-  const footY = opts.footY ?? 0;
+  const footY = opts.footY ?? 0, stepUp = opts.stepUp ?? 0;
 
   for (const d of doors) {
     const l = d.lane;
@@ -105,7 +107,7 @@ export function clampWithDoors(p: { x: number; z: number }, r: number, opts: Cla
             if (wallLo) p.x = Math.max(w0 + r, p.x); else pushFromCorner(p, r, w0, edge);
             if (wallHi) p.x = Math.min(w1 - r, p.x); else pushFromCorner(p, r, w1, edge);
           }
-          return solids.pushOut(p, r, footY);
+          return solids.pushOut(p, r, footY, stepUp);
         }
       }
     } else if (dz > 0) {
@@ -123,7 +125,7 @@ export function clampWithDoors(p: { x: number; z: number }, r: number, opts: Cla
             if (wallLo) p.x = Math.max(w0 + r, p.x); else pushFromCorner(p, r, w0, edge);
             if (wallHi) p.x = Math.min(w1 - r, p.x); else pushFromCorner(p, r, w1, edge);
           }
-          return solids.pushOut(p, r, footY);
+          return solids.pushOut(p, r, footY, stepUp);
         }
       }
     } else if (dx < 0) {
@@ -141,7 +143,7 @@ export function clampWithDoors(p: { x: number; z: number }, r: number, opts: Cla
             if (wallLo) p.z = Math.max(w0 + r, p.z); else pushFromCorner(p, r, edge, w0);
             if (wallHi) p.z = Math.min(w1 - r, p.z); else pushFromCorner(p, r, edge, w1);
           }
-          return solids.pushOut(p, r, footY);
+          return solids.pushOut(p, r, footY, stepUp);
         }
       }
     } else if (dx > 0) {
@@ -159,7 +161,7 @@ export function clampWithDoors(p: { x: number; z: number }, r: number, opts: Cla
             if (wallLo) p.z = Math.max(w0 + r, p.z); else pushFromCorner(p, r, edge, w0);
             if (wallHi) p.z = Math.min(w1 - r, p.z); else pushFromCorner(p, r, edge, w1);
           }
-          return solids.pushOut(p, r, footY);
+          return solids.pushOut(p, r, footY, stepUp);
         }
       }
     }
@@ -169,7 +171,7 @@ export function clampWithDoors(p: { x: number; z: number }, r: number, opts: Cla
   const oz = p.z;
   if (grid) {
     const gp = grid.clamp(p, r, overPit, { worldY: footY, fromY: opts.fromY ?? footY, holdHigh: opts.holdHigh });
-    const sp = solids.pushOut(p, r, footY);
+    const sp = solids.pushOut(p, r, footY, stepUp);
     return sp ?? (gp && !gp.pit ? { s: wallSolid, nx: gp.nx, nz: gp.nz, depth: gp.depth } : null);
   }
 
@@ -181,6 +183,6 @@ export function clampWithDoors(p: { x: number; z: number }, r: number, opts: Cla
   p.z = Math.max(z0, Math.min(z1, p.z));
   const wx = p.x - ox;
   const wz = p.z - oz;
-  const sp = solids.pushOut(p, r, footY);
+  const sp = solids.pushOut(p, r, footY, stepUp);
   return sp ?? (wx || wz ? { s: wallSolid, nx: Math.sign(wx), nz: Math.sign(wz), depth: Math.hypot(wx, wz) } : null);
 }

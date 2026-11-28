@@ -161,6 +161,8 @@ export interface FoeWorld {
   way?(f: Foe): THREE.Vector3 | null;
   /** nothing that blocks sight between this foe and the hero (a ranged foe only shoots when it does; absent = always) */
   sees?(f: Foe): boolean;
+  /** straight charge lane from this foe to the hero is free of walls, pits, sheer cliffs, and heavy unbreakable covers (smashable props allowed) */
+  canCharge?(f: Foe): boolean;
   /** act-19: after the clamp moved a foe by (dx, dz) — a wall / cover / prop pushed it back (the wall slam reads this) */
   pushed?(f: Foe, dx: number, dz: number): void;
   /** a deflected arrow strikes a foe */
@@ -533,8 +535,9 @@ function think(f: Foe, w: FoeWorld, dt: number, dist: number, dir: THREE.Vector3
     } else if (dist > 1.35) want.copy(dir).addScaledVector(side, 0.35);
     if (can && dist < 1.75) { startAttack(f, w, { k: 'rect', len: 1.6, w: 0.6 }, 0.44, 5, yawTo, { atk: 'poke' }); f.cd = R(0.45, 0.95); return; }
   } else if (r === 'hound') {
-    if (dist > 5.2) want.copy(dir); else if (dist < 3.0) want.copy(dir).multiplyScalar(-0.6).add(side); else want.copy(side).addScaledVector(dir, 0.2);
-    if (can && dist < 5.6 && dist > 2.2) { f.combo = f.elite ? 1 : 0; startAttack(f, w, { k: 'rect', len: 5.2, w: 1.0 }, 0.55, 8, yawTo, { atk: 'lunge' }); return; }
+    const clear = !w.canCharge || w.canCharge(f);
+    if (dist > 5.2 || !clear) want.copy(dir); else if (dist < 3.0) want.copy(dir).multiplyScalar(-0.6).add(side); else want.copy(side).addScaledVector(dir, 0.2);
+    if (can && clear && dist < 5.6 && dist > 2.2) { f.combo = f.elite ? 1 : 0; startAttack(f, w, { k: 'rect', len: 5.2, w: 1.0 }, 0.55, 8, yawTo, { atk: 'lunge' }); return; }
   } else if (r === 'archer') {
     aim = true;
     if (dist < 4.4) { want.copy(dir).multiplyScalar(-1).addScaledVector(side, 0.5); sp *= 1.1; }
@@ -567,7 +570,7 @@ function think(f: Foe, w: FoeWorld, dt: number, dist: number, dir: THREE.Vector3
     if (dist > 2.4) want.copy(dir).addScaledVector(side, 0.2);
     if (can && f.thunderCd <= 0 && (dist > 3.4 || Math.random() < 0.3)) { startThunder(f, w); return; }
     if (can && dist < 3.3) { f.combo = f.phase > 1 ? 1 : 0; startAttack(f, w, { k: 'cone', r: 3.3, half: 1.05 }, f.phase > 1 ? 0.78 : 0.85, 15, yawTo, { atk: 'sweep', act: { name: 'hjSweep', imp: 0.56 } }); f.cd = f.phase > 1 ? 0.2 : 0.4; return; }
-    if (can && dist >= 3.3 && dist < 6.5 && Math.random() < dt * 1.6) { startAttack(f, w, { k: 'rect', len: Math.min(6.5, dist + 1.6), w: 1.4 }, 0.75, 16, yawTo, { atk: 'lunge', act: { name: 'hjThrust', imp: 0.55, tail: 0.58 } }); f.cd = f.phase > 1 ? 0.25 : 0.4; return; }
+    if (can && dist >= 3.3 && dist < 6.5 && (!w.canCharge || w.canCharge(f)) && Math.random() < dt * 1.6) { startAttack(f, w, { k: 'rect', len: Math.min(6.5, dist + 1.6), w: 1.4 }, 0.75, 16, yawTo, { atk: 'lunge', act: { name: 'hjThrust', imp: 0.55, tail: 0.58 } }); f.cd = f.phase > 1 ? 0.25 : 0.4; return; }
   } else {
     if (dist > 2.0) want.copy(dir);
     if (can && dist < 2.8) {

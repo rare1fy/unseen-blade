@@ -324,10 +324,13 @@ FOE_AI.wl_shield = {
     const can = canStrike(f, w), want = V3();
     if (dist > 2) want.copy(dir).addScaledVector(side(dir, f.strafe), 0.2);
     if (can && dist < 2.4) { startAttack(f, w, { k: 'cone', r: 2.2, half: 0.85 }, 0.55, 10, yawTo, { atk: 'cut' }); return; }
-    if (can && dist >= 2.4 && dist < 4.6 && Math.random() < dt * 1.4) { startAttack(f, w, { k: 'rect', len: 3.5, w: 1.2 }, 0.7, 11, yawTo, { atk: 'lunge' }); return; }
-    // the slow turn: he swings round toward her at a third of the usual rate (so she can get round him)
+    if (can && dist >= 2.4 && dist < 4.6 && (!w.canCharge || w.canCharge(f)) && Math.random() < dt * 1.4) { startAttack(f, w, { k: 'rect', len: 3.5, w: 1.2 }, 0.7, 11, yawTo, { atk: 'lunge' }); return; }
+    // the slow turn: he swings round toward her at a third of the usual rate (so she can get round him), routing cleanly round obstacles
     applyAllySpread(f, w, want);
-    const m = want.length(); if (m > 0.05) { want.multiplyScalar(f.d.speed / m); } turnFoe(f, yawTo, dt, 2.2);
+    const m = want.length();
+    if (m > 0.05 && w.way && want.dot(dir) > 0.3 * m) { const wd = w.way(f); if (wd) want.copy(wd).multiplyScalar(m); }
+    if (want.lengthSq() > 0.0025) want.multiplyScalar(f.d.speed / want.length());
+    turnFoe(f, yawTo, dt, 2.2);
     f.vel.lerp(want, Math.min(1, dt * 6)); f.a.setRunning(f.vel.length() > 0.6);
   },
   post(f, _w, dt) { const x = X(f); if ((x.open ?? 0) > 0) x.open -= dt; },
@@ -384,7 +387,7 @@ FOE_AI.cx_sword = {
     if (x.guard > 0.6 && Math.random() < dt * 8) fxSparks(f.a.weapon(), 0xe8f0ff, 1, 1, { life: 0.25 });
     if (dist > 2.6) want.copy(dir).addScaledVector(side(dir, f.strafe), 0.25); else if (!can) want.copy(side(dir, f.strafe)).multiplyScalar(0.6);
     if (can && dist < 3.0) { x.guard = 0; f.combo = 2; startAttack(f, w, { k: 'rect', len: 2.8, w: 0.35 }, 0.6, 7, yawTo, { atk: 'poke' }); return; }
-    if (can && dist >= 3.0 && dist < 5 && Math.random() < dt * 1.2) { x.guard = 0; startAttack(f, w, { k: 'rect', len: 4, w: 0.5 }, 0.7, 10, yawTo, { atk: 'lunge' }); return; }
+    if (can && dist >= 3.0 && dist < 5 && (!w.canCharge || w.canCharge(f)) && Math.random() < dt * 1.2) { x.guard = 0; startAttack(f, w, { k: 'rect', len: 4, w: 0.5 }, 0.7, 10, yawTo, { atk: 'lunge' }); return; }
     steerFoe(f, want, f.d.speed, dt, yawTo, dist < 4);
   },
   windup(f, _w, dt, p, yawTo) { if (p < 0.4) { f.teleYaw = yawTo; turnFoe(f, yawTo, dt, 14); } return true; },

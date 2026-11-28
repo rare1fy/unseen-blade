@@ -230,7 +230,7 @@ describe('drawn rooms', () => {
     expect(pickMap(REGIONS[4], 'boss', [], 1)?.id).toBe('cx_hall');
     expect(pickMap(REGIONS[4], 'calm', [], 1)?.id).toBe('yard_5');
   });
-  it('requires ALL linked twin plates (via fallen pillar pin + elevated terrace step), grants 3s grace, and clears both faces on closure', () => {
+  it('requires ALL linked twin plates (3s per-plate grace while solving), then latches gate permanently open so secret rooms never trap the player', () => {
     const p = piecesFor('palace_road');
     const highPlate = p.plates.find(q => q.baseY > 0.5)!;
     const lowPlate = p.plates.find(q => q.baseY <= 0.5)!;
@@ -246,18 +246,25 @@ describe('drawn rooms', () => {
     p.update(0.1, hero, false, { foes: [foe], heroHeight: 0 });
     expect(atGate()).toBe(OUT);
 
-    // Pin the lower plate permanently with a fallen pillar segment, then jump onto the elevated platform plate!
+    // If the player takes > 3.0s before reaching the second plate, the first plate's grace expires and gate stays shut
+    hero.set(lowPlate.x + 3, 0, lowPlate.z);
+    p.update(3.1, hero, false, { foes: [foe], heroHeight: 0 });
+    hero.set(highPlate.x, PLAT_H, highPlate.z);
+    p.update(0.1, hero, false, { foes: [foe], heroHeight: 0 });
+    expect(atGate()).toBe(OUT);
+
+    // Pin the lower plate with a fallen pillar (or step within 3s grace) + step on the elevated plate -> gate opens AND latches permanently!
     const pillars: Array<[number, number, number, number]> = [[lowPlate.x, lowPlate.z + 2.5, lowPlate.x, lowPlate.z - 1.2]];
     hero.set(highPlate.x, PLAT_H, highPlate.z);
     p.update(0.1, hero, false, { foes: [foe], heroHeight: 0, pillars });
     expect(atGate()).toBe(FLOOR);
 
-    // Step off highPlate: 3.0s grace keeps gate open at 2.95s, then closes cleanly at 3.02s and pushes bodies clear!
-    hero.set(mid.x - 0.2, 0, mid.z); foe.pos.set(mid.x + 0.2, 0, mid.z);
-    p.update(2.95, hero, false, { foes: [foe], heroHeight: 0, pillars }); expect(atGate()).toBe(FLOOR);
-    p.update(0.08, hero, false, { foes: [foe], heroHeight: 0, pillars }); expect(atGate()).toBe(OUT);
-    expect(hero.x).toBeLessThan(g.rect.x0); expect(foe.pos.x).toBeGreaterThan(g.rect.x1);
-    expect(p.grid.clear(hero.x, hero.z, 0.4)).toBe(true); expect(p.grid.clear(foe.pos.x, foe.pos.z, foe.r)).toBe(true);
+    // Hero enters deep inside the secret room and all plates are vacated for 10+ seconds -> gate MUST remain permanently open (zero soft-lock)!
+    const rw = p.rewards[0];
+    hero.set(rw ? rw.x : mid.x + 2.0, 0, rw ? rw.z : mid.z);
+    p.update(10.0, hero, false, { foes: [foe], heroHeight: 0, pillars: [] });
+    expect(atGate()).toBe(FLOOR);
+    expect(g.open || g.t >= 0).toBe(true);
     p.dispose();
   });
   it('needs four blows within three seconds, then drains the causeway in 1.5 seconds', () => {

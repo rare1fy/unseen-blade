@@ -154,10 +154,10 @@ export interface HeroWorld {
   stompable?(from: THREE.Vector3, y: number): Foe | null;
   /** 踏顶: her foot lands on his head — he goes flat on the ground */
   stomp?(o: { foe: Foe; from: THREE.Vector3; dmg: number }): number;
-  clamp(p: THREE.Vector3, r: number, o?: { overPit?: boolean; footY?: number; fromY?: number }): void;
-  /** Deck elevation (m) at (x, z): 0 on ground, PLAT_H on elevated terraces, sloped on stepped ramps */
-  groundAt?(x: number, z: number): number;
-  /** Resolve landing on shore ledges, pits, or low obstacles the hero vaulted over */
+  clamp(p: THREE.Vector3, r: number, o?: { overPit?: boolean; footY?: number; fromY?: number; stepUp?: number }): void;
+  /** Deck or steppable-platform elevation (m) at (x, z) reachable from world foot height curY */
+  groundAt?(x: number, z: number, curY?: number): number;
+  /** Resolve landing on shore ledges, pits, steppable small platforms, or low obstacles the hero vaulted over */
   onLand?(p: THREE.Vector3, r: number): void;
   /** screen stick → world direction */
   stickWorld(): THREE.Vector3;
@@ -588,15 +588,15 @@ export class Hero {
         if (this.t < SWOOP_MOVE) {
           const u = this.t / SWOOP_MOVE, e = u * u * (2 - u);
           this.pos.x = this.swoopFrom.x + (this.swoopTo.x - this.swoopFrom.x) * e; this.pos.z = this.swoopFrom.z + (this.swoopTo.z - this.swoopFrom.z) * e;
-          const gy = w.groundAt ? w.groundAt(this.pos.x, this.pos.z) : 0;
           const curWY = this.swoopY0 + (this.swoopTo.y - this.swoopY0) * e;
+          const gy = w.groundAt ? w.groundAt(this.pos.x, this.pos.z, curWY) : 0;
           this.pos.y = gy; this.y = Math.max(0.02, curWY - gy); this.vel.set(0, 0, 0);
           this.ghostT -= dt; if (this.ghostT <= 0) { this.ghostT = 0.035; fxAfterimage(this.pos.clone().setY(this.pos.y + this.y), 1.9, 0x6ab88a, { life: 0.2, glow: 0.25 }); }
           break;
         }
         if (!this.hitDone) {
           this.hitDone = true; this.y = 0; this.vy = 0; this.pos.x = this.swoopTo.x; this.pos.z = this.swoopTo.z;
-          this.pos.y = w.groundAt ? w.groundAt(this.pos.x, this.pos.z) : this.swoopTo.y;
+          this.pos.y = w.groundAt ? w.groundAt(this.pos.x, this.pos.z, this.swoopTo.y) : this.swoopTo.y;
           w.onLand?.(this.pos, this.r);
           this.jumps = 0; this.flipT = -1;
           this.vel.copy(this.dashDir).multiplyScalar(2.5);
@@ -1145,8 +1145,8 @@ export class Hero {
       }
     }
     const overPit = this.y > 0.06 || this.st === 'swoop' || this.st === 'acut' || this.st === 'acutF' || this.st === 'stomp' || (this.st === 'dash' && this.airborne);
-    w.clamp(this.pos, this.r, { overPit, footY: oldWorldY, fromY: oldGroundY });
-    const newGroundY = w.groundAt ? w.groundAt(this.pos.x, this.pos.z) : 0;
+    w.clamp(this.pos, this.r, { overPit, footY: oldWorldY, fromY: oldGroundY, stepUp: 0.38 });
+    const newGroundY = w.groundAt ? w.groundAt(this.pos.x, this.pos.z, oldWorldY) : 0;
     if (this.st === 'reel' && this.reelSelf) {
       this.pos.y = newGroundY;
       this.peakWorldY = newGroundY;

@@ -36,8 +36,11 @@ export { HIDEOUT_PEOPLE } from './hideout_people';
 export type HideoutTime = 'dusk' | 'night' | 'dawn' | 'day';
 export type HideoutWeather = 'clear' | 'rain' | 'mist' | 'snow';
 type PersonId = 'duwu' | 'sunao' | 'fengtiebi' | 'luzhao' | 'huanyue';
-/** a collision shape on the floor (metres): an axis-aligned box (half sizes) or a circle */
-export type HideoutSolid = { shape: 'box'; x: number; z: number; hx: number; hz: number } | { shape: 'circle'; x: number; z: number; r: number };
+/** a collision shape on the floor (metres): an axis-aligned box (half sizes) or a circle, with optional low/steppable height */
+export type HideoutSolid = (
+  | { shape: 'box'; x: number; z: number; hx: number; hz: number }
+  | { shape: 'circle'; x: number; z: number; r: number }
+) & { maxY?: number; steppable?: boolean };
 
 /** the layout contract (metres; x right, z toward the camera, yaw 0 = facing the camera) */
 export const HIDEOUT: {
@@ -128,9 +131,20 @@ function anvilAt(): [number, number] {
 
 // ------------------------------------------------------------------ collision: every solid thing, from the same plan
 const r3 = (v: number) => Math.round(v * 1000) / 1000;
-const cbox = (x0: number, x1: number, z0: number, z1: number): HideoutSolid => ({ shape: 'box', x: r3(((x0 + x1 + 1) / 2) * CELL), z: r3(((z0 + z1 + 1) / 2) * CELL), hx: r3(((x1 - x0 + 1) / 2) * CELL), hz: r3(((z1 - z0 + 1) / 2) * CELL) });
-const mbox = (x0: number, x1: number, z0: number, z1: number): HideoutSolid => ({ shape: 'box', x: r3((x0 + x1) / 2), z: r3((z0 + z1) / 2), hx: r3((x1 - x0) / 2), hz: r3((z1 - z0) / 2) });
-const circ = (x: number, z: number, r: number): HideoutSolid => ({ shape: 'circle', x: r3(x), z: r3(z), r });
+const cbox = (x0: number, x1: number, z0: number, z1: number, maxY?: number, steppable?: boolean): HideoutSolid => ({
+  shape: 'box', x: r3(((x0 + x1 + 1) / 2) * CELL), z: r3(((z0 + z1 + 1) / 2) * CELL),
+  hx: r3(((x1 - x0 + 1) / 2) * CELL), hz: r3(((z1 - z0 + 1) / 2) * CELL),
+  ...(maxY != null ? { maxY } : {}), ...(steppable ? { steppable: true } : {}),
+});
+const mbox = (x0: number, x1: number, z0: number, z1: number, maxY?: number, steppable?: boolean): HideoutSolid => ({
+  shape: 'box', x: r3((x0 + x1) / 2), z: r3((z0 + z1) / 2),
+  hx: r3((x1 - x0) / 2), hz: r3((z1 - z0) / 2),
+  ...(maxY != null ? { maxY } : {}), ...(steppable ? { steppable: true } : {}),
+});
+const circ = (x: number, z: number, r: number, maxY?: number, steppable?: boolean): HideoutSolid => ({
+  shape: 'circle', x: r3(x), z: r3(z), r,
+  ...(maxY != null ? { maxY } : {}), ...(steppable ? { steppable: true } : {}),
+});
 
 export interface HideoutSolidOpts {
   rackBuilt?: boolean;
@@ -147,53 +161,53 @@ export function hideoutSolids(opts: HideoutSolidOpts = {}): HideoutSolid[] {
   // Kiln vault, bay walls, forge, anvil, racks, trough, coal, logs
   out.push(cbox(K0.X - 54, K0.X + 53, K0.Z - 50, K0.Z));
   out.push(cbox(K0.X - 54, K0.X - 45, K0.Z + 1, K0.Z + 34), cbox(K0.X + 44, K0.X + 53, K0.Z + 1, K0.Z + 22));
-  out.push(cbox(K0.X + 32, K0.X + 43, K0.Z + 18, K0.Z + 33), cbox(K0.X + 44, K0.X + 56, K0.Z + 23, K0.Z + 31));
-  out.push(cbox(FORGE.X - 9, FORGE.X + 8, FORGE.Z - 7, FORGE.Z + 6), cbox(FORGE.X - 23, FORGE.X - 11, FORGE.Z - 4, FORGE.Z + 3));
-  const [ax, az] = anvilAt(); out.push(circ((C(ax) + 0.5) * CELL, (C(az) + 0.5) * CELL, 0.36));
-  out.push(cbox(K0.X - 42, K0.X - 40, K0.Z + 16, K0.Z + 30), cbox(K0.X + 22, K0.X + 41, K0.Z + 2, K0.Z + 8));
-  out.push(circ((K0.X - 27 + 0.5) * CELL, (K0.Z + 29 + 0.5) * CELL, 0.34));
-  if (LOGS.x1 > LOGS.x0 + 2) out.push(cbox(LOGS.x0, LOGS.x1, LOGS.z0, LOGS.z1));
+  out.push(cbox(K0.X + 32, K0.X + 43, K0.Z + 18, K0.Z + 33, 1.05, true), cbox(K0.X + 44, K0.X + 56, K0.Z + 23, K0.Z + 31, 0.95, true));
+  out.push(cbox(FORGE.X - 9, FORGE.X + 8, FORGE.Z - 7, FORGE.Z + 6, 1.15), cbox(FORGE.X - 23, FORGE.X - 11, FORGE.Z - 4, FORGE.Z + 3, 0.85, true));
+  const [ax, az] = anvilAt(); out.push(circ((C(ax) + 0.5) * CELL, (C(az) + 0.5) * CELL, 0.36, 0.72, true));
+  out.push(cbox(K0.X - 42, K0.X - 40, K0.Z + 16, K0.Z + 30, 1.25), cbox(K0.X + 22, K0.X + 41, K0.Z + 2, K0.Z + 8, 0.68, true));
+  out.push(circ((K0.X - 27 + 0.5) * CELL, (K0.Z + 29 + 0.5) * CELL, 0.34, 0.62, true));
+  if (LOGS.x1 > LOGS.x0 + 2) out.push(cbox(LOGS.x0, LOGS.x1, LOGS.z0, LOGS.z1, 0.58, true));
   // North wall & 孙媪's corner + raised herb planter beds
   out.push(cbox(WALL.X0, WALL.X1, WALL.Z0, WALL.Z1));
   const { X0, X1, Zp, Zr } = CORNER, Zw = WALL.Z1;
-  out.push(cbox(X0 + 1, X1 - 1, Zw + 1, Zw + 4), cbox(X0 + 2, X0 + 3, Zp - 1, Zp), cbox(X1 - 3, X1 - 2, Zp - 1, Zp), cbox(X0, X0 + 1, Zr, Zr + 1), cbox(X1 - 1, X1, Zr, Zr + 1));
-  out.push(circ((X0 - 4 + 0.5) * CELL, (Zw + 7 + 0.5) * CELL, 0.38), circ((X1 + 1 + 0.5) * CELL, (Zp + 6 + 0.5) * CELL, 0.38));
-  out.push(cbox(STOVE.X - 5, STOVE.X + 5, STOVE.Z - 4, STOVE.Z + 4), cbox(TABLE.X - 7, TABLE.X + 6, TABLE.Z - 4, TABLE.Z + 3));
+  out.push(cbox(X0 + 1, X1 - 1, Zw + 1, Zw + 4, 0.95, true), cbox(X0 + 2, X0 + 3, Zp - 1, Zp), cbox(X1 - 3, X1 - 2, Zp - 1, Zp), cbox(X0, X0 + 1, Zr, Zr + 1), cbox(X1 - 1, X1, Zr, Zr + 1));
+  out.push(circ((X0 - 4 + 0.5) * CELL, (Zw + 7 + 0.5) * CELL, 0.38, 0.78), circ((X1 + 1 + 0.5) * CELL, (Zp + 6 + 0.5) * CELL, 0.38, 0.78));
+  out.push(cbox(STOVE.X - 5, STOVE.X + 5, STOVE.Z - 4, STOVE.Z + 4, 0.74, true), cbox(TABLE.X - 7, TABLE.X + 6, TABLE.Z - 4, TABLE.Z + 3, 0.56, true));
   out.push(cbox(SIDE.X0, SIDE.X1, WALL.Z0, SIDE.Z1));
-  for (const [bx, bz] of HERB_BEDS) out.push(cbox(bx - 12, bx + 12, bz - 6, bz + 6));
+  for (const [bx, bz] of HERB_BEDS) out.push(cbox(bx - 12, bx + 12, bz - 6, bz + 6, 0.32, true));
   // 中庭北台三枢纽：文家刀廊、复仇碑+供台、信物匣 + 礼台双青铜暖炉（未建成的区域绝不生成空气墙）
-  if (rackBuilt) out.push(mbox(HIDEOUT.weaponRack.x - 1.65, HIDEOUT.weaponRack.x + 1.65, HIDEOUT.weaponRack.z - 0.45, HIDEOUT.weaponRack.z + 0.45));
+  if (rackBuilt) out.push(mbox(HIDEOUT.weaponRack.x - 1.65, HIDEOUT.weaponRack.x + 1.65, HIDEOUT.weaponRack.z - 0.45, HIDEOUT.weaponRack.z + 0.45, 1.35));
   out.push(mbox(HIDEOUT.stele.x - 0.67, HIDEOUT.stele.x + 0.67, HIDEOUT.stele.z - 0.38, HIDEOUT.stele.z + 0.38));
-  out.push(cbox(OFFER.X - 3, OFFER.X + 3, OFFER.Z - 2, OFFER.Z + 2));
-  if (forgeBuilt) out.push(mbox(HIDEOUT.keepsakeBox.x - 0.62, HIDEOUT.keepsakeBox.x + 0.62, HIDEOUT.keepsakeBox.z - 0.42, HIDEOUT.keepsakeBox.z + 0.42));
-  out.push(circ(-5.4, -3.5, 0.42), circ(6.0, -3.5, 0.42));
+  out.push(cbox(OFFER.X - 3, OFFER.X + 3, OFFER.Z - 2, OFFER.Z + 2, 0.58, true));
+  if (forgeBuilt) out.push(mbox(HIDEOUT.keepsakeBox.x - 0.62, HIDEOUT.keepsakeBox.x + 0.62, HIDEOUT.keepsakeBox.z - 0.42, HIDEOUT.keepsakeBox.z + 0.42, 0.78, true));
+  out.push(circ(-5.4, -3.5, 0.42, 0.92), circ(6.0, -3.5, 0.42, 0.92));
   // 西翼大试剑坪：bell posts (centred on the ground post, not under the overhead bell arm), practice rack, stone locks, west fence
   for (const p of bellPosts()) out.push(circ(p.x, p.z, 0.18));
-  out.push(cbox(PRACTICE.X, PRACTICE.X + 2, PRACTICE.Z, PRACTICE.Z + 21));
-  for (const [x, z] of LOCKS) out.push(cbox(x - 2, x + 1, z - 1, z + 1));
-  for (const [a, b] of FENCE.runs) out.push(cbox(FENCE.X - 1, FENCE.X + 1, a, b));
+  out.push(cbox(PRACTICE.X, PRACTICE.X + 2, PRACTICE.Z, PRACTICE.Z + 21, 1.28));
+  for (const [x, z] of LOCKS) out.push(cbox(x - 2, x + 1, z - 1, z + 1, 0.48, true));
+  for (const [a, b] of FENCE.runs) out.push(cbox(FENCE.X - 1, FENCE.X + 1, a, b, 0.92));
   // 西北石阶 & 北侧台地前沿
-  out.push(cbox(STEP.X - STEP.hw - 3, STEP.X + STEP.hw + 2, STEP.Z - 3 * STEP.run + 1, STEP.Z));
+  out.push(cbox(STEP.X - STEP.hw - 3, STEP.X + STEP.hw + 2, STEP.Z - 3 * STEP.run + 1, STEP.Z, 0.98, true));
   out.push(cbox(C(-22), K0.X - 55, T1.z - 2, T1.z));
   // 东翼竹溪水榭：水渠与栏杆在跨溪木桥口（z = -1.6..+0.8）留出宽敞通行通道，直通东侧竹溪药圃！
-  out.push(cbox(CH.X0 - 2, CH.X1 + 2, T1.z + 2, C(-1.75)), cbox(CH.X0 - 2, CH.X1 + 2, C(0.95), CH.Z1));
-  out.push(cbox(RAIL.X, RAIL.X + 1, RAIL.Z0, C(-1.75)), cbox(RAIL.X, RAIL.X + 1, C(0.95), RAIL.Z1 + 1));
-  out.push(circ((VAT.X + 0.5) * CELL, (VAT.Z + 0.5) * CELL, 0.4), cbox(VAT.X - 9, VAT.X - 5, VAT.Z + 2, VAT.Z + 6));
+  out.push(cbox(CH.X0 - 2, CH.X1 + 2, T1.z + 2, C(-1.75), 0.85), cbox(CH.X0 - 2, CH.X1 + 2, C(0.95), CH.Z1, 0.85));
+  out.push(cbox(RAIL.X, RAIL.X + 1, RAIL.Z0, C(-1.75), 0.85), cbox(RAIL.X, RAIL.X + 1, C(0.95), RAIL.Z1 + 1, 0.85));
+  out.push(circ((VAT.X + 0.5) * CELL, (VAT.Z + 0.5) * CELL, 0.4, 0.82, true), cbox(VAT.X - 9, VAT.X - 5, VAT.Z + 2, VAT.Z + 6, 0.65, true));
   // act-132 东翼外扩「竹溪梯田药圃」外围篱笆（贴合 2 格实木篱笆厚度）与 6 块药畦矮框碰撞（未开垦前不放隐形药畦碰撞）
-  out.push(mbox(16.5, 23.62, -7.62, -7.40), mbox(16.5, 23.62, 5.32, 5.54), mbox(23.42, 23.66, -7.62, 5.54));
-  if (gardenBuilt) for (const gp of HIDEOUT.gardenPlots) out.push(mbox(gp.x - 0.88, gp.x + 0.88, gp.z - 0.58, gp.z + 0.58));
+  out.push(mbox(16.5, 23.62, -7.62, -7.40, 0.92), mbox(16.5, 23.62, 5.32, 5.54, 0.92), mbox(23.42, 23.66, -7.62, 5.54, 0.92));
+  if (gardenBuilt) for (const gp of HIDEOUT.gardenPlots) out.push(mbox(gp.x - 0.88, gp.x + 0.88, gp.z - 0.58, gp.z + 0.58, 0.28, true));
   // 东南杜五伙房：锅灶、黑篷车、灰驴、草料槽 + 中庭西南古井
-  out.push(cbox(POT.X - 9, POT.X + 9, POT.Z - 7, POT.Z + 7), cbox(CART.X - 34, CART.X + 24, CART.Z - 11, CART.Z + 11));
-  out.push(mbox(DONKEY.x - 0.8, DONKEY.x + 1.12, DONKEY.z - 0.24, DONKEY.z + 0.24), cbox(FEED.X - 10, FEED.X + 8, FEED.Z - 3, FEED.Z + 12));
+  out.push(cbox(POT.X - 9, POT.X + 9, POT.Z - 7, POT.Z + 7, 0.78), cbox(CART.X - 34, CART.X + 24, CART.Z - 11, CART.Z + 11, 1.08, true));
+  out.push(mbox(DONKEY.x - 0.8, DONKEY.x + 1.12, DONKEY.z - 0.24, DONKEY.z + 0.24), cbox(FEED.X - 10, FEED.X + 8, FEED.Z - 3, FEED.Z + 12, 0.68, true));
   out.push(circ(-4.8, 8.8, 0.62));
   // 南门围墙与外廊出征山道（延伸至路尽头石阙 z = 15.8）
   const pa = GATE.x0 - 3, pb = GATE.x1 + 1;
   out.push(cbox(GATE.w0, GATE.x0 - 4, GATE.Z - 3, GATE.Z + 2), cbox(GATE.x1 + 4, GATE.w1, GATE.Z - 3, GATE.Z + 2));
   out.push(cbox(pa - 1, pa + 3, GATE.Z - 2, GATE.Z + 2), cbox(pb - 1, pb + 3, GATE.Z - 2, GATE.Z + 2), cbox(pb - 1, pb, GATE.Z - 14, GATE.Z - 3));
   // act-129 / act-132: outer departure road curbs & far-end stone piers at z = 15.8 (true end of the road!)
-  out.push(cbox(GATE.x0 - 6, GATE.x0 - 2, GATE.Z + 3, C(16.4)), cbox(GATE.x1 + 2, GATE.x1 + 6, GATE.Z + 3, C(16.4)));
+  out.push(cbox(GATE.x0 - 6, GATE.x0 - 2, GATE.Z + 3, C(16.4), 0.72, true), cbox(GATE.x1 + 2, GATE.x1 + 6, GATE.Z + 3, C(16.4), 0.72, true));
   // 西南草垛（2 捆实占尺寸）与南墙柴堆（移除原 (4.4..5.6, 9.0..9.9) 空地幽灵空气墙）
-  out.push(cbox(C(-13.8) - 10, C(-13.8) + 8, C(9.4) - 4, C(9.4) + 3), cbox(C(-3.2), C(-2.2), C(9.1), C(9.9)));
+  out.push(cbox(C(-13.8) - 10, C(-13.8) + 8, C(9.4) - 4, C(9.4) + 3, 0.82, true), cbox(C(-3.2), C(-2.2), C(9.1), C(9.9), 0.56, true));
   return out;
 }
 HIDEOUT.solids.push(...hideoutSolids());

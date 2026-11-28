@@ -123,4 +123,22 @@ describe('floor solids', () => {
     expect(solids.free(0, 3, 0.38, 0, 1.12)).toBe(false);
     expect(solids.free(0, 3, 0.38, 0, 1.92)).toBe(true);
   });
+
+  it('supports jumping onto steppable small platforms/crates and auto-stepping low curbs', () => {
+    const solids = new Solids();
+    solids.add({ kind: 'cover', shape: 'box', x: 0, z: 0, hx: 0.55, hz: 0.55, maxY: 0.76, baseY: 0, steppable: true });
+    solids.add({ kind: 'prop', shape: 'box', x: 3, z: 0, hx: 0.8, hz: 0.5, maxY: 0.28, baseY: 0, steppable: true });
+
+    // Walking on ground (footY = 0, stepUp = 0.38) blocks against 0.76m plinth side, but steps smoothly onto 0.28m low curb!
+    expect(solids.free(0, 0, 0.38, 0, 0, 0.38)).toBe(false);
+    expect(solids.topAt(0, 0, 0.16, 0.38)).toBeNull();
+    expect(solids.free(3, 0, 0.38, 0, 0, 0.38)).toBe(true);
+    expect(solids.topAt(3, 0, 0.16, 0.38)).toBeCloseTo(0.28);
+
+    // Jumping onto 0.76m plinth (curY >= 0.76) stands solidly atop it without pushOut ejecting the hero!
+    expect(solids.topAt(0.1, -0.1, 0.16, 0.95)).toBeCloseTo(0.76);
+    const atop = { x: 0.1, z: -0.1 };
+    expect(solids.pushOut(atop, 0.38, 0.76, 0.38)).toBeNull();
+    expect(atop).toEqual({ x: 0.1, z: -0.1 });
+  });
 });

@@ -38,7 +38,7 @@ import { ROLE_AI } from '../src/present/act/foes/roles';
 const V = (x = 0, z = 0) => new Vector3(x, 0, z);
 function foe(kind: string, o: Partial<Foe> = {}): Foe {
   const d = EDEFS[kind];
-  return { kind, d, role: d.role, hp: d.hp, maxHp: d.hp, pos: V(), vel: V(), yaw: 0, st: 'move', t: 0, dur: 0, tele: null, extra: [], inv: 0, atk: '', combo: 0, mem: {}, phase: 1, elite: false,
+  return { kind, d, role: d.role, hp: d.hp, maxHp: d.hp, pos: V(), vel: V(), yaw: 0, st: 'move', t: 0, dur: 0, tele: null, telePos: V(), teleYaw: 0, extra: [], inv: 0, atk: '', combo: 0, mem: {}, phase: 1, elite: false,
     a: { root: new Object3D(), bones: {}, chest: () => V(), head: () => V(), weapon: () => V(), tint: vi.fn(), hurt: vi.fn(), hit: vi.fn(), play: vi.fn(), setRunning: vi.fn(), roar: vi.fn() }, ...o } as unknown as Foe;
 }
 
@@ -127,5 +127,38 @@ describe('头目', () => {
     expect(showSrc.length).toBeGreaterThan(1000);
     expect(showSrc).not.toMatch(/this\.foes\s*=\s*/);
     expect(showSrc).toMatch(/fw\.foes\s*=\s*this\.foes/);
+  });
+
+  it('凉州突骑：路线被墙/大掩体挡住时不盲目起手冲锋而是绕行；斜擦墙壁不坠马，迎面正撞墙壁才坠马', () => {
+    const r = foe('ly_rider', { pos: V(0, -8), strafe: 1 });
+    const mkW = (chargeOk: boolean): FoeWorld => ({
+      heroPos: V(0, 0), heroR: 0.38, heroAlive: true, heroY: 0, heroDodge: false,
+      foes: [r], arrows: [], clamp: () => {}, hurtHero: () => {}, dodged: () => {},
+      killFoe: () => {}, bleedDamage: () => 0, bleedSpill: () => {}, arrowHit: () => {},
+      canCharge: () => chargeOk,
+    });
+    const kBase = { dt: 0.016, dist: 8.0, dir: V(0, 1), side: V(1, 0), yawTo: 0, can: true, face: () => {} };
+
+    // Blocked by building/cover: must NOT start 'ride' attack, instead returns forward-flanking move so FloorGrid.way steers around!
+    const blockedRes = ROLE_AI.ly_rider.think!(r, mkW(false), kBase);
+    expect(blockedRes).not.toBe('busy');
+    expect(r.st).toBe('move');
+    expect((blockedRes as { want: Vector3 }).want.dot(kBase.dir)).toBeGreaterThan(0.3);
+
+    // Clear lane: immediately starts 'ride' pawing windup!
+    const clearRes = ROLE_AI.ly_rider.think!(r, mkW(true), kBase);
+    expect(clearRes).toBe('busy');
+    expect(r.atk).toBe('ride');
+
+    // Galloping (+z): shallow side graze (+x push) slides on without unhorse; head-on wall impact (-z push) triggers unhorse stagger!
+    ROLE_AI.ly_rider.strike!(r, mkW(true));
+    expect(r.st).toBe('strike');
+    ROLE_AI.ly_rider.bumped!(r, mkW(true), 0.06, -0.005);
+    expect(r.st).toBe('strike');
+    expect(r.mem.thrown).toBe(false);
+
+    ROLE_AI.ly_rider.bumped!(r, mkW(true), 0, -0.06);
+    expect(r.st).toBe('stagger');
+    expect(r.mem.thrown).toBe(true);
   });
 });

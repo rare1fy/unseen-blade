@@ -124,6 +124,8 @@ interface Piece {
   kind: PieceKind; rect: Rect; open: boolean;
   /** true once grid.set(rect, FLOOR) has cleared collision (unlocked early while visual swing finishes so open doors never feel like airwalls) */
   passable?: boolean;
+  /** true once all linked pressure plates solved this gate — permanently latched open so secret rooms can never trap the player inside! */
+  latched?: boolean;
   /** the way through runs along z (the piece spans x) or along x */
   run: 'x' | 'z';
   /** the floor's pieces on either end of the way through (zone labels at the start) */
@@ -393,7 +395,7 @@ export class RoomPieces {
     }
     for (const d of this.drops) this.addCue(d.post[0], d.post[1], 0.48, 0.48, 1.4, () => !d.down && d.t < 0, CUE_COL);
     for (const b of this.bells) this.addCue(b.x, b.z, 0.52, 0.52, 1.5, () => this.got < this.order.length, GOOD);
-    for (const pl of this.plates) this.addCue(pl.x, pl.z, 0.78, 0.78, 0.05, () => !pl.down && pl.grace <= 0, PLATE_COL);
+    for (const pl of this.plates) this.addCue(pl.x, pl.z, 0.78, 0.78, 0.05, () => !pl.gate.latched && !pl.down && pl.grace <= 0, PLATE_COL);
     for (const w of this.wheels) this.addCue(w.x, w.z, 0.58, 0.58, 1.5, () => w.drain < 0, CUE_COL);
     for (const r of this.rewards) {
       const hidden = this.isRewardHidden(r);
@@ -794,6 +796,14 @@ export class RoomPieces {
       return Math.hypot(px - (ax + dx * t), pz - (az + dz * t));
     };
     for (const p of this.plates) {
+      if (p.gate.latched) {
+        p.down = true; p.grace = 0; p.timer.visible = false;
+        p.slab.position.y = p.baseY - CELL * 0.85;
+        const sealMat = p.seal.material as THREE.MeshBasicMaterial;
+        sealMat.color.setHex(GOOD); sealMat.opacity = 0.92;
+        p.seal.position.y = p.slab.position.y + 0.11;
+        continue;
+      }
       const on = (v: THREE.Vector3) => Math.abs(v.x - p.x) <= 10 * CELL && Math.abs(v.z - p.z) <= 10 * CELL;
       const she = height <= CELL + 0.08 && Math.abs(hero.pos.y - p.baseY) <= 0.25 && on(hero.pos);
       const pinnedByPillar = pillars.some(([ax, az, bx, bz]) => segDist(p.x, p.z, ax, az, bx, bz) <= 0.85);
@@ -824,20 +834,16 @@ export class RoomPieces {
       }
     }
     for (const g of this.plateGates) {
-      // ALL plates linked to this gate must be simultaneously active (standing/pinned or within 3.0s grace)!
+      // ALL plates linked to this gate must be simultaneously active (standing/pinned or within 3.0s grace);
+      // once solved, latch permanently open so entering the secret room can NEVER re-lock and trap the player!
       const linked = this.plates.filter(p => p.gate === g);
-      if (linked.length > 0 && linked.every(p => p.down || p.grace > 0)) {
-        if (!g.open && g.t < 0) { this.openPiece(g); this.grid.set(g.rect, FLOOR); g.hintT = 0.6; }
-        g.hintT -= dt;
-        if (g.hintT <= 0) {
-          g.hintT = 1.25; cue('clack', 0.45); fxRing(g.g.position.clone().setY(0.08), GOOD, 1.25, { width: 0.07, life: 0.5 });
+      if (g.latched || (linked.length > 0 && linked.every(p => p.down || p.grace > 0))) {
+        if (!g.latched) {
+          g.latched = true;
+          for (const p of linked) { p.down = true; p.grace = 0; p.timer.visible = false; p.slab.position.y = p.baseY - CELL * 0.85; }
+          if (!g.open && g.t < 0) { this.openPiece(g); this.grid.set(g.rect, FLOOR); }
         }
-        if (g.open) g.leaves?.forEach((lv, i) => { lv.rotation.y = (i ? -1 : 1) * (1.75 + (g.hintT > 1.05 ? Math.sin(this.t * 67) * 0.035 : 0)); });
-      } else if (g.open || g.t >= 0) {
-        g.open = false; g.passable = false; g.t = -1; this.grid.set(g.rect, OUT);
-        g.leaves?.forEach(lv => { lv.rotation.y = 0; }); cue('plate', 0.7);
-        this.pushOutside(g, hero);
-        for (const f of foes) this.pushOutside(g, f);
+        if (g.open) g.leaves?.forEach((lv, i) => { lv.rotation.y = (i ? -1 : 1) * 1.75; });
       }
     }
   }

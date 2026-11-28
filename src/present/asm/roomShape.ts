@@ -346,6 +346,11 @@ export class FloorGrid {
     for (const q of rects) for (let j = Math.max(0, this.iz(q.z0)); j <= Math.min(this.nz - 1, this.iz(q.z1)); j++) for (let i = Math.max(0, this.ix(q.x0)); i <= Math.min(this.nx - 1, this.ix(q.x1)); i++) b[j * this.nx + i] = 1;
     this.fields.clear();
   }
+  /** rebuild blocked pathfinding cells from scratch when breakable props shatter */
+  reblock(rects: Rect[]) {
+    if (this.blk) this.blk.fill(0);
+    this.block(rects);
+  }
   /** a cell the way round may use */
   walk(i: number, j: number) { return this.kind(i, j) === FLOOR && !(this.blk && this.blk[j * this.nx + i]); }
   /** can a walking actor step directly between adjacent cells (a, b) and (ia, jb) without jumping a sheer 1.12 m cliff? */
@@ -385,6 +390,21 @@ export class FloorGrid {
   sightOpen(ax: number, az: number, bx: number, bz: number) {
     const dx = bx - ax, dz = bz - az, L = Math.hypot(dx, dz), n = Math.ceil(L / 0.25);
     for (let i = 1; i < n; i++) { const t = i / n; if (this.at(ax + dx * t, az + dz * t) === OUT) return false; }
+    return true;
+  }
+  /** straight charge corridor a → b is solid FLOOR all the way without crossing walls, pits, or sheer 1.12m cliffs (ignores small-prop blk) */
+  chargeOpen(ax: number, az: number, bx: number, bz: number, r: number) {
+    const ok = (x: number, z: number) => this.at(x, z) === FLOOR;
+    const dx = bx - ax, dz = bz - az, L = Math.hypot(dx, dz); if (L < 1e-3) return ok(ax, az);
+    const n = Math.ceil(L / 0.2), px = -dz / L * r, pz = dx / L * r;
+    let prevE = this.elevAt(this.ix(ax), this.iz(az));
+    for (let i = 1; i <= n; i++) {
+      const t = i / n, x = ax + dx * t, z = az + dz * t;
+      if (!ok(x, z) || !ok(x + px, z + pz) || !ok(x - px, z - pz)) return false;
+      const curE = this.elevAt(this.ix(x), this.iz(z));
+      if (Math.abs(curE - prevE) > 1) return false;
+      prevE = curE;
+    }
     return true;
   }
   /** the straight line a → b is walkable all the way for a body of radius r (without crossing pits, blocked props, or sheer cliffs) */

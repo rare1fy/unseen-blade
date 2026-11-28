@@ -82,7 +82,7 @@ export class BreakLogic {
   }
 
   /** Resolve one blow and any immediate topple effects. */
-  hit(p: BProp, o: { src: BSrc; heavy?: boolean; slide?: boolean; dir: [number, number] }, targets: BTarget[] = []): Result {
+  hit(p: BProp, o: { src: BSrc; heavy?: boolean; slide?: boolean; crush?: boolean; dir: [number, number] }, targets: BTarget[] = []): Result {
     const result: Result = { events: [], damage: [] };
     this.resolveHit(p, o, targets, result);
     return result;
@@ -142,7 +142,7 @@ export class BreakLogic {
     return result;
   }
 
-  private resolveHit(p: BProp, o: { src: BSrc; heavy?: boolean; slide?: boolean; dir: [number, number] }, targets: BTarget[], result: Result): void {
+  private resolveHit(p: BProp, o: { src: BSrc; heavy?: boolean; slide?: boolean; crush?: boolean; dir: [number, number] }, targets: BTarget[], result: Result): void {
     if (p.state !== 'idle') return;
     const dir = direction(...o.dir);
     if (p.kind === 'oil') {
@@ -163,7 +163,7 @@ export class BreakLogic {
     }
     if ((p.kind === 'pillar' || p.kind === 'cover') && o.src === 'fire') return;
     const damage = p.kind === 'cover' ? (o.src === 'blast' ? 3 : o.heavy ? 2 : 1) : p.kind === 'pillar' && (o.heavy || o.src === 'blast') ? 2 : 1;
-    const forceBreak = p.kind !== 'pillar' && p.kind !== 'cover' && (o.src === 'fire' || o.src === 'blast');
+    const forceBreak = p.kind !== 'pillar' && p.kind !== 'cover' && (o.src === 'fire' || o.src === 'blast' || !!o.crush);
     p.hp = Math.max(0, p.hp - (forceBreak ? p.hp : damage));
     if (p.hp > 0) {
       result.events.push({ k: 'hit', p, dir });

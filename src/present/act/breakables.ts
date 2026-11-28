@@ -101,11 +101,12 @@ const SHARDS: Record<string, number[]> = { pot: [COL.clay, COL.clayD, COL.clayL]
   fence: [COL.wood, COL.woodD, COL.postD], rack: [COL.wood, COL.postD, 0x6a6e78], banner: [0xd8b030, 0xa8841c, 0xa8302a], basket: [0xa07a44, 0x7a5a30, 0xc8b48a], sack: [0xc8b48a, 0x9a8662, 0xe0d0a0], lamp: [0xa8302a, 0xffc070, COL.postD],
   cover: [COL.stone, COL.stoneL, COL.woodD] };
 
-/** Physical voxel heights (m) of breakable props & covers — waist-high obstacles (< 1.2 m) can be cleanly vaulted over with a single jump! */
+/** Physical voxel heights (m) of breakable props & covers — waist-high obstacles (< 1.2 m) can be cleanly vaulted over, and flat-topped blocks/plinths can be stood upon! */
 const PROP_MAX_Y: Record<PropKind, number> = {
   pot: 0.78, crate: 0.72, hay: 0.88, oil: 0.95, basket: 0.58, sack: 0.68, fence: 0.92,
   rack: 1.28, lamp: 2.05, banner: 2.55, pillar: 2.95,
 };
+const STEPPABLE_PROP = new Set<PropKind>(['crate', 'hay', 'basket', 'sack']);
 const COVER_MAX_Y: Partial<Record<CoverKind, number>> = {
   stones: 0.86, mill: 1.08, cart: 1.15, trough: 0.74, ding: 1.15, bollard: 1.15, chains: 0.96,
   barrels: 1.15, basin: 0.94, vaultChest: 1.06, columnBase: 0.76, columnStub: 0.96, charpile: 0.86,
@@ -113,6 +114,10 @@ const COVER_MAX_Y: Partial<Record<CoverKind, number>> = {
   // Tall architectural covers (well roof, stele slab, rockery spire, spirit screen, bronze camel, bellrack, mint press) stay full-height:
   well: 2.55, stele: 2.65, rockery: 2.05, screen: 2.35, camel: 2.25, streetCamel: 2.25, bellrack: 2.25, beast: 1.95, mintPress: 2.25,
 };
+const STEPPABLE_COVER = new Set<CoverKind>([
+  'stones', 'mill', 'cart', 'trough', 'ding', 'bollard', 'chains', 'barrels', 'basin',
+  'vaultChest', 'columnBase', 'columnStub', 'charpile', 'mooring', 'bags', 'raft', 'boat',
+]);
 
 interface Vis { p: BProp; g: THREE.Group; tilt: THREE.Group; solid: Solid; baseY: number; wob: { x: number; z: number; vx: number; vz: number }; fall: number; fuseT: number; fuseRing?: THREE.Mesh; fuseDisc?: THREE.Mesh; cover?: Cover; drop?: number; model?: 'palaceColumn' }
 interface FireVis { id: number; x: number; z: number; y: number; r: number; t: number; disc: THREE.Mesh; emit: number }
@@ -130,7 +135,7 @@ export class Breakables {
     tilt.add(model(kind, 0)); g.add(tilt); g.position.set(p.x, baseY, p.z);
     g.rotation.y = ((p.id * 2654435761) % 4) * (Math.PI / 2);
     this.root.add(g);
-    const solid = this.solids.add({ kind: 'prop', shape: 'circle', x: p.x, z: p.z, r: p.r * 0.85, maxY: PROP_MAX_Y[kind], baseY, slam: false, tag: p });
+    const solid = this.solids.add({ kind: 'prop', shape: 'circle', x: p.x, z: p.z, r: p.r * 0.85, maxY: PROP_MAX_Y[kind], baseY, steppable: STEPPABLE_PROP.has(kind), slam: false, tag: p });
     this.vis.set(p.id, { p, g, tilt, solid, baseY, wob: { x: 0, z: 0, vx: 0, vz: 0 }, fall: -1, fuseT: 0 });
   }
   /** the room's props (from asm/arena.ts arenaPlan) */
@@ -142,9 +147,9 @@ export class Breakables {
       const p = this.logic.add(it.kind, it.x, it.z), tilt = new THREE.Group(), g = new THREE.Group(), long = it.kind === 'fence' || it.kind === 'rack';
       tilt.add(model(it.model ?? it.kind, long ? (it.rot ?? 0) : 0)); g.add(tilt); g.position.set(p.x, baseY, p.z); if (!long) g.rotation.y = ((p.id * 2654435761) % 4) * (Math.PI / 2); this.root.add(g);
       // a fence / rack is a thin box along its length; the rest are round
-      const maxY = PROP_MAX_Y[it.kind] ?? 1.0;
-      const solid = long ? this.solids.add({ kind: 'prop', shape: 'box', x: p.x, z: p.z, hx: it.rot ? 0.2 : (it.kind === 'fence' ? 0.85 : 0.5), hz: it.rot ? (it.kind === 'fence' ? 0.85 : 0.5) : 0.2, maxY, baseY, slam: true, tag: p })
-        : this.solids.add({ kind: 'prop', shape: 'circle', x: p.x, z: p.z, r: p.r * 0.85, maxY, baseY, slam: it.kind === 'pillar', tag: p });
+      const maxY = PROP_MAX_Y[it.kind] ?? 1.0, steppable = STEPPABLE_PROP.has(it.kind);
+      const solid = long ? this.solids.add({ kind: 'prop', shape: 'box', x: p.x, z: p.z, hx: it.rot ? 0.2 : (it.kind === 'fence' ? 0.85 : 0.5), hz: it.rot ? (it.kind === 'fence' ? 0.85 : 0.5) : 0.2, maxY, baseY, steppable, slam: true, tag: p })
+        : this.solids.add({ kind: 'prop', shape: 'circle', x: p.x, z: p.z, r: p.r * 0.85, maxY, baseY, steppable, slam: it.kind === 'pillar', tag: p });
       this.vis.set(p.id, { p, g, tilt, solid, baseY, model: it.model, wob: { x: 0, z: 0, vx: 0, vz: 0 }, fall: -1, fuseT: 0 });
     }
     // act-20: the cover pieces break too — a solid box that crumbles to a lower heap after enough blows
@@ -153,7 +158,8 @@ export class Breakables {
       const baseY = this.groundAt ? this.groundAt(cv.x, cv.z) : 0;
       const p = this.logic.add('cover', cv.x, cv.z, Math.max(cv.hx, cv.hz)), tilt = new THREE.Group(), g = new THREE.Group();
       tilt.add(coverModel(cv.kind, cv.rot, false)); g.add(tilt); g.position.set(cv.x, baseY, cv.z); this.root.add(g);
-      const solid = this.solids.add({ kind: 'cover', shape: 'box', x: cv.x, z: cv.z, hx: cv.hx, hz: cv.hz, maxY: COVER_MAX_Y[cv.kind] ?? 1.15, baseY, slam: true, tag: p });
+      const maxY = COVER_MAX_Y[cv.kind] ?? 1.15;
+      const solid = this.solids.add({ kind: 'cover', shape: 'box', x: cv.x, z: cv.z, hx: cv.hx, hz: cv.hz, maxY, baseY, steppable: STEPPABLE_COVER.has(cv.kind), slam: true, tag: p });
       this.vis.set(p.id, { p, g, tilt, solid, baseY, wob: { x: 0, z: 0, vx: 0, vz: 0 }, fall: -1, fuseT: 0, cover: cv });
     }
     // Note: oil jars may slide dynamically when kicked, so keep oil jar matrices dynamic while batching static breakables
@@ -195,11 +201,15 @@ export class Breakables {
     }
     return out;
   }
-  /** a blow on every live prop inside a circle (a plunge, a kick, a dart, a body slammed into it) */
-  hitCircle(x: number, z: number, r: number, o: { src: BSrc; heavy?: boolean; slide?: boolean; dir: [number, number] }, targets: BTarget[]) {
+  /** a blow on every live prop inside a circle (a plunge, a kick, a dart, a body slammed/charged into it) */
+  hitCircle(x: number, z: number, r: number, o: { src: BSrc; heavy?: boolean; slide?: boolean; crush?: boolean; skipHeavy?: boolean; dir: [number, number] }, targets: BTarget[]) {
     if (o.src === 'hero') this.onStrike?.({ k: 'circle', x, z, r });
     const out = { events: [] as BEvent[], damage: [] as BDamage[] };
-    for (const p of this.logic.near(x, z, r)) if (p.state === 'idle') this.merge(out, this.logic.hit(p, o, targets));
+    for (const p of this.logic.near(x, z, r)) {
+      if (p.state !== 'idle') continue;
+      if (o.skipHeavy && (p.kind === 'pillar' || p.kind === 'cover')) continue;
+      this.merge(out, this.logic.hit(p, o, targets));
+    }
     return out;
   }
   /** a blow on every live prop along a segment (the lunge, 穿风斩) */
@@ -276,7 +286,7 @@ export class Breakables {
           shake(v.drop != null ? 0.08 : 0.28); cue(v.drop != null ? 'land' : 'wallSlam', v.drop != null ? 0.5 : 1.0);
         }
         if (v.drop != null && v.fall > v.drop) { this.root.remove(v.g); v.fall = -2; v.drop = undefined; continue; }
-        if (v.fall > 2.4) { const st = model(v.model === 'palaceColumn' ? 'palaceStump' : 'stump'); st.position.set(v.p.x, v.baseY, v.p.z); v.solid.maxY = 0.68; this.root.add(st); v.g.position.y = v.baseY - 0.08; v.fall = -2; }
+        if (v.fall > 2.4) { const st = model(v.model === 'palaceColumn' ? 'palaceStump' : 'stump'); st.position.set(v.p.x, v.baseY, v.p.z); v.solid.maxY = 0.68; v.solid.steppable = true; this.root.add(st); v.g.position.y = v.baseY - 0.08; v.fall = -2; }
       }
     }
     for (const f of [...this.fires]) {
@@ -295,7 +305,7 @@ export class Breakables {
         // a cover piece crumbles: the heap replaces it, a burst of blocks and dust, it still stands in the way (smaller)
         const v = this.vis.get(e.p.id); if (!v || !v.cover) continue;
         this.root.remove(v.g); const g = new THREE.Group(), t = new THREE.Group(); t.add(coverModel(v.cover.kind, v.cover.rot, true)); g.add(t); g.position.copy(v.g.position); this.root.add(g); v.g = g; v.tilt = t;
-        v.solid.hx *= BTUNE.rubbleK; v.solid.hz *= BTUNE.rubbleK; v.solid.r *= BTUNE.rubbleK; v.solid.maxY = 0.45;
+        v.solid.hx *= BTUNE.rubbleK; v.solid.hz *= BTUNE.rubbleK; v.solid.r *= BTUNE.rubbleK; v.solid.maxY = 0.45; v.solid.steppable = true;
         const at = V3(e.p.x, 0.6, e.p.z);
         for (let i = 0; i < 16; i++) { const a = Math.random() * Math.PI * 2, sp = 2 + Math.random() * 3; addBlock(at.clone().add(V3(Math.cos(a) * 0.3, Math.random() * 0.6, Math.sin(a) * 0.3)), { size: 0.08 + Math.random() * 0.1, v: V3(Math.cos(a) * sp + e.dir[0] * 2, 2 + Math.random() * 3.5, Math.sin(a) * sp + e.dir[1] * 2), col: SHARDS.cover[i % 3], glow: false, debris: true, grav: 14, floor: 0.03, spin: 6, life: 1.8, shrink: 0.5 }); }
         fxSmoke(at, 0x8a7a6a, 10, { r: 0.8, spd: 1.8, up: 0.8, s: 0.5, life: 0.9, alpha: 0.5 }); shake(0.3); cue('pillarFall', 0.7); cue('wallSlam', 0.8);
@@ -317,6 +327,7 @@ export class Breakables {
         const v = this.vis.get(e.p.id);
         if (v) {
           v.fuseT = 0;
+          if (e.p.vx || e.p.vz) v.solid.on = false;
           this.clearFuseVis(v);
           const ring = new THREE.Mesh(
             new THREE.RingGeometry(BTUNE.boomR - 0.11, BTUNE.boomR, 32).rotateX(-Math.PI / 2),

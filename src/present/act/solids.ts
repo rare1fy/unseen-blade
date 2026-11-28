@@ -8,6 +8,8 @@ export interface Solid {
   maxY?: number;
   /** Floor base elevation where this obstacle stands (0 = ground, PLAT_H = elevated platform). */
   baseY?: number;
+  /** True when flat-topped enough for the hero to jump onto and stand/walk atop (or step directly onto when <= stepUp). */
+  steppable?: boolean;
   /** A broken prop no longer blocks or receives collisions. */
   on: boolean;
   /** A body knocked into this obstacle takes a slam. */
@@ -19,8 +21,11 @@ export interface Solid {
 /** The deepest displacement made by a solid in one resolution pass. */
 export interface Push { s: Solid; nx: number; nz: number; depth: number }
 
-function overlap(s: Solid, x: number, z: number, r: number, footY = 0): Push | null {
-  if (!s.on || footY > (s.baseY ?? 0) + (s.maxY ?? 99) - 0.06) return null;
+function overlap(s: Solid, x: number, z: number, r: number, footY = 0, stepUp = 0): Push | null {
+  if (!s.on) return null;
+  const topY = (s.baseY ?? 0) + (s.maxY ?? 99);
+  const clearMargin = s.steppable ? Math.max(0.14, stepUp) : 0.06;
+  if (footY > topY - clearMargin - 1e-6) return null;
   const dx = x - s.x, dz = z - s.z;
   if (s.shape === 'circle') {
     const distance = Math.hypot(dx, dz), depth = s.r + r - distance;
@@ -47,11 +52,11 @@ export class Solids {
   private nextId = 1;
 
   /** Add an obstacle, assigning its id and equivalent bounding size. */
-  add(o: { kind: SolidKind; shape: 'box' | 'circle'; x: number; z: number; hx?: number; hz?: number; r?: number; maxY?: number; baseY?: number; slam?: boolean; tag?: unknown }): Solid {
+  add(o: { kind: SolidKind; shape: 'box' | 'circle'; x: number; z: number; hx?: number; hz?: number; r?: number; maxY?: number; baseY?: number; steppable?: boolean; slam?: boolean; tag?: unknown }): Solid {
     const r = o.shape === 'circle' ? (o.r ?? 0) : Math.max(o.hx ?? 0, o.hz ?? 0);
     const s: Solid = { id: this.nextId++, kind: o.kind, shape: o.shape, x: o.x, z: o.z,
       hx: o.shape === 'circle' ? r : (o.hx ?? 0), hz: o.shape === 'circle' ? r : (o.hz ?? 0),
-      r, maxY: o.maxY ?? 99, baseY: o.baseY ?? 0, on: true, slam: o.slam ?? false, tag: o.tag };
+      r, maxY: o.maxY ?? 99, baseY: o.baseY ?? 0, steppable: o.steppable ?? false, on: true, slam: o.slam ?? false, tag: o.tag };
     this.list.push(s);
     return s;
   }
@@ -59,15 +64,31 @@ export class Solids {
   /** Remove every obstacle and restart id assignment. */
   clear(): void { this.list = []; this.nextId = 1; }
 
-  /** Move a body circle out of active solids (respecting vertical clearance footY), with up to three settling passes. */
-  pushOut(p: { x: number; z: number }, r: number, footY = 0): Push | null {
+  /** Highest active steppable surface top (baseY + maxY) covering (x, z) within pad and <= maxTopY, or null. */
+  topAt(x: number, z: number, pad = 0.16, maxTopY = Infinity): number | null {
+    let best: number | null = null;
+    for (const s of this.list) {
+      if (!s.on || !s.steppable) continue;
+      const topY = (s.baseY ?? 0) + (s.maxY ?? 99);
+      if (topY > maxTopY) continue;
+      const dx = Math.abs(x - s.x), dz = Math.abs(z - s.z);
+      const hit = s.shape === 'circle'
+        ? Math.hypot(dx, dz) <= s.r + pad
+        : dx <= s.hx + pad && dz <= s.hz + pad;
+      if (hit && (best === null || topY > best)) best = topY;
+    }
+    return best;
+  }
+
+  /** Move a body circle out of active solids (respecting vertical clearance footY & optional low-curb stepUp), with up to three settling passes. */
+  pushOut(p: { x: number; z: number }, r: number, footY = 0, stepUp = 0): Push | null {
     let last: Push | null = null;
-    const worstDepth = () => this.list.reduce((worst, s) => Math.max(worst, overlap(s, p.x, p.z, r, footY)?.depth ?? 0), 0);
+    const worstDepth = () => this.list.reduce((worst, s) => Math.max(worst, overlap(s, p.x, p.z, r, footY, stepUp)?.depth ?? 0), 0);
     let bestX = p.x, bestZ = p.z, bestDepth = worstDepth();
     for (let pass = 0; pass < 3; pass++) {
       let deepest: Push | null = null;
       for (const s of this.list) {
-        const push = overlap(s, p.x, p.z, r, footY);
+        const push = overlap(s, p.x, p.z, r, footY, stepUp);
         if (!push) continue;
         p.x += push.nx * push.depth;
         p.z += push.nz * push.depth;
@@ -83,16 +104,19 @@ export class Solids {
   }
 
   /** Check whether a padded body circle avoids every active solid at height footY. */
-  free(x: number, z: number, r: number, pad = 0, footY = 0): boolean {
-    return !this.list.some(s => overlap(s, x, z, r + pad, footY));
+  free(x: number, z: number, r: number, pad = 0, footY = 0, stepUp = 0): boolean {
+    return !this.list.some(s => overlap(s, x, z, r + pad, footY, stepUp));
   }
 
   /** Find the first solid hit by a moving circle in samples no farther than 0.1 m apart. */
-  sweep(ax: number, az: number, bx: number, bz: number, r: number, footY = 0): { s: Solid; t: number } | null {
+  sweep(ax: number, az: number, bx: number, bz: number, r: number, footY = 0, filter?: (s: Solid) => boolean): { s: Solid; t: number } | null {
     const steps = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / 0.1));
     for (let i = 0; i <= steps; i++) {
       const t = i / steps, x = ax + (bx - ax) * t, z = az + (bz - az) * t;
-      for (const s of this.list) if (overlap(s, x, z, r, footY)) return { s, t };
+      for (const s of this.list) {
+        if (filter && !filter(s)) continue;
+        if (overlap(s, x, z, r, footY)) return { s, t };
+      }
     }
     return null;
   }
