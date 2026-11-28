@@ -1,15 +1,35 @@
 // 第二关 / 第三关敌人的规则（11-18）：不开画面能测的那部分——盾兵正面挡刀、背后进刀、劈山破防、被破势接住后盾震开；水鬼潜在水下刀砍不着；
 // 封鸩在雾里砍不着、挨刀计数；狱卒的圆环中间是空的（站在他脚边安全）。
+import ts from 'typescript';
 import { describe, expect, it, vi } from 'vitest';
 import { Object3D, Vector3 } from 'three';
 
 vi.mock('../src/present/fx/fx', () => ({ trailSeg: vi.fn(), fxRing: vi.fn(), fxSparks: vi.fn(), fxSmoke: vi.fn(), fxGlow: vi.fn(), fxEmbers: vi.fn(), fxFlare: vi.fn(), fxImpact: vi.fn(), fxChips: vi.fn() }));
 vi.mock('../src/present/fx/skillFx', () => ({ fxAfterimage: vi.fn(), fxBolt: vi.fn(), fxShock: vi.fn() }));
 vi.mock('../src/present/fx/blocks', () => ({ addBlock: vi.fn() }));
-vi.mock('../src/present/bestiary/battle', () => ({ BattleActor: class {} }));
+vi.mock('../src/present/bestiary/battle', () => ({
+  BattleActor: class {
+    root = new Object3D();
+    bones: Record<string, Object3D> = {};
+    home = new Vector3();
+    yaw = 0;
+    place(p: Vector3) { this.home.copy(p); this.root.position.copy(p); }
+    faceToward() {}
+    chest() { return this.home.clone(); }
+    head() { return this.home.clone(); }
+    weapon() { return this.home.clone(); }
+    tint() {}
+    hurt() {}
+    hit() {}
+    play() {}
+    setRunning() {}
+    roar() {}
+    dispose() {}
+  },
+}));
 vi.mock('../src/present/ronin/models', () => ({}));
 vi.mock('../src/audio/cues', () => ({ cue: vi.fn() }));
-import { EDEFS, interruptFoe, type Foe } from '../src/present/act/enemy';
+import { EDEFS, interruptFoe, liveBossAdds, type Foe, type FoeWorld } from '../src/present/act/enemy';
 import { inside } from '../src/present/act/tele';
 import '../src/present/act/foes/ly_ai';
 import '../src/present/act/foes/xp_ai';
@@ -77,5 +97,35 @@ describe('第三关', () => {
 describe('头目', () => {
   it('阎虎、封鸩是头目，有横幅副标题和登场一句', () => {
     for (const k of ['ly_boss', 'xp_boss']) { const d = EDEFS[k]; expect(d.boss).toBe(true); expect(d.tag).toBeTruthy(); expect(d.intro).toBeTruthy(); }
+  });
+  it('第二关阎虎 30% 门与第三关封寒 65% 门召兵全部写入实时 w.foes，且 show.ts 永不重绑 this.foes 引用导致孤儿死兵跨图残留', () => {
+    const mkWorld = (foes: Foe[]): FoeWorld => ({
+      heroPos: V(0, 4), heroR: 0.38, heroAlive: true, heroY: 0, heroDodge: false,
+      foes, arrows: [], clamp: () => {}, hurtHero: () => {}, dodged: () => {},
+      killFoe: () => {}, bleedDamage: () => 0, bleedSpill: () => {}, arrowHit: () => {},
+    });
+
+    const ly = foe('ly_boss', { phase: 2, hp: 100, maxHp: 1000, mem: { gate1: true } });
+    const lyFoes: Foe[] = [ly];
+    const lyW = mkWorld(lyFoes);
+    ROLE_AI.ly_boss.tick!(ly, lyW, 0.016);
+    expect(lyFoes.map(o => o.kind)).toEqual(['ly_boss', 'ly_shield', 'ly_torch', 'ly_xbow']);
+    expect(liveBossAdds(ly, lyW)).toBe(3);
+    for (const m of lyFoes.slice(1)) { expect(m.hp).toBeGreaterThan(0); expect(m.st).not.toBe('dead'); }
+
+    const xp = foe('xp_boss', { phase: 1, hp: 400, maxHp: 1000, mem: {} });
+    const xpFoes: Foe[] = [xp];
+    const xpW = mkWorld(xpFoes);
+    ROLE_AI.xp_boss.tick!(xp, xpW, 0.016);
+    expect(xpFoes.filter(o => o.kind === 'totem_cauldron')).toHaveLength(2);
+    expect(xpFoes.filter(o => o.kind === 'xp_assassin')).toHaveLength(2);
+    expect(liveBossAdds(xp, xpW)).toBe(4);
+    for (const m of xpFoes.slice(1)) { expect(m.hp).toBeGreaterThan(0); expect(m.st).not.toBe('dead'); }
+
+    // Hard architectural invariant: show.ts must NEVER reassign this.foes (which detaches this.foeWorld.foes!)
+    const showSrc = ts.sys.readFile('src/present/act/show.ts') ?? '';
+    expect(showSrc.length).toBeGreaterThan(1000);
+    expect(showSrc).not.toMatch(/this\.foes\s*=\s*/);
+    expect(showSrc).toMatch(/fw\.foes\s*=\s*this\.foes/);
   });
 });

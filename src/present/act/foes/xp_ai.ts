@@ -50,7 +50,7 @@ function areaHit(f: Foe, w: FoeWorld, low = false) {
 function spotNear(p: THREE.Vector3, d0: number, d1: number, w: FoeWorld) {
   for (let t = 0; t < 20; t++) {
     const a = Math.random() * Math.PI * 2, d = R(d0, d1), q = V3(p.x + Math.sin(a) * d, 0, p.z + Math.cos(a) * d);
-    if (q.x > PLAY.x0 + 1.5 && q.x < PLAY.x1 - 1.5 && q.z > PLAY.z0 + 1.5 && q.z < PLAY.z1 - 2) return q;
+    if (q.x > PLAY.x0 + 1.5 && q.x < PLAY.x1 - 1.5 && q.z > PLAY.z0 + 1.5 && q.z < PLAY.z1 - 2) { w.clamp(q, 0.6); return q; }
   }
   const q = p.clone().setY(0); w.clamp(q, 0.6); return q;
 }

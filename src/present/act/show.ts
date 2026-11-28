@@ -4204,8 +4204,7 @@ export class ActShow {
     if (this.generalEvent) { this.generalEvent.dispose(); this.generalEvent = null; }
     this.duelGen = null;
     if (this.endCui) { this.endCui.dispose(); this.endCui = null; }
-    this.duel?.newRoom(); for (const f of this.foes) f.a.dispose(); this.foes.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = []; this.entering.length = 0; this.clearBossDrops(); this.clearFleeing(); this.bossDefeated = false; this.poolBossRoom = false; this.kneelingBoss = null; this.waveQueue = []; this.wavePending = 0; this.waveGen++; this.bossIntroActive = false;
-    this.falling = [];
+    this.duel?.newRoom(); for (const f of this.foes) { dropTeles(f); f.a.dispose(); } this.foes.length = 0; for (const q of this.falling) q.f.a.dispose(); this.falling.length = 0; for (const d of this.drops) d.f.a.dispose(); this.drops.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = []; this.entering.length = 0; this.clearBossDrops(); this.clearFleeing(); this.foeWorld.foes = this.foes; this.foeWorld.arrows = this.arrows; this.bossDefeated = false; this.poolBossRoom = false; this.kneelingBoss = null; this.waveQueue = []; this.wavePending = 0; this.waveGen++; this.bossIntroActive = false;
     this.gates?.dispose(); this.gates = null; this.pieces?.dispose(); this.pieces = null; this.leaves?.dispose(); this.leaves = null; this.clearNpcs(); this.clearRoadActors();
     for (const d of this.doors) d.g.parent?.remove(d.g); this.doors = []; this.stations?.dispose(); this.stations = null; this.coinsFx.clear();
     this.yard?.dispose(); this.yard = null; this.exitSign?.parent?.remove(this.exitSign); this.exitSign = null; this.barks?.clear();
@@ -4544,7 +4543,7 @@ export class ActShow {
       runner.dispose();
       this.generalEvent = null;
     }
-    this.foes = this.foes.filter(f => f.st !== 'dead');
+    for (let i = this.foes.length - 1; i >= 0; i--) if (this.foes[i].st === 'dead') this.foes.splice(i, 1);
     if (!outcome.won) {
       this.openDoors();
       return;
@@ -4601,7 +4600,7 @@ export class ActShow {
     fxSmoke(f.pos.clone().setY(0.6), g.id === 'lubu' ? 0xd83a28 : 0x585c68, 12, { r: 0.7, spd: 1.2, up: 0.9, s: 0.4, life: 0.6 });
     cue('whoosh', 0.7);
     f.a.dispose();
-    this.foes = this.foes.filter(x => x !== f);
+    const fi = this.foes.indexOf(f); if (fi >= 0) this.foes.splice(fi, 1);
     this.duelGen = null;
     // Reward: heal 30% HP + full intent + boon pick
     const was = this.hero.hp;
@@ -4908,7 +4907,7 @@ export class ActShow {
   private scheduleWaveBarks(count: number) {
     after(count * 0.28 + 0.45, () => {
       if (this.phase !== 'fight') return;
-      const can = this.foes.filter(f => f.st !== 'dead' && !isBoss(f) && f.kind !== 'dummy' && !String(f.kind).includes('hound') && (!!f.d.barks || !/^(ly|xp|wl|cx)_/.test(String(f.kind))));
+      const can = this.foes.filter(f => f.st !== 'dead' && !isBoss(f) && f.kind !== 'dummy' && f.role !== 'totem' && !String(f.kind).includes('hound') && (!!f.d.barks || !/^(ly|xp|wl|cx)_/.test(String(f.kind))));
       for (let n = Math.min(can.length, Math.random() < 0.5 ? 1 : 2), k = 0; k < n; k++) {
         const f = can.splice(Math.floor(Math.random() * can.length), 1)[0];
         after(k * 0.7, () => { if (f.st !== 'dead' && this.phase === 'fight') { const ls = f.d.barks; this.barks?.say(() => f.a.head(), ls?.length ? ls[Math.floor(Math.random() * ls.length)] : undefined); } });
@@ -7385,6 +7384,11 @@ export class ActShow {
       if (this.flats.has(m)) { m.a.body.rotation.x = 0; m.a.body.position.y = 0; this.flats.delete(m); }
       dropTeles(m); unfade(m);
       m.st = 'dead'; m.hp = 0; m.attacking = false; m.lunge = null; m.vel.set(0, 0, 0);
+      if (m.role === 'totem') {
+        fxSmoke(m.pos.clone().setY(0.35), 0x9ab8c0, 10, { r: 0.6, spd: 1.5, up: 0.8, s: 0.42, life: 0.55 });
+        m.a.dispose();
+        continue;
+      }
       const dir = m.pos.clone().sub(this.hero?.pos ?? bossPos).setY(0);
       if (dir.lengthSq() < 1e-4) dir.set(Math.random() - 0.5, 0, -1);
       dir.normalize();
@@ -8138,11 +8142,16 @@ export class ActShow {
   private stageBossAfterScene(ai: number) {
     const kb = this.kneelingBoss;
     const bossFoe = kb && kb.f.a.root.parent ? kb.f : null;
+    for (const e of this.entering) { if (e.f !== bossFoe) { dropTeles(e.f); e.f.a.dispose(); } } this.entering.length = 0;
+    this.clearBossDrops(); this.clearFleeing();
+    for (const d of this.drops) { if (d.f !== bossFoe) d.f.a.dispose(); } this.drops.length = 0;
     for (const f of this.foes) {
       if (f === bossFoe) continue;
       dropTeles(f); f.a.dispose();
     }
-    this.foes = bossFoe ? [bossFoe] : [];
+    // Keep this.foes array identity intact so this.foeWorld.foes never detaches across chapters!
+    this.foes.length = 0;
+    if (bossFoe) this.foes.push(bossFoe);
     const bossKind = bossFoe ? bossFoe.kind : (BOSS_ORDER[ai] ?? 'hj_boss');
     const defiant = ai === 1 || bossKind === 'ly_boss';
     const bossR = bossFoe ? bossFoe.d.r : (EDEFS[bossKind]?.r ?? 0.65);
@@ -8929,7 +8938,7 @@ export class ActShow {
     }
     h.a.update(dt); h.deathPose(); h.scriptPose?.(); for (const a of this.lineupActors) a.update(dt);
     if (this.labFn) { this.labT += dt; this.labFn(dt, this.labT); }
-    const fw = this.foeWorld; fw.heroPos.copy(h.pos); fw.heroAlive = h.alive && (this.phase === 'fight' || this.phase === 'yard'); fw.heroY = h.y; fw.heroDodge = h.dodgeWin; fw.heroYaw = h.a.yaw; fw.pools = this.pools;
+    const fw = this.foeWorld; fw.foes = this.foes; fw.arrows = this.arrows; fw.heroPos.copy(h.pos); fw.heroAlive = h.alive && (this.phase === 'fight' || this.phase === 'yard'); fw.heroY = h.y; fw.heroDodge = h.dodgeWin; fw.heroYaw = h.a.yaw; fw.pools = this.pools;
     // act-20 / act-135 / act-154: the hideout's people, roadside actors, 落成工碑 monuments & spring pop-in animations
     for (const n of this.npcs) n.a.update(dt);
     for (const a of this.roadActors) if (!this.roadStill.has(a)) a.update(dt);
