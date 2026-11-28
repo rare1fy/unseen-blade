@@ -112,10 +112,10 @@ export class BattleActor extends BActor {
   // summons
   lunge(dist: number) { return this.attack(dist); }
   shriek() { return this.roar(); }
-  dispose() { this.root.parent?.remove(this.root); }
+  dispose() { this.faceAnim?.dispose(); this.faceAnim = null; this.root.parent?.remove(this.root); }
 
   protected pose(dt: number) {
-    if (this.show && isGripHero(this.hid)) { poseShow(this); this.applyWarp(); return; }
+    if (this.show && isGripHero(this.hid)) { this.updateFace(); poseShow(this); this.applyWarp(); return; }
     this.projectileOrigin = undefined;
     super.pose(dt);
     // 11-18 (一局五关): a later region's foe adds its own layer over everything below (POSE_AFTER, by model id)

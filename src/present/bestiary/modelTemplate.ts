@@ -5,6 +5,7 @@ import { templateGeometry } from '../engine/rigidBatch';
 import { finishBuild } from '../engine/buildSteps';
 import { VoxChar } from '../look/voxkit';
 import { OPT } from '../engine/perfOpts';
+import { prepareActorFaceModel, buildSmoothCelRig, type FaceFactory } from '../look/actorFace';
 
 function build(def: ModelDef) { return finishBuild(buildSteps(def)); }
 function* buildSteps(def: ModelDef) {
@@ -12,7 +13,11 @@ function* buildSteps(def: ModelDef) {
   const cx = lv.u ?? lv.k ?? v.s, cy = lv.p ?? lv.k ?? v.s;
   const options = { glow: def.glow ?? 1.35, jitter: 0, self: (def.self ?? 0.06) + 0.1, rim: 1.1, edge: 0.13 };
   // Some roster models supply their own rig builder. They keep their pivots and unit conversion.
-  const rig = OPT.slicedRoom && v.build === VoxChar.prototype.build ? yield* v.buildSteps(options) : v.build(options);
+  // Fine 3.5 cm humanoids (heroine, NPCs, generals, bosses, soldiers) use the 100% smooth-normal cel pipeline + 2× animated faces.
+  const isFineHumanoid = def.kind === 'biped' && v.s < 0.05 && v.build === VoxChar.prototype.build && v.bonesAbs.has('head');
+  const rig: { bones: Record<string, Bone>; meshes: THREE.Mesh[]; root: Bone; faceFactory?: FaceFactory } = isFineHumanoid
+    ? buildSmoothCelRig(v, prepareActorFaceModel(v, def.id), { glow: options.glow })
+    : (OPT.slicedRoom && v.build === VoxChar.prototype.build ? yield* v.buildSteps(options) : v.build(options));
   let top = lv.extent?.top ?? 0, width = lv.extent?.width ?? 0;
   if (top <= 0) for (const c of v.cells.values()) {
     top = Math.max(top, (c.y + 1) * cy); width = Math.max(width, (Math.abs(c.x + 0.5) + 0.5) * 2 * cx);

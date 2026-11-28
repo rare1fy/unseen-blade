@@ -23,6 +23,7 @@ import { PAD, paintGlyph, glyphArt, GLYPH_H, paintKeyCap, keyCapWidth, KEYCAP_H 
 import { drawPixelPlaque } from './uiPlate';
 import { SKIN } from './skin';
 import { uiScale } from './uiScale';
+import { ACTIVE_TALK } from '../look/actorFace';
 
 export interface Line { who: string; text: string; mood?: string }
 interface Speaker { name: string; side: 'L' | 'R'; mute?: boolean }
@@ -336,6 +337,7 @@ export class Dialogue {
   }
   private close() {
     audio.stopVoice();
+    ACTIVE_TALK.who = ''; ACTIVE_TALK.typing = false;
     this.on = false; this.holding = false; this.holdT = 0; this.skipRing.visible = false;
     this.box.visible = false; this.nameMesh.visible = false; this.outK = 1; this.ink.off();
     const d = this.done; this.done = null; d?.();
@@ -500,6 +502,7 @@ export class Dialogue {
   }
   update(dt: number) {
     if (!this.on) {
+      ACTIVE_TALK.who = ''; ACTIVE_TALK.typing = false;
       this.ink.fadeOut(dt);
       if (this.outK > 0) {
         this.outK = Math.max(0, this.outK - dt * 5); this.portraits(dt, this.lastSpeaker, 0, 0);
@@ -561,6 +564,8 @@ export class Dialogue {
     const footExtra = PAD.device === 'touch' ? Math.round(10 * uScale) : Math.round(34 * uScale);
     const hPx = Math.round(padTop + rows * Math.round(fpx0 * 1.38) + Math.round(12 * uScale) + footExtra);
     const narr = line.who === 'act';
+    ACTIVE_TALK.who = narr ? '' : line.who;
+    ACTIVE_TALK.typing = !narr && (this.shown < total || !!audio.voicing);
     this.box.visible = !narr;
     this.ink.set(narr, line, this.shown, total, dt, sx, sy);
     const sp = CAST[line.who];

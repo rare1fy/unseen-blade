@@ -11,6 +11,7 @@ import { poseIai } from '../ronin/iaiPose';   // 浪人篇 居合: the sheathed 
 import { POSE_HOOKS } from './poseHooks';
 import { angleDelta, attackBeats, attackBody } from '../act/foes/foe_motion';
 import { shootBow, swingHammer } from '../act/foes/hj_weapon_poses';
+import { ACTIVE_TALK, matchesActiveSpeaker, type FaceAnimHandle, type FaceExpr } from '../look/actorFace';
 
 const HUNCH: Record<string, number> = { forest_ghoul: 0.4, fig_ghoul: 0.35, forest_old_willow: 0.3, elite_alpha_wolf: 0.25, forest_moss_golem: 0.1, boss_coven_matriarch: 0.12 };
 const BIG: Record<string, number> = { boss_ancient_treant: 1.7, boss_root_colossus: 1.5, forest_moss_golem: 1.25, forest_treant: 1.2, boss_lich_forest: 1.2 };
@@ -28,6 +29,7 @@ export class BActor extends Actor {
   private beforeHit?: { x: number; z: number };
   private hitFromWorld?: number;
   protected hurtVariant = 0;
+  protected faceAnim: FaceAnimHandle | null = null;
   protected get hitFrom() { return angleDelta((this.hitFromWorld ?? this.lookYaw ?? this.yaw) - this.yaw); }
   constructor(readonly def: ModelDef) {
     super();
@@ -40,6 +42,7 @@ export class BActor extends Actor {
     this.cx = r.cx; this.cy = r.cy; this.top = r.top; this.width = r.width;
     this.height = Math.min(this.top, 6);
     this.body.add(r.root); this.bones = r.bones; this.finish(r.meshes);
+    this.faceAnim = r.faceFactory ? r.faceFactory(this.bones) : null;
     this.slow = BIG[def.id] ?? 1; this.hunch = HUNCH[def.id] ?? 0;
     this.armed = !!r.bones.weapon && r.bones.weapon.children.length > 0;
   }
@@ -72,8 +75,19 @@ export class BActor extends Actor {
   }
   roar() { return this.play(new Action('roar', 1.6 * this.slow, 0.35)); }
 
+  protected updateFace() {
+    if (!this.faceAnim) return;
+    const n = this.act?.name ?? '';
+    let expr: FaceExpr = 'idle';
+    if (this.dead || n === 'hurt' || n === 'fall' || n === 'collapse' || this.flash > 0.35) expr = 'hurt';
+    else if (n === 'talk' || (ACTIVE_TALK.typing && matchesActiveSpeaker(this.def.id, ACTIVE_TALK.who))) expr = 'talk';
+    else if (n === 'attack' || n === 'cast' || n === 'roar' || n === 'spin' || n === 'hew' || n === 'stab' || n === 'sweep' || n === 'bash' || n === 'leap' || n === 'slash' || n === 'throw' || n === 'guard' || n === 'chant') expr = 'battle';
+    this.faceAnim.update(this.t, expr);
+  }
+
   protected pose(dt: number) {
     void dt;
+    this.updateFace();
     const b = this.bones, t = this.t / this.slow, a = this.act, k = a ? a.k : 0, n = a?.name ?? '', d = this.def, kind = d.kind;
     const br = Math.sin(t * 2.2);
     this.off.set(0, 0, 0);
