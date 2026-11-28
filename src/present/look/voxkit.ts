@@ -171,19 +171,22 @@ void voxHole() {
           if (uCheapVoxel < 0.5) {
           vec2 gx = dFdx(vVox), gy = dFdy(vVox), fw = max(abs(gx) + abs(gy), vec2(1e-4));
           vec2 cellSize = vSize; float span = min(cellSize.x / fw.x, cellSize.y / fw.y);
-          float minSpan = uPxPolish > 0.5 ? 4.2 : 6.0;
-          if (span > minSpan) {
+          float minSpan = uPxPolish > 0.5 ? 7.5 : 6.0;
+          if (span > minSpan && max(fw.x, fw.y) < 0.35) {
+            float edgeFade = uPxPolish > 0.5 ? smoothstep(7.5, 13.0, span) : 1.0;
             vec2 ux = normalize(vec2(gx.x, gy.x) + 1e-6), uy = normalize(vec2(gx.y, gy.y) + 1e-6), L = vec2(-0.5, 0.866);
             float e0 = vOpen.x > 0.5 ? vVox.x / fw.x : 1e4, e1 = vOpen.y > 0.5 ? (vSize.x - vVox.x) / fw.x : 1e4;
             float e2 = vOpen.z > 0.5 ? vVox.y / fw.y : 1e4, e3 = vOpen.w > 0.5 ? (vSize.y - vVox.y) / fw.y : 1e4;
             float s0 = dot(-ux, L), s1 = dot(ux, L), s2 = dot(-uy, L), s3 = dot(uy, L);
-            if (e0 < 1.0) { hl = max(hl, step(0.2, s0)); dk = max(dk, step(s0, -0.2)); }
-            if (e1 < 1.0) { hl = max(hl, step(0.2, s1)); dk = max(dk, step(s1, -0.2)); }
-            if (e2 < 1.0) { hl = max(hl, step(0.2, s2)); dk = max(dk, step(s2, -0.2)); }
-            if (e3 < 1.0) { hl = max(hl, step(0.2, s3)); dk = max(dk, step(s3, -0.2)); }
+            if (e0 < 1.0) { hl = max(hl, step(0.2, s0) * edgeFade); dk = max(dk, step(s0, -0.2) * edgeFade); }
+            if (e1 < 1.0) { hl = max(hl, step(0.2, s1) * edgeFade); dk = max(dk, step(s1, -0.2) * edgeFade); }
+            if (e2 < 1.0) { hl = max(hl, step(0.2, s2) * edgeFade); dk = max(dk, step(s2, -0.2) * edgeFade); }
+            if (e3 < 1.0) { hl = max(hl, step(0.2, s3) * edgeFade); dk = max(dk, step(s3, -0.2) * edgeFade); }
           } }
 #endif
-          bev = tone * (1.0 + uPxEdge * hl) * (1.0 - 0.2 * dk * (1.0 - hl));
+          float edgeHi = uPxPolish > 0.5 ? uPxEdge * 0.58 : uPxEdge;
+          float edgeLo = uPxPolish > 0.5 ? 0.14 : 0.20;
+          bev = tone * (1.0 + edgeHi * hl) * (1.0 - edgeLo * dk * (1.0 - hl));
           if (uPxPolish > 0.5) {
             // 1. Hard-stepped 2-row voxel wall-base grounding (pure 7cm pixel steps, zero smooth gradient)
             if (abs(wn.y) < 0.5 && vWP.y >= -0.02 && vWP.y < 0.23) {

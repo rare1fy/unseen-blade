@@ -14,6 +14,7 @@ import { gpuMark } from '../engine/gpuTime';
 import { bloomMips, bloom8bit, halfFloatOk } from './bloomMips';
 import { QUALITY, lowTargets, mobileTargets, tierNow } from './quality';
 import { CRAFT, CRAFTU, PX_POLISH, syncCraftUniforms } from './craft';
+import { syncActorCelLight } from './actorFace';
 
 const VS = `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
 const BLIT_VS = `void main(){ gl_Position = vec4(position.xy, 0.0, 1.0); }`;
@@ -340,7 +341,10 @@ export class Post {
       // same pixel feel as a desktop window (act-17 用户：「手机上看2x像素又太糊了，可以让我在电脑端和手机端看起来像素感一致吗」;
       // a phone is only ~390 CSS px tall, so 2 CSS px a pixel left it with ~195 rows)
       const pixel = lowTargets() && QUALITY.choice === 'auto' && QUALITY.reducedWorld ? this.pixel + 1 : this.pixel;
-      const k = dpr < 1.5 ? ((CRAFT.on || PX_POLISH.on) && pixel >= 2 ? Math.max(1, Math.round(H * pixel / PX_ROWS)) : pixel * dpr) : Math.max(1, H * pixel / PX_ROWS), Wa = Math.max(1, Math.ceil(W / k)), Ha = Math.max(1, Math.ceil(H / k));
+      // Always snap art-pixel scale k to an integer so BLIT_FS never produces fractional 2px/3px scanline stripes when panning.
+      const rawK = dpr < 1.5 ? ((CRAFT.on || PX_POLISH.on) && pixel >= 2 ? H * pixel / PX_ROWS : pixel * dpr) : H * pixel / PX_ROWS;
+      const k = Math.max(1, Math.round(rawK));
+      const Wa = Math.max(1, Math.ceil(W / k)), Ha = Math.max(1, Math.ceil(H / k));
       this.rt.setSize(Wa, Ha); this.lo.setSize(Wa, Ha);
       this.bloomSize = { w: mobileTargets() || !this.hdr ? 32 : Wa, h: mobileTargets() || !this.hdr ? 32 : Ha };
       this.bloom?.setSize(this.bloomSize.w, this.bloomSize.h);
@@ -365,6 +369,7 @@ export class Post {
   setPixel(n: number) { if (n === this.pixel) return; this.pixel = n; this.setSize(this.size.w, this.size.h, this.size.dpr); }
   render(scene: THREE.Scene, camera: THREE.PerspectiveCamera, time: number) {
     syncCraftUniforms(time);
+    syncActorCelLight(scene);
     const r = this.renderer, pix = this.pixel > 0, m = pix ? this.matPx : this.matStd, u = m.uniforms;
     updateUiSceneUniforms(u, !!UI3D.layer?.on);
     // busy screens (many additive particles) pull the bloom back in the pixel look (the reference's FXB)
@@ -398,7 +403,8 @@ export class Post {
     const refH = this.pixel >= 2 ? 450 : 720;
     const resScale = artH / refH;
     const normRes = CRAFT.on || PX_POLISH.on;
-    const inkStep = normRes ? Math.max(1, resScale) : 1;
+    // Integer texel step avoids beat-pattern stripes when sampling NearestFilter depth textures.
+    const inkStep = normRes ? Math.max(1, Math.round(resScale)) : 1;
     const inkSmallFade = normRes ? Math.min(1, Math.max(0.65, resScale)) : 1;
     const cInk = (cMode === 'ink' ? 0.68 * CRAFT.ink : cMode === 'hd2d' ? 0.50 * CRAFT.ink : cMode === 'diorama' ? 0.08 * CRAFT.ink : (pix ? (this.pixel >= 2 ? PX.ink : PX.ink1) : GRADE.ink)) * inkSmallFade;
     const cInkT = cMode === 'ink' ? 0.045 : cMode === 'diorama' ? 0.08 : PX.inkT;

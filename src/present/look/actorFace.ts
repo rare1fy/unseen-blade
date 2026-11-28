@@ -24,8 +24,53 @@ export interface FaceAnimHandle {
 
 export type FaceFactory = (bones: Record<string, Bone>) => FaceAnimHandle | null;
 
-/** Shared live-game lighting uniform (synced to warm daylight/lantern key direction). */
+/** Shared live-game lighting uniforms (synced per frame to active scene mood & brightness). */
 export const ACTOR_CEL_LIGHT = { value: new THREE.Vector3(0.45, 0.72, 0.52).normalize() };
+export const ACTOR_CEL_TINT = { value: new THREE.Color(0.95, 0.94, 0.96) };
+export const ACTOR_CEL_SHADOW = { value: new THREE.Color(0.74, 0.78, 0.94) };
+
+const _accCol = new THREE.Color();
+const _shCol = new THREE.Color();
+const _baseCool = new THREE.Color(0.74, 0.78, 0.94);
+const _whiteCol = new THREE.Color(1, 1, 1);
+
+/** Sync character cel-shading brightness & mood color temperature with the active Three.js scene lights (zero allocations). */
+export function syncActorCelLight(scene: THREE.Scene) {
+  let r = 0, g = 0, b = 0, wSum = 0;
+  let sr = 0, sg = 0, sb = 0, sSum = 0;
+  for (let i = 0; i < scene.children.length; i++) {
+    const o = scene.children[i] as THREE.Light;
+    if (!o.isLight || !o.visible) continue;
+    const inten = o.intensity;
+    if (inten <= 0.001) continue;
+    if ((o as THREE.DirectionalLight).isDirectionalLight) {
+      const k = inten * 0.42;
+      r += o.color.r * k; g += o.color.g * k; b += o.color.b * k; wSum += k;
+    } else if ((o as THREE.HemisphereLight).isHemisphereLight) {
+      const hl = o as THREE.HemisphereLight;
+      const k = inten * 0.55;
+      r += hl.color.r * k; g += hl.color.g * k; b += hl.color.b * k; wSum += k;
+      sr += hl.groundColor.r * k; sg += hl.groundColor.g * k; sb += hl.groundColor.b * k; sSum += k;
+    }
+  }
+  if (wSum <= 0.001) {
+    ACTOR_CEL_TINT.value.setRGB(0.92, 0.92, 0.94);
+    ACTOR_CEL_SHADOW.value.copy(_baseCool);
+    return;
+  }
+  const lum = (0.299 * r + 0.587 * g + 0.114 * b);
+  const bright = Math.max(0.64, Math.min(1.02, 0.44 + lum * 0.36));
+  const inv = 1 / Math.max(0.001, Math.max(r, Math.max(g, b)));
+  _accCol.setRGB(r * inv, g * inv, b * inv);
+  ACTOR_CEL_TINT.value.copy(_whiteCol).lerp(_accCol, 0.34).multiplyScalar(bright);
+  if (sSum > 0.001) {
+    const sInv = 1 / Math.max(0.001, Math.max(sr, Math.max(sg, sb)));
+    _shCol.setRGB(0.45 + sr * sInv * 0.45, 0.45 + sg * sInv * 0.45, 0.52 + sb * sInv * 0.46);
+    ACTOR_CEL_SHADOW.value.copy(_baseCool).lerp(_shCol, 0.30);
+  } else {
+    ACTOR_CEL_SHADOW.value.copy(_baseCool);
+  }
+}
 
 /** Active dialogue speaker state written by dialogue.ts so 3D faces lip-sync live during cutscenes & hideout talks. */
 export const ACTIVE_TALK = { who: '', typing: false };
@@ -660,18 +705,16 @@ function paintFaceFrame(
         px(mid + 1, my, 'rgba(156, 84, 82, 0.45)', 1, 1);
       }
     } else if (expr === 'battle') {
-      px(mid - 2, my, 'rgba(136, 62, 62, 0.85)', 4, 1);
-      if (talkStep % 2 === 1) {
-        px(mid - 1, my, 'rgba(246, 238, 232, 0.88)', 2, 1);
-        px(mid - 2, my + 1, 'rgba(128, 56, 58, 0.78)', 4, 1);
-      } else {
-        px(mid - 3, my + 1, 'rgba(148, 78, 76, 0.40)', 1, 1);
-        px(mid + 2, my + 1, 'rgba(148, 78, 76, 0.40)', 1, 1);
-      }
+      // Determined stoic lip press (no chibi white teeth bar)
+      px(mid - 2, my, 'rgba(130, 56, 58, 0.88)', 4, 1);
+      px(mid - 3, my + 1, 'rgba(138, 68, 68, 0.46)', 1, 1);
+      px(mid + 2, my + 1, 'rgba(138, 68, 68, 0.46)', 1, 1);
     } else if (expr === 'hurt') {
-      px(mid - 2, my, 'rgba(132, 58, 60, 0.88)', 4, 1);
-      px(mid - 1, my, 'rgba(242, 232, 226, 0.86)', 2, 1);
-      px(mid - 2, my + 1, 'rgba(92, 38, 42, 0.84)', 4, 1);
+      // Restrained grim wince (tense closed-crimson press, no cartoon teeth)
+      px(mid - 2, my, 'rgba(122, 48, 52, 0.90)', 4, 1);
+      px(mid - 1, my + 1, 'rgba(84, 34, 38, 0.78)', 2, 1);
+      px(mid - 3, my + 1, 'rgba(128, 58, 60, 0.52)', 1, 1);
+      px(mid + 2, my + 1, 'rgba(128, 58, 60, 0.52)', 1, 1);
     } else {
       px(mid - 1, my, 'rgba(166, 86, 84, 0.82)', 2, 1);
       px(mid - 2, my - 1, 'rgba(166, 86, 84, 0.48)', 1, 1);
@@ -688,6 +731,10 @@ function paintFaceFrame(
   const rightX = mid + eyeGap;
   const by = spec.browY, ey = spec.eyeY;
 
+  const isGrimCast =
+    spec.eyeStyle === 'grim' || spec.eyeStyle === 'cold' ||
+    spec.eyeStyle === 'sinister' || spec.eyeStyle === 'masked' || spec.eyeStyle === 'shrewd';
+
   const drawBrow = (bx: number, isRightViewer: boolean) => {
     const bc = spec.browCol;
     const thick = spec.browStyle === 'thick' || spec.browStyle === 'fierce' ? 2 : 1;
@@ -696,8 +743,11 @@ function paintFaceFrame(
     const dir = isRightViewer ? 1 : -1;
     let innerDy = 0, outerDy = 0;
     if (expr === 'battle') { innerDy = 1; outerDy = -1; }
-    else if (expr === 'hurt') { innerDy = -1; outerDy = 1; }
-    else if (expr === 'soft') { innerDy = -1; outerDy = 0; }
+    else if (expr === 'hurt') {
+      // Serious clenched furrow (no cute puppy-dog sad brows on soldiers/bosses)
+      if (isGrimCast) { innerDy = 1; outerDy = 0; }
+      else { innerDy = 0; outerDy = 1; }
+    } else if (expr === 'soft') { innerDy = -1; outerDy = 0; }
     else {
       if (spec.browStyle === 'friendly') { innerDy = -1; outerDy = 1; }
       else if (spec.browStyle === 'stern' || spec.browStyle === 'fierce' || spec.browStyle === 'sinister') { innerDy = 1; outerDy = -1; }
@@ -714,19 +764,25 @@ function paintFaceFrame(
 
   drawBrow(leftX, false);
   if (!spec.sleekEyepatch) drawBrow(rightX, true);
+  // Deep glabella tension crease between furrowed brows for grim warriors/enemies in combat or pain
+  if (isGrimCast && (expr === 'hurt' || expr === 'battle')) {
+    px(mid - 1, by + 1, 'rgba(42, 22, 18, 0.56)', 2, 1);
+  }
 
   const drawEye = (ex: number, isRightViewer: boolean) => {
     const isBlindLeft = spec.eyeStyle === 'sunao' && isRightViewer;
-    const isGrimTier =
-      spec.eyeStyle === 'grim' || spec.eyeStyle === 'cold' ||
-      spec.eyeStyle === 'sinister' || spec.eyeStyle === 'masked' || spec.eyeStyle === 'shrewd';
 
     if (expr === 'hurt') {
-      const c = '#261816';
-      if (!isRightViewer) {
-        px(ex, ey, c, 2, 1); px(ex + 2, ey + 1, c, Math.max(1, eyeW - 2), 1); px(ex, ey + 2, c, 2, 1);
+      // Serious martial-arts pain wince: heavy socket shadow + clenched straight dark eye slit (ZERO chibi `><` eyes!)
+      const c = isBlindLeft ? '#54464a' : '#191110';
+      px(ex, ey, isGrimCast ? 'rgba(30, 16, 14, 0.55)' : 'rgba(64, 38, 32, 0.34)', eyeW, 1);
+      px(ex, ey + 1, c, eyeW, 1);
+      if (isGrimCast) {
+        // Hard inner-corner squint + tense lower-lid crease
+        px(isRightViewer ? ex : ex + eyeW - 1, ey + 2, '#1f1312', 1, 1);
+        px(ex + 1, ey + 2, 'rgba(84, 48, 38, 0.48)', Math.max(1, eyeW - 2), 1);
       } else {
-        px(ex + eyeW - 2, ey, c, 2, 1); px(ex, ey + 1, c, Math.max(1, eyeW - 2), 1); px(ex + eyeW - 2, ey + 2, c, 2, 1);
+        px(ex + 1, ey + 2, 'rgba(116, 72, 58, 0.32)', Math.max(1, eyeW - 2), 1);
       }
       return;
     }
@@ -747,22 +803,23 @@ function paintFaceFrame(
       return;
     }
 
-    if (isGrimTier) {
+    if (isGrimCast) {
       const yTop = ey;
-      px(ex, yTop, 'rgba(34, 18, 16, 0.36)', eyeW, 1);
-      px(ex, yTop + 1, '#1b1212', eyeW, 1);
+      // Deeper brow-bone socket shadow + muted weathered sclera (no bright anime white pop on soldiers/bosses)
+      px(ex, yTop, expr === 'battle' ? 'rgba(24, 13, 12, 0.56)' : 'rgba(30, 16, 14, 0.44)', eyeW, 1);
+      px(ex, yTop + 1, '#160f0f', eyeW, 1);
       if (spec.eyeStyle === 'shrewd') {
-        px(ex, yTop + 2, '#c8beb2', eyeW, 1);
+        px(ex, yTop + 2, '#b6aca0', eyeW, 1);
         px(ex + Math.floor(eyeW / 2) - 1, yTop + 2, spec.irisCol, 2, 1);
         return;
       }
       const eyeH = (spec.eyeStyle === 'masked' || spec.eyeStyle === 'cold' || spec.eyeStyle === 'sinister' || expr === 'battle') ? 1 : (wide ? 2 : 1);
-      const sclera = spec.eyeStyle === 'sinister' ? '#c2cac8' : (spec.eyeStyle === 'cold' ? '#c8ccd0' : '#cabdb0');
+      const sclera = spec.eyeStyle === 'sinister' ? '#a6b0ae' : (spec.eyeStyle === 'cold' ? '#adb2b8' : '#b2a496');
       px(ex, yTop + 2, sclera, eyeW, eyeH);
       const irisW = eyeW >= 5 ? 3 : 2;
       const irisX = ex + Math.floor((eyeW - irisW) / 2);
       px(irisX, yTop + 2, spec.irisCol, irisW, eyeH);
-      px(ex, yTop + 2 + eyeH, 'rgba(116, 72, 54, 0.36)', eyeW, 1);
+      px(ex, yTop + 2 + eyeH, 'rgba(92, 54, 42, 0.44)', eyeW, 1);
       return;
     }
 
@@ -868,11 +925,19 @@ function paintFaceFrame(
       else if (talkStep === 2) { px(mid - 2, my, lc, 4, 1); px(mid - 1, my, '#441c20', 2, 2); }
       else { px(mid - 1, my, '#4a2024', 2, 2); px(mid - 2, my, lc, 1, 1); px(mid + 1, my, lc, 1, 1); }
     } else if (expr === 'battle') {
-      px(mid - 2, my, '#461e22', 4, 2); px(mid - 2, my, '#ece2d8', 4, 1);
-      px(mid - 3, my + 1, lc, 1, 1); px(mid + 2, my + 1, lc, 1, 1);
+      // Serious fierce scowl / dark shout (ZERO bright white cartoon teeth!)
+      if (isGrimCast && wide && talkStep % 2 === 1) {
+        px(mid - 2, my, '#2e1416', 4, 2);
+        px(mid - 3, my + 1, lc, 1, 1); px(mid + 2, my + 1, lc, 1, 1);
+      } else {
+        px(mid - 2, my, isGrimCast ? '#38191a' : lc, 4, 1);
+        px(mid - 3, my + 1, lc, 1, 1); px(mid + 2, my + 1, lc, 1, 1);
+      }
     } else if (expr === 'hurt') {
-      px(mid - 2, my, lc, 4, 1); px(mid - 1, my + 1, '#522224', 2, 1);
+      // Serious clenched grimace (no open chibi mouth or bright white teeth)
+      px(mid - 2, my, isGrimCast ? '#361818' : lc, 4, 1);
       px(mid - 3, my + 1, lc, 1, 1); px(mid + 2, my + 1, lc, 1, 1);
+      px(mid - 1, my + 1, 'rgba(68, 30, 28, 0.55)', 2, 1);
     } else if (expr === 'soft') {
       px(mid - 2, my + 1, lc, 4, 1); px(mid - 3, my, lc, 1, 1); px(mid + 2, my, lc, 1, 1);
     } else {
@@ -894,6 +959,8 @@ export function createActorCelMaterial(): THREE.ShaderMaterial {
   const mat = new THREE.ShaderMaterial({
     uniforms: {
       uLightDir: ACTOR_CEL_LIGHT,
+      uSceneTint: ACTOR_CEL_TINT,
+      uSceneShadow: ACTOR_CEL_SHADOW,
       uEmissive,
     },
     vertexShader: /* glsl */ `
@@ -924,6 +991,8 @@ export function createActorCelMaterial(): THREE.ShaderMaterial {
     `,
     fragmentShader: /* glsl */ `
       uniform vec3 uLightDir;
+      uniform vec3 uSceneTint;
+      uniform vec3 uSceneShadow;
       uniform vec3 uEmissive;
       varying vec3 vColor;
       varying vec3 vWorldN;
@@ -938,19 +1007,19 @@ export function createActorCelMaterial(): THREE.ShaderMaterial {
         float wrap = ndl * 0.5 + 0.5;
         float band1 = smoothstep(0.36, 0.52, wrap);
         float band2 = smoothstep(0.68, 0.84, wrap);
-        float lit = mix(0.64, 0.90, band1) + 0.14 * band2;
+        float lit = mix(0.54, 0.90, band1) + 0.12 * band2;
         float shadowK = 1.0 - band1;
-        vec3 skinShadow = vec3(0.92, 0.68, 0.66);
-        vec3 coolShadow = vec3(0.76, 0.80, 0.96);
-        vec3 hueShift = mix(vec3(1.0), mix(coolShadow, skinShadow, vSkin), shadowK * 0.52);
-        float aoFactor = mix(vAo, mix(1.0, vAo, 0.22), vSkin);
-        float skyBounce = (N.y * 0.5 + 0.5) * 0.08;
+        vec3 skinShadow = vec3(0.90, 0.69, 0.67);
+        vec3 hueShift = mix(vec3(1.0), mix(uSceneShadow, skinShadow, vSkin), shadowK * 0.52);
+        float aoFactor = mix(vAo, mix(1.0, vAo, 0.25), vSkin);
+        float skyBounce = (N.y * 0.5 + 0.5) * 0.07;
         float fres = pow(1.0 - max(dot(N, V), 0.0), 2.6);
-        float rimMask = smoothstep(0.38, 0.72, fres) * smoothstep(-0.2, 0.55, ndl + 0.35);
-        vec3 rimCol = mix(vec3(0.86, 0.92, 1.0), vec3(1.0, 0.93, 0.86), vSkin);
+        float rimMask = smoothstep(0.40, 0.74, fres) * smoothstep(-0.2, 0.55, ndl + 0.35);
+        vec3 rimCol = mix(vec3(0.84, 0.90, 0.98), vec3(0.98, 0.92, 0.85), vSkin);
         vec3 base = vColor * hueShift * (lit * aoFactor + skyBounce);
-        base += vColor * (0.07 * vSkin);
-        base += rimCol * (rimMask * (0.18 + 0.08 * (1.0 - vSkin)));
+        base += vColor * (0.04 * vSkin);
+        base += rimCol * (rimMask * (0.16 + 0.06 * (1.0 - vSkin)));
+        base *= uSceneTint;
         base += uEmissive;
         gl_FragColor = vec4(base, 1.0);
         #include <tonemapping_fragment>
@@ -1194,6 +1263,7 @@ export function buildSmoothCelRig(
           uniforms: {
             uMap: { value: tex },
             uLightDir: ACTOR_CEL_LIGHT,
+            uSceneTint: ACTOR_CEL_TINT,
           },
           vertexShader: /* glsl */ `
             attribute vec3 aSmoothN;
@@ -1211,6 +1281,7 @@ export function buildSmoothCelRig(
           fragmentShader: /* glsl */ `
             uniform sampler2D uMap;
             uniform vec3 uLightDir;
+            uniform vec3 uSceneTint;
             varying vec2 vUv;
             varying vec3 vWorldN;
             void main() {
@@ -1221,19 +1292,24 @@ export function buildSmoothCelRig(
               float wrap = dot(N, L) * 0.5 + 0.5;
               float band1 = smoothstep(0.36, 0.52, wrap);
               float band2 = smoothstep(0.68, 0.84, wrap);
-              float lit = mix(0.64, 0.90, band1) + 0.14 * band2;
+              float lit = mix(0.54, 0.90, band1) + 0.12 * band2;
               float shadowK = 1.0 - band1;
-              vec3 hueShift = mix(vec3(1.0), vec3(0.92, 0.68, 0.66), shadowK * 0.45);
-              gl_FragColor = vec4(texel.rgb * hueShift * (lit + 0.06), texel.a);
+              vec3 hueShift = mix(vec3(1.0), vec3(0.90, 0.69, 0.67), shadowK * 0.45);
+              gl_FragColor = vec4(texel.rgb * hueShift * (lit + 0.04) * uSceneTint, texel.a);
               #include <tonemapping_fragment>
               #include <colorspace_fragment>
             }
           `,
           transparent: true,
           depthWrite: false,
-          polygonOffset: true,
-          polygonOffsetFactor: -1,
-          polygonOffsetUnits: -1,
+          // Preserve destination alpha (1.0) so semi-transparent face shading never trips post.ts occlusion-outline checks.
+          blending: THREE.CustomBlending,
+          blendEquation: THREE.AddEquation,
+          blendSrc: THREE.SrcAlphaFactor,
+          blendDst: THREE.OneMinusSrcAlphaFactor,
+          blendEquationAlpha: THREE.AddEquation,
+          blendSrcAlpha: THREE.ZeroFactor,
+          blendDstAlpha: THREE.OneFactor,
         });
 
         const mesh = new THREE.Mesh(sharedGeo, mat);

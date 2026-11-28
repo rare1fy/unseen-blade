@@ -44,6 +44,8 @@ export abstract class Actor {
         if (!clones.has(src)) {
           const c = src.clone();
           if (src.uniforms.uLightDir) c.uniforms.uLightDir = src.uniforms.uLightDir;
+          if (src.uniforms.uSceneTint) c.uniforms.uSceneTint = src.uniforms.uSceneTint;
+          if (src.uniforms.uSceneShadow) c.uniforms.uSceneShadow = src.uniforms.uSceneShadow;
           c.userData.uEmissive = c.uniforms.uEmissive;
           clones.set(src, c);
           this.flashUniforms.push({ u: c.uniforms.uEmissive.value as THREE.Color, base: new THREE.Color(0, 0, 0) });
