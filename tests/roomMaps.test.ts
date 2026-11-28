@@ -11,7 +11,7 @@ import { TUNE } from '../src/present/act/tune';
 import { VoxWorld } from '../src/present/look/voxkit';
 import type { Ctx } from '../src/present/scenes/stage';
 import { LUOYANG_LOCALES } from '../src/present/asm/luoyang';
-import { FloorGrid, FLOOR, PIT, OUT, PLAT_H, type ShapePlan } from '../src/present/asm/roomShape';
+import { FloorGrid, FLOOR, PIT, OUT, LOW_PLAT_H, PLAT_H, type ShapePlan } from '../src/present/asm/roomShape';
 import { ROOM_MAPS, MAP_BY_ID, mapShape, mapStage, MAP_CELL, drawnExits, pickMap } from '../src/present/asm/roomMaps';
 import { REGIONS } from '../src/present/act/regions';
 import { RoomPieces } from '../src/present/act/puzzles';
@@ -19,6 +19,8 @@ import { BreakLogic } from '../src/present/act/breakLogic';
 import { fxRing, fxEmbers } from '../src/present/fx/fx';
 import '../src/present/asm/luoyang/arena_palace';
 import { arenaPlan, coverVox } from '../src/present/asm/arena';
+import { buildShape } from '../src/present/asm/shapeBuild';
+import { floatingCells } from '../src/present/asm/check';
 import { LAYOUTS } from '../src/present/asm/layouts';
 import { rndOf, stageLayout } from '../src/present/asm/assemble';
 import { withExits, exitInfo, type ExitId } from '../src/present/asm/exits';
@@ -116,7 +118,7 @@ describe('drawn rooms', () => {
     it(`${m.name} (${m.id}): the map is sound`, () => {
       const W = m.rows[0].length;
       for (const r of m.rows) expect(r.length).toBe(W);
-      for (const r of m.rows) for (const ch of r) expect('#.~=-wDG?XSEBCo0jt!brWP$^/:').toContain(ch);
+      for (const r of m.rows) for (const ch of r) expect('#.~=-wDG?XSEBCo0jt!brWP$^/+:').toContain(ch);
       expect(m.rows.join('').split('S').length - 1).toBe(1);
       mapStage(m);
       expect(PLAY.x1 - PLAY.x0).toBeCloseTo(W * MAP_CELL, 2); expect(PLAY.z1 - PLAY.z0).toBeCloseTo(m.rows.length * MAP_CELL, 2);
@@ -463,5 +465,67 @@ describe('drawn rooms', () => {
     mill.update(1.6, new THREE.Vector3(msx, 0, msz), true);
     expect(mill.grid.reach(msx, msz).has(cellOf(mill.grid, sluicePrize.x, sluicePrize.z))).toBe(true);
     mill.dispose();
+  });
+
+  it('maintains varied map sizes, balanced Z-axis ratio, dual-height terraces, and merged wide staircases', () => {
+    const fights = ROOM_MAPS.filter(m => m.kind === 'fight');
+    const widths = fights.map(m => m.rows[0].length);
+    const heights = fights.map(m => m.rows.length);
+    // Size diversity: must span compact S-tier (<=15) through expansive W/L/XL (>=22) while staying safely within voxel key bounds (<=24)
+    expect(Math.min(...widths)).toBeLessThanOrEqual(15);
+    expect(Math.max(...widths)).toBeGreaterThanOrEqual(22);
+    expect(Math.max(...widths)).toBeLessThanOrEqual(24);
+    expect(Math.min(...heights)).toBeLessThanOrEqual(14);
+    expect(Math.max(...heights)).toBeGreaterThanOrEqual(22);
+    expect(Math.max(...heights)).toBeLessThanOrEqual(23);
+
+    // Balanced Z-axis: not every room forces platforms — must include flat rooms, single-tier architectural terraces, AND multi-tier rooms
+    let flat = 0, singleTier = 0, multiTier = 0;
+    for (const m of fights) {
+      mapStage(m);
+      const sp = mapShape(m);
+      const hasLow = !!sp.platforms?.some(p => (p.h ?? PLAT_H) <= LOW_PLAT_H + 0.05);
+      const hasHigh = !!sp.platforms?.some(p => (p.h ?? PLAT_H) > LOW_PLAT_H + 0.05);
+      if (!hasLow && !hasHigh) flat++;
+      else if (hasLow && hasHigh) multiTier++;
+      else singleTier++;
+    }
+    expect(flat).toBeGreaterThanOrEqual(10);
+    expect(singleTier).toBeGreaterThanOrEqual(14);
+    expect(multiTier).toBeGreaterThanOrEqual(8);
+
+    // Verify dual-height groundAt + merged grand stairs on Cangdaoge (cx_hall) & Fallen Hall (fallen_hall)
+    for (const id of ['fallen_hall', 'cx_hall', 'baimen', 'wl_flagship', 'mint']) {
+      const m = MAP_BY_ID[id]; mapStage(m);
+      const sp = mapShape(m);
+      const g = new FloorGrid(sp);
+      expect(sp.platforms?.some(p => Math.abs((p.h ?? PLAT_H) - LOW_PLAT_H) < 0.05), `${id} low terrace`).toBe(true);
+      expect(sp.platforms?.some(p => Math.abs((p.h ?? PLAT_H) - PLAT_H) < 0.05), `${id} high terrace`).toBe(true);
+      expect(sp.ramps?.some(r => Math.max(r.x1 - r.x0, r.z1 - r.z0) >= MAP_CELL * 2 - 0.05), `${id} merged grand stair`).toBe(true);
+      if (sp.fixed?.boss) {
+        const [bx, bz] = sp.fixed.boss;
+        expect(g.groundAt(bx, bz)).toBeGreaterThan(0.5);
+      }
+    }
+
+    // Voxel integrity & coordinate-bounds audit across all 5 regional styles, all 4 bosses, and largest W/L/XL maps
+    for (const id of ['hj_market', 'courtyards', 'fallen_hall', 'palace_road', 'mint', 'baimen', 'xp_bellwall', 'wl_chains', 'wl_flagship', 'cx_vault_wing', 'cx_lotus', 'cx_hall']) {
+      const m = MAP_BY_ID[id]; mapStage(m);
+      const sp = mapShape(m);
+      const layout = withExits(stageLayout(LAYOUTS.axis), ['back'], sp.fixed);
+      const plan = arenaPlan(layout, ['back'], m.seed, m.locale, m.kind, sp);
+      const w = new VoxWorld(CELL, true);
+      // Seed floor slab under PLAY so floatingCells checks every platform, stair, piling & wall voxel against ground
+      w.box(M(PLAY.x0) - 8, -1, M(PLAY.z0) - 8, M(PLAY.x1) + 8, -1, M(PLAY.z1) + 8, 0x555555);
+      const noopCtx = { w, cut: new VoxWorld(CELL, true), add() {}, ambient() {}, earthHole() {}, light() {}, flame() {}, water() {} } as unknown as Ctx;
+      buildShape(noopCtx, sp, plan, m.seed);
+      const fl = floatingCells(w.cells);
+      expect(fl.count, `${id} floating cells: ${JSON.stringify(fl.sample)}`).toBe(0);
+      // Verify PLAY & AREA stay safely within VoxWorld [-512, 511] key bounds
+      expect(Math.abs(M(PLAY.x0))).toBeLessThan(400);
+      expect(Math.abs(M(PLAY.x1))).toBeLessThan(400);
+      expect(Math.abs(M(PLAY.z0))).toBeLessThan(400);
+      expect(Math.abs(M(PLAY.z1))).toBeLessThan(400);
+    }
   });
 });

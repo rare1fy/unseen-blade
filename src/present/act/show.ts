@@ -4825,11 +4825,12 @@ export class ActShow {
       for (let t = 0; t < 24; t++) {
         const pl = gd.sp.platforms[(i + t) % gd.sp.platforms.length];
         if (pl.x1 - pl.x0 < 1.5 || pl.z1 - pl.z0 < 1.5) continue;
-        const cand = V3(R(pl.x0 + 0.65, pl.x1 - 0.65), PLAT_H, R(pl.z0 + 0.65, pl.z1 - 0.65));
+        const plY = pl.h ?? PLAT_H;
+        const cand = V3(R(pl.x0 + 0.65, pl.x1 - 0.65), plY, R(pl.z0 + 0.65, pl.z1 - 0.65));
         const d = Math.hypot(cand.x - hp.x, cand.z - hp.z);
         if (d > 3.8 && gd.clear(cand.x, cand.z, 0.55) && (sz < 0 || this.pieces!.zoneAt(cand.x, cand.z) === sz)
           && this.foes.every(f => Math.hypot(f.pos.x - cand.x, f.pos.z - cand.z) > 1.35)
-          && this.solids.free(cand.x, cand.z, 0.55, 0.25, PLAT_H)) {
+          && this.solids.free(cand.x, cand.z, 0.55, 0.25, plY)) {
           p.copy(cand);
           placedHigh = true;
           break;
@@ -4853,10 +4854,10 @@ export class ActShow {
     const f = spawnFoe(ko.kind, way ? way.from : p, hp.clone(), ko.elite); this.foes.push(f);
     // act-125: Bosses NEVER pop out of thin air mid-room — they descend with a ground-warning vortex & heavy landing shockwave!
     if (bs && this.prologue !== 2) {
-      f.pos.set(p.x, 11.5, p.z); f.a.root.position.copy(f.pos); f.a.root.visible = false;
+      f.pos.set(p.x, p.y + 11.5, p.z); f.a.root.position.copy(f.pos); f.a.root.visible = false;
       f.st = 'enter'; f.t = 0; f.dur = 1.2; f.inv = 1.4; f.cd = 1.4;
       const ring = new THREE.Mesh(new THREE.RingGeometry(0.4, 2.2, 24).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xff5a2c, transparent: true, opacity: 0.75, depthWrite: false, blending: THREE.AdditiveBlending }));
-      ring.position.set(p.x, 0.08, p.z); ring.renderOrder = 4; this.stage?.root.add(ring);
+      ring.position.set(p.x, p.y + 0.08, p.z); ring.renderOrder = 4; this.stage?.root.add(ring);
       this.bossDrops.push({ f, at: p.clone(), t: 0, ring, deferred: deferredBoss, onLand: null });
       this.bossLookT = Math.max(this.bossLookT, 3.0);
       cue('whoosh', 0.85);
@@ -4896,6 +4897,7 @@ export class ActShow {
       d.t += dt;
       f.st = 'enter'; f.t = 0; f.dur = 0.35; f.inv = 0.4; f.vel.set(0, 0, 0);
       const rm = d.ring.material as THREE.MeshBasicMaterial;
+      const baseY = d.at.y;
       if (d.t < WARN) {
         const k = d.t / WARN;
         f.a.root.visible = false;
@@ -4905,29 +4907,29 @@ export class ActShow {
       } else if (d.t < TOTAL) {
         const k = (d.t - WARN) / DROP;
         f.a.root.visible = true;
-        f.pos.set(d.at.x, 11.5 * (1 - k * k), d.at.z);
+        f.pos.set(d.at.x, baseY + 11.5 * (1 - k * k), d.at.z);
         f.a.root.position.copy(f.pos);
         f.yaw = Math.atan2(this.hero.pos.x - d.at.x, this.hero.pos.z - d.at.z); f.a.yaw = f.yaw;
         d.ring.scale.setScalar(0.8 + 0.4 * k); rm.opacity = 0.9;
       } else {
         // Poised snow-wind arrival for Cui Xuan vs thunderous heavy landing for brute bosses
         f.a.root.visible = true;
-        f.pos.set(d.at.x, 0, d.at.z); f.a.root.position.copy(f.pos); f.inv = 0.2; f.cd = 0.7;
+        f.pos.set(d.at.x, baseY, d.at.z); f.a.root.position.copy(f.pos); f.inv = 0.2; f.cd = 0.7;
         d.ring.parent?.remove(d.ring); d.ring.geometry.dispose(); rm.dispose();
         this.bossDrops.splice(i, 1);
         if (f.kind === 'cx_boss') {
           cue('snowWind', 0.95); cue('bladeChorus', 0.8); cue('land', 0.7);
           shake(0.24 * TUNE.shake); this.camPunch(0.04);
-          fxRing(d.at.clone().setY(0.1), 0xe6f0ff, 3.8, { life: 0.55 } as never);
-          fxSmoke(d.at.clone().setY(0.35), 0xdce6f4, 14, { r: 1.4, spd: 2.4, up: 0.8, s: 0.5, life: 0.8 });
-          fxSparks(d.at.clone().setY(0.4), 0xfff0c0, 16, 5.2);
+          fxRing(d.at.clone().setY(baseY + 0.1), 0xe6f0ff, 3.8, { life: 0.55 } as never);
+          fxSmoke(d.at.clone().setY(baseY + 0.35), 0xdce6f4, 14, { r: 1.4, spd: 2.4, up: 0.8, s: 0.5, life: 0.8 });
+          fxSparks(d.at.clone().setY(baseY + 0.4), 0xfff0c0, 16, 5.2);
         } else {
           cue('pillarFall', 0.9); cue('boom', 0.65); this.bossEnterSound(f.kind);
           shake(0.48 * TUNE.shake); this.camPunch(0.06);
-          fxShock(d.at.clone().setY(0.08), 0xff9a4a, 3.6, { life: 0.45 });
-          fxRing(d.at.clone().setY(0.1), 0xffe2a0, 4.2, { life: 0.5 } as never);
-          fxSmoke(d.at.clone().setY(0.4), 0x7a6a5a, 16, { r: 1.4, spd: 2.8, up: 1.0, s: 0.55, life: 0.85 });
-          fxSparks(d.at.clone().setY(0.35), 0xffd078, 22, 6.5);
+          fxShock(d.at.clone().setY(baseY + 0.08), 0xff9a4a, 3.6, { life: 0.45 });
+          fxRing(d.at.clone().setY(baseY + 0.1), 0xffe2a0, 4.2, { life: 0.5 } as never);
+          fxSmoke(d.at.clone().setY(baseY + 0.4), 0x7a6a5a, 16, { r: 1.4, spd: 2.8, up: 1.0, s: 0.55, life: 0.85 });
+          fxSparks(d.at.clone().setY(baseY + 0.35), 0xffd078, 22, 6.5);
         }
         if (d.onLand) d.onLand();
         else if (!d.deferred) {
@@ -5158,7 +5160,7 @@ export class ActShow {
       f.a.root.visible = true;
       const landY = this.grid ? this.grid.groundAt(e.land.x, e.land.z) : 0;
       const toY = this.grid ? this.grid.groundAt(e.to.x, e.to.z) : 0;
-      const T = e.t, W = e.wall + (landY > 0.5 ? PLAT_H : 0);
+      const T = e.t, W = e.wall + landY;
       const runDist = Math.hypot(e.to.x - e.land.x, e.to.z - e.land.z), runDur = runDist > 0.35 ? Math.min(0.85, runDist / 4.8) : 0;
       f.vel.set(0, 0, 0);
       f.st = 'enter'; f.t = 0; f.dur = 0.35; f.cd = Math.max(f.cd, 0.65); f.inv = Math.max(f.inv, 0.18);

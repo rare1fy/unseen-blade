@@ -6,7 +6,7 @@ import { CELL } from '../bestiary/kit';
 import { M, GRID } from '../scenes/props';
 import type { Ctx } from '../scenes/stage';
 import type { Rect } from './types';
-import { FloorGrid, FLOOR, OUT, PIT, PLAT_H, type PitKind, type RampRect, type ShapePlan } from './roomShape';
+import { FloorGrid, FLOOR, OUT, PIT, LOW_PLAT_H, PLAT_H, type PitKind, type PlatformRect, type RampRect, type ShapePlan } from './roomShape';
 import { wallPiece, gateFrame, southGateFrame, WALL, SOUTH_WALL_H, wallHOf, type ArenaPlan, type WallStyle } from './arena';
 import { castPit } from './luoyang/molten';
 import { LY, palaceWall, frame } from './luoyang/ly_kit';
@@ -80,14 +80,16 @@ export function buildShape(c: Ctx, sp: ShapePlan, plan: ArenaPlan, seed: number)
     const a0 = (run.along === 'x' ? cX(run.a0) : cZ(run.a0)) - (run.e0 ? T : 0), a1 = (run.along === 'x' ? cX(run.a1 + 1) : cZ(run.a1 + 1)) - 1 + (run.e1 ? T : 0);
     // act-189: camera-side outer south border stands chest-high (Hfront = 1.19 m) to physically block the player without hiding combat;
     // interior & north/east/west walls stand at full height (H = 2.45 m, or low-by-nature styles).
-    // Raise any wall run bordering an elevated platform (^, +1.12 m = 16 cells) so perimeter walls/rails stay chest-to-head high above the deck!
-    let touchesHigh = false;
+    // Raise any wall run bordering an elevated platform (+ 0.56 m or ^ 1.12 m) so perimeter walls stay flush above the deck!
+    let maxPlatCells = 0;
     for (let idx = run.a0; idx <= run.a1; idx++) {
       const ci = run.along === 'x' ? idx : (run.out < 0 ? run.line : run.line - 1);
       const cj = run.along === 'x' ? (run.out < 0 ? run.line : run.line - 1) : idx;
-      if (g.elevAt(ci, cj) === 2) { touchesHigh = true; break; }
+      const ev = g.elevAt(ci, cj);
+      if (ev === 4) maxPlatCells = Math.max(maxPlatCells, M(PLAT_H));
+      else if (ev === 2) maxPlatCells = Math.max(maxPlatCells, M(LOW_PLAT_H));
     }
-    const h = (run.front ? Hfront : H) + (touchesHigh ? M(PLAT_H) : 0); void low; void LOW;
+    const h = (run.front ? Hfront : H) + maxPlatCells; void low; void LOW;
     const runGaps = gaps(run);
     let southGateX: number | null = null;
     if (run.front && !placedSouthGate && a1 - a0 >= entHalf * 2 + 10) {
@@ -137,7 +139,9 @@ export function buildShape(c: Ctx, sp: ShapePlan, plan: ArenaPlan, seed: number)
     const k = sp.pits.find(p => p.x0 <= q.x0 + 0.1 && p.x1 >= q.x1 - 0.1 && p.z0 <= q.z0 + 0.1 && p.z1 >= q.z1 - 0.1)?.kind;
     steppingStone(box, q, k === 'molten' || k === 'ditch' ? k : 'water', plan.style);
   }
-  for (const q of sp.platforms ?? []) platform(box, q, sp, plan.style);
+  // Build high platforms before low platforms so lower decks cleanly abut higher masonry, then broad stairs last
+  const plats = (sp.platforms ?? []).slice().sort((a, b) => (b.h ?? PLAT_H) - (a.h ?? PLAT_H));
+  for (const q of plats) platform(box, q, sp, plan.style, g);
   for (const q of sp.ramps ?? []) ramp(box, q, plan.style);
 }
 
@@ -285,70 +289,260 @@ function steppingStone(box: B, q: Rect, kind: 'water' | 'ditch' | 'molten', st: 
   }
 }
 
-/** Elevated 3D voxel terrace / battlement (^, height = PLAT_H = 1.12 m = 16 cells: y = 0..15) */
-function platform(box: B, q: Rect, sp: ShapePlan, st: WallStyle) {
+/**
+ * Regional architectural 3D voxel terrace / dais (+ 0.56m = 8 cells, ^ 1.12m = 16 cells).
+ * Five distinct regional constructions (strictly axis-aligned 7cm voxels, zero diagonal stairs, zero floating cells):
+ * - earth / wattle (黄巾残村·麦田): layered rammed-earth courses + timber tie-beams & corner posts + sleeper-framed earthen deck
+ * - palace (洛阳焦土): Han imperial Xumizuo (须弥座下枋/束腰/上枭) + ashlar flagstones + scorched crimson column plinths
+ * - sandbag / brick (下邳寒沼): wet grey city-wall brick courses + frost coping + low parapet curb / iron mooring bollards
+ * - rail / stockade (锁江乌林): elevated ship-plank deck on heavy vertical timber pilings & cross-girders (recessed shadow bay underneath!)
+ * - plaster (许都崔府): dressed blue-grey granite dado + snow-white marble coping + slate courtyard tiles & white-stone newel caps
+ */
+function platform(box: B, q: PlatformRect, sp: ShapePlan, st: WallStyle, g: FloorGrid) {
   const X0 = M(q.x0), X1 = M(q.x1) - 1, Z0 = M(q.z0), Z1 = M(q.z1) - 1;
-  const HP = M(PLAT_H) - 1; // 15 -> top deck surface at (15 + 1) * 0.07 = 1.12 m
-  const timber = st === 'rail' || st === 'stockade' || st === 'wattle';
-  const warm = st === 'earth' || st === 'wattle';
-  const pal = st === 'palace'
-    ? { base: LY.stoneDD, wall: LY.stoneD, mid: LY.stone, top: 0xb2aa9e, line: LY.stoneDD, post: LY.char }
-    : timber
-      ? { base: PAL.stoneD, wall: PAL.woodD, mid: PAL.wood, top: PAL.woodL, line: PAL.woodD, post: PAL.post }
-      : warm
-        ? { base: PAL.bankD, wall: PAL.bank, mid: PAL.stone, top: PAL.stoneL, line: PAL.stoneD, post: PAL.post }
-        : { base: PAL.stoneW, wall: PAL.stoneD, mid: PAL.stone, top: PAL.stoneL, line: PAL.stoneD, post: PAL.stoneW };
-
-  // Extend foundation piers down into adjacent pits so canal-side terraces never float above water
+  const H = q.h ?? PLAT_H;
+  const HP = M(H) - 1; // 7 for 0.56m low terrace, 15 for 1.12m high terrace
+  const isHigh = HP >= 12;
   const touchesPit = sp.pits.some(p => p.x0 < q.x1 + 0.15 && p.x1 > q.x0 - 0.15 && p.z0 < q.z1 + 0.15 && p.z1 > q.z0 - 0.15);
-  box(X0, touchesPit ? -13 : -1, Z0, X1, 2, Z1, pal.base);
-  // Main structural body (recessed 1 cell under the overhanging coping rim on free edges)
-  box(X0 + 1, 3, Z0 + 1, X1 - 1, HP - 2, Z1 - 1, pal.wall);
-  box(X0, 3, Z0, X1, 4, Z1, pal.base);
-  // Crisp vertical pilaster / timber-crib ribs every 14 cells (~0.98 m) so cliff faces read clearly as climbable/jumpable architecture
-  for (let x = X0 + 2; x <= X1 - 3; x += 14) {
-    box(x, 3, Z0, x + 1, HP - 2, Z0 + 1, pal.post);
-    box(x, 3, Z1 - 1, x + 1, HP - 2, Z1, pal.post);
+  const bot = touchesPit ? -13 : -1;
+
+  // Determine which edges face open lower floor/pit vs solid architecture (#) or equal/higher terraces
+  const edgeOpen = (samples: Array<[number, number]>) => samples.some(([wx, wz]) => {
+    if (wx <= sp.box.x0 + 0.05 || wx >= sp.box.x1 - 0.05 || wz <= sp.box.z0 + 0.05 || wz >= sp.box.z1 - 0.05) return false;
+    const k = g.at(wx, wz);
+    if (k === OUT) return false;
+    if (k === PIT) return true;
+    return g.groundAt(wx, wz) < H - 0.12;
+  });
+  const xm = (q.x0 + q.x1) * 0.5, zm = (q.z0 + q.z1) * 0.5;
+  const openN = edgeOpen([[q.x0 + 0.6, q.z0 - 0.3], [xm, q.z0 - 0.3], [q.x1 - 0.6, q.z0 - 0.3]]);
+  const openS = edgeOpen([[q.x0 + 0.6, q.z1 + 0.3], [xm, q.z1 + 0.3], [q.x1 - 0.6, q.z1 + 0.3]]);
+  const openW = edgeOpen([[q.x0 - 0.3, q.z0 + 0.6], [q.x0 - 0.3, zm], [q.x0 - 0.3, q.z1 - 0.6]]);
+  const openE = edgeOpen([[q.x1 + 0.3, q.z0 + 0.6], [q.x1 + 0.3, zm], [q.x1 + 0.3, q.z1 - 0.6]]);
+
+  const cornerFree = (wx: number, wz: number, sx: -1 | 1, sz: -1 | 1) => {
+    const nearRamp = !!sp.ramps?.some(r => wx > r.x0 - 0.45 && wx < r.x1 + 0.45 && wz > r.z0 - 0.45 && wz < r.z1 + 0.45);
+    if (nearRamp) return false;
+    const ax = wx + sx * 0.32, az = wz - sz * 0.45;
+    const bx = wx - sx * 0.45, bz = wz + sz * 0.32;
+    const lowerAt = (px: number, pz: number) =>
+      px > sp.box.x0 + 0.05 && px < sp.box.x1 - 0.05 && pz > sp.box.z0 + 0.05 && pz < sp.box.z1 - 0.05
+      && g.at(px, pz) !== OUT && (g.at(px, pz) === PIT || g.groundAt(px, pz) < H - 0.12);
+    return lowerAt(ax, az) && lowerAt(bx, bz);
+  };
+  const corners: Array<[number, number, number, number, -1 | 1, -1 | 1]> = [
+    [X0, Z0, q.x0, q.z0, -1, -1],
+    [X1 - 2, Z0, q.x1, q.z0, 1, -1],
+    [X0, Z1 - 2, q.x0, q.z1, -1, 1],
+    [X1 - 2, Z1 - 2, q.x1, q.z1, 1, 1],
+  ];
+
+  // ---------------------------------------------------------------- 4. 锁江乌林: 架空原木排桩高甲板 / 舷楼
+  if (st === 'rail' || st === 'stockade') {
+    const hullDark = 0x261c14, beamCol = 0x3b2a1c, plankD = 0x503a26, plankM = 0x6c5036, plankL = 0x8a6a4a, iron = 0x363a42;
+    // Recessed dark under-deck crib / hull shadow bay so outer timber pilings clearly read as an elevated pier/deck!
+    const ix0 = X0 + (openW ? 3 : 0), ix1 = X1 - (openE ? 3 : 0), iz0 = Z0 + (openN ? 3 : 0), iz1 = Z1 - (openS ? 3 : 0);
+    if (ix1 > ix0 && iz1 > iz0) box(ix0, bot, iz0, ix1, Math.max(1, HP - 4), iz1, hullDark);
+    // Grounded heavy vertical timber pilings (3×3 cells) along every exposed perimeter & interior grid so nothing floats
+    const pileXs: number[] = [];
+    for (let x = X0; x <= X1 - 2; x += 18) pileXs.push(x);
+    if (pileXs[pileXs.length - 1] < X1 - 5) pileXs.push(X1 - 2);
+    const pileZs: number[] = [];
+    for (let z = Z0; z <= Z1 - 2; z += 18) pileZs.push(z);
+    if (pileZs[pileZs.length - 1] < Z1 - 5) pileZs.push(Z1 - 2);
+    for (const x of pileXs) for (const z of pileZs) {
+      if (x !== pileXs[0] && x !== pileXs[pileXs.length - 1] && z !== pileZs[0] && z !== pileZs[pileZs.length - 1]) continue;
+      box(x, bot, z, Math.min(X1, x + 2), HP - 2, Math.min(Z1, z + 2), beamCol);
+      if (touchesPit) box(x, -8, z, Math.min(X1, x + 2), -8, Math.min(Z1, z + 2), PAL.waterL);
+    }
+    // Heavy horizontal stringer girders directly supporting the deck planks
+    const girderY0 = Math.max(2, HP - 4);
+    box(X0, girderY0, Z0, X1, HP - 3, Z1, beamCol);
+    // Longitudinal ship-plank deck (HP-2..HP)
+    box(X0, HP - 2, Z0, X1, HP - 1, Z1, plankD);
+    box(X0, HP, Z0, X1, HP, Z1, plankM);
+    for (let x = X0 + 4; x < X1 - 2; x += 5) box(x, HP, Z0 + 1, x, HP, Z1 - 1, plankD);
+    // Pale gunwale trim along free edges & iron tie-plates at girder joints
+    if (openN) box(X0, HP, Z0, X1, HP, Z0 + 1, plankL);
+    if (openS) box(X0, HP, Z1 - 1, X1, HP, Z1, plankL);
+    if (openW) box(X0, HP, Z0, X0 + 1, HP, Z1, plankL);
+    if (openE) box(X1 - 1, HP, Z0, X1, HP, Z1, plankL);
+    for (const x of pileXs) {
+      if (openS) box(x, HP - 3, Z1, Math.min(X1, x + 2), HP - 2, Z1, iron);
+      if (openN) box(x, HP - 3, Z0, Math.min(X1, x + 2), HP - 2, Z0, iron);
+    }
+    // Sturdy timber mooring bitts only on exposed corners
+    for (const [cx, cz, wx, wz, sx, sz] of corners) {
+      if (!cornerFree(wx, wz, sx, sz)) continue;
+      box(cx, HP + 1, cz, cx + 2, HP + (isHigh ? 3 : 2), cz + 2, beamCol);
+      box(cx, HP + (isHigh ? 3 : 2), cz, cx + 2, HP + (isHigh ? 3 : 2), cz + 2, plankL);
+    }
+    return;
   }
-  for (let z = Z0 + 2; z <= Z1 - 3; z += 14) {
-    box(X0, 3, z, X0 + 1, HP - 2, z + 1, pal.post);
-    box(X1 - 1, 3, z, X1, HP - 2, z + 1, pal.post);
-  }
-  // Overhanging coping rim & paved deck surface (y = HP-1..HP)
-  box(X0, HP - 1, Z0, X1, HP, Z1, pal.top);
-  box(X0 + 2, HP, Z0 + 2, X1 - 2, HP, Z1 - 2, pal.mid);
-  if (timber) {
-    for (let x = X0 + 4; x < X1 - 2; x += 5) box(x, HP, Z0 + 2, x, HP, Z1 - 2, pal.line);
-  } else {
-    for (let x = X0 + 14; x < X1 - 4; x += 14) box(x, HP, Z0 + 2, x, HP, Z1 - 2, pal.line);
-    for (let z = Z0 + 14; z < Z1 - 4; z += 14) box(X0 + 2, HP, z, X1 - 2, HP, z, pal.line);
-  }
-  // Subtle ankle-high corner stone/timber bollard caps (2 cells = 14 cm) where corners do not meet a ramp
-  const nearRamp = (wx: number, wz: number) => !!sp.ramps?.some(r => wx > r.x0 - 0.35 && wx < r.x1 + 0.35 && wz > r.z0 - 0.35 && wz < r.z1 + 0.35);
-  for (const [cx, wx] of [[X0, q.x0], [X1 - 2, q.x1]] as const) {
-    for (const [cz, wz] of [[Z0, q.z0], [Z1 - 2, q.z1]] as const) {
-      if (!nearRamp(wx, wz)) {
-        box(cx, HP + 1, cz, cx + 2, HP + 2, cz + 2, pal.post);
-        box(cx, HP + 2, cz, cx + 2, HP + 2, cz + 2, pal.top);
+
+  // ---------------------------------------------------------------- 2. 洛阳焦土: 皇城残殿须弥丹墀 (Xumizuo)
+  if (st === 'palace') {
+    const baseC = LY.stoneDD, waistC = LY.stoneD, panelC = 0x625a52, capC = 0xb8b0a2, deckC = LY.stone, grout = LY.stoneDD, crim = 0x6e2a20, crimD = 0x481a14;
+    // Lower stepped plinth (下枋)
+    box(X0, bot, Z0, X1, 2, Z1, baseC);
+    // Recessed Xumizuo waist (束腰) — inset 1 cell on exposed faces for dramatic imperial shadow line
+    const wx0 = X0 + (openW ? 1 : 0), wx1 = X1 - (openE ? 1 : 0), wz0 = Z0 + (openN ? 1 : 0), wz1 = Z1 - (openS ? 1 : 0);
+    if (HP > 4) {
+      box(wx0, 3, wz0, wx1, HP - 2, wz1, waistC);
+      // Rhythmic carved stone bracket pilasters along the recessed waist
+      for (let x = X0 + 4; x <= X1 - 5; x += 16) {
+        if (openS) box(x, 3, Z1 - 1, x + 3, HP - 3, Z1, panelC);
+        if (openN) box(x, 3, Z0, x + 3, HP - 3, Z0 + 1, panelC);
+      }
+      for (let z = Z0 + 4; z <= Z1 - 5; z += 16) {
+        if (openW) box(X0, 3, z, X0 + 1, HP - 3, z + 3, panelC);
+        if (openE) box(X1 - 1, 3, z, X1, HP - 3, z + 3, panelC);
       }
     }
+    // Overhanging pale limestone cornice (上枭 / 压顶)
+    box(X0, Math.max(3, HP - 1), Z0, X1, HP, Z1, capC);
+    box(X0 + 2, HP, Z0 + 2, X1 - 2, HP, Z1 - 2, deckC);
+    for (let x = X0 + 16; x < X1 - 4; x += 16) box(x, HP, Z0 + 2, x, HP, Z1 - 2, grout);
+    for (let z = Z0 + 16; z < Z1 - 4; z += 16) box(X0 + 2, HP, z, X1 - 2, HP, z, grout);
+    // Scorched broken crimson column plinths at exposed corners of high daises
+    if (isHigh) {
+      for (const [cx, cz, wx, wz, sx, sz] of corners) {
+        if (!cornerFree(wx, wz, sx, sz)) continue;
+        box(cx, HP + 1, cz, cx + 2, HP + 1, cz + 2, capC);
+        box(cx, HP + 2, cz, cx + 2, HP + 3, cz + 2, crim);
+        box(cx + 1, HP + 3, cz + 1, cx + 1, HP + 3, cz + 1, crimD);
+      }
+    }
+    return;
+  }
+
+  // ---------------------------------------------------------------- 5. 许都崔府: 覆雪青石白玉月台
+  if (st === 'plaster') {
+    const plinth = 0x3f454e, dado = 0x5c6470, joint = 0x434a54, marble = 0xd2d8e2, snow = 0xe8eef6, slate = 0x767f8c, slateL = 0x8a94a2;
+    box(X0, bot, Z0, X1, 1, Z1, plinth);
+    const wx0 = X0 + (openW ? 1 : 0), wx1 = X1 - (openE ? 1 : 0), wz0 = Z0 + (openN ? 1 : 0), wz1 = Z1 - (openS ? 1 : 0);
+    if (HP > 3) {
+      box(wx0, 2, wz0, wx1, HP - 2, wz1, dado);
+      // Clean horizontal dado mould + dressed granite block lines
+      if (isHigh) box(wx0, 7, wz0, wx1, 7, wz1, joint);
+      for (let x = X0 + 14; x < X1 - 3; x += 14) {
+        if (openS) box(x, 2, Z1 - 1, x, HP - 2, Z1 - 1, joint);
+        if (openN) box(x, 2, Z0 + 1, x, HP - 2, Z0 + 1, joint);
+      }
+    }
+    // Crisp snow-white marble coping rim
+    box(X0, Math.max(2, HP - 1), Z0, X1, HP, Z1, marble);
+    if (openN) box(X0, HP, Z0, X1, HP, Z0 + 1, snow);
+    if (openS) box(X0, HP, Z1 - 1, X1, HP, Z1, snow);
+    if (openW) box(X0, HP, Z0, X0 + 1, HP, Z1, snow);
+    if (openE) box(X1 - 1, HP, Z0, X1, HP, Z1, snow);
+    // Neat courtyard slate-stone deck tiles
+    box(X0 + 2, HP, Z0 + 2, X1 - 2, HP, Z1 - 2, slate);
+    for (let x = X0 + 14; x < X1 - 4; x += 14) box(x, HP, Z0 + 2, x, HP, Z1 - 2, joint);
+    for (let z = Z0 + 14; z < Z1 - 4; z += 14) box(X0 + 2, HP, z, X1 - 2, HP, z, joint);
+    for (let x = X0 + 4; x < X1 - 6; x += 28) for (let z = Z0 + 4; z < Z1 - 6; z += 28) {
+      box(x, HP, z, Math.min(X1 - 3, x + 9), HP, Math.min(Z1 - 3, z + 9), slateL);
+    }
+    // Refined carved white-marble newel caps on exposed corners
+    for (const [cx, cz, wx, wz, sx, sz] of corners) {
+      if (!cornerFree(wx, wz, sx, sz)) continue;
+      box(cx, HP + 1, cz, cx + 2, HP + 2, cz + 2, marble);
+      box(cx, HP + 2, cz, cx + 2, HP + 2, cz + 2, snow);
+    }
+    return;
+  }
+
+  // ---------------------------------------------------------------- 1. 黄巾残村·麦田: 夯土木构晒台 / 村口望台
+  if (st === 'earth' || st === 'wattle') {
+    const rubble = 0x52483c, earthD = 0x6e593e, earthM = 0x826a4a, earthL = 0x947a58, timberD = 0x453120, timberM = 0x5c422c, deck = 0x968262;
+    box(X0, bot, Z0, X1, 2, Z1, rubble);
+    // Horizontal layered rammed-earth courses (夯土层) — completely different from stone pilasters!
+    for (let y = 3; y <= HP - 2; y++) {
+      const band = Math.floor((y - 3) / 3) % 3;
+      box(X0, y, Z0, X1, y, Z1, band === 0 ? earthD : band === 1 ? earthM : earthL);
+    }
+    // Timber horizontal tie-beam (木枋) directly under deck + corner/bay rough timber posts
+    box(X0, Math.max(3, HP - 2), Z0, X1, HP - 1, Z1, timberD);
+    for (let x = X0; x <= X1 - 1; x += 20) {
+      if (openS) box(x, 2, Z1 - 1, Math.min(X1, x + 1), HP - 1, Z1, timberD);
+      if (openN) box(x, 2, Z0, Math.min(X1, x + 1), HP - 1, Z0 + 1, timberD);
+    }
+    for (let z = Z0; z <= Z1 - 1; z += 20) {
+      if (openW) box(X0, 2, z, X0 + 1, HP - 1, Math.min(Z1, z + 1), timberD);
+      if (openE) box(X1 - 1, 2, z, X1, HP - 1, Math.min(Z1, z + 1), timberD);
+    }
+    // Sleeper-framed packed earth & stone threshing floor
+    box(X0, HP, Z0, X1, HP, Z1, timberM);
+    box(X0 + 2, HP, Z0 + 2, X1 - 2, HP, Z1 - 2, deck);
+    for (let x = X0 + 14; x < X1 - 4; x += 14) box(x, HP, Z0 + 2, x, HP, Z1 - 2, earthM);
+    if (isHigh) {
+      for (const [cx, cz, wx, wz, sx, sz] of corners) {
+        if (!cornerFree(wx, wz, sx, sz)) continue;
+        box(cx, HP + 1, cz, cx + 1, HP + 2, cz + 1, timberD);
+      }
+    }
+    return;
+  }
+
+  // ---------------------------------------------------------------- 3. 下邳寒沼 (sandbag / brick): 青砖马面城台 / 冻港石埠
+  const wetBase = 0x3b4046, brickD = 0x52575e, brickM = 0x676d75, mortar = 0x43484e, frostCop = 0xa8b0ba, deckS = 0x7b8088, iron = 0x2e3238;
+  box(X0, bot, Z0, X1, 3, Z1, wetBase);
+  if (touchesPit) box(X0, -8, Z0, X1, -8, Z1, PAL.waterL);
+  if (HP > 4) {
+    box(X0, 4, Z0, X1, HP - 2, Z1, brickM);
+    for (let y = 6; y <= HP - 3; y += 3) box(X0, y, Z0, X1, y, Z1, mortar);
+    // Vertical brick pier quoins at wide bays
+    for (let x = X0 + 2; x <= X1 - 3; x += 18) {
+      if (openS) box(x, 3, Z1 - 1, x + 2, HP - 2, Z1, brickD);
+      if (openN) box(x, 3, Z0, x + 2, HP - 2, Z0 + 1, brickD);
+    }
+  }
+  // Frost-edged grey stone coping
+  box(X0, Math.max(3, HP - 1), Z0, X1, HP, Z1, frostCop);
+  box(X0 + 2, HP, Z0 + 2, X1 - 2, HP, Z1 - 2, deckS);
+  for (let x = X0 + 14; x < X1 - 4; x += 14) box(x, HP, Z0 + 2, x, HP, Z1 - 2, brickD);
+  for (let z = Z0 + 14; z < Z1 - 4; z += 14) box(X0 + 2, HP, z, X1 - 2, HP, z, brickD);
+  // Subtle ankle-high battlement merlon curb along exposed NORTH outer edge of high city-wall terraces (never on south camera side)
+  if (isHigh && openN && X1 - X0 >= 22) {
+    for (let x = X0 + 4; x <= X1 - 8; x += 14) {
+      box(x, HP + 1, Z0, x + 5, HP + 2, Z0 + 1, brickM);
+      box(x, HP + 2, Z0, x + 5, HP + 2, Z0 + 1, frostCop);
+    }
+  }
+  for (const [cx, cz, wx, wz, sx, sz] of corners) {
+    if (!cornerFree(wx, wz, sx, sz)) continue;
+    box(cx, HP + 1, cz, cx + 2, HP + 2, cz + 2, touchesPit ? iron : brickD);
+    box(cx, HP + 2, cz, cx + 2, HP + 2, cz + 2, frostCop);
   }
 }
 
-/** Four broad architectural steps (/, 4 treads × 4 cells high = 16 cells = 1.12 m) linking ground cleanly to an elevated platform */
+/**
+ * Architectural stepped stair / grand staircase (/, auto-merged across adjacent '/' cells).
+ * Adapts step count (2 broad treads for 0.56m rise, 4 for 1.12m rise) and regional stonework/timber craft,
+ * keeping cheek-curbs strictly on the outer left/right ends and carving a central spirit-way (御路丹陛) on grand palace stairs.
+ */
 function ramp(box: B, q: RampRect, st: WallStyle) {
   const X0 = M(q.x0), X1 = M(q.x1) - 1, Z0 = M(q.z0), Z1 = M(q.z1) - 1;
-  const HP = M(PLAT_H) - 1;
-  const timber = st === 'rail' || st === 'stockade' || st === 'wattle';
-  const body = timber ? PAL.woodD : st === 'palace' ? LY.stoneD : PAL.stoneD;
-  const tread = timber ? PAL.wood : st === 'palace' ? LY.stone : PAL.stone;
-  const nose = timber ? PAL.woodL : st === 'palace' ? 0xb2aa9e : PAL.stoneL;
-  box(X0, -1, Z0, X1, -1, Z1, body);
+  const h0 = q.h0 ?? 0, h1 = q.h1 ?? PLAT_H;
+  const Y0 = M(h0), Y1 = M(h1) - 1;
+  const rise = Math.max(4, Y1 - Y0 + 1);
+  const steps = rise <= 9 ? 2 : 4;
+  const timber = st === 'rail' || st === 'stockade';
+  const earth = st === 'earth' || st === 'wattle';
+  const palace = st === 'palace';
+  const plaster = st === 'plaster';
+  const body = timber ? 0x3b2a1c : earth ? 0x5c422c : palace ? LY.stoneD : plaster ? 0x5c6470 : 0x52575e;
+  const tread = timber ? 0x6c5036 : earth ? 0x8a7658 : palace ? LY.stone : plaster ? 0x86909e : 0x767c84;
+  const nose = timber ? 0x8a6a4a : earth ? 0xa08c6e : palace ? 0xc2bab0 : plaster ? 0xdce2ec : 0xa6aeb8;
+  const cheek = timber ? 0x453120 : earth ? 0x4e3926 : palace ? 0xb4aca0 : plaster ? 0xd0d6e0 : 0x676d75;
+  box(X0, -1, Z0, X1, Math.max(-1, Y0 - 1), Z1, body);
   const alongZ = q.dir === 'n' || q.dir === 's';
   const span = alongZ ? (Z1 - Z0 + 1) : (X1 - X0 + 1);
-  const steps = 4;
+  const width = alongZ ? (X1 - X0 + 1) : (Z1 - Z0 + 1);
+  const grandSpirit = (palace || plaster) && width >= 44; // >= 2 merged map cells (~3.9m+) gets grand central imperial/courtyard panel
+  const midC = alongZ ? Math.round((X0 + X1) / 2) : Math.round((Z0 + Z1) / 2);
   for (let s = 0; s < steps; s++) {
-    const topY = Math.round(((s + 1) / steps) * (HP + 1)) - 1;
+    const topY = Y0 + Math.round(((s + 1) / steps) * rise) - 1;
     const u0 = Math.floor((s / steps) * span), u1 = Math.floor(((s + 1) / steps) * span) - 1;
     if (alongZ) {
       const a0 = q.dir === 's' ? Z0 + u0 : Z1 - u1;
@@ -357,9 +551,14 @@ function ramp(box: B, q: RampRect, st: WallStyle) {
       box(X0, 0, a0, X1, Math.max(0, topY - 1), a1, body);
       box(X0 + 2, topY, a0, X1 - 2, topY, a1, tread);
       box(X0 + 2, topY, lip, X1 - 2, topY, lip, nose);
-      // Low stepped side cheek-blocks framing the stairs
-      box(X0, 0, a0, X0 + 1, Math.min(HP + 1, topY + 2), a1, nose);
-      box(X1 - 1, 0, a0, X1, Math.min(HP + 1, topY + 2), a1, nose);
+      // Outer cheek curbs ONLY on far left & far right edges of the merged grand stair
+      box(X0, 0, a0, X0 + 1, Math.min(Y1 + 1, topY + 2), a1, cheek);
+      box(X1 - 1, 0, a0, X1, Math.min(Y1 + 1, topY + 2), a1, cheek);
+      if (grandSpirit) {
+        box(midC - 4, topY, a0, midC + 4, topY, a1, palace ? 0xa89f92 : 0xb8c2d0);
+        box(midC - 5, topY, a0, midC - 5, topY, a1, body);
+        box(midC + 5, topY, a0, midC + 5, topY, a1, body);
+      }
     } else {
       const a0 = q.dir === 'e' ? X0 + u0 : X1 - u1;
       const a1 = q.dir === 'e' ? X0 + u1 : X1 - u0;
@@ -367,8 +566,13 @@ function ramp(box: B, q: RampRect, st: WallStyle) {
       box(a0, 0, Z0, a1, Math.max(0, topY - 1), Z1, body);
       box(a0, topY, Z0 + 2, a1, topY, Z1 - 2, tread);
       box(lip, topY, Z0 + 2, lip, topY, Z1 - 2, nose);
-      box(a0, 0, Z0, a1, Math.min(HP + 1, topY + 2), Z0 + 1, nose);
-      box(a0, 0, Z1 - 1, a1, Math.min(HP + 1, topY + 2), Z1, nose);
+      box(a0, 0, Z0, a1, Math.min(Y1 + 1, topY + 2), Z0 + 1, cheek);
+      box(a0, 0, Z1 - 1, a1, Math.min(Y1 + 1, topY + 2), Z1, cheek);
+      if (grandSpirit) {
+        box(a0, topY, midC - 4, a1, topY, midC + 4, palace ? 0xa89f92 : 0xb8c2d0);
+        box(a0, topY, midC - 5, a1, topY, midC - 5, body);
+        box(a0, topY, midC + 5, a1, topY, midC + 5, body);
+      }
     }
   }
 }
