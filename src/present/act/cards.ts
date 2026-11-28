@@ -19,6 +19,22 @@ export function fillVals(desc: string, boon: Boon, tier: number) {
   return raw.replace(/\s*·\s*[^·]*?\+0%(?:\s*|$)/g, '').trim();
 }
 
+/** 升阶对比数值：将 {v} / {v2} 渲染为「旧值 → 新值」，未变化的项保持单值，让玩家一眼看清升阶到底涨了多少。 */
+export function fillUpgradeVals(desc: string, boon: Boon, fromTier: number, toTier: number) {
+  const f = Math.max(0, Math.min(2, Math.floor(fromTier) || 0));
+  const t = Math.max(0, Math.min(2, Math.floor(toTier) || 0));
+  const unit = (source = '') => language === 'en' && source === '秒' ? ' ' + localize(source) : source;
+  const fmt = (a: number, b: number, u?: string) => {
+    const us = unit(u);
+    return a === b ? `${b}${us}` : `${a}${us} → ${b}${us}`;
+  };
+  return localize(desc).replace(/\{v2?\}/g, key =>
+    key === '{v2}'
+      ? fmt(boon.vals2?.[f] ?? 0, boon.vals2?.[t] ?? 0, boon.unit2)
+      : fmt(boon.vals?.[f] ?? 0, boon.vals?.[t] ?? 0, boon.unit),
+  ).trim();
+}
+
 // act-19 (user: 「强化的卡片要像哈迪斯那些经典动作rogue游戏学习，描述关键字要高亮，图标与文字相结合，卡片的样式要和普通面板区分开来」):
 // three wide cards stacked in rows; each: the school's emblem in a framed medallion on the left, the name (pixel title font) and its
 // tier badge, two lines of description with the key words in colour behind a small icon and the numbers lit; the card's ground and

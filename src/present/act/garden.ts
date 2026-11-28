@@ -51,26 +51,26 @@ export const SEED_ORDER: SeedId[] = ['angelica', 'ironorchid', 'frostlotus', 'xu
 export const SEEDS: Record<SeedId, SeedDef> = {
   angelica: {
     id: 'angelica', name: '白芷草', col: 0x7de08e, hex: '#86e898',
-    steps: 3, minsPerStep: 12, herb: 16, iron: 0,
-    desc: '药引 +16',
+    steps: 5, minsPerStep: 15, herb: 6, iron: 0,
+    desc: '药引 +6',
   },
   ironorchid: {
     id: 'ironorchid', name: '赤铁兰', col: 0xf08c54, hex: '#f49a62',
-    steps: 5, minsPerStep: 15, herb: 0, iron: 18,
-    desc: '残铁 +18',
+    steps: 7, minsPerStep: 18, herb: 0, iron: 6,
+    desc: '残铁 +6',
   },
   frostlotus: {
     id: 'frostlotus', name: '霜魂莲', col: 0x74d8f2, hex: '#80e2ff',
-    steps: 6, minsPerStep: 18, herb: 12, iron: 12,
+    steps: 9, minsPerStep: 20, herb: 5, iron: 5,
     buff: 'lotus', buffName: '温脉药汤',
-    desc: '药引 +12 · 残铁 +12',
-    buffDesc: '下局气血 +18 · 铜钱 +35',
+    desc: '药引 +5 · 残铁 +5',
+    buffDesc: '下局气血 +18 · 铜钱 +25',
   },
   xuanzhi: {
     id: 'xuanzhi', name: '九叶玄芝', col: 0xd696ff, hex: '#e0a8ff',
-    steps: 9, minsPerStep: 20, herb: 24, iron: 24,
+    steps: 12, minsPerStep: 24, herb: 9, iron: 9,
     buff: 'xuanzhi', buffName: '玄芝丹气',
-    desc: '药引 +24 · 残铁 +24',
+    desc: '药引 +9 · 残铁 +9',
     buffDesc: '下局珍绝 +25% · 杀气 +1',
   },
 };
@@ -78,10 +78,10 @@ export const SEEDS: Record<SeedId, SeedDef> = {
 export const PLOT_COSTS: Array<{ cur: 'herb' | 'iron'; n: number } | null> = [
   null,
   null,
-  { cur: 'herb', n: 8 },
-  { cur: 'iron', n: 10 },
-  { cur: 'herb', n: 18 },
-  { cur: 'iron', n: 24 },
+  { cur: 'herb', n: 14 },
+  { cur: 'iron', n: 18 },
+  { cur: 'herb', n: 28 },
+  { cur: 'iron', n: 36 },
 ];
 
 function todayKey(now = Date.now()): string {

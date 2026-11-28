@@ -496,7 +496,7 @@ export function lanternBoard(Hh: number, active: boolean, unlocked: boolean, acc
 }
 
 /** the board itself: one merged mesh (vertex colours), its emissive used for the focus glow; Hh = the board's height (CARD_H / SKILL_H) */
-export function cardBoard(style: CardStyle, tier: number, Hh = CARD_H, skill = false, accentHex?: number, locked = false, extra?: { yin?: boolean; theme?: 'forge' | 'medic'; active?: boolean; awakening?: boolean }) {
+export function cardBoard(style: CardStyle, tier: number, Hh = CARD_H, skill = false, accentHex?: number, locked = false, extra?: { yin?: boolean; theme?: 'forge' | 'medic'; active?: boolean; awakening?: boolean; upgrade?: boolean }) {
   if (style === 'manual') return scrollBoard(Hh);
   if (style === 'mirror') return steleBoard(Hh, accentHex, !!extra?.yin);
   if (style === 'keepsake') return keepsakeBoard(Hh, tier, locked, accentHex);
@@ -566,7 +566,13 @@ export function cardBoard(style: CardStyle, tier: number, Hh = CARD_H, skill = f
     const cx = sx * (0.5 - 0.004), cy = sy * (H / 2 - 0.004), L = 0.06, T = 0.012;
     b.push({ w: L, h: T, d: 0.072, x: cx - sx * L / 2, y: cy, z: 0.006, c: M.l }, { w: T, h: L * 0.7, d: 0.072, x: cx, y: cy - sy * L * 0.35, z: 0.006, c: M.l });
   }
-  if (style === 'boon' && tier >= 2) {
+  if (style === 'boon' && extra?.upgrade) {
+    // Distinct jade-gold upward chevron crest on top of the plaque so stat-upgrade cards read immediately at a glance
+    b.push({ w: 0.22, h: 0.016, d: 0.072, x: 0, y: H / 2 + 0.008, z: 0.006, c: 0x58c888 });
+    b.push({ w: 0.14, h: 0.014, d: 0.076, x: 0, y: H / 2 + 0.022, z: 0.007, c: 0x86f6b8 });
+    b.push({ w: 0.06, h: 0.014, d: 0.08, x: 0, y: H / 2 + 0.036, z: 0.008, c: 0xffe478 });
+  }
+  if (style === 'boon' && tier >= 2 && !extra?.upgrade) {
     b.push({ w: 0.16, h: 0.018, d: 0.06, x: 0.04, y: H / 2 + 0.009, z: 0.002, c: M.m }, { w: 0.1, h: 0.012, d: 0.062, x: 0.04, y: H / 2 + 0.024, z: 0.002, c: M.l });
     b.push({ w: 0.018, h: 0.018, d: 0.07, x: 0.04, y: H / 2 + 0.024, z: 0.006, c: 0xb8302a });
   }

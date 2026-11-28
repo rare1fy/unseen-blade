@@ -9,7 +9,7 @@ export const UP_LINES: Record<string, string[]> = {"sunao": ["沸血药引备好
 /** not enough to pay */
 export const POOR_LINES: Record<string, string> = {"sunao": "药引不够，老身总不能拿白水给你熬命。", "fengtiebi": "（拨了拨见底的铁篓，摇摇头，垂下了铁锤。）"};
 /** the upgrades' names and two lines (meta.ts ids) */
-export const UP_COPY: Record<string, [string, string, string]> = {"blade": ["百辟刀身", "残铁重打，刀口更狠", "每级+8%伤害+3%暴击"], "darts": ["袖底镖匣", "匣槽改宽，暗器趁手", "每级+1枚飞镖且装填加快"], "reroll": ["重铸炉火", "回炉再炼，换牌重挑", "每级每局多1次选牌重随"], "manual": ["寒山旧谱", "每局动身出窑之前", "可先挑一本旧刀谱"], "vigor": ["沸血筋骨", "烈药行针，身子骨硬", "生命上限每级+12"], "breath": ["绝处闭息", "每局一次受致命伤时", "强吊一口气留两成半血"], "intent": ["出鞘杀气", "每进一间屋子动手前", "自带一格杀气与半格气"], "leech": ["破势养气", "破甲或闪避回复生命", "每级回3或5血(6秒CD)"], "ear": ["贯耳听宫", "长针刺穴，耳力更尖", "敌人起手慢6%且易识破"]};
+export const UP_COPY: Record<string, [string, string, string]> = {"blade": ["百辟刀身", "残铁重打，刀口更狠", "每级+5%伤害+2%暴击"], "darts": ["袖底镖匣", "匣槽改宽，暗器趁手", "每级+1枚飞镖且装填加快"], "reroll": ["重铸炉火", "回炉再炼，换牌重挑", "每级每局多1次选牌重随"], "manual": ["寒山旧谱", "每局动身出窑之前", "可先挑一本旧刀谱"], "vigor": ["沸血筋骨", "烈药行针，身子骨硬", "生命上限每级+12"], "breath": ["绝处闭息", "每局一次受致命伤时", "强吊一口气留两成半血"], "intent": ["出鞘杀气", "每进一间屋子动手前", "自带一格杀气与半格气"], "leech": ["破势养气", "破甲或闪避回复生命", "每级回3或5血(6秒CD)"], "ear": ["贯耳听宫", "长针刺穴，耳力更尖", "敌人起手慢6%且易识破"]};
 /** the haul on the way home: alive / dragged back ({iron}, {herb}) */
 const HAUL_BODY = "百辟残铁 {iron} · 沸血药引 {herb}";
 export const HAUL = [["活着带回", HAUL_BODY], ["血里捞回", HAUL_BODY]] as const;

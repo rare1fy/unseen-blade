@@ -54,11 +54,11 @@ export const TUNE = {
   /** 11-18 / act-125 QTE：拼刀——定胜负的时长（秒）、点一下推多少（满格 = 1）、对方每秒往回压多少；连环破势——接招判定窗口（± 秒） */
   clashTime: 2.8, clashPush: 0.145, clashElite: 0.34, clashBoss: 0.58, chainWin: 0.2, qteCamD: 9.5, qteCamH: 3.3,
   // 敌人
-  enemyHp: 1, enemyDmg: 1, aggression: 0.88,   // act-188: readable windups without dogpiling
-  /** act-188: fair melee cadence (0.85s base calm, scales down to 0.53s by Act 5) + 1→3 strictly counted attackers */
-  atkCalm: 0.85,
-  /** 同时出手的敌人上限（act-188: 1→2→2→3→3，每个近战严格占 1 槽，不再 0.5 半权叠人海） */
-  maxAttackers: 1,
+  enemyHp: 1, enemyDmg: 1, aggression: 0.94,
+  /** melee cadence (0.72s base calm, scales down to 0.44s by Act 5) + 2→4 concurrent melee cap */
+  atkCalm: 0.72,
+  /** 同时出手的敌人上限（2→2→3→3→4） */
+  maxAttackers: 2,
   /** 摇杆：0 = 左下区域里按哪儿出在哪儿（之后底座不动），1 = 固定在左下角 */
   stickFixed: 0,
   // 镜头

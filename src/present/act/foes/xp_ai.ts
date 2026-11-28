@@ -27,13 +27,13 @@ import { fade, fadeTo } from './fade';
 /** 吕布军败兵开打时喊的（agy） */
 const BARK_XP = ['泡在冷水里，都别活！', '温侯已死，拉你陪葬！', '水底下……有手抓你！', '尝尝这口寒毒针！', '城都淹了，谁怕死！', '截了你的大拇指！', '白门楼前无生路！', '一起烂在这臭泥里！', '淹死也是死，拼了！', '毒发了，跪下吧！'];
 addFoes({
-  xp_assassin: { model: 'xp_assassin', hp: 34, r: 0.4, speed: 3.6, mass: 0.8, poise: 0, gold: 5, name: '覆面影刃', role: 'xp_assassin', elite: 'xp_assassin_e' },
-  xp_needle: { model: 'xp_needle', hp: 26, r: 0.42, speed: 2.4, mass: 0.8, poise: 0, gold: 4, name: '寒针幽卒', role: 'xp_needle', elite: 'xp_needle_e', barks: BARK_XP },
-  xp_frost: { model: 'xp_frost', hp: 32, r: 0.44, speed: 2.4, mass: 0.9, poise: 0, gold: 5, name: '凝霜毒吏', role: 'xp_frost', elite: 'xp_frost_e', barks: BARK_XP },
-  xp_diver: { model: 'xp_diver', hp: 40, r: 0.44, speed: 3.0, mass: 1.0, poise: 0, gold: 5, name: '沉江恶鬼', role: 'xp_diver', elite: 'xp_diver_e' },
-  xp_chain: { model: 'xp_chain', hp: 120, r: 0.7, speed: 1.9, mass: 2.6, poise: 36, gold: 8, name: '枷铁狱吏', role: 'xp_chain', elite: 'xp_chain_e', barks: BARK_XP },
-  xp_conscript: { model: 'xp_conscript', hp: 22, r: 0.36, speed: 3.4, mass: 0.6, poise: 0, gold: 2, name: '冻骨溃兵', role: 'xp_conscript', alt: ['xp_conscript_b'], weight: 0.5, barks: BARK_XP },
-  xp_boss: { model: 'xp_boss', hp: 660, r: 0.55, speed: 2.7, mass: 1.8, poise: 95, gold: 50, name: '截指鬼医 · 封寒', role: 'xp_boss', boss: true, tag: '银针刺骨，截指入药', intro: '脉相浮而乱，该截下拇指了。' },
+  xp_assassin: { model: 'xp_assassin', hp: 34, r: 0.4, speed: 3.6, mass: 0.8, poise: 0, gold: 3, name: '覆面影刃', role: 'xp_assassin', elite: 'xp_assassin_e' },
+  xp_needle: { model: 'xp_needle', hp: 26, r: 0.42, speed: 2.4, mass: 0.8, poise: 0, gold: 2, name: '寒针幽卒', role: 'xp_needle', elite: 'xp_needle_e', barks: BARK_XP },
+  xp_frost: { model: 'xp_frost', hp: 32, r: 0.44, speed: 2.4, mass: 0.9, poise: 0, gold: 3, name: '凝霜毒吏', role: 'xp_frost', elite: 'xp_frost_e', barks: BARK_XP },
+  xp_diver: { model: 'xp_diver', hp: 40, r: 0.44, speed: 3.0, mass: 1.0, poise: 0, gold: 3, name: '沉江恶鬼', role: 'xp_diver', elite: 'xp_diver_e' },
+  xp_chain: { model: 'xp_chain', hp: 120, r: 0.7, speed: 1.9, mass: 2.6, poise: 36, gold: 5, name: '枷铁狱吏', role: 'xp_chain', elite: 'xp_chain_e', barks: BARK_XP },
+  xp_conscript: { model: 'xp_conscript', hp: 22, r: 0.36, speed: 3.4, mass: 0.6, poise: 0, gold: 1, name: '冻骨溃兵', role: 'xp_conscript', alt: ['xp_conscript_b'], weight: 0.5, barks: BARK_XP },
+  xp_boss: { model: 'xp_boss', hp: 580, r: 0.55, speed: 2.7, mass: 1.8, poise: 95, gold: 35, name: '截指鬼医 · 封寒', role: 'xp_boss', boss: true, tag: '银针刺骨，截指入药', intro: '脉相浮而乱，该截下拇指了。' },
 });
 
 // ------------------------------------------------------------------ shared bits

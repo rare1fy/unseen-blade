@@ -11,7 +11,7 @@ import { bodyText } from '../ui3d/bodyFont';
 import { richLine, TIER_TXT } from './cardBoard';
 import { MiniShield, btnShield } from './btnBadge';
 import { isLinkIcon } from './skillIcons';
-import { fillVals } from './cards';
+import { fillVals, fillUpgradeVals } from './cards';
 import { ARCH_INFO, BOONS, TIER_NAMES, boonTier, type Archetype, type Boon, type BoonId, type SkillBoon } from './boons';
 import { MANUALS, type Manual } from './manuals';
 import { KEY_BTN, LINK_COLORS, MANUAL_HINT, STANCE_COLORS, UI_WORDS, boonSteps, boonTarget, isPress, manualSteps, manualTarget, type BaseIcon, type BaseSkill, type MarkTarget, type Step } from './skillInfo';
@@ -41,7 +41,9 @@ export interface SkillEntry {
   weaponId?: WeaponId;
   /** Hades-2-style boons currently augmenting this base move slot */
   attached?: AttachedBoon[];
-  /** the presses (null = nothing to press: a passive) */ steps: Step[] | null;
+  /** 11-28: explicit stat-upgrade delta when sharpening an owned boon (replaces button presses with a bold Before → After bar) */
+  upgrade?: { fromTier: number; toTier: number; diff: string };
+  /** the presses (null = nothing to press: a passive or a stat-upgrade card) */ steps: Step[] | null;
   effect: string; num: string;
   /** the move's or tier's colour, used when the card lands on the HUD */ col: number;
   /** where the card flies when taken, where its mark sits */ target: MarkTarget;
@@ -54,10 +56,21 @@ const TIER_GLOW = [0xb0c0d8, 0xffb060, 0xffd060];
 export function entryOfManual(m: Manual): SkillEntry {
   const icon = MANUAL_HINT[m.id], col = LINK_COLORS[icon];
   const badge = m.rel === 'new' ? { text: '新派生', col: '#7ef0c0' } : { text: '变招', col: '#ffd27a' };
-  return { id: m.id, kind: 'manual', name: m.name, tag: UI_WORDS.manual, badge, tier: 0, icon, steps: manualSteps(m), effect: m.desc[0], num: m.desc[1], col, target: manualTarget(m), lit: col };
+  return { id: m.id, kind: 'manual', name: m.name, tag: '新招式', badge, tier: 0, icon, steps: manualSteps(m), effect: m.desc[0], num: m.desc[1], col, target: manualTarget(m), lit: col };
 }
-export function entryOfBoon(b: SkillBoon, tier: number, archHave?: Partial<Record<Archetype, number>>): SkillEntry {
+export function entryOfBoon(b: SkillBoon, tier: number, archHave?: Partial<Record<Archetype, number>>, fromTier?: number): SkillEntry {
   const t = boonTier(tier), ai = ARCH_INFO[b.arch];
+  if (fromTier != null) {
+    const f = boonTier(fromTier);
+    const upTag = f === 0 ? '凡→珍' : '珍→绝';
+    return {
+      id: b.id, kind: 'boon', name: b.name, tag: upTag,
+      badge: { text: '数值提升', col: '#86f6b8', hot: true },
+      accentHex: 0x76f0b0, tier: t, icon: b.id,
+      upgrade: { fromTier: f, toTier: t, diff: fillUpgradeVals(b.note, b, f, t) },
+      steps: null, effect: b.eff, num: '', col: TIER_GLOW[t], target: boonTarget(b), lit: null,
+    };
+  }
   const n = archHave?.[b.arch];
   const nextN = n != null ? n + 1 : null;
   const hit2 = nextN === 2, hit3 = nextN === 3;
@@ -69,7 +82,8 @@ export function entryOfBoon(b: SkillBoon, tier: number, archHave?: Partial<Recor
       }
     : undefined;
   const resNote = ai && hit3 ? `成势：${ai.b3}` : ai && hit2 ? `成势：${ai.b2}` : undefined;
-  return { id: b.id, kind: 'boon', name: b.name, tag: `${TIER_NAMES[t]}`, badge, resNote, accentHex: ai?.hex, tier: t, icon: b.id, steps: boonSteps(b), effect: b.eff, num: fillVals(b.note, b, t), col: TIER_GLOW[t], target: boonTarget(b), lit: null };
+  const tierShort = t === 0 ? '强化·凡' : t === 1 ? '强化·珍' : '强化·绝';
+  return { id: b.id, kind: 'boon', name: b.name, tag: tierShort, badge, resNote, accentHex: ai?.hex, tier: t, icon: b.id, steps: boonSteps(b), effect: b.eff, num: fillVals(b.note, b, t), col: TIER_GLOW[t], target: boonTarget(b), lit: null };
 }
 export function entryOfBase(s: BaseSkill, attached?: AttachedBoon[]): SkillEntry {
   const icon = s.icon;
@@ -81,13 +95,13 @@ export function entryOfBase(s: BaseSkill, attached?: AttachedBoon[]): SkillEntry
   return { id: s.id, kind: 'base', name: s.name, tag: '', badge, tier: 0, icon, weaponId: s.weaponId, attached, steps: s.steps, effect: s.effect, num: s.num ?? '', col: lit ?? 0xb0c0d8, target, lit };
 }
 /** The other cards (meals, upgrades, 再来一次) use the regular item face. */
-export function entryOfCard(b: Boon, tier: number, archHave?: Partial<Record<Archetype, number>>): SkillEntry | null {
+export function entryOfCard(b: Boon, tier: number, archHave?: Partial<Record<Archetype, number>>, fromTier?: number): SkillEntry | null {
   if (b.id.startsWith('ms_')) {
     const m = MANUALS.find(x => x.id === b.id.slice(3));
     return m ? entryOfManual(m) : null;
   }
   const boon = BOONS.find(x => x.id === b.id);
-  return boon ? entryOfBoon(boon, tier, archHave) : null;
+  return boon ? entryOfBoon(boon, tier, archHave, fromTier) : null;
 }
 
 // ---------------------------------------------------------------- the presses in a row

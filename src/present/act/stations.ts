@@ -184,7 +184,7 @@ export class Stations {
     else this.add('buy_boon', '秘卷', '秘传', '三选一习得新秘传强化', 'scroll', prices.boon, V3(-3.5, 0, 0.45), stall('scroll'), true, -1);
     this.add('buy_heal', '金疮药', '回血', '立刻恢复 30% 气血', 'heal', prices.heal, V3(-1.35, 0, -1.95), stall('gourd'), true, -1);
     this.add('buy_sharpen', '青砥石', '升阶', '挑一张已得秘传提升品阶', 'forge', prices.sharpen, V3(1.65, 0, -1.95), stall('stone'), true, 1);
-    if (special === 'satchel') this.add('buy_satchel', '铁药囊', '残铁药引', '立刻获得 残铁+10 与 药引+10', 'iron', prices.satchel ?? 45, V3(3.6, 0, 0.45), stall('satchel'), true, 1);
+    if (special === 'satchel') this.add('buy_satchel', '铁药囊', '残铁药引', '立刻获得 残铁+5 与 药引+5', 'iron', prices.satchel ?? 45, V3(3.6, 0, 0.45), stall('satchel'), true, 1);
     else vigor(V3(3.6, 0, 0.45), 1);
     // act-128: spawn the traveling merchant standing right in the unobstructed center gap behind the stalls, waving warmly to the player!
     const mx = this.centre[0] + 0.15, mz = this.centre[1] - 3.05;

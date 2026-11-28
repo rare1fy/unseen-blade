@@ -16,15 +16,15 @@ describe('hideout upgrades', () => {
   });
 
   it('deducts the matching currency and increases each purchased level', () => {
-    const p = fresh(); p.iron = 32; p.herb = 10;
+    const p = fresh(); p.iron = 65; p.herb = 10;
     expect(level(p, 'blade')).toBe(0);
-    expect(nextCost(p, 'blade')).toBe(10);
+    expect(nextCost(p, 'blade')).toBe(20);
     expect(canBuy(p, 'blade')).toBe(true);
     expect(hasAffordable(p, 'forge')).toBe(true);
     expect(buy(p, 'blade')).toBe(true);
-    expect(p.iron).toBe(22);
+    expect(p.iron).toBe(45);
     expect(level(p, 'blade')).toBe(1);
-    expect(nextCost(p, 'blade')).toBe(22);
+    expect(nextCost(p, 'blade')).toBe(45);
     expect(buy(p, 'blade')).toBe(true);
     expect(p.iron).toBe(0);
     expect(buy(p, 'vigor')).toBe(true);
@@ -34,16 +34,16 @@ describe('hideout upgrades', () => {
   });
 
   it('refuses overspending, maxed upgrades, and unknown ids without mutating the profile', () => {
-    const p = fresh(); p.iron = 9; p.herb = 100;
+    const p = fresh(); p.iron = 19; p.herb = 100;
     expect(canBuy(p, 'blade')).toBe(false);
     expect(buy(p, 'blade')).toBe(false);
     expect(nextCost(p, 'missing')).toBeNull();
     expect(buy(p, 'missing')).toBe(false);
-    expect(p.iron).toBe(9);
+    expect(p.iron).toBe(19);
     expect(p.herb).toBe(100);
     expect(p.perks).toEqual({});
 
-    p.iron = 35;
+    p.iron = 75;
     expect(buy(p, 'manual')).toBe(true);
     expect(nextCost(p, 'manual')).toBeNull();
     expect(canBuy(p, 'manual')).toBe(false);
@@ -80,7 +80,7 @@ describe('hideout upgrades', () => {
     p.perks = { blade: 2, darts: 1, manual: 1, vigor: 3, breath: 1, intent: 1, leech: 2, ear: 2 };
     // act-161: the medic's old levels fold into the altar once (they used to stay in p.perks and count twice); what fits the 6 grasp switches on,
     // cheapest first: 筋骨 (1) + 听宫 (2) + 杀意 (2) — 养气 and 闭息 wait for her to make room
-    expect(runMods(p)).toMatchObject({ dmgMul: 1.16, critBonus: 0.06, dartBonus: 1, startCoins: 0, hpBonus: 36, deathDefy: 0, startIntent: 1, windupMul: 1.12, startManual: true, poiseHeal: 0 });
+    expect(runMods(p)).toMatchObject({ dmgMul: 1.10, critBonus: 0.04, dartBonus: 1, startCoins: 0, hpBonus: 36, deathDefy: 0, startIntent: 1, windupMul: 1.12, startManual: true, poiseHeal: 0 });
     expect(p.perks).toEqual({ blade: 2, darts: 1, manual: 1 });
     expect(p.arcana!.rank).toMatchObject({ vigor: 3, breath: 1, intent: 1, leech: 2, ear: 2 });
     expect(runMods(p).hpBonus).toBe(36);   // (again: nothing left to count twice)
@@ -91,7 +91,7 @@ describe('hideout upgrades', () => {
   });
 
   it('supports Hades-2-style 3×3 药炉悟性牌阵 (Grasp cap, free toggle, 0-grasp center Awakening, refine & expand)', () => {
-    const p = fresh(); p.herb = 60;
+    const p = fresh(); p.herb = 100;
     expect(ARCANA).toHaveLength(9);
     ensureArcana(p);
     expect(arcanaCap(p)).toBe(6);
@@ -108,7 +108,7 @@ describe('hideout upgrades', () => {
     expect(unlockArcana(p, 'wind')).toBe(true);
     expect(isArcanaActive(p, 'wind')).toBe(true);
     expect(isArcanaActive(p, 'center')).toBe(true);
-    expect(runMods(p).dmgMul).toBeCloseTo(1.08, 5);
+    expect(runMods(p).dmgMul).toBeCloseTo(1.05, 5);
     // Refine vigor rank 1 -> 2 and expand Grasp 6 -> 8
     expect(upgradeArcana(p, 'vigor')).toBe(true);
     expect(runMods(p).hpBonus).toBe(24);
@@ -118,23 +118,21 @@ describe('hideout upgrades', () => {
 });
 
 describe('run rewards', () => {
-  it('calculates death and win rewards so the first trip home affords ~1–2 upgrades without flooding', () => {
+  it('calculates death and win rewards so mid-Act 2 death affords ~1–2 upgrades instead of flooding the whole tree', () => {
     const p = fresh(); p.iron = 0; p.herb = 0;
-    const earlyFail = { rooms: 2, elites: 0, boss: false, won: false, kills: 10 };
-    const r0 = runReward(earlyFail);
-    expect(r0.iron).toBeGreaterThanOrEqual(9);
-    expect(r0.herb).toBeGreaterThanOrEqual(10);
-    expect(r0.iron).toBeLessThanOrEqual(14);
-    expect(r0.herb).toBeLessThanOrEqual(16);
+    const midAct2 = { rooms: 12.8, elites: 5, boss: true, won: false, kills: 100 };
+    const rMid = runReward(midAct2);
+    expect(rMid.iron).toBe(28);
+    expect(rMid.herb).toBe(35);
 
     const death = { rooms: 4, elites: 2, boss: false, won: false, kills: 19 };
     const win = { rooms: 6, elites: 1, boss: true, won: true, kills: 20 };
-    expect(runReward(death)).toEqual({ iron: 20, herb: 22 });
-    expect(bank(p, death)).toEqual({ iron: 20, herb: 22 });
-    expect(p).toMatchObject({ iron: 20, herb: 22, runs: 1, wins: 0, deaths: 1 });
-    expect(runReward(win)).toEqual({ iron: 46, herb: 41 });
-    expect(bank(p, win)).toEqual({ iron: 46, herb: 41 });
-    expect(p).toMatchObject({ iron: 66, herb: 63, runs: 2, wins: 1, deaths: 1 });
+    expect(runReward(death)).toEqual({ iron: 9, herb: 8 });
+    expect(bank(p, death)).toEqual({ iron: 9, herb: 8 });
+    expect(p).toMatchObject({ iron: 9, herb: 8, runs: 1, wins: 0, deaths: 1 });
+    expect(runReward(win)).toEqual({ iron: 26, herb: 24 });
+    expect(bank(p, win)).toEqual({ iron: 26, herb: 24 });
+    expect(p).toMatchObject({ iron: 35, herb: 32, runs: 2, wins: 1, deaths: 1 });
   });
 });
 

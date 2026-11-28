@@ -37,7 +37,7 @@ const BOARD_THEME: Record<string, { band: string; title: string; acc: string }> 
 
 function boardSub(p: RoomPlan, place: string, scrollUp = false): string {
   const r = p.reward;
-  if (p.type === 'elite') return r?.k === 'up' ? '秘传升阶' : r?.k === 'coins' ? msg`铜钱 ${r.n}` : r?.k === 'boon' && r.arch ? msg`${ARCH_INFO[r.arch].name}·珍绝` : '珍绝秘传';
+  if (p.type === 'elite') return r?.k === 'up' ? '秘传升阶' : r?.k === 'meta' ? '残铁药引' : r?.k === 'coins' ? msg`铜钱 ${r.n}` : r?.k === 'boon' && r.arch ? msg`${ARCH_INFO[r.arch].name}·珍绝` : '珍绝秘传';
   if (p.type === 'boss') return '终战';
   if (p.type === 'event') return '信物·加护';
   if (p.type === 'boon') return scrollUp ? '秘传升阶' : '稀世遗卷';
@@ -62,7 +62,7 @@ function face(p: RoomPlan, place: string, scrollUp = false) {
     const title = language === 'en' ? localize(rawTitle) : rawTitle;
     const r = p.reward;
     const archCol = r?.k === 'boon' && r.arch ? ARCH_INFO[r.arch].col : null;
-    if (r?.k === 'boon' || p.type === 'boon' || p.type === 'elite') icon(g, BOON_MARK, 10, 71, 3, { main: archCol ?? INK, acc: archCol ?? theme.acc, dark: INK });
+    if (r?.k === 'boon' || p.type === 'boon' || (p.type === 'elite' && (!r || r.k === 'up'))) icon(g, BOON_MARK, 10, 71, 3, { main: archCol ?? INK, acc: archCol ?? theme.acc, dark: INK });
     else if (r?.k === 'manual') icon(g, SCROLL_GLYPH, 10, 71, 3, { main: INK, acc: theme.acc, dark: INK });
     else if (r) icon(g, GLYPH[r.k === 'coins' ? 'coins' : r.k === 'meta' ? 'meta' : 'heal'], 10, 71, 3, { main: INK, acc: theme.acc, dark: INK });
     else icon(g, GLYPH[p.type], 10, 71, 3, { main: INK, acc: theme.acc, dark: INK });

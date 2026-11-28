@@ -33,33 +33,34 @@ describe('act-132: 营地竹溪药圃种田系统与据点路尽头光圈', () =
     expect(plantSeed(p, 1, 'frostlotus', t0)).toBe(true);
     expect(plotStatus(state.plots[0], t0).stage).toBe(1);
 
-    // Dual-track test A: 1 combat room + 24 mins offline = 1 + 2 = 3 steps -> angelica ripe!
-    advanceGardenRooms(p, 1, t0);
-    const t24 = t0 + 24 * 60000;
-    expect(plotStatus(state.plots[0], t24).done).toBe(true);
-    expect(plotStatus(state.plots[1], t24).done).toBe(false);
-    expect(ripePlotIndices(p, t24)).toEqual([0]);
+    // Dual-track test A: 2 combat rooms + 45 mins offline = 2 + 3 = 5 steps -> angelica ripe!
+    advanceGardenRooms(p, 2, t0);
+    const t45 = t0 + 45 * 60000;
+    expect(plotStatus(state.plots[0], t45).done).toBe(true);
+    expect(plotStatus(state.plots[1], t45).done).toBe(false);
+    expect(ripePlotIndices(p, t45)).toEqual([0]);
 
-    const res0 = harvestPlot(p, 0, t24);
+    const res0 = harvestPlot(p, 0, t45);
     expect(res0?.herb).toBe(SEEDS.angelica.herb);
     expect(p.herb).toBe(SEEDS.angelica.herb);
 
-    // Dual-track test B: advance 5 more combat rooms -> frostlotus (6 steps) ripens and grants Warming Brew buff
-    const ripened = advanceGardenRooms(p, 5, t24);
+    // Dual-track test B: advance 5 more combat rooms -> frostlotus (2 + 2 time + 5 = 9 steps) ripens and grants Warming Brew buff
+    const ripened = advanceGardenRooms(p, 5, t45);
     expect(ripened.map(s => s.id)).toEqual(['frostlotus']);
-    const res1 = harvestPlot(p, 1, t24);
+    const res1 = harvestPlot(p, 1, t45);
     expect(res1?.buff).toBe('lotus');
     const mods = runMods(p);
     expect(mods.hpBonus).toBe(18);
-    expect(mods.startCoins).toBe(35); // lotus grants +35 starting coins (reroll removed)
+    expect(mods.startCoins).toBe(25); // lotus grants +25 starting coins
 
-    // Reclaim plot 2 with harvested herbs
+    // Reclaim plot 2 once herb reaches PLOT_COSTS[2] (14)
+    p.herb = 14;
     expect(canUnlockPlot(p, 2)).toBe(true);
     expect(unlockPlot(p, 2)).toBe(true);
     expect(p.garden?.unlocked).toBe(3);
 
     // Next calendar day return triggers Sun Ao's daily seed gift
-    const nextDay = Math.max(Date.now(), t24) + 2 * 86400000;
+    const nextDay = Math.max(Date.now(), t45) + 2 * 86400000;
     const { dailyGift: gift2 } = ensureGarden(p, nextDay);
     expect(gift2.length).toBeGreaterThan(0);
 
