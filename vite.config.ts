@@ -69,7 +69,22 @@ export default defineConfig(({ command, mode }) => { const WX = command === 'bui
   },
   plugins: WX
     ? [stripReleaseDead(), wxAssets(ROOT)]
-    : [voxBytes(), ...(CG ? [stripReleaseDead()] : []), ...(EN ? [englishHtml(CG)] : []), ...(command === 'build' ? [viteSingleFile()] : [])],
+    : [
+        voxBytes(),
+        ...(process.env.VITEST ? [{
+          name: 'vitest-worktree-globals',
+          enforce: 'pre' as const,
+          resolveId(id: string) { return id === 'vitest' ? '\0vitest-globals' : null; },
+          load(id: string) {
+            return id === '\0vitest-globals'
+              ? 'const g = globalThis; export const { describe, it, test, expect, vi, beforeAll, afterAll, beforeEach, afterEach } = g;'
+              : null;
+          },
+        }] : []),
+        ...(CG ? [stripReleaseDead()] : []),
+        ...(EN ? [englishHtml(CG)] : []),
+        ...(command === 'build' ? [viteSingleFile()] : []),
+      ],
   build: WX ? {
     // the mini-game: one script (no HTML), the sounds / portraits / fonts as files
     // (11-18: ES2015 — WeChat's upload compiler doesn't take ?. / ?? and the like: 「invalid file: game.js … SyntaxError: Unexpected token .」;

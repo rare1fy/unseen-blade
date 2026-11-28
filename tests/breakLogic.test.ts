@@ -131,4 +131,27 @@ describe('breakable props', () => {
     expect(oil.fuse).toBe(BTUNE.chainFuse);
     expect(crate.state).toBe('gone');
   });
+
+  it('bowls an oil jar across the lane on a heavy/kick blow and detonates on barricade impact', () => {
+    const logic = new BreakLogic();
+    const oil = logic.add('oil', 6, 0);
+    expect(logic.hit(oil, { src: 'hero', heavy: true, slide: true, dir: [-1, 0] }).events).toEqual([{ k: 'fuse', p: oil }]);
+    expect(oil.vx).toBeLessThan(-9);
+    // Slide westward until striking a barricade at x = 1.5
+    let boomed = false;
+    for (let i = 0; i < 20 && !boomed; i++) {
+      const r = logic.update(0.05, [], (nx) => nx <= 1.5);
+      if (r.events.some(e => e.k === 'boom')) boomed = true;
+    }
+    expect(boomed).toBe(true);
+    expect(oil.x).toBeLessThanOrEqual(2.2);
+    expect(oil.state).toBe('gone');
+
+    // Remote dart hit ignites in place without sliding
+    const farOil = logic.add('oil', -4, 0);
+    logic.hit(farOil, { src: 'dart', dir: [-1, 0] });
+    expect(farOil.state).toBe('fuse');
+    expect(farOil.vx ?? 0).toBe(0);
+    expect(farOil.fuse).toBeLessThanOrEqual(0.45);
+  });
 });

@@ -99,4 +99,28 @@ describe('floor solids', () => {
     expect(slamSpeed(0, 3, 1, 0)).toBe(0);
     expect(slamSpeed(2, -3, 0, 1)).toBe(3);
   });
+
+  it('vaults cleanly over low obstacles when airborne while tall walls still block', () => {
+    const solids = new Solids();
+    solids.add({ kind: 'prop', shape: 'box', x: 0, z: 0, hx: 0.5, hz: 0.5, maxY: 0.72, baseY: 0 });
+    solids.add({ kind: 'wall', shape: 'box', x: 3, z: 0, hx: 0.5, hz: 0.5, maxY: 3.1, baseY: 0 });
+    solids.add({ kind: 'prop', shape: 'circle', x: 0, z: 3, r: 0.5, maxY: 0.72, baseY: 1.12 });
+
+    // Grounded (footY = 0) collides with low crate
+    const gPos = { x: 0.6, z: 0 };
+    expect(solids.pushOut(gPos, 0.38, 0)).not.toBeNull();
+    expect(solids.free(0, 0, 0.38, 0, 0)).toBe(false);
+    expect(solids.sweep(-1.5, 0, 1.5, 0, 0.3, 0)).not.toBeNull();
+
+    // Jumping (footY = 0.82) vaults right over low crate, but still hits tall wall at x=3
+    const airPos = { x: 0.2, z: 0 };
+    expect(solids.pushOut(airPos, 0.38, 0.82)).toBeNull();
+    expect(solids.free(0, 0, 0.38, 0, 0.82)).toBe(true);
+    expect(solids.sweep(-1.5, 0, 1.5, 0, 0.3, 0.82)).toBeNull();
+    expect(solids.sweep(1.5, 0, 4.5, 0, 0.3, 0.82)).not.toBeNull();
+
+    // Platform prop at baseY = 1.12 blocks at platform footY = 1.12, vaults when jumping from platform (footY = 1.92)
+    expect(solids.free(0, 3, 0.38, 0, 1.12)).toBe(false);
+    expect(solids.free(0, 3, 0.38, 0, 1.92)).toBe(true);
+  });
 });

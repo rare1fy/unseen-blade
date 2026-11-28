@@ -127,8 +127,8 @@ export interface HeroWorld {
   iaiBusy?(): boolean;
   /** Hades-2 Selene loop: spending Qi on 藏锋 skills feeds 杀意 toward 不见刀 ultimate */
   spentQi?(bars: number): void;
-  /** the plunge lands: a ring of impact round the hero */
-  slam(o: { at: THREE.Vector3; r: number; dmg: number; yaw: number }): number;
+  /** the plunge lands: a ring of impact round the hero (highDrop = true when plunging off an elevated platform / high leap!) */
+  slam(o: { at: THREE.Vector3; r: number; dmg: number; yaw: number; highDrop?: boolean }): number;
   /** 11-18 秘传 错身: a dash on its way — the path so far (each foe on it is cut once per dash `n`) */
   passing?(o: { a: THREE.Vector3; b: THREE.Vector3; n: number }): void;
   /** 11-18 秘传 掠顶: in the air at height y over the ground — a foe right under her takes a downward cut (once per jump `n`); returns how many */
@@ -154,7 +154,11 @@ export interface HeroWorld {
   stompable?(from: THREE.Vector3, y: number): Foe | null;
   /** 踏顶: her foot lands on his head — he goes flat on the ground */
   stomp?(o: { foe: Foe; from: THREE.Vector3; dmg: number }): number;
-  clamp(p: THREE.Vector3, r: number): void;
+  clamp(p: THREE.Vector3, r: number, o?: { overPit?: boolean; footY?: number; fromY?: number }): void;
+  /** Deck elevation (m) at (x, z): 0 on ground, PLAT_H on elevated terraces, sloped on stepped ramps */
+  groundAt?(x: number, z: number): number;
+  /** Resolve landing on shore ledges, pits, or low obstacles the hero vaulted over */
+  onLand?(p: THREE.Vector3, r: number): void;
   /** screen stick → world direction */
   stickWorld(): THREE.Vector3;
 }
@@ -265,8 +269,8 @@ export class Hero {
   private acutFoe: Foe | null = null; private acutY = 1.6; private swoopFrom = V3(); private swoopTo = V3(); private swoopY0 = 0;
   private reelSelf = false; private reelFrom = V3(); private reelTo = V3();
   private stompFoe: Foe | null = null; private stompFrom = V3(); private stompTop = 0; private stompY0 = 0;
-  /** height off the ground and vertical speed */
-  y = 0; vy = 0; private v0 = 1;
+  /** height off the ground and vertical speed; peakWorldY tracks highest world altitude (pos.y + y) during a jump/drop for 天降劈山 */
+  y = 0; vy = 0; private v0 = 1; private peakWorldY = 0;
   readonly r = 0.38;
   get pos() { return this.a.home; }
   constructor(at: THREE.Vector3, public def: ModelDef = ACT_NINJA) { this.a = this.makeActor(def, at, Math.PI); }
@@ -356,7 +360,7 @@ export class Hero {
     this.set('squat', JUMP_SQUAT); this.a.act?.cancel(); this.a.act = null; this.next = null; this.pendT = 0; this.linkT = 0; this.dashTailT = 0;
   }
   private launchJump() {
-    this.v0 = (4 * TUNE.jumpH) / TUNE.jumpT; this.vy = this.v0; this.y = Math.max(this.y, 0.001); this.jumps = 1; this.airDashed = false; this.airStomped = false; this.flipT = -1; this.pendT = 0; this.linkT = 0; this.dashTailT = 0; this.airT = 0; this.jumpN++;
+    this.v0 = (4 * TUNE.jumpH) / TUNE.jumpT; this.vy = this.v0; this.y = Math.max(this.y, 0.001); this.peakWorldY = this.pos.y + this.y; this.jumps = 1; this.airDashed = false; this.airStomped = false; this.flipT = -1; this.pendT = 0; this.linkT = 0; this.dashTailT = 0; this.airT = 0; this.jumpN++;
     this.set('air', 99); this.a.act?.cancel(); this.a.act = null; this.next = null;
     dustBlocks(this.pos.clone(), 5); cue('jump', 0.6);
   }
@@ -365,9 +369,9 @@ export class Hero {
     const v = Math.sqrt(2 * this.gravity * TUNE.jump2H); this.v0 = v; this.vy = Math.max(this.vy, v); this.jumps = 2; this.flipT = 0;
     this.set('air', 99); this.a.act?.cancel(); this.a.act = null; this.next = null; this.pendT = 0;
     // the air it kicked off: a flat ring of pale blocks spreading out under the feet, and the body left behind for a blink
-    const at = this.pos.clone().setY(this.y + 0.05);
+    const at = this.pos.clone().setY(this.pos.y + this.y + 0.05);
     for (let i = 0; i < 10; i++) { const a = (i / 10) * Math.PI * 2; addBlock(at.clone().add(V3(Math.cos(a) * 0.2, 0, Math.sin(a) * 0.2)), { size: 0.09, v: V3(Math.cos(a) * 3.2, -0.4, Math.sin(a) * 3.2), col: 0xdfe8f0, glow: false, life: 0.32, shrink: 0.32, drag: 6, grav: 0 }); }
-    fxAfterimage(this.pos.clone().setY(this.y), 1.9, 0x9ab4d8, { life: 0.25, glow: 0.3 });
+    fxAfterimage(this.pos.clone().setY(this.pos.y + this.y), 1.9, 0x9ab4d8, { life: 0.25, glow: 0.3 });
     cue('jump', 0.8); cue('swish', 0.4);
   }
   private startPlunge(w: HeroWorld) {
@@ -580,16 +584,21 @@ export class Hero {
         break;
       }
       case 'swoop': {
-        // 掠地: the dive — faster as it goes, down to the ground behind them; the cut opens along the way when she lands
+        // 掠地: the dive — faster as it goes, down to the ground (or elevated terrace!) behind them; the cut opens along the way when she lands
         if (this.t < SWOOP_MOVE) {
           const u = this.t / SWOOP_MOVE, e = u * u * (2 - u);
           this.pos.x = this.swoopFrom.x + (this.swoopTo.x - this.swoopFrom.x) * e; this.pos.z = this.swoopFrom.z + (this.swoopTo.z - this.swoopFrom.z) * e;
-          this.y = this.swoopY0 * (1 - e); this.vel.set(0, 0, 0);
-          this.ghostT -= dt; if (this.ghostT <= 0) { this.ghostT = 0.035; fxAfterimage(this.pos.clone().setY(this.y), 1.9, 0x6ab88a, { life: 0.2, glow: 0.25 }); }
+          const gy = w.groundAt ? w.groundAt(this.pos.x, this.pos.z) : 0;
+          const curWY = this.swoopY0 + (this.swoopTo.y - this.swoopY0) * e;
+          this.pos.y = gy; this.y = Math.max(0.02, curWY - gy); this.vel.set(0, 0, 0);
+          this.ghostT -= dt; if (this.ghostT <= 0) { this.ghostT = 0.035; fxAfterimage(this.pos.clone().setY(this.pos.y + this.y), 1.9, 0x6ab88a, { life: 0.2, glow: 0.25 }); }
           break;
         }
         if (!this.hitDone) {
-          this.hitDone = true; this.y = 0; this.vy = 0; this.pos.x = this.swoopTo.x; this.pos.z = this.swoopTo.z; this.jumps = 0; this.flipT = -1;
+          this.hitDone = true; this.y = 0; this.vy = 0; this.pos.x = this.swoopTo.x; this.pos.z = this.swoopTo.z;
+          this.pos.y = w.groundAt ? w.groundAt(this.pos.x, this.pos.z) : this.swoopTo.y;
+          w.onLand?.(this.pos, this.r);
+          this.jumps = 0; this.flipT = -1;
           this.vel.copy(this.dashDir).multiplyScalar(2.5);
           if ((w.swoop?.({ a: this.swoopFrom.clone(), b: this.pos.clone(), r: 1.0, dmg: Math.round(TUNE.atkDmg * 2.1) }) ?? 0) > 0) this.gainQi(QI_LINK);
           dustBlocks(this.pos.clone(), 8, this.dashDir.clone()); cue('land', 0.7); cue('skid', 0.5);
@@ -641,7 +650,12 @@ export class Hero {
         if (this.t >= PLUNGE_HANG) { this.vy = -PLUNGE_V; this.y += this.vy * dt; }
         if (this.y <= 0) {
           this.y = 0; this.vy = 0; this.vel.set(0, 0, 0);
-          if (w.slam({ at: this.pos.clone(), r: TUNE.plungeR, dmg: TUNE.plungeDmg, yaw: this.a.yaw }) > 0) this.gainQi(QI_PLUNGE);
+          w.onLand?.(this.pos, this.r);
+          const highDrop = this.peakWorldY - this.pos.y >= 2.05;
+          this.peakWorldY = this.pos.y;
+          const pr = TUNE.plungeR * (highDrop ? 1.38 : 1);
+          const pdmg = Math.round(TUNE.plungeDmg * (highDrop ? 1.65 : 1));
+          if (w.slam({ at: this.pos.clone(), r: pr, dmg: pdmg, yaw: this.a.yaw, highDrop }) > 0) this.gainQi(QI_PLUNGE * (highDrop ? 1.5 : 1));
           this.set('plungeL', 0.34); this.a.play(new Action('plungeL', 0.34, 0.05));
         }
         break;
@@ -892,6 +906,8 @@ export class Hero {
     const m = motionOf(this.a), hard = Math.min(1, Math.max(0.3, -this.vy / 12)), run = Math.min(1, Math.hypot(this.vel.x, this.vel.z) / TUNE.heroSpeed);
     m.landW = hard * (1 - 0.5 * run); m.landDur = 0.1 + 0.18 * m.landW; m.land = 1;
     this.y = 0; this.vy = 0; this.jumps = 0; this.airDashed = false; this.airStomped = false; this.flipT = -1; this.lastStomp = null;
+    w.onLand?.(this.pos, this.r);
+    this.peakWorldY = this.pos.y;
     dustBlocks(this.pos.clone(), Math.round(4 + 6 * m.landW)); cue('land', 0.35 + 0.6 * m.landW);
     this.set('free', 0);
     // a press just before touching down: the cut / the next jump starts on landing
@@ -922,12 +938,12 @@ export class Hero {
     return best ? best.a.chest().sub(from).normalize() : want.clone().setY(-0.03).normalize();
   }
   /** act-27: where an aimed throw would go right now (the aim line in show.ts), and whether it bends onto a foe */
-  aimPreview(w: HeroWorld) { const from = this.pos.clone().add(V3(0, 1.3, 0)), d = this.dartAim(w, from, this.aimDir); const onFoe = d.angleTo(this.aimDir.clone().setY(-0.03).normalize()) > 0.01; return { dir: d.setY(0).normalize(), onFoe }; }
+  aimPreview(w: HeroWorld) { const from = this.pos.clone().add(V3(0, 1.3 + this.y, 0)), d = this.dartAim(w, from, this.aimDir); const onFoe = d.angleTo(this.aimDir.clone().setY(-0.03).normalize()) > 0.01; return { dir: d.clone().setY(0).normalize(), onFoe }; }
   /** the throw: the arm animation starts now, the dart leaves the hand a moment later (update) */
   private startDart(w: HeroWorld, aim: THREE.Vector3 | null = null) {
     this.dartT = 0; this.dartGone = false; this.dartBack = false; this.dartCd = TUNE.dartCd; this.useDart(); this.aiming = false;
     // standing still, the hero turns to the throw; running or in the air it keeps its way
-    const from = this.pos.clone().add(V3(0, 1.3, 0)); this.dartDir.copy(this.dartAim(w, from, aim));
+    const from = this.pos.clone().add(V3(0, 1.3 + this.y, 0)); this.dartDir.copy(this.dartAim(w, from, aim));
     if (Math.hypot(this.vel.x, this.vel.z) < 1 && !this.airborne) this.a.yaw = Math.atan2(this.dartDir.x, this.dartDir.z);
   }
   /** 穿风斩: on from where the dash is now, low and fast along the same way; the cut lands when the run stops (show.ts sweep) */
@@ -952,12 +968,14 @@ export class Hero {
     fxSparks(hand, 0xe8f2fa, 7, 3.6, { dir: dir.clone(), dirK: 0.75 }); dustBlocks(this.pos.clone(), 4, back);
     this.dartT = 0; this.dartGone = true; this.dartBack = true; this.dartCd = TUNE.dartCd; this.useDart(); cue('dartThrow', 0.85); cue('swish', 0.45);
   }
-  /** 追影: smoke here, the hero at the marked foe's near side facing it, a heavy first cut */
+  /** 追影: smoke here, the hero at the marked foe's near side facing it (even up onto an elevated platform!), a heavy first cut */
   private startChase(f: Foe, w: HeroWorld) {
-    const from = this.pos.clone().setY(0), d = f.pos.clone().sub(from).setY(0), l = d.length() || 1; d.divideScalar(l);
-    const to = f.pos.clone().addScaledVector(d, -(f.d.r + 0.85)).setY(0); w.clamp(to, this.r);
+    const from = this.pos.clone(), d = f.pos.clone().sub(from).setY(0), l = d.length() || 1; d.divideScalar(l);
+    const to = f.pos.clone().addScaledVector(d, -(f.d.r + 0.85)); to.y = f.pos.y;
+    w.clamp(to, this.r, { overPit: false, footY: Math.max(f.pos.y + 0.1, this.pos.y), fromY: f.pos.y });
+    to.y = w.groundAt ? w.groundAt(to.x, to.z) : f.pos.y;
     w.chase({ from, to, foe: f });
-    this.pos.x = to.x; this.pos.z = to.z; this.y = 0; this.vy = 0; this.jumps = 0; this.flipT = -1; this.vel.set(0, 0, 0); this.dartT = -1;
+    this.pos.copy(to); this.y = 0; this.vy = 0; this.peakWorldY = this.pos.y; this.jumps = 0; this.flipT = -1; this.vel.set(0, 0, 0); this.dartT = -1;
     this.a.yaw = Math.atan2(d.x, d.z); this.inv = Math.max(this.inv, 0.12);
     this.startCut('k1', w, true);
   }
@@ -1005,7 +1023,11 @@ export class Hero {
     if (best) { const d = best.pos.clone().sub(this.pos).setY(0).normalize(); dir.copy(d); }
     const len = Math.min(SWOOP_MAX, best ? bl + best.d.r + 1.1 : TUNE.dashDist * 1.1);
     this.dashDir.copy(dir); this.a.yaw = Math.atan2(dir.x, dir.z);
-    this.swoopFrom.copy(this.pos); this.swoopTo.copy(this.pos).addScaledVector(dir, len); w.clamp(this.swoopTo, this.r); this.swoopY0 = this.y;
+    this.swoopFrom.copy(this.pos);
+    this.swoopTo.copy(this.pos).addScaledVector(dir, len);
+    w.clamp(this.swoopTo, this.r, { overPit: true, footY: Math.max(this.pos.y + this.y, 1.2), fromY: this.pos.y });
+    this.swoopTo.y = w.groundAt ? w.groundAt(this.swoopTo.x, this.swoopTo.z) : 0;
+    this.swoopY0 = this.pos.y + this.y;
     this.set('swoop', SWOOP_T); this.a.play(new Action('swoop', SWOOP_T, SWOOP_MOVE / SWOOP_T)); this.ghostT = 0; this.vy = 0; this.next = null; this.pendT = 0;
     this.airDashed = true;
     this.dashCd = TUNE.dashCd * Math.max(0.72, this.dashCdMul);
@@ -1030,8 +1052,13 @@ export class Hero {
   private startReel(t: { foe: Foe; heavy: boolean }, w: HeroWorld) {
     const f = t.foe, d = f.pos.clone().sub(this.pos).setY(0), l = d.length() || 1; d.divideScalar(l); this.a.yaw = Math.atan2(d.x, d.z);
     this.reelSelf = t.heavy; this.reelFrom.copy(this.pos);
-    if (t.heavy) { this.reelTo.copy(f.pos).addScaledVector(d, -(f.d.r + 0.75)).setY(0); w.clamp(this.reelTo, this.r); }
-    const to = this.pos.clone().addScaledVector(d, this.r + f.d.r + 0.45).setY(0); w.clamp(to, f.d.r);
+    if (t.heavy) {
+      this.reelTo.copy(f.pos).addScaledVector(d, -(f.d.r + 0.75));
+      w.clamp(this.reelTo, this.r, { overPit: false, footY: Math.max(f.pos.y + 0.1, this.pos.y), fromY: f.pos.y });
+      this.reelTo.y = w.groundAt ? w.groundAt(this.reelTo.x, this.reelTo.z) : f.pos.y;
+    }
+    const to = this.pos.clone().addScaledVector(d, this.r + f.d.r + 0.45); to.y = this.pos.y;
+    w.clamp(to, f.d.r, { overPit: false, footY: Math.max(this.pos.y + 0.1, f.pos.y), fromY: this.pos.y });
     const dur = t.heavy ? Math.min(0.42, 0.18 + l * 0.03) : REEL_T;
     w.reel?.({ foe: f, to, dur: t.heavy ? dur : REEL_T * 0.7, dmg: Math.max(4, Math.round(TUNE.atkDmg * 0.9)), self: t.heavy });
     this.set('reel', dur); this.a.play(new Action('reel', dur, 0.25, { self: t.heavy })); this.next = null; this.pendT = 0; this.dartT = -1;
@@ -1102,12 +1129,46 @@ export class Hero {
     return true;
   }
   /** where the left hand is now (the dart's start) */
-  private handL() { const b = this.a.bones?.offhand ?? this.a.bones?.foreL; return b ? b.localToWorld(V3(0, 0, 0)) : this.pos.clone().add(V3(0, 1.25, 0)).addScaledVector(V3(Math.cos(this.a.yaw), 0, -Math.sin(this.a.yaw)), 0.3); }
+  private handL() { const b = this.a.bones?.offhand ?? this.a.bones?.foreL; return b ? b.localToWorld(V3(0, 0, 0)) : this.pos.clone().add(V3(0, 1.25 + this.y, 0)).addScaledVector(V3(Math.cos(this.a.yaw), 0, -Math.sin(this.a.yaw)), 0.3); }
   private move(dt: number, w: HeroWorld) {
-    this.pos.addScaledVector(this.vel, dt);
+    const oldGroundY = this.pos.y;
+    const oldWorldY = oldGroundY + this.y;
+    if (this.airborne) this.peakWorldY = Math.max(this.peakWorldY, oldWorldY);
+    this.pos.x += this.vel.x * dt;
+    this.pos.z += this.vel.z * dt;
     // act-137: clean dash/phase pass-through — NEVER bump off or push enemies during dash, dodgeWin, dcut, rel, swoop, or reelSelf!
     const phasing = this.dodgeWin || this.st === 'dash' || this.st === 'rel' || this.st === 'dcut' || this.st === 'swoop' || (this.st === 'reel' && this.reelSelf);
-    if (this.y < 0.6 && !phasing) for (const f of w.foes) if (f.st !== 'dead') { const d = this.pos.clone().sub(f.pos).setY(0), l = d.length(), mm = this.r + f.d.r; if (l < mm && l > 1e-4) this.pos.addScaledVector(d, (mm - l) / l * 0.6); }
-    w.clamp(this.pos, this.r);
+    if (this.y < 0.6 && !phasing) {
+      for (const f of w.foes) if (f.st !== 'dead' && Math.abs(f.pos.y - oldWorldY) < 0.85) {
+        const d = this.pos.clone().sub(f.pos).setY(0), l = d.length(), mm = this.r + f.d.r;
+        if (l < mm && l > 1e-4) this.pos.addScaledVector(d, (mm - l) / l * 0.6);
+      }
+    }
+    const overPit = this.y > 0.06 || this.st === 'swoop' || this.st === 'acut' || this.st === 'acutF' || this.st === 'stomp' || (this.st === 'dash' && this.airborne);
+    w.clamp(this.pos, this.r, { overPit, footY: oldWorldY, fromY: oldGroundY });
+    const newGroundY = w.groundAt ? w.groundAt(this.pos.x, this.pos.z) : 0;
+    if (this.st === 'reel' && this.reelSelf) {
+      this.pos.y = newGroundY;
+      this.peakWorldY = newGroundY;
+    } else if (this.airborne) {
+      this.pos.y = newGroundY;
+      this.y = oldWorldY - newGroundY;
+      this.peakWorldY = Math.max(this.peakWorldY, oldWorldY);
+      if (this.y <= 0 && (this.st === 'air' || this.st === 'dash')) {
+        this.landed(w);
+      }
+    } else if (newGroundY < oldGroundY - 0.35) {
+      // Stepped / dashed off an elevated platform cliff: conserve world altitude and transition smoothly into airborne drop!
+      this.pos.y = newGroundY;
+      this.y = oldWorldY - newGroundY;
+      this.peakWorldY = Math.max(this.peakWorldY, oldWorldY);
+      if (this.st === 'free') {
+        this.vy = 0; this.jumps = 1; this.airT = 0.18;
+        this.set('air', 99); this.a.act?.cancel(); this.a.act = null;
+      }
+    } else {
+      this.pos.y = newGroundY;
+      this.peakWorldY = newGroundY;
+    }
   }
 }

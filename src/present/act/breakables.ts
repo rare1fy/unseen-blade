@@ -101,42 +101,62 @@ const SHARDS: Record<string, number[]> = { pot: [COL.clay, COL.clayD, COL.clayL]
   fence: [COL.wood, COL.woodD, COL.postD], rack: [COL.wood, COL.postD, 0x6a6e78], banner: [0xd8b030, 0xa8841c, 0xa8302a], basket: [0xa07a44, 0x7a5a30, 0xc8b48a], sack: [0xc8b48a, 0x9a8662, 0xe0d0a0], lamp: [0xa8302a, 0xffc070, COL.postD],
   cover: [COL.stone, COL.stoneL, COL.woodD] };
 
-interface Vis { p: BProp; g: THREE.Group; tilt: THREE.Group; solid: Solid; wob: { x: number; z: number; vx: number; vz: number }; fall: number; fuseT: number; fuseRing?: THREE.Mesh; fuseDisc?: THREE.Mesh; cover?: Cover; drop?: number; model?: 'palaceColumn' }
-interface FireVis { id: number; x: number; z: number; r: number; t: number; disc: THREE.Mesh; emit: number }
+/** Physical voxel heights (m) of breakable props & covers — waist-high obstacles (< 1.2 m) can be cleanly vaulted over with a single jump! */
+const PROP_MAX_Y: Record<PropKind, number> = {
+  pot: 0.78, crate: 0.72, hay: 0.88, oil: 0.95, basket: 0.58, sack: 0.68, fence: 0.92,
+  rack: 1.28, lamp: 2.05, banner: 2.55, pillar: 2.95,
+};
+const COVER_MAX_Y: Partial<Record<CoverKind, number>> = {
+  stones: 0.86, mill: 1.08, cart: 1.15, trough: 0.74, ding: 1.15, bollard: 1.15, chains: 0.96,
+  barrels: 1.15, basin: 0.94, vaultChest: 1.06, columnBase: 0.76, columnStub: 0.96, charpile: 0.86,
+  mooring: 0.86, bags: 0.92, raft: 0.58, boat: 1.08,
+  // Tall architectural covers (well roof, stele slab, rockery spire, spirit screen, bronze camel, bellrack, mint press) stay full-height:
+  well: 2.55, stele: 2.65, rockery: 2.05, screen: 2.35, camel: 2.25, streetCamel: 2.25, bellrack: 2.25, beast: 1.95, mintPress: 2.25,
+};
+
+interface Vis { p: BProp; g: THREE.Group; tilt: THREE.Group; solid: Solid; baseY: number; wob: { x: number; z: number; vx: number; vz: number }; fall: number; fuseT: number; fuseRing?: THREE.Mesh; fuseDisc?: THREE.Mesh; cover?: Cover; drop?: number; model?: 'palaceColumn' }
+interface FireVis { id: number; x: number; z: number; y: number; r: number; t: number; disc: THREE.Mesh; emit: number }
 
 export class Breakables {
   private readonly fallAxis = new THREE.Vector3();
   logic = new BreakLogic(); root = new THREE.Group(); private vis = new Map<number, Vis>(); private fires: FireVis[] = [];
+  groundAt: ((x: number, z: number) => number) | null = null;
+  slideBlocked: ((x: number, z: number, r: number) => boolean) | null = null;
   constructor(parent: THREE.Object3D, private solids: Solids) { parent.add(this.root); }
   /** act-125: spawn an extra breakable prop at runtime (e.g. 陆逊江东火折 extra oil jars) */
   add(kind: 'oil' | 'pot' | 'hay', x: number, z: number) {
+    const baseY = this.groundAt ? this.groundAt(x, z) : 0;
     const p = this.logic.add(kind, x, z), tilt = new THREE.Group(), g = new THREE.Group();
-    tilt.add(model(kind, 0)); g.add(tilt); g.position.set(p.x, 0, p.z);
+    tilt.add(model(kind, 0)); g.add(tilt); g.position.set(p.x, baseY, p.z);
     g.rotation.y = ((p.id * 2654435761) % 4) * (Math.PI / 2);
     this.root.add(g);
-    const solid = this.solids.add({ kind: 'prop', shape: 'circle', x: p.x, z: p.z, r: p.r * 0.85, slam: false, tag: p });
-    this.vis.set(p.id, { p, g, tilt, solid, wob: { x: 0, z: 0, vx: 0, vz: 0 }, fall: -1, fuseT: 0 });
+    const solid = this.solids.add({ kind: 'prop', shape: 'circle', x: p.x, z: p.z, r: p.r * 0.85, maxY: PROP_MAX_Y[kind], baseY, slam: false, tag: p });
+    this.vis.set(p.id, { p, g, tilt, solid, baseY, wob: { x: 0, z: 0, vx: 0, vz: 0 }, fall: -1, fuseT: 0 });
   }
   /** the room's props (from asm/arena.ts arenaPlan) */
   *buildSteps(list: ArenaPlan['props'], covers: Cover[] = [], detached = false) {
     this.clear();
     for (const it of list) {
       yield;
+      const baseY = this.groundAt ? this.groundAt(it.x, it.z) : 0;
       const p = this.logic.add(it.kind, it.x, it.z), tilt = new THREE.Group(), g = new THREE.Group(), long = it.kind === 'fence' || it.kind === 'rack';
-      tilt.add(model(it.model ?? it.kind, long ? (it.rot ?? 0) : 0)); g.add(tilt); g.position.set(p.x, 0, p.z); if (!long) g.rotation.y = ((p.id * 2654435761) % 4) * (Math.PI / 2); this.root.add(g);
+      tilt.add(model(it.model ?? it.kind, long ? (it.rot ?? 0) : 0)); g.add(tilt); g.position.set(p.x, baseY, p.z); if (!long) g.rotation.y = ((p.id * 2654435761) % 4) * (Math.PI / 2); this.root.add(g);
       // a fence / rack is a thin box along its length; the rest are round
-      const solid = long ? this.solids.add({ kind: 'prop', shape: 'box', x: p.x, z: p.z, hx: it.rot ? 0.2 : (it.kind === 'fence' ? 0.85 : 0.5), hz: it.rot ? (it.kind === 'fence' ? 0.85 : 0.5) : 0.2, slam: true, tag: p })
-        : this.solids.add({ kind: 'prop', shape: 'circle', x: p.x, z: p.z, r: p.r * 0.85, slam: it.kind === 'pillar', tag: p });
-      this.vis.set(p.id, { p, g, tilt, solid, model: it.model, wob: { x: 0, z: 0, vx: 0, vz: 0 }, fall: -1, fuseT: 0 });
+      const maxY = PROP_MAX_Y[it.kind] ?? 1.0;
+      const solid = long ? this.solids.add({ kind: 'prop', shape: 'box', x: p.x, z: p.z, hx: it.rot ? 0.2 : (it.kind === 'fence' ? 0.85 : 0.5), hz: it.rot ? (it.kind === 'fence' ? 0.85 : 0.5) : 0.2, maxY, baseY, slam: true, tag: p })
+        : this.solids.add({ kind: 'prop', shape: 'circle', x: p.x, z: p.z, r: p.r * 0.85, maxY, baseY, slam: it.kind === 'pillar', tag: p });
+      this.vis.set(p.id, { p, g, tilt, solid, baseY, model: it.model, wob: { x: 0, z: 0, vx: 0, vz: 0 }, fall: -1, fuseT: 0 });
     }
     // act-20: the cover pieces break too — a solid box that crumbles to a lower heap after enough blows
     for (const cv of covers) {
       yield;
+      const baseY = this.groundAt ? this.groundAt(cv.x, cv.z) : 0;
       const p = this.logic.add('cover', cv.x, cv.z, Math.max(cv.hx, cv.hz)), tilt = new THREE.Group(), g = new THREE.Group();
-      tilt.add(coverModel(cv.kind, cv.rot, false)); g.add(tilt); g.position.set(cv.x, 0, cv.z); this.root.add(g);
-      const solid = this.solids.add({ kind: 'cover', shape: 'box', x: cv.x, z: cv.z, hx: cv.hx, hz: cv.hz, slam: true, tag: p });
-      this.vis.set(p.id, { p, g, tilt, solid, wob: { x: 0, z: 0, vx: 0, vz: 0 }, fall: -1, fuseT: 0, cover: cv });
+      tilt.add(coverModel(cv.kind, cv.rot, false)); g.add(tilt); g.position.set(cv.x, baseY, cv.z); this.root.add(g);
+      const solid = this.solids.add({ kind: 'cover', shape: 'box', x: cv.x, z: cv.z, hx: cv.hx, hz: cv.hz, maxY: COVER_MAX_Y[cv.kind] ?? 1.15, baseY, slam: true, tag: p });
+      this.vis.set(p.id, { p, g, tilt, solid, baseY, wob: { x: 0, z: 0, vx: 0, vz: 0 }, fall: -1, fuseT: 0, cover: cv });
     }
+    // Note: oil jars may slide dynamically when kicked, so keep oil jar matrices dynamic while batching static breakables
     this.root.userData.propBatch = true;
     if (!detached) batchActor(this.root);
   }
@@ -175,39 +195,66 @@ export class Breakables {
     }
     return out;
   }
-  /** a blow on every live prop inside a circle (a plunge, a dart, a body slammed into it) */
-  hitCircle(x: number, z: number, r: number, o: { src: BSrc; heavy?: boolean; dir: [number, number] }, targets: BTarget[]) {
+  /** a blow on every live prop inside a circle (a plunge, a kick, a dart, a body slammed into it) */
+  hitCircle(x: number, z: number, r: number, o: { src: BSrc; heavy?: boolean; slide?: boolean; dir: [number, number] }, targets: BTarget[]) {
     if (o.src === 'hero') this.onStrike?.({ k: 'circle', x, z, r });
     const out = { events: [] as BEvent[], damage: [] as BDamage[] };
     for (const p of this.logic.near(x, z, r)) if (p.state === 'idle') this.merge(out, this.logic.hit(p, o, targets));
     return out;
   }
   /** a blow on every live prop along a segment (the lunge, 穿风斩) */
-  hitSeg(a: THREE.Vector3, b: THREE.Vector3, r: number, o: { src: BSrc; heavy?: boolean }, targets: BTarget[]) {
+  hitSeg(a: THREE.Vector3, b: THREE.Vector3, r: number, o: { src: BSrc; heavy?: boolean; slide?: boolean }, targets: BTarget[]) {
     if (o.src === 'hero') this.onStrike?.({ k: 'seg', ax: a.x, az: a.z, bx: b.x, bz: b.z, r });
     const out = { events: [] as BEvent[], damage: [] as BDamage[] }, abx = b.x - a.x, abz = b.z - a.z, L2 = Math.max(1e-4, abx * abx + abz * abz), L = Math.sqrt(L2);
     for (const p of this.logic.props) {
       if (p.state !== 'idle') continue;
       const t = Math.max(0, Math.min(1, ((p.x - a.x) * abx + (p.z - a.z) * abz) / L2)), qx = a.x + abx * t, qz = a.z + abz * t;
-      if (Math.hypot(p.x - qx, p.z - qz) <= r + p.r) this.merge(out, this.logic.hit(p, { src: o.src, heavy: o.heavy, dir: [abx / L, abz / L] }, targets));
+      if (Math.hypot(p.x - qx, p.z - qz) <= r + p.r) this.merge(out, this.logic.hit(p, { src: o.src, heavy: o.heavy, slide: o.slide ?? o.heavy, dir: [abx / L, abz / L] }, targets));
     }
     return out;
   }
   private merge(a: { events: BEvent[]; damage: BDamage[] }, b: { events: BEvent[]; damage: BDamage[] }) { a.events.push(...b.events); a.damage.push(...b.damage); }
 
+  /** Return fallen pillar segments [ax, az, bx, bz] for weighting down pressure plates. */
+  fallenPillars(): Array<[number, number, number, number]> {
+    const out: Array<[number, number, number, number]> = [];
+    for (const p of this.logic.props) {
+      if (p.kind === 'pillar' && p.state === 'fallen' && p.fallDir) {
+        out.push([p.x, p.z, p.x + p.fallDir[0] * BTUNE.toppleLen, p.z + p.fallDir[1] * BTUNE.toppleLen]);
+      }
+    }
+    return out;
+  }
+
   /** advance the logic and the pictures; returns what the game must apply (damage to foes / hero, drops) */
   update(dt: number, targets: BTarget[]) {
-    const res = this.logic.update(dt, targets);
+    const res = this.logic.update(dt, targets, this.slideBlocked ?? undefined);
     for (const v of this.vis.values()) {
       // the wobble: a stiff damped spring
       const o = v.wob; o.vx += (-180 * o.x - 10 * o.vx) * dt; o.vz += (-180 * o.z - 10 * o.vz) * dt; o.x += o.vx * dt; o.z += o.vz * dt;
       if (v.fall < 0) { v.tilt.rotation.x = o.x; v.tilt.rotation.z = o.z; }
-      // a lit jar: sparks spit from the seal, it shivers, its glow quickens + Hades-2 style ground blast telegraph ring!
+      // a lit jar: sparks spit from the seal, it shivers (or arcs & spins along the ground when kicked!), its glow quickens + ground blast ring!
       if (v.p.state === 'fuse') {
-        v.fuseT += dt; const top = V3(v.p.x, 1.15, v.p.z);
-        if (Math.random() < dt * 40) fxSparks(top, 0xffb040, 2, 2.4, { life: 0.3 } as never);
+        v.fuseT += dt;
+        const sliding = Math.hypot(v.p.vx ?? 0, v.p.vz ?? 0) > 0.35;
+        if (sliding) {
+          const gy = this.groundAt ? this.groundAt(v.p.x, v.p.z) : 0;
+          const arcU = Math.min(1, (v.p.slideDist ?? 0) / Math.max(1, v.p.slideMax ?? 5));
+          const hopY = Math.sin(arcU * Math.PI) * 0.44;
+          v.baseY = gy;
+          v.solid.x = v.p.x; v.solid.z = v.p.z; v.solid.on = false;
+          v.g.position.set(v.p.x, gy + hopY, v.p.z);
+          v.tilt.rotation.x = v.fuseT * 11;
+          v.g.updateMatrixWorld(true);
+          if (v.fuseRing) { v.fuseRing.position.set(v.p.x, gy + 0.055, v.p.z); v.fuseRing.updateMatrix(); }
+          if (v.fuseDisc) { v.fuseDisc.position.set(v.p.x, gy + 0.05, v.p.z); }
+        }
+        const curY = v.g.position.y;
+        const top = V3(v.p.x, curY + 1.15, v.p.z);
+        if (Math.random() < dt * (sliding ? 65 : 40)) fxSparks(top, 0xffb040, sliding ? 3 : 2, 2.6, { life: 0.3 } as never);
         if (Math.random() < dt * 8) fxSmoke(top, 0x3a3634, 1, { s: 0.16, up: 1.2, life: 0.6 });
-        v.tilt.rotation.z = Math.sin(v.fuseT * 60) * 0.04; fxGlow(top, 0xff7a20, 0.5 + 0.3 * Math.sin(v.fuseT * 30), 0.06, 2);
+        if (!sliding) v.tilt.rotation.z = Math.sin(v.fuseT * 60) * 0.04;
+        fxGlow(top, 0xff7a20, 0.5 + 0.3 * Math.sin(v.fuseT * 30), 0.06, 2);
         const prog = Math.min(1, v.fuseT / Math.max(0.15, BTUNE.fuse));
         if (v.fuseRing) {
           const rm = v.fuseRing.material as THREE.MeshBasicMaterial;
@@ -229,7 +276,7 @@ export class Breakables {
           shake(v.drop != null ? 0.08 : 0.28); cue(v.drop != null ? 'land' : 'wallSlam', v.drop != null ? 0.5 : 1.0);
         }
         if (v.drop != null && v.fall > v.drop) { this.root.remove(v.g); v.fall = -2; v.drop = undefined; continue; }
-        if (v.fall > 2.4) { this.root.remove(v.g); const st = model(v.model === 'palaceColumn' ? 'palaceStump' : 'stump'); st.position.set(v.p.x, 0, v.p.z); this.root.add(st); v.g = st; v.tilt = new THREE.Group(); v.fall = -2; }
+        if (v.fall > 2.4) { const st = model(v.model === 'palaceColumn' ? 'palaceStump' : 'stump'); st.position.set(v.p.x, v.baseY, v.p.z); v.solid.maxY = 0.68; this.root.add(st); v.g.position.y = v.baseY - 0.08; v.fall = -2; }
       }
     }
     for (const f of [...this.fires]) {
@@ -248,7 +295,7 @@ export class Breakables {
         // a cover piece crumbles: the heap replaces it, a burst of blocks and dust, it still stands in the way (smaller)
         const v = this.vis.get(e.p.id); if (!v || !v.cover) continue;
         this.root.remove(v.g); const g = new THREE.Group(), t = new THREE.Group(); t.add(coverModel(v.cover.kind, v.cover.rot, true)); g.add(t); g.position.copy(v.g.position); this.root.add(g); v.g = g; v.tilt = t;
-        v.solid.hx *= BTUNE.rubbleK; v.solid.hz *= BTUNE.rubbleK; v.solid.r *= BTUNE.rubbleK;
+        v.solid.hx *= BTUNE.rubbleK; v.solid.hz *= BTUNE.rubbleK; v.solid.r *= BTUNE.rubbleK; v.solid.maxY = 0.45;
         const at = V3(e.p.x, 0.6, e.p.z);
         for (let i = 0; i < 16; i++) { const a = Math.random() * Math.PI * 2, sp = 2 + Math.random() * 3; addBlock(at.clone().add(V3(Math.cos(a) * 0.3, Math.random() * 0.6, Math.sin(a) * 0.3)), { size: 0.08 + Math.random() * 0.1, v: V3(Math.cos(a) * sp + e.dir[0] * 2, 2 + Math.random() * 3.5, Math.sin(a) * sp + e.dir[1] * 2), col: SHARDS.cover[i % 3], glow: false, debris: true, grav: 14, floor: 0.03, spin: 6, life: 1.8, shrink: 0.5 }); }
         fxSmoke(at, 0x8a7a6a, 10, { r: 0.8, spd: 1.8, up: 0.8, s: 0.5, life: 0.9, alpha: 0.5 }); shake(0.3); cue('pillarFall', 0.7); cue('wallSlam', 0.8);
@@ -293,9 +340,10 @@ export class Breakables {
         fxEmbers(at, 0xff9a3a, 18, { r: 1.2, up: 3, life: 1.2 }); cue('boom', 1); cue('fire', 0.8);
       }
       else if (e.k === 'fire') {
+        const fy = this.groundAt ? this.groundAt(e.f.x, e.f.z) : 0;
         const disc = new THREE.Mesh(new THREE.CircleGeometry(e.f.r, 8, Math.PI / 8).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xff6a1a, transparent: true, opacity: 0.35, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
-        disc.position.set(e.f.x, 0.04, e.f.z); disc.renderOrder = 2; this.root.add(disc);
-        this.fires.push({ id: e.f.id, x: e.f.x, z: e.f.z, r: e.f.r, t: e.f.t, disc, emit: 0 });
+        disc.position.set(e.f.x, fy + 0.04, e.f.z); disc.renderOrder = 2; this.root.add(disc);
+        this.fires.push({ id: e.f.id, x: e.f.x, z: e.f.z, y: fy, r: e.f.r, t: e.f.t, disc, emit: 0 });
       }
       else if (e.k === 'fireEnd') { const i = this.fires.findIndex(f => f.id === e.f.id); if (i >= 0) { const f = this.fires[i]; this.root.remove(f.disc); (f.disc.material as THREE.Material).dispose(); f.disc.geometry.dispose(); this.fires.splice(i, 1); } }
       else if (e.k === 'topple') { const v = this.vis.get(e.p.id); if (v) { v.fall = 0; v.solid.r = BTUNE.stumpR; } cue('pillarFall', 1); }

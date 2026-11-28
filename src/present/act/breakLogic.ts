@@ -7,6 +7,8 @@ export type BSrc = 'hero' | 'dart' | 'slam' | 'blast' | 'fire';
 export interface BProp {
   id: number; kind: BKind; x: number; z: number; r: number; hp: number;
   state: 'idle' | 'fuse' | 'gone' | 'fallen'; fuse: number; fallDir: [number, number] | null;
+  /** Kinetic slide velocity when an oil jar is kicked / heavy-slashed like a bowling bomb. */
+  vx?: number; vz?: number; slideDist?: number; slideMax?: number;
 }
 
 /** A temporary burning area left by an exploded oil jar. */
@@ -80,19 +82,38 @@ export class BreakLogic {
   }
 
   /** Resolve one blow and any immediate topple effects. */
-  hit(p: BProp, o: { src: BSrc; heavy?: boolean; dir: [number, number] }, targets: BTarget[] = []): Result {
+  hit(p: BProp, o: { src: BSrc; heavy?: boolean; slide?: boolean; dir: [number, number] }, targets: BTarget[] = []): Result {
     const result: Result = { events: [], damage: [] };
     this.resolveHit(p, o, targets, result);
     return result;
   }
 
-  /** Advance existing fuses and fire patches and resolve their area effects. */
-  update(dt: number, targets: BTarget[]): Result {
+  /** Advance existing fuses (including kicked sliding oil jars) and fire patches and resolve their area effects. */
+  update(dt: number, targets: BTarget[], slideBlocked?: (x: number, z: number, r: number) => boolean): Result {
     const result: Result = { events: [], damage: [] };
     if (dt <= 0) return result;
     const lit = this.props.filter(p => p.state === 'fuse');
     const burning = [...this.fires];
     for (const p of lit) {
+      if ((p.vx || p.vz) && p.state === 'fuse') {
+        const sp = Math.hypot(p.vx ?? 0, p.vz ?? 0);
+        if (sp > 0.3) {
+          const nx = p.x + (p.vx ?? 0) * dt, nz = p.z + (p.vz ?? 0) * dt;
+          const stepD = Math.hypot(nx - p.x, nz - p.z);
+          const hitObstacle = !!slideBlocked?.(nx, nz, p.r * 0.9);
+          const hitFoe = (p.slideDist ?? 0) > 0.45 && targets.some(t => !t.hero && Math.hypot(t.x - nx, t.z - nz) <= p.r + t.r + 0.15);
+          if (hitObstacle || hitFoe) {
+            if (!hitObstacle) { p.x = nx; p.z = nz; }
+            p.vx = 0; p.vz = 0;
+            this.explode(p, targets, result);
+            continue;
+          }
+          p.x = nx; p.z = nz;
+          p.slideDist = (p.slideDist ?? 0) + stepD;
+          const drag = Math.exp(-dt * 2.1);
+          p.vx = (p.vx ?? 0) * drag; p.vz = (p.vz ?? 0) * drag;
+        }
+      }
       p.fuse -= dt;
       if (p.fuse <= 0) this.explode(p, targets, result);
     }
@@ -121,11 +142,22 @@ export class BreakLogic {
     return result;
   }
 
-  private resolveHit(p: BProp, o: { src: BSrc; heavy?: boolean; dir: [number, number] }, targets: BTarget[], result: Result): void {
+  private resolveHit(p: BProp, o: { src: BSrc; heavy?: boolean; slide?: boolean; dir: [number, number] }, targets: BTarget[], result: Result): void {
     if (p.state !== 'idle') return;
     const dir = direction(...o.dir);
     if (p.kind === 'oil') {
-      p.state = 'fuse'; p.fuse = o.src === 'blast' ? BTUNE.chainFuse : BTUNE.fuse;
+      p.state = 'fuse';
+      const launch = !!(o.slide || (o.src === 'hero' && o.heavy) || o.src === 'slam');
+      if (launch) {
+        // Kinetic bowling launch: travels ~5.2 m (hopping cleanly across 1-tile ditches) and detonates on striking a barricade, wall, or foe!
+        p.fuse = 0.78;
+        p.vx = dir[0] * 10.8;
+        p.vz = dir[1] * 10.8;
+        p.slideDist = 0;
+        p.slideMax = 5.4;
+      } else {
+        p.fuse = o.src === 'blast' ? BTUNE.chainFuse : o.src === 'dart' ? 0.42 : BTUNE.fuse;
+      }
       result.events.push({ k: 'fuse', p });
       return;
     }

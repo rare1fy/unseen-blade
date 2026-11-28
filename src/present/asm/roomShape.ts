@@ -12,6 +12,11 @@ import type { CoverKind } from './arena';
 export type ShapeId = 'square' | 'ell' | 'cloister' | 'neck' | 'bridge' | 'pond' | 'map';
 /** water / a gully; 'flood' = water over a sunken causeway (a sluice drains it — LEVEL_DESIGN 开闸) */
 export type PitKind = 'water' | 'ditch' | 'flood' | 'molten';
+/** Elevated 3D voxel terrace / battlement height (16 stage cells × 7 cm = 1.12 m). */
+export const PLAT_H = 1.12;
+/** Climb direction of a stepped stone/wood ramp ('n' = climbs toward -z, 's' = +z, 'e' = +x, 'w' = -x). */
+export type RampDir = 'n' | 's' | 'e' | 'w';
+export interface RampRect extends Rect { dir: RampDir }
 /** 形状的叫法（日志 / 调试用，玩家看不到） */
 export const SHAPE_CN: Record<ShapeId, string> = { square: '方院', ell: '曲尺', cloister: '回廊', neck: '窄巷', bridge: '过桥', pond: '临水', map: '定制' };
 /** how much each shape stretches the old 10.6 × 12 m floor (setStage(true, k)): the floor's box is then PLAY */
@@ -36,6 +41,12 @@ export interface ShapePlan {
   pits: Array<Rect & { kind: PitKind }>;
   /** walkable spans across the pits */
   bridges: Rect[];
+  /** stepping-stone piers rising from a pit to y = 0 (isolated square islands surrounded by water/gully — require jumping!) */
+  stones?: Rect[];
+  /** elevated 3D voxel terraces / battlements standing at y = PLAT_H (1.12 m) — reachable via ramps or by jumping up */
+  platforms?: Rect[];
+  /** stepped stone/timber ramps smoothly linking ground (y = 0) up to PLAT_H (1.12 m) */
+  ramps?: RampRect[];
   /** where the hero walks in (m) */
   enter: [number, number];
   /** a drawn room (docs/LEVEL_DESIGN.md, asm/roomMaps.ts): every piece fixed by the map */
@@ -149,22 +160,32 @@ export function pickShape(list: ShapeId[] | undefined, kind: 'fight' | 'boss' | 
 
 // ================================================================== the floor grid
 export const OUT = 0, FLOOR = 1, PIT = 2;
-export interface GridPush { nx: number; nz: number; depth: number; pit: boolean }
-/** the floor as 0.49 m cells: OUT (walls, the walled-off parts, beyond the box), FLOOR (ground and bridges), PIT (water, gullies) */
+export interface GridPush { nx: number; nz: number; depth: number; pit: boolean; ledge?: boolean }
+export interface GridClampOpts { worldY?: number; fromY?: number; holdHigh?: boolean }
+/** the floor as 0.49 m cells: OUT (walls, the walled-off parts, beyond the box), FLOOR (ground, bridges, stones, platforms), PIT (water, gullies) */
 export class FloorGrid {
   readonly x0: number; readonly z0: number; readonly nx: number; readonly nz: number;
-  readonly c: Uint8Array; private pitTypes: Uint8Array;
+  readonly c: Uint8Array;
+  /** elevation tier per subcell: 0 = ground (0 m), 1 = stepped ramp (0..PLAT_H), 2 = high platform (PLAT_H = 1.12 m) */
+  readonly elev: Uint8Array;
+  private pitTypes: Uint8Array;
   constructor(readonly sp: ShapePlan, pad = 4) {
     const b = sp.box, G = GRID;
     this.x0 = b.x0 - pad * G; this.z0 = b.z0 - pad * G;
     this.nx = Math.round((b.x1 - b.x0) / G) + pad * 2; this.nz = Math.round((b.z1 - b.z0) / G) + pad * 2;
-    this.c = new Uint8Array(this.nx * this.nz); this.pitTypes = new Uint8Array(this.nx * this.nz);
+    this.c = new Uint8Array(this.nx * this.nz);
+    this.elev = new Uint8Array(this.nx * this.nz);
+    this.pitTypes = new Uint8Array(this.nx * this.nz);
     const inR = (q: Rect, x: number, z: number) => x > q.x0 && x < q.x1 && z > q.z0 && z < q.z1;
+    // Stepping stones keep a 0.30 m pit moat around each 1.96 m cell (inner 2×2 subcells = 0.98 m pier, outer ring = PIT) so walking cannot cross without jumping!
+    const inStone = (x: number, z: number) => !!sp.stones?.some(q => x > q.x0 + 0.30 && x < q.x1 - 0.30 && z > q.z0 + 0.30 && z < q.z1 - 0.30);
     for (let j = 0; j < this.nz; j++) for (let i = 0; i < this.nx; i++) {
       const x = this.x0 + (i + 0.5) * G, z = this.z0 + (j + 0.5) * G, k = j * this.nx + i;
       if (!inR(b, x, z)) continue;
+      if (sp.ramps?.some(q => inR(q, x, z))) this.elev[k] = 1;
+      else if (sp.platforms?.some(q => inR(q, x, z))) this.elev[k] = 2;
       if (sp.fixed?.closed.some(q => inR(q, x, z))) { this.c[k] = OUT; continue; }
-      if (sp.bridges.some(q => inR(q, x, z))) { this.c[k] = FLOOR; continue; }
+      if (sp.bridges.some(q => inR(q, x, z)) || inStone(x, z)) { this.c[k] = FLOOR; continue; }
       const p = sp.pits.find(q => inR(q, x, z));
       if (p) { this.c[k] = PIT; this.pitTypes[k] = p.kind === 'ditch' ? 0 : p.kind === 'molten' ? 2 : 1; continue; }
       this.c[k] = sp.solid.some(q => inR(q, x, z)) ? OUT : FLOOR;
@@ -196,7 +217,28 @@ export class FloorGrid {
   ix(x: number) { return Math.floor((x - this.x0) / GRID); }
   iz(z: number) { return Math.floor((z - this.z0) / GRID); }
   kind(i: number, j: number) { return i < 0 || j < 0 || i >= this.nx || j >= this.nz ? OUT : this.c[j * this.nx + i]; }
+  elevAt(i: number, j: number) { return i < 0 || j < 0 || i >= this.nx || j >= this.nz ? 0 : this.elev[j * this.nx + i]; }
   at(x: number, z: number) { return this.kind(this.ix(x), this.iz(z)); }
+  /** Exact floor deck height (m) at world (x, z): PLAT_H on elevated terraces, smooth slope on ramps, 0 on ground. */
+  groundAt(x: number, z: number): number {
+    if (this.sp.ramps) {
+      for (const r of this.sp.ramps) {
+        if (x >= r.x0 - 0.02 && x <= r.x1 + 0.02 && z >= r.z0 - 0.02 && z <= r.z1 + 0.02) {
+          const t = r.dir === 'n' ? (r.z1 - z) / Math.max(0.01, r.z1 - r.z0)
+            : r.dir === 's' ? (z - r.z0) / Math.max(0.01, r.z1 - r.z0)
+            : r.dir === 'e' ? (x - r.x0) / Math.max(0.01, r.x1 - r.x0)
+            : (r.x1 - x) / Math.max(0.01, r.x1 - r.x0);
+          return Math.max(0, Math.min(1, t)) * PLAT_H;
+        }
+      }
+    }
+    if (this.sp.platforms) {
+      for (const p of this.sp.platforms) {
+        if (x >= p.x0 - 0.05 && x <= p.x1 + 0.05 && z >= p.z0 - 0.05 && z <= p.z1 + 0.05) return PLAT_H;
+      }
+    }
+    return 0;
+  }
   /** the centre of cell (i, j) */
   cx(i: number) { return this.x0 + (i + 0.5) * GRID; }
   cz(j: number) { return this.z0 + (j + 0.5) * GRID; }
@@ -205,14 +247,22 @@ export class FloorGrid {
     const i = this.ix(x), j = this.iz(z); if (this.kind(i, j) !== PIT) return null;
     return (['ditch', 'water', 'molten'] as const)[this.pitTypes[j * this.nx + i]];
   }
-  /** (x, z) and everything within pad of it is floor */
+  /** (x, z) and everything within pad of it is floor on a uniform elevation tier (never straddling a sheer cliff) */
   clear(x: number, z: number, pad: number) {
-    for (const [dx, dz] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [0.7, 0.7], [-0.7, 0.7], [0.7, -0.7], [-0.7, -0.7]]) if (this.at(x + dx * pad, z + dz * pad) !== FLOOR) return false;
+    const e0 = this.elevAt(this.ix(x), this.iz(z));
+    for (const [dx, dz] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [0.7, 0.7], [-0.7, 0.7], [0.7, -0.7], [-0.7, -0.7]]) {
+      const qx = x + dx * pad, qz = z + dz * pad;
+      if (this.at(qx, qz) !== FLOOR) return false;
+      if (Math.abs(this.elevAt(this.ix(qx), this.iz(qz)) - e0) > 1) return false;
+    }
     return true;
   }
   /** the nearest cell (i, j) that is open (floor, or a pit too when overPit) to cell (i0, j0), within maxR rings */
-  nearestOpen(i0: number, j0: number, overPit: boolean, maxR = 12): [number, number] | null {
-    const ok = (i: number, j: number) => { const k = this.kind(i, j); return k === FLOOR || (overPit && k === PIT); };
+  nearestOpen(i0: number, j0: number, overPit: boolean, maxR = 12, cellShut?: (i: number, j: number) => boolean): [number, number] | null {
+    const ok = (i: number, j: number) => {
+      if (cellShut && cellShut(i, j)) return false;
+      const k = this.kind(i, j); return k === FLOOR || (overPit && k === PIT);
+    };
     if (ok(i0, j0)) return [i0, j0];
     for (let rr = 1; rr <= maxR; rr++) {
       let best: [number, number] | null = null, bd = 1e9;
@@ -229,33 +279,46 @@ export class FloorGrid {
     if (this.at(x, z) === FLOOR) return [x, z];
     const n = this.nearestOpen(this.ix(x), this.iz(z), false, 30); return n ? [this.cx(n[0]), this.cz(n[1])] : [x, z];
   }
-  /** a body circle held on the floor: the cells that are not floor (and the pits, unless overPit) push it out. p is moved; the
-   *  deepest push comes back (its normal points back onto the floor — the wall slam reads it) */
-  clamp(p: { x: number; z: number }, r: number, overPit = false): GridPush | null {
-    const G = GRID, shut = (k: number) => k === OUT || (k === PIT && !overPit);
+  /** a body circle held on the floor: the cells that are not floor (and the pits, unless overPit; and high platform cliffs when
+   *  worldY < PLAT_H - 0.22) push it out. p is moved; the deepest push comes back */
+  clamp(p: { x: number; z: number }, r: number, overPit = false, opts: GridClampOpts = {}): GridPush | null {
+    const G = GRID;
+    const worldY = opts.worldY ?? 0, fromY = opts.fromY ?? worldY, holdHigh = !!opts.holdHigh;
+    const canMountHigh = worldY >= PLAT_H - 0.24 || fromY >= PLAT_H - 0.24;
+    const cellShut = (ii: number, jj: number) => {
+      const k = this.kind(ii, jj);
+      if (k === OUT || (k === PIT && !overPit)) return true;
+      if (k === FLOOR) {
+        const ev = this.elevAt(ii, jj);
+        if (ev === 2 && !canMountHigh) return true;
+        if (holdHigh && fromY >= PLAT_H - 0.15 && ev === 0) return true;
+      }
+      return false;
+    };
     let best: GridPush | null = null;
     // (far outside the floor — a summons placed off the stage, a blink — first into the box, so the nearest open cell is in reach)
     const b = this.sp.box; if (p.x < b.x0 || p.x > b.x1 || p.z < b.z0 || p.z > b.z1) { p.x = clampN(p.x, b.x0 + r, b.x1 - r); p.z = clampN(p.z, b.z0 + r, b.z1 - r); }
     // the centre itself inside a shut cell (a blink, a spawn, a push from a crowd): onto the nearest open cell
     const i = this.ix(p.x), j = this.iz(p.z), k0 = this.kind(i, j);
-    if (shut(k0)) {
-      const n = this.nearestOpen(i, j, overPit, 40);
+    if (cellShut(i, j)) {
+      const n = this.nearestOpen(i, j, overPit, 40, cellShut);
       if (n) {
         const bx0 = this.x0 + n[0] * G, bz0 = this.z0 + n[1] * G, m = Math.min(r, G / 2 - 0.01);
         const qx = clampN(p.x, bx0 + m, bx0 + G - m), qz = clampN(p.z, bz0 + m, bz0 + G - m), dx = qx - p.x, dz = qz - p.z, d = Math.hypot(dx, dz) || 1e-6;
-        p.x = qx; p.z = qz; best = { nx: dx / d, nz: dz / d, depth: d, pit: k0 === PIT };
+        p.x = qx; p.z = qz; best = { nx: dx / d, nz: dz / d, depth: d, pit: k0 === PIT, ledge: k0 === FLOOR };
       }
     }
     for (let pass = 0; pass < 3; pass++) {
       let moved = false;
       const i0 = this.ix(p.x - r), i1 = this.ix(p.x + r), j0 = this.iz(p.z - r), j1 = this.iz(p.z + r);
       for (let jj = j0; jj <= j1; jj++) for (let ii = i0; ii <= i1; ii++) {
-        const k = this.kind(ii, jj); if (!shut(k)) continue;
+        if (!cellShut(ii, jj)) continue;
+        const k = this.kind(ii, jj);
         const bx0 = this.x0 + ii * G, bz0 = this.z0 + jj * G;
         const qx = clampN(p.x, bx0, bx0 + G), qz = clampN(p.z, bz0, bz0 + G), dx = p.x - qx, dz = p.z - qz, d2 = dx * dx + dz * dz;
         if (d2 >= r * r || d2 < 1e-12) continue;
         const d = Math.sqrt(d2), push = r - d; p.x += dx / d * push; p.z += dz / d * push; moved = true;
-        if (!best || push > best.depth) best = { nx: dx / d, nz: dz / d, depth: push, pit: k === PIT };
+        if (!best || push > best.depth) best = { nx: dx / d, nz: dz / d, depth: push, pit: k === PIT, ledge: k === FLOOR };
       }
       if (!moved) break;
     }
@@ -285,6 +348,10 @@ export class FloorGrid {
   }
   /** a cell the way round may use */
   walk(i: number, j: number) { return this.kind(i, j) === FLOOR && !(this.blk && this.blk[j * this.nx + i]); }
+  /** can a walking actor step directly between adjacent cells (a, b) and (ia, jb) without jumping a sheer 1.12 m cliff? */
+  private stepElevOk(a: number, b: number, ia: number, jb: number) {
+    return Math.abs(this.elevAt(a, b) - this.elevAt(ia, jb)) <= 1;
+  }
   private nearestWalk(i0: number, j0: number, maxR: number): [number, number] | null {
     if (this.walk(i0, j0)) return [i0, j0];
     for (let rr = 1; rr <= maxR; rr++) {
@@ -297,8 +364,7 @@ export class FloorGrid {
     }
     return null;
   }
-  /** steps over the floor (8-neighbour, no corner cutting, round the blocked cells) from every cell to cell (ti, tj); −1 = no way.
-   *  The floor never changes during a room, so a target's field is kept (the last few) */
+  /** steps over the floor (8-neighbour, no corner cutting, round the blocked cells & sheer cliffs) from every cell to cell (ti, tj); −1 = no way. */
   field(ti: number, tj: number): Int16Array {
     const key = tj * this.nx + ti, hit = this.fields.get(key); if (hit) { this.fields.delete(key); this.fields.set(key, hit); return hit; }
     const d = new Int16Array(this.nx * this.nz).fill(-1), q = new Int32Array(this.nx * this.nz); let h = 0, t = 0;
@@ -307,27 +373,33 @@ export class FloorGrid {
       const k = q[h++], a = k % this.nx, b = (k - a) / this.nx, dk = d[k] + 1;
       for (let v = -1; v <= 1; v++) for (let u = -1; u <= 1; u++) {
         if (!u && !v) continue; const ia = a + u, jb = b + v;
-        if (!this.walk(ia, jb) || (u && v && (!this.walk(a + u, b) || !this.walk(a, b + v)))) continue;
+        if (!this.walk(ia, jb) || !this.stepElevOk(a, b, ia, jb)) continue;
+        if (u && v && (!this.walk(a + u, b) || !this.walk(a, b + v) || !this.stepElevOk(a, b, a + u, b) || !this.stepElevOk(a, b, a, b + v))) continue;
         const n = jb * this.nx + ia; if (d[n] >= 0) continue; d[n] = dk; q[t++] = n;
       }
     }
     this.fields.set(key, d); if (this.fields.size > 4) this.fields.delete(this.fields.keys().next().value!);
     return d;
   }
-  /** a ranged foe can see / shoot from a to b: no wall or walled-off part between (water and gullies lie low, they shoot across) */
+  /** a ranged foe can see / shoot from a to b: no wall or walled-off part between (water, gullies and terraces allow cross-fire) */
   sightOpen(ax: number, az: number, bx: number, bz: number) {
     const dx = bx - ax, dz = bz - az, L = Math.hypot(dx, dz), n = Math.ceil(L / 0.25);
     for (let i = 1; i < n; i++) { const t = i / n; if (this.at(ax + dx * t, az + dz * t) === OUT) return false; }
     return true;
   }
-  /** the straight line a → b is walkable all the way for a body of radius r (sampled every 0.2 m, the middle and both edges; the
-   *  blocked cells count as shut) */
+  /** the straight line a → b is walkable all the way for a body of radius r (without crossing pits, blocked props, or sheer cliffs) */
   lineOpen(ax: number, az: number, bx: number, bz: number, r: number) {
     const ok = (x: number, z: number) => this.walk(this.ix(x), this.iz(z));
     const dx = bx - ax, dz = bz - az, L = Math.hypot(dx, dz); if (L < 1e-3) return ok(ax, az);
     const n = Math.ceil(L / 0.2), px = -dz / L * r, pz = dx / L * r;
-    for (let i = 1; i <= n; i++) { const t = i / n, x = ax + dx * t, z = az + dz * t;
-      if (!ok(x, z) || !ok(x + px, z + pz) || !ok(x - px, z - pz)) return false; }
+    let prevE = this.elevAt(this.ix(ax), this.iz(az));
+    for (let i = 1; i <= n; i++) {
+      const t = i / n, x = ax + dx * t, z = az + dz * t;
+      if (!ok(x, z) || !ok(x + px, z + pz) || !ok(x - px, z - pz)) return false;
+      const curE = this.elevAt(this.ix(x), this.iz(z));
+      if (Math.abs(curE - prevE) > 1) return false;
+      prevE = curE;
+    }
     return true;
   }
   /** which way to walk from (x, z) to reach (tx, tz) over the floor: null = straight at it (the line is open, or there is no way

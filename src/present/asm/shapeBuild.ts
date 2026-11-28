@@ -6,7 +6,7 @@ import { CELL } from '../bestiary/kit';
 import { M, GRID } from '../scenes/props';
 import type { Ctx } from '../scenes/stage';
 import type { Rect } from './types';
-import { FloorGrid, FLOOR, OUT, PIT, type PitKind, type ShapePlan } from './roomShape';
+import { FloorGrid, FLOOR, OUT, PIT, PLAT_H, type PitKind, type RampRect, type ShapePlan } from './roomShape';
 import { wallPiece, gateFrame, southGateFrame, WALL, SOUTH_WALL_H, wallHOf, type ArenaPlan, type WallStyle } from './arena';
 import { castPit } from './luoyang/molten';
 import { LY, palaceWall, frame } from './luoyang/ly_kit';
@@ -79,8 +79,15 @@ export function buildShape(c: Ctx, sp: ShapePlan, plan: ArenaPlan, seed: number)
     const L = run.along === 'x' ? cZ(run.line) : cX(run.line), b0 = run.out < 0 ? L - T : L, b1 = b0 + T - 1;
     const a0 = (run.along === 'x' ? cX(run.a0) : cZ(run.a0)) - (run.e0 ? T : 0), a1 = (run.along === 'x' ? cX(run.a1 + 1) : cZ(run.a1 + 1)) - 1 + (run.e1 ? T : 0);
     // act-189: camera-side outer south border stands chest-high (Hfront = 1.19 m) to physically block the player without hiding combat;
-    // interior & north/east/west walls stand at full height (H = 2.45 m, or low-by-nature styles)
-    const h = run.front ? Hfront : H; void low; void LOW;
+    // interior & north/east/west walls stand at full height (H = 2.45 m, or low-by-nature styles).
+    // Raise any wall run bordering an elevated platform (^, +1.12 m = 16 cells) so perimeter walls/rails stay chest-to-head high above the deck!
+    let touchesHigh = false;
+    for (let idx = run.a0; idx <= run.a1; idx++) {
+      const ci = run.along === 'x' ? idx : (run.out < 0 ? run.line : run.line - 1);
+      const cj = run.along === 'x' ? (run.out < 0 ? run.line : run.line - 1) : idx;
+      if (g.elevAt(ci, cj) === 2) { touchesHigh = true; break; }
+    }
+    const h = (run.front ? Hfront : H) + (touchesHigh ? M(PLAT_H) : 0); void low; void LOW;
     const runGaps = gaps(run);
     let southGateX: number | null = null;
     if (run.front && !placedSouthGate && a1 - a0 >= entHalf * 2 + 10) {
@@ -126,6 +133,12 @@ export function buildShape(c: Ctx, sp: ShapePlan, plan: ArenaPlan, seed: number)
     const k = sp.pits.find(p => p.x0 <= q.x0 && p.x1 >= q.x1 && p.z0 <= q.z0 && p.z1 >= q.z1)?.kind;
     bridge(box, q, k === 'molten' || k === 'ditch' ? k : 'water', plan.style);
   }
+  for (const q of sp.stones ?? []) {
+    const k = sp.pits.find(p => p.x0 <= q.x0 + 0.1 && p.x1 >= q.x1 - 0.1 && p.z0 <= q.z0 + 0.1 && p.z1 >= q.z1 - 0.1)?.kind;
+    steppingStone(box, q, k === 'molten' || k === 'ditch' ? k : 'water', plan.style);
+  }
+  for (const q of sp.platforms ?? []) platform(box, q, sp, plan.style);
+  for (const q of sp.ramps ?? []) ramp(box, q, plan.style);
 }
 
 function collapsedFloor(c: Ctx, box: B, p: Rect, channel?: Rect) {
@@ -239,8 +252,131 @@ function bridge(box: B, q: Rect, kind: 'water' | 'ditch' | 'molten', st: WallSty
   }
 }
 
-/** the walled-off parts and the pits as rects a locale's dressing keeps clear (no grass cards in the water, none over a wall top) */
-export function shapeClear(sp: ShapePlan): Rect[] { return [...sp.pits, ...sp.bridges]; }
+/** Stepping-stone pier (跳石墩) rising cleanly from water/gully/molten pit up to y = 0: notched ashlar masonry or timber pile cap */
+function steppingStone(box: B, q: Rect, kind: 'water' | 'ditch' | 'molten', st: WallStyle) {
+  const cx = Math.round(M((q.x0 + q.x1) / 2)), cz = Math.round(M((q.z0 + q.z1) / 2));
+  const h = 10; // 20 × 20 cells = 1.40 m × 1.40 m square pier surrounded by visible water/gully moat
+  const bot = kind === 'ditch' ? -20 : -13;
+  const timber = kind === 'water' && (st === 'rail' || st === 'stockade');
+  if (kind === 'molten') {
+    box(cx - h + 1, -10, cz - h, cx + h - 1, -3, cz + h, 0x944a2c);
+    box(cx - h, -10, cz - h + 1, cx + h, -3, cz + h - 1, 0x944a2c);
+    box(cx - h + 1, -2, cz - h, cx + h - 1, 0, cz + h, LY.stoneDD);
+    box(cx - h, -2, cz - h + 1, cx + h, 0, cz + h - 1, LY.stoneDD);
+    box(cx - h + 2, 0, cz - h + 2, cx + h - 2, 0, cz + h - 2, LY.stone);
+  } else if (timber) {
+    for (const dx of [-h + 2, h - 3]) for (const dz of [-h + 2, h - 3]) box(cx + dx, bot, cz + dz, cx + dx + 1, -2, cz + dz + 1, PAL.post);
+    box(cx - h, -2, cz - h, cx + h - 1, -1, cz + h - 1, PAL.woodD);
+    box(cx - h, 0, cz - h, cx + h - 1, 0, cz + h - 1, PAL.wood);
+    for (let x = cx - h + 3; x < cx + h - 2; x += 4) box(x, 0, cz - h, x, 0, cz + h - 1, PAL.woodD);
+    box(cx - h, 0, cz - h, cx + h - 1, 0, cz - h, PAL.woodL);
+    box(cx - h, 0, cz + h - 1, cx + h - 1, 0, cz + h - 1, PAL.woodL);
+  } else {
+    box(cx - h + 1, bot, cz - h, cx + h - 1, -2, cz + h, PAL.stoneW);
+    box(cx - h, bot, cz - h + 1, cx + h, -2, cz + h - 1, PAL.stoneW);
+    if (kind === 'water') {
+      box(cx - h, -8, cz - h + 1, cx + h, -8, cz + h - 1, PAL.waterL);
+    }
+    box(cx - h + 1, -1, cz - h, cx + h - 1, 0, cz + h, PAL.stoneD);
+    box(cx - h, -1, cz - h + 1, cx + h, 0, cz + h - 1, PAL.stoneD);
+    box(cx - h + 2, 0, cz - h + 2, cx + h - 2, 0, cz + h - 2, PAL.stone);
+    box(cx - h + 2, 0, cz - h + 2, cx + h - 2, 0, cz - h + 2, PAL.stoneL);
+    box(cx - 1, 0, cz - h + 3, cx, 0, cz + h - 3, PAL.stoneD);
+  }
+}
+
+/** Elevated 3D voxel terrace / battlement (^, height = PLAT_H = 1.12 m = 16 cells: y = 0..15) */
+function platform(box: B, q: Rect, sp: ShapePlan, st: WallStyle) {
+  const X0 = M(q.x0), X1 = M(q.x1) - 1, Z0 = M(q.z0), Z1 = M(q.z1) - 1;
+  const HP = M(PLAT_H) - 1; // 15 -> top deck surface at (15 + 1) * 0.07 = 1.12 m
+  const timber = st === 'rail' || st === 'stockade' || st === 'wattle';
+  const warm = st === 'earth' || st === 'wattle';
+  const pal = st === 'palace'
+    ? { base: LY.stoneDD, wall: LY.stoneD, mid: LY.stone, top: 0xb2aa9e, line: LY.stoneDD, post: LY.char }
+    : timber
+      ? { base: PAL.stoneD, wall: PAL.woodD, mid: PAL.wood, top: PAL.woodL, line: PAL.woodD, post: PAL.post }
+      : warm
+        ? { base: PAL.bankD, wall: PAL.bank, mid: PAL.stone, top: PAL.stoneL, line: PAL.stoneD, post: PAL.post }
+        : { base: PAL.stoneW, wall: PAL.stoneD, mid: PAL.stone, top: PAL.stoneL, line: PAL.stoneD, post: PAL.stoneW };
+
+  // Extend foundation piers down into adjacent pits so canal-side terraces never float above water
+  const touchesPit = sp.pits.some(p => p.x0 < q.x1 + 0.15 && p.x1 > q.x0 - 0.15 && p.z0 < q.z1 + 0.15 && p.z1 > q.z0 - 0.15);
+  box(X0, touchesPit ? -13 : -1, Z0, X1, 2, Z1, pal.base);
+  // Main structural body (recessed 1 cell under the overhanging coping rim on free edges)
+  box(X0 + 1, 3, Z0 + 1, X1 - 1, HP - 2, Z1 - 1, pal.wall);
+  box(X0, 3, Z0, X1, 4, Z1, pal.base);
+  // Crisp vertical pilaster / timber-crib ribs every 14 cells (~0.98 m) so cliff faces read clearly as climbable/jumpable architecture
+  for (let x = X0 + 2; x <= X1 - 3; x += 14) {
+    box(x, 3, Z0, x + 1, HP - 2, Z0 + 1, pal.post);
+    box(x, 3, Z1 - 1, x + 1, HP - 2, Z1, pal.post);
+  }
+  for (let z = Z0 + 2; z <= Z1 - 3; z += 14) {
+    box(X0, 3, z, X0 + 1, HP - 2, z + 1, pal.post);
+    box(X1 - 1, 3, z, X1, HP - 2, z + 1, pal.post);
+  }
+  // Overhanging coping rim & paved deck surface (y = HP-1..HP)
+  box(X0, HP - 1, Z0, X1, HP, Z1, pal.top);
+  box(X0 + 2, HP, Z0 + 2, X1 - 2, HP, Z1 - 2, pal.mid);
+  if (timber) {
+    for (let x = X0 + 4; x < X1 - 2; x += 5) box(x, HP, Z0 + 2, x, HP, Z1 - 2, pal.line);
+  } else {
+    for (let x = X0 + 14; x < X1 - 4; x += 14) box(x, HP, Z0 + 2, x, HP, Z1 - 2, pal.line);
+    for (let z = Z0 + 14; z < Z1 - 4; z += 14) box(X0 + 2, HP, z, X1 - 2, HP, z, pal.line);
+  }
+  // Subtle ankle-high corner stone/timber bollard caps (2 cells = 14 cm) where corners do not meet a ramp
+  const nearRamp = (wx: number, wz: number) => !!sp.ramps?.some(r => wx > r.x0 - 0.35 && wx < r.x1 + 0.35 && wz > r.z0 - 0.35 && wz < r.z1 + 0.35);
+  for (const [cx, wx] of [[X0, q.x0], [X1 - 2, q.x1]] as const) {
+    for (const [cz, wz] of [[Z0, q.z0], [Z1 - 2, q.z1]] as const) {
+      if (!nearRamp(wx, wz)) {
+        box(cx, HP + 1, cz, cx + 2, HP + 2, cz + 2, pal.post);
+        box(cx, HP + 2, cz, cx + 2, HP + 2, cz + 2, pal.top);
+      }
+    }
+  }
+}
+
+/** Four broad architectural steps (/, 4 treads × 4 cells high = 16 cells = 1.12 m) linking ground cleanly to an elevated platform */
+function ramp(box: B, q: RampRect, st: WallStyle) {
+  const X0 = M(q.x0), X1 = M(q.x1) - 1, Z0 = M(q.z0), Z1 = M(q.z1) - 1;
+  const HP = M(PLAT_H) - 1;
+  const timber = st === 'rail' || st === 'stockade' || st === 'wattle';
+  const body = timber ? PAL.woodD : st === 'palace' ? LY.stoneD : PAL.stoneD;
+  const tread = timber ? PAL.wood : st === 'palace' ? LY.stone : PAL.stone;
+  const nose = timber ? PAL.woodL : st === 'palace' ? 0xb2aa9e : PAL.stoneL;
+  box(X0, -1, Z0, X1, -1, Z1, body);
+  const alongZ = q.dir === 'n' || q.dir === 's';
+  const span = alongZ ? (Z1 - Z0 + 1) : (X1 - X0 + 1);
+  const steps = 4;
+  for (let s = 0; s < steps; s++) {
+    const topY = Math.round(((s + 1) / steps) * (HP + 1)) - 1;
+    const u0 = Math.floor((s / steps) * span), u1 = Math.floor(((s + 1) / steps) * span) - 1;
+    if (alongZ) {
+      const a0 = q.dir === 's' ? Z0 + u0 : Z1 - u1;
+      const a1 = q.dir === 's' ? Z0 + u1 : Z1 - u0;
+      const lip = q.dir === 's' ? a0 : a1;
+      box(X0, 0, a0, X1, Math.max(0, topY - 1), a1, body);
+      box(X0 + 2, topY, a0, X1 - 2, topY, a1, tread);
+      box(X0 + 2, topY, lip, X1 - 2, topY, lip, nose);
+      // Low stepped side cheek-blocks framing the stairs
+      box(X0, 0, a0, X0 + 1, Math.min(HP + 1, topY + 2), a1, nose);
+      box(X1 - 1, 0, a0, X1, Math.min(HP + 1, topY + 2), a1, nose);
+    } else {
+      const a0 = q.dir === 'e' ? X0 + u0 : X1 - u1;
+      const a1 = q.dir === 'e' ? X0 + u1 : X1 - u0;
+      const lip = q.dir === 'e' ? a0 : a1;
+      box(a0, 0, Z0, a1, Math.max(0, topY - 1), Z1, body);
+      box(a0, topY, Z0 + 2, a1, topY, Z1 - 2, tread);
+      box(lip, topY, Z0 + 2, lip, topY, Z1 - 2, nose);
+      box(a0, 0, Z0, a1, Math.min(HP + 1, topY + 2), Z0 + 1, nose);
+      box(a0, 0, Z1 - 1, a1, Math.min(HP + 1, topY + 2), Z1, nose);
+    }
+  }
+}
+
+/** the walled-off parts, pits, bridges, stepping stones, platforms and ramps as rects a locale's ground dressing keeps clear */
+export function shapeClear(sp: ShapePlan): Rect[] {
+  return [...sp.pits, ...sp.bridges, ...(sp.stones ?? []), ...(sp.platforms ?? []), ...(sp.ramps ?? [])];
+}
 /** where on the stage the walled-off blocks are (the locale's infill builds there) */
 export const blocks = (sp: ShapePlan) => sp.solid;
 void OUT;

@@ -141,7 +141,11 @@ export interface Foe {
 /** the dummy's lean, read by its pose hook (yard.ts) */
 export const WOBBLE = new WeakMap<object, { x: number; z: number }>();
 export interface FoeWorld {
-  heroPos: THREE.Vector3; heroR: number; heroAlive: boolean; /** the hero's height off the ground (a jump clears low attacks) */ heroY: number;
+  heroPos: THREE.Vector3; heroR: number; heroAlive: boolean;
+  /** the hero's height off the ground (a jump clears low attacks); heroBaseY = deck elevation under her feet */
+  heroY: number; heroBaseY?: number;
+  /** ground deck height (m) at (x, z) for landing airborne foes on elevated platforms */
+  groundAt?(x: number, z: number): number;
   /** the hero is dashing (or just dashed): a near miss counts as a perfect dodge */ heroDodge: boolean;
   hurtHero(dmg: number, from: THREE.Vector3, attacker?: Foe): void;
   killFoe(f: Foe, from: THREE.Vector3): void;
@@ -335,8 +339,15 @@ export function updateFoe(f: Foe, w: FoeWorld, dt: number) {
     if (f.bleedT >= 3) { f.bleed = 0; f.bleedTick = 0; f.bleedDrop = 0; }
   }
   // Pause attack clocks as well as movement, including training dummies.
-  // act-19: in the air (thrown up / sent flying): a ballistic arc, then a thump and a puff on landing
-  if (f.airV != null) { f.pos.y += f.airV * dt; f.airV -= 24 * dt; if (f.pos.y <= 0) { f.pos.y = 0; f.airV = undefined; fxSmoke(f.pos.clone().setY(0.2), 0x8a7a6a, 4, { r: 0.4, spd: 1.4, up: 0.4, s: 0.32, life: 0.5 }); cue('land', 0.6); } }
+  // act-19: in the air (thrown up / sent flying / knocked off a platform): a ballistic arc, then a thump and a puff on landing
+  if (f.airV != null) {
+    const floorY = w.groundAt ? w.groundAt(f.pos.x, f.pos.z) : 0;
+    f.pos.y += f.airV * dt; f.airV -= 24 * dt;
+    if (f.pos.y <= floorY) {
+      f.pos.y = floorY; f.airV = undefined;
+      fxSmoke(f.pos.clone().setY(floorY + 0.2), 0x8a7a6a, 4, { r: 0.4, spd: 1.4, up: 0.4, s: 0.32, life: 0.5 }); cue('land', 0.6);
+    }
+  }
   if (f.kind === 'dummy') {
     // a stiff spring back to upright, well damped (a couple of swings after a hard hit)
     const o = f.wob, K = 140, D = 9;
@@ -823,7 +834,13 @@ function strike(f: Foe, w: FoeWorld) {
   }
   setSt(f, 'strike', 0.18);
   if (f.role === 'archer') {
-    for (const dy of [0, ...f.extra.map(e => e.dy)]) w.arrows.push(new Arrow(f.pos.clone().add(V3(0, 1.25, 0)), f.teleYaw + dy, f.dmg));
+    const hDist = Math.max(2, Math.hypot(w.heroPos.x - f.pos.x, w.heroPos.z - f.pos.z));
+    const aimVy = (((w.heroBaseY ?? 0) + 1.1) - (f.pos.y + 1.25)) / (hDist / 14);
+    for (const dy of [0, ...f.extra.map(e => e.dy)]) {
+      const ar = new Arrow(f.pos.clone().add(V3(0, 1.25, 0)), f.teleYaw + dy, f.dmg);
+      ar.v.y = Math.max(-4.5, Math.min(4.5, aimVy));
+      w.arrows.push(ar);
+    }
     cue('arrow', 0.6, pan); return;
   }
   if (f.role === 'taoist') {
@@ -844,6 +861,8 @@ function strike(f: Foe, w: FoeWorld) {
 }
 /** wp/regB: the area test of a melee blow at the warning (hurt / jumped / dodged); returns true if the hero was in it */
 export function meleeLands(f: Foe, w: FoeWorld, s: TeleShape = f.shape!, yaw = f.teleYaw, at: THREE.Vector3 = f.telePos) {
+  const heroWorldY = (w.heroBaseY ?? w.heroPos.y ?? 0) + w.heroY;
+  if (Math.abs(f.pos.y - heroWorldY) > 0.92) return false;
   const cleared = isLow(f, s) && w.heroY >= LOW_CLEAR;
   if (w.heroAlive && inside(s, at.x, at.z, yaw, w.heroPos.x, w.heroPos.z, w.heroR)) { if (cleared) w.dodged(f.pos.clone()); else w.hurtHero(f.dmg, f.pos.clone(), f); return !cleared; }
   // dashed out of it just in time (the hero is near the area while dashing): a perfect dodge too
@@ -972,11 +991,11 @@ export class Arrow {
     if (this.friendly) {
       this.body.rotateOnAxis(this.spinAxis, dt * 34);
       trailSeg(p0, this.p.clone(), 0xffd070, 0.14, { life: 0.22, bright: 2.4, spark: 0.25 });
-      for (const f of w.foes) if (f.st !== 'dead' && Math.hypot(this.p.x - f.pos.x, this.p.z - f.pos.z) < f.d.r + 0.3) { w.arrowHit(f, this); this.kill(); return; }
+      for (const f of w.foes) if (f.st !== 'dead' && Math.abs(this.p.y - (f.pos.y + 1.0)) < 1.35 && Math.hypot(this.p.x - f.pos.x, this.p.z - f.pos.z) < f.d.r + 0.3) { w.arrowHit(f, this); this.kill(); return; }
     } else if (w.heroAlive && !this.grazed && w.heroDodge && Math.hypot(this.p.x - w.heroPos.x, this.p.z - w.heroPos.z) < w.heroR + 0.65) {
       // an arrow skimming past a dashing hero: a perfect dodge (it flies on)
       this.grazed = true; w.dodged(this.p.clone());
-    } else if (w.heroAlive && !this.grazed && w.heroY < 1.6 && Math.hypot(this.p.x - w.heroPos.x, this.p.z - w.heroPos.z) < w.heroR + 0.2) { w.hurtHero(this.dmg, this.p.clone().addScaledVector(this.v, -0.1)); this.kill(); return; }
+    } else if (w.heroAlive && !this.grazed && Math.abs(this.p.y - ((w.heroBaseY ?? w.heroPos.y ?? 0) + w.heroY + 0.95)) < 1.15 && Math.hypot(this.p.x - w.heroPos.x, this.p.z - w.heroPos.z) < w.heroR + 0.2) { w.hurtHero(this.dmg, this.p.clone().addScaledVector(this.v, -0.1)); this.kill(); return; }
     const q = this.p.clone(); (w.clampAir ?? w.clamp)(q, 0); if (q.distanceTo(this.p) > 0.3 || this.life <= 0) { fxSparks(this.p, 0xc0a080, 5, 2); this.kill(); }
   }
   /** cut out of the air: sent off flat along dir, fast, and now it hurts the foes */

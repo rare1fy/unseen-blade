@@ -76,7 +76,7 @@ function wallAnchors(grid: FloorGrid | null, box: Rect): WallAnchor[] {
     const step = 3; // ~1.47 m between candidate wall stations
     const dirs: Array<[number, number, 'x' | 'z']> = [[-1, 0, 'z'], [1, 0, 'z'], [0, -1, 'x'], [0, 1, 'x']];
     for (let j = 0; j < grid.nz; j++) for (let i = 0; i < grid.nx; i++) {
-      if (grid.kind(i, j) !== 1) continue; // FLOOR === 1
+      if (grid.kind(i, j) !== 1 || grid.elevAt(i, j) !== 0) continue; // ground FLOOR only (keep elevated terraces uncluttered)
       for (const [dx, dz, along] of dirs) {
         if ((along === 'z' ? j : i) % step !== 1) continue;
         // must back onto an actual solid wall (OUT === 0), never a water/ditch pit (PIT === 2)
@@ -222,6 +222,8 @@ function drawnPlan(layout: Layout, exits: ExitId[], seed: number, locale: string
     ...fx.closed.map(q => ({ x0: q.x0 - 1.85, x1: q.x1 + 1.85, z0: q.z0 - 1.85, z1: q.z1 + 1.85 })),
     ...fx.sunk.map(q => ({ x0: q.x0 - 0.8, x1: q.x1 + 0.8, z0: q.z0 - 0.8, z1: q.z1 + 0.8 })),
     ...shape.bridges.map(b => ({ x0: b.x0 - 0.8, x1: b.x1 + 0.8, z0: b.z0 - 2.0, z1: b.z1 + 2.0 })),
+    ...(shape.stones ?? []).map(s => ({ x0: s.x0 - 0.9, x1: s.x1 + 0.9, z0: s.z0 - 0.9, z1: s.z1 + 0.9 })),
+    ...(shape.ramps ?? []).map(rp => ({ x0: rp.x0 - 1.2, x1: rp.x1 + 1.2, z0: rp.z0 - 1.2, z1: rp.z1 + 1.2 })),
     ...fx.marks.map(m => ({ x0: m.x - 1.65, x1: m.x + 1.65, z0: m.z - 1.65, z1: m.z + 1.65 })),
     ...gates.map(g => g.along === 'x'
       ? { x0: g.x - 2.6, x1: g.x + 2.6, z0: g.z, z1: g.z + 4.4 }

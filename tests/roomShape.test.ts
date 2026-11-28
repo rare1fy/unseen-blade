@@ -6,7 +6,7 @@
 // 不建体素（快），体素拼装的检查在 asm.test.ts。
 import { describe, expect, it } from 'vitest';
 import { setStage, PLAY, SZ } from '../src/present/scenes/props';
-import { makeShape, pickShape, FloorGrid, SHAPE_K, FLOOR, PIT, OUT, type ShapeId } from '../src/present/asm/roomShape';
+import { makeShape, pickShape, FloorGrid, SHAPE_K, FLOOR, PIT, OUT, PLAT_H, type ShapeId, type ShapePlan } from '../src/present/asm/roomShape';
 import { arenaPlan } from '../src/present/asm/arena';
 import { LAYOUTS } from '../src/present/asm/layouts';
 import { stageLayout, mirrorLayout } from '../src/present/asm/assemble';
@@ -97,5 +97,49 @@ describe('room shapes', () => {
     for (let i = 0; i < 12; i++) { const s = pickShape(list, 'fight', 50 + i * 13, got); expect(got.slice(-2)).not.toContain(s); got.push(s); }
     expect(new Set(got).size).toBeGreaterThanOrEqual(4);
     expect(pickShape(list, 'boss', 1, [])).toBe('square'); expect(pickShape(list, 'calm', 1, [])).toBe('square'); expect(pickShape(undefined, 'fight', 1, [])).toBe('square');
+  });
+
+  it('supports 3D PLAT_H terraces, ramps, sheer-cliff jump mounting, and stepping stones over pits', () => {
+    setStage(true);
+    const sp: ShapePlan = {
+      id: 'map',
+      k: { x: 1, z: 1 },
+      box: { x0: -5.88, x1: 5.88, z0: -5.88, z1: 5.88 },
+      solid: [],
+      pits: [{ x0: -1.96, x1: 1.96, z0: 0, z1: 1.96, kind: 'water' }],
+      bridges: [],
+      stones: [{ x0: -0.98, x1: 0.98, z0: 0, z1: 1.96 }],
+      platforms: [{ x0: -3.92, x1: 0, z0: -3.92, z1: -1.96 }],
+      ramps: [{ x0: 0, x1: 1.96, z0: -3.92, z1: -1.96, dir: 'w' }],
+      enter: [0, 4],
+    };
+    const g = new FloorGrid(sp);
+    expect(g.groundAt(-2.5, -3.0)).toBeCloseTo(PLAT_H, 2);
+    expect(g.groundAt(0.98, -3.0)).toBeCloseTo(PLAT_H * 0.5, 1);
+    expect(g.groundAt(3.0, 3.0)).toBe(0);
+
+    // Sheer south cliff of platform at z = -1.96 blocks walking at ground (worldY = 0), opens when jumping (worldY = 1.05)
+    const walkCliff = { x: -2.0, z: -2.05 };
+    const push = g.clamp(walkCliff, 0.38, false, { worldY: 0, fromY: 0 });
+    expect(push?.ledge).toBe(true);
+    expect(walkCliff.z).toBeGreaterThan(-1.62);
+
+    const jumpCliff = { x: -2.0, z: -2.2 };
+    expect(g.clamp(jumpCliff, 0.38, true, { worldY: 1.05, fromY: 0.95 })).toBeNull();
+    expect(jumpCliff.z).toBeCloseTo(-2.2, 2);
+
+    // Perched ranged foe with holdHigh stays on the terrace
+    const archer = { x: -2.0, z: -1.85 };
+    g.clamp(archer, 0.35, false, { worldY: PLAT_H, fromY: PLAT_H, holdHigh: true });
+    expect(archer.z).toBeLessThan(-2.25);
+
+    // Stepping stone center is FLOOR surrounded by a PIT moat: walking stops on shore, jumping lands on stone!
+    expect(g.at(0, 0.98)).toBe(FLOOR);
+    expect(g.at(0, 0.12)).toBe(PIT);
+    const walkShore = { x: 0, z: 2.15 };
+    expect(g.clamp(walkShore, 0.38, false)?.pit).toBe(true);
+    expect(walkShore.z).toBeGreaterThan(2.3);
+    const airHop = { x: 0, z: 0.98 };
+    expect(g.clamp(airHop, 0.38, true)).toBeNull();
   });
 });

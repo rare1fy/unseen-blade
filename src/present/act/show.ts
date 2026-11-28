@@ -37,7 +37,7 @@ import { XIAPI_LOCALES } from '../asm/xiapi';
 import './hanshan_people';   // act-37: 寒山坞 cold open — 文皎 at eleven, the two torch-bearer looks, 杜五's cart (ROSTER)
 import { assemble, mirrorLayout, stageLayout } from '../asm/assemble';
 import { arenaPlan, bigStage, type ArenaPlan } from '../asm/arena';
-import { FloorGrid, FLOOR, PIT, makeShape, pickShape, SHAPE_K, SHAPE_CN, type ShapeId, type PitKind } from '../asm/roomShape';
+import { FloorGrid, FLOOR, OUT, PIT, PLAT_H, makeShape, pickShape, SHAPE_K, SHAPE_CN, type ShapeId, type PitKind } from '../asm/roomShape';
 import { Solids, SLAM, slamSpeed, type Push } from './solids';
 import { Breakables } from './breakables';
 import { Gates, GateGlow } from './gates';
@@ -100,7 +100,7 @@ import { Leaves } from './leaves';
 import type { BTarget, BEvent, BDamage } from './breakLogic';
 import type { Solid } from './solids';
 /** the floor's edge as a solid (the clamp's push): a slam surface */
-const WALL_SOLID: Solid = { id: 0, kind: 'wall', shape: 'box', x: 0, z: 0, hx: 0, hz: 0, r: 0, on: true, slam: true };
+const WALL_SOLID: Solid = { id: 0, kind: 'wall', shape: 'box', x: 0, z: 0, hx: 0, hz: 0, r: 0, maxY: 99, baseY: 0, on: true, slam: true };
 /** 11-18 打出界: a reeling foe still moving faster than this (m/s) goes over a pit's edge (a light cut sends a man off at ≈ 3.3 m/s, a
  *  流民 at ≈ 5.5, the closing cut a man at ≈ 10; it slows by e⁻⁶ᵗ, so ≈ 0.4 m on from where the light cut finds it, ≈ 1.4 m for the
  *  closing cut); slower, the edge holds it. In the pit its middle → it falls (pitFalls) */
@@ -153,7 +153,7 @@ import './foes/xp_ai';
   for (const d of Object.values(EDEFS)) for (const m of [d.model, d.elite, ...(d.alt ?? [])]) if (m && !ROSTER.some(x => x.id === m)) { const base = ROSTER.find(x => x.id === (STAND[m.replace(/_(e|b)$/, '')] ?? 'hj_blade')); if (base) ROSTER.push({ ...base, id: m }); } }
 import { inside } from './tele';
 import { spawnFoe, updateFoe, damageFoe, type Foe, type FoeWorld, type EKind, Arrow } from './enemy';
-import { EDEFS, isBoss, lowAttack, trimShadows, dropTeles, UNSTICK } from './enemy';   // wp/foes: the boss bar / banner / death and the bot's jump read these
+import { EDEFS, isBoss, isRangedFoe, lowAttack, trimShadows, dropTeles, UNSTICK } from './enemy';   // wp/foes: the boss bar / banner / death and the bot's jump read these
 import { BOONS, ARCH_INFO, archCounts, archTier, applyBoon, drawBoons, upgradeBoon, boonCount, upgradableBoons, freshBoons, BOON_CAP, returnCard, TIER_NAMES, newPerks, tierOf, hasBoon, v, v2, isBladeHit, type Archetype, type Perks, type Boon, type BoonPick } from './boons';
 import { TUNE } from './tune';
 import { installActTune } from './tunePanel';
@@ -302,7 +302,9 @@ function* prepRoomSteps(o: RoomIn, background = false): Generator<void | Promise
   const prep = yield* prepareStageSteps(def, { combat: true, background });
   if (!background || !room.arena) return { ...room, prep };
   const arena = room.arena, holder = new THREE.Group(), solids = new Solids();
+  const grid = arena.shape ? new FloorGrid(arena.shape) : null;
   const props = new Breakables(holder, solids);
+  if (grid) props.groundAt = (x, z) => grid.groundAt(x, z);
   let gates: Gates | undefined, pieces: RoomPieces | null = null, transferred = false;
   const discard = () => { pieces?.dispose(); gates?.dispose(); props.dispose(); prep.drop(); };
   try {
@@ -311,7 +313,6 @@ function* prepRoomSteps(o: RoomIn, background = false): Generator<void | Promise
     gates = new Gates(holder);
     yield* gates.buildSteps(arena);
     yield;
-    const grid = arena.shape ? new FloorGrid(arena.shape) : null;
     if (grid && arena.shape?.fixed) {
       const roll = Math.floor(Math.random() * 1e9);
       pieces = new RoomPieces(holder, arena.shape, grid, arena.style, room.spec.seed, OPT.slicedRoom, roll);
@@ -4278,7 +4279,19 @@ export class ActShow {
     if (this.arena && this.stage) {
       // act-20: the cover pieces are breakable (Breakables builds them and their solids)
       if (P.fixtures) { this.props = P.fixtures.props; this.stage.root.add(this.props.root); batchActor(this.props.root); }
-      else { this.props = new Breakables(this.stage.root, this.solids); yield* this.props.buildSteps(this.arena.props, this.arena.covers); }
+      else {
+        this.props = new Breakables(this.stage.root, this.solids);
+        if (this.grid) this.props.groundAt = (x, z) => this.grid!.groundAt(x, z);
+        yield* this.props.buildSteps(this.arena.props, this.arena.covers);
+      }
+      if (this.props) {
+        this.props.groundAt = this.grid ? (x, z) => this.grid!.groundAt(x, z) : null;
+        this.props.slideBlocked = (x, z, rr) => {
+          if (!this.grid) return x < PLAY.x0 + rr || x > PLAY.x1 - rr || z < PLAY.z0 + rr || z > PLAY.z1 - rr;
+          if (this.grid.at(x, z) === OUT) return true;
+          return !this.solids.free(x, z, rr * 0.5, 0, this.grid.groundAt(x, z) + 1.45);
+        };
+      }
       // act-37: the snowy night's braziers (the prologue's village and temple): four warm points round the floor, where it is free
       // 11-18 (用户：「场景要有差异」): 崔府各间的灯由场景摆，雪夜的通用火盆会盖住冰色和石灯。
       if (spec.weather === 'snow' && spec.time === 'night' && !spec.locale.startsWith('cx_')) for (const [x, z] of [[PLAY.x0 + 1.6, PLAY.z0 + 1.8], [PLAY.x1 - 1.6, PLAY.z0 + 1.8], [PLAY.x0 + 1.6, PLAY.z1 - 3.2], [PLAY.x1 - 1.6, PLAY.z1 - 3.2]]) {
@@ -4300,8 +4313,10 @@ export class ActShow {
         const pieces = this.pieces = built ?? new RoomPieces(this.stage.root, fsh, this.grid, this.arena.style, spec.seed, OPT.slicedRoom, Math.floor(Math.random() * 1e9));
         if (!built && OPT.slicedRoom) yield* pieces.buildSteps(this.arena.style, spec.seed);
         this.props.onStrike = s => this.pieces?.strike(s);
-        // (the bell frames and the rope posts stand in the way like any post)
-        for (const m of fsh.fixed.marks) if (m.kind === 'bell' || m.kind === 'rope' || m.kind === 'wheel') this.solids.add({ kind: 'prop', shape: 'circle', x: m.x, z: m.z, r: m.kind === 'rope' ? 0.3 : 0.42 });
+        // (the bell frames and the rope posts stand in the way like any post, on their own deck elevation)
+        for (const m of fsh.fixed.marks) if (m.kind === 'bell' || m.kind === 'rope' || m.kind === 'wheel') {
+          this.solids.add({ kind: 'prop', shape: 'circle', x: m.x, z: m.z, r: m.kind === 'rope' ? 0.3 : 0.42, maxY: 1.9, baseY: this.grid.groundAt(m.x, m.z) });
+        }
         const seen = [pieces.zoneAt(fsh.enter[0], fsh.enter[1])];
         while (seen.length < fsh.fixed.stages) {
           const cur = seen[seen.length - 1], nx = pieces.pieces.filter(q => q.kind === 'door' && q.sides.includes(cur)).map(q => q.sides[0] === cur ? q.sides[1] : q.sides[0]).filter(z => z >= 0 && !seen.includes(z));
@@ -4804,18 +4819,38 @@ export class ActShow {
     const hp = this.hero.pos;
     let p = V3();
     const gd = this.grid, sz = this.stageZ.length ? this.stageZ[this.stageOf[this.wave] ?? 0] : -1, zb = sz >= 0 ? this.pieces?.zoneBox(sz) : null;
-    for (let t = 0; t < 40; t++) {
-      p = zb ? V3(R(zb.x0 + 0.8, zb.x1 - 0.8), 0, R(zb.z0 + 0.8, zb.z1 - 0.8)) : V3(R(PLAY.x0 + 1.5, PLAY.x1 - 1.5), 0, R(PLAY.z0 + 1.5, PLAY.z1 - 2.5));
-      if (kindOr(k).kind === 'xp_diver' && this.pools.length) { const pl = this.pools[Math.floor(Math.random() * this.pools.length)]; p = V3(R(pl.x0 + 0.6, pl.x1 - 0.6), 0, R(pl.z0 + 0.6, pl.z1 - 0.6)); }
-      if (EDEFS[kindOr(k).kind].boss) { const bm = gd?.sp.fixed?.boss; p = bm ? V3(bm[0], 0, bm[1]) : V3(0, 0, SZ(-4.6)); }
-      const d = p.distanceTo(hp), onFloor = !gd || (gd.clear(p.x, p.z, 0.7) && !gd.sp.bridges.some(b => p.x > b.x0 - 1 && p.x < b.x1 + 1 && p.z > b.z0 - 1 && p.z < b.z1 + 1));
-      if ((sz < 0 ? d > 5 && d < 12 : t > 25 ? d > 3 : d > 5 && d < 12) && onFloor && (sz < 0 || this.pieces!.zoneAt(p.x, p.z) === sz) && this.foes.every(f => f.pos.distanceTo(p) > 1.4) && this.solids.free(p.x, p.z, 0.6, 0.3) && (!gd || t > 30 || gd.steps(p.x, p.z, hp.x, hp.z) >= 0)) break;
-    }
-    if (sz >= 0 && this.pieces && this.pieces.zoneAt(p.x, p.z) !== sz) {
-      const [x, z] = this.pieces.spawnInZone(sz, p.x, p.z); p.set(x, 0, z);
-    } else if (gd && gd.at(p.x, p.z) !== FLOOR) { const q = gd.nearestFloor(p.x, p.z); p.set(q[0], 0, q[1]); }
     const ko = kindOr(k), bs = !!EDEFS[ko.kind].boss;
-    const way = bs || kindOr(k).kind === 'xp_diver' ? null : this.entryFromGuaranteed(p, hp, i, zb ?? null, sz);
+    const preferHigh = !!gd?.sp.platforms?.length && !bs && isRangedFoe({ kind: ko.kind, role: EDEFS[ko.kind].role }) && Math.random() < 0.78;
+    let placedHigh = false;
+    if (preferHigh && gd?.sp.platforms) {
+      for (let t = 0; t < 24; t++) {
+        const pl = gd.sp.platforms[(i + t) % gd.sp.platforms.length];
+        if (pl.x1 - pl.x0 < 1.5 || pl.z1 - pl.z0 < 1.5) continue;
+        const cand = V3(R(pl.x0 + 0.65, pl.x1 - 0.65), PLAT_H, R(pl.z0 + 0.65, pl.z1 - 0.65));
+        const d = Math.hypot(cand.x - hp.x, cand.z - hp.z);
+        if (d > 3.8 && gd.clear(cand.x, cand.z, 0.55) && (sz < 0 || this.pieces!.zoneAt(cand.x, cand.z) === sz)
+          && this.foes.every(f => Math.hypot(f.pos.x - cand.x, f.pos.z - cand.z) > 1.35)
+          && this.solids.free(cand.x, cand.z, 0.55, 0.25, PLAT_H)) {
+          p.copy(cand);
+          placedHigh = true;
+          break;
+        }
+      }
+    }
+    if (!placedHigh) {
+      for (let t = 0; t < 40; t++) {
+        p = zb ? V3(R(zb.x0 + 0.8, zb.x1 - 0.8), 0, R(zb.z0 + 0.8, zb.z1 - 0.8)) : V3(R(PLAY.x0 + 1.5, PLAY.x1 - 1.5), 0, R(PLAY.z0 + 1.5, PLAY.z1 - 2.5));
+        if (ko.kind === 'xp_diver' && this.pools.length) { const pl = this.pools[Math.floor(Math.random() * this.pools.length)]; p = V3(R(pl.x0 + 0.6, pl.x1 - 0.6), 0, R(pl.z0 + 0.6, pl.z1 - 0.6)); }
+        if (bs) { const bm = gd?.sp.fixed?.boss; p = bm ? V3(bm[0], 0, bm[1]) : V3(0, 0, SZ(-4.6)); }
+        const d = p.distanceTo(hp), onFloor = !gd || (gd.clear(p.x, p.z, 0.7) && !gd.sp.bridges.some(b => p.x > b.x0 - 1 && p.x < b.x1 + 1 && p.z > b.z0 - 1 && p.z < b.z1 + 1));
+        if ((sz < 0 ? d > 5 && d < 12 : t > 25 ? d > 3 : d > 5 && d < 12) && onFloor && (sz < 0 || this.pieces!.zoneAt(p.x, p.z) === sz) && this.foes.every(f => f.pos.distanceTo(p) > 1.4) && this.solids.free(p.x, p.z, 0.6, 0.3, gd ? gd.groundAt(p.x, p.z) : 0) && (!gd || t > 30 || gd.steps(p.x, p.z, hp.x, hp.z) >= 0)) break;
+      }
+      if (sz >= 0 && this.pieces && this.pieces.zoneAt(p.x, p.z) !== sz) {
+        const [x, z] = this.pieces.spawnInZone(sz, p.x, p.z); p.set(x, 0, z);
+      } else if (gd && gd.at(p.x, p.z) !== FLOOR) { const q = gd.nearestFloor(p.x, p.z); p.set(q[0], 0, q[1]); }
+    }
+    if (gd) p.y = gd.groundAt(p.x, p.z);
+    const way = bs || ko.kind === 'xp_diver' ? null : this.entryFromGuaranteed(p, hp, i, zb ?? null, sz);
     const f = spawnFoe(ko.kind, way ? way.from : p, hp.clone(), ko.elite); this.foes.push(f);
     // act-125: Bosses NEVER pop out of thin air mid-room — they descend with a ground-warning vortex & heavy landing shockwave!
     if (bs && this.prologue !== 2) {
@@ -5122,12 +5157,14 @@ export class ActShow {
         continue;
       }
       f.a.root.visible = true;
-      const T = e.t, W = e.wall;
-      const runDist = e.land.distanceTo(e.to), runDur = runDist > 0.35 ? Math.min(0.85, runDist / 4.8) : 0;
+      const landY = this.grid ? this.grid.groundAt(e.land.x, e.land.z) : 0;
+      const toY = this.grid ? this.grid.groundAt(e.to.x, e.to.z) : 0;
+      const T = e.t, W = e.wall + (landY > 0.5 ? PLAT_H : 0);
+      const runDist = Math.hypot(e.to.x - e.land.x, e.to.z - e.land.z), runDur = runDist > 0.35 ? Math.min(0.85, runDist / 4.8) : 0;
       f.vel.set(0, 0, 0);
       f.st = 'enter'; f.t = 0; f.dur = 0.35; f.cd = Math.max(f.cd, 0.65); f.inv = Math.max(f.inv, 0.18);
-      if (W > 1.2) {
-        const CLIMB = 0.26, PERCH = 0.11, LEAP = 0.42 + 0.05 * Math.min(2.5, e.crest.distanceTo(e.land)), LAND = 0.18;
+      if (e.wall > 1.2) {
+        const CLIMB = 0.26, PERCH = 0.11, LEAP = 0.42 + 0.05 * Math.min(2.5, Math.hypot(e.land.x - e.crest.x, e.land.z - e.crest.z)), LAND = 0.18;
         const tP = CLIMB, tL = tP + PERCH, tD = tL + LEAP, tR = tD + LAND, total = tR + runDur;
         if (T < tP) {
           const u = T / CLIMB; e.posePhase = 'climb'; e.poseU = u;
@@ -5140,40 +5177,40 @@ export class ActShow {
           f.yaw = Math.atan2(e.land.x - e.crest.x, e.land.z - e.crest.z); f.a.setRunning(false);
         } else if (T < tD) {
           const u = (T - tL) / LEAP; e.posePhase = 'leap'; e.poseU = u;
-          f.pos.lerpVectors(e.crest, e.land, u); f.pos.y = W * (1 - u * u) + 0.58 * 4 * u * (1 - u);
+          f.pos.lerpVectors(e.crest, e.land, u); f.pos.y = landY + (W - landY) * (1 - u * u) + 0.58 * 4 * u * (1 - u);
           f.yaw = Math.atan2(e.land.x - e.crest.x, e.land.z - e.crest.z); f.a.setRunning(false);
         } else if (T < tR) {
           const u = (T - tD) / LAND; e.posePhase = 'land'; e.poseU = u;
-          if (!e.landed) { e.landed = true; cue('land', 0.45); fxSmoke(e.land.clone().setY(0.1), 0x8a7a6a, 6, { r: 0.6, spd: 1.2, up: 0.4, s: 0.38, life: 0.55 }); shake(0.035 * TUNE.shake); }
-          f.pos.copy(e.land); f.pos.y = 0;
+          if (!e.landed) { e.landed = true; cue('land', 0.45); fxSmoke(e.land.clone().setY(landY + 0.1), 0x8a7a6a, 6, { r: 0.6, spd: 1.2, up: 0.4, s: 0.38, life: 0.55 }); shake(0.035 * TUNE.shake); }
+          f.pos.copy(e.land); f.pos.y = landY;
           f.yaw = Math.atan2(this.hero.pos.x - f.pos.x, this.hero.pos.z - f.pos.z); f.a.setRunning(false);
         } else if (T < total) {
           const u = (T - tR) / Math.max(0.05, runDur); e.posePhase = null; f.a.body.rotation.set(0, 0, 0);
-          f.pos.lerpVectors(e.land, e.to, u); f.pos.y = 0;
+          f.pos.lerpVectors(e.land, e.to, u); f.pos.y = this.grid ? this.grid.groundAt(f.pos.x, f.pos.z) : 0;
           f.yaw = Math.atan2(e.to.x - e.land.x, e.to.z - e.land.z); f.a.setRunning(true, 4.8, f.yaw);
         } else {
           if (!e.landed) { e.landed = true; cue('land', 0.45); }
-          f.pos.copy(e.to); f.pos.y = 0; f.inv = 0.12; f.a.body.rotation.set(0, 0, 0); f.a.setRunning(false);
+          f.pos.copy(e.to); f.pos.y = toY; f.inv = 0.12; f.a.body.rotation.set(0, 0, 0); f.a.setRunning(false);
           this.entering.splice(n, 1); continue;
         }
       } else {
         const HURDLE = 0.34, LAND = 0.14, tD = HURDLE, tR = tD + LAND, total = tR + runDur;
         if (T < tD) {
           const u = T / HURDLE; e.posePhase = 'hurdle'; e.poseU = u;
-          f.pos.lerpVectors(e.from, e.land, u); f.pos.y = 0.52 * 4 * u * (1 - u);
+          f.pos.lerpVectors(e.from, e.land, u); f.pos.y = landY * u + 0.52 * 4 * u * (1 - u);
           f.yaw = Math.atan2(e.land.x - e.from.x, e.land.z - e.from.z); f.a.setRunning(false);
         } else if (T < tR) {
           const u = (T - tD) / LAND; e.posePhase = 'land'; e.poseU = u;
-          if (!e.landed) { e.landed = true; cue('land', 0.35); fxSmoke(e.land.clone().setY(0.1), 0x8a7a6a, 5, { r: 0.5, spd: 1.0, up: 0.35, s: 0.32, life: 0.48 }); }
-          f.pos.copy(e.land); f.pos.y = 0;
+          if (!e.landed) { e.landed = true; cue('land', 0.35); fxSmoke(e.land.clone().setY(landY + 0.1), 0x8a7a6a, 5, { r: 0.5, spd: 1.0, up: 0.35, s: 0.32, life: 0.48 }); }
+          f.pos.copy(e.land); f.pos.y = landY;
           f.yaw = Math.atan2(this.hero.pos.x - f.pos.x, this.hero.pos.z - f.pos.z); f.a.setRunning(false);
         } else if (T < total) {
           const u = (T - tR) / Math.max(0.05, runDur); e.posePhase = null; f.a.body.rotation.set(0, 0, 0);
-          f.pos.lerpVectors(e.land, e.to, u); f.pos.y = 0;
+          f.pos.lerpVectors(e.land, e.to, u); f.pos.y = this.grid ? this.grid.groundAt(f.pos.x, f.pos.z) : 0;
           f.yaw = Math.atan2(e.to.x - e.land.x, e.to.z - e.land.z); f.a.setRunning(true, 4.8, f.yaw);
         } else {
           if (!e.landed) { e.landed = true; cue('land', 0.35); }
-          f.pos.copy(e.to); f.pos.y = 0; f.inv = 0.12; f.a.body.rotation.set(0, 0, 0); f.a.setRunning(false);
+          f.pos.copy(e.to); f.pos.y = toY; f.inv = 0.12; f.a.body.rotation.set(0, 0, 0); f.a.setRunning(false);
           this.entering.splice(n, 1); continue;
         }
       }
@@ -5208,32 +5245,107 @@ export class ActShow {
     for (const o of B) if (o.moved) { if (o.f) this.foeClamp(o.f); else this.clamp(o.p, o.r); }
     this.lastPush = keep;
   }
-  private clamp = (p: THREE.Vector3, r: number) => {
+  private heroSafePos = V3();
+  private clampFootY = 0;
+  private clampFromY = 0;
+  private clampHoldHigh = false;
+  private clamp = (p: THREE.Vector3, r: number, o?: { overPit?: boolean; footY?: number; fromY?: number }) => {
     const yard = this.phase === 'yard' || (this.phase === 'leaving' && this.room < 0);
     const activeDoors = (this.phase === 'doors' || this.phase === 'leaving' || this.phase === 'yard')
       ? this.doors.map(d => d.ex)
       : [];
+    const footY = o?.footY ?? this.clampFootY;
+    const fromY = o?.fromY ?? this.clampFromY;
     this.lastPush = clampWithDoors(p, r, {
       play: PLAY,
       pad: yard ? { x: 0, z0: 0, z1: 0 } : { x: 0.02, z0: 0.02, z1: 0.02 },
       doors: activeDoors,
       grid: this.grid,
-      overPit: this.overPit,
+      overPit: o?.overPit ?? this.overPit,
+      footY,
+      fromY,
+      holdHigh: this.clampHoldHigh,
       solids: this.solids,
       wallSolid: WALL_SOLID,
     });
   };
   /** 11-18 屋子形态: the clamp lets this body over a pit (a foe knocked off its feet, a dart in flight); off again after each call */
   private overPit = false;
-  /** a projectile's clamp: walls stop it, a pit does not (darts and arrows fly over the water) */
-  private clampAir = (p: THREE.Vector3, r: number) => { this.overPit = true; try { this.clamp(p, r); } finally { this.overPit = false; } };
-  /** a foe's own clamp (enemy.ts integrate): knocked back hard or thrown into the air it can go over a pit's edge (and falls — see
-   *  frame()); walking, attacking, or the boss: the pit's edge holds it like a wall */
+  /** a projectile's clamp: walls stop it, a pit or low cover does not (darts and arrows fly over water & low obstacles) */
+  private clampAir = (p: THREE.Vector3, r: number) => {
+    this.overPit = true; this.clampFootY = Math.max(p.y, 1.5); this.clampFromY = this.clampFootY;
+    try { this.clamp(p, r); } finally { this.overPit = false; this.clampFootY = 0; this.clampFromY = 0; }
+  };
+  /** a foe's own clamp (enemy.ts integrate): knocked back hard or thrown into the air it can go over a pit's edge or off a platform */
   private foeClamp = (f: Foe) => {
-    // (its middle already over a pit — it landed there from the air, a crowd's push — it is going down: nothing holds it back now)
     const g = this.grid, sp = Math.hypot(f.vel.x, f.vel.z), can = !!g && !isBoss(f) && f.kind !== 'dummy';
-    const loose = can && ((f.st === 'stagger' && sp > PIT_SPEED) || (f.airV != null && f.pos.y > 0.05) || !!g!.pitAt(f.pos.x, f.pos.z));
-    this.overPit = loose; try { this.clamp(f.pos, f.d.r); } finally { this.overPit = false; }
+    const loose = can && ((f.st === 'stagger' && sp > PIT_SPEED) || (f.airV != null && f.pos.y > (g ? g.groundAt(f.pos.x, f.pos.z) : 0) + 0.08) || !!g!.pitAt(f.pos.x, f.pos.z));
+    const wasY = f.pos.y;
+    this.overPit = loose;
+    this.clampFootY = wasY;
+    this.clampFromY = wasY;
+    this.clampHoldHigh = !!g && isRangedFoe(f) && f.st !== 'stagger' && f.airV == null && wasY >= PLAT_H - 0.15;
+    try { this.clamp(f.pos, f.d.r); } finally { this.overPit = false; this.clampFootY = 0; this.clampFromY = 0; this.clampHoldHigh = false; }
+    if (g && f.airV == null && !g.pitAt(f.pos.x, f.pos.z)) {
+      const gy = g.groundAt(f.pos.x, f.pos.z);
+      if (wasY > gy + 0.25) f.airV = -0.6;
+      else f.pos.y = gy;
+    }
+  };
+  /** Resolve hero landing: slide off vaulted low props, generously grab nearby shore edges (<= 0.58 m), or splash & recover from deep pits! */
+  private onHeroLand = (p: THREE.Vector3, r: number) => {
+    const g = this.grid;
+    if (g) p.y = g.groundAt(p.x, p.z);
+    this.solids.pushOut(p, r, p.y);
+    if (!g) return;
+    const pitKind = g.pitAt(p.x, p.z);
+    if (!pitKind) {
+      p.y = g.groundAt(p.x, p.z);
+      this.heroSafePos.copy(p);
+      return;
+    }
+    const [fx, fz] = g.nearestFloor(p.x, p.z);
+    const dist = Math.hypot(fx - p.x, fz - p.z);
+    if (dist <= 0.58) {
+      // Generous ledge-grab onto shore / stepping-stone pier: zero damage!
+      p.x = fx; p.z = fz;
+      const fy = g.groundAt(fx, fz);
+      this.clamp(p, r, { overPit: false, footY: fy, fromY: fy });
+      p.y = g.groundAt(p.x, p.z);
+      this.heroSafePos.copy(p);
+      dustBlocks(p.clone(), 4);
+      return;
+    }
+    // Deep water / gully / molten pit splash -> mild non-lethal 8 HP penalty (never kills!) + crisp blink back to takeoff shore!
+    const splashY = pitKind === 'molten' ? COPPER_Y : pitKind === 'water' ? -0.52 : -1.1;
+    const at = V3(p.x, splashY, p.z);
+    if (pitKind === 'molten') {
+      fxEmbers(at, 0xff7422, 16, { up: 1.8 }); fxFlare(at, 0xffaa44, 1.6, 0.35); cue('fire', 0.9);
+    } else if (pitKind === 'water') {
+      fxRing(at.clone().setY(splashY + 0.04), 0xd8e8f0, 1.35, { life: 0.5 } as never);
+      fxSparks(at.clone().setY(splashY + 0.2), 0xe8f4ff, 20, 4.5, { grav: 14, life: 0.55 } as never);
+      cue('splash', 0.95);
+    } else {
+      fxSmoke(at, 0x8a7a62, 8, { r: 0.6, spd: 1.3, up: 1.0, s: 0.4, life: 0.75, alpha: 0.6 });
+      cue('dropFar', 0.9);
+    }
+    shake(0.16 * TUNE.shake);
+    const h = this.hero;
+    if (h?.alive && this.phase === 'fight' && this.prologue !== 1 && h.inv <= 0) {
+      const loss = Math.min(8, Math.max(0, h.hp - 1));
+      if (loss > 0) {
+        h.hp -= loss;
+        this.hud.flask.hit(loss, { hp: h.hp, maxHp: h.maxHp });
+        h.a.tint(pitKind === 'molten' ? 0xff7a2a : 0x9ac8e8, 0.65);
+      }
+    }
+    p.copy(this.heroSafePos);
+    if (h) {
+      h.vel.set(0, 0, 0);
+      h.inv = Math.max(h.inv, 0.85);
+      fxRing(p.clone().setY(p.y + 0.06), 0xdceeff, 1.15, { life: 0.45, width: 0.08 } as never);
+      fxSmoke(p.clone().setY(p.y + 0.25), 0xd0dce8, 6, { r: 0.45, spd: 0.9, up: 0.5, s: 0.3, life: 0.45 });
+    }
   };
   /** 11-18 敌人绕路: the way round for a foe walking to the hero — null = straight at her; re-asked every 0.15 s */
   private wayMemo = new WeakMap<Foe, { t: number; d: THREE.Vector3 | null }>();
@@ -5251,6 +5363,8 @@ export class ActShow {
   private heroWorld: HeroWorld = {
     foes: this.foes,
     swing: o => this.swing(o), sweep: o => this.sweep(o), slam: o => this.slam(o), clamp: this.clamp,
+    groundAt: (x, z) => this.grid ? this.grid.groundAt(x, z) : 0,
+    onLand: (p, r) => this.onHeroLand(p, r),
     thunderCleave: o => this.thunderCleave(o), frostDetonate: o => this.frostDetonate(o), bluntFlash: o => this.bluntFlash(o),
     passing: o => this.passing(o), overhead: o => this.overhead(o), dashed: o => this.dashed(o),
     launch: o => this.launchCut(o), kick: o => this.kickHit(o),
@@ -5286,7 +5400,8 @@ export class ActShow {
   };
   private foeWorld: FoeWorld = {
     pushed: (f, dx, dz) => this.pushed(f, dx, dz),
-    heroPos: V3(), heroR: 0.38, heroAlive: true, heroY: 0, heroDodge: false, foes: this.foes, arrows: this.arrows, clamp: this.clamp,
+    heroPos: V3(), heroR: 0.38, heroAlive: true, heroY: 0, heroBaseY: 0, heroDodge: false, foes: this.foes, arrows: this.arrows, clamp: this.clamp,
+    groundAt: (x, z) => this.grid ? this.grid.groundAt(x, z) : 0,
     clampAir: this.clampAir, clampFoe: this.foeClamp, way: this.foeWay, sees: this.foeSees,
     hurtHero: (dmg, from, attacker) => this.hurtHero(dmg, from, attacker), // wp/boons: exact melee attacker; arrows omit it
     killFoe: (f, from) => this.killFoe(f, from), // wp/boons: lethal burn ticks use the death hook too
@@ -5948,10 +6063,13 @@ export class ActShow {
     const fx = Math.sin(o.yaw), fz = Math.cos(o.yaw); let n = 0;
     for (const f of this.foes.slice()) {
       if (f.st === 'dead') continue;
+      const heroWY = this.hero.pos.y + this.hero.y;
+      if (Math.abs(f.pos.y - heroWY) > 0.88) continue;
       const dx = f.pos.x - o.from.x, dz = f.pos.z - o.from.z, l = Math.hypot(dx, dz); if (l > o.range + f.d.r) continue;
       if (l > f.d.r + 0.3 && Math.abs(Math.atan2(dx * fz - dz * fx, dx * fx + dz * fz)) > o.half) continue;
       this.hitFoe(f, o.dmg, o.from, { knock: 0.15, heavy: true, kind: 'launch', stagger: 1.5 }); n++;
-      if ((f.st as string) !== 'dead' && this.launchable(f)) { f.airV = 10.5; f.pos.y = Math.max(f.pos.y, 0.05); f.vel.set(fx * 1.2, 0, fz * 1.2); this.lofted.set(f, clock.time); }
+      const fGy = this.grid ? this.grid.groundAt(f.pos.x, f.pos.z) : 0;
+      if ((f.st as string) !== 'dead' && this.launchable(f)) { f.airV = 10.5; f.pos.y = Math.max(f.pos.y, fGy + 0.05); f.vel.set(fx * 1.2, 0, fz * 1.2); this.lofted.set(f, clock.time); }
     }
     if (this.props) this.applyProps(this.props.hitArc(o.from, o.yaw, o.range, o.half, { src: 'hero', heavy: true }, this.targets()));
     this.leaves?.blast(o.from.x + fx, o.from.z + fz, 1.6, 4);
@@ -5973,7 +6091,7 @@ export class ActShow {
     // act-138 穿心腿 signature: dry kinetic wind-ring & ground dust kick (even on whiff so the martial kick reads distinctly from a blade swing!)
     fxRing(at.clone().setY(0.85), 0xeadcc4, 0.95, { life: 0.20, width: 0.12 } as never);
     dustBlocks(o.from.clone().addScaledVector(o.dir, 0.6), 6, o.dir.clone());
-    if (this.props) this.applyProps(this.props.hitCircle(at.x, at.z, 0.7, { src: 'hero', heavy: true, dir: [o.dir.x, o.dir.z] }, this.targets()));
+    if (this.props) this.applyProps(this.props.hitCircle(at.x, at.z, 0.75, { src: 'hero', heavy: true, slide: true, dir: [o.dir.x, o.dir.z] }, this.targets()));
     if (!best) return 0;
     this.hitFoe(best, o.dmg, o.from, { knock: 0, heavy: true, kind: 'kick', stagger: 1.4 });
     if (best.st !== 'dead') {
@@ -6283,10 +6401,11 @@ export class ActShow {
   private drops: Array<{ f: Foe; from: THREE.Vector3; boss: boolean; vy: number }> = [];
   private dropStep(dt: number) {
     for (let i = this.drops.length - 1; i >= 0; i--) {
-      const d = this.drops[i], f = d.f; d.vy -= 30 * dt; f.pos.y = Math.max(0, f.pos.y + d.vy * dt);
-      if (f.pos.y > 0 && f.a.root.parent) continue;
+      const d = this.drops[i], f = d.f, gy = this.grid ? this.grid.groundAt(f.pos.x, f.pos.z) : 0;
+      d.vy -= 30 * dt; f.pos.y = Math.max(gy, f.pos.y + d.vy * dt);
+      if (f.pos.y > gy && f.a.root.parent) continue;
       this.drops.splice(i, 1); if (!f.a.root.parent) continue;
-      dustBlocks(f.pos.clone().setY(0), 6); cue('land', 0.6);
+      dustBlocks(f.pos.clone().setY(gy), 6); cue('land', 0.6);
       void playDeath(f.a, { from: d.from, ratio: f.lastDmg / f.maxHp + (d.boss ? 0.5 : 0), boss: d.boss }).then(() => { f.a.dispose(); });
     }
   }
@@ -6717,6 +6836,9 @@ export class ActShow {
     let clashed = false;
     for (const f of this.foes.slice()) {
       if (f.st === 'dead') continue;
+      // Vertical Z-axis elevation rule: ground horizontal swings cannot clip up onto a 1.12m platform (jump up or dart-chase onto the terrace!)
+      const heroWY = this.hero.pos.y + this.hero.y;
+      if (Math.abs(f.pos.y - heroWY) > 0.88 && o.kind !== 'chase') continue;
       const dx = f.pos.x - o.from.x, dz = f.pos.z - o.from.z, l = Math.hypot(dx, dz); if (l > o.range + f.d.r) continue;
       const ang = Math.abs(Math.atan2(dx * fz - dz * fx, dx * fx + dz * fz)); if (l > f.d.r + 0.3 && ang > o.half) continue;
       // act-115: counter slash or heavy finisher colliding with an elite/boss heavy melee windup/lunge locks blades into Clash QTE
@@ -7213,14 +7335,23 @@ export class ActShow {
     this.hitFoe(f, TUNE.deflectDmg, from, { knock: 1.2, heavy: true, kind: 'arrow' });
     fxSparks(a.p.clone(), 0xffd070, 16, 6); this.feel('arrow', true, 1, a.v.clone(), a.p);
   }
-  /** the plunge lands: everything round the hero is hit and thrown outward; dust and a ring even on a miss */
-  private slam(o: { at: THREE.Vector3; r: number; dmg: number; yaw: number }) {
+  /** the plunge lands: everything round the hero is hit and thrown outward; highDrop (天降劈山 from elevated terrace/double-jump) unleashes wider shock & 2× poise shatter! */
+  private slam(o: { at: THREE.Vector3; r: number; dmg: number; yaw: number; highDrop?: boolean }) {
     let n = 0;
-    for (const f of this.foes.slice()) { if (f.st === 'dead' || f.pos.distanceTo(o.at) > o.r + f.d.r) continue; this.hitFoe(f, o.dmg, o.at, { knock: 1.3, heavy: true, kind: 'plunge' }); n++; }
-    if (this.props) this.applyProps(this.props.hitCircle(o.at.x, o.at.z, o.r, { src: 'hero', heavy: true, dir: [Math.sin(o.yaw), Math.cos(o.yaw)] }, this.targets()));   // act-19
-    fxRing(o.at.clone().setY(0.06), 0xffd8a0, o.r, { life: 0.4 } as never); dustBlocks(o.at.clone(), 12); this.leaves?.blast(o.at.x, o.at.z, o.r + 0.8, 5);
-    fxSmoke(o.at.clone().setY(0.2), 0x8a7a6a, 8, { r: o.r * 0.6, spd: 2.4, up: 0.3, s: 0.45, life: 0.6 });
-    if (n) this.feel('plunge', true, n); else { shake(0.2 * TUNE.shake); this.camPunch(0.02); cue('land', 1); }
+    for (const f of this.foes.slice()) {
+      if (f.st === 'dead' || Math.abs(f.pos.y - o.at.y) > 0.95 || Math.hypot(f.pos.x - o.at.x, f.pos.z - o.at.z) > o.r + f.d.r) continue;
+      this.hitFoe(f, o.dmg, o.at, { knock: o.highDrop ? 1.85 : 1.3, heavy: true, kind: 'plunge', poiseMul: o.highDrop ? 2.0 : 1.25 });
+      n++;
+    }
+    if (this.props) this.applyProps(this.props.hitCircle(o.at.x, o.at.z, o.r, { src: 'hero', heavy: true, slide: true, dir: [Math.sin(o.yaw), Math.cos(o.yaw)] }, this.targets()));   // act-19
+    fxRing(o.at.clone().setY(o.at.y + 0.06), o.highDrop ? 0xffc864 : 0xffd8a0, o.r, { life: o.highDrop ? 0.52 : 0.4, width: o.highDrop ? 0.22 : 0.12 } as never);
+    if (o.highDrop) {
+      fxShock(o.at.clone().setY(o.at.y + 0.1), 0xffe498, o.r * 0.95, { life: 0.42 });
+      fxChips(o.at.clone().setY(o.at.y + 0.18), [0xffe088, 0xc8a878, 0x8a7e70], 10, { speed: 4.8, up: 3.2, size: 0.085 });
+    }
+    dustBlocks(o.at.clone(), o.highDrop ? 18 : 12); this.leaves?.blast(o.at.x, o.at.z, o.r + 0.8, o.highDrop ? 8 : 5);
+    fxSmoke(o.at.clone().setY(o.at.y + 0.2), 0x8a7a6a, o.highDrop ? 12 : 8, { r: o.r * 0.6, spd: 2.4, up: 0.3, s: 0.45, life: 0.6 });
+    if (n) this.feel('plunge', true, n); else { shake((o.highDrop ? 0.32 : 0.2) * TUNE.shake); this.camPunch(o.highDrop ? 0.04 : 0.02); cue('land', 1); }
     if (hasBoon(this.perks, 'rift')) this.riftOut(o.at.clone(), o.yaw);   // 11-18 秘传 裂地
     return n;
   }
@@ -8899,6 +9030,9 @@ export class ActShow {
       }
     }
     h.update(dt, this.inp, this.heroWorld);
+    if (h.alive && !h.airborne && (!this.grid || !this.grid.pitAt(h.pos.x, h.pos.z))) {
+      this.heroSafePos.copy(h.pos);
+    }
     // act-146: crisp subtle water-step splashes when Liu Bai runs/dashes across shallow flooded stone puddles (Xiapi pools)
     if (this.pools.length && h.y < 0.08 && Math.hypot(h.vel.x, h.vel.z) > 0.65 && this.pools.some(r => h.pos.x > r.x0 && h.pos.x < r.x1 && h.pos.z > r.z0 && h.pos.z < r.z1)) {
       this.wetStepT -= dt;
@@ -8938,7 +9072,7 @@ export class ActShow {
     }
     h.a.update(dt); h.deathPose(); h.scriptPose?.(); for (const a of this.lineupActors) a.update(dt);
     if (this.labFn) { this.labT += dt; this.labFn(dt, this.labT); }
-    const fw = this.foeWorld; fw.foes = this.foes; fw.arrows = this.arrows; fw.heroPos.copy(h.pos); fw.heroAlive = h.alive && (this.phase === 'fight' || this.phase === 'yard'); fw.heroY = h.y; fw.heroDodge = h.dodgeWin; fw.heroYaw = h.a.yaw; fw.pools = this.pools;
+    const fw = this.foeWorld; fw.foes = this.foes; fw.arrows = this.arrows; fw.heroPos.copy(h.pos); fw.heroAlive = h.alive && (this.phase === 'fight' || this.phase === 'yard'); fw.heroY = h.y; fw.heroBaseY = h.pos.y; fw.heroDodge = h.dodgeWin; fw.heroYaw = h.a.yaw; fw.pools = this.pools;
     // act-20 / act-135 / act-154: the hideout's people, roadside actors, 落成工碑 monuments & spring pop-in animations
     for (const n of this.npcs) n.a.update(dt);
     for (const a of this.roadActors) if (!this.roadStill.has(a)) a.update(dt);
@@ -9054,23 +9188,33 @@ export class ActShow {
         trailSeg(c.clone().addScaledVector(side, -0.6).add(V3(0, 0.25, 0)), c.clone().addScaledVector(side, 0.6).add(V3(0, -0.15, 0)), 0xe8fff2, 0.12, { life: 0.16, bright: 3, spark: 0.6 });
         fxSparks(c, 0xc8ffe0, 12, 5); this.feel('wind', false, 1, w.fwd.clone(), c);
       }
-      // arrows in its way are cut out of the air
+      // arrows in its way are cut out of the air; far-shore puzzle ropes / bells can also be sliced by blade waves!
       for (const a of this.arrows) if (!a.dead && !a.friendly && w.sweeps(p0, a.p, 0.2)) { fxSparks(a.p.clone(), 0xe8fff2, 8, 4); a.kill(); }
+      this.pieces?.hitByDart(p0, w.p);
     }
     this.waves = this.waves.filter(w => !w.dead);
     // darts: fly straight; the first foe in the way takes it (small damage, no stagger); walls stop them
     for (const d of this.darts) {
       if (d.stuck) { if (!d.ride(dt) || (d.stuck as Foe).st === 'dead') d.stop(false); continue; }
-      const hand = h.pos.clone().add(V3(0, 1.2, 0));
+      const hand = h.pos.clone().add(V3(0, 1.2 + h.y, 0));
       if (d.returning) d.homeTo(hand, TUNE.dartSpeed * 1.1, dt);
       const p0 = d.step(dt);
       // 11-18 秘传 折返: out to its end (or a wall), it turns and flies back to her left hand; a foe can be struck going and coming
-      if (d.back > 0 && !d.returning && (d.life <= 0 || (() => { const q = d.p.clone(); this.clamp(q, 0); return q.distanceTo(d.p) > 0.3; })())) d.turnBack();
+      if (d.back > 0 && !d.returning && (d.life <= 0 || (() => { const q = d.p.clone(); this.clampAir(q, 0); return Math.hypot(q.x - d.p.x, q.z - d.p.z) > 0.3; })())) d.turnBack();
       if (d.returning && (d.p.distanceTo(hand) < 0.6 || d.life <= 0 || !h.alive)) { if (h.alive) { fxSparks(hand, 0xe8f0ff, 4, 1.5); cue('dartThrow', 0.25); } d.stop(false); continue; }
-      if (this.props && !d.returning) { const q = d.p, hit = this.props.logic.near(q.x, q.z, 0.12).find(pp => pp.state === 'idle' || pp.kind === 'pillar'); if (hit && q.y < (hit.kind === 'pillar' ? 2.8 : 1.1)) { if (hit.state === 'idle') this.applyProps(this.props.logic.hit(hit, { src: 'dart', dir: [d.p.x - p0.x, d.p.z - p0.z] }, this.targets())); if (d.back > 0) d.turnBack(); else d.stop(); continue; } }
+      if (this.props && !d.returning) {
+        const q = d.p, hit = this.props.logic.near(q.x, q.z, 0.18).find(pp => pp.state === 'idle' || pp.kind === 'pillar');
+        const hitBaseY = hit && this.grid ? this.grid.groundAt(hit.x, hit.z) : 0;
+        if (hit && q.y >= hitBaseY - 0.15 && q.y < hitBaseY + (hit.kind === 'pillar' ? 2.8 : 1.35)) {
+          if (hit.state === 'idle') this.applyProps(this.props.logic.hit(hit, { src: 'dart', dir: [d.p.x - p0.x, d.p.z - p0.z] }, this.targets()));
+          if (d.back > 0) d.turnBack(); else d.stop();
+          continue;
+        }
+      }
+      if (this.pieces && !d.returning && this.pieces.hitByDart(p0, d.p)) { if (d.back > 0) d.turnBack(); else d.stop(); continue; }
       if (this.generalEvent && !d.returning && this.generalEvent.hitByDart(d.p.x, d.p.z)) { if (d.back > 0) d.turnBack(); else d.stop(); continue; }
       for (const f of this.foes) {
-        if (f.st === 'dead' || d.p.y > 2.4 || d.passed.has(f.uid)) continue;
+        if (f.st === 'dead' || d.p.y > f.pos.y + 2.4 || d.p.y < f.pos.y - 0.2 || d.passed.has(f.uid)) continue;
         const ab = d.p.clone().sub(p0).setY(0), L2 = Math.max(1e-6, ab.lengthSq()), t = Math.max(0, Math.min(1, f.pos.clone().sub(p0).setY(0).dot(ab) / L2)), q = p0.clone().addScaledVector(ab, t);
         if (Math.hypot(f.pos.x - q.x, f.pos.z - q.z) < f.d.r + 0.2) {
           this.hitFoe(f, d.dmg * (d.returning ? d.back : 1), p0, { knock: 0.12, heavy: false, kind: 'dart', stagger: 0 }); cue('dartHit', 0.7);
@@ -9100,7 +9244,8 @@ export class ActShow {
     if (this.pieces && this.hero) {
       const bodies = this.pieces.plates.length ? this.foes.filter(f => f.st !== 'dead').map(f => ({ pos: f.pos, r: f.d.r })) : [];
       const calm = !this.foes.some(f => f.st !== 'dead' && f.kind !== 'dummy');
-      const frame = { foes: bodies, heroRadius: this.hero.r, heroHeight: this.hero.y, waitZone: this.waitZone };
+      const pillars = this.pieces.plates.length && this.props ? this.props.fallenPillars() : [];
+      const frame = { foes: bodies, heroRadius: this.hero.r, heroHeight: this.hero.y, waitZone: this.waitZone, pillars };
       for (const e of this.pieces.update(dt, this.hero.pos, calm, frame)) if (e.k === 'reward') void this.reward(e.tier);
       // 11-18 定死的屋子: she walked into the next piece of the floor — its wave
       if (this.waitZone >= 0 && this.phase === 'fight' && this.pieces.zoneAt(this.hero.pos.x, this.hero.pos.z) === this.waitZone) { this.waitZone = -1; after(0.35, () => { if (this.phase === 'fight') this.spawnWave(); }); }
@@ -9247,8 +9392,8 @@ export class ActShow {
     this.worldPlates.hidePrefix('tr.');
     if (this.pieces && worldUiClear) {
       this.pieces.rewards.forEach((r, idx) => {
-        if (r.taken) return;
-        const pt = worldToUi(V3(r.x, r.tier === 'mythic' ? 1.85 : 1.65, r.z));
+        if (r.taken || this.pieces!.isRewardHidden(r)) return;
+        const pt = worldToUi(V3(r.x, r.baseY + (r.tier === 'mythic' ? 1.85 : 1.65), r.z));
         this.worldPlates.setTag('tr.' + idx, {
           text: r.tier === 'mythic' ? '传世秘藏' : '秘藏',
           icon: r.tier === 'mythic' ? 'mythic' : 'chest',
@@ -9373,8 +9518,9 @@ export class ActShow {
     this.dodgeCd -= rdt; this.hud.btns.attack.hot = h.counterT > 0;
     this.tut.post(h, this.hud.btns as never, n => this.hud.btnKick(n, 0.6));
     if (h.counterT > 0) { this.sparkT -= rdt; if (this.sparkT <= 0) { this.sparkT = 0.06; fxSparks(h.a.bones.weapon ? h.a.bones.weapon.localToWorld(V3(0, 0, (h.def.tip ?? 13) * CELL)) : h.a.chest(), 0xffd060, 3, 2.5, { life: 0.3 }); } }
-    // the landing spot under a jump
-    this.blob.visible = h.alive || h.y > 0.03; this.blob.position.set(h.pos.x, 0.03, h.pos.z); this.blob.scale.setScalar(0.62 * Math.max(0.6, 1 - h.y * 0.22)); (this.blob.material as THREE.MeshBasicMaterial).opacity = 0.78 - Math.min(0.3, h.y * 0.12);
+    // the landing spot under a jump (follows deck elevation on platforms & ramps!)
+    const hGroundY = this.grid ? this.grid.groundAt(h.pos.x, h.pos.z) : 0;
+    this.blob.visible = h.alive || h.y > 0.03; this.blob.position.set(h.pos.x, hGroundY + 0.03, h.pos.z); this.blob.scale.setScalar(0.62 * Math.max(0.6, 1 - h.y * 0.22)); (this.blob.material as THREE.MeshBasicMaterial).opacity = 0.78 - Math.min(0.3, h.y * 0.12);
     // the foes' contact shadows (a pool, one per live foe; the dummies stand on their own stone feet)
     const softOnly = OPT.bakedShadows && QUALITY.tier === 'low';
     if (softOnly && this.stage && !this.propContacts) this.propContacts = new ContactBatch(this.stage.root);
@@ -9385,10 +9531,11 @@ export class ActShow {
     let si = 0;
     for (const f of this.foes) {
       if (f.st === 'dead' || f.kind === 'dummy' || f.mem.hidden) continue;
+      const fGroundY = this.grid ? this.grid.groundAt(f.pos.x, f.pos.z) : 0;
       if (softOnly && this.propContacts) { this.propContacts.add(f.pos.x, f.pos.z, f.d.r * 1.55); continue; }
-      if (groupFoes && this.foeContacts) { this.foeContacts.add(f.pos.x, f.pos.z, f.d.r * 1.55, f.d.r * 1.55, 0.03); continue; }
+      if (groupFoes && this.foeContacts) { this.foeContacts.add(f.pos.x, f.pos.z, f.d.r * 1.55, f.d.r * 1.55, fGroundY + 0.03); continue; }
       let m = this.shadows[si]; if (!m) { m = contactShadow(); scene.add(m); this.shadows.push(m); }
-      m.visible = true; m.position.set(f.pos.x, 0.03, f.pos.z); m.scale.setScalar(f.d.r * 1.55); si++;
+      m.visible = true; m.position.set(f.pos.x, fGroundY + 0.03, f.pos.z); m.scale.setScalar(f.d.r * 1.55); si++;
     }
     this.foeContacts?.end(); this.propContacts?.end();
     for (; si < this.shadows.length; si++) this.shadows[si].visible = false;
