@@ -4,8 +4,8 @@
 // 一局里的位置用 (区, 间) 表示：flow.ts 是纯逻辑（关的顺序、打完头目进下一关、最后一关打完是通关），这里只管一间屋怎么排。
 import { EDEFS, type EKind } from './enemy';
 import { LOCALES } from '../asm/registry';
-import { REGIONS } from './regions';
-import type { RegionDef } from './regionDef';
+import { regionsFor } from './regions';
+import type { RegionDef, RouteId } from './regionDef';
 import { BOON_CAP, type Archetype } from './boons';
 
 const ARCHS: readonly Archetype[] = ['blood', 'poise', 'shadow', 'gale'];
@@ -39,9 +39,14 @@ const ROOM_INFO_BY: Record<string, Partial<Record<RoomType, { name: string; line
   r3_xiapi: { fight: { name: '乱兵', line: '扫除浸水吕布兵' }, event: { name: '夏侯惇奇遇', line: '雾巷听弦追影战' }, boss: { name: '首领', line: '白门楼下决生死' } },
   r4_wulin: { fight: { name: '乱兵', line: '杀穿铁索连环船' }, event: { name: '陆逊奇遇', line: '借风破盾连环火' }, boss: { name: '首领', line: '楼船烈火决生死' } },
   r5_cui: { fight: { name: '乱兵', line: '雪夜破袭崔府众' }, boss: { name: '首领', line: '深宅雪落决生死' } },
+  n1_post: { fight: { name: '官兵', line: '冲破荒驿捉夫哨' }, rest: { name: '荒驿寻踪', line: '休整·查探北道踪迹' }, boss: { name: '首领', line: '荒驿关口斩百夫长' } },
+  n2_valley: { fight: { name: '药卒', line: '斩破毒雾采药众' }, rest: { name: '药坞寻踪', line: '休整·追查杜五去向' }, boss: { name: '首领', line: '毒雾药坞讨血债' } },
+  n3_camp: { fight: { name: '虎贲', line: '破阵斩退铁甲营' }, boss: { name: '首领', line: '铁甲连营斩校尉' } },
+  n4_pass: { fight: { name: '玄卫', line: '雪夜强攻函谷玄台' }, boss: { name: '首领', line: '函谷高台破黑棋' } },
 };
 /** a room type's name and line in region `ri` (0 起; out of range = region one's) */
-export const roomInfo = (type: RoomType, ri = 0) => ROOM_INFO_BY[REGIONS[ri]?.id ?? '']?.[type] ?? ROOM_INFO[type];
+export const roomInfo = (type: RoomType, ri = 0, route: RouteId = 'south') =>
+  ROOM_INFO_BY[regionsFor(route)[ri]?.id ?? '']?.[type] ?? ROOM_INFO[type];
 
 /** the region's places; until the 黄巾 places are merged, the nearest ninja place stands in */
 const PLACE_FALLBACK: Record<string, string> = { hj_village: 'ninja_village', hj_field: 'ninja_wilds', hj_temple: 'ninja_temple' };
@@ -57,13 +62,16 @@ export const isBossKind = (k: string) => !!(EDEFS as Record<string, { boss?: boo
 
 type Rnd = () => number;
 const pick = <T>(a: T[], r: Rnd) => a[Math.floor(r() * a.length) % a.length];
-const regionAt = (ri: number): RegionDef => REGIONS[Math.max(0, Math.min(REGIONS.length - 1, ri))];
+const regionAt = (ri: number, route: RouteId = 'south'): RegionDef => {
+  const list = regionsFor(route);
+  return list[Math.max(0, Math.min(list.length - 1, ri))];
+};
 /** the rooms of region `ri`, its boss room included */
-export const regionRooms = (ri: number) => regionAt(ri).rooms + 1;
+export const regionRooms = (ri: number, route: RouteId = 'south') => regionAt(ri, route).rooms + 1;
 
 /** the waves of a room of region one, stronger the deeper in the run (depth = room index 0..5) */
-export function wavesFor(type: RoomType, depth: number, r: Rnd, ri = 0): string[][] {
-  const R = regionAt(ri);
+export function wavesFor(type: RoomType, depth: number, r: Rnd, ri = 0, route: RouteId = 'south'): string[][] {
+  const R = regionAt(ri, route);
   if (type === 'boss') return R.bossWaves.map(w => [...w]);
   return R.waves(type, depth, r);
 }
@@ -114,19 +122,25 @@ export function settleReward(p: RoomPlan, ctx: RunCtx): Reward {
   if (rw?.k === 'up' && ctx.ups <= 0) return full ? { k: 'coins', n: 40 + ri * 8 } : { k: 'boon' };
   return rw;
 }
-function placeFor(type: RoomType, r: Rnd, ri = 0) {
-  const R = regionAt(ri);
+function placeFor(type: RoomType, r: Rnd, ri = 0, route: RouteId = 'south') {
+  const R = regionAt(ri, route);
   return type === 'boss' ? R.bossLocale : type === 'fight' || type === 'elite' ? pick(R.locales, r) : R.locales[0];
 }
-export function roomOf(type: RoomType, depth: number, r: Rnd, ri = 0, ctx?: RunCtx): RoomPlan {
-  return { type, locale: placeOr(placeFor(type, r, ri)), reward: rewardFor(type, r, ri, ctx), waves: wavesFor(type, depth, r, ri), region: ri };
+export function roomOf(type: RoomType, depth: number, r: Rnd, ri = 0, ctx?: RunCtx, route: RouteId = 'south'): RoomPlan {
+  return { type, locale: placeOr(placeFor(type, r, ri, route)), reward: rewardFor(type, r, ri, ctx), waves: wavesFor(type, depth, r, ri, route), region: ri };
 }
-/** the first room of a run: a fight in the village, then starter archetype boon (Manual #1 is earned after Act 1 boss) */
-export function firstRoom(r: Rnd): RoomPlan { const p = roomOf('fight', 0, r); p.locale = placeOr('hj_village'); p.reward = { k: 'boon', arch: pickArch(r) }; return p; }
+/** the first room of a run: a fight in the route's opening locale, then starter archetype boon (Manual #1 is earned after Act 1 boss) */
+export function firstRoom(r: Rnd, route: RouteId = 'south'): RoomPlan {
+  const p = roomOf('fight', 0, r, 0, undefined, route);
+  p.locale = placeOr(regionAt(0, route).locales[0]);
+  p.reward = { k: 'boon', arch: pickArch(r) };
+  return p;
+}
 /** 11-28: first room of region `ri` — R2 grants meta resources, R3 grants Manual #2, R4/R5 grant coins */
-export function regionFirstRoom(ri: number, r: Rnd): RoomPlan {
-  if (ri <= 0) return firstRoom(r);
-  const p = roomOf('fight', 0, r, ri); p.locale = placeOr(regionAt(ri).locales[0]);
+export function regionFirstRoom(ri: number, r: Rnd, route: RouteId = 'south'): RoomPlan {
+  if (ri <= 0) return firstRoom(r, route);
+  const p = roomOf('fight', 0, r, ri, undefined, route);
+  p.locale = placeOr(regionAt(ri, route).locales[0]);
   p.reward = ri === 2 ? { k: 'manual' } : ri === 1 ? { k: 'meta', iron: 6, herb: 6 } : { k: 'coins', n: 30 + ri * 8 };
   return p;
 }
@@ -141,18 +155,18 @@ function distinctFork(pair: RoomPlan[], r: Rnd): RoomPlan[] {
   return pair;
 }
 
-export function doorsFrom(from: number, visited: RoomType[], r: Rnd, ri = 0, ctx?: RunCtx, mustRest = false): RoomPlan[] {
-  const next = from + 1, N = regionRooms(ri);
+export function doorsFrom(from: number, visited: RoomType[], r: Rnd, ri = 0, ctx?: RunCtx, mustRest = false, route: RouteId = 'south'): RoomPlan[] {
+  const next = from + 1, N = regionRooms(ri, route);
   if (next >= N) return [];
-  if (next === N - 1) return [roomOf('boss', next, r, ri)];
-  // act-188: guarantee a single pre-boss campfire rest room in Acts 1 & 2 if the player skipped earlier rests and hasn't seen Du Wu's roadside story yet
+  if (next === N - 1) return [roomOf('boss', next, r, ri, undefined, route)];
+  // Guarantee a single pre-boss campfire/trail rest room when South Du Wu roadside or North trail-clue story beats are pending
   if (mustRest && next === N - 2 && !visited.includes('rest')) {
-    return [roomOf('rest', next, r, ri, ctx)];
+    return [roomOf('rest', next, r, ri, ctx, route)];
   }
   const current = visited[visited.length - 1];
   if (current === 'rest' || current === 'shop' || current === 'boon' || current === 'event') {
     const fightFirst = r() < 2 / 3;
-    return distinctFork([roomOf(fightFirst ? 'fight' : 'elite', next, r, ri, ctx), roomOf(fightFirst ? 'elite' : 'fight', next, r, ri, ctx)], r);
+    return distinctFork([roomOf(fightFirst ? 'fight' : 'elite', next, r, ri, ctx, route), roomOf(fightFirst ? 'elite' : 'fight', next, r, ri, ctx, route)], r);
   }
   // act-147: Four Generals ('event') encounters removed from runs (user: 玩法走过场、先拿掉)
   const w: Array<[RoomType, number]> = [
@@ -167,5 +181,5 @@ export function doorsFrom(from: number, visited: RoomType[], r: Rnd, ri = 0, ctx
   if (next === N - 2 && !visited.includes('shop') && !visited.includes('rest') && a !== 'shop' && a !== 'rest') b = r() < 0.5 ? 'rest' : 'shop';
   // act-161: every region shows a merchant's door at least once — at one of its last two forks if none has come up
   if (next >= N - 3 && !visited.includes('shop') && a !== 'shop' && b !== 'shop') b = 'shop';
-  return distinctFork([roomOf(a, next, r, ri, ctx), roomOf(b, next, r, ri, ctx)], r);
+  return distinctFork([roomOf(a, next, r, ri, ctx, route), roomOf(b, next, r, ri, ctx, route)], r);
 }

@@ -8,7 +8,8 @@ import type { GeneralBlessingId } from './generalEvents';
 import type { RunMods } from './meta';
 import type { RoomPlan, RoomType } from './run';
 import type { ShopSpecial } from './stations';
-import { REGIONS } from './regions';
+import { regionsFor } from './regions';
+import type { RouteId } from './regionDef';
 import { language, msg, t } from './i18n';
 
 export const RUN_SAVE_KEY = 'ub.run.v1';
@@ -16,6 +17,8 @@ export const RUN_SAVE_KEY = 'ub.run.v1';
 export interface RunSave {
   v: 1;
   at: number;
+  /** Dual-route id ('south' 讨债旧道 / 'north' 北出官道); defaults to 'south' for legacy saves */
+  route?: RouteId;
   region: number;
   room: number;
   locale: string;
@@ -76,7 +79,8 @@ export function loadRunSave(): RunSave | null {
     if (!raw) return null;
     const d = JSON.parse(raw) as Partial<RunSave>;
     if (!d || d.v !== 1) return null;
-    if (typeof d.region !== 'number' || !Number.isFinite(d.region) || d.region < 0 || d.region >= REGIONS.length) return null;
+    const route: RouteId = d.route === 'north' ? 'north' : 'south';
+    if (typeof d.region !== 'number' || !Number.isFinite(d.region) || d.region < 0 || d.region >= regionsFor(route).length) return null;
     if (typeof d.room !== 'number' || !Number.isFinite(d.room) || d.room < 0) return null;
     if (!isValidPlan(d.plan)) return null;
     if (typeof d.maxHp !== 'number' || !Number.isFinite(d.maxHp) || d.maxHp <= 0) return null;
@@ -86,6 +90,7 @@ export function loadRunSave(): RunSave | null {
     return {
       v: 1,
       at: typeof d.at === 'number' ? d.at : Date.now(),
+      route,
       region: Math.floor(d.region),
       room: Math.floor(d.room),
       locale: typeof d.locale === 'string' && d.locale ? d.locale : d.plan.locale,
@@ -147,7 +152,8 @@ const CN_CODES = [0x4e00, 0x4e8c, 0x4e09, 0x56db, 0x4e94, 0x516d, 0x4e03, 0x516b
 
 /** Compact progress label for title screen / resume banner (e.g. "黄巾残村 · 第四间"). */
 export function runSaveLabel(s: RunSave): string {
-  const rName = t(REGIONS[s.region]?.name ?? '江湖');
+  const list = regionsFor(s.route === 'north' ? 'north' : 'south');
+  const rName = t(list[s.region]?.name ?? '江湖');
   const code = CN_CODES[s.room];
   const num = language === 'en' || code === undefined ? String(s.room + 1) : String.fromCharCode(code);
   const roomTxt = s.plan.type === 'boss' ? t('首领间') : msg`第${num}间`;

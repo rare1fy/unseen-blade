@@ -53,11 +53,11 @@ import { openMovesPreview, type StageSetup } from './movesPreview';
 import { IronHp, HP_FACE } from './ironUi';
 import { ROSTER } from '../bestiary/models';
 import { CODE_BUILD } from '../bestiary/voxEdit';
-import { rackBlades, hideoutScene, hideoutSolids, buildDuwuMemorial, buildExtraBowl, buildFlatbreadProp, buildHeldBowl, buildLacquerBox, buildLaidBlades, HIDEOUT, HIDEOUT_PEOPLE, type HideoutTime, type HideoutWeather } from './hideout';
+import { rackBlades, hideoutScene, hideoutSolids, buildDuwuMemorial, buildExtraBowl, buildFlatbreadProp, buildHeldBowl, buildLacquerBox, buildLaidBlades, buildNorthGateMesh, buildBrokenJarProp, buildTornSleeveProp, HIDEOUT, HIDEOUT_PEOPLE, type HideoutTime, type HideoutWeather } from './hideout';
 import { clampWithDoors } from './doorClamp';
 import { Timeline, type V } from './timeline';
 import { openingShots, bossIntroShots, generalIntroShots, steleStrikeShots, safeCam, type CineHost } from './cutscenes';
-import { NPC_TALK, STELE_TALK, MEAL_TALK, UP_TALK, POOR_TALK, WAKE_DUWU, WAKE_SUNAO, CHULEI_BEFORE, CH_BEFORE, CH_AFTER, BOSS_AFTER, STRIKE_FLAG, bossesDown, struckOnStele, ENDING, ENDING_A_NO_DUWU, ENDING_C_NO_DUWU, ENDING_PICK, ENDING_DESC, DUWU_ROAD_1, DUWU_ROAD_2, DUWU_DIE, DUWU_MEMORIAL_INTRO, DEATH_SUNAO_AFTER_DUWU, GEN_BEFORE, GEN_AFTER, deathLine, PRO_CUIXUAN, PRO_FALL, PRO_DAWN, PRO_WAKE, PRO_CAPTIONS, PRO_AMBUSH } from './scripts';
+import { NPC_TALK, STELE_TALK, MEAL_TALK, UP_TALK, POOR_TALK, WAKE_DUWU, WAKE_SUNAO, CHULEI_BEFORE, CH_BEFORE, CH_AFTER, BOSS_AFTER, STRIKE_FLAG, bossesDown, struckOnStele, ENDING, ENDING_A_NO_DUWU, ENDING_C_NO_DUWU, ENDING_PICK, ENDING_DESC, DUWU_ROAD_1, DUWU_ROAD_2, DUWU_BONDS, DUWU_MISSING, NORTH_CLUE_1, NORTH_CLUE_2, DUWU_DIE_NORTH, DUWU_DIE, NORTH_BEFORE, NORTH_AFTER, NORTH_ENDING, TRUE_ENDING, DUWU_MEMORIAL_INTRO, DEATH_SUNAO_AFTER_DUWU, GEN_BEFORE, GEN_AFTER, deathLine, PRO_CUIXUAN, PRO_FALL, PRO_DAWN, PRO_WAKE, PRO_CAPTIONS, PRO_AMBUSH } from './scripts';
 import { fallShots, snowShots, dawnShots, snapDawn, loadShots, brazier, getUpPose, drapeOver, GETUP_STEP, Kneel, KNEEL_ARMS, CuiInspect, cuiKneelDefeatPose, bossKneelDefeatPose, bossDefiantPose, poseWallVault, heroHoldThroatPose, heroSitFirePose, heroHandOnHiltPose, heroPutHatPose, heroKneelBesidePose, duwuRecoilPose, npcWarmPose, duwuPoisonPose, duwuDieShots, endingWalkShots, type PrologueHost, type VaultPhase } from './prologue';
 import { AllyGeneral, GENERAL_REGIONS, type AllyHost } from './foes/generals_ai';
 import { coldOpenShots, coldCardShots, BlindPOV } from './coldopen';
@@ -82,7 +82,7 @@ import {
 import { WEAPONS, WEAPON_ORDER, weaponDef, isWeaponUnlocked, weaponLevel, weaponNextCost, canForgeWeapon, hasAnyWeaponForgeable, forgeWeapon, equippedWeapon, equipWeapon, buildCourtyardWeaponRack, type WeaponId } from './weapons';
 import { KEEPSAKES, KEEPSAKE_ORDER, KEEPSAKE_STARS, keepsakeDef, isKeepsakeUnlocked, unlockKeepsake, keepsakeRooms, keepsakeStar, starLabel, equippedKeepsake, equipKeepsake, advanceKeepsake, buildKeepsakeBoxModel, type KeepsakeId } from './keepsakes';
 import { SEEDS, SEED_ORDER, PLOT_COSTS, ensureGarden, plotStatus, isPlotUnlocked, canUnlockPlot, unlockPlot, plantSeed, harvestPlot, ripenPlotNow, advanceGardenRooms, totalSeeds, ripePlotIndices, hasPlantablePlot, rollSeedDrop, addSeed, buildGardenPlotMesh } from './garden';
-import { HIDEOUT_ZONES, HIDEOUT_ZONE_ORDER, hideoutProgress, isDuwuDead, recordStageProgress, buildZoneMonumentModel, type HideoutZoneId } from './hideoutProgress';
+import { HIDEOUT_ZONES, HIDEOUT_ZONE_ORDER, hideoutProgress, isDuwuDead, isDuwuMissing, isDuwuAbsent, isNorthReady, recordStageProgress, buildZoneMonumentModel, type HideoutZoneId } from './hideoutProgress';
 import { showRewardedAd, setAdSimHost, type AdPlacement } from '../../platform/ads';
 import { AdSimModal } from './adModal';
 import {
@@ -164,7 +164,9 @@ import type { ModelDef } from '../bestiary/models';
 import { dustBlocks, spawnClone, smokeBurst, cut as cloneCut } from '../kyoto/ninja_fx';
 import { Dart, BladeWave } from './missiles';
 import { RUN_ROOMS, firstRoom, regionFirstRoom, roomOf, roomInfo, doorsFrom, settleReward, kindOr, isBossKind, freshRewardBag, type BagRewardKind, type RoomPlan, type RoomType, type RunCtx } from './run';
-import { REGIONS } from './regions';
+import { REGIONS, NORTH_REGIONS, regionsFor } from './regions';
+import { NORTH_BOSS_ORDER } from './regions/northFoes';
+import type { RouteId } from './regionDef';
 import { isBossRoom, afterBoss, roomsIn, roomsWorth, regionScale, regionBanner, shopPriceMul } from './flow';
 import { Stations, type Station, type ShopSpecial } from './stations';
 import { Coins } from './coins';
@@ -255,7 +257,7 @@ interface RoomIn { isYard: boolean; room: number; recent: Spec[]; locale: string
   /** 11-18 屋子形态: force this room's shape (__dh.shape / captures) and its seed; the last rooms' shapes (not again so soon) */
   shape?: ShapeId | null; shapes?: ShapeId[]; seed?: number | null;
   /** 11-18 定死的屋子: force this drawn room (asm/roomMaps.ts id); the drawn rooms used this run (not again while others are left) */
-  map?: string | null; maps?: string[]; region?: number;
+  map?: string | null; maps?: string[]; region?: number; route?: RouteId;
   /** 11-18: the region's defaults for the pick (season …: 下邳 is winter); the place's own lists still apply */ regionSpec?: Partial<Spec> | null;
   /** act-152: rotating hideout time & weather */ yardAtmo?: { time: HideoutTime; weather: HideoutWeather };
   /** optional pre-baked stage pack key (e.g. 'pro-village', 'pro-boss') */ pack?: string }
@@ -346,13 +348,14 @@ function advanceAhead(job: Pick<AheadRoom, 'steps' | 'size' | 'ready' | 'wait'>,
     setStage(live.big, live.k); Object.assign(PLAY, floor);
   }
 }
-function onward(room: number, visited: RoomType[], region: number, ctx?: RunCtx) {
+function onward(room: number, visited: RoomType[], region: number, ctx?: RunCtx, route: RouteId = 'south') {
   const p = profile();
-  const mustRest = (region === 0 && !isDuwuDead(p) && !p.seen['duwu_road_1'])
-    || (region === 1 && !isDuwuDead(p) && !p.seen['duwu_road_2']);
-  if (!isBossRoom(region, room)) return doorsFrom(room, visited, Math.random, region, ctx, mustRest);
-  const next = afterBoss(region);
-  return next === 'won' ? [] : [regionFirstRoom(next, Math.random)];
+  const mustRest = route === 'north'
+    ? ((region === 0 && !p.seen['north_clue_1']) || (region === 1 && !p.seen['north_clue_2']))
+    : ((region === 0 && !isDuwuAbsent(p) && !p.seen['duwu_road_1']) || (region === 1 && !isDuwuAbsent(p) && !p.seen['duwu_road_2']));
+  if (!isBossRoom(region, room, route)) return doorsFrom(room, visited, Math.random, region, ctx, mustRest, route);
+  const next = afterBoss(region, route);
+  return next === 'won' ? [] : [regionFirstRoom(next, Math.random, route)];
 }
 export function roomDefinition(o: RoomIn) {
   const { isYard } = o;
@@ -370,7 +373,7 @@ export function roomDefinition(o: RoomIn) {
   // room on a big stage takes one of its place's shapes (the boss's, the calm rooms, the prologue's and the cutscenes' stay square)
   const ptype = o.plan?.type ?? 'fight', calm = ptype === 'shop' || ptype === 'rest' || ptype === 'boon', isEvent = ptype === 'event';
   const roomKind = calm ? 'calm' : ptype === 'boss' ? 'boss' : 'fight';
-  const region = o.region == null ? null : REGIONS[o.region];
+  const region = o.region == null ? null : (o.route ? regionsFor(o.route)[o.region] : REGIONS[o.region]);
   const dm = region && !isYard && !isEvent && !o.noArena && !o.viewSpec && !o.forceSpec && !o.shape
     ? (o.map ? MAP_BY_ID[o.map] : pickMap(region, roomKind, o.maps ?? [], seed)) : null;
   if (dm) {
@@ -452,6 +455,11 @@ export class ActShow {
   private lanternMesh: THREE.Group | null = null; private lanternTick: ((t: number) => void) | null = null;
   private decorMesh: THREE.Group | null = null; private decorTick: ((t: number) => void) | null = null;
   private trialSteleMesh: THREE.Group | null = null;
+  private northGateMesh: THREE.Group | null = null;
+  private northExitSign: THREE.Group | null = null;
+  private northExitGlow: GateGlow | null = null;
+  /** Active expedition route ('south' 南门讨债旧道 5 关 | 'north' 西翼北出官道 4 关) */
+  route: RouteId = 'south';
   private extraAnimT = 0;
   /** act-161 调试版战斗统计（__dh.fight()）: this run's damage by source, each boss's time (its body, its barrier phases), blows taken, health given
    *  back — the numbers the balance model could only guess at. Filled only under __DEBUG_UI__ (the desktop / Pages build) */
@@ -1135,8 +1143,12 @@ export class ActShow {
     const p = profile();
     if (won && !this.usedRevive) { p.soloWins = (p.soloWins ?? 0) + 1; }
     // 11-28: extra bosses past the first count as 2 rooms each (was 5) so full clears don't short-circuit meta progression
-    const rooms = roomsWorth(this.region, this.room, won) + Math.max(0, this.bosses - 1) * 2;
-    recordStageProgress(p, this.region, won ? roomsIn(this.region) : this.room);
+    const rooms = roomsWorth(this.region, this.room, won, this.route) + Math.max(0, this.bosses - 1) * 2;
+    recordStageProgress(p, this.region, won ? roomsIn(this.region, this.route) : this.room, this.route);
+    if (this.route === 'north') {
+      p.northRuns = (p.northRuns ?? 0) + 1;
+      if (won) p.northWins = (p.northWins ?? 0) + 1;
+    }
     this.banked = bank(p, { rooms, elites: this.eliteKills, boss: this.bossKilled, won, kills: this.kills });
     clearRunAdBuffs(p);
     saveProfile();
@@ -1349,6 +1361,9 @@ export class ActShow {
     if (this.lanternMesh) { this.lanternMesh.parent?.remove(this.lanternMesh); this.lanternMesh = null; this.lanternTick = null; }
     if (this.decorMesh) { this.decorMesh.parent?.remove(this.decorMesh); this.decorMesh = null; this.decorTick = null; }
     if (this.trialSteleMesh) { this.trialSteleMesh.parent?.remove(this.trialSteleMesh); this.trialSteleMesh = null; }
+    if (this.northGateMesh) { this.northGateMesh.parent?.remove(this.northGateMesh); this.northGateMesh = null; }
+    if (this.northExitSign) { this.northExitSign.parent?.remove(this.northExitSign); this.northExitSign = null; }
+    if (this.northExitGlow) { this.northExitGlow.dispose(); this.northExitGlow = null; }
     for (const gm of this.gardenMeshes) gm.parent?.remove(gm);
     this.gardenMeshes = [];
     this.clearZoneMonuments();
@@ -1380,7 +1395,23 @@ export class ActShow {
       }
     }
 
-    // act-154: when Du Wu has perished at Xiapi White Gate, his SE hearth becomes a warm memorial tended by Sun Ao (zero extra airwalls!)
+    // Second Entrance: West-North Mountain Pass Gate (北出官道 · 封关铁链 / 解封引路灯)
+    {
+      const ne = HIDEOUT.northExit;
+      const nz = (ne.z0 + ne.z1) * 0.5;
+      const ng = buildNorthGateMesh(prog.northUnlocked);
+      ng.position.set(ne.x - 0.25, 0, nz);
+      this.stage.root.add(ng);
+      this.northGateMesh = ng;
+      const label = !prog.northUnlocked ? '北道封关' : isDuwuDead(p) ? '北道 · 破局' : '北道 · 寻踪';
+      const ns = makeSign(label, { w: 1.65, h: 0.62, post: 0.95 });
+      ns.position.set(ne.x + 1.05, 0, ne.z0 - 0.55);
+      ns.rotation.y = Math.PI * 0.36;
+      this.stage.root.add(ns);
+      this.northExitSign = ns;
+    }
+
+    // act-154 / dual-route: when Du Wu has perished in the North Poison Valley, his SE hearth becomes a warm memorial tended by Sun Ao
     if (isDuwuDead(p)) {
       const mem = buildDuwuMemorial();
       mem.position.set(HIDEOUT.people.duwu.x, 0, HIDEOUT.people.duwu.z);
@@ -1459,6 +1490,9 @@ export class ActShow {
     if (this.lanternMesh) { this.lanternMesh.parent?.remove(this.lanternMesh); this.lanternMesh = null; this.lanternTick = null; }
     if (this.decorMesh) { this.decorMesh.parent?.remove(this.decorMesh); this.decorMesh = null; this.decorTick = null; }
     if (this.trialSteleMesh) { this.trialSteleMesh.parent?.remove(this.trialSteleMesh); this.trialSteleMesh = null; }
+    if (this.northGateMesh) { this.northGateMesh.parent?.remove(this.northGateMesh); this.northGateMesh = null; }
+    if (this.northExitSign) { this.northExitSign.parent?.remove(this.northExitSign); this.northExitSign = null; }
+    if (this.northExitGlow) { this.northExitGlow.dispose(); this.northExitGlow = null; }
     for (const gm of this.gardenMeshes) gm.parent?.remove(gm);
     this.gardenMeshes = [];
     for (const ge of this.gardenExclaims) ge?.parent?.remove(ge);
@@ -1497,7 +1531,11 @@ export class ActShow {
       const emptyIdx = state.plots.findIndex((pl, i) => i < state.unlocked && !pl);
       if (emptyIdx >= 0) { const gp = HIDEOUT.gardenPlots[emptyIdx]; return { x: gp.x, z: gp.z + 0.8, isExit: false }; }
     }
-    if (!prof.meal) return { x: HIDEOUT.people.duwu.x, z: HIDEOUT.people.duwu.z, isExit: false };
+    if (!prof.meal && !isDuwuMissing(prof)) return { x: HIDEOUT.people.duwu.x, z: HIDEOUT.people.duwu.z, isExit: false };
+    if (prog.northUnlocked && isDuwuMissing(prof)) {
+      const ne = HIDEOUT.northExit;
+      return { x: ne.x + 0.4, z: (ne.z0 + ne.z1) * 0.5, isExit: true };
+    }
     return { x: ex, z: ez, isExit: true };
   }
   /** 3D voxel exclamation mark (!) above actionable NPCs & 复仇碑, clean speech bubble on idle approach, guiding wind toward active objective */
@@ -1753,6 +1791,13 @@ export class ActShow {
         title: '杜五的遗灶', sub: mealSub, action: !prof.meal ? '领干粮' : '查行囊',
         icon: 'herb', color: '#ffbe78', accent: '#d4964c', x: p.x, y: p.y, minY, visible: p.z < 1,
       });
+    } else if (near === 'north_gate_locked' && uiClear) {
+      const nz = (HIDEOUT.northExit.z0 + HIDEOUT.northExit.z1) * 0.5;
+      const p = worldToUi(V3(HIDEOUT.northExit.x + 0.3, 2.1, nz));
+      this.worldPlates.setInteract('ho.active', {
+        title: '北道封关 · 铁锁未开', sub: '西翼北出官道（第二入口）', action: '查看',
+        icon: 'door', color: '#c8b8a0', accent: '#a84434', x: p.x, y: p.y, minY, visible: p.z < 1,
+      });
     } else if (nn && uiClear) {
       const p = worldToUi(V3(nn.x, (nn.a.height ?? 1.8) + 1.18, nn.z));
       const bc = beaconOf(nn.id);
@@ -1791,8 +1836,27 @@ export class ActShow {
       pushTag('ho.exit', dExit, obj.isExit ? 2 : 1, (gp.z < 1 && (obj.isExit || dExit < 6.2))
         ? { text: '出发', icon: 'door', x: gp.x, y: gp.y, color: '#ffe898', accent: '#d8a64e', minY, visible: true }
         : null);
+      // Second Entrance (West-North Mountain Pass): glowing pass curtain + ambient world tag when unlocked
+      const nProg = hideoutProgress(prof, this.dbgAllWeapons);
+      if (nProg.northUnlocked && this.stage) {
+        const ne = HIDEOUT.northExit, nz = (ne.z0 + ne.z1) * 0.5;
+        if (!this.northExitGlow) {
+          this.northExitGlow = new GateGlow(this.stage.root, V3(ne.x - 0.05, 0, nz), 2.15, V3(1, 0, 0), { radius: 4.4, spillLen: 3.4, height: 2.35 });
+        }
+        this.northExitGlow.update(dt, 0.92);
+        const dNorth = Math.hypot(ne.x - h.pos.x, nz - h.pos.z);
+        const np = worldToUi(V3(ne.x, 2.45, nz));
+        const nTag = isDuwuDead(prof) ? '北出 · 破局' : '北出官道';
+        pushTag('ho.northExit', dNorth, 2, (np.z < 1 && dNorth < 10.5)
+          ? { text: nTag, icon: 'door', x: np.x, y: np.y, color: '#ffd98a', accent: '#d88844', minY, visible: true }
+          : null);
+      } else {
+        this.northExitGlow?.dispose(); this.northExitGlow = null;
+        pushTag('ho.northExit', 99, 0, null);
+      }
     } else {
       pushTag('ho.exit', 99, 0, null);
+      pushTag('ho.northExit', 99, 0, null);
     }
 
     // act-176: Apply ambient tag budget (Focus Suppression + Top-3 + Screen-space De-overlap)
@@ -1946,7 +2010,29 @@ export class ActShow {
     if (id === 'keepsakeBox') { await this.keepsakeMenu(); return; }
     if (id === 'lantern') { await this.lanternMenu(); return; }
     if (id === 'trialStele') { await this.trialSandboxMenu(); return; }
-    if (id === 'duwu' || id === 'duwu_memorial') { await this.mealMenu(); this.grantKeepsake('duwu'); return; }
+    if (id === 'north_gate_locked') {
+      await this.talk([
+        { who: 'act', text: '（粗重的黑铁锁链与官府封条拦死了通往北境官道的山径）' },
+        { who: 'jiangjin', text: '官军铁链锁死了通往北境官道的山径。先沿南门讨债前行，与杜五熟稔后，风声自会生变。' },
+      ]);
+      return;
+    }
+    if (id === 'duwu' || id === 'duwu_memorial') {
+      if (id === 'duwu' && !this.duwuBondedThisVisit) {
+        const p = profile();
+        const nextBond = DUWU_BONDS.findIndex((_, bi) => !p.seen[`duwu_bond_${bi + 1}`]);
+        if (nextBond >= 0 && DUWU_BONDS[nextBond]?.length) {
+          this.duwuBondedThisVisit = true;
+          seeOnce(`duwu_bond_${nextBond + 1}`);
+          p.bonds['duwu'] = (p.bonds['duwu'] ?? 0) + 1;
+          saveProfile();
+          await this.talk(DUWU_BONDS[nextBond]);
+        }
+      }
+      await this.mealMenu();
+      this.grantKeepsake('duwu');
+      return;
+    }
     if (id === 'luzhao') {
       await this.greetNpcOnce('luzhao', '文家三十柄刀散落五地，每夺回一柄，北台刀廊便多一分锋芒。');
       this.grantKeepsake('luzhao');
@@ -3054,6 +3140,7 @@ export class ActShow {
     return {
       v: 1,
       at: Date.now(),
+      route: this.route,
       region: this.region,
       room: this.room,
       locale: this.locale,
@@ -3127,6 +3214,7 @@ export class ActShow {
     this.forceShape = null; this.forceSeed = null; this.forceMap = null;
     this.hud.on = true;
     if (this.hero) this.hero.scriptPose = null;
+    this.route = saved.route === 'north' ? 'north' : 'south';
     this.region = saved.region; this.room = saved.room; this.locale = saved.locale; this.plan = saved.plan;
     this.perks = { moves: { ...saved.perks.moves }, owned: { ...saved.perks.owned } };
     this.coins = saved.coins; this.kills = saved.kills; this.eliteKills = saved.eliteKills;
@@ -3431,23 +3519,46 @@ export class ActShow {
         h.a.play(a);
         return { fromAngle, freezeK };
       },
-      /** act-154: preview Du Wu arc stage ('road1' | 'road2' | 'die' | 'memorial' | 'endingA' | 'endingC') */
-      duwuArc: (stage: 'road1' | 'road2' | 'die' | 'memorial' | 'endingA' | 'endingC' = 'die') => {
+      /** act-154 / dual-route: preview Du Wu 4-Act arc ('road1' | 'road2' | 'missing' | 'clue1' | 'clue2' | 'die' | 'memorial' | 'endingA' | 'endingC' | 'trueEnding') */
+      duwuArc: (stage: 'road1' | 'road2' | 'missing' | 'clue1' | 'clue2' | 'die' | 'memorial' | 'endingA' | 'endingC' | 'trueEnding' = 'die') => {
         const p = profile();
         if (stage === 'road1' || stage === 'road2') {
-          delete p.seen['duwu_dead']; delete p.seen['duwu_die'];
+          delete p.seen['duwu_dead']; delete p.seen['duwu_die']; delete p.seen['duwu_missing']; delete p.seen['duwu_die_north'];
           delete p.seen[stage === 'road1' ? 'duwu_road_1' : 'duwu_road_2'];
           saveProfile();
-          return this.jumpRegion(stage === 'road1' ? 0 : 1, 2, 'rest');
+          return this.jumpRegion(stage === 'road1' ? 0 : 1, 2, 'rest', 'south');
+        }
+        if (stage === 'missing') {
+          delete p.seen['duwu_dead']; delete p.seen['duwu_die']; delete p.seen['duwu_missing']; delete p.seen['north_unlocked'];
+          p.bestRegion = Math.max(p.bestRegion ?? 0, 2);
+          p.bonds['duwu'] = Math.max(p.bonds['duwu'] ?? 0, 2);
+          saveProfile();
+          if (this.phase === 'title') { stopTitle(); this.hud.on = true; }
+          void this.enterYard();
+          return { stage: 'missing' };
+        }
+        if (stage === 'clue1' || stage === 'clue2') {
+          p.seen['north_unlocked'] = 1; p.seen['duwu_missing'] = 1;
+          delete p.seen[stage === 'clue1' ? 'north_clue_1' : 'north_clue_2'];
+          saveProfile();
+          return this.jumpRegion(stage === 'clue1' ? 0 : 1, 2, 'rest', 'north');
         }
         if (stage === 'die') {
-          delete p.seen['duwu_dead']; delete p.seen['duwu_die']; delete p.seen['ch3_boss'];
+          p.seen['north_unlocked'] = 1; p.seen['duwu_missing'] = 1;
+          delete p.seen['duwu_dead']; delete p.seen['duwu_die']; delete p.seen['duwu_die_north']; delete p.seen['north_boss_2'];
           saveProfile();
-          const r = this.jumpRegion(2, REGIONS[2].rooms, 'boss');
+          const r = this.jumpRegion(1, NORTH_REGIONS[1].rooms, 'boss', 'north');
           if (this.plan && this.plan.waves.length > 1) this.plan.waves = [this.plan.waves[this.plan.waves.length - 1]];
           return r;
         }
-        p.seen['duwu_dead'] = 1; p.seen['duwu_die'] = 1;
+        if (stage === 'trueEnding') {
+          p.seen['duwu_dead'] = 1; p.seen['cuixuan_dead'] = 1; p.seen['north_win'] = 1;
+          saveProfile();
+          if (this.phase === 'title') { stopTitle(); this.hud.on = true; }
+          void this.playNorthEnding(true);
+          return { stage: 'trueEnding' };
+        }
+        p.seen['duwu_dead'] = 1; p.seen['duwu_die'] = 1; p.seen['duwu_die_north'] = 1; p.seen['north_unlocked'] = 1;
         if (stage === 'memorial') {
           delete p.seen['duwu_memorial_intro'];
           p.meal = undefined;
@@ -3460,6 +3571,28 @@ export class ActShow {
         saveProfile();
         void this.debugEnding(stage === 'endingA' ? 'a' : 'c');
         return { stage };
+      },
+      /** Dual-route preview: jump directly to North Route (ri = 0..3, room, type) */
+      northRoute: (ri = 0, room = 0, type: RoomType = 'fight') => {
+        const p = profile(); p.seen['north_unlocked'] = 1; saveProfile();
+        return this.jumpRegion(ri, room, type, 'north');
+      },
+      /** Dual-route preview: toggle & view Hideout West-North Second Entrance */
+      northGate: (unlocked = true) => {
+        const p = profile();
+        if (unlocked) { p.seen['north_unlocked'] = 1; p.seen['duwu_missing'] = 1; }
+        else { delete p.seen['north_unlocked']; delete p.seen['duwu_missing']; delete p.seen['duwu_dead']; }
+        saveProfile();
+        void (async () => {
+          if (this.phase === 'title') { stopTitle(); this.hud.on = true; }
+          if (this.room >= 0 || this.phase !== 'yard') await this.enterYard({ time: 'dusk', weather: 'clear' });
+          else this.refreshHideoutProps();
+          const ne = HIDEOUT.northExit, nz = (ne.z0 + ne.z1) * 0.5;
+          this.hero.pos.set(ne.x + 2.2, 0, nz);
+          this.hero.a.place(this.hero.pos, -Math.PI * 0.5);
+          this.cam.set(ne.x + 1.4, 0, nz);
+        })();
+        return { northUnlocked: unlocked };
       },
       /** act-137: preview Ch1–Ch4 boss first-kill kneel + execution slash staging (ri = 0..3) */
       bossAfter: (ri = 0, executeNow = false) => { void this.debugBossAfter(Math.max(0, Math.min(3, ri)), executeNow); },
@@ -3745,7 +3878,7 @@ export class ActShow {
     if (this.musicHold) return this.musicHold;
     const t = this.plan?.type ?? 'fight', ph = this.phase as string;
     // (11-18: a region's own fight / boss track, from the songs there are — REGIONS[…].music)
-    const rm = REGIONS[this.region]?.music;
+    const rm = regionsFor(this.route)[this.region]?.music;
     return ph === 'opening' || ph === 'title' ? 'bgm_opening' : this.room < 0 || ph === 'yard' ? 'bgm_yard' : this.prologue === 2 ? 'bgm_boss' : t === 'boss' ? rm?.boss ?? 'bgm_boss' : t === 'elite' ? 'bgm_elite' : t === 'shop' || t === 'rest' || t === 'boon' ? 'bgm_calm' : rm?.fight ?? 'bgm_battle';
   }
   layout2() {
@@ -4076,27 +4209,30 @@ export class ActShow {
       await this.enterYard();
     }
   }
-  jumpRegion(n: number, room = 0, type: RoomType = 'fight') {
+  jumpRegion(n: number, room = 0, type: RoomType = 'fight', route: RouteId = 'south') {
     if (this.phase === 'cine' || this.phase === 'talk' || this.phase === 'opening' || this.timeline.on || this.dialogue.on) return { why: '演出 / 对话还在放，放完再切' };
     if (this.phase === 'title') { stopTitle(); this.hud.on = true; }
     if (this.cards.on) void this.cards.close?.();
     this.prologue = 0; this.forceSpec = null; this.viewSpec = null; this.noArena = false;
-    this.startRun(false); const ri = Math.max(0, Math.min(REGIONS.length - 1, n)); this.region = ri; this.scaleFoes(ri);
-    const boss = type === 'boss' || room >= REGIONS[ri].rooms; room = boss ? REGIONS[ri].rooms : room;
-    this.plan = boss ? roomOf('boss', room, Math.random, ri) : room === 0 && type === 'fight' ? regionFirstRoom(ri, Math.random) : roomOf(type, room, Math.random, ri);
+    this.startRun(false, route);
+    const list = regionsFor(route);
+    const ri = Math.max(0, Math.min(list.length - 1, n)); this.region = ri; this.scaleFoes(ri);
+    const boss = type === 'boss' || room >= list[ri].rooms; room = boss ? list[ri].rooms : room;
+    this.plan = boss ? roomOf('boss', room, Math.random, ri, undefined, route) : room === 0 && type === 'fight' ? regionFirstRoom(ri, Math.random, route) : roomOf(type, room, Math.random, ri, undefined, route);
     this.locale = this.plan.locale; this.room = room; this.regionIn = ri > 0 && room === 0; this.buildRoom(false);
-    return { region: REGIONS[ri].id, room: this.room, locale: this.locale, waves: this.plan.waves };
+    return { route, region: list[ri].id, room: this.room, locale: this.locale, waves: this.plan.waves };
   }
-  startRun(build = true) {
+  startRun(build = true, route: RouteId = 'south') {
+    this.route = route;
     this.donningHat = false; this.departAnim = null; this.departZoom = 0; this.releaseCutCam(true);
     this.runEntrySave = null; this.currentShopSpecial = null; this.startManualDone = false; this.pendingResume = null;
     this.hud.on = true;
     if (this.hero) this.hero.scriptPose = null;
-    const fromYard = this.room < 0 && OPT.roomAhead;
+    const fromYard = this.room < 0 && OPT.roomAhead && route === 'south';
     this.maps = [];
     this.intent = 0; this.intentVal = 0; this.lastIntentAt = -9; this.poiseHealAt = -9; this.bloodHealAt = -9; this.roomDrinkHeal = 0; this.shadowEchoAt = -9; this.hud.intent = 0;
     this.perks = newPerks(); this.room = 0; this.kills = 0; this.recent = []; this.demo.stop(); this.syncMarks();
-    this.plan = (build && fromYard ? this.ahead[0]?.plan : null) ?? firstRoom(Math.random); this.visited = []; this.coins = 0; this.locale = this.plan.locale;
+    this.plan = (build && fromYard ? this.ahead[0]?.plan : null) ?? firstRoom(Math.random, route); this.visited = []; this.coins = 0; this.locale = this.plan.locale;
     // 11-18 一局五关: the first region; the TUNE values the regions scale from (the tune panel's, as the run starts)
     this.region = 0; this.bosses = 0; this.regionIn = false; this.baseFoe = { hp: TUNE.enemyHp, dmg: TUNE.enemyDmg, aggression: 0.95, calm: TUNE.atkCalm, attackers: TUNE.maxAttackers };
     // act-20 / act-118: the hideout's upgrades & 碑铭潜能 (meta.ts) for this run
@@ -4156,11 +4292,12 @@ export class ActShow {
   private queueAhead(yard: boolean) {
     this.dropAhead();
     if (!OPT.roomAhead || this.prologue || this.viewSpec || this.forceShape || this.forceMap || this.forceSpec || this.noArena) return;
-    for (const plan of yard ? [firstRoom(Math.random)] : this.nextRooms) {
+    const rt: RouteId = yard ? 'south' : this.route;
+    for (const plan of yard ? [firstRoom(Math.random, 'south')] : this.nextRooms) {
       const region = yard ? 0 : plan.region ?? this.region;
       const first = yard || region !== this.region, room = first ? 0 : this.room + 1;
-      const next = onward(room, [...(first ? [] : this.visited), plan.type], region, this.runCtx());
-      const steps = prepRoomSteps({ isYard: false, locale: plan.locale, plan, room, region, regionSpec: REGIONS[region].spec,
+      const next = onward(room, [...(first ? [] : this.visited), plan.type], region, this.runCtx(), rt);
+      const steps = prepRoomSteps({ isYard: false, locale: plan.locale, plan, room, region, route: rt, regionSpec: regionsFor(rt)[region]?.spec,
         recent: yard ? [] : this.recent.slice(), shapes: yard ? [] : this.shapes.slice(), maps: yard ? [] : this.maps.slice(),
         seed: Date.now() % 100000 + room * 977, nextRooms: next, noArena: false, forceSpec: null, viewSpec: null }, true);
       this.ahead.push({ plan, region, room, next, steps });
@@ -4207,7 +4344,12 @@ export class ActShow {
     this.duel?.newRoom(); for (const f of this.foes) { dropTeles(f); f.a.dispose(); } this.foes.length = 0; for (const q of this.falling) q.f.a.dispose(); this.falling.length = 0; for (const d of this.drops) d.f.a.dispose(); this.drops.length = 0; for (const a of this.arrows) a.kill(); this.arrows.length = 0; for (const w of this.waves) w.kill(); this.waves = []; for (const d of this.darts) d.kill(); this.darts = []; this.entering.length = 0; this.clearBossDrops(); this.clearFleeing(); this.foeWorld.foes = this.foes; this.foeWorld.arrows = this.arrows; this.bossDefeated = false; this.poolBossRoom = false; this.kneelingBoss = null; this.waveQueue = []; this.wavePending = 0; this.waveGen++; this.bossIntroActive = false;
     this.gates?.dispose(); this.gates = null; this.pieces?.dispose(); this.pieces = null; this.leaves?.dispose(); this.leaves = null; this.clearNpcs(); this.clearRoadActors();
     for (const d of this.doors) d.g.parent?.remove(d.g); this.doors = []; this.stations?.dispose(); this.stations = null; this.coinsFx.clear();
-    this.yard?.dispose(); this.yard = null; this.exitSign?.parent?.remove(this.exitSign); this.exitSign = null; this.barks?.clear();
+    this.yard?.dispose(); this.yard = null;
+    this.exitSign?.parent?.remove(this.exitSign); this.exitSign = null;
+    this.northGateMesh?.parent?.remove(this.northGateMesh); this.northGateMesh = null;
+    this.northExitSign?.parent?.remove(this.northExitSign); this.northExitSign = null;
+    this.northExitGlow?.dispose(); this.northExitGlow = null;
+    this.barks?.clear();
     // act-161: her max health carries from room to room like her health does (it was reset to the run's start here, so a +12 door, a chest, the wine were one small heal)
     const res = this.pendingResume; this.pendingResume = null;
     const hp = res ? res.hp : (first || !this.hero ? TUNE.heroHp : this.hero.hp);
@@ -4220,20 +4362,20 @@ export class ActShow {
     const job = !res && OPT.roomAhead && !this.viewSpec && !this.forceSpec && !this.forceShape && !this.forceMap && !this.noArena
       && (!__WX__ || bladeWorking()) ? this.ahead.find(j => j.plan === this.plan && j.region === this.region && j.room === this.room) : undefined;
     this.dropAhead(job);
-    if (!res && !isYard && !this.prologue && this.plan?.type === 'boss' && isBossRoom(this.region, this.room)) {
+    if (!res && !isYard && !this.prologue && this.route === 'south' && this.plan?.type === 'boss' && isBossRoom(this.region, this.room, this.route)) {
       const resolved = resolveBossRoomWaves(this.plan.waves, this.region, profile().seen, this.usedPoolBosses);
       if (resolved.replaced) {
         this.plan = { ...this.plan, waves: resolved.waves };
         this.poolBossRoom = true;
       }
     }
-    this.nextRooms = (res && res.nextRooms.length ? res.nextRooms : null) ?? job?.next ?? (!isYard && this.plan && !this.viewSpec ? onward(this.room, this.visited, this.region, this.runCtx()) : []);
+    this.nextRooms = (res && res.nextRooms.length ? res.nextRooms : null) ?? job?.next ?? (!isYard && this.plan && !this.viewSpec ? onward(this.room, this.visited, this.region, this.runCtx(), this.route) : []);
     if (this.prologue === 1 && !this.viewSpec) this.nextRooms = [PRO_BOSS]; else if (this.prologue === 2) this.nextRooms = [];   // act-29
     // act-34: the place itself — built ahead of time when it can be (the title builds a new game's first room while it loads), else now
     // (11-18: a region's own look — 下邳 is always winter — unless the prologue or a view asks otherwise)
-    const rspec = !isYard && !this.prologue ? REGIONS[this.region]?.spec ?? null : null;
+    const rspec = !isYard && !this.prologue ? regionsFor(this.route)[this.region]?.spec ?? null : null;
     const proPack = !isYard && !this.viewSpec ? (this.prologue === 1 ? 'pro-village' : this.prologue === 2 ? 'pro-boss' : undefined) : undefined;
-    const want: RoomIn = { isYard, room: this.room, recent: this.recent, locale: this.locale, plan: this.plan, nextRooms: this.nextRooms, viewSpec: this.viewSpec, forceSpec: this.forceSpec, noArena: this.noArena, shape: this.forceShape, shapes: this.shapes, seed: res?.roomSeed ?? this.forceSeed, map: res?.mapId ?? this.forceMap, maps: this.maps, region: this.prologue ? undefined : this.region, regionSpec: rspec, yardAtmo: isYard ? this.yardAtmo : undefined, pack: proPack };
+    const want: RoomIn = { isYard, room: this.room, recent: this.recent, locale: this.locale, plan: this.plan, nextRooms: this.nextRooms, viewSpec: this.viewSpec, forceSpec: this.forceSpec, noArena: this.noArena, shape: this.forceShape, shapes: this.shapes, seed: res?.roomSeed ?? this.forceSeed, map: res?.mapId ?? this.forceMap, maps: this.maps, region: this.prologue ? undefined : this.region, route: this.route, regionSpec: rspec, yardAtmo: isYard ? this.yardAtmo : undefined, pack: proPack };
     const ready = this.pre && !isYard && !this.viewSpec && this.prologue === 1 && this.room === 0 && this.pre.locale === this.locale ? this.pre : null;
     if (this.pre && this.pre !== ready) this.pre.prep.drop();
     this.pre = null;
@@ -4392,12 +4534,12 @@ export class ActShow {
       : dev === 'pad' ? msg`左摇杆 走 · ${actPad('attack')} 斩（按住蓄力）· ${actPad('jump')} 跳 · ${actPad('dash')} 冲刺 · ${actPad('special')} 飞镖`
       : msg`WASD 走 · ${actKey('attack')} 斩（按住蓄力）· ${actKey('jump')} 跳 · ${actKey('dash')} 冲刺 · ${actKey('special')} 飞镖`) : '';
     this.hinted = true; void hint;   // (11-19 新手引导: the controls are taught in the prologue's fights, not in a banner)
-    const info = roomInfo(this.plan?.type ?? 'fight', this.region);
-    // 11-18 一局五关: walking into a later region's first room, its name and line first (2.6 s), then the room's own banner
+    const info = roomInfo(this.plan?.type ?? 'fight', this.region, this.route);
+    // 11-18 一局五关 / 双线: walking into a later region's first room (or North Route Act 1!), show its region banner first
     if (res) {
       this.banner.show('续战', runSaveLabel(res), 1.8, '#ffe2a8');
-    } else if (!this.prologue && (this.regionIn || (language === 'en' && this.region === 0 && this.room === 0))) {
-      this.regionIn = false; const rb = regionBanner(this.region);
+    } else if (!this.prologue && (this.regionIn || (this.route === 'north' && this.region === 0 && this.room === 0) || (language === 'en' && this.region === 0 && this.room === 0))) {
+      this.regionIn = false; const rb = regionBanner(this.region, this.route);
       this.banner.show(rb.title, rb.sub, 2.6, '#ffe2b0');   // (act-50 用户：「获胜的时候会放一个短乐段，我不想要那个声音」: the old jingle is gone everywhere)
       after(2.7, () => { if (this.phase === 'intro' || this.phase === 'fight') this.banner.show(msg`第一间 · ${info.name}`, '', 1.4); });
     } else if (!this.prologue) this.banner.show(msg`第 ${language === 'en' ? this.room + 1 : '一二三四五六七八'[this.room] ?? this.room + 1} 间 · ${info.name}`, '', 1.6);   // (11-19 用户：「每次进房间横幅上都有个很小的字，看得眼睛疼」: the title only)
@@ -4424,10 +4566,17 @@ export class ActShow {
       else if (this.plan.type === 'rest') {
         this.currentShopSpecial = null;
         this.stations.rest();
-        // act-154: Du Wu roadside campfire companionship in Acts 1 & 2 (once each, before he perishes in Act 3)
-        const rKey = this.region === 0 ? 'duwu_road_1' : this.region === 1 ? 'duwu_road_2' : '';
-        if (rKey && !isDuwuDead(profile()) && !profile().seen[rKey]) {
-          this.mountDuwuRoad(this.region as 0 | 1);
+        if (this.route === 'north') {
+          const cKey = this.region === 0 ? 'north_clue_1' : this.region === 1 ? 'north_clue_2' : '';
+          if (cKey && !profile().seen[cKey]) {
+            this.mountNorthTrailClue(this.region as 0 | 1);
+          }
+        } else {
+          // South Route Acts 1 & 2: Du Wu roadside campfire companionship (while he is still alive and at the kiln!)
+          const rKey = this.region === 0 ? 'duwu_road_1' : this.region === 1 ? 'duwu_road_2' : '';
+          if (rKey && !isDuwuAbsent(profile()) && !profile().seen[rKey]) {
+            this.mountDuwuRoad(this.region as 0 | 1);
+          }
         }
       }
       else { this.currentShopSpecial = null; this.stations.scroll(this.scrollGives() === 'up'); }
@@ -4707,7 +4856,108 @@ export class ActShow {
       rd.talking = false;
     }
   }
-  /** act-114 据点归来统一事件队列（断碑划名过场优先，其次杜五遗灶移交，再次战败安慰对白，绝不并发冲突） */
+  /** North Route Acts 1 & 2 trail-clue rest scene (Act III of Du Wu's arc: shattered 600-coin jar -> torn cotton sleeve + charcoal arrow) */
+  private mountNorthTrailClue(ri: 0 | 1) {
+    if (!this.stage) return;
+    const c = this.arena?.shape?.fixed?.stations ?? [0, 0];
+    // Place in the open foreground courtyard well south of the 3 rest-station signposts so no sign ever obstructs the close-up shot!
+    const cp = V3(c[0] - 3.1, 0, c[1] + 2.5);
+    this.clamp(cp, 0.6);
+    const prop = ri === 0 ? buildBrokenJarProp() : buildTornSleeveProp();
+    prop.position.copy(cp);
+    this.stage.root.add(prop);
+    this.roadExtras.push(prop);
+    const cKey = ri === 0 ? 'north_clue_1' : 'north_clue_2';
+    const lines = ri === 0 ? NORTH_CLUE_1 : NORTH_CLUE_2;
+    warmLines(lines, 5);
+    const h = this.hero;
+    let played = false;
+    const tryPlay = (tries: number) => {
+      after(tries === 0 ? 0.9 : 0.35, () => {
+        if (played || this.hero !== h || this.phase !== 'doors' || this.inCombat()) return;
+        if (bladeBusy() || this.isUiModalOpen()) { if (tries < 14) tryPlay(tries + 1); return; }
+        played = true;
+        void (async () => {
+          this.musicHold = 'bgm_fall'; void audio.playMusic('bgm_fall', 1.1);
+          this.cutCam([cp.x + 2.35, 2.1, cp.z + 2.9], [cp.x, 0.45, cp.z], 35, { drift: [-0.18, -0.04, -0.2], fovDrift: -1.0 });
+          await this.talk(lines);
+          this.releaseCutCam();
+          this.musicHold = null;
+          void audio.playMusic(this.musicName(), 1.5);
+          seeOnce(cKey); saveProfile();
+          if (ri === 0) {
+            this.banner.show('荒驿寻踪', '线索指向北边 · 毒雾药坞', 2.4, '#ffd27a');
+          } else {
+            this.addIntent(1, true);
+            this.banner.show('破袖余温', '杀气 +1 · 丹炉高台就在前方', 2.4, '#ff9878');
+          }
+        })();
+      });
+    };
+    tryPlay(0);
+  }
+  /** Act II Hideout Inciting Event: half-cold hearth, empty donkey cart with charcoal arrow, Liu Bai snaps west iron chains to open the Second Entrance! */
+  private async playDuwuMissingEvent(force = false) {
+    const p = profile();
+    if (!force && (p.seen['north_unlocked'] || isDuwuDead(p))) return;
+    if (this.phase !== 'yard' || !this.hero) return;
+    this.noTalk = true;
+    // Remove Du Wu from the yard IMMEDIATELY so the hearth & donkey cart are genuinely empty during "灶冷空车"!
+    const dwPreIdx = this.npcs.findIndex(n => n.id === 'duwu');
+    if (dwPreIdx >= 0) {
+      const dw = this.npcs[dwPreIdx];
+      dw.a.dispose(); dw.sh.parent?.remove(dw.sh);
+      this.npcs.splice(dwPreIdx, 1);
+    }
+    this.musicHold = 'bgm_fall'; void audio.playMusic('bgm_fall', 1.0);
+    // Focus on empty southeast hearth & cart; place Liu Bai kneeling/standing by the cart
+    const hOrig = this.hero.pos.clone();
+    this.hero.pos.set(8.6, 0, 8.9);
+    this.hero.a.place(this.hero.pos, Math.atan2(10.2 - 8.6, 7.6 - 8.9));
+    const sa = this.npcs.find(n => n.id === 'sunao');
+    const saOrig = sa ? { x: sa.x, z: sa.z, yaw: sa.yaw } : null;
+    if (sa) {
+      sa.x = 7.1; sa.z = 7.4; sa.yaw = Math.atan2(8.6 - sa.x, 8.9 - sa.z);
+      sa.a.place(V3(sa.x, 0, sa.z), sa.yaw); sa.sh.position.set(sa.x, 0.025, sa.z);
+    }
+    this.cutCam([5.2, 3.2, 11.8], [8.5, 0.9, 8.1], 37, { drift: [0.22, -0.04, -0.24], fovDrift: -1.0 });
+    await new Promise(r => after(0.55, () => r(null)));
+    await this.talk(DUWU_MISSING, (idx) => {
+      if (idx === 5) {
+        // Hard cut to West-North Gate as Liu Bai slices the iron chain open!
+        const ne = HIDEOUT.northExit, nz = (ne.z0 + ne.z1) * 0.5;
+        this.hero.pos.set(ne.x + 1.45, 0, nz + 0.12);
+        this.hero.a.place(this.hero.pos, -Math.PI * 0.5);
+        this.cutCam([ne.x + 4.8, 2.75, nz + 3.5], [ne.x + 0.35, 1.15, nz], 36, { drift: [-0.24, -0.03, -0.18], fovDrift: -1.2 });
+        cue('cutHeavy', 0.95); cue('bladeRing', 0.85); shake(0.24);
+        fxSparks(V3(ne.x - 0.1, 1.1, nz), 0xffe49c, 22, 5.2);
+        fxRing(V3(ne.x + 0.2, 1.0, nz), 0xffe090, 1.9, { life: 0.45, width: 0.08 });
+        seeOnce('duwu_missing'); seeOnce('north_unlocked'); saveProfile();
+        this.refreshHideoutProps();
+      }
+    });
+    seeOnce('duwu_missing'); seeOnce('north_unlocked'); saveProfile();
+    this.releaseCutCam();
+    // Keep Liu Bai facing the newly unsealed West-North Gate (or restore if somehow invalid)
+    if (!this.northGateMesh) { this.hero.pos.copy(hOrig); this.hero.a.place(hOrig, 0); }
+    if (sa && saOrig) {
+      sa.x = saOrig.x; sa.z = saOrig.z; sa.yaw = saOrig.yaw;
+      sa.a.place(V3(sa.x, 0, sa.z), sa.yaw); sa.sh.position.set(sa.x, 0.025, sa.z);
+    }
+    // Remove Du Wu NPC from the yard now that he is missing on the North Road
+    const dwIdx = this.npcs.findIndex(n => n.id === 'duwu');
+    if (dwIdx >= 0) {
+      const dw = this.npcs[dwIdx];
+      dw.a.dispose(); dw.sh.parent?.remove(dw.sh);
+      this.npcs.splice(dwIdx, 1);
+    }
+    this.refreshHideoutProps();
+    this.musicHold = null; void audio.playMusic('bgm_yard', 1.6);
+    this.noTalk = false;
+    cue('reveal', 0.9);
+    this.banner.show('北出官道 · 已解封', '走西翼石道追查杜五下落与百辟刀黑幕', 3.2, '#ffe280');
+  }
+  /** act-114 据点归来统一事件队列（断碑划名优先 -> 北道解封「灶冷空车」 -> 杜五遗灶移交 -> 战败安慰对白） */
   private async hideoutArrive(cut: number, down: number) {
     if (this.phase !== 'yard' || this.inCombat() || this.isUiModalOpen() || this.donningHat || this.departAnim || bladeBusy() || this.prologue) return;
     const st = this.stele, h = this.hero, prof = profile();
@@ -4725,7 +4975,18 @@ export class ActShow {
       if (this.hero === h && this.phase === 'yard' && !this.inCombat()) {
         await this.talk([{ who: 'jiangjin', text: STELE_TALK.strike[down - 1] ?? STELE_TALK.strike[0] }]);
       }
-      if (!isDuwuDead(prof) || prof.seen['duwu_memorial_intro']) return;
+      if (!isDuwuDead(prof) || prof.seen['duwu_memorial_intro']) {
+        if (isNorthReady(prof) && !prof.seen['north_unlocked'] && !isDuwuDead(prof)) {
+          await this.playDuwuMissingEvent();
+        }
+        return;
+      }
+    }
+    // Act II Inciting Event: once South progress & Du Wu bond are ready, trigger "Empty Donkey Cart" & unseal West-North Gate!
+    if (isNorthReady(prof) && !prof.seen['north_unlocked'] && !isDuwuDead(prof) && this.hero === h && this.phase === 'yard' && !this.inCombat()) {
+      this.pendingDeathTalk = false;
+      await this.playDuwuMissingEvent();
+      return;
     }
     // act-154: First kiln return after Du Wu dies at Xiapi — Sun Ao gently hands over his SE ration hearth
     if (isDuwuDead(prof) && !prof.seen['duwu_memorial_intro'] && this.hero === h && this.phase === 'yard' && !this.inCombat()) {
@@ -4780,6 +5041,7 @@ export class ActShow {
     await this.talk([{ who: 'jiangjin', text: STELE_TALK.strike[n] ?? STELE_TALK.strike[0] }]);
   }
   private *openYard() {
+    this.duwuBondedThisVisit = false;
     this.phase = 'yard'; this.wave = 0;
     // act-20: the hideout's 试剑坪 — four slabs call sparring partners, three dummies; no costume rack (her look is in 设置)
     const pk: Array<[EKind, string]> = [['hj_blade', '刀手'], ['hj_brute', '力士'], ['hj_archer', '弓手'], ['hj_boss', '渠帅']];
@@ -4798,7 +5060,8 @@ export class ActShow {
     // the stele of names: a cut down each name she has killed; unified hideout arrival queue handles fresh cuts & defeat talks cleanly
     { const p = profile(), down = bossesDown(p.seen), cut = struckOnStele(p.seen);
       this.stele = new Stele(cut); this.stele.g.position.set(HIDEOUT.stele.x, 0, HIDEOUT.stele.z); this.stele.g.rotation.y = HIDEOUT.stele.yaw; this.stage!.root.add(this.stele.g);
-      if (cut < down || this.pendingDeathTalk || (isDuwuDead(p) && !p.seen['duwu_memorial_intro'])) after(0.85, () => { void this.hideoutArrive(cut, down); }); }
+      const needNorthUnlock = isNorthReady(p) && !p.seen['north_unlocked'] && !isDuwuDead(p);
+      if (cut < down || needNorthUnlock || this.pendingDeathTalk || (isDuwuDead(p) && !p.seen['duwu_memorial_intro'])) after(0.85, () => { void this.hideoutArrive(cut, down); }); }
     // act-37: the rack of thirty blades — one hangs for each taken back (a boss each; ending C hangs them all)
     { const p = profile(); this.stage!.root.add(rackBlades(p.seen['ending_c'] ? 30 : bossesDown(p.seen))); }
     // the way out: outer departure mountain road past the front gate, sign standing beside the far-end stone pier
@@ -5004,9 +5267,11 @@ export class ActShow {
     if (bossIdx >= 0) {
       const bk = kindOr(kinds[bossIdx]).kind;
       const bi = BOSS_ORDER.indexOf(bk);
+      const nbi = (NORTH_BOSS_ORDER as readonly string[]).indexOf(bk);
       const willIntro = this.prologue === 2
         || (bi >= 0 && CH_BEFORE[bi].length > 0 && !profile().seen[`ch${bi + 1}_boss`])
-        || (bi === 2 && !isDuwuDead(profile()) && !profile().seen['duwu_die']);
+        || (nbi >= 0 && NORTH_BEFORE[nbi]?.length > 0 && !profile().seen[`north_boss_${nbi + 1}`])
+        || (nbi === 1 && !isDuwuDead(profile()) && !profile().seen['duwu_die_north']);
       const rest = kinds.filter((_, idx) => idx !== bossIdx);
       const spawnEscorts = () => {
         if (gen !== this.waveGen || this.bossDefeated) return;
@@ -5602,16 +5867,22 @@ export class ActShow {
       return true;
     }
     const i = BOSS_ORDER.indexOf(f.kind);
-    const doDuwuDie = i === 2 && !isDuwuDead(profile()) && !profile().seen['duwu_die'];
+    const nbi = (NORTH_BOSS_ORDER as readonly string[]).indexOf(f.kind);
+    // Rebuilt 4-Act Du Wu Arc: NEVER kill Du Wu abruptly in South Act 3 (Xiapi); his true climax happens in North Act 2 (Poison Mist Apothecary · nr2_boss) with dedicated 3-stage soundstage!
+    const doDuwuDie = nbi === 1 && !isDuwuDead(profile()) && !profile().seen['duwu_die_north'];
     const chSeen = i >= 0 && CH_BEFORE[i].length > 0 && seeOnce(`ch${i + 1}_boss`);
-    if (i < 0 || (!chSeen && !doDuwuDie)) return false;
+    const northSeen = nbi >= 0 && NORTH_BEFORE[nbi]?.length > 0 && seeOnce(`north_boss_${nbi + 1}`);
+    if ((i < 0 && nbi < 0) || (!chSeen && !northSeen && !doDuwuDie)) return false;
     saveProfile();
     this.bossIntroActive = true;
     void (async () => {
       try {
         if ((f.st as string) === 'dead') return;
         if (doDuwuDie && this.stage) {
-          // act-154: Du Wu poisoned & tossed into snow dregs by Feng Han before the Act 3 White Gate boss duel
+          // Stage 1 — Discovery Soundstage: cut battle music IMMEDIATELY to howling winter wind silence!
+          this.musicHold = null;
+          audio.stopMusic(0.55);
+          cue('snowWind', 0.85);
           const rx = Math.max(PLAY.x0 + 2.4, Math.min(PLAY.x1 - 2.4, -3.2));
           const rz = Math.max(PLAY.z0 + 2.4, Math.min(PLAY.z1 - 2.8, 0.8));
           const dPos = this.grid ? V3(...this.grid.nearestFloor(rx, rz)) : V3(rx, 0, rz);
@@ -5644,7 +5915,7 @@ export class ActShow {
           this.roadShadows.push(dsh);
           this.roadExtras.push(dregs);
 
-          warmLines(DUWU_DIE, 4);
+          warmLines(DUWU_DIE_NORTH, 5);
           await this.cine(duwuDieShots(this.cineHost, duwu, donkey, f, dPos));
           let dieT = 0, deadPose = false, kneelWant = 0, kneelBlend = 0, hiltReady = false;
           let bread: THREE.Group | null = null, breadT = 0;
@@ -5669,21 +5940,25 @@ export class ActShow {
               bread.rotation.set(ease * 3.2, ease * 1.4, ease * 2.1);
             }
           };
-          await this.talk(DUWU_DIE, (idx) => {
+          await this.talk(DUWU_DIE_NORTH, (idx) => {
             if (idx === 1) {
-              // Cold reverse hard-cut on Feng Han standing aloof across the snow
+              // Cold reverse hard-cut on Yin Du standing aloof across the snow (still dead wind silence)
               this.cutCam([f.pos.x + 2.8, 2.55, f.pos.z + 3.8], [f.pos.x, 1.12, f.pos.z], 34, { drift: [-0.20, -0.04, -0.24], fovDrift: -1.2 });
             }
             if (idx === 2) {
-              // Beat: "刘白脚步猛地一顿，扑进雪堆，一把摸到他冰冷僵硬的粗布袖子" -> intimate low two-shot kneeling beside Du Wu!
+              // Stage 2 — Dying Farewell Soundstage: heartbreaking weeping solo pipa/guqin elegy enters as Liu Bai drops beside him!
+              this.musicHold = 'bgm_afterkill';
+              void audio.playMusic('bgm_afterkill', 0.9);
               kneelWant = 1;
               cue('land', 0.38);
               fxSmoke(this.hero.pos.clone().setY(0.12), 0xe8eef8, 6, { r: 0.45, spd: 0.8, up: 0.35, s: 0.32, life: 0.55, alpha: 0.6 });
               this.cutCam([dPos.x + 2.75, 2.35, dPos.z + 3.45], [dPos.x + 0.35, 0.52, dPos.z + 0.12], 34, { drift: [-0.18, -0.04, -0.22], fovDrift: -1.4 });
             }
             if (idx >= 6 && !deadPose) {
-              // Beat: "他攥着里衣的手松开了，半块粗布裹着的温热胡饼滚落进雪里" -> flatbread rolls onto snow!
+              // Stage 3A — Fingers slip open, warm flatbread rolls into snow -> abrupt icy silence!
               deadPose = true; cue('bodyFall', 0.55);
+              this.musicHold = null;
+              audio.stopMusic(0.28);
               if (this.stage) {
                 bread = buildFlatbreadProp();
                 bread.position.copy(breadStart);
@@ -5692,35 +5967,39 @@ export class ActShow {
               }
             }
             if (idx === 7) {
-              // Cold sneer hard-cut back to Feng Han ("啧，可惜了半副好药引...")
+              // Cold sneer hard-cut back to Yin Du in dead silence ("啧，可惜了半副好药引...")
               this.cutCam([f.pos.x - 2.6, 2.45, f.pos.z + 3.6], [f.pos.x, 1.15, f.pos.z], 33, { drift: [0.20, -0.04, -0.22], fovDrift: -1.2 });
             }
             if (idx >= 8 && !hiltReady) {
-              // Beat: "刘白慢慢松开怀里渐冷的身子，起身，缓缓按上刀柄" -> rises & locks onto Feng Han from heroic low angle!
+              // Stage 3B — Liu Bai rises slowly, grips hilt -> blade chime -> vengeance boss battle music erupts!
               kneelWant = 0; hiltReady = true;
               this.hero.a.yaw = Math.atan2(f.pos.x - this.hero.pos.x, f.pos.z - this.hero.pos.z);
-              cue('draw', 0.78);
+              cue('draw', 0.78); cue('bladeRing', 0.72);
               fxRing(this.hero.pos.clone().setY(0.06), 0xffe4a0, 2.2, { life: 0.75, width: 0.08, bright: 1.5 } as never);
               const hp = this.hero.pos;
               const dx = f.pos.x - hp.x, dz = f.pos.z - hp.z, l = Math.hypot(dx, dz) || 1;
               this.cutCam([hp.x - (dx / l) * 2.8 + 1.4, 2.35, hp.z - (dz / l) * 2.8 + 1.2], [f.pos.x, 1.05, f.pos.z], 35, { drift: [(dx / l) * 0.25, -0.04, (dz / l) * 0.25], fovDrift: -1.4 });
+              void audio.playMusic('bgm_boss', 0.55);
             }
           });
           this.hero.scriptPose = null; this.talkTick = null; this.releaseCutCam();
+          this.musicHold = null;
           // Freeze Du Wu completely still on the snow edge during the revenge duel; donkey flees offstage
           duwuPoisonPose(duwu, 99, true);
           this.roadStill.add(duwu);
           donkey.dispose(); ash.parent?.remove(ash);
-          // Persist death immediately (even if player loses to Feng Han, Du Wu stays dead and memorial handover activates!)
-          const p = profile(); p.seen['duwu_die'] = 1; p.seen['duwu_dead'] = 1; saveProfile();
+          const p = profile(); p.seen['duwu_die_north'] = 1; p.seen['duwu_die'] = 1; p.seen['duwu_dead'] = 1; p.seen['north_boss_2'] = 1; saveProfile();
           if ((f.st as string) === 'dead') return;
-          if (CH_BEFORE[i].length) await this.playBossBeforeTalk(f, i);
-          if ((f.st as string) === 'dead') return;
+          // Jump straight from Liu Bai's icy vow into the vengeance duel (no jarring generic pre-fight banter!)
           this.bossEnterPose(f);
         } else {
           await this.cine(bossIntroShots(this.cineHost, f, name, { prologue: false }));
           if ((f.st as string) === 'dead') return;
-          await this.playBossBeforeTalk(f, i);
+          if (nbi >= 0 && NORTH_BEFORE[nbi]?.length) {
+            await this.talk(NORTH_BEFORE[nbi]);
+          } else if (i >= 0) {
+            await this.playBossBeforeTalk(f, i);
+          }
           if ((f.st as string) === 'dead') return;
           this.bossEnterPose(f);
         }
@@ -7751,27 +8030,42 @@ export class ActShow {
     }
     // 11-18 一局五关: a region's boss fell — region one's after-talk (褚雷) the first time; then the run is won (the last region) or the
     // road opens into the next region (a boon first, as any cleared fight)
-    if (this.plan?.type === 'boss' && isBossRoom(this.region, this.room)) {
+    if (this.plan?.type === 'boss' && isBossRoom(this.region, this.room, this.route)) {
       this.bosses++;
-      // (11-19 / act-114 / act-131 / act-137: canonical first-kill story boss kneels on-field with blade at throat until executed on cue in CH_AFTER!)
-      const ai = this.region, last = ai === BOSS_AFTER.length - 1;
-      if (!this.poolBossRoom && CH_AFTER[ai]?.length && (last || seeOnce(BOSS_AFTER[ai]))) {
-        this.musicHold = 'bgm_afterkill'; void audio.playMusic('bgm_afterkill', 1.0);
-        if (last) {
-          this.kneelingBoss = null;
-          const ch5Cut = this.stageCh5ThroatScene();
-          await this.talk(CH_AFTER[ai], (_idx, l) => ch5Cut(l)); saveProfile();
-          await this.ending(); return;
+      if (this.route === 'north') {
+        const ai = this.region, last = afterBoss(ai, 'north') === 'won';
+        if (NORTH_AFTER[ai]?.length && (last || seeOnce(`north_after_${ai + 1}`))) {
+          this.musicHold = 'bgm_afterkill'; void audio.playMusic('bgm_afterkill', 1.0);
+          await this.talk(NORTH_AFTER[ai]);
+          saveProfile();
+          this.musicHold = null;
         }
-        const exec = this.stageBossAfterScene(ai);
-        await this.talk(CH_AFTER[ai], (idx, l) => {
-          exec.onLine(idx, l);
-        });
-        exec.cleanup();
-        saveProfile();
-        this.musicHold = null;
+        if (last) {
+          const p = profile(); p.seen['north_win'] = 1; saveProfile();
+          await this.playNorthEnding();
+          return;
+        }
+      } else {
+        // (11-19 / act-114 / act-131 / act-137: canonical first-kill story boss kneels on-field with blade at throat until executed on cue in CH_AFTER!)
+        const ai = this.region, last = ai === BOSS_AFTER.length - 1;
+        if (!this.poolBossRoom && CH_AFTER[ai]?.length && (last || seeOnce(BOSS_AFTER[ai]))) {
+          this.musicHold = 'bgm_afterkill'; void audio.playMusic('bgm_afterkill', 1.0);
+          if (last) {
+            this.kneelingBoss = null;
+            const ch5Cut = this.stageCh5ThroatScene();
+            await this.talk(CH_AFTER[ai], (_idx, l) => ch5Cut(l)); saveProfile();
+            await this.ending(); return;
+          }
+          const exec = this.stageBossAfterScene(ai);
+          await this.talk(CH_AFTER[ai], (idx, l) => {
+            exec.onLine(idx, l);
+          });
+          exec.cleanup();
+          saveProfile();
+          this.musicHold = null;
+        }
+        if (afterBoss(this.region, this.route) === 'won') { this.end(true); return; }
       }
-      if (afterBoss(this.region) === 'won') { this.end(true); return; }
       // 11-28: boss clear heals 30%; R1 boss grants Manual #1, R3 boss grants a boon, R2 & R4 grant a stat upgrade
       { const was = this.hero.hp; this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + Math.round(this.hero.maxHp * 0.30)); this.healFeed(was); this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp }); }
       if (this.region === 0) await this.manualPick();
@@ -8131,7 +8425,7 @@ export class ActShow {
     const h = this.hero; h.vel.set(d.ex.dir[0], 0, d.ex.dir[1]).multiplyScalar(TUNE.heroSpeed * 0.8);
     WIPE.look = 'bamboo'; void fromLocale;   // (11-19: bamboo for every room — the timber post is gone)
     after(0.35, () => { void wipeTransit(() => {
-      if (nextRegion) { this.region = next.region!; this.room = 0; this.visited = []; this.regionIn = true; this.scaleFoes(this.region); this.log.push(`region ${this.region} ${REGIONS[this.region]?.id}`); }
+      if (nextRegion) { this.region = next.region!; this.room = 0; this.visited = []; this.regionIn = true; this.scaleFoes(this.region); this.log.push(`region ${this.route}:${this.region} ${regionsFor(this.route)[this.region]?.id}`); }
       else this.room++;
       const r = this.buildRoom(false);
       // (11-19: 崔府 is up — the village at dawn starts building behind its cutscenes)
@@ -8266,13 +8560,15 @@ export class ActShow {
     const prof = profile();
     const b = this.banked;
     const haul = b ? { iron: b.iron, herb: b.herb, canUp: hasAffordable(prof) || hasMirrorAffordable(prof) } : undefined;
+    const routeRegs = regionsFor(this.route);
+    const finalReg = routeRegs[routeRegs.length - 1];
     const baseCard = won
       ? {
           boon: {
             id: 'again', school: 'sr' as never,
-            name: !this.usedRevive ? msg`${REGIONS[REGIONS.length - 1].name} · 孤刃独行` : REGIONS[REGIONS.length - 1].name,
+            name: !this.usedRevive ? msg`${finalReg.name} · 孤刃独行` : finalReg.name,
             desc: [
-              spared ? msg`${EDEFS[REGIONS[REGIONS.length - 1].boss as EKind]?.name ?? ''}未死` : msg`${EDEFS[REGIONS[REGIONS.length - 1].boss as EKind]?.name ?? ''}伏诛`,
+              spared ? msg`${EDEFS[finalReg.boss as EKind]?.name ?? ''}未死` : msg`${EDEFS[finalReg.boss as EKind]?.name ?? ''}伏诛`,
               !this.usedRevive ? msg`未借真气通关（孤刃独行 ${prof.soloWins ?? 1} 次）· 斩 ${this.kills} 敌` : msg`斩了 ${this.kills} 个 · 点此回古窑`,
             ],
             col: '#ffd070', glyph: BOONS.find(x => x.id === 'behead')!.glyph,
@@ -8724,6 +9020,46 @@ export class ActShow {
     if (this.endCui) { this.endCui.dispose(); this.endCui = null; }
     this.musicHold = null; this.hud.on = true; this.end(true, id === 'b');
   }
+  /** North Route Ending & Dual-Route True Ending (「孤刃照雪」 when both South Cui Mansion & North Hangu Citadel are cleared!) */
+  private async playNorthEnding(forceTrue = false) {
+    const p = profile();
+    const isTrue = forceTrue || !!p.seen['cuixuan_dead'] || p.wins > 0;
+    const lines = isTrue ? TRUE_ENDING : NORTH_ENDING;
+    this.hud.on = false;
+    this.musicHold = 'bgm_afterkill';
+    void audio.playMusic('bgm_afterkill', 1.2);
+    await wipeTransit(() => this.enterYard({ time: 'dusk', weather: 'snow' }));
+    this.musicHold = 'bgm_afterkill';
+    void audio.playMusic('bgm_afterkill', 1.0);
+    this.noTalk = true;
+    this.hatForcedOff = isTrue;
+    this.syncHeroHat();
+    // Stage Liu Bai and Sun Ao beside Du Wu's memorial hearth (+ steaming extra bowl for True Ending!)
+    const dwP = HIDEOUT.people.duwu;
+    this.hero.pos.set(dwP.x - 1.55, 0, dwP.z + 0.55);
+    this.hero.a.place(this.hero.pos, Math.atan2(dwP.x - this.hero.pos.x, dwP.z - this.hero.pos.z));
+    const sa = this.npcs.find(n => n.id === 'sunao');
+    if (sa) {
+      sa.x = dwP.x - 0.55; sa.z = dwP.z - 1.35; sa.yaw = Math.atan2(this.hero.pos.x - sa.x, this.hero.pos.z - sa.z);
+      sa.a.place(V3(sa.x, 0, sa.z), sa.yaw); sa.sh.position.set(sa.x, 0.025, sa.z);
+    }
+    let extraBowl: THREE.Group | null = null;
+    if (isTrue && this.stage) {
+      extraBowl = buildExtraBowl();
+      extraBowl.position.set(dwP.x - 0.35, 0.42, dwP.z + 0.15);
+      this.stage.root.add(extraBowl);
+    }
+    this.cutCam([dwP.x - 4.4, 3.05, dwP.z + 3.8], [dwP.x - 0.55, 0.85, dwP.z - 0.15], 35, { drift: [0.18, -0.04, -0.22], fovDrift: -1.1 });
+    await this.talk(lines);
+    if (extraBowl) extraBowl.parent?.remove(extraBowl);
+    this.releaseCutCam();
+    this.hatForcedOff = false;
+    this.noTalk = false;
+    this.musicHold = null;
+    if (isTrue) { seeOnce('true_ending'); saveProfile(); }
+    this.hud.on = true;
+    this.end(true);
+  }
   private end(win: boolean, spared = false) {
     this.phase = 'end'; this.bankRun(win); audio.stopMusic(2.0); cue(win ? 'stingWin' : 'stingLose', 1);
     after(0.4, async () => {
@@ -8759,21 +9095,24 @@ export class ActShow {
     this.camOverride = null;
     shot('act', () => this.camPose(), { cut, speed });
   }
-  /** act-165 / act-174 / act-177: Hideout departure 3D put-on-hat ceremony — smooth in-place pitch-down & zoom-in (NO hard cut), completes full hat-donning BEFORE loading wipe, and restores HUD cleanly for combat */
+  private duwuBondedThisVisit = false;
+  /** act-165 / act-174 / act-177 / dual-route: Hideout departure 3D put-on-hat ceremony (supports South Gate & West-North Gate) */
   private departAnim: { t: number; dur: number; hold: number; lifted: boolean; seated: boolean; freezeK: number | null; resolve: () => void } | null = null;
   private departZoom = 0;
-  private async playDepartHatCeremony(opts?: { preview?: boolean; freezeK?: number }) {
+  private async playDepartHatCeremony(opts?: { preview?: boolean; freezeK?: number; route?: RouteId }) {
     if (this.phase === 'leaving' && !opts?.preview) return;
     const h = this.hero;
     if (!h) return;
-    const E = HIDEOUT.exit;
+    const route: RouteId = opts?.route ?? 'south';
+    const E = HIDEOUT.exit, NE = HIDEOUT.northExit;
     const hasConicalHat = !!h.a.bones.hat && (
       this.wearing.id === 'fine_hat' || this.wearing.id === 'fine_snow' || this.wearing.id === 'fine_obsidian' ||
       this.wearing.id === 'slim_hat' || this.wearing.id === 'slim_veil'
     );
     if (!hasConicalHat && !opts?.preview) {
-      this.phase = 'leaving'; this.syncHeroHat(); WIPE.look = 'bamboo'; h.vel.set(0, 0, TUNE.heroSpeed * 0.8);
-      after(0.35, () => { void wipeTransit(() => this.startRun()); });
+      this.phase = 'leaving'; this.syncHeroHat(); WIPE.look = 'bamboo';
+      if (route === 'north') h.vel.set(-TUNE.heroSpeed * 0.8, 0, 0); else h.vel.set(0, 0, TUNE.heroSpeed * 0.8);
+      after(0.35, () => { void wipeTransit(() => this.startRun(true, route)); });
       return;
     }
     this.phase = 'leaving';
@@ -8783,13 +9122,22 @@ export class ActShow {
     this.hideHideoutLabels();
     this.hideWorldPlates();
     this.exitGlow?.dispose(); this.exitGlow = null;
+    this.northExitGlow?.dispose(); this.northExitGlow = null;
     this.inp.latch(false);
-    // Keep Liu Bai right where she stopped at the exit (no jarring lateral teleport; just gently keep inside gate piers)
-    const gx = Math.max(E.x0 + 0.25, Math.min(E.x1 - 0.25, opts?.preview ? (E.x0 + E.x1) * 0.5 : h.pos.x));
-    const gz = opts?.preview ? E.z - 0.12 : Math.min(h.pos.z, E.z - 0.04);
-    h.pos.set(gx, 0, gz); h.vel.set(0, 0, 0);
-    h.a.home.copy(h.pos); h.a.root.position.copy(h.pos);
-    h.a.yaw = 0.14;
+    // Keep Liu Bai right where she stopped at the chosen exit (no jarring lateral teleport)
+    if (route === 'north') {
+      const gz = Math.max(NE.z0 + 0.25, Math.min(NE.z1 - 0.25, opts?.preview ? (NE.z0 + NE.z1) * 0.5 : h.pos.z));
+      const gx = opts?.preview ? NE.x + 0.15 : Math.max(h.pos.x, NE.x + 0.06);
+      h.pos.set(gx, 0, gz); h.vel.set(0, 0, 0);
+      h.a.home.copy(h.pos); h.a.root.position.copy(h.pos);
+      h.a.yaw = -0.35;
+    } else {
+      const gx = Math.max(E.x0 + 0.25, Math.min(E.x1 - 0.25, opts?.preview ? (E.x0 + E.x1) * 0.5 : h.pos.x));
+      const gz = opts?.preview ? E.z - 0.12 : Math.min(h.pos.z, E.z - 0.04);
+      h.pos.set(gx, 0, gz); h.vel.set(0, 0, 0);
+      h.a.home.copy(h.pos); h.a.root.position.copy(h.pos);
+      h.a.yaw = 0.14;
+    }
     motionOf(h.a).run = 0;
     // NO hard camera cut — smoothly glide & lower the yard camera into a low 3/4 front view via camPose() departZoom!
     this.camOverride = null;
@@ -8819,7 +9167,7 @@ export class ActShow {
     if (h.a.bones.weapon) h.a.bones.weapon.visible = true;
     h.scriptPose = null;
     WIPE.look = 'bamboo';
-    void wipeTransit(() => { this.departZoom = 0; this.hud.on = true; return this.startRun(); });
+    void wipeTransit(() => { this.departZoom = 0; this.hud.on = true; return this.startRun(true, route); });
   }
   /** debug / captures: a fixed camera (__dh.cam([x,y,z],[lx,ly,lz],fov) / __dh.cam(null)) */
   camOverride: { base: THREE.Vector3; look: THREE.Vector3; fov: number } | null = null;
@@ -8900,6 +9248,11 @@ export class ActShow {
     if (this.keepsakeBoxMesh) { const d = Math.hypot(HIDEOUT.keepsakeBox.x - h.pos.x, HIDEOUT.keepsakeBox.z + 0.7 - h.pos.z); if (d < Math.min(nd, 1.65)) { nd = d; near = 'keepsakeBox'; } }
     if (this.lanternMesh) { const d = Math.hypot(HIDEOUT.lantern.x - h.pos.x, HIDEOUT.lantern.z - h.pos.z); if (d < Math.min(nd, 1.75)) { nd = d; near = 'lantern'; } }
     if (this.trialSteleMesh) { const d = Math.hypot(HIDEOUT.trialStele.x - h.pos.x, HIDEOUT.trialStele.z - h.pos.z); if (d < Math.min(nd, 1.8)) { nd = d; near = 'trialStele'; } }
+    if (this.northGateMesh && !hideoutProgress(profile(), this.dbgAllWeapons).northUnlocked) {
+      const nz = (HIDEOUT.northExit.z0 + HIDEOUT.northExit.z1) * 0.5;
+      const d = Math.hypot(HIDEOUT.northExit.x + 0.55 - h.pos.x, nz - h.pos.z);
+      if (d < Math.min(nd, 2.3)) { nd = d; near = 'north_gate_locked'; }
+    }
     if (this.gardenMeshes.length > 0) {
       for (let gi = 0; gi < HIDEOUT.gardenPlots.length; gi++) {
         const gp = HIDEOUT.gardenPlots[gi], d = Math.hypot(gp.x - h.pos.x, gp.z - h.pos.z);
@@ -9152,7 +9505,15 @@ export class ActShow {
       }
       const E = HIDEOUT.exit;
       if (h.pos.z > E.z && h.pos.x > E.x0 - 0.2 && h.pos.x < E.x1 + 0.2) {
-        void this.playDepartHatCeremony();
+        void this.playDepartHatCeremony({ route: 'south' });
+      }
+      const NE = HIDEOUT.northExit;
+      if (h.pos.x < NE.x + 0.15 && h.pos.z > NE.z0 - 0.15 && h.pos.z < NE.z1 + 0.15) {
+        if (hideoutProgress(profile(), this.dbgAllWeapons).northUnlocked) {
+          void this.playDepartHatCeremony({ route: 'north' });
+        } else {
+          h.pos.x = Math.max(h.pos.x, NE.x + 0.22);
+        }
       }
     }
     this.decoyStep(dt); this.pinStep(dt); this.markStep(); this.dodgeGhostStep(rdt);   // 11-18 秘传 + act-118 完美闪避残影
@@ -9462,7 +9823,7 @@ export class ActShow {
         d.lift = Math.min(1, d.lift + dt * 2.2); d.g.position.y = -2.4 * (1 - d.lift) ** 2;
         const plan = this.nextRooms[i];
         if (worldUiClear && plan && d.lift > 0.35) {
-          const info = roomInfo(plan.type, plan.region ?? this.region);
+          const info = roomInfo(plan.type, plan.region ?? this.region, this.route);
           const rw = plan.reward;
           const archKey = rw?.k === 'boon' ? rw.arch : undefined;
           const arch = archKey ? ARCH_INFO[archKey] : null;

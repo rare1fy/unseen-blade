@@ -8,7 +8,8 @@ import { dh } from '../debug/dh';
 const FILES = import.meta.glob('../assets/voice/*/*.mp3', { eager: true, query: '?inline', import: 'default' }) as Record<string, string>;
 const BY_TEXT = new Map<string, string>();
 for (const [sec, rows] of Object.entries(SCRIPT as Record<string, Array<{ who: string; text: string }>>)) rows.forEach((r, i) => {
-  const dir = r.who === 'sentry2' ? 'sentry' : r.who;
+  const dirMap: Record<string, string> = { sentry2: 'sentry', lifeng: 'yanhu', yindu: 'fengzhen', tiezhen: 'zhouan', xieyuan: 'cuixuan' };
+  const dir = dirMap[r.who] ?? r.who;
   const url = FILES[`../assets/voice/${dir}/${sec}_${i}.mp3`]; if (url) BY_TEXT.set(r.who + '|' + r.text, url);
 });
 /** act-132 / act-147: Breeze TTS 2 voice lines for hideout newcomers (卢昭 / 桓越); Four Generals trial voices removed */

@@ -26,6 +26,9 @@ export interface AdProfileState {
 export interface Profile {
   v: 1;
   /** runs completed / won, deaths */ runs: number; wins: number; deaths: number;
+  /** North Route (第二入口 · 北出官道) counters & furthest progress */
+  northRuns?: number; northWins?: number;
+  northBestRegion?: number; northBestRoom?: number;
   /** act-188: furthest stage progress reached (region 0..4, rooms cleared in that region) — drives hideout facility unlocks */
   bestRegion?: number;
   bestRoom?: number;

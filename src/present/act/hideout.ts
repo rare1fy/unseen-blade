@@ -59,6 +59,8 @@ export const HIDEOUT: {
   dummies: Array<[number, number]>;
   slabs: Array<[number, number]>;
   exit: { x0: number; x1: number; z: number };
+  /** Second Entrance (西翼出山石道 · 北出官道, Hades-2 style alternate route unlocked after Du Wu's disappearance) */
+  northExit: { x: number; z0: number; z1: number };
   solids: HideoutSolid[];
 } = {
   // act-125 / act-132: expanded courtyard + eastern Bamboo Stream Garden Terrace (38 × 29 m) + road-end departure pass
@@ -90,6 +92,8 @@ export const HIDEOUT: {
   slabs: [[-13.0, 5.1], [-11.2, 5.1], [-9.4, 5.1], [-7.6, 5.1]],
   // 南门出征山道真正尽头（石阙与金色光幕紧贴路端 z = 15.6..15.85）
   exit: { x0: -0.85, x1: 1.65, z: 15.6 },
+  // 西翼北出官道入口（借西侧围栏天然缺口 z ∈ [-1.75, 0.35]，前期铁链封关，解封后直通北道 4 关）
+  northExit: { x: -14.55, z0: -1.75, z1: 0.35 },
   solids: [],
 };
 
@@ -475,6 +479,10 @@ function ground(c: Ctx) {
   flagstones(16.4, -1.5, 20.4, 0.6, 10, 10, 33);
   stepRunZ(20.1, -6.2, 4.4, 6, 11, 4, 37);
 
+  // 西翼北出官道：自试剑坪西缘穿西围栏缺口向西延展至 x = -23.5（第二入口实体山道，零断崖）
+  fill(-23.5, -1.9, -13.9, 0.5, K.path);
+  stepRunX(-0.7, -21.8, -14.2, 8, 10, 5, 61);
+  flagstones(-15.1, -1.75, -14.1, 0.35, 10, 10, 67);
   // 南门出征山道：从南门 z=10.9 延伸至双石阙出发点 z=16.0，再自然延展为下山车辙土道直抵 z=30.5（绝不露空断崖，且中路完全低矮无遮挡！）
   fill(-1.15, 10.9, 1.95, 16.05, K.path);
   stepRunZ(0.4, 10.9, 15.65, 12, 10, 4, 23);
@@ -591,9 +599,11 @@ function* build(c: Ctx, o: { time: HideoutTime; weather: HideoutWeather }) {
   grove(c, 16.4, -14.2, 27.5, -8.4, 34, 14, [5.6, 8.0]);
   grove(c, 24.4, -8.2, 29.2, 11.5, 48, 16, [5.8, 8.6]);
   grove(c, 17.2, 8.4, 25.5, 16.2, 30, 22, [4.6, 6.8]);
-  // West hillside bamboo
-  grove(c, -21.5, -12.0, -16.2, 9.0, 42, 15, [5.2, 7.8]);
-  grove(c, -23.5, -16.0, -18.5, 16.5, 36, 17, [5.6, 8.0]);
+  // West hillside bamboo split cleanly around the West-North Mountain Pass road (z ∈ [-2.4, 1.2])
+  grove(c, -21.5, -12.0, -16.2, -2.5, 22, 15, [5.2, 7.8]);
+  grove(c, -21.5, 1.4, -16.2, 9.0, 22, 18, [5.2, 7.8]);
+  grove(c, -23.5, -16.0, -18.5, -2.6, 18, 17, [5.6, 8.0]);
+  grove(c, -23.5, 1.6, -18.5, 16.5, 18, 19, [5.6, 8.0]);
   // South mountain pass bamboo framing BOTH outer flanks cleanly without poking in front of courtyard NPCs or south gate!
   grove(c, -16.2, 13.8, -5.2, 19.2, 30, 23, [3.8, 5.4]);
   grove(c, 5.6, 13.8, 15.8, 19.2, 30, 24, [3.8, 5.4]);
@@ -607,7 +617,7 @@ function* build(c: Ctx, o: { time: HideoutTime; weather: HideoutWeather }) {
   oak(w, 25.4, -5.2, 6.6, { seed: 61, bark: 0x4a3c30, dark: 0x30261e, leaf: 0x62783a, leafTop: 0x829c4c, low: 0.40, width: 1.0, vines: 0 });
   oak(w, 25.2, 4.8, 6.4, { seed: 47, bark: 0x4a3c30, dark: 0x30261e, leaf: 0x7c6834, leafTop: 0xa28842, low: 0.42, width: 0.95, vines: 0 });
   for (const [bx, bz, r2] of [
-    [-16.8, -9.8, 7], [-17.4, -0.4, 8], [-16.8, 5.2, 7], [-18.0, 9.2, 9],
+    [-16.8, -9.8, 7], [-16.8, 5.2, 7], [-18.0, 9.2, 9],
     [-4.2, 13.0, 7], [-11.5, 14.2, 8], [4.8, 13.2, 7], [11.2, 14.4, 8],
     [17.6, -9.6, 7], [25.0, -1.8, 8], [24.8, 2.8, 8], [18.4, 7.8, 9],
   ] as const) {
@@ -958,5 +968,105 @@ export function rackBlades(n: number): THREE.Group {
     w.box(x, y - 7, Z, x, y - 4, Z, 0xb4bcc6); w.box(x, y - 8, Z, x, y - 8, Z, 0xe2e8ee);
   }
   for (const m of w.build({ rim: 0.25, edge: 0.14 })) { if (!m.userData.shadowTiled && m.name !== 'shadowTile') m.castShadow = true; g.add(m); }
+  return g;
+}
+
+/** Second Entrance 3D Voxel Gate (西翼北出官道石阙 · 封关铁链 / 解封引路灯), grounded at y = 0, local origin = gate center (-14.8, 0, -0.7) */
+export function buildNorthGateMesh(unlocked: boolean): THREE.Group {
+  const vw = new VoxWorld(CELL);
+  const ST_D = 0x464442, ST = 0x62605c, ST_L = 0x807d76;
+  const IRON_D = 0x22252c, IRON = 0x3a3f4a;
+  const WOOD_D = 0x3b281c, WOOD = 0x583c28;
+  const SEAL = 0x9e221a, SEAL_L = 0xc83428;
+  const LAN_G = unlocked ? 0xffe08a : 0x58524a, LAN_F = unlocked ? 0xfff2c2 : 0x423e38;
+
+  // Twin weathered dark-stone gate piers flanking the 2.2m gap (z = -18..-13 and z = +13..+18 in cells)
+  for (const zc of [-16, 16]) {
+    vw.box(-3, 0, zc - 3, 3, 4, zc + 3, ST_D);
+    vw.box(-2, 5, zc - 2, 2, 20, zc + 2, ST);
+    vw.box(-3, 21, zc - 3, 3, 23, zc + 3, ST_L);
+    vw.box(-2, 24, zc - 2, 2, 25, zc + 2, ST_D);
+    // Side iron bracket + hanging pass lantern on each pier
+    vw.box(2, 18, zc - 1, 5, 19, zc + 1, IRON);
+    vw.box(4, 13, zc - 1, 6, 17, zc + 1, LAN_G);
+    vw.box(5, 14, zc, 5, 16, zc, LAN_F);
+    vw.box(4, 12, zc - 1, 6, 12, zc + 1, IRON_D);
+    vw.box(4, 18, zc - 1, 6, 18, zc + 1, IRON_D);
+  }
+  // High weathered timber lintel beam tying the two northern pass piers cleanly overhead (y = 26..29 -> ~1.95m clearance!)
+  vw.box(-2, 27, -18, 2, 29, 18, WOOD_D);
+  vw.box(-3, 30, -19, 3, 31, 19, WOOD);
+
+  if (!unlocked) {
+    // Heavy crossed iron chains & crimson official-seal timber barricade sealing the mountain pass
+    vw.box(-1, 9, -13, 1, 12, 13, WOOD);
+    vw.box(-1, 10, -3, 1, 11, 3, SEAL);
+    vw.box(0, 10, -2, 1, 11, 2, SEAL_L);
+    for (let z = -12; z <= 12; z += 2) {
+      const sag = Math.round(Math.cos((z / 12) * Math.PI * 0.5) * 3);
+      vw.box(1, 16 - sag, z, 2, 17 - sag, z + 1, z % 4 === 0 ? IRON : IRON_D);
+      vw.box(-2, 6 + Math.abs(Math.round(z * 0.25)), z, -1, 7 + Math.abs(Math.round(z * 0.25)), z + 1, IRON_D);
+    }
+  } else {
+    // Severed iron chain stubs hanging loose beside both piers (proving Liu Bai cut the lock open!)
+    for (const zc of [-13, 13]) {
+      for (let y = 5; y <= 14; y += 2) vw.box(0, y, zc, 1, y + 1, zc, y % 4 === 0 ? IRON : IRON_D);
+    }
+  }
+
+  const g = new THREE.Group();
+  for (const m of vw.build({ rim: 0.25, edge: 0.14, ground: true })) {
+    m.castShadow = true;
+    m.receiveShadow = true;
+    g.add(m);
+  }
+  if (unlocked) {
+    const l1 = new THREE.PointLight(0xffcb78, 1.8, 7.5, 1.7);
+    l1.position.set(0.35, 1.35, -1.1);
+    const l2 = new THREE.PointLight(0xffcb78, 1.8, 7.5, 1.7);
+    l2.position.set(0.35, 1.35, 1.1);
+    g.add(l1, l2);
+  }
+  return g;
+}
+
+/** North Act 1 trail clue prop: Du Wu's shattered 600-coin clay jar & spilled bronze wuzhu coins */
+export function buildBrokenJarProp(): THREE.Group {
+  const vw = new VoxWorld(CELL * 0.85);
+  const CLAY_D = 0x5c3622, CLAY = 0x824f32, COIN = 0xd8a846, COIN_L = 0xf4cc68;
+  vw.box(-3, 0, -2, 0, 2, 2, CLAY_D);
+  vw.box(-2, 1, -1, 1, 3, 1, CLAY);
+  vw.box(2, 0, -3, 4, 1, -1, CLAY);
+  vw.box(-4, 0, 3, -2, 1, 4, CLAY_D);
+  for (const [cx, cz] of [[1, 2], [3, 1], [2, 3], [-1, 4], [4, -1], [0, -3], [5, 2]] as const) {
+    vw.box(cx, 0, cz, cx, 0, cz, (cx + cz) % 2 === 0 ? COIN : COIN_L);
+  }
+  const g = new THREE.Group();
+  for (const m of vw.build({ rim: 0.22, edge: 0.12, ground: true })) { m.castShadow = true; m.receiveShadow = true; g.add(m); }
+  const glow = new THREE.PointLight(0xffcf78, 1.1, 3.8, 1.8);
+  glow.position.set(0, 0.45, 0);
+  g.add(glow);
+  return g;
+}
+
+/** North Act 2 trail clue prop: weathered milestone with charcoal arrow & Du Wu's torn thick cotton sleeve */
+export function buildTornSleeveProp(): THREE.Group {
+  const vw = new VoxWorld(CELL * 0.9);
+  const ST_D = 0x4c4a46, ST = 0x6a6760, CHAR = 0x1a1918;
+  const CLOTH = 0x7c6a52, CLOTH_D = 0x5a4c3a, POISON = 0x264a2e;
+  vw.box(-2, 0, -2, 2, 10, 2, ST);
+  vw.box(-3, 0, -3, 3, 2, 3, ST_D);
+  // Charcoal arrow scratched on stone face
+  vw.box(-1, 6, 2, 1, 6, 2, CHAR);
+  vw.box(0, 7, 2, 0, 8, 2, CHAR);
+  // Torn thick winter cotton sleeve snagged on right side, stained with dark poison mud
+  vw.box(2, 3, -1, 5, 5, 2, CLOTH);
+  vw.box(3, 2, 0, 6, 3, 2, CLOTH_D);
+  vw.box(4, 2, 1, 5, 4, 2, POISON);
+  const g = new THREE.Group();
+  for (const m of vw.build({ rim: 0.22, edge: 0.12, ground: true })) { m.castShadow = true; m.receiveShadow = true; g.add(m); }
+  const glow = new THREE.PointLight(0x88d8a0, 1.0, 4.0, 1.8);
+  glow.position.set(0.2, 0.6, 0.2);
+  g.add(glow);
   return g;
 }

@@ -31,6 +31,8 @@ export const CAST: Record<string, Speaker> = {
   jiangjin: { name: '刘白', side: 'L' }, duwu: { name: '杜五', side: 'R' }, sunao: { name: '孙婆婆', side: 'R' }, fengtiebi: { name: '冯铁臂', side: 'R', mute: true },
   luzhao: { name: '卢昭', side: 'R' }, huanyue: { name: '韩越', side: 'R' }, chulei: { name: '石雷', side: 'R' }, yanhu: { name: '阎虎', side: 'R' },
   fengzhen: { name: '封寒', side: 'R' }, zhouan: { name: '周默', side: 'R' }, cuixuan: { name: '崔玄', side: 'R' },
+  /** 北出官道（第二入口）四位首领 */
+  lifeng: { name: '厉锋', side: 'R' }, yindu: { name: '殷毒', side: 'R' }, tiezhen: { name: '铁镇', side: 'R' }, xieyuan: { name: '谢渊', side: 'R' },
   /** act-114 三国名将客串 */
   zhaoyun: { name: '赵云', side: 'R' }, lubu: { name: '吕布', side: 'R' }, xiahoudun: { name: '夏侯惇', side: 'R' }, luxun: { name: '陆逊', side: 'R' },
   /** 11-19 / act-127: the snowy village's two sentries (sly skinny sentry + burly scowling sentry2) */
@@ -45,47 +47,49 @@ for (const [p, url] of Object.entries(files)) PORTRAIT[p.split('/').pop()!.repla
 
 /** Resolve the expressive portrait variant for a spoken line based on character, costume state (Liu Bai hat on/off), explicit mood, and voice-matched emotion cues. */
 export function resolvePortrait(who: string, text: string, mood?: string, heroHat = true): string {
-  let want = who;
-  if (who === 'jiangjin') {
+  const alias: Record<string, string> = { lifeng: 'yanhu', yindu: 'fengzhen', tiezhen: 'zhouan', xieyuan: 'cuixuan' };
+  const baseWho = alias[who] ?? who;
+  let want = baseWho;
+  if (baseWho === 'jiangjin') {
     if (mood === 'calm') want = heroHat ? 'jiangjin_hat' : 'jiangjin';
     else if (mood === 'hurt' || (!heroHat && /肋|血|痛|伤口|刀呢|我的刀|把刀给我|银针|躺|散架/.test(text))) want = 'jiangjin_hurt';
     else if (heroHat) {
-      if (mood === 'fierce' || /还文家的命|归位|陪她|闭嘴|命|斩|滚|拿稳|仇|销了|欠|债|放开|拔刀|来吧|碎尸万段/.test(text)) want = 'jiangjin_hat_fierce';
+      if (mood === 'fierce' || /还文家的命|归位|陪她|闭嘴|命|斩|滚|拿稳|仇|销了|欠|债|放开|拔刀|来吧|碎尸万段|痛快|带回来|撑住/.test(text)) want = 'jiangjin_hat_fierce';
       else want = 'jiangjin_hat';
     } else want = 'jiangjin';
   } else if (mood === 'calm') {
-    want = who;
-  } else if (who === 'duwu') {
+    want = baseWho;
+  } else if (baseWho === 'duwu') {
     if (mood === 'shock' || /娘哎|活、活的|诈尸|别乱动|不要命|吓|？！/.test(text)) want = 'duwu_shock';
     else if (mood === 'grin' || /撵上|兔子快|搭两间|头一回|锅里温着肉汤|快烤火|手冻红了/.test(text)) want = 'duwu_grin';
-    else if (mood === 'worry' || /吐|血|麦饼|保重|小心|活着|白发|惨|缝|衣裳|肉饼|水囊|吃饱|半死|干粮|歇|火堆里|这毒脏|僵了|喝不着/.test(text)) want = 'duwu_worry';
-    else if (/捡了便宜|值钱货|火堆边烤着|拖回来的|叫你白哥|安心养着|热汤|暖暖|手艺|尝尝|热乎|好酒|挑一样|带些/.test(text)) want = 'duwu_grin';
-  } else if (who === 'sunao') {
+    else if (mood === 'worry' || /吐|血|麦饼|保重|小心|活着|白发|惨|缝|衣裳|肉饼|水囊|吃饱|半死|干粮|歇|火堆里|这毒脏|僵了|喝不着|没穿热乎/.test(text)) want = 'duwu_worry';
+    else if (/捡了便宜|值钱货|火堆边烤着|拖回来的|叫你白哥|安心养着|热汤|暖暖|手艺|尝尝|热乎|好酒|挑一样|带些|放心/.test(text)) want = 'duwu_grin';
+  } else if (baseWho === 'sunao') {
     if (mood === 'stern' || /别乱挺|断肋|扎破肺|跨不进去|张嘴|闭嘴|瞪|忍着|咽下去|扎透|钉棺材|木棍|推回去|裹胸布|死丫头|唬老身|忍着点|不够|捻针|下针/.test(text)) want = 'sunao_stern';
     else if (mood === 'soft' || /好重的仇|可怜|烤烤手|热水|活着回来|苦|叹|留了|去吧|熬|药罐|阿皎|闺女|暖|傻小子|挖出来|白养|温着汤|摆了一只碗|摘了布|破布摘了|汤还烫着/.test(text)) want = 'sunao_soft';
-  } else if (who === 'cuixuan') {
+  } else if (baseWho === 'cuixuan') {
     if (mood === 'defeat' || /亲爹|动手吧|够了|了结|认出|像你娘|抵上喉咙|反倒抖|真不杀我|破了前门/.test(text)) want = 'cuixuan_defeat';
-    else if (mood === 'blade' || /刀在我这|四个人|那四个|太早了|见识见识你的刀|听好了|配|拔刀|出刀吧|杀|第几柄|灯灭|乱葬沟/.test(text)) want = 'cuixuan_blade';
-  } else if (who === 'chulei') {
+    else if (mood === 'blade' || /刀在我这|四个人|那四个|太早了|见识见识你的刀|听好了|配|拔刀|出刀吧|杀|第几柄|灯灭|乱葬沟|棋局/.test(text)) want = 'cuixuan_blade';
+  } else if (baseWho === 'chulei') {
     if (mood === 'panic' || /饶|别杀|不是我|求|饶命|放过|我说|供|崔|洛阳|阎虎/.test(text)) want = 'chulei_panic';
-  } else if (who === 'yanhu') {
-    if (mood === 'defeat' || /崔府|乐伎|歌伎|逃出来|封寒|下邳|吐血|咳|不是铁匠|呃啊|真当那娘们/.test(text)) want = 'yanhu_defeat';
-    else if (mood === 'rage' || /哈！|老子|烧得|砸|杀|滚|高炉|推进去/.test(text)) want = 'yanhu_rage';
-  } else if (who === 'fengzhen') {
-    if (mood === 'defeat' || /灭口|追杀|收账|周默|乌林|咳|替他|每一个/.test(text)) want = 'fengzhen_defeat';
+  } else if (baseWho === 'yanhu') {
+    if (mood === 'defeat' || /崔府|乐伎|歌伎|逃出来|封寒|下邳|吐血|咳|不是铁匠|呃啊|真当那娘们|药坞/.test(text)) want = 'yanhu_defeat';
+    else if (mood === 'rage' || /哈！|老子|烧得|砸|杀|滚|高炉|推进去|捉夫/.test(text)) want = 'yanhu_rage';
+  } else if (baseWho === 'fengzhen') {
+    if (mood === 'defeat' || /灭口|追杀|收账|周默|乌林|咳|替他|每一个|太尉|军寨/.test(text)) want = 'fengzhen_defeat';
     else if (mood === 'smirk' || /漆匣|拇指|药酒|脉象|故人|试我|新配|废药渣|药引/.test(text)) want = 'fengzhen_smirk';
-  } else if (who === 'zhouan') {
-    if (mood === 'bitter' || /亲爹|烧干净|认出|愧|对不住|姜汤|感念|那夜|连那|贱婢|清掉|腊月二十三|咳/.test(text)) want = 'zhouan_bitter';
-  } else if (who === 'zhaoyun') {
+  } else if (baseWho === 'zhouan') {
+    if (mood === 'bitter' || /亲爹|烧干净|认出|愧|对不住|姜汤|感念|那夜|连那|贱婢|清掉|腊月二十三|咳|百辟刀/.test(text)) want = 'zhouan_bitter';
+  } else if (baseWho === 'zhaoyun') {
     if (mood === 'fight' || /并肩|杀出去|枪|迎敌|贼兵|好刀法/.test(text)) want = 'zhaoyun_fight';
-  } else if (who === 'lubu') {
+  } else if (baseWho === 'lubu') {
     if (mood === 'smirk' || /有点意思|倒敢|不错|哈哈|方天画戟/.test(text)) want = 'lubu_smirk';
-  } else if (who === 'xiahoudun') {
+  } else if (baseWho === 'xiahoudun') {
     if (mood === 'respect' || /暗处|不在战场|敬|同道|去吧/.test(text)) want = 'xiahoudun_respect';
-  } else if (who === 'luxun') {
+  } else if (baseWho === 'luxun') {
     if (mood === 'smile' || /巧了|同行|火势已成|走不脱|笑|铁索/.test(text)) want = 'luxun_smile';
   }
-  return PORTRAIT[want] ? want : who;
+  return PORTRAIT[want] ? want : baseWho;
 }
 const texCache = new Map<string, THREE.Texture>();
 function portraitTex(id: string, ready: (t: THREE.Texture) => void) {

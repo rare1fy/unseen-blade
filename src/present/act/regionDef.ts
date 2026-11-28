@@ -4,6 +4,8 @@
 import type { RoomType } from './run';
 import type { Spec } from '../asm/types';
 
+export type RouteId = 'south' | 'north';
+
 export interface RegionDef {
   /** 'r1_huangjin' / 'r2_luoyang' / 'r3_xiapi' / 'r4_wulin' / 'r5_cui' */
   id: string;

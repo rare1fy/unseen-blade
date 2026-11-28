@@ -1,23 +1,30 @@
 // 一局五关的流程（11-18）：纯逻辑、不碰画面，单测直接测这里。一局里的位置 = (关 region, 这一关的第几间 room)，两个都从 0 起。
 // 规则：每关 rooms + 1 间（最后一间是头目间）；打完一关的头目，进下一关的第一间；最后一关的头目打完 = 通关。
 // 局外货币按「打过的间」算，越往后的关一间算得越多（act-161：1 / 1.2 / 1.4 / 1.7 / 2 间，原来是 1 / 2 / 3 / 4 / 5，通关一次就买穿全树）；难度从第二关起逐关加码（第一关不变）。
-import { REGIONS } from './regions';
+import { regionsFor } from './regions';
+import type { RouteId } from './regionDef';
 
 /** how many rooms region ri has, its boss room included */
-export const roomsIn = (ri: number) => (REGIONS[ri]?.rooms ?? 0) + 1;
+export const roomsIn = (ri: number, route: RouteId = 'south') => (regionsFor(route)[ri]?.rooms ?? 0) + 1;
 /** the boss room of region ri is room roomsIn(ri) − 1 */
-export const isBossRoom = (ri: number, room: number) => room === roomsIn(ri) - 1;
+export const isBossRoom = (ri: number, room: number, route: RouteId = 'south') => room === roomsIn(ri, route) - 1;
 /** after the boss of region ri: the next region's index, or 'won' (it was the last) */
-export function afterBoss(ri: number): number | 'won' { return ri + 1 < REGIONS.length ? ri + 1 : 'won'; }
+export function afterBoss(ri: number, route: RouteId = 'south'): number | 'won' {
+  return ri + 1 < regionsFor(route).length ? ri + 1 : 'won';
+}
 
 /** what the haul home counts as rooms: every room cleared in region n (1 起) counts n — a room deeper in the run is worth more.
- *  region / room = where she fell (or the last boss room, on a win); won = the last boss fell (that room counts too) */
+ *  North route starts at higher mid-game stakes (1.4 / 1.7 / 2.0 / 2.4) so alternating routes feeds meta progression handsomely. */
 const ROOM_WORTH = [1, 1.2, 1.4, 1.7, 2.0];
-const worthOf = (ri: number) => ROOM_WORTH[Math.max(0, Math.min(ROOM_WORTH.length - 1, ri))];
-export function roomsWorth(region: number, room: number, won = false): number {
+const NORTH_WORTH = [1.4, 1.7, 2.0, 2.4];
+const worthOf = (ri: number, route: RouteId = 'south') => {
+  const arr = route === 'north' ? NORTH_WORTH : ROOM_WORTH;
+  return arr[Math.max(0, Math.min(arr.length - 1, ri))];
+};
+export function roomsWorth(region: number, room: number, won = false, route: RouteId = 'south'): number {
   let n = 0;
-  for (let i = 0; i < region; i++) n += roomsIn(i) * worthOf(i);
-  return n + (won ? roomsIn(region) : Math.max(0, room)) * worthOf(region);
+  for (let i = 0; i < region; i++) n += roomsIn(i, route) * worthOf(i, route);
+  return n + (won ? roomsIn(region, route) : Math.max(0, room)) * worthOf(region, route);
 }
 
 /** the foes' strength in region ri (11-28 balance overhaul: firm R1-R2 melee pressure & 2→4 attackers so mobs never melt passively) */
@@ -46,6 +53,12 @@ export function shopPriceMul(ri: number): number {
 }
 
 /** the banner when she walks into region ri's first room: its name and its line */
-export const regionBanner = (ri: number) => ({ title: REGIONS[ri]?.name ?? '', sub: REGIONS[ri]?.tag ?? '' });
+export const regionBanner = (ri: number, route: RouteId = 'south') => {
+  const r = regionsFor(route)[ri];
+  return { title: r?.name ?? '', sub: r?.tag ?? '' };
+};
 /** the boss of the last region (the win card says it fell) */
-export const lastBoss = () => REGIONS[REGIONS.length - 1].boss;
+export const lastBoss = (route: RouteId = 'south') => {
+  const list = regionsFor(route);
+  return list[list.length - 1].boss;
+};

@@ -91,17 +91,51 @@ export interface HideoutProgressState {
   rackReady: boolean;
   rackBuilt: boolean;
   lanternReady: boolean;
+  /** True when the player has met the Hades-2 pacing threshold for Du Wu's disappearance & unlocking the North Route */
+  northReady: boolean;
+  /** True once the Hideout "Empty Donkey Cart" inciting event has played and the West-North Gate is unsealed */
+  northUnlocked: boolean;
   visibleNpcs: Array<'duwu' | 'sunao' | 'fengtiebi' | 'luzhao' | 'huanyue'>;
   pendingZones: HideoutZoneId[];
 }
 
-/** Whether Du Wu has perished at Xiapi White Gate (shifts his SE hearth into a memorial tended by Sun Ao) */
+/** Whether Du Wu has perished in the North Route Poison Valley (shifts his SE hearth into a memorial tended by Sun Ao) */
 export function isDuwuDead(p: Profile): boolean {
   return !!p.seen?.['duwu_dead'];
 }
 
-/** Record furthest stage progress reached (monotonic watermark in region/room order) */
-export function recordStageProgress(p: Profile, region: number, roomCleared: number) {
+/** Whether Du Wu is currently missing on the North Post-Road (after the inciting cart event, before North Act 2 climax) */
+export function isDuwuMissing(p: Profile): boolean {
+  return !!p.seen?.['duwu_missing'] && !isDuwuDead(p);
+}
+
+/** Whether Du Wu is absent from the SE hearth (either missing on the North Road or perished) */
+export function isDuwuAbsent(p: Profile): boolean {
+  return isDuwuMissing(p) || isDuwuDead(p);
+}
+
+/** Whether the player has built enough bond & South Route progress to trigger the North Route inciting event */
+export function isNorthReady(p: Profile): boolean {
+  if (p.seen?.['north_unlocked'] || isDuwuDead(p)) return true;
+  const down = bossesDown(p.seen ?? {});
+  const southReached = (p.bestRegion ?? 0) >= 2 || down >= 2 || p.wins > 0;
+  const bond = (p.bonds?.['duwu'] ?? 0) + (p.seen?.['duwu_road_1'] ? 1 : 0) + (p.seen?.['duwu_road_2'] ? 1 : 0);
+  return southReached && bond >= 2;
+}
+
+/** Record furthest stage progress reached (monotonic watermark per route) */
+export function recordStageProgress(p: Profile, region: number, roomCleared: number, route: 'south' | 'north' = 'south') {
+  if (route === 'north') {
+    const prevReg = p.northBestRegion ?? 0;
+    const prevRoom = p.northBestRoom ?? 0;
+    if (region > prevReg) {
+      p.northBestRegion = region;
+      p.northBestRoom = Math.max(0, roomCleared);
+    } else if (region === prevReg && roomCleared > prevRoom) {
+      p.northBestRoom = roomCleared;
+    }
+    return;
+  }
   const prevReg = p.bestRegion ?? 0;
   const prevRoom = p.bestRoom ?? 0;
   if (region > prevReg) {
@@ -135,7 +169,10 @@ export function hideoutProgress(p: Profile, allWeapons = false): HideoutProgress
   const gardenReady = gardenBuilt || (bestReg >= 1 && bestRoom >= 3) || bestReg >= 2 || down >= 2 || p.wins > 0;
   const lanternReady = allWeapons || forgeBuilt || (p.ads?.total ?? 0) > 0;
 
-  const visibleNpcs: HideoutProgressState['visibleNpcs'] = isDuwuDead(p) ? ['sunao'] : ['duwu', 'sunao'];
+  const northReady = allWeapons || isNorthReady(p);
+  const northUnlocked = allWeapons || !!p.seen?.['north_unlocked'] || isDuwuDead(p);
+
+  const visibleNpcs: HideoutProgressState['visibleNpcs'] = isDuwuAbsent(p) ? ['sunao'] : ['duwu', 'sunao'];
   if (forgeBuilt) visibleNpcs.push('fengtiebi');
   if (gardenBuilt) visibleNpcs.push('luzhao');
   if (rackBuilt) visibleNpcs.push('huanyue');
@@ -146,7 +183,7 @@ export function hideoutProgress(p: Profile, allWeapons = false): HideoutProgress
   else if (rackReady && !rackBuilt) pendingZones.push('rack');
   else if (gardenReady && !gardenBuilt) pendingZones.push('garden');
 
-  return { forgeReady, forgeBuilt, gardenReady, gardenBuilt, rackReady, rackBuilt, lanternReady, visibleNpcs, pendingZones };
+  return { forgeReady, forgeBuilt, gardenReady, gardenBuilt, rackReady, rackBuilt, lanternReady, northReady, northUnlocked, visibleNpcs, pendingZones };
 }
 
 /** Pure 3D voxel construction monument (落成工碑, 100% axis-aligned 7cm voxel blocks, grounded at y = 0) */
