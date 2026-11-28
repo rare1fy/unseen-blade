@@ -7,50 +7,134 @@ import { HAS_DOM } from '../../platform/index';
 export interface TuneAction { label: () => string; run: () => void }
 /** open / close the panel from code (the title screen's 设置); a no-op until installActTune has run */
 export let toggleActTune = () => {};
-/** 11-18 (用户：「你帮我在调试面板加一个快速切关，我好测试关卡」): the regions to jump into and how */
+/** 11-18 / dual-route: the regions to jump into (supports both South 5-act and North 4-act routes) */
+export interface TuneRouteSpec {
+  id: 'south' | 'north';
+  label: string;
+  shortPrefix?: string;
+  regions: string[];
+  rooms(ri: number): number;
+  go(ri: number, room: number, type: 'fight' | 'elite' | 'shop' | 'rest' | 'boon' | 'boss'): string | void;
+}
 export interface TuneJump {
-  /** the regions' names in order (第一关 …) */ regions: string[];
+  /** the regions' names in order (第一关 …) — legacy single-route fallback */
+  regions: string[];
   /** go to region ri's room: room = its index in the region (0 = the first room), the boss room = rooms; type = what kind of room.
    *  Returns why it could not (a cutscene / a talk running), or nothing when it went */
   go(ri: number, room: number, type: 'fight' | 'elite' | 'shop' | 'rest' | 'boon' | 'boss'): string | void;
   /** the fight rooms before the boss in region ri */ rooms(ri: number): number;
+  /** Optional multi-route tabs (南门旧道 + 北出官道) */
+  routes?: TuneRouteSpec[];
 }
-export function installActTune(actions: TuneAction[] = [], jump?: TuneJump) {
+export interface TuneQuickGroup {
+  title: string;
+  items: Array<{
+    label: string;
+    title?: string;
+    accent?: 'gold' | 'crimson';
+    run: () => string | void;
+  }>;
+}
+export function installActTune(actions: TuneAction[] = [], jump?: TuneJump, quickGroups: TuneQuickGroup[] = []) {
   if (!HAS_DOM || !__DEBUG_UI__) return;
   const btn = document.createElement('div');
   btn.textContent = '调'; Object.assign(btn.style, { position: 'fixed', right: '8px', top: '8px', width: '30px', height: '30px', lineHeight: '30px', textAlign: 'center',
     font: '14px/30px system-ui,"Microsoft YaHei",sans-serif', color: '#e8dcc0', background: 'rgba(30,26,36,0.72)', border: '1px solid #8a7456', borderRadius: '4px', cursor: 'pointer', zIndex: '20', userSelect: 'none' });
   const pane = document.createElement('div');
-  Object.assign(pane.style, { position: 'fixed', right: '8px', top: '44px', width: '260px', maxHeight: '80vh', overflowY: 'auto', padding: '8px 10px', background: 'rgba(20,18,26,0.92)',
+  Object.assign(pane.style, { position: 'fixed', right: '8px', top: '44px', width: '288px', maxHeight: '82vh', overflowY: 'auto', padding: '8px 10px', background: 'rgba(20,18,26,0.94)',
     border: '1px solid #8a7456', borderRadius: '6px', font: '12px/1.4 system-ui,"Microsoft YaHei",sans-serif', color: '#e8dcc0', zIndex: '20', display: 'none' });
   // the frame rate (act-14 用户在手机上说帧率低): frames counted over half a second, shown while the panel is open
   const fps = document.createElement('div'); fps.style.margin = '0 0 6px'; pane.append(fps);
   { let n = 0, t0 = performance.now(); const tick = () => { n++; const t = performance.now(); if (t - t0 >= 500) { if (pane.style.display !== 'none') fps.textContent = `帧率：${Math.round(n * 1000 / (t - t0))}`; n = 0; t0 = t; } requestAnimationFrame(tick); }; requestAnimationFrame(tick); }
+  const styleMini = (b: HTMLButtonElement, on = false, accent?: 'gold' | 'crimson') => {
+    const bg = on ? '#8a6a3a' : accent === 'crimson' ? '#5c2224' : accent === 'gold' ? '#4a3a1e' : '#262130';
+    const bd = on ? '#e0b868' : accent === 'crimson' ? '#c85848' : accent === 'gold' ? '#c89a48' : '#584b3c';
+    const fg = on ? '#fff6e0' : accent === 'crimson' ? '#ffd6cc' : accent === 'gold' ? '#ffe6a8' : '#e8dcc0';
+    Object.assign(b.style, {
+      flex: '1 0 auto', padding: '3px 6px', minWidth: '46px', cursor: 'pointer',
+      background: bg, color: fg, border: `1px solid ${bd}`, borderRadius: '3px',
+      font: '12px/1.35 system-ui,"Microsoft YaHei",sans-serif',
+    });
+  };
   if (jump) {
-    // 快速切关: pick the region, then the room — a new run starts there (the region's foes scaled as in a real run)
+    // 快速切关: pick route (南门旧道 / 北出官道), region, then room
     const box = document.createElement('div'); Object.assign(box.style, { margin: '0 0 8px', padding: '6px', border: '1px solid #5a4a36', borderRadius: '4px' });
-    const head = document.createElement('div'); head.textContent = '快速切关'; head.style.margin = '0 0 4px'; box.append(head);
+    const head = document.createElement('div'); head.textContent = '快速切关'; head.style.margin = '0 0 4px'; head.style.color = '#ffd88a'; box.append(head);
+    const routes: TuneRouteSpec[] = jump.routes?.length
+      ? jump.routes
+      : [{ id: 'south', label: '南门旧道', regions: jump.regions, rooms: jump.rooms, go: jump.go }];
+    let rti = 0, ri = 0;
+    const routeRow = document.createElement('div');
+    Object.assign(routeRow.style, { display: 'flex', gap: '4px', margin: '0 0 5px' });
     const regRow = document.createElement('div'), roomRow = document.createElement('div'), note = document.createElement('div');
     Object.assign(regRow.style, { display: 'flex', flexWrap: 'wrap', gap: '3px', margin: '0 0 4px' }); Object.assign(roomRow.style, { display: 'flex', flexWrap: 'wrap', gap: '3px' });
     Object.assign(note.style, { margin: '4px 0 0', color: '#c8a070', minHeight: '1em' });
-    let ri = 0;
-    const small = (b: HTMLButtonElement, on = false) => Object.assign(b.style, { flex: '1 0 auto', padding: '3px 4px', minWidth: '44px', background: on ? '#8a6a3a' : '', color: on ? '#fff4dc' : '' });
-    const regBtns = jump.regions.map((name, i) => {
-      const b = document.createElement('button'); b.textContent = `${'一二三四五六七八九十'[i] ?? i + 1}关`; b.title = name; small(b, i === ri);
-      b.onclick = () => { ri = i; regBtns.forEach((x, k) => small(x, k === ri)); drawRooms(); note.textContent = name; }; regRow.append(b); return b;
-    });
     const drawRooms = () => {
+      const cur = routes[rti];
       roomRow.textContent = '';
-      const n = jump.rooms(ri), add = (label: string, room: number, type: Parameters<TuneJump['go']>[2]) => {
-        const b = document.createElement('button'); b.textContent = label; small(b);
-        b.onclick = () => { const why = jump.go(ri, room, type); if (why) { note.textContent = why; return; } note.textContent = `${jump.regions[ri]} · ${label}`; pane.style.display = 'none'; };
+      const n = cur.rooms(ri), add = (label: string, room: number, type: Parameters<TuneJump['go']>[2], accent?: 'gold' | 'crimson') => {
+        const b = document.createElement('button'); b.textContent = label; styleMini(b, false, accent);
+        b.onclick = () => { const why = cur.go(ri, room, type); if (why) { note.textContent = why; return; } note.textContent = `${cur.regions[ri]} · ${label}`; pane.style.display = 'none'; };
         roomRow.append(b);
       };
       for (let i = 0; i < n; i++) add(`第${i + 1}间`, i, 'fight');
-      add('死士', 2, 'elite'); add('行商', 2, 'shop'); add('歇脚', 2, 'rest'); add('遗卷', 2, 'boon'); add('头目', n, 'boss');
+      add('死士', 2, 'elite'); add('行商', 2, 'shop'); add('歇脚', 2, 'rest'); add('遗卷', 2, 'boon'); add('首领', n, 'boss', 'crimson');
     };
-    drawRooms(); note.textContent = jump.regions[0] ?? '';
+    const drawRegions = () => {
+      const cur = routes[rti];
+      regRow.textContent = '';
+      const cn = '一二三四五六七八九十';
+      const btns: HTMLButtonElement[] = [];
+      cur.regions.forEach((name, i) => {
+        const b = document.createElement('button');
+        b.textContent = cur.shortPrefix ? `${cur.shortPrefix}${cn[i] ?? i + 1}` : `${cn[i] ?? i + 1}关`;
+        b.title = name; styleMini(b, i === ri);
+        b.onclick = () => { ri = i; btns.forEach((x, k) => styleMini(x, k === ri)); drawRooms(); note.textContent = `${cur.label} · ${name}`; };
+        regRow.append(b); btns.push(b);
+      });
+      drawRooms();
+      note.textContent = `${cur.label} · ${cur.regions[ri] ?? ''}`;
+    };
+    if (routes.length > 1) {
+      const rBtns: HTMLButtonElement[] = [];
+      routes.forEach((rt, idx) => {
+        const b = document.createElement('button'); b.textContent = rt.label; styleMini(b, idx === rti);
+        b.onclick = () => { rti = idx; ri = 0; rBtns.forEach((x, k) => styleMini(x, k === rti)); drawRegions(); };
+        routeRow.append(b); rBtns.push(b);
+      });
+      box.append(routeRow);
+    }
+    drawRegions();
     box.append(regRow, roomRow, note); pane.append(box);
+  }
+  if (quickGroups.length) {
+    const qBox = document.createElement('div');
+    Object.assign(qBox.style, { margin: '0 0 8px', padding: '6px', border: '1px solid #6b5238', borderRadius: '4px', background: 'rgba(34,26,22,0.55)' });
+    const qNote = document.createElement('div');
+    Object.assign(qNote.style, { margin: '4px 0 0', color: '#e0b870', minHeight: '1em', fontSize: '11px' });
+    for (const grp of quickGroups) {
+      const gHead = document.createElement('div');
+      gHead.textContent = grp.title;
+      Object.assign(gHead.style, { margin: '4px 0 3px', color: '#ffd88a', fontWeight: '600' });
+      const row = document.createElement('div');
+      Object.assign(row.style, { display: 'flex', flexWrap: 'wrap', gap: '3px', margin: '0 0 4px' });
+      for (const item of grp.items) {
+        const b = document.createElement('button');
+        b.textContent = item.label;
+        if (item.title) b.title = item.title;
+        styleMini(b, false, item.accent);
+        b.onclick = () => {
+          const why = item.run();
+          if (why) { qNote.textContent = why; return; }
+          qNote.textContent = `已切入：${item.label}`;
+          pane.style.display = 'none';
+        };
+        row.append(b);
+      }
+      qBox.append(gHead, row);
+    }
+    qBox.append(qNote);
+    pane.append(qBox);
   }
   for (const a of actions) {
     const b = document.createElement('button'); b.textContent = a.label(); Object.assign(b.style, { width: '100%', margin: '2px 0 6px' });

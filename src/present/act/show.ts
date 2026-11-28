@@ -3338,7 +3338,59 @@ export class ActShow {
       { label: () => `打不死：${this.god ? '开' : '关'}`, run: () => { this.god = !this.god; } },
       { label: () => `全部招式：${this.dbgAllMoves ? '开' : '关'}`, run: () => { this.dbgAllMoves = !this.dbgAllMoves; if (this.hero && !this.prologue) this.hero.moves = this.dbgAllMoves ? ALL_MOVES : this.perks.moves; } },
       { label: () => `全部名刀与信物：${this.dbgAllWeapons ? '开' : '关'}`, run: () => { this.dbgAllWeapons = !this.dbgAllWeapons; this.syncHideoutNpcs(); this.refreshHideoutProps(); } }],
-      { regions: REGIONS.map(r => r.name), rooms: ri => REGIONS[ri].rooms, go: (ri, room, type) => { const r = this.jumpRegion(ri, room, type); return 'why' in r ? r.why : undefined; } });
+      {
+        regions: REGIONS.map(r => r.name),
+        rooms: ri => REGIONS[ri].rooms,
+        go: (ri, room, type) => { const r = this.jumpRegion(ri, room, type, 'south'); return 'why' in r ? r.why : undefined; },
+        routes: [
+          {
+            id: 'south', label: '南门旧道 (5关)',
+            regions: REGIONS.map(r => r.name),
+            rooms: ri => REGIONS[ri].rooms,
+            go: (ri, room, type) => { const r = this.jumpRegion(ri, room, type, 'south'); return 'why' in r ? r.why : undefined; },
+          },
+          {
+            id: 'north', label: '北出官道 (4关)', shortPrefix: '北',
+            regions: NORTH_REGIONS.map(r => r.name),
+            rooms: ri => NORTH_REGIONS[ri].rooms,
+            go: (ri, room, type) => {
+              const p = profile(); p.seen['north_unlocked'] = 1; saveProfile();
+              const r = this.jumpRegion(ri, room, type, 'north');
+              return 'why' in r ? r.why : undefined;
+            },
+          },
+        ],
+      },
+      [
+        {
+          title: '第二入口 · 北出官道',
+          items: [
+            { label: '西门·封关', title: '查看未解封前的铁链官封北道门', run: () => this.previewNorthGate(false) },
+            { label: '西门·解封', title: '查看断链引路灯与金色光幕，往西走直接进北一', accent: 'gold', run: () => this.previewNorthGate(true) },
+            { label: '回断碑古窑', title: '直接返回据点', run: () => { if (this.phase === 'cine' || this.phase === 'talk') return '过场中，先点下方「跳过剧情」'; if (this.phase === 'title') { stopTitle(); this.hud.on = true; } void this.enterYard(); } },
+          ],
+        },
+        {
+          title: '杜五四幕弧光（一键跳幕）',
+          items: [
+            { label: '南1偶遇', title: '南门第一关歇脚 · 杜五热汤偶遇', run: () => this.previewDuwuArc('road1') },
+            { label: '南2破冰', title: '南门第二关洛阳歇脚 · 收下热胡饼', run: () => this.previewDuwuArc('road2') },
+            { label: '灶冷空车', title: '第二幕据点事变 · 灰驴空车归来，刘白斩链解封北道', accent: 'gold', run: () => this.previewDuwuArc('missing') },
+            { label: '北1碎瓦罐', title: '北一荒驿寻踪 · 摔碎的六百钱瓦罐与流民老汉', run: () => this.previewDuwuArc('clue1') },
+            { label: '北2破棉袖', title: '北二药坞寻踪 · 焦炭箭号界碑与沾毒新棉袄袖口', run: () => this.previewDuwuArc('clue2') },
+            { label: '北2诀别高潮', title: '北二毒雾药坞 · 殷毒试药与杜五三段动态声景重制高潮', accent: 'crimson', run: () => this.previewDuwuArc('die') },
+          ],
+        },
+        {
+          title: '遗灶与双线结局',
+          items: [
+            { label: '遗灶移交', title: '杜五死后首次归窑 · 孙婆婆移交灶底老酒', run: () => this.previewDuwuArc('memorial') },
+            { label: '结局A', title: '南门孤雪结局（杜五已死变奏）', run: () => this.previewDuwuArc('endingA') },
+            { label: '结局C', title: '南门归窑结局（杜五已死变奏）', run: () => this.previewDuwuArc('endingC') },
+            { label: '真结局·孤刃照雪', title: '双线俱破真结局 · 摘布共饮热汤', accent: 'gold', run: () => this.previewDuwuArc('trueEnding') },
+          ],
+        },
+      ]);
     // the pause menu (act-30 之后, user: 「帮我把手柄的按键映射和手柄支持做了吧」): Start / Esc, a pad pulled out, the page hidden
     this.pause = new PauseMenu({ L: this.L, settings: [...SET.filter(x => __DEBUG_UI__ || !x.dbg).map(x => ({ label: x.short, run: x.run, show: x.show })), { id: 'language', label: () => '语言：简体中文', run: () => setLanguage(language === 'en' ? 'zh' : 'en') }], canGiveUp: () => this.canGiveUp(), giveUp: () => this.giveUp(), closed: () => this.unpaused(), toTitle: () => this.backToTitle(), onRun: () => this.canGiveUp(),
       build: () => this.buildSections(),
@@ -3521,56 +3573,8 @@ export class ActShow {
       },
       /** act-154 / dual-route: preview Du Wu 4-Act arc ('road1' | 'road2' | 'missing' | 'clue1' | 'clue2' | 'die' | 'memorial' | 'endingA' | 'endingC' | 'trueEnding') */
       duwuArc: (stage: 'road1' | 'road2' | 'missing' | 'clue1' | 'clue2' | 'die' | 'memorial' | 'endingA' | 'endingC' | 'trueEnding' = 'die') => {
-        const p = profile();
-        if (stage === 'road1' || stage === 'road2') {
-          delete p.seen['duwu_dead']; delete p.seen['duwu_die']; delete p.seen['duwu_missing']; delete p.seen['duwu_die_north'];
-          delete p.seen[stage === 'road1' ? 'duwu_road_1' : 'duwu_road_2'];
-          saveProfile();
-          return this.jumpRegion(stage === 'road1' ? 0 : 1, 2, 'rest', 'south');
-        }
-        if (stage === 'missing') {
-          delete p.seen['duwu_dead']; delete p.seen['duwu_die']; delete p.seen['duwu_missing']; delete p.seen['north_unlocked'];
-          p.bestRegion = Math.max(p.bestRegion ?? 0, 2);
-          p.bonds['duwu'] = Math.max(p.bonds['duwu'] ?? 0, 2);
-          saveProfile();
-          if (this.phase === 'title') { stopTitle(); this.hud.on = true; }
-          void this.enterYard();
-          return { stage: 'missing' };
-        }
-        if (stage === 'clue1' || stage === 'clue2') {
-          p.seen['north_unlocked'] = 1; p.seen['duwu_missing'] = 1;
-          delete p.seen[stage === 'clue1' ? 'north_clue_1' : 'north_clue_2'];
-          saveProfile();
-          return this.jumpRegion(stage === 'clue1' ? 0 : 1, 2, 'rest', 'north');
-        }
-        if (stage === 'die') {
-          p.seen['north_unlocked'] = 1; p.seen['duwu_missing'] = 1;
-          delete p.seen['duwu_dead']; delete p.seen['duwu_die']; delete p.seen['duwu_die_north']; delete p.seen['north_boss_2'];
-          saveProfile();
-          const r = this.jumpRegion(1, NORTH_REGIONS[1].rooms, 'boss', 'north');
-          if (this.plan && this.plan.waves.length > 1) this.plan.waves = [this.plan.waves[this.plan.waves.length - 1]];
-          return r;
-        }
-        if (stage === 'trueEnding') {
-          p.seen['duwu_dead'] = 1; p.seen['cuixuan_dead'] = 1; p.seen['north_win'] = 1;
-          saveProfile();
-          if (this.phase === 'title') { stopTitle(); this.hud.on = true; }
-          void this.playNorthEnding(true);
-          return { stage: 'trueEnding' };
-        }
-        p.seen['duwu_dead'] = 1; p.seen['duwu_die'] = 1; p.seen['duwu_die_north'] = 1; p.seen['north_unlocked'] = 1;
-        if (stage === 'memorial') {
-          delete p.seen['duwu_memorial_intro'];
-          p.meal = undefined;
-          saveProfile();
-          if (this.phase === 'title') { stopTitle(); this.hud.on = true; }
-          void this.enterYard();
-          return { stage: 'memorial' };
-        }
-        p.seen['duwu_memorial_intro'] = 1;
-        saveProfile();
-        void this.debugEnding(stage === 'endingA' ? 'a' : 'c');
-        return { stage };
+        const why = this.previewDuwuArc(stage);
+        return why ? { stage, why } : { stage };
       },
       /** Dual-route preview: jump directly to North Route (ri = 0..3, room, type) */
       northRoute: (ri = 0, room = 0, type: RoomType = 'fight') => {
@@ -3579,20 +3583,8 @@ export class ActShow {
       },
       /** Dual-route preview: toggle & view Hideout West-North Second Entrance */
       northGate: (unlocked = true) => {
-        const p = profile();
-        if (unlocked) { p.seen['north_unlocked'] = 1; p.seen['duwu_missing'] = 1; }
-        else { delete p.seen['north_unlocked']; delete p.seen['duwu_missing']; delete p.seen['duwu_dead']; }
-        saveProfile();
-        void (async () => {
-          if (this.phase === 'title') { stopTitle(); this.hud.on = true; }
-          if (this.room >= 0 || this.phase !== 'yard') await this.enterYard({ time: 'dusk', weather: 'clear' });
-          else this.refreshHideoutProps();
-          const ne = HIDEOUT.northExit, nz = (ne.z0 + ne.z1) * 0.5;
-          this.hero.pos.set(ne.x + 2.2, 0, nz);
-          this.hero.a.place(this.hero.pos, -Math.PI * 0.5);
-          this.cam.set(ne.x + 1.4, 0, nz);
-        })();
-        return { northUnlocked: unlocked };
+        const why = this.previewNorthGate(unlocked);
+        return why ? { northUnlocked: unlocked, why } : { northUnlocked: unlocked };
       },
       /** act-137: preview Ch1–Ch4 boss first-kill kneel + execution slash staging (ri = 0..3) */
       bossAfter: (ri = 0, executeNow = false) => { void this.debugBossAfter(Math.max(0, Math.min(3, ri)), executeNow); },
@@ -9019,6 +9011,78 @@ export class ActShow {
     this.talkTick = null; this.hero.scriptPose = null; this.releaseCutCam();
     if (this.endCui) { this.endCui.dispose(); this.endCui = null; }
     this.musicHold = null; this.hud.on = true; this.end(true, id === 'b');
+  }
+  /** Shared debug/tune-panel helper: preview any act of Du Wu's 4-Act arc & dual-route endings */
+  private previewDuwuArc(stage: 'road1' | 'road2' | 'missing' | 'clue1' | 'clue2' | 'die' | 'memorial' | 'endingA' | 'endingC' | 'trueEnding' = 'die'): string | void {
+    if (this.phase === 'cine' || this.phase === 'talk') return '过场中，先点下方「跳过剧情」';
+    const p = profile();
+    if (stage === 'road1' || stage === 'road2') {
+      delete p.seen['duwu_dead']; delete p.seen['duwu_die']; delete p.seen['duwu_missing']; delete p.seen['duwu_die_north'];
+      delete p.seen[stage === 'road1' ? 'duwu_road_1' : 'duwu_road_2'];
+      saveProfile();
+      const r = this.jumpRegion(stage === 'road1' ? 0 : 1, 2, 'rest', 'south');
+      return 'why' in r ? r.why : undefined;
+    }
+    if (stage === 'missing') {
+      delete p.seen['duwu_dead']; delete p.seen['duwu_die']; delete p.seen['duwu_missing']; delete p.seen['north_unlocked'];
+      p.bestRegion = Math.max(p.bestRegion ?? 0, 2);
+      p.bonds['duwu'] = Math.max(p.bonds['duwu'] ?? 0, 2);
+      saveProfile();
+      if (this.phase === 'title') { stopTitle(); this.hud.on = true; }
+      void this.enterYard();
+      return;
+    }
+    if (stage === 'clue1' || stage === 'clue2') {
+      p.seen['north_unlocked'] = 1; p.seen['duwu_missing'] = 1;
+      delete p.seen[stage === 'clue1' ? 'north_clue_1' : 'north_clue_2'];
+      saveProfile();
+      const r = this.jumpRegion(stage === 'clue1' ? 0 : 1, 2, 'rest', 'north');
+      return 'why' in r ? r.why : undefined;
+    }
+    if (stage === 'die') {
+      p.seen['north_unlocked'] = 1; p.seen['duwu_missing'] = 1;
+      delete p.seen['duwu_dead']; delete p.seen['duwu_die']; delete p.seen['duwu_die_north']; delete p.seen['north_boss_2'];
+      saveProfile();
+      const r = this.jumpRegion(1, NORTH_REGIONS[1].rooms, 'boss', 'north');
+      if (this.plan && this.plan.waves.length > 1) this.plan.waves = [this.plan.waves[this.plan.waves.length - 1]];
+      return 'why' in r ? r.why : undefined;
+    }
+    if (stage === 'trueEnding') {
+      p.seen['duwu_dead'] = 1; p.seen['cuixuan_dead'] = 1; p.seen['north_win'] = 1;
+      saveProfile();
+      if (this.phase === 'title') { stopTitle(); this.hud.on = true; }
+      void this.playNorthEnding(true);
+      return;
+    }
+    p.seen['duwu_dead'] = 1; p.seen['duwu_die'] = 1; p.seen['duwu_die_north'] = 1; p.seen['north_unlocked'] = 1;
+    if (stage === 'memorial') {
+      delete p.seen['duwu_memorial_intro'];
+      p.meal = undefined;
+      saveProfile();
+      if (this.phase === 'title') { stopTitle(); this.hud.on = true; }
+      void this.enterYard();
+      return;
+    }
+    p.seen['duwu_memorial_intro'] = 1;
+    saveProfile();
+    void this.debugEnding(stage === 'endingA' ? 'a' : 'c');
+  }
+  /** Shared debug/tune-panel helper: toggle & teleport right before Hideout West-North Second Entrance */
+  private previewNorthGate(unlocked = true): string | void {
+    if (this.phase === 'cine' || this.phase === 'talk') return '过场中，先点下方「跳过剧情」';
+    const p = profile();
+    if (unlocked) { p.seen['north_unlocked'] = 1; p.seen['duwu_missing'] = 1; }
+    else { delete p.seen['north_unlocked']; delete p.seen['duwu_missing']; delete p.seen['duwu_dead']; }
+    saveProfile();
+    void (async () => {
+      if (this.phase === 'title') { stopTitle(); this.hud.on = true; }
+      if (this.room >= 0 || this.phase !== 'yard') await this.enterYard({ time: 'dusk', weather: 'clear' });
+      else { this.syncHideoutNpcs(); this.refreshHideoutProps(); }
+      const ne = HIDEOUT.northExit, nz = (ne.z0 + ne.z1) * 0.5;
+      this.hero.pos.set(ne.x + 2.2, 0, nz);
+      this.hero.a.place(this.hero.pos, -Math.PI * 0.5);
+      this.cam.set(ne.x + 1.4, 0, nz);
+    })();
   }
   /** North Route Ending & Dual-Route True Ending (「孤刃照雪」 when both South Cui Mansion & North Hangu Citadel are cleared!) */
   private async playNorthEnding(forceTrue = false) {
