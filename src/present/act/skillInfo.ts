@@ -62,7 +62,7 @@ export function baseSkillsForWeapon(wid: WeaponId = 'hanshan', lv = 0): BaseSkil
     : wid === 'hanshan' && lv >= 2 ? '用一格气 · 成功回半格气'
     : wid === 'thunder' && lv >= 3 ? '用一格气 · 蓄力减伤40%'
     : '用一格气';
-  const ultNum = wid === 'blunt' && lv >= 3 ? '需三格杀气 · 伤害+40%' : wid === 'hanshan' && lv >= 3 ? '需三格杀气 · 积攒+20%' : '需三格杀气';
+  const ultNum = wid === 'blunt' && lv >= 3 ? '需三格杀气 · 伤害+25%' : wid === 'hanshan' && lv >= 3 ? '需三格杀气 · 积攒+20%' : '需三格杀气';
   return [
     { id: 'lianhuan', name: combo[wid].name, steps: ['attack', 'attack', 'more'], effect: combo[wid].effect, num: combo[wid].num, icon: 'btn:attack', slot: 'attack', weaponId: wid },
     { id: 'iai', name: stance[wid].name, steps: ['hold', 'full', 'release'], effect: stance[wid].effect, num: stance[wid].num, icon: 'stance', slot: 'stance', weaponId: wid },

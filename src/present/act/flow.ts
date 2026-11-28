@@ -20,14 +20,14 @@ export function roomsWorth(region: number, room: number, won = false): number {
   return n + (won ? roomsIn(region) : Math.max(0, room)) * worthOf(region);
 }
 
-/** the foes' strength in region ri (act-188: readable Act 1 entry with fair 1→3 concurrent melee cap and progressive late-act ramp) */
+/** the foes' strength in region ri (11-28 balance overhaul: firm R1-R2 melee pressure & 2→4 attackers so mobs never melt passively) */
 export interface RegionScale { hp: number; dmg: number; quick: number; calm: number; attackers: number }
-const HP_CURVE  = [1.00, 1.45, 2.00, 2.70, 3.50];
-const DMG_CURVE = [1.00, 1.30, 1.60, 1.90, 2.25];
-const SPD_CURVE = [0.95, 1.03, 1.11, 1.19, 1.27];
-const CALM_OFF  = [0, -0.08, -0.16, -0.24, -0.32];
-const ATK_CAP   = [1, 2, 2, 3, 3];
-const SHOP_MUL  = [1.0, 1.25, 1.55, 1.9, 2.3];
+const HP_CURVE  = [1.25, 1.75, 2.30, 2.95, 3.60];
+const DMG_CURVE = [1.15, 1.45, 1.75, 2.05, 2.35];
+const SPD_CURVE = [0.98, 1.06, 1.14, 1.22, 1.30];
+const CALM_OFF  = [0, -0.07, -0.14, -0.21, -0.28];
+const ATK_CAP   = [2, 2, 3, 3, 4];
+const SHOP_MUL  = [1.0, 1.15, 1.30, 1.45, 1.60];
 export function regionScale(ri: number): RegionScale {
   const n = Math.max(0, Math.floor(ri));
   const i = Math.min(HP_CURVE.length - 1, n), extra = Math.max(0, n - i);

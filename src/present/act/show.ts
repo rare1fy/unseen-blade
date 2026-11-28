@@ -192,8 +192,8 @@ import { Action } from '../actors/rig';
 addLocales(NINJA_LOCALES); addLocales(HANMO_LOCALES); addLocales(HANSHAN_LOCALES); addLocales(LUOYANG_LOCALES); addLocales(XIAPI_LOCALES);   // (11-18: regions two and three)
 
 /** prices at the 行商 (copper coins) */
-/** act-161 / act-169: every ware ×1.6; reroll removed */
-const PRICES = { boon: 96, heal: 48, sharpen: 80, vigor: 88, satchel: 72 };
+/** 11-28 balance overhaul: de-inflated shop prices paired with tighter per-region coin income & gentle 1.0→1.6× ramp */
+const PRICES = { boon: 80, heal: 35, sharpen: 60, vigor: 65, satchel: 45 };
 const SHOP_SPECIALS: ShopSpecial[] = ['vigor', 'satchel'];
 /** a soft dark spot for under the feet: a radial fade drawn once, shared by every spot */
 let SHADOW_TEX: THREE.Texture | null = null;
@@ -1134,9 +1134,8 @@ export class ActShow {
     this.lastWon = won;
     const p = profile();
     if (won && !this.usedRevive) { p.soloWins = (p.soloWins ?? 0) + 1; }
-    // 11-18: a room in region n counts n rooms; every boss killed counts (runReward's boss share is a boolean: the bosses past the first
-    // go in as 5 rooms each — act-161: was 15, which alone was 60 rooms on a clear)
-    const rooms = roomsWorth(this.region, this.room, won) + Math.max(0, this.bosses - 1) * 5;
+    // 11-28: extra bosses past the first count as 2 rooms each (was 5) so full clears don't short-circuit meta progression
+    const rooms = roomsWorth(this.region, this.room, won) + Math.max(0, this.bosses - 1) * 2;
     recordStageProgress(p, this.region, won ? roomsIn(this.region) : this.room);
     this.banked = bank(p, { rooms, elites: this.eliteKills, boss: this.bossKilled, won, kills: this.kills });
     clearRunAdBuffs(p);
@@ -2249,13 +2248,13 @@ export class ActShow {
     switch (id) {
       case 'blade':
         return [
-          { label: '斩击增伤', before: `+${lv * 12}%`, after: isMax ? undefined : `+${next * 12}%`, highlight: !isMax },
-          { label: '暴击几率', before: `+${lv * 4}%`, after: isMax ? undefined : `+${next * 4}%`, highlight: !isMax },
+          { label: '斩击增伤', before: `+${lv * 5}%`, after: isMax ? undefined : `+${next * 5}%`, highlight: !isMax },
+          { label: '暴击几率', before: `+${lv * 2}%`, after: isMax ? undefined : `+${next * 2}%`, highlight: !isMax },
         ];
       case 'darts':
         return [
           { label: '飞镖上限', before: msg`${3 + lv}枚`, after: isMax ? undefined : msg`${3 + next}枚`, highlight: !isMax },
-          { label: '装填冷却', before: `${100 - lv * 15}%`, after: isMax ? undefined : `${100 - next * 15}%`, highlight: !isMax },
+          { label: '装填冷却', before: `${100 - lv * 12}%`, after: isMax ? undefined : `${100 - next * 12}%`, highlight: !isMax },
         ];
       case 'manual':
         return [
@@ -2263,11 +2262,11 @@ export class ActShow {
         ];
       case 'vigor':
         return [
-          { label: '生命上限', before: `+${lv * 20}`, after: isMax ? undefined : `+${next * 20}`, highlight: !isMax },
+          { label: '生命上限', before: `+${lv * 12}`, after: isMax ? undefined : `+${next * 12}`, highlight: !isMax },
         ];
       case 'ear':
         return [
-          { label: '敌人起手', before: lv > 0 ? msg`放慢${lv * 10}%` : '常速', after: isMax ? undefined : msg`放慢${next * 10}%`, highlight: !isMax },
+          { label: '敌人起手', before: lv > 0 ? msg`放慢${lv * 6}%` : '常速', after: isMax ? undefined : msg`放慢${next * 6}%`, highlight: !isMax },
         ];
       case 'intent':
         return [
@@ -2276,7 +2275,7 @@ export class ActShow {
         ];
       case 'leech':
         return [
-          { label: '破势回血', before: msg`${lv * 5}点`, after: isMax ? undefined : msg`${next * 5}点`, highlight: !isMax },
+          { label: '破势回血', before: msg`${lv * 3}点`, after: isMax ? undefined : msg`${next * 3}点`, highlight: !isMax },
         ];
       case 'breath':
         return [
@@ -5758,7 +5757,7 @@ export class ActShow {
     const wName = weaponDef(wid).name;
     const cur = list;
     const i = await this.cards.open(cur.map(m => ({ boon: manualCard(m), tier: 0 })), {
-      header: { title: msg`${wName} · 刀谱`, sub: '武器专属派生 · 三选一', col: '#ffe49a' },
+      header: { title: msg`${wName} · 新派生招式`, sub: '解锁全新按键连招 · 三选一', col: '#ffe49a' },
     });
     const m = cur[i]; this.perks.moves[m.id] = true; this.log.push(`manual ${m.id}`); this.syncMarks(); this.settleDoors();
     this.hud.on = true; this.feed.push('manual', () => msg`刀谱 · ${m.name}`, 0, 'manual:' + m.id);
@@ -6665,7 +6664,7 @@ export class ActShow {
     const heavyFinisher = o.kind === 'k5' || o.kind === 'rel' || o.kind === 'rel2' || o.kind === 'parry' || o.kind === 'plunge' || o.kind === 'acutS' || o.kind === 'chase';
     const bloodTier = archTier(this.perks, 'blood');
     if (!died && f.inv <= 0 && f.kind !== 'dummy' && hasBoon(this.perks, 'bleed') && f.bleed >= 3 && (justBroke || heavyFinisher || (bloodTier >= 2 && f.bleed >= 4))) {
-      let bDmg = Math.max(4, Math.round(f.bleed * v(this.perks, 'bleed') * 3.2 * (bloodTier >= 2 ? 1.35 : 1) * (f.brokenT > 0 ? POISE_BREAK_MUL : 1)));
+      let bDmg = Math.max(4, Math.round(f.bleed * v(this.perks, 'bleed') * 2.2 * (bloodTier >= 2 ? 1.20 : 1) * (f.brokenT > 0 ? POISE_BREAK_MUL : 1)));
       if (this.prologue === 2 && isBoss(f)) bDmg = Math.min(bDmg, Math.max(0, f.hp - Math.ceil(f.maxHp * 0.2)));
       if (this.duelGen && this.duelGen.f === f) bDmg = Math.min(bDmg, Math.max(0, f.hp - Math.ceil(f.maxHp * 0.72)));
       f.bleed = 1; f.bleedT = 0;
@@ -7439,7 +7438,7 @@ export class ActShow {
     // copper coins: a few square-holed coins bounce out and fly to the hero (worth the foe's gold; elites ×3, the boss more); one gone
     // down a pit throws its coins up from the edge it went over
     const coinAt = fell && this.grid ? (([x, z]) => V3(x, 0, z))(this.grid.nearestFloor(f.pos.x, f.pos.z)) : f.pos.clone();
-    if (this.room >= 0 && f.kind !== 'dummy') { const total = boss ? 60 : f.d.gold * (elite ? 3 : 1), n = Math.min(10, total); this.coinsFx.drop(coinAt, n, Math.max(1, Math.round(total / n))); }
+    if (this.room >= 0 && f.kind !== 'dummy') { const total = boss ? 35 : f.d.gold * (elite ? 2 : 1), n = Math.min(8, total); this.coinsFx.drop(coinAt, n, Math.max(1, Math.round(total / n))); }
     if (this.genBlessings.has('luxun') && f.kind !== 'dummy' && !fell) {
       // 陆逊加护「连营火势」：击杀敌人触发范围体素火爆
       const ep = f.pos.clone().setY(0.7);
@@ -7727,14 +7726,15 @@ export class ActShow {
         this.musicHold = null;
       }
       if (afterBoss(this.region) === 'won') { this.end(true); return; }
-      // act-161: a boss down is a breath back (30% of her health); regions 1 and 3 hand a boon, 2 and 4 an upgrade of one in hand
+      // 11-28: boss clear heals 30%; R1 boss grants Manual #1, R3 boss grants a boon, R2 & R4 grant a stat upgrade
       { const was = this.hero.hp; this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + Math.round(this.hero.maxHp * 0.30)); this.healFeed(was); this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp }); }
-      if (this.region % 2 === 0) await this.boonPick(); else await this.upPick();
+      if (this.region === 0) await this.manualPick();
+      else if (this.region === 2) await this.boonPick();
+      else await this.upPick();
       this.openDoors(); return;
     }
     const rw = this.plan?.reward ?? null;
-    if (this.plan?.type === 'elite') this.coinsFx.drop(this.hero.pos.clone().add(V3(0, 0, -1.2)), 10, 4);
-    if (rw?.k === 'coins') { this.coinsFx.drop(this.hero.pos.clone().add(V3(0, 0, -1.5)), 12, Math.round(rw.n / 12)); }
+    if (rw?.k === 'coins') { this.coinsFx.drop(this.hero.pos.clone().add(V3(0, 0, -1.5)), 10, Math.max(1, Math.round(rw.n / 10))); }
     else if (rw?.k === 'maxHp') {
       this.hero.maxHp += rw.n; const was = this.hero.hp; this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + rw.n);
       this.feed.push('heal', () => msg`气血上限 +${rw.n}`, 0); this.healFeed(was);
@@ -7779,9 +7779,9 @@ export class ActShow {
     };
     cue('reveal', 0.85);
     if (tier === 'mythic') {
-      this.banner.show('传世秘藏', '铜钱百贯 · 残铁药引丰收', 1.6);
-      this.coinsFx.drop(dropPos, 20, 5);
-      grantMeta(18, 18);
+      this.banner.show('传世秘藏', '铜钱重赏 · 残铁药引丰收', 1.6);
+      this.coinsFx.drop(dropPos, 11, 5);
+      grantMeta(8, 8);
       boostMaxHp(15, 0.15);
       if (canPick && this.sharpenable().length) await this.sharpen();
       return;
@@ -7789,18 +7789,18 @@ export class ActShow {
     const r = Math.random();
     if (r < 0.45) {
       this.banner.show('铜钱宝库', '可在行商购秘传与升阶', 1.35);
-      this.coinsFx.drop(dropPos, 15, 5);
+      this.coinsFx.drop(dropPos, 8, 5);
       const was = this.hero.hp;
       this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + Math.round(this.hero.maxHp * 0.15));
       this.healFeed(was);
       this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp });
     } else if (r < 0.75) {
       this.banner.show('锻材药囊', '回古窑可锻刀行针永久强化', 1.35);
-      this.coinsFx.drop(dropPos, 6, 5);
-      grantMeta(12, 12);
+      this.coinsFx.drop(dropPos, 4, 5);
+      grantMeta(5, 5);
     } else {
       this.banner.show('秘藏入手', '气血上限提升并获铜钱', 1.35);
-      this.coinsFx.drop(dropPos, 5, 5);
+      this.coinsFx.drop(dropPos, 4, 5);
       boostMaxHp(12, 0.15);
     }
   }
@@ -7826,8 +7826,8 @@ export class ActShow {
     const ai = effArch ? ARCH_INFO[effArch] : null;
     const i = await this.cards.open(pick, {
       header: {
-        title: ai ? msg`${ai.name}秘传` : '淬炼秘传',
-        sub: ai ? msg`2件 ${ai.b2} · 3件 ${ai.b3}` : '同流派 2/3 件成势',
+        title: ai ? msg`${ai.name}秘传 · 招式强化` : '流派秘传 · 招式强化',
+        sub: ai ? msg`2件 ${ai.b2} · 3件 ${ai.b3}` : '强化已有招式 · 同流派 2/3 件成势',
         col: ai ? ai.col : '#ffd27a',
       },
       archHave: archCounts(this.perks),
@@ -7840,7 +7840,7 @@ export class ActShow {
   /** act-163: what a scroll room's altar gives her — a manual (from the second region on, while she has fewer than three and one is left
    *  to learn), a boon while her hand has room, else an upgrade of one she holds (boonPick's own fallback); the door and the altar say which */
   private scrollGives(region = this.region): 'manual' | 'boon' | 'up' {
-    if (region >= 1 && Object.keys(this.perks.moves).length < 3 && drawManuals(this.perks.moves, 1, Math.random, this.hero?.weaponId).length) return 'manual';
+    if (region >= 3 && Object.keys(this.perks.moves).length < 3 && drawManuals(this.perks.moves, 1, Math.random, this.hero?.weaponId).length) return 'manual';
     return freshBoons(this.perks, this.hero?.weaponId).length ? 'boon' : 'up';
   }
   private isScrollUp(p: RoomPlan) { return p.type === 'boon' && this.scrollGives(p.region ?? this.region) === 'up'; }
@@ -7862,7 +7862,7 @@ export class ActShow {
   /** act-161 升阶: one of the boons in hand goes up a tier (her pick of three); a hand already all 绝品 takes a purse and a breath instead */
   private async upPick(full = false) {
     if (this.sharpenable().length) { await this.sharpen(full); return; }
-    this.coinsFx.drop(this.hero.pos.clone().add(V3(0, 0, -1.2)), 12, 5);
+    this.coinsFx.drop(this.hero.pos.clone().add(V3(0, 0, -1.2)), 8, 5);
     const was = this.hero.hp; this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + Math.round(this.hero.maxHp * 0.10));
     this.healFeed(was); this.hud.flask.heal({ hp: this.hero.hp, maxHp: this.hero.maxHp });
   }
@@ -7870,12 +7870,12 @@ export class ActShow {
   private healFeed(was: number) { const n = Math.round(this.hero.hp - was); if (n > 0) { this.feed.push('heal', v => msg`生命 +${v}`, n); if (__DEBUG_UI__) this.fightLog.healed += n; } }
   /** the boons in hand that can still go up a tier */
   private sharpenable() { return BOONS.filter(b => this.perks.owned[b.id] != null && this.perks.owned[b.id] < 2); }
-  /** 磨刀: pick one of the boons in hand (shown at its next tier); it goes up a tier */
+  /** 磨刀: pick one of the boons in hand (shown with explicit Before → After stat delta); it goes up a tier */
   private async sharpen(full = false) {
     const own = this.sharpenable().sort(() => Math.random() - 0.5).slice(0, 3); if (!own.length) return;
-    const cards: BoonPick[] = own.map(b => ({ boon: b, tier: this.perks.owned[b.id] + 1 }));
+    const cards: BoonPick[] = own.map(b => ({ boon: b, fromTier: this.perks.owned[b.id], tier: this.perks.owned[b.id] + 1 }));
     const was = this.phase; this.phase = 'pick'; this.hud.on = false; this.banner.hide();
-    const i = await this.cards.open(cards, { header: { title: '秘传升阶', sub: full ? '秘传已满 · 选一升阶' : '选一秘传升阶', col: '#ffe08a' }, archHave: archCounts(this.perks) });
+    const i = await this.cards.open(cards, { header: { title: '秘传升阶 · 数值提升', sub: full ? '秘传已满 · 选一张提升数值' : '选一张已得秘传提升数值', col: '#86f6b8', accent: '#58c888' } });
     const b = own[i]; upgradeBoon(this.perks, b.id); this.log.push(`sharpen ${b.id} ${this.perks.owned[b.id]}`); this.syncMarks(); this.settleDoors();
     this.hud.on = true; this.phase = was; this.feed.push('boon', () => msg`${b.name} · ${TIER_NAMES[this.perks.owned[b.id]]}`, 0, 'sharpen:' + b.id);
   }
@@ -7901,10 +7901,10 @@ export class ActShow {
     }
     else if (s.id === 'buy_satchel') {
       this.stations.spend(s);
-      const p = profile(); p.iron += 10; p.herb += 10; saveProfile();
+      const p = profile(); p.iron += 5; p.herb += 5; saveProfile();
       this.hud.iron = p.iron; this.hud.herb = p.herb; cue('relic', 0.7);
-      this.feed.push('coins', () => msg`残铁 +${10}`, 0);
-      this.feed.push('heal', () => msg`药引 +${10}`, 0);
+      this.feed.push('coins', () => msg`残铁 +${5}`, 0);
+      this.feed.push('heal', () => msg`药引 +${5}`, 0);
     }
     else if (s.id === 'rest_heal') { this.stations.spend(s, true); heal(0.30); }
     else if (s.id === 'rest_meditate') {
@@ -7913,12 +7913,12 @@ export class ActShow {
       this.fragileShield = 20;
       this.syncHeroMods();
       this.addIntent(1.0, true);
-      const p = profile(); p.iron += 6; p.herb += 4; saveProfile();
+      const p = profile(); p.iron += 4; p.herb += 3; saveProfile();
       this.hud.iron = p.iron; this.hud.herb = p.herb; cue('relic', 0.8);
       fxRing(this.hero.pos.clone().setY(0.1), 0x9cf0d8, 2.4, { life: 0.6 } as never);
       this.feed.push('boon', () => '素衣护锋 · 20盾（未破全伤+30%）', 0);
-      this.feed.push('coins', () => msg`残铁 +${6}`, 0);
-      this.feed.push('heal', () => msg`药引 +${4}`, 0);
+      this.feed.push('coins', () => msg`残铁 +${4}`, 0);
+      this.feed.push('heal', () => msg`药引 +${3}`, 0);
     }
     else if (s.id === 'rest_sharpen') { this.stations.spend(s, true); await this.sharpen(); }
     else if (s.id === 'scroll' && this.scrollGives() === 'manual') { this.stations.spend(s); await this.manualPick(); }
@@ -9433,6 +9433,7 @@ export class ActShow {
             sub = ap ? msg`精英强敌战 · 必出高阶${ap}技能三选一` : '精英强敌战 · 必出高阶技能三选一';
             ico = archKey ?? 'scroll'; acc = arch ? arch.col : '#e84838';
             if (rw?.k === 'up') { title = '死士 · 秘传升阶'; sub = '精英强敌战 · 胜后把已学技能升阶变强'; ico = 'scroll'; acc = '#ffe08a'; }
+            else if (rw?.k === 'meta') { title = msg`死士 · 残铁+${rw.iron} 药引+${rw.herb}`; sub = '精英强敌战 · 重赏永久锻造与悟性材料'; ico = 'meta'; acc = '#c8a8ff'; }
             else if (rw?.k === 'coins') { title = msg`死士 · 铜钱 +${rw.n}`; sub = '精英强敌战 · 赢取大量铜钱去商店买强化'; ico = 'coin'; acc = '#ffd258'; }
           } else if (plan.type === 'event') {
             title = info.name; sub = '完成试炼，获得强力常驻加成'; ico = 'star'; acc = '#f0bc48';

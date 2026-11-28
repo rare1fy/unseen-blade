@@ -86,7 +86,7 @@ describe('一局五关', () => {
     expect(roomsWorth(last, roomsIn(last) - 1, true)).toBeCloseTo(all, 6);
   });
   it('难度：按哈迪斯2曲线逐关加码', () => {
-    expect(regionScale(0)).toEqual({ hp: 1, dmg: 1, quick: 0.95, calm: 0, attackers: 1 });
+    expect(regionScale(0)).toEqual({ hp: 1.25, dmg: 1.15, quick: 0.98, calm: 0, attackers: 2 });
     for (let i = 1; i < 5; i++) { const a = regionScale(i - 1), b = regionScale(i); expect(b.hp).toBeGreaterThan(a.hp); expect(b.dmg).toBeGreaterThan(a.dmg); expect(b.quick).toBeGreaterThan(a.quick); expect(b.calm).toBeLessThan(a.calm); expect(b.attackers).toBeGreaterThanOrEqual(a.attackers); }
   });
   it('各关头目间路牌统一写作「首领」，不提前剧透具体身份', () => {

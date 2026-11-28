@@ -26,7 +26,7 @@ export interface Boon { id: string; school: School; name: string; desc: string[]
 export type BoonId = 'bladeWind' | 'extra' | 'bleed' | 'behead' | 'spin' | 'pierce' | 'passCut' | 'decoy' | 'darts3' | 'boomerang' | 'pin' | 'twinDraw' | 'burst' | 'rift' | 'vault' | 'drink';
 export interface SkillBoon extends Boon { id: BoonId; eff: string; note: string; slot: BoonSlot; arch: Archetype }
 type BoonDef = Omit<SkillBoon, 'desc'>;
-export interface BoonPick { boon: Boon; tier: number }
+export interface BoonPick { boon: Boon; tier: number; fromTier?: number }
 export interface Perks { /** act-19 刀谱 */ moves: Record<string, boolean>; owned: Record<string, number> }
 export const newPerks = (): Perks => ({ moves: {}, owned: {} });
 export const boonTier = (tier: number) => Number.isFinite(tier) ? Math.max(0, Math.min(2, Math.floor(tier))) : 0;
@@ -65,8 +65,8 @@ const DEFS: BoonDef[] = [
   { id: 'drink', school: 'sr', slot: null, arch: 'blood', name: '饮血', eff: '斩杀一人，吸回一口血', note: '每人回 {v} 点血', vals: [1, 2, 3], col: '#9d3b40', glyph: ['..........', '#oooooooo#', '##########', '.########.', '.########.', '..######..', '....##....', '....##....', '..######..', '..........'] },
 ];
 export const BOONS: SkillBoon[] = DEFS.map(d => ({ ...d, desc: [d.eff, d.note] }));
-/** act-161: a hand holds this many boons; past it a boon reward is an upgrade of one she holds (show.ts boonPick) */
-export const BOON_CAP = 9;
+/** 11-28 balance overhaul: a hand holds 7 boons (was 9) so runs stay crisp and upgrades matter */
+export const BOON_CAP = 7;
 /** boons a blade's chain can never trigger (they hang on a cut pose): 无锋 has no k3 / k4 / k5 cut, 惊雷 no k3 / k4 — not offered to that blade */
 const DEAD_ON: Record<string, readonly string[]> = { blunt: ['bladeWind', 'extra', 'spin', 'pierce'], thunder: ['spin', 'pierce'] };
 export const boonFits = (id: string, weaponId?: string | null) => !(weaponId && DEAD_ON[weaponId]?.includes(id));

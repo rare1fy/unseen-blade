@@ -9,7 +9,7 @@ import {
   cardBoard, glyphIcon3D, weaponUiModel,
   paintFace, paintKeepsakeFace, paintWeaponStandFace, paintShopTagFace, paintWorkRowFace, paintSteleFace, paintArcanaFace, paintLanternFace,
   boardLayout, scrollLayout, steleLayout, keepsakeLayout, weaponLayout, shopLayout, workRowLayout, arcanaLayout, lanternLayout,
-  CARD_H, SKILL_H, type CardStyle,
+  CARD_H, SKILL_H, richLine, type CardStyle,
 } from './cardBoard';
 import { UiPlatePool, type DetailSpec, type WorkbenchSpec, type GraspBarSpec, type TabRect } from './uiPlate';
 import type { WeaponId } from './weapons';
@@ -208,7 +208,7 @@ export class CardPick3D {
     const isArcana = mode === 'arcana';
     const isLantern = mode === 'lantern';
     const isSpecial = isKeepsake || isWeapons || isWorkbench || isShop || isArcana || isLantern;
-    const entries = isSpecial ? boons.map(() => null) : boons.map(({ boon, tier }) => entryOfCard(boon, tier, o.archHave));
+    const entries = isSpecial ? boons.map(() => null) : boons.map(({ boon, tier, fromTier }) => entryOfCard(boon, tier, o.archHave, fromTier));
     const skill = entries.some(e => !!e);
     const isScrollRow = !isSpecial && boons.length > 0 && boons.every(({ boon }) => styleOf(boon) === 'manual');
     const isMirrorGrid = !isSpecial && boons.length === 4 && boons.every(({ boon }) => styleOf(boon) === 'mirror');
@@ -383,6 +383,7 @@ export class CardPick3D {
         theme: b.workInfo?.theme,
         active: b.arcanaInfo?.active ?? b.lanternInfo?.active,
         awakening: b.arcanaInfo?.awakening,
+        upgrade: !!e?.upgrade,
       });
       board.renderOrder = 30;
       root.add(board);
@@ -1200,12 +1201,39 @@ function paintScrollFace(e: SkillEntry, w: number, h: number, dpr: number) {
   return t;
 }
 
-/** the face of a 秘传 / 刀谱 card */
+/** the face of a 秘传 / 刀谱 / 升阶 card */
 function paintSkillFace(e: SkillEntry, w: number, h: number, dpr: number) {
   const W = Math.max(8, Math.round(w * dpr)), H = Math.max(8, Math.round(h * dpr)), c = makeCanvas(W, H), g = c.getContext('2d') as CanvasRenderingContext2D;
   g.imageSmoothingEnabled = false;
   const S = Math.max(1, Math.round(H * ROW.nameH / PIX_H)), x0 = Math.round(W * 0.004);
   const nameW = paintName(g, e, x0, Math.round(H * ROW.nameY), S, dpr);
+  if (e.upgrade) {
+    // Dedicated Stat-Upgrade card face: bold jade-gold Before → After comparison box in the middle (no confusing combo-button row!)
+    const boxX = x0, boxW = W - x0 - Math.round(6 * dpr);
+    const boxY = Math.round(H * 0.34), boxH = Math.round(H * 0.31);
+    const bdr = Math.max(1, Math.round(1.5 * dpr));
+    g.fillStyle = '#58c888'; g.fillRect(boxX, boxY, boxW, boxH);
+    g.fillStyle = '#12261e'; g.fillRect(boxX + bdr, boxY + bdr, boxW - 2 * bdr, boxH - 2 * bdr);
+    g.fillStyle = '#86f6b8'; g.fillRect(boxX + bdr, boxY + bdr, Math.max(3, Math.round(3 * dpr)), boxH - 2 * bdr);
+    // Crisp axis-aligned pixel upward chevron inside the left of the upgrade bar
+    const u = Math.max(1, Math.round(boxH / 12));
+    const ax = boxX + Math.round(14 * dpr), ay = Math.round(boxY + boxH / 2);
+    g.fillStyle = '#ffe878';
+    g.fillRect(ax - u, ay - 3 * u, 2 * u, u);
+    g.fillRect(ax - 2 * u, ay - 2 * u, 4 * u, u);
+    g.fillRect(ax - 3 * u, ay - u, 6 * u, u);
+    g.fillRect(ax - u, ay, 2 * u, 3 * u);
+    const diffX = ax + Math.round(10 * dpr), diffMaxW = Math.max(40, boxX + boxW - diffX - Math.round(8 * dpr));
+    const diffPx = Math.max(Math.round(11 * dpr), Math.round(boxH * 0.52));
+    let p = diffPx;
+    while (p > Math.round(9 * dpr) && paintUpgradeText(null, e.upgrade.diff, 0, 0, p) > diffMaxW) p -= 1;
+    paintUpgradeText(g, e.upgrade.diff, diffX, Math.round(boxY + (boxH - p * 1.05) / 2), p);
+    // Subtle bottom reminder of what the boon does
+    paintEffect(g, e.effect, x0, Math.round(H * 0.74), Math.round(H * 0.165), W - x0 - Math.round(4 * dpr), '#bfb5a4');
+    const t = new THREE.CanvasTexture(c as HTMLCanvasElement);
+    t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearFilter; t.generateMipmaps = false; t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+  }
   const row = language === 'en' ? EN_ROW : ROW;
   const isBoon = e.kind === 'boon';
   if (e.num && row === EN_ROW) paintNum(g, e.num, x0, Math.round(H * 0.84), Math.round(H * row.num), W - x0 - 4 * dpr, 'left', isBoon);
@@ -1227,4 +1255,29 @@ function paintSkillFace(e: SkillEntry, w: number, h: number, dpr: number) {
   const t = new THREE.CanvasTexture(c as HTMLCanvasElement);
   t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearFilter; t.generateMipmaps = false; t.colorSpace = THREE.SRGBColorSpace;
   return t;
+}
+
+/** Paint Before → After upgrade line: muted old number, bright gold arrow, glowing emerald new number */
+function paintUpgradeText(g: CanvasRenderingContext2D | null, line: string, x: number, y: number, px: number): number {
+  const parts = line.split(/(\s*→\s*[^\s·]+)/g).filter(Boolean);
+  let cx = x;
+  for (const part of parts) {
+    if (part.includes('→')) {
+      const [lhs, rhs] = part.split('→');
+      if (lhs) {
+        const w = richLine(g, lhs, cx, y, px, '#d4ccb8', '#d4ccb8', false, false);
+        cx += w;
+      }
+      const aw = richLine(g, '→', cx, y, px, '#ffe478', '#ffe478', false, false);
+      cx += aw;
+      if (rhs) {
+        const nw = richLine(g, rhs, cx, y, px, '#86f6b8', '#98ffca', false, false);
+        cx += nw;
+      }
+    } else {
+      const w = richLine(g, part, cx, y, px, '#e8e2d2', '#b8b0a0', false, false);
+      cx += w;
+    }
+  }
+  return cx - x;
 }

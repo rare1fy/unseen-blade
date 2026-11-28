@@ -652,10 +652,10 @@ export function playTitle(n: number, host: TitleHost) {
     if (gen !== titleGen) { p.drop(); return; }
     running = new Title(index, host, p.attach());
   };
-  // On mini-games, pass `background: true` so pre-baked `title-snow.bin` actually unpacks (~100 ms vs 4.1 s procedural),
-  // using a 160 ms slice budget during initial boot so title-snow unpacks in 1-2 ticks with zero wasted empty WebGL frames.
+  // On mini-games, pass `background: true` so pre-baked `title-snow.bin` actually unpacks (~70 ms vs 4.1 s procedural),
+  // yielding every 16 ms so gfx presents the boot screen on Frame 1 without blocking HarmonyOS/Android first-frame hooks.
   if (__WX__) {
-    return loadInFrames(prepareStageSteps(def, { background: true }), 160).then(show);
+    return loadInFrames(prepareStageSteps(def, { background: true }), 16).then(show);
   }
   const prepared = runRoomBuild(prepareStageSteps(def));
   if (prepared instanceof Promise) return prepared.then(show);

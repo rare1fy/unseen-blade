@@ -7,9 +7,9 @@ export interface MetaUp { id: string; who: Who; cur: Cur; name: string; desc: [s
 
 import { UP_COPY } from './hideoutLines';
 export const META: MetaUp[] = [
-  { id: 'blade', who: 'forge', cur: 'iron', name: '刀身', desc: ['斩击增伤并提暴击', '每级+8%伤+3%暴'], costs: [10, 22, 40] },
-  { id: 'darts', who: 'forge', cur: 'iron', name: '镖匣', desc: ['飞镖扩容且快装', '每级+1枚-12%冷却'], costs: [14, 32] },
-  { id: 'manual', who: 'forge', cur: 'iron', name: '旧谱', desc: ['每局开局', '先挑一本刀谱'], costs: [35] },
+  { id: 'blade', who: 'forge', cur: 'iron', name: '刀身', desc: ['斩击增伤并提暴击', '每级+5%伤+2%暴'], costs: [20, 45, 85] },
+  { id: 'darts', who: 'forge', cur: 'iron', name: '镖匣', desc: ['飞镖扩容且快装', '每级+1枚-12%冷却'], costs: [25, 55] },
+  { id: 'manual', who: 'forge', cur: 'iron', name: '旧谱', desc: ['每局开局', '先挑一本刀谱'], costs: [75] },
   { id: 'vigor', who: 'medic', cur: 'herb', name: '筋骨', desc: ['生命上限提高', '每级加十二'], costs: [10, 22, 38] },
   { id: 'ear', who: 'medic', cur: 'herb', name: '听宫', desc: ['敌人起手更慢', '每级慢六分易识破'], costs: [14, 30] },
   { id: 'intent', who: 'medic', cur: 'herb', name: '杀气', desc: ['每间开场带杀气', '自带一格杀气半格气'], costs: [20] },
@@ -119,55 +119,55 @@ export interface ArcanaDef {
 
 export const ARCANA_BASE_CAP = 6;
 export const ARCANA_CAP_STEP = 2;
-/** act-161: three widenings, 6 -> 12 (was six, to 18 — one more than every card together costs, so nothing was ever left out) */
-export const ARCANA_CAP_COSTS = [12, 20, 30];
+/** act-161 / 11-28: three widenings 6 -> 12 with stepped late-run herb sinks */
+export const ARCANA_CAP_COSTS = [20, 38, 60];
 /** what the three widenings past 12 used to cost: paid back to a save that bought them */
 const ARCANA_CAP_REFUND = [44, 62, 84];
 
 /** act-149: 孙媪药炉冥想 · 3×3 周天悟性牌阵 (Hades 2 Altar of Ashes style: toggle cards within Grasp cap + center 0-grasp Awakening!) */
 export const ARCANA: ArcanaDef[] = [
   {
-    id: 'vigor', name: '沸血筋骨', short: '筋骨', grasp: 1, unlockCost: 0, upgradeCosts: [14, 28],
+    id: 'vigor', name: '沸血筋骨', short: '筋骨', grasp: 1, unlockCost: 0, upgradeCosts: [22, 45],
     vals: [12, 24, 36], unit: '', statLabel: '生命上限', desc: '运药活血，周身气血更盛', col: '#7ef0a8',
     glyph: ['.##.##.', '#######', '#######', '.#####.', '..###..', '...#...', '.......'],
   },
   {
-    id: 'ear', name: '贯耳听宫', short: '听宫', grasp: 2, unlockCost: 0, upgradeCosts: [16, 32],
+    id: 'ear', name: '贯耳听宫', short: '听宫', grasp: 2, unlockCost: 0, upgradeCosts: [25, 50],
     vals: [6, 12, 18], unit: '%', statLabel: '起手放慢', desc: '凝神听风，敌人出招破绽更显', col: '#90e4ff',
     glyph: ['..###..', '.#...#.', '#..o..#', '#.ooo.#', '#..o..#', '.#...#.', '..###..'],
   },
   {
-    id: 'wind', name: '踏风步', short: '踏风', grasp: 1, unlockCost: 10, upgradeCosts: [16, 32],
+    id: 'wind', name: '踏风步', short: '踏风', grasp: 1, unlockCost: 16, upgradeCosts: [24, 48],
     vals: [8, 14, 20], unit: '%', statLabel: '冲刺缩冷', desc: '吐纳轻身，闪避冲刺周转更快', col: '#8ceeff',
     glyph: ['.......', '....#..', '######.', '#######', '######.', '....#..', '.......'],
   },
   {
-    id: 'intent', name: '出鞘杀意', short: '杀意', grasp: 2, unlockCost: 14, upgradeCosts: [20, 38],
+    id: 'intent', name: '出鞘杀意', short: '杀意', grasp: 2, unlockCost: 22, upgradeCosts: [30, 58],
     vals: [1, 2, 2], unit: '格', statLabel: '开场杀意', desc: '入阵先蓄杀意，更快斩出不见刀', col: '#ffb866',
     glyph: ['...#...', '..###..', '..###..', '.#####.', '.##o##.', '..###..', '...#...'],
   },
   {
-    id: 'center', name: '周天归元', short: '归元', grasp: 0, unlockCost: 16, upgradeCosts: [24, 44],
-    vals: [8, 14, 20], unit: '%', statLabel: '全招增伤', desc: '【零悟性唤醒】同启3张牌自动点亮', col: '#ffe278',
+    id: 'center', name: '周天归元', short: '归元', grasp: 0, unlockCost: 26, upgradeCosts: [36, 68],
+    vals: [5, 10, 15], unit: '%', statLabel: '全招增伤', desc: '【零悟性唤醒】同启3张牌自动点亮', col: '#ffe278',
     glyph: ['...o...', '..ooo..', '.oo#oo.', 'oo###oo', '.oo#oo.', '..ooo..', '...o...'],
   },
   {
-    id: 'leech', name: '破势养气', short: '养气', grasp: 2, unlockCost: 18, upgradeCosts: [22, 42],
+    id: 'leech', name: '破势养气', short: '养气', grasp: 2, unlockCost: 28, upgradeCosts: [34, 64],
     vals: [3, 5, 7], unit: '点', statLabel: '破势回血', desc: '破势弹反或完美闪避立回气血', col: '#84f6b8',
     glyph: ['...#...', '..###..', '.##o##.', '##ooo##', '.##o##.', '..###..', '...#...'],
   },
   {
-    id: 'keen', name: '藏锋心眼', short: '心眼', grasp: 2, unlockCost: 22, upgradeCosts: [24, 46],
+    id: 'keen', name: '藏锋心眼', short: '心眼', grasp: 2, unlockCost: 34, upgradeCosts: [36, 70],
     vals: [4, 8, 12], unit: '%', statLabel: '暴击几率', desc: '静心观隙，刀锋更易斩中要害', col: '#ffd080',
     glyph: ['.......', '.#####.', '#..o..#', '#.ooo.#', '#..o..#', '.#####.', '.......'],
   },
   {
-    id: 'poise', name: '崩岳断骨', short: '断骨', grasp: 3, unlockCost: 26, upgradeCosts: [26, 48],
+    id: 'poise', name: '崩岳断骨', short: '断骨', grasp: 3, unlockCost: 40, upgradeCosts: [40, 74],
     vals: [12, 22, 32], unit: '%', statLabel: '削韧加快', desc: '沉肩坠肘，全招更易崩碎敌架势', col: '#f0b880',
     glyph: ['.#...#.', '..###..', '...#...', '..###..', '...#...', '..###..', '.#...#.'],
   },
   {
-    id: 'breath', name: '绝处闭息', short: '闭息', grasp: 4, unlockCost: 32, upgradeCosts: [30, 56],
+    id: 'breath', name: '绝处闭息', short: '闭息', grasp: 4, unlockCost: 50, upgradeCosts: [46, 86],
     vals: [1, 1, 1], unit: '次', statLabel: '死境留命', desc: '致命伤闭息护心，留二成半血续战', col: '#ff9690',
     glyph: ['..###..', '.#####.', '##o#o##', '#######', '.#####.', '..#.#..', '.......'],
   },
@@ -365,10 +365,10 @@ export function runMods(p: Profile): RunMods {
   const aWind = arcanaVal(p, 'wind') / 100;
   const aPoise = arcanaVal(p, 'poise') / 100;
   return {
-    dmgMul: (1 + 0.08 * level(p, 'blade')) * (1 + aCenter),
-    critBonus: 0.03 * level(p, 'blade') + arcanaVal(p, 'keen') / 100,
+    dmgMul: (1 + 0.05 * level(p, 'blade')) * (1 + aCenter),
+    critBonus: 0.02 * level(p, 'blade') + arcanaVal(p, 'keen') / 100,
     dartBonus: level(p, 'darts'),
-    startCoins: gBuff === 'lotus' ? 35 : 0,
+    startCoins: gBuff === 'lotus' ? 25 : 0,
     hpBonus: arcanaVal(p, 'vigor') + (gBuff === 'lotus' ? 18 : 0),
     deathDefy: arcanaVal(p, 'breath') > 0 ? 1 : 0,
     startIntent: arcanaVal(p, 'intent') + (gBuff === 'xuanzhi' ? 1 : 0),
@@ -390,9 +390,9 @@ export interface RunStats { rooms: number; elites: number; boss: boolean; won: b
 
 export function runReward(s: RunStats): { iron: number; herb: number } {
   return {
-    // act-188: tightened early-run income so the first trip home affords ~1–2 upgrades instead of flooding 4–5 at once
-    iron: Math.round(4 + 2.5 * s.rooms + 3 * s.elites + (s.boss ? 12 : 0) + (s.won ? 12 : 0)),
-    herb: Math.round(4 + 2.5 * s.rooms + Math.floor(s.kills / 4) * 2 + (s.won ? 12 : 0)),
+    // 11-28 balance overhaul: pace full meta mastery across ~12–18 runs (5–7 clears); mid-Act 2 death affords 1–2 deliberate upgrades
+    iron: Math.round(2 + 1.0 * s.rooms + 1.5 * s.elites + (s.boss ? 6 : 0) + (s.won ? 10 : 0)),
+    herb: Math.round(2 + 1.0 * s.rooms + Math.floor(s.kills / 12) * 2 + (s.boss ? 4 : 0) + (s.won ? 10 : 0)),
   };
 }
 

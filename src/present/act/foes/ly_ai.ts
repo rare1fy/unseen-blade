@@ -26,13 +26,13 @@ import { ROLE_AI, type RoleAI, type ThinkCtx } from './roles';
 /** 西凉兵开打时喊的（agy） */
 const BARK_LY = ['哪来的蒙眼瞎狗！', '瞎子也敢来送死！', '抓去填炉铸小钱！', '扔进铁水化成渣！', '剁碎了喂西凉马！', '泼油，烧死这瞎子！', '结大盾，撞烂他！', '强弩齐射，扎成猬！', '飞熊军前不留活口！', '听风辨位？听你娘！'];
 addFoes({
-  ly_halberd: { model: 'ly_halberd', hp: 46, r: 0.46, speed: 2.6, mass: 1.1, poise: 0, gold: 4, name: '飞熊长戟', role: 'ly_halberd', elite: 'ly_halberd_e', barks: BARK_LY },
-  ly_rider: { model: 'ly_rider', hp: 70, r: 0.85, speed: 3.4, mass: 2.4, poise: 0, gold: 6, name: '凉州突骑', role: 'ly_rider', elite: 'ly_rider_e', barks: BARK_LY },
-  ly_shield: { model: 'ly_shield', hp: 64, r: 0.55, speed: 1.9, mass: 2.0, poise: 0, gold: 5, name: '覆铁重盾', role: 'ly_shield', elite: 'ly_shield_e', barks: BARK_LY },
-  ly_xbow: { model: 'ly_xbow', hp: 30, r: 0.44, speed: 2.4, mass: 0.9, poise: 0, gold: 4, name: '摧坚强弩', role: 'ly_xbow', elite: 'ly_xbow_e', barks: BARK_LY },
-  ly_torch: { model: 'ly_torch', hp: 32, r: 0.44, speed: 2.7, mass: 0.9, poise: 0, gold: 4, name: '泼油狂卒', role: 'ly_torch', elite: 'ly_torch_e', barks: BARK_LY },
-  ly_looter: { model: 'ly_looter', hp: 22, r: 0.38, speed: 3.6, mass: 0.6, poise: 0, gold: 2, name: '搜骨乱卒', role: 'ly_looter', alt: ['ly_looter_b'], weight: 0.5, barks: BARK_LY },
-  ly_boss: { model: 'ly_boss', hp: 740, r: 0.95, speed: 2.1, mass: 4.2, poise: 140, gold: 50, name: '飞熊校尉 · 阎虎', role: 'ly_boss', boss: true, tag: '高炉火烈，大斧生嚼', intro: '哪来的瞎狗？投进炉里铸钱！' },
+  ly_halberd: { model: 'ly_halberd', hp: 46, r: 0.46, speed: 2.6, mass: 1.1, poise: 0, gold: 2, name: '飞熊长戟', role: 'ly_halberd', elite: 'ly_halberd_e', barks: BARK_LY },
+  ly_rider: { model: 'ly_rider', hp: 70, r: 0.85, speed: 3.4, mass: 2.4, poise: 0, gold: 4, name: '凉州突骑', role: 'ly_rider', elite: 'ly_rider_e', barks: BARK_LY },
+  ly_shield: { model: 'ly_shield', hp: 64, r: 0.55, speed: 1.9, mass: 2.0, poise: 0, gold: 3, name: '覆铁重盾', role: 'ly_shield', elite: 'ly_shield_e', barks: BARK_LY },
+  ly_xbow: { model: 'ly_xbow', hp: 30, r: 0.44, speed: 2.4, mass: 0.9, poise: 0, gold: 2, name: '摧坚强弩', role: 'ly_xbow', elite: 'ly_xbow_e', barks: BARK_LY },
+  ly_torch: { model: 'ly_torch', hp: 32, r: 0.44, speed: 2.7, mass: 0.9, poise: 0, gold: 2, name: '泼油狂卒', role: 'ly_torch', elite: 'ly_torch_e', barks: BARK_LY },
+  ly_looter: { model: 'ly_looter', hp: 22, r: 0.38, speed: 3.6, mass: 0.6, poise: 0, gold: 1, name: '搜骨乱卒', role: 'ly_looter', alt: ['ly_looter_b'], weight: 0.5, barks: BARK_LY },
+  ly_boss: { model: 'ly_boss', hp: 640, r: 0.95, speed: 2.1, mass: 4.2, poise: 140, gold: 35, name: '飞熊校尉 · 阎虎', role: 'ly_boss', boss: true, tag: '高炉火烈，大斧生嚼', intro: '哪来的瞎狗？投进炉里铸钱！' },
 });
 
 // ------------------------------------------------------------------ shared bits
