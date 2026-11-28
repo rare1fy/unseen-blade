@@ -156,7 +156,7 @@ import { spawnFoe, updateFoe, damageFoe, type Foe, type FoeWorld, type EKind, Ar
 import { EDEFS, isBoss, isRangedFoe, lowAttack, trimShadows, dropTeles, UNSTICK } from './enemy';   // wp/foes: the boss bar / banner / death and the bot's jump read these
 import { BOONS, ARCH_INFO, archCounts, archTier, applyBoon, drawBoons, upgradeBoon, boonCount, upgradableBoons, freshBoons, BOON_CAP, returnCard, TIER_NAMES, newPerks, tierOf, hasBoon, v, v2, isBladeHit, type Archetype, type Perks, type Boon, type BoonPick } from './boons';
 import { TUNE } from './tune';
-import { installActTune } from './tunePanel';
+import { installActTune, type TuneStoryNode } from './tunePanel';
 import { BODY_FONT, BODY_FONT_NAME, setBodyFont, type BodyFont } from '../ui3d/bodyFont';
 import { HEROES, RACK, motionOf } from './ninjaAct';
 import { Yard, makeSign, SPAWN_AT } from './yard';
@@ -431,6 +431,40 @@ const ROOM_VERB: Record<string, [number, number]> = { hj_village: [0.6, 0.13], h
 /** 11-18 不见刀's burst: how many quick cuts each foe takes after the sheathing click, the gap between them (s, real), each one's
  *  share of TUNE.ultDmg (the last cut takes what is left) */
 const ULT_TICKS = 8, ULT_GAP = 0.065, ULT_TICK_SHARE = 0.06;
+/** Chronological 25-node story director timeline for one-click sequential & targeted story review (debug UI only) */
+const STORY_TIMELINE: TuneStoryNode[] = [
+  // 第一幕 · 南门初识与杜五铺垫
+  { id: 'bond_1', act: '第一幕 · 南门初识与杜五铺垫', label: '羁绊①·补破袄', title: '据点火塘 · 杜五拿粗麻线补好刘白破袄' },
+  { id: 'road_1', act: '第一幕 · 南门初识与杜五铺垫', label: '南1·热汤偶遇', title: '南门第一关歇脚 · 顺着血脚印送热汤与六百钱棉袄盼头' },
+  { id: 'bond_2', act: '第一幕 · 南门初识与杜五铺垫', label: '羁绊②·攒六百钱', title: '据点火塘 · 瓦罐攒到四百二十钱，盘算开春扯厚棉布' },
+  { id: 'road_2', act: '第一幕 · 南门初识与杜五铺垫', label: '南2·洛阳胡饼', title: '南门第二关洛阳歇脚 · 刘白头一回收下杜五的胡饼' },
+  { id: 'bond_3', act: '第一幕 · 南门初识与杜五铺垫', label: '羁绊③·西门风声', title: '据点火塘 · 铁链门外官军往北药坞押送流民的风声' },
+  { id: 'south_ch3_before', act: '第一幕 · 南门初识与杜五铺垫', label: '南3·白门楼封寒', title: '南门第三关首领战前 · 杜五不再在此仓促牺牲' },
+  { id: 'bond_4', act: '第一幕 · 南门初识与杜五铺垫', label: '羁绊④·北道换盐', title: '据点火塘 · 杜五说明早去北道换盐扯布并立焦炭箭号伏笔' },
+  // 第二幕 · 事变与第二入口解封
+  { id: 'gate_locked', act: '第二幕 · 事变与第二入口解封', label: '西门·铁链封关', title: '解封前状态 · 黑铁交叉锁链与官封木牌' },
+  { id: 'duwu_missing', act: '第二幕 · 事变与第二入口解封', label: '灶冷空车(斩链)', title: '中盘事变 · 灰驴独拉空车归窑、车帮炭号与刘白斩链解封北道', accent: 'gold' },
+  { id: 'gate_unlocked', act: '第二幕 · 事变与第二入口解封', label: '西门·北道已开', title: '解封后状态 · 断链引路灯与金色光幕，往西走直接进北一', accent: 'gold' },
+  // 第三幕 · 北道寻踪
+  { id: 'clue_1', act: '第三幕 · 北道寻踪', label: '北1寻踪·碎瓦罐', title: '北一荒驿歇脚 · 摔碎的六百钱瓦罐与流民老汉证词' },
+  { id: 'n1_before', act: '第三幕 · 北道寻踪', label: '北1战前·厉锋', title: '北一荒驿首领战前 · 镇驿百夫长厉锋' },
+  { id: 'n1_after', act: '第三幕 · 北道寻踪', label: '北1战后·指药坞', title: '北一首领战后 · 厉锋供出北谷毒雾药坞' },
+  { id: 'clue_2', act: '第三幕 · 北道寻踪', label: '北2寻踪·破棉袖', title: '北二毒雾界碑 · 沾毒新棉袄袖口与焦炭箭号' },
+  // 第四幕 · 毒雾药坞高潮与遗灶
+  { id: 'duwu_die_north', act: '第四幕 · 毒雾药坞高潮与遗灶', label: '北2诀别高潮·殷毒', title: '杜五真正高潮 · 三段动态声景（寒风静默→琵琶挽歌→胡饼滚雪静默→复仇战）', accent: 'crimson' },
+  { id: 'n2_after', act: '第四幕 · 毒雾药坞高潮与遗灶', label: '北2战后·指谢渊', title: '北二首领战后 · 殷毒临死供出铁甲军寨与监军太尉谢渊' },
+  { id: 'memorial', act: '第四幕 · 毒雾药坞高潮与遗灶', label: '归窑·遗灶移交', title: '杜五死后首次归窑 · 孙婆婆挖出灶底老酒与白纸灯' },
+  // 第五幕 · 军寨、函谷玄台与多结局
+  { id: 'n3_before', act: '第五幕 · 军寨、函谷玄台与多结局', label: '北3战前·铁镇', title: '北三铁甲军寨首领战前 · 虎贲校尉铁镇' },
+  { id: 'n3_after', act: '第五幕 · 军寨、函谷玄台与多结局', label: '北3战后·揭黑幕', title: '北三首领战后 · 崔玄只是刀笔吏，幕后执棋者为谢渊' },
+  { id: 'n4_before', act: '第五幕 · 军寨、函谷玄台与多结局', label: '北4战前·谢渊', title: '北四函谷玄台首领战前 · 监军太尉谢渊（他攒了六百钱，只想买件过冬的棉袄）' },
+  { id: 'n4_after', act: '第五幕 · 军寨、函谷玄台与多结局', label: '北4战后·谁在哭', title: '北四首领战后 · 熄不熄我看不见，但我听得见谁在哭' },
+  { id: 'north_ending', act: '第五幕 · 军寨、函谷玄台与多结局', label: '北道结局·孤刃明', title: '单通北道结局 · 乱世未歇，孤刃已明' },
+  { id: 'ending_a', act: '第五幕 · 军寨、函谷玄台与多结局', label: '南门结局A·孤雪', title: '南门孤雪结局（杜五已死变奏）' },
+  { id: 'ending_c', act: '第五幕 · 军寨、函谷玄台与多结局', label: '南门结局C·温汤', title: '南门归窑结局（杜五已死变奏）' },
+  { id: 'true_ending', act: '第五幕 · 军寨、函谷玄台与多结局', label: '真结局·孤刃照雪', title: '双线俱破真结局 · 摘布共饮热汤（长夜有火）', accent: 'gold' },
+];
+
 /** the camera springs' stiffness (rad/s): a push settles in ≈ 0.2 s */
 const CAM_W = 18;
 export class ActShow {
@@ -3361,36 +3395,14 @@ export class ActShow {
           },
         ],
       },
-      [
-        {
-          title: '第二入口 · 北出官道',
-          items: [
-            { label: '西门·封关', title: '查看未解封前的铁链官封北道门', run: () => this.previewNorthGate(false) },
-            { label: '西门·解封', title: '查看断链引路灯与金色光幕，往西走直接进北一', accent: 'gold', run: () => this.previewNorthGate(true) },
-            { label: '回断碑古窑', title: '直接返回据点', run: () => { if (this.phase === 'cine' || this.phase === 'talk') return '过场中，先点下方「跳过剧情」'; if (this.phase === 'title') { stopTitle(); this.hud.on = true; } void this.enterYard(); } },
-          ],
-        },
-        {
-          title: '杜五四幕弧光（一键跳幕）',
-          items: [
-            { label: '南1偶遇', title: '南门第一关歇脚 · 杜五热汤偶遇', run: () => this.previewDuwuArc('road1') },
-            { label: '南2破冰', title: '南门第二关洛阳歇脚 · 收下热胡饼', run: () => this.previewDuwuArc('road2') },
-            { label: '灶冷空车', title: '第二幕据点事变 · 灰驴空车归来，刘白斩链解封北道', accent: 'gold', run: () => this.previewDuwuArc('missing') },
-            { label: '北1碎瓦罐', title: '北一荒驿寻踪 · 摔碎的六百钱瓦罐与流民老汉', run: () => this.previewDuwuArc('clue1') },
-            { label: '北2破棉袖', title: '北二药坞寻踪 · 焦炭箭号界碑与沾毒新棉袄袖口', run: () => this.previewDuwuArc('clue2') },
-            { label: '北2诀别高潮', title: '北二毒雾药坞 · 殷毒试药与杜五三段动态声景重制高潮', accent: 'crimson', run: () => this.previewDuwuArc('die') },
-          ],
-        },
-        {
-          title: '遗灶与双线结局',
-          items: [
-            { label: '遗灶移交', title: '杜五死后首次归窑 · 孙婆婆移交灶底老酒', run: () => this.previewDuwuArc('memorial') },
-            { label: '结局A', title: '南门孤雪结局（杜五已死变奏）', run: () => this.previewDuwuArc('endingA') },
-            { label: '结局C', title: '南门归窑结局（杜五已死变奏）', run: () => this.previewDuwuArc('endingC') },
-            { label: '真结局·孤刃照雪', title: '双线俱破真结局 · 摘布共饮热汤', accent: 'gold', run: () => this.previewDuwuArc('trueEnding') },
-          ],
-        },
-      ]);
+      [],
+      {
+        nodes: STORY_TIMELINE,
+        current: () => this.storyNodeIdx,
+        jump: idx => this.jumpStoryNode(idx),
+        step: delta => this.stepStoryNode(delta),
+        onChange: cb => { this.storyNavSync = cb; },
+      });
     // the pause menu (act-30 之后, user: 「帮我把手柄的按键映射和手柄支持做了吧」): Start / Esc, a pad pulled out, the page hidden
     this.pause = new PauseMenu({ L: this.L, settings: [...SET.filter(x => __DEBUG_UI__ || !x.dbg).map(x => ({ label: x.short, run: x.run, show: x.show })), { id: 'language', label: () => '语言：简体中文', run: () => setLanguage(language === 'en' ? 'zh' : 'en') }], canGiveUp: () => this.canGiveUp(), giveUp: () => this.giveUp(), closed: () => this.unpaused(), toTitle: () => this.backToTitle(), onRun: () => this.canGiveUp(),
       build: () => this.buildSections(),
@@ -3585,6 +3597,18 @@ export class ActShow {
       northGate: (unlocked = true) => {
         const why = this.previewNorthGate(unlocked);
         return why ? { northUnlocked: unlocked, why } : { northUnlocked: unlocked };
+      },
+      /** Story director navigator: jump to any timeline node by index (0..24) or id, or step to next story node */
+      story: (idxOrId: number | string = 0) => {
+        const idx = typeof idxOrId === 'number' ? idxOrId : STORY_TIMELINE.findIndex(n => n.id === idxOrId);
+        if (idx < 0 || idx >= STORY_TIMELINE.length) return { error: 'unknown story node', count: STORY_TIMELINE.length };
+        this.jumpStoryNode(idx);
+        return { idx, id: STORY_TIMELINE[idx].id, label: STORY_TIMELINE[idx].label };
+      },
+      nextStory: () => {
+        this.stepStoryNode(1);
+        const i = this.storyNodeIdx;
+        return { idx: i, id: STORY_TIMELINE[i]?.id, label: STORY_TIMELINE[i]?.label };
       },
       /** act-137: preview Ch1–Ch4 boss first-kill kneel + execution slash staging (ri = 0..3) */
       bossAfter: (ri = 0, executeNow = false) => { void this.debugBossAfter(Math.max(0, Math.min(3, ri)), executeNow); },
@@ -9051,7 +9075,7 @@ export class ActShow {
       p.seen['duwu_dead'] = 1; p.seen['cuixuan_dead'] = 1; p.seen['north_win'] = 1;
       saveProfile();
       if (this.phase === 'title') { stopTitle(); this.hud.on = true; }
-      void this.playNorthEnding(true);
+      void this.playNorthEnding('true');
       return;
     }
     p.seen['duwu_dead'] = 1; p.seen['duwu_die'] = 1; p.seen['duwu_die_north'] = 1; p.seen['north_unlocked'] = 1;
@@ -9084,10 +9108,145 @@ export class ActShow {
       this.cam.set(ne.x + 1.4, 0, nz);
     })();
   }
-  /** North Route Ending & Dual-Route True Ending (「孤刃照雪」 when both South Cui Mansion & North Hangu Citadel are cleared!) */
-  private async playNorthEnding(forceTrue = false) {
+  private storyNodeIdx = -1;
+  private storyNavSync: (() => void) | null = null;
+  private pendingStoryJump: (() => void) | null = null;
+
+  /** Jump directly to any chronological story node (auto-finishes an active cutscene/talk cleanly if needed!) */
+  private jumpStoryNode(idx: number) {
+    const i = ((idx % STORY_TIMELINE.length) + STORY_TIMELINE.length) % STORY_TIMELINE.length;
+    this.storyNodeIdx = i;
+    this.storyNavSync?.();
+    const busy = this.phase === 'cine' || this.phase === 'talk' || this.phase === 'opening' || this.dialogue.on || this.timeline.on || this.cards.on;
+    if (busy) {
+      if (this.cards.on) void this.cards.close?.();
+      this.pendingStoryJump = () => this.execStoryNode(i);
+      this.skipStory();
+      return;
+    }
+    this.pendingStoryJump = null;
+    this.execStoryNode(i);
+  }
+  /** Step +1 / -1 along the 25-node story timeline */
+  private stepStoryNode(delta: number) {
+    const base = this.storyNodeIdx < 0 ? (delta >= 0 ? -1 : 0) : this.storyNodeIdx;
+    this.jumpStoryNode(base + delta);
+  }
+  private execStoryNode(idx: number) {
+    const node = STORY_TIMELINE[idx];
+    if (!node) return;
+    switch (node.id) {
+      case 'bond_1': void this.playDuwuBondNode(0); break;
+      case 'road_1': this.previewDuwuArc('road1'); break;
+      case 'bond_2': void this.playDuwuBondNode(1); break;
+      case 'road_2': this.previewDuwuArc('road2'); break;
+      case 'bond_3': void this.playDuwuBondNode(2); break;
+      case 'south_ch3_before': this.playSouthCh3BossBeforeNode(); break;
+      case 'bond_4': void this.playDuwuBondNode(3); break;
+      case 'gate_locked': this.previewNorthGate(false); break;
+      case 'duwu_missing': this.previewDuwuArc('missing'); break;
+      case 'gate_unlocked': this.previewNorthGate(true); break;
+      case 'clue_1': this.previewDuwuArc('clue1'); break;
+      case 'n1_before': this.playNorthBossBeforeNode(0); break;
+      case 'n1_after': void this.playNorthBossAfterNode(0); break;
+      case 'clue_2': this.previewDuwuArc('clue2'); break;
+      case 'duwu_die_north': this.previewDuwuArc('die'); break;
+      case 'n2_after': void this.playNorthBossAfterNode(1); break;
+      case 'memorial': this.previewDuwuArc('memorial'); break;
+      case 'n3_before': this.playNorthBossBeforeNode(2); break;
+      case 'n3_after': void this.playNorthBossAfterNode(2); break;
+      case 'n4_before': this.playNorthBossBeforeNode(3); break;
+      case 'n4_after': void this.playNorthBossAfterNode(3); break;
+      case 'north_ending': {
+        const p = profile(); p.seen['duwu_dead'] = 1; p.seen['north_win'] = 1; saveProfile();
+        if (this.phase === 'title') { stopTitle(); this.hud.on = true; }
+        void this.playNorthEnding('north');
+        break;
+      }
+      case 'ending_a': this.previewDuwuArc('endingA'); break;
+      case 'ending_c': this.previewDuwuArc('endingC'); break;
+      case 'true_ending': this.previewDuwuArc('trueEnding'); break;
+    }
+  }
+  /** Play Hideout Du Wu bond scene 0..3 right in front of his warm stove */
+  private async playDuwuBondNode(bi: number) {
+    const lines = DUWU_BONDS[bi];
+    if (!lines?.length) return;
     const p = profile();
-    const isTrue = forceTrue || !!p.seen['cuixuan_dead'] || p.wins > 0;
+    delete p.seen['duwu_dead']; delete p.seen['duwu_die']; delete p.seen['duwu_missing']; delete p.seen['north_unlocked'];
+    p.bonds['duwu'] = Math.max(p.bonds['duwu'] ?? 0, bi + 1);
+    saveProfile();
+    if (this.phase === 'title') { stopTitle(); this.hud.on = true; }
+    if (this.room >= 0 || this.phase !== 'yard') await this.enterYard({ time: 'dusk', weather: 'clear' });
+    else { this.syncHideoutNpcs(); this.refreshHideoutProps(); }
+    const dwP = HIDEOUT.people.duwu;
+    this.hero.pos.set(dwP.x - 1.5, 0, dwP.z + 0.55);
+    this.hero.a.place(this.hero.pos, Math.atan2(dwP.x - this.hero.pos.x, dwP.z - this.hero.pos.z));
+    this.noTalk = true;
+    this.cutCam([dwP.x - 3.9, 2.75, dwP.z + 3.4], [dwP.x - 0.55, 0.9, dwP.z + 0.1], 36, { drift: [0.16, -0.03, -0.18], fovDrift: -1.0 });
+    await frames(2);
+    await this.talk(lines);
+    this.releaseCutCam();
+    this.noTalk = false;
+  }
+  /** Jump straight to South Act 3 White Gate Boss (Feng Han) pre-fight cutscene (skipping trash wave, Du Wu alive!) */
+  private playSouthCh3BossBeforeNode() {
+    const p = profile();
+    delete p.seen['duwu_dead']; delete p.seen['duwu_die']; delete p.seen['duwu_missing']; delete p.seen['ch3_boss'];
+    saveProfile();
+    this.jumpRegion(2, REGIONS[2].rooms, 'boss', 'south');
+    if (this.plan && this.plan.waves.length > 1) this.plan.waves = [this.plan.waves[this.plan.waves.length - 1]];
+  }
+  /** Jump straight to North Act 1..4 Boss pre-fight cutscene (skipping trash wave) */
+  private playNorthBossBeforeNode(ri: 0 | 1 | 2 | 3) {
+    const p = profile();
+    p.seen['north_unlocked'] = 1; p.seen['duwu_missing'] = 1;
+    delete p.seen[`north_boss_${ri + 1}`];
+    if (ri >= 2) { p.seen['duwu_dead'] = 1; p.seen['duwu_die_north'] = 1; }
+    saveProfile();
+    this.jumpRegion(ri, NORTH_REGIONS[ri].rooms, 'boss', 'north');
+    if (this.plan && this.plan.waves.length > 1) this.plan.waves = [this.plan.waves[this.plan.waves.length - 1]];
+  }
+  /** Stage defeated North Act 1..4 Boss kneeling in front of Liu Bai and play NORTH_AFTER[ri] */
+  private async playNorthBossAfterNode(ri: 0 | 1 | 2 | 3) {
+    const lines = NORTH_AFTER[ri];
+    if (!lines?.length) return;
+    if (this.phase === 'title') { stopTitle(); this.hud.on = true; }
+    if (this.cards.on) void this.cards.close?.();
+    const reg = NORTH_REGIONS[ri];
+    this.prologue = 0; this.forceSpec = null; this.viewSpec = null; this.noArena = false;
+    this.route = 'north'; this.region = ri; this.room = reg.rooms; this.locale = reg.bossLocale;
+    this.plan = { type: 'boss', locale: reg.bossLocale, reward: null, waves: [] };
+    await this.buildRoom(false);
+    const bossKind = NORTH_BOSS_ORDER[ri];
+    const modelId = EDEFS[bossKind]?.model ?? 'cx_boss';
+    const def = ROSTER.find(d => d.id === modelId);
+    const bPos = V3(0, 0, -2.0); this.clamp(bPos, 0.7);
+    const hPos = V3(bPos.x, 0, bPos.z + 2.25); this.clamp(hPos, 0.55);
+    this.hero.pos.copy(hPos);
+    this.hero.a.place(hPos, Math.atan2(bPos.x - hPos.x, bPos.z - hPos.z));
+    let actor: BattleActor | null = null;
+    let t0 = 0;
+    if (def && this.stage) {
+      actor = new BattleActor(def);
+      actor.place(bPos.clone(), Math.atan2(hPos.x - bPos.x, hPos.z - bPos.z));
+      trimShadows(actor.root, 4);
+      this.stage.root.add(actor.root);
+      this.talkTick = (dt: number) => { t0 += dt; actor?.update(dt); if (actor) bossKneelDefeatPose(actor, t0); };
+    }
+    this.musicHold = 'bgm_afterkill'; void audio.playMusic('bgm_afterkill', 0.9);
+    this.cutCam([bPos.x + 2.7, 2.35, bPos.z + 4.0], [bPos.x, 0.95, bPos.z + 0.55], 35, { drift: [-0.2, -0.04, -0.22], fovDrift: -1.1 });
+    await frames(2);
+    await this.talk(lines);
+    this.talkTick = null;
+    actor?.dispose();
+    this.releaseCutCam();
+    this.musicHold = null;
+  }
+  /** North Route Ending & Dual-Route True Ending (「孤刃照雪」 when both South Cui Mansion & North Hangu Citadel are cleared!) */
+  private async playNorthEnding(mode: 'auto' | 'north' | 'true' = 'auto') {
+    const p = profile();
+    const isTrue = mode === 'true' ? true : mode === 'north' ? false : (!!p.seen['cuixuan_dead'] || p.wins > 0);
     const lines = isTrue ? TRUE_ENDING : NORTH_ENDING;
     this.hud.on = false;
     this.musicHold = 'bgm_afterkill';
@@ -9267,7 +9426,12 @@ export class ActShow {
     if (this.dialogue.on) { this.dialogue.advance(); this.dialogue.advance(); audio.stopVoice(); }
     const busy = this.phase === 'cine' || this.phase === 'talk' || this.phase === 'opening' || this.timeline.on || this.dialogue.on || !!this.hero?.scriptPose;
     this.storyIdle = busy ? 0 : this.storyIdle + real;
-    if (this.storyIdle > 0.5) { this.storySkip = false; FX.speed = this.storyWas; }
+    const waitNeed = this.pendingStoryJump ? 0.14 : 0.5;
+    if (this.storyIdle > waitNeed) {
+      this.storySkip = false; FX.speed = this.storyWas;
+      const fn = this.pendingStoryJump; this.pendingStoryJump = null;
+      if (fn) fn();
+    }
   }
   /** 11-20 (用户：「被遮挡的人做轮廓线吧」): keep walls intact (SEE_HOLES disabled) and mark live actors so post.ts draws crisp
    *  silhouette outlines (warm ivory-gold for hero/allies/NPCs, vermilion for foes) wherever walls/roofs/trees occlude them */
