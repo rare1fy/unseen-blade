@@ -196,6 +196,8 @@ f.save(dst)
 
 const mp3Jobs = [];
 for (const [to, from] of Object.entries(assets)) {
+  // TapTap single-package cold-start slimming: skip wenkai.ttf (~0.94 MB, title/HUD use pixel bitmap font and body uses system sans-serif)
+  if (!SPLIT && /\.ttf$/i.test(to)) continue;
   const dst = path.join(STAGE_DIR, to);
   fs.mkdirSync(path.dirname(dst), { recursive: true });
   if (/\.ttf$/i.test(to) && /\.woff2$/i.test(from)) {
@@ -204,6 +206,9 @@ for (const [to, from] of Object.entries(assets)) {
       console.log(`  （${path.basename(from)} 没转成 ttf：${String(e.stderr || e.message).trim().split(/\r?\n/).pop()}，原样放进去）`);
       fs.copyFileSync(from, dst);
     }
+  } else if (!SPLIT && /(^|\/)en\.json$/i.test(to)) {
+    // TapTap China single-package uses Chinese copy; keep a tiny valid empty object so language toggle never crashes
+    fs.writeFileSync(dst, '{}');
   } else if (/\.json$/i.test(to)) {
     fs.writeFileSync(dst, JSON.stringify(JSON.parse(fs.readFileSync(from, 'utf8'))));
   } else if (/\.mp3$/i.test(to) && !A.includes('--no-audio-slim')) {
@@ -214,7 +219,7 @@ for (const [to, from] of Object.entries(assets)) {
 }
 
 if (mp3Jobs.length) {
-  const audioCacheDir = path.join(OUT_ROOT, '.audio-cache-v2');
+  const audioCacheDir = path.join(OUT_ROOT, '.audio-cache-v3');
   fs.mkdirSync(audioCacheDir, { recursive: true });
   const slimAudioPy = `
 import concurrent.futures, hashlib, json, os, shutil, subprocess, sys
@@ -238,7 +243,7 @@ def profile(name):
         return ('bgm16', ['-ac', '1', '-ar', '16000', '-b:a', '16k'])
     if name.startswith('ub_') and not name.startswith('ub_vo_') and not name.startswith('ub_sting_'):
         return ('sfx24', ['-ac', '1', '-ar', '22050', '-b:a', '24k'])
-    return ('vo12', ['-ac', '1', '-ar', '16000', '-b:a', '12k'])
+    return ('vo8', ['-ac', '1', '-ar', '16000', '-b:a', '8k'])
 
 def work(item):
     src, dst, name = item
