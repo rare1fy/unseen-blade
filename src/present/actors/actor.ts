@@ -29,6 +29,7 @@ export abstract class Actor {
   lowHp = 0;
   abstract readonly height: number;
   protected flashMats: Array<{ m: THREE.MeshToonMaterial | THREE.MeshStandardMaterial; base: THREE.Color }> = [];
+  protected flashUniforms: Array<{ u: THREE.Color; base: THREE.Color }> = [];
 
   constructor() { this.root.add(this.body); scene.add(this.root); batchActor(this.root); }   // (11-18 微信帧率: its parts drawn as one mesh per material)
 
@@ -39,6 +40,17 @@ export abstract class Actor {
     for (const m of meshes) {
       const src = m.material as THREE.Material;
       if (src && !Array.isArray(src) && !src.transparent && m.renderOrder === 0) m.renderOrder = OCC_ORDER.body;
+      if (src instanceof THREE.ShaderMaterial && src.userData?.uEmissive) {
+        if (!clones.has(src)) {
+          const c = src.clone();
+          if (src.uniforms.uLightDir) c.uniforms.uLightDir = src.uniforms.uLightDir;
+          c.userData.uEmissive = c.uniforms.uEmissive;
+          clones.set(src, c);
+          this.flashUniforms.push({ u: c.uniforms.uEmissive.value as THREE.Color, base: new THREE.Color(0, 0, 0) });
+        }
+        m.material = clones.get(src)!;
+        continue;
+      }
       if (!(src instanceof THREE.MeshToonMaterial || src instanceof THREE.MeshStandardMaterial)) continue;
       if (!clones.has(src)) { const c = src.clone() as THREE.MeshToonMaterial; c.onBeforeCompile = src.onBeforeCompile; c.customProgramCacheKey = src.customProgramCacheKey; (c as unknown as { extensions?: unknown }).extensions = (src as unknown as { extensions?: unknown }).extensions; clones.set(src, c); this.flashMats.push({ m: c, base: c.emissive.clone() }); }
       m.material = clones.get(src)!;
@@ -97,6 +109,7 @@ export abstract class Actor {
     const fk = Math.min(1, this.flash), peak = fk > 0.72 ? (fk - 0.72) / 0.28 : 0;
     const em = fk * (0.55 + 0.3 * peak);
     for (const f of this.flashMats) f.m.emissive.copy(f.base).lerp(this.flashCol, em);
+    for (const f of this.flashUniforms) f.u.copy(f.base).lerp(this.flashCol, em);
   }
   private apply(kn = 0) {
     const sin = Math.sin(this.yaw), cos = Math.cos(this.yaw), forward = this.off.z + kn * 0.12;
